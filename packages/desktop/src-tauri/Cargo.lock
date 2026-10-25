@@ -29,6 +29,7 @@ name = "agent-runtime"
 version = "0.1.0"
 dependencies = [
  "agent",
+ "checks",
  "config",
  "exec",
  "foundation",

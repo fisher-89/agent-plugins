@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use agent::{
@@ -83,13 +84,16 @@ pub struct ComposedTurn {
 /// 注入先例：壳层 `Arc` 单例经组合根下行内核，exec / change 双轨同源进入同一
 /// 注册表）；`store` 为命令层预解析注入的 workspace root 库实例（design D8 拆参
 /// ——store 身份锚恒 workspace root，worktree 路径在类型上不可能进 `for_root`；
-/// cwd 半边经既有 `SessionCtx` 通道不经 compose）。
+/// cwd 半边经既有 `SessionCtx` 通道不经 compose）；`workspace_root` 为命令层
+/// 在手的主仓 root（写入保护规则的装配根，与 `store` 半边同为「root 身份锚」），
+/// 会话执行根 `exec_root` / worktree **不经此通道**。
 pub fn compose_turn(
     stores: &WorkspaceStores,
     registry: Arc<StopRegistry>,
     streams: Arc<SessionStreamRegistry>,
     store: Arc<Store>,
     agent: Option<i64>,
+    workspace_root: &Path,
 ) -> Result<ComposedTurn, String> {
     // 解析语义自命令层原样平移（缺省 / 显式 / sdk provider 组装 / high 档 /
     // 无默认 Err 引导管理页）
@@ -124,6 +128,7 @@ pub fn compose_turn(
             .with_context_window(resolved.context_window)
             .with_max_tokens(resolved.max_tokens)
             .with_explore_note_store(explore_note_store)
+            .with_workspace_root(workspace_root.to_path_buf())
             .runner_for(resolved.kind, resolved.config)?,
     );
     Ok(ComposedTurn {

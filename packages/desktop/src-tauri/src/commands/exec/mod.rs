@@ -135,6 +135,9 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
         Arc::clone(streams.inner()),
         store,
         agent,
+        // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；
+        // `exec_root` 仍只进上方 `SessionCtx.workspace_root`
+        Path::new(&root),
     )?;
     let running = composed.begin(session, prompt, ctx, provenance)?;
     // 后台转发任务：内核泵输出 → Channel（事件与终态同构流出）；提前 resolve

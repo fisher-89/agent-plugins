@@ -4,6 +4,7 @@
 //! （无消费者即删）；sdk 轮全程无 PATH 轮前预检（`discover` 已随 `cli/`
 //! 目录删除，预检分支删除回归经本文件全链用例保绿锚定）。
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use agent::{
@@ -308,6 +309,7 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -384,6 +386,7 @@ async fn continue会话复用既有行不重复建() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -429,6 +432,7 @@ fn 空库缺省解析err引导管理页且零落库() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     ) {
         Err(error) => error,
         Ok(_) => panic!("空库缺省解析必须 Err"),
@@ -462,6 +466,7 @@ async fn open段配置缺失显式err传播且零半成品记录() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -511,6 +516,7 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -612,6 +618,7 @@ async fn 中途停止收敛stopped并保留已收集事件() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -672,6 +679,7 @@ async fn 三角色provenance定式逐段落库且精确反查命中() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let port = Arc::new(KernelWorkerPort::new(composed, sink));

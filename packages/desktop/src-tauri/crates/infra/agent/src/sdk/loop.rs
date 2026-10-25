@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
+use crate::sdk::protect::ProtectRules;
 use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
 
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
@@ -96,6 +97,9 @@ pub(crate) struct LoopTurn {
     /// `create_explore_note` 专用工具执行上下文（per-turn 铸造随轮携带；
     /// `None` = 未装配——非 explore 会话恒 None，专用工具调用以 is_error 回灌）
     pub explore_note: Option<ExploreNoteContext>,
+    /// 写入保护规则集（泵起播时装配一次、随轮携带；loop 纯消费——与
+    /// `defense` / `retry` / `liveness` 同列的「装配点算好」载荷）
+    pub protect: ProtectRules,
 }
 
 /// loop 主体
@@ -361,10 +365,15 @@ pub(crate) async fn run(
             finish_success(&sender, turn_index, started, &usage, turn).await;
             return history;
         }
-        // 工具调用逐个：成员校验 → policy → sandbox → 执行 → 回灌（run 不中
-        // 断）；0.43 起 tool_result 以 CallId / ToolName 构造（与 tool_use 同
-        // 源配对）。同一 assistant 的全部结果收进一条 user 消息——provider
-        // 要求 tool_use 的下一条消息覆盖全部 tool_result
+        // 工具调用逐个：成员校验 → policy 档位门 → 路径沙箱 → 写入保护闸 →
+        // 执行 → 回灌（run 不中断）；0.43 起 tool_result 以 CallId / ToolName
+        // 构造（与 tool_use 同源配对）。同一 assistant 的全部结果收进一条 user
+        // 消息——provider 要求 tool_use 的下一条消息覆盖全部 tool_result。
+        // 写入保护闸在沙箱**之后**：canonical 路径已在手（判定零 IO），且逃逸
+        // 路径先按沙箱成因报错、不被保护闸抢报；保护闸在任何 permission_mode
+        // 下均生效（档位门只做「档位是否放行该工具」，保护闸只做「档位已放行
+        // 之后的追加拒绝」，三档决策表零改写）。`create_explore_note` 不在射程
+        // ——由 `ProtectRules::evaluate` 的工具名分派表表达，不做 loop 侧特判
         let mut results: Vec<ToolResult> = Vec::with_capacity(tool_calls.len());
         for tool_call in tool_calls {
             let id = tool_call.id.to_string();
@@ -392,6 +401,14 @@ pub(crate) async fn run(
                     continue;
                 }
             };
+            // 写入保护闸（守卫链第四段）：受保护文件的 write / edit / bash 写入
+            // 面命中即拒。拒绝串单变量同时进 notice 载荷与 is_error ToolResult
+            // （模型可见——`deny` 不中断 run，靠文案掐断换路重试链）
+            if let Some(reason) = turn.protect.evaluate(&name, &sandboxed, &turn.cwd) {
+                deny(&sender, "permission_denied", &name, &reason, &id).await;
+                results.push(outcome_result(tool_call, reason));
+                continue;
+            }
             // 执行臂路由：专用工具走 `LoopTurn` 携带的执行上下文（per-turn 铸
             // 造——store 句柄 + root + 会话指针，`tools::execute` 纯函数签名
             // 零侵入）；七通用工具走纯函数分发。上下文缺席以 is_error 回灌

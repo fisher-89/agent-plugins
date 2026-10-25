@@ -11,6 +11,7 @@ pub(crate) mod model_spec;
 pub(crate) mod normalize;
 pub(crate) mod policy;
 pub(crate) mod preamble;
+pub(crate) mod protect;
 pub(crate) mod resume;
 pub(crate) mod runner;
 pub(crate) mod sandbox;

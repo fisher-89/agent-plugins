@@ -242,6 +242,7 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("缺省解析应成功");
 
@@ -285,6 +286,7 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
@@ -341,6 +343,7 @@ async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         Some(cli_id),
+        Path::new(&env.root()),
     ));
 
     assert_eq!(
@@ -370,6 +373,7 @@ fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记�
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     ));
 
     assert_eq!(
@@ -405,6 +409,7 @@ fn 空库缺省解析err引导管理页且零落库() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     ));
 
     assert!(
@@ -433,6 +438,7 @@ fn 显式不存在agent的id解析err携id记因() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         Some(404),
+        Path::new(&env.root()),
     ));
     assert!(error.contains("404"), "Err 携 id 记因，实际: {error}");
 }
@@ -464,6 +470,7 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("provider 完好时缺省解析应成功");
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
@@ -506,6 +513,7 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -545,6 +553,7 @@ fn continue会话不存在时显式失败() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let error = err_of(composed.begin(
@@ -593,6 +602,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let error = err_of(composed.begin(
@@ -625,6 +635,7 @@ async fn continue未开轮会话首轮放行并定型快照() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -673,6 +684,7 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -723,6 +735,7 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -768,6 +781,7 @@ async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐�
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
 
@@ -831,6 +845,7 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     composed
@@ -880,6 +895,7 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     ));
 
     assert!(
@@ -989,6 +1005,7 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
         Arc::new(SessionStreamRegistry::new()),
         std::sync::Arc::clone(&injected),
         Some(sdk_id),
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
 
@@ -1478,6 +1495,7 @@ fn 显式agent_id边界零与负数与i64max均miss记因() {
             Arc::new(SessionStreamRegistry::new()),
             env.store(),
             Some(id),
+            Path::new(&env.root()),
         ));
         assert!(
             error.contains("agent 不存在") && error.contains(&id.to_string()),
@@ -1498,6 +1516,7 @@ fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     for id in [
@@ -1533,6 +1552,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         Some(sdk_id),
+        Path::new(&env.root()),
     )
     .expect("显式解析应成功");
     let running = composed
@@ -1567,6 +1587,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("缺省解析应成功");
     let running = composed
@@ -1828,6 +1849,7 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -1883,6 +1905,7 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -1929,6 +1952,7 @@ async fn explore装配不破坏失败收敛语义() {
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -2079,6 +2103,7 @@ async fn compose_turn注入缝生效_begin后会话在传入streams中可订阅(
         Arc::clone(&streams),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -2112,6 +2137,7 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与�
         Arc::clone(&streams),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -2170,6 +2196,7 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
         Arc::clone(&streams),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let probe = WatchProbe::new(Arc::clone(&streams));
@@ -2216,6 +2243,7 @@ fn 解析失败不构造内核且零注册表条目() {
         Arc::clone(&streams),
         env.store(),
         None,
+        Path::new(&env.root()),
     ));
     assert!(
         error.contains("默认 agent"),
@@ -2228,6 +2256,7 @@ fn 解析失败不构造内核且零注册表条目() {
         Arc::clone(&streams),
         env.store(),
         Some(404),
+        Path::new(&env.root()),
     ));
     assert!(error.contains("404"), "显式不存在 id Err，实际: {error}");
 
@@ -2256,6 +2285,7 @@ async fn stop与streams两表互不串台_收口后两表同时除名() {
         Arc::clone(&streams),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("解析应成功");
     let running = composed
@@ -2302,6 +2332,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         Arc::clone(&streams),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("exec 轨解析应成功");
     let change_track = compose_turn(
@@ -2310,6 +2341,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         Arc::clone(&streams),
         env.store(),
         None,
+        Path::new(&env.root()),
     )
     .expect("change 轨解析应成功");
 
@@ -2590,4 +2622,142 @@ async fn 组合根全链_provider协议与上限与后缀抵达引擎且裸名�
         "SessionConfigSnapshot.model 仍为配置原文"
     );
     drop(session);
+}
+
+// ---------------------------------------------------------------------------
+// compose_turn 尾参（主仓 workspace_root）
+//
+// 门面只做 `EngineFacade::with_workspace_root(workspace_root.to_path_buf())`
+// 透传：不解析、不校验；store 半边仍由注入的 `Arc<store::Store>` 决定（双
+// root 不变量）。载荷在门面内不可读回，故断言面收敛为「尾参在场装配照常」
+// 与「根形态不校验」「与 store 不同源」。
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn compose_turn尾参在场装配照常_引擎快照与既有口径一致() {
+    let env = DualEnv::new("tail-arg");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "尾参供应");
+    seed_sdk_instance(stores, "尾参实例", Some(provider_id));
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+    )
+    .expect("尾参在场解析应成功");
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "尾参装配一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+    drop(running);
+
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let session = store
+        .find_session(&session_id)
+        .expect("find_session 应成功")
+        .expect("会话行已落库");
+    assert_eq!(
+        session.config_snapshot.engine,
+        AgentEngineKind::Sdk,
+        "尾参不改装配产物（引擎选型与快照与既有用例一致）"
+    );
+    assert_eq!(
+        session.config_snapshot.model,
+        Some("m-high".to_owned()),
+        "快照模型仍取 provider high 档"
+    );
+}
+
+#[tokio::test]
+async fn compose_turn尾参root形态不校验() {
+    let env = DualEnv::new("tail-root-shape");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "根形态供应");
+    seed_sdk_instance(stores, "根形态实例", Some(provider_id));
+
+    let emoji = tempfile::Builder::new()
+        .prefix("compose-test-根-🚀-")
+        .tempdir()
+        .expect("创建含 emoji 前缀的临时目录失败");
+    let roots = [
+        std::path::PathBuf::new(),
+        std::path::PathBuf::from("D:/__not_exists__/compose-root"),
+        emoji.path().to_path_buf(),
+    ];
+    for root in roots {
+        let composed = compose_turn(
+            stores,
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+            env.store(),
+            None,
+            &root,
+        )
+        .unwrap_or_else(|error| panic!("root 形态 {root:?} 只透传不校验（仍 Ok）: {error}"));
+        drop(composed);
+    }
+}
+
+#[tokio::test]
+async fn compose_turn尾参与store的root不同源_双root不变量成立() {
+    let env = DualEnv::new("dual-root");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "双根供应");
+    seed_sdk_instance(stores, "双根实例", Some(provider_id));
+    // 尾参 = 主仓 root（worktree 形态下与执行根不同源）
+    let main_root = tempfile::Builder::new()
+        .prefix("compose-test-main-root-")
+        .tempdir()
+        .expect("创建主仓 root 临时目录失败");
+    let main_root_str = main_root.path().to_string_lossy().into_owned();
+
+    let injected = env.store();
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        std::sync::Arc::clone(&injected),
+        None,
+        main_root.path(),
+    )
+    .expect("尾参与 store 不同源仍应成功");
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "双根一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+    drop(running);
+
+    assert!(
+        injected
+            .find_session(&session_id)
+            .expect("find_session 应成功")
+            .is_some(),
+        "会话行落 store 半边（执行根库）"
+    );
+    let other = stores
+        .for_root(&main_root_str)
+        .expect("主仓 root 异根实例化合法");
+    assert!(
+        other
+            .list_sessions(None, None)
+            .expect("异根库清单应成功")
+            .is_empty(),
+        "尾参 root 不触发第二处库解析（store 半边唯一入口 = 注入参）"
+    );
 }

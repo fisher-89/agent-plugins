@@ -1,0 +1,4654 @@
+diff --git a/crates/infra/agent/src/sdk/protect/mod_test.rs b/crates/infra/agent/src/sdk/protect/mod_test.rs
+new file mode 100644
+index 000000000000..87fdfca4997a
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/mod_test.rs
+@@ -0,0 +1,896 @@
++//! `protect` 模块入口的单元测试（AC-1 / AC-2 / AC-3 / AC-5 / AC-6 / AC-7 /
++//! AC-9 / AC-10）：`ProtectRules::load`（唯一 IO 点 / 规则合并）与
++//! `ProtectRules::evaluate`（工具名分派 + bash 三路判定 + 首个命中即止）。
++//!
++//! 断言口径：
++//! - `evaluate` 用例以 `ProtectRules { rules: vec![…] }` 直构（被测 API 的显式
++//!   入参）+ `rules::load(None)` 产出的内置快照驱动，纯内存零 IO；
++//! - `load` 用例以 `tempfile::TempDir` 真实目录 + `foundation::layout` 派生的
++//!   真实配置文件驱动，`config::load` 真实读取（不 mock）；
++//! - 误拦 / 漏拦双向均断言（AC-5），拒绝串首条即止不拼接（AC-8）。
++
++use std::path::{Path, PathBuf};
++
++use foundation::layout;
++
++use super::rules::{self, ReasonKind, Rule};
++use super::ProtectRules;
++
++// ---------------------------------------------------------------------------
++// 装置
++// ---------------------------------------------------------------------------
++
++fn tempdir(tag: &str) -> tempfile::TempDir {
++    tempfile::Builder::new()
++        .prefix(&format!("sdk-protect-eval-{tag}-"))
++        .tempdir()
++        .expect("创建合成目录失败")
++}
++
++/// 按 `foundation::layout::config_path(root)` 落盘配置文件。
++fn write_config(root: &Path, config: serde_json::Value) {
++    let path = layout::config_path(root);
++    if let Some(parent) = path.parent() {
++        std::fs::create_dir_all(parent).expect("创建配置目录失败");
++    }
++    std::fs::write(
++        &path,
++        serde_json::to_string_pretty(&config).expect("配置序列化"),
++    )
++    .expect("写配置文件失败");
++}
++
++/// 原样落盘配置文本（坏 JSON / 非对象顶层等畸形形态）。
++fn write_config_text(root: &Path, text: &str) {
++    let path = layout::config_path(root);
++    if let Some(parent) = path.parent() {
++        std::fs::create_dir_all(parent).expect("创建配置目录失败");
++    }
++    std::fs::write(&path, text).expect("写配置文件失败");
++}
++
++fn normalized(path: &Path) -> String {
++    rules::normalize(&path.to_string_lossy())
++}
++
++/// 配置文件相对路径（域目录 + 文件名全部由 layout 派生）。
++fn config_relative() -> String {
++    rules::normalize(&layout::config_path(Path::new("")).to_string_lossy())
++}
++
++fn builtin_rule() -> Rule {
++    rules::builtin_rules()
++        .into_iter()
++        .next()
++        .expect("内置规则恒在")
++}
++
++fn user_rule(glob: &str, reason: Option<&str>) -> Rule {
++    Rule {
++        glob: glob.to_owned(),
++        reason: ReasonKind::User(reason.map(str::to_owned)),
++    }
++}
++
++/// 直构规则集（字段私有但子模块可见；生产只由 `load` 构造）。
++fn with_rules(mut rules: Vec<Rule>) -> ProtectRules {
++    rules.insert(0, builtin_rule());
++    ProtectRules { rules }
++}
++
++/// 目录树递归快照（路径 + 字节数），用于「判定零写入」断言。
++fn snapshot(root: &Path) -> Vec<(PathBuf, u64)> {
++    let mut entries = Vec::new();
++    let mut stack = vec![root.to_path_buf()];
++    while let Some(dir) = stack.pop() {
++        let Ok(read) = std::fs::read_dir(&dir) else {
++            continue;
++        };
++        for entry in read.flatten() {
++            let path = entry.path();
++            let Ok(metadata) = entry.metadata() else {
++                continue;
++            };
++            if metadata.is_dir() {
++                stack.push(path.clone());
++            }
++            entries.push((path, metadata.len()));
++        }
++    }
++    entries.sort();
++    entries
++}
++
++fn protected_path(root: &Path) -> String {
++    format!("{}/{}", normalized(root), config_relative())
++}
++
++// ---------------------------------------------------------------------------
++// load（唯一 IO 点 / 规则合并）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 未注入root时仅内置且命中照常() {
++    let dir = tempdir("load-none");
++    let loaded = ProtectRules::load(None);
++    assert_eq!(
++        loaded.rules.len(),
++        rules::builtin_rules().len(),
++        "None → 只装载内置规则（不产出「保护关闭」空集）"
++    );
++
++    let reason = loaded
++        .evaluate(
++            "write",
++            &serde_json::json!({ "path": protected_path(dir.path()), "content": "x" }),
++            dir.path(),
++        )
++        .expect("内置规则对任意前缀的配置文件名命中");
++    assert!(
++        reason.contains("配置权威"),
++        "拒绝串为内置模板，实际: {reason}"
++    );
++}
++
++#[test]
++fn 注入root时合并用户规则且模板已替换() {
++    let dir = tempdir("load-merge");
++    let absolute = format!("{}/absolute.md", normalized(dir.path()));
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "docs/**", "reason": "文档冻结：%s（%t）" },
++                { "glob": absolute }
++            ] }
++        }),
++    );
++
++    let loaded = ProtectRules::load(Some(dir.path()));
++    assert_eq!(
++        loaded.rules.len(),
++        rules::builtin_rules().len() + 2,
++        "内置数 + 两条用户规则"
++    );
++    assert!(
++        matches!(loaded.rules[0].reason, ReasonKind::BuiltinConfig),
++        "内置在前（位次即优先级）"
++    );
++
++    let target = format!("{}/docs/a.md", normalized(dir.path()));
++    let reason = loaded
++        .evaluate("edit", &serde_json::json!({ "path": target }), dir.path())
++        .expect("用户规则命中");
++    assert_eq!(
++        reason,
++        format!("文档冻结：{target}（edit）"),
++        "用户模板 %s / %t 全量替换"
++    );
++}
++
++#[test]
++fn 配置失败面三形态只减用户面() {
++    let missing = tempdir("load-fail-missing");
++    let bad_json = tempdir("load-fail-json");
++    write_config_text(bad_json.path(), "{");
++    let top_array = tempdir("load-fail-array");
++    write_config_text(top_array.path(), "[]");
++
++    for dir in [&missing, &bad_json, &top_array] {
++        let loaded = ProtectRules::load(Some(dir.path()));
++        assert_eq!(
++            loaded.rules.len(),
++            rules::builtin_rules().len(),
++            "配置失败面只剩内置规则（不 panic），目录: {:?}",
++            dir.path()
++        );
++        assert!(
++            loaded
++                .evaluate(
++                    "write",
++                    &serde_json::json!({ "path": protected_path(dir.path()) }),
++                    dir.path(),
++                )
++                .is_some(),
++            "内置命中面在配置失败时照常生效"
++        );
++    }
++}
++
++#[test]
++fn root边界形态不panic且内置恒在() {
++    let long_root = PathBuf::from(format!("{}/中文🚀/{}", "a".repeat(600), "b".repeat(600)));
++    for root in [
++        PathBuf::new(),
++        PathBuf::from("D:/__not_exists__/sdk-protect-root"),
++        long_root,
++    ] {
++        let loaded = ProtectRules::load(Some(&root));
++        assert!(
++            !loaded.rules.is_empty(),
++            "内置规则恒在（不因 root 形态失效），root: {root:?}"
++        );
++        let reason = loaded.evaluate(
++            "write",
++            &serde_json::json!({ "path": "/任意前缀/openspec/config.json" }),
++            &root,
++        );
++        assert!(reason.is_some(), "内置命中面恒在，root: {root:?}");
++    }
++}
++
++#[test]
++fn 快照语义_run内改配置不改本轮判定() {
++    let dir = tempdir("snapshot");
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [ { "glob": "docs/**", "reason": "文档冻结" } ] }
++        }),
++    );
++    let snapshot_a = ProtectRules::load(Some(dir.path()));
++    let second_target = format!("{}/src/x.rs", normalized(dir.path()));
++    assert!(
++        snapshot_a
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": second_target }),
++                dir.path()
++            )
++            .is_none(),
++        "快照 A 不含后加规则"
++    );
++
++    // 改配置新增第二条规则（本轮快照不随之变化）
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "docs/**", "reason": "文档冻结" },
++                { "glob": "src/**", "reason": "源码冻结" }
++            ] }
++        }),
++    );
++    assert!(
++        snapshot_a
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": second_target }),
++                dir.path()
++            )
++            .is_none(),
++        "旧快照判定不随配置文件改动变化（每 run 一份纯数据）"
++    );
++
++    let snapshot_b = ProtectRules::load(Some(dir.path()));
++    assert!(
++        snapshot_b
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": second_target }),
++                dir.path()
++            )
++            .is_some(),
++        "下一 run 重新装载即见新规则"
++    );
++}
++
++#[test]
++fn 主仓口径双根_规则取自主仓而worktree副本照拦() {
++    let main_root = tempdir("main-root");
++    let worktree = tempdir("worktree-root");
++    write_config(
++        main_root.path(),
++        serde_json::json!({
++            "write_protection": { "files": [ { "glob": "docs/**", "reason": "主仓文档冻结" } ] }
++        }),
++    );
++    // worktree 内的配置副本（内置 glob 不锚定 root，照拦）
++    write_config(
++        worktree.path(),
++        serde_json::json!({ "schema": "spec-driven" }),
++    );
++
++    let loaded = ProtectRules::load(Some(main_root.path()));
++    let worktree_protected = worktree.path().join(config_relative());
++    assert!(worktree_protected.is_file(), "worktree 配置副本真实落盘");
++
++    let worktree_copy = format!("{}/{}", normalized(worktree.path()), config_relative());
++    assert!(
++        loaded
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": worktree_copy }),
++                worktree.path()
++            )
++            .is_some(),
++        "worktree 内配置副本仍被内置规则拦（glob 不锚定 root）"
++    );
++
++    for (label, target) in [
++        (
++            "主仓用户规则命中",
++            format!("{}/docs/a.md", normalized(main_root.path())),
++        ),
++        (
++            "worktree 同形路径跨前缀命中",
++            format!("{}/docs/a.md", normalized(worktree.path())),
++        ),
++    ] {
++        let reason = loaded
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": target }),
++                worktree.path(),
++            )
++            .unwrap_or_else(|| panic!("{label} 应命中: {target}"));
++        assert!(reason.contains("主仓文档冻结"), "{label} 取自主仓规则");
++    }
++
++    assert!(
++        loaded
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": format!("{}/src/x.rs", normalized(worktree.path())) }),
++                worktree.path(),
++            )
++            .is_none(),
++        "非受保护源码路径放行"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// evaluate：write / edit 路径面
++// ---------------------------------------------------------------------------
++
++#[test]
++fn write命中内置返回单条内置拒绝串() {
++    let dir = tempdir("eval-write");
++    let loaded = ProtectRules::load(None);
++    let path = protected_path(dir.path());
++    let reason = loaded
++        .evaluate(
++            "write",
++            &serde_json::json!({ "path": path, "content": "x" }),
++            dir.path(),
++        )
++        .expect("内置规则命中");
++
++    assert!(reason.contains(&path), "拒绝串含归一后的路径原文: {reason}");
++    assert!(
++        reason.contains("配置权威"),
++        "内置拒绝串五要素在场: {reason}"
++    );
++    assert!(
++        reason.contains("不要改用其他命令或工具尝试绕过"),
++        "禁绕过功能句在场: {reason}"
++    );
++}
++
++#[test]
++fn edit命中用户规则且占位符已替换() {
++    let dir = tempdir("eval-edit");
++    let loaded = with_rules(vec![user_rule("**/docs/**", Some("受保护：%s（%t）"))]);
++    let target = format!("{}/docs/a.md", normalized(dir.path()));
++    let reason = loaded
++        .evaluate("edit", &serde_json::json!({ "path": target }), dir.path())
++        .expect("用户规则命中");
++    assert_eq!(reason, format!("受保护：{target}（edit）"));
++}
++
++#[test]
++fn 判定零io零副作用且不查盘() {
++    let dir = tempdir("eval-zero-io");
++    // 受保护文件与普通文件真实落盘（判定前后字节 / 存在性比对）
++    write_config(dir.path(), serde_json::json!({ "schema": "spec-driven" }));
++    let notes = dir.path().join("notes.txt");
++    std::fs::write(&notes, "原始内容").expect("落盘普通文件");
++
++    let before = snapshot(dir.path());
++    let loaded = ProtectRules::load(None);
++
++    // 磁盘上不存在的受保护路径同样命中（判定不 canonicalize、不查盘）
++    let phantom = dir.path().join("phantom").join(config_relative());
++    assert!(
++        loaded
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": phantom.to_string_lossy() }),
++                dir.path(),
++            )
++            .is_some(),
++        "不存在的路径照判（零 IO）"
++    );
++    for command in [
++        "echo x > openspec/config.json",
++        "rm openspec/config.json",
++        "git stash",
++    ] {
++        let _ = loaded.evaluate(
++            "bash",
++            &serde_json::json!({ "command": command }),
++            dir.path(),
++        );
++    }
++
++    assert_eq!(before, snapshot(dir.path()), "判定前后目录快照完全一致");
++    assert_eq!(
++        std::fs::read_to_string(&notes).expect("普通文件可读"),
++        "原始内容",
++        "判定不改动任何文件字节"
++    );
++}
++
++#[test]
++fn 射程遍历仅三工具可判() {
++    let dir = tempdir("eval-scope");
++    let loaded = ProtectRules::load(None);
++    let path = protected_path(dir.path());
++
++    for tool in [
++        "read",
++        "grep",
++        "glob",
++        "ls",
++        "create_explore_note",
++        "write_many",
++    ] {
++        assert!(
++            loaded
++                .evaluate(tool, &serde_json::json!({ "path": path }), dir.path())
++                .is_none(),
++            "只读四工具 / 专用工具 / 未知名恒放行: {tool}"
++        );
++    }
++    for tool in ["write", "edit"] {
++        assert!(
++            loaded
++                .evaluate(tool, &serde_json::json!({ "path": path }), dir.path())
++                .is_some(),
++            "路径面工具命中: {tool}"
++        );
++    }
++    assert!(
++        loaded
++            .evaluate(
++                "bash",
++                &serde_json::json!({ "command": format!("rm {}", config_relative()) }),
++                dir.path(),
++            )
++            .is_some(),
++        "bash 臂命中"
++    );
++}
++
++#[test]
++fn write与edit入参异常fail_open而多余字段不影响命中() {
++    let dir = tempdir("eval-input-anomaly");
++    let loaded = ProtectRules::load(None);
++    for input in [
++        serde_json::json!({}),
++        serde_json::json!({ "path": null }),
++        serde_json::json!({ "path": 5 }),
++        serde_json::json!({ "path": [] }),
++        serde_json::json!({ "path": {} }),
++        serde_json::json!({ "path": true }),
++    ] {
++        for tool in ["write", "edit"] {
++            assert!(
++                loaded.evaluate(tool, &input, dir.path()).is_none(),
++                "path 缺失 / 非字符串一律放行（错误归属执行体）: {tool} {input}"
++            );
++        }
++    }
++
++    let with_extra = serde_json::json!({
++        "path": protected_path(dir.path()),
++        "content": "x",
++        "extra": 1
++    });
++    assert!(
++        loaded.evaluate("write", &with_extra, dir.path()).is_some(),
++        "多余字段不影响命中（只取 path）"
++    );
++}
++
++#[test]
++fn bash入参异常fail_open() {
++    let dir = tempdir("eval-bash-anomaly");
++    let loaded = ProtectRules::load(None);
++    for input in [
++        serde_json::json!({}),
++        serde_json::json!({ "command": null }),
++        serde_json::json!({ "command": 5 }),
++        serde_json::json!({ "command": "" }),
++        serde_json::json!({ "command": "   \n\t" }),
++    ] {
++        assert!(
++            loaded.evaluate("bash", &input, dir.path()).is_none(),
++            "command 缺失 / 非字符串 / 空白一律放行: {input}"
++        );
++    }
++}
++
++#[test]
++fn windows前缀与反斜杠归一后仍命中() {
++    let dir = tempdir("eval-windows");
++    let loaded = ProtectRules::load(None);
++    let cases = [
++        (r"\\?\D:\ws\openspec\config.json", true),
++        (r"D:\ws\openspec\config.json", true),
++        (r"D:\ws\openspec\config.jsonx", false),
++    ];
++    for (path, expected) in cases {
++        let hit = loaded
++            .evaluate("write", &serde_json::json!({ "path": path }), dir.path())
++            .is_some();
++        assert_eq!(hit, expected, "归一后命中面，路径: {path}");
++    }
++}
++
++#[test]
++fn 双点段保留而点段消解后均命中() {
++    let dir = tempdir("eval-dot-segments");
++    let anchor = normalized(dir.path());
++    let loaded = ProtectRules::load(None);
++    for path in [
++        format!("{anchor}/a/../{}", config_relative()),
++        format!("{anchor}/./{}", config_relative()),
++    ] {
++        assert!(
++            loaded
++                .evaluate("write", &serde_json::json!({ "path": path }), dir.path())
++                .is_some(),
++            "`..` 段保留 / `.` 段消解后仍命中，路径: {path}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// evaluate：bash 命令面
++// ---------------------------------------------------------------------------
++
++#[test]
++fn bash相对路径按cwd解析() {
++    let dir = tempdir("eval-bash-cwd");
++    let nested = dir.path().join("nested");
++    let loaded = ProtectRules::load(None);
++    let command = serde_json::json!({ "command": format!("echo {{}} > {}", config_relative()) });
++
++    let at_root = loaded
++        .evaluate("bash", &command, dir.path())
++        .expect("cwd 为 root 时命中");
++    assert!(
++        at_root.contains(&format!("{}/{}", normalized(dir.path()), config_relative())),
++        "拒绝串携带以 cwd 解析出的绝对路径，实际: {at_root}"
++    );
++
++    let at_nested = loaded
++        .evaluate("bash", &command, &nested)
++        .expect("相对路径按各自 cwd 解析（`**/` 规则不锚定具体 root）");
++    assert!(
++        at_nested.contains(&format!("{}/{}", normalized(&nested), config_relative())),
++        "落点随 cwd 变化，实际: {at_nested}"
++    );
++    assert_ne!(at_root, at_nested, "两 cwd 的拒绝串不同");
++
++    assert!(
++        loaded
++            .evaluate(
++                "bash",
++                &serde_json::json!({ "command": "rm notes.txt" }),
++                dir.path(),
++            )
++            .is_none(),
++        "非受保护目标放行"
++    );
++}
++
++#[test]
++fn bash反斜杠命令文本先归一() {
++    let dir = tempdir("eval-bash-slash");
++    let loaded = ProtectRules::load(None);
++    let command = format!("echo {{}} > {}", config_relative().replace('/', "\\"));
++    assert!(
++        loaded
++            .evaluate(
++                "bash",
++                &serde_json::json!({ "command": command }),
++                dir.path()
++            )
++            .is_some(),
++        "整串命令先 `\\`→`/` 归一后命中"
++    );
++}
++
++#[test]
++fn bash三路组合锚_五写法与批量还原分别命中() {
++    let dir = tempdir("eval-bash-three-routes");
++    let loaded = ProtectRules::load(None);
++    let config = config_relative();
++    let commands = [
++        format!("echo {{}} > {config}"),
++        format!("rm {config}"),
++        format!("cp /tmp/x {config}"),
++        format!("node -e \"require('fs').writeFileSync('{config}','{{}}')\""),
++        format!("sed -i s/a/b/ {config}"),
++        "git stash".to_owned(),
++    ];
++    for command in commands {
++        assert!(
++            loaded
++                .evaluate(
++                    "bash",
++                    &serde_json::json!({ "command": command }),
++                    dir.path()
++                )
++                .is_some(),
++            "等效写法各自命中（重定向 / 删除 / cp / inline / sed -i / bulk），命令: {command}"
++        );
++    }
++}
++
++#[test]
++fn bash三路判定次序_文件操作优先于内联优先于批量还原() {
++    let dir = tempdir("eval-order");
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [ { "glob": "docs/**", "reason": "文档冻结：%s" } ] }
++        }),
++    );
++    let loaded = ProtectRules::load(Some(dir.path()));
++
++    let inline_first = loaded
++        .evaluate(
++            "bash",
++            &serde_json::json!({
++                "command": "node -e \"fs.writeFileSync('docs/a.md','')\" && git stash"
++            }),
++            dir.path(),
++        )
++        .expect("inline 路命中");
++    assert!(
++        inline_first.contains("文档冻结"),
++        "内联路串（用户模板替换后），实际: {inline_first}"
++    );
++    assert!(
++        !inline_first.contains("stash"),
++        "MUST NOT 落到批量还原串（次序：inline 先于 bulk），实际: {inline_first}"
++    );
++
++    let file_first = loaded
++        .evaluate(
++            "bash",
++            &serde_json::json!({ "command": "echo {} > docs/a.md && git stash" }),
++            dir.path(),
++        )
++        .expect("文件操作路命中");
++    assert!(
++        file_first.contains("文档冻结"),
++        "文件操作路串，实际: {file_first}"
++    );
++    assert!(
++        !file_first.contains("批量还原"),
++        "文件操作用例不落到批量还原串，实际: {file_first}"
++    );
++}
++
++#[test]
++fn bash树落点按子树相交判定() {
++    let dir = tempdir("eval-tree");
++    let loaded = ProtectRules::load(None);
++    let cases = [
++        ("find . -delete", true),
++        ("find src -delete", false),
++        ("find . -print", false),
++    ];
++    for (command, expected) in cases {
++        let hit = loaded
++            .evaluate(
++                "bash",
++                &serde_json::json!({ "command": command }),
++                dir.path(),
++            )
++            .is_some();
++        assert_eq!(hit, expected, "树落点判定，命令: {command}");
++    }
++}
++
++#[test]
++fn 精度双向_普通目标不误拦而同形受保护目标全拦() {
++    let dir = tempdir("eval-precision");
++    let loaded = ProtectRules::load(None);
++    let config = config_relative();
++
++    let allowed = [
++        "echo foo > notes.txt".to_owned(),
++        "cat <<EOF > notes.txt\nrm -rf /\nEOF".to_owned(),
++        "echo \"rm -rf /\" > notes.txt".to_owned(),
++        "echo a->b".to_owned(),
++        "ls 2>&1".to_owned(),
++    ];
++    for command in &allowed {
++        assert!(
++            loaded
++                .evaluate(
++                    "bash",
++                    &serde_json::json!({ "command": command }),
++                    dir.path()
++                )
++                .is_none(),
++            "普通目标不误拦，命令: {command}"
++        );
++    }
++
++    let blocked = [
++        format!("echo foo > {config}"),
++        format!("cat <<EOF > {config}\nrm -rf /\nEOF"),
++        format!("echo \"rm -rf /\" > {config}"),
++    ];
++    for command in &blocked {
++        assert!(
++            loaded
++                .evaluate(
++                    "bash",
++                    &serde_json::json!({ "command": command }),
++                    dir.path()
++                )
++                .is_some(),
++            "同一装置换成受保护目标即拦，命令: {command}"
++        );
++    }
++}
++
++#[test]
++fn 首个命中即止且不拼接多条串() {
++    let dir = tempdir("eval-first-hit");
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "docs/**", "reason": "首条模板：%s" },
++                { "glob": "docs/secret/**", "reason": "次条模板：%s" }
++            ] }
++        }),
++    );
++    let loaded = ProtectRules::load(Some(dir.path()));
++    let target = format!("{}/docs/secret/x.md", normalized(dir.path()));
++    let reason = loaded
++        .evaluate("write", &serde_json::json!({ "path": target }), dir.path())
++        .expect("首条规则命中");
++    assert_eq!(
++        reason,
++        format!("首条模板：{target}"),
++        "返回首条模板全文（MUST NOT 拼接第二条）"
++    );
++    assert!(!reason.contains("次条模板"), "不含第二条模板片段");
++
++    // 内置与用户规则同时命中 → 返回内置串（内置在首位）
++    let both = tempdir("eval-first-hit-builtin");
++    write_config(
++        both.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": config_relative(), "reason": "用户模板：%s" }
++            ] }
++        }),
++    );
++    let loaded = ProtectRules::load(Some(both.path()));
++    let reason = loaded
++        .evaluate(
++            "write",
++            &serde_json::json!({ "path": protected_path(both.path()) }),
++            both.path(),
++        )
++        .expect("两条规则同时命中");
++    assert!(reason.contains("配置权威"), "内置串优先，实际: {reason}");
++    assert!(
++        !reason.contains("用户模板"),
++        "不返回用户模板，实际: {reason}"
++    );
++}
++
++#[test]
++fn 畸形与超长输入不panic且不挂起() {
++    let dir = tempdir("eval-malformed");
++    let loaded = ProtectRules::load(None);
++    let config = config_relative();
++
++    let long_command = format!("echo {} > {config}", "y".repeat(100_000));
++    assert!(
++        loaded
++            .evaluate(
++                "bash",
++                &serde_json::json!({ "command": long_command }),
++                dir.path(),
++            )
++            .is_some(),
++        "100 KB 命令内 1 处受保护写入仍命中（不挂起）"
++    );
++
++    for command in [
++        format!("echo 中文🚀\u{0} > {config}"),
++        format!("echo 🚀 > {config}"),
++        format!("sed -i s/中文/🚀/ {config}"),
++    ] {
++        assert!(
++            loaded
++                .evaluate(
++                    "bash",
++                    &serde_json::json!({ "command": command }),
++                    dir.path()
++                )
++                .is_some(),
++            "emoji / 中文 / NUL 命令文本不 panic，命令: {command:?}"
++        );
++    }
++
++    let long_path = format!("/ws/{}", "长".repeat(1_200));
++    assert!(
++        loaded
++            .evaluate(
++                "write",
++                &serde_json::json!({ "path": long_path }),
++                dir.path()
++            )
++            .is_none(),
++        "1000+ 字符路径不 panic（不命中）"
++    );
++}
++
++#[test]
++fn 入参面无档位量_判定确定性() {
++    let dir = tempdir("eval-no-mode");
++    let loaded = ProtectRules::load(None);
++    let input = serde_json::json!({ "path": protected_path(dir.path()) });
++    // 签名 `evaluate(&self, tool, input, cwd)` 三参不含 permission-mode：同一规则
++    // 集与入参下判定结果与档位无关（档位面的闸门行为由 `loop_test` 承接）
++    let first = loaded.evaluate("write", &input, dir.path());
++    let second = loaded.evaluate("write", &input, dir.path());
++    assert_eq!(first, second, "纯函数确定性（入参面零档位量）");
++    assert!(first.is_some(), "内置命中不受调用序影响");
++}
++
++// ---------------------------------------------------------------------------
++// 类型面（ProtectRules）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 类型面_clone判定等价与空规则集恒放行() {
++    let dir = tempdir("eval-type");
++    let loaded = with_rules(vec![user_rule("**/docs/**", Some("受保护：%s"))]);
++    let cloned = loaded.clone();
++    let input = serde_json::json!({ "path": format!("{}/docs/a.md", normalized(dir.path())) });
++    assert_eq!(
++        loaded.evaluate("write", &input, dir.path()),
++        cloned.evaluate("write", &input, dir.path()),
++        "clone 后判定等价（每 run 一份纯数据快照）"
++    );
++    assert!(
++        format!("{loaded:?}").contains("rules"),
++        "Debug 渲染含规则容器，实际: {loaded:?}"
++    );
++
++    // 空规则集：防御性形态（生产不产生），判定恒 None
++    let empty = ProtectRules { rules: Vec::new() };
++    for (tool, input) in [
++        (
++            "write",
++            serde_json::json!({ "path": "/ws/openspec/config.json" }),
++        ),
++        (
++            "edit",
++            serde_json::json!({ "path": "/ws/openspec/config.json" }),
++        ),
++        (
++            "bash",
++            serde_json::json!({ "command": "rm openspec/config.json" }),
++        ),
++    ] {
++        assert!(
++            empty.evaluate(tool, &input, dir.path()).is_none(),
++            "空规则集恒放行: {tool}"
++        );
++    }
++}
+diff --git a/crates/infra/agent/src/sdk/protect/reason.rs b/crates/infra/agent/src/sdk/protect/reason.rs
+new file mode 100644
+index 000000000000..416b0e99eee0
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/reason.rs
+@@ -0,0 +1,58 @@
++// ---------------------------------------------------------------------------
++// 拒绝指令文案（面向 Agent，首要读者是模型；用户为次读者）
++//
++// 机制面 `loop::deny` **不中断 run**：被拒的模型会自然换路重试（write →
++// 重定向 → `cp` → `node -e`）。因此「不要改用其他命令或工具尝试绕过」与
++// 「立即停止并通知用户」两句是**功能句**，是掐断换路链的唯一手段，四条文案
++// 一律携带（MUST NOT 省略）。
++//
++// 「中断」语义边界：文案里的「立即停止」指模型结束本轮（正常收敛）；引擎不
++// 为此新增机制。本模块只产字符串——零事件流出（notice 载荷与 ToolResult 由
++// loop 侧合成，单串双面）。
++//
++// 文案禁用域目录名 / 配置文件名字面量（命名隔离纪律）：内置规则的身份由
++// `ReasonKind` 表达，不靠文案复述文件名。
++// ---------------------------------------------------------------------------
++
++use crate::sdk::protect::rules::ReasonKind;
++
++/// 内置工作区配置规则串（五要素：受保护 + 路径 / 配置权威、Agent 不得改写 /
++/// 「改哪个字段、改成什么、为什么」由用户自行操作 / 无法规避立即停止并通知
++/// 用户 / 不得绕过）。
++const BUILTIN_TEMPLATE: &str = "该文件受写入保护：%s（经 %t 工具）。它是本工作区的配置权威，\
++Agent 不得改写。若确需调整，请在回复中说明「改哪个字段、改成什么、为什么」，由用户自行操作。\
++若任务无法在不改该文件的前提下完成，请立即停止并通知用户。\
++不要改用其他命令或工具尝试绕过（所有写入路径均被拦截）。";
++
++/// 用户规则无 `reason` 的通用回落串。
++const FALLBACK_TEMPLATE: &str = "该文件受写入保护：%s（经 %t 工具）不可写。\
++请调整方案，避免修改该文件；如无法规避，请立即停止并通知用户。\
++不要改用其他命令或工具尝试绕过（所有写入路径均被拦截）。";
++
++/// 批量还原 / 清理专用串：`%s` 落中间事实串（含目标路径），`%t` 落工具名。
++/// 在规格「事实串 + 不可见 + 逐路径引导」下界之上补两句功能句。
++const BULK_TEMPLATE: &str = "该命令被拦截（经 %t 工具）：%s。\
++批量还原 / 清理会一次性改写工作区，且对按路径判定的写入保护不可见；\
++请改用逐路径 `git restore <path>`（可被记录并折叠为净 untouched）。\
++若无法规避，请立即停止并通知用户。不要改用其他命令或工具尝试绕过。";
++
++/// 三态选串：内置 → 内置模板；用户带 reason → 原样透传；用户无 reason →
++/// 回落模板。两种用户形态均做 `%s` / `%t` 全量替换。
++pub(super) fn deny_reason(kind: &ReasonKind, path: &str, tool: &str) -> String {
++    match kind {
++        ReasonKind::BuiltinConfig => substitute(BUILTIN_TEMPLATE, path, tool),
++        ReasonKind::User(Some(template)) => substitute(template, path, tool),
++        ReasonKind::User(None) => substitute(FALLBACK_TEMPLATE, path, tool),
++    }
++}
++
++/// 占位符替换：`%s` → 路径、`%t` → 工具名，**全量**替换所有出现。
++pub(super) fn substitute(template: &str, path: &str, tool: &str) -> String {
++    template.replace("%s", path).replace("%t", tool)
++}
++
++/// 批量还原专用文案：`detail` 为中间事实串（如「git stash 会批量改写工作
++/// 区」），由本函数包成完整指令。
++pub(super) fn bulk_revert_reason(detail: &str, tool: &str) -> String {
++    substitute(BULK_TEMPLATE, detail, tool)
++}
+diff --git a/crates/infra/agent/src/sdk/protect/reason_test.rs b/crates/infra/agent/src/sdk/protect/reason_test.rs
+new file mode 100644
+index 000000000000..db6be2ce422f
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/reason_test.rs
+@@ -0,0 +1,265 @@
++//! `reason` 的单元测试（AC-2 / AC-8）：拒绝指令文案三态选串（内置 / 用户模板 /
++//! 通用回落）与批量还原专用串的逐字面断言。
++//!
++//! 断言口径：文案模板为编译期常量、函数纯字符串运算（零 IO 零依赖），故全部
++//! 用例以字符串字面量入参直驱，不建目录、不读配置。
++//!
++//! D2 命名隔离纪律的行为面锚：模板内禁域目录名 / 配置文件名字面量——以中性
++//! 路径调用时产物不含 `openspec` / `config.json`（路径原文除外）。
++
++use super::reason;
++use super::rules::ReasonKind;
++
++/// 用户带 reason 的规则载体（三态之一，构造集中）。
++fn user_with(template: &str) -> ReasonKind {
++    ReasonKind::User(Some(template.to_owned()))
++}
++
++/// 两句功能句（掐断换路链的唯一手段，四条文案一律携带）。
++const STOP_SENTENCE: &str = "请立即停止并通知用户";
++const NO_BYPASS_SENTENCE: &str = "不要改用其他命令或工具尝试绕过";
++
++// ---------------------------------------------------------------------------
++// deny_reason（三态选串）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 内置串含路径配置权威调整指引与两句功能句() {
++    let path = "/tmp/ws/openspec/config.json";
++    let reason = reason::deny_reason(&ReasonKind::BuiltinConfig, path, "write");
++
++    assert!(reason.contains(path), "① 路径原文在串内，实际: {reason}");
++    assert!(
++        reason.contains("配置权威") && reason.contains("不得改写"),
++        "② 工作区配置权威 / Agent 不得改写语义在场，实际: {reason}"
++    );
++    assert!(
++        reason.contains("改哪个字段") && reason.contains("改成什么") && reason.contains("为什么"),
++        "③ 「改哪个字段、改成什么、为什么」指引在场，实际: {reason}"
++    );
++    assert!(
++        reason.contains(STOP_SENTENCE),
++        "④ 无法规避立即停止并通知用户，实际: {reason}"
++    );
++    assert!(
++        reason.contains(NO_BYPASS_SENTENCE),
++        "⑤ 不得改用其他命令或工具绕过，实际: {reason}"
++    );
++    assert!(
++        reason.contains("write"),
++        "工具名 %t 已替换（模型可辨拒绝来源），实际: {reason}"
++    );
++}
++
++#[test]
++fn 用户模板全量替换百分号s与百分号t() {
++    let reason = reason::deny_reason(
++        &user_with("受保护：%s（%t）不可写"),
++        "/root/docs/a.md",
++        "bash",
++    );
++    assert_eq!(
++        reason, "受保护：/root/docs/a.md（bash）不可写",
++        "用户模板 %s → 路径、%t → 工具名"
++    );
++
++    // 多处占位符：3 处 %s + 2 处 %t 全量替换（零残留）
++    let repeated = reason::deny_reason(&user_with("%s|%s|%s|%t|%t"), "/a/b", "edit");
++    assert_eq!(repeated, "/a/b|/a/b|/a/b|edit|edit", "全量替换所有出现");
++    assert!(
++        !repeated.contains("%s") && !repeated.contains("%t"),
++        "零残留占位符，实际: {repeated}"
++    );
++}
++
++#[test]
++fn 无reason落通用回落串含路径工具名与两句功能句() {
++    let path = "/root/plugins/dev-team/bin/knip.json";
++    let reason = reason::deny_reason(&ReasonKind::User(None), path, "edit");
++
++    assert!(reason.contains(path), "路径原文在场，实际: {reason}");
++    assert!(reason.contains("edit"), "工具名在场，实际: {reason}");
++    assert!(
++        reason.contains("请调整方案"),
++        "回落串携带调整方案引导，实际: {reason}"
++    );
++    assert!(
++        reason.contains(STOP_SENTENCE),
++        "两句功能句之一，实际: {reason}"
++    );
++    assert!(
++        reason.contains(NO_BYPASS_SENTENCE),
++        "两句功能句之二，实际: {reason}"
++    );
++}
++
++#[test]
++fn 三态同一入参产物两两不等且均含两句功能句() {
++    let path = "/root/docs/a.md";
++    let tool = "edit";
++    let builtin = reason::deny_reason(&ReasonKind::BuiltinConfig, path, tool);
++    let custom = reason::deny_reason(&user_with("自有文案：%s"), path, tool);
++    let fallback = reason::deny_reason(&ReasonKind::User(None), path, tool);
++    let bulk = reason::bulk_revert_reason("git stash 会批量改写工作区", tool);
++
++    let all = [&builtin, &custom, &fallback, &bulk];
++    for (left_index, left) in all.iter().enumerate() {
++        for right in all.iter().skip(left_index + 1) {
++            assert_ne!(left, right, "四条模板两两不等（无粘连段落）: {left}");
++        }
++    }
++    // 两句功能句在「引擎自产」三态（内置 / 回落 / 批量）必含；用户模板为原样
++    // 透传（文案责任在配置侧），故不参与该断言
++    for reason in [&builtin, &fallback, &bulk] {
++        assert!(reason.contains(STOP_SENTENCE), "模板缺停止句: {reason}");
++        assert!(
++            reason.contains(NO_BYPASS_SENTENCE),
++            "模板缺禁绕过句: {reason}"
++        );
++    }
++}
++
++#[test]
++fn 用户模板无占位符原样返回_空路径不残留占位符() {
++    assert_eq!(
++        reason::deny_reason(&user_with("原文文案"), "/a/b", "write"),
++        "原文文案",
++        "无占位符即原文（不做多余包装）"
++    );
++    for path in ["", "   "] {
++        let reason = reason::deny_reason(&user_with("保护 %s（%t）"), path, "bash");
++        assert!(
++            !reason.contains("%s") && !reason.contains("%t"),
++            "空值 / 全空白路径替换为空值且零残留，实际: {reason:?}"
++        );
++    }
++}
++
++#[test]
++fn 内置串不含目录名与文件名硬编码字面量() {
++    // D2 命名隔离纪律的行为面：模板不得复述域目录名 / 配置文件名（身份由
++    // ReasonKind 表达），产物中两字面量仅可能来自入参路径本身
++    let reason = reason::deny_reason(&ReasonKind::BuiltinConfig, "/tmp/ws/x.md", "write");
++    assert!(
++        !reason.contains("openspec"),
++        "内置模板零域目录名字面量，实际: {reason}"
++    );
++    assert!(
++        !reason.contains("config.json"),
++        "内置模板零配置文件名字面量，实际: {reason}"
++    );
++}
++
++#[test]
++fn 超长与特殊字符路径原样注入不截断() {
++    let long_path = format!("/tmp/{}/a.md", "长".repeat(1_200));
++    let reason = reason::deny_reason(&ReasonKind::BuiltinConfig, &long_path, "write");
++    assert!(reason.contains(&long_path), "1000+ 字符路径原样注入不截断");
++
++    for path in ["/ws/中文路径🚀/a.md", "/ws/a\nb\0c.md"] {
++        let reason = reason::deny_reason(&ReasonKind::BuiltinConfig, path, "write");
++        assert!(
++            reason.contains(path),
++            "emoji / 换行 / NUL 路径不 panic 且原样注入，实际: {reason:?}"
++        );
++    }
++
++    // 超长模板替换后长度 ≈ 模板 + 路径（全量替换不丢字符）
++    let long_template = "前缀".repeat(500) + "%s";
++    let reason = reason::deny_reason(&user_with(&long_template), "/p", "write");
++    assert_eq!(
++        reason.chars().count(),
++        long_template.chars().count() - 2 + 2,
++        "占位符替换后长度守恒（%s → 两字符路径）"
++    );
++}
++
++#[test]
++fn 同入参两次调用逐字节相等() {
++    let first = reason::deny_reason(
++        &ReasonKind::BuiltinConfig,
++        "/ws/openspec/config.json",
++        "bash",
++    );
++    let second = reason::deny_reason(
++        &ReasonKind::BuiltinConfig,
++        "/ws/openspec/config.json",
++        "bash",
++    );
++    assert_eq!(first, second, "纯函数无隐藏状态（确定性）");
++}
++
++// ---------------------------------------------------------------------------
++// substitute（占位符全量替换）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn substitute全量替换所有占位符() {
++    assert_eq!(reason::substitute("%s %s %s", "p", "t"), "p p p");
++    assert_eq!(reason::substitute("%t|%t", "p", "bash"), "bash|bash");
++    assert_eq!(reason::substitute("%s", "/a/b", "edit"), "/a/b");
++}
++
++#[test]
++fn substitute无占位符与空串边界() {
++    assert_eq!(
++        reason::substitute("no placeholder", "p", "t"),
++        "no placeholder",
++        "无占位符原样"
++    );
++    assert_eq!(reason::substitute("", "p", "t"), "", "空模板空产物");
++    assert_eq!(
++        reason::substitute("%s", "", ""),
++        "",
++        "空值替换为空值且不 panic"
++    );
++}
++
++#[test]
++fn substitute非占位符百分号与大小写变体原样保留() {
++    assert_eq!(
++        reason::substitute("100% 完成", "p", "t"),
++        "100% 完成",
++        "非占位符百分号逐字保留（不吞字符、不 panic）"
++    );
++    assert_eq!(
++        reason::substitute("%S", "p", "t"),
++        "%S",
++        "占位符大小写敏感（%S 不作替换）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// bulk_revert_reason（批量还原专用串）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 批量还原串含事实串逐路径引导工具名与两句功能句() {
++    let detail = "git stash 会批量改写工作区";
++    let reason = reason::bulk_revert_reason(detail, "bash");
++
++    assert!(
++        reason.contains(detail),
++        "中间事实串原样嵌入，实际: {reason}"
++    );
++    assert!(
++        reason.contains("git restore <path>"),
++        "逐路径还原引导在场，实际: {reason}"
++    );
++    assert!(reason.contains("bash"), "工具名在场，实际: {reason}");
++    assert!(reason.contains(STOP_SENTENCE), "停止句在场，实际: {reason}");
++    assert!(
++        reason.contains(NO_BYPASS_SENTENCE),
++        "禁绕过句在场，实际: {reason}"
++    );
++}
++
++#[test]
++fn 批量还原串detail边界与确定性() {
++    for detail in ["", "中文事实串🚀", &"超长事实".repeat(300)] {
++        let first = reason::bulk_revert_reason(detail, "bash");
++        let second = reason::bulk_revert_reason(detail, "bash");
++        assert_eq!(first, second, "同入参两次调用相等（确定性）");
++        assert!(first.contains(detail), "detail 原样嵌入不截断: {first}");
++    }
++}
+diff --git a/crates/infra/agent/src/sdk/protect/rules.rs b/crates/infra/agent/src/sdk/protect/rules.rs
+new file mode 100644
+index 000000000000..0d2f5553acec
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/rules.rs
+@@ -0,0 +1,250 @@
++// ---------------------------------------------------------------------------
++// 写入保护规则装配（内置锁定 + 用户规则合并 + 路径归一 / 解析 + 子树相交）
++//
++// 本文件是 protect 模块**唯一**的 IO 触点（`config::load`），且只在泵起播时
++// 被调用一次（`ProtectRules::load`）。判定侧（`mod` / `shell` / `inline` /
++// `reason`）零 IO：拿到的是本文件铸造好的纯数据结构。
++//
++// 两条纪律（规格硬约束）：
++// - 内置 glob 与两条结构 glob MUST 由 `foundation::layout` 派生——本源码
++//   （含注释与 doc）零域目录名 / 零配置文件名字面量；
++// - 规则匹配 MUST 一律经 `checks::globmatch::match_glob`（glob 方言单点）。
++//   本文件不自建第二套匹配引擎（不自定匹配选项、不自行展开花括号）。
++// ---------------------------------------------------------------------------
++
++use std::path::Path;
++
++use foundation::layout;
++
++/// 单条保护规则：内置 / 用户同型，差别只在 `reason` 变体与位次（内置在前，
++/// 首个命中即定，MUST NOT 拼接多条 reason）。
++#[derive(Debug, Clone)]
++pub(super) struct Rule {
++    /// glob 模式（绝对形态原样；相对形态已加 `**/` 前缀；内置与结构 glob 均
++    /// 由 `foundation::layout` 派生后加 `**/`）
++    pub(super) glob: String,
++    /// 拒绝串取串依据（三态载体——不做 glob 字面量比对认内置）
++    pub(super) reason: ReasonKind,
++}
++
++/// 规则来源三态：`BuiltinConfig` 走内置模板，`User(Some(_))` 透传配置文案，
++/// `User(None)` 落通用回落串。
++#[derive(Debug, Clone)]
++pub(super) enum ReasonKind {
++    /// 内置工作区配置锁定（不可配置、不可移除）
++    BuiltinConfig,
++    /// 用户规则（`reason` 缺席 → `None`）
++    User(Option<String>),
++}
++
++/// 批量还原拦截用的两条结构 glob（域目录树 / changes 子树），由
++/// `foundation::layout` 派生——批量动作对按路径判定的护栏不可见，故走独立的
++/// 子树相交判定。
++#[derive(Debug, Clone)]
++pub(super) struct BulkGlobs {
++    /// 域目录树（git clean 的目录参数判定面）
++    pub(super) artifacts: String,
++    /// changes 子树（git restore / checkout 的 revert 目标判定面）
++    pub(super) changes: String,
++}
++
++/// 规则合并单点：内置恒在首位；（root 在场时）追加用户规则。
++pub(super) fn load(workspace_root: Option<&Path>) -> Vec<Rule> {
++    let mut rules = builtin_rules();
++    if let Some(root) = workspace_root {
++        rules.extend(user_rules(root));
++    }
++    rules
++}
++
++/// 内置锁定：恒一条「`**/` + 配置文件名路径」规则。
++///
++/// glob 由 `layout::config_path` 的 root 相对形态派生（`*_FILE_NAME` 常量是
++/// `foundation` 私有，本源码不自写文件名）；工作流状态文件的插件端内置规则
++/// **不复刻**（状态以库为唯一权威，legacy 文件零读取零产出）。
++pub(super) fn builtin_rules() -> Vec<Rule> {
++    let relative = forward_slash(&layout::config_path(Path::new("")));
++    vec![Rule {
++        glob: format!("**/{relative}"),
++        reason: ReasonKind::BuiltinConfig,
++    }]
++}
++
++/// 用户规则：逐条取 `write_protection.files[]`。`glob` 缺席跳过（组装层已
++/// 剔除空串 / 非法值）；绝对形态原样、相对形态加 `**/`；`reason` 原样保留。
++/// `diagnostics` 不参与保护面判定（内置面独立于配置解析结果）。
++pub(super) fn user_rules(root: &Path) -> Vec<Rule> {
++    let report = config::load(root);
++    report
++        .config
++        .write_protection
++        .and_then(|protection| protection.files)
++        .unwrap_or_default()
++        .into_iter()
++        .filter_map(|file| {
++            let glob = file.glob?;
++            Some(Rule {
++                glob: normalize_user_glob(&glob),
++                reason: ReasonKind::User(file.reason),
++            })
++        })
++        .collect()
++}
++
++/// 批量还原的两条结构 glob（派生单点：域目录树 / changes 子树）。
++pub(super) fn bulk_globs() -> BulkGlobs {
++    let changes = forward_slash(&layout::resolve(Path::new("")).changes_root);
++    BulkGlobs {
++        artifacts: format!("**/{}/**", layout::domain_dir_name()),
++        changes: format!("**/{changes}/**"),
++    }
++}
++
++/// 子树相交判定（`find` 搜索根与 `git clean` 目录参数共用）：把 glob 折算成
++/// concrete 静态前缀后判三面之一——`前缀 == dir`、`前缀` 以 `dir/` 起手
++/// （dir 是前缀的祖先：删整棵 dir 必然波及受保护目标）、`dir` 以 `前缀/` 起手
++/// （dir 落在受保护子树内）。
++///
++/// 不采用「`**/` 规则对任意目录皆可命中」的退化口径：那会让 `find src -delete`
++/// 与 `git clean src/` 一并误拦，规格双向断言不允许。`dir` 为相对形态（`find .`
++/// 的搜索根）时以 `anchor` 为基座归一；全空白按无目录处理（不误判为命中）；
++/// 纯 `**` / 空 glob 不构成可命中的目录规则。
++pub(super) fn glob_dir_hit(dir: &str, glob: &str, anchor: &Path) -> bool {
++    let raw = dir.trim();
++    if raw.is_empty() || !glob_has_body(glob) {
++        return false;
++    }
++    let dir = if is_absolute_text(raw) {
++        normalize(raw)
++    } else {
++        normalize(&anchor.join(raw).to_string_lossy())
++    };
++    dir_hits_prefix(&dir, &concrete_prefix(glob, anchor))
++}
++
++/// 目录与 concrete 前缀的三面相交判定（空目录 / 空前缀 → 不命中；`mod.rs` 的
++/// 按规则判定与 [`glob_dir_hit`] 共用同一比较面）。
++pub(super) fn dir_hits_prefix(dir: &str, prefix: &str) -> bool {
++    if dir.is_empty() || prefix.is_empty() {
++        return false;
++    }
++    dir == prefix
++        || prefix.starts_with(&format!("{dir}/"))
++        || dir.starts_with(&format!("{prefix}/"))
++}
++
++/// glob 是否含实义段（空串 / 纯 `**` 不构成可命中的规则）。
++fn glob_has_body(glob: &str) -> bool {
++    glob.split('/')
++        .any(|segment| !segment.is_empty() && segment != "**" && segment != "**/")
++}
++
++impl Rule {
++    /// glob → concrete 静态前缀（`**/` 起手者锚定到 `anchor`；首个通配段之后
++    /// 一律截断）。
++    pub(super) fn concrete_prefix(&self, anchor: &Path) -> String {
++        concrete_prefix(&self.glob, anchor)
++    }
++}
++
++/// 文本归一单点（零 IO；`mod.rs` / `shell.rs` / `concrete_prefix` 共用）：
++/// 剥 Windows 扩展长度前缀 → 反斜杠转 `/` → 按 `/` 切段去空段与 `.` 段、
++/// **保留** `..` 段 → 重拼并保留前导 `/`。
++///
++/// 保留 `..` 是刻意的：`**/` 能吸收 `..` 段，消解反而要在无 IO 前提下猜语义；
++/// `.` 段必须消解，否则 `find . -delete` 的搜索根与规则前缀无法比较。
++pub(super) fn normalize(raw: &str) -> String {
++    let text = match raw.strip_prefix(r"\\?\") {
++        Some(rest) => rest,
++        None => raw,
++    };
++    let text = text.replace('\\', "/");
++    let absolute = text.starts_with('/');
++    let mut segments: Vec<&str> = Vec::new();
++    for segment in text.split('/') {
++        match segment {
++            "" | "." => {}
++            other => segments.push(other),
++        }
++    }
++    let joined = segments.join("/");
++    if absolute {
++        format!("/{joined}")
++    } else {
++        joined
++    }
++}
++
++/// 提取路径解析单点（零 IO）：空白串或含 `$` → `None`（未展开变量不可知，
++/// 该 op 放行）；绝对路径原样归一；相对路径 `anchor.join` 后归一。
++pub(super) fn resolve(anchor: &Path, raw: &str) -> Option<String> {
++    let text = raw.trim();
++    if text.is_empty() || text.contains('$') {
++        return None;
++    }
++    if is_absolute_text(text) {
++        return Some(normalize(text));
++    }
++    Some(normalize(&anchor.join(text).to_string_lossy()))
++}
++
++/// 绝对路径文本判据：`Path::is_absolute` 为主，另认前导 `/` / `\` 与盘符前缀
++/// `X:`（跨平台口径一致——Windows 形态的绝对路径 / glob 在任一平台都按绝对
++/// 处理，不做「相对 anchor 拼接」的误判）。
++fn is_absolute_text(raw: &str) -> bool {
++    raw.starts_with('/')
++        || raw.starts_with('\\')
++        || Path::new(raw).is_absolute()
++        || (raw.len() > 1 && raw.as_bytes().get(1) == Some(&b':'))
++}
++
++/// 相对 glob 前缀归一（与插件端同款处理：无通配模式在匹配面走「相等或
++/// `pattern/` 起手」语义，不加前缀只命中 root 相对形态）。
++fn normalize_user_glob(glob: &str) -> String {
++    let text = glob.replace('\\', "/");
++    if is_absolute_text(&text) {
++        text
++    } else {
++        format!("**/{text}")
++    }
++}
++
++/// glob → concrete 静态前缀：`**/` 起手者以 `anchor` 归一文本为基座，其后
++/// 只取到首个通配段之前的静态段；无 `**/` 起手者直接取 glob 自身的静态段。
++fn concrete_prefix(glob: &str, anchor: &Path) -> String {
++    let glob = glob.replace('\\', "/");
++    match glob.strip_prefix("**/") {
++        Some(rest) => {
++            let base = normalize(&anchor.to_string_lossy());
++            let tail = static_segments(rest);
++            if tail.is_empty() {
++                base
++            } else if base.is_empty() {
++                tail
++            } else {
++                format!("{base}/{tail}")
++            }
++        }
++        None => static_segments(&glob),
++    }
++}
++
++/// 首个通配段之前的静态段拼接（通配段与其后内容一律丢弃）。
++fn static_segments(glob: &str) -> String {
++    let mut segments: Vec<&str> = Vec::new();
++    for segment in glob.split('/') {
++        if segment.is_empty() || segment == "." {
++            continue;
++        }
++        if segment.contains(['*', '?', '[', '{']) {
++            break;
++        }
++        segments.push(segment);
++    }
++    segments.join("/")
++}
++
++/// `Path` → 正斜杠文本（相对形态原样、无前导 `/`）。
++fn forward_slash(path: &Path) -> String {
++    normalize(&path.to_string_lossy())
++}
+diff --git a/crates/infra/agent/src/sdk/protect/rules_test.rs b/crates/infra/agent/src/sdk/protect/rules_test.rs
+new file mode 100644
+index 000000000000..7cfd4e2399f2
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/rules_test.rs
+@@ -0,0 +1,859 @@
++//! `rules` 的单元测试（AC-1 / AC-2 / AC-6）：规则装配（内置恒在 + 用户规则
++//! 合并）、glob 派生、路径归一 / 解析与子树相交判定。
++//!
++//! 断言口径：
++//! - 命中判定一律经 `checks::globmatch::match_glob`（D7 glob 方言单点，测试侧
++//!   不自造第二份匹配实现）；
++//! - 派生断言经 `foundation::layout` 复算（源码零目录名 / 文件名字面量）；
++//! - 配置文件面不 mock：`tempfile::TempDir` 真实目录 + `layout::config_path`
++//!   派生的真实 JSON 文件，`config::load` 真实读取。
++
++use std::path::Path;
++
++use checks::globmatch::match_glob;
++use foundation::layout;
++
++use super::rules::{self, BulkGlobs, ReasonKind, Rule};
++
++// ---------------------------------------------------------------------------
++// 装置：临时目录 + 真实配置文件（内容以 serde_json 组装，免手写转义）
++// ---------------------------------------------------------------------------
++
++fn tempdir(tag: &str) -> tempfile::TempDir {
++    tempfile::Builder::new()
++        .prefix(&format!("sdk-protect-rules-{tag}-"))
++        .tempdir()
++        .expect("创建合成目录失败")
++}
++
++/// 按 `foundation::layout::config_path(root)` 落盘配置文件（目录自动创建）。
++fn write_config(root: &Path, config: serde_json::Value) {
++    let path = layout::config_path(root);
++    if let Some(parent) = path.parent() {
++        std::fs::create_dir_all(parent).expect("创建配置目录失败");
++    }
++    std::fs::write(
++        &path,
++        serde_json::to_string_pretty(&config).expect("配置序列化"),
++    )
++    .expect("写配置文件失败");
++}
++
++/// 原样落盘配置文件文本（坏 JSON / 非对象顶层等畸形形态）。
++fn write_config_text(root: &Path, text: &str) {
++    let path = layout::config_path(root);
++    if let Some(parent) = path.parent() {
++        std::fs::create_dir_all(parent).expect("创建配置目录失败");
++    }
++    std::fs::write(&path, text).expect("写配置文件失败");
++}
++
++/// 内置 glob（由 `layout` 派生的唯一内置规则模式）。
++fn builtin_glob() -> String {
++    rules::builtin_rules()
++        .into_iter()
++        .next()
++        .expect("内置规则恒在")
++        .glob
++}
++
++/// 配置文件名字面量（首段域目录名 + 文件名，全部由 layout 派生）。
++fn config_relative() -> String {
++    rules::normalize(&layout::config_path(Path::new("")).to_string_lossy())
++}
++
++/// 用户规则载体（`reason` 三态直构，不走 IO）。
++fn user_rule(glob: &str, reason: Option<&str>) -> Rule {
++    Rule {
++        glob: glob.to_owned(),
++        reason: ReasonKind::User(reason.map(str::to_owned)),
++    }
++}
++
++// ---------------------------------------------------------------------------
++// builtin_rules（内置锁定）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 内置规则恰一条且glob与reason由layout派生() {
++    let builtin = rules::builtin_rules();
++    assert_eq!(builtin.len(), 1, "内置面恒一条（不可配置、不可移除）");
++    assert_eq!(
++        builtin[0].glob,
++        format!("**/{}", config_relative()),
++        "内置 glob = `**/` + layout 派生的配置文件名路径"
++    );
++    assert!(
++        matches!(builtin[0].reason, ReasonKind::BuiltinConfig),
++        "内置规则 reason 为 BuiltinConfig 变体（非文案比对认内置）"
++    );
++}
++
++#[test]
++fn 内置glob对任意前缀与任意深度均命中() {
++    let glob = builtin_glob();
++    let relative = config_relative();
++    let cases = [
++        format!("/{}", relative),
++        format!("D:/ws/{}", relative),
++        relative.clone(),
++        format!("/a/b/c/{}", relative),
++    ];
++    for path in cases {
++        assert!(
++            match_glob(&path, &glob),
++            "内置 glob 覆盖任意前缀（含零段 `**/`），路径: {path}，glob: {glob}"
++        );
++    }
++}
++
++#[test]
++fn 内置glob对近似形态不命中() {
++    let glob = builtin_glob();
++    let relative = config_relative();
++    let cases = [
++        format!("/ws/{}.bak", relative),
++        format!("/ws/{}/x", relative),
++        "/ws/explores/config.json".to_owned(),
++        "/ws/config.json".to_owned(),
++        format!("/ws/{}", relative.to_uppercase()),
++    ];
++    for path in cases {
++        assert!(
++            !match_glob(&path, &glob),
++            "近似形态不命中（大小写敏感），路径: {path}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// load（规则合并）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn load未注入root时仅内置且非空() {
++    let loaded = rules::load(None);
++    assert_eq!(
++        loaded.len(),
++        rules::builtin_rules().len(),
++        "None → 只装载内置规则"
++    );
++    assert!(
++        matches!(loaded[0].reason, ReasonKind::BuiltinConfig),
++        "首位恒为内置规则（不产出「保护关闭」空集）"
++    );
++}
++
++#[test]
++fn load注入root时内置在前且用户规则按配置序追加() {
++    let dir = tempdir("merge-order");
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "docs/**", "reason": "文档冻结" },
++                { "glob": "src/gen/*.rs" }
++            ] }
++        }),
++    );
++
++    let loaded = rules::load(Some(dir.path()));
++    assert_eq!(loaded.len(), 3, "内置 + 两条用户规则");
++    assert!(
++        matches!(loaded[0].reason, ReasonKind::BuiltinConfig),
++        "内置在前（位次即优先级）"
++    );
++    assert_eq!(loaded[1].glob, "**/docs/**", "相对 glob 前缀 `**/`");
++    assert_eq!(loaded[2].glob, "**/src/gen/*.rs", "第二条按配置序追加");
++}
++
++#[test]
++fn load配置失败面五形态仅减用户面且内置恒在() {
++    // ① 无配置文件
++    let missing = tempdir("load-missing");
++    // ② 坏 JSON ③ 顶层非对象 ④ write_protection 非对象 ⑤ files 非数组
++    let bad_json = tempdir("load-bad-json");
++    write_config_text(bad_json.path(), "{");
++    let top_array = tempdir("load-top-array");
++    write_config_text(top_array.path(), "[]");
++    let protection_str = tempdir("load-protection-str");
++    write_config_text(protection_str.path(), r#"{"write_protection": "x"}"#);
++    let files_object = tempdir("load-files-object");
++    write_config_text(
++        files_object.path(),
++        r#"{"write_protection": {"files": {}}}"#,
++    );
++
++    for dir in [
++        &missing,
++        &bad_json,
++        &top_array,
++        &protection_str,
++        &files_object,
++    ] {
++        let loaded = rules::load(Some(dir.path()));
++        assert_eq!(
++            loaded.len(),
++            rules::builtin_rules().len(),
++            "配置失败面只减用户规则、不 panic，目录: {:?}",
++            dir.path()
++        );
++        assert!(
++            matches!(loaded[0].reason, ReasonKind::BuiltinConfig),
++            "内置规则独立于配置解析结果（fail-closed）"
++        );
++        assert!(
++            match_glob(&format!("/任意前缀/{}", config_relative()), &loaded[0].glob),
++            "内置命中面在配置失败时照常生效"
++        );
++    }
++}
++
++#[test]
++fn load_root异常形态不panic且内置恒在() {
++    let long_root = format!("{}/中文🚀/{}", "a".repeat(600), "b".repeat(600));
++    let roots = [
++        std::path::PathBuf::new(),
++        std::path::PathBuf::from("D:/__not_exists__/sdk-protect"),
++        std::path::PathBuf::from(long_root),
++    ];
++    for root in roots {
++        let loaded = rules::load(Some(&root));
++        assert!(!loaded.is_empty(), "内置规则恒在，root: {root:?}");
++        assert!(
++            matches!(loaded[0].reason, ReasonKind::BuiltinConfig),
++            "首位恒内置，root: {root:?}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// user_rules（用户规则装配）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 用户规则相对glob加双星前缀且跨前缀命中() {
++    let dir = tempdir("user-relative");
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "plugins/dev-team/bin/knip.json" }
++            ] }
++        }),
++    );
++
++    let produced = rules::user_rules(dir.path());
++    assert_eq!(produced.len(), 1);
++    assert_eq!(
++        produced[0].glob, "**/plugins/dev-team/bin/knip.json",
++        "相对 glob 加 `**/` 前缀（本仓现行真实规则形态）"
++    );
++    assert!(
++        match_glob(
++            &format!(
++                "{}/plugins/dev-team/bin/knip.json",
++                dir.path().to_string_lossy()
++            ),
++            &produced[0].glob
++        ),
++        "root 内命中"
++    );
++    assert!(
++        match_glob(
++            "/另一前缀/plugins/dev-team/bin/knip.json",
++            &produced[0].glob
++        ),
++        "`**/` 前缀使规则跨前缀命中"
++    );
++    assert!(
++        !match_glob(
++            "/另一前缀/plugins/dev-team/bin/knip.json5",
++            &produced[0].glob
++        ),
++        "扩展名不同不命中"
++    );
++}
++
++#[test]
++fn 用户规则绝对glob原样且不跨根命中() {
++    let dir = tempdir("user-absolute");
++    let other = tempdir("user-absolute-other");
++    let raw_glob = format!("{}/secret.md", dir.path().to_string_lossy());
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [ { "glob": raw_glob } ] }
++        }),
++    );
++
++    let produced = rules::user_rules(dir.path());
++    assert_eq!(produced.len(), 1);
++    assert_eq!(
++        produced[0].glob,
++        raw_glob.replace('\\', "/"),
++        "绝对 glob 原样（不加 `**/`，仅分隔符归一）"
++    );
++    assert!(
++        match_glob(&raw_glob, &produced[0].glob),
++        "命中该绝对路径本身"
++    );
++    assert!(
++        !match_glob(
++            &format!("{}/secret.md", other.path().to_string_lossy()),
++            &produced[0].glob
++        ),
++        "不命中另一前缀同名文件"
++    );
++}
++
++#[test]
++fn 用户规则reason三态_缺席落none_在场原样() {
++    let without = tempdir("user-reason-none");
++    write_config(
++        without.path(),
++        serde_json::json!({
++            "write_protection": { "files": [ { "glob": "plugins/dev-team/bin/knip.json" } ] }
++        }),
++    );
++    let produced = rules::user_rules(without.path());
++    assert!(
++        matches!(&produced[0].reason, ReasonKind::User(None)),
++        "无 reason → User(None)（回落串面）"
++    );
++
++    let with = tempdir("user-reason-some");
++    write_config(
++        with.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "plugins/dev-team/bin/knip.json", "reason": "金样冻结" }
++            ] }
++        }),
++    );
++    let produced = rules::user_rules(with.path());
++    match &produced[0].reason {
++        ReasonKind::User(Some(template)) => assert_eq!(template, "金样冻结", "reason 原样保留"),
++        other => panic!("应为 User(Some)，实际: {other:?}"),
++    }
++}
++
++#[test]
++fn 用户规则glob缺省条目被跳过不panic() {
++    let dir = tempdir("user-glob-none");
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "reason": "只给 reason" },
++                { "glob": "docs/**", "reason": "文档冻结" }
++            ] }
++        }),
++    );
++
++    let produced = rules::user_rules(dir.path());
++    assert_eq!(produced.len(), 1, "glob 缺省条目跳过（只余一条）");
++    assert_eq!(produced[0].glob, "**/docs/**");
++}
++
++#[test]
++fn 用户规则空串与非法glob由组装层剔除_非法模式fail_open() {
++    let dir = tempdir("user-glob-invalid");
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "" },
++                { "glob": 5 },
++                { "glob": "docs/**" }
++            ] }
++        }),
++    );
++
++    let produced = rules::user_rules(dir.path());
++    assert_eq!(
++        produced.len(),
++        1,
++        "空串 / 非字符串 glob 由配置组装层剔除，仅留合法条"
++    );
++    assert_eq!(produced[0].glob, "**/docs/**");
++
++    // 直构非法模式驱动匹配面：不命中、不 panic（非法模式 fail-open）
++    let broken = user_rule("[", None);
++    assert!(
++        !match_glob("/ws/docs/a.md", &broken.glob),
++        "非法 glob 按不命中收敛（fail-open）"
++    );
++}
++
++#[test]
++fn 用户规则保序且重复条不折叠不去重() {
++    let dir = tempdir("user-order");
++    let absolute = format!("{}/absolute.md", dir.path().to_string_lossy());
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "docs/**" },
++                { "glob": absolute },
++                { "glob": "docs/**" },
++                { "glob": "src/**", "reason": "源码冻结" }
++            ] }
++        }),
++    );
++
++    let produced = rules::user_rules(dir.path());
++    assert_eq!(produced.len(), 4, "四条原样产出（重复条不去重）");
++    assert_eq!(produced[0].glob, "**/docs/**");
++    assert_eq!(produced[1].glob, absolute.replace('\\', "/"));
++    assert_eq!(produced[2].glob, "**/docs/**", "重复条保留且位次不变");
++    assert_eq!(produced[3].glob, "**/src/**");
++}
++
++#[test]
++fn 用户规则glob边界字符不panic且不误命中() {
++    let dir = tempdir("user-glob-edge");
++    let long_glob = "a".repeat(1_200);
++    write_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "   " },
++                { "glob": "文档/🚀.md" },
++                { "glob": long_glob },
++                { "glob": "$OUT/**" }
++            ] }
++        }),
++    );
++
++    let produced = rules::user_rules(dir.path());
++    assert_eq!(produced.len(), 4, "四条均产出（装配面不做语义校验）");
++    assert!(
++        !match_glob("/ws/a/b.txt", &produced[0].glob),
++        "全空白 glob 不命中常规路径"
++    );
++    assert!(
++        match_glob("/ws/文档/🚀.md", &produced[1].glob),
++        "中文与 emoji 模式正常命中"
++    );
++    assert!(
++        !match_glob("/ws/a/b.txt", &produced[2].glob),
++        "1000+ 字符模式不误命中常规路径"
++    );
++    assert!(
++        !match_glob("/ws/x.txt", &produced[3].glob),
++        "含 `$` 模式按字面（不误命中）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// bulk_globs（批量还原的结构 glob）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 批量还原两条结构glob由layout派生() {
++    let globs: BulkGlobs = rules::bulk_globs();
++    assert_eq!(
++        globs.artifacts,
++        format!("**/{}/**", layout::domain_dir_name()),
++        "域目录树 glob 由 domain_dir_name 派生"
++    );
++    assert_eq!(
++        globs.changes,
++        format!(
++            "**/{}/**",
++            rules::normalize(
++                &layout::resolve(Path::new(""))
++                    .changes_root
++                    .to_string_lossy()
++            )
++        ),
++        "changes 子树 glob 由 layout::resolve 派生"
++    );
++}
++
++#[test]
++fn 批量还原glob命中面与窄面呈子集关系() {
++    let globs = rules::bulk_globs();
++    let domain = layout::domain_dir_name();
++    let changes = rules::normalize(
++        &layout::resolve(Path::new(""))
++            .changes_root
++            .to_string_lossy(),
++    );
++    let in_changes = format!("/root/{}/x/proposal.md", changes);
++    let in_explores = format!("/root/{}/explores/a.md", domain);
++
++    assert!(
++        match_glob(&in_changes, &globs.changes),
++        "changes glob 命中 change 产物"
++    );
++    assert!(
++        !match_glob(&in_explores, &globs.changes),
++        "changes glob 不命中探索笔记"
++    );
++    assert!(
++        match_glob(&in_changes, &globs.artifacts),
++        "域树命中 changes"
++    );
++    assert!(
++        match_glob(&in_explores, &globs.artifacts),
++        "域树命中 explores（changes 命中集 ⊆ artifacts 命中集）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// glob_dir_hit（子树相交判定）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 子树判定_点搜索根落在anchor锚定面时命中() {
++    let dir = tempdir("dir-hit-dot");
++    let anchor = dir.path();
++    assert!(
++        rules::glob_dir_hit(".", &builtin_glob(), anchor),
++        "`find . -delete` 的搜索根经 anchor 归一后覆盖受保护目标"
++    );
++}
++
++#[test]
++fn 子树判定_源码与相似名目录不越拦() {
++    let dir = tempdir("dir-hit-source");
++    let anchor = rules::normalize(&dir.path().to_string_lossy());
++    let glob = builtin_glob();
++    assert!(
++        !rules::glob_dir_hit(&format!("{anchor}/src"), &glob, dir.path()),
++        "源码子树不在受保护前缀内（不误拦）"
++    );
++    assert!(
++        !rules::glob_dir_hit(
++            &format!("{anchor}/{domain}x", domain = layout::domain_dir_name()),
++            &glob,
++            dir.path()
++        ),
++        "段边界：相似名目录不以受保护前缀起手（不误拦）"
++    );
++}
++
++#[test]
++fn 子树判定_祖先相等后代三面均命中() {
++    let dir = tempdir("dir-hit-three-faces");
++    let anchor = dir.path();
++    let anchor_text = rules::normalize(&anchor.to_string_lossy());
++    let glob = builtin_glob();
++    let domain = layout::domain_dir_name();
++
++    assert!(
++        rules::glob_dir_hit(&anchor_text, &glob, anchor),
++        "祖先面：删整棵 anchor 必然波及受保护目标"
++    );
++    assert!(
++        rules::glob_dir_hit(&format!("{anchor_text}/{domain}"), &glob, anchor),
++        "前缀面：dir 为受保护前缀的祖先段"
++    );
++    assert!(
++        rules::glob_dir_hit(
++            &format!("{anchor_text}/{}", config_relative()),
++            &glob,
++            anchor
++        ),
++        "相等面：搜索根即受保护目标本身"
++    );
++}
++
++#[test]
++fn 子树判定_绝对glob与anchor无关且反斜杠归一() {
++    let anchor = Path::new("/unused/anchor");
++    let glob = "D:/ws/docs/**";
++    assert!(rules::glob_dir_hit("D:/ws", glob, anchor), "祖先面命中");
++    assert!(
++        !rules::glob_dir_hit("D:/other", glob, anchor),
++        "无关目录不命中"
++    );
++    assert!(
++        rules::glob_dir_hit(r"D:\ws", glob, anchor),
++        "反斜杠形态归一后同样命中"
++    );
++}
++
++#[test]
++fn 子树判定_无静态段与非法glob不命中() {
++    let dir = tempdir("dir-hit-degenerate");
++    let anchor = dir.path();
++    let anchor_text = rules::normalize(&anchor.to_string_lossy());
++
++    assert!(
++        rules::glob_dir_hit(&format!("{anchor_text}/any/sub"), "**/*", anchor),
++        "`**/*` 退化为 anchor 基座：anchor 下任意子目录命中"
++    );
++    assert!(
++        !rules::glob_dir_hit("/outside/dir", "**/*", anchor),
++        "anchor 外目录不命中"
++    );
++    for glob in ["", "**/", "["] {
++        assert!(
++            !rules::glob_dir_hit(&anchor_text, glob, anchor),
++            "纯 `**` / 空 / 非法 glob 不构成可命中规则: {glob:?}"
++        );
++    }
++}
++
++#[test]
++fn 子树判定_目录参数边界不panic且不误判() {
++    let dir = tempdir("dir-hit-edge");
++    let anchor = dir.path();
++    let glob = builtin_glob();
++
++    for empty in ["", "   "] {
++        assert!(
++            !rules::glob_dir_hit(empty, &glob, anchor),
++            "空 / 全空白目录不误判为命中: {empty:?}"
++        );
++    }
++    assert!(
++        !rules::glob_dir_hit(&"长".repeat(1_200), &glob, anchor),
++        "1000+ 字符目录不 panic 且不命中"
++    );
++    assert!(
++        !rules::glob_dir_hit("/ws/emoji🚀/目录", &glob, anchor),
++        "emoji 目录不 panic 且不命中"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// normalize（文本归一单点）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 归一_剥windows前缀且分隔符转正斜杠() {
++    assert_eq!(
++        rules::normalize(r"\\?\D:\ws\openspec\config.json"),
++        "D:/ws/openspec/config.json",
++        r"剥 `\\?\` 前缀 + 反斜杠转 `/`"
++    );
++    assert_eq!(rules::normalize(r"a\b\c"), "a/b/c");
++    assert_eq!(rules::normalize("a//b///c"), "a/b/c", "空段丢弃");
++}
++
++#[test]
++fn 归一_点段消解且双点段保留() {
++    assert_eq!(rules::normalize("a/./b"), "a/b", "`.` 段消解");
++    assert_eq!(rules::normalize("."), "");
++    assert_eq!(rules::normalize("./a"), "a");
++    assert_eq!(
++        rules::normalize("a/../b"),
++        "a/../b",
++        "`..` 段保留（不猜测语义）"
++    );
++    assert_eq!(rules::normalize("a/.."), "a/..");
++}
++
++#[test]
++fn 归一_前导斜杠与尾部分隔符与根形态() {
++    assert_eq!(rules::normalize("/a/b"), "/a/b", "前导 `/` 保留");
++    assert_eq!(rules::normalize("a/b/"), "a/b", "尾部分隔符丢弃");
++    assert_eq!(rules::normalize("/"), "/", "根形态");
++    assert_eq!(rules::normalize("///"), "/");
++    assert_eq!(
++        rules::normalize("D:/"),
++        "D:",
++        "盘符形态去尾分隔符（相对形态无前导 `/`）"
++    );
++}
++
++#[test]
++fn 归一_空串特殊字符与幂等() {
++    assert_eq!(rules::normalize(""), "");
++    for raw in ["中文/路径🚀/a.md", "a b/c\td.txt", "  /a/b  "] {
++        let once = rules::normalize(raw);
++        assert!(
++            once.contains("中文") || once.contains("🚀") || once.contains("a"),
++            "特殊字符逐字符保留，输入: {raw:?}，产物: {once:?}"
++        );
++        assert_eq!(
++            rules::normalize(&once),
++            once,
++            "幂等：normalize(normalize(x)) == normalize(x)，输入: {raw:?}"
++        );
++    }
++    let long = format!("/{}/a.md", "长".repeat(1_200));
++    assert_eq!(
++        rules::normalize(&long).chars().count(),
++        long.chars().count(),
++        "1000+ 字符输入不 panic 且不丢字符"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// resolve（提取路径解析）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 解析_绝对路径原样归一() {
++    assert_eq!(
++        rules::resolve(Path::new("/anchor"), r"D:\ws\a.md"),
++        Some("D:/ws/a.md".to_owned()),
++        "盘符形态按绝对处理（不拼 anchor）"
++    );
++    assert_eq!(
++        rules::resolve(Path::new("/anchor"), "/x/y.md"),
++        Some("/x/y.md".to_owned())
++    );
++}
++
++#[test]
++fn 解析_相对路径拼anchor后归一() {
++    let dir = tempdir("resolve-relative");
++    let anchor = dir.path();
++    let anchor_text = rules::normalize(&anchor.to_string_lossy());
++
++    assert_eq!(
++        rules::resolve(anchor, &config_relative()),
++        Some(format!("{anchor_text}/{}", config_relative())),
++        "相对路径拼 anchor 后归一"
++    );
++    assert_eq!(
++        rules::resolve(anchor, "./a/./b.txt"),
++        Some(format!("{anchor_text}/a/b.txt")),
++        "`.` 段消解"
++    );
++    assert_eq!(
++        rules::resolve(anchor, "../x.txt"),
++        Some(format!("{anchor_text}/../x.txt")),
++        "`..` 段保留后拼（不消解）"
++    );
++}
++
++#[test]
++fn 解析_空白与变量形态放行() {
++    let dir = tempdir("resolve-drop");
++    let anchor = dir.path();
++    assert_eq!(rules::resolve(anchor, ""), None, "空串 → None");
++    assert_eq!(rules::resolve(anchor, "   "), None, "全空白 → None");
++    assert_eq!(rules::resolve(anchor, "$HOME/x"), None, "`$` 形态 → None");
++    assert_eq!(rules::resolve(anchor, "${P}/x"), None);
++
++    let literal = rules::resolve(anchor, r"%TEMP%\x").expect("非 `$` 形态按字面解析");
++    assert!(
++        literal.ends_with("/%TEMP%/x"),
++        "百分号变量按字面参与归一，实际: {literal}"
++    );
++}
++
++#[test]
++fn 解析_边界字符不panic() {
++    let dir = tempdir("resolve-edge");
++    let anchor = dir.path();
++    assert!(
++        rules::resolve(anchor, &"长".repeat(1_200)).is_some(),
++        "1000+ 字符相对路径不 panic"
++    );
++    assert!(
++        rules::resolve(anchor, "目录/🚀.md").is_some(),
++        "emoji 路径不 panic"
++    );
++    let quoted = rules::resolve(anchor, "'a b.txt'").expect("包裹引号按原样归一");
++    assert!(
++        quoted.ends_with("'a b.txt'"),
++        "包裹引号原样参与归一，实际: {quoted}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// Rule::concrete_prefix（glob → concrete 静态前缀）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 静态前缀_双星斜杠起手锚定anchor() {
++    let dir = tempdir("prefix-builtin");
++    let anchor = dir.path();
++    let anchor_text = rules::normalize(&anchor.to_string_lossy());
++    let rule = user_rule(&format!("**/{}", config_relative()), None);
++
++    assert_eq!(
++        rule.concrete_prefix(anchor),
++        format!("{anchor_text}/{}", config_relative()),
++        "`**/` 段被 anchor 置换"
++    );
++}
++
++#[test]
++fn 静态前缀_绝对glob与无通配形态() {
++    let dir = tempdir("prefix-absolute");
++    let anchor = dir.path();
++    let anchor_text = rules::normalize(&anchor.to_string_lossy());
++
++    let absolute = user_rule("D:/ws/secret.md", None);
++    assert_eq!(
++        absolute.concrete_prefix(anchor),
++        "D:/ws/secret.md",
++        "绝对 glob 即自身静态段（与 anchor 无关）"
++    );
++
++    let relative = user_rule("**/plugins/x/knip.json", None);
++    assert_eq!(
++        relative.concrete_prefix(anchor),
++        format!("{anchor_text}/plugins/x/knip.json"),
++        "无通配段保留全段"
++    );
++}
++
++#[test]
++fn 静态前缀_首个通配段截断与退化形态() {
++    let dir = tempdir("prefix-truncate");
++    let anchor = dir.path();
++    let anchor_text = rules::normalize(&anchor.to_string_lossy());
++
++    assert_eq!(
++        user_rule("**/a/**/*.md", None).concrete_prefix(anchor),
++        format!("{anchor_text}/a"),
++        "首个通配段之前截断"
++    );
++    for glob in ["**/*", "**/"] {
++        assert_eq!(
++            user_rule(glob, None).concrete_prefix(anchor),
++            anchor_text,
++            "零静态段退化为 anchor 归一形态: {glob}"
++        );
++    }
++    assert_eq!(
++        user_rule("", None).concrete_prefix(anchor),
++        "",
++        "空 glob 不 panic（空前缀）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 类型面（Rule / ReasonKind / BulkGlobs）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 类型面_rule_clone等价且无reason变体可辨() {
++    let rule = user_rule("**/docs/**", Some("文档冻结"));
++    let cloned = rule.clone();
++    assert_eq!(cloned.glob, rule.glob, "clone 后 glob 逐字段相等");
++    assert!(
++        format!("{rule:?}").contains("User"),
++        "Debug 渲染含变体名，实际: {rule:?}"
++    );
++
++    // ReasonKind 三形态（封闭集）逐个构造与判别
++    let kinds = [
++        ReasonKind::BuiltinConfig,
++        ReasonKind::User(Some("自有文案".to_owned())),
++        ReasonKind::User(None),
++    ];
++    assert!(matches!(kinds[0], ReasonKind::BuiltinConfig));
++    assert!(matches!(&kinds[1], ReasonKind::User(Some(t)) if t == "自有文案"));
++    assert!(matches!(&kinds[2], ReasonKind::User(None)));
++
++    // BulkGlobs 两字段可读且 clone 等价
++    let globs = rules::bulk_globs();
++    let cloned = globs.clone();
++    assert_eq!(cloned.artifacts, globs.artifacts);
++    assert_eq!(cloned.changes, globs.changes);
++    assert!(
++        format!("{globs:?}").contains("artifacts"),
++        "Debug 渲染含字段名，实际: {globs:?}"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/protect/shell.rs b/crates/infra/agent/src/sdk/protect/shell.rs
+new file mode 100644
+index 000000000000..c27893a3e7ce
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/shell.rs
+@@ -0,0 +1,893 @@
++// ---------------------------------------------------------------------------
++// shell 命令写入面提取（双变体等长掩码 + token 纪律 + 三态 + 档 B + 批量还原）
++//
++// **精度唯一来源是掩码**：
++// - 变体 A（[`mask_heredocs`]）只掩 heredoc 体、保留引号 → 跑写入正则与参数
++//   切片（引号内的真实目标仍可匹配，`rm 'a b.txt'` 照旧可 tokenize）；
++// - 变体 B（[`mask_quoted_and_heredoc`]）掩 heredoc 体 + 引号串 → 定位命令名
++//   （字符串 / heredoc 数据里的 `rm` / `git stash` 不得被当作命令）。
++//
++// 两变体按**字符**逐位替换（填充 `MASK_CHAR`），故 char 索引 1:1 互通——命令
++// 名在 B 上定位、参数在 A 上同索引切片。掩码 / 切片 / 正则匹配全程在
++// `Vec<char>` 空间：JS 版索引单位是 UTF-16 code unit、Rust 以字节为界，直接
++// 照译会因非 ASCII 命令文本（中文路径 / 中文注释）错位，故正则命中的字节偏移
++// 先折算成 char 索引再切片。
++//
++// 正则纪律：全部模式经 `OnceLock` 预编译（单量词线性形态，禁嵌套量词 / 回溯
++// 爆炸）；**不设命令文本长度上限**（设上限等于送出一条绕过路径）。`regex`
++// crate 无零宽断言，故插件端 `>&` 的「目标不是纯数字」前瞻改写成**捕获后
++// 过滤**（目标 token 全为 ASCII 数字即丢弃该 op），匹配边界零改。
++//
++// 精度纪律（MUST NOT "顺手优化"）：`>` 前缀排除集如实保持「只排 `-` 与 `=`」——
++// 把 `&` / `|` 一并排掉会让 `echo {} &> <受保护文件>` 从拒静默变放行。over-block
++// 方向不安全：宁可漏掉 stdout 形态，也 MUST NOT 让 `echo foo > notes.txt` 被误拦。
++//
++// 知情边界：`xargs` / `sh -c` 递归拆解、`find -exec rm {} +` 的占位符解析、
++// 生成脚本再执行均不实现（与「不可静态判别」同类）；`find` 只点名 `-delete` 族。
++// ---------------------------------------------------------------------------
++
++use std::path::Path;
++use std::sync::OnceLock;
++
++use regex::Regex;
++
++use crate::sdk::protect::rules::{self, BulkGlobs};
++
++/// 掩码填充字符：非空白、不属任一提取字符类（与插件端同值），故被掩码文本
++/// 永远拼不出可匹配的命令名 / 操作符 / 路径。
++const MASK_CHAR: char = '\u{0}';
++
++/// 单态文件操作：`Write`（重定向 / cmdlet / cp 目标位 / 内联改写）、`Delete`、
++/// `Revert`（撤销动作，不入保护判定，仅批量还原消费）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(super) struct FileOp {
++    /// 操作态
++    pub(super) kind: OpKind,
++    /// 操作落点
++    pub(super) target: OpTarget,
++}
++
++/// 操作态三值。
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(super) enum OpKind {
++    /// 写入 / 覆盖 / 追加 / 清空
++    Write,
++    /// 删除 / 清空即毁的搜索根
++    Delete,
++    /// 撤销（`git restore <path>` 裸形态、`git checkout -- <path>`）
++    Revert,
++}
++
++/// 操作落点：`Path` 走「路径 match 规则」，`Tree` 走子树相交判定（`find` 的
++/// 搜索根——匹配项不可静态预知，删除场景按「保护整个搜索根」保守处理）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(super) enum OpTarget {
++    /// 普通路径（相对 / 绝对，未归一）
++    Path(String),
++    /// 目录树搜索根（未归一）
++    Tree(String),
++}
++
++/// 半开区间 `[start, end)`（char 索引）。
++#[derive(Debug, Clone, Copy)]
++struct Span {
++    start: usize,
++    end: usize,
++}
++
++// ---------------------------------------------------------------------------
++// 掩码
++// ---------------------------------------------------------------------------
++
++/// 命令原文 → char 向量（掩码 / 切片 / 匹配的唯一索引空间）。
++fn chars_of(command: &str) -> Vec<char> {
++    command.chars().collect()
++}
++
++/// 区间合并（重叠 / 相邻合并，输出保序、互不重叠）。
++fn merge_spans(spans: &[Span]) -> Vec<Span> {
++    let mut sorted: Vec<Span> = spans.to_vec();
++    sorted.sort_by_key(|span| span.start);
++    let mut merged: Vec<Span> = Vec::new();
++    for span in sorted {
++        match merged.last_mut() {
++            Some(last) if span.start <= last.end => last.end = last.end.max(span.end),
++            _ => merged.push(span),
++        }
++    }
++    merged
++}
++
++/// 逐字符替换为 `MASK_CHAR`：输出字符数 == 输入字符数（两变体等长的机械保证）。
++fn mask_chars(chars: &[char], spans: &[Span]) -> String {
++    let mut masked = chars.to_vec();
++    for span in merge_spans(spans) {
++        let start = span.start.min(masked.len());
++        let end = span.end.min(masked.len());
++        for ch in &mut masked[start..end] {
++            *ch = MASK_CHAR;
++        }
++    }
++    masked.into_iter().collect()
++}
++
++/// 引号区间：`'…'`（bash 单引号无转义）、`"…"`（认 `\` 转义），单 / 双不嵌套。
++/// 未闭合候选直接放弃并停止掩码（fail-open：其后一切按未掩码处理）。
++fn quote_spans(chars: &[char]) -> Vec<Span> {
++    let mut spans = Vec::new();
++    let mut index = 0;
++    while index < chars.len() {
++        match chars[index] {
++            '\'' => {
++                let mut close = index + 1;
++                while close < chars.len() && chars[close] != '\'' {
++                    close += 1;
++                }
++                if close >= chars.len() {
++                    return spans;
++                }
++                spans.push(Span {
++                    start: index,
++                    end: close + 1,
++                });
++                index = close + 1;
++            }
++            '"' => {
++                let mut close = index + 1;
++                while close < chars.len() && chars[close] != '"' {
++                    if chars[close] == '\\' {
++                        close += 2;
++                    } else {
++                        close += 1;
++                    }
++                }
++                if close >= chars.len() {
++                    return spans;
++                }
++                spans.push(Span {
++                    start: index,
++                    end: close + 1,
++                });
++                index = close + 1;
++            }
++            _ => index += 1,
++        }
++    }
++    spans
++}
++
++/// heredoc 开标记解析（marker 必须紧贴 `<<` / `<<-`；引号形态须闭合）：返回
++/// `(marker, 开标记之后的位置)`；不成立即 `None`（候选丢弃）。
++fn heredoc_marker(chars: &[char], from: usize) -> Option<(String, usize)> {
++    let mut index = from;
++    if index < chars.len() && chars[index] == '-' {
++        index += 1;
++    }
++    let quote = if index < chars.len() && (chars[index] == '\'' || chars[index] == '"') {
++        let quote = chars[index];
++        index += 1;
++        Some(quote)
++    } else {
++        None
++    };
++    let start = index;
++    while index < chars.len() && (chars[index].is_ascii_alphanumeric() || chars[index] == '_') {
++        index += 1;
++    }
++    if index == start {
++        return None;
++    }
++    let marker: String = chars[start..index].iter().collect();
++    if let Some(quote) = quote {
++        if index < chars.len() && chars[index] == quote {
++            index += 1;
++        } else {
++            return None;
++        }
++    }
++    Some((marker, index))
++}
++
++/// heredoc 体终止行定位：逐行比对 `line.trim() == marker`（缩进形态同插件端），
++/// 找不到终止行即 `None`（候选丢弃，不掩码）。
++fn heredoc_body_end(chars: &[char], marker: &str, from: usize) -> Option<usize> {
++    let mut pos = from;
++    while pos <= chars.len() {
++        let mut line_end = chars.len();
++        let mut has_newline = false;
++        for (offset, ch) in chars[pos..].iter().enumerate() {
++            if *ch == '\n' {
++                line_end = pos + offset;
++                has_newline = true;
++                break;
++            }
++        }
++        let line: String = chars[pos..line_end].iter().collect();
++        if line.trim() == marker {
++            return Some(line_end);
++        }
++        if !has_newline {
++            return None;
++        }
++        pos = line_end + 1;
++    }
++    None
++}
++
++/// heredoc 体区间（`<<MARKER` … 之后一行等于 MARKER）。`<<` 必须在引号外且
++/// 左邻为行首 / 空白 / `;&|(`（故 JS 位移 `1 << 2` 永不构成开标记），且必须
++/// 同时找到换行与终止 marker 行，否则候选丢弃（fail-open，不掩码）。
++fn heredoc_spans(chars: &[char]) -> Vec<Span> {
++    let quotes = quote_spans(chars);
++    let in_quotes = |index: usize| {
++        quotes
++            .iter()
++            .any(|span| index >= span.start && index < span.end)
++    };
++    let mut spans = Vec::new();
++    let mut index = 0;
++    while index + 1 < chars.len() {
++        if chars[index] != '<' || chars[index + 1] != '<' {
++            index += 1;
++            continue;
++        }
++        let boundary = index == 0
++            || matches!(
++                chars[index - 1],
++                ' ' | '\t' | '\r' | '\n' | ';' | '&' | '|' | '('
++            );
++        if !boundary || in_quotes(index) {
++            index += 1;
++            continue;
++        }
++        let Some((marker, after)) = heredoc_marker(chars, index + 2) else {
++            index += 1;
++            continue;
++        };
++        let Some(header) = chars[after..]
++            .iter()
++            .position(|ch| *ch == '\n')
++            .map(|offset| after + offset)
++        else {
++            index += 1;
++            continue;
++        };
++        if let Some(end) = heredoc_body_end(chars, &marker, header + 1) {
++            spans.push(Span {
++                start: header + 1,
++                end,
++            });
++        }
++        index += 1;
++    }
++    spans
++}
++
++/// 变体 A：只掩 heredoc 体、保留引号（写入正则与参数切片的运行面）。
++pub(super) fn mask_heredocs(command: &str) -> String {
++    let chars = chars_of(command);
++    mask_chars(&chars, &heredoc_spans(&chars))
++}
++
++/// 变体 B：掩 heredoc 体 + 引号串（命令名定位面）。两变体等长，char 索引
++/// 1:1 互通。
++pub(super) fn mask_quoted_and_heredoc(command: &str) -> String {
++    let chars = chars_of(command);
++    let mut spans = heredoc_spans(&chars);
++    spans.extend(quote_spans(&chars));
++    mask_chars(&chars, &spans)
++}
++
++/// 两变体一次算齐（名称文本 / 参数文本）。
++fn masked_variants(command: &str) -> (String, String) {
++    (mask_quoted_and_heredoc(command), mask_heredocs(command))
++}
++
++// ---------------------------------------------------------------------------
++// token 纪律
++// ---------------------------------------------------------------------------
++
++/// 空白切分 + 剥包裹引号 + 剔空。**不做** `$` 过滤：`git clean` 的零路径判定
++/// 依赖原始 token 计数（`$` 过滤只在操作落点做）。
++pub(super) fn tokenize(args: &str) -> Vec<String> {
++    args.split_whitespace()
++        .map(|token| token.trim_matches(['\'', '"']).to_owned())
++        .filter(|token| !token.is_empty())
++        .collect()
++}
++
++/// option token（`-f` / `-rf` / `--cached`）。
++pub(super) fn is_flag(token: &str) -> bool {
++    token.starts_with('-')
++}
++
++/// 未展开变量 token（含 `$`）在操作落点丢弃：执行前不可知，字面 token 永远
++/// 命不中真实路径。**只在落点用，绝不进 [`tokenize`]**。
++fn is_literal_path(token: &str) -> bool {
++    !token.contains('$')
++}
++
++// ---------------------------------------------------------------------------
++// 正则表（全部 OnceLock 预编译）
++// ---------------------------------------------------------------------------
++
++/// 静态模式 → 预编译表（编译失败按不命中收敛：静态字面量非法属编译期缺陷，
++/// 不 panic、不拒绝启动）。
++fn compile(patterns: &[&str]) -> Vec<Regex> {
++    patterns
++        .iter()
++        .filter_map(|pattern| Regex::new(pattern).ok())
++        .collect()
++}
++
++/// 重定向写入族（在变体 A 上跑）：`>` / `>>` / `>|` / `tee`。
++fn redirect_write_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| {
++        compile(&[
++            // > 与 >>（前缀守卫 [^-=]：跳过 -> 与 =>）
++            r#"(?:^|[^-=])>{1,2}\s+['"]?([^\s;|`$&()'"]+)['"]?"#,
++            // >|（noclobber 覆盖）
++            r#">\|\s+['"]?([^\s;|`$&()'"]+)['"]?"#,
++            // tee（可带 -a 等 flag）
++            r#"(?:^|[\s;|&(])\s*tee\s+(?:-[a-zA-Z]+\s+)?['"]?([^\s;|`$&()'"]+)['"]?"#,
++        ])
++    })
++}
++
++/// `>&` 族（独立成表：其目标可能是 fd 复制，需捕获后过滤纯数字）。
++fn descriptor_dup_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r#">&\s*['"]?([^\s;|`$&()'"]+)['"]?"#]))
++}
++
++/// PowerShell 重定向（`*>` / `N>` / `>` / `>>`）。
++fn powershell_redirect_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| {
++        compile(&[r#"(?:^|[\s;|&(])(?:\d*|\*)?>{1,2}\s+['"]?([^\s;|`$&()'",=]+)['"]?"#])
++    })
++}
++
++/// PowerShell 文件写入 cmdlet（可带 `-Path` / `-FilePath`）。
++fn powershell_cmdlet_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| {
++        const CMDLETS: [&str; 6] = [
++            "Set-Content",
++            "Out-File",
++            "Add-Content",
++            "Export-Csv",
++            "Export-CliXml",
++            "Tee-Object",
++        ];
++        let patterns: Vec<String> = CMDLETS
++            .iter()
++            .map(|cmdlet| {
++                format!(
++                    r#"(?i)\b{cmdlet}\s+(?:-(?:Path|FilePath)\s+)?['"]?([^\s;`$&()'",=]+)['"]?"#
++                )
++            })
++            .collect();
++        let borrowed: Vec<&str> = patterns.iter().map(String::as_str).collect();
++        compile(&borrowed)
++    })
++}
++
++/// .NET 静态写方法（首参为路径）。
++fn dotnet_write_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| {
++        compile(&[
++            r#"(?i)\[System\.IO\.File\]::WriteAllText\s*\(\s*['"]?([^,;)'"]+)['"]?"#,
++            r#"(?i)\[System\.IO\.File\]::WriteAllLines\s*\(\s*['"]?([^,;)'"]+)['"]?"#,
++            r#"(?i)\[System\.IO\.File\]::WriteAllBytes\s*\(\s*['"]?([^,;)'"]+)['"]?"#,
++            r#"(?i)\[System\.IO\.File\]::AppendAllText\s*\(\s*['"]?([^,;)'"]+)['"]?"#,
++        ])
++    })
++}
++
++/// 删除族命令名。
++fn delete_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| {
++        compile(&[r"(?i)(?:^|[\s;&|(])(?:Remove-Item|rmdir|unlink|rm|del|rd)\s+([^;&|\n]*)"])
++    })
++}
++
++/// 双参移动族命令名（旧删 + 新写）。
++fn move_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| {
++        compile(&[r"(?i)(?:^|[\s;&|(])(?:Move-Item|Rename-Item|ren|mv)\s+([^;&|\n]*)"])
++    })
++}
++
++/// `git restore|checkout|rm` 子命令（组 1 = 子命令，组 2 = 参数串）。
++fn git_subcommand_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)\bgit\s+(restore|checkout|rm)\b([^\n;&|]*)"]))
++}
++
++/// 档 B：`cp` / `Copy-Item`（目标位 = 末个非 flag token）。
++fn copy_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)(?:^|[\s;&|(])(?:cp|Copy-Item)\s+([^;&|\n]*)"]))
++}
++
++/// 档 B：`dd`（取 `of=`）。
++fn dd_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)(?:^|[\s;&|(])dd\s+([^;&|\n]*)"]))
++}
++
++/// 档 B：`sed` / `perl`（仅 `-i` 形态）。
++fn sed_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)(?:^|[\s;&|(])(?:sed|perl)\s+([^;&|\n]*)"]))
++}
++
++/// 档 B：`truncate`（`-s` / `--size=` 之后的路径）。
++fn truncate_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)(?:^|[\s;&|(])truncate\s+([^;&|\n]*)"]))
++}
++
++/// 档 B：`find`（仅 `-delete` 形态，搜索根走子树相交判定）。
++fn find_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)(?:^|[\s;&|(])find\s+([^;&|\n]*)"]))
++}
++
++/// 批量还原：`git stash`。
++fn stash_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)\bgit\s+stash\b([^\n;&|]*)"]))
++}
++
++/// 批量还原：`git clean`。
++fn clean_command_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| compile(&[r"(?i)\bgit\s+clean\b([^\n;&|]*)"]))
++}
++
++// ---------------------------------------------------------------------------
++// 命令名定位 + 参数切片
++// ---------------------------------------------------------------------------
++
++/// `name_text` 的字节偏移 → char 索引（两变体等长，故 char 索引直接用于变体 A）。
++fn byte_to_char(text: &str, byte: usize) -> usize {
++    text.get(..byte)
++        .map(|prefix| prefix.chars().count())
++        .unwrap_or_else(|| text.chars().count())
++}
++
++/// 在变体 B 上定位命令名、按同索引从变体 A 切参数串（组 1 = 参数串）。
++fn scan_args(regexes: &[Regex], name_text: &str, arg_text: &str) -> Vec<String> {
++    let arg_chars: Vec<char> = arg_text.chars().collect();
++    let mut results = Vec::new();
++    for regex in regexes {
++        for captures in regex.captures_iter(name_text) {
++            let Some(group) = captures.get(1) else {
++                continue;
++            };
++            let start = byte_to_char(name_text, group.start()).min(arg_chars.len());
++            let end = byte_to_char(name_text, group.end()).min(arg_chars.len());
++            if start > end {
++                continue;
++            }
++            results.push(arg_chars[start..end].iter().collect::<String>());
++        }
++    }
++    results
++}
++
++/// [`scan_args`] 的双组变体（组 1 = 子命令，组 2 = 参数串）。
++fn scan_groups(regexes: &[Regex], name_text: &str, arg_text: &str) -> Vec<(String, String)> {
++    let arg_chars: Vec<char> = arg_text.chars().collect();
++    let mut results = Vec::new();
++    for regex in regexes {
++        for captures in regex.captures_iter(name_text) {
++            let (Some(lead), Some(args)) = (captures.get(1), captures.get(2)) else {
++                continue;
++            };
++            let start = byte_to_char(name_text, args.start()).min(arg_chars.len());
++            let end = byte_to_char(name_text, args.end()).min(arg_chars.len());
++            if start > end {
++                continue;
++            }
++            results.push((
++                lead.as_str().to_owned(),
++                arg_chars[start..end].iter().collect::<String>(),
++            ));
++        }
++    }
++    results
++}
++
++/// 操作落点构造（`$` / 空串 token 在落点丢弃 → 该 op 不产出）。
++fn path_op(kind: OpKind, token: &str) -> Option<FileOp> {
++    let token = token.trim();
++    if token.is_empty() || !is_literal_path(token) {
++        return None;
++    }
++    Some(FileOp {
++        kind,
++        target: OpTarget::Path(token.to_owned()),
++    })
++}
++
++// ---------------------------------------------------------------------------
++// 三态提取
++// ---------------------------------------------------------------------------
++
++/// 重定向写入族（`>` / `>>` / `>|` / `tee` + `>&`）；`>&` 的纯数字目标在这里
++/// 过滤（替代 JS 前瞻：`2>&1` / `1>&2` / `>&2` 是 fd 复制，非文件）。
++fn redirect_write_ops(arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for regex in redirect_write_regexes() {
++        for captures in regex.captures_iter(arg_text) {
++            if let Some(target) = captures.get(1) {
++                ops.extend(path_op(OpKind::Write, target.as_str()));
++            }
++        }
++    }
++    for regex in descriptor_dup_regexes() {
++        for captures in regex.captures_iter(arg_text) {
++            let Some(target) = captures.get(1) else {
++                continue;
++            };
++            let target = target.as_str();
++            // 裸整数目标 = 描述符复制（`2>&1`），不是文件
++            if target.chars().all(|ch| ch.is_ascii_digit()) {
++                continue;
++            }
++            ops.extend(path_op(OpKind::Write, target));
++        }
++    }
++    ops
++}
++
++/// PowerShell 方言写入（重定向 / 六 cmdlet / `[System.IO.File]::WriteAll*`）。
++fn powershell_write_ops(arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for regexes in [
++        powershell_redirect_regexes(),
++        powershell_cmdlet_regexes(),
++        dotnet_write_regexes(),
++    ] {
++        for regex in regexes {
++            for captures in regex.captures_iter(arg_text) {
++                if let Some(target) = captures.get(1) {
++                    ops.extend(path_op(OpKind::Write, target.as_str()));
++                }
++            }
++        }
++    }
++    ops
++}
++
++/// 删除族（`rm` / `rmdir` / `unlink` / `del` / `rd` / `Remove-Item`；`git rm`
++/// 由 git 子命令面另记，判定侧首个命中即止消化）。
++fn delete_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for args in scan_args(delete_command_regexes(), name_text, arg_text) {
++        for token in tokenize(&args) {
++            if is_flag(&token) {
++                continue;
++            }
++            ops.extend(path_op(OpKind::Delete, &token));
++        }
++    }
++    ops
++}
++
++/// 双参移动族：旧路径 delete + 新路径 write（恰两个字面路径 token 才成立）。
++fn move_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for args in scan_args(move_command_regexes(), name_text, arg_text) {
++        let paths: Vec<String> = tokenize(&args)
++            .into_iter()
++            .filter(|token| !is_flag(token) && is_literal_path(token))
++            .collect();
++        if paths.len() == 2 {
++            ops.extend(path_op(OpKind::Delete, &paths[0]));
++            ops.extend(path_op(OpKind::Write, &paths[1]));
++        }
++    }
++    ops
++}
++
++/// `git rm <paths>` → delete（跳过 flag）。
++fn git_rm_ops(tokens: &[String]) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for token in tokens {
++        if is_flag(token) {
++            continue;
++        }
++        ops.extend(path_op(OpKind::Delete, token));
++    }
++    ops
++}
++
++/// `git restore` 参数 → ops（`--source=` / `-s <ref>` → write，裸形态 → revert）。
++fn restore_ops(tokens: &[String]) -> Vec<FileOp> {
++    let mut from_source = false;
++    let mut ops = Vec::new();
++    let mut index = 0;
++    while index < tokens.len() {
++        let token = tokens[index].as_str();
++        if token.starts_with("--source=") || token == "-s" {
++            from_source = true;
++            // 分离值形态（`-s <ref>`）：跳过 commit-ish
++            index += if token == "-s" { 2 } else { 1 };
++            continue;
++        }
++        if !is_flag(token) {
++            let kind = if from_source {
++                OpKind::Write
++            } else {
++                OpKind::Revert
++            };
++            ops.extend(path_op(kind, token));
++        }
++        index += 1;
++    }
++    ops
++}
++
++/// `git checkout -- <paths>` → ops（`--` 之前的非 flag token 决定 write / revert；
++/// commit-ish 侧不做 `$` 过滤，故 `git checkout $REF -- src/a.ts` 仍判 write）。
++fn checkout_ops(tokens: &[String]) -> Vec<FileOp> {
++    let Some(sep) = tokens.iter().position(|token| token == "--") else {
++        return Vec::new();
++    };
++    let from_source = tokens[..sep].iter().any(|token| !is_flag(token.as_str()));
++    let mut ops = Vec::new();
++    for token in &tokens[sep + 1..] {
++        if is_flag(token.as_str()) {
++            continue;
++        }
++        let kind = if from_source {
++            OpKind::Write
++        } else {
++            OpKind::Revert
++        };
++        ops.extend(path_op(kind, token.as_str()));
++    }
++    ops
++}
++
++/// `git restore` / `checkout` / `rm` 的 write / revert / delete ops。
++fn git_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for (sub, args) in scan_groups(git_subcommand_regexes(), name_text, arg_text) {
++        let tokens = tokenize(&args);
++        match sub.to_ascii_lowercase().as_str() {
++            "rm" => ops.extend(git_rm_ops(&tokens)),
++            "restore" => ops.extend(restore_ops(&tokens)),
++            "checkout" => ops.extend(checkout_ops(&tokens)),
++            _ => {}
++        }
++    }
++    ops
++}
++
++/// 档 B：`cp` / `Copy-Item` 的目标位（末个非 flag 非 `$` token）→ write。
++fn copy_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for args in scan_args(copy_command_regexes(), name_text, arg_text) {
++        let tokens = tokenize(&args);
++        let target = tokens
++            .iter()
++            .rev()
++            .find(|token| !is_flag(token.as_str()) && is_literal_path(token.as_str()));
++        if let Some(target) = target {
++            ops.extend(path_op(OpKind::Write, target.as_str()));
++        }
++    }
++    ops
++}
++
++/// 档 B：`dd` 的 `of=<path>` → write（`if=` 是源，天然不取）。
++fn dd_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for args in scan_args(dd_command_regexes(), name_text, arg_text) {
++        for token in tokenize(&args) {
++            let Some(value) = token.strip_prefix("of=") else {
++                continue;
++            };
++            ops.extend(path_op(OpKind::Write, value.trim_matches(['\'', '"'])));
++        }
++    }
++    ops
++}
++
++/// 原地改写 flag 判据：`-i` / `-i.bak` / `-pie` 紧贴形态与 `--in-place[=…]`。
++fn is_in_place_flag(token: &str) -> bool {
++    if token == "--in-place" || token.starts_with("--in-place=") {
++        return true;
++    }
++    if !token.starts_with('-') || token.starts_with("--") {
++        return false;
++    }
++    let cluster = token[1..].split('.').next().unwrap_or_default();
++    cluster.contains('i')
++}
++
++/// 档 B：`sed -i` / `perl -i` 的末个非 flag 非 `$` token → write（无 `-i`
++/// 是纯读，恒零 op——纯读 MUST NOT 误拦）。
++fn sed_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for args in scan_args(sed_command_regexes(), name_text, arg_text) {
++        let tokens = tokenize(&args);
++        if !tokens.iter().any(|token| is_in_place_flag(token)) {
++            continue;
++        }
++        let target = tokens
++            .iter()
++            .rev()
++            .find(|token| !is_flag(token.as_str()) && is_literal_path(token.as_str()));
++        if let Some(target) = target {
++            ops.extend(path_op(OpKind::Write, target.as_str()));
++        }
++    }
++    ops
++}
++
++/// 档 B：`truncate` 的 `-s` / `--size=` 取值之后的第一个非 flag 非 `$` token
++/// → write（`-r` 引用形态不覆盖）。
++fn truncate_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for args in scan_args(truncate_command_regexes(), name_text, arg_text) {
++        let tokens = tokenize(&args);
++        let mut rest = None;
++        let mut index = 0;
++        while index < tokens.len() {
++            let token = tokens[index].as_str();
++            if token == "-s" || token == "--size" {
++                rest = Some(index + 2); // 跳过 flag 与其取值
++                break;
++            }
++            if token.starts_with("--size=") {
++                rest = Some(index + 1);
++                break;
++            }
++            index += 1;
++        }
++        let Some(from) = rest else {
++            continue;
++        };
++        let target = tokens
++            .iter()
++            .skip(from)
++            .find(|token| !is_flag(token.as_str()) && is_literal_path(token.as_str()));
++        if let Some(target) = target {
++            ops.extend(path_op(OpKind::Write, target.as_str()));
++        }
++    }
++    ops
++}
++
++/// 档 B：`find … -delete` 的搜索根（首个非 flag 非 `$` token，缺省 `.`）→
++/// delete + `Tree`（匹配项不可静态预知，删除场景按「保护整个搜索根」保守处理）。
++fn find_ops(name_text: &str, arg_text: &str) -> Vec<FileOp> {
++    let mut ops = Vec::new();
++    for args in scan_args(find_command_regexes(), name_text, arg_text) {
++        let tokens = tokenize(&args);
++        if !tokens.iter().any(|token| token == "-delete") {
++            continue;
++        }
++        let root = tokens
++            .iter()
++            .find(|token| !is_flag(token.as_str()) && is_literal_path(token.as_str()))
++            .cloned()
++            .unwrap_or_else(|| ".".to_owned());
++        ops.push(FileOp {
++            kind: OpKind::Delete,
++            target: OpTarget::Tree(root),
++        });
++    }
++    ops
++}
++
++/// 三态提取总入口（保序、不折叠、不去重：`git rm` 与 `rm` 双记由判定侧
++/// 「首个命中即止」消化）：重定向族 → PS 方言 → 删除族 → 移动族 → git 子命令
++/// → 档 B 五族。
++pub(super) fn extract_file_ops(command: &str) -> Vec<FileOp> {
++    let (name_text, arg_text) = masked_variants(command);
++    let mut ops = Vec::new();
++    ops.extend(redirect_write_ops(&arg_text));
++    ops.extend(powershell_write_ops(&arg_text));
++    ops.extend(delete_ops(&name_text, &arg_text));
++    ops.extend(move_ops(&name_text, &arg_text));
++    ops.extend(git_ops(&name_text, &arg_text));
++    ops.extend(copy_ops(&name_text, &arg_text));
++    ops.extend(dd_ops(&name_text, &arg_text));
++    ops.extend(sed_ops(&name_text, &arg_text));
++    ops.extend(truncate_ops(&name_text, &arg_text));
++    ops.extend(find_ops(&name_text, &arg_text));
++    ops
++}
++
++/// `git restore` / `checkout` / `rm` 的 ops（批量还原判定复用；`revert` 态只在
++/// 这里被消费）。
++pub(super) fn extract_git_ops(command: &str) -> Vec<FileOp> {
++    let (name_text, arg_text) = masked_variants(command);
++    git_ops(&name_text, &arg_text)
++}
++
++// ---------------------------------------------------------------------------
++// 批量还原拦截
++// ---------------------------------------------------------------------------
++
++/// `git clean` 的预览形态（`--dry-run` 或 `-[^-]*n`）：放行。
++fn is_dry_run(token: &str) -> bool {
++    if token == "--dry-run" {
++        return true;
++    }
++    token.starts_with('-') && !token.starts_with("--") && token.chars().skip(1).any(|ch| ch == 'n')
++}
++
++/// 批量还原 / 清理判定：命中即返回**中间事实串**（由
++/// `reason::bulk_revert_reason` 包成完整文案）。
++///
++/// 三条规则：`git stash`（除 `list` / `show`）→ 拒；`git clean`（无路径参数 /
++/// 任一目录参数命中域目录树）→ 拒（`-n` / `--dry-run` 放行）；`git restore` /
++/// `git checkout --` 的 revert 目标命中 changes 子树 → 拒（源码目标放行——逐
++/// 路径撤销是规范动作）。
++///
++/// `cwd` 只作路径解析与子树判定锚定基座，内部零 IO。
++pub(super) fn bulk_revert_detail(command: &str, globs: &BulkGlobs, cwd: &Path) -> Option<String> {
++    let (name_text, arg_text) = masked_variants(command);
++
++    for args in scan_args(stash_command_regexes(), &name_text, &arg_text) {
++        let first = tokenize(&args).into_iter().next();
++        let readonly = first
++            .as_deref()
++            .map(|token| token.eq_ignore_ascii_case("list") || token.eq_ignore_ascii_case("show"))
++            .unwrap_or(false);
++        if !readonly {
++            return Some("git stash 会批量改写工作区".to_owned());
++        }
++    }
++
++    for args in scan_args(clean_command_regexes(), &name_text, &arg_text) {
++        let tokens = tokenize(&args);
++        if tokens.iter().any(|token| is_dry_run(token)) {
++            continue;
++        }
++        let paths: Vec<&String> = tokens
++            .iter()
++            .filter(|token| !is_flag(token.as_str()))
++            .collect();
++        if paths.is_empty() {
++            return Some("git clean 会批量删除文件（未限定路径）".to_owned());
++        }
++        for path in paths {
++            let Some(dir) = rules::resolve(cwd, path) else {
++                continue;
++            };
++            if rules::glob_dir_hit(&dir, &globs.artifacts, cwd) {
++                return Some(format!("git clean 会批量删除文件: {dir}"));
++            }
++        }
++    }
++
++    for op in extract_git_ops(command) {
++        if op.kind != OpKind::Revert {
++            continue;
++        }
++        let OpTarget::Path(path) = op.target else {
++            continue;
++        };
++        let Some(resolved) = rules::resolve(cwd, &path) else {
++            continue;
++        };
++        if rules::glob_dir_hit(&resolved, &globs.changes, cwd) {
++            return Some(format!("git restore 作用于工作流产物: {resolved}"));
++        }
++    }
++
++    None
++}
+diff --git a/crates/infra/agent/src/sdk/protect/shell_test.rs b/crates/infra/agent/src/sdk/protect/shell_test.rs
+new file mode 100644
+index 000000000000..96a6b3ba4a97
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/shell_test.rs
+@@ -0,0 +1,981 @@
++//! `shell` 的单元测试（AC-3 / AC-4 / AC-5 / AC-6）：命令文本写入面提取（双变体
++//! 等长掩码 + token 纪律 + 三态 + 档 B 五族 + 批量还原三规则）。
++//!
++//! 断言口径：
++//! - 「提取」用例只锚定 `Vec<FileOp>` 的形状 / 顺序 / 落点（命中判定归
++//!   `protect/mod.rs`，本文件不判命中）；
++//! - 零 mock：命令字符串即被测 API 显式入参，纯文本函数零 IO / 零子进程 / 零
++//!   时钟；`cwd` 以真实 `tempdir` 路径传入（不读盘）；
++//! - 精度双向（AC-5）：误拦方向与漏拦方向各自断言，MUST NOT 只锚单向。
++
++use std::path::Path;
++
++use foundation::layout;
++
++use super::rules;
++use super::shell::{self, FileOp, OpKind, OpTarget};
++
++// ---------------------------------------------------------------------------
++// 装置：操作落点构造（被测类型直构）+ 断言辅助
++// ---------------------------------------------------------------------------
++
++fn write_path(path: &str) -> FileOp {
++    FileOp {
++        kind: OpKind::Write,
++        target: OpTarget::Path(path.to_owned()),
++    }
++}
++
++fn delete_path(path: &str) -> FileOp {
++    FileOp {
++        kind: OpKind::Delete,
++        target: OpTarget::Path(path.to_owned()),
++    }
++}
++
++fn revert_path(path: &str) -> FileOp {
++    FileOp {
++        kind: OpKind::Revert,
++        target: OpTarget::Path(path.to_owned()),
++    }
++}
++
++fn delete_tree(path: &str) -> FileOp {
++    FileOp {
++        kind: OpKind::Delete,
++        target: OpTarget::Tree(path.to_owned()),
++    }
++}
++
++/// 落点文本（`Path` 与 `Tree` 同形取材，便于逐条断言）。
++fn target_text(op: &FileOp) -> &str {
++    match &op.target {
++        OpTarget::Path(path) | OpTarget::Tree(path) => path,
++    }
++}
++
++/// 去重后的 (操作态, 落点) 序列（族间重复提取路径归一，如重定向族与 PS 方言
++/// 对同一 `>` 各记一条）。
++fn unique(ops: &[FileOp]) -> Vec<(OpKind, String)> {
++    let mut deduped: Vec<(OpKind, String)> = Vec::new();
++    for op in ops {
++        let pair = (op.kind, target_text(op).to_owned());
++        if !deduped.contains(&pair) {
++            deduped.push(pair);
++        }
++    }
++    deduped
++}
++
++fn tempdir(tag: &str) -> tempfile::TempDir {
++    tempfile::Builder::new()
++        .prefix(&format!("sdk-protect-shell-{tag}-"))
++        .tempdir()
++        .expect("创建合成目录失败")
++}
++
++/// 归一文本（与 `rules::normalize` 同口径，用于拼 cwd 相对/绝对路径）。
++fn normalized(path: &Path) -> String {
++    rules::normalize(&path.to_string_lossy())
++}
++
++/// 域目录相对路径（由 layout 派生，脚本内零目录名字面量）。
++fn domain_relative() -> String {
++    rules::normalize(&format!("{}/x.md", layout::domain_dir_name()))
++}
++
++/// changes 子树相对路径（由 layout 派生）。
++fn changes_relative() -> String {
++    format!(
++        "{}/x/proposal.md",
++        rules::normalize(
++            &layout::resolve(Path::new(""))
++                .changes_root
++                .to_string_lossy()
++        )
++    )
++}
++
++/// 批量还原判定入口（`BulkGlobs` 是被测 API 的显式注入依赖，取真实派生值）。
++fn bulk_hit(command: &str, cwd: &Path) -> Option<String> {
++    shell::bulk_revert_detail(command, &rules::bulk_globs(), cwd)
++}
++
++/// 掩码不变量：等长 + 逐位「原文或掩码填充」（两变体 char 索引 1:1 互通的
++/// 机械保证）。
++fn assert_mask_invariant(original: &str, masked: &str) {
++    let source: Vec<char> = original.chars().collect();
++    let product: Vec<char> = masked.chars().collect();
++    assert_eq!(
++        source.len(),
++        product.len(),
++        "掩码输出与原文等长（char 计），原文: {original:?}"
++    );
++    for (index, (source_char, masked_char)) in source.iter().zip(product.iter()).enumerate() {
++        assert!(
++            masked_char == source_char || *masked_char == '\u{0}',
++            "第 {index} 位只能是原文或掩码填充，原文: {original:?}，产物: {masked:?}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 掩码（精度唯一来源）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 掩码变体a只掩heredoc体而保留引号() {
++    let command = "cat <<EOF\nrm -rf /\nEOF\necho tail";
++    let masked = shell::mask_heredocs(command);
++    assert!(
++        !masked.contains("rm -rf /"),
++        "heredoc 体内的删除命令被逐字符掩掉，产物: {masked:?}"
++    );
++    assert!(
++        masked.starts_with("cat <<EOF\n"),
++        "开标记行保留，产物: {masked:?}"
++    );
++    assert!(
++        masked.ends_with("\necho tail"),
++        "结束 marker 行之后内容保留，产物: {masked:?}"
++    );
++
++    let quoted = "echo \"a b\"";
++    assert_eq!(
++        shell::mask_heredocs(quoted),
++        quoted,
++        "变体 A 只掩 heredoc 体：引号与内容逐字符保留"
++    );
++}
++
++#[test]
++fn 掩码变体a等长且逐位只替换不位移() {
++    let commands = [
++        "echo foo > notes.txt",
++        "cat <<EOF\nbody\nEOF",
++        "cat <<A\nx\nA\ncat <<B\ny\nB",
++        "echo 中文🚀 > 目标.txt",
++    ];
++    for command in commands {
++        assert_mask_invariant(command, &shell::mask_heredocs(command));
++    }
++}
++
++#[test]
++fn 掩码变体a多heredoc与缩进结束符与未闭合() {
++    let double = shell::mask_heredocs("cat <<A\nx\nA\ncat <<B\ny\nB");
++    assert!(
++        !double.contains('x') && !double.contains('y'),
++        "两段 heredoc 体均被掩，产物: {double:?}"
++    );
++
++    let dashed = shell::mask_heredocs("cat <<-EOF\nbody\n\tEOF");
++    assert!(
++        !dashed.contains("body"),
++        "`<<-` 与缩进结束符形态同掩，产物: {dashed:?}"
++    );
++
++    let unclosed = "cat <<EOF";
++    assert_eq!(
++        shell::mask_heredocs(unclosed),
++        unclosed,
++        "未闭合 heredoc 候选丢弃（fail-open）且不 panic"
++    );
++}
++
++#[test]
++fn 掩码引号内的heredoc候选不越界() {
++    let command = "echo \"<<EOF\"";
++    assert_eq!(
++        shell::mask_heredocs(command),
++        command,
++        "引号内的 `<<` 不构成开标记（等长 / 不 panic）"
++    );
++    assert_eq!(shell::mask_heredocs(""), "", "空串 → 空串");
++}
++
++#[test]
++fn 掩码变体b掩引号串而变体a保留() {
++    let command = "echo \"rm -rf /\" > x";
++    let masked_b = shell::mask_quoted_and_heredoc(command);
++    let masked_a = shell::mask_heredocs(command);
++    assert!(
++        !masked_b.contains("rm -rf /"),
++        "变体 B 掩引号串（命令名定位不到 `rm`），产物: {masked_b:?}"
++    );
++    assert!(
++        masked_a.contains("rm -rf /"),
++        "变体 A 保留引号内容（写入正则运行面），产物: {masked_a:?}"
++    );
++
++    // 引号区之外两变体逐字符一致
++    let source: Vec<char> = command.chars().collect();
++    let a: Vec<char> = masked_a.chars().collect();
++    let b: Vec<char> = masked_b.chars().collect();
++    for (index, (source_char, b_char)) in source.iter().zip(b.iter()).enumerate() {
++        if *b_char != '\u{0}' {
++            assert_eq!(*b_char, a[index], "第 {index} 位（引号区之外）两变体一致");
++            assert_eq!(*b_char, *source_char, "第 {index} 位未被掩码即原文");
++        }
++    }
++}
++
++#[test]
++fn 掩码变体b引号族与畸形形态等长不panic() {
++    let cases = [
++        "echo 'rm -rf /'",
++        "echo \"rm -rf /\"",
++        "echo `rm -rf /`",
++        "Set-Content 'p' 'x'",
++        "echo \"a",
++        "echo \"a \\\"b\\\" c\"",
++    ];
++    for command in cases {
++        assert_mask_invariant(command, &shell::mask_quoted_and_heredoc(command));
++    }
++
++    // 未闭合引号：候选放弃（fail-open，其后按未掩码处理）
++    let unclosed = "echo \"a b";
++    assert_eq!(
++        shell::mask_quoted_and_heredoc(unclosed),
++        unclosed,
++        "未闭合引号不掩码（fail-open）"
++    );
++    // 反引号不在掩码引号面（`'` / `"` 两族），命令替换形态按未掩码处理
++    let backtick = "echo `rm -rf /`";
++    assert_eq!(
++        shell::mask_quoted_and_heredoc(backtick),
++        backtick,
++        "反引号串不在掩码面（既定口径，不 panic）"
++    );
++}
++
++#[test]
++fn 两变体与原文等长互通() {
++    let long = format!("echo {} > p", "y".repeat(1_000));
++    let commands = [
++        "echo a > b",
++        "cat <<EOF\nrm -rf /\nEOF",
++        "rm -rf 'a b.txt'",
++        "echo 中文🚀 > 目标.txt",
++        "sed -i 's/中文/🚀/' p",
++        long.as_str(),
++    ];
++    for command in commands {
++        let source = command.chars().count();
++        assert_eq!(
++            shell::mask_heredocs(command).chars().count(),
++            source,
++            "变体 A 等长，命令: {command:?}"
++        );
++        assert_eq!(
++            shell::mask_quoted_and_heredoc(command).chars().count(),
++            source,
++            "变体 B 等长（索引 1:1 互通），命令: {command:?}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// token 纪律
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 切分_按空白切分并剥包裹引号剔空() {
++    // 口径：split_whitespace 先切、再 trim 首尾引号（不解析引号内的空白边界）
++    assert_eq!(shell::tokenize("\"a b\" c"), vec!["a", "b", "c"]);
++    assert_eq!(shell::tokenize("'x y' z"), vec!["x", "y", "z"]);
++    assert_eq!(
++        shell::tokenize("  a\t b\n c  "),
++        vec!["a", "b", "c"],
++        "多空白 / tab / 换行全剔空"
++    );
++}
++
++#[test]
++fn 切分_不做变量过滤且空串为空表() {
++    assert_eq!(
++        shell::tokenize("git clean $TARGET"),
++        vec!["git", "clean", "$TARGET"],
++        "`$` token 原样保留（`git clean` 零路径判定依赖原始 token 计数）"
++    );
++    assert!(shell::tokenize("").is_empty());
++    assert!(shell::tokenize("   \t\n ").is_empty());
++}
++
++#[test]
++fn 切分_边界字符不panic() {
++    assert_eq!(
++        shell::tokenize("'中文 路径' 🚀"),
++        vec!["中文", "路径", "🚀"],
++        "引号内中文 / emoji / 空格原样保留"
++    );
++    assert_eq!(
++        shell::tokenize("'未闭合"),
++        vec!["未闭合"],
++        "未闭合引号剥到末尾不 panic"
++    );
++    assert_eq!(
++        shell::tokenize(&"t".repeat(10_000)).len(),
++        1,
++        "10 KB 单 token 不 panic"
++    );
++}
++
++#[test]
++fn flag判定两向() {
++    for token in ["-n", "--dry-run", "-i.bak", "-s", "-"] {
++        assert!(shell::is_flag(token), "`-` 起手即 flag: {token}");
++    }
++    for token in ["a", "openspec", "./a", "", "中文", "🚀"] {
++        assert!(!shell::is_flag(token), "非 `-` 起手不是 flag: {token:?}");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// extract_file_ops：重定向族 / fd 复制 / 箭头守卫 / 数据面
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 重定向族五种形态均落到写入落点() {
++    for command in [
++        "echo {} > p",
++        "echo {} >> p",
++        "echo {} >| p",
++        "echo {} | tee p",
++        "echo {} &> p",
++    ] {
++        let ops = shell::extract_file_ops(command);
++        assert!(!ops.is_empty(), "重定向族应产出写入 op: {command:?}");
++        assert_eq!(
++            unique(&ops),
++            vec![(OpKind::Write, "p".to_owned())],
++            "目标位唯一且为写入，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn 描述符复制不产生文件操作() {
++    for command in ["foo 2>&1", "foo 1>&2", "foo 3>&2", "foo >&2"] {
++        assert!(
++            shell::extract_file_ops(command).is_empty(),
++            "纯数字目标 = 描述符复制（非文件），命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn 箭头与等号形态不误判为写入() {
++    for command in ["echo a->b", "node -e \"x => p\"", "echo a => p"] {
++        assert!(
++            shell::extract_file_ops(command).is_empty(),
++            "`>` 前缀守卫（只排 `-` 与 `=`）使箭头 / 等号不误判，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn heredoc体与引号内文本按数据面处理() {
++    let heredoc = shell::extract_file_ops("cat <<EOF > notes.txt\nrm -rf /\n> ignored.txt\nEOF");
++    assert!(!heredoc.is_empty(), "头部重定向仍产出写入 op");
++    assert!(
++        heredoc
++            .iter()
++            .all(|op| op.kind == OpKind::Write && target_text(op) == "notes.txt"),
++        "体内 `rm` 与 `> ignored.txt` 不算（只余头部目标），实际: {heredoc:?}"
++    );
++
++    let quoted = shell::extract_file_ops("echo \"rm -rf /\" > notes.txt");
++    assert!(
++        quoted.iter().all(|op| op.kind == OpKind::Write),
++        "引号内 `rm` 不产出删除 op，实际: {quoted:?}"
++    );
++    assert!(
++        quoted.iter().any(|op| target_text(op) == "notes.txt"),
++        "引号外的真实目标照旧提取"
++    );
++}
++
++#[test]
++fn 变量落点丢弃而字面量落点保留() {
++    for command in ["echo x > $OUT", "rm $TARGET", "echo x > ${OUT}"] {
++        assert!(
++            shell::extract_file_ops(command).is_empty(),
++            "`$` 落点不可知即丢弃该 op，命令: {command:?}"
++        );
++    }
++    assert_eq!(
++        shell::extract_file_ops("cp $SRC dst"),
++        vec![write_path("dst")],
++        "末参字面量保留（源被丢）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// extract_file_ops：删除族 / 多目标 / 移动族
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 删除族七命令名均产出删除落点() {
++    for command in [
++        "rm p",
++        "rm -rf p",
++        "rmdir p",
++        "unlink p",
++        "del p",
++        "rd /s /q p",
++        "Remove-Item -Recurse p",
++        "git rm p",
++    ] {
++        let ops = shell::extract_file_ops(command);
++        assert!(
++            ops.contains(&delete_path("p")),
++            "含删除落点 p（flag 跳过），命令: {command:?}，实际: {ops:?}"
++        );
++    }
++}
++
++#[test]
++fn 删除族多目标保序且重复不折叠() {
++    assert_eq!(
++        shell::extract_file_ops("rm a b"),
++        vec![delete_path("a"), delete_path("b")],
++        "多目标保序"
++    );
++    assert_eq!(
++        shell::extract_file_ops("rm p p"),
++        vec![delete_path("p"), delete_path("p")],
++        "重复目标不去重"
++    );
++    assert!(
++        shell::extract_file_ops("rm -f").is_empty(),
++        "只有 flag 时零 op"
++    );
++    assert_eq!(
++        shell::extract_file_ops("rm a && rm b"),
++        vec![delete_path("a"), delete_path("b")],
++        "链式命令保序"
++    );
++}
++
++#[test]
++fn 移动族产出旧删加新写两条() {
++    for command in [
++        "mv a b",
++        "ren a b",
++        "Rename-Item a b",
++        "Move-Item a b",
++        "mv -f a b",
++    ] {
++        assert_eq!(
++            shell::extract_file_ops(command),
++            vec![delete_path("a"), write_path("b")],
++            "旧路径删除 + 新路径写入，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn 移动族单参或零参不猜目标() {
++    for command in ["mv p", "mv"] {
++        assert!(
++            shell::extract_file_ops(command).is_empty(),
++            "非恰两字面路径 token 不产出 op，命令: {command:?}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// extract_file_ops：PowerShell 方言
++// ---------------------------------------------------------------------------
++
++#[test]
++fn ps重定向与六cmdlet均产出写入落点() {
++    for command in ["2> p", "*> p"] {
++        let ops = shell::extract_file_ops(command);
++        assert!(!ops.is_empty(), "PS 重定向应产出写入 op: {command:?}");
++        assert_eq!(
++            unique(&ops),
++            vec![(OpKind::Write, "p".to_owned())],
++            "重定向目标唯一，命令: {command:?}"
++        );
++    }
++    for command in [
++        "Set-Content p",
++        "Out-File p",
++        "Add-Content p",
++        "Export-Csv p",
++        "Export-CliXml p",
++        "Tee-Object p",
++        "Set-Content -Path p",
++    ] {
++        assert_eq!(
++            shell::extract_file_ops(command),
++            vec![write_path("p")],
++            "cmdlet 目标位（可带 -Path）取到 p，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn dotnet静态写方法取首参而读方法与变量首参不产出() {
++    for command in [
++        "[System.IO.File]::WriteAllText(\"p\", \"x\")",
++        "[System.IO.File]::WriteAllLines(\"p\", $x)",
++        "[System.IO.File]::WriteAllBytes(\"p\", $b)",
++        "[System.IO.File]::AppendAllText(\"p\", \"x\")",
++    ] {
++        assert_eq!(
++            shell::extract_file_ops(command),
++            vec![write_path("p")],
++            "四个写方法首参即落点，命令: {command:?}"
++        );
++    }
++    assert!(
++        shell::extract_file_ops("[System.IO.File]::WriteAllText($p, \"x\")").is_empty(),
++        "首参为变量（`$`）即丢弃"
++    );
++    assert!(
++        shell::extract_file_ops("[System.IO.File]::ReadAllText(\"p\")").is_empty(),
++        "读方法不在写入面"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// extract_file_ops：档 B 五族
++// ---------------------------------------------------------------------------
++
++#[test]
++fn cp族目标位取末个字面token() {
++    for command in ["cp a p", "cp -r a p", "cp a b p", "Copy-Item -Recurse a p"] {
++        assert_eq!(
++            shell::extract_file_ops(command),
++            vec![write_path("p")],
++            "cp 族目标位 = 末个非 flag 非 `$` token，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn dd只取of等号而if等号为源() {
++    assert_eq!(
++        shell::extract_file_ops("dd if=/tmp/x of=p"),
++        vec![write_path("p")],
++        "`of=` 即落点"
++    );
++    let reverse = shell::extract_file_ops("dd if=p of=/tmp/x");
++    assert_eq!(reverse, vec![write_path("/tmp/x")], "`if=` 显式跳过");
++    assert!(
++        !reverse.iter().any(|op| target_text(op) == "p"),
++        "源路径 p 零 op"
++    );
++}
++
++#[test]
++fn sed与perl仅原地改写形态产出写入落点() {
++    for command in [
++        "sed -i 's/a/b/' p",
++        "sed -i.bak 's/a/b/' p",
++        "perl -i -pe 's/a/b/' p",
++    ] {
++        assert_eq!(
++            shell::extract_file_ops(command),
++            vec![write_path("p")],
++            "原地改写取末个非 flag token，命令: {command:?}"
++        );
++    }
++    for command in ["sed 's/a/b/' p", "perl -pe 's/a/b/' p"] {
++        assert!(
++            shell::extract_file_ops(command).is_empty(),
++            "无 `-i` 的纯读 MUST NOT 产出 op（不误拦），命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn truncate取size取值之后的路径() {
++    assert_eq!(
++        shell::extract_file_ops("truncate -s 0 p"),
++        vec![write_path("p")]
++    );
++    assert_eq!(
++        shell::extract_file_ops("truncate --size=0 p"),
++        vec![write_path("p")]
++    );
++    assert!(
++        shell::extract_file_ops("truncate p").is_empty(),
++        "无 `-s` / `--size=` 不产出 op"
++    );
++}
++
++#[test]
++fn find仅delete形态取搜索根为树落点() {
++    assert_eq!(
++        shell::extract_file_ops("find . -delete"),
++        vec![delete_tree(".")],
++        "搜索根 `.` 走子树落点"
++    );
++    assert_eq!(
++        shell::extract_file_ops("find src -name '*.rs' -delete"),
++        vec![delete_tree("src")],
++        "首个非 flag token 即搜索根"
++    );
++    assert!(
++        shell::extract_file_ops("find . -print").is_empty(),
++        "无 `-delete` 不产出 op"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// extract_file_ops：畸形 / 非 ASCII / 超长
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 畸形输入不panic且产出有限() {
++    for command in ["", "   ", "-rf", ";;&&"] {
++        assert!(
++            shell::extract_file_ops(command).is_empty(),
++            "畸形输入零 op，命令: {command:?}"
++        );
++    }
++    assert!(
++        shell::extract_file_ops("echo \"a").is_empty(),
++        "未闭合引号不产出 op 且不 panic"
++    );
++    let unclosed_heredoc = shell::extract_file_ops("cat <<EOF > p");
++    assert!(
++        unclosed_heredoc
++            .iter()
++            .all(|op| op.kind == OpKind::Write && target_text(op) == "p"),
++        "未闭合 heredoc 候选丢弃后仍只余头部重定向，实际: {unclosed_heredoc:?}"
++    );
++}
++
++#[test]
++fn 非ascii命令文本索引不错位() {
++    let leading = shell::extract_file_ops("echo 中文路径🚀 > p");
++    assert!(!leading.is_empty());
++    assert!(
++        leading
++            .iter()
++            .all(|op| op.kind == OpKind::Write && target_text(op) == "p"),
++        "`>` 之后取对（char 索引不错位），实际: {leading:?}"
++    );
++
++    assert!(
++        shell::extract_file_ops("echo 🚀 > 中文.txt").contains(&write_path("中文.txt")),
++        "非 ASCII 落点原文保留"
++    );
++}
++
++#[test]
++fn 超长命令尾部写入仍被提取() {
++    let command = format!("echo {} > p", "y".repeat(100_000));
++    let ops = shell::extract_file_ops(&command);
++    assert!(
++        ops.contains(&write_path("p")),
++        "100 KB 命令尾部重定向仍提取（不设长度上限）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// extract_git_ops
++// ---------------------------------------------------------------------------
++
++#[test]
++fn git_restore的source形态为写而入形态为撤销() {
++    assert_eq!(
++        shell::extract_git_ops("git restore --source=HEAD~1 p"),
++        vec![write_path("p")],
++        "`--source=` 形态是从仓库取回内容 → 写入面"
++    );
++    assert_eq!(
++        shell::extract_git_ops("git restore -s HEAD p"),
++        vec![write_path("p")],
++        "`-s <ref>` 分离值形态同 write（ref 不作路径）"
++    );
++    assert_eq!(
++        shell::extract_git_ops("git restore p"),
++        vec![revert_path("p")],
++        "无 source 即撤销动作"
++    );
++}
++
++#[test]
++fn git_checkout两态与无分隔符零op() {
++    assert_eq!(
++        shell::extract_git_ops("git checkout main -- p"),
++        vec![write_path("p")],
++        "`--` 前有 commit-ish → write"
++    );
++    assert_eq!(
++        shell::extract_git_ops("git checkout -- p"),
++        vec![revert_path("p")],
++        "裸 `--` → revert"
++    );
++    assert!(
++        shell::extract_git_ops("git checkout main").is_empty(),
++        "无 `--` 即切分支（不产出路径 op）"
++    );
++}
++
++#[test]
++fn git_rm为删除而纯读子命令零op() {
++    assert!(
++        shell::extract_git_ops("git rm p").contains(&delete_path("p")),
++        "`git rm` → 删除落点"
++    );
++    for command in ["git status", "git diff p", "git log --oneline"] {
++        assert!(
++            shell::extract_git_ops(command).is_empty(),
++            "纯读子命令零 op，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn 引号内git不算命令而掩码后真实命令仍可定位() {
++    assert!(
++        shell::extract_git_ops("echo \"git restore p\"").is_empty(),
++        "引号内文本不是命令（变体 B 掩码后定位不到命令名）"
++    );
++    assert!(
++        shell::extract_git_ops("printf 'git rm p'").is_empty(),
++        "单引号内文本同（数据面）"
++    );
++    assert!(
++        shell::extract_git_ops("echo \"git rm p\" && git rm p").contains(&delete_path("p")),
++        "引号外的真实命令仍被定位"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// bulk_revert_detail：git stash
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 批量还原_git_stash族命中() {
++    let cwd = tempdir("bulk-stash");
++    for command in [
++        "git stash",
++        "git stash push",
++        "git stash pop",
++        "git stash apply",
++        "git stash drop",
++    ] {
++        let detail = bulk_hit(command, cwd.path()).expect("stash 变更态一律命中");
++        assert!(
++            detail.contains("stash"),
++            "中间事实串含 stash 语义，命令: {command:?}，实际: {detail}"
++        );
++    }
++}
++
++#[test]
++fn 批量还原_git_stash查看形态放行() {
++    let cwd = tempdir("bulk-stash-readonly");
++    for command in ["git stash list", "git stash show", "git stash list -p"] {
++        assert_eq!(
++            bulk_hit(command, cwd.path()),
++            None,
++            "只读查看形态放行，命令: {command:?}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// bulk_revert_detail：git clean
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 批量还原_git_clean无路径参数即命中() {
++    let cwd = tempdir("bulk-clean-bare");
++    for command in ["git clean", "git clean -fd", "git clean -fdx"] {
++        let detail = bulk_hit(command, cwd.path()).expect("无路径参数即拒");
++        assert!(
++            detail.contains("clean"),
++            "中间事实串含 clean 语义，命令: {command:?}，实际: {detail}"
++        );
++    }
++}
++
++#[test]
++fn 批量还原_git_clean预览形态放行() {
++    let cwd = tempdir("bulk-clean-dry");
++    for command in ["git clean -n", "git clean --dry-run", "git clean -nd"] {
++        assert_eq!(
++            bulk_hit(command, cwd.path()),
++            None,
++            "预览形态放行，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn 批量还原_git_clean路径参数按子树相交判定() {
++    let cwd = tempdir("bulk-clean-path");
++    let anchor = normalized(cwd.path());
++
++    let domain = layout::domain_dir_name();
++    let hit = bulk_hit(&format!("git clean -fd {domain}"), cwd.path()).expect("域目录子树命中");
++    assert!(
++        hit.contains(&format!("{anchor}/{domain}")),
++        "事实串携带解析后的落点，实际: {hit}"
++    );
++
++    let dot = bulk_hit("git clean -fd .", cwd.path()).expect("`.` 归一后为受保护前缀祖先");
++    assert!(dot.contains(&anchor), "`.` 锚定 cwd，实际: {dot}");
++
++    assert_eq!(
++        bulk_hit("git clean -fd src", cwd.path()),
++        None,
++        "源码子树参数放行（不误拦）"
++    );
++}
++
++#[test]
++fn 批量还原_同一命令按各自cwd解析落点() {
++    let first = tempdir("bulk-clean-cwd-a");
++    let second = tempdir("bulk-clean-cwd-b");
++    let command = format!("git clean -fd {}", layout::domain_dir_name());
++
++    let first_detail = bulk_hit(&command, first.path()).expect("cwd-A 域目录子树命中");
++    let second_detail =
++        bulk_hit(&command, second.path()).expect("cwd-B 同样命中（`**/` 规则不锚定具体 root）");
++    assert!(
++        first_detail.contains(&normalized(first.path())),
++        "落点以 cwd-A 为基座，实际: {first_detail}"
++    );
++    assert!(
++        second_detail.contains(&normalized(second.path())),
++        "落点以 cwd-B 为基座（内部零 IO，纯文本解析），实际: {second_detail}"
++    );
++    assert_ne!(first_detail, second_detail, "两 cwd 的事实串不同");
++}
++
++// ---------------------------------------------------------------------------
++// bulk_revert_detail：restore / checkout --（revert 目标）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 批量还原_revert目标命中changes子树() {
++    let cwd = tempdir("bulk-revert-changes");
++    let changes = changes_relative();
++
++    let restore =
++        bulk_hit(&format!("git restore {changes}"), cwd.path()).expect("restore 命中 changes 子树");
++    assert!(
++        restore.contains("git restore"),
++        "事实串标注 restore 语义，实际: {restore}"
++    );
++
++    assert!(
++        bulk_hit(&format!("git checkout -- {changes}"), cwd.path()).is_some(),
++        "checkout -- 的 revert 目标同判"
++    );
++    assert_eq!(
++        bulk_hit(&format!("git checkout main -- {changes}"), cwd.path()),
++        None,
++        "带 commit-ish 的 checkout 是 write 态（不入批量还原判定），实际行为锁定"
++    );
++}
++
++#[test]
++fn 批量还原_源码目标放行() {
++    let cwd = tempdir("bulk-revert-source");
++    for command in [
++        "git restore src/a.rs",
++        "git checkout -- packages/desktop/src/a.ts",
++    ] {
++        assert_eq!(
++            bulk_hit(command, cwd.path()),
++            None,
++            "规范撤销动作（源码目标）放行，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn 批量还原_引号内与畸形与超长零命中() {
++    let cwd = tempdir("bulk-malformed");
++    for command in ["echo \"git stash\"", "echo 'git clean -fd'", "", "   "] {
++        assert_eq!(
++            bulk_hit(command, cwd.path()),
++            None,
++            "数据面 / 空命令零命中，命令: {command:?}"
++        );
++    }
++
++    let long = format!("echo {}", "y".repeat(100_000));
++    assert_eq!(
++        bulk_hit(&long, cwd.path()),
++        None,
++        "100 KB 无命中内容的命令不 panic 且零命中"
++    );
++}
++
++#[test]
++fn 批量还原_多命中取首个事实串() {
++    let cwd = tempdir("bulk-first-hit");
++    let detail = bulk_hit("git stash && git clean -fd", cwd.path()).expect("首条规则命中");
++    assert!(
++        detail.contains("stash"),
++        "首个命中（stash 一路）即返回，实际: {detail}"
++    );
++    assert!(
++        !detail.contains("clean"),
++        "不拼接第二段事实串，实际: {detail}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 类型面（FileOp / OpKind / OpTarget）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 类型面_file_op两态与枚举变体逐项可辨() {
++    let write = write_path("a");
++    let tree = delete_tree("a");
++    assert_eq!(write.clone(), write, "clone 等价且 PartialEq 自反");
++    assert_ne!(write, tree, "操作态 / 落点不同即不等");
++    assert_eq!(
++        delete_path("a"),
++        FileOp {
++            kind: OpKind::Delete,
++            target: OpTarget::Path("a".to_owned()),
++        }
++    );
++
++    let kinds = [OpKind::Write, OpKind::Delete, OpKind::Revert];
++    assert_eq!(kinds.len(), 3, "操作态恰三值（封闭集）");
++    for kind in kinds {
++        let copied = kind;
++        assert_eq!(copied, kind, "Copy + PartialEq 逐值自反");
++    }
++
++    let targets = [
++        OpTarget::Path("p".to_owned()),
++        OpTarget::Tree("p".to_owned()),
++    ];
++    assert_eq!(targets.len(), 2, "落点恰两值（Path / Tree）");
++    assert!(
++        format!("{:?}", targets[1]).contains("Tree"),
++        "Debug 渲染含变体名，实际: {:?}",
++        targets[1]
++    );
++    assert!(
++        format!("{:?}", write).contains("Write"),
++        "Debug 渲染含操作态变体名，实际: {write:?}"
++    );
++}
++
++/// 域目录命中文档路径的形态锚（`domain_relative` 由 layout 派生，供断言拼接用）。
++#[test]
++fn 域目录相对路径由layout派生() {
++    let relative = domain_relative();
++    assert!(
++        relative.starts_with(layout::domain_dir_name()),
++        "派生路径以域目录名起手，实际: {relative}"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/runner.rs b/crates/infra/agent/src/sdk/runner.rs
+index 48be356b7fe5..57cd5d665e94 100644
+--- a/crates/infra/agent/src/sdk/runner.rs
++++ b/crates/infra/agent/src/sdk/runner.rs
+@@ -1,3 +1,4 @@
++use std::path::PathBuf;
+ use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::Arc;
+ 
+@@ -19,6 +20,7 @@ use crate::sdk::explore_note::ExploreNoteContext;
+ use crate::sdk::model_spec::{
+     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
+ };
++use crate::sdk::protect::ProtectRules;
+ use crate::sdk::{context, r#loop, resume};
+ use crate::ResumeTranscript;
+ 
+@@ -55,6 +57,9 @@ pub struct SdkRunner {
+     /// workspace 库句柄（组合根注入缝）：`toolset == Explore` 会话 per-turn
+     /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
+     explore_store: Option<Arc<Store>>,
++    /// 主仓 root（组合根注入缝）：写入保护规则装配的根（工作区配置权威所在
++    /// 地）；`None` = 未注入 → 只装载内置规则（非「保护关闭」）
++    workspace_root: Option<PathBuf>,
+ }
+ 
+ impl SdkRunner {
+@@ -72,6 +77,7 @@ impl SdkRunner {
+             context_window,
+             max_tokens: None,
+             explore_store,
++            workspace_root: None,
+         }
+     }
+ 
+@@ -81,6 +87,16 @@ impl SdkRunner {
+         Self { max_tokens, ..self }
+     }
+ 
++    /// 主仓 root 旁路注入（builder 缝，与 `with_max_tokens` 同型）：写入保护
++    /// 规则装配的根。MUST 为主仓 root（工作区配置权威），MUST NOT 为会话执行
++    /// 根（change 流程下是 worktree）。
++    pub fn with_workspace_root(self, root: PathBuf) -> Self {
++        Self {
++            workspace_root: Some(root),
++            ..self
++        }
++    }
++
+     /// `sdk-<进程内计数>-<毫秒时戳>` 引擎侧会话 id（每轮铸造；前缀仅保留为
+     /// 铸造格式，归属校验凭配置快照收组合根）。
+     fn next_session_id() -> String {
+@@ -169,6 +185,7 @@ impl AgentRunner for SdkRunner {
+                 protocol: self.config.protocol,
+                 raw_model: model_name,
+                 explore_store: self.explore_store.clone(),
++                workspace_root: self.workspace_root.clone(),
+             },
+             question_rx,
+             observation_tx,
+@@ -268,6 +285,9 @@ struct PumpPayload {
+     /// workspace 库句柄（组合根注入缝）——`toolset == Explore` 会话 per-turn
+     /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
+     explore_store: Option<Arc<Store>>,
++    /// 主仓 root（组合根注入缝）——写入保护规则装配的根（`None` = 未注入 →
++    /// 只装载内置规则）
++    workspace_root: Option<PathBuf>,
+ }
+ 
+ /// 会话泵任务（ask 段）
+@@ -313,6 +333,9 @@ async fn session_pump(
+         spec.name,
+         payload.raw_model
+     ));
++    // 写入保护规则装配（**每 run 一次、protect 模块唯一 IO 点**）：规则随
++    // `LoopTurn` 下发，loop 内零 IO 判定（run 内改配置不改本轮行为）
++    let protect = ProtectRules::load(payload.workspace_root.as_deref());
+     let turn = r#loop::LoopTurn {
+         question: question.prompt,
+         cwd: open.ctx.workspace_root.clone(),
+@@ -326,6 +349,7 @@ async fn session_pump(
+         retry: Default::default(),
+         injections: open.injections.clone(),
+         explore_note,
++        protect,
+     };
+     let pump_handle = handle.clone();
+     let pump_session = turn.session_id.clone();
+diff --git a/crates/infra/agent/src/sdk/runner_test.rs b/crates/infra/agent/src/sdk/runner_test.rs
+index 33e0bf200aef..d9adda0678d1 100644
+--- a/crates/infra/agent/src/sdk/runner_test.rs
++++ b/crates/infra/agent/src/sdk/runner_test.rs
+@@ -1552,3 +1552,221 @@ async fn 引擎三模块链路_裸名与窗长与上限一次装配不打架() {
+     );
+     drop(session);
+ }
++
++// ---------------------------------------------------------------------------
++// 主仓 root 注入缝（with_workspace_root：写入保护规则装配的根）
++//
++// 观测边界：`session_pump` / `PumpPayload` 为私有面，且本装置 provider 指向
++// discard 端点（无真实模型脚本注入缝），故本节只断言 runner 侧可观测面——
++// 构造 / 链式 / 失败面 / 事件序零变；判定行为由 `protect` 模块与 `loop_test`
++// 的闸门用例承接。
++// ---------------------------------------------------------------------------
++
++/// 主仓 root 临时目录装置（可含真实配置文件）。
++fn workspace_root(tag: &str) -> tempfile::TempDir {
++    tempfile::Builder::new()
++        .prefix(&format!("sdk-runner-root-{tag}-"))
++        .tempdir()
++        .expect("创建临时目录失败")
++}
++
++/// 打开 New 会话并取首事件（RunStarted 先于模型 IO，可观察）。
++async fn first_event_of(runner: &SdkRunner) -> AgentEventKind {
++    let mut session = runner
++        .open_session(open_new())
++        .expect("注入 root 后 open 应成功");
++    session
++        .questions
++        .send(agent::TurnQuestion {
++            prompt: "root 注入一轮".to_owned(),
++        })
++        .await
++        .expect("问题送达");
++    let started = session.observations.recv().await.expect("RunStarted");
++    drop(session);
++    started
++}
++
++#[tokio::test]
++async fn with_workspace_root链式构造两序均可达且open成功() {
++    let dir = workspace_root("chain");
++    // 序 A：上限 → root
++    let forward = SdkRunner::new(complete_config(), None, None, None)
++        .with_max_tokens(Some(4_096))
++        .with_workspace_root(dir.path().to_path_buf());
++    drop(forward.open_session(open_new()).expect("序 A open 应成功"));
++
++    // 序 B：root → 上限（builder 全序可换）
++    let backward = SdkRunner::new(complete_config(), None, None, None)
++        .with_workspace_root(dir.path().to_path_buf())
++        .with_max_tokens(Some(4_096));
++    drop(backward.open_session(open_new()).expect("序 B open 应成功"));
++}
++
++#[tokio::test]
++async fn with_workspace_root未注入零变化_runstarted与清单同序且失败面不变() {
++    use crate::sdk::tools::TOOL_NAMES;
++
++    let runner = SdkRunner::new(complete_config(), None, None, None);
++    let started = first_event_of(&runner).await;
++    let AgentEventKind::RunStarted { tools, .. } = &started else {
++        panic!("首事件应为 RunStarted，实际: {started:?}");
++    };
++    assert_eq!(
++        tools.as_slice(),
++        TOOL_NAMES.as_slice(),
++        "未注入 root 时下发面与既有口径同源同序"
++    );
++
++    // 无装载缝的 Continue 失败面逐字不变
++    let error = runner
++        .open_session(open_continue("ses-protect-uninjected"))
++        .expect_err("无装载缝续会话必须显式失败");
++    assert!(
++        matches!(error, AgentStartError::ConfigMissing(_)),
++        "缺省 root 不改变既有失败面，实际: {error:?}"
++    );
++}
++
++#[tokio::test]
++async fn with_workspace_root边界形态不panic且首事件照常() {
++    let long_root = PathBuf::from(format!("{}/中文🚀", "长".repeat(600)));
++    let cases = [
++        PathBuf::new(),
++        PathBuf::from("D:/__not_exists__/sdk-protect-root"),
++        long_root,
++    ];
++    for root in cases {
++        let runner =
++            SdkRunner::new(complete_config(), None, None, None).with_workspace_root(root.clone());
++        let started = first_event_of(&runner).await;
++        assert!(
++            matches!(&started, AgentEventKind::RunStarted { .. }),
++            "root 形态 {:?} 下首事件仍为 RunStarted",
++            root
++        );
++    }
++    // 含中文与 emoji 的真实目录（存在形态）
++    let dir = workspace_root("emoji");
++    let runner = SdkRunner::new(complete_config(), None, None, None)
++        .with_workspace_root(dir.path().to_path_buf());
++    assert!(matches!(
++        first_event_of(&runner).await,
++        AgentEventKind::RunStarted { .. }
++    ));
++}
++
++#[tokio::test]
++async fn with_workspace_root与session_ctx双根并存不panic() {
++    let main_root = workspace_root("dual-main");
++    let worktree = workspace_root("dual-worktree");
++    let runner = SdkRunner::new(complete_config(), None, None, None)
++        .with_workspace_root(main_root.path().to_path_buf());
++
++    let mut open = open_new();
++    open.ctx.workspace_root = worktree.path().to_path_buf();
++    let mut session = runner.open_session(open).expect("双根并存 open 应成功");
++    session
++        .questions
++        .send(agent::TurnQuestion {
++            prompt: "双根一轮".to_owned(),
++        })
++        .await
++        .expect("问题送达");
++    let started = session.observations.recv().await.expect("RunStarted");
++    drop(session);
++
++    let single = first_event_of(&SdkRunner::new(complete_config(), None, None, None)).await;
++    let (
++        AgentEventKind::RunStarted {
++            tools: dual_tools, ..
++        },
++        AgentEventKind::RunStarted {
++            tools: single_tools,
++            ..
++        },
++    ) = (&started, &single)
++    else {
++        panic!("两形态首事件均应为 RunStarted");
++    };
++    assert_eq!(
++        dual_tools, single_tools,
++        "两根并存不改动 RunStarted 事件面（载荷在不可见面）"
++    );
++}
++
++#[test]
++fn with_workspace_root空配置失败面不漂移() {
++    let dir = workspace_root("empty-config");
++    let runner = SdkRunner::new(EngineConfig::empty(), None, None, None)
++        .with_workspace_root(dir.path().to_path_buf());
++    let error = match runner.open_session(open_new()) {
++        Err(error) => error,
++        Ok(_) => panic!("空配置必须显式失败"),
++    };
++    let AgentStartError::ConfigMissing(message) = &error else {
++        panic!("应为 ConfigMissing，实际: {error:?}");
++    };
++    for field in ["api_key", "base_url", "model"] {
++        assert!(
++            message.contains(field),
++            "失败面文案含缺失字段名 {field}，实际: {message}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn with_workspace_root与未注入的事件面逐字段相等() {
++    let dir = workspace_root("equivalent");
++    let injected = SdkRunner::new(complete_config(), None, None, None)
++        .with_workspace_root(dir.path().to_path_buf());
++    let plain = SdkRunner::new(complete_config(), None, None, None);
++
++    let injected_event = first_event_of(&injected).await;
++    let plain_event = first_event_of(&plain).await;
++    let (
++        AgentEventKind::RunStarted {
++            model: injected_model,
++            tools: injected_tools,
++            mcp_servers: injected_mcp,
++            ..
++        },
++        AgentEventKind::RunStarted {
++            model: plain_model,
++            tools: plain_tools,
++            mcp_servers: plain_mcp,
++            ..
++        },
++    ) = (&injected_event, &plain_event)
++    else {
++        panic!("两形态首事件均应为 RunStarted");
++    };
++    assert_eq!(injected_model, plain_model, "档位来源字段相等");
++    assert_eq!(injected_tools, plain_tools, "工具下发面相等");
++    assert_eq!(injected_mcp, plain_mcp, "MCP 面相等");
++}
++
++#[tokio::test]
++async fn with_workspace_root每run装配_两次open事件面一致() {
++    let dir = workspace_root("per-run");
++    let runner = SdkRunner::new(complete_config(), None, None, None)
++        .with_workspace_root(dir.path().to_path_buf());
++    let first = first_event_of(&runner).await;
++    let second = first_event_of(&runner).await;
++    let (
++        AgentEventKind::RunStarted {
++            tools: first_tools, ..
++        },
++        AgentEventKind::RunStarted {
++            tools: second_tools,
++            ..
++        },
++    ) = (&first, &second)
++    else {
++        panic!("两 run 首事件均应为 RunStarted");
++    };
++    assert_eq!(
++        first_tools, second_tools,
++        "装配在起播时发生且每 run 一份（事件面一致）"
++    );
++}
+diff --git a/crates/infra/agent/src/worker_test.rs b/crates/infra/agent/src/worker_test.rs
+index 31ead9501b65..c4cc590607b3 100644
+--- a/crates/infra/agent/src/worker_test.rs
++++ b/crates/infra/agent/src/worker_test.rs
+@@ -4,6 +4,7 @@
+ //! （无消费者即删）；sdk 轮全程无 PATH 轮前预检（`discover` 已随 `cli/`
+ //! 目录删除，预检分支删除回归经本文件全链用例保绿锚定）。
+ 
++use std::path::Path;
+ use std::sync::{Arc, Mutex};
+ 
+ use agent::{
+@@ -308,6 +309,7 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+@@ -384,6 +386,7 @@ async fn continue会话复用既有行不重复建() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+@@ -429,6 +432,7 @@ fn 空库缺省解析err引导管理页且零落库() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     ) {
+         Err(error) => error,
+         Ok(_) => panic!("空库缺省解析必须 Err"),
+@@ -462,6 +466,7 @@ async fn open段配置缺失显式err传播且零半成品记录() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+@@ -511,6 +516,7 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+@@ -612,6 +618,7 @@ async fn 中途停止收敛stopped并保留已收集事件() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+@@ -672,6 +679,7 @@ async fn 三角色provenance定式逐段落库且精确反查命中() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let port = Arc::new(KernelWorkerPort::new(composed, sink));
+diff --git a/src/commands/change_flow/mod.rs b/src/commands/change_flow/mod.rs
+index f8aae5138ab2..307d90115113 100644
+--- a/src/commands/change_flow/mod.rs
++++ b/src/commands/change_flow/mod.rs
+@@ -146,6 +146,9 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
+         streams,
+         Arc::clone(&store),
+         None,
++        // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；
++        // MUST NOT 传 `exec_root` / worktree 路径
++        Path::new(&root),
+     )?;
+     let sink: Arc<dyn RunEventSink> = Arc::new(ChangeFlowSink {
+         root: root.clone(),
+diff --git a/src/commands/exec/mod.rs b/src/commands/exec/mod.rs
+index fe6d4ed2930a..cf040967fe7d 100644
+--- a/src/commands/exec/mod.rs
++++ b/src/commands/exec/mod.rs
+@@ -135,6 +135,9 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
+         Arc::clone(streams.inner()),
+         store,
+         agent,
++        // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；
++        // `exec_root` 仍只进上方 `SessionCtx.workspace_root`
++        Path::new(&root),
+     )?;
+     let running = composed.begin(session, prompt, ctx, provenance)?;
+     // 后台转发任务：内核泵输出 → Channel（事件与终态同构流出）；提前 resolve

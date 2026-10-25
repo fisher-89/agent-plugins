@@ -1552,3 +1552,221 @@ async fn 引擎三模块链路_裸名与窗长与上限一次装配不打架() {
     );
     drop(session);
 }
+
+// ---------------------------------------------------------------------------
+// 主仓 root 注入缝（with_workspace_root：写入保护规则装配的根）
+//
+// 观测边界：`session_pump` / `PumpPayload` 为私有面，且本装置 provider 指向
+// discard 端点（无真实模型脚本注入缝），故本节只断言 runner 侧可观测面——
+// 构造 / 链式 / 失败面 / 事件序零变；判定行为由 `protect` 模块与 `loop_test`
+// 的闸门用例承接。
+// ---------------------------------------------------------------------------
+
+/// 主仓 root 临时目录装置（可含真实配置文件）。
+fn workspace_root(tag: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("sdk-runner-root-{tag}-"))
+        .tempdir()
+        .expect("创建临时目录失败")
+}
+
+/// 打开 New 会话并取首事件（RunStarted 先于模型 IO，可观察）。
+async fn first_event_of(runner: &SdkRunner) -> AgentEventKind {
+    let mut session = runner
+        .open_session(open_new())
+        .expect("注入 root 后 open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "root 注入一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let started = session.observations.recv().await.expect("RunStarted");
+    drop(session);
+    started
+}
+
+#[tokio::test]
+async fn with_workspace_root链式构造两序均可达且open成功() {
+    let dir = workspace_root("chain");
+    // 序 A：上限 → root
+    let forward = SdkRunner::new(complete_config(), None, None, None)
+        .with_max_tokens(Some(4_096))
+        .with_workspace_root(dir.path().to_path_buf());
+    drop(forward.open_session(open_new()).expect("序 A open 应成功"));
+
+    // 序 B：root → 上限（builder 全序可换）
+    let backward = SdkRunner::new(complete_config(), None, None, None)
+        .with_workspace_root(dir.path().to_path_buf())
+        .with_max_tokens(Some(4_096));
+    drop(backward.open_session(open_new()).expect("序 B open 应成功"));
+}
+
+#[tokio::test]
+async fn with_workspace_root未注入零变化_runstarted与清单同序且失败面不变() {
+    use crate::sdk::tools::TOOL_NAMES;
+
+    let runner = SdkRunner::new(complete_config(), None, None, None);
+    let started = first_event_of(&runner).await;
+    let AgentEventKind::RunStarted { tools, .. } = &started else {
+        panic!("首事件应为 RunStarted，实际: {started:?}");
+    };
+    assert_eq!(
+        tools.as_slice(),
+        TOOL_NAMES.as_slice(),
+        "未注入 root 时下发面与既有口径同源同序"
+    );
+
+    // 无装载缝的 Continue 失败面逐字不变
+    let error = runner
+        .open_session(open_continue("ses-protect-uninjected"))
+        .expect_err("无装载缝续会话必须显式失败");
+    assert!(
+        matches!(error, AgentStartError::ConfigMissing(_)),
+        "缺省 root 不改变既有失败面，实际: {error:?}"
+    );
+}
+
+#[tokio::test]
+async fn with_workspace_root边界形态不panic且首事件照常() {
+    let long_root = PathBuf::from(format!("{}/中文🚀", "长".repeat(600)));
+    let cases = [
+        PathBuf::new(),
+        PathBuf::from("D:/__not_exists__/sdk-protect-root"),
+        long_root,
+    ];
+    for root in cases {
+        let runner =
+            SdkRunner::new(complete_config(), None, None, None).with_workspace_root(root.clone());
+        let started = first_event_of(&runner).await;
+        assert!(
+            matches!(&started, AgentEventKind::RunStarted { .. }),
+            "root 形态 {:?} 下首事件仍为 RunStarted",
+            root
+        );
+    }
+    // 含中文与 emoji 的真实目录（存在形态）
+    let dir = workspace_root("emoji");
+    let runner = SdkRunner::new(complete_config(), None, None, None)
+        .with_workspace_root(dir.path().to_path_buf());
+    assert!(matches!(
+        first_event_of(&runner).await,
+        AgentEventKind::RunStarted { .. }
+    ));
+}
+
+#[tokio::test]
+async fn with_workspace_root与session_ctx双根并存不panic() {
+    let main_root = workspace_root("dual-main");
+    let worktree = workspace_root("dual-worktree");
+    let runner = SdkRunner::new(complete_config(), None, None, None)
+        .with_workspace_root(main_root.path().to_path_buf());
+
+    let mut open = open_new();
+    open.ctx.workspace_root = worktree.path().to_path_buf();
+    let mut session = runner.open_session(open).expect("双根并存 open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "双根一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let started = session.observations.recv().await.expect("RunStarted");
+    drop(session);
+
+    let single = first_event_of(&SdkRunner::new(complete_config(), None, None, None)).await;
+    let (
+        AgentEventKind::RunStarted {
+            tools: dual_tools, ..
+        },
+        AgentEventKind::RunStarted {
+            tools: single_tools,
+            ..
+        },
+    ) = (&started, &single)
+    else {
+        panic!("两形态首事件均应为 RunStarted");
+    };
+    assert_eq!(
+        dual_tools, single_tools,
+        "两根并存不改动 RunStarted 事件面（载荷在不可见面）"
+    );
+}
+
+#[test]
+fn with_workspace_root空配置失败面不漂移() {
+    let dir = workspace_root("empty-config");
+    let runner = SdkRunner::new(EngineConfig::empty(), None, None, None)
+        .with_workspace_root(dir.path().to_path_buf());
+    let error = match runner.open_session(open_new()) {
+        Err(error) => error,
+        Ok(_) => panic!("空配置必须显式失败"),
+    };
+    let AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    for field in ["api_key", "base_url", "model"] {
+        assert!(
+            message.contains(field),
+            "失败面文案含缺失字段名 {field}，实际: {message}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn with_workspace_root与未注入的事件面逐字段相等() {
+    let dir = workspace_root("equivalent");
+    let injected = SdkRunner::new(complete_config(), None, None, None)
+        .with_workspace_root(dir.path().to_path_buf());
+    let plain = SdkRunner::new(complete_config(), None, None, None);
+
+    let injected_event = first_event_of(&injected).await;
+    let plain_event = first_event_of(&plain).await;
+    let (
+        AgentEventKind::RunStarted {
+            model: injected_model,
+            tools: injected_tools,
+            mcp_servers: injected_mcp,
+            ..
+        },
+        AgentEventKind::RunStarted {
+            model: plain_model,
+            tools: plain_tools,
+            mcp_servers: plain_mcp,
+            ..
+        },
+    ) = (&injected_event, &plain_event)
+    else {
+        panic!("两形态首事件均应为 RunStarted");
+    };
+    assert_eq!(injected_model, plain_model, "档位来源字段相等");
+    assert_eq!(injected_tools, plain_tools, "工具下发面相等");
+    assert_eq!(injected_mcp, plain_mcp, "MCP 面相等");
+}
+
+#[tokio::test]
+async fn with_workspace_root每run装配_两次open事件面一致() {
+    let dir = workspace_root("per-run");
+    let runner = SdkRunner::new(complete_config(), None, None, None)
+        .with_workspace_root(dir.path().to_path_buf());
+    let first = first_event_of(&runner).await;
+    let second = first_event_of(&runner).await;
+    let (
+        AgentEventKind::RunStarted {
+            tools: first_tools, ..
+        },
+        AgentEventKind::RunStarted {
+            tools: second_tools,
+            ..
+        },
+    ) = (&first, &second)
+    else {
+        panic!("两 run 首事件均应为 RunStarted");
+    };
+    assert_eq!(
+        first_tools, second_tools,
+        "装配在起播时发生且每 run 一份（事件面一致）"
+    );
+}

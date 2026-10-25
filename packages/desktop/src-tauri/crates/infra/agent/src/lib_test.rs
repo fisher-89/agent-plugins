@@ -42,6 +42,7 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
         Arc<agent::SessionStreamRegistry>,
         Arc<store::Store>,
         Option<i64>,
+        &std::path::Path,
     ) -> Result<ComposedTurn, String> = compose_turn;
     let _ = compose_signature;
 
@@ -740,5 +741,178 @@ fn crate根导出面锚定_后缀解析与下限常量经根可达() {
         crate::MIN_OUTPUT_TOKENS,
         4_096,
         "保存期下限常量经 crate 根可达（与引擎同一门槛，无第二套字面量）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 主仓 root 注入缝（EngineFacade::with_workspace_root）
+//
+// 门面只做透传：`runner_for` 的 sdk 臂以 `with_workspace_root` 交给
+// `SdkRunner`，零额外语义；root 载荷在门面内不可读回，故断言面收敛为构造链
+// / 分发等价 / 缺省零变 / Cli 臂零变（主仓口径的行为面由 `protect` 双根判定
+// 用例承接）。
+// ---------------------------------------------------------------------------
+
+/// 主仓 root 临时目录装置。
+fn facade_root(tag: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("facade-write-protection-{tag}-"))
+        .tempdir()
+        .expect("创建临时目录失败")
+}
+
+#[test]
+fn with_workspace_root链式构造五序均可达() {
+    let dir = facade_root("chain");
+    let root = dir.path().to_path_buf();
+
+    // 与既有四 builder 双向续链（builder 全序可换）
+    let sequences: Vec<EngineFacade> = vec![
+        EngineFacade::new().with_workspace_root(root.clone()),
+        EngineFacade::new()
+            .with_workspace_root(root.clone())
+            .with_context_window(Some(200_000)),
+        EngineFacade::new()
+            .with_context_window(Some(200_000))
+            .with_workspace_root(root.clone()),
+        EngineFacade::new()
+            .with_workspace_root(root.clone())
+            .with_max_tokens(Some(8_192))
+            .with_context_window(None),
+        EngineFacade::with_resume_transcript(counting_loader(Ok(None)).0)
+            .with_workspace_root(root.clone()),
+    ];
+    for facade in sequences {
+        let runner = facade
+            .runner_for(EngineKind::Sdk, complete_cfg())
+            .expect("注入 root 后 Sdk 臂构造成功");
+        // 产物经 trait 面可驱动（无装载缝续会话 → 显式失败不 panic）
+        assert!(
+            runner
+                .open_session(open_continue("ses-root-chain"))
+                .is_err(),
+            "Sdk 臂产物为可驱动的 AgentRunner"
+        );
+    }
+
+    let (_store_dir, store) = temp_store("root-chain");
+    let with_store = EngineFacade::new()
+        .with_explore_note_store(Arc::clone(&store))
+        .with_workspace_root(root)
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("store 与 root 两载荷续链后构造成功");
+    drop(with_store);
+}
+
+#[test]
+fn with_workspace_root分发等价_与直构runner同载荷行为一致() {
+    let dir = facade_root("equivalent");
+    let root = dir.path().to_path_buf();
+    let via_facade = EngineFacade::new()
+        .with_workspace_root(root.clone())
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+    let via_direct = SdkRunner::new(complete_cfg(), None, None, None).with_workspace_root(root);
+
+    assert_eq!(
+        via_facade
+            .open_session(open_continue("ses-root-equivalent"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        via_direct
+            .open_session(open_continue("ses-root-equivalent"))
+            .expect_err("直构同口径失败")
+            .to_string(),
+        "门面只做透传（失败面逐字一致）"
+    );
+}
+
+#[test]
+fn with_workspace_root缺省零变_五构造点均不产出保护关闭语义() {
+    let (_loader, _calls) = counting_loader(Ok(None));
+    let (_store_dir, store) = temp_store("root-default");
+
+    assert_eq!(EngineFacade::new().workspace_root, None, "new() 缺省 None");
+    assert_eq!(
+        EngineFacade::with_resume_transcript(counting_loader(Ok(None)).0).workspace_root,
+        None,
+        "with_resume_transcript 缺省 None"
+    );
+    assert_eq!(
+        EngineFacade::new()
+            .with_context_window(Some(1_000))
+            .workspace_root,
+        None,
+        "with_context_window 不引入 root 载荷"
+    );
+    assert_eq!(
+        EngineFacade::new()
+            .with_max_tokens(Some(8_192))
+            .workspace_root,
+        None,
+        "with_max_tokens 不引入 root 载荷"
+    );
+    assert_eq!(
+        EngineFacade::new()
+            .with_explore_note_store(Arc::clone(&store))
+            .workspace_root,
+        None,
+        "with_explore_note_store 不引入 root 载荷"
+    );
+
+    // 缺省档分发行为与直构四参 None 同口径（None = 仅内置规则，非「保护关闭」）
+    let facade_runner = EngineFacade::new()
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+    assert!(
+        facade_runner
+            .open_session(open_continue("ses-root-default"))
+            .is_err(),
+        "缺省 root 不改变既有失败面"
+    );
+}
+
+#[test]
+fn with_workspace_root边界形态门面不校验() {
+    let long_root = std::path::PathBuf::from(format!("{}/中文🚀", "长".repeat(600)));
+    for root in [
+        std::path::PathBuf::new(),
+        std::path::PathBuf::from("D:/__not_exists__/facade-root"),
+        long_root,
+    ] {
+        let runner = EngineFacade::new()
+            .with_workspace_root(root.clone())
+            .runner_for(EngineKind::Sdk, complete_cfg())
+            .unwrap_or_else(|error| panic!("root 形态 {root:?} 不校验（仍 Ok）: {error}"));
+        drop(runner);
+    }
+
+    let dir = facade_root("emoji");
+    let runner = EngineFacade::new()
+        .with_workspace_root(dir.path().to_path_buf())
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("含中文与 emoji 路径不校验（仍 Ok）");
+    drop(runner);
+}
+
+#[test]
+fn with_workspace_root不改变cli臂退役拒收面且装载缝零消费() {
+    let dir = facade_root("cli-arm");
+    let (loader, calls) = counting_loader(Ok(Some(Vec::new())));
+    let error = match EngineFacade::with_resume_transcript(loader)
+        .with_workspace_root(dir.path().to_path_buf())
+        .runner_for(EngineKind::Cli, complete_cfg())
+    {
+        Err(error) => error,
+        Ok(_) => panic!("Cli 臂必须显式 Err"),
+    };
+    assert_eq!(
+        error, CLI_TENANT_RETIRED,
+        "root 载荷不进退役臂，拒收文案逐字不变"
+    );
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        0,
+        "Cli 臂拒收于构造面，装载缝零消费"
     );
 }

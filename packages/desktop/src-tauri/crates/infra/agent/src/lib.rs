@@ -3,6 +3,7 @@ mod sdk;
 mod store_port;
 mod worker;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent::AgentRunner;
@@ -48,6 +49,9 @@ pub struct EngineFacade {
     /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
     /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
     explore_note_store: Option<Arc<store::Store>>,
+    /// sdk 引擎主仓 root（组合根注入缝）：写入保护规则装配的根（`None` =
+    /// 未注入 → 只装载内置规则，非「保护关闭」）
+    workspace_root: Option<PathBuf>,
 }
 
 impl EngineFacade {
@@ -58,6 +62,7 @@ impl EngineFacade {
             context_window: None,
             max_tokens: None,
             explore_note_store: None,
+            workspace_root: None,
         }
     }
 
@@ -68,6 +73,7 @@ impl EngineFacade {
             context_window: None,
             max_tokens: None,
             explore_note_store: None,
+            workspace_root: None,
         }
     }
 
@@ -81,6 +87,7 @@ impl EngineFacade {
             context_window,
             max_tokens: self.max_tokens,
             explore_note_store: self.explore_note_store,
+            workspace_root: self.workspace_root,
         }
     }
 
@@ -93,6 +100,7 @@ impl EngineFacade {
             context_window: self.context_window,
             max_tokens,
             explore_note_store: self.explore_note_store,
+            workspace_root: self.workspace_root,
         }
     }
 
@@ -106,6 +114,17 @@ impl EngineFacade {
             context_window: self.context_window,
             max_tokens: self.max_tokens,
             explore_note_store: Some(store),
+            workspace_root: self.workspace_root,
+        }
+    }
+
+    /// 携主仓 root 的门面（builder 缝，与 `with_explore_note_store` 并列）：
+    /// 写入保护规则的装配根。MUST 为主仓 root（工作区配置权威所在），MUST NOT
+    /// 为会话执行根（change 流程下是 worktree）；`None` = 只装载内置规则。
+    pub fn with_workspace_root(self, root: PathBuf) -> Self {
+        Self {
+            workspace_root: Some(root),
+            ..self
         }
     }
 
@@ -121,15 +140,19 @@ impl EngineFacade {
     ) -> Result<Box<dyn AgentRunner>, String> {
         match kind {
             EngineKind::Cli => Err(store::CLI_TENANT_RETIRED.to_owned()),
-            EngineKind::Sdk => Ok(Box::new(
-                sdk::runner::SdkRunner::new(
+            EngineKind::Sdk => {
+                let mut runner = sdk::runner::SdkRunner::new(
                     engine_cfg,
                     self.resume.clone(),
                     self.context_window,
                     self.explore_note_store.clone(),
                 )
-                .with_max_tokens(self.max_tokens),
-            )),
+                .with_max_tokens(self.max_tokens);
+                if let Some(root) = &self.workspace_root {
+                    runner = runner.with_workspace_root(root.clone());
+                }
+                Ok(Box::new(runner))
+            }
         }
     }
 }

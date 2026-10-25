@@ -146,6 +146,9 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         streams,
         Arc::clone(&store),
         None,
+        // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；
+        // MUST NOT 传 `exec_root` / worktree 路径
+        Path::new(&root),
     )?;
     let sink: Arc<dyn RunEventSink> = Arc::new(ChangeFlowSink {
         root: root.clone(),

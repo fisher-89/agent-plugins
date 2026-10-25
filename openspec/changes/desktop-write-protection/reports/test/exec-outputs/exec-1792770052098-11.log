@@ -1,0 +1,12 @@
+✓ Lockfile passes supply-chain policies (verified 9h ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: -176
+--------------------------------------------------------------------------------
+Progress: resolved 687, reused 687, downloaded 0, added 0, done
+Done in 2.1s using pnpm v12.10.1
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Error writing files: failed to resolve mod `inline_test`: \\?\D:\Projects\.worktrees\wps-claude-plugin\desktop-write-protection\packages\desktop\src-tauri\crates\infra\agent\src\sdk\protect\inline_test.rs does not exist
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

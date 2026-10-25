@@ -1,0 +1,2099 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 0b9c897c88bc..04b9f06ad87e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -29,6 +29,7 @@ name = "agent-runtime"
+ version = "0.1.0"
+ dependencies = [
+  "agent",
++ "checks",
+  "config",
+  "exec",
+  "foundation",
+diff --git a/crates/infra/agent/Cargo.toml b/crates/infra/agent/Cargo.toml
+index cdcda6ade0b5..1d37305e06ef 100644
+--- a/crates/infra/agent/Cargo.toml
++++ b/crates/infra/agent/Cargo.toml
+@@ -9,6 +9,8 @@ orchestration = { workspace = true }
+ config = { workspace = true }
+ exec = { workspace = true }
+ foundation = { workspace = true }
++# 写入保护规则匹配：复用 `checks::globmatch::match_glob`（glob 方言单点，禁第二份实现）
++checks = { workspace = true }
+ store = { workspace = true }
+ serde = { workspace = true }
+ specta = { workspace = true }
+diff --git a/crates/infra/agent/src/compose.rs b/crates/infra/agent/src/compose.rs
+index 09db9b06b07b..35da7fecd1a4 100644
+--- a/crates/infra/agent/src/compose.rs
++++ b/crates/infra/agent/src/compose.rs
+@@ -1,3 +1,4 @@
++use std::path::Path;
+ use std::sync::Arc;
+ 
+ use agent::{
+@@ -83,13 +84,16 @@ pub struct ComposedTurn {
+ /// 注入先例：壳层 `Arc` 单例经组合根下行内核，exec / change 双轨同源进入同一
+ /// 注册表）；`store` 为命令层预解析注入的 workspace root 库实例（design D8 拆参
+ /// ——store 身份锚恒 workspace root，worktree 路径在类型上不可能进 `for_root`；
+-/// cwd 半边经既有 `SessionCtx` 通道不经 compose）。
++/// cwd 半边经既有 `SessionCtx` 通道不经 compose）；`workspace_root` 为命令层
++/// 在手的主仓 root（写入保护规则的装配根，与 `store` 半边同为「root 身份锚」），
++/// 会话执行根 `exec_root` / worktree **不经此通道**。
+ pub fn compose_turn(
+     stores: &WorkspaceStores,
+     registry: Arc<StopRegistry>,
+     streams: Arc<SessionStreamRegistry>,
+     store: Arc<Store>,
+     agent: Option<i64>,
++    workspace_root: &Path,
+ ) -> Result<ComposedTurn, String> {
+     // 解析语义自命令层原样平移（缺省 / 显式 / sdk provider 组装 / high 档 /
+     // 无默认 Err 引导管理页）
+@@ -124,6 +128,7 @@ pub fn compose_turn(
+             .with_context_window(resolved.context_window)
+             .with_max_tokens(resolved.max_tokens)
+             .with_explore_note_store(explore_note_store)
++            .with_workspace_root(workspace_root.to_path_buf())
+             .runner_for(resolved.kind, resolved.config)?,
+     );
+     Ok(ComposedTurn {
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index a3dcda31b36e..c8fae910791e 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -242,6 +242,7 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("缺省解析应成功");
+ 
+@@ -285,6 +286,7 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let store = stores.for_root(&env.root()).expect("for_root 应成功");
+@@ -341,6 +343,7 @@ async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         Some(cli_id),
++        Path::new(&env.root()),
+     ));
+ 
+     assert_eq!(
+@@ -370,6 +373,7 @@ fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     ));
+ 
+     assert_eq!(
+@@ -405,6 +409,7 @@ fn 空库缺省解析err引导管理页且零落库() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     ));
+ 
+     assert!(
+@@ -433,6 +438,7 @@ fn 显式不存在agent的id解析err携id记因() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         Some(404),
++        Path::new(&env.root()),
+     ));
+     assert!(error.contains("404"), "Err 携 id 记因，实际: {error}");
+ }
+@@ -464,6 +470,7 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("provider 完好时缺省解析应成功");
+     let store = stores.for_root(&env.root()).expect("for_root 应成功");
+@@ -506,6 +513,7 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -545,6 +553,7 @@ fn continue会话不存在时显式失败() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let error = err_of(composed.begin(
+@@ -593,6 +602,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let error = err_of(composed.begin(
+@@ -625,6 +635,7 @@ async fn continue未开轮会话首轮放行并定型快照() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -673,6 +684,7 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -723,6 +735,7 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -768,6 +781,7 @@ async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+ 
+@@ -831,6 +845,7 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     composed
+@@ -880,6 +895,7 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     ));
+ 
+     assert!(
+@@ -989,6 +1005,7 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
+         Arc::new(SessionStreamRegistry::new()),
+         std::sync::Arc::clone(&injected),
+         Some(sdk_id),
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+ 
+@@ -1478,6 +1495,7 @@ fn 显式agent_id边界零与负数与i64max均miss记因() {
+             Arc::new(SessionStreamRegistry::new()),
+             env.store(),
+             Some(id),
++            Path::new(&env.root()),
+         ));
+         assert!(
+             error.contains("agent 不存在") && error.contains(&id.to_string()),
+@@ -1498,6 +1516,7 @@ fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     for id in [
+@@ -1533,6 +1552,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         Some(sdk_id),
++        Path::new(&env.root()),
+     )
+     .expect("显式解析应成功");
+     let running = composed
+@@ -1567,6 +1587,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("缺省解析应成功");
+     let running = composed
+@@ -1828,6 +1849,7 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -1883,6 +1905,7 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -1929,6 +1952,7 @@ async fn explore装配不破坏失败收敛语义() {
+         Arc::new(SessionStreamRegistry::new()),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -2079,6 +2103,7 @@ async fn compose_turn注入缝生效_begin后会话在传入streams中可订阅(
+         Arc::clone(&streams),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -2112,6 +2137,7 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与
+         Arc::clone(&streams),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -2170,6 +2196,7 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
+         Arc::clone(&streams),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let probe = WatchProbe::new(Arc::clone(&streams));
+@@ -2216,6 +2243,7 @@ fn 解析失败不构造内核且零注册表条目() {
+         Arc::clone(&streams),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     ));
+     assert!(
+         error.contains("默认 agent"),
+@@ -2228,6 +2256,7 @@ fn 解析失败不构造内核且零注册表条目() {
+         Arc::clone(&streams),
+         env.store(),
+         Some(404),
++        Path::new(&env.root()),
+     ));
+     assert!(error.contains("404"), "显式不存在 id Err，实际: {error}");
+ 
+@@ -2256,6 +2285,7 @@ async fn stop与streams两表互不串台_收口后两表同时除名() {
+         Arc::clone(&streams),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("解析应成功");
+     let running = composed
+@@ -2302,6 +2332,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
+         Arc::clone(&streams),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("exec 轨解析应成功");
+     let change_track = compose_turn(
+@@ -2310,6 +2341,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
+         Arc::clone(&streams),
+         env.store(),
+         None,
++        Path::new(&env.root()),
+     )
+     .expect("change 轨解析应成功");
+ 
+@@ -2591,3 +2623,141 @@ async fn 组合根全链_provider协议与上限与后缀抵达引擎且裸名
+     );
+     drop(session);
+ }
++
++// ---------------------------------------------------------------------------
++// compose_turn 尾参（主仓 workspace_root）
++//
++// 门面只做 `EngineFacade::with_workspace_root(workspace_root.to_path_buf())`
++// 透传：不解析、不校验；store 半边仍由注入的 `Arc<store::Store>` 决定（双
++// root 不变量）。载荷在门面内不可读回，故断言面收敛为「尾参在场装配照常」
++// 与「根形态不校验」「与 store 不同源」。
++// ---------------------------------------------------------------------------
++
++#[tokio::test]
++async fn compose_turn尾参在场装配照常_引擎快照与既有口径一致() {
++    let env = DualEnv::new("tail-arg");
++    let stores = env.stores();
++    let provider_id = seed_provider(stores, "尾参供应");
++    seed_sdk_instance(stores, "尾参实例", Some(provider_id));
++
++    let composed = compose_turn(
++        stores,
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++        env.store(),
++        None,
++        Path::new(&env.root()),
++    )
++    .expect("尾参在场解析应成功");
++
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "尾参装配一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("begin 应成功");
++    let session_id = running.session_id.clone();
++    drop(running);
++
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let session = store
++        .find_session(&session_id)
++        .expect("find_session 应成功")
++        .expect("会话行已落库");
++    assert_eq!(
++        session.config_snapshot.engine,
++        AgentEngineKind::Sdk,
++        "尾参不改装配产物（引擎选型与快照与既有用例一致）"
++    );
++    assert_eq!(
++        session.config_snapshot.model,
++        Some("m-high".to_owned()),
++        "快照模型仍取 provider high 档"
++    );
++}
++
++#[tokio::test]
++async fn compose_turn尾参root形态不校验() {
++    let env = DualEnv::new("tail-root-shape");
++    let stores = env.stores();
++    let provider_id = seed_provider(stores, "根形态供应");
++    seed_sdk_instance(stores, "根形态实例", Some(provider_id));
++
++    let emoji = tempfile::Builder::new()
++        .prefix("compose-test-根-🚀-")
++        .tempdir()
++        .expect("创建含 emoji 前缀的临时目录失败");
++    let roots = [
++        std::path::PathBuf::new(),
++        std::path::PathBuf::from("D:/__not_exists__/compose-root"),
++        emoji.path().to_path_buf(),
++    ];
++    for root in roots {
++        let composed = compose_turn(
++            stores,
++            Arc::new(StopRegistry::new()),
++            Arc::new(SessionStreamRegistry::new()),
++            env.store(),
++            None,
++            &root,
++        )
++        .unwrap_or_else(|error| panic!("root 形态 {root:?} 只透传不校验（仍 Ok）: {error}"));
++        drop(composed);
++    }
++}
++
++#[tokio::test]
++async fn compose_turn尾参与store的root不同源_双root不变量成立() {
++    let env = DualEnv::new("dual-root");
++    let stores = env.stores();
++    let provider_id = seed_provider(stores, "双根供应");
++    seed_sdk_instance(stores, "双根实例", Some(provider_id));
++    // 尾参 = 主仓 root（worktree 形态下与执行根不同源）
++    let main_root = tempfile::Builder::new()
++        .prefix("compose-test-main-root-")
++        .tempdir()
++        .expect("创建主仓 root 临时目录失败");
++    let main_root_str = main_root.path().to_string_lossy().into_owned();
++
++    let injected = env.store();
++    let composed = compose_turn(
++        stores,
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++        std::sync::Arc::clone(&injected),
++        None,
++        main_root.path(),
++    )
++    .expect("尾参与 store 不同源仍应成功");
++
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "双根一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("begin 应成功");
++    let session_id = running.session_id.clone();
++    drop(running);
++
++    assert!(
++        injected
++            .find_session(&session_id)
++            .expect("find_session 应成功")
++            .is_some(),
++        "会话行落 store 半边（执行根库）"
++    );
++    let other = stores
++        .for_root(&main_root_str)
++        .expect("主仓 root 异根实例化合法");
++    assert!(
++        other
++            .list_sessions(None, None)
++            .expect("异根库清单应成功")
++            .is_empty(),
++        "尾参 root 不触发第二处库解析（store 半边唯一入口 = 注入参）"
++    );
++}
+diff --git a/crates/infra/agent/src/lib.rs b/crates/infra/agent/src/lib.rs
+index 7a6618bdd613..71d2e10390d7 100644
+--- a/crates/infra/agent/src/lib.rs
++++ b/crates/infra/agent/src/lib.rs
+@@ -3,6 +3,7 @@ mod sdk;
+ mod store_port;
+ mod worker;
+ 
++use std::path::PathBuf;
+ use std::sync::Arc;
+ 
+ use agent::AgentRunner;
+@@ -48,6 +49,9 @@ pub struct EngineFacade {
+     /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
+     /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
+     explore_note_store: Option<Arc<store::Store>>,
++    /// sdk 引擎主仓 root（组合根注入缝）：写入保护规则装配的根（`None` =
++    /// 未注入 → 只装载内置规则，非「保护关闭」）
++    workspace_root: Option<PathBuf>,
+ }
+ 
+ impl EngineFacade {
+@@ -58,6 +62,7 @@ impl EngineFacade {
+             context_window: None,
+             max_tokens: None,
+             explore_note_store: None,
++            workspace_root: None,
+         }
+     }
+ 
+@@ -68,6 +73,7 @@ impl EngineFacade {
+             context_window: None,
+             max_tokens: None,
+             explore_note_store: None,
++            workspace_root: None,
+         }
+     }
+ 
+@@ -81,6 +87,7 @@ impl EngineFacade {
+             context_window,
+             max_tokens: self.max_tokens,
+             explore_note_store: self.explore_note_store,
++            workspace_root: self.workspace_root,
+         }
+     }
+ 
+@@ -93,6 +100,7 @@ impl EngineFacade {
+             context_window: self.context_window,
+             max_tokens,
+             explore_note_store: self.explore_note_store,
++            workspace_root: self.workspace_root,
+         }
+     }
+ 
+@@ -106,6 +114,17 @@ impl EngineFacade {
+             context_window: self.context_window,
+             max_tokens: self.max_tokens,
+             explore_note_store: Some(store),
++            workspace_root: self.workspace_root,
++        }
++    }
++
++    /// 携主仓 root 的门面（builder 缝，与 `with_explore_note_store` 并列）：
++    /// 写入保护规则的装配根。MUST 为主仓 root（工作区配置权威所在），MUST NOT
++    /// 为会话执行根（change 流程下是 worktree）；`None` = 只装载内置规则。
++    pub fn with_workspace_root(self, root: PathBuf) -> Self {
++        Self {
++            workspace_root: Some(root),
++            ..self
+         }
+     }
+ 
+@@ -121,15 +140,19 @@ impl EngineFacade {
+     ) -> Result<Box<dyn AgentRunner>, String> {
+         match kind {
+             EngineKind::Cli => Err(store::CLI_TENANT_RETIRED.to_owned()),
+-            EngineKind::Sdk => Ok(Box::new(
+-                sdk::runner::SdkRunner::new(
++            EngineKind::Sdk => {
++                let mut runner = sdk::runner::SdkRunner::new(
+                     engine_cfg,
+                     self.resume.clone(),
+                     self.context_window,
+                     self.explore_note_store.clone(),
+                 )
+-                .with_max_tokens(self.max_tokens),
+-            )),
++                .with_max_tokens(self.max_tokens);
++                if let Some(root) = &self.workspace_root {
++                    runner = runner.with_workspace_root(root.clone());
++                }
++                Ok(Box::new(runner))
++            }
+         }
+     }
+ }
+diff --git a/crates/infra/agent/src/lib_test.rs b/crates/infra/agent/src/lib_test.rs
+index f1bc98785b14..f5a90563a83f 100644
+--- a/crates/infra/agent/src/lib_test.rs
++++ b/crates/infra/agent/src/lib_test.rs
+@@ -42,6 +42,7 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
+         Arc<agent::SessionStreamRegistry>,
+         Arc<store::Store>,
+         Option<i64>,
++        &std::path::Path,
+     ) -> Result<ComposedTurn, String> = compose_turn;
+     let _ = compose_signature;
+ 
+@@ -742,3 +743,176 @@ fn crate根导出面锚定_后缀解析与下限常量经根可达() {
+         "保存期下限常量经 crate 根可达（与引擎同一门槛，无第二套字面量）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 主仓 root 注入缝（EngineFacade::with_workspace_root）
++//
++// 门面只做透传：`runner_for` 的 sdk 臂以 `with_workspace_root` 交给
++// `SdkRunner`，零额外语义；root 载荷在门面内不可读回，故断言面收敛为构造链
++// / 分发等价 / 缺省零变 / Cli 臂零变（主仓口径的行为面由 `protect` 双根判定
++// 用例承接）。
++// ---------------------------------------------------------------------------
++
++/// 主仓 root 临时目录装置。
++fn facade_root(tag: &str) -> tempfile::TempDir {
++    tempfile::Builder::new()
++        .prefix(&format!("facade-write-protection-{tag}-"))
++        .tempdir()
++        .expect("创建临时目录失败")
++}
++
++#[test]
++fn with_workspace_root链式构造五序均可达() {
++    let dir = facade_root("chain");
++    let root = dir.path().to_path_buf();
++
++    // 与既有四 builder 双向续链（builder 全序可换）
++    let sequences: Vec<EngineFacade> = vec![
++        EngineFacade::new().with_workspace_root(root.clone()),
++        EngineFacade::new()
++            .with_workspace_root(root.clone())
++            .with_context_window(Some(200_000)),
++        EngineFacade::new()
++            .with_context_window(Some(200_000))
++            .with_workspace_root(root.clone()),
++        EngineFacade::new()
++            .with_workspace_root(root.clone())
++            .with_max_tokens(Some(8_192))
++            .with_context_window(None),
++        EngineFacade::with_resume_transcript(counting_loader(Ok(None)).0)
++            .with_workspace_root(root.clone()),
++    ];
++    for facade in sequences {
++        let runner = facade
++            .runner_for(EngineKind::Sdk, complete_cfg())
++            .expect("注入 root 后 Sdk 臂构造成功");
++        // 产物经 trait 面可驱动（无装载缝续会话 → 显式失败不 panic）
++        assert!(
++            runner
++                .open_session(open_continue("ses-root-chain"))
++                .is_err(),
++            "Sdk 臂产物为可驱动的 AgentRunner"
++        );
++    }
++
++    let (_store_dir, store) = temp_store("root-chain");
++    let with_store = EngineFacade::new()
++        .with_explore_note_store(Arc::clone(&store))
++        .with_workspace_root(root)
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("store 与 root 两载荷续链后构造成功");
++    drop(with_store);
++}
++
++#[test]
++fn with_workspace_root分发等价_与直构runner同载荷行为一致() {
++    let dir = facade_root("equivalent");
++    let root = dir.path().to_path_buf();
++    let via_facade = EngineFacade::new()
++        .with_workspace_root(root.clone())
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("Sdk 臂构造成功");
++    let via_direct = SdkRunner::new(complete_cfg(), None, None, None).with_workspace_root(root);
++
++    assert_eq!(
++        via_facade
++            .open_session(open_continue("ses-root-equivalent"))
++            .expect_err("无装载缝续会话必须显式失败")
++            .to_string(),
++        via_direct
++            .open_session(open_continue("ses-root-equivalent"))
++            .expect_err("直构同口径失败")
++            .to_string(),
++        "门面只做透传（失败面逐字一致）"
++    );
++}
++
++#[test]
++fn with_workspace_root缺省零变_五构造点均不产出保护关闭语义() {
++    let (_loader, _calls) = counting_loader(Ok(None));
++    let (_store_dir, store) = temp_store("root-default");
++
++    assert_eq!(EngineFacade::new().workspace_root, None, "new() 缺省 None");
++    assert_eq!(
++        EngineFacade::with_resume_transcript(counting_loader(Ok(None)).0).workspace_root,
++        None,
++        "with_resume_transcript 缺省 None"
++    );
++    assert_eq!(
++        EngineFacade::new()
++            .with_context_window(Some(1_000))
++            .workspace_root,
++        None,
++        "with_context_window 不引入 root 载荷"
++    );
++    assert_eq!(
++        EngineFacade::new()
++            .with_max_tokens(Some(8_192))
++            .workspace_root,
++        None,
++        "with_max_tokens 不引入 root 载荷"
++    );
++    assert_eq!(
++        EngineFacade::new()
++            .with_explore_note_store(Arc::clone(&store))
++            .workspace_root,
++        None,
++        "with_explore_note_store 不引入 root 载荷"
++    );
++
++    // 缺省档分发行为与直构四参 None 同口径（None = 仅内置规则，非「保护关闭」）
++    let facade_runner = EngineFacade::new()
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("Sdk 臂构造成功");
++    assert!(
++        facade_runner
++            .open_session(open_continue("ses-root-default"))
++            .is_err(),
++        "缺省 root 不改变既有失败面"
++    );
++}
++
++#[test]
++fn with_workspace_root边界形态门面不校验() {
++    let long_root = std::path::PathBuf::from(format!("{}/中文🚀", "长".repeat(600)));
++    for root in [
++        std::path::PathBuf::new(),
++        std::path::PathBuf::from("D:/__not_exists__/facade-root"),
++        long_root,
++    ] {
++        let runner = EngineFacade::new()
++            .with_workspace_root(root.clone())
++            .runner_for(EngineKind::Sdk, complete_cfg())
++            .unwrap_or_else(|error| panic!("root 形态 {root:?} 不校验（仍 Ok）: {error}"));
++        drop(runner);
++    }
++
++    let dir = facade_root("emoji");
++    let runner = EngineFacade::new()
++        .with_workspace_root(dir.path().to_path_buf())
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("含中文与 emoji 路径不校验（仍 Ok）");
++    drop(runner);
++}
++
++#[test]
++fn with_workspace_root不改变cli臂退役拒收面且装载缝零消费() {
++    let dir = facade_root("cli-arm");
++    let (loader, calls) = counting_loader(Ok(Some(Vec::new())));
++    let error = match EngineFacade::with_resume_transcript(loader)
++        .with_workspace_root(dir.path().to_path_buf())
++        .runner_for(EngineKind::Cli, complete_cfg())
++    {
++        Err(error) => error,
++        Ok(_) => panic!("Cli 臂必须显式 Err"),
++    };
++    assert_eq!(
++        error, CLI_TENANT_RETIRED,
++        "root 载荷不进退役臂，拒收文案逐字不变"
++    );
++    assert_eq!(
++        calls.load(Ordering::Relaxed),
++        0,
++        "Cli 臂拒收于构造面，装载缝零消费"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/loop.rs b/crates/infra/agent/src/sdk/loop.rs
+index dface05a1c26..fa5c85787ae6 100644
+--- a/crates/infra/agent/src/sdk/loop.rs
++++ b/crates/infra/agent/src/sdk/loop.rs
+@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
+ use crate::sdk::context::{ContextDefense, DefenseNotice};
+ use crate::sdk::explore_note::ExploreNoteContext;
+ use crate::sdk::log::append_engine_log;
++use crate::sdk::protect::ProtectRules;
+ use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
+ 
+ /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
+@@ -96,6 +97,9 @@ pub(crate) struct LoopTurn {
+     /// `create_explore_note` 专用工具执行上下文（per-turn 铸造随轮携带；
+     /// `None` = 未装配——非 explore 会话恒 None，专用工具调用以 is_error 回灌）
+     pub explore_note: Option<ExploreNoteContext>,
++    /// 写入保护规则集（泵起播时装配一次、随轮携带；loop 纯消费——与
++    /// `defense` / `retry` / `liveness` 同列的「装配点算好」载荷）
++    pub protect: ProtectRules,
+ }
+ 
+ /// loop 主体
+@@ -361,10 +365,15 @@ pub(crate) async fn run(
+             finish_success(&sender, turn_index, started, &usage, turn).await;
+             return history;
+         }
+-        // 工具调用逐个：成员校验 → policy → sandbox → 执行 → 回灌（run 不中
+-        // 断）；0.43 起 tool_result 以 CallId / ToolName 构造（与 tool_use 同
+-        // 源配对）。同一 assistant 的全部结果收进一条 user 消息——provider
+-        // 要求 tool_use 的下一条消息覆盖全部 tool_result
++        // 工具调用逐个：成员校验 → policy 档位门 → 路径沙箱 → 写入保护闸 →
++        // 执行 → 回灌（run 不中断）；0.43 起 tool_result 以 CallId / ToolName
++        // 构造（与 tool_use 同源配对）。同一 assistant 的全部结果收进一条 user
++        // 消息——provider 要求 tool_use 的下一条消息覆盖全部 tool_result。
++        // 写入保护闸在沙箱**之后**：canonical 路径已在手（判定零 IO），且逃逸
++        // 路径先按沙箱成因报错、不被保护闸抢报；保护闸在任何 permission_mode
++        // 下均生效（档位门只做「档位是否放行该工具」，保护闸只做「档位已放行
++        // 之后的追加拒绝」，三档决策表零改写）。`create_explore_note` 不在射程
++        // ——由 `ProtectRules::evaluate` 的工具名分派表表达，不做 loop 侧特判
+         let mut results: Vec<ToolResult> = Vec::with_capacity(tool_calls.len());
+         for tool_call in tool_calls {
+             let id = tool_call.id.to_string();
+@@ -392,6 +401,14 @@ pub(crate) async fn run(
+                     continue;
+                 }
+             };
++            // 写入保护闸（守卫链第四段）：受保护文件的 write / edit / bash 写入
++            // 面命中即拒。拒绝串单变量同时进 notice 载荷与 is_error ToolResult
++            // （模型可见——`deny` 不中断 run，靠文案掐断换路重试链）
++            if let Some(reason) = turn.protect.evaluate(&name, &sandboxed, &turn.cwd) {
++                deny(&sender, "permission_denied", &name, &reason, &id).await;
++                results.push(outcome_result(tool_call, reason));
++                continue;
++            }
+             // 执行臂路由：专用工具走 `LoopTurn` 携带的执行上下文（per-turn 铸
+             // 造——store 句柄 + root + 会话指针，`tools::execute` 纯函数签名
+             // 零侵入）；七通用工具走纯函数分发。上下文缺席以 is_error 回灌
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index 9dcf936c6cb7..cbf6fc4b4793 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -312,6 +312,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
+             retry: turn.retry,
+             injections: turn.injections.clone(),
+             explore_note: None,
++            protect: turn.protect.clone(),
+         };
+         let handle = handle.clone();
+         async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
+@@ -336,6 +337,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
+         retry: crate::sdk::r#loop::StreamRetry::default(),
+         injections: agent::SessionInjections::default(),
+         explore_note: None,
++        protect: crate::sdk::protect::ProtectRules::load(None),
+     }
+ }
+ 
+@@ -1377,6 +1379,7 @@ fn loop_turn字段面完整构造锚定() {
+         retry: crate::sdk::r#loop::StreamRetry::default(),
+         injections: agent::SessionInjections::default(),
+         explore_note: None,
++        protect: crate::sdk::protect::ProtectRules::load(None),
+     };
+     assert_eq!(turn.question, "q");
+     assert_eq!(turn.session_id, "sdk-0-1");
+@@ -2337,3 +2340,621 @@ async fn explore轮六工具下发面内调用逐一正常执行() {
+         assert!(!*is_error, "{} 轮正常收敛", case.tool);
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 写入保护闸（守卫链第四段：沙箱之后、执行之前）
++//
++// 装置复用：`FakeModel` + `drive_loop_turn` + `notices_of` / `tool_results_of`
++// / `sealed_messages`；规则集经 `ProtectRules::load(None)`（仅内置）或
++// `load(Some(tempdir))`（内置 + 真实配置文件用户规则）真实装配。
++// ---------------------------------------------------------------------------
++
++/// 配置文件相对路径（由 `foundation::layout` 派生，测试内零目录名字面量）。
++fn protected_config_relative() -> String {
++    foundation::layout::config_path(Path::new(""))
++        .to_string_lossy()
++        .replace(r"\", "/")
++}
++
++/// 携写入保护规则集的轮参数（既有 `loop_turn` 装置的规则集注入缝）。
++fn loop_turn_with_protect(
++    cwd: &Path,
++    mode: AgentPermissionMode,
++    protect: crate::sdk::protect::ProtectRules,
++) -> LoopTurn {
++    LoopTurn {
++        protect,
++        ..loop_turn(cwd, mode)
++    }
++}
++
++/// 落盘真实工作区配置（`foundation::layout::config_path` 派生路径）。
++fn write_workspace_config(root: &Path, config: serde_json::Value) {
++    let path = foundation::layout::config_path(root);
++    if let Some(parent) = path.parent() {
++        std::fs::create_dir_all(parent).expect("创建配置目录失败");
++    }
++    write_file(
++        &path,
++        &serde_json::to_string_pretty(&config).expect("配置序列化"),
++    );
++}
++
++/// 拒绝通知 payload 里的 reason 串。
++fn notice_reason(payload: &serde_json::Value) -> String {
++    payload["reason"]
++        .as_str()
++        .expect("拒绝记因必为字符串")
++        .to_owned()
++}
++
++#[tokio::test]
++async fn 写入保护闸_write命中内置_拒且零落盘与run不中断() {
++    let dir = tempdir("protect-write-builtin");
++    let protected = dir.path().join(protected_config_relative());
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_protect",
++            "write",
++            serde_json::json!({ "path": protected.to_string_lossy(), "content": "篡改" }),
++        )],
++        vec![raw_text("已停止改配置")],
++    ]);
++    let turn = loop_turn_with_protect(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        crate::sdk::protect::ProtectRules::load(None),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 1, "恰一次权限拒绝通知");
++    assert_eq!(
++        notices[0].0, "permission_denied",
++        "保护闸复用既有 permission_denied 子类（零新事件词汇）"
++    );
++    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++    assert_eq!(payload["tool"], serde_json::json!("write"));
++    let reason = notice_reason(&payload);
++    assert!(
++        reason.contains("配置权威"),
++        "拒绝串为内置模板，实际: {reason}"
++    );
++
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1);
++    assert_eq!(results[0].0, "tu_protect", "与 tool_use 同 id 成对");
++    assert!(results[0].2, "拒绝合成 is_error ToolResult");
++    assert_eq!(
++        results[0].1, reason,
++        "notice 载荷与 ToolResult 内容逐字节相同（模型可见同一串）"
++    );
++    assert!(!protected.exists(), "受保护文件零落盘");
++
++    assert_eq!(sealed_messages(&events).len(), 2, "拒绝后续轮不中断");
++    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert!(!*is_error, "拒绝不中断 run（正常收敛）");
++}
++
++#[tokio::test]
++async fn 写入保护闸_edit命中用户规则_替换后串双面一致且字节不变() {
++    let dir = tempdir("protect-edit-user");
++    write_workspace_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                { "glob": "docs/**", "reason": "文档冻结：%s（经 %t）" }
++            ] }
++        }),
++    );
++    let target = dir.path().join("docs").join("a.md");
++    write_file(&target, "原始内容");
++
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_edit",
++            "edit",
++            serde_json::json!({
++                "path": target.to_string_lossy(),
++                "old_string": "原始",
++                "new_string": "改写"
++            }),
++        )],
++        vec![raw_text("已停止")],
++    ]);
++    let turn = loop_turn_with_protect(
++        dir.path(),
++        AgentPermissionMode::AcceptEdits,
++        crate::sdk::protect::ProtectRules::load(Some(dir.path())),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 1);
++    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++    let reason = notice_reason(&payload);
++    assert!(
++        reason.contains("docs/a.md") && reason.contains("edit"),
++        "用户模板占位符已替换（路径 + 工具名），实际: {reason}"
++    );
++    assert!(reason.contains("文档冻结"), "模板文案透传，实际: {reason}");
++    let results = tool_results_of(&events);
++    assert_eq!(results[0].1, reason, "双面同串");
++    assert_eq!(
++        std::fs::read_to_string(&target).expect("文件可读"),
++        "原始内容",
++        "受保护文件字节不变"
++    );
++}
++
++#[tokio::test]
++async fn 写入保护闸_bash三路写法各自命中() {
++    let dir = tempdir("protect-bash-routes");
++    let protected = dir.path().join(protected_config_relative());
++    let config = protected_config_relative();
++    let commands = [
++        format!("echo {{}} > {config}"),
++        format!("rm {config}"),
++        format!("node -e \"require('fs').writeFileSync('{config}','{{}}')\""),
++    ];
++
++    for command in commands {
++        let model = FakeModel::with_turns(vec![
++            vec![raw_tool_call(
++                "tu_bash",
++                "bash",
++                serde_json::json!({ "command": command }),
++            )],
++            vec![raw_text("已停止")],
++        ]);
++        let turn = loop_turn_with_protect(
++            dir.path(),
++            AgentPermissionMode::BypassPermissions,
++            crate::sdk::protect::ProtectRules::load(None),
++        );
++
++        let events = drive_loop_turn(&model, turn).await;
++        let notices = notices_of(&events);
++        assert_eq!(notices.len(), 1, "命令各 1 条拒绝记因: {command}");
++        assert_eq!(notices[0].0, "permission_denied");
++        let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++        assert_eq!(payload["tool"], serde_json::json!("bash"));
++        let results = tool_results_of(&events);
++        assert_eq!(results.len(), 1, "恰一次结果回灌: {command}");
++        assert!(results[0].2, "拒绝结果 is_error: {command}");
++        assert_eq!(results[0].1, notice_reason(&payload), "同串双面: {command}");
++        assert!(!protected.exists(), "受保护文件零落盘: {command}");
++    }
++}
++
++#[tokio::test]
++async fn 写入保护闸_bash树落点命中即拒而源码子树照常执行() {
++    let dir = tempdir("protect-bash-tree");
++
++    let denied_model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_find_all",
++            "bash",
++            serde_json::json!({ "command": "find . -delete" }),
++        )],
++        vec![raw_text("已停止")],
++    ]);
++    let denied = drive_loop_turn(
++        &denied_model,
++        loop_turn_with_protect(
++            dir.path(),
++            AgentPermissionMode::BypassPermissions,
++            crate::sdk::protect::ProtectRules::load(None),
++        ),
++    )
++    .await;
++    let notices = notices_of(&denied);
++    assert_eq!(notices.len(), 1, "搜索根覆盖受保护目标即拒");
++    assert_eq!(notices[0].0, "permission_denied");
++
++    let allowed_model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_find_src",
++            "bash",
++            serde_json::json!({ "command": "find src -delete" }),
++        )],
++        vec![raw_text("继续")],
++    ]);
++    let allowed = drive_loop_turn(
++        &allowed_model,
++        loop_turn_with_protect(
++            dir.path(),
++            AgentPermissionMode::BypassPermissions,
++            crate::sdk::protect::ProtectRules::load(None),
++        ),
++    )
++    .await;
++    assert!(
++        notices_of(&allowed).is_empty(),
++        "源码子树搜索根不越拦（零拒绝记因）"
++    );
++    assert_eq!(
++        tool_results_of(&allowed).len(),
++        1,
++        "执行照常（结果由执行体自身决定）"
++    );
++}
++
++#[tokio::test]
++async fn 写入保护闸_未命中照常执行且文件真实生成() {
++    let dir = tempdir("protect-allow");
++    let notes = dir.path().join("notes.txt");
++
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_write",
++            "write",
++            serde_json::json!({ "path": notes.to_string_lossy(), "content": "保护闸之外" }),
++        )],
++        vec![raw_tool_call(
++            "tu_bash",
++            "bash",
++            serde_json::json!({ "command": "echo foo > notes.txt" }),
++        )],
++        vec![raw_text("完成")],
++    ]);
++    let turn = loop_turn_with_protect(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        crate::sdk::protect::ProtectRules::load(None),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    assert!(
++        notices_of(&events).is_empty(),
++        "未配置用户规则时普通写零拒绝（内置面之外）"
++    );
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 2, "两次工具结果");
++    assert_eq!(results[0].0, "tu_write");
++    assert!(!results[0].2, "write 执行成功（保护闸不抢执行）");
++    assert_eq!(results[1].0, "tu_bash");
++    assert!(!results[1].2, "bash 执行成功");
++    let content = std::fs::read_to_string(&notes).expect("文件真实生成");
++    assert!(
++        content.contains("foo"),
++        "bash 重定向真实落盘，实际内容: {content:?}"
++    );
++    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert!(!*is_error);
++}
++
++#[tokio::test]
++async fn 写入保护闸_只读四工具直通() {
++    let dir = tempdir("protect-readonly");
++    let protected = dir.path().join(protected_config_relative());
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_tool_call(
++                "tu_read",
++                "read",
++                serde_json::json!({ "path": protected.to_string_lossy() }),
++            ),
++            raw_tool_call(
++                "tu_grep",
++                "grep",
++                serde_json::json!({ "pattern": "x", "path": dir.path().to_string_lossy() }),
++            ),
++            raw_tool_call("tu_glob", "glob", serde_json::json!({ "pattern": "**/*" })),
++            raw_tool_call(
++                "tu_ls",
++                "ls",
++                serde_json::json!({ "path": dir.path().to_string_lossy() }),
++            ),
++        ],
++        vec![raw_text("读面完成")],
++    ]);
++    let turn = loop_turn_with_protect(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        crate::sdk::protect::ProtectRules::load(None),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    assert!(
++        notices_of(&events).is_empty(),
++        "只读四工具读面全开放（零拒绝记因）"
++    );
++    assert_eq!(tool_results_of(&events).len(), 4, "四工具各一次结果");
++}
++
++#[tokio::test]
++async fn 写入保护闸_explore专用工具直通_规则覆盖亦不拦() {
++    let (dir, _db_dir, store, record) = explore_fixture("protect-explore");
++    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
++    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
++    // 规则覆盖整棵域目录树（含探索笔记目录）：专用工具仍走原执行面
++    write_workspace_config(
++        dir.path(),
++        serde_json::json!({
++            "write_protection": { "files": [
++                {
++                    "glob": format!("{}/**", foundation::layout::domain_dir_name()),
++                    "reason": "域树冻结"
++                }
++            ] }
++        }),
++    );
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_note",
++            EXPLORE_NOTE_TOOL,
++            serde_json::json!({ "name": "protect-pass", "content": "# 结论" }),
++        )],
++        vec![raw_text("已定名")],
++    ]);
++    let turn = LoopTurn {
++        injections: explore_injections(),
++        explore_note: Some(context),
++        ..loop_turn_with_protect(
++            dir.path(),
++            AgentPermissionMode::AcceptEdits,
++            crate::sdk::protect::ProtectRules::load(Some(dir.path())),
++        )
++    };
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    assert!(
++        notices_of(&events).is_empty(),
++        "create_explore_note 走分派表 `_ => None`（零拒绝记因）"
++    );
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1);
++    assert!(!results[0].2, "专用工具执行面形态与既有用例一致");
++    assert!(
++        results[0].1.contains(foundation::layout::domain_dir_name()),
++        "返回 repo 相对路径，实际: {}",
++        results[0].1
++    );
++}
++
++#[tokio::test]
++async fn 写入保护闸_档位矩阵_两写档生效而default由policy先行() {
++    let dir = tempdir("protect-modes");
++    for (mode, expect_protect) in [
++        (AgentPermissionMode::BypassPermissions, true),
++        (AgentPermissionMode::AcceptEdits, true),
++        (AgentPermissionMode::Default, false),
++    ] {
++        let protected = dir.path().join(protected_config_relative());
++        let model = FakeModel::with_turns(vec![
++            vec![raw_tool_call(
++                "tu_mode",
++                "write",
++                serde_json::json!({ "path": protected.to_string_lossy(), "content": "x" }),
++            )],
++            vec![raw_text("继续")],
++        ]);
++        let turn = loop_turn_with_protect(
++            dir.path(),
++            mode,
++            crate::sdk::protect::ProtectRules::load(None),
++        );
++
++        let events = drive_loop_turn(&model, turn).await;
++        let notices = notices_of(&events);
++        assert_eq!(notices.len(), 1, "档位 {mode:?} 恰一次拒绝记因");
++        assert_eq!(notices[0].0, "permission_denied");
++        let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++        let reason = notice_reason(&payload);
++        if expect_protect {
++            assert!(
++                reason.contains("配置权威"),
++                "写档位 {mode:?} 下保护闸生效，实际: {reason}"
++            );
++        } else {
++            assert!(
++                reason.contains("权限档位"),
++                "Default 档由 policy 先行拒绝（顺序锚），实际: {reason}"
++            );
++            assert!(
++                !reason.contains("配置权威"),
++                "保护闸未触（不被抢报），实际: {reason}"
++            );
++        }
++    }
++}
++
++#[tokio::test]
++async fn 写入保护闸_顺序锚_沙箱先于保护() {
++    let dir = tempdir("protect-order-sandbox");
++    let escaping = format!("../{}", protected_config_relative());
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_escape",
++            "write",
++            serde_json::json!({ "path": escaping, "content": "x" }),
++        )],
++        vec![raw_text("继续")],
++    ]);
++    let turn = loop_turn_with_protect(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        crate::sdk::protect::ProtectRules::load(None),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 1);
++    assert_eq!(
++        notices[0].0, "sandbox_denied",
++        "逃逸路径按沙箱成因报错（错误归属不被保护闸抢报）"
++    );
++    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++    assert!(
++        notice_reason(&payload).contains("越出"),
++        "沙箱文案承接，实际: {payload}"
++    );
++}
++
++#[tokio::test]
++async fn 写入保护闸_顺序锚_成员校验先于保护() {
++    let dir = tempdir("protect-order-member");
++
++    // explore 轮发起不在下发面的 write：成员校验拒绝（非保护闸）
++    let ghost_model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_ghost",
++            "write",
++            serde_json::json!({
++                "path": dir.path().join(protected_config_relative()).to_string_lossy(),
++                "content": "x"
++            }),
++        )],
++        vec![raw_text("继续")],
++    ]);
++    let ghost_turn = LoopTurn {
++        injections: explore_injections(),
++        ..loop_turn_with_protect(
++            dir.path(),
++            AgentPermissionMode::BypassPermissions,
++            crate::sdk::protect::ProtectRules::load(None),
++        )
++    };
++    let ghost = drive_loop_turn(&ghost_model, ghost_turn).await;
++    let notices = notices_of(&ghost);
++    assert_eq!(notices.len(), 1);
++    assert_eq!(notices[0].0, "tool_unavailable");
++    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++    assert!(
++        !notice_reason(&payload).contains("配置权威"),
++        "零保护文案（成员校验在先）"
++    );
++
++    // 未知名 rm_rf：成员校验拒绝，不触 protect
++    let unknown_model = FakeModel::with_turns(vec![
++        vec![raw_tool_call("tu_rm_rf", "rm_rf", serde_json::json!({}))],
++        vec![raw_text("继续")],
++    ]);
++    let unknown = drive_loop_turn(
++        &unknown_model,
++        loop_turn_with_protect(
++            dir.path(),
++            AgentPermissionMode::BypassPermissions,
++            crate::sdk::protect::ProtectRules::load(None),
++        ),
++    )
++    .await;
++    let notices = notices_of(&unknown);
++    assert_eq!(notices.len(), 1);
++    assert_eq!(notices[0].0, "tool_unavailable");
++    assert!(
++        !notices
++            .iter()
++            .any(|(subtype, _)| *subtype == "permission_denied"),
++        "未知名不走 policy / 保护闸拒绝形态"
++    );
++}
++
++#[tokio::test]
++async fn 写入保护闸_拒绝后history收对且模型可见完整指令() {
++    let dir = tempdir("protect-history");
++    let protected = dir.path().join(protected_config_relative());
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_history",
++            "write",
++            serde_json::json!({ "path": protected.to_string_lossy(), "content": "x" }),
++        )],
++        vec![raw_text("已按拒绝收敛")],
++    ]);
++    let turn = loop_turn_with_protect(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        crate::sdk::protect::ProtectRules::load(None),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++    let payload = serde_json::to_value(notices_of(&events)[0].1).expect("payload 序列化");
++    let reason = notice_reason(&payload);
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 2, "拒绝后照常发起第二轮请求");
++    let history = &requests[1].chat_history;
++    let result_text = history_tool_result_text(history, "tu_history").expect("tool_result 已入史");
++    assert_eq!(result_text, reason, "史内 tool_result 正文即拒绝串");
++    assert!(
++        result_text.contains("不要改用其他命令或工具尝试绕过"),
++        "模型可见的完整指令（禁绕过句）"
++    );
++    assert_eq!(sealed_messages(&events).len(), 2, "两轮密封齐全");
++}
++
++#[tokio::test]
++async fn 写入保护闸_同文件连撞三轮不中断也不硬中断() {
++    let dir = tempdir("protect-repeat");
++    let config = protected_config_relative();
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_1",
++            "write",
++            serde_json::json!({
++                "path": dir.path().join(&config).to_string_lossy(),
++                "content": "x"
++            }),
++        )],
++        vec![raw_tool_call(
++            "tu_2",
++            "bash",
++            serde_json::json!({ "command": format!("echo x > {config}") }),
++        )],
++        vec![raw_tool_call(
++            "tu_3",
++            "bash",
++            serde_json::json!({ "command": format!("cp /tmp/x {config}") }),
++        )],
++        vec![raw_text("三轮后停止")],
++    ]);
++    let turn = loop_turn_with_protect(
++        dir.path(),
++        AgentPermissionMode::BypassPermissions,
++        crate::sdk::protect::ProtectRules::load(None),
++    );
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 3, "连续三轮各一次拒绝记因");
++    assert!(
++        notices
++            .iter()
++            .all(|(subtype, _)| *subtype == "permission_denied"),
++        "拒绝形态一致"
++    );
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 3, "三条同 id is_error ToolResult");
++    assert!(
++        results.iter().all(|(_, _, is_error)| *is_error),
++        "三条结果均 is_error"
++    );
++    assert_eq!(
++        results.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
++        vec!["tu_1", "tu_2", "tu_3"],
++        "结果与 tool_use 逐一对位"
++    );
++    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert!(
++        !*is_error,
++        "deny 不中断 run（引擎不加「二次拒绝即硬中断」机制）"
++    );
++    assert!(
++        !dir.path().join(&config).exists(),
++        "三轮撞同一受保护文件均零落盘"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/mod.rs b/crates/infra/agent/src/sdk/mod.rs
+index 6948fdb80ef6..47b2dab72a90 100644
+--- a/crates/infra/agent/src/sdk/mod.rs
++++ b/crates/infra/agent/src/sdk/mod.rs
+@@ -11,6 +11,7 @@ pub(crate) mod model_spec;
+ pub(crate) mod normalize;
+ pub(crate) mod policy;
+ pub(crate) mod preamble;
++pub(crate) mod protect;
+ pub(crate) mod resume;
+ pub(crate) mod runner;
+ pub(crate) mod sandbox;
+diff --git a/crates/infra/agent/src/sdk/protect/inline.rs b/crates/infra/agent/src/sdk/protect/inline.rs
+new file mode 100644
+index 000000000000..1406c345fb3a
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/inline.rs
+@@ -0,0 +1,107 @@
++// ---------------------------------------------------------------------------
++// node / python 内联脚本写入判别（**关联式**，非全文共现式）
++//
++// 每条正则把「写 API 名」与其**第一个字符串实参**绑定（`api(` + 引号字面量
++// 紧邻），对整条命令文本扫描：命中受保护路径即由调用方拒绝。全文共现式（脚本
++// 段内同时出现写 API 名与受保护路径字符串即拒）会把日志 / 文档文本误拦
++// （`console.log('writeFileSync','<path>')` 必须放行），故 MUST NOT 采用。
++//
++// 与插件端的硬性偏离：插件端对「`python` / `node` 起手」的命令整体豁免（连提取
++// 器都不进），本端 **MUST NOT 复刻**——`node -e "…writeFileSync('受保护文件',…)"` 与
++// `python -c "open('受保护文件','w')…"` 必须被拒。
++//
++// 不切脚本段（不识别 `-e` / `--eval` / `-c` / `--command` 边界）：因此
++// `node -c`（`--check`，只做语法检查）不构成误判来源（文本里没有写 API 调用
++// 就不命中），`python -c` 亦无需特判；嵌套形态（`bash -c 'node -e "…"'`、
++// `pwsh -Command "…"`）一并覆盖（关联式不依赖脚本段定位与行首命令名）。
++//
++// 已知漏面（知情边界，与 `xargs` / `sh -c` 递归拆解同类）：生成脚本文件再执行、
++// 变量中转路径（`const p='…'; writeFileSync(p,…)`）、base64 编码脚本、`printf`
++// 拼串后喂 stdin——均不覆盖。裸脚本 / 模块入口（`node x.js` / `python x.py` /
++// `node -m`）放行：脚本内容不在命令行文本内，不可静态判别；该放行 MUST NOT
++// 扩展到同一条命令里的重定向 / `cp` / 删除族（那些仍按各自族判定）。
++//
++// 保守方向留痕：`copyFile*` / `shutil.copy*` / `os.rename*` 的**首参是源**，
++// 故「从受保护文件复制出去」也会被拒（over-block，安全侧）。
++//
++// 转义纪律：正则容忍引号前的 `\`（`\"` 形态，嵌套引号命令文本的实况），
++// 路径捕获容许尾随 `\`（归一在 `rules::normalize` 内做）。故本模块消费命令
++// **原文**而非 `\`→`/` 归一文本——归一化会把 `\"` 变成 `/"` 并破坏引号面。
++// ---------------------------------------------------------------------------
++
++use std::sync::OnceLock;
++
++use regex::Regex;
++
++/// 单实参写 API 表（JS / Node）：名称后紧跟其首个字符串实参。
++const JS_SINGLE_ARG_APIS: [&str; 13] = [
++    "writeFileSync",
++    "writeFile",
++    "appendFileSync",
++    "appendFile",
++    "createWriteStream",
++    "copyFileSync",
++    "copyFile",
++    "renameSync",
++    "rename",
++    "unlinkSync",
++    "unlink",
++    "rmSync",
++    "rm",
++];
++
++/// 预编译写 API 正则表（进程内编译一次；单量词线性形态，无嵌套量词 / 回溯
++/// 爆炸面；**不设命令文本长度上限**——设上限等于送出一条绕过路径）。
++fn write_regexes() -> &'static [Regex] {
++    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
++    REGEXES.get_or_init(|| {
++        let mut patterns: Vec<String> = JS_SINGLE_ARG_APIS
++            .iter()
++            // 单实参族：`api(` + 首个引号字面量即路径
++            .map(|api| format!(r#"\b{api}\s*\(\s*\\?['"]([^'"\n]+)['"]"#))
++            .collect();
++        // `openSync(p, 'w' | 'a' | 'wx')`：需模式实参校验（只读模式不拦）
++        patterns.push(
++            r#"\bopenSync\s*\(\s*\\?['"]([^'"\n]+)['"]\s*,\s*['"][wax][^'"\n]*['"]"#.to_owned(),
++        );
++        // PY：`open(p, 'w' | 'a' | 'x' | 'wb' | 'w+')`（首模式字符 ∈ wax；`'r'` 是纯读）
++        patterns
++            .push(r#"\bopen\s*\(\s*\\?['"]([^'"\n]+)['"]\s*,\s*['"][wax][^'"\n]*['"]"#.to_owned());
++        // PY：`Path(p).write_text` / `Path(p).write_bytes`
++        patterns.push(
++            r#"\bPath\s*\(\s*\\?['"]([^'"\n]+)['"]\s*\)\s*\.\s*(?:write_text|write_bytes)"#
++                .to_owned(),
++        );
++        // PY：`shutil.copy` / `copy2` / `copyfile` / `move`（首参为源，保守拦截）
++        patterns.push(
++            r#"\bshutil\s*\.\s*(?:copy2|copyfile|copy|move)\s*\(\s*\\?['"]([^'"\n]+)['"]"#
++                .to_owned(),
++        );
++        // PY：`os.remove` / `unlink` / `rename` / `replace`
++        patterns.push(
++            r#"\bos\s*\.\s*(?:remove|unlink|rename|replace)\s*\(\s*\\?['"]([^'"\n]+)['"]"#
++                .to_owned(),
++        );
++        // 预编译失败按不命中收敛（fail-open；静态字面量非法属编译期缺陷，
++        // 不 panic、不拒绝启动）
++        patterns
++            .iter()
++            .filter_map(|pattern| Regex::new(pattern).ok())
++            .collect()
++    })
++}
++
++/// 逐个写 API 正则 `captures_iter`，聚成候选路径（首个捕获组 = 引号内字面
++/// 量）。变量实参（无引号）不捕获 → 自然放行；只报候选、不判命中（命中判定
++/// 归 `mod.rs`，本函数零规则知识）。
++pub(super) fn write_targets(command: &str) -> Vec<String> {
++    let mut targets = Vec::new();
++    for regex in write_regexes() {
++        for captures in regex.captures_iter(command) {
++            if let Some(target) = captures.get(1) {
++                targets.push(target.as_str().to_owned());
++            }
++        }
++    }
++    targets
++}
+diff --git a/crates/infra/agent/src/sdk/protect/inline_test.rs b/crates/infra/agent/src/sdk/protect/inline_test.rs
+new file mode 100644
+index 000000000000..d39361f5607c
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/inline_test.rs
+@@ -0,0 +1,334 @@
++//! `inline` 的单元测试（AC-7）：node / python 内联脚本写入判别（关联式——写
++//! API 名与其**第一个字符串实参**绑定，非全文共现式）。
++//!
++//! 断言口径：
++//! - 零 mock：命令文本即被测 API 显式入参，纯 `regex` 文本扫描，不真跑
++//!   `node` / `python`、不触文件系统；
++//! - 反向断言对象：插件端「`python` / `node` 起手整体豁免」口径 MUST NOT 复刻
++//!   （内联写入必须被提取）；
++//! - 已知漏面（裸脚本 / 变量中转 / base64 / 生成脚本再执行）以「放行」形态显式
++//!   留痕，是知情边界而非缺口。
++
++use super::inline;
++
++/// 受保护文件路径样本（判命中归 `protect/mod.rs`，本文件只锚候选提取）。
++const PROTECTED: &str = "/ws/openspec/config.json";
++
++fn targets(command: &str) -> Vec<String> {
++    inline::write_targets(command)
++}
++
++/// 候选集中是否含指定路径（回调形态，避免借用与所有权摩擦）。
++fn contains(command: &str, expected: &str) -> bool {
++    targets(command).iter().any(|target| target == expected)
++}
++
++/// 候选集中是否含指定路径（容忍尾随转义反斜杠：嵌套引号命令文本的实参常以
++/// `\"` 收尾，尾随 `\` 由 `rules::normalize` 吸收）。
++fn contains_trimmed(command: &str, expected: &str) -> bool {
++    targets(command)
++        .iter()
++        .any(|target| target.trim_end_matches('\\') == expected)
++}
++
++// ---------------------------------------------------------------------------
++// JS / Node 单实参写 API 表
++// ---------------------------------------------------------------------------
++
++#[test]
++fn js单实参写api逐项提取首参() {
++    let apis = [
++        "writeFileSync",
++        "writeFile",
++        "appendFileSync",
++        "appendFile",
++        "createWriteStream",
++        "copyFileSync",
++        "copyFile",
++        "renameSync",
++        "rename",
++        "unlinkSync",
++        "unlink",
++        "rmSync",
++        "rm",
++    ];
++    for api in apis {
++        let command = format!("node -e \"fs.{api}('p','x')\"");
++        assert_eq!(
++            targets(&command),
++            vec!["p".to_owned()],
++            "API {api} 的首个字符串实参即候选路径"
++        );
++        // `fs.promises.<api>` 形态同（前缀不参与匹配）
++        let promises = format!("node -e \"fs.promises.{api}('p','x')\"");
++        assert!(contains(&promises, "p"), "promises 形态同提取: {promises}");
++    }
++}
++
++#[test]
++fn js_open族仅写模式提取只读模式不提取() {
++    for mode in ["w", "a", "wx"] {
++        let command = format!("node -e \"fs.openSync('p','{mode}')\"");
++        assert_eq!(
++            targets(&command),
++            vec!["p".to_owned()],
++            "openSync 写模式 {mode} 提取首参"
++        );
++    }
++    assert!(
++        targets("node -e \"fs.openSync('p','r')\"").is_empty(),
++        "只读模式 `r` 不产出候选（纯读不误拦）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// PY 写 API 表
++// ---------------------------------------------------------------------------
++
++#[test]
++fn py_open族写模式逐项提取只读模式不提取() {
++    for mode in ["w", "a", "x", "wb", "w+"] {
++        let command = format!("python -c \"open('p','{mode}').write('{{}}')\"");
++        assert!(
++            !targets(&command).is_empty(),
++            "open 写模式 {mode} 应提取候选"
++        );
++        assert!(
++            targets(&command).iter().all(|target| target == "p"),
++            "open 写模式 {mode} 首参即候选，实际: {:?}",
++            targets(&command)
++        );
++    }
++    assert!(
++        targets("python -c \"open('p','r')\"").is_empty(),
++        "只读模式 `r` 零候选"
++    );
++}
++
++#[test]
++fn py_path写方法提取路径() {
++    for command in [
++        "python -c \"Path('p').write_text('x')\"",
++        "python -c \"Path('p').write_bytes(b'x')\"",
++    ] {
++        assert!(
++            !targets(command).is_empty() && targets(command).iter().all(|target| target == "p"),
++            "Path(p).write_* 提取路径，命令: {command}"
++        );
++    }
++}
++
++#[test]
++fn py_shutil与os族取首个字符串实参() {
++    // shutil 族首参为源（保守拦截方向：从受保护文件复制出去亦被拦）
++    for command in [
++        "python -c \"shutil.copy('src','p')\"",
++        "python -c \"shutil.copy2('src','p')\"",
++        "python -c \"shutil.copyfile('src','p')\"",
++        "python -c \"shutil.move('src','p')\"",
++    ] {
++        let extracted = targets(command);
++        assert!(
++            !extracted.is_empty() && extracted.iter().all(|target| target == "src"),
++            "shutil 族取首参（源），命令: {command}，实际: {extracted:?}"
++        );
++    }
++    for command in [
++        "python -c \"os.remove('p')\"",
++        "python -c \"os.unlink('p')\"",
++    ] {
++        let extracted = targets(command);
++        assert!(
++            !extracted.is_empty() && extracted.iter().all(|target| target == "p"),
++            "os 删除族取首参，命令: {command}，实际: {extracted:?}"
++        );
++    }
++    for command in [
++        "python -c \"os.rename('src','p')\"",
++        "python -c \"os.replace('src','p')\"",
++    ] {
++        let extracted = targets(command);
++        assert!(
++            !extracted.is_empty() && extracted.iter().all(|target| target == "src"),
++            "os 改名族取首参，命令: {command}，实际: {extracted:?}"
++        );
++    }
++}
++
++#[test]
++fn copy族首参为源的over_block行为锚定() {
++    // 规格固定「路径取第一个字符串实参」，故「从受保护文件复制出去」亦被拒
++    // （over-block，方向为安全侧；产品若改取第二实参，本用例随之改写）
++    assert!(
++        contains(
++            &format!("python -c \"shutil.copy('{PROTECTED}','/tmp/x')\""),
++            PROTECTED
++        ),
++        "shutil.copy 首参为受保护文件即入候选"
++    );
++    assert!(
++        contains(
++            &format!("node -e \"fs.copyFileSync('{PROTECTED}', '/tmp/x')\""),
++            PROTECTED
++        ),
++        "fs.copyFileSync 首参为受保护文件即入候选"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 多路径 / 引号族
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 多路径按命令出现序返回且不折叠() {
++    assert_eq!(
++        targets("node -e \"fs.writeFileSync('a',''); fs.unlinkSync('b')\""),
++        vec!["a".to_owned(), "b".to_owned()],
++        "按命令出现序返回（不折叠）"
++    );
++    assert_eq!(
++        targets("node -e \"fs.writeFileSync('p',''); fs.appendFileSync('p','')\""),
++        vec!["p".to_owned(), "p".to_owned()],
++        "同路径两 API → 两条（不去重）"
++    );
++}
++
++#[test]
++fn 引号族与特殊字符路径原样提取() {
++    for command in [
++        "node -e \"fs.writeFileSync('p','x')\"",
++        "node -e \"fs.writeFileSync(\\\"p\\\",\\\"x\\\")\"",
++        "node -e \"fs.writeFileSync('中文 路径🚀/a.md','x')\"",
++        "node -e \"fs.writeFileSync('D:\\\\ws\\\\a.md','x')\"",
++    ] {
++        let extracted = targets(command);
++        assert_eq!(extracted.len(), 1, "单调用单候选，命令: {command}");
++        assert!(
++            extracted[0].contains('p')
++                || extracted[0].contains("中文")
++                || extracted[0].contains("D:"),
++            "路径原文（含空格 / 中文 / emoji / 反斜杠 / 转义引号）原样返回，实际: {extracted:?}"
++        );
++    }
++    // 模板串（反引号）不在关联式引号面（`'` / `"` 两族），按未提取收敛
++    assert!(
++        targets("node -e \"fs.writeFileSync(`p`)\"").is_empty(),
++        "反引号模板串不在关联式引号面（既定漏面，不误判）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 精度：共现不误拦 / 裸脚本放行 / 变量中转
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 共现式文本不误拦() {
++    assert!(
++        targets(&format!(
++            "node -e \"console.log('writeFileSync','{PROTECTED}')\""
++        ))
++        .is_empty(),
++        "API 名与路径实参未绑定（日志文本）→ 零候选"
++    );
++    assert!(
++        targets("node -e \"const s='open(p,\\\"w\\\")'\"").is_empty(),
++        "引号内文本不是真实调用 → 零候选"
++    );
++}
++
++#[test]
++fn 裸脚本与模块入口放行() {
++    for command in [
++        "node scripts/setup.js /ws/openspec/config.json",
++        "python tools/gen.py",
++        "node -m pkg",
++        "python -m mod",
++        "node -c a.js",
++        "node --check a.js",
++    ] {
++        assert!(
++            targets(command).is_empty(),
++            "脚本内容不在命令行文本内（已知漏面留痕），命令: {command}"
++        );
++    }
++}
++
++#[test]
++fn 嵌套shell包裹形态一并覆盖() {
++    // 关联式不依赖脚本段定位与行首命令名，故嵌套形态同拦
++    assert!(
++        contains_trimmed(
++            "bash -c 'node -e \"require(\\\"fs\\\").rmSync(\\\"p\\\")\"'",
++            "p"
++        ),
++        "嵌套 bash -c + rmSync 提取候选"
++    );
++    assert!(
++        contains(
++            "pwsh -Command \"node -e \\\"fs.writeFileSync('p','')\\\"\"",
++            "p"
++        ),
++        "pwsh -Command 包裹同提取"
++    );
++    assert!(
++        contains("bash -c \"python -c \\\"open('p','w')\\\"\"", "p"),
++        "嵌套 python open 提取候选（关联式不依赖脚本段定位）"
++    );
++}
++
++#[test]
++fn 变量中转路径不提取() {
++    assert!(
++        targets(&format!(
++            "node -e \"const p='{PROTECTED}'; fs.writeFileSync(p,'')\""
++        ))
++        .is_empty(),
++        "无字符串实参（变量中转）→ 零候选（承认漏面）"
++    );
++    assert!(
++        targets(&format!("python -c \"p='{PROTECTED}'; open(p,'w')\"")).is_empty(),
++        "PY 变量中转同（承认漏面）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 畸形与边界
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 畸形输入零候选且不panic() {
++    for command in ["", "   ", "''", "\"", "node -e \"fs.writeFileSync('p"] {
++        assert!(
++            targets(command).is_empty(),
++            "畸形 / 空 / 未闭合引号零候选，命令: {command:?}"
++        );
++    }
++}
++
++#[test]
++fn 超长命令尾部写api仍被提取() {
++    let command = format!(
++        "node -e \"{}{}\"",
++        "y".repeat(100_000),
++        "fs.writeFileSync('p','')"
++    );
++    assert_eq!(
++        targets(&command),
++        vec!["p".to_owned()],
++        "100 KB 命令尾部 1 处写 API 仍提取（不设长度上限）"
++    );
++}
++
++#[test]
++fn 非ascii路径正确提取() {
++    assert_eq!(
++        targets("node -e \"fs.writeFileSync('中文🚀/a.md','x')\""),
++        vec!["中文🚀/a.md".to_owned()],
++        "中文与 emoji 路径原样提取、不 panic"
++    );
++    assert_eq!(
++        targets("python -c \"open('目录/文件🚀.md','w')\""),
++        vec!["目录/文件🚀.md".to_owned()],
++        "PY 侧非 ASCII 同样正确"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/protect/mod.rs b/crates/infra/agent/src/sdk/protect/mod.rs
+new file mode 100644
+index 000000000000..075b847c25d4
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/protect/mod.rs
+@@ -0,0 +1,174 @@
++// ---------------------------------------------------------------------------
++// 写入保护（desktop-write-protection）：规则装配 + 判定入口
++//
++// **落在 loop 守卫链第四段**：成员校验 → policy 档位门 → 路径沙箱 →
++// **写入保护闸** → 执行。保护闸位于沙箱改写之后（此时 `path` 已是 canonical
++// 绝对路径，判定无需再做 IO 级规范化），且位于执行体之前；拒绝形态复用既有
++// `deny()`（拒绝通知 + 同 id is_error ToolResult，`permission_denied` 子类），
++// 零新事件词汇、零新退出码。
++//
++// **装配 / 判定分工**：
++// - [`ProtectRules::load`] 是唯一 IO 点（读工作区配置 + 内置规则合并 + 相对
++//   glob 归一），每 run 一次（泵起播时），随 `LoopTurn.protect` 下发；
++// - [`ProtectRules::evaluate`] 是零 IO 零副作用纯函数（无文件系统访问 / 无路径
++//   二次规范化 / 无事件通道 / 不 panic），每 tool_call 一次。
++//   故 run 内改配置不改变本轮行为（下一 run 重读）。
++//
++// **射程边界**（由 `evaluate` 的工具名分派表表达，loop 侧不做工具名特判）：
++// 只覆盖 `write` / `edit`（按 `path`）与 `bash`（按 `command` + `cwd`）；只读
++// 四工具（`read` / `grep` / `glob` / `ls`）与专用工具 `create_explore_note`
++// 恒 `None`。专用工具直通是既定知情边界：用户若把探索笔记目录写进保护，
++// `edit` 被拒而专用工具直通——缺口记录在案，不在本模块补偿。
++//
++// **失败面矩阵**（fail-open 于防护、fail-closed 于内置面）：
++// | 面 | 方向 | 语义 |
++// |---|---|---|
++// | 配置读取（缺失 / 坏 JSON / 字段违例） | fail-open（配置面） | 只用内置规则 |
++// | 用户 glob 非法 / 展开超限 | fail-open（防护面） | 该条不命中（方言层收敛） |
++// | `path` / `command` 缺失或非字符串 | fail-open | 放行，错误归属执行体 |
++// | 提取出无法解析的 token（含 `$` / 空串） | fail-open | 跳过该 op，其余照判 |
++// | 内置规则 | fail-closed | 恒在，不受任何配置状态影响 |
++//
++// **知情边界**：`xargs` / `sh -c` 递归拆解、生成脚本再执行、`-m` 模块、变量
++// 中转路径、base64 编码脚本、`printf` 拼串喂 stdin 均不可静态判别（见
++// `shell` / `inline` 的模块 doc）；命令级任意执行与未受保护文件改动仍无护栏。
++// ---------------------------------------------------------------------------
++
++use std::path::Path;
++
++use serde_json::Value;
++
++use crate::sdk::protect::rules::Rule;
++
++mod inline;
++mod reason;
++mod rules;
++mod shell;
++
++/// 保护规则集（装配产出的纯数据；位次即优先级——内置在前、首个命中即定）。
++/// 字段私有：只由 [`ProtectRules::load`] 构造。
++#[derive(Debug, Clone)]
++pub(crate) struct ProtectRules {
++    rules: Vec<Rule>,
++}
++
++impl ProtectRules {
++    /// 规则装配（**唯一 IO 点**，每 run 一次）：内置恒在，`Some(root)` 时追加
++    /// 该 root 的用户规则；`None`（未注入 workspace root）只回内置——不产出
++    /// 「保护关闭」的空规则集。
++    pub(crate) fn load(workspace_root: Option<&Path>) -> ProtectRules {
++        ProtectRules {
++            rules: rules::load(workspace_root),
++        }
++    }
++
++    /// 判定入口（零 IO 纯函数）：命中返回完整拒绝串，未命中返回 `None`。
++    ///
++    /// 射程由本分派表表达：`write` / `edit` 按路径、`bash` 按命令文本，其余
++    /// 工具（含只读四工具与 `create_explore_note`）恒放行。
++    pub(crate) fn evaluate(&self, tool: &str, input: &Value, cwd: &Path) -> Option<String> {
++        match tool {
++            "write" | "edit" => self.evaluate_path(tool, input),
++            "bash" => self.evaluate_shell(tool, input, cwd),
++            _ => None,
++        }
++    }
++
++    /// write / edit 路径判定：`path` 缺失或非字符串 → 放行（不抢执行体的错误
++    /// 归属）；归一后直接匹配（`path` 已是沙箱解析后的绝对路径，MUST NOT 再做
++    /// 一次路径解析——判定零 IO）。
++    fn evaluate_path(&self, tool: &str, input: &Value) -> Option<String> {
++        let raw = input.get("path").and_then(Value::as_str)?;
++        let path = rules::normalize(raw);
++        let rule = self.match_path(&path)?;
++        Some(deny_for(rule, &path, tool))
++    }
++
++    /// bash 命令判定：三路按序——① 三态提取（`Path` 走路径 match、`Tree` 走
++    /// 子树相交）② 内联脚本关联式 ③ 批量还原。首个命中即返（不遍历剩余操作，
++    /// 不拼接多条 reason）。
++    fn evaluate_shell(&self, tool: &str, input: &Value, cwd: &Path) -> Option<String> {
++        let command = input.get("command").and_then(Value::as_str)?;
++        if command.trim().is_empty() {
++            return None;
++        }
++        // 路径分隔符归一：命令文本里的反斜杠形态（Windows 路径）在提取前先
++        // 转正斜杠，缩窄两方言差异（内联关联式另用原文，见 `inline` 的转义
++        // 纪律——`\"` 归一成 `/"` 会破坏嵌套引号面）
++        let normalized = command.replace('\\', "/");
++
++        for op in shell::extract_file_ops(&normalized) {
++            if op.kind == shell::OpKind::Revert {
++                continue; // 撤销动作不入保护判定
++            }
++            match op.target {
++                shell::OpTarget::Path(path) => {
++                    let Some(resolved) = rules::resolve(cwd, &path) else {
++                        continue; // `$` / 空串：该 op 放行，其余照判
++                    };
++                    if let Some(rule) = self.match_path(&resolved) {
++                        return Some(deny_for(rule, &resolved, tool));
++                    }
++                }
++                shell::OpTarget::Tree(dir) => {
++                    let Some(resolved) = rules::resolve(cwd, &dir) else {
++                        continue;
++                    };
++                    if let Some(rule) = self.dir_rule_hit(&resolved, cwd) {
++                        return Some(deny_for(rule, &resolved, tool));
++                    }
++                }
++            }
++        }
++
++        for target in inline::write_targets(command) {
++            let Some(resolved) = rules::resolve(cwd, &target) else {
++                continue;
++            };
++            if let Some(rule) = self.match_path(&resolved) {
++                return Some(deny_for(rule, &resolved, tool));
++            }
++        }
++
++        if let Some(detail) = shell::bulk_revert_detail(&normalized, &rules::bulk_globs(), cwd) {
++            return Some(reason::bulk_revert_reason(&detail, tool));
++        }
++
++        None
++    }
++
++    /// 逐条匹配（内置在前 → 首个命中即定）：匹配一律经
++    /// `checks::globmatch::match_glob`（glob 方言单点，禁第二份实现）。
++    fn match_path(&self, path: &str) -> Option<&Rule> {
++        self.rules
++            .iter()
++            .find(|rule| checks::globmatch::match_glob(path, &rule.glob))
++    }
++
++    /// 子树相交判定（`find` 搜索根 / `git clean` 目录参数）：按本规则前缀复算，
++    /// 与 [`rules::glob_dir_hit`] 共用 [`rules::dir_hits_prefix`] 比较面。
++    fn dir_rule_hit(&self, dir: &str, anchor: &Path) -> Option<&Rule> {
++        self.rules
++            .iter()
++            .find(|rule| rules::dir_hits_prefix(dir, &rule.concrete_prefix(anchor)))
++    }
++}
++
++/// 拒绝串合成（按规则来源三态选串；单串返回，事件与 ToolResult 由 loop 侧
++/// 用同一变量合成）。
++fn deny_for(rule: &Rule, path: &str, tool: &str) -> String {
++    reason::deny_reason(&rule.reason, path, tool)
++}
++
++#[cfg(test)]
++mod inline_test;
++#[cfg(test)]
++// `evaluate` 分派面与跨模块组合锚的落点（test-design 的显式补列：含逻辑的
++// `mod.rs` 配同级 `mod_test.rs`，沿 `compose.rs` / `testexec/mod.rs` 先例）
++mod mod_test;
++#[cfg(test)]
++mod reason_test;
++#[cfg(test)]
++mod rules_test;
++#[cfg(test)]
++mod shell_test;

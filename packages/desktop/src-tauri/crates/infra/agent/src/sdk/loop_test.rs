@@ -312,6 +312,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             retry: turn.retry,
             injections: turn.injections.clone(),
             explore_note: None,
+            protect: turn.protect.clone(),
         };
         let handle = handle.clone();
         async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
@@ -336,6 +337,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         retry: crate::sdk::r#loop::StreamRetry::default(),
         injections: agent::SessionInjections::default(),
         explore_note: None,
+        protect: crate::sdk::protect::ProtectRules::load(None),
     }
 }
 
@@ -1377,6 +1379,7 @@ fn loop_turn字段面完整构造锚定() {
         retry: crate::sdk::r#loop::StreamRetry::default(),
         injections: agent::SessionInjections::default(),
         explore_note: None,
+        protect: crate::sdk::protect::ProtectRules::load(None),
     };
     assert_eq!(turn.question, "q");
     assert_eq!(turn.session_id, "sdk-0-1");
@@ -2336,4 +2339,622 @@ async fn explore轮六工具下发面内调用逐一正常执行() {
         };
         assert!(!*is_error, "{} 轮正常收敛", case.tool);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 写入保护闸（守卫链第四段：沙箱之后、执行之前）
+//
+// 装置复用：`FakeModel` + `drive_loop_turn` + `notices_of` / `tool_results_of`
+// / `sealed_messages`；规则集经 `ProtectRules::load(None)`（仅内置）或
+// `load(Some(tempdir))`（内置 + 真实配置文件用户规则）真实装配。
+// ---------------------------------------------------------------------------
+
+/// 配置文件相对路径（由 `foundation::layout` 派生，测试内零目录名字面量）。
+fn protected_config_relative() -> String {
+    foundation::layout::config_path(Path::new(""))
+        .to_string_lossy()
+        .replace(r"\", "/")
+}
+
+/// 携写入保护规则集的轮参数（既有 `loop_turn` 装置的规则集注入缝）。
+fn loop_turn_with_protect(
+    cwd: &Path,
+    mode: AgentPermissionMode,
+    protect: crate::sdk::protect::ProtectRules,
+) -> LoopTurn {
+    LoopTurn {
+        protect,
+        ..loop_turn(cwd, mode)
+    }
+}
+
+/// 落盘真实工作区配置（`foundation::layout::config_path` 派生路径）。
+fn write_workspace_config(root: &Path, config: serde_json::Value) {
+    let path = foundation::layout::config_path(root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("创建配置目录失败");
+    }
+    write_file(
+        &path,
+        &serde_json::to_string_pretty(&config).expect("配置序列化"),
+    );
+}
+
+/// 拒绝通知 payload 里的 reason 串。
+fn notice_reason(payload: &serde_json::Value) -> String {
+    payload["reason"]
+        .as_str()
+        .expect("拒绝记因必为字符串")
+        .to_owned()
+}
+
+#[tokio::test]
+async fn 写入保护闸_write命中内置_拒且零落盘与run不中断() {
+    let dir = tempdir("protect-write-builtin");
+    let protected = dir.path().join(protected_config_relative());
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_protect",
+            "write",
+            serde_json::json!({ "path": protected.to_string_lossy(), "content": "篡改" }),
+        )],
+        vec![raw_text("已停止改配置")],
+    ]);
+    let turn = loop_turn_with_protect(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        crate::sdk::protect::ProtectRules::load(None),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1, "恰一次权限拒绝通知");
+    assert_eq!(
+        notices[0].0, "permission_denied",
+        "保护闸复用既有 permission_denied 子类（零新事件词汇）"
+    );
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert_eq!(payload["tool"], serde_json::json!("write"));
+    let reason = notice_reason(&payload);
+    assert!(
+        reason.contains("配置权威"),
+        "拒绝串为内置模板，实际: {reason}"
+    );
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "tu_protect", "与 tool_use 同 id 成对");
+    assert!(results[0].2, "拒绝合成 is_error ToolResult");
+    assert_eq!(
+        results[0].1, reason,
+        "notice 载荷与 ToolResult 内容逐字节相同（模型可见同一串）"
+    );
+    assert!(!protected.exists(), "受保护文件零落盘");
+
+    assert_eq!(sealed_messages(&events).len(), 2, "拒绝后续轮不中断");
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error, "拒绝不中断 run（正常收敛）");
+}
+
+#[tokio::test]
+async fn 写入保护闸_edit命中用户规则_替换后串双面一致且字节不变() {
+    let dir = tempdir("protect-edit-user");
+    write_workspace_config(
+        dir.path(),
+        serde_json::json!({
+            "write_protection": { "files": [
+                { "glob": "docs/**", "reason": "文档冻结：%s（经 %t）" }
+            ] }
+        }),
+    );
+    let target = dir.path().join("docs").join("a.md");
+    write_file(&target, "原始内容");
+
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_edit",
+            "edit",
+            serde_json::json!({
+                "path": target.to_string_lossy(),
+                "old_string": "原始",
+                "new_string": "改写"
+            }),
+        )],
+        vec![raw_text("已停止")],
+    ]);
+    let turn = loop_turn_with_protect(
+        dir.path(),
+        AgentPermissionMode::AcceptEdits,
+        crate::sdk::protect::ProtectRules::load(Some(dir.path())),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1);
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    let reason = notice_reason(&payload);
+    assert!(
+        reason.contains("docs/a.md") && reason.contains("edit"),
+        "用户模板占位符已替换（路径 + 工具名），实际: {reason}"
+    );
+    assert!(reason.contains("文档冻结"), "模板文案透传，实际: {reason}");
+    let results = tool_results_of(&events);
+    assert_eq!(results[0].1, reason, "双面同串");
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("文件可读"),
+        "原始内容",
+        "受保护文件字节不变"
+    );
+}
+
+#[tokio::test]
+async fn 写入保护闸_bash三路写法各自命中() {
+    let dir = tempdir("protect-bash-routes");
+    let protected = dir.path().join(protected_config_relative());
+    let config = protected_config_relative();
+    let commands = [
+        format!("echo {{}} > {config}"),
+        format!("rm {config}"),
+        format!("node -e \"require('fs').writeFileSync('{config}','{{}}')\""),
+    ];
+
+    for command in commands {
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_bash",
+                "bash",
+                serde_json::json!({ "command": command }),
+            )],
+            vec![raw_text("已停止")],
+        ]);
+        let turn = loop_turn_with_protect(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            crate::sdk::protect::ProtectRules::load(None),
+        );
+
+        let events = drive_loop_turn(&model, turn).await;
+        let notices = notices_of(&events);
+        assert_eq!(notices.len(), 1, "命令各 1 条拒绝记因: {command}");
+        assert_eq!(notices[0].0, "permission_denied");
+        let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+        assert_eq!(payload["tool"], serde_json::json!("bash"));
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "恰一次结果回灌: {command}");
+        assert!(results[0].2, "拒绝结果 is_error: {command}");
+        assert_eq!(results[0].1, notice_reason(&payload), "同串双面: {command}");
+        assert!(!protected.exists(), "受保护文件零落盘: {command}");
+    }
+}
+
+#[tokio::test]
+async fn 写入保护闸_bash树落点命中即拒而源码子树照常执行() {
+    let dir = tempdir("protect-bash-tree");
+
+    let denied_model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_find_all",
+            "bash",
+            serde_json::json!({ "command": "find . -delete" }),
+        )],
+        vec![raw_text("已停止")],
+    ]);
+    let denied = drive_loop_turn(
+        &denied_model,
+        loop_turn_with_protect(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            crate::sdk::protect::ProtectRules::load(None),
+        ),
+    )
+    .await;
+    let notices = notices_of(&denied);
+    assert_eq!(notices.len(), 1, "搜索根覆盖受保护目标即拒");
+    assert_eq!(notices[0].0, "permission_denied");
+
+    let allowed_model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_find_src",
+            "bash",
+            serde_json::json!({ "command": "find src -delete" }),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let allowed = drive_loop_turn(
+        &allowed_model,
+        loop_turn_with_protect(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            crate::sdk::protect::ProtectRules::load(None),
+        ),
+    )
+    .await;
+    assert!(
+        notices_of(&allowed).is_empty(),
+        "源码子树搜索根不越拦（零拒绝记因）"
+    );
+    assert_eq!(
+        tool_results_of(&allowed).len(),
+        1,
+        "执行照常（结果由执行体自身决定）"
+    );
+}
+
+#[tokio::test]
+async fn 写入保护闸_未命中照常执行且文件真实生成() {
+    let dir = tempdir("protect-allow");
+    let notes = dir.path().join("notes.txt");
+
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_write",
+            "write",
+            serde_json::json!({ "path": notes.to_string_lossy(), "content": "保护闸之外" }),
+        )],
+        vec![raw_tool_call(
+            "tu_bash",
+            "bash",
+            serde_json::json!({ "command": "echo foo > notes.txt" }),
+        )],
+        vec![raw_text("完成")],
+    ]);
+    let turn = loop_turn_with_protect(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        crate::sdk::protect::ProtectRules::load(None),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    assert!(
+        notices_of(&events).is_empty(),
+        "未配置用户规则时普通写零拒绝（内置面之外）"
+    );
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 2, "两次工具结果");
+    assert_eq!(results[0].0, "tu_write");
+    assert!(!results[0].2, "write 执行成功（保护闸不抢执行）");
+    assert_eq!(results[1].0, "tu_bash");
+    assert!(!results[1].2, "bash 执行成功");
+    let content = std::fs::read_to_string(&notes).expect("文件真实生成");
+    assert!(
+        content.contains("foo"),
+        "bash 重定向真实落盘，实际内容: {content:?}"
+    );
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error);
+}
+
+#[tokio::test]
+async fn 写入保护闸_只读四工具直通() {
+    let dir = tempdir("protect-readonly");
+    let protected = dir.path().join(protected_config_relative());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_read",
+                "read",
+                serde_json::json!({ "path": protected.to_string_lossy() }),
+            ),
+            raw_tool_call(
+                "tu_grep",
+                "grep",
+                serde_json::json!({ "pattern": "x", "path": dir.path().to_string_lossy() }),
+            ),
+            raw_tool_call("tu_glob", "glob", serde_json::json!({ "pattern": "**/*" })),
+            raw_tool_call(
+                "tu_ls",
+                "ls",
+                serde_json::json!({ "path": dir.path().to_string_lossy() }),
+            ),
+        ],
+        vec![raw_text("读面完成")],
+    ]);
+    let turn = loop_turn_with_protect(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        crate::sdk::protect::ProtectRules::load(None),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    assert!(
+        notices_of(&events).is_empty(),
+        "只读四工具读面全开放（零拒绝记因）"
+    );
+    assert_eq!(tool_results_of(&events).len(), 4, "四工具各一次结果");
+}
+
+#[tokio::test]
+async fn 写入保护闸_explore专用工具直通_规则覆盖亦不拦() {
+    let (dir, _db_dir, store, record) = explore_fixture("protect-explore");
+    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
+    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
+    // 规则覆盖整棵域目录树（含探索笔记目录）：专用工具仍走原执行面
+    write_workspace_config(
+        dir.path(),
+        serde_json::json!({
+            "write_protection": { "files": [
+                {
+                    "glob": format!("{}/**", foundation::layout::domain_dir_name()),
+                    "reason": "域树冻结"
+                }
+            ] }
+        }),
+    );
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_note",
+            EXPLORE_NOTE_TOOL,
+            serde_json::json!({ "name": "protect-pass", "content": "# 结论" }),
+        )],
+        vec![raw_text("已定名")],
+    ]);
+    let turn = LoopTurn {
+        injections: explore_injections(),
+        explore_note: Some(context),
+        ..loop_turn_with_protect(
+            dir.path(),
+            AgentPermissionMode::AcceptEdits,
+            crate::sdk::protect::ProtectRules::load(Some(dir.path())),
+        )
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    assert!(
+        notices_of(&events).is_empty(),
+        "create_explore_note 走分派表 `_ => None`（零拒绝记因）"
+    );
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].2, "专用工具执行面形态与既有用例一致");
+    assert!(
+        results[0].1.contains(foundation::layout::domain_dir_name()),
+        "返回 repo 相对路径，实际: {}",
+        results[0].1
+    );
+}
+
+#[tokio::test]
+async fn 写入保护闸_档位矩阵_两写档生效而default由policy先行() {
+    let dir = tempdir("protect-modes");
+    for (mode, expect_protect) in [
+        (AgentPermissionMode::BypassPermissions, true),
+        (AgentPermissionMode::AcceptEdits, true),
+        (AgentPermissionMode::Default, false),
+    ] {
+        let protected = dir.path().join(protected_config_relative());
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_mode",
+                "write",
+                serde_json::json!({ "path": protected.to_string_lossy(), "content": "x" }),
+            )],
+            vec![raw_text("继续")],
+        ]);
+        let turn = loop_turn_with_protect(
+            dir.path(),
+            mode,
+            crate::sdk::protect::ProtectRules::load(None),
+        );
+
+        let events = drive_loop_turn(&model, turn).await;
+        let notices = notices_of(&events);
+        assert_eq!(notices.len(), 1, "档位 {mode:?} 恰一次拒绝记因");
+        assert_eq!(notices[0].0, "permission_denied");
+        let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+        let reason = notice_reason(&payload);
+        if expect_protect {
+            assert!(
+                reason.contains("配置权威"),
+                "写档位 {mode:?} 下保护闸生效，实际: {reason}"
+            );
+        } else {
+            assert!(
+                reason.contains("权限档位"),
+                "Default 档由 policy 先行拒绝（顺序锚），实际: {reason}"
+            );
+            assert!(
+                !reason.contains("配置权威"),
+                "保护闸未触（不被抢报），实际: {reason}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn 写入保护闸_顺序锚_沙箱先于保护() {
+    let dir = tempdir("protect-order-sandbox");
+    let escaping = format!("../{}", protected_config_relative());
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_escape",
+            "write",
+            serde_json::json!({ "path": escaping, "content": "x" }),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let turn = loop_turn_with_protect(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        crate::sdk::protect::ProtectRules::load(None),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].0, "sandbox_denied",
+        "逃逸路径按沙箱成因报错（错误归属不被保护闸抢报）"
+    );
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert!(
+        notice_reason(&payload).contains("越出"),
+        "沙箱文案承接，实际: {payload}"
+    );
+}
+
+#[tokio::test]
+async fn 写入保护闸_顺序锚_成员校验先于保护() {
+    let dir = tempdir("protect-order-member");
+
+    // explore 轮发起不在下发面的 write：成员校验拒绝（非保护闸）
+    let ghost_model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_ghost",
+            "write",
+            serde_json::json!({
+                "path": dir.path().join(protected_config_relative()).to_string_lossy(),
+                "content": "x"
+            }),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let ghost_turn = LoopTurn {
+        injections: explore_injections(),
+        ..loop_turn_with_protect(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            crate::sdk::protect::ProtectRules::load(None),
+        )
+    };
+    let ghost = drive_loop_turn(&ghost_model, ghost_turn).await;
+    let notices = notices_of(&ghost);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].0, "tool_unavailable");
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert!(
+        !notice_reason(&payload).contains("配置权威"),
+        "零保护文案（成员校验在先）"
+    );
+
+    // 未知名 rm_rf：成员校验拒绝，不触 protect
+    let unknown_model = FakeModel::with_turns(vec![
+        vec![raw_tool_call("tu_rm_rf", "rm_rf", serde_json::json!({}))],
+        vec![raw_text("继续")],
+    ]);
+    let unknown = drive_loop_turn(
+        &unknown_model,
+        loop_turn_with_protect(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            crate::sdk::protect::ProtectRules::load(None),
+        ),
+    )
+    .await;
+    let notices = notices_of(&unknown);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].0, "tool_unavailable");
+    assert!(
+        !notices
+            .iter()
+            .any(|(subtype, _)| *subtype == "permission_denied"),
+        "未知名不走 policy / 保护闸拒绝形态"
+    );
+}
+
+#[tokio::test]
+async fn 写入保护闸_拒绝后history收对且模型可见完整指令() {
+    let dir = tempdir("protect-history");
+    let protected = dir.path().join(protected_config_relative());
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_history",
+            "write",
+            serde_json::json!({ "path": protected.to_string_lossy(), "content": "x" }),
+        )],
+        vec![raw_text("已按拒绝收敛")],
+    ]);
+    let turn = loop_turn_with_protect(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        crate::sdk::protect::ProtectRules::load(None),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+    let payload = serde_json::to_value(notices_of(&events)[0].1).expect("payload 序列化");
+    let reason = notice_reason(&payload);
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "拒绝后照常发起第二轮请求");
+    let history = &requests[1].chat_history;
+    let result_text = history_tool_result_text(history, "tu_history").expect("tool_result 已入史");
+    assert_eq!(result_text, reason, "史内 tool_result 正文即拒绝串");
+    assert!(
+        result_text.contains("不要改用其他命令或工具尝试绕过"),
+        "模型可见的完整指令（禁绕过句）"
+    );
+    assert_eq!(sealed_messages(&events).len(), 2, "两轮密封齐全");
+}
+
+#[tokio::test]
+async fn 写入保护闸_同文件连撞三轮不中断也不硬中断() {
+    let dir = tempdir("protect-repeat");
+    let config = protected_config_relative();
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_1",
+            "write",
+            serde_json::json!({
+                "path": dir.path().join(&config).to_string_lossy(),
+                "content": "x"
+            }),
+        )],
+        vec![raw_tool_call(
+            "tu_2",
+            "bash",
+            serde_json::json!({ "command": format!("echo x > {config}") }),
+        )],
+        vec![raw_tool_call(
+            "tu_3",
+            "bash",
+            serde_json::json!({ "command": format!("cp /tmp/x {config}") }),
+        )],
+        vec![raw_text("三轮后停止")],
+    ]);
+    let turn = loop_turn_with_protect(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        crate::sdk::protect::ProtectRules::load(None),
+    );
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 3, "连续三轮各一次拒绝记因");
+    assert!(
+        notices
+            .iter()
+            .all(|(subtype, _)| *subtype == "permission_denied"),
+        "拒绝形态一致"
+    );
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 3, "三条同 id is_error ToolResult");
+    assert!(
+        results.iter().all(|(_, _, is_error)| *is_error),
+        "三条结果均 is_error"
+    );
+    assert_eq!(
+        results.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
+        vec!["tu_1", "tu_2", "tu_3"],
+        "结果与 tool_use 逐一对位"
+    );
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(
+        !*is_error,
+        "deny 不中断 run（引擎不加「二次拒绝即硬中断」机制）"
+    );
+    assert!(
+        !dir.path().join(&config).exists(),
+        "三轮撞同一受保护文件均零落盘"
+    );
 }

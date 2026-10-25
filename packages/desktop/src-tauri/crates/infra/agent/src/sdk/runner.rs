@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -19,6 +20,7 @@ use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::model_spec::{
     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
 };
+use crate::sdk::protect::ProtectRules;
 use crate::sdk::{context, r#loop, resume};
 use crate::ResumeTranscript;
 
@@ -55,6 +57,9 @@ pub struct SdkRunner {
     /// workspace 库句柄（组合根注入缝）：`toolset == Explore` 会话 per-turn
     /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
     explore_store: Option<Arc<Store>>,
+    /// 主仓 root（组合根注入缝）：写入保护规则装配的根（工作区配置权威所在
+    /// 地）；`None` = 未注入 → 只装载内置规则（非「保护关闭」）
+    workspace_root: Option<PathBuf>,
 }
 
 impl SdkRunner {
@@ -72,6 +77,7 @@ impl SdkRunner {
             context_window,
             max_tokens: None,
             explore_store,
+            workspace_root: None,
         }
     }
 
@@ -79,6 +85,16 @@ impl SdkRunner {
     /// `new` 签名不动（既有调用点零改），`None` = 按协议缺省。
     pub fn with_max_tokens(self, max_tokens: Option<u64>) -> Self {
         Self { max_tokens, ..self }
+    }
+
+    /// 主仓 root 旁路注入（builder 缝，与 `with_max_tokens` 同型）：写入保护
+    /// 规则装配的根。MUST 为主仓 root（工作区配置权威），MUST NOT 为会话执行
+    /// 根（change 流程下是 worktree）。
+    pub fn with_workspace_root(self, root: PathBuf) -> Self {
+        Self {
+            workspace_root: Some(root),
+            ..self
+        }
     }
 
     /// `sdk-<进程内计数>-<毫秒时戳>` 引擎侧会话 id（每轮铸造；前缀仅保留为
@@ -169,6 +185,7 @@ impl AgentRunner for SdkRunner {
                 protocol: self.config.protocol,
                 raw_model: model_name,
                 explore_store: self.explore_store.clone(),
+                workspace_root: self.workspace_root.clone(),
             },
             question_rx,
             observation_tx,
@@ -268,6 +285,9 @@ struct PumpPayload {
     /// workspace 库句柄（组合根注入缝）——`toolset == Explore` 会话 per-turn
     /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
     explore_store: Option<Arc<Store>>,
+    /// 主仓 root（组合根注入缝）——写入保护规则装配的根（`None` = 未注入 →
+    /// 只装载内置规则）
+    workspace_root: Option<PathBuf>,
 }
 
 /// 会话泵任务（ask 段）
@@ -313,6 +333,9 @@ async fn session_pump(
         spec.name,
         payload.raw_model
     ));
+    // 写入保护规则装配（**每 run 一次、protect 模块唯一 IO 点**）：规则随
+    // `LoopTurn` 下发，loop 内零 IO 判定（run 内改配置不改本轮行为）
+    let protect = ProtectRules::load(payload.workspace_root.as_deref());
     let turn = r#loop::LoopTurn {
         question: question.prompt,
         cwd: open.ctx.workspace_root.clone(),
@@ -326,6 +349,7 @@ async fn session_pump(
         retry: Default::default(),
         injections: open.injections.clone(),
         explore_note,
+        protect,
     };
     let pump_handle = handle.clone();
     let pump_session = turn.session_id.clone();
