@@ -2308,3 +2308,384 @@ fn restore_baseline_嵌套排除名两层同保() {
         "嵌套同名排除目录两层同保（-e 路径段匹配）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Windows 保留设备名（git 无法索引；Git Bash 的 `2>nul` 会落成真实文件）：
+// 过滤 / 忽略规则 / commit 守卫——真实 `\\?\` 文件装置
+// ---------------------------------------------------------------------------
+
+/// `\\?\` 扩展长度路径上的真实保留名文件；Drop 经扩展路径删除（`TempDir`
+/// 的普通 `remove_dir_all` 可能删不掉保留名文件）。
+#[cfg(windows)]
+struct ReservedFile {
+    path: PathBuf,
+}
+
+#[cfg(windows)]
+impl Drop for ReservedFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// 创建真实保留名文件：`File::create("nul")` 打开的是设备，`\\?\` 前缀才
+/// 能落成普通文件（`nul` / `NUL.txt` / `dir/aux.log` / 尾随空格形态均适用）。
+#[cfg(windows)]
+fn fs_write_reserved(root: &Path, relative_posix: &str, content: &str) -> ReservedFile {
+    let target = root.join(relative_posix.replace('/', "\\"));
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).expect("建保留名父目录失败");
+    }
+    let raw = PathBuf::from(format!("\\\\?\\{}", target.display()));
+    std::fs::write(&raw, content).expect("创建 Windows 保留设备名文件失败");
+    ReservedFile { path: raw }
+}
+
+#[cfg(windows)]
+fn reserved_file_is_file(root: &Path, relative_posix: &str) -> bool {
+    let target = root.join(relative_posix.replace('/', "\\"));
+    let raw = PathBuf::from(format!("\\\\?\\{}", target.display()));
+    std::fs::symlink_metadata(raw)
+        .map(|meta| meta.is_file())
+        .unwrap_or(false)
+}
+
+/// `git check-ignore -q` 直驱（退出 1 = 未命中，不能用断言成功的 `git()` 助手）。
+#[cfg(windows)]
+fn is_gitignored(root: &Path, path: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["check-ignore", "--no-index", "-q", "--", path])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// 表征锚：Git for Windows 对保留名的拒绝面为真——`ls-files` 列出、原始
+/// `add -A` / `add -N` 失败、精确 `:(exclude,literal)` 可绕过。若未来 git
+/// 改变该行为，此用例先红，提示重新评估 commit 守卫层。
+#[cfg(windows)]
+#[test]
+fn windows保留名_表征_add整批失败且精确排除可绕过() {
+    let (_dir, root) = init_repo("reserved-characterization");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+    fs_write(&root, "valid.txt", "valid\n");
+
+    let untracked = git(&root, &["ls-files", "--others", "--exclude-standard"]);
+    assert!(
+        untracked.lines().any(|line| line == "nul"),
+        "ls-files 应列出 nul: {untracked}"
+    );
+
+    let add_all = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["add", "-A"])
+        .output()
+        .expect("装置 git 拉起失败");
+    assert!(!add_all.status.success(), "原始 add -A 应整批失败");
+    let add_all_stderr = String::from_utf8_lossy(&add_all.stderr);
+    assert!(
+        add_all_stderr.contains("nul")
+            && (add_all_stderr.contains("unable to index file")
+                || add_all_stderr.contains("invalid path")),
+        "失败面应点名 nul（add -A 走索引短读 / add -N 走 invalid path）: {add_all_stderr}"
+    );
+
+    let add_n = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["add", "-N", "nul"])
+        .output()
+        .expect("装置 git 拉起失败");
+    assert!(!add_n.status.success(), "add -N nul 应失败");
+
+    git(&root, &["add", "-A", "--", ".", ":(exclude,literal)nul"]);
+    let staged = git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert!(
+        staged.contains("valid.txt"),
+        "合法文件照常入索引: {staged:?}"
+    );
+    assert!(!staged.contains("nul"), "保留名不入索引: {staged:?}");
+}
+
+/// pattern 覆盖：共享清单 25 名逐个 `check-ignore` 命中，近邻不误伤。
+#[cfg(windows)]
+#[test]
+fn windows保留名pattern覆盖共享清单且近邻不误伤() {
+    let (_dir, root) = init_repo("reserved-patterns");
+    git::ensure_windows_reserved_exclude(&root).expect("ensure 应成功");
+
+    for name in foundation::windows_name::RESERVED_DEVICE_NAMES {
+        let lower = name.to_ascii_lowercase();
+        assert!(is_gitignored(&root, &lower), "pattern 应覆盖 {lower}");
+        assert!(
+            is_gitignored(&root, &format!("{lower}.txt")),
+            "pattern 应覆盖 {lower}.txt"
+        );
+    }
+    for name in ["com0", "com10", "lpt10", "nullable.txt", "console.txt"] {
+        assert!(!is_gitignored(&root, name), "{name} 不应被忽略");
+    }
+}
+
+/// 大写形态经 `status`（core.ignorecase=true）剔除——`check-ignore` 的
+/// `--no-index` 面不保证读到 `core.ignorecase`，另以真实文件 + status 钉住。
+#[cfg(windows)]
+#[test]
+fn windows保留名大写形态经status剔除() {
+    let (_dir, root) = init_repo("reserved-case");
+    git::ensure_windows_reserved_exclude(&root).expect("ensure 应成功");
+    let _upper = fs_write_reserved(&root, "NUL.TXT", "junk\n");
+
+    let status = git(&root, &["status", "--porcelain"]);
+    assert!(
+        !status.to_ascii_lowercase().contains("nul"),
+        "status 不列大写形态: {status}"
+    );
+}
+
+/// `change_edit_set`：保留名剔除、合法 untracked 保留（含大小写/嵌套/扩展名族）。
+#[cfg(windows)]
+#[test]
+fn change_edit_set_windows保留名剔除_合法文件保留() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-edit-set");
+    fs_write(&root, "a.txt", "edited\n");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+    let _upper = fs_write_reserved(&root, "NUL.txt", "junk\n");
+    let _nested = fs_write_reserved(&root, "dir/aux.log", "junk\n");
+    let _com = fs_write_reserved(&root, "com1", "junk\n");
+    fs_write(&root, "nullable.txt", "valid\n");
+    fs_write(&root, "console.txt", "valid\n");
+    fs_write(&root, "com10", "valid\n");
+
+    let files = vcs.change_edit_set(&root, "HEAD").expect("清单应成功");
+    assert_eq!(
+        files,
+        vec![
+            "a.txt".to_owned(),
+            "com10".to_owned(),
+            "console.txt".to_owned(),
+            "nullable.txt".to_owned(),
+        ],
+        "仅合法文件入清单: {files:?}"
+    );
+}
+
+/// `change_edit_set`：仅保留名 → `Ok(空)`（不是 Err——git 枚举本身成功）。
+#[cfg(windows)]
+#[test]
+fn change_edit_set_仅保留名_空清单ok() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-only-set");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+
+    let files = vcs.change_edit_set(&root, "HEAD").expect("清单应成功");
+    assert!(files.is_empty(), "仅保留名 → 空清单: {files:?}");
+}
+
+/// `change_edit_patch`：保留名不阻断，合法 untracked / tracked 修改照常入补丁；
+/// 保留名无 intent-to-add 残留。
+#[cfg(windows)]
+#[test]
+fn change_edit_patch_windows保留名不阻断_合法文件入补丁() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-patch");
+    fs_write(&root, "a.txt", "edited\n");
+    fs_write(&root, "fresh.rs", "pub fn f() {}\n");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+    let _nested = fs_write_reserved(&root, "dir/aux.log", "junk\n");
+
+    let patch = vcs.change_edit_patch(&root, "HEAD").expect("补丁应成功");
+    assert!(
+        patch.contains("diff --git a/fresh.rs b/fresh.rs"),
+        "合法 untracked 入补丁: {patch}"
+    );
+    assert!(
+        patch.contains("diff --git a/a.txt b/a.txt"),
+        "tracked 修改入补丁: {patch}"
+    );
+    // `--- /dev/null` 是合法新文件段头（含子串 nul），按段头路径断言而非裸子串
+    assert!(
+        !patch.contains("diff --git a/nul") && !patch.contains("diff --git a/dir/aux.log"),
+        "保留名不入补丁: {patch}"
+    );
+
+    let cached = git(&root, &["ls-files", "--cached", "-z"]);
+    assert!(
+        !cached.contains("nul"),
+        "保留名无 intent-to-add: {cached:?}"
+    );
+}
+
+/// `change_edit_patch`：仅保留名 → 空补丁、零 `add -N` 副作用。
+#[cfg(windows)]
+#[test]
+fn change_edit_patch_仅保留名_空补丁且零intent_to_add() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-only-patch");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+
+    let patch = vcs.change_edit_patch(&root, "HEAD").expect("补丁应成功");
+    assert!(patch.is_empty(), "仅保留名 → 空补丁: {patch:?}");
+    let cached = git(&root, &["ls-files", "--cached", "-z"]);
+    assert!(!cached.contains("nul"), "零 intent-to-add: {cached:?}");
+}
+
+/// ensure 后三面全剔：`change_edit_set`、`status --porcelain`、`add -A` 索引面。
+#[cfg(windows)]
+#[test]
+fn ensure后_windows保留名三面全剔() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-three-faces");
+    git::ensure_windows_reserved_exclude(&root).expect("ensure 应成功");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+    fs_write(&root, "a.txt", "edited\n");
+
+    let files = vcs.change_edit_set(&root, "HEAD").expect("清单应成功");
+    assert_eq!(files, vec!["a.txt".to_owned()], "清单不含保留名");
+
+    let status = git(&root, &["status", "--porcelain"]);
+    assert!(!status.contains("nul"), "status 不列保留名: {status}");
+
+    git(&root, &["add", "-A"]);
+    let staged = git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert!(!staged.contains("nul"), "add -A 不收录: {staged:?}");
+    assert!(staged.contains("a.txt"), "普通编辑照常收录: {staged:?}");
+}
+
+/// `commit_all`：保留名不进提交，合法改动照常提交，提交后 `dirty` false
+///（守住既有“worktree 全域提交后干净”不变量）。
+#[cfg(windows)]
+#[test]
+fn commit_all_windows保留名不进提交且提交后干净() {
+    let _guard = lock_path();
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-commit-all");
+    fs_write(&root, "a.txt", "edited\n");
+    fs_write(&root, "new-valid.txt", "valid\n");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+
+    vcs.commit_all(&root, "archive: reserved")
+        .expect("commit_all 应成功");
+    let tree = git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]);
+    assert!(tree.lines().any(|line| line == "a.txt"), "修改入树: {tree}");
+    assert!(
+        tree.lines().any(|line| line == "new-valid.txt"),
+        "合法新文件入树: {tree}"
+    );
+    assert!(
+        !tree.lines().any(|line| line == "nul"),
+        "保留名不入树: {tree}"
+    );
+    assert!(!vcs.dirty(&root, &[]), "提交后干净（保留名被忽略）");
+}
+
+/// 仅保留名 + ignore 生效 → `dirty` false（生产 archive Commit 步据此跳过）。
+#[cfg(windows)]
+#[test]
+fn windows保留名_仅nul时dirty为false() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-dirty-only");
+    git::ensure_windows_reserved_exclude(&root).expect("ensure 应成功");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+
+    assert!(!vcs.dirty(&root, &[]), "ignore 生效后仅保留名不顶真 dirty");
+}
+
+/// pattern 漏网分支（尾随空格形态）：`commit_all` 精确排除后空暂存按幂等
+/// 成功收口，零新提交。
+#[cfg(windows)]
+#[test]
+fn commit_all_pattern漏网_空暂存收口零提交() {
+    let _guard = lock_path();
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-commit-miss");
+    let _nul = fs_write_reserved(&root, "nul ", "junk\n");
+    let before = git(&root, &["rev-list", "--count", "HEAD"]);
+
+    vcs.commit_all(&root, "archive: reserved")
+        .expect("pattern 漏网应幂等收口");
+    let after = git(&root, &["rev-list", "--count", "HEAD"]);
+    assert_eq!(after, before, "仅保留名 → 零新提交");
+}
+
+/// `commit_paths`：圈内有效改动 + 普通保留名（ignore 生效）→ Ok。
+#[cfg(windows)]
+#[test]
+fn commit_paths_有效改动照常提交_普通保留名ignore生效() {
+    let _guard = lock_path();
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-commit-paths");
+    std::fs::create_dir_all(root.join("openspec").join("changes").join("demo"))
+        .expect("建 change 目录");
+    fs_write(&root, "openspec/changes/demo/proposal.md", "v1\n");
+    git(&root, &["add", "openspec/changes/demo/proposal.md"]);
+    git(&root, &["commit", "-q", "-m", "seed"]);
+    fs_write(&root, "openspec/changes/demo/proposal.md", "v2\n");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+
+    vcs.commit_paths(&root, &["openspec/changes/demo"], "archive: demo")
+        .expect("commit_paths 应成功");
+    let tree = git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]);
+    assert!(
+        tree.lines()
+            .any(|line| line == "openspec/changes/demo/proposal.md"),
+        "圈内改动入树: {tree}"
+    );
+    assert!(
+        !tree.lines().any(|line| line == "nul"),
+        "保留名不入树: {tree}"
+    );
+}
+
+/// `commit_paths`：pattern 漏网且圈内仅剩保留名 → 显式 Err 点名路径。
+#[cfg(windows)]
+#[test]
+fn commit_paths_圈内仅保留名_显式err携路径() {
+    let _guard = lock_path();
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("reserved-commit-paths-miss");
+    std::fs::create_dir_all(root.join("openspec").join("changes").join("demo"))
+        .expect("建 change 目录");
+    let _nul = fs_write_reserved(&root, "openspec/changes/demo/nul ", "junk\n");
+
+    let error = vcs
+        .commit_paths(&root, &["openspec/changes/demo"], "archive: demo")
+        .expect_err("圈内仅保留名应 Err");
+    assert!(error.contains("保留设备名"), "错误应点名保留名: {error}");
+    assert!(error.contains("nul"), "错误应含路径: {error}");
+}
+
+/// `restore_baseline`：保留名在盘 → `clean -fd` 不炸，文件留盘但 git 不可见。
+#[cfg(windows)]
+#[test]
+fn restore_baseline_windows保留名_clean成功且status干净() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("reserved-restore");
+    let _nul = fs_write_reserved(&root, "nul", "junk\n");
+
+    git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
+    assert!(reserved_file_is_file(&root, "nul"), "忽略面文件留盘");
+    assert!(
+        git(&root, &["status", "--porcelain"]).trim().is_empty(),
+        "status 干净（保留名被忽略）"
+    );
+}
+
+/// POSIX 反向：`nul` 是合法文件名，不得按 Windows 保留名过滤。
+#[cfg(not(windows))]
+#[test]
+fn posix_nul是合法文件名_不按windows保留名过滤() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("posix-nul");
+    fs_write(&root, "nul", "posix\n");
+
+    let files = vcs.change_edit_set(&root, "HEAD").expect("清单应成功");
+    assert!(
+        files.iter().any(|file| file == "nul"),
+        "POSIX 不过滤: {files:?}"
+    );
+}

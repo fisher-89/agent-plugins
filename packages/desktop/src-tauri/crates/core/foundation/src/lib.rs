@@ -1,5 +1,5 @@
 //! 共享地基 crate：磁盘布局解析 + workspace 身份段派生 + 依赖与工具产物树
-//! 名单 + 取消原语四能力。
+//! 名单 + 取消原语 + Windows 保留设备名判定五能力。
 //!
 //! 刻意保持极小——不预铺 fs 助手 / 错误类型等尚无第二个消费者的通用工具
 //!（身份段派生自 store 下沉、产物树名单自 checks 下沉、取消原语自编排 /
@@ -13,6 +13,7 @@ pub mod cancel;
 pub mod identity;
 pub mod layout;
 pub mod prune;
+pub mod windows_name;
 
 #[cfg(test)]
 mod cancel_test;
@@ -20,3 +21,5 @@ mod cancel_test;
 mod identity_test;
 #[cfg(test)]
 mod prune_test;
+#[cfg(test)]
+mod windows_name_test;

@@ -1021,6 +1021,31 @@ fn 非法名与空白goal拒绝且零目录零建档零vcs调用() {
     );
 }
 
+/// Windows 保留设备名拒绝：纯内存前置校验，零目录零建档零 vcs 调用。
+#[test]
+fn windows保留设备名拒绝且零目录零建档零vcs调用() {
+    let env = Env::new("reserved-name");
+    for name in ["nul", "con", "prn", "aux", "com1", "com9", "lpt0", "lpt9"] {
+        let error = env.create(name, "拒绝面 goal").expect_err("保留名应 Err");
+        assert!(
+            error.contains("保留设备名"),
+            "错误应点名保留设备名（{name}）: {error}"
+        );
+    }
+    assert!(env.active_dir_names().is_empty(), "零目录");
+    assert_eq!(env.store.create_call_count(), 0, "零建档");
+    assert!(env.vcs.calls().is_empty(), "vcs 零调用");
+}
+
+/// 近邻名不受保留名规则误伤：COM0（git 允许）与 nul-safe 走正常创建。
+#[test]
+fn 保留名近邻可创建() {
+    let env = Env::new("reserved-neighbors");
+    env.create("com0", "合法 goal").expect("COM0 应可创建");
+    env.create("nul-safe", "合法 goal")
+        .expect("nul-safe 应可创建");
+}
+
 /// 超 128 字符拒绝：129 字符合法字符集名 Err 且零产生。
 #[test]
 fn 超128字符拒绝且零产生() {

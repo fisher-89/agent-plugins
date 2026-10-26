@@ -21,6 +21,44 @@ const KEBAB_CASE_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 /** 名称长度上限（与写面同宽） */
 const MAX_NAME_LENGTH = 128;
 
+/** Windows 保留设备名（与写面 foundation::windows_name 同口径；桌面目标
+ * Windows，按可移植性无条件拦截——worktree 目录无法以这些名字创建） */
+const WINDOWS_RESERVED_DEVICE_NAMES = new Set([
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'conin$',
+  'conout$',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt0',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
+]);
+
+/** 名称是否命中 Windows 保留设备名（任意路径段；`.`/`:` 前词干；大小写不敏感） */
+function isReservedName(name: string): boolean {
+  return name.split(/[\\/]/).some((segment) => {
+    const [stem = ''] = segment.split(/[.:]/);
+    return WINDOWS_RESERVED_DEVICE_NAMES.has(stem.trimEnd().toLowerCase());
+  });
+}
+
 /** 名称合法 + goal 非空白才放行提交（校验对象与提交值同为 trim 后串，
  * 本地放行 ⇒ 写面必过） */
 function canSubmit(name: string, goal: string): boolean {
@@ -29,6 +67,7 @@ function canSubmit(name: string, goal: string): boolean {
   return (
     KEBAB_CASE_PATTERN.test(trimmedName) &&
     trimmedName.length <= MAX_NAME_LENGTH &&
+    !isReservedName(trimmedName) &&
     trimmedGoal.length > 0
   );
 }
@@ -44,7 +83,10 @@ function NameField({
   return (
     <Field>
       <FieldLabel htmlFor="change-create-name-input">变更名</FieldLabel>
-      <FieldDescription>kebab-case：小写字母 / 数字，以 `-` 连接，最长 128 字符</FieldDescription>
+      <FieldDescription>
+        kebab-case：小写字母 / 数字，以 `-` 连接，最长 128 字符；Windows 保留设备名（nul/con/com1
+        等）不可用
+      </FieldDescription>
       <Input
         id="change-create-name-input"
         data-testid="change-create-name"

@@ -79,12 +79,18 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 
 ### Requirement: 名称与入参校验
 
-写面 `create` SHALL 对名称做权威校验：匹配 kebab-case 正则 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`、长度 ≤ 128 字符；任一不满足 SHALL 显式失败且不产生任何目录或文件。前端 SHALL 做同口径本地校验：名称不合法或 goal 为空白时 SHALL 禁用提交且不发起 invoke。错误信息 SHALL 抵达调用方（含失败原因），MUST NOT 静默降级。
+写面 `create` SHALL 对名称做权威校验：匹配 kebab-case 正则 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`、长度 ≤ 128 字符、且 MUST NOT 为 Windows 保留设备名（`nul` / `con` / `prn` / `aux` / `com1`..`com9` / `lpt0`..`lpt9`，大小写不敏感；`CONIN$` / `CONOUT$` 因 kebab-case 字符集本就不接受）；任一不满足 SHALL 显式失败且不产生任何目录或文件。前端 SHALL 做同口径本地校验：名称不合法（含保留设备名）或 goal 为空白时 SHALL 禁用提交且不发起 invoke。错误信息 SHALL 抵达调用方（含失败原因），MUST NOT 静默降级。
 
 #### Scenario: 非法名称被写面拒绝
 
 - **WHEN** 分别以 `"My Feature"`（大写与空格）、`"my_new_feature"`（下划线）、`"a".repeat(129)`（超长）调用写面 `create`
 - **THEN** 每次均返回显式错误（kebab-case 或长度原因），目标目录与文件零产生
+
+#### Scenario: Windows 保留设备名被拒绝
+
+- **WHEN** 分别以 `"nul"`、`"lpt0"` 调用写面 `create`
+- **THEN** 每次均返回显式错误（文案含「保留设备名」），目标目录、db 记录与 worktree 零产生
+- **AND** 前端输入 `"nul"` 时提交按钮不可用、未发起 invoke
 
 #### Scenario: 前端本地校验拦截
 

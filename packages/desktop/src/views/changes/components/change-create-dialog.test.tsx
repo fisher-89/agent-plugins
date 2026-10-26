@@ -194,6 +194,9 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（失败留窗�
       '-fix', // 前导连字符
       'fix--bug', // 连号连字符
       `a${'b'.repeat(128)}`, // 超 128 字符
+      'nul', // Windows 保留设备名
+      'con', // Windows 保留设备名
+      'lpt0', // Windows 保留设备名（git 拒绝 LPT0）
     ];
 
     for (const name of invalidNames) {
@@ -210,6 +213,17 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（失败留窗�
     }
 
     expect(createCalls()).toHaveLength(0);
+  });
+
+  it('保留名近邻可提交（COM0 / nul-safe 不被误拦）', async () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+    invokeMock.mockResolvedValue({ ...OUTCOME, name: 'nul-safe' });
+    submit('nul-safe', '合法 goal');
+
+    await waitFor(() => expect(createCalls()).toHaveLength(1));
+    expect(createCalls()[0]?.name).toBe('nul-safe');
   });
 
   it('恰 128 字符名称可提交且 invoke 发起（≤128 含端点，与写面上界同口径）', async () => {

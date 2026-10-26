@@ -2,6 +2,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use foundation::windows_name;
 use orchestration::port::{IndexEntry, RebaseOutcome, StatusEntry, WorktreeSnapshot};
 use workflow::write::RepoProbe;
 
@@ -68,6 +69,43 @@ fn git_impl(
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// untracked 清单（gitignore 面不入）：`ls-files --others --exclude-standard -z`
+/// 的 NUL 分段（裸路径、原序）。
+fn untracked_paths(root: &Path) -> Result<Vec<String>, String> {
+    let raw = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    Ok(raw
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
+/// 按 Windows 保留设备名分流：返回 (可索引, 保留名)。保留名跳过显式留痕——
+/// git 枚举本身成功，跳过不是 git 失败；真实 git 失败仍由调用方 Err 上抛
+///（`steps.rs` 的“取数失败显式传播、MUST NOT 降级”不因本过滤而改变）。
+fn partition_windows_reserved(entries: Vec<String>, operation: &str) -> (Vec<String>, Vec<String>) {
+    if !cfg!(windows) {
+        return (entries, Vec::new());
+    }
+    let mut indexable = Vec::with_capacity(entries.len());
+    let mut reserved = Vec::new();
+    for entry in entries {
+        if windows_name::is_reserved_path(&entry) {
+            reserved.push(entry);
+        } else {
+            indexable.push(entry);
+        }
+    }
+    if !reserved.is_empty() {
+        eprintln!(
+            "[vcs] {operation} 跳过 Windows 保留设备名路径（git 无法索引；\
+             如为误建文件请在 Git Bash 中删除）: {}",
+            reserved.join(", ")
+        );
+    }
+    (indexable, reserved)
 }
 
 /// git 工作树根（`rev-parse --show-toplevel`）：workspace root 可为仓库子目录，
@@ -164,8 +202,13 @@ pub(crate) fn branch_exists(main_root: &Path, branch: &str) -> Result<bool, Stri
 }
 
 /// worktree 建域：`git worktree add -b <branch> <path>`——基线恒主仓 HEAD
-/// 检出（主仓未提交改动不进入 worktree），branch 于建域时铸出。
+/// 检出（主仓未提交改动不进入 worktree），branch 于建域时铸出。建域前先装
+/// Windows 保留名 ignore 规则（失败即零 worktree，保持 create 补偿语义
+/// “失败面零残留”——worktree add 之后才失败会留下未补偿目录）。
 pub(crate) fn add_worktree(main_root: &Path, worktree: &Path, branch: &str) -> Result<(), String> {
+    // 先装 Windows 保留名 ignore 规则：失败即零 worktree，保持 create 补偿
+    // 语义“失败面零残留”（worktree add 之后才失败会留下未补偿目录）。
+    ensure_windows_reserved_exclude(main_root)?;
     git(
         main_root,
         &["worktree", "add", "-b", branch, &worktree.to_string_lossy()],
@@ -216,9 +259,70 @@ pub(crate) fn dirty(root: &Path, paths: &[&str]) -> bool {
 /// worktree 全域提交：`add -A` + `commit -m`——add 范围 = worktree 全域
 ///（worktree 为 change 私有执行锚，全域即本 change 编辑集与 spec 同步产物；
 /// `add -A` 尊重 .gitignore，bootstrap 的 node_modules 不进提交）。
+/// Windows 保留设备名先由 [`ensure_windows_reserved_exclude`] 归入 ignore
+/// 面；pattern 漏网时由 [`add_all_skipping_reserved`] 精确判出并从 pathspec
+/// 排除。若排除后索引面为空（仅剩保留名），按幂等成功收口——生产侧 archive
+/// Commit 步本就以 `dirty` 探测跳过，此支路只覆盖探测后 pattern 漏网的竞态。
 pub(crate) fn commit_all(worktree: &Path, message: &str) -> Result<(), String> {
-    git(worktree, &["add", "-A"])?;
+    ensure_windows_reserved_exclude(worktree)?;
+    let reserved = add_all_skipping_reserved(worktree, &[], "commit_all")?;
+    if !reserved.is_empty() {
+        let staged = git(worktree, &["diff", "--cached", "--name-only", "-z"])?;
+        if staged.split('\0').all(|entry| entry.is_empty()) {
+            eprintln!(
+                "[vcs] commit_all 无索引面改动（仅剩已排除的 Windows 保留设备名路径）\
+                 ——按幂等成功收口: {}",
+                reserved.join(", ")
+            );
+            return Ok(());
+        }
+    }
     git(worktree, &["commit", "-m", message]).map(|_| ())
+}
+
+/// `git add -A` 的保留名避让（返回被排除的保留名）。无 reserved 时 argv 与
+/// 旧行为逐字一致（POSIX 恒走此分支，零额外 git spawn）；有 reserved 时把
+/// 正值 pathspec 与 `:(exclude,literal)<path>` 经 stdin NUL 入线——数量不可
+/// 控，沿用既有 `--pathspec-from-file` 形态规避 Windows argv 上限。保留名
+/// 只可能来自 pattern 漏网（大小写配置 / ADS / 尾随空格等），plain 形态已被
+/// `.git/info/exclude` 剔除。
+fn add_all_skipping_reserved(
+    root: &Path,
+    positive: &[&str],
+    operation: &str,
+) -> Result<Vec<String>, String> {
+    let reserved = if cfg!(windows) {
+        partition_windows_reserved(untracked_paths(root)?, operation).1
+    } else {
+        Vec::new()
+    };
+    if reserved.is_empty() {
+        let mut args: Vec<&str> = vec!["add", "-A"];
+        if !positive.is_empty() {
+            args.push("--");
+            args.extend_from_slice(positive);
+        }
+        git(root, &args)?;
+        return Ok(reserved);
+    }
+    let mut payload = Vec::new();
+    if positive.is_empty() {
+        payload.extend_from_slice(b".\0");
+    }
+    for path in positive {
+        payload.extend_from_slice(path.as_bytes());
+        payload.push(0);
+    }
+    for path in &reserved {
+        payload.extend_from_slice(format!(":(exclude,literal){path}").as_bytes());
+        payload.push(0);
+    }
+    git_stdin(
+        root,
+        &["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        &payload,
+    )?;
+    Ok(reserved)
 }
 
 /// 祖先判定：`merge-base --is-ancestor <branch> HEAD`——退出 0 = 分支已合入
@@ -416,12 +520,27 @@ pub(crate) fn current_branch(main_root: &Path) -> Result<String, String> {
 /// pathspec 圈定提交：`add -A -- <paths…>` + `commit -m <msg> -- <paths 各自
 /// "/**" 形态>`——commit pathspec 用 glob 形态覆盖已删除路径（裸目录 pathspec
 /// 对已删除目录报 "did not match"），且不受 index 干净度约束；无关 staged /
-/// untracked 条目在 pathspec 圈外原样保留（不吞并纪律的机械保证）。
+/// untracked 条目在 pathspec 圈外原样保留（不吞并纪律的机械保证）。Windows
+/// 保留设备名先归 ignore 面，pattern 漏网时经 [`add_all_skipping_reserved`]
+/// 精确排除；若圈内仅剩保留名则显式 `Err`（不伪装提交成功）。
 pub(crate) fn commit_paths(main_root: &Path, paths: &[&str], message: &str) -> Result<(), String> {
-    let mut add_args: Vec<&str> = vec!["add", "-A", "--"];
-    add_args.extend_from_slice(paths);
-    git(main_root, &add_args)?;
+    ensure_windows_reserved_exclude(main_root)?;
+    let reserved = add_all_skipping_reserved(main_root, paths, "commit_paths")?;
     let globs: Vec<String> = paths.iter().map(|path| format!("{path}/**")).collect();
+    if !reserved.is_empty() {
+        // 与 commit 同用 `path/**` glob 探测（裸目录 pathspec 对已删除目录报
+        // "did not match"）；圈内仅剩保留名时显式 Err，不伪装成功。
+        let mut diff_args: Vec<&str> = vec!["diff", "--cached", "--name-only", "-z", "--"];
+        diff_args.extend(globs.iter().map(String::as_str));
+        let staged = git(main_root, &diff_args)?;
+        if staged.split('\0').all(|entry| entry.is_empty()) {
+            return Err(format!(
+                "归档提交失败：路径圈内仅剩 Windows 保留设备名文件（git 无法索引）: {}；\
+                 请在 Git Bash 中删除这些文件（勿使用 `2>nul` 重定向）后重试",
+                reserved.join(", ")
+            ));
+        }
+    }
     let mut commit_args: Vec<&str> = vec!["commit", "-m", message, "--"];
     commit_args.extend(globs.iter().map(String::as_str));
     git(main_root, &commit_args).map(|_| ())
@@ -432,12 +551,11 @@ pub(crate) fn commit_paths(main_root: &Path, paths: &[&str], message: &str) -> R
 // 排除面组装驻 walker 调用方，infra 无状态）
 // ---------------------------------------------------------------------------
 
-/// worktree 基线恢复：`reset --hard` → `clean -fd` + 逐项 `-e <pattern>` 排除
-///（**不带 `-x`**——尊重 .gitignore，依赖树常态已免疫；`-e` 双保险覆盖无 ignore
-/// 规则仓；`openspec/` 工件树未跟踪面显式保护）。先 reset 后 clean = tracked
-/// 恢复 + untracked 清除的规范序。成功返回恢复摘要串；失败 `Err` 沿既有
-/// `git()` 语境（命令串 + 退出码 + stderr）。
+/// worktree 基线恢复
 pub(crate) fn restore_baseline(worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
+    // 先装 ignore 规则再 reset：失败发生在丢弃改动之前（避免半恢复态）。
+    // ensure 后 `clean -fd`（不带 -x）会跳过被忽略的保留名文件。
+    ensure_windows_reserved_exclude(worktree)?;
     git(worktree, &["reset", "--hard"])?;
     let mut clean_args: Vec<&str> = vec!["clean", "-fd"];
     for pattern in exclusions {
@@ -457,24 +575,19 @@ pub(crate) fn restore_baseline(worktree: &Path, exclusions: &[&str]) -> Result<S
 // 清单与补丁经 `ArchiveVcsPort` 缝注入 MutationRunner）
 // ---------------------------------------------------------------------------
 
-/// 变更文件清单唯一入口：`git diff <base> --name-only -z` ∪ `git ls-files
-/// --others --exclude-standard -z`（untracked 并入——新建源文件不 add 也入清
-/// 单），排序去重、POSIX 归一后返回。`base = "HEAD"` 时即本 change 编辑集
-/// （worktree 语义）。git 失败显式 `Err`——MUST NOT 静默降级空清单（空清单会
-/// 误走 diff 空跳过）。取数链路内幂等确保 mutation 调试产物忽略规则（见
-/// [`ensure_mutation_artifact_exclude`]——发生在任何段临时 config 写盘前，
-/// **且先于两次 git 列举**：首次调用 / 升级残留场景下，`_stryker-tmp/**` 的
-/// 可插桩源文件不得被当 untracked 纳入突变面）。
+/// 变更文件清单唯一入口
 pub(crate) fn change_edit_set(root: &Path, base: &str) -> Result<Vec<String>, String> {
     validate_base(base)?;
     ensure_mutation_artifact_exclude(root)?;
+    ensure_windows_reserved_exclude(root)?;
     let tracked = git(root, &["diff", base, "--name-only", "-z"])?;
-    let untracked = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let (untracked, _) = partition_windows_reserved(untracked_paths(root)?, "change_edit_set");
     let mut files = std::collections::BTreeSet::new();
-    for raw in [tracked, untracked] {
-        for entry in raw.split('\0').filter(|entry| !entry.is_empty()) {
-            files.insert(entry.replace('\\', "/"));
-        }
+    for entry in tracked.split('\0').filter(|entry| !entry.is_empty()) {
+        files.insert(entry.replace('\\', "/"));
+    }
+    for entry in untracked {
+        files.insert(entry.replace('\\', "/"));
     }
     Ok(files.into_iter().collect())
 }
@@ -483,8 +596,37 @@ pub(crate) fn change_edit_set(root: &Path, base: &str) -> Result<Vec<String>, St
 /// 深度命中——`_stryker-tmp/` 目录段 / `mutation-stryker-seg-*.conf.json`
 /// 文件名）。一次 ensure 三覆盖：`commit_all` 的 `add -A`、`dirty` 的
 /// `status --porcelain`、本清单的 `ls-files --others --exclude-standard`
-/// 全自动剔除——失败段调试产物留盘复现但 MUST NOT 进归档提交。
+/// 全自动剔除——失败段调试产物留盘复现但 MUST NOT 进归档提交。Windows 保留
+/// 设备名走同文件、独立 ensure（[`ensure_windows_reserved_exclude`]）；两者
+/// 共用 [`ensure_exclude_patterns`] 的幂等写盘语义。
 const MUTATION_EXCLUDE_PATTERNS: [&str; 2] = ["_stryker-tmp/", "mutation-stryker-seg-*.conf.json"];
+
+/// Windows 保留设备名忽略规则（`.git/info/exclude` 追加面；任意深度命中）。
+/// Git for Windows 的路径校验拒绝这些名字入索引——untracked 面混入一条即令
+/// `add -N`（`invalid path`）/ `add -A`（`unable to index file`）整批 abort
+///（退出 128）。与
+/// [`MUTATION_EXCLUDE_PATTERNS`] 同走 [`ensure_exclude_patterns`]，但只在
+/// Windows 安装（POSIX 的 `nul` 是合法文件名）。`lpt[0-9]` 覆盖 LPT0（git
+/// 拒绝）；`com[1-9]` 不覆盖 COM0（git 允许）。大小写形态依赖
+/// `core.ignorecase=true`（Windows 仓默认）。
+const WINDOWS_RESERVED_EXCLUDE_PATTERNS: [&str; 16] = [
+    "nul",
+    "nul.*",
+    "con",
+    "con.*",
+    "prn",
+    "prn.*",
+    "aux",
+    "aux.*",
+    "conin$",
+    "conin$.*",
+    "conout$",
+    "conout$.*",
+    "com[1-9]",
+    "com[1-9].*",
+    "lpt[0-9]",
+    "lpt[0-9].*",
+];
 
 /// 幂等确保 mutation 调试产物忽略规则写入 workspace `.git/info/exclude`：
 /// 已全在 → 零写盘；缺任一 → 补齐（`.git/info` 目录缺失则创建；行终止符跟随
@@ -494,43 +636,54 @@ const MUTATION_EXCLUDE_PATTERNS: [&str; 2] = ["_stryker-tmp/", "mutation-stryker
 /// mutation 继续跑）。经 `git rev-parse --git-path` 解析——linked worktree 返回
 /// 主仓 common-dir 绝对路径（主仓 + 全部 worktree 共享一份）。
 pub(crate) fn ensure_mutation_artifact_exclude(root: &Path) -> Result<(), String> {
+    ensure_exclude_patterns(root, &MUTATION_EXCLUDE_PATTERNS)?;
+    reset_staged_mutation_artifacts(root)
+}
+
+/// 幂等确保 Windows 保留设备名忽略规则写入共享 `.git/info/exclude`（非
+/// Windows 零动作、零 git spawn）。不触发 staged reset——保留名本就无法入
+/// 索引，不存在 intent-to-add 残留。
+pub(crate) fn ensure_windows_reserved_exclude(root: &Path) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Ok(());
+    }
+    ensure_exclude_patterns(root, &WINDOWS_RESERVED_EXCLUDE_PATTERNS)
+}
+
+/// 幂等追加 pattern 到 `.git/info/exclude`：已全在 → 零写盘；缺任一 → 补齐
+/// （`.git/info` 目录缺失则创建；行终止符跟随既有内容——CRLF 仓不写裸 LF）。
+/// 写盘 / git 失败显式 `Err`（排除规则写不进时调用链显式失败，不静默降级）。
+fn ensure_exclude_patterns(root: &Path, patterns: &[&str]) -> Result<(), String> {
     let exclude_path = resolve_info_exclude(root)?;
     let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
-    if !MUTATION_EXCLUDE_PATTERNS
+    if patterns
         .iter()
         .all(|pattern| exclude_line_present(&existing, pattern))
     {
-        if let Some(parent) = exclude_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                format!(
-                    "mutation 调试产物忽略目录创建失败 {}: {error}",
-                    parent.display()
-                )
-            })?;
-        }
-        let newline = if existing.contains("\r\n") {
-            "\r\n"
-        } else {
-            "\n"
-        };
-        let mut updated = existing.clone();
-        for pattern in MUTATION_EXCLUDE_PATTERNS {
-            if !exclude_line_present(&existing, pattern) {
-                if !updated.is_empty() && !updated.ends_with(newline) {
-                    updated.push_str(newline);
-                }
-                updated.push_str(pattern);
+        return Ok(());
+    }
+    if let Some(parent) = exclude_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("git 忽略目录创建失败 {}: {error}", parent.display()))?;
+    }
+    let newline = if existing.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut updated = existing.clone();
+    for pattern in patterns {
+        if !exclude_line_present(&existing, pattern) {
+            if !updated.is_empty() && !updated.ends_with(newline) {
                 updated.push_str(newline);
             }
+            updated.push_str(pattern);
+            updated.push_str(newline);
         }
-        std::fs::write(&exclude_path, updated).map_err(|error| {
-            format!(
-                "mutation 调试产物忽略规则写盘失败 {}: {error}",
-                exclude_path.display()
-            )
-        })?;
     }
-    reset_staged_mutation_artifacts(root)
+    std::fs::write(&exclude_path, updated)
+        .map_err(|error| format!("git 忽略规则写盘失败 {}: {error}", exclude_path.display()))?;
+    Ok(())
 }
 
 /// `.git/info/exclude` 路径解析（`git rev-parse --git-path`——相对输出对
@@ -597,19 +750,29 @@ fn reset_staged_mutation_artifacts(root: &Path) -> Result<(), String> {
 /// 文件内容、不改 worktree 语义：worktree 为 change 私有执行锚，归档 `commit_all`
 /// 本就 `add -A` 收编；重复执行幂等，不回退标记）再 `git diff <base>` 输出
 /// unified diff 文本。与 [`change_edit_set`] 同居 vcs 单点，checks 侧零 git spawn。
+/// untracked 面与 [`change_edit_set`] 同源同集：Windows 保留设备名经
+/// [`partition_windows_reserved`] 剔除后再重建 NUL 载荷（逐项原始字节 + 尾
+/// NUL，与 `ls-files -z` 原样回喂逐字等价）；全被过滤则不 spawn `add -N`。
 pub(crate) fn change_edit_patch(root: &Path, base: &str) -> Result<String, String> {
     validate_base(base)?;
+    ensure_windows_reserved_exclude(root)?;
     // 仅对 untracked 清单面做 intent-to-add（与 change_edit_set 的 untracked 口径
     // 同源同集——gitignore 面不入）
-    let untracked = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-    if untracked.split('\0').any(|entry| !entry.is_empty()) {
-        // 清单经 stdin NUL 入线（ls-files -z 产物原样回喂）：argv 展开面在
-        // 海量 untracked（llvm-cov 产物等 500+ 路径）下超 Windows
-        // CreateProcess 命令行 32767 上限——spawn 直接 os error 206
+    let (untracked, _) = partition_windows_reserved(untracked_paths(root)?, "change_edit_patch");
+    if !untracked.is_empty() {
+        // 清单经 stdin NUL 入线：argv 展开面在海量 untracked（llvm-cov 产物等
+        // 500+ 路径）下超 Windows CreateProcess 命令行 32767 上限——spawn 直接
+        // os error 206
+        let mut payload: Vec<u8> =
+            Vec::with_capacity(untracked.iter().map(|entry| entry.len() + 1).sum());
+        for entry in &untracked {
+            payload.extend_from_slice(entry.as_bytes());
+            payload.push(0);
+        }
         git_stdin(
             root,
             &["add", "-N", "--pathspec-from-file=-", "--pathspec-file-nul"],
-            untracked.as_bytes(),
+            &payload,
         )?;
     }
     git(root, &["diff", base])

@@ -6,6 +6,7 @@ use specta::Type;
 use time::OffsetDateTime;
 
 use foundation::layout::resolve;
+use foundation::windows_name::is_reserved_path;
 
 use crate::state::{ChangeStateRecord, ChangeStateStore, ChangeStatus};
 use crate::write::phase_table::phase_table;
@@ -108,17 +109,7 @@ pub(crate) fn utc_date(millis: i64) -> String {
     )
 }
 
-/// 创建 change（建域四段组合）：前置九道校验全 IO 前置（拒绝面零 worktree、
-/// 零建档、零目录、零 branch 触碰）→ db 建档先行（`worktree` / `base_commit` 入记录）→
-/// worktree add（HEAD 基线铸 `change/<name>` 分支）→ worktree 内目录树 +
-/// explore.md（goal 原文直写，UTF-8 零结构包装）→ 脏仓警告 → bootstrap。
-/// 主仓根注入：`main_root` 为目录冲突检查 + git 命令 `-C` 锚；worktree 落位
-/// 父锚经 vcs port 单点派生（`<git 根父目录>/.worktrees/<仓库目录名>`，
-/// worktree 目录 = `worktree_root/<name>`）。
-/// `title` 为人类可读标题（手动路径传 `name`，promote 路径显式继承
-/// `explore.title`）；空白标题回退 `name`（title 恒非空单点）。
-/// `workflow_type` 为工作流类型入参（合法值 = `phase_table` 命中：
-/// `requirement` | `test-only`；其余显式拒绝，落库取 canonical 小写值）。
+/// 创建 change
 pub fn create(
     main_root: &Path,
     store: &dyn ChangeStateStore,
@@ -132,6 +123,14 @@ pub fn create(
     if !is_kebab_case(name) {
         return Err(format!(
             "name 必须为 kebab-case（小写字母/数字，可用 `-` 连接），收到: {name:?}"
+        ));
+    }
+    // Windows 保留设备名（nul/con/prn/aux/com1-9/lpt0-9）会令 worktree 目录
+    // 创建失败（`worktree_root.join(name)` 落成设备 / 非法目录）——按可移植性
+    // 规则无条件拒绝，前端同口径本地拦截。
+    if is_reserved_path(name) {
+        return Err(format!(
+            "name {name:?} 是 Windows 保留设备名（无法作为 worktree 目录名），请换一个名称"
         ));
     }
     if name.len() > MAX_NAME_LENGTH {
