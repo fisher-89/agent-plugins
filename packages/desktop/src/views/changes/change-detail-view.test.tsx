@@ -193,6 +193,9 @@ beforeEach(() => {
   // 流程图区（建档详情）挂载 ReactFlow：jsdom 缺口垫片（环境 stub 而非业务 mock，
   // flush 可重放节点度量——已测量可见性断言需要）
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  // jsdom 无 CSS 引擎：根元素 fontSize 计算值为空，`3rem` 收起尺寸解析成 NaN。
+  // 按浏览器默认根字号（16px）垫片，使分栏的 rem 尺寸与真实渲染同解
+  document.documentElement.style.fontSize = '16px';
   Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
     configurable: true,
     get: () => 100,
@@ -2416,30 +2419,29 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     ).toBe(true);
   });
 
-  it('初拍折叠真相：挂载即展开形态（开关文案展开、面板主体完整渲染）', async () => {
+  it('初拍默认折叠：挂载即窄条形态（布局份额取收起尺寸、开关文案收起、主体不渲染）', async () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
 
-    expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent');
-    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
-    expect(screen.queryByTestId('change-chat-expand')).toBeNull();
+    // jsdom 无布局：两面板各报 100px（组宽 200px），收起尺寸 3rem = 48px → 份额 24%
+    const chatPanelElement = screen
+      .getByTestId('change-chat-panel')
+      .closest<HTMLElement>('[data-panel]')!;
+    expect(Number(chatPanelElement.style.flexGrow), '挂载即收起的布局份额').toBeCloseTo(24, 5);
+
+    reportChatPanelWidth(30);
+    expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent');
+    expect(screen.getByTestId('change-chat-rail') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
+    expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
   });
 
-  it('面板显隐开关：点击收起（窄条 + 展开文案）、窄条展开入口再点回展开（两入口共用 toggle）', async () => {
+  it('面板显隐开关：窄条展开入口 / header 开关共用 toggle（默认折叠 → 展开 → 再收起）', async () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
-
-    fireEvent.click(screen.getByTestId('detail-chat-toggle'));
     reportChatPanelWidth(30);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent'),
-    );
-    expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
-    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
-
+    // 默认收起 → 窄条展开入口
     fireEvent.click(screen.getByTestId('change-chat-expand'));
     reportChatPanelWidth(100);
 
@@ -2448,16 +2450,26 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     );
     expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
     expect(screen.queryByTestId('change-chat-expand')).toBeNull();
-  });
 
-  it('change id 变化折叠复位：收起后切到另一 change → 折叠复位（开关文案与主体回展开）', async () => {
-    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
-    await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    // header 开关再收起
     fireEvent.click(screen.getByTestId('detail-chat-toggle'));
     reportChatPanelWidth(30);
+
     await waitFor(() =>
       expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent'),
+    );
+    expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
+    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
+  });
+
+  it('change id 变化折叠复位：展开后切到另一 change → 面板回到默认收起', async () => {
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(30);
+    fireEvent.click(screen.getByTestId('change-chat-expand'));
+    reportChatPanelWidth(100);
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent'),
     );
 
     // 返回列表 → 再入另一 change（URL id 切换）
@@ -2467,12 +2479,13 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     fireEvent.click(screen.getByTestId('nav-stub'));
     await waitFor(() => expect(probePathname()).toBe(`/changes/${SECOND_CHANGE_ID}`));
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    reportChatPanelWidth(30);
 
     await waitFor(() =>
-      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent'),
+      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent'),
     );
-    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+    expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
+    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
   });
 });
 

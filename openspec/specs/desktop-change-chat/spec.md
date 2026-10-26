@@ -10,7 +10,7 @@
 
 change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧详情区并排（`ResizablePanelGroup orientation="horizontal"`，与探索详情页同构的分栏范式），MUST NOT 以右侧抽屉 / 浮层承载对话：
 
-- **分栏骨架**：左栏 `ResizablePanel` SHALL 可折叠（`collapsible` + 收起留窄条，`defaultSize` 约 30 / `minSize` 约 22），`DetailHeader` SHALL 提供面板显隐开关（收起 / 展开同一入口）；右栏 SHALL 保持既有纵向次序（刷新失败提示 → 运行控制面板 → 流程图区）。
+- **分栏骨架**：左栏 `ResizablePanel` SHALL 默认收起（挂载即窄条形态，展开尺寸 `defaultSize` 约 30 / `minSize` 约 22 / 收起留窄条 `collapsible`），`DetailHeader` SHALL 提供面板显隐开关（收起 / 展开同一入口）；右栏 SHALL 保持既有纵向次序（刷新失败提示 → 运行控制面板 → 流程图区）。
 - **对话体单一实现**：对话区 SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra）的**注入形态**渲染（来源侧建 `useAgentSession`，composer 经插槽注入），MUST NOT 在视图层自行拼装消息 / 轮行 / 事件流，MUST NOT 引入第二套对话渲染或第二套转录查询 hook。
 - **会话头动作面**：面板头 SHALL 提供「新会话」与「历史会话」两个动作（后者为可展开的会话清单），以及一行状态提示（禁发 / 只读理由，见「禁发与只读状态矩阵」）；会话元信息（会话 id / 运行态 / 轮数 / tokens）由 `AgentSessionView` 自带元信息行承载，MUST NOT 复制第二份。
 - **面板态归属**：面板本地态（当前 `sessionId` / 折叠态 / 清单展开态）SHALL 挂在页面身份源（URL change id）上——change id 变化时重置（MUST NOT 让旧 change 的会话 id 落到新 change 上）；`sessionId = null` 即空态（可发送草案态，见「change 会话归属与新会话 / 历史会话」）。
@@ -19,7 +19,7 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 #### Scenario: 分栏并排与折叠
 
 - **WHEN** 打开一个已建档 change 的详情页
-- **THEN** 页面呈左右两栏：左栏通用 Agent 面板、右栏刷新提示 / 运行控制 / 流程图；点击 header 开关或窄条可收起左栏（收起态仍留展开入口），再点可展开，右栏内容次序不变
+- **THEN** 页面呈左右两栏：左栏通用 Agent 面板默认收起为窄条（仍留展开入口）、右栏刷新提示 / 运行控制 / 流程图；点击 header 开关或窄条可展开左栏，再点可收起，右栏内容次序不变
 
 #### Scenario: 对话体归一为会话级组件
 

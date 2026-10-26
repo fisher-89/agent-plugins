@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { Badge } from '@/components/ui/badge';
@@ -313,6 +313,12 @@ function DetailLoaded({
   onToggleChat,
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
+  // 左栏默认折叠：分栏挂载即收起（layout effect 先于首帧，无可视展开闪烁；
+  // `collapse` 记下展开尺寸 = `defaultSize`，之后展开仍回默认宽度；折叠态
+  // 真相仍由 Panel 的 `onResize` 回传）
+  useLayoutEffect(() => {
+    chatPanelRef.current?.collapse();
+  }, [chatPanelRef]);
   return (
     <div className="flex flex-col h-full">
       {header}
@@ -448,8 +454,8 @@ export function ChangeDetailView({ root }: { root: string | null }) {
   const chatPanel = useChatPanelState();
   const { panelRef: chatPanelRef, toggle: toggleChat } = chatPanel;
 
-  // change id 变化：折叠复位（新 change 的面板以展开态呈现；`onResize` 自动
-  // 回传 false，折叠态真相仍单源）
+  // change id 变化：折叠复位（新 change 的面板回到默认收起形态；`onResize`
+  // 自动回传 true，折叠态真相仍单源）
   useEffect(() => {
     const panel = chatPanelRef.current;
     if (panel !== null && !panel.isCollapsed()) panel.collapse();

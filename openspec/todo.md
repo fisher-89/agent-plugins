@@ -73,7 +73,7 @@
 - [x] 【Desktop】移除test-execution阶段的agent执行，测试不通过时，走决策回溯
 - [x] 【Desktop】change详情增加通用agent，在change环境下运行；通用agent可以开启新会话，恢复历史会话；
 - [ ] 【Desktop】分离开发/测试和release产物使用的db文件
-- [ ] 【Desktop】change详情，步骤可以查看运行中stdout
+- [ ] 【Desktop】change详情，脚本步骤可以查看运行中stdout；最上方显示执行的命令；
 - [ ] 【Desktop】向agent提供db查询工具，可以访问桌面端数据，包含2个工具：1. 列出db的表名、介绍、字段说明；2. 按条件查询，返回数据上限1000条；
 - [x] 【Desktop】agent provider支持选择模型协议（openai/anthropic）
 - [ ] 【Desktop】内置CodeGraph，使用mcp桥接到agent
