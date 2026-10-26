@@ -11,7 +11,7 @@ use crate::model::{
     pack_checklist_item_key, StoreMetaRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
     WORKSPACE_STORE_FORMAT_VERSION,
 };
-use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
+use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME};
 use crate::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
     AgentProviderRecord, AgentRunRecord, ChangeRecord, ExploreRecord, PhaseRecord,
@@ -8673,4 +8673,133 @@ fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
         assert_eq!(stats.input_tokens, Some(130));
         assert_eq!(stats.output_tokens, Some(20));
     }
+}
+
+// ---------------------------------------------------------------------------
+// 公开面两常量（desktop-build-mode-split，AC-5 / AC-11 / AC-14）：`GLOBAL_DB_FILE_NAME`
+// / `WORKSPACES_DIR_NAME` 由 `pub(crate)` 收敛为 `pub`——壳层自检摘要与 IPC 经
+// crate 根重导出消费，零行为改动 ⇒ 用例只钉「值逐字 + 形态守卫 + 既有打开 /
+// 寻址回归」，不重复 store 既有语义断言。
+// ---------------------------------------------------------------------------
+
+/// 两常量值逐字；crate 根重导出与模块内定义同名同值（无第二份定义）。
+#[test]
+fn 公开面两常量值逐字且crate根重导出同值() {
+    assert_eq!(GLOBAL_DB_FILE_NAME, "desktop-global.redb", "库文件名逐字");
+    assert_eq!(WORKSPACES_DIR_NAME, "workspaces", "workspace 子树名逐字");
+    assert_eq!(
+        crate::GLOBAL_DB_FILE_NAME,
+        GLOBAL_DB_FILE_NAME,
+        "crate 根重导出与模块内定义同值"
+    );
+    assert_eq!(
+        crate::WORKSPACES_DIR_NAME,
+        WORKSPACES_DIR_NAME,
+        "crate 根重导出与模块内定义同值"
+    );
+}
+
+/// 与真实打开落位一致：全局库落 `<数据根>/desktop-global.redb`，workspace 库落
+/// `<数据根>/workspaces/<身份段>.redb`（测试侧以常量复算落位，不破坏封装）。
+#[test]
+fn 公开面两常量与真实打开落位一致() {
+    let env = StoresEnv::new("public-consts-layout");
+    let stores = env.open();
+
+    let global_path = env.data_root.path().join(GLOBAL_DB_FILE_NAME);
+    assert!(global_path.is_file(), "全局库文件落数据根（常量复算）");
+
+    let _ws = stores
+        .for_root(&env.root_of("public-consts"))
+        .expect("for_root 应成功");
+    let workspaces_dir = env.data_root.path().join(WORKSPACES_DIR_NAME);
+    assert!(
+        workspaces_dir.is_dir(),
+        "workspace 子树落数据根（常量复算）"
+    );
+    let names: Vec<String> = fs::read_dir(&workspaces_dir)
+        .expect("读取 workspaces 子树失败")
+        .map(|entry| {
+            entry
+                .expect("遍历目录项失败")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_eq!(names.len(), 1, "单 workspace 恰一个库文件");
+    assert!(
+        names[0].ends_with(".redb"),
+        "workspace 库文件名以 .redb 收尾：{}",
+        names[0]
+    );
+}
+
+/// 形态守卫：非空 / 无前后空白 / 无路径分隔符 / 无 `..` 段 / 无盘符冒号 / 无中文
+/// 与 emoji——防后续误改造成路径逃逸或跨平台文件名非法。
+#[test]
+fn 公开面两常量形态守卫均无分隔符无中文() {
+    for value in [GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME] {
+        assert!(!value.is_empty(), "常量不得为空串");
+        assert_eq!(value.trim(), value, "常量无前后空白：{value}");
+        assert!(
+            !value.contains('/') && !value.contains('\\'),
+            "常量不含路径分隔符：{value}"
+        );
+        assert!(
+            !value.split(['/', '\\']).any(|segment| segment == ".."),
+            "常量不含 `..` 段：{value}"
+        );
+        assert!(!value.contains(':'), "常量不含盘符冒号：{value}");
+        assert!(
+            value.is_ascii(),
+            "常量不含中文 / emoji（跨平台文件名合法）：{value}"
+        );
+    }
+}
+
+/// 寻址语义零回归：`workspace_db_path` 的文件名派生未受可见性变更影响；同一
+/// canonical root 在两数据根下产出**同名文件、不同父目录**（AC-5 隔离语义的
+/// store 侧锚——redb 锁与 `workspaces/` 天然分家）。
+#[test]
+fn 寻址语义零回归_同名文件不同父目录() {
+    let env = StoresEnv::new("public-consts-addressing");
+    let base = tempfile::Builder::new()
+        .prefix("store-test-public-consts-bases-")
+        .tempdir()
+        .expect("创建数据根基座临时目录失败");
+    let prod_data_root = base.path().join("prod-root");
+    let dev_data_root = base.path().join("dev-root");
+
+    let canonical_root = env.root_of("identity");
+    let prod_path =
+        crate::store::workspace_db_path(&prod_data_root.join(WORKSPACES_DIR_NAME), &canonical_root);
+    let dev_path =
+        crate::store::workspace_db_path(&dev_data_root.join(WORKSPACES_DIR_NAME), &canonical_root);
+
+    assert_eq!(
+        prod_path.file_name(),
+        dev_path.file_name(),
+        "同一 canonical root 恒派生同名库文件"
+    );
+    assert!(
+        prod_path
+            .file_name()
+            .map(|name| name.to_string_lossy().ends_with(".redb"))
+            .unwrap_or(false),
+        "文件名以 .redb 收尾：{}",
+        prod_path.display()
+    );
+    assert_ne!(
+        prod_path.parent(),
+        dev_path.parent(),
+        "父目录随数据根分裂（隔离语义的 store 侧锚）"
+    );
+    assert_eq!(
+        prod_path,
+        prod_data_root
+            .join(WORKSPACES_DIR_NAME)
+            .join(prod_path.file_name().expect("库文件名应存在")),
+        "路径 = workspaces 子树 + 文件名单点"
+    );
 }

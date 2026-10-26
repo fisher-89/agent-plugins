@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import type { BuildMode } from './use-app-environment';
 import { useUpdater } from './use-updater';
 
 const { checkMock, closeMock, downloadAndInstallMock, getVersionMock } = vi.hoisted(() => ({
@@ -17,6 +18,10 @@ vi.mock('@tauri-apps/api/app', () => ({
 vi.mock('@tauri-apps/plugin-updater', () => ({
   check: checkMock,
 }));
+
+// 判据为严格相等 `mode === 'prod'`（大小写敏感、无真值判断）：`BuildMode` 收窄后
+// 非法值编译期不可表达，运行时 `'PROD'` / `''` 形态由类型面排除——测试侧不以
+// `as` 断言构造（`no-unsafe-type-assertion` 门禁）。
 
 /** 构造一只最小 Update 替身（hook 仅消费 version/body/close/downloadAndInstall）。 */
 function fakeUpdate(version = '0.2.0') {
@@ -36,7 +41,14 @@ async function emitEvents(onEvent: (event: unknown) => void): Promise<void> {
   onEvent({ event: 'Finished' });
 }
 
-describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => {
+/** 带可重渲染 mode 入参的 hook 装置（`rerender` 驱动判据切换）。 */
+function renderUpdater(initialMode: BuildMode | null) {
+  return renderHook(({ mode }: { mode: BuildMode | null }) => useUpdater(mode), {
+    initialProps: { mode: initialMode },
+  });
+}
+
+describe('useUpdater：mode 判据（prod 才检查）+ 启动检查静默收口', () => {
   beforeEach(() => {
     checkMock.mockReset();
     closeMock.mockReset();
@@ -46,34 +58,22 @@ describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => 
     checkMock.mockResolvedValue(null);
     closeMock.mockResolvedValue(undefined);
     downloadAndInstallMock.mockResolvedValue(undefined);
-    vi.stubEnv('DEV', false);
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
+  it("mode='prod' 挂载检查无更新：available 保持 null 且不置 error", async () => {
+    const { result } = renderUpdater('prod');
 
-  it('DEV 构建跳过更新检查：check 不调用，版本号照常拉取', async () => {
-    vi.stubEnv('DEV', true);
-    const { result } = renderHook(() => useUpdater());
-
-    await waitFor(() => expect(result.current.currentVersion).toBe('0.1.0'));
-    expect(checkMock).not.toHaveBeenCalled();
-  });
-
-  it('安装版挂载检查无更新：available 保持 null 且不置 error', async () => {
-    const { result } = renderHook(() => useUpdater());
-
-    await waitFor(() => expect(checkMock).toHaveBeenCalled());
+    await waitFor(() => expect(checkMock).toHaveBeenCalledTimes(1));
     await act(async () => {});
     expect(result.current.available).toBeNull();
     expect(result.current.error).toBeNull();
     expect(result.current.status).toBe('idle');
+    expect(result.current.currentVersion).toBe('0.1.0');
   });
 
-  it('发现新版本：available 填充版本与说明，并立即释放 Update 资源（close）', async () => {
+  it("mode='prod' 发现新版本：available 填充版本与说明，并立即释放 Update 资源", async () => {
     checkMock.mockResolvedValue(fakeUpdate('0.2.0'));
-    const { result } = renderHook(() => useUpdater());
+    const { result } = renderUpdater('prod');
 
     await waitFor(() => expect(result.current.available?.version).toBe('0.2.0'));
     expect(result.current.available?.body).toBe('修复若干问题');
@@ -81,24 +81,121 @@ describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => 
     expect(result.current.error).toBeNull();
   });
 
-  it('启动检查失败静默：不置 error、不显示更新入口', async () => {
-    checkMock.mockRejectedValue(new Error('network down'));
-    const { result } = renderHook(() => useUpdater());
+  it("mode='dev' 零检查但版本号照拉：无错误态", async () => {
+    const { result } = renderUpdater('dev');
 
-    await waitFor(() => expect(checkMock).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.currentVersion).toBe('0.1.0'));
     await act(async () => {});
+    expect(checkMock).not.toHaveBeenCalled();
+    expect(result.current.available).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.status).toBe('idle');
+  });
+
+  it('mode=null 不判定：check 零调用（MUST NOT 回落成照常检查），版本号仍拉一次', async () => {
+    const { result } = renderUpdater(null);
+
+    await waitFor(() => expect(result.current.currentVersion).toBe('0.1.0'));
+    await act(async () => {});
+    expect(checkMock).not.toHaveBeenCalled();
+    expect(getVersionMock).toHaveBeenCalledTimes(1);
+    expect(result.current.available).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.status).toBe('idle');
+    expect(result.current.progress).toBeNull();
+  });
+
+  it('就绪后补一次检查：null → prod 补 check 一次，版本号 effect 不重跑', async () => {
+    checkMock.mockResolvedValue(fakeUpdate('0.3.0'));
+    const { result, rerender } = renderUpdater(null);
+
+    await waitFor(() => expect(result.current.currentVersion).toBe('0.1.0'));
+    expect(checkMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rerender({ mode: 'prod' });
+    });
+
+    await waitFor(() => expect(result.current.available?.version).toBe('0.3.0'));
+    expect(checkMock).toHaveBeenCalledTimes(1);
+    expect(getVersionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('mode 回退不撤销不重复：prod → dev 调用数不增', async () => {
+    const { result, rerender } = renderUpdater('prod');
+
+    await waitFor(() => expect(checkMock).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      rerender({ mode: 'dev' });
+    });
+    await act(async () => {});
+
+    expect(checkMock).toHaveBeenCalledTimes(1);
     expect(result.current.available).toBeNull();
     expect(result.current.error).toBeNull();
   });
 
-  it('getVersion 失败：版本号保持 null 且不报错', async () => {
-    getVersionMock.mockRejectedValue(new Error('nope'));
-    const { result } = renderHook(() => useUpdater());
+  it('同值重渲染不重复检查：dev → prod → prod 仍恰一次', async () => {
+    const { result, rerender } = renderUpdater('dev');
 
-    await waitFor(() => expect(checkMock).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.currentVersion).toBe('0.1.0'));
+    await act(async () => {
+      rerender({ mode: 'prod' });
+    });
+    await waitFor(() => expect(checkMock).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      rerender({ mode: 'prod' });
+    });
+    await act(async () => {});
+
+    expect(checkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("mode='prod' 启动检查失败静默：不置 error、不显示更新入口", async () => {
+    checkMock.mockRejectedValue(new Error('network down'));
+    const { result } = renderUpdater('prod');
+
+    await waitFor(() => expect(checkMock).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(result.current.available).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.status).toBe('idle');
+  });
+
+  it("mode='prod' getVersion 失败：版本号保持 null，检查仍发起且不报错", async () => {
+    getVersionMock.mockRejectedValue(new Error('nope'));
+    const { result } = renderUpdater('prod');
+
+    await waitFor(() => expect(checkMock).toHaveBeenCalledTimes(1));
     await act(async () => {});
     expect(result.current.currentVersion).toBeNull();
     expect(result.current.error).toBeNull();
+  });
+
+  it('初值面（mode=null + getVersion reject）：五字段全初值、无异常冒出', async () => {
+    getVersionMock.mockRejectedValue(new Error('version: 不可用'));
+    const { result } = renderUpdater(null);
+
+    await act(async () => {});
+    expect(result.current.currentVersion).toBeNull();
+    expect(result.current.available).toBeNull();
+    expect(result.current.status).toBe('idle');
+    expect(result.current.progress).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(typeof result.current.start).toBe('function');
+  });
+});
+
+describe('useUpdater：用户触发更新流（下载 / 安装链路零变化）', () => {
+  beforeEach(() => {
+    checkMock.mockReset();
+    closeMock.mockReset();
+    downloadAndInstallMock.mockReset();
+    getVersionMock.mockReset();
+    getVersionMock.mockResolvedValue('0.1.0');
+    checkMock.mockResolvedValue(null);
+    closeMock.mockResolvedValue(undefined);
+    downloadAndInstallMock.mockResolvedValue(undefined);
   });
 
   it('start 更新：进度事件按累计字节换算百分比，Finished 转 installing 终态', async () => {
@@ -106,7 +203,7 @@ describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => 
     downloadAndInstallMock.mockImplementation(
       async (onEvent: (event: unknown) => void) => await emitEvents(onEvent),
     );
-    const { result } = renderHook(() => useUpdater());
+    const { result } = renderUpdater('prod');
     await waitFor(() => expect(result.current.available).not.toBeNull());
 
     await act(async () => {
@@ -121,7 +218,7 @@ describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => 
   it('start 失败置 error；重试重新 check 拿新实例再走安装流', async () => {
     checkMock.mockResolvedValue(fakeUpdate());
     downloadAndInstallMock.mockRejectedValueOnce(new Error('checksum mismatch'));
-    const { result } = renderHook(() => useUpdater());
+    const { result } = renderUpdater('prod');
     await waitFor(() => expect(result.current.available).not.toBeNull());
 
     await act(async () => {
@@ -144,7 +241,7 @@ describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => 
   it('start 时更新已被撤下（check null）：收起入口回 idle', async () => {
     checkMock.mockResolvedValueOnce(fakeUpdate());
     checkMock.mockResolvedValueOnce(null);
-    const { result } = renderHook(() => useUpdater());
+    const { result } = renderUpdater('prod');
     await waitFor(() => expect(result.current.available?.version).toBe('0.2.0'));
 
     await act(async () => {
@@ -166,7 +263,7 @@ describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => 
         finish = resolve;
       });
     });
-    const { result } = renderHook(() => useUpdater());
+    const { result } = renderUpdater('prod');
     await waitFor(() => expect(result.current.available).not.toBeNull());
 
     await act(async () => {
@@ -181,5 +278,22 @@ describe('useUpdater：启动检查静默收口 + 用户触发更新流', () => 
     await act(async () => {
       finish();
     });
+  });
+
+  it("mode='dev' 下 start 仍走用户主动链路：check 由 start 触发（判据只管启动检查）", async () => {
+    checkMock.mockResolvedValue(fakeUpdate());
+    downloadAndInstallMock.mockImplementation(
+      async (onEvent: (event: unknown) => void) => await emitEvents(onEvent),
+    );
+    const { result } = renderUpdater('dev');
+
+    await waitFor(() => expect(result.current.currentVersion).toBe('0.1.0'));
+    expect(checkMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      result.current.start();
+    });
+    await waitFor(() => expect(result.current.status).toBe('installing'));
+    expect(checkMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -378,16 +378,17 @@ pub(crate) fn workspace_models() -> &'static Models {
 
 /// 全局库文件名（全局数据目录根直下；与旧单库 `desktop-store.redb` 换名使
 /// 新旧布局文件面彻底无歧义，免格式探测——旧文件惰性废弃零迁移）。
-pub(crate) const GLOBAL_DB_FILE_NAME: &str = "desktop-global.redb";
+///
+/// 公开面供 desktop 壳的 `--self-check` 摘要与 IPC 经 crate 根重导出消费：
+/// 壳层 MUST NOT 复写库文件名（名字单点）。
+pub const GLOBAL_DB_FILE_NAME: &str = "desktop-global.redb";
 
 /// workspace 库子树目录名（全局数据目录根直下，每 workspace 恰一个 db 文件）。
-pub(crate) const WORKSPACES_DIR_NAME: &str = "workspaces";
+///
+/// 公开面同 [`GLOBAL_DB_FILE_NAME`]：壳层 MUST NOT 复写 `workspaces` 子树名。
+pub const WORKSPACES_DIR_NAME: &str = "workspaces";
 
-/// workspace 库文件名派生（委托 foundation 身份段单点，消费侧零派生逻辑）：
-/// `{身份段}.redb`——身份段 = `{可读段}-{hash}`（可读段清洗后为空回退纯
-/// 哈希名；算法与实现驻 foundation，db 文件名与 worktree 子目录同源）。
-/// 纯函数确定性：同根恒同名、跨重启可复现；文件名不含路径分隔符与 OS 非
-/// 法字符。
+/// workspace 库文件名派生
 pub(crate) fn workspace_db_file_name(canonical_root: &str) -> String {
     format!(
         "{}.redb",
@@ -419,32 +420,14 @@ impl Store {
         Self::open_with(path, global_models(), DbDimension::User)
     }
 
-    /// 打开 workspace 库（workspace 维度模型组，轮统计行 / 会话 / 转录 /
-    /// explore / change 流程状态 / run 运行史 / 库级格式版本十一模型）。打开
-    /// 路径内嵌格式版本探测（[`Store::open_workspace_probed`]，D3 / D4）：
-    /// 标记缺失 / 低于当前（旧 name 主键形态库）→ 旧库整体作废重建为空库，
-    /// 零迁移层——旧形态数据只有两种去向：不可达（全局库旧文件的惰性废弃）
-    /// 或整体丢弃（本库探测作废）；MUST NOT 存在第三条 decode / migrate 路径。
-    /// 打开尾部内嵌启动标定
-    /// （[`Store::calibrate_interrupted_runs`]，D12）：进程起点无在飞 run 是
-    /// 结构性事实（redb 文件锁单进程写，跨进程并行 run 不可达），每
-    /// workspace 库首开即标定——残留 running 行翻 interrupted + 悬挂
-    /// active_phase 清位；零残留零写事务（幂等）。标定为 best-effort 自愈
-    ///（失败不阻断打开——与「坏行不阻断打开、读命令面显式记因」既有契约
-    /// 同口径，坏行语料见 store_test 直写注入用例）。
+    /// 打开 workspace 库
     pub fn open_workspace(path: &Path) -> Result<Self, StoreError> {
         let store = Self::open_workspace_probed(path)?;
         let _ = store.calibrate_interrupted_runs(now_millis());
         Ok(store)
     }
 
-    /// 打开路径的格式版本探测与旧库作废重建（D3 / D4 定形）：① 文件缺失 /
-    /// 空文件 → create 新库（十一模型）+ 写标记 → 就绪；② 存量文件 → open
-    /// （全模型组）→ 读标记：一致（≥ 当前——未来版本库不作废，防降级误毁）→
-    /// 照常就绪；缺失 / 低于当前 → 旧库整体作废重建（drop 句柄 →
-    /// `fs::remove_file` → create 新库 → 写标记）。幂等（新库标记恒在，重开不
-    /// 作废）；旧形态库的探测 / 作废路径本身零报错，仅环境性删除失败 →
-    /// [`StoreError::Db`] 显式 Err（恢复性故障语境，非旧形态库本身报错）。
+    /// 打开路径的格式版本探测与旧库作废重建
     fn open_workspace_probed(path: &Path) -> Result<Self, StoreError> {
         if is_blank_db_file(path) {
             // ① 全新库（文件缺失 / 空文件）：create + 写标记得就绪直进

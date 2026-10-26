@@ -3,6 +3,7 @@ pub mod change_flow;
 pub mod changes;
 pub mod config;
 pub mod db;
+pub mod env;
 pub mod exec;
 pub mod explores;
 pub mod stats;
@@ -66,6 +67,7 @@ macro_rules! all_commands {
             $crate::commands::db::db_records,
             $crate::commands::stats::code_stats,
             $crate::commands::config::workspace_config,
+            $crate::commands::env::app_environment,
         ]
     };
 }

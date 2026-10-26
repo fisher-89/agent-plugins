@@ -1,0 +1,37 @@
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/desktop-build-mode-split/openspec/changes/desktop-build-mode-split/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\agent)
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\store)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 55.42s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-bcba8ab2c960c4df.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-973e3d6e33553b46.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-907d7576406cbc22.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-3569dc83d7c493e8.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-22afcb4c64c0fc71.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\config-2c1c243542647694.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-4ec0a7dd830ecf0a.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-a833149df089b076.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\exec-051d38e886d78fbd.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\export_bindings-651c4cad47637522.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\orchestration-699fe0dabb59b161.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\store-65ef178a2605c183.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\vcs_runtime-ecca2ee7d0fe597f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\watch-5c6bdce9414d3ead.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\workflow-402afa55bca7e174.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-7971b9618e59bcc3.exe)
+
+    Finished report saved to D:/Projects/.worktrees/wps-claude-plugin/desktop-build-mode-split/openspec/changes/desktop-build-mode-split/reports/test/packages_desktop_src-tauri_rust/coverage-summary.json

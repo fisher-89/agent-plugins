@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "tauri dev",
     "client:dev": "vp dev",
-    "build": "pnpm run bindings:export && pnpm run server:build",
+    "build": "pnpm run bindings:export && pnpm run server:build:dev",
+    "build:prod": "pnpm run bindings:export && pnpm run server:build",
     "client:build": "tsc && vp build",
+    "server:build:dev": "cross-env CARGO_TARGET_DIR=target/dev-build tauri build --debug --no-bundle",
     "server:build": "cross-env TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build",
     "bindings:export": "cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml",
     "bindings:check": "pnpm run bindings:export && git diff --exit-code -- src/types/generated",

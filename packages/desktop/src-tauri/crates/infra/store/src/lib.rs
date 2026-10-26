@@ -11,7 +11,10 @@ pub use model::{
     ExploreRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
     StepRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
 };
-pub use store::{DbDimension, Store, StoreError, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
+pub use store::{
+    DbDimension, Store, StoreError, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX,
+    GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME,
+};
 
 #[cfg(test)]
 mod change_port_test;

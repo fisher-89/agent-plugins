@@ -49,7 +49,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 37 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
+/// 38 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
 /// 对应；历史缺录为既有滞后债，contains 语义不致红、按现行口径只补录本变更
 /// 自身新命令）。
 const COMMAND_WRAPPERS: &[&str] = &[
@@ -90,9 +90,10 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "dbRecords",
     "codeStats",
     "workspaceConfig",
+    "appEnvironment",
 ];
 
-/// 37 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
+/// 38 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -131,6 +132,7 @@ const COMMAND_NAMES: &[&str] = &[
     "db_records",
     "code_stats",
     "workspace_config",
+    "app_environment",
 ];
 
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
@@ -192,6 +194,7 @@ const DTO_TYPES: &[&str] = &[
     "WorkspaceRecord",
     "WriteProtection",
     "WriteProtectionFile",
+    "AppEnvironment",
 ];
 
 /// 类型段内逐字段名（顶层字段声明行：缩进后为标识符 + `:` 起头；doc 注释 /
@@ -853,14 +856,14 @@ fn dto_types清单不残留退役幽灵条目() {
 }
 
 #[test]
-fn command清单补录_archive_change后37条且既有锚点与在册命令保持() {
+fn command清单补录_app_environment后38条且既有锚点与在册命令保持() {
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
-    // 本变更范围）：条目数 36 → 37（list_change_chat_sessions），
-    // 首尾锚点不变
-    assert_eq!(COMMAND_NAMES.len(), 37, "命令清单恰补录本变更一条");
-    assert_eq!(COMMAND_WRAPPERS.len(), 37, "包装清单恰补录本变更一条");
+    // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
+    // 末尾），首锚不变、尾锚随新命令后移
+    assert_eq!(COMMAND_NAMES.len(), 38, "命令清单恰补录本变更一条");
+    assert_eq!(COMMAND_WRAPPERS.len(), 38, "包装清单恰补录本变更一条");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
-    assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
+    assert_eq!(COMMAND_NAMES.last(), Some(&"app_environment"));
     assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
     assert!(COMMAND_WRAPPERS.contains(&"archiveChange"), "包装名补录");
     assert!(COMMAND_NAMES.contains(&"promote_explore"), "invoke 名补录");
@@ -908,9 +911,21 @@ fn command清单补录_archive_change后37条且既有锚点与在册命令保�
 /// 类型名（分页信封返回面）——清单条目数随动，首尾锚与在册条目保持。
 #[test]
 fn dto类型清单零补录_条目数与首尾锚持衡() {
-    assert_eq!(DTO_TYPES.len(), 57, "DTO 清单补录本变更一条（SessionPage）");
+    assert_eq!(
+        DTO_TYPES.len(),
+        58,
+        "DTO 清单补录本变更一条（AppEnvironment）"
+    );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
-    assert_eq!(DTO_TYPES.last(), Some(&"WriteProtectionFile"), "尾锚持衡");
+    assert_eq!(
+        DTO_TYPES.last(),
+        Some(&"AppEnvironment"),
+        "尾锚随本变更新增条目"
+    );
+    assert!(
+        DTO_TYPES.contains(&"WriteProtectionFile"),
+        "既有尾锚条目仍在册（不因追加丢失）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1290,4 +1305,153 @@ fn archive_preflight线面字段面保留() {
         !content.contains("archiveFlow"),
         "归档五命令零残留（生成物面）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// app_environment 登记面（desktop-build-mode-split，AC-14 / AC-16）：命令清单 +
+// 生成物包装 + DTO 线面三字段。清单为产物子集的既有口径不变（历史缺录为既有
+// 滞后债，contains 语义不致红），本变更只补录自身新命令。
+// ---------------------------------------------------------------------------
+
+/// 登记面正向：新命令进两份清单与 DTO 清单，既有 37 条逐条仍在（无重复登记）。
+#[test]
+fn 登记面_app_environment进两份命令清单且dto类型在册() {
+    assert!(
+        COMMAND_NAMES.contains(&"app_environment"),
+        "invoke 命令名补录（app_environment）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&"appEnvironment"),
+        "生成包装名补录（appEnvironment）"
+    );
+    assert!(
+        DTO_TYPES.contains(&"AppEnvironment"),
+        "出线 DTO 类型补录（AppEnvironment）"
+    );
+
+    // 既有在册命令逐条仍在（contains 语义，不因追加而丢）
+    for name in [
+        "list_changes",
+        "archive_change",
+        "ensure_explore_session",
+        "list_change_chat_sessions",
+        "workspace_config",
+    ] {
+        assert!(
+            COMMAND_NAMES.contains(&name),
+            "既有 invoke 名仍在册：{name}"
+        );
+    }
+
+    // 无重复登记
+    assert_eq!(
+        COMMAND_NAMES
+            .iter()
+            .filter(|name| **name == "app_environment")
+            .count(),
+        1,
+        "新命令恰登记一次"
+    );
+    assert_eq!(
+        COMMAND_NAMES.len(),
+        COMMAND_WRAPPERS.len(),
+        "两份清单条目数持衡（一一对应）"
+    );
+}
+
+/// 登记面生成物正向：包装形态逐字（camelCase 名 + `__TAURI_INVOKE<AppEnvironment>`
+/// + snake_case invoke 目标）；DTO 恰三字段 camelCase 且字段序即声明序。
+#[test]
+fn 登记面_生成物含app_environment包装与线面三字段() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert!(
+        content
+            .contains("appEnvironment: () => __TAURI_INVOKE<AppEnvironment>(\"app_environment\")"),
+        "包装形态不符（参数面 / 返回类型 / invoke 命令名）"
+    );
+
+    let section = type_section(&content, "AppEnvironment");
+    assert!(
+        section.contains("mode: string,"),
+        "mode 字段在场（构建模式线值）"
+    );
+    assert!(
+        section.contains("dataRoot: string,"),
+        "dataRoot 字段 camelCase 出线"
+    );
+    assert!(
+        section.contains("source: string,"),
+        "source 字段在场（数据根来源线值）"
+    );
+    assert!(
+        !section.contains("data_root:"),
+        "无蛇形字段声明（serde rename_all 生效；doc 注释里的同源说明不计）"
+    );
+    assert_eq!(
+        field_names(&section),
+        vec!["mode", "dataRoot", "source"],
+        "字段序即声明序（mode → dataRoot → source）"
+    );
+}
+
+/// 登记面异常面：重复导出逐字节一致（`bindings:check` 的单测等价面——缺登记 /
+/// 误改清单时该字节比对必红）。
+#[test]
+fn 登记面_重复导出逐字节一致且新包装在册() {
+    let _lock = lock();
+
+    let first = authoritative_snapshot();
+    export_bindings().expect("第二次导出应成功");
+    let second = fs::read(generated_path()).expect("读取产物文件应成功");
+
+    assert_eq!(first, second, "两次导出逐字节一致（零 diff 门禁）");
+    let content = String::from_utf8(second).expect("产物为 UTF-8 文本");
+    assert!(content.contains("appEnvironment:"), "重导出后新包装仍在册");
+    assert!(
+        content.contains("export type AppEnvironment ="),
+        "重导出后新 DTO 仍在册"
+    );
+}
+
+/// 登记面边界：新命令为清单末条（其后即对象收尾 ⇒ 仅在末尾出现一次），且既有
+/// 清单每条都能在产物命中（无遗漏；`all_commands!` 为唯一登记面）。
+#[test]
+fn 登记面_新命令为清单末条且既有清单零遗漏() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert_eq!(
+        content.matches("appEnvironment:").count(),
+        1,
+        "包装在产物中恰一次（无重复登记）"
+    );
+    assert_eq!(
+        content.matches("\"app_environment\"").count(),
+        1,
+        "invoke 目标在产物中恰一次"
+    );
+
+    let index = content.find("appEnvironment:").expect("包装在场");
+    let tail = &content[index..];
+    let line_end = tail.find('\n').expect("包装行有换行");
+    assert!(
+        tail[line_end + 1..].starts_with("};"),
+        "新命令为清单末条（生成物中其后即对象收尾）"
+    );
+
+    // 清单是产物的子集：逐条命中（历史缺录的滞后债不在本变更范围）
+    for wrapper in COMMAND_WRAPPERS {
+        assert!(
+            content.contains(&format!("{wrapper}:")),
+            "产物缺命令包装名 {wrapper}"
+        );
+    }
+    for name in COMMAND_NAMES {
+        assert!(
+            content.contains(&format!("\"{name}\"")),
+            "产物缺 invoke 命令名 {name}"
+        );
+    }
 }

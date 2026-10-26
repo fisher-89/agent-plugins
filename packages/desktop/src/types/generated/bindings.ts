@@ -248,6 +248,8 @@ export const commands = {
 	 *  空报告）；配置文件缺失返回 `Ok` 报告（`fileMissing` 诊断在案）。
 	 */
 	workspaceConfig: (root: string) => __TAURI_INVOKE<WorkspaceConfigReport>("workspace_config", { root }).then((v) => (({...v,config:({...v.config,extra:v.config.extra.map(i=>i)})}) as typeof v)),
+	/**  应用环境：管理态 `DataRoot` → 线面平移（无 IO、无 `Result` 错误面）。 */
+	appEnvironment: () => __TAURI_INVOKE<AppEnvironment>("app_environment"),
 };
 
 /* Types */
@@ -538,6 +540,19 @@ export type AgentRunStatus =
 "failed" | 
 /**  用户主动终止收敛（stop 显式请求，语义区别于引擎失败） */
 "stopped";
+
+/**
+ *  应用环境线面：`{ mode, dataRoot, source }`（camelCase，与 specta 生成物
+ *  字段同形）。字段值只搬运，无第二处加工。
+ */
+export type AppEnvironment = {
+	/**  构建模式线值：`dev` | `prod`（`crate::env::mode()`） */
+	mode: string,
+	/**  数据根绝对路径（自检摘要 `data_root=` 同源） */
+	dataRoot: string,
+	/**  数据根来源线值：`prod` | `dev-default` | `env`（`RootSource::wire()`） */
+	source: string,
+};
 
 /**  archive 月份分组；`month` 为 `None` 即"未知时间"组，固定排组序列尾。 */
 export type ArchiveGroup = {

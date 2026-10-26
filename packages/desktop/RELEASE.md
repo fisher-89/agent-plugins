@@ -45,18 +45,61 @@ Silicon 二进制带链接器 ad-hoc 签名,可运行(首次打开需右键放�
 
 ## 本地构建须知
 
-`tauri.conf.json` 配置 `createUpdaterArtifacts` + `pubkey` 后,本地
-`pnpm -C packages/desktop run build` **必须**先设两个签名环境变量:缺私钥构建直接
-报错;只设私钥不设密码变量,CLI 会在打包完成后卡在 `Decrypting updater signing
-key, expect a prompt for password` 等 stdin 输入(密钥密码为空也要显式设空):
+本地构建按**构建模式**拆两档,默认档不再是生产档:
+
+### 档① `build` —— dev 构建(默认,零配置)
+
+```powershell
+pnpm -C packages/desktop run build
+```
+
+- 等价 `tauri build --debug --no-bundle`:debug profile + 前端资源内嵌 ⇒ 产物
+  `src-tauri/target/dev-build/debug/dev-team.exe` 可**脱离 dev server 双击运行**;
+- **不需要任何签名环境变量**(不打包 ⇒ `createUpdaterArtifacts` 与私钥前置都不
+  参与),也不产出安装包;
+- 隔离的 cargo target 目录(`src-tauri/target/dev-build`)与 `tauri dev` 的
+  `src-tauri/target/debug` 分开,两者互不因 feature 翻转触发全量重编译;
+- 运行期 `mode=dev`:数据根落 `<home>/.dev-team/dev`(与已装生产版的
+  `<home>/.dev-team` 数据互不可见),不注册单实例(可与已装生产版同时运行),
+  顶栏带 `DEV` 徽标(悬停显示数据根),且**不检查更新**;
+- 数据根可用 `DEV_TEAM_DATA_ROOT` 覆盖(绝对路径;不得等于 / 位于
+  `<home>/.dev-team` 之上,否则硬失败并双写 `<home>/.dev-team/logs/boot-error.log`);
+- 自检入口(零窗口,agent 验收用):
+
+  ```powershell
+  $env:DEV_TEAM_DATA_ROOT = "$env:USERPROFILE\dev-team-data\accept-1"
+  & packages/desktop/src-tauri/target/dev-build/debug/dev-team.exe --self-check
+  ```
+
+  逐行 `key=value`(`mode` / `home` / `data_root` / `data_root_source` /
+  `global_db` / `global_db_open` / `workspaces_dir` / `workspaces_dir_exists` /
+  `workspace_count` / `models`),退出码即结论:0 全通、1 库或数据根失败(附
+  `error=`)、2 用法或环境非法。
+
+  > **验收红线**:脚本 / agent 起 desktop 做验收必须显式设**独立**的
+  > `DEV_TEAM_DATA_ROOT`,不要复用人工 dev 根——第二个进程会在 redb 文件锁上
+  > fail fast,形似应用故障的假红。
+
+### 档② `build:prod` —— 生产构建(发版同款)
+
+```powershell
+pnpm -C packages/desktop run build:prod
+```
+
+`tauri.conf.json` 配置 `createUpdaterArtifacts` + `pubkey` 后,生产构建**必须**先设
+两个签名环境变量:缺私钥构建直接报错;只设私钥不设密码变量,CLI 会在打包完成后卡在
+`Decrypting updater signing key, expect a prompt for password` 等 stdin 输入(密钥
+密码为空也要显式设空):
 
 ```powershell
 $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content "$env:USERPROFILE\.tauri\desktop-terminal.key" -Raw
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
-pnpm -C packages/desktop run build
+pnpm -C packages/desktop run build:prod
 ```
 
-(`tauri dev` 不打包,不受影响。在 mac 上本地打包同理,只是 `$env:` 换成 `export`。)
+(`tauri dev` 不打包,不受影响。在 mac 上本地打包同理,只是 `$env:` 换成 `export`。
+私钥前置**只约束档②**:档① 免私钥。CI 不消费这两个脚本,它恒走裸 `tauri build`,
+故发版产物恒为生产档。)
 
 ## 每次发版
 
@@ -113,7 +156,11 @@ pnpm -C packages/desktop run build
   条目由 Windows 腿逐字提供。
 - 更新交互(Windows):启动后台检查(失败静默),有新版本才在顶栏显示入口;下载完成后
   NSIS 安装器以 `/UPDATE` 静默安装并自动重启应用,无「重启生效」按钮。
-- `tauri dev` 不检查更新(`import.meta.env.DEV` 守卫),更新路径只有安装版能走到。
+- dev 构建按 `app_environment` 的 `mode` 判据不检查更新(dev 构建不会去查生产
+  release,`tauri dev` 同理),更新路径只有安装版能走到。
+- **验收专用红线**:脚本 / agent 起 desktop 做验收 MUST 显式设独立的
+  `DEV_TEAM_DATA_ROOT`,MUST NOT 复用人工 dev 根(第二个进程会在 redb 文件锁上
+  fail fast,形似应用故障的假红)。
 - 首次从网页下载安装会有 SmartScreen 警告(Windows,无 Authenticode 的预期行为);
   mac 侧对应的是上面的 Gatekeeper 右键放行。应用内自动更新不经过浏览器,无此提示。
 - 密钥生成与 secrets 配置详见上节;私钥遗失 = 更新通道报废。

@@ -1,0 +1,25 @@
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/desktop-build-mode-split/openspec/changes/desktop-build-mode-split/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\agent)
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\store)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 46.60s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-bcba8ab2c960c4df.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-973e3d6e33553b46.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-907d7576406cbc22.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-3569dc83d7c493e8.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-22afcb4c64c0fc71.exe)
+error: test failed, to rerun pass `-p checks-runtime --lib`
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\Cargo.toml --target-dir D:\Projects\.worktrees\wps-claude-plugin\desktop-build-mode-split\packages\desktop\src-tauri\target\llvm-cov-target --workspace` (exit code: 101)

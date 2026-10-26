@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HashRouter } from 'react-router';
 import { toast } from 'sonner';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import App from './app';
 import type {
@@ -23,8 +23,9 @@ const { checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: getVersionMock }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
-// updater mock（沿用 use-updater.test.ts 语义）：仅「重试更新」用例经 vi.stubEnv('DEV', false)
-// 启用检查路径；其余用例 DEV=true 跳过启动检查
+// updater mock（沿用 use-updater.test.ts 语义）：启动检查判据为 `mode === 'prod'`
+// （IPC `app_environment` 单源）——默认 dev fixture 跳过启动检查，需检查路径的
+// 用例经 `environmentMode = 'prod'` 切换
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
 // 保留 HashRouter 实现、仅观测 props：锁定「路由更新同步提交」修复点
 vi.mock(import('react-router'), async (importOriginal) => {
@@ -172,6 +173,15 @@ let listReject: string | null = null;
 let configReject: string | null = null;
 let configPending = false;
 
+// 构建模式单源（IPC `app_environment`）：默认 dev fixture（徽标在场、更新检查
+// 不发起）；需检查路径的用例切 'prod'；另备 reject / pending / null / 非法载荷
+// 四档表达「未就绪 / 取数失败 / 载荷不合法」。
+const DEV_DATA_ROOT = 'C:\\u\\.dev-team\\dev';
+const PROD_DATA_ROOT = 'C:\\u\\.dev-team';
+const DEV_ENVIRONMENT = { mode: 'dev', dataRoot: DEV_DATA_ROOT, source: 'dev-default' };
+const PROD_ENVIRONMENT = { mode: 'prod', dataRoot: PROD_DATA_ROOT, source: 'prod' };
+let environmentMode: 'dev' | 'prod' | 'reject' | 'pending' | 'null' | 'invalid' = 'dev';
+
 function mockIpc() {
   remaining = [FIRST, SECOND];
   addBehavior = 'ok';
@@ -179,8 +189,22 @@ function mockIpc() {
   listReject = null;
   configReject = null;
   configPending = false;
+  environmentMode = 'dev';
   invokeMock.mockImplementation(
     (command: string, params?: { root?: string; id?: string; offset?: number; limit?: number }) => {
+      // 构建模式单源（壳层挂载一次）：dev / prod fixture 与 reject / pending /
+      // null / 非法载荷四档（后四档落入「mode 未知」路径）
+      if (command === 'app_environment') {
+        if (environmentMode === 'reject') return Promise.reject(new Error('IPC 不可用'));
+        if (environmentMode === 'pending') return new Promise<unknown>(() => {});
+        if (environmentMode === 'null') return Promise.resolve(null);
+        if (environmentMode === 'invalid') {
+          return Promise.resolve({ mode: 'other', dataRoot: 5 });
+        }
+        return Promise.resolve(
+          environmentMode === 'prod' ? { ...PROD_ENVIRONMENT } : { ...DEV_ENVIRONMENT },
+        );
+      }
       if (command === 'list_workspaces') {
         if (listReject !== null) return Promise.reject(new Error(listReject));
         return Promise.resolve([...remaining]);
@@ -259,6 +283,13 @@ function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
 }
 
+/** 除壳层固有 `app_environment` 外的命令序列（环境取数次数单列断言）。 */
+function commandsExceptEnvironment(): string[] {
+  return invokeMock.mock.calls
+    .map(([name]) => name as string)
+    .filter((name) => name !== 'app_environment');
+}
+
 /** mock.calls 中某命令最近一次的入参对象（无调用即报错）。 */
 function lastParamsOf(command: string): Record<string, unknown> {
   const calls = invokeMock.mock.calls.filter(([name]) => name === command);
@@ -333,10 +364,6 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     mockIpc();
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   it('list_workspaces 返回空清单启动：呈现欢迎屏空态与「添加新文件夹」入口，不进入列表视图', async () => {
     remaining = [];
     render(<App />);
@@ -348,8 +375,9 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     // 欢迎屏清单标题与计数（D7：空清单计数为 0）
     expect(screen.getByText(/最近的 workspace/).textContent).toContain('(0)');
     expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
-    // 除挂载自动 load 外无任何取数
-    expect(invokeMock.mock.calls.every(([name]) => name === 'list_workspaces')).toBe(true);
+    // 除挂载自动 load 与壳层环境取数外无任何取数
+    expect(commandsExceptEnvironment().every((name) => name === 'list_workspaces')).toBe(true);
+    expect(countOf('app_environment')).toBe(1);
   });
 
   it('HashRouter 显式关闭 transition：流式 sync 更新不再饿死导航', async () => {
@@ -385,10 +413,8 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
 
     expect(screen.getByText(/进行中/) !== null).toBe(true);
     // 恢复为纯查询链：挂载取数 → 以默认序第一名取 change 列表，无动作命令
-    expect(invokeMock.mock.calls.map(([name]) => name)).toEqual([
-      'list_workspaces',
-      'list_changes',
-    ]);
+    expect(commandsExceptEnvironment()).toEqual(['list_workspaces', 'list_changes']);
+    expect(countOf('app_environment')).toBe(1);
   });
 
   it('恢复进入列表后：列表项点击进入详情视图（hash 落 #/changes/<fixture id>），返回列表后「刷新」重发 list_changes', async () => {
@@ -429,7 +455,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
 
     await waitFor(() => expect(openMock).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(invokeMock.mock.calls.every(([name]) => name === 'list_workspaces')).toBe(true);
+    expect(commandsExceptEnvironment().every((name) => name === 'list_workspaces')).toBe(true);
     expect(screen.getByText('添加新文件夹') !== null).toBe(true);
   });
 
@@ -474,10 +500,6 @@ describe('App：sidebar 工作区选择器交互 → workspace 动作链（AC-3/
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('选择器切换非当前项：本地切换当前根（无 workspace 动作命令）→ list_changes 以新根发起 → change 选中清空', async () => {
@@ -624,10 +646,6 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
     mockIpc();
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   it('欢迎屏 add reject：toast 呈现「添加 workspace 失败：」、无 error-note、可重试（改写：原「error-note 呈现」断言 → toast 断言；对话框调用 reject 分支静默保持现状语义）', async () => {
     remaining = []; // 必须先于 render：挂载即自动取数
     render(<App />);
@@ -694,8 +712,8 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
   });
 
   it('updater error：「重试更新」按钮在场且点击语义不变（不经 toast，UpdateIndicator 逐字不动）', async () => {
-    // 安装版语义：启用启动检查，发现新版本 →「更新到 v0.2.0」
-    vi.stubEnv('DEV', false);
+    // 安装版语义（mode='prod'）：启用启动检查，发现新版本 →「更新到 v0.2.0」
+    environmentMode = 'prod';
     checkMock.mockResolvedValueOnce(fakeUpdate());
     render(<App />);
     await waitFor(() =>
@@ -721,8 +739,8 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
   });
 
   it('更新下载进度呈「下载中 42%」精确文案，Finished 转「正在安装…」终态并退出下载态', async () => {
-    // 安装版语义：启用启动检查
-    vi.stubEnv('DEV', false);
+    // 安装版语义（mode='prod'）：启用启动检查
+    environmentMode = 'prod';
     type UpdateEvent = { event: string; data?: { chunkLength?: number; contentLength?: number } };
     // downloadAndInstall 挂起以维持 downloading 形态；事件回调经 channel 捕获后按拍派发
     const channel: { emit: ((event: UpdateEvent) => void) | null } = { emit: null };
@@ -791,10 +809,6 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('壳态渲染 SidebarProvider / AppSidebar / 主内容区 main 的 DOM 标记，宽度撑满主内容容器', async () => {
@@ -927,10 +941,6 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('启动（hash 空）经 / 重定向落 #/changes：清单内容在场、Agent 调试页不在场、nav-changes 激活', async () => {
@@ -1163,10 +1173,6 @@ describe('App：壳层滚动框架', () => {
     mockIpc();
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   /** 壳态路由内容包裹层（主内容区 main 下的 ScrollArea 根容器）。 */
   function shellContentWrapper(): Element {
     const wrapper = document.querySelector(
@@ -1234,10 +1240,6 @@ describe('App：HashRouter 自含挂载与路由初态（D2/D6/D7）', () => {
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('壳态启动不包任何 Router 包裹：hash 落 #/changes、清单渲染、sidebar-wrapper / header 在场（D2 自含 HashRouter）', async () => {
@@ -1320,10 +1322,6 @@ describe('App：/info 基础信息路由可达与欢迎态隔离（AC-1）', () 
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('壳态点击 nav-info：hash 落 #/info、基础信息页呈现（info-summary 在场）、变更页内容卸载、nav-info 激活', async () => {
@@ -1413,10 +1411,6 @@ describe('App：/config 配置路由可达与欢迎态隔离（AC-4/AC-6/AC-7）
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('壳态点击 nav-config：hash 落 #/config、config-view 在场、nav-config 激活、变更页内容卸载、workspace_config 以 { root: 当前根 } 发起', async () => {
@@ -1527,5 +1521,138 @@ describe('App：/config 配置路由可达与欢迎态隔离（AC-4/AC-6/AC-7）
       .filter(([name]) => name === 'workspace_config')
       .map(([, params]) => (params as { root: string }).root);
     expect(configRoots).toEqual([FIRST.root, SECOND.root]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 关系五：构建模式穿透（IPC `app_environment` 单源 → DEV 徽标 / 更新检查判据，
+// desktop-build-mode-split AC-14）。徽标解决「两个 app 同跑，我看的是哪个库」：
+// `title` 携数据根；prod 构建与环境未就绪（null）不渲染。版本号不加 `-dev`
+// 后缀（不动版本语义，免污染 tag 与 updater 比较）。
+// ---------------------------------------------------------------------------
+
+describe('App：构建模式穿透（mode → DEV 徽标 / 更新检查判据）', () => {
+  beforeEach(() => {
+    window.location.hash = '';
+    getVersionMock.mockReset();
+    invokeMock.mockReset();
+    openMock.mockReset();
+    checkMock.mockReset();
+    checkMock.mockResolvedValue(null);
+    getVersionMock.mockResolvedValue('0.1.0');
+    toast.dismiss();
+    mockIpc();
+  });
+
+  it('挂载期新增恰一次 app_environment（不随视图切换 / 刷新重发）', async () => {
+    await restored();
+
+    expect(countOf('app_environment')).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([name]) => name === 'list_changes').length).toBe(2),
+    );
+    expect(countOf('app_environment')).toBe(1);
+  });
+
+  it("mode='dev' 呈 DEV 徽标：文本 DEV 且 title 逐字等于数据根", async () => {
+    await restored();
+
+    const badge = screen.getByTestId('dev-badge');
+    expect(badge.textContent).toBe('DEV');
+    expect(badge.getAttribute('title')).toBe(DEV_DATA_ROOT);
+  });
+
+  it("mode='prod' 无徽标且更新指示链路照常（check 一次、无新版本不渲染按钮）", async () => {
+    environmentMode = 'prod';
+    await restored();
+
+    await waitFor(() => expect(checkMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('dev-badge')).toBeNull();
+    expect(screen.queryByRole('button', { name: /更新到/ })).toBeNull();
+    expect(screen.getByText('v0.1.0') !== null).toBe(true);
+  });
+
+  it('mode 未就绪 / IPC 失败静默：三形态均无徽标、无错误态、其余取数不受阻', async () => {
+    for (const mode of ['reject', 'pending', 'null'] as const) {
+      invokeMock.mockReset();
+      mockIpc();
+      environmentMode = mode;
+      cleanup();
+      window.location.hash = '';
+      toast.dismiss();
+
+      render(<App />);
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
+      );
+      await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+      expect(screen.queryByTestId('dev-badge')).toBeNull();
+      expect(document.querySelector('[data-sonner-toast]')).toBeNull();
+      expect(checkMock).not.toHaveBeenCalled();
+      cleanup();
+    }
+  });
+
+  it('载荷不合法不污染壳态：非法枚举值 + 类型错 → 无徽标、更新检查零调用', async () => {
+    environmentMode = 'invalid';
+    await restored();
+
+    expect(screen.queryByTestId('dev-badge')).toBeNull();
+    expect(checkMock).not.toHaveBeenCalled();
+    expect(screen.getByText('add-feature') !== null).toBe(true);
+  });
+
+  it("mode='dev' 透传到 updater：check 零调用、版本号照拉且无 -dev 后缀", async () => {
+    await restored();
+
+    await waitFor(() => expect(getVersionMock).toHaveBeenCalledTimes(1));
+    expect(checkMock).not.toHaveBeenCalled();
+    const header = document.querySelector('header');
+    expect(header !== null).toBe(true);
+    expect(within(header!).getByText('v0.1.0') !== null).toBe(true);
+    expect(within(header!).queryByText(/v0\.1\.0-dev/)).toBeNull();
+  });
+
+  it("mode='prod' 透传到 updater：发现新版本时渲染「更新到 vX」入口", async () => {
+    environmentMode = 'prod';
+    checkMock.mockResolvedValue(fakeUpdate('0.2.0'));
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '更新到 v0.2.0' }) !== null).toBe(true),
+    );
+    expect(screen.queryByTestId('dev-badge')).toBeNull();
+  });
+
+  it('既有序列断言 filter 口径：过滤 app_environment 后与既有期望序列相等', async () => {
+    await restored();
+
+    // 恢复为纯查询链（挂载取数 → 以默认序第一名取 change 列表）
+    expect(commandsExceptEnvironment()).toEqual(['list_workspaces', 'list_changes']);
+    // 「只有 list_workspaces」口径同样先 filter：空清单启动时过滤后无其它命令
+    cleanup();
+    invokeMock.mockReset();
+    mockIpc();
+    remaining = [];
+    window.location.hash = '';
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(commandsExceptEnvironment().every((name) => name === 'list_workspaces')).toBe(true);
+    // 环境取数次数单列断言（与序列断言解耦）
+    expect(countOf('app_environment')).toBe(1);
+  });
+
+  it('欢迎屏（空清单）无徽标：ShellHeader 仅在选中 workspace 后渲染', async () => {
+    remaining = [];
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
+    expect(screen.queryByTestId('dev-badge')).toBeNull();
+    expect(countOf('app_environment')).toBe(1);
   });
 });

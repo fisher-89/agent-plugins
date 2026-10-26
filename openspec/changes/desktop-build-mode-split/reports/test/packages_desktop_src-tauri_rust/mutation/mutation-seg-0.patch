@@ -1,0 +1,3067 @@
+diff --git a/crates/infra/store/src/lib.rs b/crates/infra/store/src/lib.rs
+index 72e7f0947162..3e3019bf4551 100644
+--- a/crates/infra/store/src/lib.rs
++++ b/crates/infra/store/src/lib.rs
+@@ -11,7 +11,10 @@ pub use model::{
+     ExploreRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
+     StepRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
+ };
+-pub use store::{DbDimension, Store, StoreError, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
++pub use store::{
++    DbDimension, Store, StoreError, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX,
++    GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME,
++};
+ 
+ #[cfg(test)]
+ mod change_port_test;
+diff --git a/crates/infra/store/src/store.rs b/crates/infra/store/src/store.rs
+index 3132728d9254..ae523a038fec 100644
+--- a/crates/infra/store/src/store.rs
++++ b/crates/infra/store/src/store.rs
+@@ -378,16 +378,17 @@ pub(crate) fn workspace_models() -> &'static Models {
+ 
+ /// 全局库文件名（全局数据目录根直下；与旧单库 `desktop-store.redb` 换名使
+ /// 新旧布局文件面彻底无歧义，免格式探测——旧文件惰性废弃零迁移）。
+-pub(crate) const GLOBAL_DB_FILE_NAME: &str = "desktop-global.redb";
++///
++/// 公开面供 desktop 壳的 `--self-check` 摘要与 IPC 经 crate 根重导出消费：
++/// 壳层 MUST NOT 复写库文件名（名字单点）。
++pub const GLOBAL_DB_FILE_NAME: &str = "desktop-global.redb";
+ 
+ /// workspace 库子树目录名（全局数据目录根直下，每 workspace 恰一个 db 文件）。
+-pub(crate) const WORKSPACES_DIR_NAME: &str = "workspaces";
++///
++/// 公开面同 [`GLOBAL_DB_FILE_NAME`]：壳层 MUST NOT 复写 `workspaces` 子树名。
++pub const WORKSPACES_DIR_NAME: &str = "workspaces";
+ 
+-/// workspace 库文件名派生（委托 foundation 身份段单点，消费侧零派生逻辑）：
+-/// `{身份段}.redb`——身份段 = `{可读段}-{hash}`（可读段清洗后为空回退纯
+-/// 哈希名；算法与实现驻 foundation，db 文件名与 worktree 子目录同源）。
+-/// 纯函数确定性：同根恒同名、跨重启可复现；文件名不含路径分隔符与 OS 非
+-/// 法字符。
++/// workspace 库文件名派生
+ pub(crate) fn workspace_db_file_name(canonical_root: &str) -> String {
+     format!(
+         "{}.redb",
+@@ -419,32 +420,14 @@ impl Store {
+         Self::open_with(path, global_models(), DbDimension::User)
+     }
+ 
+-    /// 打开 workspace 库（workspace 维度模型组，轮统计行 / 会话 / 转录 /
+-    /// explore / change 流程状态 / run 运行史 / 库级格式版本十一模型）。打开
+-    /// 路径内嵌格式版本探测（[`Store::open_workspace_probed`]，D3 / D4）：
+-    /// 标记缺失 / 低于当前（旧 name 主键形态库）→ 旧库整体作废重建为空库，
+-    /// 零迁移层——旧形态数据只有两种去向：不可达（全局库旧文件的惰性废弃）
+-    /// 或整体丢弃（本库探测作废）；MUST NOT 存在第三条 decode / migrate 路径。
+-    /// 打开尾部内嵌启动标定
+-    /// （[`Store::calibrate_interrupted_runs`]，D12）：进程起点无在飞 run 是
+-    /// 结构性事实（redb 文件锁单进程写，跨进程并行 run 不可达），每
+-    /// workspace 库首开即标定——残留 running 行翻 interrupted + 悬挂
+-    /// active_phase 清位；零残留零写事务（幂等）。标定为 best-effort 自愈
+-    ///（失败不阻断打开——与「坏行不阻断打开、读命令面显式记因」既有契约
+-    /// 同口径，坏行语料见 store_test 直写注入用例）。
++    /// 打开 workspace 库
+     pub fn open_workspace(path: &Path) -> Result<Self, StoreError> {
+         let store = Self::open_workspace_probed(path)?;
+         let _ = store.calibrate_interrupted_runs(now_millis());
+         Ok(store)
+     }
+ 
+-    /// 打开路径的格式版本探测与旧库作废重建（D3 / D4 定形）：① 文件缺失 /
+-    /// 空文件 → create 新库（十一模型）+ 写标记 → 就绪；② 存量文件 → open
+-    /// （全模型组）→ 读标记：一致（≥ 当前——未来版本库不作废，防降级误毁）→
+-    /// 照常就绪；缺失 / 低于当前 → 旧库整体作废重建（drop 句柄 →
+-    /// `fs::remove_file` → create 新库 → 写标记）。幂等（新库标记恒在，重开不
+-    /// 作废）；旧形态库的探测 / 作废路径本身零报错，仅环境性删除失败 →
+-    /// [`StoreError::Db`] 显式 Err（恢复性故障语境，非旧形态库本身报错）。
++    /// 打开路径的格式版本探测与旧库作废重建
+     fn open_workspace_probed(path: &Path) -> Result<Self, StoreError> {
+         if is_blank_db_file(path) {
+             // ① 全新库（文件缺失 / 空文件）：create + 写标记得就绪直进
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index 36b83a02aaf2..4b5582d7d069 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -11,7 +11,7 @@ use crate::model::{
+     pack_checklist_item_key, StoreMetaRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
+     WORKSPACE_STORE_FORMAT_VERSION,
+ };
+-use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
++use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME};
+ use crate::{
+     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+     AgentProviderRecord, AgentRunRecord, ChangeRecord, ExploreRecord, PhaseRecord,
+@@ -8674,3 +8674,132 @@ fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
+         assert_eq!(stats.output_tokens, Some(20));
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 公开面两常量（desktop-build-mode-split，AC-5 / AC-11 / AC-14）：`GLOBAL_DB_FILE_NAME`
++// / `WORKSPACES_DIR_NAME` 由 `pub(crate)` 收敛为 `pub`——壳层自检摘要与 IPC 经
++// crate 根重导出消费，零行为改动 ⇒ 用例只钉「值逐字 + 形态守卫 + 既有打开 /
++// 寻址回归」，不重复 store 既有语义断言。
++// ---------------------------------------------------------------------------
++
++/// 两常量值逐字；crate 根重导出与模块内定义同名同值（无第二份定义）。
++#[test]
++fn 公开面两常量值逐字且crate根重导出同值() {
++    assert_eq!(GLOBAL_DB_FILE_NAME, "desktop-global.redb", "库文件名逐字");
++    assert_eq!(WORKSPACES_DIR_NAME, "workspaces", "workspace 子树名逐字");
++    assert_eq!(
++        crate::GLOBAL_DB_FILE_NAME,
++        GLOBAL_DB_FILE_NAME,
++        "crate 根重导出与模块内定义同值"
++    );
++    assert_eq!(
++        crate::WORKSPACES_DIR_NAME,
++        WORKSPACES_DIR_NAME,
++        "crate 根重导出与模块内定义同值"
++    );
++}
++
++/// 与真实打开落位一致：全局库落 `<数据根>/desktop-global.redb`，workspace 库落
++/// `<数据根>/workspaces/<身份段>.redb`（测试侧以常量复算落位，不破坏封装）。
++#[test]
++fn 公开面两常量与真实打开落位一致() {
++    let env = StoresEnv::new("public-consts-layout");
++    let stores = env.open();
++
++    let global_path = env.data_root.path().join(GLOBAL_DB_FILE_NAME);
++    assert!(global_path.is_file(), "全局库文件落数据根（常量复算）");
++
++    let _ws = stores
++        .for_root(&env.root_of("public-consts"))
++        .expect("for_root 应成功");
++    let workspaces_dir = env.data_root.path().join(WORKSPACES_DIR_NAME);
++    assert!(
++        workspaces_dir.is_dir(),
++        "workspace 子树落数据根（常量复算）"
++    );
++    let names: Vec<String> = fs::read_dir(&workspaces_dir)
++        .expect("读取 workspaces 子树失败")
++        .map(|entry| {
++            entry
++                .expect("遍历目录项失败")
++                .file_name()
++                .to_string_lossy()
++                .into_owned()
++        })
++        .collect();
++    assert_eq!(names.len(), 1, "单 workspace 恰一个库文件");
++    assert!(
++        names[0].ends_with(".redb"),
++        "workspace 库文件名以 .redb 收尾：{}",
++        names[0]
++    );
++}
++
++/// 形态守卫：非空 / 无前后空白 / 无路径分隔符 / 无 `..` 段 / 无盘符冒号 / 无中文
++/// 与 emoji——防后续误改造成路径逃逸或跨平台文件名非法。
++#[test]
++fn 公开面两常量形态守卫均无分隔符无中文() {
++    for value in [GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME] {
++        assert!(!value.is_empty(), "常量不得为空串");
++        assert_eq!(value.trim(), value, "常量无前后空白：{value}");
++        assert!(
++            !value.contains('/') && !value.contains('\\'),
++            "常量不含路径分隔符：{value}"
++        );
++        assert!(
++            !value.split(['/', '\\']).any(|segment| segment == ".."),
++            "常量不含 `..` 段：{value}"
++        );
++        assert!(!value.contains(':'), "常量不含盘符冒号：{value}");
++        assert!(
++            value.is_ascii(),
++            "常量不含中文 / emoji（跨平台文件名合法）：{value}"
++        );
++    }
++}
++
++/// 寻址语义零回归：`workspace_db_path` 的文件名派生未受可见性变更影响；同一
++/// canonical root 在两数据根下产出**同名文件、不同父目录**（AC-5 隔离语义的
++/// store 侧锚——redb 锁与 `workspaces/` 天然分家）。
++#[test]
++fn 寻址语义零回归_同名文件不同父目录() {
++    let env = StoresEnv::new("public-consts-addressing");
++    let base = tempfile::Builder::new()
++        .prefix("store-test-public-consts-bases-")
++        .tempdir()
++        .expect("创建数据根基座临时目录失败");
++    let prod_data_root = base.path().join("prod-root");
++    let dev_data_root = base.path().join("dev-root");
++
++    let canonical_root = env.root_of("identity");
++    let prod_path =
++        crate::store::workspace_db_path(&prod_data_root.join(WORKSPACES_DIR_NAME), &canonical_root);
++    let dev_path =
++        crate::store::workspace_db_path(&dev_data_root.join(WORKSPACES_DIR_NAME), &canonical_root);
++
++    assert_eq!(
++        prod_path.file_name(),
++        dev_path.file_name(),
++        "同一 canonical root 恒派生同名库文件"
++    );
++    assert!(
++        prod_path
++            .file_name()
++            .map(|name| name.to_string_lossy().ends_with(".redb"))
++            .unwrap_or(false),
++        "文件名以 .redb 收尾：{}",
++        prod_path.display()
++    );
++    assert_ne!(
++        prod_path.parent(),
++        dev_path.parent(),
++        "父目录随数据根分裂（隔离语义的 store 侧锚）"
++    );
++    assert_eq!(
++        prod_path,
++        prod_data_root
++            .join(WORKSPACES_DIR_NAME)
++            .join(prod_path.file_name().expect("库文件名应存在")),
++        "路径 = workspaces 子树 + 文件名单点"
++    );
++}
+diff --git a/src/bindings/mod_test.rs b/src/bindings/mod_test.rs
+index cc30451bf430..62cf76ac412a 100644
+--- a/src/bindings/mod_test.rs
++++ b/src/bindings/mod_test.rs
+@@ -49,7 +49,7 @@ impl Drop for RestoreOnDrop {
+     }
+ }
+ 
+-/// 37 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
++/// 38 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
+ /// 对应；历史缺录为既有滞后债，contains 语义不致红、按现行口径只补录本变更
+ /// 自身新命令）。
+ const COMMAND_WRAPPERS: &[&str] = &[
+@@ -90,9 +90,10 @@ const COMMAND_WRAPPERS: &[&str] = &[
+     "dbRecords",
+     "codeStats",
+     "workspaceConfig",
++    "appEnvironment",
+ ];
+ 
+-/// 37 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
++/// 38 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
+ const COMMAND_NAMES: &[&str] = &[
+     "list_changes",
+     "get_change_detail",
+@@ -131,6 +132,7 @@ const COMMAND_NAMES: &[&str] = &[
+     "db_records",
+     "code_stats",
+     "workspace_config",
++    "app_environment",
+ ];
+ 
+ /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
+@@ -192,6 +194,7 @@ const DTO_TYPES: &[&str] = &[
+     "WorkspaceRecord",
+     "WriteProtection",
+     "WriteProtectionFile",
++    "AppEnvironment",
+ ];
+ 
+ /// 类型段内逐字段名（顶层字段声明行：缩进后为标识符 + `:` 起头；doc 注释 /
+@@ -853,14 +856,14 @@ fn dto_types清单不残留退役幽灵条目() {
+ }
+ 
+ #[test]
+-fn command清单补录_archive_change后37条且既有锚点与在册命令保持() {
++fn command清单补录_app_environment后38条且既有锚点与在册命令保持() {
+     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
+-    // 本变更范围）：条目数 36 → 37（list_change_chat_sessions），
+-    // 首尾锚点不变
+-    assert_eq!(COMMAND_NAMES.len(), 37, "命令清单恰补录本变更一条");
+-    assert_eq!(COMMAND_WRAPPERS.len(), 37, "包装清单恰补录本变更一条");
++    // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
++    // 末尾），首锚不变、尾锚随新命令后移
++    assert_eq!(COMMAND_NAMES.len(), 38, "命令清单恰补录本变更一条");
++    assert_eq!(COMMAND_WRAPPERS.len(), 38, "包装清单恰补录本变更一条");
+     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
+-    assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
++    assert_eq!(COMMAND_NAMES.last(), Some(&"app_environment"));
+     assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
+     assert!(COMMAND_WRAPPERS.contains(&"archiveChange"), "包装名补录");
+     assert!(COMMAND_NAMES.contains(&"promote_explore"), "invoke 名补录");
+@@ -908,9 +911,21 @@ fn command清单补录_archive_change后37条且既有锚点与在册命令保
+ /// 类型名（分页信封返回面）——清单条目数随动，首尾锚与在册条目保持。
+ #[test]
+ fn dto类型清单零补录_条目数与首尾锚持衡() {
+-    assert_eq!(DTO_TYPES.len(), 57, "DTO 清单补录本变更一条（SessionPage）");
++    assert_eq!(
++        DTO_TYPES.len(),
++        58,
++        "DTO 清单补录本变更一条（AppEnvironment）"
++    );
+     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
+-    assert_eq!(DTO_TYPES.last(), Some(&"WriteProtectionFile"), "尾锚持衡");
++    assert_eq!(
++        DTO_TYPES.last(),
++        Some(&"AppEnvironment"),
++        "尾锚随本变更新增条目"
++    );
++    assert!(
++        DTO_TYPES.contains(&"WriteProtectionFile"),
++        "既有尾锚条目仍在册（不因追加丢失）"
++    );
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -1291,3 +1306,152 @@ fn archive_preflight线面字段面保留() {
+         "归档五命令零残留（生成物面）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// app_environment 登记面（desktop-build-mode-split，AC-14 / AC-16）：命令清单 +
++// 生成物包装 + DTO 线面三字段。清单为产物子集的既有口径不变（历史缺录为既有
++// 滞后债，contains 语义不致红），本变更只补录自身新命令。
++// ---------------------------------------------------------------------------
++
++/// 登记面正向：新命令进两份清单与 DTO 清单，既有 37 条逐条仍在（无重复登记）。
++#[test]
++fn 登记面_app_environment进两份命令清单且dto类型在册() {
++    assert!(
++        COMMAND_NAMES.contains(&"app_environment"),
++        "invoke 命令名补录（app_environment）"
++    );
++    assert!(
++        COMMAND_WRAPPERS.contains(&"appEnvironment"),
++        "生成包装名补录（appEnvironment）"
++    );
++    assert!(
++        DTO_TYPES.contains(&"AppEnvironment"),
++        "出线 DTO 类型补录（AppEnvironment）"
++    );
++
++    // 既有在册命令逐条仍在（contains 语义，不因追加而丢）
++    for name in [
++        "list_changes",
++        "archive_change",
++        "ensure_explore_session",
++        "list_change_chat_sessions",
++        "workspace_config",
++    ] {
++        assert!(
++            COMMAND_NAMES.contains(&name),
++            "既有 invoke 名仍在册：{name}"
++        );
++    }
++
++    // 无重复登记
++    assert_eq!(
++        COMMAND_NAMES
++            .iter()
++            .filter(|name| **name == "app_environment")
++            .count(),
++        1,
++        "新命令恰登记一次"
++    );
++    assert_eq!(
++        COMMAND_NAMES.len(),
++        COMMAND_WRAPPERS.len(),
++        "两份清单条目数持衡（一一对应）"
++    );
++}
++
++/// 登记面生成物正向：包装形态逐字（camelCase 名 + `__TAURI_INVOKE<AppEnvironment>`
++/// + snake_case invoke 目标）；DTO 恰三字段 camelCase 且字段序即声明序。
++#[test]
++fn 登记面_生成物含app_environment包装与线面三字段() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    assert!(
++        content
++            .contains("appEnvironment: () => __TAURI_INVOKE<AppEnvironment>(\"app_environment\")"),
++        "包装形态不符（参数面 / 返回类型 / invoke 命令名）"
++    );
++
++    let section = type_section(&content, "AppEnvironment");
++    assert!(
++        section.contains("mode: string,"),
++        "mode 字段在场（构建模式线值）"
++    );
++    assert!(
++        section.contains("dataRoot: string,"),
++        "dataRoot 字段 camelCase 出线"
++    );
++    assert!(
++        section.contains("source: string,"),
++        "source 字段在场（数据根来源线值）"
++    );
++    assert!(
++        !section.contains("data_root:"),
++        "无蛇形字段声明（serde rename_all 生效；doc 注释里的同源说明不计）"
++    );
++    assert_eq!(
++        field_names(&section),
++        vec!["mode", "dataRoot", "source"],
++        "字段序即声明序（mode → dataRoot → source）"
++    );
++}
++
++/// 登记面异常面：重复导出逐字节一致（`bindings:check` 的单测等价面——缺登记 /
++/// 误改清单时该字节比对必红）。
++#[test]
++fn 登记面_重复导出逐字节一致且新包装在册() {
++    let _lock = lock();
++
++    let first = authoritative_snapshot();
++    export_bindings().expect("第二次导出应成功");
++    let second = fs::read(generated_path()).expect("读取产物文件应成功");
++
++    assert_eq!(first, second, "两次导出逐字节一致（零 diff 门禁）");
++    let content = String::from_utf8(second).expect("产物为 UTF-8 文本");
++    assert!(content.contains("appEnvironment:"), "重导出后新包装仍在册");
++    assert!(
++        content.contains("export type AppEnvironment ="),
++        "重导出后新 DTO 仍在册"
++    );
++}
++
++/// 登记面边界：新命令为清单末条（其后即对象收尾 ⇒ 仅在末尾出现一次），且既有
++/// 清单每条都能在产物命中（无遗漏；`all_commands!` 为唯一登记面）。
++#[test]
++fn 登记面_新命令为清单末条且既有清单零遗漏() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    assert_eq!(
++        content.matches("appEnvironment:").count(),
++        1,
++        "包装在产物中恰一次（无重复登记）"
++    );
++    assert_eq!(
++        content.matches("\"app_environment\"").count(),
++        1,
++        "invoke 目标在产物中恰一次"
++    );
++
++    let index = content.find("appEnvironment:").expect("包装在场");
++    let tail = &content[index..];
++    let line_end = tail.find('\n').expect("包装行有换行");
++    assert!(
++        tail[line_end + 1..].starts_with("};"),
++        "新命令为清单末条（生成物中其后即对象收尾）"
++    );
++
++    // 清单是产物的子集：逐条命中（历史缺录的滞后债不在本变更范围）
++    for wrapper in COMMAND_WRAPPERS {
++        assert!(
++            content.contains(&format!("{wrapper}:")),
++            "产物缺命令包装名 {wrapper}"
++        );
++    }
++    for name in COMMAND_NAMES {
++        assert!(
++            content.contains(&format!("\"{name}\"")),
++            "产物缺 invoke 命令名 {name}"
++        );
++    }
++}
+diff --git a/src/commands/env/mod.rs b/src/commands/env/mod.rs
+new file mode 100644
+index 000000000000..ad8482d87877
+--- /dev/null
++++ b/src/commands/env/mod.rs
+@@ -0,0 +1,37 @@
++use serde::Serialize;
++use specta::Type;
++use tauri::State;
++
++use crate::env::DataRoot;
++
++#[cfg(test)]
++mod mod_test;
++
++/// 应用环境线面：`{ mode, dataRoot, source }`（camelCase，与 specta 生成物
++/// 字段同形）。字段值只搬运，无第二处加工。
++#[derive(Debug, Clone, Serialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct AppEnvironment {
++    /// 构建模式线值：`dev` | `prod`（`crate::env::mode()`）
++    pub mode: String,
++    /// 数据根绝对路径（自检摘要 `data_root=` 同源）
++    pub data_root: String,
++    /// 数据根来源线值：`prod` | `dev-default` | `env`（`RootSource::wire()`）
++    pub source: String,
++}
++
++/// 应用环境：管理态 `DataRoot` → 线面平移（无 IO、无 `Result` 错误面）。
++#[tauri::command]
++#[specta::specta]
++pub fn app_environment(data_root: State<'_, DataRoot>) -> AppEnvironment {
++    app_environment_inner(&data_root)
++}
++
++/// 领域平移纯函数（无 Tauri State）：三个字段各取单点，命令层零加工。
++pub fn app_environment_inner(data_root: &DataRoot) -> AppEnvironment {
++    AppEnvironment {
++        mode: crate::env::mode().to_owned(),
++        data_root: data_root.path.to_string_lossy().into_owned(),
++        source: data_root.source.wire().to_owned(),
++    }
++}
+diff --git a/src/commands/env/mod_test.rs b/src/commands/env/mod_test.rs
+new file mode 100644
+index 000000000000..a541a93d04b6
+--- /dev/null
++++ b/src/commands/env/mod_test.rs
+@@ -0,0 +1,217 @@
++use std::path::PathBuf;
++
++use tauri::Manager;
++
++use crate::env::{DataRoot, RootSource};
++
++use super::{app_environment, app_environment_inner, AppEnvironment};
++
++// ---------------------------------------------------------------------------
++// 装置
++// ---------------------------------------------------------------------------
++
++/// 数据根 fixture（临时目录真实路径 + 指定来源）。
++fn data_root(path: PathBuf, source: RootSource) -> DataRoot {
++    DataRoot { path, source }
++}
++
++/// 以 MockRuntime 建测用 app 并托管数据根（命令层薄包装取值装置）。
++fn app_with_data_root(root: DataRoot) -> tauri::App<tauri::test::MockRuntime> {
++    let app = tauri::test::mock_app();
++    app.manage(root);
++    app
++}
++
++// ---------------------------------------------------------------------------
++// app_environment_inner：三字段平移（AC-1 / AC-14）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn app_environment_inner三字段各取单点且无空值() {
++    let dir = tempfile::Builder::new()
++        .prefix("commands-env-test-")
++        .tempdir()
++        .expect("创建数据根临时目录失败");
++    let root = data_root(dir.path().to_path_buf(), RootSource::DevEnv);
++
++    let environment = app_environment_inner(&root);
++
++    assert_eq!(
++        environment.data_root,
++        dir.path().to_string_lossy().into_owned(),
++        "data_root 为 path 的 lossy 串逐字"
++    );
++    assert_eq!(environment.source, "env", "source = RootSource::wire()");
++    assert_eq!(
++        environment.mode,
++        crate::env::mode(),
++        "mode = env::mode()（单点产出）"
++    );
++    for field in [
++        &environment.mode,
++        &environment.data_root,
++        &environment.source,
++    ] {
++        assert!(!field.is_empty(), "三字段均无空值：{field}");
++    }
++}
++
++#[test]
++fn app_environment_inner_source三值遍历与wire逐字相等() {
++    for (source, want) in [
++        (RootSource::Prod, "prod"),
++        (RootSource::DevDefault, "dev-default"),
++        (RootSource::DevEnv, "env"),
++    ] {
++        let environment = app_environment_inner(&data_root(PathBuf::from("root"), source));
++        assert_eq!(environment.source, want, "命令层不另拼字符串");
++        assert_eq!(environment.source, source.wire(), "与 wire() 逐字相等");
++    }
++}
++
++#[test]
++fn app_environment_inner_mode与env_mode同源且值域闭集() {
++    let environment = app_environment_inner(&data_root(PathBuf::from("root"), RootSource::Prod));
++    assert_eq!(environment.mode, crate::env::mode());
++    assert!(
++        matches!(environment.mode.as_str(), "dev" | "prod"),
++        "mode 值域闭集（与自检摘要 mode= 同形）"
++    );
++}
++
++#[test]
++fn app_environment_inner无err通道且任意数据根均返回完整结构() {
++    for (path, source) in [
++        (PathBuf::new(), RootSource::Prod),
++        (PathBuf::from("root"), RootSource::DevDefault),
++    ] {
++        let environment = app_environment_inner(&data_root(path, source));
++        // 签名为 -> AppEnvironment（非 Result，管理态恒在）：不 panic、不返回错误态
++        assert_eq!(environment.source, source.wire());
++        assert_eq!(environment.mode, crate::env::mode());
++    }
++}
++
++#[test]
++fn app_environment_inner路径边界原样透传不归一不查盘() {
++    let long = format!("中文目录🙂/{}", "x".repeat(300));
++
++    // 空路径 → 空串（不 panic）
++    assert_eq!(
++        app_environment_inner(&data_root(PathBuf::new(), RootSource::DevEnv)).data_root,
++        "",
++        "空 path 平移为空串"
++    );
++
++    // 超长含中文与 emoji → 逐字透传
++    let long_path = PathBuf::from(&long);
++    assert_eq!(
++        app_environment_inner(&data_root(long_path.clone(), RootSource::DevEnv)).data_root,
++        long_path.to_string_lossy().into_owned(),
++        "超长路径逐字透传"
++    );
++
++    // 尾分隔符 / 空格 / `..` 段 → 原样透传（平移语义）
++    for raw in ["root/", "root with space", "root/../other"] {
++        let path = PathBuf::from(raw);
++        assert_eq!(
++            app_environment_inner(&data_root(path.clone(), RootSource::DevEnv)).data_root,
++            path.to_string_lossy().into_owned(),
++            "原样透传：{raw}"
++        );
++    }
++
++    // 非 UTF-8 路径 → lossy 不 panic
++    #[cfg(unix)]
++    {
++        use std::ffi::OsStr;
++        use std::os::unix::ffi::OsStrExt;
++        let raw_os = OsStr::from_bytes(b"/tmp/\xff\xfe-non-utf8");
++        let path = PathBuf::from(raw_os);
++        let environment = app_environment_inner(&data_root(path, RootSource::DevEnv));
++        assert_eq!(environment.data_root, path.to_string_lossy().into_owned());
++    }
++}
++
++// ---------------------------------------------------------------------------
++// app_environment：薄包装（MockRuntime + 管理态直取，AC-1 / AC-14）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn app_environment薄包装与inner逐字段全等() {
++    let root = data_root(PathBuf::from("data-root"), RootSource::DevEnv);
++    let app = app_with_data_root(root.clone());
++
++    let wrapped = app_environment(app.state::<DataRoot>());
++    let inner = app_environment_inner(&root);
++
++    assert_eq!(wrapped.mode, inner.mode, "命令层零加工（mode）");
++    assert_eq!(
++        wrapped.data_root, inner.data_root,
++        "命令层零加工（dataRoot）"
++    );
++    assert_eq!(wrapped.source, inner.source, "命令层零加工（source）");
++}
++
++#[test]
++fn app_environment不依赖其它管理态() {
++    // 未 manage 任何其它注册表（无 WorkspaceStores / WatchRegistry）也能取值
++    let app = app_with_data_root(data_root(
++        PathBuf::from("data-root"),
++        RootSource::DevDefault,
++    ));
++
++    let wrapped = app_environment(app.state::<DataRoot>());
++    assert_eq!(wrapped.source, "dev-default");
++    assert_eq!(wrapped.data_root, "data-root");
++}
++
++// ---------------------------------------------------------------------------
++// AppEnvironment：线面 camelCase 形态与类型面（AC-14 / AC-16）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn app_environment线面恰三键且为camel_case() {
++    let environment = AppEnvironment {
++        mode: "dev".to_owned(),
++        data_root: "/data/root".to_owned(),
++        source: "dev-default".to_owned(),
++    };
++
++    let value = serde_json::to_value(&environment).expect("序列化应成功");
++    let object = value.as_object().expect("线面为对象形态");
++    assert_eq!(object.len(), 3, "恰三个键（无多余字段、无嵌套对象）");
++
++    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
++    keys.sort_unstable();
++    assert_eq!(keys, ["dataRoot", "mode", "source"], "camelCase 三键");
++
++    assert_eq!(value["mode"], "dev");
++    assert_eq!(value["dataRoot"], "/data/root");
++    assert_eq!(value["source"], "dev-default");
++    assert!(
++        !serde_json::to_string(&environment)
++            .expect("序列化应成功")
++            .contains("data_root"),
++        "蛇形键零命中"
++    );
++}
++
++#[test]
++fn app_environment类型面clone与debug与三字段均为字符串() {
++    let environment = AppEnvironment {
++        mode: "prod".to_owned(),
++        data_root: "/data/root".to_owned(),
++        source: "prod".to_owned(),
++    };
++    let cloned = environment.clone();
++
++    assert_eq!(cloned.mode, environment.mode);
++    assert_eq!(cloned.data_root, environment.data_root);
++    assert_eq!(cloned.source, environment.source);
++
++    let debug = format!("{environment:?}");
++    for field in ["mode", "data_root", "source"] {
++        assert!(debug.contains(field), "Debug 渲染含字段名 {field}");
++    }
++}
+diff --git a/src/commands/mod.rs b/src/commands/mod.rs
+index ab038f281e00..9528d9e3faf7 100644
+--- a/src/commands/mod.rs
++++ b/src/commands/mod.rs
+@@ -3,6 +3,7 @@ pub mod change_flow;
+ pub mod changes;
+ pub mod config;
+ pub mod db;
++pub mod env;
+ pub mod exec;
+ pub mod explores;
+ pub mod stats;
+@@ -66,6 +67,7 @@ macro_rules! all_commands {
+             $crate::commands::db::db_records,
+             $crate::commands::stats::code_stats,
+             $crate::commands::config::workspace_config,
++            $crate::commands::env::app_environment,
+         ]
+     };
+ }
+diff --git a/src/env.rs b/src/env.rs
+new file mode 100644
+index 000000000000..f1bea918f3d6
+--- /dev/null
++++ b/src/env.rs
+@@ -0,0 +1,262 @@
++use std::ffi::OsStr;
++use std::fs;
++use std::io::Write;
++use std::path::{Component, Path, PathBuf};
++
++/// prod 数据目录名（`home_dir()` 根下；prod 构建的数据根 = `<home>/.dev-team`）。
++pub const PROD_DIR: &str = ".dev-team";
++
++/// dev 子根名（dev 构建默认数据根 = `<home>/.dev-team/dev`，与 prod 同屋檐）。
++pub const DEV_SUBDIR: &str = "dev";
++
++/// 数据根覆盖环境变量名（仅 dev 构建消费；提示文案 / 留痕文本 / 探测共用）。
++pub const DATA_ROOT_ENV: &str = "DEV_TEAM_DATA_ROOT";
++
++/// 数据根下日志子树名（引擎异常日志与启动失败日志共用目录、分文件）。
++pub const LOGS_DIR_NAME: &str = "logs";
++
++/// 启动失败日志文件名（数据根校验失败双写落点，锚 prod 根）。
++pub const BOOT_ERROR_LOG_NAME: &str = "boot-error.log";
++
++/// prod 侧 env 留痕日志文件名（锚 prod 根）。
++pub const IGNORED_ENV_LOG_NAME: &str = "ignored-env.log";
++
++/// 数据根单值（Tauri 管理态承载）：`main` 单点解析一次后 `manage`，`setup`
++/// 钩子与 `--self-check` 共用同一份值。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DataRoot {
++    /// 归一后的数据根绝对路径
++    pub path: PathBuf,
++    /// 根的来源（线值经 [`RootSource::wire`] 单点产出）
++    pub source: RootSource,
++}
++
++/// 数据根来源：值域与线值一对一（`prod` / `dev-default` / `env`）。
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum RootSource {
++    /// prod 构建：`<home>/.dev-team`
++    Prod,
++    /// dev 构建未设 env：`<home>/.dev-team/dev`
++    DevDefault,
++    /// dev 构建经 `DEV_TEAM_DATA_ROOT` 覆盖
++    DevEnv,
++}
++
++impl RootSource {
++    /// 线值单点（自检摘要 `data_root_source=` 与 IPC `source` 同名同形）：
++    /// prod 构建 MUST NOT 再拼第二套字符串。
++    pub fn wire(self) -> &'static str {
++        match self {
++            RootSource::Prod => "prod",
++            RootSource::DevDefault => "dev-default",
++            RootSource::DevEnv => "env",
++        }
++    }
++}
++
++/// 数据根校验失败（每变体自带收到的原值：提示三要素之二由类型携带，
++/// 渲染侧不二次读取 env）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum RootError {
++    /// 空白值（trim 后为空 / 纯空白）
++    Blank { raw: String },
++    /// 相对路径（含 Windows 的「仅根」形态；MUST NOT 按 cwd 解析）
++    Relative { raw: String },
++    /// 归一后等于 prod 根（会污染生产数据根）
++    EqualsProd { raw: String },
++    /// 归一后是 prod 根的严格祖先（会污染生产数据根）
++    AncestorOfProd { raw: String },
++    /// 已存在但是普通文件（数据根需要目录）
++    NotDirectory { raw: String },
++}
++
++/// 构建模式线值：`cfg!(debug_assertions)` 三档全对（`tauri dev` 与
++/// `tauri build --debug` 同为 dev ⇒「dev 构建与 `pnpm dev` 共库」是免费推论），
++/// 是 Rust 侧唯一判别表达式。
++pub fn mode() -> &'static str {
++    if cfg!(debug_assertions) {
++        "dev"
++    } else {
++        "prod"
++    }
++}
++
++/// prod 数据根：**签名不接收 env** ⇒「prod 不读 `DEV_TEAM_DATA_ROOT`」由结构
++/// 保证，MUST NOT 靠调用点纪律。
++pub fn prod_root(home: &Path) -> DataRoot {
++    DataRoot {
++        path: normalize(&prod_dir(home)),
++        source: RootSource::Prod,
++    }
++}
++
++/// dev 数据根三分优先级（纯函数，零 env 读取、零 fs 写入）：
++///
++/// - `env` 为 `None` → `<home>/.dev-team/dev`（[`RootSource::DevDefault`]）；
++/// - `env` 为 `Some` → 五项校验（空白 / 相对 / 等于 prod 根 / prod 根祖先 /
++///   目标是文件）全过才接受，值为逻辑归一后的路径（[`RootSource::DevEnv`]），
++///   任一不过即 `Err`（硬失败，MUST NOT 降级到默认根）。
++pub fn resolve_dev_root(home: &Path, env: Option<&OsStr>) -> Result<DataRoot, RootError> {
++    let Some(raw_os) = env else {
++        return Ok(DataRoot {
++            path: normalize(&dev_default_dir(home)),
++            source: RootSource::DevDefault,
++        });
++    };
++    let raw = raw_os.to_string_lossy().into_owned();
++    // ① 空白（含纯空白串）：空值不能表达「未设」
++    if raw.trim().is_empty() {
++        return Err(RootError::Blank { raw });
++    }
++    // ② 相对路径：MUST NOT 按 cwd 解析成随启动目录漂移的根
++    let candidate = Path::new(raw_os);
++    if !candidate.is_absolute() {
++        return Err(RootError::Relative { raw });
++    }
++    let prod = compare_key(&prod_dir(home));
++    let key = compare_key(candidate);
++    // ③ 归一后等于 prod 根
++    if key == prod {
++        return Err(RootError::EqualsProd { raw });
++    }
++    // ④ 归一后是 prod 根的严格祖先（家目录 / 盘符根 / 任一层上级）
++    if prod.starts_with(&key) {
++        return Err(RootError::AncestorOfProd { raw });
++    }
++    // ⑤ 已存在但是普通文件（数据根需要目录）
++    if candidate.is_file() {
++        return Err(RootError::NotDirectory { raw });
++    }
++    Ok(DataRoot {
++        path: normalize(candidate),
++        source: RootSource::DevEnv,
++    })
++}
++
++/// 数据根解析薄分派：`is_dev == false` **早退**到 [`prod_root`]（不读 env）；
++/// dev 分支是本模块唯一 env 读取点。
++pub fn resolve_root(home: &Path, is_dev: bool) -> Result<DataRoot, RootError> {
++    if !is_dev {
++        return Ok(prod_root(home));
++    }
++    let raw = std::env::var_os(DATA_ROOT_ENV);
++    resolve_dev_root(home, raw.as_deref())
++}
++
++/// 校验失败提示渲染（自然语言，三要素齐备：指名 `DEV_TEAM_DATA_ROOT`、回显
++/// 收到的原值、给可照抄的下一步）：GUI 启动与 `--self-check` 共用同一文案，
++/// MUST NOT 各写一份。默认根与示例路径一律由 `home` 派生。
++pub fn render_root_error(err: &RootError, home: &Path) -> String {
++    let default_root = dev_default_dir(home);
++    let example = home.join("dev-team-data").join("accept-1");
++    let next_step = format!(
++        "下一步二选一：删除环境变量 {DATA_ROOT_ENV}，改用默认数据根 `{}`；或把 {DATA_ROOT_ENV} 改成另一独立目录的绝对路径，例如 `{}`。",
++        default_root.display(),
++        example.display()
++    );
++    let prod = prod_dir(home);
++    match err {
++        RootError::Blank { raw } => format!(
++            "环境变量 {DATA_ROOT_ENV} 的值是空白（收到值：「{raw}」），无法定位数据根。{next_step}"
++        ),
++        RootError::Relative { raw } => format!(
++            "环境变量 {DATA_ROOT_ENV} 的值是相对路径（收到值：「{raw}」），相对路径会随启动目录漂移，不会按当前目录解析。{next_step}"
++        ),
++        RootError::EqualsProd { raw } => format!(
++            "环境变量 {DATA_ROOT_ENV} 的值就是生产数据根 `{}`（收到值：「{raw}」），dev 构建会污染生产数据根（全局库 / workspaces / 引擎日志全落进生产目录）。{next_step}",
++            prod.display()
++        ),
++        RootError::AncestorOfProd { raw } => format!(
++            "环境变量 {DATA_ROOT_ENV} 的值是生产数据根 `{}` 的上级目录（收到值：「{raw}」），dev 构建会污染生产数据根（生产库就在该路径之下）。{next_step}",
++            prod.display()
++        ),
++        RootError::NotDirectory { raw } => format!(
++            "环境变量 {DATA_ROOT_ENV} 指向一个已存在的普通文件（收到值：「{raw}」），数据根必须是目录。{next_step}"
++        ),
++    }
++}
++
++/// 启动失败双写之二：追加到 `<home>/.dev-team/logs/boot-error.log`（自建父
++/// 目录、`[unix 毫秒]` 前缀、append-only、IO 失败静默——不掩盖原始失败原因）。
++pub fn append_boot_error(home: &Path, message: &str) {
++    append_log(home, BOOT_ERROR_LOG_NAME, message);
++}
++
++/// prod 侧 env 检测留痕：追加 `<home>/.dev-team/logs/ignored-env.log` 一行
++/// （release 构建不认该变量，但「设了 env 却误跑 build:prod」必须留痕，
++/// 否则数据无声写进真实生产库）。
++pub fn append_ignored_env(home: &Path) {
++    append_log(
++        home,
++        IGNORED_ENV_LOG_NAME,
++        &format!("ignored_env={DATA_ROOT_ENV} (release build ignores it)"),
++    );
++}
++
++/// prod 目录路径（`PROD_DIR` 唯一落点）。
++fn prod_dir(home: &Path) -> PathBuf {
++    home.join(PROD_DIR)
++}
++
++/// dev 默认数据根路径（`<home>/.dev-team/dev`）。
++fn dev_default_dir(home: &Path) -> PathBuf {
++    prod_dir(home).join(DEV_SUBDIR)
++}
++
++/// 逻辑归一：按 `Path::components()` 逐段重拼——`CurDir` 丢弃、`ParentDir` 在
++/// 无可弹段时原样保留、`Prefix` / `RootDir` / `Normal` 依次压入。吃 `.` / `..` /
++/// 重复分隔符 / 尾分隔符，保留根与前缀；**不触碰 fs**（MUST NOT 用
++/// `canonicalize`：目标目录通常尚不存在）。
++fn normalize(path: &Path) -> PathBuf {
++    let mut out = PathBuf::new();
++    for component in path.components() {
++        match component {
++            Component::CurDir => {}
++            Component::ParentDir => {
++                if !out.pop() {
++                    out.push(component.as_os_str());
++                }
++            }
++            other => out.push(other.as_os_str()),
++        }
++    }
++    out
++}
++
++/// 「等于 / 祖先」判定专用比较键：同一份归一结果，Windows 下大小写不敏感
++/// （盘符 / 用户名大小写差异 MUST NOT 绕过红线）。
++#[cfg(windows)]
++fn compare_key(path: &Path) -> PathBuf {
++    PathBuf::from(normalize(path).to_string_lossy().to_lowercase())
++}
++
++#[cfg(not(windows))]
++fn compare_key(path: &Path) -> PathBuf {
++    normalize(path)
++}
++
++/// 当前 unix 毫秒（沿引擎日志既有行格式约定；时钟异常取 0）。
++fn now_millis() -> u128 {
++    std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|duration| duration.as_millis())
++        .unwrap_or(0)
++}
++
++/// 追加一行到 `<prod 根>/logs/<file_name>`：自建父目录 → append → `[毫秒] 行`；
++/// 任一步 IO 失败静默返回（尽力而为，MUST NOT 阻断启动）。
++fn append_log(home: &Path, file_name: &str, line: &str) {
++    let dir = prod_dir(home).join(LOGS_DIR_NAME);
++    if fs::create_dir_all(&dir).is_err() {
++        return;
++    }
++    let _ = fs::OpenOptions::new()
++        .create(true)
++        .append(true)
++        .open(dir.join(file_name))
++        .and_then(|mut file| writeln!(file, "[{}] {line}", now_millis()));
++}
++
++#[cfg(test)]
++#[path = "env_test.rs"]
++mod env_test;
+diff --git a/src/env_test.rs b/src/env_test.rs
+new file mode 100644
+index 000000000000..00cfd890f8b9
+--- /dev/null
++++ b/src/env_test.rs
+@@ -0,0 +1,1180 @@
++use std::ffi::{OsStr, OsString};
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::{Mutex, MutexGuard, OnceLock};
++
++use store::{GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME};
++
++use super::{
++    append_boot_error, append_ignored_env, mode, prod_root, render_root_error, resolve_dev_root,
++    resolve_root, DataRoot, RootError, RootSource, BOOT_ERROR_LOG_NAME, DATA_ROOT_ENV, DEV_SUBDIR,
++    IGNORED_ENV_LOG_NAME, LOGS_DIR_NAME, PROD_DIR,
++};
++
++// ---------------------------------------------------------------------------
++// 装置：临时目录（RAII）+ 进程环境变量窗口（串行 + 恢复原值）
++// ---------------------------------------------------------------------------
++
++/// 数据根临时环境（`tempfile` RAII，测试结束自动清理）。
++fn tmp(tag: &str) -> tempfile::TempDir {
++    tempfile::Builder::new()
++        .prefix(&format!("env-test-{tag}-"))
++        .tempdir()
++        .expect("创建临时目录失败")
++}
++
++/// 进程环境变量窗口的串行锁（本模块唯一读写 `DATA_ROOT_ENV` 的位置）。
++fn env_lock() -> &'static Mutex<()> {
++    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
++    LOCK.get_or_init(|| Mutex::new(()))
++}
++
++/// 环境变量写入守卫：进入即持锁改值（`None` = 删除），`Drop` 恢复原值。
++struct EnvGuard {
++    _lock: MutexGuard<'static, ()>,
++    previous: Option<OsString>,
++}
++
++impl EnvGuard {
++    fn set(value: Option<&OsStr>) -> Self {
++        let lock = env_lock()
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner());
++        let previous = std::env::var_os(DATA_ROOT_ENV);
++        match value {
++            Some(value) => std::env::set_var(DATA_ROOT_ENV, value),
++            None => std::env::remove_var(DATA_ROOT_ENV),
++        }
++        Self {
++            _lock: lock,
++            previous,
++        }
++    }
++}
++
++impl Drop for EnvGuard {
++    fn drop(&mut self) {
++        match self.previous.take() {
++            Some(previous) => std::env::set_var(DATA_ROOT_ENV, previous),
++            None => std::env::remove_var(DATA_ROOT_ENV),
++        }
++    }
++}
++
++/// `RootError` 携带的原值（五个变体同名同形字段）。
++fn raw_of(err: &RootError) -> String {
++    match err {
++        RootError::Blank { raw }
++        | RootError::Relative { raw }
++        | RootError::EqualsProd { raw }
++        | RootError::AncestorOfProd { raw }
++        | RootError::NotDirectory { raw } => raw.clone(),
++    }
++}
++
++/// 日志落点（`<home>/.dev-team/logs/<file_name>`，由公共常量复算）。
++fn log_path(home: &Path, file_name: &str) -> PathBuf {
++    home.join(PROD_DIR).join(LOGS_DIR_NAME).join(file_name)
++}
++
++/// 读日志文本（文件必在场，否则测试装置自身失败）。
++fn read_log(home: &Path, file_name: &str) -> String {
++    fs::read_to_string(log_path(home, file_name)).expect("读取日志文件应成功")
++}
++
++/// 断言行首 `[13 位 unix 毫秒] ` 形态，返回去掉前缀后的正文。
++fn strip_stamp(line: &str) -> &str {
++    assert!(line.starts_with('['), "行首应有毫秒时间戳前缀：{line}");
++    let end = line.find("] ").expect("时间戳前缀应以 `] ` 收尾");
++    let digits = &line[1..end];
++    assert_eq!(digits.len(), 13, "时间戳为 13 位毫秒：{line}");
++    assert!(
++        digits.chars().all(|c| c.is_ascii_digit()),
++        "时间戳为全数字：{line}"
++    );
++    &line[end + 2..]
++}
++
++/// 日志文件的行清单（末尾换行不产生空行）。
++fn log_lines(content: &str) -> Vec<&str> {
++    content.lines().collect()
++}
++
++// ---------------------------------------------------------------------------
++// 六个常量：字面量单点 / 形态守卫 / 嵌套关系（AC-5 / AC-8 / AC-9 / AC-15）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 六个常量字面量单点且与设计口径逐字一致() {
++    let cases: [(&str, &str); 6] = [
++        (PROD_DIR, ".dev-team"),
++        (DEV_SUBDIR, "dev"),
++        (DATA_ROOT_ENV, "DEV_TEAM_DATA_ROOT"),
++        (LOGS_DIR_NAME, "logs"),
++        (BOOT_ERROR_LOG_NAME, "boot-error.log"),
++        (IGNORED_ENV_LOG_NAME, "ignored-env.log"),
++    ];
++    for (actual, want) in cases {
++        assert_eq!(actual, want, "常量值必须与 spec 口径逐字一致");
++    }
++}
++
++#[test]
++fn 六个常量形态守卫均非空无空白无分隔符无上级段() {
++    let cases = [
++        PROD_DIR,
++        DEV_SUBDIR,
++        DATA_ROOT_ENV,
++        LOGS_DIR_NAME,
++        BOOT_ERROR_LOG_NAME,
++        IGNORED_ENV_LOG_NAME,
++    ];
++    for value in cases {
++        assert!(!value.is_empty(), "常量不得为空串");
++        assert_eq!(value.trim(), value, "常量不得含前后空白：{value}");
++        assert!(
++            !value.contains('/') && !value.contains('\\'),
++            "常量不得含路径分隔符（防路径逃逸）：{value}"
++        );
++        assert!(
++            !value.split(['/', '\\']).any(|segment| segment == ".."),
++            "常量不得含 `..` 段：{value}"
++        );
++        assert!(
++            !value.contains(':'),
++            "常量不得含盘符冒号（跨平台文件名非法）：{value}"
++        );
++    }
++}
++
++#[test]
++fn 常量嵌套关系落位与启动类日志分文件约束成立() {
++    let dir = tmp("nesting");
++    let home = dir.path();
++
++    let resolved = resolve_dev_root(home, None).expect("无 env 应落 dev 默认根");
++    assert_eq!(
++        resolved.path,
++        home.join(PROD_DIR).join(DEV_SUBDIR),
++        "dev 默认根 = home/PROD_DIR/DEV_SUBDIR（嵌套同屋檐）"
++    );
++
++    let logs = home.join(PROD_DIR).join(LOGS_DIR_NAME);
++    for file_name in [BOOT_ERROR_LOG_NAME, IGNORED_ENV_LOG_NAME] {
++        assert_eq!(
++            logs.join(file_name),
++            log_path(home, file_name),
++            "启动类日志落 home/PROD_DIR/LOGS_DIR_NAME（与数据根无关）"
++        );
++    }
++
++    assert_ne!(
++        BOOT_ERROR_LOG_NAME, IGNORED_ENV_LOG_NAME,
++        "启动失败日志与留痕日志分文件"
++    );
++    for file_name in [BOOT_ERROR_LOG_NAME, IGNORED_ENV_LOG_NAME] {
++        assert_ne!(file_name, "engine.log", "启动类日志与引擎日志分文件");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// mode()：判别源单点（AC-1 / AC-2）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn mode与判别源同源且值域闭集() {
++    let expected = if cfg!(debug_assertions) {
++        "dev"
++    } else {
++        "prod"
++    };
++    assert_eq!(mode(), expected, "mode 与 cfg!(debug_assertions) 同源");
++    assert_eq!(mode(), mode(), "同进程两次调用恒同值（无隐藏状态）");
++    assert!(matches!(mode(), "dev" | "prod"), "值域闭集，无第三种可能");
++}
++
++#[test]
++fn mode的prod字面量与root_source线值同形() {
++    let prod_wire = RootSource::Prod.wire();
++    assert_eq!(prod_wire, "prod", "prod 来源的线值单点为 `prod`");
++    if cfg!(debug_assertions) {
++        // dev 构建下 mode 恒 dev，prod 字面量由 RootSource::wire 单独钉住
++        assert_eq!(mode(), "dev");
++    } else {
++        assert_eq!(
++            mode(),
++            prod_wire,
++            "两处产出的 prod 线值同形（不各拼字符串）"
++        );
++    }
++}
++
++#[test]
++fn mode不受外部环境变量污染() {
++    let expected = if cfg!(debug_assertions) {
++        "dev"
++    } else {
++        "prod"
++    };
++    for value in ["/tmp/env-test-independent-root", "   "] {
++        let _guard = EnvGuard::set(Some(OsStr::new(value)));
++        assert_eq!(
++            mode(),
++            expected,
++            "判别源不读 env，MUST NOT 被外部变量污染（值：{value}）"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// prod_root(home)：落位 / home 边界 / env 零影响（AC-3 / AC-5 / AC-10）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn prod_root落位与来源且无隐藏状态() {
++    let dir = tmp("prod-root");
++    let home = dir.path();
++
++    let root = prod_root(home);
++    assert_eq!(root.path, home.join(PROD_DIR), "prod 根 = home/PROD_DIR");
++    assert_eq!(root.source, RootSource::Prod);
++    assert_eq!(prod_root(home), root, "第二次调用逐字段相等");
++}
++
++#[test]
++fn prod_root_home边界不查盘不panic() {
++    let dir = tmp("prod-home-edge");
++    let home = dir.path();
++
++    let long = home.join("中文目录🙂").join("x".repeat(300));
++    let trailing = PathBuf::from(format!("{}/", home.display()));
++    let dotted = home.join(".").join("nested");
++
++    // 结构断言（不做归一、不查盘、不 panic）
++    for case in [
++        PathBuf::new(),
++        PathBuf::from("rel"),
++        long.clone(),
++        trailing.clone(),
++    ] {
++        let root = prod_root(&case);
++        assert_eq!(root.source, RootSource::Prod);
++        assert_eq!(
++            root.path,
++            case.join(PROD_DIR),
++            "路径结构恒为 home.join(PROD_DIR)：{}",
++            case.display()
++        );
++    }
++
++    // 含 `.` 段的 home 按逻辑归一落位（`prod_root` 归一后拼接）
++    let dotted_root = prod_root(&dotted);
++    assert_eq!(dotted_root.path, home.join("nested").join(PROD_DIR));
++    assert!(dotted_root.path.ends_with(PROD_DIR));
++}
++
++#[test]
++fn prod_root对env零影响且永不因非法env失败() {
++    let dir = tmp("prod-env");
++    let home = dir.path();
++    let baseline = prod_root(home);
++
++    for value in ["/tmp/env-test-elsewhere-root", "   "] {
++        let _guard = EnvGuard::set(Some(OsStr::new(value)));
++        assert_eq!(
++            prod_root(home),
++            baseline,
++            "签名不接收 env ⇒ 合法与非法 env 均零影响、均不产生 Err"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// resolve_dev_root(home, env)：三分优先级（AC-5）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn resolve_dev_root无env落dev默认根() {
++    let dir = tmp("dev-default");
++    let home = dir.path();
++
++    let root = resolve_dev_root(home, None).expect("无 env 即默认根，不失败");
++    assert_eq!(
++        root.path,
++        home.join(PROD_DIR).join(DEV_SUBDIR),
++        "默认根 <home>/.dev-team/dev"
++    );
++    assert_eq!(root.source, RootSource::DevDefault);
++}
++
++#[test]
++fn resolve_dev_root_env合法独立目录即覆盖为env来源() {
++    let home_dir = tmp("dev-env-home");
++    let base = tmp("dev-env-accept");
++    let target = base.path().join("accept-1");
++
++    let root =
++        resolve_dev_root(home_dir.path(), Some(target.as_os_str())).expect("合法 env 应接受");
++    assert_eq!(root.source, RootSource::DevEnv);
++    assert_eq!(root.path, target, "逻辑归一路径与输入等价");
++    assert!(
++        !target.exists(),
++        "目标不存在不构成失败（不查盘、不 NotFound）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 五项校验：①空白 ②相对 ③等于 prod 根 ④prod 根严格祖先 ⑤目标是文件（AC-6）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn resolve_dev_root空白值一律拒绝且回显原值() {
++    let dir = tmp("dev-blank");
++    let home = dir.path();
++
++    for value in ["", "   ", "\t\n ", "\u{3000}"] {
++        let err = resolve_dev_root(home, Some(OsStr::new(value))).expect_err("空白值应拒绝");
++        match err {
++            RootError::Blank { raw } => assert_eq!(raw, value, "原值逐字回显（含空白原样）"),
++            other => panic!("期待 Blank，实际 {other:?}"),
++        }
++    }
++}
++
++#[test]
++fn resolve_dev_root相对路径一律拒绝且不按cwd解析() {
++    let dir = tmp("dev-relative");
++    let home = dir.path();
++
++    for value in ["dev-data", "./data", "..\\data"] {
++        let err = resolve_dev_root(home, Some(OsStr::new(value))).expect_err("相对路径应拒绝");
++        match err {
++            RootError::Relative { raw } => assert_eq!(raw, value, "原值逐字回显（不按 cwd 解析）"),
++            other => panic!("期待 Relative，实际 {other:?}"),
++        }
++    }
++}
++
++#[test]
++fn resolve_dev_root等于prod根的四种写法均拒绝() {
++    let dir = tmp("dev-equals-prod");
++    let home = dir.path();
++    let prod = home.join(PROD_DIR);
++
++    let cases = [
++        prod.display().to_string(),
++        format!("{}/", prod.display()),
++        format!("{}/.", prod.display()),
++        format!("{}//{}", home.display(), PROD_DIR),
++    ];
++    for value in cases {
++        let err = resolve_dev_root(home, Some(OsStr::new(&value))).expect_err("等于 prod 根应拒绝");
++        match err {
++            RootError::EqualsProd { raw } => assert_eq!(raw, value, "原值逐字回显"),
++            other => panic!("期待 EqualsProd，实际 {other:?}（值：{value}）"),
++        }
++    }
++}
++
++#[test]
++fn resolve_dev_root_prod根的严格祖先拒绝而后代接受() {
++    let dir = tmp("dev-ancestor");
++    let home = dir.path();
++    let prod = home.join(PROD_DIR);
++    let parent = home.parent().expect("home 应有父目录");
++    let top = home.ancestors().last().expect("路径至少有一个祖先");
++
++    let cases = [
++        home.display().to_string(),
++        parent.display().to_string(),
++        top.display().to_string(),
++        format!("{}/..", prod.display()),
++    ];
++    for value in cases {
++        let err = resolve_dev_root(home, Some(OsStr::new(&value))).expect_err("prod 根祖先应拒绝");
++        match err {
++            RootError::AncestorOfProd { raw } => assert_eq!(raw, value, "原值逐字回显"),
++            other => panic!("期待 AncestorOfProd，实际 {other:?}（值：{value}）"),
++        }
++    }
++
++    // 后代（严格位于 prod 根之下）不误拒
++    let descendant = prod.join(DEV_SUBDIR).join("accept");
++    let root = resolve_dev_root(home, Some(descendant.as_os_str())).expect("后代目录应接受");
++    assert_eq!(root.source, RootSource::DevEnv);
++    assert_eq!(root.path, descendant);
++}
++
++#[test]
++fn resolve_dev_root目标是已存在普通文件即拒绝而同目录目录接受() {
++    let home_dir = tmp("dev-file-home");
++    let dir = tmp("dev-file-target");
++    let file = dir.path().join("data-file");
++    fs::write(&file, b"occupied").expect("创建普通文件失败");
++
++    let err = resolve_dev_root(home_dir.path(), Some(file.as_os_str())).expect_err("文件应拒绝");
++    match err {
++        RootError::NotDirectory { raw } => {
++            assert_eq!(raw, file.to_string_lossy().into_owned(), "原值逐字回显");
++        }
++        other => panic!("期待 NotDirectory，实际 {other:?}"),
++    }
++
++    let ok_dir = dir.path().join("data-dir");
++    fs::create_dir_all(&ok_dir).expect("创建对照目录失败");
++    let root = resolve_dev_root(home_dir.path(), Some(ok_dir.as_os_str())).expect("目录应接受");
++    assert_eq!(root.source, RootSource::DevEnv);
++}
++
++#[test]
++fn resolve_dev_root多项命中时按一至五的顺序取首个() {
++    let dir = tmp("dev-order");
++    let home = dir.path();
++
++    // ① 空白且相对 → Blank
++    match resolve_dev_root(home, Some(OsStr::new("  "))).expect_err("应拒绝") {
++        RootError::Blank { .. } => {}
++        other => panic!("空白应先于相对命中，实际 {other:?}"),
++    }
++    // ② 相对（归一后等于 cwd）→ Relative，不落 EqualsProd / AncestorOfProd
++    match resolve_dev_root(home, Some(OsStr::new("."))).expect_err("应拒绝") {
++        RootError::Relative { raw } => assert_eq!(raw, "."),
++        other => panic!("相对应先于等值判定，实际 {other:?}"),
++    }
++    // ② 先于 ⑤：相对形态即便同名文件存在也不进入文件判定
++    match resolve_dev_root(home, Some(OsStr::new("Cargo.toml"))).expect_err("应拒绝") {
++        RootError::Relative { raw } => assert_eq!(raw, "Cargo.toml"),
++        other => panic!("相对应先于文件判定，实际 {other:?}"),
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 逻辑归一：不依赖存在性 / 吃 . 与 .. 与重复与尾分隔符 / 大小写（AC-7）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn resolve_dev_root归一化不依赖目标存在性() {
++    let home_dir = tmp("dev-normalize-home");
++    let base = tmp("dev-normalize-base");
++    let dotted = base
++        .path()
++        .join("x")
++        .join(".")
++        .join("y")
++        .join("..")
++        .join("z");
++    let plain = base.path().join("x").join("z");
++
++    let a = resolve_dev_root(home_dir.path(), Some(dotted.as_os_str())).expect("不存在路径应接受");
++    let b = resolve_dev_root(home_dir.path(), Some(plain.as_os_str())).expect("不存在路径应接受");
++    assert_eq!(a.path, b.path, "`x/./y/../z` 与 `x/z` 同判");
++    assert!(!plain.exists(), "全程不查盘：目标不存在也不产生 NotFound");
++}
++
++#[test]
++fn resolve_dev_root归一吃点段与上级段与重复与尾分隔符() {
++    let home_dir = tmp("dev-normalize-forms-home");
++    let base = tmp("dev-normalize-forms-base");
++    let base_display = base.path().display().to_string();
++
++    let cases = [
++        format!("{base_display}/x/./z"),
++        format!("{base_display}/x/y/../z"),
++        format!("{base_display}//x///z"),
++        format!("{base_display}/x/z/"),
++    ];
++    let mut paths = Vec::new();
++    for value in cases {
++        let root = resolve_dev_root(home_dir.path(), Some(OsStr::new(&value))).expect("应接受");
++        assert_eq!(root.source, RootSource::DevEnv);
++        paths.push(root.path);
++    }
++    for window in paths.windows(2) {
++        assert_eq!(window[0], window[1], "四形态归一后两两相等");
++    }
++
++    // ParentDir 无可弹段时原样保留：绝对路径首段即 `..` → 不 panic，红线判定照常生效
++    #[cfg(unix)]
++    {
++        let wild = Path::new("/../env-test-keep");
++        let root = resolve_dev_root(home_dir.path(), Some(wild.as_os_str()))
++            .expect("首段 .. 原样保留，不 panic 且不误判为祖先");
++        assert_eq!(root.source, RootSource::DevEnv);
++    }
++}
++
++#[test]
++fn resolve_dev_root大小写等价按平台语义判定不绕过红线() {
++    let dir = tmp("dev-case");
++    let home = dir.path();
++    let upper = format!("{}/.DEV-TEAM", home.display());
++    let result = resolve_dev_root(home, Some(OsStr::new(&upper)));
++
++    if cfg!(windows) {
++        match result.expect_err("Windows 大小写不敏感，应判等于 prod 根") {
++            RootError::EqualsProd { raw } => assert_eq!(raw, upper),
++            other => panic!("期待 EqualsProd，实际 {other:?}"),
++        }
++    } else {
++        let root = result.expect("大小写敏感平台视为不同路径");
++        assert_eq!(root.source, RootSource::DevEnv);
++        assert_eq!(root.path, PathBuf::from(&upper));
++    }
++
++    // 盘符 / 用户名家目录的大小写变形祖先：Windows 下仍判祖先（红线不被绕过），
++    // 大小写敏感平台视为另一条路径而接受。
++    let ancestor = home
++        .parent()
++        .expect("home 应有父目录")
++        .display()
++        .to_string()
++        .to_uppercase();
++    assert!(
++        Path::new(&ancestor).is_absolute(),
++        "前置：祖先为绝对路径（大写入参不改变绝对性）：{ancestor}"
++    );
++    let ancestor_result = resolve_dev_root(home, Some(OsStr::new(&ancestor)));
++
++    if cfg!(windows) {
++        match ancestor_result.expect_err("大小写变形祖先在 Windows 下应拒绝") {
++            RootError::AncestorOfProd { raw } => assert_eq!(raw, ancestor, "原值逐字回显"),
++            other => panic!("期待 AncestorOfProd，实际 {other:?}（值：{ancestor}）"),
++        }
++    } else {
++        match ancestor_result {
++            Ok(root) => assert_eq!(root.source, RootSource::DevEnv),
++            // 兜底：若大写变形后的祖先恰为文件系统根（父目录即根），仍按祖先拒绝
++            Err(RootError::AncestorOfProd { raw }) => assert_eq!(raw, ancestor),
++            other => panic!("大小写敏感平台期待接受（或根祖先拒绝），实际 {other:?}"),
++        }
++    }
++}
++
++#[test]
++fn resolve_dev_root五个变体均逐字回显原值() {
++    let home_dir = tmp("dev-raw-home");
++    let home = home_dir.path();
++    let file_dir = tmp("dev-raw-file");
++    let file = file_dir.path().join("中文文件🙂");
++    fs::write(&file, b"occupied").expect("创建普通文件失败");
++
++    // ① 空白变体：前后空白原样回显
++    let blank_raw = "  \t  ";
++    match resolve_dev_root(home, Some(OsStr::new(blank_raw))).expect_err("空白应拒绝") {
++        RootError::Blank { raw } => assert_eq!(raw, blank_raw, "空白原值逐字节相等"),
++        other => panic!("期待 Blank，实际 {other:?}"),
++    }
++
++    // ② 相对变体：超长（> 1000 字符）原值
++    let long_relative = "长".repeat(1200);
++    match resolve_dev_root(home, Some(OsStr::new(&long_relative))).expect_err("相对应拒绝") {
++        RootError::Relative { raw } => assert_eq!(raw, long_relative, "超长原值逐字节相等"),
++        other => panic!("期待 Relative，实际 {other:?}"),
++    }
++
++    // ③ 等于 prod 根变体：尾分隔符形态
++    let trailing_sep = format!("{}/", home.join(PROD_DIR).display());
++    match resolve_dev_root(home, Some(OsStr::new(&trailing_sep))).expect_err("应拒绝") {
++        RootError::EqualsProd { raw } => assert_eq!(raw, trailing_sep, "尾分隔符原值回显"),
++        other => panic!("期待 EqualsProd，实际 {other:?}"),
++    }
++
++    // ④ 祖先变体：`..` 形态
++    let dotted_up = format!("{}/..", home.join(PROD_DIR).display());
++    match resolve_dev_root(home, Some(OsStr::new(&dotted_up))).expect_err("应拒绝") {
++        RootError::AncestorOfProd { raw } => assert_eq!(raw, dotted_up, "`..` 形态原值回显"),
++        other => panic!("期待 AncestorOfProd，实际 {other:?}"),
++    }
++
++    // ⑤ 文件变体：中文与 emoji 原值
++    let file_raw = file.to_string_lossy().into_owned();
++    match resolve_dev_root(home, Some(file.as_os_str())).expect_err("文件应拒绝") {
++        RootError::NotDirectory { raw } => {
++            assert_eq!(
++                raw, file_raw,
++                "特殊字符原值逐字节相等（渲染侧不二次取 env）"
++            );
++        }
++        other => panic!("期待 NotDirectory，实际 {other:?}"),
++    }
++}
++
++#[cfg(unix)]
++#[test]
++fn resolve_dev_root非utf8路径值不panic且raw为lossy串() {
++    use std::os::unix::ffi::OsStrExt;
++
++    let dir = tmp("dev-non-utf8");
++    let raw_os = OsStr::from_bytes(b"\xff\xfe-dev");
++    let err = resolve_dev_root(dir.path(), Some(raw_os)).expect_err("非法 UTF-8 相对值应拒绝");
++    match err {
++        RootError::Relative { raw } => assert_eq!(
++            raw,
++            raw_os.to_string_lossy().into_owned(),
++            "raw 为 lossy 字符串（判定链不中断）"
++        ),
++        other => panic!("期待 Relative，实际 {other:?}"),
++    }
++}
++
++// ---------------------------------------------------------------------------
++// resolve_root(home, is_dev)：prod 侧不读 env / dev 分支透传 / 存在性双档
++// （AC-3 / AC-5 / AC-9）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn resolve_root_prod侧不读env() {
++    let dir = tmp("root-prod-home");
++    let elsewhere = tmp("root-prod-elsewhere");
++    let target = elsewhere.path().join("dev-only");
++    let home = dir.path();
++    let _guard = EnvGuard::set(Some(target.as_os_str()));
++
++    let root = resolve_root(home, false).expect("prod 侧恒 Ok（不因残留 env 失败）");
++    assert_eq!(root.source, RootSource::Prod);
++    assert_eq!(root, prod_root(home), "env 零影响，与 prod_root 逐字段相等");
++}
++
++#[test]
++fn resolve_root_dev分支逐档透传env() {
++    let dir = tmp("root-dev-home");
++    let elsewhere = tmp("root-dev-elsewhere");
++    let home = dir.path();
++    let accept = elsewhere.path().join("accept-2");
++
++    {
++        let _guard = EnvGuard::set(None);
++        let root = resolve_root(home, true).expect("未设 env 落默认根");
++        assert_eq!(root.source, RootSource::DevDefault);
++        assert_eq!(root.path, home.join(PROD_DIR).join(DEV_SUBDIR));
++    }
++    {
++        let _guard = EnvGuard::set(Some(accept.as_os_str()));
++        let root = resolve_root(home, true).expect("合法 env 应接受");
++        assert_eq!(root.source, RootSource::DevEnv);
++        assert_eq!(root.path, accept, "值为逻辑归一路径");
++    }
++    {
++        let prod = home.join(PROD_DIR);
++        let _guard = EnvGuard::set(Some(prod.as_os_str()));
++        assert!(
++            matches!(resolve_root(home, true), Err(RootError::EqualsProd { .. })),
++            "设为 prod 根即硬失败（不降级到默认根）"
++        );
++    }
++}
++
++#[test]
++fn resolve_root区分未设与设了空串() {
++    let dir = tmp("root-empty-var");
++    let home = dir.path();
++
++    {
++        let _guard = EnvGuard::set(None);
++        let root = resolve_root(home, true).expect("未设即默认根");
++        assert_eq!(root.source, RootSource::DevDefault);
++    }
++    {
++        let _guard = EnvGuard::set(Some(OsStr::new("")));
++        let outcome = resolve_root(home, true);
++        // 平台差异留痕：保留空串值的平台 ⇒ Blank 硬失败；把空值等同删除的平台
++        // （部分 Windows 口径）⇒ 语义等价于「未设」，落默认根
++        if std::env::var_os(DATA_ROOT_ENV).is_some() {
++            assert!(
++                matches!(outcome, Err(RootError::Blank { .. })),
++                "设了空值 MUST NOT 与未设同判"
++            );
++        } else {
++            let root = outcome.expect("平台将空值等同删除，视作未设");
++            assert_eq!(root.source, RootSource::DevDefault);
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 组合锚：三分优先级全链 / 两模式数据面互不可见（AC-5 / AC-8 / AC-10 / AC-12）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 三分优先级全链路径与线值逐档对齐() {
++    let dir = tmp("chain-home");
++    let elsewhere = tmp("chain-elsewhere");
++    let home = dir.path();
++    let accept = elsewhere.path().join("accept-1");
++
++    {
++        let _guard = EnvGuard::set(Some(OsStr::new("   ")));
++        let root = resolve_root(home, false).expect("prod 侧不读 env ⇒ 非法 env 也无影响");
++        assert_eq!(root.path, home.join(PROD_DIR));
++        assert_eq!(root.source.wire(), "prod");
++    }
++    {
++        let _guard = EnvGuard::set(None);
++        let root = resolve_root(home, true).expect("dev 默认根");
++        assert_eq!(root.path, home.join(PROD_DIR).join(DEV_SUBDIR));
++        assert_eq!(root.source.wire(), "dev-default");
++    }
++    {
++        let _guard = EnvGuard::set(Some(accept.as_os_str()));
++        let root = resolve_root(home, true).expect("dev env 覆盖");
++        assert_eq!(root.path, accept);
++        assert_eq!(root.source.wire(), "env");
++    }
++}
++
++#[test]
++fn 两模式数据面互不可见同名条目不同父目录() {
++    let dir = tmp("isolation");
++    let home = dir.path();
++
++    let prod = prod_root(home);
++    let dev = resolve_dev_root(home, None).expect("dev 默认根");
++    assert_ne!(prod.path, dev.path, "两模式数据根必须分裂");
++    assert_eq!(
++        dev.path.parent(),
++        Some(prod.path.as_path()),
++        "dev 根是 prod 根的直接子目录（同屋檐不同根）"
++    );
++
++    for name in [GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME] {
++        let prod_path = prod.path.join(name);
++        let dev_path = dev.path.join(name);
++        assert_ne!(prod_path, dev_path, "同名条目在两模式下拼出不同绝对路径");
++        assert_eq!(
++            prod_path.file_name(),
++            dev_path.file_name(),
++            "文件名相同（{name}）"
++        );
++        assert_ne!(
++            prod_path.parent(),
++            dev_path.parent(),
++            "父目录不同（redb 锁与 workspaces 天然隔离）"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// render_root_error：提示三要素 / 不退化 / home 边界 / 同文案复用（AC-6 / AC-8）
++// ---------------------------------------------------------------------------
++
++/// 五个变体的 fixture（`raw` 各带一种形态：空白 / 相对 / 尾分隔符 / 祖先 / 特殊字符）。
++fn five_errors(home: &Path) -> Vec<RootError> {
++    vec![
++        RootError::Blank {
++            raw: "  \t ".to_owned(),
++        },
++        RootError::Relative {
++            raw: "dev-数据🙂".to_owned(),
++        },
++        RootError::EqualsProd {
++            raw: format!("{}/", home.join(PROD_DIR).display()),
++        },
++        RootError::AncestorOfProd {
++            raw: home.display().to_string(),
++        },
++        RootError::NotDirectory {
++            raw: "/tmp/中文文件🙂".to_owned(),
++        },
++    ]
++}
++
++#[test]
++fn render_root_error三要素齐备() {
++    let dir = tmp("render-essentials");
++    let home = dir.path();
++    let default_root = home.join(PROD_DIR).join(DEV_SUBDIR).display().to_string();
++
++    for err in five_errors(home) {
++        let text = render_root_error(&err, home);
++        assert!(
++            text.contains(DATA_ROOT_ENV),
++            "三要素之一：指名环境变量（{err:?}）"
++        );
++        assert!(
++            text.contains(&raw_of(&err)),
++            "三要素之二：回显收到的原值（{err:?}）"
++        );
++        assert!(
++            text.contains(&default_root),
++            "三要素之三：可照抄的绝对路径示例（默认根，{err:?}）"
++        );
++        assert!(
++            text.matches(&home.display().to_string()).count() >= 2,
++            "示例路径由 home 派生且不少于两处（默认根 + 独立目录示例，{err:?}）"
++        );
++        assert!(!text.contains('\n'), "单段自然语言（不换行，{err:?}）");
++    }
++}
++
++#[test]
++fn render_root_error不泄露枚举名且五段文案互不共用() {
++    let dir = tmp("render-degrade");
++    let home = dir.path();
++    let errors = five_errors(home);
++    let texts: Vec<String> = errors
++        .iter()
++        .map(|err| render_root_error(err, home))
++        .collect();
++
++    for text in &texts {
++        assert!(!text.is_empty(), "文案不得为空");
++        assert!(
++            text.contains('。') || text.contains('：'),
++            "含自然语言句读标点（非裸错误码）：{text}"
++        );
++    }
++    for name in [
++        "Blank",
++        "Relative",
++        "EqualsProd",
++        "AncestorOfProd",
++        "NotDirectory",
++    ] {
++        for text in &texts {
++            assert!(!text.contains(name), "文案不得泄露 variant 标识符 {name}");
++        }
++    }
++    for (index, text) in texts.iter().enumerate() {
++        for other in texts.iter().skip(index + 1) {
++            assert_ne!(text, other, "各 variant 文案不得共用同一段兜底串");
++        }
++    }
++}
++
++#[test]
++fn render_root_error_home边界不panic且非空home仍给绝对示例() {
++    let dir = tmp("render-home-edge");
++    let base = dir.path();
++    let long = base.join("中文🙂".repeat(50));
++    let trailing = PathBuf::from(format!("{}/", base.display()));
++
++    for home in [PathBuf::new(), long, trailing.clone()] {
++        let text = render_root_error(
++            &RootError::Blank {
++                raw: " ".to_owned(),
++            },
++            &home,
++        );
++        assert!(!text.is_empty(), "home 边界下文案不得为空");
++        assert!(text.contains(DATA_ROOT_ENV), "home 边界下仍指名变量");
++    }
++
++    // 非空 home：默认根示例保持绝对形态（以 home 起头、含分隔符）
++    let text = render_root_error(
++        &RootError::Blank {
++            raw: " ".to_owned(),
++        },
++        &trailing,
++    );
++    let default_root = trailing.join(PROD_DIR).join(DEV_SUBDIR);
++    assert!(
++        text.contains(&default_root.display().to_string()),
++        "默认根示例由 home 派生并保持绝对形态"
++    );
++}
++
++#[test]
++fn render_root_error纯函数可复用且落盘含全文() {
++    let dir = tmp("render-reuse");
++    let home = dir.path();
++    let err = RootError::EqualsProd {
++        raw: home.join(PROD_DIR).display().to_string(),
++    };
++
++    let first = render_root_error(&err, home);
++    let second = render_root_error(&err, home);
++    assert_eq!(first, second, "同一 (err, home) 两次渲染逐字相等（纯函数）");
++
++    append_boot_error(home, &first);
++    assert!(
++        read_log(home, BOOT_ERROR_LOG_NAME).contains(&first),
++        "GUI 与自检共用同一文案（只差往哪写）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// append_boot_error：落点 / append-only / 分文件 / IO 静默 / 文案边界
++// （AC-8 / AC-15）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn append_boot_error自建父目录并落prod根日志行() {
++    let dir = tmp("boot-error");
++    let home = dir.path();
++    assert!(
++        !log_path(home, BOOT_ERROR_LOG_NAME).exists(),
++        "前置：日志不存在"
++    );
++
++    let message = "数据根不可用：环境变量非法";
++    append_boot_error(home, message);
++
++    let content = read_log(home, BOOT_ERROR_LOG_NAME);
++    let lines = log_lines(&content);
++    assert_eq!(lines.len(), 1, "首次调用恰一行");
++    assert_eq!(strip_stamp(lines[0]), message, "内容含 message 全文");
++}
++
++#[test]
++fn append_boot_error多次调用追加不覆盖() {
++    let dir = tmp("boot-append");
++    let home = dir.path();
++
++    append_boot_error(home, "第一次失败");
++    append_boot_error(home, "第二次失败");
++    let content = read_log(home, BOOT_ERROR_LOG_NAME);
++    let lines = log_lines(&content);
++    assert_eq!(lines.len(), 2, "第三次调用前恰两行");
++    assert_eq!(strip_stamp(lines[0]), "第一次失败", "首次内容仍在");
++    assert_eq!(strip_stamp(lines[1]), "第二次失败", "行序 == 调用序");
++
++    append_boot_error(home, "第三次失败");
++    let content = read_log(home, BOOT_ERROR_LOG_NAME);
++    let lines = log_lines(&content);
++    assert_eq!(lines.len(), 3, "继续追加，不清旧");
++    assert_eq!(strip_stamp(lines[0]), "第一次失败");
++}
++
++#[test]
++fn append_boot_error与引擎日志分文件互不混写() {
++    let dir = tmp("boot-separate");
++    let home = dir.path();
++    let engine_prod = home.join(PROD_DIR).join(LOGS_DIR_NAME).join("engine.log");
++    let engine_dev = home
++        .join(PROD_DIR)
++        .join(DEV_SUBDIR)
++        .join(LOGS_DIR_NAME)
++        .join("engine.log");
++    for path in [&engine_prod, &engine_dev] {
++        fs::create_dir_all(path.parent().expect("引擎日志应有父目录"))
++            .expect("创建引擎日志目录失败");
++        fs::write(path, b"engine-line\n").expect("预置引擎日志失败");
++    }
++
++    append_boot_error(home, "启动失败");
++
++    assert_eq!(
++        fs::read(&engine_prod).expect("读引擎日志失败"),
++        b"engine-line\n",
++        "prod 数据根引擎日志字节不变"
++    );
++    assert_eq!(
++        fs::read(&engine_dev).expect("读引擎日志失败"),
++        b"engine-line\n",
++        "dev 数据根引擎日志字节不变"
++    );
++    assert!(
++        log_path(home, BOOT_ERROR_LOG_NAME).is_file(),
++        "仅 boot-error.log 变化"
++    );
++}
++
++#[test]
++fn append_boot_error_io失败静默不阻断调用方() {
++    // ① prod 根位置被普通文件占据：父目录无法建
++    let occupied = tmp("boot-io-file");
++    fs::write(occupied.path().join(PROD_DIR), b"occupied").expect("创建占位文件失败");
++    append_boot_error(occupied.path(), "启动失败");
++    append_ignored_env(occupied.path());
++    assert!(
++        occupied.path().join(PROD_DIR).is_file(),
++        "失败路径不得破坏既有文件（静默返回）"
++    );
++
++    // ② 目标日志位置为目录：打开失败静默
++    let shadowed = tmp("boot-io-dir");
++    let target = log_path(shadowed.path(), BOOT_ERROR_LOG_NAME);
++    fs::create_dir_all(&target).expect("创建同名目录失败");
++    append_boot_error(shadowed.path(), "启动失败");
++    assert!(target.is_dir(), "失败路径不得掩盖原始失败原因（不 panic）");
++}
++
++#[test]
++fn append_boot_error文案边界不panic且可读() {
++    let dir = tmp("boot-message");
++    let home = dir.path();
++    let long = "长".repeat(1200);
++
++    for message in ["", long.as_str(), "多行\n文案🙂"] {
++        append_boot_error(home, message);
++    }
++
++    let content = read_log(home, BOOT_ERROR_LOG_NAME);
++    // 空文案一行、超长文案一行、含 `\n` 文案两行（原样落盘）
++    assert_eq!(log_lines(&content).len(), 4, "多行文案原样落盘（不清旧）");
++    assert!(content.contains("文案🙂"), "特殊字符原样落盘");
++    assert!(
++        content.contains(&long),
++        "超长文案全文落盘（不截断、不 panic）"
++    );
++    let first = log_lines(&content)[0];
++    assert_eq!(strip_stamp(first), "", "空文案仍产出合法行（仅时间戳前缀）");
++}
++
++// ---------------------------------------------------------------------------
++// append_ignored_env：行文本逐字 / 幂等 / 锚 prod 根 / IO 静默（AC-9）
++// ---------------------------------------------------------------------------
++
++/// 留痕行正文（由常量复算，测试侧不另写字面量）。
++fn ignored_env_line() -> String {
++    format!("ignored_env={DATA_ROOT_ENV} (release build ignores it)")
++}
++
++#[test]
++fn append_ignored_env行文本逐字且自建日志目录() {
++    let dir = tmp("ignored-line");
++    let home = dir.path();
++
++    append_ignored_env(home);
++
++    let content = read_log(home, IGNORED_ENV_LOG_NAME);
++    let lines = log_lines(&content);
++    assert_eq!(lines.len(), 1, "一次调用恰一行");
++    assert_eq!(
++        strip_stamp(lines[0]),
++        ignored_env_line(),
++        "行文本逐字（变量名由常量复算）"
++    );
++    assert!(content.contains("release build ignores it"), "留痕语义在场");
++}
++
++#[test]
++fn append_ignored_env多次调用幂等且不影响同目录其它文件() {
++    let dir = tmp("ignored-idempotent");
++    let home = dir.path();
++    let neighbour = log_path(home, BOOT_ERROR_LOG_NAME);
++    fs::create_dir_all(neighbour.parent().expect("日志目录应有父路径")).expect("创建日志目录失败");
++    fs::write(&neighbour, b"existing\n").expect("预置邻居日志失败");
++
++    append_ignored_env(home);
++    append_ignored_env(home);
++
++    let content = read_log(home, IGNORED_ENV_LOG_NAME);
++    let lines = log_lines(&content);
++    assert_eq!(lines.len(), 2, "两次调用两行");
++    assert_eq!(strip_stamp(lines[0]), strip_stamp(lines[1]), "两行内容相同");
++    assert_eq!(
++        fs::read(&neighbour).expect("读邻居日志失败"),
++        b"existing\n",
++        "不影响同目录其它文件"
++    );
++}
++
++#[test]
++fn append_ignored_env恒锚prod根而非数据根() {
++    let dir = tmp("ignored-anchor");
++    let home = dir.path();
++    let dev_logs = home.join(PROD_DIR).join(DEV_SUBDIR).join(LOGS_DIR_NAME);
++    fs::create_dir_all(&dev_logs).expect("创建 dev 数据根日志目录失败");
++
++    append_ignored_env(home);
++
++    assert!(
++        log_path(home, IGNORED_ENV_LOG_NAME).is_file(),
++        "留痕只写 prod 根 logs/"
++    );
++    assert_eq!(
++        fs::read_dir(&dev_logs)
++            .expect("读 dev 日志目录失败")
++            .count(),
++        0,
++        "日志不是数据：dev 数据根零写入"
++    );
++}
++
++#[test]
++fn append_ignored_env_io失败静默不阻断prod启动() {
++    let dir = tmp("ignored-io");
++    let home = dir.path();
++    fs::write(home.join(PROD_DIR), b"occupied").expect("创建占位文件失败");
++
++    append_ignored_env(home); // 不 panic、返回 ()
++    assert!(
++        home.join(PROD_DIR).is_file(),
++        "留痕失败不得阻断调用方（prod 启动不中断）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// RootSource::wire / DataRoot 类型面（AC-5 / AC-11 / AC-14 / AC-15）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn root_source_wire三值逐值断言且两两不等() {
++    let cases = [
++        (RootSource::Prod, "prod"),
++        (RootSource::DevDefault, "dev-default"),
++        (RootSource::DevEnv, "env"),
++    ];
++    let mut values = Vec::new();
++    for (source, want) in cases {
++        assert_eq!(source.wire(), want, "线值单点");
++        values.push(source.wire());
++    }
++    for (index, value) in values.iter().enumerate() {
++        assert!(!value.is_empty(), "线值非空");
++        for other in values.iter().skip(index + 1) {
++            assert_ne!(value, other, "三值两两不等");
++        }
++    }
++}
++
++#[test]
++fn root_source_wire线值形态守卫为小写kebab() {
++    /// `^[a-z]+(-[a-z]+)*$`（无非 ASCII、无空格、无下划线、无前后 `-`）。
++    fn is_lower_kebab(value: &str) -> bool {
++        !value.is_empty()
++            && value.split('-').all(|segment| {
++                !segment.is_empty() && segment.chars().all(|c| c.is_ascii_lowercase())
++            })
++    }
++
++    for source in [RootSource::Prod, RootSource::DevDefault, RootSource::DevEnv] {
++        let wire = source.wire();
++        assert!(is_lower_kebab(wire), "线值为小写 kebab 形态：{wire}");
++        assert_eq!(wire.trim(), wire, "线值无前后空白");
++    }
++    assert_eq!(
++        RootSource::Prod.wire(),
++        "prod",
++        "prod 线值与 env::mode 的 prod 字面量同形（一处拼串）"
++    );
++}
++
++#[test]
++fn root_source与data_root类型面copy与clone与debug可诊断() {
++    let source = RootSource::Prod;
++    let copied = source; // Copy：拷贝后原值仍可用
++    assert_eq!(source, copied, "RootSource 为 Copy 且拷贝后相等");
++
++    let root = DataRoot {
++        path: PathBuf::from("rel/data"),
++        source: RootSource::DevEnv,
++    };
++    let cloned = root.clone();
++    assert_eq!(cloned, root, "DataRoot clone 后 PartialEq 相等");
++    assert_eq!(root, root.clone(), "PartialEq 自反");
++
++    let debug = format!("{root:?}");
++    assert!(debug.contains("path"), "Debug 渲染含 path（可诊断）");
++    assert!(debug.contains("source"), "Debug 渲染含 source（可诊断）");
++    assert!(
++        format!("{:?}", RootSource::DevDefault).contains("DevDefault"),
++        "RootSource Debug 含变体名"
++    );
++}
++
++#[test]
++fn data_root字段公开可读且多次引用同一值() {
++    let dir = tmp("dataroot-managed");
++    let root = resolve_dev_root(dir.path(), None).expect("dev 默认根");
++
++    let borrowed = &root;
++    let cloned = root.clone();
++    assert_eq!(borrowed.path, cloned.path, "字段公开可读（管理态承载）");
++    assert_eq!(borrowed.source, cloned.source);
++    assert!(
++        matches!(root.source, RootSource::DevDefault),
++        "同一 DataRoot 实例可被多次引用而不产生第二份解析"
++    );
++}
+diff --git a/src/lib.rs b/src/lib.rs
+index 907bd2524956..4799d7794446 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,6 +1,10 @@
+ //! desktop-app 壳层库目标：`main` 薄壳与导出工具（crates/tools/
+-//! export-bindings）共享同一命令面（Tauri 2 上游模板形态）。`commands` 为 IPC 命令五轨，`bindings` 为 specta builder
+-//! 组装与 TS bindings 幂等导出入口。
++//! export-bindings）共享同一命令面（Tauri 2 上游模板形态）。`commands` 为 IPC 命令轨，`bindings` 为 specta builder
++//! 组装与 TS bindings 幂等导出入口；`env` 为构建模式与数据根单点（判别源 /
++//! 三分优先级 / 校验 / 双写与留痕），`selfcheck` 为 `--self-check` 自检契约。
++//! 两者均为壳层模块（core / infra 仍禁 Tauri，判别源不越层）。
+ 
+ pub mod bindings;
+ pub mod commands;
++pub mod env;
++pub mod selfcheck;
+diff --git a/src/main.rs b/src/main.rs
+index 9a7c4b4f4b10..1ebf964262a1 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,5 +1,4 @@
+ #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+-use std::path::PathBuf;
+ use std::sync::Arc;
+ 
+ use tauri::{generate_handler, Manager};
+@@ -9,21 +8,28 @@ use store::WorkspaceStores;
+ use agent::{SessionStreamRegistry, StopRegistry};
+ use dev_team::commands::all_commands;
+ use dev_team::commands::watch::WatchRegistry;
++use dev_team::env;
++use dev_team::selfcheck;
+ use orchestration::control::ChangeFlowControl;
+ 
+-/// 全局数据目录名：`home_dir()` 根下（双库落位基准——全局库直居其下、
+-/// workspace 库落 `workspaces/` 子树；库文件名与子树语义由 store 常量单点
+-/// 承载，父目录由 store 打开流程内部补齐，见 desktop-data-dimensions）。
+-/// 引擎异常日志落其 `logs/` 子树（sdk 泵悬挂 / panic 的带外观测面）。
+-const DATA_DIR: &str = ".dev-team";
+-
+-/// 引擎异常日志子树目录名（数据根下）。
+-const LOGS_DIR_NAME: &str = "logs";
+-
+ fn main() {
++    // 自检参数：dev 构建识别后走零窗口自检并退出；prod 构建识别后显式拒绝
++    //（MUST NOT 用 `#[cfg]` 把拒绝分支整块删掉——否则 prod 传参会静默起 GUI，
++    // agent 挂到超时）。
++    let want_self_check = std::env::args()
++        .skip(1)
++        .any(|arg| arg == selfcheck::SELF_CHECK_ARG);
++    if want_self_check && !cfg!(debug_assertions) {
++        eprintln!("{}", selfcheck::PROD_REJECT_MESSAGE);
++        std::process::exit(2);
++    }
++
+     let mut builder =
+         tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
+-    #[cfg(desktop)]
++    // 单实例仅在 prod 构建注册：dev 构建与已安装的生产版并存（Windows 下该插件
++    // 以 identifier 派生具名 mutex，两模式互相唤起 / 退出会让验收被运行中的
++    // 生产版阻塞）。identifier 零改动。
++    #[cfg(all(desktop, not(debug_assertions)))]
+     {
+         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+             if let Some(window) = app.get_webview_window("main") {
+@@ -35,45 +41,87 @@ fn main() {
+             }
+         }));
+     }
++    // devtools 与 dev 构建同侧注册（控制台窗口 / dev server 语义不变）；但
++    // `--self-check` 路径不注册：该插件在 init 时向 stdout 打印启动横幅与空行，
++    // 会污染自检的 `key=value` 机器可读流（契约要求十行、无横幅、无空行）。
++    // 这是「自检路径」判据而非模式判据（模式分歧仍全在 `#[cfg]`）。
+     #[cfg(debug_assertions)]
+-    {
++    if !want_self_check {
+         builder = builder.plugin(tauri_plugin_devtools::init())
+     }
+-    builder
++    let app = builder
+         .plugin(tauri_plugin_dialog::init())
+         // 外链打开（agent 搜索来源 / 引用列表的唯一调用点收敛在前端
+         // `ExternalLink`；这里与 dialog 同位注册，MUST NOT 自造第二种形态）
+         .plugin(tauri_plugin_opener::init())
+-        .setup(|app| {
+-            // 数据根解析在此（home_dir 依赖 Tauri 上下文），store 内无环境解析。
+-            // 任一步失败即 setup Err → run Err → expect 报错启动失败：
+-            // fail fast，无静默空清单降级。
+-            let data_root: PathBuf = app.path().home_dir()?.join(DATA_DIR);
+-            let stores = WorkspaceStores::open(&data_root)?;
+-            // 引擎异常日志：进程一次初始化（append-only 尽力而为）+ panic 钩子
+-            //（泵任务 panic 默认只进无控制台的 stderr，日志面补观测）
+-            agent_runtime::init_engine_log(&data_root.join(LOGS_DIR_NAME));
+-            agent_runtime::install_engine_panic_hook();
+-            app.manage(stores);
+-            // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
+-            app.manage(WatchRegistry::default());
+-            // agent 停止注册表（内核治理面，键 = core session id）：
+-            // 内核 begin_turn 登记 / drive 终态除名 / agent_stop 查询，此处
+-            // 只挂空表（Arc 承载跨内核实例共享，与 WatchRegistry 同型托管）
+-            app.manage(Arc::new(StopRegistry::default()));
+-            // agent 会话实时流注册表（键 = core session id，与 StopRegistry 同
+-            // 型托管）：内核 begin_turn 登记 / converge 投终态除名 /
+-            // agent_session_watch 订阅，进程内存态重启即清空（delta 永不落库）
+-            app.manage(Arc::new(SessionStreamRegistry::default()));
+-            // change-flow run 控制注册表（进程内，键 = (workspace root, change)
+-            // 复合）：change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只
+-            // 挂空表（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）。归档
+-            // 已并入 run 的 archive 相位（stop-before-archive 手动门），无独立
+-            // 归档链注册表。
+-            app.manage(Arc::new(ChangeFlowControl::new()));
+-            Ok(())
+-        })
++        .setup(setup_hook)
+         .invoke_handler(all_commands!(generate_handler))
+-        .run(tauri::generate_context!("tauri.conf.json"))
+-        .expect("desktop 应用启动失败");
++        // build() 而非 run()：数据根解析失败要在 main 内显式处置（自然语言提示 +
++        // 双写 + 退出码 2），经 setup 返回 Err 会变成 `Failed to setup app` 的
++        // panic 文本并丢掉提示；`--self-check` 也必须早于事件循环（放 setup 会闪窗）。
++        // 零窗口即返回 ⇒ 内部 setup 尚未执行（它在 `run` 内的 Ready 事件里跑），
++        // 故 `app.path()` 与 `manage` 在此均可用。
++        .build(tauri::generate_context!("tauri.conf.json"))
++        .expect("desktop 应用构建失败");
++
++    let home = app.path().home_dir().expect("home 目录解析失败");
++    // 数据根唯一计算点（判别源 `cfg!(debug_assertions)` 单点传入）。
++    let data_root = match env::resolve_root(&home, cfg!(debug_assertions)) {
++        Ok(root) => root,
++        Err(err) => {
++            let message = env::render_root_error(&err, &home);
++            eprintln!("{message}");
++            env::append_boot_error(&home, &message);
++            std::process::exit(2);
++        }
++    };
++    // prod 侧 env 只探测不阻断：陈旧变量不该让安装版打不开，但「设了 env 却误跑
++    // build:prod」必须留痕（否则数据无声写进真实生产库）。dev 构建零留痕。
++    #[cfg(not(debug_assertions))]
++    if std::env::var_os(env::DATA_ROOT_ENV).is_some() {
++        env::append_ignored_env(&home);
++    }
++    // 单点注入：setup_hook 与自检共用同一份值（两处看到同一个根由类型保证）。
++    app.manage(data_root.clone());
++
++    #[cfg(debug_assertions)]
++    if want_self_check {
++        std::process::exit(selfcheck::run(&app, &data_root));
++    }
++
++    // `App::run` 无返回值（启动期失败在内部 panic）：setup 失败的 fail fast 面
++    // 由 `expect`（build）与 setup 返回的 Err 共同承载，这里只进事件循环。
++    app.run(|_, _| {});
++}
++
++/// setup 钩子：只做真正需要 runtime 的事（打开双库 / 引擎日志 / panic 钩子 /
++/// 五注册表挂载）。数据根由 `main` 单点解析后经管理态注入，此处 MUST NOT 二次
++/// 解析、MUST NOT 自行拼接 prod 目录名或 dev 子目录名；模式判定与自检 MUST NOT
++/// 落在这里。
++fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
++    let data_root = app.state::<env::DataRoot>().path.clone();
++    // 任一步失败即 setup Err → 启动失败（fail fast，无静默空清单降级）。
++    let stores = WorkspaceStores::open(&data_root)?;
++    // 引擎异常日志：进程一次初始化（append-only 尽力而为）+ panic 钩子
++    //（泵任务 panic 默认只进无控制台的 stderr，日志面补观测）
++    agent_runtime::init_engine_log(&data_root.join(env::LOGS_DIR_NAME));
++    agent_runtime::install_engine_panic_hook();
++    app.manage(stores);
++    // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
++    app.manage(WatchRegistry::default());
++    // agent 停止注册表（内核治理面，键 = core session id）：
++    // 内核 begin_turn 登记 / drive 终态除名 / agent_stop 查询，此处
++    // 只挂空表（Arc 承载跨内核实例共享，与 WatchRegistry 同型托管）
++    app.manage(Arc::new(StopRegistry::default()));
++    // agent 会话实时流注册表（键 = core session id，与 StopRegistry 同
++    // 型托管）：内核 begin_turn 登记 / converge 投终态除名 /
++    // agent_session_watch 订阅，进程内存态重启即清空（delta 永不落库）
++    app.manage(Arc::new(SessionStreamRegistry::default()));
++    // change-flow run 控制注册表（进程内，键 = (workspace root, change)
++    // 复合）：change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只
++    // 挂空表（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）。归档
++    // 已并入 run 的 archive 相位（stop-before-archive 手动门），无独立
++    // 归档链注册表。
++    app.manage(Arc::new(ChangeFlowControl::new()));
++    Ok(())
+ }
+diff --git a/src/selfcheck.rs b/src/selfcheck.rs
+new file mode 100644
+index 000000000000..8b32c8fefd8a
+--- /dev/null
++++ b/src/selfcheck.rs
+@@ -0,0 +1,188 @@
++use std::io::Write;
++use std::path::{Path, PathBuf};
++
++use store::{WorkspaceStores, GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME};
++use tauri::Manager;
++
++use crate::env::{self, DataRoot};
++
++/// 自检参数名单点（`main` 的 args 判定引用）。
++pub const SELF_CHECK_ARG: &str = "--self-check";
++
++/// prod 侧拒绝文案单点（`main` 输出到 stderr 后 `exit 2`）。
++pub const PROD_REJECT_MESSAGE: &str = "--self-check 仅在 dev 构建可用（当前为生产构建）。";
++
++/// 探查事实（`exit_code` 入参）：未知字段以 `None` 表达，首错即停（`error=`
++/// 唯一且可定位，不拼装多条原因）。
++#[derive(Debug, Clone)]
++pub struct Probe {
++    /// 全局库是否打开成功
++    pub global_db_open: bool,
++    /// workspace 清单条目数（清单读取失败为 `None`）
++    pub workspace_count: Option<u64>,
++    /// 全局库已注册模型名清单（读取失败为 `None`）
++    pub models: Option<Vec<String>>,
++    /// `workspaces/` 子树是否存在（只开全局库时通常不存在，属常态）
++    pub workspaces_dir_exists: bool,
++    /// 首个失败原因（全通为 `None`）
++    pub error: Option<String>,
++}
++
++/// 摘要渲染视图（字段序即渲染键序，字段与 [`Probe`] 是「视图 ← 事实」投影）。
++#[derive(Debug, Clone)]
++pub struct Summary {
++    /// 构建模式线值（`env::mode()`）
++    pub mode: &'static str,
++    /// home 目录（`app.path().home_dir()`，解析失败退化为空路径）
++    pub home: PathBuf,
++    /// 数据根归一后的绝对路径
++    pub data_root: PathBuf,
++    /// 数据根来源线值（`RootSource::wire()`）
++    pub source: &'static str,
++    /// 全局库文件路径（`<数据根>/<GLOBAL_DB_FILE_NAME>`）
++    pub global_db: PathBuf,
++    /// 全局库是否打开成功
++    pub global_db_open: bool,
++    /// workspace 库子树路径（`<数据根>/<WORKSPACES_DIR_NAME>`）
++    pub workspaces_dir: PathBuf,
++    /// `workspaces/` 子树是否存在
++    pub workspaces_dir_exists: bool,
++    /// workspace 清单条目数（未知渲染空值）
++    pub workspace_count: Option<u64>,
++    /// 全局库已注册模型名清单（未知渲染空值）
++    pub models: Option<Vec<String>>,
++    /// 首个失败原因（全通时不出线）
++    pub error: Option<String>,
++}
++
++/// 摘要渲染（纯函数）：十键固定键序，未知值渲染为空串，`error` 有值才追加末行；
++/// 末尾恰一个换行。MUST NOT 另加横幅 / 缩进 / 空行（agent 逐行解析）。
++pub fn render(summary: &Summary) -> String {
++    let mut out = String::new();
++    out.push_str("mode=");
++    out.push_str(summary.mode);
++    out.push('\n');
++    out.push_str("home=");
++    out.push_str(&summary.home.display().to_string());
++    out.push('\n');
++    out.push_str("data_root=");
++    out.push_str(&summary.data_root.display().to_string());
++    out.push('\n');
++    out.push_str("data_root_source=");
++    out.push_str(summary.source);
++    out.push('\n');
++    out.push_str("global_db=");
++    out.push_str(&summary.global_db.display().to_string());
++    out.push('\n');
++    out.push_str("global_db_open=");
++    out.push_str(if summary.global_db_open { "ok" } else { "err" });
++    out.push('\n');
++    out.push_str("workspaces_dir=");
++    out.push_str(&summary.workspaces_dir.display().to_string());
++    out.push('\n');
++    out.push_str("workspaces_dir_exists=");
++    out.push_str(if summary.workspaces_dir_exists {
++        "true"
++    } else {
++        "false"
++    });
++    out.push('\n');
++    out.push_str("workspace_count=");
++    if let Some(count) = summary.workspace_count {
++        out.push_str(&count.to_string());
++    }
++    out.push('\n');
++    out.push_str("models=");
++    if let Some(models) = &summary.models {
++        out.push_str(&models.join(","));
++    }
++    out.push('\n');
++    if let Some(error) = &summary.error {
++        out.push_str("error=");
++        out.push_str(error);
++        out.push('\n');
++    }
++    out
++}
++
++/// 退出码映射：全通 0、首错 1（2 = 用法或环境非法，由 `main` 产出——env 校验
++/// 失败与 prod 侧拒绝自检）。
++pub fn exit_code(probe: &Probe) -> i32 {
++    if probe.error.is_none() {
++        0
++    } else {
++        1
++    }
++}
++
++/// 自检主路径：探库 → 摘要 → 渲染 → flush → 退出码。`&App` 的唯一用途是取
++/// `home=` 行（不触碰管理态、不建窗）；`home_dir` 失败退化为空串，不影响退出码。
++pub fn run(app: &tauri::App, data_root: &DataRoot) -> i32 {
++    let home = app.path().home_dir().unwrap_or_default();
++    let probe = probe(&data_root.path);
++    let summary = summary_of(data_root, &home, &probe);
++    print!("{}", render(&summary));
++    let _ = std::io::stdout().flush();
++    exit_code(&probe)
++}
++
++/// 探库（真开 `WorkspaceStores`：对不存在的数据根会一并建出全局库，与 GUI 首次
++/// 启动同源同副作用，不做 dry-run 变体）：首个失败即记 `error=` 并停步，后续
++/// 字段留空值。
++fn probe(data_root: &Path) -> Probe {
++    let workspaces_dir_exists = data_root.join(WORKSPACES_DIR_NAME).is_dir();
++    let mut probe = Probe {
++        global_db_open: false,
++        workspace_count: None,
++        models: None,
++        workspaces_dir_exists,
++        error: None,
++    };
++    let stores = match WorkspaceStores::open(data_root) {
++        Ok(stores) => stores,
++        Err(err) => {
++            probe.error = Some(format!("全局库打开失败：{err}"));
++            return probe;
++        }
++    };
++    probe.global_db_open = true;
++    let models = match stores.global().list_models() {
++        Ok(models) => models,
++        Err(err) => {
++            probe.error = Some(format!("模型清单读取失败：{err}"));
++            return probe;
++        }
++    };
++    let workspaces = match stores.global().list_workspaces() {
++        Ok(workspaces) => workspaces,
++        Err(err) => {
++            probe.error = Some(format!("workspace 清单读取失败：{err}"));
++            return probe;
++        }
++    };
++    probe.models = Some(models.into_iter().map(|info| info.name).collect());
++    probe.workspace_count = Some(workspaces.len() as u64);
++    probe
++}
++
++/// 摘要组装（纯函数）：模式 / 来源 / 两条路径由 `env` 与 store 常量单点产出，
++/// 其余字段由 [`Probe`] 直接平移（命令层零加工）。
++fn summary_of(data_root: &DataRoot, home: &Path, probe: &Probe) -> Summary {
++    Summary {
++        mode: env::mode(),
++        home: home.to_path_buf(),
++        data_root: data_root.path.clone(),
++        source: data_root.source.wire(),
++        global_db: data_root.path.join(GLOBAL_DB_FILE_NAME),
++        global_db_open: probe.global_db_open,
++        workspaces_dir: data_root.path.join(WORKSPACES_DIR_NAME),
++        workspaces_dir_exists: probe.workspaces_dir_exists,
++        workspace_count: probe.workspace_count,
++        models: probe.models.clone(),
++        error: probe.error.clone(),
++    }
++}
++
++#[cfg(test)]
++#[path = "selfcheck_test.rs"]
++mod selfcheck_test;
+diff --git a/src/selfcheck_test.rs b/src/selfcheck_test.rs
+new file mode 100644
+index 000000000000..ddcc9d6e4d49
+--- /dev/null
++++ b/src/selfcheck_test.rs
+@@ -0,0 +1,475 @@
++use std::path::PathBuf;
++
++use store::{GLOBAL_DB_FILE_NAME, WORKSPACES_DIR_NAME};
++
++use super::{exit_code, render, Probe, Summary, PROD_REJECT_MESSAGE, SELF_CHECK_ARG};
++
++// ---------------------------------------------------------------------------
++// 装置：摘要 / 事实 fixture（字段序即渲染键序）
++// ---------------------------------------------------------------------------
++
++/// 十键键序（设计口径，测试侧独立留档）。
++const KEY_ORDER: [&str; 10] = [
++    "mode",
++    "home",
++    "data_root",
++    "data_root_source",
++    "global_db",
++    "global_db_open",
++    "workspaces_dir",
++    "workspaces_dir_exists",
++    "workspace_count",
++    "models",
++];
++
++/// 全字段已知的摘要（各用例按需改写单字段）。
++fn summary() -> Summary {
++    let home = PathBuf::from("home");
++    let data_root = PathBuf::from("data-root");
++    Summary {
++        mode: "dev",
++        home,
++        data_root: data_root.clone(),
++        source: "dev-default",
++        global_db: data_root.join(GLOBAL_DB_FILE_NAME),
++        global_db_open: true,
++        workspaces_dir: data_root.join(WORKSPACES_DIR_NAME),
++        workspaces_dir_exists: false,
++        workspace_count: Some(0),
++        models: Some(vec!["workspace".to_owned()]),
++        error: None,
++    }
++}
++
++/// 全通事实（零错误）。
++fn probe_ok() -> Probe {
++    Probe {
++        global_db_open: true,
++        workspace_count: Some(0),
++        models: Some(vec!["workspace".to_owned()]),
++        workspaces_dir_exists: false,
++        error: None,
++    }
++}
++
++/// 渲染文本的行键序。
++fn keys_of(text: &str) -> Vec<&str> {
++    text.lines()
++        .map(|line| line.split('=').next().unwrap_or_default())
++        .collect()
++}
++
++/// 某键的行值（`key=value` 的 `value` 部分；未知值即空串）。
++fn value_of<'a>(text: &'a str, key: &str) -> Option<&'a str> {
++    let prefix = format!("{key}=");
++    text.lines().find_map(|line| line.strip_prefix(&prefix))
++}
++
++// ---------------------------------------------------------------------------
++// SELF_CHECK_ARG / PROD_REJECT_MESSAGE：参数名与拒绝文案单点（AC-11 / AC-12）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn self_check_arg为双横线小写kebab参数名单点() {
++    assert_eq!(SELF_CHECK_ARG, "--self-check", "参数名单点逐字");
++    assert!(SELF_CHECK_ARG.starts_with("--"), "以 `--` 起手");
++    assert!(!SELF_CHECK_ARG.contains('='), "不含 `=`（无内联值形态）");
++    assert!(
++        !SELF_CHECK_ARG.contains(char::is_whitespace),
++        "不含空白（单 token）"
++    );
++    assert_eq!(SELF_CHECK_ARG.trim(), SELF_CHECK_ARG, "无前后空白");
++
++    // `args().skip(1)` 语义：逐项与常量精确相等即命中
++    let args = ["--self-check", "--root", "/tmp/data"];
++    assert!(args.contains(&SELF_CHECK_ARG), "首参数精确命中");
++    assert_eq!(args[0], SELF_CHECK_ARG);
++}
++
++#[test]
++fn self_check_arg为精确匹配而非前缀或大小写宽容() {
++    for other in [
++        "--self-checkx",
++        "--SELF-CHECK",
++        "--self_check",
++        "--self-check=1",
++    ] {
++        assert_ne!(
++            other, SELF_CHECK_ARG,
++            "常量不得被前缀 / 大小写 / 内联值命中"
++        );
++    }
++    // 组合形态：`--self-check --root <path>` 只命中首参数（`--root` 被忽略）
++    let args = ["--self-check", "--root", "/tmp/data"];
++    let mut hits = 0;
++    for arg in args {
++        if arg == SELF_CHECK_ARG {
++            hits += 1;
++        }
++    }
++    assert_eq!(hits, 1, "组合参数中恰命中首参数（本期不支持 --root）");
++}
++
++#[test]
++fn prod_reject_message逐字且要素齐备() {
++    assert_eq!(
++        PROD_REJECT_MESSAGE, "--self-check 仅在 dev 构建可用（当前为生产构建）。",
++        "拒绝文案逐字（含全角括号与句末句号）"
++    );
++    assert!(
++        PROD_REJECT_MESSAGE.contains(SELF_CHECK_ARG),
++        "含参数名要素（指针可照抄）"
++    );
++    assert!(
++        PROD_REJECT_MESSAGE.contains("生产构建"),
++        "含「当前为生产构建」要素"
++    );
++    assert!(!PROD_REJECT_MESSAGE.is_empty(), "文案非空");
++    assert!(!PROD_REJECT_MESSAGE.contains('\n'), "单行 stderr");
++}
++
++#[test]
++fn prod_reject_message单行可读且无装饰() {
++    assert!(
++        !PROD_REJECT_MESSAGE.contains('['),
++        "无 ANSI 转义序列（纯文本 stderr）"
++    );
++    assert_eq!(
++        PROD_REJECT_MESSAGE.trim(),
++        PROD_REJECT_MESSAGE,
++        "无首尾空白"
++    );
++    assert!(
++        PROD_REJECT_MESSAGE.chars().count() < 200,
++        "单行长度可控（不被终端截断）"
++    );
++    assert!(
++        PROD_REJECT_MESSAGE.ends_with('。'),
++        "单句收尾即完整说明（不拼接第二句）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// render：十键键序与值面（AC-11 / AC-2 / AC-5 / AC-12）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn render十键键序固定且单行无装饰以单换行收尾() {
++    let text = render(&summary());
++
++    assert_eq!(keys_of(&text), KEY_ORDER.to_vec(), "十键键序即字段序");
++    assert_eq!(text.matches('\n').count(), 10, "十行十换行，无 error 行");
++    assert!(text.ends_with('\n'), "以换行收尾");
++    assert!(!text.ends_with("\n\n"), "末尾恰一个换行");
++    assert!(!text.contains('\u{1b}'), "无 ANSI 转义");
++    for line in text.lines() {
++        assert!(!line.is_empty(), "无空行");
++        assert!(line.contains('='), "每行 `key=value` 单行形态：{line}");
++    }
++}
++
++#[test]
++fn render_mode两值原样透传() {
++    for value in ["dev", "prod"] {
++        let mut view = summary();
++        view.mode = value;
++        assert_eq!(value_of(&render(&view), "mode"), Some(value));
++    }
++}
++
++#[test]
++fn render_source三值原样透传且两两不等() {
++    let mut seen: Vec<&str> = Vec::new();
++    for value in ["prod", "dev-default", "env"] {
++        let mut view = summary();
++        view.source = value;
++        let text = render(&view);
++        assert_eq!(value_of(&text, "data_root_source"), Some(value));
++        assert!(!seen.contains(&value), "三行值两两不等");
++        seen.push(value);
++    }
++}
++
++#[test]
++fn render_global_db_open与workspaces_dir_exists双向断言() {
++    for open in [true, false] {
++        let mut view = summary();
++        view.global_db_open = open;
++        let want = if open { "ok" } else { "err" };
++        assert_eq!(
++            value_of(&render(&view), "global_db_open"),
++            Some(want),
++            "global_db_open 为 ok / err 双值"
++        );
++    }
++    for exists in [true, false] {
++        let mut view = summary();
++        view.workspaces_dir_exists = exists;
++        let want = if exists { "true" } else { "false" };
++        assert_eq!(
++            value_of(&render(&view), "workspaces_dir_exists"),
++            Some(want),
++            "workspaces_dir_exists 双向"
++        );
++    }
++}
++
++#[test]
++fn render未知值与空清单均渲染空值但行仍在() {
++    // 未知计数 / 未知清单
++    let mut view = summary();
++    view.workspace_count = None;
++    view.models = None;
++    let text = render(&view);
++    assert_eq!(value_of(&text, "workspace_count"), Some(""), "未知计数空值");
++    assert_eq!(value_of(&text, "models"), Some(""), "未知清单空值");
++    assert_eq!(keys_of(&text), KEY_ORDER.to_vec(), "行仍在且键序不变");
++
++    // 计数 0 与空清单（与 None 区分）
++    let mut zero = summary();
++    zero.workspace_count = Some(0);
++    zero.models = Some(Vec::new());
++    let text = render(&zero);
++    assert_eq!(value_of(&text, "workspace_count"), Some("0"));
++    assert_eq!(value_of(&text, "models"), Some(""));
++
++    // 单元素清单
++    let mut one = summary();
++    one.models = Some(vec!["workspace".to_owned()]);
++    assert_eq!(value_of(&render(&one), "models"), Some("workspace"));
++}
++
++#[test]
++fn render_models以逗号连接且序不变() {
++    let mut view = summary();
++    view.models = Some(vec![
++        "workspace".to_owned(),
++        "agent_provider".to_owned(),
++        "agent_instance".to_owned(),
++    ]);
++    assert_eq!(
++        value_of(&render(&view), "models"),
++        Some("workspace,agent_provider,agent_instance"),
++        "无空格、序不变（与 list_models 注册表短名同形）"
++    );
++
++    // 1000 项大列表：不 panic、键序不变
++    let mut big = summary();
++    big.models = Some((0..1000).map(|index| format!("m{index}")).collect());
++    let text = render(&big);
++    assert_eq!(keys_of(&text), KEY_ORDER.to_vec(), "大列表不改键序");
++    let models = value_of(&text, "models").expect("models 行在场");
++    assert_eq!(models.split(',').count(), 1000, "1000 项全部出线");
++    assert_eq!(models.split(',').next(), Some("m0"), "序不变");
++}
++
++#[test]
++fn render_error行追加在末且有值才出线() {
++    let mut failed = summary();
++    failed.error = Some("数据根不可打开".to_owned());
++    let text = render(&failed);
++    let lines: Vec<&str> = text.lines().collect();
++    assert_eq!(lines.len(), 11, "十键 + error 行");
++    assert_eq!(lines[10], "error=数据根不可打开", "error 行在末位");
++    assert_eq!(keys_of(&text)[10], "error", "末行为 error 键");
++    assert!(!text.contains('—'), "无装饰分隔横幅");
++    assert_eq!(
++        value_of(&render(&summary()), "error"),
++        None,
++        "无错时无 error 行"
++    );
++    assert_eq!(
++        render(&summary()).matches("error=").count(),
++        0,
++        "error= 零命中"
++    );
++}
++
++#[test]
++fn render路径成分取自store常量() {
++    let view = summary();
++    let text = render(&view);
++
++    let expected_global_db = view.global_db.display().to_string();
++    let expected_workspaces_dir = view.workspaces_dir.display().to_string();
++    let expected_data_root = view.data_root.display().to_string();
++    let expected_home = view.home.display().to_string();
++
++    assert_eq!(
++        value_of(&text, "global_db"),
++        Some(expected_global_db.as_str()),
++        "global_db = 数据根 + GLOBAL_DB_FILE_NAME"
++    );
++    assert_eq!(
++        value_of(&text, "workspaces_dir"),
++        Some(expected_workspaces_dir.as_str()),
++        "workspaces_dir = 数据根 + WORKSPACES_DIR_NAME"
++    );
++    assert_eq!(
++        value_of(&text, "data_root"),
++        Some(expected_data_root.as_str()),
++        "data_root 为入参原样"
++    );
++    assert_eq!(
++        value_of(&text, "home"),
++        Some(expected_home.as_str()),
++        "home 为入参原样"
++    );
++    assert!(
++        text.contains(GLOBAL_DB_FILE_NAME),
++        "库文件名来自 store 公开常量（壳层零字面量）"
++    );
++    assert!(
++        text.contains(WORKSPACES_DIR_NAME),
++        "workspaces 子树名来自 store 公开常量"
++    );
++}
++
++#[test]
++fn render特殊字符与超长值不panic() {
++    let long = "长".repeat(1200);
++    let cases = [
++        "中文错误：数据根不可用",
++        "emoji🙂 错误",
++        "含\u{0}字符",
++        "含=等号与\n换行",
++        long.as_str(),
++    ];
++
++    for error in cases {
++        let mut view = summary();
++        view.error = Some(error.to_owned());
++        let text = render(&view);
++        assert!(text.starts_with("mode="), "首键仍为 mode");
++        assert!(text.contains(error), "值内特殊字符原样出线（不抛错）");
++        assert!(
++            text.trim_end().ends_with(error),
++            "error 行仍在末尾（值内换行不改变键序）：{error}"
++        );
++    }
++
++    // 特殊字符落在 models 元素内：末行为 models（error 为 None）
++    let mut view = summary();
++    view.models = Some(vec!["中文🙂".to_owned(), "a=b".to_owned(), long]);
++    let text = render(&view);
++    assert_eq!(
++        text.lines().last().map(|line| line.starts_with("models=")),
++        Some(true),
++        "末行仍为 models"
++    );
++    assert!(text.contains("models=中文🙂,a=b,"));
++}
++
++// ---------------------------------------------------------------------------
++// exit_code：0 / 1 映射与值域（AC-11 / AC-12）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn exit_code全通为0且与workspaces目录缺席无关() {
++    let mut probe = probe_ok();
++    probe.workspaces_dir_exists = false;
++    assert_eq!(exit_code(&probe), 0, "workspaces/ 缺席是常态，不参与退出码");
++    probe.workspaces_dir_exists = true;
++    assert_eq!(exit_code(&probe), 0, "双向均 0（仅看 error）");
++}
++
++#[test]
++fn exit_code有错为1且与其余字段无关() {
++    for open in [true, false] {
++        let probe = Probe {
++            global_db_open: open,
++            workspace_count: Some(3),
++            models: Some(vec!["workspace".to_owned()]),
++            workspaces_dir_exists: true,
++            error: Some("redb: 文件损坏".to_owned()),
++        };
++        assert_eq!(exit_code(&probe), 1, "error 为 Some 即 1（不看其余字段）");
++    }
++}
++
++#[test]
++fn exit_code值域不含2且空串与超长错误串均判1() {
++    let long = "错".repeat(1200);
++    for error in ["", long.as_str(), "emoji🙂", "多行\n错误"] {
++        let probe = Probe {
++            error: Some(error.to_owned()),
++            ..probe_ok()
++        };
++        let code = exit_code(&probe);
++        assert_eq!(code, 1, "`Some` 即失败（不看内容）");
++        assert_ne!(code, 2, "2 由 main 产出，不在本函数值域");
++    }
++    assert_eq!(exit_code(&probe_ok()), 0, "全通 0，值域仅 {{0, 1}}");
++}
++
++// ---------------------------------------------------------------------------
++// Probe / Summary：字段序即键序 + run 的委托面钉住（AC-11 / AC-12）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn probe与summary字段序即键序且未知字段可留空() {
++    // 全 None 事实：可构造且参与退出码（未知字段不必填）
++    let unknown = Probe {
++        global_db_open: false,
++        workspace_count: None,
++        models: None,
++        workspaces_dir_exists: false,
++        error: None,
++    };
++    assert_eq!(exit_code(&unknown), 0, "未知字段不构成失败");
++
++    // 全 Some 事实：摘要按声明序投影，渲染键序与字段序一一对应
++    let full = Probe {
++        global_db_open: true,
++        workspace_count: Some(2),
++        models: Some(vec!["workspace".to_owned(), "session".to_owned()]),
++        workspaces_dir_exists: true,
++        error: Some("模型清单读取失败：锁冲突".to_owned()),
++    };
++    let mut view = summary();
++    view.workspace_count = full.workspace_count;
++    view.models = full.models.clone();
++    view.global_db_open = full.global_db_open;
++    view.workspaces_dir_exists = full.workspaces_dir_exists;
++    view.error = full.error.clone();
++
++    let text = render(&view);
++    let keys = keys_of(&text);
++    assert_eq!(
++        &keys[..10],
++        KEY_ORDER.as_slice(),
++        "十键键序由类型形状保证（声明序 = 渲染序）"
++    );
++    assert_eq!(keys.get(10), Some(&"error"), "失败面追加 error 行在末位");
++    assert_eq!(value_of(&text, "workspace_count"), Some("2"));
++    assert_eq!(value_of(&text, "models"), Some("workspace,session"));
++}
++
++#[test]
++fn run返回码语义由exit_code与render委托面钉住() {
++    // 探库成功：无 error ⇒ 0，且摘要无 error 行
++    let ok = probe_ok();
++    assert_eq!(exit_code(&ok), 0, "run 的成功臂恒由 exit_code 产出 0");
++    let mut view = summary();
++    view.error = ok.error.clone();
++    assert_eq!(render(&view).matches("error=").count(), 0);
++
++    // 首错即停：error 有值 ⇒ 1，且 error 行在末位（可定位唯一原因）
++    let failed = Probe {
++        error: Some("全局库打开失败：redb 文件锁被占用".to_owned()),
++        ..probe_ok()
++    };
++    assert_eq!(exit_code(&failed), 1, "run 的失败臂恒由 exit_code 产出 1");
++    let mut view = summary();
++    view.error = failed.error.clone();
++    let text = render(&view);
++    let last = text.lines().last().expect("至少一行");
++    assert!(
++        last.starts_with("error="),
++        "失败原因唯一且可定位（不拼装多条原因）：{last}"
++    );
++    assert!(
++        last.contains("全局库打开失败"),
++        "错误串原样出线（不二次加工）"
++    );
++}
