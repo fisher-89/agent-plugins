@@ -670,7 +670,14 @@ walker SHALL 把「执行面归因（检查结论之外的原因）」作为独�
 
 - **`Environment` 的收敛语义**：`Environment` MUST 一律收敛 `Terminal::failed`，且 MUST NOT 升格相位 fail（MUST NOT 代写 fail `phase_log`、MUST NOT 回 `phase_next` 进决策分叉 / 重试）、MUST NOT 注回 executor（MUST NOT 发起任何 WorkerAgent 会话、MUST NOT 消耗 static-check 反馈边计数）。理由：环境坏的相位重试必然再失败，把预算花在 agent 修复上是纯消耗。
 - **`Stopped` 的收敛语义**：`Stopped` MUST 收敛 `Terminal::stopped`（run `stopped`），节点 status 为 `stopped`（非 `failed`），详情仅记「用户请求停止」类停因——MUST NOT 呈现为失败。
-- **终局文案**：环境面 SHALL 有专用文案常量 `TXT_ENV_STATIC`（static-check）与 `TXT_ENV_TEST`（test-execution），内容 MUST 含：① 门禁名 + 「无法完成（环境错误）」定性；② fault 摘要（占用进程名清单或「未定位占用者 + 可能为内核过滤驱动」、被锁文件路径）；③ 已自动重试次数（「每次重试会跳过已完成部分」）；④ 环境侧处理指引（请 IT 在安全软件中排除 workspace **父目录**，并说明逐 worktree 排除无效）；⑤ 报告目录（test-execution 面）。环境面文案与基线红文案（`TXT_BASELINE_STATIC_FAILED` / `TXT_BASELINE_TEST_FAILED` / `TXT_BASELINE_TEST_ERROR`）MUST 可辨：前者引导「排除安全软件路径」，后者引导「在基线上修复后重新发起」，MUST NOT 复用同一段文案。
+- **终局文案（本变更改为按成因分型）**：环境面 SHALL 有专用文案常量 `TXT_ENV_STATIC`（static-check）与 `TXT_ENV_TEST`（test-execution），内容 MUST 含：① 门禁名 + 「无法完成（环境错误）」定性；② `{fault}` 摘要；③ 报告目录（test-execution 面）。`{fault}` 摘要面 SHALL **按成因分型**，两类各自齐备且 MUST NOT 互相套用：
+
+  | 成因 | `{fault}` 摘要 MUST 含 | MUST NOT 含 |
+  |---|---|---|
+  | 文件锁 / 瞬态耗尽 / 超时（既有面） | 占用进程名清单或「未定位占用者 + 可能为内核过滤驱动」、被锁文件路径、已自动重试次数（「每次重试会跳过已完成部分」）、环境侧处理指引（请 IT 在安全软件中排除 workspace **父目录**，逐 worktree 排除无效） | —— |
+  | 命令行超平台长度上限（本变更新增，见 desktop-test-execution「命令展开长度预算与安全降级」） | 「harness 限制、非被测代码问题」定性、展开长度 / 平台预算 / 文件数三个数字、「收窄 suite includes 或拆分 suite」动作 | 占用者点名、被锁文件、重试次数、安全软件排除指引（成因不同，误引会把用户引向环境侧排查） |
+
+  环境面文案与基线红文案（`TXT_BASELINE_STATIC_FAILED` / `TXT_BASELINE_TEST_FAILED` / `TXT_BASELINE_TEST_ERROR`）MUST 可辨：前者归类「环境错误」，后者引导「在基线上修复后重新发起」，MUST NOT 复用同一段文案。分型只影响 `{fault}` 摘要的装配方（checks 域单点），walker 侧两个模板常量与 `settle_fault` 逻辑 MUST 零改动。
 
 #### Scenario: 环境错误不烧预算
 
@@ -696,6 +703,11 @@ walker SHALL 把「执行面归因（检查结论之外的原因）」作为独�
 
 - **WHEN** 分别触发基线 static-check 环境错误与基线 static-check 检查红
 - **THEN** 前者文案引导「排除 workspace 父目录（安全软件）」（含占用进程名），后者文案引导「在基线上修复后重新发起」；两段文案不共用同一句引导
+
+#### Scenario: 命令行超限文案按成因分型
+
+- **WHEN** test-execution 因展开长度超平台预算且不可安全降级以 `fault = Some(Environment(…))` 收场
+- **THEN** run 收敛 `Terminal::failed`、节点 `failed`（零 WorkerAgent、零决策分叉、零 fail checklist 代写），终态 reason 展开为 `TXT_ENV_TEST` 且 `{fault}` 段含长度 / 预算 / 文件数与「收窄 includes 或拆分 suite」动作；MUST NOT 出现占用者点名、被锁文件、「已自动重试 N 次」或安全软件排除指引
 
 #### Scenario: fault 不出线
 
@@ -766,6 +778,8 @@ walker SHALL 把「执行面归因（检查结论之外的原因）」作为独�
 | `crates/core/orchestration/src/walker.rs`（`step_static_check` / `step_static_check_terminal`） | static-check 分派 | fault 前置分支（`stopped` / `failed(env)`）先于 `passed` / 反馈边 / 基线红文案 |
 | `crates/core/orchestration/src/walker.rs`（`step_test_execution` / `_escalate` / `_terminal`） | test-execution 分派 | fault 前置分支先于 `conclusion` 三分支；`Environment` 不进决策分叉 |
 | `crates/core/orchestration/src/walker.rs`（`step_mutation_test_escalate`） | mutation 分派 | `Stopped` 前置分支（`Terminal::stopped`）先于 pass / 升格；runner `Err → Terminal` 不变 |
-| `crates/core/orchestration/src/walker.rs`（文案常量） | 终局文案 | `TXT_ENV_STATIC` / `TXT_ENV_TEST`（含占用者、被锁文件、重试次数、排除父目录指引、报告目录）；与 `TXT_BASELINE_*` 不共用文案 |
+| `crates/core/orchestration/src/walker.rs`（文案常量） | 终局文案 | `TXT_ENV_STATIC` / `TXT_ENV_TEST`（门禁名 + 「无法完成（环境错误）」定性 + `{fault}` 摘要 + 报告目录）；`{fault}` 段按成因分型由 checks 域装配（锁 / 瞬态 / 超时面 vs 命令行超限面），walker 模板零变；与 `TXT_BASELINE_*` 不共用文案 |
 | `crates/core/orchestration/src/walker.rs`（`Terminal` / `StepSettle`） | 收敛面 | `Terminal::stopped` / `StepSettle::stopped` 承载 `Stopped`；`Terminal::failed` 承载 `Environment`；节点词汇零扩展 |
 | `crates/core/orchestration/src/state.rs` | 状态词汇 | 零改动（`ChangeRunStatus` / `ChangeStepStatus` / `RunUpdate` 不变） |
+| `crates/core/orchestration/src/walker.rs` | 分派单点（零代码改动） | `settle_fault` 与 `TXT_ENV_STATIC` / `TXT_ENV_TEST` 逐字不变；命令行超限经同一 `Environment` 臂收敛 `Terminal::failed`——分型只发生在 `{fault}` 摘要的装配方（checks 域），walker MUST NOT 因成因不同新增分支 |
+| `crates/core/orchestration/src/port.rs` | `RunFault` 面（零扩面） | 变体封闭集仍为 `{Stopped, Environment(String)}`（MUST NOT 为命令行超限新增变体）；`Environment(String)` 的摘要文本由 checks 域按成因分型装配 |
