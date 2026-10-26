@@ -377,18 +377,23 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 以下边界 SHALL 作为 V1 显式限制留痕（后续变更偿还，不由实现隐式吸收）：
 
-1. **引擎随默认 agent 解析（SDK 承载）**：change 执行会话经组合根缺省解析（默认 agent）发起——CLI 租户已随 retire-cli-engine 退役，change 执行由 SDK 租户承载。原「引擎恒 CLI（插件 dev-team 天然加载）」依据随桌面相位知识静态化（desktop-phase-prompts：14 个纯静态 prompt、无插件 Agent / MCP 工具假设）与插件废弃失效；原「SDK 引擎 MUST NOT 承载 change 执行（无插件加载机制）」禁令同步退役。change run 发起自此依赖 SDK 连接配置（默认 sdk agent + provider），缺失时按既有显式 `Err` 面失败并引导管理页，MUST NOT 静默回退。
+1. **引擎随默认 agent 解析（SDK 承载）**：change 执行会话经组合根缺省解析（默认 agent）发起——CLI 租户已随 retire-cli-engine 退役，change 执行由 SDK 租户承载。原「引擎恒 CLI」依据随桌面相位知识静态化（desktop-phase-prompts：16 个纯静态 prompt、MUST NOT 携带插件 Agent / MCP 工具假设——插件已退役，该条为防回退护栏）与插件整体退役失效；原「SDK 引擎 MUST NOT 承载 change 执行」禁令同步退役。change run 发起自此依赖 SDK 连接配置（默认 sdk agent + provider），缺失时按既有显式 `Err` 面失败并引导管理页，MUST NOT 静默回退。
 2. **工作流类型**：requirement 与 test-only 工作流全链；bug-fix 相位表后续独立 change。
 3. **计划图静态编译期、非通用图引擎**：计划图（workflow → phase → step 序列 + 依赖边 + artifact 清单）SHALL 为编译期 const 表 + `include_str!` 静态装配，MUST NOT 实现运行时加载的通用图引擎或图定义文件格式；执行图（节点 + 边）为 db 落库的运行记录，MUST NOT 上位为路由权威（路由仍问 `phase_next`）。原「walker 只硬编码 walk 本相位循环图」表述随本变更翻案显式立项（step 序列下沉为 `PhaseDefinition.steps`）。
 4. **file_log 载体退役**：desktop run 与视图全链零 file_log 触点（git diff 供变更上下文）为既定裁定；外部归档对账（openspec CLI 归档改名后的 db status 翻转时机）留 design 定稿（见 proposal 待决问题）。
-5. **protect-files 护栏缺口（原过渡依赖失效）**：步前实时护栏原过渡期依赖插件 hook（仅 CLI 会话内生效）；CLI 租户退役后该路径失去载体，缺口自本变更起**显式打开**——写保护面仅剩 SDK 路径沙箱（workspace root 前缀校验）。桌面原生护栏（内核 permission 层方向）的独立 change 为缺口出口（插件真下线前落地），本条更新为缺口显式留痕，不由实现隐式吸收。
 
-（原「sessionAnchors 精度损失」「sweep-phase 缺口」两条边界随写面进程内锚点复活而消失，不再留痕；原「file_log 不记录」边界随本变更升级为载体退役，不再是单侧不写。）
+（原「sessionAnchors 精度损失」「sweep-phase 缺口」两条边界随写面进程内锚点复活而消失，不再留痕；原「file_log 不记录」边界随本变更升级为载体退役，不再是单侧不写；原「protect-files 护栏缺口」边界随桌面原生写入保护落地（`crates/infra/agent/src/sdk/protect/`，loop 守卫链第四段，见 desktop-write-protection）而偿还，按同款惯例**不再留痕**——已偿还的边界留在清单里只会稀释真边界，防回退职责归 desktop-write-protection 的不变量，与引擎形态无关。）
 
 #### Scenario: 边界留痕可考
 
 - **WHEN** 查阅本 spec
-- **THEN** 五条边界均可考（含计划图静态编译期翻案留痕与护栏缺口显式留痕），后续变更无需重新论证是否知情
+- **THEN** 四条边界均可考（含计划图静态编译期翻案留痕），后续变更无需重新论证是否知情
+
+#### Scenario: 已偿还边界不留痕
+
+- **WHEN** 审查四条边界清单
+- **THEN** 清单不含已偿还项（护栏缺口 / sessionAnchors 精度 / sweep-phase / file_log 不记录）
+- **AND** 写入保护的不变量只在 desktop-write-protection 承载，不由本清单重复声明
 
 #### Scenario: 引擎边界生效
 
@@ -397,12 +402,12 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 ### Requirement: 版本交付
 
-本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.37` 升级为 `0.4.38`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`（版本保持 `2.10.44` 与三类交付产物）。
+本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.37` 升级为 `0.4.38`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。
 
-#### Scenario: 版本号升级与插件零改动
+#### Scenario: 版本号升级
 
 - **WHEN** 本变更实现完成（归档时执行版本升级）
-- **THEN** `packages/desktop/package.json` 的 version 为 0.4.38；`plugins/dev-team` 版本与交付产物零改动
+- **THEN** `packages/desktop/package.json` 的 version 为 0.4.38，`src-tauri/Cargo.toml` 版本不随动
 
 ### Requirement: run 落库写缝与累积器驻服务端
 
@@ -702,6 +707,7 @@ walker SHALL 把「执行面归因（检查结论之外的原因）」作为独�
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `crates/core/orchestration`（运行时域，tokio） | 薄图 walker：相位循环、三类节点执行、Gate 分支 | 红线：零相位转移规则（每步过渡问写面 phase-next）；ToolStep 节点化（不内联）；节点状态纯派生（库读史 run 节点行 ∪ 在飞 run，节点行携 `session_id`）；模块内零进程 spawn；依赖方向 orchestration → workflow；对落库载体无感知 |
+| `crates/core/orchestration/src/walker.rs` | 相位机 walker | 四条边界口径；引擎走组合根缺省解析；写入保护护栏由 SDK 内 protect 层承载（不在 walker） |
 | `crates/core/orchestration/src/port.rs` | 「相位机 + 工具步」进程内缝（语义换血） | ToolStepPort 进程内直调 core/workflow 写面；ToolCommand 封闭集收缩（ChangeFiles 出局）；WorkerAgentPort 契约不变；测试假引擎 + 假写面双缝直驱 |
 | `crates/core/orchestration/src/steps.rs`（LocalToolSteps） | 相位机步进程内直调写面 | 直调面签名不变（载体在写面内换血）；每步结果落 StepRecord 审计行（经写面） |
 | `crates/core/orchestration/src/snapshot.rs` | ChangeDetail 只读装配 | 读源改 workspace 库 change 状态（经 queries）；磁盘扫描保留产物发现 |
@@ -713,7 +719,7 @@ walker SHALL 把「执行面归因（检查结论之外的原因）」作为独�
 | `crates/core/workflow`（写面 + 读面，见 desktop-workflow-write-face） | change 状态域权威 | 读写同屋檐、落库 workspace 库；walker 经进程内直调消费，不复制路由语义 |
 | `crates/infra/store`（复用） | 会话记录 + change 状态落库 | `SessionRecord` 携 `SessionProvenance`（`source` / `source_ref` 留痕，会话创建时写入）；run 节点行携 `session_id` 供会话直查；不建 flow_runs 表 |
 | `crates/infra/devteam` | **（删除）** | 整体删除（discover / runner），零遗留 |
-| 既有 hooks（复用，不改） | 步前护栏与无外围账 | protect-files 原样生效（过渡期）；record-files / sweep-phase 未绑定 no-op（fail-open 刻意设计）；static-check 桌面模式由 spawn 步承接 |
+| 既有 hooks（复用，不改） | 步前护栏与无外围账 | 插件 hook 路径随插件退役无载体（原「protect-files 原样生效（过渡期）」表述删除）；写入保护由 `crates/infra/agent/src/sdk/protect/` 承接（desktop-write-protection）；record-files / sweep-phase 已分别为 `change_edit_set` 与 no-op 取代；static-check 桌面模式由 spawn 步承接 |
 | `crates/core/orchestration/src/walker.rs` | 停等节奏分支 | `RunRequest` + `auto_next_phase` 字段（run 级、发起定格）；drive() 确认点 `if !auto_next_phase` 才 emit `ConfirmWait` + `wait_confirm`；auto 模式不进 `WaitingConfirm`、零新事件；头注释口径同步 |
 | `src/commands/change_flow/mod.rs` | 发起参数透传 | `change_flow_start` / `change_flow_start_with` 签名 + `auto_next_phase: bool`，透传 `RunRequest`；`Result<T, String>` 模板、前置校验、提前 resolve 不变 |
 | `src/types/generated/bindings.ts`（重导） | IPC 类型跟随 | `changeFlowStart` + `autoNextPhase` 参数；`bindings:check` 守卫拦截过期生成物 |

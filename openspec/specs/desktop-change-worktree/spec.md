@@ -181,17 +181,18 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 
 ### Requirement: 版本交付
 
-本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.13` 升级为 `0.4.14`（用户可见新功能；`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`（版本保持 2.10.44 与三类交付产物）。
+本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.13` 升级为 `0.4.14`（用户可见新功能；`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。
 
 #### Scenario: 版本号升级
 
 - **WHEN** 本变更实现完成
-- **THEN** `packages/desktop/package.json` version 为 0.4.14，`plugins/dev-team/package.json` version 仍为 2.10.44
+- **THEN** `packages/desktop/package.json` version 为 0.4.14，`src-tauri/Cargo.toml` 版本不随动
 
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
+| `packages/desktop/package.json` | 版本交付 | 0.4.13 → 0.4.14；`src-tauri/Cargo.toml` 不随动 |
 | `crates/core/foundation`（身份段派生单点，新） | workspace 身份段纯函数 | `{可读段}-{sha256 前 16 字节 32 位 hex}`；仅 workspace db 文件名消费（worktree 落位已解耦）；纯函数可密集测试 |
 | `crates/infra/vcs`（新，裸名 `vcs-runtime`，vcs 边界首成员） | git 工作面进程执行 | `git rev-parse --show-toplevel` 落位派生（git 根同级 `.worktrees/<仓库目录名>/`）/ `git worktree add` / `git status --porcelain` / bootstrap 安装 spawn；PATH 探测前置（沿 bash.rs / static_check 先例）；零 Tauri；→ workflow（port 类型）；foundation 仅测试依赖 |
 | `crates/core/workflow/src/write/`（WorktreePort，新） | 写面 → vcs 执行的进程内缝 | port 定义留消费者（core/workflow）；spawn 不进 core；sync 签名 |

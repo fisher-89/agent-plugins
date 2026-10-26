@@ -160,24 +160,23 @@ desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/cha
 
 1. **工作流类型入参暴露 requirement / test-only**：`workflow_type` 入参仅接受 `phase_table` 命中的两值；bug-fix 等类型随其相位表变更一起开放；
 2. **名称用户输入**：不由 agent 从 goal 派生名称（异步、成本高）；agent 派生留作后续增强；
-3. **仅拒 active 冲突**：与插件 `createChange` parity，归档树同名不拒绝（清单以代际徽标区分）；
+3. **仅拒 active 冲突**：只拒同名 active，归档树同名不拒绝（清单以代际徽标区分）——判据即本 spec 的 `create` 前置规则，MUST NOT 以对偶实现（旧 `createChange`）的 parity 作为依据；
 4. **创建后不自动发起 run**：run 由用户在详情 / flow 视图显式触发；
 5. **goal 无桌面编辑入口**：详情只读渲染；goal 修正走既有文件手改或后续变更；
-6. **插件侧零改动**：`plugins/dev-team` 全部冻结（`change-create.ts`、MCP 工具面、版本 2.10.44、三类交付产物）。
 
 #### Scenario: 边界留痕可考
 
 - **WHEN** 查阅本 spec
-- **THEN** 六条边界均可考，后续变更无需重新论证是否知情
+- **THEN** 五条边界均可考，后续变更无需重新论证是否知情
 
 ### Requirement: 版本交付
 
-本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.0` 升级为 `0.4.1`（用户可见新功能；`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`。
+本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.0` 升级为 `0.4.1`（用户可见新功能；`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。
 
 #### Scenario: 版本号升级
 
 - **WHEN** 本变更实现完成
-- **THEN** `packages/desktop/package.json` version 为 0.4.1，`plugins/dev-team/package.json` version 仍为 2.10.44
+- **THEN** `packages/desktop/package.json` version 为 0.4.1，`src-tauri/Cargo.toml` 版本不随动
 
 ### Requirement: 新建类型选择器
 
@@ -205,7 +204,7 @@ desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/cha
 | `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `createChange` 返回 `CreateOutcome.id` 再生成；`bindings:check` 守卫拦截漂移 |
 | `packages/desktop/src/views/changes/components/change-create-dialog.test.tsx` 同目录 `change-create-dialog.tsx` | 新建对话框 | 名称（kebab-case 本地校验）+ goal 必填；错误行内呈现；成功回调刷新 + 导航 |
 | `packages/desktop/src/views/changes/components/change-create-dialog.tsx` + `change-list-view.tsx` | 成功流转 id 化 | 成功回调以 `outcome.id` 导航 `/changes/<id>`；对话框字段与错误行内呈现不变 |
-| `packages/desktop/package.json` | 版本交付 | 0.4.0 → 0.4.1；`plugins/dev-team` 不动 |
+| `packages/desktop/package.json` | 版本交付 | 0.4.0 → 0.4.1；`src-tauri/Cargo.toml` 不随动 |
 | `crates/core/workflow/src/write/create.rs` 内 workflow.json 初始文档写出段 | **（退役）** | 初始 workflow.json 写出职责随载体退役删除（`persist.rs` raw Value 保形改写退役见 desktop-workflow-write-face） |
 | `crates/core/workflow/src/write/create.rs`（前置八 / 九道，新） | 上限两道执法 | 前置⑧ active 计数（store 读 `list_change_records` 过滤 `status=active`）；前置⑨ `.worktrees/<仓库目录名>/` 直属目录数（fs 扫描，worktree 落位父锚经 `WorktreePort::worktree_root` 派生）；上限常量驻 create 私有（沿 `BOOTSTRAP_LOCKFILE_COMMANDS` / `FEEDBACK_LOOP_LIMIT` 先例，命名 design 定稿）；文案含计数 / 上限 / 引导 |
 | `crates/core/workflow/src/write/create_test.rs` | 拒绝面覆盖 | 第 6 active 拒、8 目录拒、4 active / 7 目录边界通过、文案断言、拒绝面零副作用（⑧ 前拒绝零 vcs 调用；⑨ 门槛道仅落位派生一次） |

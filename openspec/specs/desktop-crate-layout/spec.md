@@ -8,7 +8,7 @@
 
 ### Requirement: packages/desktop 完全独立包落位
 
-桌面端 SHALL 落位为 `packages/desktop`，作为完全独立的包存在：自带 lockfile 与构建脚本，MUST NOT 引入仓库根 `package.json` 或 `pnpm-workspace.yaml`，MUST NOT 进入 `dist/` 插件分发链。CLAUDE.md「改插件源码后 bump `plugins/<name>/package.json` version 并 rebuild 产物」规则 SHALL NOT 适用于 `packages/desktop`。
+桌面端 SHALL 落位为 `packages/desktop`，作为完全独立的包存在：自带 lockfile 与构建脚本，MUST NOT 引入仓库根 `package.json` 或 `pnpm-workspace.yaml`，MUST NOT 进入 `dist/` 分发链（`dist/` 的三份产物目录已随插件退役整体删除，仓库自此只有这一个包）。仓库根曾有的「改插件源码后 bump 插件 `package.json` version 并 rebuild 产物」规则随插件退役整条消失；`packages/desktop` 的版本 bump SHALL 只由「版本交付纪律」（见 desktop-release-pipeline）承载，MUST NOT 由任何产物重建步骤驱动、MUST NOT 要求重建第二份产物。
 
 #### Scenario: 独立包不污染主仓
 
@@ -16,10 +16,11 @@
 - **THEN** 根目录无新增 `package.json` / `pnpm-workspace.yaml`
 - **AND** `dist/` 不含 desktop 产物
 
-#### Scenario: 不受插件 bump 规则约束
+#### Scenario: 版本 bump 只走桌面发版纪律
 
 - **WHEN** `packages/desktop` 源码变更
-- **THEN** 无任何 `plugins/<name>/package.json` 版本 bump 或 rebuild 步骤被要求
+- **THEN** 只需 `packages/desktop/package.json` patch 版本 +1（`tauri.conf.json` 跟随、`src-tauri/Cargo.toml` 不随动）
+- **AND** 无任何第三方产物 bump 或 rebuild 步骤被要求（仓库内不存在第二个可分发包）
 
 ### Requirement: crate 三层分组与依赖规则
 
@@ -231,7 +232,9 @@ infra crate 声明平台 API 绑定依赖时 SHALL 落 `[target.'<cfg>'.dependen
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `packages/desktop`（包） | 独立桌面应用 | 自带 lockfile / 构建脚本；不进根 workspace、不进 `dist/` |
+| `packages/desktop`（包） | 仓库内唯一可分发包 | 自带 lockfile 与构建脚本；不进仓库根 workspace；不进 `dist/` 分发链（`dist/` 三份产物目录已随插件退役删除） |
+| `packages/desktop/src-tauri/Cargo.toml` | cargo workspace 三层分组 | core / infra / desktop-app 三层依赖方向不变；`crates/core/config/config.schema.json` 为 crate 内资产（不入 bundle） |
+| `packages/desktop/package.json` | 版本权威 | patch +1 纪律（见 desktop-release-pipeline「版本交付纪律」）；MUST NOT 由产物重建驱动 |
 | `crates/core/foundation` | 共享地基（今天仅 layout） | 无 workspace 内依赖；第二消费者出现才下沉新能力 |
 | `crates/core/workflow` | change 域纯读库 | 依赖 foundation；零 Tauri 依赖；无指令概念；不依赖 store |
 | `crates/core/agent`（裸名 `agent`） | agent 域中立契约 | 零 Tauri、零 spawn、零 workspace 内依赖、derive-free；不认识 claude；被 `agent-runtime` 与 `store` 双向消费（契约 / 嵌装载荷） |

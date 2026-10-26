@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 desktop change 详情页的 react-flow 流程图视图：attempt 级两分类节点（eval / active）、9 列手工坐标布局、时间序边推导、过程素材两层挂载、右侧抽屉单一交互入口与建档单态呈现；转换层为纯函数、渲染薄层复用 react-flow v12。
+定义 desktop change 详情页的 react-flow 流程图视图：单分类 runtime step 节点（eval / active 相位节点已退役）、10 列手工坐标布局、时间序边推导、过程素材两层挂载、右侧抽屉单一交互入口与建档单态呈现；转换层为纯函数、渲染薄层复用 react-flow v12。
 
 ## Requirements
 
@@ -13,7 +13,7 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 - **runtime step 节点**：按后端稳定身份键 `(phase, attempt, step, instanceNo)` 直渲染，running 态 pulse、failed 红态、stopped 灰态、passed 常态；
 - **eval / active 相位节点整体退役**：`collectEvals` / `collectActive` / `mergeByStartAt` / `anchorMs` 删除，`sequence = [...runNodes]`；运行中由 running 态 runtime 节点承载；header Badge 仍读 `detail.activePhase`（保留，仅移除图上 active 节点）。
 
-`interrupted[]` 留档 SHALL 保持不上图：读模型（Rust `Workflow` / `ChangeDetail`）MUST NOT 解析该字段，前端节点模型 MUST NOT 保留 interrupted 词汇（`FlowNodeKind` 概念整体退役，前端节点类型单一为 `runtime`）；磁盘上既有 `workflow.json` 的 `interrupted[]` 数据 SHALL 原样保留（serde 未知字段忽略），MUST NOT 迁移或清除，写入方（插件 CLI）MUST NOT 因本变更改动。相位列序 SHALL 以 `detail.pipeline` 出线序为准（requirement 10 列、test-only 7 列，initialize 为首列），不依赖 eval 排列、不依赖前端 `PIPELINE_PHASES` 常量。
+`interrupted[]` 留档 SHALL 保持不上图：读模型（Rust `Workflow` / `ChangeDetail`）MUST NOT 解析该字段，前端节点模型 MUST NOT 保留 interrupted 词汇（`FlowNodeKind` 概念整体退役，前端节点类型单一为 `runtime`）；磁盘上既有 `workflow.json` 的 `interrupted[]` 数据 SHALL 原样保留（serde 未知字段忽略），MUST NOT 迁移或清除；外部写入方（插件期 CLI 工作流）已随插件退役删除，本条的冻结面 MUST NOT 因「兼容外部写入方」而解锁。相位列序 SHALL 以 `detail.pipeline` 出线序为准（requirement 10 列、test-only 7 列，initialize 为首列），不依赖 eval 排列、不依赖前端 `PIPELINE_PHASES` 常量。
 
 #### Scenario: 两分类节点呈现
 
@@ -39,6 +39,12 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 
 - **WHEN** 某 change run 运行至 implement 相位（含 active_phase 残留）
 - **THEN** 当前执行位置的 runtime step 节点呈 pulse 运行态，图上无独立 active 节点；header Badge 仍读 `detail.activePhase` 呈现「运行中 · implement · attempt N」
+
+#### Scenario: 冻结面不因写入方消失而解锁
+
+- **WHEN** 审查 `interrupted[]` 的读模型与前端节点模型
+- **THEN** 读模型仍 MUST NOT 解析该字段，前端节点模型仍 MUST NOT 保留 interrupted 词汇
+- **AND** 无「为兼容外部写入方保留解析面 / 保留 schema 对齐」类断言或注释（写入方随插件退役）
 
 ### Requirement: 10 列手工坐标布局
 
@@ -603,10 +609,10 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src/views/changes/flow/session-transcript-panel.tsx` | 抽屉单列会话面 | `SessionTranscriptPanel` 入参 `root` / `roleRef` / `refreshKey?`（会话状态重评估信号）：`roleRef.sessionId` 直查 + `AgentSessionView` 只读渲染（无 composer）；槽位缺席呈空态占位且零订阅；`SessionMeta`（`summary` / `running`）自组件状态读取，不再自带查询 |
 | `packages/desktop/src/views/changes/hooks/use-change-detail.ts`（通知键） | 转录专用去抖退役 | `notifyTranscript` / `transcriptTick`（150ms 去抖重查键）删除；会话事件通知改走统一视图重查 tick（组件据 `refreshKey` 重评估会话状态）；`notifyRefresh`（300ms 尾随去抖 + 有界重试）语义不动 |
 | `packages/desktop/src/views/changes/flow/run-step-node.tsx` + `change-flow-graph.tsx` | 查看会话入口下线 | `onOpenSession` prop 与按钮删除；节点点击即抽屉联动，无独立会话 route |
-| `packages/desktop/src/views/changes/flow/types.ts` + `graph.ts` + `flow-event-node.tsx` + `attachments.ts` | interrupted 前端词汇清除 | `FlowNodeKind` 收敛 `'eval' | 'active'`；`collectInterrupted` / `InterruptedBody` / dashed 分支删；`NODE_PRECEDENCE` 收敛 `['eval', 'active']` |
+| `packages/desktop/src/views/changes/flow/types.ts` + `graph.ts` + `flow-event-node.tsx` + `attachments.ts` | 前端节点词汇 | 节点类型单一 `runtime`；interrupted 词汇不回归（写入方消失不构成解锁理由） |
 | `packages/desktop/src-tauri/crates/core/workflow/src/model/workflow.rs` + `parse/workflow_file.rs` | 磁盘读模型停解析（parse 模块已整体退役删除） | `InterruptedEntry` 等磁盘读模型随 parse 退役删除（见 desktop-change-orchestration 与 desktop-change-state-store）；存量 workflow.json 原样留档零触碰 |
 | `packages/desktop/src-tauri/crates/core/workflow/tests/golden/*.json` + `tests/corpus_golden_test.rs` | golden 显式重写 | detail 线面 golden 按冻结契约的显式重写流程更新（v2-b 含实数据）；`interruptedCount` 投影随动删除 |
-| 磁盘形状与写入方（不改） | 零触点 | `workflow.json` 的 `interrupted[]` 原样保留；TS `workflow.schema.ts` 与插件 CLI 写入方不动 |
+| `workflow.json` 的 `interrupted[]` 字段（磁盘留档） | 历史数据 | 原样保留：不迁移、不清除、不解析；自此纯留档，无写入方 |
 | 图结构与取数模型（不改） | 零触点 | `PIPELINE_PHASES` 布局、边推导、显式刷新 + Channel 例外口径不变 |
 | `packages/desktop/src/views/changes/flow/run-state.ts` | 词归一单点 | `normalizeKind` / `stepWord` 补 `cleanup` ↔ `cleanup`；`cleanup` 归 git 分类 |
 | `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 节点呈现 | `STEP_LABEL` 补 cleanup 词条；detail 面呈现清理警告 / 跳过注记（节点恒 passed） |

@@ -124,21 +124,48 @@ RELEASE.md SHALL 更新为双平台分发说明：mac 首次安装 SHALL 记录 
 
 ### Requirement: 版本交付
 
-本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.29` 升级为 `0.4.30`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`（版本保持 2.10.44 与三类交付产物）。
+本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.29` 升级为 `0.4.30`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。
 
 #### Scenario: 版本号升级
 
 - **WHEN** 本变更实现完成
-- **THEN** `packages/desktop/package.json` version 为 0.4.30，`plugins/dev-team/package.json` version 仍为 2.10.44
+- **THEN** `packages/desktop/package.json` version 为 0.4.30，`src-tauri/Cargo.toml` 版本不随动
+
+### Requirement: 版本交付纪律
+
+仓库只有 `packages/desktop` 一个可分发包，版本交付 SHALL 按单包纪律执行，MUST NOT 存在第二个包的 bump / rebuild 步骤：
+
+- 每次桌面源码变更 SHALL 在同一变更内把 `packages/desktop/package.json` 的 patch 版本 +1；
+- `src-tauri/tauri.conf.json` 的 `version` SHALL 维持对 `../package.json` 的引用（自动跟随），MUST NOT 手写固定版本；
+- `src-tauri/Cargo.toml` 的版本 MUST NOT 随包版本 bump 而动（crate 版本线独立）；
+- 发版 SHALL 经 `.github/workflows/desktop-release.yml` 的 detect（版本比较 → `should` → tag）→ build matrix → finalize 链闭合；不 bump 版本时 `should=false` 自动跳过，MUST NOT 手工造 tag。
+
+#### Scenario: 单包 bump 一步到位
+
+- **WHEN** 某变更改动了 `packages/desktop` 的源码或资产
+- **THEN** 该变更内 `packages/desktop/package.json` patch 版本 +1，`tauri.conf.json` 仍引用 `../package.json`，`src-tauri/Cargo.toml` 版本不变
+- **AND** 仓库内无第二份需同步 bump 或重建的产物
+
+#### Scenario: 本变更的版本实例
+
+- **WHEN** 本变更（退役仓库内插件层）实现完成
+- **THEN** `packages/desktop/package.json` 由 `0.5.30` 升级为 `0.5.31`，`src-tauri/Cargo.toml` 版本不随动
+
+#### Scenario: 不 bump 即不触发发版
+
+- **WHEN** 变更只动文档 / 语料等不影响包版本的内容且未 bump 版本
+- **THEN** `desktop-release.yml` 的 detect 判定 `should=false` 并跳过 build / finalize（无 tag、无发布）
 
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `.github/workflows/desktop-release.yml` | 发版流水线载体 | detect（版本比较 + tag 前移）→ build matrix（win nsis / mac dmg）→ finalize（latest.json 权威合并）；单 workflow 闭合；`permissions: contents: write` 与 `concurrency: group desktop-release` 保持 |
+| `.github/workflows/desktop-release.yml` | 发版流水线载体 | detect（版本比较 + tag 前移）→ build matrix（win nsis / mac dmg）→ finalize（latest.json 权威合并）；单 workflow 闭合；`permissions: contents: write` 与 `concurrency: group desktop-release` 保持；不 bump 版本时自动跳过；`packages/desktop/**` 内新增非源码资产（如 `crates/core/config/config.schema.json`）只影响 detect 输入面，不改流水线语义 |
 | `detect` job | 版本 gate + tag 创建 | 读 package.json 版本 → 与 `releases/latest` tag 比对（`desktop-v` 前缀剥离 + 格式过滤）→ `should`；`force` 跳过比较；tag 已存在跳过创建 |
 | `build` job（matrix） | 双平台产物 | `windows-latest --bundles nsis` / `macos-latest --bundles dmg`；tauri-action `tagName` / `releaseName` / `projectPath` 语义不变；签名 env 按腿分流 |
 | `finalize` job | latest.json 权威归属 | 合并双腿 `platforms`（幂等覆盖 / 容忍缺腿）→ 上传权威版本；tauri-action 内置合并时退化为校验 |
-| `src-tauri/tauri.conf.json` | 打包配置 | `bundle.icon` 补 icns/png；`version` / `targets` / `createUpdaterArtifacts` / `plugins.updater` 不变 |
+| `packages/desktop/package.json` | 唯一版本权威 | patch +1 纪律；本变更实例 `0.5.30 → 0.5.31` |
+| `src-tauri/tauri.conf.json` | 打包配置 | `bundle.icon` 补 icns/png；`version` 恒为 `../package.json` 引用（MUST NOT 手写固定值）；`targets` / `createUpdaterArtifacts` / `plugins.updater` 不变 |
+| `src-tauri/Cargo.toml` | crate 版本线 | 不随包版本 bump 而动 |
 | `src-tauri/icons/` | 图标资产 | 纯色源 PNG → `pnpm tauri icon` 生成 ico/icns/png 全套 |
 | `RELEASE.md` | 双平台发版文档 | mac 右键打开 + 手动升级路径；Windows 更新链路说明保持 |

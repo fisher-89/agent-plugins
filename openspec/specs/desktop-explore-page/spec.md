@@ -91,7 +91,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 ### Requirement: 会话链与 stance 前导
 
-每个 explore SHALL 对应一条会话链（同一 session 的轮序列即链，按 `started_at` 有序）：打开详情页 SHALL 以记录字段 `ExploreRecord.session_id`（归属 agent 会话 id，建档同事务预建空会话并回写；存量记录经 `ensure_explore_session` 归位补齐）**直查** `session_detail(root, sessionId)` 并重放落库事件还原全部历史；会话尚无轮（建档预建的空会话）则下次发送即其首轮（Continue 开轮，不新铸会话）。按 `source="explore"` + `source_ref` 反查定位链头并沿 `parent_run_id` 回溯的路径 SHALL 退役（前端不再经来源反查会话）。MVP MUST NOT 提供「新会话」动作。发送时 SHALL 将 desktop 内置的精简 explore stance 前导模板拼接进首轮 prompt 头部（模板归属 desktop 包，注释与 `plugins/dev-team/skills/openspec-explore/SKILL.md` 双源互链）。stance 前导 SHALL 按记录定名状态分两形（判别 = `name` 是否 `draft-` 前缀，前端侧）：
+每个 explore SHALL 对应一条会话链（同一 session 的轮序列即链，按 `started_at` 有序）：打开详情页 SHALL 以记录字段 `ExploreRecord.session_id`（归属 agent 会话 id，建档同事务预建空会话并回写；存量记录经 `ensure_explore_session` 归位补齐）**直查** `session_detail(root, sessionId)` 并重放落库事件还原全部历史；会话尚无轮（建档预建的空会话）则下次发送即其首轮（Continue 开轮，不新铸会话）。按 `source="explore"` + `source_ref` 反查定位链头并沿 `parent_run_id` 回溯的路径 SHALL 退役（前端不再经来源反查会话）。MVP MUST NOT 提供「新会话」动作。发送时 SHALL 将 desktop 内置的精简 explore stance 前导模板拼接进首轮 prompt 头部（模板归属 desktop 包，注释自持单源——原双源对端的插件 `skills/openspec-explore/SKILL.md` 已随插件退役删除）。stance 前导 SHALL 按记录定名状态分两形（判别 = `name` 是否 `draft-` 前缀，前端侧）：
 
 - **命名指令形（占位记录）**：指引 agent 生成 kebab 最终名并经 `create_explore_note(name, content)` 原子定名落盘（引擎侧契约见 desktop-agent-execution「会话级工具面注入与 explore 笔记工具」）；MUST NOT 插值笔记文件路径（路径知识归工具描述与返回值）；含「优先用专用工具而非 bash 造文件」软约束；
 - **笔记定位形（已定名记录）**：插值当前 `record.name` 与笔记路径，指引用 `edit` 修改笔记、文件缺失时以 `create_explore_note` 同名补建。
@@ -117,6 +117,12 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 - **WHEN** 查看任一 explore 发起 run 的 prompt 原文
 - **THEN** stance 前导含「推算变更类型并写约定标记行」约定与判断标准（补测试 / 生成测试用例 → test-only，否则 requirement）；调试页发起的 run prompt 不含该约定
+
+#### Scenario: stance 模板单源自持
+
+- **WHEN** 审查 `src/lib/explore-stance.ts` 的注释头与 stance 前导文本来源
+- **THEN** 注释只声明 desktop 包自持单源，MUST NOT 声明与插件 `skills/openspec-explore/SKILL.md` 双源互链或要求「插件源变更走版本 bump + 重建」
+- **AND** stance 两形文本与既有注入行为零变化（只改溯源表述）
 
 ### Requirement: 免命名定名与改名感知
 
@@ -251,8 +257,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 | `views/explores/components/`（新：composer / 预览 / 新建对话框；`explore-conversation.tsx` 已删） | 呈现件 | 对话区由 `components/agent/AgentSessionView` 承载（私有渲染实现收编，用例随迁组件族测试）；`ExploreComposer`（`running` / `onSend` / `onStop`，testid 前缀 `explore-*`）为 `AgentInput` 薄适配，经 composer 插槽注入；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
 | `views/explores/components/explore-create-dialog.tsx`（改） | 新建对话框 | TopicEntry 改需求 textarea（`name = null` invoke；空白禁提交；`isKebabCase` 校验退役）；ImportEntry 显式名 invoke；onCreated 携占位名 + 需求回调 |
 | `views/explores/hooks/use-explore-session.ts`（改） | 会话链与刷新编排 | `useExploreSession(root, record, autoPrompt?) => { sessionId, session, send, stop, ... }`；改走 `useAgentSession`（重放装载 + 链参数经 body 穿透）；stance 文本组装与 auto-send 闸门留本 hook（来源侧），首轮 stance 分形调用（占位 → 命名指令形 / 已定名 → 定位形）与三条件 auto-send effect 语义不变；会话 id 经记录回写 / `ensureExploreSession` 补齐后交组件挂流；watch 信号防抖 → `read_explore` 显式刷新 |
-| `packages/desktop/src/lib/explore-stance.ts`（新） | stance 前导模板 | `buildExplorePrompt` 两形（占位命名指令形 / 已定名笔记定位形）拼接进 explore run prompt 头部；与 SKILL.md 双源注释互链 |
-| `plugins/dev-team/skills/openspec-explore/SKILL.md` | 笔记落盘约定文档 | 约定随工具化改写（`create_explore_note` 定名 + Edit 维护；双源同步；插件源变更走版本 bump + 重建） |
+| `packages/desktop/src/lib/explore-stance.ts`（新） | stance 前导模板 | `buildExplorePrompt` 两形（占位命名指令形 / 已定名笔记定位形）拼接进 explore run prompt 头部；注释**单源自持**（双源互链表述随插件退役删除） |
 | `routes.tsx` + `components/app-sidebar.tsx` | 路由与导航 | `/explores`、`/explores/:name`；`nav-explores` 入口（active 由 URL 派生） |
 | `types/dto.ts` | 前端 DTO | `ExploreRecord` / 导入扫描结果，与 store 自有类型一一对应 |
 | `views/explores/hooks/use-explore-list.ts`（零改动面） | 清单取数与动作 | 取数与动作面零改：`ExploreListState` 形状不变，分组不在 hook 内派生 |

@@ -170,12 +170,12 @@ archive 相位 SHALL 是 run 状态机的一部分（第 11 个路由相位）�
 
 ### Requirement: 版本交付
 
-本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.36` 升级为 `0.4.37`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`（版本保持 `2.10.44`；CLI skill 的下线处置另行变更承载，本变更仅在 spec / prompt 面摘除对其的语义依赖）。
+本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.36` 升级为 `0.4.37`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。
 
-#### Scenario: 版本号升级与插件零改动
+#### Scenario: 版本号升级
 
 - **WHEN** 本变更实现完成
-- **THEN** `packages/desktop` version 为 0.4.37 且 `src-tauri/Cargo.toml` 版本不随动；`plugins/dev-team` version 仍为 2.10.44，SKILL.md 原文未动
+- **THEN** `packages/desktop` version 为 0.4.37 且 `src-tauri/Cargo.toml` 版本不随动
 
 ### Requirement: Cleanup 步与 worktree 自动清理
 
@@ -210,6 +210,7 @@ archive 相位 SHALL 在 SpecSync 步之后、Seal 步之前执行 `Cleanup` 步
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
+| `packages/desktop/package.json` | 版本交付 | 0.4.36 → 0.4.37；`src-tauri/Cargo.toml` 不随动 |
 | `crates/core/orchestration/src/archive_flow.rs`（键与 provenance） | 归档链 id 寻址 | `ArchiveControl` / `ArchiveRequest` / `ArchiveGuard` 键 `(root, change)` → `(root, id)`；分支判定 `change/<name>` 与 prompt 内文经 id → 记录 → name 供给（git 面零改名）；阶段序固定（校验 → worktree 提交 → 主仓合入（重放 → 冲突 agent 循环 → 快进）→ spec 同步 → 双写收口 → 落盘提交）；提交段跳过依据仅干净探测（可达性不构成跳过分支）；每阶段幂等可重入；失败停该阶段显式呈现；复用 WorkerAgentPort（spec 同步 + 解冲突两会话面）；零 run 事件面；依赖方向 orchestration → workflow 不变 |
 | `crates/core/orchestration/src/archive_flow.rs`（agent 两会话） | provenance 身份段换锚 | spec 同步 `source_ref=<id>/archive/spec-sync`、解冲突 `source_ref=<id>/archive/merge-conflict`（形不变、身份段 id；prompt 内文仍插值 name） |
 | `crates/core/orchestration/src/port.rs`（ArchiveVcsPort） | 归档链 → vcs 执行的进程内缝 | 消费者 = 归档链；spawn 不进 core，进程执行驻 infra/vcs；方法族 = `rebase_branch`（worktree 重放）/ `ff_merge`（主仓 ff-only 快进）/ `rebase_continue`（链代续走，多停循环）/ `rebase_abort`（lean 收口）/ `worktree_snapshot`（REBASE_HEAD 在场性 A/B 快照）+ 脏探测 / 全域提交 / 已合入判定 / pathspec 提交；`Err` 面带引导文案 |
