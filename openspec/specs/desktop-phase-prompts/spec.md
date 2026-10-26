@@ -2,7 +2,7 @@
 
 ## Purpose
 
-桌面相位角色知识集中地：`core/workflow/src/prompts/` 下 14 个全静态 md（6 executor + 8 evaluator）作为 executor / evaluator 会话 prompt 主体的单一真源。每文件 = 角色自述 + 阶段要求 + checklist，全静态零占位；经 `phase_table.rs` 编译期 `include_str!` 显式字面路径装配（无 `<role>` 间接读取）；迁移是对插件 `plugins/dev-team/agents/*.md` 的改写而非搬运——按桌面端特性（七工具 / cwd=workspace root / change 名走上下文头 / 静态脚本外置）适配。
+桌面相位角色知识集中地：`core/workflow/src/prompts/` 下 16 个全静态 md（7 executor + 9 evaluator，含 code-analyze 两份）作为 executor / evaluator 会话 prompt 主体的单一真源。每文件 = 角色自述 + 阶段要求 + checklist，全静态零占位；经 `phase_table.rs` 编译期 `include_str!` 显式字面路径装配（无 `<role>` 间接读取）；文本为桌面端自持——按桌面端特性（七工具 / cwd=workspace root / change 名走上下文头 / 静态脚本外置）撰写与维护。
 
 ## Requirements
 

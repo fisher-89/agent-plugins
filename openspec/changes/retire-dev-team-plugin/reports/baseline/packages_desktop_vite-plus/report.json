@@ -1,0 +1,1641 @@
+{
+  "framework": "vite-plus",
+  "root": "packages/desktop",
+  "timestamp": "2026-10-26T04:11:36.0367273Z",
+  "exit_code": 0,
+  "duration_ms": 51061.0,
+  "summary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\app.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 12,
+        "covered_lines": 12,
+        "total_branches": 18,
+        "covered_branches": 18,
+        "total_functions": 4,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\agent\\agent-blocks.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 97.82,
+        "functions": 100.0,
+        "total_lines": 29,
+        "covered_lines": 29,
+        "total_branches": 46,
+        "covered_branches": 45,
+        "total_functions": 14,
+        "covered_functions": 14
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\agent\\agent-error.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 89.65,
+        "functions": 100.0,
+        "total_lines": 41,
+        "covered_lines": 41,
+        "total_branches": 58,
+        "covered_branches": 52,
+        "total_functions": 14,
+        "covered_functions": 14
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\agent\\agent-input.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 92.85,
+        "functions": 100.0,
+        "total_lines": 13,
+        "covered_lines": 13,
+        "total_branches": 14,
+        "covered_branches": 13,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\agent\\agent-messages.tsx",
+      "coverage": {
+        "lines": 98.27,
+        "branches": 92.15,
+        "functions": 100.0,
+        "total_lines": 58,
+        "covered_lines": 57,
+        "total_branches": 51,
+        "covered_branches": 47,
+        "total_functions": 19,
+        "covered_functions": 19
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\agent\\agent-session-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 14,
+        "covered_lines": 14,
+        "total_branches": 36,
+        "covered_branches": 36,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\agent\\index.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 0,
+        "covered_lines": 0,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\agent\\tool-cards.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 85.71,
+        "functions": 100.0,
+        "total_lines": 14,
+        "covered_lines": 14,
+        "total_branches": 14,
+        "covered_branches": 12,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\app-sidebar.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 18,
+        "covered_lines": 18,
+        "total_branches": 14,
+        "covered_branches": 14,
+        "total_functions": 11,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\standard\\dailog.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 6,
+        "covered_lines": 6,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\standard\\drawer.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 3,
+        "covered_branches": 3,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\standard\\hooks\\use-open.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 9,
+        "covered_lines": 9,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\standard\\pagination.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 89.47,
+        "functions": 100.0,
+        "total_lines": 14,
+        "covered_lines": 14,
+        "total_branches": 19,
+        "covered_branches": 17,
+        "total_functions": 7,
+        "covered_functions": 7
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\standard\\select.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\badge.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 1,
+        "covered_branches": 1,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\button.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\dialog.tsx",
+      "coverage": {
+        "lines": 90.0,
+        "branches": 83.33,
+        "functions": 90.0,
+        "total_lines": 10,
+        "covered_lines": 9,
+        "total_branches": 6,
+        "covered_branches": 5,
+        "total_functions": 10,
+        "covered_functions": 9
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\drawer.tsx",
+      "coverage": {
+        "lines": 86.36,
+        "branches": 68.42,
+        "functions": 84.61,
+        "total_lines": 22,
+        "covered_lines": 19,
+        "total_branches": 19,
+        "covered_branches": 13,
+        "total_functions": 13,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\dropdown-menu.tsx",
+      "coverage": {
+        "lines": 46.66,
+        "branches": 55.55,
+        "functions": 46.66,
+        "total_lines": 15,
+        "covered_lines": 7,
+        "total_branches": 9,
+        "covered_branches": 5,
+        "total_functions": 15,
+        "covered_functions": 7
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\field.tsx",
+      "coverage": {
+        "lines": 20.83,
+        "branches": 7.14,
+        "functions": 30.76,
+        "total_lines": 24,
+        "covered_lines": 5,
+        "total_branches": 14,
+        "covered_branches": 1,
+        "total_functions": 13,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\hover-card.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\input.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\label.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\message-scroller.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 90.0,
+        "functions": 100.0,
+        "total_lines": 7,
+        "covered_lines": 7,
+        "total_branches": 10,
+        "covered_branches": 9,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\message.tsx",
+      "coverage": {
+        "lines": 33.33,
+        "branches": 100.0,
+        "functions": 33.33,
+        "total_lines": 6,
+        "covered_lines": 2,
+        "total_branches": 1,
+        "covered_branches": 1,
+        "total_functions": 6,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\pagination.tsx",
+      "coverage": {
+        "lines": 57.14,
+        "branches": 0.0,
+        "functions": 57.14,
+        "total_lines": 7,
+        "covered_lines": 4,
+        "total_branches": 7,
+        "covered_branches": 0,
+        "total_functions": 7,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\progress.tsx",
+      "coverage": {
+        "lines": 60.0,
+        "branches": 100.0,
+        "functions": 60.0,
+        "total_lines": 5,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 5,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\resizable.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\scroll-area.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 1,
+        "covered_branches": 1,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\select.tsx",
+      "coverage": {
+        "lines": 70.0,
+        "branches": 100.0,
+        "functions": 66.66,
+        "total_lines": 10,
+        "covered_lines": 7,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 9,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\separator.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 1,
+        "covered_branches": 1,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\sidebar.tsx",
+      "coverage": {
+        "lines": 68.57,
+        "branches": 66.66,
+        "functions": 51.51,
+        "total_lines": 70,
+        "covered_lines": 48,
+        "total_branches": 48,
+        "covered_branches": 32,
+        "total_functions": 33,
+        "covered_functions": 17
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\skeleton.tsx",
+      "coverage": {
+        "lines": 0.0,
+        "branches": 100.0,
+        "functions": 0.0,
+        "total_lines": 1,
+        "covered_lines": 0,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\sonner.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\spinner.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\table.tsx",
+      "coverage": {
+        "lines": 75.0,
+        "branches": 100.0,
+        "functions": 75.0,
+        "total_lines": 8,
+        "covered_lines": 6,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 8,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\tabs.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 6,
+        "covered_lines": 6,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 4,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\textarea.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\components\\ui\\tooltip.tsx",
+      "coverage": {
+        "lines": 75.0,
+        "branches": 80.0,
+        "functions": 75.0,
+        "total_lines": 4,
+        "covered_lines": 3,
+        "total_branches": 5,
+        "covered_branches": 4,
+        "total_functions": 4,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\hooks\\use-agent-session.ts",
+      "coverage": {
+        "lines": 99.38,
+        "branches": 97.59,
+        "functions": 95.0,
+        "total_lines": 163,
+        "covered_lines": 162,
+        "total_branches": 83,
+        "covered_branches": 81,
+        "total_functions": 40,
+        "covered_functions": 38
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\hooks\\use-updater.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 85.0,
+        "functions": 100.0,
+        "total_lines": 46,
+        "covered_lines": 46,
+        "total_branches": 20,
+        "covered_branches": 17,
+        "total_functions": 13,
+        "covered_functions": 13
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\hooks\\use-workspaces.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 90.0,
+        "functions": 100.0,
+        "total_lines": 46,
+        "covered_lines": 46,
+        "total_branches": 10,
+        "covered_branches": 9,
+        "total_functions": 13,
+        "covered_functions": 13
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\lib\\agent-adapter.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 99.17,
+        "functions": 100.0,
+        "total_lines": 138,
+        "covered_lines": 138,
+        "total_branches": 121,
+        "covered_branches": 120,
+        "total_functions": 35,
+        "covered_functions": 35
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\lib\\agent-transport.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 96.1,
+        "functions": 100.0,
+        "total_lines": 107,
+        "covered_lines": 107,
+        "total_branches": 77,
+        "covered_branches": 74,
+        "total_functions": 27,
+        "covered_functions": 27
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\lib\\explore-groups.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\lib\\explore-stance.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 7,
+        "covered_lines": 7,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\lib\\explore-title.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 83.33,
+        "functions": 100.0,
+        "total_lines": 6,
+        "covered_lines": 6,
+        "total_branches": 6,
+        "covered_branches": 5,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\lib\\explore-workflow-type.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 8,
+        "covered_lines": 8,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\lib\\parse.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 7,
+        "covered_branches": 7,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\routes.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\types\\generated\\bindings.ts",
+      "coverage": {
+        "lines": 97.87,
+        "branches": 100.0,
+        "functions": 98.0,
+        "total_lines": 47,
+        "covered_lines": 46,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 50,
+        "covered_functions": 49
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agent\\agent-debug-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 15,
+        "covered_lines": 15,
+        "total_branches": 12,
+        "covered_branches": 12,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agent\\components\\agent-raw-stream.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agent\\components\\agent-run-form.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 14,
+        "covered_lines": 14,
+        "total_branches": 8,
+        "covered_branches": 8,
+        "total_functions": 10,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agent\\components\\agent-run-history.tsx",
+      "coverage": {
+        "lines": 82.6,
+        "branches": 88.88,
+        "functions": 91.66,
+        "total_lines": 23,
+        "covered_lines": 19,
+        "total_branches": 36,
+        "covered_branches": 32,
+        "total_functions": 12,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agent\\hooks\\use-agent-options.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 83.33,
+        "functions": 100.0,
+        "total_lines": 17,
+        "covered_lines": 17,
+        "total_branches": 6,
+        "covered_branches": 5,
+        "total_functions": 7,
+        "covered_functions": 7
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agent\\hooks\\use-agent-run-history.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 48,
+        "covered_lines": 48,
+        "total_branches": 10,
+        "covered_branches": 10,
+        "total_functions": 18,
+        "covered_functions": 18
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agents\\agents-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agents\\components\\agent-panel.tsx",
+      "coverage": {
+        "lines": 92.85,
+        "branches": 89.47,
+        "functions": 88.57,
+        "total_lines": 56,
+        "covered_lines": 52,
+        "total_branches": 38,
+        "covered_branches": 34,
+        "total_functions": 35,
+        "covered_functions": 31
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agents\\components\\masked-api-key.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agents\\components\\provider-panel.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 96.96,
+        "functions": 100.0,
+        "total_lines": 64,
+        "covered_lines": 64,
+        "total_branches": 66,
+        "covered_branches": 64,
+        "total_functions": 33,
+        "covered_functions": 33
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agents\\hooks\\use-agent-instances.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 50.0,
+        "functions": 100.0,
+        "total_lines": 43,
+        "covered_lines": 43,
+        "total_branches": 4,
+        "covered_branches": 2,
+        "total_functions": 11,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\agents\\hooks\\use-agent-providers.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 50.0,
+        "functions": 100.0,
+        "total_lines": 36,
+        "covered_lines": 36,
+        "total_branches": 4,
+        "covered_branches": 2,
+        "total_functions": 10,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\agent\\change-chat-composer.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\agent\\change-chat-panel.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 15,
+        "covered_lines": 15,
+        "total_branches": 21,
+        "covered_branches": 21,
+        "total_functions": 10,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\agent\\hooks\\use-change-chat.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 97.22,
+        "functions": 100.0,
+        "total_lines": 75,
+        "covered_lines": 75,
+        "total_branches": 36,
+        "covered_branches": 35,
+        "total_functions": 20,
+        "covered_functions": 20
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\change-detail-view.tsx",
+      "coverage": {
+        "lines": 95.65,
+        "branches": 87.27,
+        "functions": 96.29,
+        "total_lines": 69,
+        "covered_lines": 66,
+        "total_branches": 55,
+        "covered_branches": 48,
+        "total_functions": 27,
+        "covered_functions": 26
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\change-list-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 15,
+        "covered_lines": 15,
+        "total_branches": 25,
+        "covered_branches": 25,
+        "total_functions": 10,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\components\\change-create-dialog.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 35,
+        "covered_lines": 35,
+        "total_branches": 9,
+        "covered_branches": 9,
+        "total_functions": 16,
+        "covered_functions": 16
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\attachments.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 96.55,
+        "functions": 100.0,
+        "total_lines": 22,
+        "covered_lines": 22,
+        "total_branches": 29,
+        "covered_branches": 28,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\change-flow-graph.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 92.85,
+        "functions": 100.0,
+        "total_lines": 20,
+        "covered_lines": 20,
+        "total_branches": 14,
+        "covered_branches": 13,
+        "total_functions": 12,
+        "covered_functions": 12
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\detail-drawer.tsx",
+      "coverage": {
+        "lines": 96.42,
+        "branches": 90.24,
+        "functions": 91.66,
+        "total_lines": 28,
+        "covered_lines": 27,
+        "total_branches": 41,
+        "covered_branches": 37,
+        "total_functions": 12,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\graph.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 90.9,
+        "functions": 100.0,
+        "total_lines": 28,
+        "covered_lines": 28,
+        "total_branches": 22,
+        "covered_branches": 20,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\layout.ts",
+      "coverage": {
+        "lines": 97.14,
+        "branches": 50.0,
+        "functions": 100.0,
+        "total_lines": 35,
+        "covered_lines": 34,
+        "total_branches": 14,
+        "covered_branches": 7,
+        "total_functions": 11,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\metrics.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 17,
+        "covered_lines": 17,
+        "total_branches": 20,
+        "covered_branches": 20,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\phase-column-node.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\run-control-panel.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 92.45,
+        "functions": 100.0,
+        "total_lines": 49,
+        "covered_lines": 49,
+        "total_branches": 53,
+        "covered_branches": 49,
+        "total_functions": 25,
+        "covered_functions": 25
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\run-state.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 87.5,
+        "total_lines": 54,
+        "covered_lines": 54,
+        "total_branches": 59,
+        "covered_branches": 59,
+        "total_functions": 16,
+        "covered_functions": 14
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\run-step-node.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 31,
+        "covered_lines": 31,
+        "total_branches": 32,
+        "covered_branches": 32,
+        "total_functions": 10,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\session-transcript-panel.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 7,
+        "covered_lines": 7,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\flow\\stdout-panel.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\hooks\\use-change-detail.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 112,
+        "covered_lines": 112,
+        "total_branches": 54,
+        "covered_branches": 54,
+        "total_functions": 31,
+        "covered_functions": 31
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\hooks\\use-change-flow-run.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 94.11,
+        "total_lines": 41,
+        "covered_lines": 41,
+        "total_branches": 25,
+        "covered_branches": 25,
+        "total_functions": 17,
+        "covered_functions": 16
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\hooks\\use-change-list.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 24,
+        "covered_lines": 24,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 7,
+        "covered_functions": 7
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\hooks\\use-exec-output.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 84.61,
+        "functions": 100.0,
+        "total_lines": 24,
+        "covered_lines": 24,
+        "total_branches": 13,
+        "covered_branches": 11,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\renderers\\artifact-tabs.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 8,
+        "covered_lines": 8,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 4,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\renderers\\artifact-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\renderers\\eval-checklist-renderer.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 15,
+        "covered_lines": 15,
+        "total_branches": 39,
+        "covered_branches": 39,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\renderers\\fallback.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\renderers\\markdown-doc-renderer.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 7,
+        "covered_branches": 7,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\renderers\\registry.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\changes\\renderers\\tasks-progress-renderer.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 8,
+        "covered_lines": 8,
+        "total_branches": 11,
+        "covered_branches": 11,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\config\\components\\basic-config-section.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 10,
+        "covered_branches": 10,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\config\\components\\diagnostics-section.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\config\\components\\extra-fields-section.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\config\\components\\tests-section.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 88.88,
+        "functions": 100.0,
+        "total_lines": 14,
+        "covered_lines": 14,
+        "total_branches": 18,
+        "covered_branches": 16,
+        "total_functions": 11,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\config\\components\\write-protection-section.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 10,
+        "covered_branches": 10,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\config\\config-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 16,
+        "covered_lines": 16,
+        "total_branches": 30,
+        "covered_branches": 30,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\config\\hooks\\use-workspace-config.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 21,
+        "covered_lines": 21,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 7,
+        "covered_functions": 7
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\db\\db-inspector-view.tsx",
+      "coverage": {
+        "lines": 97.5,
+        "branches": 95.45,
+        "functions": 95.45,
+        "total_lines": 40,
+        "covered_lines": 39,
+        "total_branches": 66,
+        "covered_branches": 63,
+        "total_functions": 22,
+        "covered_functions": 21
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\db\\hooks\\use-db-inspector.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 83.33,
+        "functions": 100.0,
+        "total_lines": 66,
+        "covered_lines": 66,
+        "total_branches": 12,
+        "covered_branches": 10,
+        "total_functions": 22,
+        "covered_functions": 22
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\components\\explore-composer.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\components\\explore-create-dialog.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 39,
+        "covered_lines": 39,
+        "total_branches": 24,
+        "covered_branches": 24,
+        "total_functions": 25,
+        "covered_functions": 25
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\components\\explore-preview.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\explore-detail-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 97.05,
+        "functions": 96.42,
+        "total_lines": 69,
+        "covered_lines": 69,
+        "total_branches": 68,
+        "covered_branches": 66,
+        "total_functions": 28,
+        "covered_functions": 27
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\explore-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 97.61,
+        "functions": 100.0,
+        "total_lines": 37,
+        "covered_lines": 37,
+        "total_branches": 42,
+        "covered_branches": 41,
+        "total_functions": 12,
+        "covered_functions": 12
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\hooks\\use-explore-doc.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 50,
+        "covered_lines": 50,
+        "total_branches": 18,
+        "covered_branches": 18,
+        "total_functions": 20,
+        "covered_functions": 20
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\hooks\\use-explore-list.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 65,
+        "covered_lines": 65,
+        "total_branches": 20,
+        "covered_branches": 20,
+        "total_functions": 20,
+        "covered_functions": 20
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\explores\\hooks\\use-explore-session.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 35,
+        "covered_lines": 35,
+        "total_branches": 34,
+        "covered_branches": 34,
+        "total_functions": 9,
+        "covered_functions": 9
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\info\\components\\dir-tree.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 20,
+        "covered_lines": 20,
+        "total_branches": 10,
+        "covered_branches": 10,
+        "total_functions": 11,
+        "covered_functions": 11
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\info\\components\\language-table.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\info\\components\\stats-summary.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\info\\hooks\\use-code-stats.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 24,
+        "covered_lines": 24,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\info\\info-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 8,
+        "covered_lines": 8,
+        "total_branches": 15,
+        "covered_branches": 15,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\retire-dev-team-plugin\\packages\\desktop\\src\\views\\welcome-view.tsx",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 8,
+        "covered_branches": 8,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 96.73,
+      "branches": 93.39,
+      "functions": 93.84
+    },
+    "thresholds": {
+      "lines": 90.0,
+      "branches": 85.0,
+      "functions": 90.0
+    }
+  },
+  "mutation": null
+}

@@ -14,6 +14,3 @@ node_modules
 _stryker-tmp
 mutation-stryker-seg-*.conf.json
 
-# 构建相关
-plugins/*/.pack-staging/
-*/dev-team/bin/*.cjs.map

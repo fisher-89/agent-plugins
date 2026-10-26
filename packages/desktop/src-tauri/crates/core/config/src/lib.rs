@@ -5,22 +5,22 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use specta::Type;
 
-/// `schema` 字段字面量（CLI zod `literal('spec-driven')` 对齐）
+/// `schema` 字段固定字面量 `spec-driven`
 const SCHEMA_LITERAL: &str = "spec-driven";
 
-/// suite 执行目录默认值（CLI `prefault('.')` 对齐）
+/// suite 执行目录默认值（缺省为仓库根 `.`）
 const SUITE_CWD_DEFAULT: &str = ".";
 
-/// 行覆盖率阈值默认值（CLI `defaults.ts` 对齐）
+/// 行覆盖率阈值默认值（80）
 const COVERAGE_LINES_DEFAULT: f64 = 80.0;
 
-/// 分支覆盖率阈值默认值（CLI `defaults.ts` 对齐）
+/// 分支覆盖率阈值默认值（70）
 const COVERAGE_BRANCHES_DEFAULT: f64 = 70.0;
 
-/// 函数覆盖率阈值默认值（CLI `defaults.ts` 对齐）
+/// 函数覆盖率阈值默认值（75）
 const COVERAGE_FUNCTIONS_DEFAULT: f64 = 75.0;
 
-/// 变异测试得分阈值默认值（CLI `defaults.ts` 对齐）
+/// 变异测试得分阈值默认值（70）
 const MUTATION_SCORE_DEFAULT: f64 = 70.0;
 
 /// 顶层已知字段集合：其余键全部 passthrough 进 [`WorkspaceConfig::extra`]。
@@ -34,7 +34,7 @@ const KNOWN_KEYS: [&str; 7] = [
     "write_protection",
 ];
 
-/// 测试框架八值枚举（CLI zod enum 同序同串；逐变体显式 rename 对齐 CLI 串）
+/// 测试框架八值枚举（wire 串逐变体显式 rename 对位，声明序同 wire 序）
 #[derive(Debug, Clone, Serialize, Type)]
 pub enum TestFramework {
     #[serde(rename = "jest")]
@@ -69,7 +69,7 @@ pub struct CoverageThresholds {
 }
 
 impl Default for CoverageThresholds {
-    /// 全默认基线（CLI `defaults.ts` 对齐）：80 / 70 / 75。
+    /// 全默认基线：80 / 70 / 75。
     fn default() -> Self {
         Self {
             lines: COVERAGE_LINES_DEFAULT,
@@ -90,7 +90,7 @@ pub struct MutationConfig {
 }
 
 impl Default for MutationConfig {
-    /// 全默认基线（CLI `defaults.ts` 对齐）：`cwd` 未设、score 70。
+    /// 全默认基线：`cwd` 未设、score 70。
     fn default() -> Self {
         Self {
             cwd: None,
@@ -186,7 +186,7 @@ pub struct WorkspaceConfig {
 }
 
 impl Default for WorkspaceConfig {
-    /// 全默认基线（CLI `defaults.ts` 对齐）：`schema` 为 `spec-driven`、
+    /// 全默认基线：`schema` 为 `spec-driven`、
     /// `tests` 为空列表、其余可选字段未设；供文件级四分支与组装层复用。
     fn default() -> Self {
         Self {
@@ -341,9 +341,8 @@ fn opt_string_list(
     }
 }
 
-/// 数值阈值字段通用组装（zod `number().min(0).max(100).optional().prefault(N)`
-/// 移植）：缺失 → 默认 + `DefaultApplied`；0–100 内数值原样；越界或非数值
-/// → 默认 + `InvalidValue`。
+/// 数值阈值字段通用组装：缺失 → 默认 + `DefaultApplied`；0–100 内数值原样；
+/// 越界或非数值 → 默认 + `InvalidValue`。
 fn threshold(
     map: &Map<String, Value>,
     key: &str,
@@ -375,7 +374,7 @@ fn threshold(
     }
 }
 
-/// CLI zod 枚举串 → 框架枚举（八值逐一对位）。
+/// wire 串 → 框架枚举（八值逐一对位）。
 fn parse_framework(value: &str) -> Option<TestFramework> {
     match value {
         "jest" => Some(TestFramework::Jest),

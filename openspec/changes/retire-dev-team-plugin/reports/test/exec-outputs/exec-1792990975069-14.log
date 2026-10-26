@@ -1,0 +1,36 @@
+✓ Lockfile passes supply-chain policies (verified 3h ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: -176
+--------------------------------------------------------------------------------
+Progress: resolved 688, reused 688, downloaded 0, added 0, done
+Done in 4.1s using pnpm v12.10.1
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\core\config)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\core\checks)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\infra\agent)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\infra\checks)
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri)
+    Checking export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.48s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+diff --git a/packages/desktop/src/types/generated/bindings.ts b/packages/desktop/src/types/generated/bindings.ts
+index 0cc18eee821d..f5ea1e479eb1 100644
+--- a/packages/desktop/src/types/generated/bindings.ts
++++ b/packages/desktop/src/types/generated/bindings.ts
+@@ -1377,7 +1377,10 @@ export type SessionSummary = {
+ 	turns: TurnSummary[],
+ };
+ 
+-/**  测试框架八值枚举（CLI zod enum 同序同串；逐变体显式 rename 对齐 CLI 串） */
++/**
++ *  测试框架八值枚举（wire 串按声明序八值：`jest` / `vitest` / `vite-plus` / `bun` /
++ *  `rust` / `node-test` / `go` / `pytest`；逐变体显式 rename 与 wire 串一一对位）
++ */
+ export type TestFramework = "jest" | "vitest" | "vite-plus" | "bun" | "rust" | "node-test" | "go" | "pytest";
+ 
+ /**
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

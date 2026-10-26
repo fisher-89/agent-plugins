@@ -1,8 +1,7 @@
 # 语料清单（checks corpus）
 
-> 采集自真实工作区产出形态、不手造语义漂移样本；golden 期望以 CLI zod 权威
-> （`plugins/dev-team/bin/src/schemas/test-execution-output.schema.ts`）形态
-> 录制，重写开关与两步工作流见 `tests/golden/README.md`。
+> 采集自真实工作区产出形态、不手造语义漂移样本；golden 期望基准为已固化
+> `core/checks` 实现 + 入仓金样，重写开关与两步工作流见 `tests/golden/README.md`。
 
 ## 解析器语料（单元测试 include_str 消费）
 

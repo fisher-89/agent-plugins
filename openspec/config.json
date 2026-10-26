@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/fisher-89/agent-plugins/refs/heads/master/plugins/dev-team/bin/dev-team-config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/fisher-89/agent-plugins/refs/heads/master/packages/desktop/src-tauri/crates/core/config/config.schema.json",
   "schema": "spec-driven",
   "static_analysis": "pnpm run -C ./packages/desktop check",
   "tests": [
@@ -20,6 +20,6 @@
     }
   ],
   "write_protection": {
-    "files": [{ "glob": "plugins/dev-team/bin/knip.json" }]
+    "files": [{ "glob": "packages/desktop/knip.json" }]
   }
 }

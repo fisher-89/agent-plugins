@@ -7,13 +7,22 @@
 //! 线面对照载体，不逐项断言 serde / JSON 库自身语义（测试纪律）。`assemble`
 //! 经 crate 内子模块路径访问（子模块可见父模块私有项），自洽不变量直接调用，
 //! 不新增测试专用导出（CLAUDE.md no-test-only-exports）。
+//!
+//! 末段为 config 契约镜像 ↔ 实现的一致性断言（A1 键集 / A2 枚举 / A3 往返 +
+//! `wire_name` 穷尽 match 编译期守卫）：镜像以 `include_str!` 编译期绑定入仓
+//! `../config.schema.json`（零运行时 IO、零 cwd 依赖、零路径拼装），断言体为
+//! 入参化纯函数——正向行以入仓镜像驱动，异常 / 边界行以内存副本驱动，同样
+//! 零新增导出。
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 
-use super::{assemble, load, ConfigReport, DiagnosticKind, TestSuite, WorkspaceConfig};
+use super::{
+    assemble, load, parse_framework, ConfigReport, DiagnosticKind, TestFramework, TestSuite,
+    WorkspaceConfig, KNOWN_KEYS,
+};
 use foundation::layout::config_path;
 
 /// 临时 workspace 根 RAII：测试结束自动清理。
@@ -1368,4 +1377,629 @@ fn 两个suite一违一合_违例剔除记诊断_合法保序保留不殃及() {
         !has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].root"),
         "剔除处置不殃及合法 suite"
     );
+}
+
+// ---------------------------------------------------------------------------
+// schema 镜像 ↔ 实现一致性（A1 键集 / A2 枚举 / A3 往返 + wire_name 编译期守卫）
+//
+// 镜像以 `include_str!` 编译期绑定入仓 `../config.schema.json`：零运行时 IO、
+// 零 cwd 依赖、零路径拼装。三个断言体均以 `&Value` 入参化（正向行喂入仓
+// 镜像，异常 / 边界行喂内存副本），`wire_name` 与断言体同属测试内私有项，
+// 不作生产导出（CLAUDE.md no-test-only-exports）。
+// ---------------------------------------------------------------------------
+
+/// 入仓 schema 镜像（AC-4）：编译期字面量绑定真实入仓文件。
+fn mirror() -> Value {
+    serde_json::from_str::<Value>(include_str!("../config.schema.json"))
+        .expect("入仓 config.schema.json 必须可解析为 JSON")
+}
+
+/// 入仓镜像的内存副本：`mirror()` 每次调用独立解析出全新的 `Value`（无别名），
+/// 异常 / 边界行在副本上就地改写目标字段，磁盘文件本体零改动（镜像变体不以
+/// mock 框架实现），也不需要 `to_value` 往返或多余克隆。
+fn mirror_copy() -> Value {
+    mirror()
+}
+
+/// 镜像根对象（类型违例给出可指认文案，不越界 unwrap）。
+fn mirror_root(schema: &Value) -> &Map<String, Value> {
+    match schema {
+        Value::Object(map) => map,
+        other => panic!("schema 镜像根类型违例：期望对象，实际 {other}"),
+    }
+}
+
+/// 镜像 `properties` 对象（缺失 / `null` 与类型违例分文案）。
+fn mirror_properties(schema: &Value) -> &Map<String, Value> {
+    match mirror_root(schema).get("properties") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) => panic!("镜像缺 `properties`：期望对象，实际 null"),
+        Some(other) => panic!("镜像 `properties` 类型违例：期望对象，实际 {other}"),
+        None => panic!("镜像缺 `properties`：顶层未取到该键"),
+    }
+}
+
+/// 镜像 `properties.tests.items.properties.framework.enum` 数组（路径逐段取用，
+/// 缺失 / `null` 与类型违例分文案）。
+fn mirror_framework_enum(schema: &Value) -> &Vec<Value> {
+    let properties = mirror_properties(schema);
+    let suite = match properties.get("tests") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) | None => panic!("镜像缺 `tests`：期望对象"),
+        Some(other) => panic!("镜像 `tests` 类型违例：期望对象，实际 {other}"),
+    };
+    let items = match suite.get("items") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) | None => panic!("镜像缺 `tests.items`：期望对象"),
+        Some(other) => panic!("镜像 `tests.items` 类型违例：期望对象，实际 {other}"),
+    };
+    let suite_properties = match items.get("properties") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) | None => panic!("镜像缺 `tests.items.properties`：期望对象"),
+        Some(other) => panic!("镜像 `tests.items.properties` 类型违例：期望对象，实际 {other}"),
+    };
+    let framework = match suite_properties.get("framework") {
+        Some(Value::Object(map)) => map,
+        Some(Value::Null) | None => panic!("镜像缺 `tests.items.properties.framework`：期望对象"),
+        Some(other) => {
+            panic!("镜像 `tests.items.properties.framework` 类型违例：期望对象，实际 {other}")
+        }
+    };
+    match framework.get("enum") {
+        Some(Value::Array(values)) => values,
+        Some(Value::Null) => {
+            panic!("镜像缺 `enum`：`tests.items.properties.framework.enum` 为 null")
+        }
+        Some(other) => panic!("镜像 `enum` 类型违例：期望数组，实际 {other}"),
+        None => panic!("镜像缺 `enum`：`tests.items.properties.framework` 未取到该键"),
+    }
+}
+
+/// 副本内 `properties` 对象的可变借用（异常 / 边界行就地改写）。
+fn properties_mut(schema: &mut Value) -> &mut Map<String, Value> {
+    schema
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .expect("入仓镜像 `properties` 必须为对象")
+}
+
+/// 副本内 `properties.tests.items.properties.framework` 对象的可变借用。
+fn framework_mut(schema: &mut Value) -> &mut Map<String, Value> {
+    properties_mut(schema)
+        .get_mut("tests")
+        .and_then(Value::as_object_mut)
+        .and_then(|suite| suite.get_mut("items"))
+        .and_then(Value::as_object_mut)
+        .and_then(|items| items.get_mut("properties"))
+        .and_then(Value::as_object_mut)
+        .and_then(|properties| properties.get_mut("framework"))
+        .and_then(Value::as_object_mut)
+        .expect("入仓镜像 `framework` 节点必须为对象")
+}
+
+/// 副本内 `framework.enum` 数组的可变借用。
+fn framework_enum_mut(schema: &mut Value) -> &mut Vec<Value> {
+    framework_mut(schema)
+        .get_mut("enum")
+        .and_then(Value::as_array_mut)
+        .expect("入仓镜像 `framework.enum` 必须为数组")
+}
+
+/// A1 键集断言：`properties` 键集（排序去重）== `KNOWN_KEYS`（排序去重）；
+/// 失败文案指认双向差异。
+fn assert_key_set(schema: &Value) {
+    let mut mirror_keys: Vec<String> = mirror_properties(schema).keys().cloned().collect();
+    mirror_keys.sort();
+    mirror_keys.dedup();
+    let mut known_keys: Vec<String> = KNOWN_KEYS.iter().map(|key| (*key).to_string()).collect();
+    known_keys.sort();
+    known_keys.dedup();
+
+    let only_schema: Vec<&String> = mirror_keys
+        .iter()
+        .filter(|key| !known_keys.contains(key))
+        .collect();
+    let only_impl: Vec<&String> = known_keys
+        .iter()
+        .filter(|key| !mirror_keys.contains(key))
+        .collect();
+
+    assert!(
+        only_schema.is_empty() && only_impl.is_empty(),
+        "schema 镜像键集与 KNOWN_KEYS 漂移：仅 schema 有: {only_schema:?}；仅实现有: {only_impl:?}"
+    );
+}
+
+/// 八变体按 `TestFramework` 声明序（= wire 序）返回。
+fn framework_variants() -> [TestFramework; 8] {
+    [
+        TestFramework::Jest,
+        TestFramework::Vitest,
+        TestFramework::VitePlus,
+        TestFramework::Bun,
+        TestFramework::Rust,
+        TestFramework::NodeTest,
+        TestFramework::Go,
+        TestFramework::Pytest,
+    ]
+}
+
+/// 变体 → wire 串（实现 → schema 方向）。
+///
+/// **穷尽 match 即编译期守卫**：`TestFramework` 新增第 9 变体而未补臂时，
+/// `cargo test --no-run` / `cargo clippy --workspace --all-targets` 即编译失败，
+/// 早于任何运行时断言（该判据不设运行时用例）。
+fn wire_name(framework: &TestFramework) -> &'static str {
+    match framework {
+        TestFramework::Jest => "jest",
+        TestFramework::Vitest => "vitest",
+        TestFramework::VitePlus => "vite-plus",
+        TestFramework::Bun => "bun",
+        TestFramework::Rust => "rust",
+        TestFramework::NodeTest => "node-test",
+        TestFramework::Go => "go",
+        TestFramework::Pytest => "pytest",
+    }
+}
+
+/// A2 枚举断言：镜像 `framework.enum`（8 串，同序）== 八变体按声明序的
+/// `wire_name`；集合差异优先指认（增 / 删 / 改串），集合相同而异序则指认
+/// 顺序漂移（MUST NOT 静默排序后比较）。
+fn assert_framework_enum(schema: &Value) {
+    let mut mirror_strings: Vec<String> = Vec::new();
+    for value in mirror_framework_enum(schema) {
+        match value {
+            Value::String(text) => mirror_strings.push(text.clone()),
+            other => panic!("镜像 `enum` 元素类型违例：期望字符串，实际 {other}"),
+        }
+    }
+    let impl_strings: Vec<&str> = framework_variants().iter().map(wire_name).collect();
+
+    let mut only_schema: Vec<&str> = Vec::new();
+    for text in &mirror_strings {
+        if !impl_strings.contains(&text.as_str()) {
+            only_schema.push(text.as_str());
+        }
+    }
+    let mut only_impl: Vec<&str> = Vec::new();
+    for impl_text in &impl_strings {
+        if !mirror_strings
+            .iter()
+            .any(|text| text.as_str() == *impl_text)
+        {
+            only_impl.push(*impl_text);
+        }
+    }
+    assert!(
+        only_schema.is_empty() && only_impl.is_empty(),
+        "schema 镜像 framework 枚举与实现漂移：仅 schema 有: {only_schema:?}；仅实现有: {only_impl:?}"
+    );
+
+    let mirror_order: Vec<&str> = mirror_strings.iter().map(String::as_str).collect();
+    assert_eq!(
+        mirror_order, impl_strings,
+        "schema 镜像 framework 枚举与 TestFramework 声明序存在顺序漂移（同序比较，不静默排序）"
+    );
+}
+
+/// A3 往返断言：`enum` 每串经 `parse_framework` 解回变体、再 `wire_name` 必回
+/// 同串（两方向闭合）；失败文案含首个不往返的串与解回结果。
+fn assert_framework_roundtrip(schema: &Value) {
+    for value in mirror_framework_enum(schema) {
+        let text = match value {
+            Value::String(text) => text,
+            other => panic!("镜像 `enum` 元素类型违例：期望字符串，实际 {other}"),
+        };
+        let parsed = parse_framework(text);
+        let back = parsed.as_ref().map(wire_name);
+        assert!(
+            back == Some(text.as_str()),
+            "schema 镜像 framework 枚举串不往返：{text:?} 解回 {parsed:?}、再 wire 得 {back:?}"
+        );
+    }
+}
+
+/// 期待断言体 panic 并取回 panic 文案（文案本身是判据的一部分：双向差异 /
+/// 首个不往返项，故不能只断言「是否 panic」）。
+fn panic_text(body: impl FnOnce()) -> String {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(()) => panic!("期望一致性断言失败 panic，实际通过"),
+        Err(payload) => match payload.downcast_ref::<String>() {
+            Some(text) => text.clone(),
+            None => match payload.downcast_ref::<&'static str>() {
+                Some(text) => (*text).to_string(),
+                None => panic!("panic 载荷既非 String 也非 &str，无法核对文案"),
+            },
+        },
+    }
+}
+
+#[test]
+fn 入仓镜像可解析为对象且顶层四键齐备() {
+    let schema = mirror();
+
+    let root = mirror_root(&schema);
+    for key in ["$schema", "type", "properties", "additionalProperties"] {
+        assert!(root.contains_key(key), "镜像顶层缺 `{key}`");
+    }
+    assert_eq!(
+        root.get("type"),
+        Some(&json!("object")),
+        "镜像顶层 type 应为 object"
+    );
+}
+
+#[test]
+fn 镜像结构四锚点与设计表一致() {
+    let schema = mirror();
+    let root = mirror_root(&schema);
+    let properties = mirror_properties(&schema);
+
+    let properties_key_count = properties.len();
+    let additional_is_empty_object = root.get("additionalProperties") == Some(&json!({}));
+    let schema_const_and_default = {
+        let node = properties
+            .get("schema")
+            .expect("镜像缺 `properties.schema`");
+        node.get("const") == Some(&json!("spec-driven"))
+            && node.get("default") == Some(&json!("spec-driven"))
+    };
+    let required_has_pair = {
+        let required = properties
+            .get("tests")
+            .and_then(|tests| tests.get("items"))
+            .and_then(|items| items.get("required"))
+            .and_then(Value::as_array)
+            .expect("镜像缺 `properties.tests.items.required` 数组");
+        let has = |name: &str| required.iter().any(|value| value == &json!(name));
+        has("root") && has("framework")
+    };
+
+    let anchors: [(&str, bool); 4] = [
+        (
+            "`properties` 恰 7 键（与 KNOWN_KEYS 同规模）",
+            properties_key_count == 7,
+        ),
+        (
+            "`additionalProperties` 为空对象（passthrough 表达）",
+            additional_is_empty_object,
+        ),
+        (
+            "`properties.schema` 的 `const` 与 `default` 同为 spec-driven",
+            schema_const_and_default,
+        ),
+        (
+            "`properties.tests.items.required` 含 root 与 framework",
+            required_has_pair,
+        ),
+    ];
+    for (anchor, ok) in anchors {
+        assert!(ok, "镜像结构锚点失配：{anchor}");
+    }
+}
+
+#[test]
+fn 键集断言_入仓镜像正向通过且七键逐项对位() {
+    let schema = mirror();
+
+    assert_key_set(&schema);
+
+    let mut mirror_keys: Vec<&str> = mirror_properties(&schema)
+        .keys()
+        .map(String::as_str)
+        .collect();
+    mirror_keys.sort();
+    assert_eq!(
+        mirror_keys,
+        [
+            "$schema",
+            "context",
+            "rules",
+            "schema",
+            "static_analysis",
+            "tests",
+            "write_protection",
+        ],
+        "镜像键集应为 7 键全集"
+    );
+
+    // 与 `KNOWN_KEYS` 的对位由 `assert_key_set` 承担（上方调用），此处只钉字面量
+    // 7 键全集，避免同一键集比较写两遍。
+}
+
+#[test]
+fn 键集断言_缺键漂移被抓且文案指认双向差异() {
+    let mut schema = mirror_copy();
+    properties_mut(&mut schema).remove("tests");
+
+    let text = panic_text(|| assert_key_set(&schema));
+
+    assert!(
+        text.contains("KNOWN_KEYS"),
+        "失败文案应指认 KNOWN_KEYS，实际 {text}"
+    );
+    assert!(
+        text.contains("仅实现有: [\"tests\"]"),
+        "失败文案应指认缺键，实际 {text}"
+    );
+    assert!(
+        text.contains("仅 schema 有: []"),
+        "缺键形态下 schema 侧无独有键，实际 {text}"
+    );
+}
+
+#[test]
+fn 键集断言_多键漂移被抓且文案指认单向差异() {
+    let mut schema = mirror_copy();
+    properties_mut(&mut schema).insert("extra".to_string(), json!({"type": "string"}));
+
+    let text = panic_text(|| assert_key_set(&schema));
+
+    assert!(
+        text.contains("仅 schema 有: [\"extra\"]"),
+        "失败文案应指认多键，实际 {text}"
+    );
+    assert!(
+        text.contains("仅实现有: []"),
+        "多键形态下实现侧无独有键，实际 {text}"
+    );
+}
+
+#[test]
+fn 键集断言_容器四形态边界() {
+    // 形态 1：`properties: {}`（空对象）—— 7 项全落「仅实现有」。
+    let mut empty_properties = mirror_copy();
+    *empty_properties
+        .get_mut("properties")
+        .expect("镜像缺 `properties`") = json!({});
+    let text = panic_text(|| assert_key_set(&empty_properties));
+    assert!(
+        text.contains("仅 schema 有: []"),
+        "空对象形态下 schema 侧无独有键，实际 {text}"
+    );
+    for key in KNOWN_KEYS {
+        assert!(
+            text.contains(key),
+            "空对象形态应把 `{key}` 全列入「仅实现有」，实际 {text}"
+        );
+    }
+
+    // 形态 2：`properties` 缺失 / `null` —— 文案指认镜像缺 `properties`，
+    // MUST NOT 越界 unwrap。
+    let mut missing_properties = mirror_copy();
+    missing_properties
+        .get_mut("properties")
+        .expect("镜像缺 `properties`")
+        .take();
+    let text = panic_text(|| assert_key_set(&missing_properties));
+    assert!(
+        text.contains("镜像缺 `properties`"),
+        "缺失形态应指认缺键而非越界 unwrap，实际 {text}"
+    );
+
+    let mut null_properties = mirror_copy();
+    *null_properties
+        .get_mut("properties")
+        .expect("镜像缺 `properties`") = Value::Null;
+    let text = panic_text(|| assert_key_set(&null_properties));
+    assert!(
+        text.contains("镜像缺 `properties`"),
+        "null 形态应指认缺键而非越界 unwrap，实际 {text}"
+    );
+
+    // 形态 3：`properties` 为数组 / 字符串（非对象）—— 文案指认类型违例。
+    let mut array_properties = mirror_copy();
+    array_properties["properties"] = json!([{"tests": {}}]);
+    let text = panic_text(|| assert_key_set(&array_properties));
+    assert!(
+        text.contains("类型违例"),
+        "数组形态应指认类型违例，实际 {text}"
+    );
+
+    let mut string_properties = mirror_copy();
+    string_properties["properties"] = json!("tests");
+    let text = panic_text(|| assert_key_set(&string_properties));
+    assert!(
+        text.contains("类型违例"),
+        "字符串形态应指认类型违例，实际 {text}"
+    );
+
+    // 形态 4：键序打乱（`write_protection` 挪位）—— 排序后比较、顺序无关 → 通过。
+    let mut reordered = mirror_copy();
+    let write_protection = properties_mut(&mut reordered)
+        .remove("write_protection")
+        .expect("镜像缺 `write_protection`");
+    properties_mut(&mut reordered).insert("write_protection".to_string(), write_protection);
+    assert_key_set(&reordered);
+}
+
+#[test]
+fn 框架枚举断言_入仓镜像八值同序且与serde线面对位() {
+    let schema = mirror();
+
+    assert_framework_enum(&schema);
+
+    for framework in framework_variants() {
+        let rename = match serde_json::to_value(&framework).expect("framework 序列化失败") {
+            Value::String(text) => text,
+            other => panic!("framework 线面应为字符串，实际 {other}"),
+        };
+        assert_eq!(
+            wire_name(&framework),
+            rename,
+            "wire_name 应与 `#[serde(rename)]` 串逐字相等"
+        );
+    }
+}
+
+#[test]
+fn 框架枚举断言_串漂移与增删三形态被抓() {
+    // 形态 1：改串 `jest` → `jest2`。
+    let mut renamed = mirror_copy();
+    framework_enum_mut(&mut renamed)[0] = json!("jest2");
+    let text = panic_text(|| assert_framework_enum(&renamed));
+    assert!(
+        text.contains("仅 schema 有: [\"jest2\"]"),
+        "改串形态应指认 schema 侧独有串，实际 {text}"
+    );
+    assert!(
+        text.contains("仅实现有: [\"jest\"]"),
+        "改串形态应指认实现侧独有串，实际 {text}"
+    );
+
+    // 形态 2：删 `pytest`（7 值）。
+    let mut dropped = mirror_copy();
+    let last = framework_enum_mut(&mut dropped)
+        .pop()
+        .expect("镜像枚举非空");
+    assert_eq!(last, json!("pytest"), "末位应为 pytest");
+    let text = panic_text(|| assert_framework_enum(&dropped));
+    assert!(
+        text.contains("仅实现有: [\"pytest\"]"),
+        "删值形态应指认缺串，实际 {text}"
+    );
+    assert!(
+        text.contains("仅 schema 有: []"),
+        "删值形态下 schema 侧无独有串，实际 {text}"
+    );
+
+    // 形态 3：追加 `vite`（9 值）。
+    let mut appended = mirror_copy();
+    framework_enum_mut(&mut appended).push(json!("vite"));
+    let text = panic_text(|| assert_framework_enum(&appended));
+    assert!(
+        text.contains("仅 schema 有: [\"vite\"]"),
+        "多值形态应指认多串，实际 {text}"
+    );
+    assert!(
+        text.contains("仅实现有: []"),
+        "多值形态下实现侧无独有串，实际 {text}"
+    );
+}
+
+#[test]
+fn 框架枚举断言_容器四形态边界() {
+    // 形态 1：`enum: []`（空数组）—— 8 变体全落「仅实现有」。
+    let mut empty_enum = mirror_copy();
+    framework_enum_mut(&mut empty_enum).clear();
+    let text = panic_text(|| assert_framework_enum(&empty_enum));
+    assert!(
+        text.contains("仅 schema 有: []"),
+        "空数组形态下 schema 侧无独有串，实际 {text}"
+    );
+    for name in [
+        "jest",
+        "vitest",
+        "vite-plus",
+        "bun",
+        "rust",
+        "node-test",
+        "go",
+        "pytest",
+    ] {
+        assert!(
+            text.contains(name),
+            "空数组形态应把 `{name}` 全列入「仅实现有」，实际 {text}"
+        );
+    }
+
+    // 形态 2：`enum` 缺失 / `null` —— 文案指认镜像缺 `enum`。
+    let mut missing_enum = mirror_copy();
+    framework_mut(&mut missing_enum).remove("enum");
+    let text = panic_text(|| assert_framework_enum(&missing_enum));
+    assert!(
+        text.contains("镜像缺 `enum`"),
+        "缺失形态应指认缺 `enum`，实际 {text}"
+    );
+
+    let mut null_enum = mirror_copy();
+    framework_mut(&mut null_enum).insert("enum".to_string(), Value::Null);
+    let text = panic_text(|| assert_framework_enum(&null_enum));
+    assert!(
+        text.contains("镜像缺 `enum`"),
+        "null 形态应指认缺 `enum`，实际 {text}"
+    );
+
+    // 形态 3：`enum` 为字符串 `"jest"`（非数组）—— 文案指认类型违例。
+    let mut string_enum = mirror_copy();
+    framework_mut(&mut string_enum).insert("enum".to_string(), json!("jest"));
+    let text = panic_text(|| assert_framework_enum(&string_enum));
+    assert!(
+        text.contains("类型违例"),
+        "字符串形态应指认类型违例，实际 {text}"
+    );
+
+    // 形态 4：同集合异序（`pytest` 提前）—— 指认顺序漂移，MUST NOT 静默排序。
+    let mut reordered = mirror_copy();
+    let last = framework_enum_mut(&mut reordered)
+        .pop()
+        .expect("镜像枚举非空");
+    framework_enum_mut(&mut reordered).insert(0, last);
+    let text = panic_text(|| assert_framework_enum(&reordered));
+    assert!(
+        text.contains("顺序漂移"),
+        "异序形态应指认顺序漂移，实际 {text}"
+    );
+}
+
+#[test]
+fn 往返断言_入仓镜像八值逐一往返闭合() {
+    // A3 正向行：入仓镜像的 8 串逐一经 `parse_framework` 解回、再由 `wire_name`
+    // 回到同一串；该断言体已逐串闭合，不再在用例内重复同一趟遍历。
+    assert_framework_roundtrip(&mirror());
+}
+
+#[test]
+fn 往返断言_非法串不往返被抓且文案含首个失败项() {
+    let long_text = "j".repeat(1200);
+    let special_text = "je\nst\0\u{1F600}";
+    let cases: [(&str, &str); 5] = [
+        ("改串", "jest2"),
+        ("大写连字符", "Node-Test"),
+        ("空串", ""),
+        ("超长串", long_text.as_str()),
+        ("特殊字符", special_text),
+    ];
+
+    for (label, illegal) in cases {
+        let mut schema = mirror_copy();
+        framework_enum_mut(&mut schema).push(json!(illegal));
+
+        let text = panic_text(|| assert_framework_roundtrip(&schema));
+
+        assert!(text.contains("不往返"), "{label}形态应被抓，实际 {text}");
+        assert!(
+            text.contains(&format!("{illegal:?}")),
+            "{label}形态文案应含首个不往返串，实际 {text}"
+        );
+        assert!(
+            text.contains("None"),
+            "{label}形态文案应含解回结果 None，实际 {text}"
+        );
+    }
+}
+
+#[test]
+fn wire_name八变体逐串对位且连字符形态保留() {
+    let expected: [(&str, TestFramework); 8] = [
+        ("jest", TestFramework::Jest),
+        ("vitest", TestFramework::Vitest),
+        ("vite-plus", TestFramework::VitePlus),
+        ("bun", TestFramework::Bun),
+        ("rust", TestFramework::Rust),
+        ("node-test", TestFramework::NodeTest),
+        ("go", TestFramework::Go),
+        ("pytest", TestFramework::Pytest),
+    ];
+
+    // `wire_name` 是无状态纯函数：一次调用即对位判据（幂等性由「每次返回同一
+    // 字面量」自证，不再写 `wire_name(x) == wire_name(x)` 之类的恒真断言）。
+    // 连字符形态（`vite-plus` / `node-test`）逐字保留，MUST NOT 归一为下划线或驼峰。
+    for (wire, framework) in &expected {
+        assert_eq!(
+            wire_name(framework),
+            *wire,
+            "变体 wire 串对位失配（连字符形态 MUST NOT 归一为下划线或驼峰）"
+        );
+    }
 }

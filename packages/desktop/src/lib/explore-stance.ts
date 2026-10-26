@@ -1,8 +1,7 @@
 /**
- * explore stance 前导模板（desktop 包自持；与插件
- * `plugins/dev-team/skills/openspec-explore/SKILL.md` 双源互链——stance 立场段
- * 与笔记落盘约定同源叙述，改动需双侧同步；双源面随占位 / 已定名两形扩大——
- * 命名指令形与笔记定位形的「笔记」段约定两侧同步）。
+ * explore stance 前导模板（desktop 包自持单源）：stance 立场段与笔记落盘约定以
+ * 本文件为唯一源头，双源面随占位 / 已定名两形扩大——命名指令形与笔记定位形的
+ * 「笔记」段约定同源叙述。
  */
 
 /**

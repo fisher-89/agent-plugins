@@ -1,0 +1,37 @@
+===== attempt 1/5 · exit=101 · transient=os error 32 =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\core\config)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\core\checks)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\infra\checks)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\infra\agent)
+error: failed to write D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\target\debug\deps\libchecks_runtime-d10ff354f309b303.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `checks-runtime` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+===== attempt 2/5 · exit=1 · transient=- =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\infra\checks)
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri)
+    Checking export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\retire-dev-team-plugin\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.23s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+diff --git a/packages/desktop/src/types/generated/bindings.ts b/packages/desktop/src/types/generated/bindings.ts
+index 0cc18eee821d..0b96c3b7538c 100644
+--- a/packages/desktop/src/types/generated/bindings.ts
++++ b/packages/desktop/src/types/generated/bindings.ts
+@@ -1377,7 +1377,7 @@ export type SessionSummary = {
+ 	turns: TurnSummary[],
+ };
+ 
+-/**  测试框架八值枚举（CLI zod enum 同序同串；逐变体显式 rename 对齐 CLI 串） */
++/**  测试框架八值枚举（wire 串逐变体显式 rename 对位，声明序同 wire 序） */
+ export type TestFramework = "jest" | "vitest" | "vite-plus" | "bun" | "rust" | "node-test" | "go" | "pytest";
+ 
+ /**
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

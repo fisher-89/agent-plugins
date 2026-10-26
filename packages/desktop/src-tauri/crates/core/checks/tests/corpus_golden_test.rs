@@ -17,9 +17,9 @@
 //! cargo test -p checks --test corpus_golden_test                            # 复核：与现 golden 等价
 //! ```
 //!
-//! golden 期望值基准：CLI zod 权威（plugins/dev-team/bin/src/schemas/
-//! test-execution-output.schema.ts）产出形态录制；语料样本采集自真实工作区
-//! 产出形态（vite-plus / rust / node-test 三档绿跑 + 红跑 + 特殊样本族）。
+//! golden 期望值基准：已固化 `core/checks` 实现 + 入仓 golden 金样（语料采自
+//! 真实工作区产出形态：vite-plus / rust / node-test 三档绿跑 + 红跑 +
+//! 特殊样本族）。
 
 use std::fs;
 use std::path::PathBuf;
@@ -288,7 +288,7 @@ fn 全链node_test文本解析计数与golden一致() {
 }
 
 /// 红跑 fixtures（含 test_failure problems）→ conclusion=fail 且 findings 与
-/// CLI 权威一致（聚类措辞、计数对账零违例）。
+/// `core/checks` 实现口径一致（聚类措辞、计数对账零违例）。
 #[test]
 fn 全链红跑_conclusion_fail且findings一致() {
     let projection = project_corpus_fixture("red-run");
@@ -308,7 +308,7 @@ fn 全链红跑_conclusion_fail且findings一致() {
         serde_json::json!([
             "「vite-plus」2 项测试失败——聚类失败（疑似同模块回归或共同假设变化）; 明细见子报告 error_cases"
         ]),
-        "诊断树 4b 聚类措辞与 CLI 权威一致"
+        "诊断树 4b 聚类措辞与既有金样口径一致"
     );
     check_or_rewrite("red-run", &projection);
 }

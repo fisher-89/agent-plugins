@@ -1377,7 +1377,7 @@ export type SessionSummary = {
 	turns: TurnSummary[],
 };
 
-/**  测试框架八值枚举（CLI zod enum 同序同串；逐变体显式 rename 对齐 CLI 串） */
+/**  测试框架八值枚举（wire 串逐变体显式 rename 对位，声明序同 wire 序） */
 export type TestFramework = "jest" | "vitest" | "vite-plus" | "bun" | "rust" | "node-test" | "go" | "pytest";
 
 /**

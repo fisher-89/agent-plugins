@@ -2,7 +2,7 @@
 
 ## Purpose
 
-desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 change 名称与最初目标（goal），经 core/workflow 写面 `create` 操作在进程内创建 change 目录（explore.md）并在 workspace 库建档（`ChangeRecord`）；goal 原文写入 explore.md，经既有 proposal 相位交接通道进入工作流。MUST NOT 产出 workflow.json（双向墙），插件面零改动，禁止 CLI 子进程。
+desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 change 名称与最初目标（goal），经 core/workflow 写面 `create` 操作在进程内创建 change 目录（explore.md）并在 workspace 库建档（`ChangeRecord`）；goal 原文写入 explore.md，经既有 proposal 相位交接通道进入工作流。MUST NOT 产出 workflow.json（双向墙），禁止 CLI 子进程。
 
 ## Requirements
 
