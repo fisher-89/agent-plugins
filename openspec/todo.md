@@ -1,81 +1,66 @@
 - [ ] test-gen-generator上下文预制常见的mock技能（mock文件、mock接口）
-- [ ] 测试执行改为cli + evaluator
-- ~~[ ] test-runner执行前清理coverage和reports~~
-- ~~[ ] 整合implement和test-gen~~
-- [x] 优化write_protection配置结构，重新思考命名，值使用数组即可
-- [x] test-execution清理文件，test-framework.ts列出文件清单，使用node执行
-- [x] 将工具名称也纳入环境变量，适配不同AGENT
-- [x] 构建cursor生态产物时，不生成subAgentStop hook（规避cursor bug）；作为替代，在cursor产物对应agent的上下文加入步骤“执行static_check并修复问题”；
+- [x] 测试执行改为cli + evaluator
 - [ ] 禁止test-gen js使用`process.chdir、process.setuid、process.setgid、process.umask`，stryker使用worker环境运行，出现上述api会报错
-- [x] change目录管理新增/修改/删除的文件清单，避免强依赖git diff。后续基于清单做突变输入，检查测试范围是否有遗漏。
-- [ ] 澄清design.md.template架构组件填写规则，整体审视模板是否合理
-- [ ] 使用github hook完成构建，本地git忽略构建产物
-- [x] code-analyze、test-design遇到 js export class 时，应将所有public方法视为公共api，当前有些测试仅验证了constructor；
-- [x] 补充cursor postToolUse记录修改文件的能力
-- [x] mcp提供api，查询指定change变更的文件（读取workflow.json，聚合变更记录，输出文件清单），agent使用api代替直接读取workflow.json
-- [x] 将“写入workflow.json files”的代码实现移入modules/workflow
-- [x] 记录变更文件时，排除gitignore文件
-- [ ] ~~【模块边界】仅测试modules/workflow/index.ts，覆盖整合模块~~
-- [ ] 使用环境变量替换openspec目录，方便修改
-- [ ] 【Desktop】检测支持的agent
-- [ ] 【Desktop】workspace配置
-- [ ] 【Desktop】workspace基线设计（模块结构、spec）
-- [ ] 【Desktop】多任务预约，worktree隔离
+- [ ] 检测支持的agent
+- [ ] workspace配置
+- [ ] workspace基线设计（模块结构、spec）
+- [ ] 多任务预约，worktree隔离
 - [ ] rust支持突变测试，使用cargo-mutants
 - [ ] static-check按目录划分
-- [x] 【Desktop】引入redb本地数据库，实现store；记录workspace清单；
-- [x] 【Desktop】发布到github且版本号升级时，自动构建并创建版本release；支持检查更新；
-- [ ] 【Desktop】约定后端报错结构；
+- [x] 引入redb本地数据库，实现store；记录workspace清单；
+- [x] 发布到github且版本号升级时，自动构建并创建版本release；支持检查更新；
+- [ ] 约定后端报错结构；
 - [ ] test-design、test-gen 在处理ui层时，尽量使用快照测试
-- [x] 【Desktop】移除移动端判断，系统只用在PC
-- [x] 【Desktop】接入页面路由
-- [x] 【Desktop】将agent会话抽出独立组件，agent调试和explore复用同一个底层
-- [x] 【Desktop】调用agent收集会话耗时，循环轮次，消耗token数；
-- [x] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
-- [x] 【Desktop】rust生成ts类型
-- [x] 【Desktop】移除store migrate
-- [ ] 【Desktop】梳理后端commands直接调用infra的场景(已知: watch、explore)，逐个分析是否需要增加core以维持DDD架构；core如何实现依赖反转？
-- [x] 【Desktop】change详情页使用react-flow展示流程，将过程文件等信息关联到对应节点内展开显示
-- [x] 【Desktop】使用tokei解析工作区目录代码量，语言占比
-- [x] 【Desktop】将workspace数据与全局数据分离，每个workspace独立db文件，依然放在全局目录下
-- [x] 【Desktop】changeDetail流程图连线与实际执行顺序不符
-- [ ] 【Desktop】Agent消息，改为支持查看完成传输的单条消息的原始jsonL，完整jsonL面板数据量太大不利于查看
-- [x] 【Desktop】src-tauri/infra/store/src/model.ts 移除升级的历史版本 AgentRunRecordV1、AgentRunRecordV2
-- [ ] 【Desktop】移除生成类型中的null，使用undefined代替
-- [ ] 【Desktop】src-tauri/src/bindings分离生成的类型文件和commands
-- [ ] 【Desktop】恢复src-tauri/build.rs，当前复杂适配原因“测试链接了 GUI 框架”
-- [ ] 【Desktop】自动升级时，可随版本号嵌入脚本；从<当前版本>到<目标版本>顺序执行，处理数据迁移/文件修正等事项
-- [x] 【Desktop】将changeList从app.tsx移入到change列表页内部，详情页从接口获取单个change数据
-- [ ] 【Desktop】设置网关或者tauri校验，集中检查is_blank_root，当前分散到多个api中不易维护
-- [x] 【Desktop】main.rs中DATA_DIR也一并收入常量文件
-- [x] 【Desktop】changeDetail 多个文档改为tab切换
-- [ ] 【Desktop】infra/store扩展文件读写能力，将内核中读取特定文件的能力改为infra注入，内核不应感知持久化存储是数据库还是文件
-- [x] 【Desktop】增加全局agent管理页，不关联工作区；每个agent可自定义名称，选择agent engine，配置url、api_key等参数；配置好的agent实例与workspace关联；
-- [ ] 【Desktop】core/checks仅定义测试的执行过程、报告数据格式，具体语言、框架实现应该移入infra/checks
-- [ ] 【Desktop】change会话失败或中断后重新启动流程，页面应显示最新进行中的会话
-- [x] 【Desktop】修复问题：进行中的流程，进入详情页后一瞬间，流程图消失，观察dom，所有泳道都被设置成hidden
-- [x] 【Desktop】useChangeDetail、useChangeFlowRun 背后的两套流程数据应该统一口径，运行中返回的状态一并落库，保证页面实时更新和完成后查询内容一致
-- [x] 【Desktop】worktree先合入主仓再归档
-- [x] 【Desktop】当agent步骤执行成功后，因检查门禁等步骤外原因需要再次运行时，记录为新的步骤，且开启新会话
-- [x] 【Desktop】修复问题：近几条变更测试summary.json结果都为空
-- [x] 【Desktop】将流程设计进一步抽象，每个phase下有多个step，step分为exec/agent/gate，全流程按step顺序执行，中断/继续/回退也按step粒度
-- [x] 【Desktop】会话中途继续提问时，无需携带角色prompt，当前explore会反复发送角色信息
-- [ ] 【Desktop】优化各阶段prompt，补全模板概念
-- [ ] 【Desktop】移除src/views/changes/flow/layout.ts PIPELINE_PHASES，改为读取接口返回phase
-- [x] 【Desktop】step记录开始和结束时间；流程图中step显示耗时，agent step显示关联session的token消耗
-- [x] 【Desktop】修复问题：中断变更流程重启后，会多一个phase_start节点，前一轮节点丢失；新的agent step详情关联到上一轮同step的会话记录；
-- [x] 【Desktop】修复问题（证据见change desktop-test-only-flow）：read_exec_output未返回脚本运行日志（返回null）
-- [ ] 【Desktop】如果有运行中agent，关闭桌面端前提示二次确认
-- [x] 【Desktop】归档完成后自动移除worktree，限制最多5个运行中change同时存在，避免worktree占用磁盘空间过大
-- [x] 【Desktop】归一agent会话渲染，前端使用统一组件，参数是sessionId，调通用接口渲染session会话；组件内根据会话状态（进行中、完成）决定是否监听stream
-- [x] 【Desktop】Agent会话显示system的warning/error消息
-- [x] 【Desktop】流程启动前，检查static-check和test-execution（不含突变），如无法通过，停止流程并提示用户在基线上修复后重启
-- [x] 【Desktop】移除test-execution阶段的agent执行，测试不通过时，走决策回溯
-- [x] 【Desktop】change详情增加通用agent，在change环境下运行；通用agent可以开启新会话，恢复历史会话；
-- [ ] 【Desktop】分离开发/测试和release产物使用的db文件
-- [ ] 【Desktop】change详情，脚本步骤可以查看运行中stdout；最上方显示执行的命令；
-- [ ] 【Desktop】向agent提供db查询工具，可以访问桌面端数据，包含2个工具：1. 列出db的表名、介绍、字段说明；2. 按条件查询，返回数据上限1000条；
-- [x] 【Desktop】agent provider支持选择模型协议（openai/anthropic）
-- [ ] 【Desktop】内置CodeGraph，使用mcp桥接到agent
-- [ ] 【Desktop】归一Agent会话发送
-- [ ] 【Desktop】修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
+- [x] 移除移动端判断，系统只用在PC
+- [x] 接入页面路由
+- [x] 将agent会话抽出独立组件，agent调试和explore复用同一个底层
+- [x] 调用agent收集会话耗时，循环轮次，消耗token数；
+- [x] 数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
+- [x] rust生成ts类型
+- [x] 移除store migrate
+- [ ] 梳理后端commands直接调用infra的场景(已知: watch、explore)，逐个分析是否需要增加core以维持DDD架构；core如何实现依赖反转？
+- [x] change详情页使用react-flow展示流程，将过程文件等信息关联到对应节点内展开显示
+- [x] 使用tokei解析工作区目录代码量，语言占比
+- [x] 将workspace数据与全局数据分离，每个workspace独立db文件，依然放在全局目录下
+- [x] changeDetail流程图连线与实际执行顺序不符
+- [ ] Agent消息，改为支持查看完成传输的单条消息的原始jsonL，完整jsonL面板数据量太大不利于查看
+- [x] src-tauri/infra/store/src/model.ts 移除升级的历史版本 AgentRunRecordV1、AgentRunRecordV2
+- [ ] 移除生成类型中的null，使用undefined代替
+- [ ] src-tauri/src/bindings分离生成的类型文件和commands
+- [ ] 恢复src-tauri/build.rs，当前复杂适配原因“测试链接了 GUI 框架”
+- [ ] 自动升级时，可随版本号嵌入脚本；从<当前版本>到<目标版本>顺序执行，处理数据迁移/文件修正等事项
+- [x] 将changeList从app.tsx移入到change列表页内部，详情页从接口获取单个change数据
+- [ ] 设置网关或者tauri校验，集中检查is_blank_root，当前分散到多个api中不易维护
+- [x] main.rs中DATA_DIR也一并收入常量文件
+- [x] changeDetail 多个文档改为tab切换
+- [ ] infra/store扩展文件读写能力，将内核中读取特定文件的能力改为infra注入，内核不应感知持久化存储是数据库还是文件
+- [x] 增加全局agent管理页，不关联工作区；每个agent可自定义名称，选择agent engine，配置url、api_key等参数；配置好的agent实例与workspace关联；
+- [ ] core/checks仅定义测试的执行过程、报告数据格式，具体语言、框架实现应该移入infra/checks
+- [ ] change会话失败或中断后重新启动流程，页面应显示最新进行中的会话
+- [x] 修复问题：进行中的流程，进入详情页后一瞬间，流程图消失，观察dom，所有泳道都被设置成hidden
+- [x] useChangeDetail、useChangeFlowRun 背后的两套流程数据应该统一口径，运行中返回的状态一并落库，保证页面实时更新和完成后查询内容一致
+- [x] worktree先合入主仓再归档
+- [x] 当agent步骤执行成功后，因检查门禁等步骤外原因需要再次运行时，记录为新的步骤，且开启新会话
+- [x] 修复问题：近几条变更测试summary.json结果都为空
+- [x] 将流程设计进一步抽象，每个phase下有多个step，step分为exec/agent/gate，全流程按step顺序执行，中断/继续/回退也按step粒度
+- [x] 会话中途继续提问时，无需携带角色prompt，当前explore会反复发送角色信息
+- [ ] 优化各阶段prompt，补全模板概念
+- [ ] 移除src/views/changes/flow/layout.ts PIPELINE_PHASES，改为读取接口返回phase
+- [x] step记录开始和结束时间；流程图中step显示耗时，agent step显示关联session的token消耗
+- [x] 修复问题：中断变更流程重启后，会多一个phase_start节点，前一轮节点丢失；新的agent step详情关联到上一轮同step的会话记录；
+- [x] 修复问题（证据见change desktop-test-only-flow）：read_exec_output未返回脚本运行日志（返回null）
+- [ ] 如果有运行中agent，关闭桌面端前提示二次确认
+- [x] 归档完成后自动移除worktree，限制最多5个运行中change同时存在，避免worktree占用磁盘空间过大
+- [x] 归一agent会话渲染，前端使用统一组件，参数是sessionId，调通用接口渲染session会话；组件内根据会话状态（进行中、完成）决定是否监听stream
+- [x] Agent会话显示system的warning/error消息
+- [x] 流程启动前，检查static-check和test-execution（不含突变），如无法通过，停止流程并提示用户在基线上修复后重启
+- [x] 移除test-execution阶段的agent执行，测试不通过时，走决策回溯
+- [x] change详情增加通用agent，在change环境下运行；通用agent可以开启新会话，恢复历史会话；
+- [x] 分离开发/测试和release产物使用的db文件
+- [ ] change详情，脚本步骤可以查看运行中stdout；最上方显示执行的命令；
+- [ ] 向agent提供db查询工具，可以访问桌面端数据，包含2个工具：1. 列出db的表名、介绍、字段说明；2. 按条件查询，返回数据上限1000条；
+- [x] agent provider支持选择模型协议（openai/anthropic）
+- [ ] 内置CodeGraph，使用mcp桥接到agent
+- [ ] 归一Agent会话发送
+- [ ] 修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
+- [ ] 进行中的agent step，统计实时消耗的token（允许误差）

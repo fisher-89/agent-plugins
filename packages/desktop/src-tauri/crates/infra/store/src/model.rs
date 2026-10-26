@@ -4,6 +4,7 @@ use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus};
 use native_db::{native_db, ToKey};
 use native_model::{native_model, Model};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use specta::Type;
 use workflow::model::{ChecklistItem, Verdict};
@@ -548,7 +549,7 @@ impl From<SessionRecord> for SessionRecordV1 {
 }
 
 /// agent 会话转录单表
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 8, version = 1, with = SerdeJsonCodec)]
 #[native_db]
@@ -563,18 +564,22 @@ pub struct SessionEventRecord {
     /// 所属会话 id（非唯一二级索引，重放查询入口）
     #[secondary_key]
     pub session_id: String,
-    /// 密封事件载荷（嵌装 core 纯类型，含 `Raw` 逃生舱；增量永不见）
-    pub event: AgentEvent,
+    /// 密封事件载荷原文（嵌装 core 纯类型的 JSON 文本，含 `Raw` 逃生舱；
+    /// 增量永不见）；encode 原字节回写，不做类型化重建。
+    pub event: Box<RawValue>,
 }
 
 impl SessionEventRecord {
     /// 由会话 id 与事件构造记录：`event_key` 打包自 `hash64(session_id)` +
-    /// `event.seq`。
+    /// `event.seq`；载荷序列化为原文（与类型化落库年代的字节同形）。
     pub fn new(session_id: &str, event: AgentEvent) -> Self {
         Self {
             event_key: pack_session_event_key(session_id, event.seq),
             session_id: session_id.to_owned(),
-            event,
+            event: RawValue::from_string(
+                serde_json::to_string(&event).expect("AgentEvent 含可序列化 JSON 形态"),
+            )
+            .expect("自产事件 JSON 必为合法 RawValue"),
         }
     }
 
@@ -583,9 +588,24 @@ impl SessionEventRecord {
         &self.session_id
     }
 
-    /// 事件序号（同会话内单调递增；打包键低 64 位，与 `event.seq` 同源）。
+    /// 事件序号（同会话内单调递增；打包键低 64 位即 seq——构造期自
+    /// `event.seq` 写入，读取免解载荷）。
     pub fn seq(&self) -> u64 {
-        self.event.seq
+        (self.event_key & u64::MAX as u128) as u64
+    }
+
+    /// 类型化事件视图：载荷原文现场反序列化（旧行缺的新字段按默认值补齐）。
+    pub fn event(&self) -> Result<AgentEvent, serde_json::Error> {
+        serde_json::from_str(self.event.get())
+    }
+}
+
+impl PartialEq for SessionEventRecord {
+    /// 载荷按原文比较（`RawValue` 无 `PartialEq`；原文即落库唯一事实形态）。
+    fn eq(&self, other: &Self) -> bool {
+        self.event_key == other.event_key
+            && self.session_id == other.session_id
+            && self.event.get() == other.event.get()
     }
 }
 

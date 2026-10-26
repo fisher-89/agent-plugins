@@ -194,7 +194,8 @@ fn 嵌装往返密封五变体各构造一条逐字段相等() {
 
         assert_eq!(decoded, record, "变体 seq={} 往返逐字段相等", original.seq);
         assert_eq!(
-            decoded.event, original,
+            decoded.event().expect("载荷原文可解析为 AgentEvent"),
+            original,
             "嵌装载荷与原密封事件逐字段相等（serde flatten 承载）"
         );
     }
@@ -214,9 +215,10 @@ fn 嵌装往返raw逃生舱中文emoji引号原文保真() {
     let decoded = roundtrip(&record);
 
     assert_eq!(decoded, record);
+    let decoded_event = decoded.event().expect("载荷原文可解析为 AgentEvent");
     assert!(
         matches!(
-            &decoded.event.kind,
+            &decoded_event.kind,
             AgentEventKind::Raw { event_type, raw_json }
                 if event_type == "外星事件"
                     && raw_json == "{\"kind\":\"外星事件\",\"note\":\"引号\\\"与emoji🚀\"}"
@@ -244,6 +246,67 @@ fn 嵌装往返大seq打包键经编解码不回绕且十六进制串serde() {
     );
     assert_eq!(value["sessionId"], serde_json::json!("ses-huge"));
     assert_eq!(value["event"]["seq"], serde_json::json!(u64::MAX));
+}
+
+/// 回归（删除进行中探索报 `db: 删除转录事件: Inccorect input data it does not
+/// match the model`）：旧 schema 行（`text` 块缺 `citations` 键）经解码→重编码
+/// 必须逐字节不变——native_db 的 `remove` 以「库内字节 == 当前重编码字节」严格
+/// 判等，补默认值即误报 `IncorrectInputData`。反向判据：载荷改回类型化
+/// `AgentEvent` 则重编码补出 `"citations":null`，本测的字节相等与 remove 一并
+/// 失败。
+#[test]
+fn 旧schema转录行解码重编码逐字节不变且可被native_db删除() {
+    // 2026-10-26 前的线格式：text 块无 citations 键
+    let stored_event = concat!(
+        r#"{"seq":0,"timestampMs":1727000000000,"kind":"message","role":"assistant","#,
+        r#""blocks":[{"kind":"text","text":"旧行"}],"parentToolUseId":null}"#
+    );
+    let record = SessionEventRecord {
+        event_key: pack_session_event_key("ses-legacy", 0),
+        session_id: "ses-legacy".to_owned(),
+        event: serde_json::value::RawValue::from_string(stored_event.to_owned())
+            .expect("旧行原文为合法 JSON"),
+    };
+    let encoded = native_model::encode(&record).expect("encode 应成功");
+    let (decoded, _) =
+        native_model::decode::<SessionEventRecord>(encoded.clone()).expect("decode 应成功");
+    assert_eq!(
+        native_model::encode(&decoded).expect("reencode 应成功"),
+        encoded,
+        "旧 schema 行解码后重编码字节不变（缺键不得被补默认值改写）"
+    );
+    assert_eq!(decoded.seq(), 0, "seq 自打包键低 64 位读取");
+    assert!(
+        decoded.event().expect("类型化视图可解析").kind.is_sealed(),
+        "旧行仍反序列化为当前 AgentEvent（新增字段按默认值补齐）"
+    );
+
+    // native_db 真库：insert → scan 解码 → remove 走严格字节判等
+    let mut models = native_db::Models::new();
+    models
+        .define::<SessionEventRecord>()
+        .expect("定义 SessionEventRecord");
+    let db = native_db::Builder::new()
+        .create_in_memory(&models)
+        .expect("建内存库");
+    let rw = db.rw_transaction().expect("写事务");
+    rw.insert(record.clone()).expect("落旧行");
+    rw.commit().expect("提交");
+    let r = db.r_transaction().expect("读事务");
+    let scanned: Vec<SessionEventRecord> = r
+        .scan()
+        .primary::<SessionEventRecord>()
+        .expect("扫描")
+        .all()
+        .expect("迭代")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("收集");
+    drop(r);
+    assert_eq!(scanned, vec![record], "旧行原样读出");
+    let rw = db.rw_transaction().expect("写事务");
+    rw.remove(scanned[0].clone())
+        .expect("旧行可删（严格字节判等不误报）");
+    rw.commit().expect("提交");
 }
 
 // ---------------------------------------------------------------------------
@@ -4254,7 +4317,8 @@ fn 含web_search块的session_event_record往返保真且无schema版本升级()
     let back = roundtrip(&record);
 
     assert_eq!(back, record, "含新块的记录往返逐字段相等");
-    let AgentEventKind::Message { blocks, .. } = &back.event.kind else {
+    let back_event = back.event().expect("载荷原文可解析为 AgentEvent");
+    let AgentEventKind::Message { blocks, .. } = &back_event.kind else {
         panic!("应为 Message 事件");
     };
     let AgentBlock::WebSearch {

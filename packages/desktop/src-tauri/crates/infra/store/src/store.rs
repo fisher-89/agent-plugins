@@ -838,7 +838,10 @@ impl Store {
         let mut events = Vec::new();
         for record in records {
             let record = record.map_err(|e| db_err("读取会话转录")(e).to_string())?;
-            events.push(record.event);
+            let event = record
+                .event()
+                .map_err(|e| db_err("解码会话转录事件")(e).to_string())?;
+            events.push(event);
         }
         events.sort_by_key(|event| event.seq);
         Ok(events)
