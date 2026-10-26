@@ -6,7 +6,10 @@
 
 use exec::{AttemptTrace, RunOutcome, RunReport};
 
-use super::{attempts_log, fault_text, DIAGNOSIS_EXCERPT_LIMIT, ENV_GUIDANCE};
+use super::{
+    argv_budget_text, argv_degrade_note, attempts_log, fault_text, DIAGNOSIS_EXCERPT_LIMIT,
+    ENV_GUIDANCE,
+};
 
 // ---------------------------------------------------------------------------
 // 装置：`RunReport` / `AttemptTrace` 字面量构造
@@ -718,4 +721,258 @@ fn attempts大值防御不溢出() {
     assert!(!text.contains("已自动重试 次"), "无空次数: {text}");
     assert!(!text.contains("已自动重试 -"), "无负值: {text}");
     assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 异常 / 边界：命令行超平台上限两臂文案（argv_budget_text /
+// argv_degrade_note——纯函数零 io 零 async，四类参数字面量直传，零 mock）
+// ---------------------------------------------------------------------------
+
+/// 正向：拒绝面摘要三项依序——定性（harness 限制 / 非被测代码问题）+ 三数字
+/// （`8230` / `7000` / `180`）+ 动作（收窄 `includes` / 拆分 suite），
+/// `omitted_len = None` 时不出现「降级后仍超」句。
+#[test]
+fn argv拒绝文案_定性三数字与动作() {
+    let text = argv_budget_text(7000, 8230, None, 180);
+
+    // ① 定性：成因归 harness 而非被测仓库
+    assert!(
+        text.contains("命令行长度超平台上限（7000 字符）"),
+        "定性段点名平台上限与预算值: {text}"
+    );
+    assert!(text.contains("harness"), "定性归 harness 限制: {text}");
+    assert!(
+        text.contains("非被测代码问题"),
+        "定性声明非被测代码问题（修复不指向被测仓库）: {text}"
+    );
+    // ② 三数字（展开长度 / 平台预算 / 测试文件数）
+    assert!(
+        text.contains("展开 8230 字符 / 平台预算 7000 字符 / 180 个测试文件"),
+        "三数字逐字一行: {text}"
+    );
+    // ③ 动作
+    assert!(text.contains("收窄"), "动作含收窄: {text}");
+    assert!(text.contains("includes"), "动作点名 includes: {text}");
+    assert!(text.contains("拆分 suite"), "动作含拆分 suite: {text}");
+    // 无降级无效句（`omitted_len = None` 臂）
+    assert!(
+        !text.contains("降级为框架自发现后仍为"),
+        "首次裁决不带降级后长度: {text}"
+    );
+    // 三项依序：定性 → 数字 → 动作
+    let (定性, 数字, 动作) = (
+        text.find("命令行长度超平台上限").expect("定性段在案"),
+        text.find("展开 8230 字符").expect("数字段在案"),
+        text.find("请收窄").expect("动作段在案"),
+    );
+    assert!(
+        定性 < 数字 && 数字 < 动作,
+        "三项依序（{定性} < {数字} < {动作}）"
+    );
+}
+
+/// 正向 / 边界（表驱动两态）：`omitted_len` 只在 `Some` 时追加「降级为框架
+/// 自发现后仍为 N 字符」，使「降级无效」可回查两次长度；`None` 臂该句零出现。
+#[test]
+fn argv拒绝文案_降级后长度句两态() {
+    let with_omitted = argv_budget_text(7000, 8230, Some(9000), 180);
+    assert!(
+        with_omitted.contains("降级为框架自发现后仍为 9000 字符"),
+        "Some 臂追加降级后长度（AC-5 两数字可回查）: {with_omitted}"
+    );
+    assert!(
+        with_omitted.contains("展开 8230 字符"),
+        "Some 臂同时保留原始长度（两次长度并存）: {with_omitted}"
+    );
+    assert!(
+        with_omitted.contains("收窄") && with_omitted.contains("拆分 suite"),
+        "Some 臂动作建议照常: {with_omitted}"
+    );
+
+    let without_omitted = argv_budget_text(7000, 8230, None, 180);
+    assert!(
+        !without_omitted.contains("降级为框架自发现"),
+        "None 臂零降级措辞: {without_omitted}"
+    );
+    assert_ne!(
+        with_omitted, without_omitted,
+        "两态文案不同串（`omitted_len` 真实参与装配）"
+    );
+}
+
+/// 异常（负向断言逐词）：拒绝面文案 MUST NOT 误引安全软件排除指引 / 占用者 /
+/// 被锁文件 / 重试次数措辞（成因是命令长度，误引会让用户去改安全软件配置）。
+#[test]
+fn argv拒绝文案_零误引安全软件与重试措辞() {
+    for (label, text) in [
+        ("None 臂", argv_budget_text(7000, 8230, None, 180)),
+        ("Some 臂", argv_budget_text(7000, 8230, Some(9000), 180)),
+    ] {
+        for forbidden in [
+            "火绒",                  // 安全软件具名（ENV_GUIDANCE 专属）
+            "云枢",                  // 安全软件具名
+            "排除 workspace 父目录", // ENV_GUIDANCE 全句零误引
+            "已自动重试",            // 瞬态重试措辞
+            "占用",                  // 占用者归因
+            "被锁文件",              // 文件锁归因
+        ] {
+            assert!(
+                !text.contains(forbidden),
+                "{label} 不得含 {forbidden}（不得套用其他成因文案）: {text}"
+            );
+        }
+        assert!(
+            !text.contains(ENV_GUIDANCE),
+            "{label} 不得整句引用 ENV_GUIDANCE: {text}"
+        );
+    }
+}
+
+/// 边界（表驱动）：三数字边界组合——全零、`omitted_len == Some(0)`、三参同时
+/// `usize::MAX` → 数值逐字呈现（与 `format!` 同式逐字相等）、不 panic、不回落
+/// 省略（无「收敛」「min」类回落措辞）。
+#[test]
+fn argv拒绝文案_数字边界组合() {
+    // 形态一：全零（预算 0 / 展开 0 / 文件 0）
+    let zero = argv_budget_text(0, 0, Some(0), 0);
+    assert_eq!(
+        zero,
+        "命令行长度超平台上限（0 字符）：属 harness 限制，非被测代码问题\n\
+         展开 0 字符 / 平台预算 0 字符 / 0 个测试文件\n\
+         降级为框架自发现后仍为 0 字符\n\
+         请收窄该 suite 的 `includes` 或拆分 suite",
+        "全零逐字呈现（零值不省略、不回落）"
+    );
+
+    // 形态二：三参同时 usize::MAX（溢出面防御：拼接不 panic）
+    let max = argv_budget_text(usize::MAX, usize::MAX, Some(usize::MAX), usize::MAX);
+    assert!(
+        max.contains(&format!("（{} 字符）", usize::MAX)),
+        "预算取 MAX 逐字: {max}"
+    );
+    assert!(
+        max.contains(&format!("展开 {} 字符", usize::MAX)),
+        "展开长度取 MAX 逐字: {max}"
+    );
+    assert!(
+        max.contains(&format!("{} 个测试文件", usize::MAX)),
+        "文件数取 MAX 逐字: {max}"
+    );
+    assert!(
+        max.contains(&format!("仍为 {} 字符", usize::MAX)),
+        "降级后长度取 MAX 逐字: {max}"
+    );
+
+    // 形态三：单侧边界（预算 0 / 展开非零）
+    let skewed = argv_budget_text(0, 8230, None, 180);
+    assert!(
+        skewed.contains("平台上限（0 字符）")
+            && skewed.contains("展开 8230 字符 / 平台预算 0 字符"),
+        "单侧零值不影响另一侧逐字呈现: {skewed}"
+    );
+
+    // 不回落省略：数值全部逐字（无 `…` / 无「约」）
+    for text in [&zero, &max, &skewed] {
+        assert!(
+            !text.contains('…') && !text.contains("约"),
+            "数值面零省略措辞: {text}"
+        );
+        assert!(
+            text.contains("请收窄"),
+            "各形态动作段恒在（不因边界值消失）: {text}"
+        );
+    }
+}
+
+/// 正向：降级面注——三数字 + 「已降级为框架自发现（K 个测试文件）」逐字，
+/// 与 `PlanExecution::argv_note` 的消费者（记录头 `[argv]` 行）同源。
+#[test]
+fn argv降级注_三数字与自发现陈述() {
+    let note = argv_degrade_note(7000, 8230, 180);
+
+    assert_eq!(
+        note, "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（180 个测试文件）",
+        "降级注逐字（三数字 + 自发现陈述）"
+    );
+    assert!(note.contains("展开 8230 字符"), "原始长度在案: {note}");
+    assert!(note.contains("平台预算 7000"), "平台预算在案: {note}");
+    assert!(
+        note.contains("已降级为框架自发现"),
+        "陈述降级已发生: {note}"
+    );
+    assert!(note.contains("180 个测试文件"), "文件数在案: {note}");
+}
+
+/// 异常（负向断言）：降级面注**零动作建议**（降级已发生，只需可查）——不含
+/// 「收窄」「拆分 suite」，且不误引安全软件 / 占用者 / 重试措辞。
+#[test]
+fn argv降级注_零动作建议() {
+    let note = argv_degrade_note(7000, 8230, 180);
+
+    for forbidden in [
+        "收窄",
+        "拆分 suite",
+        "请",
+        "火绒",
+        "云枢",
+        "排除 workspace 父目录",
+        "占用",
+        "被锁文件",
+        "已自动重试",
+    ] {
+        assert!(
+            !note.contains(forbidden),
+            "降级注不得含 {forbidden}（零动作建议 / 零误引）: {note}"
+        );
+    }
+    assert!(
+        !note.contains(ENV_GUIDANCE),
+        "降级注不得整句引用 ENV_GUIDANCE: {note}"
+    );
+}
+
+/// 边界（表驱动）：降级注数字边界——`files = 0` / `budget = 0` /
+/// `expanded_len = 0` / `usize::MAX` 组合 → 逐字呈现、零 panic（与 `format!`
+/// 同式逐字相等，防截断 / 防回落）。
+#[test]
+fn argv降级注_数字边界组合() {
+    let cases: [(usize, usize, usize); 4] = [
+        (7000, 8230, 0),
+        (0, 8230, 180),
+        (7000, 0, 180),
+        (usize::MAX, usize::MAX, usize::MAX),
+    ];
+
+    for (budget, expanded_len, files) in cases {
+        let note = argv_degrade_note(budget, expanded_len, files);
+        assert_eq!(
+            note,
+            format!(
+                "展开 {expanded_len} 字符超平台预算 {budget} 字符，已降级为框架自发现（{files} 个测试文件）"
+            ),
+            "({budget}, {expanded_len}, {files}) 逐字呈现（零截断 / 零回落）"
+        );
+        assert!(!note.contains('…'), "零省略号截断: {note}");
+    }
+}
+
+/// 边界（措辞分工）：两臂互不含对方专属措辞——拒绝面不含「已降级为框架
+/// 自发现」，降级面不含「请收窄」（两成因面文案不得互相套用）。
+#[test]
+fn argv两臂措辞分工_互不含对方专属() {
+    let reject = argv_budget_text(7000, 8230, Some(9000), 180);
+    let degrade = argv_degrade_note(7000, 8230, 180);
+
+    assert!(
+        !reject.contains("已降级为框架自发现（"),
+        "拒绝面不含降级面专属陈述（只含「降级后仍为」诊断句）: {reject}"
+    );
+    assert!(
+        !degrade.contains("请收窄"),
+        "降级面不含拒绝面专属动作建议: {degrade}"
+    );
+    assert!(
+        reject.contains("请收窄") && degrade.contains("已降级为框架自发现"),
+        "各自专属措辞只在各自臂（分工清楚）"
+    );
 }

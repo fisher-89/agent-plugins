@@ -13,11 +13,13 @@ use orchestration::port::{
     RunFault, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolStepOutput,
 };
 
-use super::detect::to_posix;
+use super::detect::{to_posix, TestPlan};
+use super::runner::PlanExecution;
 use super::{
-    execute, findings_brief, findings_detail, newest_input_mtime_ms, outcome, ProcessTestExecution,
-    TESTEXEC_TOTAL_BUDGET,
+    build_sub_report, execute, findings_brief, findings_detail, newest_input_mtime_ms, outcome,
+    push_plan_head, ProcessTestExecution, TESTEXEC_TOTAL_BUDGET,
 };
+use checks::parser::CoverageFormat;
 
 /// 设置 shim 环境面（预置工件源 / 目的工件路径 / marker 路径 / 退出码；
 /// None 侧摘除键）。dest 用 POSIX 形态（Copy-Item / cp 双侧可读）。
@@ -2836,5 +2838,562 @@ async fn 预算收口后复用门不进() {
     assert!(
         ws.reports_dir().join("summary.json").exists(),
         "全预算写 summary（此后可进复用门）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// plan 分隔头装配（`push_plan_head`——记录元数据面单点，D10 / D11 / AC-7；
+// Mock策略：非 mock——`TestPlan` / `runner::PlanExecution` 结构体字面量直构，
+// `argv_len` / `argv_note` 由用例显式给值）
+// ---------------------------------------------------------------------------
+
+/// `push_plan_head` 装置：plan 字面量（纯数据；`id` / `framework` / `files` 由
+/// 用例给值——头行三字段同源于此）。
+fn head_plan(id: &str, framework: &str, files: &[&str]) -> TestPlan {
+    TestPlan {
+        id: id.to_owned(),
+        framework: framework.to_owned(),
+        root: "app".to_owned(),
+        cwd: PathBuf::from("app"),
+        files: files.iter().map(|file| (*file).to_owned()).collect(),
+        config_args: None,
+        shell_template: "run {files}".to_owned(),
+        cmd_template: "run {files}".to_owned(),
+        coverage_format: CoverageFormat::NodeTest,
+        coverage_output: "results.txt",
+        results_output: "results.txt",
+        omit_files_safe: true,
+    }
+}
+
+/// `push_plan_head` 装置：执行结果字面量（纯数据；`output` / `argv_len` /
+/// `argv_note` 由用例给值）。
+fn head_execution(output: &[u8], argv_len: usize, argv_note: Option<&str>) -> PlanExecution {
+    PlanExecution {
+        exit_code: 0,
+        duration_ms: 1.0,
+        cases: Vec::new(),
+        source_files: Vec::new(),
+        measured: None,
+        error: None,
+        output: output.to_vec(),
+        fault: None,
+        argv_len,
+        argv_note: argv_note.map(str::to_owned),
+    }
+}
+
+/// 正向：单 plan——写入 `\n=== plan {id} ({framework}) · files={n} · argv={m}
+/// 字符 ===\n`，`output` 逐字节紧随其后；头行以换行起手与收尾、恰一行。
+#[test]
+fn 计划头装配_单plan头行逐字节与正文紧随() {
+    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
+    let execution = head_execution(b"shim-stdout-marker\n", 123, None);
+
+    let mut merged = Vec::new();
+    push_plan_head(&mut merged, &plan, &execution);
+    merged.extend_from_slice(&execution.output);
+
+    assert_eq!(
+        String::from_utf8(merged.clone()).expect("UTF-8 记录"),
+        "\n=== plan app_node-test (node-test) · files=1 · argv=123 字符 ===\nshim-stdout-marker\n",
+        "头行 + 正文逐字节（换行起手、换行收尾）"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&merged)
+            .matches("=== plan ")
+            .count(),
+        1,
+        "单 plan 恰一行头"
+    );
+    assert!(
+        String::from_utf8_lossy(&merged).starts_with('\n'),
+        "头以换行起手（与前置正文分段）"
+    );
+}
+
+/// 正向：多 plan（3 个）——头按推入序（`plans` 迭代序，`BTreeSet` 字典序稳定）
+/// 排列、每 plan 恰一行头、各段正文随自身头。
+#[test]
+fn 计划头装配_多plan按序且各一行头() {
+    let cases = [
+        ("a_jest", "jest", vec!["src/a.test.ts"]),
+        ("b_rust", "rust", Vec::new()),
+        ("c_node-test", "node-test", vec!["src/add.test.mjs"]),
+    ];
+    let mut merged = Vec::new();
+    for (index, (id, framework, files)) in cases.iter().enumerate() {
+        let plan = head_plan(id, framework, files);
+        let execution = head_execution(format!("body-{index}\n").as_bytes(), 100 + index, None);
+        push_plan_head(&mut merged, &plan, &execution);
+        merged.extend_from_slice(&execution.output);
+    }
+    let text = String::from_utf8(merged).expect("UTF-8 记录");
+
+    for (index, (id, framework, files)) in cases.iter().enumerate() {
+        let head = format!(
+            "\n=== plan {id} ({framework}) · files={} · argv={} 字符 ===\nbody-{index}\n",
+            files.len(),
+            100 + index
+        );
+        assert!(
+            text.contains(&head),
+            "第 {index} 段头与自身正文紧邻: {head:?} | {text}"
+        );
+        assert_eq!(
+            text.matches(&format!("=== plan {id} ")).count(),
+            1,
+            "plan {id} 恰一行头"
+        );
+    }
+    assert_eq!(text.matches("=== plan ").count(), 3, "三 plan 三行头");
+
+    // 头序 = 推入序（第一头在第二头之前、第二在第三之前）
+    let order: Vec<usize> = cases
+        .iter()
+        .map(|(id, _, _)| {
+            text.find(&format!("=== plan {id} "))
+                .unwrap_or_else(|| panic!("plan {id} 头缺失"))
+        })
+        .collect();
+    assert!(
+        order.windows(2).all(|pair| pair[0] < pair[1]),
+        "头序严格递增（{order:?}）"
+    );
+}
+
+/// 正向（表驱动两态）：降级 plan（`argv_note == Some(note)`）→ 头后紧跟
+/// `[argv] {note}\n`；非降级 plan（`None`）无 `[argv]` 行（记录零噪声）。
+#[test]
+fn 计划头装配_降级注行两态() {
+    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
+    let note = "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（1 个测试文件）";
+
+    // 形态一：降级面
+    let mut merged = Vec::new();
+    push_plan_head(&mut merged, &plan, &head_execution(b"", 8230, Some(note)));
+    let text = String::from_utf8(merged).expect("UTF-8 记录");
+    assert_eq!(
+        text,
+        format!(
+            "\n=== plan app_node-test (node-test) · files=1 · argv=8230 字符 ===\n[argv] {note}\n"
+        ),
+        "降级注行紧随风头（头 + [argv] 两行）"
+    );
+    assert_eq!(text.matches("[argv] ").count(), 1, "[argv] 行恰一行");
+    assert!(
+        text.find("[argv] ").expect("[argv] 行在案") > text.find("=== plan ").expect("头在案"),
+        "[argv] 行在头之后（先头后注）"
+    );
+
+    // 形态二：未降级面
+    let mut merged = Vec::new();
+    push_plan_head(&mut merged, &plan, &head_execution(b"", 4527, None));
+    let text = String::from_utf8(merged).expect("UTF-8 记录");
+    assert_eq!(
+        text, "\n=== plan app_node-test (node-test) · files=1 · argv=4527 字符 ===\n",
+        "未降级 → 记录仅头行"
+    );
+    assert!(!text.contains("[argv] "), "未降级零 [argv] 行: {text}");
+}
+
+/// 边界（表驱动两形态）：`output` 空（fault 拒绝臂 / 零输出的已执行 plan）→
+/// 记录**仅头**（含可选 `[argv]` 行）、非空且可回查；多 plan 全空 → 记录 = 头
+/// 序列（非空、序稳定）。
+#[test]
+fn 计划头装配_空输出仅头非空可回查() {
+    // 形态一：单 plan 空输出（拒绝臂口径）
+    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
+    let mut merged = Vec::new();
+    push_plan_head(&mut merged, &plan, &head_execution(b"", 8000, None));
+    assert!(!merged.is_empty(), "空输出仍留头（被拒绝的展开长度可回查）");
+    assert!(
+        String::from_utf8_lossy(&merged).contains("argv=8000 字符"),
+        "拒绝臂长度在案: {:?}",
+        String::from_utf8_lossy(&merged)
+    );
+
+    // 形态二：三 plan 全空输出（fault 面的「仅头序列」形态）
+    let mut merged = Vec::new();
+    for (index, id) in ["a_jest", "b_rust", "c_node-test"].iter().enumerate() {
+        let plan = head_plan(id, "node-test", &["src/x.test.mjs"]);
+        push_plan_head(&mut merged, &plan, &head_execution(b"", index, None));
+    }
+    let text = String::from_utf8(merged).expect("UTF-8 记录");
+    assert_eq!(text.matches("=== plan ").count(), 3, "头序列三行");
+    assert_eq!(text.matches('\n').count(), 6, "每头一行 + 起手换行各一");
+    assert!(
+        !text.contains("shim-stdout-marker"),
+        "空输出面无脚本正文: {text}"
+    );
+}
+
+/// 边界：`plan.files == []`（rust 档）与 `argv_len == 0` → 头格式仍逐字
+/// （`files=0 · argv=0 字符`），零字段省略。
+#[test]
+fn 计划头装配_零文件零长度仍逐字() {
+    let plan = head_plan("crates_rust", "rust", &[]);
+    let mut merged = Vec::new();
+    push_plan_head(&mut merged, &plan, &head_execution(b"", 0, None));
+
+    assert_eq!(
+        String::from_utf8(merged).expect("UTF-8 记录"),
+        "\n=== plan crates_rust (rust) · files=0 · argv=0 字符 ===\n",
+        "零文件 / 零长度逐字（零值不省略字段）"
+    );
+}
+
+/// 边界（表驱动）：非 ASCII `id` / `framework`（中文 root 推导 id）与超长
+/// `note`（>1000 字符）→ 逐字节 UTF-8 写入、记录面不截断、不 panic。
+#[test]
+fn 计划头装配_非ascii与超长注不截断() {
+    let note_body = "降级".repeat(600); // 1200 字符（> 1000）
+    let plan = head_plan("根目录_node-test", "中文框架", &["src/名称.test.mjs"]);
+    let mut merged = Vec::new();
+    let execution = head_execution("正文".as_bytes(), 8230, Some(&note_body));
+    push_plan_head(&mut merged, &plan, &execution);
+    merged.extend_from_slice(&execution.output);
+
+    let text = String::from_utf8(merged.clone()).expect("逐字节 UTF-8（不切碎多字节）");
+    assert!(
+        text.contains("=== plan 根目录_node-test (中文框架) · files=1 · argv=8230 字符 ==="),
+        "非 ASCII id / framework 逐字: {text}"
+    );
+    assert!(
+        text.contains(&format!("[argv] {note_body}")),
+        "超长注全量在案（不截断）"
+    );
+    assert_eq!(
+        merged.len(),
+        "\n=== plan 根目录_node-test (中文框架) · files=1 · argv=8230 字符 ===\n".len()
+            + "[argv] ".len()
+            + note_body.len()
+            + "\n".len()
+            + "正文".len(),
+        "字节长度 == 头 + [argv] 行 + 正文（多字节按 UTF-8 字节计）"
+    );
+}
+
+/// 边界：头行分隔符字面口径——分隔符为 ` · `（U+00B7 MIDDLE DOT，非 ASCII
+/// `|` / 连字符）；`files=` / `argv=` 为十进制整数。
+#[test]
+fn 计划头装配_分隔符为中间点且数值十进制() {
+    let plan = head_plan("app_node-test", "node-test", &["a", "b"]);
+    let mut merged = Vec::new();
+    push_plan_head(&mut merged, &plan, &head_execution(b"", 7001, None));
+    let text = String::from_utf8(merged).expect("UTF-8 记录");
+
+    assert!(
+        text.contains(" · "),
+        "分隔符为 ` · `（U+00B7 两侧空格）: {text}"
+    );
+    assert!(text.contains('\u{00B7}'), "分隔符码点为 U+00B7: {text:?}");
+    for wrong in [" | ", " - ", " – ", " — ", "•", "*"] {
+        assert!(!text.contains(wrong), "不得用 {wrong:?} 作分隔符: {text}");
+    }
+    assert!(
+        text.contains("files=2") && text.contains("argv=7001 字符"),
+        "两数值十进制逐字（无 0x / 无千分位）: {text}"
+    );
+    assert!(
+        !text.contains("files=0x") && !text.contains("7_001") && !text.contains("7,001"),
+        "十进制整数面无其他进制 / 分隔: {text}"
+    );
+}
+
+/// 正向（留痕三数一致）：头中 `files=` 来自 `plan.files.len()`、`argv=` 来自
+/// `execution.argv_len`——两值互不推导（各自单源，表驱动两形态），与
+/// `expand_template` / `decide_argv` 同口径。
+#[test]
+fn 计划头装配_三数各自单源() {
+    let cases: [(&str, &str, Vec<&str>, usize); 2] = [
+        ("it_node-test", "node-test", vec!["src/a.test.mjs"], 4527),
+        ("it_rust", "rust", Vec::new(), 7000),
+    ];
+    for (id, framework, files, argv_len) in cases {
+        let plan = head_plan(id, framework, &files);
+        let mut merged = Vec::new();
+        push_plan_head(&mut merged, &plan, &head_execution(b"", argv_len, None));
+        let text = String::from_utf8(merged).expect("UTF-8 记录");
+
+        assert!(
+            text.contains(&format!(
+                "files={} · argv={argv_len} 字符 ===",
+                plan.files.len()
+            )),
+            "files 取 plan.files.len()、argv 取 execution.argv_len（{id}），实际: {text}"
+        );
+        assert_eq!(
+            plan.files.len(),
+            files.len(),
+            "files= 与清单长度同源（{id}）"
+        );
+    }
+}
+
+/// 异常（结构性断言，AC-3 / AC-7）：降级 plan（`argv_note == Some(…)`、
+/// `error == None`）→ `SubReport.findings == None`；`summary.findings` 不含降级
+/// 注文本、`conclusion` 仍 `Pass`（降级说明只走记录通路，MUST NOT 进 findings
+/// ——findings 非空 + failed 0 会被判成 execution_error，绿跑翻红）。
+#[test]
+fn 子报告findings_降级注零注入且结论仍pass() {
+    let note = "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（1 个测试文件）";
+    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
+    let mut execution = head_execution(b"", 8230, Some(note));
+    execution.cases = vec![TestCaseResult {
+        name: "adds numbers".to_owned(),
+        file: Some("src/add.test.mjs".to_owned()),
+        duration_ms: None,
+        status: TestCaseStatus::Passed,
+        line: None,
+        error_type: None,
+        error_message: None,
+        stack_trace: None,
+    }];
+
+    let sub = build_sub_report(&plan, execution, &[]);
+    assert_eq!(
+        sub.findings, None,
+        "降级面零 findings 注入（note 不走 findings 通路）"
+    );
+    assert_eq!(sub.error_cases.len(), 0, "绿跑零失败用例");
+    assert_eq!(
+        (sub.summary.total, sub.summary.failed),
+        (1, 0),
+        "一用例零失败"
+    );
+
+    let summary = checks::build_summary_report(
+        std::slice::from_ref(&sub),
+        &[],
+        "desktop change run: test-execution gate",
+        time::OffsetDateTime::now_utc(),
+    );
+    assert_eq!(
+        summary.conclusion,
+        Conclusion::Pass,
+        "降级不改变结论（绿跑仍 Pass）"
+    );
+    let findings_text = summary
+        .findings
+        .as_ref()
+        .map(|items| items.join("\n"))
+        .unwrap_or_default();
+    assert!(
+        !findings_text.contains("已降级为框架自发现") && !findings_text.contains("展开 8230 字符"),
+        "summary.findings 不含降级注文本（降级说明只进记录头），实际: {findings_text:?}"
+    );
+    let diagnoses = checks::diagnose_findings(&summary);
+    assert!(
+        !diagnoses
+            .iter()
+            .any(|item| item.contains("降级为框架自发现") || item.contains("[argv]")),
+        "诊断面不含降级注（结构性不可达，非纪律），实际: {diagnoses:?}"
+    );
+}
+
+/// 回归（边界）：真红 plan（`error == Some(…)`）+ `argv_note == None` →
+/// `findings` 仍为该错误（零改注入面，既有语义不回退）。
+#[test]
+fn 子报告findings_真红plan错误面不回退() {
+    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
+    let mut execution = head_execution(b"", 4527, None);
+    execution.exit_code = 1;
+    execution.error = Some("结果工件缺失: results.txt".to_owned());
+    execution.cases = vec![failed_case("adds numbers", "expected 1 to be 2")];
+
+    let sub = build_sub_report(&plan, execution, &[]);
+    assert_eq!(
+        sub.findings,
+        Some(vec!["结果工件缺失: results.txt".to_owned()]),
+        "真红 error 面逐字进 findings（未被 argv_note 面替换）"
+    );
+    assert_eq!(sub.summary.failed, 1, "失败用例计数在案");
+
+    let summary = checks::build_summary_report(
+        std::slice::from_ref(&sub),
+        &[],
+        "desktop change run: test-execution gate",
+        time::OffsetDateTime::now_utc(),
+    );
+    assert_ne!(
+        summary.conclusion,
+        Conclusion::Pass,
+        "真红结论不取 Pass（findings 注入面零改）"
+    );
+    assert!(
+        !summary
+            .findings
+            .as_ref()
+            .map(|items| items.join("\n"))
+            .unwrap_or_default()
+            .contains("[argv]"),
+        "findings 不含记录头元数据行"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 记录聚合面（`execute` 全链：先写头再拼 output、每已执行 plan 恰一行头、
+// fault 在位亦写头——Mock策略：文件系统 / 记录单点不 mock，子进程走既有 node
+// shim，`exec_id` 回查即被测语义）
+// ---------------------------------------------------------------------------
+
+/// node-test 注册表模板（与 detect `REGISTRY` 逐字同串——`argv=` 口径的独立
+/// 构造面：头中数字须等于该模板按 `expand_template` 规则展开后的字符数）。
+const NODE_TEST_TEMPLATE: &str = "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=\"{results_file}\" {files}";
+
+/// 正向（AC-7）：全链两 plan——记录以第一 plan 头起手、两 plan 头按 plan 序
+/// 排列、**去掉头与 `[argv]` 行后正文与脚本输出逐字节一致**（plan 序保序）。
+#[tokio::test]
+async fn 记录聚合面_两头起手且去头后正文逐字节一致() {
+    let ws = ChainWs::new("head-two-plan").two_plan();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    // 第 2 个 plan 的报告目录预建：`SHIM_DEST_2` 在第 1 个 plan 执行期即被拷贝
+    // （此刻第 2 个 plan 的目录尚未由 `execute_plan` 创建）——预建使该次拷贝
+    // 不产 stderr 噪声（正文逐字节断言面不被壳侧噪音污染）
+    fs::create_dir_all(ws.reports_dir().join("app2_node-test")).expect("预建第二 plan 报告目录");
+    let output = {
+        let _window = path_window();
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
+        ws.run().await
+    }
+    .expect("双 plan 全链应 Ok");
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    assert_eq!(ws.marker_count(), 2, "两 plan 各一次执行");
+
+    let recorded = exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id).expect("记录可回查");
+    let text = String::from_utf8_lossy(&recorded).into_owned();
+
+    assert!(
+        text.starts_with("\n=== plan app_node-test (node-test) · files=1 · argv="),
+        "记录以第一 plan 头起手: {text:?}"
+    );
+    assert_eq!(
+        text.matches("=== plan ").count(),
+        2,
+        "两已执行 plan 恰两行头"
+    );
+    let first = text.find("=== plan app_node-test ").expect("第一头在案");
+    let second = text.find("=== plan app2_node-test ").expect("第二头在案");
+    assert!(
+        first < second,
+        "头按 plan 迭代序（字典序稳定）排列（{first} < {second}）"
+    );
+
+    // 去头（含可选 `[argv]` 行）→ 正文 = 各 plan 脚本输出按序拼接
+    let body: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.starts_with("=== plan ") && !line.starts_with("[argv] "))
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    assert_eq!(
+        body,
+        vec!["shim-stdout-marker", "shim-stdout-marker"],
+        "去头后正文与脚本真实输出逐字节一致、plan 序保序（实际: {text:?}）"
+    );
+    assert!(!text.contains("[argv] "), "未降级面零 [argv] 行: {text:?}");
+}
+
+/// 正向：留痕三数一致——头中 `files=` 等于 detect 出的清单长度、`argv=` 等于
+/// `WithFiles` 展开字符数（与 `expand_template` / `decide_argv` 同口径的独立
+/// 构造）；未超预算面零 `[argv]` 行。
+#[tokio::test]
+async fn 记录聚合面_头中files与argv与展开同口径() {
+    let ws = ChainWs::new("head-numbers");
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    let output = {
+        let _window = path_window();
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        ws.run().await
+    }
+    .expect("单 plan 全链应 Ok");
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    let recorded = exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id).expect("记录可回查");
+    let text = String::from_utf8_lossy(&recorded).into_owned();
+    let head = text
+        .lines()
+        .find(|line| line.starts_with("=== plan app_node-test "))
+        .unwrap_or_else(|| panic!("plan 头缺失: {text:?}"));
+
+    // files= 与 fixture 树命中清单同源（app/src/add.test.mjs 一枚）
+    assert!(
+        head.contains("(node-test) · files=1 · argv="),
+        "files= 等于 plan.files.len()（fixture 树单文件）: {head}"
+    );
+
+    // argv= 与展开字符数同口径（独立构造：注册表模板 + 同展开规则）
+    let results_file = to_posix(&ws.reports_dir().join("app_node-test").join("results.txt"));
+    let expanded_len = NODE_TEST_TEMPLATE
+        .replace("{results_file}", &results_file)
+        .replace("{files}", "src/add.test.mjs")
+        .chars()
+        .count();
+    assert!(
+        head.contains(&format!("argv={expanded_len} 字符 ===")),
+        "argv= 等于 WithFiles 展开字符数（期望 {expanded_len}），实际头: {head}"
+    );
+    assert!(
+        expanded_len < 7000,
+        "fixture 展开远低于预算（Keep 臂——零降级前提）"
+    );
+    assert!(!text.contains("[argv] "), "Keep 臂零降级注行: {text:?}");
+}
+
+/// 异常：fault 收口路径（`fault_outcome`）——该 plan 的头仍在记录中（展开长度
+/// 可回查）、记录正文除头外为空（进程未拉起）、summary / 子报告零落盘。
+#[tokio::test]
+async fn 记录聚合面_fault收口仍留头且零报告落盘() {
+    let _window = path_window();
+    let ws = ChainWs::new("head-fault-cancel");
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+
+    let cancel = foundation::cancel::CancelFlag::never();
+    cancel.handle().set();
+    let output = ws.run_with(cancel).await.expect("fault 收口（不 Err）");
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    assert_eq!(outcome.fault, Some(RunFault::Stopped), "取消 → fault");
+
+    let recorded =
+        exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id).expect("fault 面记录可回查");
+    let text = String::from_utf8_lossy(&recorded).into_owned();
+    assert!(
+        text.starts_with("\n=== plan app_node-test (node-test) · files=1 · argv="),
+        "fault 面仍写头（该 plan 的展开长度可回查）: {text:?}"
+    );
+    assert_eq!(text.matches("=== plan ").count(), 1, "单 plan 单头");
+    let body: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.starts_with("=== plan ") && !line.starts_with("[argv] "))
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    assert!(
+        body.is_empty(),
+        "进程未拉起 → 记录除头外无正文（实际: {text:?}）"
+    );
+    assert_eq!(ws.marker_count(), 0, "入口短路零 spawn");
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "fault 面不写 summary（半套报告不进复用门）"
+    );
+    assert!(
+        !ws.reports_dir()
+            .join("app_node-test")
+            .join("report.json")
+            .exists(),
+        "fault 面零子报告落盘"
     );
 }

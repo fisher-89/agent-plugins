@@ -168,6 +168,9 @@ async fn execute(
         // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）
         let mut execution =
             runner::execute_plan(plan, &reports_dir.join(&plan.id), cancel.clone()).await?;
+        // 每个已执行 plan 恰一行分隔头（fault 在位亦写头——被拒绝 / 超时 / 取消的
+        // 那次展开长度必须可回查），先头后正文
+        push_plan_head(&mut merged_output, plan, &execution);
         merged_output.extend_from_slice(&execution.output);
         match execution.fault.take() {
             Some(RunFault::Stopped) => {
@@ -222,7 +225,8 @@ async fn execute(
 /// 按槽位同锚派生）
 /// 并携 `exec_id` 回查引用——与 `report_dir` 同锚同口径（无私有捕获 / 落盘分支；
 /// 落盘失败降级空串，`report_dir` 报告仍为全量权威）。record 内容为**脚本真实
-/// 输出**（非 summary JSON 重序列化——后者非脚本输出、人工回查无价值）。
+/// 输出**（非 summary JSON 重序列化——后者非脚本输出、人工回查无价值）；记录正文
+/// 各段前有该 plan 的分隔头（元数据面，非脚本输出）。
 fn outcome(
     root: &Path,
     change: &str,
@@ -255,7 +259,8 @@ fn outcome(
 /// `Error`——后者成因面已收窄为工件解析 / harness 崩 / 框架探测失败，也 MUST NOT
 /// 取 `Pass` 以免被误读为绿）；四项计数 0、诊断双双空串；`report_dir` 与本槽位
 /// 派生同口径、`exec_id` 照旧经 `record_exec_output` 回填（**不写 summary / 不跑
-/// `diagnose_findings` / 不落报告文件**——半套报告不进复用门）。
+/// `diagnose_findings` / 不落报告文件**——半套报告不进复用门）。记录正文同样按
+/// 已执行 plan 各带分隔头（元数据面，非脚本输出）。
 fn fault_outcome(
     root: &Path,
     change: &str,
@@ -276,6 +281,30 @@ fn fault_outcome(
         exec_id: exec::record_exec_output(root, change, slot, merged_output).unwrap_or_default(),
         fault: Some(fault),
     })
+}
+
+/// plan 分隔头装配（记录元数据面，`exec-outputs` 单点正文的一段前缀）：以 `===`
+/// 起手与收尾的单行头，内容为 `plan {id} ({framework}) · files={n} · argv={len}
+/// 字符`（以换行起手与收尾、` · ` 分隔），该 plan 发生 `{files}` 省略降级时紧随
+/// 一行 `[argv] {降级说明}`。
+///
+/// 头与 `[argv]` 行为**记录元数据**（MUST NOT 视为脚本输出）：去掉这些行后记录
+/// 正文与脚本真实输出逐字节一致、按 plan 序保序。降级说明只走本通路
+/// （`argv_note` 不进 `SubReport.findings` / `summary.findings`）。
+fn push_plan_head(merged: &mut Vec<u8>, plan: &TestPlan, execution: &runner::PlanExecution) {
+    merged.extend_from_slice(
+        format!(
+            "\n=== plan {} ({}) · files={} · argv={} 字符 ===\n",
+            plan.id,
+            plan.framework,
+            plan.files.len(),
+            execution.argv_len
+        )
+        .as_bytes(),
+    );
+    if let Some(note) = execution.argv_note.as_deref() {
+        merged.extend_from_slice(format!("[argv] {note}\n").as_bytes());
+    }
 }
 
 /// 诊断摘要装配：单条 200 字符截断、至多 10 条（walker `diagnose_brief`

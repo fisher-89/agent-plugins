@@ -64,3 +64,4 @@
 - [ ] 归一Agent会话发送
 - [ ] 修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
 - [ ] 进行中的agent step，统计实时消耗的token（允许误差）
+- [ ] test-execution 处置五：`includes` 双语义解耦（config 增可选 source 范围键，缺省回落 `includes`）+ `in_suite_scope` 绝对路径归一（`aggregate.rs` 取 `relative_to_root`）；**顺序固定：先 B（解耦）后 A（归一）**，否则收窄后的 `includes` 会把 per-suite override 圈到测试文件自身（来源：change `test-exec-argv-budget` proposal R-5 / 遗留观察项 1）

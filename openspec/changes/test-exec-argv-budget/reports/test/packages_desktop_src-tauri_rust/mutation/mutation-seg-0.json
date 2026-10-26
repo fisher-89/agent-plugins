@@ -1,0 +1,2020 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/environment.rs:188:5: replace argv_budget_text -> String with String::new()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/environment.rs",
+          "function": {
+            "function_name": "argv_budget_text",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 171,
+                "column": 1
+              },
+              "end": {
+                "line": 197,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 188,
+              "column": 5
+            },
+            "end": {
+              "line": 196,
+              "column": 9
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__environment.rs_line_188_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__environment.rs_line_188_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.511140900000001,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0414506,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/environment.rs:188:5: replace argv_budget_text -> String with \"xyzzy\".into()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/environment.rs",
+          "function": {
+            "function_name": "argv_budget_text",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 171,
+                "column": 1
+              },
+              "end": {
+                "line": 197,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 188,
+              "column": 5
+            },
+            "end": {
+              "line": 196,
+              "column": 9
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__environment.rs_line_188_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__environment.rs_line_188_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.2559119,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0415313,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/environment.rs:207:5: replace argv_degrade_note -> String with String::new()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/environment.rs",
+          "function": {
+            "function_name": "argv_degrade_note",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 199,
+                "column": 1
+              },
+              "end": {
+                "line": 210,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 207,
+              "column": 5
+            },
+            "end": {
+              "line": 209,
+              "column": 6
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__environment.rs_line_207_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__environment.rs_line_207_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.4116101,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0424155,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/environment.rs:207:5: replace argv_degrade_note -> String with \"xyzzy\".into()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/environment.rs",
+          "function": {
+            "function_name": "argv_degrade_note",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 199,
+                "column": 1
+              },
+              "end": {
+                "line": 210,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 207,
+              "column": 5
+            },
+            "end": {
+              "line": 209,
+              "column": 6
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__environment.rs_line_207_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__environment.rs_line_207_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.5404393,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.028169,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/mod.rs:105:5: replace execute -> Result<ToolStepOutput, String> with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/mod.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<ToolStepOutput, String>",
+            "span": {
+              "start": {
+                "line": 84,
+                "column": 1
+              },
+              "end": {
+                "line": 219,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 105,
+              "column": 5
+            },
+            "end": {
+              "line": 218,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__mod.rs_line_105_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__mod.rs_line_105_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.7108301,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0551968,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/mod.rs:295:5: replace push_plan_head with ()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/mod.rs",
+          "function": {
+            "function_name": "push_plan_head",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 286,
+                "column": 1
+              },
+              "end": {
+                "line": 308,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 295,
+              "column": 5
+            },
+            "end": {
+              "line": 307,
+              "column": 6
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__mod.rs_line_295_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__mod.rs_line_295_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.8298972,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0330756,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:199:5: replace detect_plans -> Result<Vec<TestPlan>, String> with Ok(vec![Default::default()])",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_plans",
+            "return_type": "-> Result<Vec<TestPlan>, String>",
+            "span": {
+              "start": {
+                "line": 190,
+                "column": 1
+              },
+              "end": {
+                "line": 273,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 199,
+              "column": 5
+            },
+            "end": {
+              "line": 272,
+              "column": 14
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_199_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_199_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.9736921,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0591371,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:199:5: replace detect_plans -> Result<Vec<TestPlan>, String> with Ok(vec![])",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_plans",
+            "return_type": "-> Result<Vec<TestPlan>, String>",
+            "span": {
+              "start": {
+                "line": 190,
+                "column": 1
+              },
+              "end": {
+                "line": 273,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 199,
+              "column": 5
+            },
+            "end": {
+              "line": 272,
+              "column": 14
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_199_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_199_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.1014867,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0578634,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:245:13: replace && with || in detect_plans",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_plans",
+            "return_type": "-> Result<Vec<TestPlan>, String>",
+            "span": {
+              "start": {
+                "line": 190,
+                "column": 1
+              },
+              "end": {
+                "line": 273,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 245,
+              "column": 13
+            },
+            "end": {
+              "line": 245,
+              "column": 15
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_245_col_13.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_245_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.1914615,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0138811,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:244:51: replace == with != in detect_plans",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_plans",
+            "return_type": "-> Result<Vec<TestPlan>, String>",
+            "span": {
+              "start": {
+                "line": 190,
+                "column": 1
+              },
+              "end": {
+                "line": 273,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 244,
+              "column": 51
+            },
+            "end": {
+              "line": 244,
+              "column": 53
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_244_col_51.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_244_col_51.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.9168227,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0497631,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:285:5: replace detect_files -> Result<Vec<String>, String> with Ok(vec![String::new()])",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_files",
+            "return_type": "-> Result<Vec<String>, String>",
+            "span": {
+              "start": {
+                "line": 275,
+                "column": 1
+              },
+              "end": {
+                "line": 299,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 285,
+              "column": 5
+            },
+            "end": {
+              "line": 298,
+              "column": 16
+            }
+          },
+          "replacement": "Ok(vec![String::new()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_285_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_285_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.6061354,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0406886,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:285:5: replace detect_files -> Result<Vec<String>, String> with Ok(vec![])",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_files",
+            "return_type": "-> Result<Vec<String>, String>",
+            "span": {
+              "start": {
+                "line": 275,
+                "column": 1
+              },
+              "end": {
+                "line": 299,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 285,
+              "column": 5
+            },
+            "end": {
+              "line": 298,
+              "column": 16
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_285_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_285_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.9929635,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0421636,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:248:52: replace == with != in detect_plans",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_plans",
+            "return_type": "-> Result<Vec<TestPlan>, String>",
+            "span": {
+              "start": {
+                "line": 190,
+                "column": 1
+              },
+              "end": {
+                "line": 273,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 52
+            },
+            "end": {
+              "line": 248,
+              "column": 54
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_248_col_52.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_248_col_52.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.2310445,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0437296,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:313:5: replace collect_files -> Result<BTreeSet<String>, String> with Ok(BTreeSet::new())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "collect_files",
+            "return_type": "-> Result<BTreeSet<String>, String>",
+            "span": {
+              "start": {
+                "line": 301,
+                "column": 1
+              },
+              "end": {
+                "line": 347,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 313,
+              "column": 5
+            },
+            "end": {
+              "line": 346,
+              "column": 17
+            }
+          },
+          "replacement": "Ok(BTreeSet::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_313_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_313_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.7940145,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0102556,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:313:5: replace collect_files -> Result<BTreeSet<String>, String> with Ok(BTreeSet::from_iter([String::new()]))",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "collect_files",
+            "return_type": "-> Result<BTreeSet<String>, String>",
+            "span": {
+              "start": {
+                "line": 301,
+                "column": 1
+              },
+              "end": {
+                "line": 347,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 313,
+              "column": 5
+            },
+            "end": {
+              "line": 346,
+              "column": 17
+            }
+          },
+          "replacement": "Ok(BTreeSet::from_iter([String::new()]))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_313_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_313_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.8385394,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0108785,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:285:5: replace detect_files -> Result<Vec<String>, String> with Ok(vec![\"xyzzy\".into()])",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "detect_files",
+            "return_type": "-> Result<Vec<String>, String>",
+            "span": {
+              "start": {
+                "line": 275,
+                "column": 1
+              },
+              "end": {
+                "line": 299,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 285,
+              "column": 5
+            },
+            "end": {
+              "line": 298,
+              "column": 16
+            }
+          },
+          "replacement": "Ok(vec![\"xyzzy\".into()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_285_col_5_002.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_285_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.355973,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0323062,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:313:5: replace collect_files -> Result<BTreeSet<String>, String> with Ok(BTreeSet::from_iter([\"xyzzy\".into()]))",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "collect_files",
+            "return_type": "-> Result<BTreeSet<String>, String>",
+            "span": {
+              "start": {
+                "line": 301,
+                "column": 1
+              },
+              "end": {
+                "line": 347,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 313,
+              "column": 5
+            },
+            "end": {
+              "line": 346,
+              "column": 17
+            }
+          },
+          "replacement": "Ok(BTreeSet::from_iter([\"xyzzy\".into()]))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_313_col_5_002.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_313_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.4358009,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/detect.rs:335:35: replace && with || in collect_files",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/detect.rs",
+          "function": {
+            "function_name": "collect_files",
+            "return_type": "-> Result<BTreeSet<String>, String>",
+            "span": {
+              "start": {
+                "line": 301,
+                "column": 1
+              },
+              "end": {
+                "line": 347,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 335,
+              "column": 35
+            },
+            "end": {
+              "line": 335,
+              "column": 37
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__detect.rs_line_335_col_35.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__detect.rs_line_335_col_35.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.9276837,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0493903,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:35:5: replace line_budget -> Option<usize> with None",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "line_budget",
+            "return_type": "-> Option<usize>",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 43,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 35,
+              "column": 5
+            },
+            "end": {
+              "line": 42,
+              "column": 6
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_35_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_35_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.9286904,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0157843,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:35:5: replace line_budget -> Option<usize> with Some(0)",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "line_budget",
+            "return_type": "-> Option<usize>",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 43,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 35,
+              "column": 5
+            },
+            "end": {
+              "line": 42,
+              "column": 6
+            }
+          },
+          "replacement": "Some(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_35_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_35_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.943481,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.009612,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:35:5: replace line_budget -> Option<usize> with Some(1)",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "line_budget",
+            "return_type": "-> Option<usize>",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 43,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 35,
+              "column": 5
+            },
+            "end": {
+              "line": 42,
+              "column": 6
+            }
+          },
+          "replacement": "Some(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_35_col_5_002.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_35_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.0308917,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0510854,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:99:5: replace execute_plan -> Result<PlanExecution, String> with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "execute_plan",
+            "return_type": "-> Result<PlanExecution, String>",
+            "span": {
+              "start": {
+                "line": 87,
+                "column": 1
+              },
+              "end": {
+                "line": 253,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 99,
+              "column": 5
+            },
+            "end": {
+              "line": 252,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_99_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_99_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.018747,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0532844,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:288:5: replace expand_template -> String with \"xyzzy\".into()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "expand_template",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 276,
+                "column": 1
+              },
+              "end": {
+                "line": 319,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 288,
+              "column": 5
+            },
+            "end": {
+              "line": 318,
+              "column": 6
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_288_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_288_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.8721858,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0520117,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:313:43: replace + with - in expand_template",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "expand_template",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 276,
+                "column": 1
+              },
+              "end": {
+                "line": 319,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 313,
+              "column": 43
+            },
+            "end": {
+              "line": 313,
+              "column": 44
+            }
+          },
+          "replacement": "-",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_313_col_43.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_313_col_43.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.8662816,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0239436,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:288:5: replace expand_template -> String with String::new()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "expand_template",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 276,
+                "column": 1
+              },
+              "end": {
+                "line": 319,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 288,
+              "column": 5
+            },
+            "end": {
+              "line": 318,
+              "column": 6
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_288_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_288_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.465523,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0452091,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:313:43: replace + with * in expand_template",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "expand_template",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 276,
+                "column": 1
+              },
+              "end": {
+                "line": 319,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 313,
+              "column": 43
+            },
+            "end": {
+              "line": 313,
+              "column": 44
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_313_col_43_001.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_313_col_43_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.5614097,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0183175,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:347:5: replace decide_argv -> ArgvDecision with Default::default()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "decide_argv",
+            "return_type": "-> ArgvDecision",
+            "span": {
+              "start": {
+                "line": 331,
+                "column": 1
+              },
+              "end": {
+                "line": 383,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 347,
+              "column": 5
+            },
+            "end": {
+              "line": 382,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_347_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_347_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.5764572,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0382868,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:353:21: replace <= with > in decide_argv",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "decide_argv",
+            "return_type": "-> ArgvDecision",
+            "span": {
+              "start": {
+                "line": 331,
+                "column": 1
+              },
+              "end": {
+                "line": 383,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 353,
+              "column": 21
+            },
+            "end": {
+              "line": 353,
+              "column": 23
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_353_col_21.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_353_col_21.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.597659,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0552792,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:359:8: delete ! in decide_argv",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "decide_argv",
+            "return_type": "-> ArgvDecision",
+            "span": {
+              "start": {
+                "line": 331,
+                "column": 1
+              },
+              "end": {
+                "line": 383,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 359,
+              "column": 8
+            },
+            "end": {
+              "line": 359,
+              "column": 9
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_359_col_8.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_359_col_8.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.5492107,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0500145,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:374:20: replace > with == in decide_argv",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "decide_argv",
+            "return_type": "-> ArgvDecision",
+            "span": {
+              "start": {
+                "line": 331,
+                "column": 1
+              },
+              "end": {
+                "line": 383,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 374,
+              "column": 20
+            },
+            "end": {
+              "line": 374,
+              "column": 21
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_374_col_20.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_374_col_20.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.64368,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.043336,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:374:20: replace > with < in decide_argv",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "decide_argv",
+            "return_type": "-> ArgvDecision",
+            "span": {
+              "start": {
+                "line": 331,
+                "column": 1
+              },
+              "end": {
+                "line": 383,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 374,
+              "column": 20
+            },
+            "end": {
+              "line": 374,
+              "column": 21
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_374_col_20_001.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_374_col_20_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.6163657,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0199753,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/runner.rs:374:20: replace > with >= in decide_argv",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/runner.rs",
+          "function": {
+            "function_name": "decide_argv",
+            "return_type": "-> ArgvDecision",
+            "span": {
+              "start": {
+                "line": 331,
+                "column": 1
+              },
+              "end": {
+                "line": 383,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 374,
+              "column": 20
+            },
+            "end": {
+              "line": 374,
+              "column": 21
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__testexec__runner.rs_line_374_col_20_002.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__runner.rs_line_374_col_20_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.7484218,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.021564,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 32,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 31,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-10-26T10:20:42.0449339Z",
+  "end_time": "2026-10-26T10:41:42.7741703Z",
+  "cargo_mutants_version": "27.1.0"
+}

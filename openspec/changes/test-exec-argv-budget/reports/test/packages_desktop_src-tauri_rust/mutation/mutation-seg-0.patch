@@ -1,0 +1,3062 @@
+diff --git a/crates/infra/checks/src/environment.rs b/crates/infra/checks/src/environment.rs
+index ab2725d5c2c9..0673fe0230cb 100644
+--- a/crates/infra/checks/src/environment.rs
++++ b/crates/infra/checks/src/environment.rs
+@@ -1,6 +1,6 @@
+ //! 检查域环境归因装配单点（static-check 与 test-execution 共用；MUST NOT 两写）。
+ //!
+-//! 三个职责：
++//! 四个职责：
+ //! - [`attempts_log`]：输出记录内容形态——单次尝试**逐字节同现状**（`stdout ++
+ //!   stderr`，零分隔头）；发生过重试则各次尝试按序拼接、每段前加分隔头（审计不丢
+ //!   上下文）；
+@@ -9,7 +9,10 @@
+ //!   行 + 末次诊断摘要 + 环境侧处理指引；
+ //! - [`progress_line`]：重试进展行（各次尝试的待编译计数序列 + 卡死判定附语）——
+ //!   计数口径单点驻 `exec::transient`，本模块**不重算**（只经
+-//!   [`exec::progress_series`] / [`exec::is_progress_stalled`] 取数）。
++//!   [`exec::progress_series`] / [`exec::is_progress_stalled`] 取数）；
++//! - [`argv_budget_text`] / [`argv_degrade_note`]：**命令行超平台长度上限**成因两臂
++//!   （拒绝面摘要 / 降级面记录注）——与文件锁 / 超时 / 瞬态耗尽成因不同，MUST NOT
++//!   互相套用文案（误引会让用户去改安全软件配置）。
+ //!
+ //! exec 层只供事实原料与尝试面字节（MUST NOT 自带业务文案：尝试分隔头 / 归因文案
+ //! 归调用方），故重试次数与处置指引的措辞单点驻本模块；本模块为**纯函数**（零 io
+@@ -165,6 +168,47 @@ fn progress_line(series: &[u32]) -> Option<String> {
+     Some(line)
+ }
+ 
++/// 命令行超平台上限的**拒绝面**摘要（`RunFault::Environment(String)` 的唯一装配点
++/// ——test-execution 展开长度超预算且不可安全降级 / 降级后仍超预算）。
++///
++/// 三项依序：① 定性（harness 限制、**非被测代码问题**——避免把修复引向被测仓库）；
++/// ② 数字（展开长度 / 平台预算 / 测试文件数；`omitted_len` 为 `Some` 时追加「降级
++/// 为框架自发现后仍为 N 字符」，使「降级无效」也能回查两次长度）；③ 动作（收窄
++/// suite `includes` 或拆分 suite）。
++///
++/// 消费面：随 `RunFault::Environment` 交 walker 终局文案的 `{fault}` 段；MUST NOT
++/// 进 IPC / `RunUpdate` / `RunNodeRecord` / `bindings.ts`。本函数 MUST NOT 复用
++/// 安全软件排除指引（成因是命令长度而非文件锁，误引会让用户去改安全软件）。
++pub(crate) fn argv_budget_text(
++    budget: usize,
++    expanded_len: usize,
++    omitted_len: Option<usize>,
++    files: usize,
++) -> String {
++    let mut text = format!(
++        "命令行长度超平台上限（{budget} 字符）：属 harness 限制，非被测代码问题\n\
++         展开 {expanded_len} 字符 / 平台预算 {budget} 字符 / {files} 个测试文件"
++    );
++    if let Some(omitted_len) = omitted_len {
++        text.push_str(&format!("\n降级为框架自发现后仍为 {omitted_len} 字符"));
++    }
++    text.push_str("\n请收窄该 suite 的 `includes` 或拆分 suite");
++    text
++}
++
++/// 命令行超平台上限的**降级面**记录注（安全降级时 `PlanExecution::argv_note` 的
++/// 唯一装配点，只进输出记录的 plan 头 `[argv]` 行）。
++///
++/// 陈述三数字 + 「已降级为框架自发现（K 个测试文件）」，**零动作建议**（降级已发生，
++/// 此事只需可查）。MUST NOT 进 `SubReport.findings` / `summary.findings`（`findings`
++/// 非空 + `failed == 0` 会被 `collect_problems` 判成 `execution_error`，绿跑翻红）；
++/// MUST NOT 含安全软件排除指引 / 占用者 / 被锁文件 / 重试次数措辞。
++pub(crate) fn argv_degrade_note(budget: usize, expanded_len: usize, files: usize) -> String {
++    format!(
++        "展开 {expanded_len} 字符超平台预算 {budget} 字符，已降级为框架自发现（{files} 个测试文件）"
++    )
++}
++
+ /// chars 口径有界截断（≤ limit 原样；超限取前 limit 字符 + 省略号）。
+ fn clip_chars(text: &str, limit: usize) -> String {
+     if text.chars().count() <= limit {
+diff --git a/crates/infra/checks/src/environment_test.rs b/crates/infra/checks/src/environment_test.rs
+index 5804fca5ff1b..a2cc0dd24068 100644
+--- a/crates/infra/checks/src/environment_test.rs
++++ b/crates/infra/checks/src/environment_test.rs
+@@ -6,7 +6,10 @@
+ 
+ use exec::{AttemptTrace, RunOutcome, RunReport};
+ 
+-use super::{attempts_log, fault_text, DIAGNOSIS_EXCERPT_LIMIT, ENV_GUIDANCE};
++use super::{
++    argv_budget_text, argv_degrade_note, attempts_log, fault_text, DIAGNOSIS_EXCERPT_LIMIT,
++    ENV_GUIDANCE,
++};
+ 
+ // ---------------------------------------------------------------------------
+ // 装置：`RunReport` / `AttemptTrace` 字面量构造
+@@ -719,3 +722,257 @@ fn attempts大值防御不溢出() {
+     assert!(!text.contains("已自动重试 -"), "无负值: {text}");
+     assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
+ }
++
++// ---------------------------------------------------------------------------
++// 正向 / 异常 / 边界：命令行超平台上限两臂文案（argv_budget_text /
++// argv_degrade_note——纯函数零 io 零 async，四类参数字面量直传，零 mock）
++// ---------------------------------------------------------------------------
++
++/// 正向：拒绝面摘要三项依序——定性（harness 限制 / 非被测代码问题）+ 三数字
++/// （`8230` / `7000` / `180`）+ 动作（收窄 `includes` / 拆分 suite），
++/// `omitted_len = None` 时不出现「降级后仍超」句。
++#[test]
++fn argv拒绝文案_定性三数字与动作() {
++    let text = argv_budget_text(7000, 8230, None, 180);
++
++    // ① 定性：成因归 harness 而非被测仓库
++    assert!(
++        text.contains("命令行长度超平台上限（7000 字符）"),
++        "定性段点名平台上限与预算值: {text}"
++    );
++    assert!(text.contains("harness"), "定性归 harness 限制: {text}");
++    assert!(
++        text.contains("非被测代码问题"),
++        "定性声明非被测代码问题（修复不指向被测仓库）: {text}"
++    );
++    // ② 三数字（展开长度 / 平台预算 / 测试文件数）
++    assert!(
++        text.contains("展开 8230 字符 / 平台预算 7000 字符 / 180 个测试文件"),
++        "三数字逐字一行: {text}"
++    );
++    // ③ 动作
++    assert!(text.contains("收窄"), "动作含收窄: {text}");
++    assert!(text.contains("includes"), "动作点名 includes: {text}");
++    assert!(text.contains("拆分 suite"), "动作含拆分 suite: {text}");
++    // 无降级无效句（`omitted_len = None` 臂）
++    assert!(
++        !text.contains("降级为框架自发现后仍为"),
++        "首次裁决不带降级后长度: {text}"
++    );
++    // 三项依序：定性 → 数字 → 动作
++    let (定性, 数字, 动作) = (
++        text.find("命令行长度超平台上限").expect("定性段在案"),
++        text.find("展开 8230 字符").expect("数字段在案"),
++        text.find("请收窄").expect("动作段在案"),
++    );
++    assert!(
++        定性 < 数字 && 数字 < 动作,
++        "三项依序（{定性} < {数字} < {动作}）"
++    );
++}
++
++/// 正向 / 边界（表驱动两态）：`omitted_len` 只在 `Some` 时追加「降级为框架
++/// 自发现后仍为 N 字符」，使「降级无效」可回查两次长度；`None` 臂该句零出现。
++#[test]
++fn argv拒绝文案_降级后长度句两态() {
++    let with_omitted = argv_budget_text(7000, 8230, Some(9000), 180);
++    assert!(
++        with_omitted.contains("降级为框架自发现后仍为 9000 字符"),
++        "Some 臂追加降级后长度（AC-5 两数字可回查）: {with_omitted}"
++    );
++    assert!(
++        with_omitted.contains("展开 8230 字符"),
++        "Some 臂同时保留原始长度（两次长度并存）: {with_omitted}"
++    );
++    assert!(
++        with_omitted.contains("收窄") && with_omitted.contains("拆分 suite"),
++        "Some 臂动作建议照常: {with_omitted}"
++    );
++
++    let without_omitted = argv_budget_text(7000, 8230, None, 180);
++    assert!(
++        !without_omitted.contains("降级为框架自发现"),
++        "None 臂零降级措辞: {without_omitted}"
++    );
++    assert_ne!(
++        with_omitted, without_omitted,
++        "两态文案不同串（`omitted_len` 真实参与装配）"
++    );
++}
++
++/// 异常（负向断言逐词）：拒绝面文案 MUST NOT 误引安全软件排除指引 / 占用者 /
++/// 被锁文件 / 重试次数措辞（成因是命令长度，误引会让用户去改安全软件配置）。
++#[test]
++fn argv拒绝文案_零误引安全软件与重试措辞() {
++    for (label, text) in [
++        ("None 臂", argv_budget_text(7000, 8230, None, 180)),
++        ("Some 臂", argv_budget_text(7000, 8230, Some(9000), 180)),
++    ] {
++        for forbidden in [
++            "火绒",                  // 安全软件具名（ENV_GUIDANCE 专属）
++            "云枢",                  // 安全软件具名
++            "排除 workspace 父目录", // ENV_GUIDANCE 全句零误引
++            "已自动重试",            // 瞬态重试措辞
++            "占用",                  // 占用者归因
++            "被锁文件",              // 文件锁归因
++        ] {
++            assert!(
++                !text.contains(forbidden),
++                "{label} 不得含 {forbidden}（不得套用其他成因文案）: {text}"
++            );
++        }
++        assert!(
++            !text.contains(ENV_GUIDANCE),
++            "{label} 不得整句引用 ENV_GUIDANCE: {text}"
++        );
++    }
++}
++
++/// 边界（表驱动）：三数字边界组合——全零、`omitted_len == Some(0)`、三参同时
++/// `usize::MAX` → 数值逐字呈现（与 `format!` 同式逐字相等）、不 panic、不回落
++/// 省略（无「收敛」「min」类回落措辞）。
++#[test]
++fn argv拒绝文案_数字边界组合() {
++    // 形态一：全零（预算 0 / 展开 0 / 文件 0）
++    let zero = argv_budget_text(0, 0, Some(0), 0);
++    assert_eq!(
++        zero,
++        "命令行长度超平台上限（0 字符）：属 harness 限制，非被测代码问题\n\
++         展开 0 字符 / 平台预算 0 字符 / 0 个测试文件\n\
++         降级为框架自发现后仍为 0 字符\n\
++         请收窄该 suite 的 `includes` 或拆分 suite",
++        "全零逐字呈现（零值不省略、不回落）"
++    );
++
++    // 形态二：三参同时 usize::MAX（溢出面防御：拼接不 panic）
++    let max = argv_budget_text(usize::MAX, usize::MAX, Some(usize::MAX), usize::MAX);
++    assert!(
++        max.contains(&format!("（{} 字符）", usize::MAX)),
++        "预算取 MAX 逐字: {max}"
++    );
++    assert!(
++        max.contains(&format!("展开 {} 字符", usize::MAX)),
++        "展开长度取 MAX 逐字: {max}"
++    );
++    assert!(
++        max.contains(&format!("{} 个测试文件", usize::MAX)),
++        "文件数取 MAX 逐字: {max}"
++    );
++    assert!(
++        max.contains(&format!("仍为 {} 字符", usize::MAX)),
++        "降级后长度取 MAX 逐字: {max}"
++    );
++
++    // 形态三：单侧边界（预算 0 / 展开非零）
++    let skewed = argv_budget_text(0, 8230, None, 180);
++    assert!(
++        skewed.contains("平台上限（0 字符）")
++            && skewed.contains("展开 8230 字符 / 平台预算 0 字符"),
++        "单侧零值不影响另一侧逐字呈现: {skewed}"
++    );
++
++    // 不回落省略：数值全部逐字（无 `…` / 无「约」）
++    for text in [&zero, &max, &skewed] {
++        assert!(
++            !text.contains('…') && !text.contains("约"),
++            "数值面零省略措辞: {text}"
++        );
++        assert!(
++            text.contains("请收窄"),
++            "各形态动作段恒在（不因边界值消失）: {text}"
++        );
++    }
++}
++
++/// 正向：降级面注——三数字 + 「已降级为框架自发现（K 个测试文件）」逐字，
++/// 与 `PlanExecution::argv_note` 的消费者（记录头 `[argv]` 行）同源。
++#[test]
++fn argv降级注_三数字与自发现陈述() {
++    let note = argv_degrade_note(7000, 8230, 180);
++
++    assert_eq!(
++        note, "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（180 个测试文件）",
++        "降级注逐字（三数字 + 自发现陈述）"
++    );
++    assert!(note.contains("展开 8230 字符"), "原始长度在案: {note}");
++    assert!(note.contains("平台预算 7000"), "平台预算在案: {note}");
++    assert!(
++        note.contains("已降级为框架自发现"),
++        "陈述降级已发生: {note}"
++    );
++    assert!(note.contains("180 个测试文件"), "文件数在案: {note}");
++}
++
++/// 异常（负向断言）：降级面注**零动作建议**（降级已发生，只需可查）——不含
++/// 「收窄」「拆分 suite」，且不误引安全软件 / 占用者 / 重试措辞。
++#[test]
++fn argv降级注_零动作建议() {
++    let note = argv_degrade_note(7000, 8230, 180);
++
++    for forbidden in [
++        "收窄",
++        "拆分 suite",
++        "请",
++        "火绒",
++        "云枢",
++        "排除 workspace 父目录",
++        "占用",
++        "被锁文件",
++        "已自动重试",
++    ] {
++        assert!(
++            !note.contains(forbidden),
++            "降级注不得含 {forbidden}（零动作建议 / 零误引）: {note}"
++        );
++    }
++    assert!(
++        !note.contains(ENV_GUIDANCE),
++        "降级注不得整句引用 ENV_GUIDANCE: {note}"
++    );
++}
++
++/// 边界（表驱动）：降级注数字边界——`files = 0` / `budget = 0` /
++/// `expanded_len = 0` / `usize::MAX` 组合 → 逐字呈现、零 panic（与 `format!`
++/// 同式逐字相等，防截断 / 防回落）。
++#[test]
++fn argv降级注_数字边界组合() {
++    let cases: [(usize, usize, usize); 4] = [
++        (7000, 8230, 0),
++        (0, 8230, 180),
++        (7000, 0, 180),
++        (usize::MAX, usize::MAX, usize::MAX),
++    ];
++
++    for (budget, expanded_len, files) in cases {
++        let note = argv_degrade_note(budget, expanded_len, files);
++        assert_eq!(
++            note,
++            format!(
++                "展开 {expanded_len} 字符超平台预算 {budget} 字符，已降级为框架自发现（{files} 个测试文件）"
++            ),
++            "({budget}, {expanded_len}, {files}) 逐字呈现（零截断 / 零回落）"
++        );
++        assert!(!note.contains('…'), "零省略号截断: {note}");
++    }
++}
++
++/// 边界（措辞分工）：两臂互不含对方专属措辞——拒绝面不含「已降级为框架
++/// 自发现」，降级面不含「请收窄」（两成因面文案不得互相套用）。
++#[test]
++fn argv两臂措辞分工_互不含对方专属() {
++    let reject = argv_budget_text(7000, 8230, Some(9000), 180);
++    let degrade = argv_degrade_note(7000, 8230, 180);
++
++    assert!(
++        !reject.contains("已降级为框架自发现（"),
++        "拒绝面不含降级面专属陈述（只含「降级后仍为」诊断句）: {reject}"
++    );
++    assert!(
++        !degrade.contains("请收窄"),
++        "降级面不含拒绝面专属动作建议: {degrade}"
++    );
++    assert!(
++        reject.contains("请收窄") && degrade.contains("已降级为框架自发现"),
++        "各自专属措辞只在各自臂（分工清楚）"
++    );
++}
+diff --git a/crates/infra/checks/src/testexec/detect.rs b/crates/infra/checks/src/testexec/detect.rs
+index 7bb6948c524e..3d4ae7019c23 100644
+--- a/crates/infra/checks/src/testexec/detect.rs
++++ b/crates/infra/checks/src/testexec/detect.rs
+@@ -167,6 +167,11 @@ pub(crate) struct TestPlan {
+     pub coverage_output: &'static str,
+     /// 结果工件名
+     pub results_output: &'static str,
++    /// 降级安全判据（detect 期一次算定）：`default_glob` 以**同一剪枝管线、不施加
++    /// suite `excludes`** 枚举出的集合 == [`Self::files`] 集合 → 省略 `{files}` 后
++    /// 框架自发现跑的还是同一批。保守方向：集合不等即拒降级（`excludes` 实际剔掉
++    /// 了某个文件 → 对照面仍含该文件 → 不等 → 拒降级）
++    pub omit_files_safe: bool,
+ }
+ 
+ impl TestPlan {
+@@ -224,6 +229,24 @@ pub(crate) fn detect_plans(
+             continue;
+         }
+ 
++        // 降级对照面（`{files}` 省略后框架走自身发现，故只有「自发现集合 == files
++        // 集合」才保证跑的还是同一批）；**MUST NOT 施加 suite `excludes`**——框架
++        // 自发现不认这套，`excludes` 一旦真剔掉了文件两侧即不等、降级被拒（保守）
++        let default_files = collect_files(
++            root,
++            &abs_root,
++            &abs_cwd,
++            suite,
++            &[entry.default_glob.to_owned()],
++            false, // apply_excludes：对照面不施加（框架自发现不认这套 excludes）
++        )?;
++        // 两侧均由 `BTreeSet` 导出（排序去重），故逐项相等即集合相等
++        let omit_files_safe = default_files.len() == files.len()
++            && default_files
++                .iter()
++                .zip(files.iter())
++                .all(|(detected, listed)| detected == listed);
++
+         // 版本探测（失败 / 空版本按「特性不支持」走基础模板，不失败不报错）
+         let version = detect_framework_version(&abs_cwd, entry.version_command);
+         let randomize = match entry.framework {
+@@ -243,12 +266,15 @@ pub(crate) fn detect_plans(
+             coverage_format: entry.coverage_format,
+             coverage_output: entry.coverage_output,
+             results_output: entry.results_output,
++            omit_files_safe,
+         });
+     }
+     Ok(plans)
+ }
+ 
+-/// glob 文件探测
++/// glob 文件探测（includes 发现面）：模式取 suite `includes`（缺省吃框架
++/// `default_glob`）、施加 suite `excludes`。收集主体单点驻 [`collect_files`]
++/// （includes 发现面与降级对照面共用，MUST NOT 两写 glob 方言 / 剪枝）。
+ fn detect_files(
+     project_root: &Path,
+     abs_root: &Path,
+@@ -260,8 +286,32 @@ fn detect_files(
+         Some(list) if !list.is_empty() => list.clone(),
+         _ => vec![entry.default_glob.to_owned()],
+     };
++    Ok(collect_files(
++        project_root,
++        abs_root,
++        abs_cwd,
++        suite,
++        &include_patterns,
++        true, // apply_excludes：发现面施加 suite excludes
++    )?
++    .into_iter()
++    .collect())
++}
++
++/// glob 收集主体（单一方言 / 单点剪枝）：花括号交替先展开 → `glob` → dot 与
++/// 依赖产物目录剪枝（**恒施加**）→ suite `excludes` 过滤（末位开关为 `false` 时
++/// 跳过——降级对照面用：框架自发现不认这套 excludes）→ cwd 相对 POSIX 入
++/// `BTreeSet`（排序去重，集合比较即 `Vec` 相等）。
++fn collect_files(
++    project_root: &Path,
++    abs_root: &Path,
++    abs_cwd: &Path,
++    suite: &config::TestSuite,
++    patterns: &[String],
++    apply_excludes: bool,
++) -> Result<BTreeSet<String>, String> {
+     let mut detected: BTreeSet<String> = BTreeSet::new();
+-    for include in &include_patterns {
++    for include in patterns {
+         // 花括号交替先展开（`glob` crate 无此方言——CLI picomatch 语义对齐；
+         // 缺省 default_glob `**/*.{test,spec}.{js,ts,jsx,tsx}` 即此形态）
+         for variant in try_expand_braces(include)
+@@ -279,9 +329,10 @@ fn detect_files(
+                     continue;
+                 };
+                 let project_rel = to_posix(project_rel);
+-                if is_pruned_path(Path::new(&project_rel))
+-                    || is_excluded_by_suite(&project_rel, suite)
+-                {
++                if is_pruned_path(Path::new(&project_rel)) {
++                    continue;
++                }
++                if apply_excludes && is_excluded_by_suite(&project_rel, suite) {
+                     continue;
+                 }
+                 // cwd 相对形式入清单（`{files}` 展开原料）
+@@ -292,7 +343,7 @@ fn detect_files(
+             }
+         }
+     }
+-    Ok(detected.into_iter().collect())
++    Ok(detected)
+ }
+ 
+ /// 探测剪枝（项目相对路径面）：组件名判定委托 foundation 名单单点（dot 剪枝
+diff --git a/crates/infra/checks/src/testexec/detect_test.rs b/crates/infra/checks/src/testexec/detect_test.rs
+index 35c60c942dac..bf6470a4f620 100644
+--- a/crates/infra/checks/src/testexec/detect_test.rs
++++ b/crates/infra/checks/src/testexec/detect_test.rs
+@@ -1216,3 +1216,342 @@ fn 复用门扫描名单与foundation名单独立集() {
+     assert_eq!(pruned.len(), 6);
+     assert_eq!(reuse_scan.len(), 6);
+ }
++
++// ---------------------------------------------------------------------------
++// 降级安全判据（`TestPlan.omit_files_safe`——detect 期一次算定的对照枚举，
++// D7 / AC-3 / AC-4；Mock策略：不 mock——「同一管线枚举」正是被测语义，mock 会
++// 抹掉判据，故全部用例走 `TempWs` 真实 tempdir 树 + 真实 glob + 真实剪枝名单）
++// ---------------------------------------------------------------------------
++
++/// 对照面样本树：缺省 glob 两形态命中 + 依赖目录剪枝 + dot 目录剪枝 + 非测试
++/// 文件（对照集合与 `files` 集合的唯一差异来源是 `excludes`，故本树不含 excludes
++/// 命中面）。
++fn omit_tree(ws: &TempWs) {
++    ws.write("app/src/a.test.ts", "test");
++    ws.write("app/src/b.spec.tsx", "test");
++    ws.write("app/src/notes.md", "not a test");
++    ws.write("app/node_modules/pkg/x.test.ts", "依赖目录剪枝面");
++    ws.write("app/.cache/hidden.test.ts", "dot 目录剪枝面");
++}
++
++/// 正向：`includes` 未设（吃注册表 `default_glob`）→ 对照集合 == `files` 集合
++/// → `omit_files_safe == true`；树内 `node_modules` / `.cache` 剪枝目录两侧同剪
++/// （列入对照面不产生差异）。
++#[tokio::test]
++async fn 降级安全判据_缺省glob同管线枚举为可降级() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("omit-default");
++    omit_tree(&ws);
++
++    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
++    let plans = detect_plans(ws.root(), &suites).expect("缺省 glob 探测应成功");
++
++    assert_eq!(plans.len(), 1, "单 suite 单 plan");
++    assert_eq!(
++        plans[0].files,
++        vec!["src/a.test.ts", "src/b.spec.tsx"],
++        "缺省 glob 命中 .test / .spec 两形态；剪枝目录不入清单"
++    );
++    assert!(
++        plans[0].omit_files_safe,
++        "两侧同管线（同 glob 方言 + 同剪枝）且无 excludes → 集合相等 → 可安全降级"
++    );
++}
++
++/// 正向：`includes` 显式写成与 `default_glob` 等价的同一花括号串
++/// （`**/*.{test,spec}.{ts,tsx}`）→ 集合相等 → `true`（显式声明不改变判据
++/// ——判据比的是集合而非配置形态）。
++#[tokio::test]
++async fn 降级安全判据_显式等价includes仍可降级() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("omit-explicit");
++    omit_tree(&ws);
++
++    let suites = vec![suite(
++        "app",
++        TestFramework::VitePlus,
++        Some(vec![TS_TESTS_GLOB.to_owned()]),
++        None,
++        None,
++    )];
++    let plans = detect_plans(ws.root(), &suites).expect("显式 includes 探测应成功");
++
++    assert_eq!(plans.len(), 1);
++    assert_eq!(
++        plans[0].files,
++        vec!["src/a.test.ts", "src/b.spec.tsx"],
++        "显式花括号 includes 命中同一批文件"
++    );
++    assert!(
++        plans[0].omit_files_safe,
++        "显式 includes 与 default_glob 集合相等 → 仍可安全降级"
++    );
++}
++
++/// 异常：`includes` 为**真子集**（仅 `**/*.test.ts`，同目录另有 `src/b.spec.tsx`
++/// 命中 `default_glob`）→ 集合不等 → `false`（保守方向：降级会少跑文件，故拒）
++#[tokio::test]
++async fn 降级安全判据_includes真子集拒降级() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("omit-subset");
++    omit_tree(&ws);
++
++    let suites = vec![suite(
++        "app",
++        TestFramework::VitePlus,
++        Some(vec!["**/*.test.ts".to_owned()]),
++        None,
++        None,
++    )];
++    let plans = detect_plans(ws.root(), &suites).expect("子集 includes 探测应成功");
++
++    assert_eq!(plans.len(), 1);
++    assert_eq!(
++        plans[0].files,
++        vec!["src/a.test.ts"],
++        "发现面仅 .test.ts（真子集）"
++    );
++    assert!(
++        !plans[0].omit_files_safe,
++        "对照面（default_glob）仍含 src/b.spec.tsx → 集合不等 → 拒降级"
++    );
++}
++
++/// 异常：`includes` 等价但 `excludes` **实际剔除**一个文件 → `files` 少一项、
++/// 对照面（**不施加 excludes**）仍含该文件 → `false`。
++#[tokio::test]
++async fn 降级安全判据_excludes实际剔除拒降级() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("omit-excluded");
++    omit_tree(&ws);
++
++    let suites = vec![suite(
++        "app",
++        TestFramework::VitePlus,
++        Some(vec![TS_TESTS_GLOB.to_owned()]),
++        Some(vec!["**/*.spec.tsx".to_owned()]),
++        None,
++    )];
++    let plans = detect_plans(ws.root(), &suites).expect("excludes 探测应成功");
++
++    assert_eq!(plans.len(), 1);
++    assert_eq!(
++        plans[0].files,
++        vec!["src/a.test.ts"],
++        "发现面施加 excludes：b.spec.tsx 被剔除"
++    );
++    assert!(
++        !plans[0].omit_files_safe,
++        "对照面 MUST NOT 施加 excludes（仍含 b.spec.tsx）→ 集合不等 → 拒降级"
++    );
++}
++
++/// 边界：`excludes` 已声明但**零剔除** → 集合仍相等 → `true`（「excludes 在位」
++/// 不等于「必然不安全」——判据是集合 equality，不是配置存在性）。
++#[tokio::test]
++async fn 降级安全判据_excludes零剔除仍可降级() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("omit-excludes-noop");
++    omit_tree(&ws);
++
++    let suites = vec![suite(
++        "app",
++        TestFramework::VitePlus,
++        None,
++        Some(vec!["src/**/*.nope.ts".to_owned()]),
++        None,
++    )];
++    let plans = detect_plans(ws.root(), &suites).expect("零剔除 excludes 探测应成功");
++
++    assert_eq!(plans.len(), 1);
++    assert_eq!(
++        plans[0].files,
++        vec!["src/a.test.ts", "src/b.spec.tsx"],
++        "零剔除 excludes 不改清单"
++    );
++    assert!(
++        plans[0].omit_files_safe,
++        "excludes 在位但零剔除 → 集合仍相等 → 可安全降级"
++    );
++}
++
++/// 边界（表驱动两形态）：清单规模——1 个文件 / 200 个文件 → 均 `true`
++/// （两侧 `BTreeSet` 序导出后逐项比较，规模不影响判据）。
++#[tokio::test]
++async fn 降级安全判据_清单规模不影响() {
++    let _window = PathWindow::enter();
++
++    // 形态一：单文件
++    let single = TempWs::new("omit-size-one");
++    single.write("app/src/only.test.ts", "test");
++    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
++    let plans = detect_plans(single.root(), &suites).expect("单文件探测应成功");
++    assert_eq!(plans.len(), 1);
++    assert_eq!(plans[0].files.len(), 1, "单文件清单");
++    assert!(plans[0].omit_files_safe, "单文件两侧集合相等 → 可降级");
++
++    // 形态二：200 文件（字典序稳定、逐项等值）
++    let bulk = TempWs::new("omit-size-bulk");
++    for index in 0..200 {
++        bulk.write(&format!("app/src/case{index:03}.test.ts"), "test");
++    }
++    let mut ordered: Vec<String> = (0..200)
++        .map(|index| format!("src/case{index:03}.test.ts"))
++        .collect();
++    ordered.sort();
++    let plans = detect_plans(bulk.root(), &suites).expect("大清单探测应成功");
++    assert_eq!(plans.len(), 1);
++    assert_eq!(plans[0].files, ordered, "200 项全量（BTreeSet 字典序）");
++    assert!(plans[0].omit_files_safe, "大清单两侧集合相等 → 可降级");
++}
++
++/// 边界：`includes` 零命中（`files == []`）→ 沿既有早跳**不产 plan**（无
++/// `omit_files_safe` 面、零 panic；对照枚举不执行）。
++#[tokio::test]
++async fn 降级安全判据_零命中早跳不产plan() {
++    let _window = PathWindow::enter();
++
++    // 形态一：显式 includes 零命中（树内有测试文件但都不匹配）
++    let ws = TempWs::new("omit-zero-hit");
++    omit_tree(&ws);
++    let suites = vec![suite(
++        "app",
++        TestFramework::VitePlus,
++        Some(vec!["**/*.nope".to_owned()]),
++        None,
++        None,
++    )];
++    let plans = detect_plans(ws.root(), &suites).expect("零命中应 Ok（空清单面）");
++    assert!(
++        plans.is_empty(),
++        "显式 includes 零命中 → files 空 → 早跳不产 plan（无 omit_files_safe 面）"
++    );
++
++    // 形态二：default_glob 零命中（树内无任何测试扩展文件）
++    let bare = TempWs::new("omit-zero-hit-default");
++    bare.write("app/src/notes.md", "not a test");
++    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
++    let plans = detect_plans(bare.root(), &suites).expect("default_glob 零命中应 Ok");
++    assert!(
++        plans.is_empty(),
++        "default_glob 零命中 → 同样不产 plan（零 panic、零对照枚举）"
++    );
++}
++
++/// 边界（组合面）：花括号多形态 + dot 目录剪枝 + 依赖目录剪枝 + 项目根相对
++/// 口径全部在场 → 对照集合与 `files` 同源（零新 glob 方言、零新剪枝）。
++#[tokio::test]
++async fn 降级安全判据_花括号与剪枝组合同源() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("omit-combined");
++    ws.write("app/src/a.test.js", "test");
++    ws.write("app/src/b.spec.jsx", "test");
++    ws.write("app/src/deep/c.test.ts", "test");
++    ws.write("app/src/deep/d.spec.tsx", "test");
++    ws.write("app/.cache/hidden.test.ts", "dot 目录剪枝面");
++    ws.write("app/node_modules/pkg/dep.spec.js", "依赖目录剪枝面");
++    ws.write("app/dist/built.test.js", "工具产物目录剪枝面");
++    ws.write("app/src/e.helper.js", "非测试扩展");
++
++    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
++    let plans = detect_plans(ws.root(), &suites).expect("组合面探测应成功");
++
++    assert_eq!(plans.len(), 1);
++    assert_eq!(
++        plans[0].files,
++        vec![
++            "src/a.test.js",
++            "src/b.spec.jsx",
++            "src/deep/c.test.ts",
++            "src/deep/d.spec.tsx",
++        ],
++        "四扩展 × 两形态 × 多层目录全命中；dot / 依赖 / 产物目录三面全剪"
++    );
++    assert!(
++        plans[0].omit_files_safe,
++        "对照面同源（同花括号展开 + 同剪枝）→ 集合相等 → 可降级"
++    );
++}
++
++/// 正向（`collect_files` 的 `apply_excludes` 两态，经 `detect_plans` 观测）：
++/// 同一树上 excludes 命中的文件在发现面（`apply_excludes = true`）被剔除、在
++/// 对照面（`apply_excludes = false`）仍在案——两态共用同一 glob 方言与剪枝，
++/// 差异只由末位开关产生（构成「excludes 实际剔除 → 拒降级」的差异来源）。
++#[tokio::test]
++async fn 收集主体_excludes开关两态同源() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("collect-switch");
++    ws.write("app/src/a.test.ts", "test");
++    ws.write("app/src/legacy.test.ts", "excludes 命中面");
++
++    // 两 suite 仅 excludes 一位不同（root / framework / includes 全同）
++    let suites = vec![
++        suite("app", TestFramework::VitePlus, None, None, None),
++        suite(
++            "app",
++            TestFramework::VitePlus,
++            None,
++            Some(vec!["src/legacy.test.ts".to_owned()]),
++            None,
++        ),
++    ];
++    let plans = detect_plans(ws.root(), &suites).expect("两位差异 suite 探测应成功");
++    assert_eq!(plans.len(), 2, "两 suite 各产 plan");
++
++    assert_eq!(
++        plans[0].files,
++        vec!["src/a.test.ts", "src/legacy.test.ts"],
++        "无 excludes 臂：清单含 legacy（对照面同源口径）"
++    );
++    assert!(
++        plans[0].omit_files_safe,
++        "无 excludes → 两侧集合相等 → 可降级"
++    );
++
++    assert_eq!(
++        plans[1].files,
++        vec!["src/a.test.ts"],
++        "apply_excludes = true 臂：legacy 被剔除"
++    );
++    assert!(
++        !plans[1].omit_files_safe,
++        "apply_excludes = false 臂仍含 legacy → 集合不等 → 拒降级"
++    );
++}
++
++/// 异常（表驱动 3 形态）：非法 includes glob → 显式 `Err` 沿既有文案
++/// 「…includes glob 非法…」（不 panic；发现面与对照面经同一 `collect_files`
++/// 单点，故同文案同出口）。
++#[tokio::test]
++async fn 非法includes_glob显式err不panic() {
++    let _window = PathWindow::enter();
++    let ws = TempWs::new("omit-bad-glob");
++    omit_tree(&ws);
++
++    for (label, pattern) in [
++        ("未闭合字符类", "**/*.test.ts["),
++        ("非法字符类", "**/[!a.test.ts"),
++        (
++            "花括号展开超限",
++            "{a,b,c,d,e,f,g,h}{a,b,c,d,e,f,g,h}{a,b,c,d,e,f,g,h}{a,b,c,d,e,f,g,h}",
++        ),
++    ] {
++        let suites = vec![suite(
++            "app",
++            TestFramework::VitePlus,
++            Some(vec![pattern.to_owned()]),
++            None,
++            None,
++        )];
++        let err = detect_plans(ws.root(), &suites)
++            .expect_err(&format!("{label}: 非法 glob 应显式 Err（不 panic）"));
++        assert!(
++            err.contains("includes glob 非法"),
++            "{label}: 沿既有文案（实际: {err}）"
++        );
++        assert!(
++            err.contains("suite root \"app\""),
++            "{label}: Err 记因 suite root（实际: {err}）"
++        );
++    }
++}
+diff --git a/crates/infra/checks/src/testexec/mod.rs b/crates/infra/checks/src/testexec/mod.rs
+index e956d8559b1e..3120632482a7 100644
+--- a/crates/infra/checks/src/testexec/mod.rs
++++ b/crates/infra/checks/src/testexec/mod.rs
+@@ -168,6 +168,9 @@ async fn execute(
+         // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）
+         let mut execution =
+             runner::execute_plan(plan, &reports_dir.join(&plan.id), cancel.clone()).await?;
++        // 每个已执行 plan 恰一行分隔头（fault 在位亦写头——被拒绝 / 超时 / 取消的
++        // 那次展开长度必须可回查），先头后正文
++        push_plan_head(&mut merged_output, plan, &execution);
+         merged_output.extend_from_slice(&execution.output);
+         match execution.fault.take() {
+             Some(RunFault::Stopped) => {
+@@ -222,7 +225,8 @@ async fn execute(
+ /// 按槽位同锚派生）
+ /// 并携 `exec_id` 回查引用——与 `report_dir` 同锚同口径（无私有捕获 / 落盘分支；
+ /// 落盘失败降级空串，`report_dir` 报告仍为全量权威）。record 内容为**脚本真实
+-/// 输出**（非 summary JSON 重序列化——后者非脚本输出、人工回查无价值）。
++/// 输出**（非 summary JSON 重序列化——后者非脚本输出、人工回查无价值）；记录正文
++/// 各段前有该 plan 的分隔头（元数据面，非脚本输出）。
+ fn outcome(
+     root: &Path,
+     change: &str,
+@@ -255,7 +259,8 @@ fn outcome(
+ /// `Error`——后者成因面已收窄为工件解析 / harness 崩 / 框架探测失败，也 MUST NOT
+ /// 取 `Pass` 以免被误读为绿）；四项计数 0、诊断双双空串；`report_dir` 与本槽位
+ /// 派生同口径、`exec_id` 照旧经 `record_exec_output` 回填（**不写 summary / 不跑
+-/// `diagnose_findings` / 不落报告文件**——半套报告不进复用门）。
++/// `diagnose_findings` / 不落报告文件**——半套报告不进复用门）。记录正文同样按
++/// 已执行 plan 各带分隔头（元数据面，非脚本输出）。
+ fn fault_outcome(
+     root: &Path,
+     change: &str,
+@@ -278,6 +283,30 @@ fn fault_outcome(
+     })
+ }
+ 
++/// plan 分隔头装配（记录元数据面，`exec-outputs` 单点正文的一段前缀）：以 `===`
++/// 起手与收尾的单行头，内容为 `plan {id} ({framework}) · files={n} · argv={len}
++/// 字符`（以换行起手与收尾、` · ` 分隔），该 plan 发生 `{files}` 省略降级时紧随
++/// 一行 `[argv] {降级说明}`。
++///
++/// 头与 `[argv]` 行为**记录元数据**（MUST NOT 视为脚本输出）：去掉这些行后记录
++/// 正文与脚本真实输出逐字节一致、按 plan 序保序。降级说明只走本通路
++/// （`argv_note` 不进 `SubReport.findings` / `summary.findings`）。
++fn push_plan_head(merged: &mut Vec<u8>, plan: &TestPlan, execution: &runner::PlanExecution) {
++    merged.extend_from_slice(
++        format!(
++            "\n=== plan {} ({}) · files={} · argv={} 字符 ===\n",
++            plan.id,
++            plan.framework,
++            plan.files.len(),
++            execution.argv_len
++        )
++        .as_bytes(),
++    );
++    if let Some(note) = execution.argv_note.as_deref() {
++        merged.extend_from_slice(format!("[argv] {note}\n").as_bytes());
++    }
++}
++
+ /// 诊断摘要装配：单条 200 字符截断、至多 10 条（walker `diagnose_brief`
+ /// 口径对齐）；findings 缺省回落 problems 消息面（CLI 产出的复用 summary
+ /// 无 findings 时诊断面不空转）。
+diff --git a/crates/infra/checks/src/testexec/mod_test.rs b/crates/infra/checks/src/testexec/mod_test.rs
+index 30ba424827eb..60fc12241c7d 100644
+--- a/crates/infra/checks/src/testexec/mod_test.rs
++++ b/crates/infra/checks/src/testexec/mod_test.rs
+@@ -13,11 +13,13 @@ use orchestration::port::{
+     RunFault, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolStepOutput,
+ };
+ 
+-use super::detect::to_posix;
++use super::detect::{to_posix, TestPlan};
++use super::runner::PlanExecution;
+ use super::{
+-    execute, findings_brief, findings_detail, newest_input_mtime_ms, outcome, ProcessTestExecution,
+-    TESTEXEC_TOTAL_BUDGET,
++    build_sub_report, execute, findings_brief, findings_detail, newest_input_mtime_ms, outcome,
++    push_plan_head, ProcessTestExecution, TESTEXEC_TOTAL_BUDGET,
+ };
++use checks::parser::CoverageFormat;
+ 
+ /// 设置 shim 环境面（预置工件源 / 目的工件路径 / marker 路径 / 退出码；
+ /// None 侧摘除键）。dest 用 POSIX 形态（Copy-Item / cp 双侧可读）。
+@@ -2838,3 +2840,560 @@ async fn 预算收口后复用门不进() {
+         "全预算写 summary（此后可进复用门）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// plan 分隔头装配（`push_plan_head`——记录元数据面单点，D10 / D11 / AC-7；
++// Mock策略：非 mock——`TestPlan` / `runner::PlanExecution` 结构体字面量直构，
++// `argv_len` / `argv_note` 由用例显式给值）
++// ---------------------------------------------------------------------------
++
++/// `push_plan_head` 装置：plan 字面量（纯数据；`id` / `framework` / `files` 由
++/// 用例给值——头行三字段同源于此）。
++fn head_plan(id: &str, framework: &str, files: &[&str]) -> TestPlan {
++    TestPlan {
++        id: id.to_owned(),
++        framework: framework.to_owned(),
++        root: "app".to_owned(),
++        cwd: PathBuf::from("app"),
++        files: files.iter().map(|file| (*file).to_owned()).collect(),
++        config_args: None,
++        shell_template: "run {files}".to_owned(),
++        cmd_template: "run {files}".to_owned(),
++        coverage_format: CoverageFormat::NodeTest,
++        coverage_output: "results.txt",
++        results_output: "results.txt",
++        omit_files_safe: true,
++    }
++}
++
++/// `push_plan_head` 装置：执行结果字面量（纯数据；`output` / `argv_len` /
++/// `argv_note` 由用例给值）。
++fn head_execution(output: &[u8], argv_len: usize, argv_note: Option<&str>) -> PlanExecution {
++    PlanExecution {
++        exit_code: 0,
++        duration_ms: 1.0,
++        cases: Vec::new(),
++        source_files: Vec::new(),
++        measured: None,
++        error: None,
++        output: output.to_vec(),
++        fault: None,
++        argv_len,
++        argv_note: argv_note.map(str::to_owned),
++    }
++}
++
++/// 正向：单 plan——写入 `\n=== plan {id} ({framework}) · files={n} · argv={m}
++/// 字符 ===\n`，`output` 逐字节紧随其后；头行以换行起手与收尾、恰一行。
++#[test]
++fn 计划头装配_单plan头行逐字节与正文紧随() {
++    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
++    let execution = head_execution(b"shim-stdout-marker\n", 123, None);
++
++    let mut merged = Vec::new();
++    push_plan_head(&mut merged, &plan, &execution);
++    merged.extend_from_slice(&execution.output);
++
++    assert_eq!(
++        String::from_utf8(merged.clone()).expect("UTF-8 记录"),
++        "\n=== plan app_node-test (node-test) · files=1 · argv=123 字符 ===\nshim-stdout-marker\n",
++        "头行 + 正文逐字节（换行起手、换行收尾）"
++    );
++    assert_eq!(
++        String::from_utf8_lossy(&merged)
++            .matches("=== plan ")
++            .count(),
++        1,
++        "单 plan 恰一行头"
++    );
++    assert!(
++        String::from_utf8_lossy(&merged).starts_with('\n'),
++        "头以换行起手（与前置正文分段）"
++    );
++}
++
++/// 正向：多 plan（3 个）——头按推入序（`plans` 迭代序，`BTreeSet` 字典序稳定）
++/// 排列、每 plan 恰一行头、各段正文随自身头。
++#[test]
++fn 计划头装配_多plan按序且各一行头() {
++    let cases = [
++        ("a_jest", "jest", vec!["src/a.test.ts"]),
++        ("b_rust", "rust", Vec::new()),
++        ("c_node-test", "node-test", vec!["src/add.test.mjs"]),
++    ];
++    let mut merged = Vec::new();
++    for (index, (id, framework, files)) in cases.iter().enumerate() {
++        let plan = head_plan(id, framework, files);
++        let execution = head_execution(format!("body-{index}\n").as_bytes(), 100 + index, None);
++        push_plan_head(&mut merged, &plan, &execution);
++        merged.extend_from_slice(&execution.output);
++    }
++    let text = String::from_utf8(merged).expect("UTF-8 记录");
++
++    for (index, (id, framework, files)) in cases.iter().enumerate() {
++        let head = format!(
++            "\n=== plan {id} ({framework}) · files={} · argv={} 字符 ===\nbody-{index}\n",
++            files.len(),
++            100 + index
++        );
++        assert!(
++            text.contains(&head),
++            "第 {index} 段头与自身正文紧邻: {head:?} | {text}"
++        );
++        assert_eq!(
++            text.matches(&format!("=== plan {id} ")).count(),
++            1,
++            "plan {id} 恰一行头"
++        );
++    }
++    assert_eq!(text.matches("=== plan ").count(), 3, "三 plan 三行头");
++
++    // 头序 = 推入序（第一头在第二头之前、第二在第三之前）
++    let order: Vec<usize> = cases
++        .iter()
++        .map(|(id, _, _)| {
++            text.find(&format!("=== plan {id} "))
++                .unwrap_or_else(|| panic!("plan {id} 头缺失"))
++        })
++        .collect();
++    assert!(
++        order.windows(2).all(|pair| pair[0] < pair[1]),
++        "头序严格递增（{order:?}）"
++    );
++}
++
++/// 正向（表驱动两态）：降级 plan（`argv_note == Some(note)`）→ 头后紧跟
++/// `[argv] {note}\n`；非降级 plan（`None`）无 `[argv]` 行（记录零噪声）。
++#[test]
++fn 计划头装配_降级注行两态() {
++    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
++    let note = "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（1 个测试文件）";
++
++    // 形态一：降级面
++    let mut merged = Vec::new();
++    push_plan_head(&mut merged, &plan, &head_execution(b"", 8230, Some(note)));
++    let text = String::from_utf8(merged).expect("UTF-8 记录");
++    assert_eq!(
++        text,
++        format!(
++            "\n=== plan app_node-test (node-test) · files=1 · argv=8230 字符 ===\n[argv] {note}\n"
++        ),
++        "降级注行紧随风头（头 + [argv] 两行）"
++    );
++    assert_eq!(text.matches("[argv] ").count(), 1, "[argv] 行恰一行");
++    assert!(
++        text.find("[argv] ").expect("[argv] 行在案") > text.find("=== plan ").expect("头在案"),
++        "[argv] 行在头之后（先头后注）"
++    );
++
++    // 形态二：未降级面
++    let mut merged = Vec::new();
++    push_plan_head(&mut merged, &plan, &head_execution(b"", 4527, None));
++    let text = String::from_utf8(merged).expect("UTF-8 记录");
++    assert_eq!(
++        text, "\n=== plan app_node-test (node-test) · files=1 · argv=4527 字符 ===\n",
++        "未降级 → 记录仅头行"
++    );
++    assert!(!text.contains("[argv] "), "未降级零 [argv] 行: {text}");
++}
++
++/// 边界（表驱动两形态）：`output` 空（fault 拒绝臂 / 零输出的已执行 plan）→
++/// 记录**仅头**（含可选 `[argv]` 行）、非空且可回查；多 plan 全空 → 记录 = 头
++/// 序列（非空、序稳定）。
++#[test]
++fn 计划头装配_空输出仅头非空可回查() {
++    // 形态一：单 plan 空输出（拒绝臂口径）
++    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
++    let mut merged = Vec::new();
++    push_plan_head(&mut merged, &plan, &head_execution(b"", 8000, None));
++    assert!(!merged.is_empty(), "空输出仍留头（被拒绝的展开长度可回查）");
++    assert!(
++        String::from_utf8_lossy(&merged).contains("argv=8000 字符"),
++        "拒绝臂长度在案: {:?}",
++        String::from_utf8_lossy(&merged)
++    );
++
++    // 形态二：三 plan 全空输出（fault 面的「仅头序列」形态）
++    let mut merged = Vec::new();
++    for (index, id) in ["a_jest", "b_rust", "c_node-test"].iter().enumerate() {
++        let plan = head_plan(id, "node-test", &["src/x.test.mjs"]);
++        push_plan_head(&mut merged, &plan, &head_execution(b"", index, None));
++    }
++    let text = String::from_utf8(merged).expect("UTF-8 记录");
++    assert_eq!(text.matches("=== plan ").count(), 3, "头序列三行");
++    assert_eq!(text.matches('\n').count(), 6, "每头一行 + 起手换行各一");
++    assert!(
++        !text.contains("shim-stdout-marker"),
++        "空输出面无脚本正文: {text}"
++    );
++}
++
++/// 边界：`plan.files == []`（rust 档）与 `argv_len == 0` → 头格式仍逐字
++/// （`files=0 · argv=0 字符`），零字段省略。
++#[test]
++fn 计划头装配_零文件零长度仍逐字() {
++    let plan = head_plan("crates_rust", "rust", &[]);
++    let mut merged = Vec::new();
++    push_plan_head(&mut merged, &plan, &head_execution(b"", 0, None));
++
++    assert_eq!(
++        String::from_utf8(merged).expect("UTF-8 记录"),
++        "\n=== plan crates_rust (rust) · files=0 · argv=0 字符 ===\n",
++        "零文件 / 零长度逐字（零值不省略字段）"
++    );
++}
++
++/// 边界（表驱动）：非 ASCII `id` / `framework`（中文 root 推导 id）与超长
++/// `note`（>1000 字符）→ 逐字节 UTF-8 写入、记录面不截断、不 panic。
++#[test]
++fn 计划头装配_非ascii与超长注不截断() {
++    let note_body = "降级".repeat(600); // 1200 字符（> 1000）
++    let plan = head_plan("根目录_node-test", "中文框架", &["src/名称.test.mjs"]);
++    let mut merged = Vec::new();
++    let execution = head_execution("正文".as_bytes(), 8230, Some(&note_body));
++    push_plan_head(&mut merged, &plan, &execution);
++    merged.extend_from_slice(&execution.output);
++
++    let text = String::from_utf8(merged.clone()).expect("逐字节 UTF-8（不切碎多字节）");
++    assert!(
++        text.contains("=== plan 根目录_node-test (中文框架) · files=1 · argv=8230 字符 ==="),
++        "非 ASCII id / framework 逐字: {text}"
++    );
++    assert!(
++        text.contains(&format!("[argv] {note_body}")),
++        "超长注全量在案（不截断）"
++    );
++    assert_eq!(
++        merged.len(),
++        "\n=== plan 根目录_node-test (中文框架) · files=1 · argv=8230 字符 ===\n".len()
++            + "[argv] ".len()
++            + note_body.len()
++            + "\n".len()
++            + "正文".len(),
++        "字节长度 == 头 + [argv] 行 + 正文（多字节按 UTF-8 字节计）"
++    );
++}
++
++/// 边界：头行分隔符字面口径——分隔符为 ` · `（U+00B7 MIDDLE DOT，非 ASCII
++/// `|` / 连字符）；`files=` / `argv=` 为十进制整数。
++#[test]
++fn 计划头装配_分隔符为中间点且数值十进制() {
++    let plan = head_plan("app_node-test", "node-test", &["a", "b"]);
++    let mut merged = Vec::new();
++    push_plan_head(&mut merged, &plan, &head_execution(b"", 7001, None));
++    let text = String::from_utf8(merged).expect("UTF-8 记录");
++
++    assert!(
++        text.contains(" · "),
++        "分隔符为 ` · `（U+00B7 两侧空格）: {text}"
++    );
++    assert!(text.contains('\u{00B7}'), "分隔符码点为 U+00B7: {text:?}");
++    for wrong in [" | ", " - ", " – ", " — ", "•", "*"] {
++        assert!(!text.contains(wrong), "不得用 {wrong:?} 作分隔符: {text}");
++    }
++    assert!(
++        text.contains("files=2") && text.contains("argv=7001 字符"),
++        "两数值十进制逐字（无 0x / 无千分位）: {text}"
++    );
++    assert!(
++        !text.contains("files=0x") && !text.contains("7_001") && !text.contains("7,001"),
++        "十进制整数面无其他进制 / 分隔: {text}"
++    );
++}
++
++/// 正向（留痕三数一致）：头中 `files=` 来自 `plan.files.len()`、`argv=` 来自
++/// `execution.argv_len`——两值互不推导（各自单源，表驱动两形态），与
++/// `expand_template` / `decide_argv` 同口径。
++#[test]
++fn 计划头装配_三数各自单源() {
++    let cases: [(&str, &str, Vec<&str>, usize); 2] = [
++        ("it_node-test", "node-test", vec!["src/a.test.mjs"], 4527),
++        ("it_rust", "rust", Vec::new(), 7000),
++    ];
++    for (id, framework, files, argv_len) in cases {
++        let plan = head_plan(id, framework, &files);
++        let mut merged = Vec::new();
++        push_plan_head(&mut merged, &plan, &head_execution(b"", argv_len, None));
++        let text = String::from_utf8(merged).expect("UTF-8 记录");
++
++        assert!(
++            text.contains(&format!(
++                "files={} · argv={argv_len} 字符 ===",
++                plan.files.len()
++            )),
++            "files 取 plan.files.len()、argv 取 execution.argv_len（{id}），实际: {text}"
++        );
++        assert_eq!(
++            plan.files.len(),
++            files.len(),
++            "files= 与清单长度同源（{id}）"
++        );
++    }
++}
++
++/// 异常（结构性断言，AC-3 / AC-7）：降级 plan（`argv_note == Some(…)`、
++/// `error == None`）→ `SubReport.findings == None`；`summary.findings` 不含降级
++/// 注文本、`conclusion` 仍 `Pass`（降级说明只走记录通路，MUST NOT 进 findings
++/// ——findings 非空 + failed 0 会被判成 execution_error，绿跑翻红）。
++#[test]
++fn 子报告findings_降级注零注入且结论仍pass() {
++    let note = "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（1 个测试文件）";
++    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
++    let mut execution = head_execution(b"", 8230, Some(note));
++    execution.cases = vec![TestCaseResult {
++        name: "adds numbers".to_owned(),
++        file: Some("src/add.test.mjs".to_owned()),
++        duration_ms: None,
++        status: TestCaseStatus::Passed,
++        line: None,
++        error_type: None,
++        error_message: None,
++        stack_trace: None,
++    }];
++
++    let sub = build_sub_report(&plan, execution, &[]);
++    assert_eq!(
++        sub.findings, None,
++        "降级面零 findings 注入（note 不走 findings 通路）"
++    );
++    assert_eq!(sub.error_cases.len(), 0, "绿跑零失败用例");
++    assert_eq!(
++        (sub.summary.total, sub.summary.failed),
++        (1, 0),
++        "一用例零失败"
++    );
++
++    let summary = checks::build_summary_report(
++        std::slice::from_ref(&sub),
++        &[],
++        "desktop change run: test-execution gate",
++        time::OffsetDateTime::now_utc(),
++    );
++    assert_eq!(
++        summary.conclusion,
++        Conclusion::Pass,
++        "降级不改变结论（绿跑仍 Pass）"
++    );
++    let findings_text = summary
++        .findings
++        .as_ref()
++        .map(|items| items.join("\n"))
++        .unwrap_or_default();
++    assert!(
++        !findings_text.contains("已降级为框架自发现") && !findings_text.contains("展开 8230 字符"),
++        "summary.findings 不含降级注文本（降级说明只进记录头），实际: {findings_text:?}"
++    );
++    let diagnoses = checks::diagnose_findings(&summary);
++    assert!(
++        !diagnoses
++            .iter()
++            .any(|item| item.contains("降级为框架自发现") || item.contains("[argv]")),
++        "诊断面不含降级注（结构性不可达，非纪律），实际: {diagnoses:?}"
++    );
++}
++
++/// 回归（边界）：真红 plan（`error == Some(…)`）+ `argv_note == None` →
++/// `findings` 仍为该错误（零改注入面，既有语义不回退）。
++#[test]
++fn 子报告findings_真红plan错误面不回退() {
++    let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
++    let mut execution = head_execution(b"", 4527, None);
++    execution.exit_code = 1;
++    execution.error = Some("结果工件缺失: results.txt".to_owned());
++    execution.cases = vec![failed_case("adds numbers", "expected 1 to be 2")];
++
++    let sub = build_sub_report(&plan, execution, &[]);
++    assert_eq!(
++        sub.findings,
++        Some(vec!["结果工件缺失: results.txt".to_owned()]),
++        "真红 error 面逐字进 findings（未被 argv_note 面替换）"
++    );
++    assert_eq!(sub.summary.failed, 1, "失败用例计数在案");
++
++    let summary = checks::build_summary_report(
++        std::slice::from_ref(&sub),
++        &[],
++        "desktop change run: test-execution gate",
++        time::OffsetDateTime::now_utc(),
++    );
++    assert_ne!(
++        summary.conclusion,
++        Conclusion::Pass,
++        "真红结论不取 Pass（findings 注入面零改）"
++    );
++    assert!(
++        !summary
++            .findings
++            .as_ref()
++            .map(|items| items.join("\n"))
++            .unwrap_or_default()
++            .contains("[argv]"),
++        "findings 不含记录头元数据行"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 记录聚合面（`execute` 全链：先写头再拼 output、每已执行 plan 恰一行头、
++// fault 在位亦写头——Mock策略：文件系统 / 记录单点不 mock，子进程走既有 node
++// shim，`exec_id` 回查即被测语义）
++// ---------------------------------------------------------------------------
++
++/// node-test 注册表模板（与 detect `REGISTRY` 逐字同串——`argv=` 口径的独立
++/// 构造面：头中数字须等于该模板按 `expand_template` 规则展开后的字符数）。
++const NODE_TEST_TEMPLATE: &str = "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=\"{results_file}\" {files}";
++
++/// 正向（AC-7）：全链两 plan——记录以第一 plan 头起手、两 plan 头按 plan 序
++/// 排列、**去掉头与 `[argv]` 行后正文与脚本输出逐字节一致**（plan 序保序）。
++#[tokio::test]
++async fn 记录聚合面_两头起手且去头后正文逐字节一致() {
++    let ws = ChainWs::new("head-two-plan").two_plan();
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    // 第 2 个 plan 的报告目录预建：`SHIM_DEST_2` 在第 1 个 plan 执行期即被拷贝
++    // （此刻第 2 个 plan 的目录尚未由 `execute_plan` 创建）——预建使该次拷贝
++    // 不产 stderr 噪声（正文逐字节断言面不被壳侧噪音污染）
++    fs::create_dir_all(ws.reports_dir().join("app2_node-test")).expect("预建第二 plan 报告目录");
++    let output = {
++        let _window = path_window();
++        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++        set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
++        ws.run().await
++    }
++    .expect("双 plan 全链应 Ok");
++    let ToolStepOutput::TestExecution(outcome) = output else {
++        panic!("产出应为 TestExecution 变体");
++    };
++    assert_eq!(ws.marker_count(), 2, "两 plan 各一次执行");
++
++    let recorded = exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id).expect("记录可回查");
++    let text = String::from_utf8_lossy(&recorded).into_owned();
++
++    assert!(
++        text.starts_with("\n=== plan app_node-test (node-test) · files=1 · argv="),
++        "记录以第一 plan 头起手: {text:?}"
++    );
++    assert_eq!(
++        text.matches("=== plan ").count(),
++        2,
++        "两已执行 plan 恰两行头"
++    );
++    let first = text.find("=== plan app_node-test ").expect("第一头在案");
++    let second = text.find("=== plan app2_node-test ").expect("第二头在案");
++    assert!(
++        first < second,
++        "头按 plan 迭代序（字典序稳定）排列（{first} < {second}）"
++    );
++
++    // 去头（含可选 `[argv]` 行）→ 正文 = 各 plan 脚本输出按序拼接
++    let body: Vec<&str> = text
++        .lines()
++        .filter(|line| !line.starts_with("=== plan ") && !line.starts_with("[argv] "))
++        .filter(|line| !line.trim().is_empty())
++        .collect();
++    assert_eq!(
++        body,
++        vec!["shim-stdout-marker", "shim-stdout-marker"],
++        "去头后正文与脚本真实输出逐字节一致、plan 序保序（实际: {text:?}）"
++    );
++    assert!(!text.contains("[argv] "), "未降级面零 [argv] 行: {text:?}");
++}
++
++/// 正向：留痕三数一致——头中 `files=` 等于 detect 出的清单长度、`argv=` 等于
++/// `WithFiles` 展开字符数（与 `expand_template` / `decide_argv` 同口径的独立
++/// 构造）；未超预算面零 `[argv]` 行。
++#[tokio::test]
++async fn 记录聚合面_头中files与argv与展开同口径() {
++    let ws = ChainWs::new("head-numbers");
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    let output = {
++        let _window = path_window();
++        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++        ws.run().await
++    }
++    .expect("单 plan 全链应 Ok");
++    let ToolStepOutput::TestExecution(outcome) = output else {
++        panic!("产出应为 TestExecution 变体");
++    };
++    let recorded = exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id).expect("记录可回查");
++    let text = String::from_utf8_lossy(&recorded).into_owned();
++    let head = text
++        .lines()
++        .find(|line| line.starts_with("=== plan app_node-test "))
++        .unwrap_or_else(|| panic!("plan 头缺失: {text:?}"));
++
++    // files= 与 fixture 树命中清单同源（app/src/add.test.mjs 一枚）
++    assert!(
++        head.contains("(node-test) · files=1 · argv="),
++        "files= 等于 plan.files.len()（fixture 树单文件）: {head}"
++    );
++
++    // argv= 与展开字符数同口径（独立构造：注册表模板 + 同展开规则）
++    let results_file = to_posix(&ws.reports_dir().join("app_node-test").join("results.txt"));
++    let expanded_len = NODE_TEST_TEMPLATE
++        .replace("{results_file}", &results_file)
++        .replace("{files}", "src/add.test.mjs")
++        .chars()
++        .count();
++    assert!(
++        head.contains(&format!("argv={expanded_len} 字符 ===")),
++        "argv= 等于 WithFiles 展开字符数（期望 {expanded_len}），实际头: {head}"
++    );
++    assert!(
++        expanded_len < 7000,
++        "fixture 展开远低于预算（Keep 臂——零降级前提）"
++    );
++    assert!(!text.contains("[argv] "), "Keep 臂零降级注行: {text:?}");
++}
++
++/// 异常：fault 收口路径（`fault_outcome`）——该 plan 的头仍在记录中（展开长度
++/// 可回查）、记录正文除头外为空（进程未拉起）、summary / 子报告零落盘。
++#[tokio::test]
++async fn 记录聚合面_fault收口仍留头且零报告落盘() {
++    let _window = path_window();
++    let ws = ChainWs::new("head-fault-cancel");
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++
++    let cancel = foundation::cancel::CancelFlag::never();
++    cancel.handle().set();
++    let output = ws.run_with(cancel).await.expect("fault 收口（不 Err）");
++    let ToolStepOutput::TestExecution(outcome) = output else {
++        panic!("产出应为 TestExecution 变体");
++    };
++    assert_eq!(outcome.fault, Some(RunFault::Stopped), "取消 → fault");
++
++    let recorded =
++        exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id).expect("fault 面记录可回查");
++    let text = String::from_utf8_lossy(&recorded).into_owned();
++    assert!(
++        text.starts_with("\n=== plan app_node-test (node-test) · files=1 · argv="),
++        "fault 面仍写头（该 plan 的展开长度可回查）: {text:?}"
++    );
++    assert_eq!(text.matches("=== plan ").count(), 1, "单 plan 单头");
++    let body: Vec<&str> = text
++        .lines()
++        .filter(|line| !line.starts_with("=== plan ") && !line.starts_with("[argv] "))
++        .filter(|line| !line.trim().is_empty())
++        .collect();
++    assert!(
++        body.is_empty(),
++        "进程未拉起 → 记录除头外无正文（实际: {text:?}）"
++    );
++    assert_eq!(ws.marker_count(), 0, "入口短路零 spawn");
++    assert!(
++        !ws.reports_dir().join("summary.json").exists(),
++        "fault 面不写 summary（半套报告不进复用门）"
++    );
++    assert!(
++        !ws.reports_dir()
++            .join("app_node-test")
++            .join("report.json")
++            .exists(),
++        "fault 面零子报告落盘"
++    );
++}
+diff --git a/crates/infra/checks/src/testexec/runner.rs b/crates/infra/checks/src/testexec/runner.rs
+index 9341d9707a83..d604addf25f2 100644
+--- a/crates/infra/checks/src/testexec/runner.rs
++++ b/crates/infra/checks/src/testexec/runner.rs
+@@ -20,6 +20,28 @@ pub(crate) const SUITE_COMMAND_TIMEOUT: Duration = Duration::from_secs(1200);
+ /// 框架版本探测超时（CLI `timeout: 30_000` 同值）。
+ pub(crate) const VERSION_DETECT_TIMEOUT: Duration = Duration::from_secs(30);
+ 
++/// Windows 命令行长度预算（字符口径，`chars().count()`）：`cmd.exe` 硬上限 8191
++/// − 1191 余量 = `cmd /C ` 前缀 + `raw_arg` 转引后的实际线长放大 + 不同 Windows
++/// 版本的细微差异（实测脚本 8000 / 8150 通过、8200 拒绝）。与
++/// [`SUITE_COMMAND_TIMEOUT`]（同文件）/ `TESTEXEC_TOTAL_BUDGET`（`mod.rs`）同
++/// 性质的**代码常量**，MUST NOT 进 config schema；suite 文件数增长时复核本值。
++#[cfg(windows)]
++const CMD_LINE_BUDGET: usize = 7000;
++
++/// 平台命令行长度预算取臂（`None` = 无预算）。unix `ARG_MAX` 为 2 MB 量级，
++/// MUST NOT 为它引入第二套降级语义（命中仍是有界显式失败，不是假绿）。裁决
++/// 逻辑全部经预算入参流转（`decide_argv`），故本平台分叉只此一处。
++fn line_budget() -> Option<usize> {
++    #[cfg(windows)]
++    {
++        Some(CMD_LINE_BUDGET)
++    }
++    #[cfg(not(windows))]
++    {
++        None
++    }
++}
++
+ /// 退出码不可用时的哨兵值：进程无退出码（Unix 信号终止——Windows
+ /// `ExitStatus::code()` 恒 `Some`）与 suite 命令超时强杀同记 `-1`；非零 →
+ /// `error` 面显式失败，MUST NOT 回落 `0`（吞成假绿）。
+@@ -52,10 +74,23 @@ pub(crate) struct PlanExecution {
+     pub output: Vec<u8>,
+     /// 执行面归因（`None` = 结论本身有效；在位时跳过工件解析、`error` 恒 `None`）
+     pub fault: Option<RunFault>,
++    /// `WithFiles` 展开后的命令串字符数（预算裁决的判定对象；供 `mod.rs` 装配
++    /// 记录 plan 头的 `argv=` 字段——被拒绝 / 超时 / 取消的 plan 也可回查）
++    pub argv_len: usize,
++    /// `{files}` 省略降级说明（`environment::argv_degrade_note` 单点装配；未降级
++    /// 为 `None`）；只进输出记录的 plan 头 `[argv]` 行，**MUST NOT** 进
++    /// `SubReport.findings` / `summary.findings`（`findings` 非空 + `failed == 0`
++    /// 会被 `collect_problems` 判成 `execution_error`，绿跑翻红）
++    pub argv_note: Option<String>,
+ }
+ 
+-/// 单 suite 执行全流程：清报告目录 → 模板展开 → 程序解析前置 → spawn
+-///（超时 + 瞬态重试 + 捕获）→ 执行面归因（fault 在位即早返）→ 工件解析。
++/// 单 suite 执行全流程：清报告目录 → 模板展开（`WithFiles`）→ **展开长度预算
++/// 裁决**（`Keep` / `Omit` / `Reject`）→ 程序可达性 → spawn（超时 + 瞬态重试 +
++/// 捕获）→ 执行面归因（fault 在位即早返）→ 工件解析。
++///
++/// 拒绝降级（不可安全降级 / 降级后仍超预算）= 环境面归因（`fault =
++/// Some(RunFault::Environment(..))`、零 spawn、零工件解析），MUST NOT 返回 `Err`、
++/// MUST NOT 落 `execution_error`（命令行超限不是被测代码问题）。
+ pub(crate) async fn execute_plan(
+     plan: &TestPlan,
+     report_dir: &Path,
+@@ -81,15 +116,47 @@ pub(crate) async fn execute_plan(
+     // 模板展开（平台选臂：Windows cmd 模板 + cmd /C，其余 shell 模板 +
+     // sh -c——static_check shell spawn 同口径）；展开后零改写（结果重定向
+     // 已进 rust 模板，不做任何后置拼装）
+-    let command = expand_template(
++    let expanded = expand_template(
+         plan.template(),
+         &report_dir_posix,
+         &results_file_posix,
+         &coverage_file_posix,
+         plan.config_args.as_deref(),
+         &plan.files,
++        ExpandMode::WithFiles,
+     );
+ 
++    // 展开长度预算裁决（在程序可达性检查之前 —— 长度是模板属性、可达性是环境
++    // 属性）：未超预算原样执行（串逐字符同改造前）；超预算且可安全降级则省略
++    // `{files}` 交框架自发现；不可降级 / 降级后仍超预算 → 环境面归因、零 spawn
++    let argv_len = expanded.chars().count();
++    let (command, argv_note) = match decide_argv(
++        plan,
++        &report_dir_posix,
++        &results_file_posix,
++        &coverage_file_posix,
++        &expanded,
++        line_budget(),
++    ) {
++        ArgvDecision::Keep { command } => (command, None),
++        ArgvDecision::Omit { command, note } => (command, Some(note)),
++        ArgvDecision::Reject { message } => {
++            return Ok(PlanExecution {
++                // 进程未拉起：取「无退出码」哨兵（fault 面下该值不进结论）
++                exit_code: EXIT_CODE_NO_STATUS,
++                duration_ms: started.elapsed().as_millis() as f64,
++                cases: Vec::new(),
++                source_files: Vec::new(),
++                measured: None,
++                error: None,
++                output: Vec::new(),
++                fault: Some(RunFault::Environment(message)),
++                argv_len,
++                argv_note: None,
++            });
++        }
++    };
++
+     // 程序解析前置检查（spawn cwd = suite cwd 的可达性口径）
+     ensure_program_resolvable(&plan.cwd, &command)?;
+ 
+@@ -145,6 +212,8 @@ pub(crate) async fn execute_plan(
+             error: None,
+             output,
+             fault: Some(fault),
++            argv_len,
++            argv_note: None,
+         });
+     }
+     // 合并流（rust 模板 `cargo llvm-cov --workspace … > "{results_file}"` 仅重定向
+@@ -178,6 +247,8 @@ pub(crate) async fn execute_plan(
+         error: exec_error.or(parse_error),
+         output,
+         fault: None,
++        argv_len,
++        argv_note,
+     })
+ }
+ 
+@@ -190,8 +261,21 @@ fn non_zero_exit_error(exit_code: i32, output: &[u8]) -> String {
+     exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
+ }
+ 
++/// `{files}` 占位符的展开两态（预算裁决的展开面）：
++/// - `WithFiles`：现行为逐字不变（`files` 非空 → 空格连接清单；空清单 → 空串）；
++/// - `OmitFiles`：`{files}` 连其前导空白一并剥离（与 `{config_args}` 未注入臂同一
++///   算法）——降级为框架自发现时用。
++///
++/// 其余四占位符两态**逐字同义**；模板不含 `{files}` 时（rust 档）两态输出**逐字
++/// 相同**。
++enum ExpandMode {
++    WithFiles,
++    OmitFiles,
++}
++
+ /// 占位符模板展开：`{report_dir}` / `{results_file}` / `{coverage_file}` /
+-/// `{config_args}`（未注入时连前导空白一并剥离，CLI 同语义）/ `{files}`。
++/// `{config_args}`（未注入时连前导空白一并剥离，CLI 同语义）/ `{files}`（两态见
++/// [`ExpandMode`]）。
+ fn expand_template(
+     template: &str,
+     report_dir: &str,
+@@ -199,6 +283,7 @@ fn expand_template(
+     coverage_file: &str,
+     config_args: Option<&str>,
+     files: &[String],
++    expand_mode: ExpandMode,
+ ) -> String {
+     let mut result = template.replace("{report_dir}", report_dir);
+     result = result.replace("{results_file}", results_file);
+@@ -213,10 +298,87 @@ fn expand_template(
+             }
+         }
+     }
+-    if files.is_empty() {
+-        result.replace("{files}", "")
+-    } else {
+-        result.replace("{files}", &files.join(" "))
++    match expand_mode {
++        ExpandMode::WithFiles => {
++            if files.is_empty() {
++                result.replace("{files}", "")
++            } else {
++                result.replace("{files}", &files.join(" "))
++            }
++        }
++        // 省略臂复用「占位符失效即连前导空白剥离」的既有算法（不自造第二套）
++        ExpandMode::OmitFiles => {
++            while let Some(index) = result.find("{files}") {
++                let before = result[..index].trim_end();
++                let after = &result[index + "{files}".len()..];
++                result = format!("{before}{after}");
++            }
++            result
++        }
++    }
++}
++
++/// 命令行预算裁决的纯数据产物（本模块私有，边界不越出 `execute_plan`）：
++/// - `Keep`：原样执行（`command` 即入参展开串本身，**零二次展开**）；
++/// - `Omit`：`OmitFiles` 重新展开后执行 + 降级说明留痕；
++/// - `Reject`：环境面归因（不 spawn），`message` 为 `RunFault::Environment` 摘要。
++enum ArgvDecision {
++    Keep { command: String },
++    Omit { command: String, note: String },
++    Reject { message: String },
++}
++
++/// 展开长度预算裁决（纯函数：零 IO / 零 spawn / 零 async，预算与展开串全作入参
++/// ——全平台可测）。臂序固定「先短路、后降级」：
++/// ① 无预算（unix 语义）→ `Keep`；② 未超预算 → `Keep`（**原串回填**，保证命令与
++/// 改造前逐字符一致）；③ 不可安全降级 → `Reject`（文案不带「降级后仍超」噪声）；
++/// ④ `OmitFiles` 重新展开后仍超预算 → `Reject`（降级无效，文案载两次长度）；
++/// ⑤ 否则 `Omit`。
++///
++/// 文案全部经 `crate::environment` 单点（本文件零文案字面量）。
++fn decide_argv(
++    plan: &TestPlan,
++    report_dir: &str,
++    results_file: &str,
++    coverage_file: &str,
++    expanded: &str,
++    budget: Option<usize>,
++) -> ArgvDecision {
++    let Some(budget) = budget else {
++        return ArgvDecision::Keep {
++            command: expanded.to_owned(),
++        };
++    };
++    let expanded_len = expanded.chars().count();
++    if expanded_len <= budget {
++        return ArgvDecision::Keep {
++            command: expanded.to_owned(),
++        };
++    }
++    let files = plan.files.len();
++    if !plan.omit_files_safe {
++        return ArgvDecision::Reject {
++            message: environment::argv_budget_text(budget, expanded_len, None, files),
++        };
++    }
++    let omitted = expand_template(
++        plan.template(),
++        report_dir,
++        results_file,
++        coverage_file,
++        plan.config_args.as_deref(),
++        &plan.files,
++        ExpandMode::OmitFiles,
++    );
++    let omitted_len = omitted.chars().count();
++    if omitted_len > budget {
++        return ArgvDecision::Reject {
++            message: environment::argv_budget_text(budget, expanded_len, Some(omitted_len), files),
++        };
++    }
++    ArgvDecision::Omit {
++        command: omitted,
++        note: environment::argv_degrade_note(budget, expanded_len, files),
+     }
+ }
+ 
+diff --git a/crates/infra/checks/src/testexec/runner_test.rs b/crates/infra/checks/src/testexec/runner_test.rs
+index 9e760a1e5d36..90e0e427dbc0 100644
+--- a/crates/infra/checks/src/testexec/runner_test.rs
++++ b/crates/infra/checks/src/testexec/runner_test.rs
+@@ -4,8 +4,8 @@ use std::time::Duration;
+ use tempfile::TempDir;
+ 
+ use super::{
+-    execute_plan, expand_template, non_zero_exit_error, EXIT_CODE_NO_STATUS, SUITE_COMMAND_TIMEOUT,
+-    VERSION_DETECT_TIMEOUT,
++    decide_argv, execute_plan, expand_template, line_budget, non_zero_exit_error, ArgvDecision,
++    ExpandMode, EXIT_CODE_NO_STATUS, SUITE_COMMAND_TIMEOUT, VERSION_DETECT_TIMEOUT,
+ };
+ use crate::testexec::detect::{to_posix, TestPlan};
+ use checks::parser::CoverageFormat;
+@@ -45,6 +45,7 @@ fn node_test_plan(cwd: &Path, template: String) -> TestPlan {
+         coverage_format: CoverageFormat::NodeTest,
+         coverage_output: "results.txt",
+         results_output: "results.txt",
++        omit_files_safe: true,
+     }
+ }
+ 
+@@ -63,6 +64,7 @@ fn rust_plan(cwd: &Path, template: String) -> TestPlan {
+         coverage_format: CoverageFormat::LlvmCov,
+         coverage_output: "coverage-summary.json",
+         results_output: "results.txt",
++        omit_files_safe: true,
+     }
+ }
+ 
+@@ -81,6 +83,7 @@ fn jest_plan(cwd: &Path, template: String) -> TestPlan {
+         coverage_format: CoverageFormat::Istanbul,
+         coverage_output: "coverage-summary.json",
+         results_output: "results.json",
++        omit_files_safe: true,
+     }
+ }
+ 
+@@ -189,6 +192,7 @@ fn 模板展开五占位符替换_config_args双形态() {
+         "/ws/reports/plan/coverage.json",
+         Some("--config \"/ws/vitest.config.ts\""),
+         &["src/a.test.ts".to_owned(), "src/b.test.ts".to_owned()],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded,
+@@ -204,6 +208,7 @@ fn 模板展开五占位符替换_config_args双形态() {
+         "/ws/reports/plan/coverage.json",
+         None,
+         &[],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded,
+@@ -225,6 +230,7 @@ fn rust模板展开_双工件路径逐字且重定向恰一次() {
+         "/ws/reports/crates_rust/coverage-summary.json",
+         None,
+         &["tests/it.rs".to_owned()],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded,
+@@ -255,6 +261,7 @@ fn 模板展开清单规模与占位符形态() {
+         "/ws/reports/plan/coverage-summary.json",
+         None,
+         &["tests/it.rs".to_owned()],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(expanded, "run --files tests/it.rs", "单元素清单逐字展开");
+ 
+@@ -269,6 +276,7 @@ fn 模板展开清单规模与占位符形态() {
+         "/ws/reports/plan/coverage-summary.json",
+         None,
+         &many,
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded,
+@@ -289,6 +297,7 @@ fn 模板展开清单规模与占位符形态() {
+         "/ws/reports/plan/coverage-summary.json",
+         None,
+         &["a.rs".to_owned(), "b.rs".to_owned()],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded,
+@@ -304,6 +313,7 @@ fn 模板展开清单规模与占位符形态() {
+         "/ws/reports/plan/coverage-summary.json",
+         None,
+         &[],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded, "run {unknown} ",
+@@ -346,6 +356,7 @@ async fn 模板串边界_空与空白err_特殊字符逐字保留() {
+         "/ws/reports/plan/coverage-summary.json",
+         None,
+         &[],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded,
+@@ -377,6 +388,7 @@ async fn 模板串边界_空与空白err_特殊字符逐字保留() {
+         "/ws/reports/plan/coverage-summary.json",
+         None,
+         &[],
++        ExpandMode::WithFiles,
+     );
+     assert_eq!(
+         expanded,
+@@ -551,6 +563,7 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
+         &to_posix(&report_dir.join("coverage-summary.json")),
+         None,
+         &[],
++        ExpandMode::WithFiles,
+     );
+     let results_posix = to_posix(&report_dir.join("results.txt"));
+     assert_eq!(
+@@ -2365,3 +2378,1238 @@ async fn plan_execution字段面零变() {
+     );
+     assert_eq!(execution.fault, None, "fault 字段可读（绿面无归因）");
+ }
++
++// ---------------------------------------------------------------------------
++// 命令行预算裁决（`decide_argv` / `line_budget` / `CMD_LINE_BUDGET`——
++// test-exec-argv-budget，AC-1 / AC-2 / AC-4 / AC-5）：纯函数零 io 零 spawn
++// 零 async，预算与展开串全作入参（平台无关），故本节点全部用例平台无关。
++// ---------------------------------------------------------------------------
++
++/// 裁决装置：plan 纯数据直构（模板 / 清单 / 降级安全位由用例给值；`expanded`
++/// 亦作入参——`decide_argv` 只取展开串长度，`Omit` 臂再按 `plan.template()`
++/// 重新展开）。
++fn argv_plan(template: &str, files: &[&str], omit_files_safe: bool) -> TestPlan {
++    TestPlan {
++        id: "it_node-test".to_owned(),
++        framework: "node-test".to_owned(),
++        root: "app".to_owned(),
++        cwd: PathBuf::from("app"),
++        files: files.iter().map(|file| (*file).to_owned()).collect(),
++        config_args: None,
++        shell_template: template.to_owned(),
++        cmd_template: template.to_owned(),
++        coverage_format: CoverageFormat::NodeTest,
++        coverage_output: "coverage-summary.json",
++        results_output: "results.txt",
++        omit_files_safe,
++    }
++}
++
++/// 裁决入参固定路径（与 `execute_plan` 同口径的绝对 POSIX 三元组）。
++const PLAN_REPORT_DIR: &str = "/ws/reports/it_node-test";
++const PLAN_RESULTS_FILE: &str = "/ws/reports/it_node-test/results.txt";
++const PLAN_COVERAGE_FILE: &str = "/ws/reports/it_node-test/coverage-summary.json";
++
++/// 单点裁决调用（预算作入参 → 全平台可测）。
++fn decide(plan: &TestPlan, expanded: &str, budget: Option<usize>) -> ArgvDecision {
++    decide_argv(
++        plan,
++        PLAN_REPORT_DIR,
++        PLAN_RESULTS_FILE,
++        PLAN_COVERAGE_FILE,
++        expanded,
++        budget,
++    )
++}
++
++/// 定长填充串（预算边界构造：把展开串恰好撑到 `target` 字符）。
++fn filler(target: usize) -> String {
++    "x".repeat(target)
++}
++
++/// 正向：未超预算 → `Keep`，`command` 与入参 `expanded` **逐字符相等**（原串
++/// 回填、零二次展开——命令与改造前逐字符一致，AC-2）。
++#[test]
++fn 裁决_未超预算原串逐字符回填() {
++    // 87 条文件清单形态的实测长度量级（4527 字符 << 7000 预算）
++    let files: Vec<String> = (0..87)
++        .map(|index| format!("src/case{index:02}.test.mjs"))
++        .collect();
++    let refs: Vec<&str> = files.iter().map(String::as_str).collect();
++    let plan = argv_plan("node --test {files}", &refs, true);
++    let expanded = filler(4527);
++    assert_eq!(expanded.chars().count(), 4527, "构造恰 4527 字符");
++
++    let ArgvDecision::Keep { command } = decide(&plan, &expanded, Some(7000)) else {
++        panic!("未超预算应落 Keep 臂");
++    };
++    assert_eq!(command, expanded, "原串回填（逐字符相等）");
++    assert_eq!(command.chars().count(), 4527, "长度不变（零二次展开）");
++    assert!(
++        !command.contains("{files}"),
++        "Keep 臂不做占位符再展开: {command}"
++    );
++}
++
++/// 边界（表驱动）：预算边界口径——`len == budget` 与 `len == budget - 1`
++/// 不降级；`len == budget + 1` 进裁决（可安全降级 → `Omit`、不可降级 →
++/// `Reject`）。
++#[test]
++fn 裁决_预算边界等值不降级加一进裁决() {
++    let safe = argv_plan("run {files}", &["src/a.test.mjs"], true);
++
++    let ArgvDecision::Keep { command } = decide(&safe, &filler(7000), Some(7000)) else {
++        panic!("len == 预算 → Keep（不降级）");
++    };
++    assert_eq!(command.chars().count(), 7000, "恰等预算原样执行");
++
++    let ArgvDecision::Keep { .. } = decide(&safe, &filler(6999), Some(7000)) else {
++        panic!("len == 预算 - 1 → Keep");
++    };
++
++    let ArgvDecision::Omit { command, note } = decide(&safe, &filler(7001), Some(7000)) else {
++        panic!("len == 预算 + 1 且可安全降级 → Omit 臂");
++    };
++    assert_eq!(command, "run", "OmitFiles 展开（{{files}} 连前导空白剥离）");
++    assert!(note.contains("已降级为框架自发现"), "降级注在场: {note}");
++
++    let unsafe_plan = argv_plan("run {files}", &["src/a.test.mjs"], false);
++    let ArgvDecision::Reject { message } = decide(&unsafe_plan, &filler(7001), Some(7000)) else {
++        panic!("len == 预算 + 1 且不可安全降级 → Reject 臂");
++    };
++    assert!(
++        message.contains("7001") && message.contains("7000"),
++        "文案载展开长度与预算两数字: {message}"
++    );
++}
++
++/// 正向 / 边界（表驱动 3 形态）：超预算 + `omit_files_safe == true` →
++/// `Omit`——`command` 为 `OmitFiles` 展开串（不含文件清单、零 `{files}` 残留），
++/// `note` 载三数字与文件数。
++#[test]
++fn 裁决_超预算可降级则省略files() {
++    let cases: [(&str, Vec<&str>, &str); 3] = [
++        ("node --test {files}", vec!["src/a.test.mjs"], "node --test"),
++        (
++            "node --test {files} --reporter=spec",
++            vec!["src/a.test.mjs", "src/b.test.mjs"],
++            "node --test --reporter=spec",
++        ),
++        ("node --test {files}", Vec::new(), "node --test"),
++    ];
++
++    for (template, files, expected) in cases {
++        let plan = argv_plan(template, &files, true);
++        let ArgvDecision::Omit { command, note } = decide(&plan, &filler(8230), Some(7000)) else {
++            panic!("{template}: 超预算 + 可安全降级 → Omit");
++        };
++        assert_eq!(
++            command, expected,
++            "{template}: command 为 OmitFiles 展开串（文件清单已剥离）"
++        );
++        assert!(
++            !command.contains('{') && !command.contains("test.mjs"),
++            "{template}: 零占位符 / 零文件清单残留，实际: {command}"
++        );
++        assert!(
++            note.contains("展开 8230 字符超平台预算 7000 字符"),
++            "{template}: note 载原始长度与预算: {note}"
++        );
++        assert!(
++            note.contains(&format!("{} 个测试文件", files.len())),
++            "{template}: note 载文件数（{}）: {note}",
++            files.len()
++        );
++    }
++}
++
++/// 边界：超预算 + 可安全降级 + `OmitFiles` 展开后**恰 == budget** → `Omit`
++/// （降级有效性边界——不得误判为拒绝）。
++#[test]
++fn 裁决_降级后恰等预算仍走降级() {
++    let template = format!("{} {{files}}", filler(7000));
++    let plan = argv_plan(&template, &["src/a.test.mjs"], true);
++
++    let ArgvDecision::Omit { command, note } = decide(&plan, &filler(7500), Some(7000)) else {
++        panic!("降级后恰等预算 → Omit（边界不降级为拒绝）");
++    };
++    assert_eq!(command.chars().count(), 7000, "降级后长度恰等预算");
++    assert!(
++        note.contains("展开 7500 字符超平台预算 7000 字符"),
++        "注载原始长度与预算: {note}"
++    );
++}
++
++/// 异常（表驱动）：超预算 + 可安全降级 + `OmitFiles` 展开后仍 `> budget` →
++/// `Reject`，`message` 同时含原始长度与降级后长度两个数字（AC-5：降级无效也
++/// 拒绝，且两次长度可回查）。
++#[test]
++fn 裁决_降级后仍超预算则拒绝且载两长度() {
++    for omitted_len in [7001usize, 7100, 9000] {
++        let template = format!("{} {{files}}", filler(omitted_len));
++        let plan = argv_plan(&template, &["src/a.test.mjs"], true);
++
++        let ArgvDecision::Reject { message } = decide(&plan, &filler(9500), Some(7000)) else {
++            panic!("降级后 {omitted_len} 字符仍超预算 → Reject");
++        };
++        assert!(
++            message.contains("展开 9500 字符"),
++            "文案载原始展开长度（{omitted_len}）: {message}"
++        );
++        assert!(
++            message.contains(&format!("降级为框架自发现后仍为 {omitted_len} 字符")),
++            "文案载降级后长度（两数字并存）: {message}"
++        );
++        assert!(
++            message.contains("7000") && message.contains("1 个测试文件"),
++            "预算与文件数照常: {message}"
++        );
++    }
++}
++
++/// 异常：超预算 + `omit_files_safe == false` → `Reject`——文案含三数字与动作，
++/// 且零误引安全软件 / 文件锁 / 重试措辞（成因是命令长度，非环境锁）。
++#[test]
++fn 裁决_不可安全降级则拒绝且文案三数字与动作() {
++    let plan = argv_plan(
++        "run {files}",
++        &["src/a.test.mjs", "src/b.test.mjs", "src/c.test.mjs"],
++        false,
++    );
++
++    let ArgvDecision::Reject { message } = decide(&plan, &filler(8230), Some(7000)) else {
++        panic!("不可安全降级 → Reject");
++    };
++    for expected in ["8230", "7000", "3 个测试文件", "收窄", "includes", "拆分"] {
++        assert!(
++            message.contains(expected),
++            "文案含 {expected}（定性 / 三数字 / 动作三项依序）: {message}"
++        );
++    }
++    for forbidden in [
++        "火绒",
++        "云枢",
++        "排除 workspace 父目录",
++        "已自动重试",
++        "占用",
++        "被锁文件",
++    ] {
++        assert!(
++            !message.contains(forbidden),
++            "不可降级臂零误引 {forbidden}: {message}"
++        );
++    }
++    assert!(
++        !message.contains("降级为框架自发现后仍为"),
++        "不可降级臂不带「降级后仍超」噪声: {message}"
++    );
++}
++
++/// 边界（表驱动 4 形态）：`budget == None`（unix 语义）→ 恒 `Keep`——覆盖展开
++/// 0 字符 / 100000 字符 / `files` 空清单 / `files` 500 条。
++#[test]
++fn 裁决_无预算恒keep四形态() {
++    let long = filler(100_000);
++    let many: Vec<String> = (0..500)
++        .map(|index| format!("src/case{index:03}.test.mjs"))
++        .collect();
++    let many_refs: Vec<&str> = many.iter().map(String::as_str).collect();
++
++    let cases: [(&str, Vec<&str>, &str); 4] = [
++        ("展开 0 字符", Vec::new(), ""),
++        ("展开 100000 字符", vec!["src/a.test.mjs"], long.as_str()),
++        ("files 空清单", Vec::new(), "x"),
++        ("files 500 条", many_refs, "xx"),
++    ];
++
++    for (label, files, expanded) in cases {
++        let plan = argv_plan("run {files}", &files, true);
++        let ArgvDecision::Keep { command } = decide(&plan, expanded, None) else {
++            panic!("{label}: 无预算（unix 语义）→ 恒 Keep");
++        };
++        assert_eq!(command, expanded, "{label}: 原串回填（零降级）");
++    }
++}
++
++/// 边界（表驱动）：`budget == Some(0)`——展开空串（`len 0 <= 0`）→ `Keep`；
++/// 展开 1 字符 → 进裁决（safe → `Omit`、unsafe → `Reject`）。
++#[test]
++fn 裁决_零预算边界三形态() {
++    let safe = argv_plan("", &[], true);
++
++    let ArgvDecision::Keep { command } = decide(&safe, "", Some(0)) else {
++        panic!("len 0 <= 0 → Keep");
++    };
++    assert_eq!(command, "", "空展开串原样回填");
++
++    let ArgvDecision::Omit { command, note } = decide(&safe, "x", Some(0)) else {
++        panic!("1 字符超零预算 + 可安全降级 → Omit");
++    };
++    assert_eq!(command, "", "OmitFiles 展开空模板 → 空串（0 <= 0 有效）");
++    assert!(
++        note.contains("展开 1 字符超平台预算 0 字符"),
++        "注载两数字（1 / 0）: {note}"
++    );
++
++    let unsafe_plan = argv_plan("", &[], false);
++    let ArgvDecision::Reject { message } = decide(&unsafe_plan, "x", Some(0)) else {
++        panic!("1 字符超零预算 + 不可安全降级 → Reject");
++    };
++    assert!(
++        message.contains("展开 1 字符 / 平台预算 0 字符"),
++        "文案三数字（1 / 0 / 0）: {message}"
++    );
++}
++
++/// 边界：`budget == usize::MAX` → 任意展开恒 `Keep`（无溢出 / 无 panic）。
++#[test]
++fn 裁决_预算最大值恒keep无溢出() {
++    let long = filler(100_000);
++    let mid = filler(7000);
++    for expanded in ["", mid.as_str(), long.as_str()] {
++        let plan = argv_plan("run {files}", &["src/a.test.mjs"], true);
++        let ArgvDecision::Keep { command } = decide(&plan, expanded, Some(usize::MAX)) else {
++            panic!("usize::MAX 预算 → 恒 Keep（无溢出 / 无 panic）");
++        };
++        assert_eq!(command, expanded, "原串回填");
++    }
++}
++
++/// 边界：长度口径为 `chars().count()`——展开串含 emoji / 中文路径（字符数
++/// 7000 而字节数 > 7000）→ `Keep`；字符数 7001 → 进裁决。
++#[test]
++fn 裁决_长度口径为字符数非字节数() {
++    let plan = argv_plan("run {files}", &["src/中文路径.test.mjs"], true);
++    let emoji = "🎉".repeat(7000);
++    assert_eq!(emoji.chars().count(), 7000, "字符数 7000");
++    assert!(
++        emoji.len() > 7000,
++        "字节数 {} > 预算（字节口径会误判）",
++        emoji.len()
++    );
++
++    let ArgvDecision::Keep { command } = decide(&plan, &emoji, Some(7000)) else {
++        panic!("字符口径 7000 == 预算 → Keep（不按字节降级）");
++    };
++    assert_eq!(command, emoji, "多字节串原样回填（不切碎）");
++
++    let plus_one = format!("{emoji}x");
++    assert_eq!(plus_one.chars().count(), 7001, "字符数 7001");
++    let ArgvDecision::Omit { .. } = decide(&plan, &plus_one, Some(7000)) else {
++        panic!("字符数 7001 → 进裁决（可安全降级 → Omit）");
++    };
++}
++
++/// 边界（表驱动两态）：`plan.files == []`（含 `[]` 空清单）且长度来自模板静态
++/// 填充——safe → `Omit`（`note` 载 `0 个测试文件`）；unsafe → `Reject`（文案载
++/// `0` 个文件）。
++#[test]
++fn 裁决_空清单降级注载零文件() {
++    let template = format!("{} {{files}}", filler(6990));
++    let safe = argv_plan(&template, &[], true);
++    let expanded = filler(7010);
++    assert!(
++        expanded.chars().count() > 7000,
++        "展开超预算（静态填充口径）"
++    );
++
++    let ArgvDecision::Omit { command, note } = decide(&safe, &expanded, Some(7000)) else {
++        panic!("空清单 + 可安全降级 → Omit");
++    };
++    assert_eq!(
++        command.chars().count(),
++        6990,
++        "降级后长度来自模板静态填充（{{files}} 连前导空白剥离）"
++    );
++    assert!(note.contains("0 个测试文件"), "降级注载零文件数: {note}");
++
++    let unsafe_plan = argv_plan(&template, &[], false);
++    let ArgvDecision::Reject { message } = decide(&unsafe_plan, &expanded, Some(7000)) else {
++        panic!("空清单 + 不可安全降级 → Reject");
++    };
++    assert!(
++        message.contains("0 个测试文件"),
++        "拒绝文案载零文件数: {message}"
++    );
++}
++
++/// 正向：裁决纯数据产物三变体经 `decide_argv` 逐一可达，`command` / `note` /
++/// `message` 字段经 `super::` 构造与匹配可断言（不为其可测性加 `pub`、不加仅
++/// 测试用 `PartialEq` 派生）。
++#[test]
++fn 裁决产物三变体字段可断言() {
++    let plan = argv_plan("run {files}", &["src/a.test.mjs"], true);
++
++    let ArgvDecision::Keep { command } = decide(&plan, "run", Some(7000)) else {
++        panic!("Keep 变体可达");
++    };
++    assert_eq!(command, "run", "Keep.command = 入参展开串");
++
++    let ArgvDecision::Omit { command, note } = decide(&plan, &filler(7001), Some(7000)) else {
++        panic!("Omit 变体可达");
++    };
++    assert_eq!(command, "run", "Omit.command = OmitFiles 展开串");
++    assert!(!note.is_empty(), "Omit.note 非空（降级说明单点装配）");
++
++    let reject_plan = argv_plan("run {files}", &["src/a.test.mjs"], false);
++    let ArgvDecision::Reject { message } = decide(&reject_plan, &filler(7001), Some(7000)) else {
++        panic!("Reject 变体可达");
++    };
++    assert!(
++        message.contains("命令行长度超平台上限"),
++        "Reject.message = 环境面摘要（定性起手）: {message}"
++    );
++}
++
++/// 正向（cfg 门控 ×2）：`line_budget()` 取臂——Windows 臂 `Some(7000)`、非
++/// Windows 臂 `None`（平台分叉只此一处，裁决逻辑全经预算入参流转）。
++#[test]
++fn 预算取臂_平台双态() {
++    #[cfg(windows)]
++    {
++        assert_eq!(line_budget(), Some(7000), "Windows 臂恒 Some(7000)");
++        assert_eq!(
++            line_budget(),
++            Some(super::CMD_LINE_BUDGET),
++            "取臂值即常量本身（单源）"
++        );
++    }
++    #[cfg(not(windows))]
++    {
++        assert_eq!(line_budget(), None, "非 Windows 臂恒 None（无预算）");
++    }
++}
++
++/// 边界（cfg 门控）：`CMD_LINE_BUDGET` 常量锚定 `== 7000`（`cmd.exe` 硬上限
++/// 8191 − 1191 余量）；非 Windows 该常量不可见（`#[cfg(windows)]` 编译期隔离
++/// 即断言面）。
++#[test]
++fn 预算常量锚定七千() {
++    #[cfg(windows)]
++    {
++        // 取值经局部绑定断言（避免 `assertions_on_constants` 噪声）
++        let budget = super::CMD_LINE_BUDGET;
++        assert_eq!(budget, 7000, "常量锚定 7000（非 8191）");
++        assert!(budget < 8191, "留出 cmd /C 前缀 + raw_arg 转引放大的余量");
++    }
++    #[cfg(not(windows))]
++    {
++        // 非 Windows 该常量不可见（编译期隔离），平台无预算语义
++        assert_eq!(line_budget(), None, "非 Windows 零预算常量");
++    }
++}
++
++/// 边界：`ExpandMode` 两态语义与变体封闭性——穷尽 `match` 编译通过即「仅两
++/// 变体」（无第三态、无 `Default` / 宽松 `From` 入口），两态在同一输入上必须
++/// 可区分（无回落臂）。
++#[test]
++fn 展开模式_两态语义与变体封闭() {
++    fn describe(mode: ExpandMode) -> &'static str {
++        match mode {
++            ExpandMode::WithFiles => "with",
++            ExpandMode::OmitFiles => "omit",
++        }
++    }
++    assert_eq!(describe(ExpandMode::WithFiles), "with");
++    assert_eq!(describe(ExpandMode::OmitFiles), "omit");
++
++    let files = vec!["src/a.test.mjs".to_owned()];
++    let with = expand_template(
++        "run {files}",
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &files,
++        ExpandMode::WithFiles,
++    );
++    let omit = expand_template(
++        "run {files}",
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &files,
++        ExpandMode::OmitFiles,
++    );
++    assert_eq!(with, "run src/a.test.mjs", "WithFiles 保留清单");
++    assert_eq!(omit, "run", "OmitFiles 剥离清单与前导空白");
++    assert_ne!(with, omit, "两态在可区分输入上必不同串");
++}
++
++/// 正向（表驱动 1 / 2 / 50 清单规模）：`WithFiles` 逐字同改造前（空格连接），
++/// 其余四占位符两态同义——`OmitFiles` 结果 = `WithFiles` 结果去掉文件清单与其
++/// 前导空白（AC-2 / AC-3）。
++#[test]
++fn 模板展开_withfiles清单规模逐字且omit同义() {
++    let template =
++        "node --test --test-reporter=spec --test-reporter-destination=\"{results_file}\" {files}";
++    let prefix =
++        "node --test --test-reporter=spec --test-reporter-destination=\"/ws/plan/results.txt\"";
++    let one = vec!["src/a.test.mjs".to_owned()];
++    let two = vec!["src/a.test.mjs".to_owned(), "src/b.test.mjs".to_owned()];
++    let many: Vec<String> = (0..50)
++        .map(|index| format!("tests/t{index:02}.test.mjs"))
++        .collect();
++
++    for files in [one, two, many] {
++        let with = expand_template(
++            template,
++            "/ws/plan",
++            "/ws/plan/results.txt",
++            "/ws/plan/coverage-summary.json",
++            None,
++            &files,
++            ExpandMode::WithFiles,
++        );
++        assert_eq!(
++            with,
++            format!("{prefix} {}", files.join(" ")),
++            "WithFiles 逐字（清单 {} 项，空格连接）",
++            files.len()
++        );
++
++        let omit = expand_template(
++            template,
++            "/ws/plan",
++            "/ws/plan/results.txt",
++            "/ws/plan/coverage-summary.json",
++            None,
++            &files,
++            ExpandMode::OmitFiles,
++        );
++        assert_eq!(
++            omit,
++            prefix,
++            "OmitFiles = WithFiles 去掉清单与前导空白（其余四占位符逐字同义，{} 项）",
++            files.len()
++        );
++        assert!(!omit.contains('{'), "零占位符残留: {omit}");
++    }
++}
++
++/// 正向（表驱动 4 形态）：`OmitFiles` 把 `{files}` **连其前导空白**一并剥离
++/// ——单空格 / 多空格 / 制表符 / 行首无空白四形态；其余占位符展开同义。
++#[test]
++fn 模板展开_omitfiles前导空白四形态() {
++    let files = vec!["src/a.test.mjs".to_owned()];
++    let cases: [(&str, &str); 4] = [
++        ("run {files}", "run"),
++        ("run   {files}", "run"),
++        ("run\t{files}", "run"),
++        ("{files}", ""),
++    ];
++
++    for (template, expected) in cases {
++        let omit = expand_template(
++            template,
++            "/ws/plan",
++            "/ws/plan/results.txt",
++            "/ws/plan/coverage-summary.json",
++            None,
++            &files,
++            ExpandMode::OmitFiles,
++        );
++        assert_eq!(
++            omit, expected,
++            "前导空白剥离（模板 {:?}）：{omit:?}",
++            template
++        );
++        assert!(!omit.contains("{files}"), "零占位符残留: {omit}");
++        assert!(!omit.contains("test.mjs"), "零文件清单残留: {omit}");
++    }
++
++    // 其余四占位符两态同义（前导空白剥离只作用于 {files}）
++    let template = "runner --out \"{results_file}\" {files}";
++    let omit = expand_template(
++        template,
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &files,
++        ExpandMode::OmitFiles,
++    );
++    assert_eq!(
++        omit, "runner --out \"/ws/plan/results.txt\"",
++        "占位符替换与空白剥离各司其职（结果逐字）"
++    );
++}
++
++/// 边界：模板不含 `{files}`（rust 档模板）→ 两态展开**逐字相同**（剥离算法只
++/// 作用于在场占位符）。
++#[test]
++fn 模板展开_无files模板两态同串() {
++    let template =
++        "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
++    let files = vec!["tests/it.rs".to_owned()];
++
++    let with = expand_template(
++        template,
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &files,
++        ExpandMode::WithFiles,
++    );
++    let omit = expand_template(
++        template,
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &files,
++        ExpandMode::OmitFiles,
++    );
++
++    assert_eq!(with, omit, "rust 档模板两态逐字相同");
++    assert_eq!(
++        with,
++        "cargo llvm-cov --workspace --json --output-path \"/ws/plan/coverage-summary.json\" > \"/ws/plan/results.txt\"",
++        "两态展开串即改造前同串（零改写）"
++    );
++}
++
++/// 边界：`files == []` 空清单——`WithFiles` 保留前导空白（`{files}` → 空串）、
++/// `OmitFiles` 剥离前导空白 → 两态**不同串**（两态判据的锚用例）。
++#[test]
++fn 模板展开_空清单两态不同串() {
++    let template = "run {files}";
++    let with = expand_template(
++        template,
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &[],
++        ExpandMode::WithFiles,
++    );
++    let omit = expand_template(
++        template,
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &[],
++        ExpandMode::OmitFiles,
++    );
++
++    assert_eq!(with, "run ", "WithFiles 空清单保留前导空白（同改造前）");
++    assert_eq!(omit, "run", "OmitFiles 剥离前导空白");
++    assert_ne!(with, omit, "空清单形态两态必不同串");
++}
++
++/// 边界（表驱动两形态）：`{files}` 一处 vs 多处出现 → 两态均**全量处理**
++/// （逐处替换 / 逐处剥离），零 `{files}` 残留。
++#[test]
++fn 模板展开_多处files两态全量处理() {
++    let files = vec!["a.rs".to_owned(), "b.rs".to_owned()];
++
++    for (label, template) in [
++        ("一处", "run {files}"),
++        ("两处", "run {files} | {files}"),
++        ("三处混排", "{files} run {files} --out {files}"),
++    ] {
++        let with = expand_template(
++            template,
++            "/ws/plan",
++            "/ws/plan/results.txt",
++            "/ws/plan/coverage-summary.json",
++            None,
++            &files,
++            ExpandMode::WithFiles,
++        );
++        assert_eq!(
++            with.matches("a.rs b.rs").count(),
++            template.matches("{files}").count(),
++            "{label}: WithFiles 逐处全量替换: {with}"
++        );
++        assert!(!with.contains('{'), "{label}: 零占位符残留: {with}");
++
++        let omit = expand_template(
++            template,
++            "/ws/plan",
++            "/ws/plan/results.txt",
++            "/ws/plan/coverage-summary.json",
++            None,
++            &files,
++            ExpandMode::OmitFiles,
++        );
++        assert!(
++            !omit.contains("{files}") && !omit.contains("a.rs"),
++            "{label}: OmitFiles 逐处剥离（零残留）: {omit}"
++        );
++    }
++}
++
++/// 异常（表驱动）：空模板 `""` → 两态均返回 `""`；模板含超长填充（> 1000
++/// 字符）与特殊字符（emoji / 换行 / 制表符）→ 逐字保留、不 panic。
++#[test]
++fn 模板展开_空模板与特殊字符两态() {
++    // 形态一：空模板
++    for mode in [ExpandMode::WithFiles, ExpandMode::OmitFiles] {
++        let expanded = expand_template(
++            "",
++            "/ws/plan",
++            "/ws/plan/results.txt",
++            "/ws/plan/coverage-summary.json",
++            None,
++            &["a.rs".to_owned()],
++            mode,
++        );
++        assert_eq!(expanded, "", "空模板两态均返回空串");
++    }
++
++    // 形态二：特殊字符 + 超长填充（>1000 字符）
++    let filler_segment = "y".repeat(1200);
++    let template = format!("runner \"line1\nline2\" --tab\t--emoji 🎉 {filler_segment} {{files}}");
++    let files = vec!["src/中文.test.mjs".to_owned()];
++
++    let with = expand_template(
++        &template,
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &files,
++        ExpandMode::WithFiles,
++    );
++    assert!(
++        with.contains("line1\nline2"),
++        "换行逐字保留（未转义）: {}",
++        &with[..20]
++    );
++    assert!(with.contains('\t'), "制表符逐字保留");
++    assert!(with.contains("🎉"), "emoji 逐字保留（多字节不切碎）");
++    assert!(with.contains("src/中文.test.mjs"), "中文清单项逐字保留");
++    assert!(with.chars().count() > 1200, "超长填充不截断");
++    assert!(!with.contains('{'), "零占位符残留");
++
++    let omit = expand_template(
++        &template,
++        "/ws/plan",
++        "/ws/plan/results.txt",
++        "/ws/plan/coverage-summary.json",
++        None,
++        &files,
++        ExpandMode::OmitFiles,
++    );
++    assert!(
++        omit.chars().count() < with.chars().count(),
++        "OmitFiles 更短（清单与空白已剥离）"
++    );
++    assert!(
++        omit.contains("🎉") && omit.contains('\t'),
++        "特殊字符不受剥离影响"
++    );
++    assert!(
++        !omit.contains("src/中文.test.mjs"),
++        "清单已剥离: 尾部 {:?}",
++        &omit[omit.len().saturating_sub(20)..]
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 预算裁决接入执行面（`execute_plan` 三臂——test-exec-argv-budget，AC-2 / AC-3 /
++// AC-4 / AC-5）：真实 spawn（不 mock），观测面 = 退出码 / 工件 / 替身 argv 记录 /
++// marker；`Omit` / `Reject` 臂以 `cfg` 真实取臂门控（平台无关覆盖全经
++// `decide_argv` 的预算入参）。
++// ---------------------------------------------------------------------------
++
++/// 展开口径复算（与 `execute_plan` 同一纯函数同一入参——`argv_len` 断言面）。
++fn expanded_for(plan: &TestPlan, report_dir: &Path) -> String {
++    expand_template(
++        plan.template(),
++        &to_posix(report_dir),
++        &to_posix(&report_dir.join(plan.results_output)),
++        &to_posix(&report_dir.join(plan.coverage_output)),
++        plan.config_args.as_deref(),
++        &plan.files,
++        ExpandMode::WithFiles,
++    )
++}
++
++/// `OmitFiles` 展开口径复算（降级后长度断言面——与 `decide_argv` 同一纯函数）。
++#[cfg(windows)]
++fn omitted_for(plan: &TestPlan, report_dir: &Path) -> String {
++    expand_template(
++        plan.template(),
++        &to_posix(report_dir),
++        &to_posix(&report_dir.join(plan.results_output)),
++        &to_posix(&report_dir.join(plan.coverage_output)),
++        plan.config_args.as_deref(),
++        &plan.files,
++        ExpandMode::OmitFiles,
++    )
++}
++
++/// 正向（`Keep` 臂）：未超预算 → 零行为变化——`exit_code == 0`、
++/// `error` / `fault` / `argv_note` 全 `None`、`argv_len` == `WithFiles` 展开字符
++/// 数、既有工件解析面零变化。
++#[tokio::test]
++async fn 执行臂_未超预算零降级且argv_len同展开口径() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let spec_src = preset(ws.path(), "argv-keep-preset.txt", SPEC_OUTPUT);
++
++    let template = if cfg!(windows) {
++        format!(
++            "cmd /C type {} > {{results_file}}",
++            spec_src.to_string_lossy().replace('/', "\\")
++        )
++    } else {
++        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
++    };
++    let plan = node_test_plan(&cwd, template);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
++        .await
++        .expect("绿跑应 Ok");
++
++    let expanded = expanded_for(&plan, &report_dir);
++    assert_eq!(
++        execution.argv_len,
++        expanded.chars().count(),
++        "argv_len = WithFiles 展开字符数（与 expand_template 同口径）"
++    );
++    assert!(
++        execution.argv_len < 7000,
++        "fixture 展开远低于预算（Keep 臂前提），实际 {}",
++        execution.argv_len
++    );
++    assert_eq!(
++        execution.argv_note, None,
++        "Keep 臂零降级注（argv_note 三态之一）"
++    );
++    assert_eq!(execution.exit_code, 0, "退出码透传");
++    assert!(
++        execution.error.is_none(),
++        "绿面零 error: {:?}",
++        execution.error
++    );
++    assert!(execution.fault.is_none(), "绿面零 fault");
++    assert_eq!(execution.cases.len(), 5, "既有工件解析面零变化（五用例行）");
++    assert!(execution.measured.is_some(), "覆盖实测块照常解析");
++}
++
++/// 正向 / 边界（`argv_note` 第三态）：fault 早返（取消臂，进程未拉起）→
++/// `argv_note == None` 且 `argv_len` 仍为展开长度（长度可回查）。
++#[tokio::test]
++async fn 执行臂_取消臂零降级注且长度可回查() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let template = if cfg!(windows) {
++        "cmd /C echo ran".to_owned()
++    } else {
++        "sh -c 'echo ran'".to_owned()
++    };
++    let plan = node_test_plan(&cwd, template);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let cancel = CancelFlag::never();
++    cancel.handle().set();
++    let execution = execute_plan(&plan, &report_dir, cancel)
++        .await
++        .expect("取消不 Err（产出携 fault）");
++
++    assert_eq!(execution.fault, Some(RunFault::Stopped), "取消 → fault");
++    assert_eq!(
++        execution.argv_note, None,
++        "fault 早返面零降级注（argv_note 三态：Keep / fault → None，Omit → Some）"
++    );
++    assert_eq!(
++        execution.argv_len,
++        expanded_for(&plan, &report_dir).chars().count(),
++        "fault 早返亦留展开长度（头可回查）"
++    );
++}
++
++/// PATH 前置窗口（RAII：drop 还原原 PATH——裸名程序经 cmd 的 PATH 解析命中
++/// cwd 内替身；须与 `env_window` 的进程环境锁配合使用）。
++#[cfg(windows)]
++struct PathPrefix(Option<std::ffi::OsString>);
++
++#[cfg(windows)]
++impl PathPrefix {
++    fn prepend(dir: &std::path::Path) -> Self {
++        let original = std::env::var_os("PATH");
++        let joined = std::env::join_paths(
++            std::iter::once(dir.to_path_buf())
++                .chain(std::env::split_paths(&original.clone().unwrap_or_default())),
++        )
++        .expect("join PATH");
++        std::env::set_var("PATH", joined);
++        Self(original)
++    }
++}
++
++#[cfg(windows)]
++impl Drop for PathPrefix {
++    fn drop(&mut self) {
++        match &self.0 {
++            Some(value) => std::env::set_var("PATH", value),
++            None => std::env::remove_var("PATH"),
++        }
++    }
++}
++
++/// 降级臂替身（Windows）：cwd 内 `.cmd` 程序（裸名 `argvshim`，经 PATH 前置
++/// 命中），逐字节记录 argv（日志路径经环境变量注入——命令串内引号形态零转义
++/// 风险）后恒零退出。返回模板前缀（填充段长度按预算差值取）。
++#[cfg(windows)]
++fn install_argv_shim(
++    cwd: &std::path::Path,
++    argv_log: &std::path::Path,
++    spec_src: &std::path::Path,
++    results_dest: &std::path::Path,
++) -> String {
++    std::fs::write(
++        cwd.join("argvshim.cmd"),
++        "@echo off\r\n\
++         if defined ARGV_SHIM_LOG echo %* > \"%ARGV_SHIM_LOG%\"\r\n\
++         if defined ARGV_SHIM_RESULTS copy /y \"%ARGV_SHIM_SPEC%\" \"%ARGV_SHIM_RESULTS%\" >nul\r\n\
++         echo shim-ran\r\n\
++         exit /b 0\r\n",
++    )
++    .expect("写 argvshim.cmd 失败");
++    std::env::set_var("ARGV_SHIM_LOG", argv_log.as_os_str());
++    std::env::set_var("ARGV_SHIM_SPEC", spec_src.as_os_str());
++    std::env::set_var("ARGV_SHIM_RESULTS", results_dest.as_os_str());
++    // 模板前缀（无引号填充段——`echo %*` 记录面不被引号配对吞掉重定向）
++    "argvshim --filler ".to_owned()
++}
++
++/// 正向（`Omit` 臂，AC-3）：超预算 + `omit_files_safe == true` → 省略 `{files}`
++/// 后执行成功——`exit_code == 0`、`error == None`、`argv_note` 为
++/// `argv_degrade_note` 同串、`argv_len` 仍为 `WithFiles` 展开长度、替身 argv
++/// 记录不含文件清单（命令确已降级）。
++#[cfg(windows)]
++#[tokio::test]
++async fn 执行臂_超预算可降级则省略files执行成功() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let argv_log = ws.path().join("argv-shim.log");
++    let spec_src = preset(ws.path(), "argv-omit-preset.txt", SPEC_OUTPUT);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++    let prefix = install_argv_shim(&cwd, &argv_log, &spec_src, &report_dir.join("results.txt"));
++    let _path = PathPrefix::prepend(&cwd);
++
++    // 降级后长度恰 7000（== 预算，边界有效）：填充 = 预算 - 前缀长度
++    let pad = "x".repeat(7000 - prefix.chars().count());
++    let template = format!("{prefix}{pad} {{files}}");
++    let plan = node_test_plan(&cwd, template);
++    assert_eq!(
++        omitted_for(&plan, &report_dir).chars().count(),
++        7000,
++        "降级后长度恰等预算（Omit 有效性边界）"
++    );
++
++    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
++        .await
++        .expect("降级臂应正常执行（不 Err）");
++    for key in ["ARGV_SHIM_LOG", "ARGV_SHIM_SPEC", "ARGV_SHIM_RESULTS"] {
++        std::env::remove_var(key);
++    }
++
++    let expanded = expanded_for(&plan, &report_dir);
++    assert!(
++        expanded.chars().count() > 7000,
++        "WithFiles 展开超预算（{} 字符）",
++        expanded.chars().count()
++    );
++    assert_eq!(
++        execution.exit_code,
++        0,
++        "降级后命令执行成功（退出码透传）：fault={:?} error={:?} output={:?}",
++        execution.fault,
++        execution.error,
++        String::from_utf8_lossy(&execution.output)
++    );
++    assert!(
++        execution.error.is_none(),
++        "降级面零 error（降级不是失败）: {:?}",
++        execution.error
++    );
++    assert!(execution.fault.is_none(), "降级面零 fault");
++    assert_eq!(
++        execution.argv_len,
++        expanded.chars().count(),
++        "argv_len 仍为 WithFiles 展开长度（原始长度可回查）"
++    );
++    assert_eq!(
++        execution.argv_note,
++        Some(crate::environment::argv_degrade_note(
++            7000,
++            expanded.chars().count(),
++            plan.files.len()
++        )),
++        "argv_note 与 argv_degrade_note 同串（单点装配）"
++    );
++
++    let recorded = std::fs::read_to_string(&argv_log).expect("替身 argv 记录落盘");
++    assert!(
++        !recorded.contains("test.mjs"),
++        "降级后命令不含文件清单（实参: {recorded}）"
++    );
++    assert!(
++        recorded.contains("--filler"),
++        "命令确已执行（替身记录在案）: {recorded}"
++    );
++    assert!(
++        !recorded.contains("{files}"),
++        "零占位符残留（展开完备）: {recorded}"
++    );
++}
++
++/// 异常（`Reject` 臂，AC-4）：超预算 + `omit_files_safe == false` → 环境面归因
++/// 早返、零 spawn——`fault == Some(Environment(..))`、`error == None`、
++/// `exit_code == EXIT_CODE_NO_STATUS`、载荷全空、`argv_note == None`、报告目录
++/// 无 summary；**零 spawn 双证据** = ①程序名故意不可达仍返回 `Ok`（裁决先于
++/// `ensure_program_resolvable` 与 spawn）②替身 marker 不存在。
++#[cfg(windows)]
++#[tokio::test]
++async fn 执行臂_超预算不可降级则环境归因零spawn() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let marker = ws.path().join("argv-reject-marker.log");
++    // 替身在场（若被拉起即写 marker）——但模板程序名故意拼错，故不可达
++    std::fs::write(
++        cwd.join("argv-reject-shim.cmd"),
++        "@echo off\r\necho ran > \"%ARGV_REJECT_MARKER%\"\r\nexit /b 0\r\n",
++    )
++    .expect("写 argv-reject-shim.cmd 失败");
++    std::env::set_var("ARGV_REJECT_MARKER", marker.as_os_str());
++
++    let _path = PathPrefix::prepend(&cwd);
++    let pad = "x".repeat(7500);
++    let template = format!("argv-reject-shim-typo --filler \"{pad}\" {{files}}");
++    let mut plan = node_test_plan(&cwd, template);
++    plan.omit_files_safe = false;
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
++        .await
++        .expect("拒绝降级不 Err（产出携 fault）");
++    std::env::remove_var("ARGV_REJECT_MARKER");
++
++    let Some(RunFault::Environment(message)) = execution.fault.clone() else {
++        panic!("拒绝臂 → fault = Environment，实际: {:?}", execution.fault);
++    };
++    let expanded_len = expanded_for(&plan, &report_dir).chars().count();
++    assert!(
++        message.contains("命令行长度超平台上限"),
++        "文案定性起手: {message}"
++    );
++    assert!(
++        message.contains(&format!("展开 {expanded_len} 字符")),
++        "文案载展开长度（{expanded_len}）: {message}"
++    );
++    assert!(
++        message.contains("收窄") && message.contains("拆分 suite"),
++        "文案载动作建议: {message}"
++    );
++    assert_eq!(execution.error, None, "环境面不走 error（MUST NOT 假失败）");
++    assert_eq!(
++        execution.exit_code, EXIT_CODE_NO_STATUS,
++        "进程未拉起 → 无退出码哨兵"
++    );
++    assert!(
++        execution.cases.is_empty()
++            && execution.source_files.is_empty()
++            && execution.measured.is_none(),
++        "载荷全空（跳过工件解析）"
++    );
++    assert_eq!(execution.argv_note, None, "拒绝臂零降级注");
++    assert_eq!(
++        execution.argv_len, expanded_len,
++        "拒绝臂亦留展开长度（记录头可回查）"
++    );
++    assert!(
++        !report_dir.join("summary.json").exists(),
++        "拒绝臂不写 summary"
++    );
++    assert!(!marker.exists(), "零 spawn（替身 marker 未落）");
++    // 证据一：程序名不可达却返回 Ok（裁决先于可达性检查与 spawn）
++    assert!(
++        !cwd.join("argv-reject-shim-typo.cmd").exists(),
++        "模板程序名确实不可达（若裁决靠后则 ensure_program_resolvable 会 Err）"
++    );
++}
++
++/// 异常（`Reject` 第二出口，AC-5）：超预算 + 可安全降级 + `OmitFiles` 展开后仍
++/// 超预算 → 与不安全臂**同一出口**（环境面归因、零 spawn），文案同时载原始长度
++/// 与降级后长度。
++#[cfg(windows)]
++#[tokio::test]
++async fn 执行臂_降级后仍超预算与不可降级同出口() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    // 降级后长度仍 7100（> 7000）：填充 = 7100 - 前缀长度
++    let pad = "x".repeat(7100 - "argvshim --filler ".chars().count());
++    let template = format!("argvshim --filler {pad} {{files}}");
++    let plan = node_test_plan(&cwd, template);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let omitted_len = omitted_for(&plan, &report_dir).chars().count();
++    assert_eq!(omitted_len, 7100, "降级后仍超预算（构造）");
++
++    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
++        .await
++        .expect("降级无效不 Err（产出携 fault）");
++
++    let Some(RunFault::Environment(message)) = execution.fault.clone() else {
++        panic!(
++            "降级无效 → fault = Environment（与不可降级同出口），实际: {:?}",
++            execution.fault
++        );
++    };
++    let expanded_len = expanded_for(&plan, &report_dir).chars().count();
++    assert!(
++        expanded_len > omitted_len,
++        "原始长度（{expanded_len}）> 降级后长度（{omitted_len}）"
++    );
++    assert!(
++        message.contains(&format!("展开 {expanded_len} 字符")),
++        "文案载原始长度（{expanded_len}）: {message}"
++    );
++    assert!(
++        message.contains(&format!("降级为框架自发现后仍为 {omitted_len} 字符")),
++        "文案载降级后长度（{omitted_len}）: {message}"
++    );
++    assert_eq!(execution.error, None, "环境面不走 error");
++    assert_eq!(
++        execution.exit_code, EXIT_CODE_NO_STATUS,
++        "零 spawn → 无退出码哨兵"
++    );
++    assert_eq!(execution.argv_note, None, "拒绝臂零降级注");
++    assert!(
++        !report_dir.join("summary.json").exists(),
++        "拒绝臂不写 summary"
++    );
++}
++
++/// 正向（非 Windows 臂，零降级语义）：`line_budget() == None` → 展开超 7000
++/// 字符仍原样执行——`fault == None`、`argv_note == None`、命令含文件清单。
++#[cfg(not(windows))]
++#[tokio::test]
++async fn 执行臂_unix无预算超预算原样执行() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let pad = "y".repeat(7500);
++    // `printf '%s\n' "<pad>" {files}`：首行填充、次行文件清单（命令确含清单）
++    let template = format!("printf '%s\n' \"{pad}\" {{files}}");
++    let plan = node_test_plan(&cwd, template);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let expanded = expanded_for(&plan, &report_dir);
++    assert!(
++        expanded.chars().count() > 7000,
++        "展开超平台预算（{} 字符）",
++        expanded.chars().count()
++    );
++
++    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
++        .await
++        .expect("unix 无预算 → 原样执行（不 Err）");
++
++    assert!(
++        execution.fault.is_none(),
++        "unix 臂零 fault（不引入第二套降级语义）: {:?}",
++        execution.fault
++    );
++    assert_eq!(execution.argv_note, None, "unix 臂零降级注");
++    assert_eq!(
++        execution.argv_len,
++        expanded.chars().count(),
++        "argv_len 与展开口径一致"
++    );
++    let output = String::from_utf8_lossy(&execution.output).into_owned();
++    assert!(
++        output.contains("src/add.test.mjs"),
++        "命令原样携带文件清单（未降级）: 尾部 {:?}",
++        &output[output.len().saturating_sub(40)..]
++    );
++}
++
++/// 边界（表驱动两形态）：`PlanExecution::argv_len` 口径为 `chars().count()`
++/// ——多字节路径展开 → 等于字符数而非字节数；`files` 空 + 模板静态填充 → 等于
++/// 模板展开字符数。
++#[tokio::test]
++async fn 执行臂_argv_len口径为字符数() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let spec_src = preset(ws.path(), "argv-len-preset.txt", SPEC_OUTPUT);
++
++    // 形态一：报告目录含中文（多字节路径进入展开串）
++    let report_dir = ws.path().join("reports").join("中文计划");
++    let template = if cfg!(windows) {
++        format!(
++            "cmd /C type {} > {{results_file}}",
++            spec_src.to_string_lossy().replace('/', "\\")
++        )
++    } else {
++        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
++    };
++    let plan = node_test_plan(&cwd, template);
++    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
++        .await
++        .expect("多字节路径绿跑应 Ok");
++    let expanded = expanded_for(&plan, &report_dir);
++    assert_eq!(
++        execution.argv_len,
++        expanded.chars().count(),
++        "argv_len 取字符数"
++    );
++    assert!(
++        expanded.len() > expanded.chars().count(),
++        "字节数（{}）> 字符数（{}）——多字节路径确实在场",
++        expanded.len(),
++        expanded.chars().count()
++    );
++    assert!(
++        execution.error.is_none(),
++        "多字节报告路径工件落位零错误: {:?}",
++        execution.error
++    );
++
++    // 形态二：`files` 空 + 模板静态填充 → argv_len == 模板展开字符数
++    let static_report_dir = ws.path().join("reports").join("rust-static");
++    let static_template = if cfg!(windows) {
++        format!(
++            "cmd /C type {} > {{results_file}}",
++            spec_src.to_string_lossy().replace('/', "\\")
++        )
++    } else {
++        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
++    };
++    let rust = rust_plan(&cwd, static_template);
++    let execution = execute_plan(&rust, &static_report_dir, CancelFlag::never())
++        .await
++        .expect("空清单档绿跑应 Ok");
++    let expanded = expanded_for(&rust, &static_report_dir);
++    assert_eq!(
++        execution.argv_len,
++        expanded.chars().count(),
++        "空清单 + 静态填充：argv_len == 模板展开字符数"
++    );
++    assert!(
++        !expanded.contains("test.mjs"),
++        "空清单档展开串不含文件清单: {expanded}"
++    );
++}

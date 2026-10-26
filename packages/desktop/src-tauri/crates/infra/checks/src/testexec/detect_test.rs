@@ -1216,3 +1216,342 @@ fn 复用门扫描名单与foundation名单独立集() {
     assert_eq!(pruned.len(), 6);
     assert_eq!(reuse_scan.len(), 6);
 }
+
+// ---------------------------------------------------------------------------
+// 降级安全判据（`TestPlan.omit_files_safe`——detect 期一次算定的对照枚举，
+// D7 / AC-3 / AC-4；Mock策略：不 mock——「同一管线枚举」正是被测语义，mock 会
+// 抹掉判据，故全部用例走 `TempWs` 真实 tempdir 树 + 真实 glob + 真实剪枝名单）
+// ---------------------------------------------------------------------------
+
+/// 对照面样本树：缺省 glob 两形态命中 + 依赖目录剪枝 + dot 目录剪枝 + 非测试
+/// 文件（对照集合与 `files` 集合的唯一差异来源是 `excludes`，故本树不含 excludes
+/// 命中面）。
+fn omit_tree(ws: &TempWs) {
+    ws.write("app/src/a.test.ts", "test");
+    ws.write("app/src/b.spec.tsx", "test");
+    ws.write("app/src/notes.md", "not a test");
+    ws.write("app/node_modules/pkg/x.test.ts", "依赖目录剪枝面");
+    ws.write("app/.cache/hidden.test.ts", "dot 目录剪枝面");
+}
+
+/// 正向：`includes` 未设（吃注册表 `default_glob`）→ 对照集合 == `files` 集合
+/// → `omit_files_safe == true`；树内 `node_modules` / `.cache` 剪枝目录两侧同剪
+/// （列入对照面不产生差异）。
+#[tokio::test]
+async fn 降级安全判据_缺省glob同管线枚举为可降级() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("omit-default");
+    omit_tree(&ws);
+
+    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
+    let plans = detect_plans(ws.root(), &suites).expect("缺省 glob 探测应成功");
+
+    assert_eq!(plans.len(), 1, "单 suite 单 plan");
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts", "src/b.spec.tsx"],
+        "缺省 glob 命中 .test / .spec 两形态；剪枝目录不入清单"
+    );
+    assert!(
+        plans[0].omit_files_safe,
+        "两侧同管线（同 glob 方言 + 同剪枝）且无 excludes → 集合相等 → 可安全降级"
+    );
+}
+
+/// 正向：`includes` 显式写成与 `default_glob` 等价的同一花括号串
+/// （`**/*.{test,spec}.{ts,tsx}`）→ 集合相等 → `true`（显式声明不改变判据
+/// ——判据比的是集合而非配置形态）。
+#[tokio::test]
+async fn 降级安全判据_显式等价includes仍可降级() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("omit-explicit");
+    omit_tree(&ws);
+
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        Some(vec![TS_TESTS_GLOB.to_owned()]),
+        None,
+        None,
+    )];
+    let plans = detect_plans(ws.root(), &suites).expect("显式 includes 探测应成功");
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts", "src/b.spec.tsx"],
+        "显式花括号 includes 命中同一批文件"
+    );
+    assert!(
+        plans[0].omit_files_safe,
+        "显式 includes 与 default_glob 集合相等 → 仍可安全降级"
+    );
+}
+
+/// 异常：`includes` 为**真子集**（仅 `**/*.test.ts`，同目录另有 `src/b.spec.tsx`
+/// 命中 `default_glob`）→ 集合不等 → `false`（保守方向：降级会少跑文件，故拒）
+#[tokio::test]
+async fn 降级安全判据_includes真子集拒降级() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("omit-subset");
+    omit_tree(&ws);
+
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        Some(vec!["**/*.test.ts".to_owned()]),
+        None,
+        None,
+    )];
+    let plans = detect_plans(ws.root(), &suites).expect("子集 includes 探测应成功");
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts"],
+        "发现面仅 .test.ts（真子集）"
+    );
+    assert!(
+        !plans[0].omit_files_safe,
+        "对照面（default_glob）仍含 src/b.spec.tsx → 集合不等 → 拒降级"
+    );
+}
+
+/// 异常：`includes` 等价但 `excludes` **实际剔除**一个文件 → `files` 少一项、
+/// 对照面（**不施加 excludes**）仍含该文件 → `false`。
+#[tokio::test]
+async fn 降级安全判据_excludes实际剔除拒降级() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("omit-excluded");
+    omit_tree(&ws);
+
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        Some(vec![TS_TESTS_GLOB.to_owned()]),
+        Some(vec!["**/*.spec.tsx".to_owned()]),
+        None,
+    )];
+    let plans = detect_plans(ws.root(), &suites).expect("excludes 探测应成功");
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts"],
+        "发现面施加 excludes：b.spec.tsx 被剔除"
+    );
+    assert!(
+        !plans[0].omit_files_safe,
+        "对照面 MUST NOT 施加 excludes（仍含 b.spec.tsx）→ 集合不等 → 拒降级"
+    );
+}
+
+/// 边界：`excludes` 已声明但**零剔除** → 集合仍相等 → `true`（「excludes 在位」
+/// 不等于「必然不安全」——判据是集合 equality，不是配置存在性）。
+#[tokio::test]
+async fn 降级安全判据_excludes零剔除仍可降级() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("omit-excludes-noop");
+    omit_tree(&ws);
+
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        None,
+        Some(vec!["src/**/*.nope.ts".to_owned()]),
+        None,
+    )];
+    let plans = detect_plans(ws.root(), &suites).expect("零剔除 excludes 探测应成功");
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts", "src/b.spec.tsx"],
+        "零剔除 excludes 不改清单"
+    );
+    assert!(
+        plans[0].omit_files_safe,
+        "excludes 在位但零剔除 → 集合仍相等 → 可安全降级"
+    );
+}
+
+/// 边界（表驱动两形态）：清单规模——1 个文件 / 200 个文件 → 均 `true`
+/// （两侧 `BTreeSet` 序导出后逐项比较，规模不影响判据）。
+#[tokio::test]
+async fn 降级安全判据_清单规模不影响() {
+    let _window = PathWindow::enter();
+
+    // 形态一：单文件
+    let single = TempWs::new("omit-size-one");
+    single.write("app/src/only.test.ts", "test");
+    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
+    let plans = detect_plans(single.root(), &suites).expect("单文件探测应成功");
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].files.len(), 1, "单文件清单");
+    assert!(plans[0].omit_files_safe, "单文件两侧集合相等 → 可降级");
+
+    // 形态二：200 文件（字典序稳定、逐项等值）
+    let bulk = TempWs::new("omit-size-bulk");
+    for index in 0..200 {
+        bulk.write(&format!("app/src/case{index:03}.test.ts"), "test");
+    }
+    let mut ordered: Vec<String> = (0..200)
+        .map(|index| format!("src/case{index:03}.test.ts"))
+        .collect();
+    ordered.sort();
+    let plans = detect_plans(bulk.root(), &suites).expect("大清单探测应成功");
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].files, ordered, "200 项全量（BTreeSet 字典序）");
+    assert!(plans[0].omit_files_safe, "大清单两侧集合相等 → 可降级");
+}
+
+/// 边界：`includes` 零命中（`files == []`）→ 沿既有早跳**不产 plan**（无
+/// `omit_files_safe` 面、零 panic；对照枚举不执行）。
+#[tokio::test]
+async fn 降级安全判据_零命中早跳不产plan() {
+    let _window = PathWindow::enter();
+
+    // 形态一：显式 includes 零命中（树内有测试文件但都不匹配）
+    let ws = TempWs::new("omit-zero-hit");
+    omit_tree(&ws);
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        Some(vec!["**/*.nope".to_owned()]),
+        None,
+        None,
+    )];
+    let plans = detect_plans(ws.root(), &suites).expect("零命中应 Ok（空清单面）");
+    assert!(
+        plans.is_empty(),
+        "显式 includes 零命中 → files 空 → 早跳不产 plan（无 omit_files_safe 面）"
+    );
+
+    // 形态二：default_glob 零命中（树内无任何测试扩展文件）
+    let bare = TempWs::new("omit-zero-hit-default");
+    bare.write("app/src/notes.md", "not a test");
+    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
+    let plans = detect_plans(bare.root(), &suites).expect("default_glob 零命中应 Ok");
+    assert!(
+        plans.is_empty(),
+        "default_glob 零命中 → 同样不产 plan（零 panic、零对照枚举）"
+    );
+}
+
+/// 边界（组合面）：花括号多形态 + dot 目录剪枝 + 依赖目录剪枝 + 项目根相对
+/// 口径全部在场 → 对照集合与 `files` 同源（零新 glob 方言、零新剪枝）。
+#[tokio::test]
+async fn 降级安全判据_花括号与剪枝组合同源() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("omit-combined");
+    ws.write("app/src/a.test.js", "test");
+    ws.write("app/src/b.spec.jsx", "test");
+    ws.write("app/src/deep/c.test.ts", "test");
+    ws.write("app/src/deep/d.spec.tsx", "test");
+    ws.write("app/.cache/hidden.test.ts", "dot 目录剪枝面");
+    ws.write("app/node_modules/pkg/dep.spec.js", "依赖目录剪枝面");
+    ws.write("app/dist/built.test.js", "工具产物目录剪枝面");
+    ws.write("app/src/e.helper.js", "非测试扩展");
+
+    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
+    let plans = detect_plans(ws.root(), &suites).expect("组合面探测应成功");
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].files,
+        vec![
+            "src/a.test.js",
+            "src/b.spec.jsx",
+            "src/deep/c.test.ts",
+            "src/deep/d.spec.tsx",
+        ],
+        "四扩展 × 两形态 × 多层目录全命中；dot / 依赖 / 产物目录三面全剪"
+    );
+    assert!(
+        plans[0].omit_files_safe,
+        "对照面同源（同花括号展开 + 同剪枝）→ 集合相等 → 可降级"
+    );
+}
+
+/// 正向（`collect_files` 的 `apply_excludes` 两态，经 `detect_plans` 观测）：
+/// 同一树上 excludes 命中的文件在发现面（`apply_excludes = true`）被剔除、在
+/// 对照面（`apply_excludes = false`）仍在案——两态共用同一 glob 方言与剪枝，
+/// 差异只由末位开关产生（构成「excludes 实际剔除 → 拒降级」的差异来源）。
+#[tokio::test]
+async fn 收集主体_excludes开关两态同源() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("collect-switch");
+    ws.write("app/src/a.test.ts", "test");
+    ws.write("app/src/legacy.test.ts", "excludes 命中面");
+
+    // 两 suite 仅 excludes 一位不同（root / framework / includes 全同）
+    let suites = vec![
+        suite("app", TestFramework::VitePlus, None, None, None),
+        suite(
+            "app",
+            TestFramework::VitePlus,
+            None,
+            Some(vec!["src/legacy.test.ts".to_owned()]),
+            None,
+        ),
+    ];
+    let plans = detect_plans(ws.root(), &suites).expect("两位差异 suite 探测应成功");
+    assert_eq!(plans.len(), 2, "两 suite 各产 plan");
+
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts", "src/legacy.test.ts"],
+        "无 excludes 臂：清单含 legacy（对照面同源口径）"
+    );
+    assert!(
+        plans[0].omit_files_safe,
+        "无 excludes → 两侧集合相等 → 可降级"
+    );
+
+    assert_eq!(
+        plans[1].files,
+        vec!["src/a.test.ts"],
+        "apply_excludes = true 臂：legacy 被剔除"
+    );
+    assert!(
+        !plans[1].omit_files_safe,
+        "apply_excludes = false 臂仍含 legacy → 集合不等 → 拒降级"
+    );
+}
+
+/// 异常（表驱动 3 形态）：非法 includes glob → 显式 `Err` 沿既有文案
+/// 「…includes glob 非法…」（不 panic；发现面与对照面经同一 `collect_files`
+/// 单点，故同文案同出口）。
+#[tokio::test]
+async fn 非法includes_glob显式err不panic() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("omit-bad-glob");
+    omit_tree(&ws);
+
+    for (label, pattern) in [
+        ("未闭合字符类", "**/*.test.ts["),
+        ("非法字符类", "**/[!a.test.ts"),
+        (
+            "花括号展开超限",
+            "{a,b,c,d,e,f,g,h}{a,b,c,d,e,f,g,h}{a,b,c,d,e,f,g,h}{a,b,c,d,e,f,g,h}",
+        ),
+    ] {
+        let suites = vec![suite(
+            "app",
+            TestFramework::VitePlus,
+            Some(vec![pattern.to_owned()]),
+            None,
+            None,
+        )];
+        let err = detect_plans(ws.root(), &suites)
+            .expect_err(&format!("{label}: 非法 glob 应显式 Err（不 panic）"));
+        assert!(
+            err.contains("includes glob 非法"),
+            "{label}: 沿既有文案（实际: {err}）"
+        );
+        assert!(
+            err.contains("suite root \"app\""),
+            "{label}: Err 记因 suite root（实际: {err}）"
+        );
+    }
+}

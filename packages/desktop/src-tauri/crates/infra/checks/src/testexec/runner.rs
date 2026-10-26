@@ -20,6 +20,28 @@ pub(crate) const SUITE_COMMAND_TIMEOUT: Duration = Duration::from_secs(1200);
 /// 框架版本探测超时（CLI `timeout: 30_000` 同值）。
 pub(crate) const VERSION_DETECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Windows 命令行长度预算（字符口径，`chars().count()`）：`cmd.exe` 硬上限 8191
+/// − 1191 余量 = `cmd /C ` 前缀 + `raw_arg` 转引后的实际线长放大 + 不同 Windows
+/// 版本的细微差异（实测脚本 8000 / 8150 通过、8200 拒绝）。与
+/// [`SUITE_COMMAND_TIMEOUT`]（同文件）/ `TESTEXEC_TOTAL_BUDGET`（`mod.rs`）同
+/// 性质的**代码常量**，MUST NOT 进 config schema；suite 文件数增长时复核本值。
+#[cfg(windows)]
+const CMD_LINE_BUDGET: usize = 7000;
+
+/// 平台命令行长度预算取臂（`None` = 无预算）。unix `ARG_MAX` 为 2 MB 量级，
+/// MUST NOT 为它引入第二套降级语义（命中仍是有界显式失败，不是假绿）。裁决
+/// 逻辑全部经预算入参流转（`decide_argv`），故本平台分叉只此一处。
+fn line_budget() -> Option<usize> {
+    #[cfg(windows)]
+    {
+        Some(CMD_LINE_BUDGET)
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 /// 退出码不可用时的哨兵值：进程无退出码（Unix 信号终止——Windows
 /// `ExitStatus::code()` 恒 `Some`）与 suite 命令超时强杀同记 `-1`；非零 →
 /// `error` 面显式失败，MUST NOT 回落 `0`（吞成假绿）。
@@ -52,10 +74,23 @@ pub(crate) struct PlanExecution {
     pub output: Vec<u8>,
     /// 执行面归因（`None` = 结论本身有效；在位时跳过工件解析、`error` 恒 `None`）
     pub fault: Option<RunFault>,
+    /// `WithFiles` 展开后的命令串字符数（预算裁决的判定对象；供 `mod.rs` 装配
+    /// 记录 plan 头的 `argv=` 字段——被拒绝 / 超时 / 取消的 plan 也可回查）
+    pub argv_len: usize,
+    /// `{files}` 省略降级说明（`environment::argv_degrade_note` 单点装配；未降级
+    /// 为 `None`）；只进输出记录的 plan 头 `[argv]` 行，**MUST NOT** 进
+    /// `SubReport.findings` / `summary.findings`（`findings` 非空 + `failed == 0`
+    /// 会被 `collect_problems` 判成 `execution_error`，绿跑翻红）
+    pub argv_note: Option<String>,
 }
 
-/// 单 suite 执行全流程：清报告目录 → 模板展开 → 程序解析前置 → spawn
-///（超时 + 瞬态重试 + 捕获）→ 执行面归因（fault 在位即早返）→ 工件解析。
+/// 单 suite 执行全流程：清报告目录 → 模板展开（`WithFiles`）→ **展开长度预算
+/// 裁决**（`Keep` / `Omit` / `Reject`）→ 程序可达性 → spawn（超时 + 瞬态重试 +
+/// 捕获）→ 执行面归因（fault 在位即早返）→ 工件解析。
+///
+/// 拒绝降级（不可安全降级 / 降级后仍超预算）= 环境面归因（`fault =
+/// Some(RunFault::Environment(..))`、零 spawn、零工件解析），MUST NOT 返回 `Err`、
+/// MUST NOT 落 `execution_error`（命令行超限不是被测代码问题）。
 pub(crate) async fn execute_plan(
     plan: &TestPlan,
     report_dir: &Path,
@@ -81,14 +116,46 @@ pub(crate) async fn execute_plan(
     // 模板展开（平台选臂：Windows cmd 模板 + cmd /C，其余 shell 模板 +
     // sh -c——static_check shell spawn 同口径）；展开后零改写（结果重定向
     // 已进 rust 模板，不做任何后置拼装）
-    let command = expand_template(
+    let expanded = expand_template(
         plan.template(),
         &report_dir_posix,
         &results_file_posix,
         &coverage_file_posix,
         plan.config_args.as_deref(),
         &plan.files,
+        ExpandMode::WithFiles,
     );
+
+    // 展开长度预算裁决（在程序可达性检查之前 —— 长度是模板属性、可达性是环境
+    // 属性）：未超预算原样执行（串逐字符同改造前）；超预算且可安全降级则省略
+    // `{files}` 交框架自发现；不可降级 / 降级后仍超预算 → 环境面归因、零 spawn
+    let argv_len = expanded.chars().count();
+    let (command, argv_note) = match decide_argv(
+        plan,
+        &report_dir_posix,
+        &results_file_posix,
+        &coverage_file_posix,
+        &expanded,
+        line_budget(),
+    ) {
+        ArgvDecision::Keep { command } => (command, None),
+        ArgvDecision::Omit { command, note } => (command, Some(note)),
+        ArgvDecision::Reject { message } => {
+            return Ok(PlanExecution {
+                // 进程未拉起：取「无退出码」哨兵（fault 面下该值不进结论）
+                exit_code: EXIT_CODE_NO_STATUS,
+                duration_ms: started.elapsed().as_millis() as f64,
+                cases: Vec::new(),
+                source_files: Vec::new(),
+                measured: None,
+                error: None,
+                output: Vec::new(),
+                fault: Some(RunFault::Environment(message)),
+                argv_len,
+                argv_note: None,
+            });
+        }
+    };
 
     // 程序解析前置检查（spawn cwd = suite cwd 的可达性口径）
     ensure_program_resolvable(&plan.cwd, &command)?;
@@ -145,6 +212,8 @@ pub(crate) async fn execute_plan(
             error: None,
             output,
             fault: Some(fault),
+            argv_len,
+            argv_note: None,
         });
     }
     // 合并流（rust 模板 `cargo llvm-cov --workspace … > "{results_file}"` 仅重定向
@@ -178,6 +247,8 @@ pub(crate) async fn execute_plan(
         error: exec_error.or(parse_error),
         output,
         fault: None,
+        argv_len,
+        argv_note,
     })
 }
 
@@ -190,8 +261,21 @@ fn non_zero_exit_error(exit_code: i32, output: &[u8]) -> String {
     exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
 }
 
+/// `{files}` 占位符的展开两态（预算裁决的展开面）：
+/// - `WithFiles`：现行为逐字不变（`files` 非空 → 空格连接清单；空清单 → 空串）；
+/// - `OmitFiles`：`{files}` 连其前导空白一并剥离（与 `{config_args}` 未注入臂同一
+///   算法）——降级为框架自发现时用。
+///
+/// 其余四占位符两态**逐字同义**；模板不含 `{files}` 时（rust 档）两态输出**逐字
+/// 相同**。
+enum ExpandMode {
+    WithFiles,
+    OmitFiles,
+}
+
 /// 占位符模板展开：`{report_dir}` / `{results_file}` / `{coverage_file}` /
-/// `{config_args}`（未注入时连前导空白一并剥离，CLI 同语义）/ `{files}`。
+/// `{config_args}`（未注入时连前导空白一并剥离，CLI 同语义）/ `{files}`（两态见
+/// [`ExpandMode`]）。
 fn expand_template(
     template: &str,
     report_dir: &str,
@@ -199,6 +283,7 @@ fn expand_template(
     coverage_file: &str,
     config_args: Option<&str>,
     files: &[String],
+    expand_mode: ExpandMode,
 ) -> String {
     let mut result = template.replace("{report_dir}", report_dir);
     result = result.replace("{results_file}", results_file);
@@ -213,10 +298,87 @@ fn expand_template(
             }
         }
     }
-    if files.is_empty() {
-        result.replace("{files}", "")
-    } else {
-        result.replace("{files}", &files.join(" "))
+    match expand_mode {
+        ExpandMode::WithFiles => {
+            if files.is_empty() {
+                result.replace("{files}", "")
+            } else {
+                result.replace("{files}", &files.join(" "))
+            }
+        }
+        // 省略臂复用「占位符失效即连前导空白剥离」的既有算法（不自造第二套）
+        ExpandMode::OmitFiles => {
+            while let Some(index) = result.find("{files}") {
+                let before = result[..index].trim_end();
+                let after = &result[index + "{files}".len()..];
+                result = format!("{before}{after}");
+            }
+            result
+        }
+    }
+}
+
+/// 命令行预算裁决的纯数据产物（本模块私有，边界不越出 `execute_plan`）：
+/// - `Keep`：原样执行（`command` 即入参展开串本身，**零二次展开**）；
+/// - `Omit`：`OmitFiles` 重新展开后执行 + 降级说明留痕；
+/// - `Reject`：环境面归因（不 spawn），`message` 为 `RunFault::Environment` 摘要。
+enum ArgvDecision {
+    Keep { command: String },
+    Omit { command: String, note: String },
+    Reject { message: String },
+}
+
+/// 展开长度预算裁决（纯函数：零 IO / 零 spawn / 零 async，预算与展开串全作入参
+/// ——全平台可测）。臂序固定「先短路、后降级」：
+/// ① 无预算（unix 语义）→ `Keep`；② 未超预算 → `Keep`（**原串回填**，保证命令与
+/// 改造前逐字符一致）；③ 不可安全降级 → `Reject`（文案不带「降级后仍超」噪声）；
+/// ④ `OmitFiles` 重新展开后仍超预算 → `Reject`（降级无效，文案载两次长度）；
+/// ⑤ 否则 `Omit`。
+///
+/// 文案全部经 `crate::environment` 单点（本文件零文案字面量）。
+fn decide_argv(
+    plan: &TestPlan,
+    report_dir: &str,
+    results_file: &str,
+    coverage_file: &str,
+    expanded: &str,
+    budget: Option<usize>,
+) -> ArgvDecision {
+    let Some(budget) = budget else {
+        return ArgvDecision::Keep {
+            command: expanded.to_owned(),
+        };
+    };
+    let expanded_len = expanded.chars().count();
+    if expanded_len <= budget {
+        return ArgvDecision::Keep {
+            command: expanded.to_owned(),
+        };
+    }
+    let files = plan.files.len();
+    if !plan.omit_files_safe {
+        return ArgvDecision::Reject {
+            message: environment::argv_budget_text(budget, expanded_len, None, files),
+        };
+    }
+    let omitted = expand_template(
+        plan.template(),
+        report_dir,
+        results_file,
+        coverage_file,
+        plan.config_args.as_deref(),
+        &plan.files,
+        ExpandMode::OmitFiles,
+    );
+    let omitted_len = omitted.chars().count();
+    if omitted_len > budget {
+        return ArgvDecision::Reject {
+            message: environment::argv_budget_text(budget, expanded_len, Some(omitted_len), files),
+        };
+    }
+    ArgvDecision::Omit {
+        command: omitted,
+        note: environment::argv_degrade_note(budget, expanded_len, files),
     }
 }
 

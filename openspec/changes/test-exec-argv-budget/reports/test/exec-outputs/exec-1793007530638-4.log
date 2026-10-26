@@ -1,0 +1,335 @@
+✓ Lockfile passes supply-chain policies (verified 7h ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: -176
+--------------------------------------------------------------------------------
+Progress: resolved 688, reused 688, downloaded 0, added 0, done
+Done in 2.1s using pnpm v12.10.1
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\test-exec-argv-budget\packages\desktop\src-tauri\crates\infra\checks)
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\test-exec-argv-budget\packages\desktop\src-tauri)
+error[E0063]: missing field `omit_files_safe` in initializer of `testexec::detect::TestPlan`
+  --> crates\infra\checks\src\testexec\runner_test.rs:36:5
+   |
+36 |     TestPlan {
+   |     ^^^^^^^^ missing `omit_files_safe`
+
+error[E0063]: missing field `omit_files_safe` in initializer of `testexec::detect::TestPlan`
+  --> crates\infra\checks\src\testexec\runner_test.rs:54:5
+   |
+54 |     TestPlan {
+   |     ^^^^^^^^ missing `omit_files_safe`
+
+error[E0063]: missing field `omit_files_safe` in initializer of `testexec::detect::TestPlan`
+  --> crates\infra\checks\src\testexec\runner_test.rs:72:5
+   |
+72 |     TestPlan {
+   |     ^^^^^^^^ missing `omit_files_safe`
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:185:20
+    |
+185 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+186 | |         template,
+187 | |         "/ws/reports/plan",
+188 | |         "/ws/reports/plan/results.json",
+...   |
+191 | |         &["src/a.test.ts".to_owned(), "src/b.test.ts".to_owned()],
+192 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+185 |     let expanded = expand_template(
+...
+191 |         &["src/a.test.ts".to_owned(), "src/b.test.ts".to_owned()],
+192 ~         /* testexec::runner::ExpandMode */,
+193 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:200:20
+    |
+200 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+201 | |         template,
+202 | |         "/ws/reports/plan",
+203 | |         "/ws/reports/plan/results.json",
+...   |
+206 | |         &[],
+207 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+200 |     let expanded = expand_template(
+...
+206 |         &[],
+207 ~         /* testexec::runner::ExpandMode */,
+208 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:221:20
+    |
+221 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+222 | |         template,
+223 | |         "/ws/reports/crates_rust",
+224 | |         "/ws/reports/crates_rust/results.txt",
+...   |
+227 | |         &["tests/it.rs".to_owned()],
+228 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+221 |     let expanded = expand_template(
+...
+227 |         &["tests/it.rs".to_owned()],
+228 ~         /* testexec::runner::ExpandMode */,
+229 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:251:20
+    |
+251 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+252 | |         "run --files {files}",
+253 | |         "/ws/reports/plan",
+254 | |         "/ws/reports/plan/results.txt",
+...   |
+257 | |         &["tests/it.rs".to_owned()],
+258 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+251 |     let expanded = expand_template(
+...
+257 |         &["tests/it.rs".to_owned()],
+258 ~         /* testexec::runner::ExpandMode */,
+259 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:265:20
+    |
+265 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+266 | |         "run --files {files}",
+267 | |         "/ws/reports/plan",
+268 | |         "/ws/reports/plan/results.txt",
+...   |
+271 | |         &many,
+272 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+265 |     let expanded = expand_template(
+...
+271 |         &many,
+272 ~         /* testexec::runner::ExpandMode */,
+273 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:285:20
+    |
+285 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+286 | |         "{files} | {files} | {results_file} | {results_file}",
+287 | |         "/ws/reports/plan",
+288 | |         "/ws/reports/plan/results.txt",
+...   |
+291 | |         &["a.rs".to_owned(), "b.rs".to_owned()],
+292 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+285 |     let expanded = expand_template(
+...
+291 |         &["a.rs".to_owned(), "b.rs".to_owned()],
+292 ~         /* testexec::runner::ExpandMode */,
+293 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:300:20
+    |
+300 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+301 | |         "run {unknown} {files}",
+302 | |         "/ws/reports/plan",
+303 | |         "/ws/reports/plan/results.txt",
+...   |
+306 | |         &[],
+307 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+300 |     let expanded = expand_template(
+...
+306 |         &[],
+307 ~         /* testexec::runner::ExpandMode */,
+308 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:342:20
+    |
+342 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+343 | |         template,
+344 | |         "/ws/reports/plan",
+345 | |         "/ws/reports/plan/results.txt",
+...   |
+348 | |         &[],
+349 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+342 |     let expanded = expand_template(
+...
+348 |         &[],
+349 ~         /* testexec::runner::ExpandMode */,
+350 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:373:20
+    |
+373 |       let expanded = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+374 | |         &long_template,
+375 | |         "/ws/reports/plan",
+376 | |         "/ws/reports/plan/results.txt",
+...   |
+379 | |         &[],
+380 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+373 |     let expanded = expand_template(
+...
+379 |         &[],
+380 ~         /* testexec::runner::ExpandMode */,
+381 ~     );
+    |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> crates\infra\checks\src\testexec\runner_test.rs:547:20
+    |
+547 |       let expected = expand_template(
+    |  ____________________^^^^^^^^^^^^^^^-
+548 | |         &template,
+549 | |         &to_posix(&report_dir),
+550 | |         &to_posix(&report_dir.join("results.txt")),
+...   |
+553 | |         &[],
+554 | |     );
+    | |_____- argument #7 of type `testexec::runner::ExpandMode` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\testexec\runner.rs:279:4
+    |
+279 | fn expand_template(
+    |    ^^^^^^^^^^^^^^^
+...
+286 |     expand_mode: ExpandMode,
+    |     -----------------------
+help: provide the argument
+    |
+547 |     let expected = expand_template(
+...
+553 |         &[],
+554 ~         /* testexec::runner::ExpandMode */,
+555 ~     );
+    |
+
+Some errors have detailed explanations: E0061, E0063.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `checks-runtime` (lib test) due to 13 previous errors
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

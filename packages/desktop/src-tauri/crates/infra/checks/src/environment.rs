@@ -1,6 +1,6 @@
 //! 检查域环境归因装配单点（static-check 与 test-execution 共用；MUST NOT 两写）。
 //!
-//! 三个职责：
+//! 四个职责：
 //! - [`attempts_log`]：输出记录内容形态——单次尝试**逐字节同现状**（`stdout ++
 //!   stderr`，零分隔头）；发生过重试则各次尝试按序拼接、每段前加分隔头（审计不丢
 //!   上下文）；
@@ -9,7 +9,10 @@
 //!   行 + 末次诊断摘要 + 环境侧处理指引；
 //! - [`progress_line`]：重试进展行（各次尝试的待编译计数序列 + 卡死判定附语）——
 //!   计数口径单点驻 `exec::transient`，本模块**不重算**（只经
-//!   [`exec::progress_series`] / [`exec::is_progress_stalled`] 取数）。
+//!   [`exec::progress_series`] / [`exec::is_progress_stalled`] 取数）；
+//! - [`argv_budget_text`] / [`argv_degrade_note`]：**命令行超平台长度上限**成因两臂
+//!   （拒绝面摘要 / 降级面记录注）——与文件锁 / 超时 / 瞬态耗尽成因不同，MUST NOT
+//!   互相套用文案（误引会让用户去改安全软件配置）。
 //!
 //! exec 层只供事实原料与尝试面字节（MUST NOT 自带业务文案：尝试分隔头 / 归因文案
 //! 归调用方），故重试次数与处置指引的措辞单点驻本模块；本模块为**纯函数**（零 io
@@ -163,6 +166,47 @@ fn progress_line(series: &[u32]) -> Option<String> {
         line.push_str("（末两次无进展，判定为卡死）");
     }
     Some(line)
+}
+
+/// 命令行超平台上限的**拒绝面**摘要（`RunFault::Environment(String)` 的唯一装配点
+/// ——test-execution 展开长度超预算且不可安全降级 / 降级后仍超预算）。
+///
+/// 三项依序：① 定性（harness 限制、**非被测代码问题**——避免把修复引向被测仓库）；
+/// ② 数字（展开长度 / 平台预算 / 测试文件数；`omitted_len` 为 `Some` 时追加「降级
+/// 为框架自发现后仍为 N 字符」，使「降级无效」也能回查两次长度）；③ 动作（收窄
+/// suite `includes` 或拆分 suite）。
+///
+/// 消费面：随 `RunFault::Environment` 交 walker 终局文案的 `{fault}` 段；MUST NOT
+/// 进 IPC / `RunUpdate` / `RunNodeRecord` / `bindings.ts`。本函数 MUST NOT 复用
+/// 安全软件排除指引（成因是命令长度而非文件锁，误引会让用户去改安全软件）。
+pub(crate) fn argv_budget_text(
+    budget: usize,
+    expanded_len: usize,
+    omitted_len: Option<usize>,
+    files: usize,
+) -> String {
+    let mut text = format!(
+        "命令行长度超平台上限（{budget} 字符）：属 harness 限制，非被测代码问题\n\
+         展开 {expanded_len} 字符 / 平台预算 {budget} 字符 / {files} 个测试文件"
+    );
+    if let Some(omitted_len) = omitted_len {
+        text.push_str(&format!("\n降级为框架自发现后仍为 {omitted_len} 字符"));
+    }
+    text.push_str("\n请收窄该 suite 的 `includes` 或拆分 suite");
+    text
+}
+
+/// 命令行超平台上限的**降级面**记录注（安全降级时 `PlanExecution::argv_note` 的
+/// 唯一装配点，只进输出记录的 plan 头 `[argv]` 行）。
+///
+/// 陈述三数字 + 「已降级为框架自发现（K 个测试文件）」，**零动作建议**（降级已发生，
+/// 此事只需可查）。MUST NOT 进 `SubReport.findings` / `summary.findings`（`findings`
+/// 非空 + `failed == 0` 会被 `collect_problems` 判成 `execution_error`，绿跑翻红）；
+/// MUST NOT 含安全软件排除指引 / 占用者 / 被锁文件 / 重试次数措辞。
+pub(crate) fn argv_degrade_note(budget: usize, expanded_len: usize, files: usize) -> String {
+    format!(
+        "展开 {expanded_len} 字符超平台预算 {budget} 字符，已降级为框架自发现（{files} 个测试文件）"
+    )
 }
 
 /// chars 口径有界截断（≤ limit 原样；超限取前 limit 字符 + 省略号）。

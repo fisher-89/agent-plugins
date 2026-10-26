@@ -167,6 +167,11 @@ pub(crate) struct TestPlan {
     pub coverage_output: &'static str,
     /// 结果工件名
     pub results_output: &'static str,
+    /// 降级安全判据（detect 期一次算定）：`default_glob` 以**同一剪枝管线、不施加
+    /// suite `excludes`** 枚举出的集合 == [`Self::files`] 集合 → 省略 `{files}` 后
+    /// 框架自发现跑的还是同一批。保守方向：集合不等即拒降级（`excludes` 实际剔掉
+    /// 了某个文件 → 对照面仍含该文件 → 不等 → 拒降级）
+    pub omit_files_safe: bool,
 }
 
 impl TestPlan {
@@ -224,6 +229,24 @@ pub(crate) fn detect_plans(
             continue;
         }
 
+        // 降级对照面（`{files}` 省略后框架走自身发现，故只有「自发现集合 == files
+        // 集合」才保证跑的还是同一批）；**MUST NOT 施加 suite `excludes`**——框架
+        // 自发现不认这套，`excludes` 一旦真剔掉了文件两侧即不等、降级被拒（保守）
+        let default_files = collect_files(
+            root,
+            &abs_root,
+            &abs_cwd,
+            suite,
+            &[entry.default_glob.to_owned()],
+            false, // apply_excludes：对照面不施加（框架自发现不认这套 excludes）
+        )?;
+        // 两侧均由 `BTreeSet` 导出（排序去重），故逐项相等即集合相等
+        let omit_files_safe = default_files.len() == files.len()
+            && default_files
+                .iter()
+                .zip(files.iter())
+                .all(|(detected, listed)| detected == listed);
+
         // 版本探测（失败 / 空版本按「特性不支持」走基础模板，不失败不报错）
         let version = detect_framework_version(&abs_cwd, entry.version_command);
         let randomize = match entry.framework {
@@ -243,12 +266,15 @@ pub(crate) fn detect_plans(
             coverage_format: entry.coverage_format,
             coverage_output: entry.coverage_output,
             results_output: entry.results_output,
+            omit_files_safe,
         });
     }
     Ok(plans)
 }
 
-/// glob 文件探测
+/// glob 文件探测（includes 发现面）：模式取 suite `includes`（缺省吃框架
+/// `default_glob`）、施加 suite `excludes`。收集主体单点驻 [`collect_files`]
+/// （includes 发现面与降级对照面共用，MUST NOT 两写 glob 方言 / 剪枝）。
 fn detect_files(
     project_root: &Path,
     abs_root: &Path,
@@ -260,8 +286,32 @@ fn detect_files(
         Some(list) if !list.is_empty() => list.clone(),
         _ => vec![entry.default_glob.to_owned()],
     };
+    Ok(collect_files(
+        project_root,
+        abs_root,
+        abs_cwd,
+        suite,
+        &include_patterns,
+        true, // apply_excludes：发现面施加 suite excludes
+    )?
+    .into_iter()
+    .collect())
+}
+
+/// glob 收集主体（单一方言 / 单点剪枝）：花括号交替先展开 → `glob` → dot 与
+/// 依赖产物目录剪枝（**恒施加**）→ suite `excludes` 过滤（末位开关为 `false` 时
+/// 跳过——降级对照面用：框架自发现不认这套 excludes）→ cwd 相对 POSIX 入
+/// `BTreeSet`（排序去重，集合比较即 `Vec` 相等）。
+fn collect_files(
+    project_root: &Path,
+    abs_root: &Path,
+    abs_cwd: &Path,
+    suite: &config::TestSuite,
+    patterns: &[String],
+    apply_excludes: bool,
+) -> Result<BTreeSet<String>, String> {
     let mut detected: BTreeSet<String> = BTreeSet::new();
-    for include in &include_patterns {
+    for include in patterns {
         // 花括号交替先展开（`glob` crate 无此方言——CLI picomatch 语义对齐；
         // 缺省 default_glob `**/*.{test,spec}.{js,ts,jsx,tsx}` 即此形态）
         for variant in try_expand_braces(include)
@@ -279,9 +329,10 @@ fn detect_files(
                     continue;
                 };
                 let project_rel = to_posix(project_rel);
-                if is_pruned_path(Path::new(&project_rel))
-                    || is_excluded_by_suite(&project_rel, suite)
-                {
+                if is_pruned_path(Path::new(&project_rel)) {
+                    continue;
+                }
+                if apply_excludes && is_excluded_by_suite(&project_rel, suite) {
                     continue;
                 }
                 // cwd 相对形式入清单（`{files}` 展开原料）
@@ -292,7 +343,7 @@ fn detect_files(
             }
         }
     }
-    Ok(detected.into_iter().collect())
+    Ok(detected)
 }
 
 /// 探测剪枝（项目相对路径面）：组件名判定委托 foundation 名单单点（dot 剪枝
