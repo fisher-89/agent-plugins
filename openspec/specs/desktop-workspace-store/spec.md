@@ -354,7 +354,7 @@ serde camelCase 线格式 SHALL 与枚举化前逐字不变（unit variant + `re
 
 ### Requirement: 全局库与 workspace 库双库布局
 
-store SHALL 按数据维度拆分落盘载体为两组 db 文件：**全局库**注册 user 维度模型组（`WorkspaceRecord` 与 agent 管理两记录 `AgentProviderRecord` / `AgentInstanceRecord`，见「AgentProviderRecord 与 AgentInstanceRecord 模型与管理操作面」）；**workspace 库**按 workspace 分立、每 workspace 恰一个独立 db 文件，注册 `AgentRunRecord`（轮统计行）/ 事件记录（会话转录）/ `ExploreRecord` / `SessionRecord` / `ChangeRecord` / `PhaseRecord` / `ChecklistItemRecord` / `StepRecord` 八个 workspace 维度模型（change 流程状态四模型见「ChangeRecord 状态模型组与 change 域操作面」与 desktop-change-state-store）。全局库 SHALL 位于全局数据目录（沿用 `home_dir()/.dev-team/` 根）并启用与旧单库不同的新文件名；workspace 库 SHALL 位于全局数据目录下 `workspaces/` 子树。任一库的模型归属 MUST NOT 混注：workspace 域模型 MUST NOT 出现在全局库注册清单，user 维度模型 MUST NOT 出现在 workspace 库注册清单（维度语义由 db 文件归属承载，见 desktop-data-dimensions）。数据目录根 SHALL 由 desktop-app 注入，store 内零环境解析（既有 `Store::open` 注入式打开约束不变）；静态模型注册 SHALL 拆为与两库一一对应的两组 `Models`。
+store SHALL 按数据维度拆分落盘载体为两组 db 文件：**全局库**注册 user 维度模型组（`WorkspaceRecord` 与 agent 管理两记录 `AgentProviderRecord` / `AgentInstanceRecord`，见「AgentProviderRecord 与 AgentInstanceRecord 模型与管理操作面」）；**workspace 库**按 workspace 分立、每 workspace 恰一个独立 db 文件，注册 `AgentRunRecord`（轮统计行）/ 事件记录（会话转录）/ `ExploreRecord` / `SessionRecord` / `ChangeRecord` / `PhaseRecord` / `ChecklistItemRecord` / `StepRecord` 八个 workspace 维度模型（change 流程状态四模型见「ChangeRecord 状态模型组与 change 域操作面」与 desktop-change-state-store）。全局库 SHALL 位于**数据根**（prod 构建 `<home>/.dev-team`；dev 构建 `<home>/.dev-team/dev`——判别与解析见 desktop-build-modes「数据根三分优先级与路径校验」与「构建模式判别源单点」）并启用与旧单库不同的新文件名；workspace 库 SHALL 位于数据根下 `workspaces/` 子树。store 侧对本分裂零改动：根一分裂，全局库、`workspaces/` 子树与引擎日志 `logs/` 三者自动随根分裂。任一库的模型归属 MUST NOT 混注：workspace 域模型 MUST NOT 出现在全局库注册清单，user 维度模型 MUST NOT 出现在 workspace 库注册清单（维度语义由 db 文件归属承载，见 desktop-data-dimensions）。数据根 SHALL 由 desktop-app 注入，store 内零环境解析（既有 `Store::open` 注入式打开约束不变，MUST NOT 因本分裂新增环境变量读取 / 模式判断 / 第二份根解析）；静态模型注册 SHALL 拆为与两库一一对应的两组 `Models`。
 
 #### Scenario: 模型注册分组
 
@@ -369,7 +369,12 @@ store SHALL 按数据维度拆分落盘载体为两组 db 文件：**全局库**
 #### Scenario: 注入式打开不变
 
 - **WHEN** 审查 store 公共 API 与打开流程
-- **THEN** 两库路径最终均来自调用方注入（数据目录根由 desktop-app 解析），store 源码无 home_dir / app data 目录解析逻辑
+- **THEN** 两库路径最终均来自调用方注入（数据根由 desktop-app 解析），store 源码无 home_dir / app data 目录解析逻辑、无构建模式判断
+
+#### Scenario: dev 构建根分裂
+
+- **WHEN** 同一 workspace 先后被 dev 构建与 prod 构建打开（两模式数据根分别为 `<home>/.dev-team/dev` 与 `<home>/.dev-team`）
+- **THEN** 两库文件是**同名文件、不同父目录**（`<数据根>/workspaces/` 下同名），数据互不可见、无 redb 文件锁冲突；store 无任何跨进程锁或模式探测代码参与
 
 ### Requirement: ChangeRecord 状态模型组与 change 域操作面
 
@@ -568,3 +573,6 @@ workspace 库 SHALL 承载 store 格式版本（change 身份锚形态版本—�
 | `crates/infra/store/src/store.rs`（`create_explore_record`） | 建档操作面 | 签名 `name: Option<&str>`；`None` 分支同事务生成 `draft-<epoch-millis>` 占位名 + `<时间戳>-分析中` 临时标题 + 预建空会话；撞名写事务内单调 +1 兜底；`Some` 分支既有行为零变化；store 层零磁盘操作不变 |
 | `crates/infra/store/src/store.rs`（`rename_explore_record`） | 改名操作面 | 语义不变（in-place 保主键保会话链）；新增消费方为引擎 `create_explore_note` 执行体（desktop-agent-execution），命令面仍不接线 |
 | 全局库路径（不改） | 零触点 | 全局库打开 / 模型组 / workspace 注册命令零改动 |
+| `WorkspaceStores::open(data_root: &Path)` | 数据根注入打开面 | 语义零改动：只接收调用方注入的数据根，由此派生全局库文件与 `workspaces/` 子树；本变更只改变调用方传入的根（prod / dev 子根），store 内零模式判断、零环境变量读取、零第二份根解析 |
+| `GLOBAL_DB_FILE_NAME` / `WORKSPACES_DIR_NAME`（`crates/infra/store`） | 名字单点（可见性） | 由 `pub(crate)` 升 `pub` 并在 crate 根重导出：零行为改动，唯一用途是让 desktop 壳的 `--self-check` 摘要与 `app_environment` IPC 不复写库文件名 / 子树名 |
+| 数据根注入面（store 边界） | 根分裂收敛点 | 根分裂的**全部**影响收敛于注入值：全局库 / `workspaces/` / 引擎日志三者随根走；store MUST NOT 因本变更引入模式参数、双根并存或迁移逻辑 |
