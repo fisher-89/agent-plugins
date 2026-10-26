@@ -13,12 +13,8 @@ struct EnvWindow {
 }
 
 fn env_window() -> EnvWindow {
-    // poison 容错：单例环境锁被某用例 panic 污染后仍可取用（避免一例失败级联
-    // 拖垮同文件其余用例）
     EnvWindow {
-        _guard: crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        _guard: crate::lock_test_env(),
     }
 }
 

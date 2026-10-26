@@ -153,7 +153,7 @@ struct EnvWindow {
 
 fn env_window() -> EnvWindow {
     EnvWindow {
-        _guard: crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"),
+        _guard: crate::lock_test_env(),
     }
 }
 

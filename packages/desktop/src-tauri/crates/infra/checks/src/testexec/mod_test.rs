@@ -73,6 +73,7 @@ fn clear_shim_env() {
     std::env::remove_var("SHIM_LOCK_FIRST");
     std::env::remove_var("SHIM_LOCK_COUNT");
     std::env::remove_var("SHIM_SLEEP_MS");
+    std::env::remove_var("NPX_SLEEP_MS");
 }
 
 /// node-test spec 绿跑样本（五用例 4 pass 1 skipped + "All files" 覆盖汇总行；
@@ -136,12 +137,22 @@ impl ChainWs {
         // 目的路径经 SHIM_DEST 环境变量注入（Rust 经 cmd /C 转引的 \" 序列会
         // 扰动带引号的命令行参数——env 面零转义风险）；首参 `--version`（
         // detect 版本探测臂）不拷贝不记 marker 恒退出 0；执行臂拷贝预置工件、
-        // 追加执行 marker、按 SHIM_EXIT 退出
+        // 追加执行 marker、按 SHIM_EXIT 退出。
+        //
+        // **`--version` 臂在 .cmd 层短接**（MUST NOT 落到 PowerShell）：该臂由
+        // `detect_plans` 逐 suite 各 spawn 一次，而跨 plan 总预算的起点在 detect
+        // **之前**（生产口径如此），故探测耗时直接吃掉预算余量。PowerShell 单次
+        // 冷启在高负载下实测 0.7–2.5 s（cmd 批处理仅数十毫秒），足以让 1 s 级
+        // 预算测试在门禁并发下「首个 plan 边界即判超预算」——零 spawn 却断言
+        // 首个 plan 已跑，即 flake 的根因。
         #[cfg(target_os = "windows")]
         {
             fs::write(
                 root.join("app").join("node.cmd"),
-                "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0node-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n",
+                "@echo off\r\n\
+                 if \"%~1\"==\"--version\" exit /b 0\r\n\
+                 powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0node-shim.ps1\" %*\r\n\
+                 exit /b %errorlevel%\r\n",
             )
             .expect("写 node.cmd 失败");
             fs::write(
@@ -245,6 +256,10 @@ impl ChainWs {
     /// default_glob 可命中），并在 PATH 前置目录内落一枚恒锁 `npx` shim（jest 档
     /// 命令专用：执行臂逐次记账 → 输出锁文本 → 非零退出，瞬态签名命中后 5 次
     /// 耗尽转 `Environment`；版本探测臂不计账直接非零）。
+    ///
+    /// 执行臂支持 `NPX_SLEEP_MS` 睡眠键：jest 档耗时是「预算是否在第三 plan 边界
+    /// 才触发」的唯一可控量，靠 PowerShell 冷启的真耗时不可控（空闲与高负载可差
+    /// 5 倍以上），故由消费用例显式注入。
     fn three_plan_mixed(self) -> Self {
         fs::write(
             self.root().join("openspec").join("config.json"),
@@ -280,6 +295,7 @@ impl ChainWs {
                 self.root().join("app").join("npx-shim.ps1"),
                 format!(
                     "if ($args -contains '--version') {{ exit 1 }}\n\
+                     if ($env:NPX_SLEEP_MS) {{ Start-Sleep -Milliseconds ([int]$env:NPX_SLEEP_MS) }}\n\
                      Add-Content -Force -Path '{}' -Value 'attempt'\n\
                      Write-Output 'error: failed to rename archive file: /t/liba.rlib: os error 32'\n\
                      exit 1\n",
@@ -297,6 +313,7 @@ impl ChainWs {
                 format!(
                     "#!/bin/sh\n\
                      for a in \"$@\"; do [ \"$a\" = \"--version\" ] && exit 1; done\n\
+                     if [ -n \"$NPX_SLEEP_MS\" ]; then sleep $((NPX_SLEEP_MS / 1000)); fi\n\
                      echo attempt >> '{}'\n\
                      echo 'error: failed to rename archive file: /t/liba.rlib: os error 32'\n\
                      exit 1\n",
@@ -412,7 +429,7 @@ struct PathWindowGuard {
 
 impl PathWindowGuard {
     fn enter() -> Self {
-        let shim_env = crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒");
+        let shim_env = crate::lock_test_env();
         Self {
             original_path: std::env::var_os("PATH"),
             _shim_env: shim_env,
@@ -2482,12 +2499,18 @@ fn 测试执行总预算常量锚定() {
     );
 }
 
-/// 正向（AC-6 组合锚）：超预算余下 plan 零 spawn——两 plan 装置 + 300 ms 预算
-/// （首个 plan 的真实 spawn 耗时 1.5 s ≫ 预算，故「首边界不触发 / 第二边界必越」
+/// 正向（AC-6 组合锚）：超预算余下 plan 零 spawn——两 plan 装置 + 3 s 预算
+/// （首个 plan 的真实 spawn 耗时 6 s ≫ 预算，故「首边界不触发 / 第二边界必越」
 /// 确定成立）→ marker 仅 1 行（余下 plan **零 spawn**）、`fault =
 /// Some(Environment(text))` 且 `text` 含「测试执行总时长超预算」与「余下 1 个
 /// suite 未执行」、`conclusion == Fail` 占位、四计数 0、诊断双双空串、
 /// `report_dir` / `exec_id` 回填、`reports/test` 无 `summary.json`。
+///
+/// **预算档位选值口径**：预算起点在 detect **之前**（见 `execute` 文档），故
+/// 「首边界不触发」要求 `预算 > detect 耗时`。detect 逐 suite 各 spawn 一次版本
+/// 探测，冷启成本受机器负载支配（.cmd 短接后数十毫秒级，此前经 PowerShell 时
+/// 高负载实测 0.7–2.5 s）——本用例取 3 s 预算，为首边界留出两个数量级余量，
+/// MUST NOT 回退到 1 s 档（门禁并发下必 flake）。
 #[tokio::test]
 async fn 超预算余下plan零spawn() {
     let _window = path_window();
@@ -2497,8 +2520,8 @@ async fn 超预算余下plan零spawn() {
     let marker = ws.root().join("shim-marker.log");
     set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
     set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
-    // 首个 plan 的真实 spawn 耗时 ≫ 预算（2.5 s vs 1 s）——不依赖时序抖动
-    std::env::set_var("SHIM_SLEEP_MS", "2500");
+    // 首个 plan 的真实 spawn 耗时 ≫ 预算（6 s vs 3 s）——不依赖时序抖动
+    std::env::set_var("SHIM_SLEEP_MS", "6000");
     ws.prepend_path();
 
     let output = execute(
@@ -2506,7 +2529,7 @@ async fn 超预算余下plan零spawn() {
         CHANGE,
         ReportSlot::Test,
         foundation::cancel::CancelFlag::never(),
-        std::time::Duration::from_secs(1),
+        std::time::Duration::from_secs(3),
     )
     .await
     .expect("超预算仍 Ok（沿既有 fault 路径收口）");
@@ -2675,9 +2698,14 @@ async fn 预算不覆盖既有stopped() {
 
 /// 异常（AC-6 异常臂）：预算不覆盖既有 `Environment`——三 plan 混合装置（中间
 /// jest 档瞬态耗尽 → `Environment(锁文案)`，`fault.is_none()` 守卫使其不被覆盖）
-/// + 5 s 预算（jest 档 5 次尝试的虚拟退避推进期间真实耗时必越）→ 最终 `fault`
-/// 仍为首个 `Environment`（文案含锁文本、**不含**「超预算」）；进入第三 plan 边界
-/// 时零 spawn。
+/// + 8 s 预算（jest 档 5 次尝试的睡眠注入 5 × 2 s ≫ 预算，第三 plan 边界必越）
+/// → 最终 `fault` 仍为首个 `Environment`（文案含锁文本、**不含**「超预算」）；
+/// 进入第三 plan 边界时零 spawn。
+///
+/// **两个边界的判据都靠注入量而非真耗时**：第二 plan 边界 MUST NOT 越预算
+/// （「既有 fault 未被预算覆盖」可观测性的前提），第三 plan 边界 MUST 越——
+/// 前者由 `预算(8 s) > detect + 首个 plan 的真实成本` 保证，后者由 jest 档
+/// 10 s 注入睡眠保证；两侧各留 3 s 以上余量，不随机器负载翻转。
 #[tokio::test(start_paused = true)]
 async fn 预算不覆盖既有environment() {
     let _gate = ClockGate::new();
@@ -2688,6 +2716,7 @@ async fn 预算不覆盖既有environment() {
     let marker = ws.root().join("shim-marker.log");
     set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
     set_shim_dest_2(&ws.results_dest_third());
+    std::env::set_var("NPX_SLEEP_MS", "2000");
     ws.prepend_path();
 
     let ws_root = ws.root_str();
@@ -2697,7 +2726,7 @@ async fn 预算不覆盖既有environment() {
             CHANGE,
             ReportSlot::Test,
             foundation::cancel::CancelFlag::never(),
-            std::time::Duration::from_secs(5),
+            std::time::Duration::from_secs(8),
         )
         .await
     });
@@ -2740,6 +2769,10 @@ async fn 预算不覆盖既有environment() {
 
 /// 边界（AC-6 连带 + AC-8）：复用门不进——预算收口后 `reports/test` 无 summary
 /// → 同一输入再跑（全预算常量）→ 不复用（marker 增长，重新 spawn）并写 summary。
+///
+/// 预算档位与睡眠档位同 [`超预算余下plan零spawn`]（3 s / 6 s）：预算须大于
+/// detect 的版本探测耗时，而首个 plan 的 spawn 须大于预算——两者之间的窗口由
+/// detect 的探测成本决定，1 s 档在门禁并发下不足（flake 根因）。
 #[tokio::test]
 async fn 预算收口后复用门不进() {
     let _window = path_window();
@@ -2749,7 +2782,7 @@ async fn 预算收口后复用门不进() {
     let marker = ws.root().join("shim-marker.log");
     set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
     set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
-    std::env::set_var("SHIM_SLEEP_MS", "2500");
+    std::env::set_var("SHIM_SLEEP_MS", "6000");
     ws.prepend_path();
 
     let first = execute(
@@ -2757,7 +2790,7 @@ async fn 预算收口后复用门不进() {
         CHANGE,
         ReportSlot::Test,
         foundation::cancel::CancelFlag::never(),
-        std::time::Duration::from_secs(1),
+        std::time::Duration::from_secs(3),
     )
     .await
     .expect("超预算仍 Ok");

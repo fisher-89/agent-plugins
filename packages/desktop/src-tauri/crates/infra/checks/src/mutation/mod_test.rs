@@ -60,9 +60,7 @@ pub(super) struct SpawnWindow {
 impl SpawnWindow {
     /// 进入窗口：锁 env、建 shim 目录并前置 PATH、开记录文件键。
     pub(super) fn enter(tag: &str) -> Self {
-        let lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = crate::lock_test_env();
         let shim = tempfile::Builder::new()
             .prefix(&format!("checks-mutation-fake-spawn-{tag}-"))
             .tempdir()

@@ -95,9 +95,7 @@ fn 段中断错误面_携退出码与有界尾部() {
 /// 显式 `SegmentFailure::Fatal`（程序不可达可修面，停给用户不静默）。
 #[tokio::test]
 async fn spawn失败面_路径隔离下显式fatal() {
-    let _guard = crate::TEST_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = crate::lock_test_env();
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", "");
 

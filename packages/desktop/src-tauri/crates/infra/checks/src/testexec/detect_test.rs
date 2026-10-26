@@ -234,7 +234,7 @@ struct PathWindow {
 
 impl PathWindow {
     fn enter() -> Self {
-        let inner = crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒");
+        let inner = crate::lock_test_env();
         Self {
             original: std::env::var_os("PATH"),
             _inner: inner,
