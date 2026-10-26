@@ -238,6 +238,9 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
     devDependencies:
       '@stryker-mutator/core':
         specifier: ^9.6.1

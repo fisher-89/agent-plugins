@@ -7,8 +7,8 @@ import {
   type AgentUIMessage,
 } from '../lib/agent-adapter';
 import { TauriAgentTransport } from '../lib/agent-transport';
+import { ipc } from '../lib/ipc';
 import {
-  commands,
   type AgentEvent,
   type AgentPermissionMode,
   type SessionSummary,
@@ -256,9 +256,9 @@ async function loadReplay(
   root: string,
   sessionId: string,
 ): Promise<{ latest: SessionSummary | null; events: AgentEvent[] }> {
-  const detail = await commands.sessionDetail(root, sessionId);
+  const detail = await ipc.sessionDetail(root, sessionId);
   if (detail === null) return { latest: null, events: [] };
-  const events = await commands.agentSessionTranscript(root, sessionId);
+  const events = await ipc.agentSessionTranscript(root, sessionId);
   return { latest: detail, events };
 }
 
@@ -479,7 +479,7 @@ function useSessionActions(
     const sessionId = mirrors.currentSessionIdRef.current;
     // 不调 chat.stop() 截断前端流：终态 record 部件与 finish 由后端闭流推入；
     // 停止寻址携 root（会话 id 即寻址键，root 寻址保留）
-    if (sessionId !== null && root !== null) void commands.agentStop(root, sessionId);
+    if (sessionId !== null && root !== null) void ipc.agentStop(root, sessionId);
   }, [mirrors.currentSessionIdRef, root]);
 
   const reset = useCallback(() => {

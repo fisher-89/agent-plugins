@@ -1,7 +1,8 @@
 import { Channel } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type ExploreDoc, type FileWatchEvent } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type ExploreDoc, type FileWatchEvent } from '../../../types/generated/bindings';
 
 /** watch 信号防抖窗口（毫秒，trailing）：窗口内多次信号合并为一次显式拉取 */
 const WATCH_DEBOUNCE_MS = 500;
@@ -24,7 +25,7 @@ function fetchDoc(
   onError: (message: string) => void,
   onSettled: () => void,
 ): void {
-  commands
+  ipc
     .readExplore(root, name)
     .then((result) => {
       if (isCancelled()) return;
@@ -68,11 +69,11 @@ async function armWatch(
   channel: Channel<FileWatchEvent>,
   isCancelled: () => boolean,
 ): Promise<() => void> {
-  const path = await commands.exploreDocPath(root, name);
+  const path = await ipc.exploreDocPath(root, name);
   if (path === null || isCancelled()) return () => {};
-  const subscriptionId = await commands.watchSubscribe(channel, path);
+  const subscriptionId = await ipc.watchSubscribe(channel, path);
   return () => {
-    void commands.watchUnsubscribe(subscriptionId);
+    void ipc.watchUnsubscribe(subscriptionId);
   };
 }
 

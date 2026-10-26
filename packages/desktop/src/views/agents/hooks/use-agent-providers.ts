@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ipc } from '../../../lib/ipc';
 import {
-  commands,
   type AgentModelTiers,
   type AgentProviderProtocol,
   type AgentProviderRecord,
@@ -64,7 +64,7 @@ export function useAgentProviders(): AgentProvidersState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .listAgentProviders()
       .then((result) => {
         if (cancelled) return;
@@ -89,7 +89,7 @@ function useAgentProvidersActions(refresh: () => void) {
   const save = useCallback(
     async (input: AgentProviderSaveInput): Promise<AgentProviderRecord | null> => {
       try {
-        const record = await commands.saveAgentProvider(
+        const record = await ipc.saveAgentProvider(
           input.id,
           input.name,
           input.protocol,
@@ -113,7 +113,7 @@ function useAgentProvidersActions(refresh: () => void) {
   const remove = useCallback(
     async (id: number): Promise<boolean> => {
       try {
-        const hit = await commands.deleteAgentProvider(id);
+        const hit = await ipc.deleteAgentProvider(id);
         refresh();
         return hit;
       } catch (err: unknown) {

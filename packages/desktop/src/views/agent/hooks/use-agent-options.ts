@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { commands, type AgentInstanceRecord } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type AgentInstanceRecord } from '../../../types/generated/bindings';
 
 interface AgentOptionsState {
   /** agent 实例清单（id 升序，选择器选项数据面） */
@@ -23,7 +24,7 @@ export function useAgentOptions(): AgentOptionsState {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    commands
+    ipc
       .listAgentInstances()
       .then((result) => {
         if (cancelled) return;

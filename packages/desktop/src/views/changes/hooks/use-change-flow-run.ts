@@ -8,7 +8,8 @@
 import { Channel } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { commands, type RunNotice } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type RunNotice } from '../../../types/generated/bindings';
 
 export interface UseChangeFlowRunResult {
   start: (autoNextPhase: boolean) => Promise<void>;
@@ -57,7 +58,7 @@ export function useChangeFlowRun(params: {
       return;
     }
     const channel = ensureChannel();
-    void commands.changeFlowWatch(channel, root, id).catch(() => {
+    void ipc.changeFlowWatch(channel, root, id).catch(() => {
       // 补订失败不阻断页面（下一通知或显式刷新兜底——R7 语义既定）
     });
     return () => {
@@ -94,25 +95,25 @@ function useRunActions(
       if (root === null || id === null) return Promise.resolve();
       setError(null);
       const channel = ensureChannel();
-      return run(() => commands.changeFlowStart(channel, root, id, autoNextPhase));
+      return run(() => ipc.changeFlowStart(channel, root, id, autoNextPhase));
     },
     [root, id, ensureChannel, run],
   );
   const stop = useCallback(() => {
     if (root === null || id === null) return Promise.resolve();
-    return run(() => commands.changeFlowStop(root, id));
+    return run(() => ipc.changeFlowStop(root, id));
   }, [root, id, run]);
   const confirm = useCallback(
     (proceed: boolean, syncSpecs: boolean) => {
       if (root === null || id === null) return Promise.resolve();
-      return run(() => commands.changeFlowConfirm(root, id, proceed, syncSpecs));
+      return run(() => ipc.changeFlowConfirm(root, id, proceed, syncSpecs));
     },
     [root, id, run],
   );
   const answer = useCallback(
     (text: string) => {
       if (root === null || id === null) return Promise.resolve();
-      return run(() => commands.changeFlowAnswer(root, id, text));
+      return run(() => ipc.changeFlowAnswer(root, id, text));
     },
     [root, id, run],
   );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type CodeStatsReport } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type CodeStatsReport } from '../../../types/generated/bindings';
 
 /** 默认解析深度（spec：depth 默认 5） */
 const DEFAULT_DEPTH = 5;
@@ -22,7 +23,7 @@ export interface CodeStatsState {
 
 /**
  * 代码统计取数收口 hook：显式刷新模型——进入页面 / 调深度 / 点刷新各自以
- * `[root, depth, tick]` 依赖发起一次 invoke（commands.codeStats typed 调用），
+ * `[root, depth, tick]` 依赖发起一次 invoke（ipc.codeStats typed 调用），
  * 无轮询、无 watch、无缓存。`cancelled` 防串轮；报告带归属 root 标记，切换
  * 工作区的过渡轮不呈现旧根数据（use-explore-list 抑制哲学）。组件不直接 invoke。
  */
@@ -41,7 +42,7 @@ export function useCodeStats(root: string): CodeStatsState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .codeStats(root, depth)
       .then((result) => {
         if (cancelled) return;

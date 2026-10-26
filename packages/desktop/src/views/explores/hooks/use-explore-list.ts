@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type ExploreRecord } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type ExploreRecord } from '../../../types/generated/bindings';
 
 export interface ExploreListState {
   /** 探索记录清单 */
@@ -48,7 +49,7 @@ function useExploreRecordActions(
   const create = useCallback(
     (name: string) => {
       if (!root) return;
-      commands
+      ipc
         .createExploreRecord(root, name)
         .then(refresh)
         .catch((err: unknown) => onError(String(err)));
@@ -58,7 +59,7 @@ function useExploreRecordActions(
   const rename = useCallback(
     (name: string, newName: string) => {
       if (!root) return;
-      commands
+      ipc
         .renameExploreRecord(root, name, newName)
         .then(refresh)
         .catch((err: unknown) => onError(String(err)));
@@ -68,7 +69,7 @@ function useExploreRecordActions(
   const remove = useCallback(
     (name: string) => {
       if (!root) return;
-      commands
+      ipc
         .deleteExploreRecord(root, name)
         .then(refresh)
         .catch((err: unknown) => onError(String(err)));
@@ -92,7 +93,7 @@ function useExploreDetailActions(
     async (name: string, title: string) => {
       if (!root) return;
       try {
-        await commands.updateExploreTitle(root, name, title);
+        await ipc.updateExploreTitle(root, name, title);
         refresh();
       } catch (err: unknown) {
         onError(String(err));
@@ -105,7 +106,7 @@ function useExploreDetailActions(
     async (name: string, workflowType: string) => {
       if (!root) return;
       try {
-        await commands.updateExploreWorkflowType(root, name, workflowType);
+        await ipc.updateExploreWorkflowType(root, name, workflowType);
         refresh();
       } catch (err: unknown) {
         onError(String(err));
@@ -118,7 +119,7 @@ function useExploreDetailActions(
     async (name: string, workflowType: string) => {
       if (!root) return;
       try {
-        await commands.promoteExplore(root, name, workflowType);
+        await ipc.promoteExplore(root, name, workflowType);
         refresh();
       } catch (err: unknown) {
         onError(String(err));
@@ -169,7 +170,7 @@ export function useExploreList(root: string | null): ExploreListState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .listExploreRecords(root)
       .then((result) => {
         if (cancelled) return;

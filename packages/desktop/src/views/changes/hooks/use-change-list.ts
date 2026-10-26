@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type ChangeList } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type ChangeList } from '../../../types/generated/bindings';
 
 export interface ChangeListState {
   data: ChangeList | null;
@@ -33,7 +34,7 @@ export function useChangeList(root: string | null): ChangeListState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .listChanges(root)
       .then((result) => {
         if (cancelled) return;

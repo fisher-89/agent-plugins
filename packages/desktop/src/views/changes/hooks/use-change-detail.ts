@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
+import { ipc } from '../../../lib/ipc';
 import {
-  commands,
   type ActiveRunView,
   type ArtifactDescriptor,
   type ArtifactEnvelope,
@@ -63,7 +63,7 @@ async function readArtifactSafe(
   descriptor: ArtifactDescriptor,
 ): Promise<ArtifactEnvelope> {
   try {
-    const envelope = await commands.readArtifact(root, id, descriptor.kind, descriptor.source);
+    const envelope = await ipc.readArtifact(root, id, descriptor.kind, descriptor.source);
     if (envelope) return envelope;
     return fallbackEnvelope(descriptor.kind, descriptor.source, descriptor.title, '产物读取失败');
   } catch {
@@ -157,7 +157,7 @@ async function loadUnifiedView(
   // loading 置位不归轮本体——首载轮 / 手动刷新各自置位，自动轮零触碰
   apply({ error: null });
   try {
-    const unified = await commands.getChangeDetail(root, id);
+    const unified = await ipc.getChangeDetail(root, id);
     if (isCancelled()) return 'cancelled';
     if (!unified || !unified.detail) {
       // 真 None（未找到）：清面兜底（既有语义），陈旧提示随面清零

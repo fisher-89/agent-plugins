@@ -2,7 +2,6 @@ import { Channel } from '@tauri-apps/api/core';
 import type { ChatTransport } from 'ai';
 
 import {
-  commands,
   type AgentDelta,
   type AgentEvent,
   type AgentRunMessage,
@@ -15,9 +14,10 @@ import {
   type AgentUIMessage,
   type AgentUIMessageChunk,
 } from './agent-adapter';
+import { ipc } from './ipc';
 
-/** `commands.agentStart` 位置参数面（生成绑定派生，无手写镜像） */
-type AgentStartArgs = Parameters<typeof commands.agentStart>;
+/** `ipc.agentStart` 位置参数面（生成绑定派生，无手写镜像） */
+type AgentStartArgs = Parameters<typeof ipc.agentStart>;
 
 /** 会话参数 + 提示词（hook 发送时刻组装，body 原样穿透；形状派生自生成绑定） */
 type AgentStartSessionParams = {
@@ -194,14 +194,14 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     const params = readStreamParams(options.body);
     if (params === null) return null;
     const { root, sessionId, sinceSeq } = params;
-    const detail = await commands.sessionDetail(root, sessionId);
+    const detail = await ipc.sessionDetail(root, sessionId);
     // 状态门：库态无 running 轮行即无实时面可续（已完成会话零订阅）
     if (detail === null || !detail.turns.some((turn) => turn.status === 'running')) {
       return null;
     }
     const channel = new Channel<AgentRunMessage>();
     const envelope = this.envelopeStream(channel);
-    commands
+    ipc
       .agentSessionWatch(channel, root, sessionId, sinceSeq)
       .then(envelope.end)
       .catch(envelope.fail);
@@ -334,7 +334,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     fail: (cause: unknown) => void,
   ): void {
     const { root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd } = session;
-    commands
+    ipc
       .agentStart(channel, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd)
       .then((record) => {
         this.onRecord?.(record);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type ExploreScanEntry } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type ExploreScanEntry } from '../../../types/generated/bindings';
 
 export interface ExploreCreateDialogProps {
   /** 当前 workspace root（扫描与建档入参） */
@@ -30,7 +31,7 @@ function ImportItem({
       className="block w-full cursor-pointer border-0 border-b border-b-border bg-transparent px-0 py-1.5 text-left last:border-b-0 hover:text-primary"
       data-testid="explore-import-item"
       onClick={() => {
-        commands
+        ipc
           .createExploreRecord(root, entry.name)
           .then(() => onCreated(entry.name, null))
           .catch((err: unknown) => onError(String(err)));
@@ -56,7 +57,7 @@ function ImportList({
 
   useEffect(() => {
     let cancelled = false;
-    commands
+    ipc
       .scanExplores(root)
       .then((result) => {
         if (!cancelled) setEntries(result);
@@ -145,7 +146,7 @@ function TopicEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.El
 
   const create = () => {
     setError(null);
-    commands
+    ipc
       .createExploreRecord(root, null)
       .then((record) => onCreated(record.name, requirement.trim()))
       .catch((err: unknown) => setError(String(err)));

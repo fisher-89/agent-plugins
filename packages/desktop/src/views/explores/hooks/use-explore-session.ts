@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAgentSession, type UseAgentSessionState } from '../../../hooks/use-agent-session';
 import { buildExplorePrompt } from '../../../lib/explore-stance';
+import { ipc } from '../../../lib/ipc';
 import type { AgentPermissionMode, ExploreRecord } from '../../../types/dto';
-import { commands } from '../../../types/generated/bindings';
 
 /** explore 会话来源受控字符串（与 store 侧来源归属口径一致） */
 const EXPLORE_SOURCE = 'explore';
@@ -35,7 +35,7 @@ function useEnsuredSessionId(
       return;
     }
     let cancelled = false;
-    commands
+    ipc
       .ensureExploreSession(root, recordName)
       .then((updated) => {
         if (!cancelled) setEnsuredId(updated.sessionId);

@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 
-import {
-  commands,
-  type AppEnvironment as AppEnvironmentPayload,
-} from '../types/generated/bindings';
+import { ipc } from '../lib/ipc';
+import { type AppEnvironment as AppEnvironmentPayload } from '../types/generated/bindings';
 
 /**
  * 构建模式（线值由后端 `env::mode()` 单点产出，前端只做编译期收窄）。
@@ -37,7 +35,7 @@ export function useAppEnvironment(): AppEnvironment | null {
 
   useEffect(() => {
     let cancelled = false;
-    void commands
+    void ipc
       .appEnvironment()
       .then((payload) => {
         if (cancelled) return;

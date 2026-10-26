@@ -31,7 +31,9 @@ workflow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true, features = ["function"] }
+specta-serde = { workspace = true }
 specta-typescript = { workspace = true }
+specta-zod = { workspace = true }
 store = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
@@ -65,6 +67,7 @@ members = [
     "crates/infra/vcs",
     "crates/infra/watch",
     "crates/tools/export-bindings",
+    "crates/tools/specta-zod-patched",
 ]
 
 # workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 dev-team 壳）
@@ -97,9 +100,11 @@ rig = { version = "=0.43.0", default-features = false, features = [
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
-specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json", "time"] }
-specta-typescript = "=0.0.12"
-tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
+specta = { version = "=2.0.0-rc.26", features = ["derive", "serde_json", "time"] }
+specta-serde = "=0.0.13"
+specta-typescript = "=0.0.13"
+specta-zod = { path = "crates/tools/specta-zod-patched" }
+tauri-specta = { version = "=2.0.0-rc.26", features = ["typescript"] }
 store = { path = "crates/infra/store" }
 tempfile = "3"
 uuid = { version = "1", features = ["v7"] }

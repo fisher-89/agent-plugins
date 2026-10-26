@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ipc } from '../../../lib/ipc';
 import {
-  commands,
   type DbDimension,
   type ModelInfo,
   type RecordEnvelope,
@@ -63,7 +63,7 @@ function useDbModels(
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .dbModels(scope, root)
       .then((result) => {
         if (cancelled) return;
@@ -113,7 +113,7 @@ function useDbRecords(
     let cancelled = false;
     setRecordsLoading(true);
     setRecordsError(null);
-    commands
+    ipc
       .dbRecords(scope, root, selected, offset, PAGE_SIZE)
       .then((result) => {
         if (cancelled) return;

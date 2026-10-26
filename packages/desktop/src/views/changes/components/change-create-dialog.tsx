@@ -5,7 +5,7 @@ import { Field, FieldGroup, FieldLabel, FieldDescription } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-import { commands } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
 
 export interface ChangeCreateDialogProps {
   children: React.JSX.Element;
@@ -215,7 +215,7 @@ export function ChangeCreateDialog({
       const trimmedName = name.trim();
       const trimmedGoal = goal.trim();
       setError(null);
-      commands
+      ipc
         .createChange(root, trimmedName, trimmedGoal, workflowType)
         .then((result) => {
           onCreated(result.id);

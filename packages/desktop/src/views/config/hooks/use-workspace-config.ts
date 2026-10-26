@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type WorkspaceConfigReport } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type WorkspaceConfigReport } from '../../../types/generated/bindings';
 
 export interface WorkspaceConfigState {
   /** 配置报告（root 未就绪/切换过渡轮为 null：旧根报告不呈现） */
@@ -15,7 +16,7 @@ export interface WorkspaceConfigState {
 
 /**
  * 配置取数收口 hook：显式刷新模型——进入页面 / 点刷新各自以 `[root, tick]`
- * 依赖发起一次 invoke（commands.workspaceConfig typed 调用），无轮询、无
+ * 依赖发起一次 invoke（ipc.workspaceConfig typed 调用），无轮询、无
  * watch、无缓存。`cancelled` 防串轮；报告带归属 root 标记，切换工作区的
  * 过渡轮不呈现旧根数据（use-code-stats 抑制哲学）。组件不直接 invoke。
  */
@@ -32,7 +33,7 @@ export function useWorkspaceConfig(root: string): WorkspaceConfigState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .workspaceConfig(root)
       .then((result) => {
         if (cancelled) return;

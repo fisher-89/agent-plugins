@@ -1,0 +1,55 @@
+[package]
+name = "specta-zod"
+description = "Export your Rust types to Zod schemas for TypeScript (vendored 0.0.4 + local patches)"
+version = "0.0.4"
+authors = ["Oscar Beaumont <oscar@otbeaumont.me>"]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/specta-rs/specta"
+documentation = "https://docs.rs/specta-zod/latest/specta-zod"
+keywords = ["async", "specta", "rspc", "typescript", "typesafe"]
+categories = ["web-programming", "asynchronous"]
+readme = "README.md"
+
+# /bin/sh RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features
+[package.metadata."docs.rs"]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = []
+
+# Implement `serde::Serialize` and `serde::Deserialize` for Zod-specific wrapper types
+# (Any, Unknown, Never)
+serde = ["dep:serde"]
+
+[dependencies]
+# 基线 0.0.4 依赖 `=2.0.0-rc.26` / `=0.0.13`；改为 workspace 继承让版本窗口
+# 由 `src-tauri/Cargo.toml` 单点收敛（见 README「跟版核对清单」）。
+specta = { workspace = true }
+serde = { version = "1", default-features = false, optional = true }
+specta-typescript = { workspace = true }
+
+[dev-dependencies]
+# doctest（lib.rs 顶部示例）需要 `Type` derive 与 `collect` 宏；`specta-serde`
+# 提供示例里的 `specta_serde::Format`，缺则 `cargo test --workspace` 编译失败。
+specta = { workspace = true, features = ["derive", "collect"] }
+specta-serde = { workspace = true }
+
+# 上游（specta workspace）的同款 lint 面：vendored 后 `[lints] workspace = true`
+# 不可用（本 workspace 无 `[lints]`），故按 registry 归一化清单逐条落地，保持
+# `cargo clippy --workspace --all-targets` 的告警面与上游一致。
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+multiple_crate_versions = { level = "allow", priority = 0 }
+panic = { level = "warn", priority = -1 }
+panic_in_result_fn = { level = "warn", priority = -1 }
+todo = { level = "warn", priority = -1 }
+too_many_arguments = { level = "allow", priority = 0 }
+type_complexity = { level = "allow", priority = 0 }
+unwrap_used = { level = "warn", priority = -1 }
+
+[lints.rust]
+missing_docs = { level = "warn", priority = -1 }
+unexpected_cfgs = { level = "warn", priority = 0 }
+unsafe_code = { level = "warn", priority = -1 }

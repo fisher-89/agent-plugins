@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import {
-  commands,
-  type AgentEngineKind,
-  type AgentInstanceRecord,
-} from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type AgentEngineKind, type AgentInstanceRecord } from '../../../types/generated/bindings';
 
 /** 动作失败 toast 固定前缀（文案供断言；remove 的 store miss 幂等非错误不 toast） */
 const ACTION_ERROR_PREFIX = {
@@ -56,7 +53,7 @@ export function useAgentInstances(): AgentInstancesState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .listAgentInstances()
       .then((result) => {
         if (cancelled) return;
@@ -81,7 +78,7 @@ function useAgentInstancesActions(refresh: () => void) {
   const save = useCallback(
     async (input: AgentInstanceSaveInput): Promise<AgentInstanceRecord | null> => {
       try {
-        const record = await commands.saveAgentInstance(
+        const record = await ipc.saveAgentInstance(
           input.id,
           input.name,
           input.engine,
@@ -100,7 +97,7 @@ function useAgentInstancesActions(refresh: () => void) {
   const remove = useCallback(
     async (id: number): Promise<boolean> => {
       try {
-        const hit = await commands.deleteAgentInstance(id);
+        const hit = await ipc.deleteAgentInstance(id);
         refresh();
         return hit;
       } catch (err: unknown) {
@@ -114,7 +111,7 @@ function useAgentInstancesActions(refresh: () => void) {
   const setDefault = useCallback(
     async (id: number): Promise<AgentInstanceRecord | null> => {
       try {
-        const record = await commands.setDefaultAgentInstance(id);
+        const record = await ipc.setDefaultAgentInstance(id);
         refresh();
         return record;
       } catch (err: unknown) {

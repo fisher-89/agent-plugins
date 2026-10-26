@@ -19,10 +19,7 @@ export const commands = {
 	 *  败（store 错误串经 reject 通道出线——TS 类型面零漂移）。worktree / name
 	 *  感知在 core `change_detail` 内（record 先读后定位，磁盘面恒自记录供给）。
 	 */
-	getChangeDetail: (root: string, id: string) => __TAURI_INVOKE<{
-	detail: ChangeDetail,
-	activeRun: ActiveRunView | null,
-} | null>("get_change_detail", { root, id }),
+	getChangeDetail: (root: string, id: string) => __TAURI_INVOKE<ChangeDetailUnified | null>("get_change_detail", { root, id }),
 	/**
 	 *  按信封读取单个产物（按 change **id** 寻址）；kind 未注册、source 非法、
 	 *  未建档或解析失败返回 `None`。IPC 签名不变：blank root 与开库失败均
@@ -30,17 +27,7 @@ export const commands = {
 	 *  直传 `locate_change` 回退参（merge 前产物在 worktree 内）、`name` 作目录
 	 *  定位键（id → 记录 → name 分辨率单点）。
 	 */
-	readArtifact: (root: string, id: string, kind: string, source: string) => __TAURI_INVOKE<{
-	/**  契约 ID（如 "eval-checklist"），前端据此路由 renderer */
-	kind: string,
-	/**  产物格式版本 */
-	version: number,
-	title: string,
-	/**  kind 自描述结构化负载 */
-	payload: unknown,
-	/**  渲染器缺席时的保底文本 */
-	fallbackText: string | null,
-} | null>("read_artifact", { root, id, kind, source }).then((v) => (v==null?v:v as typeof v)),
+	readArtifact: (root: string, id: string, kind: string, source: string) => __TAURI_INVOKE<ArtifactEnvelope | null>("read_artifact", { root, id, kind, source }),
 	/**  读回某 exec 的输出记录 */
 	readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_output", { root, changeName, execId }),
 	/**
@@ -125,14 +112,7 @@ export const commands = {
 	 *  DTO，跨库隔离与既有查询命令一致；blank root → 空结果（`None`）；查无此
 	 *  id 显式 `Err`（单查语义与清单空态区分）。
 	 */
-	sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<{
-	/**  会话记录 */
-	row: SessionRow,
-	/**  聚合统计 */
-	stats: SessionStats,
-	/**  轮统计行（发起顺序） */
-	turns: TurnSummary[],
-} | null>("session_detail", { root, sessionId }),
+	sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<SessionSummary | null>("session_detail", { root, sessionId }),
 	/**
 	 *  某 change 的 chat 会话清单（探测语义薄包装，三段：参数转换 → 内核分页查询
 	 *  → 错误映射）：`source` 词常量收在本层（前端零来源词汇），`source_ref` 即
@@ -148,12 +128,7 @@ export const commands = {
 	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, id: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, id }),
 	createChange: (root: string, name: string, goal: string, workflowType: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal, workflowType }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
-	readExplore: (root: string, name: string) => __TAURI_INVOKE<{
-	/**  笔记名（= 文件 stem） */
-	name: string,
-	/**  UTF-8 文本内容 */
-	content: string,
-} | null>("read_explore", { root, name }),
+	readExplore: (root: string, name: string) => __TAURI_INVOKE<ExploreDoc | null>("read_explore", { root, name }),
 	/**
 	 *  导入扫描：列出笔记目录顶层 `*.md` 中**未被绑定且 stem 为 kebab-case** 的
 	 *  stem（绑定过滤与 kebab 过滤均在命令层：前者以 store 清单求差，后者对齐
@@ -235,7 +210,7 @@ export const commands = {
 	 *  两库，分页语义不变；未知模型名 reject——含跨维度模型名，维度由实例锁定；
 	 *  Global 忽略 root，Workspace blank root → 空信封不触发库解析）。
 	 */
-	dbRecords: (scope: DbDimension, root: string, model: string, offset: number, limit: number) => __TAURI_INVOKE<RecordsPage>("db_records", { scope, root, model, offset, limit }).then((v) => (({...v,records:v.records.map(i=>i)}) as typeof v)),
+	dbRecords: (scope: DbDimension, root: string, model: string, offset: number, limit: number) => __TAURI_INVOKE<RecordsPage>("db_records", { scope, root, model, offset, limit }),
 	/**
 	 *  工作区代码统计：root 有效性检查 → tokei 单次解析 → 汇总 / 语言 / 树三面组装。
 	 *  缺失 / 不可读 / 非目录 root 返回 `Err`（MUST NOT panic、MUST NOT 静默空报告）；
@@ -247,7 +222,7 @@ export const commands = {
 	 *  缺失 / 不可读 / 非目录 root 返回 `Err`（MUST NOT panic、MUST NOT 静默
 	 *  空报告）；配置文件缺失返回 `Ok` 报告（`fileMissing` 诊断在案）。
 	 */
-	workspaceConfig: (root: string) => __TAURI_INVOKE<WorkspaceConfigReport>("workspace_config", { root }).then((v) => (({...v,config:({...v.config,extra:v.config.extra.map(i=>i)})}) as typeof v)),
+	workspaceConfig: (root: string) => __TAURI_INVOKE<WorkspaceConfigReport>("workspace_config", { root }),
 	/**  应用环境：管理态 `DataRoot` → 线面平移（无 IO、无 `Result` 错误面）。 */
 	appEnvironment: () => __TAURI_INVOKE<AppEnvironment>("app_environment"),
 	/**  画布数据（停摆 / 正常两态）。 */
@@ -1699,6 +1674,8 @@ export type TurnSummary = {
 	/**  失败原因（落库失败收敛 / 无 TurnDone 异常终止时填因） */
 	error: string | null,
 };
+
+export type Value = unknown;
 
 /**  评估 verdict。 */
 export type Verdict = "pass" | "fail";

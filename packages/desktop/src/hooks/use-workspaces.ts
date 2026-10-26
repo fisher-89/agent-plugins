@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import { commands, type WorkspaceRecord } from '../types/generated/bindings';
+import { ipc } from '../lib/ipc';
+import { resetDrift } from '../lib/ipc-drift';
+import { type WorkspaceRecord } from '../types/generated/bindings';
 
 /** 动作失败 toast 固定前缀（design D8：文案供断言；remove 的 store miss 幂等非错误不 toast） */
 const ACTION_ERROR_PREFIX = {
@@ -46,6 +48,9 @@ export function useWorkspaces(): WorkspaceState {
 
   /** root 唯一写口：同步置 ref（异步取数回调读最新值）+ state（驱动渲染） */
   const applyRoot = useCallback((next: string | null) => {
+    // 当前根**变更**才清空漂移聚合：`(cmd, path)` 跨 workspace 混计会让「哪个库的
+    // 数据漂移」失真；同一根的重取数不清（判变前置，ref 与 state 随后写入）
+    if (rootRef.current !== next) resetDrift();
     rootRef.current = next;
     setRoot(next);
   }, []);
@@ -57,7 +62,7 @@ export function useWorkspaces(): WorkspaceState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    commands
+    ipc
       .listWorkspaces()
       .then((result) => {
         if (cancelled) return;
@@ -91,7 +96,7 @@ function useWorkspacesActions(applyRoot: (next: string | null) => void, refresh:
   const add = useCallback(
     async (root: string): Promise<WorkspaceRecord | null> => {
       try {
-        const record = await commands.addWorkspace(root);
+        const record = await ipc.addWorkspace(root);
         // 直接以返回记录的 canonical root 为当前根（新记录默认序未必居首）
         applyRoot(record.root);
         refresh();
@@ -107,7 +112,7 @@ function useWorkspacesActions(applyRoot: (next: string | null) => void, refresh:
   const remove = useCallback(
     async (root: string): Promise<boolean> => {
       try {
-        const hit = await commands.removeWorkspace(root);
+        const hit = await ipc.removeWorkspace(root);
         // 当前根被移除时由取数回调顺延取剩余第一名（或回欢迎屏）
         refresh();
         return hit;

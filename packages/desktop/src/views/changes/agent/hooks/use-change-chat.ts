@@ -11,11 +11,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAgentSession, type UseAgentSessionState } from '@/hooks/use-agent-session';
-import {
-  commands,
-  type AgentPermissionMode,
-  type SessionSummary,
-} from '@/types/generated/bindings';
+import { type AgentPermissionMode, type SessionSummary } from '@/types/generated/bindings';
+
+import { ipc } from '../../../../lib/ipc';
 
 /** 写侧来源归属受控字符串（读侧同词常量收在命令层——前后端各一份字面量） */
 const CHANGE_CHAT_SOURCE = 'change';
@@ -95,7 +93,7 @@ function useChangeChatList(params: {
       const ticket = (ticketRef.current += 1);
       setLoading(true);
       setError(null);
-      commands
+      ipc
         .listChangeChatSessions(root, changeId, offset, CHANGE_CHAT_PAGE_SIZE)
         .then((page) => {
           if (ticket !== ticketRef.current) return;

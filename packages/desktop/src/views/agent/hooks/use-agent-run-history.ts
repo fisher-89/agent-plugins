@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type SessionSummary } from '../../../types/generated/bindings';
+import { ipc } from '../../../lib/ipc';
+import { type SessionSummary } from '../../../types/generated/bindings';
 
 /** 历史区来源筛选三态：'all' 在取数层映射 null（不过滤）。 */
 export type AgentHistorySource = 'debug' | 'change' | 'all';
@@ -103,7 +104,7 @@ function useSessions(root: string | null, source: AgentHistorySource): SessionsV
     }
     let cancelled = false;
     setQuery({ loading: true, error: null });
-    commands
+    ipc
       .agentSessions(
         root,
         source === 'all' ? null : source,
