@@ -190,6 +190,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
                 role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮问".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },
@@ -200,6 +201,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
                 role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮答".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },
@@ -2759,5 +2761,257 @@ async fn compose_turn尾参与store的root不同源_双root不变量成立() {
             .expect("异根库清单应成功")
             .is_empty(),
         "尾参 root 不触发第二处库解析（store 半边唯一入口 = 注入参）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// web_search 门控单点（AC-8 / D8）：`provider.web_search && protocol == Anthropic`
+// ---------------------------------------------------------------------------
+
+/// 携协议与开关的 provider fixture（解析仅组装不触网络）。
+fn seed_provider_with_switch(
+    stores: &WorkspaceStores,
+    name: &str,
+    protocol: AgentProviderProtocol,
+    web_search: bool,
+) -> i64 {
+    let provider = AgentProviderRecord::new(
+        name.to_owned(),
+        protocol,
+        "http://127.0.0.1:9/v1".to_owned(),
+        "sk-compose".to_owned(),
+        AgentModelTiers {
+            high: "m-high".to_owned(),
+            medium: "m-medium".to_owned(),
+            low: "m-low".to_owned(),
+        },
+        None,
+        None,
+    )
+    .with_web_search(web_search);
+    stores
+        .global()
+        .upsert_agent_provider(provider)
+        .expect("落 provider fixture")
+        .id
+}
+
+#[test]
+fn web_search门控四格映射_仅anthropic且开为真() {
+    let cases = [
+        (AgentProviderProtocol::Anthropic, true, true),
+        (AgentProviderProtocol::Openai, true, false),
+        (AgentProviderProtocol::Anthropic, false, false),
+        (AgentProviderProtocol::Openai, false, false),
+    ];
+
+    for (protocol, provider_switch, expected) in cases {
+        let env = DualEnv::new("ws-gate");
+        let stores = env.stores();
+        let provider_id = seed_provider_with_switch(stores, "门控供应", protocol, provider_switch);
+        let instance_id = seed_sdk_instance(stores, "门控实例", Some(provider_id));
+
+        let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("解析应成功: {error}"),
+        };
+
+        assert_eq!(
+            resolved.web_search, expected,
+            "({protocol:?}, {provider_switch}) → web_search = {expected}"
+        );
+        // 记录值不被解析期清零（保存期无条件接受、解析期只做最终值判定）
+        let stored = stores
+            .global()
+            .find_agent_provider(provider_id)
+            .expect("读 provider 成功")
+            .expect("provider 行在场");
+        assert_eq!(
+            stored.web_search, provider_switch,
+            "provider 记录的 web_search 原值不被解析期改写"
+        );
+    }
+}
+
+#[test]
+fn 先开开关后改协议_解析为假但记录值保留且改回后恢复为真() {
+    let env = DualEnv::new("ws-gate-switch");
+    let stores = env.stores();
+    // 「先开开关」：记录 web_search = true（openai 下保存期无条件接受）
+    let provider_id =
+        seed_provider_with_switch(stores, "切换供应", AgentProviderProtocol::Openai, true);
+    let instance_id = seed_sdk_instance(stores, "切换实例", Some(provider_id));
+
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    };
+    assert!(!resolved.web_search, "openai 协议下不生效（门控单点）");
+    let stored = stores
+        .global()
+        .find_agent_provider(provider_id)
+        .expect("读 provider 成功")
+        .expect("provider 行在场");
+    assert!(stored.web_search, "记录值不被清零（他端仍为 true）");
+
+    // 「再改回 anthropic」：同一记录重新解析即恢复为真（零静默清零）
+    let mut updated = stored;
+    updated.protocol = AgentProviderProtocol::Anthropic;
+    stores
+        .global()
+        .upsert_agent_provider(updated)
+        .expect("改协议落库成功");
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("改协议后解析应成功: {error}"),
+    };
+    assert!(resolved.web_search, "改回 anthropic → 解析为真");
+}
+
+#[test]
+fn 解析失败面不被开关改写_agent缺失与cli两形态同一err且不完整配置在同一点失败() {
+    // 1) agent 不存在：解析层同一 Err 文案，开关不改变失败面
+    for web_search in [true, false] {
+        let env = DualEnv::new("ws-gate-missing-agent");
+        let stores = env.stores();
+        // 先落一个带开关的 provider（记录形态与失败面无关，仅保证库内形态一致）
+        let _provider_id = seed_provider_with_switch(
+            stores,
+            "失败面供应",
+            AgentProviderProtocol::Anthropic,
+            web_search,
+        );
+        let error = err_of(super::resolve_agent_engine(stores, Some(999)));
+        assert!(
+            error.contains("agent 不存在: id=999"),
+            "开关 {web_search}：agent 缺失错误面不变，实际: {error}"
+        );
+    }
+
+    // 2) cli 臂：解析单点即拒，逐字退役文案（与开关无关）
+    for web_search in [true, false] {
+        let env = DualEnv::new("ws-gate-cli");
+        let cli_id = preset_cli_instance(&env, 71, "cli开关实例", false);
+        let stores = env.stores();
+        assert_eq!(
+            err_of(super::resolve_agent_engine(stores, Some(cli_id))),
+            CLI_TENANT_RETIRED,
+            "开关 {web_search}：cli 臂逐字拒收文案不变"
+        );
+    }
+
+    // 3) 记录不完整：解析层不做完整性判定（web_search 不参与 is_complete），
+    //    失败面后移到 runner 启动期，且开关不改变该失败文案
+    for web_search in [true, false] {
+        let env = DualEnv::new("ws-gate-incomplete");
+        let stores = env.stores();
+        let provider_id = stores
+            .global()
+            .upsert_agent_provider(
+                AgentProviderRecord::new(
+                    "残缺供应".to_owned(),
+                    AgentProviderProtocol::Anthropic,
+                    String::new(),
+                    "sk-compose".to_owned(),
+                    AgentModelTiers {
+                        high: "m-high".to_owned(),
+                        medium: "m-medium".to_owned(),
+                        low: "m-low".to_owned(),
+                    },
+                    None,
+                    None,
+                )
+                .with_web_search(web_search),
+            )
+            .expect("落残缺 fixture")
+            .id;
+        let instance_id = seed_sdk_instance(stores, "残缺实例", Some(provider_id));
+
+        let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("解析层不做完整性判定（失败面在 runner 启动期）: {error}"),
+        };
+        assert_eq!(
+            resolved.web_search, web_search,
+            "残缺配置不改变开关产物（开关不参与完整性判定）"
+        );
+        assert!(resolved.config.base_url.is_empty(), "残缺配置原样透传");
+
+        // 开关不改变启动期失败文案
+        let with_switch = crate::EngineFacade::new()
+            .with_web_search(resolved.web_search)
+            .runner_for(crate::EngineKind::Sdk, resolved.config.clone())
+            .expect("Sdk 臂构造成功");
+        let without_switch = crate::EngineFacade::new()
+            .runner_for(crate::EngineKind::Sdk, resolved.config.clone())
+            .expect("Sdk 臂构造成功");
+        let open = SessionOpen {
+            injections: agent::SessionInjections::default(),
+            ctx: ctx(r"D:\工作区"),
+            session: SessionRef::Continue {
+                id: "ses-incomplete".to_owned(),
+            },
+            prior_handle: Some("ses-incomplete".to_owned()),
+        };
+        assert_eq!(
+            with_switch
+                .open_session(open.clone())
+                .expect_err("残缺配置续会话必须显式失败")
+                .to_string(),
+            without_switch
+                .open_session(open)
+                .expect_err("同口径失败")
+                .to_string(),
+            "开关 {web_search}：启动期失败文案一致"
+        );
+    }
+}
+
+#[test]
+fn 门面链传递可考_解析产物经门面装配后与直构runner同值等价() {
+    use crate::sdk::runner::SdkRunner;
+    use crate::EngineFacade;
+
+    let env = DualEnv::new("ws-gate-facade");
+    let stores = env.stores();
+    let provider_id =
+        seed_provider_with_switch(stores, "门面供应", AgentProviderProtocol::Anthropic, true);
+    let instance_id = seed_sdk_instance(stores, "门面实例", Some(provider_id));
+
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    };
+    assert!(
+        resolved.web_search,
+        "门控产物为真（bool 全链非 Option<bool>）"
+    );
+
+    // 门面装配（与 compose_turn 同链）vs 直构 runner + 同值开关：行为等价
+    let via_facade = EngineFacade::new()
+        .with_web_search(resolved.web_search)
+        .runner_for(crate::EngineKind::Sdk, resolved.config.clone())
+        .expect("Sdk 臂构造成功");
+    let via_direct =
+        SdkRunner::new(resolved.config.clone(), None, None, None).with_web_search(true);
+
+    let open = SessionOpen {
+        injections: agent::SessionInjections::default(),
+        ctx: ctx(r"D:\工作区"),
+        session: SessionRef::Continue {
+            id: "ses-facade-web-search".to_owned(),
+        },
+        prior_handle: Some("ses-facade-web-search".to_owned()),
+    };
+    assert_eq!(
+        via_facade
+            .open_session(open.clone())
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        via_direct
+            .open_session(open)
+            .expect_err("直构同口径失败")
+            .to_string(),
+        "门面链传递与直构 runner 同值等价"
     );
 }

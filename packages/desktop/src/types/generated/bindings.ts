@@ -68,15 +68,19 @@ export const commands = {
 	 *  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
 	 * 
 	 *  参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
-	 *  配置核心项，签名上显式。
+	 *  配置核心项，签名上显式；`web_search` 居末位（provider 属性，缺省关）。
 	 * 
 	 *  保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
 	 *  `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
 	 *  规则）；`max_tokens` 非空时 SHALL `>= MIN_OUTPUT_TOKENS`（`< 4096` 拒收，
 	 *  不静默截断或夹到边界）。错误串只含档位名 / 模型名原文 / 下限——结构上
 	 *  不含 api_key。
+	 * 
+	 *  `web_search` **不因协议拒收或清零**（openai 下同收原值）——生效门在运行
+	 *  发起解析期（`provider.web_search && protocol == Anthropic`），保存期纠偏
+	 *  会让「先开开关后改协议」与「先改协议后开开关」收敛到不同记录形态。
 	 */
-	saveAgentProvider: (id: number | null, name: string, protocol: AgentProviderProtocol, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null, maxTokens: number | null) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, protocol, baseUrl, apiKey, models, contextLength, maxTokens }),
+	saveAgentProvider: (id: number | null, name: string, protocol: AgentProviderProtocol, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null, maxTokens: number | null, webSearch: boolean) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, protocol, baseUrl, apiKey, models, contextLength, maxTokens, webSearch }),
 	/**  删除 provider：被 agent 引用 reject（含引用方提示，不级联） */
 	deleteAgentProvider: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_provider", { id }),
 	/**  agent 实例清单（主键 id 升序）。 */
@@ -268,16 +272,76 @@ export type ActiveRunView = {
 	edges: ChangeRunEdgeRecord[],
 };
 
-/**  消息内块：Text / Thinking / ToolUse / ToolResult 四变体（tag `kind`，camelCase）。 */
+/**
+ *  消息内块：Text / Thinking / ToolUse / ToolResult / WebSearch 五变体
+ *  （tag `kind`，camelCase）。
+ * 
+ *  词汇仍**协议中立**（core 不认识 anthropic / rig）：`WebSearch` 是 provider
+ *  服务端工具块的通用表达，`citations` 是其正文引用——
+ *  - `raw_use` / `raw_result` 为**回放唯一事实源**（`encrypted_content` 等不可
+ *    推导字段原样保全，展示字段 MUST NOT 参与重建）；
+ *  - `citations` 与 `WebSearch` 均为新变体 / 带默认值字段，事件 payload 是自
+ *    描述 JSON，落库**无需 store schema 版本升级**；旧事件缺 `citations` 读出
+ *    `None`。
+ * 
+ *  已知代价（边界条 15）：旧客户端读到含 `WebSearch` 块的事件会在**整条事件
+ *  解码**时失败（不是少显示一张卡），仓库不提供降级分支。
+ */
 export type AgentBlock = 
-/**  文本块（assistant 正文 / user 输入） */
-{ kind: "text"; text: string } | 
+/**
+ *  文本块（assistant 正文 / user 输入）：`citations` 为正文引用
+ *  （`None` = 无引用；**序列化落 `null`，键恒在**——旧 JSON 缺键仍读出
+ *  `None`）。属性面只标 `default`：`skip_serializing_if` 无法在 unified
+ *  相位模型下表达，加则 bindings 分裂为相位伴生类型。
+ */
+{ kind: "text"; text: string; citations?: AgentCitation[] | null } | 
 /**  思考块 */
 { kind: "thinking"; thinking: string } | 
 /**  工具调用块（`input` 为原 JSON，结构由具体工具自解释） */
 { kind: "toolUse"; id: string; name: string; input: unknown } | 
 /**  工具结果块（`content` 已扁平化为字符串；`is_error` 缺失视作 false） */
-{ kind: "toolResult"; id: string; content: string; isError: boolean };
+{ kind: "toolResult"; id: string; content: string; isError: boolean } | 
+/**
+ *  云端 `web_search` 服务端工具块：一次 `server_tool_use` 与其配对 result
+ *  的**原子表达**（`id` 同两侧配对键）。
+ * 
+ *  `query` / `results` / `error` 为展示字段（不参与回放重建）；
+ *  `raw_use` / `raw_result` 为回放唯一事实源。use 与 result 被拆进两条
+ *  assistant 消息时投两块（use 侧 `raw_use` 有值、result 侧为 `None`）。
+ * 
+ *  展示字段与 raw 字段**一律落键、值可 `null`**（`results` 缺省落 `[]`）：
+ *  属性面只标 `default`，`skip_serializing_if` 会令 bindings 分裂出相位
+ *  伴生类型（统一形态的前提，见 D1）。
+ */
+{ kind: "webSearch"; 
+/**  服务端工具调用 id（= 配对 result 的 `tool_use_id`） */
+id: string; 
+/**  查询词（`server_tool_use.input.query`；孤儿 result 块为空串） */
+query: string; 
+/**  来源列表（展示字段；空数组落 `[]`，键恒在） */
+results?: WebSearchSource[]; 
+/**  搜索错误码（`web_search_tool_result_error.error_code`） */
+error?: string | null; 
+/**  原始 wire 值（`server_tool_use` 原文；回放源） */
+rawUse?: unknown | null; 
+/**  原始 wire 值（`web_search_tool_result` 原文；回放源） */
+rawResult?: unknown | null };
+
+/**
+ *  正文引用（服务端 citations 的一条）：`url` / `title` / `cited_text` 为展示
+ *  字段（可缺省）；`raw` 为原始 wire 值（回放用，反序列化再序列化会规范化，
+ *  故 MUST 原值保全）。
+ */
+export type AgentCitation = {
+	/**  来源地址 */
+	url?: string | null,
+	/**  来源标题 */
+	title?: string | null,
+	/**  被引用的原文片段 */
+	citedText?: string | null,
+	/**  原始 wire 值（回放源；不经类型往返） */
+	raw: unknown,
+};
 
 /**  token 级增量载荷（思考/回复可辨；serde 内部 tag camelCase，与块模型同式）。 */
 export type AgentDelta = 
@@ -440,6 +504,13 @@ export type AgentProviderRecord = {
 	 *  anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
 	 */
 	maxTokens?: number | null,
+	/**
+	 *  是否启用 Anthropic 云端 `web_search` 服务端工具（缺省 `false`——存量
+	 *  行升级即关，行为零变化）。**生效门在解析期**（`provider.web_search &&
+	 *  protocol == Anthropic`）：保存期无条件接受（openai 下也原样入库，不
+	 *  拒收、不清零），纠偏只在运行发起解析单点
+	 */
+	webSearch?: boolean,
 };
 
 /**
@@ -1370,6 +1441,16 @@ export type TurnSummary = {
 
 /**  评估 verdict。 */
 export type Verdict = "pass" | "fail";
+
+/**  单条搜索来源（纯展示字段，不参与回放）。 */
+export type WebSearchSource = {
+	/**  来源地址 */
+	url: string,
+	/**  来源标题 */
+	title?: string | null,
+	/**  页面时效（服务端给出的 `page_age` 原样） */
+	pageAge?: string | null,
+};
 
 /**
  *  永远合法的完整工作区配置：合法字段原样保留、违例字段吃默认、未知字段

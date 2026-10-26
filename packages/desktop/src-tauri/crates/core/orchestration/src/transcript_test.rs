@@ -66,6 +66,7 @@ fn tool_result(id: &str, content: &str) -> AgentBlock {
 fn text_block(text: &str) -> AgentBlock {
     AgentBlock::Text {
         text: text.to_owned(),
+        citations: None,
     }
 }
 

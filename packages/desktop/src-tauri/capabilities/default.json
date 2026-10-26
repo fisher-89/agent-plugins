@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "查询 IPC 与文件夹选择器；无 fs / shell 等其他权限",
+  "description": "查询 IPC、文件夹选择器与外链打开（仅 http(s)）；无 fs / shell 等其他权限",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "http://*" }, { "url": "https://*" }]
+    }
+  ]
 }

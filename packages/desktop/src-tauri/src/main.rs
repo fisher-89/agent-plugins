@@ -41,6 +41,9 @@ fn main() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        // 外链打开（agent 搜索来源 / 引用列表的唯一调用点收敛在前端
+        // `ExternalLink`；这里与 dialog 同位注册，MUST NOT 自造第二种形态）
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // 数据根解析在此（home_dir 依赖 Tauri 上下文），store 内无环境解析。
             // 任一步失败即 setup Err → run Err → expect 报错启动失败：

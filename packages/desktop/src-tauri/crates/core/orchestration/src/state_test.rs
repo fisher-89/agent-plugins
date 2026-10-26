@@ -28,6 +28,7 @@ fn sealed_event(seq: u64) -> agent::AgentEvent {
             role: AgentMessageRole::Assistant,
             blocks: vec![AgentBlock::Text {
                 text: "评估结论".to_owned(),
+                citations: None,
             }],
             parent_tool_use_id: None,
         },

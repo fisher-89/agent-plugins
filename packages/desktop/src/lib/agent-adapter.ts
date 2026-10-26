@@ -1,6 +1,13 @@
-import type { UIMessage, UIMessageChunk } from 'ai';
+import type { ProviderMetadata, UIMessage, UIMessageChunk } from 'ai';
 
-import type { AgentBlock, AgentEvent, AgentMessageRole, TurnSummary } from '../types/dto';
+import type {
+  AgentBlock,
+  AgentCitation,
+  AgentEvent,
+  AgentMessageRole,
+  TurnSummary,
+  WebSearchSource,
+} from '../types/dto';
 
 /** 消息元数据：seq 保真（record 合成消息为 null）与子代理归因字段 */
 interface AgentMessageMetadata {
@@ -44,10 +51,12 @@ interface AgentRawData {
   rawJson: string;
 }
 
-/** 工具结果载荷（tool 部件 output 与 chunk output 同形） */
+/** 工具结果载荷（tool 部件 output 与 chunk output 同形）。`search` 为加位可选
+ * ——云端 `web_search` 服务端工具的结构化载荷（既有消费面零改） */
 export interface AgentToolOutput {
   content: string;
   isError: boolean;
+  search?: { results: WebSearchSource[]; error: string | null };
 }
 
 /** 五个 data 部件形状（`data-run-record` 的 data 即轮行 DTO 整行）。
@@ -94,9 +103,18 @@ type AuxData =
 
 type ToolResultBlock = Extract<AgentBlock, { kind: 'toolResult' }>;
 
-/** 块语义唯一表达（不含发射格式 / id / 视野）：`output: null` 即未配对 */
+/** 搜索来源载荷（result 侧块与视野配对的共同交付形态） */
+interface SearchPayload {
+  results: WebSearchSource[];
+  error: string | null;
+}
+
+/** 块语义唯一表达（不含发射格式 / id / 视野）：`output: null` 即未配对。
+ * text 变体携 `citations`（缺席 = 无引用）；tool 变体为**唯一工具类承载位**
+ * ——客户端工具与云端 `web_search` 服务端工具共用（`toolName` 区分，
+ * MUST NOT 为搜索新增第四变体） */
 type BlockPlan =
-  | { kind: 'text'; text: string }
+  | { kind: 'text'; text: string; citations?: AgentCitation[] }
   | { kind: 'reasoning'; text: string }
   | {
       kind: 'tool';
@@ -106,49 +124,72 @@ type BlockPlan =
       output: AgentToolOutput | null;
     };
 
-/** 配对产物（两视野同形态，差异只在产出方式） */
-type PairedResults = Map<string, ToolResultBlock>;
+/** 配对产物：工具结果块或搜索来源载荷的联合（与块种类同构；两视野同形态，
+ * 差异只在产出方式） */
+type PairedOutcome =
+  | { kind: 'toolResult'; block: ToolResultBlock }
+  | ({ kind: 'webSearch' } & SearchPayload);
+
+/** 配对载体（id → 配对产物；重复结果取首个） */
+type PairedResults = Map<string, PairedOutcome>;
+
+/** 配对索引源：客户端工具调用 + 搜索 use 侧块（`rawUse != null` 即 use 侧） */
+function collectUseIds(block: AgentBlock, useIds: Set<string>): void {
+  if (block.kind === 'toolUse') {
+    useIds.add(block.id);
+  } else if (block.kind === 'webSearch' && block.rawUse != null) {
+    useIds.add(block.id);
+  }
+}
+
+/** 配对产物收录：同 id 的 `toolResult` 块或搜索 result 侧块（`rawUse == null`） */
+function collectOutcome(block: AgentBlock, paired: PairedResults, useIds: Set<string>): void {
+  if (block.kind === 'toolResult') {
+    if (useIds.has(block.id) && !paired.has(block.id)) {
+      paired.set(block.id, { kind: 'toolResult', block });
+    }
+  } else if (block.kind === 'webSearch' && block.rawUse == null) {
+    if (useIds.has(block.id) && !paired.has(block.id)) {
+      paired.set(block.id, {
+        kind: 'webSearch',
+        results: block.results ?? [],
+        error: block.error ?? null,
+      });
+    }
+  }
+}
 
 /** 视野层：配对视野差异的唯一隔离点（差异 MUST NOT 渗入语义层与发射层） */
 const PairingScope = {
-  /** 折叠路视野：跨消息预扫全部 toolUse，再收其配对 result（重复取首个） */
+  /** 折叠路视野：跨消息预扫全部 use 侧块，再收其配对产物（重复取首个） */
   global: (events: SealedAgentEvent[]): PairedResults => {
     const useIds = new Set<string>();
     for (const event of events) {
       if (event.kind !== 'message') continue;
-      for (const block of event.blocks) {
-        if (block.kind === 'toolUse') useIds.add(block.id);
-      }
+      for (const block of event.blocks) collectUseIds(block, useIds);
     }
     const paired: PairedResults = new Map();
     for (const event of events) {
       if (event.kind !== 'message') continue;
-      for (const block of event.blocks) {
-        if (block.kind === 'toolResult' && useIds.has(block.id) && !paired.has(block.id)) {
-          paired.set(block.id, block);
-        }
-      }
+      for (const block of event.blocks) collectOutcome(block, paired, useIds);
     }
     return paired;
   },
-  /** 实时路视野：仅当前 message 内 `toolUse` ↔ `toolResult` 配对（跨消息不可见） */
+  /** 实时路视野：仅当前 message 内 use ↔ 配对产物（跨消息不可见） */
   local: (blocks: AgentBlock[]): PairedResults => {
     const useIds = new Set<string>();
-    for (const block of blocks) {
-      if (block.kind === 'toolUse') useIds.add(block.id);
-    }
+    for (const block of blocks) collectUseIds(block, useIds);
     const paired: PairedResults = new Map();
-    for (const block of blocks) {
-      if (block.kind === 'toolResult' && useIds.has(block.id) && !paired.has(block.id)) {
-        paired.set(block.id, block);
-      }
-    }
+    for (const block of blocks) collectOutcome(block, paired, useIds);
     return paired;
   },
 } as const;
 
 /** 无主 toolResult 就地合成时的占位工具名 */
 const ORPHAN_TOOL_NAME = '工具调用';
+
+/** 云端 `web_search` 服务端工具的线名（工具卡注册表键同值） */
+const WEB_SEARCH_TOOL_NAME = 'web_search';
 
 /** 消息 id：seq 保真的稳定 key（重放与实时同构锚点） */
 function messageId(seq: number): string {
@@ -222,36 +263,27 @@ function auxEventData(event: Exclude<SealedAgentEvent, { kind: 'message' }>): Au
   }
 }
 
+/** 语义层窄化别名（块种类 → 变体类型；`planBlock` 分支收窄的唯一依赖面） */
+type TextBlock = Extract<AgentBlock, { kind: 'text' }>;
+type ToolUseBlock = Extract<AgentBlock, { kind: 'toolUse' }>;
+type WebSearchBlock = Extract<AgentBlock, { kind: 'webSearch' }>;
+
 /**
- * 语义层唯一判定点：块 → 计划（四变体 + 无主 result 合成；`null` = 已配对的
- * result 不重复呈现，其载荷已并入对应 toolUse 计划）。
+ * 语义层唯一判定点：块 → 计划（五变体 + 无主 result 合成；`null` = 已配对的
+ * result 不重复呈现，其载荷已并入对应 use 侧计划）。
  */
 function planBlock(block: AgentBlock, paired: PairedResults): BlockPlan | null {
   switch (block.kind) {
     case 'text':
-      return { kind: 'text', text: block.text };
+      return textPlan(block);
     case 'thinking':
       return { kind: 'reasoning', text: block.thinking };
-    case 'toolUse': {
-      const result = paired.get(block.id);
-      return {
-        kind: 'tool',
-        toolCallId: block.id,
-        toolName: block.name,
-        input: block.input,
-        output: result === undefined ? null : { content: result.content, isError: result.isError },
-      };
-    }
+    case 'toolUse':
+      return toolUsePlan(block, paired);
     case 'toolResult':
-      if (paired.has(block.id)) return null;
-      // 无主 result：合成占位工具计划（跨消息实时路的既有形态）
-      return {
-        kind: 'tool',
-        toolCallId: block.id,
-        toolName: ORPHAN_TOOL_NAME,
-        input: null,
-        output: { content: block.content, isError: block.isError },
-      };
+      return toolResultPlan(block, paired);
+    case 'webSearch':
+      return webSearchPlan(block, paired);
     default: {
       // 双层收口：编译期穷尽（新增 AgentBlock 变体而漏改即在此报错）+ runtime
       // 未知块变体跳过呈现（事件级未知仍由 `data-raw` 原文透传，不在此重复兜底）
@@ -260,6 +292,110 @@ function planBlock(block: AgentBlock, paired: PairedResults): BlockPlan | null {
       return null;
     }
   }
+}
+
+/** text 块 → text 计划（空 citations 折叠为缺席：契约上「无引用」两形态同义） */
+function textPlan(block: TextBlock): BlockPlan {
+  const citations = emptyAsUndefined(block.citations);
+  return citations === undefined
+    ? { kind: 'text', text: block.text }
+    : { kind: 'text', text: block.text, citations };
+}
+
+/** toolUse 块 → tool 计划（客户端工具；配对命中则携 output） */
+function toolUsePlan(block: ToolUseBlock, paired: PairedResults): BlockPlan {
+  const outcome = paired.get(block.id);
+  return {
+    kind: 'tool',
+    toolCallId: block.id,
+    toolName: block.name,
+    input: block.input,
+    output:
+      outcome?.kind === 'toolResult'
+        ? { content: outcome.block.content, isError: outcome.block.isError }
+        : null,
+  };
+}
+
+/** toolResult 块 → tool 计划（已配对 = `null`；无主 result 合成占位工具计划，
+ * 跨消息实时路的既有形态） */
+function toolResultPlan(block: ToolResultBlock, paired: PairedResults): BlockPlan | null {
+  if (paired.has(block.id)) return null;
+  return {
+    kind: 'tool',
+    toolCallId: block.id,
+    toolName: ORPHAN_TOOL_NAME,
+    input: null,
+    output: { content: block.content, isError: block.isError },
+  };
+}
+
+/**
+ * webSearch 块 → tool 计划（搜索复用工具卡管线，`toolName = 'web_search'`）。
+ *
+ * - use 侧（`rawUse != null`）：`input = { query }`；`output` 优先取**自身**
+ *   `rawResult`（`pause_turn` 未拆分时 use 与 result 同处一条消息的收敛形态），
+ *   其次取视野配对命中，两者皆无 = 未落定（`output: null`，只显查询词）；
+ * - result 侧（`rawUse == null`）：配对命中返回 `null`（已被 use 消费），未命中
+ *   产孤儿占位计划（`input: null` + 来源载荷，信息不丢）。
+ */
+function webSearchPlan(block: WebSearchBlock, paired: PairedResults): BlockPlan | null {
+  const search: SearchPayload = { results: block.results ?? [], error: block.error ?? null };
+  if (block.rawUse == null) {
+    if (paired.has(block.id)) return null;
+    return {
+      kind: 'tool',
+      toolCallId: block.id,
+      toolName: WEB_SEARCH_TOOL_NAME,
+      input: null,
+      output: searchOutput(search),
+    };
+  }
+  const own = block.rawResult == null ? null : search;
+  const outcome = paired.get(block.id);
+  const payload = own ?? (outcome?.kind === 'webSearch' ? outcome : null);
+  return {
+    kind: 'tool',
+    toolCallId: block.id,
+    toolName: WEB_SEARCH_TOOL_NAME,
+    input: { query: block.query },
+    output: payload === null ? null : searchOutput(payload),
+  };
+}
+
+/** 空数组折叠为 `undefined`（citations 缺席与空同义：不挂 metadata、不渲染列表） */
+function emptyAsUndefined<T>(items: T[] | null | undefined): T[] | undefined {
+  return items == null || items.length === 0 ? undefined : items;
+}
+
+/** 搜索载荷 → `AgentToolOutput` 加位形态（`content` 位保留空串，`isError` =
+ * 错误在场；结构化来源走 `search` 加位） */
+function searchOutput(payload: SearchPayload): AgentToolOutput {
+  return {
+    content: '',
+    isError: payload.error !== null,
+    search: { results: payload.results, error: payload.error },
+  };
+}
+
+/**
+ * citations → text 部件 / chunk 的 `providerMetadata`（命名空间 `agent`——消费
+ * 点在 provider 之外，MUST NOT 借 `anthropic` 名）：缺席 / 空数组 → `undefined`
+ * （不挂空壳）；否则同一份 metadata 对象。
+ *
+ * 载荷形状为 `{ agent: { citations } }`——消费面（`agent-messages.tsx` 的
+ * `citationsOfPart` / 呈现层）读 `providerMetadata.agent.citations`，故内层键名
+ * MUST 为 `citations`（单层 `{ agent: citations }` 会让引用列表恒空）。
+ *
+ * `AgentCitation.raw` 在 TS 面为 `unknown`（serde_json::Value → specta
+ * `unknown`），而 `ProviderMetadata` 要求 JSON 值域——值本身来自 IPC 的 JSON
+ * 边界，故此处断言是**类型面补齐**而非运行时转换。metadata 合并语义为**覆盖
+ * 非累加**，故 citations 只挂一次（`text-start` 与 `text-delta` 同一份对象）。
+ */
+function citationMetadata(citations: AgentCitation[] | undefined): ProviderMetadata | undefined {
+  if (citations === undefined || citations.length === 0) return undefined;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- 值来自 IPC 的 JSON 边界（raw 在 TS 面为 unknown），断言是类型面补齐而非运行时转换
+  return { agent: { citations } } as unknown as ProviderMetadata;
 }
 
 /** 块序列 → 计划序列（已配对 result 落空，不作占位） */
@@ -296,7 +432,13 @@ function plansToParts(plans: BlockPlan[]): AgentUIMessage['parts'] {
   const parts: AgentUIMessage['parts'] = [];
   for (const plan of plans) {
     if (plan.kind === 'text') {
-      parts.push({ type: 'text', text: plan.text, state: 'done' });
+      // 无引用时不落 `providerMetadata` 键（部件形状与变更前逐字一致）
+      const metadata = citationMetadata(plan.citations);
+      parts.push(
+        metadata === undefined
+          ? { type: 'text', text: plan.text, state: 'done' }
+          : { type: 'text', text: plan.text, state: 'done', providerMetadata: metadata },
+      );
     } else if (plan.kind === 'reasoning') {
       parts.push({ type: 'reasoning', text: plan.text, state: 'done' });
     } else {
@@ -351,11 +493,21 @@ export function runRecordToUIMessage(record: TurnSummary): AgentUIMessage {
   };
 }
 
-/** text 块 → 整块 text chunk 组（无 token 拆分） */
-function textChunks(id: string, text: string): AgentUIMessageChunk[] {
+/** text 块 → 整块 text chunk 组（无 token 拆分）：`text-start` 与
+ * `text-delta` 带同一份 metadata，`text-end` 不带 */
+function textChunks(id: string, text: string, citations?: AgentCitation[]): AgentUIMessageChunk[] {
+  const metadata = citationMetadata(citations);
+  if (metadata === undefined) {
+    return [
+      { type: 'text-start', id },
+      { type: 'text-delta', id, delta: text },
+      { type: 'text-end', id },
+    ];
+  }
+  // start / delta 共用同一份 metadata 对象（ai-sdk 的 metadata 合并为覆盖非累加）
   return [
-    { type: 'text-start', id },
-    { type: 'text-delta', id, delta: text },
+    { type: 'text-start', id, providerMetadata: metadata },
+    { type: 'text-delta', id, delta: text, providerMetadata: metadata },
     { type: 'text-end', id },
   ];
 }
@@ -416,7 +568,7 @@ function plansToChunks(plans: BlockPlan[], seq: number): AgentUIMessageChunk[] {
   const chunks: AgentUIMessageChunk[] = [];
   plans.forEach((plan, index) => {
     if (plan.kind === 'text') {
-      chunks.push(...textChunks(`t-${seq}-${index}`, plan.text));
+      chunks.push(...textChunks(`t-${seq}-${index}`, plan.text, plan.citations));
     } else if (plan.kind === 'reasoning') {
       chunks.push(...reasoningChunks(`r-${seq}-${index}`, plan.text));
     } else {

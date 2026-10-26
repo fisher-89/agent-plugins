@@ -19,6 +19,7 @@ fn user_text(seq: u64, text: &str) -> AgentEvent {
             role: AgentMessageRole::User,
             blocks: vec![AgentBlock::Text {
                 text: text.to_owned(),
+                citations: None,
             }],
             parent_tool_use_id: None,
         },
@@ -32,6 +33,7 @@ fn assistant_text(seq: u64, text: &str) -> AgentEvent {
             role: AgentMessageRole::Assistant,
             blocks: vec![AgentBlock::Text {
                 text: text.to_owned(),
+                citations: None,
             }],
             parent_tool_use_id: None,
         },
@@ -159,6 +161,7 @@ fn 单条密封message收三块时重建为单条assistant消息不拆分() {
             blocks: vec![
                 AgentBlock::Text {
                     text: "结论先行".to_owned(),
+                    citations: None,
                 },
                 AgentBlock::Thinking {
                     thinking: "推理过程".to_owned(),
@@ -327,6 +330,7 @@ fn 非对话密封事件与子代理归因事件不进对话史() {
                 role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "子代理输出".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: Some("tu_1".to_owned()),
             },
@@ -595,4 +599,384 @@ fn 千级长转录重建不丢消息不乱序() {
         };
         assert_eq!(text, expected, "index={index} 保序");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 回放展开：WebSearch 块重建两条 AssistantContent + Text.citations 回填
+// （AC-5；展示字段不参与重建）
+// ---------------------------------------------------------------------------
+
+/// 携 raw 的 use wire（`server_tool_use`）。
+fn web_search_use_raw(use_id: &str, query: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "server_tool_use",
+        "id": use_id,
+        "name": "web_search",
+        "input": { "query": query },
+        "encrypted_content": "use 加密索引 🎉",
+    })
+}
+
+/// 携 raw 的 result wire（`web_search_tool_result`）。
+fn web_search_result_raw(use_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "web_search_tool_result",
+        "tool_use_id": use_id,
+        "content": [{ "type": "web_search_result", "url": "https://a/1" }],
+        "encrypted_content": "result 加密索引",
+    })
+}
+
+/// WebSearch 块 fixture（两侧 raw 可分别缺省）。
+fn web_search_block(
+    use_id: &str,
+    raw_use: Option<serde_json::Value>,
+    raw_result: Option<serde_json::Value>,
+) -> AgentBlock {
+    AgentBlock::WebSearch {
+        id: use_id.to_owned(),
+        query: "今日汇率".to_owned(),
+        results: Vec::new(),
+        error: None,
+        raw_use,
+        raw_result,
+    }
+}
+
+/// 携块清单的 assistant 事件。
+fn assistant_blocks(seq: u64, blocks: Vec<AgentBlock>) -> AgentEvent {
+    event(
+        seq,
+        AgentEventKind::Message {
+            role: AgentMessageRole::Assistant,
+            blocks,
+            parent_tool_use_id: None,
+        },
+    )
+}
+
+/// 摘第 `index` 条 assistant 消息的 `content`。
+fn assistant_content_of(history: &[Message], index: usize) -> &Vec<AssistantContent> {
+    let assistants: Vec<&Vec<AssistantContent>> = history
+        .iter()
+        .filter_map(|message| match message {
+            Message::Assistant { content, .. } => Some(content),
+            _ => None,
+        })
+        .collect();
+    assistants
+        .get(index)
+        .unwrap_or_else(|| panic!("第 {index} 条 assistant 消息应在场"))
+}
+
+/// 摘 `AssistantContent::Text` 的 `additional_params` 键值。
+fn param_of(content: &AssistantContent, key: &str) -> serde_json::Value {
+    let AssistantContent::Text(text) = content else {
+        panic!("应为 Text 变体，实际: {content:?}");
+    };
+    text.additional_params
+        .as_ref()
+        .unwrap_or_else(|| panic!("additional_params 应在场"))
+        .get(key)
+        .cloned()
+        .unwrap_or_else(|| panic!("{key} 键应在场"))
+}
+
+#[test]
+fn web_search块重建为两条空文本assistant_content且顺序为use先result后() {
+    let raw_use = web_search_use_raw("srvtoolu_1", "今日汇率");
+    let raw_result = web_search_result_raw("srvtoolu_1");
+    let events = vec![
+        user_text(0, "帮我查汇率"),
+        assistant_blocks(
+            1,
+            vec![web_search_block(
+                "srvtoolu_1",
+                Some(raw_use.clone()),
+                Some(raw_result.clone()),
+            )],
+        ),
+    ];
+
+    let history = rebuild(&events).expect("重建成功");
+    let content = assistant_content_of(&history, 0);
+
+    assert_eq!(content.len(), 2, "一条块最多产两条 AssistantContent");
+    for (index, expected) in [(0, &raw_use), (1, &raw_result)] {
+        let AssistantContent::Text(text) = &content[index] else {
+            panic!("第 {index} 条应为 Text 变体");
+        };
+        assert_eq!(
+            text.text, "",
+            "raw 块必须空文本（rig 硬校验「raw 与文本不可共存」）"
+        );
+        assert_eq!(
+            param_of(&content[index], "anthropic_content"),
+            *expected,
+            "第 {index} 条 additional_params 与原 wire 逐字节相等"
+        );
+    }
+    assert_eq!(
+        serde_json::to_string(&param_of(&content[0], "anthropic_content")).expect("序列化成功"),
+        serde_json::to_string(&raw_use).expect("序列化成功"),
+        "use 侧含 encrypted_content 逐字节保真"
+    );
+}
+
+#[test]
+fn web_search块单侧与双侧缺席时按在场侧产出() {
+    let raw_use = web_search_use_raw("srvtoolu_side", "单侧查询");
+    let raw_result = web_search_result_raw("srvtoolu_side");
+
+    let use_only = rebuild(&[
+        user_text(0, "问"),
+        assistant_blocks(1, vec![web_search_block("s1", Some(raw_use), None)]),
+    ])
+    .expect("重建成功");
+    assert_eq!(
+        assistant_content_of(&use_only, 0).len(),
+        1,
+        "仅 use 侧产一条"
+    );
+
+    let result_only = rebuild(&[
+        user_text(0, "问"),
+        assistant_blocks(1, vec![web_search_block("s2", None, Some(raw_result))]),
+    ])
+    .expect("重建成功");
+    assert_eq!(
+        assistant_content_of(&result_only, 0).len(),
+        1,
+        "仅 result 侧产一条"
+    );
+
+    // 双 None：0 条 → 该 assistant 消息因 content 空而不入史（既有语义）
+    let both_none = rebuild(&[
+        user_text(0, "问"),
+        assistant_blocks(1, vec![web_search_block("s3", None, None)]),
+        assistant_text(2, "答"),
+    ])
+    .expect("重建成功");
+    let assistants = both_none
+        .iter()
+        .filter(|message| matches!(message, Message::Assistant { .. }))
+        .count();
+    assert_eq!(assistants, 1, "双 None 的 assistant 消息不入史");
+    assert_eq!(
+        assistant_content_of(&both_none, 0).len(),
+        1,
+        "仅保留后一条正文 assistant"
+    );
+}
+
+#[test]
+fn text块citations回填raw数组且展示字段不参与重建() {
+    let citation_raw = serde_json::json!({ "url": "https://raw/1", "cited_text": "原始片段" });
+    let blocks = vec![AgentBlock::Text {
+        text: "正文".to_owned(),
+        citations: Some(vec![agent::AgentCitation {
+            url: Some("https://display/1".to_owned()),
+            title: Some("展示标题".to_owned()),
+            cited_text: Some("展示片段".to_owned()),
+            raw: citation_raw.clone(),
+        }]),
+    }];
+    let history = rebuild(&[user_text(0, "问"), assistant_blocks(1, blocks)]).expect("重建成功");
+
+    let content = assistant_content_of(&history, 0);
+    assert_eq!(content.len(), 1);
+    let AssistantContent::Text(text) = &content[0] else {
+        panic!("应为 Text 变体");
+    };
+    assert_eq!(text.text, "正文", "正文原文保真");
+    assert_eq!(
+        param_of(&content[0], "citations"),
+        serde_json::json!([citation_raw]),
+        "citations 深等于 [c.raw]（不以 url / title / cited_text 重组）"
+    );
+
+    // citations: None → 不落键
+    let plain = rebuild(&[user_text(0, "问"), assistant_text(1, "无引用正文")]).expect("重建成功");
+    let content = assistant_content_of(&plain, 0);
+    let AssistantContent::Text(text) = &content[0] else {
+        panic!("应为 Text 变体");
+    };
+    assert!(
+        text.additional_params.is_none(),
+        "无引用不落 additional_params（不出现空壳）"
+    );
+}
+
+#[test]
+fn 混合块序展开保原序_text_use_result_text() {
+    let raw_use = web_search_use_raw("srvtoolu_mix", "混合查询");
+    let raw_result = web_search_result_raw("srvtoolu_mix");
+    let events = vec![
+        user_text(0, "问"),
+        assistant_blocks(
+            1,
+            vec![
+                AgentBlock::Text {
+                    text: "前置".to_owned(),
+                    citations: None,
+                },
+                web_search_block("srvtoolu_mix", Some(raw_use), Some(raw_result)),
+                AgentBlock::Text {
+                    text: "后置".to_owned(),
+                    citations: None,
+                },
+            ],
+        ),
+    ];
+
+    let history = rebuild(&events).expect("重建成功");
+    let content = assistant_content_of(&history, 0);
+
+    assert_eq!(content.len(), 4, "text → use → result → text 共四条");
+    let texts: Vec<String> = content
+        .iter()
+        .map(|item| match item {
+            AssistantContent::Text(text) => text.text.clone(),
+            other => panic!("应为 Text 变体，实际: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        vec!["前置", "", "", "后置"],
+        "顺序保原序（无块重排）"
+    );
+}
+
+#[test]
+fn assistant位tool_result块仍跳过且不误当result侧重建() {
+    let events = vec![
+        user_text(0, "问"),
+        assistant_blocks(
+            1,
+            vec![
+                AgentBlock::ToolResult {
+                    id: "tu_1".to_owned(),
+                    content: "非法形态".to_owned(),
+                    is_error: false,
+                },
+                AgentBlock::Text {
+                    text: "正文".to_owned(),
+                    citations: None,
+                },
+            ],
+        ),
+    ];
+
+    let history = rebuild(&events).expect("重建成功");
+    let content = assistant_content_of(&history, 0);
+
+    assert_eq!(
+        content.len(),
+        1,
+        "assistant 位 ToolResult 不产 AssistantContent（不 panic）"
+    );
+    assert!(
+        matches!(&content[0], AssistantContent::Text(text) if text.text == "正文"),
+        "仅正文块入重建"
+    );
+}
+
+#[test]
+fn user位citations不参与重建且user位web_search块跳过不panic() {
+    let citation_raw = serde_json::json!({ "url": "https://raw/1" });
+    let events = vec![
+        event(
+            0,
+            AgentEventKind::Message {
+                role: AgentMessageRole::User,
+                blocks: vec![AgentBlock::Text {
+                    text: "补充".to_owned(),
+                    citations: Some(vec![agent::AgentCitation {
+                        url: Some("https://display/1".to_owned()),
+                        title: None,
+                        cited_text: None,
+                        raw: citation_raw,
+                    }]),
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        // user 位 WebSearch 块（非法形态）→ 跳过不 panic
+        event(
+            1,
+            AgentEventKind::Message {
+                role: AgentMessageRole::User,
+                blocks: vec![web_search_block(
+                    "srvtoolu_user",
+                    Some(web_search_use_raw("srvtoolu_user", "q")),
+                    None,
+                )],
+                parent_tool_use_id: None,
+            },
+        ),
+        assistant_text(2, "答"),
+    ];
+
+    let history = rebuild(&events).expect("重建成功");
+
+    let Message::User { content } = &history[0] else {
+        panic!("首条应为 user 消息");
+    };
+    assert_eq!(content.len(), 1, "恰一条 UserContent 文本");
+    let UserContent::Text(text) = &content[0] else {
+        panic!("应为文本项");
+    };
+    assert_eq!(text.text, "补充", "user 位 citations 丢弃（不参与重建）");
+    assert_eq!(history.len(), 2, "user 位 WebSearch 块零产出（消息不新增）");
+}
+
+#[test]
+fn project与resume往返_重建后additional_params与原始wire逐字节等价() {
+    use crate::sdk::web_search::{project_choice, ANTHROPIC_RAW_CONTENT_KEY};
+    use rig::message::{AdditionalParams, Text};
+
+    let raw_use = web_search_use_raw("srvtoolu_rt", "往返查询");
+    let raw_result = web_search_result_raw("srvtoolu_rt");
+    let citation = serde_json::json!({ "url": "https://cite/1", "cited_text": "片段" });
+
+    // 原始 wire（loop 侧 choice 形态）→ project_choice → 密封块序列
+    let raw_item = |raw: serde_json::Value| {
+        AssistantContent::Text(Text {
+            text: String::new(),
+            additional_params: AdditionalParams::from_entries([(ANTHROPIC_RAW_CONTENT_KEY, raw)]),
+        })
+    };
+    let choice = vec![
+        raw_item(raw_use.clone()),
+        raw_item(raw_result.clone()),
+        AssistantContent::Text(Text {
+            text: "带引用正文".to_owned(),
+            additional_params: AdditionalParams::from_entries([(
+                "citations",
+                serde_json::json!([citation.clone()]),
+            )]),
+        }),
+    ];
+    let (blocks, _tool_calls) = project_choice(&choice);
+    assert_eq!(blocks.len(), 2, "use + result 收敛一块，正文一块");
+
+    let history = rebuild(&[user_text(0, "问"), assistant_blocks(1, blocks)]).expect("重建成功");
+    let content = assistant_content_of(&history, 0);
+
+    assert_eq!(content.len(), 3, "use → result → text 三条");
+    assert_eq!(
+        param_of(&content[0], "anthropic_content"),
+        raw_use,
+        "use 侧 raw 逐字节等价"
+    );
+    assert_eq!(
+        param_of(&content[1], "anthropic_content"),
+        raw_result,
+        "result 侧 raw 逐字节等价"
+    );
+    assert_eq!(
+        param_of(&content[2], "citations"),
+        serde_json::json!([citation]),
+        "citations 原值回填"
+    );
 }

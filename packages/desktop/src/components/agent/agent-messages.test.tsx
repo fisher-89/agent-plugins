@@ -424,3 +424,174 @@ describe('AgentMessages：历史分页', () => {
     expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 空部件消息不进对话呈现（AC-10 / D14）与 citations 传递
+// ---------------------------------------------------------------------------
+
+/** `parts: []` 的 assistant 消息（`pause_turn` 第二段只剩被消费的孤儿搜索
+ * 结果时适配层产出的形态）。 */
+function emptyPartMessage(seq: number): AgentUIMessage {
+  return {
+    id: `evt-${seq}`,
+    role: 'assistant',
+    metadata: { seq, parentToolUseId: null },
+    parts: [],
+  };
+}
+
+describe('AgentMessages：空部件消息过滤（AC-10）', () => {
+  beforeEach(() => {
+    FakeIntersectionObserver.instances = [];
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('1 条空部件 + 2 条正常消息 → 恰 2 个 chat-bubble，空消息的 seq 不出现在 DOM', () => {
+    const messages: AgentUIMessage[] = [
+      ...eventsToUIMessages([userMessage(1, '第一问')]),
+      emptyPartMessage(42),
+      ...eventsToUIMessages([message(2, [{ kind: 'text', text: '第一答' }])]),
+    ];
+
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(2);
+    expect(document.body.innerHTML).not.toContain('evt-42');
+    expect(document.body.textContent).toContain('第一问');
+    expect(document.body.textContent).toContain('第一答');
+  });
+
+  it('分页计数不计入空部件消息：11 条正常 + 5 条空 → 一页 10 条且提示行在场', () => {
+    const normal = pagedConversation(11);
+    const messages = [
+      ...normal,
+      ...Array.from({ length: 5 }, (_, index) => emptyPartMessage(500 + index)),
+    ];
+
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
+    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
+
+    // 触顶装载按过滤后列表递增（装载后 11 条，提示行撤销，观察器归零）
+    triggerReachTop();
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(11);
+    expect(screen.queryByTestId('history-load-hint')).toBeNull();
+    // loadMore 幂等：再触发不增条
+    expect(FakeIntersectionObserver.instances).toHaveLength(0);
+  });
+
+  it('只含被消费孤儿搜索 result 的消息（适配后 0 部件）不进对话透镜，相邻气泡计数不变', () => {
+    const events: AgentEvent[] = [
+      userMessage(1, '帮我搜'),
+      message(2, [
+        {
+          kind: 'webSearch',
+          id: 'srvtoolu_ghost',
+          query: '查询',
+          results: [],
+          error: null,
+          rawUse: { type: 'server_tool_use', id: 'srvtoolu_ghost' },
+          rawResult: null,
+        },
+      ]),
+      // 第二段：仅被 use 消费的 result 侧块 → 适配后 parts.length === 0
+      message(3, [
+        {
+          kind: 'webSearch',
+          id: 'srvtoolu_ghost',
+          query: '',
+          results: [{ url: 'https://ghost/1', title: '幽灵来源', pageAge: null }],
+          error: null,
+          rawUse: null,
+          rawResult: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_ghost' },
+        },
+      ]),
+    ];
+    const messages = eventsToUIMessages(events);
+    expect(messages[2]?.parts).toEqual([]);
+
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(2);
+  });
+});
+
+describe('AgentMessages：text 部件 citations 传递（AC-10 / D14）', () => {
+  it('带 metadata 的 text 部件渲染引用列表（title ?? url、按 url 去重），另一无 metadata 部件无列表', () => {
+    const messages: AgentUIMessage[] = [
+      {
+        id: 'evt-9',
+        role: 'assistant',
+        metadata: { seq: 9, parentToolUseId: null },
+        parts: [
+          {
+            type: 'text',
+            text: '带引用正文',
+            state: 'done',
+            providerMetadata: {
+              agent: {
+                citations: [
+                  { url: 'https://dup/1', title: '引用标题', citedText: null, raw: null },
+                  { url: 'https://dup/1', title: '重复标题', citedText: null, raw: null },
+                  { url: 'https://only/2', title: null, citedText: null, raw: null },
+                ],
+              },
+            },
+          },
+          { type: 'text', text: '无引用正文', state: 'done' },
+        ],
+      },
+    ];
+
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    const lists = screen.getAllByTestId('block-citations');
+    expect(lists).toHaveLength(1);
+    const items = lists[0].querySelectorAll('li');
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toBe('引用标题');
+    expect(items[1].textContent).toBe('https://only/2');
+    expect(screen.getAllByTestId('block-text')).toHaveLength(2);
+  });
+
+  it('metadata 宽解析边界：providerMetadata 缺席 / agent 缺席 / citations 非数组 / 空数组 → 一律按无引用处理', () => {
+    const variants: unknown[] = [
+      undefined,
+      { other: {} },
+      { agent: {} },
+      { agent: { citations: { url: 'https://obj/1' } } },
+      { agent: { citations: '字符串' } },
+      { agent: { citations: null } },
+      { agent: { citations: [] } },
+    ];
+
+    for (const providerMetadata of variants) {
+      const messages: AgentUIMessage[] = [
+        {
+          id: 'evt-10',
+          role: 'assistant',
+          metadata: { seq: 10, parentToolUseId: null },
+          parts: [
+            {
+              type: 'text',
+              text: '正文',
+              state: 'done',
+              providerMetadata: providerMetadata as never,
+            },
+          ],
+        },
+      ];
+      const { unmount } = render(
+        <AgentMessages messages={messages} loading={false} running={false} />,
+      );
+      expect(screen.queryByTestId('block-citations')).toBeNull();
+      expect(screen.getByTestId('block-text')).toBeTruthy();
+      unmount();
+    }
+  });
+});

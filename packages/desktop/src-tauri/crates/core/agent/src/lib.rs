@@ -7,7 +7,10 @@ mod state;
 mod stream;
 mod usage;
 
-pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
+pub use event::{
+    AgentBlock, AgentCitation, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole,
+    WebSearchSource,
+};
 pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 pub use port::{SessionQuery, SessionSink, TurnOutcome};
 pub use runner::{

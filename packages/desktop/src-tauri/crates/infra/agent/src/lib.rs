@@ -46,6 +46,9 @@ pub struct EngineFacade {
     /// sdk 引擎输出上限（组合根旁路载荷，不经 `EngineConfig`；`None` = 按
     /// 协议缺省，仅 anthropic 协议消费）
     max_tokens: Option<u64>,
+    /// sdk 引擎云端 `web_search` 服务端工具开关（组合根旁路载荷；语义为
+    /// 「**已按协议门控**的最终开关」——门面 MUST NOT 二次判定协议）
+    web_search: bool,
     /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
     /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
     explore_note_store: Option<Arc<store::Store>>,
@@ -61,6 +64,7 @@ impl EngineFacade {
             resume: None,
             context_window: None,
             max_tokens: None,
+            web_search: false,
             explore_note_store: None,
             workspace_root: None,
         }
@@ -72,6 +76,7 @@ impl EngineFacade {
             resume: Some(loader),
             context_window: None,
             max_tokens: None,
+            web_search: false,
             explore_note_store: None,
             workspace_root: None,
         }
@@ -86,6 +91,7 @@ impl EngineFacade {
             resume: self.resume,
             context_window,
             max_tokens: self.max_tokens,
+            web_search: self.web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
         }
@@ -99,6 +105,22 @@ impl EngineFacade {
             resume: self.resume,
             context_window: self.context_window,
             max_tokens,
+            web_search: self.web_search,
+            explore_note_store: self.explore_note_store,
+            workspace_root: self.workspace_root,
+        }
+    }
+
+    /// 携 sdk 引擎云端 `web_search` 开关的门面（builder 缝，与
+    /// `with_context_window` / `with_max_tokens` 同型并列）：provider 记录
+    /// `web_search` 经组合根**按协议门控**后下行；门面与 runner 零协议判定，
+    /// 收 `bool`（`false` = 未启用，与「未装配」同义）。
+    pub fn with_web_search(self, web_search: bool) -> Self {
+        Self {
+            resume: self.resume,
+            context_window: self.context_window,
+            max_tokens: self.max_tokens,
+            web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
         }
@@ -113,6 +135,7 @@ impl EngineFacade {
             resume: self.resume,
             context_window: self.context_window,
             max_tokens: self.max_tokens,
+            web_search: self.web_search,
             explore_note_store: Some(store),
             workspace_root: self.workspace_root,
         }
@@ -147,7 +170,8 @@ impl EngineFacade {
                     self.context_window,
                     self.explore_note_store.clone(),
                 )
-                .with_max_tokens(self.max_tokens);
+                .with_max_tokens(self.max_tokens)
+                .with_web_search(self.web_search);
                 if let Some(root) = &self.workspace_root {
                     runner = runner.with_workspace_root(root.clone());
                 }

@@ -93,6 +93,7 @@ describe('ProviderPanel：表单与提交（AC-2 前端半）', () => {
       protocol: 'openai',
       contextLength: null,
       maxTokens: null,
+      webSearch: false,
     });
   });
 
@@ -133,6 +134,7 @@ describe('ProviderPanel：表单与提交（AC-2 前端半）', () => {
       protocol: 'openai',
       contextLength: null,
       maxTokens: null,
+      webSearch: false,
     });
   });
 
@@ -260,6 +262,7 @@ describe('ProviderPanel：表单校验（边界）', () => {
       protocol: 'openai',
       contextLength: null,
       maxTokens: null,
+      webSearch: false,
     });
   });
 
@@ -282,6 +285,7 @@ describe('ProviderPanel：表单校验（边界）', () => {
       protocol: 'openai',
       contextLength: null,
       maxTokens: null,
+      webSearch: false,
     });
   });
 
@@ -575,6 +579,7 @@ describe('ProviderPanel：max_tokens 字段（AC-11）', () => {
       models: { high: 'claude-sonnet-4-5[1m]', medium: 'claude-m', low: 'claude-haiku-4-5' },
       contextLength: 200000,
       maxTokens: 8192,
+      webSearch: false,
     });
   });
 
@@ -671,5 +676,154 @@ describe('ProviderPanel：max_tokens 字段（AC-11）', () => {
     expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').placeholder).toBe(
       '留空 = 按协议缺省',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// web_search 勾选项（AC-11）：仅 anthropic 渲染、切协议清零、载荷恒携
+// ---------------------------------------------------------------------------
+
+/** 携协议 + 开关的记录 fixture（他端写入的存量态可构造）。 */
+function providerWith(
+  id: number,
+  name: string,
+  protocol: AgentProviderRecord['protocol'],
+  webSearch: boolean | undefined,
+): AgentProviderRecord {
+  return {
+    ...provider(id, name),
+    protocol,
+    webSearch,
+  };
+}
+
+/** 打开编辑表单（唯一 provider 行）。 */
+function openEdit(state: AgentProvidersState): void {
+  render(<ProviderPanel state={state} />);
+  fireEvent.click(screen.getByTestId('provider-edit'));
+}
+
+/** 勾选 / 取消 web_search。 */
+function toggleWebSearch(): void {
+  fireEvent.click(screen.getByTestId('provider-web-search'));
+}
+
+describe('ProviderPanel：web_search 仅 anthropic 可见（AC-11）', () => {
+  it('openai 记录 → 勾选项不在文档中；切到 anthropic → checkbox 出现、未勾、计费提示在场', async () => {
+    openEdit(fakeState({ providers: [providerWith(41, 'openai 端点', 'openai', false)] }));
+
+    expect(screen.queryByTestId('provider-web-search')).toBeNull();
+
+    await pickProtocol('anthropic');
+
+    const checkbox = screen.getByTestId('provider-web-search');
+    expect(checkbox).toBeTruthy();
+    expect(checkbox.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByTestId('provider-form').textContent).toContain(
+      'Anthropic 服务端网页搜索（按次计费）',
+    );
+  });
+
+  it('存量 openai + true：openai 下不渲染也不就地改值；切到 anthropic 后按记录回显为已勾', async () => {
+    openEdit(fakeState({ providers: [providerWith(42, '存量开关端点', 'openai', true)] }));
+
+    expect(screen.queryByTestId('provider-web-search')).toBeNull();
+
+    await pickProtocol('anthropic');
+
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('编辑态回显：anthropic + true → 勾选态；webSearch 键缺席 / null（旧记录）→ 未勾', () => {
+    const on = render(
+      <ProviderPanel
+        state={fakeState({ providers: [providerWith(43, '开关端点', 'anthropic', true)] })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('provider-edit'));
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('true');
+    on.unmount();
+
+    const absent = render(
+      <ProviderPanel
+        state={fakeState({ providers: [providerWith(44, '旧记录端点', 'anthropic', undefined)] })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('provider-edit'));
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('false');
+    absent.unmount();
+
+    // null（旧 JSON 读出形态）同按「未勾」处理（`?? false`，不抛错）
+    const legacyNull = {
+      ...provider(45, 'null 记录端点'),
+      protocol: 'anthropic' as const,
+      webSearch: null,
+    } as unknown as AgentProviderRecord;
+    render(<ProviderPanel state={fakeState({ providers: [legacyNull] })} />);
+    fireEvent.click(screen.getByTestId('provider-edit'));
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+describe('ProviderPanel：web_search 切协议清零与载荷恒携（AC-11）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('anthropic 下勾选 → 切 openai → 保存 → webSearch 为 false；切回 anthropic 仍未勾', async () => {
+    const state = mount(
+      fakeState({ providers: [providerWith(45, '切换端点', 'anthropic', false)] }),
+    );
+
+    fireEvent.click(screen.getByTestId('provider-edit'));
+    toggleWebSearch();
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('true');
+
+    await pickProtocol('openai');
+    expect(screen.queryByTestId('provider-web-search')).toBeNull();
+    fireEvent.click(screen.getByTestId('provider-save'));
+
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(expect.objectContaining({ webSearch: false }));
+
+    // 切回 anthropic：不自动恢复（需用户重勾）
+    await pickProtocol('anthropic');
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('提交载荷恒携 webSearch：openai 下为 false（键在场），anthropic + 勾选为 true', async () => {
+    const state = mount(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+    typeInto('provider-name', '恒携端点');
+    typeInto('provider-base-url', 'https://new.example.com/v1');
+    typeInto('provider-api-key', 'sk-new-key-999');
+
+    // 新建缺省 openai：未勾 → webSearch: false 键在场
+    fireEvent.click(screen.getByTestId('provider-save'));
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    const firstPayload = vi.mocked(state.save).mock.calls[0][0];
+    expect(Object.keys(firstPayload)).toContain('webSearch');
+    expect(firstPayload.webSearch).toBe(false);
+
+    // anthropic + 勾选 → true
+    await pickProtocol('anthropic');
+    toggleWebSearch();
+    fireEvent.click(screen.getByTestId('provider-save'));
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(state.save).mock.calls[1][0].webSearch).toBe(true);
+  });
+
+  it('布尔控件与文本字段分离：勾选项不是文本输入，连续点击两次状态正确切换', async () => {
+    mount(fakeState({ providers: [providerWith(46, '控件端点', 'anthropic', false)] }));
+    fireEvent.click(screen.getByTestId('provider-edit'));
+
+    const checkbox = screen.getByTestId('provider-web-search');
+    expect(checkbox.tagName).not.toBe('INPUT');
+    expect(checkbox.getAttribute('type')).not.toBe('text');
+
+    toggleWebSearch();
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('true');
+    toggleWebSearch();
+    expect(screen.getByTestId('provider-web-search').getAttribute('aria-checked')).toBe('false');
   });
 });

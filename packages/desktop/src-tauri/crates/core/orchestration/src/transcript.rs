@@ -12,7 +12,7 @@ pub fn final_assistant_text(transcript: &[agent::AgentEvent]) -> Option<String> 
         let text = blocks
             .iter()
             .filter_map(|block| match block {
-                AgentBlock::Text { text } => Some(text.as_str()),
+                AgentBlock::Text { text, .. } => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()

@@ -1225,10 +1225,76 @@ impl From<AgentProviderRecordV2> for AgentProviderRecordV1 {
     }
 }
 
+/// `AgentProviderRecord` 的 version 3 历史形态（仅作 native_model 升级链的
+/// 解码目标，不注册进库模型组、不出公共查询面）：有 `protocol` /
+/// `max_tokens`，无 `web_search` 列。存量 v3 行经版本机制自动升级为 v4
+/// （`web_search` 读出 `false`，零迁移代码路径、行为零变化）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 5, version = 3, from = AgentProviderRecordV2)]
+pub(crate) struct AgentProviderRecordV3 {
+    /// 记录 id（主键）
+    pub id: i64,
+    /// 展示名（唯一 = 写事务内查重）
+    pub name: String,
+    /// 模型协议（wire 语义与 `base_url` 拼法由此决定；缺省 `openai`——
+    /// 存量行升级即本档）
+    #[serde(default)]
+    pub protocol: AgentProviderProtocol,
+    /// 协议对应端点 base_url（openai 含版本段如 `https://…/v1`；anthropic
+    /// 的 `/v1` / `/messages` 后缀由引擎侧归一化后拼 `/v1/messages`）
+    pub base_url: String,
+    /// 认证凭据（bearer token，明文）
+    pub api_key: String,
+    /// 三档模型标识（运行发起解析消费固定取 high 档；原文可带 `[1m]` 后缀，
+    /// 后缀解析归引擎侧单点）
+    pub models: AgentModelTiers,
+    /// provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
+    /// `None` = 未配置（缺省走 128K 启发式）
+    #[serde(default)]
+    pub context_length: Option<u64>,
+    /// provider 输出上限（token 数）：可空列，`None` = 按协议缺省；仅
+    /// anthropic 协议消费
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
+}
+
+/// v2 → v3 升级半边（缺列读兼容：旧记录无协议 / 输出上限列——协议缺省
+/// `openai`（行为零变化）、上限未配置）。
+impl From<AgentProviderRecordV2> for AgentProviderRecordV3 {
+    fn from(previous: AgentProviderRecordV2) -> Self {
+        Self {
+            id: previous.id,
+            name: previous.name,
+            protocol: AgentProviderProtocol::Openai,
+            base_url: previous.base_url,
+            api_key: previous.api_key,
+            models: previous.models,
+            context_length: previous.context_length,
+            max_tokens: None,
+        }
+    }
+}
+
+/// v3 → v2 降级半边（`protocol` / `max_tokens` 丢弃——只保升级语义真实性，
+/// 降级形态不作数据承诺）。
+impl From<AgentProviderRecordV3> for AgentProviderRecordV2 {
+    fn from(record: AgentProviderRecordV3) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            base_url: record.base_url,
+            api_key: record.api_key,
+            models: record.models,
+            context_length: record.context_length,
+        }
+    }
+}
+
 /// agent provider 记录
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 5, version = 3, from = AgentProviderRecordV2)]
+#[native_model(id = 5, version = 4, from = AgentProviderRecordV3)]
 #[native_db]
 pub struct AgentProviderRecord {
     /// 记录 id（主键，写事务内 max+1 分配）
@@ -1260,36 +1326,45 @@ pub struct AgentProviderRecord {
     /// anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
     #[serde(default)]
     pub max_tokens: Option<u64>,
+    /// 是否启用 Anthropic 云端 `web_search` 服务端工具（缺省 `false`——存量
+    /// 行升级即关，行为零变化）。**生效门在解析期**（`provider.web_search &&
+    /// protocol == Anthropic`）：保存期无条件接受（openai 下也原样入库，不
+    /// 拒收、不清零），纠偏只在运行发起解析单点
+    #[serde(default)]
+    pub web_search: bool,
 }
 
-/// v2 → v3 升级半边（缺列读兼容：旧记录无协议 / 输出上限列——协议缺省
-/// `openai`（行为零变化）、上限未配置）。
-impl From<AgentProviderRecordV2> for AgentProviderRecord {
-    fn from(previous: AgentProviderRecordV2) -> Self {
+/// v3 → v4 升级半边（缺列读兼容：旧记录无 `web_search` 列——默认关，行为
+/// 零变化、无迁移脚本）。
+impl From<AgentProviderRecordV3> for AgentProviderRecord {
+    fn from(previous: AgentProviderRecordV3) -> Self {
         Self {
             id: previous.id,
             name: previous.name,
-            protocol: AgentProviderProtocol::Openai,
+            protocol: previous.protocol,
             base_url: previous.base_url,
             api_key: previous.api_key,
             models: previous.models,
             context_length: previous.context_length,
-            max_tokens: None,
+            max_tokens: previous.max_tokens,
+            web_search: false,
         }
     }
 }
 
-/// v3 → v2 降级半边（`protocol` / `max_tokens` 丢弃——只保升级语义真实性，
-/// 降级形态不作数据承诺）。
-impl From<AgentProviderRecord> for AgentProviderRecordV2 {
+/// v4 → v3 降级半边（`web_search` 丢弃——只保升级语义真实性，降级形态不作
+/// 数据承诺）。
+impl From<AgentProviderRecord> for AgentProviderRecordV3 {
     fn from(record: AgentProviderRecord) -> Self {
         Self {
             id: record.id,
             name: record.name,
+            protocol: record.protocol,
             base_url: record.base_url,
             api_key: record.api_key,
             models: record.models,
             context_length: record.context_length,
+            max_tokens: record.max_tokens,
         }
     }
 }
@@ -1297,7 +1372,9 @@ impl From<AgentProviderRecord> for AgentProviderRecordV2 {
 impl AgentProviderRecord {
     /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
     /// 传空即空（新建语义无原值可保）；`context_length` / `max_tokens` 传
-    /// `None` 即未配置。`protocol` 紧跟 `name`——协议决定 `base_url` 语义。
+    /// `None` 即未配置；`web_search` 缺省关（开走 [`Self::with_web_search`]——
+    /// 现有参数面不动的唯一实现路径）。`protocol` 紧跟 `name`——协议决定
+    /// `base_url` 语义。
     pub fn new(
         name: String,
         protocol: AgentProviderProtocol,
@@ -1316,7 +1393,14 @@ impl AgentProviderRecord {
             models,
             context_length,
             max_tokens,
+            web_search: false,
         }
+    }
+
+    /// 云端 `web_search` 开关（构造器链式缝，与既有可空参旁路同型）：保存期
+    /// 无条件接受该值，生效门在运行发起解析期。
+    pub fn with_web_search(self, web_search: bool) -> Self {
+        Self { web_search, ..self }
     }
 }
 
@@ -1333,6 +1417,7 @@ impl std::fmt::Debug for AgentProviderRecord {
             .field("models", &self.models)
             .field("context_length", &self.context_length)
             .field("max_tokens", &self.max_tokens)
+            .field("web_search", &self.web_search)
             .finish()
     }
 }

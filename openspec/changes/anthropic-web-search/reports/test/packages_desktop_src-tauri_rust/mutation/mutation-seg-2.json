@@ -1,0 +1,2781 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:58:5: replace provider_tool -> ProviderToolDefinition with Default::default()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "provider_tool",
+            "return_type": "-> ProviderToolDefinition",
+            "span": {
+              "start": {
+                "line": 55,
+                "column": 1
+              },
+              "end": {
+                "line": 61,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 58,
+              "column": 5
+            },
+            "end": {
+              "line": 60,
+              "column": 61
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_58_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_58_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.7779523,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:74:5: replace citations_of -> Option<Vec<AgentCitation>> with Some(vec![])",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "citations_of",
+            "return_type": "-> Option<Vec<AgentCitation>>",
+            "span": {
+              "start": {
+                "line": 70,
+                "column": 1
+              },
+              "end": {
+                "line": 93,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 74,
+              "column": 5
+            },
+            "end": {
+              "line": 92,
+              "column": 6
+            }
+          },
+          "replacement": "Some(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_74_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_74_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 28.1309382,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.1450635,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:65:5: replace raw_content -> Option<&Value> with None",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "raw_content",
+            "return_type": "-> Option<&Value>",
+            "span": {
+              "start": {
+                "line": 63,
+                "column": 1
+              },
+              "end": {
+                "line": 68,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 65,
+              "column": 5
+            },
+            "end": {
+              "line": 67,
+              "column": 40
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_65_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_65_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 28.7739453,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 23.5930067,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:65:5: replace raw_content -> Option<&Value> with Some(Box::leak(Box::new(Default::default())))",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "raw_content",
+            "return_type": "-> Option<&Value>",
+            "span": {
+              "start": {
+                "line": 63,
+                "column": 1
+              },
+              "end": {
+                "line": 68,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 65,
+              "column": 5
+            },
+            "end": {
+              "line": 67,
+              "column": 40
+            }
+          },
+          "replacement": "Some(Box::leak(Box::new(Default::default())))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_65_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_65_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 29.3724456,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 23.7907685,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:74:5: replace citations_of -> Option<Vec<AgentCitation>> with Some(vec![Default::default()])",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "citations_of",
+            "return_type": "-> Option<Vec<AgentCitation>>",
+            "span": {
+              "start": {
+                "line": 70,
+                "column": 1
+              },
+              "end": {
+                "line": 93,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 74,
+              "column": 5
+            },
+            "end": {
+              "line": 92,
+              "column": 6
+            }
+          },
+          "replacement": "Some(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_74_col_5_002.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_74_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.0190667,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 23.7817297,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:74:5: replace citations_of -> Option<Vec<AgentCitation>> with None",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "citations_of",
+            "return_type": "-> Option<Vec<AgentCitation>>",
+            "span": {
+              "start": {
+                "line": 70,
+                "column": 1
+              },
+              "end": {
+                "line": 93,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 74,
+              "column": 5
+            },
+            "end": {
+              "line": 92,
+              "column": 6
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_74_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_74_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.6640787,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 24.1286072,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:113:5: replace project_choice -> (Vec<AgentBlock>, Vec<ToolCall>) with (vec![], vec![Default::default()])",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 113,
+              "column": 5
+            },
+            "end": {
+              "line": 226,
+              "column": 25
+            }
+          },
+          "replacement": "(vec![], vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.9977133,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.7329752,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:113:5: replace project_choice -> (Vec<AgentBlock>, Vec<ToolCall>) with (vec![], vec![])",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 113,
+              "column": 5
+            },
+            "end": {
+              "line": 226,
+              "column": 25
+            }
+          },
+          "replacement": "(vec![], vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.3145769,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 35.5490128,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:113:5: replace project_choice -> (Vec<AgentBlock>, Vec<ToolCall>) with (vec![Default::default()], vec![])",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 113,
+              "column": 5
+            },
+            "end": {
+              "line": 226,
+              "column": 25
+            }
+          },
+          "replacement": "(vec![Default::default()], vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5_002.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.6750332,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.7457554,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:113:5: replace project_choice -> (Vec<AgentBlock>, Vec<ToolCall>) with (vec![Default::default()], vec![Default::default()])",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 113,
+              "column": 5
+            },
+            "end": {
+              "line": 226,
+              "column": 25
+            }
+          },
+          "replacement": "(vec![Default::default()], vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5_003.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_113_col_5_003.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 32.3822619,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:127:26: replace != with == in project_choice",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 127,
+              "column": 26
+            },
+            "end": {
+              "line": 127,
+              "column": 28
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_127_col_26.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_127_col_26.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 35.7756966,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 14.9996215,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:161:21: delete match arm Some(SERVER_TOOL_USE_TYPE) in project_choice",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 161,
+              "column": 21
+            },
+            "end": {
+              "line": 185,
+              "column": 22
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_161_col_21.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_161_col_21.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 35.6707057,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 15.0154673,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:163:63: replace != with == in project_choice",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 163,
+              "column": 63
+            },
+            "end": {
+              "line": 163,
+              "column": 65
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_163_col_63.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_163_col_63.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 34.7249566,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 20.3907884,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:186:21: delete match arm Some(WEB_SEARCH_RESULT_TYPE) in project_choice",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "project_choice",
+            "return_type": "-> (Vec<AgentBlock>, Vec<ToolCall>)",
+            "span": {
+              "start": {
+                "line": 95,
+                "column": 1
+              },
+              "end": {
+                "line": 227,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 186,
+              "column": 21
+            },
+            "end": {
+              "line": 202,
+              "column": 22
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_186_col_21.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_186_col_21.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 36.356126,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 21.1229417,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:244:44: delete ! in replay_text",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "replay_text",
+            "return_type": "-> AssistantContent",
+            "span": {
+              "start": {
+                "line": 241,
+                "column": 1
+              },
+              "end": {
+                "line": 254,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 244,
+              "column": 44
+            },
+            "end": {
+              "line": 244,
+              "column": 45
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_244_col_44.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_244_col_44.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.3780527,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 32.9916882,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:232:5: replace replay_raw -> AssistantContent with Default::default()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "replay_raw",
+            "return_type": "-> AssistantContent",
+            "span": {
+              "start": {
+                "line": 229,
+                "column": 1
+              },
+              "end": {
+                "line": 239,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 232,
+              "column": 5
+            },
+            "end": {
+              "line": 238,
+              "column": 7
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_232_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_232_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.6868493,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 35.0616167,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:244:5: replace replay_text -> AssistantContent with Default::default()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "replay_text",
+            "return_type": "-> AssistantContent",
+            "span": {
+              "start": {
+                "line": 241,
+                "column": 1
+              },
+              "end": {
+                "line": 254,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 244,
+              "column": 5
+            },
+            "end": {
+              "line": 253,
+              "column": 7
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_244_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_244_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.1925281,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.8349391,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:258:5: replace raw_type -> Option<&str> with None",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "raw_type",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 256,
+                "column": 1
+              },
+              "end": {
+                "line": 259,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 258,
+              "column": 5
+            },
+            "end": {
+              "line": 258,
+              "column": 44
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_258_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_258_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.1048404,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.7383321,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:258:5: replace raw_type -> Option<&str> with Some(\"\")",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "raw_type",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 256,
+                "column": 1
+              },
+              "end": {
+                "line": 259,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 258,
+              "column": 5
+            },
+            "end": {
+              "line": 258,
+              "column": 44
+            }
+          },
+          "replacement": "Some(\"\")",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_258_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_258_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.6353113,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 45.6386278,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:265:5: replace web_search_use_id -> Option<&str> with Some(\"\")",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "web_search_use_id",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 261,
+                "column": 1
+              },
+              "end": {
+                "line": 272,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 265,
+              "column": 5
+            },
+            "end": {
+              "line": 271,
+              "column": 42
+            }
+          },
+          "replacement": "Some(\"\")",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_265_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_265_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.576989,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 43.6799458,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:265:22: replace != with == in web_search_use_id",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "web_search_use_id",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 261,
+                "column": 1
+              },
+              "end": {
+                "line": 272,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 265,
+              "column": 22
+            },
+            "end": {
+              "line": 265,
+              "column": 24
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_265_col_22.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_265_col_22.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.6294816,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 42.4235187,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:258:5: replace raw_type -> Option<&str> with Some(\"xyzzy\")",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "raw_type",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 256,
+                "column": 1
+              },
+              "end": {
+                "line": 259,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 258,
+              "column": 5
+            },
+            "end": {
+              "line": 258,
+              "column": 44
+            }
+          },
+          "replacement": "Some(\"xyzzy\")",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_258_col_5_002.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_258_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.7005686,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 44.9908927,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:268:48: replace != with == in web_search_use_id",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "web_search_use_id",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 261,
+                "column": 1
+              },
+              "end": {
+                "line": 272,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 268,
+              "column": 48
+            },
+            "end": {
+              "line": 268,
+              "column": 50
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_268_col_48.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_268_col_48.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.6023699,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 43.0757048,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:265:5: replace web_search_use_id -> Option<&str> with None",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "web_search_use_id",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 261,
+                "column": 1
+              },
+              "end": {
+                "line": 272,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 265,
+              "column": 5
+            },
+            "end": {
+              "line": 271,
+              "column": 42
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_265_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_265_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.3332952,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 44.4457199,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:276:5: replace text_field -> Option<String> with None",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "text_field",
+            "return_type": "-> Option<String>",
+            "span": {
+              "start": {
+                "line": 274,
+                "column": 1
+              },
+              "end": {
+                "line": 277,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 276,
+              "column": 5
+            },
+            "end": {
+              "line": 276,
+              "column": 60
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_276_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_276_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.009066,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 41.3942627,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:276:5: replace text_field -> Option<String> with Some(String::new())",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "text_field",
+            "return_type": "-> Option<String>",
+            "span": {
+              "start": {
+                "line": 274,
+                "column": 1
+              },
+              "end": {
+                "line": 277,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 276,
+              "column": 5
+            },
+            "end": {
+              "line": 276,
+              "column": 60
+            }
+          },
+          "replacement": "Some(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_276_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_276_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.2403186,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:276:5: replace text_field -> Option<String> with Some(\"xyzzy\".into())",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "text_field",
+            "return_type": "-> Option<String>",
+            "span": {
+              "start": {
+                "line": 274,
+                "column": 1
+              },
+              "end": {
+                "line": 277,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 276,
+              "column": 5
+            },
+            "end": {
+              "line": 276,
+              "column": 60
+            }
+          },
+          "replacement": "Some(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_276_col_5_002.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_276_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 29.5270517,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:292:5: replace result_payload -> (Vec<WebSearchSource>, Option<String>) with (vec![], Some(String::new()))",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "result_payload",
+            "return_type": "-> (Vec<WebSearchSource>, Option<String>)",
+            "span": {
+              "start": {
+                "line": 288,
+                "column": 1
+              },
+              "end": {
+                "line": 313,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 292,
+              "column": 5
+            },
+            "end": {
+              "line": 312,
+              "column": 20
+            }
+          },
+          "replacement": "(vec![], Some(String::new()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 42.5586836,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:292:5: replace result_payload -> (Vec<WebSearchSource>, Option<String>) with (vec![], Some(\"xyzzy\".into()))",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "result_payload",
+            "return_type": "-> (Vec<WebSearchSource>, Option<String>)",
+            "span": {
+              "start": {
+                "line": 288,
+                "column": 1
+              },
+              "end": {
+                "line": 313,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 292,
+              "column": 5
+            },
+            "end": {
+              "line": 312,
+              "column": 20
+            }
+          },
+          "replacement": "(vec![], Some(\"xyzzy\".into()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_002.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 54.8784187,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:292:5: replace result_payload -> (Vec<WebSearchSource>, Option<String>) with (vec![], None)",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "result_payload",
+            "return_type": "-> (Vec<WebSearchSource>, Option<String>)",
+            "span": {
+              "start": {
+                "line": 288,
+                "column": 1
+              },
+              "end": {
+                "line": 313,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 292,
+              "column": 5
+            },
+            "end": {
+              "line": 312,
+              "column": 20
+            }
+          },
+          "replacement": "(vec![], None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 68.5325474,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:281:5: replace query_of -> String with String::new()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "query_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 279,
+                "column": 1
+              },
+              "end": {
+                "line": 286,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 281,
+              "column": 5
+            },
+            "end": {
+              "line": 285,
+              "column": 20
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_281_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_281_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 81.797162,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:281:5: replace query_of -> String with \"xyzzy\".into()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "query_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 279,
+                "column": 1
+              },
+              "end": {
+                "line": 286,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 281,
+              "column": 5
+            },
+            "end": {
+              "line": 285,
+              "column": 20
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_281_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_281_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 94.9433547,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:292:5: replace result_payload -> (Vec<WebSearchSource>, Option<String>) with (vec![Default::default()], None)",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "result_payload",
+            "return_type": "-> (Vec<WebSearchSource>, Option<String>)",
+            "span": {
+              "start": {
+                "line": 288,
+                "column": 1
+              },
+              "end": {
+                "line": 313,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 292,
+              "column": 5
+            },
+            "end": {
+              "line": 312,
+              "column": 20
+            }
+          },
+          "replacement": "(vec![Default::default()], None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_003.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_003.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 84.5905008,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:292:5: replace result_payload -> (Vec<WebSearchSource>, Option<String>) with (vec![Default::default()], Some(String::new()))",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "result_payload",
+            "return_type": "-> (Vec<WebSearchSource>, Option<String>)",
+            "span": {
+              "start": {
+                "line": 288,
+                "column": 1
+              },
+              "end": {
+                "line": 313,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 292,
+              "column": 5
+            },
+            "end": {
+              "line": 312,
+              "column": 20
+            }
+          },
+          "replacement": "(vec![Default::default()], Some(String::new()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_004.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_004.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 77.0359258,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:292:5: replace result_payload -> (Vec<WebSearchSource>, Option<String>) with (vec![Default::default()], Some(\"xyzzy\".into()))",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "result_payload",
+            "return_type": "-> (Vec<WebSearchSource>, Option<String>)",
+            "span": {
+              "start": {
+                "line": 288,
+                "column": 1
+              },
+              "end": {
+                "line": 313,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 292,
+              "column": 5
+            },
+            "end": {
+              "line": 312,
+              "column": 20
+            }
+          },
+          "replacement": "(vec![Default::default()], Some(\"xyzzy\".into()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_005.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_292_col_5_005.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 69.497339,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:301:32: replace == with != in result_payload",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "result_payload",
+            "return_type": "-> (Vec<WebSearchSource>, Option<String>)",
+            "span": {
+              "start": {
+                "line": 288,
+                "column": 1
+              },
+              "end": {
+                "line": 313,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 301,
+              "column": 32
+            },
+            "end": {
+              "line": 301,
+              "column": 34
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_301_col_32.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_301_col_32.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 70.1366818,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/main.rs:24:5: replace main with ()",
+          "package": "dev-team",
+          "file": "src/main.rs",
+          "function": {
+            "function_name": "main",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 79,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 24,
+              "column": 5
+            },
+            "end": {
+              "line": 78,
+              "column": 35
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__main.rs_line_24_col_5.log",
+      "diff_path": "diff/src__main.rs_line_24_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 64.9072795,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/agents/mod.rs:66:5: replace save_agent_provider -> Result<AgentProviderRecord, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/agents/mod.rs",
+          "function": {
+            "function_name": "save_agent_provider",
+            "return_type": "-> Result<AgentProviderRecord, String>",
+            "span": {
+              "start": {
+                "line": 35,
+                "column": 1
+              },
+              "end": {
+                "line": 102,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 66,
+              "column": 5
+            },
+            "end": {
+              "line": 101,
+              "column": 36
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__agents__mod.rs_line_66_col_5.log",
+      "diff_path": "diff/src__commands__agents__mod.rs_line_66_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 53.3338055,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1266:9: replace <impl From<AgentProviderRecordV2> for AgentProviderRecordV3>::from -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl From<AgentProviderRecordV2> for AgentProviderRecordV3>::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1265,
+                "column": 5
+              },
+              "end": {
+                "line": 1276,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1266,
+              "column": 9
+            },
+            "end": {
+              "line": 1275,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1266_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1266_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 45.2912598,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1283:9: replace <impl From<AgentProviderRecordV3> for AgentProviderRecordV2>::from -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl From<AgentProviderRecordV3> for AgentProviderRecordV2>::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1282,
+                "column": 5
+              },
+              "end": {
+                "line": 1291,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1283,
+              "column": 9
+            },
+            "end": {
+              "line": 1290,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1283_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1283_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 44.3232309,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1341:9: replace <impl From<AgentProviderRecordV3> for AgentProviderRecord>::from -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl From<AgentProviderRecordV3> for AgentProviderRecord>::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1340,
+                "column": 5
+              },
+              "end": {
+                "line": 1352,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1341,
+              "column": 9
+            },
+            "end": {
+              "line": 1351,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1341_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1341_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 43.5109867,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1359:9: replace <impl From<AgentProviderRecord> for AgentProviderRecordV3>::from -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl From<AgentProviderRecord> for AgentProviderRecordV3>::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1358,
+                "column": 5
+              },
+              "end": {
+                "line": 1369,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1359,
+              "column": 9
+            },
+            "end": {
+              "line": 1368,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1359_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1359_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 42.8600019,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1403:9: replace AgentProviderRecord::with_web_search -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "AgentProviderRecord::with_web_search",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1400,
+                "column": 5
+              },
+              "end": {
+                "line": 1404,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1403,
+              "column": 9
+            },
+            "end": {
+              "line": 1403,
+              "column": 36
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1403_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1403_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 34.6640961,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1411:9: replace <impl std::fmt::Debug for AgentProviderRecord>::fmt -> std::fmt::Result with Ok(Default::default())",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl std::fmt::Debug for AgentProviderRecord>::fmt",
+            "return_type": "-> std::fmt::Result",
+            "span": {
+              "start": {
+                "line": 1410,
+                "column": 5
+              },
+              "end": {
+                "line": 1422,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1411,
+              "column": 9
+            },
+            "end": {
+              "line": 1421,
+              "column": 22
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1411_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1411_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 37.0716101,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 13.6479564,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1403:16: delete field web_search from struct Self expression in AgentProviderRecord::with_web_search",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "AgentProviderRecord::with_web_search",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1400,
+                "column": 5
+              },
+              "end": {
+                "line": 1404,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1403,
+              "column": 16
+            },
+            "end": {
+              "line": 1403,
+              "column": 27
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1403_col_16.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1403_col_16.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 38.4259262,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 14.0057068,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/web_search.rs:265:5: replace web_search_use_id -> Option<&str> with Some(\"xyzzy\")",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/web_search.rs",
+          "function": {
+            "function_name": "web_search_use_id",
+            "return_type": "-> Option<&str>",
+            "span": {
+              "start": {
+                "line": 261,
+                "column": 1
+              },
+              "end": {
+                "line": 272,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 265,
+              "column": 5
+            },
+            "end": {
+              "line": 271,
+              "column": 42
+            }
+          },
+          "replacement": "Some(\"xyzzy\")",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__agent__src__sdk__web_search.rs_line_265_col_5_002.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__web_search.rs_line_265_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.0005536,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0195481,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 46,
+  "missed": 0,
+  "caught": 25,
+  "timeout": 1,
+  "unviable": 20,
+  "success": 0,
+  "start_time": "2026-10-25T16:24:03.7006903Z",
+  "end_time": "2026-10-25T16:31:26.0327007Z",
+  "cargo_mutants_version": "27.1.0"
+}

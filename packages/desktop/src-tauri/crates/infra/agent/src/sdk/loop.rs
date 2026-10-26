@@ -3,9 +3,9 @@ use std::time::{Duration, Instant};
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 use futures::StreamExt;
-use rig::completion::{CompletionRequest, Usage};
+use rig::completion::{CompletionRequest, FinishReason, Usage};
 use rig::driver::DynModel;
-use rig::message::{AssistantContent, Message, ToolCall, ToolResult, ToolResultContent};
+use rig::message::{Message, ToolCall, ToolResult, ToolResultContent};
 use rig::operation::Completion;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -14,10 +14,18 @@ use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::protect::ProtectRules;
-use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
+use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools, web_search};
 
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";
+
+/// **单轮**续跑上限（`pause_turn` 续跑计数轴；与
+/// `web_search::WEB_SEARCH_MAX_USES`（单请求搜索次数上限）是两个概念——
+/// 常量名 / 注释 / 日志字段 MUST NOT 混用）。
+const PAUSE_TURN_MAX_CONTINUATIONS: u32 = 5;
+
+/// `pause_turn` 的 rig 终局标记（`FinishReason::Other("pause_turn")` 的原值）。
+const PAUSE_TURN_REASON: &str = "pause_turn";
 
 /// 提供者 IO 活性护栏
 const REQUEST_LIVENESS: Duration = Duration::from_secs(300);
@@ -100,6 +108,9 @@ pub(crate) struct LoopTurn {
     /// 写入保护规则集（泵起播时装配一次、随轮携带；loop 纯消费——与
     /// `defense` / `retry` / `liveness` 同列的「装配点算好」载荷）
     pub protect: ProtectRules,
+    /// Anthropic 云端 `web_search` 服务端工具开关（**已按协议门控**的最终
+    /// 值——门控在组合根解析期完成，loop 零协议判定）；真才挂 provider tool
+    pub web_search: bool,
 }
 
 /// loop 主体
@@ -140,6 +151,7 @@ pub(crate) async fn run(
             role: AgentMessageRole::User,
             blocks: vec![AgentBlock::Text {
                 text: turn.question.clone(),
+                citations: None,
             }],
             parent_tool_use_id: None,
         })
@@ -156,7 +168,8 @@ pub(crate) async fn run(
 
     // 轮驱动主循环：不设轮数上限（change 任务重型 phase agent 的工具轮数
     // 远超手数启发，熔断误伤正常收敛）；失控防护交停止信号、活性护栏与
-    // 空轮收敛三线
+    // 空轮收敛三线。每轮内含**续跑循环**（`pause_turn` 独立计数轴：续跑不
+    // 计轮数、不发第二条 RunStarted、不吃流重试预算）
     let mut turn_index: u64 = 1;
     loop {
         // 轮间空档停止检查（泵 select 之外的快速路径）
@@ -167,32 +180,129 @@ pub(crate) async fn run(
             ));
             return history;
         }
-        // 上下文防线（每次发请求前，第二调用点）
-        history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
-        // 系统提示词每轮重读
-        let mut chat_history = Vec::with_capacity(history.len() + 1);
-        if let Some(preamble) = preamble::load(&turn.cwd).await {
-            chat_history.push(Message::system(preamble));
-        }
-        chat_history.extend(history.iter().cloned());
-        // 同轮重发装置
-        let mut attempt: u32 = 0;
-        let (choice, turn_usage) = 'attempt: loop {
-            let request = CompletionRequest {
-                model: None,
-                chat_history: chat_history.clone(),
-                documents: Vec::new(),
-                tools: definitions.clone(),
-                temperature: None,
-                max_tokens: None,
-                tool_choice: None,
-                additional_params: None,
-                output_schema: None,
-                record_telemetry_content: false,
-            };
-            let mut response = match model.stream(request) {
-                Ok(response) => response,
-                Err(error) => {
+        // 续跑计数轴（与流重试轴 `attempt` 分名独立：每次续跑前 attempt 归零）
+        let mut continuation: u32 = 0;
+        // 续跑循环：同一 turn_index 内一发再发，直到收口或转为工具执行
+        let tool_calls: Vec<ToolCall> = 'continuation: loop {
+            // 上下文防线（每次发请求前，第二调用点）
+            history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
+            // 系统提示词每轮重读
+            let mut chat_history = Vec::with_capacity(history.len() + 1);
+            if let Some(preamble) = preamble::load(&turn.cwd).await {
+                chat_history.push(Message::system(preamble));
+            }
+            chat_history.extend(history.iter().cloned());
+            // 同轮重发装置（每次续跑前归零：续跑不继承重试预算）
+            let mut attempt: u32 = 0;
+            let (choice, turn_usage, finish_reason) = 'attempt: loop {
+                let mut request = CompletionRequest {
+                    model: None,
+                    chat_history: chat_history.clone(),
+                    documents: Vec::new(),
+                    tools: definitions.clone(),
+                    temperature: None,
+                    max_tokens: None,
+                    tool_choice: None,
+                    additional_params: None,
+                    output_schema: None,
+                    record_telemetry_content: false,
+                };
+                // 服务端工具按需挂载（开关=组合根已门控的最终值；客户端工具面
+                // `tools` 与 `RunStarted.tools` 不受影响——server tool 不进
+                // 客户端工具面）
+                if turn.web_search {
+                    request = request.provider_tool(web_search::provider_tool());
+                }
+                let mut response = match model.stream(request) {
+                    Ok(response) => response,
+                    Err(error) => {
+                        finish_error(
+                            &sender,
+                            turn_index,
+                            started,
+                            &usage,
+                            turn,
+                            "api_error",
+                            format!("API 请求失败: {error}"),
+                        )
+                        .await;
+                        return history;
+                    }
+                };
+
+                let mut failure: Option<String> = None;
+                let mut first_frame = true;
+                loop {
+                    let budget = if first_frame {
+                        turn.liveness.request
+                    } else {
+                        turn.liveness.frame
+                    };
+                    let item = match tokio::time::timeout(budget, response.next()).await {
+                        Ok(item) => item,
+                        Err(_) => {
+                            failure = Some(if first_frame {
+                                format!(
+                                    "API 请求超时（{} s 无响应帧）",
+                                    turn.liveness.request.as_secs()
+                                )
+                            } else {
+                                format!(
+                                    "API 流空闲超时（{} s 无新帧）",
+                                    turn.liveness.frame.as_secs()
+                                )
+                            });
+                            break;
+                        }
+                    };
+                    first_frame = false;
+                    let Some(item) = item else {
+                        break;
+                    };
+                    match item {
+                        Ok(item) => {
+                            if let Some(kind) = normalize::stream_item(&item) {
+                                if sender.send(kind).await.is_err() {
+                                    append_engine_log(&format!(
+                                        "loop 事件通道关闭退出（流帧发送）session={}",
+                                        turn.session_id
+                                    ));
+                                    return history; // 消费端关闭：泵自行退出，不合成 TurnDone
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            // 0.43 契约：Err 即流尾；已读帧不足以收口，按 IO 失败进重试
+                            failure = Some(format!("API 流失败: {error}"));
+                            break;
+                        }
+                    }
+                }
+                if failure.is_none() {
+                    // 轮末收口：`finish` 把已读帧折叠为完整响应（choice 与 usage
+                    // 单口径；0.43 起终局记录不再以独立流帧出现）；EOF 而折叠失
+                    // 败同按 IO 失败进重试
+                    match response.finish().await {
+                        Ok(response) => {
+                            // 终局原因须在解构前读（`finish_reason(&self)` 借用整体；
+                            // 解构后 `choice` 已移出）
+                            let finish_reason = response.finish_reason();
+                            let rig::completion::CompletionResponse {
+                                choice,
+                                usage: attempt_usage,
+                                ..
+                            } = response;
+                            break 'attempt (choice, attempt_usage, finish_reason);
+                        }
+                        Err(error) => {
+                            failure = Some(format!("API 流失败: {error}"));
+                        }
+                    }
+                }
+                // 重试决策：预算内退避重发（同一轮、同一史；api_retry 留痕），
+                // 耗尽以 api_error 失败收敛
+                let cause = failure.expect("重试路径必有失败成因");
+                if attempt >= turn.retry.max_attempts {
                     finish_error(
                         &sender,
                         turn_index,
@@ -200,171 +310,109 @@ pub(crate) async fn run(
                         &usage,
                         turn,
                         "api_error",
-                        format!("API 请求失败: {error}"),
+                        cause,
                     )
                     .await;
                     return history;
                 }
+                attempt += 1;
+                let delay = turn.retry.backoff(attempt);
+                append_engine_log(&format!(
+                    "loop 流重试 session={} turn_index={turn_index} attempt={attempt}/{} delay={}ms cause={cause}",
+                    turn.session_id,
+                    turn.retry.max_attempts,
+                    delay.as_millis()
+                ));
+                // 重试留痕尽力流出（消费端关闭时外层续 attempt 的下一发自然退出）
+                let _ = sender
+                    .send(AgentEventKind::SystemNotice {
+                        subtype: "api_retry".to_owned(),
+                        payload: serde_json::json!({
+                            "attempt": attempt,
+                            "max_attempts": turn.retry.max_attempts,
+                            "delay_ms": delay.as_millis() as u64,
+                            "error": cause,
+                        }),
+                    })
+                    .await;
+                tokio::time::sleep(delay).await;
             };
-
-            let mut failure: Option<String> = None;
-            let mut first_frame = true;
-            loop {
-                let budget = if first_frame {
-                    turn.liveness.request
-                } else {
-                    turn.liveness.frame
-                };
-                let item = match tokio::time::timeout(budget, response.next()).await {
-                    Ok(item) => item,
-                    Err(_) => {
-                        failure = Some(if first_frame {
-                            format!(
-                                "API 请求超时（{} s 无响应帧）",
-                                turn.liveness.request.as_secs()
-                            )
-                        } else {
-                            format!(
-                                "API 流空闲超时（{} s 无新帧）",
-                                turn.liveness.frame.as_secs()
-                            )
-                        });
-                        break;
-                    }
-                };
-                first_frame = false;
-                let Some(item) = item else {
-                    break;
-                };
-                match item {
-                    Ok(item) => {
-                        if let Some(kind) = normalize::stream_item(&item) {
-                            if sender.send(kind).await.is_err() {
-                                append_engine_log(&format!(
-                                    "loop 事件通道关闭退出（流帧发送）session={}",
-                                    turn.session_id
-                                ));
-                                return history; // 消费端关闭：泵自行退出，不合成 TurnDone
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        // 0.43 契约：Err 即流尾；已读帧不足以收口，按 IO 失败进重试
-                        failure = Some(format!("API 流失败: {error}"));
-                        break;
-                    }
-                }
-            }
-            if failure.is_none() {
-                // 轮末收口：`finish` 把已读帧折叠为完整响应（choice 与 usage
-                // 单口径；0.43 起终局记录不再以独立流帧出现）；EOF 而折叠失
-                // 败同按 IO 失败进重试
-                match response.finish().await {
-                    Ok(rig::completion::CompletionResponse {
-                        choice,
-                        usage: attempt_usage,
-                        ..
-                    }) => break 'attempt (choice, attempt_usage),
-                    Err(error) => {
-                        failure = Some(format!("API 流失败: {error}"));
-                    }
-                }
-            }
-            // 重试决策：预算内退避重发（同一轮、同一史；api_retry 留痕），
-            // 耗尽以 api_error 失败收敛
-            let cause = failure.expect("重试路径必有失败成因");
-            if attempt >= turn.retry.max_attempts {
-                finish_error(
-                    &sender,
-                    turn_index,
-                    started,
-                    &usage,
-                    turn,
-                    "api_error",
-                    cause,
-                )
-                .await;
+            usage += turn_usage;
+            if choice.is_empty() {
+                // 空轮（无文本无工具调用）：以正常收敛防死循环；空 choice 不续跑
+                finish_success(&sender, turn_index, started, &usage, turn).await;
                 return history;
             }
-            attempt += 1;
-            let delay = turn.retry.backoff(attempt);
-            append_engine_log(&format!(
-                "loop 流重试 session={} turn_index={turn_index} attempt={attempt}/{} delay={}ms cause={cause}",
-                turn.session_id,
-                turn.retry.max_attempts,
-                delay.as_millis()
-            ));
-            // 重试留痕尽力流出（消费端关闭时外层续 attempt 的下一发自然退出）
-            let _ = sender
-                .send(AgentEventKind::SystemNotice {
-                    subtype: "api_retry".to_owned(),
-                    payload: serde_json::json!({
-                        "attempt": attempt,
-                        "max_attempts": turn.retry.max_attempts,
-                        "delay_ms": delay.as_millis() as u64,
-                        "error": cause,
-                    }),
+            // 密封收口：choice 全部块收进恰一条密封 Message（role=assistant，
+            // 增量层在传输面的 provisional 让位即同键替换）。块语义单点：
+            // `web_search::project_choice`（server 块投影 + 客户端工具调用）
+            let (blocks, tool_calls) = web_search::project_choice(&choice);
+            history.push(Message::Assistant {
+                id: None,
+                content: choice,
+            });
+            if sender
+                .send(AgentEventKind::Message {
+                    role: AgentMessageRole::Assistant,
+                    blocks,
+                    parent_tool_use_id: None,
                 })
-                .await;
-            tokio::time::sleep(delay).await;
-        };
-        usage += turn_usage;
-        if choice.is_empty() {
-            // 空轮（无文本无工具调用）：以正常收敛防死循环
-            finish_success(&sender, turn_index, started, &usage, turn).await;
-            return history;
-        }
-        // 密封收口：choice 全部块收进恰一条密封 Message（role=assistant，
-        // 增量层在传输面的 provisional 让位即同键替换）
-        let mut blocks: Vec<AgentBlock> = Vec::new();
-        let mut tool_calls: Vec<ToolCall> = Vec::new();
-        for content in &choice {
-            match content {
-                AssistantContent::Text(text) => blocks.push(AgentBlock::Text {
-                    text: text.text.clone(),
-                }),
-                // 0.43 起 reasoning 以 Sealed 承载（发行方才可读）：以自身发行
-                // 方打开取可显示文本（text / summary 块按行拼接）
-                AssistantContent::Reasoning(reasoning) => blocks.push(AgentBlock::Thinking {
-                    thinking: reasoning
-                        .open(reasoning.issuer())
-                        .map(|value| value.display_text())
-                        .unwrap_or_default(),
-                }),
-                AssistantContent::ToolCall(tool_call) => {
-                    blocks.push(AgentBlock::ToolUse {
-                        id: tool_call.id.to_string(),
-                        name: tool_call.function.name.as_str().to_owned(),
-                        input: tool_call.function.arguments.clone(),
-                    });
-                    tool_calls.push(tool_call.clone());
-                }
-                AssistantContent::Image(_) => {} // sdk 引擎不产图像内容（工具面无边）
+                .await
+                .is_err()
+            {
+                append_engine_log(&format!(
+                    "loop 事件通道关闭退出（assistant 密封发送）session={} turn_index={turn_index}",
+                    turn.session_id
+                ));
+                return history; // 消费端关闭：泵自行退出
             }
-        }
-        history.push(Message::Assistant {
-            id: None,
-            content: choice,
-        });
-        if sender
-            .send(AgentEventKind::Message {
-                role: AgentMessageRole::Assistant,
-                blocks,
-                parent_tool_use_id: None,
-            })
-            .await
-            .is_err()
-        {
+            // 工具执行优先收口（含客户端 tool_calls 时不续跑，续跑计数不增）
+            if !tool_calls.is_empty() {
+                break 'continuation tool_calls;
+            }
+            // 非 `pause_turn` 终局：本轮自然收敛
+            if !is_pause_turn(finish_reason.as_ref()) {
+                finish_success(&sender, turn_index, started, &usage, turn).await;
+                return history;
+            }
+            // 续跑上限到顶：按 `stop` 语义正常收口（非 api_error）并留痕
+            if continuation >= PAUSE_TURN_MAX_CONTINUATIONS {
+                append_engine_log(&format!(
+                    "loop pause_turn 续跑到顶 session={} turn_index={turn_index} continuations={PAUSE_TURN_MAX_CONTINUATIONS}",
+                    turn.session_id
+                ));
+                let _ = sender
+                    .send(AgentEventKind::SystemNotice {
+                        subtype: "pause_turn_capped".to_owned(),
+                        payload: serde_json::json!({
+                            "continuations": PAUSE_TURN_MAX_CONTINUATIONS,
+                        }),
+                    })
+                    .await;
+                finish_success(&sender, turn_index, started, &usage, turn).await;
+                return history;
+            }
+            // 续跑间隙停止检查（停后不留孤儿续跑）
+            if handle.stop_requested() {
+                append_engine_log(&format!(
+                    "loop 停止截停（续跑间隙）session={} turn_index={turn_index}",
+                    turn.session_id
+                ));
+                return history;
+            }
+            continuation += 1;
+            // 过程唯一可观测点：每次续跑一条 notice（无搜索实时 delta）
             append_engine_log(&format!(
-                "loop 事件通道关闭退出（assistant 密封发送）session={} turn_index={turn_index}",
+                "loop pause_turn 续跑 session={} turn_index={turn_index} continuations={continuation}",
                 turn.session_id
             ));
-            return history; // 消费端关闭：泵自行退出
-        }
-        if tool_calls.is_empty() {
-            finish_success(&sender, turn_index, started, &usage, turn).await;
-            return history;
-        }
+            let _ = sender
+                .send(AgentEventKind::SystemNotice {
+                    subtype: "pause_turn_continued".to_owned(),
+                    payload: serde_json::json!({ "continuations": continuation }),
+                })
+                .await;
+        };
         // 工具调用逐个：成员校验 → policy 档位门 → 路径沙箱 → 写入保护闸 →
         // 执行 → 回灌（run 不中断）；0.43 起 tool_result 以 CallId / ToolName
         // 构造（与 tool_use 同源配对）。同一 assistant 的全部结果收进一条 user
@@ -457,6 +505,12 @@ pub(crate) async fn run(
         }
         turn_index += 1;
     }
+}
+
+/// `pause_turn` 终局判据（精确等值：不做字符串包含匹配，防
+/// `Other("pause_turn_x")` 误判；`None` 一律视为非 `pause_turn`）。
+fn is_pause_turn(finish_reason: Option<&FinishReason>) -> bool {
+    matches!(finish_reason, Some(FinishReason::Other(reason)) if reason == PAUSE_TURN_REASON)
 }
 
 /// 拒绝合成：`SystemNotice{subtype}` + is_error ToolResult 密封 tool 消息

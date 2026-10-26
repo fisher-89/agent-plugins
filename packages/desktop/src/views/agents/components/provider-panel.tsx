@@ -1,3 +1,4 @@
+import { Checkbox } from '@base-ui/react/checkbox';
 import { type HTMLInputTypeAttribute, useState } from 'react';
 
 import { StandardSelect } from '@/components/standard/select';
@@ -22,6 +23,9 @@ interface ProviderFormState {
   contextLength: string;
   /** 输出上限输入态（空串 = 未配置 = 存 null；数字串须 >= 4096） */
   maxTokens: string;
+  /** 云端 `web_search` 开关（布尔控件——MUST NOT 混入文本字段受控输入路径；
+   * 仅 anthropic 协议渲染，切离即清零） */
+  webSearch: boolean;
 }
 
 const EMPTY_FORM: ProviderFormState = {
@@ -36,6 +40,7 @@ const EMPTY_FORM: ProviderFormState = {
   low: '',
   contextLength: '',
   maxTokens: '',
+  webSearch: false,
 };
 
 /** `max_tokens` 下限（与引擎侧 `MIN_OUTPUT_TOKENS` 同值；后端为唯一权威，
@@ -61,8 +66,8 @@ const BASE_URL_HINTS: Record<AgentProviderProtocol, { placeholder: string; hint:
   },
 };
 
-/** 文本输入字段键（协议走选择器，不经文本行渲染） */
-type ProviderTextField = Exclude<keyof ProviderFormState, 'id' | 'protocol'>;
+/** 文本输入字段键（协议走选择器、web_search 走勾选框，均不经文本行渲染） */
+type ProviderTextField = Exclude<keyof ProviderFormState, 'id' | 'protocol' | 'webSearch'>;
 
 /** 表单字段配置（映射驱动渲染；row 圈定换行分组） */
 const PROVIDER_FIELDS: {
@@ -182,6 +187,8 @@ function toFormState(editing: AgentProviderRecord | null): ProviderFormState {
         low: editing.models.low,
         contextLength: editing.contextLength == null ? '' : String(editing.contextLength),
         maxTokens: editing.maxTokens == null ? '' : String(editing.maxTokens),
+        // 缺列 / 旧记录 → 缺省关（存量行行为零变化）
+        webSearch: editing.webSearch ?? false,
       };
 }
 
@@ -243,20 +250,54 @@ function ProtocolSelect({
   );
 }
 
+/** 云端 web_search 勾选项（仅 anthropic 协议渲染）：布尔控件自带提示——按次
+ * 计费语义在这里显式声明，不与文本字段的受控输入路径混用 */
+function WebSearchField({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}): React.JSX.Element {
+  return (
+    <Field className="w-auto">
+      <FieldLabel htmlFor="provider-web-search">web_search</FieldLabel>
+      <div className="flex items-center gap-2">
+        <Checkbox.Root
+          checked={checked}
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border data-[checked]:bg-primary data-[checked]:text-primary-foreground"
+          data-testid="provider-web-search"
+          id="provider-web-search"
+          onCheckedChange={(next) => onChange(next)}
+        >
+          <Checkbox.Indicator className="text-[10px] leading-none">✓</Checkbox.Indicator>
+        </Checkbox.Root>
+        <span className="text-xs text-muted-foreground">Anthropic 服务端网页搜索（按次计费）</span>
+      </div>
+    </Field>
+  );
+}
+
 /** 表单字段行组（row 分组渲染；字段值 / 回写经 form 与 onField 穿透；row 0
- * 前置协议选择器——协议决定 base_url 语义） */
+ * 前置协议选择器——协议决定 base_url 语义；`web_search` 勾选项仅 anthropic
+ * 协议在场） */
 function ProviderFormRows({
   form,
   onField,
   onProtocol,
+  onWebSearch,
 }: {
   form: ProviderFormState;
   onField: (field: ProviderTextField, value: string) => void;
   onProtocol: (protocol: AgentProviderProtocol) => void;
+  onWebSearch: (checked: boolean) => void;
 }): React.JSX.Element {
   return (
     <FieldGroup>
       <ProtocolSelect onChange={onProtocol} value={form.protocol} />
+      {form.protocol === 'anthropic' && (
+        <WebSearchField checked={form.webSearch} onChange={onWebSearch} />
+      )}
       {PROVIDER_FIELDS.map((field) => (
         <Field key={field.id} className="w-auto">
           <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
@@ -323,6 +364,8 @@ function ProviderForm({
       models: { high: form.high, medium: form.medium, low: form.low },
       contextLength,
       maxTokens,
+      // 恒携（openai 下为 false，不省略——省略会与「保持原值」混淆）
+      webSearch: form.webSearch,
     });
     setBusy(false);
     if (saved !== null) onDone();
@@ -335,10 +378,23 @@ function ProviderForm({
     parseMaxTokens(form.maxTokens) !== undefined;
   const onField = (field: ProviderTextField, value: string) =>
     setForm((f) => ({ ...f, [field]: value }));
-  const onProtocol = (protocol: AgentProviderProtocol) => setForm((f) => ({ ...f, protocol }));
+  // 切离 anthropic 就地清零（切回不自动恢复：开关是 provider 属性，需用户
+  // 重新勾选——避免协议来回切换时静默恢复计费项）
+  const onProtocol = (protocol: AgentProviderProtocol) =>
+    setForm((f) => ({
+      ...f,
+      protocol,
+      webSearch: protocol === 'anthropic' ? f.webSearch : false,
+    }));
+  const onWebSearch = (webSearch: boolean) => setForm((f) => ({ ...f, webSearch }));
   return (
     <div className="mt-3 rounded-md border border-border px-2.5 py-2" data-testid="provider-form">
-      <ProviderFormRows form={form} onField={onField} onProtocol={onProtocol} />
+      <ProviderFormRows
+        form={form}
+        onField={onField}
+        onProtocol={onProtocol}
+        onWebSearch={onWebSearch}
+      />
       <ProviderHints form={form} />
       <FormActions busy={busy} canSave={canSave} onCancel={onDone} onSave={() => void submit()} />
     </div>

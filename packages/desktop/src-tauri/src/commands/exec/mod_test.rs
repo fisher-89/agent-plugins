@@ -975,6 +975,7 @@ fn sealed_watch_event(seq: u64) -> ::agent::AgentEvent {
             role: AgentMessageRole::Assistant,
             blocks: vec![::agent::AgentBlock::Text {
                 text: format!("第 {seq} 段正文"),
+                citations: None,
             }],
             parent_tool_use_id: None,
         },

@@ -23,6 +23,15 @@ if (typeof globalThis.ResizeObserver !== 'function') {
   Object.assign(globalThis, { ResizeObserver: ResizeObserverStub });
 }
 
+// jsdom 缺 PointerEvent：@base-ui 的 Checkbox / Button 在 click 激活时用
+// ownerWindow(target).PointerEvent 构造带修饰键的 click 事件（原生 click()
+// 恒报「无修饰键」）——补最小实现（继承 MouseEvent，零附加字段）满足构造语义，
+// 否则勾选点击抛 "PointerEvent is not a constructor"（未捕获异常）。
+if (typeof globalThis.PointerEvent !== 'function') {
+  class PointerEventStub extends MouseEvent {}
+  Object.assign(globalThis, { PointerEvent: PointerEventStub });
+}
+
 // 测试门禁高并行运行（覆盖度量 + rust llvm-cov 编译抢 CPU）时 jsdom 定时器 /
 // rAF 可被饿死：RTL 异步等待（waitFor / findBy）默认 1s 预算会被负载抖动打穿
 // （抽屉弹层等异步呈现断言偶发超时）。放宽到 5s——等待语义不变，仅失败反馈变慢。

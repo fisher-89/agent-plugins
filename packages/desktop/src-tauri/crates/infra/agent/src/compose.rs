@@ -57,6 +57,10 @@ struct ResolvedEngine {
     /// sdk 引擎输出上限（可空调参旁路，与 `context_window` 并列；`None` = 按
     /// 协议缺省，仅 anthropic 协议消费）
     max_tokens: Option<u64>,
+    /// Anthropic 云端 `web_search` 服务端工具开关（**已按协议门控**的最终值：
+    /// `provider.web_search && protocol == Anthropic`——门控判定单点在本组合
+    /// 根，门面与 runner 零二次判定）
+    web_search: bool,
     /// 解析目标实例 id（快照 `agent_instance_id` 载荷；缺省与显式路径同经
     /// 解析单点，恒在）
     agent_instance_id: i64,
@@ -127,6 +131,7 @@ pub fn compose_turn(
         EngineFacade::with_resume_transcript(resume)
             .with_context_window(resolved.context_window)
             .with_max_tokens(resolved.max_tokens)
+            .with_web_search(resolved.web_search)
             .with_explore_note_store(explore_note_store)
             .with_workspace_root(workspace_root.to_path_buf())
             .runner_for(resolved.kind, resolved.config)?,
@@ -260,12 +265,13 @@ fn resolve_agent_engine(
                         instance.name
                     )
                 })?;
+            let protocol = map_protocol(provider.protocol);
             Ok(ResolvedEngine {
                 kind: EngineKind::Sdk,
                 config: EngineConfig {
                     // 协议经双枚举映射进连接配置（选臂只在引擎组装点，解析层
                     // 不对协议做二次判断）
-                    protocol: map_protocol(provider.protocol),
+                    protocol,
                     api_key: provider.api_key,
                     base_url: provider.base_url,
                     model_high: provider.models.high,
@@ -275,6 +281,9 @@ fn resolve_agent_engine(
                 // 侧解析，不落缺省字面）
                 context_window: provider.context_length,
                 max_tokens: provider.max_tokens,
+                // 门控单点：web_search 是 anthropic 专有 server tool，openai
+                // 协议恒不生效（不静默透传、不报错）；按值移动前先算
+                web_search: provider.web_search && matches!(protocol, Protocol::Anthropic),
                 agent_instance_id: instance.id,
             })
         }

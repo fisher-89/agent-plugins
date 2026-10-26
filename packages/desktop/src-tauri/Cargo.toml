@@ -34,6 +34,7 @@ store = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-devtools = "2.2.1"
+tauri-plugin-opener = { workspace = true }
 tauri-specta = { workspace = true }
 tokei = { workspace = true }
 tokio = { workspace = true }
@@ -104,6 +105,12 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 tauri = { version = "2", features = ["specta", "devtools"] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+# 外链打开（agent 搜索来源 / 引用列表的唯一前端调用点）。**锁内固定 2.5.x**：
+# 2.6+ 要求 tauri ^2.12，会把整条 tauri 运行时栈从 2.11 抬到 2.12，而该组合
+# 在本仓的 Windows manifest 注入形态下链接失败（`__CxxFrameHandler3` 未解析）；
+# 2.5.x 的权限面（allow-open-url + url scope）与 JS 侧 openUrl 调用契约不变，
+# 运行时栈整体升级时再一并抬。
+tauri-plugin-opener = "2"
 vcs-runtime = { path = "crates/infra/vcs" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

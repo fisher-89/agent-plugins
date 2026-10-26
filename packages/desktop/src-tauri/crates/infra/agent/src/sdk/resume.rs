@@ -5,6 +5,8 @@ use rig::message::{
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
 
+use crate::sdk::web_search;
+
 const LOCAL_ISSUER: Issuer = Issuer::from_static("dev-team-sdk");
 
 /// sdk 引擎侧会话 id 铸造前缀：`sdk-<进程内计数>-<毫秒时戳>`（每轮铸造，
@@ -76,33 +78,58 @@ pub fn rebuild(events: &[AgentEvent]) -> Result<Vec<Message>, String> {
     }
 }
 
-/// user 位文本块映射（非文本块跳过）
+/// user 位文本块映射（非文本块跳过；user 侧 citations 不参与重建）
 fn text_content(blocks: &[AgentBlock]) -> Vec<UserContent> {
     blocks
         .iter()
         .filter_map(|block| match block {
-            AgentBlock::Text { text } => Some(UserContent::text(text.clone())),
+            AgentBlock::Text { text, .. } => Some(UserContent::text(text.clone())),
             _ => None, // user 消息内的 Thinking / ToolUse 非法形态跳过
         })
         .collect()
 }
 
-/// assistant 消息块映射
+/// assistant 消息块映射：逐块展开为 `AssistantContent` 序列（一条块最多产
+/// 两条——`WebSearch` 的 `raw_use` → `raw_result` 保原序，双 `None` 跳过）。
+///
+/// 展示字段（`query` / `results` / `error`）MUST NOT 参与重建：回放唯一事实源
+/// 是 raw 原文（`encrypted_content` 等不可推导字段原样保全）；raw 块配空文本
+/// （rig 侧带文本即 `ConversionError`）。
 fn assistant_content(blocks: &[AgentBlock]) -> Vec<AssistantContent> {
-    blocks
-        .iter()
-        .filter_map(|block| match block {
-            AgentBlock::Text { text } => Some(AssistantContent::text(text.clone())),
-            AgentBlock::Thinking { thinking } => Some(AssistantContent::Reasoning(
+    let mut content: Vec<AssistantContent> = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        match block {
+            // 正文 + 引用原值回填（非空 citations 才挂）
+            AgentBlock::Text { text, citations } => {
+                content.push(web_search::replay_text(text, citations.as_deref()));
+            }
+            AgentBlock::Thinking { thinking } => content.push(AssistantContent::Reasoning(
                 Reasoning::new(thinking).sealed(LOCAL_ISSUER),
             )),
             AgentBlock::ToolUse { id, name, input } => {
-                let name = ToolName::new(name.clone()).ok()?;
-                Some(AssistantContent::tool_call(id.clone(), name, input.clone()))
+                let Some(name) = ToolName::new(name.clone()).ok() else {
+                    continue;
+                };
+                content.push(AssistantContent::tool_call(id.clone(), name, input.clone()));
             }
-            _ => None, // assistant 消息内的 ToolResult 非法形态跳过
-        })
-        .collect()
+            // 一次搜索 = 一条 use → 一条 result（保原始 wire 顺序）
+            AgentBlock::WebSearch {
+                raw_use,
+                raw_result,
+                ..
+            } => {
+                if let Some(raw) = raw_use {
+                    content.push(web_search::replay_raw(raw));
+                }
+                if let Some(raw) = raw_result {
+                    content.push(web_search::replay_raw(raw));
+                }
+            }
+            // assistant 消息内的 ToolResult 非法形态跳过
+            AgentBlock::ToolResult { .. } => {}
+        }
+    }
+    content
 }
 
 /// 工具结果并入历史：只收 [`pending`] 中声明的调用（紧邻 assistant 的配对），

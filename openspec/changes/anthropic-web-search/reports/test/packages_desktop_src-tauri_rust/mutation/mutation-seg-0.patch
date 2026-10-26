@@ -1,0 +1,924 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 0b9c897c88bc..2e254cb2bfeb 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2543,6 +2543,7 @@ dependencies = [
+  "tauri-build",
+  "tauri-plugin-devtools",
+  "tauri-plugin-dialog",
++ "tauri-plugin-opener",
+  "tauri-plugin-single-instance",
+  "tauri-plugin-updater",
+  "tauri-specta",
+@@ -4240,6 +4241,25 @@ version = "2.12.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
+ 
++[[package]]
++name = "is-docker"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "928bae27f42bc99b60d9ac7334e3a21d10ad8f1835a4e12ec3ec0464765ed1b3"
++dependencies = [
++ "once_cell",
++]
++
++[[package]]
++name = "is-wsl"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "173609498df190136aa7dea1a91db051746d339e18476eed5ca40521f02d7aa5"
++dependencies = [
++ "is-docker",
++ "once_cell",
++]
++
+ [[package]]
+ name = "itertools"
+ version = "0.11.0"
+@@ -6281,6 +6301,17 @@ dependencies = [
+  "pkg-config",
+ ]
+ 
++[[package]]
++name = "open"
++version = "5.4.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8d8c8b8e725ad26404d6896eb2f064294a0a7b4f1d9120210d85544684c4ca95"
++dependencies = [
++ "dunce",
++ "is-wsl",
++ "libc",
++]
++
+ [[package]]
+ name = "openssl"
+ version = "0.10.81"
+@@ -9148,6 +9179,28 @@ dependencies = [
+  "url",
+ ]
+ 
++[[package]]
++name = "tauri-plugin-opener"
++version = "2.5.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "60d60366174b745b4ef5824b8bbc1c457fd08f0ce101ff643c0a49181a9f4e91"
++dependencies = [
++ "dunce",
++ "glob",
++ "objc2-app-kit",
++ "objc2-foundation",
++ "open",
++ "schemars 0.8.22",
++ "serde",
++ "serde_json",
++ "tauri",
++ "tauri-plugin",
++ "thiserror 2.0.20",
++ "url",
++ "windows",
++ "zbus",
++]
++
+ [[package]]
+ name = "tauri-plugin-single-instance"
+ version = "2.4.5"
+diff --git a/Cargo.toml b/Cargo.toml
+index f452b8ce6374..ad759f3cd8e1 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -34,6 +34,7 @@ store = { workspace = true }
+ tauri = { workspace = true }
+ tauri-plugin-dialog = { workspace = true }
+ tauri-plugin-devtools = "2.2.1"
++tauri-plugin-opener = { workspace = true }
+ tauri-specta = { workspace = true }
+ tokei = { workspace = true }
+ tokio = { workspace = true }
+@@ -104,6 +105,12 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
+ tauri = { version = "2", features = ["specta", "devtools"] }
+ tauri-build = { version = "2", features = [] }
+ tauri-plugin-dialog = "2"
++# 外链打开（agent 搜索来源 / 引用列表的唯一前端调用点）。**锁内固定 2.5.x**：
++# 2.6+ 要求 tauri ^2.12，会把整条 tauri 运行时栈从 2.11 抬到 2.12，而该组合
++# 在本仓的 Windows manifest 注入形态下链接失败（`__CxxFrameHandler3` 未解析）；
++# 2.5.x 的权限面（allow-open-url + url scope）与 JS 侧 openUrl 调用契约不变，
++# 运行时栈整体升级时再一并抬。
++tauri-plugin-opener = "2"
+ vcs-runtime = { path = "crates/infra/vcs" }
+ 
+ [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+diff --git a/capabilities/default.json b/capabilities/default.json
+index f44ae6c55610..f3f8f159746e 100644
+--- a/capabilities/default.json
++++ b/capabilities/default.json
+@@ -1,7 +1,14 @@
+ {
+   "$schema": "../gen/schemas/desktop-schema.json",
+   "identifier": "default",
+-  "description": "查询 IPC 与文件夹选择器；无 fs / shell 等其他权限",
++  "description": "查询 IPC、文件夹选择器与外链打开（仅 http(s)）；无 fs / shell 等其他权限",
+   "windows": ["main"],
+-  "permissions": ["core:default", "dialog:allow-open"]
++  "permissions": [
++    "core:default",
++    "dialog:allow-open",
++    {
++      "identifier": "opener:allow-open-url",
++      "allow": [{ "url": "http://*" }, { "url": "https://*" }]
++    }
++  ]
+ }
+diff --git a/crates/core/agent/src/event.rs b/crates/core/agent/src/event.rs
+index 925a3be05e11..f71bd644fdfb 100644
+--- a/crates/core/agent/src/event.rs
++++ b/crates/core/agent/src/event.rs
+@@ -9,7 +9,19 @@ pub(crate) fn now_millis() -> i64 {
+         .unwrap_or(0)
+ }
+ 
+-/// 消息内块：Text / Thinking / ToolUse / ToolResult 四变体（tag `kind`，camelCase）。
++/// 消息内块：Text / Thinking / ToolUse / ToolResult / WebSearch 五变体
++/// （tag `kind`，camelCase）。
++///
++/// 词汇仍**协议中立**（core 不认识 anthropic / rig）：`WebSearch` 是 provider
++/// 服务端工具块的通用表达，`citations` 是其正文引用——
++/// - `raw_use` / `raw_result` 为**回放唯一事实源**（`encrypted_content` 等不可
++///   推导字段原样保全，展示字段 MUST NOT 参与重建）；
++/// - `citations` 与 `WebSearch` 均为新变体 / 带默认值字段，事件 payload 是自
++///   描述 JSON，落库**无需 store schema 版本升级**；旧事件缺 `citations` 读出
++///   `None`。
++///
++/// 已知代价（边界条 15）：旧客户端读到含 `WebSearch` 块的事件会在**整条事件
++/// 解码**时失败（不是少显示一张卡），仓库不提供降级分支。
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+ #[serde(
+     tag = "kind",
+@@ -17,8 +29,15 @@ pub(crate) fn now_millis() -> i64 {
+     rename_all_fields = "camelCase"
+ )]
+ pub enum AgentBlock {
+-    /// 文本块（assistant 正文 / user 输入）
+-    Text { text: String },
++    /// 文本块（assistant 正文 / user 输入）：`citations` 为正文引用
++    /// （`None` = 无引用；**序列化落 `null`，键恒在**——旧 JSON 缺键仍读出
++    /// `None`）。属性面只标 `default`：`skip_serializing_if` 无法在 unified
++    /// 相位模型下表达，加则 bindings 分裂为相位伴生类型。
++    Text {
++        text: String,
++        #[serde(default)]
++        citations: Option<Vec<AgentCitation>>,
++    },
+     /// 思考块
+     Thinking { thinking: String },
+     /// 工具调用块（`input` 为原 JSON，结构由具体工具自解释）
+@@ -33,6 +52,67 @@ pub enum AgentBlock {
+         content: String,
+         is_error: bool,
+     },
++    /// 云端 `web_search` 服务端工具块：一次 `server_tool_use` 与其配对 result
++    /// 的**原子表达**（`id` 同两侧配对键）。
++    ///
++    /// `query` / `results` / `error` 为展示字段（不参与回放重建）；
++    /// `raw_use` / `raw_result` 为回放唯一事实源。use 与 result 被拆进两条
++    /// assistant 消息时投两块（use 侧 `raw_use` 有值、result 侧为 `None`）。
++    ///
++    /// 展示字段与 raw 字段**一律落键、值可 `null`**（`results` 缺省落 `[]`）：
++    /// 属性面只标 `default`，`skip_serializing_if` 会令 bindings 分裂出相位
++    /// 伴生类型（统一形态的前提，见 D1）。
++    WebSearch {
++        /// 服务端工具调用 id（= 配对 result 的 `tool_use_id`）
++        id: String,
++        /// 查询词（`server_tool_use.input.query`；孤儿 result 块为空串）
++        query: String,
++        /// 来源列表（展示字段；空数组落 `[]`，键恒在）
++        #[serde(default)]
++        results: Vec<WebSearchSource>,
++        /// 搜索错误码（`web_search_tool_result_error.error_code`）
++        #[serde(default)]
++        error: Option<String>,
++        /// 原始 wire 值（`server_tool_use` 原文；回放源）
++        #[serde(default)]
++        raw_use: Option<serde_json::Value>,
++        /// 原始 wire 值（`web_search_tool_result` 原文；回放源）
++        #[serde(default)]
++        raw_result: Option<serde_json::Value>,
++    },
++}
++
++/// 正文引用（服务端 citations 的一条）：`url` / `title` / `cited_text` 为展示
++/// 字段（可缺省）；`raw` 为原始 wire 值（回放用，反序列化再序列化会规范化，
++/// 故 MUST 原值保全）。
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct AgentCitation {
++    /// 来源地址
++    #[serde(default)]
++    pub url: Option<String>,
++    /// 来源标题
++    #[serde(default)]
++    pub title: Option<String>,
++    /// 被引用的原文片段
++    #[serde(default)]
++    pub cited_text: Option<String>,
++    /// 原始 wire 值（回放源；不经类型往返）
++    pub raw: serde_json::Value,
++}
++
++/// 单条搜索来源（纯展示字段，不参与回放）。
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct WebSearchSource {
++    /// 来源地址
++    pub url: String,
++    /// 来源标题
++    #[serde(default)]
++    pub title: Option<String>,
++    /// 页面时效（服务端给出的 `page_age` 原样）
++    #[serde(default)]
++    pub page_age: Option<String>,
+ }
+ 
+ /// token 级增量载荷（思考/回复可辨；serde 内部 tag camelCase，与块模型同式）。
+diff --git a/crates/core/agent/src/event_test.rs b/crates/core/agent/src/event_test.rs
+index ab7dab02d9cc..a693a2a61c12 100644
+--- a/crates/core/agent/src/event_test.rs
++++ b/crates/core/agent/src/event_test.rs
+@@ -1,6 +1,9 @@
+ use serde_json::{json, Value};
+ 
+-use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
++use crate::event::{
++    AgentBlock, AgentCitation, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole,
++    WebSearchSource,
++};
+ 
+ /// 测试侧当前时钟毫秒（镜像 event.rs 的取值口径，用于 stamp 边界断言）。
+ fn millis_now() -> i64 {
+@@ -10,7 +13,62 @@ fn millis_now() -> i64 {
+         .unwrap_or(0)
+ }
+ 
++/// 引用 fixture（raw 含不确定字段，锚定「原值不规范化」）。
++fn citation_fixture() -> AgentCitation {
++    AgentCitation {
++        url: Some("https://cite.example.com/1".to_owned()),
++        title: Some("引用标题".to_owned()),
++        cited_text: Some("被引用的原文片段 🎉".to_owned()),
++        raw: json!({
++            "url": "https://cite.example.com/1",
++            "title": "引用标题",
++            "cited_text": "被引用的原文片段 🎉",
++            "encrypted_index": "不确定字段",
++        }),
++    }
++}
++
++/// 搜索来源 fixture（`title` / `page_age` 可空）。
++fn source_fixture(url: &str, title: Option<&str>, page_age: Option<&str>) -> WebSearchSource {
++    WebSearchSource {
++        url: url.to_owned(),
++        title: title.map(str::to_owned),
++        page_age: page_age.map(str::to_owned),
++    }
++}
++
++/// `WebSearch` 全字段在场 fixture（raw 两侧含 `encrypted_content` 与嵌套数组）。
++fn web_search_block() -> AgentBlock {
++    AgentBlock::WebSearch {
++        id: "srvtoolu_1".to_owned(),
++        query: "今日汇率".to_owned(),
++        results: vec![source_fixture(
++            "https://a.example.com/1",
++            Some("甲来源"),
++            Some("2025-10-01"),
++        )],
++        error: None,
++        raw_use: Some(json!({
++            "type": "server_tool_use",
++            "id": "srvtoolu_1",
++            "name": "web_search",
++            "input": { "query": "今日汇率" },
++            "encrypted_content": "加密索引 🎉",
++            "nested": [1, [2, 3]],
++        })),
++        raw_result: Some(json!({
++            "type": "web_search_tool_result",
++            "tool_use_id": "srvtoolu_1",
++            "content": [{ "type": "web_search_result", "url": "https://a.example.com/1" }],
++            "encrypted_content": "结果加密",
++        })),
++    }
++}
++
+ /// 六变体各一枚代表事件（stamp 递增 seq）。
++///
++/// Message 变体携带**五变体块面**（Text 携 citations + WebSearch），使信封整体
++/// 往返用例覆盖新块与新增字段（迭代性质 = 修改；断言语义不变）。
+ fn variant_events() -> Vec<AgentEvent> {
+     vec![
+         AgentEvent::stamp(
+@@ -35,9 +93,13 @@ fn variant_events() -> Vec<AgentEvent> {
+             2,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+-                blocks: vec![AgentBlock::Text {
+-                    text: "正文".to_owned(),
+-                }],
++                blocks: vec![
++                    AgentBlock::Text {
++                        text: "正文".to_owned(),
++                        citations: Some(vec![citation_fixture()]),
++                    },
++                    web_search_block(),
++                ],
+                 parent_tool_use_id: None,
+             },
+         ),
+@@ -407,6 +469,7 @@ fn message四类块混合数组往返无损且块判别值为驼峰() {
+             blocks: vec![
+                 AgentBlock::Text {
+                     text: "文本".to_owned(),
++                    citations: None,
+                 },
+                 AgentBlock::Thinking {
+                     thinking: "思考".to_owned(),
+@@ -491,3 +554,390 @@ fn 缺seq或时间戳必填键的json反序列化返回err不产半成品事件(
+     });
+     assert!(serde_json::from_value::<AgentEvent>(complete).is_ok());
+ }
++
++// ---------------------------------------------------------------------------
++// 五变体块面：WebSearch 变体与 Text.citations 字段（AC-1 / AC-2 事件面）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn web_search变体序列化逐键核对为驼峰线格式且results保序() {
++    let block = AgentBlock::WebSearch {
++        id: "srvtoolu_1".to_owned(),
++        query: "今日汇率".to_owned(),
++        results: vec![
++            source_fixture("https://a.example.com/1", Some("甲"), Some("2025-10-01")),
++            source_fixture("https://b.example.com/2", None, None),
++        ],
++        error: Some("max_uses_exceeded".to_owned()),
++        raw_use: Some(json!({ "type": "server_tool_use", "id": "srvtoolu_1" })),
++        raw_result: Some(json!({ "type": "web_search_tool_result" })),
++    };
++
++    let value = serde_json::to_value(&block).expect("序列化成功");
++
++    assert_eq!(value["kind"], json!("webSearch"), "判别值驼峰 webSearch");
++    assert_eq!(value["id"], json!("srvtoolu_1"));
++    assert_eq!(value["query"], json!("今日汇率"));
++    let results = value["results"].as_array().expect("results 为数组");
++    assert_eq!(results.len(), 2, "results 非空保序");
++    assert_eq!(
++        results[0],
++        json!({ "url": "https://a.example.com/1", "title": "甲", "pageAge": "2025-10-01" }),
++        "来源元素键为 url / title / pageAge"
++    );
++    assert_eq!(
++        results[1]["title"],
++        Value::Null,
++        "title 缺席呈 null（不省略）"
++    );
++    assert_eq!(results[1]["pageAge"], Value::Null);
++    assert_eq!(value["error"], json!("max_uses_exceeded"), "error 为字符串");
++    assert_eq!(
++        value["rawUse"]["type"],
++        json!("server_tool_use"),
++        "rawUse 为对象"
++    );
++    assert_eq!(value["rawResult"]["type"], json!("web_search_tool_result"));
++
++    let roundtrip: AgentBlock = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(roundtrip, block);
++}
++
++#[test]
++fn web_search变体缺省键恒在且往返等价() {
++    let bare = AgentBlock::WebSearch {
++        id: "srvtoolu_bare".to_owned(),
++        query: String::new(),
++        results: Vec::new(),
++        error: None,
++        raw_use: None,
++        raw_result: None,
++    };
++
++    let value = serde_json::to_value(&bare).expect("序列化成功");
++    // 键恒在（只标 serde(default)，无 skip_serializing_if）：空 results 落 []，
++    // 三个 Option 缺省落 null。反向判据：任一键缺席即说明 skip_serializing_if 回流。
++    assert_eq!(
++        value.get("results"),
++        Some(&json!([])),
++        "缺省 results 键恒在且落空数组，实际: {value}"
++    );
++    for key in ["error", "rawUse", "rawResult"] {
++        assert_eq!(
++            value.get(key),
++            Some(&Value::Null),
++            "缺省键 {key} 键恒在且落 null，实际: {value}"
++        );
++    }
++    assert_eq!(value["kind"], json!("webSearch"));
++
++    let roundtrip: AgentBlock = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(roundtrip, bare, "缺省形态往返等价");
++}
++
++#[test]
++fn web_search块raw值往返逐字节保真含加密字段与嵌套数组() {
++    let block = web_search_block();
++    let AgentBlock::WebSearch {
++        raw_use,
++        raw_result,
++        ..
++    } = &block
++    else {
++        panic!("fixture 应为 WebSearch 块");
++    };
++    let serialized = serde_json::to_string(&block).expect("序列化成功");
++    let roundtrip: AgentBlock = serde_json::from_str(&serialized).expect("反序列化成功");
++    let AgentBlock::WebSearch {
++        raw_use: back_use,
++        raw_result: back_result,
++        ..
++    } = &roundtrip
++    else {
++        panic!("往返后仍为 WebSearch 块");
++    };
++
++    assert_eq!(
++        serde_json::to_string(back_use.as_ref().expect("rawUse 在场")).expect("序列化成功"),
++        serde_json::to_string(raw_use.as_ref().expect("rawUse 在场")).expect("序列化成功"),
++        "rawUse 往返逐字节相等（encrypted_content 原样保全）"
++    );
++    assert_eq!(
++        serde_json::to_string(back_result.as_ref().expect("rawResult 在场")).expect("序列化成功"),
++        serde_json::to_string(raw_result.as_ref().expect("rawResult 在场")).expect("序列化成功"),
++        "rawResult 往返逐字节相等"
++    );
++    assert_eq!(roundtrip, block, "整块往返逐字段相等");
++}
++
++#[test]
++fn text块旧json无citations键读出none且再序列化落null键() {
++    let legacy = json!({ "kind": "text", "text": "正文" });
++
++    let block: AgentBlock = serde_json::from_value(legacy).expect("旧 JSON 必须可读（不报错）");
++    match &block {
++        AgentBlock::Text { text, citations } => {
++            assert_eq!(text, "正文");
++            assert_eq!(citations, &None, "旧 JSON 读出 citations == None");
++        }
++        other => panic!("应为 Text 块，实际: {other:?}"),
++    }
++
++    let value = serde_json::to_value(&block).expect("序列化成功");
++    // 键恒在（D1 第四稿）：缺省再序列化落 citations: null。TS 面仍出可选位，
++    // 故前端既有 fixture 零改动；反向判据：键缺席即说明 skip_serializing_if 回流。
++    assert_eq!(
++        value.get("citations"),
++        Some(&Value::Null),
++        "citations 键恒在且落 null，实际: {value}"
++    );
++
++    // 显式 citations: null 同样读出 None 且往返等价
++    let explicit: AgentBlock =
++        serde_json::from_value(json!({ "kind": "text", "text": "正文", "citations": null }))
++            .expect("显式 null 可读");
++    assert_eq!(explicit, block, "显式 null 与缺键解出同一形态");
++    let explicit_value = serde_json::to_value(&explicit).expect("序列化成功");
++    assert_eq!(explicit_value.get("citations"), Some(&Value::Null));
++}
++
++#[test]
++fn text块citations在场形态为数组且空数组不折叠() {
++    let block = AgentBlock::Text {
++        text: "带引用正文".to_owned(),
++        citations: Some(vec![citation_fixture(), citation_fixture()]),
++    };
++
++    let value = serde_json::to_value(&block).expect("序列化成功");
++    let citations = value["citations"].as_array().expect("citations 为数组");
++    assert_eq!(citations.len(), 2);
++    assert_eq!(citations[0]["url"], json!("https://cite.example.com/1"));
++    assert_eq!(citations[0]["title"], json!("引用标题"));
++    assert_eq!(
++        citations[0]["citedText"],
++        json!("被引用的原文片段 🎉"),
++        "cited_text 线键为 citedText"
++    );
++    assert_eq!(
++        citations[0]["raw"]["encrypted_index"],
++        json!("不确定字段"),
++        "raw 原值落线格式"
++    );
++
++    // Some(vec![]) → 落 "citations": []（折叠归 citations_of，序列化层不折叠）
++    let empty = AgentBlock::Text {
++        text: "空引用".to_owned(),
++        citations: Some(Vec::new()),
++    };
++    let empty_value = serde_json::to_value(&empty).expect("序列化成功");
++    assert_eq!(empty_value["citations"], json!([]), "空数组形态落线格式");
++
++    let roundtrip: AgentBlock = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(roundtrip, block);
++}
++
++#[test]
++fn agent_citation三展示字段为空时呈null不省略且往返相等() {
++    let citation = AgentCitation {
++        url: None,
++        title: None,
++        cited_text: None,
++        raw: Value::Null,
++    };
++
++    let value = serde_json::to_value(&citation).expect("序列化成功");
++    for key in ["url", "title", "citedText"] {
++        assert!(
++            value.get(key).is_some(),
++            "Option 字段不加 skip：{key} 键恒在场"
++        );
++        assert_eq!(value[key], Value::Null, "{key} 呈 null（固定形态）");
++    }
++    assert_eq!(value["raw"], Value::Null);
++
++    let roundtrip: AgentCitation = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(roundtrip, citation, "全空形态往返相等");
++    assert_eq!(citation.clone(), citation, "Clone / PartialEq 派生可用");
++}
++
++#[test]
++fn web_search_source形态_url必填且title与page_age缺席呈null() {
++    let full = source_fixture("https://a.example.com/1", Some("甲"), Some("2025-10-01"));
++    let value = serde_json::to_value(&full).expect("序列化成功");
++    assert_eq!(
++        value,
++        json!({ "url": "https://a.example.com/1", "title": "甲", "pageAge": "2025-10-01" })
++    );
++
++    let absent = source_fixture("https://b.example.com/2", None, None);
++    let absent_value = serde_json::to_value(&absent).expect("序列化成功");
++    assert_eq!(
++        absent_value["title"],
++        Value::Null,
++        "title 缺席呈 null（不省略）"
++    );
++    assert_eq!(absent_value["pageAge"], Value::Null);
++
++    // url 空串合法（类型非 Option，构造不校验）
++    let empty_url = source_fixture("", None, None);
++    let empty_value = serde_json::to_value(&empty_url).expect("序列化成功");
++    assert_eq!(empty_value["url"], json!(""));
++    let roundtrip: WebSearchSource = serde_json::from_value(empty_value).expect("反序列化成功");
++    assert_eq!(roundtrip, empty_url);
++}
++
++#[test]
++fn 非法载荷拒收_缺id与未知kind与类型不符均err() {
++    // kind 缺 id
++    assert!(
++        serde_json::from_value::<AgentBlock>(json!({ "kind": "webSearch", "query": "q" })).is_err(),
++        "缺 id 必须 Err"
++    );
++    // 缺 query
++    assert!(
++        serde_json::from_value::<AgentBlock>(json!({ "kind": "webSearch", "id": "a" })).is_err(),
++        "缺 query 必须 Err"
++    );
++    // kind 未知值
++    for kind in ["webSearchX", "", "WebSearch"] {
++        assert!(
++            serde_json::from_value::<AgentBlock>(json!({ "kind": kind, "id": "a", "query": "q" }))
++                .is_err(),
++            "未知 kind {kind:?} 必须 Err"
++        );
++    }
++    // citations 为对象 / 字符串 → Err；null 则解为 None
++    for citations in [json!({ "url": "https://a" }), json!("不是数组")] {
++        assert!(
++            serde_json::from_value::<AgentBlock>(
++                json!({ "kind": "text", "text": "t", "citations": citations })
++            )
++            .is_err(),
++            "citations 形态非法必须 Err"
++        );
++    }
++    let null_citations: AgentBlock =
++        serde_json::from_value(json!({ "kind": "text", "text": "t", "citations": null }))
++            .expect("citations: null 解为 None（Option 语义不报错）");
++    assert!(matches!(&null_citations, AgentBlock::Text { citations, .. } if citations.is_none()));
++
++    // results 为 null / 对象 → Err（非 Option 列表）
++    for results in [Value::Null, json!({ "url": "https://a" })] {
++        assert!(
++            serde_json::from_value::<AgentBlock>(
++                json!({ "kind": "webSearch", "id": "a", "query": "q", "results": results })
++            )
++            .is_err(),
++            "results 形态非法必须 Err"
++        );
++    }
++    // raw 键缺席 → Err（Value 无默认值，值域受控、不静默兜底）
++    assert!(
++        serde_json::from_value::<AgentCitation>(json!({ "url": "https://a" })).is_err(),
++        "AgentCitation 缺 raw 必须 Err"
++    );
++    // WebSearchSource 缺 url → Err
++    assert!(
++        serde_json::from_value::<WebSearchSource>(json!({ "title": "甲" })).is_err(),
++        "WebSearchSource 缺 url 必须 Err"
++    );
++}
++
++#[test]
++fn 字符串与列表边界_超长特殊字符与百条来源往返逐字节() {
++    let long_query = format!("{}\n含换行\0与 emoji 🎉", "查".repeat(1200));
++    let sources: Vec<WebSearchSource> = (0..100)
++        .map(|index| source_fixture(&format!("https://s.example.com/{index}"), None, None))
++        .collect();
++    let block = AgentBlock::WebSearch {
++        id: String::new(),
++        query: long_query.clone(),
++        results: sources,
++        error: None,
++        raw_use: Some(json!({})),
++        raw_result: Some(json!({ "deep": [[[1]]] })),
++    };
++
++    let value = serde_json::to_value(&block).expect("序列化成功");
++    let roundtrip: AgentBlock = serde_json::from_value(value).expect("反序列化成功");
++
++    match &roundtrip {
++        AgentBlock::WebSearch {
++            id,
++            query,
++            results,
++            raw_use,
++            raw_result,
++            ..
++        } => {
++            assert_eq!(id, "", "id 空串合法");
++            assert_eq!(query, &long_query, "超长 / 特殊字符逐字节往返");
++            assert!(query.chars().count() > 1000, "fixture 超 1000 字符");
++            assert_eq!(results.len(), 100, "百条来源保序无损");
++            assert_eq!(results[99].url, "https://s.example.com/99");
++            assert_eq!(raw_use, &Some(json!({})), "空对象 raw 往返相等");
++            assert_eq!(
++                raw_result,
++                &Some(json!({ "deep": [[[1]]] })),
++                "深嵌套往返相等"
++            );
++        }
++        other => panic!("应为 WebSearch 块，实际: {other:?}"),
++    }
++
++    // 单元素列表（边界下界）
++    let single = AgentBlock::WebSearch {
++        id: "srvtoolu_one".to_owned(),
++        query: "单条".to_owned(),
++        results: vec![source_fixture("https://only/1", Some("唯一"), None)],
++        error: None,
++        raw_use: None,
++        raw_result: None,
++    };
++    let single_value = serde_json::to_value(&single).expect("序列化成功");
++    assert_eq!(single_value["results"].as_array().expect("数组").len(), 1);
++}
++
++#[test]
++fn 五变体信封整体往返逐字段相等且agentdelta词汇仍为两变体() {
++    // 六事件信封整体往返：Message 变体携 Text{citations} + WebSearch 两块
++    for event in variant_events() {
++        let value = serde_json::to_value(&event).expect("序列化成功");
++        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
++        assert_eq!(roundtrip, event, "seq={} 整体往返逐字段相等", event.seq);
++    }
++
++    let sealed = variant_events()
++        .into_iter()
++        .find(|event| matches!(event.kind, AgentEventKind::Message { .. }))
++        .expect("Message 代表事件在场");
++    let AgentEventKind::Message { blocks, .. } = &sealed.kind else {
++        panic!("应为 Message 事件");
++    };
++    let value = serde_json::to_value(&sealed.kind).expect("序列化成功");
++    assert_eq!(
++        value["blocks"][0]["citations"]
++            .as_array()
++            .expect("数组")
++            .len(),
++        1,
++        "citations 随信封往返在场"
++    );
++    assert_eq!(value["blocks"][1]["kind"], json!("webSearch"));
++    assert!(matches!(&blocks[1], AgentBlock::WebSearch { .. }));
++
++    // 决策 ⑦ 机械判据：AgentDelta 恰两变体（无 Search 变体）——穷举 match 不写
++    // `_` 分支，新增第三变体即编译失败
++    for delta in [
++        AgentDelta::Text {
++            text: String::new(),
++        },
++        AgentDelta::Thinking {
++            thinking: String::new(),
++        },
++    ] {
++        match delta {
++            AgentDelta::Text { .. } | AgentDelta::Thinking { .. } => {}
++        }
++    }
++}
+diff --git a/crates/core/agent/src/lib.rs b/crates/core/agent/src/lib.rs
+index 84df021cd676..87898391a766 100644
+--- a/crates/core/agent/src/lib.rs
++++ b/crates/core/agent/src/lib.rs
+@@ -7,7 +7,10 @@ mod state;
+ mod stream;
+ mod usage;
+ 
+-pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
++pub use event::{
++    AgentBlock, AgentCitation, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole,
++    WebSearchSource,
++};
+ pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
+ pub use port::{SessionQuery, SessionSink, TurnOutcome};
+ pub use runner::{
+diff --git a/crates/core/agent/src/lib_test.rs b/crates/core/agent/src/lib_test.rs
+index 46d567aa74f1..75ac32e2350f 100644
+--- a/crates/core/agent/src/lib_test.rs
++++ b/crates/core/agent/src/lib_test.rs
+@@ -1,6 +1,9 @@
+ use std::sync::Arc;
+ 
+ use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
++// 新块词汇的 crate 根再导出面（`AgentBlock::WebSearch` / `Text.citations` 的
++// 类型依赖；`crate::AgentCitation` / `crate::WebSearchSource` 任一漏导出即编译
++// 失败——机械补位，不新增断言语义）
+ use crate::kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
+ use crate::port::{SessionQuery, SessionSink, TurnOutcome};
+ use crate::runner::{
+@@ -16,10 +19,50 @@ use crate::state::{AgentRunState, RunStateMachine};
+ use crate::stream::{
+     SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionStreamSubscription,
+ };
++use crate::{AgentCitation, WebSearchSource};
+ 
+ /// crate 根 use 可达性锚定：上列导入任一破坏即编译失败。构造形态断言确保
+ /// 导入非仅「被 use」而确可用。
+ #[test]
++fn crate根导出面锚定_引用与搜索来源类型可达且可构造() {
++    let citation = AgentCitation {
++        url: Some("https://a/1".to_owned()),
++        title: Some("标题".to_owned()),
++        cited_text: Some("片段".to_owned()),
++        raw: serde_json::json!({ "url": "https://a/1" }),
++    };
++    assert_eq!(citation.url.as_deref(), Some("https://a/1"));
++
++    let source = WebSearchSource {
++        url: "https://a/1".to_owned(),
++        title: None,
++        page_age: None,
++    };
++    assert_eq!(source.url, "https://a/1");
++
++    // 两类型经块变体可用（`Text.citations` / `WebSearch.results` 的真实承载位）
++    let block = AgentBlock::Text {
++        text: "正文".to_owned(),
++        citations: Some(vec![citation]),
++    };
++    assert!(matches!(
++        block,
++        AgentBlock::Text {
++            citations: Some(_),
++            ..
++        }
++    ));
++    let block = AgentBlock::WebSearch {
++        id: "srvtoolu_1".to_owned(),
++        query: "q".to_owned(),
++        results: vec![source],
++        error: None,
++        raw_use: None,
++        raw_result: None,
++    };
++    assert!(matches!(block, AgentBlock::WebSearch { .. }));
++}
++#[test]
+ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
+     // session 域契约类型构造形态
+     let provenance = SessionProvenance {
+@@ -93,7 +136,8 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
+     assert!(event.kind.is_delta());
+     assert!(
+         AgentBlock::Text {
+-            text: String::new()
++            text: String::new(),
++            citations: None,
+         } != AgentBlock::Thinking {
+             thinking: String::new()
+         }
+diff --git a/crates/core/agent/src/usage_test.rs b/crates/core/agent/src/usage_test.rs
+index 01a6805682ad..bedd21089ef8 100644
+--- a/crates/core/agent/src/usage_test.rs
++++ b/crates/core/agent/src/usage_test.rs
+@@ -186,6 +186,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
+                 role: AgentMessageRole::Assistant,
+                 blocks: vec![AgentBlock::Text {
+                     text: "正文".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+diff --git a/crates/core/orchestration/src/state_test.rs b/crates/core/orchestration/src/state_test.rs
+index c9f84b3a395d..2b7ac0f1fdcc 100644
+--- a/crates/core/orchestration/src/state_test.rs
++++ b/crates/core/orchestration/src/state_test.rs
+@@ -28,6 +28,7 @@ fn sealed_event(seq: u64) -> agent::AgentEvent {
+             role: AgentMessageRole::Assistant,
+             blocks: vec![AgentBlock::Text {
+                 text: "评估结论".to_owned(),
++                citations: None,
+             }],
+             parent_tool_use_id: None,
+         },
+diff --git a/crates/core/orchestration/src/transcript.rs b/crates/core/orchestration/src/transcript.rs
+index ac9635a9a2dd..7964ff5a1114 100644
+--- a/crates/core/orchestration/src/transcript.rs
++++ b/crates/core/orchestration/src/transcript.rs
+@@ -12,7 +12,7 @@ pub fn final_assistant_text(transcript: &[agent::AgentEvent]) -> Option<String>
+         let text = blocks
+             .iter()
+             .filter_map(|block| match block {
+-                AgentBlock::Text { text } => Some(text.as_str()),
++                AgentBlock::Text { text, .. } => Some(text.as_str()),
+                 _ => None,
+             })
+             .collect::<Vec<_>>()
+diff --git a/crates/core/orchestration/src/transcript_test.rs b/crates/core/orchestration/src/transcript_test.rs
+index cfa47d0a50bc..120a132f8d12 100644
+--- a/crates/core/orchestration/src/transcript_test.rs
++++ b/crates/core/orchestration/src/transcript_test.rs
+@@ -66,6 +66,7 @@ fn tool_result(id: &str, content: &str) -> AgentBlock {
+ fn text_block(text: &str) -> AgentBlock {
+     AgentBlock::Text {
+         text: text.to_owned(),
++        citations: None,
+     }
+ }
+ 
+diff --git a/crates/infra/agent/src/compose.rs b/crates/infra/agent/src/compose.rs
+index 09db9b06b07b..4dc946bb2910 100644
+--- a/crates/infra/agent/src/compose.rs
++++ b/crates/infra/agent/src/compose.rs
+@@ -56,6 +56,10 @@ struct ResolvedEngine {
+     /// sdk 引擎输出上限（可空调参旁路，与 `context_window` 并列；`None` = 按
+     /// 协议缺省，仅 anthropic 协议消费）
+     max_tokens: Option<u64>,
++    /// Anthropic 云端 `web_search` 服务端工具开关（**已按协议门控**的最终值：
++    /// `provider.web_search && protocol == Anthropic`——门控判定单点在本组合
++    /// 根，门面与 runner 零二次判定）
++    web_search: bool,
+     /// 解析目标实例 id（快照 `agent_instance_id` 载荷；缺省与显式路径同经
+     /// 解析单点，恒在）
+     agent_instance_id: i64,
+@@ -123,6 +127,7 @@ pub fn compose_turn(
+         EngineFacade::with_resume_transcript(resume)
+             .with_context_window(resolved.context_window)
+             .with_max_tokens(resolved.max_tokens)
++            .with_web_search(resolved.web_search)
+             .with_explore_note_store(explore_note_store)
+             .runner_for(resolved.kind, resolved.config)?,
+     );
+@@ -255,12 +260,13 @@ fn resolve_agent_engine(
+                         instance.name
+                     )
+                 })?;
++            let protocol = map_protocol(provider.protocol);
+             Ok(ResolvedEngine {
+                 kind: EngineKind::Sdk,
+                 config: EngineConfig {
+                     // 协议经双枚举映射进连接配置（选臂只在引擎组装点，解析层
+                     // 不对协议做二次判断）
+-                    protocol: map_protocol(provider.protocol),
++                    protocol,
+                     api_key: provider.api_key,
+                     base_url: provider.base_url,
+                     model_high: provider.models.high,
+@@ -270,6 +276,9 @@ fn resolve_agent_engine(
+                 // 侧解析，不落缺省字面）
+                 context_window: provider.context_length,
+                 max_tokens: provider.max_tokens,
++                // 门控单点：web_search 是 anthropic 专有 server tool，openai
++                // 协议恒不生效（不静默透传、不报错）；按值移动前先算
++                web_search: provider.web_search && matches!(protocol, Protocol::Anthropic),
+                 agent_instance_id: instance.id,
+             })
+         }

@@ -916,3 +916,157 @@ fn with_workspace_root不改变cli臂退役拒收面且装载缝零消费() {
         "Cli 臂拒收于构造面，装载缝零消费"
     );
 }
+
+// ---------------------------------------------------------------------------
+// web_search 门面载荷（AC-8）：builder 缝、五处构造点缺省 false、三载荷正交
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn with_web_search分发等价_与直构runner加同载荷行为一致() {
+    for payload in [true, false] {
+        // 门面链：new() → with_web_search(payload) → runner_for(Sdk)
+        let via_facade = EngineFacade::new()
+            .with_web_search(payload)
+            .runner_for(EngineKind::Sdk, complete_cfg())
+            .expect("Sdk 臂构造成功");
+        // 直构链：SdkRunner::new(四参签名不动) + with_web_search
+        let via_direct = SdkRunner::new(complete_cfg(), None, None, None).with_web_search(payload);
+
+        assert_eq!(
+            via_facade
+                .open_session(open_continue("ses-web-search"))
+                .expect_err("无装载缝续会话必须显式失败")
+                .to_string(),
+            via_direct
+                .open_session(open_continue("ses-web-search"))
+                .expect_err("直构同口径失败")
+                .to_string(),
+            "web_search={payload} 门面分发与直构一致"
+        );
+
+        // 载荷不改变非相关行为：New 会话 open 照常成功（拒连端点，组装不触网）
+        drop(
+            via_facade
+                .open_session(agent::SessionOpen {
+                    injections: agent::SessionInjections::default(),
+                    ctx: agent::SessionCtx {
+                        workspace_root: Path::new(r"C:\ws").to_path_buf(),
+                        permission_mode: agent::AgentPermissionMode::BypassPermissions,
+                        model_level: agent::ModelLevel::High,
+                    },
+                    session: agent::SessionRef::New,
+                    prior_handle: None,
+                })
+                .expect("完整配置 New 会话 open 应成功"),
+        );
+    }
+}
+
+#[test]
+fn 五处构造点缺省false_未装配即显式关() {
+    // 五条既有构造路径产出的门面均为「未装配 = 关」（Self{} 补齐的机械判据）
+    assert!(!EngineFacade::new().web_search, "new() 缺省 false");
+
+    let (loader, _calls) = counting_loader(Ok(None));
+    assert!(
+        !EngineFacade::with_resume_transcript(loader).web_search,
+        "with_resume_transcript 缺省 false"
+    );
+    assert!(
+        !EngineFacade::new()
+            .with_context_window(Some(200_000))
+            .web_search,
+        "with_context_window 缺省 false"
+    );
+    assert!(
+        !EngineFacade::new().with_max_tokens(Some(8192)).web_search,
+        "with_max_tokens 缺省 false"
+    );
+    let (_dir, store) = temp_store("web-search-default");
+    assert!(
+        !EngineFacade::new()
+            .with_explore_note_store(Arc::clone(&store))
+            .web_search,
+        "with_explore_note_store 缺省 false"
+    );
+
+    // 缺省档分发行为与现状一致（直构四参无开关同口径）
+    let facade_runner = EngineFacade::new()
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+    let direct_runner = SdkRunner::new(complete_cfg(), None, None, None);
+    assert_eq!(
+        facade_runner
+            .open_session(open_continue("ses-web-search-default"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        direct_runner
+            .open_session(open_continue("ses-web-search-default"))
+            .expect_err("直构同口径失败")
+            .to_string(),
+        "缺省关行为与现状一致"
+    );
+}
+
+#[test]
+fn 三载荷互不覆盖_任意顺序链式各载荷保真且同字段后者覆盖() {
+    // 六种调用序同构：三载荷各自保真、互不覆盖
+    let orders: Vec<EngineFacade> = vec![
+        EngineFacade::new()
+            .with_context_window(Some(200_000))
+            .with_max_tokens(Some(8192))
+            .with_web_search(true),
+        EngineFacade::new()
+            .with_context_window(Some(200_000))
+            .with_web_search(true)
+            .with_max_tokens(Some(8192)),
+        EngineFacade::new()
+            .with_max_tokens(Some(8192))
+            .with_context_window(Some(200_000))
+            .with_web_search(true),
+        EngineFacade::new()
+            .with_max_tokens(Some(8192))
+            .with_web_search(true)
+            .with_context_window(Some(200_000)),
+        EngineFacade::new()
+            .with_web_search(true)
+            .with_context_window(Some(200_000))
+            .with_max_tokens(Some(8192)),
+        EngineFacade::new()
+            .with_web_search(true)
+            .with_max_tokens(Some(8192))
+            .with_context_window(Some(200_000)),
+    ];
+    for facade in &orders {
+        assert_eq!(facade.context_window, Some(200_000), "窗长载荷保真");
+        assert_eq!(facade.max_tokens, Some(8192), "上限载荷保真");
+        assert!(facade.web_search, "开关载荷保真（不被其他 builder 覆盖）");
+    }
+
+    // 同字段重复调用：后者覆盖，无累积
+    let toggled = EngineFacade::new()
+        .with_web_search(true)
+        .with_web_search(false);
+    assert!(!toggled.web_search, "后者覆盖前者（true → false）");
+    let toggled_back = EngineFacade::new()
+        .with_web_search(false)
+        .with_web_search(true);
+    assert!(toggled_back.web_search, "反向链（false → true）");
+}
+
+#[test]
+fn 退役cli臂不被开关改写_逐字退役文案且不静默回退sdk臂() {
+    // `Box<dyn AgentRunner>` 不实现 Debug（expect_err 不可用）：以 match 摘取
+    let error = match EngineFacade::new()
+        .with_web_search(true)
+        .runner_for(EngineKind::Cli, complete_cfg())
+    {
+        Err(error) => error,
+        Ok(_) => panic!("Cli 臂必须 Err"),
+    };
+
+    assert_eq!(
+        error, CLI_TENANT_RETIRED,
+        "开关不静默回退、不改走 sdk 臂（文案逐字）"
+    );
+}

@@ -16,6 +16,7 @@ pub(crate) mod resume;
 pub(crate) mod runner;
 pub(crate) mod sandbox;
 pub(crate) mod tools;
+pub(crate) mod web_search;
 
 #[cfg(test)]
 mod bash_test;
@@ -47,3 +48,5 @@ mod runner_test;
 mod sandbox_test;
 #[cfg(test)]
 mod tools_test;
+#[cfg(test)]
+mod web_search_test;

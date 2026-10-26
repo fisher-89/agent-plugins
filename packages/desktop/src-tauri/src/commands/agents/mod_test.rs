@@ -83,6 +83,7 @@ fn save_new_provider(
         fixture_tiers(),
         None,
         None,
+        false,
     )
 }
 
@@ -103,6 +104,7 @@ fn save_provider_with_key(
         fixture_tiers(),
         None,
         None,
+        false,
     )
 }
 
@@ -250,6 +252,7 @@ fn provider命令_重名保存err清单不变_更新miss_id_err_name空白err() 
         fixture_tiers(),
         None,
         None,
+        false,
     );
     assert!(blank.is_err(), "name 空白应 Err");
 }
@@ -692,6 +695,7 @@ fn save携context_length落库且重开一致() {
             fixture_tiers(),
             Some(200_000),
             None,
+            false,
         )
         .expect("新建应成功");
         assert_eq!(created.context_length, Some(200_000), "命令面平参落记录");
@@ -748,6 +752,7 @@ fn save编辑态context_length双向翻转按入参落库() {
         fixture_tiers(),
         Some(131_072),
         None,
+        false,
     )
     .expect("补窗长编辑应成功");
     assert_eq!(
@@ -767,6 +772,7 @@ fn save编辑态context_length双向翻转按入参落库() {
         fixture_tiers(),
         None,
         None,
+        false,
     )
     .expect("清窗长编辑应成功");
     assert_eq!(
@@ -793,6 +799,7 @@ fn save_api_key回填与新context_length参正交() {
         fixture_tiers(),
         Some(200_000),
         None,
+        false,
     )
     .expect("编辑应成功");
 
@@ -870,6 +877,7 @@ fn save_full(
         },
         context_length,
         max_tokens,
+        false,
     )
 }
 
@@ -1442,4 +1450,275 @@ fn 组合保存清单重开库_协议与上限与后缀原文三面一致() {
         reopened[0].models.medium, "claude-m[1m]",
         "后缀原文持久（不做归一化）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// save_agent_provider 第九参 web_search（AC-8 命令面）：零协议判定、值原样入库
+// ---------------------------------------------------------------------------
+
+/// 携第九参的保存直调（协议 / 开关显式；其余面与既有底座同款）。
+fn save_with_switch(
+    state: &tauri::State<'_, WorkspaceStores>,
+    id: Option<i64>,
+    name: &str,
+    protocol: AgentProviderProtocol,
+    api_key: &str,
+    web_search: bool,
+) -> Result<AgentProviderRecord, String> {
+    save_agent_provider(
+        state.clone(),
+        id,
+        name.to_owned(),
+        protocol,
+        "https://api.example.com/v1".to_owned(),
+        api_key.to_owned(),
+        fixture_tiers(),
+        None,
+        None,
+        web_search,
+    )
+}
+
+#[test]
+fn anthropic与true落库且list与重开库后回读均为true() {
+    let env = Env::new("ws-true");
+    let list_snapshot;
+    {
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        let created = save_with_switch(
+            &state,
+            None,
+            "搜索端点",
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-1234567890",
+            true,
+        )
+        .expect("保存应成功");
+        assert!(created.web_search, "返回记录 webSearch = true");
+
+        let listed = list_agent_providers(state.clone()).expect("list 应成功");
+        assert!(listed[0].web_search, "list 回读 true（值原样入库）");
+        list_snapshot = listed;
+        #[allow(deprecated)]
+        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
+    }
+
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    assert_eq!(
+        list_agent_providers(state.clone()).expect("重开 list 应成功"),
+        list_snapshot,
+        "重开库后 webSearch 持久化一致"
+    );
+}
+
+#[test]
+fn openai与true无条件接受且不清零不报错() {
+    let env = Env::new("ws-openai-true");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let saved = save_with_switch(
+        &state,
+        None,
+        "openai 搜索端点",
+        AgentProviderProtocol::Openai,
+        "sk-live-1234567890",
+        true,
+    )
+    .expect("openai + true 必须 Ok（零协议判定）");
+    assert!(
+        saved.web_search,
+        "openai 下也原样入库 true（生效与否留给解析期）"
+    );
+
+    let listed = list_agent_providers(state.clone()).expect("list 应成功");
+    assert!(listed[0].web_search, "回读仍为 true（不静默清零）");
+}
+
+#[test]
+fn false两协议均ok且与未传无语义差别() {
+    let env = Env::new("ws-false");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    for (protocol, name) in [
+        (AgentProviderProtocol::Anthropic, "false-anthropic"),
+        (AgentProviderProtocol::Openai, "false-openai"),
+    ] {
+        let saved = save_with_switch(&state, None, name, protocol, "sk-live-1234567890", false)
+            .expect("保存应成功");
+        assert!(!saved.web_search, "{protocol:?} + false → 存 false");
+    }
+    // bool 无三态：既有八参直调点（save_new_provider 恒传 false）与显式 false 同义
+    let implicit =
+        save_new_provider(&state, "默认关端点", "sk-live-1234567890").expect("保存应成功");
+    assert!(!implicit.web_search, "既有调用点（false）与未传无语义差别");
+}
+
+#[test]
+fn 编辑态三次翻转按入参落库且行数不增() {
+    let env = Env::new("ws-flip");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let created = save_with_switch(
+        &state,
+        None,
+        "翻转端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-1234567890",
+        true,
+    )
+    .expect("新建应成功");
+
+    for web_search in [false, true] {
+        let saved = save_with_switch(
+            &state,
+            Some(created.id),
+            "翻转端点",
+            AgentProviderProtocol::Anthropic,
+            "",
+            web_search,
+        )
+        .expect("编辑应成功");
+        assert_eq!(saved.web_search, web_search, "按入参落库（不粘滞、不累积）");
+        assert_eq!(
+            list_agent_providers(state.clone())
+                .expect("list 应成功")
+                .len(),
+            1,
+            "upsert 语义：行数不增"
+        );
+    }
+}
+
+#[test]
+fn 留空api_key回填与web_search正交() {
+    let env = Env::new("ws-key-orthogonal");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let created = save_with_switch(
+        &state,
+        None,
+        "正交端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-original-890",
+        false,
+    )
+    .expect("新建应成功");
+
+    // 留空 key + 开关 true：原值回填且开关落 true
+    let refilled = save_with_switch(
+        &state,
+        Some(created.id),
+        "正交端点",
+        AgentProviderProtocol::Anthropic,
+        "",
+        true,
+    )
+    .expect("编辑应成功");
+    assert_eq!(refilled.api_key, "sk-ant-original-890", "留空 key 回填原值");
+    assert!(refilled.web_search, "开关落 true");
+
+    // 非空 key + 开关 false：两字段各自独立
+    let replaced = save_with_switch(
+        &state,
+        Some(created.id),
+        "正交端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-new-777",
+        false,
+    )
+    .expect("编辑应成功");
+    assert_eq!(replaced.api_key, "sk-ant-new-777", "非空 key 落新值");
+    assert!(!replaced.web_search, "开关落 false");
+}
+
+#[test]
+fn 第九参与既有失败面正交_四种err形态文案与开关取值无关() {
+    for web_search in [true, false] {
+        let env = Env::new("ws-error-face");
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        // 1) 空 name
+        let blank = err_of(save_with_switch(
+            &state,
+            None,
+            "",
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-1234567890",
+            web_search,
+        ));
+        // 2) 非法模型名后缀
+        let bad_suffix = err_of(save_agent_provider(
+            state.clone(),
+            None,
+            "后缀端点".to_owned(),
+            AgentProviderProtocol::Anthropic,
+            "https://api.example.com/v1".to_owned(),
+            "sk-ant-1234567890".to_owned(),
+            AgentModelTiers {
+                high: "m-high[8k]".to_owned(),
+                medium: "m-medium".to_owned(),
+                low: "m-low".to_owned(),
+            },
+            None,
+            None,
+            web_search,
+        ));
+        // 3) max_tokens 低于下限
+        let low_tokens = err_of(save_agent_provider(
+            state.clone(),
+            None,
+            "下限端点".to_owned(),
+            AgentProviderProtocol::Anthropic,
+            "https://api.example.com/v1".to_owned(),
+            "sk-ant-1234567890".to_owned(),
+            fixture_tiers(),
+            None,
+            Some(4_095),
+            web_search,
+        ));
+        // 4) 重名 provider（先落一行，再以同名新建）
+        save_with_switch(
+            &state,
+            None,
+            "重名端点",
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-1234567890",
+            web_search,
+        )
+        .expect("首个同名行应成功");
+        let duplicate = err_of(save_with_switch(
+            &state,
+            None,
+            "重名端点",
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-1234567890",
+            web_search,
+        ));
+
+        // 开关不参与校验：四种失败沿用既有文案（且不含 api_key 明文）
+        assert!(blank.contains("名不得为空白"), "空 name 记因: {blank}");
+        assert!(bad_suffix.contains("models.high"), "后缀记因: {bad_suffix}");
+        assert!(low_tokens.contains("max_tokens"), "下限记因: {low_tokens}");
+        assert!(duplicate.contains("重名端点"), "重名记因: {duplicate}");
+        for message in [&blank, &bad_suffix, &low_tokens, &duplicate] {
+            assert!(
+                !message.contains("sk-ant-1234567890"),
+                "错误串不含 api_key 明文: {message}"
+            );
+        }
+        // 失败时库内无新行（仅上面预落的「重名端点」一行）
+        assert_eq!(
+            list_agent_providers(state.clone())
+                .expect("list 应成功")
+                .len(),
+            1,
+            "开关 {web_search}：失败面不落库"
+        );
+    }
 }

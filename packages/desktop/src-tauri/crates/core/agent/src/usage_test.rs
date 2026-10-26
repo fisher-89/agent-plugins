@@ -186,6 +186,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
                 role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "正文".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },

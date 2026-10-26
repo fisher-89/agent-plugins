@@ -155,6 +155,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         protocol: 'openai',
         contextLength: null,
         maxTokens: null,
+        webSearch: false,
       });
       expect(saved?.name).toBe('新端点');
     });
@@ -168,6 +169,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
       protocol: 'openai',
       contextLength: null,
       maxTokens: null,
+      webSearch: false,
     });
     await waitFor(() => expect(countOf('list_agent_providers')).toBe(2));
     await waitFor(() =>
@@ -193,6 +195,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         protocol: 'openai',
         contextLength: 200000,
         maxTokens: null,
+        webSearch: false,
       });
       expect(saved?.contextLength).toBe(200000);
     });
@@ -206,6 +209,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
       protocol: 'openai',
       contextLength: 200000,
       maxTokens: null,
+      webSearch: false,
     });
   });
 
@@ -227,6 +231,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         protocol: 'openai',
         contextLength: null,
         maxTokens: null,
+        webSearch: false,
       });
       expect(saved?.contextLength).toBeNull();
     });
@@ -310,6 +315,7 @@ describe('useAgentProviders：错误双轨', () => {
         protocol: 'openai',
         contextLength: null,
         maxTokens: null,
+        webSearch: false,
       });
       expect(saved).toBeNull();
     });
@@ -373,6 +379,7 @@ describe('useAgentProviders：错误双轨', () => {
         protocol: 'openai',
         contextLength: null,
         maxTokens: null,
+        webSearch: false,
       });
     });
     await act(async () => {
@@ -396,7 +403,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
     stored = [];
   });
 
-  it('save 八参逐键与 save_agent_provider 签名对齐（protocol 紧跟 name）', async () => {
+  it('save 九参逐键与 save_agent_provider 签名对齐（protocol 紧跟 name、webSearch 居末位）', async () => {
     const response: AgentProviderRecord = {
       id: 3,
       name: '协议端点',
@@ -425,6 +432,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
         models: { high: 'claude-x[1m]', medium: 'claude-m', low: 'claude-y' },
         contextLength: 200000,
         maxTokens: 8192,
+        webSearch: false,
       });
     });
 
@@ -438,6 +446,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
       models: { high: 'claude-x[1m]', medium: 'claude-m', low: 'claude-y' },
       contextLength: 200000,
       maxTokens: 8192,
+      webSearch: false,
     });
     expect(Object.keys(invokeMock.mock.calls[1]?.[1] ?? {})).toEqual([
       'id',
@@ -448,6 +457,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
       'models',
       'contextLength',
       'maxTokens',
+      'webSearch',
     ]);
     // 返回值透传记录（hook 零裁剪）
     expect(returned).toEqual(response);
@@ -471,6 +481,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
         models: TIERS,
         contextLength: null,
         maxTokens: null,
+        webSearch: false,
       });
     });
 
@@ -504,6 +515,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
           models: TIERS,
           contextLength: null,
           maxTokens: tokens,
+          webSearch: false,
         });
       });
 
@@ -568,6 +580,7 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
         models: { high: 'claude-sonnet-4-5[1m]', medium: 'claude-m', low: 'claude-haiku-4-5' },
         contextLength: 200000,
         maxTokens: 8192,
+        webSearch: false,
       });
     });
 
@@ -580,6 +593,172 @@ describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
       models: { high: 'claude-sonnet-4-5[1m]', medium: 'claude-m', low: 'claude-haiku-4-5' },
       contextLength: 200000,
       maxTokens: 8192,
+      webSearch: false,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// webSearch 第九位置参（AC-11 invoke 位置参数）：true / false 均逐位透传
+// ---------------------------------------------------------------------------
+
+describe('useAgentProviders：webSearch 位置参数（true / false 与可空列组合）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+  });
+
+  it('webSearch: true → 载荷末位为 true 且键序九位逐位对齐', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(1, '搜索端点'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save({
+        id: null,
+        name: '搜索端点',
+        protocol: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: 'sk-ant-x',
+        models: TIERS,
+        contextLength: null,
+        maxTokens: null,
+        webSearch: true,
+      });
+    });
+
+    const saveCall = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider');
+    expect(saveCall?.[1]).toEqual({
+      id: null,
+      name: '搜索端点',
+      protocol: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      apiKey: 'sk-ant-x',
+      models: TIERS,
+      contextLength: null,
+      maxTokens: null,
+      webSearch: true,
+    });
+    // 位置序与命令签名逐位对齐（webSearch 居末位）
+    expect(Object.keys(saveCall?.[1] ?? {})).toEqual([
+      'id',
+      'name',
+      'protocol',
+      'baseUrl',
+      'apiKey',
+      'models',
+      'contextLength',
+      'maxTokens',
+      'webSearch',
+    ]);
+  });
+
+  it('webSearch: false 亦不省略（不得落 undefined——省略会与「保持原值」混淆）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(2, '关态端点'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save({
+        id: null,
+        name: '关态端点',
+        protocol: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'sk-live-1234567890',
+        models: TIERS,
+        contextLength: null,
+        maxTokens: null,
+        webSearch: false,
+      });
+    });
+
+    const saveCall = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider');
+    expect(Object.keys(saveCall?.[1] ?? {})).toContain('webSearch');
+    expect(saveCall?.[1]?.webSearch).toBe(false);
+    expect(saveCall?.[1]?.webSearch).not.toBeUndefined();
+  });
+
+  it('可空列四组合与数值三档原样透传，webSearch 仍居末位', async () => {
+    const combos: {
+      contextLength: number | null;
+      maxTokens: number | null;
+      webSearch: boolean;
+    }[] = [
+      { contextLength: null, maxTokens: null, webSearch: true },
+      { contextLength: null, maxTokens: null, webSearch: false },
+      { contextLength: 200_000, maxTokens: 8192, webSearch: true },
+      { contextLength: 0, maxTokens: 4096, webSearch: false },
+      {
+        contextLength: Number.MAX_SAFE_INTEGER,
+        maxTokens: Number.MAX_SAFE_INTEGER,
+        webSearch: true,
+      },
+    ];
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(3, '组合端点'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    for (const combo of combos) {
+      await act(async () => {
+        await result.current.save({
+          id: null,
+          name: '组合端点',
+          protocol: 'anthropic',
+          baseUrl: 'https://api.anthropic.com',
+          apiKey: 'sk-ant-x',
+          models: TIERS,
+          contextLength: combo.contextLength,
+          maxTokens: combo.maxTokens,
+          webSearch: combo.webSearch,
+        });
+      });
+
+      const calls = invokeMock.mock.calls.filter(([name]) => name === 'save_agent_provider');
+      const payload = calls.at(-1)?.[1] ?? {};
+      // 数值原样透传（不夹取、不转字符串）
+      expect(payload.contextLength).toBe(combo.contextLength);
+      expect(payload.maxTokens).toBe(combo.maxTokens);
+      expect(payload.webSearch).toBe(combo.webSearch);
+      expect(Object.keys(payload).at(-1)).toBe('webSearch');
+    }
+  });
+
+  it('invoke reject 且 webSearch: true → toast 固定前缀与返回 null 不变（错误面不因开关改变）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.reject(new Error('重名 provider'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      const saved = await result.current.save({
+        id: null,
+        name: '失败端点',
+        protocol: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: 'sk-ant-x',
+        models: TIERS,
+        contextLength: null,
+        maxTokens: null,
+        webSearch: true,
+      });
+      expect(saved).toBeNull();
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(String(toastErrorMock.mock.calls[0]?.[0])).toContain('保存 provider 失败：');
+    expect(result.current.error).toBeNull();
   });
 });

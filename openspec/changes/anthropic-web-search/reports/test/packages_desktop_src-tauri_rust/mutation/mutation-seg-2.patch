@@ -1,0 +1,2830 @@
+diff --git a/crates/infra/agent/src/sdk/runner_test.rs b/crates/infra/agent/src/sdk/runner_test.rs
+index 33e0bf200aef..cdd335d7697b 100644
+--- a/crates/infra/agent/src/sdk/runner_test.rs
++++ b/crates/infra/agent/src/sdk/runner_test.rs
+@@ -93,6 +93,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
+                 role: AgentMessageRole::User,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮问".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -103,6 +104,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
+                 role: AgentMessageRole::Assistant,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮答".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -122,6 +124,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
+                 role: AgentMessageRole::User,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮问".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -156,6 +159,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
+                 role: AgentMessageRole::User,
+                 blocks: vec![AgentBlock::Text {
+                     text: "f".repeat(200_000),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -1552,3 +1556,196 @@ async fn 引擎三模块链路_裸名与窗长与上限一次装配不打架() {
+     );
+     drop(session);
+ }
++
++// ---------------------------------------------------------------------------
++// web_search 开关旁路载荷（AC-8 后半）：builder 缝、new 缺省关、泵启动日志可考
++//
++// 请求级形状（`additional_params.tools`）在 `loop_test.rs` 断言（AC-3 唯一观测
++// 面）；门面载荷透传在 `crate::lib_test` 断言（门面私有字段可考）。runner 层以
++// **泵启动日志**的 `web_search=…` 列为传递可考点（与 `protocol=` / `window=` /
++// `raw=` 同列），不为测试提升 `session_pump` / 私有字段的可见性。
++// ---------------------------------------------------------------------------
++
++/// 起一轮泵并取回该轮的泵启动日志行。
++///
++/// 锚定方式：`RunStarted.session_id` 与泵启动日志的 `session=` 同源同值，故可在
++/// 同进程并行用例写入的众多「泵启动」行中精确取回本用例那一行。
++async fn pump_start_line(runner: &SdkRunner) -> String {
++    // 先取共享日志目录（取值即 init）：泵的启动行写在 RunStarted 之先，未 init
++    // 时写入静默丢弃——故 init 必须前置于 open_session
++    crate::sdk::log_test::engine_log_dir();
++    let mut session = runner
++        .open_session(open_new())
++        .expect("New 会话 open 应成功");
++    session
++        .questions
++        .send(agent::TurnQuestion {
++            prompt: "泵启动日志一轮".to_owned(),
++        })
++        .await
++        .expect("问题送达");
++    let started = session.observations.recv().await.expect("首事件");
++    let AgentEventKind::RunStarted { session_id, .. } = &started else {
++        panic!("首事件应为 RunStarted，实际: {started:?}");
++    };
++    let session_id = session_id.clone().expect("RunStarted 应上报引擎侧会话 id");
++    drop(session);
++
++    // 泵启动日志写于 RunStarted 之前（同任务同序）；轮询只兜文件可见性
++    let needle = format!("泵启动 session={session_id} ");
++    let content = crate::sdk::log_test::read_engine_log_until(|content| {
++        content.lines().any(|line| line.contains(&needle))
++    });
++    content
++        .lines()
++        .find(|line| line.contains(&needle))
++        .unwrap_or_else(|| panic!("泵启动日志行应在场，实际日志: {content}"))
++        .to_owned()
++}
++
++#[tokio::test]
++#[allow(clippy::type_complexity)]
++async fn with_web_search开关经泵启动日志两态可考() {
++    for (payload, expected) in [(true, "web_search=true"), (false, "web_search=false")] {
++        // builder 缝：四参 new（既有调用点零改）+ 旁路开关
++        let runner = SdkRunner::new(complete_config(), None, None, None).with_web_search(payload);
++        let line = pump_start_line(&runner).await;
++        assert!(
++            line.contains(expected),
++            "web_search={payload} 应原样进泵启动日志，实际: {line}"
++        );
++        // 与既有诊断列同列（同一行内并列）
++        for column in ["protocol=", "window=", "raw="] {
++            assert!(line.contains(column), "应与 {column} 同列，实际: {line}");
++        }
++        assert!(
++            line.contains("model=rig-test-model-high"),
++            "该档裸名同列，实际: {line}"
++        );
++    }
++
++    // 四参 new 调用形态编译可达（既有调用点零改的编译面锚）
++    let _four_args: fn(
++        EngineConfig,
++        Option<ResumeTranscript>,
++        Option<u64>,
++        Option<Arc<Store>>,
++    ) -> SdkRunner = SdkRunner::new;
++}
++
++#[tokio::test]
++async fn 未装配web_search缺省关且与显式关等价() {
++    // 未装配（裸四参 new）与显式 `.with_web_search(false)`：同一日志与事件面
++    let unset = pump_start_line(&SdkRunner::new(complete_config(), None, None, None)).await;
++    let explicit_off = pump_start_line(
++        &SdkRunner::new(complete_config(), None, None, None).with_web_search(false),
++    )
++    .await;
++    for (label, line) in [("未装配", &unset), ("显式关", &explicit_off)] {
++        assert!(
++            line.contains("web_search=false"),
++            "{label}：缺省即关（bool 非 Option，无三态歧义），实际: {line}"
++        );
++    }
++    // 除会话 id 外逐字同形（同一装配口径的两态）
++    let tail = |line: &str| {
++        line.split_once(" model=")
++            .unwrap_or_else(|| panic!("泵启动日志应含 model=，实际: {line}"))
++            .1
++            .to_owned()
++    };
++    assert_eq!(
++        tail(&unset),
++        tail(&explicit_off),
++        "两态日志除会话 id 外逐字同形"
++    );
++
++    // 启动校验面同样等价（开关不参与 `is_complete` 判定）
++    assert_eq!(
++        SdkRunner::new(complete_config(), None, None, None)
++            .open_session(open_continue("ses-web-search-default"))
++            .expect_err("无装载缝续会话必须显式失败")
++            .to_string(),
++        SdkRunner::new(complete_config(), None, None, None)
++            .with_web_search(false)
++            .open_session(open_continue("ses-web-search-default"))
++            .expect_err("同口径失败")
++            .to_string(),
++        "未装配 = 显式关（行为与错误面一致）"
++    );
++}
++
++#[tokio::test]
++async fn 重复装配后者覆盖且三旁路载荷任意序链不打架() {
++    // 同字段重复调用：后者覆盖、无累积
++    let on_then_off = pump_start_line(
++        &SdkRunner::new(complete_config(), None, None, None)
++            .with_web_search(true)
++            .with_web_search(false),
++    )
++    .await;
++    assert!(
++        on_then_off.contains("web_search=false"),
++        "后者覆盖（true → false），实际: {on_then_off}"
++    );
++    let off_then_on = pump_start_line(
++        &SdkRunner::new(complete_config(), None, None, None)
++            .with_web_search(false)
++            .with_web_search(true),
++    )
++    .await;
++    assert!(
++        off_then_on.contains("web_search=true"),
++        "反向链同理（false → true），实际: {off_then_on}"
++    );
++
++    // 三载荷序链：`with_context_window`（new 参）/ `with_max_tokens` /
++    // `with_web_search` 任意顺序 → 各自保真、互不覆盖
++    let forward = SdkRunner::new(complete_config(), None, Some(200_000), None)
++        .with_max_tokens(Some(8192))
++        .with_web_search(true);
++    let backward = SdkRunner::new(complete_config(), None, Some(200_000), None)
++        .with_web_search(true)
++        .with_max_tokens(Some(8192));
++    for (label, line) in [
++        ("先上限后开关", pump_start_line(&forward).await),
++        ("先开关后上限", pump_start_line(&backward).await),
++    ] {
++        assert!(
++            line.contains("web_search=true"),
++            "{label}：开关被他载荷覆盖，实际: {line}"
++        );
++        assert!(
++            line.contains("window=200000"),
++            "{label}：窗长载荷保真（new 参不被旁路覆盖），实际: {line}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn 启动失败面不被web_search开关改写() {
++    // 空配置（缺 api_key / base_url / 模型档）+ 开关开 → 仍为 config_missing
++    let with_switch = SdkRunner::new(EngineConfig::empty(), None, None, None).with_web_search(true);
++    let without_switch = SdkRunner::new(EngineConfig::empty(), None, None, None);
++
++    let error = with_switch
++        .open_session(open_continue("ses-web-search-missing"))
++        .expect_err("空配置必须显式失败");
++    let AgentStartError::ConfigMissing(message) = &error else {
++        panic!("应为 ConfigMissing，实际: {error:?}");
++    };
++    for field in ["api_key", "base_url", "model"] {
++        assert!(
++            message.contains(field),
++            "成因集逐字为既有三档（缺 {field}），实际: {message}"
++        );
++    }
++    assert_eq!(
++        error.to_string(),
++        without_switch
++            .open_session(open_continue("ses-web-search-missing"))
++            .expect_err("同口径失败")
++            .to_string(),
++        "错误文案与未装配时逐字一致（开关不参与 is_complete 判定、不吞启动错误）"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/web_search.rs b/crates/infra/agent/src/sdk/web_search.rs
+new file mode 100644
+index 000000000000..d5f8685d0f64
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/web_search.rs
+@@ -0,0 +1,313 @@
++//! Anthropic 云端 `web_search` 服务端工具：常量单点 + 六个纯函数
++//! （`provider_tool` / `raw_content` / `citations_of` / `project_choice` /
++//! `replay_raw` / `replay_text`）。
++//!
++//! 两条不变量（实现期 MUST NOT 破）：
++//!
++//! 1. **raw 块必须配空文本**：rig 的 anthropic 回放侧校验「raw 与文本不可
++//!    共存」（非空文本 + `anthropic_content` → `ConversionError`），故
++//!    [`replay_raw`] 恒产 `Text { text: "" }`；正文与引用走 [`replay_text`]。
++//! 2. **展示字段不参与回放**：`query` / `results` / `error` 只供时间线呈现，
++//!    重建只吃 `raw_use` / `raw_result` 的原始 wire 值——`encrypted_content` 等
++//!    字段不可推导，任何经类型往返（如 rig `Citation` 的 `title: Option` →
++//!    `null`）都会失真。
++//!
++//! 常量单点：`kind` / `name` / `max_uses` / raw 承载键 / citations 承载键全部
++//! 住本模块，`loop` / `resume` / `context` 零字面量重复。
++//!
++//! 两轴上界分名：本模块的 [`WEB_SEARCH_MAX_USES`] 是**单请求**搜索次数上限
++//! （成本护栏，不可配置——配置化需 store v5 迁移）；`loop` 的
++//! `PAUSE_TURN_MAX_CONTINUATIONS` 是**单轮**续跑上限，两者概念不同，常量名 /
++//! 注释 / 日志字段 MUST NOT 混用。
++
++use std::collections::{HashMap, HashSet};
++
++use agent::{AgentBlock, AgentCitation, WebSearchSource};
++use rig::completion::ProviderToolDefinition;
++use rig::message::{AdditionalParams, AssistantContent, Text, ToolCall};
++use serde_json::{json, Value};
++
++/// 请求侧 provider tool 的 `type`（anthropic 服务端工具版本化标识）。
++pub(crate) const WEB_SEARCH_TOOL_KIND: &str = "web_search_20250305";
++
++/// 请求侧 provider tool 的 `name`（同时是 `server_tool_use.name` 的配对判别值）。
++pub(crate) const WEB_SEARCH_TOOL_NAME: &str = "web_search";
++
++/// **单请求**搜索次数上限（成本护栏；不可配置——配置化需 store v5 迁移）。
++/// 与 `loop::PAUSE_TURN_MAX_CONTINUATIONS`（单轮续跑上限）是两个概念。
++pub(crate) const WEB_SEARCH_MAX_USES: u32 = 5;
++
++/// rig 的 raw server 块承载键（与 rig 内部
++/// `providers::anthropic::completion::ANTHROPIC_RAW_CONTENT_KEY` 同字面量；
++/// rig 侧常量为 `pub(crate)`，故此处按 wire 事实单点重述）。
++pub(crate) const ANTHROPIC_RAW_CONTENT_KEY: &str = "anthropic_content";
++
++/// rig 的 citations 承载键（`Text.additional_params["citations"]`）。
++pub(crate) const CITATIONS_KEY: &str = "citations";
++
++/// raw 块的 wire `type` 判别值：服务端工具调用。
++const SERVER_TOOL_USE_TYPE: &str = "server_tool_use";
++/// raw 块的 wire `type` 判别值：网页搜索结果。
++const WEB_SEARCH_RESULT_TYPE: &str = "web_search_tool_result";
++/// result `content` 数组内单条来源的 wire `type`。
++const WEB_SEARCH_SOURCE_TYPE: &str = "web_search_result";
++
++/// 请求侧 provider tool 定义：`{type, name, max_uses}`（经
++/// `CompletionRequest::provider_tool(..)` 落 `additional_params.tools`）。
++pub(crate) fn provider_tool() -> ProviderToolDefinition {
++    ProviderToolDefinition::new(WEB_SEARCH_TOOL_KIND)
++        .with_config("name", json!(WEB_SEARCH_TOOL_NAME))
++        .with_config("max_uses", json!(WEB_SEARCH_MAX_USES))
++}
++
++/// 文本块携的 raw server 块原文（`None` = 普通文本块）。
++pub(crate) fn raw_content(text: &Text) -> Option<&Value> {
++    text.additional_params
++        .as_ref()?
++        .get(ANTHROPIC_RAW_CONTENT_KEY)
++}
++
++/// 文本块携的引用列表：缺席 / 非数组 / **空数组** → `None`；`raw` 取数组元素
++/// 原值（不经 rig `Citation` 反序列化再序列化，避免规范化失真）。展示字段
++/// 缺失 / 类型不符 → `None`，不报错。
++pub(crate) fn citations_of(text: &Text) -> Option<Vec<AgentCitation>> {
++    let items = text
++        .additional_params
++        .as_ref()?
++        .get(CITATIONS_KEY)?
++        .as_array()?;
++    if items.is_empty() {
++        return None;
++    }
++    Some(
++        items
++            .iter()
++            .map(|item| AgentCitation {
++                url: text_field(item, "url"),
++                title: text_field(item, "title"),
++                cited_text: text_field(item, "cited_text"),
++                raw: item.clone(),
++            })
++            .collect(),
++    )
++}
++
++/// 块投影唯一实现（`loop` 只调用，不再各自解 raw）：先**完整预索引**（收集
++/// 全部 `web_search` 的 `server_tool_use` id + 按 `tool_use_id` 索引全部
++/// `web_search_tool_result`，并在预索引期即预置「已消费」下标），再顺序遍历
++/// choice——故 result 与 use 的**顺序无关**（`pause_turn` 拆分后 result 可能
++/// 先到）：
++///
++/// - `server_tool_use`（`name == "web_search"`）→ 一块
++///   [`AgentBlock::WebSearch`]，其配对 result 的载荷并入该块（result 侧不重复
++///   产出）；
++/// - 孤儿 `web_search_tool_result`（无配对 use）→ 单独成块
++///   （`raw_use: None`、`id` 取 `tool_use_id`、`query` 空串）；
++/// - 其他 raw server 块（非 `web_search` 的 `server_tool_use`、
++///   `code_execution_tool_result` 等）→ 跳过（不产块、不报错）；
++/// - `Text` 无 raw → [`AgentBlock::Text`]（citations 自
++///   `additional_params["citations"]` 提取）；
++/// - `Reasoning` / `ToolCall` / `Image` → 现状不变。
++pub(crate) fn project_choice(choice: &[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>) {
++    // 预索引源 1：`web_search` 的 `server_tool_use` id 集合（配对判别值）
++    let mut use_ids: HashSet<&str> = HashSet::new();
++    // 预索引源 2：tool_use_id → （choice 下标, result 原文）；同 id 取首个
++    let mut result_by_use: HashMap<&str, (usize, &Value)> = HashMap::new();
++    for (index, content) in choice.iter().enumerate() {
++        let AssistantContent::Text(text) = content else {
++            continue;
++        };
++        let Some(raw) = raw_content(text) else {
++            continue;
++        };
++        if let Some(use_id) = web_search_use_id(raw) {
++            use_ids.insert(use_id);
++            continue;
++        }
++        if raw_type(raw) != Some(WEB_SEARCH_RESULT_TYPE) {
++            continue;
++        }
++        let Some(use_id) = raw.get("tool_use_id").and_then(Value::as_str) else {
++            continue;
++        };
++        result_by_use.entry(use_id).or_insert((index, raw));
++    }
++
++    let mut consumed: Vec<bool> = vec![false; choice.len()];
++    // 「已消费」在预索引期落定（而非遍历到 use 时才标）——否则 choice 倒序
++    // （result 先于 use）时 result 会先以孤儿成块、随后 use 再配出第二块。
++    // 只预置**有配对 use** 的首个 result 下标：无 use 的 result 不预置，保留
++    // 孤儿规则；同 id 的第二条 result 亦不预置，照常成块。
++    for (use_id, (index, _)) in &result_by_use {
++        if use_ids.contains(use_id) {
++            consumed[*index] = true;
++        }
++    }
++
++    let mut blocks: Vec<AgentBlock> = Vec::new();
++    let mut tool_calls: Vec<ToolCall> = Vec::new();
++    for (index, content) in choice.iter().enumerate() {
++        match content {
++            AssistantContent::Text(text) => {
++                let Some(raw) = raw_content(text) else {
++                    // 普通文本：正文 + 引用原值
++                    blocks.push(AgentBlock::Text {
++                        text: text.text.clone(),
++                        citations: citations_of(text),
++                    });
++                    continue;
++                };
++                match raw_type(raw) {
++                    Some(SERVER_TOOL_USE_TYPE) => {
++                        // 非 web_search 的服务端工具（未来块类型）跳过
++                        if text_field(raw, "name").as_deref() != Some(WEB_SEARCH_TOOL_NAME) {
++                            continue;
++                        }
++                        let Some(use_id) = text_field(raw, "id") else {
++                            continue;
++                        };
++                        // 配对已由预索引落定（含 result 先于 use 的倒序形态），
++                        // 此处只取值、不再改 `consumed`
++                        let paired = result_by_use.get(use_id.as_str());
++                        let raw_result = paired.map(|(_, result)| (*result).clone());
++                        let (results, error) = match &raw_result {
++                            Some(result) => result_payload(result),
++                            None => (Vec::new(), None),
++                        };
++                        blocks.push(AgentBlock::WebSearch {
++                            id: use_id,
++                            query: query_of(raw),
++                            results,
++                            error,
++                            raw_use: Some(raw.clone()),
++                            raw_result,
++                        });
++                    }
++                    Some(WEB_SEARCH_RESULT_TYPE) => {
++                        if consumed[index] {
++                            continue; // 已被 use 侧消费：载荷并入、不重复产块
++                        }
++                        let Some(use_id) = text_field(raw, "tool_use_id") else {
++                            continue; // 无配对键的 wild 块：无 id 可承载，跳过
++                        };
++                        let (results, error) = result_payload(raw);
++                        blocks.push(AgentBlock::WebSearch {
++                            id: use_id,
++                            query: String::new(),
++                            results,
++                            error,
++                            raw_use: None,
++                            raw_result: Some(raw.clone()),
++                        });
++                    }
++                    // 其他 raw server 块（code_execution_tool_result 等）跳过
++                    _ => {}
++                }
++            }
++            // 0.43 起 reasoning 以 Sealed 承载（发行方才可读）：以自身发行方
++            // 打开取可显示文本（text / summary 块按行拼接）
++            AssistantContent::Reasoning(reasoning) => blocks.push(AgentBlock::Thinking {
++                thinking: reasoning
++                    .open(reasoning.issuer())
++                    .map(|value| value.display_text())
++                    .unwrap_or_default(),
++            }),
++            AssistantContent::ToolCall(tool_call) => {
++                blocks.push(AgentBlock::ToolUse {
++                    id: tool_call.id.to_string(),
++                    name: tool_call.function.name.as_str().to_owned(),
++                    input: tool_call.function.arguments.clone(),
++                });
++                tool_calls.push(tool_call.clone());
++            }
++            AssistantContent::Image(_) => {} // sdk 引擎不产图像内容（工具面无边）
++        }
++    }
++    (blocks, tool_calls)
++}
++
++/// 回放侧 raw 构造：`Text { text: "", additional_params: { anthropic_content:
++/// raw } }`——**必须空文本**（rig 侧带文本即 `ConversionError`）。
++pub(crate) fn replay_raw(raw: &Value) -> AssistantContent {
++    AssistantContent::Text(Text {
++        text: String::new(),
++        additional_params: AdditionalParams::from_entries([(
++            ANTHROPIC_RAW_CONTENT_KEY,
++            raw.clone(),
++        )]),
++    })
++}
++
++/// 回放侧正文构造：非空 citations 才挂 `additional_params.citations =
++/// [raw, …]`（元素原值回填，逐字节保真）；否则纯 `Text`。
++pub(crate) fn replay_text(text: &str, citations: Option<&[AgentCitation]>) -> AssistantContent {
++    let entries = citations.filter(|items| !items.is_empty()).map(|items| {
++        (
++            CITATIONS_KEY,
++            Value::Array(items.iter().map(|item| item.raw.clone()).collect()),
++        )
++    });
++    AssistantContent::Text(Text {
++        text: text.to_owned(),
++        additional_params: AdditionalParams::from_entries(entries),
++    })
++}
++
++/// raw 块的 wire `type`。
++fn raw_type(raw: &Value) -> Option<&str> {
++    raw.get("type").and_then(Value::as_str)
++}
++
++/// 预索引用：raw 为 `web_search` 的 `server_tool_use` 时取其 `id`
++/// （`None` = 不进配对索引集合——非 `server_tool_use`、非 `web_search` 或缺
++/// `id`）。
++fn web_search_use_id(raw: &Value) -> Option<&str> {
++    if raw_type(raw) != Some(SERVER_TOOL_USE_TYPE) {
++        return None;
++    }
++    if raw.get("name").and_then(Value::as_str) != Some(WEB_SEARCH_TOOL_NAME) {
++        return None;
++    }
++    raw.get("id").and_then(Value::as_str)
++}
++
++/// 宽松取值：键缺席 / 非字符串 → `None`（不报错）。
++fn text_field(raw: &Value, key: &str) -> Option<String> {
++    raw.get(key).and_then(Value::as_str).map(str::to_owned)
++}
++
++/// 查询词：`server_tool_use.input.query`（形态不符 → 空串）。
++fn query_of(raw: &Value) -> String {
++    raw.get("input")
++        .and_then(|input| input.get("query"))
++        .and_then(Value::as_str)
++        .unwrap_or_default()
++        .to_owned()
++}
++
++/// result 载荷解析（纯展示）：`content` 为来源数组 → 逐条 `url` / `title` /
++/// `page_age`；为错误对象 → `error_code`。类型不符 / 缺席一律空载荷（不报错、
++/// 不丢块）。
++fn result_payload(raw: &Value) -> (Vec<WebSearchSource>, Option<String>) {
++    let Some(content) = raw.get("content") else {
++        return (Vec::new(), None);
++    };
++    let Some(items) = content.as_array() else {
++        return (Vec::new(), text_field(content, "error_code"));
++    };
++    let results = items
++        .iter()
++        .filter(|item| match raw_type(item) {
++            Some(kind) => kind == WEB_SEARCH_SOURCE_TYPE,
++            None => false,
++        })
++        .filter_map(|item| {
++            Some(WebSearchSource {
++                url: text_field(item, "url")?,
++                title: text_field(item, "title"),
++                page_age: text_field(item, "page_age"),
++            })
++        })
++        .collect();
++    (results, None)
++}
+diff --git a/crates/infra/agent/src/sdk/web_search_test.rs b/crates/infra/agent/src/sdk/web_search_test.rs
+new file mode 100644
+index 000000000000..4188ac963399
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/web_search_test.rs
+@@ -0,0 +1,1120 @@
++//! `web_search` 能力模块单测：常量面 / 六个纯函数 / project → replay 往返。
++//!
++//! 装置约定（见 test-design `Mock策略`）：**无 Mock**——全部为纯函数 + 值对象，
++//! `rig::message` 与 `serde_json::Value` 仅作构造载荷（不 mock rig），零 I/O /
++//! 零 async / 零网络 / 零全局态。
++
++use agent::{AgentBlock, AgentCitation};
++use rig::completion::{CompletionRequest, ProviderToolDefinition};
++use rig::message::{
++    AdditionalParams, AssistantContent, DocumentSourceKind, Image, Issuer, Reasoning, Text,
++    ToolName,
++};
++use serde_json::{json, Value};
++
++use crate::sdk::web_search::{
++    citations_of, project_choice, provider_tool, raw_content, replay_raw, replay_text,
++    ANTHROPIC_RAW_CONTENT_KEY, CITATIONS_KEY, WEB_SEARCH_MAX_USES, WEB_SEARCH_TOOL_KIND,
++    WEB_SEARCH_TOOL_NAME,
++};
++
++// ---------------------------------------------------------------------------
++// 装置：raw wire 载荷构造与 Text 块构造（rig 类型真实构造，不 mock）
++// ---------------------------------------------------------------------------
++
++/// 携原始 wire 的文本块（raw server 块在 rig 面的承载形态：**空文本 + 原始值**）。
++fn raw_block(raw: Value) -> AssistantContent {
++    AssistantContent::Text(Text {
++        text: String::new(),
++        additional_params: AdditionalParams::from_entries([(ANTHROPIC_RAW_CONTENT_KEY, raw)]),
++    })
++}
++
++/// 纯文本块（无 raw / 无引用）。
++fn plain_text(text: &str) -> AssistantContent {
++    AssistantContent::Text(Text::new(text))
++}
++
++/// 携 `additional_params` 的文本块（键值逐条给出，用于 raw_content /
++/// citations_of 的多键与类型异常形态）。
++fn text_with_entries(text: &str, entries: Vec<(&str, Value)>) -> Text {
++    Text {
++        text: text.to_owned(),
++        additional_params: AdditionalParams::from_entries(entries),
++    }
++}
++
++/// `web_search_result` 单条来源 wire。
++fn source(url: &str, title: Option<&str>, page_age: Option<&str>) -> Value {
++    let mut item = json!({ "type": "web_search_result", "url": url });
++    if let Some(title) = title {
++        item["title"] = json!(title);
++    }
++    if let Some(page_age) = page_age {
++        item["page_age"] = json!(page_age);
++    }
++    item
++}
++
++/// 成功 result wire（`content` 为来源数组）。
++fn result_raw(use_id: &str, sources: Vec<Value>) -> Value {
++    json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": use_id,
++        "content": sources,
++    })
++}
++
++/// 错误 result wire（`content` 为 error 对象）。
++fn error_result_raw(use_id: &str, error_code: &str) -> Value {
++    json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": use_id,
++        "content": { "type": "web_search_tool_result_error", "error_code": error_code },
++    })
++}
++
++/// use wire（`server_tool_use`；`query` 为 `Some` 才挂 `input.query`）。
++fn use_raw(use_id: &str, name: &str, query: Option<&str>) -> Value {
++    let mut raw = json!({ "type": "server_tool_use", "id": use_id, "name": name });
++    if let Some(query) = query {
++        raw["input"] = json!({ "query": query });
++    }
++    raw
++}
++
++/// 三条来源的 result wire（展示字段三种缺失组合：全有 / 缺 title / 缺 page_age）。
++fn three_sources(use_id: &str) -> Value {
++    result_raw(
++        use_id,
++        vec![
++            source(
++                "https://a.example.com/1",
++                Some("甲标题"),
++                Some("2025-10-01"),
++            ),
++            source("https://b.example.com/2", None, Some("2025-09-30")),
++            source("https://c.example.com/3", Some("丙标题"), None),
++        ],
++    )
++}
++
++/// 摘 `AssistantContent::Text`（其余变体 panic）。
++fn as_text(content: &AssistantContent) -> &Text {
++    match content {
++        AssistantContent::Text(text) => text,
++        other => panic!("应为 Text 变体，实际: {other:?}"),
++    }
++}
++
++/// 摘 `additional_params` 的键值（缺席 panic）。
++fn param_of<'a>(text: &'a Text, key: &str) -> &'a Value {
++    text.additional_params
++        .as_ref()
++        .unwrap_or_else(|| panic!("additional_params 应在场"))
++        .get(key)
++        .unwrap_or_else(|| panic!("{key} 键应在场"))
++}
++
++// ---------------------------------------------------------------------------
++// provider_tool：请求侧形状与常量面
++// ---------------------------------------------------------------------------
++
++/// 空底座请求（字段面与 loop 侧构造同口径：全部 None）。
++fn empty_request() -> CompletionRequest {
++    CompletionRequest {
++        model: None,
++        chat_history: Vec::new(),
++        documents: Vec::new(),
++        tools: Vec::new(),
++        temperature: None,
++        max_tokens: None,
++        tool_choice: None,
++        additional_params: None,
++        output_schema: None,
++        record_telemetry_content: false,
++    }
++}
++
++#[test]
++fn provider_tool经provider_tool落additional_params后形状恰一项三键() {
++    let request = empty_request().provider_tool(provider_tool());
++    let params = request
++        .additional_params
++        .expect("provider_tool 必须落 additional_params");
++
++    // 深等于：恰一项、恰三键（无 cache_control / allowed_domains 等附加键）
++    assert_eq!(
++        params["tools"],
++        json!([{ "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }]),
++        "additional_params.tools 形状逐字为 [{{type,name,max_uses}}]"
++    );
++
++    let tools = params["tools"].as_array().expect("tools 为数组");
++    assert_eq!(tools.len(), 1, "恰好一项服务端工具");
++    let entry = tools[0].as_object().expect("工具项为对象");
++    let mut keys: Vec<&str> = entry.keys().map(String::as_str).collect();
++    keys.sort_unstable();
++    assert_eq!(keys, ["max_uses", "name", "type"], "恰三键，无附加键");
++
++    // 类型面：type / name 为字符串、max_uses 为 JSON 数字 5（非 "5"）
++    assert_eq!(entry["type"], json!(WEB_SEARCH_TOOL_KIND));
++    assert_eq!(entry["name"], json!(WEB_SEARCH_TOOL_NAME));
++    assert!(
++        entry["type"].is_string() && entry["name"].is_string(),
++        "两键为字符串"
++    );
++    assert!(
++        entry["max_uses"].is_number(),
++        "max_uses 为 JSON 数字（非字符串）"
++    );
++    assert_eq!(entry["max_uses"], json!(5));
++}
++
++#[test]
++fn 常量面上限为5且连续两次调用产出深相等值() {
++    assert_eq!(
++        WEB_SEARCH_MAX_USES, 5,
++        "单请求搜索次数上限常量 = 5（成本护栏）"
++    );
++    assert_eq!(
++        WEB_SEARCH_TOOL_KIND, "web_search_20250305",
++        "kind 字面量单点"
++    );
++    assert_eq!(WEB_SEARCH_TOOL_NAME, "web_search", "name 字面量单点");
++    assert_eq!(
++        ANTHROPIC_RAW_CONTENT_KEY, "anthropic_content",
++        "raw 承载键单点"
++    );
++    assert_eq!(CITATIONS_KEY, "citations", "citations 承载键单点");
++
++    // 纯函数性：连续两次调用无内部状态差异（无静态可变全局）
++    let first: ProviderToolDefinition = provider_tool();
++    let second = provider_tool();
++    assert_eq!(first.kind, second.kind, "kind 两次调用一致");
++    assert_eq!(first.config, second.config, "config 两次调用深相等");
++
++    // 与 `loop::PAUSE_TURN_MAX_CONTINUATIONS`（单轮续跑上限）为两个概念：
++    // 常量名不同源，此处只锚定本常量自身类型与取值，MUST NOT 与续跑上限混用
++    let max_uses: u32 = WEB_SEARCH_MAX_USES;
++    assert_eq!(max_uses, 5);
++}
++
++// ---------------------------------------------------------------------------
++// raw_content：命中 / 缺席 / 非对象值
++// ---------------------------------------------------------------------------
++
++#[test]
++fn raw_content命中时逐字节返回原始wire值() {
++    let raw = json!({
++        "type": "server_tool_use",
++        "id": "srvtoolu_1",
++        "name": "web_search",
++        "input": { "query": "今日汇率" },
++        "encrypted_content": "不可推导的加密索引 🎉\n",
++        "nested": [1, 2, { "deep": [true, null] }],
++    });
++    let text = text_with_entries("", vec![(ANTHROPIC_RAW_CONTENT_KEY, raw.clone())]);
++
++    let hit = raw_content(&text).expect("键在场必须命中");
++    assert_eq!(hit, &raw, "与入参深相等");
++    assert_eq!(
++        serde_json::to_string(hit).expect("序列化成功"),
++        serde_json::to_string(&raw).expect("序列化成功"),
++        "逐字节相等（含 encrypted_content 等不确定字段）"
++    );
++    assert_eq!(
++        as_text(&raw_block(raw.clone())).text,
++        "",
++        "raw 块承载形态为**空文本**（rig 硬校验）"
++    );
++}
++
++#[test]
++fn raw_content缺席三形态一律none() {
++    // additional_params == None
++    let bare = Text::new("普通正文");
++    assert!(raw_content(&bare).is_none(), "无 additional_params → None");
++
++    // Some({})：空对象经 AdditionalParams 规范化为 None（等价缺席）
++    let empty_map = text_with_entries("正文", Vec::new());
++    assert!(
++        empty_map.additional_params.is_none(),
++        "空键集规范化为 None（rig 语义）"
++    );
++    assert!(raw_content(&empty_map).is_none(), "空 params → None");
++
++    // 其他键在场但无 raw 承载键
++    let other_key = text_with_entries("正文", vec![(CITATIONS_KEY, json!([]))]);
++    assert!(raw_content(&other_key).is_none(), "无 raw 键 → None");
++
++    // 键名大小写不符（键名大小写敏感）
++    let wrong_case = text_with_entries("正文", vec![("ANTHROPIC_CONTENT", json!({ "a": 1 }))]);
++    assert!(
++        raw_content(&wrong_case).is_none(),
++        "键名大小写敏感：ANTHROPIC_CONTENT 不命中"
++    );
++}
++
++#[test]
++fn raw_content对非对象值原样返回some且多键共存只取raw键() {
++    // 值域四形态：null / 字符串 / 数字 / 数组 → 均原样 Some（不做类型校验）
++    for value in [
++        Value::Null,
++        json!("字符串载荷"),
++        json!(42),
++        json!([1, 2, 3]),
++    ] {
++        let text = text_with_entries("", vec![(ANTHROPIC_RAW_CONTENT_KEY, value.clone())]);
++        let hit = raw_content(&text).expect("键在场即 Some（不校验值类型）");
++        assert_eq!(hit, &value, "值 {value} 原样返回，不 panic");
++    }
++
++    // 多键共存：只取 raw 键，不串到 citations
++    let text = text_with_entries(
++        "",
++        vec![
++            (
++                ANTHROPIC_RAW_CONTENT_KEY,
++                json!({ "type": "server_tool_use" }),
++            ),
++            (CITATIONS_KEY, json!([{ "url": "https://a" }])),
++        ],
++    );
++    assert_eq!(
++        raw_content(&text).expect("raw 键在场"),
++        &json!({ "type": "server_tool_use" }),
++        "只取 anthropic_content，不串 citations 键"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// citations_of：正常提取 / 空折叠 / 类型异常
++// ---------------------------------------------------------------------------
++
++#[test]
++fn citations_of正常提取两条其中一条缺title字段逐项映射且raw逐字节相等() {
++    let c1 = json!({
++        "type": "web_search_result_location",
++        "url": "https://a.example.com/1",
++        "title": "甲标题",
++        "cited_text": "被引用的原文片段 🎉",
++    });
++    // 缺 title 的一条（展示字段缺席 → None，不报错、不丢元素）
++    let c2 = json!({
++        "type": "web_search_result_location",
++        "url": "https://b.example.com/2",
++        "cited_text": "另一段原文\n含换行",
++    });
++    let text = text_with_entries("正文", vec![(CITATIONS_KEY, json!([c1, c2]))]);
++
++    let citations = citations_of(&text).expect("键在场且非空 → Some");
++
++    assert_eq!(citations.len(), 2, "两条引用逐一保留");
++    assert_eq!(citations[0].url.as_deref(), Some("https://a.example.com/1"));
++    assert_eq!(citations[0].title.as_deref(), Some("甲标题"));
++    assert_eq!(
++        citations[0].cited_text.as_deref(),
++        Some("被引用的原文片段 🎉")
++    );
++    assert_eq!(citations[0].raw, c1, "raw 与数组元素逐字节相等");
++    assert_eq!(citations[1].url.as_deref(), Some("https://b.example.com/2"));
++    assert_eq!(
++        citations[1].title, None,
++        "缺键项对应字段 None（不规范化成字符串 null）"
++    );
++    assert_eq!(citations[1].raw, c2);
++}
++
++#[test]
++fn citations_of键缺席与none_params与空数组一律none() {
++    // 键缺席
++    let absent = text_with_entries("正文", vec![(ANTHROPIC_RAW_CONTENT_KEY, json!({}))]);
++    assert!(citations_of(&absent).is_none(), "citations 键缺席 → None");
++
++    // additional_params == None
++    let bare = Text::new("正文");
++    assert!(citations_of(&bare).is_none(), "无 additional_params → None");
++
++    // 空数组：空 citations 在 Rust 侧即折叠为 None（前端无需第二判定）
++    let empty = text_with_entries("正文", vec![(CITATIONS_KEY, json!([]))]);
++    assert!(
++        citations_of(&empty).is_none(),
++        "空数组 → None（不挂 metadata）"
++    );
++}
++
++#[test]
++fn citations_of类型异常非数组一律none且元素非对象仍逐条产出() {
++    // 键值非数组：对象 / 字符串 / null → None
++    for value in [
++        json!({ "url": "https://a" }),
++        json!("不是数组"),
++        Value::Null,
++    ] {
++        let text = text_with_entries("正文", vec![(CITATIONS_KEY, value.clone())]);
++        assert!(
++            citations_of(&text).is_none(),
++            "键值 {value} 非数组 → None（不 panic）"
++        );
++    }
++
++    // 数组元素为非对象：该元素仍产 AgentCitation（raw 为原值），元素数不丢
++    let text = text_with_entries(
++        "正文",
++        vec![(CITATIONS_KEY, json!(["字符串元素", 7, null]))],
++    );
++    let citations = citations_of(&text).expect("数组非空即 Some");
++    assert_eq!(citations.len(), 3, "元素数不丢");
++    for (index, citation) in citations.iter().enumerate() {
++        assert!(
++            citation.url.is_none() && citation.title.is_none() && citation.cited_text.is_none()
++        );
++        assert_eq!(
++            citation.raw,
++            json!(["字符串元素", 7, null])[index],
++            "raw 原值逐条保留"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// project_choice：use + result 收敛 / 展示字段 / 错误 / 孤儿
++// ---------------------------------------------------------------------------
++
++#[test]
++fn project_choice_use与配对result收敛为恰一块且不进客户端工具面() {
++    let raw_use = use_raw("srvtoolu_1", WEB_SEARCH_TOOL_NAME, Some("今日汇率"));
++    let raw_result = three_sources("srvtoolu_1");
++    let choice = vec![raw_block(raw_use.clone()), raw_block(raw_result.clone())];
++
++    let (blocks, tool_calls) = project_choice(&choice);
++
++    assert_eq!(blocks.len(), 1, "use + 配对 result 收敛为恰一块");
++    assert_eq!(tool_calls.len(), 0, "server 块不进客户端工具面");
++    let AgentBlock::WebSearch {
++        id,
++        query,
++        results,
++        error,
++        raw_use: block_raw_use,
++        raw_result: block_raw_result,
++    } = &blocks[0]
++    else {
++        panic!("应为 WebSearch 块，实际: {:?}", blocks[0]);
++    };
++    assert_eq!(id, "srvtoolu_1", "id 取 server_tool_use.id");
++    assert_eq!(query, "今日汇率");
++    assert_eq!(results.len(), 3, "result 的三条来源并入该块");
++    assert_eq!(error, &None, "成功 result 无错误码");
++    assert_eq!(block_raw_use.as_ref(), Some(&raw_use), "use 原文原样承载");
++    assert_eq!(
++        block_raw_result.as_ref(),
++        Some(&raw_result),
++        "result 原文原样承载（result 侧不重复产块）"
++    );
++}
++
++#[test]
++fn project_choice展示字段逐条映射url_title_page_age且query缺席为空串() {
++    let choice = vec![
++        raw_block(use_raw(
++            "srvtoolu_2",
++            WEB_SEARCH_TOOL_NAME,
++            Some("rust 生命周期"),
++        )),
++        raw_block(result_raw(
++            "srvtoolu_2",
++            vec![
++                source("https://a.example.com/1", Some("甲"), Some("2025-10-01")),
++                source("https://b.example.com/2", None, None),
++            ],
++        )),
++    ];
++
++    let (blocks, _) = project_choice(&choice);
++    let AgentBlock::WebSearch { query, results, .. } = &blocks[0] else {
++        panic!("应为 WebSearch 块");
++    };
++    assert_eq!(
++        query, "rust 生命周期",
++        "query 取自 server_tool_use.input.query"
++    );
++    assert_eq!(results[0].url, "https://a.example.com/1", "url 逐字");
++    assert_eq!(results[0].title.as_deref(), Some("甲"));
++    assert_eq!(results[0].page_age.as_deref(), Some("2025-10-01"));
++    assert_eq!(results[1].title, None, "title 缺席 → None");
++    assert_eq!(results[1].page_age, None, "page_age 缺席 → None");
++
++    // input.query 缺席 → query 空串（不 panic）
++    let no_query = vec![raw_block(use_raw("srvtoolu_3", WEB_SEARCH_TOOL_NAME, None))];
++    let (blocks, _) = project_choice(&no_query);
++    let AgentBlock::WebSearch { query, results, .. } = &blocks[0] else {
++        panic!("应为 WebSearch 块");
++    };
++    assert_eq!(query, "", "input.query 缺席 → 空串");
++    assert!(results.is_empty(), "无 result 时来源为空");
++}
++
++#[test]
++fn project_choice错误result取error_code且仍收敛为一块() {
++    let choice = vec![
++        raw_block(use_raw(
++            "srvtoolu_err",
++            WEB_SEARCH_TOOL_NAME,
++            Some("超限查询"),
++        )),
++        raw_block(error_result_raw("srvtoolu_err", "max_uses_exceeded")),
++    ];
++
++    let (blocks, tool_calls) = project_choice(&choice);
++
++    assert_eq!(blocks.len(), 1, "配对 use 在场时仍恰一块（不额外产错误块）");
++    assert!(tool_calls.is_empty());
++    let AgentBlock::WebSearch { error, results, .. } = &blocks[0] else {
++        panic!("应为 WebSearch 块");
++    };
++    assert_eq!(
++        error.as_deref(),
++        Some("max_uses_exceeded"),
++        "错误码取自 error_code"
++    );
++    assert!(results.is_empty(), "错误 result 的来源为空");
++
++    // 线格式落键 "results": []（D1 第四稿：键恒在，不再断言「不落键」）
++    let value = serde_json::to_value(&blocks[0]).expect("序列化成功");
++    assert_eq!(
++        value.get("results"),
++        Some(&json!([])),
++        "空 results 落键且为空数组，实际: {value}"
++    );
++    assert_eq!(value["error"], json!("max_uses_exceeded"));
++}
++
++#[test]
++fn project_choice孤儿result单独成块且缺tool_use_id的wild块跳过() {
++    // 前序无配对 use 的 result
++    let raw_result = result_raw(
++        "srvtoolu_orphan",
++        vec![source(
++            "https://orphan.example.com/1",
++            Some("孤儿来源"),
++            None,
++        )],
++    );
++    let choice = vec![raw_block(raw_result.clone())];
++
++    let (blocks, _) = project_choice(&choice);
++    assert_eq!(blocks.len(), 1, "孤儿 result 单独成块");
++    let AgentBlock::WebSearch {
++        id,
++        query,
++        results,
++        raw_use,
++        raw_result: block_raw_result,
++        ..
++    } = &blocks[0]
++    else {
++        panic!("应为 WebSearch 块");
++    };
++    assert_eq!(id, "srvtoolu_orphan", "id 取 tool_use_id");
++    assert_eq!(query, "", "孤儿块 query 为空串");
++    assert!(
++        raw_use.is_none(),
++        "raw_use 为 None（前端按 rawUse 判别孤儿）"
++    );
++    assert_eq!(block_raw_result.as_ref(), Some(&raw_result));
++    assert_eq!(results.len(), 1, "来源照常映射");
++
++    // 缺 tool_use_id 的 wild result → 无 id 可承载，跳过（不产块、不 panic）
++    let wild = json!({ "type": "web_search_tool_result", "content": [] });
++    let (blocks, tool_calls) = project_choice(&[raw_block(wild)]);
++    assert!(blocks.is_empty(), "wild result 跳过");
++    assert!(tool_calls.is_empty());
++
++    // 配对块与孤儿块并存：同 id 的第二条 result 不入配对索引（`result_by_use`
++    // 同 id 取首个）→ 无人消费，以孤儿形态（`raw_use: None`）成块；两块同 id
++    // 语义靠 `rawUse` 判别（前端判据）
++    let mixed = vec![
++        raw_block(use_raw("srvtoolu_x", WEB_SEARCH_TOOL_NAME, Some("查询"))),
++        raw_block(result_raw(
++            "srvtoolu_x",
++            vec![source("https://a/1", None, None)],
++        )),
++        raw_block(result_raw(
++            "srvtoolu_x",
++            vec![source("https://a/2", None, None)],
++        )),
++    ];
++    let (blocks, _) = project_choice(&mixed);
++    assert_eq!(
++        blocks.len(),
++        2,
++        "首个 result 并入 use 块；同 id 的第二条 result 无配对 → 孤儿块"
++    );
++    let AgentBlock::WebSearch {
++        raw_use,
++        results,
++        raw_result: paired_raw,
++        ..
++    } = &blocks[0]
++    else {
++        panic!("首块应为配对 WebSearch 块，实际: {:?}", blocks[0]);
++    };
++    assert!(raw_use.is_some(), "配对块 raw_use 有值");
++    assert_eq!(
++        paired_raw.as_ref(),
++        Some(&result_raw(
++            "srvtoolu_x",
++            vec![source("https://a/1", None, None)],
++        ))
++    );
++    assert_eq!(results.len(), 1, "配对侧来源取首个 result");
++    assert_eq!(results[0].url, "https://a/1");
++    let AgentBlock::WebSearch {
++        id,
++        raw_use,
++        results,
++        ..
++    } = &blocks[1]
++    else {
++        panic!("次块应为孤儿 WebSearch 块，实际: {:?}", blocks[1]);
++    };
++    assert_eq!(
++        id, "srvtoolu_x",
++        "孤儿块 id 取 tool_use_id（与配对块同 id）"
++    );
++    assert!(raw_use.is_none(), "孤儿块 raw_use 为 None");
++    assert_eq!(results[0].url, "https://a/2", "孤儿块来源照常映射");
++}
++
++#[test]
++fn project_choice结果先于use时预索引仍配对且不另产块() {
++    // 顺序为 result → use（同一 tool_use_id）：wire 正常序恒为 use → result，
++    // 但 `pause_turn` 拆分后 result 可能先到，故投影的配对与「已消费」标记都在
++    // **预索引期**落定（设计 D2），与遍历顺序无关。
++    let result_wire = result_raw(
++        "srvtoolu_rev",
++        vec![source("https://rev.example.com/1", Some("倒序来源"), None)],
++    );
++    let choice = vec![
++        raw_block(result_wire.clone()),
++        raw_block(use_raw(
++            "srvtoolu_rev",
++            WEB_SEARCH_TOOL_NAME,
++            Some("倒序查询"),
++        )),
++    ];
++
++    let (blocks, tool_calls) = project_choice(&choice);
++
++    // 恰一块：result 在预索引期即被标「已消费」→ 遍历到它时直接跳过，不另产块
++    assert_eq!(
++        blocks.len(),
++        1,
++        "倒序（result → use）仍恰一块 WebSearch，实际: {blocks:?}"
++    );
++    assert!(tool_calls.is_empty(), "server 块不进客户端工具面");
++    let AgentBlock::WebSearch {
++        id,
++        query,
++        results,
++        error,
++        raw_use,
++        raw_result,
++    } = &blocks[0]
++    else {
++        panic!("应为配对 WebSearch 块，实际: {:?}", blocks[0]);
++    };
++    assert_eq!(id, "srvtoolu_rev");
++    assert_eq!(query, "倒序查询", "query 取自 use 侧 input");
++    assert!(error.is_none(), "成功 result 不产错误码");
++    assert_eq!(results.len(), 1, "results 取自预索引到的 result 原文");
++    assert_eq!(results[0].url, "https://rev.example.com/1");
++    assert_eq!(results[0].title.as_deref(), Some("倒序来源"));
++    assert!(raw_use.is_some(), "use 原文在场（配对块形态）");
++    assert_eq!(
++        raw_result.as_ref(),
++        Some(&result_wire),
++        "result 原文并入 use 侧块（逐字节等价）"
++    );
++
++    // 位置取 use 的遍历位：result(0) 被消费跳过 → use(1) 成块，两侧正文保序
++    let bordered = vec![
++        plain_text("前置正文"),
++        raw_block(result_wire.clone()),
++        raw_block(use_raw(
++            "srvtoolu_rev",
++            WEB_SEARCH_TOOL_NAME,
++            Some("倒序查询"),
++        )),
++        plain_text("后置正文"),
++    ];
++    let (blocks, _) = project_choice(&bordered);
++    assert_eq!(
++        blocks.len(),
++        3,
++        "两条正文 + 一块配对 WebSearch（result 位不产块），实际: {blocks:?}"
++    );
++    assert!(
++        matches!(&blocks[0], AgentBlock::Text { text, .. } if text == "前置正文"),
++        "前置正文保持首位"
++    );
++    let AgentBlock::WebSearch { id, raw_use, .. } = &blocks[1] else {
++        panic!("配对块应落在 use 的遍历位，实际: {:?}", blocks[1]);
++    };
++    assert_eq!(id, "srvtoolu_rev", "配对块取 use 侧 id");
++    assert!(
++        raw_use.is_some(),
++        "配对块落在 use 的遍历位（result 位不产块）"
++    );
++    assert!(
++        matches!(&blocks[2], AgentBlock::Text { text, .. } if text == "后置正文"),
++        "后置正文保持末位"
++    );
++
++    // `consumed` 按 result 下标生效：同 id 只索引首个 result（`or_insert`），
++    // 故第二个同 id result 不在预置范围内、照孤儿规则成块；被消费的首个 result
++    // 无论其遍历位在 use 之前或之后都不产块
++    let duplicated = vec![
++        raw_block(result_raw(
++            "srvtoolu_dup",
++            vec![source("https://dup.example.com/1", None, None)],
++        )),
++        raw_block(result_raw(
++            "srvtoolu_dup",
++            vec![source("https://dup.example.com/2", None, None)],
++        )),
++        raw_block(use_raw(
++            "srvtoolu_dup",
++            WEB_SEARCH_TOOL_NAME,
++            Some("重复来源查询"),
++        )),
++    ];
++    let (blocks, _) = project_choice(&duplicated);
++    assert_eq!(
++        blocks.len(),
++        2,
++        "被消费的首个 result 不成块 + 第二个同 id result 成孤儿块，实际: {blocks:?}"
++    );
++    let AgentBlock::WebSearch {
++        raw_use, results, ..
++    } = &blocks[0]
++    else {
++        panic!("首块应为孤儿 WebSearch 块，实际: {:?}", blocks[0]);
++    };
++    assert!(
++        raw_use.is_none(),
++        "第二个同 id result 无配对 → 孤儿形态（consumed 只标首个下标）"
++    );
++    assert_eq!(
++        results[0].url, "https://dup.example.com/2",
++        "孤儿块来源取未被消费的那条 result"
++    );
++    let AgentBlock::WebSearch {
++        raw_use,
++        raw_result,
++        ..
++    } = &blocks[1]
++    else {
++        panic!("次块应为配对 WebSearch 块，实际: {:?}", blocks[1]);
++    };
++    assert!(raw_use.is_some(), "use 遍历位产配对块");
++    assert_eq!(
++        raw_result.as_ref(),
++        Some(&result_raw(
++            "srvtoolu_dup",
++            vec![source("https://dup.example.com/1", None, None)],
++        )),
++        "配对原文取预索引命中的首个 result"
++    );
++}
++
++#[test]
++fn project_choice未知server块与非websearch工具一律跳过且其余块相对顺序保持() {
++    let choice = vec![
++        plain_text("前置正文"),
++        // 非 web_search 的 server_tool_use
++        raw_block(use_raw("srvtoolu_code", "code_execution", Some("x"))),
++        // server_tool_use 缺 name
++        raw_block(json!({ "type": "server_tool_use", "id": "srvtoolu_noname" })),
++        // server_tool_use 缺 id
++        raw_block(json!({ "type": "server_tool_use", "name": "web_search" })),
++        // 未知 server result 类型
++        raw_block(json!({ "type": "code_execution_tool_result", "tool_use_id": "srvtoolu_code" })),
++        // additional_params 携未知 raw type
++        raw_block(json!({ "type": "mystery_server_block" })),
++        plain_text("后置正文"),
++    ];
++
++    let (blocks, tool_calls) = project_choice(&choice);
++
++    assert_eq!(blocks.len(), 2, "未知 server 块全部跳过，仅两条正文块");
++    assert!(tool_calls.is_empty());
++    assert!(
++        matches!(&blocks[0], AgentBlock::Text { text, .. } if text == "前置正文"),
++        "相对顺序保持（前）"
++    );
++    assert!(
++        matches!(&blocks[1], AgentBlock::Text { text, .. } if text == "后置正文"),
++        "相对顺序保持（后）"
++    );
++}
++
++#[test]
++fn project_choice既有分支不变_文本引用思考工具调用与图像() {
++    let citation = json!({ "url": "https://cite.example.com/1", "title": "引用标题" });
++    let choice = vec![
++        plain_text("普通正文"),
++        raw_block(use_raw("srvtoolu_keep", WEB_SEARCH_TOOL_NAME, Some("查询"))),
++        AssistantContent::Text(text_with_entries(
++            "携引用正文",
++            vec![(CITATIONS_KEY, json!([citation]))],
++        )),
++        AssistantContent::Reasoning(Reasoning::new("先想一下").sealed(Issuer::from_static("test"))),
++        AssistantContent::tool_call(
++            "tu_1",
++            ToolName::new("Bash").expect("工具名非空"),
++            json!({ "command": "ls" }),
++        ),
++    ];
++
++    let (blocks, tool_calls) = project_choice(&choice);
++
++    // 无 raw 的 Text → Text{citations: None}
++    assert!(
++        matches!(&blocks[0], AgentBlock::Text { text, citations } if text == "普通正文" && citations.is_none()),
++        "无引用文本块 citations 为 None，实际: {:?}",
++        blocks[0]
++    );
++    // use 侧块（无配对 result → 来源空）
++    assert!(matches!(&blocks[1], AgentBlock::WebSearch { .. }));
++    // 携 citations 的 Text → Some(...)
++    match &blocks[2] {
++        AgentBlock::Text { text, citations } => {
++            assert_eq!(text, "携引用正文");
++            let citations = citations.as_ref().expect("citations 应在场");
++            assert_eq!(citations.len(), 1);
++            assert_eq!(citations[0].raw, citation);
++        }
++        other => panic!("应为 Text 块，实际: {other:?}"),
++    }
++    // Reasoning → Thinking（可显示文本口径不变）
++    assert!(
++        matches!(&blocks[3], AgentBlock::Thinking { thinking } if thinking == "先想一下"),
++        "Reasoning 投影为 Thinking，实际: {:?}",
++        blocks[3]
++    );
++    // ToolCall → ToolUse 且同条进第二返回值
++    assert!(
++        matches!(&blocks[4], AgentBlock::ToolUse { id, name, .. } if id == "tu_1" && name == "Bash"),
++        "ToolCall 投影为 ToolUse，实际: {:?}",
++        blocks[4]
++    );
++    assert_eq!(tool_calls.len(), 1, "客户端工具调用进第二返回值");
++    assert_eq!(tool_calls[0].id.to_string(), "tu_1");
++
++    // Image → 不产块（现状）：真实构造该变体，与同 choice 的正文块共存验证
++    // 「本变体零产出」而非「整体为空」
++    let with_image = vec![
++        plain_text("图像前后"),
++        AssistantContent::Image(Image {
++            data: DocumentSourceKind::url("https://img.example.com/chart.png"),
++            media_type: None,
++            detail: None,
++            additional_params: None,
++        }),
++    ];
++    let (image_blocks, image_calls) = project_choice(&with_image);
++    assert_eq!(
++        image_blocks.len(),
++        1,
++        "Image 变体零产出（仅正文块留下），实际: {image_blocks:?}"
++    );
++    assert!(
++        matches!(&image_blocks[0], AgentBlock::Text { text, .. } if text == "图像前后"),
++        "其余分支相对位置不变，实际: {image_blocks:?}"
++    );
++    assert!(image_calls.is_empty(), "Image 不进客户端工具面");
++}
++
++#[test]
++fn project_choice容器边界_空切片单元素与百条混合块条数守恒() {
++    // 空切片
++    let (blocks, tool_calls) = project_choice(&[]);
++    assert!(
++        blocks.is_empty() && tool_calls.is_empty(),
++        "空切片 → (vec![], vec![])"
++    );
++
++    // 单元素
++    let (blocks, _) = project_choice(&[plain_text("唯一")]);
++    assert_eq!(blocks.len(), 1);
++
++    // 100 条混合块（Text / use / result / 未知 raw 交错）：条数守恒、无丢块、无重排
++    let mut choice: Vec<AssistantContent> = Vec::new();
++    let mut expected_texts: Vec<String> = Vec::new();
++    for index in 0..25 {
++        let text = format!("正文-{index}");
++        choice.push(plain_text(&text));
++        expected_texts.push(text);
++        choice.push(raw_block(use_raw(
++            &format!("srvtoolu_{index}"),
++            WEB_SEARCH_TOOL_NAME,
++            Some(&format!("查询-{index}")),
++        )));
++        choice.push(raw_block(result_raw(
++            &format!("srvtoolu_{index}"),
++            vec![source(&format!("https://s/{index}"), None, None)],
++        )));
++        choice.push(raw_block(json!({ "type": "unknown_raw_block" })));
++    }
++    assert_eq!(choice.len(), 100, "fixture 恰 100 条");
++
++    let (blocks, tool_calls) = project_choice(&choice);
++    assert_eq!(
++        blocks.len(),
++        50,
++        "25 条正文 + 25 个收敛块（result / 未知块零产出）"
++    );
++    assert!(tool_calls.is_empty());
++    for (index, expected) in expected_texts.iter().enumerate() {
++        match &blocks[index * 2] {
++            AgentBlock::Text { text, .. } => assert_eq!(text, expected, "正文块保序"),
++            other => panic!("第 {} 块应为 Text，实际: {other:?}", index * 2),
++        }
++        match &blocks[index * 2 + 1] {
++            AgentBlock::WebSearch { id, .. } => assert_eq!(id, &format!("srvtoolu_{index}")),
++            other => panic!("收敛块保序，实际: {other:?}"),
++        }
++    }
++
++    // use 与 result 之间夹 Text：收敛块位置取 use 的顺序位
++    let interleaved = vec![
++        raw_block(use_raw("srvtoolu_mid", WEB_SEARCH_TOOL_NAME, Some("夹心"))),
++        plain_text("中间正文"),
++        raw_block(result_raw("srvtoolu_mid", vec![])),
++    ];
++    let (blocks, _) = project_choice(&interleaved);
++    assert_eq!(blocks.len(), 2, "夹心形态不额外产块");
++    assert!(matches!(&blocks[0], AgentBlock::WebSearch { id, .. } if id == "srvtoolu_mid"));
++    assert!(matches!(&blocks[1], AgentBlock::Text { text, .. } if text == "中间正文"));
++}
++
++// ---------------------------------------------------------------------------
++// replay_raw / replay_text：回放侧形状与保真
++// ---------------------------------------------------------------------------
++
++#[test]
++fn replay_raw形状为空文本加原始wire且连续两次调用相等() {
++    let raw = json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": "srvtoolu_1",
++        "content": [{ "type": "web_search_result", "url": "https://a/1" }],
++        "encrypted_content": "加密索引 🎉",
++        "cache_control": { "type": "ephemeral" },
++        "nested": [[1, 2], [3]],
++    });
++
++    let content = replay_raw(&raw);
++    let text = as_text(&content);
++    assert_eq!(
++        text.text, "",
++        "text 必为空串（rig 侧带文本即 ConversionError）"
++    );
++    assert_eq!(
++        param_of(text, ANTHROPIC_RAW_CONTENT_KEY),
++        &raw,
++        "raw 与入参逐字节相等"
++    );
++    let map = text
++        .additional_params
++        .as_ref()
++        .expect("additional_params 在场")
++        .as_map();
++    assert_eq!(map.len(), 1, "additional_params 恰一个承载键");
++
++    // 连续两次调用产出相等值（纯函数）
++    assert_eq!(
++        serde_json::to_string(&replay_raw(&raw)).expect("序列化成功"),
++        serde_json::to_string(&content).expect("序列化成功"),
++        "两次调用产物逐字节相等"
++    );
++}
++
++#[test]
++fn replay_raw对非对象载荷原样包裹不panic不校验type() {
++    for raw in [
++        Value::Null,
++        json!([1, 2, 3]),
++        json!({}),
++        json!({ "deep": { "a": { "b": { "c": [1, 2, { "d": null }] } } } }),
++        json!("字符串载荷"),
++    ] {
++        let content = replay_raw(&raw);
++        let text = as_text(&content);
++        assert_eq!(text.text, "", "恒空文本（载荷 {raw}）");
++        assert_eq!(param_of(text, ANTHROPIC_RAW_CONTENT_KEY), &raw, "原样包裹");
++    }
++}
++
++#[test]
++fn replay_text无引用时不落任何承载键() {
++    let content = replay_text("正文 🎉", None);
++
++    let text = as_text(&content);
++    assert_eq!(text.text, "正文 🎉", "原文保真");
++    assert!(
++        text.additional_params.is_none(),
++        "无引用不落 citations / anthropic_content 键"
++    );
++}
++
++#[test]
++fn replay_text非空引用回填raw数组且display字段不参与重建() {
++    // 构造 url 与 raw.url 不一致的 citation：产物 MUST 只等于 raw
++    let citations = vec![
++        AgentCitation {
++            url: Some("https://display.example.com/1".to_owned()),
++            title: Some("展示标题".to_owned()),
++            cited_text: Some("展示片段".to_owned()),
++            raw: json!({ "url": "https://raw.example.com/1", "cited_text": "原始片段", "extra": 1 }),
++        },
++        AgentCitation {
++            url: Some("https://display.example.com/2".to_owned()),
++            title: None,
++            cited_text: None,
++            raw: json!({ "url": "https://raw.example.com/2" }),
++        },
++    ];
++
++    let content = replay_text("正文", Some(&citations));
++
++    let text = as_text(&content);
++    assert_eq!(text.text, "正文");
++    assert_eq!(
++        param_of(text, CITATIONS_KEY),
++        &json!([
++            { "url": "https://raw.example.com/1", "cited_text": "原始片段", "extra": 1 },
++            { "url": "https://raw.example.com/2" },
++        ]),
++        "citations 深等于 [c.raw, …]（不以 url / title / cited_text 重组）"
++    );
++    // 不落 raw 承载键（正文走 citations，不是 raw server 块）
++    assert!(
++        text.additional_params
++            .as_ref()
++            .expect("params 在场")
++            .get(ANTHROPIC_RAW_CONTENT_KEY)
++            .is_none(),
++        "正文块不落 anthropic_content 键"
++    );
++}
++
++#[test]
++fn replay_text空引用视同无引用且文本边界逐字节保真() {
++    // 空切片
++    let empty = replay_text("正文", Some(&[]));
++    assert!(
++        as_text(&empty).additional_params.is_none(),
++        "空切片视同无引用（不落 citations 键）"
++    );
++
++    // 空文本 + 非空 citations
++    let citations = vec![AgentCitation {
++        url: Some("https://a/1".to_owned()),
++        title: None,
++        cited_text: None,
++        raw: json!({ "url": "https://a/1" }),
++    }];
++    let empty_text = replay_text("", Some(&citations));
++    let text = as_text(&empty_text);
++    assert_eq!(text.text, "");
++    assert_eq!(
++        param_of(text, CITATIONS_KEY),
++        &json!([{ "url": "https://a/1" }]),
++        "空文本仍携 citations"
++    );
++
++    // 超长 / 含换行 / NUL / emoji 的正文逐字节保真
++    let long = format!("{}\n行尾\0emoji 🎉", "长".repeat(1000));
++    let roundtrip = replay_text(&long, None);
++    assert_eq!(as_text(&roundtrip).text, long, "超长与特殊字符逐字节保真");
++    assert!(long.chars().count() > 1000, "fixture 超过 1000 字符");
++}
++
++// ---------------------------------------------------------------------------
++// 组合：project → replay 往返语义不变
++// ---------------------------------------------------------------------------
++
++#[test]
++fn project与replay往返后additional_params与原始wire逐字节等价且保原序() {
++    let raw_use = json!({
++        "type": "server_tool_use",
++        "id": "srvtoolu_rt",
++        "name": "web_search",
++        "input": { "query": "往返查询" },
++        "encrypted_content": "加密 🎉",
++    });
++    let raw_result = json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": "srvtoolu_rt",
++        "content": [{ "type": "web_search_result", "url": "https://rt/1", "title": "甲" }],
++        "encrypted_content": "结果加密",
++    });
++    let citation = json!({ "url": "https://cite/1", "title": "引用", "cited_text": "片段" });
++
++    // 原始 wire：use raw + result raw + 携 citations 的 text
++    let choice = vec![
++        raw_block(raw_use.clone()),
++        raw_block(raw_result.clone()),
++        AssistantContent::Text(text_with_entries(
++            "带引用的正文",
++            vec![(CITATIONS_KEY, json!([citation.clone()]))],
++        )),
++    ];
++
++    let (blocks, _) = project_choice(&choice);
++    assert_eq!(blocks.len(), 2, "use + result 收敛一块，正文一块");
++
++    // 块 → 回放（raw_use / raw_result 交 replay_raw，citations 交 replay_text）
++    let mut rebuilt: Vec<AssistantContent> = Vec::new();
++    for block in &blocks {
++        match block {
++            AgentBlock::WebSearch {
++                raw_use,
++                raw_result,
++                ..
++            } => {
++                if let Some(raw) = raw_use {
++                    rebuilt.push(replay_raw(raw));
++                }
++                if let Some(raw) = raw_result {
++                    rebuilt.push(replay_raw(raw));
++                }
++            }
++            AgentBlock::Text { text, citations } => {
++                rebuilt.push(replay_text(text, citations.as_deref()));
++            }
++            other => panic!("往返面不应出现其他块，实际: {other:?}"),
++        }
++    }
++
++    assert_eq!(rebuilt.len(), 3, "use → result → text 三条（保原序）");
++    assert_eq!(
++        param_of(as_text(&rebuilt[0]), ANTHROPIC_RAW_CONTENT_KEY),
++        &raw_use,
++        "use 侧 raw 逐字节等价"
++    );
++    assert_eq!(
++        param_of(as_text(&rebuilt[1]), ANTHROPIC_RAW_CONTENT_KEY),
++        &raw_result,
++        "result 侧 raw 逐字节等价"
++    );
++    assert_eq!(as_text(&rebuilt[2]).text, "带引用的正文");
++    assert_eq!(
++        param_of(as_text(&rebuilt[2]), CITATIONS_KEY),
++        &json!([citation]),
++        "citations 原值回填"
++    );
++}
+diff --git a/crates/infra/agent/src/worker_test.rs b/crates/infra/agent/src/worker_test.rs
+index 31ead9501b65..ca12432cf460 100644
+--- a/crates/infra/agent/src/worker_test.rs
++++ b/crates/infra/agent/src/worker_test.rs
+@@ -240,6 +240,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
+                 role: AgentMessageRole::User,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮问".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -250,6 +251,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
+                 role: AgentMessageRole::Assistant,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮答".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+diff --git a/crates/infra/store/src/model.rs b/crates/infra/store/src/model.rs
+index 46e0ac1c59ca..ea9175f4d984 100644
+--- a/crates/infra/store/src/model.rs
++++ b/crates/infra/store/src/model.rs
+@@ -1225,10 +1225,76 @@ impl From<AgentProviderRecordV2> for AgentProviderRecordV1 {
+     }
+ }
+ 
++/// `AgentProviderRecord` 的 version 3 历史形态（仅作 native_model 升级链的
++/// 解码目标，不注册进库模型组、不出公共查询面）：有 `protocol` /
++/// `max_tokens`，无 `web_search` 列。存量 v3 行经版本机制自动升级为 v4
++/// （`web_search` 读出 `false`，零迁移代码路径、行为零变化）。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++#[native_model(id = 5, version = 3, from = AgentProviderRecordV2)]
++pub(crate) struct AgentProviderRecordV3 {
++    /// 记录 id（主键）
++    pub id: i64,
++    /// 展示名（唯一 = 写事务内查重）
++    pub name: String,
++    /// 模型协议（wire 语义与 `base_url` 拼法由此决定；缺省 `openai`——
++    /// 存量行升级即本档）
++    #[serde(default)]
++    pub protocol: AgentProviderProtocol,
++    /// 协议对应端点 base_url（openai 含版本段如 `https://…/v1`；anthropic
++    /// 的 `/v1` / `/messages` 后缀由引擎侧归一化后拼 `/v1/messages`）
++    pub base_url: String,
++    /// 认证凭据（bearer token，明文）
++    pub api_key: String,
++    /// 三档模型标识（运行发起解析消费固定取 high 档；原文可带 `[1m]` 后缀，
++    /// 后缀解析归引擎侧单点）
++    pub models: AgentModelTiers,
++    /// provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
++    /// `None` = 未配置（缺省走 128K 启发式）
++    #[serde(default)]
++    pub context_length: Option<u64>,
++    /// provider 输出上限（token 数）：可空列，`None` = 按协议缺省；仅
++    /// anthropic 协议消费
++    #[serde(default)]
++    pub max_tokens: Option<u64>,
++}
++
++/// v2 → v3 升级半边（缺列读兼容：旧记录无协议 / 输出上限列——协议缺省
++/// `openai`（行为零变化）、上限未配置）。
++impl From<AgentProviderRecordV2> for AgentProviderRecordV3 {
++    fn from(previous: AgentProviderRecordV2) -> Self {
++        Self {
++            id: previous.id,
++            name: previous.name,
++            protocol: AgentProviderProtocol::Openai,
++            base_url: previous.base_url,
++            api_key: previous.api_key,
++            models: previous.models,
++            context_length: previous.context_length,
++            max_tokens: None,
++        }
++    }
++}
++
++/// v3 → v2 降级半边（`protocol` / `max_tokens` 丢弃——只保升级语义真实性，
++/// 降级形态不作数据承诺）。
++impl From<AgentProviderRecordV3> for AgentProviderRecordV2 {
++    fn from(record: AgentProviderRecordV3) -> Self {
++        Self {
++            id: record.id,
++            name: record.name,
++            base_url: record.base_url,
++            api_key: record.api_key,
++            models: record.models,
++            context_length: record.context_length,
++        }
++    }
++}
++
+ /// agent provider 记录
+ #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+-#[native_model(id = 5, version = 3, from = AgentProviderRecordV2)]
++#[native_model(id = 5, version = 4, from = AgentProviderRecordV3)]
+ #[native_db]
+ pub struct AgentProviderRecord {
+     /// 记录 id（主键，写事务内 max+1 分配）
+@@ -1260,36 +1326,45 @@ pub struct AgentProviderRecord {
+     /// anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
+     #[serde(default)]
+     pub max_tokens: Option<u64>,
++    /// 是否启用 Anthropic 云端 `web_search` 服务端工具（缺省 `false`——存量
++    /// 行升级即关，行为零变化）。**生效门在解析期**（`provider.web_search &&
++    /// protocol == Anthropic`）：保存期无条件接受（openai 下也原样入库，不
++    /// 拒收、不清零），纠偏只在运行发起解析单点
++    #[serde(default)]
++    pub web_search: bool,
+ }
+ 
+-/// v2 → v3 升级半边（缺列读兼容：旧记录无协议 / 输出上限列——协议缺省
+-/// `openai`（行为零变化）、上限未配置）。
+-impl From<AgentProviderRecordV2> for AgentProviderRecord {
+-    fn from(previous: AgentProviderRecordV2) -> Self {
++/// v3 → v4 升级半边（缺列读兼容：旧记录无 `web_search` 列——默认关，行为
++/// 零变化、无迁移脚本）。
++impl From<AgentProviderRecordV3> for AgentProviderRecord {
++    fn from(previous: AgentProviderRecordV3) -> Self {
+         Self {
+             id: previous.id,
+             name: previous.name,
+-            protocol: AgentProviderProtocol::Openai,
++            protocol: previous.protocol,
+             base_url: previous.base_url,
+             api_key: previous.api_key,
+             models: previous.models,
+             context_length: previous.context_length,
+-            max_tokens: None,
++            max_tokens: previous.max_tokens,
++            web_search: false,
+         }
+     }
+ }
+ 
+-/// v3 → v2 降级半边（`protocol` / `max_tokens` 丢弃——只保升级语义真实性，
+-/// 降级形态不作数据承诺）。
+-impl From<AgentProviderRecord> for AgentProviderRecordV2 {
++/// v4 → v3 降级半边（`web_search` 丢弃——只保升级语义真实性，降级形态不作
++/// 数据承诺）。
++impl From<AgentProviderRecord> for AgentProviderRecordV3 {
+     fn from(record: AgentProviderRecord) -> Self {
+         Self {
+             id: record.id,
+             name: record.name,
++            protocol: record.protocol,
+             base_url: record.base_url,
+             api_key: record.api_key,
+             models: record.models,
+             context_length: record.context_length,
++            max_tokens: record.max_tokens,
+         }
+     }
+ }
+@@ -1297,7 +1372,9 @@ impl From<AgentProviderRecord> for AgentProviderRecordV2 {
+ impl AgentProviderRecord {
+     /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
+     /// 传空即空（新建语义无原值可保）；`context_length` / `max_tokens` 传
+-    /// `None` 即未配置。`protocol` 紧跟 `name`——协议决定 `base_url` 语义。
++    /// `None` 即未配置；`web_search` 缺省关（开走 [`Self::with_web_search`]——
++    /// 现有参数面不动的唯一实现路径）。`protocol` 紧跟 `name`——协议决定
++    /// `base_url` 语义。
+     pub fn new(
+         name: String,
+         protocol: AgentProviderProtocol,
+@@ -1316,8 +1393,15 @@ impl AgentProviderRecord {
+             models,
+             context_length,
+             max_tokens,
++            web_search: false,
+         }
+     }
++
++    /// 云端 `web_search` 开关（构造器链式缝，与既有可空参旁路同型）：保存期
++    /// 无条件接受该值，生效门在运行发起解析期。
++    pub fn with_web_search(self, web_search: bool) -> Self {
++        Self { web_search, ..self }
++    }
+ }
+ 
+ /// 手写遮蔽 Debug（字段面与 derive 形态逐位对齐，仅 api_key 位遮蔽）：明文
+@@ -1333,6 +1417,7 @@ impl std::fmt::Debug for AgentProviderRecord {
+             .field("models", &self.models)
+             .field("context_length", &self.context_length)
+             .field("max_tokens", &self.max_tokens)
++            .field("web_search", &self.web_search)
+             .finish()
+     }
+ }
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index cf5bc09c08c8..738738d0ea36 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -8,8 +8,9 @@ use workflow::model::{ChecklistItem, Verdict};
+ use crate::model::{
+     pack_checklist_item_key, pack_session_event_key, AgentEngineKind, AgentInstanceRecord,
+     AgentModelTiers, AgentProviderProtocol, AgentProviderRecord, AgentProviderRecordV1,
+-    AgentProviderRecordV2, AgentRunRecord, AgentRunRecordV3, ChecklistItemRecord, PhaseRecord,
+-    SessionConfigSnapshot, SessionEventRecord, SessionRecord, WorkspaceRecord,
++    AgentProviderRecordV2, AgentProviderRecordV3, AgentRunRecord, AgentRunRecordV3,
++    ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
++    WorkspaceRecord,
+ };
+ use crate::store::Store;
+ 
+@@ -44,6 +45,7 @@ fn message(seq: u64) -> AgentEvent {
+             role: AgentMessageRole::Assistant,
+             blocks: vec![AgentBlock::Text {
+                 text: "你好，世界".to_owned(),
++                citations: None,
+             }],
+             parent_tool_use_id: None,
+         },
+@@ -622,8 +624,8 @@ fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
+     let (decoded, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+     assert_eq!(
+-        version, 3,
+-        "native_model 版本封装为 version 3（protocol / max_tokens 演进落位）"
++        version, 4,
++        "native_model 版本封装为 version 4（web_search 列演进落位）"
+     );
+     decoded
+ }
+@@ -669,7 +671,10 @@ fn provider记录编解码版本断言2() {
+     let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+     let (_decoded, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+-    assert_eq!(version, 3, "native_model 版本封装为 version 3");
++    assert_eq!(
++        version, 4,
++        "native_model 版本封装为 version 4（web_search 列）"
++    );
+ }
+ 
+ #[test]
+@@ -719,9 +724,11 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+         api_key: "sk-live-1234567890".to_owned(),
+         models: tiers("h", "m", "l"),
+     };
+-    // 逐级链：v1 → v2（补 context_length）→ v3（补 protocol / max_tokens），
+-    // 无跳级 `From`（`ExploreRecord` V1 → V4 先例）
+-    let upgraded = AgentProviderRecord::from(AgentProviderRecordV2::from(legacy.clone()));
++    // 逐级链：v1 → v2（补 context_length）→ v3（补 protocol / max_tokens）→ v4
++    // （补 web_search），无跳级 `From`（`ExploreRecord` V1 → V4 先例）
++    let upgraded = AgentProviderRecord::from(AgentProviderRecordV3::from(
++        AgentProviderRecordV2::from(legacy.clone()),
++    ));
+     assert_eq!(
+         upgraded.context_length, None,
+         "升级补 context_length = None（缺列读兼容）"
+@@ -743,8 +750,11 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+         None,
+     );
+     record.id = legacy.id;
+-    // 逆序逐级链：v3 → v2（丢 protocol / max_tokens）→ v1（丢 context_length）
+-    let downgraded = AgentProviderRecordV1::from(AgentProviderRecordV2::from(record));
++    // 逆序逐级链：v4 → v3（丢 web_search）→ v2（丢 protocol / max_tokens）→ v1
++    // （丢 context_length）
++    let downgraded = AgentProviderRecordV1::from(AgentProviderRecordV2::from(
++        AgentProviderRecordV3::from(record),
++    ));
+     assert_eq!(downgraded, legacy, "降级还原五字段原形（新字段丢弃无损）");
+ }
+ 
+@@ -3480,8 +3490,10 @@ fn provider_v1载荷经两级链升级读入且新列全缺省() {
+     };
+     let bytes = native_model::encode(&v1).expect("encode v1 应成功");
+ 
+-    // v1 → v2 → v3 逐级链（无跳级 From impl）
+-    let via_steps = AgentProviderRecord::from(AgentProviderRecordV2::from(v1.clone()));
++    // v1 → v2 → v3 → v4 逐级链（无跳级 From impl）
++    let via_steps = AgentProviderRecord::from(AgentProviderRecordV3::from(
++        AgentProviderRecordV2::from(v1.clone()),
++    ));
+     let (via_decode, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("v1 载荷应逐级升级");
+     assert_eq!(version, 1, "decode 返回载荷头版本（升级链源版本）");
+@@ -3513,7 +3525,7 @@ fn provider_v2直达升级与降级半边逐字段对位() {
+     assert_eq!(v2.context_length, None, "V1→V2 补 context_length = None");
+ 
+     // V2 → V3：补 protocol = Openai 与 max_tokens = None
+-    let v3 = AgentProviderRecord::from(v2.clone());
++    let v3 = AgentProviderRecord::from(AgentProviderRecordV3::from(v2.clone()));
+     assert_eq!(v3.protocol, AgentProviderProtocol::Openai, "V2→V3 补协议");
+     assert_eq!(v3.max_tokens, None, "V2→V3 补上限");
+     assert_eq!(v3.context_length, v2.context_length);
+@@ -3522,7 +3534,7 @@ fn provider_v2直达升级与降级半边逐字段对位() {
+     let mut record = v3.clone();
+     record.protocol = AgentProviderProtocol::Anthropic;
+     record.max_tokens = Some(8192);
+-    let downgraded_v2 = AgentProviderRecordV2::from(record.clone());
++    let downgraded_v2 = AgentProviderRecordV2::from(AgentProviderRecordV3::from(record.clone()));
+     assert_eq!(
+         downgraded_v2, v2,
+         "V3→V2 丢两新列后与升级源等值（其余保真）"
+@@ -3537,7 +3549,7 @@ fn provider_v2直达升级与降级半边逐字段对位() {
+ }
+ 
+ #[test]
+-fn provider版本头三层逐字为3与2与1() {
++fn provider版本头四层逐字为4与3与2与1() {
+     let record = AgentProviderRecord::new(
+         "版本头".to_owned(),
+         AgentProviderProtocol::Anthropic,
+@@ -3548,13 +3560,27 @@ fn provider版本头三层逐字为3与2与1() {
+         Some(8192),
+     );
+     let (_, version) = native_model::decode::<AgentProviderRecord>(
+-        native_model::encode(&record).expect("encode v3"),
++        native_model::encode(&record).expect("encode v4"),
++    )
++    .expect("decode v4");
++    assert_eq!(version, 4, "当前形态版本头 4（web_search 列演进落位）");
++
++    // v3 中转形态版本头 3（web_search 缺列，仅升级链解码目标）
++    let v3 = AgentProviderRecordV3 {
++        id: 1,
++        name: "v3".to_owned(),
++        protocol: AgentProviderProtocol::Anthropic,
++        base_url: "u".to_owned(),
++        api_key: "k".to_owned(),
++        models: tiers("h", "m", "l"),
++        context_length: None,
++        max_tokens: Some(8192),
++    };
++    let (_, version) = native_model::decode::<AgentProviderRecordV3>(
++        native_model::encode(&v3).expect("encode v3"),
+     )
+     .expect("decode v3");
+-    assert_eq!(
+-        version, 3,
+-        "当前形态版本头 3（protocol / max_tokens 演进落位）"
+-    );
++    assert_eq!(version, 3, "v3 中转形态版本头 3");
+ 
+     let v2 = AgentProviderRecordV2 {
+         id: 1,
+@@ -3622,24 +3648,39 @@ fn agent_provider_protocol变体序号锚_openai恰0_anthropic恰1字节级() {
+ }
+ 
+ #[test]
+-fn provider模型组注册_当前形态id5版本3且中转形态不入库模型组() {
+-    // 注册锚：当前形态 id 5 / version 3；两中转形态同 id 不同版本，仅作升级链
+-    // 解码目标（无 `#[native_db]` 派生 → 结构上不可注册进库模型组）
++fn provider模型组注册_当前形态id5版本4且中转形态不入库模型组() {
++    // 注册锚：当前形态 id 5 / version 4（`web_search` 列演进落位）；三条中转
++    // 形态同 id 不同版本，仅作升级链解码目标（无 `#[native_db]` 派生 → 结构上
++    // 不可注册进库模型组）
+     assert_eq!(
+         <AgentProviderRecord as native_model::Model>::native_model_id(),
+         5
+     );
+     assert_eq!(
+         <AgentProviderRecord as native_model::Model>::native_model_version(),
+-        3
++        4,
++        "当前形态版本头逐字 4（v3 → v4 升级链顶，web_search 列在此落位）"
+     );
++    // 升级链逐级锚：v1 = 1 → v2 = 2 → v3 = 3 → v4 = 4（同 id、无跳级）
+     assert_eq!(
+-        <AgentProviderRecordV1 as native_model::Model>::native_model_version(),
+-        1
++        <AgentProviderRecordV3 as native_model::Model>::native_model_version(),
++        3,
++        "v3 中转形态版本头逐字 3（v2 → v3 升级链中段）"
++    );
++    assert_eq!(
++        <AgentProviderRecordV3 as native_model::Model>::native_model_id(),
++        5,
++        "v3 中转形态与当前形态同 id（同一 provider 记录的版本链）"
+     );
+     assert_eq!(
+         <AgentProviderRecordV2 as native_model::Model>::native_model_version(),
+-        2
++        2,
++        "v2 中转形态版本头逐字 2"
++    );
++    assert_eq!(
++        <AgentProviderRecordV1 as native_model::Model>::native_model_version(),
++        1,
++        "v1 历史形态版本头逐字 1"
+     );
+ 
+     // 全局库（user 维度）以当前形态落库可读：模型组注册成功的运行时半边
+@@ -3913,3 +3954,349 @@ fn provider遮蔽debug兜底与极端上限位面且不改partial_eq() {
+     };
+     assert_ne!(flipped, twin, "仅 protocol 不同则不等");
+ }
++
++// ---------------------------------------------------------------------------
++// provider v4：web_search 列（AC-8 / AC-2 存储面）
++// ---------------------------------------------------------------------------
++
++/// `with_web_search` 构造载荷底（七参 new + 链式开关）。
++fn provider_with_switch(web_search: bool) -> AgentProviderRecord {
++    AgentProviderRecord::new(
++        "开关供应".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.anthropic.com".to_owned(),
++        "sk-ant-1234567890".to_owned(),
++        tiers("m-high", "m-medium", "m-low"),
++        Some(200_000),
++        Some(8192),
++    )
++    .with_web_search(web_search)
++}
++
++#[test]
++fn with_web_search构造置位且其余七字段逐字段保真() {
++    for web_search in [true, false] {
++        let record = provider_with_switch(web_search);
++
++        assert_eq!(record.web_search, web_search, "链式开关按入参置位");
++        assert_eq!(record.id, 0, "id 仍置 0（写事务内分配）");
++        assert_eq!(record.name, "开关供应");
++        assert_eq!(record.protocol, AgentProviderProtocol::Anthropic);
++        assert_eq!(record.base_url, "https://api.anthropic.com");
++        assert_eq!(record.api_key, "sk-ant-1234567890");
++        assert_eq!(record.models, tiers("m-high", "m-medium", "m-low"));
++        assert_eq!(record.context_length, Some(200_000));
++        assert_eq!(record.max_tokens, Some(8192));
++    }
++}
++
++#[test]
++fn new不带构造器时web_search缺省关且链式覆盖无累积() {
++    let plain = AgentProviderRecord::new(
++        "缺省供应".to_owned(),
++        AgentProviderProtocol::Openai,
++        "https://api.example.com/v1".to_owned(),
++        "sk-live".to_owned(),
++        tiers("h", "m", "l"),
++        None,
++        None,
++    );
++    assert!(
++        !plain.web_search,
++        "new 缺省 false（38 处调用点零改的语义依据）"
++    );
++    assert_eq!(plain.id, 0, "id 仍置 0");
++
++    let toggled = provider_with_switch(true).with_web_search(false);
++    assert!(!toggled.web_search, "true → false：后者覆盖");
++    let toggled_back = provider_with_switch(false).with_web_search(true);
++    assert!(toggled_back.web_search, "false → true：后者覆盖");
++}
++
++#[test]
++fn v3到v4升级读入web_search为false且其余字段逐字段相等() {
++    let legacy = AgentProviderRecordV3 {
++        id: 21,
++        name: "存量三重".to_owned(),
++        protocol: AgentProviderProtocol::Anthropic,
++        base_url: "https://api.anthropic.com".to_owned(),
++        api_key: "sk-legacy-1234567890".to_owned(),
++        models: tiers("v3-high", "v3-medium", "v3-low"),
++        context_length: Some(131_072),
++        max_tokens: Some(8192),
++    };
++    let bytes = native_model::encode(&legacy).expect("encode v3 应成功");
++    let (upgraded, version) =
++        native_model::decode::<AgentProviderRecord>(bytes).expect("v3 载荷应逐级升级至 v4");
++
++    assert_eq!(version, 3, "decode 返回载荷头源版本 3");
++    assert!(
++        !upgraded.web_search,
++        "存量行升级 web_search = false（行为零变化）"
++    );
++    assert_eq!(upgraded.id, legacy.id);
++    assert_eq!(upgraded.name, legacy.name);
++    assert_eq!(upgraded.protocol, legacy.protocol);
++    assert_eq!(upgraded.base_url, legacy.base_url);
++    assert_eq!(upgraded.api_key, legacy.api_key);
++    assert_eq!(upgraded.models, legacy.models);
++    assert_eq!(upgraded.context_length, legacy.context_length);
++    assert_eq!(upgraded.max_tokens, legacy.max_tokens);
++}
++
++#[test]
++fn v1到v2到v3到v4三级链升级对齐_web_search关且协议缺省openai() {
++    let legacy = AgentProviderRecordV1 {
++        id: 33,
++        name: "四级链".to_owned(),
++        base_url: "https://legacy.example.com/v1".to_owned(),
++        api_key: "sk-legacy-1234567890".to_owned(),
++        models: tiers("v1-high", "v1-medium", "v1-low"),
++    };
++    let bytes = native_model::encode(&legacy).expect("encode v1 应成功");
++    let (upgraded, version) =
++        native_model::decode::<AgentProviderRecord>(bytes).expect("v1 载荷应逐级升级至 v4");
++
++    assert_eq!(version, 1, "decode 返回载荷头源版本 1");
++    assert!(!upgraded.web_search, "web_search = false（缺列读兼容）");
++    assert_eq!(
++        upgraded.protocol,
++        AgentProviderProtocol::Openai,
++        "protocol 缺省 openai（v2→v3 升级档）"
++    );
++    assert_eq!(upgraded.max_tokens, None, "v3 补列的 max_tokens 为 None");
++    assert_eq!(
++        upgraded.context_length, None,
++        "v2 补列的 context_length 为 None"
++    );
++    assert_eq!(upgraded.id, legacy.id);
++    assert_eq!(upgraded.name, legacy.name);
++    assert_eq!(upgraded.base_url, legacy.base_url);
++    assert_eq!(upgraded.api_key, legacy.api_key);
++    assert_eq!(upgraded.models, legacy.models);
++
++    // 逐级链 From 与版本机制同口径（无跳级 From）
++    let by_chain = AgentProviderRecord::from(AgentProviderRecordV3::from(
++        AgentProviderRecordV2::from(legacy.clone()),
++    ));
++    assert_eq!(by_chain, upgraded, "逐级链与版本机制产出逐字段一致");
++}
++
++#[test]
++fn 降级半边_v4到v3丢web_search其余保真且降级产物不作数据承诺() {
++    let record = provider_with_switch(true);
++    let v3 = AgentProviderRecordV3::from(record.clone());
++
++    assert_eq!(v3.id, record.id);
++    assert_eq!(v3.name, record.name);
++    assert_eq!(v3.protocol, record.protocol);
++    assert_eq!(v3.base_url, record.base_url);
++    assert_eq!(v3.api_key, record.api_key);
++    assert_eq!(v3.models, record.models);
++    assert_eq!(v3.context_length, record.context_length);
++    assert_eq!(v3.max_tokens, record.max_tokens);
++
++    // 降级再升级回来：新字段归缺省（可逆性不成立）
++    let roundtripped = AgentProviderRecord::from(AgentProviderRecordV3::from(
++        AgentProviderRecordV2::from(AgentProviderRecordV1 {
++            id: record.id,
++            name: record.name.clone(),
++            base_url: record.base_url.clone(),
++            api_key: record.api_key.clone(),
++            models: record.models.clone(),
++        }),
++    ));
++    assert!(
++        !roundtripped.web_search,
++        "降级再升级后 web_search 归 false（降级形态不作数据承诺）"
++    );
++    assert_eq!(roundtripped.protocol, AgentProviderProtocol::Openai);
++    assert_eq!(roundtripped.max_tokens, None);
++}
++
++#[test]
++fn web_search的serde线格式与缺列兼容() {
++    let record = provider_with_switch(true);
++    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
++    assert_eq!(
++        value["webSearch"],
++        serde_json::json!(true),
++        "线键 webSearch 为布尔"
++    );
++
++    let back: AgentProviderRecord = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(back, record, "webSearch: true 往返相等");
++
++    let off_value = serde_json::to_value(provider_with_switch(false)).expect("序列化成功");
++    assert_eq!(off_value["webSearch"], serde_json::json!(false));
++    let off_back: AgentProviderRecord = serde_json::from_value(off_value).expect("反序列化成功");
++    assert!(!off_back.web_search, "webSearch: false 往返相等");
++
++    // 旧 JSON 缺 webSearch 键 → false（#[serde(default)]）
++    let mut legacy = serde_json::to_value(provider_with_switch(true)).expect("序列化成功");
++    legacy
++        .as_object_mut()
++        .expect("object 形态")
++        .remove("webSearch");
++    let legacy_back: AgentProviderRecord =
++        serde_json::from_value(legacy).expect("缺列反序列化成功");
++    assert!(
++        !legacy_back.web_search,
++        "缺 webSearch 键解为 false（旧线格式读兼容）"
++    );
++}
++
++#[test]
++fn web_search非法载荷拒收_字符串与数字与null均err() {
++    for invalid in [
++        serde_json::json!("true"),
++        serde_json::json!(1),
++        serde_json::Value::Null,
++    ] {
++        let mut value = serde_json::to_value(provider_with_switch(true)).expect("序列化成功");
++        value
++            .as_object_mut()
++            .expect("object")
++            .insert("webSearch".to_owned(), invalid.clone());
++        assert!(
++            serde_json::from_value::<AgentProviderRecord>(value).is_err(),
++            "webSearch = {invalid} 必须 Err（值域受控、null 不静默兜底为 false）"
++        );
++    }
++}
++
++#[test]
++fn 遮蔽debug补齐web_search位且api_key位仍遮蔽() {
++    let on = format!("{:?}", provider_with_switch(true));
++    assert!(
++        on.contains("web_search: true"),
++        "Debug 含 web_search 位，实际: {on}"
++    );
++    assert!(on.contains("sk-***890"), "api_key 位仍为遮蔽形态");
++    assert!(!on.contains("sk-ant-1234567890"), "全文无明文 key");
++
++    let off = format!("{:?}", provider_with_switch(false));
++    assert!(off.contains("web_search: false"), "false 形态同在位");
++
++    // 空串 / 长度 < 3 的 key 仍全遮蔽（既有兜底不回归）
++    for api_key in ["", "ab"] {
++        let record = AgentProviderRecord::new(
++            "短键".to_owned(),
++            AgentProviderProtocol::Openai,
++            "https://api.example.com/v1".to_owned(),
++            api_key.to_owned(),
++            tiers("h", "m", "l"),
++            None,
++            None,
++        )
++        .with_web_search(true);
++        let debug_text = format!("{record:?}");
++        assert!(
++            debug_text.contains("sk-***"),
++            "短键全遮蔽形态（key={api_key:?}）: {debug_text}"
++        );
++    }
++}
++
++#[test]
++fn 含web_search块的session_event_record往返保真且无schema版本升级() {
++    use agent::{AgentCitation, WebSearchSource};
++
++    let raw_use = serde_json::json!({
++        "type": "server_tool_use",
++        "id": "srvtoolu_1",
++        "name": "web_search",
++        "input": { "query": "今日汇率" },
++        "encrypted_content": "use 加密索引 🎉",
++    });
++    let raw_result = serde_json::json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": "srvtoolu_1",
++        "content": [{ "type": "web_search_result", "url": "https://a/1" }],
++        "encrypted_content": "结果加密索引",
++    });
++    let citation_raw = serde_json::json!({ "url": "https://cite/1", "encrypted_index": "x" });
++
++    let record = SessionEventRecord::new(
++        "ses-web-search",
++        event(
++            0,
++            AgentEventKind::Message {
++                role: AgentMessageRole::Assistant,
++                blocks: vec![
++                    AgentBlock::WebSearch {
++                        id: "srvtoolu_1".to_owned(),
++                        query: "今日汇率".to_owned(),
++                        results: vec![WebSearchSource {
++                            url: "https://a/1".to_owned(),
++                            title: Some("甲".to_owned()),
++                            page_age: None,
++                        }],
++                        error: None,
++                        raw_use: Some(raw_use.clone()),
++                        raw_result: Some(raw_result.clone()),
++                    },
++                    AgentBlock::Text {
++                        text: "带引用正文".to_owned(),
++                        citations: Some(vec![AgentCitation {
++                            url: Some("https://cite/1".to_owned()),
++                            title: None,
++                            cited_text: None,
++                            raw: citation_raw.clone(),
++                        }]),
++                    },
++                ],
++                parent_tool_use_id: None,
++            },
++        ),
++    );
++
++    let back = roundtrip(&record);
++
++    assert_eq!(back, record, "含新块的记录往返逐字段相等");
++    let AgentEventKind::Message { blocks, .. } = &back.event.kind else {
++        panic!("应为 Message 事件");
++    };
++    let AgentBlock::WebSearch {
++        raw_use: back_use,
++        raw_result: back_result,
++        ..
++    } = &blocks[0]
++    else {
++        panic!("首块应为 WebSearch");
++    };
++    assert_eq!(
++        serde_json::to_string(back_use.as_ref().expect("rawUse 在场")).expect("序列化成功"),
++        serde_json::to_string(&raw_use).expect("序列化成功"),
++        "raw_use 逐字节不变"
++    );
++    assert_eq!(
++        serde_json::to_string(back_result.as_ref().expect("rawResult 在场")).expect("序列化成功"),
++        serde_json::to_string(&raw_result).expect("序列化成功"),
++        "raw_result 逐字节不变"
++    );
++    let AgentBlock::Text { citations, .. } = &blocks[1] else {
++        panic!("第二块应为 Text");
++    };
++    assert_eq!(
++        citations.as_ref().expect("citations 在场")[0].raw,
++        citation_raw,
++        "citations 原样往返"
++    );
++
++    // 事件 payload 为自描述 JSON：store 转录模型版本头不变（无 schema 升级）
++    let (_, version) = native_model::decode::<SessionEventRecord>(
++        native_model::encode(&record).expect("encode 成功"),
++    )
++    .expect("decode 成功");
++    assert_eq!(
++        version, 1,
++        "SessionEventRecord 版本头仍为 1（事件 payload 自描述，无 schema 版本升级）"
++    );
++
++    // 旧 Text JSON（无 citations）反序列化读出 None
++    let legacy_text: AgentBlock =
++        serde_json::from_value(serde_json::json!({ "kind": "text", "text": "旧正文" }))
++            .expect("旧 JSON 可读");
++    assert!(matches!(&legacy_text, AgentBlock::Text { citations, .. } if citations.is_none()));
++}
+diff --git a/src/commands/agents/mod.rs b/src/commands/agents/mod.rs
+index 4fa1a40722e5..4c4db8a64022 100644
+--- a/src/commands/agents/mod.rs
++++ b/src/commands/agents/mod.rs
+@@ -35,14 +35,18 @@ pub fn list_agent_providers(
+ /// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
+ ///
+ /// 参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
+-/// 配置核心项，签名上显式。
++/// 配置核心项，签名上显式；`web_search` 居末位（provider 属性，缺省关）。
+ ///
+ /// 保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
+ /// `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
+ /// 规则）；`max_tokens` 非空时 SHALL `>= MIN_OUTPUT_TOKENS`（`< 4096` 拒收，
+ /// 不静默截断或夹到边界）。错误串只含档位名 / 模型名原文 / 下限——结构上
+ /// 不含 api_key。
+-// 八参为 IPC 命令面定稿签名（design DD16 / DD17：协议紧跟 name，可空调参相邻），
++///
++/// `web_search` **不因协议拒收或清零**（openai 下同收原值）——生效门在运行
++/// 发起解析期（`provider.web_search && protocol == Anthropic`），保存期纠偏
++/// 会让「先开开关后改协议」与「先改协议后开开关」收敛到不同记录形态。
++// 九参为 IPC 命令面定稿签名（design DD16 / DD17：协议紧跟 name，可空调参相邻），
+ // 拆结构体只增 IPC 载荷间接且与前端实参序脱耦——沿 `agent_start` 命令面先例。
+ #[allow(clippy::too_many_arguments)]
+ #[tauri::command]
+@@ -57,6 +61,7 @@ pub fn save_agent_provider(
+     models: AgentModelTiers,
+     context_length: Option<u64>,
+     max_tokens: Option<u64>,
++    web_search: bool,
+ ) -> Result<AgentProviderRecord, String> {
+     for (tier, raw) in [
+         ("high", &models.high),
+@@ -78,7 +83,8 @@ pub fn save_agent_provider(
+         models,
+         context_length,
+         max_tokens,
+-    );
++    )
++    .with_web_search(web_search);
+     record.id = id.unwrap_or(0);
+     if record.id != 0 && record.api_key.is_empty() {
+         // 留空 key 回填原值：读存量记录（miss 由 upsert 的行存在校验统一报错）
+diff --git a/src/commands/agents/mod_test.rs b/src/commands/agents/mod_test.rs
+index 8bdb9c089acf..14801a239f7a 100644
+--- a/src/commands/agents/mod_test.rs
++++ b/src/commands/agents/mod_test.rs
+@@ -83,6 +83,7 @@ fn save_new_provider(
+         fixture_tiers(),
+         None,
+         None,
++        false,
+     )
+ }
+ 
+@@ -103,6 +104,7 @@ fn save_provider_with_key(
+         fixture_tiers(),
+         None,
+         None,
++        false,
+     )
+ }
+ 
+@@ -250,6 +252,7 @@ fn provider命令_重名保存err清单不变_更新miss_id_err_name空白err()
+         fixture_tiers(),
+         None,
+         None,
++        false,
+     );
+     assert!(blank.is_err(), "name 空白应 Err");
+ }
+@@ -692,6 +695,7 @@ fn save携context_length落库且重开一致() {
+             fixture_tiers(),
+             Some(200_000),
+             None,
++            false,
+         )
+         .expect("新建应成功");
+         assert_eq!(created.context_length, Some(200_000), "命令面平参落记录");
+@@ -748,6 +752,7 @@ fn save编辑态context_length双向翻转按入参落库() {
+         fixture_tiers(),
+         Some(131_072),
+         None,
++        false,
+     )
+     .expect("补窗长编辑应成功");
+     assert_eq!(
+@@ -767,6 +772,7 @@ fn save编辑态context_length双向翻转按入参落库() {
+         fixture_tiers(),
+         None,
+         None,
++        false,
+     )
+     .expect("清窗长编辑应成功");
+     assert_eq!(
+@@ -793,6 +799,7 @@ fn save_api_key回填与新context_length参正交() {
+         fixture_tiers(),
+         Some(200_000),
+         None,
++        false,
+     )
+     .expect("编辑应成功");
+ 
+@@ -870,6 +877,7 @@ fn save_full(
+         },
+         context_length,
+         max_tokens,
++        false,
+     )
+ }
+ 
+@@ -1443,3 +1451,274 @@ fn 组合保存清单重开库_协议与上限与后缀原文三面一致() {
+         "后缀原文持久（不做归一化）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// save_agent_provider 第九参 web_search（AC-8 命令面）：零协议判定、值原样入库
++// ---------------------------------------------------------------------------
++
++/// 携第九参的保存直调（协议 / 开关显式；其余面与既有底座同款）。
++fn save_with_switch(
++    state: &tauri::State<'_, WorkspaceStores>,
++    id: Option<i64>,
++    name: &str,
++    protocol: AgentProviderProtocol,
++    api_key: &str,
++    web_search: bool,
++) -> Result<AgentProviderRecord, String> {
++    save_agent_provider(
++        state.clone(),
++        id,
++        name.to_owned(),
++        protocol,
++        "https://api.example.com/v1".to_owned(),
++        api_key.to_owned(),
++        fixture_tiers(),
++        None,
++        None,
++        web_search,
++    )
++}
++
++#[test]
++fn anthropic与true落库且list与重开库后回读均为true() {
++    let env = Env::new("ws-true");
++    let list_snapshot;
++    {
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++
++        let created = save_with_switch(
++            &state,
++            None,
++            "搜索端点",
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-1234567890",
++            true,
++        )
++        .expect("保存应成功");
++        assert!(created.web_search, "返回记录 webSearch = true");
++
++        let listed = list_agent_providers(state.clone()).expect("list 应成功");
++        assert!(listed[0].web_search, "list 回读 true（值原样入库）");
++        list_snapshot = listed;
++        #[allow(deprecated)]
++        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
++    }
++
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    assert_eq!(
++        list_agent_providers(state.clone()).expect("重开 list 应成功"),
++        list_snapshot,
++        "重开库后 webSearch 持久化一致"
++    );
++}
++
++#[test]
++fn openai与true无条件接受且不清零不报错() {
++    let env = Env::new("ws-openai-true");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let saved = save_with_switch(
++        &state,
++        None,
++        "openai 搜索端点",
++        AgentProviderProtocol::Openai,
++        "sk-live-1234567890",
++        true,
++    )
++    .expect("openai + true 必须 Ok（零协议判定）");
++    assert!(
++        saved.web_search,
++        "openai 下也原样入库 true（生效与否留给解析期）"
++    );
++
++    let listed = list_agent_providers(state.clone()).expect("list 应成功");
++    assert!(listed[0].web_search, "回读仍为 true（不静默清零）");
++}
++
++#[test]
++fn false两协议均ok且与未传无语义差别() {
++    let env = Env::new("ws-false");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    for (protocol, name) in [
++        (AgentProviderProtocol::Anthropic, "false-anthropic"),
++        (AgentProviderProtocol::Openai, "false-openai"),
++    ] {
++        let saved = save_with_switch(&state, None, name, protocol, "sk-live-1234567890", false)
++            .expect("保存应成功");
++        assert!(!saved.web_search, "{protocol:?} + false → 存 false");
++    }
++    // bool 无三态：既有八参直调点（save_new_provider 恒传 false）与显式 false 同义
++    let implicit =
++        save_new_provider(&state, "默认关端点", "sk-live-1234567890").expect("保存应成功");
++    assert!(!implicit.web_search, "既有调用点（false）与未传无语义差别");
++}
++
++#[test]
++fn 编辑态三次翻转按入参落库且行数不增() {
++    let env = Env::new("ws-flip");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let created = save_with_switch(
++        &state,
++        None,
++        "翻转端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-1234567890",
++        true,
++    )
++    .expect("新建应成功");
++
++    for web_search in [false, true] {
++        let saved = save_with_switch(
++            &state,
++            Some(created.id),
++            "翻转端点",
++            AgentProviderProtocol::Anthropic,
++            "",
++            web_search,
++        )
++        .expect("编辑应成功");
++        assert_eq!(saved.web_search, web_search, "按入参落库（不粘滞、不累积）");
++        assert_eq!(
++            list_agent_providers(state.clone())
++                .expect("list 应成功")
++                .len(),
++            1,
++            "upsert 语义：行数不增"
++        );
++    }
++}
++
++#[test]
++fn 留空api_key回填与web_search正交() {
++    let env = Env::new("ws-key-orthogonal");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let created = save_with_switch(
++        &state,
++        None,
++        "正交端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-original-890",
++        false,
++    )
++    .expect("新建应成功");
++
++    // 留空 key + 开关 true：原值回填且开关落 true
++    let refilled = save_with_switch(
++        &state,
++        Some(created.id),
++        "正交端点",
++        AgentProviderProtocol::Anthropic,
++        "",
++        true,
++    )
++    .expect("编辑应成功");
++    assert_eq!(refilled.api_key, "sk-ant-original-890", "留空 key 回填原值");
++    assert!(refilled.web_search, "开关落 true");
++
++    // 非空 key + 开关 false：两字段各自独立
++    let replaced = save_with_switch(
++        &state,
++        Some(created.id),
++        "正交端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-new-777",
++        false,
++    )
++    .expect("编辑应成功");
++    assert_eq!(replaced.api_key, "sk-ant-new-777", "非空 key 落新值");
++    assert!(!replaced.web_search, "开关落 false");
++}
++
++#[test]
++fn 第九参与既有失败面正交_四种err形态文案与开关取值无关() {
++    for web_search in [true, false] {
++        let env = Env::new("ws-error-face");
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++
++        // 1) 空 name
++        let blank = err_of(save_with_switch(
++            &state,
++            None,
++            "",
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-1234567890",
++            web_search,
++        ));
++        // 2) 非法模型名后缀
++        let bad_suffix = err_of(save_agent_provider(
++            state.clone(),
++            None,
++            "后缀端点".to_owned(),
++            AgentProviderProtocol::Anthropic,
++            "https://api.example.com/v1".to_owned(),
++            "sk-ant-1234567890".to_owned(),
++            AgentModelTiers {
++                high: "m-high[8k]".to_owned(),
++                medium: "m-medium".to_owned(),
++                low: "m-low".to_owned(),
++            },
++            None,
++            None,
++            web_search,
++        ));
++        // 3) max_tokens 低于下限
++        let low_tokens = err_of(save_agent_provider(
++            state.clone(),
++            None,
++            "下限端点".to_owned(),
++            AgentProviderProtocol::Anthropic,
++            "https://api.example.com/v1".to_owned(),
++            "sk-ant-1234567890".to_owned(),
++            fixture_tiers(),
++            None,
++            Some(4_095),
++            web_search,
++        ));
++        // 4) 重名 provider（先落一行，再以同名新建）
++        save_with_switch(
++            &state,
++            None,
++            "重名端点",
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-1234567890",
++            web_search,
++        )
++        .expect("首个同名行应成功");
++        let duplicate = err_of(save_with_switch(
++            &state,
++            None,
++            "重名端点",
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-1234567890",
++            web_search,
++        ));
++
++        // 开关不参与校验：四种失败沿用既有文案（且不含 api_key 明文）
++        assert!(blank.contains("名不得为空白"), "空 name 记因: {blank}");
++        assert!(bad_suffix.contains("models.high"), "后缀记因: {bad_suffix}");
++        assert!(low_tokens.contains("max_tokens"), "下限记因: {low_tokens}");
++        assert!(duplicate.contains("重名端点"), "重名记因: {duplicate}");
++        for message in [&blank, &bad_suffix, &low_tokens, &duplicate] {
++            assert!(
++                !message.contains("sk-ant-1234567890"),
++                "错误串不含 api_key 明文: {message}"
++            );
++        }
++        // 失败时库内无新行（仅上面预落的「重名端点」一行）
++        assert_eq!(
++            list_agent_providers(state.clone())
++                .expect("list 应成功")
++                .len(),
++            1,
++            "开关 {web_search}：失败面不落库"
++        );
++    }
++}
+diff --git a/src/commands/exec/mod_test.rs b/src/commands/exec/mod_test.rs
+index 93a8d9f2fbdd..fbaa8956014a 100644
+--- a/src/commands/exec/mod_test.rs
++++ b/src/commands/exec/mod_test.rs
+@@ -974,7 +974,8 @@ fn sealed_watch_event(seq: u64) -> ::agent::AgentEvent {
+         AgentEventKind::Message {
+             role: AgentMessageRole::Assistant,
+             blocks: vec![::agent::AgentBlock::Text {
+-                text: format!("第 {seq} 段正文"),
++                text: format!("第 {seq} 段正文"),
++                citations: None,
+             }],
+             parent_tool_use_id: None,
+         },
+diff --git a/src/main.rs b/src/main.rs
+index 919146eb7c71..9a7c4b4f4b10 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -41,6 +41,9 @@ fn main() {
+     }
+     builder
+         .plugin(tauri_plugin_dialog::init())
++        // 外链打开（agent 搜索来源 / 引用列表的唯一调用点收敛在前端
++        // `ExternalLink`；这里与 dialog 同位注册，MUST NOT 自造第二种形态）
++        .plugin(tauri_plugin_opener::init())
+         .setup(|app| {
+             // 数据根解析在此（home_dir 依赖 Tauri 上下文），store 内无环境解析。
+             // 任一步失败即 setup Err → run Err → expect 报错启动失败：

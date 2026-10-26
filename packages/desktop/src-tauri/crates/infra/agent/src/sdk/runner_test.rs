@@ -93,6 +93,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
                 role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮问".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },
@@ -103,6 +104,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
                 role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮答".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },
@@ -122,6 +124,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
                 role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮问".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },
@@ -156,6 +159,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
                 role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "f".repeat(200_000),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },
@@ -1768,5 +1772,198 @@ async fn with_workspace_root每run装配_两次open事件面一致() {
     assert_eq!(
         first_tools, second_tools,
         "装配在起播时发生且每 run 一份（事件面一致）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// web_search 开关旁路载荷（AC-8 后半）：builder 缝、new 缺省关、泵启动日志可考
+//
+// 请求级形状（`additional_params.tools`）在 `loop_test.rs` 断言（AC-3 唯一观测
+// 面）；门面载荷透传在 `crate::lib_test` 断言（门面私有字段可考）。runner 层以
+// **泵启动日志**的 `web_search=…` 列为传递可考点（与 `protocol=` / `window=` /
+// `raw=` 同列），不为测试提升 `session_pump` / 私有字段的可见性。
+// ---------------------------------------------------------------------------
+
+/// 起一轮泵并取回该轮的泵启动日志行。
+///
+/// 锚定方式：`RunStarted.session_id` 与泵启动日志的 `session=` 同源同值，故可在
+/// 同进程并行用例写入的众多「泵启动」行中精确取回本用例那一行。
+async fn pump_start_line(runner: &SdkRunner) -> String {
+    // 先取共享日志目录（取值即 init）：泵的启动行写在 RunStarted 之先，未 init
+    // 时写入静默丢弃——故 init 必须前置于 open_session
+    crate::sdk::log_test::engine_log_dir();
+    let mut session = runner
+        .open_session(open_new())
+        .expect("New 会话 open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "泵启动日志一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let started = session.observations.recv().await.expect("首事件");
+    let AgentEventKind::RunStarted { session_id, .. } = &started else {
+        panic!("首事件应为 RunStarted，实际: {started:?}");
+    };
+    let session_id = session_id.clone().expect("RunStarted 应上报引擎侧会话 id");
+    drop(session);
+
+    // 泵启动日志写于 RunStarted 之前（同任务同序）；轮询只兜文件可见性
+    let needle = format!("泵启动 session={session_id} ");
+    let content = crate::sdk::log_test::read_engine_log_until(|content| {
+        content.lines().any(|line| line.contains(&needle))
+    });
+    content
+        .lines()
+        .find(|line| line.contains(&needle))
+        .unwrap_or_else(|| panic!("泵启动日志行应在场，实际日志: {content}"))
+        .to_owned()
+}
+
+#[tokio::test]
+#[allow(clippy::type_complexity)]
+async fn with_web_search开关经泵启动日志两态可考() {
+    for (payload, expected) in [(true, "web_search=true"), (false, "web_search=false")] {
+        // builder 缝：四参 new（既有调用点零改）+ 旁路开关
+        let runner = SdkRunner::new(complete_config(), None, None, None).with_web_search(payload);
+        let line = pump_start_line(&runner).await;
+        assert!(
+            line.contains(expected),
+            "web_search={payload} 应原样进泵启动日志，实际: {line}"
+        );
+        // 与既有诊断列同列（同一行内并列）
+        for column in ["protocol=", "window=", "raw="] {
+            assert!(line.contains(column), "应与 {column} 同列，实际: {line}");
+        }
+        assert!(
+            line.contains("model=rig-test-model-high"),
+            "该档裸名同列，实际: {line}"
+        );
+    }
+
+    // 四参 new 调用形态编译可达（既有调用点零改的编译面锚）
+    let _four_args: fn(
+        EngineConfig,
+        Option<ResumeTranscript>,
+        Option<u64>,
+        Option<Arc<Store>>,
+    ) -> SdkRunner = SdkRunner::new;
+}
+
+#[tokio::test]
+async fn 未装配web_search缺省关且与显式关等价() {
+    // 未装配（裸四参 new）与显式 `.with_web_search(false)`：同一日志与事件面
+    let unset = pump_start_line(&SdkRunner::new(complete_config(), None, None, None)).await;
+    let explicit_off = pump_start_line(
+        &SdkRunner::new(complete_config(), None, None, None).with_web_search(false),
+    )
+    .await;
+    for (label, line) in [("未装配", &unset), ("显式关", &explicit_off)] {
+        assert!(
+            line.contains("web_search=false"),
+            "{label}：缺省即关（bool 非 Option，无三态歧义），实际: {line}"
+        );
+    }
+    // 除会话 id 外逐字同形（同一装配口径的两态）
+    let tail = |line: &str| {
+        line.split_once(" model=")
+            .unwrap_or_else(|| panic!("泵启动日志应含 model=，实际: {line}"))
+            .1
+            .to_owned()
+    };
+    assert_eq!(
+        tail(&unset),
+        tail(&explicit_off),
+        "两态日志除会话 id 外逐字同形"
+    );
+
+    // 启动校验面同样等价（开关不参与 `is_complete` 判定）
+    assert_eq!(
+        SdkRunner::new(complete_config(), None, None, None)
+            .open_session(open_continue("ses-web-search-default"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        SdkRunner::new(complete_config(), None, None, None)
+            .with_web_search(false)
+            .open_session(open_continue("ses-web-search-default"))
+            .expect_err("同口径失败")
+            .to_string(),
+        "未装配 = 显式关（行为与错误面一致）"
+    );
+}
+
+#[tokio::test]
+async fn 重复装配后者覆盖且三旁路载荷任意序链不打架() {
+    // 同字段重复调用：后者覆盖、无累积
+    let on_then_off = pump_start_line(
+        &SdkRunner::new(complete_config(), None, None, None)
+            .with_web_search(true)
+            .with_web_search(false),
+    )
+    .await;
+    assert!(
+        on_then_off.contains("web_search=false"),
+        "后者覆盖（true → false），实际: {on_then_off}"
+    );
+    let off_then_on = pump_start_line(
+        &SdkRunner::new(complete_config(), None, None, None)
+            .with_web_search(false)
+            .with_web_search(true),
+    )
+    .await;
+    assert!(
+        off_then_on.contains("web_search=true"),
+        "反向链同理（false → true），实际: {off_then_on}"
+    );
+
+    // 三载荷序链：`with_context_window`（new 参）/ `with_max_tokens` /
+    // `with_web_search` 任意顺序 → 各自保真、互不覆盖
+    let forward = SdkRunner::new(complete_config(), None, Some(200_000), None)
+        .with_max_tokens(Some(8192))
+        .with_web_search(true);
+    let backward = SdkRunner::new(complete_config(), None, Some(200_000), None)
+        .with_web_search(true)
+        .with_max_tokens(Some(8192));
+    for (label, line) in [
+        ("先上限后开关", pump_start_line(&forward).await),
+        ("先开关后上限", pump_start_line(&backward).await),
+    ] {
+        assert!(
+            line.contains("web_search=true"),
+            "{label}：开关被他载荷覆盖，实际: {line}"
+        );
+        assert!(
+            line.contains("window=200000"),
+            "{label}：窗长载荷保真（new 参不被旁路覆盖），实际: {line}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn 启动失败面不被web_search开关改写() {
+    // 空配置（缺 api_key / base_url / 模型档）+ 开关开 → 仍为 config_missing
+    let with_switch = SdkRunner::new(EngineConfig::empty(), None, None, None).with_web_search(true);
+    let without_switch = SdkRunner::new(EngineConfig::empty(), None, None, None);
+
+    let error = with_switch
+        .open_session(open_continue("ses-web-search-missing"))
+        .expect_err("空配置必须显式失败");
+    let AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    for field in ["api_key", "base_url", "model"] {
+        assert!(
+            message.contains(field),
+            "成因集逐字为既有三档（缺 {field}），实际: {message}"
+        );
+    }
+    assert_eq!(
+        error.to_string(),
+        without_switch
+            .open_session(open_continue("ses-web-search-missing"))
+            .expect_err("同口径失败")
+            .to_string(),
+        "错误文案与未装配时逐字一致（开关不参与 is_complete 判定、不吞启动错误）"
     );
 }

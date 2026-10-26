@@ -1,0 +1,457 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/compose.rs:100:5: replace compose_turn -> Result<ComposedTurn, String> with Ok(Default::default())",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/compose.rs",
+          "function": {
+            "function_name": "compose_turn",
+            "return_type": "-> Result<ComposedTurn, String>",
+            "span": {
+              "start": {
+                "line": 85,
+                "column": 1
+              },
+              "end": {
+                "line": 142,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 100,
+              "column": 5
+            },
+            "end": {
+              "line": 141,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__compose.rs_line_100_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__compose.rs_line_100_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.2191781,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/transcript.rs:5:5: replace final_assistant_text -> Option<String> with Some(String::new())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/transcript.rs",
+          "function": {
+            "function_name": "final_assistant_text",
+            "return_type": "-> Option<String>",
+            "span": {
+              "start": {
+                "line": 3,
+                "column": 1
+              },
+              "end": {
+                "line": 27,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 5,
+              "column": 5
+            },
+            "end": {
+              "line": 26,
+              "column": 7
+            }
+          },
+          "replacement": "Some(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__transcript.rs_line_5_col_5_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__transcript.rs_line_5_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.5907635,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 37.1991378,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/transcript.rs:5:5: replace final_assistant_text -> Option<String> with None",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/transcript.rs",
+          "function": {
+            "function_name": "final_assistant_text",
+            "return_type": "-> Option<String>",
+            "span": {
+              "start": {
+                "line": 3,
+                "column": 1
+              },
+              "end": {
+                "line": 27,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 5,
+              "column": 5
+            },
+            "end": {
+              "line": 26,
+              "column": 7
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__transcript.rs_line_5_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__transcript.rs_line_5_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.9175818,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 37.0332249,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/transcript.rs:15:17: delete match arm AgentBlock::Text{text, ..} in final_assistant_text",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/transcript.rs",
+          "function": {
+            "function_name": "final_assistant_text",
+            "return_type": "-> Option<String>",
+            "span": {
+              "start": {
+                "line": 3,
+                "column": 1
+              },
+              "end": {
+                "line": 27,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 15,
+              "column": 17
+            },
+            "end": {
+              "line": 15,
+              "column": 70
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__transcript.rs_line_15_col_17.log",
+      "diff_path": "diff/crates__core__orchestration__src__transcript.rs_line_15_col_17.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.1949224,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 37.1337129,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/transcript.rs:5:5: replace final_assistant_text -> Option<String> with Some(\"xyzzy\".into())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/transcript.rs",
+          "function": {
+            "function_name": "final_assistant_text",
+            "return_type": "-> Option<String>",
+            "span": {
+              "start": {
+                "line": 3,
+                "column": 1
+              },
+              "end": {
+                "line": 27,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 5,
+              "column": 5
+            },
+            "end": {
+              "line": 26,
+              "column": 7
+            }
+          },
+          "replacement": "Some(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__transcript.rs_line_5_col_5_002.log",
+      "diff_path": "diff/crates__core__orchestration__src__transcript.rs_line_5_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.2852847,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 38.0397482,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/compose.rs:281:49: replace && with || in resolve_agent_engine",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/compose.rs",
+          "function": {
+            "function_name": "resolve_agent_engine",
+            "return_type": "-> Result<ResolvedEngine, String>",
+            "span": {
+              "start": {
+                "line": 226,
+                "column": 1
+              },
+              "end": {
+                "line": 287,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 281,
+              "column": 49
+            },
+            "end": {
+              "line": 281,
+              "column": 51
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__compose.rs_line_281_col_49.log",
+      "diff_path": "diff/crates__infra__agent__src__compose.rs_line_281_col_49.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 42.5598062,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 24.6933888,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/compose.rs:233:5: replace resolve_agent_engine -> Result<ResolvedEngine, String> with Ok(Default::default())",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/compose.rs",
+          "function": {
+            "function_name": "resolve_agent_engine",
+            "return_type": "-> Result<ResolvedEngine, String>",
+            "span": {
+              "start": {
+                "line": 226,
+                "column": 1
+              },
+              "end": {
+                "line": 287,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 233,
+              "column": 5
+            },
+            "end": {
+              "line": 286,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__compose.rs_line_233_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__compose.rs_line_233_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 43.31227,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 23.9770962,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 7,
+  "missed": 0,
+  "caught": 6,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-10-25T16:16:35.7950821Z",
+  "end_time": "2026-10-25T16:17:46.60786Z",
+  "cargo_mutants_version": "27.1.0"
+}

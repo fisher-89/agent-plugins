@@ -9,7 +9,19 @@ pub(crate) fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-/// 消息内块：Text / Thinking / ToolUse / ToolResult 四变体（tag `kind`，camelCase）。
+/// 消息内块：Text / Thinking / ToolUse / ToolResult / WebSearch 五变体
+/// （tag `kind`，camelCase）。
+///
+/// 词汇仍**协议中立**（core 不认识 anthropic / rig）：`WebSearch` 是 provider
+/// 服务端工具块的通用表达，`citations` 是其正文引用——
+/// - `raw_use` / `raw_result` 为**回放唯一事实源**（`encrypted_content` 等不可
+///   推导字段原样保全，展示字段 MUST NOT 参与重建）；
+/// - `citations` 与 `WebSearch` 均为新变体 / 带默认值字段，事件 payload 是自
+///   描述 JSON，落库**无需 store schema 版本升级**；旧事件缺 `citations` 读出
+///   `None`。
+///
+/// 已知代价（边界条 15）：旧客户端读到含 `WebSearch` 块的事件会在**整条事件
+/// 解码**时失败（不是少显示一张卡），仓库不提供降级分支。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
@@ -17,8 +29,15 @@ pub(crate) fn now_millis() -> i64 {
     rename_all_fields = "camelCase"
 )]
 pub enum AgentBlock {
-    /// 文本块（assistant 正文 / user 输入）
-    Text { text: String },
+    /// 文本块（assistant 正文 / user 输入）：`citations` 为正文引用
+    /// （`None` = 无引用；**序列化落 `null`，键恒在**——旧 JSON 缺键仍读出
+    /// `None`）。属性面只标 `default`：`skip_serializing_if` 无法在 unified
+    /// 相位模型下表达，加则 bindings 分裂为相位伴生类型。
+    Text {
+        text: String,
+        #[serde(default)]
+        citations: Option<Vec<AgentCitation>>,
+    },
     /// 思考块
     Thinking { thinking: String },
     /// 工具调用块（`input` 为原 JSON，结构由具体工具自解释）
@@ -33,6 +52,67 @@ pub enum AgentBlock {
         content: String,
         is_error: bool,
     },
+    /// 云端 `web_search` 服务端工具块：一次 `server_tool_use` 与其配对 result
+    /// 的**原子表达**（`id` 同两侧配对键）。
+    ///
+    /// `query` / `results` / `error` 为展示字段（不参与回放重建）；
+    /// `raw_use` / `raw_result` 为回放唯一事实源。use 与 result 被拆进两条
+    /// assistant 消息时投两块（use 侧 `raw_use` 有值、result 侧为 `None`）。
+    ///
+    /// 展示字段与 raw 字段**一律落键、值可 `null`**（`results` 缺省落 `[]`）：
+    /// 属性面只标 `default`，`skip_serializing_if` 会令 bindings 分裂出相位
+    /// 伴生类型（统一形态的前提，见 D1）。
+    WebSearch {
+        /// 服务端工具调用 id（= 配对 result 的 `tool_use_id`）
+        id: String,
+        /// 查询词（`server_tool_use.input.query`；孤儿 result 块为空串）
+        query: String,
+        /// 来源列表（展示字段；空数组落 `[]`，键恒在）
+        #[serde(default)]
+        results: Vec<WebSearchSource>,
+        /// 搜索错误码（`web_search_tool_result_error.error_code`）
+        #[serde(default)]
+        error: Option<String>,
+        /// 原始 wire 值（`server_tool_use` 原文；回放源）
+        #[serde(default)]
+        raw_use: Option<serde_json::Value>,
+        /// 原始 wire 值（`web_search_tool_result` 原文；回放源）
+        #[serde(default)]
+        raw_result: Option<serde_json::Value>,
+    },
+}
+
+/// 正文引用（服务端 citations 的一条）：`url` / `title` / `cited_text` 为展示
+/// 字段（可缺省）；`raw` 为原始 wire 值（回放用，反序列化再序列化会规范化，
+/// 故 MUST 原值保全）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCitation {
+    /// 来源地址
+    #[serde(default)]
+    pub url: Option<String>,
+    /// 来源标题
+    #[serde(default)]
+    pub title: Option<String>,
+    /// 被引用的原文片段
+    #[serde(default)]
+    pub cited_text: Option<String>,
+    /// 原始 wire 值（回放源；不经类型往返）
+    pub raw: serde_json::Value,
+}
+
+/// 单条搜索来源（纯展示字段，不参与回放）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchSource {
+    /// 来源地址
+    pub url: String,
+    /// 来源标题
+    #[serde(default)]
+    pub title: Option<String>,
+    /// 页面时效（服务端给出的 `page_age` 原样）
+    #[serde(default)]
+    pub page_age: Option<String>,
 }
 
 /// token 级增量载荷（思考/回复可辨；serde 内部 tag camelCase，与块模型同式）。

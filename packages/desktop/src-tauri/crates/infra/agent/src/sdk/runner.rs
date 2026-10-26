@@ -54,6 +54,9 @@ pub struct SdkRunner {
     context_window: Option<u64>,
     /// provider 输出上限（组合根旁路载荷；None = 按协议缺省）
     max_tokens: Option<u64>,
+    /// 云端 `web_search` 服务端工具开关（组合根已按协议门控的最终值；
+    /// `new` 缺省 false——与「显式关」同义，故全链收 `bool` 而非 `Option`）
+    web_search: bool,
     /// workspace 库句柄（组合根注入缝）：`toolset == Explore` 会话 per-turn
     /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
     explore_store: Option<Arc<Store>>,
@@ -76,6 +79,7 @@ impl SdkRunner {
             resume,
             context_window,
             max_tokens: None,
+            web_search: false,
             explore_store,
             workspace_root: None,
         }
@@ -95,6 +99,13 @@ impl SdkRunner {
             workspace_root: Some(root),
             ..self
         }
+    }
+
+    /// 云端 `web_search` 开关旁路注入（builder 缝，与 `with_max_tokens` 同
+    /// 型）：值已由组合根按协议门控，runner 零协议判定；`new` 签名不动
+    /// （既有调用点零改）。
+    pub fn with_web_search(self, web_search: bool) -> Self {
+        Self { web_search, ..self }
     }
 
     /// `sdk-<进程内计数>-<毫秒时戳>` 引擎侧会话 id（每轮铸造；前缀仅保留为
@@ -183,6 +194,7 @@ impl AgentRunner for SdkRunner {
                 defense,
                 resume_notices,
                 protocol: self.config.protocol,
+                web_search: self.web_search,
                 raw_model: model_name,
                 explore_store: self.explore_store.clone(),
                 workspace_root: self.workspace_root.clone(),
@@ -280,6 +292,8 @@ struct PumpPayload {
     resume_notices: Vec<DefenseNotice>,
     /// 模型协议（泵启动日志诊断面 `protocol=…`）
     protocol: Protocol,
+    /// 云端 `web_search` 开关（泵启动日志诊断面 `web_search=…`；已门控值）
+    web_search: bool,
     /// 该档模型原文（日志 `raw=…`；上报与请求用裸名——见 `ModelSpec.name`）
     raw_model: String,
     /// workspace 库句柄（组合根注入缝）——`toolset == Explore` 会话 per-turn
@@ -328,9 +342,10 @@ async fn session_pump(
     let session_id = SdkRunner::next_session_id();
     let window = payload.defense.window();
     crate::sdk::log::append_engine_log(&format!(
-        "泵启动 session={session_id} protocol={} model={} window={window} raw={}",
+        "泵启动 session={session_id} protocol={} model={} window={window} web_search={} raw={}",
         payload.protocol.as_str(),
         spec.name,
+        payload.web_search,
         payload.raw_model
     ));
     // 写入保护规则装配（**每 run 一次、protect 模块唯一 IO 点**）：规则随
@@ -350,6 +365,7 @@ async fn session_pump(
         injections: open.injections.clone(),
         explore_note,
         protect,
+        web_search: payload.web_search,
     };
     let pump_handle = handle.clone();
     let pump_session = turn.session_id.clone();

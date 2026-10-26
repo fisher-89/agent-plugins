@@ -1,0 +1,9 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\anthropic-web-search\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.96s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(7.8s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 176 files [2m(1.5s, 16 threads)[0m

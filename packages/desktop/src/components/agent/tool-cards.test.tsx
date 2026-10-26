@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vite-plus/test';
 
-import { ToolPairCard } from './agent-blocks';
+import { ToolPairCard, WebSearchCard } from './agent-blocks';
 import { DEFAULT_TOOL_CARDS } from './tool-cards';
 
 // ---------------------------------------------------------------------------
@@ -86,7 +86,8 @@ describe('DEFAULT_TOOL_CARDS：AskUserQuestion 特化', () => {
 describe('DEFAULT_TOOL_CARDS：回退与错误结果', () => {
   it('未注册的 toolName 查找返回回退（undefined，由消费方落默认工具对卡）', () => {
     expect(DEFAULT_TOOL_CARDS['NoSuchTool']).toBeUndefined();
-    expect(Object.keys(DEFAULT_TOOL_CARDS)).toEqual(['AskUserQuestion']);
+    // 注册表键面数量与顺序随动：web_search 注册项在场，顺序同源码声明序
+    expect(Object.keys(DEFAULT_TOOL_CARDS)).toEqual(['AskUserQuestion', 'web_search']);
   });
 
   it('isError 的工具结果以错误形态呈现（默认对卡：出错标记 + 失败底色）', () => {
@@ -117,5 +118,87 @@ describe('DEFAULT_TOOL_CARDS：回退与错误结果', () => {
 
     expect(screen.getByTestId('block-tool-use').textContent).not.toContain('出错');
     expect(screen.getByTestId('block-tool-result').className).not.toContain('text-fail');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DEFAULT_TOOL_CARDS：web_search 注册项（AC-10）
+// ---------------------------------------------------------------------------
+
+/** `web_search` 输出载荷 fixture（工具卡加位形态）。 */
+const SEARCH_OUTPUT = {
+  content: '',
+  isError: false,
+  search: {
+    results: [
+      { url: 'https://a/1', title: '甲来源', pageAge: null },
+      { url: 'https://b/2', title: null, pageAge: null },
+    ],
+    error: null,
+  },
+};
+
+describe('DEFAULT_TOOL_CARDS：web_search 注册表键面', () => {
+  it('键面含 web_search 且值为 WebSearchCard 本体（同引用），既有 AskUserQuestion 项仍在', () => {
+    const keys = Object.keys(DEFAULT_TOOL_CARDS);
+    expect(keys).toContain('web_search');
+    expect(keys).toContain('AskUserQuestion');
+    expect(DEFAULT_TOOL_CARDS['web_search']).toBe(WebSearchCard);
+    expect(keys).toHaveLength(2);
+  });
+
+  it('键名精确匹配：大小写 / 分隔符偏差与空串均 miss（键面不做归一化）', () => {
+    for (const miss of ['Web_Search', 'web-search', 'WebSearch', ' web_search', '']) {
+      expect(DEFAULT_TOOL_CARDS[miss]).toBeUndefined();
+    }
+    expect(DEFAULT_TOOL_CARDS['web_search']).toBeDefined();
+  });
+});
+
+describe('DEFAULT_TOOL_CARDS：web_search 命中渲染', () => {
+  it('经注册表取卡渲染 → block-web-search 在场、标题「网络搜索」、查询词与来源在场', () => {
+    const Card = DEFAULT_TOOL_CARDS['web_search'];
+    render(
+      <Card
+        toolCallId="srvtoolu_1"
+        toolName="web_search"
+        input={{ query: '今日汇率' }}
+        output={SEARCH_OUTPUT}
+      />,
+    );
+
+    expect(screen.getByTestId('block-web-search')).toBeTruthy();
+    expect(screen.getByTestId('block-web-search').textContent).toContain('网络搜索');
+    expect(screen.getByTestId('block-web-search-query').textContent).toContain('今日汇率');
+    expect(screen.getByTestId('block-web-search-sources').textContent).toContain('甲来源');
+  });
+
+  it('载荷形态异常不炸卡：output null / 缺 search 加位 / search 为 null / input 非对象', () => {
+    const Card = DEFAULT_TOOL_CARDS['web_search'];
+    const malformed: { input: unknown; output: unknown }[] = [
+      { input: { query: 'q' }, output: null },
+      { input: { query: 'q' }, output: { content: '', isError: false } },
+      { input: { query: 'q' }, output: { content: '', isError: false, search: null } },
+      { input: '字符串 input', output: SEARCH_OUTPUT },
+      { input: ['数组 input'], output: SEARCH_OUTPUT },
+    ];
+
+    for (const { input, output } of malformed) {
+      const { unmount } = render(
+        <Card
+          toolCallId="srvtoolu_bad"
+          toolName="web_search"
+          input={input}
+          output={output as never}
+        />,
+      );
+      // 卡片仍渲染（不抛错、不返回 null）
+      expect(screen.getByTestId('block-web-search')).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it('未注册工具名仍 miss（回退默认工具对卡由消费方决定）', () => {
+    expect(DEFAULT_TOOL_CARDS['read']).toBeUndefined();
   });
 });

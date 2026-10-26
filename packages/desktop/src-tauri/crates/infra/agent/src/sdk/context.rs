@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use rig::message::{AssistantContent, CallId, Message, ToolResult, ToolResultContent, UserContent};
 use serde_json::Value;
 
+use crate::sdk::web_search;
+
 /// 缺省窗长（token 数）：provider 记录 `context_length` 缺席时的 128K 启发式。
 const DEFAULT_CONTEXT_WINDOW: u64 = 128 * 1024;
 
@@ -231,11 +233,27 @@ fn oldest_unit_range(history: &[Message], protected: usize) -> Option<(usize, us
     (end <= protected.max(start + 1)).then_some((start, end))
 }
 
+/// assistant 位 server 块的 raw wire `type` 判别值（与 `web_search` 侧常量同
+/// 字面量；此处只做配对判别，不解载荷）。
+const SERVER_TOOL_USE_TYPE: &str = "server_tool_use";
+const WEB_SEARCH_RESULT_TYPE: &str = "web_search_tool_result";
+
 /// 孤儿配对清扫：tool_result 的 tool_use 伙伴不在其前（assistant 已被裁）
 /// 时剔除该结果条目（provider 端 tool 配对协议要求成对出现），纯文本位保留；
 /// 清空后无内容的 user 位消息整条移除。
+///
+/// 同时清扫 **assistant 位 server 块**：`pause_turn` 把一次搜索拆成两条
+/// assistant 消息（use 在前、result 在后）后，L2 剪裁 / L3 硬裁 / 摘要置换都
+/// 可能裁掉 use 而留下 result → 回放侧缺 use 的 result 会被 Anthropic 拒
+/// （400）。索引源为 raw `server_tool_use.id` ↔ raw `web_search_tool_result.
+/// tool_use_id`：单向前序扫描（同消息成对与跨消息成对两形态同构覆盖），
+/// 无配对 use 的 result 块剔除，剔除后 `content` 为空则整条 assistant 消息
+/// 移除。`UserContent` 侧逻辑逐字不动。
 pub(crate) fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
     let mut answered: HashSet<CallId> = HashSet::new();
+    // assistant 位 server use 索引（前向累积：先行 use 可为后续消息的 result
+    // 提供配对）
+    let mut server_uses: HashSet<String> = HashSet::new();
     history
         .into_iter()
         .filter_map(|message| match message {
@@ -245,7 +263,37 @@ pub(crate) fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
                         answered.insert(call.id.clone());
                     }
                 }
-                Some(Message::Assistant { id, content })
+                let mut dropped = false;
+                let kept: Vec<AssistantContent> = content
+                    .into_iter()
+                    .filter(|item| {
+                        let AssistantContent::Text(text) = item else {
+                            return true;
+                        };
+                        let Some(raw) = web_search::raw_content(text) else {
+                            return true; // 普通文本块
+                        };
+                        let keep = match raw.get("type").and_then(Value::as_str) {
+                            Some(SERVER_TOOL_USE_TYPE) => {
+                                if let Some(use_id) = raw.get("id").and_then(Value::as_str) {
+                                    server_uses.insert(use_id.to_owned());
+                                }
+                                true
+                            }
+                            Some(WEB_SEARCH_RESULT_TYPE) => raw
+                                .get("tool_use_id")
+                                .and_then(Value::as_str)
+                                .is_none_or(|use_id| server_uses.contains(use_id)),
+                            _ => true, // 其他 raw server 块不在本期清扫面
+                        };
+                        if !keep {
+                            dropped = true;
+                        }
+                        keep
+                    })
+                    .collect();
+                // 仅在确有剔除时判空移除（无剔除的 assistant 消息行为不变）
+                (!dropped || !kept.is_empty()).then_some(Message::Assistant { id, content: kept })
             }
             Message::User { content } => {
                 let kept: Vec<UserContent> = content

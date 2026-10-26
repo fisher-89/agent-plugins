@@ -6,6 +6,8 @@
  */
 
 import type { AgentToolOutput } from '../../lib/agent-adapter';
+import { asRecord } from '../../lib/parse';
+import { WebSearchCard } from './agent-blocks';
 
 /** 特化工具卡入参（output 为 null 即尚无结果；渲染 or null 回退由卡自决） */
 interface AgentToolCardProps {
@@ -26,14 +28,6 @@ interface AskOption {
 interface AskQuestion {
   question: string;
   options: AskOption[];
-}
-
-/** 宽松对象化：非对象一律空对象（免断言的未知形态收敛） */
-function asRecord(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return {};
-  const record: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) record[key] = item;
-  return record;
 }
 
 function parseOptions(options: unknown[]): AskOption[] {
@@ -106,7 +100,9 @@ function AskUserQuestionCard({ input }: AgentToolCardProps): React.JSX.Element {
   );
 }
 
-/** 默认注册表：AskUserQuestion → 静态卡（可插拔，消费方按 name 查找） */
+/** 默认注册表：AskUserQuestion → 静态卡；web_search → 搜索卡（可插拔，消费方
+ * 按 name 查找；未注册名仍回退消费方默认对卡） */
 export const DEFAULT_TOOL_CARDS: Record<string, AgentToolCard> = {
   AskUserQuestion: AskUserQuestionCard,
+  web_search: WebSearchCard,
 };

@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/message-scroller';
 
 import type { AgentToolPart, AgentUIMessage } from '../../lib/agent-adapter';
+import { asRecord, textOf } from '../../lib/parse';
+import type { AgentCitation } from '../../types/dto';
 import { TextBlock, ThinkingBlock, ToolPairCard, isToolPart } from './agent-blocks';
 import { DEFAULT_TOOL_CARDS } from './tool-cards';
 
@@ -43,9 +45,30 @@ function ToolPartView({ part }: { part: AgentToolPart }): React.JSX.Element | nu
   );
 }
 
+/** 单条引用的宽解析（`raw` 原样透传；字段缺席 → `null`） */
+function parseCitation(value: unknown): AgentCitation {
+  const record = asRecord(value);
+  return {
+    url: textOf(record.url),
+    title: textOf(record.title),
+    citedText: textOf(record.citedText),
+    raw: record.raw ?? null,
+  };
+}
+
+/** text 部件的引用来源：`providerMetadata.agent.citations`（命名空间 `agent`，
+ * 适配层挂载处；非数组 → `undefined`，空数组 → `undefined`——不渲染空容器） */
+function citationsOfPart(part: AgentUIMessage['parts'][number]): AgentCitation[] | undefined {
+  if (part.type !== 'text') return undefined;
+  const citations = part.providerMetadata?.agent?.citations;
+  if (!Array.isArray(citations)) return undefined;
+  const parsed = citations.map(parseCitation);
+  return parsed.length === 0 ? undefined : parsed;
+}
+
 /** 气泡内部件分发（text / reasoning / tool；data 部件随 system 载体不进对话呈现） */
 function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JSX.Element | null {
-  if (part.type === 'text') return <TextBlock text={part.text} />;
+  if (part.type === 'text') return <TextBlock citations={citationsOfPart(part)} text={part.text} />;
   if (part.type === 'reasoning') return <ThinkingBlock text={part.text} />;
   if (isToolPart(part)) return <ToolPartView part={part} />;
   return null;
@@ -171,7 +194,11 @@ function useHistoryWindow(allMessages: AgentUIMessage[]): {
     }
   }, [allMessages, firstMessageId]);
 
-  const conversationMessages = allMessages.filter((message) => message.role !== 'system');
+  // 空部件消息不进对话呈现（`pause_turn` 第二段可能只剩被消费的孤儿搜索
+  // 结果而产出 0 部件 assistant 消息 → 不渲染空气泡；分页计数基于过滤后列表）
+  const conversationMessages = allMessages.filter(
+    (message) => message.role !== 'system' && message.parts.length > 0,
+  );
   const remaining = Math.max(0, conversationMessages.length - pages * MESSAGE_PAGE_SIZE);
 
   // 函数式更新 + 上限钳制：避免 pages 闭包过期，重复触顶也幂等

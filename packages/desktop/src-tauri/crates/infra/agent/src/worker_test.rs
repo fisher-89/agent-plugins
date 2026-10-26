@@ -241,6 +241,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
                 role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮问".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },
@@ -251,6 +252,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
                 role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮答".to_owned(),
+                    citations: None,
                 }],
                 parent_tool_use_id: None,
             },

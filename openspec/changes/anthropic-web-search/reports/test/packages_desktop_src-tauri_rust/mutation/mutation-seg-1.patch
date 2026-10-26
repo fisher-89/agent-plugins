@@ -1,0 +1,3034 @@
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index a3dcda31b36e..25e8325000cf 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -190,6 +190,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
+                 role: AgentMessageRole::User,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮问".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -200,6 +201,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
+                 role: AgentMessageRole::Assistant,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮答".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -2591,3 +2593,255 @@ async fn 组合根全链_provider协议与上限与后缀抵达引擎且裸名
+     );
+     drop(session);
+ }
++
++// ---------------------------------------------------------------------------
++// web_search 门控单点（AC-8 / D8）：`provider.web_search && protocol == Anthropic`
++// ---------------------------------------------------------------------------
++
++/// 携协议与开关的 provider fixture（解析仅组装不触网络）。
++fn seed_provider_with_switch(
++    stores: &WorkspaceStores,
++    name: &str,
++    protocol: AgentProviderProtocol,
++    web_search: bool,
++) -> i64 {
++    let provider = AgentProviderRecord::new(
++        name.to_owned(),
++        protocol,
++        "http://127.0.0.1:9/v1".to_owned(),
++        "sk-compose".to_owned(),
++        AgentModelTiers {
++            high: "m-high".to_owned(),
++            medium: "m-medium".to_owned(),
++            low: "m-low".to_owned(),
++        },
++        None,
++        None,
++    )
++    .with_web_search(web_search);
++    stores
++        .global()
++        .upsert_agent_provider(provider)
++        .expect("落 provider fixture")
++        .id
++}
++
++#[test]
++fn web_search门控四格映射_仅anthropic且开为真() {
++    let cases = [
++        (AgentProviderProtocol::Anthropic, true, true),
++        (AgentProviderProtocol::Openai, true, false),
++        (AgentProviderProtocol::Anthropic, false, false),
++        (AgentProviderProtocol::Openai, false, false),
++    ];
++
++    for (protocol, provider_switch, expected) in cases {
++        let env = DualEnv::new("ws-gate");
++        let stores = env.stores();
++        let provider_id = seed_provider_with_switch(stores, "门控供应", protocol, provider_switch);
++        let instance_id = seed_sdk_instance(stores, "门控实例", Some(provider_id));
++
++        let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
++            Ok(resolved) => resolved,
++            Err(error) => panic!("解析应成功: {error}"),
++        };
++
++        assert_eq!(
++            resolved.web_search, expected,
++            "({protocol:?}, {provider_switch}) → web_search = {expected}"
++        );
++        // 记录值不被解析期清零（保存期无条件接受、解析期只做最终值判定）
++        let stored = stores
++            .global()
++            .find_agent_provider(provider_id)
++            .expect("读 provider 成功")
++            .expect("provider 行在场");
++        assert_eq!(
++            stored.web_search, provider_switch,
++            "provider 记录的 web_search 原值不被解析期改写"
++        );
++    }
++}
++
++#[test]
++fn 先开开关后改协议_解析为假但记录值保留且改回后恢复为真() {
++    let env = DualEnv::new("ws-gate-switch");
++    let stores = env.stores();
++    // 「先开开关」：记录 web_search = true（openai 下保存期无条件接受）
++    let provider_id =
++        seed_provider_with_switch(stores, "切换供应", AgentProviderProtocol::Openai, true);
++    let instance_id = seed_sdk_instance(stores, "切换实例", Some(provider_id));
++
++    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
++        Ok(resolved) => resolved,
++        Err(error) => panic!("解析应成功: {error}"),
++    };
++    assert!(!resolved.web_search, "openai 协议下不生效（门控单点）");
++    let stored = stores
++        .global()
++        .find_agent_provider(provider_id)
++        .expect("读 provider 成功")
++        .expect("provider 行在场");
++    assert!(stored.web_search, "记录值不被清零（他端仍为 true）");
++
++    // 「再改回 anthropic」：同一记录重新解析即恢复为真（零静默清零）
++    let mut updated = stored;
++    updated.protocol = AgentProviderProtocol::Anthropic;
++    stores
++        .global()
++        .upsert_agent_provider(updated)
++        .expect("改协议落库成功");
++    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
++        Ok(resolved) => resolved,
++        Err(error) => panic!("改协议后解析应成功: {error}"),
++    };
++    assert!(resolved.web_search, "改回 anthropic → 解析为真");
++}
++
++#[test]
++fn 解析失败面不被开关改写_agent缺失与cli两形态同一err且不完整配置在同一点失败() {
++    // 1) agent 不存在：解析层同一 Err 文案，开关不改变失败面
++    for web_search in [true, false] {
++        let env = DualEnv::new("ws-gate-missing-agent");
++        let stores = env.stores();
++        // 先落一个带开关的 provider（记录形态与失败面无关，仅保证库内形态一致）
++        let _provider_id = seed_provider_with_switch(
++            stores,
++            "失败面供应",
++            AgentProviderProtocol::Anthropic,
++            web_search,
++        );
++        let error = err_of(super::resolve_agent_engine(stores, Some(999)));
++        assert!(
++            error.contains("agent 不存在: id=999"),
++            "开关 {web_search}：agent 缺失错误面不变，实际: {error}"
++        );
++    }
++
++    // 2) cli 臂：解析单点即拒，逐字退役文案（与开关无关）
++    for web_search in [true, false] {
++        let env = DualEnv::new("ws-gate-cli");
++        let cli_id = preset_cli_instance(&env, 71, "cli开关实例", false);
++        let stores = env.stores();
++        assert_eq!(
++            err_of(super::resolve_agent_engine(stores, Some(cli_id))),
++            CLI_TENANT_RETIRED,
++            "开关 {web_search}：cli 臂逐字拒收文案不变"
++        );
++    }
++
++    // 3) 记录不完整：解析层不做完整性判定（web_search 不参与 is_complete），
++    //    失败面后移到 runner 启动期，且开关不改变该失败文案
++    for web_search in [true, false] {
++        let env = DualEnv::new("ws-gate-incomplete");
++        let stores = env.stores();
++        let provider_id = stores
++            .global()
++            .upsert_agent_provider(
++                AgentProviderRecord::new(
++                    "残缺供应".to_owned(),
++                    AgentProviderProtocol::Anthropic,
++                    String::new(),
++                    "sk-compose".to_owned(),
++                    AgentModelTiers {
++                        high: "m-high".to_owned(),
++                        medium: "m-medium".to_owned(),
++                        low: "m-low".to_owned(),
++                    },
++                    None,
++                    None,
++                )
++                .with_web_search(web_search),
++            )
++            .expect("落残缺 fixture")
++            .id;
++        let instance_id = seed_sdk_instance(stores, "残缺实例", Some(provider_id));
++
++        let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
++            Ok(resolved) => resolved,
++            Err(error) => panic!("解析层不做完整性判定（失败面在 runner 启动期）: {error}"),
++        };
++        assert_eq!(
++            resolved.web_search, web_search,
++            "残缺配置不改变开关产物（开关不参与完整性判定）"
++        );
++        assert!(resolved.config.base_url.is_empty(), "残缺配置原样透传");
++
++        // 开关不改变启动期失败文案
++        let with_switch = crate::EngineFacade::new()
++            .with_web_search(resolved.web_search)
++            .runner_for(crate::EngineKind::Sdk, resolved.config.clone())
++            .expect("Sdk 臂构造成功");
++        let without_switch = crate::EngineFacade::new()
++            .runner_for(crate::EngineKind::Sdk, resolved.config.clone())
++            .expect("Sdk 臂构造成功");
++        let open = SessionOpen {
++            injections: agent::SessionInjections::default(),
++            ctx: ctx(r"D:\工作区"),
++            session: SessionRef::Continue {
++                id: "ses-incomplete".to_owned(),
++            },
++            prior_handle: Some("ses-incomplete".to_owned()),
++        };
++        assert_eq!(
++            with_switch
++                .open_session(open.clone())
++                .expect_err("残缺配置续会话必须显式失败")
++                .to_string(),
++            without_switch
++                .open_session(open)
++                .expect_err("同口径失败")
++                .to_string(),
++            "开关 {web_search}：启动期失败文案一致"
++        );
++    }
++}
++
++#[test]
++fn 门面链传递可考_解析产物经门面装配后与直构runner同值等价() {
++    use crate::sdk::runner::SdkRunner;
++    use crate::EngineFacade;
++
++    let env = DualEnv::new("ws-gate-facade");
++    let stores = env.stores();
++    let provider_id =
++        seed_provider_with_switch(stores, "门面供应", AgentProviderProtocol::Anthropic, true);
++    let instance_id = seed_sdk_instance(stores, "门面实例", Some(provider_id));
++
++    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
++        Ok(resolved) => resolved,
++        Err(error) => panic!("解析应成功: {error}"),
++    };
++    assert!(
++        resolved.web_search,
++        "门控产物为真（bool 全链非 Option<bool>）"
++    );
++
++    // 门面装配（与 compose_turn 同链）vs 直构 runner + 同值开关：行为等价
++    let via_facade = EngineFacade::new()
++        .with_web_search(resolved.web_search)
++        .runner_for(crate::EngineKind::Sdk, resolved.config.clone())
++        .expect("Sdk 臂构造成功");
++    let via_direct =
++        SdkRunner::new(resolved.config.clone(), None, None, None).with_web_search(true);
++
++    let open = SessionOpen {
++        injections: agent::SessionInjections::default(),
++        ctx: ctx(r"D:\工作区"),
++        session: SessionRef::Continue {
++            id: "ses-facade-web-search".to_owned(),
++        },
++        prior_handle: Some("ses-facade-web-search".to_owned()),
++    };
++    assert_eq!(
++        via_facade
++            .open_session(open.clone())
++            .expect_err("无装载缝续会话必须显式失败")
++            .to_string(),
++        via_direct
++            .open_session(open)
++            .expect_err("直构同口径失败")
++            .to_string(),
++        "门面链传递与直构 runner 同值等价"
++    );
++}
+diff --git a/crates/infra/agent/src/lib.rs b/crates/infra/agent/src/lib.rs
+index 7a6618bdd613..dc1533832eb3 100644
+--- a/crates/infra/agent/src/lib.rs
++++ b/crates/infra/agent/src/lib.rs
+@@ -45,6 +45,9 @@ pub struct EngineFacade {
+     /// sdk 引擎输出上限（组合根旁路载荷，不经 `EngineConfig`；`None` = 按
+     /// 协议缺省，仅 anthropic 协议消费）
+     max_tokens: Option<u64>,
++    /// sdk 引擎云端 `web_search` 服务端工具开关（组合根旁路载荷；语义为
++    /// 「**已按协议门控**的最终开关」——门面 MUST NOT 二次判定协议）
++    web_search: bool,
+     /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
+     /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
+     explore_note_store: Option<Arc<store::Store>>,
+@@ -57,6 +60,7 @@ impl EngineFacade {
+             resume: None,
+             context_window: None,
+             max_tokens: None,
++            web_search: false,
+             explore_note_store: None,
+         }
+     }
+@@ -67,6 +71,7 @@ impl EngineFacade {
+             resume: Some(loader),
+             context_window: None,
+             max_tokens: None,
++            web_search: false,
+             explore_note_store: None,
+         }
+     }
+@@ -80,6 +85,7 @@ impl EngineFacade {
+             resume: self.resume,
+             context_window,
+             max_tokens: self.max_tokens,
++            web_search: self.web_search,
+             explore_note_store: self.explore_note_store,
+         }
+     }
+@@ -92,6 +98,21 @@ impl EngineFacade {
+             resume: self.resume,
+             context_window: self.context_window,
+             max_tokens,
++            web_search: self.web_search,
++            explore_note_store: self.explore_note_store,
++        }
++    }
++
++    /// 携 sdk 引擎云端 `web_search` 开关的门面（builder 缝，与
++    /// `with_context_window` / `with_max_tokens` 同型并列）：provider 记录
++    /// `web_search` 经组合根**按协议门控**后下行；门面与 runner 零协议判定，
++    /// 收 `bool`（`false` = 未启用，与「未装配」同义）。
++    pub fn with_web_search(self, web_search: bool) -> Self {
++        Self {
++            resume: self.resume,
++            context_window: self.context_window,
++            max_tokens: self.max_tokens,
++            web_search,
+             explore_note_store: self.explore_note_store,
+         }
+     }
+@@ -105,6 +126,7 @@ impl EngineFacade {
+             resume: self.resume,
+             context_window: self.context_window,
+             max_tokens: self.max_tokens,
++            web_search: self.web_search,
+             explore_note_store: Some(store),
+         }
+     }
+@@ -128,7 +150,8 @@ impl EngineFacade {
+                     self.context_window,
+                     self.explore_note_store.clone(),
+                 )
+-                .with_max_tokens(self.max_tokens),
++                .with_max_tokens(self.max_tokens)
++                .with_web_search(self.web_search),
+             )),
+         }
+     }
+diff --git a/crates/infra/agent/src/lib_test.rs b/crates/infra/agent/src/lib_test.rs
+index f1bc98785b14..24688347c6a2 100644
+--- a/crates/infra/agent/src/lib_test.rs
++++ b/crates/infra/agent/src/lib_test.rs
+@@ -742,3 +742,157 @@ fn crate根导出面锚定_后缀解析与下限常量经根可达() {
+         "保存期下限常量经 crate 根可达（与引擎同一门槛，无第二套字面量）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// web_search 门面载荷（AC-8）：builder 缝、五处构造点缺省 false、三载荷正交
++// ---------------------------------------------------------------------------
++
++#[tokio::test]
++async fn with_web_search分发等价_与直构runner加同载荷行为一致() {
++    for payload in [true, false] {
++        // 门面链：new() → with_web_search(payload) → runner_for(Sdk)
++        let via_facade = EngineFacade::new()
++            .with_web_search(payload)
++            .runner_for(EngineKind::Sdk, complete_cfg())
++            .expect("Sdk 臂构造成功");
++        // 直构链：SdkRunner::new(四参签名不动) + with_web_search
++        let via_direct = SdkRunner::new(complete_cfg(), None, None, None).with_web_search(payload);
++
++        assert_eq!(
++            via_facade
++                .open_session(open_continue("ses-web-search"))
++                .expect_err("无装载缝续会话必须显式失败")
++                .to_string(),
++            via_direct
++                .open_session(open_continue("ses-web-search"))
++                .expect_err("直构同口径失败")
++                .to_string(),
++            "web_search={payload} 门面分发与直构一致"
++        );
++
++        // 载荷不改变非相关行为：New 会话 open 照常成功（拒连端点，组装不触网）
++        drop(
++            via_facade
++                .open_session(agent::SessionOpen {
++                    injections: agent::SessionInjections::default(),
++                    ctx: agent::SessionCtx {
++                        workspace_root: Path::new(r"C:\ws").to_path_buf(),
++                        permission_mode: agent::AgentPermissionMode::BypassPermissions,
++                        model_level: agent::ModelLevel::High,
++                    },
++                    session: agent::SessionRef::New,
++                    prior_handle: None,
++                })
++                .expect("完整配置 New 会话 open 应成功"),
++        );
++    }
++}
++
++#[test]
++fn 五处构造点缺省false_未装配即显式关() {
++    // 五条既有构造路径产出的门面均为「未装配 = 关」（Self{} 补齐的机械判据）
++    assert!(!EngineFacade::new().web_search, "new() 缺省 false");
++
++    let (loader, _calls) = counting_loader(Ok(None));
++    assert!(
++        !EngineFacade::with_resume_transcript(loader).web_search,
++        "with_resume_transcript 缺省 false"
++    );
++    assert!(
++        !EngineFacade::new()
++            .with_context_window(Some(200_000))
++            .web_search,
++        "with_context_window 缺省 false"
++    );
++    assert!(
++        !EngineFacade::new().with_max_tokens(Some(8192)).web_search,
++        "with_max_tokens 缺省 false"
++    );
++    let (_dir, store) = temp_store("web-search-default");
++    assert!(
++        !EngineFacade::new()
++            .with_explore_note_store(Arc::clone(&store))
++            .web_search,
++        "with_explore_note_store 缺省 false"
++    );
++
++    // 缺省档分发行为与现状一致（直构四参无开关同口径）
++    let facade_runner = EngineFacade::new()
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("Sdk 臂构造成功");
++    let direct_runner = SdkRunner::new(complete_cfg(), None, None, None);
++    assert_eq!(
++        facade_runner
++            .open_session(open_continue("ses-web-search-default"))
++            .expect_err("无装载缝续会话必须显式失败")
++            .to_string(),
++        direct_runner
++            .open_session(open_continue("ses-web-search-default"))
++            .expect_err("直构同口径失败")
++            .to_string(),
++        "缺省关行为与现状一致"
++    );
++}
++
++#[test]
++fn 三载荷互不覆盖_任意顺序链式各载荷保真且同字段后者覆盖() {
++    // 六种调用序同构：三载荷各自保真、互不覆盖
++    let orders: Vec<EngineFacade> = vec![
++        EngineFacade::new()
++            .with_context_window(Some(200_000))
++            .with_max_tokens(Some(8192))
++            .with_web_search(true),
++        EngineFacade::new()
++            .with_context_window(Some(200_000))
++            .with_web_search(true)
++            .with_max_tokens(Some(8192)),
++        EngineFacade::new()
++            .with_max_tokens(Some(8192))
++            .with_context_window(Some(200_000))
++            .with_web_search(true),
++        EngineFacade::new()
++            .with_max_tokens(Some(8192))
++            .with_web_search(true)
++            .with_context_window(Some(200_000)),
++        EngineFacade::new()
++            .with_web_search(true)
++            .with_context_window(Some(200_000))
++            .with_max_tokens(Some(8192)),
++        EngineFacade::new()
++            .with_web_search(true)
++            .with_max_tokens(Some(8192))
++            .with_context_window(Some(200_000)),
++    ];
++    for facade in &orders {
++        assert_eq!(facade.context_window, Some(200_000), "窗长载荷保真");
++        assert_eq!(facade.max_tokens, Some(8192), "上限载荷保真");
++        assert!(facade.web_search, "开关载荷保真（不被其他 builder 覆盖）");
++    }
++
++    // 同字段重复调用：后者覆盖，无累积
++    let toggled = EngineFacade::new()
++        .with_web_search(true)
++        .with_web_search(false);
++    assert!(!toggled.web_search, "后者覆盖前者（true → false）");
++    let toggled_back = EngineFacade::new()
++        .with_web_search(false)
++        .with_web_search(true);
++    assert!(toggled_back.web_search, "反向链（false → true）");
++}
++
++#[test]
++fn 退役cli臂不被开关改写_逐字退役文案且不静默回退sdk臂() {
++    // `Box<dyn AgentRunner>` 不实现 Debug（expect_err 不可用）：以 match 摘取
++    let error = match EngineFacade::new()
++        .with_web_search(true)
++        .runner_for(EngineKind::Cli, complete_cfg())
++    {
++        Err(error) => error,
++        Ok(_) => panic!("Cli 臂必须 Err"),
++    };
++
++    assert_eq!(
++        error, CLI_TENANT_RETIRED,
++        "开关不静默回退、不改走 sdk 臂（文案逐字）"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/context.rs b/crates/infra/agent/src/sdk/context.rs
+index e2c4bd052f20..957fc6d53773 100644
+--- a/crates/infra/agent/src/sdk/context.rs
++++ b/crates/infra/agent/src/sdk/context.rs
+@@ -3,6 +3,8 @@ use std::collections::HashSet;
+ use rig::message::{AssistantContent, CallId, Message, ToolResult, ToolResultContent, UserContent};
+ use serde_json::Value;
+ 
++use crate::sdk::web_search;
++
+ /// 缺省窗长（token 数）：provider 记录 `context_length` 缺席时的 128K 启发式。
+ const DEFAULT_CONTEXT_WINDOW: u64 = 128 * 1024;
+ 
+@@ -231,11 +233,27 @@ fn oldest_unit_range(history: &[Message], protected: usize) -> Option<(usize, us
+     (end <= protected.max(start + 1)).then_some((start, end))
+ }
+ 
++/// assistant 位 server 块的 raw wire `type` 判别值（与 `web_search` 侧常量同
++/// 字面量；此处只做配对判别，不解载荷）。
++const SERVER_TOOL_USE_TYPE: &str = "server_tool_use";
++const WEB_SEARCH_RESULT_TYPE: &str = "web_search_tool_result";
++
+ /// 孤儿配对清扫：tool_result 的 tool_use 伙伴不在其前（assistant 已被裁）
+ /// 时剔除该结果条目（provider 端 tool 配对协议要求成对出现），纯文本位保留；
+ /// 清空后无内容的 user 位消息整条移除。
++///
++/// 同时清扫 **assistant 位 server 块**：`pause_turn` 把一次搜索拆成两条
++/// assistant 消息（use 在前、result 在后）后，L2 剪裁 / L3 硬裁 / 摘要置换都
++/// 可能裁掉 use 而留下 result → 回放侧缺 use 的 result 会被 Anthropic 拒
++/// （400）。索引源为 raw `server_tool_use.id` ↔ raw `web_search_tool_result.
++/// tool_use_id`：单向前序扫描（同消息成对与跨消息成对两形态同构覆盖），
++/// 无配对 use 的 result 块剔除，剔除后 `content` 为空则整条 assistant 消息
++/// 移除。`UserContent` 侧逻辑逐字不动。
+ pub(crate) fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
+     let mut answered: HashSet<CallId> = HashSet::new();
++    // assistant 位 server use 索引（前向累积：先行 use 可为后续消息的 result
++    // 提供配对）
++    let mut server_uses: HashSet<String> = HashSet::new();
+     history
+         .into_iter()
+         .filter_map(|message| match message {
+@@ -245,7 +263,37 @@ pub(crate) fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
+                         answered.insert(call.id.clone());
+                     }
+                 }
+-                Some(Message::Assistant { id, content })
++                let mut dropped = false;
++                let kept: Vec<AssistantContent> = content
++                    .into_iter()
++                    .filter(|item| {
++                        let AssistantContent::Text(text) = item else {
++                            return true;
++                        };
++                        let Some(raw) = web_search::raw_content(text) else {
++                            return true; // 普通文本块
++                        };
++                        let keep = match raw.get("type").and_then(Value::as_str) {
++                            Some(SERVER_TOOL_USE_TYPE) => {
++                                if let Some(use_id) = raw.get("id").and_then(Value::as_str) {
++                                    server_uses.insert(use_id.to_owned());
++                                }
++                                true
++                            }
++                            Some(WEB_SEARCH_RESULT_TYPE) => raw
++                                .get("tool_use_id")
++                                .and_then(Value::as_str)
++                                .is_none_or(|use_id| server_uses.contains(use_id)),
++                            _ => true, // 其他 raw server 块不在本期清扫面
++                        };
++                        if !keep {
++                            dropped = true;
++                        }
++                        keep
++                    })
++                    .collect();
++                // 仅在确有剔除时判空移除（无剔除的 assistant 消息行为不变）
++                (!dropped || !kept.is_empty()).then_some(Message::Assistant { id, content: kept })
+             }
+             Message::User { content } => {
+                 let kept: Vec<UserContent> = content
+diff --git a/crates/infra/agent/src/sdk/context_test.rs b/crates/infra/agent/src/sdk/context_test.rs
+index 317a2e4301be..55fdb8b20f43 100644
+--- a/crates/infra/agent/src/sdk/context_test.rs
++++ b/crates/infra/agent/src/sdk/context_test.rs
+@@ -649,3 +649,252 @@ fn window极大窗长下阈值推导不溢出且不误触线() {
+         "极大窗长下水位数不为 0，小史不触 L3"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// assistant 位 server 块配对清扫（AC-7）：pause_turn 把一次搜索拆成两条
++// assistant 消息后，L2 / L3 / 摘要置换裁掉 use 而留下 result → 回放侧缺 use
++// 的 result 会被 Anthropic 拒（400），故与既有 tool_result 清扫同构剔除
++// ---------------------------------------------------------------------------
++
++/// 携 raw server 块的 assistant 文本项（`raw` 原样落 `additional_params`
++/// `anthropic_content`，与回放承载形态一致）。
++fn assistant_raw_content(raw: serde_json::Value) -> AssistantContent {
++    use rig::message::{AdditionalParams, Text};
++
++    AssistantContent::Text(Text {
++        text: String::new(),
++        additional_params: AdditionalParams::from_entries([(
++            crate::sdk::web_search::ANTHROPIC_RAW_CONTENT_KEY,
++            raw,
++        )]),
++    })
++}
++
++/// 携 raw server 块的 assistant 消息（单项内容）。
++fn assistant_with_raw(raw: serde_json::Value) -> Message {
++    Message::Assistant {
++        id: None,
++        content: vec![assistant_raw_content(raw)],
++    }
++}
++
++/// `server_tool_use` raw（use 侧）。
++fn server_use_raw(use_id: &str) -> serde_json::Value {
++    json!({
++        "type": "server_tool_use",
++        "id": use_id,
++        "name": "web_search",
++        "input": { "query": "今日汇率" },
++    })
++}
++
++/// `web_search_tool_result` raw（result 侧；`use_id` 为配对键）。
++fn server_result_raw(use_id: &str) -> serde_json::Value {
++    json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": use_id,
++        "content": [{ "type": "web_search_result", "url": "https://a/1" }],
++    })
++}
++
++/// 摘 assistant 消息内的 raw `type` 清单（配对保持与否的可考面）。
++fn raw_types(history: &[Message]) -> Vec<String> {
++    let mut types = Vec::new();
++    for message in history {
++        let Message::Assistant { content, .. } = message else {
++            continue;
++        };
++        for item in content {
++            let AssistantContent::Text(text) = item else {
++                continue;
++            };
++            let Some(params) = text.additional_params.as_ref() else {
++                continue;
++            };
++            let Some(raw) = params.get(crate::sdk::web_search::ANTHROPIC_RAW_CONTENT_KEY) else {
++                continue;
++            };
++            let kind = raw
++                .get("type")
++                .and_then(serde_json::Value::as_str)
++                .unwrap_or("")
++                .to_owned();
++            types.push(kind);
++        }
++    }
++    types
++}
++
++#[test]
++fn sweep_orphans裁掉use侧后剔除孤result并整条移除空assistant消息() {
++    use crate::sdk::context::sweep_orphans;
++
++    // A 携 use、B 携 result（tool_use_id 指向 A）；模拟 A 已被裁掉
++    let history = vec![
++        Message::user("任务书"),
++        assistant_with_raw(server_result_raw("srvtoolu_1")),
++    ];
++
++    let swept = sweep_orphans(history);
++
++    assert_eq!(swept.len(), 1, "B 因剔空而整条移除（历史条数 -1）");
++    assert_eq!(swept, vec![Message::user("任务书")], "仅首条 user 保全");
++
++    // 部分保留：孤儿 result + 普通文本 → 保留消息，仅剩文本（项数 -1）
++    let mixed = vec![
++        Message::user("任务书"),
++        Message::Assistant {
++            id: None,
++            content: vec![
++                AssistantContent::Text(rig::message::Text::new("正文")),
++                assistant_raw_content(server_result_raw("srvtoolu_missing")),
++            ],
++        },
++    ];
++    let swept = sweep_orphans(mixed);
++    assert_eq!(swept.len(), 2, "消息本体保留");
++    let Message::Assistant { content, .. } = &swept[1] else {
++        panic!("第二条应为 assistant");
++    };
++    assert_eq!(content.len(), 1, "仅剩普通文本块（项数 -1）");
++    assert!(raw_types(&swept).is_empty(), "孤儿 result 已剔除");
++}
++
++#[test]
++fn sweep_orphans成对块跨消息与同消息均原样保留() {
++    use crate::sdk::context::sweep_orphans;
++
++    // 跨消息成对：A（use）+ B（result）
++    let cross = vec![
++        Message::user("任务书"),
++        assistant_with_raw(server_use_raw("srvtoolu_1")),
++        assistant_with_raw(server_result_raw("srvtoolu_1")),
++    ];
++    let swept = sweep_orphans(cross.clone());
++    assert_eq!(swept, cross, "跨消息成对：消息数与 content 项数均不变");
++    assert_eq!(
++        raw_types(&swept),
++        vec!["server_tool_use", "web_search_tool_result"],
++        "不误剔 result 侧"
++    );
++
++    // 同消息成对（pause_turn 未拆分形态）：前序扫描命中，两项均保留
++    let same_message = vec![
++        Message::user("任务书"),
++        Message::Assistant {
++            id: None,
++            content: vec![
++                assistant_raw_content(server_use_raw("srvtoolu_2")),
++                assistant_raw_content(server_result_raw("srvtoolu_2")),
++            ],
++        },
++    ];
++    let swept = sweep_orphans(same_message.clone());
++    assert_eq!(swept, same_message, "同消息成对：顺序不变、两项均保留");
++}
++
++#[test]
++fn sweep_orphans_result先于use的异常顺序判孤剔除且后续use不受影响() {
++    use crate::sdk::context::sweep_orphans;
++
++    let history = vec![Message::Assistant {
++        id: None,
++        content: vec![
++            assistant_raw_content(server_result_raw("srvtoolu_late")),
++            assistant_raw_content(server_use_raw("srvtoolu_late")),
++        ],
++    }];
++
++    let swept = sweep_orphans(history);
++
++    assert_eq!(swept.len(), 1, "不 panic");
++    let Message::Assistant { content, .. } = &swept[0] else {
++        panic!("应为 assistant");
++    };
++    assert_eq!(content.len(), 1, "先出现的 result 判孤剔除（单向前序扫描）");
++    assert_eq!(
++        raw_types(&swept),
++        vec!["server_tool_use"],
++        "后续 use 不受影响（保留）"
++    );
++}
++
++#[test]
++fn sweep_orphans对非server_raw块与普通文本思考零影响() {
++    use crate::sdk::context::sweep_orphans;
++
++    let history = vec![
++        Message::user("任务书"),
++        // code_execution_tool_result：本期只认 web_search_tool_result，原样保留
++        assistant_with_raw(json!({
++            "type": "code_execution_tool_result",
++            "tool_use_id": "srvtoolu_code",
++        })),
++        // raw 缺 type
++        assistant_with_raw(json!({ "id": "no-type" })),
++        // 普通文本 + 思考块
++        Message::Assistant {
++            id: None,
++            content: vec![
++                AssistantContent::Text(rig::message::Text::new("正文")),
++                AssistantContent::Reasoning(
++                    rig::message::Reasoning::new("想法")
++                        .sealed(rig::message::Issuer::from_static("test")),
++                ),
++            ],
++        },
++        // additional_params 非对象承载（此处以普通文本代表）：原样保留
++        Message::Assistant {
++            id: None,
++            content: vec![AssistantContent::Text(rig::message::Text::new("尾正文"))],
++        },
++    ];
++
++    let swept = sweep_orphans(history.clone());
++
++    assert_eq!(
++        swept, history,
++        "非 server raw 块零影响（原样保留、顺序不变）"
++    );
++    assert_eq!(swept.len(), 5, "消息条数不变（无剔除不触整条移除）");
++}
++
++#[test]
++fn sweep_orphans空史与仅system或user单条原样返回() {
++    use crate::sdk::context::sweep_orphans;
++
++    assert!(sweep_orphans(Vec::new()).is_empty(), "空史 → 空史");
++
++    let system_only = vec![Message::system("系统提示词")];
++    assert_eq!(
++        sweep_orphans(system_only.clone()),
++        system_only,
++        "仅 system 单条原样返回"
++    );
++
++    let user_only = vec![Message::user("任务书")];
++    assert_eq!(
++        sweep_orphans(user_only.clone()),
++        user_only,
++        "仅 user 单条原样返回"
++    );
++}
++
++#[test]
++fn sweep_orphans经prune调用点生效_裁掉use后孤result不残留在请求史() {
++    // 三处调用点（prune / hard_prune / 摘要置换）共用同一函数：此处以 prune
++    // 调用点验证端到端生效（use 侧老消息被丢、result 侧随之清扫）
++    let mut history = vec![Message::user("任务书 🎉")];
++    history.push(assistant_with_raw(server_use_raw("srvtoolu_cut")));
++    history.push(Message::user("f".repeat(200_000)));
++    history.push(assistant_with_raw(server_result_raw("srvtoolu_cut")));
++
++    let (pruned, _notices) = prune(history, &defense_small());
++
++    assert!(
++        !raw_types(&pruned)
++            .iter()
++            .any(|kind| kind == "web_search_tool_result"),
++        "缺 use 的 result 不残留在请求史（回放侧不触发 400）"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/log_test.rs b/crates/infra/agent/src/sdk/log_test.rs
+index a515b812ffb9..111e70838271 100644
+--- a/crates/infra/agent/src/sdk/log_test.rs
++++ b/crates/infra/agent/src/sdk/log_test.rs
+@@ -1,36 +1,80 @@
+-use std::path::Path;
+-
+-use crate::sdk::log::{append_engine_log, init_engine_log};
+-
+-#[test]
+-fn 初始化后append落盘且带unix毫秒前缀() {
+-    // OnceLock 进程单点：首次 init 生效（测试进程内其它用例未先行初始化即
+-    // 本用例成立；先行初始化则本用例 append 落他目录、本目录无文件——以
+-    // 独立临时目录隔离，不与其它日志用例并行断言同目录）
+-    let dir = tempfile::tempdir().expect("创建临时目录失败");
+-    init_engine_log(dir.path());
+-    append_engine_log("泵启动 session=sdk-0-1");
+-
+-    let content = std::fs::read_to_string(dir.path().join("engine.log")).expect("日志文件应已创建");
+-    assert!(
+-        content.starts_with('['),
+-        "行首为 unix 毫秒前缀，实际: {content}"
+-    );
+-    assert!(
+-        content.contains("泵启动 session=sdk-0-1"),
+-        "正文逐字落盘: {content}"
+-    );
+-}
+-
+-#[test]
+-fn 未初始化或初始化后append均不panic() {
+-    // 未初始化（或已初始化）两态下 append 恒安全（尽力而为语义的健壮半边；
+-    // 不对落盘位置做顺序敏感断言——OnceLock 进程单点不可重置）
+-    append_engine_log("两态恒安全");
+-}
+-
+-#[test]
+-fn 公开面函数指针签名锚定() {
+-    let _append: fn(&str) = append_engine_log;
+-    let _init: fn(&Path) = init_engine_log;
+-}
++use std::path::Path;
++use std::sync::OnceLock;
++use std::time::{Duration, Instant};
++
++use tempfile::TempDir;
++
++use crate::sdk::log::{append_engine_log, init_engine_log};
++
++// ---------------------------------------------------------------------------
++// 装置：进程级共享日志目录 + 命中轮询读取
++//
++// `init_engine_log` 是一次性 `OnceLock`（首个调用生效、不可重置）：若各测试
++// 各用独立临时目录，谁先 init 就把路径钉死在他处，其余读侧只能看到空文件。
++// 故本进程内所有读日志的测试（本文件 + `runner_test` 的泵启动日志断言）共用
++// 同一目录——目录对象由静态持有、不随单个用例结束删除。
++// ---------------------------------------------------------------------------
++
++/// 引擎日志共享目录（进程内单点；`tempfile` 只在进程生命周期内有效）。
++///
++/// 取值即顺带 init：`init_engine_log` 幂等（首个调用生效），全部调用点同指本
++/// 目录，故任一用例先跑都成立——不依赖 `初始化后append落盘…` 先行执行（按名
++/// 过滤单跑亦成立）。
++pub(crate) fn engine_log_dir() -> &'static Path {
++    static DIR: OnceLock<TempDir> = OnceLock::new();
++    let dir = DIR
++        .get_or_init(|| tempfile::tempdir().expect("创建日志临时目录失败"))
++        .path();
++    init_engine_log(dir);
++    dir
++}
++
++/// 读回共享日志全文，直到命中判据成立（超时即失败）。
++///
++/// 写侧按格式片段多次 syscall，且测试并行——瞬时读到半行属预期，故命中判据
++/// 轮询而非固定 sleep；判据恒不成立时携带实际内容失败（不静默放过）。
++pub(crate) fn read_engine_log_until(hit: impl Fn(&str) -> bool) -> String {
++    let path = engine_log_dir().join("engine.log");
++    let deadline = Instant::now() + Duration::from_secs(2);
++    loop {
++        let content = std::fs::read_to_string(&path).unwrap_or_default();
++        if hit(&content) {
++            return content;
++        }
++        assert!(
++            Instant::now() < deadline,
++            "日志未在超时内出现期望内容，实际内容: {content}"
++        );
++        std::thread::sleep(Duration::from_millis(10));
++    }
++}
++
++#[test]
++fn 初始化后append落盘且带unix毫秒前缀() {
++    // 共享目录（取值即 init，先于写）：OnceLock 进程单点下多处 init 恒指同一文件
++    engine_log_dir();
++    append_engine_log("泵启动 session=sdk-0-1");
++
++    let content = read_engine_log_until(|content| content.contains("泵启动 session=sdk-0-1"));
++    assert!(
++        content.starts_with('['),
++        "行首为 unix 毫秒前缀，实际: {content}"
++    );
++    assert!(
++        content.contains("泵启动 session=sdk-0-1"),
++        "正文逐字落盘: {content}"
++    );
++}
++
++#[test]
++fn 未初始化或初始化后append均不panic() {
++    // 未初始化（或已初始化）两态下 append 恒安全（尽力而为语义的健壮半边；
++    // 不对落盘位置做顺序敏感断言——OnceLock 进程单点不可重置）
++    append_engine_log("两态恒安全");
++}
++
++#[test]
++fn 公开面函数指针签名锚定() {
++    let _append: fn(&str) = append_engine_log;
++    let _init: fn(&Path) = init_engine_log;
++}
+diff --git a/crates/infra/agent/src/sdk/loop.rs b/crates/infra/agent/src/sdk/loop.rs
+index dface05a1c26..d69e32075e61 100644
+--- a/crates/infra/agent/src/sdk/loop.rs
++++ b/crates/infra/agent/src/sdk/loop.rs
+@@ -3,9 +3,9 @@ use std::time::{Duration, Instant};
+ 
+ use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
+ use futures::StreamExt;
+-use rig::completion::{CompletionRequest, Usage};
++use rig::completion::{CompletionRequest, FinishReason, Usage};
+ use rig::driver::DynModel;
+-use rig::message::{AssistantContent, Message, ToolCall, ToolResult, ToolResultContent};
++use rig::message::{Message, ToolCall, ToolResult, ToolResultContent};
+ use rig::operation::Completion;
+ use serde_json::Value;
+ use tokio::sync::mpsc;
+@@ -13,11 +13,19 @@ use tokio::sync::mpsc;
+ use crate::sdk::context::{ContextDefense, DefenseNotice};
+ use crate::sdk::explore_note::ExploreNoteContext;
+ use crate::sdk::log::append_engine_log;
+-use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
++use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools, web_search};
+ 
+ /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
+ const SUBTYPE_SUCCESS: &str = "success";
+ 
++/// **单轮**续跑上限（`pause_turn` 续跑计数轴；与
++/// `web_search::WEB_SEARCH_MAX_USES`（单请求搜索次数上限）是两个概念——
++/// 常量名 / 注释 / 日志字段 MUST NOT 混用）。
++const PAUSE_TURN_MAX_CONTINUATIONS: u32 = 5;
++
++/// `pause_turn` 的 rig 终局标记（`FinishReason::Other("pause_turn")` 的原值）。
++const PAUSE_TURN_REASON: &str = "pause_turn";
++
+ /// 提供者 IO 活性护栏
+ const REQUEST_LIVENESS: Duration = Duration::from_secs(300);
+ /// 流帧空闲预算分档宽于请求相位
+@@ -96,6 +104,9 @@ pub(crate) struct LoopTurn {
+     /// `create_explore_note` 专用工具执行上下文（per-turn 铸造随轮携带；
+     /// `None` = 未装配——非 explore 会话恒 None，专用工具调用以 is_error 回灌）
+     pub explore_note: Option<ExploreNoteContext>,
++    /// Anthropic 云端 `web_search` 服务端工具开关（**已按协议门控**的最终
++    /// 值——门控在组合根解析期完成，loop 零协议判定）；真才挂 provider tool
++    pub web_search: bool,
+ }
+ 
+ /// loop 主体
+@@ -136,6 +147,7 @@ pub(crate) async fn run(
+             role: AgentMessageRole::User,
+             blocks: vec![AgentBlock::Text {
+                 text: turn.question.clone(),
++                citations: None,
+             }],
+             parent_tool_use_id: None,
+         })
+@@ -152,7 +164,8 @@ pub(crate) async fn run(
+ 
+     // 轮驱动主循环：不设轮数上限（change 任务重型 phase agent 的工具轮数
+     // 远超手数启发，熔断误伤正常收敛）；失控防护交停止信号、活性护栏与
+-    // 空轮收敛三线
++    // 空轮收敛三线。每轮内含**续跑循环**（`pause_turn` 独立计数轴：续跑不
++    // 计轮数、不发第二条 RunStarted、不吃流重试预算）
+     let mut turn_index: u64 = 1;
+     loop {
+         // 轮间空档停止检查（泵 select 之外的快速路径）
+@@ -163,32 +176,129 @@ pub(crate) async fn run(
+             ));
+             return history;
+         }
+-        // 上下文防线（每次发请求前，第二调用点）
+-        history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
+-        // 系统提示词每轮重读
+-        let mut chat_history = Vec::with_capacity(history.len() + 1);
+-        if let Some(preamble) = preamble::load(&turn.cwd).await {
+-            chat_history.push(Message::system(preamble));
+-        }
+-        chat_history.extend(history.iter().cloned());
+-        // 同轮重发装置
+-        let mut attempt: u32 = 0;
+-        let (choice, turn_usage) = 'attempt: loop {
+-            let request = CompletionRequest {
+-                model: None,
+-                chat_history: chat_history.clone(),
+-                documents: Vec::new(),
+-                tools: definitions.clone(),
+-                temperature: None,
+-                max_tokens: None,
+-                tool_choice: None,
+-                additional_params: None,
+-                output_schema: None,
+-                record_telemetry_content: false,
+-            };
+-            let mut response = match model.stream(request) {
+-                Ok(response) => response,
+-                Err(error) => {
++        // 续跑计数轴（与流重试轴 `attempt` 分名独立：每次续跑前 attempt 归零）
++        let mut continuation: u32 = 0;
++        // 续跑循环：同一 turn_index 内一发再发，直到收口或转为工具执行
++        let tool_calls: Vec<ToolCall> = 'continuation: loop {
++            // 上下文防线（每次发请求前，第二调用点）
++            history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
++            // 系统提示词每轮重读
++            let mut chat_history = Vec::with_capacity(history.len() + 1);
++            if let Some(preamble) = preamble::load(&turn.cwd).await {
++                chat_history.push(Message::system(preamble));
++            }
++            chat_history.extend(history.iter().cloned());
++            // 同轮重发装置（每次续跑前归零：续跑不继承重试预算）
++            let mut attempt: u32 = 0;
++            let (choice, turn_usage, finish_reason) = 'attempt: loop {
++                let mut request = CompletionRequest {
++                    model: None,
++                    chat_history: chat_history.clone(),
++                    documents: Vec::new(),
++                    tools: definitions.clone(),
++                    temperature: None,
++                    max_tokens: None,
++                    tool_choice: None,
++                    additional_params: None,
++                    output_schema: None,
++                    record_telemetry_content: false,
++                };
++                // 服务端工具按需挂载（开关=组合根已门控的最终值；客户端工具面
++                // `tools` 与 `RunStarted.tools` 不受影响——server tool 不进
++                // 客户端工具面）
++                if turn.web_search {
++                    request = request.provider_tool(web_search::provider_tool());
++                }
++                let mut response = match model.stream(request) {
++                    Ok(response) => response,
++                    Err(error) => {
++                        finish_error(
++                            &sender,
++                            turn_index,
++                            started,
++                            &usage,
++                            turn,
++                            "api_error",
++                            format!("API 请求失败: {error}"),
++                        )
++                        .await;
++                        return history;
++                    }
++                };
++
++                let mut failure: Option<String> = None;
++                let mut first_frame = true;
++                loop {
++                    let budget = if first_frame {
++                        turn.liveness.request
++                    } else {
++                        turn.liveness.frame
++                    };
++                    let item = match tokio::time::timeout(budget, response.next()).await {
++                        Ok(item) => item,
++                        Err(_) => {
++                            failure = Some(if first_frame {
++                                format!(
++                                    "API 请求超时（{} s 无响应帧）",
++                                    turn.liveness.request.as_secs()
++                                )
++                            } else {
++                                format!(
++                                    "API 流空闲超时（{} s 无新帧）",
++                                    turn.liveness.frame.as_secs()
++                                )
++                            });
++                            break;
++                        }
++                    };
++                    first_frame = false;
++                    let Some(item) = item else {
++                        break;
++                    };
++                    match item {
++                        Ok(item) => {
++                            if let Some(kind) = normalize::stream_item(&item) {
++                                if sender.send(kind).await.is_err() {
++                                    append_engine_log(&format!(
++                                        "loop 事件通道关闭退出（流帧发送）session={}",
++                                        turn.session_id
++                                    ));
++                                    return history; // 消费端关闭：泵自行退出，不合成 TurnDone
++                                }
++                            }
++                        }
++                        Err(error) => {
++                            // 0.43 契约：Err 即流尾；已读帧不足以收口，按 IO 失败进重试
++                            failure = Some(format!("API 流失败: {error}"));
++                            break;
++                        }
++                    }
++                }
++                if failure.is_none() {
++                    // 轮末收口：`finish` 把已读帧折叠为完整响应（choice 与 usage
++                    // 单口径；0.43 起终局记录不再以独立流帧出现）；EOF 而折叠失
++                    // 败同按 IO 失败进重试
++                    match response.finish().await {
++                        Ok(response) => {
++                            // 终局原因须在解构前读（`finish_reason(&self)` 借用整体；
++                            // 解构后 `choice` 已移出）
++                            let finish_reason = response.finish_reason();
++                            let rig::completion::CompletionResponse {
++                                choice,
++                                usage: attempt_usage,
++                                ..
++                            } = response;
++                            break 'attempt (choice, attempt_usage, finish_reason);
++                        }
++                        Err(error) => {
++                            failure = Some(format!("API 流失败: {error}"));
++                        }
++                    }
++                }
++                // 重试决策：预算内退避重发（同一轮、同一史；api_retry 留痕），
++                // 耗尽以 api_error 失败收敛
++                let cause = failure.expect("重试路径必有失败成因");
++                if attempt >= turn.retry.max_attempts {
+                     finish_error(
+                         &sender,
+                         turn_index,
+@@ -196,171 +306,109 @@ pub(crate) async fn run(
+                         &usage,
+                         turn,
+                         "api_error",
+-                        format!("API 请求失败: {error}"),
++                        cause,
+                     )
+                     .await;
+                     return history;
+                 }
++                attempt += 1;
++                let delay = turn.retry.backoff(attempt);
++                append_engine_log(&format!(
++                    "loop 流重试 session={} turn_index={turn_index} attempt={attempt}/{} delay={}ms cause={cause}",
++                    turn.session_id,
++                    turn.retry.max_attempts,
++                    delay.as_millis()
++                ));
++                // 重试留痕尽力流出（消费端关闭时外层续 attempt 的下一发自然退出）
++                let _ = sender
++                    .send(AgentEventKind::SystemNotice {
++                        subtype: "api_retry".to_owned(),
++                        payload: serde_json::json!({
++                            "attempt": attempt,
++                            "max_attempts": turn.retry.max_attempts,
++                            "delay_ms": delay.as_millis() as u64,
++                            "error": cause,
++                        }),
++                    })
++                    .await;
++                tokio::time::sleep(delay).await;
+             };
+-
+-            let mut failure: Option<String> = None;
+-            let mut first_frame = true;
+-            loop {
+-                let budget = if first_frame {
+-                    turn.liveness.request
+-                } else {
+-                    turn.liveness.frame
+-                };
+-                let item = match tokio::time::timeout(budget, response.next()).await {
+-                    Ok(item) => item,
+-                    Err(_) => {
+-                        failure = Some(if first_frame {
+-                            format!(
+-                                "API 请求超时（{} s 无响应帧）",
+-                                turn.liveness.request.as_secs()
+-                            )
+-                        } else {
+-                            format!(
+-                                "API 流空闲超时（{} s 无新帧）",
+-                                turn.liveness.frame.as_secs()
+-                            )
+-                        });
+-                        break;
+-                    }
+-                };
+-                first_frame = false;
+-                let Some(item) = item else {
+-                    break;
+-                };
+-                match item {
+-                    Ok(item) => {
+-                        if let Some(kind) = normalize::stream_item(&item) {
+-                            if sender.send(kind).await.is_err() {
+-                                append_engine_log(&format!(
+-                                    "loop 事件通道关闭退出（流帧发送）session={}",
+-                                    turn.session_id
+-                                ));
+-                                return history; // 消费端关闭：泵自行退出，不合成 TurnDone
+-                            }
+-                        }
+-                    }
+-                    Err(error) => {
+-                        // 0.43 契约：Err 即流尾；已读帧不足以收口，按 IO 失败进重试
+-                        failure = Some(format!("API 流失败: {error}"));
+-                        break;
+-                    }
+-                }
++            usage += turn_usage;
++            if choice.is_empty() {
++                // 空轮（无文本无工具调用）：以正常收敛防死循环；空 choice 不续跑
++                finish_success(&sender, turn_index, started, &usage, turn).await;
++                return history;
+             }
+-            if failure.is_none() {
+-                // 轮末收口：`finish` 把已读帧折叠为完整响应（choice 与 usage
+-                // 单口径；0.43 起终局记录不再以独立流帧出现）；EOF 而折叠失
+-                // 败同按 IO 失败进重试
+-                match response.finish().await {
+-                    Ok(rig::completion::CompletionResponse {
+-                        choice,
+-                        usage: attempt_usage,
+-                        ..
+-                    }) => break 'attempt (choice, attempt_usage),
+-                    Err(error) => {
+-                        failure = Some(format!("API 流失败: {error}"));
+-                    }
+-                }
++            // 密封收口：choice 全部块收进恰一条密封 Message（role=assistant，
++            // 增量层在传输面的 provisional 让位即同键替换）。块语义单点：
++            // `web_search::project_choice`（server 块投影 + 客户端工具调用）
++            let (blocks, tool_calls) = web_search::project_choice(&choice);
++            history.push(Message::Assistant {
++                id: None,
++                content: choice,
++            });
++            if sender
++                .send(AgentEventKind::Message {
++                    role: AgentMessageRole::Assistant,
++                    blocks,
++                    parent_tool_use_id: None,
++                })
++                .await
++                .is_err()
++            {
++                append_engine_log(&format!(
++                    "loop 事件通道关闭退出（assistant 密封发送）session={} turn_index={turn_index}",
++                    turn.session_id
++                ));
++                return history; // 消费端关闭：泵自行退出
+             }
+-            // 重试决策：预算内退避重发（同一轮、同一史；api_retry 留痕），
+-            // 耗尽以 api_error 失败收敛
+-            let cause = failure.expect("重试路径必有失败成因");
+-            if attempt >= turn.retry.max_attempts {
+-                finish_error(
+-                    &sender,
+-                    turn_index,
+-                    started,
+-                    &usage,
+-                    turn,
+-                    "api_error",
+-                    cause,
+-                )
+-                .await;
++            // 工具执行优先收口（含客户端 tool_calls 时不续跑，续跑计数不增）
++            if !tool_calls.is_empty() {
++                break 'continuation tool_calls;
++            }
++            // 非 `pause_turn` 终局：本轮自然收敛
++            if !is_pause_turn(finish_reason.as_ref()) {
++                finish_success(&sender, turn_index, started, &usage, turn).await;
++                return history;
++            }
++            // 续跑上限到顶：按 `stop` 语义正常收口（非 api_error）并留痕
++            if continuation >= PAUSE_TURN_MAX_CONTINUATIONS {
++                append_engine_log(&format!(
++                    "loop pause_turn 续跑到顶 session={} turn_index={turn_index} continuations={PAUSE_TURN_MAX_CONTINUATIONS}",
++                    turn.session_id
++                ));
++                let _ = sender
++                    .send(AgentEventKind::SystemNotice {
++                        subtype: "pause_turn_capped".to_owned(),
++                        payload: serde_json::json!({
++                            "continuations": PAUSE_TURN_MAX_CONTINUATIONS,
++                        }),
++                    })
++                    .await;
++                finish_success(&sender, turn_index, started, &usage, turn).await;
+                 return history;
+             }
+-            attempt += 1;
+-            let delay = turn.retry.backoff(attempt);
++            // 续跑间隙停止检查（停后不留孤儿续跑）
++            if handle.stop_requested() {
++                append_engine_log(&format!(
++                    "loop 停止截停（续跑间隙）session={} turn_index={turn_index}",
++                    turn.session_id
++                ));
++                return history;
++            }
++            continuation += 1;
++            // 过程唯一可观测点：每次续跑一条 notice（无搜索实时 delta）
+             append_engine_log(&format!(
+-                "loop 流重试 session={} turn_index={turn_index} attempt={attempt}/{} delay={}ms cause={cause}",
+-                turn.session_id,
+-                turn.retry.max_attempts,
+-                delay.as_millis()
++                "loop pause_turn 续跑 session={} turn_index={turn_index} continuations={continuation}",
++                turn.session_id
+             ));
+-            // 重试留痕尽力流出（消费端关闭时外层续 attempt 的下一发自然退出）
+             let _ = sender
+                 .send(AgentEventKind::SystemNotice {
+-                    subtype: "api_retry".to_owned(),
+-                    payload: serde_json::json!({
+-                        "attempt": attempt,
+-                        "max_attempts": turn.retry.max_attempts,
+-                        "delay_ms": delay.as_millis() as u64,
+-                        "error": cause,
+-                    }),
++                    subtype: "pause_turn_continued".to_owned(),
++                    payload: serde_json::json!({ "continuations": continuation }),
+                 })
+                 .await;
+-            tokio::time::sleep(delay).await;
+         };
+-        usage += turn_usage;
+-        if choice.is_empty() {
+-            // 空轮（无文本无工具调用）：以正常收敛防死循环
+-            finish_success(&sender, turn_index, started, &usage, turn).await;
+-            return history;
+-        }
+-        // 密封收口：choice 全部块收进恰一条密封 Message（role=assistant，
+-        // 增量层在传输面的 provisional 让位即同键替换）
+-        let mut blocks: Vec<AgentBlock> = Vec::new();
+-        let mut tool_calls: Vec<ToolCall> = Vec::new();
+-        for content in &choice {
+-            match content {
+-                AssistantContent::Text(text) => blocks.push(AgentBlock::Text {
+-                    text: text.text.clone(),
+-                }),
+-                // 0.43 起 reasoning 以 Sealed 承载（发行方才可读）：以自身发行
+-                // 方打开取可显示文本（text / summary 块按行拼接）
+-                AssistantContent::Reasoning(reasoning) => blocks.push(AgentBlock::Thinking {
+-                    thinking: reasoning
+-                        .open(reasoning.issuer())
+-                        .map(|value| value.display_text())
+-                        .unwrap_or_default(),
+-                }),
+-                AssistantContent::ToolCall(tool_call) => {
+-                    blocks.push(AgentBlock::ToolUse {
+-                        id: tool_call.id.to_string(),
+-                        name: tool_call.function.name.as_str().to_owned(),
+-                        input: tool_call.function.arguments.clone(),
+-                    });
+-                    tool_calls.push(tool_call.clone());
+-                }
+-                AssistantContent::Image(_) => {} // sdk 引擎不产图像内容（工具面无边）
+-            }
+-        }
+-        history.push(Message::Assistant {
+-            id: None,
+-            content: choice,
+-        });
+-        if sender
+-            .send(AgentEventKind::Message {
+-                role: AgentMessageRole::Assistant,
+-                blocks,
+-                parent_tool_use_id: None,
+-            })
+-            .await
+-            .is_err()
+-        {
+-            append_engine_log(&format!(
+-                "loop 事件通道关闭退出（assistant 密封发送）session={} turn_index={turn_index}",
+-                turn.session_id
+-            ));
+-            return history; // 消费端关闭：泵自行退出
+-        }
+-        if tool_calls.is_empty() {
+-            finish_success(&sender, turn_index, started, &usage, turn).await;
+-            return history;
+-        }
+         // 工具调用逐个：成员校验 → policy → sandbox → 执行 → 回灌（run 不中
+         // 断）；0.43 起 tool_result 以 CallId / ToolName 构造（与 tool_use 同
+         // 源配对）。同一 assistant 的全部结果收进一条 user 消息——provider
+@@ -442,6 +490,12 @@ pub(crate) async fn run(
+     }
+ }
+ 
++/// `pause_turn` 终局判据（精确等值：不做字符串包含匹配，防
++/// `Other("pause_turn_x")` 误判；`None` 一律视为非 `pause_turn`）。
++fn is_pause_turn(finish_reason: Option<&FinishReason>) -> bool {
++    matches!(finish_reason, Some(FinishReason::Other(reason)) if reason == PAUSE_TURN_REASON)
++}
++
+ /// 拒绝合成：`SystemNotice{subtype}` + is_error ToolResult 密封 tool 消息
+ /// （与 tool_use 同 id，成对回灌；run 不中断）。
+ async fn deny(
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index 9dcf936c6cb7..008d9cfe843e 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
+ use std::sync::{Arc, Mutex};
+ 
+ use futures::StreamExt;
+-use rig::completion::{CompletionRequest, CompletionResponse, Usage};
++use rig::completion::{CompletionRequest, CompletionResponse, FinishReason, Usage};
+ use rig::driver::{DynModel, Exchange, Model, Opened, Opening, Transport};
+ use rig::error::ProviderError;
+ use rig::message::{AssistantContent, CallId, Message, ToolName, UserContent};
+-use rig::operation::Completion;
++use rig::operation::{Completion, Finish};
+ use rig::test_utils::{mock_final, MockFrame, MockScript, MockStreamEvent};
+ use rig::wire::Mode;
+ use tokio::sync::mpsc;
+@@ -45,6 +45,8 @@ struct FakeState {
+     rewrite_on_first_stream: Mutex<Option<(PathBuf, String)>>,
+     hang: Option<HangPoint>,
+     flaky: Mutex<VecDeque<StreamGlitch>>,
++    /// 单点故障注入：第 N 次流请求（1 起）失败一次（续跑不吃重试预算用例）
++    fail_at_request: Mutex<Option<(usize, String)>>,
+ }
+ 
+ /// 悬挂点：`Request` = 首帧永不到达（发送 / 响应头相位死）；`Stream` = 首帧
+@@ -140,6 +142,16 @@ impl FakeModel {
+         *self.state.flaky.lock().expect("故障锁不可中毒") = glitches.into();
+     }
+ 
++    /// 第 N 次流请求（1 起）单点失败一次：弹空后走正常轮脚本——续跑不吃
++    /// 重试预算用例的装置（故障落在续跑请求上，而非首发）。
++    fn fail_at_stream_request(&self, index: usize, error: &str) {
++        *self
++            .state
++            .fail_at_request
++            .lock()
++            .expect("单点故障锁不可中毒") = Some((index, error.to_owned()));
++    }
++
+     fn captured_requests(&self) -> Vec<CompletionRequest> {
+         self.state
+             .requests
+@@ -171,6 +183,7 @@ fn empty_state() -> FakeState {
+         rewrite_on_first_stream: Mutex::new(None),
+         hang: None,
+         flaky: Mutex::new(VecDeque::new()),
++        fail_at_request: Mutex::new(None),
+     }
+ }
+ 
+@@ -222,6 +235,29 @@ impl Transport<MockScript> for FakeTransport {
+                 }
+             }
+             Mode::Streaming => {
++                // 单点故障注入（续跑不吃重试预算用例）：第 N 次流请求失败一次
++                let request_index = self
++                    .state
++                    .requests
++                    .lock()
++                    .expect("请求捕获锁不可中毒")
++                    .len();
++                let fail_at = self
++                    .state
++                    .fail_at_request
++                    .lock()
++                    .expect("单点故障锁不可中毒")
++                    .clone();
++                if let Some((index, error)) = fail_at {
++                    if request_index == index {
++                        *self
++                            .state
++                            .fail_at_request
++                            .lock()
++                            .expect("单点故障锁不可中毒") = None;
++                        return Opening::ready(Opened::failed(ProviderError::Provider(error)));
++                    }
++                }
+                 // 轮间改写钩子：首轮流请求捕获后执行（次轮 preamble 重读见改后内容）
+                 if let Some((path, content)) = self
+                     .state
+@@ -296,6 +332,53 @@ fn raw_final(usage: Usage) -> MockStreamEvent {
+     MockStreamEvent::FinalResponse(mock_final(usage))
+ }
+ 
++/// 携显式终局原因的终局帧（`pause_turn` 续跑用例的驱动面）。
++fn raw_final_with_reason(reason: FinishReason, usage: Usage) -> MockStreamEvent {
++    MockStreamEvent::FinalResponse(Finish {
++        usage,
++        reason: Some(reason),
++        ..Finish::default()
++    })
++}
++
++/// `pause_turn` 终局帧（provider 侧「服务端工具未完待续」的原值）。
++fn raw_pause_turn(usage: Usage) -> MockStreamEvent {
++    raw_final_with_reason(FinishReason::Other("pause_turn".to_owned()), usage)
++}
++
++/// 服务端 raw 块流项：空文本 + `anthropic_content`（rig 折叠为
++/// `Text { text: "", additional_params }`——raw server 块的承载形态）。
++fn raw_server_block(raw: serde_json::Value) -> MockStreamEvent {
++    MockStreamEvent::TextStart {
++        id: String::new(),
++        additional_params: Some(serde_json::json!({ "anthropic_content": raw })),
++    }
++}
++
++/// `server_tool_use` raw（use 侧）。
++fn server_use_raw(use_id: &str, query: &str) -> serde_json::Value {
++    serde_json::json!({
++        "type": "server_tool_use",
++        "id": use_id,
++        "name": "web_search",
++        "input": { "query": query },
++        "encrypted_content": "use 加密索引 🎉",
++    })
++}
++
++/// `web_search_tool_result` raw（result 侧）。
++fn server_result_raw(use_id: &str, urls: &[&str]) -> serde_json::Value {
++    serde_json::json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": use_id,
++        "content": urls
++            .iter()
++            .map(|url| serde_json::json!({ "type": "web_search_result", "url": url, "title": format!("标题 {url}") }))
++            .collect::<Vec<serde_json::Value>>(),
++        "encrypted_content": "result 加密索引",
++    })
++}
++
+ /// loop 直驱：灌未盖戳事件至 EOF 并回收全部事件（通道容量与真实泵同口径）。
+ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> Vec<AgentEventKind> {
+     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+@@ -312,6 +395,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
+             retry: turn.retry,
+             injections: turn.injections.clone(),
+             explore_note: None,
++            web_search: turn.web_search,
+         };
+         let handle = handle.clone();
+         async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
+@@ -324,6 +408,39 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
+     events
+ }
+ 
++/// loop 直驱（回传事件与最终史）：历史面断言缝（续跑 / 投影用例）。
++async fn drive_loop_collecting_history(
++    model: &FakeModel,
++    turn: &LoopTurn,
++    handle: &RunHandle,
++) -> (Vec<AgentEventKind>, Vec<Message>) {
++    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
++    let dyn_model = model.erased();
++    let task = tokio::spawn({
++        let turn = LoopTurn {
++            question: turn.question.clone(),
++            cwd: turn.cwd.clone(),
++            permission_mode: turn.permission_mode,
++            model_name: turn.model_name.clone(),
++            session_id: turn.session_id.clone(),
++            defense: ContextDefense::resolve(None),
++            liveness: turn.liveness,
++            retry: turn.retry,
++            injections: turn.injections.clone(),
++            explore_note: None,
++            web_search: turn.web_search,
++        };
++        let handle = handle.clone();
++        async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
++    });
++    let mut events = Vec::new();
++    while let Some(event) = receiver.recv().await {
++        events.push(event);
++    }
++    let history = task.await.expect("loop 任务正常结束");
++    (events, history)
++}
++
+ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
+     LoopTurn {
+         question: "帮我看下这个 workspace 🎉".to_owned(),
+@@ -336,6 +453,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
+         retry: crate::sdk::r#loop::StreamRetry::default(),
+         injections: agent::SessionInjections::default(),
+         explore_note: None,
++        web_search: false,
+     }
+ }
+ 
+@@ -496,7 +614,7 @@ async fn 一轮文本加思考假流_delta逐发且轮末恰一条密封message
+     assert!(matches!(&events[0], AgentEventKind::RunStarted { .. }));
+     assert!(
+         matches!(&events[1], AgentEventKind::Message { role, blocks, .. }
+-            if role == &AgentMessageRole::User && matches!(&blocks[0], agent::AgentBlock::Text { text } if text == "帮我看下这个 workspace 🎉")),
++            if role == &AgentMessageRole::User && matches!(&blocks[0], agent::AgentBlock::Text { text, .. } if text == "帮我看下这个 workspace 🎉")),
+         "用户提示词密封入时间线"
+     );
+     let deltas: Vec<&AgentDelta> = events
+@@ -537,7 +655,7 @@ async fn 一轮文本加思考假流_delta逐发且轮末恰一条密封message
+     assert_eq!(*parent_tool_use_id, None);
+     assert_eq!(blocks.len(), 2, "Text+Thinking 全部块收进同一条");
+     assert!(
+-        matches!(&blocks[0], agent::AgentBlock::Text { text } if text == "正文结论 🎉续行"),
++        matches!(&blocks[0], agent::AgentBlock::Text { text, .. } if text == "正文结论 🎉续行"),
+         "轮末聚合：两枚文本增量聚合为单个 Text 块收进（choice 聚合语义），实际: {:?}",
+         blocks[0]
+     );
+@@ -619,7 +737,7 @@ async fn 两轮工具假流_密封收口_tool_use与tool_result与续轮各就
+     };
+     assert!(matches!(
+         &blocks[0],
+-        agent::AgentBlock::Text { text } if text == "文件内容已确认"
++        agent::AgentBlock::Text { text, .. } if text == "文件内容已确认"
+     ));
+ 
+     // 收敛：numTurns 逐轮累计 = 2
+@@ -748,6 +866,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
+                 role: AgentMessageRole::User,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮问".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -758,6 +877,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
+                 role: AgentMessageRole::Assistant,
+                 blocks: vec![AgentBlock::Text {
+                     text: "上一轮答 🎉".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: None,
+             },
+@@ -1377,6 +1497,7 @@ fn loop_turn字段面完整构造锚定() {
+         retry: crate::sdk::r#loop::StreamRetry::default(),
+         injections: agent::SessionInjections::default(),
+         explore_note: None,
++        web_search: false,
+     };
+     assert_eq!(turn.question, "q");
+     assert_eq!(turn.session_id, "sdk-0-1");
+@@ -2337,3 +2458,727 @@ async fn explore轮六工具下发面内调用逐一正常执行() {
+         assert!(!*is_error, "{} 轮正常收敛", case.tool);
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// web_search 开关：请求侧形状（AC-3）
++// ---------------------------------------------------------------------------
++
++/// 携 `web_search` 开关的轮参数（其余面同基线）。
++fn web_search_turn(cwd: &Path, enabled: bool) -> LoopTurn {
++    LoopTurn {
++        web_search: enabled,
++        ..loop_turn(cwd, AgentPermissionMode::BypassPermissions)
++    }
++}
++
++/// 摘 RunStarted 的 tools 清单。
++fn run_started_tools(events: &[AgentEventKind]) -> Vec<String> {
++    events
++        .iter()
++        .find_map(|event| match event {
++            AgentEventKind::RunStarted {
++                tools, mcp_servers, ..
++            } => {
++                assert!(mcp_servers.is_empty(), "mcp 服务器清单恒空");
++                Some(tools.clone())
++            }
++            _ => None,
++        })
++        .expect("RunStarted 应在场")
++}
++
++#[tokio::test]
++async fn 开关开时请求additional_params_tools恰为web_search一项三键() {
++    let dir = tempdir("ws-on");
++    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 1);
++    let params = requests[0]
++        .additional_params
++        .as_ref()
++        .expect("开关开：additional_params 必须在场");
++    assert_eq!(
++        params["tools"],
++        serde_json::json!([
++            { "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }
++        ]),
++        "additional_params.tools 深等于恰一项三键"
++    );
++    let entry = params["tools"][0].as_object().expect("工具项为对象");
++    assert_eq!(
++        entry.len(),
++        3,
++        "恰三键（无 cache_control / allowed_domains）"
++    );
++    assert_eq!(
++        entry["max_uses"],
++        serde_json::json!(5),
++        "max_uses 为 JSON 数字 5"
++    );
++
++    // 客户端工具面不受影响：request.tools 仍是 definitions 派生集，不含 web_search
++    let dispatched: Vec<String> = requests[0]
++        .tools
++        .iter()
++        .map(|definition| definition.name.clone())
++        .collect();
++    assert_eq!(
++        dispatched,
++        run_started_tools(&events),
++        "request.tools 与 RunStarted.tools 同源（definitions 派生）"
++    );
++    assert!(
++        !dispatched.iter().any(|name| name == "web_search"),
++        "服务端工具不进客户端工具面：{dispatched:?}"
++    );
++}
++
++#[tokio::test]
++async fn 开关关时additional_params缺席且其余请求字段与基线逐字一致() {
++    let dir = tempdir("ws-off");
++    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), false), &handle).await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 1);
++    let request = &requests[0];
++    assert!(
++        request.additional_params.is_none(),
++        "开关关：additional_params 无 tools 键（恒 None），实际: {:?}",
++        request.additional_params
++    );
++    assert!(request.model.is_none(), "model 不覆写");
++    assert!(request.temperature.is_none());
++    assert!(request.max_tokens.is_none());
++    assert!(request.tool_choice.is_none());
++    assert!(request.output_schema.is_none());
++    assert!(request.documents.is_empty());
++
++    // RunStarted.tools 两态均不含 web_search（关态对照）
++    let dispatched = run_started_tools(&events);
++    assert!(!dispatched.iter().any(|name| name == "web_search"));
++}
++
++#[tokio::test]
++async fn 开关两态下run_started_tools均等于definitions派生名单且不含web_search() {
++    for enabled in [true, false] {
++        let dir = tempdir(if enabled {
++            "ws-runstarted-on"
++        } else {
++            "ws-runstarted-off"
++        });
++        let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
++        let handle = RunHandle::default();
++
++        let events = drive_loop(&model, &web_search_turn(dir.path(), enabled), &handle).await;
++
++        let tools = run_started_tools(&events);
++        let expected: Vec<String> =
++            crate::sdk::tools::definitions(&agent::SessionInjections::default())
++                .iter()
++                .map(|definition| definition.name.clone())
++                .collect();
++        assert_eq!(
++            tools, expected,
++            "开关 {enabled}：RunStarted.tools = definitions 派生名单"
++        );
++        assert!(
++            !tools.iter().any(|name| name == "web_search"),
++            "开关 {enabled}：RunStarted.tools 不含 web_search"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// server 块投影（AC-4 loop 侧）：不触发客户端工具执行
++// ---------------------------------------------------------------------------
++
++#[tokio::test]
++async fn server块投影为web_search块且不触发客户端工具执行与结果回灌() {
++    let dir = tempdir("ws-server-blocks");
++    let model = FakeModel::with_turns(vec![vec![
++        raw_server_block(server_use_raw("srvtoolu_1", "今日汇率")),
++        raw_server_block(server_result_raw(
++            "srvtoolu_1",
++            &["https://a/1", "https://b/2"],
++        )),
++        raw_final(usage(3, 4)),
++    ]]);
++    let handle = RunHandle::default();
++
++    let (events, history) =
++        drive_loop_collecting_history(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    let sealed = sealed_messages(&events);
++    assert_eq!(sealed.len(), 1, "恰一条密封 assistant Message");
++    let AgentEventKind::Message { blocks, .. } = sealed[0] else {
++        unreachable!()
++    };
++    assert_eq!(blocks.len(), 1, "blocks 仅一块 WebSearch（无 ToolUse 块）");
++    match &blocks[0] {
++        agent::AgentBlock::WebSearch {
++            id,
++            query,
++            results,
++            error,
++            raw_use,
++            raw_result,
++        } => {
++            assert_eq!(id, "srvtoolu_1");
++            assert_eq!(query, "今日汇率");
++            assert_eq!(results.len(), 2, "两条来源并入");
++            assert!(error.is_none());
++            assert!(raw_use.is_some() && raw_result.is_some(), "两侧原文承载");
++        }
++        other => panic!("唯一块应为 WebSearch，实际: {other:?}"),
++    }
++
++    // 该轮以 stop 收口：历史按「prompt + 一条 assistant」增长，无 user 位 tool_result
++    assert_eq!(history.len(), 2, "prompt + 一条 assistant（零结果回灌）");
++    assert!(matches!(history[0], Message::User { .. }), "史首为 prompt");
++    assert!(
++        matches!(&history[1], Message::Assistant { content, .. }
++            if content.iter().all(|item| !matches!(item, AssistantContent::ToolCall(_)))),
++        "assistant 位不含客户端工具调用（server 块不进客户端工具面）"
++    );
++    assert!(
++        history
++            .iter()
++            .all(|message| !matches!(message, Message::User { content }
++                if content.iter().any(|item| matches!(item, UserContent::ToolResult(_))))),
++        "无 user 位 tool_result 回灌（server 块不进客户端工具面）"
++    );
++    let AgentEventKind::TurnDone { subtype, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(subtype, "success");
++}
++
++#[tokio::test]
++async fn server块与客户端工具混排时走工具执行分支且续跑计数不增() {
++    let dir = tempdir("ws-mixed-blocks");
++    write_file(&dir.path().join("a.txt"), "内容甲");
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_server_block(server_use_raw("srvtoolu_mix", "混合查询")),
++            raw_server_block(server_result_raw("srvtoolu_mix", &["https://mix/1"])),
++            raw_tool_call("tu_mix", "read", serde_json::json!({ "path": "a.txt" })),
++            raw_final(usage(1, 1)),
++        ],
++        vec![raw_text("收尾"), raw_final(usage(1, 1))],
++    ]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    let sealed = sealed_messages(&events);
++    assert_eq!(sealed.len(), 2, "两轮各一条密封 assistant");
++    let AgentEventKind::Message { blocks, .. } = sealed[0] else {
++        unreachable!()
++    };
++    assert!(
++        matches!(&blocks[0], agent::AgentBlock::WebSearch { .. })
++            && matches!(&blocks[1], agent::AgentBlock::ToolUse { .. }),
++        "原序 [WebSearch, ToolUse]，实际: {blocks:?}"
++    );
++    // 走工具执行分支：不续跑（续跑计数不增，零 pause_turn 通知）
++    let subtypes: Vec<&str> = notices_of(&events)
++        .iter()
++        .map(|(subtype, _)| *subtype)
++        .collect();
++    assert!(
++        !subtypes
++            .iter()
++            .any(|subtype| *subtype == "pause_turn_continued" || *subtype == "pause_turn_capped"),
++        "客户端 tool_calls 非空 → 走工具执行，实际通知: {subtypes:?}"
++    );
++    assert_eq!(
++        model.captured_requests().len(),
++        2,
++        "工具轮后正常收口（恰两请求）"
++    );
++
++    // 工具结果回灌后第二轮正常收口
++    let requests = model.captured_requests();
++    assert!(
++        requests[1].chat_history.iter().any(|message| matches!(message, Message::User { content }
++            if content.iter().any(|item| matches!(item, UserContent::ToolResult(result) if result.name.as_str() == "read")))),
++        "第二轮史含成对工具结果"
++    );
++    let AgentEventKind::TurnDone { subtype, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(subtype, "success");
++}
++
++#[tokio::test]
++async fn text块citations落密封事件且无引用块为none() {
++    let dir = tempdir("ws-citations");
++    let model = FakeModel::with_turns(vec![vec![
++        MockStreamEvent::TextStart {
++            id: "cite".to_owned(),
++            additional_params: Some(serde_json::json!({
++                "citations": [
++                    { "url": "https://cite/1", "title": "引用标题", "cited_text": "片段", "encrypted_index": "x" }
++                ]
++            })),
++        },
++        raw_text("带引用正文"),
++        // 换段：关闭携引用的文本部件，另起无引用的文本部件
++        MockStreamEvent::TextStart {
++            id: "plain".to_owned(),
++            additional_params: None,
++        },
++        raw_text("无引用正文"),
++        raw_final(usage(1, 1)),
++    ]]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    let AgentEventKind::Message { blocks, .. } = sealed_messages(&events)[0] else {
++        unreachable!()
++    };
++    let text_blocks: Vec<&agent::AgentBlock> = blocks
++        .iter()
++        .filter(|block| matches!(block, agent::AgentBlock::Text { .. }))
++        .collect();
++    assert_eq!(text_blocks.len(), 2, "两个文本块（引用 / 无引用）");
++    let agent::AgentBlock::Text { citations, .. } = text_blocks[0] else {
++        unreachable!()
++    };
++    let citations = citations.as_ref().expect("携引用块 citations 在场");
++    assert_eq!(citations.len(), 1);
++    assert_eq!(
++        citations[0].raw,
++        serde_json::json!({
++            "url": "https://cite/1", "title": "引用标题", "cited_text": "片段", "encrypted_index": "x"
++        }),
++        "citations.raw 与原 wire 逐字节相等"
++    );
++    let agent::AgentBlock::Text { citations, .. } = text_blocks[1] else {
++        unreachable!()
++    };
++    assert!(citations.is_none(), "无引用文本块 citations 为 None");
++}
++
++#[tokio::test]
++async fn 开关开时模型调用客户端web_search名被成员校验拒且run不中断() {
++    let dir = tempdir("ws-client-name");
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_tool_call(
++                "tu_ws",
++                "web_search",
++                serde_json::json!({ "query": "今日汇率" }),
++            ),
++            raw_final(usage(1, 1)),
++        ],
++        vec![raw_text("改用其他方式"), raw_final(usage(1, 1))],
++    ]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    let subtypes: Vec<&str> = notices_of(&events)
++        .iter()
++        .map(|(subtype, _)| *subtype)
++        .collect();
++    assert!(
++        subtypes.contains(&"tool_unavailable"),
++        "web_search 不在 TOOL_NAMES / dispatch 面：成员校验拒，实际: {subtypes:?}"
++    );
++    // 拒绝结果以 is_error ToolResult 回灌（同 id），run 不中断
++    let tool_results: Vec<&agent::AgentBlock> = events
++        .iter()
++        .filter_map(|event| match event {
++            AgentEventKind::Message { role, blocks, .. } if role == &AgentMessageRole::Tool => {
++                Some(blocks.as_slice())
++            }
++            _ => None,
++        })
++        .flatten()
++        .collect();
++    assert!(
++        tool_results.iter().any(|block| matches!(block,
++            agent::AgentBlock::ToolResult { id, is_error, .. } if id == "tu_ws" && *is_error)),
++        "拒绝合成 is_error 结果（同 id 成对回灌）"
++    );
++    let AgentEventKind::TurnDone {
++        subtype, is_error, ..
++    } = turn_done_of(&events)
++    else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(subtype, "success", "run 不中断（工具被拒后收口）");
++    assert!(!*is_error);
++    assert_eq!(
++        model.captured_requests().len(),
++        2,
++        "拒绝后进入第二轮正常收口"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// pause_turn 续跑（AC-6）：独立计数轴、事件流可观测、到顶收敛
++// ---------------------------------------------------------------------------
++
++/// 摘 `pause_turn_continued` / `pause_turn_capped` 通知的 continuations 计数序列。
++fn continuation_counts(events: &[AgentEventKind], subtype: &str) -> Vec<u64> {
++    notices_of(events)
++        .into_iter()
++        .filter(|(name, _)| *name == subtype)
++        .map(|(_, payload)| {
++            payload["continuations"]
++                .as_u64()
++                .unwrap_or_else(|| panic!("{subtype} payload 应携 continuations 计数"))
++        })
++        .collect()
++}
++
++#[tokio::test]
++async fn pause_turn续跑发第二次请求且每次一条continued通知() {
++    let dir = tempdir("pause-turn-once");
++    let model = FakeModel::with_turns(vec![
++        vec![
++            raw_server_block(server_use_raw("srvtoolu_p", "续跑查询")),
++            raw_server_block(server_result_raw("srvtoolu_p", &["https://p/1"])),
++            raw_pause_turn(usage(2, 3)),
++        ],
++        vec![raw_text("搜索结果已确认"), raw_final(usage(4, 5))],
++    ]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 2, "恰两次流请求（续发一次）");
++    // 第二次请求的 chat_history 含前一轮 assistant server 块原样
++    assert!(
++        requests[1].chat_history.iter().any(
++            |message| matches!(message, Message::Assistant { content, .. }
++            if content.iter().any(|item| matches!(item, AssistantContent::Text(text)
++                if text.additional_params.as_ref().is_some_and(|params|
++                    params.get("anthropic_content").is_some()))))
++        ),
++        "续跑请求携前一轮 assistant server 块原样（additional_params.anthropic_content 在场）"
++    );
++
++    assert_eq!(
++        continuation_counts(&events, "pause_turn_continued"),
++        vec![1],
++        "每次续跑恰一条 pause_turn_continued，payload continuations 从 1 起"
++    );
++    assert!(
++        continuation_counts(&events, "pause_turn_capped").is_empty(),
++        "未到顶不发 capped"
++    );
++    let AgentEventKind::TurnDone {
++        subtype, is_error, ..
++    } = turn_done_of(&events)
++    else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(subtype, "success", "最终以 stop 语义成功收敛");
++    assert!(!*is_error);
++}
++
++#[tokio::test]
++async fn pause_turn续跑不吃重试预算_续跑请求失败仍以完整预算重试成功() {
++    let dir = tempdir("pause-turn-retry");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_text("首轮正文"), raw_pause_turn(usage(1, 1))],
++        vec![raw_text("续跑正文"), raw_final(usage(1, 1))],
++    ]);
++    // 续跑请求（第 2 次流请求）单点失败一次；预算仅 1 次重试
++    model.fail_at_stream_request(2, "续跑请求瞬时失败");
++    let handle = RunHandle::default();
++    let mut turn = loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions);
++    turn.retry.max_attempts = 1;
++
++    let events = drive_loop(&model, &turn, &handle).await;
++
++    let subtypes: Vec<&str> = notices_of(&events)
++        .iter()
++        .map(|(subtype, _)| *subtype)
++        .collect();
++    assert!(
++        subtypes.contains(&"api_retry"),
++        "续跑请求失败经既有重试路径留痕，实际: {subtypes:?}"
++    );
++    assert!(
++        !subtypes.contains(&"api_error"),
++        "续跑前的 attempt 归零：完整预算可用，零 api_error，实际: {subtypes:?}"
++    );
++    assert_eq!(
++        model.captured_requests().len(),
++        3,
++        "首发 + 续跑首发 + 续跑重试共 3 次请求"
++    );
++    assert_eq!(
++        continuation_counts(&events, "pause_turn_continued"),
++        vec![1],
++        "续跑通知仍恰一条（重试不重复发续跑通知）"
++    );
++    let AgentEventKind::TurnDone {
++        subtype, is_error, ..
++    } = turn_done_of(&events)
++    else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(subtype, "success");
++    assert!(!*is_error);
++}
++
++#[tokio::test]
++async fn pause_turn连续到顶时五条continued加一条capped且按stop语义收敛() {
++    let dir = tempdir("pause-turn-capped");
++    let turns: Vec<Vec<MockStreamEvent>> = (0..6)
++        .map(|index| {
++            vec![
++                raw_text(&format!("第 {index} 段")),
++                raw_pause_turn(usage(1, 1)),
++            ]
++        })
++        .collect();
++    let model = FakeModel::with_turns(turns);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    assert_eq!(
++        continuation_counts(&events, "pause_turn_continued"),
++        vec![1, 2, 3, 4, 5],
++        "恰 5 条 continued（payload 逐条递增）"
++    );
++    assert_eq!(
++        continuation_counts(&events, "pause_turn_capped"),
++        vec![5],
++        "恰 1 条 capped（connections = 上限 5）"
++    );
++    assert_eq!(
++        model.captured_requests().len(),
++        6,
++        "零第 7 次请求（上限到顶即收口）"
++    );
++    let AgentEventKind::TurnDone {
++        subtype,
++        is_error,
++        num_turns,
++        ..
++    } = turn_done_of(&events)
++    else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(
++        subtype, "success",
++        "到顶按 stop 语义成功收敛（非 api_error）"
++    );
++    assert!(!*is_error);
++    assert_eq!(*num_turns, Some(1), "续跑属同轮：num_turns 不变");
++}
++
++#[tokio::test]
++async fn pause_turn使用量逐次累加且不取末次不抹零() {
++    let dir = tempdir("pause-turn-usage");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_text("第一段"), raw_pause_turn(usage(11, 13))],
++        vec![raw_text("第二段"), raw_pause_turn(usage(17, 19))],
++        vec![raw_text("第三段"), raw_final(usage(23, 29))],
++    ]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    let AgentEventKind::TurnDone {
++        usage: done_usage, ..
++    } = turn_done_of(&events)
++    else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(
++        done_usage["input_tokens"],
++        serde_json::json!(11 + 17 + 23),
++        "三帧 input 线性累加（不取末次、不抹零）"
++    );
++    assert_eq!(
++        done_usage["output_tokens"],
++        serde_json::json!(13 + 19 + 29),
++        "三帧 output 线性累加"
++    );
++}
++
++#[tokio::test]
++async fn pause_turn空choice不续跑且走既有空轮收敛路径() {
++    let dir = tempdir("pause-turn-empty");
++    let model = FakeModel::with_turns(vec![vec![raw_pause_turn(usage(1, 1))]]);
++    let handle = RunHandle::default();
++
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++    assert!(
++        continuation_counts(&events, "pause_turn_continued").is_empty(),
++        "空 choice 不续跑（零 continued）"
++    );
++    assert_eq!(model.captured_requests().len(), 1, "零第二次请求");
++    let AgentEventKind::TurnDone {
++        subtype, is_error, ..
++    } = turn_done_of(&events)
++    else {
++        panic!("应为 TurnDone");
++    };
++    assert_eq!(subtype, "success", "走既有空轮收敛路径");
++    assert!(!*is_error);
++}
++
++#[tokio::test]
++async fn 续跑间隙停止截停时返回且不投续跑请求与通知() {
++    let dir = tempdir("pause-turn-stop");
++    let model = FakeModel::with_turns(vec![vec![raw_text("首段"), raw_pause_turn(usage(1, 1))]]);
++    let handle = RunHandle::default();
++    // 通道容量 1：loop 每发一事件即阻塞，停止信号可在续跑判定前确定性置位
++    // （current_thread 运行时下 recv 返回后同任务不 yield，竞态不存在）
++    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(1);
++    let turn = web_search_turn(dir.path(), true);
++    let dyn_model = model.erased();
++    let loop_handle = handle.clone();
++    let task = tokio::spawn(async move {
++        r#loop::run(&dyn_model, &turn, Vec::new(), sender, loop_handle).await
++    });
++
++    // 首个事件（RunStarted）到达即置位停止：loop 后续进入续跑间隙检查
++    let mut events = vec![receiver.recv().await.expect("首事件在场")];
++    handle.request_stop();
++    while let Some(event) = receiver.recv().await {
++        events.push(event);
++    }
++    let history = task.await.expect("loop 正常结束");
++
++    assert!(
++        continuation_counts(&events, "pause_turn_continued").is_empty(),
++        "停止截停：不发 pause_turn_continued"
++    );
++    assert!(
++        continuation_counts(&events, "pause_turn_capped").is_empty(),
++        "停止截停：不发 pause_turn_capped"
++    );
++    assert!(
++        !events
++            .iter()
++            .any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
++        "停止路径不合成 TurnDone（为编排侧显式 stopped 收敛让路）"
++    );
++    assert!(
++        model.captured_requests().len() <= 1,
++        "零孤儿续跑请求，实际: {}",
++        model.captured_requests().len()
++    );
++    assert!(history.len() <= 2, "历史无新增续跑 assistant 消息");
++}
++
++#[tokio::test]
++async fn finish_reason判据精确等值_pause_turn变体一律不续跑() {
++    // 非精确匹配四形态：pause_turn_x / PAUSE_TURN / Stop / None 一律不续跑
++    let cases: Vec<(&str, Option<FinishReason>)> = vec![
++        (
++            "pause_turn_x",
++            Some(FinishReason::Other("pause_turn_x".to_owned())),
++        ),
++        (
++            "PAUSE_TURN",
++            Some(FinishReason::Other("PAUSE_TURN".to_owned())),
++        ),
++        ("stop", Some(FinishReason::Stop)),
++        ("none", None),
++    ];
++
++    for (label, reason) in cases {
++        let dir = tempdir("pause-turn-exact");
++        let final_frame = match reason {
++            Some(reason) => raw_final_with_reason(reason, usage(1, 1)),
++            None => raw_final(usage(1, 1)),
++        };
++        let model = FakeModel::with_turns(vec![vec![raw_text("正文"), final_frame]]);
++        let handle = RunHandle::default();
++
++        let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++        assert!(
++            continuation_counts(&events, "pause_turn_continued").is_empty(),
++            "{label}：非精确 pause_turn 不续跑"
++        );
++        assert_eq!(model.captured_requests().len(), 1, "{label}：恰一次请求");
++        let AgentEventKind::TurnDone { subtype, .. } = turn_done_of(&events) else {
++            panic!("{label}：应为 TurnDone");
++        };
++        assert_eq!(subtype, "success", "{label}：正常收敛");
++    }
++
++    // 对照组：恰 Other("pause_turn") 唯一续跑
++    let dir = tempdir("pause-turn-exact-hit");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_text("正文"), raw_pause_turn(usage(1, 1))],
++        vec![raw_text("收尾"), raw_final(usage(1, 1))],
++    ]);
++    let handle = RunHandle::default();
++    let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++    assert_eq!(
++        continuation_counts(&events, "pause_turn_continued"),
++        vec![1],
++        "恰 pause_turn 唯一触发续跑"
++    );
++}
++
++#[tokio::test]
++async fn 计数轴隔离_续跑不增轮数且run_started恰一条() {
++    for continuations in [1_usize, 5] {
++        let dir = tempdir("pause-turn-axis");
++        let mut turns: Vec<Vec<MockStreamEvent>> = (0..continuations)
++            .map(|index| {
++                vec![
++                    raw_text(&format!("段 {index}")),
++                    raw_pause_turn(usage(1, 1)),
++                ]
++            })
++            .collect();
++        turns.push(vec![raw_text("收尾"), raw_final(usage(1, 1))]);
++        let model = FakeModel::with_turns(turns);
++        let handle = RunHandle::default();
++
++        let events = drive_loop(&model, &web_search_turn(dir.path(), true), &handle).await;
++
++        let started = events
++            .iter()
++            .filter(|event| matches!(event, AgentEventKind::RunStarted { .. }))
++            .count();
++        assert_eq!(started, 1, "{continuations} 次续跑：RunStarted 恰一条");
++        let AgentEventKind::TurnDone {
++            num_turns, subtype, ..
++        } = turn_done_of(&events)
++        else {
++            panic!("应为 TurnDone");
++        };
++        assert_eq!(
++            *num_turns,
++            Some(1),
++            "{continuations} 次续跑不增轮数（属同轮）"
++        );
++        assert_eq!(subtype, "success");
++        assert_eq!(
++            continuation_counts(&events, "pause_turn_continued").len(),
++            continuations,
++            "续跑计数逐次递增"
++        );
++        assert_eq!(
++            model.captured_requests().len(),
++            continuations + 1,
++            "续跑次数 + 收口请求"
++        );
++    }
++}
+diff --git a/crates/infra/agent/src/sdk/mod.rs b/crates/infra/agent/src/sdk/mod.rs
+index 6948fdb80ef6..ecf670f23f7f 100644
+--- a/crates/infra/agent/src/sdk/mod.rs
++++ b/crates/infra/agent/src/sdk/mod.rs
+@@ -15,6 +15,7 @@ pub(crate) mod resume;
+ pub(crate) mod runner;
+ pub(crate) mod sandbox;
+ pub(crate) mod tools;
++pub(crate) mod web_search;
+ 
+ #[cfg(test)]
+ mod bash_test;
+@@ -46,3 +47,5 @@ mod runner_test;
+ mod sandbox_test;
+ #[cfg(test)]
+ mod tools_test;
++#[cfg(test)]
++mod web_search_test;
+diff --git a/crates/infra/agent/src/sdk/resume.rs b/crates/infra/agent/src/sdk/resume.rs
+index b85981c397e6..b31b7c652699 100644
+--- a/crates/infra/agent/src/sdk/resume.rs
++++ b/crates/infra/agent/src/sdk/resume.rs
+@@ -5,6 +5,8 @@ use rig::message::{
+ 
+ use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
+ 
++use crate::sdk::web_search;
++
+ const LOCAL_ISSUER: Issuer = Issuer::from_static("dev-team-sdk");
+ 
+ /// sdk 引擎侧会话 id 铸造前缀：`sdk-<进程内计数>-<毫秒时戳>`（每轮铸造，
+@@ -76,33 +78,58 @@ pub fn rebuild(events: &[AgentEvent]) -> Result<Vec<Message>, String> {
+     }
+ }
+ 
+-/// user 位文本块映射（非文本块跳过）
++/// user 位文本块映射（非文本块跳过；user 侧 citations 不参与重建）
+ fn text_content(blocks: &[AgentBlock]) -> Vec<UserContent> {
+     blocks
+         .iter()
+         .filter_map(|block| match block {
+-            AgentBlock::Text { text } => Some(UserContent::text(text.clone())),
++            AgentBlock::Text { text, .. } => Some(UserContent::text(text.clone())),
+             _ => None, // user 消息内的 Thinking / ToolUse 非法形态跳过
+         })
+         .collect()
+ }
+ 
+-/// assistant 消息块映射
++/// assistant 消息块映射：逐块展开为 `AssistantContent` 序列（一条块最多产
++/// 两条——`WebSearch` 的 `raw_use` → `raw_result` 保原序，双 `None` 跳过）。
++///
++/// 展示字段（`query` / `results` / `error`）MUST NOT 参与重建：回放唯一事实源
++/// 是 raw 原文（`encrypted_content` 等不可推导字段原样保全）；raw 块配空文本
++/// （rig 侧带文本即 `ConversionError`）。
+ fn assistant_content(blocks: &[AgentBlock]) -> Vec<AssistantContent> {
+-    blocks
+-        .iter()
+-        .filter_map(|block| match block {
+-            AgentBlock::Text { text } => Some(AssistantContent::text(text.clone())),
+-            AgentBlock::Thinking { thinking } => Some(AssistantContent::Reasoning(
++    let mut content: Vec<AssistantContent> = Vec::with_capacity(blocks.len());
++    for block in blocks {
++        match block {
++            // 正文 + 引用原值回填（非空 citations 才挂）
++            AgentBlock::Text { text, citations } => {
++                content.push(web_search::replay_text(text, citations.as_deref()));
++            }
++            AgentBlock::Thinking { thinking } => content.push(AssistantContent::Reasoning(
+                 Reasoning::new(thinking).sealed(LOCAL_ISSUER),
+             )),
+             AgentBlock::ToolUse { id, name, input } => {
+-                let name = ToolName::new(name.clone()).ok()?;
+-                Some(AssistantContent::tool_call(id.clone(), name, input.clone()))
++                let Some(name) = ToolName::new(name.clone()).ok() else {
++                    continue;
++                };
++                content.push(AssistantContent::tool_call(id.clone(), name, input.clone()));
+             }
+-            _ => None, // assistant 消息内的 ToolResult 非法形态跳过
+-        })
+-        .collect()
++            // 一次搜索 = 一条 use → 一条 result（保原始 wire 顺序）
++            AgentBlock::WebSearch {
++                raw_use,
++                raw_result,
++                ..
++            } => {
++                if let Some(raw) = raw_use {
++                    content.push(web_search::replay_raw(raw));
++                }
++                if let Some(raw) = raw_result {
++                    content.push(web_search::replay_raw(raw));
++                }
++            }
++            // assistant 消息内的 ToolResult 非法形态跳过
++            AgentBlock::ToolResult { .. } => {}
++        }
++    }
++    content
+ }
+ 
+ /// 工具结果并入历史：只收 [`pending`] 中声明的调用（紧邻 assistant 的配对），
+diff --git a/crates/infra/agent/src/sdk/resume_test.rs b/crates/infra/agent/src/sdk/resume_test.rs
+index ad305a3181ab..d4a97a8e943e 100644
+--- a/crates/infra/agent/src/sdk/resume_test.rs
++++ b/crates/infra/agent/src/sdk/resume_test.rs
+@@ -19,6 +19,7 @@ fn user_text(seq: u64, text: &str) -> AgentEvent {
+             role: AgentMessageRole::User,
+             blocks: vec![AgentBlock::Text {
+                 text: text.to_owned(),
++                citations: None,
+             }],
+             parent_tool_use_id: None,
+         },
+@@ -32,6 +33,7 @@ fn assistant_text(seq: u64, text: &str) -> AgentEvent {
+             role: AgentMessageRole::Assistant,
+             blocks: vec![AgentBlock::Text {
+                 text: text.to_owned(),
++                citations: None,
+             }],
+             parent_tool_use_id: None,
+         },
+@@ -159,6 +161,7 @@ fn 单条密封message收三块时重建为单条assistant消息不拆分() {
+             blocks: vec![
+                 AgentBlock::Text {
+                     text: "结论先行".to_owned(),
++                    citations: None,
+                 },
+                 AgentBlock::Thinking {
+                     thinking: "推理过程".to_owned(),
+@@ -327,6 +330,7 @@ fn 非对话密封事件与子代理归因事件不进对话史() {
+                 role: AgentMessageRole::Assistant,
+                 blocks: vec![AgentBlock::Text {
+                     text: "子代理输出".to_owned(),
++                    citations: None,
+                 }],
+                 parent_tool_use_id: Some("tu_1".to_owned()),
+             },
+@@ -596,3 +600,383 @@ fn 千级长转录重建不丢消息不乱序() {
+         assert_eq!(text, expected, "index={index} 保序");
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 回放展开：WebSearch 块重建两条 AssistantContent + Text.citations 回填
++// （AC-5；展示字段不参与重建）
++// ---------------------------------------------------------------------------
++
++/// 携 raw 的 use wire（`server_tool_use`）。
++fn web_search_use_raw(use_id: &str, query: &str) -> serde_json::Value {
++    serde_json::json!({
++        "type": "server_tool_use",
++        "id": use_id,
++        "name": "web_search",
++        "input": { "query": query },
++        "encrypted_content": "use 加密索引 🎉",
++    })
++}
++
++/// 携 raw 的 result wire（`web_search_tool_result`）。
++fn web_search_result_raw(use_id: &str) -> serde_json::Value {
++    serde_json::json!({
++        "type": "web_search_tool_result",
++        "tool_use_id": use_id,
++        "content": [{ "type": "web_search_result", "url": "https://a/1" }],
++        "encrypted_content": "result 加密索引",
++    })
++}
++
++/// WebSearch 块 fixture（两侧 raw 可分别缺省）。
++fn web_search_block(
++    use_id: &str,
++    raw_use: Option<serde_json::Value>,
++    raw_result: Option<serde_json::Value>,
++) -> AgentBlock {
++    AgentBlock::WebSearch {
++        id: use_id.to_owned(),
++        query: "今日汇率".to_owned(),
++        results: Vec::new(),
++        error: None,
++        raw_use,
++        raw_result,
++    }
++}
++
++/// 携块清单的 assistant 事件。
++fn assistant_blocks(seq: u64, blocks: Vec<AgentBlock>) -> AgentEvent {
++    event(
++        seq,
++        AgentEventKind::Message {
++            role: AgentMessageRole::Assistant,
++            blocks,
++            parent_tool_use_id: None,
++        },
++    )
++}
++
++/// 摘第 `index` 条 assistant 消息的 `content`。
++fn assistant_content_of(history: &[Message], index: usize) -> &Vec<AssistantContent> {
++    let assistants: Vec<&Vec<AssistantContent>> = history
++        .iter()
++        .filter_map(|message| match message {
++            Message::Assistant { content, .. } => Some(content),
++            _ => None,
++        })
++        .collect();
++    assistants
++        .get(index)
++        .unwrap_or_else(|| panic!("第 {index} 条 assistant 消息应在场"))
++}
++
++/// 摘 `AssistantContent::Text` 的 `additional_params` 键值。
++fn param_of(content: &AssistantContent, key: &str) -> serde_json::Value {
++    let AssistantContent::Text(text) = content else {
++        panic!("应为 Text 变体，实际: {content:?}");
++    };
++    text.additional_params
++        .as_ref()
++        .unwrap_or_else(|| panic!("additional_params 应在场"))
++        .get(key)
++        .cloned()
++        .unwrap_or_else(|| panic!("{key} 键应在场"))
++}
++
++#[test]
++fn web_search块重建为两条空文本assistant_content且顺序为use先result后() {
++    let raw_use = web_search_use_raw("srvtoolu_1", "今日汇率");
++    let raw_result = web_search_result_raw("srvtoolu_1");
++    let events = vec![
++        user_text(0, "帮我查汇率"),
++        assistant_blocks(
++            1,
++            vec![web_search_block(
++                "srvtoolu_1",
++                Some(raw_use.clone()),
++                Some(raw_result.clone()),
++            )],
++        ),
++    ];
++
++    let history = rebuild(&events).expect("重建成功");
++    let content = assistant_content_of(&history, 0);
++
++    assert_eq!(content.len(), 2, "一条块最多产两条 AssistantContent");
++    for (index, expected) in [(0, &raw_use), (1, &raw_result)] {
++        let AssistantContent::Text(text) = &content[index] else {
++            panic!("第 {index} 条应为 Text 变体");
++        };
++        assert_eq!(
++            text.text, "",
++            "raw 块必须空文本（rig 硬校验「raw 与文本不可共存」）"
++        );
++        assert_eq!(
++            param_of(&content[index], "anthropic_content"),
++            *expected,
++            "第 {index} 条 additional_params 与原 wire 逐字节相等"
++        );
++    }
++    assert_eq!(
++        serde_json::to_string(&param_of(&content[0], "anthropic_content")).expect("序列化成功"),
++        serde_json::to_string(&raw_use).expect("序列化成功"),
++        "use 侧含 encrypted_content 逐字节保真"
++    );
++}
++
++#[test]
++fn web_search块单侧与双侧缺席时按在场侧产出() {
++    let raw_use = web_search_use_raw("srvtoolu_side", "单侧查询");
++    let raw_result = web_search_result_raw("srvtoolu_side");
++
++    let use_only = rebuild(&[
++        user_text(0, "问"),
++        assistant_blocks(1, vec![web_search_block("s1", Some(raw_use), None)]),
++    ])
++    .expect("重建成功");
++    assert_eq!(
++        assistant_content_of(&use_only, 0).len(),
++        1,
++        "仅 use 侧产一条"
++    );
++
++    let result_only = rebuild(&[
++        user_text(0, "问"),
++        assistant_blocks(1, vec![web_search_block("s2", None, Some(raw_result))]),
++    ])
++    .expect("重建成功");
++    assert_eq!(
++        assistant_content_of(&result_only, 0).len(),
++        1,
++        "仅 result 侧产一条"
++    );
++
++    // 双 None：0 条 → 该 assistant 消息因 content 空而不入史（既有语义）
++    let both_none = rebuild(&[
++        user_text(0, "问"),
++        assistant_blocks(1, vec![web_search_block("s3", None, None)]),
++        assistant_text(2, "答"),
++    ])
++    .expect("重建成功");
++    let assistants = both_none
++        .iter()
++        .filter(|message| matches!(message, Message::Assistant { .. }))
++        .count();
++    assert_eq!(assistants, 1, "双 None 的 assistant 消息不入史");
++    assert_eq!(
++        assistant_content_of(&both_none, 0).len(),
++        1,
++        "仅保留后一条正文 assistant"
++    );
++}
++
++#[test]
++fn text块citations回填raw数组且展示字段不参与重建() {
++    let citation_raw = serde_json::json!({ "url": "https://raw/1", "cited_text": "原始片段" });
++    let blocks = vec![AgentBlock::Text {
++        text: "正文".to_owned(),
++        citations: Some(vec![agent::AgentCitation {
++            url: Some("https://display/1".to_owned()),
++            title: Some("展示标题".to_owned()),
++            cited_text: Some("展示片段".to_owned()),
++            raw: citation_raw.clone(),
++        }]),
++    }];
++    let history = rebuild(&[user_text(0, "问"), assistant_blocks(1, blocks)]).expect("重建成功");
++
++    let content = assistant_content_of(&history, 0);
++    assert_eq!(content.len(), 1);
++    let AssistantContent::Text(text) = &content[0] else {
++        panic!("应为 Text 变体");
++    };
++    assert_eq!(text.text, "正文", "正文原文保真");
++    assert_eq!(
++        param_of(&content[0], "citations"),
++        serde_json::json!([citation_raw]),
++        "citations 深等于 [c.raw]（不以 url / title / cited_text 重组）"
++    );
++
++    // citations: None → 不落键
++    let plain = rebuild(&[user_text(0, "问"), assistant_text(1, "无引用正文")]).expect("重建成功");
++    let content = assistant_content_of(&plain, 0);
++    let AssistantContent::Text(text) = &content[0] else {
++        panic!("应为 Text 变体");
++    };
++    assert!(
++        text.additional_params.is_none(),
++        "无引用不落 additional_params（不出现空壳）"
++    );
++}
++
++#[test]
++fn 混合块序展开保原序_text_use_result_text() {
++    let raw_use = web_search_use_raw("srvtoolu_mix", "混合查询");
++    let raw_result = web_search_result_raw("srvtoolu_mix");
++    let events = vec![
++        user_text(0, "问"),
++        assistant_blocks(
++            1,
++            vec![
++                AgentBlock::Text {
++                    text: "前置".to_owned(),
++                    citations: None,
++                },
++                web_search_block("srvtoolu_mix", Some(raw_use), Some(raw_result)),
++                AgentBlock::Text {
++                    text: "后置".to_owned(),
++                    citations: None,
++                },
++            ],
++        ),
++    ];
++
++    let history = rebuild(&events).expect("重建成功");
++    let content = assistant_content_of(&history, 0);
++
++    assert_eq!(content.len(), 4, "text → use → result → text 共四条");
++    let texts: Vec<String> = content
++        .iter()
++        .map(|item| match item {
++            AssistantContent::Text(text) => text.text.clone(),
++            other => panic!("应为 Text 变体，实际: {other:?}"),
++        })
++        .collect();
++    assert_eq!(
++        texts,
++        vec!["前置", "", "", "后置"],
++        "顺序保原序（无块重排）"
++    );
++}
++
++#[test]
++fn assistant位tool_result块仍跳过且不误当result侧重建() {
++    let events = vec![
++        user_text(0, "问"),
++        assistant_blocks(
++            1,
++            vec![
++                AgentBlock::ToolResult {
++                    id: "tu_1".to_owned(),
++                    content: "非法形态".to_owned(),
++                    is_error: false,
++                },
++                AgentBlock::Text {
++                    text: "正文".to_owned(),
++                    citations: None,
++                },
++            ],
++        ),
++    ];
++
++    let history = rebuild(&events).expect("重建成功");
++    let content = assistant_content_of(&history, 0);
++
++    assert_eq!(
++        content.len(),
++        1,
++        "assistant 位 ToolResult 不产 AssistantContent（不 panic）"
++    );
++    assert!(
++        matches!(&content[0], AssistantContent::Text(text) if text.text == "正文"),
++        "仅正文块入重建"
++    );
++}
++
++#[test]
++fn user位citations不参与重建且user位web_search块跳过不panic() {
++    let citation_raw = serde_json::json!({ "url": "https://raw/1" });
++    let events = vec![
++        event(
++            0,
++            AgentEventKind::Message {
++                role: AgentMessageRole::User,
++                blocks: vec![AgentBlock::Text {
++                    text: "补充".to_owned(),
++                    citations: Some(vec![agent::AgentCitation {
++                        url: Some("https://display/1".to_owned()),
++                        title: None,
++                        cited_text: None,
++                        raw: citation_raw,
++                    }]),
++                }],
++                parent_tool_use_id: None,
++            },
++        ),
++        // user 位 WebSearch 块（非法形态）→ 跳过不 panic
++        event(
++            1,
++            AgentEventKind::Message {
++                role: AgentMessageRole::User,
++                blocks: vec![web_search_block(
++                    "srvtoolu_user",
++                    Some(web_search_use_raw("srvtoolu_user", "q")),
++                    None,
++                )],
++                parent_tool_use_id: None,
++            },
++        ),
++        assistant_text(2, "答"),
++    ];
++
++    let history = rebuild(&events).expect("重建成功");
++
++    let Message::User { content } = &history[0] else {
++        panic!("首条应为 user 消息");
++    };
++    assert_eq!(content.len(), 1, "恰一条 UserContent 文本");
++    let UserContent::Text(text) = &content[0] else {
++        panic!("应为文本项");
++    };
++    assert_eq!(text.text, "补充", "user 位 citations 丢弃（不参与重建）");
++    assert_eq!(history.len(), 2, "user 位 WebSearch 块零产出（消息不新增）");
++}
++
++#[test]
++fn project与resume往返_重建后additional_params与原始wire逐字节等价() {
++    use crate::sdk::web_search::{project_choice, ANTHROPIC_RAW_CONTENT_KEY};
++    use rig::message::{AdditionalParams, Text};
++
++    let raw_use = web_search_use_raw("srvtoolu_rt", "往返查询");
++    let raw_result = web_search_result_raw("srvtoolu_rt");
++    let citation = serde_json::json!({ "url": "https://cite/1", "cited_text": "片段" });
++
++    // 原始 wire（loop 侧 choice 形态）→ project_choice → 密封块序列
++    let raw_item = |raw: serde_json::Value| {
++        AssistantContent::Text(Text {
++            text: String::new(),
++            additional_params: AdditionalParams::from_entries([(ANTHROPIC_RAW_CONTENT_KEY, raw)]),
++        })
++    };
++    let choice = vec![
++        raw_item(raw_use.clone()),
++        raw_item(raw_result.clone()),
++        AssistantContent::Text(Text {
++            text: "带引用正文".to_owned(),
++            additional_params: AdditionalParams::from_entries([(
++                "citations",
++                serde_json::json!([citation.clone()]),
++            )]),
++        }),
++    ];
++    let (blocks, _tool_calls) = project_choice(&choice);
++    assert_eq!(blocks.len(), 2, "use + result 收敛一块，正文一块");
++
++    let history = rebuild(&[user_text(0, "问"), assistant_blocks(1, blocks)]).expect("重建成功");
++    let content = assistant_content_of(&history, 0);
++
++    assert_eq!(content.len(), 3, "use → result → text 三条");
++    assert_eq!(
++        param_of(&content[0], "anthropic_content"),
++        raw_use,
++        "use 侧 raw 逐字节等价"
++    );
++    assert_eq!(
++        param_of(&content[1], "anthropic_content"),
++        raw_result,
++        "result 侧 raw 逐字节等价"
++    );
++    assert_eq!(
++        param_of(&content[2], "citations"),
++        serde_json::json!([citation]),
++        "citations 原值回填"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/runner.rs b/crates/infra/agent/src/sdk/runner.rs
+index 48be356b7fe5..c7ae0bb7b070 100644
+--- a/crates/infra/agent/src/sdk/runner.rs
++++ b/crates/infra/agent/src/sdk/runner.rs
+@@ -52,6 +52,9 @@ pub struct SdkRunner {
+     context_window: Option<u64>,
+     /// provider 输出上限（组合根旁路载荷；None = 按协议缺省）
+     max_tokens: Option<u64>,
++    /// 云端 `web_search` 服务端工具开关（组合根已按协议门控的最终值；
++    /// `new` 缺省 false——与「显式关」同义，故全链收 `bool` 而非 `Option`）
++    web_search: bool,
+     /// workspace 库句柄（组合根注入缝）：`toolset == Explore` 会话 per-turn
+     /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
+     explore_store: Option<Arc<Store>>,
+@@ -71,6 +74,7 @@ impl SdkRunner {
+             resume,
+             context_window,
+             max_tokens: None,
++            web_search: false,
+             explore_store,
+         }
+     }
+@@ -81,6 +85,13 @@ impl SdkRunner {
+         Self { max_tokens, ..self }
+     }
+ 
++    /// 云端 `web_search` 开关旁路注入（builder 缝，与 `with_max_tokens` 同
++    /// 型）：值已由组合根按协议门控，runner 零协议判定；`new` 签名不动
++    /// （既有调用点零改）。
++    pub fn with_web_search(self, web_search: bool) -> Self {
++        Self { web_search, ..self }
++    }
++
+     /// `sdk-<进程内计数>-<毫秒时戳>` 引擎侧会话 id（每轮铸造；前缀仅保留为
+     /// 铸造格式，归属校验凭配置快照收组合根）。
+     fn next_session_id() -> String {
+@@ -167,6 +178,7 @@ impl AgentRunner for SdkRunner {
+                 defense,
+                 resume_notices,
+                 protocol: self.config.protocol,
++                web_search: self.web_search,
+                 raw_model: model_name,
+                 explore_store: self.explore_store.clone(),
+             },
+@@ -263,6 +275,8 @@ struct PumpPayload {
+     resume_notices: Vec<DefenseNotice>,
+     /// 模型协议（泵启动日志诊断面 `protocol=…`）
+     protocol: Protocol,
++    /// 云端 `web_search` 开关（泵启动日志诊断面 `web_search=…`；已门控值）
++    web_search: bool,
+     /// 该档模型原文（日志 `raw=…`；上报与请求用裸名——见 `ModelSpec.name`）
+     raw_model: String,
+     /// workspace 库句柄（组合根注入缝）——`toolset == Explore` 会话 per-turn
+@@ -308,9 +322,10 @@ async fn session_pump(
+     let session_id = SdkRunner::next_session_id();
+     let window = payload.defense.window();
+     crate::sdk::log::append_engine_log(&format!(
+-        "泵启动 session={session_id} protocol={} model={} window={window} raw={}",
++        "泵启动 session={session_id} protocol={} model={} window={window} web_search={} raw={}",
+         payload.protocol.as_str(),
+         spec.name,
++        payload.web_search,
+         payload.raw_model
+     ));
+     let turn = r#loop::LoopTurn {
+@@ -326,6 +341,7 @@ async fn session_pump(
+         retry: Default::default(),
+         injections: open.injections.clone(),
+         explore_note,
++        web_search: payload.web_search,
+     };
+     let pump_handle = handle.clone();
+     let pump_session = turn.session_id.clone();

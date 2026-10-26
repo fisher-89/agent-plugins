@@ -649,3 +649,252 @@ fn window极大窗长下阈值推导不溢出且不误触线() {
         "极大窗长下水位数不为 0，小史不触 L3"
     );
 }
+
+// ---------------------------------------------------------------------------
+// assistant 位 server 块配对清扫（AC-7）：pause_turn 把一次搜索拆成两条
+// assistant 消息后，L2 / L3 / 摘要置换裁掉 use 而留下 result → 回放侧缺 use
+// 的 result 会被 Anthropic 拒（400），故与既有 tool_result 清扫同构剔除
+// ---------------------------------------------------------------------------
+
+/// 携 raw server 块的 assistant 文本项（`raw` 原样落 `additional_params`
+/// `anthropic_content`，与回放承载形态一致）。
+fn assistant_raw_content(raw: serde_json::Value) -> AssistantContent {
+    use rig::message::{AdditionalParams, Text};
+
+    AssistantContent::Text(Text {
+        text: String::new(),
+        additional_params: AdditionalParams::from_entries([(
+            crate::sdk::web_search::ANTHROPIC_RAW_CONTENT_KEY,
+            raw,
+        )]),
+    })
+}
+
+/// 携 raw server 块的 assistant 消息（单项内容）。
+fn assistant_with_raw(raw: serde_json::Value) -> Message {
+    Message::Assistant {
+        id: None,
+        content: vec![assistant_raw_content(raw)],
+    }
+}
+
+/// `server_tool_use` raw（use 侧）。
+fn server_use_raw(use_id: &str) -> serde_json::Value {
+    json!({
+        "type": "server_tool_use",
+        "id": use_id,
+        "name": "web_search",
+        "input": { "query": "今日汇率" },
+    })
+}
+
+/// `web_search_tool_result` raw（result 侧；`use_id` 为配对键）。
+fn server_result_raw(use_id: &str) -> serde_json::Value {
+    json!({
+        "type": "web_search_tool_result",
+        "tool_use_id": use_id,
+        "content": [{ "type": "web_search_result", "url": "https://a/1" }],
+    })
+}
+
+/// 摘 assistant 消息内的 raw `type` 清单（配对保持与否的可考面）。
+fn raw_types(history: &[Message]) -> Vec<String> {
+    let mut types = Vec::new();
+    for message in history {
+        let Message::Assistant { content, .. } = message else {
+            continue;
+        };
+        for item in content {
+            let AssistantContent::Text(text) = item else {
+                continue;
+            };
+            let Some(params) = text.additional_params.as_ref() else {
+                continue;
+            };
+            let Some(raw) = params.get(crate::sdk::web_search::ANTHROPIC_RAW_CONTENT_KEY) else {
+                continue;
+            };
+            let kind = raw
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            types.push(kind);
+        }
+    }
+    types
+}
+
+#[test]
+fn sweep_orphans裁掉use侧后剔除孤result并整条移除空assistant消息() {
+    use crate::sdk::context::sweep_orphans;
+
+    // A 携 use、B 携 result（tool_use_id 指向 A）；模拟 A 已被裁掉
+    let history = vec![
+        Message::user("任务书"),
+        assistant_with_raw(server_result_raw("srvtoolu_1")),
+    ];
+
+    let swept = sweep_orphans(history);
+
+    assert_eq!(swept.len(), 1, "B 因剔空而整条移除（历史条数 -1）");
+    assert_eq!(swept, vec![Message::user("任务书")], "仅首条 user 保全");
+
+    // 部分保留：孤儿 result + 普通文本 → 保留消息，仅剩文本（项数 -1）
+    let mixed = vec![
+        Message::user("任务书"),
+        Message::Assistant {
+            id: None,
+            content: vec![
+                AssistantContent::Text(rig::message::Text::new("正文")),
+                assistant_raw_content(server_result_raw("srvtoolu_missing")),
+            ],
+        },
+    ];
+    let swept = sweep_orphans(mixed);
+    assert_eq!(swept.len(), 2, "消息本体保留");
+    let Message::Assistant { content, .. } = &swept[1] else {
+        panic!("第二条应为 assistant");
+    };
+    assert_eq!(content.len(), 1, "仅剩普通文本块（项数 -1）");
+    assert!(raw_types(&swept).is_empty(), "孤儿 result 已剔除");
+}
+
+#[test]
+fn sweep_orphans成对块跨消息与同消息均原样保留() {
+    use crate::sdk::context::sweep_orphans;
+
+    // 跨消息成对：A（use）+ B（result）
+    let cross = vec![
+        Message::user("任务书"),
+        assistant_with_raw(server_use_raw("srvtoolu_1")),
+        assistant_with_raw(server_result_raw("srvtoolu_1")),
+    ];
+    let swept = sweep_orphans(cross.clone());
+    assert_eq!(swept, cross, "跨消息成对：消息数与 content 项数均不变");
+    assert_eq!(
+        raw_types(&swept),
+        vec!["server_tool_use", "web_search_tool_result"],
+        "不误剔 result 侧"
+    );
+
+    // 同消息成对（pause_turn 未拆分形态）：前序扫描命中，两项均保留
+    let same_message = vec![
+        Message::user("任务书"),
+        Message::Assistant {
+            id: None,
+            content: vec![
+                assistant_raw_content(server_use_raw("srvtoolu_2")),
+                assistant_raw_content(server_result_raw("srvtoolu_2")),
+            ],
+        },
+    ];
+    let swept = sweep_orphans(same_message.clone());
+    assert_eq!(swept, same_message, "同消息成对：顺序不变、两项均保留");
+}
+
+#[test]
+fn sweep_orphans_result先于use的异常顺序判孤剔除且后续use不受影响() {
+    use crate::sdk::context::sweep_orphans;
+
+    let history = vec![Message::Assistant {
+        id: None,
+        content: vec![
+            assistant_raw_content(server_result_raw("srvtoolu_late")),
+            assistant_raw_content(server_use_raw("srvtoolu_late")),
+        ],
+    }];
+
+    let swept = sweep_orphans(history);
+
+    assert_eq!(swept.len(), 1, "不 panic");
+    let Message::Assistant { content, .. } = &swept[0] else {
+        panic!("应为 assistant");
+    };
+    assert_eq!(content.len(), 1, "先出现的 result 判孤剔除（单向前序扫描）");
+    assert_eq!(
+        raw_types(&swept),
+        vec!["server_tool_use"],
+        "后续 use 不受影响（保留）"
+    );
+}
+
+#[test]
+fn sweep_orphans对非server_raw块与普通文本思考零影响() {
+    use crate::sdk::context::sweep_orphans;
+
+    let history = vec![
+        Message::user("任务书"),
+        // code_execution_tool_result：本期只认 web_search_tool_result，原样保留
+        assistant_with_raw(json!({
+            "type": "code_execution_tool_result",
+            "tool_use_id": "srvtoolu_code",
+        })),
+        // raw 缺 type
+        assistant_with_raw(json!({ "id": "no-type" })),
+        // 普通文本 + 思考块
+        Message::Assistant {
+            id: None,
+            content: vec![
+                AssistantContent::Text(rig::message::Text::new("正文")),
+                AssistantContent::Reasoning(
+                    rig::message::Reasoning::new("想法")
+                        .sealed(rig::message::Issuer::from_static("test")),
+                ),
+            ],
+        },
+        // additional_params 非对象承载（此处以普通文本代表）：原样保留
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::Text(rig::message::Text::new("尾正文"))],
+        },
+    ];
+
+    let swept = sweep_orphans(history.clone());
+
+    assert_eq!(
+        swept, history,
+        "非 server raw 块零影响（原样保留、顺序不变）"
+    );
+    assert_eq!(swept.len(), 5, "消息条数不变（无剔除不触整条移除）");
+}
+
+#[test]
+fn sweep_orphans空史与仅system或user单条原样返回() {
+    use crate::sdk::context::sweep_orphans;
+
+    assert!(sweep_orphans(Vec::new()).is_empty(), "空史 → 空史");
+
+    let system_only = vec![Message::system("系统提示词")];
+    assert_eq!(
+        sweep_orphans(system_only.clone()),
+        system_only,
+        "仅 system 单条原样返回"
+    );
+
+    let user_only = vec![Message::user("任务书")];
+    assert_eq!(
+        sweep_orphans(user_only.clone()),
+        user_only,
+        "仅 user 单条原样返回"
+    );
+}
+
+#[test]
+fn sweep_orphans经prune调用点生效_裁掉use后孤result不残留在请求史() {
+    // 三处调用点（prune / hard_prune / 摘要置换）共用同一函数：此处以 prune
+    // 调用点验证端到端生效（use 侧老消息被丢、result 侧随之清扫）
+    let mut history = vec![Message::user("任务书 🎉")];
+    history.push(assistant_with_raw(server_use_raw("srvtoolu_cut")));
+    history.push(Message::user("f".repeat(200_000)));
+    history.push(assistant_with_raw(server_result_raw("srvtoolu_cut")));
+
+    let (pruned, _notices) = prune(history, &defense_small());
+
+    assert!(
+        !raw_types(&pruned)
+            .iter()
+            .any(|kind| kind == "web_search_tool_result"),
+        "缺 use 的 result 不残留在请求史（回放侧不触发 400）"
+    );
+}

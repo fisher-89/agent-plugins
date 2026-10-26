@@ -56,6 +56,7 @@ describe('AgentsView 两栏骨架（AC-1）', () => {
         apiKey: 'sk-live-1234567890',
         models: { high: 'm-high', medium: 'm-medium', low: 'm-low' },
         maxTokens: null,
+        webSearch: false,
       },
     ];
     instancesFixture = [{ id: 2, name: '实例乙', engine: 'sdk', providerId: 1, isDefault: true }];

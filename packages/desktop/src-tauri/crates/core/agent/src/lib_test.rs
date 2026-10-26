@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
 use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
+// 新块词汇的 crate 根再导出面（`AgentBlock::WebSearch` / `Text.citations` 的
+// 类型依赖；`crate::AgentCitation` / `crate::WebSearchSource` 任一漏导出即编译
+// 失败——机械补位，不新增断言语义）
 use crate::kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionQuery, SessionSink, TurnOutcome};
 use crate::runner::{
@@ -16,9 +19,49 @@ use crate::state::{AgentRunState, RunStateMachine};
 use crate::stream::{
     SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionStreamSubscription,
 };
+use crate::{AgentCitation, WebSearchSource};
 
 /// crate 根 use 可达性锚定：上列导入任一破坏即编译失败。构造形态断言确保
 /// 导入非仅「被 use」而确可用。
+#[test]
+fn crate根导出面锚定_引用与搜索来源类型可达且可构造() {
+    let citation = AgentCitation {
+        url: Some("https://a/1".to_owned()),
+        title: Some("标题".to_owned()),
+        cited_text: Some("片段".to_owned()),
+        raw: serde_json::json!({ "url": "https://a/1" }),
+    };
+    assert_eq!(citation.url.as_deref(), Some("https://a/1"));
+
+    let source = WebSearchSource {
+        url: "https://a/1".to_owned(),
+        title: None,
+        page_age: None,
+    };
+    assert_eq!(source.url, "https://a/1");
+
+    // 两类型经块变体可用（`Text.citations` / `WebSearch.results` 的真实承载位）
+    let block = AgentBlock::Text {
+        text: "正文".to_owned(),
+        citations: Some(vec![citation]),
+    };
+    assert!(matches!(
+        block,
+        AgentBlock::Text {
+            citations: Some(_),
+            ..
+        }
+    ));
+    let block = AgentBlock::WebSearch {
+        id: "srvtoolu_1".to_owned(),
+        query: "q".to_owned(),
+        results: vec![source],
+        error: None,
+        raw_use: None,
+        raw_result: None,
+    };
+    assert!(matches!(block, AgentBlock::WebSearch { .. }));
+}
 #[test]
 fn crate根导出面锚定_session_port_kernel新模块类型可达() {
     // session 域契约类型构造形态
@@ -93,7 +136,8 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
     assert!(event.kind.is_delta());
     assert!(
         AgentBlock::Text {
-            text: String::new()
+            text: String::new(),
+            citations: None,
         } != AgentBlock::Thinking {
             thinking: String::new()
         }

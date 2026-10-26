@@ -1166,3 +1166,405 @@ describe('IR 三层私有性（D11）：公共面仍为两入口', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// web_search 服务端工具块映射（AC-9）：工具卡管线承载 + 两视野配对
+// ---------------------------------------------------------------------------
+
+/** `web_search` 来源 fixture（serde camelCase 线格式）。 */
+function searchSource(url: string, title: string | null = null) {
+  return { url, title, pageAge: null };
+}
+
+/** use 侧 `webSearch` 块（`rawUse != null` 即 use 侧）。 */
+function searchUseBlock(
+  id: string,
+  query: string,
+  rawResult: unknown = null,
+  results: ReturnType<typeof searchSource>[] = [],
+): AgentBlock {
+  return {
+    kind: 'webSearch',
+    id,
+    query,
+    results,
+    error: null,
+    rawUse: { type: 'server_tool_use', id, name: 'web_search', input: { query } },
+    rawResult,
+  };
+}
+
+/** result 侧 `webSearch` 块（`rawUse == null` 即 result 侧）。 */
+function searchResultBlock(
+  id: string,
+  results: ReturnType<typeof searchSource>[],
+  error: string | null = null,
+): AgentBlock {
+  return {
+    kind: 'webSearch',
+    id,
+    query: '',
+    results,
+    error,
+    rawUse: null,
+    rawResult: { type: 'web_search_tool_result', tool_use_id: id },
+  };
+}
+
+describe('agent-adapter：web_search 未配对 use 侧与同消息配对态', () => {
+  it('未配对 use 侧 → 单个 tool-web_search 部件、input-available、input 深等于 { query }、无 output 键', () => {
+    const messages = eventsToUIMessages([message(1, [searchUseBlock('srvtoolu_1', '今日汇率')])]);
+
+    const part = messages[0]?.parts[0];
+    expect(part).toEqual({
+      type: 'tool-web_search',
+      toolCallId: 'srvtoolu_1',
+      state: 'input-available',
+      input: { query: '今日汇率' },
+    });
+    expect(part !== undefined && 'output' in part).toBe(false);
+    // AgentDataParts 成员零新增：不产任何 data-* 部件
+    expect(messages[0]?.parts.every((entry) => !entry.type.startsWith('data-'))).toBe(true);
+  });
+
+  it('use 块自带 rawResult（pause_turn 未拆分）→ output-available 且 output 为加位形态', () => {
+    const results = [searchSource('https://a/1', '甲'), searchSource('https://b/2')];
+    const messages = eventsToUIMessages([
+      message(1, [searchUseBlock('srvtoolu_2', '查询词', { type: 'x' }, results)]),
+    ]);
+
+    const part = messages[0]?.parts[0];
+    expect(part?.type).toBe('tool-web_search');
+    expect(part?.type === 'tool-web_search' && part.state).toBe('output-available');
+    expect(part?.type === 'tool-web_search' && part.output).toEqual({
+      content: '',
+      isError: false,
+      search: { results, error: null },
+    });
+  });
+
+  it('error 在场 → isError 为 true、search.error 为错误码、search.results 为空数组（非 null）', () => {
+    // 错误载荷在 result 侧块：use 侧不带自身 rawResult，故 output 取配对命中
+    const messages = eventsToUIMessages([
+      message(1, [searchUseBlock('srvtoolu_err', '超限')]),
+      message(2, [searchResultBlock('srvtoolu_err', [], 'max_uses_exceeded')]),
+    ]);
+
+    const part = messages[0]?.parts[0];
+    expect(part?.type === 'tool-web_search' && part.output).toEqual({
+      content: '',
+      isError: true,
+      search: { results: [], error: 'max_uses_exceeded' },
+    });
+  });
+});
+
+describe('agent-adapter：web_search 跨消息配对与孤儿 result 侧', () => {
+  it('消息 A 携 use、消息 B 携同 id result → 该 id 收敛为单个 tool 部件（result 侧不重复呈现）', () => {
+    const messages = eventsToUIMessages([
+      message(1, [searchUseBlock('srvtoolu_x', '跨消息查询')]),
+      message(2, [searchResultBlock('srvtoolu_x', [searchSource('https://x/1', '跨消息来源')])]),
+    ]);
+
+    expect(messages[0]?.parts).toEqual([
+      {
+        type: 'tool-web_search',
+        toolCallId: 'srvtoolu_x',
+        state: 'output-available',
+        input: { query: '跨消息查询' },
+        output: {
+          content: '',
+          isError: false,
+          search: { results: [searchSource('https://x/1', '跨消息来源')], error: null },
+        },
+      },
+    ]);
+    expect(messages[1]?.parts).toEqual([]);
+  });
+
+  it('孤儿 result 侧（无配对 use）→ input 为 null、output.search 携来源、toolCallId 取块 id', () => {
+    const messages = eventsToUIMessages([
+      message(3, [searchResultBlock('srvtoolu_orphan', [searchSource('https://o/1', '孤儿来源')])]),
+    ]);
+
+    expect(messages[0]?.parts).toEqual([
+      {
+        type: 'tool-web_search',
+        toolCallId: 'srvtoolu_orphan',
+        state: 'output-available',
+        input: null,
+        output: {
+          content: '',
+          isError: false,
+          search: { results: [searchSource('https://o/1', '孤儿来源')], error: null },
+        },
+      },
+    ]);
+  });
+
+  it('两视野差异显式锁定：折叠路单卡 output-available；实时路 input-available + 孤儿 output-available', () => {
+    const events = [
+      message(1, [searchUseBlock('srvtoolu_view', '视野查询')]),
+      message(2, [searchResultBlock('srvtoolu_view', [searchSource('https://v/1')])]),
+    ];
+
+    // 折叠路（global 视野）
+    const folded = eventsToUIMessages(events);
+    expect(folded[0]?.parts).toHaveLength(1);
+    expect(folded[0]?.parts[0]?.type === 'tool-web_search' && folded[0]?.parts[0]?.state).toBe(
+      'output-available',
+    );
+    expect(folded[1]?.parts).toEqual([]);
+
+    // 实时路（local 视野：仅当前 message 内配对）
+    const toolChunks = events
+      .flatMap((event) => eventToChunk(event))
+      .filter((chunk) => chunk.type.startsWith('tool-'));
+    expect(toolChunks).toEqual([
+      {
+        type: 'tool-input-available',
+        toolCallId: 'srvtoolu_view',
+        toolName: 'web_search',
+        input: { query: '视野查询' },
+      },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'srvtoolu_view',
+        toolName: 'web_search',
+        input: null,
+      },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'srvtoolu_view',
+        output: {
+          content: '',
+          isError: false,
+          search: { results: [searchSource('https://v/1')], error: null },
+        },
+      },
+    ]);
+
+    // 同消息配对时两入口产物相等
+    const sameMessage = [message(4, [searchUseBlock('srvtoolu_same', '同消息查询')])];
+    const sameFolded = eventsToUIMessages(sameMessage);
+    const sameChunks = eventToChunk(sameMessage[0]);
+    expect(
+      sameChunks.filter(
+        (chunk) => chunk.type === 'tool-input-available' || chunk.type === 'tool-output-available',
+      ),
+    ).toEqual([
+      {
+        type: 'tool-input-available',
+        toolCallId: 'srvtoolu_same',
+        toolName: 'web_search',
+        input: { query: '同消息查询' },
+      },
+    ]);
+    expect(sameFolded[0]?.parts).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// text 块 citations → providerMetadata.agent.citations（AC-9 / D12）
+// ---------------------------------------------------------------------------
+
+/** 引用 fixture（`raw` 为原始 wire 值）。 */
+function citation(url: string | null, title: string | null = null) {
+  return { url, title, citedText: null, raw: { url, title } };
+}
+
+describe('agent-adapter：text 部件 citations metadata', () => {
+  it('两条同 url 引用原样进部件（去重责任在呈现层），metadata 深等于 { agent: { citations } }', () => {
+    const citations = [citation('https://dup/1', '甲'), citation('https://dup/1', '乙')];
+    const messages = eventsToUIMessages([
+      message(1, [{ kind: 'text', text: '带引用正文', citations }]),
+    ]);
+
+    const part = messages[0]?.parts[0];
+    expect(part?.type === 'text' && part.providerMetadata).toEqual({ agent: { citations } });
+    // 命名空间为 agent：不存在 anthropic 键
+    expect(part?.type === 'text' && part.providerMetadata).not.toHaveProperty('anthropic');
+  });
+
+  it('citations 为空数组 / 键缺席 / null → providerMetadata 为 undefined（不挂空壳）', () => {
+    const cases: AgentBlock[] = [
+      { kind: 'text', text: '空数组', citations: [] },
+      { kind: 'text', text: '键缺席' },
+      { kind: 'text', text: 'null', citations: null },
+    ];
+
+    for (const block of cases) {
+      const part = eventsToUIMessages([message(1, [block])])[0]?.parts[0];
+      expect(part?.type === 'text' && part.providerMetadata).toBeUndefined();
+    }
+  });
+
+  it('chunk 路：text-start 与 text-delta 带同一份 metadata，text-end 不带；经 reducer 归约后与折叠路同形', async () => {
+    const citations = [citation('https://cite/1', '引用标题')];
+    const events: AgentEvent[] = [message(1, [{ kind: 'text', text: 'chunk 正文', citations }])];
+
+    const chunks = eventToChunk(events[0]);
+    const start = chunks.find((chunk) => chunk.type === 'text-start');
+    const delta = chunks.find((chunk) => chunk.type === 'text-delta');
+    const end = chunks.find((chunk) => chunk.type === 'text-end');
+
+    expect(start?.type === 'text-start' && start.providerMetadata).toEqual({
+      agent: { citations },
+    });
+    expect(delta?.type === 'text-delta' && delta.providerMetadata).toEqual({
+      agent: { citations },
+    });
+    expect(end?.type === 'text-end' && end.providerMetadata).toBeUndefined();
+    // 同一份对象（引用相等）：metadata 合并语义为覆盖非累加
+    expect(start?.type === 'text-start' ? start.providerMetadata : null).toBe(
+      delta?.type === 'text-delta' ? delta.providerMetadata : undefined,
+    );
+
+    // 折叠路同形
+    const foldedPart = eventsToUIMessages(events)[0]?.parts[0];
+    const reduced = await reducedMessages(events);
+    expect(reduced[0]?.parts[0]?.type === 'text' && reduced[0]?.parts[0]?.providerMetadata).toEqual(
+      foldedPart?.type === 'text' ? foldedPart.providerMetadata : undefined,
+    );
+  });
+
+  it('chunk 路空 citations：三组 chunk 均不带 metadata', () => {
+    const chunks = eventToChunk(message(1, [{ kind: 'text', text: '无引用', citations: [] }]));
+
+    for (const chunk of chunks) {
+      if (chunk.type === 'text-start' || chunk.type === 'text-delta' || chunk.type === 'text-end') {
+        expect(chunk.providerMetadata).toBeUndefined();
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// web_search 计划层边界与整体映射（组合 / 异常 / 边界）
+// ---------------------------------------------------------------------------
+
+describe('agent-adapter：web_search 取值边界与未知变体', () => {
+  it('query 空串 / 超长 / 含 emoji 与换行、results 空与 100 条均产出部件不 panic', () => {
+    const longQuery = `${'查'.repeat(1200)}\nemoji 🎉`;
+    const manySources = Array.from({ length: 100 }, (_, index) =>
+      searchSource(`https://many/${index}`, `来源 ${index}`),
+    );
+
+    for (const [query, results] of [
+      ['', []],
+      [longQuery, manySources],
+    ] as [string, ReturnType<typeof searchSource>[]][]) {
+      const messages = eventsToUIMessages([
+        message(1, [searchUseBlock('srvtoolu_edge', query, { type: 'x' }, results)]),
+      ]);
+      const part = messages[0]?.parts[0] as unknown as AgentToolPart;
+      expect(part.type).toBe('tool-web_search');
+      expect(part.input).toEqual({ query });
+      expect(part.state).toBe('output-available');
+      expect(part.state === 'output-available' ? part.output.search?.results.length : -1).toBe(
+        results.length,
+      );
+    }
+  });
+
+  it('rawUse 为空对象（非 null）仍判 use 侧：查询词取自块 query 字段而非 rawUse', () => {
+    const messages = eventsToUIMessages([
+      message(1, [{ kind: 'webSearch', id: 'srvtoolu_obj', query: '块字段查询词', rawUse: {} }]),
+    ]);
+
+    expect(messages[0]?.parts[0]).toEqual({
+      type: 'tool-web_search',
+      toolCallId: 'srvtoolu_obj',
+      state: 'input-available',
+      input: { query: '块字段查询词' },
+    });
+  });
+
+  it('线格式四键全缺省形态按 rawUse 值判 result 侧：无配对产孤儿 plan、有配对被消费', () => {
+    // D1 第四稿：缺省键恒在（results: [] / error: null / rawUse: null / rawResult: null），
+    // 判别必须取值而非「键是否存在」
+    const defaults = {
+      kind: 'webSearch',
+      id: 'srvtoolu_defaults',
+      query: '',
+      results: [],
+      error: null,
+      rawUse: null,
+      rawResult: null,
+    } as AgentBlock;
+
+    // 无配对 → 孤儿 plan（input: null，载荷不丢）
+    expect(eventsToUIMessages([message(1, [defaults])])[0]?.parts).toEqual([
+      {
+        type: 'tool-web_search',
+        toolCallId: 'srvtoolu_defaults',
+        state: 'output-available',
+        input: null,
+        output: { content: '', isError: false, search: { results: [], error: null } },
+      },
+    ]);
+
+    // 有配对 → 被 use 消费、返回 null（不重复呈现）
+    const paired = eventsToUIMessages([
+      message(2, [searchUseBlock('srvtoolu_defaults', '配对查询')]),
+      message(3, [defaults]),
+    ]);
+    expect(paired[0]?.parts).toHaveLength(1);
+    expect(paired[1]?.parts).toEqual([]);
+  });
+
+  it('运行时未知块变体（未来新增）→ 不产部件、不抛错、不产 data-raw 兜底', () => {
+    const unknownBlock = { kind: 'futureBlock', text: '未知' } as unknown as AgentBlock;
+    const messages = eventsToUIMessages([message(1, [unknownBlock])]);
+
+    expect(messages[0]?.parts).toEqual([]);
+  });
+
+  it('五变体事件序列整体映射：块序保原序、搜索两态可辨、data 部件成员零新增', () => {
+    const events: AgentEvent[] = [
+      runStarted(0),
+      message(2, [
+        { kind: 'text', text: '带引用正文', citations: [citation('https://cite/1')] },
+        { kind: 'thinking', thinking: '先想一下' },
+        { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } },
+        { kind: 'toolResult', id: 'tu_1', content: '目录内容', isError: false },
+        searchUseBlock('srvtoolu_pair', '已配对查询'),
+        searchUseBlock('srvtoolu_wait', '未配对查询'),
+      ]),
+      message(3, [
+        searchResultBlock('srvtoolu_pair', [searchSource('https://pair/1', '配对来源')]),
+      ]),
+      systemNotice(4),
+      turnDone(5),
+      raw(6),
+    ];
+
+    const messages = eventsToUIMessages(events);
+    const assistantParts = messages[1]?.parts ?? [];
+
+    expect(assistantParts.map((part) => part.type)).toEqual([
+      'text',
+      'reasoning',
+      'tool-Bash',
+      'tool-web_search',
+      'tool-web_search',
+    ]);
+    // 搜索两态：已配对 output-available、未配对 input-available
+    expect(assistantParts[3]?.type === 'tool-web_search' && assistantParts[3]?.state).toBe(
+      'output-available',
+    );
+    expect(assistantParts[4]?.type === 'tool-web_search' && assistantParts[4]?.state).toBe(
+      'input-available',
+    );
+    // AgentDataParts 成员零新增：无 data-citations / data-web-search 部件
+    const partTypes = messages.flatMap((entry) => entry.parts.map((part) => part.type));
+    expect(partTypes).not.toContain('data-citations');
+    expect(partTypes).not.toContain('data-web-search');
+    expect(partTypes.filter((type) => type.startsWith('data-')).sort()).toEqual([
+      'data-raw',
+      'data-run-result',
+      'data-run-started',
+      'data-system-notice',
+    ]);
+  });
+});

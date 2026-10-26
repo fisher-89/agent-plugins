@@ -1,0 +1,352 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.97s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+diff --git a/packages/desktop/src/types/generated/bindings.ts b/packages/desktop/src/types/generated/bindings.ts
+index d0b73ec6a365..f507e9b4f9b4 100644
+--- a/packages/desktop/src/types/generated/bindings.ts
++++ b/packages/desktop/src/types/generated/bindings.ts
+@@ -68,15 +68,19 @@ export const commands = {
+ 	 *  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
+ 	 * 
+ 	 *  参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
+-	 *  配置核心项，签名上显式。
++	 *  配置核心项，签名上显式；`web_search` 居末位（provider 属性，缺省关）。
+ 	 * 
+ 	 *  保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
+ 	 *  `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
+ 	 *  规则）；`max_tokens` 非空时 SHALL `>= MIN_OUTPUT_TOKENS`（`< 4096` 拒收，
+ 	 *  不静默截断或夹到边界）。错误串只含档位名 / 模型名原文 / 下限——结构上
+ 	 *  不含 api_key。
++	 * 
++	 *  `web_search` **不因协议拒收或清零**（openai 下同收原值）——生效门在运行
++	 *  发起解析期（`provider.web_search && protocol == Anthropic`），保存期纠偏
++	 *  会让「先开开关后改协议」与「先改协议后开开关」收敛到不同记录形态。
+ 	 */
+-	saveAgentProvider: (id: number | null, name: string, protocol: AgentProviderProtocol, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null, maxTokens: number | null) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, protocol, baseUrl, apiKey, models, contextLength, maxTokens }),
++	saveAgentProvider: (id: number | null, name: string, protocol: AgentProviderProtocol, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null, maxTokens: number | null, webSearch: boolean) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, protocol, baseUrl, apiKey, models, contextLength, maxTokens, webSearch }),
+ 	/**  删除 provider：被 agent 引用 reject（含引用方提示，不级联） */
+ 	deleteAgentProvider: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_provider", { id }),
+ 	/**  agent 实例清单（主键 id 升序）。 */
+@@ -99,7 +103,7 @@ export const commands = {
+ 	 *  命令体零校验逻辑。
+ 	 */
+ 	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
+-	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null, cwd: string | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd }),
++	agentStart: (onEvent: Channel<AgentRunMessage_Deserialize>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null, cwd: string | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd }),
+ 	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
+ 	/**
+ 	 *  会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，
+@@ -108,14 +112,14 @@ export const commands = {
+ 	 *  幂等立即 `Ok(())`；广播溢出（lagged）与条目除名（closed）均以断流收尾，
+ 	 *  MUST NOT 投递伪终态。
+ 	 */
+-	agentSessionWatch: (onEvent: Channel<AgentRunMessage>, root: string, sessionId: string, sinceSeq: number) => __TAURI_INVOKE<null>("agent_session_watch", { onEvent, root, sessionId, sinceSeq }),
++	agentSessionWatch: (onEvent: Channel<AgentRunMessage_Deserialize>, root: string, sessionId: string, sinceSeq: number) => __TAURI_INVOKE<null>("agent_session_watch", { onEvent, root, sessionId, sinceSeq }),
+ 	/**  会话清单分页 + 聚合统计 */
+ 	agentSessions: (root: string, source: string | null, sourceRef: string | null, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("agent_sessions", { root, source, sourceRef, offset, limit }),
+ 	/**
+ 	 *  会话全史转录重放（密封事件 seq 序，不要求运行进程存活）；blank root →
+ 	 *  空结果。
+ 	 */
+-	agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent[]>("agent_session_transcript", { root, sessionId }),
++	agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent_Serialize[]>("agent_session_transcript", { root, sessionId }),
+ 	/**
+ 	 *  按 id 单查会话（行 + 聚合统计 + 轮行）：root 寻址所属 workspace 库直查
+ 	 *  DTO，跨库隔离与既有查询命令一致；blank root → 空结果（`None`）；查无此
+@@ -268,16 +272,136 @@ export type ActiveRunView = {
+ 	edges: ChangeRunEdgeRecord[],
+ };
+ 
+-/**  消息内块：Text / Thinking / ToolUse / ToolResult 四变体（tag `kind`，camelCase）。 */
+-export type AgentBlock = 
+-/**  文本块（assistant 正文 / user 输入） */
+-{ kind: "text"; text: string } | 
++/**
++ *  消息内块：Text / Thinking / ToolUse / ToolResult / WebSearch 五变体
++ *  （tag `kind`，camelCase）。
++ * 
++ *  词汇仍**协议中立**（core 不认识 anthropic / rig）：`WebSearch` 是 provider
++ *  服务端工具块的通用表达，`citations` 是其正文引用——
++ *  - `raw_use` / `raw_result` 为**回放唯一事实源**（`encrypted_content` 等不可
++ *    推导字段原样保全，展示字段 MUST NOT 参与重建）；
++ *  - `citations` 与 `WebSearch` 均为新变体 / 带默认值字段，事件 payload 是自
++ *    描述 JSON，落库**无需 store schema 版本升级**；旧事件缺 `citations` 读出
++ *    `None`。
++ * 
++ *  已知代价（边界条 15）：旧客户端读到含 `WebSearch` 块的事件会在**整条事件
++ *  解码**时失败（不是少显示一张卡），仓库不提供降级分支。
++ */
++export type AgentBlock = AgentBlock_Serialize | AgentBlock_Deserialize;
++
++/**
++ *  消息内块：Text / Thinking / ToolUse / ToolResult / WebSearch 五变体
++ *  （tag `kind`，camelCase）。
++ * 
++ *  词汇仍**协议中立**（core 不认识 anthropic / rig）：`WebSearch` 是 provider
++ *  服务端工具块的通用表达，`citations` 是其正文引用——
++ *  - `raw_use` / `raw_result` 为**回放唯一事实源**（`encrypted_content` 等不可
++ *    推导字段原样保全，展示字段 MUST NOT 参与重建）；
++ *  - `citations` 与 `WebSearch` 均为新变体 / 带默认值字段，事件 payload 是自
++ *    描述 JSON，落库**无需 store schema 版本升级**；旧事件缺 `citations` 读出
++ *    `None`。
++ * 
++ *  已知代价（边界条 15）：旧客户端读到含 `WebSearch` 块的事件会在**整条事件
++ *  解码**时失败（不是少显示一张卡），仓库不提供降级分支。
++ */
++export type AgentBlock_Deserialize = 
++/**
++ *  文本块（assistant 正文 / user 输入）：`citations` 为正文引用
++ *  （`None` / 空 = 无引用，序列化不落键——旧 JSON 读出 `None`）
++ */
++({ kind: "text"; text: string; citations?: AgentCitation[] | null }) & { content?: never; error?: never; id?: never; input?: never; isError?: never; name?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; thinking?: never } | 
++/**  思考块 */
++({ kind: "thinking"; thinking: string }) & { citations?: never; content?: never; error?: never; id?: never; input?: never; isError?: never; name?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; text?: never } | 
++/**  工具调用块（`input` 为原 JSON，结构由具体工具自解释） */
++({ kind: "toolUse"; id: string; name: string; input: unknown }) & { citations?: never; content?: never; error?: never; isError?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; text?: never; thinking?: never } | 
++/**  工具结果块（`content` 已扁平化为字符串；`is_error` 缺失视作 false） */
++({ kind: "toolResult"; id: string; content: string; isError: boolean }) & { citations?: never; error?: never; input?: never; name?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; text?: never; thinking?: never } | 
++/**
++ *  云端 `web_search` 服务端工具块：一次 `server_tool_use` 与其配对 result
++ *  的**原子表达**（`id` 同两侧配对键）。
++ * 
++ *  `query` / `results` / `error` 为展示字段（不参与回放重建）；
++ *  `raw_use` / `raw_result` 为回放唯一事实源。use 与 result 被拆进两条
++ *  assistant 消息时投两块（use 侧 `raw_use` 有值、result 侧为 `None`）。
++ */
++({ kind: "webSearch"; 
++/**  服务端工具调用 id（= 配对 result 的 `tool_use_id`） */
++id: string; 
++/**  查询词（`server_tool_use.input.query`；孤儿 result 块为空串） */
++query: string; 
++/**  来源列表（展示字段；空数组序列化不落键） */
++results?: WebSearchSource[]; 
++/**  搜索错误码（`web_search_tool_result_error.error_code`） */
++error?: string | null; 
++/**  原始 wire 值（`server_tool_use` 原文；回放源） */
++rawUse?: unknown | null; 
++/**  原始 wire 值（`web_search_tool_result` 原文；回放源） */
++rawResult?: unknown | null }) & { citations?: never; content?: never; input?: never; isError?: never; name?: never; text?: never; thinking?: never };
++
++/**
++ *  消息内块：Text / Thinking / ToolUse / ToolResult / WebSearch 五变体
++ *  （tag `kind`，camelCase）。
++ * 
++ *  词汇仍**协议中立**（core 不认识 anthropic / rig）：`WebSearch` 是 provider
++ *  服务端工具块的通用表达，`citations` 是其正文引用——
++ *  - `raw_use` / `raw_result` 为**回放唯一事实源**（`encrypted_content` 等不可
++ *    推导字段原样保全，展示字段 MUST NOT 参与重建）；
++ *  - `citations` 与 `WebSearch` 均为新变体 / 带默认值字段，事件 payload 是自
++ *    描述 JSON，落库**无需 store schema 版本升级**；旧事件缺 `citations` 读出
++ *    `None`。
++ * 
++ *  已知代价（边界条 15）：旧客户端读到含 `WebSearch` 块的事件会在**整条事件
++ *  解码**时失败（不是少显示一张卡），仓库不提供降级分支。
++ */
++export type AgentBlock_Serialize = 
++/**
++ *  文本块（assistant 正文 / user 输入）：`citations` 为正文引用
++ *  （`None` / 空 = 无引用，序列化不落键——旧 JSON 读出 `None`）
++ */
++({ kind: "text"; text: string; citations?: AgentCitation[] | null }) & { content?: never; error?: never; id?: never; input?: never; isError?: never; name?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; thinking?: never } | 
+ /**  思考块 */
+-{ kind: "thinking"; thinking: string } | 
++({ kind: "thinking"; thinking: string }) & { citations?: never; content?: never; error?: never; id?: never; input?: never; isError?: never; name?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; text?: never } | 
+ /**  工具调用块（`input` 为原 JSON，结构由具体工具自解释） */
+-{ kind: "toolUse"; id: string; name: string; input: unknown } | 
++({ kind: "toolUse"; id: string; name: string; input: unknown }) & { citations?: never; content?: never; error?: never; isError?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; text?: never; thinking?: never } | 
+ /**  工具结果块（`content` 已扁平化为字符串；`is_error` 缺失视作 false） */
+-{ kind: "toolResult"; id: string; content: string; isError: boolean };
++({ kind: "toolResult"; id: string; content: string; isError: boolean }) & { citations?: never; error?: never; input?: never; name?: never; query?: never; rawResult?: never; rawUse?: never; results?: never; text?: never; thinking?: never } | 
++/**
++ *  云端 `web_search` 服务端工具块：一次 `server_tool_use` 与其配对 result
++ *  的**原子表达**（`id` 同两侧配对键）。
++ * 
++ *  `query` / `results` / `error` 为展示字段（不参与回放重建）；
++ *  `raw_use` / `raw_result` 为回放唯一事实源。use 与 result 被拆进两条
++ *  assistant 消息时投两块（use 侧 `raw_use` 有值、result 侧为 `None`）。
++ */
++({ kind: "webSearch"; 
++/**  服务端工具调用 id（= 配对 result 的 `tool_use_id`） */
++id: string; 
++/**  查询词（`server_tool_use.input.query`；孤儿 result 块为空串） */
++query: string; 
++/**  来源列表（展示字段；空数组序列化不落键） */
++results?: WebSearchSource[]; 
++/**  搜索错误码（`web_search_tool_result_error.error_code`） */
++error?: string | null; 
++/**  原始 wire 值（`server_tool_use` 原文；回放源） */
++rawUse?: unknown | null; 
++/**  原始 wire 值（`web_search_tool_result` 原文；回放源） */
++rawResult?: unknown | null }) & { citations?: never; content?: never; input?: never; isError?: never; name?: never; text?: never; thinking?: never };
++
++/**
++ *  正文引用（服务端 citations 的一条）：`url` / `title` / `cited_text` 为展示
++ *  字段（可缺省）；`raw` 为原始 wire 值（回放用，反序列化再序列化会规范化，
++ *  故 MUST 原值保全）。
++ */
++export type AgentCitation = {
++	/**  来源地址 */
++	url?: string | null,
++	/**  来源标题 */
++	title?: string | null,
++	/**  被引用的原文片段 */
++	citedText?: string | null,
++	/**  原始 wire 值（回放源；不经类型往返） */
++	raw: unknown,
++};
+ 
+ /**  token 级增量载荷（思考/回复可辨；serde 内部 tag camelCase，与块模型同式）。 */
+ export type AgentDelta = 
+@@ -307,32 +431,71 @@ export type AgentEngineKind =
+  *  统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
+  *  `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
+  */
+-export type AgentEvent = {
+-	/**  单调序号，会话级续排 */
+-	seq: number,
+-	/**  事件盖戳时刻（UTC unix 毫秒） */
+-	timestampMs: number,
+-} & AgentEventKind;
++export type AgentEvent = AgentEvent_Serialize | AgentEvent_Deserialize;
++
++export type AgentEventKind = AgentEventKind_Serialize | AgentEventKind_Deserialize;
+ 
+-export type AgentEventKind = 
++export type AgentEventKind_Deserialize = 
+ /**  run 启动（源自 system/init）：模型、会话、工具与 MCP 服务器清单 */
+-{ kind: "runStarted"; model: string | null; sessionId: string | null; tools: string[]; mcpServers: string[] } | 
++({ kind: "runStarted"; model: string | null; sessionId: string | null; tools: string[]; mcpServers: string[] }) & { blocks?: never; costUsd?: never; delta?: never; durationMs?: never; eventType?: never; isError?: never; numTurns?: never; parentToolUseId?: never; payload?: never; rawJson?: never; role?: never; subtype?: never; usage?: never } | 
+ /**
+  *  token 级增量（ephemeral）：只上传输面，store 永不见；配对键沿用
+  *  `parent_tool_use_id` 词汇（子代理归因一处两用）
+  */
+-{ kind: "messageDelta"; parentToolUseId: string | null; delta: AgentDelta } | 
++({ kind: "messageDelta"; parentToolUseId: string | null; delta: AgentDelta }) & { blocks?: never; costUsd?: never; durationMs?: never; eventType?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; payload?: never; rawJson?: never; role?: never; sessionId?: never; subtype?: never; tools?: never; usage?: never } | 
+ /**  对话消息（user 言语 / assistant 回应 / tool 结果管道） */
+-{ kind: "message"; role: AgentMessageRole; blocks: AgentBlock[]; parentToolUseId: string | null } | 
++({ kind: "message"; role: AgentMessageRole; blocks: AgentBlock_Deserialize[]; parentToolUseId: string | null }) & { costUsd?: never; delta?: never; durationMs?: never; eventType?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; payload?: never; rawJson?: never; sessionId?: never; subtype?: never; tools?: never; usage?: never } | 
+ /**  system 通知（permission_denial / api_retry 等，subtype 不做封闭枚举） */
+-{ kind: "systemNotice"; subtype: string; payload: unknown } | 
++({ kind: "systemNotice"; subtype: string; payload: unknown }) & { blocks?: never; costUsd?: never; delta?: never; durationMs?: never; eventType?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; parentToolUseId?: never; rawJson?: never; role?: never; sessionId?: never; tools?: never; usage?: never } | 
+ /**
+  *  轮收敛事件：唯一驱动状态机收敛的变体，字段面 = 统计唯一口径（由内核
+  *  收口写轮行，引擎无第二口径）
+  */
+-{ kind: "turnDone"; subtype: string; isError: boolean; numTurns: number | null; durationMs: number | null; costUsd: number | null; usage: unknown; sessionId: string | null } | 
++({ kind: "turnDone"; subtype: string; isError: boolean; numTurns: number | null; durationMs: number | null; costUsd: number | null; usage: unknown; sessionId: string | null }) & { blocks?: never; delta?: never; eventType?: never; mcpServers?: never; model?: never; parentToolUseId?: never; payload?: never; rawJson?: never; role?: never; tools?: never } | 
+ /**  未识别事件透传（未知 type / 非 JSON 行）：原文完整保留 */
+-{ kind: "raw"; eventType: string; rawJson: string };
++({ kind: "raw"; eventType: string; rawJson: string }) & { blocks?: never; costUsd?: never; delta?: never; durationMs?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; parentToolUseId?: never; payload?: never; role?: never; sessionId?: never; subtype?: never; tools?: never; usage?: never };
++
++export type AgentEventKind_Serialize = 
++/**  run 启动（源自 system/init）：模型、会话、工具与 MCP 服务器清单 */
++({ kind: "runStarted"; model: string | null; sessionId: string | null; tools: string[]; mcpServers: string[] }) & { blocks?: never; costUsd?: never; delta?: never; durationMs?: never; eventType?: never; isError?: never; numTurns?: never; parentToolUseId?: never; payload?: never; rawJson?: never; role?: never; subtype?: never; usage?: never } | 
++/**
++ *  token 级增量（ephemeral）：只上传输面，store 永不见；配对键沿用
++ *  `parent_tool_use_id` 词汇（子代理归因一处两用）
++ */
++({ kind: "messageDelta"; parentToolUseId: string | null; delta: AgentDelta }) & { blocks?: never; costUsd?: never; durationMs?: never; eventType?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; payload?: never; rawJson?: never; role?: never; sessionId?: never; subtype?: never; tools?: never; usage?: never } | 
++/**  对话消息（user 言语 / assistant 回应 / tool 结果管道） */
++({ kind: "message"; role: AgentMessageRole; blocks: AgentBlock_Serialize[]; parentToolUseId: string | null }) & { costUsd?: never; delta?: never; durationMs?: never; eventType?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; payload?: never; rawJson?: never; sessionId?: never; subtype?: never; tools?: never; usage?: never } | 
++/**  system 通知（permission_denial / api_retry 等，subtype 不做封闭枚举） */
++({ kind: "systemNotice"; subtype: string; payload: unknown }) & { blocks?: never; costUsd?: never; delta?: never; durationMs?: never; eventType?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; parentToolUseId?: never; rawJson?: never; role?: never; sessionId?: never; tools?: never; usage?: never } | 
++/**
++ *  轮收敛事件：唯一驱动状态机收敛的变体，字段面 = 统计唯一口径（由内核
++ *  收口写轮行，引擎无第二口径）
++ */
++({ kind: "turnDone"; subtype: string; isError: boolean; numTurns: number | null; durationMs: number | null; costUsd: number | null; usage: unknown; sessionId: string | null }) & { blocks?: never; delta?: never; eventType?: never; mcpServers?: never; model?: never; parentToolUseId?: never; payload?: never; rawJson?: never; role?: never; tools?: never } | 
++/**  未识别事件透传（未知 type / 非 JSON 行）：原文完整保留 */
++({ kind: "raw"; eventType: string; rawJson: string }) & { blocks?: never; costUsd?: never; delta?: never; durationMs?: never; isError?: never; mcpServers?: never; model?: never; numTurns?: never; parentToolUseId?: never; payload?: never; role?: never; sessionId?: never; subtype?: never; tools?: never; usage?: never };
++
++/**
++ *  统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
++ *  `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
++ */
++export type AgentEvent_Deserialize = {
++	/**  单调序号，会话级续排 */
++	seq: number,
++	/**  事件盖戳时刻（UTC unix 毫秒） */
++	timestampMs: number,
++} & AgentEventKind_Deserialize;
++
++/**
++ *  统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
++ *  `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
++ */
++export type AgentEvent_Serialize = {
++	/**  单调序号，会话级续排 */
++	seq: number,
++	/**  事件盖戳时刻（UTC unix 毫秒） */
++	timestampMs: number,
++} & AgentEventKind_Serialize;
+ 
+ /**
+  *  agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（线值
+@@ -440,6 +603,13 @@ export type AgentProviderRecord = {
+ 	 *  anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
+ 	 */
+ 	maxTokens?: number | null,
++	/**
++	 *  是否启用 Anthropic 云端 `web_search` 服务端工具（缺省 `false`——存量
++	 *  行升级即关，行为零变化）。**生效门在解析期**（`provider.web_search &&
++	 *  protocol == Anthropic`）：保存期无条件接受（openai 下也原样入库，不
++	 *  拒收、不清零），纠偏只在运行发起解析单点
++	 */
++	webSearch?: boolean,
+ };
+ 
+ /**
+@@ -447,11 +617,29 @@ export type AgentProviderRecord = {
+  *  事件与终态轮行双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
+  *  对齐）。信封不含 record 语义——终态轮行塞进事件 usage 是反模式。
+  */
+-export type AgentRunMessage = 
++export type AgentRunMessage = AgentRunMessage_Serialize | AgentRunMessage_Deserialize;
++
++/**
++ *  `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
++ *  事件与终态轮行双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
++ *  对齐）。信封不含 record 语义——终态轮行塞进事件 usage 是反模式。
++ */
++export type AgentRunMessage_Deserialize = 
+ /**  实时事件（落库与流出同源同构） */
+-{ ipc: "event"; event: AgentEvent } | 
++({ ipc: "event"; event: AgentEvent_Deserialize }) & { record?: never } | 
+ /**  终态轮行（提前 resolve 契约的终态流出半边，与重放两路同构） */
+-{ ipc: "record"; record: TurnSummary };
++({ ipc: "record"; record: TurnSummary }) & { event?: never };
++
++/**
++ *  `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
++ *  事件与终态轮行双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
++ *  对齐）。信封不含 record 语义——终态轮行塞进事件 usage 是反模式。
++ */
++export type AgentRunMessage_Serialize = 
++/**  实时事件（落库与流出同源同构） */
++({ ipc: "event"; event: AgentEvent_Serialize }) & { record?: never } | 
++/**  终态轮行（提前 resolve 契约的终态流出半边，与重放两路同构） */
++({ ipc: "record"; record: TurnSummary }) & { event?: never };
+ 
+ /**
+  *  run 状态四档（落库 / 出线契约）：与 [`crate::state::AgentRunState`] 状态机
+@@ -1371,6 +1559,16 @@ export type TurnSummary = {
+ /**  评估 verdict。 */
+ export type Verdict = "pass" | "fail";
+ 
++/**  单条搜索来源（纯展示字段，不参与回放）。 */
++export type WebSearchSource = {
++	/**  来源地址 */
++	url: string,
++	/**  来源标题 */
++	title?: string | null,
++	/**  页面时效（服务端给出的 `page_age` 原样） */
++	pageAge?: string | null,
++};
++
+ /**
+  *  永远合法的完整工作区配置：合法字段原样保留、违例字段吃默认、未知字段
+  *  进 `extra`。只序列化方向（组装层 `assemble` 从原文 `Value` 逐字段判定
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.
