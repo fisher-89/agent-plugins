@@ -33,7 +33,7 @@ specta-typescript = { workspace = true }
 store = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
-tauri-plugin-devtools = "2.2.1"
+tauri-plugin-devtools = "=2.2.2"
 tauri-plugin-opener = { workspace = true }
 tauri-specta = { workspace = true }
 tokei = { workspace = true }
@@ -96,23 +96,16 @@ specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 store = { path = "crates/infra/store" }
 tempfile = "3"
-# change 身份锚铸造（写面 create 单点消费，uuid v7 主键自然序 ≈ 建档序；普通
-# 依赖——纯 id 生成无 infra / 进程面，不破 crate 依赖方向）
 uuid = { version = "1", features = ["v7"] }
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 tokei = { version = "=13.0.0", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }
-tauri = { version = "2", features = ["specta", "devtools"] }
-tauri-build = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-# 外链打开（agent 搜索来源 / 引用列表的唯一前端调用点）。**锁内固定 2.5.x**：
-# 2.6+ 要求 tauri ^2.12，会把整条 tauri 运行时栈从 2.11 抬到 2.12，而该组合
-# 在本仓的 Windows manifest 注入形态下链接失败（`__CxxFrameHandler3` 未解析）；
-# 2.5.x 的权限面（allow-open-url + url scope）与 JS 侧 openUrl 调用契约不变，
-# 运行时栈整体升级时再一并抬。
-tauri-plugin-opener = "2"
+tauri = { version = "=2.12.5", features = ["specta", "devtools"] }
+tauri-build = { version = "=2.7.4", features = [] }
+tauri-plugin-dialog = "=2.8.3"
+tauri-plugin-opener = "=2.7.2"
 vcs-runtime = { path = "crates/infra/vcs" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-single-instance = "2"
-tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "=2.5.4"
+tauri-plugin-updater = "=2.14.0"
