@@ -1,3 +1,5 @@
+import { memo, useMemo } from 'react';
+
 import type { ArtifactEnvelope, ExploreDoc } from '../../../types/dto';
 import { MarkdownDocRenderer } from '../../changes/renderers/markdown-doc-renderer';
 
@@ -26,11 +28,9 @@ function toEnvelope(doc: ExploreDoc): ArtifactEnvelope {
  * 未落盘 / 已删除呈空态（记录保留、不报错），文件（重）出现后经 watch 信号
  * 恢复内容。watch 信号为失效信号（无内容），刷新一律显式拉取。
  */
-export function ExplorePreview({
-  doc,
-  loading,
-  onRefresh,
-}: ExplorePreviewProps): React.JSX.Element {
+function ExplorePreviewBase({ doc, loading, onRefresh }: ExplorePreviewProps): React.JSX.Element {
+  // doc 引用只在 read/watch 刷新时变化；流式 delta 期间三者稳定。
+  const envelope = useMemo(() => (doc === null ? null : toEnvelope(doc)), [doc]);
   return (
     <section
       className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
@@ -55,16 +55,20 @@ export function ExplorePreview({
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {doc === null ? (
+        {envelope === null ? (
           <div className="text-muted-foreground" data-testid="preview-empty">
             笔记尚未落盘或已被删除。探索会话中 agent 会按主题落盘同名文件；文件出现后预览自动恢复。
           </div>
         ) : (
           <div data-testid="preview-doc">
-            <MarkdownDocRenderer envelope={toEnvelope(doc)} />
+            <MarkdownDocRenderer envelope={envelope} />
           </div>
         )}
       </div>
     </section>
   );
 }
+
+/** 流式 delta 只改对话区：doc/loading/onRefresh 稳定时右栏整棵子树跳过，
+ * 不再随每个 token 重解析笔记正文。调用点 MUST 传稳定引用（doc.refresh）。 */
+export const ExplorePreview = memo(ExplorePreviewBase);

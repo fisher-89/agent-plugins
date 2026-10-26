@@ -1050,6 +1050,10 @@ describe('ExploreDetailView：记录切换（并行流 ≤ 1）', () => {
     act(() => {
       channels.get('ses-a')?.onmessage?.({ ipc: 'event', event: deltaEvent(2, '旧会话迟到增量') });
     });
+    // 流式 messages 通知有节流窗：先冲刷一拍，确保该断言考察链路而非通知时序
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
     expect(bubbleTexts()).not.toContain('旧会话迟到增量');
 
     act(() => {

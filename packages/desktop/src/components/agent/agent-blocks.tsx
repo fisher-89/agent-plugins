@@ -1,4 +1,5 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -6,6 +7,9 @@ import type { AgentToolOutput, AgentToolPart, AgentUIMessage } from '../../lib/a
 import { asRecord, textOf } from '../../lib/parse';
 import type { AgentCitation } from '../../types/dto';
 import { ScrollArea } from '../ui/scroll-area';
+
+/** 模块级稳定引用：react-markdown 每次渲染都重建 processor，插件数组不必每拍新建 */
+const REMARK_PLUGINS = [remarkGfm];
 
 /** 消息部件 → tool 部件收窄（`tool-<name>` 命名，dynamic-tool 不在信封内） */
 export function isToolPart(part: AgentUIMessage['parts'][number]): part is AgentToolPart {
@@ -87,27 +91,54 @@ function CitationList({ citations }: { citations: AgentCitation[] }): React.JSX.
   );
 }
 
+/** citations 按渲染字段比较：`PartView` 每拍都重建数组/对象，默认浅比较必然
+ * 击穿 memo；`raw` 不参与呈现（`CitationList` 只用 url/title/citedText），不进
+ * 比较。未来若在卡面渲染新字段，必须同步加入此处。 */
+function sameCitations(left?: AgentCitation[], right?: AgentCitation[]): boolean {
+  if (left === right) return true;
+  const a = left ?? [];
+  const b = right ?? [];
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => {
+    const other = b[index];
+    return (
+      item.url === other.url && item.title === other.title && item.citedText === other.citedText
+    );
+  });
+}
+
 /** 文本块：markdown 渲染（GFM）+ 非空 citations 的底部引用列表 */
-export function TextBlock({
+function TextBlockBase({
   text,
   citations,
 }: {
   text: string;
   citations?: AgentCitation[];
 }): React.JSX.Element {
+  // 文本未变即复用同一 React 元素：React 的同元素引用 bailout 会跳过
+  // react-markdown 的 processor 重建与全量 parse（流式期间只解析变化中的文本）。
+  const markdown = useMemo(
+    () => <Markdown remarkPlugins={REMARK_PLUGINS}>{text}</Markdown>,
+    [text],
+  );
   return (
     <div
       className="prose prose-sm prose-invert max-w-none break-words [--tw-prose-links:var(--primary)] prose-pre:rounded prose-pre:bg-background prose-code:bg-background prose-code:text-foreground"
       data-testid="block-text"
     >
-      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+      {markdown}
       {citations !== undefined && citations.length > 0 && <CitationList citations={citations} />}
     </div>
   );
 }
 
+export const TextBlock = memo(
+  TextBlockBase,
+  (prev, next) => prev.text === next.text && sameCitations(prev.citations, next.citations),
+);
+
 /** 思考块：默认折叠 */
-export function ThinkingBlock({ text }: { text: string }): React.JSX.Element {
+function ThinkingBlockBase({ text }: { text: string }): React.JSX.Element {
   return (
     <details className="my-1" data-testid="block-thinking">
       <summary className="cursor-pointer text-xs text-muted-foreground">思考</summary>
@@ -118,8 +149,10 @@ export function ThinkingBlock({ text }: { text: string }): React.JSX.Element {
   );
 }
 
+export const ThinkingBlock = memo(ThinkingBlockBase);
+
 /** 工具对卡片：input 与同 id output 成对呈现（默认折叠，isError 高亮） */
-export function ToolPairCard({
+function ToolPairCardBase({
   name,
   toolCallId,
   input,
@@ -153,6 +186,8 @@ export function ToolPairCard({
   );
 }
 
+export const ToolPairCard = memo(ToolPairCardBase);
+
 /** 查询词：`input.query`（`input` 为 `null` / 非对象 / 无字符串 query → `null`，
  * 该行省略） */
 function searchQuery(input: unknown): string | null {
@@ -168,7 +203,7 @@ function searchQuery(input: unknown): string | null {
  * 「未落定 / 已落定」仅由 `output` 在场与否决定，两态视觉一致。body 三区：
  * 查询词 / 来源列表（`title ?? url`，按 url 去重）/ 错误码（非空时）。
  */
-export function WebSearchCard({
+function WebSearchCardBase({
   toolCallId,
   input,
   output,
@@ -214,3 +249,5 @@ export function WebSearchCard({
     </details>
   );
 }
+
+export const WebSearchCard = memo(WebSearchCardBase);

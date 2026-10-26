@@ -615,7 +615,8 @@ describe('AgentSessionView：组合链路', () => {
     await waitFor(() =>
       expect(screen.getByTestId('session-meta-status').textContent).toBe('已收口'),
     );
-    expect(bubbleTexts()).toEqual(['首轮提问', '收口正文']);
+    // messages 通知有节流窗：收口重放文本以终态等待
+    await waitFor(() => expect(bubbleTexts()).toEqual(['首轮提问', '收口正文']));
     // 跨消息 tool 配对收敛为单卡（无双卡残留）
     const panel = screen.getByTestId('agent-messages');
     expect(within(panel).getAllByTestId('block-tool-use')).toHaveLength(1);

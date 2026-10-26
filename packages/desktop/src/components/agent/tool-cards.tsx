@@ -5,6 +5,8 @@
  * 接线为二期，能力 spec 留痕）。
  */
 
+import type { ComponentType } from 'react';
+
 import type { AgentToolOutput } from '../../lib/agent-adapter';
 import { asRecord } from '../../lib/parse';
 import { WebSearchCard } from './agent-blocks';
@@ -17,8 +19,8 @@ interface AgentToolCardProps {
   output: AgentToolOutput | null;
 }
 
-/** 特化工具卡可插拔位类型 */
-export type AgentToolCard = (props: AgentToolCardProps) => React.JSX.Element | null;
+/** 特化工具卡可插拔位类型（按组件装配，允许 memo 包装） */
+export type AgentToolCard = ComponentType<AgentToolCardProps>;
 
 /** AskUserQuestion 静态卡的问题/选项形态（宽容解析，未知形态回退 JSON 原样） */
 interface AskOption {

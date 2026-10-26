@@ -15,6 +15,11 @@ import {
   type TurnSummary,
 } from '../types/generated/bindings';
 
+/** 流式 messages 通知节流窗（ms）：delta 合并到约 10fps。useChat 只节流 React
+ * 通知，status/error 不受影响，终态（ready/error）会强制同步最新 messages，
+ * 因此不丢末段内容。 */
+const STREAM_RENDER_THROTTLE_MS = 100;
+
 /** 会话基建参数（root 寻址所属 workspace 库；sessionId=null 即不重放装载，
  * 会话 id 由发起后 early-resolve 轮行回写） */
 export interface UseAgentSessionParams {
@@ -504,6 +509,7 @@ export function useAgentSession(params: UseAgentSessionParams): UseAgentSessionS
   const setMessagesRef = useRef<(next: AgentUIMessage[]) => void>(() => {});
   const chat = useChat<AgentUIMessage>({
     transport,
+    throttle: STREAM_RENDER_THROTTLE_MS,
     onFinish: () => {
       // 流结束（含失败 / 断流）即时按镜像折叠归一；收口重放随后覆盖（库为准）
       setMessagesRef.current(buildMessages(mirrors.eventsRef.current, mirrors.turnsRef.current));

@@ -589,9 +589,13 @@ describe('useAgentSession：收口以重放收敛（AC-4）', () => {
 
     await waitFor(() => expect(result.current.running).toBe(false));
     // 回落不阻塞、不抛错：messages 仍为镜像折叠（流关闭后 status 复位）
-    expect(result.current.error, '重放失败经错误面呈现（不抛错）').toContain('重放失败');
+    await waitFor(() =>
+      expect(result.current.error, '重放失败经错误面呈现（不抛错）').toContain('重放失败'),
+    );
     // 镜像折叠：重放前的密封事件 + TurnDone 位后的轮行（镜像与折叠一致）
-    expect(messageIds(result.current.messages)).toEqual(['evt-0', 'evt-1', 'evt-2', 'turn-11']);
+    await waitFor(() =>
+      expect(messageIds(result.current.messages)).toEqual(['evt-0', 'evt-1', 'evt-2', 'turn-11']),
+    );
   });
 });
 
@@ -621,11 +625,11 @@ describe('useAgentSession：断流重订与无进展闸', () => {
     expect(rewatch.sinceSeq, '重订游标 = 重放推高的库内最大 seq').toBe(2);
 
     // 重订后以库内转录为单源：delta 不入库 → 实时累积文本被重放结果替换且零重复
-    expect(
-      messageTexts(result.current.messages).filter((text) => text === '断流前增量').length,
-      '同一段增量至多出现一次（不重投）',
-    ).toBeLessThanOrEqual(1);
-    expect(messageTexts(result.current.messages)).toEqual(['首轮提问', '首轮结论']);
+    // （messages 通知有节流窗：以终态等待替换落地）
+    await waitFor(() =>
+      expect(messageTexts(result.current.messages)).toEqual(['首轮提问', '首轮结论']),
+    );
+    expect(messageTexts(result.current.messages)).not.toContain('断流前增量');
     expect(result.current.running).toBe(true);
   });
 
@@ -735,7 +739,8 @@ describe('useAgentSession：参数边界与控制动作', () => {
     expect(result.current.session).toBeNull();
     expect(result.current.chain).toEqual([]);
     expect(result.current.events).toEqual([]);
-    expect(result.current.messages).toEqual([]);
+    // messages 通知有节流窗：清空以终态等待
+    await waitFor(() => expect(result.current.messages).toEqual([]));
 
     // 切换会话：重新装载（旧镜像零残留）
     const otherId = 'ses-2-1727000009999';
@@ -793,7 +798,8 @@ describe('useAgentSession：参数边界与控制动作', () => {
     await rerenderWith(rerender, { sessionId: otherId });
     await waitFor(() => expect(result.current.session?.row.id).toBe(otherId));
     expect(result.current.chain, '旧轮行零残留').toEqual(otherTurns);
-    expect(messageTexts(result.current.messages)).toEqual(['新会话正文']);
+    // messages 通知有节流窗：新会话转录以终态等待
+    await waitFor(() => expect(messageTexts(result.current.messages)).toEqual(['新会话正文']));
     // 切会话期间零额外订阅（两条会话均无运行中轮行）
     expect(callsOf('agent_session_watch')).toHaveLength(0);
   });
@@ -907,7 +913,8 @@ describe('useAgentSession：early-resolve 镜像形态与订阅寻址', () => {
     expect(result.current.session).toBeNull();
     expect(result.current.chain).toEqual([]);
     expect(result.current.events).toEqual([]);
-    expect(result.current.messages).toEqual([]);
+    // messages 通知有节流窗：复位清空以终态等待
+    await waitFor(() => expect(result.current.messages).toEqual([]));
     expect(result.current.loading).toBe(false);
     expect(invokeMock.mock.calls.length - before, '复位不发新取数').toBe(0);
   });

@@ -76,7 +76,9 @@ export default function App() {
       {workspaceState.root === null ? (
         <WelcomeView state={workspaceState} onAdd={pickAndAdd} />
       ) : (
-        <HashRouter>
+        // 路由更新必须为同步优先级：流式 agent 的 useSyncExternalStore 更新会持续抢占
+        // transition lane，默认 startTransition 会让切页被饿死数十秒（见性能 trace）
+        <HashRouter useTransitions={false}>
           <SidebarProvider>
             <AppSidebar
               currentRoot={workspaceState.root}

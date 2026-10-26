@@ -657,7 +657,10 @@ describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('chat-bubble')).toHaveLength(1);
     });
-    expect(screen.getByTestId('block-text').textContent).toBe('你好工作区');
+    // messages 通知有节流窗：累积文本以终态等待
+    await waitFor(() => {
+      expect(screen.getByTestId('block-text').textContent).toBe('你好工作区');
+    });
 
     // 密封 Message 到达：整块部件组（start + reset-step + 整块）
     deliverEvent(sealedTextEvent(2, '你好工作区'));

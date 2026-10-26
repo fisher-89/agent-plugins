@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { HashRouter } from 'react-router';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -25,6 +26,11 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 // updater mock（沿用 use-updater.test.ts 语义）：仅「重试更新」用例经 vi.stubEnv('DEV', false)
 // 启用检查路径；其余用例 DEV=true 跳过启动检查
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
+// 保留 HashRouter 实现、仅观测 props：锁定「路由更新同步提交」修复点
+vi.mock(import('react-router'), async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, HashRouter: vi.fn(actual.HashRouter) };
+});
 
 // ---------------------------------------------------------------------------
 // fixture：workspace 清单为默认序（canonical root 升序），FIRST 即默认序第一名
@@ -344,6 +350,13 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
     // 除挂载自动 load 外无任何取数
     expect(invokeMock.mock.calls.every(([name]) => name === 'list_workspaces')).toBe(true);
+  });
+
+  it('HashRouter 显式关闭 transition：流式 sync 更新不再饿死导航', async () => {
+    await restored();
+    expect(vi.mocked(HashRouter).mock.calls.some(([props]) => props.useTransitions === false)).toBe(
+      true,
+    );
   });
 
   it('欢迎屏加载中：挂载取数未返回时呈现「加载中…」，清单返回后消失', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Message, MessageContent } from '@/components/ui/message';
 import {
@@ -75,7 +75,7 @@ function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JS
 }
 
 /** 气泡：user / assistant 各成泡（user 靠右），部件按类型映射渲染 */
-function ChatBubble({ message }: { message: AgentUIMessage }): React.JSX.Element {
+function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Element {
   const isUser = message.role === 'user';
   return (
     <Message align={isUser ? 'end' : 'start'} data-testid="chat-bubble" data-role={message.role}>
@@ -90,6 +90,11 @@ function ChatBubble({ message }: { message: AgentUIMessage }): React.JSX.Element
     </Message>
   );
 }
+
+/** store 每拍只重建当前流式消息、历史消息对象引用稳定 → 未变气泡整棵子树跳过。
+ * 流式消息内部不另加 memo：其 part 外层每拍都是新引用，真正的昂贵工作由
+ * TextBlock/ToolPairCard 等内层按值/嵌套引用挡住。 */
+const ChatBubble = memo(ChatBubbleBase);
 
 /**
  * 触顶预载观察：sentinel 进入视口上方预载区即触发装载。

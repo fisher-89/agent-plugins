@@ -1,8 +1,21 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ArtifactEnvelope } from '../../../types/dto';
 import { MarkdownDocRenderer } from './markdown-doc-renderer';
+
+// 保留 react-markdown 真实实现，仅观测调用次数：同内容不得重建 processor/重解析。
+const { markdownSpy } = vi.hoisted(() => ({ markdownSpy: vi.fn() }));
+
+vi.mock(import('react-markdown'), async (importOriginal) => {
+  const actual = await importOriginal();
+  markdownSpy.mockImplementation(actual.default);
+  return { ...actual, default: markdownSpy };
+});
+
+beforeEach(() => {
+  markdownSpy.mockClear();
+});
 
 function envelope(payload: unknown, fallbackText: string | null = null): ArtifactEnvelope {
   return { kind: 'markdown-doc', version: 1, title: '提案', payload, fallbackText };
@@ -69,5 +82,20 @@ describe('MarkdownDocRenderer：payload.markdown 的收窄与渲染组装', () =
   it('markdown 为空串时 prose 容器承载空内容不崩', () => {
     render(<MarkdownDocRenderer envelope={envelope({ markdown: '' })} />);
     expect(screen.getByTestId('markdown-root') !== null).toBe(true);
+  });
+
+  it('envelope 引用变化但 markdown 字符串相同 → 不重解析；内容变化 → 重解析一次', () => {
+    const { rerender } = render(
+      <MarkdownDocRenderer envelope={envelope({ markdown: '# 标题' })} />,
+    );
+    expect(markdownSpy).toHaveBeenCalledTimes(1);
+
+    markdownSpy.mockClear();
+    // 调用方每次组装新信封（ExplorePreview 即此形态）：内容同 → 零解析
+    rerender(<MarkdownDocRenderer envelope={envelope({ markdown: '# 标题' })} />);
+    expect(markdownSpy).not.toHaveBeenCalled();
+
+    rerender(<MarkdownDocRenderer envelope={envelope({ markdown: '# 新标题' })} />);
+    expect(markdownSpy).toHaveBeenCalledTimes(1);
   });
 });

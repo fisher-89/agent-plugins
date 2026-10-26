@@ -291,7 +291,10 @@ describe('ChangeChatPanel：打开即空态', () => {
     await act(async () => {});
 
     await waitFor(() => expect(screen.getByTestId('session-meta-id').textContent).toBe('ses-1'));
-    expect(screen.getByTestId('change-chat-panel').textContent).toContain('收到，开始读代码');
+    // messages 通知有节流窗：重放正文以终态等待
+    await waitFor(() =>
+      expect(screen.getByTestId('change-chat-panel').textContent).toContain('收到，开始读代码'),
+    );
     expect(screen.queryByTestId('change-chat-note'), '有会话且无理由时不占位').toBeNull();
   });
 
@@ -344,7 +347,10 @@ describe('ChangeChatPanel：历史清单面', () => {
     expect(callsOf('agent_session_transcript')).toHaveLength(1);
     expect(Object.keys(argsOf('agent_session_transcript')).sort()).toEqual(['root', 'sessionId']);
     await waitFor(() => expect(screen.getByTestId('session-meta-id').textContent).toBe('ses-2'));
-    expect(screen.getByTestId('change-chat-panel').textContent).toContain('历史会话正文');
+    // messages 通知有节流窗：重放正文以终态等待
+    await waitFor(() =>
+      expect(screen.getByTestId('change-chat-panel').textContent).toContain('历史会话正文'),
+    );
   });
 
   it('新会话 → 对话回空、下一次发送 sessionId 为 null、旧会话条目仍可重开', async () => {
@@ -355,7 +361,10 @@ describe('ChangeChatPanel：历史清单面', () => {
     await mountPanel();
     await expandHistory();
     await selectHistoryItem(1);
-    expect(screen.getByTestId('change-chat-panel').textContent).toContain('历史会话正文');
+    // messages 通知有节流窗：重放正文以终态等待
+    await waitFor(() =>
+      expect(screen.getByTestId('change-chat-panel').textContent).toContain('历史会话正文'),
+    );
 
     fireEvent.click(screen.getByTestId('change-chat-new'));
     await act(async () => {});
