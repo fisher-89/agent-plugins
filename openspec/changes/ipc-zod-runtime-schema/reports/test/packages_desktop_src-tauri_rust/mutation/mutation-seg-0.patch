@@ -1,0 +1,1622 @@
+diff --git a/src/bindings/mod_test.rs b/src/bindings/mod_test.rs
+index 62cf76ac412a..37f095a7cb99 100644
+--- a/src/bindings/mod_test.rs
++++ b/src/bindings/mod_test.rs
+@@ -39,10 +39,29 @@ fn authoritative_snapshot() -> Vec<u8> {
+     fs::read(generated_path()).expect("读取产物文件应成功")
+ }
+ 
++/// AC-8 自检桩路径（**手写**文件，非产物：目录整体删除后不会被重导出重建）。
++fn zod_check_stub_path() -> PathBuf {
++    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
++        .parent()
++        .expect("CARGO_MANIFEST_DIR 应有父目录")
++        .join("src/types/generated/bindings.zod.check.ts")
++}
++
+ /// 变更类用例的 Drop 守卫：断言失败 unwind 时尽力重导出恢复权威产物
+ /// （仅在持有 [`file_lock`] 的用例内使用，不重复加锁）。
+ struct RestoreOnDrop;
+ 
++/// 目录整体删除类用例的补位守卫：自检桩是手写文件（导出不会重建它，而
++/// `bindings:zod-check` 依赖它在场），删除目录前先快照、drop 时写回——
++/// 正常返回与 unwind 两条路径都不留缺口。
++struct RestoreStubOnDrop(Vec<u8>);
++
++impl Drop for RestoreStubOnDrop {
++    fn drop(&mut self) {
++        let _ = fs::write(zod_check_stub_path(), &self.0);
++    }
++}
++
+ impl Drop for RestoreOnDrop {
+     fn drop(&mut self) {
+         let _ = export_bindings();
+@@ -517,6 +536,8 @@ fn 预先篡改产物文件后重导出恢复权威内容() {
+ fn 产物父目录缺失时create_dir_all先行导出成功() {
+     let _lock = lock();
+     let _restore = RestoreOnDrop;
++    let _stub_restore =
++        RestoreStubOnDrop(fs::read(zod_check_stub_path()).expect("读取 AC-8 自检桩应成功"));
+     let authoritative = authoritative_snapshot();
+     let dir = generated_path()
+         .parent()
+@@ -534,6 +555,11 @@ fn 产物父目录缺失时create_dir_all先行导出成功() {
+         authoritative,
+         "重建产物与权威内容一致"
+     );
++    // 双产物形态下同一单点仍生效：第二产物一并重建
++    assert!(
++        zod_generated_path().is_file(),
++        "bindings.zod.ts 在目录重建后同批恢复"
++    );
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -705,19 +731,19 @@ fn session_detail绑定为root_session_id入参的nullable三件套直返() {
+     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+ 
+     // 包装形态逐字：camelCase 包装名 + (root: string, sessionId: string) 入参 +
+-    // 三件套内联返回 `| null`（blank root 空结果 Ok(None) 透传）+ invoke 命令名
++    // 具名 `SessionSummary | null` 返回（blank root 空结果 Ok(None) 透传）+ invoke
++    // 命令名（三件套收为具名 DTO，类型面语义不变）
+     assert!(
+-        content.contains("sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<{"),
+-        "sessionDetail 包装形态不符（入参 / 返回三件套内联形态）"
+-    );
+-    assert!(
+-        content.contains("} | null>(\"session_detail\", { root, sessionId })"),
+-        "session_detail invoke 目标与 nullable 空结果形态"
++        content.contains(
++            "sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<SessionSummary | null>(\"session_detail\", { root, sessionId })"
++        ),
++        "sessionDetail 包装形态不符（入参 / 返回具名 SessionSummary | null）"
+     );
+-    // 三件套字段出线（SessionSummary 复用零新 DTO——row / stats / turns）
+-    assert!(content.contains("row: SessionRow,"));
+-    assert!(content.contains("stats: SessionStats,"));
+-    assert!(content.contains("turns: TurnSummary[],"));
++    // 三件套字段出线（SessionSummary——row / stats / turns）
++    let summary = type_section(&content, "SessionSummary");
++    assert!(summary.contains("row: SessionRow,"), "实际: {summary}");
++    assert!(summary.contains("stats: SessionStats,"), "实际: {summary}");
++    assert!(summary.contains("turns: TurnSummary[],"), "实际: {summary}");
+     // 同步直查命令：出线形态与 codeStats / workspaceConfig 同族直返（Throw 模式
+     // Promise，错误面 reject 透传，无 Result 包装）
+     assert!(
+@@ -1455,3 +1481,132 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 双产物守卫（AC-9）：`export_bindings` 是两份产物的唯一入口——`bindings.ts`
++// （类型唯一源）与 `bindings.zod.ts`（纯 schema）同目录同批导出，任一失败即非零
++// 退出；篡改 / 删除 / 目录缺失三面同样按权威内容恢复。串行靠既有 `file_lock()`，
++// 变更类用例以 `RestoreOnDrop` 兜底恢复。
++// ---------------------------------------------------------------------------
++
++/// 第二产物路径（同式定位：`CARGO_MANIFEST_DIR` 的上级 + 生成目录）。
++fn zod_generated_path() -> PathBuf {
++    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
++        .parent()
++        .expect("CARGO_MANIFEST_DIR 应有父目录")
++        .join("src/types/generated/bindings.zod.ts")
++}
++
++/// 第二产物权威快照：重导出（幂等确定性）后读取字节。
++fn zod_authoritative_snapshot() -> Vec<u8> {
++    export_bindings().expect("export_bindings 应成功");
++    fs::read(zod_generated_path()).expect("读取 zod 产物文件应成功")
++}
++
++#[test]
++fn 双产物同目录同时存在且zod产物含三表与降级哨兵() {
++    let _lock = lock();
++    export_bindings().expect("导出应成功");
++
++    assert!(generated_path().is_file(), "bindings.ts 应存在");
++    assert!(zod_generated_path().is_file(), "bindings.zod.ts 应存在");
++    assert_eq!(
++        generated_path().parent(),
++        zod_generated_path().parent(),
++        "两份产物同目录（同一 create_dir_all 单点）"
++    );
++
++    let zod = String::from_utf8(fs::read(zod_generated_path()).expect("读取 zod 产物应成功"))
++        .expect("zod 产物为 UTF-8 文本");
++    // 三张表（表名即装配层取的三个导出）
++    for table in ["argsSchemas", "resultSchemas", "channelArgs"] {
++        assert!(
++            zod.contains(&format!("export const {table} = {{")),
++            "zod 产物缺 {table} 表"
++        );
++    }
++    // 降级哨兵只落 5 个 Channel 形参位（agentStart / agentSessionWatch /
++    // changeFlowStart / changeFlowWatch / watchSubscribe 的 onEvent）
++    assert_eq!(
++        zod.matches("degraded(").count(),
++        5,
++        "degraded( 恰 5 处（Channel 形参位）"
++    );
++    // 职责切分：schema 产物不改写命令面、不 import 类型产物
++    assert!(
++        !zod.contains("export const commands"),
++        "zod 产物不含 commands 包装（职责切分）"
++    );
++    assert!(
++        !zod.contains("from \"./bindings\"") && !zod.contains("from './bindings'"),
++        "zod 产物不 import bindings.ts（零运行期耦合）"
++    );
++    // 生成期硬约束（AC-7）在真实产物上同样成立
++    for snippet in [
++        "export type ",
++        "z.infer",
++        "z.object(",
++        ".refine(",
++        ".default(",
++    ] {
++        assert!(!zod.contains(snippet), "zod 产物命中禁用片段 {snippet}");
++    }
++}
++
++#[test]
++fn 连续两次导出两份产物各自零diff() {
++    let _lock = lock();
++
++    let first_ts = authoritative_snapshot();
++    let first_zod = fs::read(zod_generated_path()).expect("读取 zod 产物应成功");
++
++    export_bindings().expect("第二次导出应成功");
++    let second_ts = fs::read(generated_path()).expect("读取产物文件应成功");
++    let second_zod = fs::read(zod_generated_path()).expect("读取 zod 产物应成功");
++
++    assert_eq!(first_ts, second_ts, "bindings.ts 连续两次导出零 diff");
++    assert_eq!(first_zod, second_zod, "bindings.zod.ts 连续两次导出零 diff");
++}
++
++#[test]
++fn 删除zod产物后重导出重建为权威内容() {
++    let _lock = lock();
++    let _restore = RestoreOnDrop;
++    let authoritative = zod_authoritative_snapshot();
++    let path = zod_generated_path();
++
++    fs::remove_file(&path).expect("删除 zod 产物应成功");
++    assert!(!path.exists(), "前置：第二产物已不存在");
++
++    export_bindings().expect("重导出应成功");
++    assert!(path.is_file(), "第二产物被重建");
++    assert_eq!(
++        fs::read(&path).expect("读取重建产物应成功"),
++        authoritative,
++        "重建内容与权威内容一致（第二产物同受守卫）"
++    );
++}
++
++#[test]
++fn 手工篡改zod产物后重导出恢复权威内容() {
++    let _lock = lock();
++    let _restore = RestoreOnDrop;
++    let authoritative = zod_authoritative_snapshot();
++    let path = zod_generated_path();
++
++    // 两类篡改：删掉一张表 / 注入 `export type`（类型别名是被 PATCH(2) 删除的形态）
++    for tampered in [
++        "// 手改：删掉了三张表\n",
++        "export type HijackedSchema = unknown;\n",
++    ] {
++        fs::write(&path, tampered).expect("篡改 zod 产物应成功");
++        assert_ne!(fs::read(&path).unwrap(), authoritative, "前置：篡改生效");
++
++        export_bindings().expect("重导出应成功");
++        assert_eq!(
++            fs::read(&path).expect("读取产物应成功"),
++            authoritative,
++            "篡改不留存（重导出恢复权威内容）"
++        );
++    }
++}
+diff --git a/src/bindings/zod.rs b/src/bindings/zod.rs
+index 94bfcbf9197b..83cc30c2bed7 100644
+--- a/src/bindings/zod.rs
++++ b/src/bindings/zod.rs
+@@ -1,6 +1,6 @@
+ //! 第二产物导出：`src/types/generated/bindings.zod.ts`（纯 zod schema）。
+ //!
+-//! 职责切分（见 `openspec/specs/desktop-ipc-type-bindings`）：`bindings.ts` 仍是唯一
++//! 职责切分（见 `desktop-ipc-type-bindings` 规格）：`bindings.ts` 仍是唯一
+ //! 类型源（typed invoke 包装 + 全部 DTO 类型 + JSDoc），本产物只出 schema，零
+ //! `export type`、零 `z.infer`、零类型注解。前端装配层（`src/lib/ipc.ts`）拿两张产物
+ //! 做「参数面 strict / 结果面与信封面 soft-report」的分级校验。
+@@ -99,12 +99,23 @@ impl LanguageExt for ZodLanguage {
+ ///   `dangerously_cast_bigints_to_number` 支配，与 TS 侧逐字同口径（关闭时上游会以
+ ///   `bigint_forbidden` 显式失败，不静默放宽）；
+ /// - `char` → `z.string()`（挡掉上游的 `.refine(...)`，生成期硬约束不许 `refine`）；
+-/// - `serde_json::Value` 的所有引用（含 `NamedReferenceType::Inline`）→ `z.unknown()`，
+-///   并把 `Value` 的具名 schema 置空（不渲染）。
++/// - `serde_json::Value` 的**一切**引用（`NamedReferenceType::Reference` 与
++///   `NamedReferenceType::Inline` 两形态）→ `z.unknown()`，并把 `Value` 的具名 schema
++///   置空（不渲染）。判据按 `NamedReference` 的 id 解析（`Types::get`）：两种引用形态
++///   的 `inner` 不同 ⇒ 值不等，`hidden_references` 的等值匹配只能覆盖 `Reference`
++///   形态，`#[specta(inline)]` 形态必须另经 id 解析才能命中（否则 `Value` 会漏成上游
++///   的 enum union）。
+ ///
+-/// 另把 `Result` 的具名 schema 置空：45 个命令的 `Result` 全在结果面被解包 Ok 臂，
+-/// 无保留类型引用它。若日后出现引用，导出链会以 `dangling_named_reference` 显式失败
+-/// （不静默产出悬空名）。
++/// 另把 `Result` 的具名 schema 置空：46 个命令的 `Result` 全在结果面被解包 Ok 臂，
++/// 无保留类型引用它。两条失败面不同（上游 `reference_dt` 不检查目标 `ty`）：
++///
++/// - 引用 `types` 中**不存在**的具名类型 → `primitives::inline` 报 dangling / missing
++///   类错误，导出失败且不写盘；
++/// - 被隐藏声明（`ty: None`）仍被引用 → 导出**成功**、产物留一个未声明标识符，只能由
++///   生成期 tsc 自检桩（`bindings.zod.check.ts` → `TS2304`）拦截。
++///
++/// 前者 fail-closed 在导出链，后者 fail-closed 在自检链——MUST NOT 把「隐藏声明」当作
++/// 可自证安全。
+ pub(crate) struct ZodFormat {
+     cast_bigints: bool,
+ }
+@@ -117,7 +128,12 @@ impl ZodFormat {
+     }
+ 
+     /// 递归改写单个 datatype（供 `Format::map_type` 与命令三表渲染共用）。
+-    fn remap_dt(&self, dt: DataType, hidden: &[Reference]) -> DataType {
++    ///
++    /// `types` 是隐藏面判据的第二条来源：`hidden` 只按 `Reference` **等值**匹配（能覆盖
++    /// `NamedReferenceType::Reference` 形态），`NamedReferenceType::Inline`（`#[specta(inline)]`）
++    /// 的 `inner` 不同 ⇒ 值不等，故一律再经 `types.get`（按 id 解析、与形态无关）判
++    /// `Value`。两条判据并存：等值匹配保持既有映射结果逐字不变，id 匹配补上内联形态。
++    fn remap_dt(&self, dt: DataType, types: &Types, hidden: &[Reference]) -> DataType {
+         match dt {
+             DataType::Primitive(primitive) => match primitive {
+                 Primitive::char => DataType::Reference(specta_zod::define("z.string()")),
+@@ -134,27 +150,27 @@ impl ZodFormat {
+                 other => DataType::Primitive(other),
+             },
+             DataType::List(mut list) => {
+-                let ty = self.remap_dt((*list.ty).clone(), hidden);
++                let ty = self.remap_dt((*list.ty).clone(), types, hidden);
+                 list.ty = Box::new(ty);
+                 DataType::List(list)
+             }
+             DataType::Map(mut map) => {
+-                let key = self.remap_dt(map.key_ty().clone(), hidden);
+-                let value = self.remap_dt(map.value_ty().clone(), hidden);
++                let key = self.remap_dt(map.key_ty().clone(), types, hidden);
++                let value = self.remap_dt(map.value_ty().clone(), types, hidden);
+                 map.set_key_ty(key);
+                 map.set_value_ty(value);
+                 DataType::Map(map)
+             }
+             DataType::Nullable(inner) => {
+-                DataType::Nullable(Box::new(self.remap_dt(*inner, hidden)))
++                DataType::Nullable(Box::new(self.remap_dt(*inner, types, hidden)))
+             }
+             DataType::Struct(mut strct) => {
+-                strct.fields = self.remap_fields(strct.fields, hidden);
++                strct.fields = self.remap_fields(strct.fields, types, hidden);
+                 DataType::Struct(strct)
+             }
+             DataType::Enum(mut enm) => {
+                 for (_, variant) in &mut enm.variants {
+-                    variant.fields = self.remap_fields(variant.fields.clone(), hidden);
++                    variant.fields = self.remap_fields(variant.fields.clone(), types, hidden);
+                 }
+                 DataType::Enum(enm)
+             }
+@@ -162,14 +178,14 @@ impl ZodFormat {
+                 tuple.elements = tuple
+                     .elements
+                     .into_iter()
+-                    .map(|element| self.remap_dt(element, hidden))
++                    .map(|element| self.remap_dt(element, types, hidden))
+                     .collect();
+                 DataType::Tuple(tuple)
+             }
+-            DataType::Intersection(types) => DataType::Intersection(
+-                types
++            DataType::Intersection(parts) => DataType::Intersection(
++                parts
+                     .into_iter()
+-                    .map(|ty| self.remap_dt(ty, hidden))
++                    .map(|ty| self.remap_dt(ty, types, hidden))
+                     .collect(),
+             ),
+             DataType::Generic(generic) => DataType::Generic(generic),
+@@ -178,14 +194,17 @@ impl ZodFormat {
+                     return DataType::Reference(specta_zod::define("z.unknown()"));
+                 }
+                 if let Reference::Named(named) = &mut reference {
++                    if types.get(named).is_some_and(is_value_ndt) {
++                        return DataType::Reference(specta_zod::define("z.unknown()"));
++                    }
+                     match &mut named.inner {
+                         NamedReferenceType::Inline { dt, .. } => {
+-                            let inner = self.remap_dt((**dt).clone(), hidden);
++                            let inner = self.remap_dt((**dt).clone(), types, hidden);
+                             **dt = inner;
+                         }
+                         NamedReferenceType::Reference { generics, .. } => {
+                             for (_, ty) in generics.iter_mut() {
+-                                let mapped = self.remap_dt(ty.clone(), hidden);
++                                let mapped = self.remap_dt(ty.clone(), types, hidden);
+                                 *ty = mapped;
+                             }
+                         }
+@@ -197,13 +216,13 @@ impl ZodFormat {
+         }
+     }
+ 
+-    fn remap_fields(&self, fields: Fields, hidden: &[Reference]) -> Fields {
++    fn remap_fields(&self, fields: Fields, types: &Types, hidden: &[Reference]) -> Fields {
+         match fields {
+             Fields::Unit => Fields::Unit,
+             Fields::Unnamed(mut unnamed) => {
+                 for field in &mut unnamed.fields {
+                     if let Some(ty) = field.ty.take() {
+-                        field.ty = Some(self.remap_dt(ty, hidden));
++                        field.ty = Some(self.remap_dt(ty, types, hidden));
+                     }
+                 }
+                 Fields::Unnamed(unnamed)
+@@ -211,7 +230,7 @@ impl ZodFormat {
+             Fields::Named(mut named) => {
+                 for (_, field) in &mut named.fields {
+                     if let Some(ty) = field.ty.take() {
+-                        field.ty = Some(self.remap_dt(ty, hidden));
++                        field.ty = Some(self.remap_dt(ty, types, hidden));
+                     }
+                 }
+                 Fields::Named(named)
+@@ -230,7 +249,7 @@ impl Format for ZodFormat {
+                 return;
+             }
+             if let Some(ty) = ndt.ty.take() {
+-                ndt.ty = Some(self.remap_dt(ty, &hidden));
++                ndt.ty = Some(self.remap_dt(ty, types, &hidden));
+             }
+         });
+         Ok(Cow::Owned(mapped))
+@@ -239,7 +258,7 @@ impl Format for ZodFormat {
+     fn map_type(&'_ self, types: &Types, dt: &DataType) -> Result<Cow<'_, DataType>, FormatError> {
+         let mapped = specta_serde::Format.map_type(types, dt)?.into_owned();
+         let hidden = hidden_references(types);
+-        Ok(Cow::Owned(self.remap_dt(mapped, &hidden)))
++        Ok(Cow::Owned(self.remap_dt(mapped, types, &hidden)))
+     }
+ }
+ 
+@@ -374,7 +393,7 @@ fn render_phase_dt(
+     hidden: &[Reference],
+ ) -> Result<String, specta_zod::Error> {
+     let phased = select_phase_datatype(dt, types, phase);
+-    let remapped = format.remap_dt(phased, hidden);
++    let remapped = format.remap_dt(phased, types, hidden);
+     specta_zod::primitives::inline(exporter, types, &remapped)
+ }
+ 
+@@ -443,3 +462,7 @@ fn report_degraded(cfg: &BuilderConfiguration, types: &Types) {
+         }
+     }
+ }
++
++#[cfg(test)]
++#[path = "zod_test.rs"]
++mod zod_test;
+diff --git a/src/bindings/zod_test.rs b/src/bindings/zod_test.rs
+new file mode 100644
+index 000000000000..f312531f4cb1
+--- /dev/null
++++ b/src/bindings/zod_test.rs
+@@ -0,0 +1,1209 @@
++//! `bindings/zod` 单测：格式映射（大整数 / `char` / `serde_json::Value` / `Result`
++//! 隐藏）→ 三表渲染（getter 化 / accessor 命名 / 降级哨兵 / Ok 臂解包）→ 生成期
++//! 自检与落盘（幂等 / fail-closed / io 错误面）。
++//!
++//! fixture 走**真实** specta 面：`#[derive(Type)]` 的具名类型 + `collect_commands!`
++//! 产出的 `Function` 清单与 `Types`（`Function` / `BuilderConfiguration` 均
++//! `#[non_exhaustive]`，只能由宏与 `Default` 取得——不为测试伪造这两者）。写盘目标
++//! 用 `tempfile::TempDir`（真实文件系统边界，零替身）。私有辅助经 `super::` 直接
++//! 断言，不新增导出。
++
++use std::borrow::Cow;
++use std::collections::BTreeMap;
++use std::path::Path;
++
++use serde::{Deserialize, Serialize};
++use specta::datatype::{DataType, Fields, Function, NamedDataType, Primitive};
++use specta::{Format, Type, Types};
++use specta_serde::{select_phase_datatype, Phase, PhasesFormat};
++use tauri_specta::{BuilderConfiguration, Casing, Commands, LanguageExt};
++
++use super::{
++    channel_envelope_dt, guard_forbidden, hidden_references, is_hidden_ndt, is_result_ndt,
++    is_value_ndt, render_command_tables, result_dt, ZodFormat, ZodLanguage, CHANNEL_REASON,
++    FILE_BANNER, FILE_PRELUDE, FORBIDDEN_SNIPPETS,
++};
++
++// ---------------------------------------------------------------------------
++// fixture 类型：三处改写 + 递归 + 相位分裂 + 保留 Result 引用
++// ---------------------------------------------------------------------------
++
++/// 大整数六型 + 小整数对照 + `char` + `serde_json::Value`（映射断言的最小载体）。
++#[derive(Debug, Clone, Serialize, Deserialize, Type)]
++struct FixtureBigints {
++    small: u32,
++    big_u64: u64,
++    big_i64: i64,
++    big_u128: u128,
++    big_i128: i128,
++    big_usize: usize,
++    big_isize: isize,
++    letter: char,
++    payload: serde_json::Value,
++}
++
++/// `Channel<T>` 的信封载荷（`channelArgs` 值 schema 的载体）。
++#[derive(Debug, Clone, Serialize, Deserialize, Type)]
++struct FixtureEvent {
++    kind: String,
++    seq: u64,
++}
++
++/// 递归类型（`children` 自引用）：映射期零展开、引用不塌。
++#[derive(Debug, Clone, Serialize, Deserialize, Type)]
++struct FixtureNode {
++    name: String,
++    children: Vec<FixtureNode>,
++}
++
++/// 相位分裂面（`skip_serializing_if` 触发 serde 相位差）。
++#[derive(Debug, Clone, Serialize, Deserialize, Type)]
++struct FixturePhased {
++    #[serde(skip_serializing_if = "Option::is_none")]
++    note: Option<String>,
++    value: u32,
++}
++
++/// 相位分裂的第二形态（`#[serde(default)]`：反序列化可缺、序列化恒在，同样有相位差）。
++#[derive(Debug, Clone, Serialize, Deserialize, Type)]
++struct FixtureDefaulted {
++    #[serde(default)]
++    count: u32,
++    label: String,
++}
++
++/// `serde_json::Value` 的**内联**引用形态（`#[specta(inline)]`）：`NamedReferenceType::Inline`
++/// 的 `inner` 与具名引用不同 ⇒ 值不等，`hidden_references` 的等值匹配覆盖不到，只能由
++/// `Types::get` 的 id 解析命中（顶层参数面的第二条同口径判据）。
++#[derive(Debug, Clone, Serialize, Deserialize, Type)]
++struct FixtureInlineValue {
++    #[specta(inline)]
++    payload: serde_json::Value,
++}
++
++/// 保留 `Result` 引用（不走命令结果面的 Ok 臂解包）：`Result` 的具名 schema 被隐藏
++/// （`ty` 置 `None`），引用位不改写 ⇒ 导出**成功**（design R-1 / D16 现值），产物里只留
++/// 一个未声明标识符——那只能由生成期 tsc 桩（AC-8 的 `TS2304`）拦截，MUST NOT 期望
++/// 生成期 `dangling_named_reference`（真正的悬挂错误面在「引用 `types` 中不存在的
++/// 具名类型」那条臂上）。
++#[derive(Debug, Clone, Serialize, Deserialize, Type)]
++struct FixtureHoldsResult {
++    outcome: Result<String, String>,
++}
++
++/// `HashMap<f64, _>` 形状的 key：`f64` 不实现 `Hash` / `Eq`，故以可哈希 newtype 承载
++/// 同一 key datatype——渲染期递归到 `f64` 即出 `z.string().regex(…).refine(…)`。
++#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
++struct FixtureFloatKey(f64);
++
++impl Eq for FixtureFloatKey {}
++
++impl std::hash::Hash for FixtureFloatKey {
++    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
++        // 按位哈希与派生的 `PartialEq` 在非 NaN 面一致；fixture 不入容器，
++        // 该实现只为满足 `HashMap` key 的 `Eq + Hash` 约束
++        std::hash::Hash::hash(&self.0.to_bits(), state);
++    }
++}
++
++// ---------------------------------------------------------------------------
++// fixture 命令：零形参 / 多形参 / Channel 形参 / rename 形态 / 数值 map key
++// ---------------------------------------------------------------------------
++
++#[tauri::command]
++#[specta::specta]
++fn fixture_ping() -> Result<u64, String> {
++    Ok(7)
++}
++
++#[tauri::command]
++#[specta::specta]
++fn fixture_bigints(
++    item: FixtureBigints,
++    since_seq: u64,
++    letter: char,
++) -> Result<FixtureBigints, String> {
++    let _ = (since_seq, letter);
++    Ok(item)
++}
++
++#[tauri::command]
++#[specta::specta]
++fn fixture_channel(
++    on_event: tauri::ipc::Channel<FixtureEvent>,
++    root: String,
++) -> Result<FixtureEvent, String> {
++    drop(on_event);
++    Ok(FixtureEvent { kind: root, seq: 0 })
++}
++
++#[tauri::command(rename = "fixture_renamed_ipc")]
++#[specta::specta]
++fn fixture_renamed(root: String) -> Result<String, String> {
++    Ok(root)
++}
++
++/// 数值型 map key（`u8`）：上游 `map_key_datatype` 对整数 key 出
++/// `z.string().regex(…).refine(…)`——`.refine(` 禁令在**真实产物**上的触发面（design R-4）。
++#[tauri::command]
++#[specta::specta]
++fn fixture_u8_map_key(counts: std::collections::HashMap<u8, u32>) -> Result<u32, String> {
++    Ok(u32::try_from(counts.len()).unwrap_or(u32::MAX))
++}
++
++/// 浮点型 map key（`f64` 形状）：key datatype 递归到 `f64`，同样命中 `.refine(` 臂。
++#[tauri::command]
++#[specta::specta]
++fn fixture_f64_map_key(
++    weights: std::collections::HashMap<FixtureFloatKey, u32>,
++) -> Result<u32, String> {
++    Ok(u32::try_from(weights.len()).unwrap_or(u32::MAX))
++}
++
++// ---------------------------------------------------------------------------
++// 装配 helper
++// ---------------------------------------------------------------------------
++
++/// fixture 命令集合（真实 `collect_commands!`）。
++fn fixture_commands() -> Commands<tauri::Wry> {
++    tauri_specta::collect_commands![
++        fixture_ping,
++        fixture_bigints,
++        fixture_channel,
++        fixture_renamed,
++    ]
++}
++
++/// 收集 fixture 的 `(functions, accessor_names, types)` 三元组。
++fn collect_fixture(
++    commands: Commands<tauri::Wry>,
++) -> (
++    Vec<Function>,
++    BTreeMap<Cow<'static, str>, Cow<'static, str>>,
++    Types,
++) {
++    let mut types = Types::default();
++    let collected = (commands.1)(&mut types);
++    (collected.functions, collected.accessor_names, types)
++}
++
++/// 构造 `BuilderConfiguration`（`#[non_exhaustive]` ⇒ `Default` + 字段赋值）。
++fn config(
++    functions: Vec<Function>,
++    accessor_names: BTreeMap<Cow<'static, str>, Cow<'static, str>>,
++    types: Types,
++    casing: Casing,
++    cast_bigints: bool,
++) -> BuilderConfiguration {
++    let mut cfg = BuilderConfiguration::default();
++    cfg.commands = functions;
++    cfg.command_accessor_names = accessor_names;
++    cfg.types = types;
++    cfg.function_casing = casing;
++    cfg.dangerously_cast_bigints_to_number = cast_bigints;
++    cfg
++}
++
++/// 默认 fixture 配置（camelCase accessor / 大整数转 number）。
++fn fixture_config() -> BuilderConfiguration {
++    let (functions, accessor_names, types) = collect_fixture(fixture_commands());
++    config(functions, accessor_names, types, Casing::CamelCase, true)
++}
++
++/// 单命令 fixture 配置（`.refine(` 命中臂专用：不与默认 fixture 的三表断言互相干扰）。
++fn single_command_config(commands: Commands<tauri::Wry>) -> BuilderConfiguration {
++    let (functions, accessor_names, types) = collect_fixture(commands);
++    config(functions, accessor_names, types, Casing::CamelCase, true)
++}
++
++/// `Types` 内按 name 取具名类型。
++fn named<'a>(types: &'a Types, name: &str) -> &'a NamedDataType {
++    types
++        .into_unsorted_iter()
++        .find(|ndt| ndt.name.as_ref() == name)
++        .unwrap_or_else(|| panic!("缺具名类型 {name}"))
++}
++
++/// 具名 struct 的某字段 datatype（字段缺失即失败）。
++fn field_ty(types: &Types, type_name: &str, field: &str) -> DataType {
++    let ndt = named(types, type_name);
++    let ty = ndt.ty.as_ref().expect("具名类型应有 ty");
++    let DataType::Struct(strct) = ty else {
++        panic!("{type_name} 不是 struct");
++    };
++    let Fields::Named(fields) = &strct.fields else {
++        panic!("{type_name} 不是 named struct");
++    };
++    fields
++        .fields
++        .iter()
++        .find(|(name, _)| name.as_ref() == field)
++        .and_then(|(_, field)| field.ty.clone())
++        .unwrap_or_else(|| panic!("{type_name} 缺字段 {field}"))
++}
++
++/// 命令按 invoke 名（= `Function::name()`）取。
++fn command_by<'a>(cfg: &'a BuilderConfiguration, ipc_name: &str) -> &'a Function {
++    cfg.commands
++        .iter()
++        .find(|command| command.name() == ipc_name)
++        .unwrap_or_else(|| panic!("缺命令 {ipc_name}"))
++}
++
++/// 数字类改写的期望值：`z.number()` 的 opaque 引用。
++fn z_number() -> DataType {
++    DataType::Reference(specta_zod::define("z.number()"))
++}
++
++/// 字符串类改写的期望值：`z.string()` 的 opaque 引用。
++fn z_string() -> DataType {
++    DataType::Reference(specta_zod::define("z.string()"))
++}
++
++/// `z.unknown()` 的 opaque 引用（合法白洞 / 降级哨兵共用形态）。
++fn z_unknown() -> DataType {
++    DataType::Reference(specta_zod::define("z.unknown()"))
++}
++
++/// 剥一层容器引用：`Vec<T>` 等出线为 `Inline { dt: List(..) }`，取出其 `List`。
++fn list_of(dt: &DataType) -> DataType {
++    match dt {
++        DataType::List(list) => DataType::List(list.clone()),
++        DataType::Reference(specta::datatype::Reference::Named(reference)) => {
++            match &reference.inner {
++                specta::datatype::NamedReferenceType::Inline { dt, .. } => list_of(dt),
++                other => panic!("容器引用形态非预期: {other:?}"),
++            }
++        }
++        other => panic!("非容器类型: {other:?}"),
++    }
++}
++
++/// 临时目录内的产物路径（父目录已建）。
++fn temp_product(dir: &Path, name: &str) -> std::path::PathBuf {
++    dir.join(name)
++}
++
++// ---------------------------------------------------------------------------
++// ZodFormat::map_types：大整数 / char / Value 三面改写
++// ---------------------------------------------------------------------------
++
++#[test]
++fn map_types_六个大整数类型逐一映射为z_number() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++
++    // 六个大整数（u64 / i64 / u128 / i128 / usize / isize）逐一改写为 z.number()：
++    // 与 TS 侧 dangerously_cast_bigints_to_number 同口径，不做单侧放宽
++    for field in [
++        "big_u64",
++        "big_i64",
++        "big_u128",
++        "big_i128",
++        "big_usize",
++        "big_isize",
++    ] {
++        assert_eq!(
++            field_ty(mapped.as_ref(), "FixtureBigints", field),
++            z_number(),
++            "字段 {field} 应映射为 z.number()"
++        );
++    }
++
++    // 小整数不受影响（改写只针对大整数六型）
++    assert_eq!(
++        field_ty(mapped.as_ref(), "FixtureBigints", "small"),
++        DataType::Primitive(Primitive::u32),
++        "u32 保持 primitive 原样"
++    );
++}
++
++#[test]
++fn map_types_char映射为z_string且不出现refine() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++
++    assert_eq!(
++        field_ty(mapped.as_ref(), "FixtureBigints", "letter"),
++        z_string(),
++        "char 映射为 z.string()（挡掉上游的 .refine(…)）"
++    );
++}
++
++#[test]
++fn map_types_value引用改写为z_unknown且value具名schema被隐藏() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++
++    assert_eq!(
++        field_ty(mapped.as_ref(), "FixtureBigints", "payload"),
++        z_unknown(),
++        "serde_json::Value 字段改写为 z.unknown()"
++    );
++
++    // Value 的具名 schema 置 None（不渲染 `ValueSchema`），且只有 Value 的引用在隐藏清单里
++    let value_ndt = named(mapped.as_ref(), "Value");
++    assert!(is_value_ndt(value_ndt), "Value 判据按 name + module_path");
++    assert!(
++        value_ndt.ty.is_none(),
++        "Value 具名 schema 应被隐藏（ty 置 None）"
++    );
++    assert_eq!(
++        hidden_references(mapped.as_ref()).len(),
++        1,
++        "隐藏引用清单只含 Value（Result 走 ty 置 None，不进隐藏引用清单）"
++    );
++
++    // 说明：本仓出线面里 `serde_json::Value` 字段是**具名引用**形态（`Value` 的
++    // `NamedReferenceType::Reference`）——`#[specta(inline)]` 在本仓零使用，故不
++    // 为内联形态虚构断言；`hidden_references` 按 `ndt.reference(vec![])` 生成，
++    // 正是这一形态。
++}
++
++#[test]
++fn map_types_result具名ty置none且其余具名类型不受影响() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++
++    let result_ndt = named(mapped.as_ref(), "Result");
++    assert!(
++        is_result_ndt(result_ndt),
++        "Result 判据按 name + module_path"
++    );
++    assert!(
++        result_ndt.ty.is_none(),
++        "Result 具名 schema 不渲染（恒在结果面被解包 Ok 臂）"
++    );
++    assert!(
++        is_hidden_ndt(result_ndt),
++        "Result 与 Value 同为隐藏面（is_hidden_ndt 覆盖两者）"
++    );
++
++    // 其余具名类型照旧渲染（隐藏面不外溢）
++    let bigints = named(mapped.as_ref(), "FixtureBigints");
++    assert!(!is_hidden_ndt(bigints));
++    assert!(bigints.ty.is_some(), "普通 DTO 的 ty 保持在场");
++}
++
++#[test]
++fn map_types_空类型集合原样返回() {
++    let mut cfg = fixture_config();
++    cfg.types = Types::default();
++    let format = ZodFormat::new(&cfg);
++
++    let mapped = format.map_types(&cfg.types).expect("空集合映射应成功");
++    assert!(
++        mapped.as_ref().is_empty(),
++        "空 Types 映射后仍为空（零新增条目）"
++    );
++    assert_eq!(mapped.as_ref().len(), 0);
++}
++
++#[test]
++fn map_types_关闭大整数转换时保持primitive原样() {
++    let (functions, accessor_names, types) = collect_fixture(fixture_commands());
++    let cfg = config(functions, accessor_names, types, Casing::CamelCase, false);
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++
++    // cast_bigints = false：不做单侧改写（开关与 TS 侧同源，交由导出器显式失败）
++    for field in ["big_u64", "big_i64", "big_usize"] {
++        assert_eq!(
++            field_ty(mapped.as_ref(), "FixtureBigints", field),
++            match field {
++                "big_u64" => DataType::Primitive(Primitive::u64),
++                "big_i64" => DataType::Primitive(Primitive::i64),
++                _ => DataType::Primitive(Primitive::usize),
++            },
++            "关闭开关后 {field} 保持 primitive"
++        );
++    }
++    assert_eq!(
++        field_ty(mapped.as_ref(), "FixtureBigints", "letter"),
++        z_string(),
++        "char 改写不受大整数开关支配"
++    );
++}
++
++#[test]
++fn map_types_递归类型结构保留且引用不展开() {
++    let mut cfg = fixture_config();
++    cfg.types.register_mut::<FixtureNode>();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++
++    // `Vec<T>` 在本仓出线形态是 `Vec<T>` 的内联引用（`Inline { dt: List(..) }`）：
++    // 先剥一层容器引用，再断言元素仍是具名引用（未展开成内联 struct）
++    let children = field_ty(mapped.as_ref(), "FixtureNode", "children");
++    let DataType::List(list) = list_of(&children) else {
++        panic!("children 应为 List，实际 {children:?}");
++    };
++    let DataType::Reference(element) = list.ty.as_ref() else {
++        panic!("children 元素应为具名引用，实际 {:?}", list.ty);
++    };
++    let specta::datatype::Reference::Named(element) = element else {
++        panic!("children 元素应为 NamedReference，实际 {element:?}");
++    };
++    assert_eq!(
++        mapped.as_ref().get(element).map(|ndt| ndt.name.as_ref()),
++        Some("FixtureNode"),
++        "递归自引用指向自身具名类型（不展开）"
++    );
++    assert!(
++        named(mapped.as_ref(), "FixtureNode").ty.is_some(),
++        "递归类型的 ty 保持在场"
++    );
++}
++
++#[test]
++fn map_types_相位统一面零伴生类型且映射后仍可渲染() {
++    // `builder().disable_serde_phases()` 的等价形态：格式层只用**统一**的
++    // `specta_serde::Format`，不产生 `_Serialize` / `_Deserialize` 伴生类型。
++    let mut types = Types::default();
++    types.register_mut::<FixturePhased>();
++    types.register_mut::<FixtureDefaulted>();
++
++    // 空断言防线：同一 fixture 经 `PhasesFormat`（真正开相位）确实分裂出伴生类型，
++    // 否则下面「零伴生」的断言在无相位差的 fixture 上会恒真
++    let phased = PhasesFormat.map_types(&types).expect("相位格式映射应成功");
++    let split: Vec<String> = phased
++        .as_ref()
++        .into_unsorted_iter()
++        .map(|ndt| ndt.name.to_string())
++        .collect();
++    assert!(
++        split.iter().any(|name| name.ends_with("_Serialize")),
++        "fixture 应触发序列化相位分裂，实际 {split:?}"
++    );
++    assert!(
++        split.iter().any(|name| name.ends_with("_Deserialize")),
++        "fixture 应触发反序列化相位分裂，实际 {split:?}"
++    );
++
++    // 统一形态：同一 fixture 经 `ZodFormat`（`specta_serde::Format` + 本仓三处改写）
++    let cfg = config(Vec::new(), BTreeMap::new(), types, Casing::CamelCase, true);
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("相位分裂面映射应成功");
++    let names: Vec<String> = mapped
++        .as_ref()
++        .into_unsorted_iter()
++        .map(|ndt| ndt.name.to_string())
++        .collect();
++
++    // 伴生类型零产生：每个 fixture 只出一条具名类型，且无 `_Serialize` / `_Deserialize` 后缀
++    assert!(
++        names.iter().all(|name| !name.ends_with("_Serialize")),
++        "统一映射零 _Serialize 伴生类型，实际 {names:?}"
++    );
++    assert!(
++        names.iter().all(|name| !name.ends_with("_Deserialize")),
++        "统一映射零 _Deserialize 伴生类型，实际 {names:?}"
++    );
++    assert_eq!(
++        names
++            .iter()
++            .filter(|name| name.starts_with("FixturePhased"))
++            .count(),
++        1,
++        "`skip_serializing_if` fixture 只出单条具名类型"
++    );
++    assert_eq!(
++        names
++            .iter()
++            .filter(|name| name.starts_with("FixtureDefaulted"))
++            .count(),
++        1,
++        "`serde(default)` fixture 只出单条具名类型"
++    );
++
++    // 映射期只做改写、不制造渲染期不可用的形态：每条 fixture 具名类型仍可被渲染
++    let exporter = specta_zod::Zod::new();
++    let mut rendered = 0;
++    for ndt in mapped.as_ref().into_unsorted_iter() {
++        if !(ndt.name.starts_with("FixturePhased") || ndt.name.starts_with("FixtureDefaulted")) {
++            continue;
++        }
++        if let Some(ty) = ndt.ty.as_ref() {
++            let text = specta_zod::primitives::inline(&exporter, mapped.as_ref(), ty)
++                .unwrap_or_else(|err| panic!("{} 渲染失败: {err}", ndt.name));
++            assert!(!text.is_empty(), "{} 渲染结果非空", ndt.name);
++            rendered += 1;
++        }
++    }
++    assert_eq!(rendered, 2, "两条相位差 fixture 具名类型均可渲染");
++}
++
++#[test]
++fn map_types_相位选择在统一形态下恒等() {
++    // design R-11 的可验证形态：三表虽按方向标注 `Phase::Deserialize` / `Phase::Serialize`
++    // 并经 `select_phase_datatype` 取值，但统一形态下两个 Phase 得到等价 datatype（恒等变换）。
++    let mut cfg = fixture_config();
++    cfg.types.register_mut::<FixturePhased>();
++    cfg.types.register_mut::<FixtureDefaulted>();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++    let types = mapped.as_ref();
++
++    // 候选集与 `render_phase_dt` 的取数面一致：具名类型体 + 全部命令的形参与结果
++    let mut candidates: Vec<(String, DataType)> = Vec::new();
++    for ndt in types.into_unsorted_iter() {
++        if let Some(ty) = ndt.ty.as_ref() {
++            candidates.push((ndt.name.to_string(), ty.clone()));
++        }
++    }
++    for command in &cfg.commands {
++        for (name, dt) in command.args() {
++            candidates.push((format!("{}.{}", command.name(), name), dt.clone()));
++        }
++        if let Some(result) = command.result() {
++            candidates.push((format!("{}.result", command.name()), result.clone()));
++        }
++    }
++    assert!(
++        candidates.len() > 10,
++        "候选集应含具名类型体与命令形参，实际 {} 条",
++        candidates.len()
++    );
++
++    for (label, dt) in &candidates {
++        let deserialize = select_phase_datatype(dt, types, Phase::Deserialize);
++        let serialize = select_phase_datatype(dt, types, Phase::Serialize);
++        assert_eq!(
++            deserialize, serialize,
++            "{label}: 两个 Phase 取值应等价（相位选择在统一形态下不分裂）"
++        );
++        assert_eq!(
++            &deserialize, dt,
++            "{label}: 统一形态下相位选择恒等（零改写）"
++        );
++    }
++
++    // 相位差 fixture 确实在候选集里（否则该臂只覆盖无相位差类型）
++    assert!(
++        types
++            .into_unsorted_iter()
++            .any(|ndt| ndt.name.as_ref() == "FixturePhased"),
++        "相位差 fixture 应在映射后的具名类型集合内"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// ZodFormat::map_type：命令顶层 datatype 的同口径改写
++// ---------------------------------------------------------------------------
++
++#[test]
++fn map_type_顶层大整数与char同口径改写() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++
++    let big = format
++        .map_type(&cfg.types, &DataType::Primitive(Primitive::u64))
++        .expect("顶层 u64 映射应成功");
++    assert_eq!(big.as_ref(), &z_number(), "顶层 u64 → z.number()");
++
++    let letter = format
++        .map_type(&cfg.types, &DataType::Primitive(Primitive::char))
++        .expect("顶层 char 映射应成功");
++    assert_eq!(letter.as_ref(), &z_string(), "顶层 char → z.string()");
++
++    let small = format
++        .map_type(&cfg.types, &DataType::Primitive(Primitive::u32))
++        .expect("顶层 u32 映射应成功");
++    assert_eq!(
++        small.as_ref(),
++        &DataType::Primitive(Primitive::u32),
++        "顶层小整数保持原样"
++    );
++}
++
++#[test]
++fn map_type_顶层nullable内层重映射且unknown幂等() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++
++    let nullable = format
++        .map_type(
++            &cfg.types,
++            &DataType::Nullable(Box::new(DataType::Primitive(Primitive::u64))),
++        )
++        .expect("顶层 Option<u64> 映射应成功");
++    let DataType::Nullable(inner) = nullable.as_ref() else {
++        panic!("外层可空语义应保留，实际 {nullable:?}");
++    };
++    assert_eq!(inner.as_ref(), &z_number(), "内层 u64 被重映射");
++
++    let unknown = format
++        .map_type(&cfg.types, &z_unknown())
++        .expect("顶层已是 Unknown 时映射应成功");
++    assert_eq!(unknown.as_ref(), &z_unknown(), "已是 z.unknown() 时幂等");
++}
++
++#[test]
++fn map_type_顶层value引用两形态均改写为z_unknown() {
++    // 命令顶层参数面不经 `map_types`（走 `map_type`）：两条路径必须同口径，否则参数面
++    // 会漏出上游 `serde_json::Value` 的 enum union。`Value` 的两条引用形态（具名引用 /
++    // `#[specta(inline)]` 内联）都要覆盖——内联形态的值与具名引用不同，等值匹配覆盖不到。
++    let mut cfg = fixture_config();
++    cfg.types.register_mut::<FixtureInlineValue>();
++    let format = ZodFormat::new(&cfg);
++
++    let reference_form = field_ty(&cfg.types, "FixtureBigints", "payload");
++    let inline_form = field_ty(&cfg.types, "FixtureInlineValue", "payload");
++
++    let DataType::Reference(reference_form_ref) = &reference_form else {
++        panic!("Value 默认形态应为具名引用，实际 {reference_form:?}");
++    };
++    let specta::datatype::Reference::Named(named_reference) = reference_form_ref else {
++        panic!("Value 默认形态应为 NamedReference，实际 {reference_form_ref:?}");
++    };
++    assert!(
++        matches!(
++            &named_reference.inner,
++            specta::datatype::NamedReferenceType::Reference { .. }
++        ),
++        "默认字段形态为 `NamedReferenceType::Reference`"
++    );
++
++    let DataType::Reference(inline_form_ref) = &inline_form else {
++        panic!("#[specta(inline)] 形态应为具名引用，实际 {inline_form:?}");
++    };
++    let specta::datatype::Reference::Named(named_inline) = inline_form_ref else {
++        panic!("#[specta(inline)] 形态应为 NamedReference，实际 {inline_form_ref:?}");
++    };
++    assert!(
++        matches!(
++            &named_inline.inner,
++            specta::datatype::NamedReferenceType::Inline { .. }
++        ),
++        "`#[specta(inline)]` 字段形态为 `NamedReferenceType::Inline`"
++    );
++
++    // 等值匹配（`hidden_references`）只覆盖 `Reference` 形态：内联形态 inner 不同 ⇒ 值不等
++    let hidden = hidden_references(&cfg.types);
++    assert!(
++        hidden.contains(reference_form_ref),
++        "隐藏引用清单应等值命中 Reference 形态"
++    );
++    assert!(
++        !hidden.contains(inline_form_ref),
++        "隐藏引用清单的值不等匹配覆盖不到 Inline 形态（必须由 id 解析补上）"
++    );
++
++    // 两条形态经 `map_type` 均改写为 `z.unknown()`（同一套改写，不给参数面留 union）
++    for (label, dt) in [("Reference", &reference_form), ("Inline", &inline_form)] {
++        // 反证本臂非空断言：基线 serde 格式层单独跑不会把 Value 变成 z.unknown()，
++        // `z.unknown()` 只可能来自 `ZodFormat` 的 Value 改写（否则参数面漏出 enum union）
++        let baseline = specta_serde::Format
++            .map_type(&cfg.types, dt)
++            .expect("基线 serde 格式映射应成功");
++        assert_ne!(
++            baseline.as_ref(),
++            &z_unknown(),
++            "{label} 形态的 z.unknown() 改写来自 ZodFormat，基线 serde 格式不改写"
++        );
++
++        let mapped = format
++            .map_type(&cfg.types, dt)
++            .unwrap_or_else(|err| panic!("{label} 形态顶层映射失败: {err}"));
++        assert_eq!(
++            mapped.as_ref(),
++            &z_unknown(),
++            "{label} 形态的 Value 引用应改写为 z.unknown()"
++        );
++
++        // 幂等：改写结果再映射一次不二次包装
++        let again = format
++            .map_type(&cfg.types, mapped.as_ref())
++            .unwrap_or_else(|err| panic!("{label} 形态二次映射失败: {err}"));
++        assert_eq!(again.as_ref(), &z_unknown(), "{label} 形态二次映射应幂等");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 三表渲染：getter 化 / 键序 / 降级哨兵 / Ok 臂 / accessor 命名
++// ---------------------------------------------------------------------------
++
++#[test]
++fn render_command_tables_三表形态与键序camel_case逐字命中() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++    let tables = render_command_tables(&format, &cfg, mapped.as_ref()).expect("三表渲染应成功");
++
++    // 三表以 `as const` 收尾、键为 getter（表构造零成本）
++    for table in ["argsSchemas", "resultSchemas", "channelArgs"] {
++        assert!(
++            tables.contains(&format!("export const {table} = {{")),
++            "缺 {table} 表头"
++        );
++    }
++    assert_eq!(
++        tables.matches("} as const;").count(),
++        3,
++        "三表均以 as const 收尾"
++    );
++    assert!(
++        tables.contains("get \"fixtureBigints\"() { return"),
++        "表项一律 getter，accessor 为 camelCase"
++    );
++
++    // 参数键名 lowerCamelCase（`since_seq` → `sinceSeq`）且键序 = Rust 形参序
++    let args = tables
++        .find("export const argsSchemas")
++        .map(|start| &tables[start..])
++        .expect("参数表在场");
++    let item_at = args.find("\"item\"").expect("缺 item 形参位");
++    let since_at = args.find("\"sinceSeq\"").expect("缺 sinceSeq 形参位");
++    let letter_at = args.find("\"letter\"").expect("缺 letter 形参位");
++    assert!(
++        item_at < since_at && since_at < letter_at,
++        "键序 = Rust 形参序"
++    );
++    assert!(!tables.contains("since_seq"), "不得出蛇形键名");
++    // 形参面渲染：具名 DTO 走 z.lazy 引用、大整数与 char 走改写后的 inline 表达式
++    assert!(tables.contains("\"item\": z.lazy(() => FixtureBigintsSchema),"));
++    assert!(tables.contains("\"sinceSeq\": z.number(),"));
++    assert!(tables.contains("\"letter\": z.string(),"));
++}
++
++#[test]
++fn render_command_tables_零形参命令出空strict_object() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++    let tables = render_command_tables(&format, &cfg, mapped.as_ref()).expect("三表渲染应成功");
++
++    assert!(
++        tables.contains("get \"fixturePing\"() { return z.strictObject({\n\t\t}); },"),
++        "零形参命令出 `z.strictObject({{}})`"
++    );
++    // struct 面一律 strict（PATCH(1)）：loose 变体零命中
++    assert!(!tables.contains("z.object("), "零 loose 对象变体");
++}
++
++#[test]
++fn render_command_tables_channel形参位出降级哨兵且信封表命中() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++    let tables = render_command_tables(&format, &cfg, mapped.as_ref()).expect("三表渲染应成功");
++
++    // 参数面：Channel 形参位出 degraded 哨兵（键仍保留在 argsSchemas）
++    assert!(
++        tables.contains(&format!("\"onEvent\": degraded(\"{CHANNEL_REASON}\"),")),
++        "Channel 形参位应为降级哨兵"
++    );
++    // 信封面：该命令的 onEvent → 信封 schema（`Channel<FixtureEvent>` 的 T）
++    assert!(
++        tables.contains("get \"fixtureChannel\"() { return {"),
++        "channelArgs 命中 Channel 命令"
++    );
++    assert!(
++        tables.contains("get \"onEvent\"() { return z.lazy(() => FixtureEventSchema); },"),
++        "信封表项为 getter + 信封 schema"
++    );
++    // 降级哨兵只落 Channel 形参位：非 Channel 命令的信封表为空对象
++    assert!(
++        tables.contains("get \"fixturePing\"() { return {\n\t\t}; },"),
++        "无 Channel 的命令信封表为空对象"
++    );
++}
++
++#[test]
++fn render_command_tables_结果面取ok臂且零result具名引用() {
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++    let tables = render_command_tables(&format, &cfg, mapped.as_ref()).expect("三表渲染应成功");
++
++    let results = tables
++        .find("export const resultSchemas")
++        .map(|start| &tables[start..])
++        .expect("结果表在场");
++    // Result<T, String> 的 Ok 臂：结果表引用 T，而不是 Result 具名 schema
++    assert!(
++        results
++            .contains("get \"fixtureBigints\"() { return z.lazy(() => FixtureBigintsSchema); },"),
++        "结果面取 Ok 臂"
++    );
++    assert!(
++        results.contains("get \"fixtureChannel\"() { return z.lazy(() => FixtureEventSchema); },"),
++        "Channel 命令的结果面同样取 Ok 臂"
++    );
++    assert!(!results.contains("Result"), "结果表零 Result 具名引用");
++
++    // result_dt 直断言：Result 引用 → Ok 臂；非 Result → 原样返回
++    let bigints = command_by(&cfg, "fixture_bigints");
++    let ok_arm = result_dt(bigints.result(), &cfg.types).expect("Result 应有 Ok 臂");
++    let DataType::Reference(reference) = ok_arm else {
++        panic!("Ok 臂应为具名引用，实际 {ok_arm:?}");
++    };
++    assert_eq!(
++        cfg.types
++            .get(match reference {
++                specta::datatype::Reference::Named(named) => named,
++                other => panic!("Ok 臂应为 NamedReference，实际 {other:?}"),
++            })
++            .map(|ndt| ndt.name.as_ref()),
++        Some("FixtureBigints"),
++        "Ok 臂指向 T",
++    );
++
++    let plain = DataType::Primitive(Primitive::u64);
++    assert_eq!(
++        result_dt(Some(&plain), &cfg.types),
++        Some(&plain),
++        "非 Result 结果原样返回"
++    );
++    assert_eq!(result_dt(None, &cfg.types), None, "无结果类型时返回 None");
++}
++
++#[test]
++fn render_command_tables_accessor随大小写与rename重命名() {
++    // 默认 camelCase：rename 后的命令按 Rust 标识符派生 accessor（非 IPC 名）
++    let cfg = fixture_config();
++    let format = ZodFormat::new(&cfg);
++    let mapped = format.map_types(&cfg.types).expect("映射应成功");
++    let tables = render_command_tables(&format, &cfg, mapped.as_ref()).expect("三表渲染应成功");
++    assert!(
++        tables.contains("get \"fixtureRenamed\"() { return z.strictObject({"),
++        "rename 形态取重命名后的 accessor（fixtureRenamed），实际表: {tables}"
++    );
++    assert!(!tables.contains("fixture_renamed_ipc"), "IPC 名不入表键");
++
++    // PascalCase：同一 fixture 的三表键随之变形
++    let (functions, accessor_names, types) = collect_fixture(fixture_commands());
++    let pascal = config(functions, accessor_names, types, Casing::PascalCase, true);
++    let format = ZodFormat::new(&pascal);
++    let mapped = format.map_types(&pascal.types).expect("映射应成功");
++    let tables = render_command_tables(&format, &pascal, mapped.as_ref()).expect("三表渲染应成功");
++    assert!(
++        tables.contains("get \"FixtureBigints\"() { return"),
++        "PascalCase 下 accessor 首字母大写"
++    );
++}
++
++#[test]
++fn render_command_tables_引用缺失具名类型时显式失败() {
++    // 命令引用 FixtureBigints，但 types 为空：渲染期必须显式失败（不静默产出悬空名）
++    let (functions, accessor_names, _) = collect_fixture(fixture_commands());
++    let cfg = config(
++        functions,
++        accessor_names,
++        Types::default(),
++        Casing::CamelCase,
++        true,
++    );
++    let format = ZodFormat::new(&cfg);
++    let err =
++        render_command_tables(&format, &cfg, &cfg.types).expect_err("缺失具名类型时渲染应失败");
++    let text = err.to_string();
++    assert!(
++        text.contains("dangling") || text.contains("missing"),
++        "错误面应表达悬空引用，实际: {text}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// ZodLanguage::export：完整管线与落盘
++// ---------------------------------------------------------------------------
++
++#[test]
++fn export_产物含banner_prelude_三表与具名schema段() {
++    let cfg = fixture_config();
++    let dir = tempfile::Builder::new().tempdir().expect("建临时目录");
++    let path = temp_product(dir.path(), "bindings.zod.ts");
++
++    ZodLanguage.export(&cfg, &path).expect("导出应成功");
++    let text = std::fs::read_to_string(&path).expect("读取产物");
++
++    assert!(text.contains(FILE_BANNER), "产物含生成器 banner");
++    assert!(
++        text.contains(FILE_PRELUDE),
++        "产物含 prelude（zod 导入 + 降级哨兵）"
++    );
++    assert!(
++        text.contains("import { z } from \"zod\";"),
++        "产物 import 真实 zod"
++    );
++    for table in ["argsSchemas", "resultSchemas", "channelArgs"] {
++        assert!(
++            text.contains(&format!("export const {table} = {{")),
++            "产物缺 {table} 表"
++        );
++    }
++    // 具名 schema 段（strict + getter 化）
++    assert!(
++        text.contains("export const FixtureBigintsSchema = z.strictObject({"),
++        "具名 DTO schema 出线"
++    );
++    assert!(
++        text.contains("export const FixtureEventSchema = z.strictObject({"),
++        "信封 DTO schema 出线"
++    );
++    assert!(
++        text.contains("get big_u64() { return z.number(); },"),
++        "具名 schema 字段 getter 化 + 大整数改写"
++    );
++    assert!(
++        text.contains("get payload() { return z.unknown(); },"),
++        "合法 unknown 仍出 z.unknown()"
++    );
++
++    // 生成期硬约束（AC-7）：零修饰 / 零别名 / 零 z.infer / 零 loose 变体
++    for snippet in FORBIDDEN_SNIPPETS {
++        assert!(!text.contains(snippet), "产物命中禁用片段 {snippet}");
++    }
++    // 降级哨兵只落 Channel 形参位（fixture 恰 1 个 Channel 形参 ⇒ 恰 1 处使用；
++    // 声明处写作 `const degraded = (reason…)`，不命中 `degraded(` 文本）
++    assert_eq!(
++        text.matches("degraded(").count(),
++        1,
++        "degraded 只落在 Channel 形参位"
++    );
++}
++
++#[test]
++fn export_同一配置导出两次字节完全相同且不嵌机器路径() {
++    let cfg = fixture_config();
++    let dir = tempfile::Builder::new().tempdir().expect("建临时目录");
++    let first_path = temp_product(dir.path(), "first.zod.ts");
++    let second_path = temp_product(dir.path(), "second.zod.ts");
++
++    ZodLanguage
++        .export(&cfg, &first_path)
++        .expect("首次导出应成功");
++    ZodLanguage
++        .export(&cfg, &second_path)
++        .expect("第二次导出应成功");
++    let first = std::fs::read(&first_path).expect("读取首份产物");
++    let second = std::fs::read(&second_path).expect("读取第二份产物");
++
++    assert_eq!(
++        first, second,
++        "同输入两次导出逐字节一致（无时间戳 / 无路径）"
++    );
++    let text = String::from_utf8(second).expect("产物为 UTF-8");
++    assert!(
++        !text.contains(env!("CARGO_MANIFEST_DIR")),
++        "产物不嵌入机器绝对路径"
++    );
++}
++
++#[test]
++fn export_空命令集合时三表为空且骨架仍在() {
++    let cfg = config(
++        Vec::new(),
++        BTreeMap::new(),
++        Types::default(),
++        Casing::CamelCase,
++        true,
++    );
++    let dir = tempfile::Builder::new().tempdir().expect("建临时目录");
++    let path = temp_product(dir.path(), "empty.zod.ts");
++
++    ZodLanguage
++        .export(&cfg, &path)
++        .expect("空命令集合导出应成功");
++    let text = std::fs::read_to_string(&path).expect("读取产物");
++
++    assert!(text.contains(FILE_BANNER), "骨架含 banner");
++    assert!(text.contains(FILE_PRELUDE), "骨架含 prelude");
++    for table in ["argsSchemas", "resultSchemas", "channelArgs"] {
++        assert!(
++            text.contains(&format!("export const {table} = {{\n}} as const;")),
++            "空命令集合时 {table} 为空对象"
++        );
++    }
++}
++
++#[test]
++fn export_写盘目标父目录不存在时返回错误且不产生部分文件() {
++    let cfg = fixture_config();
++    let dir = tempfile::Builder::new().tempdir().expect("建临时目录");
++    let path = dir
++        .path()
++        .join("missing")
++        .join("nested")
++        .join("bindings.zod.ts");
++
++    let err = ZodLanguage
++        .export(&cfg, &path)
++        .expect_err("父目录不存在时应返回错误（io::Error 经 LanguageExt::Error 映射）");
++    assert!(
++        !err.to_string().is_empty(),
++        "错误面非空（不 panic、不静默）"
++    );
++    assert!(!path.exists(), "失败不产生部分文件");
++}
++
++#[test]
++fn export_命中数值型map_key的refine时返回错误且不写盘() {
++    // design R-4：`.refine(` 的真实触发面是数值型 map key。fixture 用真实
++    // `#[tauri::command]` + `collect_commands!` 构造（MUST NOT 向产物注入文本），
++    // 上游 `map_key_datatype` 对 u8 / f64 key 出 `z.string().regex(…).refine(…)`
++    // ⇒ `guard_forbidden` 在落盘前失败。
++    for (label, cfg) in [
++        (
++            "u8",
++            single_command_config(tauri_specta::collect_commands![fixture_u8_map_key]),
++        ),
++        (
++            "f64",
++            single_command_config(tauri_specta::collect_commands![fixture_f64_map_key]),
++        ),
++    ] {
++        let dir = tempfile::Builder::new().tempdir().expect("建临时目录");
++        let path = temp_product(dir.path(), &format!("map-key-{label}.zod.ts"));
++
++        let err = ZodLanguage
++            .export(&cfg, &path)
++            .expect_err("数值型 map key 应出 .refine( → 生成期自检失败");
++        let text = err.to_string();
++        assert!(
++            text.contains("禁用片段"),
++            "{label} key: 错误面应点名生成期硬约束，实际: {text}"
++        );
++        assert!(
++            text.contains(".refine("),
++            "{label} key: 命中的禁用片段应为 .refine(，实际: {text}"
++        );
++        assert!(
++            !path.exists(),
++            "{label} key: 命中禁用片段时目标路径不产生文件（fail-closed）"
++        );
++    }
++}
++
++#[test]
++fn export_命中禁用片段时既有旧产物不被半成品覆盖() {
++    let cfg = single_command_config(tauri_specta::collect_commands![fixture_u8_map_key]);
++    let dir = tempfile::Builder::new().tempdir().expect("建临时目录");
++    let path = temp_product(dir.path(), "existing.zod.ts");
++    std::fs::write(&path, "// 旧产物内容\n").expect("预置旧产物");
++
++    ZodLanguage
++        .export(&cfg, &path)
++        .expect_err("应命中 .refine( 而失败（fail-closed）");
++
++    assert_eq!(
++        std::fs::read_to_string(&path).expect("读回旧产物"),
++        "// 旧产物内容\n",
++        "失败不覆盖既有产物（不落半成品）"
++    );
++}
++
++#[test]
++fn export_保留result引用的fixture零result具名schema声明() {
++    let mut cfg = fixture_config();
++    cfg.types.register_mut::<FixtureHoldsResult>();
++    let dir = tempfile::Builder::new().tempdir().expect("建临时目录");
++    let path = temp_product(dir.path(), "retained_result.zod.ts");
++
++    // design D3 的前置条件是「无任何保留类型引用 Result」（本仓 46 命令的结果面全部
++    // 解包 Ok 臂）。前置不成立时，`Result` 的具名 schema 已被隐藏（ty 置 None），
++    // 产物因此不含可与 `bindings.ts` 类型面对位的 `ResultSchema` 声明——这一条是
++    // 隐藏逻辑本身的判据；残留的引用位是未声明标识符，归 AC-8 的自检桩
++    // （`bindings:zod-check` 的 `tsc --noEmit`，`TS2304`）拦截。
++    // test-design 口径（design R-1 / D16 现值）：此处**导出成功**，
++    // MUST NOT 期望生成期 `dangling_named_reference`。
++    ZodLanguage
++        .export(&cfg, &path)
++        .expect("隐藏 Result 后导出本身不应失败（悬挂标识符归 tsc 桩拦截）");
++    let text = std::fs::read_to_string(&path).expect("读取产物");
++
++    assert!(
++        !text.contains("export const ResultSchema"),
++        "Result 具名 schema 不渲染（不产出不等价 schema）"
++    );
++    assert!(
++        text.contains("export const FixtureHoldsResultSchema = z.strictObject({"),
++        "保留引用的 fixture 自身 schema 仍出线"
++    );
++    // 隐藏面不外溢：其余具名 DTO schema 照旧在场
++    assert!(text.contains("export const FixtureBigintsSchema = z.strictObject({"));
++}
++
++// ---------------------------------------------------------------------------
++// 生成期自检：guard_forbidden
++// ---------------------------------------------------------------------------
++
++#[test]
++fn guard_forbidden_九类禁用片段一律失败且干净文本放行() {
++    for snippet in FORBIDDEN_SNIPPETS {
++        let dirty = format!("export const XSchema = z.string(){snippet}();");
++        assert!(
++            guard_forbidden(&dirty).is_err(),
++            "命中 {snippet} 时应失败（fail-closed）"
++        );
++    }
++    // 干净产物放行
++    let clean = "export const XSchema = z.strictObject({ get a() { return z.number(); } });";
++    assert!(guard_forbidden(clean).is_ok(), "干净文本应放行");
++    // 五类 zod 修饰与两类别名形态各自在册（防清单漏项）
++    for required in [
++        ".default(",
++        ".transform(",
++        ".catch(",
++        ".pipe(",
++        ".refine(",
++        "export type ",
++        "z.infer",
++    ] {
++        assert!(
++            FORBIDDEN_SNIPPETS.contains(&required),
++            "禁用清单缺 {required}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 私有辅助：channel_envelope_dt / is_hidden_ndt
++// ---------------------------------------------------------------------------
++
++#[test]
++fn channel_envelope_dt_channel形参得到信封类型且普通形参不命中() {
++    let cfg = fixture_config();
++    let channel_command = command_by(&cfg, "fixture_channel");
++    let args = channel_command.args();
++
++    let (_, channel_dt) = args
++        .iter()
++        .find(|(name, _)| name.as_ref() == "on_event")
++        .expect("缺 on_event 形参");
++    let envelope = channel_envelope_dt(channel_dt, &cfg.types).expect("Channel 形参应命中");
++    let DataType::Reference(reference) = envelope else {
++        panic!("信封应为具名引用，实际 {envelope:?}");
++    };
++    let specta::datatype::Reference::Named(named_reference) = reference else {
++        panic!("信封应为 NamedReference");
++    };
++    assert_eq!(
++        cfg.types.get(named_reference).map(|ndt| ndt.name.as_ref()),
++        Some("FixtureEvent"),
++        "信封类型为 Channel<T> 的 T"
++    );
++
++    let (_, root_dt) = args
++        .iter()
++        .find(|(name, _)| name.as_ref() == "root")
++        .expect("缺 root 形参");
++    assert!(
++        channel_envelope_dt(root_dt, &cfg.types).is_none(),
++        "普通形参不命中 Channel 判据"
++    );
++
++    // 降级清单的数据来源 = 逐命令 Channel 形参命中数（fixture 内恰 1 个）
++    let channel_args: Vec<_> = cfg
++        .commands
++        .iter()
++        .flat_map(|command| command.args())
++        .filter(|(_, dt)| channel_envelope_dt(dt, &cfg.types).is_some())
++        .collect();
++    assert_eq!(channel_args.len(), 1, "fixture 内恰 1 个 Channel 形参");
++    assert_eq!(channel_args[0].0.as_ref(), "on_event", "形参名逐字");
++}

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../lib/ipc-drift';
 import { useAppEnvironment } from './use-app-environment';
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -199,4 +200,82 @@ describe('useAppEnvironment：载荷不合法一律 null', () => {
       expect(result.current).toBeNull();
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：零形参命令
+// `appEnvironment` 的参数面放行与结果面 soft-report（旧版「失败静默为 null」
+// 语义零改动）。
+// ---------------------------------------------------------------------------
+
+describe('useAppEnvironment：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(devEnvironment());
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('挂载 → invoke("app_environment") 恰 1 次、载荷合法、零漂移', async () => {
+    const { result } = renderHook(() => useAppEnvironment());
+    await waitFor(() => expect(result.current).not.toBeNull());
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith('app_environment');
+    expect(result.current?.mode).toBe('dev');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('零形参命令参数面放行：无 IpcArgsError、payload 为空对象（非 undefined）', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = renderHook(() => useAppEnvironment());
+    await waitFor(() => expect(result.current).not.toBeNull());
+
+    expect(invokeMock.mock.calls[0]).toEqual(['app_environment']);
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 返回 null、console.error 零调用（既有静默语义）、零漂移', async () => {
+    invokeMock.mockRejectedValue('IPC 断开');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = renderHook(() => useAppEnvironment());
+    await flush();
+
+    expect(result.current).toBeNull();
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面契约外（dataRoot 给数字）→ 漂移 1 条 + 既有收窄仍返回 null', async () => {
+    invokeMock.mockResolvedValue({ ...devEnvironment(), dataRoot: 42 });
+    const { result } = renderHook(() => useAppEnvironment());
+    await flush();
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('appEnvironment');
+    expect(result.current).toBeNull();
+  });
+
+  it('结果面多余键（strictObject）→ 漂移 1 条、载荷仍按既有字段收窄', async () => {
+    invokeMock.mockResolvedValue({ ...devEnvironment(), surplusKey: 'x' });
+    const { result } = renderHook(() => useAppEnvironment());
+    await waitFor(() => expect(result.current).not.toBeNull());
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].path).toBe('#');
+    expect(result.current?.dataRoot).toBe('C:\\u\\.dev-team\\dev');
+  });
+
+  it('卸载前 resolve（cancelled 分支）→ 零状态写入、零漂移', async () => {
+    const { unmount } = renderHook(() => useAppEnvironment());
+    unmount();
+    await flush();
+
+    expect(driftCount()).toBe(0);
+  });
 });

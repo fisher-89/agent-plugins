@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, resetDrift } from '../../../lib/ipc-drift';
 import { ChangeCreateDialog } from './change-create-dialog';
 
 // 仅进程边界 mock
@@ -369,5 +370,138 @@ describe('ChangeCreateDialog：工作流类型选择器（AC-7）', () => {
     expect(error.textContent).toContain('不受支持');
     expect(screen.getByTestId('change-create-name')).toBeTruthy();
     expect(onCreated).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 ipc 的参数面 / 结果面（AC-1 参数面 strict / AC-2 结果面 soft-report）：
+// 对话框只换调用面（`commands.` → `ipc.`），参数面错本地拒、结果面脏只上报。
+// 漂移断言用真实 collector（`driftCount()`），不以替身次数测上报。
+// ---------------------------------------------------------------------------
+
+describe('ChangeCreateDialog：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(OUTCOME);
+    resetDrift();
+  });
+
+  it('正向：合法表单提交 → create_change 恰 1 次、参数面放行、成功后关窗回调照旧、零漂移', async () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    submit('fix-bug', '修复登录重试的竞态问题');
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
+    expect(createCalls()).toEqual([
+      { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题', workflowType: 'requirement' },
+    ]);
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
+    expect(driftCount()).toBe(0);
+  });
+
+  it('正向：workflowType 全部枚举值逐值提交 → 均放行、零 IpcArgsError、零漂移', async () => {
+    for (const workflowType of ['requirement', 'test-only']) {
+      invokeMock.mockClear();
+      const onCreated = vi.fn();
+      const view = render(
+        <ChangeCreateDialog root={ROOT} onCreated={onCreated}>
+          <button type="button">打开新建</button>
+        </ChangeCreateDialog>,
+      );
+      openForm();
+      fireEvent.change(screen.getByTestId('change-create-workflow-type'), {
+        target: { value: workflowType },
+      });
+      submit('enum-value', '枚举取值验证');
+
+      await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+      expect(createCalls()).toEqual([
+        { root: ROOT, name: 'enum-value', goal: '枚举取值验证', workflowType },
+      ]);
+      expect(screen.queryByTestId('change-create-error')).toBeNull();
+      view.unmount();
+    }
+
+    expect(driftCount()).toBe(0);
+  });
+
+  it('异常：后端 reject（重名 / 非法名）→ 既有 String(err) 行内呈现、弹窗不关、零漂移', async () => {
+    for (const rejection of ['change "fix-bug" 已存在', '非法变更名']) {
+      invokeMock.mockClear();
+      invokeMock.mockRejectedValue(rejection);
+      const onCreated = vi.fn();
+      const view = render(
+        <ChangeCreateDialog root={ROOT} onCreated={onCreated}>
+          <button type="button">打开新建</button>
+        </ChangeCreateDialog>,
+      );
+      openForm();
+      submit('fix-bug', '合法 goal');
+
+      const error = await screen.findByTestId('change-create-error');
+      // 后端 reject 串语义不变：String(err) 逐字呈现（非 IpcArgsError 形态）
+      expect(error.textContent).toBe(rejection);
+      expect(screen.getByTestId('change-create-name') !== null).toBe(true);
+      expect(onCreated).not.toHaveBeenCalled();
+      view.unmount();
+    }
+
+    expect(driftCount()).toBe(0);
+  });
+
+  it('异常：结果面契约外（created 给数字）→ 漂移恰 1 条、既有成功回调照旧（漂移不阻断流程）', async () => {
+    invokeMock.mockResolvedValue({ ...OUTCOME, created: 42 });
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    submit('drift-case', '结果面漂移验证');
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
+    expect(driftCount()).toBe(1);
+    // 软失败：错误块不出现、弹窗照旧关闭（漂移只上报）
+    expect(screen.queryByTestId('change-create-error')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
+  });
+
+  it('边界：name 全空白 / goal 空串 → 既有表单前置校验拦截、零 invoke、零 IpcArgsError', () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    for (const [name, goal] of [
+      ['   ', '合法 goal'],
+      ['fix-bug', ''],
+    ] as const) {
+      fireEvent.change(screen.getByTestId('change-create-name'), { target: { value: name } });
+      fireEvent.change(screen.getByTestId('change-create-goal'), { target: { value: goal } });
+      fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+      const error = screen.getByTestId('change-create-error');
+      expect(error.textContent).toContain('校验不通过');
+      // 前置校验先于 ipc：不出现参数面错误文案（IpcArgsError）
+      expect(error.textContent).not.toContain('参数校验失败');
+    }
+
+    expect(createCalls()).toHaveLength(0);
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('边界：goal 超长（>1000 字符）→ 参数面放行（schema 只表达接受面）、invoke 恰 1 次', async () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+    const goal = `${'长'.repeat(1200)}\nemoji 🚀 结尾`;
+
+    submit('long-goal', goal);
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
+    expect(createCalls()).toEqual([
+      { root: ROOT, name: 'long-goal', goal, workflowType: 'requirement' },
+    ]);
+    expect(driftCount()).toBe(0);
   });
 });

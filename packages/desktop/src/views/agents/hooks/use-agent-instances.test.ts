@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { AgentEngineKind, AgentInstanceRecord } from '../../../types/generated/bindings';
 import { useAgentInstances } from './use-agent-instances';
 
@@ -326,5 +327,129 @@ describe('useAgentInstances：cli mock 数据处置（fixture 面）', () => {
     expect(message).toContain('存量 cli 实例可读可删不可改');
     // 动作轨失败不置 error 态（错误双轨口径零改动）
     expect(result.current.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：四命令的参数面
+// 放行（`id` / `providerId` 的 null 可过）、后端拒面的既有 toast 文案、结果面
+// soft-report。
+// ---------------------------------------------------------------------------
+
+describe('useAgentInstances：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('新建 saveAgentInstance(null, name, "sdk", null) → 两个 null 可空位放行、invoke 恰 1 次', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useAgentInstances());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save({ id: null, name: 'sdk-new', engine: 'sdk', providerId: null });
+    });
+
+    expect(countOf('save_agent_instance')).toBe(1);
+    expect(invokeMock.mock.calls.find(([name]) => name === 'save_agent_instance')?.[1]).toEqual({
+      id: null,
+      name: 'sdk-new',
+      engine: 'sdk',
+      providerId: null,
+    });
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    [
+      'save（更新，id 为数字）',
+      'save',
+      { id: 1, name: 'renamed', engine: 'sdk', providerId: null },
+    ],
+    ['setDefault', 'setDefault', 1],
+    ['remove', 'remove', 1],
+  ] as const)('%s → 参数面放行、结果干净零漂移', async (_label, action, input) => {
+    mockDispatch();
+    stored = [instance(1, 'sdk-a', 'sdk', true)];
+    const { result } = renderHook(() => useAgentInstances());
+    await settleLoaded();
+
+    await act(async () => {
+      if (action === 'save') await result.current.save(input as never);
+      if (action === 'setDefault') await result.current.setDefault(input as number);
+      if (action === 'remove') await result.current.remove(input as number);
+    });
+
+    expect(driftCount()).toBe(0);
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each([
+    ['悬空 provider 引用', 'store: 保存 agent 失败: provider 不存在: id=9'],
+    ['cli 引擎不可改', 'CLI_TENANT_RETIRED：cli 实例不可修改'],
+    ['默认标记仅 sdk', 'store: 默认标记仅 sdk 可设'],
+  ])(
+    '后端 reject（%s）→ 既有 toast 固定前缀 + String(err) 文案不变、零漂移',
+    async (_label, message) => {
+      invokeMock.mockImplementation((command: string) =>
+        command === 'list_agent_instances' ? Promise.resolve([]) : Promise.reject(message),
+      );
+      const { result } = renderHook(() => useAgentInstances());
+      await settleLoaded();
+
+      await act(async () => {
+        await result.current.save({ id: null, name: 'x', engine: 'sdk', providerId: 9 });
+      });
+
+      expect(toastErrorMock).toHaveBeenCalledWith(`保存 agent 失败：${message}`);
+      expect(driftCount()).toBe(0);
+    },
+  );
+
+  it('结果面契约外（record 缺 engine）→ 漂移恰 1 条、既有清单更新逻辑不崩', async () => {
+    invokeMock.mockResolvedValue([{ id: 2, name: 'broken', providerId: null, isDefault: false }]);
+    const { result } = renderHook(() => useAgentInstances());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('listAgentInstances');
+    expect(result.current.instances).toHaveLength(1);
+  });
+
+  it('空清单 → 放行、零漂移、既有空态不变', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { result } = renderHook(() => useAgentInstances());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.instances).toEqual([]);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('engine: "cli" 保存 → 前端参数面放行（拒面单点在 store），后端 reject 经既有 toast 呈现', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'list_agent_instances'
+        ? Promise.resolve([])
+        : Promise.reject('CLI_TENANT_RETIRED：cli 实例不可修改'),
+    );
+    const { result } = renderHook(() => useAgentInstances());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save({ id: 1, name: 'cli-a', engine: 'cli', providerId: null });
+    });
+
+    expect(countOf('save_agent_instance')).toBe(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      '保存 agent 失败：CLI_TENANT_RETIRED：cli 实例不可修改',
+    );
+    expect(driftCount()).toBe(0);
   });
 });

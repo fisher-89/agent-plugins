@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, resetDrift } from '../../../lib/ipc-drift';
 import type { AgentModelTiers, AgentProviderRecord } from '../../../types/generated/bindings';
 import { useAgentProviders } from './use-agent-providers';
 
@@ -760,5 +761,148 @@ describe('useAgentProviders：webSearch 位置参数（true / false 与可空列
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
     expect(String(toastErrorMock.mock.calls[0]?.[0])).toContain('保存 provider 失败：');
     expect(result.current.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`saveAgentProvider`
+// 的 9 形参与嵌套 `models` strict 面、三条既有 reject 文案、结果面 soft-report。
+// ---------------------------------------------------------------------------
+
+/** 合法 save 入参（id / contextLength / maxTokens 三个可空位取 null）。 */
+function saveInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: null,
+    name: 'prov',
+    protocol: 'openai',
+    baseUrl: 'https://api.example.com/v1',
+    apiKey: 'sk-live-1234567890',
+    models: TIERS,
+    contextLength: null,
+    maxTokens: null,
+    webSearch: false,
+    ...overrides,
+  };
+}
+
+describe('useAgentProviders：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('9 形参齐全、三可空位为 null → 放行；payload 键名逐字命中、invoke 恰 1 次', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save(saveInput() as never);
+    });
+
+    expect(countOf('save_agent_provider')).toBe(1);
+    expect(invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1]).toEqual({
+      id: null,
+      name: 'prov',
+      protocol: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-live-1234567890',
+      models: TIERS,
+      contextLength: null,
+      maxTokens: null,
+      webSearch: false,
+    });
+    expect(driftCount()).toBe(0);
+  });
+
+  it('嵌套 models 三档齐全 → strict 深层放行、结果干净零漂移', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save(
+        saveInput({ id: 1, models: { high: 'h', medium: 'm', low: 'l' } }) as never,
+      );
+    });
+
+    expect(driftCount()).toBe(0);
+    expect(result.current.providers).toHaveLength(1);
+  });
+
+  it.each([
+    ['模型名非法', '保存失败：models.high 非法模型名：m high'],
+    ['maxTokens 低于下限', '保存失败：maxTokens 须 >= 4096'],
+    ['api_key 结构外串', '保存失败：api_key 非法结构'],
+  ])('后端 reject（%s）→ 既有 toast 文案不变、零漂移', async (_label, message) => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'list_agent_providers' ? Promise.resolve([]) : Promise.reject(message),
+    );
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save(saveInput() as never);
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(`保存 provider 失败：${message}`);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('models 多传未知子键 → 本地 IpcArgsError、invoke 零调用（strict 深层，零往返）', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'list_agent_providers' ? Promise.resolve([]) : Promise.resolve({}),
+    );
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+    const afterLoad = countOf('save_agent_provider');
+
+    await act(async () => {
+      await result.current.save(saveInput({ models: { ...TIERS, surplus: 'x' } }) as never);
+    });
+
+    expect(countOf('save_agent_provider')).toBe(afterLoad);
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(String(toastErrorMock.mock.calls[0][0])).toContain('IpcArgsError');
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    [true, 0],
+    [false, 0],
+    [true, 100],
+    [false, 100],
+  ])(
+    'webSearch=%s 与数值下界=%i 组合 → 前端放行（下限校验单点在 Rust）',
+    async (webSearch, bound) => {
+      mockDispatch();
+      const { result } = renderHook(() => useAgentProviders());
+      await settleLoaded();
+
+      await act(async () => {
+        await result.current.save(
+          saveInput({ webSearch, contextLength: bound, maxTokens: bound }) as never,
+        );
+      });
+
+      expect(countOf('save_agent_provider')).toBe(1);
+      expect(driftCount()).toBe(0);
+    },
+  );
+
+  it('空 provider 清单 → 放行、零漂移、既有空态不变', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    expect(result.current.providers).toEqual([]);
+    expect(driftCount()).toBe(0);
   });
 });

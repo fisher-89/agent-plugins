@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { ExploreRecord } from '../../../types/dto';
 import { useExploreList } from './use-explore-list';
 
@@ -658,5 +659,128 @@ describe('useExploreList：updateWorkflowType 动作（回填唯一写口，AC-8
       'update_explore_workflow_type',
       'promote_explore',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：七命令参数面放行
+// （含 `createExploreRecord` 的可空第二形参）、结果面 soft-report 与既有
+// `onError` 回显。
+// ---------------------------------------------------------------------------
+
+describe('useExploreList：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('listExploreRecords(root) 放行：结果干净零漂移、清单渲染不变', async () => {
+    const seeded = [record(1, 'api-retry')];
+    invokeMock.mockResolvedValue(seeded);
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toHaveLength(1));
+
+    expect(invokeMock).toHaveBeenCalledWith('list_explore_records', { root: ROOT });
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    [
+      'rename',
+      'rename_explore_record',
+      (actions: ReturnType<typeof useExploreList>) => actions.rename('api-retry', 'api-retry-2'),
+    ],
+    [
+      'remove',
+      'delete_explore_record',
+      (actions: ReturnType<typeof useExploreList>) => actions.remove('api-retry'),
+    ],
+    [
+      'create',
+      'create_explore_record',
+      (actions: ReturnType<typeof useExploreList>) => actions.create('new-topic'),
+    ],
+  ] as const)('%s 动作 → 参数面放行、对应 invoke 1 次、零漂移', async (_label, command, act) => {
+    invokeMock.mockImplementation((name: string) => {
+      if (name === 'list_explore_records') return Promise.resolve([]);
+      if (name === 'delete_explore_record') return Promise.resolve(true);
+      return Promise.resolve(record(1, 'api-retry'));
+    });
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(result.current);
+
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([name]) => name === command)).toHaveLength(1),
+    );
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['重名', '已有同名 explore：api-retry'],
+    ['不存在', 'explore 不存在：ghost'],
+  ])('reject 串（%s）→ 既有 onError 文案逐字不变、零漂移', async (_label, message) => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'list_explore_records' ? Promise.resolve([]) : Promise.reject(message),
+    );
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.rename('a', 'b');
+    });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe(message);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（record 缺 name）→ 漂移恰 1 条 + 清单不崩（原值透传）', async () => {
+    invokeMock.mockResolvedValue([{ id: 1, root: ROOT, title: 'x' }]);
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toHaveLength(1));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('listExploreRecords');
+    expect(driftReports()[0].path.startsWith('#/0')).toBe(true);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('空清单 → 零漂移、既有空态不变', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.records).toEqual([]);
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['超长名（> 1000 字符）', 'x'.repeat(1200)],
+    ['含 emoji 与换行', '探索🚀\n第二行'],
+  ])('renameExploreRecord 新名%s → 参数面放行（无 .refine()）', async (_label, newName) => {
+    invokeMock.mockImplementation((name: string) =>
+      Promise.resolve(name === 'list_explore_records' ? [] : record(1, 'api-retry')),
+    );
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.rename('api-retry', newName);
+    });
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([name]) => name === 'rename_explore_record'),
+      ).toHaveLength(1),
+    );
+
+    expect(driftCount()).toBe(0);
+    expect(result.current.error).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { ZodObject, ZodType, prettifyError } from 'zod';
+import { type ZodError, type ZodIssue, ZodObject, ZodType, prettifyError, z } from 'zod';
 
 import { commands } from '../types/generated/bindings';
 import { argsSchemas, channelArgs, resultSchemas } from '../types/generated/bindings.zod';
@@ -20,6 +20,10 @@ import { type IpcDriftReport, driftCount, driftReports, reportDrift } from './ip
  *
  * 错误面三分：`invoke` reject（后端业务失败，原样向上抛）/ `IpcArgsError`（本地参数
  * 拒绝，`extends Error` 故既有 `String(err)` 呈现零改动）/ 漂移报告（只上报，永不 throw）。
+ *
+ * zod 面一律用**类型化的 issue**（`ZodIssue`）：`path` / `code` / `expected` 都是声明面
+ * 的一部分，不再对 issue 做 `unknown` 收窄——那种「防御式再判空」在真实 zod 产物下
+ * 恒为真，只会让语义被两层等价守卫遮住。
  */
 
 /** 本地参数拒绝：`extends Error` 使既有「`String(err)` 进 error 态」链路零改动 */
@@ -39,39 +43,29 @@ class IpcArgsError extends Error {
   }
 }
 
-/** jsonPointer 风格路径：`#` 表示根，`#/a/0/b` 逐段 `/`（`~`/`/` 按 RFC 6901 转义） */
+/**
+ * 表项缺失时的放行面（fail-open）：生成物逐命令都有表项，此处只为「绝不误拒合法调用」
+ * ——参数面退化为「空形参」（接受任意调用）、结果面退化为「不做观测」。
+ */
+const NO_ARGS_SCHEMA = z.object({});
+const NO_RESULT_SCHEMA: ZodType = z.unknown();
+
+/** jsonPointer 风格路径：`#` 表示根，`#/a/0/b` 逐段 `/` */
 function jsonPointer(segments: ReadonlyArray<string>): string {
-  if (segments.length === 0) return '#';
-  const escaped = segments.map(
-    (segment) => `/${segment.replaceAll('~', '~0').replaceAll('/', '~1')}`,
-  );
-  return `#${escaped.join('')}`;
+  return `#${segments.map((segment) => `/${segment}`).join('')}`;
 }
 
-/** 从校验输入里取路径处的原值（`got`）：途中任一段不存在即 `undefined` */
+/**
+ * 路径处原值（`got`）：`Object(node)` 把中途遇到的标量装箱，于是缺失键 / 标量段自然
+ * 得 `undefined` 而不是 `Reflect` 的类型错误——提取 `got` 的手必须永不抛。
+ */
 function valueAtPath(value: unknown, segments: ReadonlyArray<string>): unknown {
-  let current: unknown = value;
-  for (const segment of segments) {
-    if (typeof current !== 'object' || current === null) return undefined;
-    current = Reflect.get(current, segment);
-  }
-  return current;
+  return segments.reduce<unknown>((node, segment) => Reflect.get(Object(node), segment), value);
 }
 
-/** zod issue 的路径段（`path` 恒存在；段值统一收敛为字符串） */
-function issueSegments(issue: unknown): ReadonlyArray<string> {
-  if (typeof issue !== 'object' || issue === null || !('path' in issue)) return [];
-  const { path } = issue;
-  if (!Array.isArray(path)) return [];
-  return path.map((segment: unknown) => String(segment));
-}
-
-/** zod issue 的 `expected`（仅类型错带该字段；其余回落 issue 文案） */
-function issueExpected(issue: unknown): string {
-  if (typeof issue !== 'object' || issue === null) return 'unknown';
-  if ('expected' in issue && typeof issue.expected === 'string') return issue.expected;
-  if ('message' in issue && typeof issue.message === 'string') return issue.message;
-  return 'unknown';
+/** zod issue 的 `expected`：仅类型错带该字段，其余取 issue 文案 */
+function issueExpected(issue: ZodIssue): string {
+  return issue.code === 'invalid_type' ? issue.expected : issue.message;
 }
 
 /** 单条漂移上报：先取计数 → 记录 → 计数变化（新去重键）时在 DEV 打一次汇总告警 */
@@ -87,45 +81,45 @@ function report(report: IpcDriftReport): void {
   );
 }
 
+/** `safeParse` 的失败面：通过或 schema 自身抛异常均 `null`（观测链路绝不把内部异常当漂移） */
+function parseFailure(schema: ZodType, value: unknown): ZodError | null {
+  try {
+    const { success, error } = schema.safeParse(value);
+    return success ? null : error;
+  } catch {
+    return null;
+  }
+}
+
 /** 结果面 / 信封面 soft-report：失败只记录（含首个 issue 的路径与期望），永不 throw */
 function reportMismatch(cmd: string, schema: ZodType, value: unknown): void {
-  try {
-    const result = schema.safeParse(value);
-    if (result.success) return;
-    const [first] = result.error.issues;
-    const segments = issueSegments(first);
-    report({
-      cmd,
-      path: jsonPointer(segments),
-      expected: issueExpected(first),
-      got: valueAtPath(value, segments),
-    });
-  } catch {
-    // schema 自身异常（非契约不匹配）不得把业务路径变成 throw——降级为「不报告」
-  }
+  const failure = parseFailure(schema, value);
+  if (failure === null) return;
+  const [issue] = failure.issues;
+  const segments = issue.path.map(String);
+  report({
+    cmd,
+    path: jsonPointer(segments),
+    expected: issueExpected(issue),
+    got: valueAtPath(value, segments),
+  });
 }
 
-/** 参数面表项：无该命令的 object schema 即跳过校验（fail-open，绝不误拒合法调用） */
-function argsSchemaOf(cmd: string): ZodObject | null {
+/** 参数面表项（形状 = 形参名与形参序）：`instanceof ZodObject` 是类型收窄 + 放行面 */
+function argsSchemaOf(cmd: string): ZodObject {
   const schema: unknown = Reflect.get(argsSchemas, cmd);
-  return schema instanceof ZodObject ? schema : null;
+  return schema instanceof ZodObject ? schema : NO_ARGS_SCHEMA;
 }
 
-/** 结果面表项 */
-function resultSchemaOf(cmd: string): ZodType | null {
+/** 结果面表项（`Result` 的 Ok 臂）：`instanceof ZodType` 是类型收窄 + 放行面 */
+function resultSchemaOf(cmd: string): ZodType {
   const schema: unknown = Reflect.get(resultSchemas, cmd);
-  return schema instanceof ZodType ? schema : null;
+  return schema instanceof ZodType ? schema : NO_RESULT_SCHEMA;
 }
 
-/** 信封面表项：`Channel` 形参名 → 信封 schema（无该命令的表项即无 Channel） */
-function channelSchemasOf(cmd: string): Map<string, ZodType> | null {
-  const table: unknown = Reflect.get(channelArgs, cmd);
-  if (table === null || typeof table !== 'object') return null;
-  const schemas = new Map<string, ZodType>();
-  for (const [key, value] of Object.entries(table)) {
-    if (value instanceof ZodType) schemas.set(key, value);
-  }
-  return schemas;
+/** 信封面表项：`Channel` 形参名 → 信封 schema（生成物逐命令都有表项，无 Channel 时为 `{}`） */
+function channelSchemasOf(cmd: string): ReadonlyMap<string, ZodType> {
+  return new Map(Object.entries<ZodType>(Reflect.get(channelArgs, cmd)));
 }
 
 /** 校验输入：以 schema 的 shape 键顺（= Rust 形参序）把位置实参装配成 payload 副本 */
@@ -134,82 +128,82 @@ function argsPayloadOf(schema: ZodObject, args: ReadonlyArray<unknown>): Record<
   return Object.fromEntries(keys.map((key, index) => [key, args[index]]));
 }
 
-/** 参数面 strict：失败抛 `IpcArgsError`（消息 = 命令名 + 全量 issues 的 prettify 文案） */
+/** 首个 issue 的本地拒绝：命令名 + jsonPointer 路径 + expected/got + 全量 issues 文案 */
+function argsErrorOf(cmd: string, payload: Record<string, unknown>, error: ZodError): IpcArgsError {
+  const [first] = error.issues;
+  const segments = first.path.map(String);
+  return new IpcArgsError(
+    cmd,
+    jsonPointer(segments),
+    issueExpected(first),
+    valueAtPath(payload, segments),
+    prettifyError(error),
+  );
+}
+
+/** 参数面 strict：失败抛 `IpcArgsError`（零 IPC 往返），schema 自身异常同样收敛为本地拒绝 */
 function validateArgs(cmd: string, args: ReadonlyArray<unknown>): void {
   const schema = argsSchemaOf(cmd);
-  if (schema === null) return;
   const payload = argsPayloadOf(schema, args);
+  let failure: ZodError | null = null;
   try {
-    const result = schema.safeParse(payload);
-    if (result.success) return;
-    const [first] = result.error.issues;
-    const segments = issueSegments(first);
-    throw new IpcArgsError(
-      cmd,
-      jsonPointer(segments),
-      issueExpected(first),
-      valueAtPath(payload, segments),
-      prettifyError(result.error),
-    );
+    const outcome = schema.safeParse(payload);
+    failure = outcome.success ? null : outcome.error;
   } catch (err: unknown) {
-    // schema 自身异常也收敛为 `IpcArgsError`：本地参数面绝不把内部异常当业务 reject
-    if (err instanceof IpcArgsError) throw err;
     throw new IpcArgsError(cmd, '#', 'valid input', payload, String(err));
   }
+  if (failure !== null) throw argsErrorOf(cmd, payload, failure);
 }
 
 /** 已包裹的 Channel 实例（同一实例重复传入只包一次、只上报一次） */
 const guardedChannels = new WeakSet<object>();
 
-/** 原型上的 `onmessage` setter（`Channel` 的投递只读私有字段，故必须经 accessor 写入） */
-function prototypeSetter(channel: object): Function | null {
-  const descriptor: unknown = Object.getOwnPropertyDescriptor(
-    Object.getPrototypeOf(channel),
-    'onmessage',
-  );
-  if (typeof descriptor !== 'object' || descriptor === null) return null;
-  const setter: unknown = Reflect.get(descriptor, 'set');
-  return typeof setter === 'function' ? setter : null;
+/** 原型上的 `onmessage` descriptor（`Channel` 的投递只读私有字段，故必须经原型 accessor 写入） */
+function prototypeDescriptor(channel: object): PropertyDescriptor | undefined {
+  return Object.getOwnPropertyDescriptor(Object.getPrototypeOf(channel), 'onmessage');
 }
 
 /**
- * 在原实例上装 `onmessage` 拦截：`set` 记住调用方 handler 并经**原型上的原 setter**
- * 把稳定 forwarder 装进 `Channel` 的私有字段；`get` 返回调用方 handler（原型无
- * accessor 时返回 forwarder，兼容测试替身）。其它可观察行为（`id` / `toJSON` /
- * 取消订阅 / 序号）零介入——只在原实例上加一个 accessor，不换实例、不改字段。
+ * 在原实例上装 `onmessage` 拦截：`get` 返回调用方 handler（未接线时返回 forwarder），
+ * `set` 只记住 handler；稳定 forwarder 经**原型上的原 setter** 装进 `Channel` 的私有
+ * 字段，投递路径即 `validate → reportDrift → handler(msg)`。其它可观察行为（`id` /
+ * `toJSON` / 取消订阅 / 序号）零介入——只在原实例上加一个 accessor，不换实例、不改字段。
+ *
+ * 安装时**接住已接线的 handler**（真实消费形态是先 `onmessage = handler` 再传
+ * `channel`，见 `agent-transport` / `use-change-flow-run` / `use-explore-doc`）：
+ * 只有先把当前 `onmessage` 读进 `handler` 并立刻用 forwarder 覆盖私有字段，逐条校验
+ * 才真正落在交付路径上（否则私有字段仍是调用方 handler，信封绕过校验）。handler 之后
+ * 再被改写只会改变 forwarder 读取的那个变量，无需重装私有字段。
  */
 function guardChannel(cmd: string, channel: object, schema: ZodType): void {
   if (guardedChannels.has(channel)) return;
   guardedChannels.add(channel);
 
-  const setter = prototypeSetter(channel);
-  let handler: unknown;
-  let forwarder: ((message: unknown) => void) | null = null;
-  const ensureForwarder = (): ((message: unknown) => void) => {
-    forwarder ??= (message: unknown) => {
-      reportMismatch(cmd, schema, message);
-      if (typeof handler === 'function') Reflect.apply(handler, channel, [message]);
-    };
-    return forwarder;
+  const inherited = prototypeDescriptor(channel);
+  // 原型 setter 只能以函数值取用（从 descriptor 直接取成员会被判为 unbound method）
+  const setter: unknown = Reflect.get(inherited ?? {}, 'set');
+  // 必须在自身 `defineProperty` 之前读：否则读到的是本函数的 getter
+  let handler: unknown = Reflect.get(channel, 'onmessage');
+  const forwarder = (message: unknown): void => {
+    reportMismatch(cmd, schema, message);
+    if (typeof handler === 'function') Reflect.apply(handler, channel, [message]);
   };
 
   Object.defineProperty(channel, 'onmessage', {
-    configurable: true,
-    get: () => (handler === undefined ? ensureForwarder() : handler),
+    ...inherited,
+    get: () => (typeof handler === 'function' ? handler : forwarder),
     set: (next: unknown) => {
       handler = next;
-      if (setter !== null) Reflect.apply(setter, channel, [ensureForwarder()]);
     },
   });
+  // 原型带 accessor（真实 `Channel` / 同构替身）：投递直读私有字段，故把 forwarder 写进去
+  if (typeof setter === 'function') Reflect.apply(setter, channel, [forwarder]);
 }
 
 /** 信封面装配：生成物给出「哪些形参是 Channel」+ 信封 schema，不靠运行期值嗅探 */
 function guardChannels(cmd: string, args: ReadonlyArray<unknown>): void {
-  const schemas = channelSchemasOf(cmd);
-  const schema = argsSchemaOf(cmd);
-  if (schemas === null || schema === null) return;
-  const keys = Object.keys(schema.shape);
-  for (const [key, envelope] of schemas) {
+  const keys = Object.keys(argsSchemaOf(cmd).shape);
+  for (const [key, envelope] of channelSchemasOf(cmd)) {
     const value = args[keys.indexOf(key)];
     if (typeof value !== 'object' || value === null) continue;
     guardChannel(cmd, value, envelope);
@@ -218,8 +212,7 @@ function guardChannels(cmd: string, args: ReadonlyArray<unknown>): void {
 
 /** 结果面 soft-report：原值透传（零拷贝、零改写、零 throw） */
 function softReportResult(cmd: string, result: unknown): unknown {
-  const schema = resultSchemaOf(cmd);
-  if (schema !== null) reportMismatch(cmd, schema, result);
+  reportMismatch(cmd, resultSchemaOf(cmd), result);
   return result;
 }
 

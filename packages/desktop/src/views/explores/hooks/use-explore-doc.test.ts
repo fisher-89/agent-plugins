@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { ExploreDoc } from '../../../types/dto';
 import { useExploreDoc } from './use-explore-doc';
 
@@ -12,11 +13,22 @@ import { useExploreDoc } from './use-explore-doc';
 // ---------------------------------------------------------------------------
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
+  // 与真实 `@tauri-apps/api/core` 的 `Channel` 同构（原型 accessor + 私有字段，
+  // 投递读私有字段）：替身把 `onmessage` 放成实例字段时，投递会绕过装配层包裹面
   class ChannelMock {
-    onmessage: ((event: unknown) => void) | null = null;
+    #onmessage: (event: unknown) => void = () => {};
     static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
+    }
+    get onmessage(): (event: unknown) => void {
+      return this.#onmessage;
+    }
+    set onmessage(handler: (event: unknown) => void) {
+      this.#onmessage = handler;
+    }
+    deliver(event: unknown): void {
+      this.#onmessage(event);
     }
   }
   return { ChannelMock, invokeMock: vi.fn() };
@@ -37,7 +49,9 @@ function doc(content: string): ExploreDoc {
 
 /** Channel mock 实例形状（vi.hoisted 内 class 不外泄类型，取其结构）。 */
 interface ChannelLike {
-  onmessage: ((event: unknown) => void) | null;
+  onmessage: (event: unknown) => void;
+  /** 生产同构投递口（读私有字段，不经 `get`） */
+  deliver: (event: unknown) => void;
 }
 
 function lastChannel(): ChannelLike {
@@ -144,7 +158,7 @@ describe('useExploreDoc：信号 500ms trailing 防抖重拉（AC-7）', () => {
     expect(readCallCount()).toBe(1);
 
     act(() => {
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
     });
     expect(readCallCount()).toBe(1);
 
@@ -162,11 +176,11 @@ describe('useExploreDoc：信号 500ms trailing 防抖重拉（AC-7）', () => {
     expect(result.current.doc).not.toBeNull();
 
     act(() => {
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
       vi.advanceTimersByTime(200);
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
       vi.advanceTimersByTime(200);
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
     });
     act(() => {
       vi.advanceTimersByTime(500);
@@ -182,7 +196,7 @@ describe('useExploreDoc：信号 500ms trailing 防抖重拉（AC-7）', () => {
     expect(result.current.doc).not.toBeNull();
 
     act(() => {
-      lastChannel().onmessage?.({ path: derivedPath, content: '不应被读取的字节' });
+      lastChannel().deliver({ path: derivedPath, content: '不应被读取的字节' });
     });
     act(() => {
       vi.advanceTimersByTime(500);
@@ -205,7 +219,7 @@ describe('useExploreDoc：信号 500ms trailing 防抖重拉（AC-7）', () => {
     expect(invokeMock.mock.calls.filter(([name]) => name === 'watch_unsubscribe')).toHaveLength(1);
     const docBefore = result.current.doc;
     act(() => {
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
       vi.advanceTimersByTime(1000);
     });
     await flush();
@@ -292,12 +306,17 @@ describe('useExploreDoc：loading 生命周期与订阅时序', () => {
     });
 
     const { unmount } = await mounted();
+    // 前置：订阅请求已在飞行中（未落定）——扫描链（path → subscribe）经 ipc 后
+    // 多跳微任务，须等 `watch_subscribe` 真正发出再卸载，场景才是「卸载先于订阅建立」
+    await waitFor(() => expect(subscribeCall()).not.toBeNull());
     unmount();
 
     await act(async () => {
       resolveSubscribe(21);
     });
-    expect(invokeMock).toHaveBeenCalledWith('watch_unsubscribe', { subscriptionId: 21 });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('watch_unsubscribe', { subscriptionId: 21 }),
+    );
   });
 });
 
@@ -312,7 +331,7 @@ describe('useExploreDoc：信号防抖与卸载取消', () => {
     expect(readCallCount()).toBe(1);
 
     act(() => {
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
     });
     unmount();
     act(() => {
@@ -419,7 +438,7 @@ describe('useExploreDoc：生成绑定调用面', () => {
 
     // FileWatchEvent 生成类型形态：信号仅 { path }；注入内容字段也只按信号处理
     act(() => {
-      lastChannel().onmessage?.({ path: derivedPath, content: '不应被读取的字节' });
+      lastChannel().deliver({ path: derivedPath, content: '不应被读取的字节' });
     });
     act(() => {
       vi.advanceTimersByTime(500);
@@ -446,11 +465,11 @@ describe('useExploreDoc：生成绑定调用面', () => {
     await flush();
     const readsBefore = readCallCount();
     act(() => {
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
       vi.advanceTimersByTime(200);
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
       vi.advanceTimersByTime(200);
-      lastChannel().onmessage?.({ path: derivedPath });
+      lastChannel().deliver({ path: derivedPath });
       vi.advanceTimersByTime(500);
     });
     await flush();
@@ -472,5 +491,112 @@ describe('useExploreDoc：生成绑定调用面', () => {
     const subscribeFailed = await mounted();
     await waitFor(() => expect(subscribeFailed.result.current.doc).not.toBeNull());
     expect(subscribeFailed.result.current.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：四命令参数面放行
+// （`string | null` 路径面）、失效信号信封逐条 soft-report 与既有退订幂等。
+// ---------------------------------------------------------------------------
+
+describe('useExploreDoc：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('readExplore(root, name) 放行：文档结果干净零漂移、既有重拉链不变', async () => {
+    const { result } = await mounted();
+    await flush();
+
+    expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: NAME });
+    expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['返回 null（无文档路径）', null],
+    ['返回字符串', `${ROOT}openspecexplores\${NAME}.md`],
+  ])('exploreDocPath %s → 订阅分支与既有短路语义不变、零漂移', async (_label, path) => {
+    derivedPath = path;
+    await mounted();
+    await flush();
+
+    expect(subscribeCall() !== null).toBe(path !== null);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('合法失效信号信封投递 → handler 收到原消息（同一引用）、零漂移', async () => {
+    vi.useFakeTimers();
+    await mounted();
+    await flush();
+
+    const signal = { path: derivedPath };
+    act(() => {
+      lastChannel().deliver(signal);
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+
+    expect(readCallCount()).toBe(2);
+    expect(driftCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it('脏信封（缺 path）→ 漂移恰 1 条 + 既有 500ms 防抖重拉仍触发（不丢流、不断流）', async () => {
+    vi.useFakeTimers();
+    await mounted();
+    await flush();
+
+    act(() => {
+      lastChannel().deliver({ kind: 'changed' });
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('watchSubscribe');
+    // strictObject 的必填键缺失 → issue 路径是该字段（`#/path`），非根
+    expect(driftReports()[0].path).toBe('#/path');
+    vi.useRealTimers();
+  });
+
+  it('reject 串（readExplore 失败）→ 既有 error 文案逐字不变、零漂移、订阅分支不阻断页面', async () => {
+    docResult = '读取失败：EACCES';
+    const { result } = await mounted();
+    await flush();
+
+    expect(result.current.error).toBe('读取失败：EACCES');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('卸载 → watchUnsubscribe(subscriptionId) 1 次、零漂移；exploreDocPath 为 null 时零退订调用', async () => {
+    const { unmount } = await mounted();
+    await flush();
+    unmount();
+    await flush();
+
+    const unsubscribes = invokeMock.mock.calls.filter(([name]) => name === 'watch_unsubscribe');
+    expect(unsubscribes).toHaveLength(1);
+    expect(driftCount()).toBe(0);
+
+    invokeMock.mockClear();
+    resetDrift();
+    derivedPath = null as unknown as string;
+    const second = await mounted();
+    await flush();
+    second.unmount();
+    await flush();
+
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'watch_unsubscribe')).toHaveLength(0);
+    expect(driftCount()).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { WorkspaceConfig, WorkspaceConfigReport } from '../../../types/generated/bindings';
 import { useWorkspaceConfig } from './use-workspace-config';
 
@@ -243,5 +244,121 @@ describe('useWorkspaceConfig：生成绑定调用面', () => {
     await waitFor(() => expect(invokeMock.mock.calls.length).toBe(2));
     expect(invokeMock).toHaveBeenLastCalledWith('workspace_config', { root: ROOT });
     expect(invokeMock.mock.calls.every(([name]) => name === 'workspace_config')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`workspaceConfig`
+// 的参数面放行、`extra` 动态键面不被 strict 误拒、阈值整数两侧零误报。
+// ---------------------------------------------------------------------------
+
+/** 合法 suite（三阈值 + mutation.score 均可空）。 */
+function makeSuite(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    root: 'packages/desktop',
+    framework: 'vite-plus',
+    cwd: '.',
+    config: null,
+    includes: null,
+    excludes: null,
+    coverage: { lines: 90, branches: 85, functions: 90 },
+    mutation: { cwd: null, score: 70 },
+    ...overrides,
+  };
+}
+
+describe('useWorkspaceConfig：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('workspaceConfig(root) 放行：结果干净零漂移、既有表单回填不变', async () => {
+    invokeMock.mockResolvedValue(makeReport({ config: makeConfig({ tests: [] as never }) }));
+    const { result } = renderHook(() => useWorkspaceConfig(ROOT));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(invokeMock).toHaveBeenCalledWith('workspace_config', { root: ROOT });
+    expect(result.current.data?.config.schema).toBe('spec-driven');
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['空', []],
+    [
+      '多键',
+      [
+        { key: 'futureFlag', value: { nested: [1, 2] } },
+        { key: 'raw', value: 'text' },
+      ],
+    ],
+  ])('extra 动态键（%s）与 null 可空字段 → 零漂移（不被 strict 误拒）', async (_label, extra) => {
+    invokeMock.mockResolvedValue(
+      makeReport({
+        config: makeConfig({ extra: extra as never, context: null, rules: null }),
+      }),
+    );
+    const { result } = renderHook(() => useWorkspaceConfig(ROOT));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(result.current.data?.config.extra).toEqual(extra);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 既有 error 态文案逐字不变、零漂移', async () => {
+    invokeMock.mockRejectedValue('config.json 解析失败');
+    const { result } = renderHook(() => useWorkspaceConfig(ROOT));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe('config.json 解析失败');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（tests 非数组）→ 漂移恰 1 条、配置表单不崩', async () => {
+    invokeMock.mockResolvedValue(makeReport({ config: makeConfig({ tests: 42 as never }) }));
+    const { result } = renderHook(() => useWorkspaceConfig(ROOT));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('workspaceConfig');
+    expect(driftReports()[0].path).toBe('#/config/tests');
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each([
+    ['下界 0', 0],
+    ['上界 100', 100],
+  ])('覆盖率阈值取%s → 零漂移（int 边界两侧）', async (_label, value) => {
+    invokeMock.mockResolvedValue(
+      makeReport({
+        config: makeConfig({
+          tests: [
+            makeSuite({
+              coverage: { lines: value, branches: value, functions: value },
+            }) as never,
+          ],
+        }),
+      }),
+    );
+    const { result } = renderHook(() => useWorkspaceConfig(ROOT));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(result.current.data?.config.tests).toHaveLength(1);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面顶层多余键 → 漂移 1 条（strictObject 生效）、渲染不变', async () => {
+    invokeMock.mockResolvedValue({ ...makeReport(), surplusKey: 'x' });
+    const { result } = renderHook(() => useWorkspaceConfig(ROOT));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].path).toBe('#');
+    expect(result.current.data?.config.schema).toBe('spec-driven');
   });
 });

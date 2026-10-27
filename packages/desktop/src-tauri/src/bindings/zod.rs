@@ -1,6 +1,6 @@
 //! 第二产物导出：`src/types/generated/bindings.zod.ts`（纯 zod schema）。
 //!
-//! 职责切分（见 `openspec/specs/desktop-ipc-type-bindings`）：`bindings.ts` 仍是唯一
+//! 职责切分（见 `desktop-ipc-type-bindings` 规格）：`bindings.ts` 仍是唯一
 //! 类型源（typed invoke 包装 + 全部 DTO 类型 + JSDoc），本产物只出 schema，零
 //! `export type`、零 `z.infer`、零类型注解。前端装配层（`src/lib/ipc.ts`）拿两张产物
 //! 做「参数面 strict / 结果面与信封面 soft-report」的分级校验。
@@ -99,12 +99,23 @@ impl LanguageExt for ZodLanguage {
 ///   `dangerously_cast_bigints_to_number` 支配，与 TS 侧逐字同口径（关闭时上游会以
 ///   `bigint_forbidden` 显式失败，不静默放宽）；
 /// - `char` → `z.string()`（挡掉上游的 `.refine(...)`，生成期硬约束不许 `refine`）；
-/// - `serde_json::Value` 的所有引用（含 `NamedReferenceType::Inline`）→ `z.unknown()`，
-///   并把 `Value` 的具名 schema 置空（不渲染）。
+/// - `serde_json::Value` 的**一切**引用（`NamedReferenceType::Reference` 与
+///   `NamedReferenceType::Inline` 两形态）→ `z.unknown()`，并把 `Value` 的具名 schema
+///   置空（不渲染）。判据按 `NamedReference` 的 id 解析（`Types::get`）：两种引用形态
+///   的 `inner` 不同 ⇒ 值不等，`hidden_references` 的等值匹配只能覆盖 `Reference`
+///   形态，`#[specta(inline)]` 形态必须另经 id 解析才能命中（否则 `Value` 会漏成上游
+///   的 enum union）。
 ///
-/// 另把 `Result` 的具名 schema 置空：45 个命令的 `Result` 全在结果面被解包 Ok 臂，
-/// 无保留类型引用它。若日后出现引用，导出链会以 `dangling_named_reference` 显式失败
-/// （不静默产出悬空名）。
+/// 另把 `Result` 的具名 schema 置空：46 个命令的 `Result` 全在结果面被解包 Ok 臂，
+/// 无保留类型引用它。两条失败面不同（上游 `reference_dt` 不检查目标 `ty`）：
+///
+/// - 引用 `types` 中**不存在**的具名类型 → `primitives::inline` 报 dangling / missing
+///   类错误，导出失败且不写盘；
+/// - 被隐藏声明（`ty: None`）仍被引用 → 导出**成功**、产物留一个未声明标识符，只能由
+///   生成期 tsc 自检桩（`bindings.zod.check.ts` → `TS2304`）拦截。
+///
+/// 前者 fail-closed 在导出链，后者 fail-closed 在自检链——MUST NOT 把「隐藏声明」当作
+/// 可自证安全。
 pub(crate) struct ZodFormat {
     cast_bigints: bool,
 }
@@ -117,7 +128,12 @@ impl ZodFormat {
     }
 
     /// 递归改写单个 datatype（供 `Format::map_type` 与命令三表渲染共用）。
-    fn remap_dt(&self, dt: DataType, hidden: &[Reference]) -> DataType {
+    ///
+    /// `types` 是隐藏面判据的第二条来源：`hidden` 只按 `Reference` **等值**匹配（能覆盖
+    /// `NamedReferenceType::Reference` 形态），`NamedReferenceType::Inline`（`#[specta(inline)]`）
+    /// 的 `inner` 不同 ⇒ 值不等，故一律再经 `types.get`（按 id 解析、与形态无关）判
+    /// `Value`。两条判据并存：等值匹配保持既有映射结果逐字不变，id 匹配补上内联形态。
+    fn remap_dt(&self, dt: DataType, types: &Types, hidden: &[Reference]) -> DataType {
         match dt {
             DataType::Primitive(primitive) => match primitive {
                 Primitive::char => DataType::Reference(specta_zod::define("z.string()")),
@@ -134,27 +150,27 @@ impl ZodFormat {
                 other => DataType::Primitive(other),
             },
             DataType::List(mut list) => {
-                let ty = self.remap_dt((*list.ty).clone(), hidden);
+                let ty = self.remap_dt((*list.ty).clone(), types, hidden);
                 list.ty = Box::new(ty);
                 DataType::List(list)
             }
             DataType::Map(mut map) => {
-                let key = self.remap_dt(map.key_ty().clone(), hidden);
-                let value = self.remap_dt(map.value_ty().clone(), hidden);
+                let key = self.remap_dt(map.key_ty().clone(), types, hidden);
+                let value = self.remap_dt(map.value_ty().clone(), types, hidden);
                 map.set_key_ty(key);
                 map.set_value_ty(value);
                 DataType::Map(map)
             }
             DataType::Nullable(inner) => {
-                DataType::Nullable(Box::new(self.remap_dt(*inner, hidden)))
+                DataType::Nullable(Box::new(self.remap_dt(*inner, types, hidden)))
             }
             DataType::Struct(mut strct) => {
-                strct.fields = self.remap_fields(strct.fields, hidden);
+                strct.fields = self.remap_fields(strct.fields, types, hidden);
                 DataType::Struct(strct)
             }
             DataType::Enum(mut enm) => {
                 for (_, variant) in &mut enm.variants {
-                    variant.fields = self.remap_fields(variant.fields.clone(), hidden);
+                    variant.fields = self.remap_fields(variant.fields.clone(), types, hidden);
                 }
                 DataType::Enum(enm)
             }
@@ -162,14 +178,14 @@ impl ZodFormat {
                 tuple.elements = tuple
                     .elements
                     .into_iter()
-                    .map(|element| self.remap_dt(element, hidden))
+                    .map(|element| self.remap_dt(element, types, hidden))
                     .collect();
                 DataType::Tuple(tuple)
             }
-            DataType::Intersection(types) => DataType::Intersection(
-                types
+            DataType::Intersection(parts) => DataType::Intersection(
+                parts
                     .into_iter()
-                    .map(|ty| self.remap_dt(ty, hidden))
+                    .map(|ty| self.remap_dt(ty, types, hidden))
                     .collect(),
             ),
             DataType::Generic(generic) => DataType::Generic(generic),
@@ -178,14 +194,17 @@ impl ZodFormat {
                     return DataType::Reference(specta_zod::define("z.unknown()"));
                 }
                 if let Reference::Named(named) = &mut reference {
+                    if types.get(named).is_some_and(is_value_ndt) {
+                        return DataType::Reference(specta_zod::define("z.unknown()"));
+                    }
                     match &mut named.inner {
                         NamedReferenceType::Inline { dt, .. } => {
-                            let inner = self.remap_dt((**dt).clone(), hidden);
+                            let inner = self.remap_dt((**dt).clone(), types, hidden);
                             **dt = inner;
                         }
                         NamedReferenceType::Reference { generics, .. } => {
                             for (_, ty) in generics.iter_mut() {
-                                let mapped = self.remap_dt(ty.clone(), hidden);
+                                let mapped = self.remap_dt(ty.clone(), types, hidden);
                                 *ty = mapped;
                             }
                         }
@@ -197,13 +216,13 @@ impl ZodFormat {
         }
     }
 
-    fn remap_fields(&self, fields: Fields, hidden: &[Reference]) -> Fields {
+    fn remap_fields(&self, fields: Fields, types: &Types, hidden: &[Reference]) -> Fields {
         match fields {
             Fields::Unit => Fields::Unit,
             Fields::Unnamed(mut unnamed) => {
                 for field in &mut unnamed.fields {
                     if let Some(ty) = field.ty.take() {
-                        field.ty = Some(self.remap_dt(ty, hidden));
+                        field.ty = Some(self.remap_dt(ty, types, hidden));
                     }
                 }
                 Fields::Unnamed(unnamed)
@@ -211,7 +230,7 @@ impl ZodFormat {
             Fields::Named(mut named) => {
                 for (_, field) in &mut named.fields {
                     if let Some(ty) = field.ty.take() {
-                        field.ty = Some(self.remap_dt(ty, hidden));
+                        field.ty = Some(self.remap_dt(ty, types, hidden));
                     }
                 }
                 Fields::Named(named)
@@ -230,7 +249,7 @@ impl Format for ZodFormat {
                 return;
             }
             if let Some(ty) = ndt.ty.take() {
-                ndt.ty = Some(self.remap_dt(ty, &hidden));
+                ndt.ty = Some(self.remap_dt(ty, types, &hidden));
             }
         });
         Ok(Cow::Owned(mapped))
@@ -239,7 +258,7 @@ impl Format for ZodFormat {
     fn map_type(&'_ self, types: &Types, dt: &DataType) -> Result<Cow<'_, DataType>, FormatError> {
         let mapped = specta_serde::Format.map_type(types, dt)?.into_owned();
         let hidden = hidden_references(types);
-        Ok(Cow::Owned(self.remap_dt(mapped, &hidden)))
+        Ok(Cow::Owned(self.remap_dt(mapped, types, &hidden)))
     }
 }
 
@@ -374,7 +393,7 @@ fn render_phase_dt(
     hidden: &[Reference],
 ) -> Result<String, specta_zod::Error> {
     let phased = select_phase_datatype(dt, types, phase);
-    let remapped = format.remap_dt(phased, hidden);
+    let remapped = format.remap_dt(phased, types, hidden);
     specta_zod::primitives::inline(exporter, types, &remapped)
 }
 
@@ -443,3 +462,7 @@ fn report_degraded(cfg: &BuilderConfiguration, types: &Types) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "zod_test.rs"]
+mod zod_test;

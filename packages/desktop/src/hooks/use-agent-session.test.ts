@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../lib/ipc-drift';
 import type { AgentEvent, SessionSummary, TurnSummary } from '../types/dto';
 import { useAgentSession } from './use-agent-session';
 
@@ -1062,5 +1063,90 @@ describe('useAgentSession：sourceRef 与 cwd 参数面', () => {
     await waitFor(() => expect(result.current.error).toContain('非法 cwd'));
     expect(callsOf('agent_start')).toHaveLength(0);
     expect(result.current.running, '脏值不置运行态').toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`sessionDetail` /
+// `agentSessionTranscript` / `agentStop` 的参数面放行与结果面 soft-report。
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('恢复会话 → sessionDetail 与 agentSessionTranscript 各 1 次、参数面放行、结果干净零漂移', async () => {
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.messages.length).toBeGreaterThan(0));
+
+    expect(argsOf('session_detail')).toEqual({ root: ROOT, sessionId: SESSION_ID });
+    expect(argsOf('agent_session_transcript')).toEqual({
+      root: ROOT,
+      sessionId: SESSION_ID,
+    });
+    expect(driftCount()).toBe(0);
+  });
+
+  it('agentStop(root, sessionId) → payload 键名逐字不变、结果 null 零漂移', async () => {
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.messages.length).toBeGreaterThan(0));
+
+    act(() => {
+      result.current.stop();
+    });
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some(([name]) => name === 'agent_stop')).toBe(true),
+    );
+
+    expect(argsOf('agent_stop')).toEqual({ root: ROOT, sessionId: SESSION_ID });
+    expect(driftCount()).toBe(0);
+  });
+
+  it('sessionDetail reject → 既有 error 文案（String(err)）逐字不变、零漂移', async () => {
+    resetIpc({ detail: new Error('会话不存在：ses-1') });
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe('Error: 会话不存在：ses-1');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('转录结果面脏（事件 seq 给字符串）→ 漂移恰 1 条 + 既有重放逻辑按原值继续（零 reject）', async () => {
+    resetIpc({
+      transcript: [{ ...textEvent(1, '脏事件'), seq: '1' } as unknown as AgentEvent],
+    });
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('agentSessionTranscript');
+    expect(driftReports()[0].path).toBe('#/0/seq');
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each([
+    ['root 为 null', { root: null }],
+    ['sessionId 为 null', { sessionId: null }],
+  ])('%s → 零 session 类取数、零漂移（既有前置检查与取消语义不变）', async (_label, overrides) => {
+    await mounted(overrides);
+    await act(async () => {});
+
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'session_detail')).toHaveLength(0);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('转录空数组 → 结果面放行、零漂移、既有空态不变', async () => {
+    resetIpc({ transcript: [] });
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.events).toEqual([]);
+    expect(driftCount()).toBe(0);
   });
 });

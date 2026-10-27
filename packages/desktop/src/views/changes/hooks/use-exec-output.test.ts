@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import { useExecOutput } from './use-exec-output';
 
 // ---------------------------------------------------------------------------
@@ -190,6 +191,83 @@ describe('useExecOutput：异常与边界', () => {
       { root: ROOT, changeName: '', execId: '' },
     ]);
     expect(result.current.text).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`readExecOutput` 的
+// 参数面 strict 与 `string | null` 结果面零误报。
+// ---------------------------------------------------------------------------
+
+describe('useExecOutput：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('readExecOutput(root, changeName, execId) 放行：字符串结果零漂移、原值透传', async () => {
+    outputResult = 'script output\n';
+    const { result } = await mounted();
+
+    expect(readCalls()[0]).toEqual([
+      'read_exec_output',
+      { root: ROOT, changeName: CHANGE_NAME, execId: EXEC_ID },
+    ]);
+    expect(result.current.text).toBe('script output\n');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果 null（无记录）→ 零漂移、既有空态不变', async () => {
+    outputResult = null;
+    const { result } = await mounted();
+
+    expect(result.current.text).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('空串输出 → 零漂移、既有空态判据不变', async () => {
+    outputResult = '';
+    const { result } = await mounted();
+
+    expect(result.current.text).toBe('');
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['换行', `${'line\n'.repeat(400)}tail`],
+    ['emoji', `${'🚀📦\n'.repeat(300)}done`],
+  ])('超长输出（%s，> 1000 字符）→ 零漂移、原值透传（无截断）', async (_label, long) => {
+    outputResult = long;
+    const { result } = await mounted();
+
+    expect(long.length).toBeGreaterThan(1000);
+    expect(result.current.text).toBe(long);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 既有 error 态文案逐字不变、零漂移', async () => {
+    outputResult = new Error('读取 exec 输出失败');
+    const { result } = await mounted();
+
+    expect(result.current.error).toBe('读取 exec 输出失败');
+    expect(result.current.text).toBeNull();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面类型不符（返回对象而非 string | null）→ 漂移恰 1 条、既有展示不崩', async () => {
+    outputResult = { text: 'boom' } as unknown as string;
+    const { result } = await mounted();
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('readExecOutput');
+    expect(driftReports()[0].path).toBe('#');
+    // 原值透传：既有展示层拿到非字符串仍不崩
     expect(result.current.error).toBeNull();
   });
 });

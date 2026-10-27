@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { RunNotice } from '../../../types/generated/bindings';
 import { useChangeFlowRun } from './use-change-flow-run';
 
@@ -13,11 +14,24 @@ import { useChangeFlowRun } from './use-change-flow-run';
 // ---------------------------------------------------------------------------
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
+  // 与真实 `@tauri-apps/api/core` 的 `Channel` 同构：原型 accessor + 私有字段，
+  // 投递读私有字段（`_Channel_deliver` 不读 `this.onmessage`）——把 `onmessage`
+  // 放成实例字段的替身会让投递绕过装配层的包裹面，信封面就测不到
   class ChannelMock {
-    onmessage: ((event: unknown) => void) | null = null;
+    #onmessage: ((event: unknown) => void) | null = () => {};
     static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
+    }
+    get onmessage(): ((event: unknown) => void) | null {
+      return this.#onmessage;
+    }
+    set onmessage(handler: ((event: unknown) => void) | null) {
+      this.#onmessage = handler;
+    }
+    /** 投递读私有字段；置空（`onmessage = null` = 弃投递）时静默跳过 */
+    deliver(event: unknown): void {
+      if (typeof this.#onmessage === 'function') this.#onmessage(event);
     }
   }
   return { ChannelMock, invokeMock: vi.fn() };
@@ -67,6 +81,8 @@ interface Params {
 /** Channel mock 实例形状（vi.hoisted 内 class 不外泄类型，取其结构）。 */
 interface ChannelLike {
   onmessage: ((event: unknown) => void) | null;
+  /** 生产同构投递口（读私有字段，不经 `get`） */
+  deliver: (event: unknown) => void;
 }
 
 function lastChannel(): ChannelLike {
@@ -78,7 +94,7 @@ function lastChannel(): ChannelLike {
 /** 投递 kind-only 通知（经最新 Channel 实例）。 */
 function deliver(notice: RunNotice): void {
   act(() => {
-    lastChannel().onmessage?.(notice);
+    lastChannel().deliver(notice);
   });
 }
 
@@ -333,7 +349,7 @@ describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
     ] as Params[]) {
       invokeMock.mockClear();
       ChannelMock.instances.length = 0;
-      const { result } = await mounted(params);
+      const { result } = await mounted({ ...params, activeRunPresent: true });
       await act(async () => {
         await result.current.start(false);
       });
@@ -491,4 +507,171 @@ describe('useChangeFlowRun：onNotice 分流五 kind（RunNotice kind-only 全�
     deliver({ ipc: 'step' });
     expect(onNotice).toHaveBeenCalledTimes(1);
   });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：五命令参数面放行、
+// `Channel<RunNotice>` 首参留在 payload、信封逐条 soft-report 与既有
+// `readError` 文案。消费形态与真实 hook 一致：`onmessage` 先接线再发起调用。
+// ---------------------------------------------------------------------------
+
+describe('useChangeFlowRun：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['change_flow_start', false],
+    ['change_flow_start', true],
+  ] as const)('%s(autoNextPhase=%s) → onEvent 原样在 payload、零漂移', async (command, flag) => {
+    const { result } = await mounted();
+    await act(async () => {
+      await result.current.start(flag);
+    });
+
+    const args = startCallArgs();
+    expect(args.onEvent).toBe(ChannelMock.instances.at(-1));
+    expect(args.autoNextPhase).toBe(flag);
+    expect(calls(command)).toHaveLength(1);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('changeFlowWatch（activeRun 在场补订）→ onEvent 原样在 payload、合法信封零漂移', async () => {
+    renderHook(() =>
+      useChangeFlowRun({
+        root: ROOT,
+        id: CHANGE_ID,
+        activeRunPresent: true,
+        onNotice: noopNotice(),
+      }),
+    );
+    await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
+
+    expect((calls('change_flow_watch')[0][1] as Record<string, unknown>).onEvent).toBe(
+      ChannelMock.instances.at(-1),
+    );
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    [true, true],
+    [true, false],
+    [false, true],
+    [false, false],
+  ])(
+    'changeFlowConfirm(proceed=%s, syncSpecs=%s) → 放行、invoke 1 次、零漂移',
+    async (proceed, syncSpecs) => {
+      const { result } = await mounted();
+      await act(async () => {
+        await result.current.confirm(proceed, syncSpecs);
+      });
+
+      expect(calls('change_flow_confirm')).toHaveLength(1);
+      expect(calls('change_flow_confirm')[0][1]).toEqual({
+        root: ROOT,
+        id: CHANGE_ID,
+        proceed,
+        syncSpecs,
+      });
+      expect(driftCount()).toBe(0);
+    },
+  );
+
+  it('changeFlowAnswer 放行：payload 键名逐字命中、零漂移', async () => {
+    const { result } = await mounted();
+    await act(async () => {
+      await result.current.answer('继续');
+    });
+
+    expect(calls('change_flow_answer')[0][1]).toEqual({
+      root: ROOT,
+      id: CHANGE_ID,
+      answer: '继续',
+    });
+    expect(driftCount()).toBe(0);
+  });
+
+  it('脏信封（缺 ipc 判别键）→ 漂移恰 1 条 + onNotice 不被投递中断（既有分流不变）', async () => {
+    const onNotice = vi.fn();
+    const { result } = renderHook((input: HookParams) => useChangeFlowRun(input), {
+      initialProps: {
+        root: ROOT,
+        id: CHANGE_ID,
+        activeRunPresent: true,
+        onNotice,
+      },
+    });
+    await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
+
+    deliver({} as unknown as RunNotice);
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('changeFlowWatch');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('缓存 channel 重复传入（重挂补订路径）→ 幂等包裹：同一条脏消息只 1 条漂移', async () => {
+    const { result } = await mounted();
+    await act(async () => {
+      await result.current.start(false);
+    });
+    act(() => {
+      void result.current.stop();
+    });
+    await act(async () => {
+      await result.current.start(false);
+    });
+
+    deliver({} as unknown as RunNotice);
+
+    expect(ChannelMock.instances).toHaveLength(1);
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].count).toBe(1);
+  });
+
+  it.each([
+    ['stop', 'change_flow_stop'],
+    ['confirm', 'change_flow_confirm'],
+    ['answer', 'change_flow_answer'],
+    ['start', 'change_flow_start'],
+  ] as const)('reject 串（%s）→ 既有 error 文案逐字不变、零漂移', async (action, command) => {
+    invokeMock.mockImplementation(() => Promise.reject('run 已结束：无在飞 run'));
+    const { result } = await mounted();
+
+    await act(async () => {
+      if (action === 'stop') await result.current.stop();
+      if (action === 'confirm') await result.current.confirm(true, true);
+      if (action === 'answer') await result.current.answer('x');
+      if (action === 'start') await result.current.start(false);
+    });
+
+    expect(calls(command).length).toBeGreaterThan(0);
+    expect(result.current.error).toBe('run 已结束：无在飞 run');
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['root', { root: null, id: CHANGE_ID }],
+    ['id', { root: ROOT, id: null }],
+  ])(
+    '%s 为 null → 零 invoke、零漂移（既有前置检查与 Promise.resolve 语义不变）',
+    async (_label, params) => {
+      const { result } = await mounted({ ...params, activeRunPresent: false });
+
+      await act(async () => {
+        await result.current.start(false);
+        await result.current.stop();
+        await result.current.confirm(true, true);
+        await result.current.answer('x');
+      });
+
+      expect(invokeMock).not.toHaveBeenCalled();
+      expect(driftCount()).toBe(0);
+    },
+  );
 });

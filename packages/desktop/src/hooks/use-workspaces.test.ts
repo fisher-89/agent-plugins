@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, reportDrift, resetDrift } from '../lib/ipc-drift';
 import type { WorkspaceRecord } from '../types/dto';
 import { useWorkspaces } from './use-workspaces';
 
@@ -470,5 +471,231 @@ describe('useWorkspaces：生成绑定调用面', () => {
     expect(toastErrorMock).toHaveBeenCalledWith('添加 workspace 失败：Error: db: 打开失败');
     expect(toastErrorMock).toHaveBeenCalledWith('移除 workspace 失败：Error: db: 打开失败');
     expect(result.current.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 漂移聚合生命周期（AC-13 / spec「清空入口有产品消费方」）：`applyRoot` 判变时
+// `resetDrift()`——当前根**变更**才清空，同一根的重取数 MUST NOT 清空。
+// 断言口径用**真实 collector**（`reportDrift` 造数 → `driftCount()` 读数），
+// 不以替身调用次数测「清空」这件事。
+// ---------------------------------------------------------------------------
+
+/** 造一条漂移记录并返回当前去重键数（真实 collector，无替身）。 */
+function seedDrift(cmd = 'codeStats', path = '#/files'): number {
+  reportDrift({ cmd, path, expected: 'number', got: 'dirty' });
+  return driftCount();
+}
+
+describe('useWorkspaces：当前根变更才清空漂移聚合', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+    resetDrift();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('select 切到不同根 → 清空生效（切换前 1 条，切换后归零）', async () => {
+    mockDispatch();
+    stored = [record('/repo/a'), record('/repo/b')];
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
+
+    expect(seedDrift()).toBe(1);
+    act(() => {
+      result.current.select('/repo/b');
+    });
+
+    expect(result.current.root).toBe('/repo/b');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('add 成功且返回记录的 canonical root ≠ 当前根（新记录未必居首）→ 清空生效', async () => {
+    mockDispatch();
+    stored = [record('/repo/a')];
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
+
+    expect(seedDrift()).toBe(1);
+    await act(async () => {
+      await result.current.add('/repo/z');
+    });
+    await waitFor(() => expect(result.current.root).toBe('/repo/z'));
+
+    expect(driftCount()).toBe(0);
+  });
+
+  it('remove 当前根后取数回落至另一根 → 根变更 → 清空生效', async () => {
+    mockDispatch();
+    stored = [record('/repo/a'), record('/repo/b')];
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
+
+    expect(seedDrift()).toBe(1);
+    await act(async () => {
+      await result.current.remove('/repo/a');
+    });
+    await waitFor(() => expect(result.current.root).toBe('/repo/b'));
+
+    expect(driftCount()).toBe(0);
+  });
+
+  it('边界：同一根重取数（清单仍返回当前根）→ 不清空（保持 1 条）', async () => {
+    mockDispatch();
+    stored = [record('/repo/a'), record('/repo/b')];
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
+
+    // add 已存在的当前根 + 随后的内部刷新：两次 applyRoot 都落在同一根
+    expect(seedDrift()).toBe(1);
+    await act(async () => {
+      await result.current.add('/repo/a');
+    });
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([c]) => c === 'list_workspaces')).toHaveLength(2),
+    );
+
+    // remove 非当前根同样只触发重取、不改根
+    await act(async () => {
+      await result.current.remove('/repo/b');
+    });
+    await waitFor(() => expect(result.current.workspaces.map((r) => r.root)).toEqual(['/repo/a']));
+
+    expect(result.current.root).toBe('/repo/a');
+    expect(driftCount()).toBe(1);
+  });
+
+  it('边界：挂载首取三种回落形态的判变结果（null→X / X→null 均清空，null→null 零清空）', async () => {
+    // null → X：原根 null、清单有记录 → 判变 → 清空
+    stored = [record('/repo/a')];
+    mockDispatch();
+    expect(seedDrift('listChanges', '#/0/createdAt')).toBe(1);
+    const first = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(first.result.current.root).toBe('/repo/a'));
+    expect(driftCount()).toBe(0);
+    first.unmount();
+
+    // X → null：原根非 null、清单空回落 null → 判变 → 清空
+    mockDispatch();
+    stored = [];
+    const second = renderHook(() => useWorkspaces());
+    await settleLoaded();
+    act(() => {
+      second.result.current.select('/repo/x');
+    });
+    expect(seedDrift()).toBe(1);
+    await act(async () => {
+      await second.result.current.remove('/repo/x');
+    });
+    await waitFor(() => expect(second.result.current.root).toBeNull());
+    expect(driftCount()).toBe(0);
+    second.unmount();
+
+    // null → null：清单空、原根 null → 零判变 → 不清空
+    invokeMock.mockResolvedValue([]);
+    expect(seedDrift()).toBe(1);
+    const third = renderHook(() => useWorkspaces());
+    await settleLoaded();
+    await waitFor(() => expect(third.result.current.loading).toBe(false));
+    expect(third.result.current.root).toBeNull();
+    expect(driftCount()).toBe(1);
+  });
+
+  it('异常：list_workspaces reject → 根不变 → 零清空、error 态照旧、零新增漂移', async () => {
+    invokeMock.mockRejectedValue(new Error('IPC 断开'));
+    expect(seedDrift()).toBe(1);
+    const { result } = renderHook(() => useWorkspaces());
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error).toContain('IPC 断开');
+    expect(result.current.root).toBeNull();
+    // 取数失败不写根（未调 applyRoot）→ 既有漂移不被清空、也不新增
+    expect(driftCount()).toBe(1);
+  });
+
+  it('边界：清单空 [] → 结果面放行、root 回落 null、零漂移', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.root).toBeNull();
+    expect(result.current.workspaces).toEqual([]);
+    expect(driftCount()).toBe(0);
+  });
+});
+
+describe('useWorkspaces：经 ipc 的参数面（参数错本地拒、零往返）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+    resetDrift();
+  });
+
+  for (const command of [
+    { name: 'add', handler: 'add_workspace' },
+    { name: 'remove', handler: 'remove_workspace' },
+  ] as const) {
+    it(`正向：${command.name}Workspace(root) 字符串放行，invoke 命令名与 payload 键逐字不变`, async () => {
+      mockDispatch();
+      const { result } = renderHook(() => useWorkspaces());
+      await settleLoaded();
+
+      await act(async () => {
+        await result.current[command.name]('/repo/b');
+      });
+
+      const call = invokeMock.mock.calls.find(([name]) => name === command.handler);
+      expect(call).toBeDefined();
+      expect(call?.[1]).toEqual({ root: '/repo/b' });
+      expect(driftCount()).toBe(0);
+    });
+  }
+
+  it('异常：addWorkspace 传非字符串（42）→ 本地 IpcArgsError、invoke 零调用、既有 String(err) 呈现、零漂移', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+    invokeMock.mockClear();
+
+    let added: WorkspaceRecord | null = null;
+    await act(async () => {
+      added = await result.current.add(42 as unknown as string);
+    });
+
+    expect(added).toBeNull();
+    // 参数面失败零 IPC 往返（不含任何 add_workspace 调用）
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'add_workspace')).toHaveLength(0);
+    // 错误面仍走既有 toast 固定前缀 + String(err)（IpcArgsError extends Error）
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    const message = toastErrorMock.mock.calls[0]?.[0] as string;
+    expect(message.startsWith('添加 workspace 失败：')).toBe(true);
+    expect(message).toContain('addWorkspace');
+    expect(message).toContain('参数校验失败');
+    expect(result.current.error).toBeNull();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('异常：removeWorkspace 传非字符串 → 本地 IpcArgsError、invoke 零调用、返回 false', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+    invokeMock.mockClear();
+
+    let hit: boolean | undefined;
+    await act(async () => {
+      hit = await result.current.remove(null as unknown as string);
+    });
+
+    expect(hit).toBe(false);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'remove_workspace')).toHaveLength(0);
+    const message = toastErrorMock.mock.calls[0]?.[0] as string;
+    expect(message.startsWith('移除 workspace 失败：')).toBe(true);
+    expect(driftCount()).toBe(0);
   });
 });

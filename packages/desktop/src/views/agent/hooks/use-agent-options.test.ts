@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { AgentInstanceRecord } from '../../../types/generated/bindings';
 import { useAgentOptions } from './use-agent-options';
 
@@ -129,5 +130,83 @@ describe('useAgentOptions：选择器取数（AC-8 前置）', () => {
     });
 
     expect(countOf('list_agent_instances')).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：零形参命令
+// `listAgentInstances` 的参数面放行与结果面 soft-report。
+// ---------------------------------------------------------------------------
+
+describe('useAgentOptions：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('挂载 → 零形参放行、结果干净零漂移', async () => {
+    invokeMock.mockResolvedValue([agentInstance(3, 'cli-a', 'cli')]);
+    const { result } = renderHook(() => useAgentOptions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(countOf('list_agent_instances')).toBe(1);
+    expect(result.current.instances).toHaveLength(1);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果条目 providerId: null（Option 面）→ 零漂移、选项照旧生成', async () => {
+    invokeMock.mockResolvedValue([agentInstance(7, 'sdk-b', 'sdk', true)]);
+    const { result } = renderHook(() => useAgentOptions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.instances[0].providerId).toBeNull();
+    expect(result.current.defaultId).toBe(7);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('空清单 → 放行、零漂移、既有空态不变', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { result } = renderHook(() => useAgentOptions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.instances).toEqual([]);
+    expect(result.current.defaultId).toBeNull();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 既有空选项语义逐字不变、零漂移', async () => {
+    invokeMock.mockRejectedValue('store 读失败');
+    const { result } = renderHook(() => useAgentOptions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.instances).toEqual([]);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面契约外（engine 非 literal 枚举值）→ 漂移恰 1 条 + 既有过滤逻辑按原值处理', async () => {
+    invokeMock.mockResolvedValue([
+      { id: 1, name: 'legacy', engine: 'unknown-engine', providerId: null, isDefault: false },
+    ]);
+    const { result } = renderHook(() => useAgentOptions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('listAgentInstances');
+    expect(result.current.instances).toHaveLength(1);
+  });
+
+  it('结果面多余键（strictObject）→ 漂移 1 条、选项渲染不变', async () => {
+    invokeMock.mockResolvedValue([{ ...agentInstance(2, 'sdk-c', 'sdk'), surplusKey: 'x' }]);
+    const { result } = renderHook(() => useAgentOptions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].path).toBe('#/0');
+    expect(result.current.instances).toHaveLength(1);
   });
 });

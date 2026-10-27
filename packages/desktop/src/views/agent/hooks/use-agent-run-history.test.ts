@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { SessionPage, SessionSummary } from '../../../types/dto';
 import { useAgentRunHistory } from './use-agent-run-history';
 
@@ -767,5 +768,102 @@ describe('useAgentRunHistory：configSnapshot fixture 携 agentInstanceId 键（
       result.current.refresh();
     });
     await waitFor(() => expect(result.current.sessions).toEqual([]));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`agentSessions` 的
+// 五形参（含两个可空位 + 两个整数位）与分页结果面 soft-report。
+// ---------------------------------------------------------------------------
+
+describe('useAgentRunHistory：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('agentSessions(root, null, null, 0, limit) → 两个 null 可空位放行、键名逐字命中、零漂移', async () => {
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
+
+    const [, payload] = invokeMock.mock.calls[0];
+    expect(payload).toEqual({
+      root: ROOT,
+      source: 'debug',
+      sourceRef: null,
+      offset: 0,
+      limit: 20,
+    });
+    expect(Object.keys(payload as object)).toEqual([
+      'root',
+      'source',
+      'sourceRef',
+      'offset',
+      'limit',
+    ]);
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['offset=0 与默认页长', 1],
+    ['offset 翻页（PAGE_SIZE）', 2],
+  ])('分页位为整数（%s）→ 无 IpcArgsError、invoke 恰 1 次', async (_label, page) => {
+    invokeMock.mockResolvedValue({ sessions: SESSIONS_DESC, total: 40 });
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
+
+    if (page === 2) {
+      act(() => {
+        result.current.nextPage();
+      });
+      await waitFor(() => expect(result.current.page).toBe(2));
+    }
+
+    const payloads = invokeMock.mock.calls.map(([, args]) => args as Record<string, unknown>);
+    for (const payload of payloads) {
+      expect(Number.isInteger(payload['offset'])).toBe(true);
+      expect(Number.isInteger(payload['limit'])).toBe(true);
+    }
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串（分页失败）→ 既有 error 文案逐字不变、零漂移', async () => {
+    invokeMock.mockRejectedValue('查询会话失败：db locked');
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe('查询会话失败：db locked');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（total 给字符串）→ 漂移恰 1 条 + 列表渲染不崩（原值透传）', async () => {
+    invokeMock.mockResolvedValue({
+      sessions: SESSIONS_DESC,
+      total: '2',
+    });
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('agentSessions');
+    expect(driftReports()[0].path).toBe('#/total');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('空页（sessions: []、total: 0）→ 零漂移、既有空态判据不变', async () => {
+    invokeMock.mockResolvedValue({ sessions: [], total: 0 });
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.total).toBe(0);
+    expect(result.current.totalPages).toBe(1);
+    expect(driftCount()).toBe(0);
   });
 });

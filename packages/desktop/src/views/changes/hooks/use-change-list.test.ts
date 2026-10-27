@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { ChangeList } from '../../../types/dto';
 import { useChangeList } from './use-change-list';
 
@@ -185,5 +186,105 @@ describe('useChangeList：生成绑定调用面', () => {
     expect(result.current.error).toContain('IPC 断开');
     expect(result.current.data?.active[0].name).toBe('kept');
     expect(result.current.loading).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`listChanges` 的
+// 参数面 strict / 结果面 soft-report 与既有分组渲染的组合回归。
+// ---------------------------------------------------------------------------
+
+describe('useChangeList：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    // DEV 汇总告警静音（漂移记录本身仍是判据）
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('listChanges(root) 放行：结果干净零漂移、既有分组渲染不变', async () => {
+    invokeMock.mockResolvedValue(fakeList('add-feature'));
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: '/repo' });
+    expect(result.current.data?.active[0].name).toBe('add-feature');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('空清单（active + archiveGroups 皆空）→ 零漂移、既有空态不变', async () => {
+    invokeMock.mockResolvedValue({ active: [], archiveGroups: [] });
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(result.current.data?.active).toEqual([]);
+    expect(result.current.data?.archiveGroups).toEqual([]);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 既有 error 态文案逐字不变、零漂移', async () => {
+    invokeMock.mockRejectedValue('开库失败：/repo/ws.db');
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe('开库失败：/repo/ws.db');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（created 非 string）→ 漂移恰 1 条、分组逻辑不崩（原值透传）', async () => {
+    const dirty = {
+      active: [
+        {
+          id: 'id-1',
+          name: 'add-feature',
+          title: 'add-feature',
+          source: 'active',
+          status: 'active',
+          activePhase: null,
+          created: 42,
+        },
+      ],
+      archiveGroups: [],
+    };
+    invokeMock.mockResolvedValue(dirty);
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('listChanges');
+    expect(driftReports()[0].path).toBe('#/active/0/created');
+    // 软失败不阻断 UI：既有渲染按原值继续
+    expect(result.current.data).toBe(dirty);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('结果面多余键（strictObject）→ 漂移 1 条、渲染不变', async () => {
+    invokeMock.mockResolvedValue({ ...fakeList('kept'), surplusKey: 1 });
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].path).toBe('#');
+    expect(result.current.data?.active[0].name).toBe('kept');
+  });
+
+  it('root 连续切换两次取数 → 各自零误拒、漂移保持 0', async () => {
+    invokeMock.mockResolvedValue(fakeList('first'));
+    const { result, rerender } = renderHook(
+      ({ root }: { root: string | null }) => useChangeList(root),
+      { initialProps: { root: '/old' as string | null } },
+    );
+    await waitFor(() => expect(result.current.data?.active[0].name).toBe('first'));
+
+    invokeMock.mockResolvedValue(fakeList('second'));
+    rerender({ root: '/new' });
+    await waitFor(() => expect(result.current.data?.active[0].name).toBe('second'));
+
+    expect(invokeMock).toHaveBeenLastCalledWith('list_changes', { root: '/new' });
+    expect(driftCount()).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type {
   ActiveRunView,
   ArtifactDescriptor,
@@ -1208,5 +1209,118 @@ describe('useChangeDetail：有界重试节奏与取消通道（AC-2 / AC-3）',
     expect(roundCalls(), '通知到点补发重查一拍').toBe(3);
     expect(result.current.refreshFailed).toBeNull();
     expect(result.current.detail?.runs).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`getChangeDetail` /
+// `readArtifact` 的参数面放行、`payload: unknown` 白洞零误报、契约内 null 与
+// 结果面漂移的降级路径。
+// ---------------------------------------------------------------------------
+
+describe('useChangeDetail：经 ipc 的参数面 / 结果面', () => {
+  const descriptor: ArtifactDescriptor = {
+    kind: 'markdown-doc',
+    source: 'proposal.md',
+    title: '提案',
+    phase: 'proposal',
+  };
+
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('getChangeDetail(root, id) + readArtifact(root, id, kind, source) 各 1 次、零漂移', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'get_change_detail'
+        ? Promise.resolve(unified(fakeDetail([descriptor])))
+        : Promise.resolve(envelopeFor(descriptor)),
+    );
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await waitFor(() => expect(result.current.artifacts).toHaveLength(1));
+
+    expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
+      root: '/repo',
+      id: 'add-feature',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('read_artifact', {
+      root: '/repo',
+      id: 'add-feature',
+      kind: 'markdown-doc',
+      source: 'proposal.md',
+    });
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['对象', { markdown: '# 标题' }],
+    ['数组', [1, 'two']],
+    ['null', null],
+    ['字符串', 'raw-text'],
+  ])('payload 白洞给 %s → 零漂移（合法 unknown 不误报）', async (_label, payload) => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'get_change_detail'
+        ? Promise.resolve(unified(fakeDetail([descriptor])))
+        : Promise.resolve({ ...envelopeFor(descriptor), payload }),
+    );
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await waitFor(() => expect(result.current.artifacts).toHaveLength(1));
+
+    expect(result.current.artifacts[0].payload).toEqual(payload);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串（store 读失败）→ 既有 error 态文案逐字不变、零漂移', async () => {
+    invokeMock.mockRejectedValue('store 读失败：/repo/.db');
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe('store 读失败：/repo/.db');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（detail 内字段类型漂移）→ 漂移恰 1 条 + 既有降级分支照旧（零 throw）', async () => {
+    const dirty = unified({ ...fakeDetail([]), created: 42 } as unknown as ChangeDetail);
+    invokeMock.mockImplementation((command: string) =>
+      command === 'get_change_detail' ? Promise.resolve(dirty) : Promise.resolve(null),
+    );
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('getChangeDetail');
+    expect(driftReports()[0].path).toBe('#/detail/created');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('结果为 null（契约内「未找到」）→ 零漂移、既有空态判据不变', async () => {
+    invokeMock.mockImplementation(() => Promise.resolve(null));
+    const { result } = renderHook(() => useChangeDetail('/repo', 'missing'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.detail).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['fallbackText 为 null', { fallbackText: null }],
+    ['version 取 0', { version: 0 }],
+  ])('%s → 零漂移（Option 面与整数下界）', async (_label, overrides) => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'get_change_detail'
+        ? Promise.resolve(unified(fakeDetail([descriptor])))
+        : Promise.resolve({ ...envelopeFor(descriptor), ...overrides }),
+    );
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await waitFor(() => expect(result.current.artifacts).toHaveLength(1));
+
+    expect(driftCount()).toBe(0);
   });
 });

@@ -39,9 +39,28 @@ fn authoritative_snapshot() -> Vec<u8> {
     fs::read(generated_path()).expect("读取产物文件应成功")
 }
 
+/// AC-8 自检桩路径（**手写**文件，非产物：目录整体删除后不会被重导出重建）。
+fn zod_check_stub_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR 应有父目录")
+        .join("src/types/generated/bindings.zod.check.ts")
+}
+
 /// 变更类用例的 Drop 守卫：断言失败 unwind 时尽力重导出恢复权威产物
 /// （仅在持有 [`file_lock`] 的用例内使用，不重复加锁）。
 struct RestoreOnDrop;
+
+/// 目录整体删除类用例的补位守卫：自检桩是手写文件（导出不会重建它，而
+/// `bindings:zod-check` 依赖它在场），删除目录前先快照、drop 时写回——
+/// 正常返回与 unwind 两条路径都不留缺口。
+struct RestoreStubOnDrop(Vec<u8>);
+
+impl Drop for RestoreStubOnDrop {
+    fn drop(&mut self) {
+        let _ = fs::write(zod_check_stub_path(), &self.0);
+    }
+}
 
 impl Drop for RestoreOnDrop {
     fn drop(&mut self) {
@@ -583,6 +602,8 @@ fn 预先篡改产物文件后重导出恢复权威内容() {
 fn 产物父目录缺失时create_dir_all先行导出成功() {
     let _lock = lock();
     let _restore = RestoreOnDrop;
+    let _stub_restore =
+        RestoreStubOnDrop(fs::read(zod_check_stub_path()).expect("读取 AC-8 自检桩应成功"));
     let authoritative = authoritative_snapshot();
     let dir = generated_path()
         .parent()
@@ -599,6 +620,11 @@ fn 产物父目录缺失时create_dir_all先行导出成功() {
         fs::read(generated_path()).expect("产物应恢复"),
         authoritative,
         "重建产物与权威内容一致"
+    );
+    // 双产物形态下同一单点仍生效：第二产物一并重建
+    assert!(
+        zod_generated_path().is_file(),
+        "bindings.zod.ts 在目录重建后同批恢复"
     );
 }
 
@@ -771,19 +797,19 @@ fn session_detail绑定为root_session_id入参的nullable三件套直返() {
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
     // 包装形态逐字：camelCase 包装名 + (root: string, sessionId: string) 入参 +
-    // 三件套内联返回 `| null`（blank root 空结果 Ok(None) 透传）+ invoke 命令名
+    // 具名 `SessionSummary | null` 返回（blank root 空结果 Ok(None) 透传）+ invoke
+    // 命令名（三件套收为具名 DTO，类型面语义不变）
     assert!(
-        content.contains("sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<{"),
-        "sessionDetail 包装形态不符（入参 / 返回三件套内联形态）"
+        content.contains(
+            "sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<SessionSummary | null>(\"session_detail\", { root, sessionId })"
+        ),
+        "sessionDetail 包装形态不符（入参 / 返回具名 SessionSummary | null）"
     );
-    assert!(
-        content.contains("} | null>(\"session_detail\", { root, sessionId })"),
-        "session_detail invoke 目标与 nullable 空结果形态"
-    );
-    // 三件套字段出线（SessionSummary 复用零新 DTO——row / stats / turns）
-    assert!(content.contains("row: SessionRow,"));
-    assert!(content.contains("stats: SessionStats,"));
-    assert!(content.contains("turns: TurnSummary[],"));
+    // 三件套字段出线（SessionSummary——row / stats / turns）
+    let summary = type_section(&content, "SessionSummary");
+    assert!(summary.contains("row: SessionRow,"), "实际: {summary}");
+    assert!(summary.contains("stats: SessionStats,"), "实际: {summary}");
+    assert!(summary.contains("turns: TurnSummary[],"), "实际: {summary}");
     // 同步直查命令：出线形态与 codeStats / workspaceConfig 同族直返（Throw 模式
     // Promise，错误面 reject 透传，无 Result 包装）
     assert!(
@@ -1678,4 +1704,133 @@ fn 清单遗漏即产物覆盖断言必红() {
         !copy.iter().any(|(name, _)| *name == removed.0),
         "副本确已删去 {removed:?}（清单改动即覆盖断言口径随动）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 双产物守卫（AC-9）：`export_bindings` 是两份产物的唯一入口——`bindings.ts`
+// （类型唯一源）与 `bindings.zod.ts`（纯 schema）同目录同批导出，任一失败即非零
+// 退出；篡改 / 删除 / 目录缺失三面同样按权威内容恢复。串行靠既有 `file_lock()`，
+// 变更类用例以 `RestoreOnDrop` 兜底恢复。
+// ---------------------------------------------------------------------------
+
+/// 第二产物路径（同式定位：`CARGO_MANIFEST_DIR` 的上级 + 生成目录）。
+fn zod_generated_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR 应有父目录")
+        .join("src/types/generated/bindings.zod.ts")
+}
+
+/// 第二产物权威快照：重导出（幂等确定性）后读取字节。
+fn zod_authoritative_snapshot() -> Vec<u8> {
+    export_bindings().expect("export_bindings 应成功");
+    fs::read(zod_generated_path()).expect("读取 zod 产物文件应成功")
+}
+
+#[test]
+fn 双产物同目录同时存在且zod产物含三表与降级哨兵() {
+    let _lock = lock();
+    export_bindings().expect("导出应成功");
+
+    assert!(generated_path().is_file(), "bindings.ts 应存在");
+    assert!(zod_generated_path().is_file(), "bindings.zod.ts 应存在");
+    assert_eq!(
+        generated_path().parent(),
+        zod_generated_path().parent(),
+        "两份产物同目录（同一 create_dir_all 单点）"
+    );
+
+    let zod = String::from_utf8(fs::read(zod_generated_path()).expect("读取 zod 产物应成功"))
+        .expect("zod 产物为 UTF-8 文本");
+    // 三张表（表名即装配层取的三个导出）
+    for table in ["argsSchemas", "resultSchemas", "channelArgs"] {
+        assert!(
+            zod.contains(&format!("export const {table} = {{")),
+            "zod 产物缺 {table} 表"
+        );
+    }
+    // 降级哨兵只落 5 个 Channel 形参位（agentStart / agentSessionWatch /
+    // changeFlowStart / changeFlowWatch / watchSubscribe 的 onEvent）
+    assert_eq!(
+        zod.matches("degraded(").count(),
+        5,
+        "degraded( 恰 5 处（Channel 形参位）"
+    );
+    // 职责切分：schema 产物不改写命令面、不 import 类型产物
+    assert!(
+        !zod.contains("export const commands"),
+        "zod 产物不含 commands 包装（职责切分）"
+    );
+    assert!(
+        !zod.contains("from \"./bindings\"") && !zod.contains("from './bindings'"),
+        "zod 产物不 import bindings.ts（零运行期耦合）"
+    );
+    // 生成期硬约束（AC-7）在真实产物上同样成立
+    for snippet in [
+        "export type ",
+        "z.infer",
+        "z.object(",
+        ".refine(",
+        ".default(",
+    ] {
+        assert!(!zod.contains(snippet), "zod 产物命中禁用片段 {snippet}");
+    }
+}
+
+#[test]
+fn 连续两次导出两份产物各自零diff() {
+    let _lock = lock();
+
+    let first_ts = authoritative_snapshot();
+    let first_zod = fs::read(zod_generated_path()).expect("读取 zod 产物应成功");
+
+    export_bindings().expect("第二次导出应成功");
+    let second_ts = fs::read(generated_path()).expect("读取产物文件应成功");
+    let second_zod = fs::read(zod_generated_path()).expect("读取 zod 产物应成功");
+
+    assert_eq!(first_ts, second_ts, "bindings.ts 连续两次导出零 diff");
+    assert_eq!(first_zod, second_zod, "bindings.zod.ts 连续两次导出零 diff");
+}
+
+#[test]
+fn 删除zod产物后重导出重建为权威内容() {
+    let _lock = lock();
+    let _restore = RestoreOnDrop;
+    let authoritative = zod_authoritative_snapshot();
+    let path = zod_generated_path();
+
+    fs::remove_file(&path).expect("删除 zod 产物应成功");
+    assert!(!path.exists(), "前置：第二产物已不存在");
+
+    export_bindings().expect("重导出应成功");
+    assert!(path.is_file(), "第二产物被重建");
+    assert_eq!(
+        fs::read(&path).expect("读取重建产物应成功"),
+        authoritative,
+        "重建内容与权威内容一致（第二产物同受守卫）"
+    );
+}
+
+#[test]
+fn 手工篡改zod产物后重导出恢复权威内容() {
+    let _lock = lock();
+    let _restore = RestoreOnDrop;
+    let authoritative = zod_authoritative_snapshot();
+    let path = zod_generated_path();
+
+    // 两类篡改：删掉一张表 / 注入 `export type`（类型别名是被 PATCH(2) 删除的形态）
+    for tampered in [
+        "// 手改：删掉了三张表\n",
+        "export type HijackedSchema = unknown;\n",
+    ] {
+        fs::write(&path, tampered).expect("篡改 zod 产物应成功");
+        assert_ne!(fs::read(&path).unwrap(), authoritative, "前置：篡改生效");
+
+        export_bindings().expect("重导出应成功");
+        assert_eq!(
+            fs::read(&path).expect("读取产物应成功"),
+            authoritative,
+            "篡改不留存（重导出恢复权威内容）"
+        );
+    }
 }

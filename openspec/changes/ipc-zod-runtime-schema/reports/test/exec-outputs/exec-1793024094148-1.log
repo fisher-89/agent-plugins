@@ -1,0 +1,46 @@
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/ipc-zod-runtime-schema/openspec/changes/ipc-zod-runtime-schema/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling specta v2.0.0-rc.26
+   Compiling specta-macros v2.0.0-rc.26
+   Compiling small_ctor v0.1.2
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\core\agent)
+   Compiling tauri v2.12.5
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\core\config)
+   Compiling specta-typescript v0.0.13
+   Compiling specta-serde v0.0.13
+   Compiling specta-util v0.0.13
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\core\checks)
+   Compiling specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\infra\store)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\crates\infra\agent)
+   Compiling tauri-plugin-fs v2.7.1
+   Compiling tauri-specta v2.0.0-rc.26
+   Compiling tauri-plugin-devtools v2.2.2
+   Compiling tauri-plugin-updater v2.14.0
+   Compiling tauri-plugin-single-instance v2.5.4
+   Compiling tauri-plugin-opener v2.7.2
+   Compiling tauri-plugin-dialog v2.8.3
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 55.93s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-54be77b51874124e.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-217587a83914f413.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-bcd2c2ce36df8a89.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-0c3f526c00f11279.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-7866f8d52b512f43.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\config-ef07ba15d6fa86cd.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-3ea1fa1055f930b7.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-3afb0e543e8a369d.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\exec-051d38e886d78fbd.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\export_bindings-7575bd4e4da8a3d3.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\foundation-fa39654a8a2e609f.exe)
+error: test failed, to rerun pass `-p foundation --lib`
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\Cargo.toml --target-dir D:\Projects\.worktrees\wps-claude-plugin\ipc-zod-runtime-schema\packages\desktop\src-tauri\target\llvm-cov-target --workspace` (exit code: 101)

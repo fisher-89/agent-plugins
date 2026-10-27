@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { buildExplorePrompt } from '../../../lib/explore-stance';
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { AgentEvent, ExploreRecord, SessionSummary, TurnSummary } from '../../../types/dto';
 import { useExploreSession } from './use-explore-session';
 
@@ -1089,5 +1090,105 @@ describe('useExploreSession：ensure 归位守卫与取消抑制（AC-9）', () 
       pending.get('other-topic')?.({ ...recordB, sessionId: 'ses-b-1727000002000' });
     });
     await waitFor(() => expect(sessionDetailIds()).toContain('ses-b-1727000002000'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`ensureExploreSession`
+// 的参数面放行与结果面 soft-report（记录缺字段时既有会话绑定不崩）。
+// ---------------------------------------------------------------------------
+
+describe('useExploreSession：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('ensureExploreSession(root, recordName) 放行：更新后记录干净零漂移、既有会话绑定不变', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'ensure_explore_session'
+        ? Promise.resolve(exploreRecord())
+        : Promise.resolve(null),
+    );
+    const { result } = renderHook(() =>
+      useExploreSession(ROOT, { ...exploreRecord(), sessionId: null }),
+    );
+    await waitFor(() => expect(result.current.sessionId).toBe(SESSION_ID));
+
+    expect(invokeMock.mock.calls.some(([name]) => name === 'ensure_explore_session')).toBe(true);
+    expect(result.current.sessionId).toBe(SESSION_ID);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果含 null 可空字段 → 零漂移、既有状态映射不变', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'ensure_explore_session'
+        ? Promise.resolve({ ...exploreRecord(), promotedTo: null, sessionId: null })
+        : Promise.resolve(null),
+    );
+    renderHook(() => useExploreSession(ROOT, { ...exploreRecord(), sessionId: null }));
+    await act(async () => {});
+
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 既有静默语义（不置 error 态）、零漂移', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'ensure_explore_session'
+        ? Promise.reject('ensure 失败：record 缺失')
+        : Promise.resolve(null),
+    );
+    const { result } = renderHook(() =>
+      useExploreSession(ROOT, { ...exploreRecord(), sessionId: null }),
+    );
+    await act(async () => {});
+
+    expect(result.current.session.error).toBeNull();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面契约外（记录缺 name）→ 漂移恰 1 条、会话状态不崩', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'ensure_explore_session'
+        ? Promise.resolve({ id: RECORD_ID, root: ROOT, sessionId: SESSION_ID })
+        : Promise.resolve(null),
+    );
+    const { result } = renderHook(() =>
+      useExploreSession(ROOT, { ...exploreRecord(), sessionId: null }),
+    );
+    await act(async () => {});
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('ensureExploreSession');
+    expect(result.current.session.loading).toBe(false);
+  });
+
+  it('已有会话（幂等命中）重复进入 → 放行、零漂移、零 ensure 调用', async () => {
+    invokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useExploreSession(ROOT, exploreRecord()));
+    await act(async () => {});
+
+    expect(invokeMock.mock.calls.some(([name]) => name === 'ensure_explore_session')).toBe(false);
+    expect(result.current.sessionId).toBe(SESSION_ID);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('recordName 超长（> 1000 字符）→ 参数面放行（schema 只表达接受面），后端判定', async () => {
+    const longName = 'x'.repeat(1200);
+    invokeMock.mockImplementation((command: string) =>
+      command === 'ensure_explore_session'
+        ? Promise.resolve({ ...exploreRecord(), name: longName, sessionId: SESSION_ID })
+        : Promise.resolve(null),
+    );
+    renderHook(() =>
+      useExploreSession(ROOT, { ...exploreRecord(), name: longName, sessionId: null }),
+    );
+    await act(async () => {});
+
+    expect(driftCount()).toBe(0);
   });
 });

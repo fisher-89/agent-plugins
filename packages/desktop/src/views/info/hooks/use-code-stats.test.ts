@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { CodeStatsReport } from '../../../types/generated/bindings';
 import { useCodeStats } from './use-code-stats';
 
@@ -299,5 +300,111 @@ describe('useCodeStats：生成绑定调用面', () => {
     await waitFor(() => expect(invokeMock.mock.calls.length).toBe(2));
     expect(invokeMock).toHaveBeenLastCalledWith('code_stats', { root: ROOT, depth: 5 });
     expect(invokeMock.mock.calls.every(([name]) => name === 'code_stats')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`codeStats` 的
+// 参数面放行（int 边界两侧）与大结果面的零漂移原引用透传。
+// ---------------------------------------------------------------------------
+
+describe('useCodeStats：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('codeStats(root, depth) 放行：干净结果零漂移、既有汇总渲染不变', async () => {
+    const report = makeReport();
+    invokeMock.mockResolvedValue(report);
+    const { result } = renderHook(() => useCodeStats(ROOT));
+    await waitFor(() => expect(result.current.report).not.toBeNull());
+
+    expect(invokeMock).toHaveBeenCalledWith('code_stats', { root: ROOT, depth: 5 });
+    expect(result.current.report).toBe(report);
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['下界 0', 0],
+    ['上限整数', 4294967295],
+  ])('depth 取%s → 均放行（int 边界两侧）', async (_label, depth) => {
+    invokeMock.mockResolvedValue(makeReport());
+    const { result } = renderHook(() => useCodeStats(ROOT));
+    await waitFor(() => expect(result.current.report).not.toBeNull());
+
+    act(() => {
+      result.current.setDepth(depth);
+    });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenLastCalledWith('code_stats', {
+        root: ROOT,
+        depth,
+      }),
+    );
+
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 既有 error 态文案逐字不变、零漂移', async () => {
+    invokeMock.mockRejectedValue('扫描失败：权限不足');
+    const { result } = renderHook(() => useCodeStats(ROOT));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe('扫描失败：权限不足');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（files 字段类型漂移）→ 漂移恰 1 条、既有渲染降级不崩', async () => {
+    const dirty = {
+      ...makeReport(),
+      totals: { files: '12', code: 340, comments: 40, blanks: 20 },
+    };
+    invokeMock.mockResolvedValue(dirty);
+    const { result } = renderHook(() => useCodeStats(ROOT));
+    await waitFor(() => expect(result.current.report).not.toBeNull());
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('codeStats');
+    expect(driftReports()[0].path).toBe('#/totals/files');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('千级节点大结果（含空 children）→ 零漂移、原引用透传（无深拷贝、无重排）', async () => {
+    const tree = Array.from({ length: 1000 }, (_, index) => ({
+      kind: 'file' as const,
+      node: {
+        name: `f-${index}.ts`,
+        path: `src/f-${index}.ts`,
+        code: index,
+        comments: 0,
+        blanks: 0,
+      },
+    }));
+    const report = makeReport({ tree });
+    invokeMock.mockResolvedValue(report);
+    const { result } = renderHook(() => useCodeStats(ROOT));
+    await waitFor(() => expect(result.current.report).not.toBeNull());
+
+    expect(result.current.report).toBe(report);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('空统计（files 空、总计 0）→ 零漂移、既有空态不变', async () => {
+    invokeMock.mockResolvedValue({
+      totals: { files: 0, code: 0, comments: 0, blanks: 0 },
+      languages: [],
+      tree: [],
+    });
+    const { result } = renderHook(() => useCodeStats(ROOT));
+    await waitFor(() => expect(result.current.report).not.toBeNull());
+
+    expect(result.current.report?.tree).toEqual([]);
+    expect(driftCount()).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
 import type { ModelInfo, RecordEnvelope, RecordsPage } from '../../../types/dto';
 import { useDbInspector } from './use-db-inspector';
 
@@ -692,5 +693,105 @@ describe('useDbInspector：生成绑定调用面', () => {
     const modelsFailed = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(modelsFailed.result.current.error).toContain('db: 清单打开失败'));
     expect(modelsFailed.result.current.models).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`dbModels` /
+// `dbRecords` 的参数面放行（`model` 可空、分页整数）与大页结果面的原引用透传。
+// ---------------------------------------------------------------------------
+
+describe('useDbInspector：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('dbModels(scope, root) / dbRecords(scope, root, model, 0, PAGE_SIZE) → 放行、零漂移', async () => {
+    mockDispatch(envelopes(3));
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.records).toHaveLength(3));
+
+    expect(lastParamsOf('db_models')).toEqual(WORKSPACE_PARAMS);
+    expect(lastParamsOf('db_records')).toMatchObject({
+      scope: 'workspace',
+      root: ROOT,
+      model: 'agent_run',
+      offset: 0,
+    });
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['null', null],
+    ['具体模型名', 'agent_run'],
+  ])('selected 取 %s → 双形态放行（Option 面）', async (_label, selected) => {
+    mockDispatch(envelopes(2));
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+
+    if (selected !== null) await selectModel(result, selected);
+
+    expect(driftCount()).toBe(0);
+    expect(result.current.recordsError).toBeNull();
+  });
+
+  it('reject 串（开库失败）→ 既有 error 态文案逐字不变、零漂移', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'db_models' ? Promise.reject('开库失败：/repo/ws.db') : Promise.resolve(null),
+    );
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toBe('开库失败：/repo/ws.db');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（行值契约外：total 非 number）→ 漂移恰 1 条、既有网格渲染不崩', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'db_models'
+        ? Promise.resolve(MODELS)
+        : Promise.resolve({ records: envelopes(1), total: '1' }),
+    );
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.records).toHaveLength(1));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('dbRecords');
+    expect(driftReports()[0].path).toBe('#/total');
+    expect(result.current.recordsError).toBeNull();
+  });
+
+  it('空结果（records: []、total: 0）→ 零漂移、既有空态不变', async () => {
+    mockDispatch([]);
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.recordsLoading).toBe(false));
+
+    expect(result.current.records).toEqual([]);
+    expect(result.current.total).toBe(0);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('大页（千级行）→ 零漂移 + 原引用透传（无深拷贝、无重排）', async () => {
+    const inventory = envelopes(1000);
+    mockDispatch(inventory);
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.records.length).toBeGreaterThan(0));
+
+    expect(result.current.records).toEqual(inventory.slice(0, result.current.records.length));
+    expect(driftCount()).toBe(0);
   });
 });

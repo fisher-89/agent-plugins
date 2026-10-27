@@ -1,0 +1,445 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:137:9: replace ZodFormat::remap_dt -> DataType with Default::default()",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "ZodFormat::remap_dt",
+            "return_type": "-> DataType",
+            "span": {
+              "start": {
+                "line": 130,
+                "column": 5
+              },
+              "end": {
+                "line": 217,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 137,
+              "column": 9
+            },
+            "end": {
+              "line": 216,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_137_col_9.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_137_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.3085253,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:220:9: replace ZodFormat::remap_fields -> Fields with Default::default()",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "ZodFormat::remap_fields",
+            "return_type": "-> Fields",
+            "span": {
+              "start": {
+                "line": 219,
+                "column": 5
+              },
+              "end": {
+                "line": 239,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 220,
+              "column": 9
+            },
+            "end": {
+              "line": 238,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_220_col_9.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_220_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.1995591,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:259:9: replace <impl Format for ZodFormat>::map_type -> Result<Cow<'_, DataType>, FormatError> with Ok(Cow::Borrowed(Default::default()))",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "<impl Format for ZodFormat>::map_type",
+            "return_type": "-> Result<Cow<'_, DataType>, FormatError>",
+            "span": {
+              "start": {
+                "line": 258,
+                "column": 5
+              },
+              "end": {
+                "line": 262,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 259,
+              "column": 9
+            },
+            "end": {
+              "line": 261,
+              "column": 62
+            }
+          },
+          "replacement": "Ok(Cow::Borrowed(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_259_col_9.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_259_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.8744364,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:244:9: replace <impl Format for ZodFormat>::map_types -> Result<Cow<'_, Types>, FormatError> with Ok(Cow::Borrowed(Default::default()))",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "<impl Format for ZodFormat>::map_types",
+            "return_type": "-> Result<Cow<'_, Types>, FormatError>",
+            "span": {
+              "start": {
+                "line": 243,
+                "column": 5
+              },
+              "end": {
+                "line": 256,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 244,
+              "column": 9
+            },
+            "end": {
+              "line": 255,
+              "column": 31
+            }
+          },
+          "replacement": "Ok(Cow::Borrowed(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_244_col_9.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_244_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.6230067,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:244:9: replace <impl Format for ZodFormat>::map_types -> Result<Cow<'_, Types>, FormatError> with Ok(Cow::Owned(Default::default().to_owned()))",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "<impl Format for ZodFormat>::map_types",
+            "return_type": "-> Result<Cow<'_, Types>, FormatError>",
+            "span": {
+              "start": {
+                "line": 243,
+                "column": 5
+              },
+              "end": {
+                "line": 256,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 244,
+              "column": 9
+            },
+            "end": {
+              "line": 255,
+              "column": 31
+            }
+          },
+          "replacement": "Ok(Cow::Owned(Default::default().to_owned()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_244_col_9_001.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_244_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.3113719,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:395:5: replace render_phase_dt -> Result<String, specta_zod::Error> with Ok(String::new())",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "render_phase_dt",
+            "return_type": "-> Result<String, specta_zod::Error>",
+            "span": {
+              "start": {
+                "line": 385,
+                "column": 1
+              },
+              "end": {
+                "line": 398,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 395,
+              "column": 5
+            },
+            "end": {
+              "line": 397,
+              "column": 63
+            }
+          },
+          "replacement": "Ok(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_395_col_5.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_395_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.0494686,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:259:9: replace <impl Format for ZodFormat>::map_type -> Result<Cow<'_, DataType>, FormatError> with Ok(Cow::Owned(Default::default().to_owned()))",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "<impl Format for ZodFormat>::map_type",
+            "return_type": "-> Result<Cow<'_, DataType>, FormatError>",
+            "span": {
+              "start": {
+                "line": 258,
+                "column": 5
+              },
+              "end": {
+                "line": 262,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 259,
+              "column": 9
+            },
+            "end": {
+              "line": 261,
+              "column": 62
+            }
+          },
+          "replacement": "Ok(Cow::Owned(Default::default().to_owned()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_259_col_9_001.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_259_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.8342946,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/bindings/zod.rs:395:5: replace render_phase_dt -> Result<String, specta_zod::Error> with Ok(\"xyzzy\".into())",
+          "package": "dev-team",
+          "file": "src/bindings/zod.rs",
+          "function": {
+            "function_name": "render_phase_dt",
+            "return_type": "-> Result<String, specta_zod::Error>",
+            "span": {
+              "start": {
+                "line": 385,
+                "column": 1
+              },
+              "end": {
+                "line": 398,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 395,
+              "column": 5
+            },
+            "end": {
+              "line": 397,
+              "column": 63
+            }
+          },
+          "replacement": "Ok(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__bindings__zod.rs_line_395_col_5_001.log",
+      "diff_path": "diff/src__bindings__zod.rs_line_395_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 28.564096,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 8,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 8,
+  "success": 0,
+  "start_time": "2026-10-27T07:32:06.3889374Z",
+  "end_time": "2026-10-27T07:32:38.8121954Z",
+  "cargo_mutants_version": "27.1.0"
+}

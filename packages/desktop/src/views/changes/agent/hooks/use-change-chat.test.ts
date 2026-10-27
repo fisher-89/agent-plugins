@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, driftReports, resetDrift } from '../../../../lib/ipc-drift';
 import type {
   AgentEvent,
   AgentPermissionMode,
@@ -729,5 +730,124 @@ describe('useChangeChat：参数守卫', () => {
     await act(async () => {});
     expect(callsOf('agent_start')).toHaveLength(1);
     expect(argsOf('agent_start')['sourceRef']).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 `ipc` 的运行期校验面（change ipc-zod-runtime-schema）：`listChangeChatSessions`
+// 的四形参分页面放行、结果面 soft-report 与既有分页累积语义。
+// ---------------------------------------------------------------------------
+
+describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    resetDrift();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('首取 listChangeChatSessions(root, changeId, 0, PAGE_SIZE) → 放行、键名逐字命中、零漂移', async () => {
+    resetIpc({ list: pagedSessions(3) });
+    const { result } = await mounted();
+    act(() => {
+      result.current.toggleList();
+    });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(3));
+
+    expect(argsOf('list_change_chat_sessions', 0)).toMatchObject({
+      root: ROOT,
+      id: CHANGE_ID,
+      offset: 0,
+    });
+    expect(Object.keys(argsOf('list_change_chat_sessions', 0))).toEqual([
+      'root',
+      'id',
+      'offset',
+      'limit',
+    ]);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果含 null 可空字段 → 零漂移、既有消息列表映射不变', async () => {
+    resetIpc({
+      list: () => Promise.resolve({ sessions: [summary([], 'ses-null')], total: 1 }),
+      detail: null,
+    });
+    const { result } = await mounted();
+    act(() => {
+      result.current.toggleList();
+    });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+
+    expect(result.current.total).toBe(1);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('reject 串 → 既有 error 态文案逐字不变、零漂移', async () => {
+    resetIpc({ list: () => Promise.reject('查询会话失败：db locked') });
+    const { result } = await mounted();
+    act(() => {
+      result.current.toggleList();
+    });
+    await waitFor(() => expect(result.current.listError).not.toBeNull());
+
+    expect(result.current.listError).toBe('查询会话失败：db locked');
+    expect(driftCount()).toBe(0);
+  });
+
+  it('结果面脏（sessions 元素缺字段）→ 漂移恰 1 条 + 既有分页合并不崩', async () => {
+    resetIpc({
+      list: () =>
+        Promise.resolve({
+          sessions: [{ id: 'ses-broken', updatedAt: TS } as unknown as SessionSummary],
+          total: 1,
+        }),
+    });
+    const { result } = await mounted();
+    act(() => {
+      result.current.toggleList();
+    });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+
+    expect(driftCount()).toBe(1);
+    expect(driftReports()[0].cmd).toBe('listChangeChatSessions');
+    expect(driftReports()[0].path.startsWith('#/sessions/0')).toBe(true);
+    expect(result.current.listError).toBeNull();
+  });
+
+  it('空页（sessions: []）→ 零漂移、既有 hasMore 语义不变', async () => {
+    resetIpc({ list: () => Promise.resolve(emptyPage()) });
+    const { result } = await mounted();
+    act(() => {
+      result.current.toggleList();
+    });
+    await waitFor(() => expect(result.current.listLoading).toBe(false));
+
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.total).toBe(0);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('offset 递增连续两次取数（0 → PAGE_SIZE）→ 两页均零误拒、漂移保持 0', async () => {
+    resetIpc({ list: pagedSessions(40) });
+    const { result } = await mounted();
+    act(() => {
+      result.current.toggleList();
+    });
+    await waitFor(() => expect(result.current.sessions.length).toBeGreaterThan(0));
+    const pageSize = result.current.sessions.length;
+
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(pageSize * 2));
+
+    const offsets = callsOf('list_change_chat_sessions').map(
+      ([, args]) => (args as Record<string, unknown>)['offset'],
+    );
+    expect(offsets).toEqual([0, pageSize]);
+    expect(driftCount()).toBe(0);
   });
 });

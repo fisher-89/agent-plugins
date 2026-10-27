@@ -41,7 +41,8 @@ function keyOf(report: IpcDriftReport): string {
 
 /**
  * 唯一写入口：同 `(cmd, path)` 累计计数，新键在未达上限时入表。
- * 消费方：`src/lib/ipc.ts`（参数面 / 结果面 / Channel 信封）。
+ * 消费方：`src/lib/ipc.ts`（结果面 / Channel 信封两处 soft-report 上报点；参数面失败走
+ * 本地 `IpcArgsError` 拒绝，不入聚合——错误面三分，漂移不是 throw）。
  */
 export function reportDrift(report: IpcDriftReport): void {
   const key = keyOf(report);

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { driftCount, resetDrift } from '../../../lib/ipc-drift';
 import { ExploreCreateDialog } from './explore-create-dialog';
 
 // 进程边界 Mock：仅 mock IPC（invoke）。组件与内部状态真实组合。
@@ -405,5 +406,173 @@ describe('ExploreCreateDialog：root 切换后旧扫描失败应答的取消抑�
     });
     expect(screen.queryByTestId('explore-create-error')).toBeNull();
     expect(screen.getByText('new-topic')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 经 ipc 的参数面 / 结果面（AC-1 参数面 strict / AC-2 结果面 soft-report）：
+// 组件只换调用面（`commands.` → `ipc.`），`createExploreRecord` 第二形参可空，
+// 结果面契约外只上报（对话框状态不崩）。漂移断言用真实 collector。
+// ---------------------------------------------------------------------------
+
+/** 合法 `ExploreRecord`（九字段全在场——strict 面零漂移的干净基线）。 */
+function exploreRecord(name: string): Record<string, unknown> {
+  return {
+    id: 1,
+    root: ROOT,
+    name,
+    title: name,
+    workflowType: 'requirement',
+    promotedTo: null,
+    sessionId: null,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+/** 打开「从已有文档创建」页并返回扫描候选面。 */
+function openImportTab(): void {
+  fireEvent.click(screen.getByTestId('explore-create-toggle'));
+  fireEvent.click(screen.getByTestId('explore-tab-import'));
+}
+
+describe('ExploreCreateDialog：经 ipc 的参数面 / 结果面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => ipc(command));
+    resetDrift();
+  });
+
+  it('正向：打开扫描 → scan_explores 恰 1 次、参数面放行、候选渲染不变、零漂移', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'scan_explores') {
+        return Promise.resolve([
+          { name: 'valid-topic', modifiedAt: null },
+          { name: 'another-topic', modifiedAt: 1727000000000 },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
+    openImportTab();
+
+    const items = await screen.findAllByTestId('explore-import-item');
+    expect(items).toHaveLength(2);
+    expect(invokeMock).toHaveBeenCalledWith('scan_explores', { root: ROOT });
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'scan_explores')).toHaveLength(
+      1,
+    );
+    expect(driftCount()).toBe(0);
+  });
+
+  it('正向：createExploreRecord 双形态（新话题 name=null / 导入项 name=字符串）均放行、零漂移', async () => {
+    // 形态一：新话题（name = null，后端生成占位名）
+    invokeMock.mockImplementation((command: string) =>
+      command === 'create_explore_record'
+        ? Promise.resolve(exploreRecord(PLACEHOLDER_NAME))
+        : Promise.resolve([]),
+    );
+    const first = render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
+    openTopicTab();
+    typeRequirement('调研需求');
+    fireEvent.click(screen.getByTestId('explore-topic-create'));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(invokeMock).toHaveBeenCalledWith('create_explore_record', { root: ROOT, name: null });
+    expect(driftCount()).toBe(0);
+    first.unmount();
+    cleanup();
+
+    // 形态二：导入项（name = 候选 stem）
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'scan_explores') {
+        return Promise.resolve([{ name: 'valid-topic', modifiedAt: null }]);
+      }
+      if (command === 'create_explore_record') {
+        return Promise.resolve(exploreRecord('valid-topic'));
+      }
+      return Promise.resolve(null);
+    });
+    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
+    openImportTab();
+    fireEvent.click(await screen.findByTestId('explore-import-item'));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('create_explore_record', {
+        root: ROOT,
+        name: 'valid-topic',
+      }),
+    );
+    expect(driftCount()).toBe(0);
+  });
+
+  it('异常：后端 reject（已存在 / 非法名）→ 既有错误文案逐字呈现、零漂移', async () => {
+    for (const rejection of ['探索记录 "valid-topic" 已存在', '非法的探索记录名']) {
+      invokeMock.mockReset();
+      invokeMock.mockImplementation((command: string) => {
+        if (command === 'create_explore_record') return Promise.reject(rejection);
+        return Promise.resolve([]);
+      });
+      render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
+      openTopicTab();
+      typeRequirement('调研需求');
+      fireEvent.click(screen.getByTestId('explore-topic-create'));
+
+      const error = await screen.findByTestId('explore-create-error');
+      expect(error.textContent).toBe(rejection);
+      cleanup();
+    }
+
+    expect(driftCount()).toBe(0);
+  });
+
+  it('异常：结果面契约外（返回记录缺 name）→ 漂移恰 1 条、对话框状态不崩', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'create_explore_record') {
+        const dirty = exploreRecord(PLACEHOLDER_NAME);
+        delete dirty.name;
+        return Promise.resolve(dirty);
+      }
+      return Promise.resolve([]);
+    });
+    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
+    openTopicTab();
+    typeRequirement('调研需求');
+    fireEvent.click(screen.getByTestId('explore-topic-create'));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(driftCount()).toBe(1);
+    // 软失败：既有回调照旧被调用（占位名取不到即为 undefined），不呈现错误块
+    expect(screen.queryByTestId('explore-create-error')).toBeNull();
+    expect(screen.getByTestId('explore-topic-create')).toBeTruthy();
+  });
+
+  it('边界：空扫描结果 [] → 零漂移、既有空态提示不变', async () => {
+    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
+    openImportTab();
+
+    expect(await screen.findByTestId('explore-import-empty')).toBeTruthy();
+    expect(driftCount()).toBe(0);
+  });
+
+  it('边界：候选名超长（>1000 字符）/ 含 \n 与 emoji → 参数面放行（无 .refine()）、零漂移', async () => {
+    for (const name of ['a'.repeat(1200), 'with\nnewline 🚀 topic']) {
+      invokeMock.mockReset();
+      invokeMock.mockImplementation((command: string) => {
+        if (command === 'scan_explores') return Promise.resolve([{ name, modifiedAt: null }]);
+        if (command === 'create_explore_record') return Promise.resolve(exploreRecord(name));
+        return Promise.resolve(null);
+      });
+      render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
+      openImportTab();
+      fireEvent.click(await screen.findByTestId('explore-import-item'));
+
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('create_explore_record', { root: ROOT, name }),
+      );
+      cleanup();
+    }
+
+    expect(driftCount()).toBe(0);
   });
 });
