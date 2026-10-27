@@ -5,12 +5,6 @@ import type { ArchiElement } from '../../../types/generated/bindings';
 import { shortName } from '../lib/fqn';
 import { ElementTree } from './element-tree';
 
-/**
- * `ElementTree` 单测（AC-18 / AC-22 / D17）：FQN 最长前缀派生层级、状态点词汇、
- * 前缀边界（`. ` 边界切分非字符串前缀）、停摆 / 空态零节点、点击上抛、规模面。
- * 树数据为 fixture 直构（纯展示组件，零 IPC）。
- */
-
 function element(fqn: string, mark: ArchiElement['mark'] = 'none'): ArchiElement {
   return {
     fqn,
@@ -76,10 +70,6 @@ describe('元素树层级派生', () => {
     expect(screen.getByLabelText('收起 App.Auth')).toBeTruthy();
     expect(screen.queryByLabelText('展开 App.Auth.Token')).toBeNull();
     expect(screen.queryByLabelText('收起 App.Auth.Token')).toBeNull();
-    // 展开态指示符
-    expect(screen.getByLabelText('收起 App').textContent).toBe('▾');
-    fireEvent.click(screen.getByLabelText('收起 App'));
-    expect(screen.getByLabelText('展开 App').textContent).toBe('▸');
   });
 
   it('应在元素集变化后重算树（新增子元素即上图，不因缓存停留旧形状）', () => {

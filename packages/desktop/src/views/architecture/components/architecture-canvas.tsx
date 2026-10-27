@@ -1,13 +1,3 @@
-/**
- * 共享架构画布（两处挂载点共用同一组件）：左元素树 / 中 xyflow 画布 / 右抽屉。
- *
- * - **观察根就是当前工作根**：`root` 由挂载点给出（`/architecture` = 主仓根；
- *   change 详情 = `detail.worktree`，归档回落主仓根），组件不做根推导。
- * - **缺省 1-hop**：只渲染聚焦元素的邻域（出边 / 入边 / 直接子元素），聚焦切换
- *   是纯本地 state（零取数）；全量铺开 MUST NOT 作为缺省形态。
- * - **全或无停摆**：`diagnostics` 非空即只渲错误面板——零节点、零边、零降级样式。
- * - 标记经 `marks.ts` 上色（本期生产者恒 `none` ⇒ 实线 / ⚪）。
- */
 import { ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import { useMemo, useState } from 'react';
 

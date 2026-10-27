@@ -57,7 +57,7 @@
 - [x] 移除test-execution阶段的agent执行，测试不通过时，走决策回溯
 - [x] change详情增加通用agent，在change环境下运行；通用agent可以开启新会话，恢复历史会话；
 - [x] 分离开发/测试和release产物使用的db文件
-- [ ] change详情，脚本步骤可以查看运行中stdout；最上方显示执行的命令；
+- [ ] change详情，脚本步骤可以查看运行中stdout（当前仅能查看完成的步骤），最上方显示执行的命令；
 - [ ] 向agent提供db查询工具，可以访问桌面端数据，包含2个工具：1. 列出db的表名、介绍、字段说明；2. 按条件查询，返回数据上限1000条；
 - [x] agent provider支持选择模型协议（openai/anthropic）
 - [ ] 内置CodeGraph，使用mcp桥接到agent

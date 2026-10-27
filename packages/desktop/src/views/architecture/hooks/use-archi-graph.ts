@@ -1,11 +1,3 @@
-/**
- * 画布取数 hook：**显式取数**——只在三种触发下发起 invoke（组件挂载 / `root`
- * 变化 / 手动刷新），零目录监听、零轮询、零跨调用缓存（沿既有「显式取数」红线）。
- *
- * 停摆态与正常态同形透出：结构错时后端返回零图数据 + 诊断清单，本 hook 只做透传
- * （停摆判据 = `diagnostics` 非空，不在前端二次判定）。`root` 为 null（壳态无根）
- * 时不发 invoke。
- */
 import { useCallback, useEffect, useState } from 'react';
 
 import { commands, type ArchiGraph } from '../../../types/generated/bindings';

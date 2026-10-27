@@ -1,9 +1,13 @@
+import { ChevronRightIcon } from 'lucide-react';
 /**
  * 左元素树：层级由 **FQN 最长前缀**派生（父 = 最长已声明前缀，非 TOML 表嵌套），
  * 节点状态点取节点标记词汇（`nodeDot`）。停摆态零节点（由父级全或无停摆承载），
  * 空模型亦零节点。
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 import type { ArchiElement } from '../../../types/generated/bindings';
 import { shortName } from '../lib/fqn';
@@ -57,17 +61,13 @@ function TreeNodes({
   byFqn,
   tree,
   focused,
-  expanded,
   onFocus,
-  onToggle,
 }: {
   fqns: string[];
   byFqn: ReadonlyMap<string, ArchiElement>;
   tree: TreeShape;
   focused: string | null;
-  expanded: ReadonlySet<string>;
   onFocus: (fqn: string) => void;
-  onToggle: (fqn: string) => void;
 }): React.JSX.Element {
   return (
     <ul className="m-0 list-none p-0">
@@ -75,48 +75,54 @@ function TreeNodes({
         const element = byFqn.get(fqn);
         if (element === undefined) return null;
         const children = tree.children.get(fqn) ?? [];
-        const open = expanded.has(fqn);
         return (
           <li className="m-0" key={fqn}>
-            <div
-              className={`flex items-center gap-1 rounded px-1 py-0.5 text-[13px] ${
-                focused === fqn ? 'bg-muted font-medium' : ''
-              }`}
-            >
-              {children.length > 0 ? (
-                <button
-                  className="w-4 shrink-0 text-muted-foreground"
-                  onClick={() => onToggle(fqn)}
-                  aria-label={open ? `收起 ${fqn}` : `展开 ${fqn}`}
+            {children.length > 0 ? (
+              <Collapsible defaultOpen>
+                <CollapsibleTrigger
+                  render={({ onClick }, state) => (
+                    <ChevronRightIcon
+                      className={`transition-transform ${state.open ? 'rotate-90' : ''}`}
+                      aria-label={state.open ? `收起 ${fqn}` : `展开 ${fqn}`}
+                      onClick={onClick}
+                    />
+                  )}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`w-full justify-start ${focused === fqn ? 'bg-muted font-medium' : ''}`}
+                  data-testid="archi-tree-node"
+                  data-fqn={fqn}
+                  title={fqn}
+                  onClick={() => onFocus(fqn)}
                 >
-                  {open ? '▾' : '▸'}
-                </button>
-              ) : (
-                <span className="w-4 shrink-0" />
-              )}
-              <button
-                className="flex min-w-0 items-center gap-1.5 text-left"
+                  <span data-testid="archi-node-mark">{nodeDot(element.mark)}</span>
+                  {shortName(fqn)}
+                </Button>
+                <CollapsibleContent>
+                  <TreeNodes
+                    fqns={children}
+                    byFqn={byFqn}
+                    tree={tree}
+                    focused={focused}
+                    onFocus={onFocus}
+                  />
+                </CollapsibleContent>
+              </Collapsible>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`w-full justify-start ${focused === fqn ? 'bg-muted font-medium' : ''}`}
                 data-testid="archi-tree-node"
                 data-fqn={fqn}
-                onClick={() => onFocus(fqn)}
                 title={fqn}
+                onClick={() => onFocus(fqn)}
               >
                 <span data-testid="archi-node-mark">{nodeDot(element.mark)}</span>
-                <span className="truncate">{shortName(fqn)}</span>
-              </button>
-            </div>
-            {open && children.length > 0 && (
-              <div className="ml-4 border-l border-border pl-1">
-                <TreeNodes
-                  fqns={children}
-                  byFqn={byFqn}
-                  tree={tree}
-                  focused={focused}
-                  expanded={expanded}
-                  onFocus={onFocus}
-                  onToggle={onToggle}
-                />
-              </div>
+                {shortName(fqn)}
+              </Button>
             )}
           </li>
         );
@@ -131,24 +137,6 @@ export function ElementTree({ elements, focused, onFocus }: ElementTreeProps): R
     () => new Map(elements.map((element) => [element.fqn, element])),
     [elements],
   );
-  // 缺省展开全部顶层（深层按需展开）；展开集为纯本地态，切换零取数
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
-  const expanded = useMemo(() => {
-    const opened = new Set<string>();
-    for (const fqn of tree.children.keys()) {
-      if (!folded.has(fqn)) opened.add(fqn);
-    }
-    return opened;
-  }, [tree, folded]);
-
-  const toggle = (fqn: string): void => {
-    setFolded((current) => {
-      const next = new Set(current);
-      if (next.has(fqn)) next.delete(fqn);
-      else next.add(fqn);
-      return next;
-    });
-  };
 
   return (
     <section className="min-h-0 w-52 shrink-0 overflow-auto pr-2" data-testid="archi-element-tree">
@@ -163,9 +151,7 @@ export function ElementTree({ elements, focused, onFocus }: ElementTreeProps): R
           byFqn={byFqn}
           tree={tree}
           focused={focused}
-          expanded={expanded}
           onFocus={onFocus}
-          onToggle={toggle}
         />
       )}
     </section>

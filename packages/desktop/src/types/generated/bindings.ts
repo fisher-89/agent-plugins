@@ -232,20 +232,7 @@ export const commands = {
 	/**  文档正文（仅关联集内路径）。 */
 	archiReadDoc: (root: string, path: string) => __TAURI_INVOKE<string>("archi_read_doc", { root, path }),
 	/**  归档确认面的模型结构 diff 摘要（`null` = 无改动 / 无可比基线）。 */
-	archiChangeSummary: (root: string, changeId: string) => __TAURI_INVOKE<{
-	/**  新增元素 FQN（字典序） */
-	elementsAdded: string[],
-	/**  删除元素 FQN（字典序） */
-	elementsRemoved: string[],
-	/**  新增关系数 */
-	relationsAdded: number,
-	/**  删除关系数 */
-	relationsRemoved: number,
-	/**  gate 变更清单 */
-	gateChanges: ArchiGateChange[],
-	/**  改动侧结构诊断（红字面；不阻断确认） */
-	diagnostics: ArchiDiagnostic[],
-} | null>("archi_change_summary", { root, changeId }),
+	archiChangeSummary: (root: string, changeId: string) => __TAURI_INVOKE<ArchiChangeSummary | null>("archi_change_summary", { root, changeId }),
 	/**  改档写回（唯一写命令）。 */
 	archiSetGate: (root: string, element: string, gate: GateTier) => __TAURI_INVOKE<null>("archi_set_gate", { root, element, gate }),
 };

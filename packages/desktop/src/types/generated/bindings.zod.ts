@@ -217,6 +217,26 @@ export const argsSchemas = {
 		}); },
 	get "appEnvironment"() { return z.strictObject({
 		}); },
+	get "archiGraph"() { return z.strictObject({
+			"root": z.string(),
+		}); },
+	get "archiModule"() { return z.strictObject({
+			"root": z.string(),
+			"element": z.string(),
+		}); },
+	get "archiReadDoc"() { return z.strictObject({
+			"root": z.string(),
+			"path": z.string(),
+		}); },
+	get "archiChangeSummary"() { return z.strictObject({
+			"root": z.string(),
+			"changeId": z.string(),
+		}); },
+	get "archiSetGate"() { return z.strictObject({
+			"root": z.string(),
+			"element": z.string(),
+			"gate": z.lazy(() => GateTierSchema),
+		}); },
 } as const;
 
 /** 逐命令结果 schema（`Result` 取 Ok 臂；`Option` 出 nullable） */
@@ -267,6 +287,11 @@ export const resultSchemas = {
 	get "codeStats"() { return z.lazy(() => CodeStatsReportSchema); },
 	get "workspaceConfig"() { return z.lazy(() => WorkspaceConfigReportSchema); },
 	get "appEnvironment"() { return z.lazy(() => AppEnvironmentSchema); },
+	get "archiGraph"() { return z.lazy(() => ArchiGraphSchema); },
+	get "archiModule"() { return z.lazy(() => ArchiModuleDetailSchema); },
+	get "archiReadDoc"() { return z.string(); },
+	get "archiChangeSummary"() { return z.lazy(() => ArchiChangeSummarySchema).nullable(); },
+	get "archiSetGate"() { return z.null(); },
 } as const;
 
 /** 逐命令 `Channel<T>` 形参的信封 schema（键 = 形参名；无 Channel 的命令为空对象） */
@@ -367,6 +392,16 @@ export const channelArgs = {
 	get "workspaceConfig"() { return {
 		}; },
 	get "appEnvironment"() { return {
+		}; },
+	get "archiGraph"() { return {
+		}; },
+	get "archiModule"() { return {
+		}; },
+	get "archiReadDoc"() { return {
+		}; },
+	get "archiChangeSummary"() { return {
+		}; },
+	get "archiSetGate"() { return {
 		}; },
 } as const;
 export const ActivePhaseSchema = z.strictObject({
@@ -560,6 +595,83 @@ export const AppEnvironmentSchema = z.strictObject({
 	get mode() { return z.string(); },
 	get dataRoot() { return z.string(); },
 	get source() { return z.string(); },
+});
+
+export const ArchiChangeSummarySchema = z.strictObject({
+	get elementsAdded() { return z.array(z.string()); },
+	get elementsRemoved() { return z.array(z.string()); },
+	get relationsAdded() { return z.int().min(0).max(4294967295); },
+	get relationsRemoved() { return z.int().min(0).max(4294967295); },
+	get gateChanges() { return z.array(ArchiGateChangeSchema); },
+	get diagnostics() { return z.array(ArchiDiagnosticSchema); },
+});
+
+export const ArchiDependedBySchema = z.strictObject({
+	get source() { return z.string(); },
+	get description() { return z.string().nullable(); },
+});
+
+export const ArchiDependsOnSchema = z.strictObject({
+	get target() { return z.string(); },
+	get description() { return z.string().nullable(); },
+});
+
+export const ArchiDiagnosticSchema = z.strictObject({
+	get kind() { return ArchiDiagnosticKindSchema; },
+	get message() { return z.string(); },
+	get file() { return z.string(); },
+	get line() { return z.int().min(0).max(4294967295); },
+	get column() { return z.int().min(0).max(4294967295).nullable(); },
+});
+
+export const ArchiDiagnosticKindSchema = z.union([z.literal("syntaxError"), z.literal("missingField"), z.literal("invalidValue"), z.literal("unknownField"), z.literal("duplicateElement"), z.literal("cycle"), z.literal("dependsOnAncestor"), z.literal("unknownReference"), z.literal("orphanHierarchy")]);
+
+export const ArchiElementSchema = z.strictObject({
+	get fqn() { return z.string(); },
+	get kind() { return ElementKindSchema; },
+	get gate() { return GateTierSchema; },
+	get path() { return z.array(z.string()); },
+	get summary() { return z.string().nullable(); },
+	get metadata() { return z.record(z.string(), z.string()); },
+	get modelFile() { return z.string(); },
+	get modelLine() { return z.int().min(0).max(4294967295); },
+	get mark() { return NodeMarkSchema; },
+});
+
+export const ArchiGateChangeSchema = z.strictObject({
+	get fqn() { return z.string(); },
+	get from() { return GateTierSchema; },
+	get to() { return GateTierSchema; },
+});
+
+export const ArchiGraphSchema = z.strictObject({
+	get elements() { return z.array(ArchiElementSchema); },
+	get relations() { return z.array(ArchiRelationSchema); },
+	get diagnostics() { return z.array(ArchiDiagnosticSchema); },
+});
+
+export const ArchiModuleDetailSchema = z.strictObject({
+	get element() { return ArchiElementSchema; },
+	get dependsOn() { return z.array(ArchiDependsOnSchema); },
+	get dependedBy() { return z.array(ArchiDependedBySchema); },
+	get children() { return z.array(z.string()); },
+	get docs() { return z.array(DocRefSchema); },
+	get warnings() { return z.array(ArchiWarningSchema); },
+});
+
+export const ArchiRelationSchema = z.strictObject({
+	get from() { return z.string(); },
+	get to() { return z.string(); },
+	get description() { return z.string().nullable(); },
+	get mark() { return EdgeMarkSchema; },
+	get reason() { return z.string().nullable(); },
+});
+
+export const ArchiWarningSchema = z.strictObject({
+	get kind() { return WarningKindSchema; },
+	get message() { return z.string(); },
+	get element() { return z.string().nullable(); },
+	get path() { return z.string().nullable(); },
 });
 
 export const ArchiveGroupSchema = z.strictObject({
@@ -772,6 +884,21 @@ export const DirNodeSchema = z.strictObject({
 	get children() { return z.array(TreeEntrySchema); },
 });
 
+export const DocKindSchema = z.union([z.literal("md"), z.literal("adr")]);
+
+export const DocRefSchema = z.strictObject({
+	get path() { return z.string(); },
+	get title() { return z.string(); },
+	get kind() { return DocKindSchema; },
+	get source() { return DocSourceSchema; },
+});
+
+export const DocSourceSchema = z.union([z.literal("explicit"), z.literal("adjacent"), z.literal("text")]);
+
+export const EdgeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled"), z.literal("crossKind"), z.literal("exempt")]);
+
+export const ElementKindSchema = z.union([z.literal("package"), z.literal("domain"), z.literal("module"), z.literal("component")]);
+
 export const ExploreDocSchema = z.strictObject({
 	get name() { return z.string(); },
 	get content() { return z.string(); },
@@ -806,6 +933,8 @@ export const FileWatchEventSchema = z.strictObject({
 	get path() { return z.string(); },
 });
 
+export const GateTierSchema = z.union([z.literal("off"), z.literal("warn"), z.literal("strict")]);
+
 export const LanguageStatsSchema = z.strictObject({
 	get name() { return z.string(); },
 	get files() { return z.number(); },
@@ -824,6 +953,8 @@ export const MutationConfigSchema = z.strictObject({
 	get cwd() { return z.string().nullable(); },
 	get score() { return z.number().nullable(); },
 });
+
+export const NodeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled")]);
 
 export const PhaseEntrySchema = z.strictObject({
 	get phase() { return z.string(); },
@@ -938,6 +1069,8 @@ export const TurnSummarySchema = z.strictObject({
 });
 
 export const VerdictSchema = z.union([z.literal("pass"), z.literal("fail")]);
+
+export const WarningKindSchema = z.literal("docNotFound");
 
 export const WebSearchSourceSchema = z.strictObject({
 	get url() { return z.string(); },
