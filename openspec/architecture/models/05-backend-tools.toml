@@ -1,0 +1,18 @@
+# 05 · 构建工具 crate（2 元素 / 1 关系）
+# 唯一一条「工具 → 壳」的反向边：导出 bindings 必须以壳的包为依赖。
+
+[element."App.Backend.Tools"]
+kind = "domain"
+gate = "off"
+summary = "构建期工具 crate 容器"
+
+[element."App.Backend.Tools.ExportBindings"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/tools/export-bindings/"]
+summary = "把 IPC 类型导出为前端 TypeScript 绑定"
+
+[[relation]]
+from = "App.Backend.Tools.ExportBindings"
+to = "App.Backend.Shell"
+desc = "为导出命令面 bindings 而依赖壳包"

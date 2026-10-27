@@ -1,0 +1,69 @@
+# 04 · Tauri 壳（1 元素 / 12 关系）
+# 壳是唯一的全依赖汇聚点：命令面、端口装配与绑定导出都在此。
+
+[element."App.Backend.Shell"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/src/"]
+summary = "Tauri 壳：IPC 命令面、端口装配与绑定导出"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Core.Agent"
+desc = "会话命令面取运行态与消息类型"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Core.Archi"
+desc = "架构命令面投影图、模块详情与文档条目"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Core.Config"
+desc = "配置命令面读取与校验工作区配置"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Core.Foundation"
+desc = "命令面的工作区解析与目录定位"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Core.Orchestration"
+desc = "变更流程的运行控制会话与事件通知"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Core.Workflow"
+desc = "变更读写、查询与相位表装配"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Infra.AgentRuntime"
+desc = "agent 回合组装与会话运行端口"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Infra.ChecksRuntime"
+desc = "静态检查与测试执行的端口装配"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Infra.Exec"
+desc = "命令面读取执行输出与子进程边界"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Infra.Store"
+desc = "按工作区打开本地库句柄"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Infra.VcsRuntime"
+desc = "工作树与归档的版本控制端口装配"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Infra.Watch"
+desc = "文件监视订阅命令面装配"
+

@@ -1,0 +1,18 @@
+# 01 · 包根与域容器（3 元素 / 0 关系）
+# 包根是全部 FQN 的祖先；后端 / 前端两个域容器只在各自分层里被下钻。
+
+[element."App"]
+kind = "package"
+gate = "off"
+docs = ["./README.md", "./AGENT.md"]
+summary = "桌面应用包根：Tauri 壳 + React 前端"
+
+[element."App.Backend"]
+kind = "domain"
+gate = "off"
+summary = "Rust 后端分层：领域引擎、适配器、应用壳与构建工具"
+
+[element."App.Frontend"]
+kind = "domain"
+gate = "off"
+summary = "React 前端：页壳、视图与共享组件"

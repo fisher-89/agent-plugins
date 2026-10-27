@@ -1,0 +1,148 @@
+# 03 · infra 适配层（7 元素 / 21 关系）
+# 外部系统适配器，依赖方向为 infra → core（唯一跨域边 store → core.workflow 与生产依赖一致）。
+
+[element."App.Backend.Infra"]
+kind = "domain"
+gate = "off"
+summary = "外部系统适配层：进程、本地库、版本控制、文件监视与 agent 运行时"
+
+[element."App.Backend.Infra.AgentRuntime"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/infra/agent/"]
+summary = "rig 驱动的 agent 会话运行时与工具沙箱"
+
+[element."App.Backend.Infra.ChecksRuntime"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/infra/checks/"]
+summary = "测试命令执行与报告落盘的适配器"
+
+[element."App.Backend.Infra.Exec"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/infra/exec/"]
+summary = "子进程执行边界：argv 直传与输出流"
+
+[element."App.Backend.Infra.Store"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/infra/store/"]
+summary = "native_db 本地库边界（按工作区分文件）"
+
+[element."App.Backend.Infra.VcsRuntime"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/infra/vcs/"]
+summary = "git 操作适配：工作树、提交与 rebase"
+
+[element."App.Backend.Infra.Watch"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/infra/watch/"]
+summary = "文件系统变更监视（notify）适配器"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Core.Agent"
+desc = "会话事件与运行状态的领域词表复用"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Core.Archi"
+desc = "架构检索工具读取模型图与文档关联"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Core.Checks"
+desc = "检查结论语义驱动报告类工具"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Core.Config"
+desc = "供应商与测试配置读取"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Core.Foundation"
+desc = "写保护与工作区路径派生"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Core.Orchestration"
+desc = "worker 会话实现步骤循环的运行端口"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Infra.Exec"
+desc = "工具调用经子进程边界执行"
+
+[[relation]]
+from = "App.Backend.Infra.AgentRuntime"
+to = "App.Backend.Infra.Store"
+desc = "会话记录与运行历史落本地库"
+
+[[relation]]
+from = "App.Backend.Infra.ChecksRuntime"
+to = "App.Backend.Core.Checks"
+desc = "结论聚合复用报告语义"
+
+[[relation]]
+from = "App.Backend.Infra.ChecksRuntime"
+to = "App.Backend.Core.Config"
+desc = "测试命令与框架按工作区配置执行"
+
+[[relation]]
+from = "App.Backend.Infra.ChecksRuntime"
+to = "App.Backend.Core.Foundation"
+desc = "报告槽位与输出路径派生"
+
+[[relation]]
+from = "App.Backend.Infra.ChecksRuntime"
+to = "App.Backend.Core.Orchestration"
+desc = "检查步骤实现步骤循环的本地工具端口"
+
+[[relation]]
+from = "App.Backend.Infra.ChecksRuntime"
+to = "App.Backend.Infra.Exec"
+desc = "测试与静态检查经子进程边界执行"
+
+[[relation]]
+from = "App.Backend.Infra.Exec"
+to = "App.Backend.Core.Foundation"
+desc = "报告槽位与取消信号取自基础件"
+
+[[relation]]
+from = "App.Backend.Infra.Store"
+to = "App.Backend.Core.Agent"
+desc = "会话事件与运行状态的记录类型"
+
+[[relation]]
+from = "App.Backend.Infra.Store"
+to = "App.Backend.Core.Foundation"
+desc = "按工作区分库的文件定位"
+
+[[relation]]
+from = "App.Backend.Infra.Store"
+to = "App.Backend.Core.Workflow"
+desc = "change 域记录的类型依赖"
+
+[[relation]]
+from = "App.Backend.Infra.VcsRuntime"
+to = "App.Backend.Core.Foundation"
+desc = "跨平台命名与路径规范化取自布局"
+
+[[relation]]
+from = "App.Backend.Infra.VcsRuntime"
+to = "App.Backend.Core.Orchestration"
+desc = "工作树与归档操作实现编排端口"
+
+[[relation]]
+from = "App.Backend.Infra.VcsRuntime"
+to = "App.Backend.Core.Workflow"
+desc = "仓库探测与安装运行的类型定义"
+
+[[relation]]
+from = "App.Backend.Infra.VcsRuntime"
+to = "App.Backend.Infra.Exec"
+desc = "git 命令经子进程边界执行"

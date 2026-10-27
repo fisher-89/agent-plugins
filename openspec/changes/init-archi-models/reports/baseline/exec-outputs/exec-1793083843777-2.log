@@ -1,0 +1,58 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.16s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[33mwarn:[39m[0m No project-local vite-plus installation was found. Run `vp install` in `D:\Projects\.worktrees\wps-claude-plugin\init-archi-models\packages\desktop` to install dependencies.
+vite.config.ts (3:24) [33m[UNRESOLVED_IMPORT] [0mCould not resolve '@tailwindcss/vite' in vite.config.ts
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m vite.config.ts:3:25 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mt[0m[38;5;249ma[0m[38;5;249mi[0m[38;5;249ml[0m[38;5;249mw[0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249md[0m[38;5;249mc[0m[38;5;249ms[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m'@tailwindcss/vite'[38;5;249m;[0m
+ [38;5;240m  │[0m                         ─────────┬─────────  
+ [38;5;240m  │[0m                                  ╰─────────── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+vite.config.ts (4:18) [33m[UNRESOLVED_IMPORT] [0mCould not resolve '@vitejs/plugin-react' in vite.config.ts
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m vite.config.ts:4:19 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m4 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m'@vitejs/plugin-react'[38;5;249m;[0m
+ [38;5;240m  │[0m                   ───────────┬──────────  
+ [38;5;240m  │[0m                              ╰──────────── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+vite.config.ts (5:29) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'vite-plus' in vite.config.ts
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m vite.config.ts:5:30 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m5 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249md[0m[38;5;249me[0m[38;5;249mf[0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249me[0m[38;5;249mC[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249mf[0m[38;5;249mi[0m[38;5;249mg[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m'vite-plus'[38;5;249m;[0m
+ [38;5;240m  │[0m                              ─────┬─────  
+ [38;5;240m  │[0m                                   ╰─────── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+[31mfailed to load config from D:\Projects\.worktrees\wps-claude-plugin\init-archi-models\packages\desktop\vite.config.ts[39m
+[Vite+] resolve universal vite config error: Error: Cannot find module '@tailwindcss/vite'
+Require stack:
+- D:\Projects\.worktrees\wps-claude-plugin\init-archi-models\packages\desktop\vite.config.ts
+- C:\Users\wps\.vite-plus\0.2.9\node_modules\.pnpm\@voidzero-dev+vite-plus-core@0.2.9\node_modules\@voidzero-dev\vite-plus-core\dist\vite\node\chunks\node.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1564:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1118:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1142:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1169:12)
+    at Module._load (node:internal/modules/cjs/loader:1341:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.require (node:internal/modules/cjs/loader:1674:12)
+    at require (node:internal/modules/helpers:157:16)
+    at Object.<anonymous> (D:\Projects\.worktrees\wps-claude-plugin\init-archi-models\packages\desktop\vite.config.ts:24:25)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'D:\\Projects\\.worktrees\\wps-claude-plugin\\init-archi-models\\packages\\desktop\\vite.config.ts',
+    'C:\\Users\\wps\\.vite-plus\\0.2.9\\node_modules\\.pnpm\\@voidzero-dev+vite-plus-core@0.2.9\\node_modules\\@voidzero-dev\\vite-plus-core\\dist\\vite\\node\\chunks\\node.js'
+  ]
+}
+error: Failed to resolve vite config: GenericFailure, Error: Cannot find module '@tailwindcss/vite'
+Require stack:
+- D:\Projects\.worktrees\wps-claude-plugin\init-archi-models\packages\desktop\vite.config.ts
+- C:\Users\wps\.vite-plus\0.2.9\node_modules\.pnpm\@voidzero-dev+vite-plus-core@0.2.9\node_modules\@voidzero-dev\vite-plus-core\dist\vite\node\chunks\node.js
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

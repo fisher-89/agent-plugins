@@ -1,0 +1,94 @@
+# 02 · core 分层（8 元素 / 9 关系）
+# 与基础设施无关的领域与流程引擎；出边只沿本层内部的依赖方向，全部边 = Cargo [dependencies] 的 workspace 内声明。
+
+[element."App.Backend.Core"]
+kind = "domain"
+gate = "off"
+summary = "与基础设施无关的领域与流程引擎层"
+
+[element."App.Backend.Core.Foundation"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/foundation/"]
+summary = "工作区路径与目录布局派生的唯一来源"
+
+[element."App.Backend.Core.Config"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/config/"]
+summary = "工作区配置的读取与校验边界"
+
+[element."App.Backend.Core.Workflow"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/workflow/"]
+summary = "相位表、角色提示词与流程写面"
+
+[element."App.Backend.Core.Archi"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/archi/"]
+summary = "架构模型的解析、图投影与检索语料"
+
+[element."App.Backend.Core.Orchestration"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/orchestration/"]
+summary = "变更流程推进器：步骤循环、路由与归档"
+
+[element."App.Backend.Core.Agent"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/agent/"]
+summary = "agent 会话的领域契约与词表"
+
+[element."App.Backend.Core.Checks"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/core/checks/"]
+summary = "测试报告语义与检查结论的领域规则"
+
+[[relation]]
+from = "App.Backend.Core.Archi"
+to = "App.Backend.Core.Foundation"
+desc = "模型目录与架构域相对路径派生"
+
+[[relation]]
+from = "App.Backend.Core.Checks"
+to = "App.Backend.Core.Config"
+desc = "按工作区测试配置取阈值与框架口径"
+
+[[relation]]
+from = "App.Backend.Core.Checks"
+to = "App.Backend.Core.Foundation"
+desc = "报告槽位与工作区目录派生"
+
+[[relation]]
+from = "App.Backend.Core.Config"
+to = "App.Backend.Core.Foundation"
+desc = "配置文件定位依赖布局派生"
+
+[[relation]]
+from = "App.Backend.Core.Orchestration"
+to = "App.Backend.Core.Agent"
+desc = "步骤执行经由会话契约投递与回收"
+
+[[relation]]
+from = "App.Backend.Core.Orchestration"
+to = "App.Backend.Core.Foundation"
+desc = "变更目录与归档路径派生"
+
+[[relation]]
+from = "App.Backend.Core.Orchestration"
+to = "App.Backend.Core.Workflow"
+desc = "按相位表推进变更并读写流程产物"
+
+[[relation]]
+from = "App.Backend.Core.Workflow"
+to = "App.Backend.Core.Agent"
+desc = "相位表的模型档位取自会话词表"
+
+[[relation]]
+from = "App.Backend.Core.Workflow"
+to = "App.Backend.Core.Foundation"
+desc = "流程产物与变更目录派生"
