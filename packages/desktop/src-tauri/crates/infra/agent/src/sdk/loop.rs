@@ -10,6 +10,7 @@ use rig::operation::Completion;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
+use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
@@ -105,6 +106,9 @@ pub(crate) struct LoopTurn {
     /// `create_explore_note` 专用工具执行上下文（per-turn 铸造随轮携带；
     /// `None` = 未装配——非 explore 会话恒 None，专用工具调用以 is_error 回灌）
     pub explore_note: Option<ExploreNoteContext>,
+    /// 架构只读工具执行上下文（per-turn 铸造随轮携带；`None` = 未装配——非
+    /// Archi 会话恒 None，工具调用以 is_error 回灌）
+    pub archi: Option<ArchiContext>,
     /// 写入保护规则集（泵起播时装配一次、随轮携带；loop 纯消费——与
     /// `defense` / `retry` / `liveness` 同列的「装配点算好」载荷）
     pub protect: ProtectRules,
@@ -420,8 +424,10 @@ pub(crate) async fn run(
         // 写入保护闸在沙箱**之后**：canonical 路径已在手（判定零 IO），且逃逸
         // 路径先按沙箱成因报错、不被保护闸抢报；保护闸在任何 permission_mode
         // 下均生效（档位门只做「档位是否放行该工具」，保护闸只做「档位已放行
-        // 之后的追加拒绝」，三档决策表零改写）。`create_explore_note` 不在射程
-        // ——由 `ProtectRules::evaluate` 的工具名分派表表达，不做 loop 侧特判
+        // 之后的追加拒绝」，三档决策表零改写）。`create_explore_note` 与两个
+        // archi 工具均不在射程——专用工具由各自工具名分派表达，不做 loop 侧
+        // 特判；两 archi 工具为读面：`input_path` 的显式 None 臂使沙箱原样返回，
+        // `protect::evaluate` 分派表 `_ => None`，二者零介入
         let mut results: Vec<ToolResult> = Vec::with_capacity(tool_calls.len());
         for tool_call in tool_calls {
             let id = tool_call.id.to_string();
@@ -457,13 +463,21 @@ pub(crate) async fn run(
                 results.push(outcome_result(tool_call, reason));
                 continue;
             }
-            // 执行臂路由：专用工具走 `LoopTurn` 携带的执行上下文（per-turn 铸
-            // 造——store 句柄 + root + 会话指针，`tools::execute` 纯函数签名
-            // 零侵入）；七通用工具走纯函数分发。上下文缺席以 is_error 回灌
-            // （生产不可达——explore 会话恒装配）
+            // 执行臂路由（三分派）：专用工具走 `LoopTurn` 携带的执行上下文
+            // （per-turn 铸造——store 句柄 / 轮 root + 会话指针，`tools::execute`
+            // 纯函数签名零侵入）；七通用工具走纯函数分发。上下文缺席以 is_error
+            // 回灌（生产不可达——对应会话恒装配）
             let (content, is_error) = if name == tools::EXPLORE_NOTE_TOOL {
                 match &turn.explore_note {
                     Some(ctx) => match ctx.execute(&input).await {
+                        Ok(text) => (text, false),
+                        Err(error) => (error, true),
+                    },
+                    None => ("专用工具执行上下文未装配".to_owned(), true),
+                }
+            } else if name == tools::ARCHI_MODULE_TOOL || name == tools::ARCHI_SEARCH_TOOL {
+                match &turn.archi {
+                    Some(ctx) => match ctx.execute(&name, &input).await {
                         Ok(text) => (text, false),
                         Err(error) => (error, true),
                     },

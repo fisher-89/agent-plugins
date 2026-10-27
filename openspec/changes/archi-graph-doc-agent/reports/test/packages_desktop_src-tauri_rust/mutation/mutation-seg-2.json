@@ -1,0 +1,663 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:127:5: replace archi_dir -> PathBuf with Default::default()",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "archi_dir",
+            "return_type": "-> PathBuf",
+            "span": {
+              "start": {
+                "line": 124,
+                "column": 1
+              },
+              "end": {
+                "line": 128,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 127,
+              "column": 5
+            },
+            "end": {
+              "line": 127,
+              "column": 59
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_127_col_5.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_127_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 3.5636438,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.1626872,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:146:5: replace is_archi_rel_path -> bool with true",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "is_archi_rel_path",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 141,
+                "column": 1
+              },
+              "end": {
+                "line": 150,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 146,
+              "column": 5
+            },
+            "end": {
+              "line": 149,
+              "column": 98
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_146_col_5.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_146_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.0218267,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.0572804,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:133:5: replace archi_models_dir -> PathBuf with Default::default()",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "archi_models_dir",
+            "return_type": "-> PathBuf",
+            "span": {
+              "start": {
+                "line": 130,
+                "column": 1
+              },
+              "end": {
+                "line": 134,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 133,
+              "column": 5
+            },
+            "end": {
+              "line": 133,
+              "column": 42
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_133_col_5.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_133_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.1228771,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.0545943,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:146:5: replace is_archi_rel_path -> bool with false",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "is_archi_rel_path",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 141,
+                "column": 1
+              },
+              "end": {
+                "line": 150,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 146,
+              "column": 5
+            },
+            "end": {
+              "line": 149,
+              "column": 98
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_146_col_5_001.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_146_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.1476074,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.0023681,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:149:25: replace && with || in is_archi_rel_path",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "is_archi_rel_path",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 141,
+                "column": 1
+              },
+              "end": {
+                "line": 150,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 25
+            },
+            "end": {
+              "line": 149,
+              "column": 27
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_149_col_25.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_149_col_25.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.0675293,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.1041893,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:149:59: replace && with || in is_archi_rel_path",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "is_archi_rel_path",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 141,
+                "column": 1
+              },
+              "end": {
+                "line": 150,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 59
+            },
+            "end": {
+              "line": 149,
+              "column": 61
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_149_col_59.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_149_col_59.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.1813057,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.0543073,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:149:20: replace >= with < in is_archi_rel_path",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "is_archi_rel_path",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 141,
+                "column": 1
+              },
+              "end": {
+                "line": 150,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 20
+            },
+            "end": {
+              "line": 149,
+              "column": 22
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_149_col_20.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_149_col_20.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.2940819,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.0017664,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:138:5: replace archi_decisions_dir -> PathBuf with Default::default()",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "archi_decisions_dir",
+            "return_type": "-> PathBuf",
+            "span": {
+              "start": {
+                "line": 136,
+                "column": 1
+              },
+              "end": {
+                "line": 139,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 138,
+              "column": 5
+            },
+            "end": {
+              "line": 138,
+              "column": 45
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_138_col_5.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_138_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.3515791,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.003732,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:149:40: replace == with != in is_archi_rel_path",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "is_archi_rel_path",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 141,
+                "column": 1
+              },
+              "end": {
+                "line": 150,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 40
+            },
+            "end": {
+              "line": 149,
+              "column": 42
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_149_col_40.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_149_col_40.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 5.6117599,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5882566,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/foundation/src/layout/mod.rs:149:74: replace == with != in is_archi_rel_path",
+          "package": "foundation",
+          "file": "crates/core/foundation/src/layout/mod.rs",
+          "function": {
+            "function_name": "is_archi_rel_path",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 141,
+                "column": 1
+              },
+              "end": {
+                "line": 150,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 74
+            },
+            "end": {
+              "line": 149,
+              "column": 76
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__foundation__src__layout__mod.rs_line_149_col_74.log",
+      "diff_path": "diff/crates__core__foundation__src__layout__mod.rs_line_149_col_74.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.3927007,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.59939,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=foundation@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 10,
+  "missed": 0,
+  "caught": 10,
+  "timeout": 0,
+  "unviable": 0,
+  "success": 0,
+  "start_time": "2026-10-27T04:02:44.0056794Z",
+  "end_time": "2026-10-27T04:03:01.8057993Z",
+  "cargo_mutants_version": "27.1.0"
+}

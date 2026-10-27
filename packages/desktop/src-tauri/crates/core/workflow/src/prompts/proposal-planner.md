@@ -34,4 +34,5 @@
 - 沿既有代码库约定，不自造新约定。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root，不依赖插件侧工具面。
+- 额外可用只读工具 `archi_search`（发现）：还不知道这功能归谁管时先搜——按关键词检索架构模型里的元素与文档路径（返回元素薄条目与四字段文档条目，不搜正文；正文用 grep 自取）。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / spec 头 / scenario 标记 / 规范关键词保持英文。

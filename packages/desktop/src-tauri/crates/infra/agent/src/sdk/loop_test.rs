@@ -395,6 +395,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             retry: turn.retry,
             injections: turn.injections.clone(),
             explore_note: None,
+            archi: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
         };
@@ -429,6 +430,7 @@ async fn drive_loop_collecting_history(
             retry: turn.retry,
             injections: turn.injections.clone(),
             explore_note: None,
+            archi: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
         };
@@ -455,6 +457,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         retry: crate::sdk::r#loop::StreamRetry::default(),
         injections: agent::SessionInjections::default(),
         explore_note: None,
+        archi: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
     }
@@ -1500,6 +1503,7 @@ fn loop_turn字段面完整构造锚定() {
         retry: crate::sdk::r#loop::StreamRetry::default(),
         injections: agent::SessionInjections::default(),
         explore_note: None,
+        archi: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
     };
@@ -2271,6 +2275,7 @@ async fn explore轮create工具上下文缺席_is_error回灌且run不中断() {
     let turn = LoopTurn {
         injections: explore_injections(),
         explore_note: None,
+        archi: None,
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
 
@@ -3803,4 +3808,420 @@ async fn 计数轴隔离_续跑不增轮数且run_started恰一条() {
             "续跑次数 + 收口请求"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// archi-graph-doc-agent：执行臂三分派（`LoopTurn.archi` 上下文路由）+ 成员校验
+// 矩阵外拒绝 + 两 archi 名在守卫链后段零拦截
+//
+// 装置：真实 tempdir 模型（`openspec/architecture/models/*.toml`）+ 真实
+// `ArchiContext`（读面即被测语义，执行体不 mock）；loop 直驱与既有 explore
+// 注入面用例同口径。
+// ---------------------------------------------------------------------------
+
+use crate::sdk::archi_tool::ArchiContext;
+use crate::sdk::tools::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
+
+/// 健康模型（`App` / `App.Auth` 两元素，`App.Auth` 带 gate 与 summary）。
+const ARCHI_CORE: &str = concat!(
+    "# 核心包\n",
+    "[element.\"App\"]\n",
+    "kind = \"package\"\n",
+    "\n",
+    "[element.\"App.Auth\"]\n",
+    "kind = \"domain\"\n",
+    "gate = \"strict\"\n",
+    "summary = \"认证域\"\n",
+);
+
+/// 落一个模型文件（`openspec/architecture/models/`）。
+fn archi_write_model(root: &Path, name: &str, content: &str) {
+    let dir = root.join("openspec/architecture/models");
+    std::fs::create_dir_all(&dir).expect("创建模型目录失败");
+    std::fs::write(dir.join(name), content).expect("写模型文件失败");
+}
+
+/// 健康合成根（模型在盘；archi 执行体真实读盘）。
+fn archi_fixture(tag: &str) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    archi_write_model(dir.path(), "01-core.toml", ARCHI_CORE);
+    dir
+}
+
+/// archi 来源注入底座（两布尔位按需；`tools` 不收窄 = 七通用工具全量）。
+fn archi_injections(module: bool, search: bool) -> agent::SessionInjections {
+    agent::SessionInjections {
+        preamble: None,
+        tools: None,
+        toolset: Some(SessionToolset::Archi { module, search }),
+    }
+}
+
+/// 执行臂三分派（正向，表驱动两工具名）：`turn.archi = Some(ctx)` 且下发面含
+/// 对应 archi 工具 → 走 `ArchiContext::execute`（真实 tempdir 模型），结果
+/// `is_error = false` 且内容为 `archi::dto` 投影 JSON（`archi_module` 携
+/// `element`，`archi_search` 携 `elements`），run 不中断。
+#[tokio::test]
+async fn archi分派两工具到执行体且结果非错误() {
+    struct Case {
+        tool: &'static str,
+        key: &'static str,
+        input: serde_json::Value,
+    }
+    let cases = [
+        Case {
+            tool: ARCHI_MODULE_TOOL,
+            key: "element",
+            input: serde_json::json!({ "element": "App.Auth" }),
+        },
+        Case {
+            tool: ARCHI_SEARCH_TOOL,
+            key: "elements",
+            input: serde_json::json!({ "query": "auth" }),
+        },
+    ];
+    for Case { tool, key, input } in cases {
+        let dir = archi_fixture(&format!("archi-dispatch-{tool}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call("tu_archi", tool, input)],
+            vec![raw_text("已看模型")],
+        ]);
+        let turn = LoopTurn {
+            injections: archi_injections(true, true),
+            archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        assert!(
+            notices_of(&events).is_empty(),
+            "{tool}: 分派路径零拒绝记因（成员校验 / policy / sandbox / protect 全放行）"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{tool}: 恰一条工具结果");
+        assert_eq!(results[0].0, "tu_archi", "{tool}: 与 tool_use 同 id 成对");
+        assert!(!results[0].2, "{tool}: 执行体承接 → 非 is_error");
+        let payload: serde_json::Value = serde_json::from_str(results[0].1)
+            .unwrap_or_else(|error| panic!("{tool}: 结果为 dto 投影 JSON 串: {error}"));
+        assert!(
+            payload.get(key).is_some(),
+            "{tool}: 结果含 dto 字段 {key}，实际: {payload}"
+        );
+        if tool == ARCHI_MODULE_TOOL {
+            // AC-1 / AC-10：声明位置单点（`modelFile` repo 相对 + `modelLine` 行号）
+            assert!(
+                payload["element"]["modelFile"]
+                    .as_str()
+                    .is_some_and(|file| file.ends_with("openspec/architecture/models/01-core.toml")),
+                "{tool}: modelFile 指向声明文件，实际: {payload}"
+            );
+            assert_eq!(
+                payload["element"]["modelLine"],
+                serde_json::json!(5),
+                "{tool}: modelLine 指向 `[element.\"App.Auth\"]` 表头行"
+            );
+        }
+
+        // run 不中断：执行成功后续轮照常
+        assert_eq!(sealed_messages(&events).len(), 2, "{tool}: 续轮不中断");
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert!(!*is_error, "{tool}: 正常收敛");
+    }
+}
+
+/// 铸造根传递（正向，表驱动 2 组合 × 2 root）：某一 root 铸造的 `LoopTurn.archi`
+/// 跑完整一轮后工具结果只取自该 root 下模型；换第二个 root（另一 tempdir、另一套
+/// 元素）→ 结果逐字段随之切换（root 传错即红）。
+#[tokio::test]
+async fn archi执行臂结果只取自铸造根且换根即换内容() {
+    const ROOT_A: &str = concat!("# 根 A\n", "[element.\"Alpha\"]\n", "kind = \"package\"\n",);
+    const ROOT_B: &str = concat!("# 根 B\n", "[element.\"Beta\"]\n", "kind = \"package\"\n",);
+    for (module, search) in [(true, true), (true, false)] {
+        for (tag, model, expected) in [
+            ("archi-root-a", ROOT_A, "Alpha"),
+            ("archi-root-b", ROOT_B, "Beta"),
+        ] {
+            let dir = tempdir(tag);
+            archi_write_model(dir.path(), "01-model.toml", model);
+            let scripted = FakeModel::with_turns(vec![
+                vec![raw_tool_call(
+                    "tu_root",
+                    ARCHI_MODULE_TOOL,
+                    serde_json::json!({ "element": expected }),
+                )],
+                vec![raw_text("已看该根模型")],
+            ]);
+            let turn = LoopTurn {
+                injections: archi_injections(module, search),
+                archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+                ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+            };
+
+            let events = drive_loop_turn(&scripted, turn).await;
+
+            let results = tool_results_of(&events);
+            assert_eq!(
+                results.len(),
+                1,
+                "{{module: {module}, search: {search}}} {tag}: 恰一条工具结果"
+            );
+            assert!(!results[0].2, "{tag}: 上下文在场 → 非 is_error");
+            let payload: serde_json::Value = serde_json::from_str(results[0].1)
+                .unwrap_or_else(|error| panic!("{tag}: 结果为 dto 投影 JSON 串: {error}"));
+            // 元素定位只在该 root 的模型里成立（另一 root 无此元素 → 解析即 Err），
+            // `modelFile` / `modelLine` 指向该 root 下模型文件的声明行
+            assert_eq!(
+                payload["element"]["fqn"],
+                serde_json::json!(expected),
+                "{tag}: 命中元素的 fqn 只来自铸造根（换 root 即换内容）"
+            );
+            assert!(
+                payload["element"]["modelFile"].as_str().is_some_and(
+                    |file| file.ends_with("openspec/architecture/models/01-model.toml")
+                ),
+                "{tag}: modelFile 指向铸造根下的模型文件，实际: {payload}"
+            );
+            assert_eq!(
+                payload["element"]["modelLine"],
+                serde_json::json!(2),
+                "{tag}: modelLine 指向铸造根模型文件的表头行"
+            );
+        }
+    }
+}
+
+/// 执行臂上下文缺席（异常，表驱动两工具名）：`turn.archi = None` 而下发面含
+/// archi 工具（生产不可达臂）→ 工具结果 `is_error = true` 且文案「专用工具执行
+/// 上下文未装配」，run 不中断。
+#[tokio::test]
+async fn archi上下文缺席以is_error回灌且run不中断() {
+    for tool in [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL] {
+        let dir = tempdir(&format!("archi-no-ctx-{tool}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_noctx",
+                tool,
+                serde_json::json!({ "element": "App.Auth", "query": "auth" }),
+            )],
+            vec![raw_text("已按缺席继续")],
+        ]);
+        let turn = LoopTurn {
+            injections: archi_injections(true, true),
+            archi: None,
+            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        assert!(
+            notices_of(&events).is_empty(),
+            "{tool}: 上下文缺席不走拒绝形态（非成员校验 / policy 拒绝）"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{tool}: 恰一条工具结果");
+        assert_eq!(results[0].0, "tu_noctx", "{tool}: 同 id 回灌");
+        assert!(results[0].2, "{tool}: 缺席以 is_error 回灌");
+        assert_eq!(
+            results[0].1, "专用工具执行上下文未装配",
+            "{tool}: 记因即恢复指引（与 explore 专用工具同文案）"
+        );
+
+        // run 不中断
+        assert_eq!(
+            sealed_messages(&events).len(),
+            2,
+            "{tool}: 缺席回灌后续轮不中断"
+        );
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert!(!*is_error, "{tool}: 正常收敛");
+    }
+}
+
+/// 成员校验（矩阵外相位，异常，表驱动两工具名）：下发面不含 archi 工具而模型
+/// 调用之 → `SystemNotice{subtype: "tool_unavailable"}` + is_error ToolResult
+/// （同 id）；执行体**零调用**（内容即成员校验记因，非 dto JSON），run 不中断。
+///
+/// Default 档下同时成立「成员校验先于 policy」：两 archi 名在只读面本可放行，
+/// 记因仍为 `tool_unavailable`（次序若反则得 `permission_denied`）。
+#[tokio::test]
+async fn 矩阵外相位调用archi工具被成员校验拒绝且零执行() {
+    for tool in [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL] {
+        let dir = archi_fixture(&format!("archi-unavailable-{tool}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_ghost",
+                tool,
+                serde_json::json!({ "element": "App.Auth", "query": "auth" }),
+            )],
+            vec![raw_text("已按拒绝继续")],
+        ]);
+        // 矩阵外相位：注入缺省（零 archi 工具）；上下文在场——若执行体被触达，
+        // 结果必为 dto JSON，故「内容 == 成员校验记因」即零调用的行为证据
+        let turn = LoopTurn {
+            injections: agent::SessionInjections::default(),
+            archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+            ..loop_turn(dir.path(), AgentPermissionMode::Default)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let notices = notices_of(&events);
+        assert_eq!(notices.len(), 1, "{tool}: 恰一次拒绝记因");
+        assert_eq!(
+            notices[0].0, "tool_unavailable",
+            "{tool}: 成员校验先于 policy（Default 档亦不落 permission_denied）"
+        );
+        let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+        assert_eq!(payload["tool"], serde_json::json!(tool));
+        assert!(
+            payload["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("下发面")),
+            "{tool}: 记因注明不在本轮下发面，实际: {payload}"
+        );
+
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{tool}: 恰一条工具结果");
+        assert_eq!(results[0].0, "tu_ghost", "{tool}: 同 id 回灌");
+        assert!(results[0].2, "{tool}: 拒绝结果 is_error");
+        assert_eq!(
+            results[0].1,
+            format!("工具不在本轮下发面: {tool}"),
+            "{tool}: 内容即成员校验记因（执行体零调用——否则为 dto JSON）"
+        );
+        assert!(
+            serde_json::from_str::<serde_json::Value>(results[0].1).is_err(),
+            "{tool}: 结果非 JSON（执行体未被触达）"
+        );
+
+        // run 不中断：拒绝后续轮照常收敛
+        assert_eq!(
+            sealed_messages(&events).len(),
+            2,
+            "{tool}: 拒绝后续轮不中断"
+        );
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert!(!*is_error, "{tool}: 正常收敛");
+    }
+}
+
+/// 守卫链后段零拦截（回归，表驱动两工具名）：两 archi 名在 sandbox 段原样通过
+/// （`input_path` 恒 `None`——入参夹带 `path` 字段亦不改写 / 不校验）、protect
+/// 分派表 `_ => None` 零拦截（夹带受保护配置路径亦不拒）→ 无
+/// `sandbox_denied` / `permission_denied`，执行体承接。
+#[tokio::test]
+async fn archi两工具在守卫链后段零拦截() {
+    struct Case {
+        tool: &'static str,
+        input: serde_json::Value,
+    }
+    let cases = [
+        Case {
+            tool: ARCHI_MODULE_TOOL,
+            input: serde_json::json!({ "element": "App.Auth", "path": "openspec/config.json" }),
+        },
+        Case {
+            tool: ARCHI_SEARCH_TOOL,
+            input: serde_json::json!({ "query": "auth", "path": "openspec/config.json" }),
+        },
+    ];
+    for Case { tool, input } in cases {
+        let dir = archi_fixture(&format!("archi-guard-{tool}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call("tu_guard", tool, input)],
+            vec![raw_text("已取模型")],
+        ]);
+        // Default 档：policy 只读面放行两 archi 名（三档决策表由 policy_test 断言）
+        let turn = LoopTurn {
+            injections: archi_injections(true, true),
+            archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+            ..loop_turn(dir.path(), AgentPermissionMode::Default)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let subtypes: Vec<&str> = notices_of(&events).iter().map(|(s, _)| *s).collect();
+        assert!(
+            !subtypes.contains(&"sandbox_denied"),
+            "{tool}: 无 sandbox 拒绝（input_path 恒 None，路径字段不入沙箱）"
+        );
+        assert!(
+            !subtypes.contains(&"permission_denied"),
+            "{tool}: 无 protect / policy 拒绝（读面零拦截）"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{tool}: 恰一条工具结果");
+        assert!(!results[0].2, "{tool}: 执行体承接（未被守卫链截断）");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(results[0].1).is_ok(),
+            "{tool}: 内容为 dto 投影 JSON，实际: {}",
+            results[0].1
+        );
+        turn_done_of(&events);
+    }
+}
+
+/// `LoopTurn` 两专用上下文并列（边界）：同一轮内 `archi` 在场、`explore_note`
+/// 缺席 → archi 工具走执行体、explore 专用工具落成员校验拒绝（矩阵外）——
+/// 两字段互不串道，新增字段不改既有 `explore_note` 臂语义。
+#[tokio::test]
+async fn archi与explore专用上下文并列不串道() {
+    let dir = archi_fixture("archi-with-explore-note");
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_archi",
+                ARCHI_MODULE_TOOL,
+                serde_json::json!({ "element": "App.Auth" }),
+            ),
+            raw_tool_call(
+                "tu_note",
+                EXPLORE_NOTE_TOOL,
+                serde_json::json!({ "name": "any-name", "content": "x" }),
+            ),
+        ],
+        vec![raw_text("已分别处置")],
+    ]);
+    let turn = LoopTurn {
+        injections: archi_injections(true, true),
+        archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+        explore_note: None,
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 2, "两工具各得一条结果");
+    let archi = results
+        .iter()
+        .find(|(id, _, _)| *id == "tu_archi")
+        .expect("archi 结果在场");
+    assert!(!archi.2, "archi 臂走执行体（上下文在场）");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(archi.1).is_ok(),
+        "archi 结果为 dto JSON"
+    );
+    let note = results
+        .iter()
+        .find(|(id, _, _)| *id == "tu_note")
+        .expect("explore 笔记结果在场");
+    assert!(note.2, "explore 工具不在 Archi 下发面 → is_error");
+    assert_eq!(
+        note.1,
+        format!("工具不在本轮下发面: {EXPLORE_NOTE_TOOL}"),
+        "既有 explore 臂语义零改动（矩阵外拒绝形态）"
+    );
+    assert_eq!(sealed_messages(&events).len(), 2, "分派 / 拒绝后照常续轮");
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error);
 }

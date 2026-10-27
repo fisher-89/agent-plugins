@@ -10,6 +10,7 @@ import {
   usePanelRef,
 } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import type {
   ActiveRunView,
@@ -17,6 +18,7 @@ import type {
   ChangeDetail,
   ChangeRunEntry,
 } from '../../types/dto';
+import { ArchitectureCanvas } from '../architecture/components/architecture-canvas';
 import { ChangeChatPanel } from './agent/change-chat-panel';
 import { mountMaterials } from './flow/attachments';
 import { ChangeFlowGraph } from './flow/change-flow-graph';
@@ -214,6 +216,58 @@ function DetailContent({
   );
 }
 
+/**
+ * 右栏内容区页签：`detail-tab-flow`（流程图 + 产物抽屉，缺省选中）与
+ * `detail-tab-architecture`（架构画布，`mode = "incremental"`）。
+ *
+ * `archiRoot` 派生**单点**：归档 change 与无 worktree 的 legacy change 回落主仓根
+ * （与会话 cwd 同口径），其余取 `detail.worktree`。架构页签经 Tabs 面板的条件挂载
+ * 承载——未激活即不挂载，切换不产生取数。
+ */
+function DetailTabs({
+  detail,
+  root,
+  id,
+  graph,
+  materials,
+  sessionRefreshKey,
+}: {
+  detail: ChangeDetail;
+  root: string | null;
+  id: string;
+  graph: FlowGraph;
+  materials: FlowMaterials;
+  sessionRefreshKey: number;
+}): React.JSX.Element {
+  const archiRoot =
+    detail.source === 'archive' || detail.worktree === null ? root : detail.worktree;
+  return (
+    <Tabs className="h-full min-h-0" defaultValue="flow">
+      <TabsList data-testid="detail-tabs">
+        <TabsTrigger data-testid="detail-tab-flow" value="flow">
+          流程
+        </TabsTrigger>
+        <TabsTrigger data-testid="detail-tab-architecture" value="architecture">
+          架构
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent className="min-h-0 flex-1" value="flow">
+        <DetailContent
+          root={root}
+          id={id}
+          name={detail.name}
+          graph={graph}
+          materials={materials}
+          sessionRefreshKey={sessionRefreshKey}
+        />
+      </TabsContent>
+      <TabsContent className="min-h-0 flex-1" value="architecture">
+        <ArchitectureCanvas root={archiRoot} mode="incremental" />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
 interface DetailLoadedProps {
   detail: ChangeDetail;
   /** 在飞 run 活面（统一视图 activeRun） */
@@ -243,12 +297,15 @@ interface DetailLoadedProps {
 function DetailActionPanels({
   detail,
   id,
+  root,
   activeRun,
   lastRun,
   run,
 }: {
   detail: ChangeDetail;
   id: string | null;
+  /** 主仓根（归档确认面的架构变更区块据它开库取数） */
+  root: string | null;
   activeRun: ActiveRunView | null;
   lastRun: ChangeRunEntry | null;
   run: ReturnType<typeof useChangeFlowRun>;
@@ -259,6 +316,7 @@ function DetailActionPanels({
         <RunControlPanel
           changeId={id}
           name={detail.name}
+          root={root}
           activeRun={activeRun}
           lastRun={lastRun}
           actions={run}
@@ -348,15 +406,16 @@ function DetailLoaded({
             <DetailActionPanels
               detail={detail}
               id={id}
+              root={root}
               activeRun={activeRun}
               lastRun={lastRun}
               run={run}
             />
             <div className="flex-1 min-h-0">
-              <DetailContent
+              <DetailTabs
+                detail={detail}
                 root={root}
                 id={id ?? detail.id}
-                name={detail.name}
                 graph={graph}
                 materials={materials}
                 sessionRefreshKey={sessionRefreshKey}

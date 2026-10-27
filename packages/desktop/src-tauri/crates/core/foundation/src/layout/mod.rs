@@ -24,6 +24,15 @@ const TEST_REPORTS_DIR_NAME: &str = "test";
 /// 基线报告子目录名（相对 reports 子目录锚定）
 const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
 
+/// 架构域子目录名（相对域根锚定；架构域段名的唯一持有者）
+const ARCHITECTURE_DIR_NAME: &str = "architecture";
+
+/// 架构模型子目录名（相对架构域根锚定）
+const MODELS_DIR_NAME: &str = "models";
+
+/// 架构决策记录（ADR）子目录名（相对架构域根锚定）
+const DECISIONS_DIR_NAME: &str = "decisions";
+
 /// 报告槽位（封闭二值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
 /// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
 /// `Baseline` 为 initialize 基线检查槽位（`reports/baseline`——两报告树分树
@@ -110,6 +119,34 @@ pub fn change_baseline_reports(root: &Path, change: &str) -> PathBuf {
 /// [`change_baseline_reports`] 的 change 目录形态（baseline 槽位命名变体）。
 pub fn change_baseline_reports_in(change_dir: &Path) -> PathBuf {
     change_reports_in(change_dir, ReportSlot::Baseline)
+}
+
+/// 架构域根目录派生单点（`<域根>/architecture`，架构域段名唯一持有者）。纯
+/// 推导零 IO——不存在的 root 亦正常返回（存在性检查交上层）。
+pub fn archi_dir(root: &Path) -> PathBuf {
+    root.join(DOMAIN_DIR_NAME).join(ARCHITECTURE_DIR_NAME)
+}
+
+/// 架构模型目录派生（`<架构域根>/models`；全从 [`archi_dir`] 派生，架构域段名
+/// 不二次出现）。
+pub fn archi_models_dir(root: &Path) -> PathBuf {
+    archi_dir(root).join(MODELS_DIR_NAME)
+}
+
+/// 架构决策记录目录派生（`<架构域根>/decisions`；全从 [`archi_dir`] 派生）。
+pub fn archi_decisions_dir(root: &Path) -> PathBuf {
+    archi_dir(root).join(DECISIONS_DIR_NAME)
+}
+
+/// repo 相对路径是否落在架构域之内（`/` 与 `\` 分隔均归一后判定）：判据 = 归一
+/// 剥前导 `./` 与尾分隔符后，前两段依序为域根段与架构域段。`<域根>/architecture`
+/// 与 `<域根>/architecture/models/x.toml` 均命中，`<域根>/archived/...` 不命中。
+/// 归档冲突分流的唯一判据——core 侧 MUST NOT 比较架构域段名字面量。
+pub fn is_archi_rel_path(rel: &str) -> bool {
+    let normalized = rel.replace('\\', "/");
+    let trimmed = normalized.trim_start_matches("./").trim_end_matches('/');
+    let segments: Vec<&str> = trimmed.split('/').collect();
+    segments.len() >= 2 && segments[0] == DOMAIN_DIR_NAME && segments[1] == ARCHITECTURE_DIR_NAME
 }
 
 #[cfg(test)]

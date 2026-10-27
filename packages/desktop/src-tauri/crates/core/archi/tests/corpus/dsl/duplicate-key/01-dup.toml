@@ -1,0 +1,5 @@
+[element."App.Auth"]
+kind = "domain"
+
+[element."App.Auth"]
+kind = "module"

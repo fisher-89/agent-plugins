@@ -38,6 +38,7 @@
 - 既有代码库有测试模式时沿其模式。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行；不复制测试运行脚本细节。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
+- 额外可用只读工具 `archi_search`（发现）：把用例归到正确模块时先搜元素与文档路径（返回薄条目，不搜正文）。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / 框架与工具名保持英文。
 
 ### Parameter Type → Edge Case Systematic Mapping

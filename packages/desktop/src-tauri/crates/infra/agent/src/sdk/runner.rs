@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -14,6 +14,7 @@ use rig::providers::openai::OpenAIConfig;
 use store::Store;
 use tokio::sync::mpsc;
 
+use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::config::{EngineConfig, Protocol};
 use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::explore_note::ExploreNoteContext;
@@ -304,6 +305,20 @@ struct PumpPayload {
     workspace_root: Option<PathBuf>,
 }
 
+/// 架构只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
+/// `toolset == Some(Archi { .. })` 即铸（轮 root = 会话 cwd——change 会话即
+/// worktree），其余 toolset（`None` / `Explore`）恒 `None`。铸造值随 `LoopTurn`
+/// 携带、loop 侧路由，不经 `tools::execute`。
+pub(crate) fn mint_archi_context(
+    toolset: Option<&SessionToolset>,
+    workspace_root: &Path,
+) -> Option<ArchiContext> {
+    match toolset {
+        Some(SessionToolset::Archi { .. }) => Some(ArchiContext::new(workspace_root.to_path_buf())),
+        _ => None,
+    }
+}
+
 /// 会话泵任务（ask 段）
 async fn session_pump(
     model: DynModel<Completion>,
@@ -337,6 +352,9 @@ async fn session_pump(
     } else {
         None
     };
+    // 架构只读工具执行上下文 per-turn 铸造：toolset == Archi { .. } 即铸（轮 root
+    // = 会话 cwd——change 会话即 worktree）；上下文随 LoopTurn 携带、loop 侧路由
+    let archi = mint_archi_context(open.injections.toolset.as_ref(), &open.ctx.workspace_root);
     // 泵启动日志（诊断面：同一 base_url 配错协议可一眼定位）。`model` 报裸名
     // （= 实际发送）、`window` 报**生效**窗长（含 128K 缺省）、`raw` 留配置原文
     let session_id = SdkRunner::next_session_id();
@@ -364,6 +382,7 @@ async fn session_pump(
         retry: Default::default(),
         injections: open.injections.clone(),
         explore_note,
+        archi,
         protect,
         web_search: payload.web_search,
     };

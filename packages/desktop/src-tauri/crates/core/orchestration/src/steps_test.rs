@@ -664,6 +664,11 @@ struct FakeVcs {
     edit_patch: Mutex<String>,
     /// 补丁取数 Err 注入位
     edit_patch_error: Mutex<Option<String>>,
+    /// `worktree_snapshot().rebase_head` 编程位（缺省 `None` = 干净；archi 章节
+    /// 的 rebase 半程探测面）
+    snapshot_rebase_head: Mutex<Option<String>>,
+    /// `worktree_snapshot()` 本身 Err 注入位（fail-closed 探测面）
+    snapshot_error: Mutex<Option<String>>,
 }
 
 impl FakeVcs {
@@ -680,6 +685,8 @@ impl FakeVcs {
             edit_set_error: Mutex::new(None),
             edit_patch: Mutex::new(String::new()),
             edit_patch_error: Mutex::new(None),
+            snapshot_rebase_head: Mutex::new(None),
+            snapshot_error: Mutex::new(None),
         }
     }
 
@@ -759,9 +766,21 @@ impl ArchiveVcsPort for FakeVcs {
 
     fn worktree_snapshot(&self, _root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
         self.record("worktree_snapshot");
+        if let Some(error) = self
+            .snapshot_error
+            .lock()
+            .expect("vcs 快照错误锁不可中毒")
+            .clone()
+        {
+            return Err(error);
+        }
         Ok(WorktreeSnapshot {
             head: "abc".to_owned(),
-            rebase_head: None,
+            rebase_head: self
+                .snapshot_rebase_head
+                .lock()
+                .expect("vcs 快照锁不可中毒")
+                .clone(),
             status: Vec::new(),
             index: Vec::new(),
         })
@@ -3860,5 +3879,135 @@ async fn runner出错原样透传且审计记error() {
         rows[0].summary.contains("执行体拉起失败：程序不可达"),
         "审计摘要携同文错误串: {}",
         rows[0].summary
+    );
+}
+
+// ---------------------------------------------------------------------------
+// archi 章节：rebase 半程前置挡回探测（`check_rebase_halfway` / 文案）
+// ---------------------------------------------------------------------------
+
+/// 半程挡回文案三要素锚（路径 / 两条可照抄命令 / 重跑语义）。
+fn assert_halfway_message(message: &str, worktree: &str) {
+    assert!(
+        message.contains(worktree),
+        "文案含 worktree 绝对路径: {message}"
+    );
+    assert!(
+        message.contains("git rebase --continue"),
+        "文案含 continue 出路: {message}"
+    );
+    assert!(
+        message.contains("git rebase --abort"),
+        "文案含 abort 出路: {message}"
+    );
+    assert!(
+        message.contains("重跑归档"),
+        "文案含再重跑归档语义: {message}"
+    );
+}
+
+/// 正向：`rebase_head` 在场 → `Err`（三要素文案）；缺席 → `Ok(())`。
+#[test]
+fn rebase半程探测两形态() {
+    use crate::steps::{check_rebase_halfway, rebase_halfway_message};
+
+    let fake = FakeVcs::clean();
+    *fake.snapshot_rebase_head.lock().expect("快照锁不可中毒") = Some("abc123".to_owned());
+    let error = check_rebase_halfway(&fake, "/tmp/wt/alpha").expect_err("半程应 Err");
+    assert_halfway_message(&error, "/tmp/wt/alpha");
+    assert_eq!(
+        fake.calls()
+            .iter()
+            .filter(|call| call.as_str() == "worktree_snapshot")
+            .count(),
+        1,
+        "只探测一次"
+    );
+    assert_eq!(
+        error,
+        rebase_halfway_message("/tmp/wt/alpha", None),
+        "文案由单点函数产出"
+    );
+
+    let clean = FakeVcs::clean();
+    assert_eq!(
+        check_rebase_halfway(&clean, "/tmp/wt/beta"),
+        Ok(()),
+        "rebase_head 缺席即放行（干净 / 已 continue / 已 abort 后重跑）"
+    );
+}
+
+/// 异常：探测自身 `Err` → 前置挡回（fail-closed），文案附探测错误与两条出路。
+#[test]
+fn rebase半程探测失败fail_closed() {
+    use crate::steps::check_rebase_halfway;
+
+    let fake = FakeVcs::clean();
+    *fake.snapshot_error.lock().expect("快照锁不可中毒") =
+        Some("git 快照失败：lock 残留".to_owned());
+    let error = check_rebase_halfway(&fake, "/tmp/wt/gamma").expect_err("探测失败应 Err");
+    assert!(
+        error.contains("git 快照失败：lock 残留"),
+        "文案附探测错误: {error}"
+    );
+    assert_halfway_message(&error, "/tmp/wt/gamma");
+}
+
+/// 边界：文案总长 ≤ 200 字符（含超长 worktree 路径）；三要素并列不被截断吞掉。
+#[test]
+fn rebase半程文案两百字符上限() {
+    use crate::steps::{check_rebase_halfway, ARCHIVE_REASON_MAX_CHARS};
+
+    let short = FakeVcs::clean();
+    *short.snapshot_rebase_head.lock().expect("快照锁不可中毒") = Some("abc".to_owned());
+    let error = check_rebase_halfway(&short, "/tmp/wt/x").expect_err("半程应 Err");
+    assert!(error.chars().count() <= ARCHIVE_REASON_MAX_CHARS);
+
+    let long_path = format!("/tmp/{}/alpha", "深".repeat(300));
+    let fake = FakeVcs::clean();
+    *fake.snapshot_rebase_head.lock().expect("快照锁不可中毒") = Some("abc".to_owned());
+    let error = check_rebase_halfway(&fake, &long_path).expect_err("半程应 Err");
+    assert!(
+        error.chars().count() <= ARCHIVE_REASON_MAX_CHARS,
+        "近上限 / 超长路径均收口到 200 字符，实际 {}",
+        error.chars().count()
+    );
+    assert!(error.ends_with('…'), "截断以 … 留痕: {error}");
+    assert!(
+        error.contains("worktree") || error.contains("rebase"),
+        "截断后仍保留可读语义: {error}"
+    );
+    assert!(!error.contains('\n'), "换行不破坏可照抄性");
+}
+
+/// 边界：空路径调用只断言不 panic；重复调用幂等（只读探测）。
+#[test]
+fn rebase半程空路径与幂等() {
+    use crate::steps::check_rebase_halfway;
+
+    let fake = FakeVcs::clean();
+    assert_eq!(check_rebase_halfway(&fake, ""), Ok(()), "空路径不 panic");
+    assert_eq!(check_rebase_halfway(&fake, ""), Ok(()), "重复调用结果一致");
+    assert_eq!(
+        fake.calls()
+            .iter()
+            .filter(|call| call.as_str() == "worktree_snapshot")
+            .count(),
+        2,
+        "两次调用各探测一次（只读探测，无缓存、无副作用）"
+    );
+}
+
+/// 回归：探测实现面零新 vcs 能力——只调 `worktree_snapshot`，不触其他 git 面。
+#[test]
+fn rebase半程探测调用序单点() {
+    use crate::steps::check_rebase_halfway;
+
+    let fake = FakeVcs::clean();
+    let _ = check_rebase_halfway(&fake, "/tmp/wt/delta");
+    assert_eq!(
+        fake.calls(),
+        vec!["worktree_snapshot".to_owned()],
+        "仅 worktree_snapshot 一次（零 spawn / 零新能力）"
     );
 }

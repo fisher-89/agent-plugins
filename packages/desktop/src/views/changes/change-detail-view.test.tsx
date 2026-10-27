@@ -52,6 +52,34 @@ let detailResult: ChangeDetail | string | null = null;
 let activeRunResult: ActiveRunView | null = null;
 let artifactResults: Record<string, ArtifactEnvelope | null> = {};
 let holdDetail = false;
+/// `archi_graph` reject 注入位（架格页签错误态用例）
+let archiReject: string | null = null;
+
+/** 架构图 fixture（两元素零关系零诊断）。 */
+const ARCHI_ELEMENTS = [
+  {
+    fqn: 'App',
+    kind: 'package' as const,
+    gate: 'off' as const,
+    path: [],
+    summary: null,
+    metadata: {},
+    modelFile: 'openspec/architecture/models/01-core.toml',
+    modelLine: 2,
+    mark: 'none' as const,
+  },
+  {
+    fqn: 'App.Auth',
+    kind: 'domain' as const,
+    gate: 'strict' as const,
+    path: [],
+    summary: null,
+    metadata: {},
+    modelFile: 'openspec/architecture/models/01-core.toml',
+    modelLine: 6,
+    mark: 'none' as const,
+  },
+];
 let releaseDetail: (() => void) | null = null;
 
 interface DetailFixture {
@@ -64,6 +92,7 @@ interface DetailFixture {
 }
 
 function loadFixture(f: DetailFixture): void {
+  archiReject = null;
   detailResult = f.detail;
   artifactResults = f.artifacts ?? {};
   holdDetail = f.hold ?? false;
@@ -97,6 +126,27 @@ function detailIpc(command: string, args: Record<string, unknown> = {}): Promise
     const key = `${String(args.kind)}:${String(args.source)}`;
     return Promise.resolve(key in artifactResults ? artifactResults[key] : null);
   }
+  // 架构页签取数（desktop-archi-canvas 挂载点 B）：archi_graph 回健康图，
+  // archi_module 回元素详情，archi_set_gate 回 null（增量改档）
+  if (command === 'archi_graph') {
+    if (archiReject !== null) return Promise.reject(archiReject);
+    return Promise.resolve({
+      elements: ARCHI_ELEMENTS.map((element) => ({ ...element })),
+      relations: [],
+      diagnostics: [],
+    });
+  }
+  if (command === 'archi_module') {
+    return Promise.resolve({
+      element: { ...ARCHI_ELEMENTS[0] },
+      dependsOn: [],
+      dependedBy: [],
+      children: [],
+      docs: [],
+      warnings: [],
+    });
+  }
+  if (command === 'archi_set_gate') return Promise.resolve(null);
   // 通用 Agent 面板面（desktop-change-chat）：发起提前 resolve 的 running 轮行、
   // 清单缺省空页、停止幂等空应答；会话单查 / 转录沿用下方空态（既有用例零发起，
   // 互不影响）
@@ -2674,5 +2724,184 @@ describe('ChangeDetailView：抽屉非模态回归与首载降级', () => {
       invokeMock.mock.calls.filter(([command]) => String(command).startsWith('agent_')),
       '零 agent 类 invoke',
     ).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archi 章节：右栏「架构」页签（挂载点 B，增量可改档）
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：架构页签（挂载点 B）', () => {
+  it('应呈现 flow 与 architecture 两页签，缺省 flow（架构画布不在场）', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
+    await waitFor(() => expect(screen.getByTestId('detail-tab-flow') !== null).toBe(true));
+    expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true);
+    expect(screen.queryByTestId('archi-canvas')).toBeNull();
+  });
+
+  it('应在切换页签时挂载架构画布并卸载流程图，切回后复原', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+    await waitFor(() => expect(screen.getByTestId('archi-canvas') !== null).toBe(true));
+
+    fireEvent.click(screen.getByTestId('detail-tab-flow'));
+    await waitFor(() => expect(screen.queryByTestId('archi-canvas')).toBeNull());
+    expect(screen.getByTestId('detail-tab-flow') !== null).toBe(true);
+  });
+
+  it('应在未激活架构页签时零 archi 取数，首次激活发起一次，反复切换每次各一次', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    const archiCalls = () =>
+      invokeMock.mock.calls.filter(([name]) => name === 'archi_graph').length;
+    expect(archiCalls()).toBe(0);
+
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+    await waitFor(() => expect(archiCalls()).toBe(1));
+
+    fireEvent.click(screen.getByTestId('detail-tab-flow'));
+    await waitFor(() => expect(screen.queryByTestId('archi-canvas')).toBeNull());
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+    await waitFor(() => expect(archiCalls()).toBe(2));
+  });
+
+  it('应以 detail.worktree 为画布 root（archi_graph 参数逐字相等）', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:demoalpha.worktreesadd-feature' }) });
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.some(
+          ([name, args]) =>
+            name === 'archi_graph' &&
+            (args as { root?: string }).root === 'C:demoalpha.worktreesadd-feature',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('应在归档 change（worktree = null）时回落到页面 root 取数', async () => {
+    renderDetail({ detail: detail({ source: 'archive', worktree: null }) }, 'C:demomain');
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.some(
+          ([name, args]) =>
+            name === 'archi_graph' && (args as { root?: string }).root === 'C:demomain',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('应以 incremental 模式装配画布（抽屉内 gate 可提交）', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+    await waitFor(() => expect(screen.getByTestId('archi-gate-select') !== null).toBe(true));
+    expect(screen.queryByTestId('archi-gate-readonly')).toBeNull();
+  });
+
+  it('应在架构页签取数失败时呈现错误态且 flow 页签仍可切回', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    archiReject = 'root 无效（空路径）';
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+    await waitFor(() => expect(screen.getByTestId('archi-canvas-error') !== null).toBe(true));
+    expect(screen.getByTestId('archi-canvas-error').textContent).toContain('root 无效');
+
+    fireEvent.click(screen.getByTestId('detail-tab-flow'));
+    await waitFor(() => expect(screen.queryByTestId('archi-canvas-error')).toBeNull());
+    expect(screen.getByTestId('detail-tab-flow') !== null).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 详情头刷新面与 archiRoot 派生边界（AC-18 / 挂载点 B 回落口径）
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：详情头刷新态与时间面', () => {
+  it('刷新中：刷新按钮内呈现 spinner 且按钮禁用；落定后 spinner 消退', async () => {
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    const refreshButton = () =>
+      screen.getByTestId<HTMLButtonElement>('refresh-change-detail-button');
+
+    expect(refreshButton().querySelector('[data-slot="spinner"]')).toBeNull();
+    expect(refreshButton().disabled).toBe(false);
+
+    holdDetail = true;
+    fireEvent.click(refreshButton());
+    await waitFor(() =>
+      expect(refreshButton().querySelector('[data-slot="spinner"]')).toBeTruthy(),
+    );
+    expect(refreshButton().disabled).toBe(true);
+
+    await act(async () => {
+      releaseDetail?.();
+    });
+    await waitFor(() => expect(refreshButton().querySelector('[data-slot="spinner"]')).toBeNull());
+    expect(refreshButton().disabled).toBe(false);
+  });
+
+  it('activePhase.startAt 在场：运行中 badge 逐字拼接时间（不落占位符）', async () => {
+    const { container } = renderDetail({
+      detail: detail({
+        activePhase: { phase: 'implement', attempt: 2, startAt: '2026-10-01T08:00:00.000Z' },
+      }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await screen.findByTestId('flow-graph');
+    const header = within(container).getByTestId('detail-header');
+    expect(header.textContent).toContain('运行中 · implement · attempt 2');
+    expect(header.textContent).toContain(' · 2026-10-01T08:00:00.000Z');
+    expect(header.textContent).not.toContain(' · —');
+  });
+
+  it('created 缺席：头部零空文本节点（不渲空 span 占位）', async () => {
+    const { container } = renderDetail({
+      detail: detail({ created: null }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await screen.findByTestId('flow-graph');
+    const header = within(container).getByTestId('detail-header');
+    const leaves = Array.from(header.querySelectorAll('span'));
+    expect(leaves.length).toBeGreaterThan(0);
+    expect(leaves.every((leaf) => (leaf.textContent ?? '').trim().length > 0)).toBe(true);
+  });
+});
+
+describe('ChangeDetailView：archiRoot 派生边界（挂载点 B 回落口径）', () => {
+  function archiGraphRoots(): string[] {
+    return invokeMock.mock.calls
+      .filter(([name]) => name === 'archi_graph')
+      .map(([, args]) => String((args as { root?: unknown }).root));
+  }
+
+  it('legacy change（worktree = null 且非归档）应以页面主仓根取数', async () => {
+    renderDetail({ detail: detail({ worktree: null }), artifacts: PROPOSAL_ENVELOPES }, ROOT);
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() => expect(archiGraphRoots()).toEqual([ROOT]));
+  });
+
+  it('归档 change（source = archive 且 worktree 残留）仍以页面主仓根取数（不碰已清理 worktree）', async () => {
+    renderDetail(
+      {
+        detail: detail({ source: 'archive', worktree: 'C:\\demo\\alpha\\.worktrees\\add-feature' }),
+        artifacts: PROPOSAL_ENVELOPES,
+      },
+      ROOT,
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('detail-tab-architecture'));
+
+    await waitFor(() => expect(archiGraphRoots()).toEqual([ROOT]));
+    expect(archiGraphRoots()).not.toContain('C:\\demo\\alpha\\.worktrees\\add-feature');
   });
 });

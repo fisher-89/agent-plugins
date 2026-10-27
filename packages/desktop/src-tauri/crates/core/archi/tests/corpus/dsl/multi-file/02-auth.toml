@@ -1,0 +1,7 @@
+[element."App.Auth"]
+kind = "domain"
+
+[[relation]]
+from = "App.Auth"
+to = "App"
+desc = "认证属于核心包"

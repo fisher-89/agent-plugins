@@ -37,6 +37,7 @@
 - 每条 AC 必须追溯到具体代码证据——「由通用实现覆盖」不算证据。
 - `tasks.md` 存在未勾选项 → verdict fail。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
+- 额外可用只读工具 `archi_module`（定位）：核对验收面与模型声明的模块边界一致——返回元素概览、邻接与文档引用。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写保持英文。
 

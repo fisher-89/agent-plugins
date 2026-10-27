@@ -15,30 +15,82 @@ use crate::{EngineConfig, EngineFacade, EngineKind};
 /// 三处同字面量，改动需同步）——`begin` 据此装配 explore 会话注入面。
 const EXPLORE_SOURCE: &str = "explore";
 
-/// explore 会话注入面装配（生产路径首次非 default）：六工具收窄子集（write
-/// 移除，序同 `TOOL_NAMES`）+ `Explore` 枚举；六名逐个校验 ∈ 七通用工具封闭集
-/// （非法名显式 `Err`——装配层校验）。其余来源（debug / change 等）恒
-/// `SessionInjections::default()`（七工具面，零变化）。
-fn assemble_injections(source: &str) -> Result<agent::SessionInjections, String> {
-    if source != EXPLORE_SOURCE {
+/// change 来源受控字符串（与 orchestration `SOURCE_CHANGE` 同字面量）——archi
+/// 工具面注入矩阵的适用来源。
+const CHANGE_SOURCE: &str = "change";
+
+/// 会话注入面装配（生产路径：explore 臂 + change 臂）：`explore` 来源 = 六工具
+/// 收窄子集（write 移除，序同 `TOOL_NAMES`）+ `Explore` 枚举；`change` 来源按
+/// `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面矩阵，命中即
+/// `toolset = Archi { .. }` 且 `tools` 位保持 `None`（七工具全量）；其余来源与
+/// 矩阵未命中 / 解析失败恒 `SessionInjections::default()`（fail-closed，零 archi
+/// 工具）。explore 臂逐字未变（新增变体不改变其任何可观察行为）。
+fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
+    if provenance.source == EXPLORE_SOURCE {
+        const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
+        for name in EXPLORE_TOOLS {
+            if !crate::sdk::tools::TOOL_NAMES.contains(&name) {
+                return Err(format!("注入面非法工具名: {name}（七通用工具封闭集外）"));
+            }
+        }
+        return Ok(agent::SessionInjections {
+            preamble: None,
+            tools: Some(
+                EXPLORE_TOOLS
+                    .iter()
+                    .map(|name| (*name).to_owned())
+                    .collect(),
+            ),
+            toolset: Some(agent::SessionToolset::Explore),
+        });
+    }
+    if provenance.source != CHANGE_SOURCE {
         return Ok(agent::SessionInjections::default());
     }
-    const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
-    for name in EXPLORE_TOOLS {
-        if !crate::sdk::tools::TOOL_NAMES.contains(&name) {
-            return Err(format!("注入面非法工具名: {name}（七通用工具封闭集外）"));
-        }
-    }
-    Ok(agent::SessionInjections {
-        preamble: None,
-        tools: Some(
-            EXPLORE_TOOLS
-                .iter()
-                .map(|name| (*name).to_owned())
-                .collect(),
-        ),
-        toolset: Some(agent::SessionToolset::Explore),
+    let Some((phase, role)) = change_phase_role(provenance.source_ref.as_deref().unwrap_or(""))
+    else {
+        return Ok(agent::SessionInjections::default());
+    };
+    Ok(match archi_matrix(phase, role) {
+        Some(toolset) => agent::SessionInjections {
+            preamble: None,
+            tools: None,
+            toolset: Some(toolset),
+        },
+        None => agent::SessionInjections::default(),
     })
+}
+
+/// `source_ref` 定式 `{change_id}/{phase}/{role}/{attempt}` → `(phase, role)`：按
+/// `/` 切分、段数 ≥ 4 且末段可解析为 `u32`（attempt）才认，取尾三段自尾向前。
+/// 畸形 / 短段 / 末段非数字一律 `None`（fail-closed 判据单点）。
+fn change_phase_role(source_ref: &str) -> Option<(&str, &str)> {
+    let segments: Vec<&str> = source_ref.split('/').collect();
+    if segments.len() < 4 {
+        return None;
+    }
+    segments.last()?.parse::<u32>().ok()?;
+    let role = segments.get(segments.len() - 2)?;
+    let phase = segments.get(segments.len() - 3)?;
+    if phase.is_empty() || role.is_empty() {
+        return None;
+    }
+    Some((phase, role))
+}
+
+/// archi 工具面注入矩阵单源（7 行，`(phase, role)` → 下发子集；未命中即零 archi
+/// 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
+fn archi_matrix(phase: &str, role: &str) -> Option<agent::SessionToolset> {
+    let (module, search) = match (phase, role) {
+        ("proposal", "executor") => (false, true),
+        ("dev-design", "executor") | ("dev-design", "evaluator") => (true, true),
+        ("test-design", "executor") => (false, true),
+        ("implement", "executor") => (true, false),
+        ("code-review", "evaluator") => (true, false),
+        ("acceptance", "evaluator") => (true, false),
+        _ => return None,
+    };
+    Some(agent::SessionToolset::Archi { module, search })
 }
 
 /// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
@@ -207,7 +259,7 @@ impl ComposedTurn {
                 TurnRequest {
                     session,
                     question,
-                    injections: assemble_injections(&provenance.source)?,
+                    injections: assemble_injections(&provenance)?,
                     ctx,
                     provenance,
                     config_snapshot,

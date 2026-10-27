@@ -1,0 +1,1770 @@
+diff --git a/crates/core/orchestration/src/steps.rs b/crates/core/orchestration/src/steps.rs
+index a655302604de..510441242eb1 100644
+--- a/crates/core/orchestration/src/steps.rs
++++ b/crates/core/orchestration/src/steps.rs
+@@ -474,3 +474,64 @@ pub(crate) fn detect_delta_specs(
+     capabilities.sort();
+     capabilities
+ }
++
++// ---------------------------------------------------------------------------
++// 归档半程挡回（rebase 中间态检出）：探测在本文件、`Terminal` 收口在 walker 的
++// Preflight 步——`run_archive_preflight` 被归档前停等面与 Preflight 步共用且无
++// 错误通道，故挡回不能落在其中。
++// ---------------------------------------------------------------------------
++
++/// 文案字符上限（与 node detail 的 200 字符截断同宽——`run-error` 全文即节点
++/// detail，无需第二个取数通道）。
++pub(crate) const ARCHIVE_REASON_MAX_CHARS: usize = 200;
++
++/// rebase 半程检出：`worktree_snapshot` 的 `rebase_head` 在场即「上一次归档失败
++/// 留下的 rebase 中间态」，`Err` 挡回重跑。探测自身失败亦 `Err`（fail-closed：
++/// 无法区分「半程」与「干净」时，误放行的代价是 `git add -A && git commit` 在
++/// rebase 中间态产生污染）。零新 git 能力、零 spawn。
++///
++/// **前置**：调用方须先确认 `worktree` 目录在场（`Path::is_dir`）——目录缺失的
++/// 处置归 Preflight 的既有目录存在性分支（分支已合入即照常放行，design D13），
++/// 故 fail-closed 只覆盖「目录在场而探测读不出」这一种情形，文案里的两条命令也
++/// 都落在确实存在的目录内。
++pub(crate) fn check_rebase_halfway(vcs: &dyn ArchiveVcsPort, worktree: &str) -> Result<(), String> {
++    match vcs.worktree_snapshot(Path::new(worktree)) {
++        Ok(snapshot) if snapshot.rebase_head.is_some() => {
++            Err(rebase_halfway_message(worktree, None))
++        }
++        Ok(_) => Ok(()),
++        Err(error) => Err(rebase_halfway_message(worktree, Some(&error))),
++    }
++}
++
++/// 半程挡回文案（三要素并列：worktree 绝对路径 / `git rebase --continue` 后重跑
++/// / `git rebase --abort` 后重跑；含探测失败因时另行前置）。总长 ≤
++/// [`ARCHIVE_REASON_MAX_CHARS`] 字符。
++///
++/// 探测失败形态不假定可进入该目录（探测失败的原因可能正是目录不可读）：先要求
++/// 核对目录在场与 git 状态，再给两条出路——文案不把「进目录执行 rebase」当唯一
++/// 动作。
++pub(crate) fn rebase_halfway_message(worktree: &str, error: Option<&str>) -> String {
++    let message = match error {
++        Some(error) => format!(
++            "rebase 半程探测失败（{error}），为防污染拒绝继续：worktree {worktree}；\
++             请核对目录在场且 git 可读后重跑归档；若确有半程：解完模型冲突后 \
++             `git rebase --continue` 再重跑归档，或 `git rebase --abort` 后重跑归档"
++        ),
++        None => format!(
++            "上一次归档失败留下的 rebase 半程未处置：worktree {worktree}；\
++             ① 在其中解完模型冲突后 `git rebase --continue` 再重跑归档；\
++             ② 或 `git rebase --abort` 后重跑归档（会重新 rebase 一次）"
++        ),
++    };
++    clip_reason(message)
++}
++
++/// 文案按字符上限截断（超限即截至上限，尾部以 `…` 留痕）。
++pub(crate) fn clip_reason(message: String) -> String {
++    if message.chars().count() <= ARCHIVE_REASON_MAX_CHARS {
++        return message;
++    }
++    let end = ARCHIVE_REASON_MAX_CHARS.saturating_sub(1);
++    format!("{}…", message.chars().take(end).collect::<String>())
++}
+diff --git a/crates/core/orchestration/src/steps_test.rs b/crates/core/orchestration/src/steps_test.rs
+index 2e5b7db22c2b..5b73d3c802f3 100644
+--- a/crates/core/orchestration/src/steps_test.rs
++++ b/crates/core/orchestration/src/steps_test.rs
+@@ -664,6 +664,11 @@ struct FakeVcs {
+     edit_patch: Mutex<String>,
+     /// 补丁取数 Err 注入位
+     edit_patch_error: Mutex<Option<String>>,
++    /// `worktree_snapshot().rebase_head` 编程位（缺省 `None` = 干净；archi 章节
++    /// 的 rebase 半程探测面）
++    snapshot_rebase_head: Mutex<Option<String>>,
++    /// `worktree_snapshot()` 本身 Err 注入位（fail-closed 探测面）
++    snapshot_error: Mutex<Option<String>>,
+ }
+ 
+ impl FakeVcs {
+@@ -680,6 +685,8 @@ impl FakeVcs {
+             edit_set_error: Mutex::new(None),
+             edit_patch: Mutex::new(String::new()),
+             edit_patch_error: Mutex::new(None),
++            snapshot_rebase_head: Mutex::new(None),
++            snapshot_error: Mutex::new(None),
+         }
+     }
+ 
+@@ -759,9 +766,21 @@ impl ArchiveVcsPort for FakeVcs {
+ 
+     fn worktree_snapshot(&self, _root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
+         self.record("worktree_snapshot");
++        if let Some(error) = self
++            .snapshot_error
++            .lock()
++            .expect("vcs 快照错误锁不可中毒")
++            .clone()
++        {
++            return Err(error);
++        }
+         Ok(WorktreeSnapshot {
+             head: "abc".to_owned(),
+-            rebase_head: None,
++            rebase_head: self
++                .snapshot_rebase_head
++                .lock()
++                .expect("vcs 快照锁不可中毒")
++                .clone(),
+             status: Vec::new(),
+             index: Vec::new(),
+         })
+@@ -3862,3 +3881,133 @@ async fn runner出错原样透传且审计记error() {
+         rows[0].summary
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// archi 章节：rebase 半程前置挡回探测（`check_rebase_halfway` / 文案）
++// ---------------------------------------------------------------------------
++
++/// 半程挡回文案三要素锚（路径 / 两条可照抄命令 / 重跑语义）。
++fn assert_halfway_message(message: &str, worktree: &str) {
++    assert!(
++        message.contains(worktree),
++        "文案含 worktree 绝对路径: {message}"
++    );
++    assert!(
++        message.contains("git rebase --continue"),
++        "文案含 continue 出路: {message}"
++    );
++    assert!(
++        message.contains("git rebase --abort"),
++        "文案含 abort 出路: {message}"
++    );
++    assert!(
++        message.contains("重跑归档"),
++        "文案含再重跑归档语义: {message}"
++    );
++}
++
++/// 正向：`rebase_head` 在场 → `Err`（三要素文案）；缺席 → `Ok(())`。
++#[test]
++fn rebase半程探测两形态() {
++    use crate::steps::{check_rebase_halfway, rebase_halfway_message};
++
++    let fake = FakeVcs::clean();
++    *fake.snapshot_rebase_head.lock().expect("快照锁不可中毒") = Some("abc123".to_owned());
++    let error = check_rebase_halfway(&fake, "/tmp/wt/alpha").expect_err("半程应 Err");
++    assert_halfway_message(&error, "/tmp/wt/alpha");
++    assert_eq!(
++        fake.calls()
++            .iter()
++            .filter(|call| call.as_str() == "worktree_snapshot")
++            .count(),
++        1,
++        "只探测一次"
++    );
++    assert_eq!(
++        error,
++        rebase_halfway_message("/tmp/wt/alpha", None),
++        "文案由单点函数产出"
++    );
++
++    let clean = FakeVcs::clean();
++    assert_eq!(
++        check_rebase_halfway(&clean, "/tmp/wt/beta"),
++        Ok(()),
++        "rebase_head 缺席即放行（干净 / 已 continue / 已 abort 后重跑）"
++    );
++}
++
++/// 异常：探测自身 `Err` → 前置挡回（fail-closed），文案附探测错误与两条出路。
++#[test]
++fn rebase半程探测失败fail_closed() {
++    use crate::steps::check_rebase_halfway;
++
++    let fake = FakeVcs::clean();
++    *fake.snapshot_error.lock().expect("快照锁不可中毒") =
++        Some("git 快照失败：lock 残留".to_owned());
++    let error = check_rebase_halfway(&fake, "/tmp/wt/gamma").expect_err("探测失败应 Err");
++    assert!(
++        error.contains("git 快照失败：lock 残留"),
++        "文案附探测错误: {error}"
++    );
++    assert_halfway_message(&error, "/tmp/wt/gamma");
++}
++
++/// 边界：文案总长 ≤ 200 字符（含超长 worktree 路径）；三要素并列不被截断吞掉。
++#[test]
++fn rebase半程文案两百字符上限() {
++    use crate::steps::{check_rebase_halfway, ARCHIVE_REASON_MAX_CHARS};
++
++    let short = FakeVcs::clean();
++    *short.snapshot_rebase_head.lock().expect("快照锁不可中毒") = Some("abc".to_owned());
++    let error = check_rebase_halfway(&short, "/tmp/wt/x").expect_err("半程应 Err");
++    assert!(error.chars().count() <= ARCHIVE_REASON_MAX_CHARS);
++
++    let long_path = format!("/tmp/{}/alpha", "深".repeat(300));
++    let fake = FakeVcs::clean();
++    *fake.snapshot_rebase_head.lock().expect("快照锁不可中毒") = Some("abc".to_owned());
++    let error = check_rebase_halfway(&fake, &long_path).expect_err("半程应 Err");
++    assert!(
++        error.chars().count() <= ARCHIVE_REASON_MAX_CHARS,
++        "近上限 / 超长路径均收口到 200 字符，实际 {}",
++        error.chars().count()
++    );
++    assert!(error.ends_with('…'), "截断以 … 留痕: {error}");
++    assert!(
++        error.contains("worktree") || error.contains("rebase"),
++        "截断后仍保留可读语义: {error}"
++    );
++    assert!(!error.contains('\n'), "换行不破坏可照抄性");
++}
++
++/// 边界：空路径调用只断言不 panic；重复调用幂等（只读探测）。
++#[test]
++fn rebase半程空路径与幂等() {
++    use crate::steps::check_rebase_halfway;
++
++    let fake = FakeVcs::clean();
++    assert_eq!(check_rebase_halfway(&fake, ""), Ok(()), "空路径不 panic");
++    assert_eq!(check_rebase_halfway(&fake, ""), Ok(()), "重复调用结果一致");
++    assert_eq!(
++        fake.calls()
++            .iter()
++            .filter(|call| call.as_str() == "worktree_snapshot")
++            .count(),
++        2,
++        "两次调用各探测一次（只读探测，无缓存、无副作用）"
++    );
++}
++
++/// 回归：探测实现面零新 vcs 能力——只调 `worktree_snapshot`，不触其他 git 面。
++#[test]
++fn rebase半程探测调用序单点() {
++    use crate::steps::check_rebase_halfway;
++
++    let fake = FakeVcs::clean();
++    let _ = check_rebase_halfway(&fake, "/tmp/wt/delta");
++    assert_eq!(
++        fake.calls(),
++        vec!["worktree_snapshot".to_owned()],
++        "仅 worktree_snapshot 一次（零 spawn / 零新能力）"
++    );
++}
+diff --git a/crates/core/orchestration/src/walker.rs b/crates/core/orchestration/src/walker.rs
+index 7543e12d65f3..6c243fef5bec 100644
+--- a/crates/core/orchestration/src/walker.rs
++++ b/crates/core/orchestration/src/walker.rs
+@@ -30,7 +30,7 @@ use crate::state::{
+     ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState,
+     ChangeStepStatus, EdgeKind, NodeKey, RunUpdate,
+ };
+-use crate::steps::change_branch;
++use crate::steps::{change_branch, check_rebase_halfway, clip_reason};
+ use crate::transcript::{failure_reason, final_assistant_text};
+ use crate::verdict::{parse_verdict, EvaluatorChecklist, MAX_REPORT_CHARS};
+ 
+@@ -2342,6 +2342,28 @@ async fn step_preflight(
+             }
+         }
+     }
++    // 半程挡回（写动作之前）：上一次归档在 ResolveConflicts 以模型冲突失败会保留
++    // rebase 半程，用户直接重跑时 Commit 步的 `add -A` + `commit` 会在 rebase 中间
++    // 态产生提交——此处置为 Terminal 挡回，后续步不启动（`cursor.preflight` 未赋值）。
++    // 目录不在场即不探测（design D13）：worktree 被手动删除且分支已合入时上面的分支
++    // 已放行，此处若仍探测，「不是 git 仓库」的探测错误会被 fail-closed 误当成半程，
++    // 把合法放行态挡回去。
++    if let Some(worktree) = payload
++        .worktree
++        .as_deref()
++        .filter(|path| Path::new(path).is_dir())
++    {
++        if let Err(reason) = check_rebase_halfway(ctx.vcs.as_ref(), worktree) {
++            settle_archive_node(
++                ctx,
++                cursor,
++                kind,
++                instance_no,
++                StepSettle::failed(Some(diagnose_brief(&reason))),
++            );
++            return Err(Terminal::failed(reason));
++        }
++    }
+     let brief = preflight_brief(&payload);
+     settle_archive_node(
+         ctx,
+@@ -2577,6 +2599,20 @@ async fn step_merge(
+     Ok(())
+ }
+ 
++/// 模型冲突分流的失败文案（worktree 绝对路径 + 冲突文件数与前两个路径 + 「解完
++/// 模型冲突后重跑归档（未自动 abort，rebase 半程保留于 worktree）」）；总长
++/// ≤ 200 字符（节点 detail 与 `run-error` 同文的截断宽度）。
++fn archi_conflict_message(worktree: &str, conflicts: &[String]) -> String {
++    let sample: Vec<&str> = conflicts.iter().take(2).map(String::as_str).collect();
++    let message = format!(
++        "架构模型冲突需人工裁决（不交 agent 解算）：worktree {worktree}；冲突 {} 个（{}）；\
++         解完模型冲突后重跑归档（未自动 abort，rebase 半程保留于 worktree）",
++        conflicts.len(),
++        sample.join("、")
++    );
++    clip_reason(message)
++}
++
+ /// 归档步失败收口单点：emit 失败节点（携记因）+ 返回 Terminal。
+ fn fail_archive_node(
+     ctx: &StepContext<'_>,
+@@ -2649,6 +2685,21 @@ async fn step_resolve_conflicts(
+     };
+     let branch = change_branch(&name);
+     let mut pending = conflicts;
++    // 模型冲突不进 agent 解算（任何快照 / 会话 / git 写动作之前）：架构域路径命中
++    // 即整体交人——零 agent 会话、零 `rebase --abort`（半程保留给人工处置，重入风
++    // 险由 Preflight 的半程挡回兜住）。混合冲突走模型臂（不先解代码再解模型）
++    if pending
++        .iter()
++        .any(|path| foundation::layout::is_archi_rel_path(path))
++    {
++        return Err(fail_archive_step(
++            ctx,
++            trace,
++            cursor,
++            kind,
++            archi_conflict_message(&worktree, &pending),
++        ));
++    }
+     loop {
+         let worktree_path = Path::new(&worktree);
+         // A 快照（后验对比基面）：探测失败即 lean（解算无从验）
+diff --git a/crates/core/orchestration/src/walker_test.rs b/crates/core/orchestration/src/walker_test.rs
+index 61f452b4e054..c29bf5406037 100644
+--- a/crates/core/orchestration/src/walker_test.rs
++++ b/crates/core/orchestration/src/walker_test.rs
+@@ -1021,6 +1021,10 @@ struct FakeVcs {
+     ff_merge_result: Mutex<Result<(), String>>,
+     snapshot: Mutex<Result<WorktreeSnapshot, String>>,
+     snapshot_head: Mutex<Option<String>>,
++    /// 干净探测前置次数（archi 章节：Preflight 半程探测须见干净态 `rebase_head
++    /// = None`，而解冲突后验 A / B 须见 rebase 半程 `Some`——同一
++    /// `worktree_snapshot` 面按调用序分相）
++    snapshot_clean_probes: Mutex<usize>,
+     /// 变更文件清单（change_edit_set 产出面）
+     edit_set: Mutex<Vec<String>>,
+     /// 清单取数 Err 注入位
+@@ -1059,6 +1063,7 @@ impl FakeVcs {
+             ff_merge_result: Mutex::new(Ok(())),
+             snapshot: Mutex::new(Ok(snapshot_of("head-a", None))),
+             snapshot_head: Mutex::new(None),
++            snapshot_clean_probes: Mutex::new(0),
+             edit_set: Mutex::new(Vec::new()),
+             edit_set_error: Mutex::new(None),
+             edit_patch: Mutex::new(String::new()),
+@@ -1156,6 +1161,26 @@ impl FakeVcs {
+         self
+     }
+ 
++    /// 快照探测失败面编程（archi 章节：Preflight 半程探测 fail-closed 的注入位）。
++    fn with_snapshot_failure(self, error: &str) -> Self {
++        *self.snapshot.lock().expect("vcs 快照锁不可中毒") = Err(error.to_owned());
++        self
++    }
++
++    /// 前 `probes` 次快照探测返回干净态（`rebase_head = None`），其后返回
++    /// [`Self::with_snapshot_head`] 的配置形态。
++    ///
++    /// archi 章节装置：Preflight 半程探测与解冲突后验 A / B 共用同一
++    /// `worktree_snapshot`——前者须见干净（放行重跑），后者须见 rebase 半程
++    /// `Some`（后验判据 ①），单值快照无法同时表达两相。
++    fn with_clean_preflight_probe(self) -> Self {
++        *self
++            .snapshot_clean_probes
++            .lock()
++            .expect("vcs 探测分相锁不可中毒") = 1;
++        self
++    }
++
+     /// 调用序快照。
+     fn calls(&self) -> Vec<String> {
+         self.calls.lock().expect("vcs 调用锁不可中毒").clone()
+@@ -1231,6 +1256,17 @@ impl ArchiveVcsPort for FakeVcs {
+ 
+     fn worktree_snapshot(&self, _root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
+         self.record("worktree_snapshot".to_owned());
++        // 探测分相（archi 章节）：前置次数内返回干净态（Preflight 半程探测的
++        // 放行形态），其后走配置形态（解冲突后验的 rebase 半程形态）
++        let mut clean_probes = self
++            .snapshot_clean_probes
++            .lock()
++            .expect("vcs 探测分相锁不可中毒");
++        if *clean_probes > 0 {
++            *clean_probes -= 1;
++            return Ok(snapshot_of("head-a", None));
++        }
++        drop(clean_probes);
+         self.snapshot.lock().expect("vcs 快照锁不可中毒").clone()
+     }
+ 
+@@ -1772,6 +1808,30 @@ fn worktree_dir(root: &TempRoot) -> String {
+         .into_owned()
+ }
+ 
++/// 短路径 worktree RAII：模型冲突文案长度敏感用例专用（三要素——worktree 绝对
++/// 路径 / 重跑引导 / 人工裁决——须全部落在 200 字符上限内；长临时根路径会把
++/// 引导语挤出截断位，届时只能断言前三要素，无法验证「可照抄」语义）。
++struct ShortWorktree(PathBuf);
++
++impl ShortWorktree {
++    fn new(tag: &str) -> Self {
++        let dir = std::env::temp_dir().join(format!("wt-{}-{tag}", std::process::id()));
++        let _ = fs_remove(&dir);
++        std::fs::create_dir_all(&dir).expect("创建短路径 worktree 失败");
++        Self(dir)
++    }
++
++    fn path_str(&self) -> String {
++        self.0.to_string_lossy().into_owned()
++    }
++}
++
++impl Drop for ShortWorktree {
++    fn drop(&mut self) {
++        let _ = fs_remove(&self.0);
++    }
++}
++
+ /// 相位定义（真件只读——计划步序列与产物清单的唯一来源）。
+ fn phase_def(phase: &str) -> &'static workflow::write::PhaseDefinition {
+     phase_table("requirement")
+@@ -7445,7 +7505,9 @@ async fn 归档冲突三段agent解算与独立快进() {
+     let vcs = Arc::new(
+         FakeVcs::clean()
+             .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
+-            .with_snapshot_head("head-b", Some("onto-commit")),
++            .with_snapshot_head("head-b", Some("onto-commit"))
++            // Preflight 半程探测先见干净态（否则挡回在 Commit 之前）
++            .with_clean_preflight_probe(),
+     );
+     let (task, _rx, history) = spawn_run_with_vcs(
+         worker,
+@@ -7488,7 +7550,11 @@ async fn 归档冲突三段agent解算与独立快进() {
+         vcs.calls()
+     );
+     assert_eq!(vcs.call_count("ff_merge:"), 1, "Merge 独立快进");
+-    assert_eq!(vcs.call_count("worktree_snapshot"), 2, "A / B 双快照后验");
++    assert_eq!(
++        vcs.call_count("worktree_snapshot"),
++        3,
++        "Preflight 半程探测一次 + A / B 双快照后验"
++    );
+ 
+     let command = history.finish().expect("收口落包应在案");
+     let rebase_detail = node_detail(&command, workflow::state::RunStepKind::Rebase);
+@@ -8469,7 +8535,9 @@ async fn 归档冲突解算续走失败携引导() {
+         FakeVcs::clean()
+             .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
+             .with_rebase_continue(Err("rebase --continue 失败".to_owned()))
+-            .with_snapshot_head("head-b", Some("onto-commit")),
++            .with_snapshot_head("head-b", Some("onto-commit"))
++            // Preflight 半程探测先见干净态（否则挡回在 Commit 之前）
++            .with_clean_preflight_probe(),
+     );
+     let (task, _rx, history) = spawn_run_with_vcs(
+         worker,
+@@ -12950,3 +13018,671 @@ async fn 三面取消一致性_节点stopped且run收敛stopped() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// archi 章节：模型冲突前置分流（`step_resolve_conflicts` 模型臂）与 Preflight
++// rebase 半程挡回（`step_preflight`）
++// ---------------------------------------------------------------------------
++
++/// 模型路径冲突（正向）：`rebase_conflicts` 含架构域模型路径 → `Terminal::failed`，
++/// 文案含 worktree 绝对路径 + 「解完模型冲突后重跑归档」+ 人工裁决语义；≤200 字符；
++/// 零会话 / 零 `rebase --continue` / 零 `rebase --abort`。
++#[tokio::test]
++async fn 归档模型冲突交人裁决零会话零abort() {
++    let root = TempRoot::new("archive-archi-conflict");
++    root.change(NAME);
++    // 短路径 worktree：文案三要素须在 200 字符内全部在场（长路径会截断引导语）
++    let short = ShortWorktree::new("archi-conflict");
++    let worktree = short.path_str();
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(
++        FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
++            "openspec/architecture/models/02-auth.toml".to_owned(),
++        ]))),
++    );
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(
++        status,
++        ChangeRunStatus::Failed,
++        "模型冲突 → Terminal::failed（整体交人）"
++    );
++    assert!(
++        requests.lock().expect("请求锁").is_empty(),
++        "模型冲突臂零 agent 会话（不交 agent 解算）"
++    );
++    assert!(sessions.lock().expect("会话锁").is_empty());
++    assert_eq!(vcs.call_count("rebase_continue"), 0, "零 rebase --continue");
++    assert_eq!(
++        vcs.call_count("rebase_abort"),
++        0,
++        "零 rebase --abort（半程保留）"
++    );
++
++    let command = history.finish().expect("失败收口落包应在案");
++    let reason = command.reason.expect("失败原因应落包");
++    assert!(
++        reason.contains(&worktree),
++        "文案含 worktree 绝对路径: {reason}"
++    );
++    assert!(
++        reason.contains("解完模型冲突后重跑归档"),
++        "文案含重跑引导: {reason}"
++    );
++    assert!(reason.contains("人工裁决"), "文案含人工裁决语义: {reason}");
++    let resolve_node = command
++        .nodes
++        .iter()
++        .find(|node| node.step == workflow::state::RunStepKind::ResolveConflicts)
++        .expect("ResolveConflicts 节点在场");
++    assert_eq!(resolve_node.status, RunStepStatus::Failed);
++    assert!(
++        resolve_node.session_id.is_none(),
++        "模型冲突臂节点无会话槽位"
++    );
++}
++
++/// 混合冲突（异常）：冲突清单同时含模型路径与代码路径 → 走模型臂（`Terminal::
++/// failed`、零会话），不得先解代码。
++#[tokio::test]
++async fn 归档混合冲突走模型臂不先解代码() {
++    let root = TempRoot::new("archive-mixed-conflict");
++    root.change(NAME);
++    let worktree = worktree_dir(&root);
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(
++        FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
++            "src/auth/token.rs".to_owned(),
++            "openspec/architecture/models/01-core.toml".to_owned(),
++        ]))),
++    );
++    let (task, _rx, _history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    assert_eq!(
++        task.await.expect("run 任务正常结束"),
++        ChangeRunStatus::Failed,
++        "含模型路径即整体交人（不得先解代码）"
++    );
++    assert!(
++        requests.lock().expect("请求锁").is_empty(),
++        "零解冲突会话（代码路径亦不解）"
++    );
++    assert_eq!(vcs.call_count("rebase_continue"), 0);
++}
++
++/// Preflight 半程挡回（正向）：`worktree` 在场且 `worktree_snapshot().rebase_head`
++/// 有值 → `Terminal::failed`，文案含 worktree 绝对路径 + 两条出路；Commit 步零执行
++/// （`commit_all` / `rebase_branch` / `ff_merge` / `rebase_abort` 计数全 0）。
++#[tokio::test]
++async fn 归档preflight半程挡回零提交零重放() {
++    let root = TempRoot::new("archive-halfway");
++    root.change(NAME);
++    let worktree = worktree_dir(&root);
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(FakeVcs::clean().with_snapshot_head("head-b", Some("onto-commit")));
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    assert_eq!(
++        task.await.expect("run 任务正常结束"),
++        ChangeRunStatus::Failed,
++        "半程在场 → 前置挡回"
++    );
++
++    assert!(sessions.lock().expect("会话锁").is_empty(), "零会话");
++    assert_eq!(vcs.call_count("commit_all"), 0, "Commit 步零执行");
++    assert_eq!(vcs.call_count("rebase_branch"), 0, "Rebase 步零执行");
++    assert_eq!(vcs.call_count("ff_merge"), 0, "Merge 步零执行");
++    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
++    assert_eq!(
++        vcs.call_count("worktree_snapshot"),
++        1,
++        "只做一次半程探测: {:?}",
++        vcs.calls()
++    );
++
++    let command = history.finish().expect("失败收口落包应在案");
++    let reason = command.reason.expect("失败原因应落包");
++    assert!(
++        reason.contains(&worktree),
++        "文案含 worktree 绝对路径: {reason}"
++    );
++    assert!(
++        reason.contains("git rebase --continue"),
++        "文案含 continue 出路: {reason}"
++    );
++    // Commit / Rebase 步在挡回前未启动：节点或不在场、或在场面非 passed
++    for step in [
++        workflow::state::RunStepKind::Commit,
++        workflow::state::RunStepKind::Rebase,
++    ] {
++        if let Some(node) = command.nodes.iter().find(|node| node.step == step) {
++            assert_ne!(node.status, RunStepStatus::Passed, "{step:?} 不得 passed");
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------
++// archi 章节（续）：Preflight 半程探测失败（fail-closed）与模型冲突文案形态
++// （`archi_conflict_message` 的判据单点 `is_archi_rel_path` 经整链行为断言）
++// ---------------------------------------------------------------------------
++
++/// Preflight 探测失败（异常，fail-closed，D13）：`worktree_snapshot` 自身 `Err`
++/// → 无法区分「半程」与「干净」时拒绝继续（误放行的代价是 `add -A` + `commit`
++/// 落在 rebase 中间态）——`Terminal::failed`，文案附探测错误 + worktree 绝对路径
++/// （≤200 字符），Commit 步零执行（`commit_all` / `rebase_branch` / `ff_merge` /
++/// `rebase_abort` 计数全 0），Preflight 节点 failed。
++#[tokio::test]
++async fn 归档preflight探测失败fail_closed挡回() {
++    let root = TempRoot::new("archive-halfway-probe-error");
++    root.change(NAME);
++    let worktree = worktree_dir(&root);
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(FakeVcs::clean().with_snapshot_failure("fatal: 快照探测失败"));
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    assert_eq!(
++        task.await.expect("run 任务正常结束"),
++        ChangeRunStatus::Failed,
++        "探测失败 → fail-closed 挡回（不静默放行）"
++    );
++
++    assert!(sessions.lock().expect("会话锁").is_empty(), "零会话");
++    assert_eq!(vcs.call_count("commit_all"), 0, "Commit 步零执行");
++    assert_eq!(vcs.call_count("rebase_branch"), 0, "Rebase 步零执行");
++    assert_eq!(vcs.call_count("ff_merge"), 0, "Merge 步零执行");
++    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
++    assert_eq!(
++        vcs.call_count("worktree_snapshot"),
++        1,
++        "只做一次半程探测: {:?}",
++        vcs.calls()
++    );
++
++    let command = history.finish().expect("失败收口落包应在案");
++    let reason = command.reason.expect("失败原因应落包");
++    assert!(
++        reason.contains("rebase 半程探测失败"),
++        "文案点名探测失败形态（fail-closed 记因）: {reason}"
++    );
++    assert!(
++        reason.contains("fatal: 快照探测失败"),
++        "文案附探测错误原文: {reason}"
++    );
++    assert!(
++        reason.contains(&worktree),
++        "文案含 worktree 绝对路径: {reason}"
++    );
++    assert!(
++        reason.chars().count() <= 200,
++        "文案不超 200 字符（节点 detail 同宽）: {}",
++        reason.chars().count()
++    );
++
++    let preflight = command
++        .nodes
++        .iter()
++        .find(|node| node.step == workflow::state::RunStepKind::Preflight)
++        .expect("Preflight 节点在场");
++    assert_eq!(
++        preflight.status,
++        RunStepStatus::Failed,
++        "Preflight 落 failed"
++    );
++    assert!(
++        preflight
++            .detail
++            .as_deref()
++            .is_some_and(|detail| detail.contains("rebase 半程探测失败")),
++        "节点 detail 与 run-error 同文: {:?}",
++        preflight.detail
++    );
++}
++
++/// Preflight 放行（正向，legacy 形态）：`payload.worktree = None`（无 worktree
++/// 记录的老 change）→ 不探测、不挡回——半程探测只在 worktree 在场时发生
++/// （`worktree_snapshot` 零调用），Preflight 步 `passed`（既有完成度警告 / delta
++/// specs / 目录存在性分支不受影响）。
++#[tokio::test]
++async fn 归档preflight无worktree不探测即放行() {
++    let root = TempRoot::new("archive-no-worktree");
++    root.change(NAME);
++    let legacy = ArchivePreflight {
++        name: NAME.to_owned(),
++        completed: true,
++        incomplete_phases: Vec::new(),
++        missing_artifacts: Vec::new(),
++        delta_specs: Vec::new(),
++        worktree: None,
++        branch: None,
++        merge_target: None,
++    };
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(vec![legacy.clone(), legacy])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(FakeVcs::clean());
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++
++    assert_eq!(
++        vcs.call_count("worktree_snapshot"),
++        0,
++        "worktree 缺席 → 零半程探测（老 change 不被挡回）: {:?}",
++        vcs.calls()
++    );
++    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
++    assert!(sessions.lock().expect("会话锁").is_empty(), "零 agent 会话");
++
++    let command = history.finish().expect("收口落包应在案");
++    let preflight = command
++        .nodes
++        .iter()
++        .find(|node| node.step == workflow::state::RunStepKind::Preflight)
++        .expect("Preflight 节点在场");
++    assert_eq!(
++        preflight.status,
++        RunStepStatus::Passed,
++        "worktree 缺席即放行（不挡回）: {:?}",
++        preflight.detail
++    );
++}
++
++/// Preflight 目录不在场（边界，D13 前置）：`payload.worktree` 记录在场但目录已不在盘
++/// （手动清 / 重试链形态）→ **不探测**、不挡回——即便快照探测本身会 `Err`（目录缺席即
++/// 「不是仓库」），Preflight 仍 `passed`、`worktree_snapshot` 零调用、run 正常收口。
++/// 若探测被无条件执行，这条「分支已合入 + 目录已删」的合法放行态会被 fail-closed
++/// 误挡成半程。
++#[tokio::test]
++async fn 归档preflight目录不在场不探测即放行() {
++    let root = TempRoot::new("archive-halfway-absent-dir");
++    root.change(NAME);
++    // 记录在案但从未 / 已不在盘的 worktree 路径
++    let worktree = root.0.join("worktrees-seg").join(NAME);
++    let worktree = worktree.to_string_lossy().into_owned();
++    assert!(
++        !std::path::Path::new(&worktree).exists(),
++        "前置：worktree 目录缺席"
++    );
++
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    // 快照探测一旦被调用即失败：目录缺席面「不探测」是唯一让它放行的原因
++    let vcs = Arc::new(
++        FakeVcs::clean()
++            .with_snapshot_failure("fatal: not a git repository")
++            .with_merged(Ok(true)),
++    );
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(
++        status,
++        ChangeRunStatus::Completed,
++        "目录缺席 → 不探测、不挡回（合法放行态）"
++    );
++
++    assert_eq!(
++        vcs.call_count("worktree_snapshot"),
++        0,
++        "目录不在场即零半程探测（不把「不是仓库」误判成半程）: {:?}",
++        vcs.calls()
++    );
++    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
++    assert!(sessions.lock().expect("会话锁").is_empty(), "零 agent 会话");
++
++    let command = history.finish().expect("收口落包应在案");
++    let preflight = command
++        .nodes
++        .iter()
++        .find(|node| node.step == workflow::state::RunStepKind::Preflight)
++        .expect("Preflight 节点在场");
++    assert_eq!(
++        preflight.status,
++        RunStepStatus::Passed,
++        "目录缺席即放行（探测不执行）: {:?}",
++        preflight.detail
++    );
++}
++
++/// 模型冲突文案形态（边界，表驱动两形态）：分隔符形态（`\`）与祖先路径形态
++/// （`openspec/architecture`，无 tail 段）均命中模型臂——判据单点为
++/// `is_archi_rel_path`（归一 + 段位判定），文案携 worktree 绝对路径 + 「冲突 1
++/// 个」+ 重跑引导，且整体 ≤200 字符。
++#[tokio::test]
++async fn 归档模型冲突文案命中分隔符与祖先路径两形态() {
++    for conflict in [
++        r"openspec\architecture\models\02-auth.toml",
++        "openspec/architecture",
++    ] {
++        let root = TempRoot::new("archive-archi-conflict-form");
++        root.change(NAME);
++        // 短路径 worktree：三要素须在 200 字符内全部在场
++        let short = ShortWorktree::new("archi-conflict-form");
++        let worktree = short.path_str();
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++            .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++            .assemble();
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let vcs = Arc::new(
++            FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![conflict.to_owned()]))),
++        );
++        let (task, _rx, history) = spawn_run_with_vcs(
++            worker,
++            tools,
++            Arc::clone(&vcs),
++            Arc::clone(&snapshot),
++            &control,
++            true,
++            &root.root_str(),
++            &root.root_str(),
++            Some("archive"),
++        );
++        let _confirmer = spawn_confirmer(&control, true);
++        assert_eq!(
++            task.await.expect("run 任务正常结束"),
++            ChangeRunStatus::Failed,
++            "{conflict}: 架构域路径命中即整体交人"
++        );
++
++        assert!(
++            requests.lock().expect("请求锁").is_empty(),
++            "{conflict}: 模型冲突臂零 agent 会话"
++        );
++        assert!(sessions.lock().expect("会话锁").is_empty());
++        assert_eq!(vcs.call_count("rebase_continue"), 0, "{conflict}: 零续走");
++        assert_eq!(vcs.call_count("rebase_abort"), 0, "{conflict}: 零 abort");
++        assert_eq!(
++            vcs.call_count("worktree_snapshot"),
++            1,
++            "{conflict}: 仅 Preflight 半程探测一次（模型臂在 A 快照之前返回）"
++        );
++
++        let command = history.finish().expect("失败收口落包应在案");
++        let reason = command.reason.expect("失败原因应落包");
++        assert!(
++            reason.contains("架构模型冲突需人工裁决"),
++            "{conflict}: 文案点名模型冲突臂: {reason}"
++        );
++        assert!(
++            reason.contains("冲突 1 个"),
++            "{conflict}: 文案携冲突计数: {reason}"
++        );
++        assert!(
++            reason.contains(&worktree),
++            "{conflict}: 文案含 worktree 绝对路径: {reason}"
++        );
++        assert!(
++            reason.contains("解完模型冲突后重跑归档"),
++            "{conflict}: 文案含重跑引导: {reason}"
++        );
++        assert!(
++            reason.chars().count() <= 200,
++            "{conflict}: 文案不超 200 字符: {}",
++            reason.chars().count()
++        );
++    }
++}
++
++/// 多冲突路径（边界）：三条架构域路径 → 文案取前两条为样本、计数如实为 3、
++/// 第三条不入样本（`take(2)` 单点），整体 ≤200 字符（超限按字符截断留痕）。
++#[tokio::test]
++async fn 归档模型冲突多路径文案计数与前两样本() {
++    let root = TempRoot::new("archive-archi-conflict-many");
++    root.change(NAME);
++    // 短路径 worktree：三条路径的样本 + 计数 + 引导须同处 200 字符内
++    let short = ShortWorktree::new("archi-conflict-many");
++    let worktree = short.path_str();
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(
++        FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
++            "openspec/architecture".to_owned(),
++            r"openspec\architecture\models\01-core.toml".to_owned(),
++            "openspec/architecture/models/03-billing.toml".to_owned(),
++        ]))),
++    );
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    assert_eq!(
++        task.await.expect("run 任务正常结束"),
++        ChangeRunStatus::Failed,
++        "多路径冲突同样整体交人"
++    );
++    assert!(
++        requests.lock().expect("请求锁").is_empty(),
++        "零 agent 会话（不逐条解算）"
++    );
++
++    let command = history.finish().expect("失败收口落包应在案");
++    let reason = command.reason.expect("失败原因应落包");
++    assert!(
++        reason.contains("冲突 3 个"),
++        "计数如实为 3（不因样本截取而失真）: {reason}"
++    );
++    assert!(
++        reason.contains("冲突 3 个（openspec/architecture、"),
++        "首条样本在场（样本以「、」连接）: {reason}"
++    );
++    assert!(
++        reason.contains(r"openspec\architecture\models\01-core.toml"),
++        r"第二条样本原样在场（`\` 分隔符逐字保留）: {reason}"
++    );
++    assert!(
++        !reason.contains("03-billing.toml"),
++        "第三条不入样本（取前两条即止）: {reason}"
++    );
++    assert!(
++        reason.contains("解完模型冲突后重跑归档"),
++        "重跑引导在场（短路径下三要素同处 200 字符内）: {reason}"
++    );
++    assert!(
++        reason.chars().count() <= 200,
++        "文案不超 200 字符: {}",
++        reason.chars().count()
++    );
++}
++
++/// 负样本（回归，判据单点）：冲突清单全为代码路径（`openspec/changes/x/specs/
++/// y.md`）→ **不**走模型臂：既有解冲突会话照常发起、无模型冲突文案、run 收口
++/// 完成（判据 `is_archi_rel_path` 不做前缀模糊匹配）。
++#[tokio::test]
++async fn 归档代码路径冲突不入模型臂() {
++    let root = TempRoot::new("archive-code-only-conflict");
++    root.change(NAME);
++    let worktree = worktree_dir(&root);
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(
++        FakeVcs::clean()
++            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
++                "openspec/changes/x/specs/y.md".to_owned(),
++            ])))
++            .with_snapshot_head("head-b", Some("onto-commit"))
++            // Preflight 半程探测先见干净态（后验 A / B 才见 rebase 半程）
++            .with_clean_preflight_probe(),
++    );
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    assert_eq!(
++        task.await.expect("run 任务正常结束"),
++        ChangeRunStatus::Completed,
++        "代码路径冲突走既有解算链（不被模型臂拦下）"
++    );
++
++    let roles: Vec<WorkerRole> = sessions
++        .lock()
++        .expect("会话锁")
++        .iter()
++        .map(|(role, _)| *role)
++        .collect();
++    assert_eq!(
++        roles,
++        vec![WorkerRole::ResolveConflicts],
++        "既有解冲突会话照常发起"
++    );
++    assert!(
++        requests
++            .lock()
++            .expect("请求锁")
++            .iter()
++            .all(|request| !request.prompt.contains("架构模型冲突")),
++        "解冲突 prompt 不含模型冲突文案"
++    );
++    assert_eq!(vcs.call_count("rebase_continue"), 1, "解算后由链代续走");
++
++    let command = history.finish().expect("收口落包应在案");
++    assert!(
++        command
++            .reason
++            .as_deref()
++            .is_none_or(|reason| !reason.contains("架构模型冲突")),
++        "失败面零模型冲突文案: {:?}",
++        command.reason
++    );
++}
+diff --git a/crates/core/workflow/src/prompts/acceptance-evaluator.md b/crates/core/workflow/src/prompts/acceptance-evaluator.md
+index 3457201e5e81..ead8af032171 100644
+--- a/crates/core/workflow/src/prompts/acceptance-evaluator.md
++++ b/crates/core/workflow/src/prompts/acceptance-evaluator.md
+@@ -37,6 +37,7 @@
+ - 每条 AC 必须追溯到具体代码证据——「由通用实现覆盖」不算证据。
+ - `tasks.md` 存在未勾选项 → verdict fail。
+ - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
++- 额外可用只读工具 `archi_module`（定位）：核对验收面与模型声明的模块边界一致——返回元素概览、邻接与文档引用。
+ - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
+ - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写保持英文。
+ 
+diff --git a/crates/core/workflow/src/prompts/code-review-evaluator.md b/crates/core/workflow/src/prompts/code-review-evaluator.md
+index 90e2fa1e9177..618d0a0b5362 100644
+--- a/crates/core/workflow/src/prompts/code-review-evaluator.md
++++ b/crates/core/workflow/src/prompts/code-review-evaluator.md
+@@ -37,6 +37,7 @@
+ - 不写任何评估记录 / 工作流记录文件，不使用 write / edit / bash 落盘。
+ - 证据必须含 file:line 引用。
+ - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
++- 额外可用只读工具 `archi_module`（定位）：核对改动是否越界依赖——返回该元素的邻接与直接子元素，比对模块边界。
+ - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
+ - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写保持英文。
+ 
+diff --git a/crates/core/workflow/src/prompts/dev-design-evaluator.md b/crates/core/workflow/src/prompts/dev-design-evaluator.md
+index d122aebaf5cf..ee35b59aaea4 100644
+--- a/crates/core/workflow/src/prompts/dev-design-evaluator.md
++++ b/crates/core/workflow/src/prompts/dev-design-evaluator.md
+@@ -32,6 +32,7 @@
+ - 不写任何评估记录 / 工作流记录文件，不使用 write / edit / bash 落盘。
+ - 证据必须指向产物中的具体章节 / 行。
+ - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
++- 额外可用两个只读工具：`archi_search`（发现：查元素与文档路径）、`archi_module`（定位：给出该元素的邻接 / 直接子元素 / 文档引用与声明位置 `modelFile` + `modelLine`），据此核对设计是否与既有模型一致。
+ - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
+ - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写保持英文。
+ 
+diff --git a/crates/core/workflow/src/prompts/dev-design-planner.md b/crates/core/workflow/src/prompts/dev-design-planner.md
+index 2f73024db184..ccdbc6f8311e 100644
+--- a/crates/core/workflow/src/prompts/dev-design-planner.md
++++ b/crates/core/workflow/src/prompts/dev-design-planner.md
+@@ -40,4 +40,5 @@
+ - 沿既有代码库约定，不自造新约定。
+ - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
+ - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
++- 额外可用两个只读工具：`archi_search`（发现：还不知道这模块归谁管时先搜元素与文档路径）、`archi_module`（定位：给出该元素的出边 / 入边 / 直接子元素 / 文档引用与声明位置 `modelFile` + `modelLine`，可直接 `edit` 到声明行）。
+ - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / 端点路径与 HTTP 方法保持英文。
+diff --git a/crates/core/workflow/src/prompts/implementation-generator.md b/crates/core/workflow/src/prompts/implementation-generator.md
+index 56ff0581a086..964f534ab234 100644
+--- a/crates/core/workflow/src/prompts/implementation-generator.md
++++ b/crates/core/workflow/src/prompts/implementation-generator.md
+@@ -36,3 +36,4 @@
+ - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行——不自行运行静态检查或测试门禁脚本。
+ - 不产出评估结论或 checklist JSON。
+ - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
++- 额外可用只读工具 `archi_module`（定位）：改动前先确认模块边界与依赖方向——返回该元素的邻接、直接子元素、文档引用与声明位置 `modelFile` + `modelLine`。
+diff --git a/crates/core/workflow/src/prompts/proposal-planner.md b/crates/core/workflow/src/prompts/proposal-planner.md
+index b9666371062a..2b222332d541 100644
+--- a/crates/core/workflow/src/prompts/proposal-planner.md
++++ b/crates/core/workflow/src/prompts/proposal-planner.md
+@@ -34,4 +34,5 @@
+ - 沿既有代码库约定，不自造新约定。
+ - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
+ - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root，不依赖插件侧工具面。
++- 额外可用只读工具 `archi_search`（发现）：还不知道这功能归谁管时先搜——按关键词检索架构模型里的元素与文档路径（返回元素薄条目与四字段文档条目，不搜正文；正文用 grep 自取）。
+ - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / spec 头 / scenario 标记 / 规范关键词保持英文。
+diff --git a/crates/core/workflow/src/prompts/test-design-planner.md b/crates/core/workflow/src/prompts/test-design-planner.md
+index baa8c158f7cf..b6f6230d423b 100644
+--- a/crates/core/workflow/src/prompts/test-design-planner.md
++++ b/crates/core/workflow/src/prompts/test-design-planner.md
+@@ -38,6 +38,7 @@
+ - 既有代码库有测试模式时沿其模式。
+ - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行；不复制测试运行脚本细节。
+ - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
++- 额外可用只读工具 `archi_search`（发现）：把用例归到正确模块时先搜元素与文档路径（返回薄条目，不搜正文）。
+ - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / 框架与工具名保持英文。
+ 
+ ### Parameter Type → Edge Case Systematic Mapping
+diff --git a/crates/core/workflow/src/write/phase_table_test.rs b/crates/core/workflow/src/write/phase_table_test.rs
+index 98d25f878996..7ec3fa66192f 100644
+--- a/crates/core/workflow/src/write/phase_table_test.rs
++++ b/crates/core/workflow/src/write/phase_table_test.rs
+@@ -2815,3 +2815,244 @@ fn on_fail回归锚_ac10() {
+ 
+     assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈循环常量锚定 5");
+ }
++
++// ---------------------------------------------------------------------------
++// archi 章节：7 份矩阵命中 md 的工具引用纪律（逐文件扫描）
++// ---------------------------------------------------------------------------
++
++/// prompts 目录（`include_str!` 的源目录；`*_test.rs` 不受路径字面量禁令约束）。
++fn prompts_dir() -> std::path::PathBuf {
++    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
++        .join("src")
++        .join("prompts")
++}
++
++/// 读一份 prompt md（缺失即红——装配面 `include_str!` 的编译期守卫之外的人工锚）。
++fn prompt_text(name: &str) -> String {
++    let path = prompts_dir().join(format!("{name}.md"));
++    std::fs::read_to_string(&path)
++        .unwrap_or_else(|error| panic!("读取 prompt {} 失败: {error}", path.display()))
++}
++
++/// 16 份 prompt md 的文件名（去扩展名，字典序）。
++fn prompt_names() -> Vec<String> {
++    let mut names: Vec<String> = std::fs::read_dir(prompts_dir())
++        .expect("读取 prompts 目录失败")
++        .flatten()
++        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
++        .map(|entry| {
++            entry
++                .path()
++                .file_stem()
++                .expect("文件名")
++                .to_string_lossy()
++                .into_owned()
++        })
++        .collect();
++    names.sort();
++    names
++}
++
++/// 矩阵命中面（7 份 md × 各自的 archi 工具勾选集合——矩阵单源逐文件对拍）。
++const ARCHI_PROMPT_MATRIX: [(&str, bool, bool); 7] = [
++    ("proposal-planner", false, true),
++    ("dev-design-planner", true, true),
++    ("dev-design-evaluator", true, true),
++    ("test-design-planner", false, true),
++    ("implementation-generator", true, false),
++    ("code-review-evaluator", true, false),
++    ("acceptance-evaluator", true, false),
++];
++
++/// 正向：7 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名。
++#[test]
++fn archi工具引用与注入矩阵逐文件一致() {
++    for (name, module, search) in ARCHI_PROMPT_MATRIX {
++        let text = prompt_text(name);
++        assert_eq!(
++            text.contains("archi_module"),
++            module,
++            "{name} 的 archi_module 勾选状态应一致"
++        );
++        assert_eq!(
++            text.contains("archi_search"),
++            search,
++            "{name} 的 archi_search 勾选状态应一致"
++        );
++    }
++}
++
++/// 正向：每份命中 md 的工具表述含「何时用」与「返回什么」两类信息。
++///
++/// 判据取真实表述锚：「何时用」= 使用相位标注（`（发现` / `（定位`，即矩阵两工具的
++/// 语义角色）；「返回什么」= 返回面词汇（邻接 / 子元素 / 声明位置 / `modelFile` /
++/// 薄条目 / 文档路径 / 文档条目）。定位类必须能直接 `edit`，故事实上要求声明位置类
++/// 词汇在场——由各文件的 `modelFile` + `modelLine` 逐文件守住。
++#[test]
++fn archi工具表述含何时用与返回什么() {
++    for (name, _, _) in ARCHI_PROMPT_MATRIX {
++        let text = prompt_text(name);
++        let has_when = text.contains("（发现") || text.contains("（定位");
++        assert!(
++            has_when,
++            "{name} 应说明「何时用」该工具（发现 / 定位语义标注）"
++        );
++        let has_what = text.contains("邻接")
++            || text.contains("子元素")
++            || text.contains("声明位置")
++            || text.contains("modelFile")
++            || text.contains("薄条目")
++            || text.contains("文档路径")
++            || text.contains("文档条目");
++        assert!(has_what, "{name} 应说明「返回什么」");
++    }
++}
++
++/// 异常：其余 9 份 md 零 `archi` 字样（不许诺未下发工具面）。
++#[test]
++fn 非命中md零archi字样() {
++    let non_matching = [
++        "proposal-evaluator",
++        "test-design-evaluator",
++        "implementation-evaluator",
++        "test-gen-generator",
++        "test-gen-evaluator",
++        "test-execution-executor",
++        "test-execution-evaluator",
++        "code-analyze-planner",
++        "code-analyze-evaluator",
++    ];
++    for name in non_matching {
++        let text = prompt_text(name);
++        assert!(
++            !text.contains("archi"),
++            "{name} 不应出现 archi 字样（未下发该工具面）"
++        );
++    }
++}
++
++/// 正向：两工具名的并集恰为 7 份命中文件，且不存在第三个 archi 工具名。
++#[test]
++fn 两工具名并集恰七份且无第三工具() {
++    let hit: Vec<String> = prompt_names()
++        .into_iter()
++        .filter(|name| {
++            let text = prompt_text(name);
++            text.contains("archi_module") || text.contains("archi_search")
++        })
++        .collect();
++    let mut expected: Vec<String> = ARCHI_PROMPT_MATRIX
++        .iter()
++        .map(|(name, _, _)| (*name).to_owned())
++        .collect();
++    expected.sort();
++    assert_eq!(hit, expected, "命中面恰为矩阵七份（无遗漏 / 无越权）");
++
++    // 越权扫描：`archi_` 系列只出现两个名字
++    for name in prompt_names() {
++        let text = prompt_text(&name);
++        for candidate in [
++            "archi_write",
++            "archi_set_gate",
++            "archi_graph",
++            "archi_read_doc",
++        ] {
++            assert!(
++                !text.contains(candidate),
++                "{name} 不应出现第三个 archi 工具名 {candidate}"
++            );
++        }
++    }
++}
++
++/// 异常：7 份命中 md 不含架构域路径字面量、不含「用专用工具写模型」指令（路径
++/// 知识归工具返回值）。
++#[test]
++fn 命中md零路径模板() {
++    for (name, _, _) in ARCHI_PROMPT_MATRIX {
++        let text = prompt_text(name);
++        assert!(
++            !text.contains("openspec/architecture"),
++            "{name} 不应含架构域路径字面量"
++        );
++        assert!(
++            !text.contains("architecture/models"),
++            "{name} 不应含模型目录路径模板"
++        );
++        assert!(
++            !text.contains("archi_write") && !text.contains("写入模型"),
++            "{name} 不应指示用专用工具写模型"
++        );
++    }
++}
++
++/// 边界：16 份 md 零占位 / 零 `__MCP:*` 片段（既有扫描随动）。
++#[test]
++fn 十六份md零占位与零mcp() {
++    let names = prompt_names();
++    assert_eq!(names.len(), 16, "prompt md 恰 16 份");
++    for name in names {
++        let text = prompt_text(&name);
++        for placeholder in [
++            "<change>",
++            "<phase>",
++            "{{",
++            "__INCLUDE:",
++            "__MODEL_",
++            "__DEV_TEAM_ROOT__",
++            "__MCP:",
++        ] {
++            assert!(
++                !text.contains(placeholder),
++                "{name} 不应含占位片段 {placeholder}"
++            );
++        }
++        assert!(!text.trim().is_empty(), "{name} 静态非空");
++    }
++}
++
++/// 回归：装配面逐字不变——16 条 `include_str!` 常量与盘面 md **逐字一致**
++/// （工具名属 prompt 正文的既定事实，工具**清单 / schema** 仍不落 prompt：真源为
++/// `SessionToolset` 注入）。
++#[test]
++fn 装配面include_str逐字不变且工具面不落prompt() {
++    let mut table_prompts: Vec<&'static str> = Vec::new();
++    let table = phase_table("requirement").expect("requirement 应返回 Some");
++    for phase in table {
++        for agent in [&phase.executor, &phase.evaluator].into_iter().flatten() {
++            let PhaseAgentSpec { prompt, .. } = agent;
++            assert!(!prompt.trim().is_empty(), "{} 的 prompt 非空", phase.id);
++            assert!(
++                !prompt.contains("\"type\": \"object\"") && !prompt.contains("\"required\": ["),
++                "{} 的 prompt 不承载工具 schema（清单真源在 SessionToolset）",
++                phase.id
++            );
++            table_prompts.push(prompt);
++        }
++    }
++    // requirement 表 agent 槽位 = 7 执行 + 7 评估 = 14（archive 确定性相位无 agent；
++    // code-analyze 两 prompt 属 test-only 表与代码分析步骤，不在本表 agent 面）
++    assert_eq!(
++        table_prompts.len(),
++        14,
++        "requirement 表 14 条 agent 装配常量（7 执行 + 7 评估）"
++    );
++    let unique: std::collections::BTreeSet<&str> = table_prompts.iter().copied().collect();
++    assert_eq!(
++        unique.len(),
++        table_prompts.len(),
++        "各相位独立装配（无重复 include_str! 引用）"
++    );
++
++    // 逐字不变：每条装配常量都能在盘面 md 中逐字命中（`include_str!` 未漂移）
++    let disk: Vec<String> = prompt_names()
++        .iter()
++        .map(|name| prompt_text(name))
++        .collect();
++    for prompt in table_prompts {
++        assert!(
++            disk.iter().any(|text| text == prompt),
++            "装配常量与盘面 md 逐字一致（16 条 include_str! 零漂移）"
++        );
++    }
++}
+diff --git a/crates/infra/agent/Cargo.toml b/crates/infra/agent/Cargo.toml
+index 1d37305e06ef..6c5c2c2738bb 100644
+--- a/crates/infra/agent/Cargo.toml
++++ b/crates/infra/agent/Cargo.toml
+@@ -11,6 +11,9 @@ exec = { workspace = true }
+ foundation = { workspace = true }
+ # 写入保护规则匹配：复用 `checks::globmatch::match_glob`（glob 方言单点，禁第二份实现）
+ checks = { workspace = true }
++# agent 工具执行体复用 `archi::dto` 投影：三方一致性机械前提，MUST NOT 另拼 JSON。
++# 理由与 `agent-runtime → checks`（glob 方言单点）同构。
++archi = { workspace = true }
+ store = { workspace = true }
+ serde = { workspace = true }
+ specta = { workspace = true }
+diff --git a/crates/infra/agent/src/compose.rs b/crates/infra/agent/src/compose.rs
+index 62ef457bd568..cd3e657ed448 100644
+--- a/crates/infra/agent/src/compose.rs
++++ b/crates/infra/agent/src/compose.rs
+@@ -15,32 +15,84 @@ use crate::{EngineConfig, EngineFacade, EngineKind};
+ /// 三处同字面量，改动需同步）——`begin` 据此装配 explore 会话注入面。
+ const EXPLORE_SOURCE: &str = "explore";
+ 
+-/// explore 会话注入面装配（生产路径首次非 default）：六工具收窄子集（write
+-/// 移除，序同 `TOOL_NAMES`）+ `Explore` 枚举；六名逐个校验 ∈ 七通用工具封闭集
+-/// （非法名显式 `Err`——装配层校验）。其余来源（debug / change 等）恒
+-/// `SessionInjections::default()`（七工具面，零变化）。
+-fn assemble_injections(source: &str) -> Result<agent::SessionInjections, String> {
+-    if source != EXPLORE_SOURCE {
+-        return Ok(agent::SessionInjections::default());
+-    }
+-    const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
+-    for name in EXPLORE_TOOLS {
+-        if !crate::sdk::tools::TOOL_NAMES.contains(&name) {
+-            return Err(format!("注入面非法工具名: {name}（七通用工具封闭集外）"));
++/// change 来源受控字符串（与 orchestration `SOURCE_CHANGE` 同字面量）——archi
++/// 工具面注入矩阵的适用来源。
++const CHANGE_SOURCE: &str = "change";
++
++/// 会话注入面装配（生产路径：explore 臂 + change 臂）：`explore` 来源 = 六工具
++/// 收窄子集（write 移除，序同 `TOOL_NAMES`）+ `Explore` 枚举；`change` 来源按
++/// `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面矩阵，命中即
++/// `toolset = Archi { .. }` 且 `tools` 位保持 `None`（七工具全量）；其余来源与
++/// 矩阵未命中 / 解析失败恒 `SessionInjections::default()`（fail-closed，零 archi
++/// 工具）。explore 臂逐字未变（新增变体不改变其任何可观察行为）。
++fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
++    if provenance.source == EXPLORE_SOURCE {
++        const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
++        for name in EXPLORE_TOOLS {
++            if !crate::sdk::tools::TOOL_NAMES.contains(&name) {
++                return Err(format!("注入面非法工具名: {name}（七通用工具封闭集外）"));
++            }
+         }
++        return Ok(agent::SessionInjections {
++            preamble: None,
++            tools: Some(
++                EXPLORE_TOOLS
++                    .iter()
++                    .map(|name| (*name).to_owned())
++                    .collect(),
++            ),
++            toolset: Some(agent::SessionToolset::Explore),
++        });
+     }
+-    Ok(agent::SessionInjections {
+-        preamble: None,
+-        tools: Some(
+-            EXPLORE_TOOLS
+-                .iter()
+-                .map(|name| (*name).to_owned())
+-                .collect(),
+-        ),
+-        toolset: Some(agent::SessionToolset::Explore),
++    if provenance.source != CHANGE_SOURCE {
++        return Ok(agent::SessionInjections::default());
++    }
++    let Some((phase, role)) = change_phase_role(provenance.source_ref.as_deref().unwrap_or(""))
++    else {
++        return Ok(agent::SessionInjections::default());
++    };
++    Ok(match archi_matrix(phase, role) {
++        Some(toolset) => agent::SessionInjections {
++            preamble: None,
++            tools: None,
++            toolset: Some(toolset),
++        },
++        None => agent::SessionInjections::default(),
+     })
+ }
+ 
++/// `source_ref` 定式 `{change_id}/{phase}/{role}/{attempt}` → `(phase, role)`：按
++/// `/` 切分、段数 ≥ 4 且末段可解析为 `u32`（attempt）才认，取尾三段自尾向前。
++/// 畸形 / 短段 / 末段非数字一律 `None`（fail-closed 判据单点）。
++fn change_phase_role(source_ref: &str) -> Option<(&str, &str)> {
++    let segments: Vec<&str> = source_ref.split('/').collect();
++    if segments.len() < 4 {
++        return None;
++    }
++    segments.last()?.parse::<u32>().ok()?;
++    let role = segments.get(segments.len() - 2)?;
++    let phase = segments.get(segments.len() - 3)?;
++    if phase.is_empty() || role.is_empty() {
++        return None;
++    }
++    Some((phase, role))
++}
++
++/// archi 工具面注入矩阵单源（7 行，`(phase, role)` → 下发子集；未命中即零 archi
++/// 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
++fn archi_matrix(phase: &str, role: &str) -> Option<agent::SessionToolset> {
++    let (module, search) = match (phase, role) {
++        ("proposal", "executor") => (false, true),
++        ("dev-design", "executor") | ("dev-design", "evaluator") => (true, true),
++        ("test-design", "executor") => (false, true),
++        ("implement", "executor") => (true, false),
++        ("code-review", "evaluator") => (true, false),
++        ("acceptance", "evaluator") => (true, false),
++        _ => return None,
++    };
++    Some(agent::SessionToolset::Archi { module, search })
++}
++
+ /// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
+ /// 实例外键。引擎具体类型不出本结构（门面 `runner_for` 签名与编排层零改动
+ /// 承诺的参数传递面）。
+@@ -207,7 +259,7 @@ impl ComposedTurn {
+                 TurnRequest {
+                     session,
+                     question,
+-                    injections: assemble_injections(&provenance.source)?,
++                    injections: assemble_injections(&provenance)?,
+                     ctx,
+                     provenance,
+                     config_snapshot,
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index 473d42020f1b..e414b57f92a8 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -3015,3 +3015,164 @@ fn 门面链传递可考_解析产物经门面装配后与直构runner同值等
+         "门面链传递与直构 runner 同值等价"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 注入矩阵（archi 章节）：`(phase, role)` 七行单源 + fail-closed 面
++// ---------------------------------------------------------------------------
++
++/// 装配入口（模块私有，本子模块直读——矩阵单源即被测语义）。
++fn injections_of(source: &str, source_ref: Option<&str>) -> agent::SessionInjections {
++    use super::assemble_injections;
++
++    assemble_injections(&SessionProvenance {
++        source: source.to_owned(),
++        source_ref: source_ref.map(str::to_owned),
++    })
++    .expect("装配不得因 source_ref 形态报错（fail-closed 回落 default）")
++}
++
++/// 取 toolset 的两位（无 toolset 即 `None`）。
++fn archi_bits(injections: &agent::SessionInjections) -> Option<(bool, bool)> {
++    match injections.toolset {
++        Some(agent::SessionToolset::Archi { module, search }) => Some((module, search)),
++        Some(agent::SessionToolset::Explore) => None,
++        None => None,
++    }
++}
++
++/// 正向：矩阵七行逐行命中（含每行 `tools = None` 全量七工具）。
++#[test]
++fn 注入矩阵七行逐行命中() {
++    let rows: [(&str, &str, (bool, bool)); 7] = [
++        ("proposal", "executor", (false, true)),
++        ("dev-design", "executor", (true, true)),
++        ("dev-design", "evaluator", (true, true)),
++        ("test-design", "executor", (false, true)),
++        ("implement", "executor", (true, false)),
++        ("code-review", "evaluator", (true, false)),
++        ("acceptance", "evaluator", (true, false)),
++    ];
++    for (phase, role, expected) in rows {
++        let source_ref = format!("add-feature/{phase}/{role}/1");
++        let injections = injections_of("change", Some(&source_ref));
++        assert_eq!(
++            archi_bits(&injections),
++            Some(expected),
++            "矩阵行 {phase}/{role} 的两位"
++        );
++        assert!(
++            injections.tools.is_none(),
++            "命中行 tools 保持 None（七通用工具全量）: {phase}/{role}"
++        );
++        assert!(injections.preamble.is_none(), "preamble 维持不消费");
++    }
++}
++
++/// 异常：矩阵外相位 / role → `SessionInjections::default()`（零 archi 工具），不 Err。
++#[test]
++fn 矩阵外相位回落default() {
++    for source_ref in [
++        "add-feature/test-gen/executor/1",
++        "add-feature/test-execution/executor/1",
++        "add-feature/archive/spec_sync/1",
++        "add-feature/code-analyze/executor/1",
++        "add-feature/initialize/executor/1",
++        "add-feature/proposal/evaluator/1",
++    ] {
++        let injections = injections_of("change", Some(source_ref));
++        assert_eq!(
++            injections,
++            agent::SessionInjections::default(),
++            "矩阵外相位零 archi 工具: {source_ref}"
++        );
++    }
++}
++
++/// 异常：畸形 `source_ref` → 恒 `default()`，不抛装配错误、不回退全量 archi 工具。
++#[test]
++fn 畸形source_ref恒default() {
++    for source_ref in [
++        "",
++        "add-feature/implement/executor",
++        "add-feature/implement/1",
++        "add-feature/implement/executor/x",
++        "add-feature/implement/executor/1/extra",
++        "///",
++    ] {
++        let injections = injections_of("change", Some(source_ref));
++        assert_eq!(
++            injections,
++            agent::SessionInjections::default(),
++            "畸形 source_ref {source_ref:?} 恒 default"
++        );
++    }
++    // source_ref 缺席亦 default
++    assert_eq!(
++        injections_of("change", None),
++        agent::SessionInjections::default()
++    );
++}
++
++/// 边界：`attempt` 段边界（判据只校验可解析性、不校验范围、不做符号黑名单）——
++/// `0` / `1` / `u32::MAX` / `+1`（`u32::from_str` 接受前导 `+`）均命中；`-1` /
++/// 前导空格 / `1.0` / 非数字 / 溢出 `u32` → 解析失败回落 default。
++#[test]
++fn attempt段解析边界() {
++    for attempt in ["0", "1", "4294967295"] {
++        let source_ref = format!("add-feature/implement/executor/{attempt}");
++        assert_eq!(
++            archi_bits(&injections_of("change", Some(&source_ref))),
++            Some((true, false)),
++            "可解析的 attempt {attempt} 命中（不校验范围）"
++        );
++    }
++    // `u32::from_str` 接受前导 `+`：`"+1"` 属可解析形态（判据只校验可解析性，
++    // 不做正负号黑名单）→ 与 `0` / `1` / `u32::MAX` 同属命中面
++    let plus_one = injections_of("change", Some("add-feature/implement/executor/+1"));
++    assert_eq!(
++        archi_bits(&plus_one),
++        Some((true, false)),
++        "前导 + 的 attempt 「+1」可解析（u32 FromStr 语义）→ 命中"
++    );
++    // 不可解析面：负号 / 前导空格 / 小数 / 非数字 / 超出 u32 的溢出值 → default
++    for attempt in ["-1", " 1", "1.0", "u32", "4294967296"] {
++        let source_ref = format!("add-feature/implement/executor/{attempt}");
++        assert_eq!(
++            injections_of("change", Some(&source_ref)),
++            agent::SessionInjections::default(),
++            "不可解析的 attempt {attempt:?} 回落 default"
++        );
++    }
++}
++
++/// 回归：explore 臂逐字不变（六工具 + `Explore` 枚举、`preamble = None`）。
++#[test]
++fn explore臂零回归() {
++    let injections = injections_of("explore", Some("任何定位串"));
++    assert_eq!(
++        injections.tools,
++        Some(vec![
++            "read".to_owned(),
++            "grep".to_owned(),
++            "glob".to_owned(),
++            "ls".to_owned(),
++            "edit".to_owned(),
++            "bash".to_owned(),
++        ]),
++        "explore 六工具（write 移除、序同 TOOL_NAMES）"
++    );
++    assert_eq!(injections.toolset, Some(agent::SessionToolset::Explore));
++    assert!(injections.preamble.is_none());
++}
++
++/// 回归：其余来源（`debug` / 未知 / explore 之外）→ `default()`。
++#[test]
++fn 其余来源恒default() {
++    for source in ["debug", "unknown-source", ""] {
++        assert_eq!(
++            injections_of(source, Some("add-feature/implement/executor/1")),
++            agent::SessionInjections::default(),
++            "来源 {source:?} 不注入 archi 工具面"
++        );
++    }
++}

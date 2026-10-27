@@ -1,0 +1,2492 @@
+diff --git a/crates/core/archi/src/lib.rs b/crates/core/archi/src/lib.rs
+new file mode 100644
+index 000000000000..6bb438fd5a79
+--- /dev/null
++++ b/crates/core/archi/src/lib.rs
+@@ -0,0 +1,45 @@
++//! 架构模型纯读域：解析 / 内存图 / 结构诊断 / 文档关联 / 检索 / 结构 diff /
++//! `gate` 写回纯函数 / 三面共用投影。
++//!
++//! 四个消费面同源（进程内结构校验、agent 工具 `archi_*`、IPC 命令面、画布），
++//! 三条机械纪律：
++//! 1. **单点构建**：`ModelGraph` 只在 [`graph`] 建一次（外部只经 [`dto`] 的
++//!    投影入口消费），消费面 MUST NOT 各自再建图；
++//! 2. **投影零改写**：投影只裁剪（1-hop / 字段子集），MUST NOT 重算、MUST NOT
++//!    推导、MUST NOT 补默认值；
++//! 3. **词汇全量对拍**：封闭词汇（元素种类 / gate 档 / 结构诊断 / 文档警告 / 边
++//!    标记 / 节点标记）只有一份定义（[`dto`]），三面覆盖同一词汇集。
++//!
++//! 边界：零 UI 框架 / 零库句柄 / 零子进程 / 零工作流与编排 crate 依赖 / 零工作区
++//! 配置读取（工作区配置唯一出口纪律零变化）；本 crate 只读盘不写盘（唯一写动作
++//! 在命令层）。
++
++pub mod diff;
++pub mod docs;
++pub mod dto;
++pub mod edit;
++pub mod graph;
++pub mod model;
++pub mod parse;
++pub mod search;
++
++pub use dto::{
++    ArchiChangeSummary, ArchiGraph, ArchiModuleDetail, ArchiSearchResult, DiagnosticKind, DocKind,
++    DocRef, DocSource, EdgeMark, ElementKind, GateTier, NodeMark, SearchScope, WarningKind,
++};
++pub use model::{Diagnostic, Element, Model, Relation};
++
++#[cfg(test)]
++mod diff_test;
++#[cfg(test)]
++mod docs_test;
++#[cfg(test)]
++mod dto_test;
++#[cfg(test)]
++mod edit_test;
++#[cfg(test)]
++mod graph_test;
++#[cfg(test)]
++mod model_test;
++#[cfg(test)]
++mod search_test;
+diff --git a/crates/core/archi/src/model.rs b/crates/core/archi/src/model.rs
+new file mode 100644
+index 000000000000..f0db0440448e
+--- /dev/null
++++ b/crates/core/archi/src/model.rs
+@@ -0,0 +1,116 @@
++//! 格式无关 AST：模型 / 元素 / 关系 / 源区间 / 诊断 / 解析产物。
++//!
++//! 词汇（`ElementKind` / `GateTier` / `DiagnosticKind`）单点在 [`crate::dto`]，
++//! 本模块反向引用——不存在第二份枚举定义。`derive PartialEq`（UI diff 预留）；
++//! 关系级源区间为可选占位（当前只消费行号）。
++
++use std::collections::BTreeMap;
++
++use crate::dto::{DiagnosticKind, ElementKind, GateTier};
++
++/// 聚合后的完整模型（多文件合并，声明序保留）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Model {
++    /// 元素（文件序 + 声明序）
++    pub elements: Vec<Element>,
++    /// 关系（文件序 + 声明序）
++    pub relations: Vec<Relation>,
++}
++
++impl Model {
++    /// 空模型（模型目录缺席 / 空目录的合法起点）。
++    pub fn empty() -> Self {
++        Self {
++            elements: Vec::new(),
++            relations: Vec::new(),
++        }
++    }
++
++    /// 按 FQN 取元素引用（线性扫描——模型规模按元素数百计；投影、`gate` 写回
++    /// 定位与检索薄条目共用，禁第二份查找实现）。
++    pub fn element(&self, fqn: &str) -> Option<&Element> {
++        self.elements.iter().find(|element| element.fqn == fqn)
++    }
++}
++
++/// 单个架构元素。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Element {
++    /// 完整限定名（层级由 FQN 最长前缀推导）
++    pub fqn: String,
++    /// 元素种类
++    pub kind: ElementKind,
++    /// gate 档位（缺省 `off`）
++    pub gate: GateTier,
++    /// 覆盖路径（原文，不归一）
++    pub path: Vec<String>,
++    /// 显式文档路径（原文，不归一）
++    pub docs: Vec<String>,
++    /// 一行摘要
++    pub summary: Option<String>,
++    /// 自由元数据表（字符串 → 字符串，未知键忽略）
++    pub metadata: BTreeMap<String, String>,
++    /// 声明所在文件（repo 相对、`/` 分隔；由聚合层回填）
++    pub file: String,
++    /// 声明所在行（1 起始；0 = 位置未知）
++    pub line: u32,
++}
++
++/// 单条关系（`from -> to`）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Relation {
++    /// 起点元素 FQN
++    pub from: String,
++    /// 终点元素 FQN
++    pub to: String,
++    /// 关系说明
++    pub description: Option<String>,
++    /// 声明所在文件（repo 相对、`/` 分隔）
++    pub file: String,
++    /// 声明所在行（`from` 键行，1 起始；0 = 位置未知）
++    pub line: u32,
++    /// 声明源区间（占位：当前只消费行号，不消费列区间）
++    pub span: Option<SourceSpan>,
++}
++
++/// 源文本字节区间（进程内，不进线面、无 serde）。
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct SourceSpan {
++    /// 起始字节偏移
++    pub start: usize,
++    /// 结束字节偏移
++    pub end: usize,
++}
++
++impl From<std::ops::Range<usize>> for SourceSpan {
++    fn from(range: std::ops::Range<usize>) -> Self {
++        Self {
++            start: range.start,
++            end: range.end,
++        }
++    }
++}
++
++/// 结构化诊断（`line == 0` 表示位置未知——serde 自定义错误无 span 时的表达）。
++#[derive(Debug, Clone, PartialEq, Eq, Hash)]
++pub struct Diagnostic {
++    /// 诊断种类（封闭九值）
++    pub kind: DiagnosticKind,
++    /// 原文文案（parser 面零加工，含行 / 列 / 片段 / caret）
++    pub message: String,
++    /// 所在文件（repo 相对、`/` 分隔）
++    pub file: String,
++    /// 所在行（1 起始；0 = 位置未知）
++    pub line: u32,
++    /// 所在列（1 起始，按 char 计；未知即 `None`）
++    pub column: Option<u32>,
++}
++
++/// 解析产物：模型 + 诊断（单次加载单次诊断，不做首个错误短路）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ParseOutcome {
++    /// 聚合模型（有诊断时可能只含可解析部分）
++    pub model: Model,
++    /// 诊断清单（空即健康）
++    pub diagnostics: Vec<Diagnostic>,
++}
+diff --git a/crates/core/archi/src/model_test.rs b/crates/core/archi/src/model_test.rs
+new file mode 100644
+index 000000000000..d1d4c0dd31cc
+--- /dev/null
++++ b/crates/core/archi/src/model_test.rs
+@@ -0,0 +1,236 @@
++//! `model` 的单元测试：`Model::element` 按 FQN 取元素的全字段契约、精确匹配
++//! （前缀 / 大小写 / 特殊字符一律不命中）与派生 `PartialEq` / `Eq` 语义。
++//!
++//! 零 mock：纯数据结构字面量直构，无 IO / 无 async / 无环境依赖。
++
++use std::collections::BTreeMap;
++
++use crate::dto::{ElementKind, GateTier};
++use crate::model::{Element, Model, Relation, SourceSpan};
++
++/// 元素构造器：缺省 `package` / `off` / 空 path / 空 docs / 无摘要 / 空 metadata。
++fn element(fqn: &str) -> Element {
++    Element {
++        fqn: fqn.to_owned(),
++        kind: ElementKind::Module,
++        gate: GateTier::Off,
++        path: Vec::new(),
++        docs: Vec::new(),
++        summary: None,
++        metadata: BTreeMap::new(),
++        file: "openspec/architecture/models/01-core.toml".to_owned(),
++        line: 1,
++    }
++}
++
++/// 三元素模型（`App` / `App.Auth` / `App.Auth.Token`），中间元素带全字段。
++fn three_elements() -> Model {
++    let mut auth = element("App.Auth");
++    auth.kind = ElementKind::Domain;
++    auth.gate = GateTier::Strict;
++    auth.path = vec!["./src/auth/".to_owned(), "./src/token/".to_owned()];
++    auth.docs = vec!["./src/auth/README.md".to_owned()];
++    auth.summary = Some("认证域".to_owned());
++    auth.metadata = BTreeMap::from([
++        ("owner".to_owned(), "core".to_owned()),
++        ("tier".to_owned(), "1".to_owned()),
++    ]);
++    auth.line = 7;
++    Model {
++        elements: vec![element("App"), auth, element("App.Auth.Token")],
++        relations: Vec::new(),
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 正向：全字段相等 + 命中与声明序无关
++// ---------------------------------------------------------------------------
++
++/// 正向：三元素模型查 `App.Auth` → `Some`，九个字段逐字段等于构造值。
++#[test]
++fn element按fqn取元素且九字段逐项相等() {
++    let model = three_elements();
++    let found = model.element("App.Auth").expect("App.Auth 应命中");
++    assert_eq!(found.fqn, "App.Auth");
++    assert_eq!(found.kind, ElementKind::Domain);
++    assert_eq!(found.gate, GateTier::Strict);
++    assert_eq!(
++        found.path,
++        vec!["./src/auth/".to_owned(), "./src/token/".to_owned()],
++        "path 逐项保留（不归一、不折叠）"
++    );
++    assert_eq!(found.docs, vec!["./src/auth/README.md".to_owned()]);
++    assert_eq!(found.summary.as_deref(), Some("认证域"));
++    assert_eq!(found.metadata.len(), 2, "metadata 多键逐项保留");
++    assert_eq!(
++        found.metadata.get("owner").map(String::as_str),
++        Some("core")
++    );
++    assert_eq!(
++        found.file, "openspec/architecture/models/01-core.toml",
++        "声明文件逐字"
++    );
++    assert_eq!(found.line, 7, "声明行逐字");
++}
++
++/// 正向：命中与声明序无关——首个 / 中间 / 末个元素均命中。
++#[test]
++fn element命中与声明序无关_首中末三位置() {
++    let model = three_elements();
++    for (index, fqn) in ["App", "App.Auth", "App.Auth.Token"]
++        .into_iter()
++        .enumerate()
++    {
++        let found = model
++            .element(fqn)
++            .unwrap_or_else(|| panic!("第 {index} 位置的 {fqn} 应命中"));
++        assert_eq!(found.fqn, fqn, "命中的元素 FQN 逐字");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 异常 / 边界：精确匹配面
++// ---------------------------------------------------------------------------
++
++/// 异常：空模型任意 FQN → `None`，不 panic。
++#[test]
++fn element空模型任意fqn返回none() {
++    let model = Model::empty();
++    assert!(model.elements.is_empty());
++    for fqn in ["", "App", "App.Auth"] {
++        assert!(
++            model.element(fqn).is_none(),
++            "空模型不应命中 {fqn:?}（不 panic）"
++        );
++    }
++}
++
++/// 边界：FQN 精确匹配——空串 / 前缀 / 超长路径 / 大小写不同均 `None`。
++#[test]
++fn element仅精确匹配_前缀与超长与大小写均不命中() {
++    let model = three_elements();
++    // 注：「App」在 fixture 中本身就是元素（顶层），故前缀样本取「App.Aut」——
++    // 精确匹配语义以「非完整 FQN 不命中」为判据
++    let misses = [
++        "",
++        "App.Aut",
++        "App.Auth.",
++        "App.Auth.Token.Extra",
++        "app.auth",
++        "App.Auth ",
++        " App.Auth",
++    ];
++    for fqn in misses {
++        assert!(
++            model.element(fqn).is_none(),
++            "{fqn:?} 不应命中（精确匹配，不做前缀 / 大小写 / 空白归一）"
++        );
++    }
++    // 对照臂：精确串仍命中
++    assert!(model.element("App.Auth").is_some(), "精确串仍命中");
++}
++
++/// 边界：`str` 特殊形态——超长（>1000 chars） / 含 `\n` / 含 `\0` / emoji → `None`
++/// 且不 panic。
++#[test]
++fn element特殊字符fqn均不命中且不panic() {
++    let model = three_elements();
++    let long = "A".repeat(1200);
++    let exotic = [
++        long.clone(),
++        "App\n.Auth".to_owned(),
++        "App.Auth\0".to_owned(),
++        "App.🚀Auth".to_owned(),
++        "🚀".to_owned(),
++    ];
++    for fqn in &exotic {
++        assert!(model.element(fqn).is_none(), "特殊字符 FQN 不命中: {fqn:?}");
++    }
++    // 同时确认特殊字符元素本身可被精确命中（查找语义不排斥特殊字符）
++    let mut special = element("App.🚀Auth");
++    special.summary = Some("emoji 元素".to_owned());
++    let model = Model {
++        elements: vec![special],
++        relations: Vec::new(),
++    };
++    assert!(
++        model.element("App.🚀Auth").is_some(),
++        "特殊字符 FQN 精确命中"
++    );
++}
++
++/// 边界：500 元素模型查末个元素 → `Some`（线性扫描不因规模改变语义）。
++#[test]
++fn element五百元素模型命中末个元素() {
++    let elements: Vec<Element> = (0..500)
++        .map(|index| element(&format!("App.Mod{index:03}")))
++        .collect();
++    let model = Model {
++        elements,
++        relations: Vec::new(),
++    };
++    let found = model.element("App.Mod499").expect("末个元素应命中");
++    assert_eq!(found.fqn, "App.Mod499");
++    assert!(model.element("App.Mod500").is_none(), "末个之后不命中");
++}
++
++// ---------------------------------------------------------------------------
++// 派生语义（`PartialEq` / `Eq`）
++// ---------------------------------------------------------------------------
++
++/// 边界：同内容两 `Model` 相等；仅 `file` 或 `line` 不同即不等；`metadata: {}`
++/// 与缺省同值相等；`Relation.span == None` 占位可比较。
++#[test]
++fn 派生相等语义_文件行参与比较与空表同值() {
++    // 同内容相等
++    assert_eq!(three_elements(), three_elements(), "同内容两模型相等");
++
++    // 仅 file 不同即不等
++    let mut moved = three_elements();
++    moved.elements[1].file = "openspec/architecture/models/02-auth.toml".to_owned();
++    assert_ne!(moved, three_elements(), "仅 file 不同即不等");
++
++    // 仅 line 不同即不等
++    let mut shifted = three_elements();
++    shifted.elements[1].line = 8;
++    assert_ne!(shifted, three_elements(), "仅 line 不同即不等");
++
++    // metadata: {} 与缺省同值相等
++    let mut empty_metadata = element("App");
++    empty_metadata.metadata = BTreeMap::new();
++    assert_eq!(empty_metadata, element("App"), "空 metadata 与缺省同值");
++
++    // Relation.span == None 占位可比较
++    let without_span = Relation {
++        from: "App.Auth".to_owned(),
++        to: "App".to_owned(),
++        description: None,
++        file: "openspec/architecture/models/01-core.toml".to_owned(),
++        line: 12,
++        span: None,
++    };
++    assert_eq!(
++        without_span,
++        Relation {
++            from: "App.Auth".to_owned(),
++            to: "App".to_owned(),
++            description: None,
++            file: "openspec/architecture/models/01-core.toml".to_owned(),
++            line: 12,
++            span: None,
++        },
++        "span 占位 None 可比较相等"
++    );
++    assert_ne!(
++        without_span,
++        Relation {
++            from: "App.Auth".to_owned(),
++            to: "App".to_owned(),
++            description: None,
++            file: "openspec/architecture/models/01-core.toml".to_owned(),
++            line: 12,
++            span: Some(SourceSpan { start: 10, end: 20 }),
++        },
++        "span 在场与缺席不等"
++    );
++}
+diff --git a/crates/core/archi/src/parse/mod.rs b/crates/core/archi/src/parse/mod.rs
+new file mode 100644
+index 000000000000..411275346ad4
+--- /dev/null
++++ b/crates/core/archi/src/parse/mod.rs
+@@ -0,0 +1,117 @@
++//! 多文件聚合：`<架构域>/models/*.toml` 按文件名字典序读取并合并为一个
++//! [`Model`]，声明位置（`modelFile` / `modelLine`）由解析器 span 回填。
++//!
++//! 聚合层职责（格式无关）：目录遍历、字典序、跨文件重复 FQN 检出、文件相对
++//! 路径回填、读盘失败落结构化诊断。单文件解析经 [`SourceParser`] 抽象——换格式
++//! 只动 `parse/` 内的实现文件。
++
++use std::collections::BTreeMap;
++use std::fs;
++use std::path::{Path, PathBuf};
++
++use foundation::layout::archi_models_dir;
++
++use crate::dto::DiagnosticKind;
++use crate::model::{Diagnostic, Model, ParseOutcome};
++
++pub mod toml;
++
++pub use toml::TomlParser;
++
++#[cfg(test)]
++mod mod_test;
++
++#[cfg(test)]
++mod toml_test;
++
++/// 单文件解析契约（关联函数，无接收者）：产出诊断不带文件身份（`file` 留空），
++/// 由聚合层回填该文件的 repo 相对路径。
++pub trait SourceParser {
++    /// 解析一段源文本为该格式的模型 + 诊断。
++    fn parse(source: &str) -> ParseOutcome;
++}
++
++/// 模型源文件扩展名（唯一收面判据）。
++const MODEL_FILE_SUFFIX: &str = ".toml";
++
++/// 聚合入口：模型目录下全部 `.toml` 按**文件名**字典序解析 → 合并（元素 / 关系
++/// 按文件序 + 各自声明序）→ 跨文件重复 FQN 检出 → 文件相对路径回填。
++///
++/// 模型目录缺席 / 空目录 → 空模型零诊断（冷启动合法起点，不报错）；单文件读取
++/// 失败 → `syntaxError` 诊断（读取面 MUST NOT 静默丢文件）。
++pub fn parse_dir(root: &Path) -> ParseOutcome {
++    let dir = archi_models_dir(root);
++    let mut files: Vec<(String, PathBuf)> = Vec::new();
++    let Ok(reader) = fs::read_dir(&dir) else {
++        return ParseOutcome {
++            model: Model::empty(),
++            diagnostics: Vec::new(),
++        };
++    };
++    for entry in reader.flatten() {
++        let path = entry.path();
++        if !path.is_file() {
++            continue;
++        }
++        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
++            continue;
++        };
++        if !name.ends_with(MODEL_FILE_SUFFIX) {
++            continue;
++        }
++        files.push((name.to_owned(), path));
++    }
++    files.sort_by(|left, right| left.0.cmp(&right.0));
++
++    let mut model = Model::empty();
++    let mut diagnostics: Vec<Diagnostic> = Vec::new();
++    let mut seen: BTreeMap<String, ()> = BTreeMap::new();
++    for (name, path) in files {
++        let file = relative_path(root, &path).unwrap_or(name);
++        let source = match fs::read_to_string(&path) {
++            Ok(source) => source,
++            Err(error) => {
++                diagnostics.push(Diagnostic {
++                    kind: DiagnosticKind::SyntaxError,
++                    message: format!("模型文件读取失败：{error}"),
++                    file,
++                    line: 0,
++                    column: None,
++                });
++                continue;
++            }
++        };
++        let outcome = TomlParser::parse(&source);
++        for mut diagnostic in outcome.diagnostics {
++            diagnostic.file = file.clone();
++            diagnostics.push(diagnostic);
++        }
++        for mut element in outcome.model.elements {
++            element.file = file.clone();
++            if seen.contains_key(&element.fqn) {
++                diagnostics.push(Diagnostic {
++                    kind: DiagnosticKind::DuplicateElement,
++                    message: format!("跨文件重复声明元素：{}", element.fqn),
++                    file: element.file,
++                    line: element.line,
++                    column: None,
++                });
++                continue;
++            }
++            seen.insert(element.fqn.clone(), ());
++            model.elements.push(element);
++        }
++        for mut relation in outcome.model.relations {
++            relation.file = file.clone();
++            model.relations.push(relation);
++        }
++    }
++    ParseOutcome { model, diagnostics }
++}
++
++/// 绝对路径 → repo 相对路径（`/` 分隔）单点：解析聚合层与文档关联层共用同一
++/// 取法（不在两处各写一份）。不在 root 之下即 `None`。
++pub(crate) fn relative_path(root: &Path, path: &Path) -> Option<String> {
++    let relative = path.strip_prefix(root).ok()?;
++    Some(relative.to_string_lossy().replace('\\', "/"))
++}
+diff --git a/crates/core/archi/src/parse/mod_test.rs b/crates/core/archi/src/parse/mod_test.rs
+new file mode 100644
+index 000000000000..9f9022c633dc
+--- /dev/null
++++ b/crates/core/archi/src/parse/mod_test.rs
+@@ -0,0 +1,566 @@
++//! `parse`（聚合层）的单元测试：`parse_dir` 的文件名字典序聚合、`file` 回填、
++//! 跨文件重复 FQN 检出、读盘失败诊断与目录缺席 / 空目录的冷启动合法起点；以及
++//! `SourceParser::parse` 的单文件契约（`file` 留空、行号相对源文本）。
++//!
++//! 零 mock：真实临时目录 + 真实 `toml` 解析 + 真实 `foundation::layout` 派生
++//! （回填、字典序、读盘失败均为真实文件系统语义）。
++
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use foundation::layout::archi_models_dir;
++
++use crate::dto::DiagnosticKind;
++
++use super::{parse_dir, SourceParser, TomlParser};
++
++// ---------------------------------------------------------------------------
++// 真实临时目录（RAII；本 crate 无 dev-dependency，故用 std 自建）
++// ---------------------------------------------------------------------------
++
++static COUNTER: AtomicU64 = AtomicU64::new(0);
++
++struct TempDir(PathBuf);
++
++impl TempDir {
++    fn new(tag: &str) -> Self {
++        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
++        let dir = std::env::temp_dir().join(format!(
++            "archi-parse-test-{}-{}-{}",
++            std::process::id(),
++            unique,
++            tag
++        ));
++        let _ = fs::remove_dir_all(&dir);
++        fs::create_dir_all(&dir).expect("创建临时目录失败");
++        TempDir(dir)
++    }
++
++    fn root(&self) -> &Path {
++        &self.0
++    }
++}
++
++impl Drop for TempDir {
++    fn drop(&mut self) {
++        let _ = fs::remove_dir_all(&self.0);
++    }
++}
++
++/// 在 `<root>/openspec/architecture/models/` 下落一个模型文件。
++fn write_model(root: &Path, name: &str, content: &str) {
++    let dir = archi_models_dir(root);
++    fs::create_dir_all(&dir).expect("创建模型目录失败");
++    fs::write(dir.join(name), content).expect("写模型文件失败");
++}
++
++/// 在 `<root>/openspec/architecture/models/` 下落一个非 UTF-8 文件（读盘失败面）。
++fn write_broken_model(root: &Path, name: &str) {
++    let dir = archi_models_dir(root);
++    fs::create_dir_all(&dir).expect("创建模型目录失败");
++    fs::write(dir.join(name), [0xff_u8, 0xfe, 0x00, 0x80]).expect("写坏文件失败");
++}
++
++/// 子串所在行号（1 起始），用于把「行号 = 表头行」写成可读断言。
++fn line_at(source: &str, needle: &str) -> u32 {
++    let index = source
++        .lines()
++        .position(|line| line.contains(needle))
++        .unwrap_or_else(|| panic!("源文本中找不到 {needle:?}"));
++    index as u32 + 1
++}
++
++const CORE_SOURCE: &str = concat!(
++    "# 核心包\n",
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "gate = \"warn\"\n",
++);
++
++const AUTH_SOURCE: &str = concat!(
++    "[element.\"App.Auth.Token\"]\n",
++    "kind = \"component\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"App.Auth.Token\"\n",
++    "to = \"App.Auth\"\n",
++    "desc = \"令牌属于认证域\"\n",
++);
++
++// ---------------------------------------------------------------------------
++// 正向：多文件聚合 + 回填
++// ---------------------------------------------------------------------------
++
++/// 正向：`01-core.toml` + `02-auth.toml` → 元素与关系齐全；合并序 = 文件名字典序
++/// × 文件内 FQN 序（`01` 全在 `02` 前）；零诊断。
++#[test]
++fn 聚合多文件_元素关系齐全且按文件字典序合并() {
++    let temp = TempDir::new("merge-two");
++    write_model(temp.root(), "01-core.toml", CORE_SOURCE);
++    write_model(temp.root(), "02-auth.toml", AUTH_SOURCE);
++
++    let outcome = parse_dir(temp.root());
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "健康源零诊断: {:?}",
++        outcome.diagnostics
++    );
++    let fqns: Vec<&str> = outcome
++        .model
++        .elements
++        .iter()
++        .map(|e| e.fqn.as_str())
++        .collect();
++    assert_eq!(
++        fqns,
++        vec!["App", "App.Auth", "App.Auth.Token"],
++        "01 文件元素全在 02 文件之前（文件名字典序 × 文件内序）"
++    );
++    assert_eq!(outcome.model.relations.len(), 1);
++    let relation = &outcome.model.relations[0];
++    assert_eq!(relation.from, "App.Auth.Token");
++    assert_eq!(relation.to, "App.Auth");
++    assert_eq!(relation.description.as_deref(), Some("令牌属于认证域"));
++}
++
++/// 正向：`file` 回填为 repo 相对路径且 `/` 分隔；`line` 逐元素等于表头键行。
++#[test]
++fn 聚合回填文件相对路径与表头行号() {
++    let temp = TempDir::new("backfill");
++    write_model(temp.root(), "01-core.toml", CORE_SOURCE);
++    write_model(temp.root(), "02-auth.toml", AUTH_SOURCE);
++
++    let outcome = parse_dir(temp.root());
++    let app = outcome.model.element("App").expect("App 在模型内");
++    assert_eq!(
++        app.file, "openspec/architecture/models/01-core.toml",
++        "file 为 repo 相对路径且 / 分隔"
++    );
++    assert_eq!(
++        app.line,
++        line_at(CORE_SOURCE, "[element.\"App\"]"),
++        "line 等于表头键行"
++    );
++
++    let token = outcome
++        .model
++        .element("App.Auth.Token")
++        .expect("子元素在模型内");
++    assert_eq!(
++        token.file, "openspec/architecture/models/02-auth.toml",
++        "跨文件回填指向各自文件"
++    );
++    assert_eq!(
++        token.line,
++        line_at(AUTH_SOURCE, "[element.\"App.Auth.Token\"]")
++    );
++    assert_eq!(
++        outcome.model.relations[0].file, "openspec/architecture/models/02-auth.toml",
++        "关系 file 亦回填"
++    );
++    assert_eq!(
++        outcome.model.relations[0].line,
++        line_at(AUTH_SOURCE, "from = \"App.Auth.Token\""),
++        "关系 line 等于 from 键行"
++    );
++}
++
++/// 正向：文件名非数字序（`a` / `B` / `10` / `2`）→ 聚合序按**字节**字典序
++/// （`10` < `2` < `B` < `a`），且各文件 `file` 指向自身。
++#[test]
++fn 聚合序按字节字典序而非数字序() {
++    let temp = TempDir::new("byte-order");
++    for (name, fqn) in [
++        ("a.toml", "App.Aaa"),
++        ("B.toml", "App.Bbb"),
++        ("10.toml", "App.Ten"),
++        ("2.toml", "App.Two"),
++    ] {
++        write_model(
++            temp.root(),
++            name,
++            &format!("[element.\"{fqn}\"]\nkind = \"module\"\n"),
++        );
++    }
++    let outcome = parse_dir(temp.root());
++    assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
++    let fqns: Vec<&str> = outcome
++        .model
++        .elements
++        .iter()
++        .map(|e| e.fqn.as_str())
++        .collect();
++    assert_eq!(
++        fqns,
++        vec!["App.Ten", "App.Two", "App.Bbb", "App.Aaa"],
++        "字节字典序：10 < 2 < B < a"
++    );
++    for name in ["a.toml", "B.toml", "10.toml", "2.toml"] {
++        let element = outcome
++            .model
++            .elements
++            .iter()
++            .find(|element| element.file.ends_with(name))
++            .unwrap_or_else(|| panic!("{name} 应有对应元素"));
++        assert_eq!(
++            element.file,
++            format!("openspec/architecture/models/{name}"),
++            "各文件 file 指向自身"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 异常：跨文件重复 FQN + 读盘失败
++// ---------------------------------------------------------------------------
++
++/// 异常：跨文件重复 FQN → 一条 `duplicateElement`，`file` 指字典序靠后者、
++/// `line` 为该文件声明行；元素数不因重复而增。
++#[test]
++fn 跨文件重复fqn诊断为一条且指向靠后者() {
++    let temp = TempDir::new("dup-two");
++    write_model(temp.root(), "01-core.toml", CORE_SOURCE);
++    let billing = "[element.\"App.Auth\"]\nkind = \"module\"\n";
++    write_model(temp.root(), "03-billing.toml", billing);
++
++    let outcome = parse_dir(temp.root());
++    assert_eq!(outcome.diagnostics.len(), 1, "恰一条重复诊断");
++    let diagnostic = &outcome.diagnostics[0];
++    assert_eq!(diagnostic.kind, DiagnosticKind::DuplicateElement);
++    assert_eq!(
++        diagnostic.file, "openspec/architecture/models/03-billing.toml",
++        "file 指字典序靠后者"
++    );
++    assert_eq!(
++        diagnostic.line,
++        line_at(billing, "[element.\"App.Auth\"]"),
++        "line 为该文件声明行"
++    );
++    assert!(
++        diagnostic.message.contains("App.Auth"),
++        "文案点名重复 FQN: {}",
++        diagnostic.message
++    );
++    assert_eq!(
++        outcome.model.elements.len(),
++        2,
++        "重复声明不使元素数增长（不静默保留两份）"
++    );
++}
++
++/// 异常：跨文件同一 FQN 三处声明 → 诊断恰 2 条（后两者各一条），`file` 分别指向
++/// 第二 / 第三个文件。
++#[test]
++fn 跨文件三处重复fqn产两条诊断() {
++    let temp = TempDir::new("dup-three");
++    for name in ["01-core.toml", "02-auth.toml", "03-billing.toml"] {
++        write_model(
++            temp.root(),
++            name,
++            "[element.\"App.Auth\"]\nkind = \"domain\"\n",
++        );
++    }
++    let outcome = parse_dir(temp.root());
++    assert_eq!(outcome.diagnostics.len(), 2, "后两者各一条，共 2 条");
++    let files: Vec<&str> = outcome
++        .diagnostics
++        .iter()
++        .map(|diagnostic| diagnostic.file.as_str())
++        .collect();
++    assert_eq!(
++        files,
++        vec![
++            "openspec/architecture/models/02-auth.toml",
++            "openspec/architecture/models/03-billing.toml"
++        ],
++        "file 分别指向第二 / 第三个文件（字典序）"
++    );
++    assert_eq!(outcome.model.elements.len(), 1, "元素只留一份");
++}
++
++/// 异常：单文件读盘失败（非 UTF-8 内容）→ 一条 `syntaxError`，`message` 前缀
++/// 「模型文件读取失败」，`file` 回填；其余文件照常解析（单次列全、零 panic）。
++#[test]
++fn 读盘失败落_syntax_error_且其余文件照常解析() {
++    let temp = TempDir::new("read-failure");
++    write_model(temp.root(), "01-core.toml", CORE_SOURCE);
++    write_broken_model(temp.root(), "02-auth.toml");
++
++    let outcome = parse_dir(temp.root());
++    assert_eq!(outcome.diagnostics.len(), 1, "恰一条读取失败诊断");
++    let diagnostic = &outcome.diagnostics[0];
++    assert_eq!(diagnostic.kind, DiagnosticKind::SyntaxError);
++    assert!(
++        diagnostic.message.starts_with("模型文件读取失败"),
++        "message 前缀固定: {}",
++        diagnostic.message
++    );
++    assert_eq!(
++        diagnostic.file, "openspec/architecture/models/02-auth.toml",
++        "file 回填到失败文件"
++    );
++    assert_eq!(diagnostic.line, 0, "读取失败无位置（line 0）");
++    assert!(diagnostic.column.is_none(), "读取失败无列");
++    assert_eq!(
++        outcome.model.elements.len(),
++        2,
++        "另一文件（01-core）照常解析，元素不丢"
++    );
++}
++
++/// 异常：坏点一次列全——每个坏文件各一条诊断（单文件解析全或无，故诊断数 =
++/// 坏文件数，不短路的机械判据）。
++#[test]
++fn 多个坏文件诊断数等于坏文件数() {
++    let temp = TempDir::new("multi-bad");
++    write_model(temp.root(), "01-core.toml", CORE_SOURCE);
++    write_model(
++        temp.root(),
++        "02-missing-kind.toml",
++        "[element.\"App.Auth\"]\ngate = \"strict\"\n",
++    );
++    write_model(
++        temp.root(),
++        "03-invalid-gate.toml",
++        "[element.\"App.Billing\"]\nkind = \"module\"\ngate = \"stirct\"\n",
++    );
++    write_model(
++        temp.root(),
++        "04-syntax.toml",
++        "[element.\"App.Legacy]\nkind = \"component\"\n",
++    );
++
++    let outcome = parse_dir(temp.root());
++    assert_eq!(outcome.diagnostics.len(), 3, "三个坏文件各一条，不短路");
++    let kinds: Vec<DiagnosticKind> = outcome
++        .diagnostics
++        .iter()
++        .map(|diagnostic| diagnostic.kind)
++        .collect();
++    assert_eq!(
++        kinds,
++        vec![
++            DiagnosticKind::MissingField,
++            DiagnosticKind::InvalidValue,
++            DiagnosticKind::SyntaxError
++        ],
++        "逐文件分类在案（按文件字典序）"
++    );
++    for diagnostic in &outcome.diagnostics {
++        assert!(
++            !diagnostic.file.is_empty(),
++            "每条诊断均带文件身份: {diagnostic:?}"
++        );
++    }
++    assert_eq!(outcome.model.elements.len(), 2, "健康文件元素仍在");
++}
++
++// ---------------------------------------------------------------------------
++// 边界：目录缺席 / 空目录 / 收面判据 / 规模 / 文件名
++// ---------------------------------------------------------------------------
++
++/// 边界：`models/` 目录不存在 → 空模型（零元素零关系零诊断），不 `Err`。
++#[test]
++fn 模型目录不存在返回空模型零诊断() {
++    let temp = TempDir::new("no-dir");
++    let outcome = parse_dir(temp.root());
++    assert!(outcome.diagnostics.is_empty(), "冷启动不报错");
++    assert!(outcome.model.elements.is_empty());
++    assert!(outcome.model.relations.is_empty());
++}
++
++/// 边界：空目录 / 仅空文件 / 仅注释文件 → 空模型零诊断。
++#[test]
++fn 空目录与空文件与仅注释文件均为空模型() {
++    let empty_dir = TempDir::new("empty-dir");
++    fs::create_dir_all(archi_models_dir(empty_dir.root())).expect("建空目录");
++    let outcome = parse_dir(empty_dir.root());
++    assert!(outcome.diagnostics.is_empty());
++    assert!(outcome.model.elements.is_empty());
++
++    let blank = TempDir::new("blank-file");
++    write_model(blank.root(), "01-core.toml", "");
++    let outcome = parse_dir(blank.root());
++    assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
++    assert!(outcome.model.elements.is_empty());
++
++    let comments = TempDir::new("comment-file");
++    write_model(comments.root(), "01-core.toml", "# 只有注释\n# 第二行\n");
++    let outcome = parse_dir(comments.root());
++    assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
++    assert!(outcome.model.elements.is_empty());
++}
++
++/// 边界：非 `*.toml` 不参与聚合——`README.md` / `notes.txt` / `x.toml.bak` /
++/// 子目录内 `nested/y.toml` 均不计入。
++#[test]
++fn 非toml与子目录文件不参与聚合() {
++    let temp = TempDir::new("suffix");
++    write_model(temp.root(), "01-core.toml", CORE_SOURCE);
++    write_model(
++        temp.root(),
++        "README.md",
++        "[element.\"App.Md\"]\nkind = \"module\"\n",
++    );
++    write_model(
++        temp.root(),
++        "notes.txt",
++        "[element.\"App.Txt\"]\nkind = \"module\"\n",
++    );
++    write_model(
++        temp.root(),
++        "x.toml.bak",
++        "[element.\"App.Bak\"]\nkind = \"module\"\n",
++    );
++    let nested = archi_models_dir(temp.root()).join("nested");
++    fs::create_dir_all(&nested).expect("建子目录");
++    fs::write(
++        nested.join("y.toml"),
++        "[element.\"App.Nested\"]\nkind = \"module\"\n",
++    )
++    .expect("写子目录文件");
++
++    let outcome = parse_dir(temp.root());
++    assert!(outcome.diagnostics.is_empty());
++    let fqns: Vec<&str> = outcome
++        .model
++        .elements
++        .iter()
++        .map(|e| e.fqn.as_str())
++        .collect();
++    assert_eq!(fqns, vec!["App", "App.Auth"], "只由顶层 *.toml 决定元素面");
++}
++
++/// 边界：规模面——100 个文件 × 各 5 元素 / 单文件 500 元素 / 单文件 500 关系 →
++/// 计数正确、`line` 正确、零 panic。
++#[test]
++fn 规模面百文件与单文件五百元素五百关系() {
++    let many_files = TempDir::new("many-files");
++    for file in 0..100 {
++        let mut source = String::new();
++        for element in 0..5 {
++            source.push_str(&format!(
++                "[element.\"App.File{file:03}.Mod{element}\"]\nkind = \"module\"\n\n"
++            ));
++        }
++        write_model(many_files.root(), &format!("{file:03}.toml"), &source);
++    }
++    let outcome = parse_dir(many_files.root());
++    assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
++    assert_eq!(outcome.model.elements.len(), 500, "100 × 5 = 500 元素");
++
++    let single = TempDir::new("single-file");
++    let mut source = String::new();
++    for element in 0..500 {
++        source.push_str(&format!(
++            "[element.\"App.Mod{element:03}\"]\nkind = \"module\"\n\n"
++        ));
++    }
++    for relation in 0..500 {
++        source.push_str(&format!(
++            "[[relation]]\nfrom = \"App.Mod{relation:03}\"\nto = \"App.Mod{:03}\"\n\n",
++            (relation + 1) % 500
++        ));
++    }
++    write_model(single.root(), "01-big.toml", &source);
++    let outcome = parse_dir(single.root());
++    assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
++    assert_eq!(outcome.model.elements.len(), 500);
++    assert_eq!(outcome.model.relations.len(), 500);
++    let probe = outcome
++        .model
++        .element("App.Mod250")
++        .expect("探针元素在模型内");
++    assert_eq!(
++        probe.line,
++        line_at(&source, "[element.\"App.Mod250\"]"),
++        "规模面行号不漂移"
++    );
++}
++
++/// 边界：文件名含中文 / emoji / 空格 → 不 panic；`file` 逐字保留（含 UTF-8）。
++#[test]
++fn 特殊字符文件名逐字保留且不panic() {
++    let temp = TempDir::new("exotic-names");
++    for name in ["架构 模型.toml", "🚀模型.toml", "with space.toml"] {
++        write_model(
++            temp.root(),
++            name,
++            "[element.\"App.Module\"]\nkind = \"module\"\n",
++        );
++    }
++    // 三个文件声明同一 FQN → 后两者各一条重复诊断；file 逐字保留
++    let outcome = parse_dir(temp.root());
++    assert_eq!(outcome.model.elements.len(), 1);
++    assert_eq!(outcome.diagnostics.len(), 2);
++    for diagnostic in &outcome.diagnostics {
++        assert!(
++            diagnostic.file.starts_with("openspec/architecture/models/"),
++            "目录段由派生函数给出: {}",
++            diagnostic.file
++        );
++        let name = diagnostic
++            .file
++            .trim_start_matches("openspec/architecture/models/");
++        assert!(
++            ["架构 模型.toml", "🚀模型.toml", "with space.toml"].contains(&name),
++            "文件名逐字保留（含 UTF-8 / 空格）: {name}"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// `SourceParser::parse` 单文件契约
++// ---------------------------------------------------------------------------
++
++/// 正向：直接以单文件源文本调用（`TomlParser`）→ `ParseOutcome.file` 为空串
++/// （聚合层回填前契约），`line` 相对该源文本。
++#[test]
++fn 单文件解析契约_file留空且行号相对源文本() {
++    let outcome = TomlParser::parse(CORE_SOURCE);
++    assert!(outcome.diagnostics.is_empty());
++    for element in &outcome.model.elements {
++        assert_eq!(element.file, "", "单文件契约：file 留空待回填");
++    }
++    let auth = outcome
++        .model
++        .element("App.Auth")
++        .expect("App.Auth 在模型内");
++    assert_eq!(
++        auth.line,
++        line_at(CORE_SOURCE, "[element.\"App.Auth\"]"),
++        "行号相对该源文本"
++    );
++}
++
++/// 边界：空字符串 → 空模型零诊断；超长单文件（>100 KB）→ 不 panic 且诊断数与
++/// 坏点数一致。
++#[test]
++fn 单文件解析空串与超长源不panic() {
++    let outcome = TomlParser::parse("");
++    assert!(outcome.diagnostics.is_empty());
++    assert!(outcome.model.elements.is_empty());
++
++    // 超长健康源（>100 KB）：约 4000 个元素
++    let mut source = String::new();
++    for element in 0..4000 {
++        source.push_str(&format!(
++            "[element.\"App.Mod{element:04}\"]\nkind = \"module\"\nsummary = \"摘要{element}\"\n\n"
++        ));
++    }
++    assert!(source.len() > 100_000, "构造面确为 >100 KB");
++    let outcome = TomlParser::parse(&source);
++    assert!(outcome.diagnostics.is_empty(), "超长健康源零诊断");
++    assert_eq!(outcome.model.elements.len(), 4000);
++
++    // 超长坏源：唯一的坏点仍只产一条诊断
++    let mut broken = source.clone();
++    broken.push_str("[element.\"App.Broken]\nkind = \"module\"\n");
++    let outcome = TomlParser::parse(&broken);
++    assert_eq!(outcome.diagnostics.len(), 1, "坏点数与诊断数一致");
++    assert_eq!(outcome.diagnostics[0].kind, DiagnosticKind::SyntaxError);
++}
+diff --git a/crates/core/archi/src/parse/toml.rs b/crates/core/archi/src/parse/toml.rs
+new file mode 100644
+index 000000000000..3a487feae31c
+--- /dev/null
++++ b/crates/core/archi/src/parse/toml.rs
+@@ -0,0 +1,165 @@
++//! TOML 实现：`toml` + span 反序列化（字段面严格）+ 封闭枚举值域 + parser 错误
++//! → 结构化诊断（原文文案与行列零加工）。
++//!
++//! 行 / 列换算只做字节偏移的后处理（[`line_of`] / [`column_of`]），MUST NOT 二次
++//! 扫文本反推行列——span 由反序列化同时产出。
++
++use std::collections::BTreeMap;
++
++use serde::Deserialize;
++
++use crate::dto::{DiagnosticKind, ElementKind, GateTier};
++use crate::model::{Diagnostic, Element, Model, ParseOutcome, Relation, SourceSpan};
++
++use super::SourceParser;
++
++/// 顶层文档形态：`element` 为「一元素一表头、键为带引号的完整 FQN 单键」的
++/// 扁平表；`relation` 为条目数组。
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct RawDocument {
++    #[serde(default)]
++    element: BTreeMap<::toml::Spanned<String>, RawElement>,
++    #[serde(default)]
++    relation: Vec<RawRelation>,
++}
++
++/// 元素表字段面（未知字段拒绝；`metadata` 内未知键由 map 语义接受）。
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct RawElement {
++    kind: ElementKind,
++    #[serde(default)]
++    gate: GateTier,
++    #[serde(default)]
++    path: Vec<::toml::Spanned<String>>,
++    #[serde(default)]
++    docs: Vec<::toml::Spanned<String>>,
++    #[serde(default)]
++    summary: Option<String>,
++    #[serde(default)]
++    metadata: BTreeMap<String, String>,
++}
++
++/// 关系条目字段面（`from` / `to` 必填，`desc` 可选）。
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct RawRelation {
++    from: ::toml::Spanned<String>,
++    to: ::toml::Spanned<String>,
++    #[serde(default)]
++    desc: Option<String>,
++}
++
++/// TOML 源解析器（[`SourceParser`] 的唯一实现）。
++pub struct TomlParser;
++
++impl SourceParser for TomlParser {
++    fn parse(source: &str) -> ParseOutcome {
++        match ::toml::from_str::<RawDocument>(source) {
++            Ok(raw) => ParseOutcome {
++                model: to_model(raw, source),
++                diagnostics: Vec::new(),
++            },
++            Err(error) => {
++                let span = error.span();
++                ParseOutcome {
++                    model: Model::empty(),
++                    diagnostics: vec![Diagnostic {
++                        kind: classify(error.message()),
++                        // 文案原样：parser 自带行 / 列、源码片段与 caret 指示
++                        message: error.to_string(),
++                        file: String::new(),
++                        line: span.as_ref().map_or(0, |span| line_of(source, span.start)),
++                        column: span.map(|span| column_of(source, span.start)),
++                    }],
++                }
++            }
++        }
++    }
++}
++
++/// 反序列化产物 → 格式无关 AST（`file` 留空由聚合层回填；行号取自 span）。
++fn to_model(raw: RawDocument, source: &str) -> Model {
++    let mut elements: Vec<Element> = Vec::with_capacity(raw.element.len());
++    for (key, raw_element) in raw.element {
++        let span = key.span();
++        elements.push(Element {
++            fqn: key.into_inner(),
++            kind: raw_element.kind,
++            gate: raw_element.gate,
++            path: raw_element
++                .path
++                .into_iter()
++                .map(::toml::Spanned::into_inner)
++                .collect(),
++            docs: raw_element
++                .docs
++                .into_iter()
++                .map(::toml::Spanned::into_inner)
++                .collect(),
++            summary: raw_element.summary,
++            metadata: raw_element.metadata,
++            file: String::new(),
++            line: line_of(source, span.start),
++        });
++    }
++    let mut relations: Vec<Relation> = Vec::with_capacity(raw.relation.len());
++    for raw_relation in raw.relation {
++        let span = raw_relation.from.span();
++        relations.push(Relation {
++            from: raw_relation.from.into_inner(),
++            to: raw_relation.to.into_inner(),
++            description: raw_relation.desc,
++            file: String::new(),
++            line: line_of(source, span.start),
++            span: Some(SourceSpan::from(span)),
++        });
++    }
++    Model {
++        elements,
++        relations,
++    }
++}
++
++/// parser / serde 错误 → 诊断种类（判定只看文案前缀；分类学需要机器可辨，文案
++/// 本身零加工）。
++///
++/// `invalid type` 归 `invalidValue`（值域违例）：`kind` / `gate` 非法取值与
++/// `metadata` 非字符串值同属「值不合法」，不是语法面失败（spec 明写非字符串
++/// metadata 值即 `invalidValue`）。
++fn classify(message: &str) -> DiagnosticKind {
++    if message.contains("unknown variant") || message.contains("invalid type") {
++        DiagnosticKind::InvalidValue
++    } else if message.contains("unknown field") {
++        DiagnosticKind::UnknownField
++    } else if message.contains("missing field") {
++        DiagnosticKind::MissingField
++    } else if message.contains("duplicate key") {
++        DiagnosticKind::DuplicateElement
++    } else {
++        DiagnosticKind::SyntaxError
++    }
++}
++
++/// 字节偏移 → 行号（1 起始；char 边界安全回退）。
++pub(crate) fn line_of(source: &str, byte: usize) -> u32 {
++    let end = boundary_before(source, byte);
++    1 + source[..end].matches('\n').count() as u32
++}
++
++/// 字节偏移 → 列（1 起始，按 **char** 计——与 parser 的 caret 同单位）。
++pub(crate) fn column_of(source: &str, byte: usize) -> u32 {
++    let end = boundary_before(source, byte);
++    let line_start = source[..end].rfind('\n').map_or(0, |index| index + 1);
++    1 + source[line_start..end].chars().count() as u32
++}
++
++/// 偏移裁到 ≤ 源长的最近 char 边界（越界 / 落在多字节中间均回退）。
++fn boundary_before(source: &str, byte: usize) -> usize {
++    let mut end = byte.min(source.len());
++    while !source.is_char_boundary(end) {
++        end -= 1;
++    }
++    end
++}
+diff --git a/crates/core/archi/src/parse/toml_test.rs b/crates/core/archi/src/parse/toml_test.rs
+new file mode 100644
+index 000000000000..3eaf208f3b60
+--- /dev/null
++++ b/crates/core/archi/src/parse/toml_test.rs
+@@ -0,0 +1,560 @@
++//! `parse::toml` 的单元测试：`TomlParser` 全字段反序列化 / 字段面严格性 /
++//! 封闭枚举值域 / parser 原文诊断（行 + 列 + 片段 + caret 零加工），以及
++//! `line_of` / `column_of` 的字节偏移 → 行列换算。
++//!
++//! 零 mock：`toml` crate 的原文案 / span 即被测契约（替身会抹掉判据）；本模块
++//! 只吃 `&str`，不经盘。
++
++use crate::dto::{DiagnosticKind, ElementKind, GateTier};
++use crate::model::ParseOutcome;
++
++use super::toml::{column_of, line_of};
++use super::{SourceParser, TomlParser};
++
++/// 解析入口（`SourceParser` 关联函数，无接收者）。
++fn parse(source: &str) -> ParseOutcome {
++    TomlParser::parse(source)
++}
++
++/// 子串所在行号（1 起始）：用于把「行号 = 表头键行」写成可读断言。
++fn line_at(source: &str, needle: &str) -> u32 {
++    let index = source
++        .lines()
++        .position(|line| line.contains(needle))
++        .unwrap_or_else(|| panic!("源文本中找不到 {needle:?}"));
++    index as u32 + 1
++}
++
++/// 仅断言坏点只产出一条诊断并取回它（单坏点源的便捷面）。
++fn single_diagnostic(source: &str) -> crate::model::Diagnostic {
++    let outcome = parse(source);
++    assert_eq!(
++        outcome.diagnostics.len(),
++        1,
++        "单坏点源应只产出一条诊断: {:?}",
++        outcome.diagnostics
++    );
++    outcome
++        .diagnostics
++        .into_iter()
++        .next()
++        .expect("已断言恰一条")
++}
++
++// ---------------------------------------------------------------------------
++// 正向：全字段 + 缺省
++// ---------------------------------------------------------------------------
++
++const FULL_SOURCE: &str = concat!(
++    "# 顶层注解：注释不参与模型\n",
++    "[element.\"App\"]\n",
++    "kind = \"package\"\n",
++    "\n",
++    "[element.\"App.Auth\"]\n",
++    "kind = \"domain\"\n",
++    "gate = \"strict\"\n",
++    "path = [\"./src/auth/\", \"./src/token/\"]\n",
++    "docs = [\"./src/auth/README.md\"]\n",
++    "summary = \"认证域\"\n",
++    "metadata = { owner = \"core\", tier = \"1\" }\n",
++    "\n",
++    "[element.\"App.Billing\"]\n",
++    "kind = \"module\"\n",
++    "gate = \"warn\"\n",
++    "\n",
++    "[element.\"App.Legacy\"]\n",
++    "kind = \"component\"\n",
++    "gate = \"off\"\n",
++    "\n",
++    "[[relation]]\n",
++    "from = \"App.Auth\"\n",
++    "to = \"App\"\n",
++    "desc = \"认证依赖父包\"\n",
++);
++
++/// 正向：proposal 示例全字段 → 元素 / 关系逐字段等于期望；省略 `gate` 的元素取
++/// `Off`；缺省 `path` / `docs` 为空数组、`metadata` 为空表。
++#[test]
++fn 解析全字段源_元素关系逐字段相等且缺省取零值() {
++    let outcome = parse(FULL_SOURCE);
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "健康源零诊断: {:?}",
++        outcome.diagnostics
++    );
++
++    // 元素：按 FQN 字典序（BTreeMap 语义）
++    let fqns: Vec<&str> = outcome
++        .model
++        .elements
++        .iter()
++        .map(|e| e.fqn.as_str())
++        .collect();
++    assert_eq!(
++        fqns,
++        vec!["App", "App.Auth", "App.Billing", "App.Legacy"],
++        "四元素齐全且按 FQN 字典序"
++    );
++
++    let app = outcome.model.element("App").expect("App 在模型内");
++    assert_eq!(app.kind, ElementKind::Package);
++    assert_eq!(app.gate, GateTier::Off, "省略 gate 取缺省 Off");
++    assert!(app.path.is_empty(), "缺省 path 为空数组");
++    assert!(app.docs.is_empty(), "缺省 docs 为空数组");
++    assert_eq!(app.summary, None, "缺省 summary 为 None");
++    assert!(app.metadata.is_empty(), "缺省 metadata 为空表");
++    assert_eq!(app.file, "", "单文件解析契约：file 留空待聚合层回填");
++
++    let auth = outcome
++        .model
++        .element("App.Auth")
++        .expect("App.Auth 在模型内");
++    assert_eq!(auth.kind, ElementKind::Domain);
++    assert_eq!(auth.gate, GateTier::Strict);
++    assert_eq!(
++        auth.path,
++        vec!["./src/auth/".to_owned(), "./src/token/".to_owned()],
++        "path 逐项保留（不归一）"
++    );
++    assert_eq!(auth.docs, vec!["./src/auth/README.md".to_owned()]);
++    assert_eq!(auth.summary.as_deref(), Some("认证域"));
++    assert_eq!(auth.metadata.len(), 2, "metadata 两键均保留");
++    assert_eq!(auth.metadata.get("owner").map(String::as_str), Some("core"));
++    assert_eq!(auth.metadata.get("tier").map(String::as_str), Some("1"));
++
++    // 其余 kind / gate 枚举值覆盖
++    assert_eq!(
++        outcome
++            .model
++            .element("App.Billing")
++            .expect("App.Billing 在模型内")
++            .gate,
++        GateTier::Warn
++    );
++    assert_eq!(
++        outcome
++            .model
++            .element("App.Legacy")
++            .expect("App.Legacy 在模型内")
++            .kind,
++        ElementKind::Component
++    );
++
++    // 关系
++    assert_eq!(outcome.model.relations.len(), 1);
++    let relation = &outcome.model.relations[0];
++    assert_eq!(relation.from, "App.Auth");
++    assert_eq!(relation.to, "App");
++    assert_eq!(relation.description.as_deref(), Some("认证依赖父包"));
++    assert_eq!(relation.file, "", "关系的 file 亦留空");
++    assert!(relation.span.is_some(), "关系保留源区间占位");
++}
++
++/// 正向：span 精确性（AC-1）——元素 `line` 逐行等于 `[element."…"]` 表头行；
++/// `[[relation]]` 的 `line` 等于其 `from` 键行。
++#[test]
++fn 解析行号精确指向表头行与from键行() {
++    let outcome = parse(FULL_SOURCE);
++    assert!(outcome.diagnostics.is_empty());
++    for fqn in ["App", "App.Auth", "App.Billing", "App.Legacy"] {
++        let expected = line_at(FULL_SOURCE, &format!("[element.\"{fqn}\"]"));
++        let element = outcome.model.element(fqn).expect("元素在模型内");
++        assert_eq!(
++            element.line, expected,
++            "{fqn} 的 line 应等于其表头行（可直接 edit）"
++        );
++    }
++    let relation = &outcome.model.relations[0];
++    assert_eq!(
++        relation.line,
++        line_at(FULL_SOURCE, "from = \"App.Auth\""),
++        "关系 line 等于 from 键行"
++    );
++}
++
++/// 正向：空字符串 / 仅注释 / 仅空行 → 空模型零诊断。
++#[test]
++fn 解析空源与仅注释与仅空行_空模型零诊断() {
++    for source in ["", "# 只有注释\n", "\n\n   \n\t\n", "# a\n# b\n\n"] {
++        let outcome = parse(source);
++        assert!(outcome.diagnostics.is_empty(), "{source:?} 不应产出诊断");
++        assert!(outcome.model.elements.is_empty(), "{source:?} 零元素");
++        assert!(outcome.model.relations.is_empty(), "{source:?} 零关系");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 异常：parser 免费五类（syntaxError / missingField / invalidValue /
++// unknownField / duplicateElement）
++// ---------------------------------------------------------------------------
++
++/// 异常：漏闭合引号与漏闭合 `]` → `syntaxError`，`message` 原样含
++/// `TOML parse error at line N, column M` + 源码片段 + caret，`line` 取自 parser。
++#[test]
++fn 语法错误保留parser原文与行列_caret在场() {
++    for source in [
++        "[element.\"App]\nkind = \"package\"\n",
++        "[element.\"App\"\nkind = \"package\"\n",
++    ] {
++        let diagnostic = single_diagnostic(source);
++        assert_eq!(
++            diagnostic.kind,
++            DiagnosticKind::SyntaxError,
++            "非法 TOML 归 syntaxError: {source:?}"
++        );
++        assert!(
++            diagnostic.message.contains("TOML parse error at line"),
++            "parser 原文含行列: {}",
++            diagnostic.message
++        );
++        assert!(
++            diagnostic.message.contains('^'),
++            "原文含 caret 指示: {}",
++            diagnostic.message
++        );
++        assert!(
++            diagnostic.message.contains('|'),
++            "原文含片段边框: {}",
++            diagnostic.message
++        );
++        assert!(diagnostic.column.is_some(), "parser 给出 span 即带列");
++        assert!(diagnostic.line >= 1, "有 span 时行号 1 起始，不伪造 0");
++        assert_eq!(diagnostic.file, "", "单文件契约：file 留空");
++    }
++}
++
++/// 异常：缺 `kind` → 一条 `missingField`；位置未知时 `line == 0` 且 `column ==
++/// None`（D5 可机械判别，绝不伪造行号）。
++#[test]
++fn 缺必填字段归_missing_field_且位置未知形态自洽() {
++    let diagnostic = single_diagnostic("[element.\"App\"]\ngate = \"strict\"\n");
++    assert_eq!(diagnostic.kind, DiagnosticKind::MissingField);
++    assert!(
++        diagnostic.message.contains("missing field"),
++        "serde 原文保留: {}",
++        diagnostic.message
++    );
++    assert_eq!(
++        diagnostic.column.is_none(),
++        diagnostic.line == 0,
++        "位置未知两字段必须同时成立（line 0 ↔ column None，无 u32::MAX 哨兵）"
++    );
++    assert!(diagnostic.line != u32::MAX, "不出现 u32::MAX 哨兵值");
++}
++
++/// 异常：`invalidValue`——非法 `kind` 列出四个合法值，非法 `gate` 列出三个合法值。
++#[test]
++fn 非法枚举值归_invalid_value_且列出全部合法值() {
++    let kind_diagnostic = single_diagnostic("[element.\"App\"]\nkind = \"pakage\"\n");
++    assert_eq!(kind_diagnostic.kind, DiagnosticKind::InvalidValue);
++    for legal in ["package", "domain", "module", "component"] {
++        assert!(
++            kind_diagnostic.message.contains(legal),
++            "kind 错误文案应列出合法值 {legal}: {}",
++            kind_diagnostic.message
++        );
++    }
++
++    let gate_diagnostic =
++        single_diagnostic("[element.\"App\"]\nkind = \"package\"\ngate = \"stirct\"\n");
++    assert_eq!(gate_diagnostic.kind, DiagnosticKind::InvalidValue);
++    for legal in ["off", "warn", "strict"] {
++        assert!(
++            gate_diagnostic.message.contains(legal),
++            "gate 错误文案应列出合法值 {legal}: {}",
++            gate_diagnostic.message
++        );
++    }
++}
++
++/// 异常：元素表写 `gatte` → `unknownField`（拒绝且位置在案）；同文件
++/// `metadata = { unknownKey = "x" }` 被接受（两侧严格性不同且各自可辨）。
++#[test]
++fn 未知字段被拒而metadata未知键被接受() {
++    let diagnostic =
++        single_diagnostic("[element.\"App\"]\nkind = \"package\"\ngatte = \"strict\"\n");
++    assert_eq!(diagnostic.kind, DiagnosticKind::UnknownField);
++    assert!(
++        diagnostic.message.contains("gatte"),
++        "错误文案点名拼错的键: {}",
++        diagnostic.message
++    );
++    assert!(diagnostic.line >= 1, "有 span 即带行列");
++
++    // 对照组：metadata 内未知键被接受（map 语义），零诊断
++    let outcome =
++        parse("[element.\"App\"]\nkind = \"package\"\nmetadata = { unknownKey = \"x\" }\n");
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "metadata 未知键被接受: {:?}",
++        outcome.diagnostics
++    );
++    let app = outcome.model.element("App").expect("App 在模型内");
++    assert_eq!(
++        app.metadata.get("unknownKey").map(String::as_str),
++        Some("x"),
++        "未知键值逐字保留"
++    );
++}
++
++/// 异常：`metadata` 非字符串值 → 拒绝且位置在案（按 spec「非字符串值即
++/// `invalidValue`」与 D19 的值域判据：serde 的 `invalid type` 与前缀分类学的
++/// `invalidValue` 同档，文案与位置零加工）；子表形态
++/// `[element."App.Auth".metadata]` 无法构成合法元素（缺 `kind`）→ `missingField`，
++/// 且不产出任何元素（单文件解析全或无）。
++#[test]
++fn metadata非字符串值被拒且子表形态不静默成元数据() {
++    for source in [
++        "[element.\"App\"]\nkind = \"package\"\nmetadata = { n = 1 }\n",
++        "[element.\"App\"]\nkind = \"package\"\nmetadata = { flag = true }\n",
++    ] {
++        let diagnostic = single_diagnostic(source);
++        assert_eq!(
++            diagnostic.kind,
++            DiagnosticKind::InvalidValue,
++            "非字符串 metadata 值是值域违例（invalidValue）: {source:?}"
++        );
++        assert!(
++            diagnostic.message.contains("invalid type"),
++            "parser 原文留痕（不做文案加工）: {}",
++            diagnostic.message
++        );
++    }
++
++    // 子表形态：被读成元素 App.Auth.metadata 的父表，缺 kind 即 missingField
++    let diagnostic = single_diagnostic(
++        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Auth\".metadata]\nowner = \"core\"\n",
++    );
++    assert_eq!(diagnostic.kind, DiagnosticKind::MissingField);
++    let outcome = parse(
++        "[element.\"App\"]\nkind = \"package\"\n\n[element.\"App.Auth\".metadata]\nowner = \"core\"\n",
++    );
++    assert!(
++        outcome.model.elements.is_empty(),
++        "解析失败即全或无：不静默保留半个模型"
++    );
++}
++
++/// 异常：未引号点分 `[element.App.Auth]` → `unknownField`（子键 `Auth` 不被
++/// `RawElement` 字段面接受），且不与 `[element."App.Auth"]` 合并。
++#[test]
++fn 未引号点分表头被拒且不与合法形态合并() {
++    let diagnostic = single_diagnostic("[element.App.Auth]\nkind = \"domain\"\n");
++    assert_eq!(diagnostic.kind, DiagnosticKind::UnknownField);
++    assert!(
++        diagnostic.message.contains("Auth"),
++        "文案点名非法子键: {}",
++        diagnostic.message
++    );
++
++    // 两形态并存：非法形态使整份源解析失败（全或无），不产生合并后的模型
++    let source = concat!(
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "\n",
++        "[element.App.Auth]\n",
++        "kind = \"domain\"\n",
++    );
++    let outcome = parse(source);
++    assert_eq!(outcome.diagnostics.len(), 1, "恰一条 unknownField");
++    assert!(outcome.model.elements.is_empty(), "非法形态不新增元素");
++}
++
++/// 异常：同文件重复 `[element."App.Auth"]` → `duplicateElement`（TOML
++/// `duplicate key` 归类），零 panic。
++#[test]
++fn 同文件重复表头归_duplicate_element() {
++    let source = concat!(
++        "[element.\"App.Auth\"]\n",
++        "kind = \"domain\"\n",
++        "\n",
++        "[element.\"App.Auth\"]\n",
++        "kind = \"module\"\n",
++    );
++    let diagnostic = single_diagnostic(source);
++    assert_eq!(diagnostic.kind, DiagnosticKind::DuplicateElement);
++    assert!(
++        diagnostic.message.contains("duplicate key"),
++        "TOML duplicate key 原文保留: {}",
++        diagnostic.message
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：str / int / 规模
++// ---------------------------------------------------------------------------
++
++/// 边界：`str` 值边界——超长（>1000 chars）摘要逐字保留；`\n` / `\u0000` / emoji
++/// 转义值逐字保留；`path` / `docs` 各 1 项与各 200 项均正确。
++#[test]
++fn 字符串值边界_超长与转义与数组规模均逐字保留() {
++    let long = "摘".repeat(1200);
++    let source = format!(
++        concat!(
++            "[element.\"App\"]\n",
++            "kind = \"package\"\n",
++            "summary = \"{long}\"\n",
++            "metadata = {{ note = \"行1\\n行2\", nil = \"a\\u0000b\", emoji = \"🚀\" }}\n",
++            "path = [\"./a/\"]\n",
++            "docs = [\"./a/README.md\"]\n",
++        ),
++        long = long
++    );
++    let outcome = parse(&source);
++    assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
++    let app = outcome.model.element("App").expect("App 在模型内");
++    assert_eq!(app.summary.as_deref(), Some(long.as_str()), "超长摘要逐字");
++    assert_eq!(
++        app.metadata.get("note").map(String::as_str),
++        Some("行1\n行2"),
++        "换行转义逐字还原"
++    );
++    assert_eq!(
++        app.metadata.get("nil").map(String::as_str),
++        Some("a\u{0}b"),
++        "NUL 转义逐字还原"
++    );
++    assert_eq!(
++        app.metadata.get("emoji").map(String::as_str),
++        Some("🚀"),
++        "emoji 逐字"
++    );
++    assert_eq!(app.path, vec!["./a/".to_owned()], "单元素 path");
++    assert_eq!(app.docs, vec!["./a/README.md".to_owned()], "单元素 docs");
++
++    // 200 项 path / docs
++    let items = (0..200)
++        .map(|index| format!("\"./p{index:03}/md.md\""))
++        .collect::<Vec<String>>()
++        .join(", ");
++    let source =
++        format!("[element.\"App\"]\nkind = \"package\"\npath = [{items}]\ndocs = [{items}]\n");
++    let outcome = parse(&source);
++    assert!(outcome.diagnostics.is_empty());
++    let app = outcome.model.element("App").expect("App 在模型内");
++    assert_eq!(app.path.len(), 200, "200 项 path 全量保留");
++    assert_eq!(app.docs.len(), 200, "200 项 docs 全量保留");
++    assert_eq!(app.path[199], "./p199/md.md", "末项逐字");
++}
++
++/// 边界：`int` 面——`Diagnostic.line` 为 `u32` 且 1 起始；`column` 为 `Option<u32>`
++/// 且未知即 `None`；`line == 0` 与 `column == None` 并存（无哨兵值）。
++#[test]
++fn 诊断行列为u32与可选列_未知形态无哨兵() {
++    let outcome = parse("[element.\"App]\nkind = \"package\"\n");
++    let diagnostic = &outcome.diagnostics[0];
++    let line: u32 = diagnostic.line;
++    let column: Option<u32> = diagnostic.column;
++    assert!(line >= 1, "有 span 即 1 起始");
++    assert_eq!(column, Some(column.unwrap()), "列在场为 u32");
++    assert_ne!(line, 0, "有 span 的行号不为 0");
++
++    // 位置未知形态：line 0 与 column None 并存
++    let unknown = single_diagnostic("[element.\"App\"]\ngate = \"strict\"\n");
++    if unknown.column.is_none() {
++        assert_eq!(unknown.line, 0, "位置未知时 line 为 0");
++    }
++    assert_ne!(unknown.line, u32::MAX);
++}
++
++/// 边界：规模面——500 元素 + 500 关系 → 零诊断，且逐元素 `line` 正确（防 span
++/// 溢出 / 错位）。
++#[test]
++fn 规模面五百元素五百关系_零诊断且行号正确() {
++    let mut source = String::new();
++    for index in 0..500 {
++        source.push_str(&format!(
++            "[element.\"App.Mod{index:03}\"]\nkind = \"module\"\n\n"
++        ));
++    }
++    for index in 0..500 {
++        source.push_str(&format!(
++            "[[relation]]\nfrom = \"App.Mod{index:03}\"\nto = \"App.Mod{:03}\"\n\n",
++            (index + 1) % 500
++        ));
++    }
++    let outcome = parse(&source);
++    assert!(
++        outcome.diagnostics.is_empty(),
++        "规模面零诊断: {:?}",
++        outcome.diagnostics.first()
++    );
++    assert_eq!(outcome.model.elements.len(), 500);
++    assert_eq!(outcome.model.relations.len(), 500);
++
++    let probe = outcome
++        .model
++        .element("App.Mod123")
++        .expect("探针元素在模型内");
++    let expected = line_at(&source, "[element.\"App.Mod123\"]");
++    assert_eq!(probe.line, expected, "500 元素源中行号不漂移");
++
++    let relation = &outcome.model.relations[123];
++    assert_eq!(relation.from, "App.Mod123");
++    assert_eq!(
++        relation.line,
++        line_at(&source, "from = \"App.Mod123\""),
++        "500 关系源中关系行号不漂移"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：line_of / column_of 换算
++// ---------------------------------------------------------------------------
++
++/// 边界：byte `0` → 行 1 / 列 1；行首 / 行尾 / 换行符字节本身均按 `\n` 计数、列
++/// 1 起始且不 panic。
++#[test]
++fn 行列换算_行首行尾与换行符字节() {
++    let source = "ab\ncd\n";
++    assert_eq!(line_of(source, 0), 1, "byte 0 为行 1");
++    assert_eq!(column_of(source, 0), 1, "byte 0 为列 1");
++    assert_eq!(line_of(source, 1), 1, "行内偏移仍在行 1");
++    assert_eq!(column_of(source, 1), 2, "行内偏移列 2");
++    assert_eq!(line_of(source, 2), 1, "换行符字节本身属前一行");
++    assert_eq!(column_of(source, 2), 3, "换行符字节列 3");
++    assert_eq!(line_of(source, 3), 2, "换行符之后为行 2");
++    assert_eq!(column_of(source, 3), 1, "行 2 行首列 1");
++    assert_eq!(line_of(source, 4), 2);
++    assert_eq!(column_of(source, 4), 2);
++}
++
++/// 边界：`byte == source.len()`（EOF）→ 末行 / 末列，不 panic 不越界；
++/// `source == ""`（byte 0 == len）→ 不 panic。
++#[test]
++fn 行列换算_eof与空源不越界() {
++    let source = "ab\ncd";
++    assert_eq!(line_of(source, source.len()), 2, "EOF 落在末行");
++    assert_eq!(column_of(source, source.len()), 3, "EOF 落在末列之后一位");
++    assert_eq!(line_of("", 0), 1, "空源 byte 0 不 panic");
++    assert_eq!(column_of("", 0), 1, "空源 byte 0 列 1");
++    // 越界偏移亦回退到源尾（不 panic）
++    assert_eq!(line_of(source, source.len() + 50), 2);
++    assert_eq!(column_of("", 100), 1);
++}
++
++/// 边界：多字节面——CJK（三字节） / emoji（四字节）行前后取偏移 → 行号正确、列号
++/// 按 **char** 计（字节数大于字符数，与 parser caret 同单位）。
++#[test]
++fn 行列换算按_char_计列_cjk_与_emoji() {
++    let source = "中文\n🚀x";
++    // '中' 0..3, '文' 3..6, '\n' 6, '🚀' 7..11, 'x' 11..12
++    assert_eq!(column_of(source, 0), 1);
++    assert_eq!(
++        column_of(source, 3),
++        2,
++        "第二个 CJK 字符为列 2（按 char 计）"
++    );
++    assert_eq!(line_of(source, 3), 1);
++    assert_eq!(line_of(source, 7), 2, "emoji 行在行 2");
++    assert_eq!(column_of(source, 7), 1, "emoji 行行首列 1");
++    assert_eq!(
++        column_of(source, 11),
++        2,
++        "emoji 之后为列 2（4 字节只算 1 列）"
++    );
++    assert_eq!(line_of(source, 12), 2);
++    // 落在多字节字符中间：回退到最近 char 边界，不 panic
++    assert_eq!(column_of(source, 1), 1, "落在 CJK 中间回退到字符起点");
++    assert_eq!(column_of(source, 9), 1, "落在 emoji 中间回退到字符起点");
++}
+diff --git a/crates/core/archi/src/search.rs b/crates/core/archi/src/search.rs
+new file mode 100644
+index 000000000000..5369ec0098d9
+--- /dev/null
++++ b/crates/core/archi/src/search.rs
+@@ -0,0 +1,127 @@
++//! 轻量检索：ASCII 大小写不敏感子串 + 驼峰分词，匹配对象恰为元素 FQN / `summary`
++//! / `metadata` 值 / 文档 `path` 与文件名（去扩展名）。
++//!
++//! 刻意不做全文搜索：不读文档正文、不碰规约语料、无相关度打分、无倒排索引与
++//! 跨调用缓存（每次现算——第二事实源无从产生）。文档条目的 `title` 取自正文首行，
++//! 属正文射程，故 MUST NOT 参与匹配。
++
++use crate::docs;
++use crate::dto::{DocRef, SearchScope};
++use crate::graph::ModelGraph;
++use crate::model::Element;
++
++/// 检索结果（元素 FQN 清单 + 文档条目）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct SearchOutcome {
++    /// 命中元素 FQN（字典序）
++    pub element_fqns: Vec<String>,
++    /// 命中文档（来源强度序 → 路径字典序）
++    pub docs: Vec<DocRef>,
++}
++
++/// 检索入口：空白 query → `Err`（MUST NOT 返回全量）；`Elements` 时 `docs` 恒空、
++/// `Docs` 时 `element_fqns` 恒空。
++pub fn search(
++    graph: &ModelGraph,
++    root: &std::path::Path,
++    query: &str,
++    scope: SearchScope,
++) -> Result<SearchOutcome, String> {
++    let tokens = tokenize(query);
++    if tokens.is_empty() {
++        return Err("query 不能为空（需至少一个字母或数字）".to_owned());
++    }
++    let mut outcome = SearchOutcome {
++        element_fqns: Vec::new(),
++        docs: Vec::new(),
++    };
++    if scope != SearchScope::Docs {
++        outcome.element_fqns = graph
++            .model()
++            .elements
++            .iter()
++            .filter(|element| matches_element(element, &tokens))
++            .map(|element| element.fqn.clone())
++            .collect();
++        outcome.element_fqns.sort_unstable();
++        outcome.element_fqns.dedup();
++    }
++    if scope != SearchScope::Elements {
++        outcome.docs = docs::all_docs(graph, root)
++            .docs
++            .into_iter()
++            .filter(|doc| matches_doc(doc, &tokens))
++            .collect();
++    }
++    Ok(outcome)
++}
++
++/// 元素命中判据：FQN / `summary` / `metadata` 各值拼合后包含**全部**分词段。
++fn matches_element(element: &Element, tokens: &[String]) -> bool {
++    let mut haystack = String::with_capacity(element.fqn.len() + 32);
++    haystack.push_str(&element.fqn);
++    if let Some(summary) = &element.summary {
++        haystack.push('\n');
++        haystack.push_str(summary);
++    }
++    for value in element.metadata.values() {
++        haystack.push('\n');
++        haystack.push_str(value);
++    }
++    contains_all(&haystack, tokens)
++}
++
++/// 文档命中判据：路径与文件名去扩展名（**不读正文**，故 `title` 不参与——标题取自
++/// 正文首行，属正文射程）。
++fn matches_doc(doc: &DocRef, tokens: &[String]) -> bool {
++    let mut haystack = String::with_capacity(doc.path.len() + 32);
++    haystack.push_str(&doc.path);
++    haystack.push('\n');
++    haystack.push_str(&docs::file_stem(&doc.path));
++    contains_all(&haystack, tokens)
++}
++
++/// 目标文本（小写后）是否包含全部分词段（AND 语义）。
++fn contains_all(haystack: &str, tokens: &[String]) -> bool {
++    let lowered = haystack.to_lowercase();
++    tokens.iter().all(|token| lowered.contains(token))
++}
++
++/// 分词：按非字母数字切，再按驼峰 / 数字边界切，小写后去重保序
++/// （`AuthToken` → `auth` / `token`）。
++fn tokenize(raw: &str) -> Vec<String> {
++    let mut tokens: Vec<String> = Vec::new();
++    for chunk in raw.split(|c: char| !c.is_alphanumeric()) {
++        for part in split_camel(chunk) {
++            let lowered = part.to_lowercase();
++            if !lowered.is_empty() && !tokens.contains(&lowered) {
++                tokens.push(lowered);
++            }
++        }
++    }
++    tokens
++}
++
++/// 驼峰与数字边界切分（`AuthToken` → `Auth` / `Token`）。
++fn split_camel(chunk: &str) -> Vec<String> {
++    let mut parts: Vec<String> = Vec::new();
++    let mut current = String::new();
++    let mut previous: Option<char> = None;
++    for character in chunk.chars() {
++        if let Some(previous) = previous {
++            let boundary = (character.is_ascii_uppercase()
++                && (previous.is_ascii_lowercase() || previous.is_ascii_digit()))
++                || (character.is_ascii_digit() && previous.is_ascii_alphabetic())
++                || (character.is_ascii_alphabetic() && previous.is_ascii_digit());
++            if boundary {
++                parts.push(std::mem::take(&mut current));
++            }
++        }
++        current.push(character);
++        previous = Some(character);
++    }
++    if !current.is_empty() {
++        parts.push(current);
++    }
++    parts
++}
+diff --git a/crates/core/archi/src/search_test.rs b/crates/core/archi/src/search_test.rs
+new file mode 100644
+index 000000000000..76f157c9e18d
+--- /dev/null
++++ b/crates/core/archi/src/search_test.rs
+@@ -0,0 +1,433 @@
++//! `search` 的单元测试：分词（驼峰 / 数字 / 大小写）、多词 AND、匹配对象面
++//! （FQN / `summary` / `metadata` 值 / 文档路径与文件名）、不搜正文、不碰规约语料
++//! 与三 scope 收窄。
++//!
++//! 零 mock：真实临时目录 + 真实 `ModelGraph` / `docs::all_docs` 组合（检索面 =
++//! 索引来源之和，替身会抹掉来源口径）。
++
++use std::collections::BTreeMap;
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use crate::docs;
++use crate::dto::{DocRef, ElementKind, GateTier, SearchScope};
++use crate::graph::ModelGraph;
++use crate::model::{Element, Model};
++
++use crate::search::search;
++
++// ---------------------------------------------------------------------------
++// 真实临时目录（本 crate 无 dev-dependency，故用 std 自建）
++// ---------------------------------------------------------------------------
++
++static COUNTER: AtomicU64 = AtomicU64::new(0);
++
++struct TempDir(PathBuf);
++
++impl TempDir {
++    fn new(tag: &str) -> Self {
++        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
++        let dir = std::env::temp_dir().join(format!(
++            "archi-search-test-{}-{}-{}",
++            std::process::id(),
++            unique,
++            tag
++        ));
++        let _ = fs::remove_dir_all(&dir);
++        fs::create_dir_all(&dir).expect("创建临时目录失败");
++        TempDir(dir)
++    }
++
++    fn root(&self) -> &Path {
++        &self.0
++    }
++
++    fn write(&self, relative: &str, content: &str) {
++        let path = self.0.join(relative);
++        if let Some(parent) = path.parent() {
++            fs::create_dir_all(parent).expect("创建父目录失败");
++        }
++        fs::write(&path, content).expect("写文件失败");
++    }
++}
++
++impl Drop for TempDir {
++    fn drop(&mut self) {
++        let _ = fs::remove_dir_all(&self.0);
++    }
++}
++
++/// 元素构造器。
++fn element(fqn: &str) -> Element {
++    Element {
++        fqn: fqn.to_owned(),
++        kind: ElementKind::Module,
++        gate: GateTier::Off,
++        path: Vec::new(),
++        docs: Vec::new(),
++        summary: None,
++        metadata: BTreeMap::new(),
++        file: "openspec/architecture/models/01-core.toml".to_owned(),
++        line: 1,
++    }
++}
++
++/// 单元素图（无关系）。
++fn graph_of(elements: Vec<Element>) -> ModelGraph {
++    ModelGraph::build(Model {
++        elements,
++        relations: Vec::new(),
++    })
++}
++
++/// 命中元素 FQN 清单。
++fn hits(graph: &ModelGraph, root: &Path, query: &str, scope: SearchScope) -> Vec<String> {
++    search(graph, root, query, scope)
++        .unwrap_or_else(|error| panic!("检索 {query:?} 失败: {error}"))
++        .element_fqns
++}
++
++/// 命中文档路径清单。
++fn doc_hits(graph: &ModelGraph, root: &Path, query: &str) -> Vec<String> {
++    search(graph, root, query, SearchScope::All)
++        .expect("检索成功")
++        .docs
++        .into_iter()
++        .map(|doc| doc.path)
++        .collect()
++}
++
++// ---------------------------------------------------------------------------
++// 正向：命中面与稳定序
++// ---------------------------------------------------------------------------
++
++/// 正向：`query = "auth"`、`scope = All` → 命中 FQN 含 `auth` 的元素（薄条目由
++/// dto 面组装）+ 文件名含 `auth` 的文档（四字段条目）；元素按 FQN、文档按「来源
++/// 强度 → `path`」稳定序。
++#[test]
++fn 检索命中元素与文档并按稳定序返回() {
++    let temp = TempDir::new("all-scope");
++    temp.write("src/auth/README.md", "# 认证\n");
++    temp.write("src/billing/README.md", "# 计费\n");
++    let mut auth = element("App.Auth");
++    auth.docs = vec!["./src/auth/README.md".to_owned()];
++    let mut billing = element("App.Billing");
++    billing.docs = vec!["./src/billing/README.md".to_owned()];
++    let graph = graph_of(vec![billing, auth]);
++
++    let outcome = search(&graph, temp.root(), "auth", SearchScope::All).expect("检索成功");
++    assert_eq!(
++        outcome.element_fqns,
++        vec!["App.Auth"],
++        "只命中 FQN 含 auth 的元素且按字典序"
++    );
++    assert_eq!(
++        outcome
++            .docs
++            .iter()
++            .map(|doc| doc.path.as_str())
++            .collect::<Vec<_>>(),
++        vec!["src/auth/README.md"],
++        "只命中路径 / 文件名含 auth 的文档"
++    );
++    // 四字段条目（无正文）
++    let doc: &DocRef = &outcome.docs[0];
++    assert_eq!(doc.title, "认证");
++    assert_eq!(doc.source, crate::dto::DocSource::Explicit);
++}
++
++/// 正向：驼峰分词——`AuthToken` / `auth token`（空格）/ `AUTH`（大写）三者命中
++/// 同一元素（AND 语义 + 大小写不敏感）。
++#[test]
++fn 驼峰分词与空格与大小写三形态等价() {
++    let temp = TempDir::new("camel");
++    let graph = graph_of(vec![element("App.Auth.Token")]);
++    for query in ["AuthToken", "auth token", "AUTH", "authTOKEN"] {
++        assert_eq!(
++            hits(&graph, temp.root(), query, SearchScope::Elements),
++            vec!["App.Auth.Token"],
++            "query {query:?} 应命中 App.Auth.Token"
++        );
++    }
++}
++
++/// 正向：匹配对象面——`summary` 命中、`metadata` **值**命中（键名不算）、文档
++/// `path` 段命中、文件名命中各一条。
++#[test]
++fn 匹配对象面覆盖summary与metadata值与文档路径与文件名() {
++    let temp = TempDir::new("haystack");
++    temp.write("docs/rate-limit.md", "# 限流\n");
++    let mut target = element("App.Auth");
++    target.summary = Some("令牌收口与限流".to_owned());
++    target.metadata = BTreeMap::from([
++        ("owner".to_owned(), "billing-team".to_owned()),
++        ("secretkey".to_owned(), "zzz".to_owned()),
++    ]);
++    target.docs = vec!["./docs/rate-limit.md".to_owned()];
++    let graph = graph_of(vec![target]);
++
++    // summary
++    assert_eq!(
++        hits(&graph, temp.root(), "限流", SearchScope::Elements),
++        vec!["App.Auth"],
++        "summary 参与匹配"
++    );
++    // metadata 值
++    assert_eq!(
++        hits(&graph, temp.root(), "billing", SearchScope::Elements),
++        vec!["App.Auth"],
++        "metadata 值参与匹配"
++    );
++    // metadata 键名不参与
++    assert!(
++        hits(&graph, temp.root(), "secretkey", SearchScope::Elements).is_empty(),
++        "键名不参与匹配"
++    );
++    // 文档路径段
++    assert_eq!(
++        doc_hits(&graph, temp.root(), "docs"),
++        vec!["docs/rate-limit.md"],
++        "文档 path 段参与匹配"
++    );
++    // 文档文件名（去扩展名）
++    assert_eq!(
++        doc_hits(&graph, temp.root(), "rate limit"),
++        vec!["docs/rate-limit.md"],
++        "文件名分词参与匹配"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 异常：不搜正文 / 不碰规约语料 / 参数校验
++// ---------------------------------------------------------------------------
++
++/// 异常：仅正文命中不算——md 正文含 `auth` 而路径与标题不含 → 不命中（不做全文
++/// 搜索）。
++#[test]
++fn 仅正文含关键词不命中() {
++    let temp = TempDir::new("body-only");
++    temp.write("docs/guide.md", "# 指南\n\n认证（auth）流程说明。\n");
++    let mut target = element("App.Billing");
++    target.docs = vec!["./docs/guide.md".to_owned()];
++    let graph = graph_of(vec![target]);
++
++    assert!(
++        doc_hits(&graph, temp.root(), "auth").is_empty(),
++        "不读正文（正文命中不算）"
++    );
++    assert!(
++        !hits(&graph, temp.root(), "auth", SearchScope::All).contains(&"App.Billing".to_owned()),
++        "元素侧亦不因正文命中"
++    );
++}
++
++/// 异常：`openspec/specs/` 不参与——该目录内文件名与正文均含关键词，而元素与
++/// 其他文档亦命中 → 结果只来自元素与他人文档路径，`specs` 下路径零出现。
++#[test]
++fn 规约语料目录不参与检索() {
++    let temp = TempDir::new("specs-excluded");
++    temp.write(
++        "openspec/specs/desktop-archi-model/spec.md",
++        "# archi 能力规约\n\n涉及 App.Auth 与 auth 的说明。\n",
++    );
++    temp.write("docs/auth.md", "# 认证\n");
++    let mut target = element("App.Auth");
++    target.docs = vec!["./docs/auth.md".to_owned()];
++    let graph = graph_of(vec![target]);
++
++    let docs_hit = doc_hits(&graph, temp.root(), "auth");
++    assert!(
++        docs_hit.iter().all(|path| !path.contains("openspec/specs")),
++        "specs 下路径零出现: {docs_hit:?}"
++    );
++    assert_eq!(docs_hit, vec!["docs/auth.md"], "只来自元素关联文档");
++    assert_eq!(
++        hits(&graph, temp.root(), "auth", SearchScope::All),
++        vec!["App.Auth"],
++        "元素侧命中照常"
++    );
++}
++
++/// 异常：空 query（`""` 与全空白）→ `Err`（不返回全量）；含 `\n` / `\0` / emoji
++/// 的 query 正常搜索、不 panic。
++#[test]
++fn 空query返回err且特殊字符query不panic() {
++    let temp = TempDir::new("empty-query");
++    let graph = graph_of(vec![element("App.Auth")]);
++    for query in ["", "   ", "\t\n", "🚀"] {
++        let result = search(&graph, temp.root(), query, SearchScope::All);
++        assert!(
++            result.is_err(),
++            "空 / 无字母数字的 query 应 Err（不返回全量）: {query:?}"
++        );
++        assert!(
++            result.unwrap_err().contains("query"),
++            "错误文案点名 query 参数"
++        );
++    }
++    for query in ["auth\n", "auth\0", "auth🚀", "🚀auth"] {
++        let outcome = search(&graph, temp.root(), query, SearchScope::All)
++            .unwrap_or_else(|error| panic!("{query:?} 应可检索: {error}"));
++        assert_eq!(outcome.element_fqns, vec!["App.Auth"], "{query:?} 正常命中");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 边界：scope / 多词 / 分词 / 空结果 / 规模
++// ---------------------------------------------------------------------------
++
++/// 边界：scope 收窄——`Elements` 时 `docs` 恒空数组；`Docs` 时 `element_fqns` 恒
++/// 空数组；`All` 两数组均可非空。
++#[test]
++fn scope三值收窄语义() {
++    let temp = TempDir::new("scope");
++    temp.write("docs/auth.md", "# 认证\n");
++    let mut target = element("App.Auth");
++    target.docs = vec!["./docs/auth.md".to_owned()];
++    let graph = graph_of(vec![target]);
++
++    let elements_only = search(&graph, temp.root(), "auth", SearchScope::Elements).expect("成功");
++    assert_eq!(elements_only.element_fqns, vec!["App.Auth"]);
++    assert!(elements_only.docs.is_empty(), "Elements 时 docs 恒空");
++
++    let docs_only = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
++    assert!(
++        docs_only.element_fqns.is_empty(),
++        "Docs 时 element_fqns 恒空"
++    );
++    assert_eq!(docs_only.docs.len(), 1);
++
++    let all = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
++    assert!(
++        !all.element_fqns.is_empty() && !all.docs.is_empty(),
++        "All 两数组皆非空"
++    );
++}
++
++/// 边界：多词 AND——`"auth legacy"` 只命中同时含两段的元素，只含其一的元素不命中。
++#[test]
++fn 多词and语义() {
++    let temp = TempDir::new("and-semantics");
++    let graph = graph_of(vec![
++        element("App.Auth.Legacy"),
++        element("App.Auth"),
++        element("App.Legacy"),
++    ]);
++    assert_eq!(
++        hits(&graph, temp.root(), "auth legacy", SearchScope::Elements),
++        vec!["App.Auth.Legacy"],
++        "只命中同时含两段的元素"
++    );
++    assert_eq!(
++        hits(&graph, temp.root(), "auth", SearchScope::Elements),
++        vec!["App.Auth", "App.Auth.Legacy"],
++        "单词命中二者"
++    );
++}
++
++/// 边界：分词边界——`HTTPServer` → `http` + `server`；`v2Token` → `v2` + `token`；
++/// 全大写 `AUTHTOKEN` 不切分（无小写边界）；重复段去重后行为不变。
++#[test]
++fn 分词边界四形态() {
++    let temp = TempDir::new("tokenize");
++    let graph = graph_of(vec![
++        element("App.HTTPServer"),
++        element("App.V2Token"),
++        element("App.Auth.Token"),
++    ]);
++    assert_eq!(
++        hits(&graph, temp.root(), "http server", SearchScope::Elements),
++        vec!["App.HTTPServer"],
++        "HTTPServer 分词为 http + server"
++    );
++    assert_eq!(
++        hits(&graph, temp.root(), "v2 token", SearchScope::Elements),
++        vec!["App.V2Token"],
++        "v2Token 分词为 v2 + token"
++    );
++    assert!(
++        hits(&graph, temp.root(), "AUTHTOKEN", SearchScope::Elements).is_empty(),
++        "全大写不切分（无小写边界）"
++    );
++    assert_eq!(
++        hits(&graph, temp.root(), "AuthAuth", SearchScope::Elements),
++        hits(&graph, temp.root(), "auth", SearchScope::Elements),
++        "重复段去重后与单段等价"
++    );
++}
++
++/// 边界：无命中 → 两数组皆空且不 `Err`；空模型 → 空结果。
++#[test]
++fn 无命中与空模型返回空数组不报错() {
++    let temp = TempDir::new("no-hit");
++    let graph = graph_of(vec![element("App.Auth")]);
++    let outcome = search(&graph, temp.root(), "zzz", SearchScope::All).expect("无命中仍 Ok");
++    assert!(outcome.element_fqns.is_empty());
++    assert!(outcome.docs.is_empty());
++
++    let empty = graph_of(Vec::new());
++    let outcome = search(&empty, temp.root(), "auth", SearchScope::All).expect("空模型仍 Ok");
++    assert!(outcome.element_fqns.is_empty() && outcome.docs.is_empty());
++}
++
++/// 边界：`str` / 规模面——超长 query（>1000 chars）正常返回；500 元素 / 200 文档
++/// → 结果序稳定、两次调用逐字相同。
++#[test]
++fn 超长query与规模面结果稳定() {
++    let temp = TempDir::new("scale");
++    for index in 0..200 {
++        temp.write(&format!("docs/note{index:03}.md"), "# 文档\n");
++    }
++    let mut elements: Vec<Element> = Vec::new();
++    for index in 0..500 {
++        let mut item = element(&format!("App.Auth.Mod{index:03}"));
++        if index < 200 {
++            item.docs = vec![format!("./docs/note{index:03}.md")];
++        }
++        elements.push(item);
++    }
++    let graph = graph_of(elements);
++
++    let long = format!("auth{}", "x".repeat(1200));
++    // 超长单段不与任何 FQN 匹配，但必须正常返回（不截断、不 panic）
++    let outcome =
++        search(&graph, temp.root(), &long, SearchScope::All).expect("超长 query 正常返回");
++    assert!(outcome.element_fqns.is_empty(), "超长段无命中");
++
++    let first = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
++    let second = search(&graph, temp.root(), "auth", SearchScope::All).expect("成功");
++    assert_eq!(first, second, "两次调用结果逐字相同");
++    assert_eq!(first.element_fqns.len(), 500, "500 元素全部命中 auth");
++    assert!(first.docs.is_empty(), "无文档路径含 auth");
++
++    // 文档侧：文件名命中 200 条，序为「来源强度 → 路径」稳定序
++    let docs_hit = search(&graph, temp.root(), "note", SearchScope::All).expect("成功");
++    assert!(docs_hit.element_fqns.is_empty(), "元素 FQN 不含 note");
++    let paths: Vec<&str> = docs_hit.docs.iter().map(|doc| doc.path.as_str()).collect();
++    assert_eq!(paths.len(), 200, "200 文档按文件名命中 note");
++    let mut sorted = paths.clone();
++    sorted.sort_unstable();
++    assert_eq!(paths, sorted, "文档命中按路径字典序");
++}
++
++/// 边界：`docs::all_docs` 与检索同源——检索命中文档即 `all_docs` 的子集（无第二
++/// 事实源）。
++#[test]
++fn 检索文档面为关联面的子集() {
++    let temp = TempDir::new("same-source");
++    temp.write("src/auth/README.md", "# 认证\n");
++    let mut target = element("App.Auth");
++    target.path = vec!["./src/auth/".to_owned()];
++    let graph = graph_of(vec![target]);
++
++    let all = docs::all_docs(&graph, temp.root());
++    let outcome = search(&graph, temp.root(), "auth", SearchScope::Docs).expect("成功");
++    for doc in &outcome.docs {
++        assert!(
++            all.docs.iter().any(|candidate| candidate.path == doc.path),
++            "命中条目 {} 应来自关联面",
++            doc.path
++        );
++    }
++}
+diff --git a/crates/core/archi/tests/corpus/dsl/array-values/01-core.toml b/crates/core/archi/tests/corpus/dsl/array-values/01-core.toml
+new file mode 100644
+index 000000000000..5f9c9a5c24b2
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/array-values/01-core.toml
+@@ -0,0 +1,7 @@
++[element."App"]
++kind = "package"
++
++[element."App.Auth"]
++kind = "domain"
++path = ["./src/auth/", "./src/token/"]
++docs = ["./src/auth/README.md", "./docs/auth-design.md"]
+diff --git a/crates/core/archi/tests/corpus/dsl/comments/01-core.toml b/crates/core/archi/tests/corpus/dsl/comments/01-core.toml
+new file mode 100644
+index 000000000000..57673607988c
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/comments/01-core.toml
+@@ -0,0 +1,5 @@
++# 顶层注释：被解析器忽略
++[element."App"]
++kind = "package"
++
++# 元素之间的注释与空行不参与模型
+diff --git a/crates/core/archi/tests/corpus/dsl/cycle/01-cycle.toml b/crates/core/archi/tests/corpus/dsl/cycle/01-cycle.toml
+new file mode 100644
+index 000000000000..ced535556c8e
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/cycle/01-cycle.toml
+@@ -0,0 +1,16 @@
++[element."App"]
++kind = "package"
++
++[element."App.A"]
++kind = "module"
++
++[element."App.B"]
++kind = "module"
++
++[[relation]]
++from = "App.A"
++to = "App.B"
++
++[[relation]]
++from = "App.B"
++to = "App.A"
+diff --git a/crates/core/archi/tests/corpus/dsl/dup-cross-file/01-core.toml b/crates/core/archi/tests/corpus/dsl/dup-cross-file/01-core.toml
+new file mode 100644
+index 000000000000..0cfe67feaae9
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/dup-cross-file/01-core.toml
+@@ -0,0 +1,2 @@
++[element."App"]
++kind = "package"
+diff --git a/crates/core/archi/tests/corpus/dsl/dup-cross-file/02-auth.toml b/crates/core/archi/tests/corpus/dsl/dup-cross-file/02-auth.toml
+new file mode 100644
+index 000000000000..a2a3eee52d7d
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/dup-cross-file/02-auth.toml
+@@ -0,0 +1,2 @@
++[element."App"]
++kind = "module"
+diff --git a/crates/core/archi/tests/corpus/dsl/duplicate-key/01-dup.toml b/crates/core/archi/tests/corpus/dsl/duplicate-key/01-dup.toml
+new file mode 100644
+index 000000000000..f4c4718fe4cf
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/duplicate-key/01-dup.toml
+@@ -0,0 +1,5 @@
++[element."App.Auth"]
++kind = "domain"
++
++[element."App.Auth"]
++kind = "module"

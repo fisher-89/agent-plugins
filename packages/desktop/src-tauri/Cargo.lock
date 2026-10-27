@@ -29,6 +29,7 @@ name = "agent-runtime"
 version = "0.1.0"
 dependencies = [
  "agent",
+ "archi",
  "checks",
  "config",
  "exec",
@@ -162,6 +163,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "archi"
+version = "0.1.0"
+dependencies = [
+ "foundation",
+ "ignore",
+ "petgraph",
+ "serde",
+ "serde_json",
+ "specta",
+ "toml 1.1.6+spec-1.1.0",
+ "toml_edit 0.25.15+spec-1.1.0",
 ]
 
 [[package]]
@@ -2555,6 +2570,7 @@ version = "0.1.0"
 dependencies = [
  "agent",
  "agent-runtime",
+ "archi",
  "checks-runtime",
  "config",
  "embed-resource",
@@ -9816,6 +9832,7 @@ dependencies = [
  "indexmap 2.14.2",
  "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 

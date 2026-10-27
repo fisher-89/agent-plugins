@@ -38,20 +38,30 @@ pub enum AgentRunStatus {
     Stopped,
 }
 
-/// 会话级专用工具面受控枚举：core 只承载词汇（首值 `Explore` = explore 笔记
-/// 工具面），解释归 infra（compose 装配 / sdk definitions 组装）。serde
-/// camelCase 线值 `"explore"`，与 `AgentPermissionMode` / `ModelLevel` 同款。
+/// 会话级专用工具面受控枚举：core 只承载词汇（`Explore` = explore 笔记工具面，
+/// `Archi` = 架构只读工具面），解释归 infra（compose 装配 / sdk definitions 组
+/// 装）。serde camelCase 线值 `"explore"` / `{"archi":{"module":bool,"search":bool}}`，
+/// 与 `AgentPermissionMode` / `ModelLevel` 同款。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionToolset {
     /// explore 笔记工具面（`create_explore_note` 专用工具追加）
     Explore,
+    /// 架构只读工具面：两工具（`archi_module` / `archi_search`）封闭集上的子集
+    /// 表达——按位下发，无第三位；新增第三工具须同改词汇与全量对拍语料
+    Archi {
+        /// 下发 `archi_module`（定位：已知在看哪个模块）
+        module: bool,
+        /// 下发 `archi_search`（发现：还不知道功能归谁管）
+        search: bool,
+    },
 }
 
 /// 会话级注入：`tools`（工具面收窄子集）/ `toolset`（受控专用工具追加）位自
 /// 本 change 起按来源装配消费（见 infra compose——explore 来源六工具 + Explore
-/// 枚举，其余恒 default）；`preamble` 位维持不消费（系统提示词唯一来源仍为
-/// `AGENT.md`）。serde additive：旧线 JSON 无 `toolset` 字段读出 `None`。
+/// 枚举，change 来源按 `(phase, role)` 矩阵追加架构只读工具面，其余恒 default）；
+/// `preamble` 位维持不消费（系统提示词唯一来源仍为 `AGENT.md`）。serde additive：
+/// 旧线 JSON 无 `toolset` 字段读出 `None`。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionInjections {
     /// 会话级系统前导（None 即不注入；维持不消费）

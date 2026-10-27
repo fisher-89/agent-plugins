@@ -1181,3 +1181,236 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
     assert!(by_name("read").parameters["properties"]["offset"].is_object());
     assert!(by_name("read").parameters["properties"]["limit"].is_object());
 }
+
+// ---------------------------------------------------------------------------
+// 架构只读工具面（archi 章节）：两布尔位子集表达 + schema + 沙箱面 + L1 收口
+// ---------------------------------------------------------------------------
+
+/// `archi_module` / `archi_search` 工具名（与 `tools` 常量同源口径）。
+const ARCHI_NAMES: [&str; 2] = [
+    crate::sdk::tools::ARCHI_MODULE_TOOL,
+    crate::sdk::tools::ARCHI_SEARCH_TOOL,
+];
+
+/// 注入面构造：`Archi { module, search }` + 七工具全量。
+fn archi_injections(module: bool, search: bool) -> SessionInjections {
+    SessionInjections {
+        preamble: None,
+        tools: None,
+        toolset: Some(SessionToolset::Archi { module, search }),
+    }
+}
+
+/// 正向：`Archi` 两布尔位四组合逐一（子集表达即被测语义）。
+#[test]
+fn archi四组合按位追加两工具() {
+    for (module, search) in [(true, true), (true, false), (false, true), (false, false)] {
+        let defs = definitions(&archi_injections(module, search));
+        let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
+
+        assert_eq!(
+            names[..7].to_vec(),
+            TOOL_NAMES.to_vec(),
+            "七通用工具恒在场且序不变（{:?}）",
+            (module, search)
+        );
+        let archi_present: Vec<&str> = names
+            .iter()
+            .copied()
+            .filter(|name| ARCHI_NAMES.contains(name))
+            .collect();
+        let mut expected: Vec<&str> = Vec::new();
+        if module {
+            expected.push(crate::sdk::tools::ARCHI_MODULE_TOOL);
+        }
+        if search {
+            expected.push(crate::sdk::tools::ARCHI_SEARCH_TOOL);
+        }
+        assert_eq!(
+            archi_present,
+            expected,
+            "按位追加（{:?}）",
+            (module, search)
+        );
+        assert_eq!(names.len(), 7 + expected.len(), "不追加第三工具");
+    }
+}
+
+/// 正向：两工具定义 schema 面（`element` 可选 / `query` 必填 + `scope` 三值）。
+#[test]
+fn archi两工具定义schema面() {
+    let defs = definitions(&archi_injections(true, true));
+    let module = defs
+        .iter()
+        .find(|def| def.name == crate::sdk::tools::ARCHI_MODULE_TOOL)
+        .expect("archi_module 定义在场");
+    assert_eq!(module.parameters["type"], json!("object"));
+    assert!(
+        module.parameters["properties"]["element"]["type"] == json!("string"),
+        "element 为 string"
+    );
+    assert_eq!(
+        module.parameters["required"],
+        json!([]),
+        "element 可选（required 为空数组）"
+    );
+    assert!(!module.description.is_empty(), "描述非空");
+
+    let search = defs
+        .iter()
+        .find(|def| def.name == crate::sdk::tools::ARCHI_SEARCH_TOOL)
+        .expect("archi_search 定义在场");
+    assert_eq!(
+        search.parameters["properties"]["query"]["type"],
+        json!("string"),
+        "query 为 string"
+    );
+    assert_eq!(
+        search.parameters["required"],
+        json!(["query"]),
+        "query 必填"
+    );
+    assert_eq!(
+        search.parameters["properties"]["scope"]["enum"],
+        json!(["elements", "docs", "all"]),
+        "scope 三值描述"
+    );
+    assert!(!search.description.is_empty(), "描述非空");
+}
+
+/// 回归：`None` / `Explore` 臂逐字不变；`tools` 子集收窄仍按 `TOOL_NAMES` 序过滤。
+#[test]
+fn 既有注入臂零回归() {
+    let none = definitions(&SessionInjections::default());
+    assert_eq!(
+        none.iter().map(|def| def.name.as_str()).collect::<Vec<_>>(),
+        TOOL_NAMES.to_vec(),
+        "缺省会话零追加"
+    );
+
+    let explore = definitions(&SessionInjections {
+        preamble: None,
+        tools: None,
+        toolset: Some(SessionToolset::Explore),
+    });
+    assert_eq!(explore.len(), 8, "explore 臂仍为七 + 笔记工具");
+    assert_eq!(explore[7].name, EXPLORE_NOTE_TOOL);
+
+    let narrowed = definitions(&SessionInjections {
+        preamble: None,
+        tools: Some(vec!["bash".to_owned(), "read".to_owned()]),
+        toolset: None,
+    });
+    assert_eq!(
+        narrowed
+            .iter()
+            .map(|def| def.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["read", "bash"],
+        "子集按 TOOL_NAMES 序过滤"
+    );
+}
+
+/// 正向：两 archi 工具恒不进路径沙箱（`input_path` → `None`，即便入参含 `path`）。
+#[test]
+fn archi工具不参与路径沙箱() {
+    let input = json!({ "element": "App.Auth", "path": "src/auth/README.md" });
+    for name in ARCHI_NAMES {
+        assert_eq!(
+            input_path(name, &input),
+            None,
+            "{name} 不进路径沙箱（无路径参数）"
+        );
+    }
+    assert_eq!(input_path("read", &input), Some("src/auth/README.md"));
+    assert_eq!(
+        input_path("glob", &json!({ "pattern": "src/**/*.rs" })),
+        Some("src/**/*.rs"),
+        "glob 取 pattern"
+    );
+}
+
+/// 边界：`TOOL_NAMES` 封闭集仍恰 7 名且序不变（两 archi 名不在封闭集内）。
+#[test]
+fn tool_names封闭集不含archi名() {
+    assert_eq!(TOOL_NAMES.len(), 7, "封闭集恰七名");
+    assert_eq!(
+        TOOL_NAMES.to_vec(),
+        vec!["read", "grep", "glob", "ls", "write", "edit", "bash"]
+    );
+    for name in ARCHI_NAMES {
+        assert!(
+            !TOOL_NAMES.contains(&name),
+            "{name} 只经 toolset 注入，不入封闭集"
+        );
+    }
+}
+
+/// 正向 / 边界：`cap_result` 30 KB 收口——恰 30 000 字节原样、30 001 字节截断留痕、
+/// 空串原样、多字节中文 / emoji 按 char 边界回退不回退到 0。
+#[test]
+fn cap_result四形态() {
+    use crate::sdk::tools::cap_result;
+
+    let exact = "a".repeat(30_000);
+    assert_eq!(cap_result(exact.clone()), exact, "恰上限原样返回");
+
+    let over = "a".repeat(30_001);
+    let capped = cap_result(over);
+    assert!(
+        capped.starts_with(&"a".repeat(30_000)),
+        "只保留前 30000 字节"
+    );
+    assert!(
+        capped.contains("已截断：单结果超 30000 字节上限，仅保留前 30000 字节"),
+        "留痕文案逐字: {capped}"
+    );
+
+    assert_eq!(cap_result(String::new()), "", "空串原样返回");
+
+    // 多字节面：三字节字符铺到上限之后 → 截断点回退到 char 边界（不 panic）
+    let chinese = "中".repeat(15_000); // 45000 字节
+    let capped = cap_result(chinese);
+    assert!(
+        capped.starts_with(&"中".repeat(10_000)),
+        "30000 / 3 = 10000 个完整字符"
+    );
+    assert!(capped.contains("已截断"), "多字节面亦留痕");
+
+    let emoji = "🚀".repeat(10_000); // 40000 字节
+    let capped = cap_result(emoji);
+    assert!(!capped.is_empty(), "截断结果非空（char 边界不回退到 0）");
+    assert!(capped.contains("已截断"));
+}
+
+/// 边界：`cap_result` 复用面——`tools::execute` 与 archi 工具执行体共用同一实现
+/// （同一超长文本经两路逐字节相同，禁第二份上限实现）。
+#[tokio::test]
+async fn cap_result两条调用点共用同一实现() {
+    let dir = tempdir("cap-reuse");
+    // 让 `read` 输出与 archi 工具输出都超过 30 KB
+    let long_line = "x".repeat(200);
+    let mut content = String::new();
+    for _ in 0..300 {
+        content.push_str(&long_line);
+        content.push('\n');
+    }
+    // 执行体消费绝对路径（相对形态由 loop 侧沙箱改写，本断面直调不经沙箱）
+    let path = write_rel(&root_of(&dir), "big.txt", &content);
+
+    let read_result = execute(&root_of(&dir), "read", &json!({ "path": path }))
+        .await
+        .expect("read 应成功");
+    assert!(
+        read_result.contains("已截断：单结果超 30000 字节上限"),
+        "通用工具路径经同一上限收口"
+    );
+
+    let expected_marker_line = read_result.lines().last().expect("留痕尾行").to_owned();
+    let direct = crate::sdk::tools::cap_result("y".repeat(31_000));
+    assert_eq!(
+        direct.lines().last().expect("留痕尾行"),
+        expected_marker_line,
+        "两路留痕尾行逐字相同（同一实现）"
+    );
+}

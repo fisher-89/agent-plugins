@@ -36,3 +36,4 @@
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行——不自行运行静态检查或测试门禁脚本。
 - 不产出评估结论或 checklist JSON。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
+- 额外可用只读工具 `archi_module`（定位）：改动前先确认模块边界与依赖方向——返回该元素的邻接、直接子元素、文档引用与声明位置 `modelFile` + `modelLine`。

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
 import type {
@@ -9,6 +9,21 @@ import type {
 } from '../../../types/dto';
 import type { UseChangeFlowRunResult } from '../hooks/use-change-flow-run';
 import { RunControlPanel } from './run-control-panel';
+
+// ---------------------------------------------------------------------------
+// 进程边界 mock（archi 章节）：`archi_change_summary` / `archi_graph` /
+// `archi_module` 按命令名分发。既有用例以 root=null 挂载（不触发取数），
+// 故该 mock 对既有断言零影响。
+// ---------------------------------------------------------------------------
+
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: invokeMock,
+  Channel: class {
+    onmessage: ((message: unknown) => void) | null = null;
+  },
+}));
 
 /** 固定 change id 字面量（命令面 prop——面板自身不寻址，展示面断言须与 id
  * 相异方可辨「id / name 不静默互换」）。 */
@@ -70,6 +85,7 @@ function renderPanel(
     <RunControlPanel
       changeId={identity.changeId ?? CHANGE_ID}
       name={identity.name ?? 'add-feature'}
+      root={null}
       activeRun={face.activeRun}
       lastRun={face.lastRun}
       actions={actions}
@@ -190,6 +206,7 @@ describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
       <RunControlPanel
         changeId={CHANGE_ID}
         name="add-feature"
+        root={null}
         activeRun={null}
         lastRun={lastRun({ status: 'failed', reason: 'CLI 漂移' })}
         actions={runStub({ start })}
@@ -592,5 +609,473 @@ describe('RunControlPanel：归档卡片清理告知（AC-8 / D8）', () => {
     expect(confirm).toHaveBeenLastCalledWith(true, true);
     fireEvent.click(screen.getByTestId('run-archive-confirm-stop'));
     expect(confirm).toHaveBeenLastCalledWith(false, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archi 章节：归档确认面「🏛 架构变更」区块（AC-15）
+// ---------------------------------------------------------------------------
+
+describe('RunControlPanel：架构变更区块（归档确认面）', () => {
+  /** 归档前置载荷（八字段形；worktree 供预览画布 root）。 */
+  function preflight(overrides: Partial<ArchivePreflight> = {}): ArchivePreflight {
+    return {
+      name: 'add-feature',
+      completed: false,
+      incompletePhases: [],
+      missingArtifacts: [],
+      deltaSpecs: [],
+      worktree: '/tmp/wt/add-feature',
+      branch: 'change/add-feature',
+      mergeTarget: 'main',
+      ...overrides,
+    };
+  }
+
+  /** 架构变更摘要 fixture（元素 +2 / −1、关系 +3 / −1、gate 一条）。 */
+  function summary(overrides: Record<string, unknown> = {}) {
+    return {
+      elementsAdded: ['App.Billing', 'App.Billing.Invoice'],
+      elementsRemoved: ['App.Legacy'],
+      relationsAdded: 3,
+      relationsRemoved: 1,
+      gateChanges: [{ fqn: 'App.Billing', from: 'off', to: 'strict' }],
+      diagnostics: [],
+      ...overrides,
+    };
+  }
+
+  /** 面板挂载（root 非 null：触发 archi_change_summary 取数）。 */
+  function renderArchivePanel(root = 'C:demoalpha') {
+    const confirm = vi.fn(async () => {});
+    render(
+      <RunControlPanel
+        changeId={CHANGE_ID}
+        name="add-feature"
+        root={root}
+        activeRun={activeRun({
+          status: 'waitingConfirm',
+          phase: 'archive',
+          archive: preflight(),
+        })}
+        lastRun={null}
+        actions={runStub({ confirm })}
+      />,
+    );
+    return { confirm };
+  }
+
+  it('应在有改动时呈现区块（计数行 + FQN 清单 + gate 行）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') return Promise.resolve(summary());
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderArchivePanel();
+
+    await screen.findByTestId('run-archi-block');
+    const block = screen.getByTestId('run-archi-block');
+    expect(block.textContent).toContain('元素 +2 / −1');
+    expect(block.textContent).toContain('关系 +3 / −1');
+    expect(block.textContent).toContain('gate 变更 1 项');
+
+    fireEvent.click(screen.getByTestId('run-archi-diff'));
+    await screen.findByTestId('run-archi-diff-detail');
+    const diff = screen.getByTestId('run-archi-diff-detail');
+    expect(diff.textContent).toContain('App.Billing');
+    expect(diff.textContent).toContain('App.Legacy');
+    expect(diff.textContent).toContain('App.Billing：off → strict');
+  });
+
+  it('应在无改动（summary = null）时零占位渲染（无标题 / 无空框 / 无 0 计数行）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') return Promise.resolve(null);
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderArchivePanel();
+
+    await waitFor(() => expect(screen.getByTestId('run-archive-confirm-card')).toBeDefined());
+    expect(screen.queryByTestId('run-archi-block')).toBeNull();
+    expect(screen.queryByTestId('run-archi-diff')).toBeNull();
+    expect(screen.queryByTestId('run-archi-preview')).toBeNull();
+  });
+
+  it('应在结构错时逐条红字呈现且确认按钮仍可点击（不阻断）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') {
+        return Promise.resolve(
+          summary({
+            elementsAdded: [],
+            elementsRemoved: [],
+            relationsAdded: 0,
+            relationsRemoved: 0,
+            gateChanges: [],
+            diagnostics: [
+              {
+                kind: 'cycle',
+                message: '依赖成环：App.A -> App.B -> App.A',
+                file: 'openspec/architecture/models/01-core.toml',
+                line: 12,
+                column: 1,
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    const { confirm } = renderArchivePanel();
+
+    await waitFor(() => expect(screen.getAllByTestId('run-archi-error').length).toBeGreaterThan(0));
+    const rows = screen.getAllByTestId('run-archi-error');
+    expect(rows[0]?.textContent).toContain('cycle');
+    expect(rows[0]?.textContent).toContain('openspec/architecture/models/01-core.toml:12');
+    // 引导行与诊断行同区块（同一 flex 容器的末行，非 `run-archi-error` 行）
+    expect(screen.getByText(/修复后再归档/)).toBeDefined();
+    expect(rows).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId('run-archive-confirm-proceed'));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenLastCalledWith(true, true);
+  });
+
+  it('应在预览入口展开画布（mode=incremental、root = preflight.worktree）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') return Promise.resolve(summary());
+      if (command === 'archi_graph') {
+        return Promise.resolve({ elements: [], relations: [], diagnostics: [] });
+      }
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderArchivePanel();
+
+    await screen.findByTestId('run-archi-block');
+    fireEvent.click(screen.getByTestId('run-archi-preview'));
+    await screen.findByTestId('run-archi-preview-canvas');
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.some(
+          ([name, args]) =>
+            name === 'archi_graph' && (args as { root?: string }).root === '/tmp/wt/add-feature',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('应以 (root, changeId) 调一次 archi_change_summary', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') return Promise.resolve(summary());
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderArchivePanel('C:demoalpha');
+    await screen.findByTestId('run-archi-block');
+
+    const calls = invokeMock.mock.calls.filter(([name]) => name === 'archi_change_summary');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[1]).toEqual({ root: 'C:demoalpha', changeId: CHANGE_ID });
+  });
+
+  it('应在取数失败时行内呈现错误（不阻断确认）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') {
+        return Promise.reject(new Error('change "add-feature" 未建档'));
+      }
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderArchivePanel();
+    await waitFor(() =>
+      expect(screen.getByTestId('run-archi-error').textContent).toContain('架构变更取数失败'),
+    );
+    expect(screen.getByTestId('run-archive-confirm-proceed')).toBeDefined();
+  });
+
+  it('应把区块排在 delta specs 之后、同步跳过之前（DOM 序断言）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') return Promise.resolve(summary());
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    render(
+      <RunControlPanel
+        changeId={CHANGE_ID}
+        name="add-feature"
+        root="C:\demo\alpha"
+        activeRun={activeRun({
+          status: 'waitingConfirm',
+          phase: 'archive',
+          archive: preflight({ deltaSpecs: ['desktop-flow'] }),
+        })}
+        lastRun={null}
+        actions={runStub()}
+      />,
+    );
+    await screen.findByTestId('run-archi-block');
+
+    const card = screen.getByTestId('run-archive-confirm-card');
+    const order = Array.from(
+      card.querySelectorAll('[data-testid^="run-archive-"], [data-testid="run-archi-block"]'),
+    ).map((node) => node.getAttribute('data-testid') ?? '');
+    expect(order.indexOf('run-archive-delta-specs')).toBeLessThan(order.indexOf('run-archi-block'));
+    expect(order.indexOf('run-archi-block')).toBeLessThan(order.indexOf('run-archive-sync-skip'));
+  });
+
+  it('应在区块内不出现本期射程外信息（跨语言依赖 / 符号级契约 / 相邻报告）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_change_summary') return Promise.resolve(summary());
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    renderArchivePanel();
+    await screen.findByTestId('run-archi-block');
+    const block = screen.getByTestId('run-archi-block').textContent ?? '';
+    for (const forbidden of ['跨语言依赖', '符号级契约', '相邻报告']) {
+      expect(block).not.toContain(forbidden);
+    }
+  });
+});
+// ---------------------------------------------------------------------------
+// 归档前置文案面与架构变更区块边界面（AC-7 / AC-9 / AC-15 文案与取数纪律）
+// ---------------------------------------------------------------------------
+
+/** 归档前置载荷（八字段形）。 */
+function archivePreflight(overrides: Partial<ArchivePreflight> = {}): ArchivePreflight {
+  return {
+    name: 'add-feature',
+    completed: false,
+    incompletePhases: [],
+    missingArtifacts: [],
+    deltaSpecs: [],
+    worktree: '/tmp/wt/add-feature',
+    branch: 'change/add-feature',
+    mergeTarget: 'main',
+    ...overrides,
+  };
+}
+
+/** 架构变更摘要 fixture（元素 +2 / −1、关系 +3 / −1、gate 一条）。 */
+function archiSummary(overrides: Record<string, unknown> = {}) {
+  return {
+    elementsAdded: ['App.Billing', 'App.Billing.Invoice'],
+    elementsRemoved: ['App.Legacy'],
+    relationsAdded: 3,
+    relationsRemoved: 1,
+    gateChanges: [{ fqn: 'App.Billing', from: 'off', to: 'strict' }],
+    diagnostics: [],
+    ...overrides,
+  };
+}
+
+/** 归档停等卡片面板（root 由调用方给定；actions 为 spy 桩）。 */
+function renderArchiveCard(root: string | null, archive: ArchivePreflight | null) {
+  return render(
+    <RunControlPanel
+      changeId={CHANGE_ID}
+      name="add-feature"
+      root={root}
+      activeRun={activeRun({ status: 'waitingConfirm', phase: 'archive', archive })}
+      lastRun={null}
+      actions={runStub()}
+    />,
+  );
+}
+
+describe('RunControlPanel：归档前置警告与告知行文案', () => {
+  it('应在完成且无缺席产物时零警告行', () => {
+    renderArchiveCard(null, archivePreflight({ completed: true }));
+    expect(screen.queryAllByTestId('run-archive-warning')).toHaveLength(0);
+  });
+
+  it('应在未完成且无缺失相位时只给「完成度不可核算」一条警告', () => {
+    renderArchiveCard(null, archivePreflight({ completed: false, incompletePhases: [] }));
+    expect(screen.getAllByTestId('run-archive-warning').map((row) => row.textContent)).toEqual([
+      '完成度不可核算（工作流类型无相位表）',
+    ]);
+  });
+
+  it('应逐条呈现未通过的相位与缺席产物（顿号连缀、全量不截断）', () => {
+    renderArchiveCard(
+      null,
+      archivePreflight({
+        completed: false,
+        incompletePhases: ['design', 'implement'],
+        missingArtifacts: ['proposal.md', 'tasks.md'],
+      }),
+    );
+    expect(screen.getAllByTestId('run-archive-warning').map((row) => row.textContent)).toEqual([
+      '工作流未全部通过：design、implement',
+      '缺少产物文档：proposal.md、tasks.md',
+    ]);
+  });
+
+  it('应在合入目标 / 分支探测失败时呈现占位文案（提示仍可读）', () => {
+    renderArchiveCard(null, archivePreflight({ mergeTarget: null, branch: null }));
+    const notice = screen.getByTestId('run-archive-merge-target');
+    expect(notice.textContent).toContain('（当前分支探测失败）');
+    expect(notice.textContent).toContain('change/<name>');
+    expect(notice.textContent).toContain('收口后自动移除 worktree');
+    expect(screen.getByTestId('run-archive-confirm-card').textContent).toContain(
+      '自动移除 worktree /',
+    );
+  });
+
+  it('应在 worktree 缺席时不提示自动移除 worktree（告知行整体退位）', () => {
+    renderArchiveCard(null, archivePreflight({ worktree: null, branch: null, mergeTarget: null }));
+    expect(screen.queryByTestId('run-archive-merge-target')).toBeNull();
+    expect(screen.getByTestId('run-archive-confirm-card').textContent).not.toContain(
+      '自动移除 worktree',
+    );
+  });
+
+  it('应在 waitingConfirm 但 phase 缺席时不渲染任何停等卡片', () => {
+    render(
+      <RunControlPanel
+        changeId={CHANGE_ID}
+        name="add-feature"
+        root={null}
+        activeRun={activeRun({ status: 'waitingConfirm', phase: null })}
+        lastRun={null}
+        actions={runStub()}
+      />,
+    );
+    expect(screen.queryByTestId('run-confirm-card')).toBeNull();
+    expect(screen.queryByTestId('run-archive-confirm-card')).toBeNull();
+  });
+
+  it('应在 runs 尾行非 failed 时走默认徽章变体，且 reason 缺席时零收口行', () => {
+    renderPanel(runStub(), {
+      activeRun: null,
+      lastRun: lastRun({ status: 'completed', reason: null }),
+    });
+    expect(screen.getByTestId('run-status').className).toContain('bg-primary');
+    expect(screen.getByTestId('run-status').textContent).toBe('已完成');
+    expect(screen.queryByTestId('run-finished-reason')).toBeNull();
+  });
+
+  it('应在 runs 尾行 failed 时走 fail 变体并呈现收口记因', () => {
+    renderPanel(runStub(), {
+      activeRun: null,
+      lastRun: lastRun({ status: 'failed', reason: 'CLI 漂移' }),
+    });
+    expect(screen.getByTestId('run-status').className).toContain('bg-destructive/10');
+    expect(screen.getByTestId('run-finished-reason').textContent).toContain('CLI 漂移');
+  });
+});
+
+describe('RunControlPanel：架构变更区块边界面', () => {
+  it('应在 root 缺席时零 archi_change_summary invoke（不以空根取数）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(() => Promise.resolve(archiSummary()));
+    renderArchiveCard(null, archivePreflight());
+    await waitFor(() => expect(screen.getByTestId('run-archive-confirm-card')).toBeTruthy());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'archi_change_summary')).toHaveLength(
+      0,
+    );
+    expect(screen.queryByTestId('run-archi-block')).toBeNull();
+  });
+
+  it('应在 diff 明细里逐项列出增删元素，空组零行', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(() => Promise.resolve(archiSummary()));
+    const filled = renderArchiveCard('C:demoalpha', archivePreflight());
+    await screen.findByTestId('run-archi-block');
+
+    fireEvent.click(screen.getByTestId('run-archi-diff'));
+    await screen.findByTestId('run-archi-diff-detail');
+    const diff = screen.getByTestId('run-archi-diff-detail');
+    expect(diff.textContent).toContain('新增元素：App.Billing、App.Billing.Invoice');
+    expect(diff.textContent).toContain('删除元素：App.Legacy');
+    expect(diff.textContent).toContain('App.Billing：off → strict');
+
+    // 空组：零「新增元素」/「删除元素」行（不落空清单标题）
+    filled.unmount();
+    invokeMock.mockImplementation(() =>
+      Promise.resolve(
+        archiSummary({
+          elementsAdded: [],
+          elementsRemoved: [],
+          gateChanges: [],
+          relationsAdded: 0,
+          relationsRemoved: 0,
+        }),
+      ),
+    );
+    renderArchiveCard('C:demoalpha', archivePreflight());
+    await screen.findByTestId('run-archi-block');
+    fireEvent.click(screen.getByTestId('run-archi-diff'));
+    await screen.findByTestId('run-archi-diff-detail');
+    const empty = screen.getByTestId('run-archi-diff-detail');
+    expect(empty.textContent).not.toContain('新增元素');
+    expect(empty.textContent).not.toContain('删除元素');
+    expect(empty.textContent?.trim()).toBe('');
+  });
+
+  it('应把「修复后再归档」引导行限定在诊断在场时（零诊断零引导）', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(() => Promise.resolve(archiSummary({ diagnostics: [] })));
+    renderArchiveCard('C:demoalpha', archivePreflight());
+    const block = await screen.findByTestId('run-archi-block');
+    expect(block.textContent).not.toContain('修复后再归档');
+    expect(screen.queryAllByTestId('run-archi-error')).toHaveLength(0);
+  });
+
+  it('应在 root 变化后以新根重新取数，且旧根应答不回写', async () => {
+    const pending: ((value: unknown) => void)[] = [];
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    const panel = (root: string) => (
+      <RunControlPanel
+        changeId={CHANGE_ID}
+        name="add-feature"
+        root={root}
+        activeRun={activeRun({
+          status: 'waitingConfirm',
+          phase: 'archive',
+          archive: archivePreflight(),
+        })}
+        lastRun={null}
+        actions={runStub()}
+      />
+    );
+    const { rerender } = render(panel('C:demoa'));
+
+    rerender(panel('C:demob'));
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([name]) => name === 'archi_change_summary'),
+      ).toHaveLength(2),
+    );
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'archi_change_summary')[1]?.[1],
+    ).toEqual({ root: 'C:demob', changeId: CHANGE_ID });
+
+    await act(async () => {
+      pending[1]?.(archiSummary({ elementsAdded: ['App.X'], elementsRemoved: [] }));
+    });
+    const block = await screen.findByTestId('run-archi-block');
+    expect(block.textContent).toContain('元素 +1 / −0');
+
+    // 旧根迟到应答：不回写成陈旧计数
+    await act(async () => {
+      pending[0]?.(
+        archiSummary({
+          elementsAdded: ['App.A', 'App.B', 'App.C'],
+          elementsRemoved: [],
+        }),
+      );
+    });
+    expect(screen.getByTestId('run-archi-block').textContent).toContain('元素 +1 / −0');
   });
 });

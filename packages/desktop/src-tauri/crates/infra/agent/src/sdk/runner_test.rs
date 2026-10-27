@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use agent::{
@@ -9,9 +9,10 @@ use agent::{
 use crate::sdk::config::{EngineConfig, Protocol};
 use crate::sdk::model_spec::{parse_model_spec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW};
 use crate::sdk::runner::{
-    anthropic_provider, build_model, openai_provider, resolve_output_tokens, SdkRunner,
-    MIN_OUTPUT_TOKENS,
+    anthropic_provider, build_model, mint_archi_context, openai_provider, resolve_output_tokens,
+    SdkRunner, MIN_OUTPUT_TOKENS,
 };
+use crate::sdk::tools::ARCHI_MODULE_TOOL;
 use crate::{EngineFacade, EngineKind, ResumeTranscript};
 use rig::driver::DynModel;
 use rig::operation::Completion;
@@ -1811,14 +1812,22 @@ async fn pump_start_line(runner: &SdkRunner) -> String {
 
     // 泵启动日志写于 RunStarted 之前（同任务同序）；轮询只兜文件可见性
     let needle = format!("泵启动 session={session_id} ");
+    // 命中判据要求**整行已落盘**（末列 ` raw=` 在场）：写侧多段 syscall，半行
+    // 读回会让下游列面取值缺列——轮询到整行可见再取
     let content = crate::sdk::log_test::read_engine_log_until(|content| {
-        content.lines().any(|line| line.contains(&needle))
+        content
+            .lines()
+            .any(|line| line.contains(&needle) && line.contains(" raw="))
     });
-    content
+    let line = content
         .lines()
-        .find(|line| line.contains(&needle))
-        .unwrap_or_else(|| panic!("泵启动日志行应在场，实际日志: {content}"))
-        .to_owned()
+        .find(|line| line.contains(&needle) && line.contains(" raw="))
+        .unwrap_or_else(|| panic!("泵启动日志行应在场，实际日志: {content}"));
+    // 只取本行自有片段：写侧 `writeln!` 分片 syscall，并发用例的碎片可能拼在本行
+    // 首尾；`泵启动 session=…` 之后直到行尾是本行连续写入（`raw=` 之后仍可能夹带
+    // 尾随碎片，故下游判据只取前四列）。
+    let start = line.find(&needle).expect("命中判据已保证 needle 在场");
+    line[start..].to_owned()
 }
 
 #[tokio::test]
@@ -1866,16 +1875,27 @@ async fn 未装配web_search缺省关且与显式关等价() {
         );
     }
     // 除会话 id 外逐字同形（同一装配口径的两态）
-    let tail = |line: &str| {
-        line.split_once(" model=")
-            .unwrap_or_else(|| panic!("泵启动日志应含 model=，实际: {line}"))
-            .1
-            .to_owned()
+    let columns = |line: &str| -> Vec<String> {
+        let mut cursor = 0usize;
+        ["protocol=", "model=", "window=", "web_search="]
+            .into_iter()
+            .map(|key| {
+                let offset = line[cursor..]
+                    .find(key)
+                    .unwrap_or_else(|| panic!("泵启动日志应含 {key}，实际: {line}"));
+                let start = cursor + offset;
+                let end = line[start..]
+                    .find(char::is_whitespace)
+                    .map_or(line.len(), |index| start + index);
+                cursor = end;
+                line[start..end].to_owned()
+            })
+            .collect()
     };
     assert_eq!(
-        tail(&unset),
-        tail(&explicit_off),
-        "两态日志除会话 id 外逐字同形"
+        columns(&unset),
+        columns(&explicit_off),
+        "两态日志前四列（protocol / model / window / web_search）逐列同形"
     );
 
     // 启动校验面同样等价（开关不参与 `is_complete` 判定）
@@ -1965,5 +1985,308 @@ async fn 启动失败面不被web_search开关改写() {
             .expect_err("同口径失败")
             .to_string(),
         "错误文案与未装配时逐字一致（开关不参与 is_complete 判定、不吞启动错误）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// archi 注入面（`SessionToolset::Archi`）：下发面按位组装 + 与 `definitions` 单源
+//
+// 观测口径：per-turn 铸造已单点化为 `runner::mint_archi_context(toolset, root)`
+// （`session_pump` 唯一调用处，入参即 `open.injections.toolset` +
+// `open.ctx.workspace_root`）⇒ 铸造条件（`Some(Archi { .. })` → `Some(ctx)`，
+// `None` / `Explore` → `None`）与 root 传递（工具结果只取自该 root 下模型，换
+// root 即换内容）在本文件直断；`session_pump` 仍为私有面、`ArchiContext.root`
+// 仍为私有字段，不为测试提升可见性。loop 侧路由 / 整轮执行由
+// `sdk/loop_test.rs` 承接，`RunStarted.tools` 按 `toolset` 布尔位组装、与
+// `tools::definitions` 逐名同源、两专用上下文（`Explore` / `Archi`）互不串道
+// 亦在本节断言。
+// ---------------------------------------------------------------------------
+
+/// archi 注入底座（两布尔位按需；`tools` 不收窄 = 七通用工具全量）。
+fn archi_injections(module: bool, search: bool) -> SessionInjections {
+    SessionInjections {
+        toolset: Some(SessionToolset::Archi { module, search }),
+        ..SessionInjections::default()
+    }
+}
+
+/// 携注入面与会话根的 open 入参（root 即 archi 上下文 per-turn 铸造的原料）。
+fn open_with_injections(injections: SessionInjections, root: PathBuf) -> SessionOpen {
+    SessionOpen {
+        injections,
+        ctx: SessionCtx {
+            workspace_root: root,
+            ..open_new().ctx
+        },
+        ..open_new()
+    }
+}
+
+/// 起一轮泵并取 `RunStarted.tools`（RunStarted 先于模型 IO，可观察）。
+async fn run_started_tools(runner: &SdkRunner, open: SessionOpen) -> Vec<String> {
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "工具面一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let started = session.observations.recv().await.expect("RunStarted");
+    let AgentEventKind::RunStarted { tools, .. } = &started else {
+        panic!("首事件应为 RunStarted，实际: {started:?}");
+    };
+    let tools = tools.clone();
+    drop(session);
+    tools
+}
+
+/// per-turn 铸造（正向，表驱动布尔位组合）：`injections.toolset = Some(Archi
+/// { module, search })` → 起播后下发面 = 七通用工具（`TOOL_NAMES` 序）+ 按位
+/// 追加的 archi 工具（尾追加）——注入面经泵进入 `definitions` 单源。
+#[tokio::test]
+async fn archi注入起播runstarted按位追加专用工具() {
+    use crate::sdk::tools::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, TOOL_NAMES};
+
+    struct Case {
+        module: bool,
+        search: bool,
+        appended: Vec<&'static str>,
+    }
+    let cases = [
+        Case {
+            module: true,
+            search: true,
+            appended: vec![ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL],
+        },
+        Case {
+            module: true,
+            search: false,
+            appended: vec![ARCHI_MODULE_TOOL],
+        },
+        Case {
+            module: false,
+            search: true,
+            appended: vec![ARCHI_SEARCH_TOOL],
+        },
+    ];
+    for Case {
+        module,
+        search,
+        appended,
+    } in cases
+    {
+        let dir = workspace_root("archi-tools");
+        let runner = SdkRunner::new(complete_config(), None, None, None);
+        let tools = run_started_tools(
+            &runner,
+            open_with_injections(archi_injections(module, search), dir.path().to_path_buf()),
+        )
+        .await;
+
+        let mut expected: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+        expected.extend(appended.into_iter().map(str::to_owned));
+        assert_eq!(
+            tools, expected,
+            "{{module: {module}, search: {search}}}: 七通用工具保序 + 按位专用工具尾追加"
+        );
+    }
+}
+
+/// `RunStarted.tools` 一致性（正向）：archi 会话的下发面与
+/// `tools::definitions(&injections)` 的 name 清单逐名相同（定义 / 上报同源，
+/// 零第二份名单）。
+#[tokio::test]
+async fn archi下发面与definitions逐名同源() {
+    for (module, search) in [(true, true), (true, false)] {
+        let dir = workspace_root("archi-definitions");
+        let injections = archi_injections(module, search);
+        let runner = SdkRunner::new(complete_config(), None, None, None);
+        let tools = run_started_tools(
+            &runner,
+            open_with_injections(injections.clone(), dir.path().to_path_buf()),
+        )
+        .await;
+        let definitions: Vec<String> = crate::sdk::tools::definitions(&injections)
+            .into_iter()
+            .map(|definition| definition.name)
+            .collect();
+
+        assert_eq!(
+            tools, definitions,
+            "{{module: {module}, search: {search}}}: RunStarted.tools 与 definitions 同源同序"
+        );
+        assert_eq!(tools.len(), definitions.len(), "逐名同长");
+    }
+}
+
+/// 非 Archi 会话零 archi 工具面（边界，两形态）：`toolset = None` /
+/// `Some(Explore)` → 下发面零 archi 名；`Explore` 仍追加 `create_explore_note`
+/// 且 archi 会话不追加它（两专用上下文互不串道）。
+#[tokio::test]
+async fn 非archi会话零archi工具面且两专用上下文不串道() {
+    use crate::sdk::tools::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES};
+
+    let archi_names = [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL];
+
+    // 形态 A：`toolset = None`（未注入）——七通用工具、零专用工具追加
+    let dir = workspace_root("archi-none");
+    let runner = SdkRunner::new(complete_config(), None, None, None);
+    let tools = run_started_tools(
+        &runner,
+        open_with_injections(SessionInjections::default(), dir.path().to_path_buf()),
+    )
+    .await;
+    assert_eq!(
+        tools.as_slice(),
+        TOOL_NAMES.as_slice(),
+        "toolset = None：与七通用清单逐名一致"
+    );
+    assert!(
+        archi_names
+            .iter()
+            .all(|name| !tools.contains(&(*name).to_owned())),
+        "toolset = None：零 archi 工具面，实际: {tools:?}"
+    );
+
+    // 形态 B：`toolset = Some(Explore)`——既有 explore 臂零回归（仍只有笔记工具）
+    let dir = workspace_root("archi-explore");
+    let explore = SessionInjections {
+        toolset: Some(SessionToolset::Explore),
+        ..SessionInjections::default()
+    };
+    let runner = SdkRunner::new(complete_config(), None, None, None);
+    let tools = run_started_tools(
+        &runner,
+        open_with_injections(explore, dir.path().to_path_buf()),
+    )
+    .await;
+    assert!(
+        tools.contains(&EXPLORE_NOTE_TOOL.to_owned()),
+        "Some(Explore)：既有专用工具仍在册，实际: {tools:?}"
+    );
+    assert!(
+        archi_names
+            .iter()
+            .all(|name| !tools.contains(&(*name).to_owned())),
+        "Some(Explore)：非 Archi 会话零 archi 工具面（archi 上下文恒 None），实际: {tools:?}"
+    );
+
+    // 形态 C：`toolset = Some(Archi)`——archi 名在册而笔记工具不在册（互不串道）
+    let dir = workspace_root("archi-arm");
+    let runner = SdkRunner::new(complete_config(), None, None, None);
+    let tools = run_started_tools(
+        &runner,
+        open_with_injections(archi_injections(true, true), dir.path().to_path_buf()),
+    )
+    .await;
+    assert!(
+        archi_names
+            .iter()
+            .all(|name| tools.contains(&(*name).to_owned())),
+        "Some(Archi)：两 archi 名在册，实际: {tools:?}"
+    );
+    assert!(
+        !tools.contains(&EXPLORE_NOTE_TOOL.to_owned()),
+        "Some(Archi)：不追加 explore 笔记工具（两上下文互不串道），实际: {tools:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// per-turn 铸造（`runner::mint_archi_context`）：铸造条件 + root 传递
+//
+// `session_pump` 的铸造点即对该单点函数的调用（入参 = `open.injections.toolset`
+// + `open.ctx.workspace_root`）；本组用例以同两份原料直断铸造产物，root 传递以
+// 真实读盘（`ArchiContext::execute` 读取 `archi_models_dir(root)` 下的模型）反向
+// 锚定：换 root 即换模型内容，root 传错即红。
+// ---------------------------------------------------------------------------
+
+/// 落一个模型文件（`openspec/architecture/models/`，路径经 `foundation::layout`）。
+fn archi_write_model(root: &Path, name: &str, content: &str) {
+    let dir = foundation::layout::archi_models_dir(root);
+    std::fs::create_dir_all(&dir).expect("创建模型目录失败");
+    std::fs::write(dir.join(name), content).expect("写模型文件失败");
+}
+
+/// 铸造根 A 的模型（两元素，与根 B 全不相交）。
+const ARCHI_ROOT_A: &str = concat!(
+    "# 根 A\n",
+    "[element.\"Alpha\"]\n",
+    "kind = \"package\"\n",
+    "\n",
+    "[element.\"Alpha.Core\"]\n",
+    "kind = \"domain\"\n",
+);
+
+/// 铸造根 B 的模型（另一套元素——换 root 即换结果）。
+const ARCHI_ROOT_B: &str = concat!(
+    "# 根 B\n",
+    "[element.\"Beta\"]\n",
+    "kind = \"package\"\n",
+    "\n",
+    "[element.\"Beta.Store\"]\n",
+    "kind = \"module\"\n",
+);
+
+/// per-turn 铸造（正向，表驱动 2 组合 × 2 root）：`toolset = Some(Archi
+/// { module, search })` 的会话必铸 `LoopTurn.archi = Some(ctx)`；`ctx` 的读面只
+/// 取 `open.ctx.workspace_root`（会话 cwd）下的模型——两个 root 各一套元素，结果
+/// 逐字段随之切换（root 传错即红）。
+#[tokio::test]
+async fn per_turn铸造archi上下文按toolset且root取会话根() {
+    for (module, search) in [(true, true), (true, false)] {
+        for (tag, model, fqns) in [
+            ("mint-root-a", ARCHI_ROOT_A, ["Alpha", "Alpha.Core"]),
+            ("mint-root-b", ARCHI_ROOT_B, ["Beta", "Beta.Store"]),
+        ] {
+            let dir = workspace_root(tag);
+            archi_write_model(dir.path(), "01-model.toml", model);
+            // 会话入参即铸造原料（`session_pump` 的两实参来源）
+            let open =
+                open_with_injections(archi_injections(module, search), dir.path().to_path_buf());
+
+            let context =
+                mint_archi_context(open.injections.toolset.as_ref(), &open.ctx.workspace_root)
+                    .unwrap_or_else(|| {
+                        panic!("{{module: {module}, search: {search}}}: Archi 会话必铸执行上下文")
+                    });
+
+            // root 传递：薄概览只取该 root 下的模型（换 root 即换元素集合）
+            let text = context
+                .execute(ARCHI_MODULE_TOOL, &serde_json::json!({}))
+                .await
+                .unwrap_or_else(|error| panic!("{tag}: 薄概览应成功: {error}"));
+            let payload: serde_json::Value =
+                serde_json::from_str(&text).expect("工具结果为 dto JSON 串");
+            let names: Vec<&str> = payload
+                .as_array()
+                .unwrap_or_else(|| panic!("{tag}: 薄概览为元素数组，实际: {payload}"))
+                .iter()
+                .map(|element| element["fqn"].as_str().expect("薄条目含 fqn"))
+                .collect();
+            assert_eq!(
+                names,
+                fqns.to_vec(),
+                "{tag}: 元素集合只取自 ctx.workspace_root 下模型（root 传错即红）"
+            );
+        }
+    }
+}
+
+/// per-turn 铸造（边界，两形态）：`toolset = None` / `Some(Explore)` → 不铸
+/// （`LoopTurn.archi = None` 的行为面），即便 root 下模型齐备。
+#[test]
+fn 非archi会话不铸archi上下文() {
+    let dir = workspace_root("mint-none");
+    archi_write_model(dir.path(), "01-model.toml", ARCHI_ROOT_A);
+    let root = dir.path().to_path_buf();
+
+    assert!(
+        mint_archi_context(None, &root).is_none(),
+        "toolset = None：零 archi 上下文"
+    );
+    assert!(
+        mint_archi_context(Some(&SessionToolset::Explore), &root).is_none(),
+        "toolset = Explore：两专用上下文互不串道（不铸 archi）"
     );
 }

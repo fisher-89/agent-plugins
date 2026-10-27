@@ -1,0 +1,20 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.38s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x typescript(consistent-type-imports): `import()` type annotations are forbidden.
+    ,-[src/views/architecture/components/architecture-canvas.test.tsx:33:46]
+ 32 | vi.mock('@xyflow/react', async (importOriginal) => {
+ 33 |   const actual = await importOriginal<typeof import('@xyflow/react')>();
+    :                                              ^^^^^^^^^^^^^^^^^^^^^^^
+ 34 |   // 观测垫片：记录入参后交真实 `ReactFlow` 渲染（forwardRef 对象不可直接调用）
+    `----
+  help: Replace `import()` type annotations with a regular type import. For example, change `type T = import('module').Type` to `import type { Type } from 'module'; type T = Type`.
+
+Found 1 error and 0 warnings in 198 files (1.7s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.0s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

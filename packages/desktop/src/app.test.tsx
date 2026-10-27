@@ -172,6 +172,34 @@ let addRecord: WorkspaceRecord | null = null;
 let listReject: string | null = null;
 let configReject: string | null = null;
 let configPending = false;
+/// 架构页取数失败注入位（`archi_graph` reject 形态）
+let archiReject: string | null = null;
+
+/** 架构图 fixture（两元素零关系零诊断；`archi_graph` / `archi_module` 共用）。 */
+const ARCHI_ELEMENTS = [
+  {
+    fqn: 'App',
+    kind: 'package' as const,
+    gate: 'off' as const,
+    path: [],
+    summary: null,
+    metadata: {},
+    modelFile: 'openspec/architecture/models/01-core.toml',
+    modelLine: 2,
+    mark: 'none' as const,
+  },
+  {
+    fqn: 'App.Auth',
+    kind: 'domain' as const,
+    gate: 'strict' as const,
+    path: ['./src/auth/'],
+    summary: '认证域',
+    metadata: {},
+    modelFile: 'openspec/architecture/models/01-core.toml',
+    modelLine: 6,
+    mark: 'none' as const,
+  },
+];
 
 // 构建模式单源（IPC `app_environment`）：默认 dev fixture（徽标在场、更新检查
 // 不发起）；需检查路径的用例切 'prod'；另备 reject / pending / null / 非法载荷
@@ -189,6 +217,7 @@ function mockIpc() {
   listReject = null;
   configReject = null;
   configPending = false;
+  archiReject = null;
   environmentMode = 'dev';
   invokeMock.mockImplementation(
     (command: string, params?: { root?: string; id?: string; offset?: number; limit?: number }) => {
@@ -268,6 +297,22 @@ function mockIpc() {
         if (configReject !== null) return Promise.reject(new Error(configReject));
         if (configPending) return new Promise<WorkspaceConfigReport>(() => {});
         return Promise.resolve(configReportFor(params?.root ?? ''));
+      }
+      // 架构页挂载取数（useArchiGraph 挂载发起 archi_graph）：正确形态回健康图；
+      // reject 形态由 archiReject 控制（错误态用例）
+      if (command === 'archi_graph') {
+        if (archiReject !== null) return Promise.reject(new Error(archiReject));
+        return Promise.resolve({ elements: [...ARCHI_ELEMENTS], relations: [], diagnostics: [] });
+      }
+      if (command === 'archi_module') {
+        return Promise.resolve({
+          element: ARCHI_ELEMENTS[0],
+          dependsOn: [],
+          dependedBy: [],
+          children: [],
+          docs: [],
+          warnings: [],
+        });
       }
       return Promise.resolve(null);
     },
@@ -1654,5 +1699,79 @@ describe('App：构建模式穿透（mode → DEV 徽标 / 更新检查判据）
     await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
     expect(screen.queryByTestId('dev-badge')).toBeNull();
     expect(countOf('app_environment')).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archi 章节：/architecture 路由（挂载点 A）与侧栏入口跳转
+// ---------------------------------------------------------------------------
+
+describe('App：架构页路由（/architecture）', () => {
+  beforeEach(() => {
+    window.location.hash = '';
+    getVersionMock.mockReset();
+    invokeMock.mockReset();
+    openMock.mockReset();
+    checkMock.mockReset();
+    checkMock.mockResolvedValue(null);
+    getVersionMock.mockResolvedValue('0.1.0');
+    toast.dismiss();
+    mockIpc();
+  });
+
+  it('应在 hash 落 #/architecture 时渲染架构页并激活 nav-architecture', async () => {
+    window.location.hash = '#/architecture';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('archi-refresh') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('archi-canvas') !== null).toBe(true));
+    expect(screen.getByTestId('nav-architecture').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
+    expect(screen.queryByText('add-feature')).toBeNull();
+    // 取数只发 archi_graph（携当前根）
+    expect(invokeMock).toHaveBeenCalledWith('archi_graph', { root: FIRST.root });
+  });
+
+  it('应从侧栏进入架构页并在切回变更页时复原（分支卸载 / 挂载）', async () => {
+    await restored();
+    expect(screen.getByText('add-feature') !== null).toBe(true);
+
+    fireEvent.click(screen.getByTestId('nav-architecture'));
+    await waitFor(() => expect(screen.getByTestId('archi-canvas') !== null).toBe(true));
+    expect(window.location.hash).toBe('#/architecture');
+    expect(screen.queryByText('add-feature')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+    expect(window.location.hash).toBe('#/changes');
+    expect(screen.queryByTestId('archi-canvas')).toBeNull();
+  });
+
+  it('应在 archi_graph reject 时停在 #/architecture 并呈现错误态（不白屏不重定向）', async () => {
+    archiReject = 'root 无效（C:）';
+    window.location.hash = '#/architecture';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('archi-canvas-error') !== null).toBe(true));
+    expect(screen.getByTestId('archi-canvas-error').textContent).toContain('root 无效');
+    expect(window.location.hash).toBe('#/architecture');
+    expect(screen.getByTestId('nav-architecture').hasAttribute('data-active')).toBe(true);
+
+    // 切走再切回仍可用（错误不污染路由）
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+    expect(window.location.hash).toBe('#/changes');
+  });
+
+  it('应在切走再切回时重发 archi_graph（挂载触发，不做跨挂载缓存）', async () => {
+    window.location.hash = '#/architecture';
+    render(<App />);
+    await waitFor(() => expect(countOf('archi_graph')).toBe(1));
+
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    fireEvent.click(screen.getByTestId('nav-architecture'));
+    await waitFor(() => expect(countOf('archi_graph')).toBe(2));
   });
 });

@@ -1,0 +1,1266 @@
+diff --git a/crates/core/archi/tests/corpus/dsl/empty-model/01-empty.toml b/crates/core/archi/tests/corpus/dsl/empty-model/01-empty.toml
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/core/archi/tests/corpus/dsl/gate-docs-metadata/01-core.toml b/crates/core/archi/tests/corpus/dsl/gate-docs-metadata/01-core.toml
+new file mode 100644
+index 000000000000..30325b24df18
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/gate-docs-metadata/01-core.toml
+@@ -0,0 +1,9 @@
++[element."App"]
++kind = "package"
++
++[element."App.Auth"]
++kind = "domain"
++gate = "strict"
++docs = ["./src/auth/README.md"]
++summary = "认证域"
++metadata = { owner = "core", tier = "1" }
+diff --git a/crates/core/archi/tests/corpus/dsl/invalid-gate/01-invalid.toml b/crates/core/archi/tests/corpus/dsl/invalid-gate/01-invalid.toml
+new file mode 100644
+index 000000000000..a6128591da36
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/invalid-gate/01-invalid.toml
+@@ -0,0 +1,3 @@
++[element."App.Auth"]
++kind = "domain"
++gate = "stirct"
+diff --git a/crates/core/archi/tests/corpus/dsl/invalid-kind/01-invalid.toml b/crates/core/archi/tests/corpus/dsl/invalid-kind/01-invalid.toml
+new file mode 100644
+index 000000000000..dc242f6fe4eb
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/invalid-kind/01-invalid.toml
+@@ -0,0 +1,2 @@
++[element."App.Auth"]
++kind = "pakage"
+diff --git a/crates/core/archi/tests/corpus/dsl/missing-kind/01-missing.toml b/crates/core/archi/tests/corpus/dsl/missing-kind/01-missing.toml
+new file mode 100644
+index 000000000000..e7d24583eea6
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/missing-kind/01-missing.toml
+@@ -0,0 +1,2 @@
++[element."App.Auth"]
++gate = "strict"
+diff --git a/crates/core/archi/tests/corpus/dsl/misspelled-key/01-misspelled.toml b/crates/core/archi/tests/corpus/dsl/misspelled-key/01-misspelled.toml
+new file mode 100644
+index 000000000000..9ba47d89bc85
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/misspelled-key/01-misspelled.toml
+@@ -0,0 +1,3 @@
++[element."App.Auth"]
++kind = "domain"
++gatte = "strict"
+diff --git a/crates/core/archi/tests/corpus/dsl/multi-file/01-core.toml b/crates/core/archi/tests/corpus/dsl/multi-file/01-core.toml
+new file mode 100644
+index 000000000000..0cfe67feaae9
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/multi-file/01-core.toml
+@@ -0,0 +1,2 @@
++[element."App"]
++kind = "package"
+diff --git a/crates/core/archi/tests/corpus/dsl/multi-file/02-auth.toml b/crates/core/archi/tests/corpus/dsl/multi-file/02-auth.toml
+new file mode 100644
+index 000000000000..3f29cec680df
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/multi-file/02-auth.toml
+@@ -0,0 +1,7 @@
++[element."App.Auth"]
++kind = "domain"
++
++[[relation]]
++from = "App.Auth"
++to = "App"
++desc = "认证属于核心包"
+diff --git a/crates/core/archi/tests/corpus/dsl/orphan/01-orphan.toml b/crates/core/archi/tests/corpus/dsl/orphan/01-orphan.toml
+new file mode 100644
+index 000000000000..4e7dbf4f14a8
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/orphan/01-orphan.toml
+@@ -0,0 +1,2 @@
++[element."App.Auth.Token"]
++kind = "component"
+diff --git a/crates/core/archi/tests/corpus/dsl/unclosed-bracket/01-broken.toml b/crates/core/archi/tests/corpus/dsl/unclosed-bracket/01-broken.toml
+new file mode 100644
+index 000000000000..d299a603ac51
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/unclosed-bracket/01-broken.toml
+@@ -0,0 +1,2 @@
++[element."App"
++kind = "package"
+diff --git a/crates/core/archi/tests/corpus/dsl/unclosed-quote/01-broken.toml b/crates/core/archi/tests/corpus/dsl/unclosed-quote/01-broken.toml
+new file mode 100644
+index 000000000000..460a6bb11d6c
+--- /dev/null
++++ b/crates/core/archi/tests/corpus/dsl/unclosed-quote/01-broken.toml
+@@ -0,0 +1,2 @@
++[element."App]
++kind = "package"
+diff --git a/crates/core/archi/tests/golden_test.rs b/crates/core/archi/tests/golden_test.rs
+new file mode 100644
+index 000000000000..1b79b2a189e2
+--- /dev/null
++++ b/crates/core/archi/tests/golden_test.rs
+@@ -0,0 +1,442 @@
++//! DSL 语料 golden（crate 级集成测试，入口 = `parse_dir`）：逐 case 驱动
++//! 解析面 → 图面 → 元素 / 关系清单，与测试内**单点登记**的期望逐项对比。
++//!
++//! 期望登记面（[`CASES`]）是「case 目录名 → 期望形态」的唯一映射：新增 case 未登记
++//! 即红，登记了但不存在的 case 目录亦红。`DESKTOP_GOLDEN_REWRITE=1` 时把实际形态
++//! 渲染为 `<case>/render.txt` 快照（供人工核对与评审），断言仍按登记面执行——快照
++//! 不参与判定，避免「自证自己」。
++
++use std::collections::BTreeSet;
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++use archi::dto::DiagnosticKind;
++use archi::graph::ModelGraph;
++use archi::parse;
++
++/// 单 case 期望形态：解析面诊断 / 图面诊断 / 元素 FQN / 关系对。
++struct Expectation {
++    /// case 目录名
++    case: &'static str,
++    /// 解析面诊断 kind（`parse_dir` 直出，按文件字典序）
++    parse_kinds: &'static [&'static str],
++    /// 图面诊断 kind（`ModelGraph::diagnostics()` 四类自实现）
++    graph_kinds: &'static [&'static str],
++    /// 元素 FQN（聚合序 = 文件名字典序 × 文件内 FQN 序）
++    elements: &'static [&'static str],
++    /// 关系对（`(from, to)`，按声明序）
++    relations: &'static [(&'static str, &'static str)],
++}
++
++/// 语料登记面（proposal 列出的 13 形态 + 成环 / 孤儿两类结构面）。
++const CASES: &[Expectation] = &[
++    Expectation {
++        case: "comments",
++        parse_kinds: &[],
++        graph_kinds: &[],
++        elements: &["App"],
++        relations: &[],
++    },
++    Expectation {
++        case: "multi-file",
++        parse_kinds: &[],
++        // 语料里 `App.Auth -> App` 是「下游依赖祖先」形态（关系行号与被引语义
++        // 两处都有断言价值），图面照实报 dependsOnAncestor
++        graph_kinds: &["dependsOnAncestor"],
++        elements: &["App", "App.Auth"],
++        relations: &[("App.Auth", "App")],
++    },
++    Expectation {
++        case: "array-values",
++        parse_kinds: &[],
++        graph_kinds: &[],
++        elements: &["App", "App.Auth"],
++        relations: &[],
++    },
++    Expectation {
++        case: "gate-docs-metadata",
++        parse_kinds: &[],
++        graph_kinds: &[],
++        elements: &["App", "App.Auth"],
++        relations: &[],
++    },
++    Expectation {
++        case: "empty-model",
++        parse_kinds: &[],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "missing-kind",
++        parse_kinds: &["missingField"],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "invalid-kind",
++        parse_kinds: &["invalidValue"],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "invalid-gate",
++        parse_kinds: &["invalidValue"],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "misspelled-key",
++        parse_kinds: &["unknownField"],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "unclosed-quote",
++        parse_kinds: &["syntaxError"],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "unclosed-bracket",
++        parse_kinds: &["syntaxError"],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "duplicate-key",
++        parse_kinds: &["duplicateElement"],
++        graph_kinds: &[],
++        elements: &[],
++        relations: &[],
++    },
++    Expectation {
++        case: "dup-cross-file",
++        parse_kinds: &["duplicateElement"],
++        graph_kinds: &[],
++        elements: &["App"],
++        relations: &[],
++    },
++    Expectation {
++        case: "orphan",
++        parse_kinds: &[],
++        graph_kinds: &["orphanHierarchy"],
++        elements: &["App.Auth.Token"],
++        relations: &[],
++    },
++    Expectation {
++        case: "cycle",
++        parse_kinds: &[],
++        graph_kinds: &["cycle"],
++        elements: &["App", "App.A", "App.B"],
++        relations: &[("App.A", "App.B"), ("App.B", "App.A")],
++    },
++];
++
++/// 语料根目录（`*_test.rs` 不受路径字面量禁令约束）。
++fn corpus_root() -> PathBuf {
++    Path::new(env!("CARGO_MANIFEST_DIR"))
++        .join("tests")
++        .join("corpus")
++        .join("dsl")
++}
++
++/// 语料目录内的 case 目录名（字典序）。
++fn case_dirs() -> Vec<String> {
++    let mut names: Vec<String> = fs::read_dir(corpus_root())
++        .expect("读取语料目录失败")
++        .flatten()
++        .filter(|entry| entry.path().is_dir())
++        .map(|entry| entry.file_name().to_string_lossy().into_owned())
++        .collect();
++    names.sort();
++    names
++}
++
++/// 实际形态（解析面 + 图面 + 元素 / 关系清单）。
++struct Actual {
++    parse_kinds: Vec<String>,
++    graph_kinds: Vec<String>,
++    elements: Vec<String>,
++    relations: Vec<(String, String)>,
++}
++
++/// 语料暂存根：把 `<case>/*.toml` 复制到 `<tmp>/openspec/architecture/models/`
++/// 的仓库形态后驱动（`parse_dir` 的入口是 repo 根，模型目录经
++/// `foundation::layout::archi_models_dir` 派生）。crate 无 dev-dependency，故以
++/// std 自建 RAII 临时目录。
++struct StagedRoot(PathBuf);
++
++impl StagedRoot {
++    fn new(case: &str) -> Self {
++        // 序号保证并发用例（两个 test 函数同 case 各跑一遍）互不踩踏
++        static SEQ: AtomicUsize = AtomicUsize::new(0);
++        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
++        let dir = std::env::temp_dir().join(format!(
++            "archi-golden-stage-{}-{seq}-{case}",
++            std::process::id()
++        ));
++        let _ = fs::remove_dir_all(&dir);
++        let models = dir.join("openspec").join("architecture").join("models");
++        fs::create_dir_all(&models).expect("建暂存模型目录失败");
++        let source = corpus_root().join(case);
++        for entry in fs::read_dir(&source).expect("读取 case 目录失败").flatten() {
++            let path = entry.path();
++            if !path.is_file() {
++                continue;
++            }
++            let name = path.file_name().expect("语料文件名");
++            fs::copy(&path, models.join(name)).expect("复制语料文件失败");
++        }
++        StagedRoot(dir)
++    }
++
++    fn path(&self) -> &Path {
++        &self.0
++    }
++}
++
++impl Drop for StagedRoot {
++    fn drop(&mut self) {
++        let _ = fs::remove_dir_all(&self.0);
++    }
++}
++
++/// 驱动单个 case。
++fn run_case(case: &str) -> Actual {
++    let staged = StagedRoot::new(case);
++    let outcome = parse::parse_dir(staged.path());
++    let parse_kinds: Vec<String> = outcome
++        .diagnostics
++        .iter()
++        .map(|diagnostic| diagnostic.kind.as_str().to_owned())
++        .collect();
++    let elements: Vec<String> = outcome
++        .model
++        .elements
++        .iter()
++        .map(|element| element.fqn.clone())
++        .collect();
++    let relations: Vec<(String, String)> = outcome
++        .model
++        .relations
++        .iter()
++        .map(|relation| (relation.from.clone(), relation.to.clone()))
++        .collect();
++    let graph_kinds: Vec<String> = ModelGraph::build(outcome.model)
++        .diagnostics()
++        .iter()
++        .map(|diagnostic| diagnostic.kind.as_str().to_owned())
++        .collect();
++    Actual {
++        parse_kinds,
++        graph_kinds,
++        elements,
++        relations,
++    }
++}
++
++/// 把实际形态渲染为快照文本（`DESKTOP_GOLDEN_REWRITE=1` 时落盘）。
++fn render(case: &str, actual: &Actual) -> String {
++    let mut text = format!("# case: {case}\n\n");
++    text.push_str("## 解析面诊断\n\n");
++    for kind in &actual.parse_kinds {
++        text.push_str(&format!("- {kind}\n"));
++    }
++    text.push_str("\n## 图面诊断\n\n");
++    for kind in &actual.graph_kinds {
++        text.push_str(&format!("- {kind}\n"));
++    }
++    text.push_str("\n## 元素\n\n");
++    for fqn in &actual.elements {
++        text.push_str(&format!("- {fqn}\n"));
++    }
++    text.push_str("\n## 关系\n\n");
++    for (from, to) in &actual.relations {
++        text.push_str(&format!("- {from} -> {to}\n"));
++    }
++    text
++}
++
++// ---------------------------------------------------------------------------
++// 用例
++// ---------------------------------------------------------------------------
++
++/// 正向：逐 case 驱动 `parse_dir` → `ModelGraph::build`，与登记面逐项对比。
++#[test]
++fn 语料逐case匹配登记面() {
++    for expectation in CASES {
++        let actual = run_case(expectation.case);
++        assert_eq!(
++            actual.parse_kinds, expectation.parse_kinds,
++            "case {}：解析面诊断不符",
++            expectation.case
++        );
++        assert_eq!(
++            actual.graph_kinds, expectation.graph_kinds,
++            "case {}：图面诊断不符",
++            expectation.case
++        );
++        assert_eq!(
++            actual.elements,
++            expectation
++                .elements
++                .iter()
++                .map(|fqn| (*fqn).to_owned())
++                .collect::<Vec<String>>(),
++            "case {}：元素清单不符",
++            expectation.case
++        );
++        assert_eq!(
++            actual.relations,
++            expectation
++                .relations
++                .iter()
++                .map(|(from, to)| ((*from).to_owned(), (*to).to_owned()))
++                .collect::<Vec<(String, String)>>(),
++            "case {}：关系清单不符",
++            expectation.case
++        );
++    }
++}
++
++/// 正反向登记：语料目录与登记面互为镜像（新增 case 未登记即红，登记缺失即红）。
++#[test]
++fn 语料目录与登记面互为镜像() {
++    let on_disk: BTreeSet<String> = case_dirs().into_iter().collect();
++    let registered: BTreeSet<String> = CASES
++        .iter()
++        .map(|expectation| expectation.case.to_owned())
++        .collect();
++
++    let unregistered: Vec<&String> = on_disk.difference(&registered).collect();
++    assert!(
++        unregistered.is_empty(),
++        "新增 case 未登记：{unregistered:?}（须在 CASES 单点登记）"
++    );
++    let dangling: Vec<&String> = registered.difference(&on_disk).collect();
++    assert!(dangling.is_empty(), "登记了不存在的 case：{dangling:?}");
++    assert!(!CASES.is_empty(), "登记面非空");
++}
++
++/// 异常：结构性 case 必在——`dup-cross-file` 与 `orphan` 两目录必须存在（explore
++/// 低估两类，R-2 的机械锚）。
++#[test]
++fn 结构性case必在语料内() {
++    let on_disk = case_dirs();
++    for required in ["dup-cross-file", "orphan"] {
++        assert!(
++            on_disk.iter().any(|case| case == required),
++            "结构性 case {required} 缺失（机械锚不可省）"
++        );
++    }
++}
++
++/// 边界：渲染面确定性与重写开关——同一 case 两次渲染逐字相同；`DESKTOP_GOLDEN_
++/// REWRITE=1` 时把快照落到临时目录（供人工核对），判定输入不变（开关不改变断言）。
++#[test]
++fn 渲染面确定性与重写开关() {
++    let rewrite = std::env::var("DESKTOP_GOLDEN_REWRITE").ok().as_deref() == Some("1");
++    let snapshot_dir = std::env::temp_dir().join(format!("archi-golden-{}", std::process::id()));
++    if rewrite {
++        fs::create_dir_all(&snapshot_dir).expect("建快照目录失败");
++    }
++    for expectation in CASES {
++        let first = render(expectation.case, &run_case(expectation.case));
++        let second = render(expectation.case, &run_case(expectation.case));
++        assert_eq!(
++            first, second,
++            "case {}：渲染面两次结果应逐字相同（纯确定性）",
++            expectation.case
++        );
++        for kind in expectation
++            .parse_kinds
++            .iter()
++            .chain(expectation.graph_kinds.iter())
++        {
++            assert!(
++                first.contains(kind),
++                "case {}：渲染面应含诊断 {kind}",
++                expectation.case
++            );
++        }
++        for fqn in expectation.elements {
++            assert!(
++                first.contains(fqn),
++                "case {}：渲染面应含元素 {fqn}",
++                expectation.case
++            );
++        }
++        if rewrite {
++            fs::write(
++                snapshot_dir.join(format!("{}.txt", expectation.case)),
++                &first,
++            )
++            .expect("写快照失败");
++        }
++    }
++    if rewrite {
++        let _ = fs::remove_dir_all(&snapshot_dir);
++    }
++}
++
++/// 边界：语料文件面——每个 case 目录至少一个 `*.toml`，且无残留临时文件。
++#[test]
++fn 语料文件面收敛() {
++    for case in case_dirs() {
++        let dir = corpus_root().join(&case);
++        let files: Vec<String> = fs::read_dir(&dir)
++            .expect("读取 case 目录失败")
++            .flatten()
++            .filter(|entry| entry.path().is_file())
++            .map(|entry| entry.file_name().to_string_lossy().into_owned())
++            .collect();
++        assert!(
++            files.iter().any(|name| name.ends_with(".toml")),
++            "case {case} 至少一个 *.toml 语料"
++        );
++        assert!(
++            !files.iter().any(|name| name.contains("archi-tmp")),
++            "case {case} 无残留临时文件: {files:?}"
++        );
++    }
++}
++
++/// 回归：`DiagnosticKind` 线值覆盖登记面（语料覆盖的 kind 均属封闭九值）。
++#[test]
++fn 登记面kind均属封闭词汇() {
++    let known: BTreeSet<&str> = [
++        DiagnosticKind::SyntaxError,
++        DiagnosticKind::MissingField,
++        DiagnosticKind::InvalidValue,
++        DiagnosticKind::UnknownField,
++        DiagnosticKind::DuplicateElement,
++        DiagnosticKind::Cycle,
++        DiagnosticKind::DependsOnAncestor,
++        DiagnosticKind::UnknownReference,
++        DiagnosticKind::OrphanHierarchy,
++    ]
++    .into_iter()
++    .map(DiagnosticKind::as_str)
++    .collect();
++    for expectation in CASES {
++        for kind in expectation
++            .parse_kinds
++            .iter()
++            .chain(expectation.graph_kinds.iter())
++        {
++            assert!(
++                known.contains(*kind),
++                "case {} 的期望 kind {kind} 不在封闭词汇内",
++                expectation.case
++            );
++        }
++    }
++}
+diff --git a/crates/core/archi/tests/vocabulary_test.rs b/crates/core/archi/tests/vocabulary_test.rs
+new file mode 100644
+index 000000000000..da0b08c5b8b9
+--- /dev/null
++++ b/crates/core/archi/tests/vocabulary_test.rs
+@@ -0,0 +1,480 @@
++//! `archi` 的封闭词汇三面一致性（crate 级集成测试）：进程内诊断集 / DTO 投影串 /
++//! 枚举全值词表三面相等，词汇值域封闭，以及「投影零改写」与「空态 vs 停摆态」的
++//! 可区分性。
++//!
++//! 零 mock：真实临时目录 + 真实 `parse_dir` / `ModelGraph::build` / `dto::*` 组合
++//! （三面同源即被测语义，任何一层替身都会抹掉判据）；不读 `bindings.ts` 产物、不
++//! 依赖 IPC runtime。
++
++use std::collections::BTreeSet;
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use archi::dto::{
++    self, DiagnosticKind, DocKind, DocSource, EdgeMark, ElementKind, GateTier, NodeMark,
++    SearchScope, WarningKind,
++};
++use archi::graph::ModelGraph;
++use archi::parse;
++use serde_json::Value;
++
++// ---------------------------------------------------------------------------
++// 真实临时目录（crate 无 tempfile dev-dependency，故用 std 自建）
++// ---------------------------------------------------------------------------
++
++static COUNTER: AtomicU64 = AtomicU64::new(0);
++
++struct TempDir(PathBuf);
++
++impl TempDir {
++    fn new(tag: &str) -> Self {
++        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
++        let dir = std::env::temp_dir().join(format!(
++            "archi-vocabulary-test-{}-{}-{}",
++            std::process::id(),
++            unique,
++            tag
++        ));
++        let _ = fs::remove_dir_all(&dir);
++        fs::create_dir_all(dir.join("openspec/architecture/models")).expect("建模型目录失败");
++        TempDir(dir)
++    }
++
++    fn root(&self) -> &Path {
++        &self.0
++    }
++
++    fn write_model(&self, name: &str, content: &str) {
++        fs::write(
++            self.0.join("openspec/architecture/models").join(name),
++            content,
++        )
++        .expect("写模型文件失败");
++    }
++}
++
++impl Drop for TempDir {
++    fn drop(&mut self) {
++        let _ = fs::remove_dir_all(&self.0);
++    }
++}
++
++/// 封闭词汇全值清单（测试内字面量镜像：多一值或少一值即红）。
++const ELEMENT_KINDS: [&str; 4] = ["package", "domain", "module", "component"];
++const GATE_TIERS: [&str; 3] = ["off", "warn", "strict"];
++const DIAGNOSTIC_KINDS: [&str; 9] = [
++    "syntaxError",
++    "missingField",
++    "invalidValue",
++    "unknownField",
++    "duplicateElement",
++    "cycle",
++    "dependsOnAncestor",
++    "unknownReference",
++    "orphanHierarchy",
++];
++const WARNING_KINDS: [&str; 1] = ["docNotFound"];
++const DOC_KINDS: [&str; 2] = ["md", "adr"];
++const DOC_SOURCES: [&str; 3] = ["explicit", "adjacent", "text"];
++const EDGE_MARKS: [&str; 4] = ["none", "unfulfilled", "crossKind", "exempt"];
++const NODE_MARKS: [&str; 2] = ["none", "unfulfilled"];
++const SEARCH_SCOPES: [&str; 3] = ["elements", "docs", "all"];
++
++/// 枚举线值（`serde_json` 单值序列化）。
++fn line_of<T: serde::Serialize>(value: T) -> String {
++    serde_json::to_value(value)
++        .expect("序列化成功")
++        .as_str()
++        .expect("线值为字符串")
++        .to_owned()
++}
++
++/// 全词汇语料：九类结构诊断各一坏点（解析面五 + 图面四）。
++fn all_vocabulary_corpus(tag: &str) -> TempDir {
++    let temp = TempDir::new(tag);
++    temp.write_model("01-syntax.toml", "[element.\"App]\nkind = \"package\"\n");
++    temp.write_model(
++        "02-missing.toml",
++        "[element.\"App.Missing\"]\ngate = \"off\"\n",
++    );
++    temp.write_model(
++        "03-invalid.toml",
++        "[element.\"App.Invalid\"]\nkind = \"pakage\"\n",
++    );
++    temp.write_model(
++        "04-unknown.toml",
++        "[element.\"App.Unknown\"]\nkind = \"module\"\ngatte = \"x\"\n",
++    );
++    temp.write_model("05-dup.toml", "[element.\"App.Dup\"]\nkind = \"module\"\n");
++    temp.write_model("06-dup.toml", "[element.\"App.Dup\"]\nkind = \"domain\"\n");
++    temp.write_model(
++        "07-graph.toml",
++        concat!(
++            "[element.\"App\"]\nkind = \"package\"\n\n",
++            "[element.\"App.Cycle1\"]\nkind = \"module\"\n\n",
++            "[element.\"App.Cycle2\"]\nkind = \"module\"\n\n",
++            "[element.\"App.Ancestor\"]\nkind = \"domain\"\n\n",
++            "[element.\"App.Ref\"]\nkind = \"module\"\n\n",
++            "[element.\"App.Orphan.Child\"]\nkind = \"component\"\n\n",
++            "[[relation]]\nfrom = \"App.Cycle1\"\nto = \"App.Cycle2\"\n\n",
++            "[[relation]]\nfrom = \"App.Cycle2\"\nto = \"App.Cycle1\"\n\n",
++            "[[relation]]\nfrom = \"App.Ancestor\"\nto = \"App\"\n\n",
++            "[[relation]]\nfrom = \"App.Ref\"\nto = \"App.Missing\"\n",
++        ),
++    );
++    temp
++}
++
++/// 健康全值语料：四种元素种类 × 三档 gate × 关系（边 / 节点标记）。
++fn healthy_vocabulary_corpus(tag: &str) -> TempDir {
++    let temp = TempDir::new(tag);
++    temp.write_model(
++        "01-core.toml",
++        concat!(
++            "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n\n",
++            "[element.\"App.Domain\"]\nkind = \"domain\"\ngate = \"warn\"\n\n",
++            "[element.\"App.Domain.Module\"]\nkind = \"module\"\ngate = \"strict\"\n\n",
++            "[element.\"App.Domain.Module.Component\"]\nkind = \"component\"\n\n",
++            "[element.\"App.Billing\"]\nkind = \"domain\"\n\n",
++            "[[relation]]\nfrom = \"App.Domain.Module\"\nto = \"App.Billing\"\n",
++        ),
++    );
++    temp
++}
++
++/// 进程内诊断面：解析诊断 ∪ 图自实现诊断 → 线值集合。
++fn diagnostic_face(root: &Path) -> BTreeSet<String> {
++    let outcome = parse::parse_dir(root);
++    let mut kinds: BTreeSet<String> = outcome
++        .diagnostics
++        .iter()
++        .map(|diagnostic| diagnostic.kind.as_str().to_owned())
++        .collect();
++    let graph = ModelGraph::build(outcome.model.clone());
++    kinds.extend(
++        graph
++            .diagnostics()
++            .iter()
++            .map(|diagnostic| diagnostic.kind.as_str().to_owned()),
++    );
++    kinds
++}
++
++/// 检索 JSON 串中出现的词汇字面量（值面：只收已知词汇表内的命中）。
++fn vocabulary_in(value: &Value, vocabulary: &[&str]) -> BTreeSet<String> {
++    let mut found: BTreeSet<String> = BTreeSet::new();
++    fn walk(value: &Value, vocabulary: &[&str], found: &mut BTreeSet<String>) {
++        match value {
++            Value::String(text) if vocabulary.contains(&text.as_str()) => {
++                found.insert(text.clone());
++            }
++            Value::String(_) => {}
++            Value::Array(items) => {
++                for item in items {
++                    walk(item, vocabulary, found);
++                }
++            }
++            Value::Object(map) => {
++                for item in map.values() {
++                    walk(item, vocabulary, found);
++                }
++            }
++            _ => {}
++        }
++    }
++    walk(value, vocabulary, &mut found);
++    found
++}
++
++/// 缺失词汇点名（「新增 kind 而语料未加坏点」的可读失败面）。
++fn missing_vocabulary(observed: &BTreeSet<String>, expected: &[&str]) -> Result<(), String> {
++    let missing: Vec<&str> = expected
++        .iter()
++        .copied()
++        .filter(|name| !observed.contains(*name))
++        .collect();
++    if missing.is_empty() {
++        Ok(())
++    } else {
++        Err(format!("语料缺失词汇：{}", missing.join(" / ")))
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 三面词汇集一致
++// ---------------------------------------------------------------------------
++
++/// 正向：三面（进程内诊断 / DTO 投影串 / 枚举全值词表）词汇集相等，失败时点名
++/// 缺失词汇。
++#[test]
++fn 三面词汇集相等且缺失即点名() {
++    let temp = all_vocabulary_corpus("three-face");
++    let process_face = diagnostic_face(temp.root());
++    let graph = dto::graph_view(temp.root()).expect("停摆态仍 Ok");
++    let dto_face = vocabulary_in(
++        &serde_json::to_value(&graph).expect("序列化成功"),
++        &DIAGNOSTIC_KINDS,
++    );
++    let mut vocabulary_face: BTreeSet<String> = BTreeSet::new();
++    for kind in [
++        DiagnosticKind::SyntaxError,
++        DiagnosticKind::MissingField,
++        DiagnosticKind::InvalidValue,
++        DiagnosticKind::UnknownField,
++        DiagnosticKind::DuplicateElement,
++        DiagnosticKind::Cycle,
++        DiagnosticKind::DependsOnAncestor,
++        DiagnosticKind::UnknownReference,
++        DiagnosticKind::OrphanHierarchy,
++    ] {
++        vocabulary_face.insert(kind.as_str().to_owned());
++    }
++
++    assert_eq!(
++        vocabulary_face.len(),
++        DIAGNOSTIC_KINDS.len(),
++        "枚举全值数 == 词表条目数"
++    );
++    assert_eq!(process_face, vocabulary_face, "进程内诊断面 == 枚举词表");
++    assert_eq!(dto_face, vocabulary_face, "DTO 投影串面 == 枚举词表");
++    assert_eq!(
++        missing_vocabulary(&process_face, &DIAGNOSTIC_KINDS),
++        Ok(()),
++        "全词汇语料覆盖九值"
++    );
++}
++
++/// 边界：封闭词汇值域逐组断言（多一值 / 少一值即红；`NodeMark` 不含结构错值）。
++#[test]
++fn 封闭词汇值域九组() {
++    let element_kinds: Vec<&str> = [
++        ElementKind::Package,
++        ElementKind::Domain,
++        ElementKind::Module,
++        ElementKind::Component,
++    ]
++    .into_iter()
++    .map(ElementKind::as_str)
++    .collect();
++    assert_eq!(element_kinds, ELEMENT_KINDS.to_vec());
++
++    let gate_tiers: Vec<&str> = [GateTier::Off, GateTier::Warn, GateTier::Strict]
++        .into_iter()
++        .map(GateTier::as_str)
++        .collect();
++    assert_eq!(gate_tiers, GATE_TIERS.to_vec());
++    assert_eq!(GateTier::ALL.len(), 3, "GateTier::ALL 与词表同长");
++
++    let diagnostics: Vec<&str> = [
++        DiagnosticKind::SyntaxError,
++        DiagnosticKind::MissingField,
++        DiagnosticKind::InvalidValue,
++        DiagnosticKind::UnknownField,
++        DiagnosticKind::DuplicateElement,
++        DiagnosticKind::Cycle,
++        DiagnosticKind::DependsOnAncestor,
++        DiagnosticKind::UnknownReference,
++        DiagnosticKind::OrphanHierarchy,
++    ]
++    .into_iter()
++    .map(DiagnosticKind::as_str)
++    .collect();
++    assert_eq!(diagnostics, DIAGNOSTIC_KINDS.to_vec());
++
++    assert_eq!(WarningKind::DocNotFound.as_str(), WARNING_KINDS[0]);
++
++    assert_eq!(
++        vec![line_of(DocKind::Md), line_of(DocKind::Adr)],
++        DOC_KINDS.to_vec()
++    );
++    assert_eq!(
++        vec![
++            line_of(DocSource::Explicit),
++            line_of(DocSource::Adjacent),
++            line_of(DocSource::Text)
++        ],
++        DOC_SOURCES.to_vec()
++    );
++    assert_eq!(
++        vec![
++            line_of(EdgeMark::None),
++            line_of(EdgeMark::Unfulfilled),
++            line_of(EdgeMark::CrossKind),
++            line_of(EdgeMark::Exempt)
++        ],
++        EDGE_MARKS.to_vec()
++    );
++    assert_eq!(
++        vec![line_of(NodeMark::None), line_of(NodeMark::Unfulfilled)],
++        NODE_MARKS.to_vec(),
++        "节点标记恰两值（结构错不入标记，D6）"
++    );
++    assert!(
++        !NODE_MARKS.contains(&"cycle") && !NODE_MARKS.contains(&"orphanHierarchy"),
++        "结构错值不在节点标记词汇内"
++    );
++    assert_eq!(
++        vec![
++            line_of(SearchScope::Elements),
++            line_of(SearchScope::Docs),
++            line_of(SearchScope::All)
++        ],
++        SEARCH_SCOPES.to_vec()
++    );
++}
++
++/// 异常：语料只含 8 类诊断而词表有 9 值 → 集合不等即红，错误消息列出缺失词汇。
++#[test]
++fn 新增词汇未同步即点名缺失() {
++    let temp = all_vocabulary_corpus("missing-vocab");
++    let process_face = diagnostic_face(temp.root());
++    let mut observed = process_face.clone();
++    observed.remove("orphanHierarchy");
++    let error = missing_vocabulary(&observed, &DIAGNOSTIC_KINDS).expect_err("缺一值应红");
++    assert!(
++        error.contains("orphanHierarchy"),
++        "错误消息列出缺失词汇: {error}"
++    );
++    assert_eq!(
++        missing_vocabulary(&process_face, &DIAGNOSTIC_KINDS),
++        Ok(()),
++        "对照臂：全量语料无缺失"
++    );
++}
++
++/// 正向：健康全值语料 → 元素种类四值、gate 三档、边 / 节点标记 `none` 均经 DTO
++/// 投影串可观测（第三面在元素 / 关系维度的等价断言）。
++#[test]
++fn 投影串覆盖元素种类与档位与标记词汇() {
++    let temp = healthy_vocabulary_corpus("healthy-vocab");
++    let graph = dto::graph_view(temp.root()).expect("健康模型 Ok");
++    assert!(graph.diagnostics.is_empty(), "健康语料零诊断");
++    let value = serde_json::to_value(&graph).expect("序列化成功");
++
++    let kinds = vocabulary_in(&value, &ELEMENT_KINDS);
++    assert_eq!(
++        kinds,
++        ELEMENT_KINDS.iter().map(|k| (*k).to_owned()).collect()
++    );
++    let tiers = vocabulary_in(&value, &GATE_TIERS);
++    assert_eq!(
++        tiers,
++        vec!["off".to_owned(), "warn".to_owned(), "strict".to_owned()]
++            .into_iter()
++            .collect()
++    );
++    let marks = vocabulary_in(&value, &["none"]);
++    assert_eq!(marks.len(), 1, "本期边 / 节点标记恒 none");
++}
++
++// ---------------------------------------------------------------------------
++// 三面同源计数 + 投影零改写 + 空态可区分
++// ---------------------------------------------------------------------------
++
++/// 正向：同一语料下 DTO 元素字段与图查询逐一相同（单点构建 + 投影零改写）。
++#[test]
++fn 三面同源计数与声明位置逐字相同() {
++    let temp = healthy_vocabulary_corpus("same-source");
++    let detail = dto::module_detail(temp.root(), "App.Domain.Module").expect("元素在场");
++    let outcome = parse::parse_dir(temp.root());
++    let graph = ModelGraph::build(outcome.model.clone());
++    let element = graph
++        .model()
++        .element("App.Domain.Module")
++        .expect("模型侧元素在场");
++
++    assert_eq!(
++        detail.depends_on.len(),
++        graph.depends_on("App.Domain.Module").len(),
++        "出边条数同源"
++    );
++    assert_eq!(
++        detail.depended_by.len(),
++        graph.depended_by("App.Domain.Module").len(),
++        "入边条数同源"
++    );
++    assert_eq!(
++        detail.children.len(),
++        graph.children("App.Domain.Module").len(),
++        "子元素条数同源"
++    );
++    assert_eq!(
++        detail.element.model_file, element.file,
++        "modelFile 与 Model::element 字段逐字相同"
++    );
++    assert_eq!(
++        detail.element.model_line, element.line,
++        "modelLine 与 Model::element 字段逐字相同"
++    );
++    assert_eq!(detail.element.fqn, element.fqn);
++    assert_eq!(detail.element.gate, element.gate);
++}
++
++/// 边界：元素无 `path` / `docs` / `summary` / `metadata` 时 DTO 串含显式
++/// `[]` / `null` / `{}`（字段不省略、不填占位串）。
++#[test]
++fn 投影零改写显式空值四字段() {
++    let temp = healthy_vocabulary_corpus("explicit-empty");
++    let graph = dto::graph_view(temp.root()).expect("Ok");
++    let value = serde_json::to_value(&graph).expect("序列化成功");
++    let empty = value["elements"]
++        .as_array()
++        .expect("元素数组")
++        .iter()
++        .find(|element| element["fqn"] == serde_json::json!("App"))
++        .expect("App 在场");
++    assert_eq!(empty["path"], serde_json::json!([]), "path 显式空数组");
++    assert_eq!(
++        empty["metadata"],
++        serde_json::json!({}),
++        "metadata 显式空表"
++    );
++    assert_eq!(
++        empty["summary"],
++        serde_json::json!(null),
++        "summary 显式 null"
++    );
++    assert!(
++        empty.as_object().expect("对象").contains_key("summary"),
++        "字段不省略"
++    );
++
++    // 元素侧无文档关联 → 详情里 docs / warnings 为显式空数组
++    let detail = dto::module_detail(temp.root(), "App").expect("Ok");
++    assert!(detail.docs.is_empty() && detail.warnings.is_empty());
++    let detail_value = serde_json::to_value(&detail).expect("序列化成功");
++    assert_eq!(detail_value["docs"], serde_json::json!([]));
++    assert_eq!(detail_value["warnings"], serde_json::json!([]));
++}
++
++/// 边界：空模型（零元素零关系零诊断）→ 三数组皆空且 `diagnostics` 空；含一个坏点
++/// → 三数组皆空但 `diagnostics` 非空（判据 = `diagnostics` 非空，无布尔位）。
++#[test]
++fn 空模型与停摆态可区分() {
++    let empty = TempDir::new("empty-model");
++    let graph = dto::graph_view(empty.root()).expect("Ok");
++    assert!(graph.elements.is_empty() && graph.relations.is_empty());
++    assert!(graph.diagnostics.is_empty(), "空模型零诊断");
++
++    let halted = TempDir::new("halted-model");
++    halted.write_model("01.toml", "[element.\"App.Auth\"]\nkind = \"domain\"\n");
++    let graph = dto::graph_view(halted.root()).expect("Ok");
++    assert!(graph.elements.is_empty() && graph.relations.is_empty());
++    assert!(!graph.diagnostics.is_empty(), "停摆判据 = diagnostics 非空");
++
++    let value = serde_json::to_value(&graph).expect("序列化成功");
++    assert_eq!(
++        value["diagnostics"]
++            .as_array()
++            .expect("诊断数组")
++            .first()
++            .expect("首条诊断")["kind"],
++        serde_json::json!("orphanHierarchy"),
++        "线面 kind 为 camelCase 词"
++    );
++    assert!(
++        value.get("halted").is_none(),
++        "无布尔停摆位（判据只有 diagnostics）"
++    );
++}
+diff --git a/crates/core/foundation/src/layout/mod.rs b/crates/core/foundation/src/layout/mod.rs
+index 63464fd6cd34..f1d3171318c2 100644
+--- a/crates/core/foundation/src/layout/mod.rs
++++ b/crates/core/foundation/src/layout/mod.rs
+@@ -24,6 +24,15 @@ const TEST_REPORTS_DIR_NAME: &str = "test";
+ /// 基线报告子目录名（相对 reports 子目录锚定）
+ const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
+ 
++/// 架构域子目录名（相对域根锚定；架构域段名的唯一持有者）
++const ARCHITECTURE_DIR_NAME: &str = "architecture";
++
++/// 架构模型子目录名（相对架构域根锚定）
++const MODELS_DIR_NAME: &str = "models";
++
++/// 架构决策记录（ADR）子目录名（相对架构域根锚定）
++const DECISIONS_DIR_NAME: &str = "decisions";
++
+ /// 报告槽位（封闭二值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
+ /// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
+ /// `Baseline` 为 initialize 基线检查槽位（`reports/baseline`——两报告树分树
+@@ -112,5 +121,33 @@ pub fn change_baseline_reports_in(change_dir: &Path) -> PathBuf {
+     change_reports_in(change_dir, ReportSlot::Baseline)
+ }
+ 
++/// 架构域根目录派生单点（`<域根>/architecture`，架构域段名唯一持有者）。纯
++/// 推导零 IO——不存在的 root 亦正常返回（存在性检查交上层）。
++pub fn archi_dir(root: &Path) -> PathBuf {
++    root.join(DOMAIN_DIR_NAME).join(ARCHITECTURE_DIR_NAME)
++}
++
++/// 架构模型目录派生（`<架构域根>/models`；全从 [`archi_dir`] 派生，架构域段名
++/// 不二次出现）。
++pub fn archi_models_dir(root: &Path) -> PathBuf {
++    archi_dir(root).join(MODELS_DIR_NAME)
++}
++
++/// 架构决策记录目录派生（`<架构域根>/decisions`；全从 [`archi_dir`] 派生）。
++pub fn archi_decisions_dir(root: &Path) -> PathBuf {
++    archi_dir(root).join(DECISIONS_DIR_NAME)
++}
++
++/// repo 相对路径是否落在架构域之内（`/` 与 `\` 分隔均归一后判定）：判据 = 归一
++/// 剥前导 `./` 与尾分隔符后，前两段依序为域根段与架构域段。`<域根>/architecture`
++/// 与 `<域根>/architecture/models/x.toml` 均命中，`<域根>/archived/...` 不命中。
++/// 归档冲突分流的唯一判据——core 侧 MUST NOT 比较架构域段名字面量。
++pub fn is_archi_rel_path(rel: &str) -> bool {
++    let normalized = rel.replace('\\', "/");
++    let trimmed = normalized.trim_start_matches("./").trim_end_matches('/');
++    let segments: Vec<&str> = trimmed.split('/').collect();
++    segments.len() >= 2 && segments[0] == DOMAIN_DIR_NAME && segments[1] == ARCHITECTURE_DIR_NAME
++}
++
+ #[cfg(test)]
+ mod mod_test;
+diff --git a/crates/core/foundation/src/layout/mod_test.rs b/crates/core/foundation/src/layout/mod_test.rs
+index 288052f8355d..a54ee103dde8 100644
+--- a/crates/core/foundation/src/layout/mod_test.rs
++++ b/crates/core/foundation/src/layout/mod_test.rs
+@@ -789,3 +789,176 @@ fn 报告目录常量锚与report_dir_name两臂穷尽映射() {
+         BASELINE_REPORTS_DIR_NAME
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 架构域路径派生（`archi` 章节）：三函数同源 + `is_archi_rel_path` 判定
++// ---------------------------------------------------------------------------
++
++/// 正向：`archi_dir` / `archi_models_dir` / `archi_decisions_dir` 三者以
++/// `archi_dir` 为共同前缀（同源断言：后两者 == `archi_dir.join(…)`）。
++#[test]
++fn archi_dir族三函数同源且逐段逐字() {
++    use super::{archi_decisions_dir, archi_dir, archi_models_dir};
++
++    let temp = TempDir::new("archi-dirs");
++    let dir = archi_dir(&temp.0);
++    assert_eq!(
++        dir,
++        temp.0.join("openspec").join("architecture"),
++        "架构域根 = <域根>/architecture"
++    );
++    assert_eq!(
++        archi_models_dir(&temp.0),
++        dir.join("models"),
++        "模型目录从 archi_dir 派生"
++    );
++    assert_eq!(
++        archi_decisions_dir(&temp.0),
++        dir.join("decisions"),
++        "决策记录目录从 archi_dir 派生"
++    );
++    assert!(
++        archi_models_dir(&temp.0).starts_with(&dir)
++            && archi_decisions_dir(&temp.0).starts_with(&dir),
++        "三者以 archi_dir 为共同前缀"
++    );
++}
++
++/// 边界：纯推导零 IO——调用后目录未被创建；不存在的 root 亦正常返回。
++#[test]
++fn archi_dir族纯推导零io与不存在root() {
++    use super::{archi_decisions_dir, archi_dir, archi_models_dir};
++
++    let temp = TempDir::new("archi-pure");
++    let _ = archi_dir(&temp.0);
++    let _ = archi_models_dir(&temp.0);
++    let _ = archi_decisions_dir(&temp.0);
++    assert!(
++        fs::metadata(temp.0.join("openspec")).is_err(),
++        "纯推导不得创建目录（零 IO 的机械证据）"
++    );
++
++    let missing = Path::new("/nonexistent/root");
++    assert_eq!(
++        archi_dir(missing),
++        missing.join("openspec").join("architecture"),
++        "不存在的 root 亦正常返回"
++    );
++}
++
++/// 边界：`root` 形态五类——空路径 / 相对路径 / Windows 盘符 / 尾分隔符 / 超长 ——
++/// 逐字节等于 `root.join(段名)` 口径、不 panic。
++#[test]
++fn archi_dir族root形态五类() {
++    use super::{archi_dir, archi_models_dir};
++
++    let empty = Path::new("");
++    assert_eq!(
++        archi_dir(empty),
++        empty.join("openspec").join("architecture"),
++        "空路径返回相对形式（分隔符由 join 决定，跨平台同准）"
++    );
++    assert_eq!(
++        archi_models_dir(Path::new("demo")),
++        Path::new("demo")
++            .join("openspec")
++            .join("architecture")
++            .join("models"),
++        "相对路径逐字节拼接"
++    );
++    let windows = Path::new(r"C:\demo\alpha");
++    assert_eq!(
++        archi_models_dir(windows),
++        windows.join("openspec").join("architecture").join("models"),
++        "Windows 盘符形态逐字节拼接"
++    );
++    let trailing = Path::new(r"C:\demo\alpha\");
++    assert_eq!(
++        archi_models_dir(trailing),
++        trailing
++            .join("openspec")
++            .join("architecture")
++            .join("models"),
++        "尾分隔符形态逐字节拼接"
++    );
++    let long = PathBuf::from("x".repeat(1200));
++    assert_eq!(
++        archi_dir(&long),
++        long.join("openspec").join("architecture"),
++        "超长路径不 panic 且逐字节拼接"
++    );
++}
++
++/// 正向：`is_archi_rel_path` 命中集——域根 + 架构域段（含更深路径与祖先判定）。
++#[test]
++fn is_archi_rel_path命中集() {
++    use super::is_archi_rel_path;
++
++    assert!(is_archi_rel_path(
++        "openspec/architecture/models/02-auth.toml"
++    ));
++    assert!(
++        is_archi_rel_path("openspec/architecture"),
++        "祖先判定（无 tail 段亦命中）"
++    );
++    assert!(is_archi_rel_path("openspec/architecture/models"));
++}
++
++/// 正向：归一形态——反斜杠与 `./` 前缀均归一后命中。
++#[test]
++fn is_archi_rel_path归一形态() {
++    use super::is_archi_rel_path;
++
++    assert!(
++        is_archi_rel_path(r"openspec\architecture\models\x.toml"),
++        "Windows 反斜杠归一后命中"
++    );
++    assert!(
++        is_archi_rel_path("./openspec/architecture/models/x.toml"),
++        "`./` 前缀归一后命中"
++    );
++}
++
++/// 异常：负样本——changes / archived / 段 0 非域根 / 前缀相近的兄弟段均不命中。
++#[test]
++fn is_archi_rel_path负样本() {
++    use super::is_archi_rel_path;
++
++    assert!(!is_archi_rel_path("openspec/changes/x/specs/y.md"));
++    assert!(
++        !is_archi_rel_path("openspec/archived/a.toml"),
++        "不做前缀模糊匹配"
++    );
++    assert!(!is_archi_rel_path("src/architecture/x.rs"), "段 0 非域根");
++    assert!(!is_archi_rel_path("openspec/architecturex/y"));
++}
++
++/// 边界：空串 / `/` / 双斜杠空段 / 无域根前缀 / 超长 → `false` 且不 panic。
++#[test]
++fn is_archi_rel_path边界形态() {
++    use super::is_archi_rel_path;
++
++    for rel in [
++        "",
++        "/",
++        "openspec//architecture",
++        "architecture",
++        "openspec",
++    ] {
++        assert!(!is_archi_rel_path(rel), "{rel:?} 不应命中（段位判定）");
++    }
++    let long = format!("openspec/architecture/{}", "x".repeat(1200));
++    assert!(is_archi_rel_path(&long), "超长路径不 panic 且命中");
++}
++
++/// 边界：大小写面——逐字节比较，不做大小写归一。
++#[test]
++fn is_archi_rel_path大小写敏感() {
++    use super::is_archi_rel_path;
++
++    assert!(
++        !is_archi_rel_path("Openspec/Architecture/models/x.toml"),
++        "首字母大写不命中（逐字节比较）"
++    );
++    assert!(!is_archi_rel_path("openspec/Architecture/x.toml"));
++}

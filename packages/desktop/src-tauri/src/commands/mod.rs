@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod archi;
 pub mod change_flow;
 pub mod changes;
 pub mod config;
@@ -68,6 +69,11 @@ macro_rules! all_commands {
             $crate::commands::stats::code_stats,
             $crate::commands::config::workspace_config,
             $crate::commands::env::app_environment,
+            $crate::commands::archi::archi_graph,
+            $crate::commands::archi::archi_module,
+            $crate::commands::archi::archi_read_doc,
+            $crate::commands::archi::archi_change_summary,
+            $crate::commands::archi::archi_set_gate,
         ]
     };
 }

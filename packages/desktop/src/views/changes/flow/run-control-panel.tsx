@@ -6,7 +6,7 @@
  * 行可达，activeRun 退场后呈现）；生命周期状态与可用操作对齐——运行中主操
  * 作是停止，终局后主操作回到发起。
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,10 +15,13 @@ import type {
   ActiveRunView,
   ArchivePreflight,
   AskPayload,
+  ArchiChangeSummary,
   ChangeRunEntry,
   ChangeRunStatus,
   RunStatus,
 } from '../../../types/dto';
+import { commands } from '../../../types/generated/bindings';
+import { ArchitectureCanvas } from '../../architecture/components/architecture-canvas';
 import type { UseChangeFlowRunResult } from '../hooks/use-change-flow-run';
 
 /** 活面状态徽章文案（六档状态机镜像）。 */
@@ -44,10 +47,12 @@ const LAST_RUN_STATUS_LABEL: Record<RunStatus, string> = {
 type RunActions = Pick<UseChangeFlowRunResult, 'start' | 'stop' | 'confirm' | 'answer' | 'error'>;
 
 interface RunControlPanelProps {
-  /** change id（命令面透传——动作经 useChangeFlowRun 的 id 链路） */
+  /** change id（命令面透传——动作经 useChangeFlowRun 的 id 链路；架构变更区块独立取数键） */
   changeId: string;
   /** change 名（展示面：aria-label / 文案取 `detail.name`） */
   name: string;
+  /** 主仓根（归档确认面的架构变更区块据它开库取数；null = 壳态无根） */
+  root: string | null;
   /** 在飞 run 活面（统一视图 activeRun；终态即除名 → null） */
   activeRun: ActiveRunView | null;
   /** runs 尾行（库读史最近一次 run——收口后终态徽章与收口记因） */
@@ -100,13 +105,19 @@ function ConfirmCard({
   actions,
   phase,
   preflight,
+  root,
+  changeId,
 }: {
   actions: RunActions;
   phase: string;
   preflight: ArchivePreflight | null;
+  root: string | null;
+  changeId: string | null;
 }): React.JSX.Element {
   if (phase === 'archive') {
-    return <ArchiveConfirmCard actions={actions} preflight={preflight} />;
+    return (
+      <ArchiveConfirmCard actions={actions} preflight={preflight} root={root} changeId={changeId} />
+    );
   }
   return (
     <div
@@ -214,6 +225,159 @@ function ArchiveMergeNotice({
   );
 }
 
+/**
+ * 架构变更摘要取数（`archi_change_summary` 独立命令，零 `ArchivePreflight` 字段
+ * 扩展）：`root` / `changeId` 任一缺席即不发 invoke；`summary === null` = 模型无改
+ * 动（区块零占位）。
+ */
+function useArchiChangeSummary(
+  root: string | null,
+  changeId: string | null,
+): { summary: ArchiChangeSummary | null; error: string | null } {
+  const [summary, setSummary] = useState<ArchiChangeSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (root === null || changeId === null) {
+      setSummary(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setError(null);
+    commands
+      .archiChangeSummary(root, changeId)
+      .then((result) => {
+        if (!cancelled) setSummary(result);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(String(reason));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [root, changeId]);
+  return { summary, error };
+}
+
+/** 计数行（元素 / 关系增删 + gate 变更项数）。 */
+function ArchiCountLine({ summary }: { summary: ArchiChangeSummary }): React.JSX.Element {
+  return (
+    <div className="text-[13px]">
+      🏛 架构变更：元素 +{summary.elementsAdded.length} / −{summary.elementsRemoved.length}；关系 +
+      {summary.relationsAdded} / −{summary.relationsRemoved}；gate 变更 {summary.gateChanges.length}{' '}
+      项
+    </div>
+  );
+}
+
+/** 诊断行（红字，含 `file:line`；**不阻断**确认按钮——结构错由门禁独立处置）。 */
+function ArchiDiagnosticRows({
+  diagnostics,
+}: {
+  diagnostics: ArchiChangeSummary['diagnostics'];
+}): React.JSX.Element | null {
+  if (diagnostics.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5 text-[13px] text-fail">
+      {diagnostics.map((diagnostic, index) => (
+        <div
+          className="break-all"
+          data-testid="run-archi-error"
+          key={`${diagnostic.kind}-${diagnostic.file}-${index}`}
+        >
+          {diagnostic.kind} ·{' '}
+          {diagnostic.line === 0 ? diagnostic.file : `${diagnostic.file}:${diagnostic.line}`}：
+          {diagnostic.message}
+        </div>
+      ))}
+      <div>修复后再归档（本区块不阻断确认）。</div>
+    </div>
+  );
+}
+
+/** 就地展开的模型 diff 明细（元素增删 FQN 清单 + gate 变更逐条）。 */
+function ArchiDiffDetail({ summary }: { summary: ArchiChangeSummary }): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-0.5 text-[13px]" data-testid="run-archi-diff-detail">
+      {summary.elementsAdded.length > 0 && (
+        <div className="break-all">新增元素：{summary.elementsAdded.join('、')}</div>
+      )}
+      {summary.elementsRemoved.length > 0 && (
+        <div className="break-all">删除元素：{summary.elementsRemoved.join('、')}</div>
+      )}
+      {summary.gateChanges.map((change) => (
+        <div className="break-all" key={change.fqn}>
+          {change.fqn}：{change.from} → {change.to}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 新图预览（以改动后的模型渲染画布；worktree 缺席回落主仓根）。 */
+function ArchiPreview({ root }: { root: string | null }): React.JSX.Element {
+  return (
+    <div
+      className="h-72 min-h-0 rounded-md border border-border"
+      data-testid="run-archi-preview-canvas"
+    >
+      <ArchitectureCanvas root={root} mode="incremental" />
+    </div>
+  );
+}
+
+/**
+ * 归档确认面的「🏛 架构变更」区块（只提高可见性，**不是**新的确认门）：本 change
+ * 相对主仓基线的模型结构 diff 摘要，经**独立取数命令** `archi_change_summary`
+ * 取得（零 `ArchivePreflight` 字段扩展）。模型无改动 ⇒ `summary === null` ⇒ 区块
+ * 整体不渲染（零标题、零空框、零 0 计数行）。模型结构错以红字列出并提示「修复后
+ * 再归档」——**不阻断**确认按钮（结构错由门禁与 Preflight 独立处置）。
+ */
+function ArchitectureChangeBlock({
+  root,
+  changeId,
+  worktree,
+}: {
+  root: string | null;
+  changeId: string | null;
+  /** 改后模型的观察根（新图预览用；worktree 缺席时回落主仓根） */
+  worktree: string | null;
+}): React.JSX.Element | null {
+  const { summary, error } = useArchiChangeSummary(root, changeId);
+  const [showDiff, setShowDiff] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  if (error !== null) {
+    return (
+      <div
+        className="mt-1 break-all rounded-md bg-fail-bg px-2.5 py-1.5 text-[13px] text-fail"
+        data-testid="run-archi-error"
+      >
+        架构变更取数失败：{error}
+      </div>
+    );
+  }
+  if (summary === null) return null;
+  return (
+    <div
+      className="mt-1 flex flex-col gap-1 rounded-md border border-border bg-background px-2.5 py-1.5"
+      data-testid="run-archi-block"
+    >
+      <ArchiCountLine summary={summary} />
+      <ArchiDiagnosticRows diagnostics={summary.diagnostics} />
+      <div className="flex gap-2">
+        <Button data-testid="run-archi-diff" onClick={() => setShowDiff((open) => !open)}>
+          查看模型 diff
+        </Button>
+        <Button data-testid="run-archi-preview" onClick={() => setShowPreview((open) => !open)}>
+          查看新图预览
+        </Button>
+      </div>
+      {showDiff && <ArchiDiffDetail summary={summary} />}
+      {showPreview && <ArchiPreview root={worktree ?? root} />}
+    </div>
+  );
+}
+
 /** 归档确认动作行（确认 → proceed=true 且 syncSpecs = `!skipSync`；终止 → 受控
  * 终态 stopped）。 */
 function ArchiveConfirmActions({
@@ -250,9 +414,13 @@ function ArchiveConfirmActions({
 function ArchiveConfirmCard({
   actions,
   preflight,
+  root,
+  changeId,
 }: {
   actions: RunActions;
   preflight: ArchivePreflight | null;
+  root: string | null;
+  changeId: string | null;
 }): React.JSX.Element {
   const [skipSync, setSkipSync] = useState(false);
   return (
@@ -266,6 +434,11 @@ function ArchiveConfirmCard({
       </div>
       <ArchiveWarningRows warnings={archiveWarnings(preflight)} />
       <ArchiveDeltaSpecs capabilities={preflight?.deltaSpecs ?? []} />
+      <ArchitectureChangeBlock
+        root={root}
+        changeId={changeId}
+        worktree={preflight?.worktree ?? null}
+      />
       <ArchiveSyncSkip skipSync={skipSync} onChange={setSkipSync} />
       {preflight !== null && preflight.worktree !== null && (
         <ArchiveMergeNotice mergeTarget={preflight.mergeTarget} branch={preflight.branch} />
@@ -351,9 +524,11 @@ function RunStatusBadge({
 
 export function RunControlPanel({
   // 命令面身份入参保契约面（动作链路已由父层 useChangeFlowRun 按 id 绑定；
-  // 面板显名收敛纪律：id 与 name 不静默互换）
-  changeId: _changeId,
+  // 面板显名收敛纪律：id 与 name 不静默互换）；架构变更区块以同一 id + 主仓根
+  // 独立取数（不经 ArchivePreflight 字段面）
+  changeId,
   name,
+  root,
   activeRun,
   lastRun,
   actions,
@@ -378,7 +553,13 @@ export function RunControlPanel({
         </div>
       )}
       {activeRun !== null && activeRun.status === 'waitingConfirm' && activeRun.phase !== null && (
-        <ConfirmCard actions={actions} phase={activeRun.phase} preflight={activeRun.archive} />
+        <ConfirmCard
+          actions={actions}
+          phase={activeRun.phase}
+          preflight={activeRun.archive}
+          root={root}
+          changeId={changeId}
+        />
       )}
       {activeRun !== null && activeRun.ask !== null && (
         <AskCard actions={actions} ask={activeRun.ask} />

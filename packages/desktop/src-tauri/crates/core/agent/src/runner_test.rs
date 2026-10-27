@@ -635,3 +635,140 @@ fn session_injections六名子集加explore组合roundtrip逐字段等值() {
     );
     assert_eq!(parsed.toolset, Some(SessionToolset::Explore));
 }
+
+// ---------------------------------------------------------------------------
+// archi 章节：`SessionToolset::Archi` 线值与旧线兼容
+// ---------------------------------------------------------------------------
+
+/// 正向：`Archi` 四组合序列化线值（camelCase 外层变体名 + 内层布尔字段）。
+#[test]
+fn session_toolset_archi四组合线值() {
+    let cases = [
+        (
+            (true, true),
+            json!({"archi": {"module": true, "search": true}}),
+        ),
+        (
+            (true, false),
+            json!({"archi": {"module": true, "search": false}}),
+        ),
+        (
+            (false, true),
+            json!({"archi": {"module": false, "search": true}}),
+        ),
+        (
+            (false, false),
+            json!({"archi": {"module": false, "search": false}}),
+        ),
+    ];
+    for ((module, search), expected) in cases {
+        let value =
+            serde_json::to_value(SessionToolset::Archi { module, search }).expect("序列化成功");
+        assert_eq!(
+            value, expected,
+            "Archi 线值逐字段（module={module}, search={search}）"
+        );
+    }
+}
+
+/// 正向：四线值反序列化 round-trip 等值；`Explore` 线值逐字不变。
+#[test]
+fn session_toolset_archi反序列化roundtrip() {
+    for (module, search) in [(true, true), (true, false), (false, true), (false, false)] {
+        let value = json!({"archi": {"module": module, "search": search}});
+        let parsed: SessionToolset = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(parsed, SessionToolset::Archi { module, search });
+    }
+    let parsed: SessionToolset =
+        serde_json::from_value(json!("explore")).expect("Explore 线值反序列化成功");
+    assert_eq!(parsed, SessionToolset::Explore, "Explore 臂零变化");
+}
+
+/// 边界：旧线兼容——`SessionInjections` 旧 JSON 无 `toolset` 字段 / `toolset: null`
+/// → 读出 `None`（`#[serde(default)]`）。
+#[test]
+fn session_injections旧线无toolset字段读出none() {
+    let legacy = json!({ "preamble": null, "tools": null });
+    let injections: SessionInjections = serde_json::from_value(legacy).expect("旧线应可反序列化");
+    assert_eq!(injections.toolset, None, "缺字段读出 None");
+
+    let explicit_null = json!({ "preamble": null, "tools": null, "toolset": null });
+    let injections: SessionInjections =
+        serde_json::from_value(explicit_null).expect("null 线值应可反序列化");
+    assert_eq!(injections.toolset, None, "null 读出 None");
+
+    // 新线：Archi 变体可回读
+    let archi = json!({
+        "preamble": null,
+        "tools": null,
+        "toolset": { "archi": { "module": true, "search": false } }
+    });
+    let injections: SessionInjections = serde_json::from_value(archi).expect("新线应可反序列化");
+    assert_eq!(
+        injections.toolset,
+        Some(SessionToolset::Archi {
+            module: true,
+            search: false
+        })
+    );
+}
+
+/// 异常：非法线值一律 `Err`（大小写敏感 / 缺布尔字段 / 非 bool / 未知变体 / 空串）。
+#[test]
+fn session_toolset_archi非法线值err() {
+    for line in [
+        json!("Archi"),
+        json!({"archi": {}}),
+        json!({"archi": {"module": 1, "search": true}}),
+        json!({"archi": {"module": "true", "search": false}}),
+        json!({"unknown": {}}),
+        json!("unknown"),
+        json!(""),
+    ] {
+        let result = serde_json::from_value::<SessionToolset>(line.clone());
+        assert!(result.is_err(), "非法线值 {line} 应反序列化 Err");
+    }
+}
+
+/// 回归：`Explore` 臂序列化逐字不变；新增变体不进入 `tools` 名单表达。
+#[test]
+fn session_toolset_explore臂零回归与tools名单分离() {
+    assert_eq!(
+        serde_json::to_value(SessionToolset::Explore).expect("序列化成功"),
+        json!("explore"),
+        "Explore 线值逐字"
+    );
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(vec!["read".to_owned()]),
+        toolset: Some(SessionToolset::Archi {
+            module: true,
+            search: true,
+        }),
+    };
+    let value = serde_json::to_value(&injections).expect("序列化成功");
+    assert_eq!(
+        value["tools"],
+        json!(["read"]),
+        "`tools` 名单只承载七工具子集"
+    );
+    assert_eq!(
+        value["toolset"],
+        json!({"archi": {"module": true, "search": true}}),
+        "枚举位是 archi 工具面的唯一入口"
+    );
+}
+
+/// 边界：crate 根与模块路径同词汇（`crate::SessionToolset::Archi` 可构造）。
+#[test]
+fn session_toolset再导出锚定() {
+    let from_root: crate::SessionToolset = crate::SessionToolset::Archi {
+        module: true,
+        search: false,
+    };
+    let from_runner: SessionToolset = SessionToolset::Archi {
+        module: true,
+        search: false,
+    };
+    assert_eq!(from_root, from_runner, "两路径同词汇同值");
+}

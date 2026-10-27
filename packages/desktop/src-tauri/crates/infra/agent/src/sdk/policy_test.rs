@@ -282,3 +282,63 @@ fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id
     assert!(*is_error, "拒绝结果必须 is_error");
     assert_eq!(content.as_str(), reason);
 }
+
+// ---------------------------------------------------------------------------
+// 架构只读工具面（archi 章节）：只读清单扩至六名，三档全放行
+// ---------------------------------------------------------------------------
+
+/// 两 archi 工具名（与 `tools` 常量同源口径）。
+const ARCHI_TOOLS: [&str; 2] = [
+    crate::sdk::tools::ARCHI_MODULE_TOOL,
+    crate::sdk::tools::ARCHI_SEARCH_TOOL,
+];
+
+/// 正向：只读清单恰六名；三档（Default / AcceptEdits / BypassPermissions）对两
+/// archi 工具全部放行（6 格）。
+#[test]
+fn 两archi工具三档全放行且只读清单恰六名() {
+    let readonly: Vec<&str> = READONLY.iter().copied().chain(ARCHI_TOOLS).collect();
+    assert_eq!(
+        readonly,
+        vec!["read", "grep", "glob", "ls", "archi_module", "archi_search"],
+        "只读清单恰六名（原四名 + 两 archi 工具）"
+    );
+
+    for mode in [
+        AgentPermissionMode::Default,
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ] {
+        for tool in ARCHI_TOOLS {
+            assert!(allows(mode, tool), "{mode:?} 档应放行只读工具 {tool}");
+        }
+    }
+}
+
+/// 异常：只读面未扩宽——`Default` 档仍拒写面 / 执行面工具。
+#[test]
+fn 只读面扩两名的同时不扩其他面() {
+    for tool in ["write", "edit", "bash", EXPLORE_NOTE_TOOL] {
+        assert!(
+            !allows(AgentPermissionMode::Default, tool),
+            "default 档仍拒 {tool}（只读面只扩两 archi 名）"
+        );
+    }
+}
+
+/// 异常：词汇外工具名（`archi_write` / `""` / `read2`）在任何档位一律拒绝。
+#[test]
+fn 词汇外archi工具名任何档位一律拒绝() {
+    for tool in ["archi_write", "", "read2", "ARCHI_MODULE"] {
+        for mode in [
+            AgentPermissionMode::Default,
+            AgentPermissionMode::AcceptEdits,
+            AgentPermissionMode::BypassPermissions,
+        ] {
+            assert!(
+                !allows(mode, tool),
+                "{mode:?} 档应拒词汇外工具名 {tool:?}（封闭清单语义）"
+            );
+        }
+    }
+}

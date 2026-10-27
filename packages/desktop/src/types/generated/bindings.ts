@@ -250,6 +250,29 @@ export const commands = {
 	workspaceConfig: (root: string) => __TAURI_INVOKE<WorkspaceConfigReport>("workspace_config", { root }).then((v) => (({...v,config:({...v.config,extra:v.config.extra.map(i=>i)})}) as typeof v)),
 	/**  应用环境：管理态 `DataRoot` → 线面平移（无 IO、无 `Result` 错误面）。 */
 	appEnvironment: () => __TAURI_INVOKE<AppEnvironment>("app_environment"),
+	/**  画布数据（停摆 / 正常两态）。 */
+	archiGraph: (root: string) => __TAURI_INVOKE<ArchiGraph>("archi_graph", { root }),
+	/**  单元素投影（与 agent 工具同一投影）。 */
+	archiModule: (root: string, element: string) => __TAURI_INVOKE<ArchiModuleDetail>("archi_module", { root, element }),
+	/**  文档正文（仅关联集内路径）。 */
+	archiReadDoc: (root: string, path: string) => __TAURI_INVOKE<string>("archi_read_doc", { root, path }),
+	/**  归档确认面的模型结构 diff 摘要（`null` = 无改动 / 无可比基线）。 */
+	archiChangeSummary: (root: string, changeId: string) => __TAURI_INVOKE<{
+	/**  新增元素 FQN（字典序） */
+	elementsAdded: string[],
+	/**  删除元素 FQN（字典序） */
+	elementsRemoved: string[],
+	/**  新增关系数 */
+	relationsAdded: number,
+	/**  删除关系数 */
+	relationsRemoved: number,
+	/**  gate 变更清单 */
+	gateChanges: ArchiGateChange[],
+	/**  改动侧结构诊断（红字面；不阻断确认） */
+	diagnostics: ArchiDiagnostic[],
+} | null>("archi_change_summary", { root, changeId }),
+	/**  改档写回（唯一写命令）。 */
+	archiSetGate: (root: string, element: string, gate: GateTier) => __TAURI_INVOKE<null>("archi_set_gate", { root, element, gate }),
 };
 
 /* Types */
@@ -552,6 +575,163 @@ export type AppEnvironment = {
 	dataRoot: string,
 	/**  数据根来源线值：`prod` | `dev-default` | `env`（`RootSource::wire()`） */
 	source: string,
+};
+
+/**  模型结构 diff 摘要（归档确认面「架构变更」区块的数据源）。 */
+export type ArchiChangeSummary = {
+	/**  新增元素 FQN（字典序） */
+	elementsAdded: string[],
+	/**  删除元素 FQN（字典序） */
+	elementsRemoved: string[],
+	/**  新增关系数 */
+	relationsAdded: number,
+	/**  删除关系数 */
+	relationsRemoved: number,
+	/**  gate 变更清单 */
+	gateChanges: ArchiGateChange[],
+	/**  改动侧结构诊断（红字面；不阻断确认） */
+	diagnostics: ArchiDiagnostic[],
+};
+
+/**  入边对端（`dependedBy` 条目）。 */
+export type ArchiDependedBy = {
+	/**  依赖方元素 FQN */
+	source: string,
+	/**  关系说明 */
+	description: string | null,
+};
+
+/**  出边对端（`dependsOn` 条目）。 */
+export type ArchiDependsOn = {
+	/**  被依赖元素 FQN */
+	target: string,
+	/**  关系说明 */
+	description: string | null,
+};
+
+/**  结构诊断投影（`line == 0` 表示位置未知）。 */
+export type ArchiDiagnostic = {
+	/**  诊断种类 */
+	kind: ArchiDiagnosticKind,
+	/**  原文文案（parser 面原样含行 / 列 / 片段 / caret） */
+	message: string,
+	/**  所在文件（repo 相对） */
+	file: string,
+	/**  所在行（1 起始；0 = 位置未知） */
+	line: number,
+	/**  所在列（1 起始；未知即 `null`） */
+	column: number | null,
+};
+
+/**
+ *  结构诊断种类（封闭九值：parser 免费五 + 自实现四；线格式 camelCase）。
+ * 
+ *  类型名带 `Archi` 前缀是**线面约束**：specta 的类型注册表按裸类型名唯一，工作区
+ *  配置侧已有同名的 `DiagnosticKind`（两侧同名为注册冲突），故本枚举的导出名带
+ *  前缀；进程内仍以 [`DiagnosticKind`] 别名引用。
+ */
+export type ArchiDiagnosticKind = 
+/**  非法 TOML（漏引号 / 漏闭合） */
+"syntaxError" | 
+/**  缺必填字段 */
+"missingField" | 
+/**  值不在封闭值域（错误里列出全部合法值） */
+"invalidValue" | 
+/**  未知字段（拼错的键） */
+"unknownField" | 
+/**  重复声明（同文件 + 跨文件） */
+"duplicateElement" | 
+/**  成环 */
+"cycle" | 
+/**  依赖自己的祖先 */
+"dependsOnAncestor" | 
+/**  关系引用不存在的元素 */
+"unknownReference" | 
+/**  子元素已声明而祖先未声明 */
+"orphanHierarchy";
+
+/**  元素投影（`modelFile` / `modelLine` 指向声明表头，可直接 `edit`）。 */
+export type ArchiElement = {
+	/**  完整限定名 */
+	fqn: string,
+	/**  元素种类 */
+	kind: ElementKind,
+	/**  gate 档位 */
+	gate: GateTier,
+	/**  覆盖路径（原文，不归一） */
+	path: string[],
+	/**  一行摘要 */
+	summary: string | null,
+	/**  自由元数据表 */
+	metadata: { [key in string]: string },
+	/**  声明所在文件（repo 相对） */
+	modelFile: string,
+	/**  声明所在行（1 起始） */
+	modelLine: number,
+	/**  节点标记（本期恒 `none`） */
+	mark: NodeMark,
+};
+
+/**  gate 变更条目（`from` → `to`）。 */
+export type ArchiGateChange = {
+	/**  元素 FQN */
+	fqn: string,
+	/**  旧档位 */
+	from: GateTier,
+	/**  新档位 */
+	to: GateTier,
+};
+
+/**  画布数据（停摆判据 = `diagnostics` 非空；停摆态 `elements` / `relations` 恒空）。 */
+export type ArchiGraph = {
+	/**  元素（FQN 字典序；停摆态为空数组） */
+	elements: ArchiElement[],
+	/**  关系（`(from, to)` 字典序；停摆态为空数组） */
+	relations: ArchiRelation[],
+	/**  结构诊断（非空即停摆） */
+	diagnostics: ArchiDiagnostic[],
+};
+
+/**  单元素详情（定位工具的响应面；与 IPC `archi_module` 同一投影）。 */
+export type ArchiModuleDetail = {
+	/**  元素本体 */
+	element: ArchiElement,
+	/**  出边 */
+	dependsOn: ArchiDependsOn[],
+	/**  入边 */
+	dependedBy: ArchiDependedBy[],
+	/**  直接子元素 FQN（字典序） */
+	children: string[],
+	/**  文档关联条目（强度序） */
+	docs: DocRef[],
+	/**  文档警告（只报不拦） */
+	warnings: ArchiWarning[],
+};
+
+/**  关系投影（`reason` 本期恒 `null`，`exempt` 场景的呈现载体）。 */
+export type ArchiRelation = {
+	/**  起点元素 FQN */
+	from: string,
+	/**  终点元素 FQN */
+	to: string,
+	/**  关系说明 */
+	description: string | null,
+	/**  边标记（本期恒 `none`） */
+	mark: EdgeMark,
+	/**  豁免理由（本期恒 `null`） */
+	reason: string | null,
+};
+
+/**  文档警告投影（只报不拦）。 */
+export type ArchiWarning = {
+	/**  警告种类 */
+	kind: WarningKind,
+	/**  文案 */
+	message: string,
+	/**  归属元素 FQN */
+	element: string | null,
+	/**  涉及的路径 */
+	path: string | null,
 };
 
 /**  archive 月份分组；`month` 为 `None` 即"未知时间"组，固定排组序列尾。 */
@@ -1051,6 +1231,56 @@ export type DirNode = {
 	children: TreeEntry[],
 };
 
+/**  文档形态（由落地路径决定：决策记录目录内恒 `Adr`）。 */
+export type DocKind = 
+/**  普通 markdown 文档 */
+"md" | 
+/**  架构决策记录 */
+"adr";
+
+/**  文档关联条目（恒四字段：无摘要、无正文、无行区间）。 */
+export type DocRef = {
+	/**  repo 相对路径（`/` 分隔） */
+	path: string,
+	/**  首行 ATX 标题（无标题则文件名去扩展名） */
+	title: string,
+	/**  形态标记 */
+	kind: DocKind,
+	/**  来源强度词汇 */
+	source: DocSource,
+};
+
+/**  文档关联来源（强度序即声明序：`Explicit` > `Adjacent` > `Text`）。 */
+export type DocSource = 
+/**  元素 `docs` 显式指定（最强） */
+"explicit" | 
+/**  元素 `path` 覆盖目录内扫描命中 */
+"adjacent" | 
+/**  ADR 正文提及元素 FQN（最弱） */
+"text";
+
+/**  边标记（封闭四值；本期生产者恒 `None`）。 */
+export type EdgeMark = 
+/**  无标记（实线） */
+"none" | 
+/**  声明未兑现（灰虚线） */
+"unfulfilled" | 
+/**  跨种类向上（橙虚线） */
+"crossKind" | 
+/**  豁免（灰实线） */
+"exempt";
+
+/**  元素种类（封闭四值；线格式小写词）。 */
+export type ElementKind = 
+/**  包级（顶层分组） */
+"package" | 
+/**  域级（业务域） */
+"domain" | 
+/**  模块级 */
+"module" | 
+/**  组件级 */
+"component";
+
 /**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
 export type ExploreDoc = {
 	/**  笔记名（= 文件 stem） */
@@ -1121,6 +1351,15 @@ export type FileWatchEvent = {
 	path: string,
 };
 
+/**  gate 档位（封闭三值；缺省 `Off`——新元素缺省不收紧的 ratchet 起点）。 */
+export type GateTier = 
+/**  不参与门禁（缺省） */
+"off" | 
+/**  违例仅告警 */
+"warn" | 
+/**  违例即门禁失败 */
+"strict";
+
 /**
  *  单语言统计行：`name` 取 tokei `LanguageType::name()`；`share` 为代码行份额
  *  （该语言 code / Σ全部语言 code，百分点 0–100；Σcode 为 0 时 0.0）。
@@ -1155,6 +1394,13 @@ export type MutationConfig = {
 	/**  变异测试得分阈值（默认 70） */
 	score: number | null,
 };
+
+/**  节点标记（封闭两值；结构错不入标记——结构错一律停摆）。 */
+export type NodeMark = 
+/**  正常（⚪） */
+"none" | 
+/**  存在未兑现声明（🟡） */
+"unfulfilled";
 
 /**  一站流水线：该 phase 的全部 attempt 序列。 */
 export type PhaseEntry = {
@@ -1456,6 +1702,11 @@ export type TurnSummary = {
 
 /**  评估 verdict。 */
 export type Verdict = "pass" | "fail";
+
+/**  文档警告种类（单值；与诊断分立使「文档警告不停摆」在类型上成立）。 */
+export type WarningKind = 
+/**  `docs` 指向的文件不存在（只报不拦） */
+"docNotFound";
 
 /**  单条搜索来源（纯展示字段，不参与回放）。 */
 export type WebSearchSource = {

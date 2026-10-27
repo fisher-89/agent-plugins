@@ -1021,6 +1021,10 @@ struct FakeVcs {
     ff_merge_result: Mutex<Result<(), String>>,
     snapshot: Mutex<Result<WorktreeSnapshot, String>>,
     snapshot_head: Mutex<Option<String>>,
+    /// 干净探测前置次数（archi 章节：Preflight 半程探测须见干净态 `rebase_head
+    /// = None`，而解冲突后验 A / B 须见 rebase 半程 `Some`——同一
+    /// `worktree_snapshot` 面按调用序分相）
+    snapshot_clean_probes: Mutex<usize>,
     /// 变更文件清单（change_edit_set 产出面）
     edit_set: Mutex<Vec<String>>,
     /// 清单取数 Err 注入位
@@ -1059,6 +1063,7 @@ impl FakeVcs {
             ff_merge_result: Mutex::new(Ok(())),
             snapshot: Mutex::new(Ok(snapshot_of("head-a", None))),
             snapshot_head: Mutex::new(None),
+            snapshot_clean_probes: Mutex::new(0),
             edit_set: Mutex::new(Vec::new()),
             edit_set_error: Mutex::new(None),
             edit_patch: Mutex::new(String::new()),
@@ -1156,6 +1161,26 @@ impl FakeVcs {
         self
     }
 
+    /// 快照探测失败面编程（archi 章节：Preflight 半程探测 fail-closed 的注入位）。
+    fn with_snapshot_failure(self, error: &str) -> Self {
+        *self.snapshot.lock().expect("vcs 快照锁不可中毒") = Err(error.to_owned());
+        self
+    }
+
+    /// 前 `probes` 次快照探测返回干净态（`rebase_head = None`），其后返回
+    /// [`Self::with_snapshot_head`] 的配置形态。
+    ///
+    /// archi 章节装置：Preflight 半程探测与解冲突后验 A / B 共用同一
+    /// `worktree_snapshot`——前者须见干净（放行重跑），后者须见 rebase 半程
+    /// `Some`（后验判据 ①），单值快照无法同时表达两相。
+    fn with_clean_preflight_probe(self) -> Self {
+        *self
+            .snapshot_clean_probes
+            .lock()
+            .expect("vcs 探测分相锁不可中毒") = 1;
+        self
+    }
+
     /// 调用序快照。
     fn calls(&self) -> Vec<String> {
         self.calls.lock().expect("vcs 调用锁不可中毒").clone()
@@ -1231,6 +1256,17 @@ impl ArchiveVcsPort for FakeVcs {
 
     fn worktree_snapshot(&self, _root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
         self.record("worktree_snapshot".to_owned());
+        // 探测分相（archi 章节）：前置次数内返回干净态（Preflight 半程探测的
+        // 放行形态），其后走配置形态（解冲突后验的 rebase 半程形态）
+        let mut clean_probes = self
+            .snapshot_clean_probes
+            .lock()
+            .expect("vcs 探测分相锁不可中毒");
+        if *clean_probes > 0 {
+            *clean_probes -= 1;
+            return Ok(snapshot_of("head-a", None));
+        }
+        drop(clean_probes);
         self.snapshot.lock().expect("vcs 快照锁不可中毒").clone()
     }
 
@@ -1770,6 +1806,30 @@ fn worktree_dir(root: &TempRoot) -> String {
         .join(NAME)
         .to_string_lossy()
         .into_owned()
+}
+
+/// 短路径 worktree RAII：模型冲突文案长度敏感用例专用（三要素——worktree 绝对
+/// 路径 / 重跑引导 / 人工裁决——须全部落在 200 字符上限内；长临时根路径会把
+/// 引导语挤出截断位，届时只能断言前三要素，无法验证「可照抄」语义）。
+struct ShortWorktree(PathBuf);
+
+impl ShortWorktree {
+    fn new(tag: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("wt-{}-{tag}", std::process::id()));
+        let _ = fs_remove(&dir);
+        std::fs::create_dir_all(&dir).expect("创建短路径 worktree 失败");
+        Self(dir)
+    }
+
+    fn path_str(&self) -> String {
+        self.0.to_string_lossy().into_owned()
+    }
+}
+
+impl Drop for ShortWorktree {
+    fn drop(&mut self) {
+        let _ = fs_remove(&self.0);
+    }
 }
 
 /// 相位定义（真件只读——计划步序列与产物清单的唯一来源）。
@@ -7445,7 +7505,9 @@ async fn 归档冲突三段agent解算与独立快进() {
     let vcs = Arc::new(
         FakeVcs::clean()
             .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
-            .with_snapshot_head("head-b", Some("onto-commit")),
+            .with_snapshot_head("head-b", Some("onto-commit"))
+            // Preflight 半程探测先见干净态（否则挡回在 Commit 之前）
+            .with_clean_preflight_probe(),
     );
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -7488,7 +7550,11 @@ async fn 归档冲突三段agent解算与独立快进() {
         vcs.calls()
     );
     assert_eq!(vcs.call_count("ff_merge:"), 1, "Merge 独立快进");
-    assert_eq!(vcs.call_count("worktree_snapshot"), 2, "A / B 双快照后验");
+    assert_eq!(
+        vcs.call_count("worktree_snapshot"),
+        3,
+        "Preflight 半程探测一次 + A / B 双快照后验"
+    );
 
     let command = history.finish().expect("收口落包应在案");
     let rebase_detail = node_detail(&command, workflow::state::RunStepKind::Rebase);
@@ -8469,7 +8535,9 @@ async fn 归档冲突解算续走失败携引导() {
         FakeVcs::clean()
             .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
             .with_rebase_continue(Err("rebase --continue 失败".to_owned()))
-            .with_snapshot_head("head-b", Some("onto-commit")),
+            .with_snapshot_head("head-b", Some("onto-commit"))
+            // Preflight 半程探测先见干净态（否则挡回在 Commit 之前）
+            .with_clean_preflight_probe(),
     );
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -12949,4 +13017,672 @@ async fn 三面取消一致性_节点stopped且run收敛stopped() {
             "{label}: 零反馈续注 prompt"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// archi 章节：模型冲突前置分流（`step_resolve_conflicts` 模型臂）与 Preflight
+// rebase 半程挡回（`step_preflight`）
+// ---------------------------------------------------------------------------
+
+/// 模型路径冲突（正向）：`rebase_conflicts` 含架构域模型路径 → `Terminal::failed`，
+/// 文案含 worktree 绝对路径 + 「解完模型冲突后重跑归档」+ 人工裁决语义；≤200 字符；
+/// 零会话 / 零 `rebase --continue` / 零 `rebase --abort`。
+#[tokio::test]
+async fn 归档模型冲突交人裁决零会话零abort() {
+    let root = TempRoot::new("archive-archi-conflict");
+    root.change(NAME);
+    // 短路径 worktree：文案三要素须在 200 字符内全部在场（长路径会截断引导语）
+    let short = ShortWorktree::new("archi-conflict");
+    let worktree = short.path_str();
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(
+        FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+            "openspec/architecture/models/02-auth.toml".to_owned(),
+        ]))),
+    );
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "模型冲突 → Terminal::failed（整体交人）"
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "模型冲突臂零 agent 会话（不交 agent 解算）"
+    );
+    assert!(sessions.lock().expect("会话锁").is_empty());
+    assert_eq!(vcs.call_count("rebase_continue"), 0, "零 rebase --continue");
+    assert_eq!(
+        vcs.call_count("rebase_abort"),
+        0,
+        "零 rebase --abort（半程保留）"
+    );
+
+    let command = history.finish().expect("失败收口落包应在案");
+    let reason = command.reason.expect("失败原因应落包");
+    assert!(
+        reason.contains(&worktree),
+        "文案含 worktree 绝对路径: {reason}"
+    );
+    assert!(
+        reason.contains("解完模型冲突后重跑归档"),
+        "文案含重跑引导: {reason}"
+    );
+    assert!(reason.contains("人工裁决"), "文案含人工裁决语义: {reason}");
+    let resolve_node = command
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::ResolveConflicts)
+        .expect("ResolveConflicts 节点在场");
+    assert_eq!(resolve_node.status, RunStepStatus::Failed);
+    assert!(
+        resolve_node.session_id.is_none(),
+        "模型冲突臂节点无会话槽位"
+    );
+}
+
+/// 混合冲突（异常）：冲突清单同时含模型路径与代码路径 → 走模型臂（`Terminal::
+/// failed`、零会话），不得先解代码。
+#[tokio::test]
+async fn 归档混合冲突走模型臂不先解代码() {
+    let root = TempRoot::new("archive-mixed-conflict");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(
+        FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+            "src/auth/token.rs".to_owned(),
+            "openspec/architecture/models/01-core.toml".to_owned(),
+        ]))),
+    );
+    let (task, _rx, _history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Failed,
+        "含模型路径即整体交人（不得先解代码）"
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零解冲突会话（代码路径亦不解）"
+    );
+    assert_eq!(vcs.call_count("rebase_continue"), 0);
+}
+
+/// Preflight 半程挡回（正向）：`worktree` 在场且 `worktree_snapshot().rebase_head`
+/// 有值 → `Terminal::failed`，文案含 worktree 绝对路径 + 两条出路；Commit 步零执行
+/// （`commit_all` / `rebase_branch` / `ff_merge` / `rebase_abort` 计数全 0）。
+#[tokio::test]
+async fn 归档preflight半程挡回零提交零重放() {
+    let root = TempRoot::new("archive-halfway");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean().with_snapshot_head("head-b", Some("onto-commit")));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Failed,
+        "半程在场 → 前置挡回"
+    );
+
+    assert!(sessions.lock().expect("会话锁").is_empty(), "零会话");
+    assert_eq!(vcs.call_count("commit_all"), 0, "Commit 步零执行");
+    assert_eq!(vcs.call_count("rebase_branch"), 0, "Rebase 步零执行");
+    assert_eq!(vcs.call_count("ff_merge"), 0, "Merge 步零执行");
+    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
+    assert_eq!(
+        vcs.call_count("worktree_snapshot"),
+        1,
+        "只做一次半程探测: {:?}",
+        vcs.calls()
+    );
+
+    let command = history.finish().expect("失败收口落包应在案");
+    let reason = command.reason.expect("失败原因应落包");
+    assert!(
+        reason.contains(&worktree),
+        "文案含 worktree 绝对路径: {reason}"
+    );
+    assert!(
+        reason.contains("git rebase --continue"),
+        "文案含 continue 出路: {reason}"
+    );
+    // Commit / Rebase 步在挡回前未启动：节点或不在场、或在场面非 passed
+    for step in [
+        workflow::state::RunStepKind::Commit,
+        workflow::state::RunStepKind::Rebase,
+    ] {
+        if let Some(node) = command.nodes.iter().find(|node| node.step == step) {
+            assert_ne!(node.status, RunStepStatus::Passed, "{step:?} 不得 passed");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// archi 章节（续）：Preflight 半程探测失败（fail-closed）与模型冲突文案形态
+// （`archi_conflict_message` 的判据单点 `is_archi_rel_path` 经整链行为断言）
+// ---------------------------------------------------------------------------
+
+/// Preflight 探测失败（异常，fail-closed，D13）：`worktree_snapshot` 自身 `Err`
+/// → 无法区分「半程」与「干净」时拒绝继续（误放行的代价是 `add -A` + `commit`
+/// 落在 rebase 中间态）——`Terminal::failed`，文案附探测错误 + worktree 绝对路径
+/// （≤200 字符），Commit 步零执行（`commit_all` / `rebase_branch` / `ff_merge` /
+/// `rebase_abort` 计数全 0），Preflight 节点 failed。
+#[tokio::test]
+async fn 归档preflight探测失败fail_closed挡回() {
+    let root = TempRoot::new("archive-halfway-probe-error");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean().with_snapshot_failure("fatal: 快照探测失败"));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Failed,
+        "探测失败 → fail-closed 挡回（不静默放行）"
+    );
+
+    assert!(sessions.lock().expect("会话锁").is_empty(), "零会话");
+    assert_eq!(vcs.call_count("commit_all"), 0, "Commit 步零执行");
+    assert_eq!(vcs.call_count("rebase_branch"), 0, "Rebase 步零执行");
+    assert_eq!(vcs.call_count("ff_merge"), 0, "Merge 步零执行");
+    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
+    assert_eq!(
+        vcs.call_count("worktree_snapshot"),
+        1,
+        "只做一次半程探测: {:?}",
+        vcs.calls()
+    );
+
+    let command = history.finish().expect("失败收口落包应在案");
+    let reason = command.reason.expect("失败原因应落包");
+    assert!(
+        reason.contains("rebase 半程探测失败"),
+        "文案点名探测失败形态（fail-closed 记因）: {reason}"
+    );
+    assert!(
+        reason.contains("fatal: 快照探测失败"),
+        "文案附探测错误原文: {reason}"
+    );
+    assert!(
+        reason.contains(&worktree),
+        "文案含 worktree 绝对路径: {reason}"
+    );
+    assert!(
+        reason.chars().count() <= 200,
+        "文案不超 200 字符（节点 detail 同宽）: {}",
+        reason.chars().count()
+    );
+
+    let preflight = command
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::Preflight)
+        .expect("Preflight 节点在场");
+    assert_eq!(
+        preflight.status,
+        RunStepStatus::Failed,
+        "Preflight 落 failed"
+    );
+    assert!(
+        preflight
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("rebase 半程探测失败")),
+        "节点 detail 与 run-error 同文: {:?}",
+        preflight.detail
+    );
+}
+
+/// Preflight 放行（正向，legacy 形态）：`payload.worktree = None`（无 worktree
+/// 记录的老 change）→ 不探测、不挡回——半程探测只在 worktree 在场时发生
+/// （`worktree_snapshot` 零调用），Preflight 步 `passed`（既有完成度警告 / delta
+/// specs / 目录存在性分支不受影响）。
+#[tokio::test]
+async fn 归档preflight无worktree不探测即放行() {
+    let root = TempRoot::new("archive-no-worktree");
+    root.change(NAME);
+    let legacy = ArchivePreflight {
+        name: NAME.to_owned(),
+        completed: true,
+        incomplete_phases: Vec::new(),
+        missing_artifacts: Vec::new(),
+        delta_specs: Vec::new(),
+        worktree: None,
+        branch: None,
+        merge_target: None,
+    };
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(vec![legacy.clone(), legacy])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    assert_eq!(
+        vcs.call_count("worktree_snapshot"),
+        0,
+        "worktree 缺席 → 零半程探测（老 change 不被挡回）: {:?}",
+        vcs.calls()
+    );
+    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
+    assert!(sessions.lock().expect("会话锁").is_empty(), "零 agent 会话");
+
+    let command = history.finish().expect("收口落包应在案");
+    let preflight = command
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::Preflight)
+        .expect("Preflight 节点在场");
+    assert_eq!(
+        preflight.status,
+        RunStepStatus::Passed,
+        "worktree 缺席即放行（不挡回）: {:?}",
+        preflight.detail
+    );
+}
+
+/// Preflight 目录不在场（边界，D13 前置）：`payload.worktree` 记录在场但目录已不在盘
+/// （手动清 / 重试链形态）→ **不探测**、不挡回——即便快照探测本身会 `Err`（目录缺席即
+/// 「不是仓库」），Preflight 仍 `passed`、`worktree_snapshot` 零调用、run 正常收口。
+/// 若探测被无条件执行，这条「分支已合入 + 目录已删」的合法放行态会被 fail-closed
+/// 误挡成半程。
+#[tokio::test]
+async fn 归档preflight目录不在场不探测即放行() {
+    let root = TempRoot::new("archive-halfway-absent-dir");
+    root.change(NAME);
+    // 记录在案但从未 / 已不在盘的 worktree 路径
+    let worktree = root.0.join("worktrees-seg").join(NAME);
+    let worktree = worktree.to_string_lossy().into_owned();
+    assert!(
+        !std::path::Path::new(&worktree).exists(),
+        "前置：worktree 目录缺席"
+    );
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    // 快照探测一旦被调用即失败：目录缺席面「不探测」是唯一让它放行的原因
+    let vcs = Arc::new(
+        FakeVcs::clean()
+            .with_snapshot_failure("fatal: not a git repository")
+            .with_merged(Ok(true)),
+    );
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "目录缺席 → 不探测、不挡回（合法放行态）"
+    );
+
+    assert_eq!(
+        vcs.call_count("worktree_snapshot"),
+        0,
+        "目录不在场即零半程探测（不把「不是仓库」误判成半程）: {:?}",
+        vcs.calls()
+    );
+    assert_eq!(vcs.call_count("rebase_abort"), 0, "零 rebase --abort");
+    assert!(sessions.lock().expect("会话锁").is_empty(), "零 agent 会话");
+
+    let command = history.finish().expect("收口落包应在案");
+    let preflight = command
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::Preflight)
+        .expect("Preflight 节点在场");
+    assert_eq!(
+        preflight.status,
+        RunStepStatus::Passed,
+        "目录缺席即放行（探测不执行）: {:?}",
+        preflight.detail
+    );
+}
+
+/// 模型冲突文案形态（边界，表驱动两形态）：分隔符形态（`\`）与祖先路径形态
+/// （`openspec/architecture`，无 tail 段）均命中模型臂——判据单点为
+/// `is_archi_rel_path`（归一 + 段位判定），文案携 worktree 绝对路径 + 「冲突 1
+/// 个」+ 重跑引导，且整体 ≤200 字符。
+#[tokio::test]
+async fn 归档模型冲突文案命中分隔符与祖先路径两形态() {
+    for conflict in [
+        r"openspec\architecture\models\02-auth.toml",
+        "openspec/architecture",
+    ] {
+        let root = TempRoot::new("archive-archi-conflict-form");
+        root.change(NAME);
+        // 短路径 worktree：三要素须在 200 字符内全部在场
+        let short = ShortWorktree::new("archi-conflict-form");
+        let worktree = short.path_str();
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+            .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+
+        let vcs = Arc::new(
+            FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![conflict.to_owned()]))),
+        );
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            Arc::clone(&vcs),
+            Arc::clone(&snapshot),
+            &control,
+            true,
+            &root.root_str(),
+            &root.root_str(),
+            Some("archive"),
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        assert_eq!(
+            task.await.expect("run 任务正常结束"),
+            ChangeRunStatus::Failed,
+            "{conflict}: 架构域路径命中即整体交人"
+        );
+
+        assert!(
+            requests.lock().expect("请求锁").is_empty(),
+            "{conflict}: 模型冲突臂零 agent 会话"
+        );
+        assert!(sessions.lock().expect("会话锁").is_empty());
+        assert_eq!(vcs.call_count("rebase_continue"), 0, "{conflict}: 零续走");
+        assert_eq!(vcs.call_count("rebase_abort"), 0, "{conflict}: 零 abort");
+        assert_eq!(
+            vcs.call_count("worktree_snapshot"),
+            1,
+            "{conflict}: 仅 Preflight 半程探测一次（模型臂在 A 快照之前返回）"
+        );
+
+        let command = history.finish().expect("失败收口落包应在案");
+        let reason = command.reason.expect("失败原因应落包");
+        assert!(
+            reason.contains("架构模型冲突需人工裁决"),
+            "{conflict}: 文案点名模型冲突臂: {reason}"
+        );
+        assert!(
+            reason.contains("冲突 1 个"),
+            "{conflict}: 文案携冲突计数: {reason}"
+        );
+        assert!(
+            reason.contains(&worktree),
+            "{conflict}: 文案含 worktree 绝对路径: {reason}"
+        );
+        assert!(
+            reason.contains("解完模型冲突后重跑归档"),
+            "{conflict}: 文案含重跑引导: {reason}"
+        );
+        assert!(
+            reason.chars().count() <= 200,
+            "{conflict}: 文案不超 200 字符: {}",
+            reason.chars().count()
+        );
+    }
+}
+
+/// 多冲突路径（边界）：三条架构域路径 → 文案取前两条为样本、计数如实为 3、
+/// 第三条不入样本（`take(2)` 单点），整体 ≤200 字符（超限按字符截断留痕）。
+#[tokio::test]
+async fn 归档模型冲突多路径文案计数与前两样本() {
+    let root = TempRoot::new("archive-archi-conflict-many");
+    root.change(NAME);
+    // 短路径 worktree：三条路径的样本 + 计数 + 引导须同处 200 字符内
+    let short = ShortWorktree::new("archi-conflict-many");
+    let worktree = short.path_str();
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(
+        FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+            "openspec/architecture".to_owned(),
+            r"openspec\architecture\models\01-core.toml".to_owned(),
+            "openspec/architecture/models/03-billing.toml".to_owned(),
+        ]))),
+    );
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Failed,
+        "多路径冲突同样整体交人"
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零 agent 会话（不逐条解算）"
+    );
+
+    let command = history.finish().expect("失败收口落包应在案");
+    let reason = command.reason.expect("失败原因应落包");
+    assert!(
+        reason.contains("冲突 3 个"),
+        "计数如实为 3（不因样本截取而失真）: {reason}"
+    );
+    assert!(
+        reason.contains("冲突 3 个（openspec/architecture、"),
+        "首条样本在场（样本以「、」连接）: {reason}"
+    );
+    assert!(
+        reason.contains(r"openspec\architecture\models\01-core.toml"),
+        r"第二条样本原样在场（`\` 分隔符逐字保留）: {reason}"
+    );
+    assert!(
+        !reason.contains("03-billing.toml"),
+        "第三条不入样本（取前两条即止）: {reason}"
+    );
+    assert!(
+        reason.contains("解完模型冲突后重跑归档"),
+        "重跑引导在场（短路径下三要素同处 200 字符内）: {reason}"
+    );
+    assert!(
+        reason.chars().count() <= 200,
+        "文案不超 200 字符: {}",
+        reason.chars().count()
+    );
+}
+
+/// 负样本（回归，判据单点）：冲突清单全为代码路径（`openspec/changes/x/specs/
+/// y.md`）→ **不**走模型臂：既有解冲突会话照常发起、无模型冲突文案、run 收口
+/// 完成（判据 `is_archi_rel_path` 不做前缀模糊匹配）。
+#[tokio::test]
+async fn 归档代码路径冲突不入模型臂() {
+    let root = TempRoot::new("archive-code-only-conflict");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(
+        FakeVcs::clean()
+            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+                "openspec/changes/x/specs/y.md".to_owned(),
+            ])))
+            .with_snapshot_head("head-b", Some("onto-commit"))
+            // Preflight 半程探测先见干净态（后验 A / B 才见 rebase 半程）
+            .with_clean_preflight_probe(),
+    );
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed,
+        "代码路径冲突走既有解算链（不被模型臂拦下）"
+    );
+
+    let roles: Vec<WorkerRole> = sessions
+        .lock()
+        .expect("会话锁")
+        .iter()
+        .map(|(role, _)| *role)
+        .collect();
+    assert_eq!(
+        roles,
+        vec![WorkerRole::ResolveConflicts],
+        "既有解冲突会话照常发起"
+    );
+    assert!(
+        requests
+            .lock()
+            .expect("请求锁")
+            .iter()
+            .all(|request| !request.prompt.contains("架构模型冲突")),
+        "解冲突 prompt 不含模型冲突文案"
+    );
+    assert_eq!(vcs.call_count("rebase_continue"), 1, "解算后由链代续走");
+
+    let command = history.finish().expect("收口落包应在案");
+    assert!(
+        command
+            .reason
+            .as_deref()
+            .is_none_or(|reason| !reason.contains("架构模型冲突")),
+        "失败面零模型冲突文案: {:?}",
+        command.reason
+    );
 }

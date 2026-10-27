@@ -474,3 +474,64 @@ pub(crate) fn detect_delta_specs(
     capabilities.sort();
     capabilities
 }
+
+// ---------------------------------------------------------------------------
+// 归档半程挡回（rebase 中间态检出）：探测在本文件、`Terminal` 收口在 walker 的
+// Preflight 步——`run_archive_preflight` 被归档前停等面与 Preflight 步共用且无
+// 错误通道，故挡回不能落在其中。
+// ---------------------------------------------------------------------------
+
+/// 文案字符上限（与 node detail 的 200 字符截断同宽——`run-error` 全文即节点
+/// detail，无需第二个取数通道）。
+pub(crate) const ARCHIVE_REASON_MAX_CHARS: usize = 200;
+
+/// rebase 半程检出：`worktree_snapshot` 的 `rebase_head` 在场即「上一次归档失败
+/// 留下的 rebase 中间态」，`Err` 挡回重跑。探测自身失败亦 `Err`（fail-closed：
+/// 无法区分「半程」与「干净」时，误放行的代价是 `git add -A && git commit` 在
+/// rebase 中间态产生污染）。零新 git 能力、零 spawn。
+///
+/// **前置**：调用方须先确认 `worktree` 目录在场（`Path::is_dir`）——目录缺失的
+/// 处置归 Preflight 的既有目录存在性分支（分支已合入即照常放行，design D13），
+/// 故 fail-closed 只覆盖「目录在场而探测读不出」这一种情形，文案里的两条命令也
+/// 都落在确实存在的目录内。
+pub(crate) fn check_rebase_halfway(vcs: &dyn ArchiveVcsPort, worktree: &str) -> Result<(), String> {
+    match vcs.worktree_snapshot(Path::new(worktree)) {
+        Ok(snapshot) if snapshot.rebase_head.is_some() => {
+            Err(rebase_halfway_message(worktree, None))
+        }
+        Ok(_) => Ok(()),
+        Err(error) => Err(rebase_halfway_message(worktree, Some(&error))),
+    }
+}
+
+/// 半程挡回文案（三要素并列：worktree 绝对路径 / `git rebase --continue` 后重跑
+/// / `git rebase --abort` 后重跑；含探测失败因时另行前置）。总长 ≤
+/// [`ARCHIVE_REASON_MAX_CHARS`] 字符。
+///
+/// 探测失败形态不假定可进入该目录（探测失败的原因可能正是目录不可读）：先要求
+/// 核对目录在场与 git 状态，再给两条出路——文案不把「进目录执行 rebase」当唯一
+/// 动作。
+pub(crate) fn rebase_halfway_message(worktree: &str, error: Option<&str>) -> String {
+    let message = match error {
+        Some(error) => format!(
+            "rebase 半程探测失败（{error}），为防污染拒绝继续：worktree {worktree}；\
+             请核对目录在场且 git 可读后重跑归档；若确有半程：解完模型冲突后 \
+             `git rebase --continue` 再重跑归档，或 `git rebase --abort` 后重跑归档"
+        ),
+        None => format!(
+            "上一次归档失败留下的 rebase 半程未处置：worktree {worktree}；\
+             ① 在其中解完模型冲突后 `git rebase --continue` 再重跑归档；\
+             ② 或 `git rebase --abort` 后重跑归档（会重新 rebase 一次）"
+        ),
+    };
+    clip_reason(message)
+}
+
+/// 文案按字符上限截断（超限即截至上限，尾部以 `…` 留痕）。
+pub(crate) fn clip_reason(message: String) -> String {
+    if message.chars().count() <= ARCHIVE_REASON_MAX_CHARS {
+        return message;
+    }
+    let end = ARCHIVE_REASON_MAX_CHARS.saturating_sub(1);
+    format!("{}…", message.chars().take(end).collect::<String>())
+}

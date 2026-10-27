@@ -1,0 +1,526 @@
+===== attempt 1/5 · exit=101 · transient=os error 32 =====
+✓ Lockfile passes supply-chain policies (verified 13h ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: D:\.pnpm-store\v11
+  Virtual store is at:             node_modules/.pnpm
+Progress: resolved 688, reused 688, downloaded 0, added 226
+Progress: resolved 688, reused 688, downloaded 0, added 416
+Progress: resolved 688, reused 688, downloaded 0, added 589
+Progress: resolved 688, reused 688, downloaded 0, added 671
+Progress: resolved 688, reused 688, downloaded 0, added 691
+Progress: resolved 688, reused 688, downloaded 0, added 695
+Packages: +696
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 688, reused 688, downloaded 0, added 696, done
+node_modules/esbuild postinstall$ node install.js
+node_modules/esbuild postinstall: Done
+
+dependencies:
++ @ai-sdk/react 4.0.121
++ @base-ui/react 1.8.0
++ @fontsource-variable/geist 5.3.0
++ @shadcn/react 0.3.1
++ @tauri-apps/api 2.12.4
++ @tauri-apps/plugin-dialog 2.8.3
++ @tauri-apps/plugin-opener 2.7.2
++ @tauri-apps/plugin-updater 2.14.0
++ @xyflow/react 12.11.6
++ ai 7.0.118
++ class-variance-authority 0.7.1
++ cn 0.4.0
++ lucide-react 1.47.0
++ react 19.3.0
++ react-dom 19.3.0
++ react-markdown 10.1.0
++ react-resizable-panels 4.13.2
++ react-router 7.18.4
++ remark-gfm 4.0.1
++ shadcn 4.21.3
++ shiki 4.5.0
++ sonner 2.0.8
++ tw-animate-css 1.4.0
+
+devDependencies:
++ @stryker-mutator/core 9.6.1
++ @stryker-mutator/vitest-runner 9.6.1
++ @tailwindcss/typography 0.5.20
++ @tailwindcss/vite 4.3.3
++ @tauri-apps/cli 2.12.4
++ @testing-library/react 16.3.3
++ @types/json-schema 7.0.15
++ @types/node 24.13.6
++ @types/react 19.3.0
++ @types/react-dom 19.3.0
++ @vitejs/plugin-react 5.2.0
++ @vitest/coverage-v8 4.1.10
++ cross-env 10.1.0
++ jsdom 26.1.0
++ knip 6.37.0
++ oxlint-tsgolint 7.0.2001
++ tailwindcss 4.3.3
++ typescript 5.9.3
++ vite-plus 0.2.9
+
+Done in 10.7s using pnpm v12.10.1
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling serde_core v1.0.229
+    Checking windows-link v0.2.1
+   Compiling zmij v1.0.23
+    Checking memchr v2.8.3
+   Compiling cfg-if v1.0.5
+   Compiling getrandom v0.4.3
+    Checking itoa v1.0.18
+   Compiling serde v1.0.229
+   Compiling version_check v0.9.5
+    Checking pin-project-lite v0.2.17
+    Checking windows-sys v0.61.2
+   Compiling time-core v0.1.9
+   Compiling fastrand v2.5.0
+    Checking bytes v1.12.1
+   Compiling num-conv v0.2.2
+   Compiling siphasher v1.0.3
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling serde_json v1.0.151
+    Checking once_cell v1.21.4
+   Compiling bitflags v2.13.2
+   Compiling thiserror v2.0.20
+   Compiling libc v0.2.189
+   Compiling autocfg v1.5.1
+   Compiling anyhow v1.0.104
+   Compiling phf_shared v0.13.1
+   Compiling winapi-util v0.1.11
+   Compiling generic-array v0.14.7
+   Compiling camino v1.2.6
+   Compiling stable_deref_trait v1.2.1
+   Compiling find-msvc-tools v0.1.13
+   Compiling shlex v2.0.1
+   Compiling phf_generator v0.13.1
+   Compiling aho-corasick v1.1.5
+   Compiling same-file v1.0.6
+   Compiling regex-syntax v0.8.11
+   Compiling smallvec v1.16.1
+   Compiling parking_lot_core v0.9.12
+   Compiling semver v1.0.28
+    Checking socket2 v0.6.5
+    Checking mio v1.2.3
+   Compiling cc v1.4.7
+   Compiling glob v0.3.4
+   Compiling walkdir v2.5.0
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+    Checking deranged v0.5.8
+   Compiling time-macros v0.2.32
+   Compiling rustc_version v0.4.1
+    Checking hashbrown v0.17.1
+    Checking powerfmt v0.2.0
+    Checking equivalent v1.0.2
+   Compiling log v0.4.34
+    Checking http v1.5.0
+    Checking windows-result v0.4.1
+    Checking windows-strings v0.5.1
+   Compiling regex-automata v0.4.18
+   Compiling typeid v1.0.3
+   Compiling phf_codegen v0.13.1
+    Checking tracing-core v0.1.36
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling percent-encoding v2.3.2
+    Checking indexmap v2.14.2
+    Checking futures-core v0.3.34
+   Compiling utf8_iter v1.0.4
+   Compiling erased-serde v0.4.10
+   Compiling new_debug_unreachable v1.0.6
+   Compiling scopeguard v1.2.0
+   Compiling winnow v1.0.4
+   Compiling paste v1.0.15
+   Compiling specta v2.0.0-rc.25
+   Compiling string_cache_codegen v0.6.1
+   Compiling lock_api v0.4.14
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling Inflector v0.11.4
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling precomputed-hash v0.1.1
+   Compiling toml_writer v1.1.2+spec-1.1.0
+    Checking time v0.3.55
+   Compiling parking_lot v0.12.5
+    Checking fnv v1.0.7
+   Compiling web_atoms v0.2.6
+    Checking futures-sink v0.3.34
+   Compiling dtoa v1.0.11
+   Compiling tendril v0.5.1
+   Compiling form_urlencoded v1.2.2
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling regex v1.13.1
+   Compiling selectors v0.38.0
+   Compiling string_cache v0.9.0
+   Compiling uuid v1.26.1
+   Compiling synstructure v0.14.0
+   Compiling darling_core v0.24.1
+   Compiling dtoa-short v0.3.5
+   Compiling indexmap v1.9.3
+    Checking typenum v1.20.1
+   Compiling alloc-no-stdlib v3.0.0
+   Compiling serde_derive_internals v0.29.1
+   Compiling servo_arc v0.4.3
+   Compiling phf_macros v0.13.1
+   Compiling tracing-attributes v0.1.31
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling tokio-macros v2.7.2
+   Compiling thiserror-impl v2.0.20
+   Compiling specta-macros v2.0.0-rc.25
+   Compiling cssparser-macros v0.7.1
+   Compiling derive_more-impl v2.1.1
+   Compiling alloc-stdlib v0.3.0
+   Compiling phf v0.13.1
+   Compiling rustc-hash v2.1.3
+    Checking tokio v1.53.1
+   Compiling web-time v1.1.0
+   Compiling hashbrown v0.12.3
+   Compiling schemars v0.8.22
+   Compiling cssparser v0.37.0
+   Compiling bit-vec v0.8.0
+   Compiling zerofrom v0.1.8
+    Checking tracing v0.1.44
+   Compiling derive_more v2.1.1
+   Compiling darling_macro v0.24.1
+   Compiling yoke v0.8.3
+   Compiling cfb v0.14.0
+   Compiling bit-set v0.8.0
+   Compiling brotli-decompressor v6.2.0
+   Compiling schemars_derive v0.8.22
+   Compiling markup5ever v0.39.0
+   Compiling quick-xml v0.42.0
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling darling v0.24.1
+   Compiling html5ever v0.39.0
+   Compiling serde_with_macros v3.23.0
+   Compiling dyn-clone v1.0.20
+   Compiling foldhash v0.2.0
+    Checking slab v0.4.12
+   Compiling dunce v1.0.5
+    Checking tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling tauri-utils v2.10.2
+   Compiling base64 v0.23.1
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling dom_query v0.28.0
+   Compiling brotli v9.1.0
+   Compiling infer v0.22.0
+   Compiling serde-untagged v0.1.9
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking futures-channel v0.3.34
+   Compiling cargo-platform v0.1.9
+   Compiling jsonptr v0.7.1
+   Compiling serde_with v3.23.0
+   Compiling ctor v1.0.13
+    Checking digest v0.10.7
+   Compiling futures-macro v0.3.34
+   Compiling cargo_metadata v0.19.2
+    Checking futures-io v0.3.34
+   Compiling plist v1.10.1
+   Compiling json-patch v4.2.0
+    Checking futures-task v0.3.34
+    Checking cpufeatures v0.2.17
+    Checking icu_provider v2.3.1
+   Compiling vswhom-sys v0.1.3
+    Checking sha2 v0.10.9
+    Checking mime v0.3.17
+   Compiling windows-targets v0.52.6
+    Checking http-body v1.1.0
+    Checking icu_normalizer v2.3.0
+    Checking icu_properties v2.3.0
+   Compiling unicase v2.9.0
+   Compiling windows-sys v0.59.0
+    Checking tower-service v0.3.3
+    Checking futures-util v0.3.34
+   Compiling heck v0.5.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling httparse v1.10.1
+    Checking try-lock v0.2.5
+    Checking atomic-waker v1.1.2
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\foundation)
+    Checking want v0.3.1
+   Compiling option-ext v0.2.0
+    Checking httpdate v1.0.3
+    Checking idna_adapter v1.2.2
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+    Checking tokio-util v0.7.19
+   Compiling dirs-sys v0.5.0
+    Checking sync_wrapper v1.0.2
+    Checking windows-registry v0.6.1
+    Checking idna v1.1.0
+   Compiling vswhom v0.1.0
+    Checking tower-layer v0.3.3
+    Checking ipnet v2.12.2
+    Checking base64 v0.22.1
+   Compiling dirs v7.0.0
+    Checking http-body-util v0.1.5
+   Compiling cargo_toml v1.0.1
+   Compiling static_vcruntime v3.0.0
+    Checking url v2.5.8
+   Compiling crc32fast v1.5.2
+   Compiling ring v0.17.14
+   Compiling error-chain v0.12.4
+    Checking windows-threading v0.2.1
+   Compiling rustversion v1.0.23
+    Checking windows-core v0.62.2
+   Compiling pulldown-cmark v0.9.6
+    Checking h2 v0.4.19
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.57
+   Compiling urlpattern v0.6.0
+   Compiling winreg v0.55.0
+   Compiling thiserror v1.0.69
+    Checking raw-window-handle v0.6.2
+   Compiling adler2 v2.0.1
+    Checking windows-future v0.3.2
+   Compiling embed-resource v3.0.11
+    Checking windows-collections v0.3.2
+    Checking windows-numerics v0.3.1
+    Checking tower v0.5.3
+   Compiling tauri-winres v0.3.6
+   Compiling tempfile v3.27.0
+   Compiling cargo_metadata v0.14.2
+    Checking windows v0.62.2
+   Compiling webview2-com-sys v0.39.1
+   Compiling thiserror-impl v1.0.69
+    Checking getrandom v0.2.17
+    Checking hyper v1.11.1
+   Compiling bytecount v0.6.9
+   Compiling crossbeam-epoch v0.9.21
+    Checking zeroize v1.9.0
+    Checking untrusted v0.9.0
+   Compiling encoding_rs v0.8.42
+    Checking rustls-pki-types v1.15.1
+   Compiling miniz_oxide v0.9.1
+    Checking agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\agent)
+    Checking dpi v0.1.2
+   Compiling skeptic v0.13.7
+   Compiling cookie v0.18.2
+   Compiling rustls v0.23.45
+   Compiling rand_core v0.6.4
+   Compiling flate2 v1.1.10
+    Checking hyper-util v0.1.20
+   Compiling miniz_oxide v0.8.9
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling fdeflate v0.3.7
+    Checking crossbeam-channel v0.5.17
+   Compiling webview2-com-macros v0.8.1
+    Checking windows-version v0.1.7
+    Checking core_detect v1.0.0
+    Checking subtle v2.6.1
+   Compiling native-tls v0.2.18
+   Compiling multiversion_no_op v1.0.0
+    Checking simdutf8 v0.1.5
+   Compiling crossbeam-deque v0.8.8
+   Compiling ppv-lite86 v0.2.21
+   Compiling png v0.18.1
+    Checking rustls-webpki v0.103.15
+   Compiling rand_chacha v0.3.1
+    Checking schannel v0.1.29
+   Compiling phf_shared v0.11.3
+   Compiling byteorder v1.5.0
+   Compiling tauri-runtime v2.12.2
+   Compiling wry v0.57.1
+   Compiling ico v0.6.0
+   Compiling rand v0.8.8
+   Compiling native_model v0.4.20
+    Checking tower-http v0.6.11
+    Checking futures-executor v0.3.34
+   Compiling mime_guess v2.0.5
+   Compiling zerocopy-derive v0.8.57
+   Compiling redb v2.6.3
+   Compiling muda v0.20.0
+   Compiling redb v1.5.1
+   Compiling tauri-runtime-wry v2.12.3
+   Compiling getrandom v0.3.4
+    Checking unicode-segmentation v1.13.3
+   Compiling phf_generator v0.11.3
+   Compiling tauri-build v2.7.4
+   Compiling tauri-plugin v2.7.2
+   Compiling tauri-codegen v2.7.4
+    Checking futures v0.3.34
+    Checking tokio-native-tls v0.3.1
+    Checking tokio-rustls v0.26.5
+   Compiling native_db v0.8.2
+    Checking softbuffer v0.4.8
+    Checking keyboard-types v0.8.3
+    Checking bincode v1.3.3
+   Compiling native_model_macro v0.4.20
+   Compiling serialize-to-javascript-impl v0.1.2
+   Compiling ucd-trie v0.1.7
+   Compiling windows_x86_64_msvc v0.53.1
+   Compiling either v1.18.0
+    Checking hyper-rustls v0.27.10
+    Checking hyper-tls v0.6.0
+   Compiling pest v2.9.2
+   Compiling itertools v0.14.0
+    Checking serialize-to-javascript v0.1.2
+    Checking rustls-platform-verifier v0.7.0
+   Compiling phf_codegen v0.11.3
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling phf v0.11.3
+    Checking window-vibrancy v0.8.1
+    Checking axum-core v0.5.6
+   Compiling serde_repr v0.1.21
+   Compiling native_db_macro v0.8.2
+   Compiling pin-project-internal v1.1.13
+   Compiling parse-zoneinfo v0.3.1
+   Compiling num-traits v0.2.19
+   Compiling ref-cast v1.0.27
+    Checking matchit v0.8.4
+   Compiling windows_x86_64_msvc v0.48.5
+   Compiling pest_meta v2.9.2
+   Compiling chrono-tz-build v0.3.0
+    Checking reqwest v0.13.5
+   Compiling prost-derive v0.14.4
+    Checking axum v0.8.9
+    Checking pin-project v1.1.13
+    Checking hyper-timeout v0.5.2
+    Checking tokio-stream v0.1.19
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\config)
+   Compiling ref-cast-impl v1.0.27
+   Compiling async-trait v0.1.92
+   Compiling async-stream-impl v0.3.6
+   Compiling serde_derive_internals v0.30.0
+   Compiling bstr v1.13.1
+    Checking lazy_static v1.5.0
+    Checking futures-timer v3.0.4
+   Compiling tauri v2.12.5
+   Compiling tauri-macros v2.7.4
+   Compiling libm v0.2.16
+    Checking rig-http v0.43.0
+   Compiling globset v0.4.20
+    Checking windows-targets v0.53.5
+   Compiling chrono-tz v0.9.0
+    Checking async-stream v0.3.6
+   Compiling pest_generator v2.9.2
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling schemars_derive v1.2.2
+    Checking rig-reqwest v0.43.0
+    Checking prost v0.14.4
+   Compiling ignore v0.4.33
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\store)
+    Checking windows-targets v0.48.5
+    Checking windows-sys v0.60.2
+   Compiling chrono v0.4.45
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\checks)
+    Checking ordered-float v5.5.0
+   Compiling tauri-plugin-fs v2.7.1
+   Compiling pest_derive v2.9.2
+   Compiling deunicode v1.6.2
+   Compiling globwalk v0.9.1
+    Checking windows-sys v0.48.0
+    Checking tonic v0.14.6
+    Checking clap_lex v1.1.1
+   Compiling slug v0.1.6
+   Compiling rayon-core v1.13.0
+    Checking schemars v1.2.2
+   Compiling humansize v2.1.3
+   Compiling winapi v0.3.9
+    Checking anstyle v1.0.14
+    Checking colored v2.2.0
+   Compiling json5 v0.4.1
+    Checking prost-types v0.14.4
+    Checking sharded-slab v0.1.7
+   Compiling tauri-plugin-dialog v2.8.3
+   Compiling tauri-plugin-updater v2.14.0
+    Checking clap_builder v4.6.7
+   Compiling tauri-plugin-devtools v2.2.2
+   Compiling tauri-plugin-opener v2.7.2
+    Checking matchers v0.2.0
+    Checking rig-core v0.43.0
+   Compiling clap_derive v4.6.7
+    Checking notify-types v2.1.0
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking tonic-prost v0.14.6
+    Checking tracing-log v0.2.0
+    Checking nu-ansi-term v0.50.3
+    Checking thread_local v1.1.10
+    Checking toml_write v0.1.2
+    Checking winnow v0.7.15
+   Compiling rfd v0.16.0
+    Checking notify v8.2.0
+    Checking devtools-wire-format v0.6.0
+    Checking tonic-health v0.14.6
+    Checking tracing-subscriber v0.3.23
+    Checking tonic-web v0.14.6
+   Compiling tera v1.20.1
+    Checking itertools v0.11.0
+    Checking encoding_rs_io v0.1.8
+    Checking toml_edit v0.22.27
+    Checking clap v4.6.7
+    Checking ringbuf v0.5.3
+   Compiling derive_arbitrary v1.4.2
+    Checking home v0.5.12
+    Checking grep-matcher v0.1.9
+    Checking hashbrown v0.14.5
+    Checking memmap2 v0.9.11
+    Checking zip v4.6.1
+    Checking clap-cargo v0.13.0
+    Checking etcetera v0.8.0
+    Checking term_size v0.3.2
+    Checking rayon v1.12.0
+    Checking grep-searcher v0.1.17
+    Checking local-ip-address v0.5.7
+    Checking devtools-core v0.4.1
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri)
+    Checking open v5.4.5
+    Checking specta-serde v0.0.12
+    Checking specta-util v0.0.12
+    Checking dashmap v6.2.1
+    Checking specta-typescript v0.0.12
+    Checking minisign-verify v0.3.0
+    Checking watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\watch)
+    Checking arbitrary v1.4.2
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Checking table_formatter v0.6.1
+    Checking tao v0.37.2
+    Checking toml v0.8.23
+   Compiling tokei v13.0.0
+    Checking webview2-com v0.39.1
+    Checking rig-memory v0.43.0
+    Checking rig v0.43.0
+    Checking tauri-specta v2.0.0-rc.25
+    Checking tauri-plugin-single-instance v2.5.4
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 45s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+error: failed to build archive at `D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\debug\deps\libjson5-e712e15f44d12318.rlib`: failed to rename archive file: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `json5` (lib) due to 1 previous error
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+===== attempt 2/5 · exit=0 · transient=- =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.41s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(11.1s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 182 files [2m(3.2s, 16 threads)[0m

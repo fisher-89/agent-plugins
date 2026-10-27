@@ -3015,3 +3015,164 @@ fn 门面链传递可考_解析产物经门面装配后与直构runner同值等�
         "门面链传递与直构 runner 同值等价"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 注入矩阵（archi 章节）：`(phase, role)` 七行单源 + fail-closed 面
+// ---------------------------------------------------------------------------
+
+/// 装配入口（模块私有，本子模块直读——矩阵单源即被测语义）。
+fn injections_of(source: &str, source_ref: Option<&str>) -> agent::SessionInjections {
+    use super::assemble_injections;
+
+    assemble_injections(&SessionProvenance {
+        source: source.to_owned(),
+        source_ref: source_ref.map(str::to_owned),
+    })
+    .expect("装配不得因 source_ref 形态报错（fail-closed 回落 default）")
+}
+
+/// 取 toolset 的两位（无 toolset 即 `None`）。
+fn archi_bits(injections: &agent::SessionInjections) -> Option<(bool, bool)> {
+    match injections.toolset {
+        Some(agent::SessionToolset::Archi { module, search }) => Some((module, search)),
+        Some(agent::SessionToolset::Explore) => None,
+        None => None,
+    }
+}
+
+/// 正向：矩阵七行逐行命中（含每行 `tools = None` 全量七工具）。
+#[test]
+fn 注入矩阵七行逐行命中() {
+    let rows: [(&str, &str, (bool, bool)); 7] = [
+        ("proposal", "executor", (false, true)),
+        ("dev-design", "executor", (true, true)),
+        ("dev-design", "evaluator", (true, true)),
+        ("test-design", "executor", (false, true)),
+        ("implement", "executor", (true, false)),
+        ("code-review", "evaluator", (true, false)),
+        ("acceptance", "evaluator", (true, false)),
+    ];
+    for (phase, role, expected) in rows {
+        let source_ref = format!("add-feature/{phase}/{role}/1");
+        let injections = injections_of("change", Some(&source_ref));
+        assert_eq!(
+            archi_bits(&injections),
+            Some(expected),
+            "矩阵行 {phase}/{role} 的两位"
+        );
+        assert!(
+            injections.tools.is_none(),
+            "命中行 tools 保持 None（七通用工具全量）: {phase}/{role}"
+        );
+        assert!(injections.preamble.is_none(), "preamble 维持不消费");
+    }
+}
+
+/// 异常：矩阵外相位 / role → `SessionInjections::default()`（零 archi 工具），不 Err。
+#[test]
+fn 矩阵外相位回落default() {
+    for source_ref in [
+        "add-feature/test-gen/executor/1",
+        "add-feature/test-execution/executor/1",
+        "add-feature/archive/spec_sync/1",
+        "add-feature/code-analyze/executor/1",
+        "add-feature/initialize/executor/1",
+        "add-feature/proposal/evaluator/1",
+    ] {
+        let injections = injections_of("change", Some(source_ref));
+        assert_eq!(
+            injections,
+            agent::SessionInjections::default(),
+            "矩阵外相位零 archi 工具: {source_ref}"
+        );
+    }
+}
+
+/// 异常：畸形 `source_ref` → 恒 `default()`，不抛装配错误、不回退全量 archi 工具。
+#[test]
+fn 畸形source_ref恒default() {
+    for source_ref in [
+        "",
+        "add-feature/implement/executor",
+        "add-feature/implement/1",
+        "add-feature/implement/executor/x",
+        "add-feature/implement/executor/1/extra",
+        "///",
+    ] {
+        let injections = injections_of("change", Some(source_ref));
+        assert_eq!(
+            injections,
+            agent::SessionInjections::default(),
+            "畸形 source_ref {source_ref:?} 恒 default"
+        );
+    }
+    // source_ref 缺席亦 default
+    assert_eq!(
+        injections_of("change", None),
+        agent::SessionInjections::default()
+    );
+}
+
+/// 边界：`attempt` 段边界（判据只校验可解析性、不校验范围、不做符号黑名单）——
+/// `0` / `1` / `u32::MAX` / `+1`（`u32::from_str` 接受前导 `+`）均命中；`-1` /
+/// 前导空格 / `1.0` / 非数字 / 溢出 `u32` → 解析失败回落 default。
+#[test]
+fn attempt段解析边界() {
+    for attempt in ["0", "1", "4294967295"] {
+        let source_ref = format!("add-feature/implement/executor/{attempt}");
+        assert_eq!(
+            archi_bits(&injections_of("change", Some(&source_ref))),
+            Some((true, false)),
+            "可解析的 attempt {attempt} 命中（不校验范围）"
+        );
+    }
+    // `u32::from_str` 接受前导 `+`：`"+1"` 属可解析形态（判据只校验可解析性，
+    // 不做正负号黑名单）→ 与 `0` / `1` / `u32::MAX` 同属命中面
+    let plus_one = injections_of("change", Some("add-feature/implement/executor/+1"));
+    assert_eq!(
+        archi_bits(&plus_one),
+        Some((true, false)),
+        "前导 + 的 attempt 「+1」可解析（u32 FromStr 语义）→ 命中"
+    );
+    // 不可解析面：负号 / 前导空格 / 小数 / 非数字 / 超出 u32 的溢出值 → default
+    for attempt in ["-1", " 1", "1.0", "u32", "4294967296"] {
+        let source_ref = format!("add-feature/implement/executor/{attempt}");
+        assert_eq!(
+            injections_of("change", Some(&source_ref)),
+            agent::SessionInjections::default(),
+            "不可解析的 attempt {attempt:?} 回落 default"
+        );
+    }
+}
+
+/// 回归：explore 臂逐字不变（六工具 + `Explore` 枚举、`preamble = None`）。
+#[test]
+fn explore臂零回归() {
+    let injections = injections_of("explore", Some("任何定位串"));
+    assert_eq!(
+        injections.tools,
+        Some(vec![
+            "read".to_owned(),
+            "grep".to_owned(),
+            "glob".to_owned(),
+            "ls".to_owned(),
+            "edit".to_owned(),
+            "bash".to_owned(),
+        ]),
+        "explore 六工具（write 移除、序同 TOOL_NAMES）"
+    );
+    assert_eq!(injections.toolset, Some(agent::SessionToolset::Explore));
+    assert!(injections.preamble.is_none());
+}
+
+/// 回归：其余来源（`debug` / 未知 / explore 之外）→ `default()`。
+#[test]
+fn 其余来源恒default() {
+    for source in ["debug", "unknown-source", ""] {
+        assert_eq!(
+            injections_of(source, Some("add-feature/implement/executor/1")),
+            agent::SessionInjections::default(),
+            "来源 {source:?} 不注入 archi 工具面"
+        );
+    }
+}

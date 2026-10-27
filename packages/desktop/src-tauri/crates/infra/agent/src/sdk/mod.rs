@@ -1,3 +1,4 @@
+pub(crate) mod archi_tool;
 pub(crate) mod bash;
 pub(crate) mod compact;
 pub(crate) mod config;
@@ -18,6 +19,8 @@ pub(crate) mod sandbox;
 pub(crate) mod tools;
 pub(crate) mod web_search;
 
+#[cfg(test)]
+mod archi_tool_test;
 #[cfg(test)]
 mod bash_test;
 #[cfg(test)]

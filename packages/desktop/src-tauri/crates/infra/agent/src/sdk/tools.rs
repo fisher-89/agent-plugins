@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use archi::dto::{ElementKind, GateTier, WarningKind};
 use regex::Regex;
 use rig::completion::ToolDefinition;
 use serde_json::Value;
@@ -30,6 +31,15 @@ pub const TOOL_NAMES: [&str; 7] = ["read", "grep", "glob", "ls", "write", "edit"
 /// `tools::execute` 纯函数）。
 pub(crate) const EXPLORE_NOTE_TOOL: &str = "create_explore_note";
 
+/// `archi_module` 专用只读工具名（定位：已知在看哪个模块；`toolset == Archi
+/// { module: true, .. }` 时受控追加）。执行体在 [`crate::sdk::archi_tool`]，下发
+/// 判据单源在注入矩阵。
+pub(crate) const ARCHI_MODULE_TOOL: &str = "archi_module";
+
+/// `archi_search` 专用只读工具名（发现：还不知道功能归谁管；`toolset == Archi
+/// { search: true, .. }` 时受控追加）。执行体同上。
+pub(crate) const ARCHI_SEARCH_TOOL: &str = "archi_search";
+
 /// 模型入参字符串字段提取（缺失或非字符串 → Err）。
 fn string_field(input: &Value, field: &str) -> Result<String, String> {
     input
@@ -41,9 +51,9 @@ fn string_field(input: &Value, field: &str) -> Result<String, String> {
 
 /// 工具定义面（按会话注入面组装）：七通用工具按 `injections.tools` 保序过滤
 /// （`None` = 全七——默认会话与上线前行为一致；`Some` = 子集，按
-/// [`TOOL_NAMES`] 序过滤），`toolset == Explore` 时追加 `create_explore_note`
-/// 专用工具定义。`RunStarted.tools` 与成员校验自本函数返回值派生（下发面
-/// 单源）。
+/// [`TOOL_NAMES`] 序过滤），`toolset` 命中时追加专用工具定义——`Explore` 追加
+/// `create_explore_note`，`Archi { module, search }` 按位追加两个只读工具。
+/// `RunStarted.tools` 与成员校验自本函数返回值派生（下发面单源）。
 pub fn definitions(injections: &agent::SessionInjections) -> Vec<ToolDefinition> {
     let selected: Vec<&str> = match &injections.tools {
         None => TOOL_NAMES.to_vec(),
@@ -55,26 +65,86 @@ pub fn definitions(injections: &agent::SessionInjections) -> Vec<ToolDefinition>
     };
     let mut definitions: Vec<ToolDefinition> =
         selected.into_iter().map(generic_definition).collect();
-    if injections.toolset == Some(agent::SessionToolset::Explore) {
-        definitions.push(ToolDefinition {
-            name: EXPLORE_NOTE_TOOL.to_owned(),
-            description:
-                "为当前探索会话的笔记落盘并定名。无路径参数——服务端按当前会话解析目标：\
-                 占位会话（未定名）原子完成文件创建与记录定名（一次调用即最终名，勿先用 bash 造\
-                 文件）；已定名会话仅接受与记录同名且文件缺失的补建。返回笔记路径（repo 相对、\
-                 `/` 分隔），供 edit 续用"
-                    .to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string", "description": "本次探索的 kebab-case 最终名（小写字母/数字，可用 `-` 连接；已定名会话必须与记录同名）" },
-                    "content": { "type": "string", "description": "笔记初稿全文（原样落盘）" }
-                },
-                "required": ["name", "content"]
-            }),
-        });
+    match &injections.toolset {
+        Some(agent::SessionToolset::Explore) => {
+            definitions.push(ToolDefinition {
+                name: EXPLORE_NOTE_TOOL.to_owned(),
+                description:
+                    "为当前探索会话的笔记落盘并定名。无路径参数——服务端按当前会话解析目标：\
+                     占位会话（未定名）原子完成文件创建与记录定名（一次调用即最终名，勿先用 bash 造\
+                     文件）；已定名会话仅接受与记录同名且文件缺失的补建。返回笔记路径（repo 相对、\
+                     `/` 分隔），供 edit 续用"
+                        .to_owned(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "本次探索的 kebab-case 最终名（小写字母/数字，可用 `-` 连接；已定名会话必须与记录同名）" },
+                        "content": { "type": "string", "description": "笔记初稿全文（原样落盘）" }
+                    },
+                    "required": ["name", "content"]
+                }),
+            });
+        }
+        Some(agent::SessionToolset::Archi { module, search }) => {
+            if *module {
+                definitions.push(archi_module_definition());
+            }
+            if *search {
+                definitions.push(archi_search_definition());
+            }
+        }
+        None => {}
     }
     definitions
+}
+
+/// 词表拼接（`/` 分隔；值域清单由词汇单点派生，工具描述与响应共用同一份词表）。
+fn vocabulary(words: impl IntoIterator<Item = &'static str>) -> String {
+    words.into_iter().collect::<Vec<&str>>().join(" / ")
+}
+
+/// `archi_module` 定义（定位：邻接 / 直接子元素 / 文档引用 / 声明位置）。
+fn archi_module_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_MODULE_TOOL.to_owned(),
+        description: format!(
+            "查询架构模型里的模块（定位：已知道在看哪个模块）。指定 element 返回该元素的\
+             kind（{}）/ gate（{}）/ path / metadata、声明位置（modelFile + modelLine，可直接 edit 到该行）、\
+             出边与入边（对端 FQN + 说明）、直接子元素与关联文档（四字段条目，正文用 read 自取）；\
+             省略 element 返回全部元素的薄概览。模型写坏时返回结构化诊断（先修模型）；\
+             docs 指向的文件不存在时以 {} 警告给出（只报不拦）",
+            vocabulary(ElementKind::ALL.map(ElementKind::as_str)),
+            vocabulary(GateTier::ALL.map(GateTier::as_str)),
+            WarningKind::DocNotFound.as_str(),
+        ),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "element": { "type": "string", "description": "元素 FQN（如 App.Auth）；省略时返回全部元素的薄概览" }
+            },
+            "required": []
+        }),
+    }
+}
+
+/// `archi_search` 定义（发现：还不知道功能归谁管）。
+fn archi_search_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_SEARCH_TOOL.to_owned(),
+        description: "在架构模型里按关键词检索元素与文档路径（发现：还不知道这功能归谁管时先搜）。\
+             匹配对象为元素 FQN / summary / metadata 值 / 文档路径与文件名（不搜文档正文——\
+             正文用 grep），大小写不敏感且支持驼峰分词（AuthToken → auth / token）。返回元素\
+             薄条目与四字段文档条目"
+            .to_owned(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "关键词 / 元素名片段 / 文档路径片段（不得为空白）" },
+                "scope": { "type": "string", "enum": ["elements", "docs", "all"], "description": "检索范围（缺省 all）" }
+            },
+            "required": ["query"]
+        }),
+    }
 }
 
 /// 七通用工具定义（[`TOOL_NAMES`] 逐名 match；内容与参数化前的字面量逐字
@@ -183,8 +253,12 @@ fn generic_definition(name: &str) -> ToolDefinition {
 }
 
 /// 沙箱校验对象提取：工具名 → 入参中的路径类字段值（glob 为 pattern，
-/// 其余为 path；未知工具 None——policy 已先行拒绝，此处兜底）。
+/// 其余为 path；未知工具 None——policy 已先行拒绝，此处兜底）。两个架构只读工具
+/// 无路径参数，显式返回 None（不进路径沙箱改写面——未来入参改名也不引入改写）。
 pub fn input_path<'a>(name: &str, input: &'a Value) -> Option<&'a str> {
+    if name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL {
+        return None;
+    }
     let field = if name == "glob" { "pattern" } else { "path" };
     input.get(field).and_then(Value::as_str)
 }
@@ -210,8 +284,9 @@ pub async fn execute(root: &Path, name: &str, input: &Value) -> Result<String, S
 }
 
 /// L1 收口：超 30KB 截至字节上限（char 边界回退）并尾部留痕（is_error
-/// ToolResult 的错误串同形态截断，事件面不炸）。
-fn cap_result(text: String) -> String {
+/// ToolResult 的错误串同形态截断，事件面不炸）。架构工具执行体复用同一上限
+/// （[`crate::sdk::archi_tool`]）——MUST NOT 出现第二份上限实现。
+pub(crate) fn cap_result(text: String) -> String {
     if text.len() <= MAX_RESULT_BYTES {
         return text;
     }

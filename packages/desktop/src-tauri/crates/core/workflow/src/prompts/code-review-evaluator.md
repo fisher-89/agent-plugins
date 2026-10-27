@@ -37,6 +37,7 @@
 - 不写任何评估记录 / 工作流记录文件，不使用 write / edit / bash 落盘。
 - 证据必须含 file:line 引用。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
+- 额外可用只读工具 `archi_module`（定位）：核对改动是否越界依赖——返回该元素的邻接与直接子元素，比对模块边界。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写保持英文。
 

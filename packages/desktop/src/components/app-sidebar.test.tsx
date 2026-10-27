@@ -392,12 +392,18 @@ describe('AppSidebar：页面导航组 nav-info（AC-1）', () => {
     expect(navInfo.textContent).toContain('基础信息');
     expect(navInfo.querySelector('svg') !== null).toBe(true);
 
-    // 组序以 DOM 结构断言：基础信息居首，其后为 变更 → 探索 → 配置（nav-config 扩员）
+    // 组序以 DOM 结构断言：基础信息居首，其后为 变更 → 探索 → 架构 → 配置（nav-architecture 扩员）
     const pageGroup = groupOf('nav-info');
     const navOrder = within(pageGroup)
       .getAllByTestId(/^nav-/)
       .map((nav) => nav.getAttribute('data-testid'));
-    expect(navOrder).toEqual(['nav-info', 'nav-changes', 'nav-explores', 'nav-config']);
+    expect(navOrder).toEqual([
+      'nav-info',
+      'nav-changes',
+      'nav-explores',
+      'nav-architecture',
+      'nav-config',
+    ]);
   });
 
   it('pathname=/info → nav-info data-active=true 且其余 nav 为 false；/changes 下 nav-info 为 false（active 由 URL 派生）', () => {
@@ -466,7 +472,7 @@ describe('AppSidebar：页面导航组 nav-config 扩员（AC-4）', () => {
     restore();
   });
 
-  it('nav-config 在场且居「页面」组末位（组序 nav-info → nav-changes → nav-explores → nav-config），tagName 为 A、href=/config、带 svg 图标、文案「配置」', () => {
+  it('nav-config 在场且居「页面」组末位（组序 nav-info → nav-changes → nav-explores → nav-architecture → nav-config），tagName 为 A、href=/config、带 svg 图标、文案「配置」', () => {
     mountNav('/changes');
 
     const navConfig = screen.getByTestId('nav-config');
@@ -480,7 +486,13 @@ describe('AppSidebar：页面导航组 nav-config 扩员（AC-4）', () => {
     const navOrder = within(pageGroup)
       .getAllByTestId(/^nav-/)
       .map((nav) => nav.getAttribute('data-testid'));
-    expect(navOrder).toEqual(['nav-info', 'nav-changes', 'nav-explores', 'nav-config']);
+    expect(navOrder).toEqual([
+      'nav-info',
+      'nav-changes',
+      'nav-explores',
+      'nav-architecture',
+      'nav-config',
+    ]);
   });
 
   it('pathname=/config → nav-config data-active=true 且其余 nav 全 false；/changes 下 nav-config 为 false（active 由 URL 派生）', () => {
@@ -612,17 +624,105 @@ describe('AppSidebar：系统工具组 nav-agents 入口（AC-1）', () => {
     expect(screen.getByTestId('location-probe').textContent).toBe('/agents');
   });
 
-  it('回归锚定：nav-agents 扩员后「页面」组四项与既有 nav testid 零变化', () => {
+  it('回归锚定：nav-agents 与 nav-architecture 扩员后「页面」组五项与既有 nav testid 零变化', () => {
     mountNav('/changes');
 
     const pageGroup = groupOf('nav-changes');
     const navOrder = within(pageGroup)
       .getAllByTestId(/^nav-/)
       .map((nav) => nav.getAttribute('data-testid'));
-    expect(navOrder).toEqual(['nav-info', 'nav-changes', 'nav-explores', 'nav-config']);
+    expect(navOrder).toEqual([
+      'nav-info',
+      'nav-changes',
+      'nav-explores',
+      'nav-architecture',
+      'nav-config',
+    ]);
     expect(groupOf('nav-agents')).not.toBe(pageGroup);
     for (const id of ['nav-agents', 'nav-agent', 'nav-db']) {
       expect(within(pageGroup).queryByTestId(id)).toBeNull();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archi 章节：页面组「架构」项（active 由 URL 派生，精确匹配单点）
+// ---------------------------------------------------------------------------
+
+describe('AppSidebar：架构项（页面组第五项）', () => {
+  let restore: () => void;
+
+  beforeEach(() => {
+    restore = stubEnvironment();
+  });
+
+  afterEach(() => {
+    restore();
+  });
+
+  it('应在页面组呈现 nav-architecture（label 架构），位于探索与配置之间', () => {
+    mountNav('/changes');
+    expect(screen.getByTestId('nav-architecture').textContent).toContain('架构');
+    expect(screen.getByTestId('nav-architecture').getAttribute('href')).toBe('/architecture');
+
+    // 组归属与组内序：探索 → 架构 → 配置（同一「页面」组，DOM 序）
+    const pageGroup = groupOf('nav-architecture');
+    expect(pageGroup).toBe(groupOf('nav-explores'));
+    expect(pageGroup).toBe(groupOf('nav-config'));
+    const order = Array.from(pageGroup.querySelectorAll('[data-testid^="nav-"]')).map((node) =>
+      node.getAttribute('data-testid'),
+    );
+    expect(order).toEqual([
+      'nav-info',
+      'nav-changes',
+      'nav-explores',
+      'nav-architecture',
+      'nav-config',
+    ]);
+  });
+
+  it('应在 /architecture 时 active、其余页面不 active（active 由 URL 派生）', () => {
+    const archi = mountNav('/architecture');
+    expect(screen.getByTestId('nav-architecture').hasAttribute('data-active')).toBe(true);
+    archi.unmount();
+
+    for (const path of ['/changes', '/explores', '/config', '/info']) {
+      const view = mountNav(path);
+      expect(screen.getByTestId('nav-architecture').hasAttribute('data-active')).toBe(false);
+      view.unmount();
+    }
+  });
+
+  it('应对更深路径与相似前缀不误命中（精确匹配单点）', () => {
+    for (const path of ['/architecture/models', '/architectures', '/architecture-old']) {
+      const view = mountNav(path);
+      expect(screen.getByTestId('nav-architecture').hasAttribute('data-active')).toBe(false);
+      view.unmount();
+    }
+  });
+
+  it('应在点击架构项时把 URL 切到 /architecture 且不触发 workspace 动作', () => {
+    const { onAdd, onOpen, onRemove } = mountNav('/changes');
+    fireEvent.click(screen.getByTestId('nav-architecture'));
+
+    expect(screen.getByTestId('location-probe').textContent).toBe('/architecture');
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+});
+
+describe('AppSidebar：探索项 active 派生（既有挂钩回归）', () => {
+  it('应在 /explores 与 /explores/<name> 时 active（精确 + 前缀两路），其余路径不 active', () => {
+    for (const path of ['/explores', '/explores/add-feature']) {
+      const view = mountNav(path);
+      expect(screen.getByTestId('nav-explores').hasAttribute('data-active')).toBe(true);
+      view.unmount();
+    }
+    for (const path of ['/changes', '/exploresx', '/architecture']) {
+      const view = mountNav(path);
+      expect(screen.getByTestId('nav-explores').hasAttribute('data-active')).toBe(false);
+      view.unmount();
     }
   });
 });

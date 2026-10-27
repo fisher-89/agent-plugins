@@ -1,0 +1,66 @@
+
+=== plan packages_desktop_vite-plus (vite-plus) · files=96 · argv=5006 字符 ===
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/archi-graph-doc-agent/openspec/changes/archi-graph-doc-agent/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+
+=== plan packages_desktop_src-tauri_rust (rust) · files=4 · argv=381 字符 ===
+===== attempt 1/5 · exit=101 · transient=os error 32 =====
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\agent)
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\archi)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\store)
+error: failed to build archive at `D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libarchi-b54f52219006ce97.rlib`: failed to rename archive file: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe --crate-name archi --edition=2021 crates\core\archi\src\lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 --check-cfg cfg(docsrs,test) --check-cfg "cfg(feature, values())" -C metadata=6423b122c7dc47df -C extra-filename=-b54f52219006ce97 --out-dir D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps -C incremental=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\incremental -L dependency=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps --extern foundation=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libfoundation-d9572b33e62e3a89.rmeta --extern ignore=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libignore-9bd4e0fb10fc14ac.rmeta --extern petgraph=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libpetgraph-c3db27ae55bf9bb6.rmeta --extern serde=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libserde-5fe1f48ab8f60e52.rmeta --extern serde_json=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libserde_json-40a392f876a11d6d.rmeta --extern specta=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libspecta-d9115214cc9c4e13.rmeta --extern toml=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtoml-5e3f0dc43b6954e9.rmeta --extern toml_edit=D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtoml_edit-039ac50f706d9d25.rmeta -C instrument-coverage --cfg=coverage` (exit code: 1)
+error: could not compile `archi` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\Cargo.toml --target-dir D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\target\llvm-cov-target --workspace` (exit code: 101)
+===== attempt 2/5 · exit=0 · transient=- =====
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\agent)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\archi)
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\store)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.67s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-bcba8ab2c960c4df.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-dfc0679b1a50a8a1.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\archi-1f095a94bc101eac.exe)
+     Running tests\golden_test.rs (target\llvm-cov-target\debug\deps\golden_test-1a66376e1d56a589.exe)
+     Running tests\vocabulary_test.rs (target\llvm-cov-target\debug\deps\vocabulary_test-adf0373f6e75ce2a.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-907d7576406cbc22.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-3569dc83d7c493e8.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-22afcb4c64c0fc71.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\config-2c1c243542647694.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-32ed205d1a8b9d9d.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-3700de7c2fdfcbce.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\exec-051d38e886d78fbd.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\export_bindings-9831d39d2687d9d5.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\orchestration-699fe0dabb59b161.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\store-65ef178a2605c183.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\vcs_runtime-ecca2ee7d0fe597f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\watch-5c6bdce9414d3ead.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\workflow-402afa55bca7e174.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-7971b9618e59bcc3.exe)
+
+    Finished report saved to D:/Projects/.worktrees/wps-claude-plugin/archi-graph-doc-agent/openspec/changes/archi-graph-doc-agent/reports/test/packages_desktop_src-tauri_rust/coverage-summary.json

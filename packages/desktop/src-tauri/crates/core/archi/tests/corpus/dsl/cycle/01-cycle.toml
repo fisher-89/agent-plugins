@@ -1,0 +1,16 @@
+[element."App"]
+kind = "package"
+
+[element."App.A"]
+kind = "module"
+
+[element."App.B"]
+kind = "module"
+
+[[relation]]
+from = "App.A"
+to = "App.B"
+
+[[relation]]
+from = "App.B"
+to = "App.A"

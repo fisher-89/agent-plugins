@@ -789,3 +789,176 @@ fn 报告目录常量锚与report_dir_name两臂穷尽映射() {
         BASELINE_REPORTS_DIR_NAME
     );
 }
+
+// ---------------------------------------------------------------------------
+// 架构域路径派生（`archi` 章节）：三函数同源 + `is_archi_rel_path` 判定
+// ---------------------------------------------------------------------------
+
+/// 正向：`archi_dir` / `archi_models_dir` / `archi_decisions_dir` 三者以
+/// `archi_dir` 为共同前缀（同源断言：后两者 == `archi_dir.join(…)`）。
+#[test]
+fn archi_dir族三函数同源且逐段逐字() {
+    use super::{archi_decisions_dir, archi_dir, archi_models_dir};
+
+    let temp = TempDir::new("archi-dirs");
+    let dir = archi_dir(&temp.0);
+    assert_eq!(
+        dir,
+        temp.0.join("openspec").join("architecture"),
+        "架构域根 = <域根>/architecture"
+    );
+    assert_eq!(
+        archi_models_dir(&temp.0),
+        dir.join("models"),
+        "模型目录从 archi_dir 派生"
+    );
+    assert_eq!(
+        archi_decisions_dir(&temp.0),
+        dir.join("decisions"),
+        "决策记录目录从 archi_dir 派生"
+    );
+    assert!(
+        archi_models_dir(&temp.0).starts_with(&dir)
+            && archi_decisions_dir(&temp.0).starts_with(&dir),
+        "三者以 archi_dir 为共同前缀"
+    );
+}
+
+/// 边界：纯推导零 IO——调用后目录未被创建；不存在的 root 亦正常返回。
+#[test]
+fn archi_dir族纯推导零io与不存在root() {
+    use super::{archi_decisions_dir, archi_dir, archi_models_dir};
+
+    let temp = TempDir::new("archi-pure");
+    let _ = archi_dir(&temp.0);
+    let _ = archi_models_dir(&temp.0);
+    let _ = archi_decisions_dir(&temp.0);
+    assert!(
+        fs::metadata(temp.0.join("openspec")).is_err(),
+        "纯推导不得创建目录（零 IO 的机械证据）"
+    );
+
+    let missing = Path::new("/nonexistent/root");
+    assert_eq!(
+        archi_dir(missing),
+        missing.join("openspec").join("architecture"),
+        "不存在的 root 亦正常返回"
+    );
+}
+
+/// 边界：`root` 形态五类——空路径 / 相对路径 / Windows 盘符 / 尾分隔符 / 超长 ——
+/// 逐字节等于 `root.join(段名)` 口径、不 panic。
+#[test]
+fn archi_dir族root形态五类() {
+    use super::{archi_dir, archi_models_dir};
+
+    let empty = Path::new("");
+    assert_eq!(
+        archi_dir(empty),
+        empty.join("openspec").join("architecture"),
+        "空路径返回相对形式（分隔符由 join 决定，跨平台同准）"
+    );
+    assert_eq!(
+        archi_models_dir(Path::new("demo")),
+        Path::new("demo")
+            .join("openspec")
+            .join("architecture")
+            .join("models"),
+        "相对路径逐字节拼接"
+    );
+    let windows = Path::new(r"C:\demo\alpha");
+    assert_eq!(
+        archi_models_dir(windows),
+        windows.join("openspec").join("architecture").join("models"),
+        "Windows 盘符形态逐字节拼接"
+    );
+    let trailing = Path::new(r"C:\demo\alpha\");
+    assert_eq!(
+        archi_models_dir(trailing),
+        trailing
+            .join("openspec")
+            .join("architecture")
+            .join("models"),
+        "尾分隔符形态逐字节拼接"
+    );
+    let long = PathBuf::from("x".repeat(1200));
+    assert_eq!(
+        archi_dir(&long),
+        long.join("openspec").join("architecture"),
+        "超长路径不 panic 且逐字节拼接"
+    );
+}
+
+/// 正向：`is_archi_rel_path` 命中集——域根 + 架构域段（含更深路径与祖先判定）。
+#[test]
+fn is_archi_rel_path命中集() {
+    use super::is_archi_rel_path;
+
+    assert!(is_archi_rel_path(
+        "openspec/architecture/models/02-auth.toml"
+    ));
+    assert!(
+        is_archi_rel_path("openspec/architecture"),
+        "祖先判定（无 tail 段亦命中）"
+    );
+    assert!(is_archi_rel_path("openspec/architecture/models"));
+}
+
+/// 正向：归一形态——反斜杠与 `./` 前缀均归一后命中。
+#[test]
+fn is_archi_rel_path归一形态() {
+    use super::is_archi_rel_path;
+
+    assert!(
+        is_archi_rel_path(r"openspec\architecture\models\x.toml"),
+        "Windows 反斜杠归一后命中"
+    );
+    assert!(
+        is_archi_rel_path("./openspec/architecture/models/x.toml"),
+        "`./` 前缀归一后命中"
+    );
+}
+
+/// 异常：负样本——changes / archived / 段 0 非域根 / 前缀相近的兄弟段均不命中。
+#[test]
+fn is_archi_rel_path负样本() {
+    use super::is_archi_rel_path;
+
+    assert!(!is_archi_rel_path("openspec/changes/x/specs/y.md"));
+    assert!(
+        !is_archi_rel_path("openspec/archived/a.toml"),
+        "不做前缀模糊匹配"
+    );
+    assert!(!is_archi_rel_path("src/architecture/x.rs"), "段 0 非域根");
+    assert!(!is_archi_rel_path("openspec/architecturex/y"));
+}
+
+/// 边界：空串 / `/` / 双斜杠空段 / 无域根前缀 / 超长 → `false` 且不 panic。
+#[test]
+fn is_archi_rel_path边界形态() {
+    use super::is_archi_rel_path;
+
+    for rel in [
+        "",
+        "/",
+        "openspec//architecture",
+        "architecture",
+        "openspec",
+    ] {
+        assert!(!is_archi_rel_path(rel), "{rel:?} 不应命中（段位判定）");
+    }
+    let long = format!("openspec/architecture/{}", "x".repeat(1200));
+    assert!(is_archi_rel_path(&long), "超长路径不 panic 且命中");
+}
+
+/// 边界：大小写面——逐字节比较，不做大小写归一。
+#[test]
+fn is_archi_rel_path大小写敏感() {
+    use super::is_archi_rel_path;
+
+    assert!(
+        !is_archi_rel_path("Openspec/Architecture/models/x.toml"),
+        "首字母大写不命中（逐字节比较）"
+    );
+    assert!(!is_archi_rel_path("openspec/Architecture/x.toml"));
+}

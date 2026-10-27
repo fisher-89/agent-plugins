@@ -11,6 +11,9 @@ exec = { workspace = true }
 foundation = { workspace = true }
 # 写入保护规则匹配：复用 `checks::globmatch::match_glob`（glob 方言单点，禁第二份实现）
 checks = { workspace = true }
+# agent 工具执行体复用 `archi::dto` 投影：三方一致性机械前提，MUST NOT 另拼 JSON。
+# 理由与 `agent-runtime → checks`（glob 方言单点）同构。
+archi = { workspace = true }
 store = { workspace = true }
 serde = { workspace = true }
 specta = { workspace = true }

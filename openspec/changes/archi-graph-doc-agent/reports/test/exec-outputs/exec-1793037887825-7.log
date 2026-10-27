@@ -1,0 +1,89 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\archi)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\checks)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\config)
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\foundation)
+    Checking agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\core\agent)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\infra\agent)
+warning: this `if` can be collapsed into the outer `match`
+   --> crates\core\archi\tests\vocabulary_test.rs:170:17
+    |
+170 | /                 if vocabulary.contains(&text.as_str()) {
+171 | |                     found.insert(text.clone());
+172 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_match
+    = note: `#[warn(clippy::collapsible_match)]` on by default
+help: collapse nested if block
+    |
+169 ~             Value::String(text)
+170 ~                 if vocabulary.contains(&text.as_str()) => {
+171 |                     found.insert(text.clone());
+172 ~                 }
+    |
+
+warning: `archi` (test "vocabulary_test") generated 1 warning (run `cargo clippy --fix --test "vocabulary_test" -p archi -- ` to apply 1 suggestion)
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri)
+warning: called `.err().expect()` on a `Result` value
+   --> crates\core\archi\src\edit_test.rs:373:10
+    |
+373 |           .err()
+    |  __________^
+374 | |         .expect("结构错模型应 Err");
+    | |_______________^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#err_expect
+    = note: `#[warn(clippy::err_expect)]` on by default
+
+warning: `archi` (lib test) generated 1 warning (run `cargo clippy --fix --lib -p archi --tests -- ` to apply 1 suggestion)
+    Checking export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-graph-doc-agent\packages\desktop\src-tauri\crates\tools\export-bindings)
+warning: useless use of `format!`
+   --> crates\infra\agent\src\sdk\archi_tool_test.rs:183:22
+    |
+183 |     source.push_str(&format!("[element.\"App\"]\nkind = \"package\"\n\n"));
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using `.to_string()`: `"[element.\"App\"]\nkind = \"package\"\n\n".to_string()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#useless_format
+    = note: `#[warn(clippy::useless_format)]` on by default
+
+warning: called `.err().expect()` on a `Result` value
+   --> crates\infra\agent\src\sdk\archi_tool_test.rs:405:10
+    |
+405 |           .err()
+    |  __________^
+406 | |         .expect("dto 侧同样 Err");
+    | |_______________^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#err_expect
+    = note: `#[warn(clippy::err_expect)]` on by default
+
+warning: `agent-runtime` (lib test) generated 2 warnings (run `cargo clippy --fix --lib -p agent-runtime --tests -- ` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.00s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x typescript(non-nullable-type-assertion-style): Use a ! assertion to more succinctly remove null and undefined from the type.
+     ,-[src/views/architecture/components/architecture-canvas.test.tsx:196:21]
+ 195 |       .find((node) => node.getAttribute('data-fqn') === 'App.Auth');
+ 196 |     fireEvent.click(authNode as HTMLElement);
+     :                     ^^^^^^^^^^^^^^^^^^^^^^^
+ 197 |     await waitFor(() =>
+     `----
+
+  x typescript(non-nullable-type-assertion-style): Use a ! assertion to more succinctly remove null and undefined from the type.
+     ,-[src/views/architecture/components/element-tree.test.tsx:116:21]
+ 115 |     expect(tokenNode).toBeTruthy();
+ 116 |     fireEvent.click(tokenNode as HTMLElement);
+     :                     ^^^^^^^^^^^^^^^^^^^^^^^^
+ 117 |     expect(onFocus).toHaveBeenCalledWith('App.Auth.Token');
+     `----
+
+Found 2 errors and 0 warnings in 198 files (1.9s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.5s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

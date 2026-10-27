@@ -19,6 +19,8 @@ embed-resource = "3"
 [dependencies]
 agent = { workspace = true }
 agent-runtime = { workspace = true }
+# 命令面薄包装：投影、诊断、diff 与待落盘产物全在 archi
+archi = { workspace = true }
 checks-runtime = { workspace = true }
 config = { workspace = true }
 exec = { workspace = true }
@@ -50,6 +52,7 @@ tauri = { workspace = true, features = ["test"] }
 resolver = "2"
 members = [
     "crates/core/agent",
+    "crates/core/archi",
     "crates/core/checks",
     "crates/core/config",
     "crates/core/foundation",
@@ -68,6 +71,7 @@ members = [
 [workspace.dependencies]
 agent = { path = "crates/core/agent" }
 agent-runtime = { path = "crates/infra/agent" }
+archi = { path = "crates/core/archi" }
 checks = { path = "crates/core/checks" }
 checks-runtime = { path = "crates/infra/checks" }
 config = { path = "crates/core/config" }
@@ -75,9 +79,11 @@ exec = { path = "crates/infra/exec" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
 glob = "0.3"
+ignore = "0.4"
 futures = "0.3"
 notify = "8"
 orchestration = { path = "crates/core/orchestration" }
+petgraph = "0.8"
 watch = { path = "crates/infra/watch" }
 workflow = { path = "crates/core/workflow" }
 native_db = "=0.8.2"
@@ -98,6 +104,8 @@ store = { path = "crates/infra/store" }
 tempfile = "3"
 uuid = { version = "1", features = ["v7"] }
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
+toml = "1"
+toml_edit = "0.25"
 tokei = { version = "=13.0.0", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }
 tauri = { version = "=2.12.5", features = ["specta", "devtools"] }

@@ -91,6 +91,11 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "codeStats",
     "workspaceConfig",
     "appEnvironment",
+    "archiGraph",
+    "archiModule",
+    "archiReadDoc",
+    "archiChangeSummary",
+    "archiSetGate",
 ];
 
 /// 38 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
@@ -133,6 +138,11 @@ const COMMAND_NAMES: &[&str] = &[
     "code_stats",
     "workspace_config",
     "app_environment",
+    "archi_graph",
+    "archi_module",
+    "archi_read_doc",
+    "archi_change_summary",
+    "archi_set_gate",
 ];
 
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
@@ -195,6 +205,26 @@ const DTO_TYPES: &[&str] = &[
     "WriteProtection",
     "WriteProtectionFile",
     "AppEnvironment",
+    // archi 章节（架构模型纯读域）出线类型
+    "ArchiChangeSummary",
+    "ArchiDependedBy",
+    "ArchiDependsOn",
+    "ArchiDiagnostic",
+    "ArchiDiagnosticKind",
+    "ArchiElement",
+    "ArchiGateChange",
+    "ArchiGraph",
+    "ArchiModuleDetail",
+    "ArchiRelation",
+    "ArchiWarning",
+    "DocKind",
+    "DocRef",
+    "DocSource",
+    "EdgeMark",
+    "ElementKind",
+    "GateTier",
+    "NodeMark",
+    "WarningKind",
 ];
 
 /// 类型段内逐字段名（顶层字段声明行：缩进后为标识符 + `:` 起头；doc 注释 /
@@ -270,6 +300,42 @@ fn 导出产物包含全部32条命令包装名与invoke命令名及出线dto类
             "产物缺出线 DTO 类型 {dto}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 引擎侧会话注入词汇不出线 IPC 产物（反向锚定）
+//
+// 口径（与 test-design「`src/commands/mod.rs` -> `src/bindings/mod_test.rs`」
+// 节一致）：`SessionInjections` / `SessionToolset` / `TurnQuestion` 是引擎侧会话
+// 注入词汇（`crates/core/agent/src/runner.rs`，serde 线形由 engine crate 自持），
+// **不属 IPC 面**——`all_commands!` / `collect_commands` 的出线参数与返回类型里
+// 没有它，产物 `src/types/generated/bindings.ts` 全文零该类型名（specta 不出线
+// = 预期形态，非缺漏）。
+//
+// 故本节不设「变体出线」正向断言（不虚构产物面），以后述反向锚定固定口径：
+// 引擎侧词汇一旦被误接到 IPC 出线面即红；同源语义（4 组合 round-trip / 旧线
+// 兼容 / 非法线值拒绝）由 `crates/core/agent/src/runner_test.rs` 的
+// `SessionToolset::Archi` serde 用例承载。功能代码零改动。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 引擎侧会话注入词汇不出线ipc产物() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for engine_side in ["SessionInjections", "SessionToolset", "TurnQuestion"] {
+        assert!(
+            !content.contains(engine_side),
+            "引擎侧会话词汇 {engine_side} 不得出线 IPC 产物（serde 面归 core/agent，\
+             同源断言在 crates/core/agent/src/runner_test.rs）；若确需出线则须同改\
+             test-design 与本节反向锚定"
+        );
+    }
+    // 出线面确实在场（非空产物误判为「零命中」的对照臂）
+    assert!(
+        content.contains("export type ArchiModuleDetail ="),
+        "产物含 archi 域出线类型（对照臂）"
+    );
 }
 
 #[test]
@@ -860,10 +926,18 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
-    assert_eq!(COMMAND_NAMES.len(), 38, "命令清单恰补录本变更一条");
-    assert_eq!(COMMAND_WRAPPERS.len(), 38, "包装清单恰补录本变更一条");
+    assert_eq!(COMMAND_NAMES.len(), 43, "命令清单补录五条 archi 命令");
+    assert_eq!(COMMAND_WRAPPERS.len(), 43, "包装清单补录五条 archi 命令");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
-    assert_eq!(COMMAND_NAMES.last(), Some(&"app_environment"));
+    assert_eq!(
+        COMMAND_NAMES.last(),
+        Some(&"archi_set_gate"),
+        "尾锚随五条 archi 命令后移"
+    );
+    assert!(
+        COMMAND_NAMES.contains(&"app_environment"),
+        "既有尾锚条目仍在册"
+    );
     assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
     assert!(COMMAND_WRAPPERS.contains(&"archiveChange"), "包装名补录");
     assert!(COMMAND_NAMES.contains(&"promote_explore"), "invoke 名补录");
@@ -911,16 +985,16 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 /// 类型名（分页信封返回面）——清单条目数随动，首尾锚与在册条目保持。
 #[test]
 fn dto类型清单零补录_条目数与首尾锚持衡() {
-    assert_eq!(
-        DTO_TYPES.len(),
-        58,
-        "DTO 清单补录本变更一条（AppEnvironment）"
-    );
+    assert_eq!(DTO_TYPES.len(), 77, "DTO 清单补录 19 条 archi 章节出线类型");
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
         DTO_TYPES.last(),
-        Some(&"AppEnvironment"),
-        "尾锚随本变更新增条目"
+        Some(&"WarningKind"),
+        "尾锚随 archi 章节出线类型后移"
+    );
+    assert!(
+        DTO_TYPES.contains(&"AppEnvironment"),
+        "既有尾锚条目仍在册（不因追加丢失）"
     );
     assert!(
         DTO_TYPES.contains(&"WriteProtectionFile"),
@@ -1433,7 +1507,9 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
         "invoke 目标在产物中恰一次"
     );
 
-    let index = content.find("appEnvironment:").expect("包装在场");
+    // 清单末条随尾部追加随动：`app_environment` 之后追加了 archi 五命令，
+    // 故末条锚点改为 `archiSetGate`（既有条目零位移——`appEnvironment` 仍在册且恰一次，见上）
+    let index = content.find("archiSetGate:").expect("包装在场");
     let tail = &content[index..];
     let line_end = tail.find('\n').expect("包装行有换行");
     assert!(
@@ -1454,4 +1530,152 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
             "产物缺 invoke 命令名 {name}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// archi 章节：五命令与架构域出线类型在册（AC-20 的守卫面）
+// ---------------------------------------------------------------------------
+
+/// 架构域五命令（invoke 名 / 包装名成对）。
+const ARCHI_COMMANDS: [(&str, &str); 5] = [
+    ("archi_graph", "archiGraph"),
+    ("archi_module", "archiModule"),
+    ("archi_read_doc", "archiReadDoc"),
+    ("archi_change_summary", "archiChangeSummary"),
+    ("archi_set_gate", "archiSetGate"),
+];
+
+/// 架构域出线类型名（`Archi*` 投影 + 五组封闭词汇）。
+const ARCHI_DTO_TYPES: [&str; 19] = [
+    "ArchiChangeSummary",
+    "ArchiDependedBy",
+    "ArchiDependsOn",
+    "ArchiDiagnostic",
+    "ArchiDiagnosticKind",
+    "ArchiElement",
+    "ArchiGateChange",
+    "ArchiGraph",
+    "ArchiModuleDetail",
+    "ArchiRelation",
+    "ArchiWarning",
+    "DocKind",
+    "DocRef",
+    "DocSource",
+    "EdgeMark",
+    "ElementKind",
+    "GateTier",
+    "NodeMark",
+    "WarningKind",
+];
+
+/// 正向：五命令在册（清单 + 产物双面）；既有条目零位移（尾部追加）。
+#[test]
+fn archi五命令在册且既有条目零位移() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for (name, wrapper) in ARCHI_COMMANDS {
+        assert!(
+            COMMAND_NAMES.contains(&name),
+            "命令清单应补录 invoke 名 {name}"
+        );
+        assert!(
+            COMMAND_WRAPPERS.contains(&wrapper),
+            "命令清单应补录包装名 {wrapper}"
+        );
+        assert!(
+            content.contains(&format!("{wrapper}:")),
+            "产物缺命令包装名 {wrapper}"
+        );
+        assert!(
+            content.contains(&format!("\"{name}\"")),
+            "产物缺 invoke 命令名 {name}"
+        );
+    }
+
+    // 尾部追加：五条新命令位于 `app_environment` 之后且序固定
+    let tail_start = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "app_environment")
+        .expect("既有尾锚仍在册");
+    let tail: Vec<&str> = COMMAND_NAMES[tail_start..].to_vec();
+    assert_eq!(
+        tail,
+        vec![
+            "app_environment",
+            "archi_graph",
+            "archi_module",
+            "archi_read_doc",
+            "archi_change_summary",
+            "archi_set_gate",
+        ],
+        "五条新命令尾部追加（既有条目零位移）"
+    );
+}
+
+/// 正向：架构域出线类型逐名命中产物（`export type <Name> =`）。
+#[test]
+fn archi出线类型逐名命中产物() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    for dto in ARCHI_DTO_TYPES {
+        assert!(DTO_TYPES.contains(&dto), "DTO_TYPES 清单应在册 {dto}");
+        assert!(
+            content.contains(&format!("export type {dto} =")),
+            "产物缺出线 DTO 类型 {dto}"
+        );
+    }
+
+    // `ArchiGraph` 三数组形状（停摆判据 = diagnostics 非空）与 `DocRef` 四字段
+    let graph = type_section(&content, "ArchiGraph");
+    assert_eq!(
+        field_names(&graph),
+        vec!["elements", "relations", "diagnostics"],
+        "ArchiGraph 三字段按声明序出线（元素 / 关系 / 诊断），实际段:\n{graph}"
+    );
+    let doc_ref = type_section(&content, "DocRef");
+    assert_eq!(
+        field_names(&doc_ref),
+        vec!["path", "title", "kind", "source"],
+        "DocRef 恰四字段按声明序出线（无正文 / 无摘要），实际段:\n{doc_ref}"
+    );
+}
+
+/// 边界：重导出幂等——连续两次 `export_bindings()` 产物逐字节一致（零 diff 门禁）；
+/// 断言失败时 `RestoreOnDrop` 恢复产物。
+#[test]
+fn archi章节重导出幂等零diff() {
+    let _lock = lock();
+    let _restore = RestoreOnDrop;
+    let first = authoritative_snapshot();
+    let second = authoritative_snapshot();
+    assert_eq!(first, second, "连续两次重导出逐字节一致（零 diff）");
+}
+
+/// 异常（反向证明）：以本地清单副本删去一条新命令 → 产物覆盖断言必红（清单与
+/// 产物强耦合的反向证据）。
+#[test]
+fn 清单遗漏即产物覆盖断言必红() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let mut copy: Vec<(&str, &str)> = ARCHI_COMMANDS.to_vec();
+    let removed = copy.pop().expect("清单非空");
+    assert!(
+        content.contains(&format!("\"{}\"", removed.0)),
+        "原清单条目在产物内（对照臂）"
+    );
+    // 反向臂：副本已不含该条目 → 「逐条覆盖」断言必然失败
+    let missing: Vec<&str> = copy
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| !content.contains(&format!("\"{name}\"")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "覆盖断言口径下副本无缺失（{removed:?} 已被移出，故不参与）"
+    );
+    assert!(
+        !copy.iter().any(|(name, _)| *name == removed.0),
+        "副本确已删去 {removed:?}（清单改动即覆盖断言口径随动）"
+    );
 }

@@ -30,7 +30,7 @@ use crate::state::{
     ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState,
     ChangeStepStatus, EdgeKind, NodeKey, RunUpdate,
 };
-use crate::steps::change_branch;
+use crate::steps::{change_branch, check_rebase_halfway, clip_reason};
 use crate::transcript::{failure_reason, final_assistant_text};
 use crate::verdict::{parse_verdict, EvaluatorChecklist, MAX_REPORT_CHARS};
 
@@ -2342,6 +2342,28 @@ async fn step_preflight(
             }
         }
     }
+    // 半程挡回（写动作之前）：上一次归档在 ResolveConflicts 以模型冲突失败会保留
+    // rebase 半程，用户直接重跑时 Commit 步的 `add -A` + `commit` 会在 rebase 中间
+    // 态产生提交——此处置为 Terminal 挡回，后续步不启动（`cursor.preflight` 未赋值）。
+    // 目录不在场即不探测（design D13）：worktree 被手动删除且分支已合入时上面的分支
+    // 已放行，此处若仍探测，「不是 git 仓库」的探测错误会被 fail-closed 误当成半程，
+    // 把合法放行态挡回去。
+    if let Some(worktree) = payload
+        .worktree
+        .as_deref()
+        .filter(|path| Path::new(path).is_dir())
+    {
+        if let Err(reason) = check_rebase_halfway(ctx.vcs.as_ref(), worktree) {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some(diagnose_brief(&reason))),
+            );
+            return Err(Terminal::failed(reason));
+        }
+    }
     let brief = preflight_brief(&payload);
     settle_archive_node(
         ctx,
@@ -2577,6 +2599,20 @@ async fn step_merge(
     Ok(())
 }
 
+/// 模型冲突分流的失败文案（worktree 绝对路径 + 冲突文件数与前两个路径 + 「解完
+/// 模型冲突后重跑归档（未自动 abort，rebase 半程保留于 worktree）」）；总长
+/// ≤ 200 字符（节点 detail 与 `run-error` 同文的截断宽度）。
+fn archi_conflict_message(worktree: &str, conflicts: &[String]) -> String {
+    let sample: Vec<&str> = conflicts.iter().take(2).map(String::as_str).collect();
+    let message = format!(
+        "架构模型冲突需人工裁决（不交 agent 解算）：worktree {worktree}；冲突 {} 个（{}）；\
+         解完模型冲突后重跑归档（未自动 abort，rebase 半程保留于 worktree）",
+        conflicts.len(),
+        sample.join("、")
+    );
+    clip_reason(message)
+}
+
 /// 归档步失败收口单点：emit 失败节点（携记因）+ 返回 Terminal。
 fn fail_archive_node(
     ctx: &StepContext<'_>,
@@ -2649,6 +2685,21 @@ async fn step_resolve_conflicts(
     };
     let branch = change_branch(&name);
     let mut pending = conflicts;
+    // 模型冲突不进 agent 解算（任何快照 / 会话 / git 写动作之前）：架构域路径命中
+    // 即整体交人——零 agent 会话、零 `rebase --abort`（半程保留给人工处置，重入风
+    // 险由 Preflight 的半程挡回兜住）。混合冲突走模型臂（不先解代码再解模型）
+    if pending
+        .iter()
+        .any(|path| foundation::layout::is_archi_rel_path(path))
+    {
+        return Err(fail_archive_step(
+            ctx,
+            trace,
+            cursor,
+            kind,
+            archi_conflict_message(&worktree, &pending),
+        ));
+    }
     loop {
         let worktree_path = Path::new(&worktree);
         // A 快照（后验对比基面）：探测失败即 lean（解算无从验）

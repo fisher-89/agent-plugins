@@ -6,6 +6,7 @@ import {
   Database,
   GitBranch,
   Info,
+  Network,
   PlusIcon,
   Settings,
 } from 'lucide-react';
@@ -81,7 +82,7 @@ function PageNavItem({
   );
 }
 
-/** 页面导航组：[基础信息] [变更] [探索] [配置]，NavLink 路由入口（active 由当前 URL 派生） */
+/** 页面导航组：[基础信息] [变更] [探索] [架构] [配置]，NavLink 路由入口（active 由当前 URL 派生） */
 function PageNavGroup(): React.JSX.Element {
   const { pathname } = useLocation();
   return (
@@ -109,6 +110,14 @@ function PageNavGroup(): React.JSX.Element {
         label="探索"
         testId="nav-explores"
         to="/explores"
+      />
+      {/* 架构项：/architecture（模型图与模块文档关联，全量只读挂载点） */}
+      <PageNavItem
+        active={pathname === '/architecture'}
+        icon={<Network />}
+        label="架构"
+        testId="nav-architecture"
+        to="/architecture"
       />
       {/* 配置项：/config（workspace 域内容页组内末位） */}
       <PageNavItem

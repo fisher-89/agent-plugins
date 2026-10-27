@@ -1,0 +1,7 @@
+[element."App"]
+kind = "package"
+
+[element."App.Auth"]
+kind = "domain"
+path = ["./src/auth/", "./src/token/"]
+docs = ["./src/auth/README.md", "./docs/auth-design.md"]

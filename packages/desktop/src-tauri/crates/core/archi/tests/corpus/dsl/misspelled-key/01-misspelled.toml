@@ -1,0 +1,3 @@
+[element."App.Auth"]
+kind = "domain"
+gatte = "strict"

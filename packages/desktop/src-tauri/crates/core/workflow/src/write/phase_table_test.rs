@@ -2815,3 +2815,244 @@ fn on_fail回归锚_ac10() {
 
     assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈循环常量锚定 5");
 }
+
+// ---------------------------------------------------------------------------
+// archi 章节：7 份矩阵命中 md 的工具引用纪律（逐文件扫描）
+// ---------------------------------------------------------------------------
+
+/// prompts 目录（`include_str!` 的源目录；`*_test.rs` 不受路径字面量禁令约束）。
+fn prompts_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("prompts")
+}
+
+/// 读一份 prompt md（缺失即红——装配面 `include_str!` 的编译期守卫之外的人工锚）。
+fn prompt_text(name: &str) -> String {
+    let path = prompts_dir().join(format!("{name}.md"));
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 prompt {} 失败: {error}", path.display()))
+}
+
+/// 16 份 prompt md 的文件名（去扩展名，字典序）。
+fn prompt_names() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(prompts_dir())
+        .expect("读取 prompts 目录失败")
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+        .map(|entry| {
+            entry
+                .path()
+                .file_stem()
+                .expect("文件名")
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// 矩阵命中面（7 份 md × 各自的 archi 工具勾选集合——矩阵单源逐文件对拍）。
+const ARCHI_PROMPT_MATRIX: [(&str, bool, bool); 7] = [
+    ("proposal-planner", false, true),
+    ("dev-design-planner", true, true),
+    ("dev-design-evaluator", true, true),
+    ("test-design-planner", false, true),
+    ("implementation-generator", true, false),
+    ("code-review-evaluator", true, false),
+    ("acceptance-evaluator", true, false),
+];
+
+/// 正向：7 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名。
+#[test]
+fn archi工具引用与注入矩阵逐文件一致() {
+    for (name, module, search) in ARCHI_PROMPT_MATRIX {
+        let text = prompt_text(name);
+        assert_eq!(
+            text.contains("archi_module"),
+            module,
+            "{name} 的 archi_module 勾选状态应一致"
+        );
+        assert_eq!(
+            text.contains("archi_search"),
+            search,
+            "{name} 的 archi_search 勾选状态应一致"
+        );
+    }
+}
+
+/// 正向：每份命中 md 的工具表述含「何时用」与「返回什么」两类信息。
+///
+/// 判据取真实表述锚：「何时用」= 使用相位标注（`（发现` / `（定位`，即矩阵两工具的
+/// 语义角色）；「返回什么」= 返回面词汇（邻接 / 子元素 / 声明位置 / `modelFile` /
+/// 薄条目 / 文档路径 / 文档条目）。定位类必须能直接 `edit`，故事实上要求声明位置类
+/// 词汇在场——由各文件的 `modelFile` + `modelLine` 逐文件守住。
+#[test]
+fn archi工具表述含何时用与返回什么() {
+    for (name, _, _) in ARCHI_PROMPT_MATRIX {
+        let text = prompt_text(name);
+        let has_when = text.contains("（发现") || text.contains("（定位");
+        assert!(
+            has_when,
+            "{name} 应说明「何时用」该工具（发现 / 定位语义标注）"
+        );
+        let has_what = text.contains("邻接")
+            || text.contains("子元素")
+            || text.contains("声明位置")
+            || text.contains("modelFile")
+            || text.contains("薄条目")
+            || text.contains("文档路径")
+            || text.contains("文档条目");
+        assert!(has_what, "{name} 应说明「返回什么」");
+    }
+}
+
+/// 异常：其余 9 份 md 零 `archi` 字样（不许诺未下发工具面）。
+#[test]
+fn 非命中md零archi字样() {
+    let non_matching = [
+        "proposal-evaluator",
+        "test-design-evaluator",
+        "implementation-evaluator",
+        "test-gen-generator",
+        "test-gen-evaluator",
+        "test-execution-executor",
+        "test-execution-evaluator",
+        "code-analyze-planner",
+        "code-analyze-evaluator",
+    ];
+    for name in non_matching {
+        let text = prompt_text(name);
+        assert!(
+            !text.contains("archi"),
+            "{name} 不应出现 archi 字样（未下发该工具面）"
+        );
+    }
+}
+
+/// 正向：两工具名的并集恰为 7 份命中文件，且不存在第三个 archi 工具名。
+#[test]
+fn 两工具名并集恰七份且无第三工具() {
+    let hit: Vec<String> = prompt_names()
+        .into_iter()
+        .filter(|name| {
+            let text = prompt_text(name);
+            text.contains("archi_module") || text.contains("archi_search")
+        })
+        .collect();
+    let mut expected: Vec<String> = ARCHI_PROMPT_MATRIX
+        .iter()
+        .map(|(name, _, _)| (*name).to_owned())
+        .collect();
+    expected.sort();
+    assert_eq!(hit, expected, "命中面恰为矩阵七份（无遗漏 / 无越权）");
+
+    // 越权扫描：`archi_` 系列只出现两个名字
+    for name in prompt_names() {
+        let text = prompt_text(&name);
+        for candidate in [
+            "archi_write",
+            "archi_set_gate",
+            "archi_graph",
+            "archi_read_doc",
+        ] {
+            assert!(
+                !text.contains(candidate),
+                "{name} 不应出现第三个 archi 工具名 {candidate}"
+            );
+        }
+    }
+}
+
+/// 异常：7 份命中 md 不含架构域路径字面量、不含「用专用工具写模型」指令（路径
+/// 知识归工具返回值）。
+#[test]
+fn 命中md零路径模板() {
+    for (name, _, _) in ARCHI_PROMPT_MATRIX {
+        let text = prompt_text(name);
+        assert!(
+            !text.contains("openspec/architecture"),
+            "{name} 不应含架构域路径字面量"
+        );
+        assert!(
+            !text.contains("architecture/models"),
+            "{name} 不应含模型目录路径模板"
+        );
+        assert!(
+            !text.contains("archi_write") && !text.contains("写入模型"),
+            "{name} 不应指示用专用工具写模型"
+        );
+    }
+}
+
+/// 边界：16 份 md 零占位 / 零 `__MCP:*` 片段（既有扫描随动）。
+#[test]
+fn 十六份md零占位与零mcp() {
+    let names = prompt_names();
+    assert_eq!(names.len(), 16, "prompt md 恰 16 份");
+    for name in names {
+        let text = prompt_text(&name);
+        for placeholder in [
+            "<change>",
+            "<phase>",
+            "{{",
+            "__INCLUDE:",
+            "__MODEL_",
+            "__DEV_TEAM_ROOT__",
+            "__MCP:",
+        ] {
+            assert!(
+                !text.contains(placeholder),
+                "{name} 不应含占位片段 {placeholder}"
+            );
+        }
+        assert!(!text.trim().is_empty(), "{name} 静态非空");
+    }
+}
+
+/// 回归：装配面逐字不变——16 条 `include_str!` 常量与盘面 md **逐字一致**
+/// （工具名属 prompt 正文的既定事实，工具**清单 / schema** 仍不落 prompt：真源为
+/// `SessionToolset` 注入）。
+#[test]
+fn 装配面include_str逐字不变且工具面不落prompt() {
+    let mut table_prompts: Vec<&'static str> = Vec::new();
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    for phase in table {
+        for agent in [&phase.executor, &phase.evaluator].into_iter().flatten() {
+            let PhaseAgentSpec { prompt, .. } = agent;
+            assert!(!prompt.trim().is_empty(), "{} 的 prompt 非空", phase.id);
+            assert!(
+                !prompt.contains("\"type\": \"object\"") && !prompt.contains("\"required\": ["),
+                "{} 的 prompt 不承载工具 schema（清单真源在 SessionToolset）",
+                phase.id
+            );
+            table_prompts.push(prompt);
+        }
+    }
+    // requirement 表 agent 槽位 = 7 执行 + 7 评估 = 14（archive 确定性相位无 agent；
+    // code-analyze 两 prompt 属 test-only 表与代码分析步骤，不在本表 agent 面）
+    assert_eq!(
+        table_prompts.len(),
+        14,
+        "requirement 表 14 条 agent 装配常量（7 执行 + 7 评估）"
+    );
+    let unique: std::collections::BTreeSet<&str> = table_prompts.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        table_prompts.len(),
+        "各相位独立装配（无重复 include_str! 引用）"
+    );
+
+    // 逐字不变：每条装配常量都能在盘面 md 中逐字命中（`include_str!` 未漂移）
+    let disk: Vec<String> = prompt_names()
+        .iter()
+        .map(|name| prompt_text(name))
+        .collect();
+    for prompt in table_prompts {
+        assert!(
+            disk.iter().any(|text| text == prompt),
+            "装配常量与盘面 md 逐字一致（16 条 include_str! 零漂移）"
+        );
+    }
+}
