@@ -25,6 +25,11 @@ use agent::AgentRunMessage;
 /// 词由面板的受控常量给出——`source` 是自由字符串，无枚举可耦合）
 const CHANGE_CHAT_SOURCE: &str = "change";
 
+/// 架构页通用会话清单的来源词（与 `compose::ARCHI_SOURCE`、前端
+/// `use-archi-chat` 的 `ARCHI_CHAT_SOURCE` 三处同字面量，改动需同步）。一个
+/// workspace 一份历史——`source_ref` 恒 `null`，不过滤。
+const ARCHI_CHAT_SOURCE: &str = "archi";
+
 /// root 显式格式检查：空/空白串不进入库解析链路（同 explores 轨道口径）。
 fn is_blank_root(root: &str) -> bool {
     root.trim().is_empty()
@@ -323,4 +328,28 @@ pub fn list_change_chat_sessions(
         offset,
         limit,
     )
+}
+
+/// 架构页通用会话清单（薄包装，三段同 `list_change_chat_sessions`：参数转换 →
+/// 内核分页查询 → 错误映射）：`source` 词常量收在本层（前端零来源词汇），
+/// `source_ref` **不过滤**（`None`——架构页会话恒 `null`，一个 workspace 一份
+/// 历史）；与 change chat 的两段 `source_ref`、流程会话的四段
+/// `{changeId}/{phase}/{role}/{attempt}` 因 `source` 词不同精确不相撞。
+/// blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
+#[tauri::command]
+#[specta::specta]
+pub fn list_archi_chat_sessions(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    if is_blank_root(&root) {
+        return Ok(SessionPage {
+            sessions: Vec::new(),
+            total: 0,
+        });
+    }
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    agent_runtime::session_query(store).list_sessions(Some(ARCHI_CHAT_SOURCE), None, offset, limit)
 }

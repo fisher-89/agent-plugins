@@ -132,6 +132,20 @@ impl ArchiDiagnosticKind {
             DiagnosticKind::OrphanHierarchy => "orphanHierarchy",
         }
     }
+
+    /// 全部合法值（清单单点：全量常量 = 知识文本与语料对拍的唯一派生源）。新增
+    /// 变体必须同补本常量（长度即红灯），MUST NOT 在消费侧手抄一份词表字面量。
+    pub const ALL: [DiagnosticKind; 9] = [
+        DiagnosticKind::SyntaxError,
+        DiagnosticKind::MissingField,
+        DiagnosticKind::InvalidValue,
+        DiagnosticKind::UnknownField,
+        DiagnosticKind::DuplicateElement,
+        DiagnosticKind::Cycle,
+        DiagnosticKind::DependsOnAncestor,
+        DiagnosticKind::UnknownReference,
+        DiagnosticKind::OrphanHierarchy,
+    ];
 }
 
 /// 文档警告种类（单值；与诊断分立使「文档警告不停摆」在类型上成立）。

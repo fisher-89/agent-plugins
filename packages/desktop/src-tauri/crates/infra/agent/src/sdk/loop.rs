@@ -117,6 +117,20 @@ pub(crate) struct LoopTurn {
     pub web_search: bool,
 }
 
+/// 系统消息合成单点：会话 preamble（产品知识，前）与本轮 `AGENT.md`（逐字，后）
+/// 合为**恰一条** System 消息内容——两段之间以单空行分隔；仅一者在场时该条为其
+/// 原文（`AGENT.md` 逐字语义零改动）；两者皆无 → `None`（不注入 System）。
+///
+/// `AGENT.md` 的 32KB 截断口径只作用于该文件自身（见 `preamble::load`），会话
+/// preamble 不在该截断逻辑内，其体量由生产者侧测试锚定上限。
+pub(crate) fn system_prompt(knowledge: Option<&str>, agent_md: Option<String>) -> Option<String> {
+    match (knowledge, agent_md) {
+        (Some(knowledge), Some(agent_md)) => Some(format!("{knowledge}\n\n{agent_md}")),
+        (Some(knowledge), None) => Some(knowledge.to_owned()),
+        (None, agent_md) => agent_md,
+    }
+}
+
 /// loop 主体
 pub(crate) async fn run(
     model: &DynModel<Completion>,
@@ -190,10 +204,13 @@ pub(crate) async fn run(
         let tool_calls: Vec<ToolCall> = 'continuation: loop {
             // 上下文防线（每次发请求前，第二调用点）
             history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
-            // 系统提示词每轮重读
+            // 系统提示词每轮重读；合并次序 = 会话 preamble 在前、`AGENT.md` 逐字在后，单空行分隔，恰一条 System 消息
             let mut chat_history = Vec::with_capacity(history.len() + 1);
-            if let Some(preamble) = preamble::load(&turn.cwd).await {
-                chat_history.push(Message::system(preamble));
+            if let Some(system) = system_prompt(
+                turn.injections.preamble.as_deref(),
+                preamble::load(&turn.cwd).await,
+            ) {
+                chat_history.push(Message::system(system));
             }
             chat_history.extend(history.iter().cloned());
             // 同轮重发装置（每次续跑前归零：续跑不继承重试预算）

@@ -121,6 +121,15 @@ export const commands = {
 	 *  blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
 	 */
 	listChangeChatSessions: (root: string, id: string, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("list_change_chat_sessions", { root, id, offset, limit }),
+	/**
+	 *  架构页通用会话清单（薄包装，三段同 `list_change_chat_sessions`：参数转换 →
+	 *  内核分页查询 → 错误映射）：`source` 词常量收在本层（前端零来源词汇），
+	 *  `source_ref` **不过滤**（`None`——架构页会话恒 `null`，一个 workspace 一份
+	 *  历史）；与 change chat 的两段 `source_ref`、流程会话的四段
+	 *  `{changeId}/{phase}/{role}/{attempt}` 因 `source` 词不同精确不相撞。
+	 *  blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
+	 */
+	listArchiChatSessions: (root: string, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("list_archi_chat_sessions", { root, offset, limit }),
 	changeFlowStart: (onEvent: Channel<RunNotice>, root: string, id: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, id, autoNextPhase }),
 	changeFlowStop: (root: string, id: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, id }),
 	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),

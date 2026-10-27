@@ -149,5 +149,24 @@ pub fn is_archi_rel_path(rel: &str) -> bool {
     segments.len() >= 2 && segments[0] == DOMAIN_DIR_NAME && segments[1] == ARCHITECTURE_DIR_NAME
 }
 
+/// 架构域根的 repo 相对路径（`<域根>/architecture`）——架构域相对路径族的单点，
+/// 唯一消费者为架构会话知识文本（模型可见文本直接用，故 `/` 分隔、零前导 `./`）。
+/// 纯推导零 IO，不接 root 入参。
+pub fn archi_rel_dir() -> String {
+    format!("{DOMAIN_DIR_NAME}/{ARCHITECTURE_DIR_NAME}")
+}
+
+/// 架构模型目录的 repo 相对路径（`<archi_rel_dir>/models`；全从 [`archi_rel_dir`]
+/// 派生，架构域段名不二次出现）。
+pub fn archi_models_rel_dir() -> String {
+    format!("{}/{}", archi_rel_dir(), MODELS_DIR_NAME)
+}
+
+/// 架构决策记录目录的 repo 相对路径（`<archi_rel_dir>/decisions`；全从
+/// [`archi_rel_dir`] 派生）。
+pub fn archi_decisions_rel_dir() -> String {
+    format!("{}/{}", archi_rel_dir(), DECISIONS_DIR_NAME)
+}
+
 #[cfg(test)]
 mod mod_test;

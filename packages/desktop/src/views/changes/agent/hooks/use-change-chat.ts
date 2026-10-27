@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { SessionPanelState } from '@/components/agent';
 import { useAgentSession, type UseAgentSessionState } from '@/hooks/use-agent-session';
 import { type AgentPermissionMode, type SessionSummary } from '@/types/generated/bindings';
 
@@ -17,6 +18,9 @@ import { ipc } from '../../../../lib/ipc';
 
 /** 写侧来源归属受控字符串（读侧同词常量收在命令层——前后端各一份字面量） */
 const CHANGE_CHAT_SOURCE = 'change';
+
+/** 空态（草案态）文案：发送首条消息即开启新会话（不是禁用理由） */
+const DRAFT_NOTE = '发送首条消息即开启新会话';
 
 /** 历史清单分页页宽（`list_change_chat_sessions` 的 limit；「加载更多」按此累加） */
 const CHANGE_CHAT_PAGE_SIZE = 20;
@@ -34,30 +38,16 @@ export interface ChangeChatParams {
   archived: boolean;
 }
 
-export interface ChangeChatState {
-  /** 注入形态会话面（`AgentSessionView` 的 `session` 入参） */
-  session: UseAgentSessionState;
+export interface ChangeChatState extends SessionPanelState {
   /** 面板本地寻址输入（null = 空态草案态） */
   sessionId: string | null;
   /** 当前会话（真相取会话镜像：首发后会话 id 由后端铸造并回写） */
   currentSessionId: string | null;
   /** 会话执行根（归档恒 null；legacy 记录为 null → 后端回落 root） */
   cwd: string | null;
-  /** 历史清单本页项（`updated_at` 降序由查询面保证，分页累加） */
-  sessions: SessionSummary[];
-  /** 过滤集全量计数（「加载更多」可见条件 `sessions.length < total`） */
-  total: number;
-  listOpen: boolean;
-  listLoading: boolean;
-  listError: string | null;
-  toggleList: () => void;
-  loadMore: () => void;
-  newSession: () => void;
-  selectSession: (sessionId: string) => void;
   send: (input: { text: string; permissionMode: AgentPermissionMode }) => void;
   stop: () => void;
   canSend: boolean;
-  canStart: boolean;
   disabledReason: string | null;
 }
 
@@ -271,5 +261,8 @@ export function useChangeChat(params: ChangeChatParams): ChangeChatState {
     canSend,
     canStart,
     disabledReason,
+    // 状态行文案（骨架只渲染）：禁用理由优先，否则空态（草案态）文案；有会话且
+    // 无理由时不占位
+    note: disabledReason ?? (currentSessionId === null ? DRAFT_NOTE : null),
   };
 }

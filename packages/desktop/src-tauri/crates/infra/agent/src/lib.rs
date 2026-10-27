@@ -1,3 +1,4 @@
+mod archi_knowledge;
 mod compose;
 mod sdk;
 mod store_port;
@@ -189,6 +190,9 @@ impl Default for EngineFacade {
 
 #[cfg(test)]
 mod lib_test;
+
+#[cfg(test)]
+mod archi_knowledge_test;
 
 #[cfg(test)]
 pub(crate) static TEST_PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

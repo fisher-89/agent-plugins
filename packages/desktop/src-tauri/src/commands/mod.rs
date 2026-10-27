@@ -45,6 +45,7 @@ macro_rules! all_commands {
             $crate::commands::exec::agent_session_transcript,
             $crate::commands::exec::session_detail,
             $crate::commands::exec::list_change_chat_sessions,
+            $crate::commands::exec::list_archi_chat_sessions,
             $crate::commands::change_flow::change_flow_start,
             $crate::commands::change_flow::change_flow_stop,
             $crate::commands::change_flow::change_flow_answer,

@@ -19,12 +19,20 @@ const EXPLORE_SOURCE: &str = "explore";
 /// 工具面注入矩阵的适用来源。
 const CHANGE_SOURCE: &str = "change";
 
-/// 会话注入面装配（生产路径：explore 臂 + change 臂）：`explore` 来源 = 六工具
-/// 收窄子集（write 移除，序同 `TOOL_NAMES`）+ `Explore` 枚举；`change` 来源按
-/// `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面矩阵，命中即
-/// `toolset = Archi { .. }` 且 `tools` 位保持 `None`（七工具全量）；其余来源与
-/// 矩阵未命中 / 解析失败恒 `SessionInjections::default()`（fail-closed，零 archi
-/// 工具）。explore 臂逐字未变（新增变体不改变其任何可观察行为）。
+/// archi 来源受控字符串（架构页通用会话）——与命令层 `ARCHI_CHAT_SOURCE`、前端
+/// `use-archi-chat` 的 `ARCHI_CHAT_SOURCE` 三处同字面量，改动需同步。
+const ARCHI_SOURCE: &str = "archi";
+
+/// 会话注入面装配（生产路径：explore 臂 + archi 臂 + change 臂）：
+/// - `explore` 来源 = 六工具收窄子集（write 移除，序同 `TOOL_NAMES`）+ `Explore`
+///   枚举（逐字未变）；
+/// - `archi` 来源 = 七工具全量（`tools: None`）+ `Archi { module: true, search:
+///   true }` + 架构会话知识 preamble；该臂以 `source` 短路命中，零 `source_ref`
+///   读取（不碰相位解析，`source_ref` 取任意值下发面不变）；
+/// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面矩阵，
+///   命中即 `toolset = Archi { .. }` 且 `tools` 位保持 `None`（七工具全量）；
+/// - 其余来源与矩阵未命中 / 解析失败恒 `SessionInjections::default()`
+///   （fail-closed，零 archi 工具）。
 fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
     if provenance.source == EXPLORE_SOURCE {
         const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
@@ -42,6 +50,17 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
                     .collect(),
             ),
             toolset: Some(agent::SessionToolset::Explore),
+        });
+    }
+    if provenance.source == ARCHI_SOURCE {
+        // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面不变。
+        return Ok(agent::SessionInjections {
+            preamble: crate::archi_knowledge::knowledge(),
+            tools: None,
+            toolset: Some(agent::SessionToolset::Archi {
+                module: true,
+                search: true,
+            }),
         });
     }
     if provenance.source != CHANGE_SOURCE {
