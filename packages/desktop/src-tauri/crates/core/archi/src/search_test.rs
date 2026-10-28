@@ -68,7 +68,7 @@ fn element(fqn: &str) -> Element {
         docs: Vec::new(),
         summary: None,
         metadata: BTreeMap::new(),
-        file: "openspec/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
         line: 1,
     }
 }

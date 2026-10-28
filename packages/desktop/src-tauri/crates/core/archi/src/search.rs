@@ -1,10 +1,3 @@
-//! 轻量检索：ASCII 大小写不敏感子串 + 驼峰分词，匹配对象恰为元素 FQN / `summary`
-//! / `metadata` 值 / 文档 `path` 与文件名（去扩展名）。
-//!
-//! 刻意不做全文搜索：不读文档正文、不碰规约语料、无相关度打分、无倒排索引与
-//! 跨调用缓存（每次现算——第二事实源无从产生）。文档条目的 `title` 取自正文首行，
-//! 属正文射程，故 MUST NOT 参与匹配。
-
 use crate::docs;
 use crate::dto::{DocRef, SearchScope};
 use crate::graph::ModelGraph;

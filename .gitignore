@@ -6,6 +6,7 @@
 !.claude/
 .claude/*
 !.claude/skills/
+!.dev-team/
 memory
 
 node_modules

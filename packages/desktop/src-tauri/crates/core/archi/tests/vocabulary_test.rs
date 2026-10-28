@@ -37,7 +37,7 @@ impl TempDir {
             tag
         ));
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join("openspec/architecture/models")).expect("建模型目录失败");
+        fs::create_dir_all(dir.join(".dev-team/architecture/models")).expect("建模型目录失败");
         TempDir(dir)
     }
 
@@ -47,7 +47,7 @@ impl TempDir {
 
     fn write_model(&self, name: &str, content: &str) {
         fs::write(
-            self.0.join("openspec/architecture/models").join(name),
+            self.0.join(".dev-team/architecture/models").join(name),
             content,
         )
         .expect("写模型文件失败");

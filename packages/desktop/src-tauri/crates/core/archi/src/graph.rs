@@ -1,9 +1,3 @@
-//! 图单点：`ModelGraph` 是唯一建图点（持有模型本体 + petgraph 邻接），四类自
-//! 实现结构诊断（成环 / 依赖祖先 / 未定义引用 / 孤儿层级）与邻域查询的单点。
-//!
-//! 消费面（进程内校验 / agent 工具 / IPC / 画布）MUST NOT 各自再建图、再算环、
-//! 再推祖先；1-hop 邻域由本模块三项查询组合，MUST NOT 在投影层做二次图遍历。
-
 use std::collections::BTreeMap;
 
 use petgraph::algo::tarjan_scc;

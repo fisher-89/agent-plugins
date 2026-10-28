@@ -2972,7 +2972,7 @@ fn 命中md零路径模板() {
     for (name, _, _) in ARCHI_PROMPT_MATRIX {
         let text = prompt_text(name);
         assert!(
-            !text.contains("openspec/architecture"),
+            !text.contains(".dev-team/architecture"),
             "{name} 不应含架构域路径字面量"
         );
         assert!(

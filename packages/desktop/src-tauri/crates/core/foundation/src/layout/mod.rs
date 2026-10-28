@@ -24,7 +24,11 @@ const TEST_REPORTS_DIR_NAME: &str = "test";
 /// 基线报告子目录名（相对 reports 子目录锚定）
 const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
 
-/// 架构域子目录名（相对域根锚定；架构域段名的唯一持有者）
+/// 架构域顶层目录名（相对 workspace 根锚定；`.dev-team` 隐藏目录——架构资产与
+/// `openspec/` 变更语料分树；与壳层数据根 `<home>/.dev-team` 同名不同物）
+const ARCHI_ROOT_DIR_NAME: &str = ".dev-team";
+
+/// 架构域子目录名（相对架构域顶层锚定；架构域段名的唯一持有者）
 const ARCHITECTURE_DIR_NAME: &str = "architecture";
 
 /// 架构模型子目录名（相对架构域根锚定）
@@ -121,10 +125,10 @@ pub fn change_baseline_reports_in(change_dir: &Path) -> PathBuf {
     change_reports_in(change_dir, ReportSlot::Baseline)
 }
 
-/// 架构域根目录派生单点（`<域根>/architecture`，架构域段名唯一持有者）。纯
-/// 推导零 IO——不存在的 root 亦正常返回（存在性检查交上层）。
+/// 架构域根目录派生单点（`<root>/.dev-team/architecture`，架构域顶层段与架构
+/// 段名的唯一持有者）。纯推导零 IO——不存在的 root 亦正常返回（存在性检查交上层）。
 pub fn archi_dir(root: &Path) -> PathBuf {
-    root.join(DOMAIN_DIR_NAME).join(ARCHITECTURE_DIR_NAME)
+    root.join(ARCHI_ROOT_DIR_NAME).join(ARCHITECTURE_DIR_NAME)
 }
 
 /// 架构模型目录派生（`<架构域根>/models`；全从 [`archi_dir`] 派生，架构域段名
@@ -139,21 +143,24 @@ pub fn archi_decisions_dir(root: &Path) -> PathBuf {
 }
 
 /// repo 相对路径是否落在架构域之内（`/` 与 `\` 分隔均归一后判定）：判据 = 归一
-/// 剥前导 `./` 与尾分隔符后，前两段依序为域根段与架构域段。`<域根>/architecture`
-/// 与 `<域根>/architecture/models/x.toml` 均命中，`<域根>/archived/...` 不命中。
-/// 归档冲突分流的唯一判据——core 侧 MUST NOT 比较架构域段名字面量。
+/// 剥前导 `./` 与尾分隔符后，前两段依序为架构域顶层段与架构域段。`<顶层>/architecture`
+/// 与 `<顶层>/architecture/models/x.toml` 均命中，`openspec/architecture/...` 与
+/// `<顶层>/archived/...` 不命中。归档冲突分流的唯一判据——core 侧 MUST NOT 比较
+/// 架构域段名字面量。
 pub fn is_archi_rel_path(rel: &str) -> bool {
     let normalized = rel.replace('\\', "/");
     let trimmed = normalized.trim_start_matches("./").trim_end_matches('/');
     let segments: Vec<&str> = trimmed.split('/').collect();
-    segments.len() >= 2 && segments[0] == DOMAIN_DIR_NAME && segments[1] == ARCHITECTURE_DIR_NAME
+    segments.len() >= 2
+        && segments[0] == ARCHI_ROOT_DIR_NAME
+        && segments[1] == ARCHITECTURE_DIR_NAME
 }
 
-/// 架构域根的 repo 相对路径（`<域根>/architecture`）——架构域相对路径族的单点，
+/// 架构域根的 repo 相对路径（`<顶层>/architecture`）——架构域相对路径族的单点，
 /// 唯一消费者为架构会话知识文本（模型可见文本直接用，故 `/` 分隔、零前导 `./`）。
 /// 纯推导零 IO，不接 root 入参。
 pub fn archi_rel_dir() -> String {
-    format!("{DOMAIN_DIR_NAME}/{ARCHITECTURE_DIR_NAME}")
+    format!("{ARCHI_ROOT_DIR_NAME}/{ARCHITECTURE_DIR_NAME}")
 }
 
 /// 架构模型目录的 repo 相对路径（`<archi_rel_dir>/models`；全从 [`archi_rel_dir`]

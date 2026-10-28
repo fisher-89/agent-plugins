@@ -11,11 +11,11 @@ import { ArchitectureCanvas } from './architecture-canvas';
  * 布局、缺省 1-hop 聚焦、聚焦切换零取数、空模型与取数失败两态、`mode` 透传、
  * 改档后刷新的三触发纪律。
  *
- * 渲染面断言（节点 / 边集合、边 label 与 style、节点坐标、`ReactFlow` 选项）经
- * **观测垫片**取 `ReactFlow` 的入参：xyflow 仅在节点挂 Handle 后才为边求位置，
- * 本画布节点无 Handle ⇒ 边不进 DOM，故边集合只能从 props 面读（非语义替身：
- * 真实 `ReactFlow` 照常渲染，垫片只在渲染前记录入参）。节点集合 / 坐标 / 文案
- * 一律从 jsdom 真实 DOM 断言。
+ * 渲染面断言分两路：节点 / 边集合、边 style、节点坐标、`ReactFlow` 选项
+ * 经**观测垫片**取 `ReactFlow` 的入参（非语义替身：真实 `ReactFlow` 照常渲染，
+ * 垫片只在渲染前记录入参）；边另有一条**真实 DOM** 断言（`.react-flow__edge`）——
+ * xyflow 只在节点挂 Handle 后才为边求位置，堵「props 有边、DOM 无边」的回归盲区。
+ * 节点集合 / 坐标 / 文案一律从 jsdom 真实 DOM 断言。
  *
  * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（`archi_graph` /
  * `archi_module` / `archi_set_gate` 按命令名分发）。xyflow 度量垫片
@@ -62,7 +62,8 @@ interface FlowProps {
   zoomOnScroll: boolean;
   zoomOnDoubleClick: boolean;
   panOnScroll: boolean;
-  defaultViewport: { x: number; y: number; zoom: number };
+  fitView?: boolean;
+  fitViewOptions?: { padding?: number; minZoom?: number; maxZoom?: number };
 }
 
 /** 最近一次 `ReactFlow` 入参（每次渲染追加入栈）。 */
@@ -75,24 +76,52 @@ function flow(): FlowProps {
 class ResizeObserverStub {
   static instances: ResizeObserverStub[] = [];
   callback: ResizeObserverCallback;
+  elements: Element[] = [];
 
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback;
     ResizeObserverStub.instances.push(this);
   }
 
-  observe(): void {}
+  observe = (target: Element): void => {
+    this.elements.push(target);
+  };
 
-  unobserve(): void {}
+  unobserve = (target: Element): void => {
+    this.elements = this.elements.filter((element) => element !== target);
+  };
 
-  disconnect(): void {}
+  disconnect = (): void => {
+    this.elements = [];
+  };
+
+  /** 重放全部观测目标，触发 xyflow 的节点度量（handleBounds / 尺寸）更新。 */
+  static flush(): void {
+    for (const observer of ResizeObserverStub.instances) {
+      if (observer.elements.length === 0) continue;
+      const entries = observer.elements.map(
+        (target) =>
+          ({
+            target,
+            contentRect: {
+              width: target.clientWidth,
+              height: target.clientHeight,
+              x: 0,
+              y: 0,
+              top: 0,
+              left: 0,
+              bottom: 0,
+              right: 0,
+            },
+          }) as unknown as ResizeObserverEntry,
+      );
+      observer.callback(entries, observer);
+    }
+  }
 }
 
 const nativeOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
 const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
-
-/** 边 label 样式常量（与源文件同一对象形状）。 */
-const LABEL_STYLE = { fill: 'var(--muted-foreground)', fontSize: 10 };
 
 /** 边视觉常量（`marks.ts` 四值；本期图数据含 none / unfulfilled / crossKind 三值）。 */
 const NEUTRAL = { stroke: 'var(--chart-2)', strokeDasharray: undefined };
@@ -107,7 +136,7 @@ function element(fqn: string, overrides: Partial<ArchiElement> = {}): ArchiEleme
     path: [],
     summary: null,
     metadata: {},
-    modelFile: 'openspec/architecture/models/01-core.toml',
+    modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 2,
     mark: 'none',
     ...overrides,
@@ -260,6 +289,14 @@ afterEach(() => {
   }
 });
 
+/** 渲染后重放节点度量（须在 act 内触发 store 更新；handleBounds 就位后边才进 DOM）。 */
+async function measureNodes(): Promise<void> {
+  await act(async () => {
+    ResizeObserverStub.flush();
+    await Promise.resolve();
+  });
+}
+
 describe('停摆态（全或无）', () => {
   it('应在 diagnostics 非空时只渲错误面板（零节点零边、零元素树节点、零 ReactFlow）', async () => {
     serveGraph({
@@ -269,7 +306,7 @@ describe('停摆态（全或无）', () => {
         {
           kind: 'cycle',
           message: '依赖成环：App.A -> App.B -> App.A',
-          file: 'openspec/architecture/models/01-core.toml',
+          file: '.dev-team/architecture/models/01-core.toml',
           line: 4,
           column: 1,
         },
@@ -368,7 +405,7 @@ describe('正常态：缺省 1-hop 渲染面', () => {
     expect(Object.keys(flow().nodeTypes)).toEqual(['archi']);
   });
 
-  it('应只画与聚焦相连的边（id / 端点 / label / style 逐值），无关边零出现', async () => {
+  it('应只画与聚焦相连的边（id / 端点 / style 逐值），无关边零出现', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
@@ -390,15 +427,6 @@ describe('正常态：缺省 1-hop 渲染面', () => {
       'Svc->Dst2',
       'Svc->Ghost',
     ]);
-    // label = 关系描述（无描述即无标签，不落空串）
-    expect(edges.map((edge) => edge.label)).toEqual([
-      '入边一',
-      undefined,
-      '入边三',
-      '出边一',
-      undefined,
-      '悬空去向',
-    ]);
     // style 由 marks.ts 四值确定性给出（none 实线 / unfulfilled 灰虚线 / crossKind 橙虚线）
     expect(edges.map((edge) => edge.style)).toStrictEqual([
       NEUTRAL,
@@ -408,14 +436,43 @@ describe('正常态：缺省 1-hop 渲染面', () => {
       CROSS_KIND,
       NEUTRAL,
     ]);
-    for (const edge of edges) {
-      expect(edge.labelStyle).toEqual(LABEL_STYLE);
-    }
     // 无关边（Src1 -> Dst1）不入图
     expect(edges.some((edge) => edge.id === 'Src1->Dst1')).toBe(false);
   });
 
-  it('应以只读交互选项装配 ReactFlow（禁拖 / 禁连 / 禁缩放 / 固定初视口）', async () => {
+  it('应在真实 DOM 渲染连线（隐形把手就位、悬空关系无节点不入图）', async () => {
+    serveGraph(hubGraph());
+    render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
+
+    // 每节点一对隐形把手：出边右、入边左（xyflow 据此求边坐标）
+    const svc = screen.getByTestId('rf__node-Svc');
+    expect(svc.querySelectorAll('.react-flow__handle.source')).toHaveLength(1);
+    expect(svc.querySelectorAll('.react-flow__handle.target')).toHaveLength(1);
+
+    await measureNodes();
+    // 6 条关系里 `Svc -> Ghost` 指向未声明元素（无节点体）⇒ 只渲 5 条
+    await waitFor(() => expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(5));
+    for (const id of ['Src1->Svc', 'Src2->Svc', 'Src3->Svc', 'Svc->Dst1', 'Svc->Dst2']) {
+      expect(screen.queryByTestId(`rf__edge-${id}`)).not.toBeNull();
+    }
+    expect(screen.queryByTestId('rf__edge-Svc->Ghost')).toBeNull();
+
+    // 样式同 props 面：none 实线 ×3 / unfulfilled 灰虚线 / crossKind 橙虚线
+    const styles = [...document.querySelectorAll<SVGPathElement>('.react-flow__edge-path')].map(
+      (path) => path.getAttribute('style') ?? '',
+    );
+    expect(styles).toHaveLength(5);
+    expect(styles.filter((style) => style.includes('var(--chart-2)'))).toHaveLength(3);
+    expect(
+      styles.filter((style) => style.includes('var(--muted-foreground)') && style.includes('6 4')),
+    ).toHaveLength(1);
+    expect(
+      styles.filter((style) => style.includes('var(--warn)') && style.includes('4 3')),
+    ).toHaveLength(1);
+  });
+
+  it('应以只读交互选项装配 ReactFlow（禁拖 / 禁连 / 禁缩放 / 初视口适配全图）', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
@@ -426,7 +483,8 @@ describe('正常态：缺省 1-hop 渲染面', () => {
     expect(props.zoomOnScroll).toBe(false);
     expect(props.zoomOnDoubleClick).toBe(false);
     expect(props.panOnScroll).toBe(true);
-    expect(props.defaultViewport).toEqual({ x: 0, y: 0, zoom: 1 });
+    expect(props.fitView).toBe(true);
+    expect(props.fitViewOptions).toEqual({ padding: 0.2, minZoom: 0.2, maxZoom: 1 });
     expect(props.nodes).toHaveLength(8);
     expect(props.edges).toHaveLength(6);
   });
@@ -441,8 +499,11 @@ describe('缺省聚焦与 1-hop 边界', () => {
     });
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     // 首个元素 `A.B` 带 `.` ⇒ 不是顶层；`A` 才是缺省聚焦
-    await waitFor(() => expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('A'));
-    expect(renderedNodeIds().sort()).toEqual(['A', 'A.B', 'A.C']);
+    // 节点 DOM 在测量回调之后才挂载，候等条件须覆盖节点集（只等抽屉文案会读到空集）
+    await waitFor(() => {
+      expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('A');
+      expect(renderedNodeIds().sort()).toEqual(['A', 'A.B', 'A.C']);
+    });
     expect(nodeTransform('A')).toBe('translate(0px,0px)');
     // 直接子元素按声明序堆叠在下方
     expect(nodeTransform('A.B')).toBe('translate(0px,96px)');
@@ -456,8 +517,10 @@ describe('缺省聚焦与 1-hop 边界', () => {
       diagnostics: [],
     });
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
-    await waitFor(() => expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('A.B'));
-    expect(renderedNodeIds()).toEqual(['A.B']);
+    await waitFor(() => {
+      expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('A.B');
+      expect(renderedNodeIds()).toEqual(['A.B']);
+    });
   });
 
   it('应在元素树点击后按新邻域重算且零取数（archi_graph 计数不变）', async () => {

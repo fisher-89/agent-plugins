@@ -168,7 +168,7 @@ struct Actual {
     relations: Vec<(String, String)>,
 }
 
-/// 语料暂存根：把 `<case>/*.toml` 复制到 `<tmp>/openspec/architecture/models/`
+/// 语料暂存根：把 `<case>/*.toml` 复制到 `<tmp>/.dev-team/architecture/models/`
 /// 的仓库形态后驱动（`parse_dir` 的入口是 repo 根，模型目录经
 /// `foundation::layout::archi_models_dir` 派生）。crate 无 dev-dependency，故以
 /// std 自建 RAII 临时目录。
@@ -184,7 +184,7 @@ impl StagedRoot {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
-        let models = dir.join("openspec").join("architecture").join("models");
+        let models = dir.join(".dev-team").join("architecture").join("models");
         fs::create_dir_all(&models).expect("建暂存模型目录失败");
         let source = corpus_root().join(case);
         for entry in fs::read_dir(&source).expect("读取 case 目录失败").flatten() {

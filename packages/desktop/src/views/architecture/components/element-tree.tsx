@@ -79,28 +79,30 @@ function TreeNodes({
           <li className="m-0" key={fqn}>
             {children.length > 0 ? (
               <Collapsible defaultOpen>
-                <CollapsibleTrigger
-                  render={({ onClick }, state) => (
-                    <ChevronRightIcon
-                      className={`transition-transform ${state.open ? 'rotate-90' : ''}`}
-                      aria-label={state.open ? `收起 ${fqn}` : `展开 ${fqn}`}
-                      onClick={onClick}
-                    />
-                  )}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={`w-full justify-start ${focused === fqn ? 'bg-muted font-medium' : ''}`}
-                  data-testid="archi-tree-node"
-                  data-fqn={fqn}
-                  title={fqn}
-                  onClick={() => onFocus(fqn)}
-                >
-                  <span data-testid="archi-node-mark">{nodeDot(element.mark)}</span>
-                  {shortName(fqn)}
-                </Button>
-                <CollapsibleContent>
+                <div className="flex">
+                  <CollapsibleTrigger
+                    render={({ onClick }, state) => (
+                      <ChevronRightIcon
+                        className={`transition-transform ${state.open ? 'rotate-90' : ''}`}
+                        aria-label={state.open ? `收起 ${fqn}` : `展开 ${fqn}`}
+                        onClick={onClick}
+                      />
+                    )}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`flex-1 justify-start ${focused === fqn ? 'bg-muted font-medium' : ''}`}
+                    data-testid="archi-tree-node"
+                    data-fqn={fqn}
+                    title={fqn}
+                    onClick={() => onFocus(fqn)}
+                  >
+                    <span data-testid="archi-node-mark">{nodeDot(element.mark)}</span>
+                    {shortName(fqn)}
+                  </Button>
+                </div>
+                <CollapsibleContent className="mt-1 ml-5 style-lyra:ml-4">
                   <TreeNodes
                     fqns={children}
                     byFqn={byFqn}

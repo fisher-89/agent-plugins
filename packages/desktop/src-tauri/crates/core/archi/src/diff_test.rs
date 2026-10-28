@@ -19,7 +19,7 @@ fn element(fqn: &str) -> Element {
         docs: Vec::new(),
         summary: None,
         metadata: BTreeMap::new(),
-        file: "openspec/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
         line: 1,
     }
 }
@@ -38,7 +38,7 @@ fn relation(from: &str, to: &str) -> Relation {
         from: from.to_owned(),
         to: to.to_owned(),
         description: None,
-        file: "openspec/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
         line: 2,
         span: None,
     }
@@ -113,10 +113,10 @@ fn 等价模型零差异_文件与行号不参与身份() {
         vec![relation("App.Auth", "App")],
     );
     let mut moved_auth = gated("App.Auth", GateTier::Warn);
-    moved_auth.file = "openspec/architecture/models/02-auth.toml".to_owned();
+    moved_auth.file = ".dev-team/architecture/models/02-auth.toml".to_owned();
     moved_auth.line = 42;
     let mut moved_relation = relation("App.Auth", "App");
-    moved_relation.file = "openspec/architecture/models/02-auth.toml".to_owned();
+    moved_relation.file = ".dev-team/architecture/models/02-auth.toml".to_owned();
     moved_relation.line = 50;
     let next = model_of(vec![element("App"), moved_auth], vec![moved_relation]);
 

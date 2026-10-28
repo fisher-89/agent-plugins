@@ -112,6 +112,11 @@ export const argsSchemas = {
 			"offset": z.int().min(0).max(4294967295),
 			"limit": z.int().min(0).max(4294967295),
 		}); },
+	get "listArchiChatSessions"() { return z.strictObject({
+			"root": z.string(),
+			"offset": z.int().min(0).max(4294967295),
+			"limit": z.int().min(0).max(4294967295),
+		}); },
 	get "changeFlowStart"() { return z.strictObject({
 			"onEvent": degraded("channel: 非 JSON 可表达，跳过值校验"),
 			"root": z.string(),
@@ -263,6 +268,7 @@ export const resultSchemas = {
 	get "agentSessionTranscript"() { return z.array(z.lazy(() => AgentEventSchema)); },
 	get "sessionDetail"() { return z.lazy(() => SessionSummarySchema).nullable(); },
 	get "listChangeChatSessions"() { return z.lazy(() => SessionPageSchema); },
+	get "listArchiChatSessions"() { return z.lazy(() => SessionPageSchema); },
 	get "changeFlowStart"() { return z.lazy(() => ChangeRunSummarySchema); },
 	get "changeFlowStop"() { return z.null(); },
 	get "changeFlowAnswer"() { return z.null(); },
@@ -341,6 +347,8 @@ export const channelArgs = {
 	get "sessionDetail"() { return {
 		}; },
 	get "listChangeChatSessions"() { return {
+		}; },
+	get "listArchiChatSessions"() { return {
 		}; },
 	get "changeFlowStart"() { return {
 			get "onEvent"() { return z.lazy(() => RunNoticeSchema); },

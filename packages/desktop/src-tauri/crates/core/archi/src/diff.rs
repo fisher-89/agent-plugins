@@ -1,8 +1,3 @@
-//! 结构 diff：以 FQN（元素）与 `(from, to)`（关系）为身份键的两模型比较。
-//!
-//! 文件划分与行序不参与身份（等价模型零差异）；输出为元素增删清单 + 关系增删
-//! 计数 + `gate` 变更清单。消费面为归档确认面的「架构变更」区块。
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::dto::GateTier;

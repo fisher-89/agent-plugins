@@ -147,7 +147,7 @@ pending = cursor.rebase_conflicts
 
 #### Scenario: 模型冲突不进 agent 解算
 
-- **WHEN** rebase 冲突清单含 `openspec/architecture/models/02-auth.toml`（单条或与代码路径混合）
+- **WHEN** rebase 冲突清单含 `.dev-team/architecture/models/02-auth.toml`（单条或与代码路径混合）
 - **THEN** `ResolveConflicts` 步以 `Terminal::failed` 收口：零解冲突 agent 会话（run 节点无会话槽位）、零 `rebase --abort` 调用、rebase 半程保留于 worktree；文案含 worktree 绝对路径与「解完模型冲突后重跑归档」引导
 
 #### Scenario: 纯代码冲突路径零回归

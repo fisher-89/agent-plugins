@@ -3814,7 +3814,7 @@ async fn 计数轴隔离_续跑不增轮数且run_started恰一条() {
 // archi-graph-doc-agent：执行臂三分派（`LoopTurn.archi` 上下文路由）+ 成员校验
 // 矩阵外拒绝 + 两 archi 名在守卫链后段零拦截
 //
-// 装置：真实 tempdir 模型（`openspec/architecture/models/*.toml`）+ 真实
+// 装置：真实 tempdir 模型（`.dev-team/architecture/models/*.toml`）+ 真实
 // `ArchiContext`（读面即被测语义，执行体不 mock）；loop 直驱与既有 explore
 // 注入面用例同口径。
 // ---------------------------------------------------------------------------
@@ -3834,9 +3834,9 @@ const ARCHI_CORE: &str = concat!(
     "summary = \"认证域\"\n",
 );
 
-/// 落一个模型文件（`openspec/architecture/models/`）。
+/// 落一个模型文件（`.dev-team/architecture/models/`）。
 fn archi_write_model(root: &Path, name: &str, content: &str) {
-    let dir = root.join("openspec/architecture/models");
+    let dir = root.join(".dev-team/architecture/models");
     std::fs::create_dir_all(&dir).expect("创建模型目录失败");
     std::fs::write(dir.join(name), content).expect("写模型文件失败");
 }
@@ -3857,10 +3857,6 @@ fn archi_injections(module: bool, search: bool) -> agent::SessionInjections {
     }
 }
 
-/// 执行臂三分派（正向，表驱动两工具名）：`turn.archi = Some(ctx)` 且下发面含
-/// 对应 archi 工具 → 走 `ArchiContext::execute`（真实 tempdir 模型），结果
-/// `is_error = false` 且内容为 `archi::dto` 投影 JSON（`archi_module` 携
-/// `element`，`archi_search` 携 `elements`），run 不中断。
 #[tokio::test]
 async fn archi分派两工具到执行体且结果非错误() {
     struct Case {
@@ -3913,7 +3909,7 @@ async fn archi分派两工具到执行体且结果非错误() {
             assert!(
                 payload["element"]["modelFile"]
                     .as_str()
-                    .is_some_and(|file| file.ends_with("openspec/architecture/models/01-core.toml")),
+                    .is_some_and(|file| file.ends_with(".dev-team/architecture/models/01-core.toml")),
                 "{tool}: modelFile 指向声明文件，实际: {payload}"
             );
             assert_eq!(
@@ -3932,9 +3928,6 @@ async fn archi分派两工具到执行体且结果非错误() {
     }
 }
 
-/// 铸造根传递（正向，表驱动 2 组合 × 2 root）：某一 root 铸造的 `LoopTurn.archi`
-/// 跑完整一轮后工具结果只取自该 root 下模型；换第二个 root（另一 tempdir、另一套
-/// 元素）→ 结果逐字段随之切换（root 传错即红）。
 #[tokio::test]
 async fn archi执行臂结果只取自铸造根且换根即换内容() {
     const ROOT_A: &str = concat!("# 根 A\n", "[element.\"Alpha\"]\n", "kind = \"package\"\n",);
@@ -3980,7 +3973,7 @@ async fn archi执行臂结果只取自铸造根且换根即换内容() {
             );
             assert!(
                 payload["element"]["modelFile"].as_str().is_some_and(
-                    |file| file.ends_with("openspec/architecture/models/01-model.toml")
+                    |file| file.ends_with(".dev-team/architecture/models/01-model.toml")
                 ),
                 "{tag}: modelFile 指向铸造根下的模型文件，实际: {payload}"
             );
@@ -3993,9 +3986,6 @@ async fn archi执行臂结果只取自铸造根且换根即换内容() {
     }
 }
 
-/// 执行臂上下文缺席（异常，表驱动两工具名）：`turn.archi = None` 而下发面含
-/// archi 工具（生产不可达臂）→ 工具结果 `is_error = true` 且文案「专用工具执行
-/// 上下文未装配」，run 不中断。
 #[tokio::test]
 async fn archi上下文缺席以is_error回灌且run不中断() {
     for tool in [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL] {
@@ -4042,12 +4032,6 @@ async fn archi上下文缺席以is_error回灌且run不中断() {
     }
 }
 
-/// 成员校验（矩阵外相位，异常，表驱动两工具名）：下发面不含 archi 工具而模型
-/// 调用之 → `SystemNotice{subtype: "tool_unavailable"}` + is_error ToolResult
-/// （同 id）；执行体**零调用**（内容即成员校验记因，非 dto JSON），run 不中断。
-///
-/// Default 档下同时成立「成员校验先于 policy」：两 archi 名在只读面本可放行，
-/// 记因仍为 `tool_unavailable`（次序若反则得 `permission_denied`）。
 #[tokio::test]
 async fn 矩阵外相位调用archi工具被成员校验拒绝且零执行() {
     for tool in [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL] {
@@ -4546,7 +4530,7 @@ async fn archi面档位两工具放行写面按档判() {
                 "tu_write",
                 "write",
                 serde_json::json!({
-                    "path": "openspec/architecture/models/99-denied.toml",
+                    "path": ".dev-team/architecture/models/99-denied.toml",
                     "content": "[element.\"Denied\"]\nkind = \"module\"\n",
                 }),
             ),
@@ -4581,7 +4565,7 @@ async fn archi面档位两工具放行写面按档判() {
     assert!(write_result.2, "default 档写面被拒（is_error 回灌）");
     assert!(
         !dir.path()
-            .join("openspec/architecture/models/99-denied.toml")
+            .join(".dev-team/architecture/models/99-denied.toml")
             .exists(),
         "被拒写面零落盘"
     );
@@ -4597,7 +4581,7 @@ async fn archi面档位两工具放行写面按档判() {
                     "tu_write",
                     "write",
                     serde_json::json!({
-                        "path": "openspec/architecture/models/98-allowed.toml",
+                        "path": ".dev-team/architecture/models/98-allowed.toml",
                         "content": "[element.\"Allowed\"]\nkind = \"module\"\n",
                     }),
                 ),
@@ -4622,16 +4606,13 @@ async fn archi面档位两工具放行写面按档判() {
         assert!(!results[0].2, "{mode:?} 档：写面放行（is_error = false）");
         assert!(
             dir.path()
-                .join("openspec/architecture/models/98-allowed.toml")
+                .join(".dev-team/architecture/models/98-allowed.toml")
                 .exists(),
             "{mode:?} 档：文件落盘"
         );
     }
 }
 
-/// 正向（AC-7）：archi 面（`tools = None`）在 `bypassPermissions` 档直改主仓——
-/// `write` 新建 `<archi_dir>/models/09-x.toml`、`edit` 改既有 `gate` 行 → 工具结果
-/// `is_error = false`、文件落盘、写入保护零命中；随后 `archi_module` 读到改动。
 #[tokio::test]
 async fn archi面write新建与edit改gate行落盘且保护零拦截() {
     let dir = archi_fixture("archi-face-write-path");
@@ -4641,7 +4622,7 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
                 "tu_new",
                 "write",
                 serde_json::json!({
-                    "path": "openspec/architecture/models/09-x.toml",
+                    "path": ".dev-team/architecture/models/09-x.toml",
                     "content": "[element.\"App.Auth.Token\"]\nkind = \"component\"\n",
                 }),
             ),
@@ -4649,7 +4630,7 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
                 "tu_edit",
                 "edit",
                 serde_json::json!({
-                    "path": "openspec/architecture/models/01-core.toml",
+                    "path": ".dev-team/architecture/models/01-core.toml",
                     "old_string": "gate = \"strict\"",
                     "new_string": "gate = \"warn\"",
                 }),
@@ -4681,10 +4662,10 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
     for (id, _, is_error) in &results {
         assert!(!*is_error, "{id}: 写面 / 读面均 is_error = false");
     }
-    let created = dir.path().join("openspec/architecture/models/09-x.toml");
+    let created = dir.path().join(".dev-team/architecture/models/09-x.toml");
     assert!(created.exists(), "write 新建文件落盘");
     let edited =
-        std::fs::read_to_string(dir.path().join("openspec/architecture/models/01-core.toml"))
+        std::fs::read_to_string(dir.path().join(".dev-team/architecture/models/01-core.toml"))
             .expect("读既有模型文件");
     assert!(
         edited.contains("gate = \"warn\"") && !edited.contains("gate = \"strict\""),
@@ -4704,9 +4685,6 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
     turn_done_of(&events);
 }
 
-/// 异常（AC-8）：写入坏模型（非法 TOML）后调 `archi_module` → 工具结果
-/// `is_error = true` 且文案含 `file:line` 结构化诊断；写入本身零 `Err`（无写前
-/// 校验插口）；run 不中断（后续续轮正常收敛）。
 #[tokio::test]
 async fn archi面写坏模型读面is_error带file_line且run不中断() {
     let dir = archi_fixture("archi-face-broken");
@@ -4716,7 +4694,7 @@ async fn archi面写坏模型读面is_error带file_line且run不中断() {
                 "tu_bad",
                 "write",
                 serde_json::json!({
-                    "path": "openspec/architecture/models/02-bad.toml",
+                    "path": ".dev-team/architecture/models/02-bad.toml",
                     "content": "[element.\"Broken\"\nkind = \"module\"\n",
                 }),
             ),
@@ -4742,7 +4720,7 @@ async fn archi面写坏模型读面is_error带file_line且run不中断() {
     assert!(!written.2, "写入本身零 Err（无新增写前校验插口）");
     assert!(
         dir.path()
-            .join("openspec/architecture/models/02-bad.toml")
+            .join(".dev-team/architecture/models/02-bad.toml")
             .exists(),
         "坏模型照常落盘（写入面不校验）"
     );

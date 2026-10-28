@@ -2201,7 +2201,7 @@ async fn 非archi会话零archi工具面且两专用上下文不串道() {
 // 锚定：换 root 即换模型内容，root 传错即红。
 // ---------------------------------------------------------------------------
 
-/// 落一个模型文件（`openspec/architecture/models/`，路径经 `foundation::layout`）。
+/// 落一个模型文件（`.dev-team/architecture/models/`，路径经 `foundation::layout`）。
 fn archi_write_model(root: &Path, name: &str, content: &str) {
     let dir = foundation::layout::archi_models_dir(root);
     std::fs::create_dir_all(&dir).expect("创建模型目录失败");
@@ -2228,10 +2228,6 @@ const ARCHI_ROOT_B: &str = concat!(
     "kind = \"module\"\n",
 );
 
-/// per-turn 铸造（正向，表驱动 2 组合 × 2 root）：`toolset = Some(Archi
-/// { module, search })` 的会话必铸 `LoopTurn.archi = Some(ctx)`；`ctx` 的读面只
-/// 取 `open.ctx.workspace_root`（会话 cwd）下的模型——两个 root 各一套元素，结果
-/// 逐字段随之切换（root 传错即红）。
 #[tokio::test]
 async fn per_turn铸造archi上下文按toolset且root取会话根() {
     for (module, search) in [(true, true), (true, false)] {
@@ -2273,8 +2269,6 @@ async fn per_turn铸造archi上下文按toolset且root取会话根() {
     }
 }
 
-/// per-turn 铸造（边界，两形态）：`toolset = None` / `Some(Explore)` → 不铸
-/// （`LoopTurn.archi = None` 的行为面），即便 root 下模型齐备。
 #[test]
 fn 非archi会话不铸archi上下文() {
     let dir = workspace_root("mint-none");

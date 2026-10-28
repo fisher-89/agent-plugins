@@ -8,7 +8,7 @@
 
 ### Requirement: 基线落位与模型文件划分
 
-架构模型基线 SHALL 落位 `<archi_dir>/models/`（架构域根经 `foundation::layout::archi_dir` 派生，本期落点 `openspec/architecture/models/`），MUST NOT 落到 `src/`、`docs/`、`openspec/specs/` 或任何其它位置。
+架构模型基线 SHALL 落位 `<archi_dir>/models/`（架构域根经 `foundation::layout::archi_dir` 派生，本期落点 `.dev-team/architecture/models/`），MUST NOT 落到 `src/`、`docs/`、`openspec/specs/` 或任何其它位置。
 
 模型 SHALL 划分为**六个**文件，文件名形如 `NN-<域>.toml`，字典序即聚合序，每个元素与每条关系 SHALL 恰在一处声明（跨文件或同文件重复即 `duplicateElement`）：
 
@@ -219,12 +219,12 @@
 #### Scenario: 关键词检索同时命中元素与裁定记录
 
 - **WHEN** 以 `query = "archi"`、`scope = all` 调用 `archi_search`
-- **THEN** `elements` 含 `App.Backend.Core.Archi`（`kind = module`、`gate = off`、`summary` 非空）与 `App.Frontend.Views.Architecture`；`docs` 含 `openspec/architecture/decisions/0001-model-granularity.md`（`kind = adr`、`source = text`、恰四字段且不含正文）
+- **THEN** `elements` 含 `App.Backend.Core.Archi`（`kind = module`、`gate = off`、`summary` 非空）与 `App.Frontend.Views.Architecture`；`docs` 含 `.dev-team/architecture/decisions/0001-model-granularity.md`（`kind = adr`、`source = text`、恰四字段且不含正文）
 
 #### Scenario: 单元素详情给出一跳邻域与定位字段
 
 - **WHEN** 调用 `archi_module(element = "App.Backend.Core.Archi")`
-- **THEN** `dependsOn` 恰一条 `App.Backend.Core.Foundation`，`dependedBy` 含 `App.Backend.Infra.AgentRuntime` 与 `App.Backend.Shell`，`children` 为空，`warnings` 为空；`element.modelFile` = `openspec/architecture/models/02-backend-core.toml` 且 `modelLine` 指向该元素表头行
+- **THEN** `dependsOn` 恰一条 `App.Backend.Core.Foundation`，`dependedBy` 含 `App.Backend.Infra.AgentRuntime` 与 `App.Backend.Shell`，`children` 为空，`warnings` 为空；`element.modelFile` = `.dev-team/architecture/models/02-backend-core.toml` 且 `modelLine` 指向该元素表头行
 
 ### Requirement: 覆盖判据的机械核对与漂移纪律
 
@@ -258,13 +258,13 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `openspec/architecture/models/01-app.toml` | 包根与域容器 | `App`（`package`，`docs` 指 `./README.md` / `./AGENT.md`）、`App.Backend`、`App.Frontend`；零关系 |
-| `openspec/architecture/models/02-backend-core.toml` | core 引擎侧分层 | `App.Backend.Core` 容器 + 7 crate 元素；9 条 core 内边（`foundation` 与 `agent` 无出边，其余 core crate 只向内依赖） |
-| `openspec/architecture/models/03-backend-infra.toml` | infra 适配侧分层 | `App.Backend.Infra` 容器 + 6 crate 元素；21 条边（infra → core 为主，含 `store → workflow` 跨界边） |
-| `openspec/architecture/models/04-backend-shell.toml` | Tauri 壳 | `App.Backend.Shell`（`path` = `src-tauri/src/`）+ 12 条装配出边（壳是唯一全依赖汇聚点） |
-| `openspec/architecture/models/05-backend-tools.toml` | 构建工具 crate | `App.Backend.Tools` 容器 + `ExportBindings`；唯一反向边 `ExportBindings → App.Backend.Shell`（导出 bindings 需依赖壳包） |
-| `openspec/architecture/models/06-frontend.toml` | 前端视图与组件层 | 28 元素 = **4 容器**（`Views` / `Components` / `Components.Agent` / `Components.Standard`）+ 24 叶（`Shell` / 9 视图 / 3 子域 / 10 共享组件 / `Ui`；`App.Frontend` 在 `01`）+ **64 条 import 边**（22 个源；`Ui` 恒为被依赖方，`Components.Agent` 的 2 出 / 4 入共 6 条 barrel 端点边） |
-| `openspec/architecture/decisions/0001-model-granularity.md` | 粒度与口径裁定 | 六条裁定：三档粒度、容器 `path` 恒空（barrel 例外）、dev 边排除、`components/ui` 收敛、`gate` 全 `off`、封闭排除面；正文引用元素 FQN ⇒ 经 `decisions/*.md` 文本源被自动关联 |
+| `.dev-team/architecture/models/01-app.toml` | 包根与域容器 | `App`（`package`，`docs` 指 `./README.md` / `./AGENT.md`）、`App.Backend`、`App.Frontend`；零关系 |
+| `.dev-team/architecture/models/02-backend-core.toml` | core 引擎侧分层 | `App.Backend.Core` 容器 + 7 crate 元素；9 条 core 内边（`foundation` 与 `agent` 无出边，其余 core crate 只向内依赖） |
+| `.dev-team/architecture/models/03-backend-infra.toml` | infra 适配侧分层 | `App.Backend.Infra` 容器 + 6 crate 元素；21 条边（infra → core 为主，含 `store → workflow` 跨界边） |
+| `.dev-team/architecture/models/04-backend-shell.toml` | Tauri 壳 | `App.Backend.Shell`（`path` = `src-tauri/src/`）+ 12 条装配出边（壳是唯一全依赖汇聚点） |
+| `.dev-team/architecture/models/05-backend-tools.toml` | 构建工具 crate | `App.Backend.Tools` 容器 + `ExportBindings`；唯一反向边 `ExportBindings → App.Backend.Shell`（导出 bindings 需依赖壳包） |
+| `.dev-team/architecture/models/06-frontend.toml` | 前端视图与组件层 | 28 元素 = **4 容器**（`Views` / `Components` / `Components.Agent` / `Components.Standard`）+ 24 叶（`Shell` / 9 视图 / 3 子域 / 10 共享组件 / `Ui`；`App.Frontend` 在 `01`）+ **64 条 import 边**（22 个源；`Ui` 恒为被依赖方，`Components.Agent` 的 2 出 / 4 入共 6 条 barrel 端点边） |
+| `.dev-team/architecture/decisions/0001-model-granularity.md` | 粒度与口径裁定 | 六条裁定：三档粒度、容器 `path` 恒空（barrel 例外）、dev 边排除、`components/ui` 收敛、`gate` 全 `off`、封闭排除面；正文引用元素 FQN ⇒ 经 `decisions/*.md` 文本源被自动关联 |
 | `openspec/changes/**/reports/**`（本 change 内） | 核对留痕 | 双向覆盖差集、后端边逐条比对、前端边 import 证据清单三份结果 |
 | `crates/core/archi/**`（**零改动**） | 模型读面 | 只被使用：`parse_dir` 聚合、`ModelGraph` 校验、`dto` 投影；MUST NOT 因本变更新增字段 / 变体 / 语料 case |
 | `src/views/architecture/**`（**零改动**） | 画布 | 只被使用：`/architecture` 从空态转正常态渲染 49 节点 / 107 边 |

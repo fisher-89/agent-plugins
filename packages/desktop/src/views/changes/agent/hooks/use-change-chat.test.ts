@@ -1,16 +1,16 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import { driftCount, driftReports, resetDrift } from '../../../../lib/ipc-drift';
 import type { SessionPanelState } from '@/components/agent';
-
+import { driftCount, driftReports, resetDrift } from '@/lib/ipc-drift';
 import type {
   AgentEvent,
   AgentPermissionMode,
   SessionPage,
   SessionSummary,
   TurnSummary,
-} from '../../../../types/dto';
+} from '@/types/dto';
+
 import { useChangeChat, type ChangeChatParams } from './use-change-chat';
 
 // ---------------------------------------------------------------------------

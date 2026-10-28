@@ -716,7 +716,7 @@ describe('RunControlPanel：架构变更区块（归档确认面）', () => {
               {
                 kind: 'cycle',
                 message: '依赖成环：App.A -> App.B -> App.A',
-                file: 'openspec/architecture/models/01-core.toml',
+                file: '.dev-team/architecture/models/01-core.toml',
                 line: 12,
                 column: 1,
               },
@@ -731,7 +731,7 @@ describe('RunControlPanel：架构变更区块（归档确认面）', () => {
     await waitFor(() => expect(screen.getAllByTestId('run-archi-error').length).toBeGreaterThan(0));
     const rows = screen.getAllByTestId('run-archi-error');
     expect(rows[0]?.textContent).toContain('cycle');
-    expect(rows[0]?.textContent).toContain('openspec/architecture/models/01-core.toml:12');
+    expect(rows[0]?.textContent).toContain('.dev-team/architecture/models/01-core.toml:12');
     // 引导行与诊断行同区块（同一 flex 容器的末行，非 `run-archi-error` 行）
     expect(screen.getByText(/修复后再归档/)).toBeDefined();
     expect(rows).toHaveLength(1);

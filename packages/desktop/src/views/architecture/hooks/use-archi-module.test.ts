@@ -26,7 +26,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
       path: ['./src/auth/'],
       summary: '认证域',
       metadata: { owner: 'core' },
-      modelFile: 'openspec/architecture/models/01-core.toml',
+      modelFile: '.dev-team/architecture/models/01-core.toml',
       modelLine: 6,
       mark: 'none',
     },
@@ -41,7 +41,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
         source: 'explicit',
       },
       {
-        path: 'openspec/architecture/decisions/0007-token-sink.md',
+        path: '.dev-team/architecture/decisions/0007-token-sink.md',
         title: '令牌收口',
         kind: 'adr',
         source: 'text',
@@ -274,13 +274,13 @@ describe('useArchiDoc 按需取正文', () => {
     expect(result.current.body).toBeNull();
     expect(callsOf('archi_read_doc')).toHaveLength(0);
 
-    act(() => result.current.load('openspec/architecture/decisions/0007-token-sink.md'));
+    act(() => result.current.load('.dev-team/architecture/decisions/0007-token-sink.md'));
     await waitFor(() => expect(result.current.body).not.toBeNull());
     expect(result.current.body).toContain('令牌收口');
     expect(callsOf('archi_read_doc')).toEqual([
       {
         root: 'C:\\demo\\alpha',
-        path: 'openspec/architecture/decisions/0007-token-sink.md',
+        path: '.dev-team/architecture/decisions/0007-token-sink.md',
       },
     ]);
   });

@@ -27,7 +27,7 @@ function element(overrides: Partial<ArchiElement> = {}): ArchiElement {
     path: ['./src/auth/', './src/token/'],
     summary: '认证域',
     metadata: { owner: 'core' },
-    modelFile: 'openspec/architecture/models/01-core.toml',
+    modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 6,
     mark: 'none',
     ...overrides,
@@ -61,7 +61,7 @@ function docsFixture() {
       source: 'adjacent' as const,
     },
     {
-      path: 'openspec/architecture/decisions/0007-token-sink.md',
+      path: '.dev-team/architecture/decisions/0007-token-sink.md',
       title: '令牌收口',
       kind: 'adr' as const,
       source: 'text' as const,
@@ -120,7 +120,7 @@ describe('抽屉概览', () => {
     expect(drawer.textContent).toContain('kind domain · gate strict');
     expect(drawer.textContent).toContain('path ./src/auth/、./src/token/');
     expect(screen.getByTestId('archi-drawer-position').textContent).toBe(
-      'openspec/architecture/models/01-core.toml:6',
+      '.dev-team/architecture/models/01-core.toml:6',
     );
     expect(drawer.textContent).toContain('认证域');
   });
@@ -137,7 +137,7 @@ describe('抽屉概览', () => {
     );
     await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
     expect(screen.getByTestId('archi-drawer-position').textContent).toBe(
-      'openspec/architecture/models/01-core.toml',
+      '.dev-team/architecture/models/01-core.toml',
     );
   });
 
@@ -217,13 +217,13 @@ describe('文档关联段', () => {
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
     expect(callsOf('archi_read_doc')).toHaveLength(0);
 
-    const adrButton = screen.getByTitle('openspec/architecture/decisions/0007-token-sink.md');
+    const adrButton = screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md');
     fireEvent.click(adrButton);
     await waitFor(() => expect(screen.getByTestId('archi-adr-body')).toBeTruthy());
     expect(callsOf('archi_read_doc')).toEqual([
       {
         root: 'C:\\demo\\alpha',
-        path: 'openspec/architecture/decisions/0007-token-sink.md',
+        path: '.dev-team/architecture/decisions/0007-token-sink.md',
       },
     ]);
     const body = screen.getByTestId('archi-adr-body');
@@ -258,7 +258,7 @@ describe('文档关联段', () => {
       />,
     );
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    fireEvent.click(screen.getByTitle('openspec/architecture/decisions/0007-token-sink.md'));
+    fireEvent.click(screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md'));
     await waitFor(() => expect(screen.getByTestId('archi-doc-error')).toBeTruthy());
     expect(screen.getByTestId('archi-doc-error').textContent).toContain('路径不在模块文档关联集内');
     expect(screen.getByTestId('archi-drawer')).toBeTruthy();
@@ -419,7 +419,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
     );
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
 
-    fireEvent.click(screen.getByTitle('openspec/architecture/decisions/0007-token-sink.md'));
+    fireEvent.click(screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md'));
     await waitFor(() => expect(screen.getByText('正文加载中…')).toBeTruthy());
     expect(screen.queryByTestId('archi-adr-body')).toBeNull();
     expect(screen.queryByTestId('archi-doc-error')).toBeNull();
@@ -554,7 +554,7 @@ describe('文档条目交互', () => {
     expect(screen.getByTitle('src/auth/guide.md').hasAttribute('disabled')).toBe(true);
     expect(
       screen
-        .getByTitle('openspec/architecture/decisions/0007-token-sink.md')
+        .getByTitle('.dev-team/architecture/decisions/0007-token-sink.md')
         .hasAttribute('disabled'),
     ).toBe(false);
   });
@@ -570,7 +570,7 @@ describe('文档条目交互', () => {
       />,
     );
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    const adr = screen.getByTitle('openspec/architecture/decisions/0007-token-sink.md');
+    const adr = screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md');
     fireEvent.click(adr);
     await waitFor(() => expect(screen.getByTestId('archi-adr-body')).toBeTruthy());
     fireEvent.click(adr);

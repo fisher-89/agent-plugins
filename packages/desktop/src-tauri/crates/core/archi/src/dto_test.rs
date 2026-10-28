@@ -183,7 +183,7 @@ fn graph_view健康模型稳定序与显式空值() {
     assert_eq!(auth.path, vec!["./src/auth/".to_owned()]);
     assert_eq!(auth.summary.as_deref(), Some("认证域"));
     assert_eq!(
-        auth.model_file, "openspec/architecture/models/01-core.toml",
+        auth.model_file, ".dev-team/architecture/models/01-core.toml",
         "modelFile 精确到文件"
     );
     assert_eq!(auth.model_line, line_at(CORE, "[element.\"App.Auth\"]"));
@@ -581,7 +581,7 @@ fn linked_doc_paths三源并集与边界() {
     assert_eq!(
         paths,
         vec![
-            "openspec/architecture/decisions/0001-auth.md",
+            ".dev-team/architecture/decisions/0001-auth.md",
             "src/auth/README.md",
             "src/auth/guide.md",
         ],
@@ -906,7 +906,7 @@ fn 缺省与可选字段显式线形() {
     let diagnostic = ArchiDiagnostic {
         kind: DiagnosticKind::MissingField,
         message: "缺字段".to_owned(),
-        file: "openspec/architecture/models/01.toml".to_owned(),
+        file: ".dev-team/architecture/models/01.toml".to_owned(),
         line: 0,
         column: None,
     };
@@ -925,7 +925,7 @@ fn 缺省与可选字段显式线形() {
         path: Vec::new(),
         summary: None,
         metadata: std::collections::BTreeMap::new(),
-        model_file: "openspec/architecture/models/01.toml".to_owned(),
+        model_file: ".dev-team/architecture/models/01.toml".to_owned(),
         model_line: 1,
         mark: NodeMark::None,
     };

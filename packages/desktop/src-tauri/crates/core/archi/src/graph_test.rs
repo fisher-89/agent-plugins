@@ -22,7 +22,7 @@ fn element(fqn: &str) -> Element {
         docs: Vec::new(),
         summary: None,
         metadata: BTreeMap::new(),
-        file: "openspec/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
         line: 1,
     }
 }
@@ -33,7 +33,7 @@ fn relation(from: &str, to: &str) -> Relation {
         from: from.to_owned(),
         to: to.to_owned(),
         description: None,
-        file: "openspec/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
         line: 20,
         span: None,
     }
@@ -296,7 +296,7 @@ fn 四类结构诊断逐类命中且不补建隐式祖先() {
         "含环路径: {}",
         cycle[0].message
     );
-    assert_eq!(cycle[0].file, "openspec/architecture/models/01-core.toml");
+    assert_eq!(cycle[0].file, ".dev-team/architecture/models/01-core.toml");
     assert_eq!(cycle[0].line, 1, "诊断位置取环上首元素声明位置");
 
     // 依赖祖先：App.Auth → App
@@ -335,7 +335,7 @@ fn 四类结构诊断逐类命中且不补建隐式祖先() {
         "指明孤儿元素: {}",
         orphan[0].message
     );
-    assert_eq!(orphan[0].file, "openspec/architecture/models/01-core.toml");
+    assert_eq!(orphan[0].file, ".dev-team/architecture/models/01-core.toml");
     assert_eq!(orphan[0].line, 1, "位置指向该元素声明");
     assert!(
         orphan_graph.model().element("App").is_none(),

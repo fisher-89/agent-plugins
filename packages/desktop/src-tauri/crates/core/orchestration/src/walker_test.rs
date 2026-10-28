@@ -13045,7 +13045,7 @@ async fn 归档模型冲突交人裁决零会话零abort() {
 
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
-            "openspec/architecture/models/02-auth.toml".to_owned(),
+            ".dev-team/architecture/models/02-auth.toml".to_owned(),
         ]))),
     );
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -13121,7 +13121,7 @@ async fn 归档混合冲突走模型臂不先解代码() {
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
             "src/auth/token.rs".to_owned(),
-            "openspec/architecture/models/01-core.toml".to_owned(),
+            ".dev-team/architecture/models/01-core.toml".to_owned(),
         ]))),
     );
     let (task, _rx, _history) = spawn_run_with_vcs(
@@ -13452,14 +13452,14 @@ async fn 归档preflight目录不在场不探测即放行() {
 }
 
 /// 模型冲突文案形态（边界，表驱动两形态）：分隔符形态（`\`）与祖先路径形态
-/// （`openspec/architecture`，无 tail 段）均命中模型臂——判据单点为
+/// （`.dev-team/architecture`，无 tail 段）均命中模型臂——判据单点为
 /// `is_archi_rel_path`（归一 + 段位判定），文案携 worktree 绝对路径 + 「冲突 1
 /// 个」+ 重跑引导，且整体 ≤200 字符。
 #[tokio::test]
 async fn 归档模型冲突文案命中分隔符与祖先路径两形态() {
     for conflict in [
-        r"openspec\architecture\models\02-auth.toml",
-        "openspec/architecture",
+        r".dev-team\architecture\models\02-auth.toml",
+        ".dev-team/architecture",
     ] {
         let root = TempRoot::new("archive-archi-conflict-form");
         root.change(NAME);
@@ -13555,9 +13555,9 @@ async fn 归档模型冲突多路径文案计数与前两样本() {
 
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
-            "openspec/architecture".to_owned(),
-            r"openspec\architecture\models\01-core.toml".to_owned(),
-            "openspec/architecture/models/03-billing.toml".to_owned(),
+            ".dev-team/architecture".to_owned(),
+            r".dev-team\architecture\models\01-core.toml".to_owned(),
+            ".dev-team/architecture/models/03-billing.toml".to_owned(),
         ]))),
     );
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -13589,11 +13589,11 @@ async fn 归档模型冲突多路径文案计数与前两样本() {
         "计数如实为 3（不因样本截取而失真）: {reason}"
     );
     assert!(
-        reason.contains("冲突 3 个（openspec/architecture、"),
+        reason.contains("冲突 3 个（.dev-team/architecture、"),
         "首条样本在场（样本以「、」连接）: {reason}"
     );
     assert!(
-        reason.contains(r"openspec\architecture\models\01-core.toml"),
+        reason.contains(r".dev-team\architecture\models\01-core.toml"),
         r"第二条样本原样在场（`\` 分隔符逐字保留）: {reason}"
     );
     assert!(

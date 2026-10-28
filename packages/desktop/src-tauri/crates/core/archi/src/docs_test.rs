@@ -76,7 +76,7 @@ fn element(fqn: &str) -> Element {
         docs: Vec::new(),
         summary: None,
         metadata: BTreeMap::new(),
-        file: "openspec/architecture/models/01-core.toml".to_owned(),
+        file: ".dev-team/architecture/models/01-core.toml".to_owned(),
         line: 1,
     }
 }
@@ -172,7 +172,7 @@ fn text命中决策记录返回adr形态() {
     let doc = &outcome.docs[0];
     assert_eq!(
         doc.path,
-        "openspec/architecture/decisions/0007-token-sink.md"
+        ".dev-team/architecture/decisions/0007-token-sink.md"
     );
     assert_eq!(doc.kind, DocKind::Adr, "决策记录目录内恒 adr");
     assert_eq!(doc.source, DocSource::Text);
@@ -207,7 +207,7 @@ fn 三源同时命中按强度排序且条目仅四字段() {
         vec![
             "src/auth/README.md",
             "src/auth/guide.md",
-            "openspec/architecture/decisions/0010-auth.md",
+            ".dev-team/architecture/decisions/0010-auth.md",
         ],
         "强度序内按路径字典序"
     );
@@ -285,7 +285,7 @@ fn 邻近扫描排除内置目录与架构域目录() {
     );
 
     // 架构域目录内的 md 不入（`is_archi_rel_path` 判定）
-    temp.write("openspec/architecture/models/notes.md", "# 模型备注\n");
+    temp.write(".dev-team/architecture/models/notes.md", "# 模型备注\n");
     temp.write("openspec/decisions-shaped/a.md", "# 域根下非架构域\n");
     let mut archi_scope = element("App.Auth");
     archi_scope.path = vec!["./openspec/".to_owned()];
@@ -525,7 +525,7 @@ fn all_docs并集去重且按路径字典序() {
     assert_eq!(
         paths(&outcome),
         vec![
-            "openspec/architecture/decisions/0011-auth.md",
+            ".dev-team/architecture/decisions/0011-auth.md",
             "shared/COMMON.md",
             "src/auth/README.md",
             "src/billing/README.md",
@@ -566,9 +566,9 @@ fn all_docs空模型与大模型边界() {
     assert_eq!(
         paths(&outcome),
         vec![
-            "openspec/architecture/decisions/000-adr.md",
-            "openspec/architecture/decisions/001-adr.md",
-            "openspec/architecture/decisions/002-adr.md",
+            ".dev-team/architecture/decisions/000-adr.md",
+            ".dev-team/architecture/decisions/001-adr.md",
+            ".dev-team/architecture/decisions/002-adr.md",
             "src/auth/README.md",
         ],
         "200 元素 × 4 来源重复命中后去重为 4 条"

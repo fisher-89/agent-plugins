@@ -1,10 +1,3 @@
-//! 多文件聚合：`<架构域>/models/*.toml` 按文件名字典序读取并合并为一个
-//! [`Model`]，声明位置（`modelFile` / `modelLine`）由解析器 span 回填。
-//!
-//! 聚合层职责（格式无关）：目录遍历、字典序、跨文件重复 FQN 检出、文件相对
-//! 路径回填、读盘失败落结构化诊断。单文件解析经 [`SourceParser`] 抽象——换格式
-//! 只动 `parse/` 内的实现文件。
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

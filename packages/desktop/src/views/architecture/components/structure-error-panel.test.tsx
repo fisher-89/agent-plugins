@@ -19,7 +19,7 @@ function diagnostic(
   return {
     kind,
     message,
-    file: 'openspec/architecture/models/01-core.toml',
+    file: '.dev-team/architecture/models/01-core.toml',
     line,
     column,
   };
@@ -50,7 +50,7 @@ describe('停摆面板诊断呈现', () => {
     expect(rows).toHaveLength(3);
     expect(textOf(rows[0] as HTMLElement)).toContain('cycle');
     expect(textOf(rows[0] as HTMLElement)).toContain(
-      'openspec/architecture/models/01-core.toml:12',
+      '.dev-team/architecture/models/01-core.toml:12',
     );
     expect(textOf(rows[0] as HTMLElement)).toContain('依赖成环：App.A -> App.B -> App.A');
     expect(textOf(rows[1] as HTMLElement)).toContain('unknownReference');
@@ -74,7 +74,7 @@ describe('停摆面板诊断呈现', () => {
       />,
     );
     const rows = screen.getAllByTestId('archi-error-row');
-    expect(textOf(rows[0] as HTMLElement)).toContain('openspec/architecture/models/01-core.toml');
+    expect(textOf(rows[0] as HTMLElement)).toContain('.dev-team/architecture/models/01-core.toml');
     expect(textOf(rows[0] as HTMLElement)).not.toContain(':0');
     expect(textOf(rows[1] as HTMLElement)).toContain(':4');
     expect(textOf(rows[2] as HTMLElement)).toContain(':7');

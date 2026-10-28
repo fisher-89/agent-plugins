@@ -1,13 +1,3 @@
-//! 三面共用投影：封闭词汇枚举 + `Archi*` / `DocRef` DTO + 六个投影入口。
-//!
-//! 词汇单点：`ElementKind` / `GateTier` / `DiagnosticKind` / `WarningKind` /
-//! `DocKind` / `DocSource` / `EdgeMark` / `NodeMark` / `SearchScope` 只在本文件
-//! 定义（解析层与线面共用，`model.rs` 反向引用——不存在第二份枚举）。
-//!
-//! 投影纪律（零改写）：只做裁剪（1-hop 邻域 / 字段子集），MUST NOT 重算、MUST
-//! NOT 推导、MUST NOT 补默认值；可选字段显式出 `null`（不省字段）。图只在本
-//! 文件的 [`load`] 建一次（单点构建），命令层与 agent 工具执行体同源消费。
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 

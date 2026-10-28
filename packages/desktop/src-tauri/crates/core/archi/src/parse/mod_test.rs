@@ -48,14 +48,14 @@ impl Drop for TempDir {
     }
 }
 
-/// 在 `<root>/openspec/architecture/models/` 下落一个模型文件。
+/// 在 `<root>/.dev-team/architecture/models/` 下落一个模型文件。
 fn write_model(root: &Path, name: &str, content: &str) {
     let dir = archi_models_dir(root);
     fs::create_dir_all(&dir).expect("创建模型目录失败");
     fs::write(dir.join(name), content).expect("写模型文件失败");
 }
 
-/// 在 `<root>/openspec/architecture/models/` 下落一个非 UTF-8 文件（读盘失败面）。
+/// 在 `<root>/.dev-team/architecture/models/` 下落一个非 UTF-8 文件（读盘失败面）。
 fn write_broken_model(root: &Path, name: &str) {
     let dir = archi_models_dir(root);
     fs::create_dir_all(&dir).expect("创建模型目录失败");
@@ -137,7 +137,7 @@ fn 聚合回填文件相对路径与表头行号() {
     let outcome = parse_dir(temp.root());
     let app = outcome.model.element("App").expect("App 在模型内");
     assert_eq!(
-        app.file, "openspec/architecture/models/01-core.toml",
+        app.file, ".dev-team/architecture/models/01-core.toml",
         "file 为 repo 相对路径且 / 分隔"
     );
     assert_eq!(
@@ -151,7 +151,7 @@ fn 聚合回填文件相对路径与表头行号() {
         .element("App.Auth.Token")
         .expect("子元素在模型内");
     assert_eq!(
-        token.file, "openspec/architecture/models/02-auth.toml",
+        token.file, ".dev-team/architecture/models/02-auth.toml",
         "跨文件回填指向各自文件"
     );
     assert_eq!(
@@ -159,7 +159,7 @@ fn 聚合回填文件相对路径与表头行号() {
         line_at(AUTH_SOURCE, "[element.\"App.Auth.Token\"]")
     );
     assert_eq!(
-        outcome.model.relations[0].file, "openspec/architecture/models/02-auth.toml",
+        outcome.model.relations[0].file, ".dev-team/architecture/models/02-auth.toml",
         "关系 file 亦回填"
     );
     assert_eq!(
@@ -208,7 +208,7 @@ fn 聚合序按字节字典序而非数字序() {
             .unwrap_or_else(|| panic!("{name} 应有对应元素"));
         assert_eq!(
             element.file,
-            format!("openspec/architecture/models/{name}"),
+            format!(".dev-team/architecture/models/{name}"),
             "各文件 file 指向自身"
         );
     }
@@ -232,7 +232,7 @@ fn 跨文件重复fqn诊断为一条且指向靠后者() {
     let diagnostic = &outcome.diagnostics[0];
     assert_eq!(diagnostic.kind, DiagnosticKind::DuplicateElement);
     assert_eq!(
-        diagnostic.file, "openspec/architecture/models/03-billing.toml",
+        diagnostic.file, ".dev-team/architecture/models/03-billing.toml",
         "file 指字典序靠后者"
     );
     assert_eq!(
@@ -274,8 +274,8 @@ fn 跨文件三处重复fqn产两条诊断() {
     assert_eq!(
         files,
         vec![
-            "openspec/architecture/models/02-auth.toml",
-            "openspec/architecture/models/03-billing.toml"
+            ".dev-team/architecture/models/02-auth.toml",
+            ".dev-team/architecture/models/03-billing.toml"
         ],
         "file 分别指向第二 / 第三个文件（字典序）"
     );
@@ -300,7 +300,7 @@ fn 读盘失败落_syntax_error_且其余文件照常解析() {
         diagnostic.message
     );
     assert_eq!(
-        diagnostic.file, "openspec/architecture/models/02-auth.toml",
+        diagnostic.file, ".dev-team/architecture/models/02-auth.toml",
         "file 回填到失败文件"
     );
     assert_eq!(diagnostic.line, 0, "读取失败无位置（line 0）");
@@ -499,13 +499,13 @@ fn 特殊字符文件名逐字保留且不panic() {
     assert_eq!(outcome.diagnostics.len(), 2);
     for diagnostic in &outcome.diagnostics {
         assert!(
-            diagnostic.file.starts_with("openspec/architecture/models/"),
+            diagnostic.file.starts_with(".dev-team/architecture/models/"),
             "目录段由派生函数给出: {}",
             diagnostic.file
         );
         let name = diagnostic
             .file
-            .trim_start_matches("openspec/architecture/models/");
+            .trim_start_matches(".dev-team/architecture/models/");
         assert!(
             ["架构 模型.toml", "🚀模型.toml", "with space.toml"].contains(&name),
             "文件名逐字保留（含 UTF-8 / 空格）: {name}"

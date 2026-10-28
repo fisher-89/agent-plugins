@@ -1,4 +1,12 @@
-import { ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps } from '@xyflow/react';
+import {
+  Handle,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react';
 import { useMemo, useState } from 'react';
 
 import '@xyflow/react/dist/style.css';
@@ -15,6 +23,9 @@ import { StructureErrorPanel } from './structure-error-panel';
 const STEP_X = 240;
 const STEP_Y = 96;
 
+/** 初视口适配全图：留边距，单节点不过度放大。 */
+const FIT_VIEW_OPTIONS = { padding: 0.2, minZoom: 0.2, maxZoom: 1 };
+
 export interface ArchitectureCanvasProps {
   /** 观察根（`null` = 壳态无根：不发起取数） */
   root: string | null;
@@ -26,13 +37,30 @@ type ArchiNodeData = { label: string; mark: string };
 
 type ArchiFlowNode = Node<ArchiNodeData, 'archi'>;
 
+/** 隐形把手（连线锚点：入边左 / 出边右）；xyflow 无把手即不求边位置，边不入 DOM。 */
+function NodeHandles(): React.JSX.Element {
+  const hiddenFloating = { width: '100%', height: '100%', top: 0, left: 0, opacity: 0 };
+  return (
+    <>
+      <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenFloating} />
+      <Handle
+        type="source"
+        position={Position.Right}
+        isConnectable={false}
+        style={hiddenFloating}
+      />
+    </>
+  );
+}
+
 /** 节点视图（本文件内局部组件——不为单节点单建文件）。 */
 function ArchiNodeView({ data }: NodeProps<ArchiFlowNode>): React.JSX.Element {
   return (
     <div
-      className="rounded-md border border-border bg-card px-2 py-1 text-[11px]"
+      className="relative rounded-md border border-border bg-card px-2 py-1 text-[11px]"
       data-testid="archi-canvas-node"
     >
+      <NodeHandles />
       <span>{nodeDot(data.mark)} </span>
       <span>{data.label}</span>
     </div>
@@ -123,8 +151,6 @@ function toEdges(graph: ArchiGraph, focus: string): Edge[] {
           stroke: visual.stroke,
           strokeDasharray: visual.dasharray ?? undefined,
         },
-        label: relation.description ?? undefined,
-        labelStyle: { fill: 'var(--muted-foreground)', fontSize: 10 },
       };
     });
 }
@@ -174,7 +200,8 @@ function CanvasBody({
           onNodeClick={(_event, node) => setFocusOverride(node.id)}
           nodesDraggable={false}
           nodesConnectable={false}
-          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          fitView
+          fitViewOptions={FIT_VIEW_OPTIONS}
           zoomOnScroll={false}
           zoomOnDoubleClick={false}
           panOnScroll
