@@ -1,4 +1,4 @@
-import type { WorkspaceConfig } from '../../../types/generated/bindings';
+import type { ProjectConfig, WorkspaceConfig } from '../../../types/generated/bindings';
 
 /** 弱化标注：字段未设、吃默认值（defaultedPaths 对位时出现，与文件显式设值可分） */
 function DefaultedMark({ value }: { value: string }): React.JSX.Element {
@@ -58,10 +58,30 @@ function RulesGroup({
   );
 }
 
+/** projects 子组：项目根列表（空数组呈「（空列表）」；重复 root 允许，index 作 key） */
+function ProjectsGroup({ items }: { items: ProjectConfig[] }): React.JSX.Element {
+  return (
+    <div className="flex items-baseline gap-3 py-0.5" data-testid="config-projects">
+      <span className="w-28 shrink-0 font-mono text-xs text-muted-foreground">projects</span>
+      {items.length === 0 ? (
+        <span className="text-muted-foreground">（空列表）</span>
+      ) : (
+        <ul className="m-0 min-w-0 list-disc pl-5">
+          {items.map((project, index) => (
+            <li key={index} className="break-all">
+              {project.root}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /**
- * 基础配置分区：$schema / schema / context / static_analysis / rules（proposal /
- * tasks 列表逐项）；schema 等吃默认字段按 defaultedPaths 对位标注「未设（默认
- * N）」，与文件显式设值形态可区分。
+ * 基础配置分区：$schema / schema / context / static_analysis / projects / rules
+ *（proposal / tasks 列表逐项）；schema 等吃默认字段按 defaultedPaths 对位标注
+ *「未设（默认 N）」，与文件显式设值形态可区分。
  */
 export function BasicConfigSection({
   config,
@@ -80,6 +100,7 @@ export function BasicConfigSection({
       <FieldRow defaulted={defaultedPaths.has('schema')} label="schema" value={config.schema} />
       <FieldRow defaulted={false} label="context" value={config.context} />
       <FieldRow defaulted={false} label="static_analysis" value={config.staticAnalysis} />
+      <ProjectsGroup items={config.projects} />
       {config.rules === null ? (
         <FieldRow defaulted={false} label="rules" value={null} />
       ) : (

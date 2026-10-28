@@ -75,7 +75,7 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 #### Scenario: 上限硬编码不进配置
 
 - **WHEN** 审查 `config.json` schema 与写面常量面
-- **THEN** 上限 5 与门槛 7（= 5 + 2 派生）为源码常量单点，`config.json` 零新增键、config schema 零新条目
+- **THEN** 上限 5 与门槛 7（= 5 + 2 派生）为源码常量单点，`config.json` / config schema 中不存在承载上限的键（`projects` 键只承载依赖引导项目根，见 desktop-change-worktree，不承载上限）
 
 ### Requirement: 名称与入参校验
 

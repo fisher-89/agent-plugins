@@ -90,22 +90,53 @@ change run SHALL 以双 root 组合执行：
 
 ### Requirement: 确定性依赖 bootstrap
 
-写面 `create` SHALL 在 worktree 就绪后执行确定性依赖引导：探测 worktree 内 lockfile（已知管理器映射：pnpm-lock.yaml / package-lock.json / yarn.lock / Cargo.lock 等，映射表由 design 定稿）→ 命中则在 worktree 内 spawn 对应安装命令（经 vcs 边界 port）；未知管理器或无 lockfile → 跳过并在警告面注记。bootstrap 失败 SHALL NOT 回滚 create（建档与 worktree 保留），失败信息 SHALL 立即呈现于 create 产出警告清单（static-check / test-execution 为确定性步骤无 agent 救场，后续大声失败兜底）。
+写面 `create` SHALL 在 worktree 就绪后执行确定性依赖引导，按 workspace 配置的 `projects` 分两种模式：
+
+- **未配置项目根**（`projects` 缺失 / 空数组）：探测 **worktree 根**的 lockfile（已知管理器映射：pnpm-lock.yaml / package-lock.json / yarn.lock / Cargo.lock 等，映射表由 design 定稿）→ 首匹配命中则在 worktree 根 spawn 对应安装命令（经 vcs 边界 port）；未知管理器或无 lockfile → 跳过并在警告面注记。
+- **配置了项目根**（`projects` 非空）：按配置顺序逐个解析 `<worktree>/<root>`（`root` 为相对 worktree 根的项目目录，`.` 等价 worktree 根），每个项目独立探测同一张映射表，首匹配命中即在该项目目录 spawn 安装（cwd = 项目目录）；每个项目至多一次安装，多个项目可各自安装。项目目录不存在 / 无已知 lockfile / 安装失败均在该项目的警告注记（文案含项目根）并继续后续项目；MUST NOT 回退扫描 worktree 根。
+- 配置文件 SHALL 从**主 workspace root** 读取（create 时刻的当前配置，含未提交改动）；worktree 内配置副本仍停在 base commit。项目根仅承载扫描 / 安装锚点，MUST NOT 承载依赖引导之外的语义。
+
+bootstrap 失败 SHALL NOT 回滚 create（建档与 worktree 保留），失败信息 SHALL 立即呈现于 create 产出警告清单（static-check / test-execution 为确定性步骤无 agent 救场，后续大声失败兜底）。
 
 #### Scenario: lockfile 命中执行安装
 
-- **WHEN** worktree 检出含 `pnpm-lock.yaml` 的仓库
-- **THEN** create 在 worktree 内 spawn 对应安装命令（cwd = worktree），成功后无相关警告
+- **WHEN** 未配置 `projects` 且 worktree 检出含 `pnpm-lock.yaml` 的仓库
+- **THEN** create 在 worktree 根 spawn 对应安装命令（cwd = worktree 根），成功后无相关警告
 
 #### Scenario: 未知管理器跳过注记
 
-- **WHEN** worktree 内无任何已知管理器 lockfile
+- **WHEN** 未配置 `projects` 且 worktree 根无任何已知管理器 lockfile
 - **THEN** bootstrap 跳过 spawn，警告清单注记「未识别依赖管理器，跳过依赖引导」
 
 #### Scenario: 失败不回滚
 
-- **WHEN** 安装命令非零退出
+- **WHEN** 安装命令非零退出（任一模式）
 - **THEN** create 以成功收口（建档与 worktree 保留），警告清单含失败摘要；后续 static-check / test-execution 步以自身失败面兜底
+
+#### Scenario: 多项目逐个扫描安装
+
+- **WHEN** `projects` 为 `[{root: "packages/desktop"}, {root: "packages/desktop/src-tauri"}]`，前者含 `pnpm-lock.yaml`、后者含 `Cargo.lock`
+- **THEN** create 按配置顺序执行两次安装，cwd 分别为 `<worktree>/packages/desktop` 与 `<worktree>/packages/desktop/src-tauri`，命令为映射表对应项；顺利时警告清单为空
+
+#### Scenario: 项目内首匹配单安装
+
+- **WHEN** 某项目目录同时含 `pnpm-lock.yaml` 与 `package-lock.json`
+- **THEN** 该项目恰执行一次安装（映射表首匹配 `pnpm install --frozen-lockfile`），后续项目继续扫描
+
+#### Scenario: 配置根缺失与项目无 lockfile
+
+- **WHEN** `projects` 含 worktree 内不存在的 root，或项目目录存在但无任何已知 lockfile
+- **THEN** 该项目零安装，警告清单含「项目根 "<root>"：在 worktree 内不存在，跳过依赖引导」或「项目根 "<root>"：未识别依赖管理器，跳过依赖引导」；create 照常成功并继续后续项目
+
+#### Scenario: 非空 projects 抑制根扫描
+
+- **WHEN** `projects` 非空且 worktree 根另有 lockfile
+- **THEN** worktree 根 lockfile 不参与扫描、零安装；仅按项目根执行
+
+#### Scenario: 单项目失败不中断后续
+
+- **WHEN** 第一个项目安装非零退出、第二个项目命中 lockfile
+- **THEN** create 照常成功，第一个项目记失败警告、第二个项目仍执行安装，警告按配置序累积
 
 ### Requirement: 脏主仓警告不阻止
 
@@ -168,7 +199,7 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 1. **branch 清理手动（worktree 清理已偿还）**：worktree 由 archive 相位 Cleanup 步自动移除（`git worktree remove` 尽力步，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」）；branch `change/<name>` 保留，`git branch -d` 仍由用户手动执行；桌面 cleanup 按钮对 worktree 面不再必要。
 2. **legacy 主 root 路径**：`worktree=None` 存量记录照旧主 root 执行，零迁移；非 git 仓 workspace 的 create 显式拒绝（不提供 legacy 创建逃生口，真实诉求另立变更）。
 3. **`agent_start` 与探索笔记留主仓 root**：exec 轨道手动会话与 `openspec/explores/` 笔记不混入 change worktree。
-4. **config / AGENT.md 冻结**：worktree 内配置停在创建时刻（base commit 检出），主仓中途改动不传导，文档化。
+4. **config / AGENT.md 冻结**：worktree 内配置停在创建时刻（base commit 检出），主仓中途改动不传导，文档化；唯一例外是 create 在创建时读取**主 workspace root** 的当前配置以选择 `projects[].root`（依赖引导锚点），worktree 内配置副本仍冻结。
 5. **构建成本接受**：fresh worktree 依赖 / 构建产物全量重建；共享 target 目录类逃生口（`CARGO_TARGET_DIR` 等）仅文档化，不内建机制。
 6. **孤儿 worktree 对账文档化**：create 中途崩溃遗留的 worktree / branch 由 `git worktree list` 对账、幂等采纳或手动清理（前置校验保证下次创建显式报错而非误用），不内建自动清理；create 前置 worktree 磁盘保底门槛为失控防线（见 desktop-change-create）。
 7. **report_dir 绝对路径接受失效**：phase_log 报告文本内嵌的 worktree 绝对路径在 worktree 删除后失效（转录历史，仅展示面），不做相对化；归档 Cleanup 步使删除成为缺省路径，本边界维持。
@@ -196,7 +227,7 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 | `crates/core/foundation`（身份段派生单点，新） | workspace 身份段纯函数 | `{可读段}-{sha256 前 16 字节 32 位 hex}`；仅 workspace db 文件名消费（worktree 落位已解耦）；纯函数可密集测试 |
 | `crates/infra/vcs`（新，裸名 `vcs-runtime`，vcs 边界首成员） | git 工作面进程执行 | `git rev-parse --show-toplevel` 落位派生（git 根同级 `.worktrees/<仓库目录名>/`）/ `git worktree add` / `git status --porcelain` / bootstrap 安装 spawn；PATH 探测前置（沿 bash.rs / static_check 先例）；零 Tauri；→ workflow（port 类型）；foundation 仅测试依赖 |
 | `crates/core/workflow/src/write/`（WorktreePort，新） | 写面 → vcs 执行的进程内缝 | port 定义留消费者（core/workflow）；spawn 不进 core；sync 签名 |
-| `crates/core/workflow/src/write/create.rs` | create 建域组合 | 建档（worktree / base_commit）→ worktree add（HEAD 基线）→ worktree 内目录树 + explore.md → bootstrap；扩展校验全 IO 前置；脏仓警告；bootstrap 失败不回滚 |
+| `crates/core/workflow/src/write/create.rs` | create 建域组合 | 建档（worktree / base_commit）→ worktree add（HEAD 基线）→ worktree 内目录树 + explore.md → bootstrap；扩展校验全 IO 前置；脏仓警告；bootstrap 按 `projects` 分派（空 → worktree 根单扫描；非空 → 逐项目根扫描安装），失败不回滚 |
 | `crates/infra/agent/src/compose.rs` | compose_turn 拆参 | store 半边 = 命令层注入的 workspace root 库实例；cwd 半边经既有 turn 通道；worktree 路径不进 `for_root` |
 | `crates/core/orchestration/src/control.rs` | 并行冲突键 | `(workspace root, change)` 复合键；`RunUpdate` / 快照 DTO 零改动 |
 | `src/commands/change_flow/mod.rs` | exec root 解析 | db 记录 worktree 字段 → exec root（None → 主 root）；compose 注入装配 |
@@ -204,5 +235,5 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 | `crates/core/workflow/src/queries/` | 读面 worktree 感知 | db status 权威归组；detail 出线 worktree 路径（None → null）；产物发现经 exec root |
 | `packages/desktop/src/views/changes/` | 前端可见性 | create 对话框路径与警告呈现；详情 worktree 信息行（legacy 不渲染） |
 | （零实现触点——本能力清理条款由 desktop-change-archive Cleanup 步承载） | 边界改写 | worktree 清理自动化偿还归属 archive 相位；branch 生命周期仍手动；git 根同级 `.worktrees/<仓库目录名>/` 落位单点零改动（目录数扫描由 desktop-change-create 前置⑨消费） |
-| `crates/core/workflow/src/write/create.rs`（零改动面） | worktree 建域 | 基线恒 HEAD、目录树与 bootstrap 语义零改动；initialize 的 clean 步在既有 worktree 面上恢复基线（不新增建域语义） |
+| `crates/core/workflow/src/write/create.rs`（零改动面） | worktree 建域 | 基线恒 HEAD、目录树语义零改动；bootstrap 走 `projects` 分派（见前条）；initialize 的 clean 步在既有 worktree 面上恢复基线（不新增建域语义） |
 | `crates/infra/vcs`（restore_baseline，新） | 基线恢复 | 经 `ArchiveVcsPort::restore_baseline` 缝执行 `reset --hard` + `clean -fd` 排除面（foundation 名单 + `openspec/`）；仅 worktree 在场时被调用（walker 保证），主仓零重置 |

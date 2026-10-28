@@ -105,10 +105,10 @@ impl WorktreePort for ProcessWorktree {
 
     fn run_install(
         &self,
-        worktree: &Path,
+        cwd: &Path,
         command: &str,
     ) -> Result<workflow::write::InstallRun, String> {
-        bootstrap::run_install(worktree, command)
+        bootstrap::run_install(cwd, command)
     }
 }
 

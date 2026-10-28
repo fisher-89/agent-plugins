@@ -216,6 +216,7 @@ fn 全字段合法完整配置_逐字段原样保留且diagnostics为空() {
             "schema": "spec-driven",
             "context": "桌面端插件仓库",
             "static_analysis": "clippy",
+            "projects": [{ "root": "packages/desktop" }, { "root": "packages/desktop/src-tauri" }],
             "rules": { "proposal": ["提案规则一", "提案规则二"], "tasks": ["任务规则一"] },
             "tests": [{
                 "root": "packages/desktop",
@@ -242,6 +243,9 @@ fn 全字段合法完整配置_逐字段原样保留且diagnostics为空() {
     assert_eq!(config.schema, "spec-driven");
     assert_eq!(config.context.as_deref(), Some("桌面端插件仓库"));
     assert_eq!(config.static_analysis.as_deref(), Some("clippy"));
+    assert_eq!(config.projects.len(), 2, "projects 保序全保留");
+    assert_eq!(config.projects[0].root, "packages/desktop");
+    assert_eq!(config.projects[1].root, "packages/desktop/src-tauri");
     let rules = config.rules.as_ref().expect("rules 应保留");
     assert_eq!(
         rules.proposal.as_deref(),
@@ -431,6 +435,133 @@ fn rules子字段空数组与多元素列表合法原样保留_无诊断() {
                 "规则三".to_owned()
             ][..]
         )
+    );
+}
+
+// ---------------------------------------------------------------------------
+// load：projects（依赖引导项目根）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn projects缺失与null静默空列表_显式空数组无诊断() {
+    for content in [
+        r#"{"schema": "spec-driven", "tests": []}"#,
+        r#"{"schema": "spec-driven", "tests": [], "projects": null}"#,
+        r#"{"schema": "spec-driven", "tests": [], "projects": []}"#,
+    ] {
+        let ws = TempWs::new("projects-absent");
+        ws.ensure_dir();
+        ws.write_config(content);
+
+        let report = load(ws.root());
+
+        assert!(report.config.projects.is_empty());
+        assert!(
+            report.diagnostics.is_empty(),
+            "content={content} 应零诊断，实际 {:?}",
+            report.diagnostics
+        );
+    }
+}
+
+#[test]
+fn projects非数组落空列表并记invalid_value() {
+    for value in ["{}", r#""x""#, "3", "true"] {
+        let ws = TempWs::new("projects-not-array");
+        ws.ensure_dir();
+        ws.write_config(&format!(r#"{{"projects": {value}}}"#));
+
+        let report = load(ws.root());
+
+        assert!(report.config.projects.is_empty());
+        assert!(
+            has_diag(&report, &DiagnosticKind::InvalidValue, "projects"),
+            "projects={value} 应记 InvalidValue，实际 {:?}",
+            report.diagnostics
+        );
+    }
+}
+
+#[test]
+fn projects合法多元素保序保留_点号根与未知子键合法() {
+    let ws = TempWs::new("projects-legal");
+    ws.ensure_dir();
+    ws.write_config(
+        r#"{"schema": "spec-driven", "tests": [], "projects": [
+            {"root": "packages/desktop"},
+            {"root": "."},
+            {"root": "a/b", "note": "未知子键忽略"}
+        ]}"#,
+    );
+
+    let report = load(ws.root());
+
+    assert!(
+        report.diagnostics.is_empty(),
+        "合法 projects 应零诊断，实际 {:?}",
+        report.diagnostics
+    );
+    let roots: Vec<&str> = report
+        .config
+        .projects
+        .iter()
+        .map(|project| project.root.as_str())
+        .collect();
+    assert_eq!(roots, ["packages/desktop", ".", "a/b"]);
+}
+
+#[test]
+fn projects元素非对象或root非法逐条剔除_合法保序() {
+    let cases: [(&str, &str); 11] = [
+        ("5", "projects[0]"),
+        (r#"{"root": ""}"#, "projects[0].root"),
+        (r#"{"root": 5}"#, "projects[0].root"),
+        (r#"{"other": "x"}"#, "projects[0].root"),
+        (r#"{"root": "src/**"}"#, "projects[0].root"),
+        (r#"{"root": "../x"}"#, "projects[0].root"),
+        (r#"{"root": "a/../b"}"#, "projects[0].root"),
+        (r#"{"root": "a\\..\\b"}"#, "projects[0].root"),
+        (r#"{"root": "/abs"}"#, "projects[0].root"),
+        (r#"{"root": "C:\\x"}"#, "projects[0].root"),
+        (r#"{"root": "foo:bar"}"#, "projects[0].root"),
+    ];
+    for (item, path) in cases {
+        let ws = TempWs::new("projects-invalid");
+        ws.ensure_dir();
+        ws.write_config(&format!(r#"{{"projects": [{item}]}}"#));
+
+        let report = load(ws.root());
+
+        assert!(report.config.projects.is_empty(), "item={item} 应整条剔除");
+        assert!(
+            has_diag(&report, &DiagnosticKind::InvalidValue, path),
+            "item={item} 应记 path={path}，实际 {:?}",
+            report.diagnostics
+        );
+    }
+
+    // 混合形态：违例剔除、合法保序保留、诊断不殃及同侪
+    let ws = TempWs::new("projects-mixed");
+    ws.ensure_dir();
+    ws.write_config(
+        r#"{"projects": [{"root": "keep"}, {"root": "../drop"}, {"root": "also-keep"}]}"#,
+    );
+    let report = load(ws.root());
+    let roots: Vec<&str> = report
+        .config
+        .projects
+        .iter()
+        .map(|project| project.root.as_str())
+        .collect();
+    assert_eq!(roots, ["keep", "also-keep"]);
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "projects[1].root"
+    ));
+    assert!(
+        !has_diag(&report, &DiagnosticKind::InvalidValue, "projects[0].root"),
+        "违例处置不殃及合法条目"
     );
 }
 
@@ -1325,7 +1456,7 @@ fn 违例矩阵抽样产出的config重序列化回写再组装恒零诊断() {
         // suite 必需字段违例 + 越界阈值 + cwd / score 非法 混合
         r#"{"tests": [{"root": "bad*", "framework": "bun", "cwd": 5, "coverage": {"lines": 101}, "mutation": {"score": -1}}]}"#,
         // 合法完整配置 + 未知字段
-        r#"{"schema": "spec-driven", "context": "上下文", "rules": {"proposal": ["规则"]}, "tests": [{"root": "pkg", "framework": "vite-plus", "coverage": {"lines": 90.5, "branches": 80, "functions": 85}}], "write_protection": {"files": [{"glob": "tests/golden/**", "reason": "金样冻结"}]}, "custom": {"n": 1}}"#,
+        r#"{"schema": "spec-driven", "context": "上下文", "rules": {"proposal": ["规则"]}, "projects": [{"root": "packages/desktop"}], "tests": [{"root": "pkg", "framework": "vite-plus", "coverage": {"lines": 90.5, "branches": 80, "functions": 85}}], "write_protection": {"files": [{"glob": "tests/golden/**", "reason": "金样冻结"}]}, "custom": {"n": 1}}"#,
     ];
     for content in matrix {
         ws.write_config(content);
@@ -1349,6 +1480,7 @@ fn 默认基线逐字段对位且过assemble零诊断() {
     assert!(config.context.is_none());
     assert!(config.rules.is_none());
     assert!(config.static_analysis.is_none());
+    assert!(config.projects.is_empty(), "默认 projects 为空列表");
     assert!(config.tests.is_empty(), "默认 tests 为空列表");
     assert!(config.write_protection.is_none());
     assert!(config.extra.is_empty(), "默认 extra 为空");
@@ -1657,8 +1789,8 @@ fn 镜像结构四锚点与设计表一致() {
 
     let anchors: [(&str, bool); 4] = [
         (
-            "`properties` 恰 7 键（与 KNOWN_KEYS 同规模）",
-            properties_key_count == 7,
+            "`properties` 恰 8 键（与 KNOWN_KEYS 同规模）",
+            properties_key_count == 8,
         ),
         (
             "`additionalProperties` 为空对象（passthrough 表达）",
@@ -1679,7 +1811,7 @@ fn 镜像结构四锚点与设计表一致() {
 }
 
 #[test]
-fn 键集断言_入仓镜像正向通过且七键逐项对位() {
+fn 键集断言_入仓镜像正向通过且八键逐项对位() {
     let schema = mirror();
 
     assert_key_set(&schema);
@@ -1694,17 +1826,18 @@ fn 键集断言_入仓镜像正向通过且七键逐项对位() {
         [
             "$schema",
             "context",
+            "projects",
             "rules",
             "schema",
             "static_analysis",
             "tests",
             "write_protection",
         ],
-        "镜像键集应为 7 键全集"
+        "镜像键集应为 8 键全集"
     );
 
     // 与 `KNOWN_KEYS` 的对位由 `assert_key_set` 承担（上方调用），此处只钉字面量
-    // 7 键全集，避免同一键集比较写两遍。
+    // 8 键全集，避免同一键集比较写两遍。
 }
 
 #[test]
@@ -1747,7 +1880,7 @@ fn 键集断言_多键漂移被抓且文案指认单向差异() {
 
 #[test]
 fn 键集断言_容器四形态边界() {
-    // 形态 1：`properties: {}`（空对象）—— 7 项全落「仅实现有」。
+    // 形态 1：`properties: {}`（空对象）—— 8 项全落「仅实现有」。
     let mut empty_properties = mirror_copy();
     *empty_properties
         .get_mut("properties")

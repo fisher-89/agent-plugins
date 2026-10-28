@@ -110,10 +110,12 @@ pub(crate) fn utc_date(millis: i64) -> String {
 }
 
 /// 创建 change
+#[allow(clippy::too_many_arguments)]
 pub fn create(
     main_root: &Path,
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
+    project_roots: &[String],
     name: &str,
     goal: &str,
     title: &str,
@@ -272,7 +274,7 @@ pub fn create(
     if probe.dirty {
         warnings.push(WARN_DIRTY_MAIN.to_owned());
     }
-    bootstrap(&worktree, vcs, &mut warnings);
+    bootstrap(&worktree, project_roots, vcs, &mut warnings);
 
     Ok(CreateOutcome {
         id,
@@ -290,11 +292,29 @@ fn write_fs_half(dir: &Path, goal: &str) -> Result<(), String> {
         .map_err(|error| format!("写入 explore.md 失败: {error}"))
 }
 
-/// 确定性 bootstrap（design D4）：worktree 根探测 lockfile → 映射表首匹配
-/// 命中即 spawn 安装（cwd = worktree）；无已知 lockfile → 跳过 + 注记（先判
-/// Cargo 无 lock 专项注记，后落「未识别管理器」）。安装失败不回滚不阻断
-/// （后续确定性检查步大声失败兜底），警告立即呈现（D5 词汇单点）。
-fn bootstrap(worktree: &Path, vcs: &dyn WorktreePort, warnings: &mut Vec<String>) {
+/// 确定性 bootstrap 分派：未配置项目根 → worktree 根单扫描（legacy，行为与
+/// 文案逐字不变）；配置了项目根 → 按配置序逐个项目根扫描，命中即在该项目
+/// 目录执行安装（多安装，每项目至多一次）。失败 / 未命中均只记警告，不回滚
+/// create（后续确定性检查步大声失败兜底；D5 词汇单点）。
+fn bootstrap(
+    worktree: &Path,
+    project_roots: &[String],
+    vcs: &dyn WorktreePort,
+    warnings: &mut Vec<String>,
+) {
+    if project_roots.is_empty() {
+        bootstrap_worktree_root(worktree, vcs, warnings);
+        return;
+    }
+    for root in project_roots {
+        bootstrap_project(worktree, root, vcs, warnings);
+    }
+}
+
+/// legacy（未配置项目根）：worktree 根探测 lockfile → 映射表首匹配命中即
+/// spawn 安装（cwd = worktree 根）；无已知 lockfile → 跳过 + 注记（先判
+/// Cargo 无 lock 专项注记，后落「未识别管理器」）。
+fn bootstrap_worktree_root(worktree: &Path, vcs: &dyn WorktreePort, warnings: &mut Vec<String>) {
     for (lockfile, command) in BOOTSTRAP_LOCKFILE_COMMANDS {
         if !worktree.join(lockfile).exists() {
             continue;
@@ -310,6 +330,48 @@ fn bootstrap(worktree: &Path, vcs: &dyn WorktreePort, warnings: &mut Vec<String>
         warnings.push(WARN_CARGO_NO_LOCK.to_owned());
     } else {
         warnings.push(WARN_NO_KNOWN_MANAGER.to_owned());
+    }
+}
+
+/// 项目模式（配置了 `projects[].root`）：worktree 内项目目录不存在 → 警告
+/// 跳过；lockfile 命中 → 在该项目目录执行安装（cwd = `<worktree>/<root>`）；
+/// 未命中 → 专项 / 通用注记。每项目至多一条 bootstrap 警告，失败不中断
+/// 后续项目。
+fn bootstrap_project(
+    worktree: &Path,
+    root: &str,
+    vcs: &dyn WorktreePort,
+    warnings: &mut Vec<String>,
+) {
+    let target = worktree.join(root);
+    if !target.is_dir() {
+        warnings.push(format!(
+            "项目根 \"{root}\"：在 worktree 内不存在，跳过依赖引导"
+        ));
+        return;
+    }
+    for (lockfile, command) in BOOTSTRAP_LOCKFILE_COMMANDS {
+        if !target.join(lockfile).exists() {
+            continue;
+        }
+        match vcs.run_install(&target, command) {
+            Ok(run) if run.success => {}
+            Ok(run) => warnings.push(format!(
+                "项目根 \"{root}\"：依赖引导失败（{command}）: {}",
+                run.summary
+            )),
+            Err(error) => warnings.push(format!(
+                "项目根 \"{root}\"：依赖引导未执行成功（{command}）: {error}"
+            )),
+        }
+        return; // 首匹配即收口（每项目单安装）
+    }
+    if target.join("Cargo.toml").exists() {
+        warnings.push(format!(
+            "项目根 \"{root}\"：检测到 Cargo.toml 但无 Cargo.lock，跳过依赖引导（避免生成未跟踪 lockfile 混入变更上下文）"
+        ));
+    } else {
+        warnings.push(format!("项目根 \"{root}\"：未识别依赖管理器，跳过依赖引导"));
     }
 }
 

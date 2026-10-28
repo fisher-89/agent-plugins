@@ -212,6 +212,7 @@ const DTO_TYPES: &[&str] = &[
     "ModelInfo",
     "MutationConfig",
     "PhaseEntry",
+    "ProjectConfig",
     "PromoteOutcome",
     "RecordEnvelope",
     "RecordsPage",
@@ -713,7 +714,7 @@ fn workspace_config绑定为root入参的report直返() {
 }
 
 #[test]
-fn 配置域十二型出线且逐字段形态对位() {
+fn 配置域十三型出线且逐字段形态对位() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -730,12 +731,20 @@ fn 配置域十二型出线且逐字段形态对位() {
         "context: string | null,",
         "rules: RulesConfig | null,",
         "staticAnalysis: string | null,",
+        "projects: ProjectConfig[],",
         "tests: TestSuite[],",
         "writeProtection: WriteProtection | null,",
         "extra: ConfigExtraField[],",
     ] {
         assert!(config.contains(field), "WorkspaceConfig 缺字段出线 {field}");
     }
+
+    // ProjectConfig：项目根单字段
+    let project = type_section(&content, "ProjectConfig");
+    assert!(
+        project.contains("root: string,"),
+        "ProjectConfig 缺字段出线 root: string，实际 {project}"
+    );
 
     // TestSuite：全字段 camelCase 镜像
     let suite = type_section(&content, "TestSuite");
@@ -1022,7 +1031,7 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 /// 类型名（分页信封返回面）——清单条目数随动，首尾锚与在册条目保持。
 #[test]
 fn dto类型清单零补录_条目数与首尾锚持衡() {
-    assert_eq!(DTO_TYPES.len(), 77, "DTO 清单补录 19 条 archi 章节出线类型");
+    assert_eq!(DTO_TYPES.len(), 78, "DTO 清单补录 19 条 archi 章节出线类型");
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
         DTO_TYPES.last(),

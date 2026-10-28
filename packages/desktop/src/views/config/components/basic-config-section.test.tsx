@@ -17,6 +17,7 @@ function makeConfig(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
     context: '桌面端插件仓库',
     rules: { proposal: ['提案规则一', '提案规则二'], tasks: ['任务规则一'] },
     staticAnalysis: 'clippy',
+    projects: [],
     tests: [],
     writeProtection: null,
     extra: [],
@@ -25,7 +26,7 @@ function makeConfig(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
 }
 
 describe('BasicConfigSection：基础配置分区呈现（AC-5）', () => {
-  it('五字段呈现：$schema / schema / context / static_analysis / rules（proposal / tasks 列表逐项）', () => {
+  it('基础字段呈现：$schema / schema / context / static_analysis / projects / rules（列表逐项）', () => {
     render(<BasicConfigSection config={makeConfig()} defaultedPaths={new Set()} />);
 
     expect(screen.getByTestId('config-basic') !== null).toBe(true);
@@ -37,11 +38,29 @@ describe('BasicConfigSection：基础配置分区呈现（AC-5）', () => {
     expect(screen.getByText('桌面端插件仓库') !== null).toBe(true);
     expect(screen.getByText('static_analysis') !== null).toBe(true);
     expect(screen.getByText('clippy') !== null).toBe(true);
+    expect(screen.getByText('projects') !== null).toBe(true);
+    expect(screen.getByText('（空列表）') !== null).toBe(true);
     expect(screen.getByText('rules.proposal') !== null).toBe(true);
     expect(screen.getByText('提案规则一') !== null).toBe(true);
     expect(screen.getByText('提案规则二') !== null).toBe(true);
     expect(screen.getByText('rules.tasks') !== null).toBe(true);
     expect(screen.getByText('任务规则一') !== null).toBe(true);
+  });
+
+  it('projects 非空：逐项呈现 root 且保持配置顺序', () => {
+    render(
+      <BasicConfigSection
+        config={makeConfig({
+          projects: [{ root: 'packages/desktop' }, { root: 'packages/desktop/src-tauri' }],
+        })}
+        defaultedPaths={new Set()}
+      />,
+    );
+
+    const group = screen.getByTestId('config-projects');
+    const roots = Array.from(group.querySelectorAll('li')).map((item) => item.textContent);
+    expect(roots).toEqual(['packages/desktop', 'packages/desktop/src-tauri']);
+    expect(screen.queryByText('（空列表）')).toBeNull();
   });
 
   it('schema path 在 defaultedPaths：呈现「未设（默认 spec-driven）」，与文件显式设值形态可区分', () => {
@@ -74,7 +93,10 @@ describe('BasicConfigSection：基础配置分区呈现（AC-5）', () => {
   it('rules 空数组与多元素列表两形态渲染；path 不对位的 defaultedPaths 条目不污染渲染', () => {
     render(
       <BasicConfigSection
-        config={makeConfig({ rules: { proposal: [], tasks: ['仅一条'] } })}
+        config={makeConfig({
+          projects: [{ root: 'packages/desktop' }],
+          rules: { proposal: [], tasks: ['仅一条'] },
+        })}
         defaultedPaths={new Set(['tests[0].coverage.lines', 'context'])}
       />,
     );
