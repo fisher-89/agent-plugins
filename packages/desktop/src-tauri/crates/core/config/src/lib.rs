@@ -24,12 +24,13 @@ const COVERAGE_FUNCTIONS_DEFAULT: f64 = 75.0;
 const MUTATION_SCORE_DEFAULT: f64 = 70.0;
 
 /// 顶层已知字段集合：其余键全部 passthrough 进 [`WorkspaceConfig::extra`]。
-const KNOWN_KEYS: [&str; 7] = [
+const KNOWN_KEYS: [&str; 8] = [
     "$schema",
     "schema",
     "context",
     "rules",
     "static_analysis",
+    "projects",
     "tests",
     "write_protection",
 ];
@@ -150,6 +151,14 @@ pub struct WriteProtectionFile {
     pub reason: Option<String>,
 }
 
+/// 项目配置（依赖引导扫描锚点）：`root` 为相对 worktree 根的项目目录。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectConfig {
+    /// 项目目录（非空、非绝对、无 `..` 段 / glob 通配符）
+    pub root: String,
+}
+
 /// 顶层未知字段 passthrough 载体：key + 原文值原样保留、无诊断。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -177,6 +186,8 @@ pub struct WorkspaceConfig {
     pub rules: Option<RulesConfig>,
     /// 静态分析工具配置（未设为 `None`）
     pub static_analysis: Option<String>,
+    /// 依赖引导项目根列表（保序；未设 / 显式 null → 空列表且无诊断）
+    pub projects: Vec<ProjectConfig>,
     /// 测试 suite 配置列表（保序；违例 suite 剔除）
     pub tests: Vec<TestSuite>,
     /// 写入保护配置（未设为 `None`）
@@ -195,6 +206,7 @@ impl Default for WorkspaceConfig {
             context: None,
             rules: None,
             static_analysis: None,
+            projects: Vec::new(),
             tests: Vec::new(),
             write_protection: None,
             extra: Vec::new(),
@@ -656,6 +668,74 @@ fn assemble_file_rule(
     Some(WriteProtectionFile { glob, reason })
 }
 
+/// 项目 `root` 合法性：非空白、非绝对、无 `..` 段 / 盘符 / glob 通配符。
+///
+/// 该路径会成为依赖引导安装命令的进程 cwd——绝对路径与 `..` 会逃出
+/// worktree，故在解析期词法拒绝（`:` 一并拒绝：Windows 盘符与 ADS 形式，
+/// 同时使判定跨平台一致）。
+fn is_valid_project_root(root: &str) -> bool {
+    if root.trim().is_empty() || root.contains(['*', '?', '{', '[', ':']) {
+        return false;
+    }
+    if root.split(['/', '\\']).any(|segment| segment == "..") {
+        return false;
+    }
+    let path = Path::new(root);
+    if path.is_absolute() {
+        return false;
+    }
+    path.components().all(|component| {
+        matches!(
+            component,
+            std::path::Component::Normal(_) | std::path::Component::CurDir
+        )
+    })
+}
+
+/// 项目元素组装：非对象 / `root` 缺失或非法 → 整条剔除 + `InvalidValue`；
+/// 合法条目原样保留（未知子键忽略，对齐 suite 元素处置）。
+fn assemble_project(
+    item: &Value,
+    index: usize,
+    diagnostics: &mut Vec<ConfigDiagnostic>,
+) -> Option<ProjectConfig> {
+    let project_path = format!("projects[{index}]");
+    let Some(map) = item.as_object() else {
+        diagnostics.push(invalid(
+            &project_path,
+            format!(
+                "项目必须为对象（原值 {}），该项目已被剔除。",
+                describe_value(item)
+            ),
+        ));
+        return None;
+    };
+
+    let root_path = format!("{project_path}.root");
+    let root = match map.get("root") {
+        None => {
+            diagnostics.push(invalid(
+                &root_path,
+                "项目必需字段 root 缺失，该项目已被剔除。".to_owned(),
+            ));
+            return None;
+        }
+        Some(Value::String(root)) if is_valid_project_root(root) => root.clone(),
+        Some(other) => {
+            diagnostics.push(invalid(
+                &root_path,
+                format!(
+                    "项目 root 必须为非空相对路径字符串（不得为绝对路径、\
+                     包含 \"..\" 段 / \":\" 或 glob 通配符；原值 {}），该项目已被剔除。",
+                    describe_value(other)
+                ),
+            ));
+            return None;
+        }
+    };
+    Some(ProjectConfig { root })
+}
+
 /// 组装校验纯函数（design「配置语义移植对照」表逐行落地）：对顶层对象逐字段
 /// 判定处置——合法字段原样保留、违例字段按行处置（有默认者吃默认 +
 /// `InvalidValue`；suite 必需字段非法剔除整个 suite）、缺失 prefault 字段逐
@@ -711,6 +791,28 @@ fn assemble(map: &Map<String, Value>) -> (WorkspaceConfig, Vec<ConfigDiagnostic>
                 ),
             ));
             None
+        }
+    };
+
+    // projects：静默空列表——缺失 / 显式 null 无诊断（「有配置才按项目根扫描」，
+    // 不吃 DefaultApplied 噪音）；非数组 → 空列表 + InvalidValue；元素逐个
+    // 组装，违例剔除、合法保序
+    let projects = match map.get("projects") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| assemble_project(item, index, &mut diagnostics))
+            .collect(),
+        Some(other) => {
+            diagnostics.push(invalid(
+                "projects",
+                format!(
+                    "projects 字段必须为数组（原值 {}），使用空项目列表 []。",
+                    describe_value(other)
+                ),
+            ));
+            Vec::new()
         }
     };
 
@@ -798,6 +900,7 @@ fn assemble(map: &Map<String, Value>) -> (WorkspaceConfig, Vec<ConfigDiagnostic>
             context,
             rules,
             static_analysis,
+            projects,
             tests,
             write_protection,
             extra,

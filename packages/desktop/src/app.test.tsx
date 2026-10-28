@@ -128,6 +128,7 @@ const WORKSPACE_CONFIG: WorkspaceConfigReport = {
     context: null,
     rules: { proposal: ['提案规则'], tasks: null },
     staticAnalysis: 'clippy',
+    projects: [{ root: 'packages/desktop' }],
     tests: [
       {
         root: 'packages/desktop',
@@ -477,7 +478,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
 
     // 刷新按钮随 header 瘦身迁入清单页头部（图标钮 aria-label=刷新）：详情视图内不在场，返回列表后可操作
     expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回列表' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '刷新' }) !== null).toBe(true));
 
     const before = invokeMock.mock.calls.filter(([name]) => name === 'list_changes').length;

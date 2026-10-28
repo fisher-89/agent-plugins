@@ -1,8 +1,3 @@
-//! 依赖引导安装执行体（design D4）：shell 包装（Windows `cmd /C`、其余
-//! `sh -c`，static_check 先例）、cwd = worktree、环境全继承零注入（PATH 为
-//! pnpm/npm/cargo 可达前提）、900 s 超时轮询 `try_wait` 到点 kill、输出摘要
-//! = stdout + stderr 尾部 ≤300 字。
-
 use std::io::Read;
 use std::path::Path;
 use std::process::Stdio;
@@ -20,14 +15,11 @@ const INSTALL_SUMMARY_MAX_CHARS: usize = 300;
 /// 轮询间隔（毫秒）：try_wait 自旋预算与 CPU 占用的折中。
 const POLL_INTERVAL_MS: u64 = 200;
 
-/// 一次安装命令执行：shell 包装 spawn → 轮询 try_wait（到点 kill → `Err`）
-/// → stdout + stderr 尾部 ≤300 字摘要 + 退出态。管道读段以独立线程排空
-/// （防子进程输出撑满管道缓冲阻塞，try_wait 永不返回的假超时）。环境全
-/// 继承零注入（默认继承，显式零改动）。
-pub(crate) fn run_install(worktree: &Path, command: &str) -> Result<InstallRun, String> {
+/// 一次安装命令执行
+pub(crate) fn run_install(cwd: &Path, command: &str) -> Result<InstallRun, String> {
     let mut child = exec::SystemCommand::script(command)
         .into_std()
-        .current_dir(worktree)
+        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -64,8 +56,6 @@ pub(crate) fn run_install(worktree: &Path, command: &str) -> Result<InstallRun, 
     })
 }
 
-/// 管道读段线程柄：join 收敛全部字节（UTF-8 有损转换——摘要面不因非法字节
-/// 失败；读失败收敛空串不炸执行体）。
 struct Reader {
     handle: Option<std::thread::JoinHandle<String>>,
 }
@@ -90,8 +80,6 @@ impl Reader {
     }
 }
 
-/// 尾部截断（按 char，不悬切多字节）：超限取尾部（安装输出末段是失败语境
-/// 所在），短输出全量保留。
 fn tail_chars(output: &str, max_chars: usize) -> String {
     let chars: Vec<char> = output.chars().collect();
     if chars.len() <= max_chars {

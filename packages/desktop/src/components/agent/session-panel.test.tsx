@@ -1,9 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { ResizablePanelGroup } from '@/components/ui/resizable';
 import type { UseAgentSessionState } from '@/hooks/use-agent-session';
 import type { SessionSummary, TurnSummary } from '@/types/dto';
 
+import type { AgentSessionActions } from './agent-session-view';
 import { SessionPanel, type SessionPanelState } from './session-panel';
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,46 @@ function panelState(overrides: Partial<SessionPanelState> = {}): SessionPanelSta
 
 const PREFIXES = ['change-chat', 'archi-chat'] as const;
 
+interface MountOptions {
+  state: SessionPanelState;
+  title?: string;
+  testIdPrefix?: string;
+  composer?: (actions: AgentSessionActions) => React.ReactNode;
+}
+
+/**
+ * 骨架自身即 `ResizablePanel`（分栏子面板），须挂在 `ResizablePanelGroup` 内；
+ * 挂载默认收起（只呈窄条），故测试以 `mountExpanded` 进入展开体。
+ */
+function panelUi({
+  state,
+  title = '架构 Agent',
+  testIdPrefix = 'archi-chat',
+  composer,
+}: MountOptions): React.JSX.Element {
+  return (
+    <ResizablePanelGroup orientation="horizontal">
+      <SessionPanel
+        state={state}
+        title={title}
+        testIdPrefix={testIdPrefix}
+        composer={composer ?? (() => <div />)}
+      />
+    </ResizablePanelGroup>
+  );
+}
+
+function mountPanel(options: MountOptions) {
+  return render(panelUi(options));
+}
+
+/** 挂载并点窄条展开入口进入展开体（骨架默认收起）。 */
+function mountExpanded(options: MountOptions): ReturnType<typeof render> {
+  const rendered = mountPanel(options);
+  fireEvent.click(screen.getByTestId(`${options.testIdPrefix ?? 'archi-chat'}-expand`));
+  return rendered;
+}
+
 beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(null);
@@ -114,20 +156,16 @@ describe('SessionPanel：testid 前缀参数化', () => {
   it('两套前缀各自生成全部 13 个查询挂钩且互不串味', () => {
     for (const prefix of PREFIXES) {
       // 组合态：展开 + 清单展开 + 两条历史 + note 非 null
-      const { unmount } = render(
-        <SessionPanel
-          state={panelState({
-            sessions: [summary('ses-1'), summary('ses-2')],
-            total: 5,
-            listOpen: true,
-            note: '模型改动不会自动刷新，改完点「刷新」',
-          })}
-          title="架构 Agent"
-          testIdPrefix={prefix}
-          composer={() => <div />}
-        />,
-      );
-      for (const name of ['panel', 'actions', 'new', 'history', 'note', 'session']) {
+      const expanded = mountExpanded({
+        state: panelState({
+          sessions: [summary('ses-1'), summary('ses-2')],
+          total: 5,
+          listOpen: true,
+          note: '模型改动不会自动刷新，改完点「刷新」',
+        }),
+        testIdPrefix: prefix,
+      });
+      for (const name of ['actions', 'collapse', 'new', 'history', 'note', 'session']) {
         expect(screen.getByTestId(`${prefix}-${name}`), `${prefix}-${name} 应在场`).toBeTruthy();
       }
       expect(screen.getByTestId(`${prefix}-history-list`)).toBeTruthy();
@@ -136,43 +174,23 @@ describe('SessionPanel：testid 前缀参数化', () => {
         screen.getByTestId(`${prefix}-history-more`),
         'sessions < total → 加载更多',
       ).toBeTruthy();
-      unmount();
+      expanded.unmount();
 
       // 空清单态：空占位在场（history-empty）
-      const empty = render(
-        <SessionPanel
-          state={panelState({ listOpen: true })}
-          title="架构 Agent"
-          testIdPrefix={prefix}
-          composer={() => <div />}
-        />,
-      );
+      const empty = mountExpanded({ state: panelState({ listOpen: true }), testIdPrefix: prefix });
       expect(screen.getByTestId(`${prefix}-history-empty`)).toBeTruthy();
       empty.unmount();
 
       // 错误态：history-error
-      const failed = render(
-        <SessionPanel
-          state={panelState({ listOpen: true, listError: '库不可读' })}
-          title="架构 Agent"
-          testIdPrefix={prefix}
-          composer={() => <div />}
-        />,
-      );
+      const failed = mountExpanded({
+        state: panelState({ listOpen: true, listError: '库不可读' }),
+        testIdPrefix: prefix,
+      });
       expect(screen.getByTestId(`${prefix}-history-error`)).toBeTruthy();
       failed.unmount();
 
-      // 折叠态：rail + expand
-      const collapsed = render(
-        <SessionPanel
-          state={panelState()}
-          title="架构 Agent"
-          testIdPrefix={prefix}
-          composer={() => <div />}
-          collapsed
-          onToggleCollapsed={vi.fn()}
-        />,
-      );
+      // 收起态：rail + expand
+      const collapsed = mountPanel({ state: panelState(), testIdPrefix: prefix });
       expect(screen.getByTestId(`${prefix}-rail`)).toBeTruthy();
       expect(screen.getByTestId(`${prefix}-expand`)).toBeTruthy();
       collapsed.unmount();
@@ -184,14 +202,10 @@ describe('SessionPanel：头区动作', () => {
   it('title 呈现于头区，点新会话 / 历史各调一次回调且 aria-expanded 随 listOpen', () => {
     const newSession = vi.fn();
     const toggleList = vi.fn();
-    const { rerender } = render(
-      <SessionPanel
-        state={panelState({ newSession, toggleList })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    const { rerender } = mountExpanded({
+      state: panelState({ newSession, toggleList }),
+      testIdPrefix: 'archi-chat',
+    });
 
     expect(screen.getByTestId('archi-chat-actions').textContent).toContain('架构 Agent');
     fireEvent.click(screen.getByTestId('archi-chat-new'));
@@ -200,40 +214,22 @@ describe('SessionPanel：头区动作', () => {
     expect(toggleList).toHaveBeenCalledTimes(1);
 
     expect(screen.getByTestId('archi-chat-history').getAttribute('aria-expanded')).toBe('false');
-    rerender(
-      <SessionPanel
-        state={panelState({ newSession, toggleList, listOpen: true })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    rerender(panelUi({ state: panelState({ newSession, toggleList, listOpen: true }) }));
     expect(screen.getByTestId('archi-chat-history').getAttribute('aria-expanded')).toBe('true');
   });
 
   it('canStart 两态：「新会话」禁用时点击零回调，可用时可点', () => {
     const newSession = vi.fn();
-    const { rerender } = render(
-      <SessionPanel
-        state={panelState({ newSession, canStart: false })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    const { rerender } = mountExpanded({
+      state: panelState({ newSession, canStart: false }),
+      testIdPrefix: 'archi-chat',
+    });
     const disabledButton = screen.getByTestId<HTMLButtonElement>('archi-chat-new');
     expect(disabledButton.disabled).toBe(true);
     fireEvent.click(disabledButton);
     expect(newSession, '禁用态点击零回调（骨架只消费该位）').not.toHaveBeenCalled();
 
-    rerender(
-      <SessionPanel
-        state={panelState({ newSession, canStart: true })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    rerender(panelUi({ state: panelState({ newSession, canStart: true }) }));
     fireEvent.click(screen.getByTestId('archi-chat-new'));
     expect(newSession).toHaveBeenCalledTimes(1);
   });
@@ -241,27 +237,13 @@ describe('SessionPanel：头区动作', () => {
 
 describe('SessionPanel：状态行只认 note', () => {
   it('note = null 时状态行不在场（不占位、不注入空串）', () => {
-    render(
-      <SessionPanel
-        state={panelState({ note: null })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    mountExpanded({ state: panelState({ note: null }), testIdPrefix: 'archi-chat' });
     expect(screen.queryByTestId('archi-chat-note')).toBeNull();
   });
 
   it('note 非 null 时逐字呈现（文案生成规则不在骨架内）', () => {
     const note = '模型改动不会自动刷新，改完点「刷新」';
-    render(
-      <SessionPanel
-        state={panelState({ note })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    mountExpanded({ state: panelState({ note }), testIdPrefix: 'archi-chat' });
     expect(screen.getByTestId('archi-chat-note').textContent).toBe(note);
   });
 });
@@ -271,19 +253,15 @@ describe('SessionPanel：历史清单', () => {
     const selectSession = vi.fn();
     const first = summary('ses-archi-0001', 3);
     const second = summary('ses-archi-0002', 1);
-    render(
-      <SessionPanel
-        state={panelState({
-          sessions: [first, second],
-          total: 2,
-          listOpen: true,
-          selectSession,
-        })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    mountExpanded({
+      state: panelState({
+        sessions: [first, second],
+        total: 2,
+        listOpen: true,
+        selectSession,
+      }),
+      testIdPrefix: 'archi-chat',
+    });
 
     const items = screen.getAllByTestId('archi-chat-history-item');
     expect(items).toHaveLength(2);
@@ -300,26 +278,15 @@ describe('SessionPanel：历史清单', () => {
   });
 
   it('加载中 / 错误 / 空态三互斥：同一拍只呈其一', () => {
-    const { rerender } = render(
-      <SessionPanel
-        state={panelState({ listOpen: true, listLoading: true })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    const { rerender } = mountExpanded({
+      state: panelState({ listOpen: true, listLoading: true }),
+      testIdPrefix: 'archi-chat',
+    });
     expect(screen.getByTestId('archi-chat-history-list').textContent).toContain('加载中…');
     expect(screen.queryByTestId('archi-chat-history-empty')).toBeNull();
     expect(screen.queryByTestId('archi-chat-history-error')).toBeNull();
 
-    rerender(
-      <SessionPanel
-        state={panelState({ listOpen: true, listError: '库不可读' })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    rerender(panelUi({ state: panelState({ listOpen: true, listError: '库不可读' }) }));
     expect(screen.getByTestId('archi-chat-history-error').textContent).toBe(
       '加载历史会话失败：库不可读',
     );
@@ -327,12 +294,7 @@ describe('SessionPanel：历史清单', () => {
     expect(screen.getByTestId('archi-chat-history-list').textContent).not.toContain('加载中…');
 
     rerender(
-      <SessionPanel
-        state={panelState({ listOpen: true, listLoading: false, listError: null })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
+      panelUi({ state: panelState({ listOpen: true, listLoading: false, listError: null }) }),
     );
     expect(screen.getByTestId('archi-chat-history-empty').textContent).toBe('（暂无历史会话）');
     expect(screen.queryByTestId('archi-chat-history-error')).toBeNull();
@@ -340,35 +302,28 @@ describe('SessionPanel：历史清单', () => {
 
   it('分页四形态：items < total 呈「加载更多」可点；加载中禁用；等量 / 超量不呈', () => {
     const loadMore = vi.fn();
-    const { rerender } = render(
-      <SessionPanel
-        state={panelState({
-          sessions: [summary('ses-1'), summary('ses-2')],
-          total: 5,
-          listOpen: true,
-          loadMore,
-        })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
-    );
+    const { rerender } = mountExpanded({
+      state: panelState({
+        sessions: [summary('ses-1'), summary('ses-2')],
+        total: 5,
+        listOpen: true,
+        loadMore,
+      }),
+      testIdPrefix: 'archi-chat',
+    });
     fireEvent.click(screen.getByTestId('archi-chat-history-more'));
     expect(loadMore).toHaveBeenCalledTimes(1);
 
     rerender(
-      <SessionPanel
-        state={panelState({
+      panelUi({
+        state: panelState({
           sessions: [summary('ses-1'), summary('ses-2')],
           total: 5,
           listOpen: true,
           listLoading: true,
           loadMore,
-        })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
+        }),
+      }),
     );
     const busy = screen.getByTestId<HTMLButtonElement>('archi-chat-history-more');
     expect(busy.disabled, '加载中禁用').toBe(true);
@@ -376,50 +331,34 @@ describe('SessionPanel：历史清单', () => {
     expect(loadMore, '禁用态点击零回调').toHaveBeenCalledTimes(1);
 
     rerender(
-      <SessionPanel
-        state={panelState({
+      panelUi({
+        state: panelState({
           sessions: [summary('ses-1'), summary('ses-2')],
           total: 2,
           listOpen: true,
           loadMore,
-        })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
+        }),
+      }),
     );
     expect(screen.queryByTestId('archi-chat-history-more'), '等量不呈').toBeNull();
 
     rerender(
-      <SessionPanel
-        state={panelState({
+      panelUi({
+        state: panelState({
           sessions: [summary('ses-1'), summary('ses-2'), summary('ses-3')],
           total: 2,
           listOpen: true,
           loadMore,
-        })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-      />,
+        }),
+      }),
     );
     expect(screen.queryByTestId('archi-chat-history-more'), '超量（判据 < 严格）不呈').toBeNull();
   });
 });
 
-describe('SessionPanel：折叠窄条', () => {
-  it('collapsed + onToggleCollapsed 时只渲窄条，展开体全部缺席，点展开回调一次', () => {
-    const onToggleCollapsed = vi.fn();
-    render(
-      <SessionPanel
-        state={panelState({ note: '状态行文案' })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-        collapsed
-        onToggleCollapsed={onToggleCollapsed}
-      />,
-    );
+describe('SessionPanel：折叠窄条（骨架自持折叠态）', () => {
+  it('挂载默认收起：只渲窄条，展开体全部缺席，点展开入口进入展开体', () => {
+    mountPanel({ state: panelState({ note: '状态行文案' }), testIdPrefix: 'archi-chat' });
 
     expect(screen.getByTestId('archi-chat-rail').textContent).toContain('架构 Agent');
     const expand = screen.getByTestId('archi-chat-expand');
@@ -427,37 +366,26 @@ describe('SessionPanel：折叠窄条', () => {
     for (const absent of ['actions', 'note', 'history-list', 'session']) {
       expect(screen.queryByTestId(`archi-chat-${absent}`), `${absent} 应缺席`).toBeNull();
     }
+
     fireEvent.click(expand);
-    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('archi-chat-rail')).toBeNull();
+    expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
+    expect(screen.getByTestId('archi-chat-note').textContent).toBe('状态行文案');
   });
 
-  it('折叠但未传回调 / 未折叠但传了回调 → 均渲展开体（无死锁面板）', () => {
-    const withoutCallback = render(
-      <SessionPanel
-        state={panelState()}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-        collapsed
-      />,
-    );
+  it('头区「收起Agent」→ 回窄条；窄条展开入口 → 再展开（互逆，无死锁面板）', () => {
+    mountExpanded({ state: panelState(), testIdPrefix: 'archi-chat' });
     expect(screen.queryByTestId('archi-chat-rail')).toBeNull();
-    expect(screen.queryByTestId('archi-chat-expand')).toBeNull();
-    expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
-    withoutCallback.unmount();
 
-    render(
-      <SessionPanel
-        state={panelState()}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div />}
-        collapsed={false}
-        onToggleCollapsed={vi.fn()}
-      />,
-    );
-    expect(screen.queryByTestId('archi-chat-rail')).toBeNull();
+    fireEvent.click(screen.getByTestId('archi-chat-collapse'));
+    expect(screen.getByTestId('archi-chat-rail')).toBeTruthy();
+    expect(screen.getByTestId('archi-chat-expand')).toBeTruthy();
+    expect(screen.queryByTestId('archi-chat-actions')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('archi-chat-expand'));
     expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
+    expect(screen.queryByTestId('archi-chat-rail')).toBeNull();
+    expect(invokeMock, '折叠切换零取数').not.toHaveBeenCalled();
   });
 });
 
@@ -467,17 +395,14 @@ describe('SessionPanel：会话体与 composer 插槽', () => {
     const stop = vi.fn();
     const session = sessionState({ running: true, loading: false, sendMessage, stop });
     const seen: unknown[] = [];
-    render(
-      <SessionPanel
-        state={panelState({ session })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={(actions) => {
-          seen.push(actions);
-          return <div data-testid="archi-chat-composer-probe" />;
-        }}
-      />,
-    );
+    mountExpanded({
+      state: panelState({ session }),
+      testIdPrefix: 'archi-chat',
+      composer: (actions) => {
+        seen.push(actions);
+        return <div data-testid="archi-chat-composer-probe" />;
+      },
+    });
 
     expect(screen.getByTestId('archi-chat-session')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-composer-probe')).toBeTruthy();
@@ -502,23 +427,20 @@ describe('SessionPanel：会话体与 composer 插槽', () => {
       session: summary('ses-live'),
     });
     const seen: { running: boolean; loading: boolean }[] = [];
-    render(
-      <SessionPanel
-        state={panelState({
-          session,
-          sessions: Array.from({ length: 25 }, (_, index) => summary(`ses-${index}`)),
-          total: 25,
-          canStart: false,
-          note: '流程运行中',
-        })}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={(actions) => {
-          seen.push({ running: actions.running, loading: actions.loading });
-          return <div data-testid="archi-chat-composer-probe" />;
-        }}
-      />,
-    );
+    mountExpanded({
+      state: panelState({
+        session,
+        sessions: Array.from({ length: 25 }, (_, index) => summary(`ses-${index}`)),
+        total: 25,
+        canStart: false,
+        note: '流程运行中',
+      }),
+      testIdPrefix: 'archi-chat',
+      composer: (actions) => {
+        seen.push({ running: actions.running, loading: actions.loading });
+        return <div data-testid="archi-chat-composer-probe" />;
+      },
+    });
 
     expect(seen[0]).toEqual({ running: true, loading: true });
     expect(screen.getByTestId<HTMLButtonElement>('archi-chat-new').disabled).toBe(true);
@@ -529,16 +451,12 @@ describe('SessionPanel：会话体与 composer 插槽', () => {
 
 describe('SessionPanel：空集合形态', () => {
   it('空清单 / total 0 / 未展开 / note null / 无会话 → 展开体完整不崩', () => {
-    render(
-      <SessionPanel
-        state={panelState()}
-        title="架构 Agent"
-        testIdPrefix="archi-chat"
-        composer={() => <div data-testid="archi-chat-composer-probe" />}
-      />,
-    );
+    mountExpanded({
+      state: panelState(),
+      testIdPrefix: 'archi-chat',
+      composer: () => <div data-testid="archi-chat-composer-probe" />,
+    });
 
-    expect(screen.getByTestId('archi-chat-panel')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-session')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-composer-probe')).toBeTruthy();

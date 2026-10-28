@@ -1,27 +1,3 @@
-//! `write::create` 的单元测试（test-design「create.rs -> create_test.rs」节）：
-//! create 建域四段组合（D2/D3/D4/D5）——铸出 uuid v7 形态 id（D1）→ 建档（携
-//! id / worktree / base_commit）+ worktree add（HEAD 基线铸 change/<name>
-//! 分支）+ worktree 内目录树与 explore.md（goal 原文）+ bootstrap / 警告收集；
-//! 前置九道全 IO 前置（拒绝面零 worktree、零建档、零目录、vcs 零调用），④ 为
-//! 同名 **active** name 扫描查重（归档同名合法化——D11），⑧ 为 active 建档数
-//! 上限（`ACTIVE_CHANGE_LIMIT` 硬编码、归档记录不计入——worktree-cleanup-and-
-//! active-cap AC-1 / AC-3），⑨ 为 worktree 磁盘保底门槛（= 上限 + SLACK 派生
-//! 7，仅直属子目录计入——AC-2 db 与磁盘漂移防线）；补偿链按 id 删本次
-//! 自插行（add 失败：删建档 + 尽力删分支；树写出失败：remove → 删分支 → 删
-//! 建档；bootstrap 段失败不回收）；created 出线取 db created_at 日期；铸出
-//! 路径断言 id 非空 / 同名单次重铸相异 / 与库内逐字一致（零固定值对拍）；成功
-//! 后清单立即可见；目录树零 workflow.json 产出（双向墙写半边）。
-//!
-//! Mock策略（test-design 本节 Mock 表）：db 半边以进程内假件实现
-//! [`ChangeStateStore`]（捕获建档 / 补偿删除调用 + 可编程补偿故障；真实
-//! tempfile Store 组合行收 tests/corpus_golden_test.rs 集成面）；vcs 半边以
-//! 进程内脚本化假件实现 [`WorktreePort`]（probe / branch_exists / 各方法
-//! Err 可编程注入 + 调用与参数捕获；add_worktree 成功即真实建目录并镜像主仓
-//! 树——HEAD 检出的最小模拟；真实 git 夹具行收 vcs-runtime crate 测试面）；
-//! 文件系统真实 tempdir × 2（主仓根 + worktree 落位父锚）+ 预置路径分量文件
-//! 占位注入写失败（不经 mock）。「当日」断言用调用前后 UTC 日期并集界，零
-//! wall-clock 等值比较。
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -89,6 +65,7 @@ impl Env {
             &self.root,
             &self.store,
             &self.vcs,
+            &[],
             name,
             goal,
             title,
@@ -104,6 +81,25 @@ impl Env {
         title: &str,
     ) -> Result<CreateOutcome, String> {
         self.create_full(name, goal, title, "requirement")
+    }
+
+    /// 依赖引导项目根形态（roots 由命令层从配置解析后注入）。
+    fn create_with_projects(
+        &self,
+        name: &str,
+        goal: &str,
+        project_roots: &[String],
+    ) -> Result<CreateOutcome, String> {
+        create(
+            &self.root,
+            &self.store,
+            &self.vcs,
+            project_roots,
+            name,
+            goal,
+            name,
+            "requirement",
+        )
     }
 
     /// worktree 内 change 目录（目录树 / explore.md 的落点）。
@@ -142,6 +138,13 @@ impl Drop for Env {
 fn seed_main_file(env: &Env, name: &str, content: &str) {
     fs::create_dir_all(&env.root).expect("创建主仓根失败");
     fs::write(env.root.join(name), content).expect("预置主仓文件失败");
+}
+
+/// 主仓根下按相对路径预置文件（自动建父目录——项目根 lockfile 夹具）。
+fn seed_main_path(env: &Env, relative: &str, content: &str) {
+    let path = env.root.join(relative);
+    fs::create_dir_all(path.parent().expect("预置路径应有父目录")).expect("创建预置父目录失败");
+    fs::write(path, content).expect("预置主仓文件失败");
 }
 
 fn dir_names(root: &Path) -> Vec<String> {
@@ -288,6 +291,11 @@ impl FakeVcs {
             .iter()
             .map(|(_, command)| command.clone())
             .collect()
+    }
+
+    /// 安装调用全量捕获（cwd, command）——projects 模式断言安装目录。
+    fn installs(&self) -> Vec<(PathBuf, String)> {
+        self.installs.lock().expect("安装锁不可中毒").clone()
     }
 }
 
@@ -1417,6 +1425,228 @@ fn 安装拉起失败不回收且警告呈现() {
         "拉起失败警告锚（D5），实际: {:?}",
         outcome.warnings
     );
+}
+
+// ---------------------------------------------------------------------------
+// bootstrap：projects[].root 项目模式（配置了项目根才逐项目扫描）
+// ---------------------------------------------------------------------------
+
+/// 多项目按配置序逐个扫描：各自命中 lockfile → 各自在项目目录执行安装
+///（cwd = `<worktree>/<root>`），顺利时零警告。
+#[test]
+fn projects逐个扫描按项目根执行安装_多安装按序() {
+    let env = Env::new("projects-multi");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "service/Cargo.lock", "# cargo");
+    let roots = ["web".to_owned(), "service".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "多项目 goal", &roots)
+        .expect("建域应 Ok");
+
+    let worktree = env.worktree_root.join("fix-bug");
+    assert_eq!(
+        env.vcs.installs(),
+        vec![
+            (
+                worktree.join("web"),
+                "pnpm install --frozen-lockfile".to_owned()
+            ),
+            (worktree.join("service"), "cargo fetch --locked".to_owned()),
+        ],
+        "按配置序逐项目安装，cwd = 项目根"
+    );
+    assert!(
+        outcome.warnings.is_empty(),
+        "顺利安装零警告，实际: {:?}",
+        outcome.warnings
+    );
+}
+
+/// 项目内首匹配即收口：同一项目多 lockfile 并存 → 该项目的映射表首匹配项、
+/// 恰一次安装；后续项目继续。
+#[test]
+fn projects内首匹配单安装且后续项目继续() {
+    let env = Env::new("projects-first");
+    seed_main_path(&env, "web/package-lock.json", "# npm");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/pnpm-lock.yaml", "# pnpm");
+    let roots = ["web".to_owned(), "api".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "首匹配 goal", &roots)
+        .expect("建域应 Ok");
+
+    let worktree = env.worktree_root.join("fix-bug");
+    assert_eq!(
+        env.vcs.installs(),
+        vec![
+            (
+                worktree.join("web"),
+                "pnpm install --frozen-lockfile".to_owned()
+            ),
+            (
+                worktree.join("api"),
+                "pnpm install --frozen-lockfile".to_owned()
+            ),
+        ],
+        "每项目恰一次安装（首匹配）"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 配置根在 worktree 内不存在：零安装 + 逐项目警告，create 照常成功。
+#[test]
+fn projects根不存在警告且零安装() {
+    let env = Env::new("projects-missing");
+    let roots = ["missing".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "缺失根 goal", &roots)
+        .expect("建域应 Ok");
+
+    assert!(env.vcs.install_commands().is_empty(), "零安装");
+    assert_eq!(
+        outcome.warnings,
+        vec!["项目根 \"missing\"：在 worktree 内不存在，跳过依赖引导".to_owned()]
+    );
+}
+
+/// 项目无 lockfile / Cargo 无 lock：逐项目专项注记，零安装。
+#[test]
+fn projects无lockfile与cargo无lock逐项目注记() {
+    let env = Env::new("projects-notes");
+    seed_main_path(&env, "plain/.keep", "");
+    seed_main_path(&env, "rs/Cargo.toml", "[package]");
+    let roots = ["plain".to_owned(), "rs".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "注记 goal", &roots)
+        .expect("建域应 Ok");
+
+    assert!(env.vcs.install_commands().is_empty(), "零安装");
+    assert_eq!(
+        outcome.warnings,
+        vec![
+            "项目根 \"plain\"：未识别依赖管理器，跳过依赖引导".to_owned(),
+            "项目根 \"rs\"：检测到 Cargo.toml 但无 Cargo.lock，跳过依赖引导（避免生成未跟踪 lockfile 混入变更上下文）".to_owned(),
+        ]
+    );
+}
+
+/// 非空 projects 抑制 worktree 根扫描：根上有 lockfile 也不安装。
+#[test]
+fn projects非空抑制worktree根扫描() {
+    let env = Env::new("projects-suppress");
+    seed_main_file(&env, "pnpm-lock.yaml", "# root pnpm");
+    seed_main_path(&env, "web/.keep", "");
+    let roots = ["web".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "抑制根扫描 goal", &roots)
+        .expect("建域应 Ok");
+
+    assert!(
+        env.vcs.install_commands().is_empty(),
+        "根 lockfile 不参与项目模式扫描"
+    );
+    assert_eq!(
+        outcome.warnings,
+        vec!["项目根 \"web\"：未识别依赖管理器，跳过依赖引导".to_owned()]
+    );
+}
+
+/// 显式空 projects（命令层未配置）：回退 legacy worktree 根扫描，cwd = worktree 根。
+#[test]
+fn 空projects回退worktree根扫描() {
+    let env = Env::new("projects-empty-legacy");
+    seed_main_file(&env, "pnpm-lock.yaml", "# pnpm");
+
+    let outcome = env
+        .create_with_projects("fix-bug", "空 projects goal", &[])
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        env.vcs.installs(),
+        vec![(
+            env.worktree_root.join("fix-bug"),
+            "pnpm install --frozen-lockfile".to_owned()
+        )],
+        "legacy 路径 cwd = worktree 根"
+    );
+    assert!(outcome.warnings.is_empty());
+}
+
+/// 单项目安装失败：不中断后续项目、不回滚 create，逐项目失败警告按序累积。
+#[test]
+fn projects单项目安装失败继续后续且不回滚() {
+    let env = Env::new("projects-fail");
+    seed_main_path(&env, "web/pnpm-lock.yaml", "# pnpm");
+    seed_main_path(&env, "api/package-lock.json", "# npm");
+    env.vcs.set_install_failure("ERR_PNPM");
+    let roots = ["web".to_owned(), "api".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "失败继续 goal", &roots)
+        .expect("bootstrap 失败不回滚不阻断");
+
+    assert_eq!(env.vcs.installs().len(), 2, "失败后仍继续后续项目");
+    assert_eq!(
+        outcome.warnings,
+        vec![
+            "项目根 \"web\"：依赖引导失败（pnpm install --frozen-lockfile）: ERR_PNPM".to_owned(),
+            "项目根 \"api\"：依赖引导失败（npm ci）: ERR_PNPM".to_owned(),
+        ]
+    );
+    assert!(
+        env.store.find_by_id(&env.store.created_id()).is_some(),
+        "建档保留（不回滚）"
+    );
+    assert!(
+        env.worktree_root.join("fix-bug").is_dir(),
+        "worktree 保留（不回滚）"
+    );
+}
+
+/// 脏仓警告先于项目警告：警告顺序 = 脏仓 → 项目配置序。
+#[test]
+fn 脏仓警告先于项目警告() {
+    let env = Env::new("projects-dirty");
+    env.vcs.set_dirty();
+    let roots = ["missing".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "脏仓 goal", &roots)
+        .expect("建域应 Ok");
+
+    assert_eq!(outcome.warnings.len(), 2, "实际: {:?}", outcome.warnings);
+    assert!(outcome.warnings[0].contains("主仓有未提交改动"));
+    assert_eq!(
+        outcome.warnings[1],
+        "项目根 \"missing\"：在 worktree 内不存在，跳过依赖引导"
+    );
+}
+
+/// `.` 项目根：等价扫描 worktree 根并在该处安装。
+#[test]
+fn projects点号根按worktree根扫描安装() {
+    let env = Env::new("projects-dot");
+    seed_main_file(&env, "pnpm-lock.yaml", "# pnpm");
+    let roots = [".".to_owned()];
+
+    let outcome = env
+        .create_with_projects("fix-bug", "点号根 goal", &roots)
+        .expect("建域应 Ok");
+
+    assert_eq!(
+        env.vcs.installs(),
+        vec![(
+            env.worktree_root.join("fix-bug"),
+            "pnpm install --frozen-lockfile".to_owned()
+        )],
+        "`.` 解析为 worktree 根"
+    );
+    assert!(outcome.warnings.is_empty());
 }
 
 // ---------------------------------------------------------------------------

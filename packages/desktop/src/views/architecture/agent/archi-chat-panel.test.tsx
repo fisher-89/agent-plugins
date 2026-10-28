@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { ResizablePanelGroup } from '@/components/ui/resizable';
+
 import type { AgentEvent, SessionPage, SessionSummary, TurnSummary } from '../../../types/dto';
 import { ArchiChatPanel, type ArchiChatPanelProps } from './archi-chat-panel';
 
@@ -153,14 +155,30 @@ function deliverRecord(record: TurnSummary): void {
 function baseProps(overrides: Partial<ArchiChatPanelProps> = {}): ArchiChatPanelProps {
   return {
     root: ROOT,
-    collapsed: false,
-    onToggleCollapsed: vi.fn(),
     ...overrides,
   };
 }
 
+/** 分栏宿主（面板骨架自身即 `ResizablePanel`，须挂在 `ResizablePanelGroup` 内）。 */
+function panelUi(overrides: Partial<ArchiChatPanelProps> = {}) {
+  return (
+    <ResizablePanelGroup orientation="horizontal">
+      <ArchiChatPanel {...baseProps(overrides)} />
+    </ResizablePanelGroup>
+  );
+}
+
+/** 面板分栏元素（骨架默认收起 → 以窄条定位；展开体同在同一个分栏面板内）。 */
+function panelRoot(): HTMLElement {
+  const anchor =
+    screen.queryByTestId('archi-chat-actions') ?? screen.getByTestId('archi-chat-rail');
+  return anchor.closest<HTMLElement>('[data-slot="resizable-panel"]')!;
+}
+
 async function mountPanel(overrides: Partial<ArchiChatPanelProps> = {}) {
-  const rendered = render(<ArchiChatPanel {...baseProps(overrides)} />);
+  const rendered = render(panelUi(overrides));
+  await act(async () => {});
+  fireEvent.click(screen.getByTestId('archi-chat-expand'));
   await act(async () => {});
   await act(async () => {});
   return rendered;
@@ -189,14 +207,14 @@ describe('ArchiChatPanel：骨架装配面', () => {
   it('骨架面板 / 头区 / 会话体在场，标题逐字，composer 插槽呈 archi-chat 前缀', async () => {
     await mountPanel();
 
-    expect(screen.getByTestId('archi-chat-panel')).toBeTruthy();
+    expect(panelRoot()).toBeTruthy();
     expect(screen.getByTestId('archi-chat-actions').textContent).toContain('架构 Agent');
     expect(screen.getByTestId('archi-chat-session')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-composer')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-prompt')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-send')).toBeTruthy();
     expect(
-      screen.queryAllByTestId('change-chat-panel'),
+      screen.queryAllByTestId('change-chat-rail'),
       'testIdPrefix 与 change 侧不串味',
     ).toHaveLength(0);
     expect(screen.queryByTestId('change-chat-actions')).toBeNull();
@@ -297,7 +315,7 @@ describe('ArchiChatPanel：历史与「新会话」（组合）', () => {
     expect(argsOf('session_detail')).toEqual({ root: ROOT, sessionId: 'ses-2' });
     expect(screen.queryByTestId('archi-chat-history-list'), '点选后清单收起').toBeNull();
     await waitFor(() =>
-      expect(screen.getByTestId('archi-chat-panel').textContent).toContain('历史会话正文'),
+      expect(screen.getByTestId('archi-chat-session').textContent).toContain('历史会话正文'),
     );
 
     const startsBefore = callsOf('agent_start').length;
@@ -307,9 +325,7 @@ describe('ArchiChatPanel：历史与「新会话」（组合）', () => {
     await act(async () => {});
 
     expect(screen.queryByTestId('session-meta'), '新会话回空态（会话镜像清空）').toBeNull();
-    expect(screen.getByTestId('archi-chat-panel').textContent).toContain(
-      '发送首条消息即开启新会话',
-    );
+    expect(screen.getByTestId('archi-chat-note').textContent).toContain('发送首条消息即开启新会话');
     expect(callsOf('agent_start').length, '「新会话」零落库').toBe(startsBefore);
   });
 });
@@ -333,23 +349,27 @@ describe('ArchiChatPanel：状态行两态', () => {
 });
 
 describe('ArchiChatPanel：折叠（组合）', () => {
-  it('collapsed → 只呈窄条，点展开上抛；collapsed=false → 展开体', async () => {
-    const onToggleCollapsed = vi.fn();
-    const { rerender } = await mountPanel({ collapsed: true, onToggleCollapsed });
+  it('挂载默认收起只呈窄条；点展开入口进入展开体；头区「收起Agent」回窄条', async () => {
+    const rendered = render(panelUi());
 
     expect(screen.getByTestId('archi-chat-rail').textContent).toContain('架构 Agent');
+    expect(screen.getByTestId('archi-chat-expand').getAttribute('title')).toBe('展开架构 Agent');
     expect(screen.queryByTestId('archi-chat-actions')).toBeNull();
     expect(screen.queryByTestId('archi-chat-composer')).toBeNull();
+
     await act(async () => {
       fireEvent.click(screen.getByTestId('archi-chat-expand'));
     });
-    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
-
-    rerender(<ArchiChatPanel {...baseProps({ collapsed: false, onToggleCollapsed })} />);
-    await act(async () => {});
     expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-composer')).toBeTruthy();
     expect(screen.queryByTestId('archi-chat-rail')).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('archi-chat-collapse'));
+    });
+    expect(screen.getByTestId('archi-chat-rail')).toBeTruthy();
+    expect(screen.queryByTestId('archi-chat-actions')).toBeNull();
+    rendered.unmount();
   });
 });
 
@@ -357,7 +377,7 @@ describe('ArchiChatPanel：root 两态与零自动动作', () => {
   it('root = null → 面板在场且零会话 invoke；root 恢复后发送可用', async () => {
     const { rerender } = await mountPanel({ root: null });
 
-    expect(screen.getByTestId('archi-chat-panel')).toBeTruthy();
+    expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
     await send('无根发送');
     for (const command of [
       'agent_start',
@@ -369,7 +389,7 @@ describe('ArchiChatPanel：root 两态与零自动动作', () => {
       expect(callsOf(command), `root = null → ${command} 零 invoke`).toHaveLength(0);
     }
 
-    rerender(<ArchiChatPanel {...baseProps({ root: ROOT })} />);
+    rerender(panelUi({ root: ROOT }));
     await act(async () => {});
     await send('有根发送');
     expect(callsOf('agent_start')).toHaveLength(1);

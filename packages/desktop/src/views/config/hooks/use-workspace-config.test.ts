@@ -25,6 +25,7 @@ function makeConfig(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
     context: null,
     rules: null,
     staticAnalysis: null,
+    projects: [],
     tests: [],
     writeProtection: null,
     extra: [],

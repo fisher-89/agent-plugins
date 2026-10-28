@@ -44,7 +44,6 @@ pub trait WorktreePort: Send + Sync {
     /// 分支补偿删除（-D；不触碰主仓工作区）。
     fn delete_branch(&self, main_root: &Path, branch: &str) -> Result<(), String>;
 
-    /// 依赖引导安装执行体：cwd = worktree、环境全继承、超时到点 kill（超时 /
-    /// 拉起失败统一 `Err` 面；非零退出为 `Ok(InstallRun { success: false })`）。
-    fn run_install(&self, worktree: &Path, command: &str) -> Result<InstallRun, String>;
+    /// 依赖引导安装执行体。
+    fn run_install(&self, cwd: &Path, command: &str) -> Result<InstallRun, String>;
 }

@@ -297,7 +297,7 @@ function nodeTransform(fqn: string): string {
   return screen.getByTestId(`rf__node-${fqn}`).style.transform;
 }
 
-/** 单个节点的文案（`节点状态点 + 短名`）。 */
+/** 单个节点的文案（短名；节点状态点已退役）。 */
 function nodeText(fqn: string): string {
   const view = within(screen.getByTestId(`rf__node-${fqn}`)).getByTestId('archi-canvas-node');
   return view.textContent ?? '';
@@ -445,15 +445,15 @@ describe('正常态：缺省 1-hop 渲染面', () => {
     ]);
   });
 
-  it('应按短名 + 节点标记渲染节点文案（末段短名、🟡 表示 unfulfilled）', async () => {
+  it('应按短名渲染节点文案（末段短名，节点不呈标记点）', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
-    expect(nodeText('Svc')).toBe('🟡 Svc');
-    expect(nodeText('Src1')).toBe('⚪ Src1');
-    expect(nodeText('Svc.A')).toBe('⚪ A');
-    expect(nodeText('Svc.B')).toBe('⚪ B');
+    expect(nodeText('Svc')).toBe('Svc');
+    expect(nodeText('Src1')).toBe('Src1');
+    expect(nodeText('Svc.A')).toBe('A');
+    expect(nodeText('Svc.B')).toBe('B');
     // 节点类型固定为局部组件 `archi`
     expect(flow().nodes.every((node) => node.type === 'archi')).toBe(true);
     expect(Object.keys(flow().nodeTypes)).toEqual(['archi']);
@@ -635,10 +635,8 @@ describe('漂移面接线（AC-19）', () => {
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
 
-    // 节点：只标 from（🟡），其余仍 ⚪
-    const dots = screen.getAllByTestId('archi-node-mark').map((node) => node.textContent);
-    expect(dots.filter((dot) => dot === '🟡')).toHaveLength(1);
-    expect(dots.filter((dot) => dot === '⚪')).toHaveLength(3);
+    // 节点：不呈标记点，只呈短名（节点标记不呈现）
+    expect(screen.queryAllByTestId('archi-node-mark')).toHaveLength(0);
 
     // 边：命中项转灰虚线（unfulfilled），未命中项保持实线
     await measureNodes();
@@ -670,9 +668,7 @@ describe('漂移面接线（AC-19）', () => {
     );
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
-    expect(
-      screen.getAllByTestId('archi-node-mark').every((node) => node.textContent === '⚪'),
-    ).toBe(true);
+    expect(screen.queryAllByTestId('archi-node-mark')).toHaveLength(0);
 
     await measureNodes();
     const styles = [...document.querySelectorAll<SVGPathElement>('.react-flow__edge-path')].map(
@@ -692,9 +688,7 @@ describe('漂移面接线（AC-19）', () => {
     expect(screen.getByTestId('archi-drift-error').textContent).toContain('漂移取数失败');
     expect(screen.queryByTestId('archi-canvas-error')).toBeNull();
     await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
-    expect(
-      screen.getAllByTestId('archi-node-mark').every((node) => node.textContent === '⚪'),
-    ).toBe(true);
+    expect(screen.queryAllByTestId('archi-node-mark')).toHaveLength(0);
   });
 
   it('应在 clean / skipped / noChanges 三态下全图零标记且节点边照常渲染', async () => {
@@ -720,10 +714,8 @@ describe('漂移面接线（AC-19）', () => {
       await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
       await measureNodes();
 
-      // 全图零标记：节点状态点全 ⚪、边样式全为正常色（无灰 / 无虚线）
-      expect(
-        screen.getAllByTestId('archi-node-mark').every((node) => node.textContent === '⚪'),
-      ).toBe(true);
+      // 全图零标记：边样式全为正常色（无灰 / 无虚线），节点不呈标记点
+      expect(screen.queryAllByTestId('archi-node-mark')).toHaveLength(0);
       const styles = edgeStyles();
       expect(styles.every((style) => style.includes('var(--chart-2)'))).toBe(true);
       expect(styles.some((style) => style.includes('var(--muted-foreground)'))).toBe(false);

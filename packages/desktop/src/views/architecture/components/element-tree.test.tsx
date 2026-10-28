@@ -44,13 +44,9 @@ function nodeOf(fqn: string): HTMLElement | undefined {
     .find((node) => node.getAttribute('data-fqn') === fqn);
 }
 
-/** 树节点标签文本（剥去状态点，仅剩短名 span 的文本，渲染序）。 */
+/** 树节点标签文本（仅剩短名，渲染序；状态点已随节点标记退役）。 */
 function renderedLabels(): string[] {
-  return screen.queryAllByTestId('archi-tree-node').map((node) => {
-    const full = (node.textContent ?? '').trim();
-    const mark = (node.querySelector('[data-testid="archi-node-mark"]')?.textContent ?? '').trim();
-    return full.split(mark).join('').trim();
-  });
+  return screen.queryAllByTestId('archi-tree-node').map((node) => (node.textContent ?? '').trim());
 }
 
 afterEach(() => {
@@ -63,13 +59,13 @@ describe('元素树层级派生', () => {
     expect(renderedFqns()).toEqual(['App', 'App.Auth', 'App.Billing']);
   });
 
-  it('应为父节点渲染展开开关、为叶子节点留空位（不虚构可展开项）', () => {
+  it('应为父节点渲染可用的展开开关、为叶子节点留禁用空位（不虚构可展开项）', () => {
     renderTree([element('App'), element('App.Auth'), element('App.Auth.Token')]);
-    // 有子元素的节点才有展开按钮
-    expect(screen.getByLabelText('收起 App')).toBeTruthy();
-    expect(screen.getByLabelText('收起 App.Auth')).toBeTruthy();
-    expect(screen.queryByLabelText('展开 App.Auth.Token')).toBeNull();
-    expect(screen.queryByLabelText('收起 App.Auth.Token')).toBeNull();
+    // 有子元素的节点才有可用的展开按钮
+    expect(screen.getByLabelText<HTMLButtonElement>('收起 App').disabled).toBe(false);
+    expect(screen.getByLabelText<HTMLButtonElement>('收起 App.Auth').disabled).toBe(false);
+    // 叶子节点保留同一列的空位（对齐用），但入口禁用
+    expect(screen.getByLabelText<HTMLButtonElement>('收起 App.Auth.Token').disabled).toBe(true);
   });
 
   it('应在元素集变化后重算树（新增子元素即上图，不因缓存停留旧形状）', () => {
@@ -151,25 +147,9 @@ describe('节点文案（同一元素同一名字）', () => {
     expect(() => renderTree([element('App.')])).not.toThrow();
     const node = nodeOf('App.');
     expect(node).toBeTruthy();
-    // 末段为空串 → 标签为空串（不补「App」一类默认名），状态点仍在
+    // 末段为空串 → 标签为空串（不补「App」一类默认名）
     expect(renderedLabels()).toEqual(['']);
     expect(node?.textContent ?? '').not.toContain('App');
-    expect(node?.querySelector('[data-testid="archi-node-mark"]')?.textContent).toBe('⚪');
-  });
-});
-
-describe('节点状态点', () => {
-  it('应按词汇渲染 ⚪ / 🟡 并在词汇外退化为 ⚪', () => {
-    renderTree([
-      element('App', 'none'),
-      element('App.Auth', 'unfulfilled'),
-      // 词汇外值（类型层不可表示，运行期容错面）
-      { ...element('App.Billing'), mark: 'unknown' as unknown as ArchiElement['mark'] },
-    ]);
-    const marks = screen
-      .queryAllByTestId('archi-node-mark')
-      .map((node) => (node.textContent ?? '').trim());
-    expect(marks).toEqual(['⚪', '🟡', '⚪']);
   });
 });
 

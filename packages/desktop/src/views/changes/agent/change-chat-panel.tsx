@@ -1,9 +1,3 @@
-/**
- * change 详情左栏通用 Agent 面板：状态 / 清单 / 判据全在 `useChangeChat`（面板态
- * 挂 change id，切换即复位）；渲染体是共享骨架 `SessionPanel`（`testIdPrefix =
- * "change-chat"`）——头区动作 / 状态行 / 历史清单 / 折叠窄条由骨架按前缀生成，
- * `change-chat-*` 查询挂钩与文案逐字不变；本文件只剩归属参数与 composer 插槽。
- */
 import { SessionPanel } from '@/components/agent';
 
 import { ChangeChatComposer } from './change-chat-composer';
@@ -20,10 +14,6 @@ export interface ChangeChatPanelProps {
   readOnly: boolean;
   /** 在飞 change flow run：禁发判据 */
   runActive: boolean;
-  /** 左栏是否处于折叠窄条形态（真相取分栏 `onResize`，视图持有） */
-  collapsed: boolean;
-  /** 折叠 / 展开切换（沿分栏 `panelRef` 命令面） */
-  onToggleCollapsed: () => void;
 }
 
 /**
@@ -32,7 +22,7 @@ export interface ChangeChatPanelProps {
  * `disabled` / `disabledReason` 取面板判据）。
  */
 export function ChangeChatPanel(props: ChangeChatPanelProps): React.JSX.Element {
-  const { root, changeId, cwd, readOnly, runActive, collapsed, onToggleCollapsed } = props;
+  const { root, changeId, cwd, readOnly, runActive } = props;
   const state = useChangeChat({
     root,
     changeId,
@@ -54,8 +44,6 @@ export function ChangeChatPanel(props: ChangeChatPanelProps): React.JSX.Element 
           onStop={state.stop}
         />
       )}
-      collapsed={collapsed}
-      onToggleCollapsed={onToggleCollapsed}
     />
   );
 }

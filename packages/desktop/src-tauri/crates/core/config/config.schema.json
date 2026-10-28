@@ -40,6 +40,24 @@
       "description": "静态分析工具配置（如 ESLint、Prettier）",
       "type": "string"
     },
+    "projects": {
+      "description": "依赖引导项目根列表（相对 worktree 根；有配置时逐项目扫描 lockfile 并在其目录执行安装）",
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "minLength": 1,
+            "description": "项目目录（相对 worktree 根，非绝对路径，禁止 \"..\" 段 / \":\" / 通配符）"
+          }
+        },
+        "required": [
+          "root"
+        ]
+      }
+    },
     "tests": {
       "description": "测试 suite 配置列表",
       "default": [],

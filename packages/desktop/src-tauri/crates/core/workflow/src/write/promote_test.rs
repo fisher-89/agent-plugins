@@ -1,19 +1,3 @@
-//! `write::promote_explore` 的单元测试（test-design「write/promote.rs ->
-//! promote_test.rs」节，新增文件）：promote 的 move 半边——复用 `create` 建
-//! change（`name = explore.name`、`goal = 笔记全文`、`title = explore.title`
-//! 显式继承）→ worktree 内 `changes/<name>/explore.md` 即笔记全文 → 成功后删
-//! 主仓 `explores/<name>.md`（移走半边，MUST NOT `fs::rename`）。失败面：
-//! create 失败（前置拒绝 / vcs 注入 Err）→ `Err` 且主仓笔记零删除；删笔记失败
-//! → `Err` 携 change id 与「笔记全文已在 change explore.md 留底」回写指引；
-//! `PromoteOutcome` 两字段 serde camelCase 出线；sync 零 tokio 上下文依赖。
-//!
-//! Mock策略（test-design 本节 Mock 表）：db 半边以进程内假件实现
-//! [`ChangeStateStore`]（捕获 create 建档载荷 + 可编程失败）；vcs 半边以进程内
-//! 脚本化假件实现 [`WorktreePort`]（probe / branch_exists / add_worktree 可编程
-//! 注入 Err + 调用捕获；add 成功即镜像主仓树——HEAD 检出的最小模拟）；文件系统
-//! 真实 tempdir 双根；删笔记失败经「预置同名目录占位」注入（`remove_file` 对
-//! 目录必失败），不经 mock。
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -98,6 +82,7 @@ impl Env {
             &self.root,
             &self.store,
             &self.vcs,
+            &[],
             name,
             note,
             title,

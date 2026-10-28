@@ -1,19 +1,8 @@
-/**
- * 会话面板骨架（`desktop-change-chat`「面板骨架归一」）：change 详情左栏与架构页
- * 左栏的**唯一**面板实现——头区动作（新会话 / 历史 ▾）/ 状态行 / 历史清单（分页
- * + 加载 / 空 / 错误态）/ 折叠窄条 / `AgentSessionView` 注入形态 + composer 插槽。
- *
- * 三条纪律：
- * 1. **业务判据不外移**：可发送 / 只读 / 归档 / 运行期矩阵与状态行文案由来源侧
- *    hook 算好（`canStart` / `note`），骨架 MUST NOT 自判禁发、MUST NOT 自建会话流
- *    （零 `useAgentSession` 调用）；
- * 2. **testid 前缀参数化**：全部查询挂钩由 `testIdPrefix` 生成，骨架内零写死前缀；
- * 3. **折叠入参可选**：`collapsed` 与 `onToggleCollapsed` 同时在场才可能呈窄条；
- *    不传即恒展开（无会话管理维度的消费面零变化）。
- */
-import { HistoryIcon, PlusCircleIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, HistoryIcon, PlusCircleIcon } from 'lucide-react';
+import { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { ResizablePanel, usePanelRef } from '@/components/ui/resizable';
 import type { UseAgentSessionState } from '@/hooks/use-agent-session';
 import type { SessionSummary } from '@/types/generated/bindings';
 
@@ -49,10 +38,6 @@ interface SessionPanelProps {
   testIdPrefix: string;
   /** composer 插槽（注入形态：插槽自取运行态与动作面） */
   composer: (actions: AgentSessionActions) => React.ReactNode;
-  /** 折叠态（缺省 `undefined` = 恒展开；须与 `onToggleCollapsed` 同时在场） */
-  collapsed?: boolean;
-  /** 折叠 / 展开切换（缺省 `undefined` = 不呈展开入口） */
-  onToggleCollapsed?: () => void;
 }
 
 /** 历史清单项 id 前缀长度（完整 id 落 title，行内只呈辨识前缀） */
@@ -71,6 +56,7 @@ function HeaderActions({
   listOpen,
   onNewSession,
   onToggleList,
+  onCollapse,
 }: {
   title: string;
   testIdPrefix: string;
@@ -78,14 +64,29 @@ function HeaderActions({
   listOpen: boolean;
   onNewSession: () => void;
   onToggleList: () => void;
+  onCollapse: () => void;
 }): React.JSX.Element {
   return (
-    <div className="flex shrink-0 items-center gap-2" data-testid={testId(testIdPrefix, 'actions')}>
+    <div
+      className="flex shrink-0 items-center py-2 gap-2"
+      data-testid={testId(testIdPrefix, 'actions')}
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        title="收起Agent"
+        aria-label="收起Agent"
+        data-testid={testId(testIdPrefix, 'collapse')}
+        onClick={onCollapse}
+      >
+        <ChevronLeftIcon />
+      </Button>
       <span className="text-[13px] font-medium">{title}</span>
       <span className="flex-1" />
       <Button
-        variant="link"
+        variant="ghost"
         size="icon"
+        title="新会话"
         aria-label="新会话"
         data-testid={testId(testIdPrefix, 'new')}
         disabled={!canStart}
@@ -94,8 +95,9 @@ function HeaderActions({
         <PlusCircleIcon />
       </Button>
       <Button
-        variant="link"
+        variant="ghost"
         size="icon"
+        title="历史会话"
         aria-label="历史会话"
         data-testid={testId(testIdPrefix, 'history')}
         aria-expanded={listOpen}
@@ -206,36 +208,65 @@ function CollapsedRail({
       className="flex h-full flex-col items-center gap-2 py-2"
       data-testid={testId(testIdPrefix, 'rail')}
     >
-      <button
-        type="button"
-        className="cursor-pointer rounded-md border border-border bg-transparent px-1 py-1 text-xs hover:bg-muted"
+      <Button
+        variant="ghost"
+        size="icon"
         data-testid={testId(testIdPrefix, 'expand')}
         title={`展开${title}`}
         onClick={onExpand}
       >
-        ›
-      </button>
+        <ChevronRightIcon />
+      </Button>
       <span className="text-[12px] text-muted-foreground [writing-mode:vertical-rl]">{title}</span>
     </div>
   );
 }
 
+const MIN_SIZE = 500;
+
 /**
- * 会话面板骨架：`isCollapsed` 为真只渲窄条（无展开入口的死锁形态被反向条件排
- * 除）；否则渲展开体——头区动作 → 状态行（`state.note`）→ 历史清单 → 会话体。
- * 状态行文案生成规则不在本组件内（来源侧 hook 供 `note`）。
+ * 会话面板骨架
  */
 export function SessionPanel(props: SessionPanelProps): React.JSX.Element {
-  const { state, title, testIdPrefix, composer, collapsed, onToggleCollapsed } = props;
-  const isCollapsed = collapsed === true && onToggleCollapsed !== undefined;
+  const { state, title, testIdPrefix, composer } = props;
+
+  const panelRef = usePanelRef();
+  const [isCollapsed, setIsCollapsed] = useState(true);
+
+  const expand = useCallback(() => {
+    panelRef.current?.expand();
+    setIsCollapsed(false);
+  }, [panelRef]);
+
+  const collapse = useCallback(() => {
+    panelRef.current?.collapse();
+    setIsCollapsed(true);
+  }, [panelRef]);
+
   return (
-    <div className="h-full min-h-0" data-testid={testId(testIdPrefix, 'panel')}>
+    <ResizablePanel
+      defaultSize="32px"
+      maxSize={`${MIN_SIZE * 2}px`}
+      minSize={`${MIN_SIZE}px`}
+      collapsible={true}
+      collapsedSize="32px"
+      collapsedThreshold={`${MIN_SIZE / 2}px`}
+      onResize={({ inPixels }) => setIsCollapsed(inPixels < MIN_SIZE)}
+      panelRef={panelRef}
+      data-testid={testId(testIdPrefix, 'panel')}
+    >
       {isCollapsed ? (
-        <CollapsedRail title={title} testIdPrefix={testIdPrefix} onExpand={onToggleCollapsed} />
+        <CollapsedRail title={title} testIdPrefix={testIdPrefix} onExpand={expand} />
       ) : (
-        <ExpandedBody state={state} title={title} testIdPrefix={testIdPrefix} composer={composer} />
+        <ExpandedBody
+          state={state}
+          title={title}
+          testIdPrefix={testIdPrefix}
+          composer={composer}
+          onCollapse={collapse}
+        />
       )}
-    </div>
+    </ResizablePanel>
   );
 }
 
@@ -245,14 +276,16 @@ function ExpandedBody({
   title,
   testIdPrefix,
   composer,
+  onCollapse,
 }: {
   state: SessionPanelState;
   title: string;
   testIdPrefix: string;
   composer: (actions: AgentSessionActions) => React.ReactNode;
+  onCollapse: () => void;
 }): React.JSX.Element {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 pr-1.5">
+    <div className="flex h-full min-h-0 flex-col gap-2 pr-1.5 min-w-100">
       <HeaderActions
         title={title}
         testIdPrefix={testIdPrefix}
@@ -260,6 +293,7 @@ function ExpandedBody({
         listOpen={state.listOpen}
         onNewSession={state.newSession}
         onToggleList={state.toggleList}
+        onCollapse={onCollapse}
       />
       {state.note !== null && (
         <div

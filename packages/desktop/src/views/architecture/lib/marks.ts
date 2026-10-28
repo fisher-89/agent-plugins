@@ -2,7 +2,7 @@
  * 漂移标记 → 视觉映射（封闭词汇，纯函数）。
  *
  * 边四值：`none` 实线（本期恒此值）/ `unfulfilled` 灰虚线 / `crossKind` 橙虚线 /
- * `exempt` 灰实线；节点两值：`unfulfilled` 🟡 / 其余 ⚪。词汇**外**的值退化为中性
+ * `exempt` 灰实线。词汇**外**的值退化为中性
  * 样式且不抛错（标记扩展走「改能力 spec + 同步对拍语料」两处，不得静默新增）。
  *
  * 标记的**产生**（何时算漂移）不在本模块——本期生产者恒空，渲染契约先立。
@@ -31,12 +31,4 @@ export function edgeVisual(mark: string): EdgeVisual {
     default:
       return { stroke: 'var(--chart-2)', dasharray: null };
   }
-}
-
-/**
- * 节点标记 → 状态点；词汇外一律 ⚪ 正常（同 `edgeVisual` 的退化口径：`NodeMark`
- * 两值是 `string` 的子集，退化分支即词汇封闭的执行点）。
- */
-export function nodeDot(mark: string): string {
-  return mark === 'unfulfilled' ? '🟡' : '⚪';
 }

@@ -27,16 +27,27 @@ pub struct PromoteOutcome {
 /// 单点派生（git 根同级 `.worktrees/<仓库目录名>/`）。目标 change 目录 / 记录 /
 /// branch / worktree 冲突面与 workflow_type 合法值校验均由 create 前置校验承担
 /// （拒绝面零副作用）。
+#[allow(clippy::too_many_arguments)]
 pub fn promote_explore(
     main_root: &Path,
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
+    project_roots: &[String],
     name: &str,
     note: &str,
     title: &str,
     workflow_type: &str,
 ) -> Result<PromoteOutcome, String> {
-    let outcome = super::create(main_root, store, vcs, name, note, title, workflow_type)?;
+    let outcome = super::create(
+        main_root,
+        store,
+        vcs,
+        project_roots,
+        name,
+        note,
+        title,
+        workflow_type,
+    )?;
     let layout = resolve(main_root);
     let note_path = layout.explores_root.join(format!("{name}.md"));
     match fs::remove_file(&note_path) {

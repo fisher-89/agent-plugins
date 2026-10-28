@@ -239,6 +239,30 @@ fn 合法配置文件返回ok_diagnostics为空且信封字段平移一致() {
     assert_eq!(inner_value, load_value, "信封 config 平移一致");
 }
 
+#[test]
+fn projects配置逐项透传且保序() {
+    let ws = TempWs::new("projects-pass");
+    ws.ensure_dir();
+    ws.write_config(
+        r#"{"schema": "spec-driven", "tests": [], "projects": [{"root": "packages/desktop"}, {"root": "packages/desktop/src-tauri"}]}"#,
+    );
+
+    let report = workspace_config_inner(ws.root()).expect("合法配置应返回 Ok");
+
+    assert!(
+        report.diagnostics.is_empty(),
+        "实际诊断 {:?}",
+        report.diagnostics
+    );
+    let roots: Vec<&str> = report
+        .config
+        .projects
+        .iter()
+        .map(|project| project.root.as_str())
+        .collect();
+    assert_eq!(roots, ["packages/desktop", "packages/desktop/src-tauri"]);
+}
+
 // ---------------------------------------------------------------------------
 // workspace_config_inner：不落库无缓存（行为化核对）
 // ---------------------------------------------------------------------------

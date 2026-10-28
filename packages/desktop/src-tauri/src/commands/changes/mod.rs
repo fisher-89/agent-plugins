@@ -228,12 +228,21 @@ pub(crate) async fn create_change_with<R: tauri::Runtime>(
     let main_root = PathBuf::from(root);
     let vcs = ProcessWorktree::new();
     tauri::async_runtime::spawn_blocking(move || {
+        // 依赖引导项目根经 config crate 读取（主 workspace root 当前配置；
+        // 未配置 / 空列表 → legacy worktree 根扫描由写面分派）。
+        let project_roots: Vec<String> = config::load(&main_root)
+            .config
+            .projects
+            .into_iter()
+            .map(|project| project.root)
+            .collect();
         // worktree 落位父锚由写面经 vcs port 单点派生（git 根同级
         // `.worktrees/<仓库目录名>/`），派生时序与前置校验对齐。
         write::create(
             &main_root,
             store.as_ref(),
             &vcs,
+            &project_roots,
             &name,
             &goal,
             &title,

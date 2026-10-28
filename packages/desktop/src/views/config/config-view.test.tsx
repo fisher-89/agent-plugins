@@ -34,6 +34,7 @@ function makeConfig(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
     context: '桌面端插件仓库',
     rules: { proposal: ['提案规则一'], tasks: ['任务规则一'] },
     staticAnalysis: 'clippy',
+    projects: [{ root: 'packages/desktop' }, { root: 'packages/desktop/src-tauri' }],
     tests: [
       {
         root: 'packages/desktop',

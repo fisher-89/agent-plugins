@@ -10,16 +10,16 @@
 
 change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧详情区并排（`ResizablePanelGroup orientation="horizontal"`，与探索详情页同构的分栏范式），MUST NOT 以右侧抽屉 / 浮层承载对话：
 
-- **分栏骨架**：左栏 `ResizablePanel` SHALL 默认收起（挂载即窄条形态，展开尺寸 `defaultSize` 约 30 / `minSize` 约 22 / 收起留窄条 `collapsible`），`DetailHeader` SHALL 提供面板显隐开关（收起 / 展开同一入口）；右栏 SHALL 保持既有纵向次序（刷新失败提示 → 运行控制面板 → 流程图区）。
+- **分栏骨架**：左栏 SHALL 由共享骨架 `SessionPanel` 自带的可折叠分栏承载，默认收起（挂载即窄条形态，收起尺寸 32px / 展开尺寸下限 500px / 留窄条 `collapsible`），窄条内 SHALL 留展开入口、展开体头区 SHALL 提供「收起Agent」入口；`DetailHeader` MUST NOT 另设面板显隐开关（折叠入口全部收在骨架内）；右栏 SHALL 保持既有纵向次序（刷新失败提示 → 运行控制面板 → 流程图区）。
 - **对话体单一实现**：对话区 SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra）的**注入形态**渲染（来源侧建 `useAgentSession`，composer 经插槽注入），MUST NOT 在视图层自行拼装消息 / 轮行 / 事件流，MUST NOT 引入第二套对话渲染或第二套转录查询 hook。
 - **会话头动作面**：面板头 SHALL 提供「新会话」与「历史会话」两个动作（后者为可展开的会话清单），以及一行状态提示（禁发 / 只读理由，见「禁发与只读状态矩阵」）；会话元信息（会话 id / 运行态 / 轮数 / tokens）由 `AgentSessionView` 自带元信息行承载，MUST NOT 复制第二份。
-- **面板态归属**：面板本地态（当前 `sessionId` / 折叠态 / 清单展开态）SHALL 挂在页面身份源（URL change id）上——change id 变化时重置（MUST NOT 让旧 change 的会话 id 落到新 change 上）；`sessionId = null` 即空态（可发送草案态，见「change 会话归属与新会话 / 历史会话」）。
+- **面板态归属**：面板本地态（当前 `sessionId` / 清单展开态 / 折叠态）SHALL 挂在页面身份源（URL change id）上——change id 变化时重置（MUST NOT 让旧 change 的会话 id 落到新 change 上）；折叠态由骨架内部持有，change 切换（组件重挂）SHALL 回到默认收起形态；`sessionId = null` 即空态（可发送草案态，见「change 会话归属与新会话 / 历史会话」）。
 - **实时面纪律**：面板的交互式会话 MUST NOT 接收详情视图的重评估 tick（`refreshTick`）作 `refreshKey`——该值在 run 期间由每条密封事件驱动，传入会导致整轮反复重放；会话状态重评估 SHALL 由 `useAgentSession` 自身的库态推导与订阅面承担（只读消费点如流程抽屉继续收 `refreshKey`，其语义不变）。
 
 #### Scenario: 分栏并排与折叠
 
 - **WHEN** 打开一个已建档 change 的详情页
-- **THEN** 页面呈左右两栏：左栏通用 Agent 面板默认收起为窄条（仍留展开入口）、右栏刷新提示 / 运行控制 / 流程图；点击 header 开关或窄条可展开左栏，再点可收起，右栏内容次序不变
+- **THEN** 页面呈左右两栏：左栏通用 Agent 面板默认收起为窄条（仍留展开入口）、右栏刷新提示 / 运行控制 / 流程图；点窄条展开入口可展开左栏，点头区「收起Agent」可再收起，右栏内容次序不变
 
 #### Scenario: 对话体归一为会话级组件
 
@@ -148,17 +148,17 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单 / 折叠窄条）SHALL 抽为共享组件 `SessionPanel`（`components/agent/session-panel.tsx`，经 `components/agent` 桶导出），并由本能力与架构页通用会话（`desktop-archi-chat`）共同消费——它是两处**唯一**的面板骨架实现，MUST NOT 在任一视图侧另存第二套头区动作 / 历史清单 / 折叠窄条：
 
-- **行为零变化**：抽骨架 MUST NOT 改变 change 面板的任何可观察行为——`data-testid` 集合（`change-chat-panel` / `-actions` / `-new` / `-history` / `-note` / `-history-list` / `-history-item` / `-history-more` / `-history-empty` / `-history-error` / `-rail` / `-expand` / `-session`）与「头区动作 → 状态行 → 历史清单 → 会话体」的渲染次序 SHALL 逐字保留；既有行为级用例 SHALL 原样通过。
+- **testid 集合**：`data-testid` 集合（`-actions` / `-collapse` / `-new` / `-history` / `-note` / `-history-list` / `-history-item` / `-history-more` / `-history-empty` / `-history-error` / `-rail` / `-expand` / `-session`）与「头区动作 → 状态行 → 历史清单 → 会话体」的渲染次序 SHALL 保留；面板根元素由分栏库占用（`data-slot="resizable-panel"`），消费面以 `-rail` / `-actions` 定位面板分支。
 - **testid 前缀参数化**：骨架 SHALL 以 `testIdPrefix` 生成其全部查询挂钩（`change-chat` / `archi-chat` 两套前缀各命中一次），MUST NOT 在骨架内写死单一前缀。
 - **业务判据不外移**：可发送 / 可开新会话 / 只读矩阵与禁用理由 SHALL 留在各自来源侧 hook（change 侧仍为 `detail.source` / `activeRun` / 本会话 `running` 三判据），骨架 MUST NOT 自判禁发、MUST NOT 引入第二套判据源。
 - **状态行只渲染 `note`**：状态行文案 SHALL 由来源侧 hook 供 `note: string | null`（change 侧 = `disabledReason ??（空态 ? 草案文案 : null）`；`null` = 不占位），骨架 MUST NOT 自行推导文案生成规则。
 - **会话流不抽**：骨架 MUST NOT 自建会话流 / 自调 `useAgentSession`——会话状态面由消费者以注入形态传入（既有「对话体单一实现」纪律零变化）。
-- **折叠入参可选**：骨架 SHALL 以可选入参 `collapsed` / `onToggleCollapsed` 表达折叠分支；不传时 MUST NOT 呈折叠窄条与展开入口（explore 详情左栏等无会话管理维度的消费面因此零变化，且本变更 MUST NOT 让它们消费骨架）。
+- **折叠自持**：骨架 SHALL 自持折叠态并自带分栏（`ResizablePanel` + 窄条展开入口 + 头区「收起Agent」），默认收起（收起尺寸 32px、展开下限 500px）；消费者 MUST NOT 传入 `collapsed` / `onToggleCollapsed` 一类的折叠入参，MUST NOT 在视图侧持有第二份折叠 state。
 
-#### Scenario: change 面板经骨架渲染且 testid 不变
+#### Scenario: change 面板经骨架渲染且 testid 集不变
 
 - **WHEN** 打开 change 详情左栏面板并审查渲染树
-- **THEN** 头区动作 / 状态行 / 历史清单 / 折叠窄条来自共享骨架组件，`change-chat-*` testid 集合与文案逐字与抽骨架前一致；既有行为级用例全绿（零用例语义修改）
+- **THEN** 头区动作 / 状态行 / 历史清单 / 折叠窄条来自共享骨架组件，`change-chat-*` testid 集合（含 `-collapse`）与文案逐字符合上文清单；既有行为级用例全绿
 
 #### Scenario: 两处共用同一实现
 
@@ -170,10 +170,10 @@ change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单
 - **WHEN** 审查骨架组件源码
 - **THEN** 其中零 `detail.source` / `activeRun` / `canSend` / `disabledReason` 的业务判定，零 `useAgentSession` 调用；判据与 `note` 全部来自传入的状态面
 
-#### Scenario: 折叠入参可选
+#### Scenario: 折叠自持
 
-- **WHEN** 以不传 `collapsed` 的方式消费骨架（如未来的只读浏览面）
-- **THEN** 不呈折叠窄条与展开入口，面板始终为展开形态；explore 详情左栏在本变更前后行为一致（不消费骨架）
+- **WHEN** 审查骨架组件与两处消费面的源码
+- **THEN** 折叠态与分栏命令面（`collapse()` / `expand()`）全在骨架内部，消费面零折叠入参、零折叠 state；挂载默认呈窄条，窄条展开入口与头区「收起Agent」互逆
 
 ## Module Contract
 
@@ -181,14 +181,14 @@ change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单
 
 | 组件 | Props | 描述 |
 |------|-------|------|
-| `ChangeChatPanel` | `{ root, changeId, cwd, readOnly, runActive, onToggleCollapsed, collapsed }` | 面板薄封装：会话头（新会话 / 历史会话两个图标动作，`aria-label` 提供可访问名 + 状态提示行）+ `AgentSessionView` 注入形态 + composer 插槽 + 空态提示行（草案态：发送即开新会话，不做禁用门）+ 折叠条；`data-testid` 挂钩（`change-chat-panel` / `change-chat-new` / `change-chat-history` / `change-chat-note`）。骨架已归共享 `SessionPanel`（本能力为骨架消费者）：内部改为 `SessionPanel`（`testIdPrefix = "change-chat"`）+ `useChangeChat` 状态面 + `ChangeChatComposer` 插槽，props 面零变化，折叠真相仍取分栏 `onResize` 回传 |
+| `ChangeChatPanel` | `{ root, changeId, cwd, readOnly, runActive }` | 面板薄封装：会话头（新会话 / 历史会话两个图标动作，`aria-label` 提供可访问名 + 状态提示行）+ `AgentSessionView` 注入形态 + composer 插槽 + 空态提示行（草案态：发送即开新会话，不做禁用门）；折叠窄条与分栏由骨架自持。`data-testid` 挂钩（`change-chat-actions` / `change-chat-collapse` / `change-chat-new` / `change-chat-history` / `change-chat-note` / `change-chat-rail` / `change-chat-expand`）。内部为 `SessionPanel`（`testIdPrefix = "change-chat"`）+ `useChangeChat` 状态面 + `ChangeChatComposer` 插槽 |
 | `ChangeChatComposer` | `{ running, disabled, disabledReason, onSend, onStop }` | `AgentInput` 薄适配（`idPrefix="change-chat"`；文案留在本文件，档位 / 发送 / 停止收口在组件族） |
 
 ### Component: `packages/desktop/src/components/agent/session-panel.tsx`（新增）
 
 | 组件 | Props | 描述 |
 |------|-------|------|
-| `SessionPanel` | `{ state: SessionPanelState; title: string; testIdPrefix: string; composer: (actions: AgentSessionActions) => React.ReactNode; collapsed?: boolean; onToggleCollapsed?: () => void }` | 会话面板骨架唯一实现：折叠窄条 / 头区动作（新会话 + 历史 ▾）/ 状态行（`state.note`）/ 历史清单（分页 + 加载 / 空 / 错误态）/ `AgentSessionView` 注入形态 + composer 插槽；全部查询挂钩由 `testIdPrefix` 生成；不含业务判据、不建会话流 |
+| `SessionPanel` | `{ state: SessionPanelState; title: string; testIdPrefix: string; composer: (actions: AgentSessionActions) => React.ReactNode }` | 会话面板骨架唯一实现：自持折叠分栏与折叠窄条（默认收起 / 窄条展开入口 / 头区「收起Agent」）/ 头区动作（新会话 + 历史 ▾）/ 状态行（`state.note`）/ 历史清单（分页 + 加载 / 空 / 错误态）/ `AgentSessionView` 注入形态 + composer 插槽；全部查询挂钩由 `testIdPrefix` 生成；不含业务判据、不建会话流、不接收折叠入参 |
 | `SessionPanelState` | `session` / `sessions` / `total` / `listOpen` / `listLoading` / `listError` / `toggleList` / `loadMore` / `newSession` / `selectSession` / `canSend` / `canStart` / `disabledReason` / `note` / `send` / `stop` | 两处面板的公共子集（会话面 + 清单面 + 动作面 + `note`）；类型命名由 design 定型，语义契约不变 |
 
 ### Component: `packages/desktop/src/components/agent/index.tsx`（改）
@@ -215,5 +215,5 @@ change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单
 
 | 项 | 变化 | 描述 |
 |------|------|------|
-| `DetailLoaded` | 纵向单列 → 横向分栏 | `ResizablePanelGroup orientation="horizontal"`：左栏 agent 面板（collapsible）/ 右栏 stale note + 动作面板 + 流程图区；右栏次序不变 |
-| `DetailHeader` | 增面板显隐开关 | 开关驱动左栏 `collapse()` / `expand()`（`panelRef`），不改既有返回 / 刷新 / 标题 / 状态 / worktree 呈现 |
+| `DetailLoaded` | 纵向单列 → 横向分栏 | `ResizablePanelGroup orientation="horizontal"`：左栏 = 骨架 `SessionPanel` 自带的可折叠分栏（默认收起）/ 右栏 stale note + 动作面板 + 流程图区；右栏次序不变 |
+| `DetailHeader` | 返回列表改图标钮 | 返回入口改为图标按钮（`title` / `aria-label` =「返回列表」），MUST NOT 新增面板显隐开关（折叠入口全在骨架内）；既有刷新 / 标题 / 状态 / worktree 呈现不变 |

@@ -11,12 +11,14 @@ import { useMemo, useState } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
-import type { ArchiElement, ArchiGraph, ArchiRelation } from '../../../types/generated/bindings';
+import { Badge } from '@/components/ui/badge';
+import type { ArchiElement, ArchiGraph, ArchiRelation } from '@/types/generated/bindings';
+
 import { useArchiDrift } from '../hooks/use-archi-drift';
 import { useArchiGraph } from '../hooks/use-archi-graph';
 import { driftMarks } from '../lib/drift-marks';
 import { shortName } from '../lib/fqn';
-import { edgeVisual, nodeDot } from '../lib/marks';
+import { edgeVisual } from '../lib/marks';
 import { ElementDrawer, type CanvasMode } from './element-drawer';
 import { ElementTree } from './element-tree';
 import { StructureErrorPanel } from './structure-error-panel';
@@ -41,16 +43,18 @@ type ArchiFlowNode = Node<ArchiNodeData, 'archi'>;
 
 /** 隐形把手（连线锚点：入边左 / 出边右）；xyflow 无把手即不求边位置，边不入 DOM。 */
 function NodeHandles(): React.JSX.Element {
-  const hiddenFloating = { width: '100%', height: '100%', top: 0, left: 0, opacity: 0 };
+  const rounded = {
+    width: '100%',
+    height: '100%',
+    top: 0,
+    left: 0,
+    opacity: 0,
+    transform: 'none',
+  };
   return (
     <>
-      <Handle type="target" position={Position.Left} isConnectable={false} style={hiddenFloating} />
-      <Handle
-        type="source"
-        position={Position.Right}
-        isConnectable={false}
-        style={hiddenFloating}
-      />
+      <Handle type="target" position={Position.Left} isConnectable={false} style={rounded} />
+      <Handle type="source" position={Position.Right} isConnectable={false} style={rounded} />
     </>
   );
 }
@@ -58,14 +62,10 @@ function NodeHandles(): React.JSX.Element {
 /** 节点视图（本文件内局部组件——不为单节点单建文件）。 */
 function ArchiNodeView({ data }: NodeProps<ArchiFlowNode>): React.JSX.Element {
   return (
-    <div
-      className="relative rounded-md border border-border bg-card px-2 py-1 text-[11px]"
-      data-testid="archi-canvas-node"
-    >
+    <Badge variant="secondary" className="p-3" data-testid="archi-canvas-node">
       <NodeHandles />
-      <span>{nodeDot(data.mark)} </span>
-      <span>{data.label}</span>
-    </div>
+      {data.label}
+    </Badge>
   );
 }
 
@@ -213,7 +213,7 @@ function CanvasBody({
           onNodeClick={(_event, node) => setFocusOverride(node.id)}
           nodesDraggable={false}
           nodesConnectable={false}
-          fitView
+          fitView={true}
           fitViewOptions={FIT_VIEW_OPTIONS}
           zoomOnScroll={false}
           zoomOnDoubleClick={false}

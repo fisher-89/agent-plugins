@@ -6,12 +6,13 @@ import type { ArchiDriftReport, ArchiGraph } from '../../../types/generated/bind
  * 只消费报告的两段（判定在 `desktop-archi-drift` 的判定纯函数里，本函数 MUST NOT
  * 重算归属或违例）：
  * - `observations[].kind === 'unfulfilledDeclaration'` → 该 `(from, to)` 边
- *   `unfulfilled`，且 `from` 节点 `unfulfilled`（🟡「存在未兑现声明」）；
+ *   `unfulfilled`（灰虚线）；
  * - `suppressed[]` → 该 `(from, to)` 边 `exempt`（`reason` 随抽屉呈现）。
  *
  * 两段命中同一元素对时取 `unfulfilled`（冲突只可能来自拼接了不同时点的报告；
- * 「未兑现」是更值得提示的偏差）。`marks.ts` 的四值边标记 / 两值节点标记样式契约
- * **零改动**——本函数只填标记值。
+ * 「未兑现」是更值得提示的偏差）。**只产边标记**：画布与元素树不呈现节点标记
+ * （见 desktop-archi-canvas「节点标记不呈现」），本函数 MUST NOT 改写元素 `mark`
+ * ——否则等于维护一份永不渲染的数据。`marks.ts` 的边四值样式契约**零改动**。
  */
 export function driftMarks(report: ArchiDriftReport | null, graph: ArchiGraph): ArchiGraph {
   if (report === null) return graph;
@@ -22,11 +23,9 @@ export function driftMarks(report: ArchiDriftReport | null, graph: ArchiGraph): 
   }
 
   const unfulfilled = new Set<string>();
-  const unfulfilledNodes = new Set<string>();
   for (const observation of report.observations) {
     if (observation.kind !== 'unfulfilledDeclaration') continue;
     unfulfilled.add(`${observation.from}->${observation.to}`);
-    unfulfilledNodes.add(observation.from);
   }
 
   const relations = graph.relations.map((relation) => {
@@ -41,9 +40,5 @@ export function driftMarks(report: ArchiDriftReport | null, graph: ArchiGraph): 
     return relation;
   });
 
-  const elements = graph.elements.map((element) =>
-    unfulfilledNodes.has(element.fqn) ? { ...element, mark: 'unfulfilled' as const } : element,
-  );
-
-  return { ...graph, elements, relations };
+  return { ...graph, relations };
 }

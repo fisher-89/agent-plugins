@@ -1075,6 +1075,10 @@ export const PhaseEntrySchema = z.strictObject({
 	get attempts() { return z.array(AttemptRecordSchema); },
 });
 
+export const ProjectConfigSchema = z.strictObject({
+	get root() { return z.string(); },
+});
+
 export const PromoteOutcomeSchema = z.strictObject({
 	get changeId() { return z.string(); },
 	get changeName() { return z.string(); },
@@ -1198,6 +1202,7 @@ export const WorkspaceConfigSchema = z.strictObject({
 	get context() { return z.string().nullable(); },
 	get rules() { return RulesConfigSchema.nullable(); },
 	get staticAnalysis() { return z.string().nullable(); },
+	get projects() { return z.array(ProjectConfigSchema); },
 	get tests() { return z.array(TestSuiteSchema); },
 	get writeProtection() { return WriteProtectionSchema.nullable(); },
 	get extra() { return z.array(ConfigExtraFieldSchema); },

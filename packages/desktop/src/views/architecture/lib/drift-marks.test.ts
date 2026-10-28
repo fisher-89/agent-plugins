@@ -10,8 +10,8 @@ import { driftMarks } from './drift-marks';
 
 /**
  * `driftMarks` 单测（AC-19 / D20 / D21）：只读 `observations` / `suppressed` 两段——
- * `unfulfilledDeclaration` → 边 + `from` 节点 `unfulfilled`、`suppressed` → 边
- * `exempt`（reason）、其余保持 `none`；畸形报告不抛错。
+ * `unfulfilledDeclaration` → 边 `unfulfilled`、`suppressed` → 边 `exempt`（reason）、
+ * 其余保持 `none`；只产边标记（节点标记不呈现，元素 `mark` 原样透传）；畸形报告不抛错。
  *
  * 零 mock：生成绑定的报告 / 图类型字面量直构，纯函数直调。
  */
@@ -122,11 +122,6 @@ function edgeMark(result: ArchiGraph, from: string, to: string) {
   return result.relations.find((relation) => relation.from === from && relation.to === to);
 }
 
-/** 节点标记（按 FQN 查）。 */
-function nodeMark(result: ArchiGraph, fqn: string) {
-  return result.elements.find((element) => element.fqn === fqn);
-}
-
 describe('driftMarks 空报告面', () => {
   it('应在报告为 null 时原样返回入参图', () => {
     const input = graph();
@@ -167,17 +162,16 @@ describe('driftMarks 空报告面', () => {
 });
 
 describe('driftMarks 未兑现声明', () => {
-  it('应把未兑现声明的边与 from 节点标为 unfulfilled（to 节点不动）', () => {
+  it('应只把未兑现声明的边标为 unfulfilled（节点标记不派生）', () => {
     const result = driftMarks(
       report({ observations: [observation('App.Auth', 'App.Billing')] }),
       graph(),
     );
     expect(edgeMark(result, 'App.Auth', 'App.Billing')?.mark).toBe('unfulfilled');
-    expect(nodeMark(result, 'App.Auth')?.mark).toBe('unfulfilled');
-    expect(nodeMark(result, 'App.Billing')?.mark).toBe('none');
+    expect(result.elements.every((element) => element.mark === 'none')).toBe(true);
   });
 
-  it('应在同一 from 对 3 个 to 时标 3 条边且节点标记幂等', () => {
+  it('应在同一 from 对 3 个 to 时标 3 条边且元素标记不变', () => {
     const input = graph();
     input.elements.push(
       {
@@ -231,8 +225,7 @@ describe('driftMarks 未兑现声明', () => {
     );
     const marked = result.relations.filter((relation) => relation.mark === 'unfulfilled');
     expect(marked).toHaveLength(3);
-    expect(result.elements.filter((element) => element.mark === 'unfulfilled')).toHaveLength(1);
-    expect(nodeMark(result, 'App.Auth')?.mark).toBe('unfulfilled');
+    expect(result.elements.every((element) => element.mark === 'none')).toBe(true);
   });
 });
 
@@ -357,7 +350,7 @@ describe('driftMarks 纯函数性', () => {
     const result = driftMarks(report({ observations, suppressed: suppressedEntries }), big);
     // 每个 (from, to) 都命中观察项 ⇒ 全部 unfulfilled（观察项优先）
     expect(result.relations.every((relation) => relation.mark === 'unfulfilled')).toBe(true);
-    expect(result.elements.filter((element) => element.mark === 'unfulfilled')).toHaveLength(1000);
+    expect(result.elements.every((element) => element.mark === 'none')).toBe(true);
   });
 });
 

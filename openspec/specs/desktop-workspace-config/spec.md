@@ -12,8 +12,9 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 
 - 依赖 SHALL 仅 `foundation`（workspace 内，取 config.json 路径）+ `serde` / `serde_json` / `specta`；MUST NOT 依赖 `workflow` / `agent` / 任何 infra crate，MUST NOT 依赖 Tauri；
 - 入口 API SHALL 为 `load(root) -> ConfigReport`（函数签名形态 design 定夺），`ConfigReport` SHALL 为 `{ config, diagnostics }` 信封：`config` 为**永远合法**的完整配置（违例字段以默认值填充），`diagnostics` 记录违例细节（哪项非法、哪些字段吃了默认、文件缺失等）；
-- 校验规则 SHALL 以 `core/config` **现行实现为权威**（`KNOWN_KEYS` 七项键集、`TestFramework` 八值枚举（`jest` / `vitest` / `vite-plus` / `bun` / `rust` / `node-test` / `go` / `pytest`）、数值阈值 0–100 值域（coverage lines / branches / functions、mutation score）、`tests[].root` 非空且 MUST NOT 含 glob 通配符（`*` `?` `{` `[`）、`schema` 字段字面量 `spec-driven`、顶层未知字段 passthrough 保留）：原对齐源（CLI zod `config.schema.ts`）已随插件退役删除，MUST NOT 再作为权威或对齐断言的目标；机器可读镜像见「`config.schema.json` 静态镜像与实现一致性」requirement；
-- 默认值 SHALL 为：coverage lines 80 / branches 70 / functions 75、mutation score 70、suite `cwd` `.`、`tests` `[]`、`schema` `spec-driven`——数值以本 spec 与 `core/config` 实现为权威，原对齐源（CLI `defaults.ts`）已随插件退役删除，MUST NOT 再出现「对齐 `defaults.ts`」类断言或注释；
+- 校验规则 SHALL 以 `core/config` **现行实现为权威**（`KNOWN_KEYS` 八项键集（含 `projects`）、`TestFramework` 八值枚举（`jest` / `vitest` / `vite-plus` / `bun` / `rust` / `node-test` / `go` / `pytest`）、数值阈值 0–100 值域（coverage lines / branches / functions、mutation score）、`tests[].root` 非空且 MUST NOT 含 glob 通配符（`*` `?` `{` `[`）、`projects[].root` 非空且 MUST NOT 为绝对路径 / 含 `..` 段 / `:` / glob 通配符、`schema` 字段字面量 `spec-driven`、顶层未知字段 passthrough 保留）：原对齐源（CLI zod `config.schema.ts`）已随插件退役删除，MUST NOT 再作为权威或对齐断言的目标；机器可读镜像见「`config.schema.json` 静态镜像与实现一致性」requirement；
+- 默认值 SHALL 为：coverage lines 80 / branches 70 / functions 75、mutation score 70、suite `cwd` `.`、`tests` `[]`、`projects` `[]`、`schema` `spec-driven`——数值以本 spec 与 `core/config` 实现为权威，原对齐源（CLI `defaults.ts`）已随插件退役删除，MUST NOT 再出现「对齐 `defaults.ts`」类断言或注释；
+- `projects` SHALL 为顶层数组（元素 `{ root: string }`，承载 create 依赖引导的项目根）：缺失 / 显式 null → 空列表且**零诊断**（「有配置才按项目根扫描」）；非数组 → 空列表 + `InvalidValue`（path `projects`）；元素非对象或 `root` 缺失 / 非法（空串、非字符串、绝对路径、`..` 段、`:`、glob 通配符）→ 该元素剔除 + `InvalidValue`（path `projects[i]` / `projects[i].root`）；合法元素保序保留，`root` 为相对 worktree 根的项目目录；
 - CLI `readConfig` 的「非法即静默整体回默认」吞错语义 SHALL NOT 复刻：任意输入（缺失文件、坏 JSON、字段非法）MUST NOT 使 `load` 失败收场——产出合法 config + diagnostics；非法输入产出的 config SHALL 能通过同一套校验（自洽不变量）；
 - config.json 路径 SHALL 经 `foundation::layout` 的路径解析取得，crate 内 MUST NOT 出现 `config.json` 文件名字面量（隔离执法见 desktop-crate-layout 增量）。
 
@@ -31,11 +32,27 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 
 - **WHEN** config.json 未设 coverage 阈值、未设 `tests`、未设 suite `cwd`
 - **THEN** config 中 coverage 为 80 / 70 / 75、`tests` 为 `[]`、suite `cwd` 为 `.`，diagnostics 注明这些字段来自默认值而非文件
+- **AND** 未设 `projects` 时 config 的 `projects` 为 `[]` 且不产生诊断
 
 #### Scenario: 缺失与坏 JSON 不失败
 
 - **WHEN** 工作区无 config.json，或 config.json 为非法 JSON 语法
 - **THEN** `load` 均返回合法报告：config 为默认值填充，diagnostics 区分「文件缺失」与「JSON 语法非法」两种情形供上层呈现
+
+#### Scenario: projects 缺省与 null 静默空列表
+
+- **WHEN** config.json 未设 `projects` 或显式设为 `null`
+- **THEN** config 的 `projects` 为空列表，diagnostics **不新增任何条目**（区别于 `tests` 的 DefaultApplied 口径）
+
+#### Scenario: projects 非法元素逐项剔除
+
+- **WHEN** `projects` 数组含非对象元素，或元素 `root` 为空串 / 非字符串 / 绝对路径 / 含 `..` 段 / `:` / glob 通配符
+- **THEN** 该元素被剔除并在 `projects[i]` / `projects[i].root` 记 `InvalidValue`，合法元素按原序保留，`load` 不失败
+
+#### Scenario: projects 非数组落空列表并记 InvalidValue
+
+- **WHEN** `projects` 为对象 / 字符串 / 数字 / 布尔等非数组值
+- **THEN** config 的 `projects` 为空列表，diagnostics 在 path `projects` 记 `InvalidValue`
 
 #### Scenario: 路径经 foundation 取得
 
@@ -53,7 +70,7 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 `crates/core/config` SHALL 在 crate 内自持机器可读 schema 镜像，作为编辑器 `$schema` 补全的唯一来源：
 
 - 落位 SHALL 为 `crates/core/config/config.schema.json`，与校验实现（`KNOWN_KEYS` / `TestFramework`）物理相邻；内容 SHALL 为迁入前的逐字副本（迁出后**手工维护**，不再由任何代码生成）；
-- 镜像 SHALL 由同 crate 的一致性断言守护（两断言恒在，缺一即视为漂移无人拦）：`KNOWN_KEYS` 七项键集 == `schema.properties` 键集；`TestFramework` 八值枚举 == `tests.items.properties.framework.enum`。断言 SHALL 经 `include_str!` 或等价 crate 内读取路径取得镜像，MUST NOT 为此在实现侧新增导出；
+- 镜像 SHALL 由同 crate 的一致性断言守护（两断言恒在，缺一即视为漂移无人拦）：`KNOWN_KEYS` 八项键集 == `schema.properties` 键集；`TestFramework` 八值枚举 == `tests.items.properties.framework.enum`。断言 SHALL 经 `include_str!` 或等价 crate 内读取路径取得镜像，MUST NOT 为此在实现侧新增导出；
 - 镜像 MUST NOT 参与 tauri bundle 打包（编辑器消费走 GitHub raw URL），MUST NOT 改变包体积；
 - 镜像 MUST NOT 破坏 `desktop-crate-layout` 的隔离禁令（产品 `.rs` 的 `config.json` 字面量禁令与 `openspec` 目录名禁令照旧；镜像只由 `*_test.rs` 读取）；
 - 引用方 `$schema` SHALL 指向仓库内该路径的 raw URL（`…/master/packages/desktop/src-tauri/crates/core/config/config.schema.json`），MUST NOT 保留指向已删插件 `bin/` 目录的旧 URL；唯一引用方 `openspec/config.json` 的值 SHALL 按逐值清单（位置 / 旧值 / 新值，见该 change 的 design 与 tasks）以值级替换回填，回填后 MUST NOT 含旧资产路径（不变量见 `repo-surface-scope`）——本 crate 侧的可执行职责是「镜像在案且逐字一致」与「目标 URL 尾路径与仓库内现存路径同形」。
@@ -66,7 +83,7 @@ Rust 侧 SHALL 新增 crate `crates/core/config`（裸名 `config`），承载�
 #### Scenario: 镜像与实现现状对齐
 
 - **WHEN** 现状下运行 `core/config` 测试
-- **THEN** 两断言通过（七项键集逐字相同、八值枚举逐字相同），镜像内容与迁入前逐字一致
+- **THEN** 两断言通过（八项键集逐字相同、八值枚举逐字相同），镜像内容与迁入前逐字一致
 
 #### Scenario: 编辑器消费 URL 的落点与回填
 
@@ -116,7 +133,7 @@ Rust 侧 SHALL 新增 `commands/config/` 命令轨道，提供 `workspace_config
 
 呈现面 SHALL 分区：
 
-- **基础配置**：`$schema` / `schema` / `context` / `static_analysis` / `rules`；
+- **基础配置**：`$schema` / `schema` / `context` / `static_analysis` / `projects`（逐 project 的 root 列表，空列表标注）/ `rules`；
 - **tests 面板**：逐 suite 呈现 root / framework / cwd / config / includes / excludes / coverage 阈值（lines / branches / functions）/ mutation（cwd / score）；未设阈值 SHALL 标注「未设（默认 N）」以区分文件值与默认值；
 - **write_protection 面板**：逐条 glob 规则与 reason；
 - **未知字段**：passthrough 字段可见（呈现形态 design 定夺）；
@@ -202,7 +219,7 @@ desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`
 |------|------|----------|
 | `crates/core/config/`（新 crate，裸名 `config`） | 配置读取 + 校验 + 默认值（核心功能，未来模块唯一配置出口） | `load(root) -> ConfigReport { config, diagnostics }`；依赖仅 foundation + serde / serde_json / specta；禁 Tauri；校验以本 spec 与 crate 实现为权威（CLI zod 对偶已删）、吞错不复刻；config 输出永远合法 |
 | `crates/core/config/config.schema.json`（新） | 机器可读 schema 镜像 | 迁入前逐字副本；手工维护；不参与 tauri bundle；只由 `*_test.rs` 读取；顶层 `properties` 键集与 `tests.items.properties.framework.enum` 为双断言锚点 |
-| `crates/core/config/src/lib.rs` | 校验权威实现 | `KNOWN_KEYS[7]` 与 `TestFramework` 八值为权威源；常量注释去掉「CLI zod / `defaults.ts` 对齐」措辞（语义零改） |
+| `crates/core/config/src/lib.rs` | 校验权威实现 | `KNOWN_KEYS[8]`（含 `projects`）与 `TestFramework` 八值为权威源；常量注释去掉「CLI zod / `defaults.ts` 对齐」措辞（语义零改） |
 | `crates/core/config/src/lib_test.rs` | 一致性守护 | 新增两断言（键集 / 枚举）读 crate 内镜像；不新增生产导出 |
 | `openspec/config.json` | 仓库面配置（写保护内置锁定面） | `$schema` 改指 `packages/desktop/src-tauri/crates/core/config/config.schema.json` 的 raw URL；回填 SHALL 为值级替换（逐值清单 + 复核命令，见 `repo-surface-scope`），MUST NOT 为回填改动内置锁定语义；`write_protection` 见 desktop-write-protection |
 | `WorkspaceConfigReport` / `WorkspaceConfig` / diagnostics（DTO） | 出线数据面 | `specta::Type` + camelCase；信封 `config + diagnostics`；字段级形状与 diagnostics 粒度 design 定夺 |

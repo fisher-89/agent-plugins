@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { ResizablePanelGroup } from '@/components/ui/resizable';
 import type { UseAgentSessionState } from '@/hooks/use-agent-session';
 
 import {
@@ -140,17 +141,23 @@ describe('组件族 barrel：冒烟渲染', () => {
 
   it('经 barrel 的 SessionPanel 可挂载（前缀生成查询挂钩、零取数）', () => {
     render(
-      <barrel.SessionPanel
-        state={emptyPanel()}
-        title="架构 Agent"
-        testIdPrefix="barrel"
-        composer={() => <div data-testid="barrel-composer" />}
-      />,
+      <ResizablePanelGroup orientation="horizontal">
+        <barrel.SessionPanel
+          state={emptyPanel()}
+          title="架构 Agent"
+          testIdPrefix="barrel"
+          composer={() => <div data-testid="barrel-composer" />}
+        />
+      </ResizablePanelGroup>,
     );
+    // 骨架默认收起为窄条：前缀生成的展开入口在场，零取数
+    expect(screen.getByTestId('barrel-rail')).toBeTruthy();
+    expect(screen.getByTestId('barrel-expand')).toBeTruthy();
+    expect(invokeMock, '骨架不自取数（注入形态零 invoke）').not.toHaveBeenCalled();
 
-    expect(screen.getByTestId('barrel-panel')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('barrel-expand'));
     expect(screen.getByTestId('barrel-session')).toBeTruthy();
     expect(screen.getByTestId('barrel-composer')).toBeTruthy();
-    expect(invokeMock, '骨架不自取数（注入形态零 invoke）').not.toHaveBeenCalled();
+    expect(invokeMock, '展开亦零 invoke').not.toHaveBeenCalled();
   });
 });

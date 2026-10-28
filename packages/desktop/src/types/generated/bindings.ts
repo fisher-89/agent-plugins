@@ -1608,6 +1608,12 @@ export type PhaseEntry = {
 	attempts: AttemptRecord[],
 };
 
+/**  项目配置（依赖引导扫描锚点）：`root` 为相对 worktree 根的项目目录。 */
+export type ProjectConfig = {
+	/**  项目目录（非空、非绝对、无 `..` 段 / glob 通配符） */
+	root: string,
+};
+
 /**
  *  promote 产出（IPC DTO）：本次铸出的 change 身份锚（前端跳转 / 一切后续寻
  *  址入参）与 change 名（= explore name，promote 免转换语义的显式呈现）。
@@ -1938,6 +1944,8 @@ export type WorkspaceConfig = {
 	rules: RulesConfig | null,
 	/**  静态分析工具配置（未设为 `None`） */
 	staticAnalysis: string | null,
+	/**  依赖引导项目根列表（保序；未设 / 显式 null → 空列表且无诊断） */
+	projects: ProjectConfig[],
 	/**  测试 suite 配置列表（保序；违例 suite 剔除） */
 	tests: TestSuite[],
 	/**  写入保护配置（未设为 `None`） */
