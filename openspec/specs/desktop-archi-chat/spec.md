@@ -10,8 +10,8 @@
 
 `/architecture` SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧画布并排（`ResizablePanelGroup orientation="horizontal"`），MUST NOT 以右侧抽屉 / 浮层承载对话：
 
-- **布局与折叠**：左栏 SHALL 默认收起（挂载即窄条形态，仍留可见展开入口），页面头 SHALL 提供面板显隐开关（收起 / 展开同一入口）；右栏 SHALL 保持「标题 + 刷新按钮 + 画布」既有次序，画布 SHALL 可在左栏收起时全宽使用。
-- **折叠真相**：架构页的折叠态 SHALL 由页面开关 state 持有，MUST NOT 依赖分栏 `onResize` 的像素派生（与 change 详情左栏的折叠真相来源不同，属刻意差异：本页折叠只由显式开关驱动）。
+- **布局与折叠**：左栏 SHALL 默认收起（挂载即窄条形态，仍留可见展开入口）；右栏 SHALL 保持「标题 + 刷新按钮 + 画布」既有次序，画布 SHALL 可在左栏收起时全宽使用。
+- **折叠真相**：折叠态 SHALL 由共享骨架 `SessionPanel` 自持（内置可折叠分栏 + 窄条展开入口 + 头区「收起Agent」入口），页面 MUST NOT 另设面板显隐开关、MUST NOT 以页面 state 或分栏 `onResize` 像素派生作第二真相源；架构页与 change 详情左栏的折叠语义 SHALL 同构（同一骨架、同一缺省收起形态）。
 - **骨架复用**：面板 SHALL 经共享骨架组件（`SessionPanel`，`testIdPrefix = "archi-chat"`）渲染头区动作（新会话 / 历史会话）、状态行、历史清单与折叠窄条，MUST NOT 复制第二套会话面板实现；对话体 SHALL 经 `AgentSessionView` 的**注入形态**渲染（来源侧建 `useAgentSession`），composer 经插槽注入，MUST NOT 在视图层自拼消息 / 轮行 / 事件流。
 - **刷新链路**：页面刷新入口 SHALL 保留既有 `archi-refresh` 语义（按钮触发 `refreshTick` → 画布以 `key` 重挂 → 重新取数）；本能力 MUST NOT 引入自动刷新、目录监听或轮询。
 - **零取数纪律**：面板收起（窄条）时 MUST NOT 发起任何会话 / 清单取数；面板挂载但处于空态时 MUST NOT 发起重放查询与订阅。
@@ -19,12 +19,12 @@
 #### Scenario: 默认收起与展开
 
 - **WHEN** 打开 `/architecture`
-- **THEN** 左栏呈窄条（竖向标题 + 展开入口），右栏标题 / 刷新按钮 / 画布齐备且画布占满宽度；点击页面头开关或窄条展开入口后左栏展开为完整面板，再点可收起
+- **THEN** 左栏呈窄条（竖向标题 + 展开入口），右栏标题 / 刷新按钮 / 画布齐备且画布占满宽度；点击窄条展开入口后左栏展开为完整面板，点头区「收起Agent」再回窄条
 
 #### Scenario: 骨架复用的可观测证据
 
 - **WHEN** 检索架构页面板的实现
-- **THEN** 头区动作 / 状态行 / 历史清单 / 折叠窄条经共享骨架组件渲染，`data-testid` 前缀为 `archi-chat`（`archi-chat-panel` / `-new` / `-history` / `-note` / `-history-list` / `-rail` / `-expand` / `-session` 等在案）；对话与轮行经 `AgentSessionView` 注入形态渲染，面板内无自有转录查询 hook
+- **THEN** 头区动作 / 状态行 / 历史清单 / 折叠窄条经共享骨架组件渲染，`data-testid` 前缀为 `archi-chat`（`-actions` / `-collapse` / `-new` / `-history` / `-note` / `-history-list` / `-rail` / `-expand` / `-session` 等在案）；对话与轮行经 `AgentSessionView` 注入形态渲染，面板内无自有转录查询 hook
 
 #### Scenario: 收起时不取数
 
@@ -137,13 +137,13 @@
 
 | 项 | 变化 | 描述 |
 |---|---|---|
-| `ArchitectureView` | 单列 → 横向分栏 | `ResizablePanelGroup orientation="horizontal"`：左栏 `ResizablePanel`（`collapsible`、默认收起、留窄条）+ 右栏（标题 + 面板开关 + `archi-refresh` + 画布 `key={refreshTick}`）；折叠真相为页面开关 state（不取 `onResize` 像素派生）；`root` 入参与 `mode = "full"` 装配不变 |
+| `ArchitectureView` | 单列 → 横向分栏 | `ResizablePanelGroup orientation="horizontal"`：左栏 = 骨架 `SessionPanel` 自带的可折叠分栏（默认收起、留窄条、窄条展开入口 + 头区「收起Agent」）+ 右栏（标题 + `archi-refresh` + 画布 `key={refreshTick}`）；页面不持有折叠 state；`root` 入参与 `mode = "full"` 装配不变 |
 
 ### Component: `packages/desktop/src/views/architecture/agent/`（新增）
 
 | 组件 | Props | 描述 |
 |------|-------|------|
-| `ArchiChatPanel` | `{ root: string \| null; collapsed: boolean; onToggleCollapsed: () => void }` | 面板薄封装：`useArchiChat` 状态面 + 共享骨架 `SessionPanel`（`testIdPrefix = "archi-chat"`）+ composer 插槽；归属参数（`source = "archi"` / `sourceRef = null` / `cwd = null`）由 hook 承担 |
+| `ArchiChatPanel` | `{ root: string \| null }` | 面板薄封装：`useArchiChat` 状态面 + 共享骨架 `SessionPanel`（`testIdPrefix = "archi-chat"`；折叠态由骨架自持）+ composer 插槽；归属参数（`source = "archi"` / `sourceRef = null` / `cwd = null`）由 hook 承担 |
 | `ArchiChatComposer` | `{ running, disabled, disabledReason, onSend, onStop }` | `AgentInput` 薄适配（`idPrefix = "archi-chat"`；label / placeholder 文案留本文件，档位 / 发送 / 停止收口在组件族） |
 
 ### Function: `packages/desktop/src/views/architecture/agent/hooks/use-archi-chat.ts`（新增）

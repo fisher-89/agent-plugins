@@ -869,7 +869,10 @@ fn archi_dir族root形态五类() {
     let windows = Path::new(r"C:\demo\alpha");
     assert_eq!(
         archi_models_dir(windows),
-        windows.join(".dev-team").join("architecture").join("models"),
+        windows
+            .join(".dev-team")
+            .join("architecture")
+            .join("models"),
         "Windows 盘符形态逐字节拼接"
     );
     let trailing = Path::new(r"C:\demo\alpha\");
@@ -933,7 +936,10 @@ fn is_archi_rel_path负样本() {
         !is_archi_rel_path(".dev-team/archived/a.toml"),
         "不做前缀模糊匹配"
     );
-    assert!(!is_archi_rel_path("src/architecture/x.rs"), "段 0 非架构域顶层");
+    assert!(
+        !is_archi_rel_path("src/architecture/x.rs"),
+        "段 0 非架构域顶层"
+    );
     assert!(!is_archi_rel_path(".dev-team/architecturex/y"));
 }
 

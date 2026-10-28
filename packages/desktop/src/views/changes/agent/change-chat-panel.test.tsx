@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { ResizablePanelGroup } from '@/components/ui/resizable';
+
 import type { AgentEvent, SessionPage, SessionSummary, TurnSummary } from '../../../types/dto';
 import { ChangeChatPanel, type ChangeChatPanelProps } from './change-chat-panel';
 
@@ -188,14 +190,30 @@ function baseProps(overrides: Partial<ChangeChatPanelProps> = {}): ChangeChatPan
     cwd: WORKTREE,
     readOnly: false,
     runActive: false,
-    collapsed: false,
-    onToggleCollapsed: vi.fn(),
     ...overrides,
   };
 }
 
+/** 分栏宿主（面板骨架自身即 `ResizablePanel`，须挂在 `ResizablePanelGroup` 内）。 */
+function panelUi(overrides: Partial<ChangeChatPanelProps> = {}) {
+  return (
+    <ResizablePanelGroup orientation="horizontal">
+      <ChangeChatPanel {...baseProps(overrides)} />
+    </ResizablePanelGroup>
+  );
+}
+
+/** 面板分栏元素（骨架默认收起 → 以窄条定位；展开体同在同一个分栏面板内）。 */
+function panelRoot(): HTMLElement {
+  const anchor =
+    screen.queryByTestId('change-chat-actions') ?? screen.getByTestId('change-chat-rail');
+  return anchor.closest<HTMLElement>('[data-slot="resizable-panel"]')!;
+}
+
 async function mountPanel(overrides: Partial<ChangeChatPanelProps> = {}) {
-  const rendered = render(<ChangeChatPanel {...baseProps(overrides)} />);
+  const rendered = render(panelUi(overrides));
+  await act(async () => {});
+  fireEvent.click(screen.getByTestId('change-chat-expand'));
   await act(async () => {});
   await act(async () => {});
   return rendered;
@@ -207,7 +225,7 @@ async function rerenderPanel(
   overrides: Partial<ChangeChatPanelProps>,
 ): Promise<void> {
   await act(async () => {
-    rendered.rerender(<ChangeChatPanel {...baseProps(overrides)} />);
+    rendered.rerender(panelUi(overrides));
   });
 }
 
@@ -246,7 +264,7 @@ describe('ChangeChatPanel：打开即空态', () => {
   it('挂载后空态可发送，且 session_detail / 转录 / 清单 invoke 均为零次', async () => {
     await mountPanel();
 
-    expect(screen.getByTestId('change-chat-panel')).toBeTruthy();
+    expect(panelRoot()).toBeTruthy();
     expect(promptBox().disabled).toBe(false);
     expect(sendButton().disabled, '空文本禁发（既有守卫）').toBe(true);
 
@@ -293,7 +311,7 @@ describe('ChangeChatPanel：打开即空态', () => {
     await waitFor(() => expect(screen.getByTestId('session-meta-id').textContent).toBe('ses-1'));
     // messages 通知有节流窗：重放正文以终态等待
     await waitFor(() =>
-      expect(screen.getByTestId('change-chat-panel').textContent).toContain('收到，开始读代码'),
+      expect(screen.getByTestId('change-chat-session').textContent).toContain('收到，开始读代码'),
     );
     expect(screen.queryByTestId('change-chat-note'), '有会话且无理由时不占位').toBeNull();
   });
@@ -304,7 +322,7 @@ describe('ChangeChatPanel：打开即空态', () => {
     fireEvent.click(sendButton());
     await act(async () => {});
 
-    expect(screen.getByTestId('change-chat-panel')).toBeTruthy();
+    expect(screen.getByTestId('change-chat-actions')).toBeTruthy();
     expect(callsOf('agent_start')).toHaveLength(0);
   });
 });
@@ -349,7 +367,7 @@ describe('ChangeChatPanel：历史清单面', () => {
     await waitFor(() => expect(screen.getByTestId('session-meta-id').textContent).toBe('ses-2'));
     // messages 通知有节流窗：重放正文以终态等待
     await waitFor(() =>
-      expect(screen.getByTestId('change-chat-panel').textContent).toContain('历史会话正文'),
+      expect(screen.getByTestId('change-chat-session').textContent).toContain('历史会话正文'),
     );
   });
 
@@ -363,7 +381,7 @@ describe('ChangeChatPanel：历史清单面', () => {
     await selectHistoryItem(1);
     // messages 通知有节流窗：重放正文以终态等待
     await waitFor(() =>
-      expect(screen.getByTestId('change-chat-panel').textContent).toContain('历史会话正文'),
+      expect(screen.getByTestId('change-chat-session').textContent).toContain('历史会话正文'),
     );
 
     fireEvent.click(screen.getByTestId('change-chat-new'));
@@ -531,31 +549,37 @@ describe('ChangeChatPanel：折叠形态', () => {
     withWorktree.unmount();
 
     await mountPanel({ cwd: null });
-    expect(screen.getByTestId('change-chat-panel')).toBeTruthy();
+    expect(panelRoot()).toBeTruthy();
     expect(screen.getByTestId('change-chat-note').textContent).toBe('发送首条消息即开启新会话');
     expect(screen.queryByTestId('change-chat-cwd')).toBeNull();
   });
 
-  it('collapsed 折叠窄条：展开入口在场、正文（输入框）不在场，点击回调恰一次', async () => {
-    const onToggleCollapsed = vi.fn();
-    await mountPanel({ collapsed: true, onToggleCollapsed });
+  it('挂载默认收起为窄条：展开入口在场、正文（输入框）不在场；点展开进入完整骨架', async () => {
+    render(panelUi());
 
     expect(screen.getByTestId('change-chat-expand')).toBeTruthy();
-    expect(screen.getByTestId('change-chat-rail')).toBeTruthy();
+    expect(screen.getByTestId('change-chat-rail').textContent).toContain('通用 Agent');
     expect(screen.queryByTestId('change-chat-prompt')).toBeNull();
 
     fireEvent.click(screen.getByTestId('change-chat-expand'));
-    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
-  });
-
-  it('collapsed 为 false 时呈完整骨架（新会话 / 历史 / 输入），展开入口不在场', async () => {
-    await mountPanel();
-
-    expect(screen.getByTestId('change-chat-panel')).toBeTruthy();
+    expect(screen.queryByTestId('change-chat-rail')).toBeNull();
     expect(screen.getByTestId('change-chat-new')).toBeTruthy();
     expect(screen.getByTestId('change-chat-history')).toBeTruthy();
     expect(promptBox()).toBeTruthy();
-    expect(screen.queryByTestId('change-chat-expand')).toBeNull();
+  });
+
+  it('头区「收起Agent」→ 回窄条；窄条展开入口 → 再展开（互逆）', async () => {
+    await mountPanel();
+    expect(screen.getByTestId('change-chat-actions')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('change-chat-collapse'));
+    expect(screen.getByTestId('change-chat-rail')).toBeTruthy();
+    expect(screen.queryByTestId('change-chat-actions')).toBeNull();
+    expect(screen.queryByTestId('change-chat-prompt')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('change-chat-expand'));
+    expect(screen.getByTestId('change-chat-actions')).toBeTruthy();
+    expect(screen.queryByTestId('change-chat-rail')).toBeNull();
   });
 });
 
@@ -705,12 +729,12 @@ describe('ChangeChatPanel：骨架文案逐字回归', () => {
     expect(screen.getByTestId('change-chat-history-more').textContent).toBe('加载更多');
   });
 
-  it('折叠窄条：竖向标题「通用 Agent」+ 展开入口 title「展开通用 Agent」+ 箭头文案', async () => {
-    await mountPanel({ collapsed: true });
+  it('折叠窄条：竖向标题「通用 Agent」+ 展开入口 title「展开通用 Agent」+ 箭头图标', () => {
+    render(panelUi());
 
     expect(screen.getByTestId('change-chat-rail').textContent).toContain('通用 Agent');
     const expand = screen.getByTestId('change-chat-expand');
     expect(expand.getAttribute('title')).toBe('展开通用 Agent');
-    expect(expand.textContent).toBe('›');
+    expect(expand.querySelector('svg'), '箭头为图标（无字面字符）').not.toBeNull();
   });
 });

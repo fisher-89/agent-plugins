@@ -593,7 +593,7 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     expect(within(clean.container).queryByTestId('warn-note')).toBeNull();
   });
 
-  it('点击「刷新详情」重新拉取 get_change_detail；点击「← 返回列表」显式 navigate 落 /changes（不用历史回退）', async () => {
+  it('点击「刷新详情」重新拉取 get_change_detail；点击「返回列表」显式 navigate 落 /changes（不用历史回退）', async () => {
     renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
     const callsBefore = detailCalls().length;
@@ -603,7 +603,7 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     });
     await waitFor(() => expect(detailCalls()).toHaveLength(callsBefore + 1));
 
-    fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回列表' }));
     expect(probePathname()).toBe('/changes');
     // 落点为 /changes（本装置以导航桩占位，真实清单页语义归 change-list-view.test）
     expect(screen.getByTestId('nav-stub') !== null).toBe(true);
@@ -691,7 +691,7 @@ describe('ChangeDetailView：路由参数取数、深链与根切换抑制（页
 
     await waitFor(() => expect(screen.getByText('未找到该 change。') !== null).toBe(true));
     expect(detailCalls()).toEqual([{ root: ROOT, id: 'ghost' }]);
-    // detail=null → 既有「未找到该 change。」降级兜底，返回入口在场
+    // detail=null → 既有「未找到该 change。」降级兜底，返回入口在场（降级页按钮）
     expect(screen.getByRole('button', { name: '← 返回列表' }) !== null).toBe(true);
     // 未找到降级页零图区（不静默回落空图面）
     expect(screen.queryByTestId('flow-graph')).toBeNull();
@@ -2366,9 +2366,9 @@ describe('ChangeDetailView：通知分流收敛（统一 300ms tick）', () => {
 // ---------------------------------------------------------------------------
 // 左栏通用 Agent 面板分栏（desktop-change-chat，AC-1 / AC-4 / AC-5 / AC-6 /
 // AC-7）：`DetailLoaded` 纵向单列 → `ResizablePanelGroup orientation="horizontal"`
-// （左面板 collapsible + 窄条、右栏「陈旧横幅 → 动作面板 → 图区」），header 整宽
-// 留在分栏之上；折叠真相取分栏命令面（`onResize` 回传），header 开关与窄条展开
-// 共用同一 `toggle()`。组合用例入口 = 本视图（链路最上层）。
+// （左面板 = 骨架自带的 collapsible 分栏 + 窄条、右栏「陈旧横幅 → 动作面板 →
+// 图区」），header 整宽留在分栏之上；折叠态由骨架自持（默认收起），窄条展开入口
+// 与头区「收起Agent」互逆。组合用例入口 = 本视图（链路最上层）。
 // ---------------------------------------------------------------------------
 
 /** 面板历史清单项 fixture（`list_change_chat_sessions` 应答项）。 */
@@ -2404,23 +2404,20 @@ function sessionCommandCalls(name: string): unknown[][] {
 }
 
 /**
- * 面板像素宽报告（jsdom 无布局引擎）：把 chat 面板子树的 `offsetWidth` 报告为
- * 指定值并重放 `ResizeObserver`，驱动分栏 `onResize` 回传折叠真相（`inPixels`
- * <= 48px 即收起）。折叠断言仍以命令面结果为准（开关文案 / 窄条 testid）。
+ * 左栏面板的分栏元素：骨架自身即 `ResizablePanel`（`data-testid` 由分栏库占用），
+ * 以窄条 / 头区动作任一在场锚点上溯 `resizable-panel` 槽位。
  */
-function reportChatPanelWidth(px: number): void {
-  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
-    configurable: true,
-    get(this: HTMLElement) {
-      const isChatPanel =
-        this.getAttribute('data-testid') === 'change-chat-panel' ||
-        this.querySelector('[data-testid="change-chat-panel"]') !== null;
-      return isChatPanel ? px : 100;
-    },
-  });
-  act(() => {
-    ResizeObserverStub.flush();
-  });
+function chatPanelRoot(): HTMLElement {
+  const anchor =
+    screen.queryByTestId('change-chat-actions') ?? screen.getByTestId('change-chat-rail');
+  return anchor.closest<HTMLElement>('[data-slot="resizable-panel"]')!;
+}
+
+/** 点窄条展开入口进入展开体（面板骨架自持折叠态，挂载默认收起）。 */
+async function expandChatPanel(): Promise<void> {
+  fireEvent.click(screen.getByTestId('change-chat-expand'));
+  await act(async () => {});
+  await act(async () => {});
 }
 
 function panelPrompt(): HTMLTextAreaElement {
@@ -2452,15 +2449,11 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     expect(group, '分栏宿主在场').not.toBeNull();
     expect(group.style.flexDirection, 'orientation="horizontal"（横向分栏）').toBe('row');
 
-    const chatPanel = screen.getByTestId('change-chat-panel');
+    const chatPanel = chatPanelRoot();
     expect(chatPanel.closest('[data-slot="resizable-panel"]'), '面板在分栏面板内').not.toBeNull();
-    expect(
-      screen.getByTestId('flow-graph').closest('[data-slot="resizable-panel"]'),
-      '图区在另一侧分栏面板内',
-    ).not.toBeNull();
-    expect(chatPanel.closest('[data-slot="resizable-panel"]'), '左右两栏为不同面板').not.toBe(
-      screen.getByTestId('flow-graph').closest('[data-slot="resizable-panel"]'),
-    );
+    const graphPanel = screen.getByTestId('flow-graph').closest('[data-slot="resizable-panel"]');
+    expect(graphPanel, '图区在另一侧分栏面板内').not.toBeNull();
+    expect(chatPanel, '左右两栏为不同面板').not.toBe(graphPanel);
 
     const header = screen.getByTestId('detail-header');
     expect(
@@ -2469,71 +2462,51 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     ).toBe(true);
   });
 
-  it('初拍默认折叠：挂载即窄条形态（布局份额取收起尺寸、开关文案收起、主体不渲染）', async () => {
+  it('初拍默认收起：挂载即窄条形态（展开体不渲染），点窄条展开入口进入展开体', async () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
 
-    // jsdom 无布局：两面板各报 100px（组宽 200px），收起尺寸 3rem = 48px → 份额 24%
-    const chatPanelElement = screen
-      .getByTestId('change-chat-panel')
-      .closest<HTMLElement>('[data-panel]')!;
-    expect(Number(chatPanelElement.style.flexGrow), '挂载即收起的布局份额').toBeCloseTo(24, 5);
-
-    reportChatPanelWidth(30);
-    expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent');
     expect(screen.getByTestId('change-chat-rail') !== null).toBe(true);
     expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
+    expect(screen.queryByTestId('change-chat-actions'), '收起后展开体不在场').toBeNull();
     expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
+
+    await expandChatPanel();
+    expect(screen.getByTestId('change-chat-actions')).toBeTruthy();
+    expect(panelPrompt()).toBeTruthy();
+    expect(screen.queryByTestId('change-chat-rail')).toBeNull();
   });
 
-  it('面板显隐开关：窄条展开入口 / header 开关共用 toggle（默认折叠 → 展开 → 再收起）', async () => {
+  it('头区「收起Agent」两拍互逆：展开 → 收起回窄条 → 再展开（自持折叠态）', async () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(30);
-
-    // 默认收起 → 窄条展开入口
-    fireEvent.click(screen.getByTestId('change-chat-expand'));
-    reportChatPanelWidth(100);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent'),
-    );
+    await expandChatPanel();
     expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
-    expect(screen.queryByTestId('change-chat-expand')).toBeNull();
 
-    // header 开关再收起
-    fireEvent.click(screen.getByTestId('detail-chat-toggle'));
-    reportChatPanelWidth(30);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent'),
-    );
+    fireEvent.click(screen.getByTestId('change-chat-collapse'));
+    await act(async () => {});
     expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
-    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-rail') !== null).toBe(true);
+
+    await expandChatPanel();
+    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+    expect(screen.queryByTestId('change-chat-rail')).toBeNull();
   });
 
   it('change id 变化折叠复位：展开后切到另一 change → 面板回到默认收起', async () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(30);
-    fireEvent.click(screen.getByTestId('change-chat-expand'));
-    reportChatPanelWidth(100);
-    await waitFor(() =>
-      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent'),
-    );
+    await expandChatPanel();
+    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
 
     // 返回列表 → 再入另一 change（URL id 切换）
-    fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回列表' }));
     await waitFor(() => expect(probePathname()).toBe('/changes'));
     loadFixture({ detail: detail({ id: SECOND_CHANGE_ID }) });
     fireEvent.click(screen.getByTestId('nav-stub'));
     await waitFor(() => expect(probePathname()).toBe(`/changes/${SECOND_CHANGE_ID}`));
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(30);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent'),
-    );
     expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
     expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
   });
@@ -2553,7 +2526,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
   it('组合：worktree 作执行根、URL id 作 sourceRef，首发即 New（sessionId null）', async () => {
     renderDetail({ detail: detail({ worktree: 'C:\\demo\\wt' }), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    await expandChatPanel();
 
     await sendFromPanel('就此 change 提问');
 
@@ -2575,14 +2548,14 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     expect(sessionCommandCalls('session_detail')).toHaveLength(0);
     expect(sessionCommandCalls('agent_session_transcript')).toHaveLength(0);
     expect(sessionCommandCalls('list_change_chat_sessions')).toHaveLength(0);
-    expect(screen.getByTestId('change-chat-panel') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-rail') !== null).toBe(true);
   });
 
   it('组合：无 run 的 active 正常收发（发送恰一次且 sessionId 为 null）', async () => {
     loadActiveRun(null);
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    await expandChatPanel();
     expect(screen.queryByTestId('change-chat-disabled-reason')).toBeNull();
 
     await sendFromPanel('空闲态提问');
@@ -2596,7 +2569,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     panelListResult = () => ({ sessions: [chatSummary('ses-panel-1')], total: 1 });
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    await expandChatPanel();
 
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe('流程运行中');
     expect(panelPrompt().disabled).toBe(true);
@@ -2619,7 +2592,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
       artifacts: PROPOSAL_ENVELOPES,
     });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    await expandChatPanel();
 
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe(
       '已归档 change 只读',
@@ -2640,7 +2613,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
   it('组合：legacy worktree = null → 面板 cwd 传 null（后端回落 root），图区与动作面板照常', async () => {
     renderDetail({ detail: detail({ worktree: null }), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    await expandChatPanel();
     expect(screen.getByTestId('run-control-panel') !== null).toBe(true);
 
     await sendFromPanel('legacy 记录提问');
@@ -2654,7 +2627,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     loadActiveRun(activeRunView());
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    reportChatPanelWidth(100);
+    await expandChatPanel();
     await waitFor(() => expect(ChannelMock.instances.length).toBeGreaterThan(0));
     const detailsBefore = detailCalls().length;
 
@@ -2719,7 +2692,7 @@ describe('ChangeDetailView：抽屉非模态回归与首载降级', () => {
     await waitFor(() => expect(screen.getByTestId('error-note') !== null).toBe(true));
 
     expect(screen.getByTestId('error-note').textContent).toContain('db: 读详情失败');
-    expect(screen.queryByTestId('change-chat-panel'), '面板不抢跑').toBeNull();
+    expect(screen.queryByTestId('change-chat-rail'), '面板不抢跑').toBeNull();
     expect(
       invokeMock.mock.calls.filter(([command]) => String(command).startsWith('agent_')),
       '零 agent 类 invoke',

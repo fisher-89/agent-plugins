@@ -5,8 +5,8 @@ import type { ArchiElement, SessionPage, TurnSummary } from '../../types/dto';
 import { ArchitectureView } from './architecture-view';
 
 /**
- * `ArchitectureView` 单测：整宽页头（标题 / 面板开关 / 刷新）+ 横向分栏（左栏通用
- * Agent 面板默认收起为窄条、右栏画布全宽）+ 显式刷新语义零变化（`key` 重挂恰一次
+ * `ArchitectureView` 单测：整宽页头（标题 / 刷新）+ 横向分栏（左栏通用 Agent 面板
+ * 默认收起为窄条、右栏画布全宽）+ 显式刷新语义零变化（`key` 重挂恰一次
  * `archi_graph`）+ 收起态零会话取数 + 画布零放宽（AC-9）+ 写后不自动刷新（AC-8 /
  * AC-13）。
  *
@@ -227,45 +227,52 @@ async function mountView(root: string | null = ROOT) {
   return rendered;
 }
 
+/**
+ * 左栏面板的分栏元素：骨架自身即 `ResizablePanel`（默认收起 → 以窄条 / 头区动作
+ * 任一在场锚点定位；`data-testid` 由分栏库占用，故经 `resizable-panel` 槽位上溯）。
+ */
+function chatPanelRoot(): HTMLElement {
+  const anchor =
+    screen.queryByTestId('archi-chat-actions') ?? screen.getByTestId('archi-chat-rail');
+  return anchor.closest<HTMLElement>('[data-slot="resizable-panel"]')!;
+}
+
+/** 点窄条展开入口进入展开体（面板骨架自持折叠态，默认收起）。 */
+async function expandChatPanel(): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('archi-chat-expand'));
+  });
+}
+
 describe('ArchitectureView：页头与分栏结构', () => {
-  it('页头三件（标题 → 面板开关 → 刷新）在分栏之上，分栏下左栏面板 / 右栏画布', async () => {
+  it('页头两件（标题 → 刷新）在分栏之上，分栏下左栏面板 / 右栏画布', async () => {
     await mountView();
 
     const title = screen.getByText('架构');
-    const toggle = screen.getByTestId('archi-chat-toggle');
     const refresh = screen.getByTestId('archi-refresh');
     const group = document.querySelector('[data-slot="resizable-panel-group"]');
     expect(group, '分栏组在场').not.toBeNull();
 
-    // 可观察次序：标题 → 开关 → 刷新，且三者均位于分栏之前
-    const order = [title, toggle, refresh];
-    for (let index = 1; index < order.length; index += 1) {
-      expect(
-        (order[index - 1].compareDocumentPosition(order[index]) &
-          Node.DOCUMENT_POSITION_FOLLOWING) !==
-          0,
-        `第 ${index} 件位于前一件之后`,
-      ).toBe(true);
-    }
+    // 可观察次序：标题 → 刷新，且两者均位于分栏之前
+    expect(
+      (title.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      '刷新位于标题之后',
+    ).toBe(true);
     expect(
       (refresh.compareDocumentPosition(group as Node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
       '页头整宽留在分栏之上',
     ).toBe(true);
 
-    const panel = screen.getByTestId('archi-chat-panel');
+    const panel = chatPanelRoot();
     expect(panel.closest('[data-slot="resizable-panel"]'), '左栏为面板').not.toBeNull();
-    expect(
-      screen.getByTestId('archi-canvas').closest('[data-slot="resizable-panel"]'),
-      '右栏为画布',
-    ).not.toBeNull();
-    expect(panel.closest('[data-slot="resizable-panel"]')).not.toBe(
-      screen.getByTestId('archi-canvas').closest('[data-slot="resizable-panel"]'),
-    );
+    const canvasPanel = screen.getByTestId('archi-canvas').closest('[data-slot="resizable-panel"]');
+    expect(canvasPanel, '右栏为画布').not.toBeNull();
+    expect(panel, '左右两栏为不同分栏面板').not.toBe(canvasPanel);
   });
 });
 
-describe('ArchitectureView：默认收起与开关', () => {
-  it('首拍即窄条（展开体缺席），且挂载收紧一次（分栏份额 = 收起尺寸）', async () => {
+describe('ArchitectureView：默认收起与展开', () => {
+  it('首拍即窄条（展开体缺席），窄条展开入口进入展开体', async () => {
     await mountView();
     ResizeObserverStub.flush();
     await act(async () => {});
@@ -274,51 +281,24 @@ describe('ArchitectureView：默认收起与开关', () => {
     expect(screen.getByTestId('archi-chat-expand')).toBeTruthy();
     expect(screen.queryByTestId('archi-chat-actions'), '收起后展开体不在场').toBeNull();
     expect(screen.queryByTestId('archi-chat-prompt')).toBeNull();
-    expect(screen.getByTestId('archi-chat-toggle').textContent).toContain('显示架构 Agent');
 
-    // 收紧的可观察后果：默认窄条份额 < 展开份额（像素无关的相对判据——
-    // 折叠真相取页面 state，不取分栏 resize 回调的像素派生）
-    const panelElement = screen
-      .getByTestId('archi-chat-panel')
-      .closest<HTMLElement>('[data-panel]');
-    expect(panelElement).not.toBeNull();
-    const collapsedShare = Number(panelElement?.style.flexGrow);
-    expect(collapsedShare, '挂载即收紧（窄条份额为正数）').toBeGreaterThan(0);
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
-    });
-    ResizeObserverStub.flush();
-    await act(async () => {});
-    const expandedShare = Number(panelElement?.style.flexGrow);
-    expect(expandedShare, '展开后份额大于窄条份额').toBeGreaterThan(collapsedShare);
-  });
-
-  it('页面开关两拍互逆：展开 → 展开体在场；再点 → 回窄条（state 为唯一真源）', async () => {
-    await mountView();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
-    });
+    await expandChatPanel();
     expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-prompt')).toBeTruthy();
     expect(screen.queryByTestId('archi-chat-rail')).toBeNull();
-    expect(screen.getByTestId('archi-chat-toggle').textContent).toContain('隐藏架构 Agent');
+  });
+
+  it('头区「收起Agent」两拍互逆：收起 → 窄条；再展开 → 展开体（自持折叠态）', async () => {
+    await mountView();
+    await expandChatPanel();
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
+      fireEvent.click(screen.getByTestId('archi-chat-collapse'));
     });
     expect(screen.getByTestId('archi-chat-rail')).toBeTruthy();
     expect(screen.queryByTestId('archi-chat-actions')).toBeNull();
-  });
 
-  it('窄条展开入口与页面开关同一入口语义（两入口等价）', async () => {
-    await mountView();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-expand'));
-    });
-    expect(screen.getByTestId('archi-chat-actions')).toBeTruthy();
+    await expandChatPanel();
     expect(screen.getByTestId('archi-chat-session')).toBeTruthy();
     expect(screen.queryByTestId('archi-chat-rail')).toBeNull();
   });
@@ -338,9 +318,7 @@ describe('ArchitectureView：会话取数与刷新语义', () => {
       expect(countOf(command), `收起态 ${command} 零调用`).toBe(0);
     }
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
-    });
+    await expandChatPanel();
     for (const command of [
       'list_archi_chat_sessions',
       'session_detail',
@@ -352,7 +330,7 @@ describe('ArchitectureView：会话取数与刷新语义', () => {
     }
   });
 
-  it('点刷新 → archi_graph 以同 root 重发恰一次；面板开关不触发 archi_graph', async () => {
+  it('点刷新 → archi_graph 以同 root 重发恰一次；面板展开 / 收起不触发 archi_graph', async () => {
     await mountView();
     expect(countOf('archi_graph')).toBe(1);
 
@@ -362,13 +340,11 @@ describe('ArchitectureView：会话取数与刷新语义', () => {
     await waitFor(() => expect(countOf('archi_graph')).toBe(2));
     expect(callsOf('archi_graph')[1]).toEqual({ root: ROOT });
 
+    await expandChatPanel();
     await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
+      fireEvent.click(screen.getByTestId('archi-chat-collapse'));
     });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
-    });
-    expect(countOf('archi_graph'), '面板开关不触发画布重取').toBe(2);
+    expect(countOf('archi_graph'), '面板折叠切换不触发画布重取').toBe(2);
   });
 });
 
@@ -387,9 +363,7 @@ describe('ArchitectureView：画布零放宽（AC-9）', () => {
 
   it('写后不自动刷新：面板侧发送并收口后 archi_graph 零重发，假计时器 120s 亦零新增', async () => {
     await mountView();
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
-    });
+    await expandChatPanel();
 
     fireEvent.change(screen.getByTestId('archi-chat-prompt'), {
       target: { value: '把 Auth 的 gate 抬到 strict' },
@@ -446,19 +420,16 @@ describe('ArchitectureView：假计时器零取数', () => {
 });
 
 describe('ArchitectureView：root / 停摆诊断', () => {
-  it('root = null → 零 invoke + 画布空态，面板与开关仍在场（可展开不白屏）', async () => {
+  it('root = null → 零 invoke + 画布空态，面板仍可展开不白屏', async () => {
     await mountView(null);
 
     expect(countOf('archi_graph')).toBe(0);
     expect(countOf('archi_set_gate')).toBe(0);
     expect(screen.getByTestId('archi-canvas-empty')).toBeTruthy();
-    expect(screen.getByTestId('archi-chat-toggle')).toBeTruthy();
     expect(screen.getByTestId('archi-chat-rail')).toBeTruthy();
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('archi-chat-toggle'));
-    });
-    expect(screen.getByTestId('archi-chat-panel')).toBeTruthy();
+    await expandChatPanel();
+    expect(chatPanelRoot()).toBeTruthy();
     expect(screen.getByTestId('archi-chat-prompt')).toBeTruthy();
   });
 

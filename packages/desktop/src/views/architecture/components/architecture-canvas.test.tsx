@@ -243,7 +243,7 @@ function nodeTransform(fqn: string): string {
   return screen.getByTestId(`rf__node-${fqn}`).style.transform;
 }
 
-/** 单个节点的文案（`节点状态点 + 短名`）。 */
+/** 单个节点的文案（短名；节点状态点已退役）。 */
 function nodeText(fqn: string): string {
   const view = within(screen.getByTestId(`rf__node-${fqn}`)).getByTestId('archi-canvas-node');
   return view.textContent ?? '';
@@ -391,15 +391,15 @@ describe('正常态：缺省 1-hop 渲染面', () => {
     ]);
   });
 
-  it('应按短名 + 节点标记渲染节点文案（末段短名、🟡 表示 unfulfilled）', async () => {
+  it('应按短名渲染节点文案（末段短名，节点不呈标记点）', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('rf__node-Svc')).toBeTruthy());
 
-    expect(nodeText('Svc')).toBe('🟡 Svc');
-    expect(nodeText('Src1')).toBe('⚪ Src1');
-    expect(nodeText('Svc.A')).toBe('⚪ A');
-    expect(nodeText('Svc.B')).toBe('⚪ B');
+    expect(nodeText('Svc')).toBe('Svc');
+    expect(nodeText('Src1')).toBe('Src1');
+    expect(nodeText('Svc.A')).toBe('A');
+    expect(nodeText('Svc.B')).toBe('B');
     // 节点类型固定为局部组件 `archi`
     expect(flow().nodes.every((node) => node.type === 'archi')).toBe(true);
     expect(Object.keys(flow().nodeTypes)).toEqual(['archi']);

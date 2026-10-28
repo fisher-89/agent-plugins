@@ -66,20 +66,19 @@
 
 ### Requirement: 漂移标记呈现契约（只认标记，不认判定）
 
-画布 SHALL 接受一组**标记**并按标记渲染，标记的**产生**（何时算漂移、如何判定）MUST NOT 在本能力定义。标记词汇 SHALL 为封闭集：
+画布 SHALL 接受一组**标记**并按标记渲染，标记的**产生**（何时算漂移、如何判定）MUST NOT 在本能力定义。**可呈现**的标记词汇 SHALL 为封闭集（边）：
 
 ```
 边标记   none         实线（无标记；本变更恒此值）
          unfulfilled  灰虚线（声明未兑现）
          crossKind    橙虚线（跨 kind 向上，提示价值而非约束）
          exempt       灰实线（豁免；抽屉内呈现 reason）
-节点标记 none         ⚪ 正常
-         unfulfilled  🟡 存在未兑现声明
 ```
 
-- **结构错不产生节点标记**：结构错一律以停摆态替代（见上一条），节点级「结构错」标记 MUST NOT 存在——否则等于承认「残缺图 + 红点」这一被否形态。
+- **节点标记不呈现**：节点标记词汇（`none` / `unfulfilled`）仍由图元素 DTO 的 `mark` 字段承载并纳入 `desktop-archi-model` 的词汇对拍，但本能力 MUST NOT 呈现节点级标记——画布节点与元素树节点只呈短名，无状态点 / 无节点标记样式分支。
+- **结构错不产生标记**：结构错一律以停摆态替代（见上一条），边级与节点级「结构错」标记 MUST NOT 存在——否则等于承认「残缺图 + 红点」这一被否形态。
 - **未知标记值** SHALL 退化为中性样式（`none`）并 MUST NOT 崩溃；词汇扩展 SHALL 走「改本 requirement + 同步词汇对拍语料」两处，MUST NOT 静默新增。
-- 本期标记生产者为空（恒 `none`），渲染契约与词汇先立：check 侧接入时 UI 零改动。
+- 本期标记生产者为空（恒 `none`），边渲染契约与词汇先立：check 侧接入时 UI 零改动。
 
 #### Scenario: 标记驱动边样式
 
@@ -88,13 +87,13 @@
 
 #### Scenario: 未知标记退化不崩
 
-- **WHEN** 图数据中出现词汇外的标记值
-- **THEN** 该边 / 节点按中性样式渲染，画布不崩溃、不空白
+- **WHEN** 图数据中出现词汇外的边标记值
+- **THEN** 该边按中性样式渲染，画布不崩溃、不空白
 
 #### Scenario: 本期零标记
 
 - **WHEN** 以本变更产出的图数据渲染画布
-- **THEN** 全部边为 `none`（实线）、全部节点为 `none`（⚪ 正常）——标记生产不在本期射程
+- **THEN** 全部边为 `none`（实线），画布节点与元素树节点只呈短名（无节点标记点）——标记生产不在本期射程
 
 ### Requirement: 能力差异（全量只读 / 增量可改档）
 
@@ -162,10 +161,10 @@
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `src/views/architecture/components/architecture-canvas.tsx` | 共享画布 | 入参 `{ root, mode: 'full' \| 'incremental' }`；三段布局（元素树 / xyflow 画布 / 抽屉）；1-hop 缺省；两态切换（正常态 / 停摆态）；data-testid 挂钩 |
-| `src/views/architecture/components/element-tree.tsx` | 左元素树 | 层级由 FQN 前缀派生；节点状态点取节点标记词汇（`none` / `unfulfilled`）；停摆态零节点 |
+| `src/views/architecture/components/element-tree.tsx` | 左元素树 | 层级由 FQN 前缀派生；节点只呈短名（节点标记不呈现，叶子留禁用的展开空位）；停摆态零节点 |
 | `src/views/architecture/components/structure-error-panel.tsx` | 停摆态 | 逐条诊断（`kind` + `message` + `file:line`）+「修好后再看」；零图数据、零降级样式 |
 | `src/views/architecture/components/element-drawer.tsx` | 右抽屉 | 概览（`kind` / `path` / `gate` / `modelFile:line`）+ `docs` 列表 + ADR 条目与按需正文；`incremental` 下 `gate` 编辑入口；本期零「相邻报告」区块 |
-| `src/views/architecture/lib/marks.ts` | 标记 → 样式映射 | 边标记四值（`none` 实线 / `unfulfilled` 灰虚线 / `crossKind` 橙虚线 / `exempt` 灰实线）、节点标记两值（`none` ⚪ / `unfulfilled` 🟡）；未知值退化为中性；封闭词汇 |
+| `src/views/architecture/lib/marks.ts` | 标记 → 样式映射 | 边标记四值（`none` 实线 / `unfulfilled` 灰虚线 / `crossKind` 橙虚线 / `exempt` 灰实线）；未知值退化为中性；封闭词汇（节点标记不做视觉映射） |
 | `src/views/architecture/hooks/use-archi-graph.ts` | 画布取数 | 挂载 / `root` 变化 / 手动刷新三触发；零 watch 零轮询；停摆态与正常态两形状透出 |
 | `src/views/architecture/hooks/use-archi-module.ts` | 抽屉取数 | 元素详情（`archi_module`）+ ADR 正文（`archi_read_doc`，仅关联集内路径） |
 | `src/views/architecture/architecture-view.tsx` | 挂载点 A | `/architecture` 全量只读；显式刷新入口 |
