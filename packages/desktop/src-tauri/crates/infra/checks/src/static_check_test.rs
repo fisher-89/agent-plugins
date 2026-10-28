@@ -679,6 +679,8 @@ async fn run无配置直过_report_dir亦回填本槽位锚点() {
         let expect_suffix = match slot {
             ReportSlot::Test => format!("demo-change{SEP}reports{SEP}test"),
             ReportSlot::Baseline => format!("demo-change{SEP}reports{SEP}baseline"),
+            // archi 槽位归架构门禁 runner（本域不接受——编译级补位）
+            ReportSlot::Archi => format!("demo-change{SEP}reports{SEP}archi"),
         };
         assert!(
             outcome.report_dir.ends_with(&expect_suffix),
@@ -1726,5 +1728,116 @@ async fn 递减推进无卡死判定语() {
         attempt_headers(&ws, "demo-change", &exec_id),
         5,
         "跑满上限 → 5 段分隔头"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// archi 槽位守卫（D19 / AC-14）：checks 域 MUST NOT 接受 `archi`
+// ---------------------------------------------------------------------------
+
+/// 异常（D19）：`ReportSlot::Archi` → `Err`，文案指明槽位归属（不静默执行）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn archi槽位显式Err且文案归因() {
+    let ws = TempWs::new("archi-slot");
+    ws.write_config(None);
+    let error = check(&ws.root_str(), "demo-change", ReportSlot::Archi)
+        .await
+        .expect_err("checks 域 MUST NOT 接受 archi 槽位");
+    assert!(
+        error.contains("archi") && error.contains("架构门禁"),
+        "文案含槽位词与归属方：{error}"
+    );
+}
+
+/// 边界：守卫先于一切 IO——空目录（无 `openspec/config.json`、无命令配置）仍返回
+/// 槽位 `Err`（不是「缺配置」类错误），且零写盘（`reports/archi` 零创建）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn archi槽位守卫先于IO且零写盘() {
+    let ws = TempWs::new("archi-slot-empty");
+    let before = snapshot_root(ws.path());
+    let first = check(&ws.root_str(), "demo-change", ReportSlot::Archi)
+        .await
+        .expect_err("空目录同样拒收");
+    let second = check(&ws.root_str(), "demo-change", ReportSlot::Archi)
+        .await
+        .expect_err("二次调用同样拒收");
+    assert_eq!(first, second, "幂等：两次文案逐字相等");
+    assert_eq!(
+        before,
+        snapshot_root(ws.path()),
+        "拒收路径零写盘（字节快照相等）"
+    );
+    assert!(
+        !foundation::layout::change_reports(ws.path(), "demo-change", ReportSlot::Archi).exists(),
+        "reports/archi 零创建"
+    );
+}
+
+/// 正向：非 `Archi` 槽位放行——`ReportSlot::Baseline` 于无配置 tempdir 走既有
+/// 「无配置直过」链（不是槽位 `Err`），证守卫只收窄第三值。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn 非archi槽位放行() {
+    let ws = TempWs::new("archi-slot-passthrough");
+    ws.write_config(None);
+    let outcome = check(&ws.root_str(), "demo-change", ReportSlot::Baseline)
+        .await
+        .expect("baseline 槽位应放行");
+    assert!(outcome.passed, "既有直过语义零回归");
+}
+
+/// 目录全量字节快照（「零写盘」的行为化断言）。
+fn snapshot_root(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    fn collect(dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        let Ok(reader) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut entries: Vec<PathBuf> = reader.flatten().map(|entry| entry.path()).collect();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                collect(&path, out);
+            } else if let Ok(bytes) = fs::read(&path) {
+                out.push((path, bytes));
+            }
+        }
+    }
+    let mut out: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    collect(root, &mut out);
+    out
+}
+
+/// 边界：零 spawn——`PATH` 隔离窗口（清空，任何外部程序不可达）下 `Archi` 槽位
+/// 仍返回槽位 `Err`：守卫先于 spawn，MUST NOT 因环境错短路成「拉起失败」/
+///「未找到」类错误（配置错与环境错两类可辨）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn archi槽位零spawn_PATH隔离仍返槽位err() {
+    let _env = env_window();
+    let ws = TempWs::new("archi-slot-no-spawn");
+    ws.write_config(Some("no-such-static-check-command-xyz"));
+
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", "");
+    let result = check(&ws.root_str(), "demo-change", ReportSlot::Archi).await;
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+
+    let error = result.expect_err("PATH 隔离下仍应返回槽位 Err");
+    assert!(
+        error.contains("archi") && error.contains("架构门禁"),
+        "文案仍为槽位归属（守卫先于 spawn）：{error}"
+    );
+    assert!(
+        !error.contains("拉起失败") && !error.contains("未找到") && !error.contains("不可达"),
+        "不因 PATH 隔离短路成 spawn / 解析类错误：{error}"
+    );
+    assert!(
+        !ws.exec_dir_slot("demo-change", ReportSlot::Archi).exists(),
+        "零 spawn ⇒ 零执行记录目录创建"
     );
 }

@@ -1,4 +1,4 @@
-# 04 · Tauri 壳（1 元素 / 12 关系）
+# 04 · Tauri 壳（1 元素 / 13 关系）
 # 壳是唯一的全依赖汇聚点：命令面、端口装配与绑定导出都在此。
 
 [element."App.Backend.Shell"]
@@ -41,6 +41,11 @@ desc = "变更读写、查询与相位表装配"
 from = "App.Backend.Shell"
 to = "App.Backend.Infra.AgentRuntime"
 desc = "agent 回合组装与会话运行端口"
+
+[[relation]]
+from = "App.Backend.Shell"
+to = "App.Backend.Infra.ArchiRuntime"
+desc = "架构门禁 runner 的构造与注入"
 
 [[relation]]
 from = "App.Backend.Shell"

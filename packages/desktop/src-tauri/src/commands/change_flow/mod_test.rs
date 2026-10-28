@@ -1710,7 +1710,7 @@ fn channel面五kind通知各自一拍且零载荷键() {
 // 零参构造（无 `recorded(change)` 装配分支——默认即 recorded）→ `LocalToolSteps`
 // StaticCheck 步 → 平台 shim 命令真实 spawn → infra/exec 单点落单一 `.log` 并
 // 回填 `output_ref`；审计行落库。与 `change_flow_start_with` 的组合根装配同式
-//（同一 `LocalToolSteps::new(...)` 七参 + `ProcessStaticCheck::new()`）。
+//（同一 `LocalToolSteps::new(...)` 八参 + `ProcessStaticCheck::new()`）。
 // ---------------------------------------------------------------------------
 
 /// PATH 前置 workspace 根窗口（shim 裸名经 PATH 解析；经 commands 级 PATH 锁
@@ -1781,6 +1781,7 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
         Arc::new(checks_runtime::ProcessStaticCheck::new()),
         Arc::new(checks_runtime::ProcessTestExecution::new()),
         Arc::new(checks_runtime::ProcessMutation::new()),
+        Arc::new(archi_runtime::LocalArchiCheck::new()),
         Arc::new(vcs_runtime::ProcessArchiveVcs::new()),
         store_port,
         "run-assembly".to_owned(),
@@ -2436,5 +2437,490 @@ async fn 未托管streams形态取用错误与stopregistry同口径() {
     assert!(
         streams_missing == stop_missing,
         "两表托管契约同口径（缺一即同型失败）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 架构漂移门禁的组合根装配（archi-check-and-gate，AC-10 / AC-15 / AC-17）：
+// `change_flow_start_with` 以第五形参（mutation 之后、vcs 之前）注入
+// `Arc::new(LocalArchiCheck::new())`——判定全在 archi，本模块只装配与注入，
+// 零归属 / 零定级 / 零 status 推导。
+// ---------------------------------------------------------------------------
+
+/// 夹具：最小 git 主仓（`git diff HEAD` 可解析 ⇒ `change_edit_set` 得空清单）。
+fn git_init_repo(root: &Path) {
+    let run_git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .unwrap_or_else(|error| panic!("夹具 git 拉起失败: {error}"));
+        assert!(
+            output.status.success(),
+            "夹具 git {} 失败: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run_git(&["init", "-q"]);
+    run_git(&["config", "user.name", "fixture"]);
+    run_git(&["config", "user.email", "fixture@example.com"]);
+    fs::write(root.join("seed.txt"), "seed\n").expect("写种子文件失败");
+    run_git(&["add", "seed.txt"]);
+    run_git(&["commit", "-q", "-m", "init"]);
+}
+
+/// 捕获的三参：`(root, name, changed)`（取消信号由 runner 内部只观测不决策）。
+type ArchiRunCall = (String, String, Vec<String>);
+
+/// 记录型 archi runner（组合根注入面观测：四参 + 调用次数 + 可编程错误面）。
+struct RecordingArchiRunner {
+    calls: Arc<Mutex<Vec<ArchiRunCall>>>,
+    error: Option<String>,
+}
+
+impl RecordingArchiRunner {
+    fn recording() -> Self {
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            error: None,
+        }
+    }
+
+    fn failing(message: &str) -> Self {
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            error: Some(message.to_owned()),
+        }
+    }
+
+    fn calls(&self) -> Vec<ArchiRunCall> {
+        self.calls.lock().expect("calls 锁不可中毒").clone()
+    }
+}
+
+impl orchestration::port::ArchiCheckRunner for RecordingArchiRunner {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        changed: Vec<String>,
+        _cancel: foundation::cancel::CancelFlag,
+    ) -> orchestration::port::BoxToolFuture {
+        self.calls.lock().expect("calls 锁不可中毒").push((
+            root.to_owned(),
+            name.to_owned(),
+            changed,
+        ));
+        let error = self.error.clone();
+        Box::pin(async move {
+            if let Some(message) = error {
+                return Err(message);
+            }
+            Ok(orchestration::port::ToolStepOutput::ArchiCheck(
+                orchestration::port::ArchiCheckOutcome {
+                    passed: true,
+                    diagnostics: "架构检查通过".to_owned(),
+                    fault: None,
+                    report_dir: "openspec/changes/flow-change/reports/archi".to_owned(),
+                    report_ref: None,
+                },
+            ))
+        })
+    }
+}
+
+/// 零调用观测型假件（static-check / test-execution / mutation 三缝）：形参序
+/// 错位时 `ArchiCheck` 命令会落到其中之一 ⇒ 记账非空即红。
+struct ZeroCallCheckRunner {
+    seen: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl ZeroCallCheckRunner {
+    fn new(seen: Arc<Mutex<Vec<&'static str>>>) -> Self {
+        Self { seen }
+    }
+}
+
+impl orchestration::port::StaticCheckRunner for ZeroCallCheckRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: foundation::cancel::CancelFlag,
+    ) -> orchestration::port::BoxToolFuture {
+        self.seen
+            .lock()
+            .expect("seen 锁不可中毒")
+            .push("static_check");
+        Box::pin(async move {
+            Ok(orchestration::port::ToolStepOutput::StaticCheck(
+                orchestration::port::StaticCheckOutcome {
+                    passed: true,
+                    diagnostics: String::new(),
+                    fault: None,
+                    output_ref: None,
+                    report_dir: String::new(),
+                },
+            ))
+        })
+    }
+}
+
+impl orchestration::port::TestExecutionRunner for ZeroCallCheckRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: foundation::cancel::CancelFlag,
+    ) -> orchestration::port::BoxToolFuture {
+        self.seen
+            .lock()
+            .expect("seen 锁不可中毒")
+            .push("test_execution");
+        Box::pin(async move {
+            Ok(orchestration::port::ToolStepOutput::TestExecution(
+                orchestration::port::TestExecutionOutcome {
+                    conclusion: orchestration::port::TestExecutionConclusion::Pass,
+                    total: 0,
+                    passed: 0,
+                    failed: 0,
+                    skipped: 0,
+                    findings_brief: String::new(),
+                    findings_detail: String::new(),
+                    report_dir: String::new(),
+                    exec_id: String::new(),
+                    fault: None,
+                },
+            ))
+        })
+    }
+}
+
+impl orchestration::port::MutationRunner for ZeroCallCheckRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _files: &[String],
+        _patch: &str,
+        _cancel: foundation::cancel::CancelFlag,
+    ) -> orchestration::port::BoxToolFuture {
+        self.seen
+            .lock()
+            .expect("seen 锁不可中毒")
+            .push("mutation_test");
+        Box::pin(async move {
+            Ok(orchestration::port::ToolStepOutput::MutationTest(
+                orchestration::port::MutationTestOutcome {
+                    conclusion: orchestration::port::MutationTestConclusion::Pass,
+                    skip: None,
+                    score: 1.0,
+                    threshold: 0.8,
+                    counts: orchestration::port::MutationCounts::default(),
+                    report_paths: Vec::new(),
+                    feedback_text: String::new(),
+                    fault: None,
+                },
+            ))
+        })
+    }
+}
+
+/// 正向（AC-10 / AC-15）：组合根装配可达——真件 `LocalArchiCheck` 作第五形参时
+/// `ToolCommand::ArchiCheck` 返回 `ToolStepOutput::ArchiCheck`，`report_dir` 为
+/// `<change>/reports/archi`（形参错位会落到别的 runner 产出型别 ⇒ 变体断言即红），
+/// 且审计行按 `StepKind::ArchiCheck` 归键。
+#[tokio::test]
+async fn 组合根装配_archicheck命令由第五形参承接且报告目录为archi槽位() {
+    use orchestration::port::{ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest};
+    use orchestration::steps::LocalToolSteps;
+    use workflow::state::ChangeStateStore;
+
+    let env = Env::new("archi-assembly");
+    let root = env.root();
+    let app = app_with(&env);
+    seed_change(&app, &root, CHANGE, "requirement");
+    git_init_repo(env.ws_root.path());
+
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let store_port: Arc<dyn ChangeStateStore> = store.clone();
+    // 形参序与 `change_flow_start_with` 的组合根逐位相同（第五位 = archi 门禁）
+    let tools = LocalToolSteps::new(
+        Arc::new(workflow::write::SessionAnchors::new()),
+        Arc::new(checks_runtime::ProcessStaticCheck::new()),
+        Arc::new(checks_runtime::ProcessTestExecution::new()),
+        Arc::new(checks_runtime::ProcessMutation::new()),
+        Arc::new(archi_runtime::LocalArchiCheck::new()),
+        Arc::new(vcs_runtime::ProcessArchiveVcs::new()),
+        store_port,
+        "run-archi".to_owned(),
+    );
+
+    let output = tools
+        .run(ToolStepRequest {
+            root: root.clone(),
+            cancel: foundation::cancel::CancelFlag::never(),
+            command: ToolCommand::ArchiCheck {
+                change_id: CHANGE.to_owned(),
+            },
+        })
+        .await
+        .expect("ArchiCheck 命令应 Ok（无模型 ⇒ skipped 仍是有效结论）");
+    let ToolStepOutput::ArchiCheck(outcome) = output else {
+        panic!("形参错位会返回别的 runner 产出型别，实际: {output:?}");
+    };
+
+    let expected_dir = foundation::layout::change_reports(
+        Path::new(&root),
+        CHANGE,
+        foundation::layout::ReportSlot::Archi,
+    );
+    assert_eq!(
+        Path::new(&outcome.report_dir),
+        expected_dir.as_path(),
+        "report_dir 为 archi 槽位派生面（<change>/reports/archi）"
+    );
+    assert!(outcome.passed, "无模型 ⇒ skipped：零 errors 仍算通过");
+    assert_eq!(
+        outcome.diagnostics, "未检查（无模型）",
+        "跳过面逐字（「没检查」不得读成「检查过了没问题」）"
+    );
+    assert!(
+        outcome.report_ref.is_some(),
+        "报告落盘成功回填引用（archi 槽位树内）"
+    );
+
+    let rows = store
+        .list_change_steps(CHANGE, Some("run-archi"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "架构门禁步恰一条审计行");
+    assert_eq!(
+        rows[0].step_kind,
+        workflow::state::StepKind::ArchiCheck,
+        "kind 归键在案"
+    );
+    assert_eq!(rows[0].summary, "archi_check passed=true");
+}
+
+/// 边界（AC-10 / AC-17）：组合根零判定——`mod.rs` 只含装配与注入，不含归属 /
+/// 定级 / status 推导实现（判定单源在 `archi`），且第五形参严格位于 mutation
+/// 之后、vcs 之前；零运行时开关（无 `cfg!` / 环境变量分支）。
+#[test]
+fn 组合根零判定_源码只装配不推导() {
+    let source = include_str!("mod.rs");
+
+    for forbidden in [
+        "owner_of",
+        "GateTier",
+        "ArchiCheckStatus",
+        "undeclaredDependency",
+        "occurrences",
+        "unmatched_files",
+        "model_hash",
+        "modelHash",
+        "drift::check",
+        "ExcludeSet",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "组合根 MUST NOT 含判定实现（第二事实源）：{forbidden}"
+        );
+    }
+    assert!(
+        source.contains("Arc::new(LocalArchiCheck::new())"),
+        "第四检查 runner 的装配在案（本层只注入真件）"
+    );
+
+    // 形参序在 `LocalToolSteps::new(...)` 实参表内判定（vcs 实例本身早于 tools
+    // 装配，位次断言只对实参序有效）：mutation 之后、vcs 形参之前
+    let tools_at = source.find("LocalToolSteps::new(").expect("工具缝装配在案");
+    let tail = &source[tools_at..];
+    let mutation_at = tail
+        .find("ProcessMutation::new()")
+        .expect("mutation runner 形参在案");
+    let archi_at = tail
+        .find("LocalArchiCheck::new()")
+        .expect("archi runner 形参在案");
+    let vcs_at = tail.find("Arc::clone(&vcs)").expect("vcs 形参在案");
+    assert!(
+        mutation_at < archi_at && archi_at < vcs_at,
+        "形参序：archi 插在 mutation 之后、vcs 之前（声明序即契约）"
+    );
+
+    // 零运行时开关：无「是否启用架构门禁」的读取 / 判断分支
+    for switch in ["archi_check_enabled", "ARCHI_CHECK", "cfg!(feature"] {
+        assert!(
+            !source.contains(switch),
+            "门禁恒挂 implement（无运行时开关）：{switch}"
+        );
+    }
+}
+
+/// 异常（AC-13 / AC-15）：注入 runner 的失败面——archi runner 返回 `Err`
+/// （配置非法 / 扫描硬失败）→ 步以 `Err` 上抛，MUST NOT 被降级成 `noChanges`
+/// 假通过；static-check / test-execution / mutation 三 runner 零误调用（形参序
+/// 红线）；失败同样留审计行且零报告产出。
+#[tokio::test]
+async fn 注入runner失败面_不降级假通过且其余三runner零误调用() {
+    use orchestration::port::{ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest};
+    use orchestration::steps::LocalToolSteps;
+    use workflow::state::ChangeStateStore;
+
+    let env = Env::new("archi-failure");
+    let root = env.root();
+    let app = app_with(&env);
+    seed_change(&app, &root, CHANGE, "requirement");
+    git_init_repo(env.ws_root.path());
+
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let store_port: Arc<dyn ChangeStateStore> = store.clone();
+    let seen: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    let archi = Arc::new(RecordingArchiRunner::failing(
+        "架构域配置解析失败：未知键 rules",
+    ));
+    let tools = LocalToolSteps::new(
+        Arc::new(workflow::write::SessionAnchors::new()),
+        Arc::new(ZeroCallCheckRunner::new(Arc::clone(&seen))),
+        Arc::new(ZeroCallCheckRunner::new(Arc::clone(&seen))),
+        Arc::new(ZeroCallCheckRunner::new(Arc::clone(&seen))),
+        Arc::clone(&archi) as Arc<dyn orchestration::port::ArchiCheckRunner>,
+        Arc::new(vcs_runtime::ProcessArchiveVcs::new()),
+        store_port,
+        "run-archi-failure".to_owned(),
+    );
+
+    let output = tools
+        .run(ToolStepRequest {
+            root: root.clone(),
+            cancel: foundation::cancel::CancelFlag::never(),
+            command: ToolCommand::ArchiCheck {
+                change_id: CHANGE.to_owned(),
+            },
+        })
+        .await;
+
+    match output {
+        Err(error) => assert_eq!(
+            error, "架构域配置解析失败：未知键 rules",
+            "runner Err 原样上抛（记因保留，不吞）"
+        ),
+        Ok(ToolStepOutput::ArchiCheck(outcome)) => {
+            panic!("硬失败 MUST NOT 降级成架构结论（假通过面）：{outcome:?}")
+        }
+        Ok(other) => panic!("硬失败 MUST NOT 产出其它结论：{other:?}"),
+    }
+    assert_eq!(archi.calls().len(), 1, "archi runner 收到一次命令");
+    assert!(
+        seen.lock().expect("seen 锁不可中毒").is_empty(),
+        "三检查 runner 零误调用（形参序正确）"
+    );
+
+    let rows = store
+        .list_change_steps(CHANGE, Some("run-archi-failure"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "失败留痕：审计行仍落库（不吞审计）");
+    assert_eq!(rows[0].status, "error", "失败行状态");
+    assert!(
+        rows[0].summary.contains("架构域配置解析失败"),
+        "summary 载错误串：{:?}",
+        rows[0].summary
+    );
+    assert!(
+        !foundation::layout::change_reports(
+            Path::new(&root),
+            CHANGE,
+            foundation::layout::ReportSlot::Archi,
+        )
+        .exists(),
+        "硬失败 ⇒ 零报告产出（不落半份结论）"
+    );
+}
+
+/// 正向（AC-10 / AC-11）：run 启动路径的驱动面——implement 相位表恰含一个
+/// `ArchiCheck` 步（walker 每次进 implement 恰发一条命令），该命令经组合根注入的
+/// 第五形参承接且**恰调用一次**（记录型 runner 观测），name 取记录 name、root 为
+/// 请求 root、变更集来自 vcs 缝（干净仓 → 空清单）。
+#[tokio::test]
+async fn run启动路径_implement恰一步archicheck且注入runner恰一次调用() {
+    use orchestration::port::{ToolCommand, ToolStepPort, ToolStepRequest};
+    use orchestration::steps::LocalToolSteps;
+    use workflow::state::{ChangeStateStore, StepNode};
+
+    let table = workflow::write::phase_table("requirement").expect("requirement 相位表应可达");
+    let implement = table
+        .iter()
+        .find(|definition| definition.id == "implement")
+        .expect("requirement 表含 implement 相位");
+    let archi_steps = implement
+        .steps
+        .iter()
+        .filter(|step| step.node == StepNode::ArchiCheck)
+        .count();
+    assert_eq!(
+        archi_steps, 1,
+        "implement 相位恰一步 ArchiCheck（run 驱动时恰发一条命令，不重复不遗漏）"
+    );
+
+    let env = Env::new("archi-run-path");
+    let root = env.root();
+    let app = app_with(&env);
+    seed_change(&app, &root, CHANGE, "requirement");
+    git_init_repo(env.ws_root.path());
+
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let store_port: Arc<dyn ChangeStateStore> = store;
+    let seen: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    let archi = Arc::new(RecordingArchiRunner::recording());
+    let tools = LocalToolSteps::new(
+        Arc::new(workflow::write::SessionAnchors::new()),
+        Arc::new(ZeroCallCheckRunner::new(Arc::clone(&seen))),
+        Arc::new(ZeroCallCheckRunner::new(Arc::clone(&seen))),
+        Arc::new(ZeroCallCheckRunner::new(Arc::clone(&seen))),
+        Arc::clone(&archi) as Arc<dyn orchestration::port::ArchiCheckRunner>,
+        Arc::new(vcs_runtime::ProcessArchiveVcs::new()),
+        store_port,
+        "run-archi-path".to_owned(),
+    );
+
+    let output = tools
+        .run(ToolStepRequest {
+            root: root.clone(),
+            cancel: foundation::cancel::CancelFlag::never(),
+            command: ToolCommand::ArchiCheck {
+                change_id: CHANGE.to_owned(),
+            },
+        })
+        .await
+        .expect("ArchiCheck 命令应 Ok");
+    assert!(
+        matches!(output, orchestration::port::ToolStepOutput::ArchiCheck(_)),
+        "命令由注入的 archi runner 承接（产出型别即承接证据）"
+    );
+
+    let calls = archi.calls();
+    assert_eq!(calls.len(), 1, "run 驱动的这一步恰一次调用（不多不少）");
+    assert_eq!(calls[0].0, root, "root 为请求 root（exec root 口径）");
+    assert_eq!(calls[0].1, CHANGE, "name 取记录 name（非寻址 id 的另写）");
+    assert!(
+        calls[0].2.is_empty(),
+        "变更集来自 vcs 缝（干净仓 → 空清单），实得 {:?}",
+        calls[0].2
+    );
+    assert!(
+        seen.lock().expect("seen 锁不可中毒").is_empty(),
+        "其余三 runner 零误调用"
     );
 }

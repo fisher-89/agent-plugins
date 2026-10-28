@@ -33,7 +33,8 @@ impl ChangeRunStatus {
 
 /// 步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
 /// spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
-/// static-check / test-execution / mutation-test / preflight / seal）+ Git 步
+/// static-check / test-execution / mutation-test / archi-check / preflight /
+/// seal）+ Git 步
 ///（clean / commit / rebase / merge / cleanup / finalize——clean 为 initialize
 /// 基线恢复步）+ Gate 三门。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -88,6 +89,8 @@ pub enum ChangeStepKind {
     Seal,
     /// 归档落盘提交步（vcs）
     Finalize,
+    /// archi-check 门禁工具步（架构漂移判定，定向反馈边）
+    ArchiCheck,
 }
 
 impl ChangeStepKind {
@@ -116,6 +119,7 @@ impl ChangeStepKind {
             ChangeStepKind::Cleanup => "cleanup",
             ChangeStepKind::Seal => "seal",
             ChangeStepKind::Finalize => "finalize",
+            ChangeStepKind::ArchiCheck => "archi_check",
         }
     }
 }

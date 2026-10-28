@@ -1,4 +1,7 @@
 {
+  "fixture": "mutation-seg-stryker",
+  "tool": "stryker",
+  "durationMs": 9876.5,
   "counts": [
     18,
     4,
@@ -9,10 +12,7 @@
     3,
     29
   ],
-  "durationMs": 9876.5,
-  "fixture": "mutation-seg-stryker",
-  "pass": true,
   "score": 80.0,
   "threshold": 70.0,
-  "tool": "stryker"
+  "pass": true
 }

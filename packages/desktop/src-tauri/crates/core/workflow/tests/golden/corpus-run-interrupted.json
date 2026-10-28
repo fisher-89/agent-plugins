@@ -1,64 +1,64 @@
 {
-  "activePhase": null,
-  "artifacts": [],
-  "created": "2024-09-22",
   "id": "id-run-interrupted",
   "name": "run-interrupted",
-  "pipeline": [
-    {
-      "attempts": [],
-      "phase": "initialize"
-    },
-    {
-      "attempts": [],
-      "phase": "proposal"
-    },
-    {
-      "attempts": [],
-      "phase": "dev-design"
-    },
-    {
-      "attempts": [],
-      "phase": "test-design"
-    },
-    {
-      "attempts": [],
-      "phase": "implement"
-    },
-    {
-      "attempts": [],
-      "phase": "test-gen"
-    },
-    {
-      "attempts": [],
-      "phase": "test-execution"
-    },
-    {
-      "attempts": [],
-      "phase": "code-review"
-    },
-    {
-      "attempts": [],
-      "phase": "acceptance"
-    },
-    {
-      "attempts": [],
-      "phase": "archive"
-    }
-  ],
-  "runs": [
-    {
-      "edges": [],
-      "finishedAt": "2024-09-22T10:13:29Z",
-      "nodes": [],
-      "reason": "重启标定：桌面进程中断，run 客观已终止（中断于 phase implement attempt 1）",
-      "runId": "run-1727000005000",
-      "startedAt": "2024-09-22T10:13:25Z",
-      "status": "interrupted"
-    }
-  ],
+  "title": "run-interrupted",
   "source": "active",
   "status": "active",
-  "title": "run-interrupted",
+  "created": "2024-09-22",
+  "pipeline": [
+    {
+      "phase": "initialize",
+      "attempts": []
+    },
+    {
+      "phase": "proposal",
+      "attempts": []
+    },
+    {
+      "phase": "dev-design",
+      "attempts": []
+    },
+    {
+      "phase": "test-design",
+      "attempts": []
+    },
+    {
+      "phase": "implement",
+      "attempts": []
+    },
+    {
+      "phase": "test-gen",
+      "attempts": []
+    },
+    {
+      "phase": "test-execution",
+      "attempts": []
+    },
+    {
+      "phase": "code-review",
+      "attempts": []
+    },
+    {
+      "phase": "acceptance",
+      "attempts": []
+    },
+    {
+      "phase": "archive",
+      "attempts": []
+    }
+  ],
+  "activePhase": null,
+  "runs": [
+    {
+      "runId": "run-1727000005000",
+      "status": "interrupted",
+      "reason": "重启标定：桌面进程中断，run 客观已终止（中断于 phase implement attempt 1）",
+      "startedAt": "2024-09-22T10:13:25Z",
+      "finishedAt": "2024-09-22T10:13:29Z",
+      "nodes": [],
+      "edges": []
+    }
+  ],
+  "artifacts": [],
   "worktree": null
 }

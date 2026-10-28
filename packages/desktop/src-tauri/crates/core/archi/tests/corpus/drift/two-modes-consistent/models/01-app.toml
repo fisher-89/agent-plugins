@@ -1,0 +1,15 @@
+# 两模式一致语料：同一 commit 下全量与增量对同一元素对给同一级别。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

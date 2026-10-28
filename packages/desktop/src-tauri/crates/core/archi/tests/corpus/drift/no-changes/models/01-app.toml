@@ -1,0 +1,10 @@
+# 无变更语料：增量模式 changed = [] → noChanges（MUST NOT 为 clean）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

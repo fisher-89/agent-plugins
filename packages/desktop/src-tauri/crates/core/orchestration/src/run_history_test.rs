@@ -218,13 +218,14 @@ fn mapped_step_cleanup直映射_同词面逐字() {
     assert_eq!(command.nodes[0].step.as_str(), "cleanup");
 }
 
-/// 二十一值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
+/// 二十二值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
 /// 面三步（phase_start / phase_log / 三门）不再被弃落，mutation_test 拆步新词
-/// 在案、cleanup 尽力步新臂在案、clean 基线恢复步新臂在案（编译面锚：`persisted_step`
-/// 符号缺席，引用即不编译，AC-3 退役面；AC-1 / AC-2 二十一值零过滤——finish_command
-/// 落包 `nodes.len()==21` 零过滤，cleanup / clean 节点在案、无静默丢弃）。
+/// 在案、archi_check 门禁步新臂在案、cleanup 尽力步新臂在案、clean 基线恢复步新臂
+/// 在案（编译面锚：`persisted_step` 符号缺席，引用即不编译，AC-3 退役面；
+/// AC-1 / AC-2 二十二值零过滤——finish_command 落包 `nodes.len()==22` 零过滤，
+/// archi_check / cleanup / clean 节点在案、无静默丢弃）。
 #[test]
-fn 全词汇直映射二十一值零过滤() {
+fn 全词汇直映射二十二值零过滤() {
     let all = [
         (
             ChangeStepKind::Executor,
@@ -295,8 +296,12 @@ fn 全词汇直映射二十一值零过滤() {
             ChangeStepKind::Finalize,
             workflow::state::RunStepKind::Finalize,
         ),
+        (
+            ChangeStepKind::ArchiCheck,
+            workflow::state::RunStepKind::ArchiCheck,
+        ),
     ];
-    assert_eq!(all.len(), 21, "二十一值封闭集全枚举");
+    assert_eq!(all.len(), 22, "二十二值封闭集全枚举");
 
     let nodes: Vec<ChangeStepState> = all
         .iter()
@@ -313,8 +318,8 @@ fn 全词汇直映射二十一值零过滤() {
 
     assert_eq!(
         command.nodes.len(),
-        21,
-        "二十一值全词汇零过滤（cleanup / clean 节点在案）"
+        22,
+        "二十二值全词汇零过滤（archi_check / cleanup / clean 节点在案）"
     );
     for (index, (_, expect)) in all.iter().enumerate() {
         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
@@ -351,6 +356,13 @@ fn 全词汇直映射二十一值零过滤() {
         command
             .nodes
             .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::ArchiCheck),
+        "archi_check 门禁步直映射在案（零静默丢弃）"
+    );
+    assert!(
+        command
+            .nodes
+            .iter()
             .any(|node| node.step == workflow::state::RunStepKind::WhitelistGate),
         "三门之 whitelist_gate 不再被弃落"
     );
@@ -370,6 +382,58 @@ fn 全词汇直映射二十一值零过滤() {
         total,
         "双射无两词映一（词汇同源不漂移），实际: {mapped:?}"
     );
+}
+
+/// 异常（AC-16 / R-8）：库行步词**下标越界解码即 `Err`**——人为构造 22 及以上的
+/// 步词下标（以及词汇外的词面）一律解码失败，MUST NOT 静默回落末位词
+/// `archi_check`（错位被掩盖即把旧行读成新步，是最不可见的静默失败面）。
+#[test]
+fn 步词下标越界解码err不回落末位词() {
+    use workflow::state::RunStepKind;
+
+    // 合法面锚：末位词即 archi_check（22 值封闭集的最后一个，下标 21）
+    assert_eq!(
+        serde_json::to_value(RunStepKind::ArchiCheck).expect("末位词可出线"),
+        serde_json::json!("archi_check"),
+        "下标 21 的末位词线格式为 archi_check"
+    );
+    let back: RunStepKind =
+        serde_json::from_value(serde_json::json!("archi_check")).expect("在册词可解码");
+    assert_eq!(back, RunStepKind::ArchiCheck, "在册词往返等值");
+
+    // 越界下标（22 / 23 / 256 / u32::MAX）：解码 `Err`，不落末位词
+    for illegal in [
+        serde_json::json!(22),
+        serde_json::json!(23),
+        serde_json::json!(256),
+        serde_json::json!(u32::MAX),
+    ] {
+        let decoded: Result<RunStepKind, _> = serde_json::from_value(illegal.clone());
+        match decoded {
+            Ok(kind) => panic!(
+                "下标越界 {illegal} MUST 解码 Err（实得 {:?}，回落末位词即掩盖 R-8 错位）",
+                kind.as_str()
+            ),
+            Err(error) => assert!(
+                !error.to_string().is_empty(),
+                "错误文案非空（可诊断）：{illegal}"
+            ),
+        }
+    }
+
+    // 词汇外的词面（前向 / 旧版词汇）同样 `Err`：未知步词不复活、不猜词
+    for unknown in [
+        serde_json::json!("archi_check_v2"),
+        serde_json::json!("archiCheck"),
+        serde_json::json!("ARCHI_CHECK"),
+        serde_json::json!(""),
+    ] {
+        let decoded: Result<RunStepKind, _> = serde_json::from_value(unknown.clone());
+        assert!(
+            decoded.is_err(),
+            "词汇外步词 {unknown} MUST 解码 Err（不静默回落）"
+        );
+    }
 }
 
 /// 边整包组装：四 kind 显式落边，`fromNodeKey` / `toNodeKey` 端点指向节点身份串

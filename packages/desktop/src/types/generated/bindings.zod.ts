@@ -242,6 +242,10 @@ export const argsSchemas = {
 			"element": z.string(),
 			"gate": z.lazy(() => GateTierSchema),
 		}); },
+	get "archiDrift"() { return z.strictObject({
+			"root": z.string(),
+			"mode": z.lazy(() => ArchiDriftModeSchema),
+		}); },
 } as const;
 
 /** 逐命令结果 schema（`Result` 取 Ok 臂；`Option` 出 nullable） */
@@ -298,6 +302,7 @@ export const resultSchemas = {
 	get "archiReadDoc"() { return z.string(); },
 	get "archiChangeSummary"() { return z.lazy(() => ArchiChangeSummarySchema).nullable(); },
 	get "archiSetGate"() { return z.null(); },
+	get "archiDrift"() { return z.lazy(() => ArchiDriftReportSchema); },
 } as const;
 
 /** 逐命令 `Channel<T>` 形参的信封 schema（键 = 形参名；无 Channel 的命令为空对象） */
@@ -410,6 +415,8 @@ export const channelArgs = {
 	get "archiChangeSummary"() { return {
 		}; },
 	get "archiSetGate"() { return {
+		}; },
+	get "archiDrift"() { return {
 		}; },
 } as const;
 export const ActivePhaseSchema = z.strictObject({
@@ -614,6 +621,8 @@ export const ArchiChangeSummarySchema = z.strictObject({
 	get diagnostics() { return z.array(ArchiDiagnosticSchema); },
 });
 
+export const ArchiCheckStatusSchema = z.union([z.literal("clean"), z.literal("errors"), z.literal("warnings"), z.literal("noChanges"), z.literal("skipped")]);
+
 export const ArchiDependedBySchema = z.strictObject({
 	get source() { return z.string(); },
 	get description() { return z.string().nullable(); },
@@ -634,6 +643,67 @@ export const ArchiDiagnosticSchema = z.strictObject({
 
 export const ArchiDiagnosticKindSchema = z.union([z.literal("syntaxError"), z.literal("missingField"), z.literal("invalidValue"), z.literal("unknownField"), z.literal("duplicateElement"), z.literal("cycle"), z.literal("dependsOnAncestor"), z.literal("unknownReference"), z.literal("orphanHierarchy")]);
 
+export const ArchiDriftEntrySchema = z.strictObject({
+	get kind() { return ArchiDriftKindSchema; },
+	get from() { return z.string().nullable(); },
+	get to() { return z.string().nullable(); },
+	get gate() { return GateTierSchema.nullable(); },
+	get message() { return z.string(); },
+	get occurrences() { return z.array(ArchiDriftOccurrenceSchema); },
+});
+
+export const ArchiDriftKindSchema = z.union([z.literal("undeclaredDependency"), z.literal("pathNotFound"), z.literal("ambiguousOwner"), z.literal("noPath")]);
+
+export const ArchiDriftModeSchema = z.union([z.literal("full"), z.literal("incremental")]);
+
+export const ArchiDriftModelSchema = z.strictObject({
+	get elements() { return z.int().min(0).max(4294967295); },
+	get relations() { return z.int().min(0).max(4294967295); },
+	get byGate() { return ArchiGateCountSchema; },
+	get structuralErrors() { return z.array(ArchiDiagnosticSchema); },
+	get warnings() { return z.array(ArchiDriftEntrySchema); },
+});
+
+export const ArchiDriftObservationSchema = z.strictObject({
+	get kind() { return ArchiObservationKindSchema; },
+	get from() { return z.string(); },
+	get to() { return z.string(); },
+	get message() { return z.string(); },
+});
+
+export const ArchiDriftOccurrenceSchema = z.strictObject({
+	get file() { return z.string(); },
+	get line() { return z.int().min(0).max(4294967295); },
+	get specifier() { return z.string().nullable(); },
+	get typeOnly() { return z.boolean(); },
+});
+
+export const ArchiDriftReportSchema = z.strictObject({
+	get version() { return z.int().min(0).max(4294967295); },
+	get timestamp() { return z.string(); },
+	get mode() { return ArchiDriftModeSchema; },
+	get root() { return z.string(); },
+	get change() { return z.string().nullable(); },
+	get base() { return z.string().nullable(); },
+	get modelHash() { return z.string(); },
+	get model() { return ArchiDriftModelSchema; },
+	get scan() { return ArchiScanReportSchema; },
+	get errors() { return z.array(ArchiDriftEntrySchema); },
+	get warnings() { return z.array(ArchiDriftEntrySchema); },
+	get suppressed() { return z.array(ArchiDriftSuppressedEntrySchema); },
+	get observations() { return z.array(ArchiDriftObservationSchema); },
+	get status() { return ArchiCheckStatusSchema; },
+});
+
+export const ArchiDriftSuppressedEntrySchema = z.strictObject({
+	get from() { return z.string(); },
+	get to() { return z.string(); },
+	get via() { return ArchiSuppressViaSchema; },
+	get reason() { return z.string(); },
+	get file() { return z.string().nullable(); },
+	get line() { return z.int().min(0).max(4294967295).nullable(); },
+});
+
 export const ArchiElementSchema = z.strictObject({
 	get fqn() { return z.string(); },
 	get kind() { return ElementKindSchema; },
@@ -646,16 +716,32 @@ export const ArchiElementSchema = z.strictObject({
 	get mark() { return NodeMarkSchema; },
 });
 
+export const ArchiExcludedFileSchema = z.strictObject({
+	get file() { return z.string(); },
+	get rule() { return z.string(); },
+});
+
 export const ArchiGateChangeSchema = z.strictObject({
 	get fqn() { return z.string(); },
 	get from() { return GateTierSchema; },
 	get to() { return GateTierSchema; },
 });
 
+export const ArchiGateCountSchema = z.strictObject({
+	get strict() { return z.int().min(0).max(4294967295); },
+	get warn() { return z.int().min(0).max(4294967295); },
+	get off() { return z.int().min(0).max(4294967295); },
+});
+
 export const ArchiGraphSchema = z.strictObject({
 	get elements() { return z.array(ArchiElementSchema); },
 	get relations() { return z.array(ArchiRelationSchema); },
 	get diagnostics() { return z.array(ArchiDiagnosticSchema); },
+});
+
+export const ArchiMatchedElementSchema = z.strictObject({
+	get element() { return z.string(); },
+	get files() { return z.array(z.string()); },
 });
 
 export const ArchiModuleDetailSchema = z.strictObject({
@@ -667,12 +753,32 @@ export const ArchiModuleDetailSchema = z.strictObject({
 	get warnings() { return z.array(ArchiWarningSchema); },
 });
 
+export const ArchiObservationKindSchema = z.union([z.literal("unfulfilledDeclaration"), z.literal("unusedDeclaration")]);
+
 export const ArchiRelationSchema = z.strictObject({
 	get from() { return z.string(); },
 	get to() { return z.string(); },
 	get description() { return z.string().nullable(); },
 	get mark() { return EdgeMarkSchema; },
 	get reason() { return z.string().nullable(); },
+});
+
+export const ArchiScanReportSchema = z.strictObject({
+	get mode() { return ArchiDriftModeSchema; },
+	get changedFiles() { return z.int().min(0).max(4294967295); },
+	get scannedFiles() { return z.int().min(0).max(4294967295); },
+	get excluded() { return z.array(ArchiExcludedFileSchema); },
+	get unmatchedFiles() { return z.array(z.string()); },
+	get matched() { return z.array(ArchiMatchedElementSchema); },
+	get unresolved() { return z.array(ArchiUnresolvedFileSchema); },
+});
+
+export const ArchiSuppressViaSchema = z.union([z.literal("config"), z.literal("inline")]);
+
+export const ArchiUnresolvedFileSchema = z.strictObject({
+	get file() { return z.string(); },
+	get specifier() { return z.string().nullable(); },
+	get message() { return z.string(); },
 });
 
 export const ArchiWarningSchema = z.strictObject({
@@ -805,7 +911,7 @@ export const ChangeSourceSchema = z.union([z.literal("active"), z.literal("archi
 
 export const ChangeStatusSchema = z.union([z.literal("active"), z.literal("archived")]);
 
-export const ChangeStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("phaseStart"), z.literal("staticCheck"), z.literal("testExecution"), z.literal("mutationTest"), z.literal("clean"), z.literal("phaseLog"), z.literal("verdictGate"), z.literal("retryGate"), z.literal("whitelistGate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolveConflicts"), z.literal("merge"), z.literal("specSync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize")]);
+export const ChangeStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("phaseStart"), z.literal("staticCheck"), z.literal("testExecution"), z.literal("mutationTest"), z.literal("clean"), z.literal("phaseLog"), z.literal("verdictGate"), z.literal("retryGate"), z.literal("whitelistGate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolveConflicts"), z.literal("merge"), z.literal("specSync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize"), z.literal("archiCheck")]);
 
 export const ChangeStepStateSchema = z.strictObject({
 	get phase() { return z.string(); },
@@ -1007,7 +1113,7 @@ export const RunNoticeSchema = z.union([z.strictObject({
 
 export const RunStatusSchema = z.union([z.literal("running"), z.literal("completed"), z.literal("stopped"), z.literal("failed"), z.literal("interrupted")]);
 
-export const RunStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("static_check"), z.literal("test_execution"), z.literal("mutation_test"), z.literal("clean"), z.literal("phase_start"), z.literal("phase_log"), z.literal("verdict_gate"), z.literal("retry_gate"), z.literal("whitelist_gate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolve_conflicts"), z.literal("merge"), z.literal("spec_sync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize")]);
+export const RunStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("static_check"), z.literal("test_execution"), z.literal("mutation_test"), z.literal("clean"), z.literal("phase_start"), z.literal("phase_log"), z.literal("verdict_gate"), z.literal("retry_gate"), z.literal("whitelist_gate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolve_conflicts"), z.literal("merge"), z.literal("spec_sync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize"), z.literal("archi_check")]);
 
 export const RunStepStatusSchema = z.union([z.literal("running"), z.literal("passed"), z.literal("failed"), z.literal("stopped")]);
 

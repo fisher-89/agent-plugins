@@ -1,0 +1,15 @@
+# 不可静态判定语料：动态 import() / require() → unresolved 留痕，errors 为空。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

@@ -1,0 +1,5 @@
+{
+  "ignore": [
+    { "from": "App.Billing", "to": "App.Auth", "reason": "迁移期临时直连，见 ADR-0007" }
+  ]
+}

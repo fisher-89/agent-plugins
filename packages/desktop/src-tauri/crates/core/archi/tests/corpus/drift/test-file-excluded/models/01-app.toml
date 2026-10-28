@@ -1,0 +1,15 @@
+# 测试文件排除语料：`*.test.ts` 天然跨元素引用被测代码，排除且逐条留痕。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

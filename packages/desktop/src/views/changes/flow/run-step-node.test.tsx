@@ -36,7 +36,8 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
 }
 
 /** 二十一步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
-   含归档 9 步词、git 六步（cleanup 尽力步与 clean 基线恢复步）的 Git 徽章面与拆步新词 mutationTest）。 */
+   含归档 9 步词、git 六步（cleanup 尽力步与 clean 基线恢复步）的 Git 徽章面与拆步新词 mutationTest、
+   archi-check 门禁步 archiCheck）。 */
 const FAMILIES: Array<{
   runStepKind: ChangeStepKind;
   group: RuntimeFlowNode['group'];
@@ -93,6 +94,13 @@ const FAMILIES: Array<{
     label: '突变执行',
     role: null,
   },
+  {
+    runStepKind: 'archiCheck',
+    group: 'toolStep',
+    badge: 'Tool',
+    label: '架构检查',
+    role: null,
+  },
   { runStepKind: 'phaseLog', group: 'toolStep', badge: 'Tool', label: '评估落账', role: null },
   { runStepKind: 'verdictGate', group: 'gate', badge: 'Gate', label: 'verdict 门', role: null },
   { runStepKind: 'retryGate', group: 'gate', badge: 'Gate', label: '重试门', role: null },
@@ -134,8 +142,8 @@ function renderNode(node: RuntimeFlowNode) {
 }
 
 describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
-  it('二十一步词汇逐词渲染：Agent / Tool / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
-    expect(FAMILIES).toHaveLength(21);
+  it('二十二步词汇逐词渲染：Agent / Tool / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
+    expect(FAMILIES).toHaveLength(22);
     for (const family of FAMILIES) {
       const rendered = renderNode(
         runtimeNode({
@@ -214,8 +222,8 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     }
   });
 
-  it('STEP_LABEL 封闭联合穷举：Record<ChangeStepKind, string> 键集恰等二十一词零缺键（20 → 21 扩位——运行时穷举兜底断言）', () => {
-    // 二十一值全词汇键集（bindings RunStepKind 联合——缺键即编译期 Record 报错、
+  it('STEP_LABEL 封闭联合穷举：Record<ChangeStepKind, string> 键集恰等二十二词零缺键（21 → 22 扩位——运行时穷举兜底断言）', () => {
+    // 二十二值全词汇键集（bindings RunStepKind 联合——缺键即编译期 Record 报错、
     // 运行期穷举兜底防词面漂移）
     const allKinds: ChangeStepKind[] = [
       'executor',
@@ -225,6 +233,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
       'staticCheck',
       'testExecution',
       'mutationTest',
+      'archiCheck',
       'clean',
       'phaseLog',
       'verdictGate',
@@ -458,6 +467,94 @@ describe('RunStepNode：RunStepNodeData 收敛 { node }（AC-4）', () => {
 // 渲染零改动语义（现有步骤渲染直接吃）+ 全词汇键集恰等
 // ---------------------------------------------------------------------------
 
+describe('RunStepNode：archiCheck 门禁步节点（AC-16）', () => {
+  it('应把 archiCheck 渲染为「架构检查」并归 Tool 徽章（分组零新增）', () => {
+    const rendered = renderNode(
+      runtimeNode({
+        id: 'run:implement:1:archiCheck:0',
+        runStepKind: 'archiCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        detail: '未检查（无模型）',
+      }),
+    );
+    const node = screen.getByTestId('run-step-node');
+    expect(node.getAttribute('data-run-group')).toBe('toolStep');
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('Tool');
+    expect(within(node).getByTestId('run-step-kind').textContent).toBe('架构检查');
+    rendered.unmount();
+  });
+
+  it.each([
+    ['未检查（无模型）', '未检查（无模型）'],
+    ['未检查（无可判文件）', '未检查（无可判文件）'],
+  ])('应逐字上屏 detail = %s（不追加「通过」、不截断）', (detail, expected) => {
+    const rendered = renderNode(
+      runtimeNode({
+        id: 'run:implement:1:archiCheck:0',
+        runStepKind: 'archiCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        detail,
+        status: 'passed',
+        endedAt: 1_727_000_000_500,
+      }),
+    );
+    expect(screen.getByTestId('run-step-detail').textContent).toBe(expected);
+    rendered.unmount();
+  });
+
+  it('应在超长 detail（>1000 chars）时渲染不崩且文案不改写', () => {
+    const longDetail = `架构漂移：${'长'.repeat(1200)}`;
+    const rendered = renderNode(
+      runtimeNode({
+        id: 'run:implement:1:archiCheck:0',
+        runStepKind: 'archiCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        detail: longDetail,
+      }),
+    );
+    expect(screen.getByTestId('run-step-detail').textContent).toBe(longDetail);
+    rendered.unmount();
+  });
+
+  it('应在 detail 为 null 时无详情区且不崩', () => {
+    const rendered = renderNode(
+      runtimeNode({
+        id: 'run:implement:1:archiCheck:0',
+        runStepKind: 'archiCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        detail: null,
+      }),
+    );
+    expect(screen.queryByTestId('run-step-detail')).toBeNull();
+    rendered.unmount();
+  });
+
+  it.each(['archi_check', '', 'unknownKind'])(
+    '应在越集 runStepKind = %s 时不崩且不上屏 undefined',
+    (kind) => {
+      const rendered = renderNode(
+        runtimeNode({
+          id: 'run:implement:1:archiCheck:0',
+          runStepKind: kind as ChangeStepKind,
+          group: 'toolStep',
+          role: null,
+        }),
+      );
+      const label = screen.getByTestId('run-step-kind').textContent ?? '';
+      expect(label).not.toBe('undefined');
+      rendered.unmount();
+    },
+  );
+});
+
 describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
   it('STEP_LABEL 键面：mutationTest 渲染「突变执行」文案（新键值断言）', () => {
     const rendered = renderNode(
@@ -502,7 +599,7 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
     }
   });
 
-  it('STEP_LABEL 键集恰等：二十一词全词汇逐词渲染零缺键（编译期穷尽表的运行时兜底）', () => {
+  it('STEP_LABEL 键集恰等：二十二词全词汇逐词渲染零缺键（编译期穷尽表的运行时兜底）', () => {
     const ALL_KINDS: ChangeStepKind[] = [
       'executor',
       'evaluator',
@@ -511,6 +608,7 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
       'staticCheck',
       'testExecution',
       'mutationTest',
+      'archiCheck',
       'clean',
       'phaseLog',
       'verdictGate',
@@ -526,7 +624,7 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
       'seal',
       'finalize',
     ];
-    expect(ALL_KINDS).toHaveLength(21);
+    expect(ALL_KINDS).toHaveLength(22);
     for (const kind of ALL_KINDS) {
       const rendered = renderNode(
         runtimeNode({

@@ -12,7 +12,9 @@ import { useMemo, useState } from 'react';
 import '@xyflow/react/dist/style.css';
 
 import type { ArchiElement, ArchiGraph, ArchiRelation } from '../../../types/generated/bindings';
+import { useArchiDrift } from '../hooks/use-archi-drift';
 import { useArchiGraph } from '../hooks/use-archi-graph';
+import { driftMarks } from '../lib/drift-marks';
 import { shortName } from '../lib/fqn';
 import { edgeVisual, nodeDot } from '../lib/marks';
 import { ElementDrawer, type CanvasMode } from './element-drawer';
@@ -155,17 +157,20 @@ function toEdges(graph: ArchiGraph, focus: string): Edge[] {
     });
 }
 
-/** 正常态三段布局（元素树 / 画布 / 抽屉）。 */
+/** 正常态三段布局（元素树 / 画布 / 抽屉）。漂移取数失败时零标记照常渲染 +
+ * 画布区顶部一行内提示（叠加信息不阻断图）。 */
 function CanvasBody({
   graph,
   root,
   mode,
   onChanged,
+  driftError,
 }: {
   graph: ArchiGraph;
   root: string | null;
   mode: CanvasMode;
   onChanged: () => void;
+  driftError: string | null;
 }): React.JSX.Element {
   const [focusOverride, setFocusOverride] = useState<string | null>(null);
   const focus = useMemo(() => {
@@ -193,6 +198,14 @@ function CanvasBody({
         className="min-h-0 flex-1 overflow-hidden rounded-md bg-background"
         data-testid="archi-canvas"
       >
+        {driftError === null ? null : (
+          <div
+            className="px-2 py-1 text-[11px] text-muted-foreground"
+            data-testid="archi-drift-error"
+          >
+            漂移取数失败：{driftError}（图照常渲染，零标记）
+          </div>
+        )}
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -220,6 +233,13 @@ function CanvasBody({
 
 export function ArchitectureCanvas({ root, mode }: ArchitectureCanvasProps): React.JSX.Element {
   const { graph, loading, error, refresh } = useArchiGraph(root);
+  // 漂移取数：与图同一观察根、模式随挂载点分流（`full` / `incremental`）；
+  // 标记生产在 drift-marks 纯函数，本组件只做一行合并
+  const { report, error: driftError } = useArchiDrift(root, mode);
+  const marked = useMemo(
+    () => (graph === null ? null : driftMarks(report, graph)),
+    [graph, report],
+  );
   if (loading && graph === null) {
     return (
       <div className="text-[13px] text-muted-foreground" data-testid="archi-canvas-loading">
@@ -237,7 +257,7 @@ export function ArchitectureCanvas({ root, mode }: ArchitectureCanvasProps): Rea
       </div>
     );
   }
-  if (graph === null) {
+  if (graph === null || marked === null) {
     return (
       <div className="text-[13px] text-muted-foreground" data-testid="archi-canvas-empty">
         无工作区根：无法解析架构模型。
@@ -254,7 +274,13 @@ export function ArchitectureCanvas({ root, mode }: ArchitectureCanvasProps): Rea
   }
   return (
     <ReactFlowProvider>
-      <CanvasBody graph={graph} root={root} mode={mode} onChanged={refresh} />
+      <CanvasBody
+        graph={marked}
+        root={root}
+        mode={mode}
+        onChanged={refresh}
+        driftError={driftError}
+      />
     </ReactFlowProvider>
   );
 }

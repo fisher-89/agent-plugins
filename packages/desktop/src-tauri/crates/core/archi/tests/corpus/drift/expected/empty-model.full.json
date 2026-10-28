@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "empty-model",
+  "base": null,
+  "modelHash": "sha256:bfe605b29ef8231b71c2f943260704925b2e795c0bc5ec358560cd5abdcf6142",
+  "model": {
+    "elements": 0,
+    "relations": 0,
+    "byGate": {
+      "strict": 0,
+      "warn": 0,
+      "off": 0
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 1,
+    "excluded": [],
+    "unmatchedFiles": [
+      "src/a.ts"
+    ],
+    "matched": [],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "status": "clean"
+}

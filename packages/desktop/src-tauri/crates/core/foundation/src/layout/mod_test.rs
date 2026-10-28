@@ -869,7 +869,10 @@ fn archi_dir族root形态五类() {
     let windows = Path::new(r"C:\demo\alpha");
     assert_eq!(
         archi_models_dir(windows),
-        windows.join(".dev-team").join("architecture").join("models"),
+        windows
+            .join(".dev-team")
+            .join("architecture")
+            .join("models"),
         "Windows 盘符形态逐字节拼接"
     );
     let trailing = Path::new(r"C:\demo\alpha\");
@@ -933,7 +936,10 @@ fn is_archi_rel_path负样本() {
         !is_archi_rel_path(".dev-team/archived/a.toml"),
         "不做前缀模糊匹配"
     );
-    assert!(!is_archi_rel_path("src/architecture/x.rs"), "段 0 非架构域顶层");
+    assert!(
+        !is_archi_rel_path("src/architecture/x.rs"),
+        "段 0 非架构域顶层"
+    );
     assert!(!is_archi_rel_path(".dev-team/architecturex/y"));
 }
 
@@ -1193,4 +1199,239 @@ fn archi既有绝对族零回归() {
     assert_eq!(archi_decisions_dir(root), dir.join("decisions"));
     assert!(is_archi_rel_path(".dev-team/architecture/models/01.toml"));
     assert!(!is_archi_rel_path("openspec/archived/changes"));
+}
+
+// ---------------------------------------------------------------------------
+// 架构漂移门禁面（AC-9 / AC-14）：`archi_config_path` 与 `ReportSlot::Archi`
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-9）：`archi_config_path(root)` 逐字等于 `archi_dir(root)` 的后代，
+/// 末段为既有 `CONFIG_FILE_NAME`、父段为架构域段名。
+#[test]
+fn archi_config_path落点() {
+    use super::{archi_config_path, archi_dir};
+
+    let root = Path::new(r"C:\工作区\alpha");
+    let path = archi_config_path(root);
+    assert_eq!(
+        path,
+        archi_dir(root).join(CONFIG_FILE_NAME),
+        "派生自 archi_dir"
+    );
+    assert_eq!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(CONFIG_FILE_NAME),
+        "末段复用既有配置文件名常量"
+    );
+    assert_eq!(
+        path.parent(),
+        Some(archi_dir(root).as_path()),
+        "父段即架构域根"
+    );
+}
+
+/// 边界（AC-9）：与工作区配置路径互不遮蔽——两条路径不等、父目录不同、互不为
+/// 前缀（一在工作区域根、一在架构域根）。
+#[test]
+fn archi_config_path与工作区配置互不遮蔽() {
+    use super::archi_config_path;
+
+    let root = Path::new("/ws");
+    let archi = archi_config_path(root);
+    let workspace = config_path(root);
+    assert_ne!(archi, workspace, "两份配置不得同路径");
+    assert_ne!(archi.parent(), workspace.parent(), "父目录不同");
+    assert!(
+        !archi.starts_with(&workspace),
+        "架构域配置不在工作区配置之下"
+    );
+    assert!(
+        !workspace.starts_with(&archi),
+        "工作区配置不在架构域配置之下"
+    );
+}
+
+/// 边界：纯推导零 IO——root 下零目录时仍返回可判路径（零 panic / 零触盘）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_config_path纯推导零IO() {
+    use super::archi_config_path;
+
+    let temp = TempDir::new("archi-config-empty");
+    let path = archi_config_path(&temp.0);
+    assert!(
+        path.starts_with(&temp.0),
+        "纯拼接：路径以 root 为前缀（不实际创建）"
+    );
+    assert!(!path.exists(), "零 IO：推导不触盘");
+}
+
+/// 边界：架构域三子项（配置 / 模型 / 决策记录）同源于 `archi_dir(root)`。
+#[test]
+fn archi域三子项同源() {
+    use super::{archi_config_path, archi_decisions_dir, archi_dir, archi_models_dir};
+
+    let root = Path::new("/ws");
+    let base = archi_dir(root);
+    for child in [
+        archi_config_path(root),
+        archi_models_dir(root),
+        archi_decisions_dir(root),
+    ] {
+        assert_eq!(child.parent(), Some(base.as_path()), "三子项父链同源");
+    }
+}
+
+/// 正向（AC-14）：`ReportSlot::Archi` 两入口同值派生 `<...>/reports/archi`。
+#[test]
+fn 槽位archi派生两入口同值() {
+    use super::{
+        archi_config_path, archi_decisions_dir, archi_models_dir, change_reports,
+        change_reports_in, ReportSlot,
+    };
+
+    let root = Path::new("/ws");
+    let by_root = change_reports(root, "demo", ReportSlot::Archi);
+    let by_dir = change_reports_in(&change_reports_base(root, "demo"), ReportSlot::Archi);
+    assert_eq!(by_root, by_dir, "两入口同值");
+    assert_eq!(
+        by_root,
+        root.join(DOMAIN_DIR_NAME)
+            .join(CHANGES_DIR_NAME)
+            .join("demo")
+            .join("reports")
+            .join("archi"),
+        "逐段形态：<changes_root>/demo/reports/archi"
+    );
+    // 同源面回归：配置 / 模型 / 决策记录三子项不受槽位影响。
+    let _ = (
+        archi_config_path(root),
+        archi_models_dir(root),
+        archi_decisions_dir(root),
+    );
+}
+
+/// 辅助：change 目录（`<changes_root>/<name>`）。
+fn change_reports_base(root: &Path, name: &str) -> PathBuf {
+    resolve(root).changes_root.join(name)
+}
+
+/// 正向：三槽位目录名分别为 `test` / `baseline` / `archi`，两两不等且互不为前缀。
+#[test]
+fn 三槽位目录名互异且互不为前缀() {
+    use super::{change_reports, ReportSlot};
+
+    let root = Path::new("/ws");
+    let test = change_reports(root, "demo", ReportSlot::Test);
+    let baseline = change_reports(root, "demo", ReportSlot::Baseline);
+    let archi = change_reports(root, "demo", ReportSlot::Archi);
+
+    let names: Vec<String> = [&test, &baseline, &archi]
+        .into_iter()
+        .filter_map(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .collect();
+    assert_eq!(names, vec!["test", "baseline", "archi"], "三分臂目录名");
+    assert_ne!(test, baseline, "test ≠ baseline");
+    assert_ne!(test, archi, "test ≠ archi");
+    assert_ne!(baseline, archi, "baseline ≠ archi");
+    assert!(!archi.starts_with(&test), "archi 不被 test 覆盖");
+    assert!(!test.starts_with(&archi), "test 不被 archi 覆盖");
+}
+
+/// 回归：既有两槽位命名变体与 `change_reports` 逐字相等（新增第三臂不改既有两臂）。
+#[test]
+fn 既有两槽位命名变体零回归() {
+    use super::{
+        change_baseline_reports, change_baseline_reports_in, change_reports, change_test_reports,
+        change_test_reports_in, ReportSlot,
+    };
+
+    let root = Path::new("/ws");
+    let change_dir = change_reports_base(root, "demo");
+    assert_eq!(
+        change_test_reports(root, "demo"),
+        change_reports(root, "demo", ReportSlot::Test),
+        "test 变体不变"
+    );
+    assert_eq!(
+        change_test_reports_in(&change_dir),
+        change_reports_in(&change_dir, ReportSlot::Test),
+        "test 目录变体不变"
+    );
+    assert_eq!(
+        change_baseline_reports(root, "demo"),
+        change_reports(root, "demo", ReportSlot::Baseline),
+        "baseline 变体不变"
+    );
+    assert_eq!(
+        change_baseline_reports_in(&change_dir),
+        change_reports_in(&change_dir, ReportSlot::Baseline),
+        "baseline 目录变体不变"
+    );
+}
+
+/// 边界（AC-14）：`ARCHI_REPORTS_DIR_NAME` 直证——常量值逐字 `archi`，且与
+/// `report_dir_name(ReportSlot::Archi)` **同源**（目录名只有一份持有者，槽位派生
+/// 不得另写字面量）。
+#[test]
+fn 架构报告子目录常量直证且与槽位同源() {
+    use super::{change_reports, report_dir_name, ReportSlot, ARCHI_REPORTS_DIR_NAME};
+
+    assert_eq!(ARCHI_REPORTS_DIR_NAME, "archi", "常量值逐字");
+    assert_eq!(
+        report_dir_name(ReportSlot::Archi),
+        ARCHI_REPORTS_DIR_NAME,
+        "槽位派生名与常量同源（单一常量，零重复字面量）"
+    );
+    // 派生面尾段即该常量（两入口一致，不依赖大小写归一）
+    let root = Path::new("/ws");
+    for path in [
+        change_reports(root, "demo", ReportSlot::Archi),
+        change_reports_in(&change_reports_base(root, "demo"), ReportSlot::Archi),
+    ] {
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some(ARCHI_REPORTS_DIR_NAME),
+            "槽位尾段恒等于常量"
+        );
+    }
+    // 与既有两槽位常量可辨（新常量不撞名）
+    assert_ne!(
+        ARCHI_REPORTS_DIR_NAME,
+        report_dir_name(ReportSlot::Test),
+        "archi ≠ test"
+    );
+    assert_ne!(
+        ARCHI_REPORTS_DIR_NAME,
+        report_dir_name(ReportSlot::Baseline),
+        "archi ≠ baseline"
+    );
+}
+
+/// 边界：root / change 名边界（空格 / 非 ASCII / 尾分隔符 / 相对路径；`""` / `.` /
+/// `..` / 超长）→ 派生结果可判且零 panic、零触盘。
+#[test]
+fn 根与change名边界零panic() {
+    use super::{archi_config_path, change_reports, ReportSlot};
+
+    let long_name = "长".repeat(300);
+    for root in [
+        Path::new("/ws 含 空格"),
+        Path::new("/ws/中文根"),
+        Path::new("/ws/"),
+        Path::new("relative/root"),
+        Path::new(""),
+        Path::new(".."),
+        Path::new(""),
+    ] {
+        let path = archi_config_path(root);
+        assert!(!path.as_os_str().is_empty(), "root 边界下路径可判");
+        for name in ["", ".", "..", long_name.as_str(), "含 空格"] {
+            let dir = change_reports(root, name, ReportSlot::Archi);
+            assert!(dir.ends_with("archi"), "槽位尾段恒 archi（{name:?}）");
+        }
+    }
 }

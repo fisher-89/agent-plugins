@@ -3,7 +3,12 @@ import type * as XyflowModule from '@xyflow/react';
 import { createElement, type ComponentType } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArchiElement, ArchiGraph, ArchiRelation } from '../../../types/generated/bindings';
+import type {
+  ArchiDriftReport,
+  ArchiElement,
+  ArchiGraph,
+  ArchiRelation,
+} from '../../../types/generated/bindings';
 import { ArchitectureCanvas } from './architecture-canvas';
 
 /**
@@ -220,10 +225,59 @@ function callsOf(command: string): Record<string, unknown>[] {
     .map(([, params]) => (params ?? {}) as Record<string, unknown>);
 }
 
-/** 缺省取数实现：`archi_graph` 回传入图、`archi_module` 回传入 fqn 的详情。 */
+/** 漂移报告 fixture（两段与状态可指定；其余字段取稳定默认值）。 */
+function driftReport(
+  options: {
+    observations?: ArchiDriftReport['observations'];
+    suppressed?: ArchiDriftReport['suppressed'];
+    status?: ArchiDriftReport['status'];
+  } = {},
+): ArchiDriftReport {
+  return {
+    version: 1,
+    timestamp: '2026-10-20T08:31:12Z',
+    mode: 'full',
+    root: 'C:demoalpha',
+    change: null,
+    base: null,
+    modelHash: 'sha256:00ff',
+    model: {
+      elements: 2,
+      relations: 1,
+      byGate: { strict: 0, warn: 0, off: 2 },
+      structuralErrors: [],
+      warnings: [],
+    },
+    scan: {
+      mode: 'full',
+      changedFiles: 0,
+      scannedFiles: 2,
+      excluded: [],
+      unmatchedFiles: [],
+      matched: [],
+      unresolved: [],
+    },
+    errors: [],
+    warnings: [],
+    suppressed: options.suppressed ?? [],
+    observations: options.observations ?? [],
+    status: options.status ?? 'clean',
+  };
+}
+
+/** 缺省取数实现：`archi_graph` 回传入图、`archi_module` 回传入 fqn 的详情、
+ * `archi_drift` 回零标记报告（漂移面叠加信息，缺省不干扰既有断言）。 */
 function serveGraph(graph: ArchiGraph): void {
+  serveGraphAndDrift(graph, driftReport());
+}
+
+/** 图 + 漂移两路取数装置（漂移报告可指定，用于标记上边 / 节点用例）。 */
+function serveGraphAndDrift(graph: ArchiGraph, report: ArchiDriftReport | Error): void {
   invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
     if (command === 'archi_graph') return Promise.resolve(graph);
+    if (command === 'archi_drift') {
+      return report instanceof Error ? Promise.reject(report) : Promise.resolve(report);
+    }
     if (command === 'archi_module') {
       const fqn = typeof params?.element === 'string' ? params.element : '';
       return Promise.resolve(detailOf(fqn));
@@ -563,6 +617,184 @@ describe('缺省聚焦与 1-hop 边界', () => {
   });
 });
 
+describe('漂移面接线（AC-19）', () => {
+  it('应在有报告时把未兑现声明的边与节点标成 unfulfilled', async () => {
+    serveGraphAndDrift(
+      healthyGraph(),
+      driftReport({
+        observations: [
+          {
+            kind: 'unfulfilledDeclaration',
+            from: 'App.Auth',
+            to: 'App',
+            message: '本次扫描面内未见 App.Auth → App 的 import',
+          },
+        ],
+      }),
+    );
+    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
+
+    // 节点：只标 from（🟡），其余仍 ⚪
+    const dots = screen.getAllByTestId('archi-node-mark').map((node) => node.textContent);
+    expect(dots.filter((dot) => dot === '🟡')).toHaveLength(1);
+    expect(dots.filter((dot) => dot === '⚪')).toHaveLength(3);
+
+    // 边：命中项转灰虚线（unfulfilled），未命中项保持实线
+    await measureNodes();
+    const styles = [...document.querySelectorAll<SVGPathElement>('.react-flow__edge-path')].map(
+      (path) => path.getAttribute('style') ?? '',
+    );
+    expect(styles).toHaveLength(1);
+    expect(
+      styles.filter((style) => style.includes('var(--muted-foreground)') && style.includes('6 4')),
+    ).toHaveLength(1);
+    expect(styles.filter((style) => style.includes('var(--chart-2)'))).toHaveLength(0);
+  });
+
+  it('应在豁免留痕时把边标成 exempt（灰实线），节点标记零改动', async () => {
+    serveGraphAndDrift(
+      healthyGraph(),
+      driftReport({
+        suppressed: [
+          {
+            from: 'App.Auth',
+            to: 'App',
+            via: 'config',
+            reason: '迁移期允许',
+            file: null,
+            line: null,
+          },
+        ],
+      }),
+    );
+    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
+    expect(
+      screen.getAllByTestId('archi-node-mark').every((node) => node.textContent === '⚪'),
+    ).toBe(true);
+
+    await measureNodes();
+    const styles = [...document.querySelectorAll<SVGPathElement>('.react-flow__edge-path')].map(
+      (path) => path.getAttribute('style') ?? '',
+    );
+    // exempt = 灰实线（无 dasharray）
+    expect(styles).toHaveLength(1);
+    expect(
+      styles.filter((style) => style.includes('var(--muted-foreground)') && !style.includes('6 4')),
+    ).toHaveLength(1);
+  });
+
+  it('应在漂移取数失败时照常渲染零标记图并呈现行内提示', async () => {
+    serveGraphAndDrift(healthyGraph(), new Error('archi_drift 不可用'));
+    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-drift-error')).toBeTruthy());
+    expect(screen.getByTestId('archi-drift-error').textContent).toContain('漂移取数失败');
+    expect(screen.queryByTestId('archi-canvas-error')).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
+    expect(
+      screen.getAllByTestId('archi-node-mark').every((node) => node.textContent === '⚪'),
+    ).toBe(true);
+  });
+
+  it('应在 clean / skipped / noChanges 三态下全图零标记且节点边照常渲染', async () => {
+    const edgeStyles = (): string[] =>
+      [...document.querySelectorAll<SVGPathElement>('.react-flow__edge-path')].map(
+        (path) => path.getAttribute('style') ?? '',
+      );
+
+    // 基线：干净报告的节点 / 边数（三态逐值对照「与无漂移时相等」）
+    serveGraphAndDrift(healthyGraph(), driftReport({ status: 'clean' }));
+    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
+    await measureNodes();
+    const baselineNodes = renderedNodeIds().length;
+    const baselineEdges = edgeStyles().length;
+    expect(baselineNodes).toBeGreaterThan(0);
+    expect(baselineEdges).toBeGreaterThan(0);
+    cleanup();
+
+    for (const status of ['clean', 'skipped', 'noChanges'] as const) {
+      serveGraphAndDrift(healthyGraph(), driftReport({ status }));
+      render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+      await waitFor(() => expect(screen.getByTestId('rf__node-App')).toBeTruthy());
+      await measureNodes();
+
+      // 全图零标记：节点状态点全 ⚪、边样式全为正常色（无灰 / 无虚线）
+      expect(
+        screen.getAllByTestId('archi-node-mark').every((node) => node.textContent === '⚪'),
+      ).toBe(true);
+      const styles = edgeStyles();
+      expect(styles.every((style) => style.includes('var(--chart-2)'))).toBe(true);
+      expect(styles.some((style) => style.includes('var(--muted-foreground)'))).toBe(false);
+
+      // 节点 / 边照常渲染（与无漂移基线逐值相等——三态不塌图）
+      expect(renderedNodeIds().length).toBe(baselineNodes);
+      expect(styles.length).toBe(baselineEdges);
+      cleanup();
+    }
+  });
+
+  it('应在 archi_graph 与 archi_drift 双失败时以图错误为优先', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_graph') return Promise.reject(new Error('模型解析失败（root 无效）'));
+      if (command === 'archi_drift') return Promise.reject(new Error('archi_drift 不可用'));
+      if (command === 'archi_module') return Promise.resolve(detailOf('App'));
+      return Promise.resolve(null);
+    });
+    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+
+    // 图错误面接管：既有的错误面板在场且载图失败文案
+    await waitFor(() => expect(screen.getByTestId('archi-canvas-error')).toBeTruthy());
+    expect(screen.getByTestId('archi-canvas-error').textContent).toContain('模型解析失败');
+    // 漂移失败提示 MUST NOT 掩盖图错误（两失败不同权）
+    expect(screen.queryByTestId('archi-drift-error')).toBeNull();
+    expect(screen.queryAllByTestId('archi-canvas-node')).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^rf__node-/)).toHaveLength(0);
+  });
+
+  it('应在两种挂载形态下把 mode 与 root 逐值透传给 archi_drift', async () => {
+    for (const mode of ['full', 'incremental'] as const) {
+      invokeMock.mockClear();
+      serveGraphAndDrift(healthyGraph(), driftReport());
+      render(<ArchitectureCanvas root={'C:demoalpha'} mode={mode} />);
+      await waitFor(() => expect(callsOf('archi_drift').length).toBeGreaterThan(0));
+      expect(callsOf('archi_drift').at(-1)).toEqual({ root: 'C:demoalpha', mode });
+      cleanup();
+    }
+  });
+
+  it('应在聚焦切换后保持 archi_drift 调用次数不变（三触发纪律）', async () => {
+    serveGraphAndDrift(healthyGraph(), driftReport());
+    render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('rf__node-App.Auth')).toBeTruthy());
+    const before = callsOf('archi_drift').length;
+    expect(before).toBeGreaterThan(0);
+
+    // 画布节点点击切换聚焦
+    fireEvent.click(screen.getByTestId('rf__node-App.Auth'));
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('App.Auth'),
+    );
+
+    // 元素树点击再切一次（第二触发面）
+    const billing = screen
+      .getAllByTestId('archi-tree-node')
+      .find((node) => node.getAttribute('data-fqn') === 'App.Billing');
+    expect(billing).toBeTruthy();
+    if (billing !== undefined) fireEvent.click(billing);
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('App.Billing'),
+    );
+
+    // 零取数：一个宏任务窗口过后计数不增（聚焦不是取数触发）
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(callsOf('archi_drift')).toHaveLength(before);
+  });
+});
+
 describe('空态 / 加载态 / 取数失败 / 无根', () => {
   it('应在空模型（三数组皆空且零诊断）时呈现空态而非停摆面板', async () => {
     serveGraph({ elements: [], relations: [], diagnostics: [] });
@@ -575,12 +807,13 @@ describe('空态 / 加载态 / 取数失败 / 无根', () => {
 
   it('应在首轮未回时呈现加载态（不提前落无根空态）', async () => {
     let resolveGraph: ((graph: ArchiGraph) => void) | undefined;
-    invokeMock.mockImplementation(
-      () =>
-        new Promise<ArchiGraph>((resolve) => {
-          resolveGraph = resolve;
-        }),
-    );
+    invokeMock.mockImplementation((command: string) => {
+      // 进程边界按命令名分发：图取数挂起、漂移取数立即返回零标记报告
+      if (command === 'archi_drift') return Promise.resolve(driftReport());
+      return new Promise<ArchiGraph>((resolve) => {
+        resolveGraph = resolve;
+      });
+    });
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-canvas-loading')).toBeTruthy());
     expect(screen.getByTestId('archi-canvas-loading').textContent).toContain('解析中');

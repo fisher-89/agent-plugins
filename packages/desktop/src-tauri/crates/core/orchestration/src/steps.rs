@@ -10,8 +10,8 @@ use workflow::state::{
 use workflow::write::{phase_table, SessionAnchors};
 
 use crate::port::{
-    ArchiveVcsPort, BoxToolFuture, MutationRunner, StaticCheckRunner, TestExecutionRunner,
-    ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+    ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner, StaticCheckRunner,
+    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
 };
 use crate::state::ArchivePreflight;
 
@@ -25,6 +25,8 @@ pub struct LocalToolSteps {
     test_execution: Arc<dyn TestExecutionRunner>,
     /// 突变执行缝（checks 边界 infra 实现；清单 / 补丁经本消费点 vcs 缝取数注入）
     mutation: Arc<dyn MutationRunner>,
+    /// 架构漂移门禁缝（`archi-runtime` 实现；变更集经本消费点 vcs 缝取数注入）
+    archi: Arc<dyn ArchiCheckRunner>,
     /// 归档 git 步执行缝（Preflight 的 vcs 探测同走本缝；进程 spawn 驻
     /// `crates/infra/vcs`）
     vcs: Arc<dyn ArchiveVcsPort>,
@@ -34,11 +36,14 @@ pub struct LocalToolSteps {
 
 impl LocalToolSteps {
     /// 组合根装配（run 作用域一次：锚点随 run 铸新、runner / vcs 随进程复用）。
+    /// 形参为组合根装配契约（四检查缝 + vcs + store + run_id），拆结构体只增间接。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         anchors: Arc<SessionAnchors>,
         static_check: Arc<dyn StaticCheckRunner>,
         test_execution: Arc<dyn TestExecutionRunner>,
         mutation: Arc<dyn MutationRunner>,
+        archi: Arc<dyn ArchiCheckRunner>,
         vcs: Arc<dyn ArchiveVcsPort>,
         store: Arc<dyn ChangeStateStore>,
         run_id: String,
@@ -48,6 +53,7 @@ impl LocalToolSteps {
             static_check,
             test_execution,
             mutation,
+            archi,
             vcs,
             store,
             run_id,
@@ -61,6 +67,7 @@ impl ToolStepPort for LocalToolSteps {
         let static_check = Arc::clone(&self.static_check);
         let test_execution = Arc::clone(&self.test_execution);
         let mutation = Arc::clone(&self.mutation);
+        let archi = Arc::clone(&self.archi);
         let vcs = Arc::clone(&self.vcs);
         let store = Arc::clone(&self.store);
         let run_id = self.run_id.clone();
@@ -70,6 +77,7 @@ impl ToolStepPort for LocalToolSteps {
                 static_check,
                 test_execution,
                 mutation,
+                archi,
                 vcs,
                 store,
                 run_id,
@@ -80,14 +88,15 @@ impl ToolStepPort for LocalToolSteps {
     }
 }
 
-/// 执行一次工具步骤（三检查缝 + vcs + store 的组合根入参面——参数数随
-/// mutation 缝扩至 8，沿 `walk_run` 先例显式 allow）
+/// 执行一次工具步骤（四检查缝 + vcs + store 的组合根入参面——参数数随
+/// archi 缝扩至 9，沿 `walk_run` 先例显式 allow）
 #[allow(clippy::too_many_arguments)]
 async fn execute(
     anchors: Arc<SessionAnchors>,
     static_check: Arc<dyn StaticCheckRunner>,
     test_execution: Arc<dyn TestExecutionRunner>,
     mutation: Arc<dyn MutationRunner>,
+    archi: Arc<dyn ArchiCheckRunner>,
     vcs: Arc<dyn ArchiveVcsPort>,
     store: Arc<dyn ChangeStateStore>,
     run_id: String,
@@ -290,6 +299,39 @@ async fn execute(
                         None,
                     )),
                     Ok(_) => Err("mutation_test 输出漂移：产出类型不匹配".to_owned()),
+                    Err(error) => Err(error.clone()),
+                },
+            );
+            output
+        }
+        ToolCommand::ArchiCheck { change_id } => {
+            // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经 id → 记录 →
+            // name 解析（未建档显式 Err，与既有三 runner 同式）
+            let name = store
+                .get_change(&change_id)
+                .map_err(|error| error.to_string())?
+                .map(|record| record.name)
+                .ok_or_else(|| {
+                    format!(
+                        "change \"{change_id}\" 未建档（无 ChangeRecord），无从执行架构漂移门禁"
+                    )
+                })?;
+            // 变更集唯一入口（vcs 缝取数注入 runner——infra 侧零 git；取数失败显式
+            // 传播为步失败，MUST NOT 降级空清单——空清单会静默变成 noChanges
+            // = 假通过）
+            let changed = vcs.change_edit_set(Path::new(&step.root), "HEAD")?;
+            let output = archi.run(&step.root, &name, changed, cancel).await;
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change_id,
+                StepKind::ArchiCheck,
+                match &output {
+                    Ok(ToolStepOutput::ArchiCheck(outcome)) => Ok((
+                        format!("archi_check passed={}", outcome.passed),
+                        Some(outcome.report_dir.clone()),
+                    )),
+                    Ok(_) => Err("archi_check 输出漂移：产出类型不匹配".to_owned()),
                     Err(error) => Err(error.clone()),
                 },
             );

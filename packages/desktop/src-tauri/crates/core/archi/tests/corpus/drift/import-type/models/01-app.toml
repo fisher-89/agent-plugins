@@ -1,0 +1,15 @@
+# type-only 语料：`import type` 与普通 import 同权（只标注 typeOnly）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

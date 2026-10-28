@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "occurrences-aggregated",
+  "base": null,
+  "modelHash": "sha256:07d304392a9ae1527ee2c75f76285bded3a122589eaf6595dc1090151070a935",
+  "model": {
+    "elements": 3,
+    "relations": 0,
+    "byGate": {
+      "strict": 1,
+      "warn": 1,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 4,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Auth",
+        "files": [
+          "src/auth/token.ts"
+        ]
+      },
+      {
+        "element": "App.Billing",
+        "files": [
+          "src/billing/f0.ts",
+          "src/billing/f1.ts",
+          "src/billing/f2.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [
+    {
+      "kind": "undeclaredDependency",
+      "from": "App.Billing",
+      "to": "App.Auth",
+      "gate": "strict",
+      "message": "未声明依赖：App.Billing → App.Auth（引入方 gate=strict，3 处命中）",
+      "occurrences": [
+        {
+          "file": "src/billing/f0.ts",
+          "line": 1,
+          "specifier": "../auth/token",
+          "typeOnly": false
+        },
+        {
+          "file": "src/billing/f1.ts",
+          "line": 1,
+          "specifier": "../auth/token",
+          "typeOnly": false
+        },
+        {
+          "file": "src/billing/f2.ts",
+          "line": 1,
+          "specifier": "../auth/token",
+          "typeOnly": false
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "status": "errors"
+}

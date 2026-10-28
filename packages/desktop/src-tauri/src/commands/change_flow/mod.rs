@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager};
 
 use ::agent::{SessionStreamRegistry, StopRegistry};
 use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
+use archi_runtime::LocalArchiCheck;
 use checks_runtime::{ProcessMutation, ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
 use orchestration::port::{
@@ -173,6 +174,8 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         Arc::new(ProcessStaticCheck::new()),
         Arc::new(ProcessTestExecution::new()),
         Arc::new(ProcessMutation::new()),
+        // 架构漂移门禁：判定全在 archi，本层只落盘 + 派生 outcome
+        Arc::new(LocalArchiCheck::new()),
         Arc::clone(&vcs),
         Arc::clone(&store_port),
         run_id.clone(),

@@ -21,6 +21,9 @@ agent = { workspace = true }
 agent-runtime = { workspace = true }
 # 命令面薄包装：投影、诊断、diff 与待落盘产物全在 archi
 archi = { workspace = true }
+# 架构漂移门禁执行体：取输入 → 调 archi 判定 → 落 reports/archi 报告 → 派生
+# outcome（组合根只做 runner 构造与注入，零判定）
+archi-runtime = { workspace = true }
 checks-runtime = { workspace = true }
 config = { workspace = true }
 exec = { workspace = true }
@@ -61,6 +64,7 @@ members = [
     "crates/core/orchestration",
     "crates/core/workflow",
     "crates/infra/agent",
+    "crates/infra/archi",
     "crates/infra/checks",
     "crates/infra/exec",
     "crates/infra/store",
@@ -75,6 +79,9 @@ members = [
 agent = { path = "crates/core/agent" }
 agent-runtime = { path = "crates/infra/agent" }
 archi = { path = "crates/core/archi" }
+# 架构漂移门禁执行面（infra/archi）：只做「取输入 → 调 archi 判定 → 落
+# reports/archi 报告 → 派生 outcome」；零 Tauri / 零 spawn / 零 vcs / 零 store
+archi-runtime = { path = "crates/infra/archi" }
 checks = { path = "crates/core/checks" }
 checks-runtime = { path = "crates/infra/checks" }
 config = { path = "crates/core/config" }
@@ -82,11 +89,33 @@ exec = { path = "crates/infra/exec" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
 glob = "0.3"
+# TS / JS 扫描面的排除匹配（globset 方言，与 `glob` 的花括号展开是两套引擎；
+# 锁内既有 0.4.x，本变更为 `archi` 提为直接依赖）
+globset = "0.4"
 ignore = "0.4"
 futures = "0.3"
 notify = "8"
 orchestration = { path = "crates/core/orchestration" }
+# TS / JS 解析面（oxc 家族**同版**收敛项：`archi` 只开 parser 所需面，不引
+# semantic / codegen；`oxc_ast` / `oxc_span` / `oxc_syntax` 是 `oxc_parser` 的
+# 伴随件——同为 0.146.0，声明为直接依赖零新增锁包）。版本钉定判据见
+# `openspec/changes/archi-check-and-gate/design.md` 待决问题 1 与
+# `crates/core/archi/tests/README.md`（rustc 1.95 可用面：0.147+ 要求 1.96+
+# 工具链，0.146.0 恰为本工具链可用的最新同版家族）。`oxc_resolver` 独立版本线
+# （11.x），取本工具链可用最新值。
+oxc_allocator = "=0.146.0"
+oxc_ast = "=0.146.0"
+oxc_parser = { version = "=0.146.0", default-features = false }
+oxc_resolver = "=11.24.3"
+oxc_span = "=0.146.0"
+oxc_syntax = "=0.146.0"
 petgraph = "0.8"
+# Rust `use` 树的**行号**（`syn` / `proc-macro2` 的 fallback span 只在
+# `span-locations` 特性下记录行列；锁内既有 1.x，零新增包）。特性在全 workspace
+# 统一开启（feature unification），故收敛项单点声明。
+proc-macro2 = { version = "1", features = ["span-locations"] }
+# Rust 项解析（mod / use / #[path] / cfg 属性；锁内既有 2.0.119）
+syn = { version = "2", features = ["full"] }
 watch = { path = "crates/infra/watch" }
 workflow = { path = "crates/core/workflow" }
 native_db = "=0.8.2"

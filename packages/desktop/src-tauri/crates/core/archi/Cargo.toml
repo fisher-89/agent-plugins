@@ -1,8 +1,3 @@
-# 架构模型纯读 crate：无 UI 框架、无库句柄、无子进程、无编排 / 工作流 crate、
-# 无工作区配置读取（工作区配置唯一出口纪律零变化）。workspace 内唯一依赖
-# `foundation`（架构域路径派生）；外部依赖仅 DTO 三件（serde / serde_json /
-# specta）+ 格式两件（toml / toml_edit）+ 图算法（petgraph）+ 目录遍历
-# （ignore），全取锁内既有版本（零新增包）。
 [package]
 name = "archi"
 version = "0.1.0"
@@ -10,10 +5,21 @@ edition = "2021"
 
 [dependencies]
 foundation = { workspace = true }
+globset = { workspace = true }
 ignore = { workspace = true }
+oxc_allocator = { workspace = true }
+oxc_ast = { workspace = true }
+oxc_parser = { workspace = true }
+oxc_resolver = { workspace = true }
+oxc_span = { workspace = true }
+oxc_syntax = { workspace = true }
 petgraph = { workspace = true }
+proc-macro2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 specta = { workspace = true }
+syn = { workspace = true }
+time = { workspace = true }
 toml = { workspace = true }
 toml_edit = { workspace = true }

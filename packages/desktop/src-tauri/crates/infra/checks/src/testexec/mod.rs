@@ -102,6 +102,10 @@ async fn execute(
     cancel: CancelFlag,
     total_budget: Duration,
 ) -> Result<ToolStepOutput, String> {
+    // `archi` 槽位归架构门禁 runner（checks 域零接受，文案与 static-check 同源）
+    if slot == ReportSlot::Archi {
+        return Err("archi 槽位归架构门禁 runner（checks 域不接受该槽位）".to_owned());
+    }
     let started_at = OffsetDateTime::now_utc();
     // 跨 plan 总预算起点（与 `started_at` 同一次取时 / 同量级）
     let budget_started = Instant::now();

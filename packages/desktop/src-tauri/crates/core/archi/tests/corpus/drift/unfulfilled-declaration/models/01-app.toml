@@ -1,0 +1,21 @@
+# 声明未兑现语料：模型声明 `App.Billing -> App.Auth`，代码零该 import →
+# observations 一条（永不进 status / passed）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]
+
+[[relation]]
+from = "App.Billing"
+to = "App.Auth"
+desc = "账单读认证令牌"

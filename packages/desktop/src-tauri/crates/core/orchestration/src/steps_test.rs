@@ -29,10 +29,11 @@ use workflow::write::{ArchiveOutcome, BacktrackInput, PhaseLogInput, SessionAnch
 use foundation::cancel::CancelFlag;
 
 use crate::port::{
-    ArchiveVcsPort, BoxToolFuture, MutationCounts, MutationSkipReason, MutationTestConclusion,
-    MutationTestOutcome, RebaseOutcome, StaticCheckOutcome, StaticCheckRunner,
-    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
-    ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
+    ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationCounts,
+    MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
+    StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome,
+    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+    WorktreeSnapshot,
 };
 use crate::steps::LocalToolSteps;
 use foundation::layout::ReportSlot;
@@ -567,9 +568,33 @@ impl TestExecutionRunner for FakeTestExecutionRunner {
 // 装置：组合根装配与步驱动
 // ---------------------------------------------------------------------------
 
-/// 组合根装配句柄：steps + 双 runner + mutation 假件（调用记录读面）。七参构造
-/// 同式——run 级锚点 + 三 spawn 缝 + vcs 缝 + store 缝 + run_id（组合根一次
-/// 装配）。
+/// archi-check 门禁假件（本变更新形参的编译级补位：恒通过、零诊断；门禁步用例
+/// 面由 test-gen 相位补齐）。
+struct UnusedArchiRunner;
+
+impl ArchiCheckRunner for UnusedArchiRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _changed: Vec<String>,
+        _cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        Box::pin(async move {
+            Ok(ToolStepOutput::ArchiCheck(ArchiCheckOutcome {
+                passed: true,
+                diagnostics: String::new(),
+                fault: None,
+                report_dir: String::new(),
+                report_ref: None,
+            }))
+        })
+    }
+}
+
+/// 组合根装配句柄：steps + 双 runner + mutation 假件（调用记录读面）。八参构造
+/// 同式——run 级锚点 + 四检查缝（含 archi 门禁）+ vcs 缝 + store 缝 + run_id
+///（组合根一次装配）。
 struct Assembled {
     steps: Arc<LocalToolSteps>,
     static_check: Arc<FakeRunner>,
@@ -630,6 +655,7 @@ fn assemble_with_vcs_and_mutation(
         Arc::clone(&static_check) as Arc<dyn StaticCheckRunner>,
         Arc::clone(&execution) as Arc<dyn TestExecutionRunner>,
         Arc::clone(&mutation) as Arc<dyn crate::port::MutationRunner>,
+        Arc::new(UnusedArchiRunner),
         Arc::clone(&vcs) as Arc<dyn ArchiveVcsPort>,
         store,
         run_id.to_owned(),
@@ -4010,4 +4036,517 @@ fn rebase半程探测调用序单点() {
         vec!["worktree_snapshot".to_owned()],
         "仅 worktree_snapshot 一次（零 spawn / 零新能力）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// archi-check 步分派与审计（AC-15 / D16）：id → 记录 → name、变更集注入、
+// 取数失败即步失败、产出类型漂移、审计行两形态、审计失败不阻断臂
+// ---------------------------------------------------------------------------
+
+/// 记录型 archi runner：捕获四参（root / name / changed / cancel）与可编程产出
+/// （含「错型变体」与「Err 文案」注入位）。
+struct RecordingArchiRunner {
+    calls: Mutex<Vec<(String, String, Vec<String>)>>,
+    cancels: Mutex<Vec<bool>>,
+    outcome: ArchiCheckOutcome,
+    /// 产出漂移注入位（返回 `StaticCheck` 变体——`TryFrom` 不匹配面）
+    drift_to_static: bool,
+    /// Err 注入位（`Some` 时以该串收口——取数 / 配置硬失败的报错面）
+    error: Option<String>,
+}
+
+impl RecordingArchiRunner {
+    fn with(outcome: ArchiCheckOutcome) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            cancels: Mutex::new(Vec::new()),
+            outcome,
+            drift_to_static: false,
+            error: None,
+        }
+    }
+
+    fn drifting(outcome: ArchiCheckOutcome) -> Self {
+        Self {
+            drift_to_static: true,
+            ..Self::with(outcome)
+        }
+    }
+
+    fn failing(message: &str) -> Self {
+        Self {
+            error: Some(message.to_owned()),
+            ..Self::with(archi_outcome(false, ""))
+        }
+    }
+
+    fn calls(&self) -> Vec<(String, String, Vec<String>)> {
+        self.calls.lock().expect("calls 锁不可中毒").clone()
+    }
+
+    fn cancels(&self) -> Vec<bool> {
+        self.cancels.lock().expect("cancels 锁不可中毒").clone()
+    }
+}
+
+impl ArchiCheckRunner for RecordingArchiRunner {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        changed: Vec<String>,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        self.cancels
+            .lock()
+            .expect("cancels 锁不可中毒")
+            .push(cancel.is_set());
+        self.calls.lock().expect("calls 锁不可中毒").push((
+            root.to_owned(),
+            name.to_owned(),
+            changed,
+        ));
+        let outcome = self.outcome.clone();
+        let drifting = self.drift_to_static;
+        let error = self.error.clone();
+        Box::pin(async move {
+            if let Some(message) = error {
+                return Err(message);
+            }
+            if drifting {
+                return Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                    passed: true,
+                    diagnostics: String::new(),
+                    fault: None,
+                    output_ref: None,
+                    report_dir: String::new(),
+                }));
+            }
+            Ok(ToolStepOutput::ArchiCheck(outcome))
+        })
+    }
+}
+
+/// 架构门禁产出（`report_dir` 非空——审计行 `reference` 取该值）。
+fn archi_outcome(passed: bool, diagnostics: &str) -> ArchiCheckOutcome {
+    ArchiCheckOutcome {
+        passed,
+        diagnostics: diagnostics.to_owned(),
+        fault: None,
+        report_dir: format!("{ROOT}/openspec/changes/{NAME}/reports/archi"),
+        report_ref: Some(format!(
+            "{ROOT}/openspec/changes/{NAME}/reports/archi/r.json"
+        )),
+    }
+}
+
+/// 组合根装配（显式 archi runner + vcs 双缝注入——archi 臂的观察面）。
+fn assemble_with_archi(
+    store: Arc<dyn ChangeStateStore>,
+    run_id: &str,
+    archi: Arc<RecordingArchiRunner>,
+    vcs: Arc<FakeVcs>,
+) -> Arc<LocalToolSteps> {
+    Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(FakeRunner::passing()) as Arc<dyn StaticCheckRunner>,
+        Arc::new(FakeTestExecutionRunner::passing()) as Arc<dyn TestExecutionRunner>,
+        Arc::new(FakeMutationRunner::skipping()) as Arc<dyn crate::port::MutationRunner>,
+        archi as Arc<dyn ArchiCheckRunner>,
+        vcs as Arc<dyn ArchiveVcsPort>,
+        store,
+        run_id.to_owned(),
+    ))
+}
+
+/// 正向（AC-15）：`ArchiCheck` 命令抵达 archi runner 一次（其余 runner 零到达），
+/// `name` 为记录 name（非 id）、`root` 为请求 root。
+#[tokio::test]
+async fn archi_check步委托注入runner且name取记录名() {
+    let db = TestDb::open("archi-delegate");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(
+        true,
+        "架构检查通过",
+    )));
+    let steps = assemble_with_archi(
+        db.store_arc(),
+        "run-1",
+        Arc::clone(&archi),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    let output = run_step(
+        &steps,
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match output {
+        ToolStepOutput::ArchiCheck(outcome) => {
+            assert!(outcome.passed, "产出原样透传");
+            assert_eq!(outcome.diagnostics, "架构检查通过");
+        }
+        other => panic!("产出应为 ArchiCheck 变体，实际: {other:?}"),
+    }
+    assert_eq!(
+        archi.calls(),
+        [(ROOT.to_owned(), NAME.to_owned(), Vec::new())],
+        "root 为请求 root、name 为记录 name（非寻址 id）"
+    );
+}
+
+/// 正向（AC-15）：变更集经 vcs 缝注入——`change_edit_set(root, "HEAD")` 一次，
+/// 清单按序交给 runner 的 `changed`。
+#[tokio::test]
+async fn archi_check变更集经vcs缝注入() {
+    let db = TestDb::open("archi-changed");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let cases: [Vec<&str>; 3] = [
+        vec![],
+        vec!["src/billing/x.ts"],
+        vec!["src/auth/token.ts", "src/billing/x.ts", "src/search/y.ts"],
+    ];
+    for changed in cases {
+        let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(true, "ok")));
+        let vcs = Arc::new(
+            FakeVcs::clean().with_edit(changed.iter().map(|item| (*item).to_owned()).collect(), ""),
+        );
+        let steps = assemble_with_archi(db.store_arc(), "run-changed", Arc::clone(&archi), vcs);
+        let _ = run_step(
+            &steps,
+            ToolCommand::ArchiCheck {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await;
+        assert_eq!(
+            archi.calls()[0].2,
+            changed
+                .iter()
+                .map(|item| (*item).to_owned())
+                .collect::<Vec<String>>(),
+            "变更集按序注入（base = HEAD）"
+        );
+    }
+}
+
+/// 异常（AC-15）：变更集取数失败即步失败——runner 零调用（不降级空清单）。
+#[tokio::test]
+async fn archi_check取数失败即步失败() {
+    let db = TestDb::open("archi-vcs-error");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(true, "ok")));
+    let steps = assemble_with_archi(
+        db.store_arc(),
+        "run-vcs-error",
+        Arc::clone(&archi),
+        Arc::new(FakeVcs::clean().with_edit_set_error("git 不可用")),
+    );
+    let outcome = run_step_with_cancel(
+        &steps,
+        CancelFlag::never(),
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match outcome {
+        Err(error) => assert_eq!(error, "git 不可用", "取数失败原样透传为步失败"),
+        Ok(_) => panic!("取数失败 MUST NOT 产出结论"),
+    }
+    assert!(
+        archi.calls().is_empty(),
+        "取数失败 ⇒ runner 零调用（空清单会静默变 noChanges = 假通过）"
+    );
+}
+
+/// 异常：未建档 change → `Err`，runner 零调用。
+#[tokio::test]
+async fn archi_check未建档显式err() {
+    let db = TestDb::open("archi-unbuilt");
+    let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(true, "ok")));
+    let steps = assemble_with_archi(
+        db.store_arc(),
+        "run-unbuilt",
+        Arc::clone(&archi),
+        Arc::new(FakeVcs::clean()),
+    );
+    let outcome = run_step_with_cancel(
+        &steps,
+        CancelFlag::never(),
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match outcome {
+        Err(error) => assert!(error.contains("未建档"), "文案指明未建档：{error}"),
+        Ok(_) => panic!("未建档 MUST NOT 产出结论"),
+    }
+    assert!(archi.calls().is_empty(), "未建档 ⇒ runner 零调用");
+}
+
+/// 异常：产出类型漂移（runner 返 `StaticCheck` 变体）→ 调用面以错型上抛，
+/// 不静默包装成架构结论；审计行仍留痕（失败面不吞审计）。
+#[tokio::test]
+async fn archi_check产出类型漂移留痕() {
+    let db = TestDb::open("archi-drift-type");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let archi = Arc::new(RecordingArchiRunner::drifting(archi_outcome(true, "ok")));
+    let steps = assemble_with_archi(
+        db.store_arc(),
+        "run-drift-type",
+        Arc::clone(&archi),
+        Arc::new(FakeVcs::clean()),
+    );
+    let _ = run_step(
+        &steps,
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    assert_eq!(archi.calls().len(), 1, "runner 被调用一次");
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-drift-type"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "失败留痕：审计行仍落库");
+    assert_eq!(rows[0].step_kind, StepKind::ArchiCheck, "kind 归键在案");
+    assert!(
+        rows[0].summary.contains("漂移") || rows[0].status != "ok",
+        "summary 载错型归因或非 ok 状态：{rows:?}"
+    );
+}
+
+/// 正向（D16）：成功路径审计行——`StepKind::ArchiCheck` / `status = ok` /
+/// summary 以 `archi_check passed=` 起（不含 `status=`）/ `reference` 为
+/// outcome `report_dir` / `change_id` 与 `run_id` 归键串链。
+#[tokio::test]
+async fn archi_check审计行成功面() {
+    for passed in [true, false] {
+        let db = TestDb::open("archi-audit-ok");
+        seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+        let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(passed, "明细")));
+        let steps = assemble_with_archi(
+            db.store_arc(),
+            "run-audit",
+            Arc::clone(&archi),
+            Arc::new(FakeVcs::clean()),
+        );
+        let _ = run_step(
+            &steps,
+            ToolCommand::ArchiCheck {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await;
+
+        let rows = db
+            .store
+            .list_change_steps(CHANGE_ID, Some("run-audit"))
+            .expect("读审计行应成功");
+        assert_eq!(rows.len(), 1, "一条审计行");
+        assert_eq!(rows[0].step_kind, StepKind::ArchiCheck, "kind 归键");
+        assert_eq!(rows[0].change_id, CHANGE_ID, "change_id 归键");
+        assert_eq!(rows[0].run_id, "run-audit", "run_id 串链");
+        assert_eq!(rows[0].status, "ok", "成功面状态");
+        assert_eq!(
+            rows[0].summary,
+            format!("archi_check passed={passed}"),
+            "summary 以 archi_check passed= 起（不含 status=）"
+        );
+        assert_eq!(
+            rows[0].reference.as_deref(),
+            Some(format!("{ROOT}/openspec/changes/{NAME}/reports/archi").as_str()),
+            "reference 为 outcome report_dir"
+        );
+    }
+}
+
+/// 边界：取消透传——请求 cancel 置位 → runner 观测 `is_set()` 为真；`fault =
+/// Some(Stopped)` 原样进产出（`steps.rs` 不做决策，取消不以 `Err` 表达）。
+#[tokio::test]
+async fn archi_check取消透传() {
+    let db = TestDb::open("archi-cancel");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let mut outcome = archi_outcome(false, "检查已取消");
+    outcome.fault = Some(crate::port::RunFault::Stopped);
+    let archi = Arc::new(RecordingArchiRunner::with(outcome));
+    let steps = assemble_with_archi(
+        db.store_arc(),
+        "run-cancel",
+        Arc::clone(&archi),
+        Arc::new(FakeVcs::clean()),
+    );
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    let output = run_step_with_cancel(
+        &steps,
+        cancel,
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await
+    .expect("取消面以 outcome.fault 表达（步层不 Err）");
+    assert_eq!(archi.cancels(), vec![true], "cancel 置位如实透传");
+    match output {
+        ToolStepOutput::ArchiCheck(payload) => assert_eq!(
+            payload.fault,
+            Some(crate::port::RunFault::Stopped),
+            "fault 原样进产出（步层不做决策）"
+        ),
+        other => panic!("产出应为 ArchiCheck 变体，实际: {other:?}"),
+    }
+}
+
+/// 边界（D10 / D16）：架构门禁审计行的摘要面**有界**——成功态摘要是定式短串
+///（`archi_check passed=`，诊断明细不进摘要：`diagnostics` 超 500 字符也不涌入），
+/// 失败态（runner `Err` 长文案）走既有 ≤500 截断口径（前 500 字符 + `…（截断，
+/// 共 N 字符）` 留痕），既有的恰 500 字符边界不截断。
+#[tokio::test]
+async fn archi_check审计摘要面有界_长诊断不进摘要且错误串截断() {
+    // ① 成功态：诊断 > 500 字符不改变摘要定式（明细留报告，摘要只载结论）
+    let db = TestDb::open("archi-summary-bound");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let long_diagnostics = "违".repeat(800);
+    let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(
+        false,
+        &long_diagnostics,
+    )));
+    let steps = assemble_with_archi(
+        db.store_arc(),
+        "run-summary-bound",
+        Arc::clone(&archi),
+        Arc::new(FakeVcs::clean()),
+    );
+    let _ = run_step(
+        &steps,
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-summary-bound"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "一条审计行");
+    assert_eq!(
+        rows[0].summary, "archi_check passed=false",
+        "摘要为定式短串（诊断 800 字符不进摘要）"
+    );
+    assert!(
+        rows[0].summary.chars().count() <= 500,
+        "摘要恒 ≤500 字符（口径不变）"
+    );
+
+    // ② 失败态：runner Err 长文案截断留痕（前 500 字符 + 全长后缀）
+    let error_db = TestDb::open("archi-summary-truncate");
+    seed_change(error_db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let failing = Arc::new(RecordingArchiRunner::failing(&"错".repeat(600)));
+    let steps = assemble_with_archi(
+        error_db.store_arc(),
+        "run-summary-truncate",
+        Arc::clone(&failing),
+        Arc::new(FakeVcs::clean()),
+    );
+    let outcome = run_step_with_cancel(
+        &steps,
+        CancelFlag::never(),
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    assert!(outcome.is_err(), "失败面以 Err 上抛（不静默成假通过）");
+    let rows = error_db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-summary-truncate"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "失败面同样留痕（不吞审计）");
+    assert_eq!(rows[0].status, "error", "失败行状态");
+    assert_eq!(
+        rows[0].summary,
+        format!("{}…（截断，共 600 字符）", "错".repeat(500)),
+        "超长错误串截断留痕（前 500 字符 + 全长后缀）"
+    );
+    assert_eq!(
+        rows[0].summary.chars().count(),
+        500 + "…（截断，共 600 字符）".chars().count(),
+        "截断后长度 = 500 + 后缀（不溢出不 panic）"
+    );
+
+    // ③ 边界：恰 500 字符不截断（与②同臂对照）
+    let boundary_db = TestDb::open("archi-summary-boundary");
+    seed_change(boundary_db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let boundary_message = "x".repeat(500);
+    let boundary_runner = Arc::new(RecordingArchiRunner::failing(&boundary_message));
+    let steps = assemble_with_archi(
+        boundary_db.store_arc(),
+        "run-summary-boundary",
+        Arc::clone(&boundary_runner),
+        Arc::new(FakeVcs::clean()),
+    );
+    let _ = run_step_with_cancel(
+        &steps,
+        CancelFlag::never(),
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    let rows = boundary_db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-summary-boundary"))
+        .expect("读审计行应成功");
+    assert_eq!(rows[0].summary, boundary_message, "恰 500 字符原样透传");
+    assert_eq!(rows[0].summary.chars().count(), 500);
+}
+
+/// 异常（既有纪律）：审计落行失败不阻断 archi 臂——假件 store 的
+/// `append_step` 缝注入 `StoreFault::Db` → `audit_outcome` 的 `let _ =`
+/// best-effort 语义生效：臂命令仍返回自身 `Ok` 产出（`ArchiCheck` 变体逐字段
+/// 原样，name 解析与 runner 调用均不受影响），审计行缺席。与 PhaseNext /
+/// StaticCheck 臂的同名用例同式（审计面失败不淹没主流程）。
+#[tokio::test]
+async fn archi_check审计落行失败不阻断臂业务产出() {
+    let fake = Arc::new(FakeStore::new());
+    fake.fail_append_step(StoreFault::Db("写步骤审计行失败".to_owned()));
+    fake.seed_change(CHANGE_ID, NAME);
+    let archi = Arc::new(RecordingArchiRunner::with(archi_outcome(
+        true,
+        "架构检查通过",
+    )));
+    let steps = assemble_with_archi(
+        Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+        "run-archi-audit-fault",
+        Arc::clone(&archi),
+        Arc::new(FakeVcs::clean()),
+    );
+
+    let output = run_step(
+        &steps,
+        ToolCommand::ArchiCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match output {
+        ToolStepOutput::ArchiCheck(outcome) => assert_eq!(
+            outcome,
+            archi_outcome(true, "架构检查通过"),
+            "审计失败不淹没业务产出（五字段逐字段原样）"
+        ),
+        other => panic!("产出应为 ArchiCheck 变体，实际: {other:?}"),
+    }
+    assert_eq!(
+        archi.calls(),
+        [(ROOT.to_owned(), NAME.to_owned(), Vec::new())],
+        "业务链路照常走完（runner 一次，name 解析不受审计故障影响）"
+    );
+    assert!(fake.steps().is_empty(), "审计行缺席（写入失败被吞）");
 }

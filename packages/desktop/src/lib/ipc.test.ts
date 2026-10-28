@@ -1,9 +1,9 @@
 import type { Channel } from '@tauri-apps/api/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { type ZodObject } from 'zod';
+import { type ZodObject, type ZodType } from 'zod';
 
 import type { AgentRunMessage, FileWatchEvent, RunNotice } from '../types/dto';
-import { commands } from '../types/generated/bindings';
+import { type ArchiDriftMode, commands } from '../types/generated/bindings';
 import { argsSchemas, channelArgs, resultSchemas } from '../types/generated/bindings.zod';
 import { ipc } from './ipc';
 import { driftCount, driftReports, reportDrift, resetDrift } from './ipc-drift';
@@ -1086,5 +1086,548 @@ describe('ipc 形参名面：逐命令 payload 键集 == argsSchemas.shape 键�
     const [commandName, payload] = invokeMock.mock.calls[0];
     expect(typeof commandName).toBe('string');
     expect(Object.keys((payload ?? {}) as Record<string, unknown>)).toEqual(shapeKeys);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `archi_drift` 命令面（archi-check-and-gate，AC-20）：drift / scan schema 图的
+// **运行期形态面**。
+//
+// 生成物的**结构面**（零 diff / 命令清单 / 词面）由 `bindings:check` 与
+// `src-tauri/src/bindings/mod_test.rs` 承载，本节不设生成物文本快照（排序 / 格式化
+// 级变化即噪声）；本节锁的是「`ArchiDriftReport` 能否被前端接受、该拒的形态是否真
+// 被拒」——判据是逐字段 parse 的接受 / 拒绝。
+//
+// 两入口：`resultSchemas.archiDrift`（直接 `safeParse` 全字段 payload，一次遍历即覆盖
+// drift / scan 图全部字段 getter）与 `ipc.archiDrift`（经被 mock 的 `invoke`，观测装配
+// 层的参数面 strict / 结果面 soft-report 语义）。
+// ---------------------------------------------------------------------------
+
+/** 合法结构诊断（5 字段，`column` 非 null）。 */
+function driftDiagnostic(): Record<string, unknown> {
+  return {
+    kind: 'cycle',
+    message: '元素 App.Auth 依赖祖先成环',
+    file: '.dev-team/architecture/models/01-app.toml',
+    line: 12,
+    column: 3,
+  };
+}
+
+/** 合法命中点（4 字段）。 */
+function driftOccurrence(): Record<string, unknown> {
+  return { file: 'src/billing/x.ts', line: 7, specifier: '../auth/token', typeOnly: false };
+}
+
+/** 合法漂移条目（6 字段，含 1 条 occurrence）。 */
+function driftEntry(kind = 'undeclaredDependency'): Record<string, unknown> {
+  return {
+    kind,
+    from: 'App.Auth',
+    to: 'App.Billing',
+    gate: 'strict',
+    message: '未声明依赖 App.Auth -> App.Billing',
+    occurrences: [driftOccurrence()],
+  };
+}
+
+/**
+ * 全字段 `ArchiDriftReport`：14 个根级字段全部非空，嵌套面 model 5 / scan 7 / 条目 6 /
+ * 命中点 4 / 结构诊断 5 各至少一项（单次 parse 即覆盖 drift / scan 图全部字段 getter）。
+ */
+function archiDriftReport(): Record<string, unknown> {
+  return {
+    version: 1,
+    timestamp: '2026-10-20T08:31:12Z',
+    mode: 'incremental',
+    root: '/repo',
+    change: 'archi-check-and-gate',
+    base: 'HEAD',
+    modelHash: 'sha256:9f2c1e',
+    model: {
+      elements: 50,
+      relations: 111,
+      byGate: { strict: 2, warn: 3, off: 45 },
+      structuralErrors: [driftDiagnostic()],
+      warnings: [driftEntry('noPath')],
+    },
+    scan: {
+      mode: 'incremental',
+      changedFiles: 12,
+      scannedFiles: 10,
+      excluded: [{ file: 'src/auth/auth.test.ts', rule: '**/*.test.ts' }],
+      unmatchedFiles: ['src/shared/token.ts'],
+      matched: [{ element: 'App.Auth', files: ['src/auth/token.ts'] }],
+      unresolved: [{ file: 'src/dyn.ts', specifier: './dyn', message: '动态导入' }],
+    },
+    errors: [driftEntry()],
+    warnings: [driftEntry('ambiguousOwner')],
+    suppressed: [
+      {
+        from: 'App.Auth',
+        to: 'App.Billing',
+        via: 'inline',
+        reason: '迁移期',
+        file: 'src/auth/token.ts',
+        line: 3,
+      },
+    ],
+    observations: [
+      {
+        kind: 'unfulfilledDeclaration',
+        from: 'App.Auth',
+        to: 'App.Billing',
+        message: '本次扫描面内未见该 import',
+      },
+    ],
+    status: 'errors',
+  };
+}
+
+/** `resultSchemas.archiDrift` 表项（getter → `z.lazy`，每次读取新实例）。 */
+function archiDriftSchema(): ZodType {
+  return Reflect.get(resultSchemas, 'archiDrift') as ZodType;
+}
+
+/** 报告 payload 的 parse 是否通过。 */
+function parsesReport(payload: unknown): boolean {
+  return archiDriftSchema().safeParse(payload).success;
+}
+
+/** 深路径处的父容器（对象 / 数组同式：下标以字符串表达）。 */
+function parentAt(root: unknown, segments: ReadonlyArray<string>): Record<string, unknown> {
+  return segments
+    .slice(0, -1)
+    .reduce<Record<string, unknown>>(
+      (node, segment) => Reflect.get(node, segment) as Record<string, unknown>,
+      root as Record<string, unknown>,
+    );
+}
+
+/** fixture 的形变副本：深路径赋错值 / 新增多余键（每次新建，不污染共享 fixture）。 */
+function reportWith(segments: ReadonlyArray<string>, value: unknown): Record<string, unknown> {
+  const report = archiDriftReport();
+  parentAt(report, segments)[segments[segments.length - 1]] = value;
+  return report;
+}
+
+/** fixture 的形变副本：深路径删除必填键。 */
+function reportWithout(segments: ReadonlyArray<string>): Record<string, unknown> {
+  const report = archiDriftReport();
+  delete parentAt(report, segments)[segments[segments.length - 1]];
+  return report;
+}
+
+/** 首个 issue 的 jsonPointer 路径（`#/a/0/b` 形态）。 */
+function firstIssuePath(payload: unknown): string {
+  const outcome = archiDriftSchema().safeParse(payload);
+  if (outcome.success) throw new Error('期望 parse 失败，但 payload 通过');
+  const [first] = outcome.error.issues;
+  return `#${first.path.map((segment) => `/${String(segment)}`).join('')}`;
+}
+
+/** 根级 14 个必填键（`ArchiDriftReport` 字段面全集）。 */
+const ARCHI_ROOT_KEYS = [
+  'version',
+  'timestamp',
+  'mode',
+  'root',
+  'change',
+  'base',
+  'modelHash',
+  'model',
+  'scan',
+  'errors',
+  'warnings',
+  'suppressed',
+  'observations',
+  'status',
+] as const;
+
+/** 根级 14 键的错类型取样（`version` 用 `null`：它的 number 面给 42 会合法）。 */
+const ARCHI_ROOT_WRONG_TYPES: ReadonlyArray<[string, unknown]> = [
+  ['version', null],
+  ['timestamp', 42],
+  ['mode', 'dirty'],
+  ['root', 42],
+  ['change', 42],
+  ['base', 42],
+  ['modelHash', 42],
+  ['model', []],
+  ['scan', 'scan'],
+  ['errors', 'errors'],
+  ['warnings', {}],
+  ['suppressed', 'suppressed'],
+  ['observations', 'observations'],
+  ['status', 42],
+];
+
+/** 嵌套必填键 5 处代表（深一层到三层，含数组下标段）。 */
+const ARCHI_NESTED_KEYS: ReadonlyArray<[string, string[]]> = [
+  ['model.byGate.strict', ['model', 'byGate', 'strict']],
+  ['scan.matched[0].files', ['scan', 'matched', '0', 'files']],
+  ['errors[0].occurrences[0].typeOnly', ['errors', '0', 'occurrences', '0', 'typeOnly']],
+  ['suppressed[0].reason', ['suppressed', '0', 'reason']],
+  ['observations[0].to', ['observations', '0', 'to']],
+];
+
+/** 嵌套键 5 处的错类型取样。 */
+const ARCHI_NESTED_WRONG_TYPES: ReadonlyArray<[string, string[], unknown]> = [
+  ['model.elements', ['model', 'elements'], '50'],
+  ['model.byGate', ['model', 'byGate'], 'byGate'],
+  ['scan.excluded', ['scan', 'excluded'], 'excluded'],
+  ['errors[0].occurrences[0].line', ['errors', '0', 'occurrences', '0', 'line'], '12'],
+  ['suppressed[0].line', ['suppressed', '0', 'line'], 3.5],
+];
+
+/** 九处数组字段（`[]` 与单元素两态、规模面）。 */
+const ARCHI_ARRAY_PATHS: ReadonlyArray<[string, string[]]> = [
+  ['errors', ['errors']],
+  ['warnings', ['warnings']],
+  ['model.warnings', ['model', 'warnings']],
+  ['model.structuralErrors', ['model', 'structuralErrors']],
+  ['suppressed', ['suppressed']],
+  ['observations', ['observations']],
+  ['scan.excluded', ['scan', 'excluded']],
+  ['scan.matched', ['scan', 'matched']],
+  ['scan.unresolved', ['scan', 'unresolved']],
+];
+
+/** 十处可空位（`null` 与有值两态）。 */
+const ARCHI_NULLABLE_PATHS: ReadonlyArray<[string, string[]]> = [
+  ['change', ['change']],
+  ['base', ['base']],
+  ['errors[0].from', ['errors', '0', 'from']],
+  ['errors[0].to', ['errors', '0', 'to']],
+  ['errors[0].gate', ['errors', '0', 'gate']],
+  ['errors[0].occurrences[0].specifier', ['errors', '0', 'occurrences', '0', 'specifier']],
+  ['suppressed[0].file', ['suppressed', '0', 'file']],
+  ['suppressed[0].line', ['suppressed', '0', 'line']],
+  ['model.structuralErrors[0].column', ['model', 'structuralErrors', '0', 'column']],
+  ['scan.unresolved[0].specifier', ['scan', 'unresolved', '0', 'specifier']],
+];
+
+/** u32 面六键（`0` 与 `4294967295` 两界）。 */
+const ARCHI_U32_PATHS: ReadonlyArray<[string, string[]]> = [
+  ['version', ['version']],
+  ['scan.changedFiles', ['scan', 'changedFiles']],
+  ['scan.scannedFiles', ['scan', 'scannedFiles']],
+  ['model.elements', ['model', 'elements']],
+  ['model.relations', ['model', 'relations']],
+  ['errors[0].occurrences[0].line', ['errors', '0', 'occurrences', '0', 'line']],
+];
+
+/** 五处非可空字符串键（空串 / 超长 / 特殊字符均合法；`null` 必拒）。 */
+const ARCHI_STRING_PATHS: ReadonlyArray<[string, string[]]> = [
+  ['root', ['root']],
+  ['timestamp', ['timestamp']],
+  ['modelHash', ['modelHash']],
+  ['errors[0].message', ['errors', '0', 'message']],
+  ['scan.excluded[0].rule', ['scan', 'excluded', '0', 'rule']],
+];
+
+/** 词外枚举值（各挂一处枚举面：status / mode / driftKind / observationKind / via）。 */
+const ARCHI_OUT_OF_VOCAB: ReadonlyArray<[string, string[], unknown]> = [
+  ['status 词外值', ['status'], 'unknown'],
+  ['status 大小写变体', ['status'], 'ArchiCheck'],
+  ['status 空串', ['status'], ''],
+  ['status null', ['status'], null],
+  ['mode 词外值', ['mode'], 'dirty'],
+  ['driftKind 词外值', ['errors', '0', 'kind'], 'undeclared_dependency'],
+  ['observationKind 词外值', ['observations', '0', 'kind'], 'Unknown'],
+  ['suppressVia 词外值', ['suppressed', '0', 'via'], 'INLINE'],
+];
+
+describe('ipc archi_drift：resultSchemas.archiDrift 全字段 parse', () => {
+  it('14 根级字段全非空的报告 → safeParse 成功（drift / scan 图字段 getter 一次遍历全覆盖）', () => {
+    expect(parsesReport(archiDriftReport())).toBe(true);
+  });
+
+  it('字段面计数在案：根 14 / model 5 / scan 7 / 条目 6 / 命中点 4 / 结构诊断 5', () => {
+    const report = archiDriftReport();
+    const model = report.model as Record<string, unknown>;
+    const scan = report.scan as Record<string, unknown>;
+    const [error] = report.errors as Array<Record<string, unknown>>;
+    const [warning] = report.warnings as Array<Record<string, unknown>>;
+    const [occurrence] = error.occurrences as Array<Record<string, unknown>>;
+    const [diagnostic] = model.structuralErrors as Array<Record<string, unknown>>;
+
+    expect(Object.keys(report)).toHaveLength(14);
+    expect(Object.keys(model)).toHaveLength(5);
+    expect(Object.keys(scan)).toHaveLength(7);
+    expect(Object.keys(error)).toHaveLength(6);
+    expect(Object.keys(warning)).toHaveLength(6);
+    expect(Object.keys(occurrence)).toHaveLength(4);
+    expect(Object.keys(diagnostic)).toHaveLength(5);
+  });
+
+  it('ipc.archiDrift 端到端（零漂移）：命令名 archi_drift、payload 键集恰 [root, mode]、原引用返回', async () => {
+    const report = archiDriftReport();
+    invokeMock.mockResolvedValue(report);
+
+    const result = await ipc.archiDrift('/repo', 'incremental');
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock.mock.calls[0][0]).toBe('archi_drift');
+    expect(Object.keys(payloadOf('archi_drift'))).toEqual(['root', 'mode']);
+    expect(payloadOf('archi_drift')).toEqual({ root: '/repo', mode: 'incremental' });
+    expect(result).toBe(report);
+    expect(driftCount()).toBe(0);
+  });
+});
+
+describe('ipc archi_drift：枚举词面与可空位', () => {
+  it.each(['clean', 'errors', 'warnings', 'noChanges', 'skipped'])(
+    'status 合法值 %s → parse 通过',
+    (status) => {
+      expect(parsesReport(reportWith(['status'], status))).toBe(true);
+    },
+  );
+
+  it.each(['full', 'incremental'])('mode 合法值 %s → 根与 scan.mode 两处均 parse 通过', (mode) => {
+    expect(parsesReport(reportWith(['mode'], mode))).toBe(true);
+    expect(parsesReport(reportWith(['scan', 'mode'], mode))).toBe(true);
+  });
+
+  it.each(['undeclaredDependency', 'pathNotFound', 'ambiguousOwner', 'noPath'])(
+    'errors[0].kind 合法值 %s → parse 通过',
+    (kind) => {
+      expect(parsesReport(reportWith(['errors', '0', 'kind'], kind))).toBe(true);
+    },
+  );
+
+  it.each(['unfulfilledDeclaration', 'unusedDeclaration'])(
+    'observations[0].kind 合法值 %s → parse 通过（词汇位保留，不因本期不产出而缺位）',
+    (kind) => {
+      expect(parsesReport(reportWith(['observations', '0', 'kind'], kind))).toBe(true);
+    },
+  );
+
+  it.each(['config', 'inline'])('suppressed[0].via 合法值 %s → parse 通过', (via) => {
+    expect(parsesReport(reportWith(['suppressed', '0', 'via'], via))).toBe(true);
+  });
+
+  it.each(ARCHI_OUT_OF_VOCAB)(
+    '%s → parse 失败（封闭词汇零宽松归一）',
+    (_label, segments, value) => {
+      expect(parsesReport(reportWith(segments, value))).toBe(false);
+    },
+  );
+
+  it.each(ARCHI_NULLABLE_PATHS)('可空位 %s 的有值 / null 两态均 parse 通过', (_label, segments) => {
+    expect(parsesReport(archiDriftReport())).toBe(true);
+    expect(parsesReport(reportWith(segments, null))).toBe(true);
+  });
+});
+
+describe('ipc archi_drift：必填字段缺失与错类型必拒', () => {
+  it.each(ARCHI_ROOT_KEYS)('根级必填键 %s 缺失 → parse 失败且首个 issue 路径指回该键', (key) => {
+    const report = reportWithout([key]);
+
+    expect(parsesReport(report)).toBe(false);
+    expect(firstIssuePath(report)).toBe(`#/${key}`);
+  });
+
+  it.each(ARCHI_NESTED_KEYS)(
+    '嵌套必填键 %s 缺失 → parse 失败且路径指回该键',
+    (_label, segments) => {
+      const report = reportWithout(segments);
+
+      expect(parsesReport(report)).toBe(false);
+      expect(firstIssuePath(report)).toBe(`#${segments.map((segment) => `/${segment}`).join('')}`);
+    },
+  );
+
+  it.each(ARCHI_ROOT_WRONG_TYPES)('根级键 %s 给错类型 → parse 失败且路径指回该键', (key, value) => {
+    const report = reportWith([key], value);
+
+    expect(parsesReport(report)).toBe(false);
+    expect(firstIssuePath(report)).toBe(`#/${key}`);
+  });
+
+  it.each(ARCHI_NESTED_WRONG_TYPES)(
+    '嵌套键 %s 给错类型 → parse 失败且路径指回该键',
+    (_label, segments, value) => {
+      const report = reportWith(segments, value);
+
+      expect(parsesReport(report)).toBe(false);
+      expect(firstIssuePath(report)).toBe(`#${segments.map((segment) => `/${segment}`).join('')}`);
+    },
+  );
+
+  it.each([
+    ['根级', ['surplus']],
+    ['model 内', ['model', 'surplus']],
+    ['errors[0] 内', ['errors', '0', 'surplus']],
+  ] as ReadonlyArray<[string, string[]]>)(
+    '%s多一键 → parse 失败（strictObject，防生成物退化成 loose）',
+    (_label, segments) => {
+      expect(parsesReport(reportWith(segments, 1))).toBe(false);
+    },
+  );
+
+  it('经 ipc.archiDrift 时同形多余键 → 只记 1 条漂移、返回值原引用、Promise 正常 resolve', async () => {
+    const dirty = reportWith(['surplus'], 1);
+    invokeMock.mockResolvedValue(dirty);
+
+    const result = await ipc.archiDrift('/repo', 'full');
+
+    expect(driftCount()).toBe(1);
+    expect(result).toBe(dirty);
+  });
+});
+
+describe('ipc archi_drift：数值 / 字符串 / 数组边界', () => {
+  it.each(ARCHI_U32_PATHS)(
+    'u32 面 %s 的两界（0 / 4294967295）均 parse 通过',
+    (_label, segments) => {
+      expect(parsesReport(reportWith(segments, 0))).toBe(true);
+      expect(parsesReport(reportWith(segments, 4294967295))).toBe(true);
+    },
+  );
+
+  it.each([
+    ['-1', -1],
+    ['1.5', 1.5],
+    ['4294967296', 4294967296],
+    ['NaN', Number.NaN],
+  ] as ReadonlyArray<[string, number]>)(
+    'version 取越界 / 非整数 %s → parse 失败且路径指回该键',
+    (_label, value) => {
+      const report = reportWith(['version'], value);
+
+      expect(parsesReport(report)).toBe(false);
+      expect(firstIssuePath(report)).toBe('#/version');
+    },
+  );
+
+  it.each(ARCHI_STRING_PATHS)(
+    '字符串键 %s 的空串 / 超长 / 特殊字符均 parse 通过（schema 无 minLength）',
+    (_label, segments) => {
+      for (const value of ['', 'x'.repeat(1200), '行\n列\0🎯']) {
+        expect(parsesReport(reportWith(segments, value))).toBe(true);
+      }
+    },
+  );
+
+  it.each(ARCHI_STRING_PATHS)('非可空字符串键 %s 给 null → parse 失败', (_label, segments) => {
+    expect(parsesReport(reportWith(segments, null))).toBe(false);
+  });
+
+  it.each(ARCHI_ARRAY_PATHS)('数组字段 %s 的 [] 与单元素两态均 parse 通过', (_label, segments) => {
+    expect(parsesReport(reportWith(segments, []))).toBe(true);
+    // 单元素形态即基线 fixture 本体的形态（九处各持一项）
+    expect(parsesReport(archiDriftReport())).toBe(true);
+  });
+
+  it('errors 取 1000 条 → 单次 parse 通过（规模面零截断）', () => {
+    const many = Array.from({ length: 1000 }, () => driftEntry());
+
+    expect(parsesReport(reportWith(['errors'], many))).toBe(true);
+  });
+});
+
+describe('ipc archi_drift：结果面脏值只上报、参数面本地拒', () => {
+  // 脏值取根级 `modelHash`（`model` 段无 `modelHash` 字段——多出来的键走 strictObject 的
+  // 「多余字段被拒」面，见上节），保证判据是「类型错 → 单条漂移 + 路径精确」。
+  it.each([
+    ['modelHash', ['modelHash'], 42, 'string'],
+    ['scan.scannedFiles', ['scan', 'scannedFiles'], '12', 'number'],
+  ] as ReadonlyArray<[string, string[], unknown, string]>)(
+    '脏值 %s → driftCount 1、path 精确、原引用返回（soft-report 不 throw）',
+    async (_label, segments, value, expected) => {
+      const dirty = reportWith(segments, value);
+      invokeMock.mockResolvedValue(dirty);
+
+      const result = await ipc.archiDrift('/repo', 'incremental');
+
+      expect(result).toBe(dirty);
+      expect(driftCount()).toBe(1);
+      const [entry] = driftReports();
+      expect(entry.cmd).toBe('archiDrift');
+      expect(entry.path).toBe(`#${segments.map((segment) => `/${segment}`).join('')}`);
+      expect(entry.expected).toBe(expected);
+      expect(entry.got).toBe(value);
+    },
+  );
+
+  it('status 给词外值 → driftCount 1、path #/status、值原样透传（非类型错走 issue 文案）', async () => {
+    const dirty = reportWith(['status'], 'dirty');
+    invokeMock.mockResolvedValue(dirty);
+
+    const result = await ipc.archiDrift('/repo', 'incremental');
+
+    expect(result).toBe(dirty);
+    expect(driftCount()).toBe(1);
+    const [entry] = driftReports();
+    expect(entry.path).toBe('#/status');
+    expect(entry.expected).not.toBe('');
+    expect(entry.got).toBe('dirty');
+  });
+
+  it('root 传数字 → IpcArgsError（cmd archiDrift / path #/root / expected string）、invoke 零调用', async () => {
+    const error = await rejectionOf(ipc.archiDrift(42 as unknown as string, 'incremental'));
+
+    const view = expectArgsError(error);
+    expect(view.cmd).toBe('archiDrift');
+    expect(view.path).toBe('#/root');
+    expect(view.expected).toBe('string');
+    expect(view.got).toBe(42);
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['词外值', 'dirty'],
+    ['null', null],
+  ] as ReadonlyArray<[string, unknown]>)(
+    'mode 传 %s → 本地拒（路径 #/mode）、零 IPC 往返',
+    async (_label, mode) => {
+      const error = await rejectionOf(ipc.archiDrift('/repo', mode as ArchiDriftMode));
+
+      const view = expectArgsError(error);
+      expect(view.cmd).toBe('archiDrift');
+      expect(view.path).toBe('#/mode');
+      expect(view.got).toBe(mode);
+      expect(invokeMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('ipc archi_drift：三表表项形态与无状态残留', () => {
+  it('channelArgs.archiDrift 为空对象表项 → 不包裹任何对象、零信封漂移', async () => {
+    const table = Reflect.get(channelArgs, 'archiDrift') as Record<string, unknown>;
+
+    expect(table).toEqual({});
+    expect(Object.keys(table)).toHaveLength(0);
+    invokeMock.mockResolvedValue(archiDriftReport());
+
+    await ipc.archiDrift('/repo', 'full');
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('三表 archiDrift 表项皆为 getter（descriptor.get 为函数）', () => {
+    for (const table of [argsSchemas, resultSchemas, channelArgs]) {
+      const descriptor = Object.getOwnPropertyDescriptor(table, 'archiDrift');
+      expect(typeof descriptor?.get).toBe('function');
+    }
+  });
+
+  it('resultSchemas.archiDrift 两次读取得到不同实例、同一 payload 判定一致（无状态残留）', () => {
+    const first = archiDriftSchema();
+    const second = archiDriftSchema();
+
+    expect(first).not.toBe(second);
+    for (const payload of [archiDriftReport(), reportWith(['status'], 'unknown')]) {
+      expect(first.safeParse(payload).success).toBe(second.safeParse(payload).success);
+    }
+  });
+
+  it('argsSchemas.archiDrift.shape 键序恰 [root, mode]（与 bindings.ts 形参序对位）', () => {
+    const schema = Reflect.get(argsSchemas, 'archiDrift') as ZodObject;
+
+    expect(Object.keys(schema.shape)).toEqual(['root', 'mode']);
   });
 });

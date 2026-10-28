@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "incremental",
+  "root": "<root>",
+  "change": "unfulfilled-declaration",
+  "base": "HEAD",
+  "modelHash": "sha256:845ca61db6e43c1bcfb8a4a457402ad83e902432ba8f2fdaa8c2656187994133",
+  "model": {
+    "elements": 3,
+    "relations": 1,
+    "byGate": {
+      "strict": 1,
+      "warn": 1,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "incremental",
+    "changedFiles": 1,
+    "scannedFiles": 1,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Billing",
+        "files": [
+          "src/billing/x.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Billing",
+      "to": "App.Auth",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Billing → App.Auth 的 import（观察项，不参与门禁判据）"
+    }
+  ],
+  "status": "clean"
+}

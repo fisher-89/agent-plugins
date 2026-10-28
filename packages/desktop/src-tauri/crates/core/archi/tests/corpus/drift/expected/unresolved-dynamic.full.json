@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "unresolved-dynamic",
+  "base": null,
+  "modelHash": "sha256:8120b43aca83335e44de89259c4cd9519dae0c2ea6862d082192a40106db6943",
+  "model": {
+    "elements": 3,
+    "relations": 0,
+    "byGate": {
+      "strict": 1,
+      "warn": 1,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 2,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Auth",
+        "files": [
+          "src/auth/token.ts"
+        ]
+      },
+      {
+        "element": "App.Billing",
+        "files": [
+          "src/billing/x.ts"
+        ]
+      }
+    ],
+    "unresolved": [
+      {
+        "file": "src/billing/x.ts",
+        "specifier": null,
+        "message": "动态 import()（行 1）不可静态判定"
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "status": "clean"
+}

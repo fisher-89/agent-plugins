@@ -1,95 +1,95 @@
 {
-  "activePhase": null,
-  "artifacts": [
-    {
-      "kind": "eval-checklist",
-      "phase": "proposal",
-      "source": "0",
-      "title": "评估清单 · proposal · 第 1 次"
-    },
-    {
-      "kind": "markdown-doc",
-      "phase": "proposal",
-      "source": "proposal.md",
-      "title": "提案"
-    },
-    {
-      "kind": "markdown-doc",
-      "phase": "dev-design",
-      "source": "tasks.md",
-      "title": "任务"
-    }
-  ],
-  "created": "2024-09-22",
   "id": "id-corpus-worktree",
   "name": "corpus-worktree",
+  "title": "corpus-worktree",
+  "source": "active",
+  "status": "active",
+  "created": "2024-09-22",
   "pipeline": [
     {
-      "attempts": [],
-      "phase": "initialize"
+      "phase": "initialize",
+      "attempts": []
     },
     {
+      "phase": "proposal",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
+          "verdict": "pass",
+          "report": "提案通过",
           "checklist": [
             {
-              "evidence": "detail.worktree 与记录一致",
               "item": "worktree 出线",
-              "pass": true
+              "pass": true,
+              "evidence": "detail.worktree 与记录一致"
             }
           ],
-          "decisionSessionId": null,
-          "evaluatorSessionId": "ses-wt-eval",
-          "executorSessionId": "ses-wt-exec",
-          "report": "提案通过",
           "skipped": false,
           "stale": false,
           "startAt": "2024-09-22T10:13:21Z",
           "timestamp": "2024-09-22T10:13:21Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": "ses-wt-exec",
+          "evaluatorSessionId": "ses-wt-eval",
+          "decisionSessionId": null
         }
-      ],
+      ]
+    },
+    {
+      "phase": "dev-design",
+      "attempts": []
+    },
+    {
+      "phase": "test-design",
+      "attempts": []
+    },
+    {
+      "phase": "implement",
+      "attempts": []
+    },
+    {
+      "phase": "test-gen",
+      "attempts": []
+    },
+    {
+      "phase": "test-execution",
+      "attempts": []
+    },
+    {
+      "phase": "code-review",
+      "attempts": []
+    },
+    {
+      "phase": "acceptance",
+      "attempts": []
+    },
+    {
+      "phase": "archive",
+      "attempts": []
+    }
+  ],
+  "activePhase": null,
+  "runs": [],
+  "artifacts": [
+    {
+      "kind": "eval-checklist",
+      "source": "0",
+      "title": "评估清单 · proposal · 第 1 次",
       "phase": "proposal"
     },
     {
-      "attempts": [],
+      "kind": "markdown-doc",
+      "source": "proposal.md",
+      "title": "提案",
+      "phase": "proposal"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "tasks.md",
+      "title": "任务",
       "phase": "dev-design"
-    },
-    {
-      "attempts": [],
-      "phase": "test-design"
-    },
-    {
-      "attempts": [],
-      "phase": "implement"
-    },
-    {
-      "attempts": [],
-      "phase": "test-gen"
-    },
-    {
-      "attempts": [],
-      "phase": "test-execution"
-    },
-    {
-      "attempts": [],
-      "phase": "code-review"
-    },
-    {
-      "attempts": [],
-      "phase": "acceptance"
-    },
-    {
-      "attempts": [],
-      "phase": "archive"
     }
   ],
-  "runs": [],
-  "source": "active",
-  "status": "active",
-  "title": "corpus-worktree",
   "worktree": "<WORKTREE_ROOT>\\corpus-worktree"
 }

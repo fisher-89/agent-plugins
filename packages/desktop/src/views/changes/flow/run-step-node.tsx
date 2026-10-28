@@ -33,6 +33,7 @@ const STEP_LABEL: Record<ChangeStepKind, string> = {
   staticCheck: '静态检查',
   testExecution: '测试执行',
   mutationTest: '突变执行',
+  archiCheck: '架构检查',
   clean: '基线恢复',
   phaseLog: '评估落账',
   verdictGate: 'verdict 门',

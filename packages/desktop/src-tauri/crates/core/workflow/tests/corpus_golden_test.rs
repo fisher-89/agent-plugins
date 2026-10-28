@@ -840,6 +840,16 @@ fn build_run_history(tag: &str) -> Corpus {
                 Some("按 feedback 修复重跑"),
                 None,
             ),
+            // archi_check 门禁步样本（AC-16 全词汇在案：static-check 之后、
+            // evaluator 之前；工具步无会话、detail 载 runner 摘要）
+            step(
+                "implement",
+                1,
+                ChangeStepKind::ArchiCheck,
+                ChangeStepStatus::Passed,
+                None,
+                Some("archi_check passed=true（报告 reports/archi）"),
+            ),
             step(
                 "implement",
                 1,
@@ -1385,24 +1395,150 @@ fn edge(from: NodeKey, to: NodeKey, kind: EdgeKind) -> ChangeStepEdge {
 // golden harness（沿既有 DESKTOP_GOLDEN_REWRITE 显式重写流程）
 // ---------------------------------------------------------------------------
 
-/// 对比或覆写单份 golden。
-fn check_or_rewrite(golden_name: &str, projection: &serde_json::Value) {
+/// 读入仓 golden：缺失与非法 JSON 均以明确文案失败——不静默新建 golden、
+/// 不以空期望放过、不把坏文件当漂移覆写。
+fn read_expected_golden(path: &Path, golden_name: &str) -> Result<String, String> {
+    let expected = fs::read_to_string(path).map_err(|err| {
+        format!("golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
+    })?;
+    serde_json::from_str::<serde_json::Value>(&expected).map_err(|err| {
+        format!("golden {golden_name}.json 非法 JSON（不静默新建；先以 {REWRITE_ENV}=1 重写并 review diff）: {err}")
+    })?;
+    Ok(expected)
+}
+
+/// 对比或覆写单份 golden 的实现：目录与开关以形参注入，`check_or_rewrite` 是它在
+/// 仓内 `golden_dir()` + 真实环境变量上的单点包装（缺失 / 非法 / 漂移形态的用例
+/// 据此真实驱动同一实现，不复制比较逻辑）。
+fn compare_or_rewrite_at(
+    dir: &Path,
+    golden_name: &str,
+    projection: &serde_json::Value,
+    rewrite: bool,
+) -> Result<(), String> {
     let normalized = format!(
         "{}\n",
         serde_json::to_string_pretty(projection).expect("投影序列化失败")
     );
-    let golden_path = golden_dir().join(format!("{golden_name}.json"));
-    if rewrite_mode() {
-        fs::create_dir_all(golden_dir()).expect("创建 golden 目录失败");
-        fs::write(&golden_path, &normalized).expect("写 golden 失败");
-        return;
+    let golden_path = dir.join(format!("{golden_name}.json"));
+    if rewrite {
+        fs::create_dir_all(dir).map_err(|err| format!("创建 golden 目录失败: {err}"))?;
+        fs::write(&golden_path, &normalized).map_err(|err| format!("写 golden 失败: {err}"))?;
+        return Ok(());
     }
-    let expected = fs::read_to_string(&golden_path).unwrap_or_else(|err| {
-        panic!("golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
-    });
+    let expected = read_expected_golden(&golden_path, golden_name)?;
+    if expected != normalized {
+        return Err(format!(
+            "语料 {golden_name} 的投影与 golden 漂移；若为有意的线面演进，以 {REWRITE_ENV}=1 重写并 review diff"
+        ));
+    }
+    Ok(())
+}
+
+/// 对比或覆写单份 golden（仓内 golden 目录 + 真实重写开关）。
+fn check_or_rewrite(golden_name: &str, projection: &serde_json::Value) {
+    if let Err(message) =
+        compare_or_rewrite_at(&golden_dir(), golden_name, projection, rewrite_mode())
+    {
+        panic!("{message}");
+    }
+}
+
+/// 异常（AC-16）：`corpus-run-history` golden 缺失 / 非合法 JSON 两形态（重写开关
+/// 未置位）→ 以明确文案失败并提示重写开关——不静默新建 golden、不以空期望放过、
+/// 不覆写坏文件。
+#[test]
+fn golden缺失或非法即明确失败() {
+    let temp = tempfile::TempDir::new().expect("建临时目录失败");
+    let dir = temp.path();
+    let projection = serde_json::json!({ "runs": [] });
+    let golden_path = dir.join("corpus-run-history.json");
+
+    let error = compare_or_rewrite_at(dir, "corpus-run-history", &projection, false)
+        .expect_err("缺失即 Err");
+    assert!(
+        error.contains("golden corpus-run-history.json 缺失"),
+        "缺失文案须点名文件：{error}"
+    );
+    assert!(
+        error.contains(&format!("{REWRITE_ENV}=1")),
+        "缺失文案须提示重写开关：{error}"
+    );
+    assert!(!golden_path.exists(), "缺失形态 MUST NOT 静默新建 golden");
+
+    fs::write(&golden_path, "{ \"runs\": [ }").expect("写非法 golden 失败");
+    let before = fs::read(&golden_path).expect("读盘失败");
+    let error = compare_or_rewrite_at(dir, "corpus-run-history", &projection, false)
+        .expect_err("非法 JSON 即 Err");
+    assert!(error.contains("非法 JSON"), "非法文案须点名：{error}");
+    assert!(
+        error.contains(&format!("{REWRITE_ENV}=1")),
+        "非法文案须提示重写开关：{error}"
+    );
     assert_eq!(
-        normalized, expected,
-        "语料 {golden_name} 的投影与 golden 漂移；若为有意的线面演进，以 {REWRITE_ENV}=1 重写并 review diff"
+        fs::read(&golden_path).expect("读盘失败"),
+        before,
+        "非法形态 MUST NOT 覆写 golden"
+    );
+}
+
+/// 异常（AC-16）：合法但不等的 golden → 报差异并提示以 `DESKTOP_GOLDEN_REWRITE=1`
+/// 重写并 review diff（不静默通过）；未置位重写开关时 golden 字节零变化。
+#[test]
+fn golden漂移提示重写并reviewdiff() {
+    let temp = tempfile::TempDir::new().expect("建临时目录失败");
+    let dir = temp.path();
+    let current = serde_json::json!({ "runs": [{ "id": "run-1" }] });
+    compare_or_rewrite_at(dir, "corpus-run-history", &current, true).expect("重写轮应 Ok");
+    let golden_path = dir.join("corpus-run-history.json");
+    let written = fs::read(&golden_path).expect("读盘失败");
+
+    let evolved = serde_json::json!({ "runs": [{ "id": "run-1" }, { "id": "run-2" }] });
+    let error =
+        compare_or_rewrite_at(dir, "corpus-run-history", &evolved, false).expect_err("漂移即 Err");
+    assert!(error.contains("漂移"), "漂移文案须点明语义：{error}");
+    assert!(
+        error.contains(&format!("{REWRITE_ENV}=1")),
+        "漂移文案须提示重写开关：{error}"
+    );
+    assert!(
+        error.contains("review diff"),
+        "漂移文案须要求复核 diff：{error}"
+    );
+    assert_eq!(
+        fs::read(&golden_path).expect("读盘失败"),
+        written,
+        "未置位重写开关时 golden 字节零变化"
+    );
+}
+
+/// 边界（AC-16 重写轮 / 复核轮）：重写轮覆写（golden 目录缺席即自建，产物为归一化
+/// pretty JSON + 尾换行）→ 复核轮等价 `Ok` → 再重写幂等字节相等。
+#[test]
+fn golden重写轮覆写后复核轮等价() {
+    let temp = tempfile::TempDir::new().expect("建临时目录失败");
+    let dir = temp.path().join("golden");
+    let projection = serde_json::json!({ "title": "语料", "runs": [{ "id": "run-1" }] });
+    let golden_path = dir.join("corpus-run-history.json");
+    let expected = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&projection).expect("序列化失败")
+    );
+
+    compare_or_rewrite_at(&dir, "corpus-run-history", &projection, true).expect("重写轮应 Ok");
+    assert_eq!(
+        fs::read_to_string(&golden_path).expect("读盘失败"),
+        expected,
+        "重写产物为归一化投影（含尾换行）"
+    );
+
+    compare_or_rewrite_at(&dir, "corpus-run-history", &projection, false).expect("复核轮应等价");
+
+    compare_or_rewrite_at(&dir, "corpus-run-history", &projection, true).expect("再重写应 Ok");
+    assert_eq!(
+        fs::read_to_string(&golden_path).expect("读盘失败"),
+        expected,
+        "重写幂等（字节相等）"
     );
 }
 
@@ -1839,11 +1975,12 @@ fn corpusrun全史语料_golden对拍() {
     // 全词汇断言：runs[].nodes[].step 非归档十九词在案（零过滤——flow 面步骤与三
     // 门同整包落库；mutation_test 拆步新词在案，AC-1 / AC-2；归档 9 步词样本由
     // corpus-archive-prefix golden 承载）
-    const FULL_WORDS: [&str; 11] = [
+    const FULL_WORDS: [&str; 12] = [
         "executor",
         "evaluator",
         "decision",
         "static_check",
+        "archi_check",
         "test_execution",
         "mutation_test",
         "phase_start",
@@ -1866,7 +2003,7 @@ fn corpusrun全史语料_golden对拍() {
             let word = node["step"].as_str().expect("step 出线词");
             assert!(
                 FULL_WORDS.contains(&word),
-                "落库步词汇 {word} 越二十值封闭集"
+                "落库步词汇 {word} 越二十二值封闭集"
             );
             if !seen_words.contains(&word) {
                 seen_words.push(word);
@@ -1875,8 +2012,8 @@ fn corpusrun全史语料_golden对拍() {
         }
     }
     assert_eq!(
-        nodes_seen, 16,
-        "run-1 十二条（含 mutation_test 拆步新词样本）+ run-2 一条 + run-3 三条（两态样本），实际: {nodes_seen}"
+        nodes_seen, 17,
+        "run-1 十三条（含 archi_check 门禁步与 mutation_test 拆步新词样本）+ run-2 一条 + run-3 三条（两态样本），实际: {nodes_seen}"
     );
     for word in FULL_WORDS {
         assert!(seen_words.contains(&word), "词汇 {word} 应在案（零过滤）");

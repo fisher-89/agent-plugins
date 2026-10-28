@@ -24,6 +24,10 @@ const TEST_REPORTS_DIR_NAME: &str = "test";
 /// 基线报告子目录名（相对 reports 子目录锚定）
 const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
 
+/// 架构漂移报告子目录名（相对 reports 子目录锚定；消费者为架构漂移门禁
+/// runner——报告体是漂移报告 JSON，与 checks 域两套 schema 分树隔离）
+const ARCHI_REPORTS_DIR_NAME: &str = "archi";
+
 /// 架构域顶层目录名（相对 workspace 根锚定；`.dev-team` 隐藏目录——架构资产与
 /// `openspec/` 变更语料分树；与壳层数据根 `<home>/.dev-team` 同名不同物）
 const ARCHI_ROOT_DIR_NAME: &str = ".dev-team";
@@ -37,16 +41,20 @@ const MODELS_DIR_NAME: &str = "models";
 /// 架构决策记录（ADR）子目录名（相对架构域根锚定）
 const DECISIONS_DIR_NAME: &str = "decisions";
 
-/// 报告槽位（封闭二值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
+/// 报告槽位（封闭三值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
 /// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
 /// `Baseline` 为 initialize 基线检查槽位（`reports/baseline`——两报告树分树
-/// 隔离，零混居）。
+/// 隔离，零混居），`Archi` 为架构漂移门禁槽位（`reports/archi`——漂移报告
+/// JSON 与 checks 报告 schema 分树隔离，消费者为 `desktop-archi-gate` 的
+/// runner；`crates/infra/checks` 两 runner MUST NOT 接受该槽位）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportSlot {
     /// 缺省槽位：`reports/test`（既有语义）
     Test,
     /// 基线检查槽位：`reports/baseline`（initialize 相位两检查步）
     Baseline,
+    /// 架构漂移门禁槽位：`reports/archi`（架构漂移门禁 runner 单点取用）
+    Archi,
 }
 
 /// workspace 磁盘布局：进行中 / 已归档 / 探索笔记三棵目录树。
@@ -80,16 +88,17 @@ pub fn config_path(root: &Path) -> PathBuf {
     root.join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
 }
 
-/// 槽位 → reports 子目录名映射（两树后缀单点——消费方零路径字面量扩散）。
+/// 槽位 → reports 子目录名映射（三树后缀单点——消费方零路径字面量扩散）。
 fn report_dir_name(slot: ReportSlot) -> &'static str {
     match slot {
         ReportSlot::Test => TEST_REPORTS_DIR_NAME,
         ReportSlot::Baseline => BASELINE_REPORTS_DIR_NAME,
+        ReportSlot::Archi => ARCHI_REPORTS_DIR_NAME,
     }
 }
 
-/// 槽位驱动的 change 报告目录单点（`reports/<test|baseline>` 后缀同源派生；
-/// 两命名变体委托本函数）。
+/// 槽位驱动的 change 报告目录单点（`reports/<test|baseline|archi>` 后缀同源
+/// 派生；三命名变体委托本函数）。
 pub fn change_reports(root: &Path, change: &str, slot: ReportSlot) -> PathBuf {
     change_reports_in(&resolve(root).changes_root.join(change), slot)
 }
@@ -140,6 +149,15 @@ pub fn archi_models_dir(root: &Path) -> PathBuf {
 /// 架构决策记录目录派生（`<架构域根>/decisions`；全从 [`archi_dir`] 派生）。
 pub fn archi_decisions_dir(root: &Path) -> PathBuf {
     archi_dir(root).join(DECISIONS_DIR_NAME)
+}
+
+/// 架构域看护配置路径派生（`<架构域根>/config.json`；全从 [`archi_dir`] 派生，
+/// 文件名复用既有 [`CONFIG_FILE_NAME`]——MUST NOT 新增第二个文件名字面量）。
+/// 架构域看护配置（豁免元素对 / 扫描排除 glob）的唯一合法定位函数：消费者
+/// MUST NOT 行内拼 `config.json`；纯推导零 IO（存在性判定交读取面）。工作区配置
+/// 仍只经 [`config_path`]。
+pub fn archi_config_path(root: &Path) -> PathBuf {
+    archi_dir(root).join(CONFIG_FILE_NAME)
 }
 
 /// repo 相对路径是否落在架构域之内（`/` 与 `\` 分隔均归一后判定）：判据 = 归一

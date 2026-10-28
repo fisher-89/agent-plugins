@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "incremental",
+  "root": "<root>",
+  "change": "no-changes",
+  "base": "HEAD",
+  "modelHash": "sha256:de80946b988421957a1b4f70df5803aee9129f2edc61a734667aac72910164ef",
+  "model": {
+    "elements": 2,
+    "relations": 0,
+    "byGate": {
+      "strict": 1,
+      "warn": 0,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "incremental",
+    "changedFiles": 0,
+    "scannedFiles": 0,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "status": "noChanges"
+}

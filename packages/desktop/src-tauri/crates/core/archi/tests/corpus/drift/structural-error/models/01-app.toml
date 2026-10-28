@@ -1,0 +1,16 @@
+# 结构错语料：`App.Auth -> App` 为「下游依赖祖先」形态 → dependsOnAncestor，
+# status = errors（结构错不进 errors[]）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "domain"
+gate = "warn"
+path = ["./src/auth/"]
+
+[[relation]]
+from = "App.Auth"
+to = "App"
+desc = "认证属于核心包"

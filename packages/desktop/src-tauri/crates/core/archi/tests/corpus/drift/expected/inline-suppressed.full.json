@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "inline-suppressed",
+  "base": null,
+  "modelHash": "sha256:7d99f4592833d921ab89f6e66a903f01cc429fb846ae66d3bff4ba2d5043d316",
+  "model": {
+    "elements": 3,
+    "relations": 0,
+    "byGate": {
+      "strict": 1,
+      "warn": 1,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 2,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Auth",
+        "files": [
+          "src/auth/token.ts"
+        ]
+      },
+      {
+        "element": "App.Billing",
+        "files": [
+          "src/billing/x.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [
+    {
+      "from": "App.Billing",
+      "to": "App.Auth",
+      "via": "inline",
+      "reason": "迁移期临时直连",
+      "file": "src/billing/x.ts",
+      "line": 2
+    }
+  ],
+  "observations": [],
+  "status": "clean"
+}

@@ -1,6 +1,11 @@
-//! 架构命令轨道：五命令薄包装（`archi_graph` / `archi_module` / `archi_read_doc` /
-//! `archi_change_summary` / `archi_set_gate`）+ 五个 `*_inner` 领域组装纯函数
-//! （`*_inner` app 层微形态先例，离 Tauri 运行时可测）。
+//! 架构命令轨道：六命令薄包装（`archi_graph` / `archi_module` / `archi_read_doc` /
+//! `archi_change_summary` / `archi_set_gate` / `archi_drift`）+ 六个 `*_inner` 领域
+//! 组装纯函数（`*_inner` app 层微形态先例，离 Tauri 运行时可测）。
+//!
+//! `archi_drift` 是**架构漂移检查**的命令面（两模式）：全量模式直接调判定、增量
+//! 模式经 vcs 缝取变更集后同源判定；判定规则全在 `archi::drift`——命令层零判定
+//! （无归属匹配、无定级分支、无 `status` 推导），两条消费面（本命令与门禁 runner）
+//! 共用同一实现（判定单源）。
 //!
 //! 三件事纪律沿 `commands/config` 模板：参数转换 → 调用 → 错误映射。投影、诊断、
 //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
@@ -15,10 +20,14 @@
 use std::fs;
 use std::path::Path;
 
+use archi::drift::{ArchiDriftMode, ArchiDriftReport, CheckInput};
 use archi::dto::{self, ArchiChangeSummary, ArchiGraph, ArchiModuleDetail};
 use archi::GateTier;
+use foundation::cancel::CancelFlag;
+use orchestration::port::ArchiveVcsPort;
 use store::WorkspaceStores;
 use tauri::State;
+use vcs_runtime::ProcessArchiveVcs;
 use workflow::state::ChangeStatus;
 
 #[cfg(test)]
@@ -160,4 +169,42 @@ pub fn archi_set_gate_inner(root: &Path, element: &str, gate: GateTier) -> Resul
     check_root(root)?;
     let plan = archi::edit::plan_set_gate(root, element, gate)?;
     write_atomic(&plan.file, &plan.content)
+}
+
+/// 架构漂移检查（两模式；命令层零判定）。
+#[tauri::command]
+#[specta::specta]
+pub fn archi_drift(root: String, mode: ArchiDriftMode) -> Result<ArchiDriftReport, String> {
+    let vcs = ProcessArchiveVcs::new();
+    archi_drift_inner(Path::new(&root), mode, &vcs)
+}
+
+/// [`archi_drift`] 的领域组装纯函数：root 检查 → 增量经 vcs 缝取变更集 → 调判定
+/// 纯函数 → 错误串映射。
+///
+/// - 模式分流：`full` → 空变更集（无基准）；`incremental` →
+///   `change_edit_set(root, "HEAD")`（git 失败显式 `Err`，MUST NOT 降级空清单——
+///   空清单会静默变成 `noChanges` = 假通过）；
+/// - 无 change 上下文：命令面恒 `change = None`（与门禁面的区别仅此与
+///   `timestamp`）；取消不可达（`CancelFlag::never()`）；
+/// - 错误面：模型结构错**不** `Err`（进报告 `model.structuralErrors` 并令
+///   `status = errors`）；配置非法 / 扫描硬失败 → `Err`（文案指明条目）。
+pub fn archi_drift_inner(
+    root: &Path,
+    mode: ArchiDriftMode,
+    vcs: &dyn ArchiveVcsPort,
+) -> Result<ArchiDriftReport, String> {
+    check_root(root)?;
+    let changed = match mode {
+        ArchiDriftMode::Full => Vec::new(),
+        ArchiDriftMode::Incremental => vcs.change_edit_set(root, "HEAD")?,
+    };
+    archi::drift::check(CheckInput {
+        root,
+        mode,
+        changed: &changed,
+        change: None,
+        cancel: CancelFlag::never(),
+    })
+    .map_err(|error| error.message())
 }

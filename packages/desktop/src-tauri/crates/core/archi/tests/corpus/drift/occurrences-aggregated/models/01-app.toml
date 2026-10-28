@@ -1,0 +1,16 @@
+# 聚合语料：同一元素对在 3 个文件各命中 1 处 → errors 恰 1 条，
+# occurrences 3 项（不按行铺开，AC-5）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

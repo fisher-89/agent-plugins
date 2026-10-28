@@ -940,7 +940,16 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
             StepNode::VerdictGate,
             StepNode::PhaseLog,
         ],
-        "implement" | "test-gen" => vec![
+        "implement" => vec![
+            StepNode::PhaseStart,
+            StepNode::Executor,
+            StepNode::StaticCheck,
+            StepNode::ArchiCheck,
+            StepNode::Evaluator,
+            StepNode::VerdictGate,
+            StepNode::PhaseLog,
+        ],
+        "test-gen" => vec![
             StepNode::PhaseStart,
             StepNode::Executor,
             StepNode::StaticCheck,
@@ -979,6 +988,7 @@ fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
         StepNode::TestExecution | StepNode::MutationTest if phase_id == "test-execution" => {
             Some(OnFail::Escalate)
         }
+        StepNode::ArchiCheck if phase_id == "implement" => Some(OnFail::FeedbackLoop { limit: 3 }),
         StepNode::StaticCheck => Some(OnFail::FeedbackLoop { limit: 5 }),
         StepNode::VerdictGate if phase_id == "code-analyze" => Some(OnFail::Terminal),
         StepNode::VerdictGate => Some(OnFail::FeedbackLoop { limit: 5 }),
@@ -1260,6 +1270,8 @@ fn 计划图prompt静态非空且零占位() {
 
 #[test]
 fn 计划图on_fail语义与步绑定() {
+    use super::phase_table::{ARCHI_FEEDBACK_LIMIT, FEEDBACK_LOOP_LIMIT};
+
     let table = phase_table("requirement").expect("requirement 应返回 Some");
 
     for def in table {
@@ -1274,6 +1286,7 @@ fn 计划图on_fail语义与步绑定() {
             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
                 let allowed = (matches!(def.id, "implement" | "test-gen")
                     && step.node == StepNode::StaticCheck)
+                    || (def.id == "implement" && step.node == StepNode::ArchiCheck)
                     || step.node == StepNode::VerdictGate;
                 assert!(
                     allowed,
@@ -1303,15 +1316,76 @@ fn 计划图on_fail语义与步绑定() {
         }
     }
 
-    // FeedbackLoop 计数上限恒为 5（u32 边界语义面；limit 逐值可辨由 state_test 承载）
+    // FeedbackLoop 计数上限两档：既有 static-check / verdict-gate 为 5，架构漂移
+    // 门禁步为独立的 3（三段计数互不占用；limit 逐值可辨由 state_test 承载）
     for def in table {
         for step in def.steps {
             if let Some(OnFail::FeedbackLoop { limit }) = step.on_fail {
-                assert_eq!(limit, 5, "反馈边独立计数上限为 5");
+                let expected = if step.node == StepNode::ArchiCheck {
+                    ARCHI_FEEDBACK_LIMIT
+                } else {
+                    FEEDBACK_LOOP_LIMIT
+                };
+                assert_eq!(
+                    limit, expected,
+                    "相位 {} 步 {:?} 的反馈边计数上限",
+                    def.id, step.node
+                );
                 assert!(limit > 0, "上限为正（零上限反馈无意义）");
             }
         }
     }
+}
+
+/// 正向（AC-11）：架构门禁反馈上限**单源直证**——`ARCHI_FEEDBACK_LIMIT == 3`
+///（三次违例后升格），implement 的 `ArchiCheck` 步 `on_fail` 逐值取该常量（不是
+/// 另一份重复字面量），且与 static-check / verdict-gate 的
+/// `FEEDBACK_LOOP_LIMIT`（5）可辨（三段计数互不占用、互不顶替）。
+#[test]
+fn archi反馈上限常量直证且与implement步同源() {
+    use super::phase_table::{ARCHI_FEEDBACK_LIMIT, FEEDBACK_LOOP_LIMIT};
+
+    assert_eq!(
+        ARCHI_FEEDBACK_LIMIT, 3,
+        "架构门禁反馈上限 = 3（第 4 次违例升格，不无限回环）"
+    );
+    assert_ne!(
+        ARCHI_FEEDBACK_LIMIT, FEEDBACK_LOOP_LIMIT,
+        "与既有 static-check / verdict-gate 上限（5）分段独立"
+    );
+    const { assert!(ARCHI_FEEDBACK_LIMIT > 0, "上限为正（零上限反馈无意义）") };
+
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let implement = phase_of(table, "implement");
+    let archi = implement
+        .steps
+        .iter()
+        .find(|step| step.node == StepNode::ArchiCheck)
+        .expect("implement 应含 ArchiCheck 步");
+    assert_eq!(
+        archi.on_fail,
+        Some(OnFail::FeedbackLoop {
+            limit: ARCHI_FEEDBACK_LIMIT
+        }),
+        "表内 limit 与常量同值（增删一处即错位即红）"
+    );
+
+    // 计数边界（0 / 1 / 3 / 4 超限）：上限语义即「第 limit+1 次升格」——常量
+    // 本身可作计数比较端（walker 侧的升格行为由 walker_test 承载）
+    let mut attempts: u32 = 0;
+    for _ in 0..ARCHI_FEEDBACK_LIMIT {
+        attempts += 1;
+        assert!(
+            attempts <= ARCHI_FEEDBACK_LIMIT,
+            "第 {attempts} 次违例仍走反馈边（未升格）"
+        );
+    }
+    attempts += 1;
+    assert!(
+        attempts > ARCHI_FEEDBACK_LIMIT,
+        "第 {} 次违例越限 → 升格（代写 fail、不跑 evaluator）",
+        ARCHI_FEEDBACK_LIMIT + 1
+    );
 }
 
 /// 类型收敛：`PhaseDefinition` 穷尽解构含 `steps` / `artifact_manifest` 新字段

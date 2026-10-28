@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "undeclared-three-gates",
+  "base": null,
+  "modelHash": "sha256:8a7b1fea90ceb46dabf7a0bd7476791a69a64c4522def7633a9aa9afd48857db",
+  "model": {
+    "elements": 5,
+    "relations": 0,
+    "byGate": {
+      "strict": 1,
+      "warn": 2,
+      "off": 2
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 4,
+    "excluded": [],
+    "unmatchedFiles": [
+      "src/off/a.ts"
+    ],
+    "matched": [
+      {
+        "element": "App.Shared",
+        "files": [
+          "src/shared/token.ts"
+        ]
+      },
+      {
+        "element": "App.Strict",
+        "files": [
+          "src/strict/a.ts"
+        ]
+      },
+      {
+        "element": "App.Warn",
+        "files": [
+          "src/warn/a.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [
+    {
+      "kind": "undeclaredDependency",
+      "from": "App.Strict",
+      "to": "App.Shared",
+      "gate": "strict",
+      "message": "未声明依赖：App.Strict → App.Shared（引入方 gate=strict，1 处命中）",
+      "occurrences": [
+        {
+          "file": "src/strict/a.ts",
+          "line": 1,
+          "specifier": "../shared/token",
+          "typeOnly": false
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "undeclaredDependency",
+      "from": "App.Warn",
+      "to": "App.Shared",
+      "gate": "warn",
+      "message": "未声明依赖：App.Warn → App.Shared（引入方 gate=warn，1 处命中）",
+      "occurrences": [
+        {
+          "file": "src/warn/a.ts",
+          "line": 1,
+          "specifier": "../shared/token",
+          "typeOnly": false
+        }
+      ]
+    }
+  ],
+  "suppressed": [],
+  "observations": [],
+  "status": "errors"
+}

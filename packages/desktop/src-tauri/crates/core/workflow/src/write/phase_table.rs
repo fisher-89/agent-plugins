@@ -62,6 +62,10 @@ pub(crate) const MAX_ROUNDS: u32 = 20;
 /// 门禁反馈边独立计数上限
 pub(crate) const FEEDBACK_LOOP_LIMIT: u32 = 5;
 
+/// 架构漂移门禁反馈边独立计数上限（与 static-check / verdict 的 5 次互不占用
+/// ——三段计数各按步声明承载，架构违例的修复轮次不挤占静态检查预算）
+pub(crate) const ARCHI_FEEDBACK_LIMIT: u32 = 3;
+
 // --- 相位 prompt 静态装配单源（`include_str!` 显式字面路径；executor /
 // evaluator spec 与计划步 `prompt_ref` 同引本组常量，防两处字面路径漂移）----
 
@@ -267,6 +271,15 @@ static IMPLEMENT_STEPS: &[StepDefinition] = &[
         prompt_ref: None,
         on_fail: Some(OnFail::FeedbackLoop {
             limit: FEEDBACK_LOOP_LIMIT,
+        }),
+    },
+    // 架构漂移门禁（先修机器能判的，再让评估面看已过门禁的产物）：反馈边上限
+    // 独立于 static-check 的 5 次与 verdict 的 5 次
+    StepDefinition {
+        node: StepNode::ArchiCheck,
+        prompt_ref: None,
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: ARCHI_FEEDBACK_LIMIT,
         }),
     },
     StepDefinition {

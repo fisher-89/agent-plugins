@@ -84,7 +84,7 @@ pub trait WorkerAgentPort: Send + Sync {
     fn run(&self, turn: WorkerTurnRequest) -> BoxTurnFuture;
 }
 
-/// 工具步命令封闭集（相位机四步 + 三检查门禁 + 归档内联两步；写通道唯一——
+/// 工具步命令封闭集（相位机四步 + 四检查门禁 + 归档内联两步；写通道唯一——
 /// 相位机载荷直载写面输入类型，进程内直调 `workflow::write`）。各变体定位载荷
 /// 为 change **id**（一切寻址以 id 为准；磁盘面 name 由消费点经记录解析）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +120,9 @@ pub enum ToolCommand {
     /// mutation-test 门禁（确定性突变执行链；清单 / 补丁经 vcs 缝取数注入，
     /// 报告目录派生经记录 name 解析）
     MutationTest { change_id: String },
+    /// archi-check 门禁（架构漂移判定；报告槽位恒 `ReportSlot::Archi` 由 runner
+    /// 单点取用——不设 slot 字段，避免出现恒一值的形参；变更集经 vcs 缝取数注入）
+    ArchiCheck { change_id: String },
     /// 归档前置只读载荷（store 读 + vcs 探测；请求 root 恒主 workspace root
     /// ——layout 解析与主仓分支探测锚）
     ArchivePreflight { change_id: String },
@@ -154,6 +157,7 @@ pub enum ToolStepOutput {
     StaticCheck(StaticCheckOutcome),
     TestExecution(TestExecutionOutcome),
     MutationTest(MutationTestOutcome),
+    ArchiCheck(ArchiCheckOutcome),
     ArchivePreflight(ArchivePreflight),
     ArchiveSeal(workflow::write::ArchiveOutcome),
 }
@@ -329,6 +333,26 @@ pub struct MutationTestOutcome {
 
 /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]
 /// 直调写面，static-check 委托注入的 [`StaticCheckRunner`]。
+/// archi-check 门禁产出（`passed` 由 runner 侧从报告派生：`errors` 与
+/// `model.structuralErrors` 皆空即通过——`warnings` / `observations` /
+/// `suppressed` 一律不影响通过判定）。**零 Serialize 不进 IPC**：只在进程内
+/// walker 反馈边与步 detail 消费，全量明细留报告文件。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiCheckOutcome {
+    /// 门禁结论（`errors.is_empty() && model.structural_errors.is_empty()`）
+    pub passed: bool,
+    /// 诊断文本（runner 侧装配并**有界**：通过态为人读摘要、失败态为违例明细 +
+    /// 固定处置提示；整体不超过 `MAX_REPORT_CHARS` 量级）
+    pub diagnostics: String,
+    /// 执行面归因（生产路径恒 `None`——本 runner 零进程；字段保留以与既有三
+    /// outcome 同形，取消时落 `Some(RunFault::Stopped)`）
+    pub fault: Option<RunFault>,
+    /// 报告目录（`reports/archi`，经 layout 槽位单点派生）
+    pub report_dir: String,
+    /// 报告文件路径（`None` = 落盘失败——审计面降级不阻断结论）
+    pub report_ref: Option<String>,
+}
+
 pub trait ToolStepPort: Send + Sync {
     fn run(&self, step: ToolStepRequest) -> BoxToolFuture;
 }
@@ -381,6 +405,27 @@ pub trait MutationRunner: Send + Sync {
         name: &str,
         files: &[String],
         patch: &str,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture;
+}
+
+/// archi-check 门禁缝（infra 实现，`crates/infra/archi`；检查域家族第四成员，
+/// 与 [`MutationRunner`] 同式——**本 runner 零进程**，判定全部复用 `archi` 的
+/// 漂移判定纯函数）。产出契约同 `ToolStepOutput` 封闭集
+///（`ToolStepOutput::ArchiCheck`）。**四参显式化**：`root` = exec root
+///（worktree / 主仓根——模型与源码同根）、`name` = change 磁盘名（报告目录
+/// `change_reports(root, name, ReportSlot::Archi)` 派生）、`changed` = 变更集
+/// （经 [`ArchiveVcsPort::change_edit_set`] 由 `steps.rs` 注入，infra 侧零 git）、
+/// 末位取消信号。报告槽位不设形参（恒 `ReportSlot::Archi`，runner 内部取用）。
+pub trait ArchiCheckRunner: Send + Sync {
+    /// 取消信号经扫描循环观测（遍历 / 解析内轮询）——置位 → 产出以
+    /// `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 以 `Err` 表达取消）。
+    /// 报告写盘失败 MUST NOT 返回 `Err`（降级 `report_ref = None` 并保留结论）。
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        changed: Vec<String>,
         cancel: CancelFlag,
     ) -> BoxToolFuture;
 }

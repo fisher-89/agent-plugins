@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use checks::model::MutationTool;
 use config::{MutationConfig, TestFramework};
 use orchestration::port::{
-    ArchiveVcsPort, BoxToolFuture, MutationRunner, MutationSkipReason, MutationTestConclusion,
-    RebaseOutcome, RunFault, StaticCheckRunner, TestExecutionRunner, ToolCommand, ToolStepOutput,
-    ToolStepPort, ToolStepRequest, WorktreeSnapshot,
+    ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner, MutationSkipReason,
+    MutationTestConclusion, RebaseOutcome, RunFault, StaticCheckRunner, TestExecutionRunner,
+    ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
 };
 use orchestration::LocalToolSteps;
 use tempfile::TempDir;
@@ -1430,6 +1430,23 @@ impl ChangeStateStore for FakeStore {
 /// test-execution 两缝——触发即用例错位显式炸出）。
 struct UnusedSeamRunner;
 
+/// 组合链路未触缝占位假件（本变更新形参的编译级补位：MutationTest 分支不触发
+/// archi 门禁缝——触发即用例错位显式炸出）。
+struct UnusedArchiSeam;
+
+impl ArchiCheckRunner for UnusedArchiSeam {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _changed: Vec<String>,
+        _cancel: foundation::cancel::CancelFlag,
+    ) -> BoxToolFuture {
+        let error = "组合根链路不触架构漂移门禁缝".to_owned();
+        Box::pin(async move { Err::<ToolStepOutput, String>(error) })
+    }
+}
+
 impl StaticCheckRunner for UnusedSeamRunner {
     fn run(
         &self,
@@ -1476,6 +1493,7 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
         Arc::new(UnusedSeamRunner),
         Arc::new(UnusedSeamRunner),
         Arc::new(ProcessMutation::new()),
+        Arc::new(UnusedArchiSeam),
         Arc::clone(&vcs) as Arc<dyn ArchiveVcsPort>,
         Arc::clone(&store) as Arc<dyn ChangeStateStore>,
         "run-combo-0001".to_owned(),

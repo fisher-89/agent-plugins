@@ -3397,3 +3397,106 @@ async fn 记录聚合面_fault收口仍留头且零报告落盘() {
         "fault 面零子报告落盘"
     );
 }
+
+// ---------------------------------------------------------------------------
+// archi 槽位守卫（D19 / AC-14）：test-execution runner 同式拒收
+// ---------------------------------------------------------------------------
+
+/// 异常（D19）：`ReportSlot::Archi` → `Err`，文案含槽位词与归属方；守卫先于
+/// detect（空 tempdir 无任何项目清单，仍返槽位 `Err` 而非 detect 错）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn archi槽位显式Err先于detect() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    let root = temp.path().to_string_lossy().into_owned();
+    let error = ProcessTestExecution::new()
+        .run(
+            &root,
+            "demo",
+            ReportSlot::Archi,
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+        .expect_err("checks 域 MUST NOT 接受 archi 槽位");
+    assert!(
+        error.contains("archi") && error.contains("架构门禁"),
+        "文案含槽位词与归属方：{error}"
+    );
+}
+
+/// 边界：幂等 + 零写盘 + 槽位隔离（`reports/archi` 零创建，`reports/test` /
+/// `reports/baseline` 零变化）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn archi槽位守卫幂等且零写盘() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    let root = temp.path().to_string_lossy().into_owned();
+    let before = fs::read_dir(temp.path())
+        .expect("读目录失败")
+        .flatten()
+        .count();
+    let first = ProcessTestExecution::new()
+        .run(
+            &root,
+            "demo",
+            ReportSlot::Archi,
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+        .expect_err("拒收");
+    let second = ProcessTestExecution::new()
+        .run(
+            &root,
+            "demo",
+            ReportSlot::Archi,
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+        .expect_err("拒收");
+    assert_eq!(first, second, "幂等：两次文案逐字相等");
+    assert_eq!(
+        fs::read_dir(temp.path())
+            .expect("读目录失败")
+            .flatten()
+            .count(),
+        before,
+        "零写盘：根目录条目数不变"
+    );
+    assert!(!temp.path().join("openspec").exists(), "零报告目录创建");
+}
+
+/// 边界：零 spawn——`PATH` 隔离窗口（清空，任何外部程序不可达）下 `Archi` 槽位
+/// 仍返回槽位 `Err`（守卫先于执行链，不进入计划执行，也不短路成 detect /
+/// spawn 类错误）。
+#[tokio::test]
+#[allow(non_snake_case)]
+async fn archi槽位零spawn_PATH隔离仍返槽位err() {
+    let window = PathWindowGuard::enter();
+    let temp = TempDir::new().expect("建临时目录失败");
+    let root = temp.path().to_string_lossy().into_owned();
+    std::env::set_var("PATH", "");
+
+    let result = ProcessTestExecution::new()
+        .run(
+            &root,
+            "demo",
+            ReportSlot::Archi,
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await;
+    drop(window);
+
+    let error = result.expect_err("PATH 隔离下仍应返回槽位 Err");
+    assert!(
+        error.contains("archi") && error.contains("架构门禁"),
+        "文案仍为槽位归属（守卫先于执行链）：{error}"
+    );
+    assert!(
+        !error.contains("未识别项目") && !error.contains("拉起失败") && !error.contains("不可达"),
+        "不因 PATH 隔离短路成 detect / spawn 类错误：{error}"
+    );
+    assert!(
+        !temp.path().join("openspec").exists(),
+        "零 spawn ⇒ 零报告目录创建"
+    );
+}

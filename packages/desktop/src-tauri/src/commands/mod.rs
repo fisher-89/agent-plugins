@@ -75,6 +75,7 @@ macro_rules! all_commands {
             $crate::commands::archi::archi_read_doc,
             $crate::commands::archi::archi_change_summary,
             $crate::commands::archi::archi_set_gate,
+            $crate::commands::archi::archi_drift,
         ]
     };
 }

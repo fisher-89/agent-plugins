@@ -1,0 +1,19 @@
+# 架构漂移门禁执行面（crate 裸名 `archi-runtime`）：判定与解析全部复用
+# `crates/core/archi`，本层只做「取输入 → 调判定 → 落盘 → 派生 outcome」——
+# 零归属 / 定级 / `status` 推导（判定单源纪律）。
+#
+# 零依赖面：零 Tauri / 零 spawn（无 `std::process` / `tokio::process` / shell）/
+# 零 vcs（变更集经 port 注入）/ 零 store / 零 config / 零 workflow。
+[package]
+name = "archi-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+archi = { workspace = true }
+foundation = { workspace = true }
+orchestration = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

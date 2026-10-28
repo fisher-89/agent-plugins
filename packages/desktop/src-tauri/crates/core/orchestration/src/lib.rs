@@ -13,10 +13,10 @@ pub mod walker;
 pub use control::{ChangeFlowControl, RunGuard};
 pub use decision::{CandidateReport, DecisionAction, DecisionInput};
 pub use port::{
-    ArchiveVcsPort, BoxDiffFuture, BoxToolFuture, BoxTurnFuture, DiffContextPort, RunEventSink,
-    RunHistoryPort, StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput,
-    ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
-    WorkerTurnRequest, WorkflowSnapshotPort,
+    ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxDiffFuture, BoxToolFuture,
+    BoxTurnFuture, DiffContextPort, RunEventSink, RunHistoryPort, StaticCheckOutcome,
+    StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort,
+    WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
 };
 pub use run_history::{finish_command, StoreRunHistory};
 pub use snapshot::StoreSnapshot;

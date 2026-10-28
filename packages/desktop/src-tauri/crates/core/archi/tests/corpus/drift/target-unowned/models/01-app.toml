@@ -1,0 +1,12 @@
+# 目标未归属语料：被引入文件无元素覆盖 → 该边丢弃（看不见的依赖不该变成
+# 红点），文件本身留在 unmatchedFiles 留痕；零 errors / 零 warnings。
+# `App` 不声明 path（noPath 模型警告面）：被引入文件 src/shared/token.ts 因此无人
+# 认领 → 边丢弃 + unmatched 留痕。
+[element."App"]
+kind = "package"
+gate = "off"
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

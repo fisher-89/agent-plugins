@@ -191,13 +191,13 @@ impl RunEventSink for RecordingSink {
 // ToolCommand 六变体封闭集
 // ---------------------------------------------------------------------------
 
-/// ToolCommand 十变体封闭集：十变体构造 + match 穷尽分发编译期锚定；各变体定
+/// ToolCommand 十一变体封闭集：十一变体构造 + match 穷尽分发编译期锚定；各变体定
 /// 位载荷 `change_id` 原样承接（id 归键——字段改名置换）；载荷直载写面输入类
 /// 型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）；
 /// StaticCheck / TestExecution 两变体携 `slot: ReportSlot` 报告槽位载荷（
 /// slot=Test / Baseline 两值原样承载——check-before-flow-start）。
 #[tokio::test]
-async fn tool_command十变体封闭集且match穷尽分发() {
+async fn tool_command十一变体封闭集且match穷尽分发() {
     // match 穷尽：缺任一变体即编译失败（封闭集收缩形态的编译期锚）
     fn describe(command: &ToolCommand) -> &'static str {
         match command {
@@ -209,6 +209,7 @@ async fn tool_command十变体封闭集且match穷尽分发() {
             ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
             ToolCommand::MutationTest { .. } => "mutation-test",
+            ToolCommand::ArchiCheck { .. } => "archi-check",
             ToolCommand::ArchivePreflight { .. } => "archive-preflight",
             ToolCommand::ArchiveSeal { .. } => "archive-seal",
         }
@@ -226,6 +227,7 @@ async fn tool_command十变体封闭集且match穷尽分发() {
             | ToolCommand::StaticCheck { change_id, .. }
             | ToolCommand::TestExecution { change_id, .. }
             | ToolCommand::MutationTest { change_id }
+            | ToolCommand::ArchiCheck { change_id }
             | ToolCommand::ArchivePreflight { change_id }
             | ToolCommand::ArchiveSeal { change_id } => change_id,
         }
@@ -1013,6 +1015,7 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
             ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
             ToolCommand::MutationTest { .. } => "mutation-test",
+            ToolCommand::ArchiCheck { .. } => "archi-check",
             ToolCommand::ArchivePreflight { .. } => "archive-preflight",
             ToolCommand::ArchiveSeal { .. } => "archive-seal",
         }
@@ -3018,10 +3021,10 @@ fn mutation_test_outcome_fault三态与f64字段() {
     assert_eq!(nan_outcome(1.5), nan_outcome(1.5), "普通 f64 相等");
 }
 
-/// 边界（封闭集穷尽）：`ToolStepOutput` 十变体穷尽 `match`（无 `_` 臂）编译期
+/// 边界（封闭集穷尽）：`ToolStepOutput` 十一变体穷尽 `match`（无 `_` 臂）编译期
 /// 即证无新变体；门禁变体携带 `fault` 后 `PartialEq` 语义不变。
 #[test]
-fn tool_step_output十变体穷尽零扩展() {
+fn tool_step_output十一变体穷尽零扩展() {
     fn variant_name(output: &ToolStepOutput) -> &'static str {
         match output {
             ToolStepOutput::PhaseNext(_) => "phase-next",
@@ -3032,6 +3035,7 @@ fn tool_step_output十变体穷尽零扩展() {
             ToolStepOutput::StaticCheck(_) => "static-check",
             ToolStepOutput::TestExecution(_) => "test-execution",
             ToolStepOutput::MutationTest(_) => "mutation-test",
+            ToolStepOutput::ArchiCheck(_) => "archi-check",
             ToolStepOutput::ArchivePreflight(_) => "archive-preflight",
             ToolStepOutput::ArchiveSeal(_) => "archive-seal",
         }
@@ -3130,4 +3134,260 @@ fn fault不进runupdate载荷面() {
     assert_eq!(detail.as_deref(), Some("诊断"));
     assert_eq!(output_ref.as_deref(), Some("exec-1"));
     assert_eq!((started_at, ended_at), (1_000, Some(2_000)));
+}
+
+// ---------------------------------------------------------------------------
+// archi_check 门禁产出面（AC-12 / AC-13 / AC-14）：五字段 + 变体匹配
+// ---------------------------------------------------------------------------
+
+/// 构造门禁产出（`report_ref` 两态由入参给定）。
+fn archi_outcome(report_ref: Option<&str>) -> crate::port::ArchiCheckOutcome {
+    crate::port::ArchiCheckOutcome {
+        passed: false,
+        diagnostics: "架构漂移门禁未通过（mode=incremental status=errors，1 条违例）".to_owned(),
+        fault: None,
+        report_dir: "/ws/openspec/changes/demo/reports/archi".to_owned(),
+        report_ref: report_ref.map(str::to_owned),
+    }
+}
+
+/// 正向：`ArchiCheckOutcome` 五字段齐备（`passed` / `diagnostics` / `fault` /
+/// `report_dir` / `report_ref`），`fault` 生产态恒 `None`、取消态 `Some(Stopped)`。
+#[test]
+fn archi_check_outcome五字段与fault两态() {
+    let written = archi_outcome(Some("/ws/reports/archi/20261020T083112Z.json"));
+    assert!(!written.passed, "失败态 passed = false");
+    assert!(!written.diagnostics.is_empty(), "诊断文本必填");
+    assert_eq!(written.fault, None, "零进程 ⇒ 生产态 fault 恒 None");
+    assert!(
+        written.report_dir.ends_with("reports/archi"),
+        "报告目录为槽位派生面：{}",
+        written.report_dir
+    );
+    assert!(written.report_ref.is_some(), "落盘成功回填引用");
+
+    let degraded = archi_outcome(None);
+    assert_eq!(degraded.report_ref, None, "落盘失败降级为 None");
+    assert!(!degraded.passed, "降级不改结论");
+
+    let stopped = crate::port::ArchiCheckOutcome {
+        fault: Some(crate::port::RunFault::Stopped),
+        ..archi_outcome(None)
+    };
+    assert_eq!(
+        stopped.fault,
+        Some(crate::port::RunFault::Stopped),
+        "取消落 Stopped（不以 Err 表达）"
+    );
+}
+
+/// 正向：`ToolStepOutput::ArchiCheck` 变体承载门禁产出（与既有三 outcome 同形，
+/// walker 分派零特例）。
+#[test]
+fn tool_step_output_archi_check变体承载() {
+    let outcome = archi_outcome(None);
+    let output = crate::port::ToolStepOutput::ArchiCheck(outcome.clone());
+    match output {
+        crate::port::ToolStepOutput::ArchiCheck(payload) => {
+            assert_eq!(payload, outcome, "载荷逐字段相等（PartialEq 可辨）");
+        }
+        other => panic!("期望 ArchiCheck 变体，实际：{other:?}"),
+    }
+}
+
+/// 假 archi 门禁 runner（记录型：捕获 `run(root, name, changed, cancel)` 四参，
+/// 返回固定产出——本节被测对象就是「接口形状」，不涉判定）。
+/// 捕获的四参：`(root, name, changed, cancel.is_set())`。
+type ArchiCall = (String, String, Vec<String>, bool);
+
+struct RecordingArchiCheck {
+    calls: Mutex<Vec<ArchiCall>>,
+    outcome: crate::port::ArchiCheckOutcome,
+}
+
+impl RecordingArchiCheck {
+    fn new(outcome: crate::port::ArchiCheckOutcome) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            outcome,
+        }
+    }
+
+    fn calls(&self) -> Vec<ArchiCall> {
+        self.calls.lock().expect("calls 锁不可中毒").clone()
+    }
+}
+
+impl crate::port::ArchiCheckRunner for RecordingArchiCheck {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        changed: Vec<String>,
+        cancel: CancelFlag,
+    ) -> crate::port::BoxToolFuture {
+        self.calls.lock().expect("calls 锁不可中毒").push((
+            root.to_owned(),
+            name.to_owned(),
+            changed,
+            cancel.is_set(),
+        ));
+        let outcome = self.outcome.clone();
+        Box::pin(async move { Ok(ToolStepOutput::ArchiCheck(outcome)) })
+    }
+}
+
+/// 正向：门禁 runner 四参逐值透传——`root` / `name` 原样、`changed` 保序（空集
+/// 与单元素两形态）、槽位不在签名内（恒 `ReportSlot::Archi` 由 runner 内部取用）。
+#[tokio::test]
+async fn archi_check_runner四参透传_changed保序且零slot形参() {
+    for changed in [
+        Vec::new(),
+        vec!["src/auth/token.ts".to_owned()],
+        vec![
+            "src/auth/token.ts".to_owned(),
+            "src/billing/x.ts".to_owned(),
+            "src/search/y.ts".to_owned(),
+        ],
+    ] {
+        let runner = Arc::new(RecordingArchiCheck::new(archi_outcome(None)));
+        let outcome: crate::port::ArchiCheckOutcome = {
+            let output = crate::port::ArchiCheckRunner::run(
+                runner.as_ref(),
+                "/ws",
+                "demo",
+                changed.clone(),
+                CancelFlag::never(),
+            )
+            .await
+            .expect("假件恒 Ok");
+            crate::port::ArchiCheckOutcome::try_from(output).expect("产出为 ArchiCheck 变体")
+        };
+        assert!(
+            !outcome.report_dir.is_empty(),
+            "结论经产出携报告目录（槽位派生面不变）"
+        );
+        assert_eq!(
+            runner.calls(),
+            [("/ws".to_owned(), "demo".to_owned(), changed.clone(), false)],
+            "四参逐值到达（changed 保序）"
+        );
+    }
+}
+
+/// 边界：取消信号真件透传——`cancel` 置位后假 runner 观测 `is_set() == true`
+///（信号本身不做决策：取消的产出语义由 `fault` 承载，见上节）。
+#[tokio::test]
+async fn archi_check_runner取消透传为真件信号() {
+    let runner = Arc::new(RecordingArchiCheck::new(archi_outcome(None)));
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    let _ = crate::port::ArchiCheckRunner::run(runner.as_ref(), "/ws", "demo", Vec::new(), cancel)
+        .await
+        .expect("取消不以 Err 表达");
+    assert!(
+        runner.calls()[0].3,
+        "cancel 置位如实透传（runner 只观测不决策）"
+    );
+}
+
+/// 边界：port 对象安全——`Arc<dyn ArchiCheckRunner>` 可构造并被
+/// `LocalToolSteps` 接收面消费（方法签名不引泛型；`Send + Sync` 约束成立）。
+#[test]
+fn archi_check_runner对象安全与send_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Arc<dyn crate::port::ArchiCheckRunner>>();
+    let port: Arc<dyn crate::port::ArchiCheckRunner> =
+        Arc::new(RecordingArchiCheck::new(archi_outcome(None)));
+    // `dyn` 可克隆共享（无泛型方法、对象安全）——组合根以单实例注入消费点
+    let shared: Arc<dyn crate::port::ArchiCheckRunner> = Arc::clone(&port);
+    assert_eq!(
+        Arc::strong_count(&shared),
+        2,
+        "trait 对象可共享注入（对象安全、零泛型方法）"
+    );
+}
+
+/// 异常：`ArchiCheckOutcome::try_from` 对**全部八种非 `ArchiCheck` 变体**恒 `Err`
+/// 且不 panic（`PhaseNext` / `PhaseStart` / `PhaseLog` / `Backtrack` /
+/// `DecisionLog` / `StaticCheck` / `TestExecution` / `MutationTest`——错串可判，
+/// 不静默取默认值、不把别的 outcome 当 archi outcome 消费）。
+#[test]
+fn archi_check_outcome_try_from八错型恒err() {
+    let next = sample_phase_next_outcome();
+    let start = PhaseStartOutcome {
+        phase: "implement".to_owned(),
+        attempt: 1,
+        start_at: 1_790_841_600_000,
+    };
+    let log = PhaseLogOutcome {
+        phase: "implement".to_owned(),
+        attempt: 1,
+    };
+    let back = BacktrackOutcome {
+        phase: "implement".to_owned(),
+        target: "dev-design".to_owned(),
+    };
+    let decision = DecisionLogOutcome {
+        phase: "implement".to_owned(),
+    };
+    let static_check = StaticCheckOutcome {
+        fault: None,
+        passed: true,
+        diagnostics: String::new(),
+        output_ref: None,
+        report_dir: String::new(),
+    };
+    let test_execution = crate::port::TestExecutionOutcome {
+        conclusion: crate::port::TestExecutionConclusion::Pass,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        findings_brief: String::new(),
+        findings_detail: String::new(),
+        report_dir: String::new(),
+        exec_id: String::new(),
+        fault: None,
+    };
+    let mutation = crate::port::MutationTestOutcome {
+        conclusion: crate::port::MutationTestConclusion::Pass,
+        skip: None,
+        score: 1.0,
+        threshold: 0.8,
+        counts: crate::port::MutationCounts::default(),
+        report_paths: Vec::new(),
+        feedback_text: String::new(),
+        fault: None,
+    };
+
+    let wrong_types = [
+        ("phase_next", ToolStepOutput::PhaseNext(Box::new(next))),
+        ("phase_start", ToolStepOutput::PhaseStart(start)),
+        ("phase_log", ToolStepOutput::PhaseLog(log)),
+        ("backtrack", ToolStepOutput::Backtrack(back)),
+        ("decision_log", ToolStepOutput::DecisionLog(decision)),
+        ("static_check", ToolStepOutput::StaticCheck(static_check)),
+        (
+            "test_execution",
+            ToolStepOutput::TestExecution(test_execution),
+        ),
+        ("mutation_test", ToolStepOutput::MutationTest(mutation)),
+    ];
+    assert_eq!(wrong_types.len(), 8, "八错型变体全覆盖");
+
+    for (label, output) in wrong_types {
+        let converted = crate::port::ArchiCheckOutcome::try_from(output);
+        assert!(
+            converted.is_err(),
+            "{label} 不得被当成 archi 结论（恒 Err 且不取默认值）"
+        );
+    }
+
+    // 正向对照：只有 ArchiCheck 变体可窄化成功且逐字段相等
+    let expected = archi_outcome(Some("/ws/reports/archi/20261020T083112Z.json"));
+    let converted =
+        crate::port::ArchiCheckOutcome::try_from(ToolStepOutput::ArchiCheck(expected.clone()))
+            .expect("ArchiCheck 变体应窄化成功");
+    assert_eq!(converted, expected, "载荷逐字段相等（不重建不默认）");
 }

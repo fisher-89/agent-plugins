@@ -53,6 +53,11 @@ async fn execute(
     slot: ReportSlot,
     cancel: CancelFlag,
 ) -> Result<ToolStepOutput, String> {
+    // `archi` 槽位归架构门禁 runner（checks 域零接受）：静默接受会让漂移报告
+    // JSON 混进 checks 报告树，两套报告语义互相污染
+    if slot == ReportSlot::Archi {
+        return Err("archi 槽位归架构门禁 runner（checks 域不接受该槽位）".to_owned());
+    }
     let report_dir = foundation::layout::change_reports(Path::new(root), name, slot)
         .to_string_lossy()
         .into_owned();

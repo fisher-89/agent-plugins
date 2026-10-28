@@ -1,0 +1,16 @@
+# 内联豁免语料：import 上一行写 `// archi-ignore-next-line: <reason>` →
+# 不报并进 suppressed[]（via = inline，带 file / line / reason）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

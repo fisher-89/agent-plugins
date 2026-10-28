@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "target-unowned",
+  "base": null,
+  "modelHash": "sha256:8b14bb16e199d1f3700fc7e30bf06b83fab558e3abb329c308303e304558ebeb",
+  "model": {
+    "elements": 2,
+    "relations": 0,
+    "byGate": {
+      "strict": 1,
+      "warn": 0,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": [
+      {
+        "kind": "noPath",
+        "from": "App",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      }
+    ]
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 2,
+    "excluded": [],
+    "unmatchedFiles": [
+      "src/shared/token.ts"
+    ],
+    "matched": [
+      {
+        "element": "App.Billing",
+        "files": [
+          "src/billing/x.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "status": "clean"
+}

@@ -1,70 +1,70 @@
 {
   "active": [
     {
-      "activePhase": {
-        "attempt": 1,
-        "phase": "implement",
-        "startAt": "2024-09-22T10:13:26Z"
-      },
-      "created": "2024-09-22",
       "id": "id-list-active",
       "name": "list-active",
+      "title": "list-active",
       "source": "active",
       "status": "active",
-      "title": "list-active"
+      "activePhase": {
+        "phase": "implement",
+        "attempt": 1,
+        "startAt": "2024-09-22T10:13:26Z"
+      },
+      "created": "2024-09-22"
     },
     {
-      "activePhase": null,
-      "created": "2024-09-22",
       "id": "id-list-worktree",
       "name": "list-worktree",
+      "title": "工作树条目标题",
       "source": "active",
       "status": "active",
-      "title": "工作树条目标题"
+      "activePhase": null,
+      "created": "2024-09-22"
     }
   ],
   "archiveGroups": [
     {
+      "month": "2026-05",
       "changes": [
         {
-          "activePhase": null,
-          "created": "2024-09-22",
           "id": "id-list-archived",
           "name": "list-archived",
+          "title": "list-archived",
           "source": "archive",
           "status": "archived",
-          "title": "list-archived"
+          "activePhase": null,
+          "created": "2024-09-22"
         }
-      ],
-      "month": "2026-05"
+      ]
     },
     {
+      "month": "2026-02",
       "changes": [
         {
-          "activePhase": null,
-          "created": "2024-09-22",
           "id": "id-seeded-archived",
           "name": "seeded-archived",
+          "title": "seeded-archived",
           "source": "archive",
           "status": "archived",
-          "title": "seeded-archived"
+          "activePhase": null,
+          "created": "2024-09-22"
         }
-      ],
-      "month": "2026-02"
+      ]
     },
     {
+      "month": null,
       "changes": [
         {
-          "activePhase": null,
-          "created": "2024-09-22",
           "id": "id-unknown-time-archived",
           "name": "unknown-time-archived",
+          "title": "unknown-time-archived",
           "source": "archive",
           "status": "archived",
-          "title": "unknown-time-archived"
+          "activePhase": null,
+          "created": "2024-09-22"
         }
-      ],
-      "month": null
+      ]
     }
   ]
 }

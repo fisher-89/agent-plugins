@@ -116,6 +116,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "archiReadDoc",
     "archiChangeSummary",
     "archiSetGate",
+    "archiDrift",
 ];
 
 /// 38 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
@@ -164,6 +165,7 @@ const COMMAND_NAMES: &[&str] = &[
     "archi_read_doc",
     "archi_change_summary",
     "archi_set_gate",
+    "archi_drift",
 ];
 
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
@@ -228,15 +230,31 @@ const DTO_TYPES: &[&str] = &[
     "AppEnvironment",
     // archi 章节（架构模型纯读域）出线类型
     "ArchiChangeSummary",
+    "ArchiCheckStatus",
     "ArchiDependedBy",
     "ArchiDependsOn",
     "ArchiDiagnostic",
     "ArchiDiagnosticKind",
+    "ArchiDriftEntry",
+    "ArchiDriftKind",
+    "ArchiDriftMode",
+    "ArchiDriftModel",
+    "ArchiDriftObservation",
+    "ArchiDriftOccurrence",
+    "ArchiDriftReport",
+    "ArchiDriftSuppressedEntry",
     "ArchiElement",
+    "ArchiExcludedFile",
     "ArchiGateChange",
+    "ArchiGateCount",
     "ArchiGraph",
+    "ArchiMatchedElement",
     "ArchiModuleDetail",
+    "ArchiObservationKind",
     "ArchiRelation",
+    "ArchiScanReport",
+    "ArchiSuppressVia",
+    "ArchiUnresolvedFile",
     "ArchiWarning",
     "DocKind",
     "DocRef",
@@ -957,19 +975,19 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更自身再补录一条（架构页会话清单）：条目数 43 → 44
     assert_eq!(
         COMMAND_NAMES.len(),
-        44,
-        "命令清单补录五条 archi 命令 + list_archi_chat_sessions（43 → 44）"
+        45,
+        "命令清单补录六条 archi 命令 + list_archi_chat_sessions（44 → 45）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        44,
-        "包装清单补录五条 archi 命令 + listArchiChatSessions（43 → 44）"
+        45,
+        "包装清单补录六条 archi 命令 + listArchiChatSessions（44 → 45）"
     );
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
         COMMAND_NAMES.last(),
-        Some(&"archi_set_gate"),
-        "尾锚随五条 archi 命令后移"
+        Some(&"archi_drift"),
+        "尾锚随六条 archi 命令后移（archi_drift 尾部登记）"
     );
     assert!(
         COMMAND_NAMES.contains(&"app_environment"),
@@ -1022,7 +1040,11 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 /// 类型名（分页信封返回面）——清单条目数随动，首尾锚与在册条目保持。
 #[test]
 fn dto类型清单零补录_条目数与首尾锚持衡() {
-    assert_eq!(DTO_TYPES.len(), 77, "DTO 清单补录 19 条 archi 章节出线类型");
+    assert_eq!(
+        DTO_TYPES.len(),
+        93,
+        "DTO 清单补录 19 条 archi 章节 + 16 条架构漂移出线类型（77 + 16）"
+    );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
         DTO_TYPES.last(),
@@ -1544,9 +1566,9 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
         "invoke 目标在产物中恰一次"
     );
 
-    // 清单末条随尾部追加随动：`app_environment` 之后追加了 archi 五命令，
-    // 故末条锚点改为 `archiSetGate`（既有条目零位移——`appEnvironment` 仍在册且恰一次，见上）
-    let index = content.find("archiSetGate:").expect("包装在场");
+    // 清单末条随尾部追加随动：`app_environment` 之后追加了 archi 五命令，随后是本
+    // 变更的 `archiDrift`（既有条目零位移——`appEnvironment` 仍在册且恰一次，见上）
+    let index = content.find("archiDrift:").expect("包装在场");
     let tail = &content[index..];
     let line_end = tail.find('\n').expect("包装行有换行");
     assert!(
@@ -1645,8 +1667,9 @@ fn archi五命令在册且既有条目零位移() {
             "archi_read_doc",
             "archi_change_summary",
             "archi_set_gate",
+            "archi_drift",
         ],
-        "五条新命令尾部追加（既有条目零位移）"
+        "archi 命令尾部追加（既有条目零位移）"
     );
 }
 
@@ -1875,12 +1898,12 @@ fn 登记面_架构页会话清单命令在册() {
 fn 登记面_命令总数加一且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        44,
-        "本变更恰 +1（43 → 44）后的命令总数"
+        45,
+        "本变更恰 +1（44 → 45）后的命令总数"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        44,
+        45,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -1986,5 +2009,270 @@ fn 登记面_既有条目零位移() {
     assert!(
         dto_shim.contains("export type * from './generated/bindings';"),
         "dto.ts 星号 re-export 反向锚不变"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `archi_drift` 命令面（archi-check-and-gate，AC-7 / AC-15 / AC-20）：唯一登记面
+// 补一行 → 产物出线（命令 + `ArchiDriftMode` 联合 + 15 类报告 DTO + 步词新臂）
+// ---------------------------------------------------------------------------
+
+/// 架构漂移检查命令的 invoke 名 / 包装名（唯一登记面补录的唯一新命令）。
+const ARCHI_DRIFT_COMMAND: &str = "archi_drift";
+const ARCHI_DRIFT_WRAPPER: &str = "archiDrift";
+
+/// 架构漂移报告出线类型名（14 结构 / 词汇段 + `ArchiDriftMode` 命令参类型 =
+/// 16 条；`Report` 短名经 `pub use` 别名出线为 `ArchiDriftReport`）。
+const ARCHI_DRIFT_DTO_TYPES: [&str; 16] = [
+    "ArchiCheckStatus",
+    "ArchiDriftEntry",
+    "ArchiDriftKind",
+    "ArchiDriftMode",
+    "ArchiDriftModel",
+    "ArchiDriftObservation",
+    "ArchiDriftOccurrence",
+    "ArchiDriftReport",
+    "ArchiDriftSuppressedEntry",
+    "ArchiExcludedFile",
+    "ArchiGateCount",
+    "ArchiMatchedElement",
+    "ArchiObservationKind",
+    "ArchiScanReport",
+    "ArchiSuppressVia",
+    "ArchiUnresolvedFile",
+];
+
+/// 正向（AC-20）：`all_commands!` 登记面 +1（尾部登记，登记序即
+/// `generate_handler` 序）→ 两份补录清单 44 → 45、尾锚由 `archi_set_gate` 移到
+/// `archi_drift`，且清单每条都能在产物命中（无遗漏）。
+#[test]
+fn archi_drift登记面加一且尾锚随动() {
+    assert!(
+        COMMAND_NAMES.contains(&ARCHI_DRIFT_COMMAND),
+        "invoke 命令名补录（{ARCHI_DRIFT_COMMAND}）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&ARCHI_DRIFT_WRAPPER),
+        "生成包装名补录（{ARCHI_DRIFT_WRAPPER}）"
+    );
+    assert_eq!(
+        COMMAND_NAMES.last(),
+        Some(&ARCHI_DRIFT_COMMAND),
+        "尾部登记即尾锚（登记序 = generate_handler 序）"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS.last(),
+        Some(&ARCHI_DRIFT_WRAPPER),
+        "包装清单同序尾锚"
+    );
+    // 前一条 archi 命令下标零位移（尾部追加不改既有条目）
+    let gate_index = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "archi_set_gate")
+        .expect("既有 archi 命令仍在册");
+    assert_eq!(
+        COMMAND_NAMES[gate_index + 1],
+        ARCHI_DRIFT_COMMAND,
+        "新命令紧跟 archi_set_gate 之后登记"
+    );
+
+    // 清单每条都能在产物命中（登记 → 产物单向覆盖）
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    for (name, wrapper) in COMMAND_NAMES.iter().zip(COMMAND_WRAPPERS.iter()) {
+        assert!(
+            content.contains(&format!("\"{name}\"")),
+            "产物缺 invoke 命令名 {name}（登记了但产物缺席）"
+        );
+        assert!(
+            content.contains(&format!("{wrapper}:")),
+            "产物缺命令包装名 {wrapper}（登记了但产物缺席）"
+        );
+    }
+}
+
+/// 正向（AC-20）：产物出线——命令包装逐字（两参透传 + `ArchiDriftMode` 参类型 +
+/// `ArchiDriftReport` 返回）、`ArchiDriftMode` 二值联合、15 类报告 DTO 在案、
+/// 步词汇三枚举新臂在案。
+#[test]
+fn archi_drift产物出线与漂移报告dto在案() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 命令包装逐字（root + mode 两参透传，invoke 目标为 snake 命令名）
+    let wrapper_line = format!(
+        "{ARCHI_DRIFT_WRAPPER}: (root: string, mode: ArchiDriftMode) => __TAURI_INVOKE<ArchiDriftReport>(\"{ARCHI_DRIFT_COMMAND}\", {{ root, mode }}),"
+    );
+    assert!(
+        content.contains(&wrapper_line),
+        "生成绑定形态不符（参数面 / 返回类型 / invoke 目标），期望行:\n{wrapper_line}"
+    );
+
+    // `ArchiDriftMode` 二值联合（serde lowercase 线词）
+    let mode_section = type_section(&content, "ArchiDriftMode");
+    for variant in ["\"full\"", "\"incremental\""] {
+        assert!(
+            mode_section.contains(variant),
+            "ArchiDriftMode 缺变体 {variant}，实际段:\n{mode_section}"
+        );
+    }
+
+    // 15 类报告 DTO + 命令参类型：清单 ↔ 产物双向在案
+    for dto in ARCHI_DRIFT_DTO_TYPES {
+        assert!(DTO_TYPES.contains(&dto), "DTO_TYPES 清单应在册 {dto}");
+        assert!(
+            content.contains(&format!("export type {dto} =")),
+            "产物缺出线 DTO 类型 {dto}"
+        );
+    }
+
+    // 步词汇两枚举新臂（AC-16 全链路可见面；StepNode 为进程内相位表类型，
+    // 不出 IPC，其词面由 workflow `state_test` 承载）
+    assert!(
+        type_section(&content, "ChangeStepKind").contains("\"archiCheck\""),
+        "ChangeStepKind 缺 archiCheck 变体（活面 camel 词）"
+    );
+    assert!(
+        type_section(&content, "RunStepKind").contains("\"archi_check\""),
+        "RunStepKind 缺 archi_check 变体（落库 snake 词）"
+    );
+}
+
+/// 边界：`ArchiDriftReport` 字段面出线（14 字段、camelCase 键、`status` 走
+/// `ArchiCheckStatus`、`mode` 走 `ArchiDriftMode`、`change` / `base` 可空）。
+#[test]
+fn archi_drift报告字段面出线逐键() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let report = type_section(&content, "ArchiDriftReport");
+    assert_eq!(
+        field_names(&report),
+        vec![
+            "version",
+            "timestamp",
+            "mode",
+            "root",
+            "change",
+            "base",
+            "modelHash",
+            "model",
+            "scan",
+            "errors",
+            "warnings",
+            "suppressed",
+            "observations",
+            "status",
+        ],
+        "ArchiDriftReport 十四字段按声明序出线（camelCase 键），实际段:\n{report}"
+    );
+    for literal in [
+        "mode: ArchiDriftMode,",
+        "change: string | null,",
+        "base: string | null,",
+        "modelHash: string,",
+        "model: ArchiDriftModel,",
+        "scan: ArchiScanReport,",
+        "errors: ArchiDriftEntry[],",
+        "warnings: ArchiDriftEntry[],",
+        "suppressed: ArchiDriftSuppressedEntry[],",
+        "observations: ArchiDriftObservation[],",
+        "status: ArchiCheckStatus,",
+    ] {
+        assert!(
+            report.contains(literal),
+            "ArchiDriftReport 字段出线不符，期望含 {literal}，实际段:\n{report}"
+        );
+    }
+    // 契约面：结论由门禁侧派生，产物不携带 `passed` 字段（注释文字不算线面）
+    assert!(
+        !field_names(&report).contains(&"passed".to_owned()),
+        "报告线面 MUST NOT 携带 passed 字段（结论派生在门禁侧，不双写）"
+    );
+    assert!(!report.contains("passed:"), "线面无 passed 键");
+}
+
+/// 异常（双向核对）：产物命令包装集合与补录清单互为镜像——「产物有而清单无」
+/// 与「清单有而产物无」双向失败（漏登记即红）。
+#[test]
+fn archi_drift清单与产物命令面互为镜像() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 产物面 → 清单面：逐行解析命令包装声明（`\t<wrapper>: (` 形态）
+    let product_wrappers: Vec<String> = content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let (wrapper, rest) = trimmed.split_once(": (")?;
+            if !rest.contains("__TAURI_INVOKE") {
+                return None;
+            }
+            Some(wrapper.to_owned())
+        })
+        .collect();
+    assert!(
+        product_wrappers.contains(&ARCHI_DRIFT_WRAPPER.to_owned()),
+        "产物命令面应含 {ARCHI_DRIFT_WRAPPER}"
+    );
+    // 范围限定在 archi 命令族（其余历史缺录为既有滞后债，不在本变更范围）
+    let missing_in_list: Vec<&String> = product_wrappers
+        .iter()
+        .filter(|wrapper| wrapper.starts_with("archi"))
+        .filter(|wrapper| !COMMAND_WRAPPERS.contains(&wrapper.as_str()))
+        .collect();
+    assert!(
+        missing_in_list.is_empty(),
+        "产物有而清单无（archi 族漏登记）：{missing_in_list:?}"
+    );
+    // 清单有而产物无：archi 命令族逐条回查（六条在册 + 一条会话清单同名族）
+    for wrapper in [
+        "archiGraph",
+        "archiModule",
+        "archiReadDoc",
+        "archiChangeSummary",
+        "archiSetGate",
+        "archiDrift",
+    ] {
+        assert!(
+            COMMAND_WRAPPERS.contains(&wrapper),
+            "archi 族命令应在册（{wrapper}）"
+        );
+        assert!(
+            product_wrappers.iter().any(|item| item == wrapper),
+            "清单有而产物无（{wrapper}）"
+        );
+    }
+
+    // 清单面 → 产物面：archi_drift 唯一登记（无重复项）
+    assert_eq!(
+        COMMAND_NAMES
+            .iter()
+            .filter(|name| **name == ARCHI_DRIFT_COMMAND)
+            .count(),
+        1,
+        "invoke 名在清单中恰登记一次"
+    );
+    assert_eq!(
+        content
+            .matches(&format!("\"{ARCHI_DRIFT_COMMAND}\""))
+            .count(),
+        1,
+        "invoke 目标在产物中恰一次（无重复登记）"
+    );
+}
+
+/// 边界：幂等重导出——`export_bindings()` 连续两次产物字节相等（`bindings:check`
+/// 零 diff 前提），手写旁路零接触。
+#[test]
+fn archi_drift幂等重导出字节零漂移() {
+    let _lock = lock();
+    let first = authoritative_snapshot();
+    let second = authoritative_snapshot();
+    assert_eq!(first, second, "连续两次重导出字节相等（零 diff）");
+    let text = String::from_utf8(first).expect("产物为 UTF-8 文本");
+    assert!(
+        text.contains(&format!("{ARCHI_DRIFT_WRAPPER}:")),
+        "重导出后仍含 archi_drift 包装（无生成面回归）"
     );
 }

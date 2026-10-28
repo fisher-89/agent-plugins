@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "structural-error",
+  "base": null,
+  "modelHash": "sha256:07f7e84ef07f3a6a55dae6ad3c48fc92cc73302c023b5697cdf5248dc483f397",
+  "model": {
+    "elements": 0,
+    "relations": 0,
+    "byGate": {
+      "strict": 0,
+      "warn": 0,
+      "off": 0
+    },
+    "structuralErrors": [
+      {
+        "kind": "dependsOnAncestor",
+        "message": "依赖祖先：App.Auth 依赖其祖先 App（祖先不参与实现依赖）",
+        "file": ".dev-team/architecture/models/01-app.toml",
+        "line": 14,
+        "column": null
+      }
+    ],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 1,
+    "excluded": [],
+    "unmatchedFiles": [
+      "src/auth/token.ts"
+    ],
+    "matched": [],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "status": "errors"
+}

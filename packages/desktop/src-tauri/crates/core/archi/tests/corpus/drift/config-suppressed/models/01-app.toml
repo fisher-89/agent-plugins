@@ -1,0 +1,16 @@
+# 配置豁免语料：架构域配置的元素对豁免 → 不报并进 suppressed[]
+# （via = config，file / line 双 null）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Auth"]
+kind = "module"
+gate = "warn"
+path = ["./src/auth/"]
+
+[element."App.Billing"]
+kind = "module"
+gate = "strict"
+path = ["./src/billing/"]

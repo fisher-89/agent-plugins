@@ -1,203 +1,203 @@
 {
-  "activePhase": null,
-  "artifacts": [],
-  "created": "2024-09-22",
   "id": "id-initialize",
   "name": "initialize-corpus",
+  "title": "initialize-corpus",
+  "source": "active",
+  "status": "active",
+  "created": "2024-09-22",
   "pipeline": [
     {
+      "phase": "initialize",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
+          "verdict": "pass",
+          "report": "conclusion=pass total=12 passed=10 failed=0 skipped=2；报告目录 /ws/openspec/changes/initialize-corpus/reports/baseline",
           "checklist": [
             {
-              "evidence": "diagnostics 空",
               "item": "静态检查通过",
-              "pass": true
+              "pass": true,
+              "evidence": "diagnostics 空"
             },
             {
-              "evidence": "四计数在场",
               "item": "测试执行通过",
-              "pass": true
+              "pass": true,
+              "evidence": "四计数在场"
             },
             {
-              "evidence": "null（未跑）",
               "item": "突变测试",
-              "pass": false
+              "pass": false,
+              "evidence": "null（未跑）"
             }
           ],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
-          "report": "conclusion=pass total=12 passed=10 failed=0 skipped=2；报告目录 /ws/openspec/changes/initialize-corpus/reports/baseline",
           "skipped": false,
           "stale": false,
           "startAt": "2024-09-22T10:13:21Z",
           "timestamp": "2024-09-22T10:13:21Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         },
         {
           "attempt": 2,
-          "backtrackReason": null,
-          "backtrackTo": null,
-          "checklist": [],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
+          "verdict": "pass",
           "report": "legacy 主仓执行无 worktree 基线，跳过基线检查",
+          "checklist": [],
           "skipped": true,
           "stale": false,
           "startAt": "2024-09-22T10:13:22Z",
           "timestamp": "2024-09-22T10:13:23Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         }
-      ],
-      "phase": "initialize"
+      ]
     },
     {
-      "attempts": [],
-      "phase": "proposal"
+      "phase": "proposal",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "dev-design"
+      "phase": "dev-design",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "test-design"
+      "phase": "test-design",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "implement"
+      "phase": "implement",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "test-gen"
+      "phase": "test-gen",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "test-execution"
+      "phase": "test-execution",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "code-review"
+      "phase": "code-review",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "acceptance"
+      "phase": "acceptance",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "archive"
+      "phase": "archive",
+      "attempts": []
     }
   ],
+  "activePhase": null,
   "runs": [
     {
-      "edges": [
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "initialize:1:phase_start:0",
-          "toNodeKey": "initialize:1:clean:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "initialize:1:clean:0",
-          "toNodeKey": "initialize:1:static_check:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "initialize:1:static_check:0",
-          "toNodeKey": "initialize:1:test_execution:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "initialize:1:test_execution:0",
-          "toNodeKey": "initialize:1:phase_log:0"
-        }
-      ],
+      "runId": "run-1727000010000",
+      "status": "completed",
+      "reason": "initialize 全绿后冻结样本（后续路由由续走语料承载）",
+      "startedAt": "2024-09-22T10:13:30Z",
       "finishedAt": "2024-09-22T10:13:39Z",
       "nodes": [
         {
-          "attempt": 1,
-          "detail": null,
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "initialize",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "phase_start",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": "已恢复基线（reset --hard + clean -fd，排除面 8 项）",
-          "endedAt": 1727000061000,
           "instanceNo": 0,
-          "outputRef": null,
-          "phase": "initialize",
-          "sessionId": null,
-          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "clean",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": "静态检查通过",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "initialize",
           "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "static_check",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": "conclusion=pass total=12 passed=10 failed=0 skipped=2",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "initialize",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "test_execution",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
           "detail": null,
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
           "outputRef": null,
-          "phase": "initialize",
-          "sessionId": null,
           "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "phase": "initialize",
+          "attempt": 1,
+          "step": "clean",
+          "instanceNo": 0,
           "status": "passed",
+          "sessionId": null,
+          "detail": "已恢复基线（reset --hard + clean -fd，排除面 8 项）",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "phase": "initialize",
+          "attempt": 1,
+          "step": "static_check",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "静态检查通过",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "phase": "initialize",
+          "attempt": 1,
+          "step": "test_execution",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "conclusion=pass total=12 passed=10 failed=0 skipped=2",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "phase": "initialize",
+          "attempt": 1,
           "step": "phase_log",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": null,
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         }
       ],
-      "reason": "initialize 全绿后冻结样本（后续路由由续走语料承载）",
-      "runId": "run-1727000010000",
-      "startedAt": "2024-09-22T10:13:30Z",
-      "status": "completed"
+      "edges": [
+        {
+          "fromNodeKey": "initialize:1:phase_start:0",
+          "toNodeKey": "initialize:1:clean:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "initialize:1:clean:0",
+          "toNodeKey": "initialize:1:static_check:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "initialize:1:static_check:0",
+          "toNodeKey": "initialize:1:test_execution:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "initialize:1:test_execution:0",
+          "toNodeKey": "initialize:1:phase_log:0",
+          "edgeKind": "forward"
+        }
+      ]
     }
   ],
-  "source": "active",
-  "status": "active",
-  "title": "initialize-corpus",
+  "artifacts": [],
   "worktree": null
 }

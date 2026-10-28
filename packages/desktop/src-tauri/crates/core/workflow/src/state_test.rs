@@ -1,7 +1,7 @@
 //! `state.rs` 中性状态类型的单元测试（test-design「state.rs ->
-//! state_test.rs」节）：计划图侧类型封闭集（StepNode 二十一值全词汇 +
+//! state_test.rs」节）：计划图侧类型封闭集（StepNode 二十二值全词汇 +
 //! `group()` / `role()` 派生访问器（四分类含 Git 六步——clean 基线恢复步入族）+ OnFail 两变体 + StepDefinition /
-//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 二十一值零过滤 /
+//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 二十二值零过滤 /
 //! RunEdgeKind 四值 snake_case）+ 节点与边中性类型序列化往返（身份键
 //! `(run_id, phase, attempt, step, instance_no)`、session_id / detail /
 //! output_ref 两态）+ ChangeStateRecord 身份面（`id` 首字段为身份锚、`name`
@@ -55,12 +55,12 @@ fn run_status五值线面lowercase逐字() {
     assert_eq!(RunStatus::Interrupted.as_str(), "interrupted");
 }
 
-/// RunStepKind **二十一值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
+/// RunStepKind **二十二值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
 /// 令与查询投影同类型消费；流程面 phase_start / phase_log 与三门不再被过滤弃落，
 /// 归档 9 步词同面在案（cleanup 尽力步新臂在案）；mutation_test 拆步新词在案，
 /// AC-1 / AC-2；initialize 基线恢复步 clean 新臂在案——位序 MutationTest 后）。
 #[test]
-fn run_step_kind二十一值全词汇snake_case逐字() {
+fn run_step_kind二十二值全词汇snake_case逐字() {
     let wire = |kind: RunStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
     assert_eq!(wire(RunStepKind::Executor), json!("executor"));
     assert_eq!(wire(RunStepKind::Evaluator), json!("evaluator"));
@@ -104,6 +104,11 @@ fn run_step_kind二十一值全词汇snake_case逐字() {
     );
     assert_eq!(wire(RunStepKind::Seal), json!("seal"));
     assert_eq!(wire(RunStepKind::Finalize), json!("finalize"));
+    assert_eq!(
+        wire(RunStepKind::ArchiCheck),
+        json!("archi_check"),
+        "架构漂移门禁步尾词（AC-16 二十二值在案）"
+    );
 
     assert_eq!(RunStepKind::Executor.as_str(), "executor");
     assert_eq!(RunStepKind::Evaluator.as_str(), "evaluator");
@@ -126,8 +131,9 @@ fn run_step_kind二十一值全词汇snake_case逐字() {
     assert_eq!(RunStepKind::Cleanup.as_str(), "cleanup");
     assert_eq!(RunStepKind::Seal.as_str(), "seal");
     assert_eq!(RunStepKind::Finalize.as_str(), "finalize");
+    assert_eq!(RunStepKind::ArchiCheck.as_str(), "archi_check");
 
-    // 二十一值封闭集：全枚举 len==21、wire 词面互异（无遗漏无重复——词汇漂移即断）
+    // 二十二值封闭集：全枚举 len==22、wire 词面互异（无遗漏无重复——词汇漂移即断）
     let all = [
         RunStepKind::Executor,
         RunStepKind::Evaluator,
@@ -150,8 +156,9 @@ fn run_step_kind二十一值全词汇snake_case逐字() {
         RunStepKind::Cleanup,
         RunStepKind::Seal,
         RunStepKind::Finalize,
+        RunStepKind::ArchiCheck,
     ];
-    assert_eq!(all.len(), 21, "二十一值穷举无遗漏");
+    assert_eq!(all.len(), 22, "二十二值穷举无遗漏");
     assert_eq!(
         all.iter().position(|k| *k == RunStepKind::Clean),
         Some(6),
@@ -161,7 +168,7 @@ fn run_step_kind二十一值全词汇snake_case逐字() {
     let total = words.len();
     words.sort_unstable();
     words.dedup();
-    assert_eq!(words.len(), total, "二十一值词面互异（无重复）: {words:?}");
+    assert_eq!(words.len(), total, "二十二值词面互异（无重复）: {words:?}");
     assert!(
         words.contains(&"clean") && words.contains(&"cleanup"),
         "clean 与 cleanup 两词面同集可辨"
@@ -203,7 +210,7 @@ fn 非法词反序列化拒绝_封闭集防线() {
         let back: Result<RunStatus, _> = serde_json::from_value(json!(illegal));
         assert!(back.is_err(), "RunStatus 越集词 {illegal:?} 应拒绝");
     }
-    // RunStepKind：camel 词 / 近似词 / 空串越集（二十一值词汇之外的词形一律拒绝；
+    // RunStepKind：camel 词 / 近似词 / 空串越集（二十二值词汇之外的词形一律拒绝；
     // cleanup 扩词不松动防线——cleanUp / clean-up / cleanups 仍拒；clean 拆步扩词
     // 同不松动——clear / clean step / Clean 大写词形仍拒，"clean" 本词已合法入集）
     for illegal in [
@@ -916,11 +923,11 @@ fn change_state_store全方法id形参编译面() {
 }
 
 // ---------------------------------------------------------------------------
-// 计划图侧类型（StepNode 二十一值全词汇 + 派生访问器 + OnFail / StepDefinition /
+// 计划图侧类型（StepNode 二十二值全词汇 + 派生访问器 + OnFail / StepDefinition /
 // ArtifactSpec）
 // ---------------------------------------------------------------------------
 
-/// `StepNode` 二十一值全词汇 snake_case 逐字出线（executor / evaluator / decision /
+/// `StepNode` 二十二值全词汇 snake_case 逐字出线（executor / evaluator / decision /
 /// phase_start / static_check / test_execution / mutation_test / clean / phase_log /
 /// verdict_gate / retry_gate / whitelist_gate + 归档九步 preflight / commit /
 /// rebase / resolve_conflicts / merge / spec_sync / cleanup / seal / finalize）
@@ -928,7 +935,7 @@ fn change_state_store全方法id形参编译面() {
 /// mutation_test 拆步新词在案，AC-1；cleanup 尽力步新臂在案；initialize 基线
 /// 恢复步 clean 新臂在案——位序 MutationTest 后）。
 #[test]
-fn step_node二十一值全词汇snake_case逐字() {
+fn step_node二十二值全词汇snake_case逐字() {
     let wire = |node: StepNode| serde_json::to_value(node).expect("词汇出线应成功");
     assert_eq!(wire(StepNode::Executor), json!("executor"));
     assert_eq!(wire(StepNode::Evaluator), json!("evaluator"));
@@ -963,6 +970,11 @@ fn step_node二十一值全词汇snake_case逐字() {
     );
     assert_eq!(wire(StepNode::Seal), json!("seal"));
     assert_eq!(wire(StepNode::Finalize), json!("finalize"));
+    assert_eq!(
+        wire(StepNode::ArchiCheck),
+        json!("archi_check"),
+        "架构漂移门禁工具步尾词（AC-16 二十二值在案）"
+    );
 
     // as_str 单点同源（线格式词与序列化词汇一字不差）
     assert_eq!(StepNode::Executor.as_str(), "executor");
@@ -986,13 +998,14 @@ fn step_node二十一值全词汇snake_case逐字() {
     assert_eq!(StepNode::Cleanup.as_str(), "cleanup");
     assert_eq!(StepNode::Seal.as_str(), "seal");
     assert_eq!(StepNode::Finalize.as_str(), "finalize");
+    assert_eq!(StepNode::ArchiCheck.as_str(), "archi_check");
 }
 
-/// `StepNode` 与 `RunStepKind` 逐字同源（21 值 1:1 全映射；线格式词一字不差，
+/// `StepNode` 与 `RunStepKind` 逐字同源（22 值 1:1 全映射；线格式词一字不差，
 /// AC-2 / AC-6 落库零过滤前置；cleanup 对拍行补齐——两域词面零错位；clean 基线
 /// 恢复步对拍行补齐）。
 #[test]
-fn step_node与run_step_kind逐字同源二十一值() {
+fn step_node与run_step_kind逐字同源二十二值() {
     for (node, kind, word) in [
         (StepNode::Executor, RunStepKind::Executor, "executor"),
         (StepNode::Evaluator, RunStepKind::Evaluator, "evaluator"),
@@ -1039,6 +1052,7 @@ fn step_node与run_step_kind逐字同源二十一值() {
         (StepNode::Cleanup, RunStepKind::Cleanup, "cleanup"),
         (StepNode::Seal, RunStepKind::Seal, "seal"),
         (StepNode::Finalize, RunStepKind::Finalize, "finalize"),
+        (StepNode::ArchiCheck, RunStepKind::ArchiCheck, "archi_check"),
     ] {
         assert_eq!(node.as_str(), word, "{node:?} 计划图侧词面");
         assert_eq!(kind.as_str(), word, "{kind:?} 执行图侧词面");
@@ -1063,6 +1077,7 @@ fn step_node分组与角色派生访问器一致() {
         StepNode::StaticCheck,
         StepNode::TestExecution,
         StepNode::MutationTest,
+        StepNode::ArchiCheck,
         StepNode::PhaseLog,
         StepNode::Preflight,
         StepNode::Seal,
@@ -1109,7 +1124,7 @@ fn step_node分组与角色派生访问器一致() {
         assert_eq!(node.group(), StepGroup::Gate, "{node:?} 属 Gate");
         assert_eq!(node.role(), None, "门步无角色");
     }
-    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（21 值无遗漏无重叠）
+    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（22 值无遗漏无重叠）
     let groups: Vec<StepGroup> = [
         StepNode::Executor,
         StepNode::Evaluator,
@@ -1132,12 +1147,13 @@ fn step_node分组与角色派生访问器一致() {
         StepNode::Cleanup,
         StepNode::Seal,
         StepNode::Finalize,
+        StepNode::ArchiCheck,
     ]
     .iter()
     .map(|node| node.group())
     .collect();
-    assert_eq!(groups.len(), 21, "二十一值穷举无遗漏");
-    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 7);
+    assert_eq!(groups.len(), 22, "二十二值穷举无遗漏");
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 8);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 5);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 6);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Gate).count(), 3);
@@ -1475,7 +1491,7 @@ fn run_node_state_record全字段往返可辨() {
         }
     }
 
-    // 二十一值全词汇 step 出线（节点行 zero filter 前置；mutation_test 拆步新词、
+    // 二十二值全词汇 step 出线（节点行 zero filter 前置；mutation_test 拆步新词、
     // cleanup 尽力步新臂与 clean 基线恢复步新臂在案）
     for (kind, word) in [
         (RunStepKind::Executor, "executor"),
@@ -1818,4 +1834,89 @@ fn run_node_entry防御值直存零钳制零panic() {
     assert_eq!(entry.ended_at, Some(-2));
     assert_eq!(entry.token_input, Some(u64::MAX), "u64::MAX 直存零钳制");
     assert_eq!(entry.token_output, Some(u64::MAX - 1));
+}
+
+// ---------------------------------------------------------------------------
+// archi_check 词面（AC-16）：三枚举尾部追加 + 派生访问器
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-16）：`StepNode::ArchiCheck` 五面——`as_str` 词面、serde 线词、
+/// `group()` 归 `Exec`、`role()` 为 `None`、末位下标（R-8 尾部追加）。
+#[test]
+fn step_node_archi_check五面() {
+    assert_eq!(StepNode::ArchiCheck.as_str(), "archi_check", "线格式词面");
+    let wire = serde_json::to_value(StepNode::ArchiCheck).expect("节点出线应成功");
+    assert_eq!(wire, json!("archi_check"), "serde 与 as_str 一字不差");
+    assert_eq!(
+        StepNode::ArchiCheck.group(),
+        StepGroup::Exec,
+        "工具步归 Exec 组"
+    );
+    assert_eq!(StepNode::ArchiCheck.role(), None, "工具步无 agent 角色");
+    assert_eq!(
+        StepNode::ArchiCheck as usize,
+        21,
+        "尾部追加：既有 0..=20 下标零位移"
+    );
+}
+
+/// 正向：`RunStepKind::ArchiCheck` 词面与末位下标。
+#[test]
+fn run_step_kind_archi_check词面与末位() {
+    assert_eq!(
+        RunStepKind::ArchiCheck.as_str(),
+        "archi_check",
+        "落库 snake_case 词面"
+    );
+    let wire = serde_json::to_value(RunStepKind::ArchiCheck).expect("出线应成功");
+    assert_eq!(wire, json!("archi_check"), "serde 线词同源");
+    assert_eq!(RunStepKind::ArchiCheck as usize, 21, "尾部追加末位");
+}
+
+/// 正向（AC-16）：`StepNode::ArchiCheck` 与 `RunStepKind::ArchiCheck` 逐字同源
+/// （词面 1:1 对应）。
+#[test]
+fn step_node与run_step_kind的archi_check同源() {
+    assert_eq!(
+        StepNode::ArchiCheck.as_str(),
+        RunStepKind::ArchiCheck.as_str(),
+        "两侧词面一字不差"
+    );
+}
+
+/// 正向：审计包络 `StepKind::ArchiCheck` 九臂词面 + 末位下标。
+#[test]
+fn step_kind_archi_check词面与末位() {
+    assert_eq!(StepKind::ArchiCheck.as_str(), "archi_check", "审计词面");
+    assert_eq!(StepKind::ArchiCheck as usize, 8, "八臂 → 九臂末位");
+    // 八既有臂逐字不变
+    for (kind, word) in [
+        (StepKind::PhaseNext, "phase_next"),
+        (StepKind::PhaseStart, "phase_start"),
+        (StepKind::PhaseLog, "phase_log"),
+        (StepKind::Backtrack, "backtrack"),
+        (StepKind::DecisionLog, "decision_log"),
+        (StepKind::StaticCheck, "static_check"),
+        (StepKind::TestExecution, "test_execution"),
+        (StepKind::MutationTest, "mutation_test"),
+    ] {
+        assert_eq!(kind.as_str(), word, "既有臂词面零回归");
+    }
+}
+
+/// 异常（snake_case 封闭）：`ArchiCheck` / `archiCheck` / `archi-check` / 空串在
+/// `StepNode` 与 `RunStepKind` 上均反序列化失败。
+#[test]
+fn archi_check词汇外形态拒绝() {
+    for raw in [
+        "\"ArchiCheck\"",
+        "\"archiCheck\"",
+        "\"archi-check\"",
+        "\"\"",
+    ] {
+        let node: Result<StepNode, _> = serde_json::from_str(raw);
+        assert!(node.is_err(), "StepNode 词集外的 {raw} 必须 Err");
+        let kind: Result<RunStepKind, _> = serde_json::from_str(raw);
+        assert!(kind.is_err(), "RunStepKind 词集外的 {raw} 必须 Err");
+    }
 }

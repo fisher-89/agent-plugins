@@ -1,351 +1,351 @@
 {
-  "activePhase": null,
-  "artifacts": [
-    {
-      "kind": "eval-checklist",
-      "phase": "proposal",
-      "source": "0",
-      "title": "评估清单 · proposal · 第 1 次"
-    },
-    {
-      "kind": "markdown-doc",
-      "phase": "proposal",
-      "source": "proposal.md",
-      "title": "提案"
-    },
-    {
-      "kind": "markdown-doc",
-      "phase": "dev-design",
-      "source": "tasks.md",
-      "title": "任务"
-    }
-  ],
-  "created": "2024-09-22",
   "id": "id-seeded-archived",
   "name": "seeded-archived",
+  "title": "seeded-archived",
+  "source": "archive",
+  "status": "archived",
+  "created": "2024-09-22",
   "pipeline": [
     {
-      "attempts": [],
-      "phase": "initialize"
+      "phase": "initialize",
+      "attempts": []
     },
     {
+      "phase": "proposal",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
+          "verdict": "pass",
+          "report": "提案通过",
           "checklist": [
             {
-              "evidence": "L1-10",
               "item": "问题清晰",
-              "pass": true
+              "pass": true,
+              "evidence": "L1-10"
             }
           ],
-          "decisionSessionId": null,
-          "evaluatorSessionId": "ses-arch-eval",
-          "executorSessionId": "ses-arch-exec",
-          "report": "提案通过",
           "skipped": false,
           "stale": false,
           "startAt": "2024-09-22T10:13:21Z",
           "timestamp": "2024-09-22T10:13:21Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": "ses-arch-exec",
+          "evaluatorSessionId": "ses-arch-eval",
+          "decisionSessionId": null
         }
-      ],
-      "phase": "proposal"
+      ]
     },
     {
-      "attempts": [],
-      "phase": "dev-design"
+      "phase": "dev-design",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "test-design"
+      "phase": "test-design",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "implement"
+      "phase": "implement",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "test-gen"
+      "phase": "test-gen",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "test-execution"
+      "phase": "test-execution",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "code-review"
+      "phase": "code-review",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "acceptance"
+      "phase": "acceptance",
+      "attempts": []
     },
     {
+      "phase": "archive",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
-          "checklist": [],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
+          "verdict": "pass",
           "report": "",
+          "checklist": [],
           "skipped": false,
           "stale": false,
           "startAt": "2024-09-22T10:13:23Z",
           "timestamp": "2024-09-22T10:13:23Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         }
-      ],
-      "phase": "archive"
+      ]
     }
   ],
+  "activePhase": null,
   "runs": [
     {
-      "edges": [],
+      "runId": "run-1727000040000",
+      "status": "completed",
+      "reason": "All phases have passed evaluation. Ready for archiving.",
+      "startedAt": "2024-09-22T10:13:30Z",
       "finishedAt": "2024-09-22T10:13:39Z",
       "nodes": [
         {
-          "attempt": 1,
-          "detail": null,
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "proposal",
-          "sessionId": "ses-arch-exec",
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "executor",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": "ses-arch-exec",
+          "detail": null,
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         }
       ],
-      "reason": "All phases have passed evaluation. Ready for archiving.",
-      "runId": "run-1727000040000",
-      "startedAt": "2024-09-22T10:13:30Z",
-      "status": "completed"
+      "edges": []
     },
     {
-      "edges": [
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:phase_start:0",
-          "toNodeKey": "archive:1:preflight:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:preflight:0",
-          "toNodeKey": "archive:1:commit:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:commit:0",
-          "toNodeKey": "archive:1:rebase:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:rebase:0",
-          "toNodeKey": "archive:1:resolve_conflicts:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:resolve_conflicts:0",
-          "toNodeKey": "archive:1:merge:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:merge:0",
-          "toNodeKey": "archive:1:spec_sync:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:spec_sync:0",
-          "toNodeKey": "archive:1:cleanup:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:cleanup:0",
-          "toNodeKey": "archive:1:seal:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:seal:0",
-          "toNodeKey": "archive:1:finalize:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:finalize:0",
-          "toNodeKey": "archive:1:phase_log:0"
-        }
-      ],
+      "runId": "run-1727000041000",
+      "status": "completed",
+      "reason": "archive phase landed an empty checklist verdict=pass",
+      "startedAt": "2024-09-22T10:13:40Z",
       "finishedAt": "2024-09-22T10:13:49Z",
       "nodes": [
         {
-          "attempt": 1,
-          "detail": null,
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "phase_start",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": null,
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "前置只读校验：8 相位已过 / 无缺产物",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "preflight",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "前置只读校验：8 相位已过 / 无缺产物",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "worktree 干净，无待提交变更（跳过）",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "commit",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "worktree 干净，无待提交变更（跳过）",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "已重放至主仓当前分支，无冲突",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "rebase",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "已重放至主仓当前分支，无冲突",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "无冲突，无需解算（跳过）",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": "ses-arch-resolve",
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "resolve_conflicts",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": "ses-arch-resolve",
+          "detail": "无冲突，无需解算（跳过）",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "主仓 ff-only 快进完成",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "merge",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "主仓 ff-only 快进完成",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "delta specs 已同步",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": "ses-arch-spec-sync",
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "spec_sync",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": "ses-arch-spec-sync",
+          "detail": "delta specs 已同步",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "已移除 worktree（<WORKTREE_ROOT>/seeded-archived）",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "cleanup",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "已移除 worktree（<WORKTREE_ROOT>/seeded-archived）",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "双写收口：目录改名 + status 翻转",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "seal",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "双写收口：目录改名 + status 翻转",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "归档产物已落盘，无待提交路径（跳过）",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "finalize",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "归档产物已落盘，无待提交路径（跳过）",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         },
         {
-          "attempt": 1,
-          "detail": "空 checklist 落账 verdict=pass",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
           "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
+          "attempt": 1,
           "step": "phase_log",
+          "instanceNo": 0,
+          "status": "passed",
+          "sessionId": null,
+          "detail": "空 checklist 落账 verdict=pass",
+          "outputRef": null,
+          "startedAt": 1727000060000,
+          "endedAt": 1727000061000,
           "tokenInput": null,
           "tokenOutput": null
         }
       ],
-      "reason": "archive phase landed an empty checklist verdict=pass",
-      "runId": "run-1727000041000",
-      "startedAt": "2024-09-22T10:13:40Z",
-      "status": "completed"
+      "edges": [
+        {
+          "fromNodeKey": "archive:1:phase_start:0",
+          "toNodeKey": "archive:1:preflight:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:preflight:0",
+          "toNodeKey": "archive:1:commit:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:commit:0",
+          "toNodeKey": "archive:1:rebase:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:rebase:0",
+          "toNodeKey": "archive:1:resolve_conflicts:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:resolve_conflicts:0",
+          "toNodeKey": "archive:1:merge:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:merge:0",
+          "toNodeKey": "archive:1:spec_sync:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:spec_sync:0",
+          "toNodeKey": "archive:1:cleanup:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:cleanup:0",
+          "toNodeKey": "archive:1:seal:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:seal:0",
+          "toNodeKey": "archive:1:finalize:0",
+          "edgeKind": "forward"
+        },
+        {
+          "fromNodeKey": "archive:1:finalize:0",
+          "toNodeKey": "archive:1:phase_log:0",
+          "edgeKind": "forward"
+        }
+      ]
     }
   ],
-  "source": "archive",
-  "status": "archived",
-  "title": "seeded-archived",
+  "artifacts": [
+    {
+      "kind": "eval-checklist",
+      "source": "0",
+      "title": "评估清单 · proposal · 第 1 次",
+      "phase": "proposal"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "proposal.md",
+      "title": "提案",
+      "phase": "proposal"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "tasks.md",
+      "title": "任务",
+      "phase": "dev-design"
+    }
+  ],
   "worktree": null
 }

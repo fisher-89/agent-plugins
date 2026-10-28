@@ -1,4 +1,4 @@
-//! `commands::archi` 的单元测试：五命令薄包装 ↔ `*_inner` 领域组装纯函数一一对应、
+//! `commands::archi` 的单元测试：六命令薄包装 ↔ `*_inner` 领域组装纯函数一一对应、
 //! root 有效性校验（空白 / 非目录 / 不存在 → `Err`）、只读命令零写盘、`archi_set_gate`
 //! 的原子写回与「任一校验失败零写入」，以及 `archi_change_summary` 的 store 记录解析
 //! （worktree / 归档回落）。
@@ -16,11 +16,13 @@ use store::{Store, WorkspaceStores};
 use tauri::{App, Manager};
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
+use archi::drift::ArchiDriftMode;
 use archi::GateTier;
 
 use super::{
-    archi_change_summary, archi_change_summary_inner, archi_graph, archi_graph_inner, archi_module,
-    archi_module_inner, archi_read_doc, archi_read_doc_inner, archi_set_gate, archi_set_gate_inner,
+    archi_change_summary, archi_change_summary_inner, archi_drift, archi_drift_inner, archi_graph,
+    archi_graph_inner, archi_module, archi_module_inner, archi_read_doc, archi_read_doc_inner,
+    archi_set_gate, archi_set_gate_inner,
 };
 
 /// 确定性时间戳（UTC unix 毫秒）。
@@ -669,4 +671,433 @@ fn change_summary_inner回落主仓根() {
     );
     // root 非法 → Err
     assert!(archi_change_summary_inner(Path::new(""), None).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// archi_drift：两模式 / 变更集缝 / 错误面 / 与门禁 runner 同源（AC-7 / AC-10 / AC-15）
+// ---------------------------------------------------------------------------
+
+/// 假 vcs 缝：`change_edit_set` 可编程（清单 / `Err`），并捕获入参；其余方法只
+/// 在命令面消费别的缝时才可达，故以 `panic!` 起「零意外调用」告警。
+struct FakeVcs {
+    outcome: Result<Vec<String>, String>,
+    calls: std::sync::Mutex<Vec<(String, String)>>,
+}
+
+impl FakeVcs {
+    fn with(changed: &[&str]) -> Self {
+        FakeVcs {
+            outcome: Ok(changed.iter().map(|item| (*item).to_owned()).collect()),
+            calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn failing(message: &str) -> Self {
+        FakeVcs {
+            outcome: Err(message.to_owned()),
+            calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn calls(&self) -> Vec<(String, String)> {
+        self.calls.lock().expect("调用记录锁").clone()
+    }
+}
+
+impl orchestration::port::ArchiveVcsPort for FakeVcs {
+    fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
+        panic!("命令面不应调用 dirty")
+    }
+
+    fn commit_all(&self, _worktree: &Path, _message: &str) -> Result<(), String> {
+        panic!("命令面不应调用 commit_all")
+    }
+
+    fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
+        panic!("命令面不应调用 branch_merged")
+    }
+
+    fn rebase_branch(
+        &self,
+        _worktree: &Path,
+        _onto: &str,
+    ) -> Result<orchestration::port::RebaseOutcome, String> {
+        panic!("命令面不应调用 rebase_branch")
+    }
+
+    fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
+        panic!("命令面不应调用 ff_merge")
+    }
+
+    fn worktree_snapshot(
+        &self,
+        _root: &Path,
+    ) -> Result<orchestration::port::WorktreeSnapshot, String> {
+        panic!("命令面不应调用 worktree_snapshot")
+    }
+
+    fn rebase_continue(
+        &self,
+        _worktree: &Path,
+    ) -> Result<orchestration::port::RebaseOutcome, String> {
+        panic!("命令面不应调用 rebase_continue")
+    }
+
+    fn rebase_abort(&self, _worktree: &Path) -> Result<(), String> {
+        panic!("命令面不应调用 rebase_abort")
+    }
+
+    fn current_branch(&self, _main_root: &Path) -> Result<String, String> {
+        panic!("命令面不应调用 current_branch")
+    }
+
+    fn commit_paths(
+        &self,
+        _main_root: &Path,
+        _paths: &[&str],
+        _message: &str,
+    ) -> Result<(), String> {
+        panic!("命令面不应调用 commit_paths")
+    }
+
+    fn change_edit_set(&self, root: &Path, base: &str) -> Result<Vec<String>, String> {
+        self.calls
+            .lock()
+            .expect("调用记录锁")
+            .push((root.to_string_lossy().into_owned(), base.to_owned()));
+        self.outcome.clone()
+    }
+
+    fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
+        panic!("命令面不应调用 change_edit_patch")
+    }
+
+    fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+        panic!("命令面不应调用 remove_worktree")
+    }
+
+    fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
+        panic!("命令面不应调用 restore_baseline")
+    }
+}
+
+/// 判定语料 fixture：两元素（strict 引入方 / off 被引入方）+ 一条跨元素 import。
+fn drift_fixture(tag: &str) -> TempDir {
+    let temp = TempDir::new(tag);
+    temp.write_model(
+        "01-drift.toml",
+        concat!(
+            "[element.\"Auth\"]\nkind = \"module\"\ngate = \"off\"\npath = [\"./src/auth/\"]\n\n",
+            "[element.\"Billing\"]\nkind = \"module\"\ngate = \"strict\"\npath = [\"./src/billing/\"]\n",
+        ),
+    );
+    temp.write("src/auth/token.ts", "export const token = 1;\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+    temp
+}
+
+/// 正向（AC-7）：全量模式——`mode = full` / `base = None` / `change = None` /
+/// `changed_files = 0`，且 vcs 缝零调用（全量不取变更集）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift全量模式零vcs调用() {
+    let temp = drift_fixture("drift-full");
+    let vcs = FakeVcs::with(&["src/billing/x.ts"]);
+    let report = archi_drift_inner(temp.path(), ArchiDriftMode::Full, &vcs).expect("全量应成功");
+
+    assert_eq!(report.mode, ArchiDriftMode::Full, "模式逐字");
+    assert_eq!(report.base, None, "全量无基准");
+    assert_eq!(report.change, None, "命令面无 change 上下文");
+    assert_eq!(report.scan.changed_files, 0, "全量忽略变更集");
+    assert!(vcs.calls().is_empty(), "全量 MUST NOT 取变更集");
+    assert_eq!(report.errors.len(), 1, "strict 违例照报");
+}
+
+/// 正向（AC-15）：增量模式——`base = Some("HEAD")`，变更集经 vcs 缝注入且捕获
+/// `(root, "HEAD")` 一次。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift增量模式经vcs缝取变更集() {
+    let temp = drift_fixture("drift-incremental");
+    let cases: [Vec<&str>; 3] = [
+        vec![],
+        vec!["src/billing/x.ts"],
+        vec!["src/billing/x.ts", "src/auth/token.ts"],
+    ];
+    for changed in cases {
+        let vcs = FakeVcs::with(&changed);
+        let report =
+            archi_drift_inner(temp.path(), ArchiDriftMode::Incremental, &vcs).expect("增量应成功");
+        assert_eq!(report.mode, ArchiDriftMode::Incremental, "模式逐字");
+        assert_eq!(report.base.as_deref(), Some("HEAD"), "增量基准恒 HEAD");
+        assert_eq!(
+            report.scan.changed_files as usize,
+            changed.len(),
+            "changed_files 反映注入清单"
+        );
+        assert_eq!(
+            vcs.calls(),
+            vec![(temp.root(), "HEAD".to_owned())],
+            "变更集唯一入口捕获 (root, HEAD) 恰一次"
+        );
+    }
+}
+
+/// 异常（AC-15）：变更集取数失败即 `Err`（不降级空清单、零报告）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift变更集失败即Err() {
+    let temp = drift_fixture("drift-vcs-error");
+    let vcs = FakeVcs::failing("git 不可用");
+    let error = archi_drift_inner(temp.path(), ArchiDriftMode::Incremental, &vcs)
+        .expect_err("取数失败必须 Err");
+    assert_eq!(error, "git 不可用", "错误面原样透传");
+}
+
+/// 异常：root 校验四形态（空 / 纯空白 / 不存在 / 普通文件）→ `Err`，零 vcs 零判定。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift_root校验() {
+    let temp = TempDir::new("drift-root");
+    let file = temp.write("plain.txt", "not a directory\n");
+    let missing = temp.path().join("no-such-root");
+    let vcs = FakeVcs::with(&[]);
+    for root in [PathBuf::new(), PathBuf::from("   "), missing, file] {
+        let error =
+            archi_drift_inner(&root, ArchiDriftMode::Full, &vcs).expect_err("无效 root 必须 Err");
+        assert!(!error.is_empty(), "错误文案非空（root {root:?}）");
+    }
+    assert!(vcs.calls().is_empty(), "root 校验前置 ⇒ 零 vcs 调用");
+}
+
+/// 边界（AC-8）：无 `<archi_dir>/models` → `Ok(skipped)`（命令层不把「没检查」
+/// 映射成 `Err`）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift无模型skipped() {
+    let temp = TempDir::new("drift-skipped");
+    temp.write("src/a.ts", "export const a = 1;\n");
+    let vcs = FakeVcs::with(&["src/a.ts"]);
+    let report = archi_drift_inner(temp.path(), ArchiDriftMode::Incremental, &vcs).expect("不 Err");
+    assert_eq!(
+        report.status,
+        archi::drift::ArchiCheckStatus::Skipped,
+        "无模型 ⇒ skipped"
+    );
+}
+
+/// 异常（AC-8 / AC-12）：坏模型（`cycle`）→ `Ok(report)` 且结构错非空、
+/// `status = errors`（命令层不把结构错映射成 `Err`）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift坏模型结构化错误不panic() {
+    let temp = TempDir::new("drift-structural");
+    temp.write_model(
+        "01-cycle.toml",
+        concat!(
+            "[element.\"A\"]\nkind = \"module\"\n\n",
+            "[element.\"B\"]\nkind = \"module\"\n\n",
+            "[[relation]]\nfrom = \"A\"\nto = \"B\"\n\n",
+            "[[relation]]\nfrom = \"B\"\nto = \"A\"\n",
+        ),
+    );
+    temp.write("src/a.ts", "export const a = 1;\n");
+    let vcs = FakeVcs::with(&["src/a.ts"]);
+    let report = archi_drift_inner(temp.path(), ArchiDriftMode::Incremental, &vcs).expect("不 Err");
+    assert!(
+        !report.model.structural_errors.is_empty(),
+        "结构错进报告 model 段"
+    );
+    assert_eq!(
+        report.status,
+        archi::drift::ArchiCheckStatus::Errors,
+        "结构错令 status = errors"
+    );
+}
+
+/// 异常：看护配置非法 → `Err`，文案含 serde 原文（`CheckError::message` 透传）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift配置非法Err() {
+    let temp = drift_fixture("drift-bad-config");
+    let config = foundation::layout::archi_config_path(temp.path());
+    fs::create_dir_all(config.parent().expect("父目录")).expect("建架构域目录失败");
+    fs::write(&config, "{ \"rules\": [] }").expect("写配置失败");
+    let vcs = FakeVcs::with(&["src/billing/x.ts"]);
+    let error = archi_drift_inner(temp.path(), ArchiDriftMode::Incremental, &vcs)
+        .expect_err("配置非法必须 Err");
+    assert!(
+        error.contains("unknown field"),
+        "文案含 serde 原文：{error}"
+    );
+}
+
+/// 边界（AC-7）：全量调用前后 tempdir 字节快照相等（命令面零写盘、`reports/`
+/// 零创建）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift全量零写盘() {
+    let temp = drift_fixture("drift-no-write");
+    let vcs = FakeVcs::with(&[]);
+    let before = snapshot(temp.path());
+    let _ = archi_drift_inner(temp.path(), ArchiDriftMode::Full, &vcs).expect("全量应成功");
+    let after = snapshot(temp.path());
+    assert_eq!(before, after, "全量判定零写盘");
+    assert!(
+        !temp.path().join("openspec").exists(),
+        "命令面不创建报告目录"
+    );
+}
+
+/// 最小 noop-waker 执行器（不引 tokio 运行时：被测 future 全同步推进）。
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    fn noop(_: *const ()) {}
+    fn clone(_: *const ()) -> RawWaker {
+        RawWaker::new(std::ptr::null(), &VTABLE)
+    }
+    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
+    let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
+    let mut context = Context::from_waker(&waker);
+    let mut future = Box::pin(future);
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => return value,
+            Poll::Pending => std::thread::yield_now(),
+        }
+    }
+}
+
+/// 正向（AC-10）：命令面报告与门禁 runner 落盘报告逐字段相等——除 `timestamp` /
+/// `change` 外全等（判定单源）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift与门禁runner同源() {
+    use orchestration::port::{ArchiCheckRunner, ToolStepOutput};
+
+    let temp = drift_fixture("drift-same-source");
+    let vcs = FakeVcs::with(&["src/billing/x.ts"]);
+    let by_command =
+        archi_drift_inner(temp.path(), ArchiDriftMode::Incremental, &vcs).expect("命令面应成功");
+
+    let runner = archi_runtime::LocalArchiCheck::new();
+    let future = runner.run(
+        &temp.root(),
+        "demo",
+        vec!["src/billing/x.ts".to_owned()],
+        foundation::cancel::CancelFlag::never(),
+    );
+    let output = block_on(future).expect("runner 不 Err");
+    let outcome = match output {
+        ToolStepOutput::ArchiCheck(outcome) => outcome,
+        other => panic!("产出类型漂移：{other:?}"),
+    };
+    let reference = outcome.report_ref.expect("runner 应回填报告路径");
+    let mut by_runner: archi::drift::ArchiDriftReport =
+        serde_json::from_slice(&fs::read(&reference).expect("读报告失败")).expect("反序列化失败");
+
+    assert_eq!(
+        by_runner.change.as_deref(),
+        Some("demo"),
+        "门禁面携 change 名"
+    );
+    by_runner.timestamp = by_command.timestamp.clone();
+    by_runner.change = by_command.change.clone();
+    assert_eq!(
+        by_runner, by_command,
+        "除 timestamp / change 外逐字段相等（判定单源）"
+    );
+}
+
+/// 边界（AC-10）：命令层零判定——`mod.rs` 源码不含归属 / 定级 / `status` 构造
+/// 实现，只做「参数 → 调用 → 错误映射」。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift命令层零判定() {
+    let source = include_str!("mod.rs");
+    for forbidden in [
+        "owner_of",
+        "OwnerIndex",
+        "ExcludeSet",
+        "ArchiCheckStatus::",
+        "driftMarks",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "命令层 MUST NOT 含判定实现 {forbidden}"
+        );
+    }
+    assert!(
+        source.contains("archi::drift::check("),
+        "判定必须经 archi::drift::check 单点"
+    );
+}
+
+/// 边界：root 含空格与非 ASCII → `Ok` 且报告 `root` 字段逐字回填入参（不归一）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift根路径边界逐字回填() {
+    let temp = drift_fixture("drift 根 空格 与中文");
+    let vcs = FakeVcs::with(&[]);
+    let report = archi_drift_inner(temp.path(), ArchiDriftMode::Full, &vcs).expect("应成功");
+    assert_eq!(
+        report.root,
+        temp.root(),
+        "报告 root 字段为入参逐字（不归一）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 包装 ↔ inner：`archi_drift`（新增命令；包装在体内装配真实 `ProcessArchiveVcs`）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-7 / AC-10）：`archi_drift` 包装与 `archi_drift_inner` 逐字段一致——
+/// 包装只在体内构造真实 `ProcessArchiveVcs`（全量模式不取变更集 ⇒ 进程边零触达，
+/// 结果确定性可对拍），`timestamp` 为 wall-clock，对拍前归一为同一值。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift包装与inner一致() {
+    let temp = drift_fixture("drift-wrapper");
+    let outer = archi_drift(temp.root(), ArchiDriftMode::Full).expect("包装应 Ok");
+    let inner = archi_drift_inner(temp.path(), ArchiDriftMode::Full, &FakeVcs::with(&[]))
+        .expect("inner 应 Ok");
+
+    assert_eq!(outer.mode, ArchiDriftMode::Full, "模式逐字");
+    assert_eq!(outer.base, None, "全量无基准");
+    assert_eq!(
+        outer.change, None,
+        "命令面无 change 上下文（包装不补 change）"
+    );
+    assert_eq!(outer.scan.changed_files, 0, "全量不取变更集");
+    assert_eq!(outer.errors.len(), 1, "strict 违例照报（包装零加工）");
+    assert_eq!(outer.status, inner.status, "status 逐字一致");
+    assert_eq!(outer.root, inner.root, "root 逐字回填一致");
+
+    let mut outer_value = serde_json::to_value(&outer).expect("序列化");
+    let inner_value = serde_json::to_value(&inner).expect("序列化");
+    outer_value["timestamp"] = inner_value["timestamp"].clone();
+    assert_eq!(
+        outer_value, inner_value,
+        "包装与 _inner 除 timestamp 外逐字段一致"
+    );
+}
+
+/// 异常：包装侧的 root 校验前置——空 root / 纯空白 / 普通文件 / 不存在目录一律
+/// `Err`（`ProcessArchiveVcs` 已构造但判定与取数均不触达），且零写盘。
+#[test]
+#[allow(non_snake_case)]
+fn archi_drift包装root校验前置() {
+    let temp = TempDir::new("drift-wrapper-root");
+    let file = temp.write("plain.txt", "not a directory\n");
+    let missing = temp.path().join("no-such-root");
+    let before = snapshot(temp.path());
+    for root in [PathBuf::new(), PathBuf::from("   "), missing, file] {
+        let error = archi_drift(root.to_string_lossy().into_owned(), ArchiDriftMode::Full)
+            .expect_err("无效 root 必须 Err");
+        assert!(!error.is_empty(), "错误文案非空（root {root:?}）");
+    }
+    assert_eq!(before, snapshot(temp.path()), "包装侧 root 校验失败零写盘");
 }

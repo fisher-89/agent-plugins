@@ -1,38 +1,26 @@
 {
-  "computedCoverage": {
-    "measured": {
-      "branches": 74.1,
-      "functions": 90.3,
-      "lines": 82.5
-    },
-    "pass": true,
-    "thresholds": {
-      "branches": 70.0,
-      "functions": 75.0,
-      "lines": 60.0
-    }
-  },
   "fixture": "green-node-test",
   "subReport": {
-    "coveragePresent": true,
-    "errorCases": 0,
-    "exitCode": 0,
-    "framework": "node-test",
-    "mutation": null,
     "outcome": "parsed",
+    "framework": "node-test",
     "root": ".",
-    "sourceFiles": [],
+    "exitCode": 0,
     "summaryCounts": [
       5,
       4,
       0,
       1
     ],
+    "errorCases": 0,
     "testFiles": [
       "app/src/add.test.mjs"
-    ]
+    ],
+    "sourceFiles": [],
+    "coveragePresent": true,
+    "mutation": null
   },
   "summary": {
+    "outcome": "parsed",
     "conclusion": "pass",
     "counts": [
       5,
@@ -40,11 +28,23 @@
       0,
       1
     ],
+    "problemTypes": [],
+    "integrity": [],
     "diagnose": [
       "全部测试通过且覆盖率达阈值"
-    ],
-    "integrity": [],
-    "outcome": "parsed",
-    "problemTypes": []
+    ]
+  },
+  "computedCoverage": {
+    "pass": true,
+    "measured": {
+      "lines": 82.5,
+      "branches": 74.1,
+      "functions": 90.3
+    },
+    "thresholds": {
+      "lines": 60.0,
+      "branches": 70.0,
+      "functions": 75.0
+    }
   }
 }

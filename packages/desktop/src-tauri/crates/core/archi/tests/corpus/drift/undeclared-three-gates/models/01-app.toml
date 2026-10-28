@@ -1,0 +1,26 @@
+# 三档定级语料：同一「引入方引入未声明目标」在 strict / warn / off 三档下
+# 分别产 errors / warnings / 零记录（定级只看引入方，AC-4）。
+[element."App"]
+kind = "package"
+gate = "off"
+path = ["./src/"]
+
+[element."App.Strict"]
+kind = "module"
+gate = "strict"
+path = ["./src/strict/"]
+
+[element."App.Warn"]
+kind = "module"
+gate = "warn"
+path = ["./src/warn/"]
+
+[element."App.Off"]
+kind = "module"
+gate = "off"
+path = ["./src/off/"]
+
+[element."App.Shared"]
+kind = "module"
+gate = "warn"
+path = ["./src/shared/"]

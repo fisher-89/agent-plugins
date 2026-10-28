@@ -1,4 +1,4 @@
-# 03 · infra 适配层（7 元素 / 21 关系）
+# 03 · infra 适配层（8 元素 / 24 关系）
 # 外部系统适配器，依赖方向为 infra → core（唯一跨域边 store → core.workflow 与生产依赖一致）。
 
 [element."App.Backend.Infra"]
@@ -11,6 +11,12 @@ kind = "module"
 gate = "off"
 path = ["./packages/desktop/src-tauri/crates/infra/agent/"]
 summary = "rig 驱动的 agent 会话运行时与工具沙箱"
+
+[element."App.Backend.Infra.ArchiRuntime"]
+kind = "module"
+gate = "off"
+path = ["./packages/desktop/src-tauri/crates/infra/archi/"]
+summary = "架构漂移门禁执行体：取输入、调判定、落报告与派生结论"
 
 [element."App.Backend.Infra.ChecksRuntime"]
 kind = "module"
@@ -81,6 +87,21 @@ desc = "工具调用经子进程边界执行"
 from = "App.Backend.Infra.AgentRuntime"
 to = "App.Backend.Infra.Store"
 desc = "会话记录与运行历史落本地库"
+
+[[relation]]
+from = "App.Backend.Infra.ArchiRuntime"
+to = "App.Backend.Core.Archi"
+desc = "架构漂移判定与报告结构取自 core 判定域"
+
+[[relation]]
+from = "App.Backend.Infra.ArchiRuntime"
+to = "App.Backend.Core.Foundation"
+desc = "报告槽位、取消信号与架构域路径派生的基础件"
+
+[[relation]]
+from = "App.Backend.Infra.ArchiRuntime"
+to = "App.Backend.Core.Orchestration"
+desc = "门禁 runner 实现编排的步骤端口"
 
 [[relation]]
 from = "App.Backend.Infra.ChecksRuntime"

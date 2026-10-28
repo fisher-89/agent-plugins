@@ -16,10 +16,11 @@ use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
-    ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
-    RunFault, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome,
-    ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
-    WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+    ArchiCheckOutcome, ArchiveVcsPort, MutationSkipReason, MutationTestConclusion,
+    MutationTestOutcome, RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome,
+    TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort,
+    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+    WorktreeSnapshot,
 };
 use crate::prompt::{
     decision_fix_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
@@ -660,6 +661,7 @@ async fn run_step(
         StepNode::StaticCheck => step_static_check(ctx, trace, cursor, step).await,
         StepNode::TestExecution => step_test_execution(ctx, trace, cursor, step).await,
         StepNode::MutationTest => step_mutation_test(ctx, trace, cursor, step).await,
+        StepNode::ArchiCheck => step_archi_check(ctx, trace, cursor, step).await,
         StepNode::Evaluator => {
             step_evaluator(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
@@ -1021,7 +1023,7 @@ async fn step_static_check(
         if feedback >= limit {
             // 升格相位 fail（桌面代写，不跑 evaluator；消耗相位 retry 预算；仅
             // 携 executor 槽位——evaluator 未跑无会话可记）
-            step_fail_phase_log(
+            step_gate_fail_phase_log(
                 ctx.tools,
                 ctx.guard,
                 trace,
@@ -1029,7 +1031,11 @@ async fn step_static_check(
                 ctx.phase,
                 cursor.attempt,
                 cursor.executor_session.as_deref(),
-                &outcome.diagnostics,
+                GateFailLog {
+                    item: "静态检查",
+                    reason: "静态检查反馈边超限（连续修复未通过），相位升格 fail",
+                    diagnostics: &outcome.diagnostics,
+                },
             )
             .await?;
             cursor.failed = true;
@@ -1476,6 +1482,132 @@ async fn step_mutation_test_escalate(
     Ok(StepFlow::Upgraded)
 }
 
+/// archi-check 门禁步执行体（`on_fail=FeedbackLoop{3}`）：与 `step_static_check`
+/// 逐段同型——fault 先行 / `passed` 收口 / `failed` 进定向反馈边（诊断注入**同一
+/// executor 会话**，修复节点为 `instance_no` 递增的独立新节点）/ 超限代写 fail
+/// 落账并升格相位 fail。
+///
+/// **零进程零自动修复**：本 runner 不 spawn、不写源码 / 模型；改代码是 executor
+/// 的活，改模型要回 dev-design。报告路径随步 detail 呈现，**MUST NOT** 走节点
+/// `output_ref`（该字段是 exec-outputs 回查通道，架构报告是 JSON 文件）。
+async fn step_archi_check(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+    step: &StepDefinition,
+) -> Result<StepFlow, Terminal> {
+    let limit = feedback_limit(step, "archi-check")?;
+    let mut feedback: u32 = 0;
+    loop {
+        let instance_no = begin_node(
+            ctx.guard,
+            trace,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::ArchiCheck,
+            EdgeKind::Forward,
+        );
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::ArchiCheck,
+            instance_no,
+            StepSettle::running(),
+        );
+        let outcome: ArchiCheckOutcome = run_tool(
+            ctx.tools,
+            ctx.guard,
+            &ctx.request.root,
+            ToolCommand::ArchiCheck {
+                change_id: ctx.request.change_id.clone(),
+            },
+            "archi-check",
+        )
+        .await?;
+        // fault 先于结论：取消 / 环境错误不烧反馈边预算（零 executor 会话）、
+        // 不升格相位 fail。本 runner 零进程 ⇒ 生产路径 `fault` 恒 None，本臂只
+        // 作同形保留（`template = None`：消息即 fault 原文，零新增环境文案常量）
+        if let Some(fault) = outcome.fault.as_ref() {
+            return Err(settle_fault(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::ArchiCheck,
+                instance_no,
+                fault,
+                None,
+                &outcome.report_dir,
+                None,
+            ));
+        }
+        if outcome.passed {
+            emit_node(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::ArchiCheck,
+                instance_no,
+                StepSettle::passed(Some(diagnose_brief(&outcome.diagnostics))),
+            );
+            return Ok(StepFlow::Proceed);
+        }
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::ArchiCheck,
+            instance_no,
+            StepSettle::failed(Some(diagnose_brief(&outcome.diagnostics))),
+        );
+        if feedback >= limit {
+            // 升格相位 fail（桌面代写，不跑 evaluator；仅携 executor 槽位）
+            step_gate_fail_phase_log(
+                ctx.tools,
+                ctx.guard,
+                trace,
+                ctx.request,
+                ctx.phase,
+                cursor.attempt,
+                cursor.executor_session.as_deref(),
+                GateFailLog {
+                    item: "架构检查",
+                    reason: "架构漂移门禁反馈边超限（连续修复未通过），相位升格 fail",
+                    diagnostics: &outcome.diagnostics,
+                },
+            )
+            .await?;
+            cursor.failed = true;
+            return Ok(StepFlow::Upgraded);
+        }
+        feedback += 1;
+        let fix_prompt = format!(
+            "架构漂移门禁未通过（第 {feedback}/{limit} 次反馈修复），请修复以下违例后重新提交：
+
+{}",
+            outcome.diagnostics
+        );
+        // 反馈边：违例诊断注入同一 executor 会话（Continue）修复——修复节点为
+        // instance_no 递增的独立新节点，边 kind = feedback（phase 内回边）
+        let fix = run_worker(
+            ctx.worker,
+            ctx.guard,
+            ctx.request,
+            &ctx.request.root,
+            ctx.phase,
+            cursor.attempt,
+            WorkerRole::Executor,
+            fix_prompt,
+            cursor.executor_level,
+            cursor.executor_session.clone(),
+            trace,
+            EdgeKind::Feedback,
+        )
+        .await?;
+        cursor.executor_session = Some(fix.session_id);
+    }
+}
+
 async fn step_evaluator(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -1852,11 +1984,24 @@ async fn run_phase_log(
     .await
 }
 
-/// 升格落账：桌面代写 fail checklist（静态检查反馈边超限），随后回 phase-next
+/// 门禁反馈边升格落账载荷（`step_gate_fail_phase_log` 的条目面入参）：`item`
+/// 为 checklist 条目标题、`reason` 为 report 首句，其余文案与本函数行为无关——
+/// 静态检查与架构检查两条反馈边逐字同形，只差这两处文案。
+struct GateFailLog<'a> {
+    /// checklist 条目标题（如「静态检查」/「架构检查」）
+    item: &'a str,
+    /// 相位 fail 记因（report 首句）
+    reason: &'a str,
+    /// 门禁诊断明细（evaluator 未跑时作为该条目 evidence）
+    diagnostics: &'a str,
+}
+
+/// 升格落账：桌面代写 fail checklist（门禁反馈边超限），随后回 phase-next
 /// 进重试 / 决策分叉。fail 条目仅携 executor 槽位（反馈边续注同一 executor 会
-/// 话，id 稳定；evaluator 未跑）。
+/// 话，id 稳定；evaluator 未跑）。static-check 与 archi-check 两条反馈边共用本
+/// 单点（文案经 [`GateFailLog`] 参数化，MUST NOT 复制第二份）。
 #[allow(clippy::too_many_arguments)]
-async fn step_fail_phase_log(
+async fn step_gate_fail_phase_log(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
     trace: &mut EdgeTrace,
@@ -1864,7 +2009,7 @@ async fn step_fail_phase_log(
     phase: &str,
     attempt: u32,
     executor_session: Option<&str>,
-    diagnostics: &str,
+    fail: GateFailLog<'_>,
 ) -> Result<(), Terminal> {
     let instance_no = begin_node(
         guard,
@@ -1888,11 +2033,11 @@ async fn step_fail_phase_log(
         request,
         PhaseLogInput {
             phase: phase.to_owned(),
-            report: "静态检查反馈边超限（连续修复未通过），相位升格 fail".to_owned(),
+            report: fail.reason.to_owned(),
             checklist: vec![ChecklistItem {
-                item: "静态检查".to_owned(),
+                item: fail.item.to_owned(),
                 pass: false,
-                evidence: diagnostics.to_owned(),
+                evidence: fail.diagnostics.to_owned(),
             }],
             skipped: false,
             executor_session_id: executor_session.map(ToOwned::to_owned),
@@ -3856,6 +4001,16 @@ impl TryFrom<ToolStepOutput> for MutationTestOutcome {
     fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
         match value {
             ToolStepOutput::MutationTest(outcome) => Ok(outcome),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<ToolStepOutput> for ArchiCheckOutcome {
+    type Error = ();
+    fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
+        match value {
+            ToolStepOutput::ArchiCheck(outcome) => Ok(outcome),
             _ => Err(()),
         }
     }

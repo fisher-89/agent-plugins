@@ -344,7 +344,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     });
   });
 
-  it('四类可辨：二十一步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
+  it('四类可辨：二十二步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
     const GROUP_OF: Record<
       ChangeStepKind,
       {
@@ -359,6 +359,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       staticCheck: { group: 'toolStep', role: null },
       testExecution: { group: 'toolStep', role: null },
       mutationTest: { group: 'toolStep', role: null },
+      archiCheck: { group: 'toolStep', role: null },
       clean: { group: 'git', role: null },
       phaseLog: { group: 'toolStep', role: null },
       verdictGate: { group: 'gate', role: null },
@@ -380,7 +381,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     );
 
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    expect(nodes).toHaveLength(21);
+    expect(nodes).toHaveLength(22);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
       expect(node.group).toBe(expected.group);
@@ -441,8 +442,9 @@ describe('run-state：缺省字段（推导不崩）', () => {
   });
 });
 
-// RunStepKind 词汇 import 面锚（二十一值全词汇直测归一单点的输入域——mutation_test
-// 拆步新词、cleanup 尽力步与 clean 基线恢复步新臂在案，AC-1 / AC-2）
+// RunStepKind 词汇 import 面锚（二十二值全词汇直测归一单点的输入域——mutation_test
+// 拆步新词、cleanup 尽力步与 clean 基线恢复步新臂在案、archi_check 架构门禁步尾词
+// 在案，AC-1 / AC-2 / AC-16）
 const PERSISTED_WORDS: RunStepKind[] = [
   'executor',
   'evaluator',
@@ -465,10 +467,12 @@ const PERSISTED_WORDS: RunStepKind[] = [
   'cleanup',
   'seal',
   'finalize',
+  'archi_check',
 ];
 
-/** 二十一值 snake 词 → camel 词期望表（normalizeKind 逐词对拍——词汇漂移即断；
- * cleanup 为 identity 词、snake / camel 同形零显式 case）。 */
+/** 二十二值 snake 词 → camel 词期望表（normalizeKind 逐词对拍——词汇漂移即断；
+ * cleanup 为 identity 词、snake / camel 同形零显式 case；archi_check → archiCheck
+ * 为架构门禁步新臂）。 */
 const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
   ['executor', 'executor'],
   ['evaluator', 'evaluator'],
@@ -491,10 +495,11 @@ const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
   ['cleanup', 'cleanup'],
   ['seal', 'seal'],
   ['finalize', 'finalize'],
+  ['archi_check', 'archiCheck'],
 ];
 
-describe('unifiedRunNodes：二十一值词汇全量归一', () => {
-  it('二十一值 snake 词全量归一可达（normalizeKind 逐词对拍——词汇漂移即断）', () => {
+describe('unifiedRunNodes：二十二值词汇全量归一', () => {
+  it('二十二值 snake 词全量归一可达（normalizeKind 逐词对拍——词汇漂移即断）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
@@ -508,7 +513,7 @@ describe('unifiedRunNodes：二十一值词汇全量归一', () => {
     }
   });
 
-  it('双向 round-trip：stepWord(normalizeKind(word)) 恒回 snake 词（二十一值全词汇）', () => {
+  it('双向 round-trip：stepWord(normalizeKind(word)) 恒回 snake 词（二十二值全词汇）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
@@ -837,21 +842,22 @@ describe('mutationTest 步词汇归一与分组（AC-2）', () => {
     expect(nodes[0].role).toBeNull();
   });
 
-  it('零过滤丢步：二十一词全词汇经 runStepNodes 全量出图（mutation_test / cleanup / clean 在案不被滤除）', () => {
+  it('零过滤丢步：二十二词全词汇经 runStepNodes 全量出图（mutation_test / cleanup / clean / archi_check 在案不被滤除）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       stepRow({ instanceNo: index, step: normalizeWord(step), sessionId: null }),
     );
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    // 二十一词全量出图（零过滤）
-    expect(nodes).toHaveLength(21);
+    // 二十二词全量出图（零过滤）
+    expect(nodes).toHaveLength(22);
     expect(nodes.some((node) => node.runStepKind === 'mutationTest')).toBe(true);
     expect(nodes.some((node) => node.runStepKind === 'cleanup')).toBe(true);
     expect(nodes.some((node) => node.runStepKind === 'clean')).toBe(true);
-    expect(new Set(nodes.map((node) => node.id)).size).toBe(21);
+    expect(nodes.some((node) => node.runStepKind === 'archiCheck')).toBe(true);
+    expect(new Set(nodes.map((node) => node.id)).size).toBe(22);
   });
 });
 
-/** snake 词 → 活面 camel 词（测试内小表——21 词 round-trip 用）。 */
+/** snake 词 → 活面 camel 词（测试内小表——22 词 round-trip 用）。 */
 function normalizeWord(word: RunStepKind): ChangeStepKind {
   const entry = NORMALIZE_EXPECTED.find(([snake]) => snake === word);
   if (!entry) {
@@ -1196,5 +1202,111 @@ describe('run-state：clean 基线恢复步归一与身份键（check-before-flo
       null,
     );
     expect(unified.map((row) => row.step)).toEqual(['clear']);
+  });
+});
+
+describe('run-state：archi_check 架构门禁步归一与身份键（AC-16）', () => {
+  it("normalizeKind('archi_check') → 'archiCheck'：库读史 snake 词经统一视图归一出线（snake 词不入活面词汇）", () => {
+    const unified = unifiedRunNodes(
+      [
+        runEntry({
+          nodes: [runStepRow({ instanceNo: 0, step: 'archi_check', sessionId: null })],
+        }),
+      ],
+      null,
+    );
+    expect(unified.map((row) => row.step)).toEqual(['archiCheck']);
+    // 工具步零会话（库读史 sessionId = null 原样透传）
+    expect(unified[0].sessionId).toBeNull();
+  });
+
+  it('archi_check 节点身份键含 stepWord 词面：{phase}:{attempt}:archi_check:{instanceNo}（与后端边表端点逐字可比）', () => {
+    const node = runStepNodes(
+      [
+        stepRow({
+          phase: 'implement',
+          attempt: 1,
+          step: 'archiCheck',
+          sessionId: null,
+          instanceNo: 0,
+        }),
+      ],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(node).toBeDefined();
+    expect(nodeIdentityKey(node)).toBe('implement:1:archi_check:0');
+    // 邻接步的身份键同样可对（archi_check 与 static_check 在同一 attempt 内相邻）
+    const neighbour = runStepNodes(
+      [stepRow({ step: 'staticCheck', sessionId: null, instanceNo: 0 })],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(nodeIdentityKey(neighbour)).toBe('implement:1:static_check:0');
+  });
+
+  it("groupOf('archiCheck') 归 toolStep：经 runStepNodes 的 default 分支出线（与 staticCheck / mutationTest 同组），role 恒 null", () => {
+    const node = runStepNodes(
+      [stepRow({ phase: 'implement', step: 'archiCheck', sessionId: null })],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(node.group).toBe('toolStep');
+    expect(node.role).toBeNull();
+  });
+
+  it('词汇外步词退化不崩：越集词走 default 归一且分组回落 toolStep（稳健面不因扩词松动）', () => {
+    for (const illegal of ['ARCHI_CHECK', 'archicheck', '']) {
+      const unified = unifiedRunNodes(
+        [
+          runEntry({
+            nodes: [
+              runStepRow({
+                instanceNo: 0,
+                step: illegal as unknown as RunStepKind,
+                sessionId: null,
+              }),
+            ],
+          }),
+        ],
+        null,
+      );
+      // 越集词原值透传（不伪造 archiCheck 词）
+      expect(unified.map((row) => row.step)).toEqual([illegal]);
+      const node = runStepNodes(unified, REQUIREMENT_PHASES)[0];
+      expect(node.group).toBe('toolStep');
+      expect(node.role).toBeNull();
+    }
+  });
+});
+
+describe('run-state：畸形步记录防御（旧报告 / 反序列化残留）', () => {
+  it('step 缺失 / null / 非字符串 → 不抛错、原值透传、group 回落 toolStep、身份键仍可构造（不伪造 archiCheck 词）', () => {
+    const broken: Array<unknown> = [undefined, null, 42, true];
+    for (const step of broken) {
+      const record = {
+        ...runStepRow({ phase: 'implement', attempt: 1, instanceNo: 3 }),
+        step,
+      } as unknown as ChangeRunNodeRecord;
+      // 库读史行 → 统一视图：原值透传（不归一、不伪造合法词）
+      const unified = unifiedRunNodes([runEntry({ nodes: [record] })], null);
+      expect(unified).toHaveLength(1);
+      expect(unified[0].step).toBe(step);
+      // 出图不抛错：分组回落 toolStep、身份键仍可构造
+      const node = runStepNodes(unified, REQUIREMENT_PHASES)[0];
+      expect(node).toBeDefined();
+      expect(node.runStepKind).not.toBe('archiCheck');
+      expect(node.group).toBe('toolStep');
+      expect(node.role).toBeNull();
+      expect(nodeIdentityKey(node)).toBe(`implement:1:${String(step)}:3`);
+    }
+  });
+
+  it('instanceNo 缺失 → 身份键退化不崩（既有稳健面），步词仍按归一单点出线', () => {
+    const record = {
+      ...runStepRow({ phase: 'implement', attempt: 1, step: 'archi_check' }),
+      instanceNo: undefined,
+    } as unknown as ChangeRunNodeRecord;
+    const unified = unifiedRunNodes([runEntry({ nodes: [record] })], null);
+    const node = runStepNodes(unified, REQUIREMENT_PHASES)[0];
+    expect(node.runStepKind).toBe('archiCheck');
+    expect(nodeIdentityKey(node)).toBe('implement:1:archi_check:undefined');
   });
 });

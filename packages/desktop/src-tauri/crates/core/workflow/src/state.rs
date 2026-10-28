@@ -25,7 +25,7 @@ impl ChangeStatus {
     }
 }
 
-/// 相位机步骤种类封闭集（八臂命令包络；线格式 snake_case 词）。
+/// 相位机步骤种类封闭集（九臂命令包络；线格式 snake_case 词）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
@@ -37,6 +37,8 @@ pub enum StepKind {
     StaticCheck,
     TestExecution,
     MutationTest,
+    /// 架构漂移门禁步（定向反馈边）
+    ArchiCheck,
 }
 
 impl StepKind {
@@ -51,6 +53,7 @@ impl StepKind {
             StepKind::StaticCheck => "static_check",
             StepKind::TestExecution => "test_execution",
             StepKind::MutationTest => "mutation_test",
+            StepKind::ArchiCheck => "archi_check",
         }
     }
 }
@@ -246,11 +249,11 @@ pub enum AgentRole {
     ResolveConflicts,
 }
 
-/// 计划步节点全词汇（21 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
-/// 脚本阶段三检查步（static-check / test-execution / mutation-test）、
-/// initialize 基线恢复步（clean）、流程面两步、三门 gate 与归档 9 步。词汇
-/// 本体单点——计划图声明（[`StepDefinition::node`]）与执行图落库
-///（[`RunStepKind`]）同词面 1:1 全映射。
+/// 计划步节点全词汇（22 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
+/// 脚本阶段四检查步（static-check / test-execution / mutation-test /
+/// archi-check）、initialize 基线恢复步（clean）、流程面两步、三门 gate 与
+/// 归档 9 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）与执行图
+/// 落库（[`RunStepKind`]）同词面 1:1 全映射。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StepNode {
@@ -296,6 +299,8 @@ pub enum StepNode {
     Seal,
     /// 归档落盘提交步（vcs.commit_paths；已落盘则跳过）
     Finalize,
+    /// archi-check 门禁工具步（架构漂移判定，定向反馈边、零进程）
+    ArchiCheck,
 }
 
 impl StepNode {
@@ -323,6 +328,7 @@ impl StepNode {
             StepNode::Cleanup => "cleanup",
             StepNode::Seal => "seal",
             StepNode::Finalize => "finalize",
+            StepNode::ArchiCheck => "archi_check",
         }
     }
 
@@ -341,6 +347,7 @@ impl StepNode {
             | StepNode::StaticCheck
             | StepNode::TestExecution
             | StepNode::MutationTest
+            | StepNode::ArchiCheck
             | StepNode::PhaseLog
             | StepNode::Preflight
             | StepNode::Seal => StepGroup::Exec,
@@ -368,6 +375,7 @@ impl StepNode {
             | StepNode::StaticCheck
             | StepNode::TestExecution
             | StepNode::MutationTest
+            | StepNode::ArchiCheck
             | StepNode::Clean
             | StepNode::PhaseLog
             | StepNode::Preflight
@@ -473,12 +481,12 @@ impl RunStatus {
     }
 }
 
-/// run 步词汇封闭集（**二十一值全词汇**，线格式 snake_case 词）：agent 阶段
+/// run 步词汇封闭集（**二十二值全词汇**，线格式 snake_case 词）：agent 阶段
 ///（executor / evaluator / decision）、脚本阶段（static_check / test_execution /
-/// mutation_test）、initialize 基线步（clean）、流程面步骤（phase_start /
-/// phase_log）、三门 gate（verdict_gate、retry_gate、whitelist_gate）与归档 9 步
-///（preflight / commit / rebase / resolve_conflicts / merge / spec_sync / cleanup /
-/// seal / finalize）。词汇本体单点——落库命令
+/// mutation_test / archi_check）、initialize 基线步（clean）、流程面步骤
+///（phase_start / phase_log）、三门 gate（verdict_gate、retry_gate、
+/// whitelist_gate）与归档 9 步（preflight / commit / rebase / resolve_conflicts /
+/// merge / spec_sync / cleanup / seal / finalize）。词汇本体单点——落库命令
 ///（`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
 ///（旧 5 值词表的过滤谓词已退役）。
 ///
@@ -529,6 +537,8 @@ pub enum RunStepKind {
     Seal,
     /// 归档落盘提交步（vcs）
     Finalize,
+    /// archi-check 门禁工具步（架构漂移判定；尾部追加——bincode 下标纪律）
+    ArchiCheck,
 }
 
 impl RunStepKind {
@@ -556,6 +566,7 @@ impl RunStepKind {
             RunStepKind::Cleanup => "cleanup",
             RunStepKind::Seal => "seal",
             RunStepKind::Finalize => "finalize",
+            RunStepKind::ArchiCheck => "archi_check",
         }
     }
 }
@@ -690,7 +701,7 @@ pub struct RunStartCommand {
     pub started_at: i64,
 }
 
-/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 二十一值全词汇，零
+/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 二十二值全词汇，零
 /// 过滤）。`node_seq` 由整包下标盖戳（store 侧组装打包主键）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunNodeEntry {
@@ -839,7 +850,7 @@ pub trait ChangeStateStore: Send + Sync {
     /// 稳定序由实现保证）。
     fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
 
-    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；二十一值全词汇
+    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；二十二值全词汇
     /// 零过滤——读面与写面同一份封闭集）。
     fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault>;
 

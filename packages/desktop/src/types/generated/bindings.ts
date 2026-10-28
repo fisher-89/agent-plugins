@@ -244,6 +244,8 @@ export const commands = {
 	archiChangeSummary: (root: string, changeId: string) => __TAURI_INVOKE<ArchiChangeSummary | null>("archi_change_summary", { root, changeId }),
 	/**  改档写回（唯一写命令）。 */
 	archiSetGate: (root: string, element: string, gate: GateTier) => __TAURI_INVOKE<null>("archi_set_gate", { root, element, gate }),
+	/**  架构漂移检查（两模式；命令层零判定）。 */
+	archiDrift: (root: string, mode: ArchiDriftMode) => __TAURI_INVOKE<ArchiDriftReport>("archi_drift", { root, mode }),
 };
 
 /* Types */
@@ -564,6 +566,26 @@ export type ArchiChangeSummary = {
 	diagnostics: ArchiDiagnostic[],
 };
 
+/**
+ *  检查结论状态（封闭五值；线格式 `lowercase` 其四 + `noChanges` 驼峰）。
+ * 
+ *  五值语义：`clean`（有扫描、零 errors 零 warnings）/ `errors`（`errors` 非空或
+ *  模型结构错）/ `warnings`（零 errors、`warnings` 非空）/ `noChanges`（无文件
+ *  可判）/ `skipped`（无模型）。`skipped` 与 `noChanges` MUST NOT 被呈现或消费为
+ *  「通过」。
+ */
+export type ArchiCheckStatus = 
+/**  零违例零提示 */
+"clean" | 
+/**  存在违例（或模型结构错） */
+"errors" | 
+/**  零违例、存在提示 */
+"warnings" | 
+/**  无文件可判（增量变更集内无源文件） */
+"noChanges" | 
+/**  无模型（不检查） */
+"skipped";
+
 /**  入边对端（`dependedBy` 条目）。 */
 export type ArchiDependedBy = {
 	/**  依赖方元素 FQN */
@@ -621,6 +643,136 @@ export type ArchiDiagnosticKind =
 /**  子元素已声明而祖先未声明 */
 "orphanHierarchy";
 
+/**  漂移条目（`errors[]` / `warnings[]` / `model.warnings[]` 共用形状）。 */
+export type ArchiDriftEntry = {
+	/**  条目种类 */
+	kind: ArchiDriftKind,
+	/**  引入方元素 FQN（定级依据；path 类条目为该 path 所属元素） */
+	from: string | null,
+	/**  被引入元素 FQN（path 类条目为 `null`） */
+	to: string | null,
+	/**  定级依据的 gate 档（`null` = 无元素可归因） */
+	gate: GateTier | null,
+	/**  人读文案 */
+	message: string,
+	/**  命中点（path 类条目恒一条、`line = 0`） */
+	occurrences: ArchiDriftOccurrence[],
+};
+
+/**
+ *  漂移条目种类（封闭四值；线格式 camelCase）：`undeclaredDependency`（未声明
+ *  依赖，进 errors / warnings）、`pathNotFound`（元素 path 失效）、`ambiguousOwner`
+ *  （归属不确定）、`noPath`（元素未声明 path）。
+ */
+export type ArchiDriftKind = 
+/**  代码存在跨元素 import 而模型未声明该关系 */
+"undeclaredDependency" | 
+/**  元素 `path` 指向不存在的目录 / 文件 */
+"pathNotFound" | 
+/**  同一最长前缀命中多个元素（归属不确定） */
+"ambiguousOwner" | 
+/**  元素未声明 `path`（不参与归属） */
+"noPath";
+
+/**
+ *  检查模式（封闭二值）：`full` = workspace 级全量（不落盘）、`incremental` =
+ *  change 级增量（只扫变更集，落 `reports/archi`）。
+ */
+export type ArchiDriftMode = 
+/**  全量模式 */
+"full" | 
+/**  增量模式 */
+"incremental";
+
+/**  模型面事实（元素 / 关系计数 + 结构错 + 模型警告）。 */
+export type ArchiDriftModel = {
+	/**  元素总数 */
+	elements: number,
+	/**  关系总数 */
+	relations: number,
+	/**  gate 档位分布 */
+	byGate: ArchiGateCount,
+	/**  结构诊断（读存量模型遇错也照录；进 `status = errors` 但不进 `errors[]`） */
+	structuralErrors: ArchiDiagnostic[],
+	/**  模型警告（`pathNotFound` / `noPath`——判定域自己的模型警告） */
+	warnings: ArchiDriftEntry[],
+};
+
+/**  观察项（设计态陈述；永不影响 `status` / `passed`）。 */
+export type ArchiDriftObservation = {
+	/**  观察项种类 */
+	kind: ArchiObservationKind,
+	/**  声明方元素 FQN */
+	from: string,
+	/**  被声明依赖的元素 FQN */
+	to: string,
+	/**  人读文案（增量模式显式声明扫描面，避免被读成全仓结论） */
+	message: string,
+};
+
+/**  违例命中点（同元素对的全部命中点聚合在一条条目内，不按行铺开）。 */
+export type ArchiDriftOccurrence = {
+	/**  命中文件（repo 相对 POSIX） */
+	file: string,
+	/**  命中行（1 起始；`0` = 位置未知——`path` 类条目恒 0） */
+	line: number,
+	/**  import 声明原文 specifier */
+	specifier: string | null,
+	/**  是否 type-only 导入（只标注，MUST NOT 因它豁免） */
+	typeOnly: boolean,
+};
+
+/**  架构漂移检查报告（两模式共用；命令面出线与门禁面 `passed` 派生同源）。 */
+export type ArchiDriftReport = {
+	/**  报告结构版本号（字段演进须递增并走显式兼容说明） */
+	version: number,
+	/**  RFC3339 UTC 时间戳 */
+	timestamp: string,
+	/**  检查模式 */
+	mode: ArchiDriftMode,
+	/**  观察根（绝对路径） */
+	root: string,
+	/**  change 磁盘名（全量模式 / 命令面无 change 上下文时 `null`） */
+	change: string | null,
+	/**  增量基准（增量恒 `HEAD`；全量模式 `null`） */
+	base: string | null,
+	/**  `models/*.toml` 聚合哈希（`sha256:<hex>`） */
+	modelHash: string,
+	/**  模型面事实 */
+	model: ArchiDriftModel,
+	/**  扫描面事实 */
+	scan: ArchiScanReport,
+	/**  违例（按引入方 `gate` 档收口） */
+	errors: ArchiDriftEntry[],
+	/**  提示（`warn` 档违例 / 目标未建模 / 归属不确定 / path 失效等） */
+	warnings: ArchiDriftEntry[],
+	/**  被抑制的违例（豁免留痕） */
+	suppressed: ArchiDriftSuppressedEntry[],
+	/**  观察项（永不影响 `status` / `passed`） */
+	observations: ArchiDriftObservation[],
+	/**  检查结论 */
+	status: ArchiCheckStatus,
+};
+
+/**
+ *  被抑制的违例（豁免不等于不存在——保留条目 + 理由 + 来源，豁免了什么才可
+ *  审计）。
+ */
+export type ArchiDriftSuppressedEntry = {
+	/**  引入方元素 FQN */
+	from: string,
+	/**  被引入元素 FQN */
+	to: string,
+	/**  豁免来源 */
+	via: ArchiSuppressVia,
+	/**  豁免理由（必填非空白） */
+	reason: string,
+	/**  内联豁免所在文件（`via = config` 时 `null`） */
+	file: string | null,
+	/**  内联豁免所在行（`via = config` 时 `null`） */
+	line: number | null,
+};
+
 /**  元素投影（`modelFile` / `modelLine` 指向声明表头，可直接 `edit`）。 */
 export type ArchiElement = {
 	/**  完整限定名 */
@@ -643,6 +795,14 @@ export type ArchiElement = {
 	mark: NodeMark,
 };
 
+/**  被排除的文件（逐条留痕，MUST NOT 静默丢弃）。 */
+export type ArchiExcludedFile = {
+	/**  被排除文件（repo 相对 POSIX） */
+	file: string,
+	/**  命中的具体 glob 规则原文 */
+	rule: string,
+};
+
 /**  gate 变更条目（`from` → `to`）。 */
 export type ArchiGateChange = {
 	/**  元素 FQN */
@@ -653,6 +813,16 @@ export type ArchiGateChange = {
 	to: GateTier,
 };
 
+/**  gate 档位计数。 */
+export type ArchiGateCount = {
+	/**  strict 档元素数 */
+	strict: number,
+	/**  warn 档元素数 */
+	warn: number,
+	/**  off 档元素数 */
+	off: number,
+};
+
 /**  画布数据（停摆判据 = `diagnostics` 非空；停摆态 `elements` / `relations` 恒空）。 */
 export type ArchiGraph = {
 	/**  元素（FQN 字典序；停摆态为空数组） */
@@ -661,6 +831,14 @@ export type ArchiGraph = {
 	relations: ArchiRelation[],
 	/**  结构诊断（非空即停摆） */
 	diagnostics: ArchiDiagnostic[],
+};
+
+/**  按元素聚合的归属结果（元素 FQN 字典序、`files` 路径字典序）。 */
+export type ArchiMatchedElement = {
+	/**  元素 FQN */
+	element: string,
+	/**  归属到该元素的文件（repo 相对 POSIX） */
+	files: string[],
 };
 
 /**  单元素详情（定位工具的响应面；与 IPC `archi_module` 同一投影）。 */
@@ -679,6 +857,16 @@ export type ArchiModuleDetail = {
 	warnings: ArchiWarning[],
 };
 
+/**
+ *  观察项种类（封闭二值；线格式 camelCase）：`unfulfilledDeclaration`（声明未
+ *  兑现）、`unusedDeclaration`（长期未使用——本期不产出，词汇位由 spec 明列）。
+ */
+export type ArchiObservationKind = 
+/**  模型声明 `A -> B` 而代码无该 import */
+"unfulfilledDeclaration" | 
+/**  声明长期未被使用（本期不产出） */
+"unusedDeclaration";
+
 /**  关系投影（`reason` 本期恒 `null`，`exempt` 场景的呈现载体）。 */
 export type ArchiRelation = {
 	/**  起点元素 FQN */
@@ -691,6 +879,44 @@ export type ArchiRelation = {
 	mark: EdgeMark,
 	/**  豁免理由（本期恒 `null`） */
 	reason: string | null,
+};
+
+/**  扫描面事实（枚举 / 排除 / 归属 / 留痕）。 */
+export type ArchiScanReport = {
+	/**  扫描模式 */
+	mode: ArchiDriftMode,
+	/**  变更集内源文件数（全量模式恒 0） */
+	changedFiles: number,
+	/**  实际可判源文件数（候选源文件 − 被排除数） */
+	scannedFiles: number,
+	/**  被排除文件（逐条留痕） */
+	excluded: ArchiExcludedFile[],
+	/**  无元素认领的文件（含 `off` 元素覆盖与归属不确定） */
+	unmatchedFiles: string[],
+	/**  按元素聚合的归属结果 */
+	matched: ArchiMatchedElement[],
+	/**  不可判定留痕 */
+	unresolved: ArchiUnresolvedFile[],
+};
+
+/**
+ *  豁免来源（封闭二值；线格式小写词）：`config` = 架构域配置元素对、`inline` =
+ *  内联注释 `// archi-ignore-next-line: <reason>`。
+ */
+export type ArchiSuppressVia = 
+/**  配置元素对豁免 */
+"config" | 
+/**  内联注释豁免 */
+"inline";
+
+/**  不可判定的文件 / 导入（留痕，MUST NOT 冒充违例）。 */
+export type ArchiUnresolvedFile = {
+	/**  文件（repo 相对 POSIX） */
+	file: string,
+	/**  涉及的 specifier（无可归因时为 `null`） */
+	specifier: string | null,
+	/**  不可判定原因 */
+	message: string,
 };
 
 /**  文档警告投影（只报不拦）。 */
@@ -938,7 +1164,8 @@ export type ChangeStatus =
 /**
  *  步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
  *  spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
- *  static-check / test-execution / mutation-test / preflight / seal）+ Git 步
+ *  static-check / test-execution / mutation-test / archi-check / preflight /
+ *  seal）+ Git 步
  * （clean / commit / rebase / merge / cleanup / finalize——clean 为 initialize
  *  基线恢复步）+ Gate 三门。
  */
@@ -984,7 +1211,9 @@ export type ChangeStepKind =
 /**  归档双写收口步（内联步） */
 "seal" | 
 /**  归档落盘提交步（vcs） */
-"finalize";
+"finalize" | 
+/**  archi-check 门禁工具步（架构漂移判定，定向反馈边） */
+"archiCheck";
 
 /**
  *  步状态行：一次 `RunUpdate::Step` 的载荷，运行步节点推导的唯一输入面。稳定
@@ -1470,12 +1699,12 @@ export type RunStatus =
 "interrupted";
 
 /**
- *  run 步词汇封闭集（**二十一值全词汇**，线格式 snake_case 词）：agent 阶段
+ *  run 步词汇封闭集（**二十二值全词汇**，线格式 snake_case 词）：agent 阶段
  * （executor / evaluator / decision）、脚本阶段（static_check / test_execution /
- *  mutation_test）、initialize 基线步（clean）、流程面步骤（phase_start /
- *  phase_log）、三门 gate（verdict_gate、retry_gate、whitelist_gate）与归档 9 步
- * （preflight / commit / rebase / resolve_conflicts / merge / spec_sync / cleanup /
- *  seal / finalize）。词汇本体单点——落库命令
+ *  mutation_test / archi_check）、initialize 基线步（clean）、流程面步骤
+ * （phase_start / phase_log）、三门 gate（verdict_gate、retry_gate、
+ *  whitelist_gate）与归档 9 步（preflight / commit / rebase / resolve_conflicts /
+ *  merge / spec_sync / cleanup / seal / finalize）。词汇本体单点——落库命令
  * （`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
  * （旧 5 值词表的过滤谓词已退役）。
  * 
@@ -1524,7 +1753,9 @@ export type RunStepKind =
 /**  归档双写收口步（内联步） */
 "seal" | 
 /**  归档落盘提交步（vcs） */
-"finalize";
+"finalize" | 
+/**  archi-check 门禁工具步（架构漂移判定；尾部追加——bincode 下标纪律） */
+"archi_check";
 
 /**  run 步状态四值（线格式 camelCase 词）。 */
 export type RunStepStatus = 

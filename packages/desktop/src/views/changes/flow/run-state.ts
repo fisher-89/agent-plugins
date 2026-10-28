@@ -9,7 +9,7 @@ import type {
 import type { FlowRoleLabel, RunStepGroup, RuntimeFlowNode } from './types';
 
 /** 步词汇归一单点：库读史 snake 词（RunStepKind）→ 活面 camel 词
- *（ChangeStepKind）——二十一值全词汇逐词对应（落库零过滤后读面同词汇；
+ *（ChangeStepKind）——二十二值全词汇逐词对应（落库零过滤后读面同词汇；
  * clean / cleanup 为 identity 词，走 `default` 分支直返——commit / rebase /
  * merge / finalize / preflight / seal 同先例）。 */
 function normalizeKind(step: RunStepKind): ChangeStepKind {
@@ -20,6 +20,8 @@ function normalizeKind(step: RunStepKind): ChangeStepKind {
       return 'testExecution';
     case 'mutation_test':
       return 'mutationTest';
+    case 'archi_check':
+      return 'archiCheck';
     case 'phase_start':
       return 'phaseStart';
     case 'phase_log':
@@ -49,6 +51,8 @@ function stepWord(kind: ChangeStepKind): string {
       return 'test_execution';
     case 'mutationTest':
       return 'mutation_test';
+    case 'archiCheck':
+      return 'archi_check';
     case 'phaseStart':
       return 'phase_start';
     case 'phaseLog':
@@ -156,8 +160,8 @@ export function unifiedRunEdges(
 
 /** 步词汇 → 节点分组（四类节点可辨）：归档步归组与后端 `StepNode::group()`
  * 同判——clean / commit / rebase / merge / cleanup / finalize 归 git（clean 为
- * initialize 基线恢复步）、preflight / seal 归 toolStep、specSync /
- * resolveConflicts 归 workerAgent。 */
+ * initialize 基线恢复步）、preflight / seal / mutationTest / archiCheck 归
+ * toolStep、specSync / resolveConflicts 归 workerAgent。 */
 function groupOf(step: ChangeStepKind): RunStepGroup {
   if (
     step === 'executor' ||
@@ -179,6 +183,7 @@ function groupOf(step: ChangeStepKind): RunStepGroup {
     return 'git';
   }
   if (step === 'verdictGate' || step === 'retryGate' || step === 'whitelistGate') return 'gate';
+  // archiCheck / mutationTest / 相位机步走缺省 toolStep（与后端 Exec 分组同判）
   return 'toolStep';
 }
 

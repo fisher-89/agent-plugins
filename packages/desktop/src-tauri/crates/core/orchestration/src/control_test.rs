@@ -964,6 +964,113 @@ async fn publish_session_event无运行中会话节点_零挂载仅session通知
     assert!(rx.try_recv().is_err(), "零 Step 补发");
 }
 
+/// 边界（AC-16 / 事实校准 2）：`archi_check` 是**工具步**——会话事件到达时该
+/// 运行中节点 MUST NOT 被挂上 session id，也不补发 `Step` 通知（`is_session_step`
+/// 为正向 `matches!` 五类会话步，新步词天然判假，零代码改动）。
+#[tokio::test]
+async fn publish_session_event_archi_check工具步不挂会话id零补拍() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    guard.emit(RunUpdate::Step {
+        step: running_step(ChangeStepKind::ArchiCheck, 0, None),
+    });
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "工具步 running emit 通知先排空"
+    );
+
+    guard.emit(session_event("sess-archi", 0));
+
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(
+        snap.nodes[0].session_id, None,
+        "archi_check 不挂会话 id（工具步零会话）"
+    );
+    assert_eq!(
+        snap.nodes[0].status,
+        ChangeStepStatus::Running,
+        "状态零改写"
+    );
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::SessionEvent)),
+        "仅原 SessionEvent kind 广播"
+    );
+    assert!(rx.try_recv().is_err(), "零 Step 补拍（未挂载即不补发）");
+}
+
+/// 正向（AC-16）：`archi_check` 节点两态（running / passed）经既有快照与广播面
+/// 正常出线——步词为落库 camel 词 `archiCheck`（`ChangeStepKind` 单点），
+/// `session_id` 恒 `None`，一次发布一拍、零补拍；同 run 内的会话型步照常挂载
+/// （正向枚举语义不因新增步词走否定分支）。
+#[tokio::test]
+async fn publish_archi_check节点两态出线且会话型步仍挂载() {
+    for status in [ChangeStepStatus::Running, ChangeStepStatus::Passed] {
+        let control = Arc::new(ChangeFlowControl::new());
+        let guard = control
+            .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+            .unwrap();
+        let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+
+        guard.emit(RunUpdate::Step {
+            step: ChangeStepState {
+                status,
+                detail: Some("未检查（无模型）".to_owned()),
+                ..running_step(ChangeStepKind::ArchiCheck, 0, None)
+            },
+        });
+        let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+        assert_eq!(snap.nodes.len(), 1, "{status:?} 态节点在快照中在场");
+        assert_eq!(
+            snap.nodes[0].step,
+            ChangeStepKind::ArchiCheck,
+            "步词汇原样出线（线面词由 as_str 单点派生）"
+        );
+        assert_eq!(
+            snap.nodes[0].step.as_str(),
+            "archi_check",
+            "线词 snake_case"
+        );
+        assert_eq!(snap.nodes[0].session_id, None, "工具步 session 恒 None");
+        assert_eq!(
+            snap.nodes[0].detail.as_deref(),
+            Some("未检查（无模型）"),
+            "detail 原样透传（不冒充通过）"
+        );
+        assert!(
+            matches!(rx.try_recv(), Ok(RunNotice::Step)),
+            "{status:?} 态一次发布一拍"
+        );
+
+        // 同 run 内后到的会话型步：会话事件仍挂到 executor 上（正向枚举语义）
+        guard.emit(RunUpdate::Step {
+            step: running_step(ChangeStepKind::Executor, 0, None),
+        });
+        assert!(matches!(rx.try_recv(), Ok(RunNotice::Step)), "executor 拍");
+        guard.emit(session_event("sess-exec-live", 0));
+        let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+        assert_eq!(
+            snap.nodes[0].session_id, None,
+            "archi_check 节点未被误挂会话 id"
+        );
+        assert_eq!(
+            snap.nodes[1].session_id.as_deref(),
+            Some("sess-exec-live"),
+            "会话 id 挂到会话型节点（与新增步词零耦合）"
+        );
+        assert!(
+            matches!(rx.try_recv(), Ok(RunNotice::Step)),
+            "首挂补发 Step 通知"
+        );
+        assert!(
+            matches!(rx.try_recv(), Ok(RunNotice::SessionEvent)),
+            "原 SessionEvent kind 照常广播"
+        );
+    }
+}
+
 /// publish(Ask) / publish(ConfirmWait) / publish(Finished) → 状态迁移与 ask
 /// 载荷照旧 + 对应 Notice kind 各自广播（AC-8 kind 位一一对应）。
 #[tokio::test]
@@ -2009,4 +2116,41 @@ async fn finish除名后flag仍可由runner侧置位() {
     // 在跑 runner 持有的句柄仍可置位（Arc 生命周期不随注册表除名终止）
     held.handle().set();
     assert!(held.is_set(), "除名后 flag 仍可置位（runner 持有至释放）");
+}
+
+// ---------------------------------------------------------------------------
+// archi_check 非会话步（AC-12 / D18）：`is_session_step` 正向 matches! 天然判假
+// ---------------------------------------------------------------------------
+
+/// 正向（D18）：`is_session_step` 是**正向白名单** `matches!`（五类会话步逐条列举），
+/// 故工具步 `archi_check` 天然判假——源码自证：白名单不含 `ArchiCheck`，且
+/// MUST NOT 被改写成否定列表（`!matches!` / `_ =>`）。
+#[test]
+fn archi_check非会话步() {
+    let source = include_str!("control.rs");
+    let start = source
+        .find("fn is_session_step(")
+        .expect("is_session_step 定义在职");
+    let body: String = source[start..].chars().take(400).collect();
+    assert!(
+        body.contains("matches!("),
+        "会话步判定为正向 matches! 白名单"
+    );
+    assert!(
+        !body.contains("ArchiCheck"),
+        "工具步 MUST NOT 进会话白名单（正向判假即 AC-12 的零会话语义）"
+    );
+    for session in [
+        "Executor",
+        "Evaluator",
+        "Decision",
+        "SpecSync",
+        "ResolveConflicts",
+    ] {
+        assert!(
+            body.contains(session),
+            "五类会话步 {session} 仍在白名单（零回归）"
+        );
+    }
+    assert!(!body.contains("!matches!("), "MUST NOT 改写成否定列表");
 }

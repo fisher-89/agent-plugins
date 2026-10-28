@@ -499,7 +499,9 @@ fn 特殊字符文件名逐字保留且不panic() {
     assert_eq!(outcome.diagnostics.len(), 2);
     for diagnostic in &outcome.diagnostics {
         assert!(
-            diagnostic.file.starts_with(".dev-team/architecture/models/"),
+            diagnostic
+                .file
+                .starts_with(".dev-team/architecture/models/"),
             "目录段由派生函数给出: {}",
             diagnostic.file
         );

@@ -6,7 +6,7 @@
 
 ## 1. 结论
 
-模型的每个元素都能归属到一条覆盖判据（crate / 视图 / 视图内子域 / 共享组件 / 原语层 / 壳 / 容器），每条关系都能指到一处具体声明（`Cargo.toml` 段落或 `import` 行）。基线为 **49 元素 / 107 关系**：后端 43 条（9 + 21 + 12 + 1，拆在 `02`–`05` 四个文件）、前端 64 条（全在 `06`）。任一诊断（成环 / 依赖祖先 / 未定义引用 / 孤儿层级）非零即整图停摆，故本记录同时也是「哪些写法会立刻停摆」的清单。
+模型的每个元素都能归属到一条覆盖判据（crate / 视图 / 视图内子域 / 共享组件 / 原语层 / 壳 / 容器），每条关系都能指到一处具体声明（`Cargo.toml` 段落或 `import` 行）。基线为 **50 元素 / 111 关系**：后端 47 条（9 + 24 + 13 + 1，拆在 `02`–`05` 四个文件）、前端 64 条（全在 `06`）。任一诊断（成环 / 依赖祖先 / 未定义引用 / 孤儿层级）非零即整图停摆，故本记录同时也是「哪些写法会立刻停摆」的清单。
 
 ## 2. 三档粒度
 
@@ -33,15 +33,15 @@
 
 后端关系只取 `[dependencies]` 段内指向 workspace 内包的声明（`{ workspace = true }` 与 `{ path = … }` 同权），`[dev-dependencies]` 与 `[build-dependencies]` 按**段落整体**排除，而不是「挑几个明显成环的排除」。实测 4 条 dev 边：`workflow → orchestration`、`orchestration → store`、`workflow → store`、`checks-runtime → workflow`。前三者与生产边 `orchestration → workflow`、`store → workflow` 合起来即 `cycle`；只按「`workflow ⇄ orchestration`」一条举例排除，仍会漏掉 `workflow → store` 并让整张图停摆。
 
-test-only 互依的事实由 `Cargo.toml` 自身承载，模型 MUST NOT 重复表达；排除后关系总数不受影响（后端仍 43 条）。
+test-only 互依的事实由 `Cargo.toml` 自身承载，模型 MUST NOT 重复表达；排除后关系总数不受影响（后端仍 47 条）。
 
 ## 5. 反向边在案：`App.Backend.Tools.ExportBindings`
 
-`App.Backend.Tools.ExportBindings → App.Backend.Shell`（`path = "../../../"`）是模型内唯一「工具依赖壳」的倒置边，不是笔误：导出命令面 bindings 必须以壳的包为依赖。同理，`App.Backend.Shell` 出边 12 条、`App.Backend.Infra.Watch` 与 `App.Backend.Core.Agent` 出边为零，都是 `Cargo.toml` 的直读结果，不是取舍。
+`App.Backend.Tools.ExportBindings → App.Backend.Shell`（`path = "../../../"`）是模型内唯一「工具依赖壳」的倒置边，不是笔误：导出命令面 bindings 必须以壳的包为依赖。同理，`App.Backend.Shell` 出边 13 条、`App.Backend.Infra.Watch` 与 `App.Backend.Core.Agent` 出边为零，都是 `Cargo.toml` 的直读结果，不是取舍。
 
 ## 6. `gate` 全 `off`
 
-基线 49 个元素 `gate` 全部显式写 `off`（不走缺省），冷启动 ratchet：想收紧 `warn` / `strict` 的模块后续各自独立变更，一次收紧一块，`grep` 即可定位全部待收紧面。收紧的前提是先有价值——本轮只负责让模型第一次存在，不设任何门禁。
+基线 50 个元素 `gate` 全部显式写 `off`（不走缺省），冷启动 ratchet：想收紧 `warn` / `strict` 的模块后续各自独立变更，一次收紧一块，`grep` 即可定位全部待收紧面。收紧的前提是先有价值——本轮只负责让模型第一次存在，不设任何门禁。
 
 ## 7. 封闭排除面
 
@@ -62,9 +62,9 @@ test-only 互依的事实由 `Cargo.toml` 自身承载，模型 MUST NOT 重复�
 ## 9. 计数推导（可逐项复算）
 
 ```
-元素 = 01(3) + 02(8) + 03(7) + 04(1) + 05(2) + 06(28) = 49（容器 10 + 叶 39）
-关系 = 01(0) + 02(9) + 03(21) + 04(12) + 05(1) + 06(64) = 107
-     后端 43（Cargo [dependencies] 的 workspace 内声明）+ 前端 64（import 证据）
+元素 = 01(3) + 02(8) + 03(8) + 04(1) + 05(2) + 06(28) = 50（容器 10 + 叶 40）
+关系 = 01(0) + 02(9) + 03(24) + 04(13) + 05(1) + 06(64) = 111
+     后端 47（Cargo [dependencies] 的 workspace 内声明）+ 前端 64（import 证据）
 前端 64 = 58（叶 → 叶 / 叶 → 容器）+ 6（`App.Frontend.Components.Agent` barrel 端点边）
 ```
 

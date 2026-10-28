@@ -3907,9 +3907,9 @@ async fn archi分派两工具到执行体且结果非错误() {
         if tool == ARCHI_MODULE_TOOL {
             // AC-1 / AC-10：声明位置单点（`modelFile` repo 相对 + `modelLine` 行号）
             assert!(
-                payload["element"]["modelFile"]
-                    .as_str()
-                    .is_some_and(|file| file.ends_with(".dev-team/architecture/models/01-core.toml")),
+                payload["element"]["modelFile"].as_str().is_some_and(
+                    |file| file.ends_with(".dev-team/architecture/models/01-core.toml")
+                ),
                 "{tool}: modelFile 指向声明文件，实际: {payload}"
             );
             assert_eq!(
@@ -4664,9 +4664,11 @@ async fn archi面write新建与edit改gate行落盘且保护零拦截() {
     }
     let created = dir.path().join(".dev-team/architecture/models/09-x.toml");
     assert!(created.exists(), "write 新建文件落盘");
-    let edited =
-        std::fs::read_to_string(dir.path().join(".dev-team/architecture/models/01-core.toml"))
-            .expect("读既有模型文件");
+    let edited = std::fs::read_to_string(
+        dir.path()
+            .join(".dev-team/architecture/models/01-core.toml"),
+    )
+    .expect("读既有模型文件");
     assert!(
         edited.contains("gate = \"warn\"") && !edited.contains("gate = \"strict\""),
         "edit 改既有 gate 行成功，实际文件:\n{edited}"

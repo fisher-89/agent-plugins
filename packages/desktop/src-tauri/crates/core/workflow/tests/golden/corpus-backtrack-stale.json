@@ -1,153 +1,153 @@
 {
-  "activePhase": null,
-  "artifacts": [
-    {
-      "kind": "eval-checklist",
-      "phase": "dev-design",
-      "source": "1",
-      "title": "评估清单 · dev-design · 第 1 次"
-    },
-    {
-      "kind": "markdown-doc",
-      "phase": "proposal",
-      "source": "proposal.md",
-      "title": "提案"
-    }
-  ],
-  "created": "2024-09-22",
   "id": "id-backtrack-stale",
   "name": "backtrack-stale",
+  "title": "backtrack-stale",
+  "source": "active",
+  "status": "active",
+  "created": "2024-09-22",
   "pipeline": [
     {
-      "attempts": [],
-      "phase": "initialize"
+      "phase": "initialize",
+      "attempts": []
     },
     {
+      "phase": "proposal",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
-          "checklist": [],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
+          "verdict": "pass",
           "report": "提案通过",
+          "checklist": [],
           "skipped": false,
           "stale": false,
           "startAt": "2024-09-22T10:13:21Z",
           "timestamp": "2024-09-22T10:13:21Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         }
-      ],
-      "phase": "proposal"
+      ]
     },
     {
+      "phase": "dev-design",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
+          "verdict": "pass",
+          "report": "设计通过",
           "checklist": [
             {
-              "evidence": "五组件齐全",
               "item": "组件表完整",
-              "pass": true
+              "pass": true,
+              "evidence": "五组件齐全"
             }
           ],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
-          "report": "设计通过",
           "skipped": false,
           "stale": true,
           "startAt": "2024-09-22T10:13:22Z",
           "timestamp": "2024-09-22T10:13:22Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         }
-      ],
-      "phase": "dev-design"
+      ]
     },
     {
+      "phase": "test-design",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
-          "checklist": [],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
+          "verdict": "pass",
           "report": "测试设计通过",
+          "checklist": [],
           "skipped": false,
           "stale": true,
           "startAt": "2024-09-22T10:13:23Z",
           "timestamp": "2024-09-22T10:13:23Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         }
-      ],
-      "phase": "test-design"
+      ]
     },
     {
+      "phase": "implement",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": null,
-          "backtrackTo": null,
-          "checklist": [],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
+          "verdict": "pass",
           "report": "实现完成",
+          "checklist": [],
           "skipped": false,
           "stale": true,
           "startAt": "2024-09-22T10:13:24Z",
           "timestamp": "2024-09-22T10:13:24Z",
-          "verdict": "pass"
+          "backtrackTo": null,
+          "backtrackReason": null,
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         }
-      ],
-      "phase": "implement"
+      ]
     },
     {
+      "phase": "test-gen",
       "attempts": [
         {
           "attempt": 1,
-          "backtrackReason": "设计返工：缺产物区组件",
-          "backtrackTo": "dev-design",
-          "checklist": [],
-          "decisionSessionId": null,
-          "evaluatorSessionId": null,
-          "executorSessionId": null,
+          "verdict": "pass",
           "report": "测试生成通过",
+          "checklist": [],
           "skipped": false,
           "stale": true,
           "startAt": "2024-09-22T10:13:25Z",
           "timestamp": "2024-09-22T10:13:25Z",
-          "verdict": "pass"
+          "backtrackTo": "dev-design",
+          "backtrackReason": "设计返工：缺产物区组件",
+          "executorSessionId": null,
+          "evaluatorSessionId": null,
+          "decisionSessionId": null
         }
-      ],
-      "phase": "test-gen"
+      ]
     },
     {
-      "attempts": [],
-      "phase": "test-execution"
+      "phase": "test-execution",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "code-review"
+      "phase": "code-review",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "acceptance"
+      "phase": "acceptance",
+      "attempts": []
     },
     {
-      "attempts": [],
-      "phase": "archive"
+      "phase": "archive",
+      "attempts": []
     }
   ],
+  "activePhase": null,
   "runs": [],
-  "source": "active",
-  "status": "active",
-  "title": "backtrack-stale",
+  "artifacts": [
+    {
+      "kind": "eval-checklist",
+      "source": "1",
+      "title": "评估清单 · dev-design · 第 1 次",
+      "phase": "dev-design"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "proposal.md",
+      "title": "提案",
+      "phase": "proposal"
+    }
+  ],
   "worktree": null
 }

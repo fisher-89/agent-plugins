@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "config-suppressed",
+  "base": null,
+  "modelHash": "sha256:cfc8338316dc91f447202a1f45728ffd5155e69f0481f511d5673d964d690cc4",
+  "model": {
+    "elements": 3,
+    "relations": 0,
+    "byGate": {
+      "strict": 1,
+      "warn": 1,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 2,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Auth",
+        "files": [
+          "src/auth/token.ts"
+        ]
+      },
+      {
+        "element": "App.Billing",
+        "files": [
+          "src/billing/x.ts"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [
+    {
+      "from": "App.Billing",
+      "to": "App.Auth",
+      "via": "config",
+      "reason": "迁移期临时直连，见 ADR-0007",
+      "file": null,
+      "line": null
+    }
+  ],
+  "observations": [],
+  "status": "clean"
+}
