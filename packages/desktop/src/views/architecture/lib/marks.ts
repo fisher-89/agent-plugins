@@ -38,5 +38,5 @@ export function edgeVisual(mark: string): EdgeVisual {
  * 两值是 `string` 的子集，退化分支即词汇封闭的执行点）。
  */
 export function nodeDot(mark: string): string {
-  return mark === 'unfulfilled' ? '🟡' : '';
+  return mark === 'unfulfilled' ? '🟡' : '⚪';
 }

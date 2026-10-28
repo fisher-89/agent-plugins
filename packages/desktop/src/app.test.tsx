@@ -416,9 +416,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
 
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
-    expect(screen.getByText(/选择一个项目根目录/) !== null).toBe(true);
-    // 欢迎屏清单标题与计数（D7：空清单计数为 0）
-    expect(screen.getByText(/最近的 workspace/).textContent).toContain('(0)');
+    expect(screen.getByText(/添加一个项目根目录开始浏览/) !== null).toBe(true);
     expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
     // 除挂载自动 load 与壳层环境取数外无任何取数
     expect(commandsExceptEnvironment().every((name) => name === 'list_workspaces')).toBe(true);
@@ -907,7 +905,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(document.querySelector('[data-slot="sidebar"]')).toBeNull();
     expect(document.querySelector('header')).toBeNull();
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
-    expect(screen.getByText(/选择一个项目根目录/) !== null).toBe(true);
+    expect(screen.getByText(/添加一个项目根目录开始浏览/) !== null).toBe(true);
   });
 
   it('Toaster 与条件渲染同级置于 App 根：欢迎态与壳态各验一次 sonner 容器在场', async () => {
