@@ -1,0 +1,47 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\archi)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\agent)
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\archi)
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri)
+    Checking export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.34s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+warning: unused variable: `slot`
+  --> crates\core\foundation\src\layout\mod.rs:92:20
+   |
+92 | fn report_dir_name(slot: ReportSlot) -> &'static str {
+   |                    ^^^^ help: if this is intentional, prefix it with an underscore: `_slot`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `TEST_REPORTS_DIR_NAME` is never used
+  --> crates\core\foundation\src\layout\mod.rs:22:7
+   |
+22 | const TEST_REPORTS_DIR_NAME: &str = "test";
+   |       ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `BASELINE_REPORTS_DIR_NAME` is never used
+  --> crates\core\foundation\src\layout\mod.rs:25:7
+   |
+25 | const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `ARCHI_REPORTS_DIR_NAME` is never used
+  --> crates\core\foundation\src\layout\mod.rs:29:7
+   |
+29 | const ARCHI_REPORTS_DIR_NAME: &str = "archi";
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(8.4s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 218 files [2m(1.9s, 16 threads)[0m

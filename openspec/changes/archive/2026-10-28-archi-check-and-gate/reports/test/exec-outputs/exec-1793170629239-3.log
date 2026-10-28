@@ -1,0 +1,562 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\foundation)
+    Checking agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\agent)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri)
+    Checking watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\watch)
+    Checking specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\config)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\archi)
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\exec)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\checks)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\store)
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\archi)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\checks)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.22s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+diff --git a/packages/desktop/src/types/generated/bindings.ts b/packages/desktop/src/types/generated/bindings.ts
+index aecd7b24ea45..cb4606265c78 100644
+--- a/packages/desktop/src/types/generated/bindings.ts
++++ b/packages/desktop/src/types/generated/bindings.ts
+@@ -244,6 +244,8 @@ export const commands = {
+ 	archiChangeSummary: (root: string, changeId: string) => __TAURI_INVOKE<ArchiChangeSummary | null>("archi_change_summary", { root, changeId }),
+ 	/**  改档写回（唯一写命令）。 */
+ 	archiSetGate: (root: string, element: string, gate: GateTier) => __TAURI_INVOKE<null>("archi_set_gate", { root, element, gate }),
++	/**  架构漂移检查（两模式；命令层零判定）。 */
++	archiDrift: (root: string, mode: ArchiDriftMode) => __TAURI_INVOKE<ArchiDriftReport>("archi_drift", { root, mode }),
+ };
+ 
+ /* Types */
+@@ -564,6 +566,26 @@ export type ArchiChangeSummary = {
+ 	diagnostics: ArchiDiagnostic[],
+ };
+ 
++/**
++ *  检查结论状态（封闭五值；线格式 `lowercase` 其四 + `noChanges` 驼峰）。
++ * 
++ *  五值语义：`clean`（有扫描、零 errors 零 warnings）/ `errors`（`errors` 非空或
++ *  模型结构错）/ `warnings`（零 errors、`warnings` 非空）/ `noChanges`（无文件
++ *  可判）/ `skipped`（无模型）。`skipped` 与 `noChanges` MUST NOT 被呈现或消费为
++ *  「通过」。
++ */
++export type ArchiCheckStatus = 
++/**  零违例零提示 */
++"clean" | 
++/**  存在违例（或模型结构错） */
++"errors" | 
++/**  零违例、存在提示 */
++"warnings" | 
++/**  无文件可判（增量变更集内无源文件） */
++"noChanges" | 
++/**  无模型（不检查） */
++"skipped";
++
+ /**  入边对端（`dependedBy` 条目）。 */
+ export type ArchiDependedBy = {
+ 	/**  依赖方元素 FQN */
+@@ -621,6 +643,136 @@ export type ArchiDiagnosticKind =
+ /**  子元素已声明而祖先未声明 */
+ "orphanHierarchy";
+ 
++/**  漂移条目（`errors[]` / `warnings[]` / `model.warnings[]` 共用形状）。 */
++export type ArchiDriftEntry = {
++	/**  条目种类 */
++	kind: ArchiDriftKind,
++	/**  引入方元素 FQN（定级依据；path 类条目为该 path 所属元素） */
++	from: string | null,
++	/**  被引入元素 FQN（path 类条目为 `null`） */
++	to: string | null,
++	/**  定级依据的 gate 档（`null` = 无元素可归因） */
++	gate: GateTier | null,
++	/**  人读文案 */
++	message: string,
++	/**  命中点（path 类条目恒一条、`line = 0`） */
++	occurrences: ArchiDriftOccurrence[],
++};
++
++/**
++ *  漂移条目种类（封闭四值；线格式 camelCase）：`undeclaredDependency`（未声明
++ *  依赖，进 errors / warnings）、`pathNotFound`（元素 path 失效）、`ambiguousOwner`
++ *  （归属不确定）、`noPath`（元素未声明 path）。
++ */
++export type ArchiDriftKind = 
++/**  代码存在跨元素 import 而模型未声明该关系 */
++"undeclaredDependency" | 
++/**  元素 `path` 指向不存在的目录 / 文件 */
++"pathNotFound" | 
++/**  同一最长前缀命中多个元素（归属不确定） */
++"ambiguousOwner" | 
++/**  元素未声明 `path`（不参与归属） */
++"noPath";
++
++/**
++ *  检查模式（封闭二值）：`full` = workspace 级全量（不落盘）、`incremental` =
++ *  change 级增量（只扫变更集，落 `reports/archi`）。
++ */
++export type ArchiDriftMode = 
++/**  全量模式 */
++"full" | 
++/**  增量模式 */
++"incremental";
++
++/**  模型面事实（元素 / 关系计数 + 结构错 + 模型警告）。 */
++export type ArchiDriftModel = {
++	/**  元素总数 */
++	elements: number,
++	/**  关系总数 */
++	relations: number,
++	/**  gate 档位分布 */
++	byGate: ArchiGateCount,
++	/**  结构诊断（读存量模型遇错也照录；进 `status = errors` 但不进 `errors[]`） */
++	structuralErrors: ArchiDiagnostic[],
++	/**  模型警告（`pathNotFound` / `noPath`——判定域自己的模型警告） */
++	warnings: ArchiDriftEntry[],
++};
++
++/**  观察项（设计态陈述；永不影响 `status` / `passed`）。 */
++export type ArchiDriftObservation = {
++	/**  观察项种类 */
++	kind: ArchiObservationKind,
++	/**  声明方元素 FQN */
++	from: string,
++	/**  被声明依赖的元素 FQN */
++	to: string,
++	/**  人读文案（增量模式显式声明扫描面，避免被读成全仓结论） */
++	message: string,
++};
++
++/**  违例命中点（同元素对的全部命中点聚合在一条条目内，不按行铺开）。 */
++export type ArchiDriftOccurrence = {
++	/**  命中文件（repo 相对 POSIX） */
++	file: string,
++	/**  命中行（1 起始；`0` = 位置未知——`path` 类条目恒 0） */
++	line: number,
++	/**  import 声明原文 specifier */
++	specifier: string | null,
++	/**  是否 type-only 导入（只标注，MUST NOT 因它豁免） */
++	typeOnly: boolean,
++};
++
++/**  架构漂移检查报告（两模式共用；命令面出线与门禁面 `passed` 派生同源）。 */
++export type ArchiDriftReport = {
++	/**  报告结构版本号（字段演进须递增并走显式兼容说明） */
++	version: number,
++	/**  RFC3339 UTC 时间戳 */
++	timestamp: string,
++	/**  检查模式 */
++	mode: ArchiDriftMode,
++	/**  观察根（绝对路径） */
++	root: string,
++	/**  change 磁盘名（全量模式 / 命令面无 change 上下文时 `null`） */
++	change: string | null,
++	/**  增量基准（增量恒 `HEAD`；全量模式 `null`） */
++	base: string | null,
++	/**  `models/*.toml` 聚合哈希（`sha256:<hex>`） */
++	modelHash: string,
++	/**  模型面事实 */
++	model: ArchiDriftModel,
++	/**  扫描面事实 */
++	scan: ArchiScanReport,
++	/**  违例（按引入方 `gate` 档收口） */
++	errors: ArchiDriftEntry[],
++	/**  提示（`warn` 档违例 / 目标未建模 / 归属不确定 / path 失效等） */
++	warnings: ArchiDriftEntry[],
++	/**  被抑制的违例（豁免留痕） */
++	suppressed: ArchiDriftSuppressedEntry[],
++	/**  观察项（永不影响 `status` / `passed`） */
++	observations: ArchiDriftObservation[],
++	/**  检查结论 */
++	status: ArchiCheckStatus,
++};
++
++/**
++ *  被抑制的违例（豁免不等于不存在——保留条目 + 理由 + 来源，豁免了什么才可
++ *  审计）。
++ */
++export type ArchiDriftSuppressedEntry = {
++	/**  引入方元素 FQN */
++	from: string,
++	/**  被引入元素 FQN */
++	to: string,
++	/**  豁免来源 */
++	via: ArchiSuppressVia,
++	/**  豁免理由（必填非空白） */
++	reason: string,
++	/**  内联豁免所在文件（`via = config` 时 `null`） */
++	file: string | null,
++	/**  内联豁免所在行（`via = config` 时 `null`） */
++	line: number | null,
++};
++
+ /**  元素投影（`modelFile` / `modelLine` 指向声明表头，可直接 `edit`）。 */
+ export type ArchiElement = {
+ 	/**  完整限定名 */
+@@ -643,6 +795,14 @@ export type ArchiElement = {
+ 	mark: NodeMark,
+ };
+ 
++/**  被排除的文件（逐条留痕，MUST NOT 静默丢弃）。 */
++export type ArchiExcludedFile = {
++	/**  被排除文件（repo 相对 POSIX） */
++	file: string,
++	/**  命中的具体 glob 规则原文 */
++	rule: string,
++};
++
+ /**  gate 变更条目（`from` → `to`）。 */
+ export type ArchiGateChange = {
+ 	/**  元素 FQN */
+@@ -653,6 +813,16 @@ export type ArchiGateChange = {
+ 	to: GateTier,
+ };
+ 
++/**  gate 档位计数。 */
++export type ArchiGateCount = {
++	/**  strict 档元素数 */
++	strict: number,
++	/**  warn 档元素数 */
++	warn: number,
++	/**  off 档元素数 */
++	off: number,
++};
++
+ /**  画布数据（停摆判据 = `diagnostics` 非空；停摆态 `elements` / `relations` 恒空）。 */
+ export type ArchiGraph = {
+ 	/**  元素（FQN 字典序；停摆态为空数组） */
+@@ -663,6 +833,14 @@ export type ArchiGraph = {
+ 	diagnostics: ArchiDiagnostic[],
+ };
+ 
++/**  按元素聚合的归属结果（元素 FQN 字典序、`files` 路径字典序）。 */
++export type ArchiMatchedElement = {
++	/**  元素 FQN */
++	element: string,
++	/**  归属到该元素的文件（repo 相对 POSIX） */
++	files: string[],
++};
++
+ /**  单元素详情（定位工具的响应面；与 IPC `archi_module` 同一投影）。 */
+ export type ArchiModuleDetail = {
+ 	/**  元素本体 */
+@@ -679,6 +857,16 @@ export type ArchiModuleDetail = {
+ 	warnings: ArchiWarning[],
+ };
+ 
++/**
++ *  观察项种类（封闭二值；线格式 camelCase）：`unfulfilledDeclaration`（声明未
++ *  兑现）、`unusedDeclaration`（长期未使用——本期不产出，词汇位由 spec 明列）。
++ */
++export type ArchiObservationKind = 
++/**  模型声明 `A -> B` 而代码无该 import */
++"unfulfilledDeclaration" | 
++/**  声明长期未被使用（本期不产出） */
++"unusedDeclaration";
++
+ /**  关系投影（`reason` 本期恒 `null`，`exempt` 场景的呈现载体）。 */
+ export type ArchiRelation = {
+ 	/**  起点元素 FQN */
+@@ -693,6 +881,44 @@ export type ArchiRelation = {
+ 	reason: string | null,
+ };
+ 
++/**  扫描面事实（枚举 / 排除 / 归属 / 留痕）。 */
++export type ArchiScanReport = {
++	/**  扫描模式 */
++	mode: ArchiDriftMode,
++	/**  变更集内源文件数（全量模式恒 0） */
++	changedFiles: number,
++	/**  实际可判源文件数（候选源文件 − 被排除数） */
++	scannedFiles: number,
++	/**  被排除文件（逐条留痕） */
++	excluded: ArchiExcludedFile[],
++	/**  无元素认领的文件（含 `off` 元素覆盖与归属不确定） */
++	unmatchedFiles: string[],
++	/**  按元素聚合的归属结果 */
++	matched: ArchiMatchedElement[],
++	/**  不可判定留痕 */
++	unresolved: ArchiUnresolvedFile[],
++};
++
++/**
++ *  豁免来源（封闭二值；线格式小写词）：`config` = 架构域配置元素对、`inline` =
++ *  内联注释 `// archi-ignore-next-line: <reason>`。
++ */
++export type ArchiSuppressVia = 
++/**  配置元素对豁免 */
++"config" | 
++/**  内联注释豁免 */
++"inline";
++
++/**  不可判定的文件 / 导入（留痕，MUST NOT 冒充违例）。 */
++export type ArchiUnresolvedFile = {
++	/**  文件（repo 相对 POSIX） */
++	file: string,
++	/**  涉及的 specifier（无可归因时为 `null`） */
++	specifier: string | null,
++	/**  不可判定原因 */
++	message: string,
++};
++
+ /**  文档警告投影（只报不拦）。 */
+ export type ArchiWarning = {
+ 	/**  警告种类 */
+@@ -938,7 +1164,8 @@ export type ChangeStatus =
+ /**
+  *  步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
+  *  spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
+- *  static-check / test-execution / mutation-test / preflight / seal）+ Git 步
++ *  static-check / test-execution / mutation-test / archi-check / preflight /
++ *  seal）+ Git 步
+  * （clean / commit / rebase / merge / cleanup / finalize——clean 为 initialize
+  *  基线恢复步）+ Gate 三门。
+  */
+@@ -984,7 +1211,9 @@ export type ChangeStepKind =
+ /**  归档双写收口步（内联步） */
+ "seal" | 
+ /**  归档落盘提交步（vcs） */
+-"finalize";
++"finalize" | 
++/**  archi-check 门禁工具步（架构漂移判定，定向反馈边） */
++"archiCheck";
+ 
+ /**
+  *  步状态行：一次 `RunUpdate::Step` 的载荷，运行步节点推导的唯一输入面。稳定
+@@ -1470,12 +1699,12 @@ export type RunStatus =
+ "interrupted";
+ 
+ /**
+- *  run 步词汇封闭集（**二十一值全词汇**，线格式 snake_case 词）：agent 阶段
++ *  run 步词汇封闭集（**二十二值全词汇**，线格式 snake_case 词）：agent 阶段
+  * （executor / evaluator / decision）、脚本阶段（static_check / test_execution /
+- *  mutation_test）、initialize 基线步（clean）、流程面步骤（phase_start /
+- *  phase_log）、三门 gate（verdict_gate、retry_gate、whitelist_gate）与归档 9 步
+- * （preflight / commit / rebase / resolve_conflicts / merge / spec_sync / cleanup /
+- *  seal / finalize）。词汇本体单点——落库命令
++ *  mutation_test / archi_check）、initialize 基线步（clean）、流程面步骤
++ * （phase_start / phase_log）、三门 gate（verdict_gate、retry_gate、
++ *  whitelist_gate）与归档 9 步（preflight / commit / rebase / resolve_conflicts /
++ *  merge / spec_sync / cleanup / seal / finalize）。词汇本体单点——落库命令
+  * （`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
+  * （旧 5 值词表的过滤谓词已退役）。
+  * 
+@@ -1524,7 +1753,9 @@ export type RunStepKind =
+ /**  归档双写收口步（内联步） */
+ "seal" | 
+ /**  归档落盘提交步（vcs） */
+-"finalize";
++"finalize" | 
++/**  archi-check 门禁工具步（架构漂移判定；尾部追加——bincode 下标纪律） */
++"archi_check";
+ 
+ /**  run 步状态四值（线格式 camelCase 词）。 */
+ export type RunStepStatus = 
+diff --git a/packages/desktop/src/types/generated/bindings.zod.ts b/packages/desktop/src/types/generated/bindings.zod.ts
+index cf04d3e75df7..1d2875108472 100644
+--- a/packages/desktop/src/types/generated/bindings.zod.ts
++++ b/packages/desktop/src/types/generated/bindings.zod.ts
+@@ -242,6 +242,10 @@ export const argsSchemas = {
+ 			"element": z.string(),
+ 			"gate": z.lazy(() => GateTierSchema),
+ 		}); },
++	get "archiDrift"() { return z.strictObject({
++			"root": z.string(),
++			"mode": z.lazy(() => ArchiDriftModeSchema),
++		}); },
+ } as const;
+ 
+ /** 逐命令结果 schema（`Result` 取 Ok 臂；`Option` 出 nullable） */
+@@ -298,6 +302,7 @@ export const resultSchemas = {
+ 	get "archiReadDoc"() { return z.string(); },
+ 	get "archiChangeSummary"() { return z.lazy(() => ArchiChangeSummarySchema).nullable(); },
+ 	get "archiSetGate"() { return z.null(); },
++	get "archiDrift"() { return z.lazy(() => ArchiDriftReportSchema); },
+ } as const;
+ 
+ /** 逐命令 `Channel<T>` 形参的信封 schema（键 = 形参名；无 Channel 的命令为空对象） */
+@@ -411,6 +416,8 @@ export const channelArgs = {
+ 		}; },
+ 	get "archiSetGate"() { return {
+ 		}; },
++	get "archiDrift"() { return {
++		}; },
+ } as const;
+ export const ActivePhaseSchema = z.strictObject({
+ 	get phase() { return z.string(); },
+@@ -614,6 +621,8 @@ export const ArchiChangeSummarySchema = z.strictObject({
+ 	get diagnostics() { return z.array(ArchiDiagnosticSchema); },
+ });
+ 
++export const ArchiCheckStatusSchema = z.union([z.literal("clean"), z.literal("errors"), z.literal("warnings"), z.literal("noChanges"), z.literal("skipped")]);
++
+ export const ArchiDependedBySchema = z.strictObject({
+ 	get source() { return z.string(); },
+ 	get description() { return z.string().nullable(); },
+@@ -634,6 +643,67 @@ export const ArchiDiagnosticSchema = z.strictObject({
+ 
+ export const ArchiDiagnosticKindSchema = z.union([z.literal("syntaxError"), z.literal("missingField"), z.literal("invalidValue"), z.literal("unknownField"), z.literal("duplicateElement"), z.literal("cycle"), z.literal("dependsOnAncestor"), z.literal("unknownReference"), z.literal("orphanHierarchy")]);
+ 
++export const ArchiDriftEntrySchema = z.strictObject({
++	get kind() { return ArchiDriftKindSchema; },
++	get from() { return z.string().nullable(); },
++	get to() { return z.string().nullable(); },
++	get gate() { return GateTierSchema.nullable(); },
++	get message() { return z.string(); },
++	get occurrences() { return z.array(ArchiDriftOccurrenceSchema); },
++});
++
++export const ArchiDriftKindSchema = z.union([z.literal("undeclaredDependency"), z.literal("pathNotFound"), z.literal("ambiguousOwner"), z.literal("noPath")]);
++
++export const ArchiDriftModeSchema = z.union([z.literal("full"), z.literal("incremental")]);
++
++export const ArchiDriftModelSchema = z.strictObject({
++	get elements() { return z.int().min(0).max(4294967295); },
++	get relations() { return z.int().min(0).max(4294967295); },
++	get byGate() { return ArchiGateCountSchema; },
++	get structuralErrors() { return z.array(ArchiDiagnosticSchema); },
++	get warnings() { return z.array(ArchiDriftEntrySchema); },
++});
++
++export const ArchiDriftObservationSchema = z.strictObject({
++	get kind() { return ArchiObservationKindSchema; },
++	get from() { return z.string(); },
++	get to() { return z.string(); },
++	get message() { return z.string(); },
++});
++
++export const ArchiDriftOccurrenceSchema = z.strictObject({
++	get file() { return z.string(); },
++	get line() { return z.int().min(0).max(4294967295); },
++	get specifier() { return z.string().nullable(); },
++	get typeOnly() { return z.boolean(); },
++});
++
++export const ArchiDriftReportSchema = z.strictObject({
++	get version() { return z.int().min(0).max(4294967295); },
++	get timestamp() { return z.string(); },
++	get mode() { return ArchiDriftModeSchema; },
++	get root() { return z.string(); },
++	get change() { return z.string().nullable(); },
++	get base() { return z.string().nullable(); },
++	get modelHash() { return z.string(); },
++	get model() { return ArchiDriftModelSchema; },
++	get scan() { return ArchiScanReportSchema; },
++	get errors() { return z.array(ArchiDriftEntrySchema); },
++	get warnings() { return z.array(ArchiDriftEntrySchema); },
++	get suppressed() { return z.array(ArchiDriftSuppressedEntrySchema); },
++	get observations() { return z.array(ArchiDriftObservationSchema); },
++	get status() { return ArchiCheckStatusSchema; },
++});
++
++export const ArchiDriftSuppressedEntrySchema = z.strictObject({
++	get from() { return z.string(); },
++	get to() { return z.string(); },
++	get via() { return ArchiSuppressViaSchema; },
++	get reason() { return z.string(); },
++	get file() { return z.string().nullable(); },
++	get line() { return z.int().min(0).max(4294967295).nullable(); },
++});
++
+ export const ArchiElementSchema = z.strictObject({
+ 	get fqn() { return z.string(); },
+ 	get kind() { return ElementKindSchema; },
+@@ -646,18 +716,34 @@ export const ArchiElementSchema = z.strictObject({
+ 	get mark() { return NodeMarkSchema; },
+ });
+ 
++export const ArchiExcludedFileSchema = z.strictObject({
++	get file() { return z.string(); },
++	get rule() { return z.string(); },
++});
++
+ export const ArchiGateChangeSchema = z.strictObject({
+ 	get fqn() { return z.string(); },
+ 	get from() { return GateTierSchema; },
+ 	get to() { return GateTierSchema; },
+ });
+ 
++export const ArchiGateCountSchema = z.strictObject({
++	get strict() { return z.int().min(0).max(4294967295); },
++	get warn() { return z.int().min(0).max(4294967295); },
++	get off() { return z.int().min(0).max(4294967295); },
++});
++
+ export const ArchiGraphSchema = z.strictObject({
+ 	get elements() { return z.array(ArchiElementSchema); },
+ 	get relations() { return z.array(ArchiRelationSchema); },
+ 	get diagnostics() { return z.array(ArchiDiagnosticSchema); },
+ });
+ 
++export const ArchiMatchedElementSchema = z.strictObject({
++	get element() { return z.string(); },
++	get files() { return z.array(z.string()); },
++});
++
+ export const ArchiModuleDetailSchema = z.strictObject({
+ 	get element() { return ArchiElementSchema; },
+ 	get dependsOn() { return z.array(ArchiDependsOnSchema); },
+@@ -667,6 +753,8 @@ export const ArchiModuleDetailSchema = z.strictObject({
+ 	get warnings() { return z.array(ArchiWarningSchema); },
+ });
+ 
++export const ArchiObservationKindSchema = z.union([z.literal("unfulfilledDeclaration"), z.literal("unusedDeclaration")]);
++
+ export const ArchiRelationSchema = z.strictObject({
+ 	get from() { return z.string(); },
+ 	get to() { return z.string(); },
+@@ -675,6 +763,24 @@ export const ArchiRelationSchema = z.strictObject({
+ 	get reason() { return z.string().nullable(); },
+ });
+ 
++export const ArchiScanReportSchema = z.strictObject({
++	get mode() { return ArchiDriftModeSchema; },
++	get changedFiles() { return z.int().min(0).max(4294967295); },
++	get scannedFiles() { return z.int().min(0).max(4294967295); },
++	get excluded() { return z.array(ArchiExcludedFileSchema); },
++	get unmatchedFiles() { return z.array(z.string()); },
++	get matched() { return z.array(ArchiMatchedElementSchema); },
++	get unresolved() { return z.array(ArchiUnresolvedFileSchema); },
++});
++
++export const ArchiSuppressViaSchema = z.union([z.literal("config"), z.literal("inline")]);
++
++export const ArchiUnresolvedFileSchema = z.strictObject({
++	get file() { return z.string(); },
++	get specifier() { return z.string().nullable(); },
++	get message() { return z.string(); },
++});
++
+ export const ArchiWarningSchema = z.strictObject({
+ 	get kind() { return WarningKindSchema; },
+ 	get message() { return z.string(); },
+@@ -805,7 +911,7 @@ export const ChangeSourceSchema = z.union([z.literal("active"), z.literal("archi
+ 
+ export const ChangeStatusSchema = z.union([z.literal("active"), z.literal("archived")]);
+ 
+-export const ChangeStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("phaseStart"), z.literal("staticCheck"), z.literal("testExecution"), z.literal("mutationTest"), z.literal("clean"), z.literal("phaseLog"), z.literal("verdictGate"), z.literal("retryGate"), z.literal("whitelistGate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolveConflicts"), z.literal("merge"), z.literal("specSync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize")]);
++export const ChangeStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("phaseStart"), z.literal("staticCheck"), z.literal("testExecution"), z.literal("mutationTest"), z.literal("clean"), z.literal("phaseLog"), z.literal("verdictGate"), z.literal("retryGate"), z.literal("whitelistGate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolveConflicts"), z.literal("merge"), z.literal("specSync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize"), z.literal("archiCheck")]);
+ 
+ export const ChangeStepStateSchema = z.strictObject({
+ 	get phase() { return z.string(); },
+@@ -1007,7 +1113,7 @@ export const RunNoticeSchema = z.union([z.strictObject({
+ 
+ export const RunStatusSchema = z.union([z.literal("running"), z.literal("completed"), z.literal("stopped"), z.literal("failed"), z.literal("interrupted")]);
+ 
+-export const RunStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("static_check"), z.literal("test_execution"), z.literal("mutation_test"), z.literal("clean"), z.literal("phase_start"), z.literal("phase_log"), z.literal("verdict_gate"), z.literal("retry_gate"), z.literal("whitelist_gate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolve_conflicts"), z.literal("merge"), z.literal("spec_sync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize")]);
++export const RunStepKindSchema = z.union([z.literal("executor"), z.literal("evaluator"), z.literal("decision"), z.literal("static_check"), z.literal("test_execution"), z.literal("mutation_test"), z.literal("clean"), z.literal("phase_start"), z.literal("phase_log"), z.literal("verdict_gate"), z.literal("retry_gate"), z.literal("whitelist_gate"), z.literal("preflight"), z.literal("commit"), z.literal("rebase"), z.literal("resolve_conflicts"), z.literal("merge"), z.literal("spec_sync"), z.literal("cleanup"), z.literal("seal"), z.literal("finalize"), z.literal("archi_check")]);
+ 
+ export const RunStepStatusSchema = z.union([z.literal("running"), z.literal("passed"), z.literal("failed"), z.literal("stopped")]);
+ 
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

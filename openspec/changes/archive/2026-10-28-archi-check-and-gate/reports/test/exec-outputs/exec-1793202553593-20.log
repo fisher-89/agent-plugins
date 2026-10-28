@@ -1,0 +1,50 @@
+
+=== plan packages_desktop_vite-plus (vite-plus) · files=105 · argv=5391 字符 ===
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/archi-check-and-gate/openspec/changes/archi-check-and-gate/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+
+=== plan packages_desktop_src-tauri_rust (rust) · files=5 · argv=377 字符 ===
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\agent)
+   Compiling archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\archi)
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\store)
+   Compiling archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\archi)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 50.05s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-45a2cc443130cfda.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-2802a5177f809143.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\archi-ae4f926418a0c0cd.exe)
+     Running tests\golden_test.rs (target\llvm-cov-target\debug\deps\golden_test-d93bb1dbb92f934e.exe)
+     Running tests\perf.rs (target\llvm-cov-target\debug\deps\perf-f14fb2544a3a2ed1.exe)
+     Running tests\vocabulary_test.rs (target\llvm-cov-target\debug\deps\vocabulary_test-635358ab542a405c.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\archi_runtime-9fd91db100de9e58.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-8280259dcfff065b.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-2d7408ebfa52b677.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-40ab7345b72221f2.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\config-2a9b48cdad09373f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-eaedb1bb814df3d1.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-1d032f16b0f16cb7.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\exec-a715df5c8623c544.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\export_bindings-77b63ed1e6ddd717.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\orchestration-54bafc849f2064a2.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\specta_zod-3a5ab7fe153c1021.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\store-4e7bdfce2343a469.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\vcs_runtime-d3d74dc07edb9be1.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\watch-ba1d65106c92dd6c.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\workflow-effecdf5451cbde9.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-0a3cc25d330222cc.exe)
+
+    Finished report saved to D:/Projects/.worktrees/wps-claude-plugin/archi-check-and-gate/openspec/changes/archi-check-and-gate/reports/test/packages_desktop_src-tauri_rust/coverage-summary.json

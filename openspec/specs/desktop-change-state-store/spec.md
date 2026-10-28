@@ -125,7 +125,7 @@ desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/`
 
 run 状态 SHALL 落 workspace 库（`RunRecord` / `RunNodeRecord` / `RunEdgeRecord` 三表，`change_id` 归键，全史保留不截 last_run；attempt 经 `phase_start` max+1 分配跨 run 不撞号）。写时序 SHALL 为**每 run 两写**：run 行 SHALL 在 run 发起时以 `status=running` 建立，run 收口时 SHALL 以终态更新 + 该 run 全部节点 + 边整包**单事务**落库；MUST NOT 每步写放大。run 收口同事务处置 `ChangeRecord.active_phase` SHALL 以 `change_id` 定位记录。
 
-执行图节点 SHALL 为**全词汇封闭集单点定义**：`RunNodeRecord` 落全部二十类步词汇（agent 阶段 `executor` / `evaluator` / `decision`、脚本阶段 `static_check` / `test_execution` / `mutation_test`、流程面步骤 `phase_start` / `phase_log`、三门 gate `verdict_gate` / `retry_gate` / `whitelist_gate`、归档步 `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `cleanup` / `seal` / `finalize`），MUST NOT 过滤。节点身份键 SHALL 为 `(run_id, phase, attempt, step, instance_no)`（`instance_no` 每次执行递增，feedback 重跑为独立新节点）。`RunNodeRecord` 的 `session_id` / `detail` / `output_ref` SHALL 随行落库；节点 `session_id` SHALL 为前端会话转录的 sessionId 直查键（WorkerAgent 步在案、非 WorkerAgent 步为空；前端零 provenance `source_ref` 反查，会话 `source_ref` 留痕仅供后端 provenance，见 desktop-change-orchestration「会话挂靠 provenance 与转录 session id 直查」）。
+执行图节点 SHALL 为**全词汇封闭集单点定义**：`RunNodeRecord` 落全部二十二类步词汇（agent 阶段 `executor` / `evaluator` / `decision`、脚本阶段 `static_check` / `test_execution` / `mutation_test` / `archi_check`、流程面步骤 `phase_start` / `phase_log`、三门 gate `verdict_gate` / `retry_gate` / `whitelist_gate`、归档步 `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `cleanup` / `seal` / `finalize`），MUST NOT 过滤。新增步词 SHALL 一律**尾部追加**（`archi_check` 为 21→22 的尾部追加；`RunNodeRecord.step` 经 bincode 按下标编码，中途插入 / 重排会令存量节点行步词整体错位——本条为白名单式扩展的唯一合法形态，MUST NOT 以「按相位名或步名重排」方式整理词汇序）。节点身份键 SHALL 为 `(run_id, phase, attempt, step, instance_no)`（`instance_no` 每次执行递增，feedback 重跑为独立新节点）。`RunNodeRecord` 的 `session_id` / `detail` / `output_ref` SHALL 随行落库；节点 `session_id` SHALL 为前端会话转录的 sessionId 直查键（WorkerAgent 步在案、非 WorkerAgent 步为空；前端零 provenance `source_ref` 反查，会话 `source_ref` 留痕仅供后端 provenance，见 desktop-change-orchestration「会话挂靠 provenance 与转录 session id 直查」）。
 
 执行图边 SHALL 单独落 `RunEdgeRecord`：`edge_kind ∈ { forward, feedback, retry, backtrack }`，`from_node_key` / `to_node_key` 指向节点身份键；`run_id` 二级索引与 `from_node_key` 二级索引 SHALL 均在案。前端 `deriveEdges` 列差 Δ 派生 SHALL 退役（读边表）。
 
@@ -143,8 +143,8 @@ run 状态 SHALL 落 workspace 库（`RunRecord` / `RunNodeRecord` / `RunEdgeRec
 
 #### Scenario: 全词汇与稳定身份键
 
-- **WHEN** 一次 run 覆盖全部二十类步词汇（含 phase_start / phase_log / 三门 gate、mutation_test、9 个归档步与 feedback 重跑）后查询 run_nodes / run_edges
-- **THEN** 二十类词汇全落 RunNodeRecord（零过滤）；身份键 `(run_id, phase, attempt, step, instance_no)` 稳定唯一，feedback 重跑为 `instance_no` 递增新节点；边表 feedback / retry / backtrack / forward 四 kind 齐备
+- **WHEN** 一次 run 覆盖全部二十二类步词汇（含 phase_start / phase_log / 三门 gate、mutation_test、archi_check、9 个归档步与 feedback 重跑）后查询 run_nodes / run_edges
+- **THEN** 二十二类词汇全落 RunNodeRecord（零过滤）；身份键 `(run_id, phase, attempt, step, instance_no)` 稳定唯一，feedback 重跑为 `instance_no` 递增新节点；边表 feedback / retry / backtrack / forward 四 kind 齐备
 
 #### Scenario: 归档步复用 RunNodeRecord
 
@@ -250,3 +250,7 @@ run 收口的 finish 落包 SHALL 在同一事务内处置 `ChangeRecord.active_
 | `crates/infra/store/src/model.rs`（`RunNodeRecord`） | 加列 | 四列 `#[serde(default)]`（旧行解码 `0` / `None` / `None` / `None`）；`RunNodeRecord::new` 直复制 `RunNodeEntry` 四字段；`timestamp` 列语义不动 |
 | `crates/core/workflow/src/state.rs`（`RunNodeEntry` / `RunNodeStateRecord`） | 载荷与读面随行 | 两结构增四字段；finish 命令内联条目与 port 读面同一份字段集 |
 | `crates/infra/store/src/store.rs`（`list_run_nodes`） | 读面投影 | 四列逐字段透传 `RunNodeStateRecord`（node_seq 升序 = emit 序口径不变） |
+| `crates/core/workflow/src/state.rs`（`RunStepKind`） | 库侧步词封闭集 | `ArchiCheck` 尾部追加（21→22，`as_str` = `archi_check`）；与 `StepNode` / `ChangeStepKind` 同词面 1:1 |
+| `crates/core/workflow/src/state.rs`（`StepKind`，审计命令包络） | 审计步词封闭集 | `ArchiCheck` 尾部追加（八臂 → 九臂；`as_str` = `archi_check`）；落 `StepRecord.step_kind`（`native_model` 版本链承接，存量审计行解码语义不变） |
+| `crates/infra/store/src/model.rs`（`RunNodeRecord.step`） | 落库编码 | bincode 下标编码不变，新变体只追加；表结构零变化、零迁移——存量节点行解码语义逐字不变 |
+| `crates/core/workflow/tests/corpus_golden_test.rs` | 种子语料随动 | 全词汇样本扩一条 `archi_check` 节点（见 desktop-corpus-regression「run 运行史语料维度」）；golden 经 `DESKTOP_GOLDEN_REWRITE=1` 显式重写留痕 |

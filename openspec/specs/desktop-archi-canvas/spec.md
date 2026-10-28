@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义架构画布的渲染契约：单一共享组件在两处挂载（`/architecture` 全量只读 / change 详情「架构」页签增量可改档）、结构错的停摆态（全或无）、漂移标记呈现契约（只认标记不认判定）、`full` 与 `incremental` 的能力差异、抽屉内容与本期边界。
+定义架构画布的渲染契约：单一共享组件在两处挂载（`/architecture` 全量只读 / change 详情「架构」页签增量可改档）、结构错的停摆态（全或无）、漂移标记呈现契约（只认标记不认判定，标记由漂移报告经取数侧纯函数派生）、`full` 与 `incremental` 的能力差异、抽屉内容与本期边界。判定本身不在本能力：扫描 / 定级 / 报告结构见 `desktop-archi-drift`。
 
 ## Requirements
 
@@ -45,7 +45,7 @@
 
 模型有**任何**结构错时，画布 SHALL 停摆：不渲染残缺图、不渲染元素树节点、不降级样式、不留幽灵位置；图形区域 SHALL 改为显示错误面板，逐条列出结构错（`kind` + `message` + `file:line`）并提示「修好后再看」。停摆态下画布数据 SHALL 为零图数据（`elements` / `relations` 皆空），MUST NOT 以「残缺图 + 高亮」替代。
 
-三条策略各管一段且 MUST NOT 互相替代：**读取**照常加载并返回结构化诊断（绝不 panic）；**渲染**停摆（绝不画畸形图）；**门禁**判结构错（归 `archi-check-and-gate`）。
+三条策略各管一段且 MUST NOT 互相替代：**读取**照常加载并返回结构化诊断（绝不 panic）；**渲染**停摆（绝不画畸形图）；**门禁**判结构错（归 `desktop-archi-gate`）。
 
 无结构错时 SHALL 渲染完整图，`docNotFound` 一类文档警告 MUST NOT 触发停摆。
 
@@ -69,7 +69,7 @@
 画布 SHALL 接受一组**标记**并按标记渲染，标记的**产生**（何时算漂移、如何判定）MUST NOT 在本能力定义。标记词汇 SHALL 为封闭集：
 
 ```
-边标记   none         实线（无标记；本变更恒此值）
+边标记   none         实线（无标记）
          unfulfilled  灰虚线（声明未兑现）
          crossKind    橙虚线（跨 kind 向上，提示价值而非约束）
          exempt       灰实线（豁免；抽屉内呈现 reason）
@@ -79,7 +79,7 @@
 
 - **结构错不产生节点标记**：结构错一律以停摆态替代（见上一条），节点级「结构错」标记 MUST NOT 存在——否则等于承认「残缺图 + 红点」这一被否形态。
 - **未知标记值** SHALL 退化为中性样式（`none`）并 MUST NOT 崩溃；词汇扩展 SHALL 走「改本 requirement + 同步词汇对拍语料」两处，MUST NOT 静默新增。
-- 本期标记生产者为空（恒 `none`），渲染契约与词汇先立：check 侧接入时 UI 零改动。
+- **标记生产源（本变更解锁）**：标记 SHALL 由漂移报告派生——全量检查报告（`archi_drift` 的 `observations` 与 `suppressed` 段，见 desktop-archi-drift「报告结构与 status 五值」）经**取数侧纯函数**映射为图标记：`observations[].kind = unfulfilledDeclaration` 的 `(from, to)` → 该边 `unfulfilled` 且 `from` 节点 `unfulfilled`；`suppressed[]` 的 `(from, to)` → 该边 `exempt`（reason 随抽屉呈现）。映射 MUST 只读报告、MUST NOT 重算归属或判定（判定在 `desktop-archi-drift`）；`marks.ts` 的样式映射与词汇契约零改动（`unfulfilled` / `crossKind` / `exempt` / `none` 四值不变）。两挂载点 SHALL 同源取数、按模式分流：挂载点 A（`/architecture`）取 `full`，挂载点 B（change 详情）取 `incremental`（观察根为 `detail.worktree`，归档 change 回落主仓根）——同一纯函数映射，MUST NOT 出现第二套标记派生。
 
 #### Scenario: 标记驱动边样式
 
@@ -91,10 +91,15 @@
 - **WHEN** 图数据中出现词汇外的标记值
 - **THEN** 该边 / 节点按中性样式渲染，画布不崩溃、不空白
 
-#### Scenario: 本期零标记
+#### Scenario: 报告驱动标记
 
-- **WHEN** 以本变更产出的图数据渲染画布
-- **THEN** 全部边为 `none`（实线）、全部节点为 `none`（⚪ 正常）——标记生产不在本期射程
+- **WHEN** 全量检查报告含一条 `observations[].kind = unfulfilledDeclaration`（`App.Billing` → `App.Auth`）与一条 `suppressed[]`（`App.Billing` → `App.Legacy`，reason 在位）
+- **THEN** 对应两条边分别呈灰虚线（`unfulfilled`）与灰实线（`exempt`，抽屉内呈现 reason）、`App.Billing` 节点呈 🟡；报告未提及的边与节点保持 `none`
+
+#### Scenario: 零报告或零漂移零标记
+
+- **WHEN** 全量检查报告状态为 `clean` / `skipped` / `noChanges`，或取数失败
+- **THEN** 全部边为 `none`（实线）、全部节点为 `none`（⚪ 正常），画布不空白、不报错、不重复取数
 
 ### Requirement: 能力差异（全量只读 / 增量可改档）
 
@@ -135,7 +140,7 @@
 
 元素抽屉 SHALL 呈现四类信息：① 元素概览（`kind` / `path` / `gate` / `modelFile:line`，位置可读且可直接用于 `edit`）；② `docs` 关联列表（三源条目，按强度序）；③ ADR 条目列表（`kind = "adr"` 的关联项，点击按需取正文并渲染 markdown，正文取数只接受关联集内路径）；④ `incremental` 模式下 `gate` 的编辑入口。
 
-以下内容 MUST NOT 在本期出现（归 `archi-check-and-gate`，防"半成品字段"）：
+以下内容 MUST NOT 在本能力出现（防"半成品字段"；漂移判定的消费面止于边 / 节点标记，抽屉不承载报告细节）：
 
 - 「相邻报告」区块（最近一次检查的 errors / warnings）——本期抽屉零该区块、零占位框；
 - 漂移统计 / 门禁结论 / 豁免 reason 编辑入口。
@@ -161,11 +166,13 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `src/views/architecture/components/architecture-canvas.tsx` | 共享画布 | 入参 `{ root, mode: 'full' \| 'incremental' }`；三段布局（元素树 / xyflow 画布 / 抽屉）；1-hop 缺省；两态切换（正常态 / 停摆态）；data-testid 挂钩 |
+| `src/views/architecture/components/architecture-canvas.tsx` | 共享画布 + 标记接线点（两挂载点共用） | 入参 `{ root, mode: 'full' \| 'incremental' }`；三段布局（元素树 / xyflow 画布 / 抽屉）；1-hop 缺省；两态切换（正常态 / 停摆态）；`graph = driftMarks(report, graph)` 后交渲染，漂移取数失败降级为「零标记 + 行内提示」且 MUST NOT 阻断图渲染；`mode` 直接决定 `archi_drift` 的调用模式；data-testid 挂钩 |
+| `src/views/architecture/lib/drift-marks.ts` | 报告 → 标记纯函数 | `driftMarks(report, graph) -> ArchiGraph`：只读 `observations` / `suppressed` 两段，按 `(from, to)` 命中边、按 `from` 命中节点；零判定、零 IO、无渲染依赖 |
+| `src/views/architecture/hooks/use-archi-drift.ts` | 漂移取数 | 经 `archi_drift(root, mode)` 显式取数（挂载 / 根切换 / 手动刷新三触发，零 watch 零轮询）；`mode` 由挂载点给定（A=`full` / B=`incremental`）；取数失败同时清空 `report` 与已载键（旧报告 MUST NOT 冒充本次结论）；返回 `report` / `loading` / `error` |
 | `src/views/architecture/components/element-tree.tsx` | 左元素树 | 层级由 FQN 前缀派生；节点状态点取节点标记词汇（`none` / `unfulfilled`）；停摆态零节点 |
 | `src/views/architecture/components/structure-error-panel.tsx` | 停摆态 | 逐条诊断（`kind` + `message` + `file:line`）+「修好后再看」；零图数据、零降级样式 |
 | `src/views/architecture/components/element-drawer.tsx` | 右抽屉 | 概览（`kind` / `path` / `gate` / `modelFile:line`）+ `docs` 列表 + ADR 条目与按需正文；`incremental` 下 `gate` 编辑入口；本期零「相邻报告」区块 |
-| `src/views/architecture/lib/marks.ts` | 标记 → 样式映射 | 边标记四值（`none` 实线 / `unfulfilled` 灰虚线 / `crossKind` 橙虚线 / `exempt` 灰实线）、节点标记两值（`none` ⚪ / `unfulfilled` 🟡）；未知值退化为中性；封闭词汇 |
+| `src/views/architecture/lib/marks.ts` | 标记 → 样式映射（零改动） | 边标记四值（`none` 实线 / `unfulfilled` 灰虚线 / `crossKind` 橙虚线 / `exempt` 灰实线）、节点标记两值（`none` ⚪ / `unfulfilled` 🟡）；未知值退化为中性；封闭词汇；标记生产由 `drift-marks.ts` 承担，本件 MUST NOT 参与判定 |
 | `src/views/architecture/hooks/use-archi-graph.ts` | 画布取数 | 挂载 / `root` 变化 / 手动刷新三触发；零 watch 零轮询；停摆态与正常态两形状透出 |
 | `src/views/architecture/hooks/use-archi-module.ts` | 抽屉取数 | 元素详情（`archi_module`）+ ADR 正文（`archi_read_doc`，仅关联集内路径） |
 | `src/views/architecture/architecture-view.tsx` | 挂载点 A | `/architecture` 全量只读；显式刷新入口 |

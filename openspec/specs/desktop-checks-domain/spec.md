@@ -134,7 +134,7 @@ static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run
 
 ### Requirement: baseline 报告槽位参数化
 
-`crates/infra/checks` 两 runner（`static_check.rs` 的 `ProcessStaticCheck` 与 `testexec/` 的 test-execution runner）SHALL 支持报告槽位参数化：槽位为封闭二值 `test`（缺省——既有 `reports/test` 锚点，语义零改动）与 `baseline`（initialize 相位基线检查——`reports/baseline` 锚点）。槽位 SHALL 仅参数化报告落点（summary / 子报告 / exec-outputs 同锚派生），执行语义（无配置直过 / 程序不可达显式 Err / 退出码映射 / 框架矩阵 / 复用门判定规则）MUST NOT 因槽位分叉；两槽位的目录派生 SHALL 经 foundation layout 单点（`reports/test` 与 `reports/baseline` 同源变体），runner 内 MUST NOT 出现第二份路径派生。walker 调用面（`StaticCheckRunner` / `TestExecutionRunner` port 签名）的槽位透传形态由 design 定稿；`read_exec_output` 回查面 SHALL 覆盖两槽位的 exec-outputs（exec_id 跨槽位唯一）。
+`crates/infra/checks` 两 runner（`static_check.rs` 的 `ProcessStaticCheck` 与 `testexec/` 的 test-execution runner）SHALL 支持报告槽位参数化：槽位 SHALL 为**封闭三值**——`test`（缺省——既有 `reports/test` 锚点，语义零改动）、`baseline`（initialize 相位基线检查——`reports/baseline` 锚点）与 `archi`（架构漂移门禁报告——`reports/archi` 锚点，消费者为 `desktop-archi-gate` 的 runner）。本域两 runner MUST NOT 接受 `archi` 槽位（传入即显式 `Err`——该槽位的报告体是漂移报告 JSON，非 checks 报告 schema，混入会让两套报告语义互相污染）。槽位 SHALL 仅参数化报告落点（summary / 子报告 / exec-outputs 同锚派生），执行语义（无配置直过 / 程序不可达显式 Err / 退出码映射 / 框架矩阵 / 复用门判定规则）MUST NOT 因槽位分叉；三槽位的目录派生 SHALL 经 foundation layout 单点（`reports/test` / `reports/baseline` / `reports/archi` 同源变体），runner 内 MUST NOT 出现第二份路径派生。walker 调用面（`StaticCheckRunner` / `TestExecutionRunner` port 签名）的槽位透传形态由 design 定稿；`read_exec_output` 回查面 SHALL 覆盖 test / baseline 两槽位的 exec-outputs（exec_id 跨槽位唯一）；`archi` 槽位零 exec-outputs（报告为 JSON 文件，非 exec 输出，回查走报告路径）。
 
 #### Scenario: 缺省槽位零改动
 
@@ -149,8 +149,12 @@ static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run
 #### Scenario: 路径派生单点
 
 - **WHEN** 审查 infra/checks 与 infra/exec 源码的报告目录派生
-- **THEN** `reports/test` / `reports/baseline` 两变体仅驻 foundation layout 单点；runner 与 exec 层消费该单点，无逐 runner 私有后缀拼接
+- **THEN** `reports/test` / `reports/baseline` / `reports/archi` 三变体仅驻 foundation layout 单点；runner 与 exec 层消费该单点，无逐 runner 私有后缀拼接
 
+#### Scenario: archi 槽位归架构门禁
+
+- **WHEN** 以 `archi` 槽位调用 checks 域任一 runner，并以该槽位调用架构门禁 runner
+- **THEN** 前者显式 `Err`（checks 域不接受该槽位）；后者报告落 `reports/archi`（layout 单点派生）、零 exec-outputs 产出，两域报告互不混居
 ### Requirement: 依赖与工具产物树名单共享单源
 
 依赖与工具产物树名单（`node_modules` / `dist` / `build` / `target` / `coverage` / `.nyc_output` + dot 目录剪枝——语义为「依赖与工具产物树，探测与清理均应跳过」）SHALL 自 `crates/infra/checks/src/testexec/detect.rs` 的私有 `PRUNED_DIR_NAMES` 上移 foundation 公开共享单点：testexec detect 剪枝与 infra/vcs `restore_baseline` 的 clean 排除面两消费点 SHALL 同源消费该单点，MUST NOT 保留第二份名单（detect 私有常量退役）。名单本体 SHALL 仅承载目录名封闭集与 dot 剪枝语义；`restore_baseline` 消费点的排除面 SHALL 为名单 + `openspec/`（工件与报告树为未跟踪面，MUST NOT 被 clean 删除——增补属 vcs 消费点语义，不入名单本体）。名单扩展 SHALL 经 foundation 单点一处修改两消费点同时生效。
@@ -386,3 +390,6 @@ test-execution runner 的 `execute()` 层 SHALL 设**跨 plan 总预算**（代�
 | `crates/infra/checks/src/testexec/mod.rs` | 跨 plan 总预算 | `TESTEXEC_TOTAL_BUDGET: Duration = 2400 s`（代码常量）；`execute()` 记录起点、进入每 plan 前判定、超预算置 `Environment` fault 并走既有 `fault_outcome`（不写 summary / 不进复用门）；既有 fault 聚合优先级不变 |
 | `crates/core/checks/src/aggregate.rs` | 覆盖聚合完整性 | 汇总组装检出「非 pass 且 `coverage == None`」子报告 → 追加去重后的 `ProblemType::ExecutionError`；采集不完整时 `aggregate_coverage` 收敛 `None`（MUST NOT `pass == true`）；`determine_conclusion` / 加权算法 / 阈值 / override 零改动 |
 | `crates/infra/checks/src/environment.rs` | 环境归因文案装配（新增成因臂 ×2） | 新增 `argv_budget_text(budget, expanded_len, files) -> String`（拒绝面：定性 + 三数字 + 收窄 includes / 拆分 suite 动作）与 `argv_degrade_note(budget, expanded_len, files) -> String`（降级面：三数字 + 「已降级为框架自发现」，零动作建议）；两者 MUST NOT 复用 `ENV_GUIDANCE`；`fault_text` / `attempts_log` / `progress_line` 逐字零改（同模块另一成因臂） |
+| `foundation::layout::ReportSlot` | 槽位封闭集 | 三值 `Test` / `Baseline` / `Archi`（纯进程内枚举，零 serde / specta）；`report_dir_name` 三分臂 → `test` / `baseline` / `archi` |
+| `foundation::layout::change_reports` | 槽位驱动报告目录单点 | `change_reports(root, change, slot)` 对三值同源派生；`reports/archi` 不另起第二套定位 |
+| `crates/infra/checks`（两 runner） | 槽位消费面不变 | 只消费 `Test` / `Baseline`；`Archi` 传入即显式 `Err`；报告 schema、执行语义、复用门规则零变化 |

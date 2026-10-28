@@ -73,7 +73,7 @@
 
 邻近扫描 SHALL 严格限定在元素 `path` 的覆盖范围内（目录递归 / 单文件精确），MUST NOT 越出元素 `path` 去扫全仓。
 
-邻近扫描的排除集合 SHALL 为**内置谓词**（测试目录、构建产物目录、VCS 目录，并对 `ignore` 的 gitignore 语义生效——`node_modules` / `target` 等恒不参与）。用户可配排除键集归 `archi-check-and-gate`（其落地时经 `<archi_dir>/config.json`，路径由 `foundation` 派生）；本期 MUST NOT 预建该配置面（不建文件读取、不建键集、不建 schema）。
+邻近扫描的排除集合 SHALL 为**内置谓词**（测试目录、构建产物目录、VCS 目录，并对 `ignore` 的 gitignore 语义生效——`node_modules` / `target` 等恒不参与）。用户可配排除键集归 `desktop-archi-drift`「架构域看护配置」（落地形态为 `<archi_dir>/config.json`，路径由 `foundation` 派生）；本能力 MUST NOT 预建该配置面（不建文件读取、不建键集、不建 schema）。
 
 `docs` / `path` 内的非 md 文件不参与邻近扫描；`decisions/` 内非 md 文件不参与 ADR 检索。
 

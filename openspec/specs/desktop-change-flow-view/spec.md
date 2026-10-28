@@ -265,7 +265,7 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 
 change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的 step 节点 SHALL 呈现运行态（pulse 视觉），ToolStep 节点、Git 节点与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（分组徽章呈 Agent / Tool / Git / Gate，四类可区分）。运行态呈现 SHALL 与既有节点模型并存：step 节点 running / failed / stopped / passed 四态如实；`PIPELINE_PHASES` 10 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。eval 节点与 active 节点 SHALL 不再上图（相位节点整体退役，见「流程图节点模型与两分类」）。
 
-运行收口后，图 SHALL 保持**步节点常驻渲染**：已落库执行图节点（`runs[].nodes` 二十一值全词汇）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留），archive 相位节点随当前 run 常驻。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役。归档步词 SHALL 落到 `RunStepGroup` 的 git / exec / agent 分类（`GROUP_LABEL` 同步），`archive-panel` / `StageList` 六段清单 SHALL 退役（归档六段作为 archive 列 step 节点呈现，不设独立面板）。步词汇归一（库读史 snake 词 → 活面 camel 词，`normalizeKind` / `stepWord` 单点）SHALL 保持二十一值逐词对应：`mutation_test` ↔ `mutationTest`、`cleanup` ↔ `cleanup` 与 `clean` ↔ `clean` 在案、`mutationTest` 归 exec 分类、`cleanup` 与 `clean` 归 git 分类（现有步骤渲染直接吃，零渲染改动）。Cleanup 步的 detail 警告（清理失败 / 跳过注记）SHALL 随节点 detail 面呈现。
+运行收口后，图 SHALL 保持**步节点常驻渲染**：已落库执行图节点（`runs[].nodes` 二十二值全词汇）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留），archive 相位节点随当前 run 常驻。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役。归档步词 SHALL 落到 `RunStepGroup` 的 git / exec / agent 分类（`GROUP_LABEL` 同步），`archive-panel` / `StageList` 六段清单 SHALL 退役（归档六段作为 archive 列 step 节点呈现，不设独立面板）。步词汇归一（库读史 snake 词 → 活面 camel 词，`normalizeKind` / `stepWord` 单点）SHALL 保持二十二值逐词对应：`mutation_test` ↔ `mutationTest`、`archi_check` ↔ `archiCheck`、`cleanup` ↔ `cleanup` 与 `clean` ↔ `clean` 在案、`mutationTest` 与 `archiCheck` 归 exec 分类、`cleanup` 与 `clean` 归 git 分类（现有步骤渲染直接吃，零渲染改动）。Cleanup 步的 detail 警告（清理失败 / 跳过注记）SHALL 随节点 detail 面呈现。
 
 #### Scenario: 运行态与四类并存
 
@@ -563,7 +563,7 @@ runtime step 节点（`RunStepNode`）SHALL 在标题行下新增**常驻行**�
 
 ### Requirement: initialize 相位列与 clean 步词呈现
 
-initialize 相位（表头一次性基线检查相位，见 desktop-change-orchestration「initialize 基线检查相位执行体」）SHALL 以**零结构改动**方式呈现：initialize 相位列随 `detail.pipeline` 出线自动成为首列（列头相位名文案补 initialize 人读标签），Clean / StaticCheck / TestExecution / PhaseLog 步节点以既有 runtime step 节点渲染（四类分组徽章可辨、running / failed / stopped / passed 状态如实）；基线检查输出经节点 `outputRef` 的既有 stdout 面板回查（`read_exec_output` 命中 baseline 树）；initialize 失败的 run 终态 reason（Error / Fail 分文案 + 报告目录指引）经既有终态呈现面直达。前端步词呈现 SHALL 补 `clean` 线词：`STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）、`normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 映射、git 分类徽章覆盖（`RunStepGroup` / `GROUP_LABEL`），现有步骤渲染零改动直接吃。MUST NOT 为 initialize 引入新节点类型、新面板或独立交互入口。
+initialize 相位（表头一次性基线检查相位，见 desktop-change-orchestration「initialize 基线检查相位执行体」）SHALL 以**零结构改动**方式呈现：initialize 相位列随 `detail.pipeline` 出线自动成为首列（列头相位名文案补 initialize 人读标签），Clean / StaticCheck / TestExecution / PhaseLog 步节点以既有 runtime step 节点渲染（四类分组徽章可辨、running / failed / stopped / passed 状态如实）；基线检查输出经节点 `outputRef` 的既有 stdout 面板回查（`read_exec_output` 命中 baseline 树）；initialize 失败的 run 终态 reason（Error / Fail 分文案 + 报告目录指引）经既有终态呈现面直达。前端步词呈现 SHALL 补 `clean` 与 `archi_check` 两线词：`STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）与 `archiCheck` 键（人读文案「架构检查」）、`normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 与 `archi_check` ↔ `archiCheck` 两组映射、分类徽章覆盖（`RunStepGroup` / `GROUP_LABEL`：`clean` 归 git、`archiCheck` 归 toolStep），现有步骤渲染零改动直接吃。MUST NOT 为 initialize 引入新节点类型、新面板或独立交互入口。
 
 #### Scenario: initialize 列与步节点零结构呈现
 
@@ -578,7 +578,7 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 #### Scenario: clean 步词穷尽补齐
 
 - **WHEN** bindings 再生成后审查 `STEP_LABEL` / `normalizeKind` / `stepWord` / `GROUP_LABEL`
-- **THEN** `clean` 键在案（人读文案非空）、snake ↔ camel 归一在单点可考、落 git 分类；穷尽 Record 键集与二十一词全词汇一致（编译期穷尽表兜底）
+- **THEN** `clean` 与 `archiCheck` 两键在案（人读文案非空）、snake ↔ camel 归一在单点可考、分别落 git / toolStep 分类；穷尽 Record 键集与二十二词全词汇一致（编译期穷尽表兜底）
 
 ## Module Contract
 
@@ -598,6 +598,9 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `src/commands/` change-flow 命令组（desktop-change-orchestration） | IPC 面 | 发起 / 停止 / 应答 / 确认契约见 desktop-change-orchestration「运行控制命令面」 |
 | `packages/desktop/package.json` | 新依赖与版本交付 | `@xyflow/react` v12（React 19 + Tailwind 4 兼容）；无第二图布局库（无 dagre / elk）；`version` 0.3.2 → 0.3.3（`tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 不随动） |
 | `packages/desktop/src-tauri/crates/core/workflow/src/queries/detail.rs` | 详情线面收敛 | `ChangeDetail.interrupted` 与线面 `InterruptedEntry` 删；其余字段线面口径（=null + ISO 串、纯 derive 零字段属性）不变 |
+| `packages/desktop/src/views/changes/flow/run-state.ts`（词归一） | 步词归一单点 | 补 `archi_check` ↔ `archiCheck` 一组映射（二十二值逐词对应）；归 exec / toolStep 分类（缺省臂已覆盖，零新增分支） |
+| `packages/desktop/src/views/changes/flow/run-step-node.tsx`（`STEP_LABEL`） | 人读文案穷尽表 | 补 `archiCheck: '架构检查'` 键；`GROUP_LABEL` 四类不变 |
+| `packages/desktop/src/types/generated/bindings.ts` + `bindings.zod.ts` | 词面再生成 | `bindings:export` 重导出后 `archiCheck` 入 `ChangeStepKind` / `RunStepKind`；`bindings:check` 零 diff |
 | `packages/desktop/src/views/changes/flow/run-control-panel.tsx` | 发起开关与轻提示 | 发起区「自动确认」开关默认关 + 一行说明文案；运行期定格；data-testid 挂钩；确认卡片 / ask 卡片呈现逻辑不变 |
 | `packages/desktop/src/views/changes/hooks/use-change-flow-run.ts` | start 传参与 id 透传 | `start(autoNextPhase: boolean)` → `commands.changeFlowStart(channel, root, id, autoNextPhase)`；发起 / 停止 / 确认 / 应答命令携 change id；订阅生命周期不变 |
 | `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 会话槽位直查分派 | 节点 `sessionId` 直查（`RoleSessionRef` 仅 `{ role, sessionId }`，无 sourceRef 字段）；槽位缺席呈「此步无会话记录」空态，前端零 sourceRef 反查 |

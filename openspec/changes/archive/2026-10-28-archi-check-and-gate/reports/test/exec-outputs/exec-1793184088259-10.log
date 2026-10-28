@@ -1,0 +1,290 @@
+
+=== plan packages_desktop_vite-plus (vite-plus) · files=105 · argv=5391 字符 ===
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/archi-check-and-gate/openspec/changes/archi-check-and-gate/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+
+=== plan packages_desktop_src-tauri_rust (rust) · files=4 · argv=377 字符 ===
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling allocator-api2 v0.2.21
+   Compiling serde_json v1.0.151
+   Compiling icu_properties_data v2.4.0
+   Compiling icu_normalizer_data v2.4.0
+   Compiling stable_deref_trait v1.2.1
+   Compiling rustc-hash v2.1.3
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling hashbrown v0.17.1
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling bytecount v0.6.9
+   Compiling num-traits v0.2.19
+   Compiling phf_shared v0.14.0
+   Compiling simdutf8 v0.1.5
+   Compiling castaway v0.2.4
+   Compiling icu_locale_fallback_data v2.4.0
+   Compiling static_assertions v1.1.0
+   Compiling icu_segmenter_data v2.4.0
+   Compiling oxc_data_structures v0.146.0
+   Compiling oxc_estree v0.146.0
+   Compiling phf v0.14.0
+   Compiling phf_generator v0.14.0
+   Compiling indexmap v2.14.2
+   Compiling dragonbox_ecma v0.1.12
+   Compiling unicode-width v0.2.2
+   Compiling smawk v0.3.3
+   Compiling compact_str v0.10.0
+   Compiling cow-utils v0.1.3
+   Compiling oxc_allocator v0.146.0
+   Compiling nonmax v0.5.5
+   Compiling quote v1.0.47
+   Compiling unicode-id-start v1.5.0
+   Compiling owo-colors v4.4.0
+   Compiling foldhash v0.2.0
+   Compiling encoding_rs v0.8.42
+   Compiling ryu v1.0.23
+   Compiling arrayvec v0.7.8
+   Compiling json-strip-comments v3.1.2
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling string_cache_codegen v0.6.1
+   Compiling oxc_str v0.146.0
+   Compiling hashbrown v0.16.1
+   Compiling seq-macro v0.3.6
+   Compiling nodejs-built-in-modules v1.0.0
+   Compiling fast-glob v1.1.2
+   Compiling self_cell v1.3.0
+   Compiling float-cmp v0.10.0
+   Compiling num-integer v0.1.47
+   Compiling petgraph v0.8.3
+   Compiling toml_edit v0.25.15+spec-1.1.0
+   Compiling ordered-float v5.5.0
+   Compiling zip v4.6.1
+   Compiling web_atoms v0.2.6
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling halfbrown v0.4.0
+   Compiling encoding_rs_io v0.1.8
+   Compiling num-bigint v0.5.1
+   Compiling grep-searcher v0.1.17
+   Compiling value-trait v0.12.3
+   Compiling serde_derive_internals v0.29.1
+   Compiling pest_generator v2.9.2
+   Compiling synstructure v0.14.0
+   Compiling darling_core v0.24.1
+   Compiling serde_derive_internals v0.30.0
+   Compiling tracing-attributes v0.1.31
+   Compiling specta-macros v2.0.0-rc.26
+   Compiling phf_macros v0.13.1
+   Compiling derive_more-impl v2.1.1
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling thiserror-impl v1.0.69
+   Compiling phf_macros v0.14.0
+   Compiling webview2-com-macros v0.8.1
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.7
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+   Compiling phf v0.13.1
+   Compiling cssparser-macros v0.7.1
+   Compiling schemars_derive v0.8.22
+   Compiling derive_more v2.1.1
+   Compiling tracing v0.1.44
+   Compiling specta v2.0.0-rc.26
+   Compiling windows-core v0.62.2
+   Compiling futures-macro v0.3.34
+   Compiling ref-cast-impl v1.0.27
+   Compiling oxc_ast_macros v0.146.0
+   Compiling cssparser v0.37.0
+   Compiling thiserror v1.0.69
+   Compiling tokio v1.53.1
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.4
+   Compiling thiserror v2.0.20
+   Compiling markup5ever v0.39.0
+   Compiling ref-cast v1.0.27
+   Compiling windows-numerics v0.3.1
+   Compiling windows-future v0.3.2
+   Compiling futures-util v0.3.34
+   Compiling windows-collections v0.3.2
+   Compiling selectors v0.38.0
+   Compiling zerovec v0.11.9
+   Compiling zerotrie v0.2.5
+   Compiling html5ever v0.39.0
+   Compiling webview2-com-sys v0.39.1
+   Compiling oxc_span v0.146.0
+   Compiling serde v1.0.229
+   Compiling darling_macro v0.24.1
+   Compiling windows v0.62.2
+   Compiling zerocopy-derive v0.8.57
+   Compiling simd-json v0.18.1
+   Compiling tinystr v0.8.5
+   Compiling smallvec v1.16.1
+   Compiling cargo-platform v0.1.9
+   Compiling potential_utf v0.1.6
+   Compiling jsonptr v0.7.1
+   Compiling indexmap v1.9.3
+   Compiling darling v0.24.1
+   Compiling dom_query v0.28.0
+   Compiling plist v1.10.1
+   Compiling icu_locale_core v2.4.0
+   Compiling icu_collections v2.4.0
+   Compiling cargo_metadata v0.19.2
+   Compiling parking_lot_core v0.9.12
+   Compiling serde_with_macros v3.23.0
+   Compiling json-patch v4.2.0
+   Compiling cargo_toml v1.0.1
+   Compiling cargo_metadata v0.14.2
+   Compiling dpi v0.1.2
+   Compiling tokio-util v0.7.19
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\agent)
+   Compiling oxc_index v5.0.0
+   Compiling parking_lot v0.12.5
+   Compiling icu_provider v2.4.0
+   Compiling serde_with v3.23.0
+   Compiling h2 v0.4.19
+   Compiling skeptic v0.13.7
+   Compiling oxc_syntax v0.146.0
+   Compiling icu_normalizer v2.4.0
+   Compiling icu_properties v2.4.0
+   Compiling tower v0.5.3
+   Compiling icu_locale_fallback v2.4.0
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling native_model v0.4.20
+   Compiling futures-executor v0.3.34
+   Compiling icu_segmenter v2.4.0
+   Compiling dashmap v6.2.1
+   Compiling idna_adapter v1.2.2
+   Compiling futures v0.3.34
+   Compiling native_db v0.8.2
+   Compiling idna v1.1.0
+   Compiling tokio-rustls v0.26.5
+   Compiling tokio-native-tls v0.3.1
+   Compiling zerocopy v0.8.57
+   Compiling hyper v1.11.1
+   Compiling bincode v1.3.3
+   Compiling keyboard-types v0.8.3
+   Compiling textwrap v0.16.4
+   Compiling softbuffer v0.4.8
+   Compiling serialize-to-javascript-impl v0.1.2
+   Compiling url v2.5.8
+   Compiling native_model_macro v0.4.20
+   Compiling serde_repr v0.1.21
+   Compiling native_db_macro v0.8.2
+   Compiling oxc_diagnostics v0.146.0
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling schemars v0.8.22
+   Compiling urlpattern v0.6.0
+   Compiling muda v0.20.0
+   Compiling hyper-util v0.1.20
+   Compiling tower-http v0.6.11
+   Compiling serialize-to-javascript v0.1.2
+   Compiling pin-project-internal v1.1.13
+   Compiling axum v0.8.9
+   Compiling oxc_regular_expression v0.146.0
+   Compiling tokio-stream v0.1.19
+   Compiling tauri-utils v2.10.2
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\config)
+   Compiling async-trait v0.1.92
+   Compiling hyper-tls v0.6.0
+   Compiling hyper-rustls v0.27.10
+   Compiling pin-project v1.1.13
+   Compiling hyper-timeout v0.5.2
+   Compiling oxc_ast v0.146.0
+   Compiling reqwest v0.13.5
+   Compiling prost-derive v0.14.4
+   Compiling async-stream-impl v0.3.6
+   Compiling rig-http v0.43.0
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling schemars_derive v1.2.2
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\checks)
+   Compiling async-stream v0.3.6
+   Compiling tonic v0.14.6
+   Compiling pest_derive v2.9.2
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\store)
+   Compiling rig-reqwest v0.43.0
+   Compiling prost v0.14.4
+   Compiling json5 v0.4.1
+   Compiling schemars v1.2.2
+   Compiling prost-types v0.14.4
+   Compiling tonic-prost v0.14.6
+   Compiling tera v1.20.1
+   Compiling toml_datetime v0.6.11
+   Compiling serde_spanned v0.6.9
+   Compiling specta-typescript v0.0.13
+   Compiling clap_derive v4.6.7
+   Compiling toml_edit v0.22.27
+   Compiling rig-core v0.43.0
+   Compiling devtools-wire-format v0.6.0
+   Compiling oxc_ecmascript v0.146.0
+   Compiling tonic-health v0.14.6
+   Compiling tonic-web v0.14.6
+   Compiling tracing-subscriber v0.3.23
+   Compiling oxc_parser v0.146.0
+   Compiling clap v4.6.7
+   Compiling tauri-build v2.7.4
+   Compiling tauri-plugin v2.7.2
+   Compiling tauri-codegen v2.7.4
+   Compiling specta-serde v0.0.13
+   Compiling derive_arbitrary v1.4.2
+   Compiling devtools-core v0.4.1
+   Compiling clap-cargo v0.13.0
+   Compiling tokei v13.0.0
+   Compiling arbitrary v1.4.2
+   Compiling toml v0.8.23
+   Compiling specta-util v0.0.13
+   Compiling local-ip-address v0.5.7
+   Compiling table_formatter v0.6.1
+   Compiling specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling tauri v2.12.5
+   Compiling tauri-macros v2.7.4
+   Compiling tauri-plugin-fs v2.7.1
+   Compiling tauri-plugin-opener v2.7.2
+   Compiling tauri-plugin-devtools v2.2.2
+   Compiling tauri-plugin-updater v2.14.0
+   Compiling tauri-plugin-dialog v2.8.3
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri)
+   Compiling tao v0.37.2
+   Compiling oxc_resolver v11.24.3
+   Compiling archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\archi)
+   Compiling webview2-com v0.39.1
+   Compiling archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\archi)
+   Compiling wry v0.57.1
+   Compiling tauri-runtime v2.12.2
+   Compiling tauri-runtime-wry v2.12.3
+   Compiling rig-memory v0.43.0
+   Compiling rig v0.43.0
+   Compiling agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\agent)
+   Compiling tauri-plugin-single-instance v2.5.4
+   Compiling tauri-specta v2.0.0-rc.26
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 13s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-45a2cc443130cfda.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-2802a5177f809143.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\archi-ae4f926418a0c0cd.exe)
+     Running tests\golden_test.rs (target\llvm-cov-target\debug\deps\golden_test-d93bb1dbb92f934e.exe)
+     Running tests\vocabulary_test.rs (target\llvm-cov-target\debug\deps\vocabulary_test-635358ab542a405c.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\archi_runtime-9fd91db100de9e58.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-8280259dcfff065b.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-2d7408ebfa52b677.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-40ab7345b72221f2.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\config-2a9b48cdad09373f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-eaedb1bb814df3d1.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-1d032f16b0f16cb7.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\exec-a715df5c8623c544.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\export_bindings-77b63ed1e6ddd717.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\orchestration-54bafc849f2064a2.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\specta_zod-3a5ab7fe153c1021.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\store-4e7bdfce2343a469.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\vcs_runtime-d3d74dc07edb9be1.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\watch-ba1d65106c92dd6c.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\workflow-effecdf5451cbde9.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-0a3cc25d330222cc.exe)
+
+    Finished report saved to D:/Projects/.worktrees/wps-claude-plugin/archi-check-and-gate/openspec/changes/archi-check-and-gate/reports/test/packages_desktop_src-tauri_rust/coverage-summary.json

@@ -1,0 +1,17 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\infra\agent)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\archi)
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-check-and-gate\packages\desktop\src-tauri\crates\core\foundation)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.30s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(9.8s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 216 files [2m(2.1s, 16 threads)[0m
