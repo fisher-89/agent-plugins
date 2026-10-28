@@ -1774,4 +1774,25 @@ describe('App：架构页路由（/architecture）', () => {
     fireEvent.click(screen.getByTestId('nav-architecture'));
     await waitFor(() => expect(countOf('archi_graph')).toBe(2));
   });
+
+  it('收起态下新增架构 Agent 面板不引入会话取数（invoke 序列按 filter 口径稳定）', async () => {
+    window.location.hash = '#/architecture';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('archi-chat-rail') !== null).toBe(true));
+    expect(
+      commandsExceptEnvironment().filter((name) =>
+        [
+          'list_archi_chat_sessions',
+          'session_detail',
+          'agent_session_transcript',
+          'agent_session_watch',
+          'agent_start',
+        ].includes(name),
+      ),
+      '收起态零会话取数（新增面板不改变壳层 invoke 序列）',
+    ).toEqual([]);
+    expect(countOf('archi_graph')).toBe(1);
+    expect(countOf('archi_set_gate')).toBe(0);
+  });
 });

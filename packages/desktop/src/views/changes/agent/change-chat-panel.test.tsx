@@ -673,3 +673,44 @@ describe('ChangeChatComposer：前缀与判据透传', () => {
     expect(Object.keys(argsOf('agent_stop')).sort()).toEqual(['root', 'sessionId']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 文案逐字（骨架抽取的回归证据 R-5）：骨架接管渲染后文案逐字不变
+// ---------------------------------------------------------------------------
+
+describe('ChangeChatPanel：骨架文案逐字回归', () => {
+  it('标题 / 状态行 / 空占位 / 加载更多 / 错误前缀 / 窄条展开 title 六处逐字', async () => {
+    await mountPanel();
+    expect(screen.getByTestId('change-chat-actions').textContent).toContain('通用 Agent');
+    expect(screen.getByTestId('change-chat-note').textContent).toBe('发送首条消息即开启新会话');
+    expect(screen.getByTestId('change-chat-new').getAttribute('aria-label')).toBe('新会话');
+    expect(screen.getByTestId('change-chat-history').getAttribute('aria-label')).toBe('历史会话');
+
+    await expandHistory();
+    expect(screen.getByTestId('change-chat-history-empty').textContent).toBe('（暂无历史会话）');
+  });
+
+  it('清单错误文案前缀逐字（「加载历史会话失败：」+ 理由）与「加载更多」按钮文案', async () => {
+    ipc.list = () => Promise.reject(new Error('库不可读'));
+    const failed = await mountPanel();
+    await expandHistory();
+    expect(screen.getByTestId('change-chat-history-error').textContent).toBe(
+      '加载历史会话失败：Error: 库不可读',
+    );
+    failed.unmount();
+
+    ipc.list = () => Promise.resolve({ sessions: [historyItem('ses-1')], total: 3 });
+    await mountPanel();
+    await expandHistory();
+    expect(screen.getByTestId('change-chat-history-more').textContent).toBe('加载更多');
+  });
+
+  it('折叠窄条：竖向标题「通用 Agent」+ 展开入口 title「展开通用 Agent」+ 箭头文案', async () => {
+    await mountPanel({ collapsed: true });
+
+    expect(screen.getByTestId('change-chat-rail').textContent).toContain('通用 Agent');
+    const expand = screen.getByTestId('change-chat-expand');
+    expect(expand.getAttribute('title')).toBe('展开通用 Agent');
+    expect(expand.textContent).toBe('›');
+  });
+});

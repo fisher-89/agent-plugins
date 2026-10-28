@@ -3176,3 +3176,238 @@ fn 其余来源恒default() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 注入矩阵（archi 会话章节）：`source = "archi"` 臂——七工具全量 + `Archi
+// { module: true, search: true }` + 架构会话知识 preamble；该臂以 `source` 短路
+// 命中，零 `source_ref` 读取（不碰相位解析、不 fail-closed）。
+// ---------------------------------------------------------------------------
+
+/// 正向：archi 臂全字段——`preamble` 与 `knowledge()` 逐字相等、`tools = None`
+/// （七通用工具全量语义）、`toolset = Archi { module: true, search: true }`，返
+/// 回 `Ok`（零 `Err` 路径）。
+#[test]
+fn archi臂全字段() {
+    let injections = injections_of("archi", None);
+
+    let expected = crate::archi_knowledge::knowledge();
+    assert!(expected.is_some(), "真实骨架应拼装成功（前置）");
+    assert_eq!(
+        injections.preamble, expected,
+        "preamble 即 knowledge() 同一调用结果（逐字相等）"
+    );
+    assert!(
+        injections.tools.is_none(),
+        "tools = None 即七通用工具全量（不收窄）"
+    );
+    assert_eq!(
+        injections.toolset,
+        Some(agent::SessionToolset::Archi {
+            module: true,
+            search: true,
+        }),
+        "archi 臂两布尔位双开"
+    );
+}
+
+/// 边界：`source_ref` 七形态一律落 archi 臂（不碰相位解析）——含合法四段
+/// `{changeId}/implement/executor/1`（change 臂会命中 `{module: true, search:
+/// false}`）与畸形四段 / 五段等，与 change 臂的可观察差异逐形态锁死。
+#[test]
+fn archi臂source_ref形态无关() {
+    const FORMS: [Option<&str>; 7] = [
+        None,
+        Some(""),
+        Some("anything"),
+        Some("chg-1"),
+        Some("chg-1/implement/executor/1"),
+        Some("chg-1/implement/executor/not-a-number"),
+        Some("a/b/c/1/2"),
+    ];
+    for source_ref in FORMS {
+        let injections = injections_of("archi", source_ref);
+        assert!(
+            injections.preamble.is_some(),
+            "source_ref = {source_ref:?} 时 preamble 仍取 knowledge()（不因形态缺席）"
+        );
+        assert_eq!(
+            archi_bits(&injections),
+            Some((true, true)),
+            "source_ref = {source_ref:?} 恒落 archi 臂双开"
+        );
+        assert!(injections.tools.is_none(), "工具面不收窄");
+    }
+
+    // 差异锁死：同一 source_ref 在 change 臂命中 `{true, false}`，archi 臂恒
+    // `{true, true}`、且 change 臂 preamble 恒 None
+    let same_ref = "chg-1/implement/executor/1";
+    assert_eq!(
+        archi_bits(&injections_of("change", Some(same_ref))),
+        Some((true, false)),
+        "change 臂 implement/executor 行（对照臂）"
+    );
+    assert!(
+        injections_of("change", Some(same_ref)).preamble.is_none(),
+        "change 臂不注入知识 preamble（对照臂）"
+    );
+    assert!(
+        injections_of("archi", Some(same_ref)).preamble.is_some(),
+        "archi 臂不读 source_ref 相位，preamble 恒在"
+    );
+}
+
+/// 边界：臂序——`source = "explore"` 且 `source_ref` 取两形态仍为 explore 臂
+/// （六工具 + `Explore` + `preamble = None`），archi 臂不抢占。
+#[test]
+fn 臂序explore在前() {
+    for source_ref in [None, Some("chg-1/implement/executor/1")] {
+        let injections = injections_of("explore", source_ref);
+        assert_eq!(
+            injections.tools,
+            Some(vec![
+                "read".to_owned(),
+                "grep".to_owned(),
+                "glob".to_owned(),
+                "ls".to_owned(),
+                "edit".to_owned(),
+                "bash".to_owned(),
+            ]),
+            "source_ref = {source_ref:?} 仍为 explore 六工具子集"
+        );
+        assert_eq!(injections.toolset, Some(agent::SessionToolset::Explore));
+        assert!(injections.preamble.is_none(), "explore 臂不注入 archi 知识");
+    }
+}
+
+/// 异常：archi 臂在 change 短路之前——三种变形 `source_ref` 不得落到
+/// `SessionInjections::default()`（fail-closed 分支），否则即「`source_ref` 变形
+/// 丢工具」。
+#[test]
+fn 臂序archi在change短路之前三变形不落default() {
+    for source_ref in ["chg-1/implement/executor/x", "chg-1/implement", "a/b"] {
+        let injections = injections_of("archi", Some(source_ref));
+        assert!(
+            injections.toolset.is_some(),
+            "archi 臂先于 change 短路：{source_ref:?} 不得 fail-closed"
+        );
+        assert_ne!(
+            injections,
+            agent::SessionInjections::default(),
+            "变形 source_ref 下注入面仍为 archi 臂（非 default）"
+        );
+    }
+}
+
+/// 异常：`source` 词面精确——大小写变体 / 前后空格 / 近词 / 空串均非 archi 臂
+/// （走 change 短路 → `default()`）；受控词大小写敏感、零 trim 归一。
+#[test]
+fn source词面精确零归一() {
+    for source in ["Archi", "ARCHI", " archi", "archi ", "archi-chat", ""] {
+        let injections = injections_of(source, None);
+        assert_eq!(
+            injections,
+            agent::SessionInjections::default(),
+            "来源 {source:?} 不命中 archi 臂（大小写敏感 + 零 trim）"
+        );
+        assert!(injections.preamble.is_none());
+        assert!(injections.tools.is_none());
+        assert!(injections.toolset.is_none());
+    }
+}
+
+/// 边界：降级范围单字段（D15）——`preamble` 位独立取 `knowledge()`，`tools` 与
+/// `toolset` 恒定；不得出现「preamble 无 ⇒ 整注入 default」的连带失效。
+#[test]
+fn 降级范围单字段preamble独立() {
+    let injections = injections_of("archi", None);
+    let default = agent::SessionInjections::default();
+
+    // 逐字段：知识与工具面同拍在场，且工具面与 default 明确不同（连带失效的
+    // 唯一可观察形态就是「整注入 = default」）
+    assert_eq!(
+        injections.preamble,
+        crate::archi_knowledge::knowledge(),
+        "preamble 位是唯一的可选位（与 knowledge() 同源）"
+    );
+    assert!(injections.tools.is_none());
+    assert_eq!(
+        archi_bits(&injections),
+        Some((true, true)),
+        "工具面不因 preamble 位缺席而降级"
+    );
+    assert_ne!(
+        injections, default,
+        "知识拼不出时只剩 preamble 缺席，注入面仍非 default"
+    );
+    assert!(
+        default.toolset.is_none(),
+        "default 形态零 archi 工具（对照：archi 臂工具面恒定）"
+    );
+}
+
+/// 单例：`ARCHI_SOURCE` 字面量与命令层 `ARCHI_CHAT_SOURCE`、前端
+/// `use-archi-chat` 三处同值（跨语言一侧由前端用例的 invoke 参数承载）。
+#[test]
+fn archi_source字面量单点() {
+    assert_eq!(
+        super::ARCHI_SOURCE,
+        "archi",
+        "archi 来源受控字符串单点（与 ARCHI_CHAT_SOURCE / 前端同值）"
+    );
+    assert_eq!(
+        super::ARCHI_SOURCE.trim(),
+        super::ARCHI_SOURCE,
+        "字面量无前后空白（受控词精确匹配、零 trim 归一）"
+    );
+    assert_ne!(
+        super::ARCHI_SOURCE,
+        "Archi",
+        "大小写敏感：首字母大写形态不命中"
+    );
+}
+
+/// 正向：调用点链路——`composed.begin` 以 `SessionProvenance { source: "archi",
+/// source_ref: None }` 发起，记录型假 runner 捕获的 `injections` 与
+/// `assemble_injections` 直调结果逐字段全等（臂结果唯一来源，组合根零二次改写）。
+#[tokio::test]
+async fn archi臂调用点链路捕获与直调全等() {
+    let env = DualEnv::new("archi-arm-chain");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        81,
+    );
+
+    composed
+        .begin(
+            SessionRef::New,
+            "架构页一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: super::ARCHI_SOURCE.to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("archi 来源发起应成功");
+
+    let captured = runner.captured_injections();
+    assert_eq!(captured.len(), 1, "恰一次 open_session 捕获");
+    assert_eq!(
+        captured[0],
+        injections_of("archi", None),
+        "组合根零二次改写（捕获面与装配面逐字段全等）"
+    );
+    assert_eq!(
+        archi_bits(&captured[0]),
+        Some((true, true)),
+        "链路上仍是 archi 臂双开"
+    );
+    assert_eq!(sink.begin_turns.load(Ordering::Relaxed), 1, "一轮已开");
+}

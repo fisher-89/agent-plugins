@@ -92,6 +92,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "agentSessionTranscript",
     "sessionDetail",
     "listChangeChatSessions",
+    "listArchiChatSessions",
     "readExplore",
     "scanExplores",
     "exploreDocPath",
@@ -139,6 +140,7 @@ const COMMAND_NAMES: &[&str] = &[
     "agent_session_transcript",
     "session_detail",
     "list_change_chat_sessions",
+    "list_archi_chat_sessions",
     "read_explore",
     "scan_explores",
     "explore_doc_path",
@@ -952,8 +954,17 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
-    assert_eq!(COMMAND_NAMES.len(), 43, "命令清单补录五条 archi 命令");
-    assert_eq!(COMMAND_WRAPPERS.len(), 43, "包装清单补录五条 archi 命令");
+    // 本变更自身再补录一条（架构页会话清单）：条目数 43 → 44
+    assert_eq!(
+        COMMAND_NAMES.len(),
+        44,
+        "命令清单补录五条 archi 命令 + list_archi_chat_sessions（43 → 44）"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS.len(),
+        44,
+        "包装清单补录五条 archi 命令 + listArchiChatSessions（43 → 44）"
+    );
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
         COMMAND_NAMES.last(),
@@ -1833,4 +1844,147 @@ fn 手工篡改zod产物后重导出恢复权威内容() {
             "篡改不留存（重导出恢复权威内容）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 架构页会话清单命令（`list_archi_chat_sessions`）：`all_commands!` 唯一登记面 +
+// 生成产物双面（漏登记则 IPC 与 `bindings.ts` 同时失守）。既有条目零位移——新命令
+// 紧跟 `list_change_chat_sessions` 之后登记（同族相邻，非尾部追加）。
+// ---------------------------------------------------------------------------
+
+/// 新命令的 invoke 名 / 包装名 / 生成行（三面逐字锚）。
+const ARCHI_CHAT_COMMAND: &str = "list_archi_chat_sessions";
+const ARCHI_CHAT_WRAPPER: &str = "listArchiChatSessions";
+const ARCHI_CHAT_WRAPPER_LINE: &str = "listArchiChatSessions: (root: string, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>(\"list_archi_chat_sessions\", { root, offset, limit }),";
+
+/// 正向：invoke 名与包装名双双在册（`COMMAND_NAMES` / `COMMAND_WRAPPERS`）。
+#[test]
+fn 登记面_架构页会话清单命令在册() {
+    assert!(
+        COMMAND_NAMES.contains(&ARCHI_CHAT_COMMAND),
+        "invoke 命令名补录（{ARCHI_CHAT_COMMAND}）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&ARCHI_CHAT_WRAPPER),
+        "生成包装名补录（{ARCHI_CHAT_WRAPPER}）"
+    );
+}
+
+/// 边界：命令总数 +1（43 → 44），两份清单条目数持衡（漏登记或重复登记即红）。
+#[test]
+fn 登记面_命令总数加一且两清单持衡() {
+    assert_eq!(
+        COMMAND_NAMES.len(),
+        44,
+        "本变更恰 +1（43 → 44）后的命令总数"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS.len(),
+        44,
+        "包装清单条目数与 invoke 清单持衡（一一对应）"
+    );
+}
+
+/// 正向：生成绑定逐字（三参透传 + 返回 `SessionPage`；无 `id` 参即与 change chat
+/// 版签名的区分点）。
+#[test]
+fn 登记面_生成绑定逐字三参透传() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert!(
+        content.contains(ARCHI_CHAT_WRAPPER_LINE),
+        "生成绑定形态不符（参数面 / 返回类型 / invoke 目标），期望行:\n{ARCHI_CHAT_WRAPPER_LINE}"
+    );
+    let section = type_section(&content, "SessionPage");
+    assert_eq!(
+        field_names(&section),
+        vec!["sessions", "total"],
+        "返回类型 `SessionPage` 两字段（分页信封），实际段:\n{section}"
+    );
+}
+
+/// 异常：唯一登记——两份清单内计数恰 1，产物内包装与 invoke 目标各恰 1 次（无
+/// 重复项）。
+#[test]
+fn 登记面_新命令唯一登记() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert_eq!(
+        COMMAND_NAMES
+            .iter()
+            .filter(|name| **name == ARCHI_CHAT_COMMAND)
+            .count(),
+        1,
+        "invoke 名在清单中恰登记一次"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS
+            .iter()
+            .filter(|wrapper| **wrapper == ARCHI_CHAT_WRAPPER)
+            .count(),
+        1,
+        "包装名在清单中恰登记一次"
+    );
+    assert_eq!(
+        content.matches(&format!("{ARCHI_CHAT_WRAPPER}:")).count(),
+        1,
+        "包装在产物中恰一次（无重复登记）"
+    );
+    assert_eq!(
+        content
+            .matches(&format!("\"{ARCHI_CHAT_COMMAND}\""))
+            .count(),
+        1,
+        "invoke 目标在产物中恰一次"
+    );
+}
+
+/// 回归：既有条目零位移——既有 43 条逐条仍在册（含 `list_change_chat_sessions` /
+/// `agent_sessions` / 五条 `archi_*`），`dto.ts` 星号 re-export 反向锚不变。
+#[test]
+fn 登记面_既有条目零位移() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for (name, wrapper) in [
+        ("list_change_chat_sessions", "listChangeChatSessions"),
+        ("agent_sessions", "agentSessions"),
+        ("agent_start", "agentStart"),
+        ("archi_graph", "archiGraph"),
+        ("archi_module", "archiModule"),
+        ("archi_read_doc", "archiReadDoc"),
+        ("archi_change_summary", "archiChangeSummary"),
+        ("archi_set_gate", "archiSetGate"),
+    ] {
+        assert!(
+            COMMAND_NAMES.contains(&name),
+            "既有 invoke 名仍在册：{name}"
+        );
+        assert!(
+            COMMAND_WRAPPERS.contains(&wrapper),
+            "既有包装名仍在册：{wrapper}"
+        );
+        assert!(
+            content.contains(&format!("\"{name}\"")),
+            "产物仍含既有 invoke 目标：{name}"
+        );
+    }
+    // 新命令紧跟同族命令之后（既有条目零位移，非尾部改写）
+    let chat_index = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "list_change_chat_sessions")
+        .expect("同族命令仍在册");
+    assert_eq!(
+        COMMAND_NAMES[chat_index + 1],
+        ARCHI_CHAT_COMMAND,
+        "新命令紧跟 list_change_chat_sessions 之后登记"
+    );
+
+    let dto_shim = fs::read_to_string(dto_shim_path()).expect("读取 dto.ts 应成功");
+    assert!(
+        dto_shim.contains("export type * from './generated/bindings';"),
+        "dto.ts 星号 re-export 反向锚不变"
+    );
 }

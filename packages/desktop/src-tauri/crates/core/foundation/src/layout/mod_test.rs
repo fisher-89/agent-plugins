@@ -962,3 +962,226 @@ fn is_archi_rel_path大小写敏感() {
     );
     assert!(!is_archi_rel_path("openspec/Architecture/x.toml"));
 }
+
+// ---------------------------------------------------------------------------
+// 架构域**相对路径**派生族（`archi_rel_dir` / `archi_models_rel_dir` /
+// `archi_decisions_rel_dir`）：repo 相对、`/` 分隔、纯推导零 IO、不接 root 入参
+// ——唯一消费者为架构会话知识文本（模型可见文本）。
+// ---------------------------------------------------------------------------
+
+/// 正向：三函数前缀同源——后两者皆以 `archi_rel_dir()` 为前缀，尾段恰为
+/// `models` / `decisions`（不互相串位）。
+#[test]
+fn archi_rel族前缀同源且尾段不串位() {
+    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+
+    let base = archi_rel_dir();
+    let models = archi_models_rel_dir();
+    let decisions = archi_decisions_rel_dir();
+
+    for (label, rel) in [("models", &models), ("decisions", &decisions)] {
+        assert!(
+            rel.starts_with(&base),
+            "{label} 相对路径应以 archi_rel_dir() 为前缀（实得 {rel}）"
+        );
+    }
+    assert!(
+        models.ends_with("/models"),
+        "模型目录尾段恰为 models（实得 {models}）"
+    );
+    assert!(
+        decisions.ends_with("/decisions"),
+        "决策记录目录尾段恰为 decisions（实得 {decisions}）"
+    );
+    assert_ne!(models, decisions, "两子目录不互相串位");
+    assert!(
+        !models.contains("decisions") && !decisions.contains("models"),
+        "子目录名不交叉出现"
+    );
+}
+
+/// 正向：与绝对族一致——`Path::new(root).join(相对路径)` 与绝对族逐段相等
+/// （root 取三形态：绝对 tempdir 路径 / 尾分隔符 root / 空 root）。
+#[test]
+fn archi_rel族与绝对族join一致三形态root() {
+    use super::{
+        archi_decisions_dir, archi_decisions_rel_dir, archi_dir, archi_models_dir,
+        archi_models_rel_dir, archi_rel_dir,
+    };
+
+    let absolute = std::env::temp_dir().join("foundation-layout-archi-rel-绝对");
+    let trailing = {
+        let mut text = absolute.to_string_lossy().into_owned();
+        text.push(std::path::MAIN_SEPARATOR);
+        PathBuf::from(text)
+    };
+    let empty = PathBuf::new();
+
+    for root in [absolute, trailing, empty] {
+        assert_eq!(
+            root.join(archi_rel_dir()),
+            archi_dir(&root),
+            "root = {root:?}: join(archi_rel_dir()) == archi_dir(root)"
+        );
+        assert_eq!(
+            root.join(archi_models_rel_dir()),
+            archi_models_dir(&root),
+            "root = {root:?}: join(archi_models_rel_dir()) == archi_models_dir(root)"
+        );
+        assert_eq!(
+            root.join(archi_decisions_rel_dir()),
+            archi_decisions_dir(&root),
+            "root = {root:?}: join(archi_decisions_rel_dir()) == archi_decisions_dir(root)"
+        );
+        // 逐段相等（strip_prefix 后段数与段名全同）
+        let absolute_models = archi_models_dir(&root);
+        let stripped: Vec<_> = absolute_models
+            .strip_prefix(&root)
+            .expect("绝对族落在 root 之下")
+            .components()
+            .collect();
+        let relative_text = archi_models_rel_dir();
+        let relative: Vec<_> = Path::new(&relative_text).components().collect();
+        assert_eq!(
+            stripped, relative,
+            "root = {root:?}: 相对路径逐段等于绝对族剥前缀结果"
+        );
+    }
+}
+
+/// 边界：分隔符与前后缀——零 `\`（`/` 分隔）、`archi_rel_dir()` 恰 1 个 `/`、
+/// 两子目录恰 2 个；零前导 `./`、零尾 `/`、零连续 `//`、零空段。
+#[test]
+fn archi_rel族分隔符与前后缀() {
+    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+
+    let base = archi_rel_dir();
+    let models = archi_models_rel_dir();
+    let decisions = archi_decisions_rel_dir();
+
+    for (label, rel) in [
+        ("archi_rel_dir", &base),
+        ("archi_models_rel_dir", &models),
+        ("archi_decisions_rel_dir", &decisions),
+    ] {
+        assert!(!rel.contains('\\'), "{label}: 应为 `/` 分隔（实得 {rel}）");
+        assert!(
+            !rel.starts_with("./") && !rel.starts_with('/'),
+            "{label}: 零前导 ./ 与零前导分隔符（实得 {rel}）"
+        );
+        assert!(!rel.ends_with('/'), "{label}: 零尾分隔符（实得 {rel}）");
+        assert!(!rel.contains("//"), "{label}: 零连续分隔符（实得 {rel}）");
+        assert!(
+            rel.split('/').all(|segment| !segment.is_empty()),
+            "{label}: 零空段（实得 {rel}）"
+        );
+    }
+    assert_eq!(
+        base.matches('/').count(),
+        1,
+        "架构域根相对路径恰两段（实得 {base}）"
+    );
+    assert_eq!(
+        models.matches('/').count(),
+        2,
+        "模型目录相对路径恰三段（实得 {models}）"
+    );
+    assert_eq!(
+        decisions.matches('/').count(),
+        2,
+        "决策记录目录相对路径恰三段（实得 {decisions}）"
+    );
+}
+
+/// 异常防护：常量组派生——首段 == `domain_dir_name()`（公开访问器交叉），第二段
+/// == `archi_dir(root)` 的末段名（架构域段名唯一持有者在常量组，函数体内零行内
+/// 字面量）。
+#[test]
+fn archi_rel族常量组派生两段() {
+    use super::{archi_dir, archi_rel_dir, domain_dir_name};
+
+    let base = archi_rel_dir();
+    let segments: Vec<&str> = base.split('/').collect();
+    assert_eq!(segments.len(), 2, "架构域根相对路径恰两段（实得 {base}）");
+    assert_eq!(
+        segments[0],
+        domain_dir_name(),
+        "首段即域根常量（公开访问器交叉，无第二处字面量）"
+    );
+
+    let absolute = archi_dir(Path::new("工作区"));
+    let archi_segment = absolute
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("架构域根有末段名");
+    assert_eq!(
+        segments[1], archi_segment,
+        "第二段即 archi_dir 的末段名（架构域段名唯一持有者）"
+    );
+}
+
+/// 边界：零 IO / 纯函数——三函数无 root 入参（零实参调用即签名证明），连续三次
+/// 调用逐字相等，不存在的磁盘状态下同样成立（零 `exists()` 调用面）。
+#[test]
+fn archi_rel族零io纯函数() {
+    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+
+    let first = (
+        archi_rel_dir(),
+        archi_models_rel_dir(),
+        archi_decisions_rel_dir(),
+    );
+    let second = (
+        archi_rel_dir(),
+        archi_models_rel_dir(),
+        archi_decisions_rel_dir(),
+    );
+    let third = (
+        archi_rel_dir(),
+        archi_models_rel_dir(),
+        archi_decisions_rel_dir(),
+    );
+    assert_eq!(first, second, "同参两次调用逐字相等");
+    assert_eq!(second, third, "第三次调用同样逐字相等");
+    // 零 IO：函数不触盘、不查存在性（签名即全部输入——三个函数均无 root 入参，
+    // 上行的零实参调用即编译期证明），返回值只在进程内做字符串拼接
+    assert_eq!(
+        first.0.len(),
+        first.1.len() - "/models".len(),
+        "子目录派生 = 基路径 + 固定尾段（零状态依赖）"
+    );
+}
+
+/// 正向：与既有判据口径一致——三形态相对路径均被 `is_archi_rel_path` 命中
+/// （派生族与判据单点互证）。
+#[test]
+fn archi_rel族与is_archi_rel_path互证() {
+    use super::{archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir, is_archi_rel_path};
+
+    for (label, rel) in [
+        ("archi_rel_dir", archi_rel_dir()),
+        ("archi_models_rel_dir", archi_models_rel_dir()),
+        ("archi_decisions_rel_dir", archi_decisions_rel_dir()),
+    ] {
+        assert!(
+            is_archi_rel_path(&rel),
+            "{label} 应命中架构域判据（实得 {rel}）"
+        );
+    }
+}
+
+/// 回归：既有绝对族四函数逐字不变（`archi_dir` / `archi_models_dir` /
+/// `archi_decisions_dir` / `is_archi_rel_path` 的派生口径与判据零漂移）——新增三
+/// 个相对路径函数不改既有面。
+#[test]
+fn archi既有绝对族零回归() {
+    use super::{archi_decisions_dir, archi_dir, archi_models_dir, is_archi_rel_path};
+
+    let root = Path::new("C:\\工作区\\alpha");
+    let dir = archi_dir(root);
+    assert_eq!(dir, root.join("openspec").join("architecture"));
+    assert_eq!(archi_models_dir(root), dir.join("models"));
+    assert_eq!(archi_decisions_dir(root), dir.join("decisions"));
+    assert!(is_archi_rel_path("openspec/architecture/models/01.toml"));
+    assert!(!is_archi_rel_path("openspec/archived/changes"));
+}

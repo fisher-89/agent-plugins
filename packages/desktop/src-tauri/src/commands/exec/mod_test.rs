@@ -16,7 +16,8 @@ use store::{
 
 use super::{
     agent_session_transcript, agent_session_watch_with, agent_sessions, agent_start,
-    agent_start_with, agent_stop, list_change_chat_sessions, session_detail,
+    agent_start_with, agent_stop, list_archi_chat_sessions, list_change_chat_sessions,
+    session_detail,
 };
 
 // ---------------------------------------------------------------------------
@@ -2567,5 +2568,353 @@ fn list_change_chat_sessions_root不可寻址err透传不panic() {
     assert!(
         error.contains("canonicalize") && error.contains("absent-ws"),
         "for_root 的 Err 透传不 panic（与三查询命令同口径），实际: {error}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// list_archi_chat_sessions：架构页通用会话清单（薄包装，三段同
+// `list_change_chat_sessions`）——`source` 词常量收在命令层、`source_ref`
+// **不过滤**（架构页会话恒 `null`，一个 workspace 一份历史），故 change chat
+// （两段）与流程会话（四段）一条不混；blank root → 空页信封。
+// ---------------------------------------------------------------------------
+
+/// archi 归属会话行 fixture（`source = "archi"`；`updated_at` 显式给定以驱动分页
+/// 序——排序键即 fixture 数值，非 mock 时钟）。
+fn seed_archi_session(store: &store::Store, id: &str, source_ref: Option<&str>, updated_at: i64) {
+    store
+        .create_session(&SessionRecord {
+            id: id.to_owned(),
+            engine_session_id: None,
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Sdk,
+                agent_instance_id: None,
+                model: Some("m-high".to_owned()),
+                permission_mode: AgentPermissionMode::BypassPermissions,
+            },
+            source: "archi".to_owned(),
+            source_ref: source_ref.map(str::to_owned),
+            created_at: updated_at,
+            updated_at,
+        })
+        .expect("落 archi 会话行 fixture");
+}
+
+/// archi 归属世界：2 条 archi + 2 条 change chat（两段）+ 1 条流程四段 + 1 条
+/// debug（归属混居的判据底座）。
+fn seed_archi_world(store: &store::Store) {
+    seed_archi_session(store, "ses-archi-1", None, 1_727_100_000_001);
+    seed_archi_session(store, "ses-archi-2", None, 1_727_100_000_002);
+    seed_chat_session(store, "ses-chat-a", Some("chg-1"), 1_727_100_000_003);
+    seed_chat_session(store, "ses-chat-b", Some("chg-1"), 1_727_100_000_004);
+    seed_sdk_session(
+        store,
+        "ses-flow-archi",
+        None,
+        "change",
+        Some("chg-1/implement/executor/1"),
+    );
+    seed_sdk_session(store, "ses-debug-archi", None, "debug", None);
+}
+#[test]
+fn list_archi_chat_sessions只命中archi归属且updated_at降序() {
+    let env = Env::new("archi-list-hit");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_archi_world(&store);
+
+    let page = list_archi_chat_sessions(state.clone(), root.clone(), 0, 20).expect("清单应成功");
+
+    let ids: Vec<&str> = page
+        .sessions
+        .iter()
+        .map(|item| item.row.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["ses-archi-2", "ses-archi-1"],
+        "updated_at 降序（只两条 archi 行）"
+    );
+    assert_eq!(
+        page.total, 2,
+        "total = 过滤集全量（change chat 两条 / 流程四段 / debug 一条不混）"
+    );
+    for session in &page.sessions {
+        assert_eq!(
+            session.row.provenance.source, "archi",
+            "归属词逐字（source 过滤生效）"
+        );
+        assert!(
+            session.row.provenance.source_ref.is_none(),
+            "架构页会话 source_ref 恒 null"
+        );
+    }
+}
+
+#[test]
+fn list_archi_chat_sessions不按source_ref过滤() {
+    let env = Env::new("archi-list-ref");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    // 列是自由字符串（生产恒 null）：非 null 亦在清单内（None 过滤语义）
+    seed_archi_session(&store, "ses-archi-plain", None, 1_727_100_000_001);
+    seed_archi_session(
+        &store,
+        "ses-archi-ref",
+        Some("legacy-任意串"),
+        1_727_100_000_002,
+    );
+
+    let page = list_archi_chat_sessions(state, root, 0, 20).expect("清单应成功");
+
+    assert_eq!(page.total, 2, "source_ref 不过滤（两行全在清单内）");
+    assert_eq!(
+        page.sessions[0].row.provenance.source_ref.as_deref(),
+        Some("legacy-任意串"),
+        "非 null 的 source_ref 原样出线（列自由字符串，不归一）"
+    );
+}
+#[test]
+fn list_archi_chat_sessions与agent_sessions同参信封逐字段全等() {
+    let env = Env::new("archi-list-equiv");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_archi_world(&store);
+    // 轮行随行：一条 archi 会话带已收轮（stats.turnCount 对账面）
+    let turn = store
+        .begin_agent_turn("ses-archi-2", 1_727_100_000_500)
+        .expect("begin 轮行 fixture")
+        .id;
+    store
+        .finish_agent_turn(
+            turn,
+            &AgentRunRecord {
+                id: turn,
+                session_id: Some("ses-archi-2".to_owned()),
+                status: AgentRunStatus::Completed,
+                started_at: 1_727_100_000_500,
+                finished_at: Some(1_727_100_001_500),
+                num_turns: Some(1),
+                cost_usd: Some(0.1),
+                duration_ms: Some(1_000),
+                error: None,
+            },
+        )
+        .expect("finish 轮行 fixture");
+
+    let via_archi =
+        list_archi_chat_sessions(state.clone(), root.clone(), 0, 20).expect("archi 清单应成功");
+    let via_debug =
+        agent_sessions(state, root, Some("archi".to_owned()), None, 0, 20).expect("通用清单应成功");
+
+    assert_eq!(via_archi.total, via_debug.total, "total 逐字全等");
+    assert_eq!(
+        via_archi.sessions, via_debug.sessions,
+        "sessions 逐字段全等（薄包装零改写聚合面，含 stats.turnCount）"
+    );
+    assert_eq!(
+        via_archi.sessions[0].stats.turn_count, 1,
+        "轮行聚合面随行（turnCount 由真实轮行现算）"
+    );
+}
+#[test]
+fn list_archi_chat_sessions分页信封四形态() {
+    let env = Env::new("archi-list-page");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    // 三条 updated_at 递增：ses-a < ses-b < ses-c（降序清单为 c / b / a）
+    seed_archi_session(&store, "ses-a", None, 1_727_100_000_001);
+    seed_archi_session(&store, "ses-b", None, 1_727_100_000_002);
+    seed_archi_session(&store, "ses-c", None, 1_727_100_000_003);
+
+    let first =
+        list_archi_chat_sessions(state.clone(), root.clone(), 0, 1).expect("首屏一页应成功");
+    assert_eq!(first.sessions.len(), 1, "limit = 1 圈定本页");
+    assert_eq!(first.sessions[0].row.id, "ses-c", "取最大 updated_at 者");
+    assert_eq!(first.total, 3, "total 恒为过滤集全量");
+
+    let second = list_archi_chat_sessions(state.clone(), root.clone(), 1, 1).expect("第二页应成功");
+    assert_eq!(second.sessions[0].row.id, "ses-b", "offset = 1 取第二条");
+    assert_eq!(second.total, 3);
+
+    let zero =
+        list_archi_chat_sessions(state.clone(), root.clone(), 0, 0).expect("limit = 0 合法空页");
+    assert!(zero.sessions.is_empty(), "limit = 0 → 空 sessions");
+    assert_eq!(zero.total, 3, "limit = 0 时 total 仍为过滤集全量");
+
+    let beyond = list_archi_chat_sessions(state.clone(), root.clone(), 99, 20)
+        .expect("越界 offset 合法空页");
+    assert!(beyond.sessions.is_empty(), "offset 超出总量 → 空 sessions");
+    assert_eq!(beyond.total, 3, "越界 offset 不改变 total");
+
+    let extreme = list_archi_chat_sessions(state.clone(), root.clone(), u32::MAX, u32::MAX)
+        .expect("offset / limit 极值不溢出 panic");
+    assert!(extreme.sessions.is_empty(), "offset = u32::MAX 空页");
+    assert_eq!(extreme.total, 3, "total 恒为过滤集全量");
+}
+#[test]
+fn list_archi_chat_sessions并列updated_at按id降序() {
+    let env = Env::new("archi-list-tie");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    let same = 1_727_100_000_000;
+    seed_archi_session(&store, "ses-archi-b", None, same);
+    seed_archi_session(&store, "ses-archi-a", None, same);
+
+    let page = list_archi_chat_sessions(state, root, 0, 20).expect("清单应成功");
+
+    let ids: Vec<&str> = page
+        .sessions
+        .iter()
+        .map(|item| item.row.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["ses-archi-b", "ses-archi-a"],
+        "同 updated_at 时按 id 降序（稳定序，行层排定）"
+    );
+}
+
+#[test]
+fn list_archi_chat_sessions空库返回空页ok() {
+    let env = Env::new("archi-list-empty");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("beta");
+
+    let page = list_archi_chat_sessions(state, root, 0, 20).expect("空库应 Ok");
+
+    assert!(page.sessions.is_empty(), "空库 → 空 sessions");
+    assert_eq!(page.total, 0, "空库 → total = 0");
+}
+
+#[test]
+fn list_archi_chat_sessions_blank_root空页且零库寻址() {
+    let env = Env::new("archi-list-blank");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let before = workspace_db_count(&env);
+
+    for blank in ["", "   "] {
+        let page = list_archi_chat_sessions(state.clone(), blank.to_owned(), 0, 20)
+            .expect("blank root 返回空页不报错");
+        assert!(page.sessions.is_empty(), "blank root {blank:?} → 空页");
+        assert_eq!(page.total, 0, "空页信封 total = 0");
+    }
+    assert_eq!(
+        workspace_db_count(&env),
+        before,
+        "blank root 守卫先于库寻址（零铸新库）"
+    );
+}
+#[test]
+fn list_archi_chat_sessions_root不可寻址err透传不panic() {
+    let env = Env::new("archi-list-root-err");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let missing = env
+        .data_dir
+        .path()
+        .join("absent-ws")
+        .to_string_lossy()
+        .into_owned();
+
+    let error = list_archi_chat_sessions(state, missing, 0, 20).expect_err("root 不可寻址必须 Err");
+    assert!(
+        error.contains("canonicalize") && error.contains("absent-ws"),
+        "for_root 的 Err 透传不 panic，实际: {error}"
+    );
+}
+
+#[test]
+fn list_archi_chat_sessions跨root隔离() {
+    let env = Env::new("archi-list-iso");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root_a = env.root_of("alpha");
+    let root_b = env.root_of("beta");
+    let store_a = state.for_root(&root_a).expect("for_root 应成功");
+    seed_archi_world(&store_a);
+
+    let in_a = list_archi_chat_sessions(state.clone(), root_a, 0, 20).expect("A 库清单应成功");
+    assert_eq!(in_a.total, 2, "A 库命中两条 archi 会话");
+
+    let in_b = list_archi_chat_sessions(state, root_b, 0, 20).expect("B 库清单应成功");
+    assert!(in_b.sessions.is_empty(), "跨 root 隔离：库位 = root 寻址");
+    assert_eq!(in_b.total, 0, "B 库不跨库泄漏");
+}
+
+#[test]
+fn archi_chat_source词面与compose同值() {
+    assert_eq!(
+        super::ARCHI_CHAT_SOURCE,
+        "archi",
+        "命令层来源受控词（与 compose::ARCHI_SOURCE / 前端 use-archi-chat 三处同值）"
+    );
+    assert_eq!(
+        super::ARCHI_CHAT_SOURCE.trim(),
+        super::ARCHI_CHAT_SOURCE,
+        "字面量无前后空白（受控词精确匹配）"
+    );
+}
+
+/// 正向（AC-7）：archi 归属且 `cwd = null` → 执行根回落 workspace root（不经
+/// `for_root` 二次寻址、不铸第二份库），会话行落 root 库且归属逐字。
+#[tokio::test]
+async fn agent_start_with_archi归属cwd_null回落root且单库() {
+    let env = Env::new("archi-cwd-null");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    seed_fast_failing_default(stores.inner(), "架构");
+    // 基线：先经 root 铸一次库再计数（此后执行根回落不得再派生文件）
+    stores.inner().for_root(&root).expect("for_root 应成功");
+    let before = workspace_db_count(&env);
+    assert_eq!(before, 1, "基线恰一份 workspace 库");
+
+    let summary = agent_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "架构页一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        Some(super::ARCHI_CHAT_SOURCE.to_owned()),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("cwd = null 时执行根回落 root（不需 worktree 目录）");
+
+    assert_eq!(
+        summary.status,
+        ::agent::AgentRunStatus::Running,
+        "提前 resolve 的 running 态轮行"
+    );
+    let summaries = sessions_in_root(stores.inner(), &root);
+    assert_eq!(summaries.len(), 1, "会话行落 root 库");
+    assert_eq!(summaries[0].row.id, summary.session_id);
+    assert_eq!(
+        summaries[0].row.provenance.source, "archi",
+        "归属词原样落库"
+    );
+    assert!(
+        summaries[0].row.provenance.source_ref.is_none(),
+        "架构页会话 source_ref 恒 null（一个 workspace 一份历史）"
+    );
+    assert_eq!(
+        workspace_db_count(&env),
+        before,
+        "执行根回落不经 for_root 二次寻址（不铸第二份库）"
     );
 }

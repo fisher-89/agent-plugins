@@ -945,3 +945,146 @@ fn 缺省与可选字段显式线形() {
     assert_eq!(value["reason"], json!(null), "reason 恒 null 显式在场");
     assert_eq!(value["description"], json!(null));
 }
+
+// ---------------------------------------------------------------------------
+// 结构诊断全量常量 `DiagnosticKind::ALL`（知识文本 / 语料对拍的唯一派生源）
+//
+// 口径：`ALL` 是知识文本与语料对拍的单点派生源——序即 `as_str` 分支序，长度即
+// 红灯（新增变体忘补 `ALL` 时本组断言与编译面双红）。词汇文本一侧的「逐值在场」
+// 断言住 `crates/infra/agent/src/archi_knowledge_test.rs`（`archi` 不得反向依赖
+// `agent-runtime`，见 test-design「不可测试项」）。
+// ---------------------------------------------------------------------------
+
+/// 结构诊断九词的期望线格式（`as_str` 分支序 = `ALL` 声明序，D6）。
+const DIAGNOSTIC_LINES: [&str; 9] = [
+    "syntaxError",
+    "missingField",
+    "invalidValue",
+    "unknownField",
+    "duplicateElement",
+    "cycle",
+    "dependsOnAncestor",
+    "unknownReference",
+    "orphanHierarchy",
+];
+
+/// 正向：`ALL` 九值逐项 `as_str()` 依次为线格式 camelCase 词（序即分支序）。
+#[test]
+fn 诊断all与as_str逐值对拍() {
+    for (index, kind) in DiagnosticKind::ALL.iter().enumerate() {
+        assert_eq!(
+            kind.as_str(),
+            DIAGNOSTIC_LINES[index],
+            "ALL[{index}] 的线格式词"
+        );
+    }
+}
+
+/// 边界：`ALL` 长度锚——九值（`[Self; 9]` 长度不符即编译期红；加变体忘补
+/// `ALL` 时本断言与编译面双红）。
+#[test]
+fn 诊断all长度锚九值() {
+    assert_eq!(
+        DiagnosticKind::ALL.len(),
+        9,
+        "结构诊断封闭九值（parser 免费五 + 自实现四）"
+    );
+    assert_eq!(
+        DiagnosticKind::ALL.len(),
+        DIAGNOSTIC_LINES.len(),
+        "常量与线格式清单等长（漏值不可绕过）"
+    );
+}
+
+/// 异常：`ALL` 无重复 / 全覆盖——去重后长度仍为 9；以「逐变体构造的九项清单」
+/// 与 `ALL` 做集合相等比较（缺失值点名报出）。
+#[test]
+fn 诊断all无重复且全覆盖() {
+    let from_all: std::collections::BTreeSet<&str> = DiagnosticKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(from_all.len(), 9, "ALL 去重后仍为九项（无重复值）");
+
+    let explicit = [
+        DiagnosticKind::SyntaxError,
+        DiagnosticKind::MissingField,
+        DiagnosticKind::InvalidValue,
+        DiagnosticKind::UnknownField,
+        DiagnosticKind::DuplicateElement,
+        DiagnosticKind::Cycle,
+        DiagnosticKind::DependsOnAncestor,
+        DiagnosticKind::UnknownReference,
+        DiagnosticKind::OrphanHierarchy,
+    ];
+    let from_explicit: std::collections::BTreeSet<&str> =
+        explicit.iter().map(|kind| kind.as_str()).collect();
+    let missing: Vec<&str> = from_explicit.difference(&from_all).copied().collect();
+    assert!(
+        missing.is_empty(),
+        "ALL 缺变体（点名）：{missing:?}（新增变体必须同补 ALL）"
+    );
+    let extra: Vec<&str> = from_all.difference(&from_explicit).copied().collect();
+    assert!(extra.is_empty(), "ALL 含未知词：{extra:?}");
+    assert_eq!(
+        from_all, from_explicit,
+        "ALL 与逐变体清单集合相等（漏值 / 替换值不可绕过）"
+    );
+}
+
+/// 边界：`ALL` 序与 `as_str` 同源——逐位断言（打乱 `ALL` 顺序即红——`build()`
+/// 派生段的输出序依赖此序）。
+#[test]
+fn 诊断all序与as_str同源逐位() {
+    for (index, kind) in DiagnosticKind::ALL.iter().enumerate() {
+        assert_eq!(
+            kind.as_str(),
+            DIAGNOSTIC_LINES[index],
+            "第 {index} 位的序与 as_str 分支序一致"
+        );
+    }
+    // 相邻位互异（序被打乱 / 值重复均可观察）
+    for window in DiagnosticKind::ALL.windows(2) {
+        assert_ne!(
+            window[0].as_str(),
+            window[1].as_str(),
+            "相邻两位不得同词（序即分支序）"
+        );
+    }
+}
+
+/// 回归：既有全量常量复用面——`ElementKind::ALL` 四值 / `GateTier::ALL` 三值逐值
+/// `as_str`；`GateTier::default() == Off`（知识文本 `gate` 段与缺省锚依赖此面，
+/// 既有断言不改）。
+#[test]
+fn 既有全量常量复用面零回归() {
+    assert_eq!(ElementKind::ALL.len(), 4, "元素 kind 封闭四值");
+    for (index, word) in ["package", "domain", "module", "component"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            ElementKind::ALL[index].as_str(),
+            *word,
+            "ElementKind::ALL[{index}] 逐值"
+        );
+    }
+    assert_eq!(GateTier::ALL.len(), 3, "gate 封闭三值");
+    for (index, word) in ["off", "warn", "strict"].iter().enumerate() {
+        assert_eq!(
+            GateTier::ALL[index].as_str(),
+            *word,
+            "GateTier::ALL[{index}] 逐值"
+        );
+    }
+    assert_eq!(
+        GateTier::default(),
+        GateTier::Off,
+        "缺省档位恒 Off（新元素缺省不收紧）"
+    );
+    assert_eq!(
+        GateTier::default().as_str(),
+        "off",
+        "缺省档线词（知识文本 `gate` 缺省锚的派生源）"
+    );
+}

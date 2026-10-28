@@ -4225,3 +4225,550 @@ async fn archi与explore专用上下文并列不串道() {
     };
     assert!(!*is_error);
 }
+
+// ---------------------------------------------------------------------------
+// 系统消息合成单点（`system_prompt`）：会话 preamble（知识，前）+ 本轮
+// `AGENT.md`（逐字，后）→ 恰一条 System 消息内容；两段之间单空行分隔。
+//
+// 纯函数直接调用（断言即契约），run 侧用例经既有假流装置 + 真实 tempdir 的
+// `AGENT.md`（`preamble::load` 不 mock：真实读取与真实 32KB 截断口径）。
+// ---------------------------------------------------------------------------
+
+/// 纯函数面：`(Some, Some)` → 知识在前、`AGENT.md` 逐字在后、恰一个空行分隔
+/// （无标题 / 无前缀包装）。
+#[test]
+fn system_prompt双在场知识在前agent_md逐字在后() {
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned())),
+        Some("K\n\nA".to_owned())
+    );
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(
+            Some("# 知识\n第二行"),
+            Some("# 约定\n- 中文".to_owned())
+        ),
+        Some("# 知识\n第二行\n\n# 约定\n- 中文".to_owned()),
+        "只有两段之间的一个空行是插入物（段内换行逐字保留）"
+    );
+}
+
+/// 纯函数面：仅知识 → `Some(knowledge)`（不追加分隔符、不追加空行）。
+#[test]
+fn system_prompt仅知识不追加分隔符() {
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(Some("K"), None),
+        Some("K".to_owned())
+    );
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(Some("K\n"), None),
+        Some("K\n".to_owned()),
+        "末换行不归一（逐字返回）"
+    );
+}
+
+/// 纯函数面：仅 `AGENT.md` → 逐字返回（既有语义零改写：不加前后缀、不改写、
+/// 不包装）。
+#[test]
+fn system_prompt仅agent_md逐字() {
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(None, Some("A".to_owned())),
+        Some("A".to_owned())
+    );
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(None, Some(String::new())),
+        Some(String::new()),
+        "空串原样返回（不降级、不补默认）"
+    );
+}
+
+/// 纯函数面：两者皆无 → `None`（不注入空串 System）。
+#[test]
+fn system_prompt两者皆无返回none() {
+    assert_eq!(crate::sdk::r#loop::system_prompt(None, None), None);
+}
+
+/// 边界：空串入参按公式拼接（不降级到单侧分支、不 panic、不吞首段）。
+#[test]
+fn system_prompt空串入参按公式拼接() {
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(Some(""), Some("A".to_owned())),
+        Some("\n\nA".to_owned())
+    );
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(Some("K"), Some(String::new())),
+        Some("K\n\n".to_owned())
+    );
+    assert_eq!(
+        crate::sdk::r#loop::system_prompt(Some(""), Some(String::new())),
+        Some("\n\n".to_owned()),
+        "双空串亦按公式（恰一个分隔空行）"
+    );
+}
+
+/// 边界：特殊字符逐字保留（零转义 / 零归一），分段位置可用 `split("\n\n")` 稳定
+/// 还原为两段。
+#[test]
+fn system_prompt特殊字符逐字保留() {
+    let cases = [
+        ("换行", "第一段\n第二行", "文件段\n第二行"),
+        ("NUL", "知识\u{0}段", "文件\u{0}段"),
+        ("emoji", "知识🎉段", "文件🚀段"),
+        ("CRLF", "知识\r\n第二行", "文件\r\n第二行"),
+    ];
+    for (label, knowledge, agent_md) in cases {
+        let merged = crate::sdk::r#loop::system_prompt(Some(knowledge), Some(agent_md.to_owned()))
+            .unwrap_or_else(|| panic!("{label}: 双在场应 Some"));
+        let parts: Vec<&str> = merged.split("\n\n").collect();
+        assert_eq!(parts.len(), 2, "{label}: 双换行切分 可还原两段: {merged:?}");
+        assert_eq!(parts[0], knowledge, "{label}: 首段 = 知识原文");
+        assert_eq!(parts[1], agent_md, "{label}: 次段 = AGENT.md 原文");
+        assert_eq!(
+            merged.len(),
+            knowledge.len() + agent_md.len() + 2,
+            "{label}: 长度 = 两段之和 + 2（零增删）"
+        );
+    }
+}
+
+/// 边界：超长与不截断——`agent_md` 40KB + 知识 4KB → 返回长度 = 两段之和 + 2
+/// （32KB 截断责任在 `preamble::load`，知识不截）。
+#[test]
+fn system_prompt超长不截断长度守恒() {
+    let knowledge = "k".repeat(4096);
+    let agent_md = "a".repeat(40 * 1024);
+    let merged = crate::sdk::r#loop::system_prompt(Some(&knowledge), Some(agent_md.clone()))
+        .expect("双在场应 Some");
+    assert_eq!(
+        merged.len(),
+        knowledge.len() + agent_md.len() + 2,
+        "system_prompt 不截断（两段长度守恒 + 分隔符）"
+    );
+    assert!(merged.starts_with(&knowledge), "知识段完整在前");
+    assert!(merged.ends_with(&agent_md), "AGENT.md 段完整在后");
+}
+
+/// 边界：纯函数性——同参两次调用逐字相等（入参即全部输入，不读盘不查环境）。
+#[test]
+fn system_prompt纯函数性() {
+    let first = crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned()));
+    let second = crate::sdk::r#loop::system_prompt(Some("K"), Some("A".to_owned()));
+    assert_eq!(first, second, "同参两次调用逐字相等");
+    let other = crate::sdk::r#loop::system_prompt(Some("K"), Some("B".to_owned()));
+    assert_ne!(first, other, "入参变即结果变（无内部缓存）");
+}
+
+/// 运行态：`preamble = Some(K)` + root 有 `AGENT.md` → 首轮请求恰一条 System，
+/// 内容 = `K\n\n<AGENT.md 原文>`（不为两段各推一条）。
+#[tokio::test]
+async fn run系统消息合成双在场恰一条system() {
+    let dir = tempdir("system-merge-both");
+    write_file(&dir.path().join("AGENT.md"), "文件约定 🎉");
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: Some("架构知识段".to_owned()),
+            tools: None,
+            toolset: None,
+        },
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 1, "单轮一次请求");
+    let systems = requests[0]
+        .chat_history
+        .iter()
+        .filter(|message| matches!(message, Message::System { .. }))
+        .count();
+    assert_eq!(systems, 1, "恰一条 System 消息（不为两段各推一条）");
+    assert_eq!(
+        requests[0].system_instructions(),
+        Some("架构知识段\n\n文件约定 🎉"),
+        "合成内容 = 知识在前 + AGENT.md 逐字在后（单空行分隔）"
+    );
+    turn_done_of(&events);
+}
+
+/// 运行态：`preamble = Some(K)` + root 无 `AGENT.md` → 恰一条 System = `K`
+/// （既有「缺席不注入空串」语义扩展到单侧在场）。
+#[tokio::test]
+async fn run系统消息合成仅preamble恰一条system() {
+    let dir = tempdir("system-merge-knowledge-only");
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: Some("架构知识段".to_owned()),
+            tools: None,
+            toolset: None,
+        },
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let requests = model.captured_requests();
+    let systems = requests[0]
+        .chat_history
+        .iter()
+        .filter(|message| matches!(message, Message::System { .. }))
+        .count();
+    assert_eq!(systems, 1, "恰一条 System");
+    assert_eq!(
+        requests[0].system_instructions(),
+        Some("架构知识段"),
+        "无 AGENT.md 时即知识原文（不追加分隔 / 空行）"
+    );
+    turn_done_of(&events);
+}
+
+/// 正向：每轮重读——两轮假流 + 首轮流后改写 `AGENT.md` → 两次请求的 System 均
+/// 为合并体，次轮的 `AGENT.md` 段为改后内容、知识段与首轮逐字相同（知识来自会话
+/// 注入不重读盘）。
+#[tokio::test]
+async fn run系统消息合并每轮重读知识段不重读盘() {
+    let dir = tempdir("system-merge-reload");
+    let agent_md = dir.path().join("AGENT.md");
+    write_file(&agent_md, "第一版约定");
+    write_file(&dir.path().join("README.md"), "占位内容");
+    let fake = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call("tu_sys", "read", serde_json::json!({ "path": "README.md" })),
+            raw_final(usage(3, 3)),
+        ],
+        vec![raw_text("完成"), raw_final(usage(4, 4))],
+    ]);
+    fake.rewrite_file_on_first_stream(agent_md, "第二版约定 🚀");
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: Some("架构知识段".to_owned()),
+            tools: None,
+            toolset: None,
+        },
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&fake, turn).await;
+
+    let requests = fake.captured_requests();
+    assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
+    assert_eq!(
+        requests[0].system_instructions(),
+        Some("架构知识段\n\n第一版约定"),
+        "首轮：知识 + 首版 AGENT.md"
+    );
+    assert_eq!(
+        requests[1].system_instructions(),
+        Some("架构知识段\n\n第二版约定 🚀"),
+        "次轮：知识段逐字相同、AGENT.md 段取自重读后的磁盘内容"
+    );
+    assert_eq!(sealed_messages(&events).len(), 2, "续轮不中断");
+    turn_done_of(&events);
+}
+
+// ---------------------------------------------------------------------------
+// archi 会话面（`source = "archi"` 注入：七工具全量 + 两 archi 工具双开）：下发面
+// / 档位 / 直改主仓写盘 / 写坏不 panic 且可自修
+//
+// 装置沿既有 archi 章节：真实 tempdir 模型 + 真实 `ArchiContext`（读面即被测语
+// 义），`tools::definitions` / `policy` / `protect` 全真实组合不 mock。
+// ---------------------------------------------------------------------------
+
+/// archi 会话面的注入底座（`source = "archi"` 臂的逐字段形态：七工具全量 +
+/// 双开 + 知识 preamble）。
+fn archi_session_injections(knowledge: Option<&str>) -> agent::SessionInjections {
+    agent::SessionInjections {
+        preamble: knowledge.map(str::to_owned),
+        tools: None,
+        toolset: Some(SessionToolset::Archi {
+            module: true,
+            search: true,
+        }),
+    }
+}
+
+/// 正向（AC-6）：archi 面 `RunStarted.tools` = `TOOL_NAMES` 七名（含 write /
+/// edit / bash，保序）+ 两 archi 工具，且与实际 `request.tools` 逐名一致。
+#[tokio::test]
+async fn archi面runstarted_tools报七工具加archi两工具() {
+    let dir = archi_fixture("archi-face-tools");
+    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(1, 1))]]);
+    let turn = LoopTurn {
+        injections: archi_session_injections(Some("架构知识")),
+        archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let mut expected: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    expected.push(ARCHI_MODULE_TOOL.to_owned());
+    expected.push(ARCHI_SEARCH_TOOL.to_owned());
+    assert_eq!(
+        run_started_tools(&events),
+        expected,
+        "archi 面下发面 = 七通用工具保序 + archi_module + archi_search"
+    );
+
+    let requests = model.captured_requests();
+    let dispatched: Vec<String> = requests[0]
+        .tools
+        .iter()
+        .map(|definition| definition.name.clone())
+        .collect();
+    assert_eq!(
+        dispatched,
+        run_started_tools(&events),
+        "request.tools 与 RunStarted.tools 同源（definitions 派生）"
+    );
+    assert!(
+        dispatched.iter().any(|name| name == "write"),
+        "archi 面保留写面（write 在全量七工具内）: {dispatched:?}"
+    );
+    turn_done_of(&events);
+}
+
+/// 回归（AC-6）：`default` 档下两 archi 工具放行、写面被 policy 拒；`acceptEdits` /
+/// `bypassPermissions` 档写面放行（三档决策表归既有 `policy_test`，本节只锁
+/// 「archi 面下同一判据」）。
+#[tokio::test]
+async fn archi面档位两工具放行写面按档判() {
+    let dir = archi_fixture("archi-face-default");
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_read",
+                ARCHI_MODULE_TOOL,
+                serde_json::json!({ "element": "App.Auth" }),
+            ),
+            raw_tool_call(
+                "tu_write",
+                "write",
+                serde_json::json!({
+                    "path": "openspec/architecture/models/99-denied.toml",
+                    "content": "[element.\"Denied\"]\nkind = \"module\"\n",
+                }),
+            ),
+            raw_final(usage(3, 3)),
+        ],
+        vec![raw_text("已按档位继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: archi_session_injections(None),
+        archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::Default)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let notices: Vec<&str> = notices_of(&events).iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        notices,
+        vec!["permission_denied"],
+        "default 档：唯写面被拒（两 archi 工具零记因 = 放行）"
+    );
+    let results = tool_results_of(&events);
+    let archi_result = results
+        .iter()
+        .find(|(id, _, _)| *id == "tu_read")
+        .expect("archi 工具结果在场");
+    assert!(!archi_result.2, "default 档 archi 工具放行（执行体承接）");
+    let write_result = results
+        .iter()
+        .find(|(id, _, _)| *id == "tu_write")
+        .expect("写面结果在场");
+    assert!(write_result.2, "default 档写面被拒（is_error 回灌）");
+    assert!(
+        !dir.path()
+            .join("openspec/architecture/models/99-denied.toml")
+            .exists(),
+        "被拒写面零落盘"
+    );
+
+    for mode in [
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ] {
+        let dir = archi_fixture(&format!("archi-face-write-{mode:?}"));
+        let model = FakeModel::with_turns(vec![
+            vec![
+                raw_tool_call(
+                    "tu_write",
+                    "write",
+                    serde_json::json!({
+                        "path": "openspec/architecture/models/98-allowed.toml",
+                        "content": "[element.\"Allowed\"]\nkind = \"module\"\n",
+                    }),
+                ),
+                raw_final(usage(2, 2)),
+            ],
+            vec![raw_text("写完")],
+        ]);
+        let turn = LoopTurn {
+            injections: archi_session_injections(None),
+            archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+            ..loop_turn(dir.path(), mode)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        assert!(
+            notices_of(&events).is_empty(),
+            "{mode:?} 档：写面无拒绝记因，实际: {:?}",
+            notices_of(&events)
+        );
+        let results = tool_results_of(&events);
+        assert!(!results[0].2, "{mode:?} 档：写面放行（is_error = false）");
+        assert!(
+            dir.path()
+                .join("openspec/architecture/models/98-allowed.toml")
+                .exists(),
+            "{mode:?} 档：文件落盘"
+        );
+    }
+}
+
+/// 正向（AC-7）：archi 面（`tools = None`）在 `bypassPermissions` 档直改主仓——
+/// `write` 新建 `<archi_dir>/models/09-x.toml`、`edit` 改既有 `gate` 行 → 工具结果
+/// `is_error = false`、文件落盘、写入保护零命中；随后 `archi_module` 读到改动。
+#[tokio::test]
+async fn archi面write新建与edit改gate行落盘且保护零拦截() {
+    let dir = archi_fixture("archi-face-write-path");
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_new",
+                "write",
+                serde_json::json!({
+                    "path": "openspec/architecture/models/09-x.toml",
+                    "content": "[element.\"App.Auth.Token\"]\nkind = \"component\"\n",
+                }),
+            ),
+            raw_tool_call(
+                "tu_edit",
+                "edit",
+                serde_json::json!({
+                    "path": "openspec/architecture/models/01-core.toml",
+                    "old_string": "gate = \"strict\"",
+                    "new_string": "gate = \"warn\"",
+                }),
+            ),
+            raw_tool_call(
+                "tu_check",
+                ARCHI_MODULE_TOOL,
+                serde_json::json!({ "element": "App.Auth" }),
+            ),
+            raw_final(usage(4, 4)),
+        ],
+        vec![raw_text("已改模型")],
+    ]);
+    let turn = LoopTurn {
+        injections: archi_session_injections(None),
+        archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    assert!(
+        notices_of(&events).is_empty(),
+        "直改主仓径路零拦截记因（<archi_dir>/models/** 不在内置锁面），实际: {:?}",
+        notices_of(&events)
+    );
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 3, "三工具各一条结果");
+    for (id, _, is_error) in &results {
+        assert!(!*is_error, "{id}: 写面 / 读面均 is_error = false");
+    }
+    let created = dir.path().join("openspec/architecture/models/09-x.toml");
+    assert!(created.exists(), "write 新建文件落盘");
+    let edited =
+        std::fs::read_to_string(dir.path().join("openspec/architecture/models/01-core.toml"))
+            .expect("读既有模型文件");
+    assert!(
+        edited.contains("gate = \"warn\"") && !edited.contains("gate = \"strict\""),
+        "edit 改既有 gate 行成功，实际文件:\n{edited}"
+    );
+    let check = results
+        .iter()
+        .find(|(id, _, _)| *id == "tu_check")
+        .expect("archi_module 结果在场");
+    let payload: serde_json::Value = serde_json::from_str(check.1)
+        .unwrap_or_else(|error| panic!("读面结果应为 dto JSON: {error}"));
+    assert_eq!(
+        payload["element"]["gate"],
+        serde_json::json!("warn"),
+        "读面读到改动后的 gate 档"
+    );
+    turn_done_of(&events);
+}
+
+/// 异常（AC-8）：写入坏模型（非法 TOML）后调 `archi_module` → 工具结果
+/// `is_error = true` 且文案含 `file:line` 结构化诊断；写入本身零 `Err`（无写前
+/// 校验插口）；run 不中断（后续续轮正常收敛）。
+#[tokio::test]
+async fn archi面写坏模型读面is_error带file_line且run不中断() {
+    let dir = archi_fixture("archi-face-broken");
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_bad",
+                "write",
+                serde_json::json!({
+                    "path": "openspec/architecture/models/02-bad.toml",
+                    "content": "[element.\"Broken\"\nkind = \"module\"\n",
+                }),
+            ),
+            raw_tool_call("tu_diag", ARCHI_MODULE_TOOL, serde_json::json!({})),
+            raw_final(usage(3, 3)),
+        ],
+        vec![raw_text("已按诊断修复指引继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: archi_session_injections(None),
+        archi: Some(ArchiContext::new(dir.path().to_path_buf())),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 2, "写 / 读各一条结果");
+    let written = results
+        .iter()
+        .find(|(id, _, _)| *id == "tu_bad")
+        .expect("写结果在场");
+    assert!(!written.2, "写入本身零 Err（无新增写前校验插口）");
+    assert!(
+        dir.path()
+            .join("openspec/architecture/models/02-bad.toml")
+            .exists(),
+        "坏模型照常落盘（写入面不校验）"
+    );
+
+    let diagnostic = results
+        .iter()
+        .find(|(id, _, _)| *id == "tu_diag")
+        .expect("读面结果在场");
+    assert!(diagnostic.2, "坏模型读面以 is_error 回灌（不 panic）");
+    assert!(
+        diagnostic.1.contains("02-bad.toml"),
+        "诊断文案含文件名，实际: {}",
+        diagnostic.1
+    );
+    assert!(
+        diagnostic
+            .1
+            .lines()
+            .any(|line| line.contains("02-bad.toml:")),
+        "诊断文案含 file:line 结构化位置，实际: {}",
+        diagnostic.1
+    );
+
+    assert_eq!(sealed_messages(&events).len(), 2, "写坏后续轮不中断");
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error, "坏模型不炸 run（正常收敛）");
+}

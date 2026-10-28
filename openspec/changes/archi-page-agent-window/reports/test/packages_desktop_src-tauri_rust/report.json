@@ -1,0 +1,3755 @@
+{
+  "framework": "rust",
+  "root": "packages/desktop/src-tauri",
+  "timestamp": "2026-10-27T10:51:49.8741581Z",
+  "exit_code": 0,
+  "duration_ms": 542393.0,
+  "summary": {
+    "total": 3313,
+    "passed": 3313,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\event.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 16,
+        "covered_lines": 16,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\event_test.rs",
+      "coverage": {
+        "lines": 98.81,
+        "branches": null,
+        "functions": null,
+        "total_lines": 506,
+        "covered_lines": 500,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\kernel.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 173,
+        "covered_lines": 173,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\kernel_test.rs",
+      "coverage": {
+        "lines": 99.27,
+        "branches": null,
+        "functions": null,
+        "total_lines": 960,
+        "covered_lines": 953,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\lib_test.rs",
+      "coverage": {
+        "lines": 84.78,
+        "branches": null,
+        "functions": null,
+        "total_lines": 230,
+        "covered_lines": 195,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\port_test.rs",
+      "coverage": {
+        "lines": 98.97,
+        "branches": null,
+        "functions": null,
+        "total_lines": 292,
+        "covered_lines": 289,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\runner.rs",
+      "coverage": {
+        "lines": 95.83,
+        "branches": null,
+        "functions": null,
+        "total_lines": 24,
+        "covered_lines": 23,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\runner_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 402,
+        "covered_lines": 402,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\session.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\session_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 212,
+        "covered_lines": 212,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\state.rs",
+      "coverage": {
+        "lines": 87.5,
+        "branches": null,
+        "functions": null,
+        "total_lines": 24,
+        "covered_lines": 21,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\state_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 152,
+        "covered_lines": 152,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\stream.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 41,
+        "covered_lines": 41,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\stream_test.rs",
+      "coverage": {
+        "lines": 98.57,
+        "branches": null,
+        "functions": null,
+        "total_lines": 350,
+        "covered_lines": 345,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\usage.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 11,
+        "covered_lines": 11,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\agent\\src\\usage_test.rs",
+      "coverage": {
+        "lines": 98.53,
+        "branches": null,
+        "functions": null,
+        "total_lines": 136,
+        "covered_lines": 134,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\diff.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 53,
+        "covered_lines": 53,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\diff_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 192,
+        "covered_lines": 192,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\docs.rs",
+      "coverage": {
+        "lines": 88.42,
+        "branches": null,
+        "functions": null,
+        "total_lines": 190,
+        "covered_lines": 168,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\docs_test.rs",
+      "coverage": {
+        "lines": 99.73,
+        "branches": null,
+        "functions": null,
+        "total_lines": 365,
+        "covered_lines": 364,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\dto.rs",
+      "coverage": {
+        "lines": 96.97,
+        "branches": null,
+        "functions": null,
+        "total_lines": 198,
+        "covered_lines": 192,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\dto_test.rs",
+      "coverage": {
+        "lines": 99.65,
+        "branches": null,
+        "functions": null,
+        "total_lines": 571,
+        "covered_lines": 569,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\edit.rs",
+      "coverage": {
+        "lines": 91.84,
+        "branches": null,
+        "functions": null,
+        "total_lines": 49,
+        "covered_lines": 45,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\edit_test.rs",
+      "coverage": {
+        "lines": 99.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 200,
+        "covered_lines": 198,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\graph.rs",
+      "coverage": {
+        "lines": 99.32,
+        "branches": null,
+        "functions": null,
+        "total_lines": 146,
+        "covered_lines": 145,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\graph_test.rs",
+      "coverage": {
+        "lines": 97.52,
+        "branches": null,
+        "functions": null,
+        "total_lines": 323,
+        "covered_lines": 315,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\model.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 9,
+        "covered_lines": 9,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\model_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 124,
+        "covered_lines": 124,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\parse\\mod.rs",
+      "coverage": {
+        "lines": 98.11,
+        "branches": null,
+        "functions": null,
+        "total_lines": 53,
+        "covered_lines": 52,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\parse\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 290,
+        "covered_lines": 290,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\parse\\toml.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 72,
+        "covered_lines": 72,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\parse\\toml_test.rs",
+      "coverage": {
+        "lines": 99.24,
+        "branches": null,
+        "functions": null,
+        "total_lines": 263,
+        "covered_lines": 261,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\search.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 76,
+        "covered_lines": 76,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\archi\\src\\search_test.rs",
+      "coverage": {
+        "lines": 99.58,
+        "branches": null,
+        "functions": null,
+        "total_lines": 238,
+        "covered_lines": 237,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\aggregate.rs",
+      "coverage": {
+        "lines": 93.23,
+        "branches": null,
+        "functions": null,
+        "total_lines": 399,
+        "covered_lines": 372,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\aggregate_test.rs",
+      "coverage": {
+        "lines": 99.66,
+        "branches": null,
+        "functions": null,
+        "total_lines": 882,
+        "covered_lines": 879,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\diagnose.rs",
+      "coverage": {
+        "lines": 93.75,
+        "branches": null,
+        "functions": null,
+        "total_lines": 112,
+        "covered_lines": 105,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\diagnose_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 208,
+        "covered_lines": 208,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\globmatch.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 75,
+        "covered_lines": 75,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\globmatch_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 72,
+        "covered_lines": 72,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\model.rs",
+      "coverage": {
+        "lines": 97.04,
+        "branches": null,
+        "functions": null,
+        "total_lines": 169,
+        "covered_lines": 164,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\model_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 338,
+        "covered_lines": 338,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\coverage.rs",
+      "coverage": {
+        "lines": 98.41,
+        "branches": null,
+        "functions": null,
+        "total_lines": 63,
+        "covered_lines": 62,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\coverage_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 84,
+        "covered_lines": 84,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\js.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 51,
+        "covered_lines": 51,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\js_test.rs",
+      "coverage": {
+        "lines": 98.82,
+        "branches": null,
+        "functions": null,
+        "total_lines": 85,
+        "covered_lines": 84,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\rust.rs",
+      "coverage": {
+        "lines": 96.72,
+        "branches": null,
+        "functions": null,
+        "total_lines": 61,
+        "covered_lines": 59,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\rust_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 78,
+        "covered_lines": 78,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\text.rs",
+      "coverage": {
+        "lines": 91.57,
+        "branches": null,
+        "functions": null,
+        "total_lines": 178,
+        "covered_lines": 163,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\parser\\text_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 145,
+        "covered_lines": 145,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\reuse.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 15,
+        "covered_lines": 15,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\checks\\src\\reuse_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 60,
+        "covered_lines": 60,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\config\\src\\lib.rs",
+      "coverage": {
+        "lines": 98.58,
+        "branches": null,
+        "functions": null,
+        "total_lines": 352,
+        "covered_lines": 347,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\config\\src\\lib_test.rs",
+      "coverage": {
+        "lines": 98.57,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1186,
+        "covered_lines": 1169,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\cancel.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 18,
+        "covered_lines": 18,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\cancel_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 109,
+        "covered_lines": 109,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\identity.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 27,
+        "covered_lines": 27,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\identity_test.rs",
+      "coverage": {
+        "lines": 98.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 100,
+        "covered_lines": 98,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\layout\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 61,
+        "covered_lines": 61,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\layout\\mod_test.rs",
+      "coverage": {
+        "lines": 98.77,
+        "branches": null,
+        "functions": null,
+        "total_lines": 568,
+        "covered_lines": 561,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\prune.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\prune_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 80,
+        "covered_lines": 80,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\windows_name.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 11,
+        "covered_lines": 11,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\foundation\\src\\windows_name_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 33,
+        "covered_lines": 33,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\control.rs",
+      "coverage": {
+        "lines": 97.29,
+        "branches": null,
+        "functions": null,
+        "total_lines": 258,
+        "covered_lines": 251,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\control_test.rs",
+      "coverage": {
+        "lines": 99.91,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1082,
+        "covered_lines": 1081,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\decision.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 22,
+        "covered_lines": 22,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\decision_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 209,
+        "covered_lines": 209,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\port.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 25,
+        "covered_lines": 25,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\port_test.rs",
+      "coverage": {
+        "lines": 85.9,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1624,
+        "covered_lines": 1395,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\prompt.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 57,
+        "covered_lines": 57,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\prompt_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 356,
+        "covered_lines": 356,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\run_history.rs",
+      "coverage": {
+        "lines": 97.62,
+        "branches": null,
+        "functions": null,
+        "total_lines": 84,
+        "covered_lines": 82,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\run_history_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 560,
+        "covered_lines": 560,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\snapshot.rs",
+      "coverage": {
+        "lines": 52.63,
+        "branches": null,
+        "functions": null,
+        "total_lines": 19,
+        "covered_lines": 10,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\snapshot_test.rs",
+      "coverage": {
+        "lines": 87.36,
+        "branches": null,
+        "functions": null,
+        "total_lines": 261,
+        "covered_lines": 228,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\state.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 54,
+        "covered_lines": 54,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\state_test.rs",
+      "coverage": {
+        "lines": 99.9,
+        "branches": null,
+        "functions": null,
+        "total_lines": 963,
+        "covered_lines": 962,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\steps.rs",
+      "coverage": {
+        "lines": 98.25,
+        "branches": null,
+        "functions": null,
+        "total_lines": 285,
+        "covered_lines": 280,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\steps_test.rs",
+      "coverage": {
+        "lines": 93.46,
+        "branches": null,
+        "functions": null,
+        "total_lines": 2140,
+        "covered_lines": 2000,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\transcript.rs",
+      "coverage": {
+        "lines": 94.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 50,
+        "covered_lines": 47,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\transcript_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 108,
+        "covered_lines": 108,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\verdict.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 39,
+        "covered_lines": 39,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\verdict_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 81,
+        "covered_lines": 81,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\walker.rs",
+      "coverage": {
+        "lines": 88.26,
+        "branches": null,
+        "functions": null,
+        "total_lines": 2155,
+        "covered_lines": 1902,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\orchestration\\src\\walker_test.rs",
+      "coverage": {
+        "lines": 99.2,
+        "branches": null,
+        "functions": null,
+        "total_lines": 7664,
+        "covered_lines": 7603,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\eval_checklist.rs",
+      "coverage": {
+        "lines": 95.56,
+        "branches": null,
+        "functions": null,
+        "total_lines": 45,
+        "covered_lines": 43,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\eval_checklist_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 149,
+        "covered_lines": 149,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\markdown_doc.rs",
+      "coverage": {
+        "lines": 95.18,
+        "branches": null,
+        "functions": null,
+        "total_lines": 83,
+        "covered_lines": 79,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\markdown_doc_test.rs",
+      "coverage": {
+        "lines": 99.52,
+        "branches": null,
+        "functions": null,
+        "total_lines": 208,
+        "covered_lines": 207,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\registry.rs",
+      "coverage": {
+        "lines": 96.99,
+        "branches": null,
+        "functions": null,
+        "total_lines": 133,
+        "covered_lines": 129,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\registry_test.rs",
+      "coverage": {
+        "lines": 98.81,
+        "branches": null,
+        "functions": null,
+        "total_lines": 252,
+        "covered_lines": 249,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\tasks_progress.rs",
+      "coverage": {
+        "lines": 97.14,
+        "branches": null,
+        "functions": null,
+        "total_lines": 35,
+        "covered_lines": 34,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\artifacts\\tasks_progress_test.rs",
+      "coverage": {
+        "lines": 99.39,
+        "branches": null,
+        "functions": null,
+        "total_lines": 165,
+        "covered_lines": 164,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\model\\domain.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\detail.rs",
+      "coverage": {
+        "lines": 99.18,
+        "branches": null,
+        "functions": null,
+        "total_lines": 122,
+        "covered_lines": 121,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\detail_test.rs",
+      "coverage": {
+        "lines": 98.2,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1727,
+        "covered_lines": 1696,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\explore.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 42,
+        "covered_lines": 42,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\explore_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 105,
+        "covered_lines": 105,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\list.rs",
+      "coverage": {
+        "lines": 98.61,
+        "branches": null,
+        "functions": null,
+        "total_lines": 72,
+        "covered_lines": 71,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\list_test.rs",
+      "coverage": {
+        "lines": 90.98,
+        "branches": null,
+        "functions": null,
+        "total_lines": 377,
+        "covered_lines": 343,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\mod.rs",
+      "coverage": {
+        "lines": 98.25,
+        "branches": null,
+        "functions": null,
+        "total_lines": 57,
+        "covered_lines": 56,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\queries\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 164,
+        "covered_lines": 164,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\state.rs",
+      "coverage": {
+        "lines": 96.15,
+        "branches": null,
+        "functions": null,
+        "total_lines": 104,
+        "covered_lines": 100,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\state_test.rs",
+      "coverage": {
+        "lines": 99.72,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1055,
+        "covered_lines": 1052,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\archive.rs",
+      "coverage": {
+        "lines": 95.08,
+        "branches": null,
+        "functions": null,
+        "total_lines": 61,
+        "covered_lines": 58,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\archive_test.rs",
+      "coverage": {
+        "lines": 91.34,
+        "branches": null,
+        "functions": null,
+        "total_lines": 381,
+        "covered_lines": 348,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\backtrack.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 58,
+        "covered_lines": 58,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\backtrack_test.rs",
+      "coverage": {
+        "lines": 91.94,
+        "branches": null,
+        "functions": null,
+        "total_lines": 360,
+        "covered_lines": 331,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\create.rs",
+      "coverage": {
+        "lines": 98.32,
+        "branches": null,
+        "functions": null,
+        "total_lines": 179,
+        "covered_lines": 176,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\create_test.rs",
+      "coverage": {
+        "lines": 95.37,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1058,
+        "covered_lines": 1009,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\decision_log.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 6,
+        "covered_lines": 6,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\decision_log_test.rs",
+      "coverage": {
+        "lines": 82.76,
+        "branches": null,
+        "functions": null,
+        "total_lines": 174,
+        "covered_lines": 144,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 6,
+        "covered_lines": 6,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_log.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 44,
+        "covered_lines": 44,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_log_test.rs",
+      "coverage": {
+        "lines": 90.91,
+        "branches": null,
+        "functions": null,
+        "total_lines": 363,
+        "covered_lines": 330,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_next.rs",
+      "coverage": {
+        "lines": 98.15,
+        "branches": null,
+        "functions": null,
+        "total_lines": 162,
+        "covered_lines": 159,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_next_test.rs",
+      "coverage": {
+        "lines": 94.29,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1051,
+        "covered_lines": 991,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_start.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 23,
+        "covered_lines": 23,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_start_test.rs",
+      "coverage": {
+        "lines": 86.32,
+        "branches": null,
+        "functions": null,
+        "total_lines": 234,
+        "covered_lines": 202,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_table.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 41,
+        "covered_lines": 41,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\phase_table_test.rs",
+      "coverage": {
+        "lines": 99.48,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1342,
+        "covered_lines": 1335,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\promote.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 11,
+        "covered_lines": 11,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\promote_test.rs",
+      "coverage": {
+        "lines": 87.63,
+        "branches": null,
+        "functions": null,
+        "total_lines": 372,
+        "covered_lines": 326,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\run.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 26,
+        "covered_lines": 26,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\core\\workflow\\src\\write\\run_test.rs",
+      "coverage": {
+        "lines": 86.67,
+        "branches": null,
+        "functions": null,
+        "total_lines": 225,
+        "covered_lines": 195,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\archi_knowledge.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 20,
+        "covered_lines": 20,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\archi_knowledge_test.rs",
+      "coverage": {
+        "lines": 95.86,
+        "branches": null,
+        "functions": null,
+        "total_lines": 266,
+        "covered_lines": 255,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\compose.rs",
+      "coverage": {
+        "lines": 96.88,
+        "branches": null,
+        "functions": null,
+        "total_lines": 160,
+        "covered_lines": 155,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\compose_test.rs",
+      "coverage": {
+        "lines": 98.52,
+        "branches": null,
+        "functions": null,
+        "total_lines": 2029,
+        "covered_lines": 1999,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\lib.rs",
+      "coverage": {
+        "lines": 95.08,
+        "branches": null,
+        "functions": null,
+        "total_lines": 61,
+        "covered_lines": 58,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\lib_test.rs",
+      "coverage": {
+        "lines": 98.83,
+        "branches": null,
+        "functions": null,
+        "total_lines": 596,
+        "covered_lines": 589,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\archi_tool.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 35,
+        "covered_lines": 35,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\archi_tool_test.rs",
+      "coverage": {
+        "lines": 99.11,
+        "branches": null,
+        "functions": null,
+        "total_lines": 225,
+        "covered_lines": 223,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\bash.rs",
+      "coverage": {
+        "lines": 98.68,
+        "branches": null,
+        "functions": null,
+        "total_lines": 76,
+        "covered_lines": 75,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\bash_test.rs",
+      "coverage": {
+        "lines": 99.19,
+        "branches": null,
+        "functions": null,
+        "total_lines": 123,
+        "covered_lines": 122,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\compact.rs",
+      "coverage": {
+        "lines": 97.87,
+        "branches": null,
+        "functions": null,
+        "total_lines": 47,
+        "covered_lines": 46,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\compact_test.rs",
+      "coverage": {
+        "lines": 97.32,
+        "branches": null,
+        "functions": null,
+        "total_lines": 112,
+        "covered_lines": 109,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\config.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 17,
+        "covered_lines": 17,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\config_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 157,
+        "covered_lines": 157,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\context.rs",
+      "coverage": {
+        "lines": 98.33,
+        "branches": null,
+        "functions": null,
+        "total_lines": 180,
+        "covered_lines": 177,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\context_test.rs",
+      "coverage": {
+        "lines": 98.99,
+        "branches": null,
+        "functions": null,
+        "total_lines": 496,
+        "covered_lines": 491,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\explore_note.rs",
+      "coverage": {
+        "lines": 94.69,
+        "branches": null,
+        "functions": null,
+        "total_lines": 113,
+        "covered_lines": 107,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\explore_note_test.rs",
+      "coverage": {
+        "lines": 98.81,
+        "branches": null,
+        "functions": null,
+        "total_lines": 337,
+        "covered_lines": 333,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\log.rs",
+      "coverage": {
+        "lines": 66.67,
+        "branches": null,
+        "functions": null,
+        "total_lines": 21,
+        "covered_lines": 14,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\log_test.rs",
+      "coverage": {
+        "lines": 88.24,
+        "branches": null,
+        "functions": null,
+        "total_lines": 34,
+        "covered_lines": 30,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\loop.rs",
+      "coverage": {
+        "lines": 94.68,
+        "branches": null,
+        "functions": null,
+        "total_lines": 357,
+        "covered_lines": 338,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\loop_test.rs",
+      "coverage": {
+        "lines": 98.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 2848,
+        "covered_lines": 2791,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\model_spec.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 28,
+        "covered_lines": 28,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\model_spec_test.rs",
+      "coverage": {
+        "lines": 97.84,
+        "branches": null,
+        "functions": null,
+        "total_lines": 139,
+        "covered_lines": 136,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\normalize.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 15,
+        "covered_lines": 15,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\normalize_test.rs",
+      "coverage": {
+        "lines": 95.51,
+        "branches": null,
+        "functions": null,
+        "total_lines": 89,
+        "covered_lines": 85,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\policy.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 13,
+        "covered_lines": 13,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\policy_test.rs",
+      "coverage": {
+        "lines": 97.12,
+        "branches": null,
+        "functions": null,
+        "total_lines": 139,
+        "covered_lines": 135,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\preamble.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 13,
+        "covered_lines": 13,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\preamble_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 69,
+        "covered_lines": 69,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\inline.rs",
+      "coverage": {
+        "lines": 96.97,
+        "branches": null,
+        "functions": null,
+        "total_lines": 33,
+        "covered_lines": 32,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\inline_test.rs",
+      "coverage": {
+        "lines": 99.35,
+        "branches": null,
+        "functions": null,
+        "total_lines": 154,
+        "covered_lines": 153,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\mod.rs",
+      "coverage": {
+        "lines": 91.67,
+        "branches": null,
+        "functions": null,
+        "total_lines": 60,
+        "covered_lines": 55,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\mod_test.rs",
+      "coverage": {
+        "lines": 99.07,
+        "branches": null,
+        "functions": null,
+        "total_lines": 535,
+        "covered_lines": 530,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\reason.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 12,
+        "covered_lines": 12,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\reason_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 134,
+        "covered_lines": 134,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\rules.rs",
+      "coverage": {
+        "lines": 99.17,
+        "branches": null,
+        "functions": null,
+        "total_lines": 120,
+        "covered_lines": 119,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\rules_test.rs",
+      "coverage": {
+        "lines": 99.17,
+        "branches": null,
+        "functions": null,
+        "total_lines": 480,
+        "covered_lines": 476,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\shell.rs",
+      "coverage": {
+        "lines": 93.83,
+        "branches": null,
+        "functions": null,
+        "total_lines": 519,
+        "covered_lines": 487,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\protect\\shell_test.rs",
+      "coverage": {
+        "lines": 99.8,
+        "branches": null,
+        "functions": null,
+        "total_lines": 495,
+        "covered_lines": 494,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\resume.rs",
+      "coverage": {
+        "lines": 94.83,
+        "branches": null,
+        "functions": null,
+        "total_lines": 116,
+        "covered_lines": 110,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\resume_test.rs",
+      "coverage": {
+        "lines": 95.01,
+        "branches": null,
+        "functions": null,
+        "total_lines": 541,
+        "covered_lines": 514,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\runner.rs",
+      "coverage": {
+        "lines": 99.35,
+        "branches": null,
+        "functions": null,
+        "total_lines": 153,
+        "covered_lines": 152,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\runner_test.rs",
+      "coverage": {
+        "lines": 97.18,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1206,
+        "covered_lines": 1172,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\sandbox.rs",
+      "coverage": {
+        "lines": 94.55,
+        "branches": null,
+        "functions": null,
+        "total_lines": 55,
+        "covered_lines": 52,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\sandbox_test.rs",
+      "coverage": {
+        "lines": 97.33,
+        "branches": null,
+        "functions": null,
+        "total_lines": 150,
+        "covered_lines": 146,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\tools.rs",
+      "coverage": {
+        "lines": 98.96,
+        "branches": null,
+        "functions": null,
+        "total_lines": 383,
+        "covered_lines": 379,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\tools_test.rs",
+      "coverage": {
+        "lines": 99.5,
+        "branches": null,
+        "functions": null,
+        "total_lines": 794,
+        "covered_lines": 790,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\web_search.rs",
+      "coverage": {
+        "lines": 98.7,
+        "branches": null,
+        "functions": null,
+        "total_lines": 154,
+        "covered_lines": 152,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\sdk\\web_search_test.rs",
+      "coverage": {
+        "lines": 96.76,
+        "branches": null,
+        "functions": null,
+        "total_lines": 649,
+        "covered_lines": 628,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\store_port.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 83,
+        "covered_lines": 83,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\store_port_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 480,
+        "covered_lines": 480,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\worker.rs",
+      "coverage": {
+        "lines": 97.56,
+        "branches": null,
+        "functions": null,
+        "total_lines": 41,
+        "covered_lines": 40,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\agent\\src\\worker_test.rs",
+      "coverage": {
+        "lines": 98.59,
+        "branches": null,
+        "functions": null,
+        "total_lines": 427,
+        "covered_lines": 421,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\environment.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 92,
+        "covered_lines": 92,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\environment_test.rs",
+      "coverage": {
+        "lines": 99.79,
+        "branches": null,
+        "functions": null,
+        "total_lines": 477,
+        "covered_lines": 476,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\lib.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\cargo_mutants.rs",
+      "coverage": {
+        "lines": 95.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 40,
+        "covered_lines": 38,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\cargo_mutants_test.rs",
+      "coverage": {
+        "lines": 97.63,
+        "branches": null,
+        "functions": null,
+        "total_lines": 422,
+        "covered_lines": 412,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\mod.rs",
+      "coverage": {
+        "lines": 95.88,
+        "branches": null,
+        "functions": null,
+        "total_lines": 364,
+        "covered_lines": 349,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\mod_test.rs",
+      "coverage": {
+        "lines": 92.66,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1239,
+        "covered_lines": 1148,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\report.rs",
+      "coverage": {
+        "lines": 98.02,
+        "branches": null,
+        "functions": null,
+        "total_lines": 101,
+        "covered_lines": 99,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\report_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 114,
+        "covered_lines": 114,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\segments.rs",
+      "coverage": {
+        "lines": 93.38,
+        "branches": null,
+        "functions": null,
+        "total_lines": 136,
+        "covered_lines": 127,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\segments_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 131,
+        "covered_lines": 131,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\stryker.rs",
+      "coverage": {
+        "lines": 93.27,
+        "branches": null,
+        "functions": null,
+        "total_lines": 104,
+        "covered_lines": 97,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\mutation\\stryker_test.rs",
+      "coverage": {
+        "lines": 95.95,
+        "branches": null,
+        "functions": null,
+        "total_lines": 370,
+        "covered_lines": 355,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\static_check.rs",
+      "coverage": {
+        "lines": 93.83,
+        "branches": null,
+        "functions": null,
+        "total_lines": 81,
+        "covered_lines": 76,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\static_check_test.rs",
+      "coverage": {
+        "lines": 97.98,
+        "branches": null,
+        "functions": null,
+        "total_lines": 842,
+        "covered_lines": 825,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\detect.rs",
+      "coverage": {
+        "lines": 92.31,
+        "branches": null,
+        "functions": null,
+        "total_lines": 221,
+        "covered_lines": 204,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\detect_test.rs",
+      "coverage": {
+        "lines": 99.25,
+        "branches": null,
+        "functions": null,
+        "total_lines": 801,
+        "covered_lines": 795,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\mod.rs",
+      "coverage": {
+        "lines": 96.87,
+        "branches": null,
+        "functions": null,
+        "total_lines": 351,
+        "covered_lines": 340,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\mod_test.rs",
+      "coverage": {
+        "lines": 97.16,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1762,
+        "covered_lines": 1712,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\report.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 18,
+        "covered_lines": 18,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\report_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 104,
+        "covered_lines": 104,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\runner.rs",
+      "coverage": {
+        "lines": 98.5,
+        "branches": null,
+        "functions": null,
+        "total_lines": 200,
+        "covered_lines": 197,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\checks\\src\\testexec\\runner_test.rs",
+      "coverage": {
+        "lines": 95.2,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1854,
+        "covered_lines": 1765,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\lib.rs",
+      "coverage": {
+        "lines": 98.96,
+        "branches": null,
+        "functions": null,
+        "total_lines": 96,
+        "covered_lines": 95,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\lib_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 454,
+        "covered_lines": 454,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\lockprobe.rs",
+      "coverage": {
+        "lines": 95.48,
+        "branches": null,
+        "functions": null,
+        "total_lines": 155,
+        "covered_lines": 148,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\lockprobe_test.rs",
+      "coverage": {
+        "lines": 99.33,
+        "branches": null,
+        "functions": null,
+        "total_lines": 297,
+        "covered_lines": 295,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\output.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 80,
+        "covered_lines": 80,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\output_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 74,
+        "covered_lines": 74,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\run.rs",
+      "coverage": {
+        "lines": 99.24,
+        "branches": null,
+        "functions": null,
+        "total_lines": 131,
+        "covered_lines": 130,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\run_test.rs",
+      "coverage": {
+        "lines": 99.2,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1128,
+        "covered_lines": 1119,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\shell.rs",
+      "coverage": {
+        "lines": 96.88,
+        "branches": null,
+        "functions": null,
+        "total_lines": 32,
+        "covered_lines": 31,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\shell_test.rs",
+      "coverage": {
+        "lines": 92.21,
+        "branches": null,
+        "functions": null,
+        "total_lines": 77,
+        "covered_lines": 71,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\transient.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 48,
+        "covered_lines": 48,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\exec\\src\\transient_test.rs",
+      "coverage": {
+        "lines": 99.3,
+        "branches": null,
+        "functions": null,
+        "total_lines": 426,
+        "covered_lines": 423,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\canonical.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 9,
+        "covered_lines": 9,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\change_port.rs",
+      "coverage": {
+        "lines": 95.24,
+        "branches": null,
+        "functions": null,
+        "total_lines": 63,
+        "covered_lines": 60,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\change_port_test.rs",
+      "coverage": {
+        "lines": 99.77,
+        "branches": null,
+        "functions": null,
+        "total_lines": 433,
+        "covered_lines": 432,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\envelope.rs",
+      "coverage": {
+        "lines": 94.55,
+        "branches": null,
+        "functions": null,
+        "total_lines": 110,
+        "covered_lines": 104,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\envelope_test.rs",
+      "coverage": {
+        "lines": 99.61,
+        "branches": null,
+        "functions": null,
+        "total_lines": 511,
+        "covered_lines": 509,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\model.rs",
+      "coverage": {
+        "lines": 85.17,
+        "branches": null,
+        "functions": null,
+        "total_lines": 391,
+        "covered_lines": 333,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\model_test.rs",
+      "coverage": {
+        "lines": 99.67,
+        "branches": null,
+        "functions": null,
+        "total_lines": 2411,
+        "covered_lines": 2403,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\store.rs",
+      "coverage": {
+        "lines": 98.92,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1388,
+        "covered_lines": 1373,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\store\\src\\store_test.rs",
+      "coverage": {
+        "lines": 99.7,
+        "branches": null,
+        "functions": null,
+        "total_lines": 5326,
+        "covered_lines": 5310,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\vcs\\src\\bootstrap.rs",
+      "coverage": {
+        "lines": 91.3,
+        "branches": null,
+        "functions": null,
+        "total_lines": 46,
+        "covered_lines": 42,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\vcs\\src\\bootstrap_test.rs",
+      "coverage": {
+        "lines": 93.75,
+        "branches": null,
+        "functions": null,
+        "total_lines": 112,
+        "covered_lines": 105,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\vcs\\src\\git.rs",
+      "coverage": {
+        "lines": 94.58,
+        "branches": null,
+        "functions": null,
+        "total_lines": 424,
+        "covered_lines": 401,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\vcs\\src\\git_test.rs",
+      "coverage": {
+        "lines": 99.4,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1505,
+        "covered_lines": 1496,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\vcs\\src\\lib.rs",
+      "coverage": {
+        "lines": 83.18,
+        "branches": null,
+        "functions": null,
+        "total_lines": 107,
+        "covered_lines": 89,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\vcs\\src\\lib_test.rs",
+      "coverage": {
+        "lines": 98.9,
+        "branches": null,
+        "functions": null,
+        "total_lines": 362,
+        "covered_lines": 358,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\watch\\src\\lib.rs",
+      "coverage": {
+        "lines": 84.38,
+        "branches": null,
+        "functions": null,
+        "total_lines": 32,
+        "covered_lines": 27,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\infra\\watch\\src\\lib_test.rs",
+      "coverage": {
+        "lines": 97.87,
+        "branches": null,
+        "functions": null,
+        "total_lines": 94,
+        "covered_lines": 92,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\crates\\tools\\export-bindings\\src\\main.rs",
+      "coverage": {
+        "lines": 0.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 6,
+        "covered_lines": 0,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\bindings\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 22,
+        "covered_lines": 22,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\bindings\\mod_test.rs",
+      "coverage": {
+        "lines": 99.86,
+        "branches": null,
+        "functions": null,
+        "total_lines": 740,
+        "covered_lines": 739,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\agents\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 61,
+        "covered_lines": 61,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\agents\\mod_test.rs",
+      "coverage": {
+        "lines": 99.82,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1092,
+        "covered_lines": 1090,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\archi\\mod.rs",
+      "coverage": {
+        "lines": 95.24,
+        "branches": null,
+        "functions": null,
+        "total_lines": 84,
+        "covered_lines": 80,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\archi\\mod_test.rs",
+      "coverage": {
+        "lines": 99.16,
+        "branches": null,
+        "functions": null,
+        "total_lines": 357,
+        "covered_lines": 354,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\change_flow\\mod.rs",
+      "coverage": {
+        "lines": 85.71,
+        "branches": null,
+        "functions": null,
+        "total_lines": 154,
+        "covered_lines": 132,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\change_flow\\mod_test.rs",
+      "coverage": {
+        "lines": 96.79,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1339,
+        "covered_lines": 1296,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\changes\\mod.rs",
+      "coverage": {
+        "lines": 90.55,
+        "branches": null,
+        "functions": null,
+        "total_lines": 127,
+        "covered_lines": 115,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\changes\\mod_test.rs",
+      "coverage": {
+        "lines": 99.42,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1726,
+        "covered_lines": 1716,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\config\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 12,
+        "covered_lines": 12,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\config\\mod_test.rs",
+      "coverage": {
+        "lines": 98.5,
+        "branches": null,
+        "functions": null,
+        "total_lines": 133,
+        "covered_lines": 131,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\db\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 18,
+        "covered_lines": 18,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\db\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 527,
+        "covered_lines": 527,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\env\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 8,
+        "covered_lines": 8,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\env\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 103,
+        "covered_lines": 103,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\exec\\agent.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 21,
+        "covered_lines": 21,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\exec\\agent_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 142,
+        "covered_lines": 142,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\exec\\mod.rs",
+      "coverage": {
+        "lines": 86.52,
+        "branches": null,
+        "functions": null,
+        "total_lines": 141,
+        "covered_lines": 122,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\exec\\mod_test.rs",
+      "coverage": {
+        "lines": 98.97,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1848,
+        "covered_lines": 1829,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\explores\\mod.rs",
+      "coverage": {
+        "lines": 95.77,
+        "branches": null,
+        "functions": null,
+        "total_lines": 189,
+        "covered_lines": 181,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\explores\\mod_test.rs",
+      "coverage": {
+        "lines": 99.3,
+        "branches": null,
+        "functions": null,
+        "total_lines": 996,
+        "covered_lines": 989,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\stats\\mod.rs",
+      "coverage": {
+        "lines": 99.04,
+        "branches": null,
+        "functions": null,
+        "total_lines": 104,
+        "covered_lines": 103,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\stats\\mod_test.rs",
+      "coverage": {
+        "lines": 95.49,
+        "branches": null,
+        "functions": null,
+        "total_lines": 466,
+        "covered_lines": 445,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\watch\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 35,
+        "covered_lines": 35,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\watch\\mod_test.rs",
+      "coverage": {
+        "lines": 95.03,
+        "branches": null,
+        "functions": null,
+        "total_lines": 161,
+        "covered_lines": 153,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\workspaces\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 20,
+        "covered_lines": 20,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\commands\\workspaces\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 306,
+        "covered_lines": 306,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\env.rs",
+      "coverage": {
+        "lines": 97.22,
+        "branches": null,
+        "functions": null,
+        "total_lines": 108,
+        "covered_lines": 105,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\env_test.rs",
+      "coverage": {
+        "lines": 95.44,
+        "branches": null,
+        "functions": null,
+        "total_lines": 658,
+        "covered_lines": 628,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\main.rs",
+      "coverage": {
+        "lines": 0.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 45,
+        "covered_lines": 0,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\selfcheck.rs",
+      "coverage": {
+        "lines": 51.58,
+        "branches": null,
+        "functions": null,
+        "total_lines": 95,
+        "covered_lines": 49,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "D:\\Projects\\.worktrees\\wps-claude-plugin\\archi-page-agent-window\\packages\\desktop\\src-tauri\\src\\selfcheck_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 264,
+        "covered_lines": 264,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 97.07299299623496,
+      "branches": null,
+      "functions": 92.04511724547343
+    },
+    "thresholds": {
+      "lines": 90.0,
+      "branches": 85.0,
+      "functions": 90.0
+    }
+  },
+  "mutation": null
+}

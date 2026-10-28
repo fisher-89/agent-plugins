@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { driftCount, driftReports, resetDrift } from '../../../../lib/ipc-drift';
+import type { SessionPanelState } from '@/components/agent';
+
 import type {
   AgentEvent,
   AgentPermissionMode,
@@ -849,5 +851,151 @@ describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
     );
     expect(offsets).toEqual([0, pageSize]);
     expect(driftCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 状态行 `note`（骨架契约：`disabledReason ?? （空态 ? 草案文案 : null）`）
+// ——文案生成规则留在本 hook（骨架只渲染），四象限覆盖 string / null 两 value
+// 形态；错误态不新增第三档文案。
+// ---------------------------------------------------------------------------
+
+const DRAFT_NOTE = '发送首条消息即开启新会话';
+const ARCHIVED_NOTE = '已归档 change 只读';
+const RUN_NOTE = '流程运行中';
+
+describe('useChangeChat：状态行 note', () => {
+  it('空态且无理由 → 草案文案逐字', async () => {
+    const { result } = await mounted();
+
+    expect(result.current.sessionId).toBeNull();
+    expect(result.current.currentSessionId).toBeNull();
+    expect(result.current.note).toBe(DRAFT_NOTE);
+  });
+
+  it('首发后确立会话 id 且无理由 → note 为 null（不占位）', async () => {
+    const { result } = await mounted();
+    sendInput(result.current.send);
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(result.current.currentSessionId, '后端铸造会话 id 回写').toBe('ses-1');
+    expect(result.current.session.running).toBe(true);
+    expect(result.current.disabledReason, 'running 不进理由（change 侧判据矩阵）').toBeNull();
+    expect(result.current.note, '有会话且无理由 → 状态行不占位').toBeNull();
+  });
+
+  it('禁用理由优先于草案文案（空态 / 有会话两态 × 归档 / 流程运行中两理由）', async () => {
+    const archivedEmpty = await mounted({ archived: true });
+    expect(archivedEmpty.result.current.sessionId).toBeNull();
+    expect(archivedEmpty.result.current.note, '归档理由高于草案文案').toBe(ARCHIVED_NOTE);
+    archivedEmpty.unmount();
+
+    const runEmpty = await mounted({ runActive: true });
+    expect(runEmpty.result.current.note).toBe(RUN_NOTE);
+    runEmpty.unmount();
+
+    // 有会话同理由矩阵：note 仍取理由（不落回 null）
+    ipc.detail = summary([turn(32, 'completed', 'ses-2')], 'ses-2');
+    const archivedWithSession = await mounted({ archived: true });
+    act(() => {
+      archivedWithSession.result.current.selectSession('ses-2');
+    });
+    await act(async () => {});
+    await act(async () => {});
+    expect(archivedWithSession.result.current.currentSessionId).toBe('ses-2');
+    expect(archivedWithSession.result.current.note).toBe(ARCHIVED_NOTE);
+    archivedWithSession.unmount();
+
+    const runWithSession = await mounted({ runActive: true });
+    act(() => {
+      runWithSession.result.current.selectSession('ses-2');
+    });
+    await act(async () => {});
+    await act(async () => {});
+    expect(runWithSession.result.current.note).toBe(RUN_NOTE);
+  });
+
+  it('类型面：四象限只产出 string 或 null（不返回空串 / undefined）', async () => {
+    const quadrants: (string | null)[] = [];
+
+    const empty = await mounted();
+    quadrants.push(empty.result.current.note);
+    empty.unmount();
+
+    const emptyWithReason = await mounted({ archived: true });
+    quadrants.push(emptyWithReason.result.current.note);
+    emptyWithReason.unmount();
+
+    ipc.detail = summary([turn(33, 'completed', 'ses-3')], 'ses-3');
+    const withSession = await mounted();
+    act(() => {
+      withSession.result.current.selectSession('ses-3');
+    });
+    await act(async () => {});
+    quadrants.push(withSession.result.current.note);
+    withSession.unmount();
+
+    const withSessionAndReason = await mounted({ runActive: true });
+    act(() => {
+      withSessionAndReason.result.current.selectSession('ses-3');
+    });
+    await act(async () => {});
+    quadrants.push(withSessionAndReason.result.current.note);
+
+    expect(quadrants.filter((note) => note === null)).toHaveLength(1);
+    expect(quadrants.filter((note) => typeof note === 'string')).toHaveLength(3);
+    for (const note of quadrants) {
+      expect(note === null || note.length > 0, `note 不得为空串：${JSON.stringify(note)}`).toBe(
+        true,
+      );
+    }
+  });
+
+  it('骨架契约继承：返回对象可赋给 SessionPanelState（12 字段逐字段在场）', async () => {
+    const { result } = await mounted();
+    const state: SessionPanelState = result.current;
+
+    for (const key of [
+      'session',
+      'sessions',
+      'total',
+      'listOpen',
+      'listLoading',
+      'listError',
+      'toggleList',
+      'loadMore',
+      'newSession',
+      'selectSession',
+      'canStart',
+      'note',
+    ] as const) {
+      expect(state, `骨架契约字段 ${key} 在场`).toHaveProperty(key);
+    }
+    expect(result.current.disabledReason).toBeNull();
+    expect(result.current.canSend).toBe(true);
+  });
+
+  it('取数失败不干扰 note：清单 / 会话面异常下仍取「理由 ?? 空态草案」', async () => {
+    ipc.list = () => Promise.reject(new Error('库不可读'));
+    const { result } = await mounted();
+
+    act(() => {
+      result.current.toggleList();
+    });
+    await act(async () => {});
+    expect(result.current.listError).toContain('库不可读');
+    expect(result.current.listLoading).toBe(false);
+    expect(result.current.note, '清单失败不改写状态行').toBe(DRAFT_NOTE);
+
+    ipc.detail = new Error('会话读取失败');
+    act(() => {
+      result.current.selectSession('ses-err');
+    });
+    await act(async () => {});
+    await act(async () => {});
+    expect(result.current.session.error).toContain('会话读取失败');
+    expect(result.current.note, '会话面失败不新增第三档文案').toBe(DRAFT_NOTE);
+    expect(result.current.disabledReason).toBeNull();
   });
 });

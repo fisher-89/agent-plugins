@@ -1,0 +1,11 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+error[E0762]: unterminated character literal
+    --> \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-page-agent-window\packages\desktop\src-tauri\crates\core\foundation\src\layout\mod_test.rs:1065:31
+     |
+1065 |         assert!(!rel.contains('\'), "{label}: 应为 `/` 分隔（实得 {rel}）");
+     |                               ^^^^^^^^^^^^^^^^^^^^^^
+
+Error writing files: failed to resolve mod `mod_test`: cannot parse \\?\D:\Projects\.worktrees\wps-claude-plugin\archi-page-agent-window\packages\desktop\src-tauri\crates\core\foundation\src\layout\mod_test.rs
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.
