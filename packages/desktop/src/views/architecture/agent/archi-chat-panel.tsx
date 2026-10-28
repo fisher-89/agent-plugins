@@ -12,14 +12,10 @@ import { useArchiChat } from './hooks/use-archi-chat';
 export interface ArchiChatPanelProps {
   /** workspace root（清单与发起的 store 寻址半边；null = 零 invoke） */
   root: string | null;
-  /** 左栏是否处于折叠窄条形态（真相取页面开关 state，非分栏像素派生） */
-  collapsed: boolean;
-  /** 折叠 / 展开切换（页面头开关与窄条展开入口共用同一入口） */
-  onToggleCollapsed: () => void;
 }
 
 export function ArchiChatPanel(props: ArchiChatPanelProps): React.JSX.Element {
-  const { root, collapsed, onToggleCollapsed } = props;
+  const { root } = props;
   const state = useArchiChat({ root });
   return (
     <SessionPanel
@@ -35,8 +31,6 @@ export function ArchiChatPanel(props: ArchiChatPanelProps): React.JSX.Element {
           onStop={state.stop}
         />
       )}
-      collapsed={collapsed}
-      onToggleCollapsed={onToggleCollapsed}
     />
   );
 }

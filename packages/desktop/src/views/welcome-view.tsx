@@ -11,7 +11,7 @@ export function WelcomeView({ state, onAdd }: { state: WorkspaceState; onAdd: ()
   const { loading, error } = state;
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4">
-      <h1 className="m-0 text-xl">Dev Team</h1>
+      <h1 className="m-10 text-4xl">Dev Team</h1>
       <div className="mx-auto w-full flex-1 px-4 py-4">
         {loading ? (
           <div className="text-muted-foreground">加载中…</div>

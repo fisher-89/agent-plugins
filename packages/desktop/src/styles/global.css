@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import 'tailwindcss' source('../../src');
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @import '@fontsource-variable/geist';
@@ -121,24 +121,8 @@
     @apply bg-background text-foreground;
   }
 
-  button {
-    font: inherit;
+  button:not(:disabled) {
     cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--card);
-    color: var(--foreground);
-    border-radius: 6px;
-    padding: 6px 14px;
-  }
-
-  button:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  button:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   #root {

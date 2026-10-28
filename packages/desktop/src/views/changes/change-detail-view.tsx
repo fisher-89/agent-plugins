@@ -1,14 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { ChevronLeftIcon } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-  usePanelRef,
-} from '@/components/ui/resizable';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -30,14 +26,6 @@ import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
 import { useChangeDetail } from './hooks/use-change-detail';
 import { useChangeFlowRun } from './hooks/use-change-flow-run';
 
-/** 左栏（通用 Agent 面板）分栏尺寸（百分比 / rem 字面量，与探索详情页同构） */
-const CHAT_PANEL_DEFAULT_SIZE = '30';
-const CHAT_PANEL_MIN_SIZE = '22';
-/** 收起后留窄条（`collapsed` 时为面板宽度，窄条内呈展开入口） */
-const CHAT_PANEL_COLLAPSED_SIZE = '3rem';
-/** 折叠判据阈值：`onResize` 回传像素宽 <= 本值即视为收起（3rem = 48px） */
-const CHAT_PANEL_RAIL_PX = 48;
-
 function formatTime(value: string | null): string {
   if (value === null) return '—';
   return value;
@@ -46,28 +34,23 @@ function formatTime(value: string | null): string {
 function DetailHeader({
   detail,
   loading,
-  chatCollapsed,
   onBack,
   refresh,
-  onToggleChat,
 }: {
   detail: ChangeDetail;
   loading: boolean;
-  chatCollapsed: boolean;
   onBack: () => void;
   refresh: () => void;
-  onToggleChat: () => void;
 }) {
   return (
     <div className="mb-3" data-testid="detail-header">
       <div className="flex flex-wrap items-center gap-2.5">
-        <Button onClick={onBack}>← 返回列表</Button>
+        <Button variant="ghost" size="icon" title="返回列表" onClick={onBack}>
+          <ChevronLeftIcon />
+        </Button>
         <Button onClick={refresh} disabled={loading} data-testid="refresh-change-detail-button">
           刷新详情
           {loading && <Spinner />}
-        </Button>
-        <Button data-testid="detail-chat-toggle" onClick={onToggleChat}>
-          {chatCollapsed ? '显示通用 Agent' : '隐藏通用 Agent'}
         </Button>
         <h2 className="m-0 break-all text-[17px]">{detail.title}</h2>
         <span className="text-muted-foreground">
@@ -281,14 +264,6 @@ interface DetailLoadedProps {
   /** 内联「刷新失败」错误串（null = 无陈旧窗口；非 null = 保 last-good 中） */
   staleError: string | null;
   sessionRefreshKey: number;
-  /** 左栏分栏命令面（折叠 / 展开经 `panelRef`） */
-  chatPanelRef: ReturnType<typeof usePanelRef>;
-  /** 左栏折叠态（真相取分栏 `onResize` 回传） */
-  chatCollapsed: boolean;
-  /** 折叠态回传（`onResize` 按像素宽判定） */
-  onChatCollapseChange: (collapsed: boolean) => void;
-  /** 折叠 / 展开切换（header 开关与窄条按钮共用同一入口） */
-  onToggleChat: () => void;
 }
 
 /** 页内动作面板组（运行控制面承载发起 / 停止 / 停等确认 / ask 应答——归档确认
@@ -365,40 +340,19 @@ function DetailLoaded({
   header,
   staleError,
   sessionRefreshKey,
-  chatPanelRef,
-  chatCollapsed,
-  onChatCollapseChange,
-  onToggleChat,
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
-  // 左栏默认折叠：分栏挂载即收起（layout effect 先于首帧，无可视展开闪烁；
-  // `collapse` 记下展开尺寸 = `defaultSize`，之后展开仍回默认宽度；折叠态
-  // 真相仍由 Panel 的 `onResize` 回传）
-  useLayoutEffect(() => {
-    chatPanelRef.current?.collapse();
-  }, [chatPanelRef]);
   return (
     <div className="flex flex-col h-full">
       {header}
       <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
-        <ResizablePanel
-          defaultSize={CHAT_PANEL_DEFAULT_SIZE}
-          minSize={CHAT_PANEL_MIN_SIZE}
-          collapsible
-          collapsedSize={CHAT_PANEL_COLLAPSED_SIZE}
-          panelRef={chatPanelRef}
-          onResize={(size) => onChatCollapseChange(size.inPixels <= CHAT_PANEL_RAIL_PX)}
-        >
-          <ChangeChatPanel
-            root={root}
-            changeId={id ?? detail.id}
-            cwd={detail.worktree}
-            readOnly={detail.source === 'archive'}
-            runActive={activeRun !== null}
-            collapsed={chatCollapsed}
-            onToggleCollapsed={onToggleChat}
-          />
-        </ResizablePanel>
+        <ChangeChatPanel
+          root={root}
+          changeId={id ?? detail.id}
+          cwd={detail.worktree}
+          readOnly={detail.source === 'archive'}
+          runActive={activeRun !== null}
+        />
         <ResizableHandle withHandle />
         <ResizablePanel minSize="20">
           <div className="flex h-full min-h-0 flex-col pl-1.5">
@@ -478,47 +432,12 @@ function useDetailViewData(root: string | null, id: string | null) {
   };
 }
 
-/**
- * 左栏 chat 分栏的命令面与折叠态：折叠态**真相取 Panel 的 `onResize` 回传**
- *（用户拖拽收起同样被捕捉，header 文案与窄条内容不与实际宽度脱节）；`toggle`
- * 依 `panelRef.current.isCollapsed()` 分派 `collapse()` / `expand()`，header 开关
- * 与窄条展开按钮共用同一入口。
- */
-function useChatPanelState(): {
-  panelRef: ReturnType<typeof usePanelRef>;
-  collapsed: boolean;
-  toggle: () => void;
-  setCollapsed: (collapsed: boolean) => void;
-} {
-  const panelRef = usePanelRef();
-  const [collapsed, setCollapsed] = useState(true);
-  const toggle = useCallback(() => {
-    const panel = panelRef.current;
-    if (panel === null) return;
-    if (panel.isCollapsed()) {
-      panel.expand();
-    } else {
-      panel.collapse();
-    }
-  }, [panelRef]);
-  return { panelRef, collapsed, toggle, setCollapsed };
-}
-
 export function ChangeDetailView({ root }: { root: string | null }) {
   const params = useParams<'id'>();
   const id = useRootSwitchSuppress(root, params.id ?? null);
   const { detail, activeRun, artifacts, loading, error, refreshFailed, refresh, run, refreshTick } =
     useDetailViewData(root, id);
   const backToList = useBackToList();
-  const chatPanel = useChatPanelState();
-  const { panelRef: chatPanelRef, toggle: toggleChat } = chatPanel;
-
-  // change id 变化：折叠复位（新 change 的面板回到默认收起形态；`onResize`
-  // 自动回传 true，折叠态真相仍单源）
-  useEffect(() => {
-    const panel = chatPanelRef.current;
-    if (panel !== null && !panel.isCollapsed()) panel.collapse();
-  }, [id, chatPanelRef]);
 
   // error 已收敛为首载语义（detail 在手的刷新失败落 refreshFailed 走内联横
   // 幅，不再触整页 DetailFallback）——本分支只承接首载失败（无可保）
@@ -541,20 +460,9 @@ export function ChangeDetailView({ root }: { root: string | null }) {
       run={run}
       staleError={refreshFailed}
       header={
-        <DetailHeader
-          detail={detail}
-          loading={loading}
-          chatCollapsed={chatPanel.collapsed}
-          onBack={backToList}
-          refresh={refresh}
-          onToggleChat={toggleChat}
-        />
+        <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
       }
       sessionRefreshKey={refreshTick}
-      chatPanelRef={chatPanelRef}
-      chatCollapsed={chatPanel.collapsed}
-      onChatCollapseChange={chatPanel.setCollapsed}
-      onToggleChat={toggleChat}
     />
   );
 }
