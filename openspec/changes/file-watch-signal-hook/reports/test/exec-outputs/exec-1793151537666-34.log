@@ -1,0 +1,49 @@
+
+=== plan packages_desktop_vite-plus (vite-plus) · files=99 · argv=5086 字符 ===
+JSON report written to D:/Projects/.worktrees/wps-claude-plugin/file-watch-signal-hook/openspec/changes/file-watch-signal-hook/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+
+=== plan packages_desktop_src-tauri_rust (rust) · files=4 · argv=385 字符 ===
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\core\agent)
+   Compiling config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\core\archi)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri)
+   Compiling watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\infra\store)
+   Compiling checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\file-watch-signal-hook\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 30s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-54be77b51874124e.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-5256af25cc19feb3.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\archi-2cafee052329b976.exe)
+     Running tests\golden_test.rs (target\llvm-cov-target\debug\deps\golden_test-4cdcf96901578791.exe)
+     Running tests\vocabulary_test.rs (target\llvm-cov-target\debug\deps\vocabulary_test-fbb26c2277d11016.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-bcd2c2ce36df8a89.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-0c3f526c00f11279.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-7866f8d52b512f43.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\config-ef07ba15d6fa86cd.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-2d1e2424c7e8d3be.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-a7c016a9fe30a0d8.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\exec-051d38e886d78fbd.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\export_bindings-79ac9019a39cdb87.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\orchestration-5c963bba9a0264ca.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\specta_zod-f67539ee2911b6df.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\store-8b9d894bd8a0c6c8.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\vcs_runtime-55770d65f614a0f0.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\watch-5c6bdce9414d3ead.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\workflow-aeea8808499e67dd.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-8b6a35b5d1b1341c.exe)
+
+    Finished report saved to D:/Projects/.worktrees/wps-claude-plugin/file-watch-signal-hook/openspec/changes/file-watch-signal-hook/reports/test/packages_desktop_src-tauri_rust/coverage-summary.json

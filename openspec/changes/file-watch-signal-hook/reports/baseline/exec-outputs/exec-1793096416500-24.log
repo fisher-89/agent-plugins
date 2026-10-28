@@ -1,0 +1,2 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml

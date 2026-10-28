@@ -1,11 +1,8 @@
-import { Channel } from '@tauri-apps/api/core';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useFileWatchSignal } from '../../../hooks/use-file-watch-signal';
 import { ipc } from '../../../lib/ipc';
-import { type ExploreDoc, type FileWatchEvent } from '../../../types/generated/bindings';
-
-/** watch 信号防抖窗口（毫秒，trailing）：窗口内多次信号合并为一次显式拉取 */
-const WATCH_DEBOUNCE_MS = 500;
+import { type ExploreDoc } from '../../../types/generated/bindings';
 
 export interface ExploreDocState {
   /** 当前笔记内容；null 即未落盘 / 已删除（预览空态，记录保留不报错） */
@@ -39,57 +36,25 @@ function fetchDoc(
     });
 }
 
-/** 防抖合并器（trailing）：窗口内多次信号合并为一次拉取 */
-function createDebouncer(
-  delayMs: number,
-  fn: () => void,
-): {
-  push: () => void;
-  cancel: () => void;
-} {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return {
-    push: () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        fn();
-      }, delayMs);
-    },
-    cancel: () => {
-      if (timer !== null) clearTimeout(timer);
-    },
-  };
-}
-
-/** 布局派生路径 + 订阅单文件；返回退订闭包（幂等，可在卸载后调用） */
-async function armWatch(
-  root: string,
-  name: string,
-  channel: Channel<FileWatchEvent>,
-  isCancelled: () => boolean,
-): Promise<() => void> {
-  const path = await ipc.exploreDocPath(root, name);
-  if (path === null || isCancelled()) return () => {};
-  const subscriptionId = await ipc.watchSubscribe(channel, path);
-  return () => {
-    void ipc.watchUnsubscribe(subscriptionId);
-  };
-}
-
 /**
  * 文档取数 hook（详情页右栏数据面）：mount / 参数变更显式拉取一次
- * invoke("read_explore")；随后经 invoke("explore_doc_path") 取布局派生路径并
- * invoke("watch_subscribe") 订阅当前笔记单文件（第二个被认可的推送语义——
- * 失效信号通道，无内容）：信号 500ms trailing 防抖合并为一次 read_explore
- * 重拉；卸载（或参数变更）invoke("watch_unsubscribe") 退订，退订后不再有
- * 信号。订阅失败不阻断页面（数据面仍可显式刷新，仅失自动刷新）。
+ * invoke("read_explore")；信号驱动的重拉（失效信号通道，无内容）经
+ * [`useFileWatchSignal`] 订阅——500ms trailing 防抖合并为一次 read_explore 重拉，
+ * 该件持有 Channel 建立、布局派生路径订阅、防抖窗口与退订（含迟到补发），
+ * 订阅失败不阻断本件数据面（仍可显式刷新，仅失自动刷新）。臂键 = `root`␀`name`，
+ * **不含刷新 tick** ⇒ 显式刷新只重取数、不重订 watch。
+ *
+ * 信号重拉走**当前**取数 effect 实例的闭包（`readRef`）：不置 `loading`、不清
+ * `error`（否则预览的 loading 会在每次外部保存时闪一次），且旧实例因 `cancelled`
+ * 自动 no-op。
  */
 export function useExploreDoc(root: string | null, name: string | null): ExploreDocState {
   const [doc, setDoc] = useState<ExploreDoc | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  /** 指向**当前**取数 effect 实例的取数闭包（信号重拉用；其 `cancelled` 由该实例 cleanup 置真） */
+  const readRef = useRef<(() => void) | null>(null);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
@@ -98,33 +63,34 @@ export function useExploreDoc(root: string | null, name: string | null): Explore
       setDoc(null);
       setError(null);
       setLoading(false);
+      readRef.current = null;
       return;
     }
     let cancelled = false;
     const isCancelled = () => cancelled;
-    let unsubscribe: (() => void) | null = null;
     const readDoc = () =>
       fetchDoc(root, name, isCancelled, setDoc, setError, () => setLoading(false));
-    const signals = createDebouncer(WATCH_DEBOUNCE_MS, readDoc);
+    readRef.current = readDoc;
     setLoading(true);
     setError(null);
     readDoc();
-    const channel = new Channel<FileWatchEvent>();
-    channel.onmessage = signals.push;
-    armWatch(root, name, channel, isCancelled)
-      .then((off) => {
-        if (cancelled) off();
-        else unsubscribe = off;
-      })
-      .catch(() => {
-        // 订阅失败不阻断数据面：页面仍可显式刷新（仅失自动刷新），不静默成功
-      });
     return () => {
       cancelled = true;
-      signals.cancel();
-      unsubscribe?.();
+      readRef.current = null;
     };
   }, [root, name, tick]);
+
+  // M2 留痕：防抖计时器归共享消费件、按臂键存续 ⇒ 显式刷新与**待发的信号**可能各拉
+  // 一次 read_explore（保存后 500ms 内点刷新才会交错）；两次结果幂等、不置 loading、
+  // 无 UI 副作用。为它给公共件开 cancelPending() 属为单次场景造抽象（proposal §5 M2
+  // 否决），勿当重复拉取缺陷修回去。
+  useFileWatchSignal({
+    armKey: root && name ? `${root}\u0000${name}` : null,
+    // 空参数臂只为类型完备——armKey 为 null 时本件不会调用本回调（`!root || !name` 同口径）
+    resolvePath: () =>
+      root === null || name === null ? Promise.resolve(null) : ipc.exploreDocPath(root, name),
+    onSignal: () => readRef.current?.(),
+  });
 
   return { doc, loading, error, refresh };
 }

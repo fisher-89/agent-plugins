@@ -61,7 +61,8 @@ function lastChannel(): ChannelLike {
 }
 
 let docResult: ExploreDoc | null | string;
-let derivedPath: string | null;
+/** 布局派生路径：字符串 / `null` 按 fixture resolve；`{ reject }` 形态驱动失败臂 */
+let derivedPath: string | null | { reject: string };
 let subscribeResult: number | string;
 
 function mockIpc() {
@@ -74,7 +75,11 @@ function mockIpc() {
       return typeof docResult === 'string' ? Promise.reject(docResult) : Promise.resolve(docResult);
     }
     if (command === 'explore_doc_path') {
-      return Promise.resolve(derivedPath);
+      // `{ reject }` 形态走失败臂（与 docResult / subscribeResult 的「字符串即 reject」
+      // 同手法，因字符串本身是合法派生路径）——供 `resolvePath` 的 Promise reject 臂驱动
+      return typeof derivedPath === 'object' && derivedPath !== null
+        ? Promise.reject(derivedPath.reject)
+        : Promise.resolve(derivedPath);
     }
     if (command === 'watch_subscribe') {
       return typeof subscribeResult === 'string'
@@ -598,5 +603,649 @@ describe('useExploreDoc：经 ipc 的参数面 / 结果面', () => {
 
     expect(invokeMock.mock.calls.filter(([name]) => name === 'watch_unsubscribe')).toHaveLength(0);
     expect(driftCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// change file-watch-signal-hook：共享文件 watch 信号消费件
+// `src/hooks/use-file-watch-signal.ts` 不新增独立测试文件（`no test-only exports`：
+// 六个私有臂 armKey:null / resolvePath:null / 订阅 reject / 迟到退订 / 防抖重置 /
+// 清理 全部经 `useExploreDoc` 公开面可达）。以下 describe 块只**追加**断言，上方
+// 既有 `describe` / `it` / `it.each` 的断言行零改动（纯重构判据）。
+// ---------------------------------------------------------------------------
+
+/** 某命令的调用次数（按命令名筛 invoke 面） */
+function callCountOf(command: string): number {
+  return invokeMock.mock.calls.filter(([name]) => name === command).length;
+}
+
+/** 某命令的调用载荷（按调用序；只取第二实参 payload） */
+function payloadsOf(command: string): unknown[] {
+  return invokeMock.mock.calls.filter(([name]) => name === command).map(([, payload]) => payload);
+}
+
+/** watch 两条命令的调用序（退订先于重订的顺序判据） */
+function watchSequence(): string[] {
+  return invokeMock.mock.calls
+    .map(([name]) => name as string)
+    .filter((name) => name === 'watch_subscribe' || name === 'watch_unsubscribe');
+}
+
+describe('useFileWatchSignal：经消费方公开面（C1–C5）', () => {
+  describe('挂载与接线（C1/C2）', () => {
+    it('有效臂键挂载：路径解析恰一次、订阅恰一次且首参为本件构造的 Channel 实例，订阅链不额外取数', async () => {
+      await mounted();
+      await flush();
+
+      expect(callCountOf('explore_doc_path')).toBe(1);
+      expect(invokeMock).toHaveBeenCalledWith('explore_doc_path', { root: ROOT, name: NAME });
+
+      const channels = ChannelMock.instances;
+      expect(channels).toHaveLength(1);
+      const subscription = subscribeCall();
+      expect(subscription).not.toBeNull();
+      // C1：订阅首参必须就是本件构造的那个 Channel 实例（不是别处新建的）
+      expect(subscription?.onEvent).toBe(channels[0]);
+      expect(subscription?.path).toBe(derivedPath);
+      expect(callCountOf('watch_subscribe')).toBe(1);
+      // 本件零取数：订阅链完成不新增 read_explore
+      expect(readCallCount()).toBe(1);
+    });
+
+    it('初始化顺序：先 explore_doc_path 后 watch_subscribe，两条命令各一次', async () => {
+      await mounted();
+      await flush();
+
+      expect(
+        invokeMock.mock.calls
+          .map(([name]) => name as string)
+          .filter((name) => name === 'explore_doc_path' || name === 'watch_subscribe'),
+      ).toEqual(['explore_doc_path', 'watch_subscribe']);
+    });
+  });
+
+  describe('信号载荷形态无关（D5）', () => {
+    beforeEach(() => {
+      // 脏载荷会命中 `ipc` 的 Channel 信封 soft-report（DEV 汇总告警）：静音只影响本块输出
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      ['undefined（空投递）', undefined],
+      ['空对象 {}', {}],
+      ['契约破坏形态 { path, content }', { path: '不应被读取的路径', content: '不应被读取的字节' }],
+    ])('载荷形态 %s：窗口内均合并为一次重拉，doc 不因载荷变化', async (_label, event) => {
+      vi.useFakeTimers();
+      const { result } = await mounted();
+      await flush();
+      expect(readCallCount()).toBe(1);
+
+      act(() => {
+        lastChannel().deliver(event);
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      await flush();
+
+      expect(readCallCount()).toBe(2);
+      expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+    });
+  });
+
+  describe('防抖窗口（C3）', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    it('订阅就绪后投递 1 条信号：窗口内零重拉，推进 500ms 恰重拉一次', async () => {
+      await mounted();
+      await flush();
+      expect(readCallCount()).toBe(1);
+
+      act(() => {
+        lastChannel().deliver({ path: derivedPath });
+      });
+      expect(readCallCount()).toBe(1);
+
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      await flush();
+
+      expect(readCallCount()).toBe(2);
+      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: NAME });
+    });
+
+    it('窗口阈值：推进 499ms 零触发、恰好 500ms 触发恰一次', async () => {
+      await mounted();
+      await flush();
+
+      act(() => {
+        lastChannel().deliver({ path: derivedPath });
+      });
+      act(() => {
+        vi.advanceTimersByTime(499);
+      });
+      await flush();
+      expect(readCallCount()).toBe(1);
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      await flush();
+      expect(readCallCount()).toBe(2);
+    });
+
+    it('重置语义边界：第 400ms 再投一条 → 899ms 零触发、900ms 触发恰一次', async () => {
+      await mounted();
+      await flush();
+
+      act(() => {
+        lastChannel().deliver({ path: derivedPath });
+      });
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      act(() => {
+        lastChannel().deliver({ path: derivedPath });
+      });
+      act(() => {
+        vi.advanceTimersByTime(499);
+      });
+      await flush();
+      expect(readCallCount()).toBe(1);
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      await flush();
+      expect(readCallCount()).toBe(2);
+    });
+  });
+
+  describe('失败静默与退订外壳（C4/C5）', () => {
+    it('watch_subscribe reject：无信号投递时推进 1000ms 不产生重拉（失败链自身不触发信号）', async () => {
+      vi.useFakeTimers();
+      subscribeResult = '订阅失败';
+      const { result } = await mounted();
+      await flush();
+      expect(readCallCount()).toBe(1);
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      await flush();
+
+      expect(readCallCount()).toBe(1);
+      expect(result.current.error).toBeNull();
+      expect(result.current.doc).not.toBeNull();
+    });
+
+    it('路径解析 reject：零订阅、零退订、静默（doc 正常呈现、error 为 null、loading 复位）', async () => {
+      derivedPath = { reject: '布局派生失败' };
+      const { result, unmount } = await mounted();
+      await flush();
+
+      // 臂键非 null ⇒ Channel 仍建立（失败只掐断「路径 → 订阅」这一段）
+      expect(ChannelMock.instances).toHaveLength(1);
+      expect(callCountOf('watch_subscribe')).toBe(0);
+      expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(false);
+
+      unmount();
+      await flush();
+      // subscriptionId 恒 null ⇒ 卸载零退订
+      expect(callCountOf('watch_unsubscribe')).toBe(0);
+    });
+
+    it('订阅 reject 后卸载：subscription_id 从未写入 ⇒ 零退订', async () => {
+      subscribeResult = '订阅失败';
+      const { unmount } = await mounted();
+      await flush();
+
+      unmount();
+      await flush();
+
+      expect(callCountOf('watch_unsubscribe')).toBe(0);
+    });
+
+    it('对照：订阅成功 1 次后卸载 ⇒ 恰一次退订（同一卸载驱动两臂对照）', async () => {
+      const { unmount } = await mounted();
+      await flush();
+      expect(callCountOf('watch_subscribe')).toBe(1);
+
+      unmount();
+      await flush();
+
+      expect(payloadsOf('watch_unsubscribe')).toEqual([{ subscriptionId: 7 }]);
+    });
+  });
+
+  describe('臂键与大小边界', () => {
+    it.each([
+      ['name 为 null', ROOT, null],
+      ['root 为 null', null, NAME],
+      ['root 为空串', '', NAME],
+      ['name 为空串', ROOT, ''],
+    ])(
+      '臂键为 null（%s）：零 Channel 构造、零 watch 命令、零取数（含卸载后）',
+      async (_label, root, name) => {
+        const { unmount } = await mounted(root, name);
+        await flush();
+
+        expect(ChannelMock.instances).toHaveLength(0);
+        expect(callCountOf('watch_subscribe')).toBe(0);
+        expect(callCountOf('watch_unsubscribe')).toBe(0);
+        expect(readCallCount()).toBe(0);
+
+        unmount();
+        await flush();
+        expect(callCountOf('watch_unsubscribe')).toBe(0);
+      },
+    );
+
+    it('超长臂键（root + name 合计 > 1000 字符）：仍单次订阅且入参逐字不截断', async () => {
+      const longRoot = `C:\\demo\\${'很长目录名'.repeat(120)}`;
+      const longName = `note-${'x'.repeat(600)}`;
+      derivedPath = `${longRoot}\\openspec\\explores\\${longName}.md`;
+      expect(longRoot.length + longName.length).toBeGreaterThan(1000);
+
+      await mounted(longRoot, longName);
+      await flush();
+
+      expect(invokeMock).toHaveBeenCalledWith('explore_doc_path', {
+        root: longRoot,
+        name: longName,
+      });
+      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: longRoot, name: longName });
+      expect(callCountOf('watch_subscribe')).toBe(1);
+      expect(subscribeCall()?.path).toBe(derivedPath);
+      expect(callCountOf('watch_unsubscribe')).toBe(0);
+    });
+
+    it('同臂键连续重渲染（回调身份每次都是新函数）：零重订，信号仍由最新引用触发一次重拉', async () => {
+      vi.useFakeTimers();
+      const { rerender } = await mounted();
+      await flush();
+
+      rerender([ROOT, NAME]);
+      rerender([ROOT, NAME]);
+      await flush();
+
+      expect(ChannelMock.instances).toHaveLength(1);
+      expect(callCountOf('watch_subscribe')).toBe(1);
+      expect(callCountOf('watch_unsubscribe')).toBe(0);
+
+      act(() => {
+        lastChannel().deliver({ path: derivedPath });
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      await flush();
+
+      expect(readCallCount()).toBe(2);
+    });
+
+    it('零副作用面：订阅 → 信号 → 卸载全序列中 console.warn / console.error 零调用', async () => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      resetDrift();
+
+      const { unmount } = await mounted();
+      await flush();
+      act(() => {
+        lastChannel().deliver({ path: derivedPath });
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      await flush();
+      unmount();
+      await flush();
+
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+      expect(readCallCount()).toBe(2);
+      vi.restoreAllMocks();
+    });
+  });
+});
+
+describe('useExploreDoc：臂键与重订边界（M1）', () => {
+  it('显式 refresh 只重取数不重订订阅：watch_subscribe 恒 1、watch_unsubscribe 恒 0', async () => {
+    const { result } = await mounted();
+    await flush();
+    expect(readCallCount()).toBe(1);
+
+    act(() => {
+      result.current.refresh();
+    });
+    await flush();
+
+    expect(readCallCount()).toBe(2);
+    expect(ChannelMock.instances).toHaveLength(1);
+    expect(callCountOf('watch_subscribe')).toBe(1);
+    expect(callCountOf('watch_unsubscribe')).toBe(0);
+    expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+  });
+
+  it('refresh 之后投递信号：500ms 后仍自动重拉（刷新未杀掉订阅）', async () => {
+    vi.useFakeTimers();
+    const { result } = await mounted();
+    await flush();
+    expect(readCallCount()).toBe(1);
+
+    act(() => {
+      result.current.refresh();
+    });
+    await flush();
+    expect(readCallCount()).toBe(2);
+
+    act(() => {
+      lastChannel().deliver({ path: derivedPath });
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+
+    expect(readCallCount()).toBe(3);
+    expect(callCountOf('watch_subscribe')).toBe(1);
+    expect(callCountOf('watch_unsubscribe')).toBe(0);
+  });
+});
+
+describe('useExploreDoc：信号重拉与状态面（AC-4）', () => {
+  it('信号触发的重拉全程不置 loading（外部保存不引起预览 loading 闪动）', async () => {
+    vi.useFakeTimers();
+    const { result } = await mounted();
+    await flush();
+    expect(result.current.loading).toBe(false);
+
+    act(() => {
+      lastChannel().deliver({ path: derivedPath });
+    });
+    expect(result.current.loading).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+
+    expect(readCallCount()).toBe(2);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+  });
+
+  it('信号重拉不清 error：先失败的文档经信号重拉成功后 error 保持原串', async () => {
+    vi.useFakeTimers();
+    docResult = '读取失败：EACCES';
+    const { result } = await mounted();
+    await flush();
+    expect(result.current.error).toBe('读取失败：EACCES');
+    expect(result.current.doc).toBeNull();
+
+    docResult = doc('# 修复后的内容');
+    act(() => {
+      lastChannel().deliver({ path: derivedPath });
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+
+    expect(readCallCount()).toBe(2);
+    expect(result.current.doc).toEqual(doc('# 修复后的内容'));
+    expect(result.current.error).toBe('读取失败：EACCES');
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('M2：窗口内点刷新与待发信号各拉一次（挂载 1 + 刷新 1 + 信号 1），结果幂等、loading / error 不变', async () => {
+    vi.useFakeTimers();
+    const { result } = await mounted();
+    await flush();
+    expect(readCallCount()).toBe(1);
+
+    act(() => {
+      lastChannel().deliver({ path: derivedPath });
+    });
+    act(() => {
+      result.current.refresh();
+    });
+    await flush();
+    expect(readCallCount()).toBe(2);
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+
+    expect(readCallCount()).toBe(3);
+    expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+});
+
+describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
+  it('订阅身份含 name：name 变更 ⇒ 旧 id 退订一次、新增一次订阅、路径以新 name 派生、doc 为新文档', async () => {
+    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+      if (command === 'read_explore') {
+        return Promise.resolve({
+          name: String(params?.name),
+          content: `内容-${String(params?.name)}`,
+        });
+      }
+      if (command === 'explore_doc_path') {
+        return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
+      }
+      if (command === 'watch_subscribe') return Promise.resolve(11);
+      if (command === 'watch_unsubscribe') return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+
+    const { result, rerender } = renderHook(
+      (args: [string | null, string | null]) => useExploreDoc(args[0], args[1]),
+      { initialProps: [ROOT, 'old-doc'] as [string | null, string | null] },
+    );
+    await flush();
+    expect(result.current.doc).toEqual({ name: 'old-doc', content: '内容-old-doc' });
+
+    rerender([ROOT, 'new-doc'] as [string | null, string | null]);
+    await flush();
+
+    expect(payloadsOf('explore_doc_path')).toEqual([
+      { root: ROOT, name: 'old-doc' },
+      { root: ROOT, name: 'new-doc' },
+    ]);
+    expect(callCountOf('watch_subscribe')).toBe(2);
+    expect(payloadsOf('watch_unsubscribe')).toEqual([{ subscriptionId: 11 }]);
+    expect(result.current.doc).toEqual({ name: 'new-doc', content: '内容-new-doc' });
+  });
+
+  it('订阅身份含 root：切根 ⇒ 旧 id 退订一次 + 新根重订；随后卸载只以新 id 退订一次', async () => {
+    const newRoot = 'C:\\demo\\beta';
+    let nextId = 11;
+    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+      if (command === 'read_explore') {
+        return Promise.resolve({
+          name: String(params?.name),
+          content: `根-${String(params?.root)}`,
+        });
+      }
+      if (command === 'explore_doc_path') {
+        return Promise.resolve(
+          `${String(params?.root)}\\openspec\\explores\\${String(params?.name)}.md`,
+        );
+      }
+      if (command === 'watch_subscribe') {
+        const id = nextId;
+        nextId += 1;
+        return Promise.resolve(id);
+      }
+      if (command === 'watch_unsubscribe') return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+
+    const { rerender, unmount } = renderHook(
+      (args: [string | null, string | null]) => useExploreDoc(args[0], args[1]),
+      { initialProps: [ROOT, NAME] as [string | null, string | null] },
+    );
+    await flush();
+    expect(payloadsOf('explore_doc_path')).toEqual([{ root: ROOT, name: NAME }]);
+
+    rerender([newRoot, NAME] as [string | null, string | null]);
+    await flush();
+
+    expect(payloadsOf('explore_doc_path')).toEqual([
+      { root: ROOT, name: NAME },
+      { root: newRoot, name: NAME },
+    ]);
+    // 旧臂先退订、新臂再订阅（React cleanup 先于新 effect）
+    expect(watchSequence()).toEqual(['watch_subscribe', 'watch_unsubscribe', 'watch_subscribe']);
+    expect(payloadsOf('watch_unsubscribe')).toEqual([{ subscriptionId: 11 }]);
+
+    unmount();
+    await flush();
+    expect(payloadsOf('watch_unsubscribe')).toEqual([
+      { subscriptionId: 11 },
+      { subscriptionId: 12 },
+    ]);
+  });
+
+  it('臂键变更与待发计时交叉：信号在飞时切 name ⇒ 旧臂计时随旧臂键清理，重拉只来自新臂挂载取数', async () => {
+    vi.useFakeTimers();
+    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+      if (command === 'read_explore') {
+        return Promise.resolve({
+          name: String(params?.name),
+          content: `内容-${String(params?.name)}`,
+        });
+      }
+      if (command === 'explore_doc_path') {
+        return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
+      }
+      if (command === 'watch_subscribe') return Promise.resolve(11);
+      if (command === 'watch_unsubscribe') return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+
+    const { result, rerender } = renderHook(
+      (args: [string | null, string | null]) => useExploreDoc(args[0], args[1]),
+      { initialProps: [ROOT, 'old-doc'] as [string | null, string | null] },
+    );
+    await flush();
+    expect(readCallCount()).toBe(1);
+
+    act(() => {
+      lastChannel().deliver({ path: `${ROOT}\\openspec\\explores\\old-doc.md` });
+    });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    rerender([ROOT, 'new-doc'] as [string | null, string | null]);
+    await flush();
+    expect(readCallCount()).toBe(2);
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+
+    // 旧臂的待发信号已随旧臂键清理，不产生第三次取数
+    expect(readCallCount()).toBe(2);
+    expect(result.current.doc).toEqual({ name: 'new-doc', content: '内容-new-doc' });
+  });
+
+  it('有参 → 空参（root 变 null）：旧订阅退订一次、零新订阅，doc / error 复位为 null、loading 为 false', async () => {
+    const { result, rerender } = renderHook(
+      (args: [string | null, string | null]) => useExploreDoc(args[0], args[1]),
+      { initialProps: [ROOT, NAME] as [string | null, string | null] },
+    );
+    await flush();
+    expect(result.current.doc).not.toBeNull();
+
+    rerender([null, NAME] as [string | null, string | null]);
+    await flush();
+
+    expect(payloadsOf('watch_unsubscribe')).toEqual([{ subscriptionId: 7 }]);
+    expect(callCountOf('watch_subscribe')).toBe(1);
+    expect(ChannelMock.instances).toHaveLength(1);
+    expect(result.current.doc).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it.each([
+    ['root 为空串', '', NAME],
+    ['name 为空串', ROOT, ''],
+  ])(
+    '空串参数（%s）：臂键为 null ⇒ 零 Channel、零 watch 命令、零取数',
+    async (_label, root, name) => {
+      await mounted(root, name);
+      await flush();
+
+      expect(ChannelMock.instances).toHaveLength(0);
+      expect(callCountOf('watch_subscribe')).toBe(0);
+      expect(callCountOf('watch_unsubscribe')).toBe(0);
+      expect(readCallCount()).toBe(0);
+    },
+  );
+
+  it('刷新后旧取数实例被作废：迟到信号只由当前实例发起一次重拉，旧实例结果不覆盖 doc', async () => {
+    vi.useFakeTimers();
+    let resolveOld: (value: ExploreDoc | null) => void = () => {};
+    let reads = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'read_explore') {
+        reads += 1;
+        if (reads === 1) {
+          return new Promise<ExploreDoc | null>((resolve) => {
+            resolveOld = resolve;
+          });
+        }
+        return Promise.resolve({ name: NAME, content: `第 ${reads} 次读取` });
+      }
+      if (command === 'explore_doc_path') return Promise.resolve(derivedPath);
+      if (command === 'watch_subscribe') return Promise.resolve(7);
+      if (command === 'watch_unsubscribe') return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+
+    const { result } = await mounted();
+    await flush();
+    expect(result.current.doc).toBeNull();
+
+    act(() => {
+      result.current.refresh();
+    });
+    await flush();
+    expect(result.current.doc).toEqual({ name: NAME, content: '第 2 次读取' });
+
+    act(() => {
+      lastChannel().deliver({ path: derivedPath });
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+    expect(readCallCount()).toBe(3);
+    expect(result.current.doc).toEqual({ name: NAME, content: '第 3 次读取' });
+
+    await act(async () => {
+      resolveOld({ name: NAME, content: '迟到的旧结果' });
+    });
+
+    expect(result.current.doc).toEqual({ name: NAME, content: '第 3 次读取' });
+    expect(result.current.error).toBeNull();
   });
 });
