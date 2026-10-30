@@ -19,8 +19,8 @@ pub use model::{
     TestCaseResult, TestCaseStatus,
 };
 pub use parser::{
-    parse_coverage, parse_coverage_measured, parse_istanbul_summary, parse_libtest_json,
-    parse_llvm_cov, parse_spec_report, CoverageFormat,
+    parse_coverage, parse_coverage_measured, parse_istanbul_results, parse_istanbul_summary,
+    parse_libtest_json, parse_llvm_cov, parse_spec_report, CoverageFormat, IstanbulResults,
 };
 pub use reuse::is_reusable;
 

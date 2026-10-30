@@ -28,7 +28,7 @@ Walker SHALL 在 test-execution 相位收敛点执行确定性 test-execution �
 
 ### Requirement: 框架矩阵与显式报错
 
-Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族，`coverage-summary.json`）/ rust（单条 `cargo llvm-cov nextest … --message-format libtest-json` 同产 libtest-json 结果与覆盖，见「rust suite 单构建（一条命令同产结果与覆盖率）」）/ node-test（`--test-reporter=spec` 文本结果）五框架的探测与执行；解析器 SHALL 为 node-test 文本分支（`parse_spec_report`）与 rust libtest-json 分支（`parse_libtest_json`）。tests[] 声明 bun / go / pytest suite 时 runner SHALL 显式 `Err`（框架不被支持），MUST NOT 静默跳过该 suite；go-parser / coverage-py 不移植。
+Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族：`coverage-summary.json` 覆盖 + `--reporter=json` 结果报告）/ rust（单条 `cargo llvm-cov nextest … --message-format libtest-json` 同产 libtest-json 结果与覆盖，见「rust suite 单构建（一条命令同产结果与覆盖率）」）/ node-test（`--test-reporter=spec` 文本结果）五框架的探测与执行；解析器 SHALL 为 node-test 文本分支（`parse_spec_report`）、rust libtest-json 分支（`parse_libtest_json`）与 istanbul 结果报告分支（`parse_istanbul_results`：`testResults[].assertionResults[]` → 用例行，`fullName` 保层级、`duration` 已为毫秒、`failureMessages[]` 首行拆 `错误类型: 消息`）。tests[] 声明 bun / go / pytest suite 时 runner SHALL 显式 `Err`（框架不被支持），MUST NOT 静默跳过该 suite；go-parser / coverage-py 不移植。
 
 #### Scenario: 五框架探测产出 plan
 
@@ -263,12 +263,19 @@ Test-execution 的 rust 档 SHALL 以**单条命令**执行测试并采集覆盖
 - 工件为空 → `结果工件为空: {name}`；
 - 解析成功但用例集为空 → `结果工件零用例: {name}`；报告器侧完全读不出事件行（如纯噪声）时由解析器自身 `Err`（`不含任何事件行`）。
 
-三条 finding 均进 `SubReport.findings` → `collect_problems` 判 `ExecutionError` → `conclusion=Error`。理由：工件在场而零用例是报告器参数漂移 / 写空 / 格式错配的强信号，与「真的没有用例」不可区分，此时判 pass 即假绿；rust 与 node-test 两档已由本守卫覆盖，istanbul 族（jest / vitest / vite-plus）结果工件零字节同样走「工件为空」臂。
+三条 finding 均进 `SubReport.findings` → `collect_problems` 判 `ExecutionError` → `conclusion=Error`。理由：工件在场而零用例是报告器参数漂移 / 写空 / 格式错配的强信号，与「真的没有用例」不可区分，此时判 pass 即假绿。三档解析器（rust libtest-json / node-test spec / istanbul 报告）共用本守卫。
+
+istanbul 族另有两条**文件级**归因，与零用例守卫共用 `findings` 通道但措辞不同（MUST NOT 混成「报告器写空」）：文件 `status == "failed"` 而 `assertionResults` 为空（转译失败 / 顶层抛错）→ `测试文件失败: {file}（{message 首行}）`；`numTotalTests` 与解析出的用例行数不一致 → `istanbul 结果计数漂移: numTotalTests = N，用例行 = M`。两者都表示「报告与读侧口径已不一致」，按保守方向由 `collect_problems` 定型为 `execution_error`（此时「全绿」的计数不可信）。
 
 #### Scenario: 空工件与零用例分别定型
 
 - **WHEN** rust 档命令退出 0，但 `results.txt` 分别是零字节、只含 `suite` 汇总行、只含 `started` 行、或纯噪声
 - **THEN** 前两种退化为「结果工件为空」/「结果工件零用例」finding，后一种（纯噪声）由 `parse_libtest_json` 返回 `不含任何事件行`；四种情形 `conclusion=Error`、`cases` 为空，MUST NOT 判 pass
+
+#### Scenario: istanbul 文件级失败单列
+
+- **WHEN** istanbul 族结果报告含一个转译失败文件（`assertionResults` 为空、`message` 非空）与一个正常文件
+- **THEN** 正常文件的用例照常解析；转译失败文件产一条 `测试文件失败: {file}（{首行}）` finding，`summary.total` 只计解析出的用例行，MUST NOT 把该文件误报成零用例 / 报告器写空
 
 #### Scenario: 正常事件流不受守卫误伤
 

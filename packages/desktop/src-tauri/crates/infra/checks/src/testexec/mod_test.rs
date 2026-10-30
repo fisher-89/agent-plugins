@@ -2881,6 +2881,7 @@ fn head_execution(output: &[u8], argv_len: usize, argv_note: Option<&str>) -> Pl
         fault: None,
         argv_len,
         argv_note: argv_note.map(str::to_owned),
+        notes: Vec::new(),
     }
 }
 

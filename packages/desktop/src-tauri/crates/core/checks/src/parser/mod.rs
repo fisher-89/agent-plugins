@@ -5,7 +5,7 @@ pub mod rust;
 pub mod text;
 
 pub use coverage::{parse_coverage, parse_coverage_measured, CoverageFormat};
-pub use js::parse_istanbul_summary;
+pub use js::{parse_istanbul_results, parse_istanbul_summary, IstanbulResults};
 pub use libtest::parse_libtest_json;
 pub use rust::parse_llvm_cov;
 pub use text::parse_spec_report;

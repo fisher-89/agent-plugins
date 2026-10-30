@@ -143,8 +143,18 @@ const ISTANBUL_SUMMARY: &str = r#"{
   }
 }"#;
 
-/// istanbul 族结果报告样本（JSON 报告器产物——V1 用例行面不解析）。
-const JEST_RESULTS_JSON: &str = r#"{ "numTotalTests": 1, "numPassedTests": 1 }"#;
+/// 真实采集的文件级失败样本（一个转译失败文件 + 一个用例内抛错文件）。
+const ISTANBUL_RESULTS_FILE_FAILURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../core/checks/tests/fixtures/istanbul/results-file-failure.json"
+));
+
+/// istanbul 族结果报告样本（真实采集的 vite-plus `--reporter=json` 产物：
+/// 1 通过 + 1 失败 + 1 跳过，`testResults[].assertionResults[]` 三态齐备）。
+const JEST_RESULTS_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../core/checks/tests/fixtures/istanbul/results.json"
+));
 
 /// 把预置文本写到 workspace 外的临时工件源（拷贝命令的 src）。
 fn preset(dir: &Path, name: &str, content: &str) -> PathBuf {
@@ -918,6 +928,67 @@ async fn 退出码谱边界_逐一透传与零error() {
     }
 }
 
+/// 边界（istanbul 文件级失败，AC-B2）：结果报告里一个文件转译失败（零断言行 +
+/// `message`）、一个文件照常跑 → 照常跑的文件产用例行，转译失败的文件走
+/// `notes` 而非并入用例行——「文件没跑起来」不会被零用例守卫误说成「报告器
+/// 写空」。
+#[tokio::test]
+async fn istanbul文件级失败走附注_not零用例误归因() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let cov_src = preset(ws.path(), "jf-coverage-preset.json", ISTANBUL_SUMMARY);
+    let res_src = preset(
+        ws.path(),
+        "jf-results-preset.json",
+        ISTANBUL_RESULTS_FILE_FAILURE,
+    );
+
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{results_file}}\"",
+            cov_src.to_string_lossy().replace('/', "\\"),
+            res_src.to_string_lossy().replace('/', "\\"),
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{coverage_file}}\"; cp \"{}\" \"{{results_file}}\"",
+            cov_src.to_string_lossy(),
+            res_src.to_string_lossy(),
+        )
+    };
+    let plan = jest_plan(&cwd, template);
+
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_jest_file_failure"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("文件级失败样本应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "退出码透传");
+    assert!(
+        execution.error.is_none(),
+        "文件级失败不落工件级 error（否则与「报告器写空」混为一谈），实际: {:?}",
+        execution.error
+    );
+    assert_eq!(execution.cases.len(), 1, "转译失败文件不产用例行");
+    assert_eq!(
+        execution.notes.len(),
+        1,
+        "转译失败文件单列一条附注，实际: {:?}",
+        execution.notes
+    );
+    assert!(
+        execution.notes[0].contains("测试文件失败")
+            && execution.notes[0].contains("loadfail.test.ts"),
+        "附注点名文件与失败面，实际: {:?}",
+        execution.notes
+    );
+}
+
 /// 边界（零用例守卫，表驱动 3 形态）：结果工件**在场且非空**但产不出用例——只含
 /// `suite` 汇总行 / 只含 `started` 行 / 只含噪声行 → `error` 记「结果工件零用例」
 /// 或「不含任何事件行」，`cases` 为空。这是 rust 与文本档当前唯一的假绿防线：
@@ -1090,11 +1161,10 @@ async fn 退出零但覆盖率工件缺失_null感知跳过() {
     );
 }
 
-/// 边界（AC-7 runner 侧锚）：jest 档手工 `TestPlan` 走既有 spawn 解析面——行为
-/// 与改造前一致：istanbul 族结果工件不产用例行（零用例零 error），实测块读
-/// 覆盖工件。
+/// 正向：jest 档手工 `TestPlan` → istanbul 结果报告解析出用例行（三态），
+/// 覆盖实测块仍读 `coverage-summary.json`。
 #[tokio::test]
-async fn jest档执行面零改动_istanbul结果不产用例行() {
+async fn jest档结果报告解析用例行_覆盖块独立读取() {
     let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
@@ -1131,9 +1201,19 @@ async fn jest档执行面零改动_istanbul结果不产用例行() {
         "jest 档非空结果工件零 error，实际: {:?}",
         execution.error
     );
-    assert!(
-        execution.cases.is_empty(),
-        "istanbul 族结果为 JSON 报告形态（V1 用例行面不解析）"
+    assert_eq!(
+        execution.cases.len(),
+        3,
+        "istanbul 结果报告解析出三用例行（passed / failed / skipped）"
+    );
+    assert_eq!(
+        checks::model::TestCaseStatus::Failed,
+        execution
+            .cases
+            .iter()
+            .find(|case| case.name.contains("failing"))
+            .expect("失败用例在场")
+            .status
     );
     let measured = execution.measured.expect("istanbul 实测块在场");
     assert_eq!(measured.lines, Some(88.5));

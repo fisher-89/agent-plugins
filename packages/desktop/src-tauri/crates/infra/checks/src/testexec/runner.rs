@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use checks::model::{CoverageMeasured, SourceFileEntry, TestCaseResult};
 use checks::parser::{
-    parse_coverage, parse_coverage_measured, parse_libtest_json, parse_spec_report,
+    parse_coverage, parse_coverage_measured, parse_istanbul_results, parse_libtest_json,
+    parse_spec_report,
 };
 use foundation::cancel::CancelFlag;
 use orchestration::port::RunFault;
@@ -74,6 +75,9 @@ pub(crate) struct PlanExecution {
     /// `SubReport.findings` / `summary.findings`（`findings` 非空 + `failed == 0`
     /// 会被 `collect_problems` 判成 `execution_error`，绿跑翻红）
     pub argv_note: Option<String>,
+    /// 工件解析的**附注**（不升格为 execution_error 的可读留痕：istanbul 族
+    /// 文件级失败与计数漂移）。与 `error` 互斥装配——`error` 在位时本字段为空
+    pub notes: Vec<String>,
 }
 
 /// 单 suite 执行全流程：清报告目录 → 模板展开（`WithFiles`）→ **展开长度预算
@@ -145,6 +149,7 @@ pub(crate) async fn execute_plan(
                 fault: Some(RunFault::Environment(message)),
                 argv_len,
                 argv_note: None,
+                notes: Vec::new(),
             });
         }
     };
@@ -206,6 +211,7 @@ pub(crate) async fn execute_plan(
             fault: Some(fault),
             argv_len,
             argv_note: None,
+            notes: Vec::new(),
         });
     }
     let exec_error = if exit_code == 0 {
@@ -238,6 +244,9 @@ pub(crate) async fn execute_plan(
         fault: None,
         argv_len,
         argv_note,
+        // 附注只在无 error 时随行（error 在位即已定型为 execution_error，
+        // 再叠 findings 会重复归因）
+        notes: parsed_cases.notes,
     })
 }
 
@@ -371,11 +380,19 @@ fn decide_argv(
     }
 }
 
-/// 结果工件解析（框架路由：rust / node-test 文本引擎；istanbul 族结果为
-/// JSON 报告器产物，V1 用例行面不解析、计数交退出码与覆盖面判定）。
+/// 结果工件解析（框架路由：rust → libtest-json 事件流；node-test → spec 文本；
+/// istanbul 族 → `--reporter=json` 报告）。
+///
+/// `notes` 是**与 `error` 并列**的归因面，二者都落子报告 `findings`：
+/// `error` 承载「工件级」失败（缺失 / 为空 / 零用例 / 不可解析），`notes` 承载
+/// 「报告可用但有问题」的逐条留痕（istanbul 族的文件级失败与计数漂移）。
+/// 合并后由 `collect_problems` 统一定型：`failed == 0` 且有 findings →
+/// `execution_error`。方向是保守的——报告自相矛盾或文件没跑起来时宁可判
+/// 不可测，也不让计数漂移静默变成「全绿」。
 struct ParsedResults {
     cases: Vec<TestCaseResult>,
     error: Option<String>,
+    notes: Vec<String>,
 }
 
 fn parse_results(plan: &TestPlan, report_dir: &Path) -> ParsedResults {
@@ -386,38 +403,66 @@ fn parse_results(plan: &TestPlan, report_dir: &Path) -> ParsedResults {
             return ParsedResults {
                 cases: Vec::new(),
                 error: Some(format!("结果工件为空: {}", plan.results_output)),
+                notes: Vec::new(),
             };
         }
         Err(_) => {
             return ParsedResults {
                 cases: Vec::new(),
                 error: Some(format!("结果工件缺失: {}", plan.results_output)),
+                notes: Vec::new(),
             };
         }
     };
-    let parse = match plan.framework.as_str() {
-        "rust" => parse_libtest_json,
-        "node-test" => parse_spec_report,
-        // istanbul 族（jest / vitest / vite-plus）：JSON 结果报告形态，V1
-        // 用例行面不解析（零用例行计数面交退出码与覆盖判定）
-        _ => {
-            return ParsedResults {
-                cases: Vec::new(),
-                error: None,
+    match plan.framework.as_str() {
+        "rust" => finish_parse(parse_libtest_json(&text), plan, Vec::new()),
+        "node-test" => finish_parse(parse_spec_report(&text), plan, Vec::new()),
+        // istanbul 族（jest / vitest / vite-plus）：jest 兼容 JSON 报告器产物。
+        // 文件级失败（转译失败 / 顶层抛错）不产用例行，必须单列——否则「文件跑
+        // 不起来」只会表现为零用例，被守卫误说成「报告器写空」
+        _ => match parse_istanbul_results(&text) {
+            Ok(parsed) => {
+                let mut notes = parsed
+                    .file_failures
+                    .iter()
+                    .map(|(file, message)| format!("测试文件失败: {file}（{message}）"))
+                    .collect::<Vec<_>>();
+                notes.extend(parsed.mismatch);
+                finish_parse(Ok(parsed.cases), plan, notes)
             }
-        }
-    };
-    match parse(&text) {
+            Err(error) => ParsedResults {
+                cases: Vec::new(),
+                error: Some(error),
+                notes: Vec::new(),
+            },
+        },
+    }
+}
+
+/// 解析结果收敛（含零用例守卫）：`notes` 原样随行。
+fn finish_parse(
+    parsed: Result<Vec<TestCaseResult>, String>,
+    plan: &TestPlan,
+    notes: Vec<String>,
+) -> ParsedResults {
+    match parsed {
         // 零用例守卫（与「工件为空」同层同口径）：工件在场却零用例 = 报告器参数
-        // 漂移 / 写空，MUST NOT 混成 pass——这是 rust 与文本档当前唯一的假绿防线
-        Ok(cases) if cases.is_empty() => ParsedResults {
+        // 漂移 / 写空，MUST NOT 混成 pass
+        Ok(cases) if cases.is_empty() && notes.is_empty() => ParsedResults {
             cases,
             error: Some(format!("结果工件零用例: {}", plan.results_output)),
+            notes,
         },
-        Ok(cases) => ParsedResults { cases, error: None },
+        // 零用例但notes 已有归因（如文件级失败）：由 notes 定型，不叠零用例措辞
+        Ok(cases) => ParsedResults {
+            cases,
+            error: None,
+            notes,
+        },
         Err(error) => ParsedResults {
             cases: Vec::new(),
             error: Some(error),
+            notes,
         },
     }
 }

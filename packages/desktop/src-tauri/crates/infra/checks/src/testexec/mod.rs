@@ -525,15 +525,22 @@ fn build_sub_report(
         duration_ms: execution.duration_ms,
         summary,
         error_cases,
-        // V1 支持面解析器不产测试文件清单（istanbul 族 JSON 结果不解析用例行
-        // 面、文本引擎无文件名输出面——CLI text-parser 同形恒空）
+        // V1 支持面解析器不产测试文件清单（文本引擎与 libtest-json 均无文件
+        // 清单输出面——CLI text-parser 同形恒空）
         test_files: Vec::new(),
         source_files: execution.source_files,
         coverage,
         // 突变面由独立 MutationTest 步承载并回填 summary mutation 位；本链不产
         // 突变结果（拆步语义——测试 / 覆盖率修绿后才跑突变）
         mutation: None,
-        findings: execution.error.map(|error| vec![error]),
+        // 归因面双通道合并：`error`（工件级失败）+ `notes`（报告可用但有问题的
+        // 逐条留痕）。两者皆空 → `None`（不产空 findings 数组，避免「绿跑因
+        // Some(vec![]) 被判成 findings 在场」的口径歧义）
+        findings: {
+            let mut all = execution.error.into_iter().collect::<Vec<_>>();
+            all.extend(execution.notes);
+            (!all.is_empty()).then_some(all)
+        },
     }
 }
 

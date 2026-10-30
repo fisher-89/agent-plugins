@@ -8,6 +8,8 @@
 | 路径 | 形态 | 消费方 |
 |------|------|--------|
 | `istanbul/coverage-summary.json` | istanbul coverage-summary（vite-plus 档真实形态：total + 双文件键） | `parser/js_test.rs`、`parser/coverage_test.rs` |
+| `istanbul/results.json` | vite-plus `--reporter=json` 结果报告真实采集（1 通过 + 1 失败 + 1 跳过，`testResults[].assertionResults[]` 三态齐备；`duration` 为毫秒） | `parser/js_test.rs`、`runner_test.rs` |
+| `istanbul/results-file-failure.json` | 同报告器的文件级失败形态（一个转译失败文件零断言 + `message`，一个用例内抛错文件） | `parser/js_test.rs`、`runner_test.rs` |
 | `llvm-cov/coverage.json` | llvm-cov JSON（双 data 窗口：多 segment / 空 segments / 单 segment + totals 块） | `parser/rust_test.rs`、`parser/coverage_test.rs` |
 | `node-spec/output.txt` | node-test `--test-reporter=spec` 绿跑文本（5 用例：4 pass 1 skipped，含子测试缩进与套件收口行） | `parser/text_test.rs`、`corpus_golden_test.rs` |
 | `node-spec/output-fail.txt` | node-test spec 红跑文本（失败用例 + 缩进错误块） | `parser/text_test.rs` |

@@ -1,0 +1,60 @@
+{
+  "numTotalTestSuites": 2,
+  "numPassedTestSuites": 0,
+  "numFailedTestSuites": 2,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 1,
+  "numPassedTests": 0,
+  "numFailedTests": 1,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1793369915858,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "broken 用例",
+          "status": "failed",
+          "title": "broken 用例",
+          "duration": 1.7644999999999982,
+          "failureMessages": [
+            "Error: boom 加载后抛错\n    at D:/ws/src/__probe_tmp__/broken.test.ts:2:31\n    at file:///D:/ws/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/ws/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/ws/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/ws/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/ws/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/ws/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///D:/ws/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+          ],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1793369917277,
+      "endTime": 1793369917278.7644,
+      "status": "failed",
+      "message": "",
+      "name": "D:/ws/src/broken.test.ts"
+    },
+    {
+      "assertionResults": [],
+      "startTime": 1793369915858,
+      "endTime": 1793369915858,
+      "status": "failed",
+      "message": "Transform failed with 1 error:\n\n\u001b[31m[PARSE_ERROR] \u001b[0mExpected a semicolon or an implicit semicolon after a statement, but found none\n   \u001b[38;5;246m╭\u001b[0m\u001b[38;5;246m─\u001b[0m\u001b[38;5;246m[\u001b[0m src/__probe_tmp__/loadfail.test.ts:2:5 \u001b[38;5;246m]\u001b[0m\n   \u001b[38;5;246m│\u001b[0m\n \u001b[38;5;246m2 │\u001b[0m \u001b[38;5;249mt\u001b[0m\u001b[38;5;249mh\u001b[0m\u001b[38;5;249mi\u001b[0m\u001b[38;5;249ms\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249mi\u001b[0m\u001b[38;5;249ms\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249mn\u001b[0m\u001b[38;5;249mo\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249mv\u001b[0m\u001b[38;5;249ma\u001b[0m\u001b[38;5;249ml\u001b[0m\u001b[38;5;249mi\u001b[0m\u001b[38;5;249md\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249my\u001b[0m\u001b[38;5;249mp\u001b[0m\u001b[38;5;249me\u001b[0m\u001b[38;5;249ms\u001b[0m\u001b[38;5;249mc\u001b[0m\u001b[38;5;249mr\u001b[0m\u001b[38;5;249mi\u001b[0m\u001b[38;5;249mp\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249m \u001b[0m\u001b[38;5;249m!\u001b[0m\u001b[38;5;249m!\u001b[0m\u001b[38;5;249m!\u001b[0m\n \u001b[38;5;240m  │\u001b[0m     │ \n \u001b[38;5;240m  │\u001b[0m     ╰─ \n \u001b[38;5;240m  │\u001b[0m \n \u001b[38;5;240m  │\u001b[0m \u001b[38;5;115mHelp\u001b[0m: Try inserting a semicolon here\n\u001b[38;5;246m───╯\u001b[0m\n",
+      "name": "D:/ws/src/loadfail.test.ts"
+    }
+  ]
+}
