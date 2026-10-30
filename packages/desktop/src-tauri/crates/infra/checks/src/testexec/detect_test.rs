@@ -104,7 +104,7 @@ const TS_TESTS_GLOB: &str = "**/*.{test,spec}.{ts,tsx}";
 /// rust 档新单条命令模板（shell / cmd 两臂逐字同串，占位符原样保留由 runner
 /// 展开）：一条 `cargo llvm-cov nextest --workspace` 同产覆盖率 JSON
 /// （`--output-path`）与测试 stdout（模板自带 `>` 重定向）。
-const RUST_TEMPLATE: &str = "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
+const RUST_TEMPLATE: &str = "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > \"{results_file}\"";
 
 /// 组合锚覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
 /// 走 null 感知跳过）。
@@ -124,30 +124,26 @@ const LLVM_COV_OUTPUT: &str = r#"{
   ]
 }"#;
 
-/// 组合锚结果工件样本（cargo test 文本：两个 `running` 块 / 4 用例行 = 2 ok +
-/// 1 FAILED + 1 ignored；失败详情块置末——`parse_cargo_test` 以块头切段）。
-const CARGO_TEST_OUTPUT: &str = "   Compiling dev-team v0.1.0\n\
-    Finished `test` profile [unoptimized + debuginfo] target(s)\n\
-     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/dev_team-1a2b)\n\
-running 2 tests\n\
-test parser::parse_ok ... ok\n\
-test parser::skipped_case ... ignored\n\
-\n\
-test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n\
-     Running tests/it.rs (target/llvm-cov-target/debug/deps/it-3c4d)\n\
-running 2 tests\n\
-test it_works ... ok\n\
-test it_fails ... FAILED\n\
-\n\
-failures:\n\
-\n\
----- it_fails stdout ----\n\
-assertion failed: left == right\n\
-\n\
-failures:\n\
-    it_fails\n\
-\n\
-test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n";
+/// 组合锚结果工件样本（nextest `--message-format libtest-json` 事件流：三个
+/// binary 块 / 5 条终态事件 = 3 ok + 1 failed + 1 ignored；失败事件携 `stdout`
+/// 块——`parse_libtest_json` 按行扫终态事件，`started` / `suite` 行不产用例）。
+const LIBTEST_JSON_OUTPUT: &str = r##"{"type":"suite","event":"started","test_count":3}
+{"type":"test","event":"started","name":"nxprobe::it$it_ignored"}
+{"type":"test","event":"started","name":"nxprobe::it$it_works"}
+{"type":"test","event":"started","name":"nxprobe::it$it_fails"}
+{"type":"test","event":"ignored","name":"nxprobe::it$it_ignored"}
+{"type":"test","event":"failed","name":"nxprobe::it$it_fails","exec_time":0.4658882,"stdout":"captured stdout line\n\nthread 'it_fails' (2340) panicked at tests\\it.rs:7:5:\nassertion `left == right` failed: left == right\n  left: 1\n right: 2\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"}
+{"type":"suite","event":"failed","passed":0,"failed":1,"ignored":1,"measured":0,"filtered_out":0,"exec_time":0.4658882}
+{"type":"suite","event":"started","test_count":2}
+{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case"}
+{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::determine_conclusion_passes"}
+{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case","exec_time":0.9345231}
+{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::determine_conclusion_passes","exec_time":1.8965367}
+{"type":"suite","event":"ok","passed":2,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":2.8310598000000002}
+{"type":"suite","event":"started","test_count":3}
+{"type":"test","event":"ok","name":"nxprobe::it$it_works","exec_time":1.4063161}
+{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":1,"measured":0,"filtered_out":1,"exec_time":1.4063161}
+"##;
 
 /// 文本归一：CRLF → LF、逐行去尾随空白、去末尾空行（壳重定向产物差异面；
 /// 工件语义不受影响）。
@@ -181,6 +177,7 @@ fn install_cargo_shim(ws: &TempWs) -> PathBuf {
         ws.write(
             "shim/cargo-shim.ps1",
             "if ($args.Count -gt 0 -and $args[0] -eq '--version') { [Console]::Out.Write(\"cargo 1.90.0`n\"); exit 0 }\n\
+             if ($env:NEXTEST_EXPERIMENTAL_LIBTEST_JSON -ne '1') { [Console]::Error.Write(\"error: libtest JSON output is an experimental feature and must be enabled with NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1`n\"); exit 95 }\n\
              if ($env:SHIM_ARGV_LOG) { Set-Content -Path $env:SHIM_ARGV_LOG -Value $args }\n\
              for ($i = 0; $i -lt $args.Count - 1; $i++) {\n\
                if ($args[$i] -eq '--output-path' -and $env:SHIM_COV_SRC) { Copy-Item -Force $env:SHIM_COV_SRC $args[$i + 1] }\n\
@@ -195,6 +192,7 @@ fn install_cargo_shim(ws: &TempWs) -> PathBuf {
             "shim/cargo",
             "#!/bin/sh\n\
              if [ \"$1\" = \"--version\" ]; then echo \"cargo 1.90.0\"; exit 0; fi\n\
+             if [ \"$NEXTEST_EXPERIMENTAL_LIBTEST_JSON\" != \"1\" ]; then echo \"error: libtest JSON output is an experimental feature and must be enabled with NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1\" >&2; exit 95; fi\n\
              if [ -n \"$SHIM_ARGV_LOG\" ]; then\n\
                : > \"$SHIM_ARGV_LOG\"\n\
                for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$SHIM_ARGV_LOG\"; done\n\
@@ -444,8 +442,10 @@ fn rust模板三不变量_无链形态残留() {
 
 /// 正向（AC-1 正向形态，参数化 2 臂）：两臂均以 `cargo llvm-cov nextest
 /// --workspace` 起手、含 `--json`、覆盖工件经 `--output-path "{coverage_file}"`
-/// 落位、以 `> "{results_file}"` 收尾；且不含 `%` / `if `（cmd 单行解析期构造）
-/// 与 `--target-dir`（`target/debug` 零触碰面）。
+/// 落位、结果工件经 `--message-format libtest-json`（`--message-format-version
+/// 0.1` 钉版本、`--no-fail-fast` 保红跑全量）落位、以 `> "{results_file}"` 收尾；
+/// 且不含 `%` / `if `（cmd 单行解析期构造）与 `--target-dir`（`target/debug`
+/// 零触碰面）。
 #[test]
 fn rust模板正向形态_workspace与结果重定向() {
     let entry = &REGISTRY[3];
@@ -459,6 +459,20 @@ fn rust模板正向形态_workspace与结果重定向() {
             arm.contains("--output-path \"{coverage_file}\""),
             "{arm_name} 臂覆盖率 JSON 经 --output-path 落位（不进 stdout），实际: {arm}"
         );
+        // 结果工件契约（0.6.9 修复）：nextest 人读报告走 stderr，stdout 只有
+        // libtest-json 事件流——缺这两个参数即工件 0 字节
+        assert!(
+            arm.contains("--message-format libtest-json"),
+            "{arm_name} 臂显式要求 libtest-json 结果格式（否则 stdout 恒空），实际: {arm}"
+        );
+        assert!(
+            arm.contains("--message-format-version 0.1"),
+            "{arm_name} 臂钉住事件格式版本（字段面稳定），实际: {arm}"
+        );
+        assert!(
+            arm.contains("--no-fail-fast"),
+            "{arm_name} 臂不 fail-fast（红跑须产出全量用例集供归因），实际: {arm}"
+        );
         assert!(
             arm.ends_with("> \"{results_file}\""),
             "{arm_name} 臂以结果重定向收尾（模板自带，runner 零改写），实际: {arm}"
@@ -470,6 +484,27 @@ fn rust模板正向形态_workspace与结果重定向() {
         assert!(
             !arm.contains("--target-dir"),
             "{arm_name} 臂不钉 target 目录（llvm-cov 走 target/llvm-cov-target，不触碰 target/debug），实际: {arm}"
+        );
+    }
+}
+
+/// 正向（env 契约）：rust 条目的 `env` 恰为 libtest-json 的实验开关——缺它
+/// nextest 以 exit 95 拒绝输出（响亮失败），故必须在注册表单点声明、由 runner
+/// 经 `RunOptions.env` 施加（MUST NOT 依赖调用者 shell 预置）。
+#[test]
+fn rust条目env恰为libtest_json开关() {
+    let entry = &REGISTRY[3];
+    assert_eq!(
+        entry.env,
+        [("NEXTEST_EXPERIMENTAL_LIBTEST_JSON", "1")],
+        "rust 档 env 恰为 libtest-json 实验开关"
+    );
+    for entry in REGISTRY.iter().filter(|entry| entry.framework != "rust") {
+        assert!(
+            entry.env.is_empty(),
+            "{} 档不注入环境变量（零波及），实际: {:?}",
+            entry.framework,
+            entry.env
         );
     }
 }
@@ -919,7 +954,7 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
     let ws = TempWs::new("rust-chain");
     ws.write("crates/tests/it.rs", "#[test] fn it_works() {}");
     let cov_src = ws.write("preset/coverage-summary.json", LLVM_COV_OUTPUT);
-    let res_src = ws.write("preset/results.txt", CARGO_TEST_OUTPUT);
+    let res_src = ws.write("preset/results.txt", LIBTEST_JSON_OUTPUT);
     let argv_log = ws.root().join("shim").join("argv.log");
     let shim_dir = install_cargo_shim(&ws);
     let report_dir = ws.root().join("reports").join("crates_rust");
@@ -972,6 +1007,11 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
         "--json".to_owned(),
         "--output-path".to_owned(),
         to_posix(&report_dir.join("coverage-summary.json")),
+        "--message-format".to_owned(),
+        "libtest-json".to_owned(),
+        "--message-format-version".to_owned(),
+        "0.1".to_owned(),
+        "--no-fail-fast".to_owned(),
     ];
     let observed = fs::read_to_string(&argv_log).expect("替身 argv 记录落盘");
     let observed: Vec<String> = observed
@@ -988,14 +1028,18 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
     let results = fs::read_to_string(report_dir.join("results.txt")).expect("结果工件落报告树");
     assert_eq!(
         plain_text(&results),
-        plain_text(CARGO_TEST_OUTPUT),
+        plain_text(LIBTEST_JSON_OUTPUT),
         "stdout 全量进结果工件（模板自带重定向，单次承载）"
     );
     assert!(
         report_dir.join("coverage-summary.json").is_file(),
         "覆盖工件由同一命令 `--output-path` 落位"
     );
-    assert_eq!(execution.cases.len(), 4, "多 running 块用例行全量解析");
+    assert_eq!(
+        execution.cases.len(),
+        5,
+        "libtest-json 终态事件全量解析（started / suite 行不产用例）"
+    );
     assert_eq!(
         execution.source_files.len(),
         2,

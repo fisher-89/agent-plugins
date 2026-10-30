@@ -11,8 +11,7 @@
 | `llvm-cov/coverage.json` | llvm-cov JSON（双 data 窗口：多 segment / 空 segments / 单 segment + totals 块） | `parser/rust_test.rs`、`parser/coverage_test.rs` |
 | `node-spec/output.txt` | node-test `--test-reporter=spec` 绿跑文本（5 用例：4 pass 1 skipped，含子测试缩进与套件收口行） | `parser/text_test.rs`、`corpus_golden_test.rs` |
 | `node-spec/output-fail.txt` | node-test spec 红跑文本（失败用例 + 缩进错误块） | `parser/text_test.rs` |
-| `cargo/output.txt` | cargo test 文本（ok / FAILED / ignored + `---- x stdout ----` 失败详情块） | `parser/text_test.rs` |
-| `cargo-compile-error/output.txt` | cargo test 编译失败红态文本（零结果行） | `parser/text_test.rs` |
+| `libtest-json/output.txt` | nextest `--message-format libtest-json`（格式版本 0.1）真实捕获事件流：3 binary 块 / 5 终态事件（3 ok + 1 failed + 1 ignored），失败事件携 `stdout` 块。采集：nextest 0.9.150 / cargo-llvm-cov 0.9.1 / rustc 1.95，`cargo llvm-cov nextest --message-format libtest-json --message-format-version 0.1 --no-fail-fast`（红跑形态，覆盖率工件不出） | `parser/libtest_test.rs` |
 
 ## corpus 语料（全链黄金对拍消费）
 

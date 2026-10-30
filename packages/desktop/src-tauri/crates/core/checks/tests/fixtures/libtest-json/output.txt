@@ -1,0 +1,16 @@
+{"type":"suite","event":"started","test_count":3}
+{"type":"test","event":"started","name":"nxprobe::it$it_ignored"}
+{"type":"test","event":"started","name":"nxprobe::it$it_works"}
+{"type":"test","event":"started","name":"nxprobe::it$it_fails"}
+{"type":"test","event":"ignored","name":"nxprobe::it$it_ignored"}
+{"type":"test","event":"failed","name":"nxprobe::it$it_fails","exec_time":0.4658882,"stdout":"captured stdout line\n\nthread 'it_fails' (2340) panicked at tests\\it.rs:7:5:\nassertion `left == right` failed: left == right\n  left: 1\n right: 2\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"}
+{"type":"suite","event":"failed","passed":0,"failed":1,"ignored":1,"measured":0,"filtered_out":0,"exec_time":0.4658882}
+{"type":"suite","event":"started","test_count":2}
+{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case"}
+{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::determine_conclusion_passes"}
+{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case","exec_time":0.9345231}
+{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::determine_conclusion_passes","exec_time":1.8965367}
+{"type":"suite","event":"ok","passed":2,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":2.8310598000000002}
+{"type":"suite","event":"started","test_count":3}
+{"type":"test","event":"ok","name":"nxprobe::it$it_works","exec_time":1.4063161}
+{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":1,"measured":0,"filtered_out":1,"exec_time":1.4063161}

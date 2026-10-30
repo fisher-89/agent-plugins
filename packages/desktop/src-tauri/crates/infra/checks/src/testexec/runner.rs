@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use checks::model::{CoverageMeasured, SourceFileEntry, TestCaseResult};
 use checks::parser::{
-    parse_cargo_test, parse_coverage, parse_coverage_measured, parse_spec_report,
+    parse_coverage, parse_coverage_measured, parse_libtest_json, parse_spec_report,
 };
 use foundation::cancel::CancelFlag;
 use orchestration::port::RunFault;
@@ -62,15 +62,7 @@ pub(crate) struct PlanExecution {
     pub source_files: Vec<SourceFileEntry>,
     /// 全局覆盖实测块（采集失败 / 无数据为 `None`）
     pub measured: Option<CoverageMeasured>,
-    /// 执行 / 解析错误面（**收窄后**语义：只承载被测代码 / 工件 / harness 面——
-    /// 非零退出携合并输出有界尾部、工件缺失 / 不可解析；环境面（超时 / 瞬态耗尽）
-    /// 恒 `None`，由 [`Self::fault`] 承载）
     pub error: Option<String>,
-    /// 脚本真实输出合并流（stdout 前缀 + stderr 后缀，**不加 `2>&1`**——rust
-    /// 模板 `cargo llvm-cov --workspace --json --output-path "{coverage_file}" >
-    /// "{results_file}"` 已把 stdout 重定向进结果工件，`2>&1` 会把 stderr 混入
-    /// 污染 `parse_cargo_test`）；`mod.rs` 按 plan 序聚合后落单一 `.log` 供人工
-    /// 回查。重试场景下为各次尝试按序拼接（每段前加 attempt 分隔头）
     pub output: Vec<u8>,
     /// 执行面归因（`None` = 结论本身有效；在位时跳过工件解析、`error` 恒 `None`）
     pub fault: Option<RunFault>,
@@ -166,7 +158,7 @@ pub(crate) async fn execute_plan(
         exec::SystemCommand::script_raw(&command),
         exec::RunOptions {
             cwd: Some(plan.cwd.clone()),
-            env: Vec::new(),
+            env: plan.env.clone(),
             timeout: SUITE_COMMAND_TIMEOUT,
             cancel,
             retry: exec::RetryPolicy::transient(),
@@ -216,9 +208,6 @@ pub(crate) async fn execute_plan(
             argv_note: None,
         });
     }
-    // 合并流（rust 模板 `cargo llvm-cov --workspace … > "{results_file}"` 仅重定向
-    // stdout——编译错误面留在 stderr）；不加 `2>&1`：手工拼接只服务 record 回查，
-    // 结果工件解析仍只读 stdout 面。真红（无瞬态签名）才落 `execution_error`
     let exec_error = if exit_code == 0 {
         None
     } else {
@@ -407,7 +396,7 @@ fn parse_results(plan: &TestPlan, report_dir: &Path) -> ParsedResults {
         }
     };
     let parse = match plan.framework.as_str() {
-        "rust" => parse_cargo_test,
+        "rust" => parse_libtest_json,
         "node-test" => parse_spec_report,
         // istanbul 族（jest / vitest / vite-plus）：JSON 结果报告形态，V1
         // 用例行面不解析（零用例行计数面交退出码与覆盖判定）
@@ -419,6 +408,12 @@ fn parse_results(plan: &TestPlan, report_dir: &Path) -> ParsedResults {
         }
     };
     match parse(&text) {
+        // 零用例守卫（与「工件为空」同层同口径）：工件在场却零用例 = 报告器参数
+        // 漂移 / 写空，MUST NOT 混成 pass——这是 rust 与文本档当前唯一的假绿防线
+        Ok(cases) if cases.is_empty() => ParsedResults {
+            cases,
+            error: Some(format!("结果工件零用例: {}", plan.results_output)),
+        },
         Ok(cases) => ParsedResults { cases, error: None },
         Err(error) => ParsedResults {
             cases: Vec::new(),

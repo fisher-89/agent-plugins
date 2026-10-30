@@ -39,6 +39,9 @@ struct FrameworkEntry {
     default_glob: &'static str,
     /// 框架配置注入旗标（`None` = 不支持配置注入）
     config_flag: Option<&'static str>,
+    /// 执行期环境变量（框架私有开关——**不进模板串**：cmd / sh 的前缀赋值语法
+    /// 不同，写进模板会让两臂分叉）。rust 档的 libtest-json 结果工件即靠此开启。
+    env: &'static [(&'static str, &'static str)],
 }
 
 /// 五框架注册表（常量表移植；jest / vitest / vite-plus / node-test 与 CLI
@@ -58,6 +61,7 @@ const REGISTRY: [FrameworkEntry; 5] = [
         results_output: "results.json",
         default_glob: "**/*.{test,spec}.{js,ts,jsx,tsx}",
         config_flag: Some("--config"),
+        env: &[],
     },
     FrameworkEntry {
         framework: "vitest",
@@ -69,6 +73,7 @@ const REGISTRY: [FrameworkEntry; 5] = [
         results_output: "results.json",
         default_glob: "**/*.{test,spec}.{js,ts,jsx,tsx}",
         config_flag: Some("--config"),
+        env: &[],
     },
     FrameworkEntry {
         framework: "vite-plus",
@@ -80,17 +85,19 @@ const REGISTRY: [FrameworkEntry; 5] = [
         results_output: "results.json",
         default_glob: "**/*.{test,spec}.{js,ts,jsx,tsx}",
         config_flag: Some("--config"),
+        env: &[],
     },
     FrameworkEntry {
         framework: "rust",
         version_command: "cargo --version",
-        shell_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
-        cmd_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
+        shell_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > \"{results_file}\"",
+        cmd_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > \"{results_file}\"",
         coverage_format: CoverageFormat::LlvmCov,
         coverage_output: "coverage-summary.json",
         results_output: "results.txt",
         default_glob: "**/tests/**/*.rs",
         config_flag: None,
+        env: &[("NEXTEST_EXPERIMENTAL_LIBTEST_JSON", "1")],
     },
     FrameworkEntry {
         framework: "node-test",
@@ -102,6 +109,7 @@ const REGISTRY: [FrameworkEntry; 5] = [
         results_output: "results.txt",
         default_glob: "**/*.test.{mjs,js,cjs}",
         config_flag: None,
+        env: &[],
     },
 ];
 
@@ -172,6 +180,8 @@ pub(crate) struct TestPlan {
     /// 框架自发现跑的还是同一批。保守方向：集合不等即拒降级（`excludes` 实际剔掉
     /// 了某个文件 → 对照面仍含该文件 → 不等 → 拒降级）
     pub omit_files_safe: bool,
+    /// 执行期环境变量（注册表 `env` 透传；空 = 全继承——框架私有开关不走模板串）
+    pub env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
 }
 
 impl TestPlan {
@@ -267,6 +277,11 @@ pub(crate) fn detect_plans(
             coverage_output: entry.coverage_output,
             results_output: entry.results_output,
             omit_files_safe,
+            env: entry
+                .env
+                .iter()
+                .map(|(key, value)| ((*key).into(), (*value).into()))
+                .collect(),
         });
     }
     Ok(plans)

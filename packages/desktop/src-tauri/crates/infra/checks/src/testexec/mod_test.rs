@@ -2863,6 +2863,7 @@ fn head_plan(id: &str, framework: &str, files: &[&str]) -> TestPlan {
         coverage_output: "results.txt",
         results_output: "results.txt",
         omit_files_safe: true,
+        env: Vec::new(),
     }
 }
 

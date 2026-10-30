@@ -46,6 +46,7 @@ fn node_test_plan(cwd: &Path, template: String) -> TestPlan {
         coverage_output: "results.txt",
         results_output: "results.txt",
         omit_files_safe: true,
+        env: Vec::new(),
     }
 }
 
@@ -65,6 +66,7 @@ fn rust_plan(cwd: &Path, template: String) -> TestPlan {
         coverage_output: "coverage-summary.json",
         results_output: "results.txt",
         omit_files_safe: true,
+        env: Vec::new(),
     }
 }
 
@@ -84,33 +86,35 @@ fn jest_plan(cwd: &Path, template: String) -> TestPlan {
         coverage_output: "coverage-summary.json",
         results_output: "results.json",
         omit_files_safe: true,
+        env: Vec::new(),
     }
 }
 
-/// rust 档结果工件样本（cargo test 文本：两个 `running` 块 / 4 用例行
-/// = 2 ok + 1 FAILED + 1 ignored；失败详情块置末——解析以块头切段）。
-const RUST_RESULTS_OUTPUT: &str = "   Compiling dev-team v0.1.0\n\
-    Finished `test` profile [unoptimized + debuginfo] target(s)\n\
-     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/dev_team-1a2b)\n\
-running 2 tests\n\
-test parser::parse_ok ... ok\n\
-test parser::skipped_case ... ignored\n\
-\n\
-test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n\
-     Running tests/it.rs (target/llvm-cov-target/debug/deps/it-3c4d)\n\
-running 2 tests\n\
-test it_works ... ok\n\
-test it_fails ... FAILED\n\
-\n\
-failures:\n\
-\n\
----- it_fails stdout ----\n\
-assertion failed: left == right\n\
-\n\
-failures:\n\
-    it_fails\n\
-\n\
-test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n";
+/// rust 档结果工件样本（真实采集：`cargo llvm-cov nextest --message-format
+/// libtest-json --message-format-version 0.1 --no-fail-fast`，nextest 0.9.150 /
+/// cargo-llvm-cov 0.9.1 / rustc 1.95 红跑形态）：三个 binary 块 / 5 条终态事件
+/// = 3 ok + 1 failed + 1 ignored；`started` 与 `suite` 行不产用例。
+///
+/// 与 `crates/core/checks/tests/fixtures/libtest-json/output.txt` 同源（此处内联
+/// 供 runner 侧替身写盘；解析器侧用语料文件，两侧独立 fail 可分辨「模板断了」
+/// 与「解析器断了」）。
+const RUST_RESULTS_OUTPUT: &str = r##"{"type":"suite","event":"started","test_count":3}
+{"type":"test","event":"started","name":"nxprobe::it$it_ignored"}
+{"type":"test","event":"started","name":"nxprobe::it$it_works"}
+{"type":"test","event":"started","name":"nxprobe::it$it_fails"}
+{"type":"test","event":"ignored","name":"nxprobe::it$it_ignored"}
+{"type":"test","event":"failed","name":"nxprobe::it$it_fails","exec_time":0.4658882,"stdout":"captured stdout line\n\nthread 'it_fails' (2340) panicked at tests\\it.rs:7:5:\nassertion `left == right` failed: left == right\n  left: 1\n right: 2\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"}
+{"type":"suite","event":"failed","passed":0,"failed":1,"ignored":1,"measured":0,"filtered_out":0,"exec_time":0.4658882}
+{"type":"suite","event":"started","test_count":2}
+{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case"}
+{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::determine_conclusion_passes"}
+{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case","exec_time":0.9345231}
+{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::determine_conclusion_passes","exec_time":1.8965367}
+{"type":"suite","event":"ok","passed":2,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":2.8310598000000002}
+{"type":"suite","event":"started","test_count":3}
+{"type":"test","event":"ok","name":"nxprobe::it$it_works","exec_time":1.4063161}
+{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":1,"measured":0,"filtered_out":1,"exec_time":1.4063161}
+"##;
 
 /// rust 档覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
 /// 走 null 感知跳过）。
@@ -600,14 +604,14 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
     );
     assert_eq!(
         execution.cases.len(),
-        4,
-        "工件解析面不受改写面影响（多 running 块照常解析）"
+        5,
+        "工件解析面不受改写面影响（libtest-json 终态事件全量解析）"
     );
 }
 
 /// 正向（AC-4）：一条替身命令同时写 `{results_file}`（stdout 重定向）与
 /// `{coverage_file}`（模拟 `--output-path`）→ 双工件同落位、两读取面均从同一
-/// 命令产物解析（用例行 + 逐文件覆盖 + 实测块）。
+/// 命令产物解析（libtest-json 用例行 + 逐文件覆盖 + 实测块）。
 #[tokio::test]
 async fn 单条命令双工件同落位_结果与覆盖同源解析() {
     let _env = env_window();
@@ -648,7 +652,7 @@ async fn 单条命令双工件同落位_结果与覆盖同源解析() {
             && report_dir.join("coverage-summary.json").is_file(),
         "同一命令产出双工件（results.txt + coverage-summary.json）"
     );
-    assert_eq!(execution.cases.len(), 4, "结果工件解析出四用例行");
+    assert_eq!(execution.cases.len(), 5, "结果工件解析出五用例行");
     assert_eq!(
         execution.source_files.len(),
         2,
@@ -660,9 +664,9 @@ async fn 单条命令双工件同落位_结果与覆盖同源解析() {
     assert_eq!(measured.functions, Some(100.0), "functions 取 totals 实测");
 }
 
-/// 正向（解析面零改动锚）：结果工件含多个 `running` 块 + `ok` / `ignored` /
-/// `FAILED` 行 → 用例行全量解析（真件 17 块形态的替身锚），失败用例的错误面自
-/// `---- <name> stdout ----` 块回填。
+/// 正向：结果工件含多个 binary 块（`suite` / `started` / 终态事件混排）→ 用例
+/// 行全量解析（真件多块形态的替身锚），失败用例的错误面自失败事件的 `stdout`
+/// 字段回填（panic 定位行跳过、信号行拆 `错误类型: 消息`）。
 #[tokio::test]
 async fn 多running块结果工件解析_用例行全量且失败归因() {
     let _env = env_window();
@@ -705,28 +709,28 @@ async fn 多running块结果工件解析_用例行全量且失败归因() {
         .iter()
         .filter(|case| case.status == checks::model::TestCaseStatus::Skipped)
         .count();
-    assert_eq!(execution.cases.len(), 4, "两 running 块四用例行");
+    assert_eq!(execution.cases.len(), 5, "三个 binary 块五条终态事件");
     assert_eq!(
         (passed, failed, skipped),
-        (2, 1, 1),
-        "状态计数逐档正确（ok / FAILED / ignored）"
+        (3, 1, 1),
+        "状态计数逐档正确（ok / failed / ignored）"
     );
     let failing = execution
         .cases
         .iter()
-        .find(|case| case.name == "it_fails")
+        .find(|case| case.name == "nxprobe::it$it_fails")
         .expect("失败用例在场");
     assert_eq!(
         failing.error_message.as_deref(),
         Some("left == right"),
-        "失败详情块回填错误消息"
+        "失败事件 stdout 块回填错误消息（跳过 panic 定位行）"
     );
     assert!(
         failing
             .stack_trace
             .as_deref()
-            .is_some_and(|trace| trace.contains("assertion failed")),
-        "失败详情块全块入堆栈，实际: {:?}",
+            .is_some_and(|trace| trace.contains("assertion `left == right` failed")),
+        "失败事件 stdout 全块入堆栈，实际: {:?}",
         failing.stack_trace
     );
     assert!(
@@ -782,7 +786,7 @@ async fn 退出码直继承_产双工件后非零() {
     );
     assert_eq!(
         execution.cases.len(),
-        4,
+        5,
         "已产结果工件照常解析（不产假用例）"
     );
     assert!(
@@ -844,7 +848,7 @@ async fn llvm_cov工件缺失且非零_error面记因不出假绿() {
     );
     assert_eq!(
         execution.cases.len(),
-        4,
+        5,
         "已产结果工件照常解析（不产假用例）"
     );
 }
@@ -911,6 +915,63 @@ async fn 退出码谱边界_逐一透传与零error() {
             "error 面记因退出码 {code}，实际: {:?}",
             execution.error
         );
+    }
+}
+
+/// 边界（零用例守卫，表驱动 3 形态）：结果工件**在场且非空**但产不出用例——只含
+/// `suite` 汇总行 / 只含 `started` 行 / 只含噪声行 → `error` 记「结果工件零用例」
+/// 或「不含任何事件行」，`cases` 为空。这是 rust 与文本档当前唯一的假绿防线：
+/// 报告器参数漂移（写空 / 写错格式）时 MUST NOT 混成 pass。
+#[tokio::test]
+async fn 结果工件零用例_error面记因不出假绿() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+
+    let cases: [(&str, &str, &str); 3] = [
+        (
+            "suite-only",
+            "{\"type\":\"suite\",\"event\":\"ok\",\"passed\":0,\"failed\":0,\"ignored\":0,\"measured\":0,\"filtered_out\":0,\"exec_time\":0.0}\n",
+            "结果工件零用例",
+        ),
+        (
+            "started-only",
+            "{\"type\":\"test\",\"event\":\"started\",\"name\":\"pkg::b$case\"}\n",
+            "结果工件零用例",
+        ),
+        ("noise-only", "not json at all\n", "不含任何事件行"),
+    ];
+
+    for (tag, body, expected) in cases {
+        let src = preset(ws.path(), &format!("zero-{tag}.txt"), body);
+        let template = if cfg!(windows) {
+            format!(
+                "cmd /C type \"{}\" > \"{{results_file}}\"",
+                src.to_string_lossy().replace('/', "\\")
+            )
+        } else {
+            format!("cp \"{}\" \"{{results_file}}\"", src.to_string_lossy())
+        };
+        let plan = rust_plan(&cwd, template);
+        let execution = execute_plan(
+            &plan,
+            &ws.path().join("reports").join(format!("zero-{tag}")),
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+        .expect("零用例形态走产出（不 Err）");
+
+        assert_eq!(execution.exit_code, 0, "{tag}: 退出码透传");
+        assert!(
+            execution
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains(expected)),
+            "{tag}: error 面须点名「{expected}」（零用例 MUST NOT 混成 pass），实际: {:?}",
+            execution.error
+        );
+        assert!(execution.cases.is_empty(), "{tag}: 零用例");
     }
 }
 
@@ -1018,7 +1079,7 @@ async fn 退出零但覆盖率工件缺失_null感知跳过() {
         "覆盖率工件缺失按 null 感知跳过（非 error 面），实际: {:?}",
         execution.error
     );
-    assert_eq!(execution.cases.len(), 4, "结果工件照常解析四用例行");
+    assert_eq!(execution.cases.len(), 5, "结果工件照常解析五用例行");
     assert!(
         execution.measured.is_none(),
         "覆盖维度 None（判定侧 null 感知跳过）"
@@ -1303,9 +1364,9 @@ fn 退出码缺码哨兵锚定_负一与超时同值() {
 // ---------------------------------------------------------------------------
 // PlanExecution.output（脚本真实输出合并流）：stdout 字节前缀 + stderr 字节后缀，
 // 逐字，**不加 `2>&1`**——rust 模板
-// `cargo llvm-cov --workspace --json --output-path "{coverage_file}" >
-// "{results_file}"` 已把 stdout 重定向进结果工件，`2>&1` 会把 stderr 混入污染
-// `parse_cargo_test`。手工拼接只服务 record 回查，结果工件解析仍只读 stdout 面；
+// `cargo llvm-cov nextest … --message-format libtest-json > "{results_file}"`
+// 已把 stdout（结构化事件流）重定向进结果工件，`2>&1` 会把 stderr 混入污染
+// `parse_libtest_json`。手工拼接只服务 record 回查，结果工件解析仍只读 stdout 面；
 // `error` 面仍经合并文本派生。
 // ---------------------------------------------------------------------------
 
@@ -2402,6 +2463,7 @@ fn argv_plan(template: &str, files: &[&str], omit_files_safe: bool) -> TestPlan 
         coverage_output: "coverage-summary.json",
         results_output: "results.txt",
         omit_files_safe,
+        env: Vec::new(),
     }
 }
 
