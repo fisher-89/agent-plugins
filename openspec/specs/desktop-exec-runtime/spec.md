@@ -13,6 +13,7 @@
 - `RunOptions` SHALL 为 `{ cwd: Option<PathBuf>, env: Vec<(OsString, OsString)>, timeout: Duration, cancel: CancelFlag, retry: RetryPolicy }`；`timeout` **MUST 为必填**（MUST NOT 设缺省值 / MUST NOT 提供 `Default`）；`cancel` 缺省语义为「永不取消」（`CancelFlag::never()` 由调用方显式传或经 `Default` 表达）；`retry` 缺省语义为「单次执行」（`RetryPolicy::none()`）。
 - `RunOutcome` SHALL 为封闭三值 `Completed` / `TimedOut` / `Cancelled`；`RunReport` SHALL 为 `{ outcome, exit_code: i32, stdout: Vec<u8>, stderr: Vec<u8>, attempts: u32, retried: Vec<AttemptTrace> }`，`TimedOut` / `Cancelled` 的 `exit_code` MUST 为 `-1` 哨兵（MUST NOT 回落 `0`）。
 - 执行体 MUST 以 `kill_on_drop(true)` spawn（future 被 drop 时兜底终止），MUST 双管道并发排水（stdout 与 stderr 各一路 `read_to_end` 并发进行，防单管道填满互锁）。
+- **自然退出臂的有界排水**：子进程退出后，若孤儿孙进程仍持有继承的管道写端（Windows 上 cargo-mutants 超时只杀 `cargo test`、遗留测试可执行文件即典型），收尸完成后排水 MUST 以 `FINISH_GRACE` 截断收口，MUST NOT 等孙进程退出才返回。该异常面下 `stdout` / `stderr` 可能少掉尾字节（换取不悬挂），此为唯一允许的截断面；正常树输出仍 MUST 零截断。
 - `cwd` / `env` MUST 经 `RunOptions` 施加（命令规格 `SystemCommand` 只表达 program / argv / 平台标志），故 `SystemCommand` SHALL 可 `Clone`。
 - 执行体 MUST NOT 吞掉「进程无退出码」情形：无可读退出码时 `exit_code` 同记 `-1`。
 - **尝试面**：`attempts` SHALL 为本命令实际尝试次数（≥ 1）；`retried` SHALL 只承载**此前**各次尝试（末次不入 `retried`）；`stdout` / `stderr` MUST 仍为**末次尝试**的输出字节——既有消费点（诊断 / 合并流 / 工件解析）的读法零变。`RetryPolicy::none()` 或未命中瞬态签名时 SHALL 为 `attempts == 1 && retried.is_empty()`，其行为 MUST 与单次执行逐字节等价。
@@ -91,6 +92,11 @@
 
 - **WHEN** 超时 / 取消触发 kill 后，被测进程曾打开两路管道
 - **THEN** 执行体在有限时间内返回（排水任务以 EOF 结束），MUST NOT 无限等待管道关闭
+
+#### Scenario: 自然退出后孤儿持写端仍有界收口
+
+- **WHEN** 被 spawn 的脚本派生后台孙进程（继承 stdout / stderr 后自身退出），壳进程随即以 0 退出，而孙进程仍存活（管道 EOF 不会到达）
+- **THEN** 执行体完成收尸即返回 `Completed`，MUST NOT 等到孙进程退出；返回时刻孙进程可观测为仍存活，已读输出（壳进程退出前写入的部分）完整保留
 
 #### Scenario: 源码无裸超时杀壳组合
 

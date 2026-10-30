@@ -853,36 +853,30 @@ async fn cancel不误杀_never全程不置位() {
     assert_eq!(report.stdout, b"done");
 }
 
-/// 边界（自然退出臂有界排水）：子进程退出后孤儿孙进程仍持有管道写端——
-/// 收尸完成即按 [`FINISH_GRACE`] 收口，不得等孙进程退出才返回。
-///
-/// 装置：shim 起后台 `sleep` 继承 stdout / stderr 后自身退出；后台进程存活期间
-/// 管道 EOF 不会到达。旧实现「先排干再收尸」会一直等到 `sleep` 结束（≈10 s）；
-/// 修复后收尸完成即返回，墙钟有界。`sleep` 不做清理（10 s 后自行退出）。
-///
-/// 上界取值 = [`FINISH_GRACE`] + 8 s（而非 + 5 s）：本文件的 shim 走 msys bash，
-/// 单次启动 1.3–1.8 s、并行满载（数十真实子进程用例）可抖到 4 s 量级，设备成本
-/// 直接落在被测墙钟里。10 s 上界仍**严格区分**新旧语义——旧实现必须等孙进程
-/// 退出（≈`sleep 10`）才 EOF，即「启动 + 10 s」；新实现是「启动 + ≤2 s」。
 #[tokio::test]
 async fn 自然退出_孤儿孙进程持写端时收尸后有界收口() {
     let ws = ShimWs::new("orphan-pipe");
+    let pid_file = ws.file("pid.txt");
     let command = ws.shim(
         "orphan.sh",
-        "#!/bin/sh\n(sleep 10) &\nprintf 'done'\nexit 0\n",
+        &format!(
+            "#!/bin/sh\nsleep 60 &\nwin=$(cat \"/proc/$!/winpid\" 2>/dev/null || printf '%s' \"$!\")\nprintf '%s' \"$win\" > \"{}\"\nprintf 'done'\nexit 0\n",
+            pid_file.display()
+        ),
     );
-    let started = Instant::now();
     let report = run_shell(command, options(Duration::from_secs(30)))
         .await
         .expect("收尸应正常完成");
-    let elapsed = started.elapsed();
+
+    // 探针取在清理之前：返回瞬间孤儿仍持写端 ⇒ 未等 EOF 即收口
+    let pid = ws.read_pid("pid.txt").expect("孙进程应落 pid");
+    let alive = pid_alive(pid);
+    crate::kill_tree(Some(pid));
+
     assert_eq!(report.outcome, RunOutcome::Completed);
     assert_eq!(report.exit_code, 0);
     assert_eq!(report.stdout, b"done", "退出前的输出应已排空");
-    assert!(
-        elapsed < FINISH_GRACE + Duration::from_secs(8),
-        "收尸后排水应有界（墙钟 {elapsed:?}）"
-    );
+    assert!(alive, "收尸应在孤儿仍在时返回（pid {pid}）");
 }
 
 // ---------------------------------------------------------------------------
