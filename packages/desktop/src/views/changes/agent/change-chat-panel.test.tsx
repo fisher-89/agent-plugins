@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { ResizablePanelGroup } from '@/components/ui/resizable';
@@ -240,6 +240,17 @@ function typeText(text: string): void {
 
 function sendButton(): HTMLButtonElement {
   return screen.getByTestId('change-chat-send') as HTMLButtonElement;
+}
+
+/** 档位选择器（StandardSelect / base-ui Select）：`data-value` 即选中档。 */
+async function pickMode(mode: string): Promise<void> {
+  const trigger = screen.getByTestId('change-chat-permission-mode').closest('button');
+  if (!trigger) throw new Error('SelectValue 不在触发器按钮内');
+  fireEvent.mouseDown(trigger);
+  const option = within(await screen.findByRole('listbox')).getByRole('option', { name: mode });
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
 }
 
 async function expandHistory(): Promise<void> {
@@ -519,7 +530,7 @@ describe('ChangeChatPanel：禁发与只读矩阵', () => {
     }
   });
 
-  it('row2 本会话 running：发送禁用 + 停止入口在场、理由行不在场、新会话禁用', async () => {
+  it('row2 本会话 running：停止入口在场、理由行不在场、新会话禁用（发送入口不禁，重复发送由会话层忽略）', async () => {
     ipc.list = () => Promise.resolve({ sessions: [historyItem('ses-1')], total: 1 });
     ipc.detail = summary([turn(11, 'running', 'ses-1')], 'ses-1');
     await mountPanel();
@@ -528,11 +539,12 @@ describe('ChangeChatPanel：禁发与只读矩阵', () => {
     await selectHistoryItem(0);
 
     await waitFor(() => expect(screen.getByTestId('change-chat-stop')).toBeTruthy());
-    expect(sendButton().disabled).toBe(true);
     expect(
       screen.queryByTestId('change-chat-disabled-reason'),
       'disabled 不顶替 running',
     ).toBeNull();
+    typeText('运行中输入');
+    expect(sendButton().disabled, '运行中不禁发送入口（守卫在会话层）').toBe(false);
     expect(screen.getByTestId<HTMLInputElement>('change-chat-new').disabled).toBe(true);
   });
 });
@@ -644,9 +656,7 @@ describe('ChangeChatComposer：前缀与判据透传', () => {
 
   it('档位切到 default 后发送：agent_start 的 permissionMode 为 default（文本不改写）', async () => {
     await mountPanel();
-    fireEvent.change(screen.getByTestId('change-chat-permission-mode'), {
-      target: { value: 'default' },
-    });
+    await pickMode('default');
     typeText('默认档提问');
     fireEvent.click(sendButton());
     await act(async () => {});
@@ -664,19 +674,20 @@ describe('ChangeChatComposer：前缀与判据透传', () => {
     expect(screen.getByTestId('change-chat-composer').textContent).not.toContain('undefined');
   });
 
-  it('running 与 disabled 正交：running+可发 → 停止入口在场；running+禁用 → 停止入口不在场且理由在场', async () => {
+  it('running 与 disabled 正交：两态停止入口均在（禁用只禁输入与发送，不隐去运行中停止面）', async () => {
     ipc.list = () => Promise.resolve({ sessions: [historyItem('ses-1')], total: 1 });
     ipc.detail = summary([turn(11, 'running', 'ses-1')], 'ses-1');
     const rendered = await mountPanel();
     await expandHistory();
     await selectHistoryItem(0);
     await waitFor(() => expect(screen.getByTestId('change-chat-stop')).toBeTruthy());
-    expect(sendButton().disabled).toBe(true);
     expect(screen.queryByTestId('change-chat-disabled-reason')).toBeNull();
 
     await rerenderPanel(rendered, { runActive: true });
 
-    expect(screen.queryByTestId('change-chat-stop'), '整面板禁用不呈停止入口').toBeNull();
+    expect(screen.getByTestId('change-chat-stop') !== null, '运行中停止面不被整面板禁用隐去').toBe(
+      true,
+    );
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe('流程运行中');
     expect(sendButton().disabled).toBe(true);
   });

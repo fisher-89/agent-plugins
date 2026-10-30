@@ -112,22 +112,29 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 面板 SHALL 以单一判据源决定「可发送 / 可开新会话 / 可切历史」，MUST NOT 由各组件各自判定：
 
-| `detail.source` | `activeRun` | 本会话 `running` | 可发送 | 可开新会话 | 可切历史 |
-| --- | --- | --- | --- | --- | --- |
-| `active` | 非 null | — | ✗ | ✗ | ✓ |
-| `active` | null | true | ✗ | ✗ | ✓ |
-| `active` | null | false | ✓ | ✓ | ✓ |
-| `archive` | — | — | ✗ | ✗ | ✓ |
+| `detail.source` | `activeRun` | 本会话 `running` | 可发送 | 可开新会话 | 可切历史 | 停止入口 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `active` | 非 null | — | ✗ | ✗ | ✓ | 见下 |
+| `active` | null | true | ✗（会话层守卫） | ✗ | ✓ | ✓ |
+| `active` | null | false | ✓ | ✓ | ✓ | ✗ |
+| `archive` | — | — | ✗ | ✗ | ✓ | 见下 |
 
-- **运行中禁发**：判据 SHALL 为 `activeRun !== null` 与本会话库态 `running` 取或（前者防同一 worktree 上 flow 与 chat 并发写，后者沿用既有「运行中禁发」）；禁发 SHALL 连「新会话」一并禁，只留历史浏览（MUST NOT 出现「能开新会话但不能发」的半可用态）。
+停止入口列「见下」：只要本会话在运行（`running`）就呈现，与 `disabled` 无关——`activeRun` 行或归档行的整面板禁用 MUST NOT 隐去运行中停止面。
+
+- **运行中禁发**：判据 SHALL 为 `activeRun !== null` 与本会话库态 `running` 取或（前者防同一 worktree 上 flow 与 chat 并发写，后者沿用既有「运行中禁发」）；禁发 SHALL 连「新会话」一并禁，只留历史浏览（MUST NOT 出现「能开新会话但不能发」的半可用态）。本会话 `running` 一行的「不可发出」由会话层 `isStreaming` 守卫承载（MUST NOT 借 `disabled` 复述），停止入口 SHALL 照常呈现。
 - **归档只读**：`detail.source === "archive"` 时 SHALL 全禁发（worktree 已被 Cleanup 移除，change 已收口）；历史浏览 SHALL 仍可用。
-- **禁用面**：composer SHALL 呈 `disabled` 态（输入框与发送同时禁用）+ 禁用理由文案（运行中 / 只读），MUST NOT 只禁发送按钮而放过输入；`running` 的既有语义（禁发 + 呈停止入口）SHALL 保持。
+- **禁用面**：composer SHALL 呈 `disabled` 态（输入框与发送同时禁用）+ 禁用理由文案（流程运行中 / 只读），MUST NOT 只禁发送按钮而放过输入；`disabled` SHALL 只由矩阵的 `activeRun` / 归档两行给出，`running` 的停止入口 SHALL 不被 `disabled` 隐去。
 - **空态不参与判据**：`sessionId === null` MUST NOT 作为禁用理由，也 MUST NOT 豁免上表其余行——可发送行下空态照常可发（首发即 `New`，见「change 会话归属与新会话 / 历史会话」），禁发行（run 期 / 归档）下空态与既有会话同样禁用；禁用理由文案 SHALL 只由矩阵给出，MUST NOT 出现「空态专用」的第三条理由。
 
 #### Scenario: run 期间禁发但可读史
 
 - **WHEN** 某 change 的 flow run 正在运行（`activeRun !== null`）时打开面板
 - **THEN** composer 禁用并呈「流程运行中」理由，「新会话」禁用，历史清单展开与点选可用（可读既有会话转录）；面板处于空态时同样禁用（空态不豁免该行）
+
+#### Scenario: 本会话运行中不可发出但可从面板停止
+
+- **WHEN** 当前会话库态为运行中（`activeRun === null`、change 为 active）
+- **THEN** 输入与发送入口照常可点（「不可发出」由会话层 `isStreaming` 守卫承载，点击零 `agent_start`），停止入口呈现且可点；「新会话」禁用，理由行不出现（本行不属整面板禁用）
 
 #### Scenario: 无 run 的 active change 正常收发
 

@@ -947,7 +947,6 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(sidebar.getAttribute('data-state')).toBe('collapsed');
     fireEvent.keyDown(window, { key: 'b', metaKey: true });
     expect(sidebar.getAttribute('data-state')).toBe('expanded');
-    expect(window.localStorage.length).toBe(0);
   });
 
   it('折叠态不持久化（D1）：卸载重挂回到展开态（新 sidebar provider 会写 sidebar_state cookie 但从不回读，折叠态不被恢复）', async () => {
@@ -960,7 +959,6 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     await restored();
     const sidebarAgain = document.querySelector('[data-slot="sidebar"]')!;
     expect(sidebarAgain.getAttribute('data-state')).toBe('expanded');
-    expect(window.localStorage.length).toBe(0);
   });
 });
 

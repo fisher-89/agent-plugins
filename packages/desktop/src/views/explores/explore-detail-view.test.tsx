@@ -1169,15 +1169,16 @@ describe('ExploreDetailView：ChatPane 运行态边界（库态 running 禁发�
     expect(within(chat).getByTestId('agent-messages-running')).toBeTruthy();
     await waitFor(() => expect(watched).toEqual(['ses-explore-1']));
 
-    // 发送禁用：输入非空（排除「空 prompt 禁用」干扰面）仍禁用，点击零 agent_start
+    // 发送入口保持可点（运行中守卫在会话层）——输入非空后点击零 agent_start
     fireEvent.change(within(chat).getByTestId('explore-prompt'), {
       target: { value: '运行中不该发' },
     });
+    // 运行中重复发送由会话层 isStreaming 守卫忽略，发送入口不禁
     const sendButton = within(chat).getByTestId<HTMLButtonElement>('explore-send');
-    expect(sendButton.disabled).toBe(true);
+    expect(sendButton.disabled).toBe(false);
     fireEvent.click(sendButton);
     await act(async () => {});
-    expect(startCalls()).toHaveLength(0);
+    expect(startCalls(), '运行中重复发送由会话层 isStreaming 守卫忽略').toHaveLength(0);
 
     // 停止可点 → 插槽 onStop 接来源侧 session.stop → agent_stop（root + 会话 id 逐字）
     const stopButton = within(chat).getByTestId<HTMLButtonElement>('explore-stop');
@@ -1204,16 +1205,15 @@ describe('ExploreDetailView：ChatPane 运行态边界（库态 running 禁发�
       expect(reads.length).toBeGreaterThanOrEqual(2);
     });
 
-    // 收口后恢复可发：停止入口消失、发送可点 → agent_start（source=explore、同会话续话）
+    // 收口后恢复可发：停止入口消失；重新输入后发送可点 → agent_start
+    // （source=explore、同会话续话）
     expect(within(chat).queryByTestId('explore-stop')).toBeNull();
-    await waitFor(() =>
-      expect(within(chat).getByTestId<HTMLButtonElement>('explore-send').disabled).toBe(false),
-    );
     // 重放完成拍落位（loading 复位，发送守卫让位）
     await act(async () => {});
     fireEvent.change(within(chat).getByTestId('explore-prompt'), {
       target: { value: '收口后再发一条' },
     });
+    expect(within(chat).getByTestId<HTMLButtonElement>('explore-send').disabled).toBe(false);
     fireEvent.click(within(chat).getByTestId('explore-send'));
     await waitFor(() => expect(startCalls()).toHaveLength(1));
     const startArgs = startCalls()[0]?.[1] as Record<string, unknown>;

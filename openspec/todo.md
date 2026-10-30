@@ -64,6 +64,7 @@
 - [ ] 归一Agent会话发送
 - [ ] 修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
 - [ ] 进行中的agent step，统计实时消耗的token（允许误差）
+- [ ] 增加变更复盘agent
 - [ ] test-execution 处置五：`includes` 双语义解耦（config 增可选 source 范围键，缺省回落 `includes`）+ `in_suite_scope` 绝对路径归一（`aggregate.rs` 取 `relative_to_root`）；**顺序固定：先 B（解耦）后 A（归一）**，否则收窄后的 `includes` 会把 per-suite override 圈到测试文件自身（来源：change `test-exec-argv-budget` proposal R-5 / 遗留观察项 1）
 - [ ] 验收口径分层：AC 分「代码证据型」（acceptance 静态清单可直接核）/「运行测量型」（须装置或 release 打包环境，仅能核「已登记 + 归属相位」）两类，后者 MUST NOT 要求 acceptance 自证数字（来源：change `archi-check-and-gate` AC-18——五项成本中 NSIS / 主二进制 / CI 冷构建 / 本地增量四项，流程内无任何相位具备 release 打包环境，且发布 workflow 由合入 master 触发 = 归档之后，形成「验收前要有归档后才产生的数据」的闭环死结）
 - [ ] 性能类装置补 release 口径执行面：`openspec/config.json` 的 rust test plan 目前只跑 debug（`cargo test --workspace`，perf 落到 `--release` 之外的样本不作判据），需增「release 性能装置」独立命令 / plan（如 `cargo test -p <crate> --release --test perf -- --nocapture`）并把输出回填实测表；否则 p95 一格永远靠人工补跑（来源：change `archi-check-and-gate` AC-18——test-execution 门禁实跑命中 `llvm-cov-target\debug\deps\perf-*.exe`，617.4 ms 的 release 数值是 acceptance 前手工补跑所得）

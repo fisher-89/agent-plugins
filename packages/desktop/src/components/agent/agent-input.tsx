@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { ArrowUpIcon, SquareIcon } from 'lucide-react';
+import { type KeyboardEvent, useCallback, useMemo, useState } from 'react';
 
-import type { AgentPermissionMode } from '../../types/dto';
+import { StandardSelect } from '@/components/standard/select';
+import { Button } from '@/components/ui/button';
+import { Kbd, KbdGroup } from '@/components/ui/kbd';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { AgentPermissionMode } from '@/types/dto';
 
 export interface AgentInputProps {
   /** id 与 data-testid 前缀（如 explore → explore-prompt / explore-send） */
-  idPrefix: string;
+  idPrefix?: string;
   /** 输入框 label（缺省不呈现） */
   label?: string;
   /** 输入框 placeholder */
@@ -32,10 +38,12 @@ const PERMISSION_OPTIONS: { value: AgentPermissionMode; label: string }[] = [
 function ModeSelect({
   id,
   value,
+  disabled,
   onChange,
 }: {
   id: string;
   value: AgentPermissionMode;
+  disabled: boolean;
   onChange: (value: AgentPermissionMode) => void;
 }): React.JSX.Element {
   return (
@@ -43,22 +51,17 @@ function ModeSelect({
       <label className="text-xs text-muted-foreground" htmlFor={id}>
         permission-mode
       </label>
-      <select
+      <StandardSelect
         id={id}
-        className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm"
         data-testid={id}
         value={value}
-        onChange={(e) => {
-          const next = PERMISSION_OPTIONS.find((option) => option.value === e.target.value);
+        disabled={disabled}
+        onChange={(value) => {
+          const next = PERMISSION_OPTIONS.find((option) => option.value === value);
           if (next) onChange(next.value);
         }}
-      >
-        {PERMISSION_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        items={PERMISSION_OPTIONS}
+      />
     </span>
   );
 }
@@ -67,7 +70,7 @@ function ModeSelect({
 function ComposerToolbar({
   running,
   disabled,
-  prompt,
+  canSend,
   permissionMode,
   sendId,
   stopId,
@@ -78,7 +81,7 @@ function ComposerToolbar({
 }: {
   running: boolean;
   disabled: boolean;
-  prompt: string;
+  canSend: boolean;
   permissionMode: AgentPermissionMode;
   sendId: string;
   stopId: string;
@@ -89,29 +92,42 @@ function ComposerToolbar({
 }): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <ModeSelect id={modeId} value={permissionMode} onChange={onPermissionModeChange} />
+      <ModeSelect
+        id={modeId}
+        value={permissionMode}
+        onChange={onPermissionModeChange}
+        disabled={disabled}
+      />
       <span className="flex-1" />
-      {/* 整面板禁用态不呈停止入口（业务只读态下「停止」无意义，且 MUST NOT
-          顶替 `running` 的既有呈现——两标志语义正交） */}
-      {running && !disabled && (
-        <button
-          type="button"
-          className="cursor-pointer rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground outline-none transition-colors hover:bg-muted"
-          data-testid={stopId}
-          onClick={onStop}
-        >
-          停止
-        </button>
+
+      {running && (
+        <Button variant="default" size="icon" title="停止" data-testid={stopId} onClick={onStop}>
+          <SquareIcon />
+        </Button>
       )}
-      <button
-        type="button"
-        className="cursor-pointer rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-        data-testid={sendId}
-        disabled={disabled || running || prompt.trim().length === 0}
-        onClick={onSend}
-      >
-        发送
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="default"
+              size="icon"
+              data-testid={sendId}
+              disabled={!canSend}
+              onClick={onSend}
+            >
+              <ArrowUpIcon />
+            </Button>
+          }
+        />
+        <TooltipContent>
+          发送
+          <KbdGroup>
+            <Kbd>Ctrl</Kbd>
+            <span>+</span>
+            <Kbd>Enter</Kbd>
+          </KbdGroup>
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }
@@ -123,9 +139,9 @@ function ComposerToolbar({
  * 同时禁用并呈理由文案——用户不会「打了字发不出去」。
  */
 export function AgentInput({
-  idPrefix,
+  idPrefix = 'common',
   label,
-  placeholder,
+  placeholder = '向Agent描述问题',
   running,
   disabled = false,
   disabledReason,
@@ -135,6 +151,7 @@ export function AgentInput({
   const [prompt, setPrompt] = useState('');
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
 
+  const canSend = useMemo(() => !disabled && prompt.length > 0, [disabled, prompt]);
   const send = () => {
     onSend({ text: prompt, permissionMode });
     setPrompt('');
@@ -150,14 +167,14 @@ export function AgentInput({
           {label}
         </label>
       )}
-      <textarea
-        id={`${idPrefix}-prompt`}
-        className="mb-2 block min-h-16 w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-        data-testid={`${idPrefix}-prompt`}
+      <InputArea
+        idPrefix={idPrefix}
         placeholder={placeholder}
-        value={prompt}
         disabled={disabled}
-        onChange={(e) => setPrompt(e.target.value)}
+        canSend={canSend}
+        value={prompt}
+        setValue={setPrompt}
+        onSend={send}
       />
       {disabled && disabledReason !== undefined && (
         <div
@@ -170,7 +187,7 @@ export function AgentInput({
       <ComposerToolbar
         running={running}
         disabled={disabled}
-        prompt={prompt}
+        canSend={canSend}
         permissionMode={permissionMode}
         sendId={`${idPrefix}-send`}
         stopId={`${idPrefix}-stop`}
@@ -180,5 +197,47 @@ export function AgentInput({
         onSend={send}
       />
     </section>
+  );
+}
+
+function InputArea({
+  idPrefix,
+  placeholder,
+  disabled,
+  canSend,
+  value,
+  setValue,
+  onSend,
+}: {
+  idPrefix: string;
+  placeholder: string;
+  disabled: boolean;
+  canSend: boolean;
+  value: string;
+  setValue: (value: string) => void;
+  onSend: () => void;
+}): React.JSX.Element {
+  const submitByHotKey = useCallback(
+    ({ ctrlKey, key }: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!canSend) {
+        return;
+      }
+      if (key === 'Enter' && ctrlKey === true) {
+        onSend();
+      }
+    },
+    [canSend],
+  );
+  return (
+    <Textarea
+      id={`${idPrefix}-prompt`}
+      data-testid={`${idPrefix}-prompt`}
+      className="mb-2"
+      placeholder={placeholder}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyUp={submitByHotKey}
+    />
   );
 }

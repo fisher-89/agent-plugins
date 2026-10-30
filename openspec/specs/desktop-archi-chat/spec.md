@@ -80,7 +80,7 @@
 | true | ✗ | ✗ | ✓ |
 | false | ✓ | ✓ | ✓ |
 
-- **运行中禁发**：判据 SHALL 为本会话库态 `running`；禁发 SHALL 连「新会话」一并禁，只留历史浏览（MUST NOT 出现「能开新会话但不能发」的半可用态）。
+- **运行中禁发**：判据 SHALL 为本会话库态 `running`；禁发 SHALL 连「新会话」一并禁，只留历史浏览（MUST NOT 出现「能开新会话但不能发」的半可用态）。架构面板以 `disabled` 承载该判据（输入与发送同禁 + 理由文案），停止入口 SHALL 照常呈现（`AgentInput` 的 `running` 停止面不被 `disabled` 隐去）。
 - **无归档态、无 flow run 判据**：架构页不承载 change（无 `detail.source = "archive"` 只读态、无在飞 change flow run），MUST NOT 引入这两条判据的占位参数。
 - **空态不参与判据**：`sessionId === null` MUST NOT 作为禁用理由，也 MUST NOT 豁免上表任一行；可发送行下空态照常可发。
 - **禁用面**：composer SHALL 呈 `disabled` 态（输入框与发送同时禁用）+ 禁用理由文案，MUST NOT 只禁发送按钮而放过输入。

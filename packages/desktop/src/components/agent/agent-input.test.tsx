@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
 import type { AgentPermissionMode } from '../../types/dto';
@@ -46,8 +46,26 @@ function promptBox(): HTMLTextAreaElement {
   return screen.getByTestId('explore-prompt');
 }
 
-function modeSelect(): HTMLSelectElement {
-  return screen.getByTestId('explore-permission-mode');
+/** StandardSelect（base-ui Select）：testid 落 SelectValue span（`data-value` 承载
+ * 选中档），trigger 为其外层 role=combobox 按钮。 */
+function modeValue(): string | null {
+  return screen.getByTestId('explore-permission-mode').getAttribute('data-value');
+}
+
+function modeTrigger(): HTMLButtonElement {
+  const trigger = screen.getByTestId('explore-permission-mode').closest('button');
+  if (!trigger) throw new Error('SelectValue 不在触发器按钮内');
+  return trigger;
+}
+
+/** 打开档位弹层并点选指定 label：pointerDown 先行满足 base-ui 鼠标选择守卫。 */
+async function pickMode(label: string): Promise<void> {
+  fireEvent.mouseDown(modeTrigger());
+  const listbox = await screen.findByRole('listbox');
+  const option = within(listbox).getByRole('option', { name: label });
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
 }
 
 // ---------------------------------------------------------------------------
@@ -70,13 +88,13 @@ describe('AgentInput：发送与档位', () => {
     expect(promptBox().value).toBe('');
   });
 
-  it('permission-mode 三档切换生效，默认档 bypassPermissions', () => {
+  it('permission-mode 三档切换生效，默认档 bypassPermissions', async () => {
     const onSend = vi.fn();
     mount({ onSend });
 
-    expect(modeSelect().value).toBe('bypassPermissions');
+    expect(modeValue()).toBe('bypassPermissions');
 
-    fireEvent.change(modeSelect(), { target: { value: 'acceptEdits' } });
+    await pickMode('acceptEdits');
     typeText('换成自动接受编辑');
     fireEvent.click(screen.getByTestId('explore-send'));
 
@@ -86,13 +104,11 @@ describe('AgentInput：发送与档位', () => {
     });
   });
 
-  it('档位切换到 default 后发送携带 default（三档均可选）', () => {
+  it('档位切换到 default 后发送携带 default（三档均可选）', async () => {
     const onSend = vi.fn();
     mount({ onSend });
 
-    fireEvent.change(screen.getByTestId('explore-permission-mode'), {
-      target: { value: 'default' },
-    });
+    await pickMode('default');
     typeText('默认档');
     fireEvent.click(screen.getByTestId('explore-send'));
 
@@ -116,15 +132,99 @@ describe('AgentInput：停止入口与禁发', () => {
     expect(screen.queryByTestId('explore-stop')).toBeNull();
   });
 
-  it('running 时发送按钮禁用，点击不触发回调', () => {
+  it('running 不再由组件禁发：发送入口可点并照常上抛（重复发送由会话层 isStreaming 守卫忽略）', () => {
     const onSend = vi.fn();
     mount({ running: true, onSend });
 
     typeText('运行中输入');
-    const send = screen.getByTestId('explore-send');
-    expect(send.hasAttribute('disabled')).toBe(true);
+    const send = screen.getByTestId<HTMLButtonElement>('explore-send');
+    expect(send.disabled).toBe(false);
     fireEvent.click(send);
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 键盘快捷键：Ctrl/Cmd+Enter 发送（onKeyUp 触发；修饰键缺失 / 其他键不发送）
+// ---------------------------------------------------------------------------
+
+describe('AgentInput：Ctrl/Cmd+Enter 快捷发送', () => {
+  it('Ctrl+Enter → onSend 恰一次并清空输入（与点击发送同语义）', () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    typeText('快捷键发送');
+    fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith({
+      text: '快捷键发送',
+      permissionMode: 'bypassPermissions',
+    });
+    expect(promptBox().value).toBe('');
+  });
+
+  it('Meta+Enter 不触发（实现只认 ctrlKey，macOS 的 Cmd 当前不接线）', () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    typeText('Cmd 回车');
+    fireEvent.keyUp(promptBox(), { key: 'Enter', metaKey: true });
+
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('裸 Enter 不触发（保留多行输入）', () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    typeText('多行\n输入');
+    fireEvent.keyUp(promptBox(), { key: 'Enter' });
+    fireEvent.keyDown(promptBox(), { key: 'Enter' });
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(promptBox().value).toBe('多行\n输入');
+  });
+
+  it('非 Enter 键 + Ctrl 不触发', () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    typeText('Ctrl 加别的键');
+    fireEvent.keyUp(promptBox(), { key: 'k', ctrlKey: true });
+    fireEvent.keyUp(promptBox(), { key: 'a', ctrlKey: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('空输入时 Ctrl+Enter 零回调（canSend 守卫先于快捷键）', () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('整面板禁用时 Ctrl+Enter 零回调', () => {
+    const onSend = vi.fn();
+    mount({ disabled: true, disabledReason: '归档只读', onSend });
+
+    typeText('禁用下快捷发送');
+    fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('快捷键沿用当前档位：切到 default 后 Ctrl+Enter 携 default', async () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    await pickMode('default');
+    typeText('默认档快捷发送');
+    fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
+
+    expect(onSend).toHaveBeenCalledWith({ text: '默认档快捷发送', permissionMode: 'default' });
   });
 });
 
@@ -133,13 +233,13 @@ describe('AgentInput：停止入口与禁发', () => {
 // ---------------------------------------------------------------------------
 
 describe('AgentInput：边界', () => {
-  it('空文本（含纯空白）时发送禁用', () => {
+  it('空文本时发送禁用；纯空白按非空处理（trim 守卫不在组件侧）', () => {
     mount({});
 
     expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
 
     typeText('   ');
-    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(false);
   });
 
   it('经 idPrefix 注入的前缀应用到输入、档位下拉与按钮的 id / data-testid', () => {
@@ -160,9 +260,8 @@ describe('AgentInput：边界', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 整面板禁用态（D14）：`disabled` 与 `running` 语义正交——输入与发送同禁、不呈
-// 停止入口、理由文案呈于工具行上方；`disabled === false` 时既有 running 语义
-// 逐字不变（上方三例即回归锚）。
+// 整面板禁用态（D14）：`disabled` 与 `running` 语义正交——输入与发送同禁、理由
+// 文案呈于工具行上方；停止入口只随 `running` 呈现（禁用不隐去运行中的停止面）。
 // ---------------------------------------------------------------------------
 
 describe('AgentInput：整面板禁用态', () => {
@@ -174,18 +273,17 @@ describe('AgentInput：整面板禁用态', () => {
     expect(screen.getByTestId('explore-disabled-reason').textContent).toBe('流程运行中');
   });
 
-  it('禁用态不顶替 running 呈现：running 且禁用 → 无停止入口、理由行在场', () => {
+  it('禁用态不隐去运行中停止面：running 且禁用 → 停止入口仍在、理由行在场', () => {
     mount({ disabled: true, running: true, disabledReason: '已归档 change 只读' });
 
-    expect(screen.queryByTestId('explore-stop')).toBeNull();
+    expect(screen.getByTestId('explore-stop') !== null).toBe(true);
     expect(screen.getByTestId('explore-disabled-reason').textContent).toBe('已归档 change 只读');
     expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
   });
 
-  it('running 语义回归：未禁用时停止入口 / 发送禁用 / 输入可编辑；非 running 时可发送', () => {
+  it('running 语义回归：未禁用时停止入口 / 输入可编辑；非 running 时可发送', () => {
     const runningView = mount({ disabled: false, running: true });
     expect(screen.getByTestId('explore-stop')).toBeTruthy();
-    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
     expect(promptBox().disabled).toBe(false);
     expect(screen.queryByTestId('explore-disabled-reason')).toBeNull();
     runningView.rendered.unmount();
@@ -236,10 +334,10 @@ describe('AgentInput：整面板禁用态', () => {
     expect(reason.querySelector('b'), '文本节点转义：不注入 HTML').toBeNull();
   });
 
-  it('禁用不清空既有文本与档位：先输入再切禁用 → 文本与档位保留', () => {
+  it('禁用不清空既有文本与档位：先输入再切禁用 → 文本与档位保留', async () => {
     const { rendered } = mount({ disabled: false });
     typeText('先输入的文本');
-    fireEvent.change(modeSelect(), { target: { value: 'default' } });
+    await pickMode('default');
 
     rendered.rerender(
       <AgentInput
@@ -255,14 +353,13 @@ describe('AgentInput：整面板禁用态', () => {
     );
 
     expect(promptBox().value).toBe('先输入的文本');
-    expect(modeSelect().value).toBe('default');
+    expect(modeValue()).toBe('default');
     expect(screen.getByTestId('explore-disabled-reason').textContent).toBe('流程运行中');
   });
 
-  it('既有发送守卫回归：未禁用时纯空白禁发、非空可发', () => {
+  it('既有发送守卫回归：未禁用时空串禁发、非空可发', () => {
     mount({ disabled: false });
 
-    typeText('   ');
     expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
 
     typeText('有效文本');

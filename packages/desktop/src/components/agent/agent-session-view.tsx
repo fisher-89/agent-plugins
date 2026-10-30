@@ -47,7 +47,7 @@ function SessionMeta({
       data-testid="session-meta"
     >
       <span
-        className="max-w-[280px] truncate font-mono"
+        className="max-w-70 truncate font-mono"
         title={summary.row.id}
         data-testid="session-meta-id"
       >

@@ -194,7 +194,7 @@
 
 - `AgentSessionView` 会话级唯一入口: 入参 `root` + `sessionId`(+ 可选 `refreshKey` / composer 插槽),内部经通用查询面装配会话并按会话状态挂流(契约见「会话级统一渲染组件」requirement);消费点 MUST NOT 自行拼装消息、轮行或事件流;
 - `AgentMessages` 对话透镜: user / assistant 气泡、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;
-- `AgentInput` composer: prompt 输入、permission-mode 档位、发送(运行中禁发或忽略)、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 保持不变(禁发 + 呈停止入口),`disabled` MUST NOT 复用为「运行中」的第二表达;
+- `AgentInput` composer: prompt 输入（空串禁发;纯空白字符不单独拦截——trim 守卫不在组件侧）、permission-mode 档位（`StandardSelect` 选择器）、发送、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 为「呈停止入口」——发送入口不禁用,重复发送由会话层 `isStreaming` 守卫忽略;停止入口 SHALL 只随 `running` 呈现且 MUST NOT 被 `disabled` 隐去(运行中即便整面板禁用仍可从面板停止);`disabled` MUST NOT 复用为「运行中」的第二表达;
 - 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位,未注册工具名回退默认对卡;
 - 组件族 SHALL 共享底层块渲染件(文本 markdown / 思考折叠 / 工具卡一套实现);滚动 SHALL 沿用 shadcn `message-scroller` 组合,消息状态留在应用层。
 
@@ -212,10 +212,10 @@
 - **WHEN** 会话状态含 run-started / system-notice / raw / run-record 等 system 载体消息
 - **THEN** 对话透镜不呈现其任何 data 部件(空态判定基于过滤后列表),seq / `parentToolUseId` 保真仍可考于部件元数据
 
-#### Scenario: composer 运行中禁发与停止
+#### Scenario: composer 运行中重复发送与停止
 
 - **WHEN** 会话处于运行中
-- **THEN** `AgentInput` 忽略重复发送并呈现停止入口;停止后恢复可发送
+- **THEN** `AgentInput` 呈现停止入口,发送入口保持可用;重复发送由会话层 `isStreaming` 守卫忽略(`agent_start` 零发起);停止后恢复可发送
 
 #### Scenario: 会话级入口归一
 
@@ -230,7 +230,7 @@
 #### Scenario: 整面板禁用与理由呈现
 
 - **WHEN** 来源侧以 `disabled = true` 与理由文案渲染 `AgentInput`
-- **THEN** 输入框与发送按钮同时禁用、理由文案可见(用户不会「打了字发不出去」);禁用态不呈停止入口,`running` 的既有呈现不被顶替
+- **THEN** 输入框与发送按钮同时禁用(空串禁用之外再叠加整面板禁用)、理由文案可见(用户不会「打了字发不出去」);`running` 的停止入口 SHALL 照常呈现(两标志语义正交,禁用只收发送面不收停止面)
 
 ### Requirement: ai-sdk 依赖收口
 
@@ -348,7 +348,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | Rust 会话域命令面(详见 desktop-agent-execution) | stop 与提前 resolve | 终止命令按运行中的会话活动轮寻址;发起命令提前 resolve;`stopped` 收敛;终态经 Channel 同构部件流出;会话订阅命令 `agent_session_watch` 供旁观 / 重挂期挂流 |
 | `packages/desktop/src/lib/agent-transport.ts` | 会话参数面透传 | `AgentStartSessionParams` 增 `sourceRef` / `cwd`(派生自生成绑定,无手写镜像);`readSessionParams` 增读两字段(`readNullableString` 复用,非法即 `Err`);`invokeStart` 改**具名解构**调用 `agentStart`(位置索引魔法 1/2/3/4/5/7 退役,尾部增位不再错位) |
 | `packages/desktop/src/hooks/use-agent-session.ts` | 参数面与发送 body | `UseAgentSessionParams` 增 `sourceRef?: string \| null` / `cwd?: string \| null`;`sendMessage` body 透传两字段(原 `sourceRef: null` 常量退役,未提供仍为 null) |
-| `packages/desktop/src/components/agent/agent-input.tsx` | 禁用态扩展 | 增 `disabled?: boolean` / `disabledReason?: string`(textarea 与发送同时禁用 + 理由文案呈现;`running` 语义与停止入口不变) |
+| `packages/desktop/src/components/agent/agent-input.tsx` | 禁用态扩展 | 增 `disabled?: boolean` / `disabledReason?: string`(textarea 与发送同时禁用 + 理由文案呈现);`running` 只决定停止入口呈现(发送入口不禁,重复发送由会话层守卫);档位改用 `StandardSelect`;输入区改用 `Textarea` + `Ctrl/Cmd+Enter` 快捷发送 |
 | `packages/desktop/src/components/agent/agent-session-view.tsx` | 注入形态入参 | 会话状态面仍由来源侧建 hook 注入;如需向 composer 插槽传禁用态,仅在 `AgentSessionActions` 上增位(additive),MUST NOT 在组件内自判业务禁发 |
 | `packages/desktop/src/lib/agent-transport.test.ts` / `hooks/use-agent-session.test.ts` | 透传直测 | 两字段按序到达 invoke;非法值拒绝;未提供时缺省 null 且既有行为不变 |
 

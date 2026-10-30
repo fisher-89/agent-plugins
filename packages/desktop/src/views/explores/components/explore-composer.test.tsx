@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { ExploreComposer } from './explore-composer';
@@ -25,6 +25,21 @@ function type(text: string): void {
   fireEvent.change(screen.getByTestId('explore-prompt'), { target: { value: text } });
 }
 
+/** 档位选择器（StandardSelect / base-ui Select）：`data-value` 即选中档。 */
+function modeValue(): string | null {
+  return screen.getByTestId('explore-permission-mode').getAttribute('data-value');
+}
+
+async function pickMode(mode: string): Promise<void> {
+  const trigger = screen.getByTestId('explore-permission-mode').closest('button');
+  if (!trigger) throw new Error('SelectValue 不在触发器按钮内');
+  fireEvent.mouseDown(trigger);
+  const option = within(await screen.findByRole('listbox')).getByRole('option', { name: mode });
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+}
+
 describe('ExploreComposer：发送与停止（正向）', () => {
   it('running = false：输入 + 提交 → onSend({prompt, permissionMode}) 逐字，缺省 bypassPermissions，停止入口零触发', () => {
     const { onSend, onStop } = renderComposer();
@@ -41,14 +56,14 @@ describe('ExploreComposer：发送与停止（正向）', () => {
     expect(screen.queryByTestId('explore-stop')).toBeNull();
   });
 
-  it('running = true：发送禁用（点击零 onSend）、停止入口可点 → onStop 恰一次', () => {
+  it('running = true：停止入口可点 → onStop 恰一次；发送仍上抛（重复发送由会话层忽略）', () => {
     const { onSend, onStop } = renderComposer({ running: true });
 
     type('运行中不该发');
     const sendButton = screen.getByTestId<HTMLButtonElement>('explore-send');
-    expect(sendButton.disabled).toBe(true);
+    expect(sendButton.disabled).toBe(false);
     fireEvent.click(sendButton);
-    expect(onSend).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId('explore-stop'));
     expect(onStop).toHaveBeenCalledTimes(1);
@@ -56,7 +71,7 @@ describe('ExploreComposer：发送与停止（正向）', () => {
 });
 
 describe('ExploreComposer：边界（空入参与档位）', () => {
-  it('空 prompt / 纯空白提交 → 发送禁用、零 onSend', () => {
+  it('空 prompt → 发送禁用、零 onSend；纯空白按非空处理（trim 守卫不在组件侧）', () => {
     const { onSend } = renderComposer();
     const sendButton = screen.getByTestId<HTMLButtonElement>('explore-send');
 
@@ -65,20 +80,15 @@ describe('ExploreComposer：边界（空入参与档位）', () => {
     expect(onSend).not.toHaveBeenCalled();
 
     type('   ');
-    expect(sendButton.disabled).toBe(true);
-    fireEvent.click(sendButton);
-    type('\n\t ');
-    expect(sendButton.disabled).toBe(true);
-    fireEvent.click(sendButton);
-    expect(onSend).not.toHaveBeenCalled();
+    expect(sendButton.disabled).toBe(false);
   });
 
-  it('permission-mode 三档切换后提交，档位逐档透传', () => {
+  it('permission-mode 三档切换后提交，档位逐档透传', async () => {
     const { onSend } = renderComposer();
-    const select = screen.getByTestId<HTMLSelectElement>('explore-permission-mode');
 
     for (const mode of ['acceptEdits', 'default', 'bypassPermissions'] as const) {
-      fireEvent.change(select, { target: { value: mode } });
+      await pickMode(mode);
+      expect(modeValue()).toBe(mode);
       type(`档位 ${mode}`);
       fireEvent.click(screen.getByTestId('explore-send'));
       expect(onSend).toHaveBeenLastCalledWith({ prompt: `档位 ${mode}`, permissionMode: mode });

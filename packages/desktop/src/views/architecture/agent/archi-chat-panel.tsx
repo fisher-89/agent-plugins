@@ -1,9 +1,3 @@
-/**
- * 架构页左栏通用 Agent 面板（`desktop-archi-chat`）：归属参数（`source = "archi"` /
- * `sourceRef = null` / `cwd = null` → 后端回落主仓根）与判据全在 `useArchiChat`；
- * 渲染体是共享骨架 `SessionPanel`（`testIdPrefix = "archi-chat"`），本文件只剩
- * 归属装配与 composer 插槽。
- */
 import { SessionPanel } from '@/components/agent';
 
 import { ArchiChatComposer } from './archi-chat-composer';
