@@ -61,6 +61,22 @@ desktop-app SHALL 以 tauri-specta builder 注册全部 IPC 命令（既有 `mai
 - **WHEN** 连续两次执行导出入口且不改任何 Rust 类型
 - **THEN** 两份产物均零 diff；导出顺序（`bindings.ts` 先、`bindings.zod.ts` 后）MUST NOT 改变任一产物的字节
 
+### Requirement: 产物互斥的跨进程锁
+
+多个导出入口用例会独占改写同一份共享产物（`src/types/generated/`），测试框架为 nextest（每个用例一个**独立进程**）时进程内互斥完全失效，故互斥 SHALL 由 **OS 文件锁**（`std::fs::File::try_lock` 轮询 + 句柄关闭释放）实现：以读写方式打开常驻锁文件 `target/bindings-test.lock`、非阻塞重试至多 [`LOCK_WAIT_TIMEOUT`]，`Drop` 仅关闭句柄 MUST NOT 删除锁文件。
+
+MUST NOT 再用「`create_new` 独占创建 + `Drop` 删文件 + mtime 老化夺取」形态：Windows 上文件删除后、句柄关闭前处于 delete-pending，另一进程 `create_new` 得到 `ERROR_ACCESS_DENIED(5)` 而非 `ERROR_FILE_EXISTS(80)`（现网实测 `创建产物文件锁失败（…bindings-test.lock）: 拒绝访问。 (os error 5)`）；且持锁期间 `remove_file` 在 `FILE_SHARE_DELETE` 下会成功，「陈旧锁夺取」可让两进程各持不同 inode 的锁而互不互斥地双写产物。OS 锁随句柄关闭自动释放，进程崩溃不留残留，无需陈旧判定与夺取。
+
+#### Scenario: 持锁期间第二句柄被拒
+
+- **WHEN** 一个用例持有产物锁，同进程第二个句柄（或另一 nextest 进程）尝试取锁
+- **THEN** 得到 `TryLockError::WouldBlock` 并轮询等待，MUST NOT 以 `os error 5` 之类的 IO 错误直接 panic
+
+#### Scenario: 释放后立即可重取且文件常驻
+
+- **WHEN** 守卫 `Drop` 后同一进程再次取锁
+- **THEN** 无需等待即可取到（锁随句柄关闭释放），且 `target/bindings-test.lock` 仍存在（MUST NOT 删除）
+
 ### Requirement: 前端一次性切换 typed bindings
 
 前端 SHALL 在本变更内一次性完成切换：`src/` 全部 invoke 调用点（约 27 个文件）从裸字符串 invoke 改为 typed bindings，MUST NOT 分批（双轨共存期 MUST 为 0）。`agent-transport.ts` 手写的 `AgentRunMessage` / `AgentStartChainParams` 镜像 SHALL 收编进生成物并删除手写副本；`readChainParams` 等运行时校验 SHALL 保留（ai-sdk body 穿透所需，与静态类型互补，非重复防线）。切换的真实风险（生成物与手写镜像的字段级差异，如 null vs optional）由 tsc 全量类型检查拦截，替换本身为机械操作。

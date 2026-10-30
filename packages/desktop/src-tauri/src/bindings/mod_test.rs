@@ -23,59 +23,65 @@ fn dto_shim_path() -> PathBuf {
 /// 产物文件互斥（**跨进程**）：单一共享产物（`src/types/generated/`）由多个
 /// 测试独占改写（篡改 → 重导出 → 比对），必须串行。
 ///
-/// 用独占创建锁文件实现而非进程内 `Mutex`：测试框架已切到 nextest，每个测试
-/// 跑在**独立进程**里，进程内互斥对它完全无效——两个用例会同时改写同一份
-/// 产物并互判定为「篡改未恢复」。锁文件路径固定在 target 下，进程崩溃留下
-/// 的残留锁以 mtime 老化兜底（超过 [`STALE_LOCK_AFTER`] 视为陈旧并夺取）。
+/// 用 OS 级文件锁实现而非进程内 `Mutex`：测试框架已切到 nextest，每个测试跑在
+/// **独立进程**里，进程内互斥对它完全无效——两个用例会同时改写同一份产物并互
+/// 判定为「篡改未恢复」。
+///
+/// 为什么不再用「独占创建 + `Drop` 删文件」：Windows 上文件删除后、句柄关闭前
+/// 处于 delete-pending 状态，此时另一进程 `create_new` 拿到的是
+/// `ERROR_ACCESS_DENIED(5)` 而不是 `ERROR_FILE_EXISTS(80)`，落进兜底 panic 臂
+/// （现网实测：`创建产物文件锁失败（…bindings-test.lock）: 拒绝访问。 (os error
+/// 5)`）。更糟的是持锁期间 `remove_file` 本身会成功（共享模式含 `FILE_SHARE_DELETE`），
+/// 「陈旧锁夺取」能让两个进程各持一个**不同 inode** 的锁、互不互斥地双写产物。
+///
+/// OS 文件锁没有这两面：锁随句柄关闭自动释放（进程崩溃不会留残留），
+/// 文件系统层保证互斥（不会出现两个 inode）。锁文件本身常驻不删——删除只在
+/// 「共享模式下临时还成功」时才会发生，而常驻文件从根上排除该窗口。
 fn lock_file_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("bindings-test.lock")
 }
 
-/// 陈旧锁阈值：正常用例在秒级完成，残留锁超过该时长视为上个进程已死。
-const STALE_LOCK_AFTER: std::time::Duration = std::time::Duration::from_secs(120);
+/// 等锁上限：正常用例在秒级完成；超时说明有别的持锁进程卡死（不是死锁自愈
+/// 面，直接失败更有诊断价值）。
+const LOCK_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// 跨进程互斥守卫：持锁期间独占产物目录，`Drop` 时删除锁文件释放。
-struct FileLock(PathBuf);
+/// 轮询间隔（`try_lock` 非阻塞，轮询而非阻塞等待以便观测超时）。
+const LOCK_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(20);
 
-impl Drop for FileLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
+/// 跨进程互斥守卫：持锁期间独占产物目录。释放靠 `File` 句柄关闭——`Drop` 无需
+/// 删除文件，因此不存在 delete-pending 窗口。
+struct FileLock(#[allow(dead_code)] fs::File);
 
 fn lock() -> FileLock {
     let path = lock_file_path();
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let deadline = std::time::Instant::now() + STALE_LOCK_AFTER;
+    // 打开（不 `create_new`、不截断）：文件常驻，锁语义全在 OS 锁上
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .unwrap_or_else(|error| panic!("打开产物文件锁失败（{}）: {error}", path.display()));
+    let deadline = std::time::Instant::now() + LOCK_WAIT_TIMEOUT;
     loop {
-        // `create_new` 原子独占：成功即持锁
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(_) => return FileLock(path),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                // 陈旧锁夺取：上次进程异常退出未删锁
-                let stale = fs::metadata(&path)
-                    .and_then(|meta| meta.modified())
-                    .ok()
-                    .and_then(|modified| modified.elapsed().ok())
-                    .is_some_and(|age| age > STALE_LOCK_AFTER);
-                if stale {
-                    let _ = fs::remove_file(&path);
-                    continue;
-                }
+        match file.try_lock() {
+            Ok(()) => return FileLock(file),
+            // 锁被别的句柄 / 进程持有：继续轮询（含同进程的第二个句柄——本函数
+            // 在每个用例里各调一次，跨进程是主场景）
+            Err(fs::TryLockError::WouldBlock) => {
                 if std::time::Instant::now() > deadline {
                     panic!("等待产物文件锁超时: {}", path.display());
                 }
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::sleep(LOCK_POLL_INTERVAL);
             }
-            Err(error) => panic!("创建产物文件锁失败（{}）: {error}", path.display()),
+            Err(fs::TryLockError::Error(error)) => {
+                panic!("创建产物文件锁失败（{}）: {error}", path.display())
+            }
         }
     }
 }
@@ -2331,4 +2337,41 @@ fn archi_drift幂等重导出字节零漂移() {
         text.contains(&format!("{ARCHI_DRIFT_WRAPPER}:")),
         "重导出后仍含 archi_drift 包装（无生成面回归）"
     );
+}
+
+/// 边界（锁的互斥面）：同进程第二个句柄在持锁期间 `try_lock` 必得
+/// `WouldBlock`——OS 文件锁的语义不依赖是否跨进程，故本用例无需并发调度即可
+/// 证明互斥成立（此前 `create_new` 方案在 Windows 上会因 delete-pending 返回
+/// `os error 5`，见 `lock()` 头注释）。
+#[test]
+fn 产物文件锁同进程第二句柄被拒() {
+    let _lock = lock();
+    let path = lock_file_path();
+    let second = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .expect("打开第二个句柄应成功（文件常驻，非 create_new）");
+    assert!(
+        matches!(second.try_lock(), Err(fs::TryLockError::WouldBlock)),
+        "持锁期间第二句柄必须被拒（WouldBlock 而非 os error 5）"
+    );
+    // 锁文件常驻：不因守卫释放而消失（删除会重开 delete-pending 窗口）
+    assert!(path.is_file(), "锁文件常驻（MUST NOT 在 Drop 中删除）");
+}
+
+/// 边界（释放语义）：守卫 `Drop` 后同一进程可立刻再次取锁，且锁文件仍在——
+/// 这是与旧实现的分水岭：旧 `Drop` 删文件（Windows 上留下 delete-pending 窗口），
+/// 新实现只关句柄（OS 自动释放锁）。
+#[test]
+fn 产物文件锁drop后立即可重取且文件常驻() {
+    {
+        let _guard = lock();
+    }
+    let path = lock_file_path();
+    assert!(path.is_file(), "Drop 后锁文件常驻（MUST NOT 删除）");
+    // 立即重取：锁已随句柄关闭释放，无需等待轮询
+    let _again = lock();
 }
