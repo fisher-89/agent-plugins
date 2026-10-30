@@ -220,13 +220,7 @@ fn continue_session_id(open: &SessionOpen) -> Option<String> {
     }
 }
 
-/// rig 模型组装（协议唯一分叉处）：两臂同产 `DynModel<Completion>`，故
-/// `loop` / `normalize` / `resume` / core 全链协议中立零改动。
-///
-/// - openai 臂：与变更前逐字等价（不追加任何请求参数——`max_tokens` 保持
-///   省略，各网关对超限行为不一）；
-/// - anthropic 臂：条件追加 `anthropic-beta`（`[1m]` 后缀在场）+ 定型 wire
-///   默认输出上限（取值链见 [`resolve_output_tokens`]）。
+/// rig 模型组装
 pub(crate) fn build_model(
     config: &EngineConfig,
     spec: &ModelSpec,
@@ -238,9 +232,11 @@ pub(crate) fn build_model(
             .chat(spec.name.clone())
             .erase(),
         Protocol::Anthropic => {
-            let mut model = anthropic_provider(config, spec)
-                .client()
-                .completion(spec.name.clone());
+            let mut model = with_prompt_cache(
+                anthropic_provider(config, spec)
+                    .client()
+                    .completion(spec.name.clone()),
+            );
             // 定型 wire 默认上限：wire `encode` 在请求 `max_tokens` 缺席时取该
             // 值，故 `loop` / `compact` 的 `max_tokens: None` 保持零改动
             model.wire.default_max_tokens = Some(resolve_output_tokens(
@@ -252,18 +248,20 @@ pub(crate) fn build_model(
     }
 }
 
-/// openai 端点配置（协议臂内可测接缝）：`base_url` 原样承接（openai 契约要求
-/// 含版本段，引擎不改写）。`build_model` 单点消费，测试相位直断描述面。
+/// anthropic 模型的前缀缓存装配
+pub(crate) fn with_prompt_cache(
+    mut model: rig::Model<rig::providers::anthropic::Messages>,
+) -> rig::Model<rig::providers::anthropic::Messages> {
+    model.wire = model.wire.with_automatic_caching();
+    model
+}
+
+/// openai 端点配置
 pub(crate) fn openai_provider(config: &EngineConfig) -> OpenAIConfig {
     OpenAIConfig::new(config.api_key.clone()).with_base_url(config.base_url.clone())
 }
 
-/// anthropic 端点配置（协议臂内可测接缝）：`base_url` 归一化 + 该档模型名带
-/// `[1m]` 后缀时的 1M beta 头。`build_model` 单点消费，测试相位直断 betas /
-/// base_url 归一化面。
-///
-/// 1M 上下文 beta：仅 anthropic 协议且该档模型名带 `[1m]` 后缀时发（无模型
-/// 元数据表 → 不做白名单校验，网关拒绝以 api_error 显式暴露）。
+/// anthropic 端点配置
 pub(crate) fn anthropic_provider(config: &EngineConfig, spec: &ModelSpec) -> AnthropicConfig {
     let provider =
         AnthropicConfig::new(config.api_key.clone()).with_base_url(config.base_url.as_str());

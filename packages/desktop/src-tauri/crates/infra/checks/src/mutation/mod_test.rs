@@ -1122,16 +1122,20 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
     assert_eq!(records.len(), 2, "两 suite 各恰一次假 spawn");
     assert_eq!(records[0].argv[0], "mutants");
     assert_eq!(
-        records[0].argv[1], "--workspace",
+        records[0].argv[1], "--test-tool=nextest",
+        "测试工具档（测试框架统一为 nextest）"
+    );
+    assert_eq!(
+        records[0].argv[2], "--workspace",
         "workspace 突变面（混合 workspace 全成员）"
     );
     assert!(
-        records[0].argv[3].contains("app_rust"),
+        records[0].argv[4].contains("app_rust"),
         "suite1 段补丁路径: {:?}",
         records[0].argv
     );
     assert!(
-        records[1].argv[3].contains("src-tauri_rust"),
+        records[1].argv[4].contains("src-tauri_rust"),
         "suite2 段补丁路径: {:?}",
         records[1].argv
     );
@@ -1566,8 +1570,12 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     let records = window.records();
     assert_eq!(records.len(), 1, "真实 execute 主链恰一次假 spawn");
     assert_eq!(records[0].argv[0], "mutants", "argv 首 token");
-    assert_eq!(records[0].argv[1], "--workspace", "workspace 突变面");
-    assert_eq!(records[0].argv[2], "--in-diff", "段补丁入参位");
+    assert_eq!(
+        records[0].argv[1], "--test-tool=nextest",
+        "测试工具档（测试框架统一为 nextest）"
+    );
+    assert_eq!(records[0].argv[2], "--workspace", "workspace 突变面");
+    assert_eq!(records[0].argv[3], "--in-diff", "段补丁入参位");
 
     // 审计行（StepKind::MutationTest，摘要携 conclusion / score / threshold）
     let rows = store.audit_rows();

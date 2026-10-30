@@ -19,7 +19,17 @@ const MAX_READ_LINES: usize = 2000;
 
 /// L1 单结果字节上限（上下文防线第一层）：全工具统一收口（Ok / Err 双路），
 /// 超限截断留痕；bash 输出同归此层。
-const MAX_RESULT_BYTES: usize = 30_000;
+///
+/// MUST 高于 L2 单结果 prune 门槛（8k tokens ≈ 32KB）——两层是「新结果封顶 /
+/// 老结果淘汰」的关系，上限低于门槛会让 L2 第一层永不命中。
+const MAX_RESULT_BYTES: usize = 50_000;
+
+/// 大文件预览阈值（字节）：未给 `offset` / `limit` 且文件超此体量时，read 只
+/// 返回前 [`PREVIEW_LINES`] 行 + 分页提示（避免一次把整份大文件灌进上下文）。
+const LARGE_FILE_BYTES: u64 = 100 * 1024;
+
+/// 大文件预览行数上限（`LARGE_FILE_BYTES` 触发时的缺省窗口）。
+const PREVIEW_LINES: usize = 100;
 
 /// 七通用工具封闭集基准面：policy 决策表与 compose 注入子集校验的基准；
 /// `RunStarted.tools` 与 loop 成员校验自 [`definitions`] 本体派生（下发面
@@ -155,7 +165,9 @@ fn generic_definition(name: &str) -> ToolDefinition {
             name: "read".to_owned(),
             description:
                 "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）；\
-                          单次至多 2000 行，超限截断留痕，可用 offset 翻页读取后续窗口"
+                          单次至多 2000 行，超限截断留痕，可用 offset 翻页读取后续窗口。\
+                          未指定 offset / limit 且文件较大时只预览前 100 行并提示分页——\
+                          需要整读请显式给 offset / limit"
                     .to_owned(),
             parameters: serde_json::json!({
                 "type": "object",
@@ -303,22 +315,32 @@ pub(crate) fn cap_result(text: String) -> String {
 /// read：行号前缀输出（`行号\t内容`，cat -n 形态），offset（1 起始）与
 /// limit 截取；单次至多 [`MAX_READ_LINES`] 行（缺省与显式 limit 同上限），
 /// 截断时尾部留痕「已截断，可用 offset 翻页」。
+///
+/// **大文件预览**：未给 `offset` / `limit` 且文件体量超 [`LARGE_FILE_BYTES`]
+/// 时，缺省窗口收窄为前 [`PREVIEW_LINES`] 行，并在尾部明示总行数与翻页式
+/// ——大文件（如上千行 spec / 生成产物）一次整读会在后续每个请求里整段重发，
+/// 是上下文体积最大的单点来源。显式 offset / limit 恒按调用方窗口执行。
 async fn read(input: &Value) -> Result<String, String> {
     let path = string_field(input, "path")?;
-    let offset = input
-        .get("offset")
-        .and_then(Value::as_u64)
-        .map(|n| n.max(1) as usize)
-        .unwrap_or(1);
-    let limit = input
-        .get("limit")
-        .and_then(Value::as_u64)
-        .map(|n| (n as usize).min(MAX_READ_LINES))
-        .unwrap_or(MAX_READ_LINES);
+    let explicit_offset = input.get("offset").and_then(Value::as_u64);
+    let explicit_limit = input.get("limit").and_then(Value::as_u64);
+    let offset = explicit_offset.map(|n| n.max(1) as usize).unwrap_or(1);
     let text = tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| format!("读取失败: {e}"))?;
     let lines: Vec<&str> = text.lines().collect();
+    // 大文件预览：仅「两参皆缺」的整读形态收窄（显式窗口恒按调用方意图）
+    let preview = explicit_offset.is_none()
+        && explicit_limit.is_none()
+        && text.len() as u64 > LARGE_FILE_BYTES;
+    let default_limit = if preview {
+        PREVIEW_LINES
+    } else {
+        MAX_READ_LINES
+    };
+    let limit = explicit_limit
+        .map(|n| (n as usize).min(MAX_READ_LINES))
+        .unwrap_or(default_limit);
     let start = (offset - 1).min(lines.len());
     let end = (start + limit).min(lines.len());
     let numbered: Vec<String> = lines[start..end]
@@ -331,13 +353,25 @@ async fn read(input: &Value) -> Result<String, String> {
     }
     let mut body = numbered.join("\n");
     if end < lines.len() {
-        body.push_str(&format!(
-            "\n（已截断：本段为第 {}-{} 行，文件共 {} 行，可用 offset={} 翻页读取后续窗口）",
-            start + 1,
-            end,
-            lines.len(),
-            end + 1
-        ));
+        if preview {
+            body.push_str(&format!(
+                "\n（大文件预览：本段仅第 {}-{} 行，文件共 {} 行（{} 字节，超 {} 字节预览阈值）；\
+                 请按需用 offset / limit 分页读取，或改用 grep 定位目标行）",
+                start + 1,
+                end,
+                lines.len(),
+                text.len(),
+                LARGE_FILE_BYTES
+            ));
+        } else {
+            body.push_str(&format!(
+                "\n（已截断：本段为第 {}-{} 行，文件共 {} 行，可用 offset={} 翻页读取后续窗口）",
+                start + 1,
+                end,
+                lines.len(),
+                end + 1
+            ));
+        }
     }
     Ok(body)
 }

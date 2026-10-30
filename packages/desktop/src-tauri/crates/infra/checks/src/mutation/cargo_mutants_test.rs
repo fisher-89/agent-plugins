@@ -187,10 +187,10 @@ fn env_of(record: &SpawnRecord, key: &str) -> Option<String> {
 }
 
 /// 正向：**spawn 模板展开 + 段报告权威落位**——argv 逐参等值（`mutants
-/// --workspace --in-diff <段补丁> --baseline skip --jobs <半 CPU> --timeout
-/// 300`，AC-4）+ spawn cwd 捕获 + `CARGO_TARGET_DIR` env 面捕获 + 段报告 =
-/// `mutants.out/outcomes.json` 原样（真实工具全形态 canned，解析对拍 1 killed +
-/// 1 missed）。
+/// --test-tool=nextest --workspace --in-diff <段补丁> --baseline skip --jobs
+/// <半 CPU> --timeout 300`，AC-4）+ spawn cwd 捕获 + `CARGO_TARGET_DIR` env
+/// 面捕获 + 段报告 = `mutants.out/outcomes.json` 原样（真实工具全形态 canned，
+/// 解析对拍 1 killed + 1 missed）。
 #[tokio::test]
 async fn spawn模板展开_argv逐参等值与报告权威落位() {
     let ws = SpawnWs::new("argv");
@@ -219,23 +219,27 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     let records = window.records();
     assert_eq!(records.len(), 1, "恰一次假 spawn");
     let argv = &records[0].argv;
-    assert_eq!(argv.len(), 10, "argv 十参封闭: {argv:?}");
+    assert_eq!(argv.len(), 11, "argv 十一参封闭: {argv:?}");
     assert_eq!(argv[0], "mutants", "argv 首 token（cargo 子命令面）");
     assert_eq!(
-        argv[1], "--workspace",
+        argv[1], "--test-tool=nextest",
+        "测试工具档（测试框架统一为 nextest，cargo-mutants 须同档执行）"
+    );
+    assert_eq!(
+        argv[2], "--workspace",
         "workspace 突变面（混合 workspace 全成员扫描）"
     );
-    assert_eq!(argv[2], "--in-diff", "段补丁入参位");
+    assert_eq!(argv[3], "--in-diff", "段补丁入参位");
     assert!(
-        argv[3].replace('\\', "/").ends_with("mutation-seg-0.patch"),
+        argv[4].replace('\\', "/").ends_with("mutation-seg-0.patch"),
         "--in-diff 携段补丁路径: {argv:?}"
     );
-    assert_eq!(argv[4], "--baseline", "baseline 位");
-    assert_eq!(argv[5], "skip", "baseline skip（AC-4）");
-    assert_eq!(argv[6], "--jobs", "jobs 位");
-    assert_eq!(argv[7], mutation_jobs().to_string(), "jobs = max(1, CPU/2)");
-    assert_eq!(argv[8], "--timeout", "timeout 位");
-    assert_eq!(argv[9], "300", "per-mutant 超时 300（argv 逐字）");
+    assert_eq!(argv[5], "--baseline", "baseline 位");
+    assert_eq!(argv[6], "skip", "baseline skip（AC-4）");
+    assert_eq!(argv[7], "--jobs", "jobs 位");
+    assert_eq!(argv[8], mutation_jobs().to_string(), "jobs = max(1, CPU/2)");
+    assert_eq!(argv[9], "--timeout", "timeout 位");
+    assert_eq!(argv[10], "300", "per-mutant 超时 300（argv 逐字）");
 
     let cwd = records[0]
         .cwd
@@ -283,9 +287,9 @@ async fn cargo_target_dir多段共享_env断言同一不重置() {
     assert_eq!(records.len(), 2, "两段各恰一次假 spawn");
     for (index, record) in records.iter().enumerate() {
         assert_eq!(record.argv[0], "mutants", "段 {index} argv 首 token");
-        assert_eq!(record.argv[2], "--in-diff");
+        assert_eq!(record.argv[3], "--in-diff");
         assert!(
-            record.argv[3]
+            record.argv[4]
                 .replace('\\', "/")
                 .ends_with(&format!("mutation-seg-{index}.patch")),
             "段 {index} --in-diff 携各自段补丁: {:?}",
@@ -422,7 +426,7 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
     assert_eq!(records.len(), 1, "恰一次假 spawn");
     assert_eq!(records[0].argv[0], "mutants");
     assert_eq!(
-        records[0].argv.get(2).map(String::as_str),
+        records[0].argv.get(3).map(String::as_str),
         Some("--in-diff")
     );
 }
@@ -528,9 +532,9 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
         // argv 面：路径完整（超大 / 特殊字符内容零进 argv）
         let records = window.records();
         assert_eq!(records.len(), 1, "段 {index} 恰一次假 spawn");
-        assert_eq!(records[0].argv[2], "--in-diff");
+        assert_eq!(records[0].argv[3], "--in-diff");
         assert!(
-            records[0].argv[3]
+            records[0].argv[4]
                 .replace('\\', "/")
                 .ends_with(&format!("mutation-seg-{index}.patch")),
             "段 {index} --in-diff 路径完整: {:?}",

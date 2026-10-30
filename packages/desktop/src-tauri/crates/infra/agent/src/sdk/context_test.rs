@@ -17,9 +17,10 @@ fn l2_threshold_of(window: u64) -> u64 {
     window * 3 / 4
 }
 
-/// 小窗防线（window = 64 → L2 水位 48 tokens）：少 tokens 即触线的测试底座。
+/// 小窗防线：标称窗 107 → 生效窗 64（×60% 取整）→ L2 水位 48 tokens。
+/// 少 tokens 即触线的测试底座（标称值按 60% 折算口径反推）。
 fn defense_small() -> ContextDefense {
-    ContextDefense::resolve(Some(64))
+    ContextDefense::resolve(Some(107))
 }
 
 /// user 消息的序列化常数开销（信封底数），供精确 tokens 构造。
@@ -104,32 +105,35 @@ fn has_any_tool_result(history: &[Message]) -> bool {
 // resolve：窗长解析与水位推导（AC-9 消费半边）
 // ---------------------------------------------------------------------------
 
+/// 防线生效窗长（标称窗长 × 60%，400k 封顶）。
+fn effective_window_of(window: u64) -> u64 {
+    (window * 3 / 5).min(400 * 1024)
+}
+
 #[test]
 fn resolve显式窗长承接且水位按比例推导() {
     let defense = ContextDefense::resolve(Some(200_000));
 
-    // L2 水位 = 75%（150_000）：恰水位不过线（严格大于），超 1 过线
+    // 生效窗长 = 200_000 × 60% = 120_000 → L2 水位 90_000
+    let l2 = l2_threshold_of(effective_window_of(200_000));
+    assert_eq!(l2, 90_000, "200K 标称窗的防线 L2 水位");
     assert_eq!(
-        estimate_history(&[user_at_tokens(150_000)]),
-        150_000,
+        estimate_history(&[user_at_tokens(l2)]),
+        l2,
         "精确 tokens 构造自洽（自校准基座）"
     );
+    assert!(!defense.over_l2(&[user_at_tokens(l2)]), "恰 75% 水位不过线");
     assert!(
-        !defense.over_l2(&[user_at_tokens(150_000)]),
-        "恰 75% 水位不过线"
-    );
-    assert!(
-        defense.over_l2(&[user_at_tokens(150_001)]),
+        defense.over_l2(&[user_at_tokens(l2 + 1)]),
         "超 1 过线（阈值推导 0.75 承接）"
     );
 
-    // L3 水位 = 90%（180_000）：恰水位不过线，超 1 过线
+    // L3 水位 = 90% 生效窗长 = 108_000：恰水位不过线，超 1 过线
+    let l3 = effective_window_of(200_000) * 9 / 10;
+    assert_eq!(l3, 108_000, "200K 标称窗的防线 L3 水位");
+    assert!(!defense.over_l3(&[user_at_tokens(l3)]), "恰 90% 水位不过线");
     assert!(
-        !defense.over_l3(&[user_at_tokens(180_000)]),
-        "恰 90% 水位不过线"
-    );
-    assert!(
-        defense.over_l3(&[user_at_tokens(180_001)]),
+        defense.over_l3(&[user_at_tokens(l3 + 1)]),
         "超 1 过线（阈值推导 0.90 承接）"
     );
 }
@@ -138,9 +142,9 @@ fn resolve显式窗长承接且水位按比例推导() {
 fn resolve缺席走128k缺省启发式() {
     let defense = ContextDefense::resolve(None);
 
-    // 缺省窗 128 * 1024 → L2 水位 98_304：边界两侧精准判别
-    let boundary = l2_threshold_of(128 * 1024);
-    assert_eq!(boundary, 98_304, "128K 缺省窗的 L2 水位推导");
+    // 缺省窗 128 * 1024 → 生效 78_643 → L2 水位 58_982：边界两侧精准判别
+    let boundary = l2_threshold_of(128 * 1024 * 3 / 5);
+    assert_eq!(boundary, 58_982, "128K 缺省窗的防线 L2 水位推导");
     assert!(
         !defense.over_l2(&[user_at_tokens(boundary)]),
         "恰水位不过线"
@@ -156,7 +160,7 @@ fn resolve退化窗长落入缺省且防线不塌缩为空史() {
     // Some(0) 非法退化：与 None 同走 128K 缺省（水位判别一致）
     let degenerate = ContextDefense::resolve(Some(0));
     let default = ContextDefense::resolve(None);
-    let boundary = l2_threshold_of(128 * 1024);
+    let boundary = l2_threshold_of(effective_window_of(128 * 1024));
     assert_eq!(
         degenerate.over_l2(&[user_at_tokens(boundary + 1)]),
         default.over_l2(&[user_at_tokens(boundary + 1)]),
@@ -164,7 +168,7 @@ fn resolve退化窗长落入缺省且防线不塌缩为空史() {
     );
 
     // 防线下界不塌缩：退化窗长下 prune / hard_prune 仍保首条 user + 保护窗
-    // （filler 抬至 150k tokens，越过缺省 128K 的 L2 水位 98_304）
+    // （filler 抬至 150k tokens，越过缺省 128K 的防线 L2 水位 58_982）
     let history = vec![
         Message::user("任务书"),
         assistant_with_call("tu_big"),
@@ -289,9 +293,9 @@ fn prune老工具结果占位符替换且tool_use配对完整() {
 }
 
 #[test]
-fn prune单体门槛恰边界_恰20k不裁超1即裁() {
-    // 恰 20k tokens（20480）：不越门槛 → 不裁（历史原样、零 notice）
-    let at_threshold = oversized_history("tu_edge", 20_480);
+fn prune单体门槛恰边界_恰8k不裁超1即裁() {
+    // 恰 8k tokens（8192）：不越门槛 → 不裁（历史原样、零 notice）
+    let at_threshold = oversized_history("tu_edge", 8_192);
     let at_threshold_estimate = estimate_history(&at_threshold);
     let (unchanged, notices) = prune(at_threshold.clone(), &defense_small());
     assert!(
@@ -309,7 +313,7 @@ fn prune单体门槛恰边界_恰20k不裁超1即裁() {
     );
 
     // 超 1：越门槛 → 占位符替换（恰阈值过 / 超 1 截断）
-    let over = oversized_history("tu_edge", 20_481);
+    let over = oversized_history("tu_edge", 8_193);
     let (pruned, notices) = prune(over, &defense_small());
     let placeholder = tool_result_text(&pruned, "tu_edge").expect("tool_result 仍在");
     assert!(
@@ -567,22 +571,28 @@ fn hard_prune产出恰一条context_compacted降级notice() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn window返回生效窗长_显式值与后缀档一百万均原样() {
+fn window返回折算后的防线窗长_标称窗按60pct且400k封顶() {
     assert_eq!(
         ContextDefense::resolve(Some(200_000)).window(),
-        200_000,
-        "显式窗长原样返回（context_length 档）"
+        120_000,
+        "显式窗长按 60% 折算（context_length 档不再原样当作防线窗长）"
     );
-    // 后缀档的窗长来源在 runner 侧 `spec.length.or(...)` 解析后照旧传入
+    // 后缀档的窗长来源在 runner 侧 `spec.length.or(...)` 解析后照旧传入，
+    // 但 1M 标称窗被 400k 上界封顶（成本护栏：模型支持 1M ≠ 防线可用 1M）
     assert_eq!(
         ContextDefense::resolve(Some(1_000_000)).window(),
-        1_000_000,
-        "1M 后缀档原样返回（1000 进制，与 128K 缺省 1024 基口径互不干扰）"
+        400 * 1024,
+        "1M 后缀档封顶 400k（60% 折算后 600k → 取小 400k）"
+    );
+    assert_eq!(
+        ContextDefense::resolve(Some(1_000_000)).window(),
+        ContextDefense::resolve(Some(u64::MAX)).window(),
+        "上界之上任意标称窗长同值（封顶单点）"
     );
     assert_eq!(
         ContextDefense::resolve(Some(1)).window(),
-        1,
-        "最小非零窗长原样（resolve 只归一化 0 / None）"
+        0,
+        "极小标称窗折算后为 0（水位推导饱和不失真）"
     );
 }
 
@@ -590,12 +600,12 @@ fn window返回生效窗长_显式值与后缀档一百万均原样() {
 fn window缺省归一化留resolve单点_零与缺席同走128k() {
     assert_eq!(
         ContextDefense::resolve(None).window(),
-        128 * 1024,
-        "缺席 → 128K 缺省生效值"
+        128 * 1024 * 3 / 5,
+        "缺席 → 128K 缺省标称窗按 60% 折算为防线生效值"
     );
     assert_eq!(
         ContextDefense::resolve(Some(0)).window(),
-        128 * 1024,
+        128 * 1024 * 3 / 5,
         "「0 → 缺省」归一化留本模块单点，调用方不重算"
     );
     assert_eq!(
@@ -607,13 +617,13 @@ fn window缺省归一化留resolve单点_零与缺席同走128k() {
 
 #[test]
 fn window只读无副作用且与水位阈值同源() {
-    let defense = ContextDefense::resolve(Some(64));
-    assert_eq!(defense.window(), 64, "首次读取生效值");
+    let defense = ContextDefense::resolve(Some(107));
+    assert_eq!(defense.window(), 64, "首次读取生效值（107 × 60% = 64）");
     assert_eq!(defense.window(), 64, "重复调用恒等（无副作用、不消耗状态）");
 
     // getter 不复制水位常量：窗长与 L2 / L3 水位推导一致（64 → L2 48 / L3 57）
     let l2 = l2_threshold_of(defense.window());
-    assert_eq!(l2, 48, "L2 水位 = 窗长 × 3/4");
+    assert_eq!(l2, 48, "L2 水位 = 生效窗长 × 3/4");
     assert!(
         !defense.over_l2(&[user_at_tokens(l2)]),
         "恰 L2 水位不过线（getter 值与阈值推导同源）"
@@ -637,7 +647,7 @@ fn window只读无副作用且与水位阈值同源() {
 #[test]
 fn window极大窗长下阈值推导不溢出且不误触线() {
     let huge = ContextDefense::resolve(Some(u64::MAX));
-    assert_eq!(huge.window(), u64::MAX, "极大窗长原样生效");
+    assert_eq!(huge.window(), 400 * 1024, "极大标称窗长封顶 400k");
 
     // 阈值推导走饱和乘：不 panic / 不回绕为 0（回绕会让任意史误触线）
     assert!(

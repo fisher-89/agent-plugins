@@ -10,7 +10,7 @@ use crate::sdk::config::{EngineConfig, Protocol};
 use crate::sdk::model_spec::{parse_model_spec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW};
 use crate::sdk::runner::{
     anthropic_provider, build_model, mint_archi_context, openai_provider, resolve_output_tokens,
-    SdkRunner, MIN_OUTPUT_TOKENS,
+    with_prompt_cache, SdkRunner, MIN_OUTPUT_TOKENS,
 };
 use crate::sdk::tools::ARCHI_MODULE_TOOL;
 use crate::{EngineFacade, EngineKind, ResumeTranscript};
@@ -1106,6 +1106,34 @@ fn 双臂组装_anthropic臂描述名为anthropic且id为裸名() {
 }
 
 #[test]
+fn anthropic臂显式开启自动前缀缓存_openai臂不追加任何缓存参数() {
+    // anthropic 臂：wire 装配期即开 `automatic_caching`——请求体据此带
+    // top-level `cache_control`，缓存命中不再依赖网关自发行为
+    let cfg = anthropic_config("claude-sonnet-4-5", "claude-haiku-4-5");
+    let spec = parse_model_spec(&cfg.model_high).expect("无后缀解析成功");
+    let provider = anthropic_provider(&cfg, &spec);
+    let wire = provider.client().completion(&spec.name);
+    assert!(
+        !wire.wire.automatic_caching,
+        "前置自检：rig 缺省未开自动缓存（本改动的前提）"
+    );
+    let wired = with_prompt_cache(wire);
+    assert!(
+        wired.wire.automatic_caching,
+        "anthropic 臂经 with_prompt_cache 开启 top-level cache_control"
+    );
+    assert!(
+        !wired.wire.prompt_caching,
+        "手动断点形态不启用（只开自动档，避免两套断点策略并存）"
+    );
+
+    // openai 臂无缓存装配概念（协议面无此字段，此处只锚组装不被污染）
+    let openai_spec = parse_model_spec("gpt-4o").expect("无后缀解析成功");
+    let model = build_model(&complete_config(), &openai_spec, None);
+    assert_eq!(model.name(), "openai", "openai 臂组装路径零改动");
+}
+
+#[test]
 fn base_url归一化_anthropic三形态不产生重复版本段() {
     // 三形态（裸域 / 带 /v1 / 带 /v1/messages）归一化后均无版本段后缀
     for raw in [
@@ -1403,7 +1431,8 @@ async fn 按档窗长_context_length与128k缺省各按档生效() {
     );
     drop(session);
 
-    // 无后缀 + context_window 缺席 / Some(0)：128K 缺省 → 重建史未越线
+    // 无后缀 + context_window 缺席 / Some(0)：128K 缺省标称窗 → 生效 78_643
+    // → L2 水位 58_982，重建史（约 75k）越线剪裁
     for window in [None, Some(0)] {
         let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
         let default_window = SdkRunner::new(complete_config(), Some(resume), window, None);
@@ -1419,8 +1448,8 @@ async fn 按档窗长_context_length与128k缺省各按档生效() {
             .expect("问题送达");
         let first = session.observations.recv().await.expect("首事件");
         assert!(
-            matches!(&first, AgentEventKind::RunStarted { .. }),
-            "窗长 {window:?} 走 128K 缺省（重建史未越线），实际: {first:?}"
+            matches!(&first, AgentEventKind::SystemNotice { .. }),
+            "窗长 {window:?} 走 128K 缺省（生效窗 60% → L2 越线），实际: {first:?}"
         );
         drop(session);
     }
@@ -1954,10 +1983,9 @@ async fn 重复装配后者覆盖且三旁路载荷任意序链不打架() {
             "{label}：开关被他载荷覆盖，实际: {line}"
         );
         assert!(
-            line.contains("window=200000"),
-            "{label}：窗长载荷保真（new 参不被旁路覆盖），实际: {line}"
-        );
-    }
+            line.contains("window=120000"),
+            "{label}：窗长载荷保真（200000 标称窗按 60% 折算为 120000），实际: {line}"
+        );    }
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "private": true,
   "scripts": {
     "dev": "tauri dev",
@@ -18,8 +18,8 @@
     "server:check": "cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml",
     "test": "pnpm run client:test && pnpm run server:test",
     "client:test": "vp test --sequence.shuffle",
-    "server:test": "cargo test --workspace --manifest-path src-tauri/Cargo.toml",
-    "mutate": "stryker run && cd src-tauri && cargo mutate",
+    "server:test": "cargo nextest --workspace --manifest-path src-tauri/Cargo.toml",
+    "mutate": "stryker run && cd src-tauri && cargo mutate --test-tool=nextest",
     "tauri": "tauri"
   },
   "dependencies": {

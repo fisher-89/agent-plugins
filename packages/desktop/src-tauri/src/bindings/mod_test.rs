@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 
 use crate::bindings::export_bindings;
 
@@ -21,16 +20,64 @@ fn dto_shim_path() -> PathBuf {
         .join("src/types/dto.ts")
 }
 
-/// 产物文件互斥锁（cargo test 多线程并行，单一共享产物必须串行访问）。
-fn file_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+/// 产物文件互斥（**跨进程**）：单一共享产物（`src/types/generated/`）由多个
+/// 测试独占改写（篡改 → 重导出 → 比对），必须串行。
+///
+/// 用独占创建锁文件实现而非进程内 `Mutex`：测试框架已切到 nextest，每个测试
+/// 跑在**独立进程**里，进程内互斥对它完全无效——两个用例会同时改写同一份
+/// 产物并互判定为「篡改未恢复」。锁文件路径固定在 target 下，进程崩溃留下
+/// 的残留锁以 mtime 老化兜底（超过 [`STALE_LOCK_AFTER`] 视为陈旧并夺取）。
+fn lock_file_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("bindings-test.lock")
 }
 
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    file_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// 陈旧锁阈值：正常用例在秒级完成，残留锁超过该时长视为上个进程已死。
+const STALE_LOCK_AFTER: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// 跨进程互斥守卫：持锁期间独占产物目录，`Drop` 时删除锁文件释放。
+struct FileLock(PathBuf);
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn lock() -> FileLock {
+    let path = lock_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let deadline = std::time::Instant::now() + STALE_LOCK_AFTER;
+    loop {
+        // `create_new` 原子独占：成功即持锁
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return FileLock(path),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // 陈旧锁夺取：上次进程异常退出未删锁
+                let stale = fs::metadata(&path)
+                    .and_then(|meta| meta.modified())
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age > STALE_LOCK_AFTER);
+                if stale {
+                    let _ = fs::remove_file(&path);
+                    continue;
+                }
+                if std::time::Instant::now() > deadline {
+                    panic!("等待产物文件锁超时: {}", path.display());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(error) => panic!("创建产物文件锁失败（{}）: {error}", path.display()),
+        }
+    }
 }
 
 /// 权威产物快照：重导出（幂等确定性）后读取字节。

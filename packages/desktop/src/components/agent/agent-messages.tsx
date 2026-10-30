@@ -9,10 +9,11 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
+import { Spinner } from '@/components/ui/spinner';
+import type { AgentToolPart, AgentUIMessage } from '@/lib/agent-adapter';
+import { asRecord, textOf } from '@/lib/parse';
+import type { AgentCitation } from '@/types/dto';
 
-import type { AgentToolPart, AgentUIMessage } from '../../lib/agent-adapter';
-import { asRecord, textOf } from '../../lib/parse';
-import type { AgentCitation } from '../../types/dto';
 import { TextBlock, ThinkingBlock, ToolPairCard, isToolPart } from './agent-blocks';
 import { DEFAULT_TOOL_CARDS } from './tool-cards';
 
@@ -230,11 +231,6 @@ export function AgentMessages({
         className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg border border-border bg-card"
         data-testid="agent-messages"
       >
-        {running && (
-          <span className="p-3 text-muted-foreground" data-testid="agent-messages-running">
-            运行中…
-          </span>
-        )}
         {loading && visibleMessages.length === 0 ? (
           <div className="p-3 text-muted-foreground" data-testid="agent-messages-loading">
             会话还原中…
@@ -245,6 +241,12 @@ export function AgentMessages({
             remaining={remaining}
             onReachTop={loadMore}
           />
+        )}
+        {running && (
+          <span className="p-3 text-muted-foreground" data-testid="agent-messages-running">
+            <Spinner />
+            运行中…
+          </span>
         )}
       </section>
     </MessageScrollerProvider>

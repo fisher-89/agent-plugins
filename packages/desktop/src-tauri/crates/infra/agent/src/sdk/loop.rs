@@ -15,7 +15,7 @@ use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::protect::ProtectRules;
-use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools, web_search};
+use crate::sdk::{compact, context, normalize, policy, preamble, resume, sandbox, tools, web_search};
 
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";
@@ -366,11 +366,13 @@ pub(crate) async fn run(
             }
             // 密封收口：choice 全部块收进恰一条密封 Message（role=assistant，
             // 增量层在传输面的 provisional 让位即同键替换）。块语义单点：
-            // `web_search::project_choice`（server 块投影 + 客户端工具调用）
+            // `web_search::project_choice`（server 块投影 + 客户端工具调用）。
+            // 入史前剔除思考块（与 resume 重建同口径，见 `resume::without_reasoning`）；
+            // `choice` 的完整形态仍经 `blocks` 落转录，时间线可读
             let (blocks, tool_calls) = web_search::project_choice(&choice);
             history.push(Message::Assistant {
                 id: None,
-                content: choice,
+                content: resume::without_reasoning(choice),
             });
             if sender
                 .send(AgentEventKind::Message {

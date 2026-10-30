@@ -8,24 +8,45 @@ use crate::sdk::web_search;
 /// 缺省窗长（token 数）：provider 记录 `context_length` 缺席时的 128K 启发式。
 const DEFAULT_CONTEXT_WINDOW: u64 = 128 * 1024;
 
+/// 防线窗长上界（token 数）：模型标称窗长再大，防线也按此封顶。
+///
+/// 成本护栏——模型支持 1M 不代表应当喂满 1M：请求史每轮整段重发，上下文
+/// 体积是缓存命中 token 量的唯一乘数（实测生产会话 98% 的 input 都是缓存
+/// 命中的重发）。`[1m]` 后缀档自此只影响 anthropic beta 头与请求可达上限，
+/// MUST NOT 把防线水位一起抬到 1M（那等于防线永不触发）。
+const MAX_DEFENSE_WINDOW: u64 = 400 * 1024;
+
+/// 防线窗长占标称窗长的比例（60%）：余量覆盖响应 token 与字节启发式估算
+/// 误差（bytes ÷ 4 对中文高估不足 2 倍），比例取值与 [`MAX_DEFENSE_WINDOW`]
+/// 取小值生效。
+const DEFENSE_WINDOW_RATIO_NUM: u64 = 3;
+const DEFENSE_WINDOW_RATIO_DEN: u64 = 5;
+
 /// 防线配置（引擎内部，不入 core 契约）：窗长 + 触发比（L2 75% / L3 90%，
 /// 由窗长导出）+ 保护窗 + 单结果 prune 门槛。
 pub(crate) struct ContextDefense {
     /// 上下文窗长（token 数；来源优先级：该档模型名 `[1m]` 后缀 > provider
     /// `context_length` > 128K 缺省启发式——后缀 / 填列的解析在调用点完成，
-    /// 本字段只承载生效值）
+    /// 本字段只承载生效值；标称窗长再经 [`Self::effective_window`] 折算为
+    /// 防线窗长）
     context_window: u64,
     /// 保护窗（40k tokens）：最近历史不参与剪裁（余量覆盖响应 token 与
     /// 估算误差）
     protected_tokens: u64,
-    /// 单结果 prune 门槛（20k tokens）：单体超门槛的老 tool_result 才裁
+    /// 单结果 prune 门槛（8k tokens）：单体超门槛的老 tool_result 才裁。
+    ///
+    /// MUST 低于 L1 单结果上限（`MAX_RESULT_BYTES` 50KB ≈ 12.5k tokens）——
+    /// 否则本层永不命中（L1 已把每条结果压在上限内）。
     prune_threshold: u64,
 }
 
 impl ContextDefense {
     /// 窗长解析：provider `context_length` 缺席（或非法 0）走 128K 缺省；
-    /// 触发比 75% / 90% 与保护窗 40k、prune 门槛 20k 为 design 拍板定值
+    /// 触发比 75% / 90% 与保护窗 40k、prune 门槛 8k 为 design 拍板定值
     /// （阈值常数留实现期微调窗，结构不动）。
+    ///
+    /// `context_window` 是**标称**窗长，水位推导一律经 [`Self::window`]
+    /// 取折算后的防线窗长（标称值本身不参与任何判定）。
     pub(crate) fn resolve(context_window: Option<u64>) -> Self {
         let context_window = match context_window {
             Some(window) if window > 0 => window,
@@ -34,21 +55,33 @@ impl ContextDefense {
         Self {
             context_window,
             protected_tokens: 40 * 1024,
-            prune_threshold: 20 * 1024,
+            prune_threshold: 8 * 1024,
         }
     }
 
-    /// L2 触发水位：窗长 75%——水位过线即请求前剪裁。
+    /// 生效防线窗长：标称窗长的 60% 与 [`MAX_DEFENSE_WINDOW`] 取小。
+    ///
+    /// 标注档（`[1m]`）自此不再拥有 1M 水位——成本护栏不随模型标称窗长放宽。
+    /// 饱和乘保证极端窗长推导不溢出。
+    fn effective_window(&self) -> u64 {
+        let ratio = self
+            .context_window
+            .saturating_mul(DEFENSE_WINDOW_RATIO_NUM)
+            / DEFENSE_WINDOW_RATIO_DEN;
+        ratio.min(MAX_DEFENSE_WINDOW)
+    }
+
+    /// L2 触发水位：防线窗长 75%——水位过线即请求前剪裁。
     ///
     /// 饱和乘：`Some(u64::MAX)` 类极端窗长下阈值推导不溢出（正常窗长区间
     /// 与 `window * 3 / 4` 逐值等价）。
     fn l2_threshold(&self) -> u64 {
-        self.context_window.saturating_mul(3) / 4
+        self.effective_window().saturating_mul(3) / 4
     }
 
-    /// L3 触发水位：窗长 90%——prune 后仍过线即 LLM compaction。
+    /// L3 触发水位：防线窗长 90%——prune 后仍过线即 LLM compaction。
     fn l3_threshold(&self) -> u64 {
-        self.context_window.saturating_mul(9) / 10
+        self.effective_window().saturating_mul(9) / 10
     }
 
     /// L2 触发判定：估算水位过 75% 窗长。
@@ -61,11 +94,12 @@ impl ContextDefense {
         estimate_history(history) > self.l3_threshold()
     }
 
-    /// 生效窗长（token 数；日志 / 诊断面只读访问）：返回**实际生效**值（含
-    /// 128K 缺省解析后的结果），供泵启动日志留痕——调用方不重算缺省，避免
-    /// 双源漂移。水位比 / 保护窗 / prune 门槛 / prune 与 compaction 语义零改。
+    /// 生效窗长（token 数；日志 / 诊断面只读访问）：返回**实际生效**值（标称
+    /// 窗长经 60% × 400k 封顶折算后、再经 128K 缺省解析的结果），供泵启动
+    /// 日志留痕——调用方不重算缺省与折算，避免双源漂移。水位比 / 保护窗 /
+    /// prune 门槛 / prune 与 compaction 语义零改。
     pub(crate) fn window(&self) -> u64 {
-        self.context_window
+        self.effective_window()
     }
 }
 

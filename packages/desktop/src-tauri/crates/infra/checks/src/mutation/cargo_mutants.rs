@@ -30,7 +30,7 @@ pub(crate) async fn run_segment(
     // （best-effort——目录缺席等失败不阻断，spawn 后报告在位即权威）
     let _ = std::fs::remove_dir_all(exec_dir.join(CARGO_MUTANTS_OUT_DIR));
     let command = SystemCommand::bare("cargo")
-        .args(["mutants", "--workspace", "--in-diff"])
+        .args(["mutants", "--test-tool=nextest", "--workspace", "--in-diff"])
         .arg(patch_path)
         .args(["--baseline", "skip", "--jobs"])
         .arg(mutation_jobs().to_string())

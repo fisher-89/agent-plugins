@@ -153,7 +153,7 @@ fn 链式续会话的第三轮重建史含全部前两轮往返() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 单条密封message收三块时重建为单条assistant消息不拆分() {
+fn 单条密封message收三块时思考不回放_正文与工具调用保真() {
     let transcript = vec![event(
         0,
         AgentEventKind::Message {
@@ -178,23 +178,54 @@ fn 单条密封message收三块时重建为单条assistant消息不拆分() {
     let Message::Assistant { content, .. } = &history[0] else {
         panic!("应为 assistant 消息");
     };
-    assert_eq!(content.len(), 3, "三块全部收进（Text+Thinking+ToolUse）");
+    assert_eq!(
+        content.len(),
+        2,
+        "思考块不进重建史（Text+ToolUse 两块）: {content:?}"
+    );
     assert!(matches!(
         &content[0],
         AssistantContent::Text(text) if text.text == "结论先行"
     ));
     assert!(
-        matches!(&content[1], AssistantContent::Reasoning(reasoning)
-            if reasoning.open(reasoning.issuer()).is_some_and(|value| value.display_text() == "推理过程")),
-        "Thinking → reasoning 块保真（本地发行方密封可开）"
+        !content
+            .iter()
+            .any(|item| matches!(item, AssistantContent::Reasoning(_))),
+        "Thinking 不回放（只留 store 转录）"
     );
     assert!(matches!(
-        &content[2],
+        &content[1],
         AssistantContent::ToolCall(tool_call)
             if tool_call.id.wire().as_ref() == "tu_1"
                 && tool_call.function.name.as_str() == "read"
                 && tool_call.function.arguments == serde_json::json!({ "path": "README.md" })
     ));
+}
+
+#[test]
+fn 仅思考的assistant消息保留原样_不产空内容() {
+    // 退化保护：剔除思考会让内容为空 → 原样返回（空 assistant 消息会被拒）
+    use crate::sdk::resume::without_reasoning;
+    use rig::message::Reasoning;
+
+    let only_reasoning = vec![AssistantContent::Reasoning(
+        Reasoning::new("只有思考").sealed(rig::message::Issuer::from_static("test")),
+    )];
+    assert_eq!(
+        without_reasoning(only_reasoning.clone()),
+        only_reasoning,
+        "仅思考内容原样保留（防空 assistant 消息）"
+    );
+
+    let mixed = vec![
+        AssistantContent::Reasoning(
+            Reasoning::new("思考").sealed(rig::message::Issuer::from_static("test")),
+        ),
+        AssistantContent::Text(rig::message::Text::new("正文")),
+    ];
+    let kept = without_reasoning(mixed);
+    assert_eq!(kept.len(), 1, "有实体内容时思考被剔除");
+    assert!(matches!(&kept[0], AssistantContent::Text(text) if text.text == "正文"));
 }
 
 // ---------------------------------------------------------------------------

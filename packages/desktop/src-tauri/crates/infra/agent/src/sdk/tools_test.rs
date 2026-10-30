@@ -297,9 +297,92 @@ async fn readlimit缺省与显式2000行为一致() {
 
     assert_eq!(
         default_read, explicit_read,
-        "缺省与显式 limit=2000 行为一致（缺省即上限口径）"
+        "缺省与显式 limit=2000 行为一致（缺省即上限口径，未触发大文件预览）"
     );
     assert!(default_read.contains("已截断"), "超限文件两形态均留痕");
+}
+
+// ---------------------------------------------------------------------------
+// read：大文件预览（未给 offset / limit 且体量超阈值 → 前 100 行 + 分页提示）
+// ---------------------------------------------------------------------------
+
+/// 构造超 [`LARGE_FILE_BYTES`] 的行式文本（每行 200 字节，600 行 ≈ 120KB）。
+fn large_file_body(lines: usize) -> String {
+    (1..=lines)
+        .map(|line| format!("L{line:<199}\n"))
+        .collect()
+}
+
+#[tokio::test]
+async fn read大文件未给分页参数时只预览前100行并提示分页() {
+    let dir = tempdir("read-large-preview");
+    let root = root_of(&dir);
+    let body = large_file_body(600);
+    assert!(body.len() as u64 > 100 * 1024, "fixture 越过大文件阈值");
+    let path = write_rel(&root, "large.txt", &body);
+
+    let output = execute(&root, "read", &json!({ "path": path }))
+        .await
+        .expect("读取成功");
+
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 101, "前 100 行 + 1 行预览留痕: {}", lines.len());
+    assert!(output.contains("   100\tL100"), "第 100 行在场");
+    assert!(!output.contains("   101\tL101"), "第 101 行不在预览窗口");
+    let tail = lines.last().expect("留痕尾行");
+    assert!(
+        tail.contains("大文件预览") && tail.contains("共 600 行"),
+        "尾行明示总行数与预览语义: {tail}"
+    );
+    assert!(
+        tail.contains("offset") && tail.contains("limit"),
+        "尾行提示分页参数: {tail}"
+    );
+}
+
+#[tokio::test]
+async fn read大文件显式offset或limit时按调用方窗口读取() {
+    let dir = tempdir("read-large-explicit");
+    let root = root_of(&dir);
+    let path = write_rel(&root, "large.txt", &large_file_body(600));
+
+    // 显式 offset + limit：按调用方窗口读（预览收窄不生效；窗口 200 行约
+    // 40KB，落在 L1 单结果上限内，不被字节层先行截断）
+    let paged = execute(
+        &root,
+        "read",
+        &json!({ "path": path, "offset": 300, "limit": 200 }),
+    )
+    .await
+    .expect("翻页读取成功");
+    assert!(paged.contains("   300\tL300"), "翻页起点行在场");
+    assert!(paged.contains("   499\tL499"), "翻页窗口到达第 499 行");
+    assert!(!paged.contains("   500\tL500"), "窗口外行不出现");
+    assert!(!paged.contains("大文件预览"), "显式 offset 不走预览分支");
+
+    // 显式 limit：从第 1 行起取 200 行（> 预览行数但 < 文件行数，窗口体量落在
+    // L1 单结果上限内）
+    let windowed = execute(&root, "read", &json!({ "path": path, "limit": 200 }))
+        .await
+        .expect("显式窗口读取成功");
+    assert!(windowed.contains("   200\tL200"), "显式 limit 覆盖到第 200 行");
+    assert!(!windowed.contains("   201\tL201"), "窗口外行不出现");
+    assert!(!windowed.contains("大文件预览"), "显式 limit 不走预览分支");
+}
+
+#[tokio::test]
+async fn read小文件未给分页参数时维持整读不回退为预览() {
+    let dir = tempdir("read-small-whole");
+    let root = root_of(&dir);
+    // 高于预览触发的行数（>150 行）但体量远低于 100KB
+    let body: String = (1..=150).map(|line| format!("L{line}\n")).collect();
+    let path = write_rel(&root, "small.txt", &body);
+
+    let output = execute(&root, "read", &json!({ "path": path }))
+        .await
+        .expect("读取成功");
+    assert!(output.contains("   150\tL150"), "小文件整读到底: {output}");
+    assert!(!output.contains("大文件预览"), "未过大文件阈值不预览");
 }
 
 // ---------------------------------------------------------------------------
@@ -847,20 +930,22 @@ async fn edit旧串多处出现默认显式失败_replace_all全替换语义锁�
 async fn execute_l1字节上限ok路截断留痕() {
     let dir = tempdir("l1-ok");
     let root = root_of(&dir);
-    // 单行超 30KB 的文件：read 输出越过单结果上限
-    let path = write_rel(&root, "huge-line.txt", &"a".repeat(40_000));
+    // 单行超 50KB 的文件（体量仍低于大文件预览阈值 100KB）：read 输出越过
+    // 单结果上限
+    let path = write_rel(&root, "huge-line.txt", &"a".repeat(60_000));
 
     let output = execute(&root, "read", &json!({ "path": path }))
         .await
         .expect("读取成功（L1 收口不炸）");
 
     assert!(
-        output.contains("已截断：单结果超 30000 字节上限"),
-        "截断留痕: {output}"
+        output.contains("已截断：单结果超 50000 字节上限"),
+        "截断留痕: {}",
+        &output[output.len().saturating_sub(200)..]
     );
     assert!(
-        output.len() < 30_000 + 200,
-        "输出钳在 30KB 上限附近（含留痕）: {}",
+        output.len() < 50_000 + 200,
+        "输出钳在 50KB 上限附近（含留痕）: {}",
         output.len()
     );
 }
@@ -869,22 +954,22 @@ async fn execute_l1字节上限ok路截断留痕() {
 async fn execute_l1字节上限err路截断留痕() {
     let dir = tempdir("l1-err");
     let root = root_of(&dir);
-    // Err 内容超限载体：bash 臂产出 40KB stdout 后以非零码退出（错误串携带
+    // Err 内容超限载体：bash 臂产出 60KB stdout 后以非零码退出（错误串携带
     // 全部输出）；powershell 经 git-bash / cmd 两底座均在册可达
-    let command = "powershell -NoProfile -Command \"Write-Output ('x' * 40000); exit 3\"";
+    let command = "powershell -NoProfile -Command \"Write-Output ('x' * 60000); exit 3\"";
 
     let error = execute(&root, "bash", &json!({ "command": command }))
         .await
         .expect_err("非零退出必须 Err（内容超限走同款收口）");
 
     assert!(
-        error.contains("已截断：单结果超 30000 字节上限"),
+        error.contains("已截断：单结果超 50000 字节上限"),
         "Err 路同款截断留痕（Ok / Err 双路收口）: {}",
         &error[..error.len().min(400)]
     );
     assert!(
-        error.len() < 30_000 + 200,
-        "Err 内容钳在 30KB 上限附近: {}",
+        error.len() < 50_000 + 200,
+        "Err 内容钳在 50KB 上限附近: {}",
         error.len()
     );
 }
@@ -1346,38 +1431,38 @@ fn tool_names封闭集不含archi名() {
     }
 }
 
-/// 正向 / 边界：`cap_result` 30 KB 收口——恰 30 000 字节原样、30 001 字节截断留痕、
+/// 正向 / 边界：`cap_result` 50 KB 收口——恰 50 000 字节原样、50 001 字节截断留痕、
 /// 空串原样、多字节中文 / emoji 按 char 边界回退不回退到 0。
 #[test]
 fn cap_result四形态() {
     use crate::sdk::tools::cap_result;
 
-    let exact = "a".repeat(30_000);
+    let exact = "a".repeat(50_000);
     assert_eq!(cap_result(exact.clone()), exact, "恰上限原样返回");
 
-    let over = "a".repeat(30_001);
+    let over = "a".repeat(50_001);
     let capped = cap_result(over);
     assert!(
-        capped.starts_with(&"a".repeat(30_000)),
-        "只保留前 30000 字节"
+        capped.starts_with(&"a".repeat(50_000)),
+        "只保留前 50000 字节"
     );
     assert!(
-        capped.contains("已截断：单结果超 30000 字节上限，仅保留前 30000 字节"),
+        capped.contains("已截断：单结果超 50000 字节上限，仅保留前 50000 字节"),
         "留痕文案逐字: {capped}"
     );
 
     assert_eq!(cap_result(String::new()), "", "空串原样返回");
 
     // 多字节面：三字节字符铺到上限之后 → 截断点回退到 char 边界（不 panic）
-    let chinese = "中".repeat(15_000); // 45000 字节
+    let chinese = "中".repeat(20_000); // 60000 字节
     let capped = cap_result(chinese);
     assert!(
-        capped.starts_with(&"中".repeat(10_000)),
-        "30000 / 3 = 10000 个完整字符"
+        capped.starts_with(&"中".repeat(16_666)),
+        "50000 / 3 = 16666 个完整字符（余 2 字节回退）"
     );
     assert!(capped.contains("已截断"), "多字节面亦留痕");
 
-    let emoji = "🚀".repeat(10_000); // 40000 字节
+    let emoji = "🚀".repeat(15_000); // 60000 字节
     let capped = cap_result(emoji);
     assert!(!capped.is_empty(), "截断结果非空（char 边界不回退到 0）");
     assert!(capped.contains("已截断"));
@@ -1388,7 +1473,8 @@ fn cap_result四形态() {
 #[tokio::test]
 async fn cap_result两条调用点共用同一实现() {
     let dir = tempdir("cap-reuse");
-    // 让 `read` 输出与 archi 工具输出都超过 30 KB
+    // 让 `read` 输出与 archi 工具输出都超过 50 KB（同时低于 100KB 大文件预览
+    // 阈值，落到 L1 收口而非预览分支）
     let long_line = "x".repeat(200);
     let mut content = String::new();
     for _ in 0..300 {
@@ -1402,12 +1488,12 @@ async fn cap_result两条调用点共用同一实现() {
         .await
         .expect("read 应成功");
     assert!(
-        read_result.contains("已截断：单结果超 30000 字节上限"),
+        read_result.contains("已截断：单结果超 50000 字节上限"),
         "通用工具路径经同一上限收口"
     );
 
     let expected_marker_line = read_result.lines().last().expect("留痕尾行").to_owned();
-    let direct = crate::sdk::tools::cap_result("y".repeat(31_000));
+    let direct = crate::sdk::tools::cap_result("y".repeat(51_000));
     assert_eq!(
         direct.lines().last().expect("留痕尾行"),
         expected_marker_line,

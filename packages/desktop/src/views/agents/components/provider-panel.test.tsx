@@ -312,14 +312,13 @@ describe('ProviderPanel：表单校验（边界）', () => {
     expect(screen.getByTestId<HTMLButtonElement>('provider-save').disabled).toBe(false);
   });
 
-  it('context_length 字段在场且携「留空跟随缺省 128K」语义提示（PROVIDER_FIELDS 增行）', () => {
+  it('context_length 字段在场且携「默认 128K」语义提示（PROVIDER_FIELDS 增行）', () => {
     mount(fakeState());
 
     fireEvent.click(screen.getByTestId('provider-new'));
 
     const field = screen.getByTestId<HTMLInputElement>('provider-context-length');
     expect(field).toBeDefined();
-    expect(field.placeholder).toContain('留空');
     expect(field.placeholder).toContain('128K');
   });
 });

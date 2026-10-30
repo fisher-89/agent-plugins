@@ -84,8 +84,8 @@ const REGISTRY: [FrameworkEntry; 5] = [
     FrameworkEntry {
         framework: "rust",
         version_command: "cargo --version",
-        shell_template: "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
-        cmd_template: "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
+        shell_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
+        cmd_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
         coverage_format: CoverageFormat::LlvmCov,
         coverage_output: "coverage-summary.json",
         results_output: "results.txt",

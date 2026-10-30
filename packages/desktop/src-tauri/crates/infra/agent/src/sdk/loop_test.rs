@@ -801,6 +801,56 @@ async fn 工具轮第二请求的chat_history含成对tool_result且提示词在
 }
 
 #[tokio::test]
+async fn 轮内思考块不进请求史_密封事件与增量面仍可辨() {
+    let dir = tempdir("thinking-history");
+    // 首轮回思考 + 工具调用，次轮回到文本：两个请求史都不应带 reasoning 块
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_reasoning("先看看目录"),
+            raw_text("读文件"),
+            raw_tool_call("tu_t", "read", serde_json::json!({ "path": "a.txt" })),
+            raw_final(usage(5, 6)),
+        ],
+        vec![raw_reasoning("再确认一次"), raw_text("完成"), raw_final(usage(2, 3))],
+    ]);
+    write_file(&dir.path().join("a.txt"), "内容甲");
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let handle = RunHandle::default();
+    let dyn_model = model.erased();
+    let task = tokio::spawn(
+        async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+    );
+    let mut events: Vec<AgentEventKind> = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        events.push(event);
+    }
+    task.await.expect("loop 正常结束");
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "两轮请求");
+    for (index, request) in requests.iter().enumerate() {
+        assert!(
+            !request.chat_history.iter().any(|message| matches!(
+                message,
+                Message::Assistant { content, .. }
+                    if content.iter().any(|item| matches!(item, AssistantContent::Reasoning(_)))
+            )),
+            "第 {} 个请求史不含 reasoning 块（思考块只留转录与增量）",
+            index + 1
+        );
+    }
+
+    // 密封事件面仍携带思考块（时间线可读），增量面亦照旧可辨
+    let sealed = sealed_messages(&events);
+    let has_thinking = sealed.iter().any(|event| {
+        matches!(event, AgentEventKind::Message { blocks, .. }
+            if blocks.iter().any(|block| matches!(block, agent::AgentBlock::Thinking { .. })))
+    });
+    assert!(has_thinking, "密封事件仍含 Thinking 块（不参与回放，但落转录）");
+}
+
+#[tokio::test]
 async fn 同一assistant多工具调用的第二请求将全部结果收进同一条user消息() {
     let dir = tempdir("tool-pair-multi");
     write_file(&dir.path().join("a.txt"), "内容甲");
@@ -1665,11 +1715,13 @@ async fn 小窗防线超水位假史_l2剪裁context_pruned流出且正常收敛
 async fn l2剪裁后捕获请求的chat_history老工具结果为占位符() {
     let dir = tempdir("l2-capture");
     let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(2, 2))]]);
-    // 窗长 65_536：L2 过线剪裁、L3 不过线（水位推导见上一用例注释）
+    // 标称窗 133_333 → 生效窗 79_999 → L2 水位 59_999：假史约 75k 过线触发
+    // 首层占位符替换，替换后约 50k 落到水位下——刻意让「丢最老轮对」不接手，
+    // 隔离占位符这一层可考
     let turn = loop_turn_with_defense(
         dir.path(),
         AgentPermissionMode::BypassPermissions,
-        ContextDefense::resolve(Some(65_536)),
+        ContextDefense::resolve(Some(133_333)),
     );
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();

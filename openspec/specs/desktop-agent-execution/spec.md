@@ -388,8 +388,9 @@ SDK 引擎 SHALL 在起播前读取 workspace root 的 `AGENT.md` 单份文件�
 SDK 引擎自建工具面 SHALL 完成两项质量升级与一项统一上限：
 
 - **read 截断与翻页**：read 工具 SHALL 缺省截断 2000 行，截断时 SHALL 在结果尾部留痕（「已截断，可 offset 翻页」形态）并 SHALL 支持 offset / limit 参数取回后续窗口；现行 read 无大小上限的形态 MUST NOT 延续
+- **read 大文件预览**：未给 `offset` / `limit` 且文件体量超过 100KB 时，read SHALL 只返回前 100 行并在尾部留痕（明示总行数与「用 offset / limit 分页或改用 grep 定位」）；显式给出 `offset` 或 `limit` 时 SHALL 恒按调用方窗口读取（预览收窄不生效）。工具描述 SHALL 同步声明该语义
 - **grep 正则与上下文行**：grep 工具 SHALL 按正则语义匹配（替换现行子串字面匹配，`sdk/tools.rs` 既有形态）并 SHALL 支持上下文行参数（匹配行 ± N 行，缺省 0）；200 条结果上限维持
-- **单结果字节上限（防线 L1 层）**：全工具 SHALL 施加统一单结果字节上限（`MAX_RESULT_BYTES` 30KB 量级），超限截断并留痕；bash 工具 stdout/stderr 合并输出同归此层
+- **单结果字节上限（防线 L1 层）**：全工具 SHALL 施加统一单结果字节上限（`MAX_RESULT_BYTES` 50KB 量级），超限截断并留痕；bash 工具 stdout/stderr 合并输出同归此层。该上限 MUST 高于 L2 单结果 prune 门槛——L1 是「新结果封顶」、L2 是「老结果淘汰」，上限低于门槛会让 L2 第一层永不命中
 
 工具 schema 演进 SHALL 随工具面定义更新（新增参数进 input schema），事件面零改动（ToolUse / ToolResult 词汇不变）。
 
@@ -397,6 +398,11 @@ SDK 引擎自建工具面 SHALL 完成两项质量升级与一项统一上限：
 
 - **WHEN** read 一个超过截断阈值的大文件
 - **THEN** 返回前 N 行 + 尾部截断留痕；带 offset 请求返回后续窗口，两段拼接覆盖全文
+
+#### Scenario: read 大文件预览与显式窗口
+
+- **WHEN** 分别以「无 offset / limit 读一个 >100KB 的文件」与「带 offset 或 limit 读同一文件」执行 read
+- **THEN** 前者只返回前 100 行 + 预览留痕（含总行数与分页提示），后者按调用方窗口返回且无预览留痕；≤100KB 的文件两形态行为一致（整读或按 2000 行上限截断）
 
 #### Scenario: grep 正则与上下文
 
@@ -448,7 +454,8 @@ SDK 引擎工具面 SHALL 增第七工具 `bash`，`RunStarted.tools` SHALL 报*
 SDK 引擎 SHALL 对**喂 provider 的请求史**（非 store 转录）实施两级防线，整体水位视角：L1 单结果上限恒常（归「SDK 引擎工具质量与单结果上限（L1）」管辖）→ L2 请求前确定性剪裁（约 70-75% 水位）→ L3 LLM compaction（约 85-90% 水位）→ L4 = 现状 provider 报错收敛兜底，**防线设计目标为 L4 永不抵达**。
 
 - **窗长来源**：优先级 SHALL 为「该档模型名 `[1m]` 后缀 > provider 可空 `context_length` 列（desktop-agent-management）> 128K 缺省启发式」，且 SHALL 按档（`high` / `low`）独立解析（见「SDK 引擎模型名 `[1m]` 后缀与输出上限定档」）；后缀在场时 `context_length` 被覆盖（MUST NOT 叠加或取小值）；`EngineFacade::with_context_window` 签名不变（语义降为「缺省来源」）；token 估算 SHALL 用 UTF-8 字节启发式（rig-memory `HeuristicTokenCounter` 同款，中文重载比英文经验值准）
-- **L2 确定性剪裁**（请求前跑，两个调用点：resume 转录重建之后 + loop 每次发请求前）：先 prune 老工具结果——老 tool_result 内容替换为占位符，tool_use / tool_result 配对结构完整，保护最近窗口（40k 保护窗 / 20k prune 门槛）；不够再丢最老完整轮对（rig-memory 算法 + 孤儿配对清理兜底）。**SHALL 保首条 user**（phase agent 首条 user 即任务书）
+- **防线窗长折算（成本护栏）**：水位推导 SHALL 使用**生效窗长** = 标称窗长 × 60% 与 400k 取小——模型标称窗长再大，L2 / L3 水位 MUST NOT 随之抬到 1M。理由是请求史每轮整段重发，上下文体积是缓存命中 token 量的唯一乘数；`[1m]` 后缀自此只影响 anthropic beta 头与请求可达上限，MUST NOT 同时把防线水位抬到防线永不触发。泵启动日志的 `window=` SHALL 报生效窗长（调用方不重算）
+- **L2 确定性剪裁**（请求前跑，两个调用点：resume 转录重建之后 + loop 每次发请求前）：先 prune 老工具结果——老 tool_result 内容替换为占位符，tool_use / tool_result 配对结构完整，保护最近窗口（40k 保护窗 / 8k prune 门槛）；不够再丢最老完整轮对（rig-memory 算法 + 孤儿配对清理兜底）。**SHALL 保首条 user**（phase agent 首条 user 即任务书）
 - **L3 LLM compaction**：剪裁后水位仍升 → 以当前 model 自摘要老历史，新史 = `[摘要, 首条 user, 最近轮对]`；摘要要点集含关键技术决策**及其原因**（参考 opencode）；compaction 失败 SHALL 降级为 L2 硬裁 + SystemNotice 留痕，**MUST NOT 打断 run**（phase agent 场景宁可丢密度不能丢收敛，比 codex 指数退避保守）
 - **可观测**：剪裁与压缩 SHALL 发 `SystemNotice{subtype:"context_pruned"|"context_compacted", payload:{before, after, layer}}`（subtype 开放词典现成）
 - **不变量**：store 转录**永远全量**——剪裁/压缩只作用于请求史，重放 / 审计 / resume 重建源不受影响；「转录无上限增长」既有边界留痕不变
@@ -477,12 +484,17 @@ SDK 引擎 SHALL 对**喂 provider 的请求史**（非 store 转录）实施两
 #### Scenario: 窗长缺省启发式
 
 - **WHEN** provider 记录 `context_length` 缺席且该档模型名不带 `[1m]` 后缀
-- **THEN** 以 128K 启发式计算水位，行为可预期；填列后按填列值计算
+- **THEN** 以 128K 启发式作为标称窗长、按 60% 折算出生效窗长后计算水位；填列后按填列值折算
 
 #### Scenario: 后缀覆盖填列窗长
 
 - **WHEN** 该档模型名带 `[1m]` 后缀且 provider 同时填有 `context_length = 200000`
-- **THEN** 该档防线窗长按 1M 计算（后缀覆盖，不做叠加或取小值），其余档按各自解析结果计算；store 转录与防线算法零变化
+- **THEN** 该档标称窗长按 1M 取（后缀覆盖，不做叠加或取小值），生效窗长经 60% × 400k 封顶为 400k；其余档按各自解析结果折算；store 转录与防线算法零变化
+
+#### Scenario: 大窗长不抬水位
+
+- **WHEN** 该档模型名带 `[1m]` 后缀（标称窗 1M）而请求史约 500k tokens
+- **THEN** 防线按生效窗长 400k 推导水位（L2 = 300k），该史已过线并被剪裁——1M 标称窗 MUST NOT 使防线在全库典型上下文体积下永不触发
 
 ### Requirement: SDK 引擎静态权限与路径沙箱
 
@@ -835,11 +847,11 @@ headless 无问收口：无头 agent 需用户决策时 SHALL 以问题文本作
 4. **bash 无沙箱（sdk-engine-gap-closure 偿还「bash 缺席」后的知情边界；desktop-write-protection 偿还「受保护文件写入面」半边）**：bash 已进工具面（Default 档拒绝、AcceptEdits / Bypass 放行）；受保护文件（内置工作区配置 + 用户 `write_protection` 规则）的写入经命令文本提取拦截，**但任意命令执行仍无沙箱**——BypassPermissions 默认档下 bash 可执行任意命令、可改动任何未受保护文件；命令级白/黑名单、真沙箱、交互审批留后续 change；已承认的静态判别漏面（`xargs` / `sh -c` 递归拆解 / 生成脚本再执行 / `-m` 模块 / 变量中转 / base64 编码）留痕于 desktop-write-protection
 5. **cost 恒缺**：`RunResult.cost_usd` 恒 `None`（无价格表），汇总卡如实呈现
 6. **engine_cfg 硬编码位（已偿还，desktop-agent-management）**：api_key / base_url / model 手填真机验证的限制已由全局 agent 管理偿还——engine_cfg 构造源换为管理数据解析（默认 agent / 显式 agent），连接配置经管理页维护，明文边界与遮蔽治理见 desktop-agent-management「api_key 机密边界」
-7. **resume 保真度缺口**：Raw 丢弃 / 子代理压平 / 仅顶层重建（L2 请求前剪裁只缓解请求侧成本随历史增长，重建源仍为 store 全量转录）；**服务端块（`WebSearch`）自本条起不再属该缺口**——其 raw 原文经 `raw_use` / `raw_result` 原样保全并原样回放
+7. **resume 保真度缺口**：Raw 丢弃 / 子代理压平 / 仅顶层重建（L2 请求前剪裁只缓解请求侧成本随历史增长，重建源仍为 store 全量转录）；**服务端块（`WebSearch`）自本条起不再属该缺口**——其 raw 原文经 `raw_use` / `raw_result` 原样保全并原样回放；**`Thinking` 块不回放**属设计选择（非缺口）：思考块只留 store 转录与轮内增量，请求史（resume 重建与轮内续发同一口径）一律剔除——跨轮重发的思考块既不可被 provider 校验，又占实测请求史体积约 16%
 8. **引擎归属留痕未裁**：run 记录暂不区分引擎（座位 design 裁定后偿还）
 9. **无模型元数据表（协议与后缀的知情边界）**：不知道任意模型的 `default/upper` 输出上限，也无法判定 `supports_1m_suffix` / `supports_1m_beta`——故 `[1m]` 后缀一律接受（不做模型白名单校验）、`anthropic-beta` 一律发（第三方网关可能拒 → `api_error` 显式暴露，非静默）；名单外模型输出上限兜底恒 `32_000`，老代模型（8K/16K 上限）与第三方网关需用户在 provider 显式填 `max_tokens` 才可跑通
 10. **不实现 `maxOutputTokensRecovery`**：撞输出上限即按既有 `finish` 语义收敛（不注入续写消息、不自动抬高上限），用户调 provider `max_tokens` 后重跑
-11. **跨协议续会话不做一致性校验**：改 provider `protocol` 后以 `Continue` 续旧会话，旧史由新 wire 重编码——rig 只回放本 dialect issuer 的 reasoning 块，**thinking 会静默丢弃**；`SessionConfigSnapshot` 不记协议（与「改 base_url / api_key 同权」裁决一致）；system 消息不进持久化史（每轮头部单独注入），故无残留 system 形态问题
+11. **跨协议续会话不做一致性校验**：改 provider `protocol` 后以 `Continue` 续旧会话，旧史由新 wire 重编码——rig 只回放本 dialect issuer 的 reasoning 块；`SessionConfigSnapshot` 不记协议（与「改 base_url / api_key 同权」裁决一致）；system 消息不进持久化史（每轮头部单独注入），故无残留 system 形态问题。**thinking 层业已统一**：请求史本就不含 reasoning 块（`resume::without_reasoning` 单点），故跨协议时无「静默丢弃」的语义漂移
 12. **云端 web_search 无过程可见性（知情边界）**：本变更不做搜索实时提示（无 `AgentDelta::Search`，`normalize.rs` 与前端 `agent-transport.ts` 零改动）——`pause_turn` 续跑期间时间线可能空白数十秒，唯一过程观测点为 `SystemNotice{pause_turn_continued}`；最终来源与引用在轮收口后可见（终态以库为唯一权威）
 13. **搜索转录体积不设上限、不压缩**：`raw_result` 含 `encrypted_content` 与每条来源加密索引（一次搜索数 KB），与既有「转录无上限增长」边界同列；压缩会破坏 raw 逐字节保真，故明确不做
 14. **`web_search` 服务端工具不可配置**：`max_uses = 5` 锁为常量（成本护栏），配置化需 store v5 迁移；openai 协议恒不生效（门控在解析期，不静默透传）
@@ -921,11 +933,12 @@ SDK 引擎 SHALL 支持 provider 三档模型名携带 `<模型名>[1m]` 后缀�
 - 无后缀 → `name = trimmed(raw)`、`length = None`；
 - 两端空白 SHALL 裁剪；MUST NOT 把带后缀的原文发给 provider（请求 `model` 恒为裸名）。
 
-窗长定档 SHALL 为**按档现算**（`high` / `low` 各自独立）：优先级 **模型名后缀 > provider 可空 `context_length` > 128K 缺省启发式**；后缀在场时 MUST NOT 忽略地叠加或夹取（后缀即该档窗长，`context_length` 被覆盖）。解析与防线装配 SHALL 发生在 `open_session`（那里同时拿到档位与模型原文），`EngineFacade::with_context_window` 签名 MUST NOT 变化——其语义降级为「缺省来源」。非法后缀在启动期 SHALL 以 `AgentStartError::ConfigMissing` 显式失败（MUST NOT 静默降级为裸文发送）。
+窗长定档 SHALL 为**按档现算**（`high` / `low` 各自独立）：优先级 **模型名后缀 > provider 可空 `context_length` > 128K 缺省启发式**；后缀在场时 MUST NOT 忽略地叠加或夹取（后缀即该档**标称**窗长，`context_length` 被覆盖）。标称窗长 SHALL 再经「× 60% 与 400k 取小」折算为防线生效窗长（见「SDK 引擎上下文窗防线」——成本护栏，标称值本身不参与水位判定）。解析与防线装配 SHALL 发生在 `open_session`（那里同时拿到档位与模型原文），`EngineFacade::with_context_window` 签名 MUST NOT 变化——其语义降级为「缺省来源」。非法后缀在启动期 SHALL 以 `AgentStartError::ConfigMissing` 显式失败（MUST NOT 静默降级为裸文发送）。
 
 anthropic 请求参数 SHALL 按以下规则定档：
 
 - **`anthropic-beta`**：`protocol = anthropic` 且该档模型名带 `[1m]` → SHALL 追加 beta `context-1m-2025-08-07`（完全等价 Claude Code 的 1M 开关）；openai 协议或后缀缺席 → MUST NOT 发。
+- **前缀缓存**：`protocol = anthropic` 的 wire SHALL 开启自动前缀缓存（top-level `cache_control`，rig `with_automatic_caching`）——缓存命中 MUST NOT 只依赖网关的隐式行为；手动断点形态（`prompt_caching`）MUST NOT 同时启用（两套断点策略并存无收益）。openai 协议 MUST NOT 追加任何缓存参数。
 - **输出上限（`max_tokens`）取值链**：`provider.max_tokens`（显式值优先）→ rig 内置模型名单官方值（名单命中时**保留 rig 值、不被降级**）→ `32_000` 兜底（对齐 Claude Code 表外行为）。实现 SHALL 只在该链产出非 `None` 时定型 wire 默认 `max_tokens`（`Messages::with_default_max_tokens`），且**只在 `protocol = anthropic`**；openai 协议 MUST NOT 写入 `max_tokens`（保持「省略由协议自决」现状）。输出上限与 `[1m]` 后缀**完全解耦**（后缀不改输出上限）。
 - **上报口径**：`RunStarted.model` 与请求 `model` 为裸名；`SessionConfigSnapshot.model` 保留配置原文（配置快照语义）；引擎日志记 `model=裸名 window=… raw=原文`。
 
@@ -939,12 +952,17 @@ anthropic 请求参数 SHALL 按以下规则定档：
 #### Scenario: 按档窗长独立
 
 - **WHEN** provider `models.high = "claude-sonnet-4-6[1m]"`、`models.low = "glm-4.6"` 且 `context_length = 200000`
-- **THEN** high 档会话的防线窗长为 1M（后缀覆盖 `context_length`）、low 档会话为 200000；同一 provider 两档各自独立解析，`EngineFacade::with_context_window` 签名不变
+- **THEN** high 档标称窗长为 1M（后缀覆盖 `context_length`）、low 档为 200000；折算后生效窗长分别为 400k（封顶）与 120k；同一 provider 两档各自独立解析与折算，`EngineFacade::with_context_window` 签名不变
 
 #### Scenario: 后缀缺席回落到 context_length
 
 - **WHEN** 三档模型名均不带后缀，`context_length` 分别填 200000 与留空
-- **THEN** 填列时防线窗长取填列值、留空时取 128K 缺省启发式（既有行为零变化）
+- **THEN** 填列时标称窗长取填列值（生效窗 120k）、留空时取 128K 缺省启发式（生效窗 78_643）
+
+#### Scenario: 前缀缓存显式开启
+
+- **WHEN** 以 `protocol = anthropic` 组装模型并发起请求
+- **THEN** 请求体带 top-level `cache_control`（自动前缀缓存开启），缓存命中不依赖网关隐式行为；`protocol = openai` 的请求体零缓存参数
 
 #### Scenario: beta 条件发
 
@@ -1166,9 +1184,11 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 | `crates/infra/agent/src/sdk/` | SDK 引擎协议实现 | `normalize.rs` 双层化（Text/ReasoningDelta → delta、轮末密封）；`loop.rs` 密封收口；`resume.rs` 会话全史重建；`runner.rs` 协议实现且 `session_pump` 一轮一命（跨轮史槽不存，会话史唯一源 = store 全史转录重建，agent-turn-eof）；工具面/权限/沙箱语义见 SDK 各专章（AGENT.md 注入 / L1 工具质量 / bash / 三档分化 / L2-L3 防线） |
 | `crates/infra/agent/src/sdk/{loop,normalize,resume,runner,tools,policy,config}.rs` | facade 路径迁移 | `rig_core::` → `rig::`（纯 re-export 同名）；`rig_core::` 路径零残留 |
 | `crates/infra/agent/src/sdk/preamble.rs` | AGENT.md 注入 | 起播前读 `<workspace_root>/AGENT.md` 逐字注入；每轮重读、缺席 `None`、无 `CLAUDE.md` 兜底、32KB 截断；零 core 改动 |
-| `crates/infra/agent/src/sdk/tools.rs` + `bash.rs` | 七工具面与质量 | `TOOL_NAMES` 七项；read 截断 + offset 翻页；grep 正则 + 上下文行；全工具单结果字节上限（`MAX_RESULT_BYTES`）；bash `tokio::process` + git-bash 探测 / `cmd /C` 兜底 / unix `sh -c`；`kill_on_drop` + `taskkill /T /F` 形状清理；超时活性护栏（缺省 120s、范围校验 [1s, 30min]，越界显式拒绝） |
+| `crates/infra/agent/src/sdk/tools.rs` + `bash.rs` | 七工具面与质量 | `TOOL_NAMES` 七项；read 截断 + offset 翻页 + >100KB 无分页参数时前 100 行预览；grep 正则 + 上下文行；全工具单结果字节上限（`MAX_RESULT_BYTES` 50KB）；bash `tokio::process` + git-bash 探测 / `cmd /C` 兜底 / unix `sh -c`；`kill_on_drop` + `taskkill /T /F` 形状清理；超时活性护栏（缺省 120s、范围校验 [1s, 30min]，越界显式拒绝） |
 | `crates/infra/agent/src/sdk/policy.rs` | 三档决策表（bash 分化） | bash：Default 拒、AcceptEdits / Bypass 放；AcceptEdits ≠ Bypass 首次真实分化锁定测试 |
-| `crates/infra/agent/src/sdk/{context,compact}.rs` | L2 / L3 防线 | 窗长 = 该档模型名 `[1m]` 后缀 > provider `context_length` > 128K 启发式（按档独立）；字节启发式 token 估算（bytes ÷ 4）；prune 占位符 + 轮对裁剪 + 保首条 user；LLM compaction（失败降级硬裁，run 不中断）；`context_pruned` / `context_compacted` SystemNotice；调用点 = resume 重建后 + 每请求前；store 转录全量不变 |
+| `crates/infra/agent/src/sdk/{context,compact}.rs` | L2 / L3 防线 | 标称窗长 = 该档模型名 `[1m]` 后缀 > provider `context_length` > 128K 启发式（按档独立）；生效窗长 = 标称 × 60% 与 400k 取小（水位一律据此推导）；字节启发式 token 估算（bytes ÷ 4）；prune 占位符（8k 门槛）+ 轮对裁剪 + 保首条 user；LLM compaction（失败降级硬裁，run 不中断）；`context_pruned` / `context_compacted` SystemNotice；调用点 = resume 重建后 + 每请求前；store 转录全量不变 |
+| `crates/infra/agent/src/sdk/resume.rs` | 重建与思考回放口径 | `without_reasoning` 单点：请求史（resume 重建 + loop 轮内入史）一律剔除 reasoning 块（仅思考的 assistant 消息原样保留，防空白消息）；`Thinking` 块仍落 store 转录与轮内增量 |
+| `crates/infra/agent/src/sdk/runner.rs` | 模型装配 | anthropic 臂开启自动前缀缓存（top-level `cache_control`）；`[1m]` 后缀追加 beta；输出上限取值链；`window=` 日志报生效窗长 |
 | `crates/core/agent/src/runner.rs` | 会话级注入面词汇 | `SessionInjections` 增 `toolset: Option<SessionToolset>`（首值 `Explore`）；`tools` 位激活为七工具子集收窄表达；`preamble` 位维持不消费；serde additive（缺省读兼容旧线格式） |
 | `crates/infra/agent/src/compose.rs` | 注入装配 | `begin` 按 `provenance.source == "explore"` 装配注入（六工具收窄 + `Explore` 枚举）；per-turn 专用工具执行上下文铸造（store 句柄 + root）；其余来源恒 default |
 | `crates/infra/agent/src/sdk/loop.rs` | 注入面组装与硬禁用 | definitions 按注入面组装；`RunStarted.tools` 报实际下发面；执行前成员校验（`tool_unavailable` 拒绝，run 不中断）；专用工具经 `LoopTurn` 上下文路由 |

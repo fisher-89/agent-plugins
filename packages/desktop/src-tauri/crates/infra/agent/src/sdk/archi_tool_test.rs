@@ -194,12 +194,12 @@ async fn archi_module薄概览超限截断留痕() {
         .expect("大体量薄概览应 Ok");
 
     assert!(
-        text.len() <= 30_000 + 200,
-        "长度收口在 30 KB 量级: {}",
+        text.len() <= 50_000 + 200,
+        "长度收口在 50 KB 量级: {}",
         text.len()
     );
     assert!(
-        text.contains("已截断：单结果超 30000 字节上限"),
+        text.contains("已截断：单结果超 50000 字节上限"),
         "截断留痕与 cap_result 文案同形"
     );
 }

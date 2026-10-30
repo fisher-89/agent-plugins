@@ -102,10 +102,9 @@ fn probe_tree(ws: &TempWs) {
 const TS_TESTS_GLOB: &str = "**/*.{test,spec}.{ts,tsx}";
 
 /// rust 档新单条命令模板（shell / cmd 两臂逐字同串，占位符原样保留由 runner
-/// 展开）：一条 `cargo llvm-cov --workspace` 同产覆盖率 JSON（`--output-path`）
-/// 与测试 stdout（模板自带 `>` 重定向）。
-const RUST_TEMPLATE: &str =
-    "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
+/// 展开）：一条 `cargo llvm-cov nextest --workspace` 同产覆盖率 JSON
+/// （`--output-path`）与测试 stdout（模板自带 `>` 重定向）。
+const RUST_TEMPLATE: &str = "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
 
 /// 组合锚覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
 /// 走 null 感知跳过）。
@@ -443,17 +442,17 @@ fn rust模板三不变量_无链形态残留() {
     }
 }
 
-/// 正向（AC-1 正向形态，参数化 2 臂）：两臂均以 `cargo llvm-cov --workspace`
-/// 起手、含 `--json`、覆盖工件经 `--output-path "{coverage_file}"` 落位、以
-/// `> "{results_file}"` 收尾；且不含 `%` / `if `（cmd 单行解析期构造）与
-/// `--target-dir`（`target/debug` 零触碰面）。
+/// 正向（AC-1 正向形态，参数化 2 臂）：两臂均以 `cargo llvm-cov nextest
+/// --workspace` 起手、含 `--json`、覆盖工件经 `--output-path "{coverage_file}"`
+/// 落位、以 `> "{results_file}"` 收尾；且不含 `%` / `if `（cmd 单行解析期构造）
+/// 与 `--target-dir`（`target/debug` 零触碰面）。
 #[test]
 fn rust模板正向形态_workspace与结果重定向() {
     let entry = &REGISTRY[3];
     for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         assert!(
-            arm.starts_with("cargo llvm-cov --workspace"),
-            "{arm_name} 臂以 `cargo llvm-cov --workspace` 起手（全 workspace 口径），实际: {arm}"
+            arm.starts_with("cargo llvm-cov nextest --workspace"),
+            "{arm_name} 臂以 `cargo llvm-cov nextest --workspace` 起手（测试框架统一为 nextest），实际: {arm}"
         );
         assert!(arm.contains("--json"), "{arm_name} 臂 `--json` 在场");
         assert!(
@@ -609,8 +608,8 @@ async fn config注入_旗标与绝对posix路径拼接() {
 }
 
 /// 正向：rust suite → plan（coverage_format=llvm-cov、命令模板为单条
-/// `cargo llvm-cov --workspace` 新串、default_glob 圈定 tests 树——rust 档缺省
-/// glob 天然无花括号；字段面（双工件名 / 版本命令 / 配置旗标）零漂移）。
+/// `cargo llvm-cov nextest --workspace` 新串、default_glob 圈定 tests 树——rust
+/// 档缺省 glob 天然无花括号；字段面（双工件名 / 版本命令 / 配置旗标）零漂移）。
 #[tokio::test]
 async fn rust_suite探测_llvm_cov档() {
     let _window = PathWindow::enter();
@@ -968,6 +967,7 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
     // 零改写：展开后的命令 argv = program + 模板逐参（无注入 token、重定向仅模板一次）
     let expected_argv = vec![
         "llvm-cov".to_owned(),
+        "nextest".to_owned(),
         "--workspace".to_owned(),
         "--json".to_owned(),
         "--output-path".to_owned(),

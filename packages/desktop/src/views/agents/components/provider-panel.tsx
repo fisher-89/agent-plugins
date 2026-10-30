@@ -112,7 +112,7 @@ const PROVIDER_FIELDS: {
     id: 'provider-context-length',
     label: 'context_length',
     key: 'contextLength',
-    placeholder: '留空 = 跟随缺省 128K',
+    placeholder: '默认 128K',
   },
   {
     id: 'provider-max-tokens',
@@ -157,7 +157,7 @@ const SUFFIX_1M = /\[1m\]$/i;
 function suffixHint(form: ProviderFormState): string {
   const base =
     form.protocol === 'anthropic'
-      ? '模型名可带 [1m] 后缀（只影响上下文窗长与 anthropic beta，不改输出上限）'
+      ? '模型名可带 [1m] 后缀（只影响上下文窗长与 anthropic beta，不改输出上限；防线水位按 60% 折算且封顶 400K）'
       : '';
   const suffixed = [
     { tier: 'high', value: form.high },
