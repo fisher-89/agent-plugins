@@ -1985,7 +1985,8 @@ async fn 重复装配后者覆盖且三旁路载荷任意序链不打架() {
         assert!(
             line.contains("window=120000"),
             "{label}：窗长载荷保真（200000 标称窗按 60% 折算为 120000），实际: {line}"
-        );    }
+        );
+    }
 }
 
 #[tokio::test]

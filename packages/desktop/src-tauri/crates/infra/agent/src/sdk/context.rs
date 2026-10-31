@@ -64,10 +64,8 @@ impl ContextDefense {
     /// 标注档（`[1m]`）自此不再拥有 1M 水位——成本护栏不随模型标称窗长放宽。
     /// 饱和乘保证极端窗长推导不溢出。
     fn effective_window(&self) -> u64 {
-        let ratio = self
-            .context_window
-            .saturating_mul(DEFENSE_WINDOW_RATIO_NUM)
-            / DEFENSE_WINDOW_RATIO_DEN;
+        let ratio =
+            self.context_window.saturating_mul(DEFENSE_WINDOW_RATIO_NUM) / DEFENSE_WINDOW_RATIO_DEN;
         ratio.min(MAX_DEFENSE_WINDOW)
     }
 

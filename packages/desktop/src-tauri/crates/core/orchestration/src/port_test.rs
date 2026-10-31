@@ -3088,9 +3088,6 @@ fn tool_step_request与command零改() {
     }
 }
 
-/// 边界：`fault` 不进既有出线面——`RunUpdate::Step` 载荷（`ChangeStepState`）
-/// 字段穷尽解构（字段集 = 既有 12 项，无 `fault` / `RunFault` 位置）；`RunFault`
-/// 零 `Serialize` 的编译期面由 `bindings:check` 静态脚本承接。
 #[test]
 fn fault不进runupdate载荷面() {
     let update = RunUpdate::Step {

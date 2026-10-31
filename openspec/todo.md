@@ -45,7 +45,7 @@
 - [x] 将流程设计进一步抽象，每个phase下有多个step，step分为exec/agent/gate，全流程按step顺序执行，中断/继续/回退也按step粒度
 - [x] 会话中途继续提问时，无需携带角色prompt，当前explore会反复发送角色信息
 - [ ] 优化各阶段prompt，补全模板概念
-- [ ] 移除src/views/changes/flow/layout.ts PIPELINE_PHASES，改为读取接口返回phase
+- [x] 移除src/views/changes/flow/layout.ts PIPELINE_PHASES，改为读取接口返回phase
 - [x] step记录开始和结束时间；流程图中step显示耗时，agent step显示关联session的token消耗
 - [x] 修复问题：中断变更流程重启后，会多一个phase_start节点，前一轮节点丢失；新的agent step详情关联到上一轮同step的会话记录；
 - [x] 修复问题（证据见change desktop-test-only-flow）：read_exec_output未返回脚本运行日志（返回null）
@@ -65,7 +65,7 @@
 - [ ] 修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
 - [ ] 进行中的agent step，统计实时消耗的token（允许误差）
 - [ ] 增加变更复盘agent
-- [ ] rust改用cargo-nextest执行测试
+- [x] rust改用cargo-nextest执行测试
 - [ ] 验收口径分层：AC 分「代码证据型」（acceptance 静态清单可直接核）/「运行测量型」（须装置或 release 打包环境，仅能核「已登记 + 归属相位」）两类，后者 MUST NOT 要求 acceptance 自证数字（来源：change `archi-check-and-gate` AC-18——五项成本中 NSIS / 主二进制 / CI 冷构建 / 本地增量四项，流程内无任何相位具备 release 打包环境，且发布 workflow 由合入 master 触发 = 归档之后，形成「验收前要有归档后才产生的数据」的闭环死结）
 - [ ] 性能类装置补 release 口径执行面：`openspec/config.json` 的 rust test plan 目前只跑 debug（`cargo test --workspace`，perf 落到 `--release` 之外的样本不作判据），需增「release 性能装置」独立命令 / plan（如 `cargo test -p <crate> --release --test perf -- --nocapture`）并把输出回填实测表；否则 p95 一格永远靠人工补跑（来源：change `archi-check-and-gate` AC-18——test-execution 门禁实跑命中 `llvm-cov-target\debug\deps\perf-*.exe`，617.4 ms 的 release 数值是 acceptance 前手工补跑所得）
 - [ ] acceptance 工具面补齐架构图级断言：`acceptance-evaluator` 现仅授 `archi_module`，而 `repo-archi-model` 的判据含 `archi_graph(root)` 的 `relations` / `warnings` 与 `archi_search` 命中——`archi_module` 省略 `element` 只出 `fqn` / `kind` / `gate` / `summary` 薄概览，评估者只能退而引用生成者自述的核对留痕（`reports/archi/`），证据强度不足；补 `archi_graph` / `archi_search` 两只读工具（或让薄概览带 counts 与 warnings）后，图级判据才可自证（来源：change `archi-check-and-gate` AC-21）

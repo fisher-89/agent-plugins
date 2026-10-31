@@ -593,13 +593,20 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     expect(within(clean.container).queryByTestId('warn-note')).toBeNull();
   });
 
-  it('点击「刷新详情」重新拉取 get_change_detail；点击「返回列表」显式 navigate 落 /changes（不用历史回退）', async () => {
+  it('流程图标题旁的「刷新详情」图标按钮重新拉取 get_change_detail；点击「返回列表」显式 navigate 落 /changes（不用历史回退）', async () => {
     renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
     const callsBefore = detailCalls().length;
 
+    // 入口位置：与「流程图」标题同层（标题旁），可访问名恒为 刷新详情
+    const refreshButton = screen.getByTestId('refresh-change-detail-button');
+    expect(refreshButton).toBe(screen.getByRole('button', { name: '刷新详情' }));
+    expect(refreshButton.parentElement).toBe(
+      screen.getByRole('heading', { name: '流程图' }).parentElement,
+    );
+
     await act(async () => {
-      fireEvent.click(screen.getByTestId('refresh-change-detail-button'));
+      fireEvent.click(refreshButton);
     });
     await waitFor(() => expect(detailCalls()).toHaveLength(callsBefore + 1));
 
@@ -1719,7 +1726,7 @@ describe('ChangeDetailView：素材挂载两参与 memo 依赖收窄（AC-4 / D6
         nodes: [stepRow(), stepRow({ step: 'staticCheck', outputRef: 'exec-1727-1' })],
       }),
     );
-    fireEvent.click(screen.getByText('刷新详情'));
+    fireEvent.click(screen.getByTestId('refresh-change-detail-button'));
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
 
     // 一次刷新周期 = detail 提交 + 产物提交两拍（各一次重算）：挂载随数据源提交
@@ -2798,26 +2805,25 @@ describe('ChangeDetailView：架构页签（挂载点 B）', () => {
 // ---------------------------------------------------------------------------
 
 describe('ChangeDetailView：详情头刷新态与时间面', () => {
-  it('刷新中：刷新按钮内呈现 spinner 且按钮禁用；落定后 spinner 消退', async () => {
+  it('刷新中：刷新图标呈 animate-spin 且按钮禁用；落定后自转消退', async () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
     const refreshButton = () =>
       screen.getByTestId<HTMLButtonElement>('refresh-change-detail-button');
+    const spinningIcon = () => refreshButton().querySelector('svg.animate-spin');
 
-    expect(refreshButton().querySelector('[data-slot="spinner"]')).toBeNull();
+    expect(spinningIcon()).toBeNull();
     expect(refreshButton().disabled).toBe(false);
 
     holdDetail = true;
     fireEvent.click(refreshButton());
-    await waitFor(() =>
-      expect(refreshButton().querySelector('[data-slot="spinner"]')).toBeTruthy(),
-    );
+    await waitFor(() => expect(spinningIcon()).not.toBeNull());
     expect(refreshButton().disabled).toBe(true);
 
     await act(async () => {
       releaseDetail?.();
     });
-    await waitFor(() => expect(refreshButton().querySelector('[data-slot="spinner"]')).toBeNull());
+    await waitFor(() => expect(spinningIcon()).toBeNull());
     expect(refreshButton().disabled).toBe(false);
   });
 

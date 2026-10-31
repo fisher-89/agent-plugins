@@ -272,16 +272,6 @@ function runUnifiedViewEffect(ctx: {
   };
 }
 
-/**
- * 详情取数 hook（统一视图承接，unify-run-state-persistence 两钩并一；参数
- * **id 化**——取数 / 产物逐读全链按 change id 寻址）：
- * `getChangeDetail` 一次返回「库读史 ∪ 在飞 run」统一视图；显式 refresh（或
- * 选定 change）即时触发，变更通知与会话事件通知经同一 `notifyRefresh`
- * （300ms 尾随去抖）触发重查——`SessionEvent` 仅作会话状态重评估信号，实时面
- * 走会话订阅（delta 不落库，重查只能见密封粒度）。并在同一刷新周期内按产物
- * 清单逐个 invoke("read_artifact") 组装信封数组；单个产物读取失败以 Fallback
- * 形态保留、不阻断其余。无轮询、无文件 watch。
- */
 export function useChangeDetail(root: string | null, id: string | null): ChangeDetailState {
   const [detail, setDetail] = useState<ChangeDetail | null>(null);
   const [activeRun, setActiveRun] = useState<ActiveRunView | null>(null);
@@ -291,13 +281,9 @@ export function useChangeDetail(root: string | null, id: string | null): ChangeD
   const [refreshFailed, setRefreshFailed] = useState<string | null>(null);
   const [tick, bumpTick] = useReducer((count: number) => count + 1, 0);
   const retry = useRefreshRetry(bumpTick);
-  // 首载键：仅该 `root\0id` 首轮取数置 loading（首载阻塞面）；同键的通知
-  // 重查 / 退避重试为后台刷新，不触碰 loading（按钮不闪禁用、无 Spinner）
+  // 进入详情首次加载
   const beginRound = useFirstLoadKey();
-  // 通知触发重查：尾随去抖（窗内到达即重置计时，最后一拍必达）——统一视图
-  // 300ms（D8 常量单点）；新意图取代旧重试：手动刷新与通知到达（去抖拍前）
-  // 先作废挂起重试并重置退避序列。只有手动刷新置 loading——通知到达即后台
-  // 重查（过程中自动刷新不阻塞加载态）
+  // 通知详情更新，触发重查（防抖）
   const debouncedNotifyRefresh = useDebouncedBump(bumpTick, DETAIL_REFRESH_DEBOUNCE_MS);
   const refresh = useCallback(() => {
     setLoading(true);

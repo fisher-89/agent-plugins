@@ -308,9 +308,7 @@ async fn readlimit缺省与显式2000行为一致() {
 
 /// 构造超 [`LARGE_FILE_BYTES`] 的行式文本（每行 200 字节，600 行 ≈ 120KB）。
 fn large_file_body(lines: usize) -> String {
-    (1..=lines)
-        .map(|line| format!("L{line:<199}\n"))
-        .collect()
+    (1..=lines).map(|line| format!("L{line:<199}\n")).collect()
 }
 
 #[tokio::test]
@@ -326,7 +324,12 @@ async fn read大文件未给分页参数时只预览前100行并提示分页() {
         .expect("读取成功");
 
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines.len(), 101, "前 100 行 + 1 行预览留痕: {}", lines.len());
+    assert_eq!(
+        lines.len(),
+        101,
+        "前 100 行 + 1 行预览留痕: {}",
+        lines.len()
+    );
     assert!(output.contains("   100\tL100"), "第 100 行在场");
     assert!(!output.contains("   101\tL101"), "第 101 行不在预览窗口");
     let tail = lines.last().expect("留痕尾行");
@@ -365,7 +368,10 @@ async fn read大文件显式offset或limit时按调用方窗口读取() {
     let windowed = execute(&root, "read", &json!({ "path": path, "limit": 200 }))
         .await
         .expect("显式窗口读取成功");
-    assert!(windowed.contains("   200\tL200"), "显式 limit 覆盖到第 200 行");
+    assert!(
+        windowed.contains("   200\tL200"),
+        "显式 limit 覆盖到第 200 行"
+    );
     assert!(!windowed.contains("   201\tL201"), "窗口外行不出现");
     assert!(!windowed.contains("大文件预览"), "显式 limit 不走预览分支");
 }

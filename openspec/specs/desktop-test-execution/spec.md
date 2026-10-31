@@ -390,7 +390,7 @@ test-execution 的命令展开 SHALL 受平台命令行长度预算约束（「�
 | `crates/core/checks`（aggregate / diagnose / reuse） | 纯层判定 | 聚合 conclusion、完整性校验 + 诊断树确定性分支、复用门 mtime 判定；fixtures + corpus 黄金可测 |
 | `crates/infra/checks/src/testexec/` | 进程执行 | detect（五框架注册表 + glob）/ runner（模板展开 + spawn + 超时 + 捕获）/ report（summary + 子报告写盘）；bun / go / pytest 显式 Err |
 | `crates/core/foundation/src/layout/mod.rs` | 报告路径推导 | change 报告目录（reports/test）常量组扩展；命名隔离双禁令唯一触点纪律不变 |
-| `src/types/generated/bindings.ts`（重导） | IPC 类型跟随 | ChangeStepKind 新变体出线；`bindings:check` 守卫拦截过期生成物 |
+| `src/types/generated/bindings.ts`（重导） | IPC 类型跟随 | ChangeStepKind 新变体出线；生成物随前置重导出更新，过期由提交前人工核对 |
 | `crates/infra/checks/src/testexec/mod.rs` | 报告槽位参数化消费 | 报告目录经槽位（test 缺省 / baseline）派生；复用门按各自报告树判定（baseline 树内 mtime 判定复用，跨树零复用）；聚合与诊断链零改动 |
 | `crates/core/foundation/src/layout/mod.rs` | baseline 目录变体单点 | `reports/baseline` 后缀与 `reports/test` 同源派生（root / change 目录两变体）；零磁盘路径字面量扩散 |
 | `crates/infra/exec/src/lib.rs` | 输出记录同锚 | `record_exec_output` / `read_exec_output` 按槽位锚定 exec-outputs；exec_id 跨树唯一，回查覆盖两树 |

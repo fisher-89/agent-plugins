@@ -288,7 +288,7 @@ archive 相位 SHALL 在 SpecSync 步之后、Seal 步之前执行 `Cleanup` 步
 | `src/commands/archive_flow/` | 薄命令包装 id 化 | preflight / start / stop / state / watch 定位参数 == change id；互斥校验键 `(root, id)`；缺 id 记录 → 既有拒绝面（`Result<T, String>`）；三件事纪律；冲突摘要呈现载体由 design 定稿；bindings 再生 |
 | `packages/desktop/src/views/changes/`（详情页） | 归档入口与链面呈现 | 归档按钮两态可见性；确认对话（警告清单 + worktree 合入告知）；阶段状态（新序 + 冲突子阶段与 lean 咨询面）与结果摘要；agent 会话转录入口（复用 AgentMessages 基建）；data-testid 挂钩 |
 | `packages/desktop/src/views/changes/flow/archive-panel.tsx` + `hooks/use-archive-flow.ts` | 面板 id 透传 | 命令携 change id；完成度 / 摘要 / 归档目录（`archivedDir` 含日期前缀）展示面语义不变（name 展示值取自 detail） |
-| `src/types/generated/bindings.ts` | IPC 类型跟随 | 新命令与 DTO 再生；`bindings:check` 守卫拦截过期生成物 |
+| `src/types/generated/bindings.ts` | IPC 类型跟随 | 新命令与 DTO 再生；生成物随前置重导出更新，过期由提交前人工核对 |
 | `crates/core/workflow/src/write/phase_table.rs`（ARCHIVE_STEPS） | 11 步序列单点 | SpecSync → Cleanup → Seal（Cleanup 尽力步；与 Finalize 相对座位 design 定稿）；其余步 `on_fail=None` |
 | `crates/core/orchestration/src/walker.rs`（step_cleanup，新） | Cleanup 步执行体 | 记录解析 worktree 字段 → 缺席 / legacy 幂等跳过（`passed` + detail）；remove 失败吞为 detail 警告（步恒 `passed`、链必收口）；零 branch 触点 |
 | `crates/core/orchestration/src/port.rs`（ArchiveVcsPort 清理面，扩） | 归档链 → vcs 清理的进程内缝 | worktree 在场探测 + 移除（形态 design 定稿）；实现复用 `crates/infra/vcs` 既有 `remove_worktree --force` 单点或等价；`Err` 面带路径与手动清理引导 |

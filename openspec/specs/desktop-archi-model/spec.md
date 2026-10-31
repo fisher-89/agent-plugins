@@ -279,7 +279,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 - 全部命令 SHALL 带显式 `root`（MUST NOT 依赖「当前选中 change」一类隐式上下文）；错误面 SHALL 为 `Result<T, String>`（沿既有命令面口径）。
 - `archi_graph` / `archi_module` / `archi_read_doc` / `archi_change_summary` MUST NOT 写盘；唯一写命令 SHALL 为 `archi_set_gate`（且只改 `gate` 单字段）。
 - `archi_set_gate` MUST NOT 出现在 `mode = full` 的前端调用路径（只读视图约束由前端承载、由命令可用性背书——命令本身不区分模式）。
-- 五个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（`bindings:check` 零 diff）。
+- 五个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（生成物随重导出入库，过期由提交前人工核对）。
 
 #### Scenario: 读命令零写盘
 

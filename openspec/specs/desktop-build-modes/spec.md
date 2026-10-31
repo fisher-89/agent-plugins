@@ -53,7 +53,7 @@ MUST NOT 以 `tauri::is_dev()`、`import.meta.env.DEV` 作模式判据；MUST NO
 - dev 构建产物 SHALL 自包含可双击运行（`--debug` 下同样注入 `tauri/custom-protocol` 且前端资源内嵌），MUST NOT 依赖 dev server；
 - dev 构建的 cargo target 目录 MUST 与 `tauri dev` 的 `target/debug` 分离（`tauri dev` 不加 `custom-protocol`、`build --debug` 加，共用目录会让 feature 翻转触发 tauri 及下游全量重编译）；隔离目录 MUST 落在 gitignore 覆盖的 `src-tauri/target/` 之内；具体形态（env 变量 / CLI 参数）由实现定夺，**隔离语义不变**；
 - `bindings:export` SHALL 保持独立运行且不落隔离目录——它走无 `custom-protocol` 的编译态，与 `tauri dev` 同态；
-- `dev` / `client:dev` / `check` / `test` / `mutate` / `tauri` 脚本与 `tauri.conf.json` 全项 MUST NOT 改动。
+- `dev` / `client:dev` / `test` / `mutate` / `tauri` 脚本与 `tauri.conf.json` 全项 MUST NOT 改动；`check` 的唯一允许变化是生成物守卫步骤的判定形态（见 `desktop-ipc-type-bindings`「生成物入库与重导出」，零 diff 守卫已退役），其检查链构成语义不变。
 
 #### Scenario: 默认构建落 dev
 
@@ -319,6 +319,6 @@ args 判定（--self-check）
 | `packages/desktop/src/hooks/use-app-environment.ts` | Component | 挂载一次 `commands.appEnvironment()`；成功返回 `{ mode, dataRoot, source }`，未就绪 / 失败为 `null`（静默，无错误态） |
 | `packages/desktop/src/hooks/use-updater.ts` | Component | `useUpdater(mode: 'dev' \| 'prod' \| null)`；启动检查判据 `mode === 'prod'`；`null` 时不判定；删除 `import.meta.env.DEV` 判据；下载 / 安装链路零变化 |
 | `packages/desktop/src/app.tsx` | Component | 挂 `useAppEnvironment()` → mode 传入 `useUpdater`；`ShellHeader` 在 `mode === 'dev'` 时渲染 `DEV` 徽标（`data-testid` + `title = dataRoot`）；版本号显示零 `-dev` 后缀 |
-| `packages/desktop/src/types/generated/bindings.ts` | API | `bindings:export` 重导出：含 `appEnvironment` typed 包装与 `AppEnvironment` 类型；`bindings:check` 零 diff |
+| `packages/desktop/src/types/generated/bindings.ts` | API | `bindings:export` 重导出：含 `appEnvironment` typed 包装与 `AppEnvironment` 类型；生成物随重导出入库，过期由提交前人工核对 |
 | `packages/desktop/RELEASE.md` | Component | 本地构建拆两档：`build` 零配置产 dev 二进制；签名私钥前置只约束 `build:prod`；注明 dev 数据根落 `<home>/.dev-team/dev` 与 `--self-check` 用法 |
 | `.github/workflows/desktop-release.yml` | CLI | **零改动**（红线）：CI 恒经 tauri-action 直调 `tauri build`，MUST NOT 出现 `pnpm build` / `--debug` / `--no-bundle`；`DEV_TEAM_DATA_ROOT` 不在 CI 设置 |

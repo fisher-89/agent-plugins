@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 desktop-app IPC 面的类型绑定契约：tauri-specta 命令注册与 TypeScript 生成物、生成物入库与一致性守卫、前端 typed 调用面切换、dto.ts shim 过渡与判据驱动退役、依赖落位与 knip 边界。Rust 类型为单一事实源,前端调用面 MUST NOT 维护手写镜像。
+定义 desktop-app IPC 面的类型绑定契约：tauri-specta 命令注册与 TypeScript 生成物、生成物入库与重导出、前端 typed 调用面切换、dto.ts shim 过渡与判据驱动退役、依赖落位与 knip 边界。Rust 类型为单一事实源,前端调用面 MUST NOT 维护手写镜像。
 
 ## Requirements
 
@@ -25,36 +25,43 @@ desktop-app SHALL 以 tauri-specta builder 注册全部 IPC 命令（既有 `mai
 #### Scenario: 类型漂移编译期拦截
 
 - **WHEN** Rust 侧改名字段或改命令参数形状而不更新生成物
-- **THEN** 重导出后一致性守卫报工作区 diff；若生成物同步更新，前端消费处的编译错误由 tsc 拦截，运行期不再首见漂移
+- **THEN** 重导出把生成物刷新为最新；若生成物自检失败（`bindings:zod-check` 非零）检查即失败，否则前端消费处的编译错误由 tsc 拦截，运行期不再首见漂移
 
 #### Scenario: PoC 先行留档
 
 - **WHEN** 审查 design 与实现顺序
 - **THEN** `AgentEvent` 内部标签枚举与 `Channel<AgentRunMessage>` 的出线形态验证记录在案，且先于前端切换任务执行
 
-### Requirement: 生成物入库与一致性守卫
+### Requirement: 生成物入库与重导出
 
-生成的 bindings 产物（`bindings.ts` 与 `bindings.zod.ts` 两份）SHALL 全部入库版本控制，同落位 `src/types/generated/`（既有实现已定，MUST NOT 迁址；第二产物 MUST 与类型产物同目录、同一次导出产出）。Rust 侧 SHALL 提供唯一导出入口执行两次 `builder.export`（同一 builder、同一 `all_commands!` 登记面：`Typescript` 一次 + zod exporter 一次；形态为搭 `server:test = cargo test --workspace` 顺风车的 `#[test]` 或专用 bin，design 定夺）。`check` 与 `build` SHALL 前置重导出（npm `pre` hook 或显式脚本串接），重导出后 SHALL 以 `git diff --exit-code` 类一致性守卫校验工作区干净——入库物过期 MUST 被检查捕获，MUST NOT 依赖人工记得重导。`check` SHALL 走守卫型脚本（`bindings:check` = 导出 + `git diff --exit-code -- src/types/generated`，覆盖面为整个生成目录、含第二产物，命令形态不变），MUST NOT 走「就地导出即最新」的 `bindings:export`（后者使 tsc 永不报漂移，守卫形同虚设）；`build` SHALL 维持导出（产物构建需最新生成物）。导出 SHALL 幂等（同输入同输出，重导出无 diff；两份产物各自幂等，且两次导出之间 MUST NOT 相互影响）。
+生成的 bindings 产物（`bindings.ts` 与 `bindings.zod.ts` 两份）SHALL 全部入库版本控制，同落位 `src/types/generated/`（既有实现已定，MUST NOT 迁址；第二产物 MUST 与类型产物同目录、同一次导出产出）。Rust 侧 SHALL 提供唯一导出入口执行两次 `builder.export`（同一 builder、同一 `all_commands!` 登记面：`Typescript` 一次 + zod exporter 一次；形态为搭 `server:test = cargo test --workspace` 顺风车的 `#[test]` 或专用 bin，design 定夺）。
+
+`check` 与 `build` SHALL 前置重导出（npm `pre` hook 或显式脚本串接）——重导出本身即把盘上产物修至最新，故两步之后 MUST NOT 再以「工作区与 HEAD 的 diff」判失败：change 流程的 static-check 跑在 change 私有 worktree（天生有未提交改动），该判据恒假且不携带「产物是否过期」的信息，只会把每一轮改过命令 / DTO 的首轮检查打成假红。入库物是否过期 SHALL 由人工在提交前经 `git status` / `git diff` 核对生成目录确认，MUST NOT 依赖自动化 diff 门禁。导出 SHALL 幂等（同输入同输出，重导出无 diff；两份产物各自幂等，且两次导出之间 MUST NOT 相互影响）。
 
 #### Scenario: 重导出幂等
 
 - **WHEN** 连续两次执行导出入口而不改任何 Rust 类型
 - **THEN** 第二次导出后 `git diff` 为空，无格式抖动
 
-#### Scenario: 过期生成物被守卫抓住
+#### Scenario: 脏工作区内的检查不被生成物误伤
 
-- **WHEN** 修改 Rust 类型后仅提交源码、不重导生成物，再执行 `pnpm check`
-- **THEN** `bindings:check` 先重导出、再由 `git diff --exit-code -- src/types/generated` 判非空并以非零退出报「生成物过期」，检查不通过
+- **WHEN** 在 change worktree 内修改 Rust 类型（命令签名 / 出线 DTO）后执行静态检查
+- **THEN** 前置重导出把 `src/types/generated/` 更新为最新，检查不再因「工作区相对 HEAD 有 diff」而失败
+
+#### Scenario: 生成物过期由提交前人工核对
+
+- **WHEN** 修改 Rust 类型后仅提交源码、未提交重导后的生成物
+- **THEN** 该遗漏由提交前的 `git status` / `git diff` 人工核对发现；`check` MUST NOT 以自动 diff 守卫冒充这一判定
 
 #### Scenario: 新命令绑定同步
 
 - **WHEN** 新增会话订阅命令 `agent_session_watch` 后执行 `pnpm check`
-- **THEN** 生成物含该命令的 typed 包装（`onEvent: Channel<AgentRunMessage>` + `sinceSeq`）且入库；未重导时守卫报 diff，MUST NOT 静默通过
+- **THEN** 前置重导出使生成物含该命令的 typed 包装（`onEvent: Channel<AgentRunMessage>` + `sinceSeq`），生成目录的改动在 `git status` 中可见
 
-#### Scenario: 第二产物同受守卫
+#### Scenario: 第二产物同随重导出
 
-- **WHEN** 修改 Rust 侧出线 DTO 后重导出，但仅提交 `bindings.ts`（`bindings.zod.ts` 手工漏更或只手改其一份）
-- **THEN** `git diff --exit-code -- src/types/generated` 判非空并以非零退出——守卫覆盖整个生成目录，MUST NOT 只校验类型产物
+- **WHEN** 修改 Rust 侧出线 DTO 后执行 `pnpm check`
+- **THEN** 同一次导出同时更新 `bindings.ts` 与 `bindings.zod.ts`（覆盖整个生成目录，MUST NOT 只更新类型产物）
 
 #### Scenario: 第二产物幂等
 
@@ -209,7 +216,7 @@ zod exporter SHALL 以 vendored crate 落位 `packages/desktop/src-tauri/crates/
 | `packages/desktop/src-tauri/src/bindings/zod.rs` | zod 侧 wrapper | `ZodLanguage` newtype（本地实现 `LanguageExt`）+ `ZodFormat`（`PhasesFormat` + 大整数 → `z.number()` + `serde_json::Value` → `z.unknown()`）+ 逐命令表注入（`Zod::with_raw`）；参数键名 lowerCamelCase 与 invoke payload 逐字一致；结果取 `Result` 的 Ok 臂 |
 | `packages/desktop/src-tauri/crates/tools/specta-zod-patched/**` | vendored exporter | 基线 0.0.4 + 补丁 ①struct strict ②删 `export type` ③递归 getter 化（延后项与兜底项见 README）；每处带 `PATCH(n)` 标记 |
 | `packages/desktop/src-tauri/crates/tools/export-bindings/src/main.rs` | 导出驱动 | 仍只调 `dev_team::bindings::export_bindings()`（入口唯一，两次导出在其内部）；失败以非零退出 |
-| `packages/desktop/src/types/generated/bindings.ts`（生成，入库） | 前端唯一 IPC 类型与调用面 | 全部命令 typed 包装 + 全部出线 DTO 类型；入库 + check/build 前置重导出 + `git diff --exit-code` 守卫；knip ignore；类型与 typed invoke 包装来源不变，`ipc` 与 Equal 断言只从此处取类型，MUST NOT 转发 zod 类型 |
+| `packages/desktop/src/types/generated/bindings.ts`（生成，入库） | 前端唯一 IPC 类型与调用面 | 全部命令 typed 包装 + 全部出线 DTO 类型；入库 + check/build 前置重导出（过期由提交前人工核对）；knip ignore；类型与 typed invoke 包装来源不变，`ipc` 与 Equal 断言只从此处取类型，MUST NOT 转发 zod 类型 |
 | `packages/desktop/src/types/generated/bindings.zod.ts`（生成，入库） | 第二产物 | 纯 schema：具名类型 schema + `argsSchemas` / `resultSchemas` / `channelArgs` + `degraded()` prelude；零 `export type`；`z.strictObject` 写死；零 `.default/.transform/.catch/.pipe/.refine` |
 | `packages/desktop/src-tauri/crates/core/agent`（derive 增量） | 出线事件类型导出面 | `AgentEvent` / `AgentEventKind` / `AgentBlock` + `specta::Type`；枚举语义与 serde 线格式不变；禁 Tauri 不破 |
 | `packages/desktop/src-tauri/crates/core/workflow`（derive 增量） | 出线查询类型导出面 | `ChangeList` / `ChangeDetail` / `ArtifactEnvelope` / `ExploreDoc` / `ExploreScanEntry` + `specta::Type`；语义不动 |
@@ -217,7 +224,7 @@ zod exporter SHALL 以 vendored crate 落位 `packages/desktop/src-tauri/crates/
 | `packages/desktop/src-tauri/src/commands/`（`AgentRunMessage` / `FileWatchEvent`） | app 层 IPC 信封导出面 | tag `ipc` 信封与 watch 载荷 typed；`STATUS_*` 裸常量随枚举化退役 |
 | `packages/desktop/src/lib/agent-transport.ts` | transport 适配层 | 手写镜像删除、接生成绑定；`readChainParams` 等运行时校验保留 |
 | `packages/desktop/src/types/dto.ts`（shim → 删） | 过渡容错网 | 纯 re-export（含逐名映射）；knip 零引用即删，不按时间过渡 |
-| `packages/desktop/package.json` / `knip.json` | 脚本与检查边界 | check/build 前置重导出 + diff 守卫；生成目录 ignore 覆盖两份产物（不另开条目）；`bindings:export` / `bindings:check` / `check` 命令形态不变、覆盖面随生成目录扩大；前端 `zod` 依赖的精确 pin / 单实例 / knip 可见性见 `desktop-ipc-runtime-guard`（不在本条重复） |
+| `packages/desktop/package.json` / `knip.json` | 脚本与检查边界 | check/build 前置重导出（零 diff 守卫已退役，过期由提交前人工核对）；生成目录 ignore 覆盖两份产物（不另开条目）；`bindings:export` / `check` 命令形态不变、覆盖面随生成目录扩大；前端 `zod` 依赖的精确 pin / 单实例 / knip 可见性见 `desktop-ipc-runtime-guard`（不在本条重复） |
 
 ### API: `packages/desktop/src-tauri/src/commands/mod.rs`（单一登记面）
 
@@ -236,8 +243,7 @@ zod exporter SHALL 以 vendored crate 落位 `packages/desktop/src-tauri/crates/
 
 | 脚本 | 命令 | 描述 |
 |------|------|------|
-| `bindings:check` | `pnpm run bindings:export && git diff --exit-code -- src/types/generated` | 导出 + 工作区干净守卫（`check` 前置调用）；diff 覆盖面含第二产物 |
-| `check` | `pnpm run server:check && pnpm run bindings:check && pnpm run client:check` | 守卫型检查（由 `bindings:export` 改为 `bindings:check`）；命令形态不变 |
+| `check` | `pnpm run server:check && pnpm run bindings:export && pnpm run client:check` | 检查链直接前置重导出（零 diff 守卫已退役）；生成物过期由提交前人工核对 |
 | `bindings:export` / `build` | 不变 | 导出免守卫（构建产物需最新生成物）；`bindings:export` 内部多产出一份 zod schema，自检失败以非零退出 |
 
 ### Component

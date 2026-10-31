@@ -15,7 +15,9 @@ use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::protect::ProtectRules;
-use crate::sdk::{compact, context, normalize, policy, preamble, resume, sandbox, tools, web_search};
+use crate::sdk::{
+    compact, context, normalize, policy, preamble, resume, sandbox, tools, web_search,
+};
 
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";

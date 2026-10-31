@@ -1404,14 +1404,9 @@ fn create_change命令签面_root_name_goal_workflow_type四参() {
 }
 
 // ---------------------------------------------------------------------------
-// 归档链退役（merge-archive-steps-into-flow AC-9 / AC-10）：归档五命令 /
-// ArchiveUpdate 家族 / ArchiveStage 词汇随归档链整体退役——生成物不含退役命令
-// 包装名与退役类型（bindings 零手改，再生成直出线；退役 diff 面由 code-review
-// 与 bindings:check 管线承载）
+// 归档链退役
 // ---------------------------------------------------------------------------
 
-/// 归档链退役面：生成 bindings 不含退役五命令包装名与退役 invoke 名（归档发起 /
-/// 停止 / 状态 / 预检 / 观察全并入 `changeFlow*` 命令面——AC-10）。
 #[test]
 fn 归档五命令退役_生成物零残留() {
     let _lock = lock();
@@ -1456,9 +1451,6 @@ fn 归档五命令退役_生成物零残留() {
     }
 }
 
-/// 归档前置载荷线面（正向）：归档链并入 run 后仅 `ArchivePreflight` 保留——八
-/// 字段 camelCase 出线且经 `ChangeRunSnapshot.archive` / `ActiveRunView.archive`
-/// 挂靠（AC-7 / AC-10 生成物面）。
 #[test]
 fn archive_preflight线面字段面保留() {
     let _lock = lock();
@@ -1503,9 +1495,7 @@ fn archive_preflight线面字段面保留() {
 }
 
 // ---------------------------------------------------------------------------
-// app_environment 登记面（desktop-build-mode-split，AC-14 / AC-16）：命令清单 +
-// 生成物包装 + DTO 线面三字段。清单为产物子集的既有口径不变（历史缺录为既有
-// 滞后债，contains 语义不致红），本变更只补录自身新命令。
+// app_environment 登记面
 // ---------------------------------------------------------------------------
 
 /// 登记面正向：新命令进两份清单与 DTO 清单，既有 37 条逐条仍在（无重复登记）。
@@ -1591,7 +1581,7 @@ fn 登记面_生成物含app_environment包装与线面三字段() {
     );
 }
 
-/// 登记面异常面：重复导出逐字节一致（`bindings:check` 的单测等价面——缺登记 /
+/// 登记面异常面：重复导出逐字节一致（入库物一致性的单测等价面——缺登记 /
 /// 误改清单时该字节比对必红）。
 #[test]
 fn 登记面_重复导出逐字节一致且新包装在册() {
@@ -2324,8 +2314,6 @@ fn archi_drift清单与产物命令面互为镜像() {
     );
 }
 
-/// 边界：幂等重导出——`export_bindings()` 连续两次产物字节相等（`bindings:check`
-/// 零 diff 前提），手写旁路零接触。
 #[test]
 fn archi_drift幂等重导出字节零漂移() {
     let _lock = lock();

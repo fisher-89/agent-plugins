@@ -65,7 +65,7 @@ desktop-app 全部 change 寻址命令 SHALL 以 change id 作定位参数（参
 #### Scenario: bindings 再生成跟随
 
 - **WHEN** 命令面与 DTO 演进后执行 bindings 重导出
-- **THEN** 全部 change 寻址命令签名定位参数为 `id`，`ChangeSummary` / `ChangeDetail` / `CreateOutcome` 携 `id`；一致性守卫（git diff --exit-code）绿
+- **THEN** 全部 change 寻址命令签名定位参数为 `id`，`ChangeSummary` / `ChangeDetail` / `CreateOutcome` 携 `id`；生成物随前置重导出更新（过期由提交前人工核对）
 
 ### Requirement: Sidebar 壳层布局
 

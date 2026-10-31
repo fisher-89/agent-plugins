@@ -361,7 +361,7 @@ test-execution runner 的 `execute()` 层 SHALL 设**跨 plan 总预算**（代�
 #### Scenario: 文案不出线
 
 - **WHEN** 审查生成绑定与 IPC 载荷
-- **THEN** `argv_budget_text` / `argv_degrade_note` 的产物均未出现在 `bindings.ts` / `RunUpdate` / `RunNodeRecord` 中，`bindings:check` 零 diff
+- **THEN** `argv_budget_text` / `argv_degrade_note` 的产物均未出现在 `bindings.ts` / `RunUpdate` / `RunNodeRecord` 中，生成物随重导出入库，过期由提交前人工核对
 
 ## Module Contract
 

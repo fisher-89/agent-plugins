@@ -1,11 +1,11 @@
-import { ChevronLeftIcon } from 'lucide-react';
+import { cn } from 'cn';
+import { ChevronLeftIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import type {
@@ -31,26 +31,12 @@ function formatTime(value: string | null): string {
   return value;
 }
 
-function DetailHeader({
-  detail,
-  loading,
-  onBack,
-  refresh,
-}: {
-  detail: ChangeDetail;
-  loading: boolean;
-  onBack: () => void;
-  refresh: () => void;
-}) {
+function DetailHeader({ detail, onBack }: { detail: ChangeDetail; onBack: () => void }) {
   return (
     <div className="mb-3" data-testid="detail-header">
       <div className="flex flex-wrap items-center gap-2.5">
         <Button variant="ghost" size="icon" title="返回列表" onClick={onBack}>
           <ChevronLeftIcon />
-        </Button>
-        <Button onClick={refresh} disabled={loading} data-testid="refresh-change-detail-button">
-          刷新详情
-          {loading && <Spinner />}
         </Button>
         <h2 className="m-0 break-all text-[17px]">{detail.title}</h2>
         <span className="text-muted-foreground">
@@ -73,20 +59,36 @@ function DetailHeader({
   );
 }
 
-/** 流程图区单态呈现（文档形态空图占位分支整体退役——未知 id 走未找到降级，
- * 详情可达者恒为建档 change，流程图常驻挂载） */
+/** 流程图 */
 function FlowSection({
   graph,
   materials,
   onSelect,
+  loading,
+  onRefresh,
 }: {
   graph: FlowGraph;
   materials: FlowMaterials;
   onSelect: (selection: DrawerSelection) => void;
+  loading: boolean;
+  onRefresh: () => void;
 }): React.JSX.Element {
   return (
     <section className="h-full mb-4 rounded-lg border border-border bg-card px-4 py-3.5 flex flex-col">
-      <h2 className="m-0 mb-2.5 text-[15px]">流程图</h2>
+      <div className="mb-2.5 flex items-center gap-1.5">
+        <h2 className="m-0 text-[15px]">流程图</h2>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          title="刷新详情"
+          aria-label="刷新详情"
+          disabled={loading}
+          onClick={onRefresh}
+          data-testid="refresh-change-detail-button"
+        >
+          <RefreshCwIcon className={cn({ 'animate-spin': loading })} />
+        </Button>
+      </div>
       <ChangeFlowGraph graph={graph} materials={materials} onSelect={onSelect} />
     </section>
   );
@@ -121,10 +123,7 @@ function DetailFallback({
   );
 }
 
-/** 内联「刷新失败」横幅（保 last-good 陈旧窗口标示，D1：页首整宽、失败面色
- * 同 run-error / error-note 先例）：失败轮随 `refreshFailed` 呈现，成功轮 /
- * 真 None 轮清 null 即消失；文案含后端错误串原样（层 2 观测面）与「刷新详情」
- * 立即重试引导。 */
+/** 刷新失败 */
 function RefreshStaleNote({ message }: { message: string }): React.JSX.Element {
   return (
     <div
@@ -172,6 +171,8 @@ function DetailContent({
   graph,
   materials,
   sessionRefreshKey,
+  refreshLoading,
+  onRefresh,
 }: {
   root: string | null;
   id: string;
@@ -180,11 +181,20 @@ function DetailContent({
   graph: FlowGraph;
   materials: FlowMaterials;
   sessionRefreshKey: number;
+  /** 手动刷新在飞（仅刷新按钮禁用面，主图面不回落加载占位） */
+  refreshLoading: boolean;
+  onRefresh: () => void;
 }): React.JSX.Element {
   const [selection, setSelection] = useState<DrawerSelection | null>(null);
   return (
     <>
-      <FlowSection graph={graph} materials={materials} onSelect={setSelection} />
+      <FlowSection
+        graph={graph}
+        materials={materials}
+        onSelect={setSelection}
+        loading={refreshLoading}
+        onRefresh={onRefresh}
+      />
       <DetailDrawer
         selection={selection}
         graph={graph}
@@ -199,16 +209,10 @@ function DetailContent({
   );
 }
 
-/**
- * 右栏内容区页签：`detail-tab-flow`（流程图 + 产物抽屉，缺省选中）与
- * `detail-tab-architecture`（架构画布，`mode = "incremental"`）。
- *
- * `archiRoot` 派生**单点**：归档 change 与无 worktree 的 legacy change 回落主仓根
- * （与会话 cwd 同口径），其余取 `detail.worktree`。架构页签经 Tabs 面板的条件挂载
- * 承载——未激活即不挂载，切换不产生取数。
- */
 function DetailTabs({
   detail,
+  refreshDetail,
+  refreshLoading,
   root,
   id,
   graph,
@@ -216,6 +220,8 @@ function DetailTabs({
   sessionRefreshKey,
 }: {
   detail: ChangeDetail;
+  refreshDetail: () => void;
+  refreshLoading: boolean;
   root: string | null;
   id: string;
   graph: FlowGraph;
@@ -242,6 +248,8 @@ function DetailTabs({
           graph={graph}
           materials={materials}
           sessionRefreshKey={sessionRefreshKey}
+          refreshLoading={refreshLoading}
+          onRefresh={refreshDetail}
         />
       </TabsContent>
       <TabsContent className="min-h-0 flex-1" value="architecture">
@@ -253,6 +261,8 @@ function DetailTabs({
 
 interface DetailLoadedProps {
   detail: ChangeDetail;
+  refreshDetail: () => void;
+  refreshLoading: boolean;
   /** 在飞 run 活面（统一视图 activeRun） */
   activeRun: ActiveRunView | null;
   root: string | null;
@@ -327,11 +337,11 @@ function useFlowGraphData(
   return { graph, materials, lastRun };
 }
 
-/** 详情已载入形态（图数据源经 [`useFlowGraphData`] 单点派生；header 整宽留在
- * 分栏之上，分栏以下左栏通用 Agent 面板 / 右栏「刷新失败提示 → 运行控制面板 →
- * 流程图区」——D16 右栏次序沿用「陈旧横幅在动作面板之上」）。 */
+/** 详情已载入形态 */
 function DetailLoaded({
   detail,
+  refreshDetail,
+  refreshLoading,
   activeRun,
   root,
   id,
@@ -368,6 +378,8 @@ function DetailLoaded({
             <div className="flex-1 min-h-0">
               <DetailTabs
                 detail={detail}
+                refreshDetail={refreshDetail}
+                refreshLoading={refreshLoading}
                 root={root}
                 id={id ?? detail.id}
                 graph={graph}
@@ -453,15 +465,15 @@ export function ChangeDetailView({ root }: { root: string | null }) {
   return (
     <DetailLoaded
       detail={detail}
+      refreshDetail={refresh}
+      refreshLoading={loading}
       activeRun={activeRun}
       root={root}
       id={id}
       artifacts={artifacts}
       run={run}
       staleError={refreshFailed}
-      header={
-        <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
-      }
+      header={<DetailHeader detail={detail} onBack={backToList} />}
       sessionRefreshKey={refreshTick}
     />
   );

@@ -577,12 +577,6 @@ impl RunStepKind {
 /// 与落库命令（`RunEdgeEntry.edge_kind`）同本类型消费（零映射）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-// 词面冻结说明：本枚举的 `///` 文本经 specta 出线到
-// `src/types/generated/bindings.ts`（`bindings:check` 要求零 diff），故 `Retry`
-// 的失效表述就地保留、现语义驻本注释：`retry` 为**存量解码专用**——新写面零
-// 产出（`DecisionAction::Retry` 已退役），查询面投影前屏蔽（`queries/detail.rs`
-// 唯一屏蔽点）；变体保留因记录信封走 serde_json，删变体将使旧行 decode 失败
-//（历史 run 流程图整份打不开）。值域仍四值（零 IPC 演进）。
 pub enum RunEdgeKind {
     /// 计划序推进（相位内按 steps 序推进、相位间推进）
     Forward,

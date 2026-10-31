@@ -600,7 +600,7 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src-tauri/crates/core/workflow/src/queries/detail.rs` | 详情线面收敛 | `ChangeDetail.interrupted` 与线面 `InterruptedEntry` 删；其余字段线面口径（=null + ISO 串、纯 derive 零字段属性）不变 |
 | `packages/desktop/src/views/changes/flow/run-state.ts`（词归一） | 步词归一单点 | 补 `archi_check` ↔ `archiCheck` 一组映射（二十二值逐词对应）；归 exec / toolStep 分类（缺省臂已覆盖，零新增分支） |
 | `packages/desktop/src/views/changes/flow/run-step-node.tsx`（`STEP_LABEL`） | 人读文案穷尽表 | 补 `archiCheck: '架构检查'` 键；`GROUP_LABEL` 四类不变 |
-| `packages/desktop/src/types/generated/bindings.ts` + `bindings.zod.ts` | 词面再生成 | `bindings:export` 重导出后 `archiCheck` 入 `ChangeStepKind` / `RunStepKind`；`bindings:check` 零 diff |
+| `packages/desktop/src/types/generated/bindings.ts` + `bindings.zod.ts` | 词面再生成 | `bindings:export` 重导出后 `archiCheck` 入 `ChangeStepKind` / `RunStepKind`；生成物随重导出入库，过期由提交前人工核对 |
 | `packages/desktop/src/views/changes/flow/run-control-panel.tsx` | 发起开关与轻提示 | 发起区「自动确认」开关默认关 + 一行说明文案；运行期定格；data-testid 挂钩；确认卡片 / ask 卡片呈现逻辑不变 |
 | `packages/desktop/src/views/changes/hooks/use-change-flow-run.ts` | start 传参与 id 透传 | `start(autoNextPhase: boolean)` → `commands.changeFlowStart(channel, root, id, autoNextPhase)`；发起 / 停止 / 确认 / 应答命令携 change id；订阅生命周期不变 |
 | `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 会话槽位直查分派 | 节点 `sessionId` 直查（`RoleSessionRef` 仅 `{ role, sessionId }`，无 sourceRef 字段）；槽位缺席呈「此步无会话记录」空态，前端零 sourceRef 反查 |
@@ -628,7 +628,7 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeStepState` / `ChangeRunNodeRecord` 四字段再生成，tsc 全量类型检查拦截漂移 |
 | `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 步词文案 | `STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）；`GROUP_LABEL` git 分类覆盖 clean；零新节点类型 / 零新面板 |
 | `packages/desktop/src/views/changes/flow/run-state.ts` | 步词归一 | `normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 映射（二十一值逐词对应） |
-| `packages/desktop/src/types/generated/bindings.ts`（重生成） | 类型跟随 | `ChangeStepKind` / `RunStepKind` 新变体出线；`bindings:check` 守卫拦截过期生成物 |
+| `packages/desktop/src/types/generated/bindings.ts`（重生成） | 类型跟随 | `ChangeStepKind` / `RunStepKind` 新变体出线；生成物随前置重导出更新，过期由提交前人工核对 |
 | 转换层 / 抽屉 / stdout 面板（零改动） | 结构复用 | initialize 列与步节点经既有 `detail.pipeline` 出线与 runtime step 渲染直达；baseline 输出经既有 `outputRef` stdout 面板回查 |
 | `src/views/changes/flow/graph.ts` | 边转换 | `runs[].edges` 直读、端点缺失 `continue`；零 `deriveEdges` Δ 派生；`retry` 无专属样式分支 |
 | `src/views/changes/flow/graph.test.ts` | 转换层用例 | `retry` fixture 改写为「输入含 retry 边 → 输出图不含该边」的投影锚 |

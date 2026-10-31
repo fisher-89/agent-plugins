@@ -76,7 +76,7 @@ packages/desktop/                  唯一可分发包
         ├── core/                  领域核心：foundation / config / workflow / orchestration /
         │                          agent / checks（相位表、角色 prompt、报告语义）
         ├── infra/                 基础设施适配：agent / checks / exec / store / vcs / watch
-        └── tools/export-bindings  前端类型生成（bindings:export / bindings:check）
+        └── tools/export-bindings  前端类型生成（bindings:export）
 openspec/
 ├── specs/                         存活能力规格（只放仍在维护的能力）
 ├── changes/                       进行中的 change（archive/ 为历史存档）

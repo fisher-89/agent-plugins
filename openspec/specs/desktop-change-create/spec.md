@@ -99,7 +99,7 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 
 ### Requirement: create_change IPC 命令面
 
-desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/changes/` 命令组；该组同组承载 change 域读命令 `list_changes` / `get_change_detail` / `read_artifact`，见 desktop-app-shell「Tauri command 轨道组织」）：三件事纪律薄包装（参数转换 → 调写面 `create` → 错误映射），blank root 显式 `Err`，返回 `Result<T, String>`。返回 DTO SHALL 为 `CreateOutcome`：`id`（本次铸出的 change 身份锚——前端以 `/changes/<id>` 进入详情）、`name`、`created`、`worktree`（本次分配的 worktree 绝对路径）、`warnings`（警告清单：脏仓引导 / bootstrap 结果 / 未知管理器注记等，干净且顺利时为空）——主仓 openspec 目录树路径知识仍 MUST NOT 下沉前端；worktree 绝对路径为**刻意出线的执行锚**（用户 review / 手动 commit / merge 可达性拍板，见 desktop-change-worktree「worktree 路径 UI 可见性」）。手动新建路径 SHALL 在命令层以 `title = name` 调写面 `create`（IPC 签名为四参 `(root, name, goal, workflow_type)`，title 不加输入框，workflow_type 自类型选择器——默认 requirement）；promote 路径经 `create_change_with` 泛型缝显式传 `explore.title` 与 workflow_type。命令 SHALL 经 `#[specta::specta]` 出线并登记入 `all_commands!`，TS bindings 随既有管线重导出且一致性守卫通过；`CreateOutcome` 字段演进 SHALL 走 golden 显式重写流程（wire contract 冻结约束）。
+desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/changes/` 命令组；该组同组承载 change 域读命令 `list_changes` / `get_change_detail` / `read_artifact`，见 desktop-app-shell「Tauri command 轨道组织」）：三件事纪律薄包装（参数转换 → 调写面 `create` → 错误映射），blank root 显式 `Err`，返回 `Result<T, String>`。返回 DTO SHALL 为 `CreateOutcome`：`id`（本次铸出的 change 身份锚——前端以 `/changes/<id>` 进入详情）、`name`、`created`、`worktree`（本次分配的 worktree 绝对路径）、`warnings`（警告清单：脏仓引导 / bootstrap 结果 / 未知管理器注记等，干净且顺利时为空）——主仓 openspec 目录树路径知识仍 MUST NOT 下沉前端；worktree 绝对路径为**刻意出线的执行锚**（用户 review / 手动 commit / merge 可达性拍板，见 desktop-change-worktree「worktree 路径 UI 可见性」）。手动新建路径 SHALL 在命令层以 `title = name` 调写面 `create`（IPC 签名为四参 `(root, name, goal, workflow_type)`，title 不加输入框，workflow_type 自类型选择器——默认 requirement）；promote 路径经 `create_change_with` 泛型缝显式传 `explore.title` 与 workflow_type。命令 SHALL 经 `#[specta::specta]` 出线并登记入 `all_commands!`，TS bindings 随既有管线重导出（过期由提交前人工核对）；`CreateOutcome` 字段演进 SHALL 走 golden 显式重写流程（wire contract 冻结约束）。
 
 #### Scenario: 命令注册与类型出线
 
@@ -201,7 +201,7 @@ desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/cha
 | `packages/desktop/src-tauri/crates/core/workflow/src/write/mod.rs` | 写面导出面 | 追加导出 `create`（入参 `&Layout` / name / goal；签名与返回 DTO 形状 design 定稿）；既有四操作导出不变 |
 | `packages/desktop/src-tauri/src/commands/changes/mod.rs` | `create_change` 出线 | `CreateOutcome` 增 `id`（五字段）；三件事薄包装；blank root → `Err`；错误映射 / 三件事纪律不变；`#[specta::specta]` |
 | `packages/desktop/src-tauri/src/commands/mod.rs` | 单一登记面 | `all_commands!` 追加 `create_change` |
-| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `createChange` 返回 `CreateOutcome.id` 再生成；`bindings:check` 守卫拦截漂移 |
+| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `createChange` 返回 `CreateOutcome.id` 再生成；生成物随前置重导出更新，过期由提交前人工核对 |
 | `packages/desktop/src/views/changes/components/change-create-dialog.test.tsx` 同目录 `change-create-dialog.tsx` | 新建对话框 | 名称（kebab-case 本地校验）+ goal 必填；错误行内呈现；成功回调刷新 + 导航 |
 | `packages/desktop/src/views/changes/components/change-create-dialog.tsx` + `change-list-view.tsx` | 成功流转 id 化 | 成功回调以 `outcome.id` 导航 `/changes/<id>`；对话框字段与错误行内呈现不变 |
 | `packages/desktop/package.json` | 版本交付 | 0.4.0 → 0.4.1；`src-tauri/Cargo.toml` 不随动 |

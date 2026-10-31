@@ -1090,17 +1090,7 @@ describe('ipc 形参名面：逐命令 payload 键集 == argsSchemas.shape 键�
 });
 
 // ---------------------------------------------------------------------------
-// `archi_drift` 命令面（archi-check-and-gate，AC-20）：drift / scan schema 图的
-// **运行期形态面**。
-//
-// 生成物的**结构面**（零 diff / 命令清单 / 词面）由 `bindings:check` 与
-// `src-tauri/src/bindings/mod_test.rs` 承载，本节不设生成物文本快照（排序 / 格式化
-// 级变化即噪声）；本节锁的是「`ArchiDriftReport` 能否被前端接受、该拒的形态是否真
-// 被拒」——判据是逐字段 parse 的接受 / 拒绝。
-//
-// 两入口：`resultSchemas.archiDrift`（直接 `safeParse` 全字段 payload，一次遍历即覆盖
-// drift / scan 图全部字段 getter）与 `ipc.archiDrift`（经被 mock 的 `invoke`，观测装配
-// 层的参数面 strict / 结果面 soft-report 语义）。
+// `archi_drift` 命令面
 // ---------------------------------------------------------------------------
 
 /** 合法结构诊断（5 字段，`column` 非 null）。 */

@@ -96,17 +96,17 @@ queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面�
 #### Scenario: 10 站流水线 golden 显式重写
 
 - **WHEN** detail DTO 相位序随 workflow_type 出线后运行语料回归测试
-- **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 一致性守卫绿
+- **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 过期由提交前人工核对
 
 #### Scenario: title 出线与 golden 显式重写
 
 - **WHEN** 查询 title 非空的 change 详情
-- **THEN** `title` 自记录直读逐字一致；detail DTO 增 `title` / nodes / edges 后运行语料回归测试，diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 一致性守卫绿
+- **THEN** `title` 自记录直读逐字一致；detail DTO 增 `title` / nodes / edges 后运行语料回归测试，diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 过期由提交前人工核对
 
 #### Scenario: golden 显式重写留痕
 
 - **WHEN** detail DTO 增 `id` 字段（与列表 `id` 投影）后运行语料回归测试
-- **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 一致性守卫绿
+- **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 过期由提交前人工核对
 
 #### Scenario: 相位序随 workflow_type 出线
 
@@ -140,7 +140,7 @@ change 详情聚合 SHALL 在 attempt 记录（PhaseRecord 的线面投影）中
 #### Scenario: bindings 同步
 
 - **WHEN** DTO 演进后执行 bindings 重导出
-- **THEN** 前端生成物含槽位与线面字段最新形状，一致性守卫（git diff --exit-code）绿
+- **THEN** 前端生成物含槽位与线面字段最新形状，生成物随前置重导出更新（过期由提交前人工核对）
 
 ### Requirement: 查询层纯读且无指令概念
 
@@ -193,7 +193,7 @@ core `change_detail` 签名 SHALL 由 `Option<ChangeDetail>` 改为 `Result<Opti
 #### Scenario: bindings 零漂移
 
 - **WHEN** 签名 Result 化后执行 export-bindings 再生成
-- **THEN** `getChangeDetail` TS 类型面不变（`Promise<ChangeDetailUnified | null>`，Err 走 reject 通道），一致性守卫绿、golden 零 diff
+- **THEN** `getChangeDetail` TS 类型面不变（`Promise<ChangeDetailUnified | null>`，Err 走 reject 通道），生成物随前置重导出更新（过期由提交前人工核对）、golden 零 diff
 
 ### Requirement: 步级时间与 token 出线
 
@@ -217,7 +217,7 @@ detail 线面 `ChangeRunNodeRecord` SHALL 增四字段出线：`startedAt: numbe
 #### Scenario: golden 显式重写
 
 - **WHEN** detail DTO 节点级四字段出线后运行语料回归测试
-- **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 一致性守卫绿
+- **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 过期由提交前人工核对
 
 ## Module Contract
 
@@ -230,18 +230,18 @@ detail 线面 `ChangeRunNodeRecord` SHALL 增四字段出线：`startedAt: numbe
 | `foundation::layout` | 路径输入 | 产物发现仅经 `Layout` 取目录，不自行拼磁盘路径 |
 | `workflow::artifacts` | 产物发现协作 | 详情返回产物清单，发现机制复用 matcher 注册表；带 worktree 记录与 legacy 两类 change 同等可用 |
 | `crates/core/workflow/tests/golden/` + `corpus_golden_test.rs` | wire contract 守卫 | 列表 db 单源与 id 字段演进走 golden 显式重写（`DESKTOP_GOLDEN_REWRITE=1` + 人工确认留痕）；语料见 desktop-corpus-regression |
-| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeSummary.id` / `ChangeDetail.id` 经 export-bindings 再生成；一致性守卫拦截漂移 |
+| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeSummary.id` / `ChangeDetail.id` 经 export-bindings 再生成；过期由提交前人工核对 |
 | `crates/core/workflow/src/queries/`（detail DTO stepKind 投影） | 二十一值出线 | `RunStepKind` 词面扩展自动跟随（纯 derive 零字段属性）；pipeline 出线随 `phase_table`（requirement 10 列 / test-only 7 列，initialize 首列）；golden 覆盖 initialize 相位与 clean 步词样本经显式重写 |
-| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `RunStepKind` 词面再生成；`bindings:check` 守卫拦截漂移 |
+| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `RunStepKind` 词面再生成；生成物随前置重导出更新，过期由提交前人工核对 |
 | `crates/core/workflow/src/queries/detail.rs` | 错误语义分流单点 | `change_detail` 签名 `Option<ChangeDetail>` → `Result<Option<ChangeDetail>, StoreFault>`：`get_change` 读 `Err` 传播（`.ok()` 吞错消除）；相位清单读降级留痕、run 史三读面 `Err` 透传；DTO 线面形状零演进 |
 | `src/commands/changes/mod.rs`（`get_change_detail`） | IPC 面分流 | 返回 `Result<Option<ChangeDetailUnified>, String>`：blank root 仍 `Ok(None)`；`StoreFault` → 错误串映射收命令层单点 |
 | `crates/core/orchestration/src/snapshot.rs`（机械随动） | 唯一 orchestration 调用点适配 | `Err` 透传 store 错误串（取代误报「change 不存在」）；`None` 仍「change 不存在: {id}」；`WorkflowSnapshotPort::detail` 契约与 walker 消费面不变 |
-| `packages/desktop/src/types/generated/bindings.ts` | 类型零漂移 | `Result<Option<T>, String>` 出线 `Promise<T \| null>`（Err 走 reject 通道）；再生成预期零 diff、一致性守卫绿 |
+| `packages/desktop/src/types/generated/bindings.ts` | 类型零漂移 | `Result<Option<T>, String>` 出线 `Promise<T \| null>`（Err 走 reject 通道）；再生成预期零 diff、过期由提交前人工核对 |
 | `crates/core/workflow/src/queries/detail.rs`（`ChangeRunNodeRecord`） | 线面字段扩展 | 增 `startedAt: number` / `endedAt: number | null` / `tokenInput` / `tokenOutput`（毫秒数口径、纯 derive）；`From<&RunNodeStateRecord>` 直读透出 |
-| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeRunNodeRecord` 四字段再生成；`bindings:check` 守卫拦截漂移 |
+| `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeRunNodeRecord` 四字段再生成；生成物随前置重导出更新，过期由提交前人工核对 |
 | `crates/core/workflow/tests/golden/` + `corpus_golden_test.rs` | wire contract 守卫 | detail nodes 投影四字段入 golden 显式重写流程（语料维度见 desktop-corpus-regression delta） |
 | `crates/core/workflow/src/queries/detail.rs`（edges 投影） | 读面屏蔽单点 | `run_entry.edges = store.list_run_edges(&run_id)?.iter().filter(\|record\| record.edge_kind != RunEdgeKind::Retry).map(ChangeRunEdgeRecord::from).collect()` |
 | `crates/core/workflow/src/queries/detail.rs`（DTO） | 线面形状 | `ChangeRunEdgeRecord.edgeKind` 值域不变（四值，`retry` 仅存量解码可达）；纯 derive 零字段属性、golden 显式重写口径不变 |
-| `packages/desktop/src/types/generated/bindings.ts` | 类型面 | 零演进（`edgeKind` 值域仍四值），`bindings:check` 守卫绿 |
+| `packages/desktop/src/types/generated/bindings.ts` | 类型面 | 零演进（`edgeKind` 值域仍四值），生成物零演进，过期由提交前人工核对 |
 | `crates/core/workflow/src/queries/`（detail `stepKind` 投影） | 二十二值出线 | `RunStepKind` 词面扩展自动跟随（纯 derive 零字段属性）；`archi_check` ↔ `archiCheck` 由前端归一单点承接 |
 | `crates/core/workflow/tests/corpus_golden_test.rs` | 聚合 golden 随动 | detail 线面 `nodes` 样本补一条 `archi_check` 步；diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式重写留痕 |

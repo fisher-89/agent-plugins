@@ -712,7 +712,7 @@ walker SHALL 把「执行面归因（检查结论之外的原因）」作为独�
 #### Scenario: fault 不出线
 
 - **WHEN** 审查 IPC 载荷与生成绑定
-- **THEN** `RunFault` 未出现在 `RunUpdate` / `RunNodeRecord` / `bindings.ts` 中，`bindings:check` 零 diff
+- **THEN** `RunFault` 未出现在 `RunUpdate` / `RunNodeRecord` / `bindings.ts` 中，生成物随重导出入库，过期由提交前人工核对
 
 ### Requirement: ArchiCheck 步接线与反馈边
 
@@ -767,7 +767,7 @@ Walker SHALL 在 implement 相位执行架构漂移门禁步（`StepNode::ArchiC
 | 既有 hooks（复用，不改） | 步前护栏与无外围账 | 插件 hook 路径随插件退役无载体（原「protect-files 原样生效（过渡期）」表述删除）；写入保护由 `crates/infra/agent/src/sdk/protect/` 承接（desktop-write-protection）；record-files / sweep-phase 已分别为 `change_edit_set` 与 no-op 取代；static-check 桌面模式由 spawn 步承接 |
 | `crates/core/orchestration/src/walker.rs` | 停等节奏分支 | `RunRequest` + `auto_next_phase` 字段（run 级、发起定格）；drive() 确认点 `if !auto_next_phase` 才 emit `ConfirmWait` + `wait_confirm`；auto 模式不进 `WaitingConfirm`、零新事件；头注释口径同步 |
 | `src/commands/change_flow/mod.rs` | 发起参数透传 | `change_flow_start` / `change_flow_start_with` 签名 + `auto_next_phase: bool`，透传 `RunRequest`；`Result<T, String>` 模板、前置校验、提前 resolve 不变 |
-| `src/types/generated/bindings.ts`（重导） | IPC 类型跟随 | `changeFlowStart` + `autoNextPhase` 参数；`bindings:check` 守卫拦截过期生成物 |
+| `src/types/generated/bindings.ts`（重导） | IPC 类型跟随 | `changeFlowStart` + `autoNextPhase` 参数；生成物随前置重导出更新，过期由提交前人工核对 |
 | `crates/core/orchestration/src/control.rs` / `state.rs`（不改） | 零触点红线 | confirm 应答通道 / `RunUpdate` / `ChangeRunSnapshot` / `ChangeRunStatus` DTO 不动 |
 | `crates/core/orchestration/src/port.rs` | 「相位机 + 工具步」进程内缝（封闭集扩展） | `ToolCommand` 增 `TestExecution { change, … }` 变体；`ToolStepOutput` 增 `TestExecution(最小载荷)`；`TestExecutionRunner` port 与 `StaticCheckRunner` 并列（spawn 不进 core）；实现落 checks 边界 `crates/infra/checks`，core/orchestration 零依赖 checks |
 | `crates/core/orchestration/src/walker.rs` | 检查域门禁步接入 | static-check 反馈边沿用（`STATIC_CHECK_FEEDBACK_LIMIT` 不变）；test-execution 相位 runner 门禁步按 `on_fail` 分派——TestExecution / MutationTest 两步 `Escalate`（零会话落账 → 回 `phase_next` 交决策，相位内零反馈边、零独立反馈预算） |

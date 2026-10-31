@@ -243,10 +243,13 @@ export function AgentMessages({
           />
         )}
         {running && (
-          <span className="p-3 text-muted-foreground" data-testid="agent-messages-running">
+          <div
+            className="p-3 flex items-center text-muted-foreground"
+            data-testid="agent-messages-running"
+          >
             <Spinner />
             运行中…
-          </span>
+          </div>
         )}
       </section>
     </MessageScrollerProvider>

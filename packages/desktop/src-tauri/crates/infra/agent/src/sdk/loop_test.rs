@@ -811,16 +811,21 @@ async fn 轮内思考块不进请求史_密封事件与增量面仍可辨() {
             raw_tool_call("tu_t", "read", serde_json::json!({ "path": "a.txt" })),
             raw_final(usage(5, 6)),
         ],
-        vec![raw_reasoning("再确认一次"), raw_text("完成"), raw_final(usage(2, 3))],
+        vec![
+            raw_reasoning("再确认一次"),
+            raw_text("完成"),
+            raw_final(usage(2, 3)),
+        ],
     ]);
     write_file(&dir.path().join("a.txt"), "内容甲");
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task = tokio::spawn(
-        async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-    );
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+        );
     let mut events: Vec<AgentEventKind> = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -847,7 +852,10 @@ async fn 轮内思考块不进请求史_密封事件与增量面仍可辨() {
         matches!(event, AgentEventKind::Message { blocks, .. }
             if blocks.iter().any(|block| matches!(block, agent::AgentBlock::Thinking { .. })))
     });
-    assert!(has_thinking, "密封事件仍含 Thinking 块（不参与回放，但落转录）");
+    assert!(
+        has_thinking,
+        "密封事件仍含 Thinking 块（不参与回放，但落转录）"
+    );
 }
 
 #[tokio::test]

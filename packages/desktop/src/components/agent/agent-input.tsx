@@ -218,11 +218,12 @@ function InputArea({
   onSend: () => void;
 }): React.JSX.Element {
   const submitByHotKey = useCallback(
-    ({ ctrlKey, key }: KeyboardEvent<HTMLTextAreaElement>) => {
+    ({ currentTarget, ctrlKey, key }: KeyboardEvent<HTMLTextAreaElement>) => {
       if (!canSend) {
         return;
       }
       if (key === 'Enter' && ctrlKey === true) {
+        setValue(currentTarget.value);
         onSend();
       }
     },
