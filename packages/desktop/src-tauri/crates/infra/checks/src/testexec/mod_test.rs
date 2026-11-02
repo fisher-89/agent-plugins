@@ -13,7 +13,7 @@ use orchestration::port::{
     RunFault, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolStepOutput,
 };
 
-use super::detect::{to_posix, TestPlan};
+use super::detect::{to_posix, ResultsFormat, TestPlan};
 use super::runner::PlanExecution;
 use super::{
     build_sub_report, execute, findings_brief, findings_detail, newest_input_mtime_ms, outcome,
@@ -3018,8 +3018,8 @@ fn head_plan(id: &str, framework: &str, files: &[&str]) -> TestPlan {
         coverage_format: CoverageFormat::NodeTest,
         coverage_output: "results.txt",
         results_output: "results.txt",
+        results_format: ResultsFormat::NodeSpec,
         omit_files_safe: true,
-        env: Vec::new(),
     }
 }
 

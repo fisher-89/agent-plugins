@@ -116,6 +116,9 @@ petgraph = "0.8"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 # Rust 项解析（mod / use / #[path] / cfg 属性；锁内既有 2.0.119）
 syn = { version = "2", features = ["full"] }
+# JUnit XML 结果工件解析（nextest `profile.<name>.junit` 产物；锁内既有 0.42，
+# 已作为 `plist` 的传递依赖在场，提为直接依赖零新增包）
+quick-xml = "0.42"
 watch = { path = "crates/infra/watch" }
 workflow = { path = "crates/core/workflow" }
 native_db = "=0.8.2"

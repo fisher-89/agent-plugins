@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use config::{MutationConfig, TestFramework};
 
 use super::super::runner::execute_plan;
-use super::{detect_plans, extract_semver, is_version_at_least, to_posix, REGISTRY};
+use super::{
+    detect_plans, extract_semver, is_version_at_least, to_posix, ResultsFormat, NEXTEST_PROFILE,
+    REGISTRY,
+};
 use checks::parser::CoverageFormat;
 
 /// jest `--randomize` 最低版本语义（与 CLI `isVersionAtLeast(version, '29.5.0')`
@@ -104,7 +107,7 @@ const TS_TESTS_GLOB: &str = "**/*.{test,spec}.{ts,tsx}";
 /// rust 档新单条命令模板（shell / cmd 两臂逐字同串，占位符原样保留由 runner
 /// 展开）：一条 `cargo llvm-cov nextest --workspace` 同产覆盖率 JSON
 /// （`--output-path`）与测试 stdout（模板自带 `>` 重定向）。
-const RUST_TEMPLATE: &str = "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > \"{results_file}\"";
+const RUST_TEMPLATE: &str = "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --no-fail-fast -P wps-desktop-gate --tool-config-file \"wps-desktop:{report_dir}/nextest.toml\"";
 
 /// 组合锚覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
 /// 走 null 感知跳过）。
@@ -124,25 +127,32 @@ const LLVM_COV_OUTPUT: &str = r#"{
   ]
 }"#;
 
-/// 组合锚结果工件样本（nextest `--message-format libtest-json` 事件流：三个
-/// binary 块 / 5 条终态事件 = 3 ok + 1 failed + 1 ignored；失败事件携 `stdout`
-/// 块——`parse_libtest_json` 按行扫终态事件，`started` / `suite` 行不产用例）。
-const LIBTEST_JSON_OUTPUT: &str = r##"{"type":"suite","event":"started","test_count":3}
-{"type":"test","event":"started","name":"nxprobe::it$it_ignored"}
-{"type":"test","event":"started","name":"nxprobe::it$it_works"}
-{"type":"test","event":"started","name":"nxprobe::it$it_fails"}
-{"type":"test","event":"ignored","name":"nxprobe::it$it_ignored"}
-{"type":"test","event":"failed","name":"nxprobe::it$it_fails","exec_time":0.4658882,"stdout":"captured stdout line\n\nthread 'it_fails' (2340) panicked at tests\\it.rs:7:5:\nassertion `left == right` failed: left == right\n  left: 1\n right: 2\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"}
-{"type":"suite","event":"failed","passed":0,"failed":1,"ignored":1,"measured":0,"filtered_out":0,"exec_time":0.4658882}
-{"type":"suite","event":"started","test_count":2}
-{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case"}
-{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::determine_conclusion_passes"}
-{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case","exec_time":0.9345231}
-{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::determine_conclusion_passes","exec_time":1.8965367}
-{"type":"suite","event":"ok","passed":2,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":2.8310598000000002}
-{"type":"suite","event":"started","test_count":3}
-{"type":"test","event":"ok","name":"nxprobe::it$it_works","exec_time":1.4063161}
-{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":1,"measured":0,"filtered_out":1,"exec_time":1.4063161}
+/// 组合锚结果工件样本（nextest `profile.<name>.junit` 产物：两个 binary 组 /
+/// 5 条用例 = 3 passed + 1 failed + 1 skipped；失败用例带 `<failure>` 正文——
+/// `parse_junit` 按 testcase 元素产用例行，`system-out` / `system-err` 不参与结论）。
+const JUNIT_OUTPUT: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="5" skipped="1" failures="1" errors="0" time="0.5">
+    <testsuite name="it" tests="3" skipped="1" errors="0" failures="1">
+        <testcase name="it_ignored" classname="it" time="0.000">
+            <skipped message="Skipped: test does not match the run-ignored option"/>
+        </testcase>
+        <testcase name="it_works" classname="it" time="0.058"/>
+        <testcase name="it_fails" classname="it" time="0.098">
+            <failure message="thread &apos;it_fails&apos; (25720) panicked at tests/it.rs:7:5" type="test failure with exit code 101">thread &apos;it_fails&apos; (25720) panicked at tests/it.rs:7:5:
+assertion `left == right` failed: left == right
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+captured stdout line
+</system-out>
+        </testcase>
+    </testsuite>
+    <testsuite name="nxprobe" tests="2" skipped="0" errors="0" failures="0">
+        <testcase name="checks::unparsed_legacy_text_case" classname="nxprobe" time="0.934"/>
+        <testcase name="checks::determine_conclusion_passes" classname="nxprobe" time="1.896"/>
+    </testsuite>
+</testsuites>
 "##;
 
 /// 文本归一：CRLF → LF、逐行去尾随空白、去末尾空行（壳重定向产物差异面；
@@ -158,10 +168,13 @@ fn plain_text(text: &str) -> String {
 }
 
 /// 组合锚替身：`cargo` 可执行 shim（`--version` 探测臂直接回版本；执行臂按
-/// `--output-path` 写覆盖工件、stdout 写结果工件、argv 逐行记录以对拍「零改写」）。
+/// `--output-path` 写覆盖工件、按 `--tool-config-file` 指向的配置里
+/// `junit.path` 写 JUnit 结果工件、argv 逐行记录以对拍「零改写」）。
 ///
-/// 目的路径经环境变量注入（命令串内的引号形态零转义风险——生产模板以
-/// `> "{results_file}"` 形式携带引号）。
+/// 写 JUnit 的路径**从配置里读**而不是从环境变量注入——这样「runner 真的写了
+/// nextest 配置、路径真的指到报告树」两端都被端到端验证，而不是只断言命令串。
+///
+/// 目的路径经环境变量注入（命令串内的引号形态零转义风险）。
 fn install_cargo_shim(ws: &TempWs) -> PathBuf {
     let dir = ws.root().join("shim");
     fs::create_dir_all(&dir).expect("创建 shim 目录");
@@ -177,12 +190,17 @@ fn install_cargo_shim(ws: &TempWs) -> PathBuf {
         ws.write(
             "shim/cargo-shim.ps1",
             "if ($args.Count -gt 0 -and $args[0] -eq '--version') { [Console]::Out.Write(\"cargo 1.90.0`n\"); exit 0 }\n\
-             if ($env:NEXTEST_EXPERIMENTAL_LIBTEST_JSON -ne '1') { [Console]::Error.Write(\"error: libtest JSON output is an experimental feature and must be enabled with NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1`n\"); exit 95 }\n\
              if ($env:SHIM_ARGV_LOG) { Set-Content -Path $env:SHIM_ARGV_LOG -Value $args }\n\
              for ($i = 0; $i -lt $args.Count - 1; $i++) {\n\
                if ($args[$i] -eq '--output-path' -and $env:SHIM_COV_SRC) { Copy-Item -Force $env:SHIM_COV_SRC $args[$i + 1] }\n\
              }\n\
-             if ($env:SHIM_RESULTS_SRC) { [Console]::Out.Write((Get-Content -Raw $env:SHIM_RESULTS_SRC)) }\n\
+             $cfg = $null\n\
+             for ($i = 0; $i -lt $args.Count - 1; $i++) { if ($args[$i] -eq '--tool-config-file') { $cfg = $args[$i + 1] } }\n\
+             if ($env:SHIM_RESULTS_SRC -and $cfg) {\n\
+               $path = $cfg.Substring($cfg.IndexOf(':') + 1)\n\
+               $line = Select-String -Path $path -Pattern '^path = \"(.*)\"' | Select-Object -First 1\n\
+               if ($line) { Copy-Item -Force $env:SHIM_RESULTS_SRC $line.Matches[0].Groups[1].Value }\n\
+             }\n\
              exit 0\n",
         );
     }
@@ -192,17 +210,21 @@ fn install_cargo_shim(ws: &TempWs) -> PathBuf {
             "shim/cargo",
             "#!/bin/sh\n\
              if [ \"$1\" = \"--version\" ]; then echo \"cargo 1.90.0\"; exit 0; fi\n\
-             if [ \"$NEXTEST_EXPERIMENTAL_LIBTEST_JSON\" != \"1\" ]; then echo \"error: libtest JSON output is an experimental feature and must be enabled with NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1\" >&2; exit 95; fi\n\
              if [ -n \"$SHIM_ARGV_LOG\" ]; then\n\
                : > \"$SHIM_ARGV_LOG\"\n\
                for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$SHIM_ARGV_LOG\"; done\n\
              fi\n\
              prev=\"\"\n\
+             cfg=\"\"\n\
              for arg in \"$@\"; do\n\
                if [ \"$prev\" = \"--output-path\" ] && [ -n \"$SHIM_COV_SRC\" ]; then cp \"$SHIM_COV_SRC\" \"$arg\"; fi\n\
+               if [ \"$prev\" = \"--tool-config-file\" ]; then cfg=\"${arg#*:}\"; fi\n\
                prev=\"$arg\"\n\
              done\n\
-             if [ -n \"$SHIM_RESULTS_SRC\" ]; then cat \"$SHIM_RESULTS_SRC\"; fi\n\
+             if [ -n \"$SHIM_RESULTS_SRC\" ] && [ -n \"$cfg\" ]; then\n\
+               out=$(sed -n 's/^path = \"\\(.*\\)\"/\\1/p' \"$cfg\" | head -n 1)\n\
+               if [ -n \"$out\" ]; then cp \"$SHIM_RESULTS_SRC\" \"$out\"; fi\n\
+             fi\n\
              exit 0\n",
         );
     }
@@ -327,7 +349,7 @@ fn 五框架注册表常量与cli逐字对齐() {
             rust_template,
             CoverageFormat::LlvmCov,
             "coverage-summary.json",
-            "results.txt",
+            "junit.xml",
             "**/tests/**/*.rs",
             None,
         ),
@@ -390,8 +412,9 @@ fn 五框架注册表常量与cli逐字对齐() {
     );
 }
 
-/// 正向（AC-1）：rust 条目两臂逐字同串，且两臂各含 `{results_file}` 与
-/// `{coverage_file}` **恰一次**（防重复重定向 / 占位符漏替换）。
+/// 正向（AC-1）：rust 条目两臂逐字同串，且两臂各含 `{report_dir}` 与
+/// `{coverage_file}` **恰一次**（JUnit 配置路径与覆盖工件路径各一处，防漏替换）；
+/// 结果工件名不进模板（JUnit 是文件产物，不经 stdout 重定向）。
 #[test]
 fn rust两臂逐字同串且占位符各恰一次() {
     let entry = &REGISTRY[3];
@@ -406,14 +429,19 @@ fn rust两臂逐字同串且占位符各恰一次() {
 
     for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         assert_eq!(
-            arm.matches("{results_file}").count(),
+            arm.matches("{report_dir}").count(),
             1,
-            "{arm_name} 臂 `{{results_file}}` 恰一次（防重复重定向）"
+            "{arm_name} 臂 `{{report_dir}}` 恰一次（工具配置文件路径）"
         );
         assert_eq!(
             arm.matches("{coverage_file}").count(),
             1,
             "{arm_name} 臂 `{{coverage_file}}` 恰一次（防覆盖工件路径重复）"
+        );
+        assert_eq!(
+            arm.matches("{results_file}").count(),
+            0,
+            "{arm_name} 臂无 `{{results_file}}`（JUnit 由 nextest 直接写文件，不做 stdout 重定向）"
         );
         assert_eq!(arm, RUST_TEMPLATE, "{arm_name} 臂与新单条串逐字一致");
     }
@@ -440,14 +468,8 @@ fn rust模板三不变量_无链形态残留() {
     }
 }
 
-/// 正向（AC-1 正向形态，参数化 2 臂）：两臂均以 `cargo llvm-cov nextest
-/// --workspace` 起手、含 `--json`、覆盖工件经 `--output-path "{coverage_file}"`
-/// 落位、结果工件经 `--message-format libtest-json`（`--message-format-version
-/// 0.1` 钉版本、`--no-fail-fast` 保红跑全量）落位、以 `> "{results_file}"` 收尾；
-/// 且不含 `%` / `if `（cmd 单行解析期构造）与 `--target-dir`（`target/debug`
-/// 零触碰面）。
 #[test]
-fn rust模板正向形态_workspace与结果重定向() {
+fn rust模板正向形态_workspace与junit配置注入() {
     let entry = &REGISTRY[3];
     for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         assert!(
@@ -459,23 +481,22 @@ fn rust模板正向形态_workspace与结果重定向() {
             arm.contains("--output-path \"{coverage_file}\""),
             "{arm_name} 臂覆盖率 JSON 经 --output-path 落位（不进 stdout），实际: {arm}"
         );
-        // 结果工件契约（0.6.9 修复）：nextest 人读报告走 stderr，stdout 只有
-        // libtest-json 事件流——缺这两个参数即工件 0 字节
+        // 结果工件契约：JUnit XML 由 nextest 直接写文件（稳定特性，无实验开关）
         assert!(
-            arm.contains("--message-format libtest-json"),
-            "{arm_name} 臂显式要求 libtest-json 结果格式（否则 stdout 恒空），实际: {arm}"
+            arm.contains("-P wps-desktop-gate"),
+            "{arm_name} 臂用专属 nextest profile 短旗（`--profile` 归 cargo-llvm-cov 建 build profile），实际: {arm}"
         );
         assert!(
-            arm.contains("--message-format-version 0.1"),
-            "{arm_name} 臂钉住事件格式版本（字段面稳定），实际: {arm}"
+            arm.contains("--tool-config-file \"wps-desktop:{report_dir}/nextest.toml\""),
+            "{arm_name} 臂经 --tool-config-file 注入运行期 JUnit 配置（命令行无 JUnit 参数），实际: {arm}"
         );
         assert!(
             arm.contains("--no-fail-fast"),
             "{arm_name} 臂不 fail-fast（红跑须产出全量用例集供归因），实际: {arm}"
         );
         assert!(
-            arm.ends_with("> \"{results_file}\""),
-            "{arm_name} 臂以结果重定向收尾（模板自带，runner 零改写），实际: {arm}"
+            !arm.contains("--message-format") && !arm.contains("{results_file}"),
+            "{arm_name} 臂不再依赖实验性 libtest-json（`--message-format` 已退役，也不做 stdout 重定向），实际: {arm}"
         );
         assert!(
             !arm.contains('%') && !arm.contains("if "),
@@ -488,43 +509,49 @@ fn rust模板正向形态_workspace与结果重定向() {
     }
 }
 
-/// 正向（env 契约）：rust 条目的 `env` 恰为 libtest-json 的实验开关——缺它
-/// nextest 以 exit 95 拒绝输出（响亮失败），故必须在注册表单点声明、由 runner
-/// 经 `RunOptions.env` 施加（MUST NOT 依赖调用者 shell 预置）。
 #[test]
-fn rust条目env恰为libtest_json开关() {
-    let entry = &REGISTRY[3];
+fn 结果工件格式逐档固定() {
+    let expected = [
+        ("jest", ResultsFormat::Istanbul),
+        ("vitest", ResultsFormat::Istanbul),
+        ("vite-plus", ResultsFormat::Istanbul),
+        ("rust", ResultsFormat::JunitXml),
+        ("node-test", ResultsFormat::NodeSpec),
+    ];
+    for (framework, format) in expected {
+        let entry = REGISTRY
+            .iter()
+            .find(|entry| entry.framework == framework)
+            .expect("注册表条目在场");
+        assert_eq!(entry.results_format, format, "{framework} 档结果工件格式");
+    }
     assert_eq!(
-        entry.env,
-        [("NEXTEST_EXPERIMENTAL_LIBTEST_JSON", "1")],
-        "rust 档 env 恰为 libtest-json 实验开关"
+        REGISTRY[3].results_output, "junit.xml",
+        "rust 档结果工件名为 junit.xml"
     );
-    for entry in REGISTRY.iter().filter(|entry| entry.framework != "rust") {
+
+    // profile 名单源：模板串内联的 `-P <name>` 必须与 runner 写配置用的常量同值，
+    // 否则 nextest 会因「配置里没有该 profile」而静默回落到 default（无 junit 配置
+    // → 结果工件缺失）
+    for (arm_name, arm) in [
+        ("shell", REGISTRY[3].shell_template),
+        ("cmd", REGISTRY[3].cmd_template),
+    ] {
         assert!(
-            entry.env.is_empty(),
-            "{} 档不注入环境变量（零波及），实际: {:?}",
-            entry.framework,
-            entry.env
+            arm.contains(&format!("-P {NEXTEST_PROFILE}")),
+            "{arm_name} 臂的 -P 取值须与 NEXTEST_PROFILE 常量同值，实际: {arm}"
         );
     }
 }
 
-/// 边界（D9）：rust 模板占位符子集——零出现 `{files}`（suite 的 includes /
-/// excludes 只决定「是否产 plan」，不参与命令构造）、零出现 `{randomize}`
-/// （rust 无版本特性分支，`--randomize` 追加逻辑只对 jest 生效）、零出现
-/// `{report_dir}`（覆盖工件经 `--output-path "{coverage_file}"` 落位，命令内不
-/// 引用报告目录）。
 #[test]
-fn rust模板占位符子集_不含files_randomize_report_dir() {
+fn rust模板占位符子集_不含files_randomize_results_file() {
     let entry = &REGISTRY[3];
     for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         for (placeholder, why) in [
             ("{files}", "D9：includes / excludes 不参与命令构造"),
             ("{randomize}", "rust 无版本特性分支"),
-            (
-                "{report_dir}",
-                "覆盖工件经 --output-path 落位，命令不引用报告目录",
-            ),
+            ("{results_file}", "JUnit 由 nextest 直接写文件，不经 stdout"),
         ] {
             assert_eq!(
                 arm.matches(placeholder).count(),
@@ -535,8 +562,6 @@ fn rust模板占位符子集_不含files_randomize_report_dir() {
     }
 }
 
-/// 边界（表驱动 6 字段）：rust 条目字段面不随模板改造漂移——模板串换新，其余
-/// 字段（版本命令 / 覆盖格式 / 双工件名 / 缺省 glob / 配置注入旗标）逐字段等值。
 #[test]
 fn rust条目字段面不变_模板改造零波及() {
     let entry = &REGISTRY[3];
@@ -548,7 +573,7 @@ fn rust条目字段面不变_模板改造零波及() {
             entry.coverage_output,
             "coverage-summary.json",
         ),
-        ("results_output", entry.results_output, "results.txt"),
+        ("results_output", entry.results_output, "junit.xml"),
         ("default_glob", entry.default_glob, "**/tests/**/*.rs"),
     ];
     for (field, actual, want) in fields {
@@ -568,9 +593,6 @@ fn rust条目字段面不变_模板改造零波及() {
 // detect_plans：探测矩阵
 // ---------------------------------------------------------------------------
 
-/// 正向：tempdir 树 + vite-plus 形态 suite 配置（花括号 includes 命中样本
-/// 文件）→ TestPlan 产出（id 沿 colocated 命名映射、cwd、
-/// coverage_format=istanbul、excludes 过滤 + dot 目录剪枝后的文件清单）。
 #[tokio::test]
 async fn vite_plus_suite探测_清单排除与剪枝() {
     // 版本探测臂 spawn 读 PATH——持环境锁与 PATH 改写用例互斥
@@ -615,8 +637,6 @@ async fn vite_plus_suite探测_清单排除与剪枝() {
     );
 }
 
-/// 正向：config 注入（vitest suite 声明 config）→ `{config_args}` 展开原料
-/// 拼接（旗标 + suite root 下绝对 POSIX 路径）。
 #[tokio::test]
 async fn config注入_旗标与绝对posix路径拼接() {
     let _window = PathWindow::enter();
@@ -642,9 +662,6 @@ async fn config注入_旗标与绝对posix路径拼接() {
     );
 }
 
-/// 正向：rust suite → plan（coverage_format=llvm-cov、命令模板为单条
-/// `cargo llvm-cov nextest --workspace` 新串、default_glob 圈定 tests 树——rust
-/// 档缺省 glob 天然无花括号；字段面（双工件名 / 版本命令 / 配置旗标）零漂移）。
 #[tokio::test]
 async fn rust_suite探测_llvm_cov档() {
     let _window = PathWindow::enter();
@@ -663,7 +680,7 @@ async fn rust_suite探测_llvm_cov档() {
         "rust 档 llvm-cov 覆盖格式"
     );
     assert_eq!(plan.coverage_output, "coverage-summary.json");
-    assert_eq!(plan.results_output, "results.txt");
+    assert_eq!(plan.results_output, "junit.xml");
     assert_eq!(
         plan.files,
         vec!["tests/it.rs"],
@@ -679,8 +696,8 @@ async fn rust_suite探测_llvm_cov档() {
     );
     assert!(
         plan.shell_template.contains("{coverage_file}")
-            && plan.shell_template.contains("{results_file}"),
-        "双工件占位符原样保留由 runner 展开"
+            && plan.shell_template.contains("{report_dir}"),
+        "覆盖工件与工具配置文件两占位符原样保留由 runner 展开"
     );
     assert!(
         !plan.shell_template.contains("cargo test") && !plan.shell_template.contains("; _X=$?"),
@@ -693,8 +710,6 @@ async fn rust_suite探测_llvm_cov档() {
     );
 }
 
-/// 边界：平台选臂等价——`plan.template()` 在 Windows 取 `cmd_template`、其余取
-/// `shell_template`；因两臂同串，rust 档平台切换零行为差异。
 #[tokio::test]
 async fn 平台选臂等价_rust两臂同串切换零差异() {
     let _window = PathWindow::enter();
@@ -722,10 +737,6 @@ async fn 平台选臂等价_rust两臂同串切换零差异() {
     );
 }
 
-/// 回归锚（vite-plus 静默跳过缺陷面）：缺省 default_glob 花括号形态
-/// （`**/*.{test,spec}.{js,ts,jsx,tsx}`）命中 .test / .spec 多扩展样本 →
-/// suite 产 plan（修复前 `glob` crate 无交替方言恒零命中 → 静默不产 plan，
-/// 与 CLI plan 集漂移）。
 #[tokio::test]
 async fn 缺省glob花括号形态命中_产plan不静默跳过() {
     let _window = PathWindow::enter();
@@ -746,8 +757,6 @@ async fn 缺省glob花括号形态命中_产plan不静默跳过() {
     );
 }
 
-/// 花括号方言 includes / excludes 双面 + 依赖目录剪枝（node_modules / dist
-/// ——CLI `collectFiles` excludedDirs 同集的非 dot 成员）。
 #[tokio::test]
 async fn 花括号includes与excludes_依赖目录剪枝() {
     let _window = PathWindow::enter();
@@ -809,8 +818,6 @@ async fn dot前缀祖先目录_glob结果不被误剪() {
     let _ = fs::remove_dir_all(&base);
 }
 
-/// 异常（遍历枚举 3 值）：bun / go / pytest suite 配置 → 显式 Err 记因（无静默
-/// 跳过分支；rust 模板改造未波及 `registry_entry` 路径）。
 #[tokio::test]
 async fn 不支持框架显式err不静默() {
     let _window = PathWindow::enter();
@@ -832,8 +839,6 @@ async fn 不支持框架显式err不静默() {
     }
 }
 
-/// 异常：rust suite 声明 config → 显式 Err 记因（`config_flag` 恒 `None`——
-/// 模板改造未放宽配置注入校验）。
 #[tokio::test]
 async fn rust_suite声明config_显式err记因root与框架() {
     let _window = PathWindow::enter();
@@ -857,9 +862,6 @@ async fn rust_suite声明config_显式err记因root与框架() {
     );
 }
 
-/// 边界（表驱动 2 形态）：rust suite 零命中不产 plan 且不 panic——目录下无
-/// `**/tests/**/*.rs`（src 树不命中 rust 缺省 glob）与显式 includes 全不命中两
-/// 形态；混合 suite 时仅命中 suite 产 plan 且 rust 模板仍为新串。
 #[tokio::test]
 async fn rust_suite零命中_不产plan_混合形态仅命中产plan() {
     let _window = PathWindow::enter();
@@ -944,17 +946,12 @@ async fn includes全不命中_不产plan不panic() {
 // 组合锚：detect_plans → execute_plan（真注册表模板 + cargo 替身）
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-2 + AC-4 链路锚）：真实 `detect_plans` 产出的 rust `TestPlan` →
-/// PATH 前置 `cargo` 替身真实执行 → 展开后命令 argv 与模板展开逐字一致
-/// （零注入：无 `cargo test`、无二次重定向）→ `results.txt`（stdout 重定向）与
-/// `coverage-summary.json`（`--output-path`）由同一条命令落位 → 两读取面各自
-/// 解析出用例行与实测块。
 #[tokio::test]
 async fn detect_plans到execute_plan组合_单条命令零改写双工件同落位() {
     let ws = TempWs::new("rust-chain");
     ws.write("crates/tests/it.rs", "#[test] fn it_works() {}");
     let cov_src = ws.write("preset/coverage-summary.json", LLVM_COV_OUTPUT);
-    let res_src = ws.write("preset/results.txt", LIBTEST_JSON_OUTPUT);
+    let res_src = ws.write("preset/junit.xml", JUNIT_OUTPUT);
     let argv_log = ws.root().join("shim").join("argv.log");
     let shim_dir = install_cargo_shim(&ws);
     let report_dir = ws.root().join("reports").join("crates_rust");
@@ -1005,7 +1002,7 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
         execution.error
     );
 
-    // 零改写：展开后的命令 argv = program + 模板逐参（无注入 token、重定向仅模板一次）
+    // 零改写：展开后的命令 argv = program + 模板逐参（无注入 token、无 stdout 重定向）
     let expected_argv = vec![
         "llvm-cov".to_owned(),
         "nextest".to_owned(),
@@ -1013,11 +1010,11 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
         "--json".to_owned(),
         "--output-path".to_owned(),
         to_posix(&report_dir.join("coverage-summary.json")),
-        "--message-format".to_owned(),
-        "libtest-json".to_owned(),
-        "--message-format-version".to_owned(),
-        "0.1".to_owned(),
         "--no-fail-fast".to_owned(),
+        "-P".to_owned(),
+        "wps-desktop-gate".to_owned(),
+        "--tool-config-file".to_owned(),
+        format!("wps-desktop:{}", to_posix(&report_dir.join("nextest.toml"))),
     ];
     let observed = fs::read_to_string(&argv_log).expect("替身 argv 记录落盘");
     let observed: Vec<String> = observed
@@ -1027,15 +1024,34 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
         .collect();
     assert_eq!(
         observed, expected_argv,
-        "展开后命令串零改写（无 `cargo test` 注入；`> \"{{results_file}}\"` 由壳承载不入 argv）"
+        "展开后命令串零改写（无 `cargo test` 注入、无 runner 侧重定向）"
+    );
+
+    // runner 写的运行期配置：专属 profile + 绝对 junit.path + report-skipped=ignored
+    let config =
+        fs::read_to_string(report_dir.join("nextest.toml")).expect("运行期 nextest 配置落盘");
+    assert!(
+        config.contains("[profile.wps-desktop-gate]") && config.contains("inherits = \"default\""),
+        "配置用专属 profile 并继承 default，实际: {config}"
+    );
+    assert!(
+        config.contains(&format!(
+            "path = \"{}\"",
+            to_posix(&report_dir.join("junit.xml"))
+        )),
+        "junit.path 指向报告树内的绝对路径，实际: {config}"
+    );
+    assert!(
+        config.contains("report-skipped = \"ignored\""),
+        "忽略用例以 skipped 出线（缺省 none 会整条丢弃），实际: {config}"
     );
 
     // 双工件同落位 + 两读取面解析
-    let results = fs::read_to_string(report_dir.join("results.txt")).expect("结果工件落报告树");
+    let results = fs::read_to_string(report_dir.join("junit.xml")).expect("结果工件落报告树");
     assert_eq!(
         plain_text(&results),
-        plain_text(LIBTEST_JSON_OUTPUT),
-        "stdout 全量进结果工件（模板自带重定向，单次承载）"
+        plain_text(JUNIT_OUTPUT),
+        "JUnit 工件由替身按配置里的路径落位（配置 → 路径链路端到端贯通）"
     );
     assert!(
         report_dir.join("coverage-summary.json").is_file(),
@@ -1044,7 +1060,7 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
     assert_eq!(
         execution.cases.len(),
         5,
-        "libtest-json 终态事件全量解析（started / suite 行不产用例）"
+        "JUnit 用例全量解析（两个 testsuite 组，system-out 不参与结论）"
     );
     assert_eq!(
         execution.source_files.len(),
@@ -1060,7 +1076,7 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
     );
     assert!(
         execution.output.is_empty(),
-        "stdout 已进工件、stderr 无输出 → 捕获面为空，实际: {:?}",
+        "替身零 stdout / 零 stderr → 捕获面为空，实际: {:?}",
         String::from_utf8_lossy(&execution.output)
     );
 }
@@ -1069,8 +1085,6 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
 // jest 版本探测（真实组合：成功臂 shim / 失败臂 PATH 隔离）
 // ---------------------------------------------------------------------------
 
-/// 边界：is_version_at_least / extract_semver 直接对齐（CLI 同语义——任一侧
-/// 不可解析 → false、逐段数值比较、恰等达标）。
 #[test]
 fn jest版本比较语义与cli同型() {
     assert!(
@@ -1105,9 +1119,6 @@ fn jest版本比较语义与cli同型() {
     assert_eq!(extract_semver("no digits here"), None);
 }
 
-/// jest suite 版本探测端到端：版本 ≥ 29.5.0（真实 shim 输出 29.7.0）→ 模板
-/// 追加 ` --randomize`；探测失败（PATH 隔离臂，shim / 真实 npx 均不可达）→
-/// 空版本按「特性不支持」走基础模板，不失败不报错。
 #[tokio::test]
 async fn jest版本探测_randomize追加与失败基础模板() {
     // 成功臂：Windows 在 suite cwd 落 npx.cmd（cmd /C 先搜 cwd）；Unix 经 PATH
@@ -1182,9 +1193,6 @@ async fn jest版本探测_randomize追加与失败基础模板() {
 // 锚（Mock策略：无——纯函数 + fixture 树直测）
 // ---------------------------------------------------------------------------
 
-/// 单源对拍（边界）：同一批路径组件两侧对拍——detect 剪枝结果与
-/// `foundation::prune::is_pruned_dir_name` 逐组件等值（无第二份名单的结构证明；
-/// 路径组件迭代语义驻 detect 消费点——嵌套路径逐组件 any 语义在案）。
 #[test]
 fn is_pruned_path单源对拍_与foundation名单逐组件等值() {
     // 逐组件对拍：名单六员 + dot 形态 + 普通名 + 形态近邻
@@ -1232,11 +1240,6 @@ fn is_pruned_path单源对拍_与foundation名单逐组件等值() {
     }
 }
 
-/// 两名单不串味（边界）：复用门扫描 `EXCLUDED_DIR_NAMES`（mod.rs 私有 const——
-/// CLI `REUSE_SCAN_EXCLUDED_DIRS` 同源独立声明）与 foundation `PRUNED_DIR_NAMES`
-/// 单源名单**独立集**：交集五员（依赖树目录双面排除语义一致）、各有独有成员
-///（复用门独有 `_stryker-tmp` 突变临时目录、foundation 独有 `.nyc_output` dot
-/// 形态成员）——两名单各自封闭、零共享引用（detect 内两名单边界锚）。
 #[test]
 fn 复用门扫描名单与foundation名单独立集() {
     // 复用门名单（mod.rs 私有 const——同 crate 后代子模块可读）
@@ -1284,9 +1287,6 @@ fn omit_tree(ws: &TempWs) {
     ws.write("app/.cache/hidden.test.ts", "dot 目录剪枝面");
 }
 
-/// 正向：`includes` 未设（吃注册表 `default_glob`）→ 对照集合 == `files` 集合
-/// → `omit_files_safe == true`；树内 `node_modules` / `.cache` 剪枝目录两侧同剪
-/// （列入对照面不产生差异）。
 #[tokio::test]
 async fn 降级安全判据_缺省glob同管线枚举为可降级() {
     let _window = PathWindow::enter();
@@ -1308,9 +1308,6 @@ async fn 降级安全判据_缺省glob同管线枚举为可降级() {
     );
 }
 
-/// 正向：`includes` 显式写成与 `default_glob` 等价的同一花括号串
-/// （`**/*.{test,spec}.{ts,tsx}`）→ 集合相等 → `true`（显式声明不改变判据
-/// ——判据比的是集合而非配置形态）。
 #[tokio::test]
 async fn 降级安全判据_显式等价includes仍可降级() {
     let _window = PathWindow::enter();
@@ -1338,8 +1335,6 @@ async fn 降级安全判据_显式等价includes仍可降级() {
     );
 }
 
-/// 异常：`includes` 为**真子集**（仅 `**/*.test.ts`，同目录另有 `src/b.spec.tsx`
-/// 命中 `default_glob`）→ 集合不等 → `false`（保守方向：降级会少跑文件，故拒）
 #[tokio::test]
 async fn 降级安全判据_includes真子集拒降级() {
     let _window = PathWindow::enter();
@@ -1523,10 +1518,6 @@ async fn 降级安全判据_花括号与剪枝组合同源() {
     );
 }
 
-/// 正向（`collect_files` 的 `apply_excludes` 两态，经 `detect_plans` 观测）：
-/// 同一树上 excludes 命中的文件在发现面（`apply_excludes = true`）被剔除、在
-/// 对照面（`apply_excludes = false`）仍在案——两态共用同一 glob 方言与剪枝，
-/// 差异只由末位开关产生（构成「excludes 实际剔除 → 拒降级」的差异来源）。
 #[tokio::test]
 async fn 收集主体_excludes开关两态同源() {
     let _window = PathWindow::enter();
@@ -1569,9 +1560,6 @@ async fn 收集主体_excludes开关两态同源() {
     );
 }
 
-/// 异常（表驱动 3 形态）：非法 includes glob → 显式 `Err` 沿既有文案
-/// 「…includes glob 非法…」（不 panic；发现面与对照面经同一 `collect_files`
-/// 单点，故同文案同出口）。
 #[tokio::test]
 async fn 非法includes_glob显式err不panic() {
     let _window = PathWindow::enter();

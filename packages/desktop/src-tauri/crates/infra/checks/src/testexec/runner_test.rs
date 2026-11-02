@@ -7,7 +7,7 @@ use super::{
     decide_argv, execute_plan, expand_template, line_budget, non_zero_exit_error, ArgvDecision,
     ExpandMode, EXIT_CODE_NO_STATUS, SUITE_COMMAND_TIMEOUT, VERSION_DETECT_TIMEOUT,
 };
-use crate::testexec::detect::{to_posix, TestPlan};
+use crate::testexec::detect::{to_posix, ResultsFormat, TestPlan};
 use checks::parser::CoverageFormat;
 use orchestration::port::RunFault;
 
@@ -45,13 +45,13 @@ fn node_test_plan(cwd: &Path, template: String) -> TestPlan {
         coverage_format: CoverageFormat::NodeTest,
         coverage_output: "results.txt",
         results_output: "results.txt",
+        results_format: ResultsFormat::NodeSpec,
         omit_files_safe: true,
-        env: Vec::new(),
     }
 }
 
 /// 手工 TestPlan 构造（结果 / 覆盖双工件分离形态——rust 档双工件读取面锚用：
-/// 结果工件承载单条命令的 stdout、覆盖工件由同一命令 `--output-path` 落位）。
+/// 结果工件为 nextest 写的 JUnit XML、覆盖工件由同一命令 `--output-path` 落位）。
 fn rust_plan(cwd: &Path, template: String) -> TestPlan {
     TestPlan {
         id: "it_rust-single".to_owned(),
@@ -64,9 +64,9 @@ fn rust_plan(cwd: &Path, template: String) -> TestPlan {
         cmd_template: template,
         coverage_format: CoverageFormat::LlvmCov,
         coverage_output: "coverage-summary.json",
-        results_output: "results.txt",
+        results_output: "junit.xml",
+        results_format: ResultsFormat::JunitXml,
         omit_files_safe: true,
-        env: Vec::new(),
     }
 }
 
@@ -85,35 +85,39 @@ fn jest_plan(cwd: &Path, template: String) -> TestPlan {
         coverage_format: CoverageFormat::Istanbul,
         coverage_output: "coverage-summary.json",
         results_output: "results.json",
+        results_format: ResultsFormat::Istanbul,
         omit_files_safe: true,
-        env: Vec::new(),
     }
 }
 
-/// rust 档结果工件样本（真实采集：`cargo llvm-cov nextest --message-format
-/// libtest-json --message-format-version 0.1 --no-fail-fast`，nextest 0.9.150 /
-/// cargo-llvm-cov 0.9.1 / rustc 1.95 红跑形态）：三个 binary 块 / 5 条终态事件
-/// = 3 ok + 1 failed + 1 ignored；`started` 与 `suite` 行不产用例。
+/// rust 档结果工件样本（真实采集：`cargo llvm-cov nextest --no-report --no-fail-fast
+/// -P <profile> --tool-config-file "…"` 的 `profile.<name>.junit` 产物，nextest
+/// 0.9.150 / cargo-llvm-cov 0.9.1 / rustc 1.95 红跑形态）：1 passed + 1 failed +
+/// 1 skipped，失败用例带 `<failure>` 正文与 message/type 属性。
 ///
-/// 与 `crates/core/checks/tests/fixtures/libtest-json/output.txt` 同源（此处内联
-/// 供 runner 侧替身写盘；解析器侧用语料文件，两侧独立 fail 可分辨「模板断了」
-/// 与「解析器断了」）。
-const RUST_RESULTS_OUTPUT: &str = r##"{"type":"suite","event":"started","test_count":3}
-{"type":"test","event":"started","name":"nxprobe::it$it_ignored"}
-{"type":"test","event":"started","name":"nxprobe::it$it_works"}
-{"type":"test","event":"started","name":"nxprobe::it$it_fails"}
-{"type":"test","event":"ignored","name":"nxprobe::it$it_ignored"}
-{"type":"test","event":"failed","name":"nxprobe::it$it_fails","exec_time":0.4658882,"stdout":"captured stdout line\n\nthread 'it_fails' (2340) panicked at tests\\it.rs:7:5:\nassertion `left == right` failed: left == right\n  left: 1\n right: 2\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"}
-{"type":"suite","event":"failed","passed":0,"failed":1,"ignored":1,"measured":0,"filtered_out":0,"exec_time":0.4658882}
-{"type":"suite","event":"started","test_count":2}
-{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case"}
-{"type":"test","event":"started","name":"nxprobe::nxprobe$checks::determine_conclusion_passes"}
-{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::unparsed_legacy_text_case","exec_time":0.9345231}
-{"type":"test","event":"ok","name":"nxprobe::nxprobe$checks::determine_conclusion_passes","exec_time":1.8965367}
-{"type":"suite","event":"ok","passed":2,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":2.8310598000000002}
-{"type":"suite","event":"started","test_count":3}
-{"type":"test","event":"ok","name":"nxprobe::it$it_works","exec_time":1.4063161}
-{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":1,"measured":0,"filtered_out":1,"exec_time":1.4063161}
+/// 与 `crates/core/checks/tests/fixtures/junit/red.xml` 同源（此处内联供 runner
+/// 侧替身写盘；解析器侧用语料文件，两侧独立 fail 可分辨「模板断了」与「解析器断了」）。
+const RUST_RESULTS_OUTPUT: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="3" skipped="1" failures="1" errors="0" uuid="4db7f38b-038d-411e-8a9f-032f429280b3" timestamp="2026-11-02T17:33:36.859+08:00" time="0.100">
+    <testsuite name="nxprobe" tests="3" skipped="1" errors="0" failures="1">
+        <testcase name="tests::it_ignored" classname="nxprobe" time="0.000">
+            <skipped message="Skipped: test does not match the run-ignored option"/>
+        </testcase>
+        <testcase name="tests::it_works" classname="nxprobe" timestamp="2026-11-02T17:33:36.860+08:00" time="0.058"/>
+        <testcase name="tests::it_fails" classname="nxprobe" timestamp="2026-11-02T17:33:36.860+08:00" time="0.098">
+            <failure message="thread &apos;tests::it_fails&apos; (25720) panicked at src\lib.rs:9:55" type="test failure with exit code 101">thread &apos;tests::it_fails&apos; (25720) panicked at src\lib.rs:9:55:
+assertion `left == right` failed
+  left: 3
+ right: 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+captured stdout line
+test tests::it_fails ... FAILED
+</system-out>
+        </testcase>
+    </testsuite>
+</testsuites>
 "##;
 
 /// rust 档覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
@@ -335,10 +339,6 @@ fn 模板展开清单规模与占位符形态() {
     );
 }
 
-/// 异常 / 边界（参数化 4 形态）：空模板 / 全空白模板 → `execute_plan` 前置检查
-/// 显式 `Err` 记因「展开后的命令为空白」（不 spawn、不 panic）；含特殊字符
-///（双引号 / 换行 / emoji）与超长（>1000 字符）的模板经展开后逐字保留（占位符
-/// 替换不做转义、不改写、不截断）。
 #[tokio::test]
 async fn 模板串边界_空与空白err_特殊字符逐字保留() {
     let _env = env_window();
@@ -427,11 +427,6 @@ async fn 模板串边界_空与空白err_特殊字符逐字保留() {
 // 真实 spawn：预置工件 → 解析产出
 // ---------------------------------------------------------------------------
 
-/// 正向：Windows .cmd / Unix cp 真实 spawn——命令把预置 spec 工件拷到
-/// {results_file} 占位路径 → PlanExecution 携解析后用例行与覆盖实测（退出码
-/// 0、诊断无 error 面、报告目录清空重建——重跑幂等）。注：本用例走免引号
-/// 形态；生产注册表模板的引号形态由
-/// `windows引号占位模板_重定向工件落位` 回归锚定。
 #[tokio::test]
 async fn 真实spawn_预置工件拷贝到占位路径_解析产出() {
     let _env = env_window();
@@ -505,10 +500,6 @@ async fn 真实spawn_预置工件拷贝到占位路径_解析产出() {
     );
 }
 
-/// 回归：引号占位形态（生产注册表模板形——源路径与 `{results_file}` 重定向
-/// 目标均带引号）。Windows 臂曾因 `arg` 的 MSVC 转引把 `"` 写成 `\"`、cmd
-/// 解析为反斜杠附着路径而全工件缺失（错误面「结果工件缺失」+ 零用例——
-/// 2026-10 真实 gate 故障形态）；`raw_arg` 原样入线后引号形态必须正常产出。
 #[tokio::test]
 async fn windows引号占位模板_重定向工件落位() {
     let _env = env_window();
@@ -568,12 +559,12 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
     // 替身模板：生产形态（模板自带结果重定向）+ stderr 打点
     let template = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo build-error",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\" & 1>&2 echo build-error",
             res_src.to_string_lossy().replace('/', "\\")
         )
     } else {
         format!(
-            "cp \"{}\" \"{{results_file}}\"; echo build-error >&2",
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"; echo build-error >&2",
             res_src.to_string_lossy()
         )
     };
@@ -583,13 +574,13 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
     let expected = expand_template(
         &template,
         &to_posix(&report_dir),
-        &to_posix(&report_dir.join("results.txt")),
+        &to_posix(&report_dir.join("junit.xml")),
         &to_posix(&report_dir.join("coverage-summary.json")),
         None,
         &[],
         ExpandMode::WithFiles,
     );
-    let results_posix = to_posix(&report_dir.join("results.txt"));
+    let results_posix = to_posix(&report_dir.join("junit.xml"));
     assert_eq!(
         expected.matches(&format!("> \"{results_posix}\"")).count(),
         1,
@@ -616,7 +607,7 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
         "绿跑零 error 面，实际: {:?}",
         execution.error
     );
-    let results = std::fs::read_to_string(report_dir.join("results.txt"))
+    let results = std::fs::read_to_string(report_dir.join("junit.xml"))
         .expect("结果工件落报告树（模板自带重定向面）");
     assert_eq!(
         artifact_text(&results),
@@ -630,14 +621,14 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
     );
     assert_eq!(
         execution.cases.len(),
-        5,
-        "工件解析面不受改写面影响（libtest-json 终态事件全量解析）"
+        3,
+        "工件解析面不受改写面影响（JUnit 用例全量解析）"
     );
 }
 
-/// 正向（AC-4）：一条替身命令同时写 `{results_file}`（stdout 重定向）与
+/// 正向（AC-4）：一条替身命令同时写结果工件（模拟 nextest 按配置落 JUnit）与
 /// `{coverage_file}`（模拟 `--output-path`）→ 双工件同落位、两读取面均从同一
-/// 命令产物解析（libtest-json 用例行 + 逐文件覆盖 + 实测块）。
+/// 命令产物解析（JUnit 用例行 + 逐文件覆盖 + 实测块）。
 #[tokio::test]
 async fn 单条命令双工件同落位_结果与覆盖同源解析() {
     let _env = env_window();
@@ -650,13 +641,13 @@ async fn 单条命令双工件同落位_结果与覆盖同源解析() {
 
     let template = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{results_file}}\"",
+            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\"",
             cov_src.to_string_lossy().replace('/', "\\"),
             res_src.to_string_lossy().replace('/', "\\"),
         )
     } else {
         format!(
-            "cp \"{}\" \"{{coverage_file}}\"; cat \"{}\" > \"{{results_file}}\"",
+            "cp \"{}\" \"{{coverage_file}}\"; cat \"{}\" > \"{{report_dir}}/junit.xml\"",
             cov_src.to_string_lossy(),
             res_src.to_string_lossy(),
         )
@@ -680,11 +671,11 @@ async fn 单条命令双工件同落位_结果与覆盖同源解析() {
         execution.error
     );
     assert!(
-        report_dir.join("results.txt").is_file()
+        report_dir.join("junit.xml").is_file()
             && report_dir.join("coverage-summary.json").is_file(),
         "同一命令产出双工件（results.txt + coverage-summary.json）"
     );
-    assert_eq!(execution.cases.len(), 5, "结果工件解析出五用例行");
+    assert_eq!(execution.cases.len(), 3, "结果工件解析出三用例行");
     assert_eq!(
         execution.source_files.len(),
         2,
@@ -709,11 +700,14 @@ async fn 多running块结果工件解析_用例行全量且失败归因() {
 
     let template = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\"",
             res_src.to_string_lossy().replace('/', "\\")
         )
     } else {
-        format!("cp \"{}\" \"{{results_file}}\"", res_src.to_string_lossy())
+        format!(
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"",
+            res_src.to_string_lossy()
+        )
     };
     let plan = rust_plan(&cwd, template);
 
@@ -743,21 +737,25 @@ async fn 多running块结果工件解析_用例行全量且失败归因() {
         .iter()
         .filter(|case| case.status == checks::model::TestCaseStatus::Skipped)
         .count();
-    assert_eq!(execution.cases.len(), 5, "三个 binary 块五条终态事件");
+    assert_eq!(
+        execution.cases.len(),
+        3,
+        "三用例（passed / failed / skipped）"
+    );
     assert_eq!(
         (passed, failed, skipped),
-        (3, 1, 1),
-        "状态计数逐档正确（ok / failed / ignored）"
+        (1, 1, 1),
+        "状态计数逐档正确（无 failure / <failure> / <skipped>）"
     );
     let failing = execution
         .cases
         .iter()
-        .find(|case| case.name == "nxprobe::it$it_fails")
+        .find(|case| case.name == "nxprobe$tests::it_fails")
         .expect("失败用例在场");
     assert_eq!(
         failing.error_message.as_deref(),
-        Some("left == right"),
-        "失败事件 stdout 块回填错误消息（跳过 panic 定位行）"
+        Some("assertion `left == right` failed"),
+        "failure 正文块回填错误消息（跳过 panic 定位行）"
     );
     assert!(
         failing
@@ -788,13 +786,13 @@ async fn 退出码直继承_产双工件后非零() {
 
     let template = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{results_file}}\" & cmd /C exit /b 3",
+            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\" & cmd /C exit /b 3",
             cov_src.to_string_lossy().replace('/', "\\"),
             res_src.to_string_lossy().replace('/', "\\"),
         )
     } else {
         format!(
-            "cp \"{}\" \"{{coverage_file}}\"; cp \"{}\" \"{{results_file}}\"; exit 3",
+            "cp \"{}\" \"{{coverage_file}}\"; cp \"{}\" \"{{report_dir}}/junit.xml\"; exit 3",
             cov_src.to_string_lossy(),
             res_src.to_string_lossy(),
         )
@@ -822,7 +820,7 @@ async fn 退出码直继承_产双工件后非零() {
     );
     assert_eq!(
         execution.cases.len(),
-        5,
+        3,
         "已产结果工件照常解析（不产假用例）"
     );
     assert!(
@@ -845,12 +843,12 @@ async fn llvm_cov工件缺失且非零_error面记因不出假绿() {
 
     let template = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo error: failed to build archive: target\\llvm-cov-target\\x.rlib & cmd /C exit /b 101",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\" & 1>&2 echo error: failed to build archive: target\\llvm-cov-target\\x.rlib & cmd /C exit /b 101",
             res_src.to_string_lossy().replace('/', "\\"),
         )
     } else {
         format!(
-            "cp \"{}\" \"{{results_file}}\"; echo \"error: failed to build archive: target/llvm-cov-target/x.rlib\" >&2; exit 101",
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"; echo \"error: failed to build archive: target/llvm-cov-target/x.rlib\" >&2; exit 101",
             res_src.to_string_lossy(),
         )
     };
@@ -886,7 +884,7 @@ async fn llvm_cov工件缺失且非零_error面记因不出假绿() {
     );
     assert_eq!(
         execution.cases.len(),
-        5,
+        3,
         "已产结果工件照常解析（不产假用例）"
     );
 }
@@ -908,11 +906,14 @@ async fn 退出码谱边界_逐一透传与零error() {
     // 零形态：产结果工件 → 零 error（无工件缺失噪音）
     let green = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\"",
             res_src.to_string_lossy().replace('/', "\\")
         )
     } else {
-        format!("cp \"{}\" \"{{results_file}}\"", res_src.to_string_lossy())
+        format!(
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"",
+            res_src.to_string_lossy()
+        )
     };
     let plan = rust_plan(&cwd, green);
     let execution = execute_plan(
@@ -1024,9 +1025,9 @@ async fn istanbul文件级失败走附注_not零用例误归因() {
 }
 
 /// 边界（零用例守卫，表驱动 3 形态）：结果工件**在场且非空**但产不出用例——只含
-/// `suite` 汇总行 / 只含 `started` 行 / 只含噪声行 → `error` 记「结果工件零用例」
-/// 或「不含任何事件行」，`cases` 为空。这是 rust 与文本档当前唯一的假绿防线：
-/// 报告器参数漂移（写空 / 写错格式）时 MUST NOT 混成 pass。
+/// 空 `testsuites` 汇总 / 只含无用例的 `testsuite` / 纯噪声 → `error` 记「结果工件
+/// 零用例」或「不含任何 testsuites」，`cases` 为空。这是 rust 与文本档当前唯一的
+/// 假绿防线：报告器参数漂移（写空 / 写错格式）时 MUST NOT 混成 pass。
 #[tokio::test]
 async fn 结果工件零用例_error面记因不出假绿() {
     let _env = env_window();
@@ -1037,26 +1038,29 @@ async fn 结果工件零用例_error面记因不出假绿() {
     let cases: [(&str, &str, &str); 3] = [
         (
             "suite-only",
-            "{\"type\":\"suite\",\"event\":\"ok\",\"passed\":0,\"failed\":0,\"ignored\":0,\"measured\":0,\"filtered_out\":0,\"exec_time\":0.0}\n",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites name=\"nextest-run\" tests=\"0\" skipped=\"0\" failures=\"0\" errors=\"0\"/>\n",
             "结果工件零用例",
         ),
         (
             "started-only",
-            "{\"type\":\"test\",\"event\":\"started\",\"name\":\"pkg::b$case\"}\n",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites name=\"nextest-run\" tests=\"0\"><testsuite name=\"pkg\"/></testsuites>\n",
             "结果工件零用例",
         ),
-        ("noise-only", "not json at all\n", "不含任何事件行"),
+        ("noise-only", "not xml at all\n", "不含任何 testsuites"),
     ];
 
     for (tag, body, expected) in cases {
         let src = preset(ws.path(), &format!("zero-{tag}.txt"), body);
         let template = if cfg!(windows) {
             format!(
-                "cmd /C type \"{}\" > \"{{results_file}}\"",
+                "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\"",
                 src.to_string_lossy().replace('/', "\\")
             )
         } else {
-            format!("cp \"{}\" \"{{results_file}}\"", src.to_string_lossy())
+            format!(
+                "cp \"{}\" \"{{report_dir}}/junit.xml\"",
+                src.to_string_lossy()
+            )
         };
         let plan = rust_plan(&cwd, template);
         let execution = execute_plan(
@@ -1096,12 +1100,12 @@ async fn 结果工件空与缺失_error面分化() {
     // 形态一：命令成功但结果工件为空
     let empty = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\"",
             empty_src.to_string_lossy().replace('/', "\\")
         )
     } else {
         format!(
-            "cp \"{}\" \"{{results_file}}\"",
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"",
             empty_src.to_string_lossy()
         )
     };
@@ -1168,11 +1172,14 @@ async fn 退出零但覆盖率工件缺失_null感知跳过() {
 
     let template = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\"",
             res_src.to_string_lossy().replace('/', "\\")
         )
     } else {
-        format!("cp \"{}\" \"{{results_file}}\"", res_src.to_string_lossy())
+        format!(
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"",
+            res_src.to_string_lossy()
+        )
     };
     let plan = rust_plan(&cwd, template);
 
@@ -1192,7 +1199,7 @@ async fn 退出零但覆盖率工件缺失_null感知跳过() {
         "覆盖率工件缺失按 null 感知跳过（非 error 面），实际: {:?}",
         execution.error
     );
-    assert_eq!(execution.cases.len(), 5, "结果工件照常解析五用例行");
+    assert_eq!(execution.cases.len(), 3, "结果工件照常解析三用例行");
     assert!(
         execution.measured.is_none(),
         "覆盖维度 None（判定侧 null 感知跳过）"
@@ -1497,11 +1504,9 @@ fn 退出码缺码哨兵锚定_负一与超时同值() {
 
 // ---------------------------------------------------------------------------
 // PlanExecution.output（脚本真实输出合并流）：stdout 字节前缀 + stderr 字节后缀，
-// 逐字，**不加 `2>&1`**——rust 模板
-// `cargo llvm-cov nextest … --message-format libtest-json > "{results_file}"`
-// 已把 stdout（结构化事件流）重定向进结果工件，`2>&1` 会把 stderr 混入污染
-// `parse_libtest_json`。手工拼接只服务 record 回查，结果工件解析仍只读 stdout 面；
-// `error` 面仍经合并文本派生。
+// 逐字，**不加 `2>&1`**——加了会让两股输出交错，破坏「前缀-后缀」的确定性顺序。
+// rust 档的结果工件与覆盖率工件都是文件产物（nextest 写 JUnit、llvm-cov 写 JSON），
+// stdout 无承载，故 record 实际以 stderr 为主；`error` 面仍经合并文本派生。
 // ---------------------------------------------------------------------------
 
 /// 正向：spawn 成功 → `PlanExecution.output` = `stdout_bytes` 前缀 + `stderr_bytes`
@@ -1598,12 +1603,12 @@ async fn 合并流语义保持_stdout进工件而output只载stderr() {
     // 绿跑臂：stdout 经模板 `>` 进工件、stderr 留捕获面
     let green = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo build-error",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\" & 1>&2 echo build-error",
             res_src.to_string_lossy().replace('/', "\\")
         )
     } else {
         format!(
-            "cp \"{}\" \"{{results_file}}\"; echo build-error >&2",
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"; echo build-error >&2",
             res_src.to_string_lossy()
         )
     };
@@ -1620,7 +1625,7 @@ async fn 合并流语义保持_stdout进工件而output只载stderr() {
     .expect("绿跑臂应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
-    let results = std::fs::read_to_string(report_dir.join("results.txt"))
+    let results = std::fs::read_to_string(report_dir.join("junit.xml"))
         .expect("结果工件落报告树（模板自带重定向面）");
     assert_eq!(
         artifact_text(&results),
@@ -1636,12 +1641,12 @@ async fn 合并流语义保持_stdout进工件而output只载stderr() {
     // 红跑臂：stderr 驱动 error 面（合并文本派生），output 不倒灌 error 文案
     let red = if cfg!(windows) {
         format!(
-            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo compile-error& cmd /C exit /b 7",
+            "cmd /C type \"{}\" > \"{{report_dir}}/junit.xml\" & 1>&2 echo compile-error& cmd /C exit /b 7",
             res_src.to_string_lossy().replace('/', "\\")
         )
     } else {
         format!(
-            "cp \"{}\" \"{{results_file}}\"; echo compile-error >&2; exit 7",
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"; echo compile-error >&2; exit 7",
             res_src.to_string_lossy()
         )
     };
@@ -1744,9 +1749,9 @@ async fn 边界_空输出与大输出全量承载() {
     // rust 档形态：1500 字符 stdout 全量落结果工件（模板 `>` 重定向不截断），
     // stderr 尾段随 `output` 承载（序恒前缀 → 后缀）
     let verbose_rust = if cfg!(windows) {
-        format!("cmd /C echo {long} > \"{{results_file}}\" & 1>&2 echo tail-error")
+        format!("cmd /C echo {long} > \"{{report_dir}}/junit.xml\" & 1>&2 echo tail-error")
     } else {
-        format!("echo {long} > \"{{results_file}}\"; echo tail-error >&2")
+        format!("echo {long} > \"{{report_dir}}/junit.xml\"; echo tail-error >&2")
     };
     let plan = rust_plan(&cwd, verbose_rust);
     let report_dir = ws.path().join("reports").join("long-rust");
@@ -1760,7 +1765,7 @@ async fn 边界_空输出与大输出全量承载() {
     .await
     .expect("rust 大输出形态应 Ok");
     let results =
-        std::fs::read_to_string(report_dir.join("results.txt")).expect("大输出结果工件落报告树");
+        std::fs::read_to_string(report_dir.join("junit.xml")).expect("大输出结果工件落报告树");
     assert_eq!(
         artifact_text(&results),
         format!("{long}\n"),
@@ -1876,10 +1881,6 @@ fn wait_pid_gone(pid: u32, budget: Duration) -> bool {
     !pid_alive(pid)
 }
 
-/// 正向（AC-7 / D13）：超时臂——自旋 suite + 虚拟时钟推进越过
-/// `SUITE_COMMAND_TIMEOUT` → `exit_code == -1`（`EXIT_CODE_NO_STATUS` 哨兵）、
-/// `fault == Some(Environment("测试命令超时（1200 秒）强制终止"))`、`error` 恒
-/// `None`（**不落** plan 级 `execution_error`）、墙钟上界 + 目标 pid 消失。
 #[tokio::test(start_paused = true)]
 async fn 超时臂_负一哨兵与超时文案且目标pid消失() {
     let _env = env_window();
@@ -1931,9 +1932,6 @@ async fn 超时臂_负一哨兵与超时文案且目标pid消失() {
     );
 }
 
-/// 正向（AC-7）：已置位 cancel 的入口短路——返回 `Ok(PlanExecution)` 且
-/// `fault == Some(Stopped)`（**不 Err**）、`error == None`、零 spawn（shim 无
-/// 痕迹）、不写 summary / 子报告。
 #[tokio::test]
 async fn 已置位cancel_fault为stopped且零spawn() {
     let _env = env_window();
@@ -1973,10 +1971,6 @@ async fn 已置位cancel_fault为stopped且零spawn() {
     );
 }
 
-/// 正向（AC-7）：运行中 cancel——自旋 suite 落 pid 后挂起，运行中置位 →
-/// `Ok(PlanExecution)` + `fault == Some(Stopped)`（**不 Err**、不走
-/// `execution_error`）+ 目标 pid 消失 + 墙钟上界（秒级收敛）+ 报告目录零
-/// summary / 子报告写入（中断面不落部分结论）。
 #[tokio::test]
 async fn 运行中cancel_秒级收敛且pid消失零报告写入() {
     let _env = env_window();
@@ -2024,10 +2018,6 @@ async fn 运行中cancel_秒级收敛且pid消失零报告写入() {
     );
 }
 
-/// 边界（AC-5 消费面锚）：双管道大块并发——suite 命令同时向 stdout 与 stderr
-/// 各写 >64 KiB（超管道缓冲；单线程顺序读会互锁）→ `output` 全长拼接
-/// 「stdout 前缀 + stderr 后缀」逐字节（不丢字节、顺序稳定）+ 墙钟上界
-/// （`run_shell` 并发排水不互锁的执行体保证在消费面可观测）。
 #[tokio::test]
 async fn 双管道大块并发_output全长拼接且不互锁() {
     let _env = env_window();
@@ -2183,11 +2173,6 @@ fn write_selfheal_shim(dir: &Path, marker: &Path, locked: &Path) -> String {
     }
 }
 
-/// 正向（AC-1 / AC-3）：瞬态耗尽 → `fault = Environment` 且零 `execution_error`
-/// ——suite 恒锁文本 + `exit 1`（`transient()` 5 次耗尽）→ `fault ==
-/// Some(Environment(text))`（含点名 / 被锁文件 / 已自动重试 4 次 / 指引）、
-/// `error == None`、`exit_code == 1`、`output` 含 5 段分隔头（序号 1/5..5/5）。
-/// 退避（1+2+4+8 s）随虚拟时钟推进，不真等。
 #[tokio::test(start_paused = true)]
 async fn 瞬态耗尽_fault为环境错误且零execution_error() {
     let _env = env_window();
@@ -2268,9 +2253,6 @@ async fn 瞬态耗尽_fault为环境错误且零execution_error() {
     }
 }
 
-/// 正向（AC-1）：瞬态自愈 → 正常解析——前 1 次锁文本、第 2 次 `exit 0` 且产出
-/// 工件 → `fault == None`、`error == None`、用例解析产出与单次绿跑一致、
-/// `output` 含 2 段分隔头。退避（1 s）随虚拟时钟推进，不真等。
 #[tokio::test(start_paused = true)]
 async fn 瞬态自愈_fault为空且正常解析() {
     let _env = env_window();
@@ -2375,11 +2357,6 @@ async fn 裸failed_to_write不产fault且单次尝试() {
 // → `PlanExecution.fault`）
 // ---------------------------------------------------------------------------
 
-/// 按尝试序输出 `Compiling` 行数的 suite 模板（平台双形态）：第 n 次尝试
-/// **stdout** 输出 `counts[n - 1]` 行 `   Compiling crate v0.1.0`，**stderr**
-/// 输出 `lock_text` 并 `exit 1`（合并流面：末次 `stderr` 已并入 `output`，故
-/// `Compiling` 行不得被计两次）；超出清单的尝试输出 0 行。返回可直接作模板的
-/// shim 绝对路径（tempdir 路径无空格，首 token 即程序）。
 fn write_counting_template(
     dir: &Path,
     name: &str,
@@ -2432,11 +2409,6 @@ fn write_counting_template(
     }
 }
 
-/// 正向（AC-5 组合锚）：合并流推进序列到 fault——suite 模板按尝试分支输出
-/// 264 / 5 / 5 行 `Compiling`（stdout）+ 锁文本（stderr）→ 卡死早停 →
-/// `fault == Some(Environment(text))`，`text` 含
-/// `重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）`（末次 `stderr`
-/// 已并入 `output`，不重复计数）；`output` 段数与 `attempts` 一致（3 段）。
 #[tokio::test(start_paused = true)]
 async fn 合并流推进序列到fault文本() {
     let _env = env_window();
@@ -2626,8 +2598,8 @@ fn argv_plan(template: &str, files: &[&str], omit_files_safe: bool) -> TestPlan 
         coverage_format: CoverageFormat::NodeTest,
         coverage_output: "coverage-summary.json",
         results_output: "results.txt",
+        results_format: ResultsFormat::NodeSpec,
         omit_files_safe,
-        env: Vec::new(),
     }
 }
 
@@ -3818,11 +3790,14 @@ async fn 执行臂_argv_len口径为字符数() {
     let static_report_dir = ws.path().join("reports").join("rust-static");
     let static_template = if cfg!(windows) {
         format!(
-            "cmd /C type {} > {{results_file}}",
+            "cmd /C type {} > {{report_dir}}/junit.xml",
             spec_src.to_string_lossy().replace('/', "\\")
         )
     } else {
-        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
+        format!(
+            "cp \"{}\" \"{{report_dir}}/junit.xml\"",
+            spec_src.to_string_lossy()
+        )
     };
     let rust = rust_plan(&cwd, static_template);
     let execution = execute_plan(&rust, &static_report_dir, CancelFlag::never(), None, None)
@@ -3899,9 +3874,6 @@ fn copy_template(spec_src: &Path) -> String {
     }
 }
 
-/// 正向：`Keep` 臂（未超预算）→ `on_command` 恰调用 1 次，入参逐字 == 展开后的
-/// 命令串（与 `PlanExecution.argv_len` 同源）；`live: Some(sink)` → sink 收到该
-/// plan 的输出字节。
 #[tokio::test]
 async fn 透传面_keep臂命令回吐恰一次且sink收输出() {
     let _env = env_window();
@@ -3961,8 +3933,6 @@ async fn 透传面_keep臂命令回吐恰一次且sink收输出() {
     );
 }
 
-/// 正向：`Omit` 臂（超预算但可安全降级）→ `on_command` 入参为降级后的命令串
-/// （含框架自发现、无 `{files}`），且 `argv_note` 在位。
 #[tokio::test]
 async fn 透传面_omit臂回吐降级后命令串() {
     let _env = env_window();
@@ -4015,8 +3985,6 @@ async fn 透传面_omit臂回吐降级后命令串() {
     }
 }
 
-/// 异常：`Reject` 臂（不可安全降级 / 降级后仍超预算）→ `on_command` **零**
-/// 调用、零 spawn、`fault == Some(Environment(..))`（不返回 `Err`）。
 #[tokio::test]
 async fn 透传面_reject臂零回吐零spawn() {
     let _env = env_window();
@@ -4061,8 +4029,6 @@ async fn 透传面_reject臂零回吐零spawn() {
     }
 }
 
-/// 异常：`ensure_program_resolvable` 失败（程序不可达）→ `on_command` 已调用
-/// 1 次（命令串已裁决），返回 `Err` 且 `live` 面零写入（spawn 未发生）。
 #[tokio::test]
 async fn 透传面_程序不可达时命令已回吐且live零写入() {
     let _env = env_window();
@@ -4095,8 +4061,6 @@ async fn 透传面_程序不可达时命令已回吐且live零写入() {
     );
 }
 
-/// 边界：`on_command` 被调用时刻早于 spawn——回调内探测「工件文件尚不存在」
-/// （`results_output` 不在案）⇒ 顺序为「裁决 → 回调 → 可达性 → spawn」。
 #[tokio::test]
 async fn 透传面_回吐时刻早于spawn() {
     let _env = env_window();
@@ -4137,8 +4101,6 @@ async fn 透传面_回吐时刻早于spawn() {
     assert!(results_file.is_file(), "spawn 结束后工件已落位");
 }
 
-/// 边界：`cancel` 已置位 → spawn 入口短路：`on_command` 已调用 1 次（命令已
-/// 裁决）、`live` 零写入、`fault == Some(Stopped)`。
 #[tokio::test]
 async fn 透传面_入口短路时命令已回吐且fault为stopped() {
     let _env = env_window();
@@ -4171,8 +4133,6 @@ async fn 透传面_入口短路时命令已回吐且fault为stopped() {
     assert!(live_tee_bytes(&live).is_empty(), "入口短路 ⇒ live 零写入");
 }
 
-/// 边界：报告目录清理失败（`report_dir` 被文件占位）→ 在命令裁决**之前**早返
-/// `Err`：`on_command` 零调用、`live` 零写入。
 #[tokio::test]
 async fn 透传面_报告目录清理失败时零回吐() {
     let _env = env_window();
@@ -4206,8 +4166,6 @@ async fn 透传面_报告目录清理失败时零回吐() {
     assert!(live_tee_bytes(&live).is_empty(), "live 零写入");
 }
 
-/// 边界：`live: None` 与 `on_command: None` → 与今日逐字节等价（两形参缺席即
-/// 老行为：`PlanExecution` 各字段照常装配、零额外副作用）。
 #[tokio::test]
 async fn 透传面_两形参缺席时行为零变() {
     let _env = env_window();
@@ -4235,8 +4193,6 @@ async fn 透传面_两形参缺席时行为零变() {
     assert!(execution.fault.is_none(), "绿面无归因");
 }
 
-/// 边界：`execute_plan` 零记录职责——即便两形参在位，本函数也**不**产生
-/// `.cmd` sidecar、**不**调用 `commit`（记录生命周期单点在 `mod.rs`）。
 #[tokio::test]
 async fn 透传面_execute_plan零sidecar与零commit职责() {
     let _env = env_window();

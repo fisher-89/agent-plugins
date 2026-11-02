@@ -160,8 +160,7 @@ fn strip_duration(name: &str) -> (&str, Option<f64>) {
     (trimmed, None)
 }
 
-/// 错误块首行拆 `错误类型: 消息`（无冒号形态类型取 "Error"）。node-test spec 错误
-/// 块与 libtest-json 失败事件共用同一拆分口径（两个报告器的 panic 面同形）。
+/// 错误块首行拆 `错误类型: 消息`（无冒号形态类型取 "Error"）
 pub(crate) fn split_error_head(first_line: &str) -> (String, String) {
     match first_line.split_once(':') {
         Some((error_type, message)) => (error_type.trim().to_owned(), message.trim().to_owned()),

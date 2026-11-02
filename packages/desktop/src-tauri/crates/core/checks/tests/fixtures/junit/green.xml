@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="3" skipped="1" failures="0" errors="0" uuid="db0fa809-cc29-4560-84dd-164a7e5fd4d1" timestamp="2026-11-02T17:33:10.218+08:00" time="0.657">
+    <testsuite name="nxprobe" tests="3" skipped="1" errors="0" failures="0">
+        <testcase name="tests::it_ignored" classname="nxprobe" time="0.000">
+            <skipped message="Skipped: test does not match the run-ignored option"/>
+        </testcase>
+        <testcase name="tests::determine_conclusion_passes" classname="nxprobe" timestamp="2026-11-02T17:33:10.223+08:00" time="0.512"/>
+        <testcase name="tests::it_works" classname="nxprobe" timestamp="2026-11-02T17:33:10.223+08:00" time="0.646"/>
+    </testsuite>
+</testsuites>

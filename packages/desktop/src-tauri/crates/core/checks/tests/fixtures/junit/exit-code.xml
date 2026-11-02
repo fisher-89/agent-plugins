@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="2" skipped="0" failures="1" errors="0" uuid="c6b1fb0d-5d41-40bd-b8dc-8dcf63972953" timestamp="2026-11-02T17:33:56.699+08:00" time="0.158">
+    <testsuite name="nxprobe" tests="2" skipped="0" errors="0" failures="1">
+        <testcase name="tests::it_exits" classname="nxprobe" timestamp="2026-11-02T17:33:56.699+08:00" time="0.098">
+            <failure type="test failure with exit code 3"/>
+            <system-out>
+running 1 test
+</system-out>
+            <system-err></system-err>
+        </testcase>
+        <testcase name="tests::it_works" classname="nxprobe" timestamp="2026-11-02T17:33:56.699+08:00" time="0.157"/>
+    </testsuite>
+</testsuites>

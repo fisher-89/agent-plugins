@@ -28,7 +28,7 @@ Walker SHALL 在 test-execution 相位收敛点执行确定性 test-execution �
 
 ### Requirement: 框架矩阵与显式报错
 
-Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族：`coverage-summary.json` 覆盖 + `--reporter=json` 结果报告）/ rust（单条 `cargo llvm-cov nextest … --message-format libtest-json` 同产 libtest-json 结果与覆盖，见「rust suite 单构建（一条命令同产结果与覆盖率）」）/ node-test（`--test-reporter=spec` 文本结果）五框架的探测与执行；解析器 SHALL 为 node-test 文本分支（`parse_spec_report`）、rust libtest-json 分支（`parse_libtest_json`）与 istanbul 结果报告分支（`parse_istanbul_results`：`testResults[].assertionResults[]` → 用例行，`fullName` 保层级、`duration` 已为毫秒、`failureMessages[]` 首行拆 `错误类型: 消息`）。tests[] 声明 bun / go / pytest suite 时 runner SHALL 显式 `Err`（框架不被支持），MUST NOT 静默跳过该 suite；go-parser / coverage-py 不移植。
+Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族：`coverage-summary.json` 覆盖 + `--reporter=json` 结果报告）/ rust（单条 `cargo llvm-cov nextest …` 同产 JUnit 结果与覆盖率，见「rust suite 单构建（一条命令同产结果与覆盖率）」）/ node-test（`--test-reporter=spec` 文本结果）五框架的探测与执行；解析器 SHALL 为 node-test 文本分支（`parse_spec_report`）、rust JUnit 分支（`parse_junit`）与 istanbul 结果报告分支（`parse_istanbul_results`：`testResults[].assertionResults[]` → 用例行，`fullName` 保层级、`duration` 已为毫秒、`failureMessages[]` 首行拆 `错误类型: 消息`）。tests[] 声明 bun / go / pytest suite 时 runner SHALL 显式 `Err`（框架不被支持），MUST NOT 静默跳过该 suite；go-parser / coverage-py 不移植。
 
 #### Scenario: 五框架探测产出 plan
 
@@ -142,7 +142,7 @@ test-execution 相位两步（TestExecution / MutationTest）结论 fail / error
 
 ### Requirement: 输出记录为脚本真实输出
 
-test-execution 的输出记录 SHALL 由 summary JSON 重序列化改为**脚本真实输出**：runner 捕获的 `stdout_bytes + stderr_bytes` 合并流（不加 `2>&1`——rust 模板 `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > "{results_file}"` 已把 stdout（libtest-json 事件流）重定向进结果工件，`2>&1` 会让 stderr（人读报告 / 编译错误）混入污染 `parse_libtest_json`）。`PlanExecution` SHALL 增 `output` 字段承载该合并流（当前 stdout_bytes / stderr_bytes 是局部变量、只进 error 尾部）；`mod.rs` 聚合各 suite `output` 按 plan 序（字典序稳定）拼接，经运行中记录链（`LiveExec::begin` → 逐 plan `write_command` → `commit(&merged)`，同 id 收口——见 desktop-checks-domain「输出记录收敛到 infra/exec」与 desktop-exec-runtime「运行中实时输出记录与增量回查」）落单一 `.log` 并回填 `exec_id`；`record_exec_output` 的等价语义（单一 `.log`、零截断零改写、同锚槽位派生）由该链的 `begin + commit` 保持。全量结构化报告（`summary.json` + 逐 suite 子报告）仍留 report_dir 子树，各框架 report 工件各自为政，MUST NOT 强行统一各框架脚本输出格式。
+test-execution 的输出记录 SHALL 由 summary JSON 重序列化改为**脚本真实输出**：runner 捕获的 `stdout_bytes + stderr_bytes` 合并流（不加 `2>&1`——`2>&1` 会让 stderr（编译错误 / 人读报告）与 stdout 交错，破坏「`output` = stdout 前缀 + stderr 后缀」的确定性顺序。rust 档模板 `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --no-fail-fast -P wps-desktop-gate --tool-config-file "wps-desktop:{report_dir}/nextest.toml"` 已把结果工件（JUnit XML）与覆盖率工件都做成**文件产物**，stdout 无承载，故 record 内容以 stderr 为主）。`PlanExecution` SHALL 增 `output` 字段承载该合并流（当前 stdout_bytes / stderr_bytes 是局部变量、只进 error 尾部）；`mod.rs` 聚合各 suite `output` 按 plan 序（字典序稳定）拼接，经运行中记录链（`LiveExec::begin` → 逐 plan `write_command` → `commit(&merged)`，同 id 收口——见 desktop-checks-domain「输出记录收敛到 infra/exec」与 desktop-exec-runtime「运行中实时输出记录与增量回查」）落单一 `.log` 并回填 `exec_id`；`record_exec_output` 的等价语义（单一 `.log`、零截断零改写、同锚槽位派生）由该链的 `begin + commit` 保持。全量结构化报告（`summary.json` + 逐 suite 子报告）仍留 report_dir 子树，各框架 report 工件各自为政，MUST NOT 强行统一各框架脚本输出格式。
 
 **命令 sidecar（本变更新增，元数据面）**：每个 plan 展开命令后、spawn 之前 SHALL 把 `=== plan {id} · {framework} ===
 {展开后的命令}` 追加进同 id 的 `<exec_id>.cmd`（纯文本，与 `.log` 同目录）——命令文本**不进** `.log`（`.log` 的内容口径仍是「脚本真实输出 + plan 分隔头」，零变化），也 MUST NOT 进 `SubReport` / `summary`。写入失败 SHALL 静默降级（面板呈「命令未记录」，不阻断执行）。
@@ -152,8 +152,8 @@ test-execution 的输出记录 SHALL 由 summary JSON 重序列化改为**脚本
 
 #### Scenario: rust 套件不加 2>&1
 
-- **WHEN** test-execution 执行 rust 套件（模板为单条 `cargo llvm-cov nextest … --message-format libtest-json > "{results_file}"`）
-- **THEN** spawn 不施加 `2>&1`（stdout 仍重定向进结果工件供 `parse_libtest_json`）；record 内容为 stderr（人读 PASS/Summary 行与编译错误面），`results.txt` 在报告树可见，不强行 tee
+- **WHEN** test-execution 执行 rust 套件（模板为单条 `cargo llvm-cov nextest … -P wps-desktop-gate --tool-config-file "wps-desktop:{report_dir}/nextest.toml"`）
+- **THEN** spawn 不施加 `2>&1`；record 内容为 stderr（人读 PASS/Summary 行与编译错误面），`junit.xml` 与 `coverage-summary.json` 由 nextest / llvm-cov 直接写进报告树（不经 stdout），不强行 tee
 
 #### Scenario: 各 suite 输出按 plan 序聚合
 
@@ -246,12 +246,12 @@ initialize 相位（desktop-change-orchestration「initialize 基线检查相位
 
 ### Requirement: rust suite 单构建（一条命令同产结果与覆盖率）
 
-Test-execution 的 rust 档 SHALL 以**单条命令**执行测试并采集覆盖率：注册表 shell 臂与 cmd 臂模板 SHALL 逐字同串，形如 `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > "{results_file}"`。结果工件 SHALL 为 nextest 的 **libtest-json 事件流**（`--message-format libtest-json` + `--message-format-version 0.1` 钉格式；`--no-fail-fast` 使红跑产出全量用例集）——nextest 的人读报告全部走 stderr、stdout 只有结构化事件，故 MUST NOT 依赖「stdout 里有人读文本」。实验特性开关 `NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1` SHALL 经注册表条目 `env` 字段声明、由 runner 经 `RunOptions.env` 施加（MUST NOT 依赖调用者 shell 预置，也 MUST NOT 写进模板串——cmd / sh 的前缀赋值语法不同会让两臂分叉）；缺该变量时 nextest 以 exit 95 明确报错，经 `execution_error` 定型为可诊断失败，MUST NOT 退化成空工件的假绿。runner MUST NOT 对展开后的命令串做任何拼装改写——rust 档 MUST NOT 残留 `; _X=$?; … ; exit $_X` 形态的退出码搬运、MUST NOT 残留 `&`（cmd 无条件顺序分隔符）链式分隔、MUST NOT 由 runner 侧插入结果重定向。suite 退出码 SHALL 直继承该单条命令的退出码（MUST NOT 被链中后段命令洗 0）：`cargo llvm-cov` 失败（测试红 / 覆盖率工件未产出 / 环境文件锁）即 suite 非零退出，经 `execution_error` 定型为 `conclusion=Error`——「覆盖率工件缺失而结论 pass」的假绿路径 MUST NOT 可达。stdout SHALL 全量重定向进 `{results_file}`，由 `parse_libtest_json` 单一读取（逐行扫 `{"type":"test"}` 终态事件：`ok` → passed、`failed` → failed、`ignored` → skipped，`exec_time` 秒换算毫秒；`started` 与 `suite` 行不产用例；`--output-path` 使 coverage JSON 不进 stdout），覆盖率采集范围 SHALL 为 cargo workspace 全成员（`--workspace`）——结果工件与覆盖率工件 SHALL 由同一批用例产出，MUST NOT 出现「门禁判定的覆盖率数字来自与门禁测试集不同的一批用例」。test-execution 的 rust 档 MUST NOT 写 / 清 `target/debug`（llvm-cov 走 `target/llvm-cov-target`），跨相位（static-check 的 `cargo clippy` / `cargo run`）的 target 清理冲突 MUST NOT 由本相位引入。覆盖率口径与阈值 SHALL 零调整：沿现网形态（不排除 `*_test.rs`）、阈值保持 lines 90 / branches 85 / functions 90，`--workspace` 带来的分母扩大由真件回归证据承接；口径收紧（排除 `*_test.rs`）MUST NOT 在本变更内发生。
+Test-execution 的 rust 档 SHALL 以**单条命令**执行测试并采集覆盖率：注册表 shell 臂与 cmd 臂模板 SHALL 逐字同串，形如 `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --no-fail-fast -P wps-desktop-gate --tool-config-file "wps-desktop:{report_dir}/nextest.toml"`。结果工件 SHALL 为 nextest 的 **JUnit XML**（`profile.<name>.junit` 产物，`--no-fail-fast` 使红跑产出全量用例集）：runner SHALL 在 spawn 前把运行期配置写进 `{report_dir}/nextest.toml`——专属 profile `wps-desktop-gate`（`inherits = "default"`）、`junit.path` 为报告树内绝对路径、`report-skipped = "ignored"`（缺省 `none` 会把 `#[ignore]` 用例整条丢弃，使 skipped 计数失真）；配置 MUST NOT 落在仓库树，MUST NOT 复用 `profile.default`（避免与仓库自带 `.config/nextest.toml` 互相覆盖）。命令 SHALL 用 `-P`（nextest profile 短旗）而非 `--profile`（后者归 `cargo-llvm-cov` 的构建 profile）；JUnit 无命令行参数（`--junit-path` 不存在），故 MUST 经 `--tool-config-file` 注入。MUST NOT 使用 `--message-format libtest-json`——该格式受 `NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1` 实验开关门禁，本档 MUST NOT 依赖任何 nextest 实验特性。runner MUST NOT 对展开后的命令串做任何拼装改写——rust 档 MUST NOT 残留 `; _X=$?; … ; exit $_X` 形态的退出码搬运、MUST NOT 残留 `&`（cmd 无条件顺序分隔符）链式分隔、MUST NOT 由 runner 侧插入结果重定向（JUnit 由 nextest 直接写文件，stdout 无承载）。suite 退出码 SHALL 直继承该单条命令的退出码（MUST NOT 被链中后段命令洗 0）：`cargo llvm-cov` 失败（测试红 / 覆盖率工件未产出 / 环境文件锁）即 suite 非零退出，经 `execution_error` 定型为 `conclusion=Error`——「覆盖率工件缺失而结论 pass」的假绿路径 MUST NOT 可达。结果工件 SHALL 由 `parse_junit` 单一读取（逐 `<testcase>` 产用例行：`<skipped>` → skipped、`<failure>` 或 `<error>` → failed、两者皆无 → passed；`time` 属性为秒，换算毫秒，skipped 用例不记耗时；名称按 `classname$name` 合成；失败面取 `<failure>` 正文并沿用 libtest 的 panic 定位行跳过口径，无正文形态（进程退出码类）退化为 `type` / `message` 属性），覆盖率工件 SHALL 由同一命令的 `--output-path` 落位，采集范围 SHALL 为 cargo workspace 全成员（`--workspace`）——结果工件与覆盖率工件 SHALL 由同一批用例产出，MUST NOT 出现「门禁判定的覆盖率数字来自与门禁测试集不同的一批用例」。test-execution 的 rust 档 MUST NOT 写 / 清 `target/debug`（llvm-cov 走 `target/llvm-cov-target`），跨相位（static-check 的 `cargo clippy` / `cargo run`）的 target 清理冲突 MUST NOT 由本相位引入。覆盖率口径与阈值 SHALL 零调整：沿现网形态（不排除 `*_test.rs`）、阈值保持 lines 90 / branches 85 / functions 90，`--workspace` 带来的分母扩大由真件回归证据承接；口径收紧（排除 `*_test.rs`）MUST NOT 在本变更内发生。
 
 #### Scenario: 单条命令两臂同串
 
 - **WHEN** 审查 rust 档注册表条目与 runner 展开结果
-- **THEN** shell / cmd 模板逐字同串且为单条 `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > "{results_file}"`；命令串不含 `cargo test`、不含 ` & `、不含 `; _X=$?`；runner 展开后的命令与模板展开逐字一致（零追加改写）；`NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1` 只在注册表 `env` 字段出现，模板串内零出现
+- **THEN** shell / cmd 模板逐字同串且为单条 `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --no-fail-fast -P wps-desktop-gate --tool-config-file "wps-desktop:{report_dir}/nextest.toml"`；命令串不含 `cargo test`、不含 ` & `、不含 `; _X=$?`、不含 `--message-format`、不含 `{results_file}`；runner 展开后的命令与模板展开逐字一致（零追加改写）；写出的 `nextest.toml` 含专属 profile、绝对 `junit.path` 与 `report-skipped = "ignored"`
 
 #### Scenario: 退出码直继承不假绿
 
@@ -261,7 +261,7 @@ Test-execution 的 rust 档 SHALL 以**单条命令**执行测试并采集覆盖
 #### Scenario: 覆盖率与结果同批用例产出
 
 - **WHEN** rust 档真件执行完毕（工作区含 `crates/**` 多成员加根包）
-- **THEN** `results.txt` 的 libtest-json 事件覆盖全 workspace 成员（子报告 `summary.total` 与 nextest 汇总的 `tests run` 同量级）、`coverage-summary.json` 覆盖文件数 ≥ 200（含 `crates/core` / `crates/infra` / `crates/tools` / `src-tauri/src`），二者由同一次命令产出；子报告 `source_files` 不再局限于根包 25 个文件
+- **THEN** `junit.xml` 的用例覆盖全 workspace 成员（子报告 `summary.total` 与 nextest 汇总的 `tests run` 同量级）、`coverage-summary.json` 覆盖文件数 ≥ 200（含 `crates/core` / `crates/infra` / `crates/tools` / `src-tauri/src`），二者由同一次命令产出；子报告 `source_files` 不再局限于根包 25 个文件
 
 #### Scenario: 不触碰 target/debug
 
@@ -281,14 +281,14 @@ Test-execution 的 rust 档 SHALL 以**单条命令**执行测试并采集覆盖
 - 工件为空 → `结果工件为空: {name}`；
 - 解析成功但用例集为空 → `结果工件零用例: {name}`；报告器侧完全读不出事件行（如纯噪声）时由解析器自身 `Err`（`不含任何事件行`）。
 
-三条 finding 均进 `SubReport.findings` → `collect_problems` 判 `ExecutionError` → `conclusion=Error`。理由：工件在场而零用例是报告器参数漂移 / 写空 / 格式错配的强信号，与「真的没有用例」不可区分，此时判 pass 即假绿。三档解析器（rust libtest-json / node-test spec / istanbul 报告）共用本守卫。
+三条 finding 均进 `SubReport.findings` → `collect_problems` 判 `ExecutionError` → `conclusion=Error`。理由：工件在场而零用例是报告器参数漂移 / 写空 / 格式错配的强信号，与「真的没有用例」不可区分，此时判 pass 即假绿。三档解析器（rust JUnit / node-test spec / istanbul 报告）共用本守卫。
 
 istanbul 族另有两条**文件级**归因，与零用例守卫共用 `findings` 通道但措辞不同（MUST NOT 混成「报告器写空」）：文件 `status == "failed"` 而 `assertionResults` 为空（转译失败 / 顶层抛错）→ `测试文件失败: {file}（{message 首行}）`；`numTotalTests` 与解析出的用例行数不一致 → `istanbul 结果计数漂移: numTotalTests = N，用例行 = M`。两者都表示「报告与读侧口径已不一致」，按保守方向由 `collect_problems` 定型为 `execution_error`（此时「全绿」的计数不可信）。
 
 #### Scenario: 空工件与零用例分别定型
 
-- **WHEN** rust 档命令退出 0，但 `results.txt` 分别是零字节、只含 `suite` 汇总行、只含 `started` 行、或纯噪声
-- **THEN** 前两种退化为「结果工件为空」/「结果工件零用例」finding，后一种（纯噪声）由 `parse_libtest_json` 返回 `不含任何事件行`；四种情形 `conclusion=Error`、`cases` 为空，MUST NOT 判 pass
+- **WHEN** rust 档命令退出 0，但 `junit.xml` 分别是零字节、只有空 `<testsuites/>` 汇总、只有无 `<testcase>` 的 `<testsuite>`、或纯噪声
+- **THEN** 前两种退化为「结果工件为空」/「结果工件零用例」finding，纯噪声由 `parse_junit` 返回 `不含任何 testsuites / testcase 元素`；四种情形 `conclusion=Error`、`cases` 为空，MUST NOT 判 pass
 
 #### Scenario: istanbul 文件级失败单列
 
@@ -309,7 +309,7 @@ test-execution suite 命令的执行 SHALL 经 `exec::run_shell`（见 desktop-e
 - **瞬态耗尽**：重试耗尽且末次仍命中瞬态签名 → `fault = Some(RunFault::Environment(…))`（文本含占用者点名 / 被锁文件 / 已重试次数 / 处理指引）；该 plan MUST NOT 记 `execution_error`（同上，环境面不落「被测代码问题」归因）。
 - **取消语义（本变更改判）**：`cancel: CancelFlag` 由 port 透传；`RunOutcome::Cancelled` SHALL 使 runner 以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 返回 `Err("执行已取消")`），MUST NOT 落为 suite 级 `execution_error`、MUST NOT 继续跑余下 plan。
 - **`conclusion = Error` 收窄**：成因面 SHALL 仅限「结果工件解析失败 / harness 崩溃 / 框架探测失败 / 程序不可达及配置不支持（后者仍为 `Err`）」；超时与瞬态耗尽 MUST 由 fault 承载（fault 在位时 `conclusion` 值不参与门禁分派）。
-- **合并流顺序零变**：`PlanExecution.output` 仍为「stdout 前缀 + stderr 后缀」；重试场景下 SHALL 为各次尝试按序拼接、每段前加分隔头 `===== attempt N/5 · exit=C · transient=<命中签名> =====`（审计不丢上下文）；MUST NOT 加 `2>&1`（会污染 `parse_libtest_json` 的结果工件解析面）。
+- **合并流顺序零变**：`PlanExecution.output` 仍为「stdout 前缀 + stderr 后缀」；重试场景下 SHALL 为各次尝试按序拼接、每段前加分隔头 `===== attempt N/5 · exit=C · transient=<命中签名> =====`（审计不丢上下文）；MUST NOT 加 `2>&1`（会破坏「stdout 前缀 + stderr 后缀」的确定性顺序）。
 - 私有管道排水助手（`read_all`）SHALL 随迁移退役，管道排水单点驻 `exec`。
 
 #### Scenario: 超时预算常量锚定
@@ -421,10 +421,10 @@ test-execution 的命令展开 SHALL 受平台命令行长度预算约束（「�
 | `crates/core/orchestration/src/walker.rs`（升格落账） | 机械 fail 落账 | `report` = 完整明细（≤2000）、`checklist` 一条 `pass=false`、evidence = `diagnose_brief` + `report_dir`、三会话槽位 None |
 | `crates/core/orchestration/src/port.rs` | 载荷语义（字段面不变） | `TestExecutionOutcome.findings_detail` / `MutationTestOutcome.feedback_text` 消费者由「反馈边修复 prompt」改为「升格 report」 |
 | `crates/core/orchestration/src/decision.rs` + `prompt.rs` | 决策输入面 | `DecisionInput.fail_report: String`（取升格条目 report）；决策 prompt 增失败报告段与读报告文件指引 |
-| `crates/infra/checks/src/testexec/detect.rs` | rust 档注册表模板单源 | `shell_template` / `cmd_template` 逐字同串 = `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > "{results_file}"`；`env = [("NEXTEST_EXPERIMENTAL_LIBTEST_JSON", "1")]`（其余四档空）；`coverage_format = LlvmCov`、工件名 `coverage-summary.json` / `results.txt` 不变；注释留痕「rust 档单条命令有意偏离 CLI 双段链」 |
+| `crates/infra/checks/src/testexec/detect.rs` | rust 档注册表模板单源 | `shell_template` / `cmd_template` 逐字同串 = `cargo llvm-cov nextest --workspace --json --output-path "{coverage_file}" --no-fail-fast -P wps-desktop-gate --tool-config-file "wps-desktop:{report_dir}/nextest.toml"`；注册表条目以 `results_format = ResultsFormat::JunitXml` 声明格式（`env` 字段随实验开关一并退役）；`coverage_format = LlvmCov`、工件名 `coverage-summary.json` / `junit.xml`；注释留痕「rust 档单条命令有意偏离 CLI 双段链」「JUnit 经配置注入，命令行无对应参数」 |
 | `crates/infra/checks/src/testexec/runner.rs` | 进程执行（零注入） | 删 `applyResultsRedirect` 分支与 `native_output_file` 助手——命令串展开后零改写；spawn / 超时 / 输出捕获 / `PlanExecution.output` 合并流 / 工件解析面不变 |
 | `crates/infra/checks/src/testexec/`（detect / runner / report） | 五框架注册表与执行链 | 其余四档模板（jest / vitest / vite-plus / node-test）零改动；`{report_dir}` / `{results_file}` / `{coverage_file}` / `{config_args}` / `{files}` 占位符语义零改动；`mod.rs` 报告组装与复用门零改动 |
-| `crates/core/checks`（parser / aggregate） | 纯层判定 | `parse_libtest_json`（libtest-json 事件流 → 用例行；坏行跳过、零事件行 `Err`）、`parse_llvm_cov` 逐文件条目、`coverage_meets_thresholds` 的 null 维度感知、`compute_overrides` 语义均不变——本变更只换工件产出方，不换判定口径 |
+| `crates/core/checks`（parser / aggregate） | 纯层判定 | `parse_junit`（JUnit XML → 用例行；`<skipped>` / `<failure>` / `<error>` 三态、秒→毫秒、`classname$name` 合成、根计数不符与零元素 `Err`）、`parse_llvm_cov` 逐文件条目、`coverage_meets_thresholds` 的 null 维度感知、`compute_overrides` 语义均不变——本变更只换工件产出方与格式，不换判定口径 |
 | `crates/infra/checks/src/testexec/runner.rs` | suite 执行与归因 | `SUITE_COMMAND_TIMEOUT: Duration = 1200 s`；`execute_plan(plan, report_dir, cancel)` 经 `run_shell`（`timeout` / `cancel` / `retry = RetryPolicy::transient()`）；`TimedOut` / 瞬态耗尽 → `fault = Environment(…)`（不产 plan `execution_error`）；`Cancelled` → `fault = Stopped`；`PlanExecution { …, fault: Option<RunFault> }`；尝试分隔头拼接 |
 | `crates/infra/checks/src/testexec/mod.rs` | runner port 实现 | `impl TestExecutionRunner for ProcessTestExecution`：`run(root, name, slot, cancel)` 签名加 `cancel: CancelFlag` 并透传 `execute_plan`；多 plan fault 聚合（`Stopped` 优先于 `Environment`）；`TestExecutionOutcome.fault`；`conclusion = Error` 成因面收窄 |
 | `crates/core/orchestration/src/port.rs` | 载荷 | `TestExecutionOutcome { conclusion, total, passed, failed, skipped, findings_brief, findings_detail, report_dir, exec_id, fault: Option<RunFault> }` |

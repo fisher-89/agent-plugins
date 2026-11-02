@@ -233,7 +233,7 @@ fn istanbul结果三态与失败归因逐字对齐() {
         "failureMessages 全量入堆栈，实际: {:?}",
         failed.stack_trace
     );
-    // duration 是毫秒，不乘 1000（与 libtest-json 的秒口径不同）
+    // duration 是毫秒，不乘 1000（与 JUnit 的秒口径不同）
     assert_eq!(failed.duration_ms, Some(3.0880999999999403));
 
     let skipped = parsed

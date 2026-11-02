@@ -1230,6 +1230,7 @@ dependencies = [
  "config",
  "foundation",
  "glob",
+ "quick-xml",
  "serde",
  "serde_json",
  "time",

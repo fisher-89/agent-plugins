@@ -3,15 +3,14 @@ use std::time::{Duration, Instant};
 
 use checks::model::{CoverageMeasured, SourceFileEntry, TestCaseResult};
 use checks::parser::{
-    parse_coverage, parse_coverage_measured, parse_istanbul_results, parse_libtest_json,
-    parse_spec_report,
+    parse_coverage, parse_coverage_measured, parse_istanbul_results, parse_junit, parse_spec_report,
 };
 use foundation::cancel::CancelFlag;
 use orchestration::port::RunFault;
 
 use crate::environment;
 
-use super::detect::{to_posix, TestPlan};
+use super::detect::{to_posix, ResultsFormat, TestPlan, NEXTEST_PROFILE};
 
 /// suite 命令超时：rust suite 实测 340–393 s 的约 3 倍余量（原 600 s 仅 1.7 倍
 /// ——热态正常、冷态或多 change 并发即触线；「与 CLI `runCommand(cmd, cwd,
@@ -109,6 +108,25 @@ pub(crate) async fn execute_plan(
     std::fs::create_dir_all(report_dir)
         .map_err(|error| format!("报告目录创建失败 {}: {error}", to_posix(report_dir)))?;
 
+    // 结果工件格式需要运行期配置时先落配置（JUnit XML：nextest 只认配置里的
+    // `profile.<name>.junit.path`，命令行无对应参数；`report-skipped = "ignored"`
+    // 让 `#[ignore]` 用例以 skipped 出线，缺省 `none` 会整条丢弃）。配置写在
+    // 报告目录内（每轮清空重建 → 恒新鲜），与模板里的 `--tool-config-file` 同一路径。
+    if plan.results_format == ResultsFormat::JunitXml {
+        let config_path = report_dir.join("nextest.toml");
+        let config = format!(
+            "[profile.{NEXTEST_PROFILE}]\n\
+             inherits = \"default\"\n\
+             \n\
+             [profile.{NEXTEST_PROFILE}.junit]\n\
+             path = \"{}\"\n\
+             report-skipped = \"ignored\"\n",
+            to_posix(&report_dir.join(plan.results_output))
+        );
+        std::fs::write(&config_path, config)
+            .map_err(|error| format!("nextest 配置写盘失败 {}: {error}", to_posix(&config_path)))?;
+    }
+
     // 占位符原料（绝对 POSIX 路径——对 config root / cwd 解析歧义的规避）
     let results_file = report_dir.join(plan.results_output);
     let coverage_file = report_dir.join(plan.coverage_output);
@@ -176,7 +194,7 @@ pub(crate) async fn execute_plan(
         exec::SystemCommand::script_raw(&command),
         exec::RunOptions {
             cwd: Some(plan.cwd.clone()),
-            env: plan.env.clone(),
+            env: Vec::new(),
             timeout: SUITE_COMMAND_TIMEOUT,
             cancel,
             retry: exec::RetryPolicy::transient(),
@@ -394,7 +412,7 @@ fn decide_argv(
     }
 }
 
-/// 结果工件解析（框架路由：rust → libtest-json 事件流；node-test → spec 文本；
+/// 结果工件解析（格式路由：rust → JUnit XML；node-test → spec 文本；
 /// istanbul 族 → `--reporter=json` 报告）。
 ///
 /// `notes` 是**与 `error` 并列**的归因面，二者都落子报告 `findings`：
@@ -428,13 +446,10 @@ fn parse_results(plan: &TestPlan, report_dir: &Path) -> ParsedResults {
             };
         }
     };
-    match plan.framework.as_str() {
-        "rust" => finish_parse(parse_libtest_json(&text), plan, Vec::new()),
-        "node-test" => finish_parse(parse_spec_report(&text), plan, Vec::new()),
-        // istanbul 族（jest / vitest / vite-plus）：jest 兼容 JSON 报告器产物。
-        // 文件级失败（转译失败 / 顶层抛错）不产用例行，必须单列——否则「文件跑
-        // 不起来」只会表现为零用例，被守卫误说成「报告器写空」
-        _ => match parse_istanbul_results(&text) {
+    match plan.results_format {
+        ResultsFormat::JunitXml => finish_parse(parse_junit(&text), plan, Vec::new()),
+        ResultsFormat::NodeSpec => finish_parse(parse_spec_report(&text), plan, Vec::new()),
+        ResultsFormat::Istanbul => match parse_istanbul_results(&text) {
             Ok(parsed) => {
                 let mut notes = parsed
                     .file_failures

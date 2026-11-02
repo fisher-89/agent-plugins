@@ -76,11 +76,11 @@ fn parse_file_metrics(file: &str, metrics: &Value) -> Result<FileCoverageEntry, 
 /// `tests/fixtures/istanbul/results.json`）：
 /// - `testResults[]` 每个元素是一个测试文件：`name` 为绝对路径、`status`
 ///   为文件级结论、`assertionResults[]` 为该文件的用例行；
-/// - 用例行 `fullName` 是 `ancestorTitles + title` 的空格拼接（与 libtest 的
-///   `{crate}::{binary}${test}` 同理，保留层级以便失败归因定位）；
+/// - 用例行 `fullName` 是 `ancestorTitles + title` 的空格拼接（与 JUnit 的
+///   `{classname}${test}` 同理，保留层级以便失败归因定位）；
 /// - `status` 四值 → 三态：`passed` → Passed、`failed` → Failed、
 ///   `pending` / `skipped` / `todo` / `disabled` → Skipped；
-/// - `duration` 已是毫秒（不是 libtest 的秒）；
+/// - `duration` 已是毫秒（不是 JUnit 的秒）；
 /// - `failureMessages[]` 每条是一段多行文本：首行 `错误类型: 消息`，全量入
 ///   `stack_trace`。
 ///

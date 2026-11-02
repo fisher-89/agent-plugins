@@ -13,7 +13,12 @@
 | `llvm-cov/coverage.json` | llvm-cov JSON（双 data 窗口：多 segment / 空 segments / 单 segment + totals 块） | `parser/rust_test.rs`、`parser/coverage_test.rs` |
 | `node-spec/output.txt` | node-test `--test-reporter=spec` 绿跑文本（5 用例：4 pass 1 skipped，含子测试缩进与套件收口行） | `parser/text_test.rs`、`corpus_golden_test.rs` |
 | `node-spec/output-fail.txt` | node-test spec 红跑文本（失败用例 + 缩进错误块） | `parser/text_test.rs` |
-| `libtest-json/output.txt` | nextest `--message-format libtest-json`（格式版本 0.1）真实捕获事件流：3 binary 块 / 5 终态事件（3 ok + 1 failed + 1 ignored），失败事件携 `stdout` 块。采集：nextest 0.9.150 / cargo-llvm-cov 0.9.1 / rustc 1.95，`cargo llvm-cov nextest --message-format libtest-json --message-format-version 0.1 --no-fail-fast`（红跑形态，覆盖率工件不出） | `parser/libtest_test.rs` |
+| `junit/green.xml` | nextest `profile.<name>.junit` 绿跑真实采集：2 passed + 1 skipped（`report-skipped = "ignored"`），skipped 的 `time="0.000"` 为占位 | `parser/junit_test.rs` |
+| `junit/red.xml` | 同档红跑：`<failure>` 带正文与 message/type 属性，兄弟 `system-out` / `system-err` 在场 | `parser/junit_test.rs`、`runner_test.rs` |
+| `junit/exit-code.xml` | `<failure type="test failure with exit code 3"/>` 自闭合无正文形态（`std::process::exit(N)`） | `parser/junit_test.rs` |
+
+> JUnit 样本采集自 `cargo llvm-cov nextest --no-report --no-fail-fast -P <profile> --tool-config-file "…"`
+> （nextest 0.9.150 / cargo-llvm-cov 0.9.1 / rustc 1.95）；`libtest-json` 语料随实验格式一并退役。
 
 ## corpus 语料（全链黄金对拍消费）
 

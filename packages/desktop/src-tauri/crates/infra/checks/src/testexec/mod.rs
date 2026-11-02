@@ -572,7 +572,7 @@ fn build_sub_report(
         duration_ms: execution.duration_ms,
         summary,
         error_cases,
-        // V1 支持面解析器不产测试文件清单（文本引擎与 libtest-json 均无文件
+        // V1 支持面解析器不产测试文件清单（文本引擎与 JUnit 均无文件
         // 清单输出面——CLI text-parser 同形恒空）
         test_files: Vec::new(),
         source_files: execution.source_files,

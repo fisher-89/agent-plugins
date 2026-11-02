@@ -16,6 +16,20 @@ use super::runner::VERSION_DETECT_TIMEOUT;
 /// 同值）。
 const JEST_RANDOMIZE_MINIMUM: &str = "29.5.0";
 
+/// 结果工件格式（runner 据此路由解析器，并决定是否先写 nextest 配置）。
+///
+/// 判别依据是**工件格式**而非框架名——框架是 suite 事实，格式是读侧契约，二者
+/// 分开后新增框架不会被迫复用别人的解析分支。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResultsFormat {
+    /// istanbul 族结果报告（jest / vitest / vite-plus，`--reporter=json` 产物）
+    Istanbul,
+    /// node-test `--test-reporter=spec` 文本
+    NodeSpec,
+    /// nextest `profile.<name>.junit` 的 JUnit XML（需运行期写配置 + 专属 profile）
+    JunitXml,
+}
+
 /// 单框架注册表条目：命令模板（shell / cmd 双形态，占位符原样保留由
 /// runner 展开）、覆盖格式与工件名、缺省 glob、配置注入旗标、版本命令。
 struct FrameworkEntry {
@@ -35,14 +49,18 @@ struct FrameworkEntry {
     coverage_output: &'static str,
     /// 结果工件名（相对 plan 报告目录）
     results_output: &'static str,
+    /// 结果工件格式（解析器路由 + 运行期配置需求）
+    results_format: ResultsFormat,
     /// suite 未设 includes 时的缺省 glob（相对 suite root）
     default_glob: &'static str,
     /// 框架配置注入旗标（`None` = 不支持配置注入）
     config_flag: Option<&'static str>,
-    /// 执行期环境变量（框架私有开关——**不进模板串**：cmd / sh 的前缀赋值语法
-    /// 不同，写进模板会让两臂分叉）。rust 档的 libtest-json 结果工件即靠此开启。
-    env: &'static [(&'static str, &'static str)],
 }
+
+/// rust 档专属 nextest profile 名。MUST NOT 用 `default`：运行期配置只经
+/// `--tool-config-file` 注入，用专属 profile 可避免与仓库自带 `.config/nextest.toml`
+/// 的 `[profile.default.junit]` 互相覆盖。
+pub(crate) const NEXTEST_PROFILE: &str = "wps-desktop-gate";
 
 /// 五框架注册表（常量表移植；jest / vitest / vite-plus / node-test 与 CLI
 /// `test-framework.ts` 逐字对齐，唯 rust 档单条命令**有意偏离** CLI 双段链：
@@ -50,6 +68,12 @@ struct FrameworkEntry {
 /// 复用；② cmd 臂 `&` 退出码取末段，覆盖率工件缺失仍判绿（假绿）；
 /// ③ llvm-cov 不带 `--workspace` 只测根包 25 文件，与全 workspace 用例
 /// 口径不同源）。
+///
+/// rust 档结果工件为 nextest 的 JUnit XML（`profile.<name>.junit`）：它是
+/// **稳定特性**，不像 `--message-format libtest-json` 那样受实验开关门禁；配置经
+/// runner 写入 `{report_dir}/nextest.toml` 并以 `--tool-config-file` 注入（命令行
+/// 无 JUnit 参数可用——`--junit-path` 不存在）。`-P` 是 nextest profile 短旗；
+/// `--profile` 被 `cargo-llvm-cov` 的构建 profile 占用，MUST NOT 混用。
 const REGISTRY: [FrameworkEntry; 5] = [
     FrameworkEntry {
         framework: "jest",
@@ -59,9 +83,9 @@ const REGISTRY: [FrameworkEntry; 5] = [
         coverage_format: CoverageFormat::Istanbul,
         coverage_output: "coverage-summary.json",
         results_output: "results.json",
+        results_format: ResultsFormat::Istanbul,
         default_glob: "**/*.{test,spec}.{js,ts,jsx,tsx}",
         config_flag: Some("--config"),
-        env: &[],
     },
     FrameworkEntry {
         framework: "vitest",
@@ -71,9 +95,9 @@ const REGISTRY: [FrameworkEntry; 5] = [
         coverage_format: CoverageFormat::Istanbul,
         coverage_output: "coverage-summary.json",
         results_output: "results.json",
+        results_format: ResultsFormat::Istanbul,
         default_glob: "**/*.{test,spec}.{js,ts,jsx,tsx}",
         config_flag: Some("--config"),
-        env: &[],
     },
     FrameworkEntry {
         framework: "vite-plus",
@@ -83,21 +107,21 @@ const REGISTRY: [FrameworkEntry; 5] = [
         coverage_format: CoverageFormat::Istanbul,
         coverage_output: "coverage-summary.json",
         results_output: "results.json",
+        results_format: ResultsFormat::Istanbul,
         default_glob: "**/*.{test,spec}.{js,ts,jsx,tsx}",
         config_flag: Some("--config"),
-        env: &[],
     },
     FrameworkEntry {
         framework: "rust",
         version_command: "cargo --version",
-        shell_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > \"{results_file}\"",
-        cmd_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --message-format libtest-json --message-format-version 0.1 --no-fail-fast > \"{results_file}\"",
+        shell_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --no-fail-fast -P wps-desktop-gate --tool-config-file \"wps-desktop:{report_dir}/nextest.toml\"",
+        cmd_template: "cargo llvm-cov nextest --workspace --json --output-path \"{coverage_file}\" --no-fail-fast -P wps-desktop-gate --tool-config-file \"wps-desktop:{report_dir}/nextest.toml\"",
         coverage_format: CoverageFormat::LlvmCov,
         coverage_output: "coverage-summary.json",
-        results_output: "results.txt",
+        results_output: "junit.xml",
+        results_format: ResultsFormat::JunitXml,
         default_glob: "**/tests/**/*.rs",
         config_flag: None,
-        env: &[("NEXTEST_EXPERIMENTAL_LIBTEST_JSON", "1")],
     },
     FrameworkEntry {
         framework: "node-test",
@@ -107,9 +131,9 @@ const REGISTRY: [FrameworkEntry; 5] = [
         coverage_format: CoverageFormat::NodeTest,
         coverage_output: "results.txt",
         results_output: "results.txt",
+        results_format: ResultsFormat::NodeSpec,
         default_glob: "**/*.test.{mjs,js,cjs}",
         config_flag: None,
-        env: &[],
     },
 ];
 
@@ -175,13 +199,13 @@ pub(crate) struct TestPlan {
     pub coverage_output: &'static str,
     /// 结果工件名
     pub results_output: &'static str,
+    /// 结果工件格式（解析器路由；`JunitXml` 另需 runner 写 nextest 配置）
+    pub results_format: ResultsFormat,
     /// 降级安全判据（detect 期一次算定）：`default_glob` 以**同一剪枝管线、不施加
     /// suite `excludes`** 枚举出的集合 == [`Self::files`] 集合 → 省略 `{files}` 后
     /// 框架自发现跑的还是同一批。保守方向：集合不等即拒降级（`excludes` 实际剔掉
     /// 了某个文件 → 对照面仍含该文件 → 不等 → 拒降级）
     pub omit_files_safe: bool,
-    /// 执行期环境变量（注册表 `env` 透传；空 = 全继承——框架私有开关不走模板串）
-    pub env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
 }
 
 impl TestPlan {
@@ -276,12 +300,8 @@ pub(crate) fn detect_plans(
             coverage_format: entry.coverage_format,
             coverage_output: entry.coverage_output,
             results_output: entry.results_output,
+            results_format: entry.results_format,
             omit_files_safe,
-            env: entry
-                .env
-                .iter()
-                .map(|(key, value)| ((*key).into(), (*value).into()))
-                .collect(),
         });
     }
     Ok(plans)

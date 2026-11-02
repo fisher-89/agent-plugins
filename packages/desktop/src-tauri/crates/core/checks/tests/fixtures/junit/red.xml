@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="3" skipped="1" failures="1" errors="0" uuid="4db7f38b-038d-411e-8a9f-032f429280b3" timestamp="2026-11-02T17:33:36.859+08:00" time="0.100">
+    <testsuite name="nxprobe" tests="3" skipped="1" errors="0" failures="1">
+        <testcase name="tests::it_ignored" classname="nxprobe" time="0.000">
+            <skipped message="Skipped: test does not match the run-ignored option"/>
+        </testcase>
+        <testcase name="tests::it_works" classname="nxprobe" timestamp="2026-11-02T17:33:36.860+08:00" time="0.058"/>
+        <testcase name="tests::it_fails" classname="nxprobe" timestamp="2026-11-02T17:33:36.860+08:00" time="0.098">
+            <failure message="thread &apos;tests::it_fails&apos; (25720) panicked at src\lib.rs:9:55" type="test failure with exit code 101">thread &apos;tests::it_fails&apos; (25720) panicked at src\lib.rs:9:55:
+assertion `left == right` failed
+  left: 3
+ right: 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+captured stdout line
+test tests::it_fails ... FAILED
+
+failures:
+
+failures:
+    tests::it_fails
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err>
+thread &apos;tests::it_fails&apos; (25720) panicked at src\lib.rs:9:55:
+assertion `left == right` failed
+  left: 3
+ right: 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+    </testsuite>
+</testsuites>
