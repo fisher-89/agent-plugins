@@ -12,8 +12,8 @@ use tempfile::TempDir;
 use super::super::mod_test::{wait_pid, wait_pid_gone, SpawnRecord, SpawnWindow};
 use super::super::report::to_posix;
 use super::super::{
-    mutation_jobs, SegmentFailure, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS,
-    SEGMENT_SPAWN_TIMEOUT_MS,
+    mutation_jobs, SegmentFailure, MUTATION_JOBS_DIVISOR, MUTATION_TEST_THREADS,
+    PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS,
 };
 use super::{read_tauri_version, run_segment, segment_failure_message, tauri_config_override};
 
@@ -34,40 +34,56 @@ const CARGO_SEG_CANNED: &str = r#"{
 }"#;
 
 /// argv 模板面常量锚定（AC-4：`--baseline skip` / per-mutant 超时 / 段 spawn
-/// 硬超时 / jobs 半 CPU 除数——D9 不进 config schema）。
+/// 硬超时 / jobs 与测试线程除数——D9 不进 config schema）。
 #[test]
 fn argv模板常量面锚定() {
     assert_eq!(PER_MUTANT_TIMEOUT_SECS, 300, "per-mutant 超时 300 秒");
-    assert_eq!(MUTATION_JOBS_DIVISOR, 2, "并发除数 2（半 CPU）");
+    assert_eq!(
+        MUTATION_JOBS_DIVISOR, 4,
+        "worker 并发除数 4（每份 worker 吃 4 核）"
+    );
+    assert_eq!(MUTATION_TEST_THREADS, 4, "单 worker 内测试线程 4");
     assert_eq!(
         SEGMENT_SPAWN_TIMEOUT_MS, 3_600_000,
         "段 spawn 硬超时 60 分钟"
     );
 }
 
-/// jobs 计算：`max(1, available_parallelism() / 2)` 关系式（CPU 1 → 1、2 → 1、
-/// 3 → 1、4 → 2、16 → 8 抽样口径；期望值按真实 CPU 重算——不 mock 运行环境）。
+/// jobs 计算：`max(1, (cpu - 2) / 4)` 关系式（16 核 → 3；期望值按真实 CPU
+/// 重算——不 mock 运行环境）。减 2 给系统留余量，除以 4 是「编译 + 测试」的总
+/// 压力折算。
 #[test]
-fn jobs计算_半cpu关系式抽样口径() {
+fn jobs计算_核数减去余量再折算() {
     let samples = [1usize, 2, 3, 4, 8, 16, 32, 64];
     for cpu in samples {
-        let expected = (cpu / MUTATION_JOBS_DIVISOR).max(1);
+        let expected = (cpu.saturating_sub(2) / MUTATION_JOBS_DIVISOR).max(1);
         assert_eq!(
             expected,
-            (cpu / 2).max(1),
-            "CPU={cpu} → jobs={expected}（半 CPU 下限 1）"
+            (cpu.saturating_sub(2) / 4).max(1),
+            "CPU={cpu} → jobs={expected}（留 2 核余量后每 4 核一份）"
         );
     }
+    assert_eq!(
+        (16usize.saturating_sub(2)) / MUTATION_JOBS_DIVISOR,
+        3,
+        "16 核 → jobs=3"
+    );
     // 真实环境断言：jobs 与 available_parallelism 同式
     let parallelism = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1);
     assert_eq!(
         mutation_jobs(),
-        (parallelism / MUTATION_JOBS_DIVISOR).max(1),
-        "mutation_jobs 与真实 CPU 半数关系式一致（下限 1）"
+        (parallelism.saturating_sub(2) / MUTATION_JOBS_DIVISOR).max(1),
+        "mutation_jobs 与真实 CPU 关系式一致（下限 1）"
     );
     assert!(mutation_jobs() >= 1, "jobs 下限 1（单核 CPU）");
+    // 峰值测试进程数不超过核数太多（过订阅守门）
+    assert!(
+        mutation_jobs() * MUTATION_TEST_THREADS <= parallelism.max(MUTATION_TEST_THREADS),
+        "jobs × 测试线程 ≤ 核数（{:?}）",
+        mutation_jobs() * MUTATION_TEST_THREADS
+    );
 }
 
 /// 段中断错误面：非零退出且无可解析报告 → 错误文案携退出码与输出有界尾部；
@@ -219,7 +235,7 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     let records = window.records();
     assert_eq!(records.len(), 1, "恰一次假 spawn");
     let argv = &records[0].argv;
-    assert_eq!(argv.len(), 13, "argv 十三参封闭: {argv:?}");
+    assert_eq!(argv.len(), 15, "argv 十五参封闭: {argv:?}");
     assert_eq!(argv[0], "mutants", "argv 首 token（cargo 子命令面）");
     assert_eq!(
         argv[1], "--test-tool=nextest",
@@ -237,13 +253,22 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     assert_eq!(argv[5], "--baseline", "baseline 位");
     assert_eq!(argv[6], "skip", "baseline skip（AC-4）");
     assert_eq!(argv[7], "--jobs", "jobs 位");
-    assert_eq!(argv[8], mutation_jobs().to_string(), "jobs = max(1, CPU/2)");
+    assert_eq!(
+        argv[8],
+        mutation_jobs().to_string(),
+        "jobs = max(1, (CPU-2)/4)"
+    );
     assert_eq!(argv[9], "--timeout", "timeout 位");
     assert_eq!(argv[10], "300", "per-mutant 超时 300（argv 逐字）");
     assert_eq!(argv[11], "--profile", "cargo profile 位");
     assert_eq!(
         argv[12], "mutants",
         "专用 profile（debug=none——cargo 不会自动采用，必须显式选中）"
+    );
+    assert_eq!(argv[13], "--cargo-test-arg", "测试阶段参数透传位");
+    assert_eq!(
+        argv[14], "-j4",
+        "nextest 测试线程 4（cargo-mutants 只把该参数追加到 Test 阶段）"
     );
 
     let cwd = records[0]

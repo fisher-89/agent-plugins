@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 use super::super::mod_test::{wait_pid, wait_pid_gone, SpawnWindow};
-use super::super::mutation_jobs;
 use super::super::report::to_posix;
+use super::super::stryker_concurrency;
 use super::super::{SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
 use super::{
     build_config, ensure_on_path, plugin_package, relative_to_cwd, run_segment, test_runner,
@@ -70,7 +70,7 @@ fn 临时config组装_共享sandbox与半cpu与json直写() {
     // concurrency = 半 CPU
     assert_eq!(
         config["concurrency"],
-        serde_json::json!(mutation_jobs()),
+        serde_json::json!(stryker_concurrency()),
         "concurrency = max(1, CPU/2)"
     );
     // jsonReporter 直写段报告路径（jsonReporter 面——报告落位单点）

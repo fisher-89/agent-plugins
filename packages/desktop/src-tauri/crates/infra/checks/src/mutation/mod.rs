@@ -1,14 +1,3 @@
-//! mutation-test 突变进程执行模块（checks 边界第三成员；testexec/ 旁新模块）。
-//!
-//! 主链（E 系定稿见 design）：suite 归桶（E10）→ 跳过面（`EmptyDiff` /
-//! `NoExecutor` 记 evidence 不 Err）→ 分段顺序执行（静态初值 + 自适应修正）→
-//! 段报告解析（`core/checks` 宽容解析 + 映射表）→ 计数归并（`build_mutation_block`
-//! / `merge_mutation_blocks`）→ 逐 suite 阈值判定（全过即 pass）→ summary
-//! mutation 位回填（E11 在位时）→ [`MutationTestOutcome`] 与 `feedback_text`
-//! 装配；Stryker 共享 sandbox 与 cargo-mutants 共享 `CARGO_TARGET_DIR` 跨段复
-//! 用、全段后一次清理。清单与补丁经 `MutationRunner::run` 入参注入——本模块
-//! **零 vcs 依赖**（清单获取唯一入口在 vcs 边界）。
-
 mod cargo_mutants;
 mod report;
 mod segments;
@@ -28,9 +17,19 @@ use orchestration::port::{
     MutationTestOutcome, RunFault, ToolStepOutput,
 };
 
-/// 突变执行并发除数：jobs = `max(1, available_parallelism() / MUTATION_JOBS_DIVISOR)`
-///（本地突变仅占用一半内核，延续 CLI 现状口径）。
-pub const MUTATION_JOBS_DIVISOR: usize = 2;
+/// 突变执行并发除数（每份 worker 预留的核数）：jobs =
+/// `max(1, (可用并行度 - 2) / MUTATION_JOBS_DIVISOR)`。
+///
+/// 减 2 给操作系统 / 链接器 / 主进程本身留出余量；除以 4 是把每个 worker 的
+/// 「编译并发 + 测试并发」一并计入——worker 不是单线程的。
+pub const MUTATION_JOBS_DIVISOR: usize = 4;
+
+/// 单个 worker 内的测试线程数（nextest `-j` / libtest `--test-threads`）。
+///
+/// 峰值测试进程 = `mutation_jobs() × MUTATION_TEST_THREADS`。两层的乘积控制在
+/// 核数附近，避免「N 个 worker 各开满线程」把机器压到互相饿死（实测后果是纯函数
+/// 突变体撞满 per-mutant 超时 → 假 timeout）。
+pub const MUTATION_TEST_THREADS: usize = 4;
 
 /// per-mutant 超时秒数（防单突变体挂死；与分段预算正交）。
 pub const PER_MUTANT_TIMEOUT_SECS: u64 = 300;
@@ -74,12 +73,31 @@ impl std::fmt::Display for SegmentFailure {
     }
 }
 
-/// 突变执行并发（半 CPU；Stryker `concurrency` 与 cargo-mutants `--jobs` 同锚）。
+/// 突变执行并发（cargo-mutants `--jobs`）：`max(1, (可用并行度 - 2) / 4)`——16 核 → 3。
+///
+/// 这个折算专门服务 **rust 桶**：每个 cargo-mutants worker 各持一份副本并各自冷编
+/// 整包（实测单份 ~110 s，份数即 jobs），同时提交的测试进程数为 `jobs × 测试线程数`。
+/// worker 按「留 2 核余量、每份吃 4 核」折算，把总压力钉在核数附近。
+///
+/// Stryker 桶**不**用本函数——它没有「每份副本各自冷编」的成本，见
+/// [`stryker_concurrency`]。
 pub fn mutation_jobs() -> usize {
     let parallelism = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1);
-    (parallelism / MUTATION_JOBS_DIVISOR).max(1)
+    (parallelism.saturating_sub(2) / MUTATION_JOBS_DIVISOR).max(1)
+}
+
+/// Stryker 并发（同一进程内并行的测试运行器数）：半 CPU。
+///
+/// 与 [`mutation_jobs`] 的区别：Stryker 只有一个进程、一份 sandbox，`concurrency`
+/// 就是进程内的运行器槽位数，不存在「N 份副本各冷编一遍」的乘法放大，因此按半
+/// CPU 取即可（延续 CLI 现状口径）。
+pub fn stryker_concurrency() -> usize {
+    let parallelism = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(1);
+    (parallelism / 2).max(1)
 }
 
 /// Stryker 可插桩扩展名 allowlist（镜像 `@stryker-mutator/instrumenter`

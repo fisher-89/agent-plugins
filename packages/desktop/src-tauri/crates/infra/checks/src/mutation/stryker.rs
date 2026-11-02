@@ -5,7 +5,7 @@ use exec::SystemCommand;
 use foundation::cancel::CancelFlag;
 
 use super::report::{self, to_posix, STRYKER_TMP_DIR_NAME};
-use super::{mutation_jobs, SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
+use super::{stryker_concurrency, SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
 
 /// Windows 上补探测的可执行后缀（PATHEXT 主干；与 cmd 搜索口径一致——镜像
 /// `testexec::runner` 的私有实现，不改其可见性）。
@@ -143,7 +143,7 @@ fn build_config(segment: &StrykerSegment<'_>, report_path: &Path) -> serde_json:
         "reporters": ["json"],
         "jsonReporter": { "fileName": to_posix(report_path) },
         "tempDirName": to_posix(&temp_dir),
-        "concurrency": mutation_jobs(),
+        "concurrency": stryker_concurrency(),
         "timeoutFactor": 1.5,
         "timeoutMS": 10000,
     });

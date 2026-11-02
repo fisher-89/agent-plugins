@@ -5,7 +5,10 @@ use std::time::Duration;
 use exec::SystemCommand;
 use foundation::cancel::CancelFlag;
 
-use super::{mutation_jobs, SegmentFailure, PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS};
+use super::{
+    mutation_jobs, SegmentFailure, MUTATION_TEST_THREADS, PER_MUTANT_TIMEOUT_SECS,
+    SEGMENT_SPAWN_TIMEOUT_MS,
+};
 
 /// cargo-mutants 段报告目录（spawn cwd 相对——默认写 `<cwd>/mutants.out`，
 /// `--output` 未传）。
@@ -105,7 +108,13 @@ pub(crate) async fn run_segment(
         .arg(PER_MUTANT_TIMEOUT_SECS.to_string())
         // 只关调试符号的专用 profile（见根 Cargo.toml `[profile.mutants]`）：
         // 突变体预期「编译通过、测试失败」，符号价值远不及编译速度。
-        .args(["--profile", MUTANTS_CARGO_PROFILE]);
+        .args(["--profile", MUTANTS_CARGO_PROFILE])
+        // 每 worker 内的测试线程数：cargo-mutants 只把 `--cargo-test-arg` 追加到
+        // Test 阶段（不进 `--check` 的 `cargo check`），nextest 档下落在
+        // `cargo nextest run` 之后，正是它自己的 `-j` 位。不设则默认吃满核，
+        // `jobs × 满核` 会把机器压到测试互相饿死（实测纯函数突变体撞满超时）。
+        .args(["--cargo-test-arg"])
+        .arg(format!("-j{MUTATION_TEST_THREADS}"));
     let run = exec::run_shell(
         command,
         exec::RunOptions {
