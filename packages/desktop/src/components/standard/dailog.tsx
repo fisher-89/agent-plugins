@@ -16,7 +16,7 @@ import { useOpen } from './hooks/use-open';
 type StandardDialogProps = {
   title: string;
   content: React.JSX.Element;
-  trigger?: React.JSX.Element;
+  trigger?: Parameters<typeof DialogTrigger>[0]['render'];
   onSubmit?: (close: () => void) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;

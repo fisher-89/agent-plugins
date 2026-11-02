@@ -41,7 +41,7 @@ export function PhaseColumnNode({ data }: NodeProps<ColumnFlowNode>): React.JSX.
       onClick={open}
     >
       <div
-        className="flex items-center gap-1.5 overflow-hidden border-b border-border px-2.5"
+        className="flex items-center gap-1.5 overflow-hidden border-b border-border px-2.5 sticky top-0 z-10"
         style={{ height: COLUMN_HEADER_H }}
       >
         <span className="shrink-0 text-[13px] font-semibold">{phaseLabel(data.phase)}</span>

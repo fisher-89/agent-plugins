@@ -102,7 +102,7 @@ function ComposerToolbar({
 
       {running && (
         <Button variant="default" size="icon" title="停止" data-testid={stopId} onClick={onStop}>
-          <SquareIcon />
+          <SquareIcon fill="currentColor" />
         </Button>
       )}
       <Tooltip>

@@ -80,7 +80,7 @@
 
 ### Requirement: 分段顺序执行与自适应修正
 
-待突变体量估算超段预算时 SHALL 自动拆段顺序执行：段预算目标 5 分钟 / 段（半 CPU 约 250~300 mutants 按 1~2 s/mutant 折算）、段级软护栏 10 分钟（软目标，MUST NOT 硬失败语义），单文件超预算 SHALL 接受（段是分组粒度非硬界）。段切分 SHALL 为字典序均分 k 段 + 自适应修正：首段按保守静态初值（文件行数估 mutant 密度或文件数兜底常数）切分，后续段按上一段实测速率（秒 / mutant）动态调整段大小。每段 SHALL 产出段级原始报告 `mutation-seg-<i>.json`（原始 Stryker / cargo-mutants 报告全程留存 `reports/test/<plan>/mutation/` 子树，MUST NOT 清理），计数归并出总块（沿 `aggregate_mutation`）。
+待突变体量估算超段预算时 SHALL 自动拆段顺序执行：段预算目标 5 分钟 / 段（半 CPU 约 250~300 mutants 按 1~2 s/mutant 折算）、段级软护栏 10 分钟（软目标，MUST NOT 硬失败语义），单文件超预算 SHALL 接受（段是分组粒度非硬界）。段切分 SHALL 为字典序均分 k 段 + 自适应修正：首段按保守静态初值（文件行数估 mutant 密度或文件数兜底常数）切分，后续段按上一段实测速率（秒 / mutant）动态调整段大小。rust 段 SHALL 以 `--profile mutants` 构建（根 `Cargo.toml` 的 `[profile.mutants]`：`inherits = "test"` + `debug = "none"`——突变体预期「编译通过、测试失败」，符号价值远不及编译速度；cargo 不会因定义 profile 就自动采用，必须显式选中；实测全 workspace 冷编 -25%、target -36%，且测试提速后原先被 per-mutant 超时误伤的长用例回归正常判定）。每段 SHALL 产出段级原始报告 `mutation-seg-<i>.json`（原始 Stryker / cargo-mutants 报告全程留存 `reports/test/<plan>/mutation/` 子树，MUST NOT 清理），计数归并出总块（沿 `aggregate_mutation`）。
 
 #### Scenario: 分段归并出总块
 
@@ -94,12 +94,22 @@
 
 ### Requirement: sandbox 跨段复用与清理时点
 
-分段多轮执行 MUST 复用 sandbox，避免多轮初始化：Stryker 各段 SHALL 共用同一 `tempDirPath`（sandbox 建置与依赖链接 / 安装只发生一次，后续段只换 `mutate` 文件列表与临时 config）；cargo-mutants 各段 SHALL 共享 workspace `CARGO_TARGET_DIR`（增量编译跨段复用，workspace 只全量编译一次，MUST NOT 每段重置 target dir）。清理 SHALL 移到全部段完成后一次执行，且只清 `_stryker-tmp` 与临时 config 文件——段级原始报告与归并报告等报告工件 MUST NOT 被清理。**失败（Interrupted / Fatal / Cancelled）的 Stryker 桶临时面 SHALL 保留不清理**（保留粒度 = 失败桶全临时面——段 index 不上抛、sandbox 本跨段共享、清单有界且失败段 config 必在其中），失败面（升格 report / Err）附保留产物路径供单段复现；rust 桶失败零保留（无临时面）；保留产物由 workspace `.git/info/exclude` 保证 MUST NOT 进归档提交（见清单封装 Requirement 的 ensure 语义）。
+分段多轮执行 MUST 复用 sandbox，避免多轮初始化：Stryker 各段 SHALL 共用同一 `tempDirPath`（sandbox 建置与依赖链接 / 安装只发生一次，后续段只换 `mutate` 文件列表与临时 config）；cargo-mutants 段 SHALL 以**相对路径** `target` 注入 `CARGO_TARGET_DIR`——相对值按各子进程自己的 cwd 解析，而 `--jobs > 1` 时各 worker 各持一份独立临时副本，故天然各写各的 target；相对值同时覆盖父进程可能全局导出的绝对值。共享同一绝对 target dir 是错误的：rustc 的 `-C metadata` 不含源码路径与内容，各副本会撞同一 fingerprint / 产物名，实测表现为 `Fresh` 复用别的副本的二进制（源码已变却不重编 → 假 caught / 假 missed）与并发链接争用（`LNK1104` → 假 unviable）；跨段复用由段级复用门（零 spawn）承担。清理 SHALL 移到全部段完成后一次执行，且只清 `_stryker-tmp` 与临时 config 文件——段级原始报告与归并报告等报告工件 MUST NOT 被清理。**失败（Interrupted / Fatal / Cancelled）的 Stryker 桶临时面 SHALL 保留不清理**（保留粒度 = 失败桶全临时面——段 index 不上抛、sandbox 本跨段共享、清单有界且失败段 config 必在其中），失败面（升格 report / Err）附保留产物路径供单段复现；rust 桶失败零保留（无临时面）；保留产物由 workspace `.git/info/exclude` 保证 MUST NOT 进归档提交（见清单封装 Requirement 的 ensure 语义）。
 
 #### Scenario: 共享 sandbox 只初始化一次
 
 - **WHEN** 3 段 Stryker 顺序执行
 - **THEN** `tempDirPath` 建置 / 依赖链接仅发生一次（段 2、3 复用），各段仅 mutate 面与临时 config 不同
+
+#### Scenario: rust 段不共享 target dir
+
+- **WHEN** rust 段以 `--jobs > 1` 执行（父进程环境可能已全局设绝对 `CARGO_TARGET_DIR`）
+- **THEN** 段子进程看到的是相对 `target`（绝对值被覆盖），按各自副本 cwd 解析为各 worker 各自的 target；不同副本不互相复用编译产物，不出现因产物互串产生的假 caught / 假 missed 或 `LNK1104` 假 unviable
+
+#### Scenario: scratch 副本内 Tauri 版本可解析
+
+- **WHEN** suite 根为 `src-tauri` 且 `tauri.conf.json` 的 `version` 为相对路径（`../package.json`），cargo-mutants 把源码复制到临时目录后构建 `dev-team` 包
+- **THEN** 段执行经 `TAURI_CONFIG` 注入从源树解析出的字面版本，`tauri_build` 不再因副本缺上级 `package.json` 而 panic；该包的突变体正常进入分母（不因整包 unviable 变成 score 恒 100 假绿）
 
 #### Scenario: 成功清理不触报告工件
 
@@ -165,7 +175,7 @@ MutationTest SHALL 以段级复用门保证幂等：段报告在位且输入（�
 - `SegmentFailure::Cancelled` SHALL 由 `RunOutcome::Cancelled` 映射产生，并沿 `execute → run_suite → execute_segment` 三层贯穿；`Display` 形态与另两变体同型（单串）。
 - 取消 SHALL NOT 走 `Fatal`（那会把用户停止呈现为「环境坏了停给用户」）；取消的收敛口径 SHALL 为**执行面归因**（本变更改判，取代既有「段中断 + `conclusion = Error`」过渡形态）：runner SHALL 返回 `MutationTestOutcome { fault: Some(RunFault::Stopped), … }`，MUST NOT 以 `conclusion = Error` + 取消文案的升格面收场，MUST NOT 代写 fail checklist——由 walker 以 `Terminal::stopped` 收敛 run `stopped`（见 desktop-change-orchestration「执行面归因 RunFault 与门禁步分派」）。
 - **突变面不接 retry**：三段 spawn SHALL 以 `RetryPolicy::none()` 语义执行（突变长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级复用门承担）。瞬态签名命中 MAY 记入段诊断文本，MUST NOT 触发重试。
-- **段超时不进 fault**：段超时预算 SHALL 维持 1800 s（`SEGMENT_SPAWN_TIMEOUT_MS` 不变），超时臂 SHALL 为 `RunOutcome::TimedOut` + `exec::kill_tree` 整树回收（此前只杀壳，`cargo mutants` 的 rustc 子孙继续写 `CARGO_TARGET_DIR`——与两检查域同一棵树）；`TimedOut` 仍映射 `SegmentFailure::Interrupted`、`conclusion = Error`、`fault = None`、超时文案逐字不变——突变超时属配置问题而非外部环境占用，MUST NOT 与两检查域共用环境错误口径。
+- **段超时不进 fault**：段超时预算 SHALL 维持 3600 s（`SEGMENT_SPAWN_TIMEOUT_MS` 不变），超时臂 SHALL 为 `RunOutcome::TimedOut` + `exec::kill_tree` 整树回收（此前只杀壳，`cargo mutants` 的 rustc 子孙继续写各自的 target 目录——与两检查域同一棵树）；`TimedOut` 仍映射 `SegmentFailure::Interrupted`、`conclusion = Error`、`fault = None`、超时文案逐字不变——突变超时属配置问题而非外部环境占用，MUST NOT 与两检查域共用环境错误口径。
 - 失败桶临时面保留纪律（失败 / 中断的 Stryker 桶临时 config 与 `_stryker-tmp` 不清理、成功照清）SHALL 对取消面同样适用。
 
 #### Scenario: 取消映射为 fault=Stopped
@@ -175,8 +185,8 @@ MutationTest SHALL 以段级复用门保证幂等：段报告在位且输入（�
 
 #### Scenario: 段超时进程树消失
 
-- **WHEN** 某段超过 1800 s 预算未退出（rustc 子孙仍在写 target）
-- **THEN** 执行体 `kill_tree` 整树回收（Windows 上壳进程与 rustc 子孙的 pid 均不可再观测），段以 `Interrupted` 收场、`fault == None`、文案仍为「段执行超时（1800 秒）强制终止」
+- **WHEN** 某段超过 3600 s 预算未退出（rustc 子孙仍在写 target）
+- **THEN** 执行体 `kill_tree` 整树回收（Windows 上壳进程与 rustc 子孙的 pid 均不可再观测），段以 `Interrupted` 收场、`fault == None`、文案仍为「段执行超时（3600 秒）强制终止」
 
 #### Scenario: 突变面零重试
 
@@ -211,8 +221,8 @@ MutationTest SHALL 以段级复用门保证幂等：段报告在位且输入（�
 | `crates/infra/checks/src/mutation/mod.rs` | 段调度与失败面 | `enum SegmentFailure { Fatal(String), Interrupted(String), Cancelled(String) }`（`Display` 同型）；`execute(root, change, files, patch, cancel)` / `run_suite(..., cancel)` / `execute_segment(..., cancel)` 贯穿 cancel；`Cancelled` → `fault = Some(Stopped)`（不产 `conclusion = Error` 升格面）、`Interrupted` → `conclusion = Error` + `fault = None`、`Fatal` → `Err` |
 | `crates/infra/checks/src/mutation/mod.rs`（归桶） | mutate 面过滤 | `bucket_suites`：`is_file_excluded` 全桶 + `is_stryker_instrumentable` / `is_test_file`（tool-scoped）；全桶滤空 → `skip_outcome(MutationSkipReason::EmptyDiff)` |
 | `crates/infra/checks/src/mutation/mod.rs`（保留面） | 失败桶临时面保留 | `retain` 只对 `MutationTool::Stryker` 失败桶置位；`retained_artifacts_section(&retained)` 拼入 `feedback_text` / `Err` |
-| `crates/infra/checks/src/mutation/cargo_mutants.rs` | 段执行（rust） | `run_segment(patch_path, exec_dir, cancel)` 经 `run_shell`（`env CARGO_TARGET_DIR`、1800 s、`RetryPolicy::none()`）；`TimedOut` → `Interrupted`（文案不变、`fault = None`）、`Cancelled` → `Cancelled` |
-| `crates/infra/checks/src/mutation/stryker.rs` | 段执行（js 族） | `run_segment(segment, cancel)` 经 `run_shell`（`cwd = suite_cwd`、1800 s、`RetryPolicy::none()`）；同 `TimedOut` / `Cancelled` 映射 |
+| `crates/infra/checks/src/mutation/cargo_mutants.rs` | 段执行（rust） | `run_segment(patch_path, exec_dir, cancel)` 经 `run_shell`（`CARGO_TARGET_DIR=target` 相对注入 + `--profile mutants` + `TAURI_CONFIG` 版本覆盖、3600 s、`RetryPolicy::none()`）；`TimedOut` → `Interrupted`（文案不变、`fault = None`）、`Cancelled` → `Cancelled` |
+| `crates/infra/checks/src/mutation/stryker.rs` | 段执行（js 族） | `run_segment(segment, cancel)` 经 `run_shell`（`cwd = suite_cwd`、3600 s、`RetryPolicy::none()`）；同 `TimedOut` / `Cancelled` 映射 |
 | `crates/core/orchestration/src/port.rs` | 载荷 | `MutationTestOutcome { conclusion, skip, score, threshold, counts, report_paths, feedback_text, fault: Option<RunFault> }`（仍零 Serialize，不出线） |
 | `crates/core/orchestration/src/walker.rs`（`step_mutation_test_escalate`） | 步分派 | `fault = Stopped` 前置分支（`Terminal::stopped`）先于 pass / 升格；`fault == None` 时既有 pass / 升格链逐字不变 |
 | `crates/core/orchestration/src/port.rs` | port 契约 | `MutationRunner::run(&self, root: &str, name: &str, files: &[String], patch: &str, cancel: CancelFlag) -> BoxToolFuture` |

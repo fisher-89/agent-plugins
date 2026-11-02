@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 
 import { StandardDialog } from '@/components/standard/dailog';
+import { type DialogTrigger } from '@/components/ui/dialog';
 import { Field, FieldGroup, FieldLabel, FieldDescription } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ipc } from '../../../lib/ipc';
 
 export interface ChangeCreateDialogProps {
-  children: React.JSX.Element;
+  trigger: Parameters<typeof DialogTrigger>[0]['render'];
   /** 当前 workspace root（建档入参） */
   root: string;
   /** 成功创建后回调（父层 refresh 清单并按铸出 id 导航进详情——`CreateOutcome.id`） */
@@ -194,7 +195,7 @@ function CreateForm({
 }
 
 export function ChangeCreateDialog({
-  children,
+  trigger,
   root,
   onCreated,
 }: ChangeCreateDialogProps): React.JSX.Element {
@@ -229,7 +230,7 @@ export function ChangeCreateDialog({
   return (
     <StandardDialog
       title="新建变更"
-      trigger={children}
+      trigger={trigger}
       content={<CreateForm data={formData} onChange={setFormData} error={error} />}
       onSubmit={onSubmit}
     ></StandardDialog>

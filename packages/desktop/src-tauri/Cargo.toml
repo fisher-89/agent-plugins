@@ -151,3 +151,12 @@ vcs-runtime = { path = "crates/infra/vcs" }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "=2.5.4"
 tauri-plugin-updater = "=2.14.0"
+
+# 突变测试专用 profile：关闭调试符号。突变体预期「编译通过、测试失败」，
+# 失败输出的符号价值远不及编译速度——实测全 workspace 冷编 254s → 190s (-25%)，
+# target 5.0G → 3.2G (-36%)。仅当 `--profile mutants` 显式选中时生效（cargo
+# 不会因定义了 profile 就自动采用），选中点见 crates/infra/checks/src/mutation/
+# cargo_mutants.rs 的段命令。
+[profile.mutants]
+inherits = "test"
+debug = "none"

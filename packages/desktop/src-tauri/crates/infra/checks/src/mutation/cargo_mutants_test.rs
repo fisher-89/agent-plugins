@@ -15,7 +15,7 @@ use super::super::{
     mutation_jobs, SegmentFailure, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS,
     SEGMENT_SPAWN_TIMEOUT_MS,
 };
-use super::{run_segment, segment_failure_message};
+use super::{read_tauri_version, run_segment, segment_failure_message, tauri_config_override};
 
 /// cargo-mutants 段报告 canned（真实 `mutants.out/outcomes.json` 全形态——
 /// outcomes 逐条 + 计数面：1 caught + 1 missed / total 2）。
@@ -219,7 +219,7 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     let records = window.records();
     assert_eq!(records.len(), 1, "恰一次假 spawn");
     let argv = &records[0].argv;
-    assert_eq!(argv.len(), 11, "argv 十一参封闭: {argv:?}");
+    assert_eq!(argv.len(), 13, "argv 十三参封闭: {argv:?}");
     assert_eq!(argv[0], "mutants", "argv 首 token（cargo 子命令面）");
     assert_eq!(
         argv[1], "--test-tool=nextest",
@@ -240,6 +240,11 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     assert_eq!(argv[8], mutation_jobs().to_string(), "jobs = max(1, CPU/2)");
     assert_eq!(argv[9], "--timeout", "timeout 位");
     assert_eq!(argv[10], "300", "per-mutant 超时 300（argv 逐字）");
+    assert_eq!(argv[11], "--profile", "cargo profile 位");
+    assert_eq!(
+        argv[12], "mutants",
+        "专用 profile（debug=none——cargo 不会自动采用，必须显式选中）"
+    );
 
     let cwd = records[0]
         .cwd
@@ -248,23 +253,32 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
         .replace('\\', "/");
     assert_eq!(cwd, to_posix(&ws.exec_dir), "spawn cwd = suite 执行目录");
 
-    let target_dir = env_of(&records[0], "CARGO_TARGET_DIR").expect("env 捕获");
+    // 目标目录必须是**相对路径** `target`：cargo 按各 worker 自己的 cwd 解析，而
+    // cargo-mutants 的每个 worker 各持一份独立临时副本，于是天然各写各的 target。
+    // 共享绝对 `CARGO_TARGET_DIR` 会让各副本撞同一 fingerprint / 产物名（rustc 的
+    // `-C metadata` 不含源码路径与内容），实测表现为 `Fresh` 复用别的副本的二进制
+    // （→ 假 caught / 假 missed）与并发链接争用（`LNK1104` → 假 unviable）。
     assert_eq!(
-        target_dir.replace('\\', "/"),
-        to_posix(&ws.exec_dir.join("target")),
-        "CARGO_TARGET_DIR = exec_dir/target"
+        env_of(&records[0], "CARGO_TARGET_DIR").as_deref(),
+        Some("target"),
+        "段注入相对 target（各 worker 各自 target，且覆盖父进程的绝对值）"
     );
 }
 
-/// 正向：**`CARGO_TARGET_DIR` 多段共享（D6 / AC-5）**——同一 suite 执行目录下
-/// 两段（seg-0 / seg-1）各一次假 spawn，env 断言同一 `CARGO_TARGET_DIR`（增量
-/// 编译跨段复用，MUST NOT 每段重置）。
+/// 正向（防回归）：**相对 `target` 覆盖父进程全局导出的绝对路径**——同一 suite
+/// 执行目录下两段各一次假 spawn；即便窗口内把父进程环境设成绝对值（模拟开发者 /
+/// CI 全局导出 `CARGO_TARGET_DIR`），段内子进程看到的仍是相对 `target`，于是各
+/// worker 按自己的副本 cwd 解析、互不共享产物。
+/// 这是 `--jobs > 1` 下 worker 副本互串产物（假 caught/missed）与并发链接争用
+/// （`LNK1104` 假 unviable）两条实测故障的守门面。
 #[tokio::test]
-async fn cargo_target_dir多段共享_env断言同一不重置() {
+async fn cargo_target_dir相对值覆盖继承的绝对路径() {
     let ws = SpawnWs::new("shared-target");
     let window = SpawnWindow::enter("cargo-target");
     window.install_fake_cargo(&ws.exec_dir);
     window.set_cargo_outcomes(CARGO_SEG_CANNED);
+    // 模拟「父进程已全局设置绝对值」——段执行必须覆盖它，否则各副本共享产物
+    std::env::set_var("CARGO_TARGET_DIR", ws.exec_dir.join("global-target"));
 
     let patch0 = ws.write_patch(0, "diff --git a/app/src/a.rs b/app/src/a.rs\n");
     let patch1 = ws.write_patch(1, "diff --git a/app/src/b.rs b/app/src/b.rs\n");
@@ -295,18 +309,65 @@ async fn cargo_target_dir多段共享_env断言同一不重置() {
             "段 {index} --in-diff 携各自段补丁: {:?}",
             record.argv
         );
+        assert_eq!(
+            env_of(record, "CARGO_TARGET_DIR").as_deref(),
+            Some("target"),
+            "段 {index} 子进程看到相对 target（父进程绝对值被覆盖）"
+        );
     }
+}
 
-    let dir0 = env_of(&records[0], "CARGO_TARGET_DIR").expect("段 0 env 捕获");
-    let dir1 = env_of(&records[1], "CARGO_TARGET_DIR").expect("段 1 env 捕获");
+/// 正向（TAURI_CONFIG 版本覆盖）：`tauri.conf.json` 的 `version` 为相对路径时
+/// （本项目 `"../package.json"`），副本里解析出字面版本并经 `TAURI_CONFIG` 注入；
+/// 字面版本 / 缺文件两种形态不注入（覆盖无意义，缺文件时保持原行为）。
+///
+/// 这是 `dev-team` 包在 scratch 副本里恒 unviable（→ 分母排除 → score 恒 100 假绿）
+/// 的守门面。
+#[test]
+fn tauri_config覆盖_相对版本路径解析为字面值() {
+    let ws = SpawnWs::new("tauri-version");
+    // 副本根（= src-tauri）的 tauri.conf.json 指向上级 package.json
+    fs::write(
+        ws.exec_dir.join("tauri.conf.json"),
+        r#"{ "productName": "dev-team", "version": "../package.json" }"#,
+    )
+    .expect("写 tauri.conf.json");
+    fs::write(
+        ws._tmp.path().join("package.json"),
+        r#"{ "name": "desktop", "version": "0.6.11" }"#,
+    )
+    .expect("写上级 package.json");
+
     assert_eq!(
-        dir0, dir1,
-        "多段共享同一 CARGO_TARGET_DIR（MUST NOT 每段重置）"
+        read_tauri_version(&ws.exec_dir).as_deref(),
+        Some("0.6.11"),
+        "相对路径 version 解析为 package.json 的字面版本"
     );
     assert_eq!(
-        dir0.replace('\\', "/"),
-        to_posix(&ws.exec_dir.join("target")),
-        "CARGO_TARGET_DIR = exec_dir/target"
+        tauri_config_override(&ws.exec_dir).as_deref(),
+        Some(r#"{"version":"0.6.11"}"#),
+        "TAURI_CONFIG 覆盖值携解析后的版本"
+    );
+
+    // 字面版本：原样返回（不依赖外部文件）
+    fs::write(
+        ws.exec_dir.join("tauri.conf.json"),
+        r#"{ "version": "1.2.3" }"#,
+    )
+    .expect("改写字面版本");
+    assert_eq!(read_tauri_version(&ws.exec_dir).as_deref(), Some("1.2.3"));
+
+    // 指向的文件缺失 → None，覆盖值为空串（保持未加本修复时的行为）
+    fs::write(
+        ws.exec_dir.join("tauri.conf.json"),
+        r#"{ "version": "../missing/package.json" }"#,
+    )
+    .expect("改写缺失指向");
+    assert_eq!(read_tauri_version(&ws.exec_dir), None, "缺失引用不解析");
+    assert_eq!(
+        tauri_config_override(&ws.exec_dir),
+        None,
+        "缺失引用零注入（MUST NOT 注入空串——那会让 tauri_build 解析失败 panic）"
     );
 }
 

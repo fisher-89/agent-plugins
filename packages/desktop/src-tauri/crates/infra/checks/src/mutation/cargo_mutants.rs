@@ -20,12 +20,79 @@ const CARGO_OUTCOMES_FILE: &str = "outcomes.json";
 /// 全零计数 → 归并块 valid == 0 → score 100 恒过，空段不拖累 suite 判定）。
 const ZERO_MUTANTS_PAYLOAD: &str = r#"{ "caught": 0, "missed": 0, "timeout": 0, "unviable": 0 }"#;
 
+/// 突变段选用的 cargo profile 名（根 `Cargo.toml` 的 `[profile.mutants]`：
+/// `inherits = "test"` + `debug = "none"`）。cargo 不会因定义了 profile 就自动
+/// 采用，必须经 `--profile` 显式选中——实测不传时仍走默认 test profile
+/// （`debuginfo=2`）。
+const MUTANTS_CARGO_PROFILE: &str = "mutants";
+
+/// `TAURI_CONFIG` 覆盖值：把 Tauri 配置里**相对路径**的 `version`（本项目为
+/// `"../package.json"`）解析成字面版本号。解析不出 → `None`（**MUST NOT** 注入
+/// 空串：`tauri_build` 对空 `TAURI_CONFIG` 按 JSON 解析并 panic `EOF while
+/// parsing a value`，比不注入更糟）。
+///
+/// 根因：cargo-mutants 把源码树复制到临时目录再构建，复制根是 `src-tauri/`，而
+/// `tauri.conf.json` 的 version 指向 `../package.json`（仓库里位于 `src-tauri/`
+/// 的上级）。副本里那个上级文件不存在 → `tauri_build` 直接 panic
+/// （`` `tauri.conf.json > version` must be a semver string ``），整个 `dev-team`
+/// 包的每个突变体都被记 unviable（分母被排除 → 该包 score 恒 100 假绿）。
+///
+/// 该覆盖只影响 `tauri_build` 的版本读取（版本号本身不参与任何构建逻辑），
+/// 副本仍在临时目录里构建，不触碰源树。
+fn tauri_config_override(exec_dir: &Path) -> Option<String> {
+    let version = read_tauri_version(exec_dir)?;
+    Some(serde_json::json!({ "version": version }).to_string())
+}
+
+/// 读 `tauri.conf.json` 的 `version`，相对路径形态回退到**文件系统解析**：
+/// `exec_dir/tauri.conf.json` 的 `version` 若形如相对路径，则拼同级目录再读其中
+/// 的 `version` 字段（本项目即 `../package.json` → `src-tauri/../package.json`）。
+/// 任何一步失败 → `None`（不覆盖，行为与未加本修复一致）。
+fn read_tauri_version(exec_dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(exec_dir.join("tauri.conf.json")).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let raw = config.get("version")?.as_str()?;
+    // 已是字面 semver → 不动（覆盖无意义且可能遮掉配置问题）
+    if !raw.contains('/') && !raw.contains('\\') {
+        return Some(raw.to_owned());
+    }
+    let resolved = exec_dir.join(raw);
+    let referenced = std::fs::read_to_string(&resolved).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&referenced).ok()?;
+    value
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+}
+
 /// 段执行
 pub(crate) async fn run_segment(
     patch_path: &Path,
     exec_dir: &Path,
     cancel: CancelFlag,
 ) -> Result<String, SegmentFailure> {
+    // 目标目录用**相对路径** `target`：cargo 按各子进程自己的 cwd 解析，而
+    // cargo-mutants 的每个 worker 各持一份独立临时副本——于是每个 worker 天然
+    // 各写各的 target，互不共享。
+    //
+    // 共享同一绝对 `CARGO_TARGET_DIR` 是错的：rustc 的 `-C metadata` 由包名 /
+    // 版本 / 编译参数算出，**不含源码路径与内容**，各副本落在同一 target 里就是
+    // 同一组 fingerprint 与产物名。实测表现为 `Fresh` 复用**别的副本**编译出的
+    // 二进制（源码已变却不重编 → 假 caught / 假 missed）与并发链接争用
+    // （`LNK1104: cannot open file …deps/<crate>-<hash>.exe` → 假 unviable）。
+    //
+    // 用相对值而非「不注入」是为了盖掉父进程可能已全局导出的绝对
+    // `CARGO_TARGET_DIR`（`env` 是覆盖语义，无需额外的清除字段）。
+    // 跨段复用由段级复用门（零 spawn）承担，不靠共享 target dir。
+    let env: Vec<(OsString, OsString)> =
+        vec![(OsString::from("CARGO_TARGET_DIR"), OsString::from("target"))]
+            .into_iter()
+            .chain(
+                tauri_config_override(exec_dir)
+                    .map(|config| (OsString::from("TAURI_CONFIG"), OsString::from(config))),
+            )
+            .collect();
+
     // 段报告落位清场：上一段 / 上次运行的陈旧 outcomes.json MUST NOT 被本段误读
     // （best-effort——目录缺席等失败不阻断，spawn 后报告在位即权威）
     let _ = std::fs::remove_dir_all(exec_dir.join(CARGO_MUTANTS_OUT_DIR));
@@ -35,16 +102,15 @@ pub(crate) async fn run_segment(
         .args(["--baseline", "skip", "--jobs"])
         .arg(mutation_jobs().to_string())
         .args(["--timeout"])
-        .arg(PER_MUTANT_TIMEOUT_SECS.to_string());
+        .arg(PER_MUTANT_TIMEOUT_SECS.to_string())
+        // 只关调试符号的专用 profile（见根 Cargo.toml `[profile.mutants]`）：
+        // 突变体预期「编译通过、测试失败」，符号价值远不及编译速度。
+        .args(["--profile", MUTANTS_CARGO_PROFILE]);
     let run = exec::run_shell(
         command,
         exec::RunOptions {
             cwd: Some(exec_dir.to_path_buf()),
-            // 段共享 target dir（增量编译跨段复用，MUST NOT 每段重置）
-            env: vec![(
-                OsString::from("CARGO_TARGET_DIR"),
-                exec_dir.join("target").into_os_string(),
-            )],
+            env,
             timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
             cancel,
             // 突变面零重试（长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级

@@ -24,9 +24,11 @@ const OUTCOME = {
 /** 挂载对话框（触发器 = children 文本按钮）。 */
 function renderDialog(onCreated: (id: string) => void = vi.fn()): void {
   render(
-    <ChangeCreateDialog root={ROOT} onCreated={onCreated}>
-      <button type="button">打开新建</button>
-    </ChangeCreateDialog>,
+    <ChangeCreateDialog
+      root={ROOT}
+      onCreated={onCreated}
+      trigger={<button type="button">打开新建</button>}
+    ></ChangeCreateDialog>,
   );
 }
 
@@ -202,9 +204,11 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（失败留窗�
 
     for (const name of invalidNames) {
       const view = render(
-        <ChangeCreateDialog root={ROOT} onCreated={vi.fn()}>
-          <button type="button">打开新建</button>
-        </ChangeCreateDialog>,
+        <ChangeCreateDialog
+          root={ROOT}
+          onCreated={vi.fn()}
+          trigger={<button type="button">打开新建</button>}
+        ></ChangeCreateDialog>,
       );
       openForm();
       submit(name, '合法 goal');
@@ -406,9 +410,11 @@ describe('ChangeCreateDialog：经 ipc 的参数面 / 结果面', () => {
       invokeMock.mockClear();
       const onCreated = vi.fn();
       const view = render(
-        <ChangeCreateDialog root={ROOT} onCreated={onCreated}>
-          <button type="button">打开新建</button>
-        </ChangeCreateDialog>,
+        <ChangeCreateDialog
+          root={ROOT}
+          onCreated={onCreated}
+          trigger={<button type="button">打开新建</button>}
+        ></ChangeCreateDialog>,
       );
       openForm();
       fireEvent.change(screen.getByTestId('change-create-workflow-type'), {
@@ -433,9 +439,11 @@ describe('ChangeCreateDialog：经 ipc 的参数面 / 结果面', () => {
       invokeMock.mockRejectedValue(rejection);
       const onCreated = vi.fn();
       const view = render(
-        <ChangeCreateDialog root={ROOT} onCreated={onCreated}>
-          <button type="button">打开新建</button>
-        </ChangeCreateDialog>,
+        <ChangeCreateDialog
+          root={ROOT}
+          onCreated={onCreated}
+          trigger={<button type="button">打开新建</button>}
+        ></ChangeCreateDialog>,
       );
       openForm();
       submit('fix-bug', '合法 goal');

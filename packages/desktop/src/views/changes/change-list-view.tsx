@@ -2,6 +2,7 @@ import { PlusIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router';
 
+import { TextTooltip } from '@/components/standard/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -89,11 +90,7 @@ function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (id: str
   );
 }
 
-/** change 列表视图：清单页自取数（useChangeList 挂载 / root 变更 / 显式刷新触发，
- * 页面重挂即重取）+ 头部刷新行（始终渲染）+ 新建入口（root 非空时挂载）+
- * 加载/error-note 空态 + 列表数据区；active 列表 + archive 按月分组（"未知时间"
- * 组置尾）、运行中 active_phase 徽标、点击进详情（行键 / 导航恒 id）；创建成功
- * 刷新清单并按 id 导航进详情（不自动发起 run） */
+/** change 列表视图 */
 export function ChangeListView({ root }: { root: string | null }) {
   const state = useChangeList(root);
   const { data, loading, error } = state;
@@ -111,21 +108,37 @@ export function ChangeListView({ root }: { root: string | null }) {
     <div>
       {/* 头部行（始终渲染）：刷新控件语义自 App header 迁入 */}
       <div className="mb-3 flex gap-2 items-center justify-end">
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="刷新"
-          disabled={state.loading}
-          onClick={state.refresh}
-        >
-          <RefreshCwIcon />
-        </Button>
+        <TextTooltip text="刷新">
+          <Button
+            data-testid="refresh-changes"
+            variant="outline"
+            size="icon"
+            aria-label="刷新"
+            disabled={state.loading}
+            onClick={state.refresh}
+          >
+            <RefreshCwIcon />
+          </Button>
+        </TextTooltip>
         {root !== null && (
-          <ChangeCreateDialog root={root} onCreated={onCreated}>
-            <Button variant="outline" size="icon" aria-label="新建变更" disabled={state.loading}>
-              <PlusIcon />
-            </Button>
-          </ChangeCreateDialog>
+          <ChangeCreateDialog
+            root={root}
+            onCreated={onCreated}
+            trigger={({ onClick }) => (
+              <TextTooltip text="新建变更">
+                <Button
+                  data-testid="new-change"
+                  variant="outline"
+                  size="icon"
+                  aria-label="新建变更"
+                  disabled={state.loading}
+                  onClick={onClick}
+                >
+                  <PlusIcon />
+                </Button>
+              </TextTooltip>
+            )}
+          ></ChangeCreateDialog>
         )}
       </div>
       {error !== null && (

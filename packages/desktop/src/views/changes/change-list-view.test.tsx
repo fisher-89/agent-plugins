@@ -376,10 +376,10 @@ describe('ChangeListView：头部行（刷新与新建触发器，入口自 App 
     const withError = render(listTree(ROOT));
     await screen.findByTestId('error-note');
     const page = withError.container.firstElementChild;
-    const headerRow = screen.getByRole('button', { name: '刷新' }).parentElement;
+    const headerRow = screen.getByTestId('refresh-changes').parentElement;
     expect(headerRow).not.toBeNull();
     expect(headerRow).toBe(page?.firstElementChild);
-    expect(headerRow?.contains(screen.getByRole('button', { name: '新建变更' }))).toBe(true);
+    expect(headerRow?.contains(screen.getByTestId('new-change'))).toBe(true);
     expect(page?.children[1]?.getAttribute('data-testid')).toBe('error-note');
     withError.unmount();
 
@@ -393,7 +393,7 @@ describe('ChangeListView：头部行（刷新与新建触发器，入口自 App 
     for (const [root, answer] of shapes) {
       listAnswer = answer;
       const view = render(listTree(root));
-      expect(within(view.container).getByRole('button', { name: '刷新' }) !== null).toBe(true);
+      expect(within(view.container).getByTestId('refresh-changes') !== null).toBe(true);
       view.unmount();
     }
   });
@@ -402,7 +402,7 @@ describe('ChangeListView：头部行（刷新与新建触发器，入口自 App 
     await renderLoaded();
     const before = listCalls().length;
 
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    fireEvent.click(screen.getByTestId('refresh-changes'));
 
     await waitFor(() => expect(listCalls().length).toBe(before + 1));
     expect(listCalls().at(-1)).toEqual({ root: ROOT });
@@ -413,7 +413,7 @@ describe('ChangeListView：头部行（刷新与新建触发器，入口自 App 
     render(listTree(ROOT));
     await waitFor(() => expect(listCalls().length).toBe(1));
 
-    const button = screen.getByRole('button', { name: '刷新' });
+    const button = screen.getByTestId('refresh-changes');
     expect(button.hasAttribute('disabled')).toBe(true);
     fireEvent.click(button);
     expect(listCalls().length).toBe(1);
@@ -423,7 +423,7 @@ describe('ChangeListView：头部行（刷新与新建触发器，入口自 App 
     render(listTree(null));
 
     expect(screen.getByText('暂无数据，点击刷新获取。') !== null).toBe(true);
-    const button = screen.getByRole('button', { name: '刷新' });
+    const button = screen.getByTestId('refresh-changes');
     expect(button.hasAttribute('disabled')).toBe(false);
     fireEvent.click(button);
     expect(invokeMock.mock.calls).toHaveLength(0);
@@ -441,10 +441,10 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
   it('root 非空挂载新建入口：新建变更触发器在场且位于头部行内', async () => {
     const { container } = await renderLoaded();
 
-    const trigger = screen.getByRole('button', { name: '新建变更' });
+    const trigger = screen.getByTestId('new-change');
     expect(trigger !== null).toBe(true);
     const page = container.firstElementChild;
-    const headerRow = screen.getByRole('button', { name: '刷新' }).parentElement;
+    const headerRow = screen.getByTestId('refresh-changes').parentElement;
     expect(page?.firstElementChild).toBe(headerRow);
     expect(headerRow?.contains(trigger)).toBe(true);
   });
@@ -452,7 +452,7 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
   it('root 为 null 不挂载新建入口且零 invoke（无 workspace 无建档语义）', () => {
     render(listTree(null));
 
-    expect(screen.queryByRole('button', { name: '新建变更' })).toBeNull();
+    expect(screen.queryByTestId('new-change')).toBeNull();
     expect(invokeMock.mock.calls).toHaveLength(0);
   });
 
@@ -470,7 +470,7 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     await screen.findByText('add-feature');
     expect(listCalls().length).toBe(1);
 
-    fireEvent.click(screen.getByRole('button', { name: '新建变更' }));
+    fireEvent.click(screen.getByTestId('new-change'));
     fireEvent.change(screen.getByTestId('change-create-name'), {
       target: { value: 'fix-bug' },
     });
@@ -499,7 +499,7 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     await screen.findByText('add-feature');
     const before = listCalls().length;
 
-    fireEvent.click(screen.getByRole('button', { name: '新建变更' }));
+    fireEvent.click(screen.getByTestId('new-change'));
     fireEvent.change(screen.getByTestId('change-create-name'), {
       target: { value: 'fix-bug' },
     });
