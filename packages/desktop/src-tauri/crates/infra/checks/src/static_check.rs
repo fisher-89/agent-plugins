@@ -4,7 +4,7 @@ use std::time::Duration;
 use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 use orchestration::port::{
-    BoxToolFuture, RunFault, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput,
+    BoxToolFuture, OutputRefSink, RunFault, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput,
 };
 
 use crate::environment;
@@ -35,10 +35,17 @@ impl Default for ProcessStaticCheck {
 }
 
 impl StaticCheckRunner for ProcessStaticCheck {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
+    ) -> BoxToolFuture {
         let root = root.to_owned();
         let name = name.to_owned();
-        Box::pin(async move { execute(&root, &name, slot, cancel).await })
+        Box::pin(async move { execute(&root, &name, slot, cancel, on_output_ref).await })
     }
 }
 
@@ -52,6 +59,7 @@ async fn execute(
     name: &str,
     slot: ReportSlot,
     cancel: CancelFlag,
+    on_output_ref: Option<OutputRefSink>,
 ) -> Result<ToolStepOutput, String> {
     // `archi` 槽位归架构门禁 runner（checks 域零接受）：静默接受会让漂移报告
     // JSON 混进 checks 报告树，两套报告语义互相污染
@@ -69,7 +77,7 @@ async fn execute(
         .filter(|command| !command.is_empty())
     else {
         // 无配置 / 空命令 = passed 直接过（不拉子进程）；report_dir 回填本槽位
-        // 报告树锚点
+        // 报告树锚点。零 spawn ⇒ 无 live 记录（终态 output_ref 仍为 None）
         return Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
             passed: true,
             diagnostics: String::new(),
@@ -83,10 +91,27 @@ async fn execute(
     // 缺失吞成非零退出码——passed=false 反馈边空转烧预算，spawn 前先解析）
     ensure_program_resolvable(root, &command)?;
 
+    // 运行中记录链起点：**① 建目录建空 .log → ② 写命令 sidecar → ③ 上抛 exec_id**
+    // 三步顺序不可倒——上抛之后前端才会订阅该路径，而父目录缺失会让订阅显式失败
+    // （`WatchError::ParentUnavailable`），运行中增量跟随因此失效。
+    //
+    // 降级面：`begin` 失败（记录目录不可建）与 sidecar 写入失败均静默——记录面是
+    // **观测面**，MUST NOT 因它阻断检查主流程（终态 `output_ref` 落 `None`，判定与
+    // 诊断照常返回）。故此处 `.ok()` 而非 `?`（design 口径「记录面不阻断」；检查结论
+    // 与记录面可用性解耦——记录目录不可写时判定仍必须给出）。
+    let live = exec::LiveExec::begin(Path::new(root), name, slot).ok();
+    let script = format!("{command} 2>&1");
+    if let Some(live) = live.as_ref() {
+        live.write_command(&script).ok();
+        if let Some(on_ref) = on_output_ref.as_ref() {
+            on_ref.emit(live.exec_id());
+        }
+    }
+
     // 命令内 `2>&1` 保留：两 fd 指向同一写端，交错序在 OS 层合并、`stderr` 恒空
     //——`diagnostics` / record 单流逐字还原终端（执行体只给两路原始字节，不合流）
     let run = exec::run_shell(
-        exec::SystemCommand::script(&format!("{command} 2>&1")),
+        exec::SystemCommand::script(&script),
         exec::RunOptions {
             cwd: Some(Path::new(root).to_path_buf()),
             env: Vec::new(),
@@ -94,6 +119,8 @@ async fn execute(
             cancel,
             // 检查域开瞬态重试（构建产物被安全软件占用时自愈）
             retry: exec::RetryPolicy::transient(),
+            // 运行中 tee：进程未结束即可读（收口时同 id 覆盖为权威内容）
+            live: live.as_ref().map(exec::LiveExec::sink),
         },
     )
     .await
@@ -123,16 +150,11 @@ async fn execute(
     // 反馈边定向注入
     let diagnostics = String::from_utf8_lossy(&run.stdout).into_owned();
     let passed = run.exit_code == 0;
-    // 输出记录：默认 recorded——经 infra/exec 单点落单一 `.log`（同锚本槽位报告
-    // 树）并回填引用（落盘失败降级 None，不因记录失败阻断检查主流程）；重试场景
-    // 下正文为全部尝试按序拼接（每段前加 attempt 分隔头，审计不丢上下文）
-    let output_ref = exec::record_exec_output(
-        Path::new(root),
-        name,
-        slot,
-        &environment::attempts_log(&run),
-    )
-    .ok();
+    // 输出记录收口：**同一 exec_id** 覆盖为权威内容（默认 recorded——经 infra/exec
+    // 单点落单一 `.log`，同锚本槽位报告树）并回填引用（落盘失败降级 None，不因记录
+    // 失败阻断检查主流程）；重试场景下正文为全部尝试按序拼接（每段前加 attempt 分隔
+    // 头，审计不丢上下文）。超时 / 取消击杀后仍写入已收字节——面板可读部分输出。
+    let output_ref = live.and_then(|live| live.commit(&environment::attempts_log(&run)).ok());
     Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
         passed,
         diagnostics: diagnostics.trim_end().to_owned(),

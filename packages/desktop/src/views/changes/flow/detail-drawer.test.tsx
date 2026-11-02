@@ -38,9 +38,21 @@ const REQUIREMENT_PHASES = [
 //（SessionTranscriptPanel / ArtifactTabs / StdoutPanel）真实组合不 mock。
 // ---------------------------------------------------------------------------
 
-const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+const { ChannelMock, invokeMock } = vi.hoisted(() => {
+  class ChannelMock {
+    onmessage: ((message: unknown) => void) | null = null;
+    static instances: ChannelMock[] = [];
+    constructor() {
+      ChannelMock.instances.push(this);
+    }
+    deliver(): void {
+      this.onmessage?.({});
+    }
+  }
+  return { ChannelMock, invokeMock: vi.fn() };
+});
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
 
 /** change id（身份寻址键——sourceRef 定式身份段）与展示名（stdout 磁盘面键）。 */
 const CHANGE_ID = '0198f7a0-0000-7000-8000-000000000000';
@@ -67,11 +79,19 @@ function defaultInvoke(
   if (command === 'agent_session_transcript') {
     return Promise.resolve(transcriptFixture[args.sessionId ?? ''] ?? []);
   }
-  if (command === 'read_exec_output') {
+  if (command === 'read_exec_output_delta') {
     void args;
-    return outputResult instanceof Error
-      ? Promise.reject(outputResult.message)
-      : Promise.resolve(outputResult);
+    // 增量命令面（本变更取数口径）：`outputResult` 为命中文本 ⇒ 全量增量
+    if (outputResult instanceof Error) return Promise.reject(outputResult.message);
+    return Promise.resolve(
+      outputResult === null ? null : { text: outputResult, nextOffset: outputResult.length },
+    );
+  }
+  if (command === 'read_exec_command') {
+    return Promise.resolve('pnpm run check 2>&1');
+  }
+  if (command === 'exec_output_path') {
+    return Promise.resolve(`${ROOT}\\reports\\test\\exec-outputs\\exec.log`);
   }
   return Promise.resolve(null);
 }
@@ -81,6 +101,7 @@ beforeEach(() => {
   transcriptFixture = {};
   detailFixture = {};
   outputResult = null;
+  ChannelMock.instances = [];
   invokeMock.mockReset();
   invokeMock.mockImplementation(defaultInvoke);
 });
@@ -184,6 +205,9 @@ function outputNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
     role: null,
     sessionId: null,
     outputRef: 'exec-1727000000000-5',
+    // 终态（非运行）默认形态：空文本落实「（无输出记录）」空态分支（运行中的
+    // 「运行中，等待输出…」分支由下方 status='running' 的定向用例覆盖）
+    status: 'passed',
     ...overrides,
   });
 }
@@ -243,7 +267,7 @@ function textEvent(seq: number, role: 'user' | 'assistant', text: string): Agent
 }
 
 function readExecCalls(): unknown[][] {
-  return invokeMock.mock.calls.filter(([name]) => name === 'read_exec_output');
+  return invokeMock.mock.calls.filter(([name]) => name === 'read_exec_output_delta');
 }
 
 describe('DetailDrawer：列头单列（该站过程素材）', () => {
@@ -357,12 +381,19 @@ describe('DetailDrawer：runtime 步节点单列分派', () => {
 
   it('正向：outputRef !== null（role null 的 static-check / test-execution 步）→ 单列 StdoutPanel 取数 { root, changeName, execId }', async () => {
     outputResult = 'clippy: 3 warnings\n';
-    renderDrawer(world([outputNode()]), { scope: 'node', nodeId: 'run:implement:2:staticCheck:0' });
+    // 非空文本才渲染 `stdout-text`（三态语义：空文本落空态）
+    renderDrawer(world([outputNode({ status: 'passed' })]), {
+      scope: 'node',
+      nodeId: 'run:implement:2:staticCheck:0',
+    });
 
     const panel = await screen.findByTestId('stdout-panel');
     await waitFor(() => expect(panel.textContent).toContain('clippy: 3 warnings'));
     expect(readExecCalls()).toEqual([
-      ['read_exec_output', { root: ROOT, changeName: NAME, execId: 'exec-1727000000000-5' }],
+      [
+        'read_exec_output_delta',
+        { root: ROOT, changeName: NAME, execId: 'exec-1727000000000-5', fromOffset: 0 },
+      ],
     ]);
     // 单列分派：会话转录面不并行挂载、会话命令零调用
     expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
@@ -379,8 +410,8 @@ describe('DetailDrawer：runtime 步节点单列分派', () => {
 
     await waitFor(() => expect(readExecCalls()).toHaveLength(1));
     expect(readExecCalls()[0]).toEqual([
-      'read_exec_output',
-      { root: ROOT, changeName: 'renamed-change', execId: 'exec-1727000000000-5' },
+      'read_exec_output_delta',
+      { root: ROOT, changeName: 'renamed-change', execId: 'exec-1727000000000-5', fromOffset: 0 },
     ]);
     expect(readExecCalls()[0][1]).not.toMatchObject({ changeName: CHANGE_ID });
   });
@@ -426,6 +457,71 @@ describe('DetailDrawer：runtime 步节点单列分派', () => {
 
     await waitFor(() => expect(screen.getByTestId('stdout-empty') !== null).toBe(true));
     expect(readExecCalls()).toHaveLength(0);
+  });
+
+  it("正向：status='running' 节点 → StdoutPanel 收到该状态，呈「运行中，等待输出…」（status 下传接线）", async () => {
+    outputResult = null;
+    renderDrawer(world([outputNode({ status: 'running' })]), {
+      scope: 'node',
+      nodeId: 'run:implement:2:staticCheck:0',
+    });
+
+    const running = await screen.findByTestId('stdout-running');
+    expect(running.textContent).toBe('运行中，等待输出…');
+    expect(screen.queryByTestId('stdout-empty')).toBeNull();
+    // 命令头行同刻在位（三段结构：命令 → 状态 → 文本）
+    expect(screen.getByTestId('stdout-command').textContent).toBe('pnpm run check 2>&1');
+  });
+
+  it("正向：status='passed' 且增量返回文本 → stdout-text 渲染该文本、零 stdout-running", async () => {
+    outputResult = 'authoritative output\n';
+    renderDrawer(world([outputNode({ status: 'passed' })]), {
+      scope: 'node',
+      nodeId: 'run:implement:2:staticCheck:0',
+    });
+
+    const text = await screen.findByTestId('stdout-text');
+    expect(text.textContent).toBe('authoritative output\n');
+    expect(screen.queryByTestId('stdout-running')).toBeNull();
+  });
+
+  it.each([
+    ['列头选中', { scope: 'column', phase: 'implement' } as DrawerSelection, false],
+    [
+      '会话步节点（role !== null）',
+      { scope: 'node', nodeId: 'run:implement:2:executor:0' } as DrawerSelection,
+      false,
+    ],
+    [
+      '双 null 节点（role 与 outputRef 皆无）',
+      { scope: 'node', nodeId: 'run:implement:2:phaseStart:0' } as DrawerSelection,
+      false,
+    ],
+    [
+      '输出引用步节点（role null + outputRef 在场）',
+      { scope: 'node', nodeId: 'run:implement:2:staticCheck:0' } as DrawerSelection,
+      true,
+    ],
+  ])('边界：分派判据零改动——%s → stdout 面板%s', async (_label, selection, expected) => {
+    // 第三形态需要「role 与 outputRef 皆 null」的节点 fixture
+    const doubleNullNode = runtimeNode({
+      id: 'run:implement:2:phaseStart:0',
+      runStepKind: 'phaseStart',
+      group: 'gate',
+      role: null,
+      sessionId: null,
+      outputRef: null,
+      status: 'passed',
+    });
+    renderDrawer(world([runtimeNode(), outputNode(), doubleNullNode]), selection);
+
+    if (expected) {
+      await waitFor(() => expect(screen.queryByTestId('stdout-panel') !== null).toBe(true));
+    } else {
+      await waitFor(() => expect(invokeMock.mock.calls.length >= 0).toBe(true));
+      expect(screen.queryByTestId('stdout-panel')).toBeNull();
+      expect(readExecCalls()).toHaveLength(0);
+    }
   });
 });
 
@@ -745,7 +841,9 @@ describe('DetailDrawer：非模态形态（并读成立）', () => {
   it('选中面取数失败降级：read_exec_output reject → 抽屉内错误态不崩、关闭仍可用', async () => {
     const onClose = vi.fn();
     invokeMock.mockImplementation((command: string) =>
-      command === 'read_exec_output' ? Promise.reject('输出记录读取失败') : Promise.resolve(null),
+      command === 'read_exec_output_delta'
+        ? Promise.reject('输出记录读取失败')
+        : Promise.resolve(null),
     );
     renderModalLess(
       world([outputNode()]),
@@ -761,5 +859,156 @@ describe('DetailDrawer：非模态形态（并读成立）', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Esc 监听（`useEffect` 自挂的窗口兜底）：非模态下 base-ui 的 dismiss 不保证
+// 触发，故本件在 `window` 上自挂 `keydown`。既有「Esc 关闭」用例经 `document`
+// 派发，事件在 base-ui 的 document 监听处即被消费、到不了 `window` 监听器——
+// 本节统一在 `window` 上派发，才真正走到自挂监听的判据（EqualityOperator /
+// StringLiteral / add-remove 配对 / 选中缺席早返 / 卸载拆除）。
+// ---------------------------------------------------------------------------
+
+/** 在 `window` 上派发一次键事件（`target` 恒为 window ⇒ 命中自挂监听）。 */
+function pressKeyOnWindow(key: string): void {
+  fireEvent.keyDown(window, { key });
+}
+
+describe('DetailDrawer：Esc 窗口监听（自挂兜底）', () => {
+  it('正向：window 上派发 Escape → onClose 恰 1 次（不经 base-ui dismiss 亦能关闭）', async () => {
+    const onClose = vi.fn();
+    renderModalLess(world(), { scope: 'column', phase: 'implement' }, { onClose });
+
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+    pressKeyOnWindow('Escape');
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('异常：非 Escape 键（Enter / 空串 key / 大小写不同）→ onClose 零调用', async () => {
+    const onClose = vi.fn();
+    renderModalLess(world(), { scope: 'column', phase: 'implement' }, { onClose });
+
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+    pressKeyOnWindow('Enter');
+    pressKeyOnWindow('');
+    pressKeyOnWindow('escape');
+    pressKeyOnWindow('Esc');
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('异常：selection === null → 不挂监听（window Escape 零调用，抽屉亦不渲染）', () => {
+    const onClose = vi.fn();
+    const { container } = renderModalLess(world(), null, { onClose });
+
+    pressKeyOnWindow('Escape');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-modal]')).toBeNull();
+  });
+
+  it('边界：selection 由 null 转非 null → 监听随选中挂上（Esc 生效；选中缺席期不误触发）', async () => {
+    const onClose = vi.fn();
+    const state = world();
+    const { rerender } = renderModalLess(state, null, { onClose });
+
+    pressKeyOnWindow('Escape');
+    expect(onClose, '选中缺席期不挂监听').not.toHaveBeenCalled();
+
+    rerender(
+      <>
+        <DetailDrawer
+          selection={{ scope: 'column', phase: 'implement' }}
+          graph={state.graph}
+          materials={state.materials}
+          root={ROOT}
+          changeId={CHANGE_ID}
+          name={NAME}
+          onClose={onClose}
+        />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+
+    pressKeyOnWindow('Escape');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('边界：选中切换（列头 → 节点）后旧监听已拆 → 单次 Esc 仍只调 onClose 1 次', async () => {
+    const onClose = vi.fn();
+    const state = world([runtimeNode()]);
+    const { rerender } = renderModalLess(
+      state,
+      { scope: 'column', phase: 'implement' },
+      { onClose },
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+
+    rerender(
+      <>
+        <DetailDrawer
+          selection={{ scope: 'node', nodeId: 'run:implement:2:executor:0' }}
+          graph={state.graph}
+          materials={state.materials}
+          root={ROOT}
+          changeId={CHANGE_ID}
+          name={NAME}
+          onClose={onClose}
+        />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId('session-transcript-panel')).toBeTruthy());
+
+    pressKeyOnWindow('Escape');
+    expect(onClose, '旧监听未拆会双触发').toHaveBeenCalledTimes(1);
+  });
+
+  it('边界：卸载后 window Escape 零调用（removeEventListener 生效，且退订不残留监听）', async () => {
+    const onClose = vi.fn();
+    const { unmount } = renderModalLess(
+      world(),
+      { scope: 'column', phase: 'implement' },
+      { onClose },
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+
+    unmount();
+    pressKeyOnWindow('Escape');
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('边界：onClose 身份变化不重复挂监听（同一选中下重渲，Esc 仍只 1 次）', async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const state = world();
+    const { rerender } = renderModalLess(
+      state,
+      { scope: 'column', phase: 'implement' },
+      { onClose: first },
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+
+    rerender(
+      <>
+        <DetailDrawer
+          selection={{ scope: 'column', phase: 'implement' }}
+          graph={state.graph}
+          materials={state.materials}
+          root={ROOT}
+          changeId={CHANGE_ID}
+          name={NAME}
+          onClose={second}
+        />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+
+    pressKeyOnWindow('Escape');
+    // 效果重挂后只有最新回调生效，且恰 1 次（旧引用的监听已拆）
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
   });
 });

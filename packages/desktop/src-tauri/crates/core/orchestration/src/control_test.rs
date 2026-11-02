@@ -2154,3 +2154,516 @@ fn archi_check非会话步() {
     }
     assert!(!body.contains("!matches!("), "MUST NOT 改写成否定列表");
 }
+
+// ---------------------------------------------------------------------------
+// `StepEmitter` 与 emit 面上收（change-detail-live-stdout，AC-5 / AC-2 / AC-13）
+//
+// 被测面：`RunGuard::emitter`（`'static` 发射器：`(root, change_id)` 复合键 +
+// `Arc<ChangeFlowControl>`）、`StepEmitter::attach_output_ref`（补发一拍
+// `running + output_ref`，经同一 `emit_node` 铸造单点；`accumulate_node` 就地
+// 合并——不新增节点、不动 `started_at`）、`now_millis`（时钟缝单点）与
+// `emit_node` 的搬迁后行为。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：零替身——真实
+// `ChangeFlowControl` + `#[tokio::test]` 进程内 tokio 原语；时间断言只用区间与
+// 单调性（`now_millis` 无注入点，见「不可测试项」）。
+// ---------------------------------------------------------------------------
+
+use crate::control::{now_millis, StepSettle};
+
+/// `implement / attempt 2 / StaticCheck / instance 0` 的步状态 fixture（补发拍
+/// 与终态拍共用身份键）。
+fn emit_fixture() -> (ChangeStepKind, u32, u32) {
+    (ChangeStepKind::StaticCheck, 2, 0)
+}
+
+/// 正向：已 `begin_run` 的 guard → `emitter()` 产出的发射器在 guard **被 drop
+/// 后**仍可 `attach_output_ref`（`'static` 语义：复合键 + `Arc` 自带所有权），
+/// 节点被写出。
+#[tokio::test]
+async fn emitter在guard_drop后仍可补发拍() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let emitter = guard.emitter();
+    drop(guard);
+
+    let (kind, attempt, instance_no) = emit_fixture();
+    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-after-drop");
+
+    let snapshot = control
+        .snapshot(ROOT, CHANGE_ID)
+        .expect("run 条目仍在（未 finish）");
+    assert_eq!(snapshot.nodes.len(), 1, "补发拍写出节点（guard 已 drop）");
+    assert_eq!(
+        snapshot.nodes[0].output_ref.as_deref(),
+        Some("exec-after-drop"),
+        "output_ref 落位"
+    );
+}
+
+/// 正向：同一 guard 两次 `emitter()` → 两发射器对同一 `(root, change_id)` 键
+/// 写入，节点累积在同一 run 上（零串台）。
+#[tokio::test]
+async fn emitter两次产出写同一run() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let first = guard.emitter();
+    let second = guard.emitter();
+    let (kind, attempt, instance_no) = emit_fixture();
+
+    first.attach_output_ref("implement", attempt, kind, instance_no, "exec-a");
+    second.attach_output_ref("implement", attempt, kind, instance_no, "exec-b");
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
+    assert_eq!(snapshot.nodes.len(), 1, "同身份键就地合并（不新增节点）");
+    assert_eq!(
+        snapshot.nodes[0].output_ref.as_deref(),
+        Some("exec-b"),
+        "accumulate_node 的 some 才覆写：后到值生效"
+    );
+}
+
+/// 异常：run 已 `finish`（终态除名）后调用 `emitter()` 再 `attach_output_ref`
+/// → 静默无副作用（注册表 miss 分支），零 panic、零节点新增。
+#[tokio::test]
+async fn emitter在finish后静默无副作用() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let emitter = guard.emitter();
+    guard.finish(ChangeRunStatus::Completed, None);
+    assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "finish 后除名");
+
+    let (kind, attempt, instance_no) = emit_fixture();
+    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-late");
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID).is_none(),
+        "除名后补发拍零副作用（不重建 run 条目）"
+    );
+}
+
+/// 边界（组合 同 root × 异 id）：同 root 异 change id 两 guard 的发射器交叉写入
+/// → 各自 run 的节点互不可见（复合键隔离）。
+#[tokio::test]
+async fn emitter复合键隔离同root异change() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard_a = control
+        .begin_run(ROOT, CHANGE_ID, "run-a".to_owned(), STARTED_AT)
+        .expect("首个 run");
+    let guard_b = control
+        .begin_run(ROOT, CHANGE_ID_B, "run-b".to_owned(), STARTED_AT)
+        .expect("异 id 可并行");
+    let emitter_a = guard_a.emitter();
+    let emitter_b = guard_b.emitter();
+    let (kind, attempt, instance_no) = emit_fixture();
+
+    emitter_a.attach_output_ref("implement", attempt, kind, instance_no, "exec-a");
+    emitter_b.attach_output_ref("implement", attempt, kind, instance_no, "exec-b");
+
+    let snapshot_a = control.snapshot(ROOT, CHANGE_ID).expect("run-a 在场");
+    let snapshot_b = control.snapshot(ROOT, CHANGE_ID_B).expect("run-b 在场");
+    assert_eq!(snapshot_a.nodes.len(), 1, "run-a 只收到自己的补发拍");
+    assert_eq!(snapshot_b.nodes.len(), 1, "run-b 只收到自己的补发拍");
+    assert_eq!(snapshot_a.nodes[0].output_ref.as_deref(), Some("exec-a"));
+    assert_eq!(snapshot_b.nodes[0].output_ref.as_deref(), Some("exec-b"));
+}
+
+/// 正向：先 `emit_node(running)`（无 `output_ref`），再 `attach_output_ref` → 同
+/// 键节点被就地合并：`status == running`、`output_ref` 落位、节点**总数仍为
+/// 1**、`started_at` 为首次 emit 值（AC-5 / AC-13 的合并语义）。
+#[tokio::test]
+async fn attach_output_ref就地合并不新增节点() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let (kind, attempt, instance_no) = emit_fixture();
+    let emitter = guard.emitter();
+
+    let before = now_millis();
+    crate::control::emit_node(
+        &guard,
+        "implement",
+        attempt,
+        kind,
+        instance_no,
+        StepSettle::running(),
+    );
+    let started = control
+        .snapshot(ROOT, CHANGE_ID)
+        .expect("run 在场")
+        .nodes
+        .first()
+        .expect("running 拍已落")
+        .started_at;
+    assert!(started >= before, "started_at 为 now_millis 量级");
+
+    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-merged");
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
+    assert_eq!(snapshot.nodes.len(), 1, "节点总数仍为 1（就地合并）");
+    let node = &snapshot.nodes[0];
+    assert_eq!(node.status, ChangeStepStatus::Running, "补发拍不推进状态");
+    assert_eq!(
+        node.output_ref.as_deref(),
+        Some("exec-merged"),
+        "output_ref 落位"
+    );
+    assert_eq!(
+        node.started_at, started,
+        "started_at 保首见（未被补发拍顶替）"
+    );
+    assert_eq!(node.ended_at, None, "running 拍无 ended_at");
+}
+
+/// 正向：补发后再 `emit_node(passed, with_output_ref(Some))` → 终态拍
+/// `output_ref` 与补发拍同值（同 id 收口，AC-2）。
+#[tokio::test]
+async fn 终态拍与补发拍output_ref同值() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let (kind, attempt, instance_no) = emit_fixture();
+    let emitter = guard.emitter();
+
+    crate::control::emit_node(
+        &guard,
+        "implement",
+        attempt,
+        kind,
+        instance_no,
+        StepSettle::running(),
+    );
+    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-same");
+    crate::control::emit_node(
+        &guard,
+        "implement",
+        attempt,
+        kind,
+        instance_no,
+        StepSettle::passed(Some("通过".to_owned())).with_output_ref(Some("exec-same".to_owned())),
+    );
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
+    assert_eq!(snapshot.nodes.len(), 1, "三拍合于一个节点");
+    let node = &snapshot.nodes[0];
+    assert_eq!(node.status, ChangeStepStatus::Passed, "终态拍推进状态");
+    assert_eq!(node.output_ref.as_deref(), Some("exec-same"), "同 id 收口");
+    assert!(node.ended_at.is_some(), "终态拍铸 ended_at");
+}
+
+/// 异常：目标节点不存在（未先 emit running）→ 补发拍按 emit 序**追加**为一条
+/// `running + output_ref` 新节点（`accumulate_node` 的无命中分支，非契约外
+/// 崩溃）；只锁「不 panic、不静默丢弃」。
+#[tokio::test]
+async fn attach_output_ref目标缺失时追加新节点() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let emitter = guard.emitter();
+    let (kind, attempt, instance_no) = emit_fixture();
+
+    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-orphan");
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
+    assert_eq!(snapshot.nodes.len(), 1, "无命中分支追加一条新节点");
+    assert_eq!(snapshot.nodes[0].status, ChangeStepStatus::Running);
+    assert_eq!(
+        snapshot.nodes[0].output_ref.as_deref(),
+        Some("exec-orphan"),
+        "不静默丢弃"
+    );
+}
+
+/// 边界（参数化 `instance_no` 2 × `exec_id` 3 形态）：不同 `instance_no` → 两
+/// 独立节点各携各自 `output_ref`（同键多实例不串扰）；空串与超长（>1000
+/// chars）`exec_id` 原样落 `output_ref`（零截断、零改写）。
+#[tokio::test]
+async fn attach_output_ref多实例与exec_id形态() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let emitter = guard.emitter();
+    let long = "e".repeat(1200);
+
+    for (instance_no, exec_id) in [(0u32, ""), (1u32, long.as_str())] {
+        crate::control::emit_node(
+            &guard,
+            "implement",
+            2,
+            ChangeStepKind::StaticCheck,
+            instance_no,
+            StepSettle::running(),
+        );
+        emitter.attach_output_ref(
+            "implement",
+            2,
+            ChangeStepKind::StaticCheck,
+            instance_no,
+            exec_id,
+        );
+    }
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
+    assert_eq!(snapshot.nodes.len(), 2, "两实例各一节点（不串扰）");
+    let zero = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.instance_no == 0)
+        .expect("实例 0");
+    let one = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.instance_no == 1)
+        .expect("实例 1");
+    assert_eq!(zero.output_ref.as_deref(), Some(""), "空串原样（零改写）");
+    assert_eq!(
+        one.output_ref.as_deref(),
+        Some(long.as_str()),
+        "超长原样（零截断）"
+    );
+}
+
+/// 边界：补发拍不覆盖在位值——节点已有 `detail` / `session_id` /
+/// `token_input` 时，补发后三者保持原值（`accumulate_node` 的「some 才覆写」+
+/// 补发只携 `output_ref` 与 `status`）。
+#[tokio::test]
+async fn attach_output_ref不覆盖在位字段() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let emitter = guard.emitter();
+    let (kind, attempt, instance_no) = emit_fixture();
+
+    crate::control::emit_node(
+        &guard,
+        "implement",
+        attempt,
+        kind,
+        instance_no,
+        StepSettle::passed(Some("诊断摘要".to_owned()))
+            .with_session(Some("sess-9".to_owned()))
+            .with_tokens(Some(11), Some(22)),
+    );
+    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-merge");
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
+    let node = &snapshot.nodes[0];
+    assert_eq!(node.detail.as_deref(), Some("诊断摘要"), "detail 保持原值");
+    assert_eq!(
+        node.session_id.as_deref(),
+        Some("sess-9"),
+        "session_id 保持原值"
+    );
+    assert_eq!(node.token_input, Some(11), "token_input 保持原值");
+    assert_eq!(node.token_output, Some(22), "token_output 保持原值");
+    assert_eq!(
+        node.output_ref.as_deref(),
+        Some("exec-merge"),
+        "只补 output_ref"
+    );
+}
+
+/// 正向：`now_millis` 返回值 > 0（epoch 之后），两次连续调用单调不减。
+#[test]
+fn now_millis为正且单调不减() {
+    let first = now_millis();
+    let second = now_millis();
+    assert!(first > 0, "epoch 之后为正: {first}");
+    assert!(second >= first, "单调不减（{first} → {second}）");
+}
+
+/// 异常：`now_millis` 不 panic 且非负（时钟早于 epoch 的臂无注入点，见
+/// 「不可测试项」的时钟缝说明——本行只锁运行期非负性）。
+#[test]
+fn now_millis非负不panic() {
+    let value = now_millis();
+    assert!(value >= 0, "非负: {value}");
+}
+
+/// 边界（组合 running × 终态）：`emit_node(running)` 后 `started_at` 与调用前
+/// 取样同量级（`before <= started_at <= after`）；终态拍 `ended_at` 非 `None` 且
+/// `>= started_at`。
+#[tokio::test]
+async fn emit_node时间戳区间与终态ended_at() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let (kind, attempt, instance_no) = emit_fixture();
+
+    let before = now_millis();
+    crate::control::emit_node(
+        &guard,
+        "implement",
+        attempt,
+        kind,
+        instance_no,
+        StepSettle::running(),
+    );
+    let after = now_millis();
+    let running = control
+        .snapshot(ROOT, CHANGE_ID)
+        .expect("run 在场")
+        .nodes
+        .remove(0);
+    assert!(
+        running.started_at >= before && running.started_at <= after,
+        "started_at 落在区间内（{before} ≤ {} ≤ {after}）",
+        running.started_at
+    );
+    assert_eq!(running.ended_at, None, "running 拍无 ended_at");
+
+    crate::control::emit_node(
+        &guard,
+        "implement",
+        attempt,
+        kind,
+        instance_no,
+        StepSettle::failed(Some("失败".to_owned())),
+    );
+    let terminal = control
+        .snapshot(ROOT, CHANGE_ID)
+        .expect("run 在场")
+        .nodes
+        .remove(0);
+    let ended = terminal.ended_at.expect("终态拍铸 ended_at");
+    assert!(ended >= terminal.started_at, "ended_at >= started_at");
+    assert_eq!(
+        terminal.started_at, running.started_at,
+        "started_at 保首见（终态拍不顶替）"
+    );
+}
+
+/// 异常：run 已除名后 `emit_node` 零 panic——同键重入的新 run 只累积自己的
+/// 节点，旧发射器的补发拍按身份键合并进**新** run（同一复合键的注册表语义，
+/// 非串台）；无 panic、无幽灵条目。
+#[tokio::test]
+async fn emit_node在除名后零panic且同键重入独立() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+    let emitter = guard.emitter();
+    let (kind, attempt, instance_no) = emit_fixture();
+    guard.finish(ChangeRunStatus::Stopped, Some("用户停止".to_owned()));
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID).is_none(),
+        "除名后可观察面为空"
+    );
+
+    // 同键重入：新 run 独立登记，emit 正常
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-2".to_owned(), STARTED_AT)
+        .expect("除名后同键可重入");
+    crate::control::emit_node(
+        &guard,
+        "implement",
+        attempt,
+        kind,
+        instance_no,
+        StepSettle::running().with_output_ref(Some("exec-2".to_owned())),
+    );
+    // 旧发射器继续补发：零 panic（写法落在同一复合键的当前条目上）
+    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-late");
+
+    let nodes = guard.nodes();
+    assert_eq!(nodes.len(), 1, "同身份键就地合并，无幽灵条目");
+    assert_eq!(
+        nodes[0].output_ref.as_deref(),
+        Some("exec-late"),
+        "补发拍按 some 才覆写生效"
+    );
+}
+
+/// 边界（组合 4 状态 × 3 builder）：`StepSettle` 全组合落位——各字段正确、
+/// `started_at` 恒有值、`ended_at` 仅终态有值。
+#[tokio::test]
+async fn step_settle四状态三builder组合落位() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("begin_run 应成功");
+
+    let cases: Vec<(ChangeStepStatus, StepSettle, u32)> = vec![
+        (ChangeStepStatus::Running, StepSettle::running(), 0),
+        (
+            ChangeStepStatus::Passed,
+            StepSettle::passed(Some("通过".to_owned())),
+            1,
+        ),
+        (
+            ChangeStepStatus::Failed,
+            StepSettle::failed(Some("失败".to_owned())),
+            2,
+        ),
+        (
+            ChangeStepStatus::Stopped,
+            StepSettle::stopped(Some("停止".to_owned())),
+            3,
+        ),
+    ];
+
+    for (_, settle, instance_no) in cases {
+        let settle = settle
+            .with_session(Some(format!("sess-{instance_no}")))
+            .with_output_ref(Some(format!("exec-{instance_no}")))
+            .with_tokens(Some(instance_no as u64), Some(instance_no as u64 * 2));
+        crate::control::emit_node(
+            &guard,
+            "implement",
+            1,
+            ChangeStepKind::Executor,
+            instance_no,
+            settle,
+        );
+    }
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
+    assert_eq!(snapshot.nodes.len(), 4, "四状态各一节点");
+    for node in &snapshot.nodes {
+        let expected_status = match node.instance_no {
+            0 => ChangeStepStatus::Running,
+            1 => ChangeStepStatus::Passed,
+            2 => ChangeStepStatus::Failed,
+            _ => ChangeStepStatus::Stopped,
+        };
+        assert_eq!(node.status, expected_status, "状态落位");
+        assert!(node.started_at > 0, "started_at 恒有值");
+        assert_eq!(
+            node.ended_at.is_some(),
+            expected_status != ChangeStepStatus::Running,
+            "ended_at 仅终态有值（instance {}",
+            node.instance_no
+        );
+        assert_eq!(
+            node.session_id.as_deref(),
+            Some(format!("sess-{}", node.instance_no).as_str()),
+            "with_session 落位"
+        );
+        assert_eq!(
+            node.output_ref.as_deref(),
+            Some(format!("exec-{}", node.instance_no).as_str()),
+            "with_output_ref 落位"
+        );
+        assert_eq!(
+            node.token_input,
+            Some(node.instance_no as u64),
+            "with_tokens in 落位"
+        );
+        assert_eq!(
+            node.token_output,
+            Some(node.instance_no as u64 * 2),
+            "with_tokens out 落位"
+        );
+    }
+}

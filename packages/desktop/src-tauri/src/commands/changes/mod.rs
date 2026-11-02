@@ -148,6 +148,52 @@ pub fn read_artifact(
     core_read_artifact(&location.dir, &phases, &kind, &source)
 }
 
+/// 运行中增量读的出线载荷（`exec::ExecOutputDelta` 的 1:1 映射）。
+///
+/// `u64` 经 workspace 既有 bigint 配置（`dangerously_cast_bigints_to_number`）
+/// 出线为 TS `number`，与 `tokenInput` / `tokenOutput` 同口径——不引入 `BigInt`
+/// 面。落位壳层（MUST NOT 定义在 `crates/infra/exec`：exec 的依赖面不得因出线
+/// 需要而扩 serde / specta）。
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecOutputChunk {
+    /// 自 `from_offset` 起的新增文本（UTF-8 字符边界收口）
+    pub text: String,
+    /// 下次调用应传的游标（唯一产出方在后端）
+    pub next_offset: u64,
+}
+
+/// name → 记录 → worktree 候选供给序（四条 exec 读命令共享的定位单点）。
+///
+/// 序：非 archived 同名记录优先（归档同名共存合法 D11——active 的 worktree 先
+/// 探），archived 记录的 stale worktree 次之，终回 `None`（主仓 active / archive
+/// 两态）；按 `locate_change` 过滤为实际在场目录。
+fn change_dirs(stores: &WorkspaceStores, root: &str, change_name: &str) -> Vec<std::path::PathBuf> {
+    let Ok(store) = stores.for_root(root) else {
+        return Vec::new();
+    };
+    let Ok(records) = store.list_change_records() else {
+        return Vec::new();
+    };
+    let mut candidates: Vec<Option<String>> = Vec::new();
+    for record in records
+        .iter()
+        .filter(|record| record.name == change_name && record.status != ChangeStatus::Archived)
+    {
+        push_worktree_candidate(&mut candidates, record.worktree.clone());
+    }
+    for record in records.iter().filter(|record| record.name == change_name) {
+        push_worktree_candidate(&mut candidates, record.worktree.clone());
+    }
+    push_worktree_candidate(&mut candidates, None);
+    let layout = resolve(Path::new(root));
+    candidates
+        .into_iter()
+        .filter_map(|worktree| locate_change(&layout, worktree.as_deref(), change_name))
+        .map(|location| location.dir)
+        .collect()
+}
+
 /// 读回某 exec 的输出记录
 #[tauri::command]
 #[specta::specta]
@@ -160,31 +206,74 @@ pub fn read_exec_output(
     if is_blank_root(&root) {
         return None;
     }
-    let Ok(store) = stores.for_root(&root) else {
-        return None;
-    };
-    // name → 记录 → worktree 候选供给序：非 archived 同名记录优先（归档同名
-    // 共存合法 D11——active 的 worktree 先探），archived 记录的 stale worktree
-    // 次之，终回 None（主仓 active / archive 两态）。exec_id 全局唯一，逐候选
-    // 探测直至命中——永不取回他 change 的记录（miss 即 None，非错读）
-    let records = store.list_change_records().ok()?;
-    let mut candidates: Vec<Option<String>> = Vec::new();
-    for record in records
-        .iter()
-        .filter(|record| record.name == change_name && record.status != ChangeStatus::Archived)
-    {
-        push_worktree_candidate(&mut candidates, record.worktree.clone());
-    }
-    for record in records.iter().filter(|record| record.name == change_name) {
-        push_worktree_candidate(&mut candidates, record.worktree.clone());
-    }
-    push_worktree_candidate(&mut candidates, None);
-    let layout = resolve(Path::new(&root));
-    candidates
+    // exec_id 全局唯一，逐候选探测直至命中——永不取回他 change 的记录（miss 即
+    // None，非错读）；blank root / 开库失败 / miss 三条 None 语义逐条不变
+    change_dirs(&stores, &root, &change_name)
         .into_iter()
-        .filter_map(|worktree| locate_change(&layout, worktree.as_deref(), &change_name))
-        .find_map(|location| exec::read_exec_output_in(&location.dir, &exec_id))
+        .find_map(|dir| exec::read_exec_output_in(&dir, &exec_id))
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// 布局派生的 `.log` 绝对路径（供前端 watch 寻址；目录名知识 MUST NOT 下沉
+/// 前端）。照 `explore_doc_path` 同构：blank root / 开库失败 / 非法或未知
+/// `exec_id` → `None`。
+#[tauri::command]
+#[specta::specta]
+pub fn exec_output_path(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    change_name: String,
+    exec_id: String,
+) -> Option<String> {
+    if is_blank_root(&root) {
+        return None;
+    }
+    change_dirs(&stores, &root, &change_name)
+        .into_iter()
+        .find_map(|dir| exec::exec_output_log_path_in(&dir, &exec_id))
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 读回某 exec 的执行命令（sidecar `<exec_id>.cmd`）；老记录无 sidecar ⇒ `None`
+/// （面板优雅降级「命令未记录」，非错误）。
+#[tauri::command]
+#[specta::specta]
+pub fn read_exec_command(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    change_name: String,
+    exec_id: String,
+) -> Option<String> {
+    if is_blank_root(&root) {
+        return None;
+    }
+    change_dirs(&stores, &root, &change_name)
+        .into_iter()
+        .find_map(|dir| exec::read_exec_command_in(&dir, &exec_id))
+}
+
+/// 增量读输出记录：`from_offset = 0` 即全量；游标唯一产出方在后端（前端零字节
+/// 计数）。运行中零字节 → `Some { text: "", nextOffset: 0 }`（与 miss 的 `None`
+/// 可分辨：「运行中，等待输出…」vs「（无输出记录）」）。
+#[tauri::command]
+#[specta::specta]
+pub fn read_exec_output_delta(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    change_name: String,
+    exec_id: String,
+    from_offset: u64,
+) -> Option<ExecOutputChunk> {
+    if is_blank_root(&root) {
+        return None;
+    }
+    change_dirs(&stores, &root, &change_name)
+        .into_iter()
+        .find_map(|dir| exec::read_exec_output_delta_in(&dir, &exec_id, from_offset))
+        .map(|delta| ExecOutputChunk {
+            text: delta.text,
+            next_offset: delta.next_offset,
+        })
 }
 
 /// worktree 候选去重入列（探测序保持——首个入列位次即探测优先级）。

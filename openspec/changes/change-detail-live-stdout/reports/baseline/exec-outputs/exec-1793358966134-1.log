@@ -1,0 +1,272 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+   Compiling proc-macro2 v1.0.107
+    Checking allocator-api2 v0.2.21
+   Compiling serde_json v1.0.151
+   Compiling icu_properties_data v2.4.0
+   Compiling icu_normalizer_data v2.4.0
+    Checking stable_deref_trait v1.2.1
+    Checking writeable v0.6.4
+    Checking litemap v0.8.3
+    Checking hashbrown v0.17.1
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling num-traits v0.2.19
+   Compiling quote v1.0.47
+   Compiling phf_shared v0.14.0
+    Checking simdutf8 v0.1.5
+    Checking castaway v0.2.4
+    Checking static_assertions v1.1.0
+    Checking rustc-hash v2.1.3
+   Compiling icu_locale_fallback_data v2.4.0
+   Compiling icu_segmenter_data v2.4.0
+    Checking indexmap v2.14.2
+    Checking oxc_data_structures v0.146.0
+    Checking oxc_estree v0.146.0
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling string_cache_codegen v0.6.1
+   Compiling phf v0.14.0
+    Checking compact_str v0.10.0
+   Compiling phf_generator v0.14.0
+    Checking oxc_allocator v0.146.0
+    Checking cow-utils v0.1.3
+   Compiling dragonbox_ecma v0.1.12
+    Checking smawk v0.3.3
+    Checking unicode-width v0.2.2
+    Checking owo-colors v4.4.0
+    Checking unicode-id-start v1.5.0
+   Compiling web_atoms v0.2.6
+    Checking bytecount v0.6.9
+    Checking oxc_str v0.146.0
+    Checking foldhash v0.2.0
+    Checking nonmax v0.5.5
+    Checking ryu v1.0.23
+    Checking unicode-ident v1.0.26
+    Checking hashbrown v0.16.1
+    Checking encoding_rs v0.8.42
+    Checking arrayvec v0.7.8
+    Checking json-strip-comments v3.1.2
+    Checking self_cell v1.3.0
+   Compiling seq-macro v0.3.6
+    Checking nodejs-built-in-modules v1.0.0
+    Checking petgraph v0.8.3
+    Checking float-cmp v0.10.0
+    Checking num-integer v0.1.47
+    Checking fast-glob v1.1.2
+    Checking toml_edit v0.25.15+spec-1.1.0
+   Compiling serde_derive_internals v0.29.1
+    Checking halfbrown v0.4.0
+   Compiling pest_generator v2.9.2
+   Compiling synstructure v0.14.0
+   Compiling darling_core v0.24.1
+   Compiling serde_derive_internals v0.30.0
+    Checking ordered-float v5.5.0
+    Checking num-bigint v0.5.1
+    Checking zip v4.6.1
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Checking value-trait v0.12.3
+    Checking encoding_rs_io v0.1.8
+    Checking grep-searcher v0.1.17
+   Compiling tracing-attributes v0.1.31
+   Compiling specta-macros v2.0.0-rc.26
+   Compiling phf_macros v0.13.1
+   Compiling derive_more-impl v2.1.1
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling schemars_derive v0.8.22
+   Compiling phf_macros v0.14.0
+   Compiling thiserror-impl v1.0.69
+   Compiling webview2-com-macros v0.8.1
+   Compiling zerocopy-derive v0.8.57
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.7
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+   Compiling cssparser-macros v0.7.1
+   Compiling phf v0.13.1
+   Compiling derive_more v2.1.1
+    Checking tracing v0.1.44
+    Checking windows-core v0.62.2
+   Compiling futures-macro v0.3.34
+   Compiling oxc_ast_macros v0.146.0
+   Compiling ref-cast-impl v1.0.27
+   Compiling cssparser v0.37.0
+    Checking zerofrom v0.1.8
+    Checking specta v2.0.0-rc.26
+    Checking thiserror v1.0.69
+    Checking yoke v0.8.4
+    Checking tokio v1.53.1
+    Checking zerocopy v0.8.57
+    Checking softbuffer v0.4.8
+    Checking windows-future v0.3.2
+    Checking windows-collections v0.3.2
+    Checking windows-numerics v0.3.1
+    Checking zerovec v0.11.9
+    Checking zerotrie v0.2.5
+   Compiling thiserror v2.0.20
+   Compiling darling_macro v0.24.1
+   Compiling markup5ever v0.39.0
+   Compiling selectors v0.38.0
+    Checking oxc_span v0.146.0
+    Checking ref-cast v1.0.27
+    Checking futures-util v0.3.34
+   Compiling html5ever v0.39.0
+   Compiling webview2-com-sys v0.39.1
+    Checking windows v0.62.2
+   Compiling serialize-to-javascript-impl v0.1.2
+    Checking simd-json v0.18.1
+   Compiling native_model_macro v0.4.20
+   Compiling serde_repr v0.1.21
+   Compiling darling v0.24.1
+   Compiling native_db_macro v0.8.2
+   Compiling tinystr v0.8.5
+   Compiling potential_utf v0.1.6
+    Checking serde v1.0.229
+   Compiling icu_locale_core v2.4.0
+   Compiling icu_collections v2.4.0
+   Compiling serde_with_macros v3.23.0
+   Compiling dom_query v0.28.0
+   Compiling pin-project-internal v1.1.13
+    Checking smallvec v1.16.1
+    Checking dpi v0.1.2
+   Compiling cargo-platform v0.1.9
+   Compiling indexmap v1.9.3
+   Compiling jsonptr v0.7.1
+   Compiling plist v1.10.1
+   Compiling cargo_metadata v0.19.2
+    Checking parking_lot_core v0.9.12
+   Compiling cargo_toml v1.0.1
+   Compiling cargo_metadata v0.14.2
+   Compiling json-patch v4.2.0
+    Checking oxc_index v5.0.0
+    Checking icu_provider v2.4.0
+   Compiling serde_with v3.23.0
+    Checking oxc_syntax v0.146.0
+   Compiling skeptic v0.13.7
+    Checking parking_lot v0.12.5
+    Checking dashmap v6.2.1
+   Compiling icu_normalizer v2.4.0
+   Compiling icu_properties v2.4.0
+    Checking icu_locale_fallback v2.4.0
+    Checking bincode v1.3.3
+    Checking keyboard-types v0.8.3
+    Checking icu_segmenter v2.4.0
+    Checking serialize-to-javascript v0.1.2
+    Checking pin-project v1.1.13
+    Checking futures-executor v0.3.34
+   Compiling native_model v0.4.20
+   Compiling native_db v0.8.2
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\core\config)
+   Compiling async-trait v0.1.92
+   Compiling prost-derive v0.14.4
+    Checking futures v0.3.34
+   Compiling async-stream-impl v0.3.6
+    Checking idna_adapter v1.2.2
+   Compiling schemars_derive v1.2.2
+    Checking idna v1.1.0
+   Compiling pest_derive v2.9.2
+    Checking muda v0.20.0
+    Checking serde_spanned v0.6.9
+    Checking textwrap v0.16.4
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\core\checks)
+    Checking url v2.5.8
+    Checking toml_datetime v0.6.11
+    Checking async-stream v0.3.6
+   Compiling tera v1.20.1
+   Compiling json5 v0.4.1
+    Checking specta-typescript v0.0.13
+   Compiling clap_derive v4.6.7
+    Checking toml_edit v0.22.27
+    Checking tracing-subscriber v0.3.23
+    Checking oxc_diagnostics v0.146.0
+    Checking tokio-util v0.7.19
+    Checking agent v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\core\agent)
+    Checking urlpattern v0.6.0
+   Compiling schemars v0.8.22
+    Checking tokio-rustls v0.26.5
+    Checking tokio-native-tls v0.3.1
+    Checking oxc_regular_expression v0.146.0
+    Checking prost v0.14.4
+    Checking rig-http v0.43.0
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\exec)
+    Checking h2 v0.4.19
+    Checking tower v0.5.3
+    Checking tauri-utils v2.10.2
+    Checking tokio-stream v0.1.19
+    Checking schemars v1.2.2
+    Checking prost-types v0.14.4
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\core\workflow)
+    Checking specta-serde v0.0.13
+   Compiling derive_arbitrary v1.4.2
+    Checking toml v0.8.23
+    Checking oxc_ast v0.146.0
+    Checking specta-util v0.0.13
+    Checking local-ip-address v0.5.7
+    Checking table_formatter v0.6.1
+    Checking specta-zod v0.0.4 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\tools\specta-zod-patched)
+    Checking clap v4.6.7
+    Checking watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\watch)
+    Checking arbitrary v1.4.2
+    Checking tower-http v0.6.11
+    Checking axum v0.8.9
+    Checking clap-cargo v0.13.0
+    Checking hyper v1.11.1
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\store)
+   Compiling tokei v13.0.0
+    Checking hyper-util v0.1.20
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking oxc_ecmascript v0.146.0
+    Checking hyper-rustls v0.27.10
+    Checking hyper-tls v0.6.0
+    Checking hyper-timeout v0.5.2
+    Checking oxc_parser v0.146.0
+    Checking tonic v0.14.6
+    Checking reqwest v0.13.5
+    Checking rig-reqwest v0.43.0
+    Checking rig-core v0.43.0
+    Checking tonic-prost v0.14.6
+    Checking tonic-web v0.14.6
+   Compiling tauri-build v2.7.4
+   Compiling tauri-plugin v2.7.2
+   Compiling tauri-codegen v2.7.4
+    Checking tonic-health v0.14.6
+    Checking devtools-wire-format v0.6.0
+    Checking devtools-core v0.4.1
+   Compiling tauri v2.12.5
+   Compiling tauri-macros v2.7.4
+   Compiling tauri-plugin-fs v2.7.1
+   Compiling tauri-plugin-devtools v2.2.2
+   Compiling tauri-plugin-dialog v2.8.3
+   Compiling tauri-plugin-updater v2.14.0
+   Compiling tauri-plugin-opener v2.7.2
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri)
+    Checking oxc_resolver v11.24.3
+    Checking tao v0.37.2
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\core\archi)
+    Checking webview2-com v0.39.1
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\archi)
+    Checking tauri-runtime v2.12.2
+    Checking wry v0.57.1
+    Checking tauri-runtime-wry v2.12.3
+    Checking rig-memory v0.43.0
+    Checking rig v0.43.0
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\agent)
+    Checking tauri-specta v2.0.0-rc.26
+    Checking tauri-plugin-single-instance v2.5.4
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 44s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(15.6s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 218 files [2m(5.2s, 16 threads)[0m

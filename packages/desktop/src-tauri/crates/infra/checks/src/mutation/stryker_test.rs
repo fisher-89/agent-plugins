@@ -689,3 +689,146 @@ async fn 输出含瞬态签名不触发段重试() {
         "段层零重试：签名命中也不追加尝试（spawn 恰 1 次）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 零 live 接入（change-detail-live-stdout，D14 / Q2）：`RunOptions { live: None }`
+// 单行构造的编译面涟漪——Stryker 段在 `reports/<slot>/exec-outputs/` **零新增**。
+// ---------------------------------------------------------------------------
+
+/// 报告树文件名词表（相对路径排序——「零新增」的稳定快照面）。
+fn tree_names(root: &Path) -> Vec<String> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            out.push(relative.to_string_lossy().replace('\\', "/"));
+            if path.is_dir() {
+                walk(&path, root, out);
+            }
+        }
+    }
+    let mut names = Vec::new();
+    walk(root, root, &mut names);
+    names.sort();
+    names
+}
+
+/// 正向：**端到端跑通 + 报告树零 exec-outputs**——假 `npx` 直写段报告（
+/// `jsonReporter` 面）→ 段执行 `Ok` 且载荷为 canned 原样；同时报告树
+/// （`reports/test/<planId>/`）与兄弟槽位下 `exec-outputs/` 目录均不存在、
+/// `mutation/` 内零 `.log` / `.cmd` 新增（`live: None` 未接入记录面）。
+#[tokio::test]
+async fn 端到端跑通且报告树零exec_outputs() {
+    let ws = SpawnWs::new("no-live");
+    let files = vec!["app/src/a.test.ts".to_owned()];
+    let window = SpawnWindow::enter("stryker-no-live");
+    window.install_npx();
+    window.set_out(STRYKER_SEG_CANNED);
+    let report_path = ws.mutation_dir.join("mutation-seg-0.json");
+    window.set_report(&report_path);
+    let report_root = ws.mutation_dir.parent().expect("报告树根").to_path_buf();
+    let before = tree_names(&report_root);
+
+    let raw = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never())
+        .await
+        .expect("假 spawn 段执行应 Ok");
+    let parsed: serde_json::Value = serde_json::from_str(&raw).expect("段报告可解析");
+    assert_eq!(
+        parsed["metrics"]["killed"], 9,
+        "段报告 = canned 原样（跑通）"
+    );
+    assert_eq!(window.records().len(), 1, "恰一次假 spawn");
+
+    assert!(
+        !report_root.join("exec-outputs").exists(),
+        "Stryker 段零 live 记录面（{} 不应新建）",
+        report_root.join("exec-outputs").display()
+    );
+    let slot_root = report_root.parent().expect("槽位根（reports/test）");
+    assert!(
+        !slot_root.join("baseline").join("exec-outputs").exists(),
+        "兄弟槽位亦零 exec-outputs"
+    );
+    let after = tree_names(&report_root);
+    let added: Vec<&String> = after.iter().filter(|name| !before.contains(name)).collect();
+    assert!(
+        added
+            .iter()
+            .all(|name| !name.ends_with(".log") && !name.ends_with(".cmd")),
+        "报告树零 .log / .cmd 新增（实际新增: {added:?}）"
+    );
+}
+
+/// 边界：**写操作幂等**——同一 `mutation_dir` / 同一段序（index 0）连续两次段执行
+/// → 临时 config 按**同一路径**覆写为等价内容（零残留累积、不产生第二份 config）、
+/// 报告路径逐次重写为当次权威（摘除后重跑即重建）。`live: None` 在两次执行中都未
+/// 改道输出，故报告树亦零 `.log` / `.cmd` 新增。
+#[tokio::test]
+async fn 同段两跑幂等_临时config同路径覆写且零残留() {
+    let ws = SpawnWs::new("idempotent");
+    let files = vec!["app/src/a.test.ts".to_owned()];
+    let window = SpawnWindow::enter("stryker-idempotent");
+    window.install_npx();
+    window.set_out(STRYKER_SEG_CANNED);
+    let report_path = ws.mutation_dir.join("mutation-seg-0.json");
+    window.set_report(&report_path);
+    let config_path = ws.mutation_dir.join("mutation-stryker-seg-0.conf.json");
+
+    let first = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never())
+        .await
+        .expect("首跑应 Ok");
+    let config_first = fs::read(&config_path).expect("首跑临时 config 在盘");
+    let report_first = fs::read(&report_path).expect("首跑段报告在盘");
+    let tree_first = tree_names(&ws.mutation_dir);
+
+    // 报告面摘除（真实工具每次运行重建段报告）——第二跑必须重建为当次权威
+    fs::remove_file(&report_path).expect("摘除首跑段报告");
+    assert!(!report_path.exists(), "摘除后段报告不在盘");
+
+    let second = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never())
+        .await
+        .expect("同段再跑应 Ok");
+    assert_eq!(
+        second, first,
+        "两次载荷同源（当次权威 = 同一 canned 段报告）"
+    );
+    assert_eq!(
+        fs::read(&config_path).expect("第二跑临时 config 同路径在盘"),
+        config_first,
+        "临时 config 按同一路径覆写为等价内容（同 index → 同路径）"
+    );
+    assert_eq!(
+        fs::read(&report_path).expect("第二跑段报告在盘"),
+        report_first,
+        "报告路径逐次重写为当次权威（摘除后重建）"
+    );
+
+    let configs: Vec<String> = tree_names(&ws.mutation_dir)
+        .into_iter()
+        .filter(|name| name.ends_with(".conf.json"))
+        .collect();
+    assert_eq!(
+        configs,
+        vec!["mutation-stryker-seg-0.conf.json".to_owned()],
+        "只存在一份临时 config（不产生第二份）"
+    );
+    assert_eq!(
+        tree_names(&ws.mutation_dir),
+        tree_first,
+        "报告目录零残留累积（两次执行后条目面同值）"
+    );
+    assert_eq!(
+        window.records().len(),
+        2,
+        "两次各 spawn 一次（段层零重试：幂等由覆写承载，不靠追加）"
+    );
+    assert!(
+        !ws.mutation_dir.join("exec-outputs").exists(),
+        "两次执行均零 live 记录面（无 exec-outputs 目录）"
+    );
+}

@@ -31,6 +31,23 @@ export const commands = {
 	/**  读回某 exec 的输出记录 */
 	readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_output", { root, changeName, execId }),
 	/**
+	 *  布局派生的 `.log` 绝对路径（供前端 watch 寻址；目录名知识 MUST NOT 下沉
+	 *  前端）。照 `explore_doc_path` 同构：blank root / 开库失败 / 非法或未知
+	 *  `exec_id` → `None`。
+	 */
+	execOutputPath: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("exec_output_path", { root, changeName, execId }),
+	/**
+	 *  读回某 exec 的执行命令（sidecar `<exec_id>.cmd`）；老记录无 sidecar ⇒ `None`
+	 *  （面板优雅降级「命令未记录」，非错误）。
+	 */
+	readExecCommand: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_command", { root, changeName, execId }),
+	/**
+	 *  增量读输出记录：`from_offset = 0` 即全量；游标唯一产出方在后端（前端零字节
+	 *  计数）。运行中零字节 → `Some { text: "", nextOffset: 0 }`（与 miss 的 `None`
+	 *  可分辨：「运行中，等待输出…」vs「（无输出记录）」）。
+	 */
+	readExecOutputDelta: (root: string, changeName: string, execId: string, fromOffset: number) => __TAURI_INVOKE<ExecOutputChunk | null>("read_exec_output_delta", { root, changeName, execId, fromOffset }),
+	/**
 	 *  归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点；按
 	 *  change **id** 寻址）；blank root / id 显式 `Err`。IPC 薄命令（design D11：
 	 *  本轮无前端入口）。
@@ -1480,6 +1497,21 @@ export type ElementKind =
 "module" | 
 /**  组件级 */
 "component";
+
+/**
+ *  运行中增量读的出线载荷（`exec::ExecOutputDelta` 的 1:1 映射）。
+ * 
+ *  `u64` 经 workspace 既有 bigint 配置（`dangerously_cast_bigints_to_number`）
+ *  出线为 TS `number`，与 `tokenInput` / `tokenOutput` 同口径——不引入 `BigInt`
+ *  面。落位壳层（MUST NOT 定义在 `crates/infra/exec`：exec 的依赖面不得因出线
+ *  需要而扩 serde / specta）。
+ */
+export type ExecOutputChunk = {
+	/**  自 `from_offset` 起的新增文本（UTF-8 字符边界收口） */
+	text: string,
+	/**  下次调用应传的游标（唯一产出方在后端） */
+	nextOffset: number,
+};
 
 /**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
 export type ExploreDoc = {

@@ -11,16 +11,16 @@ use workflow::write::{
     StepDefinition, StepNode, INITIALIZE_PHASE_ID,
 };
 
-use crate::control::{ChangeFlowControl, RunGuard};
+use crate::control::{emit_node, now_millis, ChangeFlowControl, RunGuard, StepSettle};
 use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
     ArchiCheckOutcome, ArchiveVcsPort, MutationSkipReason, MutationTestConclusion,
-    MutationTestOutcome, RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome,
-    TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort,
-    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
-    WorktreeSnapshot,
+    MutationTestOutcome, OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort,
+    StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput,
+    ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
+    WorkflowSnapshotPort, WorktreeSnapshot,
 };
 use crate::prompt::{
     decision_fix_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
@@ -28,8 +28,7 @@ use crate::prompt::{
 };
 use crate::run_history;
 use crate::state::{
-    ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState,
-    ChangeStepStatus, EdgeKind, NodeKey, RunUpdate,
+    ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, EdgeKind, NodeKey, RunUpdate,
 };
 use crate::steps::{change_branch, check_rebase_halfway, clip_reason};
 use crate::transcript::{failure_reason, final_assistant_text};
@@ -286,6 +285,7 @@ async fn drive(
                     change_id: request.change_id.clone(),
                 },
                 "archive-preflight",
+                None,
             )
             .await
             .ok();
@@ -423,121 +423,6 @@ fn begin_node(
 fn emit_edge(guard: &RunGuard, from: NodeKey, to: NodeKey, kind: EdgeKind) {
     guard.emit(RunUpdate::Edge {
         edge: ChangeStepEdge { from, to, kind },
-    });
-}
-
-/// 步状态行落值（emit 载荷收窄：状态 + 三可选面 + 步级时间与 token 载荷镜像面）。
-/// token 两值为数据随行面（`run_worker` 经 [`StepSettle::with_tokens`] 落值、其余
-/// 步不设即 None）；`started_at` / `ended_at` 两时间字段由 `emit_node` 单点铸造
-/// 覆写——构造器恒中性值（0 / None），MUST NOT 由调用方携带时间。
-struct StepSettle {
-    status: ChangeStepStatus,
-    session_id: Option<String>,
-    detail: Option<String>,
-    output_ref: Option<String>,
-    started_at: i64,
-    ended_at: Option<i64>,
-    token_input: Option<u64>,
-    token_output: Option<u64>,
-}
-
-impl StepSettle {
-    /// 步进行中（无会话 / 详情 / 输出引用；时间与 token 恒中性——时间由
-    /// `emit_node` 铸造覆写）。
-    fn running() -> Self {
-        Self {
-            status: ChangeStepStatus::Running,
-            session_id: None,
-            detail: None,
-            output_ref: None,
-            started_at: 0,
-            ended_at: None,
-            token_input: None,
-            token_output: None,
-        }
-    }
-
-    /// 步通过（携人读摘要）。
-    fn passed(detail: Option<String>) -> Self {
-        Self {
-            status: ChangeStepStatus::Passed,
-            detail,
-            ..Self::running()
-        }
-    }
-
-    /// 步失败（携失败记因）。
-    fn failed(detail: Option<String>) -> Self {
-        Self {
-            status: ChangeStepStatus::Failed,
-            detail,
-            ..Self::running()
-        }
-    }
-
-    /// 步因停止 / 终止收敛。
-    fn stopped(detail: Option<String>) -> Self {
-        Self {
-            status: ChangeStepStatus::Stopped,
-            detail,
-            ..Self::running()
-        }
-    }
-
-    /// 随行会话 id（WorkerAgent 步）。
-    fn with_session(mut self, session_id: Option<String>) -> Self {
-        self.session_id = session_id;
-        self
-    }
-
-    /// 随行全量输出引用（`ExecOutput::Recorded { exec_id }`）。
-    fn with_output_ref(mut self, output_ref: Option<String>) -> Self {
-        self.output_ref = output_ref;
-        self
-    }
-
-    /// 随行本步 token 增量（in / out 两值；仅 WorkerAgent 步终态落值，缺席
-    /// None）——数据随行面，时间字段不在本 builder 语义内。
-    fn with_tokens(mut self, token_input: Option<u64>, token_output: Option<u64>) -> Self {
-        self.token_input = token_input;
-        self.token_output = token_output;
-        self
-    }
-}
-
-/// 步状态行 emit（节点累积 + Notice 广播；同稳定身份键的后续 emit 就地合并）。
-/// 步级时间铸造收本单点：全部 44 个调用点零触点覆盖——running emit 铸
-/// `(now, None)`、终态 emit 铸 `(now, Some(now))`（`phaseStart` 等单 emit 瞬步
-/// 自然 `started_at == ended_at` 同刻）；该 started 同刻值是否被采信由
-/// `accumulate_node` 合并侧裁定（started 保首见）。复用既有 `now_millis()` 零新
-/// 时钟缝——收口时刻铸造只在生产路径消费，corpus 确定性由测试直构
-/// `ChangeStepState` 注入定值承载（沿本文件 `now_millis` 既有注释口径）。
-fn emit_node(
-    guard: &RunGuard,
-    phase: &str,
-    attempt: u32,
-    step: ChangeStepKind,
-    instance_no: u32,
-    mut settle: StepSettle,
-) {
-    let now = now_millis();
-    settle.started_at = now;
-    settle.ended_at = (settle.status != ChangeStepStatus::Running).then_some(now);
-    guard.emit(RunUpdate::Step {
-        step: ChangeStepState {
-            phase: phase.to_owned(),
-            attempt,
-            step,
-            instance_no,
-            status: settle.status,
-            session_id: settle.session_id,
-            detail: settle.detail,
-            output_ref: settle.output_ref,
-            started_at: settle.started_at,
-            ended_at: settle.ended_at,
-            token_input: settle.token_input,
-            token_output: settle.token_output,
-        },
     });
 }
 
@@ -727,6 +612,7 @@ async fn step_phase_next(
             run_id: request.run_id.clone(),
         },
         "phase-next",
+        None,
     )
     .await
 }
@@ -749,6 +635,7 @@ async fn step_phase_start(
             phase: phase.to_owned(),
         },
         "phase-start",
+        None,
     )
     .await;
     match outcome {
@@ -982,6 +869,12 @@ async fn step_static_check(
                 slot: ReportSlot::Test,
             },
             "static-check",
+            Some(StepIdentity {
+                phase: ctx.phase.to_owned(),
+                attempt: cursor.attempt,
+                step: ChangeStepKind::StaticCheck,
+                instance_no,
+            }),
         )
         .await?;
         // fault 先于结论：环境错误 / 取消不烧反馈边预算（零 executor 会话）、
@@ -1127,6 +1020,12 @@ async fn step_test_execution_escalate(
             slot: ReportSlot::Test,
         },
         "test-execution",
+        Some(StepIdentity {
+            phase: ctx.phase.to_owned(),
+            attempt: cursor.attempt,
+            step: ChangeStepKind::TestExecution,
+            instance_no,
+        }),
     )
     .await?;
     // fault 先于结论：环境错误 → 节点 failed + Terminal::failed（零决策分叉、零
@@ -1221,6 +1120,12 @@ async fn step_static_check_terminal(
             slot: ReportSlot::Baseline,
         },
         "static-check",
+        Some(StepIdentity {
+            phase: ctx.phase.to_owned(),
+            attempt: cursor.attempt,
+            step: ChangeStepKind::StaticCheck,
+            instance_no,
+        }),
     )
     .await?;
     // fault 先于结论：基线环境错误 / 取消走环境文案与 stopped，不落基线红文案
@@ -1302,6 +1207,12 @@ async fn step_test_execution_terminal(
             slot: ReportSlot::Baseline,
         },
         "test-execution",
+        Some(StepIdentity {
+            phase: ctx.phase.to_owned(),
+            attempt: cursor.attempt,
+            step: ChangeStepKind::TestExecution,
+            instance_no,
+        }),
     )
     .await?;
     // fault 先于结论：基线环境错误 → TXT_ENV_TEST（不落基线红 / 基线错误文案），
@@ -1407,6 +1318,7 @@ async fn step_mutation_test_escalate(
             change_id: ctx.request.change_id.clone(),
         },
         "mutation-test",
+        None,
     )
     .await
     {
@@ -1523,6 +1435,7 @@ async fn step_archi_check(
                 change_id: ctx.request.change_id.clone(),
             },
             "archi-check",
+            None,
         )
         .await?;
         // fault 先于结论：取消 / 环境错误不烧反馈边预算（零 executor 会话）、
@@ -1980,6 +1893,7 @@ async fn run_phase_log(
             input,
         },
         "phase-log",
+        None,
     )
     .await
 }
@@ -2433,6 +2347,7 @@ async fn step_preflight(
             change_id: ctx.request.change_id.clone(),
         },
         "archive-preflight",
+        None,
     )
     .await
     {
@@ -3245,6 +3160,7 @@ async fn step_seal(
             change_id: ctx.request.change_id.clone(),
         },
         "archive-seal",
+        None,
     )
     .await
     {
@@ -3449,6 +3365,7 @@ async fn resolve_deadlock(
                     },
                 },
                 "backtrack",
+                None,
             )
             .await;
             match backtrack {
@@ -3529,6 +3446,7 @@ async fn decision_session(
                 session_id: session_id.clone(),
             },
             "decision-log",
+            None,
         )
         .await?;
         let text = outcome
@@ -3804,27 +3722,55 @@ async fn run_worker(
     }
 }
 
+/// 脚本步的输出引用上抛身份（`run_tool` 组装回调的四段——与 `node_key` 同源；
+/// 缺席即老行为：running 拍不带输出引用）。
+struct StepIdentity {
+    phase: String,
+    attempt: u32,
+    step: ChangeStepKind,
+    instance_no: u32,
+}
+
 /// 工具步执行：产出按封闭集窄化（漂移显式失败）；步失败 `Err` 串映射终态。
 ///
 /// `guard` 是取消信号的**单点取值来源**：`ToolStepRequest.cancel` 只在此处经
 /// `guard.cancel_flag()` 填充（各步函数不各自取值），使停止信号在步边界
 /// [`check_cancel`] 之外贯通到进程面——运行中的检查域 spawn 被
 /// `exec::run_shell` 的 200 ms 轮询观测并杀树收敛。
+///
+/// `identity` 是输出引用上抛身份的**单点组装面**：`Some`（四位脚本步）时以
+/// [`RunGuard::emitter`] 组装 `'static` 的 [`OutputRefSink`]，回调内补发一拍带
+/// `output_ref` 的 running 步状态；`None`（其余工具步）时 `on_output_ref` 缺席，
+/// 老行为逐字节不变。
 async fn run_tool<V>(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
     root: &str,
     command: ToolCommand,
     label: &str,
+    identity: Option<StepIdentity>,
 ) -> Result<V, Terminal>
 where
     V: TryFrom<ToolStepOutput>,
 {
+    let on_output_ref = identity.map(|identity| {
+        let emitter = guard.emitter();
+        OutputRefSink::new(move |exec_id| {
+            emitter.attach_output_ref(
+                &identity.phase,
+                identity.attempt,
+                identity.step,
+                identity.instance_no,
+                exec_id,
+            );
+        })
+    });
     let output = match tools
         .run(crate::port::ToolStepRequest {
             root: root.to_owned(),
             command,
             cancel: guard.cancel_flag(),
+            on_output_ref,
         })
         .await
     {
@@ -3913,16 +3859,6 @@ fn settle_fault(
             Terminal::failed(message)
         }
     }
-}
-
-/// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）——run 收口时刻铸造
-/// 点（finish 整包同刻，corpus 确定性由测试注入 started_at / 假 history 承
-/// 载，本时钟只在生产路径消费）。
-fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 // ToolStepOutput → 各封闭产出的窄化转换（run_tool 泛型的 TryFrom 半边）。

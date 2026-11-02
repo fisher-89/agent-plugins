@@ -1797,6 +1797,7 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
                 change_id: CHANGE.to_owned(),
                 slot: foundation::layout::ReportSlot::Test,
             },
+            on_output_ref: None,
         })
         .await;
     restore_path(guard, original);
@@ -2550,6 +2551,7 @@ impl orchestration::port::StaticCheckRunner for ZeroCallCheckRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: foundation::cancel::CancelFlag,
+        _on_output_ref: Option<orchestration::port::OutputRefSink>,
     ) -> orchestration::port::BoxToolFuture {
         self.seen
             .lock()
@@ -2576,6 +2578,7 @@ impl orchestration::port::TestExecutionRunner for ZeroCallCheckRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: foundation::cancel::CancelFlag,
+        _on_output_ref: Option<orchestration::port::OutputRefSink>,
     ) -> orchestration::port::BoxToolFuture {
         self.seen
             .lock()
@@ -2670,6 +2673,7 @@ async fn 组合根装配_archicheck命令由第五形参承接且报告目录为
             command: ToolCommand::ArchiCheck {
                 change_id: CHANGE.to_owned(),
             },
+            on_output_ref: None,
         })
         .await
         .expect("ArchiCheck 命令应 Ok（无模型 ⇒ skipped 仍是有效结论）");
@@ -2806,6 +2810,7 @@ async fn 注入runner失败面_不降级假通过且其余三runner零误调用(
             command: ToolCommand::ArchiCheck {
                 change_id: CHANGE.to_owned(),
             },
+            on_output_ref: None,
         })
         .await;
 
@@ -2902,6 +2907,7 @@ async fn run启动路径_implement恰一步archicheck且注入runner恰一次调
             command: ToolCommand::ArchiCheck {
                 change_id: CHANGE.to_owned(),
             },
+            on_output_ref: None,
         })
         .await
         .expect("ArchiCheck 命令应 Ok");
@@ -2922,5 +2928,589 @@ async fn run启动路径_implement恰一步archicheck且注入runner恰一次调
     assert!(
         seen.lock().expect("seen 锁不可中毒").is_empty(),
         "其余三 runner 零误调用"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 组合根上抛链（change-detail-live-stdout，AC-11 / AC-2 / AC-5；design D17 落点）
+//
+// 被测面：壳层是仓库唯一同时依赖 `orchestration` 与 `checks-runtime` 的位置——
+// `ChangeFlowControl::begin_run` 取 `RunGuard` → `RunGuard::emitter()` 得
+// `StepEmitter` → `OutputRefSink::new(move |exec_id| emitter.attach_output_ref(..))`
+// → 真实 `ProcessStaticCheck::run(.., Some(sink))`。判据：回调**恰 1 次**、回调内
+// `exec_output_log_path_in(..).is_file()` 成立（上抛时刻 live `.log` 与父目录已在，
+// 可被前端 watch 订阅）、终态 `output_ref` == 回调收到值（同 id 收口）、
+// `control.snapshot` 里该步节点 `output_ref` 与之同值（运行中可点的前端前提）。
+//
+// Mock 策略（见 test-design 该节 Mock策略表）：零替身——真实 `ChangeFlowControl`
+// + 真实 `RunGuard` / `StepEmitter` / `OutputRefSink` + 真实
+// `checks_runtime::ProcessStaticCheck` + 真实 tempdir / config / 平台 shim（`Env` /
+// `write_static_shim` / `prefix_path` 既有装置）。`crates/core/orchestration` 的
+// `Cargo.toml` 必须零 diff（不加 `checks-runtime` dev-dep——core → infra 反向边），
+// 故本组合只能落壳层。
+// ---------------------------------------------------------------------------
+
+use orchestration::port::{
+    OutputRefSink, StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput,
+    ToolStepPort, ToolStepRequest,
+};
+
+/// 上抛时刻的 live `.log` 快照：`(text, next_offset)`；`None` = 增量读未命中。
+type DeltaProbe = Option<(String, u64)>;
+
+/// 组合根上抛链的一次驱动结果（回调观测面 + 终态产出）。
+struct RefChainRun {
+    /// 回调收到的 exec_id 序列（次数即长度）
+    emitted: Vec<String>,
+    /// 回调时刻逐次的「`.log` 已在」判据（与 `emitted` 同序）
+    log_present: Vec<bool>,
+    /// 回调时刻逐次的「父目录已在」判据
+    parent_present: Vec<bool>,
+    /// 回调时刻逐次的增量读快照（`None` = 未命中）
+    delta_at_emit: Vec<DeltaProbe>,
+    /// 终态产出
+    outcome: StaticCheckOutcome,
+}
+
+/// 组合根上抛链驱动：`begin_run` → `emitter()` → `OutputRefSink::new(..)` →
+/// 真实 `ProcessStaticCheck::run(.., Some(sink))`。`slot` 决定报告槽位；
+/// `with_sink == false` 为老调用形态（`None`）的对照臂。
+async fn drive_static_check_ref_chain(
+    env: &Env,
+    app: &App<tauri::test::MockRuntime>,
+    change: &str,
+    slot: foundation::layout::ReportSlot,
+    with_sink: bool,
+) -> RefChainRun {
+    let root = env.root();
+    let guard = app
+        .state::<Arc<ChangeFlowControl>>()
+        .begin_run(&root, change, "run-ref-chain".to_owned(), STARTED_AT)
+        .expect("begin_run 登记应成功");
+    let emitter = guard.emitter();
+
+    // 回调体三件事：记录 exec_id、回调内断言 `.log` 已在、断言父目录已在
+    let emitted: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let log_present: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+    let parent_present: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+    let delta_at_emit: Arc<Mutex<Vec<DeltaProbe>>> = Arc::new(Mutex::new(Vec::new()));
+    let change_dir = env.ws_root.path().join("openspec/changes").join(change);
+    let attach_change = change.to_owned();
+
+    let sink = with_sink.then(|| {
+        let emitted = Arc::clone(&emitted);
+        let log_present = Arc::clone(&log_present);
+        let parent_present = Arc::clone(&parent_present);
+        let delta_at_emit = Arc::clone(&delta_at_emit);
+        let attach_emitter = emitter.clone();
+        OutputRefSink::new(move |exec_id: &str| {
+            let path = exec::exec_output_log_path_in(&change_dir, exec_id);
+            log_present
+                .lock()
+                .expect("log 探测锁不可中毒")
+                .push(path.as_deref().is_some_and(Path::is_file));
+            parent_present.lock().expect("父目录探测锁不可中毒").push(
+                path.as_deref()
+                    .and_then(Path::parent)
+                    .is_some_and(Path::is_dir),
+            );
+            // 上抛时刻的 live `.log` 内容：`begin → write_command → 上抛 → spawn`
+            // 的顺序判据（spawn 尚未发生 ⇒ 增量读为空串、游标为 0）
+            delta_at_emit.lock().expect("增量探测锁不可中毒").push(
+                exec::read_exec_output_delta_in(&change_dir, exec_id, 0)
+                    .map(|delta| (delta.text, delta.next_offset)),
+            );
+            emitted
+                .lock()
+                .expect("上抛记录锁不可中毒")
+                .push(exec_id.to_owned());
+            // 真实 runner 侧的补发拍：与 `walker::run_tool` 的组装同式
+            attach_emitter.attach_output_ref(
+                &attach_change,
+                1,
+                ChangeStepKind::StaticCheck,
+                0,
+                exec_id,
+            );
+        })
+    });
+
+    let (guard_path, original) = prefix_path(env.ws_root.path());
+    let output = checks_runtime::ProcessStaticCheck::new()
+        .run(
+            &root,
+            change,
+            slot,
+            foundation::cancel::CancelFlag::never(),
+            sink,
+        )
+        .await;
+    restore_path(guard_path, original);
+    let output = output.expect("静态检查应 Ok");
+    let ToolStepOutput::StaticCheck(outcome) = output else {
+        panic!("产出应为 StaticCheck 变体");
+    };
+    drop(guard);
+
+    let emitted = emitted.lock().expect("上抛记录锁不可中毒").clone();
+    let log_present = log_present.lock().expect("log 探测锁不可中毒").clone();
+    let parent_present = parent_present.lock().expect("父目录探测锁不可中毒").clone();
+    let delta_at_emit = delta_at_emit.lock().expect("增量探测锁不可中毒").clone();
+    RefChainRun {
+        emitted,
+        log_present,
+        parent_present,
+        delta_at_emit,
+        outcome,
+    }
+}
+
+/// 组合根上抛链的 workspace 装置：建档 + `openspec/config.json` 登记 shim 裸名。
+fn ref_chain_env(tag: &str) -> (Env, App<tauri::test::MockRuntime>, String) {
+    let env = Env::new(tag);
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    seed_change(&app, &env.root(), CHANGE, "requirement");
+    let shim = write_static_shim(env.ws_root.path());
+    fs::create_dir_all(env.ws_root.path().join("openspec")).expect("建 openspec 目录");
+    fs::write(
+        env.ws_root.path().join("openspec/config.json"),
+        format!("{{ \"static_analysis\": \"{shim}\" }}"),
+    )
+    .expect("写 config 失败");
+    (env, app, shim)
+}
+
+/// 正向：`begin_run` → `emitter()` → `OutputRefSink::new(..)` → 真实
+/// `ProcessStaticCheck::run(.., Some(sink))` + 真实 shim → 回调**恰 1 次**且回调内
+/// `.log` 与父目录均在案（AC-11 的链路端到端判据）。
+#[tokio::test]
+async fn 组合根装配_上抛链回调恰一次且回调内log已在() {
+    let (env, app, _shim) = ref_chain_env("ref-chain");
+
+    let run = drive_static_check_ref_chain(
+        &env,
+        &app,
+        CHANGE,
+        foundation::layout::ReportSlot::Test,
+        true,
+    )
+    .await;
+
+    assert_eq!(run.emitted.len(), 1, "上抛恰 1 次: {:?}", run.emitted);
+    assert_eq!(run.log_present, vec![true], "回调内 `.log` 已在（AC-11）");
+    assert_eq!(
+        run.parent_present,
+        vec![true],
+        "回调内父目录已在（watch 订阅可生效）"
+    );
+    assert!(run.outcome.passed, "shim 退出 0 → passed");
+    assert_eq!(
+        run.outcome.output_ref.as_deref(),
+        Some(run.emitted[0].as_str()),
+        "终态 output_ref == 回调收到值（同 id 收口）"
+    );
+}
+
+/// 正向：同链路 → `control.snapshot(root, change_id)` 里该步节点携同一
+/// `output_ref` 且 `status == running`（补发拍已落到图上——AC-5 的运行中可点
+/// 前提：前端据节点 `output_ref` 订阅 stdout 面板）。
+#[tokio::test]
+async fn 组合根装配_补发拍落图_节点携同一output_ref() {
+    let (env, app, _shim) = ref_chain_env("ref-chain-node");
+
+    let run = drive_static_check_ref_chain(
+        &env,
+        &app,
+        CHANGE,
+        foundation::layout::ReportSlot::Test,
+        true,
+    )
+    .await;
+    let exec_id = run.emitted.first().cloned().expect("上抛已发生");
+
+    let snapshot = app
+        .state::<Arc<ChangeFlowControl>>()
+        .snapshot(&env.root(), CHANGE)
+        .expect("run 仍在注册表（guard 已 drop，未 finish ⇒ 条目在位）");
+    let node = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.output_ref.as_deref() == Some(exec_id.as_str()))
+        .unwrap_or_else(|| panic!("补发拍应落到图上: {:?}", snapshot.nodes));
+    assert_eq!(node.step, ChangeStepKind::StaticCheck, "节点步类型");
+    assert_eq!(
+        node.status,
+        ChangeStepStatus::Running,
+        "补发拍状态为 running（终态拍由 walker 另 emit）"
+    );
+    assert_eq!(node.output_ref.as_deref(), Some(exec_id.as_str()));
+}
+
+/// 异常：`on_output_ref: None`（老调用形态）→ 链路零行为差异：`output_ref` 仍按
+/// `commit` 回填、`.log` / `.cmd` 形态与 `Some` 臂一致（「未提供回调即老行为」）。
+#[tokio::test]
+async fn 组合根装配_无回调臂记录形态与上抛臂一致() {
+    let (env, app, _shim) = ref_chain_env("ref-chain-none");
+
+    let run = drive_static_check_ref_chain(
+        &env,
+        &app,
+        CHANGE,
+        foundation::layout::ReportSlot::Test,
+        false,
+    )
+    .await;
+
+    assert!(run.emitted.is_empty(), "无回调 ⇒ 零上抛");
+    let exec_id = run.outcome.output_ref.clone().expect("仍按 commit 回填");
+    let dir = foundation::layout::change_test_reports(Path::new(&env.root()), CHANGE)
+        .join("exec-outputs");
+    assert!(
+        dir.join(format!("{exec_id}.log")).is_file(),
+        ".log 形态一致"
+    );
+    assert!(
+        dir.join(format!("{exec_id}.cmd")).is_file(),
+        ".cmd 形态一致（回调缺席零影响）"
+    );
+}
+
+/// 边界：`slot = Baseline` → `.log` / `.cmd` 落 `reports/baseline/exec-outputs/`，
+/// 回调内 `exec_output_log_path_in` 命中的是 baseline 树路径（槽位锚点不串树）。
+#[tokio::test]
+async fn 组合根装配_baseline槽位上抛链落baseline树() {
+    let (env, app, _shim) = ref_chain_env("ref-chain-baseline");
+
+    let run = drive_static_check_ref_chain(
+        &env,
+        &app,
+        CHANGE,
+        foundation::layout::ReportSlot::Baseline,
+        true,
+    )
+    .await;
+
+    assert_eq!(run.emitted.len(), 1, "baseline 槽位同样恰 1 次上抛");
+    assert_eq!(run.log_present, vec![true], "回调内 baseline `.log` 已在");
+    let exec_id = run.emitted[0].clone();
+    let baseline_dir = foundation::layout::change_reports(
+        Path::new(&env.root()),
+        CHANGE,
+        foundation::layout::ReportSlot::Baseline,
+    )
+    .join("exec-outputs");
+    assert!(
+        baseline_dir.join(format!("{exec_id}.log")).is_file(),
+        "baseline .log 在场"
+    );
+    assert!(
+        baseline_dir.join(format!("{exec_id}.cmd")).is_file(),
+        "baseline .cmd 在场"
+    );
+    let test_dir = foundation::layout::change_test_reports(Path::new(&env.root()), CHANGE)
+        .join("exec-outputs");
+    assert!(!test_dir.exists(), "test 树零混居");
+}
+
+/// 边界：**上抛早于 spawn**——回调内 `read_exec_output_delta_in(.., 0)` 读到
+/// `Some { text: "", next_offset: 0 }`（`begin` 刚建的空 `.log`，shim 首行输出尚
+/// 未产生），证明五步链的顺序为「`begin` → `write_command` → 上抛 → `spawn`」而非
+/// 先跑后抛。
+#[tokio::test]
+async fn 组合根装配_上抛时刻早于spawn且live记录为空() {
+    let (env, app, _shim) = ref_chain_env("ref-chain-before-spawn");
+
+    let run = drive_static_check_ref_chain(
+        &env,
+        &app,
+        CHANGE,
+        foundation::layout::ReportSlot::Test,
+        true,
+    )
+    .await;
+
+    assert_eq!(run.emitted.len(), 1, "上抛恰 1 次");
+    assert_eq!(
+        run.delta_at_emit,
+        vec![Some((String::new(), 0))],
+        "上抛时刻 live `.log` 为空（spawn 尚未产出字节；`Some` ≠ miss）"
+    );
+
+    // 对照：终态同 id 的 `.log` 已收口为权威内容（非空），证明上抛时刻确实更早
+    let exec_id = run.emitted[0].clone();
+    let change_dir = env.ws_root.path().join("openspec/changes").join(CHANGE);
+    let settled =
+        exec::read_exec_output_delta_in(&change_dir, &exec_id, 0).expect("终态增量读应命中");
+    assert!(
+        !settled.text.is_empty(),
+        "终态 `.log` 已收口（shim 输出在场）: {:?}",
+        settled.text
+    );
+    assert!(
+        settled.text.lines().collect::<Vec<_>>() == ["static-out", "static-err"]
+            || settled.text.lines().collect::<Vec<_>>() == ["static-err", "static-out"],
+        "终态内容为 shim 真实交错输出: {:?}",
+        settled.text
+    );
+}
+
+/// 异常：`archi` 槽位拒收臂 → 真实 `ProcessStaticCheck::run(.., Archi, ..)` 显式
+/// `Err`、回调**零**调用（槽位守卫先于 `begin`/`write_command`/上抛/spawn 全部
+/// 步骤）、`reports/archi` **零**新增文件（checks 域不接受该槽位——漂移报告 JSON
+/// 与 checks 报告树语义分树）。
+#[tokio::test]
+async fn 组合根装配_archi槽位拒收臂回调零调用且零新增文件() {
+    let (env, app, _shim) = ref_chain_env("ref-chain-archi");
+    let root = env.root();
+    let guard = app
+        .state::<Arc<ChangeFlowControl>>()
+        .begin_run(&root, CHANGE, "run-ref-archi".to_owned(), STARTED_AT)
+        .expect("begin_run 登记应成功");
+    let emitter = guard.emitter();
+
+    let emitted: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&emitted);
+    let attach_change = CHANGE.to_owned();
+    let sink = OutputRefSink::new(move |exec_id: &str| {
+        recorder
+            .lock()
+            .expect("上抛记录锁不可中毒")
+            .push(exec_id.to_owned());
+        emitter.attach_output_ref(&attach_change, 1, ChangeStepKind::StaticCheck, 0, exec_id);
+    });
+
+    let archi_reports = foundation::layout::change_reports(
+        Path::new(&root),
+        CHANGE,
+        foundation::layout::ReportSlot::Archi,
+    );
+    let (guard_path, original) = prefix_path(env.ws_root.path());
+    let result = checks_runtime::ProcessStaticCheck::new()
+        .run(
+            &root,
+            CHANGE,
+            foundation::layout::ReportSlot::Archi,
+            foundation::cancel::CancelFlag::never(),
+            Some(sink),
+        )
+        .await;
+    restore_path(guard_path, original);
+    let snapshot = app
+        .state::<Arc<ChangeFlowControl>>()
+        .snapshot(&root, CHANGE)
+        .expect("run 条目在位");
+    drop(guard);
+
+    let error = result.expect_err("checks 域 MUST NOT 接受 archi 槽位");
+    assert!(
+        error.contains("archi") && error.contains("架构门禁"),
+        "Err 文案指明槽位归属: {error}"
+    );
+    assert!(
+        emitted.lock().expect("上抛记录锁不可中毒").is_empty(),
+        "槽位守卫先于上抛 ⇒ 回调零调用"
+    );
+    assert!(
+        !archi_reports.exists(),
+        "reports/archi 零创建（槽位守卫先于 IO）: {}",
+        archi_reports.display()
+    );
+    assert!(
+        snapshot.nodes.iter().all(|node| node.output_ref.is_none()),
+        "零上抛 ⇒ 图上无 output_ref 补发拍: {:?}",
+        snapshot.nodes
+    );
+    // 同 workspace 的 test / baseline 两树同样零新增（记录链一步未启动）
+    for slot in [
+        foundation::layout::ReportSlot::Test,
+        foundation::layout::ReportSlot::Baseline,
+    ] {
+        let exec_outputs =
+            foundation::layout::change_reports(Path::new(&root), CHANGE, slot).join("exec-outputs");
+        assert!(
+            !exec_outputs.exists()
+                || fs::read_dir(&exec_outputs)
+                    .expect("读目录")
+                    .next()
+                    .is_none(),
+            "槽位拒收 ⇒ {slot:?} 树零新增记录文件"
+        );
+    }
+}
+
+/// 异常：命令不可达 → 回调**零**调用（零 spawn ⇒ 零上抛）、`Err` 显式、记录树零
+/// 新增文件。
+#[tokio::test]
+async fn 组合根装配_命令不可达臂上抛零调用() {
+    let env = Env::new("ref-chain-missing");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    seed_change(&app, &env.root(), CHANGE, "requirement");
+    fs::create_dir_all(env.ws_root.path().join("openspec")).expect("建 openspec 目录");
+    fs::write(
+        env.ws_root.path().join("openspec/config.json"),
+        "{ \"static_analysis\": \"no-such-static-check-cmd-for-ref-xyz\" }",
+    )
+    .expect("写 config 失败");
+
+    let guard = app
+        .state::<Arc<ChangeFlowControl>>()
+        .begin_run(
+            &env.root(),
+            CHANGE,
+            "run-ref-missing".to_owned(),
+            STARTED_AT,
+        )
+        .expect("begin_run 登记应成功");
+    let emitted: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&emitted);
+    let sink = OutputRefSink::new(move |exec_id: &str| {
+        recorder
+            .lock()
+            .expect("上抛记录锁不可中毒")
+            .push(exec_id.to_owned());
+    });
+
+    let result = checks_runtime::ProcessStaticCheck::new()
+        .run(
+            &env.root(),
+            CHANGE,
+            foundation::layout::ReportSlot::Test,
+            foundation::cancel::CancelFlag::never(),
+            Some(sink),
+        )
+        .await;
+    drop(guard);
+
+    assert!(result.is_err(), "不可达命令应 Err");
+    assert!(
+        emitted.lock().expect("上抛记录锁不可中毒").is_empty(),
+        "零 spawn ⇒ 上抛零调用"
+    );
+    assert!(
+        !foundation::layout::change_test_reports(Path::new(&env.root()), CHANGE)
+            .join("exec-outputs")
+            .exists(),
+        "零 spawn ⇒ 零记录目录"
+    );
+}
+
+/// 边界：`ToolStepRequest.on_output_ref: Some(..)` 经 `LocalToolSteps` 的
+/// StaticCheck 分支原样交到 runner（上抛通道的装配面），且
+/// `crates/core/orchestration/Cargo.toml` 零 `checks-runtime`（design D17 的机械
+/// 判据：core → infra 反向边 MUST NOT 引入，组合落点留在壳层）。
+#[tokio::test]
+async fn 组合根装配_请求上抛通道原样透传且core依赖零反向边() {
+    use orchestration::steps::LocalToolSteps;
+    use workflow::state::ChangeStateStore;
+    use workflow::write::SessionAnchors;
+
+    let (env, app, _shim) = ref_chain_env("ref-chain-passthrough");
+    let root = env.root();
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let store_port: Arc<dyn ChangeStateStore> = store.clone();
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&seen);
+
+    /// 记录型 static-check 真件：只观测「请求里的上抛通道是否原样到达 runner」
+    struct RecordingStaticRunner {
+        seen: Arc<Mutex<Vec<String>>>,
+    }
+    impl StaticCheckRunner for RecordingStaticRunner {
+        fn run(
+            &self,
+            _root: &str,
+            _name: &str,
+            _slot: foundation::layout::ReportSlot,
+            _cancel: foundation::cancel::CancelFlag,
+            on_output_ref: Option<OutputRefSink>,
+        ) -> orchestration::port::BoxToolFuture {
+            if let Some(sink) = on_output_ref {
+                sink.emit("exec-passthrough");
+                self.seen
+                    .lock()
+                    .expect("上抛记录锁不可中毒")
+                    .push("exec-passthrough".to_owned());
+            }
+            Box::pin(async {
+                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                    passed: true,
+                    diagnostics: String::new(),
+                    fault: None,
+                    output_ref: Some("exec-passthrough".to_owned()),
+                    report_dir: String::new(),
+                }))
+            })
+        }
+    }
+
+    let tools = LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(RecordingStaticRunner {
+            seen: Arc::clone(&recorder),
+        }),
+        Arc::new(checks_runtime::ProcessTestExecution::new()),
+        Arc::new(checks_runtime::ProcessMutation::new()),
+        Arc::new(archi_runtime::LocalArchiCheck::new()),
+        Arc::new(vcs_runtime::ProcessArchiveVcs::new()),
+        store_port,
+        "run-passthrough".to_owned(),
+    );
+    let guard = app
+        .state::<Arc<ChangeFlowControl>>()
+        .begin_run(&root, CHANGE, "run-passthrough".to_owned(), STARTED_AT)
+        .expect("begin_run 登记应成功");
+    let emitter = guard.emitter();
+    let sink = OutputRefSink::new(move |exec_id: &str| {
+        emitter.attach_output_ref(CHANGE, 1, ChangeStepKind::StaticCheck, 0, exec_id);
+    });
+
+    let output = tools
+        .run(ToolStepRequest {
+            root: root.clone(),
+            cancel: foundation::cancel::CancelFlag::never(),
+            command: ToolCommand::StaticCheck {
+                change_id: CHANGE.to_owned(),
+                slot: foundation::layout::ReportSlot::Test,
+            },
+            on_output_ref: Some(sink),
+        })
+        .await
+        .expect("静态检查步应 Ok");
+    let snapshot = app
+        .state::<Arc<ChangeFlowControl>>()
+        .snapshot(&root, CHANGE)
+        .expect("run 条目在位");
+    drop(guard);
+
+    assert!(
+        matches!(output, ToolStepOutput::StaticCheck(_)),
+        "产出型别为 StaticCheck"
+    );
+    assert_eq!(
+        seen.lock().expect("上抛记录锁不可中毒").clone(),
+        vec!["exec-passthrough".to_owned()],
+        "请求的上抛通道原样到达 runner（不被 steps 层吞掉）"
+    );
+    assert!(
+        snapshot
+            .nodes
+            .iter()
+            .any(|node| node.output_ref.as_deref() == Some("exec-passthrough")),
+        "补发拍落图: {:?}",
+        snapshot.nodes
+    );
+
+    let manifest = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/core/orchestration/Cargo.toml"),
+    )
+    .expect("读 orchestration 清单");
+    assert!(
+        !manifest.contains("checks-runtime"),
+        "core → infra 反向边零引入（design D17）"
     );
 }

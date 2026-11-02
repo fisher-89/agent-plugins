@@ -352,6 +352,8 @@ async fn 模板串边界_空与空白err_特殊字符逐字保留() {
             &plan,
             &ws.path().join("reports").join("blank"),
             foundation::cancel::CancelFlag::never(),
+            None,
+            None,
         )
         .await
         .expect_err(&format!("{shape} 应显式 Err（展开后的命令为空白）"));
@@ -456,9 +458,15 @@ async fn 真实spawn_预置工件拷贝到占位路径_解析产出() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &report_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("退出 0 + 工件在位应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &report_dir,
+        foundation::cancel::CancelFlag::never(),
+        None,
+        None,
+    )
+    .await
+    .expect("退出 0 + 工件在位应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
     assert!(
@@ -525,6 +533,8 @@ async fn windows引号占位模板_重定向工件落位() {
         &plan,
         &ws.path().join("reports").join("it_node-test"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("引号形态应正常执行");
@@ -590,9 +600,15 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
         "展开串无 `cargo test` 注入锚点（重定向已进模板），实际: {expected}"
     );
 
-    let execution = execute_plan(&plan, &report_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("替身命令应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &report_dir,
+        foundation::cancel::CancelFlag::never(),
+        None,
+        None,
+    )
+    .await
+    .expect("替身命令应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
     assert!(
@@ -647,9 +663,15 @@ async fn 单条命令双工件同落位_结果与覆盖同源解析() {
     };
     let plan = rust_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &report_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("双工件替身命令应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &report_dir,
+        foundation::cancel::CancelFlag::never(),
+        None,
+        None,
+    )
+    .await
+    .expect("双工件替身命令应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码直继承");
     assert!(
@@ -699,6 +721,8 @@ async fn 多running块结果工件解析_用例行全量且失败归因() {
         &plan,
         &ws.path().join("reports").join("rust-blocks"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("结果工件替身命令应 Ok");
@@ -781,6 +805,8 @@ async fn 退出码直继承_产双工件后非零() {
         &plan,
         &ws.path().join("reports").join("rust-red"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("被测域失败走产出（不 Err）");
@@ -834,6 +860,8 @@ async fn llvm_cov工件缺失且非零_error面记因不出假绿() {
         &plan,
         &ws.path().join("reports").join("rust-lock"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("被测域失败走产出（不 Err）");
@@ -891,6 +919,8 @@ async fn 退出码谱边界_逐一透传与零error() {
         &plan,
         &ws.path().join("reports").join("spec-0"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("零形态应 Ok");
@@ -914,6 +944,8 @@ async fn 退出码谱边界_逐一透传与零error() {
             &plan,
             &ws.path().join("reports").join(format!("spec-{code}")),
             foundation::cancel::CancelFlag::never(),
+            None,
+            None,
         )
         .await
         .expect("非零退出走产出（不 Err）");
@@ -964,6 +996,8 @@ async fn istanbul文件级失败走附注_not零用例误归因() {
         &plan,
         &ws.path().join("reports").join("it_jest_file_failure"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("文件级失败样本应 Ok");
@@ -1029,6 +1063,8 @@ async fn 结果工件零用例_error面记因不出假绿() {
             &plan,
             &ws.path().join("reports").join(format!("zero-{tag}")),
             foundation::cancel::CancelFlag::never(),
+            None,
+            None,
         )
         .await
         .expect("零用例形态走产出（不 Err）");
@@ -1074,6 +1110,8 @@ async fn 结果工件空与缺失_error面分化() {
         &plan,
         &ws.path().join("reports").join("empty-results"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("空工件形态应 Ok");
@@ -1099,6 +1137,8 @@ async fn 结果工件空与缺失_error面分化() {
         &plan,
         &ws.path().join("reports").join("missing-results"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("缺工件形态应 Ok");
@@ -1140,6 +1180,8 @@ async fn 退出零但覆盖率工件缺失_null感知跳过() {
         &plan,
         &ws.path().join("reports").join("rust-no-cov"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("仅产结果工件应 Ok");
@@ -1191,6 +1233,8 @@ async fn jest档结果报告解析用例行_覆盖块独立读取() {
         &plan,
         &ws.path().join("reports").join("it_jest"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("jest 档替身命令应 Ok");
@@ -1235,6 +1279,8 @@ async fn 裸名程序不可达err显式() {
         &plan,
         &ws.path().join("reports").join("p"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect_err("不可达程序应 Err（基础设施失败显式停给用户）");
@@ -1263,6 +1309,8 @@ async fn 相对cwd程序不可达err显式() {
         &plan,
         &ws.path().join("reports").join("p"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect_err("相对 cwd 不可达应 Err");
@@ -1291,6 +1339,8 @@ async fn 非零退出且工件不可解析_error面产出() {
         &plan,
         &ws.path().join("reports").join("p"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("被测域失败走产出（不 Err）");
@@ -1330,6 +1380,8 @@ async fn 非零退出错误面携带进程报错文本() {
         &plan,
         &ws.path().join("reports").join("p"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("被测域失败走产出（不 Err）");
@@ -1396,6 +1448,8 @@ async fn 成功退出零工件_解析错误面() {
         &plan,
         &ws.path().join("reports").join("p"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("成功退出应 Ok");
@@ -1470,6 +1524,8 @@ async fn 合并流_stdout前缀stderr后缀逐字() {
         &plan,
         &ws.path().join("reports").join("m"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("绿跑形态应 Ok");
@@ -1501,6 +1557,8 @@ async fn 合并流独立承载_error经合并文本派生() {
         &plan,
         &ws.path().join("reports").join("e"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("被测域失败走产出（不 Err）");
@@ -1551,9 +1609,15 @@ async fn 合并流语义保持_stdout进工件而output只载stderr() {
     };
     let plan = rust_plan(&cwd, green);
     let report_dir = ws.path().join("reports").join("rust-stream");
-    let execution = execute_plan(&plan, &report_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("绿跑臂应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &report_dir,
+        foundation::cancel::CancelFlag::never(),
+        None,
+        None,
+    )
+    .await
+    .expect("绿跑臂应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
     let results = std::fs::read_to_string(report_dir.join("results.txt"))
@@ -1586,6 +1650,8 @@ async fn 合并流语义保持_stdout进工件而output只载stderr() {
         &plan,
         &ws.path().join("reports").join("rust-stream-red"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("红跑臂走产出（不 Err）");
@@ -1629,6 +1695,8 @@ async fn 边界_空输出与大输出全量承载() {
         &plan,
         &ws.path().join("reports").join("empty"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("静默命令应 Ok");
@@ -1649,6 +1717,8 @@ async fn 边界_空输出与大输出全量承载() {
         &plan,
         &ws.path().join("reports").join("long"),
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("大输出形态应 Ok");
@@ -1680,9 +1750,15 @@ async fn 边界_空输出与大输出全量承载() {
     };
     let plan = rust_plan(&cwd, verbose_rust);
     let report_dir = ws.path().join("reports").join("long-rust");
-    let execution = execute_plan(&plan, &report_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("rust 大输出形态应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &report_dir,
+        foundation::cancel::CancelFlag::never(),
+        None,
+        None,
+    )
+    .await
+    .expect("rust 大输出形态应 Ok");
     let results =
         std::fs::read_to_string(report_dir.join("results.txt")).expect("大输出结果工件落报告树");
     assert_eq!(
@@ -1815,8 +1891,9 @@ async fn 超时臂_负一哨兵与超时文案且目标pid消失() {
     let report_dir = ws.path().join("reports").join("it_node-test");
 
     // 运行体在任务内（主任务负责「等 pid 落盘 → 推进虚拟时钟」的握手）
-    let runner =
-        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    let runner = tokio::spawn(async move {
+        execute_plan(&plan, &report_dir, CancelFlag::never(), None, None).await
+    });
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
 
     let started = Instant::now();
@@ -1873,7 +1950,7 @@ async fn 已置位cancel_fault为stopped且零spawn() {
 
     let cancel = CancelFlag::never();
     cancel.handle().set();
-    let execution = execute_plan(&plan, &report_dir, cancel)
+    let execution = execute_plan(&plan, &report_dir, cancel, None, None)
         .await
         .expect("取消不 Err（产出携 fault）");
     assert_eq!(
@@ -1912,7 +1989,8 @@ async fn 运行中cancel_秒级收敛且pid消失零报告写入() {
 
     let cancel = CancelFlag::never();
     let handle = cancel.handle();
-    let runner = tokio::spawn(async move { execute_plan(&plan, &report_dir, cancel).await });
+    let runner =
+        tokio::spawn(async move { execute_plan(&plan, &report_dir, cancel, None, None).await });
 
     // 等 pid 落盘（进程已建立）后置位取消
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
@@ -1984,6 +2062,8 @@ async fn 双管道大块并发_output全长拼接且不互锁() {
         &plan,
         &ws.path().join("reports").join("it_node-test"),
         CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("双管道并发应 Ok");
@@ -2121,8 +2201,9 @@ async fn 瞬态耗尽_fault为环境错误且零execution_error() {
     let report_dir = ws.path().join("reports").join("it_node-test");
 
     // 运行体在任务内（主任务负责推进虚拟时钟：4 段退避 15 s 不真等）
-    let runner =
-        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    let runner = tokio::spawn(async move {
+        execute_plan(&plan, &report_dir, CancelFlag::never(), None, None).await
+    });
     advance_until(
         || runner.is_finished(),
         Duration::from_millis(100),
@@ -2206,8 +2287,9 @@ async fn 瞬态自愈_fault为空且正常解析() {
     let report_dir = ws.path().join("reports").join("it_node-test");
 
     // 运行体在任务内（主任务推进虚拟时钟：1 s 退避不真等）
-    let runner =
-        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    let runner = tokio::spawn(async move {
+        execute_plan(&plan, &report_dir, CancelFlag::never(), None, None).await
+    });
     advance_until(
         || runner.is_finished(),
         Duration::from_millis(100),
@@ -2261,7 +2343,7 @@ async fn 裸failed_to_write不产fault且单次尝试() {
     let plan = node_test_plan(&cwd, template);
     let report_dir = ws.path().join("reports").join("it_node-test");
 
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("非零退出仍 Ok");
 
@@ -2374,8 +2456,9 @@ async fn 合并流推进序列到fault文本() {
     let plan = node_test_plan(&cwd, template);
     let report_dir = ws.path().join("reports").join("it_node-test");
 
-    let runner =
-        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    let runner = tokio::spawn(async move {
+        execute_plan(&plan, &report_dir, CancelFlag::never(), None, None).await
+    });
     advance_until(
         || runner.is_finished(),
         Duration::from_millis(100),
@@ -2441,8 +2524,9 @@ async fn 两次相同计数产卡死判定语() {
     let plan = node_test_plan(&cwd, template);
     let report_dir = ws.path().join("reports").join("it_node-test");
 
-    let runner =
-        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    let runner = tokio::spawn(async move {
+        execute_plan(&plan, &report_dir, CancelFlag::never(), None, None).await
+    });
     advance_until(
         || runner.is_finished(),
         Duration::from_millis(100),
@@ -2499,7 +2583,7 @@ async fn plan_execution字段面零变() {
     let plan = node_test_plan(&cwd, template);
     let report_dir = ws.path().join("reports").join("it_node-test");
 
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("绿跑应 Ok");
 
@@ -3308,7 +3392,7 @@ async fn 执行臂_未超预算零降级且argv_len同展开口径() {
     let plan = node_test_plan(&cwd, template);
     let report_dir = ws.path().join("reports").join("it_node-test");
 
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("绿跑应 Ok");
 
@@ -3356,7 +3440,7 @@ async fn 执行臂_取消臂零降级注且长度可回查() {
 
     let cancel = CancelFlag::never();
     cancel.handle().set();
-    let execution = execute_plan(&plan, &report_dir, cancel)
+    let execution = execute_plan(&plan, &report_dir, cancel, None, None)
         .await
         .expect("取消不 Err（产出携 fault）");
 
@@ -3454,7 +3538,7 @@ async fn 执行臂_超预算可降级则省略files执行成功() {
         "降级后长度恰等预算（Omit 有效性边界）"
     );
 
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("降级臂应正常执行（不 Err）");
     for key in ["ARGV_SHIM_LOG", "ARGV_SHIM_SPEC", "ARGV_SHIM_RESULTS"] {
@@ -3539,7 +3623,7 @@ async fn 执行臂_超预算不可降级则环境归因零spawn() {
     plan.omit_files_safe = false;
     let report_dir = ws.path().join("reports").join("it_node-test");
 
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("拒绝降级不 Err（产出携 fault）");
     std::env::remove_var("ARGV_REJECT_MARKER");
@@ -3607,7 +3691,7 @@ async fn 执行臂_降级后仍超预算与不可降级同出口() {
     let omitted_len = omitted_for(&plan, &report_dir).chars().count();
     assert_eq!(omitted_len, 7100, "降级后仍超预算（构造）");
 
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("降级无效不 Err（产出携 fault）");
 
@@ -3664,7 +3748,7 @@ async fn 执行臂_unix无预算超预算原样执行() {
         expanded.chars().count()
     );
 
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("unix 无预算 → 原样执行（不 Err）");
 
@@ -3709,7 +3793,7 @@ async fn 执行臂_argv_len口径为字符数() {
         format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
     };
     let plan = node_test_plan(&cwd, template);
-    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never(), None, None)
         .await
         .expect("多字节路径绿跑应 Ok");
     let expanded = expanded_for(&plan, &report_dir);
@@ -3741,7 +3825,7 @@ async fn 执行臂_argv_len口径为字符数() {
         format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
     };
     let rust = rust_plan(&cwd, static_template);
-    let execution = execute_plan(&rust, &static_report_dir, CancelFlag::never())
+    let execution = execute_plan(&rust, &static_report_dir, CancelFlag::never(), None, None)
         .await
         .expect("空清单档绿跑应 Ok");
     let expanded = expanded_for(&rust, &static_report_dir);
@@ -3753,5 +3837,446 @@ async fn 执行臂_argv_len口径为字符数() {
     assert!(
         !expanded.contains("test.mjs"),
         "空清单档展开串不含文件清单: {expanded}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `execute_plan` 的透传面（change-detail-live-stdout，AC-3 / AC-11 顺序面）
+//
+// 被测面：两个末位形参只做透传——`live` 原样交给 `run_shell`（运行中 tee 落
+// 盘），`on_command` 在 `decide_argv` 得出最终命令串之后、`ensure_program_
+// resolvable` 与 spawn 之前被调用**恰一次**（`Reject` 臂零调用——零 spawn 即零
+// 新段）；记录生命周期（`begin` / `write_command` / `commit`）**零职责**。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：真实 tempdir 报告目录 + 真实
+// 平台模板（shim 为真实子进程）；`on_command` 观察面用
+// `Arc<Mutex<Vec<String>>>` 记录器（该回调是被测函数的**显式入参**）；`sink`
+// 观察面用真实 `LiveSink`（crate 内直构指向上锁记录器）。
+// ---------------------------------------------------------------------------
+
+use std::sync::{Arc, Mutex};
+
+/// live 记录落盘的 change 名（`reports/test/exec-outputs` 派生键）。
+const LIVE_TAG: &str = "live-tee";
+
+/// 命令回吐记录器（`on_command` 的显式入参观测面）。
+fn command_recorder() -> (Arc<Mutex<Vec<String>>>, impl Fn(&str) + Sync + 'static) {
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&seen);
+    (seen, move |command: &str| {
+        recorder
+            .lock()
+            .expect("命令记录锁不可中毒")
+            .push(command.to_owned());
+    })
+}
+
+/// live 观察器：经**公共路径** `LiveExec::sink()` 取真实 `LiveSink`（`LiveSink::new`
+/// 为 exec crate 内 `pub(crate)`，checks 侧只能经此构造）。返回
+/// `(LiveExec 持有者, sink)`——`LiveExec` 须在 sink 使用期间存活（`Arc` 共享句柄
+/// 的唯一生产路径），落盘内容经 [`live_tee_bytes`] 读回。
+fn sink_recorder(root: &Path, tag: &str) -> (exec::LiveExec, exec::LiveSink) {
+    let live = exec::LiveExec::begin(root, tag, foundation::layout::ReportSlot::Test)
+        .expect("建 live 记录");
+    let sink = live.sink();
+    (live, sink)
+}
+
+/// live 记录当前字节（tee 面观测：`execute_plan` 不 `commit`，故即 tee 累计）。
+fn live_tee_bytes(live: &exec::LiveExec) -> Vec<u8> {
+    std::fs::read(live.log_path()).unwrap_or_default()
+}
+
+/// 拷贝预置 spec 工件到 `{results_file}` 的平台模板（首 token 系统可执行）。
+fn copy_template(spec_src: &Path) -> String {
+    if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            spec_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
+    }
+}
+
+/// 正向：`Keep` 臂（未超预算）→ `on_command` 恰调用 1 次，入参逐字 == 展开后的
+/// 命令串（与 `PlanExecution.argv_len` 同源）；`live: Some(sink)` → sink 收到该
+/// plan 的输出字节。
+#[tokio::test]
+async fn 透传面_keep臂命令回吐恰一次且sink收输出() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
+    // 模板既落工件又向 stdout 写一行（tee 面观测需要真实 stdout 字节）
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\" & echo TEE-MARKER",
+            spec_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{results_file}}\"; echo TEE-MARKER",
+            spec_src.to_string_lossy()
+        )
+    };
+    let plan = node_test_plan(&cwd, template.clone());
+    let (seen, on_command) = command_recorder();
+    let (live, sink) = sink_recorder(ws.path(), LIVE_TAG);
+
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        foundation::cancel::CancelFlag::never(),
+        Some(sink),
+        Some(&on_command),
+    )
+    .await
+    .expect("应 Ok");
+
+    let commands = seen.lock().expect("命令记录锁不可中毒").clone();
+    assert_eq!(commands.len(), 1, "Keep 臂 on_command 恰 1 次");
+    assert_eq!(
+        commands[0].chars().count(),
+        execution.argv_len,
+        "回吐命令串长度 == argv_len（同源）"
+    );
+    assert!(
+        !commands[0].contains("{results_file}"),
+        "回吐的是展开后的命令串: {:?}",
+        commands[0]
+    );
+    assert_eq!(execution.exit_code, 0, "退出码透传");
+    let tee_bytes = live_tee_bytes(&live);
+    let tee_text = String::from_utf8_lossy(&tee_bytes).into_owned();
+    assert!(
+        tee_text.contains("TEE-MARKER"),
+        "live: Some → sink 收到该 plan 的输出字节: {tee_text:?}"
+    );
+    assert_eq!(
+        tee_bytes.len(),
+        execution.output.len(),
+        "sink 字节数 == 合并流字节数（同源 tee）"
+    );
+}
+
+/// 正向：`Omit` 臂（超预算但可安全降级）→ `on_command` 入参为降级后的命令串
+/// （含框架自发现、无 `{files}`），且 `argv_note` 在位。
+#[tokio::test]
+async fn 透传面_omit臂回吐降级后命令串() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    // 超长文件清单迫使 `{files}` 展开超预算（可安全降级 → Omit）
+    let files: Vec<String> = (0..600)
+        .map(|index| format!("src/case{index:03}.test.mjs"))
+        .collect();
+    let mut plan = argv_plan("node --test {files}", &[], true);
+    plan.cwd = cwd.clone();
+    plan.files = files;
+    let (seen, on_command) = command_recorder();
+
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        foundation::cancel::CancelFlag::never(),
+        None,
+        Some(&on_command),
+    )
+    .await
+    .expect("Omit 臂应 Ok（不返回 Err）");
+
+    let commands = seen.lock().expect("命令记录锁不可中毒").clone();
+    if cfg!(windows) {
+        assert_eq!(commands.len(), 1, "Omit 臂 on_command 恰 1 次");
+        assert!(
+            !commands[0].contains("case000.test.mjs"),
+            "回吐的是降级后的命令串（文件清单已剥离）: {:?}",
+            commands[0]
+        );
+        assert!(
+            !commands[0].contains("{files}"),
+            "降级后零 {{{{files}}}} 残留: {:?}",
+            commands[0]
+        );
+        assert!(
+            execution.argv_note.is_some(),
+            "降级说明在位: {:?}",
+            execution.argv_note
+        );
+        let note = execution.argv_note.unwrap_or_default();
+        assert!(note.contains("已降级为框架自发现"), "降级注文案: {note}");
+    } else {
+        // unix 无预算 ⇒ Keep：同一用例在无预算平台只作 Keep 面锚
+        assert_eq!(commands.len(), 1, "无预算平台走 Keep，同样恰 1 次");
+        assert!(execution.argv_note.is_none(), "Keep 臂无降级说明");
+    }
+}
+
+/// 异常：`Reject` 臂（不可安全降级 / 降级后仍超预算）→ `on_command` **零**
+/// 调用、零 spawn、`fault == Some(Environment(..))`（不返回 `Err`）。
+#[tokio::test]
+async fn 透传面_reject臂零回吐零spawn() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    // 不可安全降级 + 展开超预算 ⇒ Reject（unix 无预算 ⇒ 用例只锁 Ok 面）
+    let files: Vec<String> = (0..600)
+        .map(|index| format!("src/case{index:03}.test.mjs"))
+        .collect();
+    let mut plan = argv_plan("run.sh {files}", &[], false);
+    plan.cwd = cwd.clone();
+    plan.files = files;
+    let (seen, on_command) = command_recorder();
+    let (live, sink) = sink_recorder(ws.path(), LIVE_TAG);
+
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        foundation::cancel::CancelFlag::never(),
+        Some(sink),
+        Some(&on_command),
+    )
+    .await
+    .expect("Reject 臂不返回 Err（环境面归因）");
+
+    let commands = seen.lock().expect("命令记录锁不可中毒").clone();
+    if cfg!(windows) {
+        assert!(commands.is_empty(), "Reject 臂 on_command 零调用");
+        assert!(
+            matches!(execution.fault, Some(RunFault::Environment(_))),
+            "Reject 臂落 Environment 归因，实际: {:?}",
+            execution.fault
+        );
+        assert_eq!(execution.exit_code, EXIT_CODE_NO_STATUS, "无退出码哨兵");
+        assert!(execution.output.is_empty(), "零 spawn ⇒ 零输出");
+        assert!(live_tee_bytes(&live).is_empty(), "Reject 臂 live 零写入");
+    } else {
+        // unix 无预算 ⇒ Keep：命令裁决后可达性失败（`run.sh` 不可达）→ Err
+        assert_eq!(commands.len(), 1, "无预算平台先裁决后可达性失败，回吐 1 次");
+        assert!(execution.fault.is_none(), "无预算平台不落 Reject 臂");
+    }
+}
+
+/// 异常：`ensure_program_resolvable` 失败（程序不可达）→ `on_command` 已调用
+/// 1 次（命令串已裁决），返回 `Err` 且 `live` 面零写入（spawn 未发生）。
+#[tokio::test]
+async fn 透传面_程序不可达时命令已回吐且live零写入() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let plan = node_test_plan(&cwd, "no-such-runner-program-xyz {results_file}".to_owned());
+    let (seen, on_command) = command_recorder();
+    let (live, sink) = sink_recorder(ws.path(), LIVE_TAG);
+
+    let err = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        foundation::cancel::CancelFlag::never(),
+        Some(sink),
+        Some(&on_command),
+    )
+    .await
+    .expect_err("程序不可达应 Err");
+
+    assert!(err.contains("拉起失败"), "Err 记因拉起失败面: {err}");
+    assert_eq!(
+        seen.lock().expect("命令记录锁不可中毒").len(),
+        1,
+        "命令已裁决并回吐（可达性检查在其后）"
+    );
+    assert!(
+        live_tee_bytes(&live).is_empty(),
+        "spawn 未发生 ⇒ live 零写入"
+    );
+}
+
+/// 边界：`on_command` 被调用时刻早于 spawn——回调内探测「工件文件尚不存在」
+/// （`results_output` 不在案）⇒ 顺序为「裁决 → 回调 → 可达性 → spawn」。
+#[tokio::test]
+async fn 透传面_回吐时刻早于spawn() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
+    let plan = node_test_plan(&cwd, copy_template(&spec_src));
+    let report_dir = ws.path().join("reports").join("it_node-test");
+    let results_file = report_dir.join("results.txt");
+
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&observed);
+    let probe_file = results_file.clone();
+    let on_command = move |command: &str| {
+        recorder
+            .lock()
+            .expect("探测记录锁不可中毒")
+            .push((command.to_owned(), probe_file.exists()));
+    };
+
+    execute_plan(
+        &plan,
+        &report_dir,
+        foundation::cancel::CancelFlag::never(),
+        None,
+        Some(&on_command),
+    )
+    .await
+    .expect("应 Ok");
+
+    let observations = observed.lock().expect("探测记录锁不可中毒").clone();
+    assert_eq!(observations.len(), 1, "回调恰 1 次");
+    assert!(
+        !observations[0].1,
+        "回调时刻工件尚未生成（顺序：裁决 → 回调 → spawn）"
+    );
+    assert!(results_file.is_file(), "spawn 结束后工件已落位");
+}
+
+/// 边界：`cancel` 已置位 → spawn 入口短路：`on_command` 已调用 1 次（命令已
+/// 裁决）、`live` 零写入、`fault == Some(Stopped)`。
+#[tokio::test]
+async fn 透传面_入口短路时命令已回吐且fault为stopped() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
+    let plan = node_test_plan(&cwd, copy_template(&spec_src));
+    let (seen, on_command) = command_recorder();
+    let (live, sink) = sink_recorder(ws.path(), LIVE_TAG);
+    let cancel = foundation::cancel::CancelFlag::never();
+    cancel.handle().set();
+
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        cancel,
+        Some(sink),
+        Some(&on_command),
+    )
+    .await
+    .expect("取消以 fault 收口（不 Err）");
+
+    assert_eq!(
+        seen.lock().expect("命令记录锁不可中毒").len(),
+        1,
+        "命令已裁决并回吐（取消短路在 spawn 入口）"
+    );
+    assert_eq!(execution.fault, Some(RunFault::Stopped), "取消 → Stopped");
+    assert!(live_tee_bytes(&live).is_empty(), "入口短路 ⇒ live 零写入");
+}
+
+/// 边界：报告目录清理失败（`report_dir` 被文件占位）→ 在命令裁决**之前**早返
+/// `Err`：`on_command` 零调用、`live` 零写入。
+#[tokio::test]
+async fn 透传面_报告目录清理失败时零回吐() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
+    let plan = node_test_plan(&cwd, copy_template(&spec_src));
+    // 报告目录路径被文件占位：`remove_dir_all` / `create_dir_all` 均失败
+    let blocked = ws.path().join("reports").join("blocked");
+    std::fs::create_dir_all(blocked.parent().expect("父目录")).expect("建父目录");
+    std::fs::write(&blocked, "占位文件").expect("占位写失败");
+    let (seen, on_command) = command_recorder();
+    let (live, sink) = sink_recorder(ws.path(), LIVE_TAG);
+
+    let err = execute_plan(
+        &plan,
+        &blocked,
+        foundation::cancel::CancelFlag::never(),
+        Some(sink),
+        Some(&on_command),
+    )
+    .await
+    .expect_err("报告目录不可用应 Err");
+
+    assert!(err.contains("报告目录"), "Err 记因报告目录面: {err}");
+    assert!(
+        seen.lock().expect("命令记录锁不可中毒").is_empty(),
+        "早返于命令裁决之前 ⇒ 零回吐"
+    );
+    assert!(live_tee_bytes(&live).is_empty(), "live 零写入");
+}
+
+/// 边界：`live: None` 与 `on_command: None` → 与今日逐字节等价（两形参缺席即
+/// 老行为：`PlanExecution` 各字段照常装配、零额外副作用）。
+#[tokio::test]
+async fn 透传面_两形参缺席时行为零变() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
+    let plan = node_test_plan(&cwd, copy_template(&spec_src));
+
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        foundation::cancel::CancelFlag::never(),
+        None,
+        None,
+    )
+    .await
+    .expect("应 Ok");
+
+    assert_eq!(execution.exit_code, 0);
+    assert!(execution.error.is_none(), "零 error 面");
+    assert_eq!(execution.cases.len(), 5, "用例行解析零变");
+    assert!(execution.argv_len > 0, "argv_len 照常装配");
+    assert!(execution.argv_note.is_none(), "Keep 臂无降级说明");
+    assert!(execution.fault.is_none(), "绿面无归因");
+}
+
+/// 边界：`execute_plan` 零记录职责——即便两形参在位，本函数也**不**产生
+/// `.cmd` sidecar、**不**调用 `commit`（记录生命周期单点在 `mod.rs`）。
+#[tokio::test]
+async fn 透传面_execute_plan零sidecar与零commit职责() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
+    let plan = node_test_plan(&cwd, copy_template(&spec_src));
+    let report_dir = ws.path().join("reports").join("it_node-test");
+    let (seen, on_command) = command_recorder();
+    let (_live, sink) = sink_recorder(ws.path(), LIVE_TAG);
+
+    execute_plan(
+        &plan,
+        &report_dir,
+        foundation::cancel::CancelFlag::never(),
+        Some(sink),
+        Some(&on_command),
+    )
+    .await
+    .expect("应 Ok");
+
+    assert_eq!(
+        seen.lock().expect("命令记录锁不可中毒").len(),
+        1,
+        "命令文本只回吐给调用方（本函数零自行落盘）"
+    );
+    // 报告目录内零 `.cmd` 与零 `exec-outputs`（记录链在 mod.rs）
+    let mut names: Vec<String> = std::fs::read_dir(&report_dir)
+        .expect("读报告目录")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert!(
+        names.iter().all(|name| !name.ends_with(".cmd")),
+        "execute_plan 零 `.cmd` sidecar: {names:?}"
+    );
+    assert!(
+        !report_dir.join("exec-outputs").exists(),
+        "execute_plan 零记录生命周期（exec-outputs 不在此创建）"
     );
 }

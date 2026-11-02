@@ -3,7 +3,7 @@
 #![allow(clippy::await_holding_lock)]
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use checks::model::parse_cargo_mutants_seg;
@@ -833,4 +833,132 @@ async fn 输出含瞬态签名不触发段重试() {
         1,
         "段层零重试：签名命中也不追加尝试（spawn 恰 1 次）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 零 live 接入（change-detail-live-stdout，D14 / Q2）：`RunOptions { live: None }`
+// 两处构造的编译面涟漪——突变段在 `reports/<slot>/exec-outputs/` **零新增文件**。
+// ---------------------------------------------------------------------------
+
+/// 报告树文件名词表（相对路径排序——「零累积 / 零新增」的稳定快照面）。
+fn tree_names(root: &Path) -> Vec<String> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            out.push(relative.to_string_lossy().replace('\\', "/"));
+            if path.is_dir() {
+                walk(&path, root, out);
+            }
+        }
+    }
+    let mut names = Vec::new();
+    walk(root, root, &mut names);
+    names.sort();
+    names
+}
+
+/// 边界：**写操作幂等**——同一 `patch_path` 连续两次段执行 → `mutants.out` 被前次
+/// 清场后重建（不叠加残留）、`outcomes.json` 每次重读为当次权威、报告树零累积
+/// （`.log` / `.cmd` 亦零新增——`live: None` 在两次执行中都未改道输出）。
+#[tokio::test]
+async fn 同patch两跑幂等_报告树零累积() {
+    let ws = SpawnWs::new("idempotent");
+    let window = SpawnWindow::enter("cargo-idempotent");
+    window.install_fake_cargo(&ws.exec_dir);
+    window.set_cargo_outcomes(CARGO_SEG_CANNED);
+    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
+
+    let first = run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("首跑应 Ok");
+    let first_parsed = parse_cargo_mutants_seg(&first).expect("首跑载荷可解析");
+    let report_root = ws.mutation_dir.parent().expect("报告树根").to_path_buf();
+    let snapshot_after_first = tree_names(&report_root);
+
+    let second = run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("同 patch 再跑应 Ok");
+    let second_parsed = parse_cargo_mutants_seg(&second).expect("再跑载荷可解析");
+
+    assert_eq!(
+        (
+            second_parsed.measured.killed,
+            second_parsed.measured.survived,
+            second_parsed.measured.total
+        ),
+        (
+            first_parsed.measured.killed,
+            first_parsed.measured.survived,
+            first_parsed.measured.total
+        ),
+        "两次跑计数面同值（当次权威 = 同一 canned 报告）"
+    );
+    assert_eq!(
+        window.records().len(),
+        2,
+        "两次各 spawn 一次（零重试面：段层不追加尝试）"
+    );
+    assert_eq!(
+        tree_names(&report_root),
+        snapshot_after_first,
+        "报告树零累积（第二跑前清场重建，不新增文件）"
+    );
+    assert!(
+        !ws.exec_dir
+            .join("mutants.out")
+            .join("outcomes.json")
+            .exists()
+            || ws.exec_dir.join("mutants.out").is_dir(),
+        "mutants.out 为当次重建形态（不叠加残留）"
+    );
+    assert!(
+        !report_root.join("exec-outputs").exists(),
+        "两次跑均零 live 记录面（无 exec-outputs 目录）"
+    );
+}
+
+/// 边界：段执行后其报告树 `exec-outputs/` **零新增文件**（零 live 记录面，
+/// Q2 裁定的运行期判据）。
+#[tokio::test]
+async fn 段执行后零exec_outputs新增() {
+    let ws = SpawnWs::new("no-live");
+    let window = SpawnWindow::enter("cargo-no-live");
+    window.install_fake_cargo(&ws.exec_dir);
+    window.set_cargo_outcomes(CARGO_SEG_CANNED);
+    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
+
+    run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("假 spawn 段执行应 Ok");
+
+    // 报告树根（`reports/test/app_rust`）+ 兄弟槽位：均零 `exec-outputs` 目录
+    let report_root = ws.mutation_dir.parent().expect("报告树根");
+    for candidate in [
+        report_root.join("exec-outputs"),
+        report_root.join("baseline").join("exec-outputs"),
+    ] {
+        assert!(
+            !candidate.exists(),
+            "突变段零 live 记录面（{} 不应新建）",
+            candidate.display()
+        );
+    }
 }

@@ -128,6 +128,9 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "listChanges",
     "getChangeDetail",
     "readArtifact",
+    "execOutputPath",
+    "readExecCommand",
+    "readExecOutputDelta",
     "archiveChange",
     "listWorkspaces",
     "addWorkspace",
@@ -177,6 +180,9 @@ const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
     "read_artifact",
+    "exec_output_path",
+    "read_exec_command",
+    "read_exec_output_delta",
     "archive_change",
     "list_workspaces",
     "add_workspace",
@@ -224,6 +230,7 @@ const COMMAND_NAMES: &[&str] = &[
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
 const DTO_TYPES: &[&str] = &[
     "ActivePhase",
+    "ExecOutputChunk",
     "AgentBlock",
     "AgentEngineKind",
     "AgentEvent",
@@ -1037,13 +1044,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更自身再补录一条（架构页会话清单）：条目数 43 → 44
     assert_eq!(
         COMMAND_NAMES.len(),
-        45,
-        "命令清单补录六条 archi 命令 + list_archi_chat_sessions（44 → 45）"
+        48,
+        "命令清单再补录三条 exec 记录读命令（45 → 48）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        45,
-        "包装清单补录六条 archi 命令 + listArchiChatSessions（44 → 45）"
+        48,
+        "包装清单再补录三条 exec 记录读命令（45 → 48）"
     );
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
@@ -1104,8 +1111,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        94,
-        "DTO 清单补录 19 条 archi 章节 + 16 条架构漂移出线类型 + `ProjectConfig`（77 + 17）"
+        95,
+        "DTO 清单再补录 `ExecOutputChunk`（94 + 1）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -1950,12 +1957,12 @@ fn 登记面_架构页会话清单命令在册() {
 fn 登记面_命令总数加一且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        45,
-        "本变更恰 +1（44 → 45）后的命令总数"
+        48,
+        "再补录三条 exec 记录读命令后的命令总数（45 → 48）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        45,
+        48,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2362,4 +2369,238 @@ fn 产物文件锁drop后立即可重取且文件常驻() {
     assert!(path.is_file(), "Drop 后锁文件常驻（MUST NOT 删除）");
     // 立即重取：锁已随句柄关闭释放，无需等待轮询
     let _again = lock();
+}
+
+// ---------------------------------------------------------------------------
+// 三条 exec 记录读命令的登记面（change-detail-live-stdout，AC-14）
+//
+// 被测面：`all_commands!` 在 `read_exec_output` 之后增三行（45 → 48）——两份
+// 补录清单（`COMMAND_NAMES` / `COMMAND_WRAPPERS`）逐名在册、总数锚 48、尾锚零
+// 位移（`archi_drift` 仍是末条）、插入位置紧跟 `readExecOutput`、三包装逐字
+// 形态、唯一登记（各恰一次）、`ExecOutputChunk` 出线类型在册。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：生成物真实（`authoritative_snapshot()`
+// 读盘快照 + 既有跨进程文件锁 `lock()` 串行化）；`all_commands!` 为真实宏；
+// 本节零 IPC / 零 spawn。
+// ---------------------------------------------------------------------------
+
+/// 三条新命令的 invoke 名（登记序：紧跟 `read_exec_output`）。
+const NEW_COMMAND_NAMES: [&str; 3] = [
+    "exec_output_path",
+    "read_exec_command",
+    "read_exec_output_delta",
+];
+
+/// 三条新命令的生成包装名（同序）。
+const NEW_COMMAND_WRAPPERS: [&str; 3] =
+    ["execOutputPath", "readExecCommand", "readExecOutputDelta"];
+
+/// 三条包装的生成行逐字锚（参数键 lowerCamelCase / 返回类型 nullable 面）。
+const NEWLINE: char = '\n';
+const NEW_WRAPPER_LINES: [&str; 3] = [
+    "execOutputPath: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>(\"exec_output_path\", { root, changeName, execId }),",
+    "readExecCommand: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>(\"read_exec_command\", { root, changeName, execId }),",
+    "readExecOutputDelta: (root: string, changeName: string, execId: string, fromOffset: number) => __TAURI_INVOKE<ExecOutputChunk | null>(\"read_exec_output_delta\", { root, changeName, execId, fromOffset }),",
+];
+
+/// 正向（参数化 3 命令）：`COMMAND_NAMES` / `COMMAND_WRAPPERS` 各含三个新名字，
+/// 且生成物逐条命中（invoke 名 + 包装行）。
+#[test]
+fn 登记面_三新命令在两清单与生成物各在册() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for (index, name) in NEW_COMMAND_NAMES.iter().enumerate() {
+        let wrapper = NEW_COMMAND_WRAPPERS[index];
+        assert!(COMMAND_NAMES.contains(name), "invoke 命令名补录（{name}）");
+        assert!(
+            COMMAND_WRAPPERS.contains(&wrapper),
+            "生成包装名补录（{wrapper}）"
+        );
+        assert!(
+            content.contains(&format!("\"{name}\"")),
+            "生成物缺 invoke 命令名 {name}"
+        );
+        assert!(
+            content.contains(NEW_WRAPPER_LINES[index]),
+            "生成包装行形态不符（{wrapper}），期望:\n{}",
+            NEW_WRAPPER_LINES[index]
+        );
+    }
+}
+
+/// 正向：总数锚 45 → 48（两份清单持衡、一一对应）；尾锚仍为 `archi_drift`
+///（三行插入在 changes 组内，尾锚零位移）。
+#[test]
+fn 登记面_总数四十八且尾锚零位移() {
+    assert_eq!(COMMAND_NAMES.len(), 48, "命令清单总数 45 → 48");
+    assert_eq!(
+        COMMAND_WRAPPERS.len(),
+        48,
+        "包装清单条目数与 invoke 清单持衡（一一对应）"
+    );
+    assert_eq!(
+        COMMAND_NAMES.last(),
+        Some(&"archi_drift"),
+        "尾锚零位移（三行插入在 changes 组内）"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS.last(),
+        Some(&"archiDrift"),
+        "包装清单同序尾锚零位移"
+    );
+}
+
+/// 异常（参数化 3 命令）：唯一登记——三新名字在两清单与生成物中各恰 1 次
+///（无重复登记）；`read_exec_output` / `readExecOutput` 既有条目在册且
+/// 参数面逐字未变（既有条目零位移）。
+#[test]
+fn 登记面_唯一登记且既有条目零位移() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for (index, name) in NEW_COMMAND_NAMES.iter().enumerate() {
+        let wrapper = NEW_COMMAND_WRAPPERS[index];
+        assert_eq!(
+            COMMAND_NAMES.iter().filter(|entry| *entry == name).count(),
+            1,
+            "{name} 在 invoke 清单恰 1 次"
+        );
+        assert_eq!(
+            COMMAND_WRAPPERS
+                .iter()
+                .filter(|entry| *entry == &wrapper)
+                .count(),
+            1,
+            "{wrapper} 在包装清单恰 1 次"
+        );
+        assert_eq!(
+            content.matches(&format!("\"{name}\"")).count(),
+            1,
+            "生成物中 {name} 恰 1 次（无重复登记）"
+        );
+        assert_eq!(
+            content.matches(&format!("{wrapper}:")).count(),
+            1,
+            "生成物中 {wrapper} 恰 1 次（无重复登记）"
+        );
+    }
+
+    // 既有条目零位移：`readExecOutput` 的生成行逐字不变（`COMMAND_NAMES` 对
+    // `read_exec_output` 的历史缺录是既有滞后债，不在本变更范围——见清单头部注记）
+    assert!(
+        content.contains("readExecOutput: (root: string"),
+        "既有 readExecOutput 包装行在产物中"
+    );
+    assert!(
+        content.contains(
+            "readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>(\"read_exec_output\", { root, changeName, execId }),"
+        ),
+        "既有 readExecOutput 包装行逐字不变"
+    );
+}
+
+/// 边界：登记序——生成物内 `readExecOutput` 之后紧接三条新包装（与
+/// `all_commands!` 同序：`execOutputPath` → `readExecCommand` → `readExecOutputDelta`）。
+#[test]
+fn 登记面_三条包装紧跟read_exec_output同序() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let anchor = content
+        .find("readExecOutput: (")
+        .expect("既有 readExecOutput 包装在场");
+    let tail = &content[anchor..];
+    let offsets: Vec<usize> = NEW_COMMAND_WRAPPERS
+        .iter()
+        .map(|wrapper| {
+            tail.find(&format!("{wrapper}: "))
+                .unwrap_or_else(|| panic!("生成物缺 {wrapper} 包装"))
+        })
+        .collect();
+    assert!(
+        offsets.windows(2).all(|pair| pair[0] < pair[1]),
+        "三包装生成序 = all_commands! 登记序: {offsets:?}"
+    );
+    // 首条紧跟 readExecOutput 行：其间只夹该命令的 JSDoc 注释，无其它命令包装
+    let after_anchor_line = tail.find(NEWLINE).expect("readExecOutput 行有换行");
+    let between = &tail[after_anchor_line..offsets[0]];
+    assert!(
+        !between.contains("__TAURI_INVOKE<"),
+        "其间无其它命令包装夹在中间: {between:?}"
+    );
+    // `all_commands!` 侧同序：三新命令连续且同序（`read_exec_output` 的历史缺录
+    // 使「紧跟其下标」不可断言，故以连续相对序 + 公共前驱 `read_artifact` 为判据）
+    let positions: Vec<usize> = NEW_COMMAND_NAMES
+        .iter()
+        .map(|name| {
+            COMMAND_NAMES
+                .iter()
+                .position(|entry| entry == name)
+                .unwrap_or_else(|| panic!("{name} 在册"))
+        })
+        .collect();
+    assert!(
+        positions[1] == positions[0] + 1 && positions[2] == positions[0] + 2,
+        "invoke 清单内三新命令连续且同序: {positions:?}"
+    );
+    let read_artifact = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "read_artifact")
+        .expect("read_artifact 在册");
+    assert!(
+        positions[0] > read_artifact,
+        "三新命令位于 read_artifact 之后（changes 命令组内）"
+    );
+}
+
+/// 边界：`ExecOutputChunk` 出线类型在册（`DTO_TYPES` 与生成物声明两面），字段
+/// 恰 `nextOffset` / `text`（camelCase，`u64` → `number` 的线面）。
+#[test]
+fn 登记面_exec_output_chunk类型在册且两字段() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert!(
+        DTO_TYPES.contains(&"ExecOutputChunk"),
+        "DTO 清单补录 ExecOutputChunk"
+    );
+    assert!(
+        content.contains("export type ExecOutputChunk ="),
+        "生成物缺 ExecOutputChunk 类型声明"
+    );
+    let section = type_section(&content, "ExecOutputChunk");
+    assert_eq!(
+        field_names(&section),
+        vec!["text", "nextOffset"],
+        "ExecOutputChunk 两字段（camelCase 线面），实际段:\n{section}"
+    );
+    assert!(
+        section.contains("nextOffset: number,"),
+        "nextOffset 出线为 number（u64 经 bigint 配置转 number）"
+    );
+    assert!(section.contains("text: string,"), "text 出线为 string");
+}
+
+/// 正向（AC-14 组合行）：生成物 `commands` 表的三条新包装与 invoke 名严格
+/// 一一对应——无「清单里有、生成物里没有」的幽灵条目（既有的「清单是产物子集」
+/// 断言在本节以三命令定向复核）。
+#[test]
+fn 登记面_三命令清单与产物一一对应() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for (index, name) in NEW_COMMAND_NAMES.iter().enumerate() {
+        let wrapper = NEW_COMMAND_WRAPPERS[index];
+        let wrapper_pos = content
+            .find(&format!("{wrapper}:"))
+            .unwrap_or_else(|| panic!("产物缺包装 {wrapper}"));
+        let invoke_pos = content
+            .find(&format!("\"{name}\""))
+            .unwrap_or_else(|| panic!("产物缺 invoke 名 {name}"));
+        assert!(
+            wrapper_pos < invoke_pos,
+            "{wrapper} 的行内 invoke 目标为 {name}（包装行在前）"
+        );
+    }
 }

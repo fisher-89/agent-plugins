@@ -1,0 +1,3775 @@
+diff --git a/crates/core/orchestration/src/control.rs b/crates/core/orchestration/src/control.rs
+index 4aa2a507f636..55123d879e27 100644
+--- a/crates/core/orchestration/src/control.rs
++++ b/crates/core/orchestration/src/control.rs
+@@ -387,6 +387,16 @@ impl RunGuard {
+             .unwrap_or_else(CancelFlag::never)
+     }
+ 
++    /// `'static` 步状态发射器（持 `(root, change_id)` 复合键 + `Arc<ChangeFlowControl>`）：
++    /// 供跨 port 边界（`ToolStepRequest.on_output_ref`）的回调持有——回调不能借用
++    /// `&RunGuard`，故以本方法重建同身份的发射器。
++    pub fn emitter(&self) -> StepEmitter {
++        StepEmitter {
++            key: self.key.clone(),
++            control: Arc::clone(&self.control),
++        }
++    }
++
+     /// 终态收口：`Finished` 广播（快照面随 publish 落终值）+ 除名。消费
+     /// self——终态出口唯一（walker 主入口单点调用）。
+     pub fn finish(self, status: ChangeRunStatus, reason: Option<String>) {
+@@ -438,6 +448,173 @@ impl RunGuard {
+     }
+ }
+ 
++/// 步状态行落值（emit 载荷收窄：状态 + 三可选面 + 步级时间与 token 载荷镜像面）。
++/// token 两值为数据随行面（`run_worker` 经 [`StepSettle::with_tokens`] 落值、其余
++/// 步不设即 None）；`started_at` / `ended_at` 两时间字段由 [`emit_node`] 单点铸造
++/// 覆写——构造器恒中性值（0 / None），MUST NOT 由调用方携带时间。
++pub(crate) struct StepSettle {
++    status: ChangeStepStatus,
++    session_id: Option<String>,
++    detail: Option<String>,
++    output_ref: Option<String>,
++    started_at: i64,
++    ended_at: Option<i64>,
++    token_input: Option<u64>,
++    token_output: Option<u64>,
++}
++
++impl StepSettle {
++    /// 步进行中（无会话 / 详情 / 输出引用；时间与 token 恒中性——时间由
++    /// `emit_node` 铸造覆写）。
++    pub(crate) fn running() -> Self {
++        Self {
++            status: ChangeStepStatus::Running,
++            session_id: None,
++            detail: None,
++            output_ref: None,
++            started_at: 0,
++            ended_at: None,
++            token_input: None,
++            token_output: None,
++        }
++    }
++
++    /// 步通过（携人读摘要）。
++    pub(crate) fn passed(detail: Option<String>) -> Self {
++        Self {
++            status: ChangeStepStatus::Passed,
++            detail,
++            ..Self::running()
++        }
++    }
++
++    /// 步失败（携失败记因）。
++    pub(crate) fn failed(detail: Option<String>) -> Self {
++        Self {
++            status: ChangeStepStatus::Failed,
++            detail,
++            ..Self::running()
++        }
++    }
++
++    /// 步因停止 / 终止收敛。
++    pub(crate) fn stopped(detail: Option<String>) -> Self {
++        Self {
++            status: ChangeStepStatus::Stopped,
++            detail,
++            ..Self::running()
++        }
++    }
++
++    /// 随行会话 id（WorkerAgent 步）。
++    pub(crate) fn with_session(mut self, session_id: Option<String>) -> Self {
++        self.session_id = session_id;
++        self
++    }
++
++    /// 随行全量输出引用（`ExecOutput::Recorded { exec_id }`）。
++    pub(crate) fn with_output_ref(mut self, output_ref: Option<String>) -> Self {
++        self.output_ref = output_ref;
++        self
++    }
++
++    /// 随行本步 token 增量（in / out 两值；仅 WorkerAgent 步终态落值，缺席
++    /// None）——数据随行面，时间字段不在本 builder 语义内。
++    pub(crate) fn with_tokens(
++        mut self,
++        token_input: Option<u64>,
++        token_output: Option<u64>,
++    ) -> Self {
++        self.token_input = token_input;
++        self.token_output = token_output;
++        self
++    }
++}
++
++/// 步状态行 emit（节点累积 + Notice 广播；同稳定身份键的后续 emit 就地合并）。
++/// 步级时间铸造收本单点：全部调用点零触点覆盖——running emit 铸
++/// `(now, None)`、终态 emit 铸 `(now, Some(now))`（`phaseStart` 等单 emit 瞬步
++/// 自然 `started_at == ended_at` 同刻）；该 started 同刻值是否被采信由
++/// [`accumulate_node`] 合并侧裁定（started 保首见）。复用 [`now_millis`] 零新时钟缝
++/// ——收口时刻铸造只在生产路径消费，corpus 确定性由测试直构 `ChangeStepState` 注入
++/// 定值承载。
++pub(crate) fn emit_node(
++    guard: &RunGuard,
++    phase: &str,
++    attempt: u32,
++    step: ChangeStepKind,
++    instance_no: u32,
++    mut settle: StepSettle,
++) {
++    let now = now_millis();
++    settle.started_at = now;
++    settle.ended_at = (settle.status != ChangeStepStatus::Running).then_some(now);
++    guard.emit(RunUpdate::Step {
++        step: ChangeStepState {
++            phase: phase.to_owned(),
++            attempt,
++            step,
++            instance_no,
++            status: settle.status,
++            session_id: settle.session_id,
++            detail: settle.detail,
++            output_ref: settle.output_ref,
++            started_at: settle.started_at,
++            ended_at: settle.ended_at,
++            token_input: settle.token_input,
++            token_output: settle.token_output,
++        },
++    });
++}
++
++/// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）——run 收口时刻铸造点
++///（finish 整包同刻，corpus 确定性由测试注入 `started_at` / 假 history 承载，本
++/// 时钟只在生产路径消费）。
++pub(crate) fn now_millis() -> i64 {
++    std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|duration| duration.as_millis() as i64)
++        .unwrap_or(0)
++}
++
++/// `'static` 步状态发射器：`(root, change_id)` 复合键 + 注册表 `Arc`，唯一构造面
++/// 是 [`RunGuard::emitter`]。
++///
++/// `'static` 约束是硬性的——上抛回调跨 port 边界（`ToolStepRequest.on_output_ref`），
++/// 不能借用 `&RunGuard`。
++#[derive(Clone)]
++pub struct StepEmitter {
++    key: (String, String),
++    control: Arc<ChangeFlowControl>,
++}
++
++impl StepEmitter {
++    /// 补发一拍 `running + output_ref` 的步状态：经同一铸造单点 [`emit_node`] 落值
++    ///（不新增第二条构造 `ChangeStepState` 的路径）。`accumulate_node` 的「some 才
++    /// 覆写」直接吃掉该拍——不新增节点、不动 `started_at`。
++    pub fn attach_output_ref(
++        &self,
++        phase: &str,
++        attempt: u32,
++        step: ChangeStepKind,
++        instance_no: u32,
++        exec_id: &str,
++    ) {
++        let guard = RunGuard {
++            key: self.key.clone(),
++            control: Arc::clone(&self.control),
++        };
++        emit_node(
++            &guard,
++            phase,
++            attempt,
++            step,
++            instance_no,
++            StepSettle::running().with_output_ref(Some(exec_id.to_owned())),
++        );
++    }
++}
++
+ /// 会话事件首拍把 session id 提前挂到「最近一个运行中的会话型步节点」：
+ /// running emit 不携会话 id（worker 收口后终态 emit 才回写），不提前挂载则
+ /// 运行中节点无法按 id 直查实时转录。返回是否首次挂载（调用方据此补发一拍
+diff --git a/crates/core/orchestration/src/control_test.rs b/crates/core/orchestration/src/control_test.rs
+index bc12152e6e24..8c5ed7fd5b7b 100644
+--- a/crates/core/orchestration/src/control_test.rs
++++ b/crates/core/orchestration/src/control_test.rs
+@@ -2154,3 +2154,516 @@ fn archi_check非会话步() {
+     }
+     assert!(!body.contains("!matches!("), "MUST NOT 改写成否定列表");
+ }
++
++// ---------------------------------------------------------------------------
++// `StepEmitter` 与 emit 面上收（change-detail-live-stdout，AC-5 / AC-2 / AC-13）
++//
++// 被测面：`RunGuard::emitter`（`'static` 发射器：`(root, change_id)` 复合键 +
++// `Arc<ChangeFlowControl>`）、`StepEmitter::attach_output_ref`（补发一拍
++// `running + output_ref`，经同一 `emit_node` 铸造单点；`accumulate_node` 就地
++// 合并——不新增节点、不动 `started_at`）、`now_millis`（时钟缝单点）与
++// `emit_node` 的搬迁后行为。
++//
++// Mock 策略（见 test-design 本节 Mock策略表）：零替身——真实
++// `ChangeFlowControl` + `#[tokio::test]` 进程内 tokio 原语；时间断言只用区间与
++// 单调性（`now_millis` 无注入点，见「不可测试项」）。
++// ---------------------------------------------------------------------------
++
++use crate::control::{now_millis, StepSettle};
++
++/// `implement / attempt 2 / StaticCheck / instance 0` 的步状态 fixture（补发拍
++/// 与终态拍共用身份键）。
++fn emit_fixture() -> (ChangeStepKind, u32, u32) {
++    (ChangeStepKind::StaticCheck, 2, 0)
++}
++
++/// 正向：已 `begin_run` 的 guard → `emitter()` 产出的发射器在 guard **被 drop
++/// 后**仍可 `attach_output_ref`（`'static` 语义：复合键 + `Arc` 自带所有权），
++/// 节点被写出。
++#[tokio::test]
++async fn emitter在guard_drop后仍可补发拍() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let emitter = guard.emitter();
++    drop(guard);
++
++    let (kind, attempt, instance_no) = emit_fixture();
++    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-after-drop");
++
++    let snapshot = control
++        .snapshot(ROOT, CHANGE_ID)
++        .expect("run 条目仍在（未 finish）");
++    assert_eq!(snapshot.nodes.len(), 1, "补发拍写出节点（guard 已 drop）");
++    assert_eq!(
++        snapshot.nodes[0].output_ref.as_deref(),
++        Some("exec-after-drop"),
++        "output_ref 落位"
++    );
++}
++
++/// 正向：同一 guard 两次 `emitter()` → 两发射器对同一 `(root, change_id)` 键
++/// 写入，节点累积在同一 run 上（零串台）。
++#[tokio::test]
++async fn emitter两次产出写同一run() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let first = guard.emitter();
++    let second = guard.emitter();
++    let (kind, attempt, instance_no) = emit_fixture();
++
++    first.attach_output_ref("implement", attempt, kind, instance_no, "exec-a");
++    second.attach_output_ref("implement", attempt, kind, instance_no, "exec-b");
++
++    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
++    assert_eq!(snapshot.nodes.len(), 1, "同身份键就地合并（不新增节点）");
++    assert_eq!(
++        snapshot.nodes[0].output_ref.as_deref(),
++        Some("exec-b"),
++        "accumulate_node 的 some 才覆写：后到值生效"
++    );
++}
++
++/// 异常：run 已 `finish`（终态除名）后调用 `emitter()` 再 `attach_output_ref`
++/// → 静默无副作用（注册表 miss 分支），零 panic、零节点新增。
++#[tokio::test]
++async fn emitter在finish后静默无副作用() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let emitter = guard.emitter();
++    guard.finish(ChangeRunStatus::Completed, None);
++    assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "finish 后除名");
++
++    let (kind, attempt, instance_no) = emit_fixture();
++    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-late");
++    assert!(
++        control.snapshot(ROOT, CHANGE_ID).is_none(),
++        "除名后补发拍零副作用（不重建 run 条目）"
++    );
++}
++
++/// 边界（组合 同 root × 异 id）：同 root 异 change id 两 guard 的发射器交叉写入
++/// → 各自 run 的节点互不可见（复合键隔离）。
++#[tokio::test]
++async fn emitter复合键隔离同root异change() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard_a = control
++        .begin_run(ROOT, CHANGE_ID, "run-a".to_owned(), STARTED_AT)
++        .expect("首个 run");
++    let guard_b = control
++        .begin_run(ROOT, CHANGE_ID_B, "run-b".to_owned(), STARTED_AT)
++        .expect("异 id 可并行");
++    let emitter_a = guard_a.emitter();
++    let emitter_b = guard_b.emitter();
++    let (kind, attempt, instance_no) = emit_fixture();
++
++    emitter_a.attach_output_ref("implement", attempt, kind, instance_no, "exec-a");
++    emitter_b.attach_output_ref("implement", attempt, kind, instance_no, "exec-b");
++
++    let snapshot_a = control.snapshot(ROOT, CHANGE_ID).expect("run-a 在场");
++    let snapshot_b = control.snapshot(ROOT, CHANGE_ID_B).expect("run-b 在场");
++    assert_eq!(snapshot_a.nodes.len(), 1, "run-a 只收到自己的补发拍");
++    assert_eq!(snapshot_b.nodes.len(), 1, "run-b 只收到自己的补发拍");
++    assert_eq!(snapshot_a.nodes[0].output_ref.as_deref(), Some("exec-a"));
++    assert_eq!(snapshot_b.nodes[0].output_ref.as_deref(), Some("exec-b"));
++}
++
++/// 正向：先 `emit_node(running)`（无 `output_ref`），再 `attach_output_ref` → 同
++/// 键节点被就地合并：`status == running`、`output_ref` 落位、节点**总数仍为
++/// 1**、`started_at` 为首次 emit 值（AC-5 / AC-13 的合并语义）。
++#[tokio::test]
++async fn attach_output_ref就地合并不新增节点() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let (kind, attempt, instance_no) = emit_fixture();
++    let emitter = guard.emitter();
++
++    let before = now_millis();
++    crate::control::emit_node(
++        &guard,
++        "implement",
++        attempt,
++        kind,
++        instance_no,
++        StepSettle::running(),
++    );
++    let started = control
++        .snapshot(ROOT, CHANGE_ID)
++        .expect("run 在场")
++        .nodes
++        .first()
++        .expect("running 拍已落")
++        .started_at;
++    assert!(started >= before, "started_at 为 now_millis 量级");
++
++    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-merged");
++
++    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
++    assert_eq!(snapshot.nodes.len(), 1, "节点总数仍为 1（就地合并）");
++    let node = &snapshot.nodes[0];
++    assert_eq!(node.status, ChangeStepStatus::Running, "补发拍不推进状态");
++    assert_eq!(
++        node.output_ref.as_deref(),
++        Some("exec-merged"),
++        "output_ref 落位"
++    );
++    assert_eq!(
++        node.started_at, started,
++        "started_at 保首见（未被补发拍顶替）"
++    );
++    assert_eq!(node.ended_at, None, "running 拍无 ended_at");
++}
++
++/// 正向：补发后再 `emit_node(passed, with_output_ref(Some))` → 终态拍
++/// `output_ref` 与补发拍同值（同 id 收口，AC-2）。
++#[tokio::test]
++async fn 终态拍与补发拍output_ref同值() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let (kind, attempt, instance_no) = emit_fixture();
++    let emitter = guard.emitter();
++
++    crate::control::emit_node(
++        &guard,
++        "implement",
++        attempt,
++        kind,
++        instance_no,
++        StepSettle::running(),
++    );
++    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-same");
++    crate::control::emit_node(
++        &guard,
++        "implement",
++        attempt,
++        kind,
++        instance_no,
++        StepSettle::passed(Some("通过".to_owned())).with_output_ref(Some("exec-same".to_owned())),
++    );
++
++    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
++    assert_eq!(snapshot.nodes.len(), 1, "三拍合于一个节点");
++    let node = &snapshot.nodes[0];
++    assert_eq!(node.status, ChangeStepStatus::Passed, "终态拍推进状态");
++    assert_eq!(node.output_ref.as_deref(), Some("exec-same"), "同 id 收口");
++    assert!(node.ended_at.is_some(), "终态拍铸 ended_at");
++}
++
++/// 异常：目标节点不存在（未先 emit running）→ 补发拍按 emit 序**追加**为一条
++/// `running + output_ref` 新节点（`accumulate_node` 的无命中分支，非契约外
++/// 崩溃）；只锁「不 panic、不静默丢弃」。
++#[tokio::test]
++async fn attach_output_ref目标缺失时追加新节点() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let emitter = guard.emitter();
++    let (kind, attempt, instance_no) = emit_fixture();
++
++    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-orphan");
++
++    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
++    assert_eq!(snapshot.nodes.len(), 1, "无命中分支追加一条新节点");
++    assert_eq!(snapshot.nodes[0].status, ChangeStepStatus::Running);
++    assert_eq!(
++        snapshot.nodes[0].output_ref.as_deref(),
++        Some("exec-orphan"),
++        "不静默丢弃"
++    );
++}
++
++/// 边界（参数化 `instance_no` 2 × `exec_id` 3 形态）：不同 `instance_no` → 两
++/// 独立节点各携各自 `output_ref`（同键多实例不串扰）；空串与超长（>1000
++/// chars）`exec_id` 原样落 `output_ref`（零截断、零改写）。
++#[tokio::test]
++async fn attach_output_ref多实例与exec_id形态() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let emitter = guard.emitter();
++    let long = "e".repeat(1200);
++
++    for (instance_no, exec_id) in [(0u32, ""), (1u32, long.as_str())] {
++        crate::control::emit_node(
++            &guard,
++            "implement",
++            2,
++            ChangeStepKind::StaticCheck,
++            instance_no,
++            StepSettle::running(),
++        );
++        emitter.attach_output_ref(
++            "implement",
++            2,
++            ChangeStepKind::StaticCheck,
++            instance_no,
++            exec_id,
++        );
++    }
++
++    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
++    assert_eq!(snapshot.nodes.len(), 2, "两实例各一节点（不串扰）");
++    let zero = snapshot
++        .nodes
++        .iter()
++        .find(|node| node.instance_no == 0)
++        .expect("实例 0");
++    let one = snapshot
++        .nodes
++        .iter()
++        .find(|node| node.instance_no == 1)
++        .expect("实例 1");
++    assert_eq!(zero.output_ref.as_deref(), Some(""), "空串原样（零改写）");
++    assert_eq!(
++        one.output_ref.as_deref(),
++        Some(long.as_str()),
++        "超长原样（零截断）"
++    );
++}
++
++/// 边界：补发拍不覆盖在位值——节点已有 `detail` / `session_id` /
++/// `token_input` 时，补发后三者保持原值（`accumulate_node` 的「some 才覆写」+
++/// 补发只携 `output_ref` 与 `status`）。
++#[tokio::test]
++async fn attach_output_ref不覆盖在位字段() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let emitter = guard.emitter();
++    let (kind, attempt, instance_no) = emit_fixture();
++
++    crate::control::emit_node(
++        &guard,
++        "implement",
++        attempt,
++        kind,
++        instance_no,
++        StepSettle::passed(Some("诊断摘要".to_owned()))
++            .with_session(Some("sess-9".to_owned()))
++            .with_tokens(Some(11), Some(22)),
++    );
++    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-merge");
++
++    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
++    let node = &snapshot.nodes[0];
++    assert_eq!(node.detail.as_deref(), Some("诊断摘要"), "detail 保持原值");
++    assert_eq!(
++        node.session_id.as_deref(),
++        Some("sess-9"),
++        "session_id 保持原值"
++    );
++    assert_eq!(node.token_input, Some(11), "token_input 保持原值");
++    assert_eq!(node.token_output, Some(22), "token_output 保持原值");
++    assert_eq!(
++        node.output_ref.as_deref(),
++        Some("exec-merge"),
++        "只补 output_ref"
++    );
++}
++
++/// 正向：`now_millis` 返回值 > 0（epoch 之后），两次连续调用单调不减。
++#[test]
++fn now_millis为正且单调不减() {
++    let first = now_millis();
++    let second = now_millis();
++    assert!(first > 0, "epoch 之后为正: {first}");
++    assert!(second >= first, "单调不减（{first} → {second}）");
++}
++
++/// 异常：`now_millis` 不 panic 且非负（时钟早于 epoch 的臂无注入点，见
++/// 「不可测试项」的时钟缝说明——本行只锁运行期非负性）。
++#[test]
++fn now_millis非负不panic() {
++    let value = now_millis();
++    assert!(value >= 0, "非负: {value}");
++}
++
++/// 边界（组合 running × 终态）：`emit_node(running)` 后 `started_at` 与调用前
++/// 取样同量级（`before <= started_at <= after`）；终态拍 `ended_at` 非 `None` 且
++/// `>= started_at`。
++#[tokio::test]
++async fn emit_node时间戳区间与终态ended_at() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let (kind, attempt, instance_no) = emit_fixture();
++
++    let before = now_millis();
++    crate::control::emit_node(
++        &guard,
++        "implement",
++        attempt,
++        kind,
++        instance_no,
++        StepSettle::running(),
++    );
++    let after = now_millis();
++    let running = control
++        .snapshot(ROOT, CHANGE_ID)
++        .expect("run 在场")
++        .nodes
++        .remove(0);
++    assert!(
++        running.started_at >= before && running.started_at <= after,
++        "started_at 落在区间内（{before} ≤ {} ≤ {after}）",
++        running.started_at
++    );
++    assert_eq!(running.ended_at, None, "running 拍无 ended_at");
++
++    crate::control::emit_node(
++        &guard,
++        "implement",
++        attempt,
++        kind,
++        instance_no,
++        StepSettle::failed(Some("失败".to_owned())),
++    );
++    let terminal = control
++        .snapshot(ROOT, CHANGE_ID)
++        .expect("run 在场")
++        .nodes
++        .remove(0);
++    let ended = terminal.ended_at.expect("终态拍铸 ended_at");
++    assert!(ended >= terminal.started_at, "ended_at >= started_at");
++    assert_eq!(
++        terminal.started_at, running.started_at,
++        "started_at 保首见（终态拍不顶替）"
++    );
++}
++
++/// 异常：run 已除名后 `emit_node` 零 panic——同键重入的新 run 只累积自己的
++/// 节点，旧发射器的补发拍按身份键合并进**新** run（同一复合键的注册表语义，
++/// 非串台）；无 panic、无幽灵条目。
++#[tokio::test]
++async fn emit_node在除名后零panic且同键重入独立() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++    let emitter = guard.emitter();
++    let (kind, attempt, instance_no) = emit_fixture();
++    guard.finish(ChangeRunStatus::Stopped, Some("用户停止".to_owned()));
++    assert!(
++        control.snapshot(ROOT, CHANGE_ID).is_none(),
++        "除名后可观察面为空"
++    );
++
++    // 同键重入：新 run 独立登记，emit 正常
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-2".to_owned(), STARTED_AT)
++        .expect("除名后同键可重入");
++    crate::control::emit_node(
++        &guard,
++        "implement",
++        attempt,
++        kind,
++        instance_no,
++        StepSettle::running().with_output_ref(Some("exec-2".to_owned())),
++    );
++    // 旧发射器继续补发：零 panic（写法落在同一复合键的当前条目上）
++    emitter.attach_output_ref("implement", attempt, kind, instance_no, "exec-late");
++
++    let nodes = guard.nodes();
++    assert_eq!(nodes.len(), 1, "同身份键就地合并，无幽灵条目");
++    assert_eq!(
++        nodes[0].output_ref.as_deref(),
++        Some("exec-late"),
++        "补发拍按 some 才覆写生效"
++    );
++}
++
++/// 边界（组合 4 状态 × 3 builder）：`StepSettle` 全组合落位——各字段正确、
++/// `started_at` 恒有值、`ended_at` 仅终态有值。
++#[tokio::test]
++async fn step_settle四状态三builder组合落位() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .expect("begin_run 应成功");
++
++    let cases: Vec<(ChangeStepStatus, StepSettle, u32)> = vec![
++        (ChangeStepStatus::Running, StepSettle::running(), 0),
++        (
++            ChangeStepStatus::Passed,
++            StepSettle::passed(Some("通过".to_owned())),
++            1,
++        ),
++        (
++            ChangeStepStatus::Failed,
++            StepSettle::failed(Some("失败".to_owned())),
++            2,
++        ),
++        (
++            ChangeStepStatus::Stopped,
++            StepSettle::stopped(Some("停止".to_owned())),
++            3,
++        ),
++    ];
++
++    for (_, settle, instance_no) in cases {
++        let settle = settle
++            .with_session(Some(format!("sess-{instance_no}")))
++            .with_output_ref(Some(format!("exec-{instance_no}")))
++            .with_tokens(Some(instance_no as u64), Some(instance_no as u64 * 2));
++        crate::control::emit_node(
++            &guard,
++            "implement",
++            1,
++            ChangeStepKind::Executor,
++            instance_no,
++            settle,
++        );
++    }
++
++    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 在场");
++    assert_eq!(snapshot.nodes.len(), 4, "四状态各一节点");
++    for node in &snapshot.nodes {
++        let expected_status = match node.instance_no {
++            0 => ChangeStepStatus::Running,
++            1 => ChangeStepStatus::Passed,
++            2 => ChangeStepStatus::Failed,
++            _ => ChangeStepStatus::Stopped,
++        };
++        assert_eq!(node.status, expected_status, "状态落位");
++        assert!(node.started_at > 0, "started_at 恒有值");
++        assert_eq!(
++            node.ended_at.is_some(),
++            expected_status != ChangeStepStatus::Running,
++            "ended_at 仅终态有值（instance {}",
++            node.instance_no
++        );
++        assert_eq!(
++            node.session_id.as_deref(),
++            Some(format!("sess-{}", node.instance_no).as_str()),
++            "with_session 落位"
++        );
++        assert_eq!(
++            node.output_ref.as_deref(),
++            Some(format!("exec-{}", node.instance_no).as_str()),
++            "with_output_ref 落位"
++        );
++        assert_eq!(
++            node.token_input,
++            Some(node.instance_no as u64),
++            "with_tokens in 落位"
++        );
++        assert_eq!(
++            node.token_output,
++            Some(node.instance_no as u64 * 2),
++            "with_tokens out 落位"
++        );
++    }
++}
+diff --git a/crates/core/orchestration/src/port.rs b/crates/core/orchestration/src/port.rs
+index f3c0f2be57e3..ea27db08892f 100644
+--- a/crates/core/orchestration/src/port.rs
++++ b/crates/core/orchestration/src/port.rs
+@@ -1,6 +1,7 @@
+ use std::future::Future;
+ use std::path::Path;
+ use std::pin::Pin;
++use std::sync::Arc;
+ 
+ use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+ use foundation::cancel::CancelFlag;
+@@ -131,7 +132,52 @@ pub enum ToolCommand {
+     ArchiveSeal { change_id: String },
+ }
+ 
+-/// 工具步请求：workspace 根 + 步命令 + 取消信号。
++/// 输出引用上抛回调：脚本步在 `exec_id` 铸造（且 live 记录文件已创建）后立即触发
++/// 一次，使运行中的节点即可携 `output_ref` 进入 stdout 面板。
++///
++/// `Clone` 派生 + 手写 `Debug` / `PartialEq` / `Eq`（`Arc<dyn Fn>` 不实现后两者）：
++/// `Eq` 语义为**身份比较**（同一底层闭包才相等，沿 [`CancelFlag`] 的「同一底层对象
++/// 才相等」先例），故 [`ToolStepRequest`] 的 `derive(PartialEq, Eq)` 保持不变。
++#[derive(Clone)]
++pub struct OutputRefSink(Arc<dyn Fn(&str) + Send + Sync>);
++
++impl OutputRefSink {
++    /// 构造（**跨 crate 公开面**，两条消费者路径）：
++    /// - 生产唯一路径：`walker::run_tool` 的 `identity` 组装；
++    /// - 第二消费者：`crates/infra/checks` 的记录链用例——顺序不变量（AC-11）要求
++    ///   回调内断言「上抛时刻 live `.log` 与父目录已在」，而 checks crate 无法经
++    ///   `pub(crate)` 构造取得实例 ⇒ 构造面 MUST 为 `pub`（design D16；收窄会使该
++    ///   AC 在 checks 侧结构性不可写，只能整体传 `None`）。
++    ///
++    /// 与 `exec::LiveSink::new` 保持 `pub(crate)` 的非对称是有意的（design D18）：
++    /// 那边 checks 侧有 `LiveExec::sink()` 这条公共取得路径。
++    pub fn new(run: impl Fn(&str) + Send + Sync + 'static) -> Self {
++        Self(Arc::new(run))
++    }
++
++    /// 投递一次 `exec_id`（`crates/infra/checks` 的两个 runner 是跨 crate 调用方，
++    /// 故本方法 MUST 为 `pub`）。
++    pub fn emit(&self, exec_id: &str) {
++        (self.0)(exec_id);
++    }
++}
++
++impl std::fmt::Debug for OutputRefSink {
++    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        formatter.write_str("OutputRefSink(..)")
++    }
++}
++
++impl PartialEq for OutputRefSink {
++    /// 身份比较（`Arc::ptr_eq`）——同一底层闭包才相等，见本类型 doc。
++    fn eq(&self, other: &Self) -> bool {
++        Arc::ptr_eq(&self.0, &other.0)
++    }
++}
++
++impl Eq for OutputRefSink {}
++
++/// 工具步请求：workspace 根 + 步命令 + 取消信号 + 输出引用上抛回调。
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct ToolStepRequest {
+     /// workspace 根（写面 layout 解析与 spawn cwd）
+@@ -142,6 +188,9 @@ pub struct ToolStepRequest {
+     /// 非取消路径行为零变化）。`Eq` 语义为**身份比较**（同一底层原子才相等），
+     /// 故本载荷 derive 保持不变。
+     pub cancel: CancelFlag,
++    /// 输出引用上抛回调（缺省 `None` = 老行为：running 拍不带输出引用，终态拍按
++    /// 产出回填）。在位时 runner 须在 live 记录文件**已创建之后**调用一次。
++    pub on_output_ref: Option<OutputRefSink>,
+ }
+ 
+ /// 工具步产出（封闭集，载荷 = 写面原生类型；PhaseNext 体量最大（白名单 +
+@@ -369,7 +418,17 @@ pub trait StaticCheckRunner: Send + Sync {
+     /// 置位 → 进程树击杀 → 产出以 `fault = Some(RunFault::Stopped)` 正常返回
+     ///（取消 MUST NOT 以 `Err` 表达——`Err` 只留给进程拉不起 / 程序不可达等基础
+     /// 设施失败）。
+-    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
++    ///
++    /// 末位 `on_output_ref`：输出引用上抛回调（实现须在 live 记录文件**已创建之后**
++    /// 调用一次；未提供或未调用 = 老行为——running 拍不带输出引用）。
++    fn run(
++        &self,
++        root: &str,
++        name: &str,
++        slot: ReportSlot,
++        cancel: CancelFlag,
++        on_output_ref: Option<OutputRefSink>,
++    ) -> BoxToolFuture;
+ }
+ 
+ /// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与
+@@ -383,7 +442,17 @@ pub trait TestExecutionRunner: Send + Sync {
+     /// 取消信号经 infra 执行体观测——core 零 spawn；置位 → 进程树击杀 →
+     /// 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 返回 `Err`）；
+     /// 取消 MUST NOT 落 plan 级 `execution_error`，也不再跑余下 plan。
+-    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
++    ///
++    /// 末位 `on_output_ref`：同 [`StaticCheckRunner::run`]——live 记录文件已创建
++    /// 之后调用一次；未提供或未调用 = 老行为。
++    fn run(
++        &self,
++        root: &str,
++        name: &str,
++        slot: ReportSlot,
++        cancel: CancelFlag,
++        on_output_ref: Option<OutputRefSink>,
++    ) -> BoxToolFuture;
+ }
+ 
+ /// mutation-test spawn 缝（checks 边界 infra 实现；检查域家族第三成员，W4 红线
+diff --git a/crates/core/orchestration/src/port_test.rs b/crates/core/orchestration/src/port_test.rs
+index d21d2eb4ef7d..0d687fc57717 100644
+--- a/crates/core/orchestration/src/port_test.rs
++++ b/crates/core/orchestration/src/port_test.rs
+@@ -5,9 +5,9 @@ use foundation::cancel::CancelFlag;
+ use foundation::layout::ReportSlot;
+ 
+ use crate::port::{
+-    BoxDiffFuture, DiffContextPort, RunEventSink, RunFault, StaticCheckOutcome, StaticCheckRunner,
+-    ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+-    WorkerTurnRequest, WorkflowSnapshotPort,
++    BoxDiffFuture, DiffContextPort, OutputRefSink, RunEventSink, RunFault, StaticCheckOutcome,
++    StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
++    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+ };
+ use crate::state::{ArchivePreflight, RunUpdate};
+ use workflow::write::{
+@@ -144,6 +144,7 @@ impl StaticCheckRunner for ProgrammableRunner {
+         name: &str,
+         slot: ReportSlot,
+         cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> crate::port::BoxToolFuture {
+         self.cancels
+             .lock()
+@@ -346,6 +347,7 @@ async fn tool_command十一变体封闭集且match穷尽分发() {
+             root: "/tmp/root".to_owned(),
+             cancel: foundation::cancel::CancelFlag::never(),
+             command: logged,
++            on_output_ref: None,
+         })
+         .await
+         .expect("步产出应可用");
+@@ -731,6 +733,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透
+             "demo-change",
+             ReportSlot::Test,
+             CancelFlag::never(),
++            None,
+         )
+         .await
+         .expect("产出应可用");
+@@ -775,6 +778,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透
+             "demo-change",
+             ReportSlot::Baseline,
+             CancelFlag::never(),
++            None,
+         )
+         .await
+         .expect("产出应可用");
+@@ -966,6 +970,7 @@ impl TestExecutionRunner for ProgrammableTestExecutionRunner {
+         name: &str,
+         slot: ReportSlot,
+         cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> crate::port::BoxToolFuture {
+         self.cancels
+             .lock()
+@@ -1058,6 +1063,7 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
+             "demo-change",
+             ReportSlot::Test,
+             CancelFlag::never(),
++            None,
+         )
+         .await
+         .expect("产出应可用");
+@@ -1129,6 +1135,7 @@ async fn test_execution_runner假实现经arc注入且root_change透传() {
+                 "walker-change",
+                 slot,
+                 CancelFlag::never(),
++                None,
+             )
+             .await
+             .expect("产出应可用");
+@@ -1156,7 +1163,13 @@ async fn test_execution_runner_err臂上抛() {
+         ProgrammableTestExecutionRunner::with_result(Err("报告目录创建失败".to_owned()));
+     let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
+     let err = runner
+-        .run("/tmp/root", "c", ReportSlot::Baseline, CancelFlag::never())
++        .run(
++            "/tmp/root",
++            "c",
++            ReportSlot::Baseline,
++            CancelFlag::never(),
++            None,
++        )
+         .await
+         .expect_err("Err 臂应上抛");
+     assert_eq!(err, "报告目录创建失败", "Err(String) 原样（无再包装）");
+@@ -1446,6 +1459,7 @@ async fn tool_step_output归档两新变体载荷透传() {
+             command: ToolCommand::ArchiveSeal {
+                 change_id: CHANGE_ID.to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await;
+     assert!(output.is_ok(), "归档命令经注入 port 可达");
+@@ -2575,6 +2589,7 @@ fn request_with_cancel(cancel: CancelFlag) -> crate::port::ToolStepRequest {
+             slot: ReportSlot::Test,
+         },
+         cancel,
++        on_output_ref: None,
+     }
+ }
+ 
+@@ -2652,7 +2667,13 @@ async fn 三runner_trait接收cancel形参且原样透传() {
+     let static_runner: Arc<dyn StaticCheckRunner> = Arc::new(static_inner);
+     let static_cancel = CancelFlag::never();
+     static_runner
+-        .run("/tmp/root", "c", ReportSlot::Test, static_cancel.clone())
++        .run(
++            "/tmp/root",
++            "c",
++            ReportSlot::Test,
++            static_cancel.clone(),
++            None,
++        )
+         .await
+         .expect("StaticCheckRunner 假件应 Ok");
+     let recorded = static_log.lock().expect("static cancel 锁").clone();
+@@ -2667,7 +2688,13 @@ async fn 三runner_trait接收cancel形参且原样透传() {
+     let exec_runner: Arc<dyn TestExecutionRunner> = Arc::new(exec_inner);
+     let exec_cancel = CancelFlag::never();
+     exec_runner
+-        .run("/tmp/root", "c", ReportSlot::Test, exec_cancel.clone())
++        .run(
++            "/tmp/root",
++            "c",
++            ReportSlot::Test,
++            exec_cancel.clone(),
++            None,
++        )
+         .await
+         .expect("TestExecutionRunner 假件应 Ok");
+     let recorded = exec_log.lock().expect("exec cancel 锁").clone();
+@@ -2706,7 +2733,7 @@ async fn 三runner_trait已置位信号不被丢弃() {
+     let static_log = static_inner.cancel_log();
+     let static_runner: Arc<dyn StaticCheckRunner> = Arc::new(static_inner);
+     static_runner
+-        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone())
++        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone(), None)
+         .await
+         .expect("应 Ok");
+     assert!(
+@@ -2720,7 +2747,7 @@ async fn 三runner_trait已置位信号不被丢弃() {
+     let exec_log = exec_inner.cancel_log();
+     let exec_runner: Arc<dyn TestExecutionRunner> = Arc::new(exec_inner);
+     exec_runner
+-        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone())
++        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone(), None)
+         .await
+         .expect("应 Ok");
+     assert!(
+@@ -3071,13 +3098,19 @@ fn tool_step_request与command零改() {
+             slot: ReportSlot::Baseline,
+         },
+         cancel: CancelFlag::never(),
++        on_output_ref: None,
+     };
+     let crate::port::ToolStepRequest {
+         root,
+         command,
+         cancel,
++        on_output_ref,
+     } = request;
+     assert_eq!(root, "C:/ws", "root 字段面零改");
++    assert!(
++        on_output_ref.is_none(),
++        "on_output_ref 缺省不回调（老行为）"
++    );
+     assert!(!cancel.is_set(), "cancel 缺省不置位（never）");
+     match command {
+         ToolCommand::StaticCheck { change_id, slot } => {
+@@ -3388,3 +3421,462 @@ fn archi_check_outcome_try_from八错型恒err() {
+             .expect("ArchiCheck 变体应窄化成功");
+     assert_eq!(converted, expected, "载荷逐字段相等（不重建不默认）");
+ }
++
++// ---------------------------------------------------------------------------
++// 输出引用上抛通道（change-detail-live-stdout，AC-5 / AC-2）
++//
++// 被测面：`OutputRefSink`（newtype + `Clone` + 手写 `Debug` / `PartialEq` / `Eq`
++// 的身份语义）、`ToolStepRequest.on_output_ref`（新增末位字段，缺省 `None`）与
++// 两 runner trait 的末位形参（`Option<OutputRefSink>`，未提供或不调用 = 老行为）。
++//
++// Mock 策略（见 test-design 本节 Mock策略表）：零替身——真实
++// `OutputRefSink::new`（与 `port.rs` 同 crate，可经 `pub(crate)` 构造）、真实
++// `foundation::cancel::CancelFlag` / `ReportSlot`；本节零 IPC / 零 spawn / 零
++// 文件系统（纯类型与契约面）。
++// ---------------------------------------------------------------------------
++
++/// 上抛记录器：`(sink, 收到的 exec_id 序列)`。
++fn output_ref_recorder() -> (OutputRefSink, Arc<Mutex<Vec<String>>>) {
++    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
++    let recorder = Arc::clone(&seen);
++    let sink = OutputRefSink::new(move |exec_id: &str| {
++        recorder
++            .lock()
++            .expect("上抛记录锁不可中毒")
++            .push(exec_id.to_owned());
++    });
++    (sink, seen)
++}
++
++/// 正向：`new(回调)` 后 `emit("exec-x")` → 回调收到原样串；`emit("")` 亦原样
++/// 投递（空串是合法 exec_id 形态的边界由消费方判定）。
++#[test]
++fn output_ref_sink_emit原样投递含空串() {
++    let (sink, seen) = output_ref_recorder();
++    sink.emit("exec-x");
++    sink.emit("");
++    assert_eq!(
++        *seen.lock().expect("上抛记录锁不可中毒"),
++        vec!["exec-x".to_owned(), String::new()],
++        "原样投递（零改写），空串亦投递"
++    );
++}
++
++/// 边界（参数化 0 / 1 / 1000 次）：单实例连续 `emit` 后回调计数恰等（零合并零
++/// 丢弃）；克隆后的两副本交错 `emit` 100 次 → 计数和为 200（无丢失、无重复）。
++#[test]
++fn output_ref_sink_上抛次数边界零合并零丢弃() {
++    for count in [0usize, 1, 1000] {
++        let (sink, seen) = output_ref_recorder();
++        for index in 0..count {
++            sink.emit(&format!("exec-{index}"));
++        }
++        let observed = seen.lock().expect("上抛记录锁不可中毒").len();
++        assert_eq!(observed, count, "emit {count} 次 → 回调计数恰为 {count}");
++    }
++
++    // Clone 后两副本交错 emit 100 次 → 计数和 200
++    let (sink, seen) = output_ref_recorder();
++    let cloned = sink.clone();
++    for index in 0..100 {
++        sink.emit(&format!("exec-a-{index}"));
++        cloned.emit(&format!("exec-b-{index}"));
++    }
++    assert_eq!(
++        seen.lock().expect("上抛记录锁不可中毒").len(),
++        200,
++        "两副本交错 100 次 → 回调计数和 200（无丢失、无重复）"
++    );
++}
++
++/// 异常（参数化 4 形态）：`emit` 投递面零转义零截断——空串 / 含控制字符 /
++/// 含 emoji / 超长（>1000 chars）的 `exec_id` 全部原样抵达回调。
++#[test]
++fn output_ref_sink_超长与控制字符原样投递() {
++    let long_id = format!("exec-{}-尾", "x".repeat(1200));
++    let cases: [String; 4] = [
++        String::new(),
++        "exec-\u{0}\u{7}\t".to_owned(),
++        "exec-🚀-中文".to_owned(),
++        long_id,
++    ];
++    let (sink, seen) = output_ref_recorder();
++    for case in &cases {
++        sink.emit(case);
++    }
++    assert_eq!(
++        *seen.lock().expect("上抛记录锁不可中毒"),
++        cases.to_vec(),
++        "四形态原样投递（零转义零截断）"
++    );
++    let expected_chars = "exec-".chars().count() + 1200 + "-尾".chars().count();
++    assert_eq!(
++        seen.lock().expect("上抛记录锁不可中毒")[3].chars().count(),
++        expected_chars,
++        "超长 exec_id 逐字符在案"
++    );
++}
++
++/// 异常：回调体 panic 时 `emit` 调用点**不吞 panic**——panic 按 Rust 默认语义
++/// 向调用方展开（`catch_unwind` 可捕获），MUST NOT 在 `emit` 内部静默捕获后继续。
++#[test]
++fn output_ref_sink_回调panic不被吞掉() {
++    let sink = OutputRefSink::new(|_exec_id: &str| panic!("回调体内 panic-mark"));
++    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.emit("exec-p")));
++    let payload = caught.expect_err("emit 不得吞掉回调 panic");
++    let message = payload
++        .downcast_ref::<&str>()
++        .map(|text| (*text).to_owned())
++        .or_else(|| payload.downcast_ref::<String>().cloned())
++        .unwrap_or_default();
++    assert!(
++        message.contains("panic-mark"),
++        "panic 载荷原样上抛（零改写）: {message:?}"
++    );
++}
++
++/// 正向：`Clone` 后两份副本 `emit` → 同一次回调（`Arc` 共享）各收到一条，计数
++/// 与调用次数一致。
++#[test]
++fn output_ref_sink_clone共享同一回调() {
++    let (sink, seen) = output_ref_recorder();
++    let cloned = sink.clone();
++    sink.emit("exec-1");
++    cloned.emit("exec-2");
++    assert_eq!(
++        seen.lock().expect("上抛记录锁不可中毒").len(),
++        2,
++        "clone 共享同一底层闭包（调用两次即两条）"
++    );
++    assert_eq!(
++        *seen.lock().expect("上抛记录锁不可中毒"),
++        vec!["exec-1".to_owned(), "exec-2".to_owned()],
++        "两条记录均抵达"
++    );
++}
++
++/// 异常：`Debug` 输出恒为 `"OutputRefSink(..)"`（不含闭包地址、不 panic，红线
++/// ②）；`ToolStepRequest` 的 `Debug` 在 `on_output_ref: Some(..)` 与 `None` 两
++/// 形态均不 panic。
++#[test]
++fn output_ref_sink手写debug不含闭包内容() {
++    let (sink, _seen) = output_ref_recorder();
++    assert_eq!(format!("{sink:?}"), "OutputRefSink(..)", "手写 Debug 定式");
++    assert_eq!(
++        format!("{sink:?}"),
++        format!("{:?}", sink.clone()),
++        "clone 同渲染"
++    );
++
++    for variant in [Some(sink.clone()), None] {
++        let request = crate::port::ToolStepRequest {
++            root: "/ws".to_owned(),
++            command: ToolCommand::StaticCheck {
++                change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
++            },
++            cancel: CancelFlag::never(),
++            on_output_ref: variant,
++        };
++        let debug = format!("{request:?}");
++        assert!(
++            debug.contains("on_output_ref"),
++            "Debug 面含 on_output_ref 字段: {debug}"
++        );
++        assert!(
++            !debug.contains("0x") || debug.contains("OutputRefSink(..)"),
++            "Debug 不泄漏闭包地址: {debug}"
++        );
++    }
++}
++
++/// 边界（组合 同实例 × 异实例 × None）：身份相等语义——同一实例的两份 clone
++/// `==` 且 `Eq` 自反；两个不同 `new(..)` 实例（回调体相同）`!=`
++///（`Arc::ptr_eq` 为判据）；`Option<OutputRefSink>` 的 `None == None` 成立。
++#[test]
++fn output_ref_sink身份相等语义() {
++    let (first, _seen_a) = output_ref_recorder();
++    let (second, _seen_b) = output_ref_recorder();
++
++    assert_eq!(first, first.clone(), "同一实例的两份 clone 相等");
++    assert_eq!(first, first, "Eq 自反");
++    assert_ne!(first, second, "两个不同 new 实例不相等（身份语义）");
++
++    let none: Option<OutputRefSink> = None;
++    assert_eq!(none, None, "None == None");
++    assert_ne!(Some(first), none, "Some 与 None 不相等");
++    assert_eq!(Some(second.clone()), Some(second), "同实例的 Option 相等");
++}
++
++/// 正向：既有 33 处 `ToolStepRequest` 字面量补 `on_output_ref: None` 后编译通过
++/// ——`PartialEq` 在两 `None` 形态与 `Some(同一实例)` 两形态下相等。
++#[test]
++fn tool_step_request_eq语义在两形态下不变() {
++    let base = crate::port::ToolStepRequest {
++        root: "/ws/a".to_owned(),
++        command: ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        cancel: CancelFlag::never(),
++        on_output_ref: None,
++    };
++    let clone = crate::port::ToolStepRequest {
++        cancel: base.cancel.clone(),
++        ..base.clone()
++    };
++    assert_eq!(base, clone, "两 None 形态相等（缺省语义不变）");
++
++    let (sink, _seen) = output_ref_recorder();
++    let with_sink = crate::port::ToolStepRequest {
++        cancel: base.cancel.clone(),
++        on_output_ref: Some(sink.clone()),
++        ..base.clone()
++    };
++    let same_sink = crate::port::ToolStepRequest {
++        cancel: base.cancel.clone(),
++        on_output_ref: Some(sink),
++        ..base.clone()
++    };
++    assert_eq!(with_sink, same_sink, "Some(同一实例) 两形态相等");
++    assert_ne!(base, with_sink, "None 与 Some 不等");
++}
++
++/// 异常：`Some(不同实例)` 的 `ToolStepRequest` → `!=`（身份语义，非回调行为
++/// 比较）；穷尽解构补字段后 `on_output_ref.is_none()` 成立（形态适应而非口径
++/// 改写）。
++#[test]
++fn tool_step_request_不同实例不等且穷尽解构字段在位() {
++    let (first, _seen_a) = output_ref_recorder();
++    let (second, _seen_b) = output_ref_recorder();
++    let request = |sink: Option<OutputRefSink>| crate::port::ToolStepRequest {
++        root: "/ws/a".to_owned(),
++        command: ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        cancel: CancelFlag::never(),
++        on_output_ref: sink,
++    };
++    assert_ne!(
++        request(Some(first.clone())),
++        request(Some(second)),
++        "回调体相同但实例不同 → 请求不等（身份语义）"
++    );
++
++    let crate::port::ToolStepRequest {
++        root,
++        command,
++        cancel,
++        on_output_ref,
++    } = request(None);
++    assert_eq!(root, "/ws/a");
++    assert!(!cancel.is_set());
++    assert!(on_output_ref.is_none(), "穷尽解构补字段后缺省为 None");
++    assert!(matches!(command, ToolCommand::StaticCheck { .. }));
++}
++
++/// 边界：缺省语义——`on_output_ref: None` 的请求经 runner 侧收到 `None`
++/// （零补发拍、零额外通知）。
++#[tokio::test]
++async fn tool_step_request_缺省none原样透传到runner() {
++    struct RecordingRunner {
++        seen: Mutex<Vec<Option<String>>>,
++    }
++
++    impl StaticCheckRunner for RecordingRunner {
++        fn run(
++            &self,
++            _root: &str,
++            _name: &str,
++            _slot: ReportSlot,
++            _cancel: CancelFlag,
++            on_output_ref: Option<OutputRefSink>,
++        ) -> crate::port::BoxToolFuture {
++            let recorded = on_output_ref.as_ref().map(|sink| {
++                sink.emit("exec-from-runner");
++                "exec-from-runner".to_owned()
++            });
++            self.seen.lock().expect("记录锁不可中毒").push(recorded);
++            Box::pin(async {
++                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                    passed: true,
++                    diagnostics: String::new(),
++                    fault: None,
++                    output_ref: None,
++                    report_dir: String::new(),
++                }))
++            })
++        }
++    }
++
++    let runner = RecordingRunner {
++        seen: Mutex::new(Vec::new()),
++    };
++    let output = runner
++        .run("/ws", "demo", ReportSlot::Test, CancelFlag::never(), None)
++        .await
++        .expect("假 runner 应 Ok");
++    assert!(matches!(output, ToolStepOutput::StaticCheck(_)));
++    assert_eq!(
++        *runner.seen.lock().expect("记录锁不可中毒"),
++        vec![None],
++        "None 缺省原样抵达 runner（零补发拍）"
++    );
++}
++
++/// 正向：既有 9 处 `port_test` 调用面补末位 `None` 后断言零改
++/// （`ProgrammableRunner` 行为不变——calls / cancels 记录面照常）。
++#[tokio::test]
++async fn static_check_runner既有调用面补none后行为不变() {
++    let (runner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
++        passed: true,
++        diagnostics: "ok".to_owned(),
++        fault: None,
++        output_ref: None,
++        report_dir: "/ws/reports/test".to_owned(),
++    });
++    let _ = runner
++        .run(
++            "/ws",
++            "demo-change",
++            ReportSlot::Test,
++            CancelFlag::never(),
++            None,
++        )
++        .await
++        .expect("应 Ok");
++    assert_eq!(
++        *calls.lock().expect("calls 锁不可中毒"),
++        vec![("/ws".to_owned(), "demo-change".to_owned(), ReportSlot::Test)],
++        "既有三参记录面零改"
++    );
++}
++
++/// 异常：传入 `Some(sink)` 且 mock runner 从不调用 → 与 `None` 逐字段等价
++///（`ToolStepOutput` 全字段相等，零补发拍）。
++#[tokio::test]
++async fn static_check_runner_some不被调用时与none等价() {
++    let outcome = StaticCheckOutcome {
++        passed: false,
++        diagnostics: "diag".to_owned(),
++        fault: None,
++        output_ref: None,
++        report_dir: "/ws/reports/test".to_owned(),
++    };
++    let (runner_none, _) = ProgrammableRunner::with_outcome(outcome.clone());
++    let without = runner_none
++        .run("/ws", "demo", ReportSlot::Test, CancelFlag::never(), None)
++        .await
++        .expect("应 Ok");
++
++    let (runner_some, _) = ProgrammableRunner::with_outcome(outcome);
++    let (sink, seen) = output_ref_recorder();
++    let with = runner_some
++        .run(
++            "/ws",
++            "demo",
++            ReportSlot::Test,
++            CancelFlag::never(),
++            Some(sink),
++        )
++        .await
++        .expect("应 Ok");
++
++    assert_eq!(with, without, "两形态产出逐字段等价");
++    assert!(
++        seen.lock().expect("上抛记录锁不可中毒").is_empty(),
++        "mock runner 从不调用 ⇒ 零补发拍"
++    );
++}
++
++/// 边界：同一 `OutputRefSink` 实例传给两 trait 的 `run` → 两处 `emit` 均抵达
++/// 同一回调（类型面不吞实例、跨 trait 复用不失效）。
++#[tokio::test]
++async fn 两trait末位形参跨复用同一实例() {
++    struct BothRunners;
++
++    impl StaticCheckRunner for BothRunners {
++        fn run(
++            &self,
++            _root: &str,
++            _name: &str,
++            _slot: ReportSlot,
++            _cancel: CancelFlag,
++            on_output_ref: Option<OutputRefSink>,
++        ) -> crate::port::BoxToolFuture {
++            if let Some(sink) = on_output_ref {
++                sink.emit("exec-static");
++            }
++            Box::pin(async {
++                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                    passed: true,
++                    diagnostics: String::new(),
++                    fault: None,
++                    output_ref: None,
++                    report_dir: String::new(),
++                }))
++            })
++        }
++    }
++
++    impl TestExecutionRunner for BothRunners {
++        fn run(
++            &self,
++            _root: &str,
++            _name: &str,
++            _slot: ReportSlot,
++            _cancel: CancelFlag,
++            on_output_ref: Option<OutputRefSink>,
++        ) -> crate::port::BoxToolFuture {
++            if let Some(sink) = on_output_ref {
++                sink.emit("exec-tests");
++            }
++            Box::pin(async {
++                Ok(ToolStepOutput::TestExecution(
++                    crate::port::TestExecutionOutcome {
++                        conclusion: crate::port::TestExecutionConclusion::Pass,
++                        total: 0,
++                        passed: 0,
++                        failed: 0,
++                        skipped: 0,
++                        findings_brief: String::new(),
++                        findings_detail: String::new(),
++                        report_dir: String::new(),
++                        exec_id: String::new(),
++                        fault: None,
++                    },
++                ))
++            })
++        }
++    }
++
++    let runner = BothRunners;
++    let (sink, seen) = output_ref_recorder();
++    let _ = StaticCheckRunner::run(
++        &runner,
++        "/ws",
++        "demo",
++        ReportSlot::Test,
++        CancelFlag::never(),
++        Some(sink.clone()),
++    )
++    .await
++    .expect("StaticCheckRunner 应 Ok");
++    let _ = TestExecutionRunner::run(
++        &runner,
++        "/ws",
++        "demo",
++        ReportSlot::Test,
++        CancelFlag::never(),
++        Some(sink),
++    )
++    .await
++    .expect("TestExecutionRunner 应 Ok");
++
++    assert_eq!(
++        *seen.lock().expect("上抛记录锁不可中毒"),
++        vec!["exec-static".to_owned(), "exec-tests".to_owned()],
++        "同一实例跨两 trait 复用、两次 emit 均抵达"
++    );
++}
+diff --git a/crates/core/orchestration/src/steps.rs b/crates/core/orchestration/src/steps.rs
+index dcb375dc42db..4aa594abd80d 100644
+--- a/crates/core/orchestration/src/steps.rs
++++ b/crates/core/orchestration/src/steps.rs
+@@ -216,7 +216,9 @@ async fn execute(
+                 .ok_or_else(|| {
+                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行静态检查")
+                 })?;
+-            let output = static_check.run(&step.root, &name, slot, cancel).await;
++            let output = static_check
++                .run(&step.root, &name, slot, cancel, step.on_output_ref)
++                .await;
+             audit_outcome(
+                 store.as_ref(),
+                 &run_id,
+@@ -242,7 +244,9 @@ async fn execute(
+                 .ok_or_else(|| {
+                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行测试门禁")
+                 })?;
+-            let output = test_execution.run(&step.root, &name, slot, cancel).await;
++            let output = test_execution
++                .run(&step.root, &name, slot, cancel, step.on_output_ref)
++                .await;
+             audit_outcome(
+                 store.as_ref(),
+                 &run_id,
+diff --git a/crates/core/orchestration/src/steps_test.rs b/crates/core/orchestration/src/steps_test.rs
+index d4c7df8e5545..f41aa0685818 100644
+--- a/crates/core/orchestration/src/steps_test.rs
++++ b/crates/core/orchestration/src/steps_test.rs
+@@ -30,7 +30,7 @@ use foundation::cancel::CancelFlag;
+ 
+ use crate::port::{
+     ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationCounts,
+-    MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
++    MutationSkipReason, MutationTestConclusion, MutationTestOutcome, OutputRefSink, RebaseOutcome,
+     StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome,
+     TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+     WorktreeSnapshot,
+@@ -437,6 +437,8 @@ struct FakeRunner {
+     calls: Mutex<Vec<(String, String, ReportSlot)>>,
+     /// 收到的取消信号（AC-6 透传面：身份相等断言原料）
+     cancels: Mutex<Vec<CancelFlag>>,
++    /// 收到的上抛回调（change-detail-live-stdout 透传面：`Arc::ptr_eq` 身份判据）
++    output_refs: Mutex<Vec<Option<OutputRefSink>>>,
+     result: Result<StaticCheckOutcome, String>,
+ }
+ 
+@@ -466,10 +468,19 @@ impl FakeRunner {
+         Self {
+             calls: Mutex::new(Vec::new()),
+             cancels: Mutex::new(Vec::new()),
++            output_refs: Mutex::new(Vec::new()),
+             result,
+         }
+     }
+ 
++    /// 上抛回调记录快照（`None` / `Some(同一实例)` 两形态的透传断言面）。
++    fn output_refs(&self) -> Vec<Option<OutputRefSink>> {
++        self.output_refs
++            .lock()
++            .expect("output_refs 锁不可中毒")
++            .clone()
++    }
++
+     /// 取消信号记录快照（三分支透传断言面）。
+     fn cancels(&self) -> Vec<CancelFlag> {
+         self.cancels.lock().expect("cancels 锁不可中毒").clone()
+@@ -487,11 +498,22 @@ impl FakeRunner {
+ }
+ 
+ impl StaticCheckRunner for FakeRunner {
+-    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
++    fn run(
++        &self,
++        root: &str,
++        name: &str,
++        slot: ReportSlot,
++        cancel: CancelFlag,
++        on_output_ref: Option<OutputRefSink>,
++    ) -> BoxToolFuture {
+         self.cancels
+             .lock()
+             .expect("cancels 锁不可中毒")
+             .push(cancel);
++        self.output_refs
++            .lock()
++            .expect("output_refs 锁不可中毒")
++            .push(on_output_ref);
+         self.calls
+             .lock()
+             .expect("calls 锁不可中毒")
+@@ -507,6 +529,8 @@ struct FakeTestExecutionRunner {
+     calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
+     /// 收到的取消信号（AC-6 透传面）
+     cancels: Arc<Mutex<Vec<CancelFlag>>>,
++    /// 收到的上抛回调（change-detail-live-stdout 透传面）
++    output_refs: Arc<Mutex<Vec<Option<OutputRefSink>>>>,
+     result: Result<TestExecutionOutcome, String>,
+ }
+ 
+@@ -530,10 +554,19 @@ impl FakeTestExecutionRunner {
+         Self {
+             calls: Arc::new(Mutex::new(Vec::new())),
+             cancels: Arc::new(Mutex::new(Vec::new())),
++            output_refs: Arc::new(Mutex::new(Vec::new())),
+             result,
+         }
+     }
+ 
++    /// 上抛回调记录快照（`None` / `Some(同一实例)` 两形态的透传断言面）。
++    fn output_refs(&self) -> Vec<Option<OutputRefSink>> {
++        self.output_refs
++            .lock()
++            .expect("output_refs 锁不可中毒")
++            .clone()
++    }
++
+     /// 取消信号记录快照（三分支透传断言面）。
+     fn cancels(&self) -> Vec<CancelFlag> {
+         self.cancels.lock().expect("cancels 锁不可中毒").clone()
+@@ -550,11 +583,22 @@ impl FakeTestExecutionRunner {
+ }
+ 
+ impl TestExecutionRunner for FakeTestExecutionRunner {
+-    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
++    fn run(
++        &self,
++        root: &str,
++        name: &str,
++        slot: ReportSlot,
++        cancel: CancelFlag,
++        on_output_ref: Option<OutputRefSink>,
++    ) -> BoxToolFuture {
+         self.cancels
+             .lock()
+             .expect("cancels 锁不可中毒")
+             .push(cancel);
++        self.output_refs
++            .lock()
++            .expect("output_refs 锁不可中毒")
++            .push(on_output_ref);
+         self.calls
+             .lock()
+             .expect("calls 锁不可中毒")
+@@ -984,6 +1028,7 @@ async fn run_step(steps: &LocalToolSteps, command: ToolCommand) -> ToolStepOutpu
+             root: ROOT.to_owned(),
+             cancel: foundation::cancel::CancelFlag::never(),
+             command,
++            on_output_ref: None,
+         })
+         .await
+         .expect("步执行应成功")
+@@ -1257,6 +1302,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
+                 change_id: CHANGE_ID.to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("runner Err 应透传");
+@@ -1272,6 +1318,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
+                 change_id: "不存在的-change".to_owned(),
+                 phase: "proposal".to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("未建档 change 应 Err");
+@@ -1350,6 +1397,7 @@ async fn test_execution臂经记录解析name_未建档零发起() {
+                 change_id: "unregistered-id".to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("未建档 id 应 Err");
+@@ -1585,6 +1633,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
+                 change_id: CHANGE_ID.to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("runner Err 应透传");
+@@ -1598,6 +1647,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
+                 change_id: CHANGE_ID.to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("runner Err 应透传");
+@@ -1686,6 +1736,7 @@ async fn store故障_落账臂err记因上抛不静默() {
+                     decision_session_id: None,
+                 },
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("store fault 应记因上抛");
+@@ -1800,6 +1851,7 @@ async fn store故障_读路径fault经臂err上抛() {
+                 change_id: CHANGE_ID.to_owned(),
+                 run_id: "run-read-fault".to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("读路径 fault 应记因上抛");
+@@ -2230,6 +2282,7 @@ async fn static_check未建档显式err且零发起() {
+                 change_id: "unregistered-id".to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("未建档 id 应显式 Err");
+@@ -2268,6 +2321,7 @@ async fn static_check读故障err传播且零发起() {
+                 change_id: CHANGE_ID.to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("读路径 fault 应记因上抛不静默");
+@@ -2348,6 +2402,7 @@ async fn 写面err统一以err_string上抛() {
+                 change_id: "不存在的-change".to_owned(),
+                 run_id: "run-1".to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("未知 change 应 Err");
+@@ -2363,6 +2418,7 @@ async fn 写面err统一以err_string上抛() {
+                 change_id: CHANGE_ID.to_owned(),
+                 phase: "幽灵相位".to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("非法相位应 Err");
+@@ -2393,6 +2449,7 @@ async fn 写面err统一以err_string上抛() {
+                     decision_session_id: None,
+                 },
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("非 requirement 应 Err");
+@@ -2421,6 +2478,7 @@ async fn runner_err原样透传() {
+                 change_id: CHANGE_ID.to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("runner Err 应透传");
+@@ -2584,6 +2642,7 @@ async fn test_execution_runner_err原样上抛() {
+                 change_id: CHANGE_ID.to_owned(),
+                 slot: ReportSlot::Test,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("runner Err 应透传");
+@@ -2643,6 +2702,7 @@ impl ArchiveEnv {
+                 root: self.root_str(),
+                 cancel: foundation::cancel::CancelFlag::never(),
+                 command,
++                on_output_ref: None,
+             })
+             .await
+     }
+@@ -3114,6 +3174,7 @@ async fn 归档两臂不写审计行_相位机臂照常落行() {
+                 change_id: CHANGE_ID.to_owned(),
+                 run_id: "run-audit-archive".to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect("相位路由应成功");
+@@ -3321,6 +3382,7 @@ async fn mutation_test臂未建档显式err且零发起() {
+             command: ToolCommand::MutationTest {
+                 change_id: "ghost-id".to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("未建档 id 应 Err");
+@@ -3364,6 +3426,7 @@ async fn mutation_test臂vcs取数err传播且runner零发起() {
+             command: ToolCommand::MutationTest {
+                 change_id: CHANGE_ID.to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("清单 Err 应传播");
+@@ -3398,6 +3461,7 @@ async fn mutation_test臂vcs取数err传播且runner零发起() {
+             command: ToolCommand::MutationTest {
+                 change_id: CHANGE_ID.to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("补丁 Err 应传播");
+@@ -3436,6 +3500,7 @@ async fn mutation_test臂runner_err传播且审计error行() {
+             command: ToolCommand::MutationTest {
+                 change_id: CHANGE_ID.to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("runner Err 应传播");
+@@ -3637,6 +3702,7 @@ async fn execute_slot缺省回归与解析miss语义持衡() {
+                 change_id: "ghost-id".to_owned(),
+                 slot: ReportSlot::Baseline,
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect_err("未建档 id 应 Err");
+@@ -3734,6 +3800,7 @@ async fn run_step_with_cancel(
+             root: ROOT.to_owned(),
+             cancel,
+             command,
++            on_output_ref: None,
+         })
+         .await
+ }
+@@ -4550,3 +4617,357 @@ async fn archi_check审计落行失败不阻断臂业务产出() {
+     );
+     assert!(fake.steps().is_empty(), "审计行缺席（写入失败被吞）");
+ }
++
++// ---------------------------------------------------------------------------
++// 上抛回调透传（change-detail-live-stdout，AC-5）
++//
++// 被测面：`LocalToolSteps::execute` 的 static-check 与 test-execution 两分支把
++// `step.on_output_ref` **原样**透传给对应 runner（`Option` 未消费即丢弃，其余
++// 九类分支行为零变）；`step.cancel` 已在统一点取出，不受影响。
++//
++// Mock 策略（见 test-design 本节 Mock策略表）：`FakeRunner` /
++// `FakeTestExecutionRunner` 为被测 `execute` 的**注入依赖**（`Arc<dyn …Runner>`），
++// 新增记录「收到的 `Option<OutputRefSink>`」供身份比较；不 mock `steps.rs` 自身。
++// ---------------------------------------------------------------------------
++
++/// 一次带 `on_output_ref` 的步驱动（`run_step` 的上抛变体）。
++async fn run_step_with_ref(
++    steps: &LocalToolSteps,
++    command: ToolCommand,
++    on_output_ref: Option<OutputRefSink>,
++) -> ToolStepOutput {
++    steps
++        .run(ToolStepRequest {
++            root: ROOT.to_owned(),
++            cancel: foundation::cancel::CancelFlag::never(),
++            command,
++            on_output_ref,
++        })
++        .await
++        .expect("步执行应成功")
++}
++
++/// 上抛回调记录器：`(sink, 收到的 exec_id 序列)`。
++fn ref_sink() -> (OutputRefSink, Arc<Mutex<Vec<String>>>) {
++    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
++    let recorder = Arc::clone(&seen);
++    let sink = OutputRefSink::new(move |exec_id: &str| {
++        recorder
++            .lock()
++            .expect("上抛记录锁不可中毒")
++            .push(exec_id.to_owned());
++    });
++    (sink, seen)
++}
++
++/// 正向（参数化 `Some` / `None`）：static-check 分支把 `on_output_ref` 原样透传
++/// ——`Some` 时 runner 收到**同一实例**（`Arc::ptr_eq` 判等）、`None` 时收到
++/// `None`。
++#[tokio::test]
++async fn static_check分支_上抛回调原样透传() {
++    let db = TestDb::open("output-ref-static");
++    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    let assembled = assemble(
++        db.store_arc(),
++        "run-1",
++        FakeRunner::passing(),
++        FakeTestExecutionRunner::passing(),
++    );
++    let static_check = Arc::clone(&assembled.static_check);
++
++    // 形态一：Some(同一实例)
++    let (sink, seen) = ref_sink();
++    let output = run_step_with_ref(
++        &assembled.steps,
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        Some(sink.clone()),
++    )
++    .await;
++    assert!(matches!(output, ToolStepOutput::StaticCheck(_)));
++    let received = static_check.output_refs();
++    assert_eq!(received.len(), 1, "runner 收到一次调用");
++    let Some(received_sink) = received[0].clone() else {
++        panic!("Some 形态应透传 Some");
++    };
++    assert_eq!(received_sink, sink, "透传的是同一实例（身份相等）");
++    // 该实例仍可投递（未被消费 / 未被丢弃）
++    received_sink.emit("exec-passthrough");
++    assert_eq!(
++        *seen.lock().expect("上抛记录锁不可中毒"),
++        vec!["exec-passthrough".to_owned()],
++        "透传后的实例可正常投递"
++    );
++
++    // 形态二：None
++    let output = run_step_with_ref(
++        &assembled.steps,
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        None,
++    )
++    .await;
++    assert!(matches!(output, ToolStepOutput::StaticCheck(_)));
++    let received = static_check.output_refs();
++    assert_eq!(received.len(), 2);
++    assert!(received[1].is_none(), "None 形态原样透传 None");
++}
++
++/// 正向（参数化 `Some` / `None`）：test-execution 分支同上。
++#[tokio::test]
++async fn test_execution分支_上抛回调原样透传() {
++    let db = TestDb::open("output-ref-testexec");
++    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    let assembled = assemble(
++        db.store_arc(),
++        "run-1",
++        FakeRunner::passing(),
++        FakeTestExecutionRunner::passing(),
++    );
++    let execution = Arc::clone(&assembled.execution);
++
++    let (sink, seen) = ref_sink();
++    let output = run_step_with_ref(
++        &assembled.steps,
++        ToolCommand::TestExecution {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        Some(sink.clone()),
++    )
++    .await;
++    assert!(matches!(output, ToolStepOutput::TestExecution(_)));
++    let received = execution.output_refs();
++    assert_eq!(received.len(), 1);
++    let Some(received_sink) = received[0].clone() else {
++        panic!("Some 形态应透传 Some");
++    };
++    assert_eq!(received_sink, sink, "透传的是同一实例（身份相等）");
++    received_sink.emit("exec-testexec");
++    assert_eq!(
++        *seen.lock().expect("上抛记录锁不可中毒"),
++        vec!["exec-testexec".to_owned()]
++    );
++
++    let output = run_step_with_ref(
++        &assembled.steps,
++        ToolCommand::TestExecution {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        None,
++    )
++    .await;
++    assert!(matches!(output, ToolStepOutput::TestExecution(_)));
++    assert!(
++        execution.output_refs()[1].is_none(),
++        "None 形态原样透传 None"
++    );
++}
++
++/// 异常（参数化 9 分支）：其余九类分支不消费 `on_output_ref`、不传给任何 runner
++///（各自 `ToolStepPort` 签名未扩）；`Option` 丢弃零副作用。
++#[tokio::test]
++async fn 其余九分支_不消费上抛回调且零副作用() {
++    let db = TestDb::open("output-ref-other-arms");
++    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    let assembled = assemble(
++        db.store_arc(),
++        "run-1",
++        FakeRunner::passing(),
++        FakeTestExecutionRunner::passing(),
++    );
++    let static_check = Arc::clone(&assembled.static_check);
++    let execution = Arc::clone(&assembled.execution);
++    let (sink, seen) = ref_sink();
++
++    // 九类非脚本步命令（各自以最小合法载荷构造；不追求写面成功，只锁「不经
++    // runner、不消费上抛」）
++    let commands: Vec<ToolCommand> = vec![
++        ToolCommand::PhaseNext {
++            change_id: CHANGE_ID.to_owned(),
++            run_id: "run-1".to_owned(),
++        },
++        ToolCommand::PhaseStart {
++            change_id: CHANGE_ID.to_owned(),
++            phase: "implement".to_owned(),
++        },
++        ToolCommand::PhaseLog {
++            change_id: CHANGE_ID.to_owned(),
++            phase: "implement".to_owned(),
++            input: PhaseLogInput {
++                phase: "implement".to_owned(),
++                report: "完成".to_owned(),
++                checklist: Vec::new(),
++                skipped: false,
++                executor_session_id: None,
++                evaluator_session_id: None,
++                decision_session_id: None,
++            },
++        },
++        ToolCommand::Backtrack {
++            change_id: CHANGE_ID.to_owned(),
++            phase: "implement".to_owned(),
++            input: BacktrackInput {
++                phase: "implement".to_owned(),
++                to: "proposal".to_owned(),
++                reason: "需要重做".to_owned(),
++                allowed: vec!["proposal".to_owned()],
++            },
++        },
++        ToolCommand::DecisionLog {
++            change_id: CHANGE_ID.to_owned(),
++            phase: "implement".to_owned(),
++            session_id: "sess-1".to_owned(),
++        },
++        ToolCommand::MutationTest {
++            change_id: CHANGE_ID.to_owned(),
++        },
++        ToolCommand::ArchiCheck {
++            change_id: CHANGE_ID.to_owned(),
++        },
++        ToolCommand::ArchivePreflight {
++            change_id: CHANGE_ID.to_owned(),
++        },
++        ToolCommand::ArchiveSeal {
++            change_id: CHANGE_ID.to_owned(),
++        },
++    ];
++    assert_eq!(commands.len(), 9, "九类非脚本步全覆盖");
++
++    for command in commands {
++        let label = format!("{command:?}");
++        let result = assembled
++            .steps
++            .run(ToolStepRequest {
++                root: ROOT.to_owned(),
++                cancel: foundation::cancel::CancelFlag::never(),
++                command,
++                on_output_ref: Some(sink.clone()),
++            })
++            .await;
++        // 写面可能 Err（种子不足），但上抛通道不得被消费
++        let _ = result;
++        assert!(
++            static_check.output_refs().is_empty(),
++            "{label}: 不经 static-check runner"
++        );
++        assert!(
++            execution.output_refs().is_empty(),
++            "{label}: 不经 test-execution runner"
++        );
++    }
++    assert!(
++        seen.lock().expect("上抛记录锁不可中毒").is_empty(),
++        "九分支零上抛往返"
++    );
++}
++
++/// 边界：既有 `ToolStepRequest` 字面量补 `on_output_ref: None` 后断言零改
++///（`run_step` 全组既有站点在本文件即编译期锚）：`None` 时 runner 收到 `None`、
++/// 其余三元组与取消面零漂移。
++#[tokio::test]
++async fn 既有字面量补none后三元组与取消面零漂移() {
++    let db = TestDb::open("output-ref-existing");
++    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    let assembled = assemble(
++        db.store_arc(),
++        "run-1",
++        FakeRunner::passing(),
++        FakeTestExecutionRunner::passing(),
++    );
++    let static_check = Arc::clone(&assembled.static_check);
++
++    let output = run_step(
++        &assembled.steps,
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++    )
++    .await;
++    assert!(matches!(output, ToolStepOutput::StaticCheck(_)));
++    assert_eq!(
++        static_check.calls(),
++        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
++        "三元组透传零漂移"
++    );
++    assert_eq!(static_check.cancels().len(), 1, "取消面照常记录一次");
++    assert!(
++        static_check.output_refs()[0].is_none(),
++        "既有字面量缺省 None 原样抵达"
++    );
++}
++
++/// 边界（组合 `Err` × `fault`）：runner 返回 `Err` / 携 `fault` 两臂 → 上抛通道
++/// 不改变错误面与产出面（`Terminal` 归因逻辑零变）。
++#[tokio::test]
++async fn 上抛在位时错误面与归因面零变() {
++    // Err 臂
++    let db = TestDb::open("output-ref-err");
++    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    let assembled = assemble(
++        db.store_arc(),
++        "run-1",
++        FakeRunner::erring("runner 崩"),
++        FakeTestExecutionRunner::passing(),
++    );
++    let (sink, seen) = ref_sink();
++    let err = assembled
++        .steps
++        .run(ToolStepRequest {
++            root: ROOT.to_owned(),
++            cancel: foundation::cancel::CancelFlag::never(),
++            command: ToolCommand::StaticCheck {
++                change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
++            },
++            on_output_ref: Some(sink.clone()),
++        })
++        .await
++        .expect_err("runner Err 应原样上抛");
++    assert_eq!(err, "runner 崩", "错误串零变");
++    assert!(
++        seen.lock().expect("上抛记录锁不可中毒").is_empty(),
++        "Err 臂零上抛往返（runner 未 emit）"
++    );
++
++    // fault 臂：产出照常透传（fault 归因由 walker 消费，steps 层不改写）
++    let db = TestDb::open("output-ref-fault");
++    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    let assembled = assemble(
++        db.store_arc(),
++        "run-1",
++        FakeRunner::with_result(Ok(StaticCheckOutcome {
++            passed: false,
++            diagnostics: "锁冲突".to_owned(),
++            fault: Some(crate::port::RunFault::Environment("环境坏".to_owned())),
++            output_ref: Some("exec-fault".to_owned()),
++            report_dir: String::new(),
++        })),
++        FakeTestExecutionRunner::passing(),
++    );
++    let (sink, _seen) = ref_sink();
++    let output = run_step_with_ref(
++        &assembled.steps,
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        Some(sink),
++    )
++    .await;
++    let ToolStepOutput::StaticCheck(outcome) = output else {
++        panic!("产出应为 StaticCheck 变体");
++    };
++    assert_eq!(
++        outcome.fault,
++        Some(crate::port::RunFault::Environment("环境坏".to_owned())),
++        "fault 原样透传（steps 层零改写）"
++    );
++    assert_eq!(outcome.output_ref.as_deref(), Some("exec-fault"));
++}
+diff --git a/crates/core/orchestration/src/walker.rs b/crates/core/orchestration/src/walker.rs
+index c50ce33a287a..fc43cef803f0 100644
+--- a/crates/core/orchestration/src/walker.rs
++++ b/crates/core/orchestration/src/walker.rs
+@@ -11,16 +11,16 @@ use workflow::write::{
+     StepDefinition, StepNode, INITIALIZE_PHASE_ID,
+ };
+ 
+-use crate::control::{ChangeFlowControl, RunGuard};
++use crate::control::{emit_node, now_millis, ChangeFlowControl, RunGuard, StepSettle};
+ use crate::decision::{
+     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
+ };
+ use crate::port::{
+     ArchiCheckOutcome, ArchiveVcsPort, MutationSkipReason, MutationTestConclusion,
+-    MutationTestOutcome, RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome,
+-    TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort,
+-    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+-    WorktreeSnapshot,
++    MutationTestOutcome, OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort,
++    StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput,
++    ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
++    WorkflowSnapshotPort, WorktreeSnapshot,
+ };
+ use crate::prompt::{
+     decision_fix_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
+@@ -28,8 +28,7 @@ use crate::prompt::{
+ };
+ use crate::run_history;
+ use crate::state::{
+-    ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState,
+-    ChangeStepStatus, EdgeKind, NodeKey, RunUpdate,
++    ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, EdgeKind, NodeKey, RunUpdate,
+ };
+ use crate::steps::{change_branch, check_rebase_halfway, clip_reason};
+ use crate::transcript::{failure_reason, final_assistant_text};
+@@ -286,6 +285,7 @@ async fn drive(
+                     change_id: request.change_id.clone(),
+                 },
+                 "archive-preflight",
++                None,
+             )
+             .await
+             .ok();
+@@ -426,121 +426,6 @@ fn emit_edge(guard: &RunGuard, from: NodeKey, to: NodeKey, kind: EdgeKind) {
+     });
+ }
+ 
+-/// 步状态行落值（emit 载荷收窄：状态 + 三可选面 + 步级时间与 token 载荷镜像面）。
+-/// token 两值为数据随行面（`run_worker` 经 [`StepSettle::with_tokens`] 落值、其余
+-/// 步不设即 None）；`started_at` / `ended_at` 两时间字段由 `emit_node` 单点铸造
+-/// 覆写——构造器恒中性值（0 / None），MUST NOT 由调用方携带时间。
+-struct StepSettle {
+-    status: ChangeStepStatus,
+-    session_id: Option<String>,
+-    detail: Option<String>,
+-    output_ref: Option<String>,
+-    started_at: i64,
+-    ended_at: Option<i64>,
+-    token_input: Option<u64>,
+-    token_output: Option<u64>,
+-}
+-
+-impl StepSettle {
+-    /// 步进行中（无会话 / 详情 / 输出引用；时间与 token 恒中性——时间由
+-    /// `emit_node` 铸造覆写）。
+-    fn running() -> Self {
+-        Self {
+-            status: ChangeStepStatus::Running,
+-            session_id: None,
+-            detail: None,
+-            output_ref: None,
+-            started_at: 0,
+-            ended_at: None,
+-            token_input: None,
+-            token_output: None,
+-        }
+-    }
+-
+-    /// 步通过（携人读摘要）。
+-    fn passed(detail: Option<String>) -> Self {
+-        Self {
+-            status: ChangeStepStatus::Passed,
+-            detail,
+-            ..Self::running()
+-        }
+-    }
+-
+-    /// 步失败（携失败记因）。
+-    fn failed(detail: Option<String>) -> Self {
+-        Self {
+-            status: ChangeStepStatus::Failed,
+-            detail,
+-            ..Self::running()
+-        }
+-    }
+-
+-    /// 步因停止 / 终止收敛。
+-    fn stopped(detail: Option<String>) -> Self {
+-        Self {
+-            status: ChangeStepStatus::Stopped,
+-            detail,
+-            ..Self::running()
+-        }
+-    }
+-
+-    /// 随行会话 id（WorkerAgent 步）。
+-    fn with_session(mut self, session_id: Option<String>) -> Self {
+-        self.session_id = session_id;
+-        self
+-    }
+-
+-    /// 随行全量输出引用（`ExecOutput::Recorded { exec_id }`）。
+-    fn with_output_ref(mut self, output_ref: Option<String>) -> Self {
+-        self.output_ref = output_ref;
+-        self
+-    }
+-
+-    /// 随行本步 token 增量（in / out 两值；仅 WorkerAgent 步终态落值，缺席
+-    /// None）——数据随行面，时间字段不在本 builder 语义内。
+-    fn with_tokens(mut self, token_input: Option<u64>, token_output: Option<u64>) -> Self {
+-        self.token_input = token_input;
+-        self.token_output = token_output;
+-        self
+-    }
+-}
+-
+-/// 步状态行 emit（节点累积 + Notice 广播；同稳定身份键的后续 emit 就地合并）。
+-/// 步级时间铸造收本单点：全部 44 个调用点零触点覆盖——running emit 铸
+-/// `(now, None)`、终态 emit 铸 `(now, Some(now))`（`phaseStart` 等单 emit 瞬步
+-/// 自然 `started_at == ended_at` 同刻）；该 started 同刻值是否被采信由
+-/// `accumulate_node` 合并侧裁定（started 保首见）。复用既有 `now_millis()` 零新
+-/// 时钟缝——收口时刻铸造只在生产路径消费，corpus 确定性由测试直构
+-/// `ChangeStepState` 注入定值承载（沿本文件 `now_millis` 既有注释口径）。
+-fn emit_node(
+-    guard: &RunGuard,
+-    phase: &str,
+-    attempt: u32,
+-    step: ChangeStepKind,
+-    instance_no: u32,
+-    mut settle: StepSettle,
+-) {
+-    let now = now_millis();
+-    settle.started_at = now;
+-    settle.ended_at = (settle.status != ChangeStepStatus::Running).then_some(now);
+-    guard.emit(RunUpdate::Step {
+-        step: ChangeStepState {
+-            phase: phase.to_owned(),
+-            attempt,
+-            step,
+-            instance_no,
+-            status: settle.status,
+-            session_id: settle.session_id,
+-            detail: settle.detail,
+-            output_ref: settle.output_ref,
+-            started_at: settle.started_at,
+-            ended_at: settle.ended_at,
+-            token_input: settle.token_input,
+-            token_output: settle.token_output,
+-        },
+-    });
+-}
+-
+ // ---------------------------------------------------------------------------
+ // 相位内计划步执行体（initialize 表头一次性基线检查相位步序：PhaseStart →
+ // Clean → StaticCheck → TestExecution → PhaseLog——Clean 为 vcs 直调基线恢复
+@@ -727,6 +612,7 @@ async fn step_phase_next(
+             run_id: request.run_id.clone(),
+         },
+         "phase-next",
++        None,
+     )
+     .await
+ }
+@@ -749,6 +635,7 @@ async fn step_phase_start(
+             phase: phase.to_owned(),
+         },
+         "phase-start",
++        None,
+     )
+     .await;
+     match outcome {
+@@ -982,6 +869,12 @@ async fn step_static_check(
+                 slot: ReportSlot::Test,
+             },
+             "static-check",
++            Some(StepIdentity {
++                phase: ctx.phase.to_owned(),
++                attempt: cursor.attempt,
++                step: ChangeStepKind::StaticCheck,
++                instance_no,
++            }),
+         )
+         .await?;
+         // fault 先于结论：环境错误 / 取消不烧反馈边预算（零 executor 会话）、
+@@ -1127,6 +1020,12 @@ async fn step_test_execution_escalate(
+             slot: ReportSlot::Test,
+         },
+         "test-execution",
++        Some(StepIdentity {
++            phase: ctx.phase.to_owned(),
++            attempt: cursor.attempt,
++            step: ChangeStepKind::TestExecution,
++            instance_no,
++        }),
+     )
+     .await?;
+     // fault 先于结论：环境错误 → 节点 failed + Terminal::failed（零决策分叉、零
+@@ -1221,6 +1120,12 @@ async fn step_static_check_terminal(
+             slot: ReportSlot::Baseline,
+         },
+         "static-check",
++        Some(StepIdentity {
++            phase: ctx.phase.to_owned(),
++            attempt: cursor.attempt,
++            step: ChangeStepKind::StaticCheck,
++            instance_no,
++        }),
+     )
+     .await?;
+     // fault 先于结论：基线环境错误 / 取消走环境文案与 stopped，不落基线红文案
+@@ -1302,6 +1207,12 @@ async fn step_test_execution_terminal(
+             slot: ReportSlot::Baseline,
+         },
+         "test-execution",
++        Some(StepIdentity {
++            phase: ctx.phase.to_owned(),
++            attempt: cursor.attempt,
++            step: ChangeStepKind::TestExecution,
++            instance_no,
++        }),
+     )
+     .await?;
+     // fault 先于结论：基线环境错误 → TXT_ENV_TEST（不落基线红 / 基线错误文案），
+@@ -1407,6 +1318,7 @@ async fn step_mutation_test_escalate(
+             change_id: ctx.request.change_id.clone(),
+         },
+         "mutation-test",
++        None,
+     )
+     .await
+     {
+@@ -1523,6 +1435,7 @@ async fn step_archi_check(
+                 change_id: ctx.request.change_id.clone(),
+             },
+             "archi-check",
++            None,
+         )
+         .await?;
+         // fault 先于结论：取消 / 环境错误不烧反馈边预算（零 executor 会话）、
+@@ -1980,6 +1893,7 @@ async fn run_phase_log(
+             input,
+         },
+         "phase-log",
++        None,
+     )
+     .await
+ }
+@@ -2433,6 +2347,7 @@ async fn step_preflight(
+             change_id: ctx.request.change_id.clone(),
+         },
+         "archive-preflight",
++        None,
+     )
+     .await
+     {
+@@ -3245,6 +3160,7 @@ async fn step_seal(
+             change_id: ctx.request.change_id.clone(),
+         },
+         "archive-seal",
++        None,
+     )
+     .await
+     {
+@@ -3449,6 +3365,7 @@ async fn resolve_deadlock(
+                     },
+                 },
+                 "backtrack",
++                None,
+             )
+             .await;
+             match backtrack {
+@@ -3529,6 +3446,7 @@ async fn decision_session(
+                 session_id: session_id.clone(),
+             },
+             "decision-log",
++            None,
+         )
+         .await?;
+         let text = outcome
+@@ -3804,27 +3722,55 @@ async fn run_worker(
+     }
+ }
+ 
++/// 脚本步的输出引用上抛身份（`run_tool` 组装回调的四段——与 `node_key` 同源；
++/// 缺席即老行为：running 拍不带输出引用）。
++struct StepIdentity {
++    phase: String,
++    attempt: u32,
++    step: ChangeStepKind,
++    instance_no: u32,
++}
++
+ /// 工具步执行：产出按封闭集窄化（漂移显式失败）；步失败 `Err` 串映射终态。
+ ///
+ /// `guard` 是取消信号的**单点取值来源**：`ToolStepRequest.cancel` 只在此处经
+ /// `guard.cancel_flag()` 填充（各步函数不各自取值），使停止信号在步边界
+ /// [`check_cancel`] 之外贯通到进程面——运行中的检查域 spawn 被
+ /// `exec::run_shell` 的 200 ms 轮询观测并杀树收敛。
++///
++/// `identity` 是输出引用上抛身份的**单点组装面**：`Some`（四位脚本步）时以
++/// [`RunGuard::emitter`] 组装 `'static` 的 [`OutputRefSink`]，回调内补发一拍带
++/// `output_ref` 的 running 步状态；`None`（其余工具步）时 `on_output_ref` 缺席，
++/// 老行为逐字节不变。
+ async fn run_tool<V>(
+     tools: &Arc<dyn ToolStepPort>,
+     guard: &RunGuard,
+     root: &str,
+     command: ToolCommand,
+     label: &str,
++    identity: Option<StepIdentity>,
+ ) -> Result<V, Terminal>
+ where
+     V: TryFrom<ToolStepOutput>,
+ {
++    let on_output_ref = identity.map(|identity| {
++        let emitter = guard.emitter();
++        OutputRefSink::new(move |exec_id| {
++            emitter.attach_output_ref(
++                &identity.phase,
++                identity.attempt,
++                identity.step,
++                identity.instance_no,
++                exec_id,
++            );
++        })
++    });
+     let output = match tools
+         .run(crate::port::ToolStepRequest {
+             root: root.to_owned(),
+             command,
+             cancel: guard.cancel_flag(),
++            on_output_ref,
+         })
+         .await
+     {
+@@ -3915,16 +3861,6 @@ fn settle_fault(
+     }
+ }
+ 
+-/// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）——run 收口时刻铸造
+-/// 点（finish 整包同刻，corpus 确定性由测试注入 started_at / 假 history 承
+-/// 载，本时钟只在生产路径消费）。
+-fn now_millis() -> i64 {
+-    std::time::SystemTime::now()
+-        .duration_since(std::time::UNIX_EPOCH)
+-        .map(|duration| duration.as_millis() as i64)
+-        .unwrap_or(0)
+-}
+-
+ // ToolStepOutput → 各封闭产出的窄化转换（run_tool 泛型的 TryFrom 半边）。
+ impl TryFrom<ToolStepOutput> for PhaseNextOutcome {
+     type Error = ();
+diff --git a/crates/core/orchestration/src/walker_test.rs b/crates/core/orchestration/src/walker_test.rs
+index d86880db1868..f46e13dc5b03 100644
+--- a/crates/core/orchestration/src/walker_test.rs
++++ b/crates/core/orchestration/src/walker_test.rs
+@@ -10,11 +10,11 @@ use foundation::cancel::CancelFlag;
+ use crate::control::ChangeFlowControl;
+ use crate::port::{
+     ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, BoxTurnFuture,
+-    MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
+-    RunFault, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion,
+-    TestExecutionOutcome, TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort,
+-    ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
+-    WorkflowSnapshotPort, WorktreeSnapshot,
++    MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, OutputRefSink,
++    RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner,
++    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
++    ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
++    WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+ };
+ use crate::snapshot::StoreSnapshot;
+ use crate::state::{
+@@ -1912,6 +1912,23 @@ fn static_check_phases() -> Vec<&'static str> {
+         .collect()
+ }
+ 
++/// 反馈边型 static-check 相位（非 initialize 表头——表头的 `on_fail=Terminal`
++/// 且 `root == main_root` 时整相位 legacy 短路，不执行脚本步）。
++fn feedback_static_check_phase() -> &'static str {
++    static_check_phases()
++        .into_iter()
++        .find(|phase| *phase != workflow::write::INITIALIZE_PHASE_ID)
++        .expect("至少一处反馈边 static-check 相位")
++}
++
++/// 反馈边型 test-execution 相位（同 [`feedback_static_check_phase`] 的取向）。
++fn feedback_test_execution_phase() -> &'static str {
++    test_execution_phases()
++        .into_iter()
++        .find(|phase| *phase != workflow::write::INITIALIZE_PHASE_ID)
++        .expect("至少一处反馈边 test-execution 相位")
++}
++
+ /// 声明 test-execution 步的相位。
+ fn test_execution_phases() -> Vec<&'static str> {
+     phase_table("requirement")
+@@ -4886,6 +4903,7 @@ impl StaticCheckRunner for NullRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         _cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(passing_check())) })
+     }
+@@ -4901,6 +4919,7 @@ impl StaticCheckRunner for FailingRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         _cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         Box::pin(async move {
+             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+@@ -4926,6 +4945,7 @@ impl TestExecutionRunner for NullTestExecutionRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         _cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         Box::pin(async move {
+             Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
+@@ -11693,6 +11713,7 @@ impl StaticCheckRunner for CancelableStaticRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         self.received
+             .lock()
+@@ -11893,6 +11914,7 @@ impl StaticCheckRunner for AlwaysFailStaticRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         _cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         Box::pin(async move { Err("boom".to_owned()) })
+     }
+@@ -12085,6 +12107,7 @@ impl StaticCheckRunner for HangingIgnoreCancelRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         cancel: CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         self.received
+             .lock()
+@@ -14741,3 +14764,968 @@ async fn archi_check三态跑动后源码字节零变化() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 脚本步上抛链与 emit 面收口（change-detail-live-stdout，AC-5 / AC-2 / AC-11 /
++// AC-13）
++//
++// 被测面：`walk_run` 的端到端观测面——四位脚本步（static-check / test-execution
++// 各自的反馈边与 `on_fail=Terminal` 边）经 `run_tool(identity: Some(..))` 组装
++// `OutputRefSink`，回调内补发 `running + output_ref` 拍；其余十处工具步传 `None`
++//（零补发拍、零额外通知）；`emit_node` / `StepSettle` / `now_millis` 迁出后 56
++// 处调用点行为零变。
++//
++// Mock 策略（见 test-design 本节 Mock策略表）：假 runner 集为 `Arc<dyn …Runner>`
++// 的**注入依赖**（新增 `Scripted*Runner` 记录 `emit` 与返回 `output_ref`）；
++// `OutputRefSink` / `StepEmitter` 为真实类型（`run_tool` 内组装，测试侧只观测
++// 回调效果，不给替身）。
++//
++// **跨 crate 组合行（design D17）的执行落点在壳层**：test-design 本节「边界：
++// 上抛时刻文件已在（跨 crate 组合行）」一行要求以**真实** `ProcessStaticCheck` +
++// 真实 tempdir 驱动并在回调内断言 `exec_output_log_path_in(..).is_file()`，该用例
++// 的执行文件是 `src-tauri/src/commands/change_flow/mod_test.rs`
++//（`组合根装配_上抛链回调恰一次且回调内log已在` /
++// `组合根装配_补发拍落图_节点携同一output_ref`）——`crates/core/orchestration` 的
++// `Cargo.toml` MUST 零 diff（加 `checks-runtime` dev-dependency 即 core → infra
++// 反向边），故**本节不留置真实 checks 件的替身**：本节只保留可编程 mock runner
++// 面上的补发拍 / 合并 / 零补发断言（`上抛时刻_图上节点已带output_ref` 为同链路
++// 的 writer 侧判据）。
++// ---------------------------------------------------------------------------
++
++use foundation::layout::ReportSlot;
++use workflow::state::RunStepKind;
++
++/// 上抛录制：收到的 exec_id 序列（`emit` 次数与值——上抛链路的唯一观测面）。
++#[derive(Clone, Default)]
++struct RefTrace {
++    emits: Arc<Mutex<Vec<String>>>,
++}
++
++impl RefTrace {
++    fn emitted(&self) -> Vec<String> {
++        self.emits.lock().expect("emit 记录锁不可中毒").clone()
++    }
++}
++
++/// 可编程 ScriptedStaticRunner：`run` 内先按录制序列 `emit`，再返回预设产出
++///（`emit` 次数 / id 可编程——上抛链路的注入依赖，非内部模块替身）。
++struct ScriptedStaticRunner {
++    trace: RefTrace,
++    emits: Vec<String>,
++    outcome: StaticCheckOutcome,
++    calls: Arc<AtomicUsize>,
++}
++
++impl ScriptedStaticRunner {
++    fn new(emits: Vec<&str>, outcome: StaticCheckOutcome) -> (Self, RefTrace) {
++        let trace = RefTrace::default();
++        (
++            Self {
++                trace: trace.clone(),
++                emits: emits.into_iter().map(str::to_owned).collect(),
++                outcome,
++                calls: Arc::new(AtomicUsize::new(0)),
++            },
++            trace,
++        )
++    }
++}
++
++impl StaticCheckRunner for ScriptedStaticRunner {
++    fn run(
++        &self,
++        _root: &str,
++        _name: &str,
++        _slot: ReportSlot,
++        _cancel: CancelFlag,
++        on_output_ref: Option<OutputRefSink>,
++    ) -> BoxToolFuture {
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        let trace = self.trace.clone();
++        let emits = self.emits.clone();
++        let outcome = self.outcome.clone();
++        if let Some(sink) = on_output_ref {
++            for exec_id in &emits {
++                sink.emit(exec_id);
++                trace
++                    .emits
++                    .lock()
++                    .expect("emit 记录锁不可中毒")
++                    .push(exec_id.clone());
++            }
++        }
++        Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
++    }
++}
++
++/// 可编程 ScriptedTestExecutionRunner：同型（test-execution 两脚本步的注入面）。
++struct ScriptedTestExecutionRunner {
++    trace: RefTrace,
++    emits: Vec<String>,
++    outcome: TestExecutionOutcome,
++    calls: Arc<AtomicUsize>,
++}
++
++impl ScriptedTestExecutionRunner {
++    fn new(emits: Vec<&str>, outcome: TestExecutionOutcome) -> (Self, RefTrace) {
++        let trace = RefTrace::default();
++        (
++            Self {
++                trace: trace.clone(),
++                emits: emits.into_iter().map(str::to_owned).collect(),
++                outcome,
++                calls: Arc::new(AtomicUsize::new(0)),
++            },
++            trace,
++        )
++    }
++}
++
++impl TestExecutionRunner for ScriptedTestExecutionRunner {
++    fn run(
++        &self,
++        _root: &str,
++        _name: &str,
++        _slot: ReportSlot,
++        _cancel: CancelFlag,
++        on_output_ref: Option<OutputRefSink>,
++    ) -> BoxToolFuture {
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        let trace = self.trace.clone();
++        if let Some(sink) = on_output_ref {
++            for exec_id in &self.emits {
++                sink.emit(exec_id);
++                trace
++                    .emits
++                    .lock()
++                    .expect("emit 记录锁不可中毒")
++                    .push(exec_id.clone());
++            }
++        }
++        let outcome = self.outcome.clone();
++        Box::pin(async move { Ok(ToolStepOutput::TestExecution(outcome)) })
++    }
++}
++
++/// 带 `output_ref` 的通过门禁产出（同 id 收口的上抛值）。
++fn check_with_ref(exec_id: &str) -> StaticCheckOutcome {
++    StaticCheckOutcome {
++        fault: None,
++        passed: true,
++        diagnostics: "通过".to_owned(),
++        output_ref: Some(exec_id.to_owned()),
++        report_dir: "/ws/openspec/changes/c/reports/test".to_owned(),
++    }
++}
++
++/// 带 `exec_id` 的通过 test-execution 产出。
++fn tests_with_ref(exec_id: &str) -> TestExecutionOutcome {
++    TestExecutionOutcome {
++        fault: None,
++        conclusion: TestExecutionConclusion::Pass,
++        total: 1,
++        passed: 1,
++        failed: 0,
++        skipped: 0,
++        findings_brief: String::new(),
++        findings_detail: String::new(),
++        report_dir: "/ws/openspec/changes/c/reports/test".to_owned(),
++        exec_id: exec_id.to_owned(),
++    }
++}
++
++/// 脚本步节点的 `output_ref` / 状态快照（落包整包捕获面摘取）。
++fn script_step_refs(
++    nodes: &[RunNodeEntry],
++    step: RunStepKind,
++) -> Vec<(u32, Option<String>, RunStepStatus)> {
++    nodes
++        .iter()
++        .filter(|node| node.step == step)
++        .map(|node| (node.instance_no, node.output_ref.clone(), node.status))
++        .collect()
++}
++
++/// 正向：假 runner 在 `run` 内先 `emit("exec-x")` 再返回 `output_ref:
++/// Some("exec-x")` → 图上该节点先出 `running + output_ref` 拍、终态拍同值，
++/// **节点总数 1**（补发拍被就地合并，AC-5 / AC-2）。
++#[tokio::test]
++async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let phase = feedback_static_check_phase();
++
++    let (runner, trace) = ScriptedStaticRunner::new(vec!["exec-x"], check_with_ref("exec-x"));
++    let tools = Arc::new(ScriptedTools {
++        timeline: Arc::clone(&timeline),
++        static_runner: Arc::new(runner),
++        test_runner: Arc::new(
++            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
++        ),
++        phase_next: Mutex::new(VecDeque::from(vec![
++            route_outcome(phase, &["proposal"]),
++            done_outcome(),
++        ])),
++    });
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run(
++        worker,
++        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
++        snapshot,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert!(
++        matches!(
++            status,
++            ChangeRunStatus::Completed | ChangeRunStatus::Failed | ChangeRunStatus::Stopped
++        ),
++        "run 正常收口: {status:?}"
++    );
++
++    let finish = history.finish().expect("收口整包应在案");
++    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
++    assert_eq!(
++        static_nodes.len(),
++        1,
++        "static-check 节点总数 1（补发拍被就地合并）"
++    );
++    assert_eq!(
++        static_nodes[0].1.as_deref(),
++        Some("exec-x"),
++        "节点 output_ref 为补发值"
++    );
++    assert_eq!(
++        trace.emitted(),
++        vec!["exec-x".to_owned()],
++        "回调收到 exec_id（`identity: Some` 组装成功）"
++    );
++}
++
++/// 正向（参数化 4 脚本步）：static-check 与 test-execution 各自的**反馈边**与
++/// **`on_fail=Terminal` 边**四形态均组装上抛回调（判据：回调收到 `exec_id`）。
++///
++/// - 反馈边两形态：非 initialize 相位（`implement` / `test-execution`）整 run 驱动；
++/// - Terminal 边两形态：`initialize` 表头在 `root != main_root` 时**不**走 legacy
++///   短路（`walker.rs` 的短路判据是 `root == main_root`），故以异 root 驱动。
++#[tokio::test]
++async fn 四脚本步均组装上抛回调() {
++    // 反馈边：static-check（实现站）
++    let phase = feedback_static_check_phase();
++    let (static_trace, static_calls, _test_trace) = drive_scripted_run(phase).await;
++    assert!(
++        static_calls > 0,
++        "相位 {phase}: static-check 步被执行（反馈边形态）"
++    );
++    assert!(
++        !static_trace.emitted().is_empty(),
++        "相位 {phase}: static-check 反馈边收到上抛回调"
++    );
++
++    // 反馈边：test-execution（测试执行站）
++    let phase = feedback_test_execution_phase();
++    let (_, static_calls, test_trace) = drive_scripted_run(phase).await;
++    assert_eq!(static_calls, 0, "相位 {phase}: 无 static-check 步");
++    assert!(
++        !test_trace.emitted().is_empty(),
++        "相位 {phase}: test-execution 反馈边收到上抛回调"
++    );
++
++    // Terminal 边：initialize 表头（异 root 不触发 legacy 短路）
++    let (static_trace, static_calls, test_trace) = drive_initialize_terminal_edges().await;
++    assert_eq!(
++        static_calls, 1,
++        "initialize: static-check Terminal 边执行一次"
++    );
++    assert!(
++        !static_trace.emitted().is_empty(),
++        "initialize: static-check Terminal 边收到上抛回调"
++    );
++    assert!(
++        !test_trace.emitted().is_empty(),
++        "initialize: test-execution Terminal 边收到上抛回调"
++    );
++}
++
++/// 脚本步整 run 驱动（`phase` 单相位 + done）：返回
++/// `(static 上抛录制, static 调用次数, test 上抛录制)`——两 runner 均带预设
++/// `output_ref` 与一次 `emit`。
++async fn drive_scripted_run(phase: &str) -> (RefTrace, usize, RefTrace) {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let (static_runner, static_trace) =
++        ScriptedStaticRunner::new(vec!["exec-static"], check_with_ref("exec-static"));
++    let static_calls = Arc::clone(&static_runner.calls);
++    let (test_runner, test_trace) =
++        ScriptedTestExecutionRunner::new(vec!["exec-tests"], tests_with_ref("exec-tests"));
++    let tools = Arc::new(ScriptedTools {
++        timeline: Arc::clone(&timeline),
++        static_runner: Arc::new(static_runner),
++        test_runner: Arc::new(test_runner),
++        phase_next: Mutex::new(VecDeque::from(vec![
++            route_outcome(phase, &["proposal"]),
++            done_outcome(),
++        ])),
++    });
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, _history) = spawn_run(
++        worker,
++        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++    (
++        static_trace,
++        static_calls.load(Ordering::SeqCst),
++        test_trace,
++    )
++}
++
++/// initialize 表头 Terminal 边驱动（`root != main_root` 使 legacy 短路失效）：
++/// 返回 `(static 上抛录制, static 调用次数, test 上抛录制)`。
++async fn drive_initialize_terminal_edges() -> (RefTrace, usize, RefTrace) {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let (static_runner, static_trace) =
++        ScriptedStaticRunner::new(vec!["exec-init-static"], check_with_ref("exec-init-static"));
++    let static_calls = Arc::clone(&static_runner.calls);
++    let (test_runner, test_trace) = ScriptedTestExecutionRunner::new(
++        vec!["exec-init-tests"],
++        tests_with_ref("exec-init-tests"),
++    );
++    let tools = Arc::new(ScriptedTools {
++        timeline: Arc::clone(&timeline),
++        static_runner: Arc::new(static_runner),
++        test_runner: Arc::new(test_runner),
++        phase_next: Mutex::new(VecDeque::from(vec![
++            route_outcome(workflow::write::INITIALIZE_PHASE_ID, &[]),
++            done_outcome(),
++        ])),
++    });
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, _history) = spawn_run_with_vcs(
++        worker,
++        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
++        Arc::new(FakeVcs::clean()),
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/worktree",
++        "/tmp/root",
++        None,
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++    (
++        static_trace,
++        static_calls.load(Ordering::SeqCst),
++        test_trace,
++    )
++}
++
++/// 上抛时刻探测记录：`(节点状态, 节点 output_ref, emit 入参)`（复杂度别名收口）。
++type ProbeLog = Arc<Mutex<Vec<(ChangeStepStatus, Option<String>, String)>>>;
++
++/// 正向（AC-5 组合行）：`OutputRefSink` 真实回调内**同一刻**查询控制注册表快照
++/// → 该步节点已在图上、`status == running`、`output_ref == emit 入参`——即
++/// 「补发拍先落到图上，前端才可能按 `output_ref` 订阅」（writer 侧的顺序不变量；
++/// 消费侧由 `change-detail-view.test.tsx` 的链路行承接）。
++///
++/// **本节用可编程 mock runner**（`run` 内 `sink.emit`，判据是「快照同刻可见」）。
++/// test-design 本节「边界：上抛时刻文件已在（跨 crate 组合行）」要求的是**真实**
++/// `ProcessStaticCheck` + 真实 tempdir 驱动，其执行文件按 design D17 落在壳层
++/// `src-tauri/src/commands/change_flow/mod_test.rs`——
++/// `组合根装配_上抛链回调恰一次且回调内log已在`（回调内断言
++/// `exec_output_log_path_in(..).is_file()`）与
++/// `组合根装配_补发拍落图_节点携同一output_ref`（同链路 + 节点同值）。本 crate
++/// `Cargo.toml` 零 diff（core → infra 无 dev-dependency 反向边），故此处不引真件。
++#[tokio::test]
++async fn 上抛时刻_图上节点已带output_ref() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let phase = feedback_static_check_phase();
++    let control = Arc::new(ChangeFlowControl::new());
++
++    // 回调内探测：取快照 → 找该 exec_id 的节点
++    let probe_control = Arc::clone(&control);
++    let observed: ProbeLog = Arc::new(Mutex::new(Vec::new()));
++    struct ProbeRunner {
++        control: Arc<ChangeFlowControl>,
++        observed: ProbeLog,
++        outcome: StaticCheckOutcome,
++    }
++    impl StaticCheckRunner for ProbeRunner {
++        fn run(
++            &self,
++            _root: &str,
++            _name: &str,
++            _slot: ReportSlot,
++            _cancel: CancelFlag,
++            on_output_ref: Option<OutputRefSink>,
++        ) -> BoxToolFuture {
++            if let Some(sink) = on_output_ref {
++                let exec_id = "exec-probe".to_owned();
++                let control = Arc::clone(&self.control);
++                let observed = Arc::clone(&self.observed);
++                let emitted = exec_id.clone();
++                // 以「包装回调」表达同一语义：先真实 emit，再取快照
++                sink.emit(&exec_id);
++                let snapshot = control.snapshot(ROOT, CHANGE_ID);
++                let node = snapshot.and_then(|snapshot| {
++                    snapshot
++                        .nodes
++                        .into_iter()
++                        .find(|node| node.output_ref.as_deref() == Some(emitted.as_str()))
++                });
++                match node {
++                    Some(node) => observed.lock().expect("探测记录锁不可中毒").push((
++                        node.status,
++                        node.output_ref,
++                        emitted,
++                    )),
++                    None => observed.lock().expect("探测记录锁不可中毒").push((
++                        ChangeStepStatus::Failed,
++                        None,
++                        emitted,
++                    )),
++                }
++            }
++            let outcome = self.outcome.clone();
++            Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
++        }
++    }
++
++    let tools = Arc::new(ScriptedTools {
++        timeline: Arc::clone(&timeline),
++        static_runner: Arc::new(ProbeRunner {
++            control: probe_control,
++            observed: Arc::clone(&observed),
++            outcome: check_with_ref("exec-probe"),
++        }),
++        test_runner: Arc::new(
++            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
++        ),
++        phase_next: Mutex::new(VecDeque::from(vec![
++            route_outcome(phase, &["proposal"]),
++            done_outcome(),
++        ])),
++    });
++    let (task, _rx, _history) = spawn_run(
++        worker,
++        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++
++    let rows = observed.lock().expect("探测记录锁不可中毒").clone();
++    assert_eq!(rows.len(), 1, "上抛恰一次");
++    assert_eq!(
++        rows[0].0,
++        ChangeStepStatus::Running,
++        "上抛时刻节点状态为 running"
++    );
++    assert_eq!(
++        rows[0].1.as_deref(),
++        Some("exec-probe"),
++        "上抛时刻节点已携该 output_ref（顺序：补发拍先于返回）"
++    );
++}
++
++/// 正向（参数化 `None` 臂 × 既有 mock 全集）：`on_output_ref: None` 的 mock
++/// runner（`NullRunner` 等）→ running emit 的 `output_ref` 仍为 `None`、终态按
++/// 产出回填、零补发拍、零额外通知。
++#[tokio::test]
++async fn 无回调runner_零补发拍且终态按产出回填() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let phase = feedback_static_check_phase();
++    let tools = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome(phase, &["proposal"]), done_outcome()])
++        .with_static_check(vec![check_with_ref("exec-from-outcome")])
++        .assemble()
++        .0;
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run(
++        worker,
++        tools,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("收口整包应在案");
++    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
++    assert_eq!(static_nodes.len(), 1, "无回调 ⇒ 零补发拍（仍单节点）");
++    assert_eq!(
++        static_nodes[0].1.as_deref(),
++        Some("exec-from-outcome"),
++        "终态按产出回填 output_ref"
++    );
++}
++
++/// 异常（组合 补发 × `Err`）：runner 在回调**之外**返回 `Err` → 补发拍已在、
++/// 终态按 `Terminal` 收敛，节点 `output_ref` 保持补发值（不因失败被清空）。
++#[tokio::test]
++async fn 上抛后err_节点output_ref保持补发值() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let phase = feedback_static_check_phase();
++
++    // 自定义 runner：emit 后改 Err（上抛与失败面并存）
++    struct EmitThenErr {
++        trace: RefTrace,
++    }
++    impl StaticCheckRunner for EmitThenErr {
++        fn run(
++            &self,
++            _root: &str,
++            _name: &str,
++            _slot: ReportSlot,
++            _cancel: CancelFlag,
++            on_output_ref: Option<OutputRefSink>,
++        ) -> BoxToolFuture {
++            if let Some(sink) = on_output_ref {
++                sink.emit("exec-emitted-then-err");
++                self.trace
++                    .emits
++                    .lock()
++                    .expect("emit 记录锁不可中毒")
++                    .push("exec-emitted-then-err".to_owned());
++            }
++            Box::pin(async { Err("static-check 步失败".to_owned()) })
++        }
++    }
++
++    let trace = RefTrace::default();
++    let tools = Arc::new(ScriptedTools {
++        timeline: Arc::clone(&timeline),
++        static_runner: Arc::new(EmitThenErr {
++            trace: trace.clone(),
++        }),
++        test_runner: Arc::new(
++            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
++        ),
++        phase_next: Mutex::new(VecDeque::from(vec![
++            route_outcome(phase, &["proposal"]),
++            done_outcome(),
++        ])),
++    });
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(
++        worker,
++        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++
++    assert_eq!(
++        trace.emitted(),
++        vec!["exec-emitted-then-err".to_owned()],
++        "Err 前的上抛已发生"
++    );
++    let finish = history.finish().expect("收口整包应在案");
++    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
++    let emitted_node = static_nodes
++        .iter()
++        .find(|(_, output_ref, _)| output_ref.as_deref() == Some("exec-emitted-then-err"));
++    assert!(
++        emitted_node.is_some(),
++        "补发拍已在（节点 output_ref 保持补发值）: {static_nodes:?}"
++    );
++}
++
++/// 异常：假 runner 调用 `on_output_ref` **两次**（不同 id）→
++/// `accumulate_node` 的「some 才覆写」使 `output_ref` 为第二次值、节点仍 1 条
++///（幂等合并不新增节点；防御性观测，spec 未声明多次调用）。
++#[tokio::test]
++async fn 上抛两次_节点仍一条且取第二次值() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let phase = feedback_static_check_phase();
++    let (runner, trace) = ScriptedStaticRunner::new(
++        vec!["exec-first", "exec-second"],
++        check_with_ref("exec-second"),
++    );
++    let tools = Arc::new(ScriptedTools {
++        timeline: Arc::clone(&timeline),
++        static_runner: Arc::new(runner),
++        test_runner: Arc::new(
++            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
++        ),
++        phase_next: Mutex::new(VecDeque::from(vec![
++            route_outcome(phase, &["proposal"]),
++            done_outcome(),
++        ])),
++    });
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(
++        worker,
++        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++
++    assert_eq!(trace.emitted().len(), 2, "两次 emit 均抵达回调");
++    let finish = history.finish().expect("收口整包应在案");
++    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
++    assert_eq!(static_nodes.len(), 1, "幂等合并：节点仍 1 条");
++    assert_eq!(
++        static_nodes[0].1.as_deref(),
++        Some("exec-second"),
++        "some 才覆写 ⇒ 第二次值生效"
++    );
++}
++
++/// 边界（参数化 10 调用点）：十处非脚本步（archive preflight / phaseNext /
++/// phaseStart / mutation-test / archi / phaseLog / seal / backtrack /
++/// decisionLog / status）传 `None`：零补发拍、`output_ref` 恒 `None`。
++#[tokio::test]
++async fn 非脚本步十处_output_ref恒none() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    // 「全 pass 收敛 completed」的整 run：覆盖 phaseNext / phaseStart /
++    // executor / static-check / archi / evaluator / phaseLog 等调用点；非脚本步
++    // 的 `output_ref` 恒 None（脚本步才可能有值）
++    let tools = FakeTools::new(&timeline)
++        .with_phase_next(vec![
++            route_outcome("proposal", &[]),
++            route_outcome("dev-design", &["proposal", "dev-design"]),
++            done_outcome(),
++        ])
++        .assemble()
++        .0;
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(
++        worker,
++        tools,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Completed, "全 pass 收敛 completed");
++
++    let finish = history.finish().expect("收口整包应在案");
++    let script_steps = [RunStepKind::StaticCheck, RunStepKind::TestExecution];
++    let non_script_with_ref: Vec<(String, Option<String>)> = finish
++        .nodes
++        .iter()
++        .filter(|node| !script_steps.contains(&node.step))
++        .filter(|node| node.output_ref.is_some())
++        .map(|node| (node.step.as_str().to_owned(), node.output_ref.clone()))
++        .collect();
++    assert!(
++        non_script_with_ref.is_empty(),
++        "非脚本步 output_ref 恒 None: {non_script_with_ref:?}"
++    );
++}
++
++/// 边界：`instance_no` 递增形态（反馈边重跑）→ 同 `(phase, attempt, step)` 两次
++/// 执行产出两节点、各自 `output_ref` 独立（补发拍不扰动既有合并语义）。
++#[tokio::test]
++async fn 反馈边重跑_两实例各自output_ref独立() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let phase = feedback_static_check_phase();
++
++    // 计数型 runner：每次调用按调用序 emit 不同 id 并返回失败（触发反馈边重跑）
++    struct CountingRunner {
++        seen: AtomicUsize,
++        trace: RefTrace,
++    }
++    impl StaticCheckRunner for CountingRunner {
++        fn run(
++            &self,
++            _root: &str,
++            _name: &str,
++            _slot: ReportSlot,
++            _cancel: CancelFlag,
++            on_output_ref: Option<OutputRefSink>,
++        ) -> BoxToolFuture {
++            let index = self.seen.fetch_add(1, Ordering::SeqCst);
++            let exec_id = format!("exec-run-{index}");
++            if let Some(sink) = on_output_ref {
++                sink.emit(&exec_id);
++                self.trace
++                    .emits
++                    .lock()
++                    .expect("emit 记录锁不可中毒")
++                    .push(exec_id.clone());
++            }
++            // 前两次失败（触发反馈边重跑、instance_no 递增），第三次通过
++            let passed = index >= 2;
++            Box::pin(async move {
++                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                    fault: None,
++                    passed,
++                    diagnostics: if passed {
++                        String::new()
++                    } else {
++                        "反馈边重跑".to_owned()
++                    },
++                    output_ref: Some(exec_id),
++                    report_dir: String::new(),
++                }))
++            })
++        }
++    }
++
++    let trace = RefTrace::default();
++    let tools = Arc::new(ScriptedTools {
++        timeline: Arc::clone(&timeline),
++        static_runner: Arc::new(CountingRunner {
++            seen: AtomicUsize::new(0),
++            trace: trace.clone(),
++        }),
++        test_runner: Arc::new(
++            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
++        ),
++        phase_next: Mutex::new(VecDeque::from(vec![
++            route_outcome(phase, &["proposal"]),
++            done_outcome(),
++        ])),
++    });
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(
++        worker,
++        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("收口整包应在案");
++    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
++    if static_nodes.len() >= 2 {
++        let refs: Vec<Option<String>> = static_nodes.iter().map(|(_, r, _)| r.clone()).collect();
++        assert_eq!(
++            refs.len(),
++            refs.iter().collect::<std::collections::HashSet<_>>().len(),
++            "两实例 output_ref 互异（不串扰）: {static_nodes:?}"
++        );
++        let instances: Vec<u32> = static_nodes.iter().map(|(no, _, _)| *no).collect();
++        assert_eq!(
++            instances.len(),
++            instances
++                .iter()
++                .collect::<std::collections::HashSet<_>>()
++                .len(),
++            "instance_no 各自递增"
++        );
++    } else {
++        // 反馈边未触发重跑（步声明 `on_fail=Terminal`）：单节点即可
++        assert_eq!(static_nodes.len(), 1, "Terminal 边零重跑 ⇒ 单节点");
++    }
++    assert!(!trace.emitted().is_empty(), "上抛链路在位");
++}
++
++/// 边界：run 收口时刻的 `finish` 整包时间戳仍在位——终态 `ended_at` 非 `None`、
++/// 与 `now_millis` 同量级（收口时间戳口径零变）。
++#[tokio::test]
++async fn 收口时间戳口径零变() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let worker = FakeWorker::new(&timeline).assemble().0;
++    let tools = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
++        .assemble()
++        .0;
++    let control = Arc::new(ChangeFlowControl::new());
++    let before = crate::control::now_millis();
++    let (task, _rx, history) = spawn_run(
++        worker,
++        tools,
++        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
++        &control,
++        false,
++        "/tmp/root",
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let _ = task.await.expect("run 任务正常结束");
++    let after = crate::control::now_millis();
++
++    let finish = history.finish().expect("收口整包应在案");
++    assert!(
++        finish.finished_at >= before && finish.finished_at <= after,
++        "收口时刻落在区间内（{before} ≤ {} ≤ {after}）",
++        finish.finished_at
++    );
++    let ended: Vec<i64> = finish
++        .nodes
++        .iter()
++        .filter_map(|node| node.ended_at)
++        .collect();
++    assert!(!ended.is_empty(), "至少一节点有 ended_at");
++    assert!(
++        ended
++            .iter()
++            .all(|ended| *ended >= before && *ended <= after),
++        "节点 ended_at 与 now_millis 同量级: {ended:?}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 装置：`ScriptedTools`（可编程脚本步 + 其余步委托 FakeTools 语义）
++// ---------------------------------------------------------------------------
++
++/// 可编程 ToolStepPort：脚本步交给 `Scripted*Runner`（上抛注入依赖），其余步
++/// 沿用最小产出（不参与本节断言）。
++struct ScriptedTools {
++    timeline: Arc<Mutex<Vec<String>>>,
++    static_runner: Arc<dyn StaticCheckRunner>,
++    test_runner: Arc<dyn TestExecutionRunner>,
++    phase_next: Mutex<VecDeque<PhaseNextOutcome>>,
++}
++
++impl ToolStepPort for ScriptedTools {
++    fn run(&self, step: ToolStepRequest) -> BoxToolFuture {
++        let label = command_label(&step.command);
++        self.timeline
++            .lock()
++            .expect("时间线锁不可中毒")
++            .push(label.to_owned());
++        match step.command {
++            ToolCommand::StaticCheck { .. } => {
++                let runner = Arc::clone(&self.static_runner);
++                let request = step;
++                Box::pin(async move {
++                    // 与 `LocalToolSteps` 同式：id → name 解析面在真实组合根；本节
++                    // 直接以 change_id 作 name 传入（记录名与 id 同值）
++                    let ToolCommand::StaticCheck { change_id, slot } = request.command else {
++                        unreachable!("标签已判定");
++                    };
++                    runner
++                        .run(
++                            &request.root,
++                            &change_id,
++                            slot,
++                            request.cancel,
++                            request.on_output_ref,
++                        )
++                        .await
++                })
++            }
++            ToolCommand::TestExecution { .. } => {
++                let runner = Arc::clone(&self.test_runner);
++                let request = step;
++                Box::pin(async move {
++                    let ToolCommand::TestExecution { change_id, slot } = request.command else {
++                        unreachable!("标签已判定");
++                    };
++                    runner
++                        .run(
++                            &request.root,
++                            &change_id,
++                            slot,
++                            request.cancel,
++                            request.on_output_ref,
++                        )
++                        .await
++                })
++            }
++            ToolCommand::PhaseNext { .. } => {
++                let outcome = self
++                    .phase_next
++                    .lock()
++                    .expect("phase-next 队列锁不可中毒")
++                    .pop_front()
++                    .unwrap_or_else(done_outcome);
++                Box::pin(async move { Ok(ToolStepOutput::PhaseNext(Box::new(outcome))) })
++            }
++            ToolCommand::PhaseStart { phase, .. } => {
++                let outcome = PhaseStartOutcome {
++                    phase,
++                    attempt: 1,
++                    start_at: TS_BASE,
++                };
++                Box::pin(async move { Ok(ToolStepOutput::PhaseStart(outcome)) })
++            }
++            ToolCommand::PhaseLog { phase, .. } => {
++                let outcome = PhaseLogOutcome { phase, attempt: 1 };
++                Box::pin(async move { Ok(ToolStepOutput::PhaseLog(outcome)) })
++            }
++            ToolCommand::Backtrack { phase, input, .. } => {
++                let outcome = BacktrackOutcome {
++                    phase,
++                    target: input.to,
++                };
++                Box::pin(async move { Ok(ToolStepOutput::Backtrack(outcome)) })
++            }
++            ToolCommand::DecisionLog { phase, .. } => {
++                Box::pin(
++                    async move { Ok(ToolStepOutput::DecisionLog(DecisionLogOutcome { phase })) },
++                )
++            }
++            ToolCommand::MutationTest { .. } => Box::pin(async move {
++                Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
++                    conclusion: MutationTestConclusion::Pass,
++                    skip: Some(MutationSkipReason::EmptyDiff),
++                    score: 1.0,
++                    threshold: 0.8,
++                    counts: MutationCounts::default(),
++                    report_paths: Vec::new(),
++                    feedback_text: String::new(),
++                    fault: None,
++                }))
++            }),
++            ToolCommand::ArchiCheck { .. } => Box::pin(async move {
++                Ok(ToolStepOutput::ArchiCheck(ArchiCheckOutcome {
++                    passed: true,
++                    diagnostics: String::new(),
++                    fault: None,
++                    report_dir: String::new(),
++                    report_ref: None,
++                }))
++            }),
++            ToolCommand::ArchivePreflight { .. } => {
++                let payload = ArchivePreflight {
++                    name: NAME.to_owned(),
++                    completed: true,
++                    incomplete_phases: Vec::new(),
++                    missing_artifacts: Vec::new(),
++                    delta_specs: Vec::new(),
++                    worktree: None,
++                    branch: None,
++                    merge_target: None,
++                };
++                Box::pin(async move { Ok(ToolStepOutput::ArchivePreflight(payload)) })
++            }
++            ToolCommand::ArchiveSeal { .. } => {
++                let outcome = workflow::write::ArchiveOutcome {
++                    name: NAME.to_owned(),
++                    archived_date: "2026-10-01".to_owned(),
++                };
++                Box::pin(async move { Ok(ToolStepOutput::ArchiveSeal(outcome)) })
++            }
++        }
++    }
++}
+diff --git a/crates/infra/checks/src/mutation/cargo_mutants.rs b/crates/infra/checks/src/mutation/cargo_mutants.rs
+index c7508b6bf322..053a4ebaf35b 100644
+--- a/crates/infra/checks/src/mutation/cargo_mutants.rs
++++ b/crates/infra/checks/src/mutation/cargo_mutants.rs
+@@ -50,6 +50,8 @@ pub(crate) async fn run_segment(
+             // 突变面零重试（长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级
+             // 复用门承担）
+             retry: exec::RetryPolicy::none(),
++            // 突变段零 live 接入（段内不产输出记录面，记录面扩张留待后续变更）
++            live: None,
+         },
+     )
+     .await;
+diff --git a/crates/infra/checks/src/mutation/cargo_mutants_test.rs b/crates/infra/checks/src/mutation/cargo_mutants_test.rs
+index ee70ed3ac8f2..f67101122945 100644
+--- a/crates/infra/checks/src/mutation/cargo_mutants_test.rs
++++ b/crates/infra/checks/src/mutation/cargo_mutants_test.rs
+@@ -3,7 +3,7 @@
+ #![allow(clippy::await_holding_lock)]
+ 
+ use std::fs;
+-use std::path::PathBuf;
++use std::path::{Path, PathBuf};
+ use std::time::{Duration, Instant};
+ 
+ use checks::model::parse_cargo_mutants_seg;
+@@ -834,3 +834,131 @@ async fn 输出含瞬态签名不触发段重试() {
+         "段层零重试：签名命中也不追加尝试（spawn 恰 1 次）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 零 live 接入（change-detail-live-stdout，D14 / Q2）：`RunOptions { live: None }`
++// 两处构造的编译面涟漪——突变段在 `reports/<slot>/exec-outputs/` **零新增文件**。
++// ---------------------------------------------------------------------------
++
++/// 报告树文件名词表（相对路径排序——「零累积 / 零新增」的稳定快照面）。
++fn tree_names(root: &Path) -> Vec<String> {
++    fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
++        let Ok(entries) = fs::read_dir(dir) else {
++            return;
++        };
++        for entry in entries.flatten() {
++            let path = entry.path();
++            let Ok(relative) = path.strip_prefix(root) else {
++                continue;
++            };
++            out.push(relative.to_string_lossy().replace('\\', "/"));
++            if path.is_dir() {
++                walk(&path, root, out);
++            }
++        }
++    }
++    let mut names = Vec::new();
++    walk(root, root, &mut names);
++    names.sort();
++    names
++}
++
++/// 边界：**写操作幂等**——同一 `patch_path` 连续两次段执行 → `mutants.out` 被前次
++/// 清场后重建（不叠加残留）、`outcomes.json` 每次重读为当次权威、报告树零累积
++/// （`.log` / `.cmd` 亦零新增——`live: None` 在两次执行中都未改道输出）。
++#[tokio::test]
++async fn 同patch两跑幂等_报告树零累积() {
++    let ws = SpawnWs::new("idempotent");
++    let window = SpawnWindow::enter("cargo-idempotent");
++    window.install_fake_cargo(&ws.exec_dir);
++    window.set_cargo_outcomes(CARGO_SEG_CANNED);
++    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
++
++    let first = run_segment(
++        &patch_path,
++        &ws.exec_dir,
++        foundation::cancel::CancelFlag::never(),
++    )
++    .await
++    .expect("首跑应 Ok");
++    let first_parsed = parse_cargo_mutants_seg(&first).expect("首跑载荷可解析");
++    let report_root = ws.mutation_dir.parent().expect("报告树根").to_path_buf();
++    let snapshot_after_first = tree_names(&report_root);
++
++    let second = run_segment(
++        &patch_path,
++        &ws.exec_dir,
++        foundation::cancel::CancelFlag::never(),
++    )
++    .await
++    .expect("同 patch 再跑应 Ok");
++    let second_parsed = parse_cargo_mutants_seg(&second).expect("再跑载荷可解析");
++
++    assert_eq!(
++        (
++            second_parsed.measured.killed,
++            second_parsed.measured.survived,
++            second_parsed.measured.total
++        ),
++        (
++            first_parsed.measured.killed,
++            first_parsed.measured.survived,
++            first_parsed.measured.total
++        ),
++        "两次跑计数面同值（当次权威 = 同一 canned 报告）"
++    );
++    assert_eq!(
++        window.records().len(),
++        2,
++        "两次各 spawn 一次（零重试面：段层不追加尝试）"
++    );
++    assert_eq!(
++        tree_names(&report_root),
++        snapshot_after_first,
++        "报告树零累积（第二跑前清场重建，不新增文件）"
++    );
++    assert!(
++        !ws.exec_dir
++            .join("mutants.out")
++            .join("outcomes.json")
++            .exists()
++            || ws.exec_dir.join("mutants.out").is_dir(),
++        "mutants.out 为当次重建形态（不叠加残留）"
++    );
++    assert!(
++        !report_root.join("exec-outputs").exists(),
++        "两次跑均零 live 记录面（无 exec-outputs 目录）"
++    );
++}
++
++/// 边界：段执行后其报告树 `exec-outputs/` **零新增文件**（零 live 记录面，
++/// Q2 裁定的运行期判据）。
++#[tokio::test]
++async fn 段执行后零exec_outputs新增() {
++    let ws = SpawnWs::new("no-live");
++    let window = SpawnWindow::enter("cargo-no-live");
++    window.install_fake_cargo(&ws.exec_dir);
++    window.set_cargo_outcomes(CARGO_SEG_CANNED);
++    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
++
++    run_segment(
++        &patch_path,
++        &ws.exec_dir,
++        foundation::cancel::CancelFlag::never(),
++    )
++    .await
++    .expect("假 spawn 段执行应 Ok");
++
++    // 报告树根（`reports/test/app_rust`）+ 兄弟槽位：均零 `exec-outputs` 目录
++    let report_root = ws.mutation_dir.parent().expect("报告树根");
++    for candidate in [
++        report_root.join("exec-outputs"),
++        report_root.join("baseline").join("exec-outputs"),
++    ] {
++        assert!(
++            !candidate.exists(),
++            "突变段零 live 记录面（{} 不应新建）",
++            candidate.display()
++        );
++    }
++}
+diff --git a/crates/infra/checks/src/mutation/mod_test.rs b/crates/infra/checks/src/mutation/mod_test.rs
+index 4d98e5f77f35..79b6618ee70b 100644
+--- a/crates/infra/checks/src/mutation/mod_test.rs
++++ b/crates/infra/checks/src/mutation/mod_test.rs
+@@ -7,8 +7,9 @@ use checks::model::MutationTool;
+ use config::{MutationConfig, TestFramework};
+ use orchestration::port::{
+     ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner, MutationSkipReason,
+-    MutationTestConclusion, RebaseOutcome, RunFault, StaticCheckRunner, TestExecutionRunner,
+-    ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
++    MutationTestConclusion, OutputRefSink, RebaseOutcome, RunFault, StaticCheckRunner,
++    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
++    WorktreeSnapshot,
+ };
+ use orchestration::LocalToolSteps;
+ use tempfile::TempDir;
+@@ -1458,6 +1459,7 @@ impl StaticCheckRunner for UnusedSeamRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         _cancel: foundation::cancel::CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         let error = "组合根链路不触静态检查缝".to_owned();
+         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
+@@ -1471,6 +1473,7 @@ impl TestExecutionRunner for UnusedSeamRunner {
+         _name: &str,
+         _slot: foundation::layout::ReportSlot,
+         _cancel: foundation::cancel::CancelFlag,
++        _on_output_ref: Option<OutputRefSink>,
+     ) -> BoxToolFuture {
+         let error = "组合根链路不触测试执行缝".to_owned();
+         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
+@@ -1510,6 +1513,7 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
+             command: ToolCommand::MutationTest {
+                 change_id: COMBO_CHANGE_ID.to_owned(),
+             },
++            on_output_ref: None,
+         })
+         .await
+         .expect("组合根链路应成功");

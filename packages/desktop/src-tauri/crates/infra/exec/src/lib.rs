@@ -34,8 +34,10 @@ pub use transient::{
 };
 
 use std::ffi::{OsStr, OsString};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use foundation::layout::ReportSlot;
 
@@ -184,23 +186,245 @@ pub enum ExecOutput {
 /// exec 输出记录目录名（change 报告目录树内）。
 const EXEC_OUTPUT_DIR: &str = "exec-outputs";
 
-/// `ExecOutput::Recorded` 落盘半边（输出记录单点）：铸造 `exec_id` 并把**单一输出
-/// 流**全量落盘到 change 报告目录树（`<report_dir>/exec-outputs/<exec_id>.log`，
-/// 按槽位同锚派生），返回 `exec_id` 引用。单一流即完整还原终端——static-check
-/// 的 `2>&1` 交错流、test-execution 的 stdout + stderr 合并流；stdout / stderr
-/// 分文件（`.err`）已退役（分离快照会丢失交错顺序、与终端不一致）。零截断零改写。
+/// 命令 sidecar 后缀（与 [`EXEC_OUTPUT_DIR`] 同族、同目录同 id 前缀——`.log`
+/// 与 `.cmd` 一一对应，派生单点在 [`exec_command_path_in`]）。
+const EXEC_COMMAND_SUFFIX: &str = "cmd";
+
+/// 实时输出落盘口（`RunOptions` 可选面；两路 drain 共用同一实例）。
+///
+/// 构造面 `pub(crate)`：唯一生产路径是 [`LiveExec::sink`]，不为尚未存在的消费者
+/// 开公开构造。投递面按「一批就绪字节」粒度，`n` 为零不投递。
+// `Arc<dyn Fn(&[u8]) + Send + Sync>` 是 newtype 的实质字段：抽类型别名只会把签名
+// 摊成两处（本仓零 second-name 取向），故就地放行该 lint
+#[allow(clippy::type_complexity)]
+#[derive(Clone)]
+pub struct LiveSink(Arc<dyn Fn(&[u8]) + Send + Sync>);
+
+impl LiveSink {
+    /// 构造（crate 内唯一入口：`LiveExec::sink`）。
+    pub(crate) fn new(append: impl Fn(&[u8]) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(append))
+    }
+
+    /// 投递一批字节给观察者。
+    pub(crate) fn absorb(&self, bytes: &[u8]) {
+        (self.0)(bytes);
+    }
+}
+
+/// 手写 `Debug`：`Arc<dyn Fn>` 不实现 `Debug`，而 `RunOptions` 派生了 `Debug`。
+impl std::fmt::Debug for LiveSink {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LiveSink(..)")
+    }
+}
+
+/// 运行中可回查的输出记录：先建文件 → 边跑边追加 → 收口用**同一 id** 覆盖为权威
+/// 内容。磁盘面与 [`record_exec_output`] 同锚同口径（`<report_dir>/exec-outputs/`）。
+///
+/// `writer` 的 `Some` / `None` 即「可追加 / 失效或已收口」单一状态位：追加写失败
+/// 置 `None`（观测面不打断检查主流程），`commit` 亦先 `take` 句柄再覆盖落盘。
+pub struct LiveExec {
+    exec_id: String,
+    log_path: PathBuf,
+    writer: Arc<Mutex<Option<std::fs::File>>>,
+}
+
+impl LiveExec {
+    /// 前置铸造：`create_dir_all` 输出目录 + 建空 `<exec_id>.log`（追加模式持句柄）。
+    ///
+    /// **文件与父目录必须先于 `exec_id` 对外可见**——watch 订阅可生效的前提（父目录
+    /// 缺失会显式失败，见 `desktop-file-watch`）。创建失败 `Err`。
+    pub fn begin(root: &Path, change: &str, slot: ReportSlot) -> Result<Self, String> {
+        let dir = exec_output_dir(root, change, slot);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("创建 exec 输出目录失败: {e}"))?;
+        let exec_id = mint_exec_id();
+        let log_path = dir.join(format!("{exec_id}.log"));
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(|e| format!("创建 exec 输出文件失败: {e}"))?;
+        Ok(Self {
+            exec_id,
+            log_path,
+            writer: Arc::new(Mutex::new(Some(file))),
+        })
+    }
+
+    /// 铸造值只读（`commit` 返回同值——同 id 收口的物理载体）。
+    pub fn exec_id(&self) -> &str {
+        &self.exec_id
+    }
+
+    /// 布局派生 `.log` 绝对路径（与 [`exec_output_log_path_in`] 同值）。
+    pub fn log_path(&self) -> &Path {
+        &self.log_path
+    }
+
+    /// 追加口（交 `RunOptions.live`）：内部 `Mutex` 支撑两路 drain 并发写，每次
+    /// `write_all` 后立即 `flush`（同一 `File` 句柄、微秒级）。写失败即置失效
+    /// （此后本闭包与后续 `absorb` 全为空操作）——**MUST NOT** 上抛 / panic。
+    pub fn sink(&self) -> LiveSink {
+        let writer = Arc::clone(&self.writer);
+        LiveSink::new(move |bytes| {
+            let mut guard = writer.lock().expect("live 写入锁不可中毒");
+            let Some(file) = guard.as_mut() else {
+                return;
+            };
+            if file.write_all(bytes).and_then(|()| file.flush()).is_err() {
+                *guard = None;
+            }
+        })
+    }
+
+    /// 命令 sidecar（`<exec_id>.cmd`）的**原样追加**：零换行 / 零格式化 / 零改写
+    /// ——分段与换行的组装责任在调用方（static-check 的 `.cmd` 须逐字等于命令串，
+    /// test-execution 的段格式由 `testexec/mod.rs` 组装）。失败由调用方静默降级。
+    pub fn write_command(&self, command: &str) -> Result<(), String> {
+        let dir = self
+            .log_path
+            .parent()
+            .ok_or_else(|| "exec 输出记录缺父目录".to_owned())?;
+        let path = dir.join(format!("{}.{EXEC_COMMAND_SUFFIX}", self.exec_id));
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| format!("写入 exec 命令记录失败: {e}"))?;
+        file.write_all(command.as_bytes())
+            .map_err(|e| format!("写入 exec 命令记录失败: {e}"))
+    }
+
+    /// 收口：先 `take` 句柄（关文件）再 `std::fs::write` 覆盖为权威内容，返回**同一**
+    /// `exec_id`。**MUST NOT** 另铸新 id（否则 running 拍与终态拍引用不相等）；此后
+    /// 追加恒空操作。
+    pub fn commit(&self, output: &[u8]) -> Result<String, String> {
+        *self.writer.lock().expect("live 写入锁不可中毒") = None;
+        std::fs::write(&self.log_path, output).map_err(|e| format!("落盘 exec 输出失败: {e}"))?;
+        Ok(self.exec_id.clone())
+    }
+}
+
+/// 增量读产物（**零 derive** 纯结构）：出线 DTO `ExecOutputChunk` 定义在壳层命令
+/// 模块——本 crate 依赖面 MUST NOT 因出线需要而扩 serde / specta。
+pub struct ExecOutputDelta {
+    /// 自 `from_offset` 起的新增文本（UTF-8 字符边界收口）
+    pub text: String,
+    /// 下次调用应传的游标（`<=` 文件长度、跨调用单调不减）
+    pub next_offset: u64,
+}
+
+/// `ExecOutput::Recorded` 落盘半边（输出记录单点）：降为
+/// [`LiveExec::begin`] + [`LiveExec::commit`] 的薄包装——同铸造点、同落点
+/// （`<report_dir>/exec-outputs/<exec_id>.log`，按槽位同锚派生）、同「零截断零改写」
+/// 内容口径。单一流即完整还原终端——static-check 的 `2>&1` 交错流、test-execution
+/// 的 stdout + stderr 合并流；stdout / stderr 分文件（`.err`）已退役。
 pub fn record_exec_output(
     root: &Path,
     change: &str,
     slot: ReportSlot,
     output: &[u8],
 ) -> Result<String, String> {
-    let dir = exec_output_dir(root, change, slot);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 exec 输出目录失败: {e}"))?;
-    let exec_id = mint_exec_id();
-    std::fs::write(dir.join(format!("{exec_id}.log")), output)
-        .map_err(|e| format!("落盘 exec 输出失败: {e}"))?;
-    Ok(exec_id)
+    LiveExec::begin(root, change, slot)?.commit(output)
+}
+
+/// 命令 sidecar 回查（与 [`read_exec_output_in`] 同双锚探测：test 槽先 / baseline
+/// 槽后）：无 sidecar 的老记录 → `None`（非错误）。
+pub fn read_exec_command_in(change_dir: &Path, exec_id: &str) -> Option<String> {
+    if !is_valid_exec_id(exec_id) {
+        return None;
+    }
+    [ReportSlot::Test, ReportSlot::Baseline]
+        .iter()
+        .find_map(|slot| {
+            std::fs::read_to_string(exec_command_path_in(change_dir, *slot, exec_id)).ok()
+        })
+}
+
+/// 布局派生 `.log` 绝对路径（双锚探测，返回首个命中槽位的路径）：供前端 watch
+/// 寻址——目录名知识 MUST NOT 下沉前端。
+pub fn exec_output_log_path_in(change_dir: &Path, exec_id: &str) -> Option<PathBuf> {
+    if !is_valid_exec_id(exec_id) {
+        return None;
+    }
+    [ReportSlot::Test, ReportSlot::Baseline]
+        .iter()
+        .find_map(|slot| {
+            let path = exec_output_dir_in(change_dir, *slot).join(format!("{exec_id}.log"));
+            path.is_file().then_some(path)
+        })
+}
+
+/// 增量读：自 `from_offset` 起的新增文本 + 下次游标（**offset 唯一产出方在后端**）。
+///
+/// 口径：`from_offset = 0` 即全量（与 [`read_exec_output`] 逐字相等）；`next_offset`
+/// 单调不减且 `<= 文件长度`，块末半字符留待下次（落在 UTF-8 字符边界）；覆盖变短
+/// （`from_offset > 长度`）夹 0 重读，MUST NOT panic / MUST NOT 返回空串；空文件
+/// 返回 `Some("")`（与「文件缺失 → `None`」天然可分）。
+pub fn read_exec_output_delta_in(
+    change_dir: &Path,
+    exec_id: &str,
+    from_offset: u64,
+) -> Option<ExecOutputDelta> {
+    if !is_valid_exec_id(exec_id) {
+        return None;
+    }
+    let bytes = [ReportSlot::Test, ReportSlot::Baseline]
+        .iter()
+        .find_map(|slot| {
+            std::fs::read(exec_output_dir_in(change_dir, *slot).join(format!("{exec_id}.log"))).ok()
+        })?;
+    let len = bytes.len() as u64;
+    let from = if from_offset > len {
+        0
+    } else {
+        from_offset as usize
+    };
+    let end = from + complete_prefix_len(&bytes[from..]);
+    Some(ExecOutputDelta {
+        text: String::from_utf8_lossy(&bytes[from..end]).into_owned(),
+        next_offset: end as u64,
+    })
+}
+
+/// 块内**完整** UTF-8 前缀长度（纯函数零 IO）：末尾若落在**尚可补齐**的多字节序列
+/// 内则退到该序列起点（该字符留待下次），否则返回全长；非法首字节按单字节计（⇒ 以
+/// 替换符呈现且游标越过，不卡死调用方）。
+///
+/// 「尚可补齐」与「永远等不到补齐」的分界即首字节的合法性：`0xC0` / `0xC1`（过长
+/// 编码，最短形态要求 ≥ `0xC2`）与 `0xF5..=0xFF`（超出 U+10FFFF）不是合法首字节——
+/// 它们退位后也补不齐，只会让游标永不推进，故与「已完整」同处置（返回全长）。
+///
+/// `from_utf8` 的 `valid_up_to` / `error_len` 两臂在此收敛——调用侧只见「长度」，
+/// 不必各自重写字符边界规则。
+fn complete_prefix_len(bytes: &[u8]) -> usize {
+    let len = bytes.len();
+    // 回看至多 3 字节（UTF-8 序列最长 4 字节）
+    for back in 1..=len.min(3) {
+        let index = len - back;
+        let byte = bytes[index];
+        if byte & 0b1100_0000 == 0b1000_0000 {
+            continue; // 续接字节：继续前看首字节
+        }
+        let need = match byte {
+            0x00..=0x7F => 1,
+            0xC2..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF4 => 4,
+            // 非法首字节（`0xC0` / `0xC1` / `0xF5..=0xFF`）：按单字节计
+            //（lossy 替换符 + 游标越过——退位会让游标永不推进）
+            _ => return len,
+        };
+        return if index + need <= len { len } else { index };
+    }
+    // 回看窗口内全是续接字节（无首字节在前 3 字节内）⇒ 非法序列，按单字节推进
+    len
+}
+
+/// 命令 sidecar 路径派生（sidecar 与 `.log` 同目录同 id 前缀的单一派生点）。
+fn exec_command_path_in(change_dir: &Path, slot: ReportSlot, exec_id: &str) -> PathBuf {
+    exec_output_dir_in(change_dir, slot).join(format!("{exec_id}.{EXEC_COMMAND_SUFFIX}"))
 }
 
 pub fn read_exec_output(root: &Path, change: &str, exec_id: &str) -> Option<Vec<u8>> {

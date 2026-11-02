@@ -5,9 +5,9 @@ use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 
 use crate::port::{
-    BoxDiffFuture, DiffContextPort, RunEventSink, RunFault, StaticCheckOutcome, StaticCheckRunner,
-    ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
-    WorkerTurnRequest, WorkflowSnapshotPort,
+    BoxDiffFuture, DiffContextPort, OutputRefSink, RunEventSink, RunFault, StaticCheckOutcome,
+    StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
+    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
 };
 use crate::state::{ArchivePreflight, RunUpdate};
 use workflow::write::{
@@ -144,6 +144,7 @@ impl StaticCheckRunner for ProgrammableRunner {
         name: &str,
         slot: ReportSlot,
         cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> crate::port::BoxToolFuture {
         self.cancels
             .lock()
@@ -346,6 +347,7 @@ async fn tool_command十一变体封闭集且match穷尽分发() {
             root: "/tmp/root".to_owned(),
             cancel: foundation::cancel::CancelFlag::never(),
             command: logged,
+            on_output_ref: None,
         })
         .await
         .expect("步产出应可用");
@@ -731,6 +733,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透�
             "demo-change",
             ReportSlot::Test,
             CancelFlag::never(),
+            None,
         )
         .await
         .expect("产出应可用");
@@ -775,6 +778,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透�
             "demo-change",
             ReportSlot::Baseline,
             CancelFlag::never(),
+            None,
         )
         .await
         .expect("产出应可用");
@@ -966,6 +970,7 @@ impl TestExecutionRunner for ProgrammableTestExecutionRunner {
         name: &str,
         slot: ReportSlot,
         cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> crate::port::BoxToolFuture {
         self.cancels
             .lock()
@@ -1058,6 +1063,7 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
             "demo-change",
             ReportSlot::Test,
             CancelFlag::never(),
+            None,
         )
         .await
         .expect("产出应可用");
@@ -1129,6 +1135,7 @@ async fn test_execution_runner假实现经arc注入且root_change透传() {
                 "walker-change",
                 slot,
                 CancelFlag::never(),
+                None,
             )
             .await
             .expect("产出应可用");
@@ -1156,7 +1163,13 @@ async fn test_execution_runner_err臂上抛() {
         ProgrammableTestExecutionRunner::with_result(Err("报告目录创建失败".to_owned()));
     let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
     let err = runner
-        .run("/tmp/root", "c", ReportSlot::Baseline, CancelFlag::never())
+        .run(
+            "/tmp/root",
+            "c",
+            ReportSlot::Baseline,
+            CancelFlag::never(),
+            None,
+        )
         .await
         .expect_err("Err 臂应上抛");
     assert_eq!(err, "报告目录创建失败", "Err(String) 原样（无再包装）");
@@ -1446,6 +1459,7 @@ async fn tool_step_output归档两新变体载荷透传() {
             command: ToolCommand::ArchiveSeal {
                 change_id: CHANGE_ID.to_owned(),
             },
+            on_output_ref: None,
         })
         .await;
     assert!(output.is_ok(), "归档命令经注入 port 可达");
@@ -2575,6 +2589,7 @@ fn request_with_cancel(cancel: CancelFlag) -> crate::port::ToolStepRequest {
             slot: ReportSlot::Test,
         },
         cancel,
+        on_output_ref: None,
     }
 }
 
@@ -2652,7 +2667,13 @@ async fn 三runner_trait接收cancel形参且原样透传() {
     let static_runner: Arc<dyn StaticCheckRunner> = Arc::new(static_inner);
     let static_cancel = CancelFlag::never();
     static_runner
-        .run("/tmp/root", "c", ReportSlot::Test, static_cancel.clone())
+        .run(
+            "/tmp/root",
+            "c",
+            ReportSlot::Test,
+            static_cancel.clone(),
+            None,
+        )
         .await
         .expect("StaticCheckRunner 假件应 Ok");
     let recorded = static_log.lock().expect("static cancel 锁").clone();
@@ -2667,7 +2688,13 @@ async fn 三runner_trait接收cancel形参且原样透传() {
     let exec_runner: Arc<dyn TestExecutionRunner> = Arc::new(exec_inner);
     let exec_cancel = CancelFlag::never();
     exec_runner
-        .run("/tmp/root", "c", ReportSlot::Test, exec_cancel.clone())
+        .run(
+            "/tmp/root",
+            "c",
+            ReportSlot::Test,
+            exec_cancel.clone(),
+            None,
+        )
         .await
         .expect("TestExecutionRunner 假件应 Ok");
     let recorded = exec_log.lock().expect("exec cancel 锁").clone();
@@ -2706,7 +2733,7 @@ async fn 三runner_trait已置位信号不被丢弃() {
     let static_log = static_inner.cancel_log();
     let static_runner: Arc<dyn StaticCheckRunner> = Arc::new(static_inner);
     static_runner
-        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone())
+        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone(), None)
         .await
         .expect("应 Ok");
     assert!(
@@ -2720,7 +2747,7 @@ async fn 三runner_trait已置位信号不被丢弃() {
     let exec_log = exec_inner.cancel_log();
     let exec_runner: Arc<dyn TestExecutionRunner> = Arc::new(exec_inner);
     exec_runner
-        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone())
+        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone(), None)
         .await
         .expect("应 Ok");
     assert!(
@@ -3071,13 +3098,19 @@ fn tool_step_request与command零改() {
             slot: ReportSlot::Baseline,
         },
         cancel: CancelFlag::never(),
+        on_output_ref: None,
     };
     let crate::port::ToolStepRequest {
         root,
         command,
         cancel,
+        on_output_ref,
     } = request;
     assert_eq!(root, "C:/ws", "root 字段面零改");
+    assert!(
+        on_output_ref.is_none(),
+        "on_output_ref 缺省不回调（老行为）"
+    );
     assert!(!cancel.is_set(), "cancel 缺省不置位（never）");
     match command {
         ToolCommand::StaticCheck { change_id, slot } => {
@@ -3387,4 +3420,463 @@ fn archi_check_outcome_try_from八错型恒err() {
         crate::port::ArchiCheckOutcome::try_from(ToolStepOutput::ArchiCheck(expected.clone()))
             .expect("ArchiCheck 变体应窄化成功");
     assert_eq!(converted, expected, "载荷逐字段相等（不重建不默认）");
+}
+
+// ---------------------------------------------------------------------------
+// 输出引用上抛通道（change-detail-live-stdout，AC-5 / AC-2）
+//
+// 被测面：`OutputRefSink`（newtype + `Clone` + 手写 `Debug` / `PartialEq` / `Eq`
+// 的身份语义）、`ToolStepRequest.on_output_ref`（新增末位字段，缺省 `None`）与
+// 两 runner trait 的末位形参（`Option<OutputRefSink>`，未提供或不调用 = 老行为）。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：零替身——真实
+// `OutputRefSink::new`（与 `port.rs` 同 crate，可经 `pub(crate)` 构造）、真实
+// `foundation::cancel::CancelFlag` / `ReportSlot`；本节零 IPC / 零 spawn / 零
+// 文件系统（纯类型与契约面）。
+// ---------------------------------------------------------------------------
+
+/// 上抛记录器：`(sink, 收到的 exec_id 序列)`。
+fn output_ref_recorder() -> (OutputRefSink, Arc<Mutex<Vec<String>>>) {
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&seen);
+    let sink = OutputRefSink::new(move |exec_id: &str| {
+        recorder
+            .lock()
+            .expect("上抛记录锁不可中毒")
+            .push(exec_id.to_owned());
+    });
+    (sink, seen)
+}
+
+/// 正向：`new(回调)` 后 `emit("exec-x")` → 回调收到原样串；`emit("")` 亦原样
+/// 投递（空串是合法 exec_id 形态的边界由消费方判定）。
+#[test]
+fn output_ref_sink_emit原样投递含空串() {
+    let (sink, seen) = output_ref_recorder();
+    sink.emit("exec-x");
+    sink.emit("");
+    assert_eq!(
+        *seen.lock().expect("上抛记录锁不可中毒"),
+        vec!["exec-x".to_owned(), String::new()],
+        "原样投递（零改写），空串亦投递"
+    );
+}
+
+/// 边界（参数化 0 / 1 / 1000 次）：单实例连续 `emit` 后回调计数恰等（零合并零
+/// 丢弃）；克隆后的两副本交错 `emit` 100 次 → 计数和为 200（无丢失、无重复）。
+#[test]
+fn output_ref_sink_上抛次数边界零合并零丢弃() {
+    for count in [0usize, 1, 1000] {
+        let (sink, seen) = output_ref_recorder();
+        for index in 0..count {
+            sink.emit(&format!("exec-{index}"));
+        }
+        let observed = seen.lock().expect("上抛记录锁不可中毒").len();
+        assert_eq!(observed, count, "emit {count} 次 → 回调计数恰为 {count}");
+    }
+
+    // Clone 后两副本交错 emit 100 次 → 计数和 200
+    let (sink, seen) = output_ref_recorder();
+    let cloned = sink.clone();
+    for index in 0..100 {
+        sink.emit(&format!("exec-a-{index}"));
+        cloned.emit(&format!("exec-b-{index}"));
+    }
+    assert_eq!(
+        seen.lock().expect("上抛记录锁不可中毒").len(),
+        200,
+        "两副本交错 100 次 → 回调计数和 200（无丢失、无重复）"
+    );
+}
+
+/// 异常（参数化 4 形态）：`emit` 投递面零转义零截断——空串 / 含控制字符 /
+/// 含 emoji / 超长（>1000 chars）的 `exec_id` 全部原样抵达回调。
+#[test]
+fn output_ref_sink_超长与控制字符原样投递() {
+    let long_id = format!("exec-{}-尾", "x".repeat(1200));
+    let cases: [String; 4] = [
+        String::new(),
+        "exec-\u{0}\u{7}\t".to_owned(),
+        "exec-🚀-中文".to_owned(),
+        long_id,
+    ];
+    let (sink, seen) = output_ref_recorder();
+    for case in &cases {
+        sink.emit(case);
+    }
+    assert_eq!(
+        *seen.lock().expect("上抛记录锁不可中毒"),
+        cases.to_vec(),
+        "四形态原样投递（零转义零截断）"
+    );
+    let expected_chars = "exec-".chars().count() + 1200 + "-尾".chars().count();
+    assert_eq!(
+        seen.lock().expect("上抛记录锁不可中毒")[3].chars().count(),
+        expected_chars,
+        "超长 exec_id 逐字符在案"
+    );
+}
+
+/// 异常：回调体 panic 时 `emit` 调用点**不吞 panic**——panic 按 Rust 默认语义
+/// 向调用方展开（`catch_unwind` 可捕获），MUST NOT 在 `emit` 内部静默捕获后继续。
+#[test]
+fn output_ref_sink_回调panic不被吞掉() {
+    let sink = OutputRefSink::new(|_exec_id: &str| panic!("回调体内 panic-mark"));
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.emit("exec-p")));
+    let payload = caught.expect_err("emit 不得吞掉回调 panic");
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_default();
+    assert!(
+        message.contains("panic-mark"),
+        "panic 载荷原样上抛（零改写）: {message:?}"
+    );
+}
+
+/// 正向：`Clone` 后两份副本 `emit` → 同一次回调（`Arc` 共享）各收到一条，计数
+/// 与调用次数一致。
+#[test]
+fn output_ref_sink_clone共享同一回调() {
+    let (sink, seen) = output_ref_recorder();
+    let cloned = sink.clone();
+    sink.emit("exec-1");
+    cloned.emit("exec-2");
+    assert_eq!(
+        seen.lock().expect("上抛记录锁不可中毒").len(),
+        2,
+        "clone 共享同一底层闭包（调用两次即两条）"
+    );
+    assert_eq!(
+        *seen.lock().expect("上抛记录锁不可中毒"),
+        vec!["exec-1".to_owned(), "exec-2".to_owned()],
+        "两条记录均抵达"
+    );
+}
+
+/// 异常：`Debug` 输出恒为 `"OutputRefSink(..)"`（不含闭包地址、不 panic，红线
+/// ②）；`ToolStepRequest` 的 `Debug` 在 `on_output_ref: Some(..)` 与 `None` 两
+/// 形态均不 panic。
+#[test]
+fn output_ref_sink手写debug不含闭包内容() {
+    let (sink, _seen) = output_ref_recorder();
+    assert_eq!(format!("{sink:?}"), "OutputRefSink(..)", "手写 Debug 定式");
+    assert_eq!(
+        format!("{sink:?}"),
+        format!("{:?}", sink.clone()),
+        "clone 同渲染"
+    );
+
+    for variant in [Some(sink.clone()), None] {
+        let request = crate::port::ToolStepRequest {
+            root: "/ws".to_owned(),
+            command: ToolCommand::StaticCheck {
+                change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
+            },
+            cancel: CancelFlag::never(),
+            on_output_ref: variant,
+        };
+        let debug = format!("{request:?}");
+        assert!(
+            debug.contains("on_output_ref"),
+            "Debug 面含 on_output_ref 字段: {debug}"
+        );
+        assert!(
+            !debug.contains("0x") || debug.contains("OutputRefSink(..)"),
+            "Debug 不泄漏闭包地址: {debug}"
+        );
+    }
+}
+
+/// 边界（组合 同实例 × 异实例 × None）：身份相等语义——同一实例的两份 clone
+/// `==` 且 `Eq` 自反；两个不同 `new(..)` 实例（回调体相同）`!=`
+///（`Arc::ptr_eq` 为判据）；`Option<OutputRefSink>` 的 `None == None` 成立。
+#[test]
+fn output_ref_sink身份相等语义() {
+    let (first, _seen_a) = output_ref_recorder();
+    let (second, _seen_b) = output_ref_recorder();
+
+    assert_eq!(first, first.clone(), "同一实例的两份 clone 相等");
+    assert_eq!(first, first, "Eq 自反");
+    assert_ne!(first, second, "两个不同 new 实例不相等（身份语义）");
+
+    let none: Option<OutputRefSink> = None;
+    assert_eq!(none, None, "None == None");
+    assert_ne!(Some(first), none, "Some 与 None 不相等");
+    assert_eq!(Some(second.clone()), Some(second), "同实例的 Option 相等");
+}
+
+/// 正向：既有 33 处 `ToolStepRequest` 字面量补 `on_output_ref: None` 后编译通过
+/// ——`PartialEq` 在两 `None` 形态与 `Some(同一实例)` 两形态下相等。
+#[test]
+fn tool_step_request_eq语义在两形态下不变() {
+    let base = crate::port::ToolStepRequest {
+        root: "/ws/a".to_owned(),
+        command: ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+        cancel: CancelFlag::never(),
+        on_output_ref: None,
+    };
+    let clone = crate::port::ToolStepRequest {
+        cancel: base.cancel.clone(),
+        ..base.clone()
+    };
+    assert_eq!(base, clone, "两 None 形态相等（缺省语义不变）");
+
+    let (sink, _seen) = output_ref_recorder();
+    let with_sink = crate::port::ToolStepRequest {
+        cancel: base.cancel.clone(),
+        on_output_ref: Some(sink.clone()),
+        ..base.clone()
+    };
+    let same_sink = crate::port::ToolStepRequest {
+        cancel: base.cancel.clone(),
+        on_output_ref: Some(sink),
+        ..base.clone()
+    };
+    assert_eq!(with_sink, same_sink, "Some(同一实例) 两形态相等");
+    assert_ne!(base, with_sink, "None 与 Some 不等");
+}
+
+/// 异常：`Some(不同实例)` 的 `ToolStepRequest` → `!=`（身份语义，非回调行为
+/// 比较）；穷尽解构补字段后 `on_output_ref.is_none()` 成立（形态适应而非口径
+/// 改写）。
+#[test]
+fn tool_step_request_不同实例不等且穷尽解构字段在位() {
+    let (first, _seen_a) = output_ref_recorder();
+    let (second, _seen_b) = output_ref_recorder();
+    let request = |sink: Option<OutputRefSink>| crate::port::ToolStepRequest {
+        root: "/ws/a".to_owned(),
+        command: ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+        cancel: CancelFlag::never(),
+        on_output_ref: sink,
+    };
+    assert_ne!(
+        request(Some(first.clone())),
+        request(Some(second)),
+        "回调体相同但实例不同 → 请求不等（身份语义）"
+    );
+
+    let crate::port::ToolStepRequest {
+        root,
+        command,
+        cancel,
+        on_output_ref,
+    } = request(None);
+    assert_eq!(root, "/ws/a");
+    assert!(!cancel.is_set());
+    assert!(on_output_ref.is_none(), "穷尽解构补字段后缺省为 None");
+    assert!(matches!(command, ToolCommand::StaticCheck { .. }));
+}
+
+/// 边界：缺省语义——`on_output_ref: None` 的请求经 runner 侧收到 `None`
+/// （零补发拍、零额外通知）。
+#[tokio::test]
+async fn tool_step_request_缺省none原样透传到runner() {
+    struct RecordingRunner {
+        seen: Mutex<Vec<Option<String>>>,
+    }
+
+    impl StaticCheckRunner for RecordingRunner {
+        fn run(
+            &self,
+            _root: &str,
+            _name: &str,
+            _slot: ReportSlot,
+            _cancel: CancelFlag,
+            on_output_ref: Option<OutputRefSink>,
+        ) -> crate::port::BoxToolFuture {
+            let recorded = on_output_ref.as_ref().map(|sink| {
+                sink.emit("exec-from-runner");
+                "exec-from-runner".to_owned()
+            });
+            self.seen.lock().expect("记录锁不可中毒").push(recorded);
+            Box::pin(async {
+                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                    passed: true,
+                    diagnostics: String::new(),
+                    fault: None,
+                    output_ref: None,
+                    report_dir: String::new(),
+                }))
+            })
+        }
+    }
+
+    let runner = RecordingRunner {
+        seen: Mutex::new(Vec::new()),
+    };
+    let output = runner
+        .run("/ws", "demo", ReportSlot::Test, CancelFlag::never(), None)
+        .await
+        .expect("假 runner 应 Ok");
+    assert!(matches!(output, ToolStepOutput::StaticCheck(_)));
+    assert_eq!(
+        *runner.seen.lock().expect("记录锁不可中毒"),
+        vec![None],
+        "None 缺省原样抵达 runner（零补发拍）"
+    );
+}
+
+/// 正向：既有 9 处 `port_test` 调用面补末位 `None` 后断言零改
+/// （`ProgrammableRunner` 行为不变——calls / cancels 记录面照常）。
+#[tokio::test]
+async fn static_check_runner既有调用面补none后行为不变() {
+    let (runner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        passed: true,
+        diagnostics: "ok".to_owned(),
+        fault: None,
+        output_ref: None,
+        report_dir: "/ws/reports/test".to_owned(),
+    });
+    let _ = runner
+        .run(
+            "/ws",
+            "demo-change",
+            ReportSlot::Test,
+            CancelFlag::never(),
+            None,
+        )
+        .await
+        .expect("应 Ok");
+    assert_eq!(
+        *calls.lock().expect("calls 锁不可中毒"),
+        vec![("/ws".to_owned(), "demo-change".to_owned(), ReportSlot::Test)],
+        "既有三参记录面零改"
+    );
+}
+
+/// 异常：传入 `Some(sink)` 且 mock runner 从不调用 → 与 `None` 逐字段等价
+///（`ToolStepOutput` 全字段相等，零补发拍）。
+#[tokio::test]
+async fn static_check_runner_some不被调用时与none等价() {
+    let outcome = StaticCheckOutcome {
+        passed: false,
+        diagnostics: "diag".to_owned(),
+        fault: None,
+        output_ref: None,
+        report_dir: "/ws/reports/test".to_owned(),
+    };
+    let (runner_none, _) = ProgrammableRunner::with_outcome(outcome.clone());
+    let without = runner_none
+        .run("/ws", "demo", ReportSlot::Test, CancelFlag::never(), None)
+        .await
+        .expect("应 Ok");
+
+    let (runner_some, _) = ProgrammableRunner::with_outcome(outcome);
+    let (sink, seen) = output_ref_recorder();
+    let with = runner_some
+        .run(
+            "/ws",
+            "demo",
+            ReportSlot::Test,
+            CancelFlag::never(),
+            Some(sink),
+        )
+        .await
+        .expect("应 Ok");
+
+    assert_eq!(with, without, "两形态产出逐字段等价");
+    assert!(
+        seen.lock().expect("上抛记录锁不可中毒").is_empty(),
+        "mock runner 从不调用 ⇒ 零补发拍"
+    );
+}
+
+/// 边界：同一 `OutputRefSink` 实例传给两 trait 的 `run` → 两处 `emit` 均抵达
+/// 同一回调（类型面不吞实例、跨 trait 复用不失效）。
+#[tokio::test]
+async fn 两trait末位形参跨复用同一实例() {
+    struct BothRunners;
+
+    impl StaticCheckRunner for BothRunners {
+        fn run(
+            &self,
+            _root: &str,
+            _name: &str,
+            _slot: ReportSlot,
+            _cancel: CancelFlag,
+            on_output_ref: Option<OutputRefSink>,
+        ) -> crate::port::BoxToolFuture {
+            if let Some(sink) = on_output_ref {
+                sink.emit("exec-static");
+            }
+            Box::pin(async {
+                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                    passed: true,
+                    diagnostics: String::new(),
+                    fault: None,
+                    output_ref: None,
+                    report_dir: String::new(),
+                }))
+            })
+        }
+    }
+
+    impl TestExecutionRunner for BothRunners {
+        fn run(
+            &self,
+            _root: &str,
+            _name: &str,
+            _slot: ReportSlot,
+            _cancel: CancelFlag,
+            on_output_ref: Option<OutputRefSink>,
+        ) -> crate::port::BoxToolFuture {
+            if let Some(sink) = on_output_ref {
+                sink.emit("exec-tests");
+            }
+            Box::pin(async {
+                Ok(ToolStepOutput::TestExecution(
+                    crate::port::TestExecutionOutcome {
+                        conclusion: crate::port::TestExecutionConclusion::Pass,
+                        total: 0,
+                        passed: 0,
+                        failed: 0,
+                        skipped: 0,
+                        findings_brief: String::new(),
+                        findings_detail: String::new(),
+                        report_dir: String::new(),
+                        exec_id: String::new(),
+                        fault: None,
+                    },
+                ))
+            })
+        }
+    }
+
+    let runner = BothRunners;
+    let (sink, seen) = output_ref_recorder();
+    let _ = StaticCheckRunner::run(
+        &runner,
+        "/ws",
+        "demo",
+        ReportSlot::Test,
+        CancelFlag::never(),
+        Some(sink.clone()),
+    )
+    .await
+    .expect("StaticCheckRunner 应 Ok");
+    let _ = TestExecutionRunner::run(
+        &runner,
+        "/ws",
+        "demo",
+        ReportSlot::Test,
+        CancelFlag::never(),
+        Some(sink),
+    )
+    .await
+    .expect("TestExecutionRunner 应 Ok");
+
+    assert_eq!(
+        *seen.lock().expect("上抛记录锁不可中毒"),
+        vec!["exec-static".to_owned(), "exec-tests".to_owned()],
+        "同一实例跨两 trait 复用、两次 emit 均抵达"
+    );
 }

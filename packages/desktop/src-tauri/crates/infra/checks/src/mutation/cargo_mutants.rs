@@ -50,6 +50,8 @@ pub(crate) async fn run_segment(
             // 突变面零重试（长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级
             // 复用门承担）
             retry: exec::RetryPolicy::none(),
+            // 突变段零 live 接入（段内不产输出记录面，记录面扩张留待后续变更）
+            live: None,
         },
     )
     .await;

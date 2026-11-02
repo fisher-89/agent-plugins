@@ -87,10 +87,17 @@ pub(crate) struct PlanExecution {
 /// 拒绝降级（不可安全降级 / 降级后仍超预算）= 环境面归因（`fault =
 /// Some(RunFault::Environment(..))`、零 spawn、零工件解析），MUST NOT 返回 `Err`、
 /// MUST NOT 落 `execution_error`（命令行超限不是被测代码问题）。
+///
+/// 两个末位形参只做透传：`live` 交给 `run_shell`（运行中 tee 落盘），`on_command`
+/// 在裁决出最终命令串、spawn 之前被调用恰一次（`Reject` 臂零调用——零 spawn 即零
+/// 新段）。记录生命周期（`begin` / `write_command` / `commit`）**MUST NOT** 由本
+/// 函数持有，`.cmd` 的段格式亦 MUST NOT 在此组装（单点在 `mod.rs`）。
 pub(crate) async fn execute_plan(
     plan: &TestPlan,
     report_dir: &Path,
     cancel: CancelFlag,
+    live: Option<exec::LiveSink>,
+    on_command: Option<&(dyn Fn(&str) + Sync)>,
 ) -> Result<PlanExecution, String> {
     let started = Instant::now();
 
@@ -154,6 +161,12 @@ pub(crate) async fn execute_plan(
         }
     };
 
+    // 命令文本回吐（记录 sidecar 的唯一原料通路）：命令的展开与预算裁决单点在本
+    // 函数内，外部无法复算而不复制一遍——故只回吐文本、不交出记录类型。
+    if let Some(on_command) = on_command {
+        on_command(&command);
+    }
+
     // 程序解析前置检查（spawn cwd = suite cwd 的可达性口径）
     ensure_program_resolvable(&plan.cwd, &command)?;
 
@@ -167,6 +180,7 @@ pub(crate) async fn execute_plan(
             timeout: SUITE_COMMAND_TIMEOUT,
             cancel,
             retry: exec::RetryPolicy::transient(),
+            live,
         },
     )
     .await

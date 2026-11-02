@@ -1776,32 +1776,34 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     );
   }
 
-  it('正向：id ≠ name 建档 → 选中 outputRef 节点后抽屉经 readExecOutput(root, changeName=detail.name, execId) 取数', async () => {
+  it('正向：id ≠ name 建档 → 选中 outputRef 节点后抽屉经 readExecOutputDelta(root, changeName=detail.name, execId, 0) 取数', async () => {
     renderOutputNodeDetail();
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
 
     fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0'));
     const panel = await screen.findByTestId('stdout-panel');
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('read_exec_output', {
+      expect(invokeMock).toHaveBeenCalledWith('read_exec_output_delta', {
         root: ROOT,
         changeName: 'add-feature',
         execId: 'exec-1727000000000-9',
+        fromOffset: 0,
       }),
     );
     // 磁盘面键恒 detail.name（与 record_exec_output 同口径，非 URL id）
-    const readCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_exec_output');
+    const readCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_exec_output_delta');
     expect(readCalls).toHaveLength(1);
-    const readArgs = readCalls[0][1] as { changeName: string; execId: string };
+    const readArgs = readCalls[0][1] as { changeName: string; execId: string; fromOffset: number };
     expect(readArgs.changeName).toBe('add-feature');
     expect(readArgs.changeName).not.toBe(URL_ID);
     expect(readArgs.execId).toBe('exec-1727000000000-9');
+    expect(readArgs.fromOffset).toBe(0);
     await waitFor(() => expect(panel.textContent).toContain('（无输出记录）'));
   });
 
   it('异常：miss（未知 exec_id / 记录缺失）→ stdout 空态呈现，不因 id 寻址漂移而炸图', async () => {
     invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
-      if (command === 'read_exec_output') return Promise.resolve(null);
+      if (command === 'read_exec_output_delta') return Promise.resolve(null);
       return detailIpc(command, args);
     });
     renderOutputNodeDetail();
@@ -1810,16 +1812,83 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0'));
 
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('read_exec_output', {
+      expect(invokeMock).toHaveBeenCalledWith('read_exec_output_delta', {
         root: ROOT,
         changeName: 'add-feature',
         execId: 'exec-1727000000000-9',
+        fromOffset: 0,
       }),
     );
     expect(screen.getByTestId('stdout-empty').textContent).toBe('（无输出记录）');
     expect(screen.queryByTestId('stdout-error')).toBeNull();
     // 抽屉其余面照常（错误态不阻断）
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+  });
+
+  it('正向（AC-5 组合行）：运行中 static-check 节点点击 → 命令头行 + 增量输出；信号到达后再取增量（offset 推进）', async () => {
+    // 运行中节点（status = running ⇒ useFileWatchSignal 挂上；终态则零订阅）
+    loadActiveRun(
+      activeRunView({
+        nodes: [
+          stepRow({
+            step: 'staticCheck',
+            status: 'running',
+            sessionId: null,
+            outputRef: 'exec-1727000000000-9',
+          }),
+        ],
+      }),
+    );
+    const deltas = [
+      { text: 'line-1\n', nextOffset: 7 },
+      { text: 'line-2\n', nextOffset: 14 },
+    ];
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'read_exec_output_delta') {
+        const next = deltas.shift() ?? { text: '', nextOffset: 14 };
+        return Promise.resolve(next);
+      }
+      if (command === 'read_exec_command') return Promise.resolve('pnpm run check 2>&1');
+      if (command === 'exec_output_path') {
+        return Promise.resolve(`${ROOT}\reports\testexec-outputsexec.log`);
+      }
+      if (command === 'watch_subscribe') return Promise.resolve(11);
+      if (command === 'watch_unsubscribe') return Promise.resolve(true);
+      return detailIpc(command, args);
+    });
+    renderDetail(
+      { detail: detail({ id: URL_ID, name: 'add-feature' }), artifacts: PROPOSAL_ENVELOPES },
+      ROOT,
+      `/changes/${URL_ID}`,
+    );
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+
+    fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0'));
+
+    // 命令头行（read_exec_command 一次）+ 首拍增量
+    await waitFor(() =>
+      expect(screen.getByTestId('stdout-command').textContent).toBe('pnpm run check 2>&1'),
+    );
+    await waitFor(() => expect(screen.getByTestId('stdout-text').textContent).toBe('line-1\n'));
+
+    // 运行中 ⇒ watch 订阅在位（armKey 非 null）
+    await waitFor(() => expect(ChannelMock.instances.length).toBeGreaterThan(0));
+    const channel = ChannelMock.instances.at(-1);
+    expect(channel).toBeDefined();
+
+    // 信号到达 → 防抖窗口后第二次增量（fromOffset 取上次 nextOffset）
+    channel?.push({ kind: 'modified', path: 'exec.log' });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('stdout-text').textContent).toBe('line-1\nline-2\n'),
+    );
+
+    const deltaCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_exec_output_delta');
+    expect(deltaCalls.map((call) => (call[1] as { fromOffset: number }).fromOffset)).toEqual([
+      0, 7,
+    ]);
   });
 });
 

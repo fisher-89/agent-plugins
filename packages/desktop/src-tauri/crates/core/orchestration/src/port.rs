@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
 use foundation::cancel::CancelFlag;
@@ -131,7 +132,52 @@ pub enum ToolCommand {
     ArchiveSeal { change_id: String },
 }
 
-/// 工具步请求：workspace 根 + 步命令 + 取消信号。
+/// 输出引用上抛回调：脚本步在 `exec_id` 铸造（且 live 记录文件已创建）后立即触发
+/// 一次，使运行中的节点即可携 `output_ref` 进入 stdout 面板。
+///
+/// `Clone` 派生 + 手写 `Debug` / `PartialEq` / `Eq`（`Arc<dyn Fn>` 不实现后两者）：
+/// `Eq` 语义为**身份比较**（同一底层闭包才相等，沿 [`CancelFlag`] 的「同一底层对象
+/// 才相等」先例），故 [`ToolStepRequest`] 的 `derive(PartialEq, Eq)` 保持不变。
+#[derive(Clone)]
+pub struct OutputRefSink(Arc<dyn Fn(&str) + Send + Sync>);
+
+impl OutputRefSink {
+    /// 构造（**跨 crate 公开面**，两条消费者路径）：
+    /// - 生产唯一路径：`walker::run_tool` 的 `identity` 组装；
+    /// - 第二消费者：`crates/infra/checks` 的记录链用例——顺序不变量（AC-11）要求
+    ///   回调内断言「上抛时刻 live `.log` 与父目录已在」，而 checks crate 无法经
+    ///   `pub(crate)` 构造取得实例 ⇒ 构造面 MUST 为 `pub`（design D16；收窄会使该
+    ///   AC 在 checks 侧结构性不可写，只能整体传 `None`）。
+    ///
+    /// 与 `exec::LiveSink::new` 保持 `pub(crate)` 的非对称是有意的（design D18）：
+    /// 那边 checks 侧有 `LiveExec::sink()` 这条公共取得路径。
+    pub fn new(run: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(run))
+    }
+
+    /// 投递一次 `exec_id`（`crates/infra/checks` 的两个 runner 是跨 crate 调用方，
+    /// 故本方法 MUST 为 `pub`）。
+    pub fn emit(&self, exec_id: &str) {
+        (self.0)(exec_id);
+    }
+}
+
+impl std::fmt::Debug for OutputRefSink {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("OutputRefSink(..)")
+    }
+}
+
+impl PartialEq for OutputRefSink {
+    /// 身份比较（`Arc::ptr_eq`）——同一底层闭包才相等，见本类型 doc。
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for OutputRefSink {}
+
+/// 工具步请求：workspace 根 + 步命令 + 取消信号 + 输出引用上抛回调。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolStepRequest {
     /// workspace 根（写面 layout 解析与 spawn cwd）
@@ -142,6 +188,9 @@ pub struct ToolStepRequest {
     /// 非取消路径行为零变化）。`Eq` 语义为**身份比较**（同一底层原子才相等），
     /// 故本载荷 derive 保持不变。
     pub cancel: CancelFlag,
+    /// 输出引用上抛回调（缺省 `None` = 老行为：running 拍不带输出引用，终态拍按
+    /// 产出回填）。在位时 runner 须在 live 记录文件**已创建之后**调用一次。
+    pub on_output_ref: Option<OutputRefSink>,
 }
 
 /// 工具步产出（封闭集，载荷 = 写面原生类型；PhaseNext 体量最大（白名单 +
@@ -369,7 +418,17 @@ pub trait StaticCheckRunner: Send + Sync {
     /// 置位 → 进程树击杀 → 产出以 `fault = Some(RunFault::Stopped)` 正常返回
     ///（取消 MUST NOT 以 `Err` 表达——`Err` 只留给进程拉不起 / 程序不可达等基础
     /// 设施失败）。
-    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
+    ///
+    /// 末位 `on_output_ref`：输出引用上抛回调（实现须在 live 记录文件**已创建之后**
+    /// 调用一次；未提供或未调用 = 老行为——running 拍不带输出引用）。
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
+    ) -> BoxToolFuture;
 }
 
 /// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与
@@ -383,7 +442,17 @@ pub trait TestExecutionRunner: Send + Sync {
     /// 取消信号经 infra 执行体观测——core 零 spawn；置位 → 进程树击杀 →
     /// 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 返回 `Err`）；
     /// 取消 MUST NOT 落 plan 级 `execution_error`，也不再跑余下 plan。
-    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
+    ///
+    /// 末位 `on_output_ref`：同 [`StaticCheckRunner::run`]——live 记录文件已创建
+    /// 之后调用一次；未提供或未调用 = 老行为。
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
+    ) -> BoxToolFuture;
 }
 
 /// mutation-test spawn 缝（checks 边界 infra 实现；检查域家族第三成员，W4 红线

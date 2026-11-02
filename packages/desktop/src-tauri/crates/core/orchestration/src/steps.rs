@@ -216,7 +216,9 @@ async fn execute(
                 .ok_or_else(|| {
                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行静态检查")
                 })?;
-            let output = static_check.run(&step.root, &name, slot, cancel).await;
+            let output = static_check
+                .run(&step.root, &name, slot, cancel, step.on_output_ref)
+                .await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,
@@ -242,7 +244,9 @@ async fn execute(
                 .ok_or_else(|| {
                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行测试门禁")
                 })?;
-            let output = test_execution.run(&step.root, &name, slot, cancel).await;
+            let output = test_execution
+                .run(&step.root, &name, slot, cancel, step.on_output_ref)
+                .await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,

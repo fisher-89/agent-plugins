@@ -1,5 +1,5 @@
 import type { Channel } from '@tauri-apps/api/core';
-import { describe, expect, expectTypeOf, it } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vite-plus/test';
 import { ZodObject, ZodType, type z } from 'zod';
 
 import {
@@ -11,6 +11,7 @@ import {
   type ChangeList,
   type CodeStatsReport,
   type DirNode,
+  type ExecOutputChunk,
   type FileWatchEvent,
   type RunNotice,
   type SessionSummary,
@@ -25,7 +26,21 @@ import {
   channelArgs,
   resultSchemas,
 } from '../types/generated/bindings.zod';
-import type { ipc } from './ipc';
+import { ipc } from './ipc';
+import { driftCount, resetDrift } from './ipc-drift';
+
+// 进程边界替身（只替 Tauri IPC）：`bindings.ts` 在模块装载时就解构
+// `invoke` / `Channel`，故两个名字都必须导出。soft-report 分级链路的断言需要
+// 真实 `ipc` 代理走一遍 `invoke` 往返——替身化 `ipc.ts` / `ipc-drift.ts` 会让
+// 「零漂移 / 恰 1 条」自证。
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: invokeMock,
+  Channel: class {
+    onmessage: ((message: unknown) => void) | null = null;
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // 契约等价面：生成物三表（`bindings.zod.ts`）与类型唯一源（`bindings.ts`）的
@@ -412,5 +427,321 @@ describe('具名类型 schema 段：递归与降级面', () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 三新命令（change-detail-live-stdout / AC-14）：`execOutputPath` /
+// `readExecCommand` / `readExecOutputDelta` 与出线 DTO `ExecOutputChunk`。
+//
+// 等价断言两端都在真实 import 上：类型主权端是 `bindings.ts`（`commands` 与
+// `ExecOutputChunk`），schema 端是 `bindings.zod.ts`（`argsSchemas` /
+// `resultSchemas`）。运行期「脏结果只上报」行经真实 `ipc` 代理（只替 `invoke`
+// 进程边界），soft-report 分级与漂移聚合均为真实实现。
+// ---------------------------------------------------------------------------
+
+/** 三新命令键（登记序与 `all_commands!` 同序）。 */
+const execCommandKeys = ['execOutputPath', 'readExecCommand', 'readExecOutputDelta'] as const;
+
+/** `readExecOutputDelta` 的出线面：类型端非空臂。 */
+type DeltaChunk = NonNullable<Awaited<ReturnType<typeof commands.readExecOutputDelta>>>;
+
+/** `readExecOutputDelta` 的出线面：schema 端非空臂。 */
+type DeltaSchemaChunk = NonNullable<z.infer<typeof resultSchemas.readExecOutputDelta>>;
+
+// DEV 汇总告警的观测面静音（告警本身由 `ipc.test.ts` 断言；本节只断漂移计数）
+let warnSpy: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  invokeMock.mockReset();
+  resetDrift();
+  warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  warnSpy.mockRestore();
+});
+
+describe('三新命令：键集与形参元组', () => {
+  it('commands 含三新命令且各恰 1 次（无重复登记）', () => {
+    for (const key of execCommandKeys) {
+      expect(commandKeys.filter((candidate) => candidate === key)).toHaveLength(1);
+    }
+  });
+
+  it.each([
+    ['execOutputPath', 3],
+    ['readExecCommand', 3],
+    ['readExecOutputDelta', 4],
+  ] as const)('%s 的形参个数与 argsSchemas 键数同为 %i', (key, arity) => {
+    expect(commands[key]).toHaveLength(arity);
+    expect(Object.keys((argsSchemas[key] as ZodObject).shape)).toHaveLength(arity);
+  });
+
+  it('三新命令的形参元组与三/四元字符串元组互相可赋值', () => {
+    expectTypeOf<
+      MutualAssignable<Parameters<typeof commands.execOutputPath>, [string, string, string]>
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      MutualAssignable<Parameters<typeof commands.readExecCommand>, [string, string, string]>
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      MutualAssignable<
+        Parameters<typeof commands.readExecOutputDelta>,
+        [string, string, string, number]
+      >
+    >().toEqualTypeOf<true>();
+    // 反例校准：末位 `fromOffset` 不是字符串（四参形态非「四个 string」）
+    expectTypeOf<
+      MutualAssignable<
+        Parameters<typeof commands.readExecOutputDelta>,
+        [string, string, string, string]
+      >
+    >().toEqualTypeOf<false>();
+  });
+
+  it('三新命令的 argsSchemas 形参名逐字为 lowerCamelCase（含 fromOffset）', () => {
+    expect(Object.keys((argsSchemas.execOutputPath as ZodObject).shape)).toEqual([
+      'root',
+      'changeName',
+      'execId',
+    ]);
+    expect(Object.keys((argsSchemas.readExecCommand as ZodObject).shape)).toEqual([
+      'root',
+      'changeName',
+      'execId',
+    ]);
+    expect(Object.keys((argsSchemas.readExecOutputDelta as ZodObject).shape)).toEqual([
+      'root',
+      'changeName',
+      'execId',
+      'fromOffset',
+    ]);
+  });
+});
+
+describe('ExecOutputChunk 出线形态：MutualAssignable 正反例与 nullable', () => {
+  it('类型端与 schema 端互相可赋值（两端都是 { text: string; nextOffset: number }）', () => {
+    expectTypeOf<MutualAssignable<DeltaChunk, DeltaSchemaChunk>>().toEqualTypeOf<true>();
+    expectTypeOf<MutualAssignable<DeltaChunk, ExecOutputChunk>>().toEqualTypeOf<true>();
+    expectTypeOf<MutualAssignable<DeltaSchemaChunk, ExecOutputChunk>>().toEqualTypeOf<true>();
+    expectTypeOf<DeltaChunk>().not.toBeAny();
+  });
+
+  it('反例校准：异型字段形态不互相可赋值（等价断言非恒真、any 不静默通过）', () => {
+    expectTypeOf<
+      MutualAssignable<DeltaChunk, { text: number; nextOffset: number }>
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      MutualAssignable<DeltaChunk, { text: string; nextOffset: string }>
+    >().toEqualTypeOf<false>();
+    expectTypeOf<MutualAssignable<DeltaChunk, { text: string }>>().toEqualTypeOf<false>();
+    expectTypeOf<MutualAssignable<DeltaChunk, string>>().toEqualTypeOf<false>();
+  });
+
+  it('Option 出线为 nullable：三新命令返回类型均含 | null', () => {
+    expectTypeOf<Awaited<ReturnType<typeof commands.execOutputPath>>>().toEqualTypeOf<
+      string | null
+    >();
+    expectTypeOf<Awaited<ReturnType<typeof commands.readExecCommand>>>().toEqualTypeOf<
+      string | null
+    >();
+    expectTypeOf<
+      Awaited<ReturnType<typeof commands.readExecOutputDelta>>
+    >().toEqualTypeOf<ExecOutputChunk | null>();
+    // 反例校准：丢掉 null 臂即不等价（nullable 未被压成非空类型）
+    expectTypeOf<
+      Awaited<ReturnType<typeof commands.readExecCommand>>
+    >().not.toEqualTypeOf<string>();
+    expectTypeOf<
+      Awaited<ReturnType<typeof commands.readExecOutputDelta>>
+    >().not.toEqualTypeOf<ExecOutputChunk>();
+  });
+
+  it('nextOffset 为 number（非 bigint）：类型面持衡、schema 面对 bigint 拒绝', () => {
+    expectTypeOf<ExecOutputChunk['nextOffset']>().toEqualTypeOf<number>();
+    expectTypeOf<DeltaSchemaChunk['nextOffset']>().toEqualTypeOf<number>();
+    expectTypeOf<MutualAssignable<ExecOutputChunk['nextOffset'], bigint>>().toEqualTypeOf<false>();
+    expect(
+      (resultSchemas.readExecOutputDelta as ZodType).safeParse({ text: 'a', nextOffset: 7n })
+        .success,
+    ).toBe(false);
+  });
+
+  it('空面类型零窄化：text 接受空串、nextOffset 接受 0（空记录形态可表达）', () => {
+    const emptyRun: ExecOutputChunk = { text: '', nextOffset: 0 };
+    expect(emptyRun.text).toBe('');
+    expect(emptyRun.nextOffset).toBe(0);
+    expect(
+      (resultSchemas.readExecOutputDelta as ZodType).safeParse({ text: '', nextOffset: 0 }).success,
+    ).toBe(true);
+  });
+
+  it('miss 形态：schema 接受 null（Option 出线 nullable），非对象形态被拒', () => {
+    const schema = resultSchemas.readExecOutputDelta as ZodType;
+    expect(schema.safeParse(null).success).toBe(true);
+    expect(schema.safeParse({ text: '', nextOffset: 0 }).success).toBe(true);
+    expect(schema.safeParse(undefined).success).toBe(false);
+    expect(schema.safeParse('text').success).toBe(false);
+  });
+});
+
+describe('fromOffset 入线：必填 number（零 optional 放宽）', () => {
+  const base = { root: '/ws', changeName: 'add-feature', execId: 'exec-1' };
+
+  it('类型面：fromOffset 为必填 number（非 optional / 非 string）', () => {
+    expectTypeOf<
+      z.infer<typeof argsSchemas.readExecOutputDelta>['fromOffset']
+    >().toEqualTypeOf<number>();
+    expectTypeOf<z.infer<typeof argsSchemas.readExecOutputDelta>>().not.toEqualTypeOf<
+      Partial<z.infer<typeof argsSchemas.readExecOutputDelta>>
+    >();
+    expectTypeOf<
+      MutualAssignable<
+        z.infer<typeof argsSchemas.readExecOutputDelta>['fromOffset'],
+        number | undefined
+      >
+    >().toEqualTypeOf<false>();
+  });
+
+  it.each([
+    ['四参齐全（0）', { ...base, fromOffset: 0 }, true],
+    ['四参齐全（极大值）', { ...base, fromOffset: Number.MAX_SAFE_INTEGER }, true],
+    ['缺 fromOffset', base, false],
+    ['fromOffset 为字符串', { ...base, fromOffset: '0' }, false],
+    ['多余键', { ...base, fromOffset: 0, surplus: 1 }, false],
+  ] as const)('运行期 schema 面：%s → success=%s', (_label, payload, expected) => {
+    expect((argsSchemas.readExecOutputDelta as ZodType).safeParse(payload).success).toBe(expected);
+  });
+});
+
+describe('三新命令结果面：脏结果只 soft-report 恰 1 条漂移', () => {
+  const args = ['/ws', 'add-feature', 'exec-1', 0] as const;
+
+  it('合法结果 → 零漂移、原引用透传', async () => {
+    const clean: ExecOutputChunk = { text: 'ok\n', nextOffset: 3 };
+    invokeMock.mockResolvedValue(clean);
+
+    const result = await ipc.readExecOutputDelta(...args);
+
+    expect(result).toBe(clean);
+    expect(driftCount()).toBe(0);
+  });
+
+  it('null（miss）→ 零漂移（Option 出线 nullable 合法形态）', async () => {
+    invokeMock.mockResolvedValue(null);
+
+    const result = await ipc.readExecOutputDelta(...args);
+
+    expect(result).toBeNull();
+    expect(driftCount()).toBe(0);
+  });
+
+  it.each([
+    ['text 给数字', { text: 42, nextOffset: 7 }],
+    ['缺 nextOffset', { text: 'a' }],
+  ] as const)('脏结果（%s）→ 恰 1 条漂移、原值透传不 throw', async (_label, dirty) => {
+    invokeMock.mockResolvedValue(dirty);
+
+    const result = await ipc.readExecOutputDelta(...args);
+
+    expect(result).toBe(dirty);
+    expect(driftCount()).toBe(1);
+  });
+
+  it('同一命令两次脏结果 → 仍 1 条去重键（count 累计不膨胀）', async () => {
+    invokeMock.mockResolvedValue({ text: 42, nextOffset: 7 });
+
+    await ipc.readExecOutputDelta(...args);
+    await ipc.readExecOutputDelta(...args);
+
+    expect(driftCount()).toBe(1);
+  });
+
+  it('execOutputPath / readExecCommand 的脏结果同样恰 1 条漂移', async () => {
+    invokeMock.mockResolvedValue(42);
+    expect(await ipc.execOutputPath('/ws', 'add-feature', 'exec-1')).toBe(42);
+    expect(driftCount()).toBe(1);
+
+    resetDrift();
+    invokeMock.mockResolvedValue(42);
+    expect(await ipc.readExecCommand('/ws', 'add-feature', 'exec-1')).toBe(42);
+    expect(driftCount()).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 既有命令零变（`readExecOutput`）：本变更只在其后接三新命令 + 重导出生成物，
+// 逐字面（形参元组 / 返回类型 / 生成行）MUST 零改动——AC-14 的「既有命令零变」
+// 判据。三条用例对应 test-design `bindings.ts` 章节的三行，其余既有命令的类型面
+// 等价由本文件上半的逐命令 `ParamsMismatchKeys` / `ResultMismatchKeys` 全量断言
+// 覆盖（那两条已随 `commandKeys` 自动扩展到新命令）。
+// ---------------------------------------------------------------------------
+
+describe('既有命令零变：readExecOutput 逐字面持衡', () => {
+  it('正向：形参元组与返回类型与既有断言逐字相等（`[string, string, string]` / `string | null`）', () => {
+    expectTypeOf<
+      MutualAssignable<Parameters<typeof commands.readExecOutput>, [string, string, string]>
+    >().toEqualTypeOf<true>();
+    expectTypeOf<Awaited<ReturnType<typeof commands.readExecOutput>>>().toEqualTypeOf<
+      string | null
+    >();
+    // schema 端与类型端逐字对齐（三表自动纳入，无手写旁路）
+    expectTypeOf<
+      MutualAssignable<z.infer<typeof resultSchemas.readExecOutput>, string | null>
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      MutualAssignable<
+        z.infer<typeof argsSchemas.readExecOutput>,
+        { root: string; changeName: string; execId: string }
+      >
+    >().toEqualTypeOf<true>();
+    expect(Object.keys((argsSchemas.readExecOutput as ZodObject).shape)).toEqual([
+      'root',
+      'changeName',
+      'execId',
+    ]);
+  });
+
+  it('异常：反例校准 —— 丢掉 `| null` 或改宽形参元组即判不等价（断言非恒真）', () => {
+    expectTypeOf<
+      MutualAssignable<Awaited<ReturnType<typeof commands.readExecOutput>>, string>
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      MutualAssignable<Parameters<typeof commands.readExecOutput>, [string, string]>
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      MutualAssignable<Parameters<typeof commands.readExecOutput>, [string, string, number]>
+    >().toEqualTypeOf<false>();
+    // 与三新命令的形参面可分辨（`readExecOutputDelta` 多一位 fromOffset）
+    expectTypeOf<
+      MutualAssignable<
+        Parameters<typeof commands.readExecOutput>,
+        Parameters<typeof commands.readExecOutputDelta>
+      >
+    >().toEqualTypeOf<false>();
+  });
+
+  it('边界：空态与 miss 形态在类型层可分辨（`string | null` 未被压成 `string`，`null` 与 `""` 各自合法）', async () => {
+    invokeMock.mockResolvedValue(null);
+    expect(await ipc.readExecOutput('/ws', 'add-feature', 'exec-1')).toBeNull();
+    expect(driftCount()).toBe(0);
+
+    invokeMock.mockResolvedValue('');
+    expect(await ipc.readExecOutput('/ws', 'add-feature', 'exec-1')).toBe('');
+    expect(driftCount()).toBe(0);
+
+    // 非 string / null 的脏结果只 soft-report，原值透传不 throw（分级策略未因新命令改）
+    invokeMock.mockResolvedValue(42);
+    expect(await ipc.readExecOutput('/ws', 'add-feature', 'exec-1')).toBe(42);
+    expect(driftCount()).toBe(1);
+
+    // schema 面：null 与空串均为合法返回形态，异型被拒
+    const schema = resultSchemas.readExecOutput as ZodType;
+    expect(schema.safeParse(null).success).toBe(true);
+    expect(schema.safeParse('').success).toBe(true);
+    expect(schema.safeParse(42).success).toBe(false);
+    // nextOffset 类数值字段的 number 口径（`readExecOutputDelta`）与既有命令同源
+    expectTypeOf<ExecOutputChunk['nextOffset']>().toEqualTypeOf<number>();
   });
 });

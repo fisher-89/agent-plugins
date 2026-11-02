@@ -4,8 +4,10 @@
 //! - **超时必填**：[`RunOptions::timeout`] 为必填字段（本类型不提供 `Default`、
 //!   无「None 即无限」分支）——「无超时 spawn」在类型层不可表达，杜绝检查域历史
 //!   上「cargo 卡在文件锁等待时永久悬挂」的缺陷复发；
-//! - **双管道并发排水**：stdout / stderr 各一路 `read_to_end` 并发进行（单管道
-//!   串行读会在对侧管道填满时互锁）；
+//! - **双管道并发排水**：stdout / stderr 各一路 **chunk 循环**并发进行（单管道
+//!   串行读会在对侧管道填满时互锁）；每读到一块即追加进该路内存缓冲（既有消费面）
+//!   并在 `RunOptions::live` 在位时 **tee** 给实时观察者——观察面零侵入（`live ==
+//!   None` 与改造前逐字节等价，见 [`drain`]）；
 //! - **进程树击杀**：超时与取消两臂统一 `crate::kill_tree(pid)` 杀整树（Windows
 //!   `taskkill /T /F` 连子孙），再以有界收尸 / 有界排水保证「预算 + 有限收尾」的
 //!   墙钟上界（只杀不收会换形为「杀后悬挂」：子孙若继承了管道写端，排水永不
@@ -35,11 +37,15 @@ use tokio::time::{sleep, timeout, Instant};
 use crate::transient::{
     compiling_count, is_progress_stalled, transient_signature, AttemptTrace, RetryPolicy,
 };
-use crate::{kill_tree, SystemCommand};
+use crate::{kill_tree, LiveSink, SystemCommand};
 
 /// 取消轮询间隔：执行体观测取消信号的最小粒度（`foundation::cancel` 零 tokio，
 /// 无常量可订阅的通知面；200 ms 在「停止秒级收敛」验收面下足够，且不构成空转）。
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+/// 排水 chunk 尺寸（单次 `read` 通常是「一批就绪字节」——与管道环缓冲同量级；
+/// 4 KiB 页对齐之上取 8 KiB，减少调用次数而不放大单次拷贝）。
+const DRAIN_CHUNK_BYTES: usize = 8192;
 
 /// 收尾上界（收尸与排水各自有界）：杀树命令本身是尽力语义（`kill -9` 不杀
 /// rustc 类子孙），若被杀的壳进程留下持有管道写端的孙进程，无界等待会让
@@ -51,7 +57,7 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// 可能截断，见 [`RunReport`] doc）。
 const FINISH_GRACE: Duration = Duration::from_secs(2);
 
-/// 执行入参：工作目录 / 环境变量 / **必填**超时 / 取消信号 / 重试策略。
+/// 执行入参：工作目录 / 环境变量 / **必填**超时 / 取消信号 / 重试策略 / 实时观察者。
 ///
 /// 刻意不实现 `Default`——`timeout` 无缺省语义（超时必填是本执行体的守门约束）。
 #[derive(Debug, Clone)]
@@ -67,6 +73,10 @@ pub struct RunOptions {
     /// 重试策略（缺省语义 = 单次执行 [`RetryPolicy::none`]；代码常量，MUST NOT 进
     /// config schema）
     pub retry: RetryPolicy,
+    /// 实时输出观察者（`None` = 纯内存，既有语义逐字节零变）。同一实例交给每次
+    /// 尝试（多尝试面下 sink 收到全部尝试字节按序；权威内容仍由调用方收口时一次性
+    /// 写入）。
+    pub live: Option<LiveSink>,
 }
 
 /// 执行结局封闭三值。
@@ -146,6 +156,7 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
         timeout: budget,
         cancel,
         retry,
+        live,
     } = options;
     // 总预算自首跑开始起算（非每次尝试一份）
     let started = Instant::now();
@@ -156,7 +167,15 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
     let mut counts: Vec<u32> = Vec::new();
     loop {
         attempts += 1;
-        let attempt = attempt_once(&command, cwd.as_deref(), &env, budget, &cancel).await?;
+        let attempt = attempt_once(
+            &command,
+            cwd.as_deref(),
+            &env,
+            budget,
+            &cancel,
+            live.as_ref(),
+        )
+        .await?;
         // 每次尝试立即记账（先于三臂判定：被杀两臂的输出不消费计数，但先记账使
         // 「序列长度 == 尝试次数」在正常路径上恒成立）
         counts.push(compiling_count(&attempt.stdout, &attempt.stderr));
@@ -235,8 +254,8 @@ impl Attempt {
     }
 }
 
-/// 单次尝试：spawn（`kill_on_drop`）→ 双管道并发排水 → 三臂竞速（取消轮询 /
-/// 超时 / 「排水 + 收尸」）→ 被杀两臂杀整树 + 有界收尾。
+/// 单次尝试：spawn（`kill_on_drop`）→ 双管道并发排水（每块 tee 给 `live`）→ 三臂
+/// 竞速（取消轮询 / 超时 / 「排水 + 收尸」）→ 被杀两臂杀整树 + 有界收尾。
 ///
 /// 三臂 `biased` 序 cancel → timeout → 退出：取消优先于超时，两者都优先于自然
 /// 退出（同一轮 poll 同时就绪时按此序收敛，不出现「已到期却记 Completed」）。
@@ -247,6 +266,7 @@ async fn attempt_once(
     env: &[(OsString, OsString)],
     budget: Duration,
     cancel: &CancelFlag,
+    live: Option<&LiveSink>,
 ) -> Result<Attempt, RunError> {
     // 入口短路：已置位即不 spawn（取消用例不必依赖轮询时序；也避免为一次必然被
     // 杀的调用付出进程建立成本）
@@ -294,6 +314,7 @@ async fn attempt_once(
             &mut stderr_pipe,
             &mut stdout_bytes,
             &mut stderr_bytes,
+            live,
         ) => Race::Exited(status),
     };
 
@@ -313,13 +334,15 @@ async fn attempt_once(
     };
 
     // 被杀两臂：整树击杀 → 有界收尸 → 有界排水（顺序不可倒：先收尸关管道，排水
-    // 才以 EOF 收口）
+    // 才以 EOF 收口）。排水仍以 FINISH_GRACE 截断——**tee 不引入新的无界等待**：
+    // sink 为同步写文件（微秒级），且整段排水仍在外层 `timeout(FINISH_GRACE, ..)`
+    // 之内。
     kill_tree(child.id());
     let _ = timeout(FINISH_GRACE, child.wait()).await;
     let _ = timeout(FINISH_GRACE, async {
         let _ = tokio::join!(
-            drain(&mut stdout_pipe, &mut stdout_bytes),
-            drain(&mut stderr_pipe, &mut stderr_bytes),
+            drain(&mut stdout_pipe, &mut stdout_bytes, live),
+            drain(&mut stderr_pipe, &mut stderr_bytes, live),
         );
     })
     .await;
@@ -352,11 +375,12 @@ async fn await_exit(
     stderr_pipe: &mut Option<ChildStderr>,
     stdout_bytes: &mut Vec<u8>,
     stderr_bytes: &mut Vec<u8>,
+    live: Option<&LiveSink>,
 ) -> std::io::Result<std::process::ExitStatus> {
     let drain_both = async {
         let _ = tokio::join!(
-            drain(stdout_pipe, stdout_bytes),
-            drain(stderr_pipe, stderr_bytes),
+            drain(stdout_pipe, stdout_bytes, live),
+            drain(stderr_pipe, stderr_bytes, live),
         );
     };
     tokio::pin!(drain_both);
@@ -375,12 +399,33 @@ async fn await_exit(
     Ok(status)
 }
 
-/// 管道读尽至 EOF（错误忽略——沿退役的三份私有 `read_all` 语义：读失败不改变
-/// 「已读到的字节即输出」的结论）。
-async fn drain<R: tokio::io::AsyncRead + Unpin>(pipe: &mut Option<R>, buffer: &mut Vec<u8>) {
-    if let Some(pipe) = pipe.as_mut() {
-        use tokio::io::AsyncReadExt as _;
-        let _ = pipe.read_to_end(buffer).await;
+/// 管道 chunk 循环读尽至 EOF（错误忽略——沿退役的私有 `read_all` 语义：读失败不
+/// 改变「已读到的字节即输出」的结论，如实收口而非上抛）。
+///
+/// 每块先追加进内存缓冲（既有消费面），再在 `live` 在位时 tee 给实时观察者（后
+/// 者只写文件，不影响本函数的控制流）。
+async fn drain<R: tokio::io::AsyncRead + Unpin>(
+    pipe: &mut Option<R>,
+    buffer: &mut Vec<u8>,
+    live: Option<&LiveSink>,
+) {
+    use tokio::io::AsyncReadExt as _;
+    let Some(pipe) = pipe.as_mut() else {
+        return;
+    };
+    let mut chunk = [0u8; DRAIN_CHUNK_BYTES];
+    loop {
+        match pipe.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(read) => {
+                let bytes = &chunk[..read];
+                buffer.extend_from_slice(bytes);
+                if let Some(live) = live {
+                    live.absorb(bytes);
+                }
+            }
+            Err(_) => break,
+        }
     }
 }
 

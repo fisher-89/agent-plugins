@@ -90,6 +90,7 @@ fn options(timeout: Duration) -> RunOptions {
         timeout,
         cancel: CancelFlag::never(),
         retry: RetryPolicy::none(),
+        live: None,
     }
 }
 
@@ -444,6 +445,7 @@ fn run_options四字段面与派生() {
         timeout: Duration::from_millis(1500),
         cancel: CancelFlag::never(),
         retry: RetryPolicy::none(),
+        live: None,
     };
     let cloned = options.clone();
     assert_eq!(
@@ -462,6 +464,7 @@ fn run_options四字段面与派生() {
         timeout: Duration::from_secs(1),
         cancel: CancelFlag::never(),
         retry: RetryPolicy::none(),
+        live: None,
     };
     assert!(none_cwd.clone().cwd.is_none(), "cwd = None 形态保留");
 
@@ -2138,4 +2141,633 @@ fn 重试预算与收尾常量锚定() {
     );
     assert_eq!(CANCEL_POLL_INTERVAL, Duration::from_millis(200));
     assert_eq!(FINISH_GRACE, Duration::from_secs(2));
+}
+
+// ---------------------------------------------------------------------------
+// 运行中 tee 观察面（change-detail-live-stdout，AC-12 / 红线 ③）
+//
+// 被测面：`RunOptions.live`（`Option<LiveSink>`）与私有 `drain` 的 chunk 级
+// tee——`live == None` 与改造前逐字节等价（既有站点全绿），`live == Some` 时每
+// 读到一块即先入内存缓冲、再 tee 给观察者（到达序、零改写）。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：子进程边界用既有平台 shim 脚本
+//（不 mock 进程）；`sink` 观察面用真实 `LiveSink::new` 指向
+// `Arc<Mutex<Vec<u8>>>` 记录器（tee 是被测契约的一部分，替身化会让断言自证）；
+// `tokio::io::AsyncRead` 替身只用于 `drain` 的 chunk 边界与读错误两臂（它是被测
+// 函数的显式入参，不是内部模块替身）；计时沿用既有虚拟时钟与真实时钟装置。
+// ---------------------------------------------------------------------------
+
+use std::io;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+
+use tokio::io::ReadBuf;
+
+/// tee 记录器：`(sink, 累计字节)`（sink 是被测契约的一部分，真实构造）。
+fn tee_recorder() -> (crate::LiveSink, Arc<Mutex<Vec<u8>>>) {
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&bytes);
+    let sink = crate::LiveSink::new(move |chunk: &[u8]| {
+        recorder
+            .lock()
+            .expect("tee 记录锁")
+            .extend_from_slice(chunk);
+    });
+    (sink, bytes)
+}
+
+/// 累计字节快照。
+fn tee_bytes(bytes: &Arc<Mutex<Vec<u8>>>) -> Vec<u8> {
+    bytes.lock().expect("tee 记录锁").clone()
+}
+
+/// 带 `live` 的执行入参（其余字段沿既有 `options` 缺省）。
+fn live_options(timeout: Duration, live: Option<crate::LiveSink>) -> RunOptions {
+    RunOptions {
+        live,
+        ..options(timeout)
+    }
+}
+
+/// 正向：`live: Some(sink)` + 单管道（`2>&1` 形态）写 3 行 → sink 累计逐字节等于
+/// `RunReport.stdout`，且 `stdout` 仍逐字节等于进程写入内容（零改写）。
+#[tokio::test]
+async fn tee单管道_sink累计等于stdout且零改写() {
+    let ws = ShimWs::new("tee-single");
+    let body = b"line-1\nline-2\nline-3\n";
+    let payload = ws.put_bytes("payload.bin", body);
+    let command = ws.shim(
+        "single.sh",
+        &format!("#!/bin/sh\ncat \"{}\"\n", payload.display()),
+    );
+    let (sink, tee) = tee_recorder();
+
+    let report = run_shell(command, live_options(Duration::from_secs(30), Some(sink)))
+        .await
+        .expect("应 Ok");
+
+    assert_eq!(report.outcome, RunOutcome::Completed);
+    assert_eq!(
+        report.stdout, body,
+        "stdout 逐字节等于进程写入内容（零改写）"
+    );
+    assert_eq!(tee_bytes(&tee), report.stdout, "sink 累计逐字节等于 stdout");
+}
+
+/// 正向：双管道形态（stdout / stderr 各写若干行、不施加 `2>&1`）→ 共享同一
+/// sink：累计字节的多集合包含两路全部字节、总字节数相等（交错序只作包含关系
+/// 断言，R-11）。
+#[tokio::test]
+async fn tee双管道_同一sink收两路全部字节() {
+    let ws = ShimWs::new("tee-dual");
+    let out = ws.put_bytes("out.bin", b"OUT-1\nOUT-2\n");
+    let err = ws.put_bytes("err.bin", b"ERR-1\nERR-2\n");
+    let command = ws.shim(
+        "dual.sh",
+        &format!(
+            "#!/bin/sh\ncat \"{}\"\ncat \"{}\" >&2\n",
+            out.display(),
+            err.display()
+        ),
+    );
+    let (sink, tee) = tee_recorder();
+
+    let report = run_shell(command, live_options(Duration::from_secs(30), Some(sink)))
+        .await
+        .expect("应 Ok");
+
+    let bytes = tee_bytes(&tee);
+    assert_eq!(
+        bytes.len(),
+        report.stdout.len() + report.stderr.len(),
+        "总字节数相等（零丢失零重复）"
+    );
+    let text = String::from_utf8(bytes).expect("全 ASCII");
+    for needle in ["OUT-1\n", "OUT-2\n", "ERR-1\n", "ERR-2\n"] {
+        assert!(text.contains(needle), "缺少 {needle:?}: {text:?}");
+    }
+}
+
+/// 正向：重试面（前两次失败第三次成功）→ 同一 sink 按尝试序收到全部尝试字节
+/// （总长度 ≥ 末次 `stdout` 长度，末次字节出现在末尾）。
+#[tokio::test]
+async fn tee重试面_同一sink收全部尝试字节() {
+    let ws = ShimWs::new("tee-retry");
+    let command = retry_shim(&ws, "retry.sh", "count.txt", 2);
+    let (sink, tee) = tee_recorder();
+    let mut with_retry = live_options(Duration::from_secs(120), Some(sink));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry).await.expect("重试应 Ok");
+
+    assert_eq!(report.attempts, 3, "两次失败后第三次成功");
+    let bytes = tee_bytes(&tee);
+    assert!(
+        bytes.len() >= report.stdout.len(),
+        "sink 总量 ≥ 末次 stdout 长度（{} vs {}）",
+        bytes.len(),
+        report.stdout.len()
+    );
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.matches("failed to rename archive file").count() >= 2,
+        "两次失败尝试的输出均在 sink 内"
+    );
+    // 末次尝试的两路字节在 sink 尾部（stdout 与 stderr 交错序不作顺序断言）
+    let tail = &text[text.rfind("failed to rename archive file").unwrap_or(0)..];
+    assert!(
+        tail.contains("SUCCESS-OUT"),
+        "末次 stdout 在末尾段: {tail:?}"
+    );
+    assert!(
+        tail.contains("SUCCESS-ERR"),
+        "末次 stderr 在末尾段: {tail:?}"
+    );
+    assert!(
+        text.ends_with("SUCCESS-OUT") || text.ends_with("SUCCESS-ERR"),
+        "末次尝试字节在 sink 末尾"
+    );
+}
+
+/// 异常：`spawn` 失败（程序不可达）→ sink 零调用、`Err(RunError::Spawn)` 语义
+/// 与文案零变。
+#[tokio::test]
+async fn tee_spawn失败时sink零调用() {
+    let (sink, tee) = tee_recorder();
+    let error = run_shell(
+        SystemCommand::bare("no-such-program-tee-xyz"),
+        live_options(Duration::from_secs(30), Some(sink)),
+    )
+    .await
+    .expect_err("不可达程序应 Spawn 失败");
+
+    match error {
+        RunError::Spawn(message) => assert!(!message.is_empty(), "文案仍在"),
+        other => panic!("应为 Spawn 面，实际 {other:?}"),
+    }
+    assert!(tee_bytes(&tee).is_empty(), "spawn 失败 sink 零调用");
+}
+
+/// 异常：入口短路（`cancel` 已置位）→ 零 spawn、sink 零调用、`Cancelled` +
+/// `exit_code == -1`。
+#[tokio::test]
+async fn tee入口短路时零spawn且sink零调用() {
+    let ws = ShimWs::new("tee-cancel-pre");
+    let marker = ws.file("executed.txt");
+    let command = ws.shim(
+        "marker.sh",
+        &format!(
+            "#!/bin/sh\nprintf 'ran' > \"{}\"\nexit 0\n",
+            marker.display()
+        ),
+    );
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    let (sink, tee) = tee_recorder();
+    let mut with_cancel = live_options(Duration::from_secs(30), Some(sink));
+    with_cancel.cancel = cancel;
+
+    let report = run_shell(command, with_cancel)
+        .await
+        .expect("入口短路应 Ok");
+
+    assert_eq!(report.outcome, RunOutcome::Cancelled);
+    assert_eq!(report.exit_code, -1, "取消记 -1 哨兵");
+    assert!(report.stdout.is_empty() && report.stderr.is_empty());
+    assert!(tee_bytes(&tee).is_empty(), "入口短路 sink 零调用");
+    assert!(!marker.exists(), "已置位 cancel 不 spawn（shim 零执行）");
+}
+
+/// 异常（运行中取消臂 × `live: Some`）：shim 先刷出可读字节再自旋，主任务
+/// 运行中置位 cancel → `Cancelled` + `exit_code == -1` + 目标 pid 消失，且
+/// sink 累计与 `stdout` 同源（tee 在击杀路径上不分叉、不引入无界等待）。
+#[tokio::test]
+async fn tee运行中取消_sink与stdout同源且pid消失() {
+    let ws = ShimWs::new("tee-cancel-running");
+    let pid_file = ws.file("pid.txt");
+    let command = ws.shim(
+        "spin-pid.sh",
+        &format!(
+            "#!/bin/sh\nwin=$(cat \"/proc/$$/winpid\" 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nprintf 'partial-before-cancel'\nwhile :; do sleep 0.1; done\n",
+            pid_file.display()
+        ),
+    );
+    let cancel = CancelFlag::never();
+    let handle = cancel.handle();
+    let (sink, tee) = tee_recorder();
+    let mut with_cancel = live_options(Duration::from_secs(120), Some(sink));
+    with_cancel.cancel = cancel;
+
+    let started = Instant::now();
+    let runner = tokio::spawn(async move { run_shell(command, with_cancel).await });
+    // 等 shim 落 pid（真实时钟：取消轮询语义依赖 200 ms 粒度；上界放宽以覆盖
+    // msys bash 启动抖动）
+    let mut pid = None;
+    for _ in 0..400 {
+        if let Some(value) = ws.read_pid("pid.txt") {
+            pid = Some(value);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let pid = pid.expect("shim 应落 pid 文件（进程已建立）");
+
+    handle.set();
+    let report = runner
+        .await
+        .expect("run_shell 任务应正常结束")
+        .expect("运行中取消臂应返回报告");
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        report.outcome,
+        RunOutcome::Cancelled,
+        "运行中置位 → Cancelled"
+    );
+    assert_eq!(report.exit_code, -1, "取消记 -1 哨兵");
+    assert!(
+        wait_pid_gone(pid, Duration::from_secs(10)),
+        "运行中取消后目标 pid {pid} 应消失（kill_tree 生效）"
+    );
+    assert!(
+        elapsed < Duration::from_secs(30),
+        "秒级收敛（墙钟 {elapsed:?}）"
+    );
+    assert_eq!(
+        tee_bytes(&tee),
+        report.stdout,
+        "sink 与缓冲同源（取消路径 tee 不分叉）"
+    );
+    assert!(
+        tee_bytes(&tee)
+            .windows(b"partial-before-cancel".len())
+            .any(|window| window == b"partial-before-cancel"),
+        "击杀前已刷出的字节经 tee 抵达 sink: {:?}",
+        String::from_utf8_lossy(&tee_bytes(&tee))
+    );
+}
+
+/// 边界（参数化 3 形态）：输出恰好 8192 字节（一块满）/ 8193 字节（跨块）/
+/// 1 字节 → sink 总量 == `stdout` 长度、字节序一致（chunk 边界不丢不重）。
+#[tokio::test]
+async fn tee_chunk边界三点不丢不重() {
+    for size in [1usize, 8192, 8193] {
+        let ws = ShimWs::new(&format!("tee-chunk-{size}"));
+        let body: Vec<u8> = (0..size).map(|index| b'a' + (index % 26) as u8).collect();
+        let payload = ws.put_bytes("payload.bin", &body);
+        let command = ws.shim(
+            "chunk.sh",
+            &format!("#!/bin/sh\ncat \"{}\"\n", payload.display()),
+        );
+        let (sink, tee) = tee_recorder();
+
+        let report = run_shell(command, live_options(Duration::from_secs(60), Some(sink)))
+            .await
+            .expect("应 Ok");
+
+        assert_eq!(report.stdout.len(), size, "size={size}: stdout 长度");
+        assert_eq!(
+            tee_bytes(&tee),
+            report.stdout,
+            "size={size}: sink 字节序一致（chunk 边界不丢不重）"
+        );
+    }
+}
+
+/// 边界：空输出（脚本零 echo）→ 首次 `Ok(0)` 即 break、sink 零调用、`stdout`
+/// 为空。
+#[tokio::test]
+async fn tee空输出时sink零调用() {
+    let ws = ShimWs::new("tee-empty");
+    let command = ws.shim("empty.sh", "#!/bin/sh\nexit 0\n");
+    let (sink, tee) = tee_recorder();
+
+    let report = run_shell(command, live_options(Duration::from_secs(30), Some(sink)))
+        .await
+        .expect("应 Ok");
+
+    assert_eq!(report.outcome, RunOutcome::Completed);
+    assert!(report.stdout.is_empty(), "零输出");
+    assert!(tee_bytes(&tee).is_empty(), "sink 零调用");
+}
+
+/// 边界：超大输出（>1 MiB）+ 非 UTF-8 原始字节 → sink 累计逐字节等于 `stdout`
+///（sink 面是字节不是文本）。
+#[tokio::test]
+async fn tee超大与非utf8输出逐字节相等() {
+    let ws = ShimWs::new("tee-huge");
+    let mut body: Vec<u8> = Vec::new();
+    for index in 0..200_000u32 {
+        body.extend_from_slice(index.to_string().as_bytes());
+        body.extend_from_slice(b"\xff\xfe\n");
+    }
+    assert!(body.len() > 1024 * 1024, "构造超 1 MiB 输出");
+    let payload = ws.put_bytes("huge.bin", &body);
+    let command = ws.shim(
+        "huge.sh",
+        &format!("#!/bin/sh\ncat \"{}\"\n", payload.display()),
+    );
+    let (sink, tee) = tee_recorder();
+
+    let report = run_shell(command, live_options(Duration::from_secs(120), Some(sink)))
+        .await
+        .expect("应 Ok");
+
+    assert_eq!(report.stdout.len(), body.len(), "stdout 全量");
+    assert_eq!(tee_bytes(&tee), report.stdout, "sink 字节面逐字节相等");
+}
+
+/// 边界（组合 超时 × 孤儿孙进程持写端）：被杀的孤儿面下 tee 仍在
+/// `FINISH_GRACE` 之内——返回不悬挂、墙钟上界与 `live: None` 同量级、sink 收到
+/// 截断前的字节（红线 ③ / AC-12）。
+#[tokio::test]
+async fn tee孤儿持写端时仍以finish_grace有界收口() {
+    let ws = ShimWs::new("tee-orphan");
+    let pid_file = ws.file("pid.txt");
+    let command = ws.shim(
+        "orphan.sh",
+        &format!(
+            "#!/bin/sh\nsleep 60 &\nwin=$(cat \"/proc/$!/winpid\" 2>/dev/null || printf '%s' \"$!\")\nprintf '%s' \"$win\" > \"{}\"\nprintf 'done'\nexit 0\n",
+            pid_file.display()
+        ),
+    );
+    let (sink, tee) = tee_recorder();
+
+    let started = Instant::now();
+    let report = run_shell(command, live_options(Duration::from_secs(30), Some(sink)))
+        .await
+        .expect("收尸应正常完成");
+    let elapsed = started.elapsed();
+
+    // 探针取在清理之前：返回瞬间孤儿仍持写端 ⇒ 未等 EOF 即收口
+    let pid = ws.read_pid("pid.txt").expect("孙进程应落 pid");
+    let alive = pid_alive(pid);
+    crate::kill_tree(Some(pid));
+
+    assert_eq!(report.outcome, RunOutcome::Completed);
+    assert_eq!(report.stdout, b"done", "退出前的输出应已排空");
+    assert!(alive, "收尸应在孤儿仍在时返回（pid {pid}）");
+    assert!(
+        elapsed < Duration::from_secs(30),
+        "tee 不引入新的无界等待（墙钟 {elapsed:?}）"
+    );
+    assert_eq!(tee_bytes(&tee), report.stdout, "sink 收到截断前的字节");
+}
+
+/// 边界（组合 超时 × live）：预算到期被杀 → 仍在有界收尾内返回、sink 累计与
+/// `stdout` 逐字节相等（tee 与缓冲同源，不因击杀路径分叉）。
+#[tokio::test(start_paused = true)]
+async fn tee超时臂_sink与stdout同源且不悬挂() {
+    let ws = ShimWs::new("tee-timeout");
+    let command = ws.shim(
+        "spin.sh",
+        "#!/bin/sh\nprintf 'partial-before-timeout'\nwhile :; do sleep 0.05; done\n",
+    );
+    let (sink, tee) = tee_recorder();
+    tokio::spawn(async {
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(31)).await;
+    });
+
+    let started = Instant::now();
+    let report = run_shell(command, live_options(Duration::from_secs(30), Some(sink)))
+        .await
+        .expect("超时臂应返回报告");
+    let elapsed = started.elapsed();
+
+    assert_eq!(report.outcome, RunOutcome::TimedOut);
+    assert_eq!(report.exit_code, -1);
+    assert!(
+        elapsed < Duration::from_secs(30),
+        "有界收尾不悬挂（墙钟 {elapsed:?}）"
+    );
+    assert_eq!(
+        tee_bytes(&tee),
+        report.stdout,
+        "sink 与缓冲同源（击杀路径零分叉）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `drain` 私有件直测（chunk 边界与读错误两臂）
+// ---------------------------------------------------------------------------
+
+/// 按「块清单 → EOF」产出的 `AsyncRead` 替身（被测函数的显式入参）。
+struct ChunkedReader {
+    chunks: Vec<Vec<u8>>,
+    index: usize,
+}
+
+impl ChunkedReader {
+    fn new(chunks: Vec<Vec<u8>>) -> Self {
+        Self { chunks, index: 0 }
+    }
+}
+
+impl tokio::io::AsyncRead for ChunkedReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let Some(chunk) = self.chunks.get(self.index) else {
+            return Poll::Ready(Ok(())); // EOF
+        };
+        let take = chunk.len().min(buffer.remaining());
+        let rest = chunk[take..].to_vec();
+        buffer.put_slice(&chunk[..take]);
+        if rest.is_empty() {
+            self.index += 1;
+        } else {
+            let index = self.index;
+            self.chunks[index] = rest;
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// 首次读返回 `Ok(0)`（合法空读，非 EOF）的 `AsyncRead` 替身：drain 的 `Ok(0)`
+/// 臂按 EOF 语义收口（不得空转）。
+struct ZeroThenPayloadReader {
+    first: bool,
+    payload: Vec<u8>,
+}
+
+impl ZeroThenPayloadReader {
+    fn new(payload: Vec<u8>) -> Self {
+        Self {
+            first: true,
+            payload,
+        }
+    }
+}
+
+impl tokio::io::AsyncRead for ZeroThenPayloadReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if self.first {
+            self.first = false;
+            return Poll::Ready(Ok(())); // 0 字节块
+        }
+        let take = self.payload.len().min(buffer.remaining());
+        buffer.put_slice(&self.payload[..take]);
+        self.payload.drain(..take);
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// 首次读即报错的 `AsyncRead` 替身（读错误臂）。
+struct FailingReader;
+impl tokio::io::AsyncRead for FailingReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _context: &mut Context<'_>,
+        _buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Poll::Ready(Err(io::Error::other("管道读失败")))
+    }
+}
+
+/// 边界（参数化 5 形态）：空流（首读即 EOF）/ 0 字节块（`Ok(0)` 之后的合法
+/// 空读）/ `DRAIN_CHUNK_BYTES` 边界三点（8191 / 8192 / 8193 字节）→ 空流与 0
+/// 字节块形态下 `buffer` 与 sink 均零字节且立即返回（按 EOF 语义收口、零 panic）；
+/// 三点边界形态下全部字节落盘、零丢零重。
+#[tokio::test]
+async fn drain空流与零字节块与块边界三点() {
+    // ① 空流：首读即 EOF
+    let mut empty_reader = Some(ChunkedReader::new(Vec::new()));
+    let (empty_sink, empty_tee) = tee_recorder();
+    let mut empty_buffer: Vec<u8> = Vec::new();
+    super::drain(&mut empty_reader, &mut empty_buffer, Some(&empty_sink)).await;
+    assert!(empty_buffer.is_empty(), "空流 buffer 零字节");
+    assert!(tee_bytes(&empty_tee).is_empty(), "空流 sink 零字节");
+
+    // ② 0 字节块：`Ok(0)` 是合法空读形态，drain 以 EOF 语义收口（不空转）
+    let mut zero_reader = Some(ZeroThenPayloadReader::new(b"after-zero".to_vec()));
+    let (zero_sink, zero_tee) = tee_recorder();
+    let mut zero_buffer: Vec<u8> = Vec::new();
+    super::drain(&mut zero_reader, &mut zero_buffer, Some(&zero_sink)).await;
+    assert!(
+        zero_buffer.is_empty(),
+        "0 字节块按 EOF 语义收口（buffer 零字节、零 panic）"
+    );
+    assert!(
+        tee_bytes(&zero_tee).is_empty(),
+        "0 字节块收口后 sink 零字节"
+    );
+
+    // ③ `DRAIN_CHUNK_BYTES` 边界三点：8191 / 8192 / 8193
+    for size in [
+        super::DRAIN_CHUNK_BYTES - 1,
+        super::DRAIN_CHUNK_BYTES,
+        super::DRAIN_CHUNK_BYTES + 1,
+    ] {
+        let body: Vec<u8> = (0..size).map(|index| b'a' + (index % 26) as u8).collect();
+        let mut reader = Some(ChunkedReader::new(vec![body.clone()]));
+        let (sink, tee) = tee_recorder();
+        let mut buffer: Vec<u8> = Vec::new();
+        super::drain(&mut reader, &mut buffer, Some(&sink)).await;
+        assert_eq!(buffer, body, "size={size}: buffer 全部字节落盘且顺序一致");
+        assert_eq!(tee_bytes(&tee), body, "size={size}: sink 零丢零重");
+    }
+}
+
+/// 正向：自造 `AsyncRead` 按「8192 字节块 → 1 字节块 → EOF」产出 → `buffer` 与
+/// sink 均收到全部字节且顺序一致；`pipe: None` → 立即返回且 buffer / sink 零变化。
+#[tokio::test]
+async fn drain_chunk序列与tee顺序一致且none管道立即返回() {
+    let first: Vec<u8> = vec![b'a'; 8192];
+    let tail = vec![b'z'];
+    let mut reader = Some(ChunkedReader::new(vec![first.clone(), tail.clone()]));
+    let (sink, tee) = tee_recorder();
+    let mut buffer: Vec<u8> = Vec::new();
+
+    super::drain(&mut reader, &mut buffer, Some(&sink)).await;
+
+    let mut expected = first;
+    expected.extend_from_slice(&tail);
+    assert_eq!(buffer, expected, "buffer 收到全部字节且顺序一致");
+    assert_eq!(tee_bytes(&tee), expected, "sink 收到全部字节且顺序一致");
+
+    // `pipe: None` → 立即返回、buffer / sink 零变化
+    let before_buffer = buffer.clone();
+    let before_tee = tee_bytes(&tee);
+    let mut absent: Option<ChunkedReader> = None;
+    super::drain(&mut absent, &mut buffer, Some(&sink)).await;
+    assert_eq!(buffer, before_buffer, "None 管道 buffer 零变化");
+    assert_eq!(tee_bytes(&tee), before_tee, "None 管道 sink 零变化");
+}
+
+/// 异常：自造 `AsyncRead` 产出 3 字节后返回 `Err` → break：`buffer` 保留已读 3
+/// 字节、sink 收到同样 3 字节、零 panic（「已读即输出」语义零变）。
+#[tokio::test]
+async fn drain读失败保留已读字节且零panic() {
+    // 先投 3 字节再报错：`ChunkedReader` 的 EOF 与错误分两臂——此处以「3 字节块
+    // + 失败读者」两段式模拟（首块读出后由下一轮 poll 报错）
+    struct ThreeThenFail {
+        served: bool,
+    }
+    impl tokio::io::AsyncRead for ThreeThenFail {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            if self.served {
+                return Poll::Ready(Err(io::Error::other("管道读失败")));
+            }
+            self.served = true;
+            buffer.put_slice(b"abc");
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    let mut reader = Some(ThreeThenFail { served: false });
+    let (sink, tee) = tee_recorder();
+    let mut buffer: Vec<u8> = Vec::new();
+
+    super::drain(&mut reader, &mut buffer, Some(&sink)).await;
+
+    assert_eq!(buffer, b"abc".to_vec(), "已读 3 字节保留");
+    assert_eq!(tee_bytes(&tee), b"abc".to_vec(), "sink 收到同样 3 字节");
+    // 纯失败读者（首轮即 Err）→ 两条路径均零产出、零 panic
+    let mut failing = Some(FailingReader);
+    let mut empty_buffer: Vec<u8> = Vec::new();
+    super::drain(&mut failing, &mut empty_buffer, Some(&sink)).await;
+    assert!(empty_buffer.is_empty(), "首轮报错零产出");
+    assert_eq!(tee_bytes(&tee), b"abc".to_vec(), "sink 未被追加");
+}
+
+/// 边界：`live: None` 的 tee 缺省面——同一 chunk 输出在 `live: None` 与
+/// `live: Some` 两形态下 `stdout` 逐字节相同（观察面零侵入）。
+#[tokio::test]
+async fn tee_none与some两形态stdout逐字节相同() {
+    let ws = ShimWs::new("tee-parity");
+    let body = b"parity-1\nparity-2\n";
+    let payload = ws.put_bytes("parity.bin", body);
+    let script = format!("#!/bin/sh\ncat \"{}\"\n", payload.display());
+
+    let without = run_shell(
+        ws.shim("parity-none.sh", &script),
+        live_options(Duration::from_secs(30), None),
+    )
+    .await
+    .expect("live=None 应 Ok");
+
+    let (sink, _tee) = tee_recorder();
+    let with = run_shell(
+        ws.shim("parity-some.sh", &script),
+        live_options(Duration::from_secs(30), Some(sink)),
+    )
+    .await
+    .expect("live=Some 应 Ok");
+
+    assert_eq!(without.stdout, with.stdout, "两形态 stdout 逐字节相同");
+    assert_eq!(without.outcome, with.outcome, "两形态结局相同");
+    assert_eq!(without.exit_code, with.exit_code, "两形态退出码相同");
+    assert_eq!(with.stdout, body.to_vec(), "内容逐字节等于写入");
 }

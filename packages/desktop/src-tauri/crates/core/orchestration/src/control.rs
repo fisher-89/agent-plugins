@@ -387,6 +387,16 @@ impl RunGuard {
             .unwrap_or_else(CancelFlag::never)
     }
 
+    /// `'static` 步状态发射器（持 `(root, change_id)` 复合键 + `Arc<ChangeFlowControl>`）：
+    /// 供跨 port 边界（`ToolStepRequest.on_output_ref`）的回调持有——回调不能借用
+    /// `&RunGuard`，故以本方法重建同身份的发射器。
+    pub fn emitter(&self) -> StepEmitter {
+        StepEmitter {
+            key: self.key.clone(),
+            control: Arc::clone(&self.control),
+        }
+    }
+
     /// 终态收口：`Finished` 广播（快照面随 publish 落终值）+ 除名。消费
     /// self——终态出口唯一（walker 主入口单点调用）。
     pub fn finish(self, status: ChangeRunStatus, reason: Option<String>) {
@@ -435,6 +445,173 @@ impl RunGuard {
         };
         *slot(entry).lock().expect("应答通道锁不可中毒") = Some(tx);
         true
+    }
+}
+
+/// 步状态行落值（emit 载荷收窄：状态 + 三可选面 + 步级时间与 token 载荷镜像面）。
+/// token 两值为数据随行面（`run_worker` 经 [`StepSettle::with_tokens`] 落值、其余
+/// 步不设即 None）；`started_at` / `ended_at` 两时间字段由 [`emit_node`] 单点铸造
+/// 覆写——构造器恒中性值（0 / None），MUST NOT 由调用方携带时间。
+pub(crate) struct StepSettle {
+    status: ChangeStepStatus,
+    session_id: Option<String>,
+    detail: Option<String>,
+    output_ref: Option<String>,
+    started_at: i64,
+    ended_at: Option<i64>,
+    token_input: Option<u64>,
+    token_output: Option<u64>,
+}
+
+impl StepSettle {
+    /// 步进行中（无会话 / 详情 / 输出引用；时间与 token 恒中性——时间由
+    /// `emit_node` 铸造覆写）。
+    pub(crate) fn running() -> Self {
+        Self {
+            status: ChangeStepStatus::Running,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: 0,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
+        }
+    }
+
+    /// 步通过（携人读摘要）。
+    pub(crate) fn passed(detail: Option<String>) -> Self {
+        Self {
+            status: ChangeStepStatus::Passed,
+            detail,
+            ..Self::running()
+        }
+    }
+
+    /// 步失败（携失败记因）。
+    pub(crate) fn failed(detail: Option<String>) -> Self {
+        Self {
+            status: ChangeStepStatus::Failed,
+            detail,
+            ..Self::running()
+        }
+    }
+
+    /// 步因停止 / 终止收敛。
+    pub(crate) fn stopped(detail: Option<String>) -> Self {
+        Self {
+            status: ChangeStepStatus::Stopped,
+            detail,
+            ..Self::running()
+        }
+    }
+
+    /// 随行会话 id（WorkerAgent 步）。
+    pub(crate) fn with_session(mut self, session_id: Option<String>) -> Self {
+        self.session_id = session_id;
+        self
+    }
+
+    /// 随行全量输出引用（`ExecOutput::Recorded { exec_id }`）。
+    pub(crate) fn with_output_ref(mut self, output_ref: Option<String>) -> Self {
+        self.output_ref = output_ref;
+        self
+    }
+
+    /// 随行本步 token 增量（in / out 两值；仅 WorkerAgent 步终态落值，缺席
+    /// None）——数据随行面，时间字段不在本 builder 语义内。
+    pub(crate) fn with_tokens(
+        mut self,
+        token_input: Option<u64>,
+        token_output: Option<u64>,
+    ) -> Self {
+        self.token_input = token_input;
+        self.token_output = token_output;
+        self
+    }
+}
+
+/// 步状态行 emit（节点累积 + Notice 广播；同稳定身份键的后续 emit 就地合并）。
+/// 步级时间铸造收本单点：全部调用点零触点覆盖——running emit 铸
+/// `(now, None)`、终态 emit 铸 `(now, Some(now))`（`phaseStart` 等单 emit 瞬步
+/// 自然 `started_at == ended_at` 同刻）；该 started 同刻值是否被采信由
+/// [`accumulate_node`] 合并侧裁定（started 保首见）。复用 [`now_millis`] 零新时钟缝
+/// ——收口时刻铸造只在生产路径消费，corpus 确定性由测试直构 `ChangeStepState` 注入
+/// 定值承载。
+pub(crate) fn emit_node(
+    guard: &RunGuard,
+    phase: &str,
+    attempt: u32,
+    step: ChangeStepKind,
+    instance_no: u32,
+    mut settle: StepSettle,
+) {
+    let now = now_millis();
+    settle.started_at = now;
+    settle.ended_at = (settle.status != ChangeStepStatus::Running).then_some(now);
+    guard.emit(RunUpdate::Step {
+        step: ChangeStepState {
+            phase: phase.to_owned(),
+            attempt,
+            step,
+            instance_no,
+            status: settle.status,
+            session_id: settle.session_id,
+            detail: settle.detail,
+            output_ref: settle.output_ref,
+            started_at: settle.started_at,
+            ended_at: settle.ended_at,
+            token_input: settle.token_input,
+            token_output: settle.token_output,
+        },
+    });
+}
+
+/// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）——run 收口时刻铸造点
+///（finish 整包同刻，corpus 确定性由测试注入 `started_at` / 假 history 承载，本
+/// 时钟只在生产路径消费）。
+pub(crate) fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// `'static` 步状态发射器：`(root, change_id)` 复合键 + 注册表 `Arc`，唯一构造面
+/// 是 [`RunGuard::emitter`]。
+///
+/// `'static` 约束是硬性的——上抛回调跨 port 边界（`ToolStepRequest.on_output_ref`），
+/// 不能借用 `&RunGuard`。
+#[derive(Clone)]
+pub struct StepEmitter {
+    key: (String, String),
+    control: Arc<ChangeFlowControl>,
+}
+
+impl StepEmitter {
+    /// 补发一拍 `running + output_ref` 的步状态：经同一铸造单点 [`emit_node`] 落值
+    ///（不新增第二条构造 `ChangeStepState` 的路径）。`accumulate_node` 的「some 才
+    /// 覆写」直接吃掉该拍——不新增节点、不动 `started_at`。
+    pub fn attach_output_ref(
+        &self,
+        phase: &str,
+        attempt: u32,
+        step: ChangeStepKind,
+        instance_no: u32,
+        exec_id: &str,
+    ) {
+        let guard = RunGuard {
+            key: self.key.clone(),
+            control: Arc::clone(&self.control),
+        };
+        emit_node(
+            &guard,
+            phase,
+            attempt,
+            step,
+            instance_no,
+            StepSettle::running().with_output_ref(Some(exec_id.to_owned())),
+        );
     }
 }
 

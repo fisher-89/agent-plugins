@@ -7,8 +7,9 @@ use checks::model::MutationTool;
 use config::{MutationConfig, TestFramework};
 use orchestration::port::{
     ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, MutationRunner, MutationSkipReason,
-    MutationTestConclusion, RebaseOutcome, RunFault, StaticCheckRunner, TestExecutionRunner,
-    ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
+    MutationTestConclusion, OutputRefSink, RebaseOutcome, RunFault, StaticCheckRunner,
+    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+    WorktreeSnapshot,
 };
 use orchestration::LocalToolSteps;
 use tempfile::TempDir;
@@ -1458,6 +1459,7 @@ impl StaticCheckRunner for UnusedSeamRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: foundation::cancel::CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         let error = "组合根链路不触静态检查缝".to_owned();
         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
@@ -1471,6 +1473,7 @@ impl TestExecutionRunner for UnusedSeamRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: foundation::cancel::CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         let error = "组合根链路不触测试执行缝".to_owned();
         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
@@ -1510,6 +1513,7 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
             command: ToolCommand::MutationTest {
                 change_id: COMBO_CHANGE_ID.to_owned(),
             },
+            on_output_ref: None,
         })
         .await
         .expect("组合根链路应成功");

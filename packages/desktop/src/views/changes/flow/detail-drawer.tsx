@@ -125,7 +125,9 @@ function DrawerContent({
     );
   }
   if (node !== null && node.outputRef !== null) {
-    return <StdoutPanel root={root} changeName={name} execId={node.outputRef} />;
+    return (
+      <StdoutPanel root={root} changeName={name} execId={node.outputRef} status={node.status} />
+    );
   }
   return <DrawerEmptyPlaceholder />;
 }

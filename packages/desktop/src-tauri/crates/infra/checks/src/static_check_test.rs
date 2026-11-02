@@ -148,7 +148,13 @@ fn write_shim(ws: &TempWs, name: &str, lines: &[ShimLine<'_>], exit: Option<i32>
 /// 报告槽位——报告锚点 / exec-outputs 落点按槽位派生，check-before-flow-start）。
 async fn check(root: &str, name: &str, slot: ReportSlot) -> Result<StaticCheckOutcome, String> {
     let output = ProcessStaticCheck::new()
-        .run(root, name, slot, foundation::cancel::CancelFlag::never())
+        .run(
+            root,
+            name,
+            slot,
+            foundation::cancel::CancelFlag::never(),
+            None,
+        )
         .await?;
     match output {
         ToolStepOutput::StaticCheck(outcome) => Ok(outcome),
@@ -402,10 +408,13 @@ async fn 默认recorded_引用恒回填且交错流落单一log() {
         !dir.join(format!("{exec_id}.err")).exists(),
         ".err 分文件退役（单一 .log 承载全量）"
     );
+    // 形态适配：记录面新增命令 sidecar `<exec_id>.cmd`（同目录同 id 前缀），故只
+    // 裁 `.log` 集合判定「单次执行恰一个输出记录文件」
     let names: Vec<String> = fs::read_dir(&dir)
         .expect("读输出记录目录")
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".log"))
         .collect();
     assert_eq!(names, [format!("{exec_id}.log")], "单次执行恰一个记录文件");
 }
@@ -568,10 +577,13 @@ async fn 重复run_各自exec_id落独立log且前次不被覆写() {
         "前次 .log 未被覆写"
     );
 
+    // 形态适配：记录面新增命令 sidecar `<exec_id>.cmd`（同目录同 id 前缀），故只
+    // 裁 `.log` 集合判定「各自独立 .log、零 .err 残留」
     let mut names: Vec<String> = fs::read_dir(ws.exec_dir("demo-change"))
         .expect("读输出记录目录")
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".log"))
         .collect();
     names.sort();
     let mut expected = vec![format!("{first_id}.log"), format!("{second_id}.log")];
@@ -920,6 +932,7 @@ async fn 超时臂_fault为环境错误且pid消失不悬挂() {
                 "demo-change",
                 ReportSlot::Test,
                 CancelFlag::never(),
+                None,
             )
             .await
     });
@@ -991,7 +1004,13 @@ async fn 已置位cancel_fault为stopped且零spawn() {
     cancel.handle().set();
     let started = Instant::now();
     let output = ProcessStaticCheck::new()
-        .run(&ws.root_str(), "demo-change", ReportSlot::Test, cancel)
+        .run(
+            &ws.root_str(),
+            "demo-change",
+            ReportSlot::Test,
+            cancel,
+            None,
+        )
         .await
         .expect("取消不 Err（产出携 fault）");
     let ToolStepOutput::StaticCheck(outcome) = output else {
@@ -1035,7 +1054,13 @@ async fn 无配置加已置位cancel_仍直过零spawn不err() {
     cancel.handle().set();
     let started = Instant::now();
     let output = ProcessStaticCheck::new()
-        .run(&ws.root_str(), "demo-change", ReportSlot::Test, cancel)
+        .run(
+            &ws.root_str(),
+            "demo-change",
+            ReportSlot::Test,
+            cancel,
+            None,
+        )
         .await
         .expect("无配置直过先于取消短路（取消已置位亦不 Err）");
     let elapsed = started.elapsed();
@@ -1161,7 +1186,7 @@ async fn 运行中cancel_秒级收敛且pid消失() {
     let root_str = ws.root_str();
     let runner = tokio::spawn(async move {
         ProcessStaticCheck::new()
-            .run(&root_str, "demo-change", ReportSlot::Test, cancel)
+            .run(&root_str, "demo-change", ReportSlot::Test, cancel, None)
             .await
     });
 
@@ -1839,5 +1864,824 @@ async fn archi槽位零spawn_PATH隔离仍返槽位err() {
     assert!(
         !ws.exec_dir_slot("demo-change", ReportSlot::Archi).exists(),
         "零 spawn ⇒ 零执行记录目录创建"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 运行中记录链（change-detail-live-stdout，AC-1 / AC-2 / AC-3）
+//
+// 被测面：`ProcessStaticCheck` 的 `begin → write_command → run_shell(live) →
+// commit` 记录链——进程未结束时 `.log` 已存在且内容单调增长；收口以**同一
+// id** 覆盖为权威内容；`.cmd` 逐字等于 `{static_analysis} 2>&1`；无配置 / 空
+// 命令分支零 `begin`。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：真实 `TempWs` tempdir + 真实
+// `openspec/config.json` + 真实平台 shim（分阶段输出用 gate 文件时序）；
+// `PathPrefix` / `EnvWindow` 为既有 RAII 装置（非模块替身）。
+//
+// 上抛面（`OutputRefSink`）的构造面为 `pub`（design D16，本轮回溯补正）：checks
+// crate 可以直构 `OutputRefSink::new(..)`，故「上抛恰 1 次」「上抛时刻 `.log` 与
+// 父目录已在」（AC-11）与「命令不可达 / archi 槽位拒收 ⇒ 回调零调用」两负面臂均在
+// **本节**可写，MUST NOT 再以 `None` 兜底。真实双侧（walker × 真实
+// `ProcessStaticCheck`）的端到端组合行另落壳层
+// `src-tauri/src/commands/change_flow/mod_test.rs`（design D17：`orchestration`
+// 加 `checks-runtime` dev-dep 即 core → infra 反向边，不可取）。
+// ---------------------------------------------------------------------------
+
+/// change 目录（`exec_output_log_path_in` / `read_exec_command_in` /
+/// `read_exec_output_delta_in` 的入参锚）。
+fn change_dir(w: &TempWs, change: &str) -> PathBuf {
+    foundation::layout::resolve(w.path())
+        .changes_root
+        .join(change)
+}
+
+/// 输出记录目录内当前在场的 `.log` 快照：`(exec_id, 内容字节)`（运行中探测面
+/// ——不依赖上抛回调即可观察「进程未结束时文件已存在」）。
+fn live_logs(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let Ok(reader) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut logs: Vec<(String, Vec<u8>)> = reader
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let exec_id = name.strip_suffix(".log")?.to_owned();
+            let bytes = fs::read(entry.path()).ok()?;
+            Some((exec_id, bytes))
+        })
+        .collect();
+    logs.sort();
+    logs
+}
+
+/// 分阶段输出 shim：先写 `first` 行与 marker，随后轮询等待 `gate` 文件出现，
+/// 再写 `second` 行（运行中读取的时序原料）。
+fn write_staged_shim(ws: &TempWs, name: &str, first: &str, second: &str, gate: &Path) -> String {
+    let marker = staged_marker(ws, name);
+    #[cfg(windows)]
+    {
+        let body = format!(
+            "@echo off\r\necho {first}\r\necho. > \"{marker}\"\r\n:wait\r\nping -n 1 -w 50 127.0.0.1 > nul\r\nif not exist \"{gate}\" goto wait\r\necho {second}\r\n",
+            marker = marker.display(),
+            gate = gate.display()
+        );
+        fs::write(ws.path().join(format!("{name}.cmd")), body).expect("写分阶段 shim 失败");
+        format!("{name}.cmd")
+    }
+    #[cfg(not(windows))]
+    {
+        let body = format!(
+            "#!/bin/sh\necho {first}\n: > \"{marker}\"\nwhile [ ! -f \"{gate}\" ]; do sleep 0.05; done\necho {second}\n",
+            marker = marker.display(),
+            gate = gate.display()
+        );
+        let script = ws.path().join(name);
+        fs::write(&script, body).expect("写分阶段 shim 失败");
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        name.to_owned()
+    }
+}
+
+/// 分阶段 shim 的 marker 文件路径（第一行已写的观测面）。
+fn staged_marker(ws: &TempWs, name: &str) -> PathBuf {
+    ws.path().join(format!("{name}-stage-marker.txt"))
+}
+
+/// 落原始字节（含非 UTF-8）的 shim：`printf` 逐字节输出（`.log` 字节保真面）。
+fn write_raw_shim(ws: &TempWs, name: &str) -> String {
+    let body = "#!/bin/sh\nprintf 'raw\\377\\376tail\\n'\n";
+    #[cfg(windows)]
+    {
+        let bash = match exec::resolve_shell() {
+            exec::ShellBase::GitBash(path) => path,
+            _ => panic!("原始字节 shim 需要 Git for Windows bash（resolve_shell 未探测到）"),
+        };
+        let script = ws.path().join(format!("{name}.sh"));
+        fs::write(&script, body).expect("写原始字节脚本失败");
+        let wrapper = format!(
+            "@echo off\r\n\"{}\" \"{}\"\r\n",
+            bash.display(),
+            script.display()
+        );
+        fs::write(ws.path().join(format!("{name}.cmd")), wrapper).expect("写原始字节 shim 失败");
+        format!("{name}.cmd")
+    }
+    #[cfg(not(windows))]
+    {
+        let script = ws.path().join(name);
+        fs::write(&script, body).expect("写原始字节脚本失败");
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        name.to_owned()
+    }
+}
+
+/// 轮询等待文件出现（真实时间上界 30 s 防悬挂）。
+///
+/// 以 `spawn_blocking` 的短睡让位：`#[tokio::test]` 默认单线程 runtime，同步
+/// `std::thread::sleep` 会把被 spawn 的执行任务一并钉住（shim 的 stdout 无法
+/// 排水）。
+async fn wait_for_file(path: &Path) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        if path.exists() {
+            return true;
+        }
+        let _ = tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(20))).await;
+    }
+    path.exists()
+}
+
+/// 轮询等待输出记录目录内出现内容非空的 `.log`（运行中读取的取样面；让位
+/// 口径同 [`wait_for_file`]）。
+async fn wait_for_non_empty_log(dir: &Path) -> Option<(String, Vec<u8>)> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        if let Some(hit) = live_logs(dir)
+            .into_iter()
+            .find(|(_, bytes)| !bytes.is_empty())
+        {
+            return Some(hit);
+        }
+        let _ = tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(20))).await;
+    }
+    None
+}
+
+/// 正向：分阶段写输出的 shim → 进程未结束时 `.log` 已存在且内容已含第一行；
+/// 随后再读后读 ⊇ 前读（单调增长，AC-1 / R-11 用包含关系不断言精确长度）。
+#[tokio::test]
+async fn 运行中读取_进程未结束时log已可读且单调增长() {
+    let _env = env_window();
+    let ws = TempWs::new("live-progress");
+    let _path = PathPrefix::enter(ws.path());
+    let gate = ws.path().join("release-gate.txt");
+    let command = write_staged_shim(&ws, "staged-shim", "STAGE-ONE", "STAGE-TWO", &gate);
+    ws.write_config(Some(&command));
+    let marker = staged_marker(&ws, "staged-shim");
+    let dir = ws.exec_dir("demo-change");
+
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
+
+    assert!(wait_for_file(&marker).await, "shim 应写出第一行");
+    // 进程仍在跑（gate 未放行）：输出记录目录已建、`.log` 已存在可读
+    let live = wait_for_non_empty_log(&dir)
+        .await
+        .expect("进程未结束时 `.log` 已可读");
+    let (live_id, first_read) = live;
+    let first_text = String::from_utf8_lossy(&first_read).into_owned();
+    assert!(
+        first_text.contains("STAGE-ONE"),
+        "运行中已读到第一行: {first_text:?}"
+    );
+    assert!(
+        !first_text.contains("STAGE-TWO"),
+        "读取时第二行尚未产出: {first_text:?}"
+    );
+
+    fs::write(&gate, b"go").expect("放行 shim 失败");
+    let outcome = runner
+        .await
+        .expect("任务应结束")
+        .expect("static-check 应 Ok");
+
+    let exec_id = outcome.output_ref.clone().expect("终态回填引用");
+    assert_eq!(
+        exec_id, live_id,
+        "运行中观察到的 id 与终态引用同值（同 id 收口）"
+    );
+    let final_text =
+        String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).into_owned();
+    assert!(
+        final_text.contains(first_text.trim_end()),
+        "后读 ⊇ 前读（前读 {first_text:?} / 后读 {final_text:?}）"
+    );
+    assert!(final_text.contains("STAGE-TWO"), "终态含第二行");
+}
+
+/// 正向：终态 `.log` 为权威内容——重试面下逐段含 attempt 分隔头（live 交错流被
+/// 整体覆盖，AC-2），且 `output_ref` 指向该 `.log`（同 id）。
+#[tokio::test(start_paused = true)]
+async fn 终态收口_同id覆盖为权威内容() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempWs::new("commit-same-id");
+    let _path = PathPrefix::enter(ws.path());
+    let marker = ws.path().join("commit-selfheal-once.txt");
+    let command = write_selfheal_shim(
+        &ws,
+        "commit-selfheal",
+        &marker,
+        "error: failed to rename archive file: /t/liba.rlib: os error 32",
+    );
+    ws.write_config(Some(&command));
+
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_millis(100),
+        Duration::from_secs(60),
+    )
+    .await;
+    let outcome = runner.await.expect("任务应结束").expect("自愈面应 Ok");
+
+    assert!(outcome.passed, "第 2 次尝试转绿");
+    let exec_id = outcome.output_ref.clone().expect("终态引用");
+    let text = String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).into_owned();
+    assert_eq!(
+        text.matches("===== attempt ").count(),
+        2,
+        "权威内容为两次尝试的拼接（live 交错流被整体覆盖）: {text:?}"
+    );
+    assert!(
+        text.contains("===== attempt 1/5 · exit=1 · transient=os error 32 ====="),
+        "首段携命中签名: {text:?}"
+    );
+    assert!(
+        text.contains("===== attempt 2/5 · exit=0 · transient=- ====="),
+        "末段为收口语义: {text:?}"
+    );
+    // 落点与引用同名同目录（同 id 收口的物理载体）
+    assert_eq!(
+        exec::exec_output_log_path_in(&change_dir(&ws, "demo-change"), &exec_id)
+            .expect("派生路径应命中"),
+        ws.exec_dir("demo-change").join(format!("{exec_id}.log")),
+        "引用指向的 .log 与布局派生同值"
+    );
+}
+
+/// 正向：`.cmd` 逐字 == `"{static_analysis} 2>&1"`（无尾随换行）、与 `.log`
+/// 同目录同 id 前缀（AC-3）。
+#[tokio::test]
+async fn 命令sidecar_逐字命令串且同目录同id前缀() {
+    let _env = env_window();
+    let ws = TempWs::new("cmd-sidecar");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "cmd-shim", &[("cmd-line", false)], None);
+    ws.write_config(Some(&command));
+
+    let outcome = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("应 Ok");
+    let exec_id = outcome.output_ref.clone().expect("回填引用");
+
+    let recorded = exec::read_exec_command_in(&change_dir(&ws, "demo-change"), &exec_id)
+        .expect("sidecar 命中");
+    assert_eq!(
+        recorded,
+        format!("{command} 2>&1"),
+        "逐字 == {{static_analysis}} 2>&1（无尾随换行）"
+    );
+
+    let dir = ws.exec_dir("demo-change");
+    let cmd_path = dir.join(format!("{exec_id}.cmd"));
+    assert!(cmd_path.is_file(), "sidecar 与 .log 同目录");
+    assert_eq!(
+        cmd_path.parent(),
+        dir.join(format!("{exec_id}.log")).parent(),
+        "同目录同 id 前缀"
+    );
+}
+
+/// 异常（参数化 3 形态）：无配置键 / 空命令 / 全空白命令 → `passed == true`、
+/// `output_ref == None`、`reports/<slot>/exec-outputs/` 零新增文件（零 `begin`，
+/// AC-1 的负面判据）。
+#[tokio::test]
+async fn 无配置与空命令三形态零begin零新文件() {
+    let _env = env_window();
+    for (index, (label, config)) in [
+        ("无配置键", None),
+        ("空命令", Some("")),
+        ("全空白命令", Some("   ")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let ws = TempWs::new(&format!("no-spawn-{index}"));
+        ws.write_config(config);
+        let outcome = check_test(&ws.root_str(), "demo-change")
+            .await
+            .unwrap_or_else(|error| panic!("{label}: 应直过: {error}"));
+
+        assert!(outcome.passed, "{label}: 直过");
+        assert!(outcome.output_ref.is_none(), "{label}: 零 begin ⇒ 无引用");
+        assert!(
+            !ws.exec_dir("demo-change").exists(),
+            "{label}: exec-outputs 零新增"
+        );
+    }
+}
+
+/// 异常：取消臂仍 `commit` 已收字节——`output_ref` 在位、`.log` 可读、`fault`
+/// 文案与 `passed` 口径零变。
+#[tokio::test]
+async fn 取消臂_仍commit且引用在位() {
+    let _env = env_window();
+    let ws = TempWs::new("cancel-commit");
+    let _path = PathPrefix::enter(ws.path());
+    let pid_file = ws.path().join("spin-pid-commit.txt");
+    let command = write_spin_shim(&ws, "spin-cancel-commit", &pid_file);
+    ws.write_config(Some(&command));
+
+    let cancel = CancelFlag::never();
+    let handle = cancel.handle();
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessStaticCheck::new()
+            .run(&root, "demo-change", ReportSlot::Test, cancel, None)
+            .await
+    });
+    let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
+    handle.set();
+    let output = runner
+        .await
+        .expect("任务应结束")
+        .expect("取消以 fault 收口（不 Err）");
+    let ToolStepOutput::StaticCheck(outcome) = output else {
+        panic!("产出应为 StaticCheck 变体");
+    };
+
+    assert!(
+        matches!(outcome.fault, Some(orchestration::port::RunFault::Stopped)),
+        "取消 → fault = Stopped，实际: {:?}",
+        outcome.fault
+    );
+    assert!(!outcome.passed, "取消臂 passed 恒 false");
+    let exec_id = outcome
+        .output_ref
+        .clone()
+        .expect("取消臂仍 commit（引用在位）");
+    let bytes = read_output(&ws, "demo-change", &exec_id);
+    // 被杀前可能零输出：只锁「可读且不 panic」
+    let _ = String::from_utf8_lossy(&bytes);
+    assert!(
+        wait_pid_gone(pid, Duration::from_secs(15)),
+        "取消强杀后目标 pid 应消失"
+    );
+}
+
+/// 异常：超时臂同样 `commit` 已收字节——虚拟时钟推进触发，`fault` 为环境错误、
+/// `.log` 可读（可为 0 字节）。
+#[tokio::test(start_paused = true)]
+async fn 超时臂_仍commit且fault为环境错误() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempWs::new("timeout-commit");
+    let _path = PathPrefix::enter(ws.path());
+    let pid_file = ws.path().join("spin-pid-timeout.txt");
+    let command = write_spin_shim(&ws, "spin-timeout-commit", &pid_file);
+    ws.write_config(Some(&command));
+
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
+    // 等 pid 落盘（真实时间让位），再推进虚拟时钟越过预算
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !pid_file.exists() && Instant::now() < deadline {
+        let _ = tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(10))).await;
+    }
+    assert!(pid_file.exists(), "自旋 shim 应落 pid");
+    let pid = read_pid(&pid_file).expect("pid 可读");
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_secs(60),
+        Duration::from_secs(180),
+    )
+    .await;
+    let outcome = runner.await.expect("任务应结束");
+
+    let outcome = outcome.expect("超时以 fault 收口（不 Err）");
+    assert!(
+        matches!(
+            outcome.fault,
+            Some(orchestration::port::RunFault::Environment(_))
+        ),
+        "超时 → fault = Environment，实际: {:?}",
+        outcome.fault
+    );
+    let exec_id = outcome.output_ref.clone().expect("超时臂仍 commit");
+    let bytes = read_output(&ws, "demo-change", &exec_id);
+    let _ = String::from_utf8_lossy(&bytes);
+    let _ = wait_pid_gone(pid, Duration::from_secs(15));
+}
+
+/// 异常：`on_output_ref: None` → 零行为差异：`output_ref` 仍按 `commit` 回填、
+/// `.log` / `.cmd` 形态在位（与上抛臂同构，见 walker 侧组合行）。
+#[tokio::test]
+async fn 无回调臂_记录形态仍完整() {
+    let _env = env_window();
+    let ws = TempWs::new("no-callback");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "noref-shim", &[("noref-line", false)], None);
+    ws.write_config(Some(&command));
+
+    let outcome = check(&ws.root_str(), "demo-change", ReportSlot::Test)
+        .await
+        .expect("应 Ok");
+    let exec_id = outcome.output_ref.clone().expect("仍回填引用");
+
+    let dir = ws.exec_dir("demo-change");
+    assert!(
+        dir.join(format!("{exec_id}.log")).is_file(),
+        ".log 形态一致"
+    );
+    assert!(
+        dir.join(format!("{exec_id}.cmd")).is_file(),
+        ".cmd 形态一致（回调缺席零影响）"
+    );
+    assert!(
+        String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).contains("noref-line"),
+        "内容口径一致"
+    );
+}
+
+/// 异常（两零次臂）：命令不可达 `Err` 臂与 `archi` 槽位拒收臂 → 零 spawn ⇒
+/// 零记录（不含孤儿空记录 / 空目录）。
+#[tokio::test]
+async fn 零spawn两臂_零记录目录() {
+    let _env = env_window();
+    // 零 spawn 臂一：命令不可达（程序解析前置检查失败）
+    let missing_ws = TempWs::new("no-record-missing");
+    missing_ws.write_config(Some("no-such-static-check-cmd-for-ref-xyz"));
+    assert!(
+        check_test(&missing_ws.root_str(), "demo-change")
+            .await
+            .is_err(),
+        "不可达命令应 Err"
+    );
+    assert!(
+        !missing_ws.exec_dir("demo-change").exists(),
+        "零 spawn ⇒ 零记录（不含孤儿空记录）"
+    );
+
+    // 零 spawn 臂二：archi 槽位拒收（守卫先于 begin）
+    let archi_ws = TempWs::new("no-record-archi");
+    let ok_command = write_shim(&archi_ws, "archi-shim", &[("x", false)], None);
+    archi_ws.write_config(Some(&ok_command));
+    assert!(
+        check(&archi_ws.root_str(), "demo-change", ReportSlot::Archi)
+            .await
+            .is_err(),
+        "archi 槽位应 Err"
+    );
+    assert!(
+        !archi_ws
+            .exec_dir_slot("demo-change", ReportSlot::Archi)
+            .exists(),
+        "拒收臂零记录目录"
+    );
+}
+
+/// 边界：输出为空（零 echo 命令）→ `.log` 0 字节且 `output_ref` 在位；
+/// `read_exec_output_delta_in(dir, id, 0)` → `Some { text: "", next_offset: 0 }`
+///（空文件 ≠ miss）。
+#[tokio::test]
+async fn 空输出_零字节log与增量读可辨() {
+    let _env = env_window();
+    let ws = TempWs::new("empty-output");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "silent-shim", &[], None);
+    ws.write_config(Some(&command));
+
+    let outcome = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("应 Ok");
+    let exec_id = outcome.output_ref.clone().expect("引用在位");
+    assert_eq!(
+        read_output(&ws, "demo-change", &exec_id).len(),
+        0,
+        ".log 0 字节"
+    );
+    assert!(outcome.passed, "零输出零退出仍 passed");
+
+    let dir = change_dir(&ws, "demo-change");
+    let delta = exec::read_exec_output_delta_in(&dir, &exec_id, 0).expect("空文件 ≠ miss");
+    assert_eq!(delta.text, "");
+    assert_eq!(delta.next_offset, 0);
+    assert!(
+        exec::read_exec_output_delta_in(&dir, "exec-404-0", 0).is_none(),
+        "miss 与空文件可分辨"
+    );
+}
+
+/// 边界（参数化 超长命令 / 非 UTF-8 输出）：超长命令串的 `.cmd` 原样不截断；
+/// 非 UTF-8 输出的 `.log` 逐字节保真，`diagnostics` 口径零变（lossy 串）。
+#[tokio::test]
+async fn 超长命令与非utf8输出逐字节保真() {
+    let _env = env_window();
+    let ws = TempWs::new("long-cmd");
+    let _path = PathPrefix::enter(ws.path());
+    let shim = write_shim(&ws, "raw-shim", &[("raw-line", false)], None);
+    // 命令串在可达程序之后追加超长无害参数（echo 忽略多余参数）
+    let padding = "p".repeat(1100);
+    let command = format!("{shim} {padding}");
+    ws.write_config(Some(&command));
+
+    let outcome = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("应 Ok");
+    let exec_id = outcome.output_ref.clone().expect("引用在位");
+    let recorded = exec::read_exec_command_in(&change_dir(&ws, "demo-change"), &exec_id)
+        .expect("sidecar 命中");
+    assert_eq!(recorded, format!("{command} 2>&1"), "超长命令原样不截断");
+    assert!(recorded.chars().count() > 1000, "确实超过 1000 字符");
+
+    // 非 UTF-8 输出字节（shim 以 printf 形态落原始字节）
+    let raw_ws = TempWs::new("raw-bytes");
+    let _raw_path = PathPrefix::enter(raw_ws.path());
+    let raw_command = write_raw_shim(&raw_ws, "raw-bytes-shim");
+    raw_ws.write_config(Some(&raw_command));
+    let raw_outcome = check_test(&raw_ws.root_str(), "demo-change")
+        .await
+        .expect("应 Ok");
+    let raw_id = raw_outcome.output_ref.clone().expect("引用在位");
+    let raw_bytes = read_output(&raw_ws, "demo-change", &raw_id);
+    assert!(
+        raw_bytes.windows(2).any(|window| window == b"\xff\xfe"),
+        "非 UTF-8 字节逐字节保真: {raw_bytes:?}"
+    );
+    assert!(
+        raw_outcome.diagnostics.contains('\u{FFFD}') || raw_outcome.diagnostics.contains("raw"),
+        "诊断面为 lossy 串（口径零变）: {:?}",
+        raw_outcome.diagnostics
+    );
+}
+
+/// 边界：两次 `run` → 两 `exec_id` 互异、各自 `.log` 与 `.cmd` 独立互不覆写。
+#[tokio::test]
+async fn 两次run_各自log与cmd独立互不覆写() {
+    let _env = env_window();
+    let ws = TempWs::new("repeat-two");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "repeat-shim", &[("repeat-line", false)], None);
+    ws.write_config(Some(&command));
+
+    let first = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("首次");
+    let second = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("二次");
+    let first_id = first.output_ref.clone().expect("首次引用");
+    let second_id = second.output_ref.clone().expect("二次引用");
+    assert_ne!(first_id, second_id, "两次铸造互异");
+
+    let dir = ws.exec_dir("demo-change");
+    for exec_id in [&first_id, &second_id] {
+        assert!(dir.join(format!("{exec_id}.log")).is_file(), "各自 .log");
+        assert!(dir.join(format!("{exec_id}.cmd")).is_file(), "各自 .cmd");
+    }
+    assert_eq!(
+        exec::read_exec_command_in(&change_dir(&ws, "demo-change"), &first_id),
+        Some(format!("{command} 2>&1")),
+        "首次 .cmd 未被覆写"
+    );
+}
+
+/// 边界：`slot = Baseline` → `.log` / `.cmd` 均落 `reports/baseline/exec-outputs/`，
+/// `reports/test/` 零混居。
+#[tokio::test]
+async fn baseline槽位_log与cmd均落baseline树() {
+    let _env = env_window();
+    let ws = TempWs::new("baseline-sidecar");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "baseline-shim", &[("baseline-line", false)], None);
+    ws.write_config(Some(&command));
+
+    let outcome = check(&ws.root_str(), "demo-change", ReportSlot::Baseline)
+        .await
+        .expect("baseline 应 Ok");
+    let exec_id = outcome.output_ref.clone().expect("引用在位");
+
+    let baseline_dir = ws.exec_dir_slot("demo-change", ReportSlot::Baseline);
+    assert!(
+        baseline_dir.join(format!("{exec_id}.log")).is_file(),
+        "baseline .log"
+    );
+    assert!(
+        baseline_dir.join(format!("{exec_id}.cmd")).is_file(),
+        "baseline .cmd"
+    );
+    assert!(!ws.exec_dir("demo-change").exists(), "test 树零混居");
+}
+
+// ---------------------------------------------------------------------------
+// 上抛面（`OutputRefSink`，change-detail-live-stdout，AC-11 / AC-2）
+//
+// 被测面：`ProcessStaticCheck::run(.., Some(on_output_ref))` 的上抛时机与次数——
+// 回调触发时刻 live `.log` 与父目录**已在**、命令 sidecar 已写、spawn **未**发生；
+// 上抛恰 1 次且终态 `output_ref` 与之同值；两零 spawn 臂（命令不可达 / archi 槽位
+// 拒收）与记录面降级臂回调**零**调用。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：`OutputRefSink` 用真实
+// `OutputRefSink::new(..)`（design D16 的 `pub` 构造面——checks crate 跨 crate
+// 可见），回调体做三件事：计数/记录 `exec_id`、回调内断言 `.log` 与父目录已在、
+// 记录回调时刻的 `.log` 长度与 `.cmd` 在场性（顺序不变量）。零替身：真实 tempdir +
+// 真实 config + 真实平台 shim。
+// ---------------------------------------------------------------------------
+
+use std::sync::{Arc, Mutex};
+
+use orchestration::port::OutputRefSink;
+
+/// 上抛回调内的单次探测快照（顺序不变量的观测面）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RefProbe {
+    /// 回调收到的 `exec_id`（原样）
+    exec_id: String,
+    /// 回调时刻 `exec_output_log_path_in(..)` 命中且 `is_file()`
+    log_present: bool,
+    /// 回调时刻 `.log` 的父目录已存在（watch 订阅可生效的前提）
+    parent_present: bool,
+    /// 回调时刻 `.log` 字节数（`0` ⇒ spawn 尚未发生）
+    log_len: u64,
+    /// 回调时刻命令 sidecar 已在（`begin → write_command → 上抛` 的顺序判据）
+    cmd_present: bool,
+}
+
+/// 上抛录制器（计数 + 逐次探测快照）。
+#[derive(Clone, Default)]
+struct RefTrace {
+    probes: Arc<Mutex<Vec<RefProbe>>>,
+}
+
+impl RefTrace {
+    fn probes(&self) -> Vec<RefProbe> {
+        self.probes.lock().expect("上抛记录锁不可中毒").clone()
+    }
+}
+
+/// 真实 `OutputRefSink::new(..)`（checks 侧唯一构造面，design D16）：回调体在
+/// **回调内部**完成全部探测（不是事后探测——顺序不变量的判据必须同刻取得）。
+fn ref_sink(change_dir: PathBuf) -> (OutputRefSink, RefTrace) {
+    let trace = RefTrace::default();
+    let probes = Arc::clone(&trace.probes);
+    let sink = OutputRefSink::new(move |exec_id: &str| {
+        let log_path = exec::exec_output_log_path_in(&change_dir, exec_id);
+        let log_present = log_path.as_deref().is_some_and(Path::is_file);
+        let parent_present = log_path
+            .as_deref()
+            .and_then(Path::parent)
+            .is_some_and(Path::is_dir);
+        let log_len = log_path
+            .as_deref()
+            .and_then(|path| fs::metadata(path).ok())
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        // `.cmd` 与 `.log` 同目录同 id 前缀（派生口径见 exec 的 sidecar 单点）
+        let cmd_present = log_path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(|dir| dir.join(format!("{exec_id}.cmd")).is_file())
+            .unwrap_or(false);
+        probes.lock().expect("上抛记录锁不可中毒").push(RefProbe {
+            exec_id: exec_id.to_owned(),
+            log_present,
+            parent_present,
+            log_len,
+            cmd_present,
+        });
+    });
+    (sink, trace)
+}
+
+/// 带上抛回调的执行（`Some(sink)` 交给 `ProcessStaticCheck::run` 的末位形参）。
+async fn check_with_ref(
+    root: &str,
+    name: &str,
+    slot: ReportSlot,
+    sink: OutputRefSink,
+) -> Result<StaticCheckOutcome, String> {
+    let output = ProcessStaticCheck::new()
+        .run(root, name, slot, CancelFlag::never(), Some(sink))
+        .await?;
+    match output {
+        ToolStepOutput::StaticCheck(outcome) => Ok(outcome),
+        other => panic!("产出应为 StaticCheck 变体，实际: {other:?}"),
+    }
+}
+
+/// 正向：上抛**恰 1 次**，且回调内部同刻可证「`.log` 与父目录已在、命令 sidecar
+/// 已写、`.log` 仍为 0 字节（spawn 尚未发生）」（AC-11 顺序不变量）；终态
+/// `output_ref` 与回调收到值同值（AC-2 同 id 收口）。
+#[tokio::test]
+async fn 上抛回调_恰一次且回调时刻log与父目录已在_spawn未发生() {
+    let _env = env_window();
+    let ws = TempWs::new("ref-order");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "ref-order-shim", &[("ref-line", false)], None);
+    ws.write_config(Some(&command));
+    let (sink, trace) = ref_sink(change_dir(&ws, "demo-change"));
+
+    let outcome = check_with_ref(&ws.root_str(), "demo-change", ReportSlot::Test, sink)
+        .await
+        .expect("应 Ok");
+
+    let probes = trace.probes();
+    assert_eq!(probes.len(), 1, "上抛恰 1 次（非 0 非多次）: {probes:?}");
+    let probe = &probes[0];
+    assert!(probe.log_present, "回调时刻 `.log` 已在（AC-11）");
+    assert!(probe.parent_present, "回调时刻父目录已在（watch 订阅前提）");
+    assert!(
+        probe.cmd_present,
+        "回调时刻命令 sidecar 已在（begin → 写命令 → 上抛）"
+    );
+    assert_eq!(
+        probe.log_len, 0,
+        "回调时刻 .log 为 0 字节（spawn 尚未发生）"
+    );
+
+    let exec_id = outcome.output_ref.clone().expect("终态回填引用");
+    assert_eq!(
+        probe.exec_id, exec_id,
+        "回调收到值与终态 output_ref 同 id（AC-2）"
+    );
+    assert!(outcome.passed, "判定口径零变");
+    assert!(
+        String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).contains("ref-line"),
+        "收口后内容为权威输出"
+    );
+}
+
+/// 异常（组合：1 次 × 两零次臂）：命令不可达 `Err` 臂与 `archi` 槽位拒收臂
+/// → **零** spawn ⇒ 回调**零**调用（无 `exec_id` 可上抛，不得虚构一拍）。
+#[tokio::test]
+async fn 零spawn两臂_上抛回调零调用() {
+    let _env = env_window();
+
+    // 零 spawn 臂一：命令不可达（程序解析前置检查失败，其位点在 begin 之前）
+    let missing_ws = TempWs::new("ref-no-spawn-missing");
+    missing_ws.write_config(Some("no-such-static-check-cmd-for-ref-xyz"));
+    let (sink, trace) = ref_sink(change_dir(&missing_ws, "demo-change"));
+    assert!(
+        check_with_ref(
+            &missing_ws.root_str(),
+            "demo-change",
+            ReportSlot::Test,
+            sink
+        )
+        .await
+        .is_err(),
+        "不可达命令应 Err"
+    );
+    assert!(
+        trace.probes().is_empty(),
+        "命令不可达臂：回调零调用: {:?}",
+        trace.probes()
+    );
+
+    // 零 spawn 臂二：archi 槽位拒收（守卫先于 begin）
+    let archi_ws = TempWs::new("ref-no-spawn-archi");
+    let ok_command = write_shim(&archi_ws, "ref-archi-shim", &[("x", false)], None);
+    archi_ws.write_config(Some(&ok_command));
+    let (sink, trace) = ref_sink(change_dir(&archi_ws, "demo-change"));
+    assert!(
+        check_with_ref(&archi_ws.root_str(), "demo-change", ReportSlot::Archi, sink)
+            .await
+            .is_err(),
+        "archi 槽位应 Err"
+    );
+    assert!(
+        trace.probes().is_empty(),
+        "槽位拒收臂：回调零调用: {:?}",
+        trace.probes()
+    );
+}
+
+/// 异常：记录面降级（`LiveExec::begin` 失败——报告树路径被文件占位）→
+/// `output_ref == None` 且回调**零**调用（无 id 可上抛），检查主流程照常。
+#[tokio::test]
+async fn 记录面降级_上抛回调零调用且主流程照常() {
+    let _env = env_window();
+    let ws = TempWs::new("ref-degrade");
+    #[cfg(windows)]
+    let command = r#"cmd /C echo degrade-ref-line"#;
+    #[cfg(not(windows))]
+    let command = "echo degrade-ref-line";
+    ws.write_config(Some(command));
+    // 报告树路径被文件占位 → exec-outputs 目录不可建
+    let reports = foundation::layout::change_test_reports(ws.path(), "demo-change");
+    fs::create_dir_all(reports.parent().expect("父目录")).expect("创建父目录失败");
+    fs::write(&reports, "占位文件").expect("占位写失败");
+    let (sink, trace) = ref_sink(change_dir(&ws, "demo-change"));
+
+    let outcome = check_with_ref(&ws.root_str(), "demo-change", ReportSlot::Test, sink)
+        .await
+        .expect("记录失败不阻断检查主流程");
+
+    assert_eq!(outcome.output_ref, None, "降级 None（不虚构引用）");
+    assert!(outcome.passed, "判定照常返回");
+    assert!(
+        outcome.diagnostics.contains("degrade-ref-line"),
+        "诊断面不受记录失败影响: {:?}",
+        outcome.diagnostics
+    );
+    assert!(
+        trace.probes().is_empty(),
+        "无 id 可上抛 ⇒ 回调零调用: {:?}",
+        trace.probes()
     );
 }

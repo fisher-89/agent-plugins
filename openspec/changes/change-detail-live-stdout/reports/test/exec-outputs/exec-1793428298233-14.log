@@ -1,0 +1,128 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\infra\agent)
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri)
+    Checking export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\change-detail-live-stdout\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.63s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+diff --git a/packages/desktop/src/types/generated/bindings.ts b/packages/desktop/src/types/generated/bindings.ts
+index 7f4dd1374e56..8d0afb1ce261 100644
+--- a/packages/desktop/src/types/generated/bindings.ts
++++ b/packages/desktop/src/types/generated/bindings.ts
+@@ -30,6 +30,23 @@ export const commands = {
+ 	readArtifact: (root: string, id: string, kind: string, source: string) => __TAURI_INVOKE<ArtifactEnvelope | null>("read_artifact", { root, id, kind, source }),
+ 	/**  读回某 exec 的输出记录 */
+ 	readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_output", { root, changeName, execId }),
++	/**
++	 *  布局派生的 `.log` 绝对路径（供前端 watch 寻址；目录名知识 MUST NOT 下沉
++	 *  前端）。照 `explore_doc_path` 同构：blank root / 开库失败 / 非法或未知
++	 *  `exec_id` → `None`。
++	 */
++	execOutputPath: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("exec_output_path", { root, changeName, execId }),
++	/**
++	 *  读回某 exec 的执行命令（sidecar `<exec_id>.cmd`）；老记录无 sidecar ⇒ `None`
++	 *  （面板优雅降级「命令未记录」，非错误）。
++	 */
++	readExecCommand: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_command", { root, changeName, execId }),
++	/**
++	 *  增量读输出记录：`from_offset = 0` 即全量；游标唯一产出方在后端（前端零字节
++	 *  计数）。运行中零字节 → `Some { text: "", nextOffset: 0 }`（与 miss 的 `None`
++	 *  可分辨：「运行中，等待输出…」vs「（无输出记录）」）。
++	 */
++	readExecOutputDelta: (root: string, changeName: string, execId: string, fromOffset: number) => __TAURI_INVOKE<ExecOutputChunk | null>("read_exec_output_delta", { root, changeName, execId, fromOffset }),
+ 	/**
+ 	 *  归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点；按
+ 	 *  change **id** 寻址）；blank root / id 显式 `Err`。IPC 薄命令（design D11：
+@@ -1481,6 +1498,21 @@ export type ElementKind =
+ /**  组件级 */
+ "component";
+ 
++/**
++ *  运行中增量读的出线载荷（`exec::ExecOutputDelta` 的 1:1 映射）。
++ * 
++ *  `u64` 经 workspace 既有 bigint 配置（`dangerously_cast_bigints_to_number`）
++ *  出线为 TS `number`，与 `tokenInput` / `tokenOutput` 同口径——不引入 `BigInt`
++ *  面。落位壳层（MUST NOT 定义在 `crates/infra/exec`：exec 的依赖面不得因出线
++ *  需要而扩 serde / specta）。
++ */
++export type ExecOutputChunk = {
++	/**  自 `from_offset` 起的新增文本（UTF-8 字符边界收口） */
++	text: string,
++	/**  下次调用应传的游标（唯一产出方在后端） */
++	nextOffset: number,
++};
++
+ /**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
+ export type ExploreDoc = {
+ 	/**  笔记名（= 文件 stem） */
+diff --git a/packages/desktop/src/types/generated/bindings.zod.ts b/packages/desktop/src/types/generated/bindings.zod.ts
+index 8c116767da8f..f4790bc5bdd5 100644
+--- a/packages/desktop/src/types/generated/bindings.zod.ts
++++ b/packages/desktop/src/types/generated/bindings.zod.ts
+@@ -28,6 +28,22 @@ export const argsSchemas = {
+ 			"changeName": z.string(),
+ 			"execId": z.string(),
+ 		}); },
++	get "execOutputPath"() { return z.strictObject({
++			"root": z.string(),
++			"changeName": z.string(),
++			"execId": z.string(),
++		}); },
++	get "readExecCommand"() { return z.strictObject({
++			"root": z.string(),
++			"changeName": z.string(),
++			"execId": z.string(),
++		}); },
++	get "readExecOutputDelta"() { return z.strictObject({
++			"root": z.string(),
++			"changeName": z.string(),
++			"execId": z.string(),
++			"fromOffset": z.number(),
++		}); },
+ 	get "archiveChange"() { return z.strictObject({
+ 			"root": z.string(),
+ 			"id": z.string(),
+@@ -254,6 +270,9 @@ export const resultSchemas = {
+ 	get "getChangeDetail"() { return z.lazy(() => ChangeDetailUnifiedSchema).nullable(); },
+ 	get "readArtifact"() { return z.lazy(() => ArtifactEnvelopeSchema).nullable(); },
+ 	get "readExecOutput"() { return z.string().nullable(); },
++	get "execOutputPath"() { return z.string().nullable(); },
++	get "readExecCommand"() { return z.string().nullable(); },
++	get "readExecOutputDelta"() { return z.lazy(() => ExecOutputChunkSchema).nullable(); },
+ 	get "archiveChange"() { return z.lazy(() => ArchiveOutcomeSchema); },
+ 	get "listWorkspaces"() { return z.array(z.lazy(() => WorkspaceRecordSchema)); },
+ 	get "addWorkspace"() { return z.lazy(() => WorkspaceRecordSchema); },
+@@ -315,6 +334,12 @@ export const channelArgs = {
+ 		}; },
+ 	get "readExecOutput"() { return {
+ 		}; },
++	get "execOutputPath"() { return {
++		}; },
++	get "readExecCommand"() { return {
++		}; },
++	get "readExecOutputDelta"() { return {
++		}; },
+ 	get "archiveChange"() { return {
+ 		}; },
+ 	get "listWorkspaces"() { return {
+@@ -1013,6 +1038,11 @@ export const EdgeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled
+ 
+ export const ElementKindSchema = z.union([z.literal("package"), z.literal("domain"), z.literal("module"), z.literal("component")]);
+ 
++export const ExecOutputChunkSchema = z.strictObject({
++	get text() { return z.string(); },
++	get nextOffset() { return z.number(); },
++});
++
+ export const ExploreDocSchema = z.strictObject({
+ 	get name() { return z.string(); },
+ 	get content() { return z.string(); },
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

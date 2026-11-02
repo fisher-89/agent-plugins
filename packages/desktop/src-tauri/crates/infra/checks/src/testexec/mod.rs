@@ -21,8 +21,8 @@ use config::TestSuite;
 use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 use orchestration::port::{
-    BoxToolFuture, RunFault, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
-    ToolStepOutput,
+    BoxToolFuture, OutputRefSink, RunFault, TestExecutionConclusion, TestExecutionOutcome,
+    TestExecutionRunner, ToolStepOutput,
 };
 use time::OffsetDateTime;
 
@@ -74,10 +74,27 @@ impl Default for ProcessTestExecution {
 }
 
 impl TestExecutionRunner for ProcessTestExecution {
-    fn run(&self, root: &str, change: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        change: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
+    ) -> BoxToolFuture {
         let root = root.to_owned();
         let change = change.to_owned();
-        Box::pin(async move { execute(&root, &change, slot, cancel, TESTEXEC_TOTAL_BUDGET).await })
+        Box::pin(async move {
+            execute(
+                &root,
+                &change,
+                slot,
+                cancel,
+                TESTEXEC_TOTAL_BUDGET,
+                on_output_ref,
+            )
+            .await
+        })
     }
 }
 
@@ -101,6 +118,7 @@ async fn execute(
     slot: ReportSlot,
     cancel: CancelFlag,
     total_budget: Duration,
+    on_output_ref: Option<OutputRefSink>,
 ) -> Result<ToolStepOutput, String> {
     // `archi` 槽位归架构门禁 runner（checks 域零接受，文案与 static-check 同源）
     if slot == ReportSlot::Archi {
@@ -116,6 +134,19 @@ async fn execute(
     // ① detect（不支持框架显式 Err——不静默跳过不产部分结论）
     let plans = detect::detect_plans(root_path, suites)?;
     let reports_dir = foundation::layout::change_reports(root_path, change, slot);
+
+    // 运行中记录链起点：**先建目录建空 .log，再上抛 exec_id**（父目录缺失会让前端
+    // 订阅显式失败，运行中增量跟随因此失效）。位点选在 `detect` 成功之后——detect
+    // 的显式 `Err`（不支持框架 / 声明冲突 / 空清单）零 spawn，不留孤儿空记录。
+    //
+    // 降级面：`begin` 失败（记录目录不可建）静默——记录面是**观测面**，MUST NOT
+    // 因它阻断闸门主流程；缺席时 `outcome` / `fault_outcome` 以空串回填 `exec_id`
+    //（与既有「落盘失败降级空串」口径零变）。故此处 `.ok()` 而非 `?`（design 口径
+    //「记录面不阻断」；闸门结论与记录面可用性解耦）。
+    let live = exec::LiveExec::begin(root_path, change, slot).ok();
+    if let (Some(live), Some(on_ref)) = (live.as_ref(), on_output_ref.as_ref()) {
+        on_ref.emit(live.exec_id());
+    }
 
     // ② 完整性校验 + 复用门（既有 summary 在场且齐整且输入未变 → 复用零
     // spawn；反馈边修复重入后 mtime 推进自动失效重跑）
@@ -133,9 +164,7 @@ async fn execute(
             // 复用分支零 spawn：无本次捕获输出，record 落空 `.log`（引用每次新铸，
             // 记录单点面独立于复用门）
             return Ok(outcome(
-                root_path,
-                change,
-                slot,
+                live.as_ref(),
                 &existing,
                 &disk_reports,
                 &reports_dir,
@@ -169,9 +198,27 @@ async fn execute(
             }
             break;
         }
-        // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）
-        let mut execution =
-            runner::execute_plan(plan, &reports_dir.join(&plan.id), cancel.clone()).await?;
+        // 命令 sidecar：spawn 之前追加一段「plan 分隔头 + 展开后的命令」（纯文本，
+        // 与 `.log` 同目录同 id 前缀）。段格式单点在本处——runner 只回吐命令文本，
+        // 零格式化、零记录职责；写入失败静默降级（面板呈「命令未记录」）。
+        let on_command = |command: &str| {
+            if let Some(live) = live.as_ref() {
+                let _ = live.write_command(&format!(
+                    "\n=== plan {} · {} ===\n{command}\n",
+                    plan.id, plan.framework
+                ));
+            }
+        };
+        // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）；同一 sink
+        // 交给每个 plan（记录内按 plan 序累积，收口时同 id 覆盖为权威内容）
+        let mut execution = runner::execute_plan(
+            plan,
+            &reports_dir.join(&plan.id),
+            cancel.clone(),
+            live.as_ref().map(exec::LiveExec::sink),
+            Some(&on_command),
+        )
+        .await?;
         // 每个已执行 plan 恰一行分隔头（fault 在位亦写头——被拒绝 / 超时 / 取消的
         // 那次展开长度必须可回查），先头后正文
         push_plan_head(&mut merged_output, plan, &execution);
@@ -193,9 +240,7 @@ async fn execute(
     // report 当权威而永久复用），`report_dir` + `exec_id` 照旧回填
     if let Some(fault) = fault {
         return Ok(fault_outcome(
-            root_path,
-            change,
-            slot,
+            live.as_ref(),
             &reports_dir,
             &merged_output,
             fault,
@@ -212,9 +257,7 @@ async fn execute(
     report::write_reports(&reports_dir, &sub_reports, &summary)?;
 
     Ok(outcome(
-        root_path,
-        change,
-        slot,
+        live.as_ref(),
         &summary,
         &sub_reports,
         &reports_dir,
@@ -222,19 +265,24 @@ async fn execute(
     ))
 }
 
+/// 记录收口（同 id 覆盖为权威内容）：`live` 缺席（记录面降级）→ 空串。
+fn commit_exec_id(live: Option<&exec::LiveExec>, merged_output: &[u8]) -> String {
+    live.and_then(|live| live.commit(merged_output).ok())
+        .unwrap_or_default()
+}
+
 /// checks 结论 → port 载荷映射（checks-runtime 装配点唯一映射面：摘要面
-/// 服务步状态 detail，明细面服务反馈边修复 prompt——双面同源装配）。产出装配
-/// 同时完成**输出记录单点**：各 suite 脚本真实输出（合并流）经
-/// `exec::record_exec_output` 落 change 报告目录树（`<report_dir>/exec-outputs/`，
-/// 按槽位同锚派生）
-/// 并携 `exec_id` 回查引用——与 `report_dir` 同锚同口径（无私有捕获 / 落盘分支；
-/// 落盘失败降级空串，`report_dir` 报告仍为全量权威）。record 内容为**脚本真实
-/// 输出**（非 summary JSON 重序列化——后者非脚本输出、人工回查无价值）；记录正文
-/// 各段前有该 plan 的分隔头（元数据面，非脚本输出）。
+/// 服务步状态 detail，明细面服务反馈边修复 prompt——双面同源装配）。
+///
+/// 产出装配同时完成**输出记录收口**：各 suite 脚本真实输出（合并流）经
+/// `live.commit(..)` 以**同一 exec_id** 覆盖落盘到 change 报告目录树
+/// （`<report_dir>/exec-outputs/`，按槽位同锚派生）并回填 `exec_id` 回查引用——
+/// 与 `report_dir` 同锚同口径（无私有捕获 / 落盘分支；落盘失败降级空串，
+/// `report_dir` 报告仍为全量权威）。记录内容为**脚本真实输出**（非 summary JSON
+/// 重序列化——后者非脚本输出、人工回查无价值）；记录正文各段前有该 plan 的分隔头
+///（元数据面，非脚本输出）。命令文本只进 `<exec_id>.cmd` sidecar，**不进 `.log`**。
 fn outcome(
-    root: &Path,
-    change: &str,
-    slot: ReportSlot,
+    live: Option<&exec::LiveExec>,
     summary: &SummaryReport,
     sub_reports: &[SubReport],
     reports_dir: &Path,
@@ -254,7 +302,7 @@ fn outcome(
         findings_brief: findings_brief(summary),
         findings_detail: findings_detail(summary, sub_reports),
         report_dir: detect::to_posix(reports_dir),
-        exec_id: exec::record_exec_output(root, change, slot, merged_output).unwrap_or_default(),
+        exec_id: commit_exec_id(live, merged_output),
         fault: None,
     })
 }
@@ -262,13 +310,12 @@ fn outcome(
 /// 执行面归因收口（fault 在位时的产出装配）：结论取 `Fail` **占位**（MUST NOT 取
 /// `Error`——后者成因面已收窄为工件解析 / harness 崩 / 框架探测失败，也 MUST NOT
 /// 取 `Pass` 以免被误读为绿）；四项计数 0、诊断双双空串；`report_dir` 与本槽位
-/// 派生同口径、`exec_id` 照旧经 `record_exec_output` 回填（**不写 summary / 不跑
-/// `diagnose_findings` / 不落报告文件**——半套报告不进复用门）。记录正文同样按
-/// 已执行 plan 各带分隔头（元数据面，非脚本输出）。
+/// 派生同口径、`exec_id` 以**同一 id** `commit` 已收字节回填（**不写 summary /
+/// 不跑 `diagnose_findings` / 不落报告文件**——半套报告不进复用门）。记录正文同样
+/// 按已执行 plan 各带分隔头（元数据面，非脚本输出）；超时 / 取消击杀后面板仍可
+/// 读到截断前的部分输出。
 fn fault_outcome(
-    root: &Path,
-    change: &str,
-    slot: ReportSlot,
+    live: Option<&exec::LiveExec>,
     reports_dir: &Path,
     merged_output: &[u8],
     fault: RunFault,
@@ -282,7 +329,7 @@ fn fault_outcome(
         findings_brief: String::new(),
         findings_detail: String::new(),
         report_dir: detect::to_posix(reports_dir),
-        exec_id: exec::record_exec_output(root, change, slot, merged_output).unwrap_or_default(),
+        exec_id: commit_exec_id(live, merged_output),
         fault: Some(fault),
     })
 }

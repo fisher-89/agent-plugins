@@ -72,6 +72,8 @@ pub(crate) async fn run_segment(
             cancel,
             // 突变面零重试（同 cargo-mutants 段口径）
             retry: exec::RetryPolicy::none(),
+            // 突变段零 live 接入（同 cargo-mutants 段口径）
+            live: None,
         },
     )
     .await;

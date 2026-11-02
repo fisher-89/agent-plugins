@@ -28,6 +28,22 @@ export const argsSchemas = {
 			"changeName": z.string(),
 			"execId": z.string(),
 		}); },
+	get "execOutputPath"() { return z.strictObject({
+			"root": z.string(),
+			"changeName": z.string(),
+			"execId": z.string(),
+		}); },
+	get "readExecCommand"() { return z.strictObject({
+			"root": z.string(),
+			"changeName": z.string(),
+			"execId": z.string(),
+		}); },
+	get "readExecOutputDelta"() { return z.strictObject({
+			"root": z.string(),
+			"changeName": z.string(),
+			"execId": z.string(),
+			"fromOffset": z.number(),
+		}); },
 	get "archiveChange"() { return z.strictObject({
 			"root": z.string(),
 			"id": z.string(),
@@ -254,6 +270,9 @@ export const resultSchemas = {
 	get "getChangeDetail"() { return z.lazy(() => ChangeDetailUnifiedSchema).nullable(); },
 	get "readArtifact"() { return z.lazy(() => ArtifactEnvelopeSchema).nullable(); },
 	get "readExecOutput"() { return z.string().nullable(); },
+	get "execOutputPath"() { return z.string().nullable(); },
+	get "readExecCommand"() { return z.string().nullable(); },
+	get "readExecOutputDelta"() { return z.lazy(() => ExecOutputChunkSchema).nullable(); },
 	get "archiveChange"() { return z.lazy(() => ArchiveOutcomeSchema); },
 	get "listWorkspaces"() { return z.array(z.lazy(() => WorkspaceRecordSchema)); },
 	get "addWorkspace"() { return z.lazy(() => WorkspaceRecordSchema); },
@@ -314,6 +333,12 @@ export const channelArgs = {
 	get "readArtifact"() { return {
 		}; },
 	get "readExecOutput"() { return {
+		}; },
+	get "execOutputPath"() { return {
+		}; },
+	get "readExecCommand"() { return {
+		}; },
+	get "readExecOutputDelta"() { return {
 		}; },
 	get "archiveChange"() { return {
 		}; },
@@ -1012,6 +1037,11 @@ export const DocSourceSchema = z.union([z.literal("explicit"), z.literal("adjace
 export const EdgeMarkSchema = z.union([z.literal("none"), z.literal("unfulfilled"), z.literal("crossKind"), z.literal("exempt")]);
 
 export const ElementKindSchema = z.union([z.literal("package"), z.literal("domain"), z.literal("module"), z.literal("component")]);
+
+export const ExecOutputChunkSchema = z.strictObject({
+	get text() { return z.string(); },
+	get nextOffset() { return z.number(); },
+});
 
 export const ExploreDocSchema = z.strictObject({
 	get name() { return z.string(); },

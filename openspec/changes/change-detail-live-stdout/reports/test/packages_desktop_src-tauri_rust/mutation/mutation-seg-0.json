@@ -1,0 +1,2892 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:484:9: replace StepSettle::passed -> Self with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::passed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 482,
+                "column": 5
+              },
+              "end": {
+                "line": 489,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 484,
+              "column": 9
+            },
+            "end": {
+              "line": 488,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_484_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_484_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 38.5815638,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:470:9: replace StepSettle::running -> Self with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::running",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 467,
+                "column": 5
+              },
+              "end": {
+                "line": 480,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 470,
+              "column": 9
+            },
+            "end": {
+              "line": 479,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_470_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_470_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 46.1624441,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:394:9: replace RunGuard::emitter -> StepEmitter with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "RunGuard::emitter",
+            "return_type": "-> StepEmitter",
+            "span": {
+              "start": {
+                "line": 390,
+                "column": 5
+              },
+              "end": {
+                "line": 398,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 394,
+              "column": 9
+            },
+            "end": {
+              "line": 397,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_394_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_394_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 53.7909637,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:485:13: delete field status from struct Self expression in StepSettle::passed",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::passed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 482,
+                "column": 5
+              },
+              "end": {
+                "line": 489,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 485,
+              "column": 13
+            },
+            "end": {
+              "line": 485,
+              "column": 46
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_485_col_13.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_485_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 70.5380258,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 29.625902,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:486:13: delete field detail from struct Self expression in StepSettle::passed",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::passed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 482,
+                "column": 5
+              },
+              "end": {
+                "line": 489,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 486,
+              "column": 13
+            },
+            "end": {
+              "line": 486,
+              "column": 20
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_486_col_13.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_486_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 70.5632011,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 29.9556602,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:493:9: replace StepSettle::failed -> Self with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::failed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 491,
+                "column": 5
+              },
+              "end": {
+                "line": 498,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 493,
+              "column": 9
+            },
+            "end": {
+              "line": 497,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_493_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_493_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 70.5565155,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 30.5768524,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:502:9: replace StepSettle::stopped -> Self with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::stopped",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 500,
+                "column": 5
+              },
+              "end": {
+                "line": 507,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 502,
+              "column": 9
+            },
+            "end": {
+              "line": 506,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_502_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_502_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.1016775,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 29.7248241,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:494:13: delete field status from struct Self expression in StepSettle::failed",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::failed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 491,
+                "column": 5
+              },
+              "end": {
+                "line": 498,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 494,
+              "column": 13
+            },
+            "end": {
+              "line": 494,
+              "column": 46
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_494_col_13.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_494_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 32.4905435,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 30.6681457,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:495:13: delete field detail from struct Self expression in StepSettle::failed",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::failed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 491,
+                "column": 5
+              },
+              "end": {
+                "line": 498,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 495,
+              "column": 13
+            },
+            "end": {
+              "line": 495,
+              "column": 20
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_495_col_13.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_495_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.3496598,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 30.5717548,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:31:5: replace run_segment -> Result<String, SegmentFailure> with Ok(\"xyzzy\".into())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 102,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 31,
+              "column": 5
+            },
+            "end": {
+              "line": 101,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_31_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_31_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.9286924,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 102.054517,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:31:5: replace run_segment -> Result<String, SegmentFailure> with Ok(String::new())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 102,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 31,
+              "column": 5
+            },
+            "end": {
+              "line": 101,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_31_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_31_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 32.9951141,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 102.268991,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:517:9: replace StepSettle::with_output_ref -> Self with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::with_output_ref",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 515,
+                "column": 5
+              },
+              "end": {
+                "line": 519,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 517,
+              "column": 9
+            },
+            "end": {
+              "line": 518,
+              "column": 13
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_517_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_517_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.2138728,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 33.1804007,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:504:13: delete field detail from struct Self expression in StepSettle::stopped",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::stopped",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 500,
+                "column": 5
+              },
+              "end": {
+                "line": 507,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 504,
+              "column": 13
+            },
+            "end": {
+              "line": 504,
+              "column": 20
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_504_col_13.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_504_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.2658931,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.0381346,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:503:13: delete field status from struct Self expression in StepSettle::stopped",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::stopped",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 500,
+                "column": 5
+              },
+              "end": {
+                "line": 507,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 503,
+              "column": 13
+            },
+            "end": {
+              "line": 503,
+              "column": 47
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_503_col_13.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_503_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.7127325,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.4039336,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:528:9: replace StepSettle::with_tokens -> Self with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::with_tokens",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 521,
+                "column": 5
+              },
+              "end": {
+                "line": 531,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 528,
+              "column": 9
+            },
+            "end": {
+              "line": 530,
+              "column": 13
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_528_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_528_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.2023346,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.8538712,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:511:9: replace StepSettle::with_session -> Self with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepSettle::with_session",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 509,
+                "column": 5
+              },
+              "end": {
+                "line": 513,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 511,
+              "column": 9
+            },
+            "end": {
+              "line": 512,
+              "column": 13
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_511_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_511_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.0569225,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.9051615,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:549:5: replace emit_node with ()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "emit_node",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 534,
+                "column": 1
+              },
+              "end": {
+                "line": 568,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 549,
+              "column": 5
+            },
+            "end": {
+              "line": 567,
+              "column": 8
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_549_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_549_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.3044576,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 34.5576645,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:574:5: replace now_millis -> i64 with 0",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "now_millis",
+            "return_type": "-> i64",
+            "span": {
+              "start": {
+                "line": 570,
+                "column": 1
+              },
+              "end": {
+                "line": 578,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 574,
+              "column": 5
+            },
+            "end": {
+              "line": 577,
+              "column": 22
+            }
+          },
+          "replacement": "0",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_574_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_574_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 28.3059193,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 135.550341,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:551:38: replace != with == in emit_node",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "emit_node",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 534,
+                "column": 1
+              },
+              "end": {
+                "line": 568,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 551,
+              "column": 38
+            },
+            "end": {
+              "line": 551,
+              "column": 40
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_551_col_38.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_551_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 28.5121766,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 135.5744841,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/port.rs:174:9: replace <impl PartialEq for OutputRefSink>::eq -> bool with false",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/port.rs",
+          "function": {
+            "function_name": "<impl PartialEq for OutputRefSink>::eq",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 172,
+                "column": 5
+              },
+              "end": {
+                "line": 175,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 174,
+              "column": 9
+            },
+            "end": {
+              "line": 174,
+              "column": 39
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__port.rs_line_174_col_9_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__port.rs_line_174_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.7120669,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:574:5: replace now_millis -> i64 with -1",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "now_millis",
+            "return_type": "-> i64",
+            "span": {
+              "start": {
+                "line": 570,
+                "column": 1
+              },
+              "end": {
+                "line": 578,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 574,
+              "column": 5
+            },
+            "end": {
+              "line": 577,
+              "column": 22
+            }
+          },
+          "replacement": "-1",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_574_col_5_002.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_574_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.5368188,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 141.1065171,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:603:9: replace StepEmitter::attach_output_ref with ()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "StepEmitter::attach_output_ref",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 592,
+                "column": 5
+              },
+              "end": {
+                "line": 615,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 603,
+              "column": 9
+            },
+            "end": {
+              "line": 614,
+              "column": 11
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_603_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_603_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.0850354,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 141.8615634,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/control.rs:574:5: replace now_millis -> i64 with 1",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/control.rs",
+          "function": {
+            "function_name": "now_millis",
+            "return_type": "-> i64",
+            "span": {
+              "start": {
+                "line": 570,
+                "column": 1
+              },
+              "end": {
+                "line": 578,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 574,
+              "column": 5
+            },
+            "end": {
+              "line": 577,
+              "column": 22
+            }
+          },
+          "replacement": "1",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__control.rs_line_574_col_5_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__control.rs_line_574_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 32.3492762,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 142.8719877,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/steps.rs:106:5: replace execute -> Result<ToolStepOutput, String> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/steps.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<ToolStepOutput, String>",
+            "span": {
+              "start": {
+                "line": 91,
+                "column": 1
+              },
+              "end": {
+                "line": 364,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 106,
+              "column": 5
+            },
+            "end": {
+              "line": 363,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__steps.rs_line_106_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__steps.rs_line_106_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 33.381898,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/port.rs:167:9: replace <impl std::fmt::Debug for OutputRefSink>::fmt -> std::fmt::Result with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/port.rs",
+          "function": {
+            "function_name": "<impl std::fmt::Debug for OutputRefSink>::fmt",
+            "return_type": "-> std::fmt::Result",
+            "span": {
+              "start": {
+                "line": 166,
+                "column": 5
+              },
+              "end": {
+                "line": 168,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 167,
+              "column": 9
+            },
+            "end": {
+              "line": 167,
+              "column": 49
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__port.rs_line_167_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__port.rs_line_167_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.3204731,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 143.0414152,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/port.rs:174:9: replace <impl PartialEq for OutputRefSink>::eq -> bool with true",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/port.rs",
+          "function": {
+            "function_name": "<impl PartialEq for OutputRefSink>::eq",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 172,
+                "column": 5
+              },
+              "end": {
+                "line": 175,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 174,
+              "column": 9
+            },
+            "end": {
+              "line": 174,
+              "column": 39
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__port.rs_line_174_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__port.rs_line_174_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.9324643,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 142.4221203,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/port.rs:161:9: replace OutputRefSink::emit with ()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/port.rs",
+          "function": {
+            "function_name": "OutputRefSink::emit",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 158,
+                "column": 5
+              },
+              "end": {
+                "line": 162,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 161,
+              "column": 9
+            },
+            "end": {
+              "line": 161,
+              "column": 27
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__core__orchestration__src__port.rs_line_161_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__port.rs_line_161_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.8717873,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 143.2247163,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:228:5: replace drive -> (ChangeRunStatus, Option<String>) with (Default::default(), None)",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "drive",
+            "return_type": "-> (ChangeRunStatus, Option<String>)",
+            "span": {
+              "start": {
+                "line": 213,
+                "column": 1
+              },
+              "end": {
+                "line": 379,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 228,
+              "column": 5
+            },
+            "end": {
+              "line": 378,
+              "column": 6
+            }
+          },
+          "replacement": "(Default::default(), None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_228_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_228_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.1909123,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:228:5: replace drive -> (ChangeRunStatus, Option<String>) with (Default::default(), Some(String::new()))",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "drive",
+            "return_type": "-> (ChangeRunStatus, Option<String>)",
+            "span": {
+              "start": {
+                "line": 213,
+                "column": 1
+              },
+              "end": {
+                "line": 379,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 228,
+              "column": 5
+            },
+            "end": {
+              "line": 378,
+              "column": 6
+            }
+          },
+          "replacement": "(Default::default(), Some(String::new()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_228_col_5_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_228_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.7521424,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:228:5: replace drive -> (ChangeRunStatus, Option<String>) with (Default::default(), Some(\"xyzzy\".into()))",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "drive",
+            "return_type": "-> (ChangeRunStatus, Option<String>)",
+            "span": {
+              "start": {
+                "line": 213,
+                "column": 1
+              },
+              "end": {
+                "line": 379,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 228,
+              "column": 5
+            },
+            "end": {
+              "line": 378,
+              "column": 6
+            }
+          },
+          "replacement": "(Default::default(), Some(\"xyzzy\".into()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_228_col_5_002.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_228_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 32.488677,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:606:5: replace step_phase_next -> Result<PhaseNextOutcome, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_phase_next",
+            "return_type": "-> Result<PhaseNextOutcome, Terminal>",
+            "span": {
+              "start": {
+                "line": 601,
+                "column": 1
+              },
+              "end": {
+                "line": 618,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 606,
+              "column": 5
+            },
+            "end": {
+              "line": 617,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_606_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_606_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 38.9755764,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:841:5: replace step_static_check -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_static_check",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 824,
+                "column": 1
+              },
+              "end": {
+                "line": 961,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 841,
+              "column": 5
+            },
+            "end": {
+              "line": 960,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_841_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_841_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 54.9567699,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 114.4638088,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:628:5: replace step_phase_start -> Result<u32, Terminal> with Ok(1)",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_phase_start",
+            "return_type": "-> Result<u32, Terminal>",
+            "span": {
+              "start": {
+                "line": 620,
+                "column": 1
+              },
+              "end": {
+                "line": 681,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 628,
+              "column": 5
+            },
+            "end": {
+              "line": 680,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_628_col_5_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_628_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 54.9901365,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 115.3760362,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:628:5: replace step_phase_start -> Result<u32, Terminal> with Ok(0)",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_phase_start",
+            "return_type": "-> Result<u32, Terminal>",
+            "span": {
+              "start": {
+                "line": 620,
+                "column": 1
+              },
+              "end": {
+                "line": 681,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 628,
+              "column": 5
+            },
+            "end": {
+              "line": 680,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_628_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_628_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 55.0203737,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 115.6273875,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1297:5: replace step_mutation_test_escalate -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_mutation_test_escalate",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 1284,
+                "column": 1
+              },
+              "end": {
+                "line": 1395,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1297,
+              "column": 5
+            },
+            "end": {
+              "line": 1394,
+              "column": 27
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1297_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1297_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.736451,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 115.9933358,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1185:5: replace step_test_execution_terminal -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_test_execution_terminal",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 1172,
+                "column": 1
+              },
+              "end": {
+                "line": 1265,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1185,
+              "column": 5
+            },
+            "end": {
+              "line": 1264,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1185_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1185_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.8770139,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 116.3449653,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1098:5: replace step_static_check_terminal -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_static_check_terminal",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 1085,
+                "column": 1
+              },
+              "end": {
+                "line": 1170,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1098,
+              "column": 5
+            },
+            "end": {
+              "line": 1169,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1098_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1098_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 51.5970792,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 117.189079,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:998:5: replace step_test_execution_escalate -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_test_execution_escalate",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 983,
+                "column": 1
+              },
+              "end": {
+                "line": 1083,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 998,
+              "column": 5
+            },
+            "end": {
+              "line": 1082,
+              "column": 27
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_998_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_998_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 54.8797455,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 117.0066133,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1411:5: replace step_archi_check -> Result<StepFlow, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_archi_check",
+            "return_type": "-> Result<StepFlow, Terminal>",
+            "span": {
+              "start": {
+                "line": 1397,
+                "column": 1
+              },
+              "end": {
+                "line": 1522,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1411,
+              "column": 5
+            },
+            "end": {
+              "line": 1521,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1411_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1411_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.5910892,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 116.2908272,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:1886:5: replace run_phase_log -> Result<PhaseLogOutcome, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "run_phase_log",
+            "return_type": "-> Result<PhaseLogOutcome, Terminal>",
+            "span": {
+              "start": {
+                "line": 1878,
+                "column": 1
+              },
+              "end": {
+                "line": 1899,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1886,
+              "column": 5
+            },
+            "end": {
+              "line": 1898,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_1886_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_1886_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.5639527,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:3153:5: replace step_seal -> Result<(), Terminal> with Ok(())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_seal",
+            "return_type": "-> Result<(), Terminal>",
+            "span": {
+              "start": {
+                "line": 3145,
+                "column": 1
+              },
+              "end": {
+                "line": 3188,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 3153,
+              "column": 5
+            },
+            "end": {
+              "line": 3187,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_3153_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_3153_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 35.7044002,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 82.246369,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:2340:5: replace step_preflight -> Result<(), Terminal> with Ok(())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "step_preflight",
+            "return_type": "-> Result<(), Terminal>",
+            "span": {
+              "start": {
+                "line": 2331,
+                "column": 1
+              },
+              "end": {
+                "line": 2437,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2340,
+              "column": 5
+            },
+            "end": {
+              "line": 2436,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_2340_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_2340_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 35.9530823,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 82.846507,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:3306:5: replace resolve_deadlock -> Deadlock with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "resolve_deadlock",
+            "return_type": "-> Deadlock",
+            "span": {
+              "start": {
+                "line": 3290,
+                "column": 1
+              },
+              "end": {
+                "line": 3401,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 3306,
+              "column": 5
+            },
+            "end": {
+              "line": 3400,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_3306_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_3306_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 34.3353888,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 83.3795372,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:3417:5: replace decision_session -> Result<DecisionAction, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "decision_session",
+            "return_type": "-> Result<DecisionAction, Terminal>",
+            "span": {
+              "start": {
+                "line": 3403,
+                "column": 1
+              },
+              "end": {
+                "line": 3538,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 3417,
+              "column": 5
+            },
+            "end": {
+              "line": 3537,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_3417_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_3417_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 34.57803,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 83.1342436,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:3756:5: replace run_tool -> Result<V, Terminal> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "run_tool",
+            "return_type": "-> Result<V, Terminal>",
+            "span": {
+              "start": {
+                "line": 3734,
+                "column": 1
+              },
+              "end": {
+                "line": 3782,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 3756,
+              "column": 5
+            },
+            "end": {
+              "line": 3781,
+              "column": 76
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_3756_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_3756_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 34.0946356,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 83.8492909,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 45,
+  "missed": 8,
+  "caught": 27,
+  "timeout": 0,
+  "unviable": 10,
+  "success": 0,
+  "start_time": "2026-11-01T15:25:52.4841929Z",
+  "end_time": "2026-11-01T15:36:17.4998996Z",
+  "cargo_mutants_version": "27.1.0"
+}

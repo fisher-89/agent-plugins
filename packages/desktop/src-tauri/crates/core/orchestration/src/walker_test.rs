@@ -10,11 +10,11 @@ use foundation::cancel::CancelFlag;
 use crate::control::ChangeFlowControl;
 use crate::port::{
     ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxToolFuture, BoxTurnFuture,
-    MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
-    RunFault, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion,
-    TestExecutionOutcome, TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort,
-    ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
-    WorkflowSnapshotPort, WorktreeSnapshot,
+    MutationCounts, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, OutputRefSink,
+    RebaseOutcome, RunFault, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner,
+    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
+    ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+    WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
 use crate::snapshot::StoreSnapshot;
 use crate::state::{
@@ -1910,6 +1910,23 @@ fn static_check_phases() -> Vec<&'static str> {
         })
         .map(|def| def.id)
         .collect()
+}
+
+/// 反馈边型 static-check 相位（非 initialize 表头——表头的 `on_fail=Terminal`
+/// 且 `root == main_root` 时整相位 legacy 短路，不执行脚本步）。
+fn feedback_static_check_phase() -> &'static str {
+    static_check_phases()
+        .into_iter()
+        .find(|phase| *phase != workflow::write::INITIALIZE_PHASE_ID)
+        .expect("至少一处反馈边 static-check 相位")
+}
+
+/// 反馈边型 test-execution 相位（同 [`feedback_static_check_phase`] 的取向）。
+fn feedback_test_execution_phase() -> &'static str {
+    test_execution_phases()
+        .into_iter()
+        .find(|phase| *phase != workflow::write::INITIALIZE_PHASE_ID)
+        .expect("至少一处反馈边 test-execution 相位")
 }
 
 /// 声明 test-execution 步的相位。
@@ -4886,6 +4903,7 @@ impl StaticCheckRunner for NullRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(passing_check())) })
     }
@@ -4901,6 +4919,7 @@ impl StaticCheckRunner for FailingRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
@@ -4926,6 +4945,7 @@ impl TestExecutionRunner for NullTestExecutionRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
@@ -11693,6 +11713,7 @@ impl StaticCheckRunner for CancelableStaticRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         self.received
             .lock()
@@ -11893,6 +11914,7 @@ impl StaticCheckRunner for AlwaysFailStaticRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         _cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         Box::pin(async move { Err("boom".to_owned()) })
     }
@@ -12085,6 +12107,7 @@ impl StaticCheckRunner for HangingIgnoreCancelRunner {
         _name: &str,
         _slot: foundation::layout::ReportSlot,
         cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         self.received
             .lock()
@@ -14739,5 +14762,970 @@ async fn archi_check三态跑动后源码字节零变化() {
             before,
             "门禁跑动 MUST NOT 改写源码 / 模型（零自动修复）"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 脚本步上抛链与 emit 面收口（change-detail-live-stdout，AC-5 / AC-2 / AC-11 /
+// AC-13）
+//
+// 被测面：`walk_run` 的端到端观测面——四位脚本步（static-check / test-execution
+// 各自的反馈边与 `on_fail=Terminal` 边）经 `run_tool(identity: Some(..))` 组装
+// `OutputRefSink`，回调内补发 `running + output_ref` 拍；其余十处工具步传 `None`
+//（零补发拍、零额外通知）；`emit_node` / `StepSettle` / `now_millis` 迁出后 56
+// 处调用点行为零变。
+//
+// Mock 策略（见 test-design 本节 Mock策略表）：假 runner 集为 `Arc<dyn …Runner>`
+// 的**注入依赖**（新增 `Scripted*Runner` 记录 `emit` 与返回 `output_ref`）；
+// `OutputRefSink` / `StepEmitter` 为真实类型（`run_tool` 内组装，测试侧只观测
+// 回调效果，不给替身）。
+//
+// **跨 crate 组合行（design D17）的执行落点在壳层**：test-design 本节「边界：
+// 上抛时刻文件已在（跨 crate 组合行）」一行要求以**真实** `ProcessStaticCheck` +
+// 真实 tempdir 驱动并在回调内断言 `exec_output_log_path_in(..).is_file()`，该用例
+// 的执行文件是 `src-tauri/src/commands/change_flow/mod_test.rs`
+//（`组合根装配_上抛链回调恰一次且回调内log已在` /
+// `组合根装配_补发拍落图_节点携同一output_ref`）——`crates/core/orchestration` 的
+// `Cargo.toml` MUST 零 diff（加 `checks-runtime` dev-dependency 即 core → infra
+// 反向边），故**本节不留置真实 checks 件的替身**：本节只保留可编程 mock runner
+// 面上的补发拍 / 合并 / 零补发断言（`上抛时刻_图上节点已带output_ref` 为同链路
+// 的 writer 侧判据）。
+// ---------------------------------------------------------------------------
+
+use foundation::layout::ReportSlot;
+use workflow::state::RunStepKind;
+
+/// 上抛录制：收到的 exec_id 序列（`emit` 次数与值——上抛链路的唯一观测面）。
+#[derive(Clone, Default)]
+struct RefTrace {
+    emits: Arc<Mutex<Vec<String>>>,
+}
+
+impl RefTrace {
+    fn emitted(&self) -> Vec<String> {
+        self.emits.lock().expect("emit 记录锁不可中毒").clone()
+    }
+}
+
+/// 可编程 ScriptedStaticRunner：`run` 内先按录制序列 `emit`，再返回预设产出
+///（`emit` 次数 / id 可编程——上抛链路的注入依赖，非内部模块替身）。
+struct ScriptedStaticRunner {
+    trace: RefTrace,
+    emits: Vec<String>,
+    outcome: StaticCheckOutcome,
+    calls: Arc<AtomicUsize>,
+}
+
+impl ScriptedStaticRunner {
+    fn new(emits: Vec<&str>, outcome: StaticCheckOutcome) -> (Self, RefTrace) {
+        let trace = RefTrace::default();
+        (
+            Self {
+                trace: trace.clone(),
+                emits: emits.into_iter().map(str::to_owned).collect(),
+                outcome,
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+            trace,
+        )
+    }
+}
+
+impl StaticCheckRunner for ScriptedStaticRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: ReportSlot,
+        _cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
+    ) -> BoxToolFuture {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let trace = self.trace.clone();
+        let emits = self.emits.clone();
+        let outcome = self.outcome.clone();
+        if let Some(sink) = on_output_ref {
+            for exec_id in &emits {
+                sink.emit(exec_id);
+                trace
+                    .emits
+                    .lock()
+                    .expect("emit 记录锁不可中毒")
+                    .push(exec_id.clone());
+            }
+        }
+        Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
+    }
+}
+
+/// 可编程 ScriptedTestExecutionRunner：同型（test-execution 两脚本步的注入面）。
+struct ScriptedTestExecutionRunner {
+    trace: RefTrace,
+    emits: Vec<String>,
+    outcome: TestExecutionOutcome,
+    calls: Arc<AtomicUsize>,
+}
+
+impl ScriptedTestExecutionRunner {
+    fn new(emits: Vec<&str>, outcome: TestExecutionOutcome) -> (Self, RefTrace) {
+        let trace = RefTrace::default();
+        (
+            Self {
+                trace: trace.clone(),
+                emits: emits.into_iter().map(str::to_owned).collect(),
+                outcome,
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+            trace,
+        )
+    }
+}
+
+impl TestExecutionRunner for ScriptedTestExecutionRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: ReportSlot,
+        _cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
+    ) -> BoxToolFuture {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let trace = self.trace.clone();
+        if let Some(sink) = on_output_ref {
+            for exec_id in &self.emits {
+                sink.emit(exec_id);
+                trace
+                    .emits
+                    .lock()
+                    .expect("emit 记录锁不可中毒")
+                    .push(exec_id.clone());
+            }
+        }
+        let outcome = self.outcome.clone();
+        Box::pin(async move { Ok(ToolStepOutput::TestExecution(outcome)) })
+    }
+}
+
+/// 带 `output_ref` 的通过门禁产出（同 id 收口的上抛值）。
+fn check_with_ref(exec_id: &str) -> StaticCheckOutcome {
+    StaticCheckOutcome {
+        fault: None,
+        passed: true,
+        diagnostics: "通过".to_owned(),
+        output_ref: Some(exec_id.to_owned()),
+        report_dir: "/ws/openspec/changes/c/reports/test".to_owned(),
+    }
+}
+
+/// 带 `exec_id` 的通过 test-execution 产出。
+fn tests_with_ref(exec_id: &str) -> TestExecutionOutcome {
+    TestExecutionOutcome {
+        fault: None,
+        conclusion: TestExecutionConclusion::Pass,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        findings_brief: String::new(),
+        findings_detail: String::new(),
+        report_dir: "/ws/openspec/changes/c/reports/test".to_owned(),
+        exec_id: exec_id.to_owned(),
+    }
+}
+
+/// 脚本步节点的 `output_ref` / 状态快照（落包整包捕获面摘取）。
+fn script_step_refs(
+    nodes: &[RunNodeEntry],
+    step: RunStepKind,
+) -> Vec<(u32, Option<String>, RunStepStatus)> {
+    nodes
+        .iter()
+        .filter(|node| node.step == step)
+        .map(|node| (node.instance_no, node.output_ref.clone(), node.status))
+        .collect()
+}
+
+/// 正向：假 runner 在 `run` 内先 `emit("exec-x")` 再返回 `output_ref:
+/// Some("exec-x")` → 图上该节点先出 `running + output_ref` 拍、终态拍同值，
+/// **节点总数 1**（补发拍被就地合并，AC-5 / AC-2）。
+#[tokio::test]
+async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let phase = feedback_static_check_phase();
+
+    let (runner, trace) = ScriptedStaticRunner::new(vec!["exec-x"], check_with_ref("exec-x"));
+    let tools = Arc::new(ScriptedTools {
+        timeline: Arc::clone(&timeline),
+        static_runner: Arc::new(runner),
+        test_runner: Arc::new(
+            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
+        ),
+        phase_next: Mutex::new(VecDeque::from(vec![
+            route_outcome(phase, &["proposal"]),
+            done_outcome(),
+        ])),
+    });
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(
+        worker,
+        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
+        snapshot,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert!(
+        matches!(
+            status,
+            ChangeRunStatus::Completed | ChangeRunStatus::Failed | ChangeRunStatus::Stopped
+        ),
+        "run 正常收口: {status:?}"
+    );
+
+    let finish = history.finish().expect("收口整包应在案");
+    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
+    assert_eq!(
+        static_nodes.len(),
+        1,
+        "static-check 节点总数 1（补发拍被就地合并）"
+    );
+    assert_eq!(
+        static_nodes[0].1.as_deref(),
+        Some("exec-x"),
+        "节点 output_ref 为补发值"
+    );
+    assert_eq!(
+        trace.emitted(),
+        vec!["exec-x".to_owned()],
+        "回调收到 exec_id（`identity: Some` 组装成功）"
+    );
+}
+
+/// 正向（参数化 4 脚本步）：static-check 与 test-execution 各自的**反馈边**与
+/// **`on_fail=Terminal` 边**四形态均组装上抛回调（判据：回调收到 `exec_id`）。
+///
+/// - 反馈边两形态：非 initialize 相位（`implement` / `test-execution`）整 run 驱动；
+/// - Terminal 边两形态：`initialize` 表头在 `root != main_root` 时**不**走 legacy
+///   短路（`walker.rs` 的短路判据是 `root == main_root`），故以异 root 驱动。
+#[tokio::test]
+async fn 四脚本步均组装上抛回调() {
+    // 反馈边：static-check（实现站）
+    let phase = feedback_static_check_phase();
+    let (static_trace, static_calls, _test_trace) = drive_scripted_run(phase).await;
+    assert!(
+        static_calls > 0,
+        "相位 {phase}: static-check 步被执行（反馈边形态）"
+    );
+    assert!(
+        !static_trace.emitted().is_empty(),
+        "相位 {phase}: static-check 反馈边收到上抛回调"
+    );
+
+    // 反馈边：test-execution（测试执行站）
+    let phase = feedback_test_execution_phase();
+    let (_, static_calls, test_trace) = drive_scripted_run(phase).await;
+    assert_eq!(static_calls, 0, "相位 {phase}: 无 static-check 步");
+    assert!(
+        !test_trace.emitted().is_empty(),
+        "相位 {phase}: test-execution 反馈边收到上抛回调"
+    );
+
+    // Terminal 边：initialize 表头（异 root 不触发 legacy 短路）
+    let (static_trace, static_calls, test_trace) = drive_initialize_terminal_edges().await;
+    assert_eq!(
+        static_calls, 1,
+        "initialize: static-check Terminal 边执行一次"
+    );
+    assert!(
+        !static_trace.emitted().is_empty(),
+        "initialize: static-check Terminal 边收到上抛回调"
+    );
+    assert!(
+        !test_trace.emitted().is_empty(),
+        "initialize: test-execution Terminal 边收到上抛回调"
+    );
+}
+
+/// 脚本步整 run 驱动（`phase` 单相位 + done）：返回
+/// `(static 上抛录制, static 调用次数, test 上抛录制)`——两 runner 均带预设
+/// `output_ref` 与一次 `emit`。
+async fn drive_scripted_run(phase: &str) -> (RefTrace, usize, RefTrace) {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let (static_runner, static_trace) =
+        ScriptedStaticRunner::new(vec!["exec-static"], check_with_ref("exec-static"));
+    let static_calls = Arc::clone(&static_runner.calls);
+    let (test_runner, test_trace) =
+        ScriptedTestExecutionRunner::new(vec!["exec-tests"], tests_with_ref("exec-tests"));
+    let tools = Arc::new(ScriptedTools {
+        timeline: Arc::clone(&timeline),
+        static_runner: Arc::new(static_runner),
+        test_runner: Arc::new(test_runner),
+        phase_next: Mutex::new(VecDeque::from(vec![
+            route_outcome(phase, &["proposal"]),
+            done_outcome(),
+        ])),
+    });
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run(
+        worker,
+        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+    (
+        static_trace,
+        static_calls.load(Ordering::SeqCst),
+        test_trace,
+    )
+}
+
+/// initialize 表头 Terminal 边驱动（`root != main_root` 使 legacy 短路失效）：
+/// 返回 `(static 上抛录制, static 调用次数, test 上抛录制)`。
+async fn drive_initialize_terminal_edges() -> (RefTrace, usize, RefTrace) {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let (static_runner, static_trace) =
+        ScriptedStaticRunner::new(vec!["exec-init-static"], check_with_ref("exec-init-static"));
+    let static_calls = Arc::clone(&static_runner.calls);
+    let (test_runner, test_trace) = ScriptedTestExecutionRunner::new(
+        vec!["exec-init-tests"],
+        tests_with_ref("exec-init-tests"),
+    );
+    let tools = Arc::new(ScriptedTools {
+        timeline: Arc::clone(&timeline),
+        static_runner: Arc::new(static_runner),
+        test_runner: Arc::new(test_runner),
+        phase_next: Mutex::new(VecDeque::from(vec![
+            route_outcome(workflow::write::INITIALIZE_PHASE_ID, &[]),
+            done_outcome(),
+        ])),
+    });
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run_with_vcs(
+        worker,
+        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
+        Arc::new(FakeVcs::clean()),
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/worktree",
+        "/tmp/root",
+        None,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+    (
+        static_trace,
+        static_calls.load(Ordering::SeqCst),
+        test_trace,
+    )
+}
+
+/// 上抛时刻探测记录：`(节点状态, 节点 output_ref, emit 入参)`（复杂度别名收口）。
+type ProbeLog = Arc<Mutex<Vec<(ChangeStepStatus, Option<String>, String)>>>;
+
+/// 正向（AC-5 组合行）：`OutputRefSink` 真实回调内**同一刻**查询控制注册表快照
+/// → 该步节点已在图上、`status == running`、`output_ref == emit 入参`——即
+/// 「补发拍先落到图上，前端才可能按 `output_ref` 订阅」（writer 侧的顺序不变量；
+/// 消费侧由 `change-detail-view.test.tsx` 的链路行承接）。
+///
+/// **本节用可编程 mock runner**（`run` 内 `sink.emit`，判据是「快照同刻可见」）。
+/// test-design 本节「边界：上抛时刻文件已在（跨 crate 组合行）」要求的是**真实**
+/// `ProcessStaticCheck` + 真实 tempdir 驱动，其执行文件按 design D17 落在壳层
+/// `src-tauri/src/commands/change_flow/mod_test.rs`——
+/// `组合根装配_上抛链回调恰一次且回调内log已在`（回调内断言
+/// `exec_output_log_path_in(..).is_file()`）与
+/// `组合根装配_补发拍落图_节点携同一output_ref`（同链路 + 节点同值）。本 crate
+/// `Cargo.toml` 零 diff（core → infra 无 dev-dependency 反向边），故此处不引真件。
+#[tokio::test]
+async fn 上抛时刻_图上节点已带output_ref() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let phase = feedback_static_check_phase();
+    let control = Arc::new(ChangeFlowControl::new());
+
+    // 回调内探测：取快照 → 找该 exec_id 的节点
+    let probe_control = Arc::clone(&control);
+    let observed: ProbeLog = Arc::new(Mutex::new(Vec::new()));
+    struct ProbeRunner {
+        control: Arc<ChangeFlowControl>,
+        observed: ProbeLog,
+        outcome: StaticCheckOutcome,
+    }
+    impl StaticCheckRunner for ProbeRunner {
+        fn run(
+            &self,
+            _root: &str,
+            _name: &str,
+            _slot: ReportSlot,
+            _cancel: CancelFlag,
+            on_output_ref: Option<OutputRefSink>,
+        ) -> BoxToolFuture {
+            if let Some(sink) = on_output_ref {
+                let exec_id = "exec-probe".to_owned();
+                let control = Arc::clone(&self.control);
+                let observed = Arc::clone(&self.observed);
+                let emitted = exec_id.clone();
+                // 以「包装回调」表达同一语义：先真实 emit，再取快照
+                sink.emit(&exec_id);
+                let snapshot = control.snapshot(ROOT, CHANGE_ID);
+                let node = snapshot.and_then(|snapshot| {
+                    snapshot
+                        .nodes
+                        .into_iter()
+                        .find(|node| node.output_ref.as_deref() == Some(emitted.as_str()))
+                });
+                match node {
+                    Some(node) => observed.lock().expect("探测记录锁不可中毒").push((
+                        node.status,
+                        node.output_ref,
+                        emitted,
+                    )),
+                    None => observed.lock().expect("探测记录锁不可中毒").push((
+                        ChangeStepStatus::Failed,
+                        None,
+                        emitted,
+                    )),
+                }
+            }
+            let outcome = self.outcome.clone();
+            Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
+        }
+    }
+
+    let tools = Arc::new(ScriptedTools {
+        timeline: Arc::clone(&timeline),
+        static_runner: Arc::new(ProbeRunner {
+            control: probe_control,
+            observed: Arc::clone(&observed),
+            outcome: check_with_ref("exec-probe"),
+        }),
+        test_runner: Arc::new(
+            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
+        ),
+        phase_next: Mutex::new(VecDeque::from(vec![
+            route_outcome(phase, &["proposal"]),
+            done_outcome(),
+        ])),
+    });
+    let (task, _rx, _history) = spawn_run(
+        worker,
+        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    let rows = observed.lock().expect("探测记录锁不可中毒").clone();
+    assert_eq!(rows.len(), 1, "上抛恰一次");
+    assert_eq!(
+        rows[0].0,
+        ChangeStepStatus::Running,
+        "上抛时刻节点状态为 running"
+    );
+    assert_eq!(
+        rows[0].1.as_deref(),
+        Some("exec-probe"),
+        "上抛时刻节点已携该 output_ref（顺序：补发拍先于返回）"
+    );
+}
+
+/// 正向（参数化 `None` 臂 × 既有 mock 全集）：`on_output_ref: None` 的 mock
+/// runner（`NullRunner` 等）→ running emit 的 `output_ref` 仍为 `None`、终态按
+/// 产出回填、零补发拍、零额外通知。
+#[tokio::test]
+async fn 无回调runner_零补发拍且终态按产出回填() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let phase = feedback_static_check_phase();
+    let tools = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome(phase, &["proposal"]), done_outcome()])
+        .with_static_check(vec![check_with_ref("exec-from-outcome")])
+        .assemble()
+        .0;
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(
+        worker,
+        tools,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("收口整包应在案");
+    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
+    assert_eq!(static_nodes.len(), 1, "无回调 ⇒ 零补发拍（仍单节点）");
+    assert_eq!(
+        static_nodes[0].1.as_deref(),
+        Some("exec-from-outcome"),
+        "终态按产出回填 output_ref"
+    );
+}
+
+/// 异常（组合 补发 × `Err`）：runner 在回调**之外**返回 `Err` → 补发拍已在、
+/// 终态按 `Terminal` 收敛，节点 `output_ref` 保持补发值（不因失败被清空）。
+#[tokio::test]
+async fn 上抛后err_节点output_ref保持补发值() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let phase = feedback_static_check_phase();
+
+    // 自定义 runner：emit 后改 Err（上抛与失败面并存）
+    struct EmitThenErr {
+        trace: RefTrace,
+    }
+    impl StaticCheckRunner for EmitThenErr {
+        fn run(
+            &self,
+            _root: &str,
+            _name: &str,
+            _slot: ReportSlot,
+            _cancel: CancelFlag,
+            on_output_ref: Option<OutputRefSink>,
+        ) -> BoxToolFuture {
+            if let Some(sink) = on_output_ref {
+                sink.emit("exec-emitted-then-err");
+                self.trace
+                    .emits
+                    .lock()
+                    .expect("emit 记录锁不可中毒")
+                    .push("exec-emitted-then-err".to_owned());
+            }
+            Box::pin(async { Err("static-check 步失败".to_owned()) })
+        }
+    }
+
+    let trace = RefTrace::default();
+    let tools = Arc::new(ScriptedTools {
+        timeline: Arc::clone(&timeline),
+        static_runner: Arc::new(EmitThenErr {
+            trace: trace.clone(),
+        }),
+        test_runner: Arc::new(
+            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
+        ),
+        phase_next: Mutex::new(VecDeque::from(vec![
+            route_outcome(phase, &["proposal"]),
+            done_outcome(),
+        ])),
+    });
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(
+        worker,
+        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    assert_eq!(
+        trace.emitted(),
+        vec!["exec-emitted-then-err".to_owned()],
+        "Err 前的上抛已发生"
+    );
+    let finish = history.finish().expect("收口整包应在案");
+    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
+    let emitted_node = static_nodes
+        .iter()
+        .find(|(_, output_ref, _)| output_ref.as_deref() == Some("exec-emitted-then-err"));
+    assert!(
+        emitted_node.is_some(),
+        "补发拍已在（节点 output_ref 保持补发值）: {static_nodes:?}"
+    );
+}
+
+/// 异常：假 runner 调用 `on_output_ref` **两次**（不同 id）→
+/// `accumulate_node` 的「some 才覆写」使 `output_ref` 为第二次值、节点仍 1 条
+///（幂等合并不新增节点；防御性观测，spec 未声明多次调用）。
+#[tokio::test]
+async fn 上抛两次_节点仍一条且取第二次值() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let phase = feedback_static_check_phase();
+    let (runner, trace) = ScriptedStaticRunner::new(
+        vec!["exec-first", "exec-second"],
+        check_with_ref("exec-second"),
+    );
+    let tools = Arc::new(ScriptedTools {
+        timeline: Arc::clone(&timeline),
+        static_runner: Arc::new(runner),
+        test_runner: Arc::new(
+            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
+        ),
+        phase_next: Mutex::new(VecDeque::from(vec![
+            route_outcome(phase, &["proposal"]),
+            done_outcome(),
+        ])),
+    });
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(
+        worker,
+        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    assert_eq!(trace.emitted().len(), 2, "两次 emit 均抵达回调");
+    let finish = history.finish().expect("收口整包应在案");
+    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
+    assert_eq!(static_nodes.len(), 1, "幂等合并：节点仍 1 条");
+    assert_eq!(
+        static_nodes[0].1.as_deref(),
+        Some("exec-second"),
+        "some 才覆写 ⇒ 第二次值生效"
+    );
+}
+
+/// 边界（参数化 10 调用点）：十处非脚本步（archive preflight / phaseNext /
+/// phaseStart / mutation-test / archi / phaseLog / seal / backtrack /
+/// decisionLog / status）传 `None`：零补发拍、`output_ref` 恒 `None`。
+#[tokio::test]
+async fn 非脚本步十处_output_ref恒none() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    // 「全 pass 收敛 completed」的整 run：覆盖 phaseNext / phaseStart /
+    // executor / static-check / archi / evaluator / phaseLog 等调用点；非脚本步
+    // 的 `output_ref` 恒 None（脚本步才可能有值）
+    let tools = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("proposal", &[]),
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            done_outcome(),
+        ])
+        .assemble()
+        .0;
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(
+        worker,
+        tools,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "全 pass 收敛 completed");
+
+    let finish = history.finish().expect("收口整包应在案");
+    let script_steps = [RunStepKind::StaticCheck, RunStepKind::TestExecution];
+    let non_script_with_ref: Vec<(String, Option<String>)> = finish
+        .nodes
+        .iter()
+        .filter(|node| !script_steps.contains(&node.step))
+        .filter(|node| node.output_ref.is_some())
+        .map(|node| (node.step.as_str().to_owned(), node.output_ref.clone()))
+        .collect();
+    assert!(
+        non_script_with_ref.is_empty(),
+        "非脚本步 output_ref 恒 None: {non_script_with_ref:?}"
+    );
+}
+
+/// 边界：`instance_no` 递增形态（反馈边重跑）→ 同 `(phase, attempt, step)` 两次
+/// 执行产出两节点、各自 `output_ref` 独立（补发拍不扰动既有合并语义）。
+#[tokio::test]
+async fn 反馈边重跑_两实例各自output_ref独立() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let phase = feedback_static_check_phase();
+
+    // 计数型 runner：每次调用按调用序 emit 不同 id 并返回失败（触发反馈边重跑）
+    struct CountingRunner {
+        seen: AtomicUsize,
+        trace: RefTrace,
+    }
+    impl StaticCheckRunner for CountingRunner {
+        fn run(
+            &self,
+            _root: &str,
+            _name: &str,
+            _slot: ReportSlot,
+            _cancel: CancelFlag,
+            on_output_ref: Option<OutputRefSink>,
+        ) -> BoxToolFuture {
+            let index = self.seen.fetch_add(1, Ordering::SeqCst);
+            let exec_id = format!("exec-run-{index}");
+            if let Some(sink) = on_output_ref {
+                sink.emit(&exec_id);
+                self.trace
+                    .emits
+                    .lock()
+                    .expect("emit 记录锁不可中毒")
+                    .push(exec_id.clone());
+            }
+            // 前两次失败（触发反馈边重跑、instance_no 递增），第三次通过
+            let passed = index >= 2;
+            Box::pin(async move {
+                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                    fault: None,
+                    passed,
+                    diagnostics: if passed {
+                        String::new()
+                    } else {
+                        "反馈边重跑".to_owned()
+                    },
+                    output_ref: Some(exec_id),
+                    report_dir: String::new(),
+                }))
+            })
+        }
+    }
+
+    let trace = RefTrace::default();
+    let tools = Arc::new(ScriptedTools {
+        timeline: Arc::clone(&timeline),
+        static_runner: Arc::new(CountingRunner {
+            seen: AtomicUsize::new(0),
+            trace: trace.clone(),
+        }),
+        test_runner: Arc::new(
+            ScriptedTestExecutionRunner::new(Vec::new(), tests_with_ref("exec-t")).0,
+        ),
+        phase_next: Mutex::new(VecDeque::from(vec![
+            route_outcome(phase, &["proposal"]),
+            done_outcome(),
+        ])),
+    });
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(
+        worker,
+        Arc::clone(&tools) as Arc<dyn ToolStepPort>,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("收口整包应在案");
+    let static_nodes = script_step_refs(&finish.nodes, RunStepKind::StaticCheck);
+    if static_nodes.len() >= 2 {
+        let refs: Vec<Option<String>> = static_nodes.iter().map(|(_, r, _)| r.clone()).collect();
+        assert_eq!(
+            refs.len(),
+            refs.iter().collect::<std::collections::HashSet<_>>().len(),
+            "两实例 output_ref 互异（不串扰）: {static_nodes:?}"
+        );
+        let instances: Vec<u32> = static_nodes.iter().map(|(no, _, _)| *no).collect();
+        assert_eq!(
+            instances.len(),
+            instances
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            "instance_no 各自递增"
+        );
+    } else {
+        // 反馈边未触发重跑（步声明 `on_fail=Terminal`）：单节点即可
+        assert_eq!(static_nodes.len(), 1, "Terminal 边零重跑 ⇒ 单节点");
+    }
+    assert!(!trace.emitted().is_empty(), "上抛链路在位");
+}
+
+/// 边界：run 收口时刻的 `finish` 整包时间戳仍在位——终态 `ended_at` 非 `None`、
+/// 与 `now_millis` 同量级（收口时间戳口径零变）。
+#[tokio::test]
+async fn 收口时间戳口径零变() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let worker = FakeWorker::new(&timeline).assemble().0;
+    let tools = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble()
+        .0;
+    let control = Arc::new(ChangeFlowControl::new());
+    let before = crate::control::now_millis();
+    let (task, _rx, history) = spawn_run(
+        worker,
+        tools,
+        Arc::new(StubSnapshot) as Arc<dyn WorkflowSnapshotPort>,
+        &control,
+        false,
+        "/tmp/root",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+    let after = crate::control::now_millis();
+
+    let finish = history.finish().expect("收口整包应在案");
+    assert!(
+        finish.finished_at >= before && finish.finished_at <= after,
+        "收口时刻落在区间内（{before} ≤ {} ≤ {after}）",
+        finish.finished_at
+    );
+    let ended: Vec<i64> = finish
+        .nodes
+        .iter()
+        .filter_map(|node| node.ended_at)
+        .collect();
+    assert!(!ended.is_empty(), "至少一节点有 ended_at");
+    assert!(
+        ended
+            .iter()
+            .all(|ended| *ended >= before && *ended <= after),
+        "节点 ended_at 与 now_millis 同量级: {ended:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 装置：`ScriptedTools`（可编程脚本步 + 其余步委托 FakeTools 语义）
+// ---------------------------------------------------------------------------
+
+/// 可编程 ToolStepPort：脚本步交给 `Scripted*Runner`（上抛注入依赖），其余步
+/// 沿用最小产出（不参与本节断言）。
+struct ScriptedTools {
+    timeline: Arc<Mutex<Vec<String>>>,
+    static_runner: Arc<dyn StaticCheckRunner>,
+    test_runner: Arc<dyn TestExecutionRunner>,
+    phase_next: Mutex<VecDeque<PhaseNextOutcome>>,
+}
+
+impl ToolStepPort for ScriptedTools {
+    fn run(&self, step: ToolStepRequest) -> BoxToolFuture {
+        let label = command_label(&step.command);
+        self.timeline
+            .lock()
+            .expect("时间线锁不可中毒")
+            .push(label.to_owned());
+        match step.command {
+            ToolCommand::StaticCheck { .. } => {
+                let runner = Arc::clone(&self.static_runner);
+                let request = step;
+                Box::pin(async move {
+                    // 与 `LocalToolSteps` 同式：id → name 解析面在真实组合根；本节
+                    // 直接以 change_id 作 name 传入（记录名与 id 同值）
+                    let ToolCommand::StaticCheck { change_id, slot } = request.command else {
+                        unreachable!("标签已判定");
+                    };
+                    runner
+                        .run(
+                            &request.root,
+                            &change_id,
+                            slot,
+                            request.cancel,
+                            request.on_output_ref,
+                        )
+                        .await
+                })
+            }
+            ToolCommand::TestExecution { .. } => {
+                let runner = Arc::clone(&self.test_runner);
+                let request = step;
+                Box::pin(async move {
+                    let ToolCommand::TestExecution { change_id, slot } = request.command else {
+                        unreachable!("标签已判定");
+                    };
+                    runner
+                        .run(
+                            &request.root,
+                            &change_id,
+                            slot,
+                            request.cancel,
+                            request.on_output_ref,
+                        )
+                        .await
+                })
+            }
+            ToolCommand::PhaseNext { .. } => {
+                let outcome = self
+                    .phase_next
+                    .lock()
+                    .expect("phase-next 队列锁不可中毒")
+                    .pop_front()
+                    .unwrap_or_else(done_outcome);
+                Box::pin(async move { Ok(ToolStepOutput::PhaseNext(Box::new(outcome))) })
+            }
+            ToolCommand::PhaseStart { phase, .. } => {
+                let outcome = PhaseStartOutcome {
+                    phase,
+                    attempt: 1,
+                    start_at: TS_BASE,
+                };
+                Box::pin(async move { Ok(ToolStepOutput::PhaseStart(outcome)) })
+            }
+            ToolCommand::PhaseLog { phase, .. } => {
+                let outcome = PhaseLogOutcome { phase, attempt: 1 };
+                Box::pin(async move { Ok(ToolStepOutput::PhaseLog(outcome)) })
+            }
+            ToolCommand::Backtrack { phase, input, .. } => {
+                let outcome = BacktrackOutcome {
+                    phase,
+                    target: input.to,
+                };
+                Box::pin(async move { Ok(ToolStepOutput::Backtrack(outcome)) })
+            }
+            ToolCommand::DecisionLog { phase, .. } => {
+                Box::pin(
+                    async move { Ok(ToolStepOutput::DecisionLog(DecisionLogOutcome { phase })) },
+                )
+            }
+            ToolCommand::MutationTest { .. } => Box::pin(async move {
+                Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
+                    conclusion: MutationTestConclusion::Pass,
+                    skip: Some(MutationSkipReason::EmptyDiff),
+                    score: 1.0,
+                    threshold: 0.8,
+                    counts: MutationCounts::default(),
+                    report_paths: Vec::new(),
+                    feedback_text: String::new(),
+                    fault: None,
+                }))
+            }),
+            ToolCommand::ArchiCheck { .. } => Box::pin(async move {
+                Ok(ToolStepOutput::ArchiCheck(ArchiCheckOutcome {
+                    passed: true,
+                    diagnostics: String::new(),
+                    fault: None,
+                    report_dir: String::new(),
+                    report_ref: None,
+                }))
+            }),
+            ToolCommand::ArchivePreflight { .. } => {
+                let payload = ArchivePreflight {
+                    name: NAME.to_owned(),
+                    completed: true,
+                    incomplete_phases: Vec::new(),
+                    missing_artifacts: Vec::new(),
+                    delta_specs: Vec::new(),
+                    worktree: None,
+                    branch: None,
+                    merge_target: None,
+                };
+                Box::pin(async move { Ok(ToolStepOutput::ArchivePreflight(payload)) })
+            }
+            ToolCommand::ArchiveSeal { .. } => {
+                let outcome = workflow::write::ArchiveOutcome {
+                    name: NAME.to_owned(),
+                    archived_date: "2026-10-01".to_owned(),
+                };
+                Box::pin(async move { Ok(ToolStepOutput::ArchiveSeal(outcome)) })
+            }
+        }
     }
 }

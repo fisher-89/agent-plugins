@@ -23,9 +23,21 @@
 //! - 类 Linux/inotify：单文件 watch 存在 rename 失效陷阱（rename-replace 后
 //!   监听指向旧 inode），父目录挂载同样免疫该陷阱，跨平台支持时再复核。
 //!
-//! 边界限制：目标**父目录**尚不存在时不预建目录、不递归挂祖先目录——订阅
-//! 成功但 OS 监听休眠（无事件）；父目录（重）出现后需重新订阅生效（消费侧
-//! 订阅生命周期即页面生命周期，页面重开自然重挂）。
+//! # 两种「目标不可达」形态（可分辨，MUST NOT 合并为同一静默 `Ok`）
+//!
+//! - **目标文件缺失、父目录在**：挂父目录监听，目标（重）出现后事件生效
+//!   （订阅成功，语义零变）；
+//! - **父目录亦缺失**：显式失败 [`WatchError::ParentUnavailable`]（携带缺失父
+//!   目录路径）——原形态下 `watcher.watch()` 压根未被调用而 `Result` 仍是 `Ok`，
+//!   调用方无法分辨两者。壳层命令的既有错误串映射零改动即出线新因。
+//!
+//! 失败臂的三条 MUST NOT：**不替调用方造目录**（零 fs 副作用）、**不递归挂祖先
+//! 目录**（无上界递归的成本不可控）、**不引入退避重试 / 重挂状态机**。恢复路径
+//! 是调用方的**顺序不变量**：写入方先创建记录（目录与文件落盘）再向消费侧暴露
+//! 可订阅地址，使「订阅时父目录必然已在」成为调用序列的性质而非运行期兜底。
+//!
+//! 边界限制（`watch_target_of` 休眠语义本体，零改动）：父目录缺失时本 crate 不
+//! 预建目录也不挂祖先——只是该形态由「订阅成功但 OS 监听休眠」改为显式失败。
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
@@ -44,13 +56,23 @@ pub struct FileWatchSignal {
     pub path: String,
 }
 
-/// 订阅失败（notify 初始化或挂载失败）；目标缺失不算失败（见 crate 文档）。
+/// 订阅失败面两分；目标**文件**缺失不算失败（见 crate 文档）。
 #[derive(Debug)]
-pub struct WatchError(notify::Error);
+pub enum WatchError {
+    /// notify 初始化或挂载失败
+    Notify(notify::Error),
+    /// 目标父目录缺失：本次订阅不可能生效（不预建目录、不递归挂祖先、不重试）
+    ParentUnavailable(PathBuf),
+}
 
 impl std::fmt::Display for WatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "watch: {}", self.0)
+        match self {
+            Self::Notify(error) => write!(f, "watch: {error}"),
+            Self::ParentUnavailable(parent) => {
+                write!(f, "watch: 目标父目录不存在 {}", parent.display())
+            }
+        }
     }
 }
 
@@ -67,11 +89,14 @@ pub struct Watcher {
 }
 
 /// 订阅单个文件的修改信号：事件经 `sender` 逐条投递（接收端消失时发送静默
-/// 失败，退订语义由 [`Watcher`] drop 承载）。目标不存在不报错（父目录存在时
-/// 事件在目标出现后生效；父目录亦缺失时监听休眠，见 crate 文档平台边界）。
+/// 失败，退订语义由 [`Watcher`] drop 承载）。目标**文件**缺失不报错（父目录存在
+/// 时事件在目标出现后生效）；**父目录亦缺失** → `Err(WatchError::ParentUnavailable)`
+/// ——MUST NOT 返回一个永不产信号的 `Ok` 订阅。
 pub fn subscribe(path: PathBuf, sender: Sender<FileWatchSignal>) -> Result<Watcher, WatchError> {
     let signal_path = path.to_string_lossy().into_owned();
-    let watch_target = watch_target_of(&path);
+    let Some(watch_target) = watch_target_of(&path) else {
+        return Err(WatchError::ParentUnavailable(parent_of(&path)));
+    };
     let callback_sender = sender.clone();
     let mut watcher = recommended_watcher(move |result: Result<Event, notify::Error>| {
         let Ok(event) = result else {
@@ -85,12 +110,10 @@ pub fn subscribe(path: PathBuf, sender: Sender<FileWatchSignal>) -> Result<Watch
             path: signal_path.clone(),
         });
     })
-    .map_err(WatchError)?;
-    if let Some(target) = watch_target {
-        watcher
-            .watch(&target, RecursiveMode::NonRecursive)
-            .map_err(WatchError)?;
-    }
+    .map_err(WatchError::Notify)?;
+    watcher
+        .watch(&watch_target, RecursiveMode::NonRecursive)
+        .map_err(WatchError::Notify)?;
     Ok(Watcher {
         inner: watcher,
         _sender: sender,
@@ -99,10 +122,22 @@ pub fn subscribe(path: PathBuf, sender: Sender<FileWatchSignal>) -> Result<Watch
 
 /// 实际挂载目标：目标已存在挂目标本身亦可，但为跨平台统一语义（rename-
 /// replace 原子保存不丢监听，见 crate 文档）一律挂**父目录**；父目录缺失
-/// 返回 `None`（监听休眠，不预建目录）。
+/// 返回 `None`（不预建目录、不挂祖先）。
+///
+/// 本函数判定本体零改动——仅其 `None` 出口在 [`subscribe`] 内改为
+/// [`WatchError::ParentUnavailable`]（不再静默 `Ok`）。
 fn watch_target_of(target: &Path) -> Option<PathBuf> {
     let parent = target.parent().filter(|p| !p.as_os_str().is_empty())?;
     parent.is_dir().then(|| parent.to_path_buf())
+}
+
+/// 失败面携带的「缺失父目录」路径（根路径无父时回退目标自身）。
+fn parent_of(target: &Path) -> PathBuf {
+    target
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| target.to_path_buf())
 }
 
 /// 事件过滤：仅「目标路径 + 事实性变更」产信号——Create / Modify / Remove
