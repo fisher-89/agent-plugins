@@ -14,6 +14,11 @@ use super::{
 /// `--output` 未传）。
 const CARGO_MUTANTS_OUT_DIR: &str = "mutants.out";
 
+/// cargo-mutants 的旧报告轮换目录名：起跑时若发现 `mutants.out` 已在位，工具会
+/// 把整个旧目录改名到此（而不是删除），逐次运行无限堆积。段执行 spawn 前连同
+/// `mutants.out` 一并清场（见 `run_segment`）。
+const CARGO_MUTANTS_OUT_OLD_DIR: &str = "mutants.out.old";
+
 /// cargo-mutants 运行结果报告文件名（`mutants.out/outcomes.json`——逐突变体
 /// outcome 与计数面的权威落位；运行面 stdout 只有人类可读进度行，`--json` 仅
 /// 作用于 `--list`）。
@@ -117,6 +122,11 @@ pub(crate) async fn run_segment(
     // 段报告落位清场：上一段 / 上次运行的陈旧 outcomes.json MUST NOT 被本段误读
     // （best-effort——目录缺席等失败不阻断，spawn 后报告在位即权威）
     let _ = std::fs::remove_dir_all(exec_dir.join(CARGO_MUTANTS_OUT_DIR));
+    // cargo-mutants 起跑时若发现 `mutants.out` 已在位，会把**整个旧目录**改名为
+    // `mutants.out.old`（无限堆积、且是 `.gitignore` 只覆盖 `mutants.out` 时的
+    // 漏网目录）。上一行的清场已消掉这条路径；这里再兜底清一次历史残留
+    // （早前手工运行留下的），best-effort。
+    let _ = std::fs::remove_dir_all(exec_dir.join(CARGO_MUTANTS_OUT_OLD_DIR));
     let command = SystemCommand::bare("cargo")
         .args(["mutants", "--test-tool=nextest", "--workspace", "--in-diff"])
         .arg(patch_path)

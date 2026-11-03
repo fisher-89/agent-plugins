@@ -502,6 +502,37 @@ async fn 陈旧报告清场_上一段残留不误读() {
     );
 }
 
+/// 正向（轮换目录清场）：**`mutants.out.old` 同样在 spawn 前清场**——
+/// cargo-mutants 起跑时若发现 `mutants.out` 已在位，会把整个旧目录改名到
+/// `mutants.out.old` 而不是删除，逐次运行无限堆积；本段清场已消掉这条路径，
+/// 本用例钉住「历史残留（早前手工运行留下的）也被兜底清掉」。
+#[tokio::test]
+async fn 轮换目录清场_历史残留一并移除() {
+    let ws = SpawnWs::new("stale-old");
+    let window = SpawnWindow::enter("cargo-stale-old");
+    window.install_fake_cargo(&ws.exec_dir);
+    let old_dir = ws.exec_dir.join("mutants.out.old");
+    fs::create_dir_all(&old_dir).expect("建轮换目录");
+    fs::write(
+        old_dir.join("outcomes.json"),
+        r#"{ "caught": 9, "missed": 0, "timeout": 0, "unviable": 0 }"#,
+    )
+    .expect("写轮换目录残留");
+    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
+
+    run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("段执行应 Ok");
+    assert!(
+        !old_dir.exists(),
+        "mutants.out.old 历史残留已被 spawn 前清场移除（不再无限堆积）"
+    );
+}
+
 /// 异常：**非零退出 → 输出捕获 + 中断**——假 spawn 可编程非零退出（退出码
 /// 101）且零段报告 → `SegmentFailure::Interrupted` 携退出码与合并输出有界尾
 /// 部（双时点②中断面原料）。

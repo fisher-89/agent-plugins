@@ -3,6 +3,7 @@ node_modules
 
 # 测试副产物
 mutants.out
+mutants.out.old
 *.profraw
 stryker.config.*.json
 
