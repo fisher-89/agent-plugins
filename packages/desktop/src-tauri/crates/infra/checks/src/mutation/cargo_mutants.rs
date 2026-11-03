@@ -96,9 +96,8 @@ pub(crate) async fn run_segment(
     // 用相对值而非「不注入」是为了盖掉父进程可能已全局导出的绝对
     // `CARGO_TARGET_DIR`（`env` 是覆盖语义，无需额外的清除字段）。
     // 跨段复用由段级复用门（零 spawn）承担，不靠共享 target dir。
-    let mut env: Vec<(OsString, OsString)> = vec![
-        (OsString::from("CARGO_TARGET_DIR"), OsString::from("target")),
-    ];
+    let mut env: Vec<(OsString, OsString)> =
+        vec![(OsString::from("CARGO_TARGET_DIR"), OsString::from("target"))];
     if let Some(config) = tauri_config_override(exec_dir) {
         env.push((OsString::from("TAURI_CONFIG"), OsString::from(config)));
     }

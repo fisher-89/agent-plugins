@@ -1738,7 +1738,10 @@ fn 执行框架矩阵_三族封闭() {
 /// cwd / score 两字段，本用例同时锚定 schema 零新字段面）。
 #[test]
 fn 突变常量锚定与config_schema零新字段() {
-    assert_eq!(MUTATION_JOBS_DIVISOR, 4, "worker 并发除数 4（每份 worker 吃 4 核）");
+    assert_eq!(
+        MUTATION_JOBS_DIVISOR, 4,
+        "worker 并发除数 4（每份 worker 吃 4 核）"
+    );
     assert_eq!(MUTATION_TEST_THREADS, 4, "单 worker 内测试线程 4");
     assert_eq!(PER_MUTANT_TIMEOUT_SECS, 300, "per-mutant 超时 300 秒");
     assert_eq!(SEGMENT_BUDGET_MS, 300_000, "段预算 5 分钟");

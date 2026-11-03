@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
+import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
 import {
   MessageScroller,
@@ -78,12 +79,21 @@ function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JS
 /** 气泡：user / assistant 各成泡（user 靠右），部件按类型映射渲染 */
 function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Element {
   const isUser = message.role === 'user';
-  return (
-    <Message align={isUser ? 'end' : 'start'} data-testid="chat-bubble" data-role={message.role}>
-      <MessageContent
-        className={`rounded-lg border border-border px-3 py-2 ${isUser ? 'bg-muted ml-3' : 'bg-card mr-3'}`}
-      >
-        <div className="mb-0.5 text-xs text-muted-foreground">{message.role}</div>
+  return isUser ? (
+    <Message align="end" data-testid="chat-bubble" data-role={message.role}>
+      <MessageContent>
+        <Bubble align="end" variant="muted">
+          <BubbleContent>
+            {message.parts.map((part, index) => (
+              <PartView key={index} part={part} />
+            ))}
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
+  ) : (
+    <Message data-testid="chat-bubble" data-role={message.role}>
+      <MessageContent>
         {message.parts.map((part, index) => (
           <PartView key={index} part={part} />
         ))}
@@ -226,7 +236,7 @@ export function AgentMessages({
 }: AgentMessagesProps): React.JSX.Element {
   const { visible: visibleMessages, remaining, loadMore } = useHistoryWindow(messages);
   return (
-    <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+    <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollPreviousItemPeek={64}>
       <section
         className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg border border-border bg-card"
         data-testid="agent-messages"

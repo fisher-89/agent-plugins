@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import {
@@ -95,7 +95,7 @@ function bubbleEvents(): AgentEvent[] {
 // ---------------------------------------------------------------------------
 
 describe('AgentMessages：四变体气泡', () => {
-  it('user 文本、assistant 文本、reasoning（思考折叠）、tool 对卡四类部件分别呈现', () => {
+  it('user 文本、assistant 文本、reasoning（思考折叠）、tool 对卡四类部件分别呈现', async () => {
     render(
       <AgentMessages
         messages={eventsToUIMessages(bubbleEvents())}
@@ -117,7 +117,14 @@ describe('AgentMessages：四变体气泡', () => {
     expect(texts[0]?.textContent).toContain('帮我看看重试逻辑');
     expect(texts[1]?.textContent).toContain('重试');
 
-    expect(screen.getByTestId('block-thinking').textContent).toContain('先梳理调用链');
+    // 思考块默认折叠：触发按钮文案在场，正文点开后可见
+    const thinking = screen.getByTestId('block-thinking');
+    expect(within(thinking).getByRole('button').textContent).toContain('思考');
+    expect(thinking.textContent).not.toContain('先梳理调用链');
+    fireEvent.click(within(thinking).getByRole('button'));
+    await waitFor(() => {
+      expect(thinking.textContent).toContain('先梳理调用链');
+    });
 
     expect(screen.getByTestId('block-tool-use').getAttribute('data-tool-id')).toBe('tu_1');
     expect(screen.getByTestId('block-tool-result').textContent).toContain('目录内容');
@@ -135,11 +142,11 @@ describe('AgentMessages：四变体气泡', () => {
     const bubbles = screen.getAllByTestId('chat-bubble');
     expect(bubbles[0]?.getAttribute('data-align')).toBe('end');
     expect(bubbles[1]?.getAttribute('data-align')).toBe('start');
-    // 内容块底色：user 泡 bg-muted、assistant 泡 bg-card
-    const userContent = bubbles[0]?.querySelector('[data-slot="message-content"]');
-    const assistantContent = bubbles[1]?.querySelector('[data-slot="message-content"]');
-    expect(userContent?.className).toContain('bg-muted');
-    expect(assistantContent?.className).toContain('bg-card');
+    // 内容块底色：user 泡走 Bubble muted（bubble-content 取 bg-muted），assistant 泡无泡底
+    const userBubble = bubbles[0]?.querySelector('[data-slot="bubble"]');
+    expect(userBubble?.getAttribute('data-variant')).toBe('muted');
+    expect(userBubble?.querySelector('[data-slot="bubble-content"]')).toBeTruthy();
+    expect(bubbles[1]?.querySelector('[data-slot="bubble"]')).toBeNull();
   });
 
   it('AskUserQuestion 经注册表呈现静态卡：问题与选项结构化可读', () => {

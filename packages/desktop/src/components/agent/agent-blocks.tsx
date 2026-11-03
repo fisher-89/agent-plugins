@@ -1,12 +1,15 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { ChevronRightIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import type { AgentToolOutput, AgentToolPart, AgentUIMessage } from '../../lib/agent-adapter';
-import { asRecord, textOf } from '../../lib/parse';
-import type { AgentCitation } from '../../types/dto';
-import { ScrollArea } from '../ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import type { AgentToolOutput, AgentToolPart, AgentUIMessage } from '@/lib/agent-adapter';
+import { asRecord, textOf } from '@/lib/parse';
+import type { AgentCitation } from '@/types/dto';
 
 /** 模块级稳定引用：react-markdown 每次渲染都重建 processor，插件数组不必每拍新建 */
 const REMARK_PLUGINS = [remarkGfm];
@@ -123,7 +126,7 @@ function TextBlockBase({
   );
   return (
     <div
-      className="prose prose-sm prose-invert max-w-none break-words [--tw-prose-links:var(--primary)] prose-pre:rounded prose-pre:bg-background prose-code:bg-background prose-code:text-foreground"
+      className="prose prose-sm prose-invert max-w-none wrap-break-word [--tw-prose-links:var(--primary)] prose-pre:rounded prose-pre:bg-background prose-code:bg-background prose-code:text-foreground"
       data-testid="block-text"
     >
       {markdown}
@@ -140,12 +143,21 @@ export const TextBlock = memo(
 /** 思考块：默认折叠 */
 function ThinkingBlockBase({ text }: { text: string }): React.JSX.Element {
   return (
-    <details className="my-1" data-testid="block-thinking">
-      <summary className="cursor-pointer text-xs text-muted-foreground">思考</summary>
-      <ScrollArea className="max-h-[200px] mt-1 whitespace-pre-wrap break-words border-l-2 border-border pl-2.5 text-sm text-muted-foreground">
-        {text}
-      </ScrollArea>
-    </details>
+    <Collapsible className="my-1" data-testid="block-thinking">
+      <CollapsibleTrigger
+        render={({ onClick }, state) => (
+          <Button variant="ghost" className="text-muted-foreground" onClick={onClick}>
+            思考
+            <ChevronRightIcon className={state.open ? 'rotate-90' : ''} />
+          </Button>
+        )}
+      />
+      <CollapsibleContent>
+        <ScrollArea className="max-h-50 mt-1 whitespace-pre-wrap wrap-break-word border-l-2 border-border pl-2.5 text-sm text-muted-foreground">
+          <span>{text}</span>
+        </ScrollArea>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -166,17 +178,20 @@ function ToolPairCardBase({
   return (
     <details className="my-1" data-testid="block-tool-use" data-tool-id={toolCallId}>
       <summary className="cursor-pointer text-sm">
-        工具调用 <code>{name}</code>
+        <code>
+          {name[0].toUpperCase()}
+          {name.slice(1)}
+        </code>
         {output !== null && output.isError && (
           <span className="ml-1.5 text-xs text-fail">出错</span>
         )}
       </summary>
-      <pre className="mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 text-xs break-words">
+      <pre className="mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 text-xs wrap-break-word">
         {JSON.stringify(input, null, 2)}
       </pre>
       {output !== null && (
         <div
-          className={`mt-1 whitespace-pre-wrap break-words rounded px-2 py-1.5 text-sm ${output.isError ? 'bg-fail-bg text-fail' : 'bg-muted'}`}
+          className={`mt-1 whitespace-pre-wrap wrap-break-word rounded px-2 py-1.5 text-sm ${output.isError ? 'bg-fail-bg text-fail' : 'bg-muted'}`}
           data-testid="block-tool-result"
         >
           {output.content}

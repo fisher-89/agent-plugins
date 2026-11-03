@@ -63,11 +63,7 @@ fn jobs计算_核数与除数整除() {
             "CPU={cpu} → jobs={expected}（每 4 核一份）"
         );
     }
-    assert_eq!(
-        16usize / MUTATION_JOBS_DIVISOR,
-        4,
-        "16 线程 → jobs=4"
-    );
+    assert_eq!(16usize / MUTATION_JOBS_DIVISOR, 4, "16 线程 → jobs=4");
     // 真实环境断言：jobs 与 available_parallelism 同式
     let parallelism = std::thread::available_parallelism()
         .map(|value| value.get())
@@ -253,11 +249,7 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     assert_eq!(argv[5], "--baseline", "baseline 位");
     assert_eq!(argv[6], "skip", "baseline skip（AC-4）");
     assert_eq!(argv[7], "--jobs", "jobs 位");
-    assert_eq!(
-        argv[8],
-        mutation_jobs().to_string(),
-        "jobs = max(1, CPU/4)"
-    );
+    assert_eq!(argv[8], mutation_jobs().to_string(), "jobs = max(1, CPU/4)");
     assert_eq!(argv[9], "--timeout", "timeout 位");
     assert_eq!(argv[10], "300", "per-mutant 超时 300（argv 逐字）");
     assert_eq!(argv[11], "--profile", "cargo profile 位");

@@ -310,13 +310,17 @@ describe('TextBlock：无引用形态（边界）', () => {
 // ---------------------------------------------------------------------------
 
 describe('既有块回归', () => {
-  it('ThinkingBlock 折叠呈现（details + summary 文案「思考」）', () => {
+  it('ThinkingBlock 折叠呈现（Collapsible + 触发按钮文案「思考」，点开后现正文）', async () => {
     render(<ThinkingBlock text="先想一想" />);
 
     const block = screen.getByTestId('block-thinking');
-    expect(block.tagName).toBe('DETAILS');
-    expect(block.querySelector('summary')?.textContent).toBe('思考');
-    expect(block.textContent).toContain('先想一想');
+    expect(block.querySelector('[data-slot="collapsible-content"]')).toBeNull();
+    // 未展开时正文不可见
+    expect(block.textContent).not.toContain('先想一想');
+    fireEvent.click(screen.getByRole('button', { name: /思考/ }));
+    await waitFor(() => {
+      expect(block.textContent).toContain('先想一想');
+    });
   });
 
   it('ToolPairCard：input / output 成对呈现，isError 高亮标记在场', () => {
