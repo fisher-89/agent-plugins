@@ -19,6 +19,10 @@ const CARGO_MUTANTS_OUT_DIR: &str = "mutants.out";
 /// 作用于 `--list`）。
 const CARGO_OUTCOMES_FILE: &str = "outcomes.json";
 
+/// 突变 scratch 目录名（相对 suite 执行目录的 `target/`——见 `run_segment`
+/// 的 TEMP / TMP / TMPDIR 重定向注释）。
+const MUTANTS_SCRATCH_DIR: &str = "mutants-scratch";
+
 /// 零突变体段合成载荷（计数面直读形态——`parse_cargo_mutants_seg` 计数面同式；
 /// 全零计数 → 归并块 valid == 0 → score 100 恒过，空段不拖累 suite 判定）。
 const ZERO_MUTANTS_PAYLOAD: &str = r#"{ "caught": 0, "missed": 0, "timeout": 0, "unviable": 0 }"#;
@@ -87,14 +91,28 @@ pub(crate) async fn run_segment(
     // 用相对值而非「不注入」是为了盖掉父进程可能已全局导出的绝对
     // `CARGO_TARGET_DIR`（`env` 是覆盖语义，无需额外的清除字段）。
     // 跨段复用由段级复用门（零 spawn）承担，不靠共享 target dir。
-    let env: Vec<(OsString, OsString)> =
-        vec![(OsString::from("CARGO_TARGET_DIR"), OsString::from("target"))]
-            .into_iter()
-            .chain(
-                tauri_config_override(exec_dir)
-                    .map(|config| (OsString::from("TAURI_CONFIG"), OsString::from(config))),
-            )
-            .collect();
+    let mut env: Vec<(OsString, OsString)> = vec![
+        (OsString::from("CARGO_TARGET_DIR"), OsString::from("target")),
+    ];
+    if let Some(config) = tauri_config_override(exec_dir) {
+        env.push((OsString::from("TAURI_CONFIG"), OsString::from(config)));
+    }
+    // worker 副本（scratch）落位：cargo-mutants 默认把源码树复制到系统临时目录
+    // （`std::env::temp_dir()` → TEMP / TMP / TMPDIR）。实测系统盘（C:）临时区
+    // 的单进程启动成本 = 同源盘（D:）的 2~3 倍（0.9 s vs 0.45 s），在 nextest
+    // 逐用例起进程的放大下整包测试从 29 s 涨到 78 s。故把三个键一并重定向到
+    // `<exec_dir>/target/mutants-scratch`：
+    // - 与源码同盘（消除跨盘复制与系统盘实时扫描开销）；
+    // - 落在 `target/` 内——顶层 `target` 已被 cargo-mutants 排除复制，放别处会
+    //   把 scratch 自身复制进每个副本；`target` 名亦被复用门扫描剪枝。
+    // 建目录失败即不注入（静默回退到系统临时目录，行为与未加本改动一致）。
+    let scratch = exec_dir.join("target").join(MUTANTS_SCRATCH_DIR);
+    if std::fs::create_dir_all(&scratch).is_ok() {
+        let scratch = scratch.into_os_string();
+        for key in ["TEMP", "TMP", "TMPDIR"] {
+            env.push((OsString::from(key), scratch.clone()));
+        }
+    }
 
     // 段报告落位清场：上一段 / 上次运行的陈旧 outcomes.json MUST NOT 被本段误读
     // （best-effort——目录缺席等失败不阻断，spawn 后报告在位即权威）
@@ -109,6 +127,15 @@ pub(crate) async fn run_segment(
         // 只关调试符号的专用 profile（见根 Cargo.toml `[profile.mutants]`）：
         // 突变体预期「编译通过、测试失败」，符号价值远不及编译速度。
         .args(["--profile", MUTANTS_CARGO_PROFILE])
+        // worker 副本按 `.gitignore` 剪枝（cargo-mutants 默认**不看** gitignore，
+        // 会把未跟踪的构建产物一并复制）。本仓库 `crates/target`（llvm-cov 的
+        // 构建目录，~225MB）虽已从版本库撤出，但仍在工作区里——不剪枝时每份副本
+        // 是 246MB / 962 文件，剪枝后 9MB / 493 文件（实测）。
+        //
+        // 安全性：被剪掉的只是未跟踪 / 已忽略的文件；构建所需的一切都在跟踪集内
+        // （`gen/` 由 tauri-build 在副本内自行重建，`crates/target` 本来就不参与
+        // 构建）。根包已实测可正常编译（含 tauri_build）。
+        .args(["--gitignore", "true"])
         // 每 worker 内的测试线程数：cargo-mutants 只把 `--cargo-test-arg` 追加到
         // Test 阶段（不进 `--check` 的 `cargo check`），nextest 档下落在
         // `cargo nextest run` 之后，正是它自己的 `-j` 位。不设则默认吃满核，

@@ -421,6 +421,9 @@ const MUTANTS_SCRIPT: &str = r#"#!/bin/sh
     printf 'cwd|%s\n' "$(pwd)"
   fi
   printf 'env|CARGO_TARGET_DIR=%s\n' "${CARGO_TARGET_DIR:-<unset>}"
+  printf 'env|TEMP=%s\n' "${TEMP:-<unset>}"
+  printf 'env|TMP=%s\n' "${TMP:-<unset>}"
+  printf 'env|TMPDIR=%s\n' "${TMPDIR:-<unset>}"
 } >> "${FAKE_SPAWN_LOG:?}"
 if [ -n "${FAKE_SPAWN_PIDFILE:-}" ]; then
   fake_winpid=$(cat "/proc/$$/winpid" 2>/dev/null || printf '%s' "$$")

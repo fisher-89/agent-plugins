@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "private": true,
   "scripts": {
     "dev": "tauri dev",
@@ -18,7 +18,7 @@
     "test": "pnpm run client:test && pnpm run server:test",
     "client:test": "vp test --sequence.shuffle",
     "server:test": "cargo nextest run --workspace --manifest-path src-tauri/Cargo.toml",
-    "mutate": "stryker run && cd src-tauri && cargo mutate --test-tool=nextest",
+    "mutate": "stryker run && cd src-tauri && cargo mutants --test-tool=nextest",
     "tauri": "tauri"
   },
   "dependencies": {

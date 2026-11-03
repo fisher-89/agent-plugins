@@ -49,24 +49,24 @@ fn argv模板常量面锚定() {
     );
 }
 
-/// jobs 计算：`max(1, (cpu - 2) / 4)` 关系式（16 核 → 3；期望值按真实 CPU
-/// 重算——不 mock 运行环境）。减 2 给系统留余量，除以 4 是「编译 + 测试」的总
-/// 压力折算。
+/// jobs 计算：`max(1, cpu / 4)` 关系式（16 线程 → 4；期望值按真实 CPU 重算
+/// ——不 mock 运行环境）。除以 4 是「编译 + 测试」的总压力折算；编译侧并发由
+/// cargo-mutants 的 GNU jobserver 全局封顶，测试侧峰值 = jobs × 4 线程 = 核数。
 #[test]
-fn jobs计算_核数减去余量再折算() {
+fn jobs计算_核数与除数整除() {
     let samples = [1usize, 2, 3, 4, 8, 16, 32, 64];
     for cpu in samples {
-        let expected = (cpu.saturating_sub(2) / MUTATION_JOBS_DIVISOR).max(1);
+        let expected = (cpu / MUTATION_JOBS_DIVISOR).max(1);
         assert_eq!(
             expected,
-            (cpu.saturating_sub(2) / 4).max(1),
-            "CPU={cpu} → jobs={expected}（留 2 核余量后每 4 核一份）"
+            (cpu / 4).max(1),
+            "CPU={cpu} → jobs={expected}（每 4 核一份）"
         );
     }
     assert_eq!(
-        (16usize.saturating_sub(2)) / MUTATION_JOBS_DIVISOR,
-        3,
-        "16 核 → jobs=3"
+        16usize / MUTATION_JOBS_DIVISOR,
+        4,
+        "16 线程 → jobs=4"
     );
     // 真实环境断言：jobs 与 available_parallelism 同式
     let parallelism = std::thread::available_parallelism()
@@ -74,11 +74,11 @@ fn jobs计算_核数减去余量再折算() {
         .unwrap_or(1);
     assert_eq!(
         mutation_jobs(),
-        (parallelism.saturating_sub(2) / MUTATION_JOBS_DIVISOR).max(1),
+        (parallelism / MUTATION_JOBS_DIVISOR).max(1),
         "mutation_jobs 与真实 CPU 关系式一致（下限 1）"
     );
     assert!(mutation_jobs() >= 1, "jobs 下限 1（单核 CPU）");
-    // 峰值测试进程数不超过核数太多（过订阅守门）
+    // 峰值测试进程数不超过核数（过订阅守门）
     assert!(
         mutation_jobs() * MUTATION_TEST_THREADS <= parallelism.max(MUTATION_TEST_THREADS),
         "jobs × 测试线程 ≤ 核数（{:?}）",
@@ -235,7 +235,7 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     let records = window.records();
     assert_eq!(records.len(), 1, "恰一次假 spawn");
     let argv = &records[0].argv;
-    assert_eq!(argv.len(), 15, "argv 十五参封闭: {argv:?}");
+    assert_eq!(argv.len(), 17, "argv 十七参封闭: {argv:?}");
     assert_eq!(argv[0], "mutants", "argv 首 token（cargo 子命令面）");
     assert_eq!(
         argv[1], "--test-tool=nextest",
@@ -256,7 +256,7 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     assert_eq!(
         argv[8],
         mutation_jobs().to_string(),
-        "jobs = max(1, (CPU-2)/4)"
+        "jobs = max(1, CPU/4)"
     );
     assert_eq!(argv[9], "--timeout", "timeout 位");
     assert_eq!(argv[10], "300", "per-mutant 超时 300（argv 逐字）");
@@ -265,9 +265,14 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
         argv[12], "mutants",
         "专用 profile（debug=none——cargo 不会自动采用，必须显式选中）"
     );
-    assert_eq!(argv[13], "--cargo-test-arg", "测试阶段参数透传位");
+    assert_eq!(argv[13], "--gitignore", "gitignore 剪枝位");
     assert_eq!(
-        argv[14], "-j4",
+        argv[14], "true",
+        "worker 副本按 .gitignore 剪枝（未跟踪的构建产物不进副本）"
+    );
+    assert_eq!(argv[15], "--cargo-test-arg", "测试阶段参数透传位");
+    assert_eq!(
+        argv[16], "-j4",
         "nextest 测试线程 4（cargo-mutants 只把该参数追加到 Test 阶段）"
     );
 
@@ -287,6 +292,35 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
         env_of(&records[0], "CARGO_TARGET_DIR").as_deref(),
         Some("target"),
         "段注入相对 target（各 worker 各自 target，且覆盖父进程的绝对值）"
+    );
+
+    // worker 副本落位：TEMP / TMP / TMPDIR 三键一并重定向到
+    // `<exec_dir>/target/mutants-scratch`——系统盘临时区的进程启动成本是同源盘的
+    // 2~3 倍，nextest 逐用例起进程会把它放大成整包测试的数倍墙钟；落在 `target/`
+    // 内是因为顶层 target 已被 cargo-mutants 排除复制（放别处会把 scratch 自身
+    // 复制进每个副本）。
+    //
+    // 断言按尾段比对：Windows 下假 `cargo` 由 msys bash 承载，其启动时会把继承的
+    // Windows 路径改写成自身形态（如 `/Temp/...`），完整路径逐字比对不成立。
+    let values: Vec<String> = ["TEMP", "TMP", "TMPDIR"]
+        .iter()
+        .map(|key| {
+            env_of(&records[0], key)
+                .unwrap_or_else(|| panic!("{key} 已注入"))
+                .replace('\\', "/")
+        })
+        .collect();
+    for (key, value) in ["TEMP", "TMP", "TMPDIR"].iter().zip(&values) {
+        assert!(
+            value.ends_with("app/target/mutants-scratch"),
+            "{key} 重定向到同源盘 scratch: {value}"
+        );
+    }
+    assert_eq!(values[0], values[1], "TEMP / TMP 同值");
+    assert_eq!(values[1], values[2], "TMP / TMPDIR 同值");
+    assert!(
+        ws.exec_dir.join("target").join("mutants-scratch").is_dir(),
+        "scratch 目录在 spawn 前已建（建不成则不注入，静默回退系统临时目录）"
     );
 }
 

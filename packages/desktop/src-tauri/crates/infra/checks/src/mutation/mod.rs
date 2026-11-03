@@ -17,11 +17,17 @@ use orchestration::port::{
     MutationTestOutcome, RunFault, ToolStepOutput,
 };
 
-/// 突变执行并发除数（每份 worker 预留的核数）：jobs =
-/// `max(1, (可用并行度 - 2) / MUTATION_JOBS_DIVISOR)`。
+/// 突变执行并发除数（每份 worker 占用的逻辑核数）：jobs =
+/// `max(1, 可用并行度 / MUTATION_JOBS_DIVISOR)`。
 ///
-/// 减 2 给操作系统 / 链接器 / 主进程本身留出余量；除以 4 是把每个 worker 的
-/// 「编译并发 + 测试并发」一并计入——worker 不是单线程的。
+/// 除以 4 是把每个 worker 的「编译并发 + 测试并发」一并计入——worker 不是单线程
+/// 的；不再另减余量，因为编译侧的并发由 cargo-mutants 的 GNU jobserver 在所有
+/// 子进程间全局封顶（默认 NCPUS），不会随 worker 数叠乘；测试侧的峰值进程数
+/// `jobs × MUTATION_TEST_THREADS` 已等于逻辑核数，超出即互相饿死。
+///
+/// 历史：早前版本额外 `- 2` 留余量，16 线程机器上给到 3 个 worker。实测 3 / 4 / 6
+/// 档端到端墙钟差异在噪声内，但 3 档的 per-mutant 余量更薄，长用例更容易撞
+/// `PER_MUTANT_TIMEOUT_SECS`；改为整除口径后 16 线程 → 4。
 pub const MUTATION_JOBS_DIVISOR: usize = 4;
 
 /// 单个 worker 内的测试线程数（nextest `-j` / libtest `--test-threads`）。
@@ -73,11 +79,11 @@ impl std::fmt::Display for SegmentFailure {
     }
 }
 
-/// 突变执行并发（cargo-mutants `--jobs`）：`max(1, (可用并行度 - 2) / 4)`——16 核 → 3。
+/// 突变执行并发（cargo-mutants `--jobs`）：`max(1, 可用并行度 / 4)`——16 核 → 4。
 ///
 /// 这个折算专门服务 **rust 桶**：每个 cargo-mutants worker 各持一份副本并各自冷编
 /// 整包（实测单份 ~110 s，份数即 jobs），同时提交的测试进程数为 `jobs × 测试线程数`。
-/// worker 按「留 2 核余量、每份吃 4 核」折算，把总压力钉在核数附近。
+/// worker 按「每份吃 4 核」折算，把总压力钉在核数附近。
 ///
 /// Stryker 桶**不**用本函数——它没有「每份副本各自冷编」的成本，见
 /// [`stryker_concurrency`]。
@@ -85,7 +91,7 @@ pub fn mutation_jobs() -> usize {
     let parallelism = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1);
-    (parallelism.saturating_sub(2) / MUTATION_JOBS_DIVISOR).max(1)
+    (parallelism / MUTATION_JOBS_DIVISOR).max(1)
 }
 
 /// Stryker 并发（同一进程内并行的测试运行器数）：半 CPU。
