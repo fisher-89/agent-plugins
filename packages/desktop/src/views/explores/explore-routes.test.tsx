@@ -10,7 +10,16 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ExploreRecord } from '../../types/dto';
-import { ExploreView } from './explore-view';
+import { ExploreDetailView } from './explore-detail-view';
+import { ExploreLayout } from './explore-layout';
+import { ExploreListView } from './explore-list-view';
+
+// ---------------------------------------------------------------------------
+// 路由级集成用例：被测目标是 `/explores` 路由树整体（布局 + index 清单页 +
+// `:name` 详情页 三件套的组合语义），不是某个单模块——故按路由面命名而无同名
+// 源文件（先例：`lib/ipc-contract.test.ts`）。组件级契约分别落在
+// `explore-detail-pane.test.tsx` 与 `hooks/*.test.ts`。
+// ---------------------------------------------------------------------------
 
 // 进程边界 Mock：仅 mock IPC（@tauri-apps/api/core 的 invoke / Channel），被测
 // 页面 import 的内部 hooks（useExploreList / useExploreDoc / useExploreSession）
@@ -94,8 +103,10 @@ function viewTree(path: string, root: string = ROOT, withListLink = false) {
   return (
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/explores" element={<ExploreView root={root} />} />
-        <Route path="/explores/:name" element={<ExploreView root={root} />} />
+        <Route path="/explores" element={<ExploreLayout root={root} />}>
+          <Route index element={<ExploreListView root={root} />} />
+          <Route path=":name" element={<ExploreDetailView root={root} />} />
+        </Route>
         <Route path="/changes/:id" element={<span data-testid="change-detail-stub" />} />
       </Routes>
       <LocationProbe />
@@ -211,7 +222,7 @@ afterEach(() => {
 // 清单页渲染（既有回归）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView 清单页：条目渲染 record.title（AC-8 清单半边）', () => {
+describe('ExploreListView 清单页：条目渲染 record.title（AC-8 清单半边）', () => {
   it('正向：条目标题显示 title（title ≠ name 时显示 title 而非 name）', async () => {
     renderAt('/explores');
 
@@ -243,7 +254,7 @@ describe('ExploreView 清单页：条目渲染 record.title（AC-8 清单半边�
   });
 });
 
-describe('ExploreView 详情页：list 透传与缺记录态（AC-8 / AC-5 动作可达）', () => {
+describe('ExploreDetailView 详情页：list 透传与缺记录态（AC-8 / AC-5 动作可达）', () => {
   it('正向：选中记录 → ExploreDetailView 收到 list（详情头 title + promote 动作可达）', async () => {
     renderAt('/explores/api-retry');
 
@@ -273,7 +284,7 @@ describe('ExploreView 详情页：list 透传与缺记录态（AC-8 / AC-5 动�
 // auto-named-explore：onCreated → 导航携 autoPrompt（AC-1 前半链）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView：onCreated 导航链（清单页 → 详情页首轮，AC-1 / AC-8）', () => {
+describe('Explore 路由：onCreated 导航链（清单页 → 详情页首轮，AC-1 / AC-8）', () => {
   it('正向：新话题建档 → list.refresh 后 navigate /explores/<占位名> 携 state.autoPrompt；详情页 auto-send 以 stance + 需求原文发起首轮', async () => {
     // 刷新后清单含建档记录（refresh 由 onCreated 触发 → 第二次取数返回占位记录）
     const listQueue: ExploreRecord[][] = [[], [placeholderRecord()]];
@@ -378,7 +389,7 @@ function mockRenamedFlow(secondList: ExploreRecord[]) {
   });
 }
 
-describe('ExploreView：三级链 id 桥（记录改名后旧名 URL 的派生与收敛，AC-4）', () => {
+describe('Explore 路由：三级链 id 桥（记录改名后旧名 URL 的派生与收敛，AC-4）', () => {
   it('正向：URL 旧名 miss（记录已改名）→ 按快照 id 在清单重寻命中、渲染新名详情并 replace 收敛', async () => {
     mockRenamedFlow([
       { ...record(1, 'new-final-name', '旧标题'), sessionId: 'ses-old-1727000001000' },
@@ -433,7 +444,7 @@ describe('ExploreView：三级链 id 桥（记录改名后旧名 URL 的派生�
 // 清单页条目动作面：进入详情 / 删除（动作回调接线，两入口各验一次）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView 清单页：条目动作接线（AC-8）', () => {
+describe('ExploreListView 清单页：条目动作接线（AC-8）', () => {
   it('正向：条目点击 → navigate 至 /explores/<record.name> 并渲染该记录详情', async () => {
     renderAt('/explores');
     await screen.findByTestId('explore-items');
@@ -475,7 +486,7 @@ describe('ExploreView 清单页：条目动作接线（AC-8）', () => {
 // 清单三态呈现：错误 / 加载中 / 空态 / 有记录（四分支互斥，各自只在对应态在场）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView 清单页：错误 / 加载中 / 空态三态互斥呈现（AC-8）', () => {
+describe('ExploreListView 清单页：错误 / 加载中 / 空态三态互斥呈现（AC-8）', () => {
   it('空态：清单为空且非加载非错误 → 空态提示在场、加载中与错误块均不在场', async () => {
     records = [];
     renderAt('/explores');
@@ -528,7 +539,7 @@ describe('ExploreView 清单页：错误 / 加载中 / 空态三态互斥呈现�
 // workspace 根切换：resetPending 收敛链（带旧选中即落清单，且不锁死清单页）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView：workspace 根切换 resetPending 收敛（AC-4 相邻面）', () => {
+describe('Explore 路由：workspace 根切换 resetPending 收敛（AC-4 相邻面）', () => {
   const ROOT2 = 'C:demo\beta';
 
   /** 按 root 分流清单应答（新根清单含独立记录）。 */
@@ -582,7 +593,7 @@ describe('ExploreView：workspace 根切换 resetPending 收敛（AC-4 相邻面
 // 清单分组呈现：组序 / 组标题计数 / 条目全局序（AC-4）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView 清单页：分组呈现（组序 / 计数 / 条目全局序，AC-4）', () => {
+describe('ExploreListView 清单页：分组呈现（组序 / 计数 / 条目全局序，AC-4）', () => {
   it('正向：混合清单 → 分组区两个 section 恒序（进行中在前、已转变更在后）', async () => {
     records = mixedRecords();
     renderAt('/explores');
@@ -632,7 +643,7 @@ describe('ExploreView 清单页：分组呈现（组序 / 计数 / 条目全局�
 // 已转变更组：点击进 promoted 态详情 / 清单内零直达 change 入口（AC-6）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView 清单页：已转变更组的详情链与零新入口（AC-6）', () => {
+describe('ExploreListView 清单页：已转变更组的详情链与零新入口（AC-6）', () => {
   it('正向：已转变更组条目点击 → promoted 态详情（徽标 + 查看变更跳 /changes/<id>）', async () => {
     records = [promotedRecord(1, 'promoted-a', '已转主题甲', 'chg-1')];
     renderAt('/explores');
@@ -677,7 +688,7 @@ describe('ExploreView 清单页：已转变更组的详情链与零新入口（A
 // promote 移组链：详情页 promote → 重取 → 回清单落在已转变更组（AC-7）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView：promote 成功后移组（AC-7）', () => {
+describe('Explore 路由：promote 成功后移组（AC-7）', () => {
   const activeApiRetry = (): ExploreRecord => record(2, 'api-retry', '接口重试策略');
   const activeLayout = (): ExploreRecord => record(1, 'layout-design', '布局设计');
 
@@ -748,7 +759,7 @@ describe('ExploreView：promote 成功后移组（AC-7）', () => {
 // 空组占位 / 零记录 / 单条 / 同刻兜底 / 大清单 / 三态过渡（AC-5）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView 清单页：分组空态与分组区边界（AC-5）', () => {
+describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）', () => {
   it('边界：仅含已转变更记录 → 进行中组在场且空态占位、条目数为 0', async () => {
     records = [promotedRecord(1, 'promoted-a', '已转主题甲', 'chg-1')];
     renderAt('/explores');
@@ -894,7 +905,7 @@ describe('ExploreView 清单页：分组空态与分组区边界（AC-5）', () 
 // 分组派生与既有回归面：根切换落清单 / id 桥三级链（AC-8）
 // ---------------------------------------------------------------------------
 
-describe('ExploreView：分组派生下的根切换与 id 桥回归（AC-8）', () => {
+describe('Explore 路由：分组派生下的根切换与 id 桥回归（AC-8）', () => {
   const ROOT2 = 'C:\\demo\\beta';
 
   it('边界：根切换落清单后新根记录按分组呈现（旧根条目不在场）', async () => {
@@ -941,6 +952,32 @@ describe('ExploreView：分组派生下的根切换与 id 桥回归（AC-8）', 
     await waitFor(() =>
       expect(screen.getByTestId('location-probe').textContent).toBe('/explores/new-final-name'),
     );
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 路由布局（`/explores` 父路由）：清单由布局单源持有，两页同源切换不重取
+// ---------------------------------------------------------------------------
+
+describe('Explore 路由布局：清单页与详情页共享同一份清单状态', () => {
+  it('正向：清单 → 详情 → 回清单往返，list_explore_records 只在布局挂载时取一次', async () => {
+    render(viewTree('/explores', ROOT, true));
+    await screen.findByTestId('explore-items');
+    expect(listCallCount()).toBe(1);
+
+    // 进详情：清单不重取，详情直接派生自布局持有的清单（零缺失态闪现）
+    fireEvent.click(itemByName('api-retry'));
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe('/explores/api-retry'),
+    );
+    expect(screen.getByTestId('explore-detail-title').textContent).toBe('接口重试策略');
+    expect(listCallCount()).toBe(1);
+
+    // 回清单：仍是同一次取数（布局未卸载）
+    fireEvent.click(screen.getByTestId('list-nav-probe'));
+    await screen.findByTestId('explore-items');
+    expect(listCallCount()).toBe(1);
     expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
   });
 });

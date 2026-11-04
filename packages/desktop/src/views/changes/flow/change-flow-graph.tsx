@@ -40,12 +40,15 @@ function toChartNodes(
     };
   });
   const steps: RunStepFlowNode[] = graph.nodes.map((node) => {
+    const layout = nodeLayout(node);
     return {
-      ...nodeLayout(node),
+      ...layout,
       id: node.id,
       parentId: node.parentId,
       extent: 'parent' as const,
       type: 'runStep',
+      // 声明度量（非仅 width/height 属性）：step 尺寸恒为布局常量，声明后重建不再丢 handle 面。
+      measured: { width: layout.width, height: layout.height },
       data: { node },
     };
   });

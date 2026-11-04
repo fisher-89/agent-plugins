@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router';
 
 import { groupExploreRecords } from '../../lib/explore-groups';
 import type { ExploreRecord } from '../../types/dto';
 import { ExploreCreateDialog } from './components/explore-create-dialog';
-import { ExploreDetailView } from './explore-detail-view';
-import { useExploreList, type ExploreListState } from './hooks/use-explore-list';
+import { useExploreRouteContext } from './explore-layout';
+import type { ExploreListState } from './hooks/use-explore-list';
 
 /** 清单条目：标题（title，恒非空）+ 建档时间 + 删除入口（删记录不动磁盘文件） */
 function ExploreListItem({
@@ -80,8 +80,8 @@ function ExploreGroup({
   );
 }
 
-/** 清单页：store 清单（按当前 workspace 过滤）+ 新建入口，非实时扫目录 */
-function ExploreListView({
+/** 清单数据区：分组派生 + 加载 / 错误 / 空态三态（渲染期纯派生，零 useMemo） */
+function ListBody({
   list,
   root,
   onOpen,
@@ -92,7 +92,6 @@ function ExploreListView({
   onOpen: (name: string) => void;
   onCreated: (name: string, autoPrompt: string | null) => void;
 }): React.JSX.Element {
-  // 渲染期纯派生：分组 + 组内按建档时间倒序（零 useMemo / 不进 hook）
   const groups = groupExploreRecords(list.records);
   return (
     <div data-testid="explore-list">
@@ -143,44 +142,16 @@ function ExploreListView({
 }
 
 /**
- * 探索视图：/explores（清单）与 /explores/:name（详情）共用；选中记录由路由
- * 参数承载（useParams 派生，无本地 state 双轨），记录对象从清单三级派生——
- * URL 名 find → miss 时以 `lastRecordRef` 快照 id 在清单重寻（id 桥：in-place
- * 改名保 id，旧名寻址不再命中）→ 仍 miss 以快照本体兜底（MUST NOT 闪现
- * MissingRecord）。workspace 根切换（select / 移除当前根 / 添加新根）时若带
- * 旧选中，照既有 resetPending 流程落清单。
+ * 探索清单页（路由 `/explores`，清单状态取自路由布局）：清单按当前 workspace
+ * 过滤（非实时扫目录），新建成功后携 `state.autoPrompt` 导航进详情页。
  */
-export function ExploreView({ root }: { root: string }): React.JSX.Element {
-  const { name } = useParams<'name'>();
+export function ExploreListView({ root }: { root: string }): React.JSX.Element {
+  const { list } = useExploreRouteContext();
   const navigate = useNavigate();
-  const selected = name ?? null;
-  const [prevRoot, setPrevRoot] = useState(root);
-  const [resetPending, setResetPending] = useState(false);
-  const list = useExploreList(root);
-  // id 桥快照：最近一次非空派生记录（渲染期缓存维护）——记录 in-place 改名后
-  // 按旧名寻址 miss 时，以快照 id 在清单重寻；清单未就绪 / 仍 miss 以快照本体
-  // 兜底（页面不闪 MissingRecord）
-  const lastRecordRef = useRef<ExploreRecord | null>(null);
-
-  // 早于 navigate 过渡提交，否则留出「新根 + 旧名」中间提交重新武装查询
-  if (prevRoot !== root) {
-    setPrevRoot(root);
-    if (selected !== null) setResetPending(true);
-  }
-  if (resetPending && selected === null) {
-    setResetPending(false);
-  }
-
-  useEffect(() => {
-    if (resetPending) {
-      void navigate('/explores', { replace: true }); // workspace 切换落清单
-    }
-  }, [resetPending, navigate]);
-
   const openExplore = useCallback((target: string) => navigate(`/explores/${target}`), [navigate]);
   const onCreated = useCallback(
     (created: string, autoPrompt: string | null) => {
-      list.refresh(); // 对话框直连建档，清单经此显式刷新
+      list.refresh(); // 对话框直连建档，清单经此显式刷新（布局持有，导航后即见）
       void navigate(
         `/explores/${created}`,
         autoPrompt === null ? undefined : { state: { autoPrompt } },
@@ -188,24 +159,5 @@ export function ExploreView({ root }: { root: string }): React.JSX.Element {
     },
     [list.refresh, navigate],
   );
-
-  let record: ExploreRecord | null = null;
-  if (selected !== null && !resetPending) {
-    const byName = list.records.find((item) => item.name === selected);
-    if (byName !== undefined) {
-      record = byName;
-    } else if (lastRecordRef.current !== null) {
-      const snapshot = lastRecordRef.current;
-      record = list.records.find((item) => item.id === snapshot.id) ?? snapshot;
-    }
-  }
-  if (record !== null) {
-    lastRecordRef.current = record; // 派生非空时渲染期刷新快照
-  }
-
-  return selected === null || resetPending ? (
-    <ExploreListView list={list} onCreated={onCreated} onOpen={openExplore} root={root} />
-  ) : (
-    <ExploreDetailView list={list} record={record} root={root} />
-  );
+  return <ListBody list={list} onCreated={onCreated} onOpen={openExplore} root={root} />;
 }

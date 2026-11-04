@@ -196,6 +196,28 @@ function materialsFor(base: ChangeDetail): FlowMaterials {
   return mountMaterials(base, [docEnvelope()]);
 }
 
+/** 等价刷新回归面的边夹具（端点 = runNode / gateNode 稳定身份键）。 */
+const SELF_EDGES: UnifiedRunEdge[] = [
+  {
+    fromNodeKey: 'implement:1:executor:0',
+    toNodeKey: 'implement:1:verdict_gate:0',
+    edgeKind: 'forward',
+    runId: 'run-1727',
+  },
+];
+
+/** 同列 forward 边的目标端节点（verdictGate：无信息源，不进点击判据面）。 */
+function gateNode(): RuntimeFlowNode {
+  return silentNode({
+    id: 'run:implement:1:verdictGate:0',
+    runStepKind: 'verdictGate',
+    group: 'gate',
+    order: 1,
+    status: 'passed',
+    endedAt: 1_727_000_005_000,
+  });
+}
+
 function renderGraph(
   graph: FlowGraph,
   materials: FlowMaterials,
@@ -510,6 +532,39 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
     expect(screen.queryByTestId('flow-column')).toBeNull();
     expect(screen.queryByTestId('run-step-node')).toBeNull();
+  });
+
+  it('等价图重渲染（刷新取数全引用新建）→ 边不卸载重挂：节点声明布局尺寸，内部 handle 度量跨重建保留', async () => {
+    const before = detail();
+    const { rerender } = renderGraph(
+      buildFlowGraph(
+        before,
+        [runNode({ status: 'passed', endedAt: 1_727_000_005_000 }), gateNode()],
+        SELF_EDGES,
+      ),
+      materialsFor(before),
+    );
+    await measureNodes();
+    await waitFor(() => expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(1));
+    const firstEdge = document.querySelector('.react-flow__edge');
+
+    // 刷新轮：detail / 节点 / 边 / 挂载素材全为新建引用，内容逐字段等价
+    const after = detail();
+    rerender(
+      <ChangeFlowGraph
+        graph={buildFlowGraph(
+          after,
+          [runNode({ status: 'passed', endedAt: 1_727_000_005_000 }), gateNode()],
+          SELF_EDGES,
+        )}
+        materials={materialsFor(after)}
+        onSelect={() => {}}
+      />,
+    );
+
+    // 未再测量即成立：边 DOM 未卸载重挂（重测窗口内零闪烁）
+    expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(1);
+    expect(document.querySelector('.react-flow__edge')).toBe(firstEdge);
   });
 
   it('边界：graph 变化重渲染 → 新节点集合渲染、旧节点零残留', async () => {

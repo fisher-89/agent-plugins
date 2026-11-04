@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { AgentEvent, ExploreDoc, ExploreRecord, SessionSummary } from '../../types/dto';
-import { ExploreDetailView } from './explore-detail-view';
+import { ExploreDetailPane } from './explore-detail-pane';
 import type { ExploreListState } from './hooks/use-explore-list';
 
 // 进程边界 Mock：invoke + Channel（@tauri-apps/api/core）；内部 hooks
@@ -93,7 +93,7 @@ function detailTree(recordValue: ExploreRecord | null, list: ExploreListState) {
       <Routes>
         <Route
           path="/explores/:name"
-          element={<ExploreDetailView list={list} record={recordValue} root={ROOT} />}
+          element={<ExploreDetailPane list={list} record={recordValue} root={ROOT} />}
         />
         <Route path="/changes/:id" element={<span data-testid="change-detail-stub" />} />
       </Routes>
@@ -116,7 +116,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe('ExploreDetailView：详情头与 promoted 两态（AC-8）', () => {
+describe('ExploreDetailPane：详情头与 promoted 两态（AC-8）', () => {
   it('正向：详情头渲染 record.title（data-testid 在位，name 不作标题展示）', async () => {
     renderDetail(record(), makeList());
 
@@ -165,7 +165,7 @@ describe('ExploreDetailView：详情头与 promoted 两态（AC-8）', () => {
   });
 });
 
-describe('ExploreDetailView：title 回填 effect（AC-5 链路）', () => {
+describe('ExploreDetailPane：title 回填 effect（AC-5 链路）', () => {
   it('正向：doc 首行 # 标题与 record.title 不同 → list.updateTitle 恰一次并 refresh', async () => {
     const list = makeList();
     docResult = { name: 'api-retry', content: '# 新标题\n\n正文' };
@@ -202,7 +202,7 @@ describe('ExploreDetailView：title 回填 effect（AC-5 链路）', () => {
   });
 });
 
-describe('ExploreDetailView：promoted 停读与缺失态（AC-8 / 边界）', () => {
+describe('ExploreDetailPane：promoted 停读与缺失态（AC-8 / 边界）', () => {
   it('边界：promotedTo 非空 → name 传 null（停 read/watch），渲染 promoted 提示面板', async () => {
     const list = makeList();
     renderDetail(record({ promotedTo: 'chg-018f3a-0001' }), list);
@@ -225,7 +225,7 @@ describe('ExploreDetailView：promoted 停读与缺失态（AC-8 / 边界）', (
   });
 });
 
-describe('ExploreDetailView：promote 类型选择器与改即写（AC-8）', () => {
+describe('ExploreDetailPane：promote 类型选择器与改即写（AC-8）', () => {
   it('正向：草稿态渲染类型选择器（explore-workflow-type-select），默认值 = record.workflowType（两态各一则）', async () => {
     renderDetail(record({ workflowType: 'requirement' }), makeList());
     const select = await screen.findByTestId('explore-workflow-type-select');
@@ -286,7 +286,7 @@ describe('ExploreDetailView：promote 类型选择器与改即写（AC-8）', ()
         <Routes>
           <Route
             path="/explores/:name"
-            element={<ExploreDetailView list={makeList()} record={record()} root={ROOT} />}
+            element={<ExploreDetailPane list={makeList()} record={record()} root={ROOT} />}
           />
         </Routes>
       </MemoryRouter>,
@@ -327,7 +327,7 @@ describe('ExploreDetailView：promote 类型选择器与改即写（AC-8）', ()
   });
 });
 
-describe('ExploreDetailView：workflow_type 回填 effect（AC-8 链路）', () => {
+describe('ExploreDetailPane：workflow_type 回填 effect（AC-8 链路）', () => {
   it('正向：doc 含约定标记行 test-only 且与 record.workflowType 不同 → list.updateWorkflowType 恰一次', async () => {
     const list = makeList();
     docResult = { name: 'api-retry', content: 'workflow_type: test-only\n\n正文段落' };
@@ -452,7 +452,7 @@ function renderDetailWithState(
       <Routes>
         <Route
           path="/explores/:name"
-          element={<ExploreDetailView list={list} record={recordValue} root={ROOT} />}
+          element={<ExploreDetailPane list={list} record={recordValue} root={ROOT} />}
         />
         <Route path="/changes/:id" element={<span data-testid="change-detail-stub" />} />
       </Routes>
@@ -485,7 +485,7 @@ function lastChannelLike(): { onmessage: ((event: unknown) => void) | null } {
 
 const startCalls = () => invokeMock.mock.calls.filter(([name]) => name === 'agent_start');
 
-describe('ExploreDetailView：autoPrompt 读数传递（AC-1 链路入口半边）', () => {
+describe('ExploreDetailPane：autoPrompt 读数传递（AC-1 链路入口半边）', () => {
   it('正向：location.state.autoPrompt 为 string → useExploreSession 第三参收到该值（auto-send 以 stance + 原文发起）', async () => {
     mockEmptySessionIpc();
     // agent_start 挂起（运行在途形态即可断言入参面）
@@ -563,7 +563,7 @@ function completedTurn(sessionId: string): TurnSummaryLike {
 // run 终态清单刷新与名变收敛导航（AC-4 收敛链）
 // ---------------------------------------------------------------------------
 
-describe('ExploreDetailView：run 终态刷新与名变收敛（AC-4 收敛链）', () => {
+describe('ExploreDetailPane：run 终态刷新与名变收敛（AC-4 收敛链）', () => {
   it('正向：running true→false → list.refresh 与 doc 定点重读同点触发（read_explore 二次拉取）', async () => {
     mockEmptySessionIpc();
     // agent_start 提前 resolve running 轮行（库态 running 来源）；终态经 Channel
@@ -644,7 +644,7 @@ describe('ExploreDetailView：run 终态刷新与名变收敛（AC-4 收敛链�
 // 占位中间窗口（proposal 风险 5 留痕口径）与 promote 门禁行内呈现（AC-9）
 // ---------------------------------------------------------------------------
 
-describe('ExploreDetailView：占位中间窗口与 promote 门禁行内呈现（AC-2 / AC-9）', () => {
+describe('ExploreDetailPane：占位中间窗口与 promote 门禁行内呈现（AC-2 / AC-9）', () => {
   it('正向：create 已执行、run 未终态 → 页面停留占位名、标题「分析中」、无 MissingRecord', async () => {
     mockEmptySessionIpc();
     invokeMock.mockImplementation((command: string) => {
@@ -693,7 +693,7 @@ describe('ExploreDetailView：占位中间窗口与 promote 门禁行内呈现�
 // 结构面补遗：右栏两态、replace 语义词、无 :name 路由挂载、非对象路由 state
 // ---------------------------------------------------------------------------
 
-describe('ExploreDetailView：右栏两态与名变收敛导航语义（AC-8 / AC-4）', () => {
+describe('ExploreDetailPane：右栏两态与名变收敛导航语义（AC-8 / AC-4）', () => {
   it('正向：草稿态右栏为笔记预览（explore-preview 在场、promoted 面板不在场）', async () => {
     mockEmptySessionIpc();
     renderDetail(record(), makeList());
@@ -720,7 +720,7 @@ describe('ExploreDetailView：右栏两态与名变收敛导航语义（AC-8 / A
         <Routes>
           <Route
             path="/explores-flat"
-            element={<ExploreDetailView list={makeList()} record={record()} root={ROOT} />}
+            element={<ExploreDetailPane list={makeList()} record={record()} root={ROOT} />}
           />
         </Routes>
         <LocationProbe />
@@ -744,7 +744,7 @@ describe('ExploreDetailView：右栏两态与名变收敛导航语义（AC-8 / A
   });
 });
 
-describe('ExploreDetailView：promote 在飞标记（防重复提交态）', () => {
+describe('ExploreDetailPane：promote 在飞标记（防重复提交态）', () => {
   it('正向：promote 在飞 → 「启动变更」禁用；落地后复位启用（在飞标记随 promise 收敛）', async () => {
     let resolvePromote: () => void = () => {};
     const list = makeList({
@@ -858,7 +858,7 @@ function seedChatSession(): void {
   });
 }
 
-describe('ExploreDetailView：ChatPane 注入形态与 composer 插槽', () => {
+describe('ExploreDetailPane：ChatPane 注入形态与 composer 插槽', () => {
   it('正向：explore-chat 注入形态挂载，ExploreComposer 由插槽渲染（running 取自会话库态）', async () => {
     seedChatSession();
     renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
@@ -986,7 +986,7 @@ function stringArg(args: Record<string, unknown> | undefined, key: string): stri
   return typeof value === 'string' ? value : '';
 }
 
-describe('ExploreDetailView：记录切换（并行流 ≤ 1）', () => {
+describe('ExploreDetailPane：记录切换（并行流 ≤ 1）', () => {
   it('切换 explore 记录 → 新会话重放重取一次、旧会话流拆除（agent_session_watch 并行 ≤ 1）', async () => {
     const watched: string[] = [];
     const channels = new Map<string, WatchChannel>();
@@ -1116,7 +1116,7 @@ function completedTurnRecord(sessionId: string): TurnSummaryLike {
   };
 }
 
-describe('ExploreDetailView：ChatPane 运行态边界（库态 running 禁发与停止接线）', () => {
+describe('ExploreDetailPane：ChatPane 运行态边界（库态 running 禁发与停止接线）', () => {
   it('边界：库态 running → 发送禁用、停止可点（agent_stop）；收口后恢复可发（终态定点重读重评估）', async () => {
     // 收口闸门：false 期间 session_detail 返运行中（重放 + 订阅状态门两次取数），
     // 投终态信封后转已收口（收口重放读已收口库态）
@@ -1226,7 +1226,7 @@ describe('ExploreDetailView：ChatPane 运行态边界（库态 running 禁发�
   });
 });
 
-describe('ExploreDetailView：ChatPane 错误面（会话查询失败不塌页面）', () => {
+describe('ExploreDetailPane：ChatPane 错误面（会话查询失败不塌页面）', () => {
   it('异常：会话查询 reject → 对话区错误提示呈现，记录头 / 右栏面板不塌、零伪气泡、零订阅', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'session_detail') return Promise.reject(new Error('会话查询失败：注入'));
