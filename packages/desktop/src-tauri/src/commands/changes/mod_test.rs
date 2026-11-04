@@ -39,8 +39,8 @@ use workflow::queries as core_queries;
 use workflow::state::{ChangeStateRecord, ChangeStatus, PhaseLogCommand};
 
 use super::{
-    archive_change_with, create_change, create_change_with, get_change_detail, list_changes,
-    read_artifact, read_exec_output,
+    archive_change_with, create_change, create_change_with, delete_change_with, get_change_detail,
+    list_changes, read_artifact, read_exec_output,
 };
 
 /// 确定性时间戳（UTC unix 毫秒；2024-09-22 / 2026-02-02）。
@@ -4062,5 +4062,256 @@ fn read_exec_output_delta半字符停字符起点() {
         second.next_offset,
         completed.len() as u64,
         "游标推进到文件末尾"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// delete_change（desktop-change-delete）：按 id 删除——运行中拒绝 / 正常删除
+// 磁盘与库双清 / clean_worktree 透传 / 归档条目 / blank 参数
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn delete_blank参数显式err且零删除() {
+    let env = Env::new("delete-blank");
+    let app = app_with(&env);
+    let root = env.root();
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "keep-me");
+    }
+
+    let err = delete_change_with(
+        app.handle().clone(),
+        String::new(),
+        "keep-me".to_owned(),
+        false,
+    )
+    .await
+    .expect_err("blank root 应 Err");
+    assert!(err.contains("非法 root"), "错误文案: {err}");
+    let err = delete_change_with(app.handle().clone(), root.clone(), "  ".to_owned(), false)
+        .await
+        .expect_err("blank id 应 Err");
+    assert!(err.contains("非法 id"), "错误文案: {err}");
+    assert!(
+        store_of(&app, &root)
+            .find_change_record("keep-me")
+            .unwrap()
+            .is_some(),
+        "blank 参数零删除"
+    );
+}
+
+#[tokio::test]
+async fn delete运行中拒绝_提示先停止且零副作用() {
+    let env = Env::new("delete-running");
+    let app = app_with(&env);
+    let root = env.root();
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "busy-change");
+    }
+    let change_dir = env.change_dir("busy-change");
+    // 占用运行注册表（begin_run 是「有 run 在跑」的活面权威）
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+    let _guard = control
+        .begin_run(
+            &root,
+            "busy-change",
+            "run-delete-1".to_owned(),
+            1_727_000_000_000,
+        )
+        .expect("注册运行应成功");
+
+    let err = delete_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "busy-change".to_owned(),
+        true,
+    )
+    .await
+    .expect_err("运行中应拒绝");
+    assert!(
+        err.contains("正在运行中") && err.contains("请先停止"),
+        "错误文案: {err}"
+    );
+    assert!(change_dir.is_dir(), "零磁盘删除");
+    assert!(
+        store_of(&app, &root)
+            .find_change_record("busy-change")
+            .unwrap()
+            .is_some(),
+        "零库删除"
+    );
+}
+
+#[tokio::test]
+async fn delete正常删除_产物目录与库记录双清且清单不再列出() {
+    let env = Env::new("delete-wire");
+    let app = app_with(&env);
+    let root = env.root();
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "gone-change");
+    }
+    let change_dir = env.change_dir("gone-change");
+
+    let outcome = delete_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "gone-change".to_owned(),
+        false,
+    )
+    .await
+    .expect("删除应成功");
+
+    assert_eq!(outcome.name, "gone-change");
+    assert!(!outcome.removed_worktree, "legacy 记录无 worktree 可移除");
+    assert!(!change_dir.exists(), "产物目录已删除");
+    assert!(
+        store_of(&app, &root)
+            .find_change_record("gone-change")
+            .unwrap()
+            .is_none(),
+        "建档记录已级联删除"
+    );
+    let list = list_changes(app.state::<WorkspaceStores>(), root);
+    assert!(
+        list.active.iter().all(|entry| entry.name != "gone-change"),
+        "清单不再列出已删除条目"
+    );
+}
+
+#[tokio::test]
+async fn delete_clean_worktree真实git_清空worktree与分支且可同名重建() {
+    // 真实 git 仓 + ProcessWorktree spawn：与 PATH 隔离用例共享串行锁
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("delete-worktree");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+
+    // 经 create 命令真实建域（db 记录 + worktree 目录 + 分支 change/<name>）
+    let created = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "drop-me".to_owned(),
+        "待弃置的变更".to_owned(),
+        "drop-me".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect("create 应成功");
+    let worktree = PathBuf::from(&created.worktree);
+    assert!(worktree.is_dir(), "worktree 建域落位");
+
+    let outcome = delete_change_with(app.handle().clone(), root.clone(), created.id.clone(), true)
+        .await
+        .expect("勾选清空删除应成功");
+
+    assert!(outcome.removed_worktree, "勾选 → worktree 实际移除");
+    assert!(outcome.warnings.is_empty());
+    assert!(!worktree.exists(), "worktree 目录消失");
+    assert!(
+        store_of(&app, &root)
+            .find_change_record(&created.id)
+            .unwrap()
+            .is_none(),
+        "建档记录已删除"
+    );
+
+    // 同名重建成功（前置⑥ branch 已存在 / 前置⑦ 目录已存在不再撞）
+    create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "drop-me".to_owned(),
+        "重建".to_owned(),
+        "drop-me".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect("删除后同名重建应成功（分支与目录均已清）");
+}
+
+#[tokio::test]
+async fn delete_不勾选清空_worktree保留且返回保留注记() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("delete-keep-worktree");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+
+    let created = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "keep-wt".to_owned(),
+        "保留 worktree".to_owned(),
+        "keep-wt".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect("create 应成功");
+    let worktree = PathBuf::from(&created.worktree);
+
+    let outcome = delete_change_with(
+        app.handle().clone(),
+        root.clone(),
+        created.id.clone(),
+        false,
+    )
+    .await
+    .expect("不勾选删除应成功");
+
+    assert!(!outcome.removed_worktree);
+    assert_eq!(outcome.warnings.len(), 1, "保留注记恰一条");
+    assert!(worktree.is_dir(), "未勾选 → worktree 目录保留");
+    assert!(
+        store_of(&app, &root)
+            .find_change_record(&created.id)
+            .unwrap()
+            .is_none(),
+        "库记录仍删除"
+    );
+}
+
+#[tokio::test]
+async fn delete归档条目_归档前缀目录与库记录双清() {
+    let env = Env::new("delete-archive");
+    let app = app_with(&env);
+    let root = env.root();
+    let name = "old-archived";
+    {
+        let store = store_of(&app, &root);
+        seed_archived(&store, name);
+    }
+    // archived_at 对应目录（seed_archived 的 ARCHIVED_AT → 2026-02-02）
+    fs::create_dir_all(env.archive_dir()).expect("创建 archive 树失败");
+    let archived_dir = env.archive_dir().join(format!("2026-02-02-{name}"));
+    fs::create_dir_all(&archived_dir).expect("创建归档目录失败");
+
+    let outcome = delete_change_with(app.handle().clone(), root.clone(), name.to_owned(), false)
+        .await
+        .expect("归档删除应成功");
+
+    assert_eq!(outcome.name, name);
+    assert!(!archived_dir.exists(), "归档前缀目录已删除");
+    assert!(
+        store_of(&app, &root)
+            .find_change_record(name)
+            .unwrap()
+            .is_none(),
+        "归档建档记录已删除"
+    );
+    let list = list_changes(app.state::<WorkspaceStores>(), root);
+    assert!(
+        list.archive_groups
+            .iter()
+            .flat_map(|group| group.changes.iter())
+            .all(|entry| entry.name != name),
+        "归档分组不再列出已删除条目"
     );
 }

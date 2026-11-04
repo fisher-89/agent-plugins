@@ -232,13 +232,22 @@ run 收口的 finish 落包 SHALL 在同一事务内处置 `ChangeRecord.active_
 - **WHEN** 建档 change 推进相位并收口 run 后关闭重开同一 db 文件查询
 - **THEN** RunNodeRecord 四列与写入逐字段一致（含瞬步 `started_at == ended_at`、stopped 步 `ended_at` 在案形态），状态查询不依赖任何磁盘文件
 
+### Requirement: 用户级联删除
+
+store SHALL 提供 `delete_change_cascade(id) -> Result<bool, StoreError>`：单写事务内按 change id 清空该 change 的全部流程状态行——`ChangeRecord` 主行、`PhaseRecord` 及其 `ChecklistItemRecord` 子行、`StepRecord`、`RunRecord` / `RunNodeRecord` / `RunEdgeRecord`；miss 幂等 `Ok(false)`（不开写事务）。会话留痕 `SessionRecord` / `SessionEventRecord` / `AgentRunRecord` SHALL NOT 被删除（审计面，按 `sessionId` 直查仍可达；与 `delete_explore_record` 的会话级联口径刻意不同）。补偿删除 `delete_change_record`（create 回滚面，只删本次自插单行）语义 SHALL 保持不变，两函数职责分立；用户删除面的调用方为写面 `workflow::write::delete`（见 desktop-change-delete）。
+
+#### Scenario: 级联范围与隔离
+
+- **WHEN** 对某 change 调用级联删除，且同库另有一条 change 的同型行（相位 / 步骤 / run）
+- **THEN** 仅被删 change 的六类行清零，另一 change 的行原样在场；会话与转录行保留
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
-|------|------|----------|
-| `crates/infra/store/src/model.rs`（ChangeRecord 换锚） | 身份主键 id + name 可变属性 | `id`（String UUID 主键）/ `name`（无唯一约束属性）；native_model 版本段演进（表名 `9_2_name` → 新版本 + id 键段）；`ChangeRecordV1` 解码链退役；`new` 构造携 id 入参 |
+|------|------|----------|| `crates/infra/store/src/model.rs`（ChangeRecord 换锚） | 身份主键 id + name 可变属性 | `id`（String UUID 主键）/ `name`（无唯一约束属性）；native_model 版本段演进（表名 `9_2_name` → 新版本 + id 键段）；`ChangeRecordV1` 解码链退役；`new` 构造携 id 入参 |
 | `crates/infra/store/src/model.rs`（per-change 表） | 归属键换锚 | `PhaseRecord.change_id` / `StepRecord.change_id` / `RunRecord.change_id`（二级索引，指向 `ChangeRecord.id`）；`ChecklistItemRecord` / `RunStepRecord` 间接归属链不变 |
 | `crates/infra/store/src/store.rs`（change 域操作面 id 化） | 建档 / 落账 / run 史 / 归档 / 标定 | 全操作面签名 change → change_id；create 前置冲突查重改 name 扫描（name 无唯一索引；仅拒同名 active）；`finish_change_run` / `calibrate_interrupted_runs` 按 id join 与清位；打开路径格式版本探测与旧库作废重建（见 desktop-workspace-store） |
+| `crates/infra/store/src/store.rs`（`delete_change_cascade`） | 用户删除面级联 | 单写事务清空建档 + 相位 / checklist + 步骤 + run 三表；会话 / 转录保留；miss `Ok(false)`；与补偿删除 `delete_change_record` 职责分立（见 desktop-change-delete） |
 | `crates/infra/store/src/change_port.rs` + `crates/core/workflow/src/state.rs`（port 缝） | `ChangeStateStore` 契约 id 化 | 全方法 id 形参；`ChangeStateRecord` 增 `id`、name 降属性；命令载荷（PhaseLogCommand / BacktrackCommand / StepCommand / RunStartCommand / RunFinishCommand）`change_id` |
 | `crates/infra/store/src/envelope.rs` | 信封 key 投影 | change 信封 key 随主键改呈 `id`（查看器零模型代码，只读边界不变） |
 | `crates/core/workflow/src/write/`（落库 port 缝，新） | 写面 → store 的进程内缝 | core/workflow 零 infra 依赖（port 由壳层装配 store 实现）；sync 签名；事务边界由 port 语义承载 |

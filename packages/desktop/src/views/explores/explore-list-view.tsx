@@ -1,9 +1,14 @@
+import { FilePlusCornerIcon, PlusIcon } from 'lucide-react';
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router';
+
+import { TextTooltip } from '@/components/standard/tooltip';
+import { Button } from '@/components/ui/button';
 
 import { groupExploreRecords } from '../../lib/explore-groups';
 import type { ExploreRecord } from '../../types/dto';
 import { ExploreCreateDialog } from './components/explore-create-dialog';
+import { ExploreOpenFile } from './components/explore-open-file';
 import { useExploreRouteContext } from './explore-layout';
 import type { ExploreListState } from './hooks/use-explore-list';
 
@@ -80,6 +85,54 @@ function ExploreGroup({
   );
 }
 
+/** 新建 / 导入两个入口的图标触发器（base-ui 触发 props 由消费方原样落地） */
+function ExploreActions({
+  root,
+  onCreated,
+}: {
+  root: string;
+  onCreated: (name: string, autoPrompt: string | null) => void;
+}): React.JSX.Element {
+  return (
+    <div className="flex justify-end">
+      <ExploreCreateDialog
+        root={root}
+        onCreated={onCreated}
+        trigger={({ onClick }) => (
+          <TextTooltip text="创建探索">
+            <Button
+              data-testid="explore-create-open"
+              variant="outline"
+              size="icon"
+              aria-label="创建探索"
+              onClick={onClick}
+            >
+              <PlusIcon />
+            </Button>
+          </TextTooltip>
+        )}
+      />
+      <ExploreOpenFile
+        root={root}
+        onCreated={onCreated}
+        trigger={(triggerProps) => (
+          <TextTooltip text="导入探索文档">
+            <Button
+              {...triggerProps}
+              data-testid="explore-import-open"
+              variant="outline"
+              size="icon"
+              aria-label="导入探索文档"
+            >
+              <FilePlusCornerIcon />
+            </Button>
+          </TextTooltip>
+        )}
+      />
+    </div>
+  );
+}
+
 /** 清单数据区：分组派生 + 加载 / 错误 / 空态三态（渲染期纯派生，零 useMemo） */
 function ListBody({
   list,
@@ -95,8 +148,8 @@ function ListBody({
   const groups = groupExploreRecords(list.records);
   return (
     <div data-testid="explore-list">
-      <ExploreCreateDialog root={root} onCreated={onCreated} />
-      <section className="rounded-lg border border-border bg-card px-4 py-3.5">
+      <ExploreActions onCreated={onCreated} root={root} />
+      <section className="mt-2 rounded-lg border border-border bg-card px-4 py-3.5">
         <h2 className="m-0 mb-2 text-[15px]">探索清单</h2>
         {list.error !== null && (
           <div

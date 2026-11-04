@@ -41,6 +41,11 @@ type CreateAnswer =
 
 let listAnswer: Promise<unknown> = Promise.resolve(null);
 let createAnswer: CreateAnswer = null;
+/** delete_change 应答：undefined = resolve（DeleteOutcome 空警告）、字符串 = reject。 */
+let deleteAnswer: string | undefined = undefined;
+
+/** 空删除产出（无警告 → toast.success 轨）。 */
+const DELETE_OUTCOME = { name: 'add-feature', removedWorktree: false, warnings: [] };
 
 /** 按命令名分发的进程边界应答面。 */
 function ipc(command: string): Promise<unknown> {
@@ -51,6 +56,11 @@ function ipc(command: string): Promise<unknown> {
     return typeof createAnswer === 'string'
       ? Promise.reject(createAnswer)
       : Promise.resolve(createAnswer);
+  }
+  if (command === 'delete_change') {
+    return deleteAnswer === undefined
+      ? Promise.resolve(DELETE_OUTCOME)
+      : Promise.reject(deleteAnswer);
   }
   return Promise.resolve(null);
 }
@@ -141,6 +151,7 @@ beforeEach(() => {
   invokeMock.mockReset();
   listAnswer = Promise.resolve(emptyList);
   createAnswer = null;
+  deleteAnswer = undefined;
   invokeMock.mockImplementation((command: string) => ipc(command));
 });
 
@@ -155,6 +166,12 @@ function listCalls(): Array<Record<string, unknown>> {
 function createCalls(): Array<Record<string, unknown>> {
   return invokeMock.mock.calls
     .filter(([command]) => command === 'create_change')
+    .map(([, args]) => args as Record<string, unknown>);
+}
+
+function deleteCalls(): Array<Record<string, unknown>> {
+  return invokeMock.mock.calls
+    .filter(([command]) => command === 'delete_change')
     .map(([, args]) => args as Record<string, unknown>);
 }
 
@@ -681,5 +698,132 @@ describe('ChangeListView：条目渲染 summary.title（AC-8）', () => {
     );
     expect(probePathname()).not.toContain('add-feature');
     expect(probePathname()).not.toContain('新增特性');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 行级删除入口（desktop-change-delete）：行内「删除」不导航、开确认弹窗；
+// 确认后 invoke delete_change（携 root / id / cleanWorktree）并刷新清单；
+// 失败留窗且清单不刷新。状态回灌仍经进程边界 invoke mock（delete_change
+// 按命令名分发应答）。
+// ---------------------------------------------------------------------------
+
+describe('ChangeListView：行级删除入口与二次确认', () => {
+  it.each([
+    ['active 条目', () => fixtureList.active[0]],
+    ['归档条目', () => fixtureList.archiveGroups[0].changes[0]],
+  ])('%s：行内删除按钮在场且点击不导航、打开确认弹窗', async (_label, pick) => {
+    await renderLoaded();
+    const summary = pick();
+    const deleteButtons = screen.getAllByTestId('change-delete');
+    // 每行各一个删除按钮（active 2 + archive 3）
+    expect(deleteButtons.length).toBe(5);
+    const target = deleteButtons.find((node) =>
+      (node.getAttribute('title') ?? '').includes(summary.title),
+    );
+    expect(target !== undefined).toBe(true);
+
+    fireEvent.click(target!);
+
+    expect(probePathname()).toBe('/changes');
+    const dialog = screen.getByTestId('change-delete-dialog');
+    expect(dialog !== null).toBe(true);
+    expect(within(dialog).getByText(new RegExp(summary.title)) !== null).toBe(true);
+  });
+
+  it('进行中条目：确认弹窗含「同时清空 worktree」勾选且缺省不勾', async () => {
+    await renderLoaded();
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('change-delete')
+        .find((node) => (node.getAttribute('title') ?? '').includes('add-feature'))!,
+    );
+
+    const checkbox = screen.getByTestId('change-delete-clean-worktree') as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it('归档条目：确认弹窗无「清空 worktree」勾选（归档无 worktree 执行面）', async () => {
+    await renderLoaded();
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('change-delete')
+        .find((node) => (node.getAttribute('title') ?? '').includes('first'))!,
+    );
+
+    expect(screen.getByTestId('change-delete-dialog') !== null).toBe(true);
+    expect(screen.queryByTestId('change-delete-clean-worktree')).toBeNull();
+  });
+
+  it('确认删除 → invoke delete_change 恰一次（root / id / cleanWorktree）并刷新清单、关窗', async () => {
+    deleteAnswer = undefined; // resolve DeleteOutcome（无警告）
+    await renderLoaded();
+    const before = listCalls().length;
+    const target = fixtureList.active[0];
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('change-delete')
+        .find((node) => (node.getAttribute('title') ?? '').includes(target.title))!,
+    );
+    fireEvent.click(screen.getByTestId('change-delete-confirm'));
+
+    await waitFor(() => expect(deleteCalls().length).toBe(1));
+    expect(deleteCalls()[0]).toEqual({ root: ROOT, id: target.id, cleanWorktree: false });
+    await waitFor(() => expect(listCalls().length).toBe(before + 1));
+    expect(screen.queryByTestId('change-delete-dialog')).toBeNull();
+    // 删除不导航（仍留在清单页）
+    expect(probePathname()).toBe('/changes');
+  });
+
+  it('勾选清空 → delete_change 携 cleanWorktree=true', async () => {
+    deleteAnswer = undefined;
+    await renderLoaded();
+    const target = fixtureList.active[0];
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('change-delete')
+        .find((node) => (node.getAttribute('title') ?? '').includes(target.title))!,
+    );
+    fireEvent.click(screen.getByTestId('change-delete-clean-worktree'));
+    fireEvent.click(screen.getByTestId('change-delete-confirm'));
+
+    await waitFor(() => expect(deleteCalls().length).toBe(1));
+    expect(deleteCalls()[0]).toEqual({ root: ROOT, id: target.id, cleanWorktree: true });
+  });
+
+  it('删除失败 → 弹窗留窗呈现后端原文、清单不刷新、行仍在', async () => {
+    deleteAnswer = 'change "busy" 正在运行中，请先停止运行后再删除';
+    await renderLoaded();
+    const before = listCalls().length;
+    const target = fixtureList.active[0];
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('change-delete')
+        .find((node) => (node.getAttribute('title') ?? '').includes(target.title))!,
+    );
+    fireEvent.click(screen.getByTestId('change-delete-confirm'));
+
+    const error = await screen.findByTestId('change-delete-error');
+    expect(error.textContent).toContain('请先停止运行');
+    expect(screen.getByTestId('change-delete-dialog') !== null).toBe(true);
+    expect(listCalls().length).toBe(before);
+    expect(screen.getByText(target.title) !== null).toBe(true);
+  });
+
+  it('取消关窗 → 零 delete_change 调用、清单不刷新', async () => {
+    await renderLoaded();
+    const before = listCalls().length;
+
+    fireEvent.click(screen.getAllByTestId('change-delete')[0]);
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    await waitFor(() => expect(screen.queryByTestId('change-delete-dialog')).toBeNull());
+    expect(deleteCalls().length).toBe(0);
+    expect(listCalls().length).toBe(before);
   });
 });

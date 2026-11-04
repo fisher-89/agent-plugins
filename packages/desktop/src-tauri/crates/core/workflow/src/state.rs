@@ -803,6 +803,11 @@ pub trait ChangeStateStore: Send + Sync {
     /// 行；miss 幂等 `Ok(false)`）。
     fn delete_change_record(&self, id: &str) -> Result<bool, StoreFault>;
 
+    /// 级联删除（用户删除面，desktop-change-delete）：按 change id 清空其全部
+    /// 流程状态行（建档 + 相位 / checklist + 步骤 + run 运行史三表）；会话 /
+    /// 转录行保留为审计留痕。miss 幂等 `Ok(false)`。
+    fn delete_change_cascade(&self, id: &str) -> Result<bool, StoreFault>;
+
     /// 写 active_phase（按 change id 定位记录；attempt 写事务内推导 = 该相位
     /// 既有条目数 + 1）；miss → [`StoreFault::NotFound`]。
     fn start_phase(

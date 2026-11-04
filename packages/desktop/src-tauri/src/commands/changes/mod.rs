@@ -12,7 +12,7 @@ use workflow::queries::{
     self, iso_from_millis, locate_change, ChangeDetail, ChangeList, ChangeRunEdgeRecord,
 };
 use workflow::state::ChangeStatus;
-use workflow::write::{self, ArchiveOutcome, CreateOutcome};
+use workflow::write::{self, ArchiveOutcome, CreateOutcome, DeleteOutcome};
 
 /// 统一视图活面投影
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -370,4 +370,63 @@ pub(crate) fn archive_change_with<R: tauri::Runtime>(
         .for_root(&root)
         .map_err(|e| e.to_string())?;
     write::archive(&layout, store.as_ref(), &id)
+}
+
+/// 用户删除 change（desktop-change-delete）：按 **id** 寻址——可选清空
+/// worktree（目录 + 分支 `change/<name>`）→ 删主仓产物目录 → 级联删库记录；
+/// blank root / id 显式 `Err`。
+///
+/// **运行中拒绝**：`ChangeFlowControl` 注册表是「此刻是否有 run 在跑」的唯一
+/// 权威（`active_phase` 可能是中断残留），有条目即拒绝且零副作用——删除面
+/// MUST NOT 自行停止 run。该判定驻命令层：core/workflow 不得依赖
+/// orchestration。
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_change(
+    app: AppHandle,
+    root: String,
+    id: String,
+    clean_worktree: bool,
+) -> Result<DeleteOutcome, String> {
+    delete_change_with(app, root, id, clean_worktree).await
+}
+
+/// [`delete_change`] 的泛型测试缝（沿 `archive_change_with` 先例）：运行中
+/// 判定 → 装配 `ProcessWorktree` → `spawn_blocking` 调写面。
+pub(crate) async fn delete_change_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    root: String,
+    id: String,
+    clean_worktree: bool,
+) -> Result<DeleteOutcome, String> {
+    if root.trim().is_empty() {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    if id.trim().is_empty() {
+        return Err("非法 id: 不得为空白".to_owned());
+    }
+    if app
+        .state::<Arc<ChangeFlowControl>>()
+        .snapshot(&root, &id)
+        .is_some()
+    {
+        return Err(format!("change \"{id}\" 正在运行中，请先停止运行后再删除"));
+    }
+    let stores = app.state::<WorkspaceStores>();
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let main_root = PathBuf::from(&root);
+    let vcs = ProcessWorktree::new();
+    tauri::async_runtime::spawn_blocking(move || {
+        let layout = resolve(&main_root);
+        write::delete(
+            &main_root,
+            &layout,
+            store.as_ref(),
+            &vcs,
+            &id,
+            clean_worktree,
+        )
+    })
+    .await
+    .map_err(|e| format!("delete 任务失败: {e}"))?
 }

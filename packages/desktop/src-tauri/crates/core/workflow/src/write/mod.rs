@@ -2,6 +2,7 @@ mod archive;
 mod backtrack;
 mod create;
 mod decision_log;
+mod delete;
 mod phase_log;
 mod phase_next;
 mod phase_start;
@@ -15,6 +16,7 @@ pub use backtrack::{backtrack, BacktrackInput, BacktrackOutcome};
 pub(crate) use create::utc_date;
 pub use create::{create, CreateOutcome};
 pub use decision_log::{decision_log, DecisionLogOutcome};
+pub use delete::{delete, DeleteOutcome};
 pub use phase_log::{phase_log, PhaseLogInput, PhaseLogOutcome};
 pub use phase_next::{
     phase_next, LastResult, PhaseNextError, PhaseNextOutcome, ResolvedPhaseSpec, SessionAnchors,
@@ -55,6 +57,8 @@ mod backtrack_test;
 mod create_test;
 #[cfg(test)]
 mod decision_log_test;
+#[cfg(test)]
+mod delete_test;
 #[cfg(test)]
 mod phase_log_test;
 #[cfg(test)]

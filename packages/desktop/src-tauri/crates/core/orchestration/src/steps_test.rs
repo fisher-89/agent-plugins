@@ -274,6 +274,10 @@ impl ChangeStateStore for FakeStore {
             .is_some())
     }
 
+    fn delete_change_cascade(&self, _id: &str) -> Result<bool, StoreFault> {
+        Ok(false)
+    }
+
     fn start_phase(
         &self,
         change: &str,

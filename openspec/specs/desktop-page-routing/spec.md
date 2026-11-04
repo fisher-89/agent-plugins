@@ -70,6 +70,7 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 壳态下 change 选中状态 SHALL 由路由参数承载，MUST NOT 保留独立的 `selectedChange` 本地 state 与路由双轨并存：
 
 - 清单行点击 SHALL 导航至 `/changes/<id>`（行数据携 id——归档条目同样；name 仅作展示）
+- 清单行的删除入口 SHALL NOT 触发导航：点击后停留在 `/changes` 并开二次确认弹窗（见 desktop-change-delete）
 - 详情页数据参数 SHALL 来自路由参数（`useParams` 或等价 API），`useChangeDetail(root, id)` hook 本体契约不变
 - 详情返回 SHALL 显式导航至 `/changes`，MUST NOT 使用 `navigate(-1)` 类历史栈回退（落点不确定）
 - workspace 切换或移除当前根 SHALL 导航至 `/changes`（URL 无 `:id` 段），与现行「切换清空 change 选中」语义一致

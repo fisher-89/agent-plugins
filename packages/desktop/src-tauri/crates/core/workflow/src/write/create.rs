@@ -15,8 +15,9 @@ use crate::write::worktree::WorktreePort;
 /// 名称长度上限（与插件 `createChange` 同宽）。
 const MAX_NAME_LENGTH: usize = 128;
 
-/// worktree 建域分支前缀（branch = `change/<name>`）。
-const CHANGE_BRANCH_PREFIX: &str = "change/";
+/// worktree 建域分支前缀（branch = `change/<name>`；删除面共用同一字面量
+/// 单点——分支名不得在第二处拼装）。
+pub(super) const CHANGE_BRANCH_PREFIX: &str = "change/";
 
 /// active change 建档数上限（前置⑧；源码常量不进 `config.json`，沿
 /// `FEEDBACK_LOOP_LIMIT` 先例——配置面先例是用户域配置非流程护栏）。

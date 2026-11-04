@@ -97,6 +97,10 @@ impl ChangeStateStore for AmendStore {
         unimplemented!("本用例不可达")
     }
 
+    fn delete_change_cascade(&self, _id: &str) -> Result<bool, StoreFault> {
+        Ok(false)
+    }
+
     fn start_phase(
         &self,
         _change_id: &str,

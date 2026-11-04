@@ -1,10 +1,13 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { driftCount, resetDrift } from '../../../lib/ipc-drift';
 import { ExploreCreateDialog } from './explore-create-dialog';
 
 // 进程边界 Mock：仅 mock IPC（invoke）。组件与内部状态真实组合。
+// 建档入口自「内联折叠区 + 页签」改为 `StandardDialog` 弹窗（弹窗本体与
+// trigger / footer 契约由 `components/standard/dailog.test.tsx` 锁定），本文件
+// 只断言 explore 侧的载荷与回调语义。
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
@@ -19,32 +22,64 @@ let onCreated: OnCreated;
 /** onCreated 捕获面（回调载荷录制，供载荷形状断言） */
 let createdCalls: Array<[string, string | null]>;
 
-/** 进程边界应答面：scan_explores 可编程（命令层已过滤结果）、create 占位建档可编程。 */
+/** 合法 `ExploreRecord`（九字段全在场——strict 面零漂移的干净基线）。 */
+function exploreRecord(name: string): Record<string, unknown> {
+  return {
+    id: 1,
+    root: ROOT,
+    name,
+    title: '2026-10-17 08:30:45-分析中',
+    workflowType: 'requirement',
+    promotedTo: null,
+    sessionId: null,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+/** 进程边界应答面：建档命令可编程（其余命令零参与）。 */
 function ipc(command: string): Promise<unknown> {
-  if (command === 'scan_explores') return Promise.resolve([]);
   if (command === 'create_explore_record') {
-    return Promise.resolve({
-      id: 1,
-      root: ROOT,
-      name: PLACEHOLDER_NAME,
-      title: '2026-10-17 08:30:45-分析中',
-      promotedTo: null,
-      createdAt: 1,
-      updatedAt: 1,
-    });
+    return Promise.resolve(exploreRecord(PLACEHOLDER_NAME));
   }
   return Promise.resolve(null);
 }
 
-/** 打开对话框并切到「新话题」页。 */
-function openTopicTab() {
-  fireEvent.click(screen.getByTestId('explore-create-toggle'));
-  fireEvent.click(screen.getByTestId('explore-tab-topic'));
+/** 挂载对话框（触发器 = 消费方渲染的图标按钮）。 */
+function renderDialog(): ReturnType<typeof render> {
+  return render(
+    <ExploreCreateDialog
+      root={ROOT}
+      onCreated={onCreated}
+      trigger={({ onClick }) => (
+        <button type="button" onClick={onClick}>
+          创建探索
+        </button>
+      )}
+    />,
+  );
 }
 
-/** 在需求 textarea 输入（新话题入口的唯一输入面）。 */
-function typeRequirement(value: string) {
+/** 点击触发器打开弹窗。 */
+function openDialog(): void {
+  fireEvent.click(screen.getByRole('button', { name: '创建探索' }));
+}
+
+/** 在需求输入框写入文本。 */
+function typeRequirement(value: string): void {
   fireEvent.change(screen.getByTestId('explore-topic-requirement'), { target: { value } });
+}
+
+/** 点击页脚「提交」。 */
+function submit(): void {
+  fireEvent.click(screen.getByRole('button', { name: '提交' }));
+}
+
+/** 建档命令调用载荷清单（进程边界观察面）。 */
+function createCalls(): Array<Record<string, unknown>> {
+  return invokeMock.mock.calls
+    .filter(([command]) => command === 'create_explore_record')
+    .map(([, args]) => args as Record<string, unknown>);
 }
 
 beforeEach(() => {
@@ -61,39 +96,83 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// 新话题入口：需求输入建档（AC-1）
+// 弹窗形态：关闭态零输入面，打开后呈标题 / 需求输入 / 页脚
 // ---------------------------------------------------------------------------
 
-describe('ExploreCreateDialog：新话题需求输入建档（AC-1）', () => {
-  it('正向：自然语言需求（中文/空格/换行）→ 提交启用、invoke name=null 恰一次、onCreated(占位名, 需求原文)', async () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
-    const requirement = '调研 API 重试策略\n现有超时与重试逻辑在哪些边界会失效？';
+describe('ExploreCreateDialog：弹窗开合与结构', () => {
+  it('正向：关闭态仅触发器在场；打开后呈「新建探索」标题、需求 textarea 与「取消 / 提交」页脚', async () => {
+    renderDialog();
+
+    expect(screen.queryByTestId('explore-topic-requirement')).toBeNull();
+
+    openDialog();
+
+    expect(await screen.findByText('新建探索')).toBeTruthy();
+    expect(screen.getByTestId('explore-topic-requirement').tagName).toBe('TEXTAREA');
+    expect(screen.getByRole('button', { name: '取消' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '提交' })).toBeTruthy();
+  });
+
+  it('正向：「取消」关窗且零 invoke、零 onCreated（输入不残留到下次打开）', async () => {
+    renderDialog();
+    openDialog();
+    typeRequirement('取消前的草稿');
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    await waitFor(() => expect(screen.queryByTestId('explore-topic-requirement')).toBeNull());
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 新话题入口：需求输入建档
+// ---------------------------------------------------------------------------
+
+describe('ExploreCreateDialog：需求输入建档', () => {
+  it('正向：自然语言需求（中文/空格/换行）→ invoke name=null 恰一次、onCreated(占位名, 需求原文 trim)', async () => {
+    renderDialog();
+    openDialog();
+    const requirement = '调研 API 重试策略\n现有超时与重试逻辑在哪些边界会失效？  ';
     typeRequirement(requirement);
 
-    const create = screen.getByTestId<HTMLButtonElement>('explore-topic-create');
-    expect(create.disabled).toBe(false);
-    fireEvent.click(create);
+    submit();
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith('create_explore_record', {
-      root: ROOT,
-      name: null,
-    });
+    expect(createCalls()).toEqual([{ root: ROOT, name: null }]);
     // 占位名取返回记录 name、需求原文 trim 后上抛（auto-send 链路的载荷半边）
     expect(onCreated).toHaveBeenCalledWith(PLACEHOLDER_NAME, requirement.trim());
   });
 
-  it('边界：空串与全空白需求（空格/换行）→ 提交禁用且零 invoke', () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
+  it('正向：成功后关窗且需求输入清空（再次打开即新表单）', async () => {
+    const view = renderDialog();
+    openDialog();
+    typeRequirement('调研需求');
+
+    submit();
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('explore-topic-requirement')).toBeNull());
+
+    view.unmount();
+    cleanup();
+    renderDialog();
+    openDialog();
+    expect(screen.getByTestId<HTMLTextAreaElement>('explore-topic-requirement').value).toBe('');
+    expect(screen.queryByTestId('explore-create-error')).toBeNull();
+  });
+
+  it('边界：空串与全空白需求（空格/换行）→ 零 invoke、onCreated 零调用、行内校验错误且留窗', () => {
+    renderDialog();
+    openDialog();
 
     for (const blank of ['', '   ', '\n\t\n']) {
       typeRequirement(blank);
-      const create = screen.getByTestId<HTMLButtonElement>('explore-topic-create');
-      expect(create.disabled).toBe(true);
-      fireEvent.click(create);
+      submit();
+
+      expect(screen.getByTestId('explore-create-error').textContent).toContain('请输入探索需求');
+      expect(screen.getByTestId('explore-topic-requirement')).toBeTruthy();
     }
 
     expect(invokeMock).not.toHaveBeenCalled();
@@ -101,29 +180,26 @@ describe('ExploreCreateDialog：新话题需求输入建档（AC-1）', () => {
   });
 
   it('边界：超长需求（>1000 字符）→ 正常提交、trim 后原样上抛不被截断', async () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
+    renderDialog();
+    openDialog();
     const requirement = `超长需求开头${'长'.repeat(1200)}   `;
     typeRequirement(requirement);
 
-    const create = screen.getByTestId<HTMLButtonElement>('explore-topic-create');
-    expect(create.disabled).toBe(false);
-    fireEvent.click(create);
+    submit();
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
     expect(onCreated).toHaveBeenCalledWith(PLACEHOLDER_NAME, requirement.trim());
     expect(createdCalls[0]?.[1]?.length).toBe(requirement.trim().length);
   });
 
-  it('边界：kebab 校验退役——大写/下划线/前导数字文本不触发 explore-topic-invalid、提交仍可用', async () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
+  it('边界：kebab 校验退役——大写/下划线/前导数字文本不触发 explore-topic-invalid、提交照常建档', async () => {
+    renderDialog();
+    openDialog();
 
     for (const text of ['Api-Retry', 'api_retry', '1api', 'api retry']) {
       typeRequirement(text);
       expect(screen.queryByTestId('explore-topic-invalid')).toBeNull();
-      const create = screen.getByTestId<HTMLButtonElement>('explore-topic-create');
-      expect(create.disabled).toBe(false);
+      expect(screen.getByRole('button', { name: '提交' }).hasAttribute('disabled')).toBe(false);
     }
 
     // 输入态零 invoke（尚未点击提交）
@@ -131,448 +207,100 @@ describe('ExploreCreateDialog：新话题需求输入建档（AC-1）', () => {
 
     // 任意非 kebab 文本仍可提交建档（需求原文上抛）
     typeRequirement('1api');
-    fireEvent.click(screen.getByTestId('explore-topic-create'));
+    submit();
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
     expect(onCreated).toHaveBeenCalledWith(PLACEHOLDER_NAME, '1api');
   });
+});
 
-  it('异常：invoke reject → 错误行呈现、onCreated 不调用', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'create_explore_record') return Promise.reject('非法 root');
-      return Promise.resolve([]);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
+// ---------------------------------------------------------------------------
+// 失败面：后端 reject 行内呈现、错误不跨提交残留
+// ---------------------------------------------------------------------------
+
+describe('ExploreCreateDialog：后端错误行内呈现（失败留窗）', () => {
+  it('异常：invoke reject → explore-create-error 呈现后端原文、弹窗不关、onCreated 零调用', async () => {
+    invokeMock.mockImplementation(() => Promise.reject('非法 root'));
+    renderDialog();
+    openDialog();
     typeRequirement('调研需求');
-    fireEvent.click(screen.getByTestId('explore-topic-create'));
+
+    submit();
 
     const error = await screen.findByTestId('explore-create-error');
     expect(error.textContent).toContain('非法 root');
+    expect(screen.getByTestId('explore-topic-requirement')).toBeTruthy();
     expect(onCreated).not.toHaveBeenCalled();
   });
 
-  it('结构迁移：explore-topic-requirement 在场、explore-topic-name 退役不在场', () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
+  it('异常：再次提交清空上轮错误（错误不跨提交残留）', async () => {
+    invokeMock
+      .mockImplementationOnce(() => Promise.reject('第一次失败'))
+      .mockImplementationOnce(() => Promise.resolve(exploreRecord(PLACEHOLDER_NAME)));
+    renderDialog();
+    openDialog();
+    typeRequirement('调研需求');
 
-    expect(screen.getByTestId('explore-topic-requirement').tagName).toBe('TEXTAREA');
-    expect(screen.queryByTestId('explore-topic-name')).toBeNull();
-  });
-});
+    submit();
+    await screen.findByTestId('explore-create-error');
 
-// ---------------------------------------------------------------------------
-// 导入入口：显式名建档（AC-8 回归——onCreated(name, null) 零语义变化）
-// ---------------------------------------------------------------------------
-
-describe('ExploreCreateDialog：导入入口显式名回归（AC-8）', () => {
-  it('正向：导入成功 → onCreated(entry.name, null)（autoPrompt 恒 null）', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'scan_explores') {
-        return Promise.resolve([
-          { name: 'valid-topic', modifiedAt: 1727000000000 },
-          { name: 'another-topic', modifiedAt: null },
-        ]);
-      }
-      if (command === 'create_explore_record') {
-        return Promise.resolve({
-          id: 2,
-          root: ROOT,
-          name: 'valid-topic',
-          title: 'valid-topic',
-          promotedTo: null,
-          createdAt: 1,
-          updatedAt: 1,
-        });
-      }
-      return Promise.resolve(null);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    const items = await screen.findAllByTestId('explore-import-item');
-    expect(items).toHaveLength(2);
-    expect(invokeMock).toHaveBeenCalledWith('scan_explores', { root: ROOT });
-
-    fireEvent.click(screen.getByText('valid-topic'));
+    submit();
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
-    expect(onCreated).toHaveBeenCalledWith('valid-topic', null);
-  });
-
-  it('边界：scan_explores 返回空 → 空态提示（命令层已过滤的另一形态）', async () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    expect(await screen.findByTestId('explore-import-empty')).toBeTruthy();
+    expect(screen.queryByTestId('explore-create-error')).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// 折叠开关与页签外观（结构面：新建/收起文案、活动页签样式、页签可回切）
+// 经 ipc 的参数面 / 结果面（参数面 strict / 结果面 soft-report）：
+// 组件只换调用面（`commands.` → `ipc.`），结果面契约外只上报（对话框状态不崩）。
+// 漂移断言用真实 collector。
 // ---------------------------------------------------------------------------
-
-describe('ExploreCreateDialog：折叠开关与入口页签（结构面）', () => {
-  it('正向：折叠态文案「新建」→ 展开后「收起」→ 再点回「新建」，展开/收起切换入口区在场性', () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    const toggle = screen.getByTestId('explore-create-toggle');
-    expect(toggle.textContent).toBe('新建');
-    expect(screen.queryByTestId('explore-create-tabs')).toBeNull();
-
-    fireEvent.click(toggle);
-    expect(toggle.textContent).toBe('收起');
-    expect(screen.getByTestId('explore-create-tabs')).toBeTruthy();
-
-    fireEvent.click(toggle);
-    expect(toggle.textContent).toBe('新建');
-    expect(screen.queryByTestId('explore-create-tabs')).toBeNull();
-  });
-
-  it('正向：活动页签呈 bg-muted font-medium、非活动页签呈 bg-transparent（两态各验一次）', async () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-
-    // 默认页签 = 新话题
-    const topicTab = screen.getByTestId('explore-tab-topic');
-    const importTab = screen.getByTestId('explore-tab-import');
-    expect(topicTab.className).toContain('bg-muted font-medium');
-    expect(topicTab.className).not.toContain('bg-transparent');
-    expect(importTab.className).toContain('bg-transparent');
-    expect(importTab.className).not.toContain('bg-muted');
-
-    fireEvent.click(importTab);
-    expect(importTab.className).toContain('bg-muted font-medium');
-    expect(importTab.className).not.toContain('bg-transparent');
-    expect(topicTab.className).toContain('bg-transparent');
-    expect(topicTab.className).not.toContain('bg-muted');
-    // 排空导入页扫描应答（状态更新收口）
-    await screen.findByTestId('explore-import-empty');
-  });
-
-  it('正向：切到导入页再点回「新话题」→ 新话题入口恢复在场、导入入口卸载', async () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-    await screen.findByTestId('explore-import-entry');
-
-    fireEvent.click(screen.getByTestId('explore-tab-topic'));
-
-    expect(screen.getByTestId('explore-topic-entry')).toBeTruthy();
-    expect(screen.queryByTestId('explore-import-entry')).toBeNull();
-  });
-
-  it('初值：新话题需求为空串 → 提交禁用、零错误块、零 invoke', () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
-
-    expect(screen.getByTestId<HTMLTextAreaElement>('explore-topic-requirement').value).toBe('');
-    expect(screen.getByTestId<HTMLButtonElement>('explore-topic-create').disabled).toBe(true);
-    expect(screen.queryByTestId('explore-create-error')).toBeNull();
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 导入入口：扫描时间戳两态、建档案失败呈现、扫描失败呈现（边界面）
-// ---------------------------------------------------------------------------
-
-describe('ExploreCreateDialog：导入入口时间戳与失败呈现（AC-8 边界）', () => {
-  it('正向：modifiedAt 非空 → 条目标注修改时间；modifiedAt 为空 → 仅呈现 stem（无时间文本）', async () => {
-    const modifiedAt = 1727000000000;
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'scan_explores') {
-        return Promise.resolve([{ name: 'with-time', modifiedAt }]);
-      }
-      return Promise.resolve(null);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    const withTime = await screen.findByTestId('explore-import-item');
-    expect(withTime.textContent).toContain('with-time');
-    expect(withTime.textContent).toContain(new Date(modifiedAt).toLocaleString());
-    // 零错误基线：正常扫描不呈现错误块
-    expect(screen.queryByTestId('explore-create-error')).toBeNull();
-    cleanup();
-
-    // modifiedAt 为空：仅 stem（零时间文本，无空 Span 残留）
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'scan_explores') {
-        return Promise.resolve([{ name: 'no-time', modifiedAt: null }]);
-      }
-      return Promise.resolve(null);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    const noTime = await screen.findByTestId('explore-import-item');
-    expect(noTime.textContent).toBe('no-time');
-    expect(noTime.querySelector('span')).toBeNull();
-    expect(screen.queryByTestId('explore-create-error')).toBeNull();
-  });
-
-  it('异常：选中导入项后建档 reject → 错误块呈现后端原文、onCreated 不调用', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'scan_explores') {
-        return Promise.resolve([{ name: 'valid-topic', modifiedAt: null }]);
-      }
-      if (command === 'create_explore_record') return Promise.reject('笔记已被占用');
-      return Promise.resolve(null);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    fireEvent.click(await screen.findByTestId('explore-import-item'));
-
-    const error = await screen.findByTestId('explore-create-error');
-    expect(error.textContent).toContain('笔记已被占用');
-    expect(onCreated).not.toHaveBeenCalled();
-  });
-
-  it('异常：扫描 reject → 错误块呈现扫描失败原文（导入清单保持扫描中态，不崩）', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'scan_explores') return Promise.reject('目录不可读');
-      return Promise.resolve(null);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    const error = await screen.findByTestId('explore-create-error');
-    expect(error.textContent).toContain('目录不可读');
-    expect(screen.getByText('扫描中…')).toBeTruthy();
-  });
-
-  it('边界：root 切换 → 以新 root 重扫，旧 root 迟到应答不覆盖新清单（取消抑制）', async () => {
-    const ROOT2 = 'C:demo\beta';
-    let resolveStale: (value: unknown) => void = () => {};
-    invokeMock.mockImplementation((command: string, params?: { root?: string }) => {
-      if (command === 'scan_explores') {
-        if (params?.root === ROOT) {
-          return new Promise((resolve) => {
-            resolveStale = resolve;
-          });
-        }
-        return Promise.resolve([{ name: 'new-topic', modifiedAt: null }]);
-      }
-      return Promise.resolve(null);
-    });
-    const { rerender } = render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    rerender(<ExploreCreateDialog onCreated={onCreated} root={ROOT2} />);
-
-    // 新 root 重扫发生
-    await screen.findByText('new-topic');
-    expect(invokeMock).toHaveBeenCalledWith('scan_explores', { root: ROOT2 });
-
-    // 旧 root 迟到应答被取消抑制吞掉（不覆盖新清单）
-    await act(async () => {
-      resolveStale([{ name: 'stale-topic', modifiedAt: null }]);
-    });
-    expect(screen.queryByText('stale-topic')).toBeNull();
-    expect(screen.getByText('new-topic')).toBeTruthy();
-  });
-});
-
-describe('ExploreCreateDialog：root 切换后旧扫描失败应答的取消抑制', () => {
-  it('边界：旧 root 扫描迟到 reject → 不呈现错误块（已卸载形态的应答被吞掉）', async () => {
-    const ROOT2 = 'C:demo\beta';
-    let rejectStale: (err: unknown) => void = () => {};
-    invokeMock.mockImplementation((command: string, params?: { root?: string }) => {
-      if (command === 'scan_explores') {
-        if (params?.root === ROOT) {
-          return new Promise((_resolve, reject) => {
-            rejectStale = reject;
-          });
-        }
-        return Promise.resolve([{ name: 'new-topic', modifiedAt: null }]);
-      }
-      return Promise.resolve(null);
-    });
-    const { rerender } = render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    fireEvent.click(screen.getByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
-
-    rerender(<ExploreCreateDialog onCreated={onCreated} root={ROOT2} />);
-    await screen.findByText('new-topic');
-
-    await act(async () => {
-      rejectStale('旧 root 目录不可读');
-    });
-    expect(screen.queryByTestId('explore-create-error')).toBeNull();
-    expect(screen.getByText('new-topic')).toBeTruthy();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 经 ipc 的参数面 / 结果面（AC-1 参数面 strict / AC-2 结果面 soft-report）：
-// 组件只换调用面（`commands.` → `ipc.`），`createExploreRecord` 第二形参可空，
-// 结果面契约外只上报（对话框状态不崩）。漂移断言用真实 collector。
-// ---------------------------------------------------------------------------
-
-/** 合法 `ExploreRecord`（九字段全在场——strict 面零漂移的干净基线）。 */
-function exploreRecord(name: string): Record<string, unknown> {
-  return {
-    id: 1,
-    root: ROOT,
-    name,
-    title: name,
-    workflowType: 'requirement',
-    promotedTo: null,
-    sessionId: null,
-    createdAt: 1,
-    updatedAt: 1,
-  };
-}
-
-/** 打开「从已有文档创建」页并返回扫描候选面。 */
-function openImportTab(): void {
-  fireEvent.click(screen.getByTestId('explore-create-toggle'));
-  fireEvent.click(screen.getByTestId('explore-tab-import'));
-}
 
 describe('ExploreCreateDialog：经 ipc 的参数面 / 结果面', () => {
   beforeEach(() => {
-    invokeMock.mockReset();
-    invokeMock.mockImplementation((command: string) => ipc(command));
     resetDrift();
   });
 
-  it('正向：打开扫描 → scan_explores 恰 1 次、参数面放行、候选渲染不变、零漂移', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'scan_explores') {
-        return Promise.resolve([
-          { name: 'valid-topic', modifiedAt: null },
-          { name: 'another-topic', modifiedAt: 1727000000000 },
-        ]);
-      }
-      return Promise.resolve(null);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openImportTab();
-
-    const items = await screen.findAllByTestId('explore-import-item');
-    expect(items).toHaveLength(2);
-    expect(invokeMock).toHaveBeenCalledWith('scan_explores', { root: ROOT });
-    expect(invokeMock.mock.calls.filter(([command]) => command === 'scan_explores')).toHaveLength(
-      1,
-    );
-    expect(driftCount()).toBe(0);
-  });
-
-  it('正向：createExploreRecord 双形态（新话题 name=null / 导入项 name=字符串）均放行、零漂移', async () => {
-    // 形态一：新话题（name = null，后端生成占位名）
-    invokeMock.mockImplementation((command: string) =>
-      command === 'create_explore_record'
-        ? Promise.resolve(exploreRecord(PLACEHOLDER_NAME))
-        : Promise.resolve([]),
-    );
-    const first = render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
+  it('正向：提交 → create_explore_record 恰 1 次、参数面放行、零漂移', async () => {
+    renderDialog();
+    openDialog();
     typeRequirement('调研需求');
-    fireEvent.click(screen.getByTestId('explore-topic-create'));
+
+    submit();
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
-    expect(invokeMock).toHaveBeenCalledWith('create_explore_record', { root: ROOT, name: null });
-    expect(driftCount()).toBe(0);
-    first.unmount();
-    cleanup();
-
-    // 形态二：导入项（name = 候选 stem）
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'scan_explores') {
-        return Promise.resolve([{ name: 'valid-topic', modifiedAt: null }]);
-      }
-      if (command === 'create_explore_record') {
-        return Promise.resolve(exploreRecord('valid-topic'));
-      }
-      return Promise.resolve(null);
-    });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openImportTab();
-    fireEvent.click(await screen.findByTestId('explore-import-item'));
-
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('create_explore_record', {
-        root: ROOT,
-        name: 'valid-topic',
-      }),
-    );
-    expect(driftCount()).toBe(0);
-  });
-
-  it('异常：后端 reject（已存在 / 非法名）→ 既有错误文案逐字呈现、零漂移', async () => {
-    for (const rejection of ['探索记录 "valid-topic" 已存在', '非法的探索记录名']) {
-      invokeMock.mockReset();
-      invokeMock.mockImplementation((command: string) => {
-        if (command === 'create_explore_record') return Promise.reject(rejection);
-        return Promise.resolve([]);
-      });
-      render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-      openTopicTab();
-      typeRequirement('调研需求');
-      fireEvent.click(screen.getByTestId('explore-topic-create'));
-
-      const error = await screen.findByTestId('explore-create-error');
-      expect(error.textContent).toBe(rejection);
-      cleanup();
-    }
-
+    expect(createCalls()).toEqual([{ root: ROOT, name: null }]);
     expect(driftCount()).toBe(0);
   });
 
   it('异常：结果面契约外（返回记录缺 name）→ 漂移恰 1 条、对话框状态不崩', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'create_explore_record') {
-        const dirty = exploreRecord(PLACEHOLDER_NAME);
-        delete dirty.name;
-        return Promise.resolve(dirty);
-      }
-      return Promise.resolve([]);
+    invokeMock.mockImplementation(() => {
+      const dirty = exploreRecord(PLACEHOLDER_NAME);
+      delete dirty.name;
+      return Promise.resolve(dirty);
     });
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openTopicTab();
+    renderDialog();
+    openDialog();
     typeRequirement('调研需求');
-    fireEvent.click(screen.getByTestId('explore-topic-create'));
+
+    submit();
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
     expect(driftCount()).toBe(1);
     // 软失败：既有回调照旧被调用（占位名取不到即为 undefined），不呈现错误块
     expect(screen.queryByTestId('explore-create-error')).toBeNull();
-    expect(screen.getByTestId('explore-topic-create')).toBeTruthy();
   });
 
-  it('边界：空扫描结果 [] → 零漂移、既有空态提示不变', async () => {
-    render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-    openImportTab();
+  it('边界：空串 / 全空白需求 → 既有前置校验拦截、零 invoke、零漂移', () => {
+    renderDialog();
+    openDialog();
 
-    expect(await screen.findByTestId('explore-import-empty')).toBeTruthy();
-    expect(driftCount()).toBe(0);
-  });
-
-  it('边界：候选名超长（>1000 字符）/ 含 \n 与 emoji → 参数面放行（无 .refine()）、零漂移', async () => {
-    for (const name of ['a'.repeat(1200), 'with\nnewline 🚀 topic']) {
-      invokeMock.mockReset();
-      invokeMock.mockImplementation((command: string) => {
-        if (command === 'scan_explores') return Promise.resolve([{ name, modifiedAt: null }]);
-        if (command === 'create_explore_record') return Promise.resolve(exploreRecord(name));
-        return Promise.resolve(null);
-      });
-      render(<ExploreCreateDialog onCreated={onCreated} root={ROOT} />);
-      openImportTab();
-      fireEvent.click(await screen.findByTestId('explore-import-item'));
-
-      await waitFor(() =>
-        expect(invokeMock).toHaveBeenCalledWith('create_explore_record', { root: ROOT, name }),
-      );
-      cleanup();
+    for (const blank of ['', '   ', '\n\t\n']) {
+      typeRequirement(blank);
+      submit();
+      expect(screen.getByTestId('explore-create-error').textContent).toContain('请输入探索需求');
     }
 
+    expect(createCalls()).toHaveLength(0);
     expect(driftCount()).toBe(0);
   });
 });

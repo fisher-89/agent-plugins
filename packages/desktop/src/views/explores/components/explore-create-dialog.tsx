@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
-import { ipc } from '../../../lib/ipc';
-import { type ExploreScanEntry } from '../../../types/generated/bindings';
+import { StandardDialog } from '@/components/standard/dailog';
+import { type DialogTrigger } from '@/components/ui/dialog';
+import { Field, FieldError, FieldLabel } from '@/components/ui/field';
+import { Textarea } from '@/components/ui/textarea';
+import { ipc } from '@/lib/ipc';
 
 export interface ExploreCreateDialogProps {
+  trigger: Parameters<typeof DialogTrigger>[0]['render'];
   /** 当前 workspace root（扫描与建档入参） */
   root: string;
   /** 成功建档后回调（父层 refresh 清单并导航进详情）：`autoPrompt` = 新话题
@@ -11,249 +15,52 @@ export interface ExploreCreateDialogProps {
   onCreated: (name: string, autoPrompt: string | null) => void;
 }
 
-type TabKey = 'import' | 'topic';
-
-/** 单条导入项：stem + 修改时间，点击即建档绑定 */
-function ImportItem({
-  entry,
-  root,
-  onCreated,
-  onError,
-}: {
-  entry: ExploreScanEntry;
-  root: string;
-  onCreated: (name: string, autoPrompt: string | null) => void;
-  onError: (message: string) => void;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className="block w-full cursor-pointer border-0 border-b border-b-border bg-transparent px-0 py-1.5 text-left last:border-b-0 hover:text-primary"
-      data-testid="explore-import-item"
-      onClick={() => {
-        ipc
-          .createExploreRecord(root, entry.name)
-          .then(() => onCreated(entry.name, null))
-          .catch((err: unknown) => onError(String(err)));
-      }}
-    >
-      {entry.name}
-      {entry.modifiedAt !== null && (
-        <span className="ml-2 text-xs text-muted-foreground">
-          {new Date(entry.modifiedAt).toLocaleString()}
-        </span>
-      )}
-    </button>
-  );
-}
-
-/** 扫描结果列表：未绑定 `*.md`（已绑定已在命令层求差滤除），点击即建档 */
-function ImportList({
-  root,
-  onCreated,
-  onError,
-}: ExploreCreateDialogProps & { onError: (message: string) => void }): React.JSX.Element {
-  const [entries, setEntries] = useState<ExploreScanEntry[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    ipc
-      .scanExplores(root)
-      .then((result) => {
-        if (!cancelled) setEntries(result);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) onError(String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [root, onError]);
-
-  if (entries === null) {
-    return <div className="text-muted-foreground">扫描中…</div>;
-  }
-  if (entries.length === 0) {
-    return (
-      <div className="text-muted-foreground" data-testid="explore-import-empty">
-        没有可导入的未绑定文档（仅 kebab-case 文件名的笔记可导入）。
-      </div>
-    );
-  }
-  return (
-    <>
-      {entries.map((entry) => (
-        <ImportItem
-          entry={entry}
-          key={entry.name}
-          onCreated={onCreated}
-          onError={onError}
-          root={root}
-        />
-      ))}
-    </>
-  );
-}
-
-/** 「从已有文档创建」入口：导入扫描 + 选中建档（展示名 = stem） */
-function ImportEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.Element {
-  const [error, setError] = useState<string | null>(null);
-  const onError = useCallback((message: string) => setError(message), []);
-  return (
-    <div data-testid="explore-import-entry">
-      <div className="mb-1.5 text-xs text-muted-foreground">
-        选择笔记目录中尚未绑定、且文件名为 kebab-case 的文档，建档后可在页面内继续探索：
-      </div>
-      {error !== null && (
-        <div
-          className="mb-2 break-all rounded-md bg-fail-bg px-2 py-1.5 text-xs text-fail"
-          data-testid="explore-create-error"
-        >
-          {error}
-        </div>
-      )}
-      <ImportList onError={onError} onCreated={onCreated} root={root} />
-    </div>
-  );
-}
-
-/** 行内错误块（校验 / 后端错误呈现；break-all 保长错误可读） */
-function EntryError({
-  testid,
-  children,
-}: {
-  testid: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <div
-      className="mb-2 break-all rounded-md bg-fail-bg px-2 py-1.5 text-xs text-fail"
-      data-testid={testid}
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
- * 「新话题」入口：仅输需求自然语言建档（`name = null` invoke——后端同事务
- * 生成占位名与临时标题，占位名随返回记录上抛）；空白输入禁用提交。笔记文件
- * 由 agent 会话经专用工具定名落盘（内容唯一真源在磁盘，此处零落盘）。
- */
-function TopicEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.Element {
-  const [requirement, setRequirement] = useState('');
-  const [error, setError] = useState<string | null>(null);
-
-  const create = () => {
-    setError(null);
-    ipc
-      .createExploreRecord(root, null)
-      .then((record) => onCreated(record.name, requirement.trim()))
-      .catch((err: unknown) => setError(String(err)));
-  };
-
-  return (
-    <div data-testid="explore-topic-entry">
-      <label
-        className="mb-1 block text-xs text-muted-foreground"
-        htmlFor="explore-topic-requirement"
-      >
-        探索需求（自然语言描述要调研的问题）
-      </label>
-      <textarea
-        id="explore-topic-requirement"
-        className="mb-2 block w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-        data-testid="explore-topic-requirement"
-        rows={3}
-        value={requirement}
-        onChange={(e) => setRequirement(e.target.value)}
-        placeholder="例如：调研 API 重试策略——现有超时与重试逻辑在哪些边界会失效？"
-      />
-      {error !== null && <EntryError testid="explore-create-error">{error}</EntryError>}
-      <button
-        type="button"
-        className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-        data-testid="explore-topic-create"
-        disabled={requirement.trim().length === 0}
-        onClick={create}
-      >
-        建档
-      </button>
-    </div>
-  );
-}
-
-/** 入口切换条：新话题 / 从已有文档创建 */
-function EntryTabs({
-  tab,
-  onSelect,
-}: {
-  tab: TabKey;
-  onSelect: (key: TabKey) => void;
-}): React.JSX.Element {
-  return (
-    <div className="mt-2 mb-3 flex gap-2" data-testid="explore-create-tabs">
-      <button
-        type="button"
-        className={`cursor-pointer rounded-md border border-border px-2.5 py-1 text-sm ${tab === 'topic' ? 'bg-muted font-medium' : 'bg-transparent'}`}
-        data-testid="explore-tab-topic"
-        onClick={() => onSelect('topic')}
-      >
-        新话题
-      </button>
-      <button
-        type="button"
-        className={`cursor-pointer rounded-md border border-border px-2.5 py-1 text-sm ${tab === 'import' ? 'bg-muted font-medium' : 'bg-transparent'}`}
-        data-testid="explore-tab-import"
-        onClick={() => onSelect('import')}
-      >
-        从已有文档创建
-      </button>
-    </div>
-  );
-}
-
-/**
- * 新建对话框（两入口）：「从已有文档创建」经 scan_explores 列未绑定文件
- * （已绑定以 store 清单求差滤除），选中即建档；「新话题」输入需求自然语言
- * 以 `name = null` 建档（后端占位名 + 临时标题，零落盘文件）。成功后 refresh
- * 清单并导航进详情由父层 onCreated 承担（携占位名 + 需求原文供 auto-send）。
- */
 export function ExploreCreateDialog({
+  trigger,
   root,
   onCreated,
 }: ExploreCreateDialogProps): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<TabKey>('topic');
-  const toggle = useCallback(() => setOpen((prev) => !prev), []);
-  const selectTab = useCallback((key: TabKey) => setTab(key), []);
+  const [requirement, setRequirement] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const onSubmit = useCallback(
+    (close: () => void) => {
+      const trimmed = requirement.trim();
+      if (trimmed.length === 0) {
+        setError('请输入探索需求');
+        return;
+      }
+      setError(null);
+      ipc
+        .createExploreRecord(root, null)
+        .then((record) => {
+          setRequirement('');
+          close();
+          onCreated(record.name, trimmed);
+        })
+        .catch((err: unknown) => setError(String(err)));
+    },
+    [onCreated, requirement, root],
+  );
 
   return (
-    <section
-      className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
-      data-testid="explore-create-dialog"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="m-0 text-[15px]">新建探索</h2>
-        <button
-          type="button"
-          className="cursor-pointer rounded-md border border-border bg-transparent px-3 py-1.5 text-sm hover:bg-muted"
-          data-testid="explore-create-toggle"
-          onClick={toggle}
-        >
-          {open ? '收起' : '新建'}
-        </button>
-      </div>
-      {open && (
-        <>
-          <EntryTabs onSelect={selectTab} tab={tab} />
-          {tab === 'topic' ? (
-            <TopicEntry onCreated={onCreated} root={root} />
-          ) : (
-            <ImportEntry onCreated={onCreated} root={root} />
-          )}
-        </>
-      )}
-    </section>
+    <StandardDialog
+      title="新建探索"
+      trigger={trigger}
+      content={
+        <Field>
+          <FieldLabel>描述需求或问题</FieldLabel>
+          <Textarea
+            data-testid="explore-topic-requirement"
+            value={requirement}
+            onChange={(e) => setRequirement(e.target.value)}
+            rows={6}
+            placeholder="例如：给列表增加默认排序规则"
+          />
+          {error !== null && <FieldError data-testid="explore-create-error">{error}</FieldError>}
+        </Field>
+      }
+      onSubmit={onSubmit}
+    ></StandardDialog>
   );
 }

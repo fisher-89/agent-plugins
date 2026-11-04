@@ -294,11 +294,11 @@ describe('Explore 路由：onCreated 导航链（清单页 → 详情页首轮�
     });
 
     renderAt('/explores');
-    fireEvent.click(await screen.findByTestId('explore-create-toggle'));
-    fireEvent.change(screen.getByTestId('explore-topic-requirement'), {
+    fireEvent.click(await screen.findByTestId('explore-create-open'));
+    fireEvent.change(await screen.findByTestId('explore-topic-requirement'), {
       target: { value: '调研重试策略的失效边界' },
     });
-    fireEvent.click(screen.getByTestId('explore-topic-create'));
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
     // 导航至占位名详情（navigate 携 state → 详情页 autoPrompt 读数）
     await waitFor(() =>
@@ -341,8 +341,8 @@ describe('Explore 路由：onCreated 导航链（清单页 → 详情页首轮�
     });
 
     renderAt('/explores');
-    fireEvent.click(await screen.findByTestId('explore-create-toggle'));
-    fireEvent.click(screen.getByTestId('explore-tab-import'));
+    // base-ui Menu 以 mousedown 开启（开启动作为 frame 异步）：以候选条目呈现收敛最终态
+    fireEvent.mouseDown(await screen.findByTestId('explore-import-open'));
     fireEvent.click(await screen.findByTestId('explore-import-item'));
 
     // 导航至导入名详情（无 state → 零 auto-send）

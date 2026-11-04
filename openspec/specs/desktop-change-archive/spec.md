@@ -228,7 +228,7 @@ archive 相位 SHALL 是 run 状态机的一部分（第 11 个路由相位）�
 5. **无 delta specs 不触碰主 spec**：缺席 delta specs 时主基线零变更（SpecSync 步跳过因注记）。
 6. **归档无 evaluator 无 checklist**：archive 相位不落评估 checklist（空 checklist 落账仅为「相位已 pass」的 PhaseRecord 标记，非评估证据面）。
 7. **裸 `archive_change` 逃生口漏清**：不经 archive 相位的裸双写命令（D11 逃生口，无前端入口）无 Cleanup 步、不清理 worktree——是否补 best-effort 清理由 design 定稿（若补落命令层，MUST NOT 进写面 `archive` 双写本体）；残留由 create 前置 worktree 磁盘保底门槛兜底拦截（见 desktop-change-create）。
-8. **弃置（abandon）另立变更**：active 占额度但无退路的弃置面（清 worktree / branch + 记录处置）本轮不做；create 上限错误文案引导「归档或手动清理」偿还。
+8. **弃置（abandon）由 desktop-change-delete 偿还**：active change 的弃置面（清 worktree / branch + 记录处置 + 产物目录）不再挂账——清单行级删除入口与二次确认弹窗承载（见 desktop-change-delete）；本 spec 的归档路径语义不受影响（归档仍是「保留历史进入 archive 树」，删除是「彻底移除」）。
 
 #### Scenario: 边界留痕可考
 

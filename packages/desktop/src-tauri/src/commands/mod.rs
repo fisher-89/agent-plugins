@@ -31,6 +31,7 @@ macro_rules! all_commands {
             $crate::commands::changes::read_exec_command,
             $crate::commands::changes::read_exec_output_delta,
             $crate::commands::changes::archive_change,
+            $crate::commands::changes::delete_change,
             $crate::commands::workspaces::list_workspaces,
             $crate::commands::workspaces::add_workspace,
             $crate::commands::workspaces::remove_workspace,

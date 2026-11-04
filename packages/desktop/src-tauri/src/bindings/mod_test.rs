@@ -132,6 +132,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "readExecCommand",
     "readExecOutputDelta",
     "archiveChange",
+    "deleteChange",
     "listWorkspaces",
     "addWorkspace",
     "removeWorkspace",
@@ -184,6 +185,7 @@ const COMMAND_NAMES: &[&str] = &[
     "read_exec_command",
     "read_exec_output_delta",
     "archive_change",
+    "delete_change",
     "list_workspaces",
     "add_workspace",
     "remove_workspace",
@@ -249,6 +251,7 @@ const DTO_TYPES: &[&str] = &[
     "ArchiveGroup",
     "ArchiveOutcome",
     "CreateOutcome",
+    "DeleteOutcome",
     "ArtifactDescriptor",
     "ArtifactEnvelope",
     "AttemptRecord",
@@ -1044,13 +1047,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更自身再补录一条（架构页会话清单）：条目数 43 → 44
     assert_eq!(
         COMMAND_NAMES.len(),
-        48,
-        "命令清单再补录三条 exec 记录读命令（45 → 48）"
+        49,
+        "命令清单再补录 delete_change（48 → 49）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        48,
-        "包装清单再补录三条 exec 记录读命令（45 → 48）"
+        49,
+        "包装清单再补录 delete_change（48 → 49）"
     );
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
@@ -1111,8 +1114,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        95,
-        "DTO 清单再补录 `ExecOutputChunk`（94 + 1）"
+        96,
+        "DTO 清单再补录 `DeleteOutcome`（95 + 1）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -1957,12 +1960,12 @@ fn 登记面_架构页会话清单命令在册() {
 fn 登记面_命令总数加一且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        48,
-        "再补录三条 exec 记录读命令后的命令总数（45 → 48）"
+        49,
+        "再补录 delete_change 后的命令总数（48 → 49）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        48,
+        49,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2433,10 +2436,10 @@ fn 登记面_三新命令在两清单与生成物各在册() {
 ///（三行插入在 changes 组内，尾锚零位移）。
 #[test]
 fn 登记面_总数四十八且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 48, "命令清单总数 45 → 48");
+    assert_eq!(COMMAND_NAMES.len(), 49, "命令清单总数 48 → 49");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        48,
+        49,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(

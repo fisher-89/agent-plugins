@@ -48,6 +48,11 @@ export const argsSchemas = {
 			"root": z.string(),
 			"id": z.string(),
 		}); },
+	get "deleteChange"() { return z.strictObject({
+			"root": z.string(),
+			"id": z.string(),
+			"cleanWorktree": z.boolean(),
+		}); },
 	get "listWorkspaces"() { return z.strictObject({
 		}); },
 	get "addWorkspace"() { return z.strictObject({
@@ -274,6 +279,7 @@ export const resultSchemas = {
 	get "readExecCommand"() { return z.string().nullable(); },
 	get "readExecOutputDelta"() { return z.lazy(() => ExecOutputChunkSchema).nullable(); },
 	get "archiveChange"() { return z.lazy(() => ArchiveOutcomeSchema); },
+	get "deleteChange"() { return z.lazy(() => DeleteOutcomeSchema); },
 	get "listWorkspaces"() { return z.array(z.lazy(() => WorkspaceRecordSchema)); },
 	get "addWorkspace"() { return z.lazy(() => WorkspaceRecordSchema); },
 	get "removeWorkspace"() { return z.boolean(); },
@@ -341,6 +347,8 @@ export const channelArgs = {
 	get "readExecOutputDelta"() { return {
 		}; },
 	get "archiveChange"() { return {
+		}; },
+	get "deleteChange"() { return {
 		}; },
 	get "listWorkspaces"() { return {
 		}; },
@@ -1010,6 +1018,12 @@ export const CreateOutcomeSchema = z.strictObject({
 });
 
 export const DbDimensionSchema = z.union([z.literal("user"), z.literal("workspace")]);
+
+export const DeleteOutcomeSchema = z.strictObject({
+	get name() { return z.string(); },
+	get removedWorktree() { return z.boolean(); },
+	get warnings() { return z.array(z.string()); },
+});
 
 export const DiagnosticKindSchema = z.union([z.literal("fileMissing"), z.literal("readFailed"), z.literal("jsonInvalid"), z.literal("invalidValue"), z.literal("defaultApplied")]);
 

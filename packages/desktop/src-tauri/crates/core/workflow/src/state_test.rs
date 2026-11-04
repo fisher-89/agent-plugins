@@ -741,6 +741,10 @@ fn change_state_store全方法id形参编译面() {
             assert_eq!(id, CHANGE_ID, "补偿删除按 id");
             Ok(false)
         }
+
+        fn delete_change_cascade(&self, _id: &str) -> Result<bool, StoreFault> {
+            Ok(false)
+        }
         fn start_phase(
             &self,
             change_id: &str,

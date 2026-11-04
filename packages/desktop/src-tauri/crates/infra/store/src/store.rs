@@ -1525,6 +1525,115 @@ impl Store {
         Ok(true)
     }
 
+    /// 级联删除（用户删除面，desktop-change-delete）：单写事务内按 change id
+    /// 清空该 change 的全部流程状态行——`ChangeRecord` 主行 + 相位评估条目
+    /// （`PhaseRecord`）及其 checklist 子行 + 步骤审计（`StepRecord`）+ run
+    /// 运行史三表（`RunRecord` / `RunNodeRecord` / `RunEdgeRecord`）。miss 幂
+    /// 等 `Ok(false)`（不开写）。
+    ///
+    /// **会话留痕不删**：`SessionRecord` / `SessionEventRecord` /
+    /// `AgentRunRecord` 是审计面（`source_ref` 携 change id），删除 change 后
+    /// 按 `sessionId` 直查仍可达；与 `delete_explore_record` 的会话级联口径
+    /// 刻意不同（explore 记录是会话的归属主体，change 不是）。
+    ///
+    /// 与补偿删除 `delete_change_record` 职责分立：本函数不参与 create 回滚
+    /// 链（补偿面只该删本次自插的单行，零级联）。
+    pub fn delete_change_cascade(&self, id: &str) -> Result<bool, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<ChangeRecord> = rw.get().primary(id).map_err(db_err("读取建档记录"))?;
+        let Some(record) = stored else {
+            return Ok(false); // miss 幂等
+        };
+        // 相位条目先读（主键自然序），checklist 子行按 phase_id 命中删除
+        let phases: Vec<PhaseRecord> = rw
+            .scan()
+            .primary::<PhaseRecord>()
+            .map_err(db_err("扫描评估条目"))?
+            .all()
+            .map_err(db_err("扫描评估条目"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描评估条目"))?
+            .into_iter()
+            .filter(|phase| phase.change_id == id)
+            .collect();
+        let phase_ids: HashSet<i64> = phases.iter().map(|phase| phase.id).collect();
+        let mut checklist: Vec<ChecklistItemRecord> = rw
+            .scan()
+            .primary::<ChecklistItemRecord>()
+            .map_err(db_err("扫描检查项子行"))?
+            .all()
+            .map_err(db_err("扫描检查项子行"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描检查项子行"))?;
+        checklist.retain(|item| phase_ids.contains(&item.phase_id));
+        let steps: Vec<StepRecord> = rw
+            .scan()
+            .primary::<StepRecord>()
+            .map_err(db_err("扫描步骤审计行"))?
+            .all()
+            .map_err(db_err("扫描步骤审计行"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描步骤审计行"))?
+            .into_iter()
+            .filter(|step| step.change_id == id)
+            .collect();
+        let runs: Vec<RunRecord> = rw
+            .scan()
+            .primary::<RunRecord>()
+            .map_err(db_err("扫描 run 运行史"))?
+            .all()
+            .map_err(db_err("扫描 run 运行史"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描 run 运行史"))?
+            .into_iter()
+            .filter(|run| run.change_id == id)
+            .collect();
+        let nodes: Vec<RunNodeRecord> = rw
+            .scan()
+            .primary::<RunNodeRecord>()
+            .map_err(db_err("扫描 run 节点行"))?
+            .all()
+            .map_err(db_err("扫描 run 节点行"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描 run 节点行"))?
+            .into_iter()
+            .filter(|node| node.change_id == id)
+            .collect();
+        let edges: Vec<RunEdgeRecord> = rw
+            .scan()
+            .primary::<RunEdgeRecord>()
+            .map_err(db_err("扫描 run 边行"))?
+            .all()
+            .map_err(db_err("扫描 run 边行"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描 run 边行"))?
+            .into_iter()
+            .filter(|edge| edge.change_id == id)
+            .collect();
+        for item in checklist {
+            rw.remove(item).map_err(db_err("删除检查项子行"))?;
+        }
+        for phase in phases {
+            rw.remove(phase).map_err(db_err("删除评估条目"))?;
+        }
+        for step in steps {
+            rw.remove(step).map_err(db_err("删除步骤审计行"))?;
+        }
+        for node in nodes {
+            rw.remove(node).map_err(db_err("删除 run 节点行"))?;
+        }
+        for edge in edges {
+            rw.remove(edge).map_err(db_err("删除 run 边行"))?;
+        }
+        for run in runs {
+            rw.remove(run).map_err(db_err("删除 run 运行史"))?;
+        }
+        rw.remove(record).map_err(db_err("删除建档记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 delete_change_cascade 事务"))?;
+        Ok(true)
+    }
+
     /// 主键 id 直查建档记录（`None` = 未建档——不再有文档形态语义）。
     pub fn find_change_record(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreError> {
         let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;

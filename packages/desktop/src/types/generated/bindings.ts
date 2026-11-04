@@ -53,6 +53,17 @@ export const commands = {
 	 *  本轮无前端入口）。
 	 */
 	archiveChange: (root: string, id: string) => __TAURI_INVOKE<ArchiveOutcome>("archive_change", { root, id }),
+	/**
+	 *  用户删除 change（desktop-change-delete）：按 **id** 寻址——可选清空
+	 *  worktree（目录 + 分支 `change/<name>`）→ 删主仓产物目录 → 级联删库记录；
+	 *  blank root / id 显式 `Err`。
+	 * 
+	 *  **运行中拒绝**：`ChangeFlowControl` 注册表是「此刻是否有 run 在跑」的唯一
+	 *  权威（`active_phase` 可能是中断残留），有条目即拒绝且零副作用——删除面
+	 *  MUST NOT 自行停止 run。该判定驻命令层：core/workflow 不得依赖
+	 *  orchestration。
+	 */
+	deleteChange: (root: string, id: string, cleanWorktree: boolean) => __TAURI_INVOKE<DeleteOutcome>("delete_change", { root, id, cleanWorktree }),
 	/**  清单（表主键 canonical root 自然序，顺序与使用时间无关）。 */
 	listWorkspaces: () => __TAURI_INVOKE<WorkspaceRecord[]>("list_workspaces"),
 	/**
@@ -1407,6 +1418,18 @@ export type DbDimension =
  *  change 流程状态 + run 运行史十模型）
  */
 "workspace";
+
+/**  删除产出（IPC DTO）。 */
+export type DeleteOutcome = {
+	name: string,
+	/**
+	 *  本次是否实际移除了 worktree 目录（未勾选清空 / legacy 记录 / 目录缺席
+	 *  均 `false`）
+	 */
+	removedWorktree: boolean,
+	/**  非阻断注记（worktree 保留告知等）；空清单 = 无注记 */
+	warnings: string[],
+};
 
 /**
  *  诊断类别（前端状态面映射口径）：`fileMissing` → 空态；

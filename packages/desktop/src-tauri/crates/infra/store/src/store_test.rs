@@ -8803,3 +8803,168 @@ fn 寻址语义零回归_同名文件不同父目录() {
         "路径 = workspaces 子树 + 文件名单点"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 级联删除（desktop-change-delete）：单写事务清空 change 的六类流程状态行；
+// 会话 / 转录行保留为审计留痕；他 change 的行绝不误删
+// ---------------------------------------------------------------------------
+
+use workflow::state::{
+    RunEdgeEntry as CascadeRunEdgeEntry, RunFinishCommand as CascadeRunFinishCommand,
+    RunNodeEntry as CascadeRunNodeEntry, RunStartCommand as CascadeRunStartCommand,
+    RunStatus as CascadeRunStatus, RunStepKind as CascadeRunStepKind,
+    RunStepStatus as CascadeRunStepStatus,
+};
+
+/// 收口一条 run（running 行 + 节点 + 边整包），返回 run_id。
+fn seed_finished_run(store: &Store, change: &str, run_id: &str) {
+    store
+        .start_change_run(&CascadeRunStartCommand {
+            run_id: run_id.to_owned(),
+            change_id: change.to_owned(),
+            started_at: 2_000,
+        })
+        .expect("run 发起应成功");
+    let node = CascadeRunNodeEntry {
+        phase: "proposal".to_owned(),
+        attempt: 1,
+        step: CascadeRunStepKind::PhaseLog,
+        instance_no: 0,
+        status: CascadeRunStepStatus::Passed,
+        session_id: None,
+        detail: None,
+        output_ref: None,
+        started_at: 2_000,
+        ended_at: Some(3_000),
+        token_input: None,
+        token_output: None,
+    };
+    store
+        .finish_change_run(&CascadeRunFinishCommand {
+            run_id: run_id.to_owned(),
+            change_id: change.to_owned(),
+            status: CascadeRunStatus::Completed,
+            reason: None,
+            finished_at: 3_000,
+            nodes: vec![node.clone()],
+            edges: vec![CascadeRunEdgeEntry {
+                from_node_key: "proposal:1:phase_log:0".to_owned(),
+                to_node_key: "proposal:1:phase_log:0".to_owned(),
+                edge_kind: RunEdgeKind::Forward,
+            }],
+        })
+        .expect("run 收口应成功");
+}
+
+/// 断言某 change 的流程状态行全数消失（六类逐一清零）。
+fn assert_change_rows_gone(store: &Store, change: &str) {
+    assert_eq!(
+        store.find_change_record(change).unwrap(),
+        None,
+        "建档行应清零"
+    );
+    assert!(
+        store.list_phase_records(change).unwrap().is_empty(),
+        "相位条目应清零"
+    );
+    assert!(
+        store.list_change_steps(change, None).unwrap().is_empty(),
+        "步骤审计行应清零"
+    );
+    assert!(
+        store.list_change_runs(change).unwrap().is_empty(),
+        "run 运行史应清零"
+    );
+}
+
+#[test]
+fn delete_change_cascade级联清空六类行_他change原样() {
+    let env = Env::new("change-cascade-delete");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-a", 1_000);
+    create_change_ok(&store, "flow-b", 1_000);
+
+    // flow-a：相位条目（含 checklist 子行）+ 步骤审计 + 收口 run（节点 / 边）
+    seed_phase_pass(&store, "flow-a", "proposal", 2_000, 2_500, &[]);
+    store
+        .append_change_step(&step_command(
+            "run-a",
+            "flow-a",
+            StepKind::PhaseLog,
+            "ok",
+            "落账",
+            2_600,
+        ))
+        .expect("步骤追加应成功");
+    seed_finished_run(&store, "flow-a", "run-a");
+    // flow-b：同类行各一份（不误删的对照面）
+    seed_phase_pass(&store, "flow-b", "proposal", 2_000, 2_500, &[]);
+    store
+        .append_change_step(&step_command(
+            "run-b",
+            "flow-b",
+            StepKind::PhaseLog,
+            "ok",
+            "落账",
+            2_600,
+        ))
+        .expect("步骤追加应成功");
+
+    assert!(
+        store.delete_change_cascade("flow-a").unwrap(),
+        "命中删除返回 true"
+    );
+
+    assert_change_rows_gone(&store, "flow-a");
+    // 对照面：flow-b 的建档 / 相位 / 步骤原样在场
+    assert!(
+        store.find_change_record("flow-b").unwrap().is_some(),
+        "他 change 建档保留"
+    );
+    assert_eq!(
+        store.list_phase_records("flow-b").unwrap().len(),
+        1,
+        "他 change 相位条目保留"
+    );
+    assert_eq!(
+        store.list_change_steps("flow-b", None).unwrap().len(),
+        1,
+        "他 change 步骤审计保留"
+    );
+}
+
+#[test]
+fn delete_change_cascade_miss幂等返回false() {
+    let env = Env::new("change-cascade-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-a", 1_000);
+
+    assert!(
+        !store.delete_change_cascade("ghost").unwrap(),
+        "未建档 miss 返回 false（零副作用）"
+    );
+    assert!(store.delete_change_cascade("flow-a").unwrap());
+    assert!(
+        !store.delete_change_cascade("flow-a").unwrap(),
+        "重复删除幂等（二次 miss）"
+    );
+}
+
+#[test]
+fn delete_change_cascade不删会话与转录行() {
+    let env = Env::new("change-cascade-sessions");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-a", 1_000);
+
+    let session = session_record("ses-cascade-1", "change", Some("flow-a"));
+    store.create_session(&session).expect("会话建档应成功");
+
+    assert!(store.delete_change_cascade("flow-a").unwrap());
+
+    // 会话留痕：按变更域查询仍可达
+    let rows = store
+        .list_sessions_page(Some("change"), Some("flow-a"), 0, 10)
+        .expect("会话查询应成功");
+    assert_eq!(rows.total, 1, "会话行保留（审计留痕不随 change 级联删除）");
+    assert_eq!(rows.sessions[0].row.id, "ses-cascade-1");
+}

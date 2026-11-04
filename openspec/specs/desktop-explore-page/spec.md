@@ -8,10 +8,10 @@
 
 ### Requirement: 探索清单页与新建流程
 
-前端 SHALL 新增探索清单页（`/explores`）：清单条目 SHALL 来自 store 的 `ExploreRecord` 并按当前 workspace root 过滤，MUST NOT 实时扫目录生成清单。清单条目 SHALL 渲染 `title`（人类可读标题，`title` 恒非空——显式名建档默认 = name、占位建档 = 临时标题「<时间戳>-分析中」，agent 产出标题后经回填覆盖）而非 `name`。新建 SHALL 提供两个入口：
+前端 SHALL 新增探索清单页（`/explores`）：清单条目 SHALL 来自 store 的 `ExploreRecord` 并按当前 workspace root 过滤，MUST NOT 实时扫目录生成清单。清单条目 SHALL 渲染 `title`（人类可读标题，`title` 恒非空——显式名建档默认 = name、占位建档 = 临时标题「<时间戳>-分析中」，agent 产出标题后经回填覆盖）而非 `name`。新建 SHALL 提供两个入口，两者均为清单页右上角的图标触发器（tooltip 补足语义：`explore-create-open`「创建探索」/ `explore-import-open`「导入探索文档」），MUST NOT 以页内折叠区或页签承载：
 
-- **从已有文档创建**：经导入扫描列出 explores 目录中未被绑定且 **stem 为 kebab-case** 的 `*.md`（命令层以 store 清单滤除已绑定、再滤除非 kebab stem），选中即创建 `ExploreRecord` 绑定该文件（`name` = 文件 stem、`title` 初始 = name，invoke 携显式名）；
-- **新话题**：输入**需求自然语言**（多行文本）建档——前端以 `name = null` 调 `create_explore_record`（后端同事务生成占位名 `draft-*` 与临时标题，见 desktop-workspace-store「ExploreRecord 模型与 explore 清单操作面」），MUST NOT 要求用户输入 kebab 名、MUST NOT 由应用预建空文件或落盘 `explore.md`（内容唯一真源在磁盘，笔记由 agent 会话经专用工具定名落盘，见 desktop-agent-execution「会话级工具面注入与 explore 笔记工具」；未落盘期间预览呈空态）。kebab-case 本地校验 SHALL 随新话题入口退役（空白输入禁用提交；kebab 过滤仅存导入路径）。建档成功后 SHALL 携路由 `state.autoPrompt = 需求` 导航进详情（auto-send 见「会话链与 stance 前导」）。
+- **从已有文档创建**（导入入口）：触发器 SHALL 打开下拉菜单（`DropdownMenu`），经导入扫描列出 explores 目录中未被绑定且 **stem 为 kebab-case** 的 `*.md`（命令层以 store 清单滤除已绑定、再滤除非 kebab stem）；扫描中 SHALL 呈「扫描中…」、空结果 SHALL 呈空态提示、扫描失败 SHALL 以 toast 呈现后端原文（菜单保持空面，不崩）；选中即创建 `ExploreRecord` 绑定该文件（`name` = 文件 stem、`title` 初始 = name，invoke 携显式名），建档失败 SHALL 以 toast 呈现错误原文；
+- **新话题**（创建入口）：触发器 SHALL 打开标准对话框（`StandardDialog`，标题「新建探索」，footer「取消 / 提交」），输入**需求自然语言**（多行文本）建档——前端以 `name = null` 调 `create_explore_record`（后端同事务生成占位名 `draft-*` 与临时标题，见 desktop-workspace-store「ExploreRecord 模型与 explore 清单操作面」），MUST NOT 要求用户输入 kebab 名、MUST NOT 由应用预建空文件或落盘 `explore.md`（内容唯一真源在磁盘，笔记由 agent 会话经专用工具定名落盘，见 desktop-agent-execution「会话级工具面注入与 explore 笔记工具」；未落盘期间预览呈空态）。kebab-case 本地校验 SHALL 随新话题入口退役（空白输入 SHALL 于提交时行内拒绝并零 invoke；kebab 过滤仅存导入路径）。建档成功后 SHALL 关窗并携路由 `state.autoPrompt = 需求` 导航进详情（auto-send 见「会话链与 stance 前导」）。
 
 agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 SHALL 随记录 in-place 改名即时进入清单（文件与记录同名绑定）；**绕过专用工具**（如经 bash 重定向）新建的 explore 文件 MUST NOT 自动进入清单（绑定是显式动作，未导入前于清单隐形）。清单条目 SHALL 提供删除入口（删记录不动磁盘文件；该记录名下的会话 runs 与事件随记录在 store 层同事务级联删除——对话随身份消亡，磁盘笔记文件是唯一保留物）。
 
@@ -22,14 +22,19 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 #### Scenario: 导入绑定（kebab 过滤）
 
-- **WHEN** explores 目录存在 `alpha.md`（未绑定，kebab）、`MyNote.md`（未绑定，非 kebab）与 `beta.md`（已绑定），用户打开新建并选择「从已有文档创建」
+- **WHEN** explores 目录存在 `alpha.md`（未绑定，kebab）、`MyNote.md`（未绑定，非 kebab）与 `beta.md`（已绑定），用户点击导入触发器「导入探索文档」打开下拉菜单
 - **THEN** 扫描结果仅含 `alpha`（非 kebab 的 `MyNote` 不列出）；选中后清单出现该条目且再扫描不再列出 `alpha`
+
+#### Scenario: 导入扫描失败与空结果
+
+- **WHEN** 导入扫描以空白或不可读目录失败，或目录内无未绑定 kebab 文档
+- **THEN** 前者以 toast 呈现后端原文且下拉保持「扫描中…」空面、页面不崩；后者呈现「没有可导入的文档」空态提示，两者均不发起建档 invoke
 
 #### Scenario: 新话题免命名建档与 autoPrompt 导航
 
-- **WHEN** 用户以需求文本「调研 API 重试策略」新建话题
-- **THEN** 前端以 `name = null` invoke 建档，store 出现 `ExploreRecord`（`name` 匹配 `draft-*`、`title` 为「<时间戳>-分析中」），`openspec/explores/` 目录内 MUST NOT 出现新文件，详情页预览呈空态；导航至 `/explores/<占位名>` 且路由 `state.autoPrompt` 携需求原文
-- **AND** 输入空白时提交按钮禁用且不发起 invoke（kebab 校验分支不再存在）
+- **WHEN** 用户点击创建触发器「创建探索」，在标为「新建探索」的对话框中以需求文本「调研 API 重试策略」提交
+- **THEN** 前端以 `name = null` invoke 建档，store 出现 `ExploreRecord`（`name` 匹配 `draft-*`、`title` 为「<时间戳>-分析中」），`openspec/explores/` 目录内 MUST NOT 出现新文件，详情页预览呈空态；对话框关闭，导航至 `/explores/<占位名>` 且路由 `state.autoPrompt` 携需求原文
+- **AND** 输入空白时提交被行内拒绝（错误提示在场、零 invoke，对话框留窗；kebab 校验分支不再存在）
 
 #### Scenario: 专用工具定名即时入清单
 
@@ -252,16 +257,17 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `packages/desktop/src/views/explores/explore-layout.tsx`（新） | 路由布局 | `/explores` 父路由持清单状态（`useExploreList(root)` 单点）并经 `Outlet context` 下传；清单页与详情页共享同一份清单——两页互切不重取清单、不闪缺失态；`useExploreRouteContext` 为取用面 |
-| `packages/desktop/src/views/explores/explore-list-view.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；导入扫描绑定 / 新话题免命名建档（`name = null` invoke）；删除入口（不动文件，对话随记录级联清）；onCreated 先 refresh 清单再导航携 `state.autoPrompt`；清单数据区经 `groupExploreRecords` 派生两组后分区渲染（`explore-items` 容器内 `explore-group-active` / `explore-group-promoted` 两个 `section`，组标题携计数、组内空渲染占位文案；零记录维持 `explore-list-empty` 且不渲染分组区） |
+| `packages/desktop/src/views/explores/explore-list-view.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；右上角两个图标触发器（`explore-create-open` / `explore-import-open`，tooltip 补足语义）分别挂新建对话框与导入下拉；删除入口（不动文件，对话随记录级联清）；onCreated 先 refresh 清单再导航携 `state.autoPrompt`；清单数据区经 `groupExploreRecords` 派生两组后分区渲染（`explore-items` 容器内 `explore-group-active` / `explore-group-promoted` 两个 `section`，组标题携计数、组内空渲染占位文案；零记录维持 `explore-list-empty` 且不渲染分组区） |
 | `packages/desktop/src/lib/explore-groups.ts` | 清单分组与排序纯函数 | `groupExploreRecords(records: ExploreRecord[]) => { active: ExploreRecord[]; promoted: ExploreRecord[] }`：按 `promotedTo` 二分；组内 `createdAt` 倒序、同刻 `id` 倒序；拷贝后排序（入参只读）；零 IO、零 invoke、零 React 依赖（与 `lib/explore-title.ts` / `lib/explore-stance.ts` 同族） |
 | `packages/desktop/src/views/explores/explore-detail-view.tsx`（新） | 详情页（路由页） | 自路由参数派生选中（无本地 state 双轨）：URL 名 find → 快照 id 重寻（id 桥）→ 快照本体兜底；workspace 根切换带旧选中即 replace 落 `/explores`；渲染委托 `ExploreDetailPane` |
 | `packages/desktop/src/views/explores/explore-detail-pane.tsx`（原 `explore-detail-view.tsx`） | 双栏详情呈现面 | props 注入 `record` / `list`（零 URL 派生）；resizable 分栏；左对话区右预览；对话区唯一呈现入口为 `AgentSessionView`（`root` + 记录回写的 `sessionId` + `composer` = `<ExploreComposer />`，实时流双起点、滚动与消息状态归组件）；run 终态 id 桥（refresh → 按 id 重寻 → 名变 `navigate replace`）；promote 错误行内呈现照旧 |
-| `views/explores/components/`（新：composer / 预览 / 新建对话框；`explore-conversation.tsx` 已删） | 呈现件 | 对话区由 `components/agent/AgentSessionView` 承载（私有渲染实现收编，用例随迁组件族测试）；`ExploreComposer`（`running` / `onSend` / `onStop`，testid 前缀 `explore-*`）为 `AgentInput` 薄适配，经 composer 插槽注入；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
-| `views/explores/components/explore-create-dialog.tsx`（改） | 新建对话框 | TopicEntry 改需求 textarea（`name = null` invoke；空白禁提交；`isKebabCase` 校验退役）；ImportEntry 显式名 invoke；onCreated 携占位名 + 需求回调 |
+| `views/explores/components/`（composer / 预览 / 新建对话框 / 导入下拉；`explore-conversation.tsx` 已删） | 呈现件 | 对话区由 `components/agent/AgentSessionView` 承载（私有渲染实现收编，用例随迁组件族测试）；`ExploreComposer`（`running` / `onSend` / `onStop`，testid 前缀 `explore-*`）为 `AgentInput` 薄适配，经 composer 插槽注入；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
+| `views/explores/components/explore-create-dialog.tsx`（改） | 新建对话框 | `StandardDialog` 弹窗（标题「新建探索」、footer「取消 / 提交」、trigger 由清单页注入）：需求 textarea（testid `explore-topic-requirement`）以 `name = null` invoke建档；空白提交行内拒绝零 invoke；成功后清空输入并关窗；onCreated 携占位名 + 需求 trim 后回调；错误经 `explore-create-error` 行内呈现（不跨提交残留） |
+| `views/explores/components/explore-open-file.tsx`（新） | 导入下拉菜单 | `DropdownMenu`（trigger 由清单页注入，base-ui 触发 props 原样落地）：挂载即 `scan_explores(root)`（root 切换重扫、旧应答取消抑制）；扫描中 / 空态 / 候选三形态（`explore-import-loading` / `explore-import-empty` / `explore-import-item`）；扫描与建档失败经 toast 呈现、不阻断菜单；选中候选以显式名 invoke，成功后 onCreated(entry.name, null) |
 | `views/explores/hooks/use-explore-session.ts`（改） | 会话链与刷新编排 | `useExploreSession(root, record, autoPrompt?) => { sessionId, session, send, stop, ... }`；改走 `useAgentSession`（重放装载 + 链参数经 body 穿透）；stance 文本组装与 auto-send 闸门留本 hook（来源侧），首轮 stance 分形调用（占位 → 命名指令形 / 已定名 → 定位形）与三条件 auto-send effect 语义不变；会话 id 经记录回写 / `ensureExploreSession` 补齐后交组件挂流；watch 信号防抖 → `read_explore` 显式刷新 |
 | `packages/desktop/src/lib/explore-stance.ts`（新） | stance 前导模板 | `buildExplorePrompt` 两形（占位命名指令形 / 已定名笔记定位形）拼接进 explore run prompt 头部；注释**单源自持**（双源互链表述随插件退役删除） |
 | `routes.tsx` + `components/app-sidebar.tsx` | 路由与导航 | `/explores` 父路由挂 `ExploreLayout`（index = 清单页、`:name` = 详情页）——两个独立路由组件，清单状态由布局单源下传；`nav-explores` 入口（active 由 URL 派生） |
 | `types/dto.ts` | 前端 DTO | `ExploreRecord` / 导入扫描结果，与 store 自有类型一一对应 |
 | `views/explores/hooks/use-explore-list.ts`（零改动面） | 清单取数与动作 | 取数与动作面零改：`ExploreListState` 形状不变，分组不在 hook 内派生 |
 | `packages/desktop/src-tauri/**`（零改动面） | store 清单读取 | `store::list_explore_records`（及 `store_test`）的 `id` 降序契约原样保留，本变更不下推排序；零新增命令、零 bindings 重生成 |
-| `views/explores/explore-detail-view.tsx` + `views/explores/components/`（零改动面） | 详情与新建呈现 | 既有 promoted 徽标 / 查看变更 / 建档 / 预览 / 会话呈现语义零改；promote 成功后移组不触发导航或卸载详情 |
+| `views/explores/explore-detail-view.tsx` + `views/explores/components/`（零改动面） | 详情呈现 | 既有 promoted 徽标 / 查看变更 / 预览 / 会话呈现语义零改；promote 成功后移组不触发导航或卸载详情 |

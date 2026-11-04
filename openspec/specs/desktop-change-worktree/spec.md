@@ -196,12 +196,12 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 
 以下边界 SHALL 作为 V1 显式限制留痕（后续变更偿还，不由实现隐式吸收）：
 
-1. **branch 清理手动（worktree 清理已偿还）**：worktree 由 archive 相位 Cleanup 步自动移除（`git worktree remove` 尽力步，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」）；branch `change/<name>` 保留，`git branch -d` 仍由用户手动执行；桌面 cleanup 按钮对 worktree 面不再必要。
+1. **branch 清理手动（删除面已偿还）**：worktree 由 archive 相位 Cleanup 步自动移除（`git worktree remove` 尽力步，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」）；归档路径下 branch `change/<name>` 仍保留（历史可溯）。需要彻底清理时走清单删除入口并勾选「同时清空 worktree」——该路径同时删除 worktree 目录与 branch（见 desktop-change-delete）。
 2. **legacy 主 root 路径**：`worktree=None` 存量记录照旧主 root 执行，零迁移；非 git 仓 workspace 的 create 显式拒绝（不提供 legacy 创建逃生口，真实诉求另立变更）。
 3. **`agent_start` 与探索笔记留主仓 root**：exec 轨道手动会话与 `openspec/explores/` 笔记不混入 change worktree。
 4. **config / AGENT.md 冻结**：worktree 内配置停在创建时刻（base commit 检出），主仓中途改动不传导，文档化；唯一例外是 create 在创建时读取**主 workspace root** 的当前配置以选择 `projects[].root`（依赖引导锚点），worktree 内配置副本仍冻结。
 5. **构建成本接受**：fresh worktree 依赖 / 构建产物全量重建；共享 target 目录类逃生口（`CARGO_TARGET_DIR` 等）仅文档化，不内建机制。
-6. **孤儿 worktree 对账文档化**：create 中途崩溃遗留的 worktree / branch 由 `git worktree list` 对账、幂等采纳或手动清理（前置校验保证下次创建显式报错而非误用），不内建自动清理；create 前置 worktree 磁盘保底门槛为失控防线（见 desktop-change-create）。
+6. **孤儿 worktree 对账**：create 中途崩溃遗留的 worktree / branch 由 `git worktree list` 对账、幂等采纳，或在清单删除入口勾选「同时清空 worktree」清理（desktop-change-delete——删除面按记录定位，故只覆盖有建档记录的残留；无记录的孤儿仍须手动清理）；create 前置校验保证下次创建显式报错而非误用；create 前置 worktree 磁盘保底门槛为失控防线（见 desktop-change-create）。
 7. **report_dir 绝对路径接受失效**：phase_log 报告文本内嵌的 worktree 绝对路径在 worktree 删除后失效（转录历史，仅展示面），不做相对化；归档 Cleanup 步使删除成为缺省路径，本边界维持。
 8. **并行 merge 冲突处置分层**：两 change 改同一文件各自绿、merge 撞时——经 archive 相位自动合入的冲突由 Rebase / ResolveConflicts 步的解冲突 agent 裁决（agent 无法裁决时 lean 档停链转人工，见 desktop-change-archive）；链外用户手动 merge 的冲突走 git 原生冲突处理。
 

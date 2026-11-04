@@ -227,6 +227,10 @@ impl ChangeStateStore for RouteStore {
         unimplemented!("本用例不可达")
     }
 
+    fn delete_change_cascade(&self, _id: &str) -> Result<bool, StoreFault> {
+        Ok(false)
+    }
+
     fn start_phase(
         &self,
         _change_id: &str,
@@ -1708,6 +1712,10 @@ impl ChangeStateStore for ArchiveLandingStore {
 
     fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("本用例不可达")
+    }
+
+    fn delete_change_cascade(&self, _id: &str) -> Result<bool, StoreFault> {
+        Ok(false)
     }
 
     fn start_phase(

@@ -53,6 +53,10 @@ impl ChangeStateStore for Store {
         Store::delete_change_record(self, id).map_err(fault)
     }
 
+    fn delete_change_cascade(&self, id: &str) -> Result<bool, StoreFault> {
+        Store::delete_change_cascade(self, id).map_err(fault)
+    }
+
     fn start_phase(
         &self,
         change_id: &str,

@@ -1392,6 +1392,10 @@ impl ChangeStateStore for FakeStore {
     fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("组合根链路不触该写面")
     }
+
+    fn delete_change_cascade(&self, _id: &str) -> Result<bool, StoreFault> {
+        Ok(false)
+    }
     fn start_phase(
         &self,
         _change_id: &str,
