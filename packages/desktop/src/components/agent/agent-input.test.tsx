@@ -42,6 +42,16 @@ function typeText(text: string) {
   fireEvent.change(screen.getByTestId('explore-prompt'), { target: { value: text } });
 }
 
+/** 逐字符输入：每次按键一次 change（真实输入的事件粒度，`typeText` 的单次
+ * change 只覆盖「最后一步状态」，测不出中途闭包是否过期）。 */
+function typeTextPerKey(text: string) {
+  for (let i = 1; i <= text.length; i += 1) {
+    fireEvent.change(screen.getByTestId('explore-prompt'), {
+      target: { value: text.slice(0, i) },
+    });
+  }
+}
+
 function promptBox(): HTMLTextAreaElement {
   return screen.getByTestId('explore-prompt');
 }
@@ -225,6 +235,28 @@ describe('AgentInput：Ctrl/Cmd+Enter 快捷发送', () => {
     fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
 
     expect(onSend).toHaveBeenCalledWith({ text: '默认档快捷发送', permissionMode: 'default' });
+  });
+
+  it('逐字符输入后 Ctrl+Enter 携完整文本（不受首键渲染快照影响）', () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    typeTextPerKey('你好世界');
+    fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith({ text: '你好世界', permissionMode: 'bypassPermissions' });
+  });
+
+  it('先输入后切档位，Ctrl+Enter 携新档位（档位变更不需靠再输入一次生效）', async () => {
+    const onSend = vi.fn();
+    mount({ onSend });
+
+    typeText('先打字后换档');
+    await pickMode('default');
+    fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
+
+    expect(onSend).toHaveBeenCalledWith({ text: '先打字后换档', permissionMode: 'default' });
   });
 });
 

@@ -13,13 +13,16 @@ function assignOrders(sequence: FlowNode[]): void {
 }
 
 /** 回跳边标签：发起相位最近一次条目的 `backtrackReason`（回跳落账记因随发起相位
- * 条目在库；无边标签来源则 null）。 */
+ * 条目在库；无边标签来源则 null）。记因文本首尾空白归一——渲染层按 label 有无
+ * 分流（纯空白不承载标记点），空白形态在此收口。 */
 function backtrackReason(pipeline: PhaseEntry[], phase: string): string | null {
   const station = pipeline.find((candidate) => candidate.phase === phase);
   if (station === undefined) return null;
   for (let index = station.attempts.length - 1; index >= 0; index -= 1) {
     const reason = station.attempts[index].backtrackReason;
-    if (reason !== null && reason !== '') return reason;
+    if (reason === null) continue;
+    const trimmed = reason.trim();
+    if (trimmed !== '') return trimmed;
   }
   return null;
 }

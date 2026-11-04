@@ -1,12 +1,13 @@
 import { MarkerType, ReactFlow, ReactFlowProvider, type Edge } from '@xyflow/react';
 import { useMemo, type CSSProperties } from 'react';
 
-import '@xyflow/react/dist/style.css';
-
+import { LabeledEdge } from './labeled-edge';
 import { graphTranslateExtent, columnLayout, nodeLayout, edgeHandle } from './layout';
 import { type ColumnFlowNode, PhaseColumnNode } from './phase-column-node';
 import { RunStepNode, type RunStepFlowNode } from './run-step-node';
-import type { DrawerSelection, FlowEdgeKind, FlowGraph, FlowMaterials } from './types';
+import type { DrawerSelection, FlowEdge, FlowEdgeKind, FlowGraph, FlowMaterials } from './types';
+
+import '@xyflow/react/dist/style.css';
 
 type ChartNode = ColumnFlowNode | RunStepFlowNode;
 
@@ -25,6 +26,12 @@ interface ChangeFlowGraphProps {
 }
 
 const nodeTypes = { column: PhaseColumnNode, runStep: RunStepNode };
+const edgeTypes = { labeled: LabeledEdge };
+
+/** 边标签有无即自定义边判据（label 为空走内置 default 边，视觉零变化）。 */
+function hasLabel(label: FlowEdge['label']): label is string {
+  return label !== null && label.trim() !== '';
+}
 
 function toChartNodes(
   graph: FlowGraph,
@@ -61,10 +68,12 @@ function toChartEdges(graph: FlowGraph): Edge[] {
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    label: edge.label ?? undefined,
+    // 判别单源 = label 有无（不读 kind）：带标签边走 labeled 自定义边，标签经
+    // 悬停标记点呈现；labelStyle / labelBgStyle 是内置 EdgeText 的配置，标签
+    // 不再落 SVG text 后随之退役
+    type: hasLabel(edge.label) ? 'labeled' : undefined,
+    label: hasLabel(edge.label) ? edge.label : undefined,
     style: edgeStyle(edge.kind),
-    labelStyle: { fill: 'var(--warn)', fontSize: 10 },
-    labelBgStyle: { fill: 'var(--warn-bg)' },
     markerEnd: {
       type: MarkerType.ArrowClosed,
       width: 18,
@@ -100,6 +109,7 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={onNodeClick}
         nodesDraggable={false}
         nodesConnectable={false}

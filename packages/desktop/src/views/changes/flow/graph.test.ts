@@ -387,6 +387,29 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
     expect(graph.edges[0].label).toBeNull();
   });
 
+  it('记因首尾空白归一：纯空白记因视同无记因（label null），有内容者去首尾空白后出线', () => {
+    const edgeRowOf = (phase: string): UnifiedRunEdge => ({
+      fromNodeKey: `${phase}:1:executor:0`,
+      toNodeKey: `${phase}:1:executor:0`,
+      edgeKind: 'backtrack',
+      runId: 'run-1727',
+    });
+    const build = (reason: string) =>
+      buildFlowGraph(
+        detail({
+          pipeline: REQUIREMENT_PHASES.map((phase) =>
+            phase === 'implement'
+              ? station(phase, [attempt({ attempt: 1, backtrackReason: reason })])
+              : station(phase, []),
+          ),
+        }),
+        [runNode({ id: 'run:implement:1:executor:0' })],
+        [edgeRowOf('implement')],
+      );
+    expect(build('  \n\t ').edges[0].label).toBeNull();
+    expect(build('  实现缺陷回改 \n').edges[0].label).toBe('实现缺陷回改');
+  });
+
   it('端点悬空（ghost 身份串）→ 该边跳过不炸图，其余边照常出线', () => {
     const graph = buildFlowGraph(
       detail(),

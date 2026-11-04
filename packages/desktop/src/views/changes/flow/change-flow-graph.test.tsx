@@ -513,9 +513,13 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
     await waitFor(() =>
       expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(graph.edges.length),
     );
-    const labels = [...document.querySelectorAll('.react-flow__edge-text')];
-    expect(labels).toHaveLength(1);
-    expect(labels[0].textContent).toBe('设计未对齐提案');
+    // 回跳边标签改经 HTML overlay 的标记点承载（SVG text 面退役——长 reason 不再
+    // 撑成单行）；标记点全量文本随 aria-label 可读
+    await waitFor(() => expect(screen.getAllByTestId('edge-label-marker')).toHaveLength(1));
+    expect(screen.getByTestId('edge-label-marker').getAttribute('aria-label')).toBe(
+      '边标签：设计未对齐提案',
+    );
+    expect(document.querySelectorAll('.react-flow__edge-text')).toHaveLength(0);
     // 边样式按 kind 分流：回跳边 warn 虚线、前进边 border 实线
     const paths = [...document.querySelectorAll<SVGPathElement>('.react-flow__edge-path')];
     expect(paths).toHaveLength(2);
@@ -524,6 +528,55 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
     );
     expect(warnPaths).toHaveLength(1);
     expect(warnPaths[0]?.getAttribute('style')).toContain('6 4');
+  });
+
+  it('判别只看 label：无 label 的边不挂标记点，带 label 的边挂且悬停出全文', async () => {
+    const reason = `实现缺陷回改：${'未覆盖边界条件'.repeat(40)}`;
+    const base = detail({
+      pipeline: REQUIREMENT_PHASES.map((phase) =>
+        phase === 'implement'
+          ? { phase, attempts: [attempt({ backtrackTo: 'test-design', backtrackReason: reason })] }
+          : { phase, attempts: [] },
+      ),
+    });
+    const nodes: RuntimeFlowNode[] = [
+      runNode({ id: 'run:implement:1:executor:0', status: 'passed' }),
+      runNode({
+        id: 'run:implement:1:verdictGate:0',
+        runStepKind: 'verdictGate',
+        group: 'gate',
+        order: 1,
+        role: null,
+        sessionId: null,
+        status: 'passed',
+      }),
+    ];
+    const edges: UnifiedRunEdge[] = [
+      {
+        fromNodeKey: 'implement:1:executor:0',
+        toNodeKey: 'implement:1:verdict_gate:0',
+        edgeKind: 'forward',
+        runId: 'run-1727',
+      },
+      {
+        fromNodeKey: 'implement:1:verdict_gate:0',
+        toNodeKey: 'implement:1:executor:0',
+        edgeKind: 'backtrack',
+        runId: 'run-1727',
+      },
+    ];
+    renderGraph(buildFlowGraph(base, nodes, edges), materialsFor(base));
+    await measureNodes();
+    await waitFor(() =>
+      expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(edges.length),
+    );
+
+    // 两条边仅一条带 label → 恰一个标记点（label 有无即判据，与 kind 无关）；
+    // 全量记因随 aria-label 可读（弹层开合属 HoverCard 库语义，不在此逐个断言）
+    await waitFor(() => expect(screen.getAllByTestId('edge-label-marker')).toHaveLength(1));
+    const marker = screen.getByTestId('edge-label-marker');
+    expect(marker.getAttribute('aria-label')).toBe(`边标签：${reason}`);
+    expect(document.querySelectorAll('.react-flow__edge-text')).toHaveLength(0);
   });
 
   it('边界：空 graph（columns / nodes / edges 为空）→ 渲染空画布不抛错', () => {

@@ -79,6 +79,8 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 - **retry** phase fail 后同相位重跑——该语义已随决策协议退役（重做本相位改由回溯到自身表达，入口边为 `backtrack`），存量 `retry` 边由查询层投影屏蔽（desktop-change-queries「change 详情聚合」），投影面 MUST NOT 出现该 kind；前端样式分支保留默认渲染，MUST NOT 视为可达形态；
 - **backtrack** 跨相位回跳（虚线 + `backtrackReason` 边标签；目标为失败相位自身即「重做本相位」的重做入口）。
 
+边标签 SHALL 按 label 有无判定渲染形态（与 `edgeKind` 无关）：带 label 的边在边中点落一个标记点，全量 label 经悬停 / 聚焦弹层（HTML overlay）呈现，MUST NOT 以 SVG `<text>` 直出——回跳记因可达千字，SVG 文本无换行与宽度约束，会撑成单行且被画布裁切。marker 与弹层色取自边自身描边；label 首尾空白 SHALL 归一，纯空白视同无 label。
+
 边端点 SHALL 以节点稳定身份键 `(phase, attempt, step, instanceNo)` 寻址（取代「时间序扫描串联 + active 按 startAt 归并插入」）；节点身份键自 `runs[].nodes` 直读（desktop-change-queries「change 详情聚合」），MUST NOT 在前端重新派生节点序。attempt 缺号 SHALL 按 0 兜底（与后端 `detail.rs` 的 `unwrap_or(0)` 同款），startAt 缺失的事件 SHALL 按列表序归并、不丢节点。边端点缺失（历史投影被屏蔽的 `retry` 行、或节点未出线）SHALL 跳过该边且不报错——图面照常渲染其余边。
 
 #### Scenario: 四类边自边表呈现

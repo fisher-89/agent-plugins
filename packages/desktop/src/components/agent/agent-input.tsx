@@ -1,5 +1,5 @@
 import { ArrowUpIcon, SquareIcon } from 'lucide-react';
-import { type KeyboardEvent, useCallback, useMemo, useState } from 'react';
+import { type KeyboardEvent, useMemo, useState } from 'react';
 
 import { StandardSelect } from '@/components/standard/select';
 import { Button } from '@/components/ui/button';
@@ -152,8 +152,10 @@ export function AgentInput({
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
 
   const canSend = useMemo(() => !disabled && prompt.length > 0, [disabled, prompt]);
-  const send = () => {
-    onSend({ text: prompt, permissionMode });
+  /** 发送收口：`text` 由调用方显式给出（快捷键路径取 textarea 原生值，避免读到
+   * 尚未提交的闭包 state），点击发送与快捷键发送走同一条路径。 */
+  const send = (text: string) => {
+    onSend({ text, permissionMode });
     setPrompt('');
   };
 
@@ -194,7 +196,7 @@ export function AgentInput({
         modeId={`${idPrefix}-permission-mode`}
         onPermissionModeChange={setPermissionMode}
         onStop={onStop}
-        onSend={send}
+        onSend={() => send(prompt)}
       />
     </section>
   );
@@ -215,20 +217,22 @@ function InputArea({
   canSend: boolean;
   value: string;
   setValue: (value: string) => void;
-  onSend: () => void;
+  onSend: (text: string) => void;
 }): React.JSX.Element {
-  const submitByHotKey = useCallback(
-    ({ currentTarget, ctrlKey, key }: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!canSend) {
-        return;
-      }
-      if (key === 'Enter' && ctrlKey === true) {
-        setValue(currentTarget.value);
-        onSend();
-      }
-    },
-    [canSend],
-  );
+  /** Ctrl+Enter 发送：文本取 textarea 的原生值。受控组件的 `value` 是上一次渲染
+   * 的快照，同一事件回调内 `setValue` 尚未生效，读它只会拿到旧值。 */
+  const submitByHotKey = ({
+    currentTarget,
+    ctrlKey,
+    key,
+  }: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!canSend) {
+      return;
+    }
+    if (key === 'Enter' && ctrlKey === true) {
+      onSend(currentTarget.value);
+    }
+  };
   return (
     <Textarea
       id={`${idPrefix}-prompt`}
