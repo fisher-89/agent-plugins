@@ -265,7 +265,7 @@ function WebSearchField({
       <div className="flex items-center gap-2">
         <Checkbox.Root
           checked={checked}
-          className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border data-[checked]:bg-primary data-[checked]:text-primary-foreground"
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border data-checked:bg-primary data-checked:text-primary-foreground"
           data-testid="provider-web-search"
           id="provider-web-search"
           onCheckedChange={(next) => onChange(next)}

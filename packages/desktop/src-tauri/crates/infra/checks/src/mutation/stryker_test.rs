@@ -9,7 +9,7 @@ use super::super::report::to_posix;
 use super::super::stryker_concurrency;
 use super::super::{SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
 use super::{
-    build_config, ensure_on_path, plugin_package, relative_to_cwd, run_segment, test_runner,
+    build_config, ensure_on_path, plugin_package, relative_to_cwd, run_suite, test_runner,
     StrykerSegment,
 };
 
@@ -318,9 +318,13 @@ async fn spawn模板展开_argv逐参等值与cwd捕获() {
     let report_path = ws.mutation_dir.join("mutation-seg-0.json");
     window.set_report(&report_path);
 
-    let raw = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("假 spawn 段执行应 Ok");
+    let (raw, _) = run_suite(
+        &ws.segment(&files),
+        None,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("假 spawn 段执行应 Ok");
     let parsed: serde_json::Value = serde_json::from_str(&raw).expect("段报告可解析");
     assert_eq!(parsed["metrics"]["killed"], 9, "段报告 = canned 原样");
 
@@ -368,12 +372,17 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
     window.set_out("stryker harness boom-marker"); // 非 JSON 损坏输出（零段报告面）
     window.set_exit(3);
 
-    let result = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never()).await;
+    let result = run_suite(
+        &ws.segment(&files),
+        None,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await;
     match result {
         Err(SegmentFailure::Interrupted(message)) => {
             assert!(message.contains("退出码 3"), "携退出码: {message}");
             assert!(
-                message.contains("未产出可解析段报告"),
+                message.contains("未产出可解析报告"),
                 "记因无段报告: {message}"
             );
             assert!(
@@ -387,7 +396,7 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
         }
-        Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
     }
 
     // 假 spawn 记录面（模板展开同装置承接）
@@ -426,7 +435,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
             framework: "vitest",
             suite_config: None,
         };
-        run_segment(&segment, foundation::cancel::CancelFlag::never()).await
+        run_suite(&segment, None, foundation::cancel::CancelFlag::never()).await
     });
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
 
@@ -445,7 +454,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
     match result {
         Err(SegmentFailure::Interrupted(message)) => {
             assert!(
-                message.contains("Stryker 段执行超时（3600 秒）强制终止"),
+                message.contains("Stryker 执行超时（3600 秒）强制终止"),
                 "超时中断文案（双时点②即时反馈面）: {message}"
             );
         }
@@ -453,7 +462,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("时钟推进应超时中断而非 Cancelled: {message}")
         }
-        Ok(raw) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
     }
 }
 
@@ -462,7 +471,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
 // ---------------------------------------------------------------------------
 
 /// 正向（AC-4）：运行中 cancel——自旋假 `npx` 运行中置位 → `Cancelled` 文案
-///「Stryker 段执行已取消」+ 临时 config 已写盘（取消不清理临时面，交由调用方
+///「Stryker 执行已取消」+ 临时 config 已写盘（取消不清理临时面，交由调用方
 /// 保留纪律）+ 墙钟上界。
 #[tokio::test]
 async fn 运行中cancel_段取消变体且临时config保留() {
@@ -493,7 +502,7 @@ async fn 运行中cancel_段取消变体且临时config保留() {
             framework: "vitest",
             suite_config: None,
         };
-        run_segment(&segment, cancel).await
+        run_suite(&segment, None, cancel).await
     });
 
     let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
@@ -504,7 +513,7 @@ async fn 运行中cancel_段取消变体且临时config保留() {
     let elapsed = started.elapsed();
     match result {
         Err(SegmentFailure::Cancelled(message)) => {
-            assert_eq!(message, "Stryker 段执行已取消", "取消文案逐字");
+            assert_eq!(message, "Stryker 执行已取消", "取消文案逐字");
         }
         Err(SegmentFailure::Interrupted(message)) => {
             panic!("置位取消应为 Cancelled，实际 Interrupted: {message}")
@@ -512,7 +521,7 @@ async fn 运行中cancel_段取消变体且临时config保留() {
         Err(SegmentFailure::Fatal(message)) => {
             panic!("置位取消应为 Cancelled，实际 Fatal: {message}")
         }
-        Ok(raw) => panic!("取消应中断，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("取消应中断，实际 Ok: {raw}"),
     }
     assert!(
         mutation_dir.exists(),
@@ -529,7 +538,7 @@ async fn 运行中cancel_段取消变体且临时config保留() {
 }
 
 /// 正向（AC-4 / D4）：已置位 cancel 的入口短路——临时 config 已写盘但进程未
-/// 拉起（假 `npx` 零记录），直接 `Cancelled("Stryker 段执行已取消")`。
+/// 拉起（假 `npx` 零记录），直接 `Cancelled("Stryker 执行已取消")`。
 #[tokio::test]
 async fn 已置位cancel_入口短路零spawn且临时config在位() {
     let ws = SpawnWs::new("cancel-pre");
@@ -539,11 +548,11 @@ async fn 已置位cancel_入口短路零spawn且临时config在位() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     cancel.handle().set();
-    let result = run_segment(&ws.segment(&files), cancel).await;
+    let result = run_suite(&ws.segment(&files), None, cancel).await;
 
     match result {
         Err(SegmentFailure::Cancelled(message)) => {
-            assert_eq!(message, "Stryker 段执行已取消", "取消文案逐字");
+            assert_eq!(message, "Stryker 执行已取消", "取消文案逐字");
         }
         Err(SegmentFailure::Interrupted(message)) => {
             panic!("已置位 cancel 应为 Cancelled，实际 Interrupted: {message}")
@@ -551,7 +560,7 @@ async fn 已置位cancel_入口短路零spawn且临时config在位() {
         Err(SegmentFailure::Fatal(message)) => {
             panic!("已置位 cancel 应为 Cancelled，实际 Fatal: {message}")
         }
-        Ok(raw) => panic!("已置位 cancel 应中断，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("已置位 cancel 应中断，实际 Ok: {raw}"),
     }
     assert!(
         window.records().is_empty(),
@@ -589,14 +598,18 @@ async fn 合并流与大输出_双管道大块逐字节() {
 
         let result = tokio::time::timeout(
             Duration::from_secs(60),
-            run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never()),
+            run_suite(
+                &ws.segment(&files),
+                None,
+                foundation::cancel::CancelFlag::never(),
+            ),
         )
         .await
         .expect("空输出形态不应挂死（墙钟上界 60s）");
         match result {
             Err(SegmentFailure::Interrupted(message)) => {
                 assert_eq!(
-                    message, "Stryker 段执行失败（退出码 1，未产出可解析段报告）",
+                    message, "Stryker 执行失败（退出码 1，未产出可解析报告）",
                     "空输出 → 裸 head（无「错误信息」/「输出末尾」段）"
                 );
             }
@@ -606,7 +619,7 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         }
         assert_eq!(window.records().len(), 1, "空形态恰一次假 spawn");
     }
@@ -628,7 +641,11 @@ async fn 合并流与大输出_双管道大块逐字节() {
         let started = Instant::now();
         let result = tokio::time::timeout(
             Duration::from_secs(60),
-            run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never()),
+            run_suite(
+                &ws.segment(&files),
+                None,
+                foundation::cancel::CancelFlag::never(),
+            ),
         )
         .await
         .expect("双管道大块输出不应互锁（并发排水，墙钟上界 60s）");
@@ -642,11 +659,11 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         };
         // 行数 = 2 ≤ 50 → 输出末尾段逐字全量（逐字节等值即「不丢字节」）
         let expected = format!(
-            "Stryker 段执行失败（退出码 101，未产出可解析段报告）\n输出末尾（50 行）：\n{stdout_line}\n{stderr_line}"
+            "Stryker 执行失败（退出码 101，未产出可解析报告）\n输出末尾（50 行）：\n{stdout_line}\n{stderr_line}"
         );
         assert_eq!(
             message, expected,
@@ -677,7 +694,12 @@ async fn 输出含瞬态签名不触发段重试() {
     window.set_exit(1);
 
     let files = vec!["app/src/a.ts".to_owned()];
-    let result = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never()).await;
+    let result = run_suite(
+        &ws.segment(&files),
+        None,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await;
 
     assert!(
         matches!(result, Err(SegmentFailure::Interrupted(_))),
@@ -734,9 +756,13 @@ async fn 端到端跑通且报告树零exec_outputs() {
     let report_root = ws.mutation_dir.parent().expect("报告树根").to_path_buf();
     let before = tree_names(&report_root);
 
-    let raw = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("假 spawn 段执行应 Ok");
+    let (raw, _) = run_suite(
+        &ws.segment(&files),
+        None,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("假 spawn 段执行应 Ok");
     let parsed: serde_json::Value = serde_json::from_str(&raw).expect("段报告可解析");
     assert_eq!(
         parsed["metrics"]["killed"], 9,
@@ -779,9 +805,13 @@ async fn 同段两跑幂等_临时config同路径覆写且零残留() {
     window.set_report(&report_path);
     let config_path = ws.mutation_dir.join("mutation-stryker-seg-0.conf.json");
 
-    let first = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("首跑应 Ok");
+    let (first, _) = run_suite(
+        &ws.segment(&files),
+        None,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("首跑应 Ok");
     let config_first = fs::read(&config_path).expect("首跑临时 config 在盘");
     let report_first = fs::read(&report_path).expect("首跑段报告在盘");
     let tree_first = tree_names(&ws.mutation_dir);
@@ -790,9 +820,13 @@ async fn 同段两跑幂等_临时config同路径覆写且零残留() {
     fs::remove_file(&report_path).expect("摘除首跑段报告");
     assert!(!report_path.exists(), "摘除后段报告不在盘");
 
-    let second = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("同段再跑应 Ok");
+    let (second, _) = run_suite(
+        &ws.segment(&files),
+        None,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("同段再跑应 Ok");
     assert_eq!(
         second, first,
         "两次载荷同源（当次权威 = 同一 canned 段报告）"

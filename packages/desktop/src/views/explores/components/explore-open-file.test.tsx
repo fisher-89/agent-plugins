@@ -96,6 +96,7 @@ beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => ipc(command));
   toastMock.error.mockReset();
+  resetDrift();
   onCreated = vi.fn<OnCreated>();
   scanAnswer = () => Promise.resolve([]);
   createAnswer = () => Promise.resolve(null);
@@ -272,10 +273,6 @@ describe('ExploreOpenFile：root 切换的取消抑制', () => {
 // ---------------------------------------------------------------------------
 
 describe('ExploreOpenFile：结果面软失败', () => {
-  beforeEach(() => {
-    resetDrift();
-  });
-
   it('异常：结果面契约外（返回记录缺 name）→ 漂移恰 1 条、onCreated 照旧被调用', async () => {
     scanAnswer = () => Promise.resolve([{ name: 'valid-topic', modifiedAt: null }]);
     createAnswer = () => {

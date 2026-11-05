@@ -727,8 +727,8 @@ describe('ChangeListView：行级删除入口与二次确认', () => {
 
     expect(probePathname()).toBe('/changes');
     const dialog = screen.getByTestId('change-delete-dialog');
-    expect(dialog !== null).toBe(true);
-    expect(within(dialog).getByText(new RegExp(summary.title)) !== null).toBe(true);
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getAllByText(new RegExp(summary.title))).toBeTruthy();
   });
 
   it('进行中条目：确认弹窗含「同时清空 worktree」勾选且缺省不勾', async () => {

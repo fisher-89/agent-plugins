@@ -1,51 +1,64 @@
 use std::collections::BTreeSet;
 
-use super::{EST_MUTANTS_PER_FILE, SEGMENT_BUDGET_MS};
+use super::{EST_MUTANTS_PER_FILE, SEGMENT_SPAWN_TIMEOUT_MS};
 
-/// 首段静态估算的保守速率（s/mutant；历史实测 1~2 s/mutant 取上界——静态初值
-/// 偏小段、超预算风险优于偏大段）。
-pub(crate) const CONSERVATIVE_SEC_PER_MUTANT: f64 = 2.0;
+/// 每突变体的墙钟秒数（s/mutant）——整体估算的**唯一**待校准常数。
+///
+/// 取**墙钟**口径而非 CPU 值：单突变体各阶段 CPU 耗时合计远高于墙钟（已被
+/// cargo-mutants 的默认 `--jobs` 摊薄），而执行超时是墙钟量，故速率也取墙钟。
+///
+/// **本值随项目规模变化**（每突变体的编译 + 测试成本取决于被突变的包有多大），
+/// 换仓库时应按新仓库实测重标：一次真实 run 后取 `outcomes.json` 里
+/// `Σ(build + test) / 突变体数`（或直接取中位数），再留一档上界。本仓 rust 面实测
+/// 约 8.5 s/mutant，取上界 **10.0**——低估会撞硬超时使整次执行作废，高估只让护栏
+/// 更宽，两害相权取高估。
+pub(crate) const SEC_PER_MUTANT: f64 = 10.0;
 
-/// 静态估算耗时（毫秒）：`EST_MUTANTS_PER_FILE × 文件数 × 保守速率`。
-pub(crate) fn estimate_duration_ms(file_count: usize) -> u64 {
-    (file_count as u64)
-        .saturating_mul(EST_MUTANTS_PER_FILE)
-        .saturating_mul((CONSERVATIVE_SEC_PER_MUTANT * 1000.0) as u64)
+/// 执行超时的保守倍数（估算耗时 × 本值 = spawn 硬超时）。
+///
+/// 实测速率有 ±20% 离散，2 倍足以吸收机器负载抖动与慢用例；更宽的护栏没有额外
+/// 收益——真挂死的执行会饱和在 per-mutant 超时上，由 cargo-mutants 自身判定。
+pub(crate) const TIMEOUT_SAFETY_FACTOR: f64 = 2.0;
+
+/// 整体执行耗时估算（秒）：突变体数 × 单突变体墙钟。
+///
+/// **不含固定开销项**：冷编与源码树复制的成本随项目规模变化，写死一个秒数换仓库
+/// 必然失真。小规模执行的冷启动由 [`SEGMENT_SPAWN_TIMEOUT_MS`] 这个**下限**兜住
+/// ——「一小时」对任何项目都是同一个量，不需要按仓库校准：
+///
+/// | 突变体 | 本式估算 | 实际耗时（本仓拟合） | 生效超时 |
+/// |---|---|---|---|
+/// | 5 | 50 s | ≈ 250 s | 3600 s（下限） |
+/// | 180 | 1800 s | ≈ 1740 s | 3600 s（下限） |
+/// | 739 | 7390 s | ≈ 6490 s | 14780 s（2.3× 余量） |
+///
+/// 分母口径 MUST 是 `--list` 给出的精确突变体数；不可用时由 [`estimate_mutants`]
+/// 按文件数 × 密度兜底。
+pub(crate) fn estimate_duration_sec(mutant_count: u64) -> f64 {
+    mutant_count as f64 * SEC_PER_MUTANT
 }
 
-/// 静态段数（触发口径：估算耗时 > 段预算才切；`k = ceil(估算 / 段预算)`，下限
-/// 1——估算恰等段预算不切，超 1 即切）。
-pub(crate) fn segment_count(file_count: usize) -> usize {
-    let estimate = estimate_duration_ms(file_count);
-    if estimate <= SEGMENT_BUDGET_MS {
-        return 1;
-    }
-    estimate.div_ceil(SEGMENT_BUDGET_MS) as usize
+/// 突变体数兜底估算（`cargo mutants --list` 不可用时）：文件数 × 单文件密度。
+///
+/// **分母口径 MUST 是文件数**，MUST NOT 是「实际产出突变体的文件数」——后者只数
+/// 有产出的文件，会把密度虚高数倍。实测本仓 rust 面 302 突变体 / 14 文件 = 21.6。
+pub(crate) fn estimate_mutants(file_count: usize) -> u64 {
+    (file_count as u64).saturating_mul(EST_MUTANTS_PER_FILE)
 }
 
-/// 首段静态初值块大小（字典序均分 k 段的初值：`ceil(n / k)`；单文件超预算接
-/// 受——段是软目标，[`super::SEGMENT_GUARD_MS`] 软护栏仅观察留痕）。
-pub(crate) fn static_chunk_size(file_count: usize) -> usize {
-    if file_count == 0 {
-        return 0;
+/// 整体执行 spawn 硬超时（毫秒）：估算耗时 × 安全倍数，下限是
+/// [`SEGMENT_SPAWN_TIMEOUT_MS`]（短面 / 零突变体逐字不变）。
+///
+/// 语义是**防悬挂护栏**，不是耗时目标。突变体数取精确值时（`--list` 可用）估算才
+/// 有意义；取兜底密度时同样成立——兜底本身就是保守上界。
+///
+/// 全程饱和运算：超大突变体数不溢出。
+pub(crate) fn run_spawn_timeout_ms(mutant_count: u64) -> u64 {
+    let estimated = estimate_duration_sec(mutant_count) * TIMEOUT_SAFETY_FACTOR * 1000.0;
+    if !estimated.is_finite() || estimated <= 0.0 {
+        return SEGMENT_SPAWN_TIMEOUT_MS;
     }
-    let parts = segment_count(file_count);
-    file_count.div_ceil(parts)
-}
-
-/// 自适应块大小（后续段按上一段实测速率——`段预算 / (速率 × 单文件 mutant 密
-/// 度)` 折算可容纳文件数；速率越慢段越小、越快段越大，下限 1（单文件超预算接
-/// 受），上限 remaining）。
-pub(crate) fn adaptive_chunk_size(rate_sec_per_mutant: f64, remaining: usize) -> usize {
-    if remaining == 0 {
-        return 0;
-    }
-    if !rate_sec_per_mutant.is_finite() || rate_sec_per_mutant <= 0.0 {
-        return remaining;
-    }
-    let per_file_ms = rate_sec_per_mutant * EST_MUTANTS_PER_FILE as f64 * 1000.0;
-    let size = (SEGMENT_BUDGET_MS as f64 / per_file_ms).floor() as usize;
-    size.clamp(1, remaining)
+    (estimated as u64).max(SEGMENT_SPAWN_TIMEOUT_MS)
 }
 
 /// 补丁按文件段切片

@@ -3,6 +3,7 @@ import { type KeyboardEvent, useMemo, useState } from 'react';
 
 import { StandardSelect } from '@/components/standard/select';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -47,10 +48,8 @@ function ModeSelect({
   onChange: (value: AgentPermissionMode) => void;
 }): React.JSX.Element {
   return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <label className="text-xs text-muted-foreground" htmlFor={id}>
-        permission-mode
-      </label>
+    <Field orientation="horizontal">
+      <FieldLabel>permission-mode</FieldLabel>
       <StandardSelect
         id={id}
         data-testid={id}
@@ -62,7 +61,7 @@ function ModeSelect({
         }}
         items={PERMISSION_OPTIONS}
       />
-    </span>
+    </Field>
   );
 }
 
@@ -221,11 +220,7 @@ function InputArea({
 }): React.JSX.Element {
   /** Ctrl+Enter 发送：文本取 textarea 的原生值。受控组件的 `value` 是上一次渲染
    * 的快照，同一事件回调内 `setValue` 尚未生效，读它只会拿到旧值。 */
-  const submitByHotKey = ({
-    currentTarget,
-    ctrlKey,
-    key,
-  }: KeyboardEvent<HTMLTextAreaElement>) => {
+  const submitByHotKey = ({ currentTarget, ctrlKey, key }: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!canSend) {
       return;
     }

@@ -15,7 +15,7 @@ use super::super::{
     mutation_jobs, SegmentFailure, MUTATION_JOBS_DIVISOR, MUTATION_TEST_THREADS,
     PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS,
 };
-use super::{read_tauri_version, run_segment, segment_failure_message, tauri_config_override};
+use super::{read_tauri_version, run_suite, segment_failure_message, tauri_config_override};
 
 /// cargo-mutants 段报告 canned（真实 `mutants.out/outcomes.json` 全形态——
 /// outcomes 逐条 + 计数面：1 caught + 1 missed / total 2）。
@@ -89,7 +89,7 @@ fn 段中断错误面_携退出码与有界尾部() {
     let message = segment_failure_message(101, b"error: build failed\nsee details");
     assert!(message.contains("退出码 101"), "携退出码: {message}");
     assert!(
-        message.contains("未产出可解析 JSON 段报告"),
+        message.contains("未产出可解析 JSON 报告"),
         "记因无报告: {message}"
     );
     assert!(
@@ -111,9 +111,10 @@ async fn spawn失败面_路径隔离下显式fatal() {
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", "");
 
-    let result = run_segment(
+    let result = run_suite(
         std::path::Path::new("mutation-seg-0.patch"),
         std::path::Path::new("."),
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await;
@@ -140,7 +141,7 @@ async fn spawn失败面_路径隔离下显式fatal() {
         Err(SegmentFailure::Cancelled(error)) => {
             panic!("PATH 隔离下应 Fatal（拉起失败），实际 Cancelled: {error}")
         }
-        Ok(raw) => panic!("PATH 隔离下应 Err，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("PATH 隔离下应 Err，实际 Ok: {raw}"),
     }
 }
 
@@ -211,9 +212,10 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     window.set_cargo_outcomes(CARGO_SEG_CANNED);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let raw = run_segment(
+    let (raw, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -333,16 +335,18 @@ async fn cargo_target_dir相对值覆盖继承的绝对路径() {
 
     let patch0 = ws.write_patch(0, "diff --git a/app/src/a.rs b/app/src/a.rs\n");
     let patch1 = ws.write_patch(1, "diff --git a/app/src/b.rs b/app/src/b.rs\n");
-    run_segment(
+    run_suite(
         &patch0,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
     .expect("段 0 应 Ok");
-    run_segment(
+    run_suite(
         &patch1,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -433,9 +437,10 @@ async fn 退出零无报告_零突变体段合成空计数面() {
     // 不编程 outcomes —— 假执行体不写报告（真实工具零交叠面同形）
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let raw = run_segment(
+    let (raw, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -476,9 +481,10 @@ async fn 陈旧报告清场_上一段残留不误读() {
 
     // 假执行体不写报告（本段零交叠面）——陈旧报告必须被清场而非误读
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
-    let raw = run_segment(
+    let (raw, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -512,9 +518,10 @@ async fn 轮换目录清场_历史残留一并移除() {
     .expect("写轮换目录残留");
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    run_segment(
+    run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -537,9 +544,10 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
     window.set_exit(101);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let result = run_segment(
+    let result = run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await;
@@ -547,7 +555,7 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
         Err(SegmentFailure::Interrupted(message)) => {
             assert!(message.contains("退出码 101"), "携退出码: {message}");
             assert!(
-                message.contains("未产出可解析 JSON 段报告"),
+                message.contains("未产出可解析 JSON 报告"),
                 "记因无段报告: {message}"
             );
             assert!(
@@ -561,7 +569,7 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
         }
-        Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
     }
 
     // 假 spawn 记录面（模板展开同装置承接）
@@ -592,9 +600,10 @@ async fn 超时中断_强制终止且pid消失不挂死() {
     // 段执行在任务内（主任务负责「等 pid 落盘 → 推进虚拟时钟」的握手）
     let exec_dir = ws.exec_dir.clone();
     let runner = tokio::spawn(async move {
-        run_segment(
+        run_suite(
             &patch_path,
             &exec_dir,
+            1,
             foundation::cancel::CancelFlag::never(),
         )
         .await
@@ -616,7 +625,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
     match result {
         Err(SegmentFailure::Interrupted(message)) => {
             assert!(
-                message.contains("cargo-mutants 段执行超时（3600 秒）强制终止"),
+                message.contains("cargo-mutants 执行超时（3600 秒）强制终止"),
                 "超时中断文案（双时点②即时反馈面）: {message}"
             );
         }
@@ -624,7 +633,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("时钟推进应超时中断而非 Cancelled: {message}")
         }
-        Ok(raw) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
     }
 }
 
@@ -652,9 +661,10 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
     for (index, content) in &patches {
         window.reset_records();
         let patch_path = ws.write_patch(*index, content);
-        let raw = run_segment(
+        let (raw, _) = run_suite(
             &patch_path,
             &ws.exec_dir,
+            1,
             foundation::cancel::CancelFlag::never(),
         )
         .await
@@ -698,7 +708,7 @@ tail-marker
 "
         .as_ref(),
     );
-    assert!(message.contains("cargo-mutants 段执行失败（退出码 101，未产出可解析 JSON 段报告）"));
+    assert!(message.contains("cargo-mutants 执行失败（退出码 101，未产出可解析 JSON 报告）"));
     assert!(
         message.contains(
             "错误信息：
@@ -711,7 +721,7 @@ error: build failed"
     // 空输出 → 裸 head（无冒号缀）
     assert_eq!(
         segment_failure_message(1, b""),
-        "cargo-mutants 段执行失败（退出码 1，未产出可解析 JSON 段报告）"
+        "cargo-mutants 执行失败（退出码 1，未产出可解析 JSON 报告）"
     );
 }
 
@@ -722,7 +732,7 @@ error: build failed"
 // ---------------------------------------------------------------------------
 
 /// 正向（AC-4）：运行中 cancel——自旋假 cargo 运行中置位 → `Cancelled` 文案
-///「cargo-mutants 段执行已取消」（与超时 `Interrupted` / 拉起失败 `Fatal` 三变体
+///「cargo-mutants 执行已取消」（与超时 `Interrupted` / 拉起失败 `Fatal` 三变体
 /// 可辨）+ 墙钟上界。
 #[tokio::test]
 async fn 运行中cancel_段取消变体与文案且秒级收敛() {
@@ -736,7 +746,7 @@ async fn 运行中cancel_段取消变体与文案且秒级收敛() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     let handle = cancel.handle();
-    let runner = tokio::spawn(async move { run_segment(&patch_path, &ws.exec_dir, cancel).await });
+    let runner = tokio::spawn(async move { run_suite(&patch_path, &ws.exec_dir, 1, cancel).await });
 
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
     let started = Instant::now();
@@ -747,7 +757,7 @@ async fn 运行中cancel_段取消变体与文案且秒级收敛() {
     match result {
         Err(SegmentFailure::Cancelled(message)) => {
             assert_eq!(
-                message, "cargo-mutants 段执行已取消",
+                message, "cargo-mutants 执行已取消",
                 "取消文案逐字（与 Interrupted / Fatal 文案独立）"
             );
         }
@@ -757,7 +767,7 @@ async fn 运行中cancel_段取消变体与文案且秒级收敛() {
         Err(SegmentFailure::Fatal(message)) => {
             panic!("置位取消应为 Cancelled，实际 Fatal: {message}")
         }
-        Ok(raw) => panic!("取消应中断，实际 Ok: {raw}"),
+        Ok((raw, _)) => panic!("取消应中断，实际 Ok: {raw}"),
     }
     assert!(
         elapsed < Duration::from_secs(20),
@@ -780,10 +790,10 @@ async fn 已置位cancel_入口短路零spawn() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     cancel.handle().set();
-    let result = run_segment(&patch_path, &ws.exec_dir, cancel).await;
+    let result = run_suite(&patch_path, &ws.exec_dir, 1, cancel).await;
     match result {
         Err(SegmentFailure::Cancelled(message)) => {
-            assert_eq!(message, "cargo-mutants 段执行已取消");
+            assert_eq!(message, "cargo-mutants 执行已取消");
         }
         other => panic!("已置位 cancel 应 Cancelled，实际 {other:?}"),
     }
@@ -813,8 +823,8 @@ async fn 已置位cancel_入口短路零spawn() {
 /// 直驱同名用例钉死）。
 #[tokio::test]
 async fn 合并流与大输出_双管道大块逐字节() {
-    const HEAD_EMPTY: &str = "cargo-mutants 段执行失败（退出码 1，未产出可解析 JSON 段报告）";
-    const HEAD_BIG: &str = "cargo-mutants 段执行失败（退出码 101，未产出可解析 JSON 段报告）";
+    const HEAD_EMPTY: &str = "cargo-mutants 执行失败（退出码 1，未产出可解析 JSON 报告）";
+    const HEAD_BIG: &str = "cargo-mutants 执行失败（退出码 101，未产出可解析 JSON 报告）";
     const TAIL_MARKER: &str = "输出末尾（50 行）：\n";
 
     // 形态一：双空输出（非零退出且无段报告 → 合并输出为空 → 裸 head）
@@ -827,9 +837,10 @@ async fn 合并流与大输出_双管道大块逐字节() {
 
         let result = tokio::time::timeout(
             Duration::from_secs(60),
-            run_segment(
+            run_suite(
                 &patch_path,
                 &ws.exec_dir,
+                1,
                 foundation::cancel::CancelFlag::never(),
             ),
         )
@@ -852,7 +863,7 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         }
         // 真空输出的「裸 head」语义（无错误摘要段 / 无尾部段）直驱钉死
         assert_eq!(
@@ -881,9 +892,10 @@ async fn 合并流与大输出_双管道大块逐字节() {
         let started = Instant::now();
         let result = tokio::time::timeout(
             Duration::from_secs(60),
-            run_segment(
+            run_suite(
                 &patch_path,
                 &ws.exec_dir,
+                1,
                 foundation::cancel::CancelFlag::never(),
             ),
         )
@@ -899,7 +911,7 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         };
         assert!(
             message.starts_with(HEAD_BIG),
@@ -960,9 +972,10 @@ async fn 输出含瞬态签名不触发段重试() {
     window.set_exit(1);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let result = run_segment(
+    let result = run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await;
@@ -1017,9 +1030,10 @@ async fn 同patch两跑幂等_报告树零累积() {
     window.set_cargo_outcomes(CARGO_SEG_CANNED);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let first = run_segment(
+    let (first, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -1028,9 +1042,10 @@ async fn 同patch两跑幂等_报告树零累积() {
     let report_root = ws.mutation_dir.parent().expect("报告树根").to_path_buf();
     let snapshot_after_first = tree_names(&report_root);
 
-    let second = run_segment(
+    let (second, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -1084,9 +1099,10 @@ async fn 段执行后零exec_outputs新增() {
     window.set_cargo_outcomes(CARGO_SEG_CANNED);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    run_segment(
+    run_suite(
         &patch_path,
         &ws.exec_dir,
+        1,
         foundation::cancel::CancelFlag::never(),
     )
     .await
@@ -1103,5 +1119,104 @@ async fn 段执行后零exec_outputs新增() {
             "突变段零 live 记录面（{} 不应新建）",
             candidate.display()
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 中断回读（不切段模型的核心补偿）：`outcomes.json` 只在正常退出时落盘，被强杀
+// 时用 `mutants.out/` 的增量成果文件合成计数面，已判完的突变体不丢
+// ---------------------------------------------------------------------------
+
+/// 正向：四个增量文件的行数即计数；合成载荷可被 `parse_cargo_mutants_seg` 直读。
+#[test]
+fn 中断回读_增量文件行数合成计数面() {
+    let ws = SpawnWs::new("recover");
+    let out = ws.exec_dir.join("mutants.out");
+    fs::create_dir_all(&out).expect("建 mutants.out");
+    fs::write(
+        out.join("caught.txt"),
+        "src/a.rs:1:1: replace x with 0\nsrc/a.rs:2:1: replace y with 1\n",
+    )
+    .expect("写 caught");
+    fs::write(out.join("missed.txt"), "src/b.rs:3:1: replace z with 2\n").expect("写 missed");
+    fs::write(out.join("timeout.txt"), "src/c.rs:4:1: replace w with 3\n").expect("写 timeout");
+    fs::write(out.join("unviable.txt"), "").expect("写空 unviable");
+
+    let payload = super::recover_partial(&ws.exec_dir).expect("有增量成果即应合成载荷");
+    let parsed = checks::model::parse_cargo_mutants_seg(&payload).expect("合成载荷应可解析");
+    assert_eq!(parsed.measured.killed, 2, "caught.txt 两行 → killed 2");
+    assert_eq!(parsed.measured.survived, 1, "missed.txt 一行 → survived 1");
+    assert_eq!(parsed.measured.timeout, 1, "timeout.txt 一行 → timeout 1");
+    assert_eq!(parsed.measured.compile_error, 0, "空文件不计");
+    assert_eq!(parsed.measured.total, 4, "总数为四文件行数之和");
+}
+
+/// 异常边界：一件都没判完（四个文件全缺 / 全空）→ `None`。
+///
+/// 这是与「全被 caught」相反的语义，MUST NOT 混同为「跑完了」——调用侧据此走
+/// 中断面而非「零成果通过」。
+#[test]
+fn 中断回读_零成果不伪装为跑完() {
+    let ws = SpawnWs::new("recover-empty");
+    assert!(
+        super::recover_partial(&ws.exec_dir).is_none(),
+        "mutants.out 缺席 → None"
+    );
+
+    let out = ws.exec_dir.join("mutants.out");
+    fs::create_dir_all(&out).expect("建 mutants.out");
+    for file in ["caught.txt", "missed.txt", "timeout.txt", "unviable.txt"] {
+        fs::write(out.join(file), "\n\n").expect("写空白");
+    }
+    assert!(
+        super::recover_partial(&ws.exec_dir).is_none(),
+        "四文件全为空白行 → None（MUST NOT 合成零计数载荷）"
+    );
+}
+
+/// 正向（端到端）：超时强杀 + 增量成果在位 → `Ok((载荷, true))` 而非中断面。
+#[tokio::test(start_paused = true)]
+async fn 超时中断_有增量成果时回读为部分结果() {
+    let ws = SpawnWs::new("recover-timeout");
+    let window = SpawnWindow::enter("cargo-recover-timeout");
+    window.install_fake_cargo(&ws.exec_dir);
+    window.set_sleep(1); // 自旋挂起，等待超时臂
+    let pid_file = ws.mutation_dir.join("cargo-recover-pid.txt");
+    window.set_pidfile(&pid_file);
+    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
+
+    let exec_dir = ws.exec_dir.clone();
+    let runner = tokio::spawn(async move {
+        run_suite(
+            &patch_path,
+            &exec_dir,
+            1,
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+    });
+    let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
+    // 增量成果在执行**过程中**产生（`run_suite` 起跑时已清空过 mutants.out，
+    // 故必须在 spawn 之后写——与 cargo-mutants 真实写盘时序一致）
+    let out = ws.exec_dir.join("mutants.out");
+    fs::create_dir_all(&out).expect("建 mutants.out");
+    fs::write(
+        out.join("caught.txt"),
+        "src/a.rs:1:1: replace x with 0\nsrc/a.rs:2:1: replace y with 1\n",
+    )
+    .expect("写 caught");
+    fs::write(out.join("missed.txt"), "src/b.rs:3:1: replace z with 2\n").expect("写 missed");
+    tokio::time::advance(Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS + 60_000)).await;
+    let _ = pid;
+
+    let result = runner.await.expect("任务应正常结束");
+    match result {
+        Ok((raw, recovered)) => {
+            assert!(recovered, "回读路径必须标记为部分结果");
+            let parsed = checks::model::parse_cargo_mutants_seg(&raw).expect("合成载荷可解析");
+            assert_eq!(parsed.measured.killed, 2);
+            assert_eq!(parsed.measured.survived, 1);
+        }
+        Err(other) => panic!("有增量成果时应回读而非中断，实际 {other:?}"),
     }
 }

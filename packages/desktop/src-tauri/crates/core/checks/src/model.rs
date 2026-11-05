@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 // ---------------------------------------------------------------------------
 // 枚举词汇（线格式小写词，与 CLI zod enum 同串）
@@ -645,10 +647,37 @@ fn read_count(map: &serde_json::Map<String, serde_json::Value>, keys: &[&str]) -
         .sum()
 }
 
-/// 段耗时毫秒读取（`duration_ms` / `durationMs` 顶层面键；未携为 0.0）。
+/// 段耗时毫秒读取（阶梯取值）：
+///
+/// 1. 顶层 `duration_ms` / `durationMs` 两键求和——显式携带耗时者优先，既有行为
+///    逐字不变（Stryker 与将来可能携耗时键的工具走这一阶）。
+/// 2. 两键俱缺时取顶层 `end_time` − `start_time`（RFC 3339 求差）——cargo-mutants
+///    27.x 的 `outcomes.json` 只携起止时间、**不携耗时键**，这是 rust 面取值的
+///    唯一来源。沿 `reuse.rs::timestamp_millis` 同一解析形态。
+/// 3. 皆不可得 → `0.0`（既有「工具未携耗时」语义，消费侧据此续用静态初值）。
+///
+/// 第二阶梯的任一键缺位 / 不可解析 / 逆序（`end < start`）→ 整体落 `0.0`：负耗时
+/// 是坏数据信号，取绝对值会把它伪装成合法值，失败安全比猜测更可取。
+///
+/// 纯函数：零墙钟（MUST NOT 取当前时间）、零文件 mtime 依赖、零 IO——段报告内容
+/// 直驱可测。
 fn read_duration_ms(root: &serde_json::Map<String, serde_json::Value>) -> f64 {
-    ["duration_ms", "durationMs"]
-        .iter()
-        .filter_map(|key| root.get(*key).and_then(serde_json::Value::as_f64))
-        .sum()
+    if root.contains_key("duration_ms") || root.contains_key("durationMs") {
+        return ["duration_ms", "durationMs"]
+            .iter()
+            .filter_map(|key| root.get(*key).and_then(serde_json::Value::as_f64))
+            .sum();
+    }
+    let timestamp = |key: &str| {
+        root.get(key)
+            .and_then(serde_json::Value::as_str)
+            .and_then(|text| OffsetDateTime::parse(text, &Rfc3339).ok())
+    };
+    let (Some(start), Some(end)) = (timestamp("start_time"), timestamp("end_time")) else {
+        return 0.0;
+    };
+    if end < start {
+        return 0.0;
+    }
+    (end - start).whole_milliseconds() as f64
 }

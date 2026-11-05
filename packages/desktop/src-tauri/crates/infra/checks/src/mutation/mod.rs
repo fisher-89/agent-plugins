@@ -48,10 +48,17 @@ pub const SEGMENT_BUDGET_MS: u64 = 300_000;
 pub const SEGMENT_GUARD_MS: u64 = 600_000;
 
 /// 首段静态估算的单文件 mutant 密度（文件行数不可事先得知的兜底常数）。
-pub const EST_MUTANTS_PER_FILE: u64 = 10;
+///
+/// 取值依据是本仓 rust 面的实测，取上界。**分母口径 MUST 是段内文件数**（它是
+/// [`segments::static_chunk_size`] 块大小的乘数），MUST NOT 是「实际产出突变体的
+/// 文件数」——后者只数有产出的文件，会把密度虚高数倍，两个口径不可混用。
+pub const EST_MUTANTS_PER_FILE: u64 = 22;
 
-/// 段 spawn 硬超时毫秒（防悬挂的最后护栏——[`SEGMENT_GUARD_MS`] 是软目标观察
+/// 段 spawn 硬超时毫秒（防悬挂的**下限**护栏——[`SEGMENT_GUARD_MS`] 是软目标观察
 /// 面，本值是进程级强杀线；超时 → 段中断即时反馈，不挂死执行链）。
+///
+/// 实际生效值由 [`segments::segment_spawn_timeout_ms`] 按段内文件数折算上抬；本常量
+/// 只在短段 / 零文件段处生效。
 pub const SEGMENT_SPAWN_TIMEOUT_MS: u64 = 3_600_000;
 
 /// 段执行失败面（E5 分流）：`Fatal` = 工具不可达 / 配置不支持 / 写盘失败 →
@@ -472,9 +479,14 @@ fn skip_outcome(skip: MutationSkipReason) -> ToolStepOutput {
     })
 }
 
-/// 单 suite 分段顺序执行：段切分（静态初值 + 自适应修正）→ 逐段复用门 / 执行
-/// → 段报告解析 → 段块归并 → 归并块写盘；已产报告路径随 `report_paths` 逐步外
-/// 传（段中断时「已产报告路径清单」不随 Err 丢失——双时点②即时反馈面）。
+/// 单 suite 整体执行：一次 spawn 跑完该桶的突变面（不切段）→ 段报告解析 → 块
+/// 落盘；已产报告路径随 `report_paths` 外传（中断时「已产报告路径清单」不随 Err
+/// 丢失——双时点②即时反馈面）。
+///
+/// **为何不切段**：每次 spawn 有约 210 s 的固定开销（源码树复制 + 冷编），与突变
+/// 体数无关。切段省下的是「被杀时少丢一些」，代价是每段都重付固定开销——实测 25
+/// 段形态下固定开销占总墙钟 45%。整体执行 + 中断时回读部分成果（见
+/// [`cargo_mutants::recover_partial`]）才是正确取舍。
 async fn run_suite(
     root_path: &Path,
     reports_dir: &Path,
@@ -490,99 +502,91 @@ async fn run_suite(
             report::to_posix(&mutation_dir)
         ))
     })?;
-    // 段输入新鲜度（suite 根递归扫描覆盖段内文件与 suite 测试文件；报告树 / 依赖
-    // 产物目录剪枝——同一 suite 各段同值）
+    // 整体复用门（取代段级门）：段报告在位且新鲜 → 零 spawn 复用，重解析进归并。
+    // 改任何一个输入文件都会使它失效——这是对「重跑必复现」的正当取舍：整体执行
+    // 没有段级断点，半成品由中断回读承担。
     let newest_input = newest_input_mtime(root_path, &bucket.suite_root, reports_dir);
+    let report_path = report::segment_report_path(&mutation_dir, 0);
 
-    let total = bucket.files.len();
-    let static_size = segments::static_chunk_size(total);
-    let mut rate: Option<f64> = None;
-    let mut cursor = 0usize;
-    let mut index = 0usize;
-    let mut seg_blocks: Vec<MutationBlock> = Vec::new();
-    while cursor < total {
-        // 段大小：首段静态初值，后续段按上一段实测速率（秒 / mutant）自适应修正
-        let size = match rate {
-            Some(rate) => segments::adaptive_chunk_size(rate, total - cursor),
-            None => static_size,
+    let report = if report::segment_reusable(&report_path, newest_input) {
+        std::fs::read_to_string(&report_path)
+            .ok()
+            .and_then(|raw| parse_seg(bucket.tool.expect("可执行桶恒有执行器"), &raw).ok())
+    } else {
+        None
+    };
+    let (report, recovered) = match report {
+        Some(parsed) => (parsed, false),
+        None => {
+            // 旧段报告清除——段报告是本次执行的权威信号（防旧报告被误判）
+            let _ = std::fs::remove_file(&report_path);
+            execute_suite(
+                root_path,
+                reports_dir,
+                &mutation_dir,
+                bucket,
+                patch,
+                cancel.clone(),
+            )
+            .await?
         }
-        .clamp(1, total - cursor);
-        let chunk = &bucket.files[cursor..cursor + size];
-        cursor += size;
-        let report_path = report::segment_report_path(&mutation_dir, index);
+    };
 
-        // 段级复用门（E6 / AC-8）：在位且新鲜 → 零 spawn 复用，重解析进归并；解析
-        // 失效（损坏 / 形态漂移）→ 失效重跑
-        let seg_report = if report::segment_reusable(&report_path, newest_input) {
-            std::fs::read_to_string(&report_path)
-                .ok()
-                .and_then(|raw| parse_seg(bucket.tool.expect("可执行桶恒有执行器"), &raw).ok())
-        } else {
-            None
-        };
-        let seg_report = match seg_report {
-            Some(parsed) => parsed,
-            None => {
-                // 旧段报告清除——段报告是本次执行的权威信号（防旧报告被误判）
-                let _ = std::fs::remove_file(&report_path);
-                execute_segment(
-                    root_path,
-                    &mutation_dir,
-                    bucket,
-                    chunk,
-                    index,
-                    patch,
-                    cancel.clone(),
-                )
-                .await?
+    // 耗时留痕：进程输出面（MUST NOT 进报告 JSON / `feedback_text` / IPC——复用
+    // 门命中与实跑两态皆同）。
+    let rate_note = if report.duration_ms > 0.0 && report.measured.total > 0 {
+        format!(
+            "{:.0} ms ⇒ {:.2} s/mutant（{}）",
+            report.duration_ms,
+            report.duration_ms / 1000.0 / report.measured.total as f64,
+            if recovered {
+                "中断回读"
+            } else {
+                "完整执行"
             }
-        };
+        )
+    } else {
+        "耗时不可得（工具未携）".to_owned()
+    };
+    eprintln!(
+        "[mutation] {}: {} 文件 / {} 突变体 / {rate_note}",
+        bucket.plan_id,
+        bucket.files.len(),
+        report.measured.total
+    );
+    report_paths.push(report::to_posix(&report_path));
 
-        // 段软护栏仅观察留痕（MUST NOT 硬失败；单文件超预算接受）
-        if seg_report.duration_ms > SEGMENT_GUARD_MS as f64 {
-            eprintln!(
-                "[mutation] {} 段 {index} 耗时 {:.0} ms 超软护栏 {SEGMENT_GUARD_MS} ms（软目标仅观察留痕）",
-                bucket.plan_id, seg_report.duration_ms
-            );
-        }
-        // 自适应速率观测（段报告携耗时才有实测值；工具未携 → 静态初值续用——跨段
-        // 复用门下速率源自段报告自身，段边界跨 run 稳定）
-        if seg_report.duration_ms > 0.0 && seg_report.measured.total > 0 {
-            rate = Some(seg_report.duration_ms / 1000.0 / seg_report.measured.total as f64);
-        }
-        report_paths.push(report::to_posix(&report_path));
-        // 段当子报告（计数求和沿 aggregate_mutation 既有公式，MUST NOT 新增归并
-        // 公式）；逐段块共用 suite 阈值，归并阈值取首块 = suite 阈值
-        seg_blocks.push(build_mutation_block(seg_report.measured, bucket.threshold));
-        index += 1;
-    }
-
-    let block = merge_mutation_blocks(&seg_blocks)
-        .ok_or_else(|| SegmentFailure::Fatal("突变段块归并空（段清单非空却零段块）".to_owned()))?;
+    let block = build_mutation_block(report.measured, bucket.threshold);
     let merged_path =
         report::write_merged_block(&mutation_dir, &block).map_err(SegmentFailure::Fatal)?;
     report_paths.push(report::to_posix(&merged_path));
     Ok(block)
 }
 
-/// 单段执行：补丁切片 / 临时 config 写盘 → 经 `exec::run_shell` 执行（超时 /
-/// 双管道 / 进程树击杀 / 取消单点驻 exec）→ 段原始报告写盘 → 段报告解析。失败按
-/// [`SegmentFailure`] 分流（E5；取消走 `Cancelled` 变体，与 `Fatal` 面隔离）。
-async fn execute_segment(
+/// 单次整体执行：补丁写盘 → 经 `exec::run_shell` 执行（超时 / 双管道 / 进程树
+/// 击杀 / 取消单点驻 exec）→ 原始报告写盘 → 报告解析。
+///
+/// **中断时回读部分成果**（`recovered = true`）：cargo-mutants 只在正常退出时写
+/// `outcomes.json`，被强杀时该文件缺失。但它边跑边写 `caught.txt` / `missed.txt` /
+/// `timeout.txt` / `unviable.txt`（每行一个突变体），故超时 / 取消时用这四个文件
+/// 合成计数面，已判完的成果不丢。合成的段报告照常写盘（留痕「本次为部分结果」）。
+///
+/// 失败按 [`SegmentFailure`] 分流（E5；取消走 `Cancelled` 变体，与 `Fatal` 面隔离）。
+/// 回读成功时**不走失败面**——部分结果的 score 照常判定（可能因分母偏小而不达标，
+/// 由阈值门禁处置，那是正确语义）。
+async fn execute_suite(
     root_path: &Path,
+    reports_dir: &Path,
     mutation_dir: &Path,
     bucket: &SuiteBucket,
-    chunk: &[String],
-    index: usize,
     patch: &str,
     cancel: CancelFlag,
-) -> Result<MutationSegReport, SegmentFailure> {
+) -> Result<(MutationSegReport, bool), SegmentFailure> {
     let tool = bucket.tool.expect("可执行桶恒有执行器");
-    let raw = match tool {
+    let (raw, recovered) = match tool {
         MutationTool::CargoMutants => {
-            // 段补丁路径重写基准：suite 执行目录相对项目根的 POSIX 路径（cargo
-            // mutants 以 spawn cwd 相对路径对源树匹配 `--in-diff`；Stryker
-            // `mutate` 清单 relative_to_cwd 同约定——suite 锚项目根时为空串透传）
+            // 执行目录相对项目根的 POSIX 路径（cargo-mutants 以 spawn cwd 相对路径
+            // 对源树匹配 `--in-diff`）
             let exec_rel = bucket
                 .exec_dir
                 .strip_prefix(root_path)
@@ -590,32 +594,52 @@ async fn execute_segment(
                 .unwrap_or_default();
             let patch_path = report::write_segment_patch(
                 mutation_dir,
-                index,
-                &segments::slice_patch(patch, chunk, &exec_rel),
+                0,
+                &segments::slice_patch(patch, &bucket.files, &exec_rel),
             )
             .map_err(SegmentFailure::Fatal)?;
-            cargo_mutants::run_segment(&patch_path, &bucket.exec_dir, cancel).await?
+            let mutant_count = segments::estimate_mutants(bucket.files.len());
+            cargo_mutants::run_suite(&patch_path, &bucket.exec_dir, mutant_count, cancel).await?
         }
         MutationTool::Stryker => {
-            stryker::run_segment(
+            let (raw, recovered) = stryker::run_suite(
                 &stryker::StrykerSegment {
                     suite_cwd: &bucket.exec_dir,
                     mutation_dir,
-                    index,
-                    files: chunk,
+                    index: 0,
+                    files: &bucket.files,
                     project_root: root_path,
                     framework: bucket.framework,
                     suite_config: bucket.suite_config.as_deref(),
                 },
+                // 单轮测试耗时：同 plan 的 test-execution 报告（一次真实全量墙钟）
+                round_duration_ms(reports_dir, &bucket.plan_id),
                 cancel,
             )
-            .await?
+            .await?;
+            (raw, recovered)
         }
     };
-    // 段原始报告写盘（工具原始输出原样、全程留存；写盘失败 → 显式 Err 面）
-    report::write_segment_report(mutation_dir, index, &raw).map_err(SegmentFailure::Fatal)?;
+    // 原始报告写盘（工具原始输出原样、全程留存）
+    report::write_segment_report(mutation_dir, 0, &raw).map_err(SegmentFailure::Fatal)?;
     parse_seg(tool, &raw)
-        .map_err(|error| SegmentFailure::Interrupted(format!("段 {index} 报告不可解析：{error}")))
+        .map(|parsed| (parsed, recovered))
+        .map_err(|error| SegmentFailure::Interrupted(format!("突变报告不可解析：{error}")))
+}
+
+/// 单轮测试耗时（毫秒）：读同 plan 的 test-execution 报告
+/// `<reports>/<plan_id>/report.json` 的 `duration_ms`。
+///
+/// 该文件由同一次 test-execution 相位产出（walker 保证 test-execution 先于
+/// mutation-test），是「跑一遍完整测试要多久」的唯一权威读数。缺失 / 不可解析
+/// → `None`（消费侧退回固定下限，不阻断）。
+fn round_duration_ms(reports_dir: &Path, plan_id: &str) -> Option<f64> {
+    let raw = std::fs::read_to_string(reports_dir.join(plan_id).join("report.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    value
+        .get("duration_ms")
+        .and_then(serde_json::Value::as_f64)
+        .filter(|duration| *duration > 0.0)
 }
 
 /// 段报告解析（按执行器路由 core/checks 宽容解析 + outcome 映射表）。

@@ -6,8 +6,7 @@ use exec::SystemCommand;
 use foundation::cancel::CancelFlag;
 
 use super::{
-    mutation_jobs, SegmentFailure, MUTATION_TEST_THREADS, PER_MUTANT_TIMEOUT_SECS,
-    SEGMENT_SPAWN_TIMEOUT_MS,
+    mutation_jobs, segments, SegmentFailure, MUTATION_TEST_THREADS, PER_MUTANT_TIMEOUT_SECS,
 };
 
 /// cargo-mutants 段报告目录（spawn cwd 相对——默认写 `<cwd>/mutants.out`，
@@ -24,9 +23,19 @@ const CARGO_MUTANTS_OUT_OLD_DIR: &str = "mutants.out.old";
 /// 作用于 `--list`）。
 const CARGO_OUTCOMES_FILE: &str = "outcomes.json";
 
-/// 突变 scratch 目录名（相对 suite 执行目录的 `target/`——见 `run_segment`
+/// 突变 scratch 目录名（相对 suite 执行目录的 `target/`——见 `run_suite`
 /// 的 TEMP / TMP / TMPDIR 重定向注释）。
 const MUTANTS_SCRATCH_DIR: &str = "mutants-scratch";
+
+/// 增量成果文件（`mutants.out/` 下）：cargo-mutants **边跑边写**每行的判定结果，
+/// 而 `outcomes.json` 只在正常退出时落盘。执行被强杀时这四个文件是部分成果的
+/// 唯一来源；文件名即 outcome 词（与计数面同词）。
+const CARGO_PARTIAL_FILES: [(&str, &str); 4] = [
+    ("caught.txt", "caught"),
+    ("missed.txt", "missed"),
+    ("timeout.txt", "timeout"),
+    ("unviable.txt", "unviable"),
+];
 
 /// 零突变体段合成载荷（计数面直读形态——`parse_cargo_mutants_seg` 计数面同式；
 /// 全零计数 → 归并块 valid == 0 → score 100 恒过，空段不拖累 suite 判定）。
@@ -77,12 +86,20 @@ fn read_tauri_version(exec_dir: &Path) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// 段执行
-pub(crate) async fn run_segment(
+/// 整体执行（不切段）
+///
+/// `mutant_count` = 本次突变的**估算**突变体数（`--list` 精确值不可得时的兜底
+/// 密度 × 文件数），仅用于折算 spawn 硬超时；spawn 处 MUST NOT 行内算。
+///
+/// 返回 `(原始报告, 是否为中断回读)`：`true` 表示执行被超时 / 取消终止，报告由
+/// [`recover_partial`] 从增量成果文件合成——已判完的突变体不丢。
+pub(crate) async fn run_suite(
     patch_path: &Path,
     exec_dir: &Path,
+    mutant_count: u64,
     cancel: CancelFlag,
-) -> Result<String, SegmentFailure> {
+) -> Result<(String, bool), SegmentFailure> {
+    let spawn_timeout_ms = segments::run_spawn_timeout_ms(mutant_count);
     // 目标目录用**相对路径** `target`：cargo 按各子进程自己的 cwd 解析，而
     // cargo-mutants 的每个 worker 各持一份独立临时副本——于是每个 worker 天然
     // 各写各的 target，互不共享。
@@ -156,7 +173,7 @@ pub(crate) async fn run_segment(
         exec::RunOptions {
             cwd: Some(exec_dir.to_path_buf()),
             env,
-            timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
+            timeout: Duration::from_millis(spawn_timeout_ms),
             cancel,
             // 突变面零重试（长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级
             // 复用门承担）
@@ -177,18 +194,21 @@ pub(crate) async fn run_segment(
                 "cargo-mutants 段执行等待失败: {error}"
             )));
         }
-        // 超时：整树已杀 + 收尸完成——段中断即时反馈面（双时点②）
+        // 超时：整树已杀 + 收尸完成。**先尝试回读部分成果**——增量文件在盘即
+        // 已判完的突变体不丢；一件都读不到才走中断面（双时点②）。
         Ok(report) if report.outcome == exec::RunOutcome::TimedOut => {
-            return Err(SegmentFailure::Interrupted(format!(
-                "cargo-mutants 段执行超时（{} 秒）强制终止",
-                SEGMENT_SPAWN_TIMEOUT_MS / 1000
-            )));
+            return recover_or(exec_dir, || {
+                SegmentFailure::Interrupted(format!(
+                    "cargo-mutants 执行超时（{} 秒）强制终止",
+                    spawn_timeout_ms / 1000
+                ))
+            });
         }
-        // 取消：段中断面（MUST NOT 走 Fatal——不把用户停止呈现为环境损坏）
+        // 取消：同上——已判完的成果保留，回读不到才走取消面（MUST NOT 走 Fatal）
         Ok(report) if report.outcome == exec::RunOutcome::Cancelled => {
-            return Err(SegmentFailure::Cancelled(
-                "cargo-mutants 段执行已取消".to_owned(),
-            ));
+            return recover_or(exec_dir, || {
+                SegmentFailure::Cancelled("cargo-mutants 执行已取消".to_owned())
+            });
         }
         Ok(report) => {
             let mut output = report.stdout;
@@ -197,25 +217,68 @@ pub(crate) async fn run_segment(
         }
     };
 
-    // 段报告为权威：`outcomes.json` 在位且可解析 → 段完成（cargo-mutants 以非零
-    // 退出表达未达标等语义不中断）；退出 0 且无报告 → 零突变体段（合成空计数
-    // 面）；其余（崩溃 / 无报告非零退出）→ 中断即时反馈
+    // 报告为权威：`outcomes.json` 在位且可解析 → 完整执行（cargo-mutants 以非零
+    // 退出表达未达标等语义不中断）；退出 0 且无报告 → 零突变体（合成空计数面）；
+    // 其余（崩溃 / 无报告非零退出）→ 先试回读部分成果，再走中断面
     let outcomes_path = exec_dir
         .join(CARGO_MUTANTS_OUT_DIR)
         .join(CARGO_OUTCOMES_FILE);
     match std::fs::read_to_string(&outcomes_path) {
-        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok(raw),
-        _ if exit_code == 0 => Ok(ZERO_MUTANTS_PAYLOAD.to_owned()),
-        _ => Err(SegmentFailure::Interrupted(segment_failure_message(
-            exit_code, &output,
-        ))),
+        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok((raw, false)),
+        _ if exit_code == 0 => Ok((ZERO_MUTANTS_PAYLOAD.to_owned(), false)),
+        _ => recover_or(exec_dir, || {
+            SegmentFailure::Interrupted(segment_failure_message(exit_code, &output))
+        }),
     }
 }
 
-/// 段中断错误面（非零退出 / stdout 无 JSON 载荷；错误信息 + 输出末尾双段
-/// ——exec `ProcessOutput` 统一装配）。
+/// 中断面回读：从 `mutants.out/` 的增量成果文件合成计数面。
+///
+/// cargo-mutants 边跑边往 `caught.txt` / `missed.txt` / `timeout.txt` /
+/// `unviable.txt` 追加一行一突变体，而 `outcomes.json` 只在正常退出时落盘。故超时 /
+/// 取消时这四个文件是部分成果的唯一来源。
+///
+/// 返回 `(合成载荷, true)`；一个文件都读不到（或全为空）时调 `fallback` 产出原
+/// 失败面——**不把「零成果」伪装成「跑完了」**。
+fn recover_or(
+    exec_dir: &Path,
+    fallback: impl FnOnce() -> SegmentFailure,
+) -> Result<(String, bool), SegmentFailure> {
+    match recover_partial(exec_dir) {
+        Some(raw) => Ok((raw, true)),
+        None => Err(fallback()),
+    }
+}
+
+/// 增量成果文件 → 计数面载荷（`{"caught": N, "missed": N, …}`）。
+///
+/// 行数即计数（每行一个突变体名，含坐标与替换描述）。零总行数时返回 `None`——
+/// 那是「一件都没判完」，与「全被 caught」语义相反，MUST NOT 混同。
+fn recover_partial(exec_dir: &Path) -> Option<String> {
+    let mut counts = serde_json::Map::new();
+    let mut total = 0u64;
+    for (file, key) in CARGO_PARTIAL_FILES {
+        let Ok(text) = std::fs::read_to_string(exec_dir.join(CARGO_MUTANTS_OUT_DIR).join(file))
+        else {
+            continue;
+        };
+        let count = text.lines().filter(|line| !line.trim().is_empty()).count() as u64;
+        if count > 0 {
+            total = total.saturating_add(count);
+            counts.insert(key.to_owned(), serde_json::Value::from(count));
+        }
+    }
+    if total == 0 {
+        return None;
+    }
+    counts.insert("total_mutants".to_owned(), serde_json::Value::from(total));
+    serde_json::to_string(&serde_json::Value::Object(counts)).ok()
+}
+
+/// 执行失败面（非零退出 / 无可用报告；错误信息 + 输出末尾双段——exec
+/// `ProcessOutput` 统一装配）。
 fn segment_failure_message(exit_code: i32, output: &[u8]) -> String {
-    let head = format!("cargo-mutants 段执行失败（退出码 {exit_code}，未产出可解析 JSON 段报告）");
+    let head = format!("cargo-mutants 执行失败（退出码 {exit_code}，未产出可解析 JSON 报告）");
     exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
 }
 

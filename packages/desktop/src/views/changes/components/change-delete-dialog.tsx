@@ -64,8 +64,8 @@ export function ChangeDeleteDialog({
         <DialogHeader>
           <DialogTitle>删除变更</DialogTitle>
           <DialogDescription>
-            将删除「{target?.title ?? ''}」的库记录（相位 / 步骤 /
-            运行史）与磁盘产物目录，操作不可撤销。
+            {`将删除「${target?.title ?? ''}」的库记录（相位 / 步骤 /
+            运行史）与磁盘产物目录，操作不可撤销。`}
           </DialogDescription>
         </DialogHeader>
         {target?.worktreeCapable === true && (
@@ -79,7 +79,7 @@ export function ChangeDeleteDialog({
               data-testid="change-delete-clean-worktree"
             />
             <span>
-              同时清空 worktree（移除 worktree 目录与分支 change/&lt;name&gt;）；不勾选则原样保留
+              {`同时清空 worktree（移除 worktree 目录与分支 change/${target?.title ?? '<name>'}）；不勾选则原样保留`}
             </span>
           </label>
         )}

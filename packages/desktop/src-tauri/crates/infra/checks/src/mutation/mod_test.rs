@@ -25,7 +25,6 @@ use super::SegmentFailure;
 use super::{
     bucket_suites, framework_name, mutation_tool, normalize_root, skip_outcome, ProcessMutation,
     EST_MUTANTS_PER_FILE, MUTATION_JOBS_DIVISOR, MUTATION_TEST_THREADS, PER_MUTANT_TIMEOUT_SECS,
-    SEGMENT_BUDGET_MS, SEGMENT_GUARD_MS,
 };
 
 // ---------------------------------------------------------------------------
@@ -1091,7 +1090,7 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
         "错误摘要在案: {feedback}"
     );
     assert!(
-        feedback.contains("退出码 101") && feedback.contains("未产出可解析 JSON 段报告"),
+        feedback.contains("退出码 101") && feedback.contains("未产出可解析 JSON 报告"),
         "记因面（非零退出 + 无段报告）: {feedback}"
     );
     assert!(
@@ -1748,9 +1747,11 @@ fn 突变常量锚定与config_schema零新字段() {
     );
     assert_eq!(MUTATION_TEST_THREADS, 4, "单 worker 内测试线程 4");
     assert_eq!(PER_MUTANT_TIMEOUT_SECS, 300, "per-mutant 超时 300 秒");
-    assert_eq!(SEGMENT_BUDGET_MS, 300_000, "段预算 5 分钟");
-    assert_eq!(SEGMENT_GUARD_MS, 600_000, "软护栏 10 分钟");
-    assert_eq!(EST_MUTANTS_PER_FILE, 10, "首段静态单文件密度");
+
+    assert_eq!(
+        EST_MUTANTS_PER_FILE, 22,
+        "单文件突变体密度（实测 21.6 取上界）"
+    );
 
     // MutationConfig schema 零新字段（穷尽解构无 `..`——D9 不进 config schema）
     let config = MutationConfig {

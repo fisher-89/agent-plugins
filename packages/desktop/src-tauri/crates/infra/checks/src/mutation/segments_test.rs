@@ -1,137 +1,5 @@
-use super::super::{EST_MUTANTS_PER_FILE, SEGMENT_BUDGET_MS, SEGMENT_GUARD_MS};
-use super::{
-    adaptive_chunk_size, estimate_duration_ms, segment_count, slice_patch, static_chunk_size,
-};
-/// 静态估算耗时：`EST_MUTANTS_PER_FILE × 文件数 × 保守速率（2s）`——公式面
-/// 锚定（20s/文件）。
-#[test]
-fn 静态估算耗时公式面锚定() {
-    assert_eq!(estimate_duration_ms(0), 0, "零文件零耗时");
-    assert_eq!(
-        estimate_duration_ms(1),
-        EST_MUTANTS_PER_FILE * 2000,
-        "单文件 = 10 mutants × 2s = 20s"
-    );
-    assert_eq!(
-        estimate_duration_ms(15),
-        300_000,
-        "15 文件 = 300s（恰等段预算刻度）"
-    );
-    // 饱和运算防溢出（超大文件数不 panic——饱和至 u64::MAX）
-    assert_eq!(
-        estimate_duration_ms(usize::MAX),
-        u64::MAX,
-        "usize::MAX 饱和至 u64::MAX 不 panic"
-    );
-}
-
-/// 段数触发口径：估算 ≤ 段预算不切（k=1）、超 1 即切（k = ceil(估算/预算)）；
-/// 恰等不切（阈值边界）。
-#[test]
-fn 段数触发口径_恰等不切超一即切() {
-    // 15 文件 = 300s 恰等 → 不切
-    assert_eq!(segment_count(15), 1, "估算恰等段预算不切（阈值边界）");
-    // 16 文件 = 320s → ceil(320/300) = 2
-    assert_eq!(segment_count(16), 2, "超 1 即切");
-    // 30 文件 = 600s → 2；31 文件 = 620s → 3
-    assert_eq!(segment_count(30), 2);
-    assert_eq!(segment_count(31), 3);
-    // 零文件 / 单文件恒 1（单文件超预算接受——段是软目标）
-    assert_eq!(segment_count(0), 1);
-    assert_eq!(segment_count(1), 1, "单文件超预算接受（不切单文件）");
-    // 超大清单不溢出
-    assert!(segment_count(usize::MAX) > 1, "超大清单触发多段不溢出");
-}
-
-/// 首段静态初值：`ceil(n / k)` 字典序均分；零文件 → 0。
-#[test]
-fn 首段静态初值均分() {
-    assert_eq!(static_chunk_size(0), 0, "零文件零块");
-    assert_eq!(static_chunk_size(1), 1, "单文件单块");
-    assert_eq!(static_chunk_size(16), 8, "16 文件 / 2 段 = 8");
-    assert_eq!(static_chunk_size(31), 11, "31 文件 / 3 段 → ceil = 11");
-    // 均分后并集覆盖全清单（k 段 × 块大小 ≥ n）
-    for n in [1usize, 2, 15, 16, 31, 100, 1000] {
-        let size = static_chunk_size(n);
-        let k = segment_count(n);
-        assert!(size * k >= n, "n={n}：{size} × {k} ≥ {n}（并集覆盖全清单）");
-        assert!(size >= 1, "n={n} 块非空");
-    }
-}
-
-/// 自适应块大小：`段预算 / (速率 × 单文件密度)` 折算——速率越慢段越小、
-/// 越快段越大；下限 1（单文件超预算接受）、上限 remaining；非法速率（NaN /
-/// Inf / 零 / 负）退 remaining（静态初值续用面）。
-#[test]
-fn 自适应块大小_修正方向与上下限() {
-    // 慢速率（5 s/mutant → 每文件 50s → 300000/50000 = 6）
-    assert_eq!(
-        adaptive_chunk_size(5.0, 100),
-        6,
-        "慢于保守初值 → 段变小（6 < 15 静态）"
-    );
-    // 快速率（0.5 s/mutant → 每文件 5s → 300000/5000 = 60）
-    assert_eq!(adaptive_chunk_size(0.5, 100), 60, "快于初值 → 段变大");
-    // 修正方向：慢速率块 < 快速率块
-    assert!(
-        adaptive_chunk_size(5.0, 1000) < adaptive_chunk_size(0.5, 1000),
-        "修正方向正确（慢小快大）"
-    );
-    // 下限 1（极慢速率折算 0 → clamp 1——单文件超预算接受）
-    assert_eq!(adaptive_chunk_size(1_000_000.0, 10), 1, "下限 1");
-    // 上限 remaining（极快速率 → 全剩余一桶）
-    assert_eq!(adaptive_chunk_size(0.000_001, 7), 7, "上限 remaining");
-
-    // remaining = 0 → 0
-    assert_eq!(adaptive_chunk_size(1.0, 0), 0);
-
-    // 非法速率 → remaining（静态初值续用——段报告未携耗时的回退面）
-    for rate in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -1.0] {
-        assert_eq!(
-            adaptive_chunk_size(rate, 9),
-            9,
-            "非法速率 {rate} → remaining（回退面）"
-        );
-    }
-}
-
-/// 三段切分组合：估算超预算 → k 段、字典序均分、段并集 = 全清单、段间零交叠
-///、顺序稳定（模拟 run_suite 的 cursor 推进）。
-#[test]
-fn 组合_三段切分并集覆盖零交叠顺序稳定() {
-    let files: Vec<String> = (0..45).map(|index| format!("src/f{index:03}.rs")).collect();
-    let n = files.len();
-    let k = segment_count(n);
-    assert_eq!(k, 3, "45 文件 = 900s → 3 段");
-
-    let mut cursor = 0usize;
-    let mut chunks: Vec<&[String]> = Vec::new();
-    let mut rate: Option<f64> = None;
-    while cursor < n {
-        let size = match rate {
-            Some(rate) => adaptive_chunk_size(rate, n - cursor),
-            None => static_chunk_size(n),
-        }
-        .clamp(1, n - cursor);
-        chunks.push(&files[cursor..cursor + size]);
-        cursor += size;
-        // 模拟首段实测速率慢于初值 → 后续段变小
-        rate = Some(3.0);
-    }
-    // 并集 = 全清单、零交叠、顺序稳定
-    let flattened: Vec<&String> = chunks.iter().copied().flatten().collect();
-    assert_eq!(
-        flattened,
-        files.iter().collect::<Vec<_>>(),
-        "并集 = 全清单且顺序稳定"
-    );
-    let mut ranges_sum = 0usize;
-    for chunk in &chunks {
-        ranges_sum += chunk.len();
-        assert!(!chunk.is_empty(), "段非空");
-    }
-    assert_eq!(ranges_sum, n, "零交叠（长度和 = n）");
-}
+use super::super::{EST_MUTANTS_PER_FILE, PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS};
+use super::{estimate_duration_sec, estimate_mutants, run_spawn_timeout_ms, slice_patch};
 
 /// 补丁切片正向：多文件 patch → 段补丁只含段内文件 hunks（`diff --git` 段头
 /// 匹配）；前导文本（无段头）丢弃不 panic。
@@ -353,10 +221,66 @@ fn 补丁切片_suite根前缀剥离与空串透传() {
     );
 }
 
-/// 段预算 / 软护栏常量锚定（E9 值锚定——D9 不进 config schema）。
+// ---------------------------------------------------------------------------
+// 整体估算（不切段）：耗时 = 固定开销 + 突变体数 × 单突变体墙钟；spawn 超时 =
+// 估算 × 2（保守倍数），下限为固定护栏
+// ---------------------------------------------------------------------------
+
+/// 正向：耗时估算只含突变体数线性项（无固定开销项——换仓库不失效）。
 #[test]
-fn 段预算与软护栏常量锚定() {
-    assert_eq!(SEGMENT_BUDGET_MS, 300_000, "段预算 5 分钟（软目标）");
-    assert_eq!(SEGMENT_GUARD_MS, 600_000, "软护栏 10 分钟（仅观察留痕）");
-    assert_eq!(EST_MUTANTS_PER_FILE, 10, "首段静态单文件 mutant 密度");
+fn 整体耗时估算_只含线性项() {
+    assert_eq!(
+        estimate_duration_sec(0),
+        0.0,
+        "零突变体零耗时（无固定开销项）"
+    );
+    assert_eq!(
+        estimate_duration_sec(100),
+        100.0 * super::SEC_PER_MUTANT,
+        "线性项 = 突变体数 × 单突变体墙钟"
+    );
+    // 单调递增（突变体越多估得越久）
+    assert!(estimate_duration_sec(200) > estimate_duration_sec(100));
+}
+
+/// 边界：突变体数兜底估算 = 文件数 × 单文件密度（分母口径必须是文件数）。
+#[test]
+fn 突变体数兜底估算_文件数乘密度() {
+    assert_eq!(estimate_mutants(0), 0, "零文件零突变体");
+    assert_eq!(estimate_mutants(1), EST_MUTANTS_PER_FILE, "单文件 = 密度");
+    assert_eq!(estimate_mutants(14), 14 * EST_MUTANTS_PER_FILE);
+    // 饱和不 panic（超大文件数）
+    assert_eq!(estimate_mutants(usize::MAX), u64::MAX, "饱和至 u64::MAX");
+}
+
+/// 正向：spawn 超时 = 估算耗时 × 安全倍数，且不低于固定护栏下限。
+#[test]
+fn 整体spawn超时_估算乘安全倍数且不低于下限() {
+    // 大突变体数下安全倍数生效
+    let many = 10_000u64;
+    let expected = (estimate_duration_sec(many) * super::TIMEOUT_SAFETY_FACTOR * 1000.0) as u64;
+    assert_eq!(run_spawn_timeout_ms(many), expected);
+    assert!(
+        run_spawn_timeout_ms(many) > many * super::SEC_PER_MUTANT as u64 * 1000,
+        "超时必须是估算的倍数"
+    );
+    // 小值 / 零值退回下限
+    assert_eq!(
+        run_spawn_timeout_ms(0),
+        SEGMENT_SPAWN_TIMEOUT_MS,
+        "零突变体回下限"
+    );
+    assert_eq!(
+        run_spawn_timeout_ms(1),
+        SEGMENT_SPAWN_TIMEOUT_MS,
+        "单突变体回下限"
+    );
+}
+
+/// 常量锚定：单突变体墙钟取实测上界（8.5 实测 → 10），per-mutant 超时沿用。
+#[test]
+fn 速率常数取实测上界() {
+    assert_eq!(super::SEC_PER_MUTANT, 10.0, "实测 8.5 s/mutant 取整上界");
+    assert_eq!(PER_MUTANT_TIMEOUT_SECS, 300, "per-mutant 超时不变");
+    assert_eq!(EST_MUTANTS_PER_FILE, 22, "单文件密度按实测 21.6 取上界");
 }

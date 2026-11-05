@@ -7,6 +7,46 @@ use foundation::cancel::CancelFlag;
 use super::report::{self, to_posix, STRYKER_TMP_DIR_NAME};
 use super::{stryker_concurrency, SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
 
+/// Stryker 单次执行的 spawn 硬超时**下限**（零文件 / 取不到单轮耗时时退回本值）。
+const SPAWN_TIMEOUT_MS: u64 = SEGMENT_SPAWN_TIMEOUT_MS;
+
+/// 单突变体测试耗时占单轮测试的比例：`coverageAnalysis: perTest` 下每个突变体
+/// 只跑覆盖它的测试子集，平均约一成。
+///
+/// **业界通用值，不按仓库 calibrate**：perTest 的「覆盖子集规模」由测试与源码的
+/// 覆盖关系决定，与仓库大小无关；改动本值只会让护栏变宽或变窄，不影响判定。
+const PER_MUTANT_TEST_RATIO: f64 = 0.1;
+
+/// js 族单文件行数密度（突变体 / 源码行）。
+///
+/// **业界通用值，不按仓库 calibrate**：Stryker 的突变是表达式级（条件取反、算术
+/// 替换、字面量替换），密度由语法形态决定而非项目规模。本仓历史实测 0.603
+/// （`stryker-mutation-cwd-lca`：3 文件 1243 行 → 750 个），与通用值吻合。
+///
+/// Stryker 无 `--list` 等价物，本密度是突变数的唯一可用来源。
+const MUTANTS_PER_LINE: f64 = 0.6;
+
+/// Stryker 单次执行的 spawn 硬超时。
+///
+/// 与 cargo-mutants 不同，Stryker **没有编译阶段**，单突变体的成本只由「覆盖它的
+/// 测试子集」决定（`coverageAnalysis: perTest` 默认开着），不存在「每突变体撞满
+/// per-mutant 超时」那种可折算的最坏上界。故按通用比例估算：
+///
+/// `超时 = max(下限, (单轮测试 + 突变体数 × 单轮测试 × PER_MUTANT_TEST_RATIO) × 2 × 1000)`
+///
+/// 单轮测试耗时取同 plan 的 test-execution `report.json` 的 `duration_ms`（那是
+/// 一次真实全量测试的墙钟）；取不到时退回固定下限。
+fn estimate_timeout_ms(mutants: f64, round_duration_ms: Option<f64>) -> u64 {
+    let Some(round_ms) = round_duration_ms.filter(|value| *value > 0.0) else {
+        return SPAWN_TIMEOUT_MS;
+    };
+    let estimated = (round_ms + mutants * round_ms * PER_MUTANT_TEST_RATIO) * 2.0;
+    if !estimated.is_finite() || estimated <= 0.0 {
+        return SPAWN_TIMEOUT_MS;
+    }
+    (estimated as u64).max(SPAWN_TIMEOUT_MS)
+}
+
 /// Windows 上补探测的可执行后缀（PATHEXT 主干；与 cmd 搜索口径一致——镜像
 /// `testexec::runner` 的私有实现，不改其可见性）。
 #[cfg(target_os = "windows")]
@@ -36,12 +76,23 @@ pub(crate) struct StrykerSegment<'a> {
 /// <config>` 经 `exec::run_shell` 执行（超时 / 双管道 / 进程树击杀 / 取消单点驻
 /// exec）→ 读回段原始报告（jsonReporter 直写段报告路径）。sandbox 清理归调用方
 ///（全段后一次——段间零清理）。
-pub(crate) async fn run_segment(
+pub(crate) async fn run_suite(
     segment: &StrykerSegment<'_>,
+    round_duration_ms: Option<f64>,
     cancel: CancelFlag,
-) -> Result<String, SegmentFailure> {
+) -> Result<(String, bool), SegmentFailure> {
     // 程序解析前置（E5：npx 不可达显式 Err——壳会吞缺失程序，先查 PATH）
     ensure_on_path("npx").map_err(SegmentFailure::Fatal)?;
+
+    // 突变数估算：文件总行数 × 密度（Stryker 无 `--list` 等价物，只能靠密度）。
+    let total_lines: usize = segment
+        .files
+        .iter()
+        .filter_map(|file| std::fs::read_to_string(segment.project_root.join(file)).ok())
+        .map(|source| source.lines().count())
+        .sum();
+    let estimated_mutants = total_lines as f64 * MUTANTS_PER_LINE;
+    let spawn_timeout_ms = estimate_timeout_ms(estimated_mutants, round_duration_ms);
 
     let report_path = report::segment_report_path(segment.mutation_dir, segment.index);
     let config_path = segment
@@ -68,11 +119,11 @@ pub(crate) async fn run_segment(
         exec::RunOptions {
             cwd: Some(segment.suite_cwd.to_path_buf()),
             env: Vec::new(),
-            timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
+            timeout: Duration::from_millis(spawn_timeout_ms),
             cancel,
-            // 突变面零重试（同 cargo-mutants 段口径）
+            // 突变面零重试（同 cargo-mutants 口径）
             retry: exec::RetryPolicy::none(),
-            // 突变段零 live 接入（同 cargo-mutants 段口径）
+            // 突变面零 live 接入（同 cargo-mutants 口径）
             live: None,
         },
     )
@@ -88,16 +139,17 @@ pub(crate) async fn run_segment(
                 "Stryker 段执行等待失败: {error}"
             )));
         }
-        // 超时：整树已杀 + 收尸完成——段中断即时反馈面（双时点②）
+        // 超时：整树已杀 + 收尸完成。Stryker 无增量成果文件（报告只在正常退出时
+        // 由 jsonReporter 写），故无部分成果可回读——直接走中断面。
         Ok(report) if report.outcome == exec::RunOutcome::TimedOut => {
             return Err(SegmentFailure::Interrupted(format!(
-                "Stryker 段执行超时（{} 秒）强制终止",
-                SEGMENT_SPAWN_TIMEOUT_MS / 1000
+                "Stryker 执行超时（{} 秒）强制终止",
+                spawn_timeout_ms / 1000
             )));
         }
-        // 取消：段中断面（MUST NOT 走 Fatal——不把用户停止呈现为环境损坏）
+        // 取消：中断面（MUST NOT 走 Fatal——不把用户停止呈现为环境损坏）
         Ok(report) if report.outcome == exec::RunOutcome::Cancelled => {
-            return Err(SegmentFailure::Cancelled("Stryker 段执行已取消".to_owned()));
+            return Err(SegmentFailure::Cancelled("Stryker 执行已取消".to_owned()));
         }
         Ok(report) => {
             let mut output = report.stdout;
@@ -106,20 +158,20 @@ pub(crate) async fn run_segment(
         }
     };
 
-    // 段报告为权威：在位且可解析 → 段完成（工具以非零退出表达未达标等语义不
-    // 中断）；缺失 / 损坏 → 中断（错误摘要 + 输出尾部，即时反馈面）
+    // 报告为权威：在位且可解析 → 完成（工具以非零退出表达未达标等语义不中断）；
+    // 缺失 / 损坏 → 中断（错误摘要 + 输出尾部，即时反馈面）
     match std::fs::read_to_string(&report_path) {
-        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok(raw),
+        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok((raw, false)),
         _ => Err(SegmentFailure::Interrupted(segment_failure_message(
             exit_code, &output,
         ))),
     }
 }
 
-/// 段中断错误面（非零退出 / 无段报告；错误信息 + 输出末尾双段——exec
+/// 执行失败面（非零退出 / 无报告；错误信息 + 输出末尾双段——exec
 /// `ProcessOutput` 统一装配，报告文件面归因原料交反馈边取摘要）。
 fn segment_failure_message(exit_code: i32, output: &[u8]) -> String {
-    let head = format!("Stryker 段执行失败（退出码 {exit_code}，未产出可解析段报告）");
+    let head = format!("Stryker 执行失败（退出码 {exit_code}，未产出可解析报告）");
     exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
 }
 

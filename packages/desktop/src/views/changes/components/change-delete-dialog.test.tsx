@@ -28,7 +28,7 @@ describe('ChangeDeleteDialog：不可撤销告知与勾选语义', () => {
 
     expect(screen.getByTestId('change-delete-dialog') !== null).toBe(true);
     expect(screen.getByText('删除变更') !== null).toBe(true);
-    expect(screen.getByText(/待删变更/)).toBeTruthy();
+    expect(screen.getAllByText(/待删变更/)).toBeTruthy();
     expect(screen.getByText(/不可撤销/)).toBeTruthy();
   });
 
@@ -43,7 +43,7 @@ describe('ChangeDeleteDialog：不可撤销告知与勾选语义', () => {
 
     const checkbox = screen.getByTestId('change-delete-clean-worktree') as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
-    expect(screen.getByText(/分支 change\/<name>/)).toBeTruthy();
+    expect(screen.getByText(/分支 change\//)).toBeTruthy();
   });
 
   it('worktreeCapable=false（归档条目）：零勾选框', () => {

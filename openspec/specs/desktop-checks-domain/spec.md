@@ -154,11 +154,11 @@ static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run
 
 ### Requirement: mutation 执行面与 MutationRunner port 归属
 
-突变执行 SHALL 落 checks 边界：进程执行落位 `crates/infra/checks/src/mutation/`（testexec/ 旁新模块：分段调度、Stryker / cargo-mutants 模板展开 spawn、outcome 映射、段级与归并报告写盘、sandbox 复用与全段后一次清理），纯层判定（映射表口径、score 公式、段计数归并、阈值判定）落位 `crates/core/checks`（纯函数 fixtures 直驱可测，零 spawn 零 Tauri 红线不变）。`MutationRunner` port SHALL 留 `orchestration::port` 原地（port 归属消费者先例同式，与 `TestExecutionRunner` 并列；`ToolCommand::MutationTest` / `ToolStepOutput::MutationTest` 入封闭集）；`checks-runtime` 依赖面 MUST NOT 扩 vcs——变更文件清单（`change_edit_set`）由 walker 经 vcs 缝取数后以 `MutationRunner::run(root, name, files)` 入参注入，清单获取实现在 `infra/vcs`。突变报告 SHALL 落 change 报告目录 `reports/test/<plan>/mutation/` 子树（段级 `mutation-seg-<i>.json` + 归并块，全程留存），路径经 foundation layout 推导（命名隔离双禁令唯一触点纪律不变）。
+突变执行 SHALL 落 checks 边界：进程执行落位 `crates/infra/checks/src/mutation/`（testexec/ 旁新模块：整体执行编排与耗时估算、Stryker / cargo-mutants 模板展开 spawn、outcome 映射、原始与归并报告写盘、中断时的部分成果回读、sandbox 落位与执行后一次清理），纯层判定（映射表口径、score 公式、计数归并、阈值判定）落位 `crates/core/checks`（纯函数 fixtures 直驱可测，零 spawn 零 Tauri 红线不变）。`MutationRunner` port SHALL 留 `orchestration::port` 原地（port 归属消费者先例同式，与 `TestExecutionRunner` 并列；`ToolCommand::MutationTest` / `ToolStepOutput::MutationTest` 入封闭集）；`checks-runtime` 依赖面 MUST NOT 扩 vcs——变更文件清单（`change_edit_set`）由 walker 经 vcs 缝取数后以 `MutationRunner::run(root, name, files)` 入参注入，清单获取实现在 `infra/vcs`。突变报告 SHALL 落 change 报告目录 `reports/test/<plan>/mutation/` 子树（原始 `mutation-seg-<i>.json` + 归并块，全程留存），路径经 foundation layout 推导（命名隔离双禁令唯一触点纪律不变）。
 
 #### Scenario: 双层落位与零 spawn 红线
 
-- **WHEN** 审查 mutation 纯层（映射 / score / 归并）与执行模块（spawn / 分段 / 清理）的落位
+- **WHEN** 审查 mutation 纯层（映射 / score / 归并）与执行模块（spawn / 耗时估算 / 清理）的落位
 - **THEN** 纯层在 core/checks（fixtures 直驱、零 spawn 零 Tauri），进程执行在 infra/checks/src/mutation/；core/checks 无 tokio process 依赖
 
 #### Scenario: 清单经入参注入不扩依赖
@@ -168,8 +168,8 @@ static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run
 
 #### Scenario: 报告落 change 报告树
 
-- **WHEN** 突变分段执行完毕
-- **THEN** 段级原始报告与归并块落 `reports/test/<plan>/mutation/` 子树（经 layout 推导零路径字面量），全程留存不清理
+- **WHEN** 突变执行完毕
+- **THEN** 原始报告与归并块落 `reports/test/<plan>/mutation/` 子树（经 layout 推导零路径字面量），全程留存不清理
 
 ### Requirement: baseline 报告槽位参数化
 
