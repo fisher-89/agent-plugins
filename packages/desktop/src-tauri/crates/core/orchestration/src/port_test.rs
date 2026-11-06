@@ -36,10 +36,27 @@ fn sample_phase_next_outcome() -> PhaseNextOutcome {
             BacktrackOption {
                 phase: "proposal".to_owned(),
                 description: "需求提案与规格说明".to_owned(),
+                artifacts: vec![
+                    workflow::write::ArtifactSpec {
+                        kind: "markdown-doc",
+                        path: "proposal.md",
+                        title: "提案",
+                    },
+                    workflow::write::ArtifactSpec {
+                        kind: "markdown-doc",
+                        path: "specs/**",
+                        title: "规格",
+                    },
+                ],
             },
             BacktrackOption {
                 phase: "dev-design".to_owned(),
                 description: "详细设计与任务拆解".to_owned(),
+                artifacts: vec![workflow::write::ArtifactSpec {
+                    kind: "markdown-doc",
+                    path: "design.md",
+                    title: "开发设计",
+                }],
             },
         ],
         last_result: None,

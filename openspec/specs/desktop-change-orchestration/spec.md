@@ -216,7 +216,7 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 
 ### Requirement: 决策协议
 
-写面 `phase_next` 返回决策分叉触发（任意相位最新 fail 条目未挂决策会话；或窗口 fail 数达重试上限的标注变体）时，walker SHALL 唤起决策 agent（compose_turn 新会话，`ModelLevel::High`）；walker 自走同相位重跑 SHALL 退役（盲目重跑的会话消耗高于一次决策）。确定性相位（initialize / archive：executor / evaluator 双缺席）不触发决策，fail 落账照常同相位重路由。决策 agent 输入 SHALL 有界且来自 db 状态与写面响应：fail checklist（fail 项 + evidence）、失败条目 `report`（失败报告原文，见「失败升格落账与决策信息面」）、`allowed_backtrack_phases`（写面 `phase_next` 白名单；每项 SHALL 携相位特性描述，描述单源 = 本期相位表 `PhaseDefinition.description`，随表分派不串味）、候选相位最近一次 eval report。决策 prompt 白名单段 SHALL 逐条渲染 `- <相位 id>（<特性描述>）`，供决策 agent 判断回溯目标（描述空串退化为 id-only 行）。决策输入 MUST NOT 携相位 retry 语义标记（retry 已退役，无「评估-only / 带 executor」二分支指引）。决策输出 SHALL 为封闭集三动作：
+写面 `phase_next` 返回决策分叉触发（任意相位最新 fail 条目未挂决策会话；或窗口 fail 数达重试上限的标注变体）时，walker SHALL 唤起决策 agent（compose_turn 新会话，`ModelLevel::High`）；walker 自走同相位重跑 SHALL 退役（盲目重跑的会话消耗高于一次决策）。确定性相位（initialize / archive：executor / evaluator 双缺席）不触发决策，fail 落账照常同相位重路由。决策 agent 输入 SHALL 有界且来自 db 状态与写面响应：fail checklist（fail 项 + evidence）、失败条目 `report`（失败报告原文，见「失败升格落账与决策信息面」）、`allowed_backtrack_phases`（写面 `phase_next` 白名单；每项 SHALL 携相位特性描述与该相位声明的可操作产物清单，描述 / 产物单源 = 本期相位表 `PhaseDefinition.description` / `PhaseDefinition.artifact_manifest`，随表分派不串味）、候选相位最近一次 eval report。决策 prompt 白名单段 SHALL 逐条渲染 `- <相位 id>（<特性描述>）：<可操作产物段>`，供决策 agent 判断回溯目标（回溯即重做该相位产物；描述空串退化为 id-only 行，零声明产物渲染「无声明产物」）。决策输入 MUST NOT 携相位 retry 语义标记（retry 已退役，无「评估-only / 带 executor」二分支指引）。决策输出 SHALL 为封闭集三动作：
 
 - `{ action: "backtrack", to ∈ 白名单, reason ≤500 }` — 自治，walker 经写面 `backtrack` 执行；目标为失败相位自身即「重做本相位」（仅当该相位在白名单内）；
 - `{ action: "stop", reason }` — 终止 run；
@@ -228,10 +228,10 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 
 写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验（工具侧兜底）：越权目标 SHALL 被拒绝且不落任何越权回跳账（状态库零变更）。决策输出解析失败 / 越权由「决策会话软拒环与漂移上限」处置（软拒纠正、漂移超限 Terminal）。
 
-#### Scenario: 白名单条目携相位特性描述
+#### Scenario: 白名单条目携相位特性描述与可操作产物
 
 - **WHEN** 决策 prompt 渲染可回溯白名单
-- **THEN** 完整决策 prompt 的每条白名单行形如 `- <相位 id>（<相位特性描述>）`（描述取本期相位表 `PhaseDefinition.description`，随 workflow_type 分派——requirement / test-only 同名相位描述不串味），失败相位自身条目在描述后追加「（= 重做本相位）」；软拒纠正 prompt 以 `id（描述） / id（描述）` 一行重申同一组目标
+- **THEN** 完整决策 prompt 的每条白名单行形如 `- <相位 id>（<相位特性描述>）：<可操作产物段>`（描述取本期相位表 `PhaseDefinition.description`、产物取 `PhaseDefinition.artifact_manifest`，随 workflow_type 分派——requirement / test-only 同名相位描述与产物不串味），产物段逐项渲染 `` `<相对路径>`（<产物标题>） ``、多项以「、」分隔，相位零声明产物时显式渲染「无声明产物」；评估 checklist MUST NOT 出现在产物段（PhaseRecord 投影、非相位声明产物），失败相位自身条目在描述后追加「（= 重做本相位）」；软拒纠正 prompt 以 `id（描述） / id（描述）` 一行重申同一组目标（纠正面只重申目标、不展开产物段）
 
 #### Scenario: 白名单内自治回跳
 
@@ -836,7 +836,7 @@ Walker SHALL 在 implement 相位执行架构漂移门禁步（`StepNode::ArchiC
 | `crates/core/orchestration/src/state.rs` | 步词汇扩展 | `ChangeStepKind::Clean`（`as_str` = `clean`）白名单式入封闭集（20→21）；`RunUpdate::Step` 形态不变 |
 | `crates/core/orchestration`（依赖方向不变） | spawn 红线 | orchestration → workflow；零 CLI 子进程；检查域 spawn 经 checks 缝、restore_baseline 经 vcs 缝，core 零 spawn |
 | `crates/core/orchestration/src/decision.rs` | 决策动作封闭集 | `DecisionAction::{ Backtrack { to, reason }, Stop { reason }, Ask { question, options } }`（`Retry` 变体删除；取代 Module Contract 原「决策四动作封闭集」表述）；`DecisionInput` 删 `eval_only`、增 `fail_report: String` |
-| `crates/core/orchestration/src/prompt.rs`（`decision_prompt`） | 决策 prompt 组装 | 三动作协议段；白名单条目渲染 `- <id>（<特性描述>）`（描述自相位表随行）并对可重做相位自注记「（= 重做本相位）」；「失败相位报告」段渲染 `fail_report`；读报告文件指引；删 retry 二分支指引 |
+| `crates/core/orchestration/src/prompt.rs`（`decision_prompt`） | 决策 prompt 组装 | 三动作协议段；白名单条目渲染 `- <id>（<特性描述>）：<可操作产物段>`（描述与产物自相位表随行，产物段逐项 `` `<相对路径>`（<标题>） ``、零产物渲染「无声明产物」）并对可重做相位自注记「（= 重做本相位）」；「失败相位报告」段渲染 `fail_report`；读报告文件指引；删 retry 二分支指引 |
 | `crates/core/orchestration/src/walker.rs`（`decision_session`） | 决策会话软拒环 | 每轮 `run_worker(Decision, High)` → `decision-log` → `parse_decision` → 白名单门；`DECISION_DRIFT_LIMIT = 2`；ask 不计数；每轮 emit `WhitelistGate` 实例 |
 | `crates/core/orchestration/src/walker.rs`（`resolve_deadlock`） | 决议兑现 | 删 `DecisionAction::Retry` 分支；backtrack 经写面落账后置 `trace.incoming = Backtrack`；白名单门从 resolve_deadlock 迁入 `decision_session` |
 | `crates/core/orchestration/src/walker.rs`（`step_test_execution` / `step_mutation_test`） | 门禁步执行体 | 删反馈循环与 `fix_session`；`on_fail == Some(Escalate)` 前置分支（代写 fail 落账 → `StepFlow::Upgraded`）；保留 `Terminal` 前置分支与 runner `Err → Terminal` |

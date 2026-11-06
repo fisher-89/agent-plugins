@@ -684,11 +684,12 @@ fn 回溯白名单随表分派两表各按本表序() {
     );
 }
 
-/// 回溯白名单项携表内特性描述（正向，两表对照）：`backtrack_options` 与
-/// `allowed_backtrack_phases` 同序同 id 投影；每项 description 取本表
-/// `PhaseDefinition.description`（不落第二份文案映射）。
+/// 回溯白名单项携表内特性描述与声明产物（正向，两表对照）：`backtrack_options`
+/// 与 `allowed_backtrack_phases` 同序同 id 投影；每项 description 取本表
+/// `PhaseDefinition.description`、artifacts 取本表 `PhaseDefinition.artifact_manifest`
+/// （不落第二份文案 / 清单映射）；评估 checklist 非声明产物故恒不在列。
 #[test]
-fn 回溯白名单项携表内特性描述() {
+fn 回溯白名单项携表内特性描述与声明产物() {
     let requirement = phase_table("requirement").expect("requirement 应返回 Some");
 
     let options = backtrack_options(requirement, "acceptance");
@@ -708,11 +709,38 @@ fn 回溯白名单项携表内特性描述() {
             "描述取表内自描述字段: {}",
             option.phase
         );
+        assert_eq!(
+            option.artifacts, def.artifact_manifest,
+            "产物清单取表内声明字段: {}",
+            option.phase
+        );
     }
     assert_eq!(
         options[0].description, "需求提案与规格说明",
         "requirement 表 proposal 描述"
     );
+    assert_eq!(
+        options[0].artifacts,
+        vec![
+            crate::state::ArtifactSpec {
+                kind: "markdown-doc",
+                path: "proposal.md",
+                title: "提案",
+            },
+            crate::state::ArtifactSpec {
+                kind: "markdown-doc",
+                path: "specs/**",
+                title: "规格",
+            },
+        ],
+        "requirement 表 proposal 声明产物（proposal.md + specs/**）"
+    );
+    // 零声明产物相位：清单为空（决策 prompt 侧渲染「无声明产物」）
+    let test_gen = options
+        .iter()
+        .find(|option| option.phase == "test-gen")
+        .expect("test-gen 在 acceptance 白名单内");
+    assert!(test_gen.artifacts.is_empty(), "test-gen 零声明产物");
 
     // 空集面与 id 投影同语义
     assert!(backtrack_options(requirement, "initialize").is_empty());

@@ -30,3 +30,4 @@ This repository is the **WPS AI desktop application** — a Tauri 2 + React app.
 3. **Surgical changes**: Touch only what's needed. Match existing style.
 4. **Goal-Driven Execution**: Define success criteria. Loop until verified.
 5. **No test-only exports**: Do not add `export` solely to make a symbol accessible to tests. knip treats exports only imported by test files as unused, which pollutes the dead-code report. Instead, test through the module's public API, or refactor so the logic is testable without extra exports.
+6. **Comments are the exception, not the default**: Let naming and structure carry the intent — do not restate in a comment what the code already says. Write a comment only where it carries information the code cannot express: a non-obvious reason, a deliberate tradeoff, a workaround and its cause, or an external constraint. If a comment is needed to explain *what* a block does, fix the code instead.

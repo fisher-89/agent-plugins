@@ -77,11 +77,46 @@ fn decision_input(overrides: DecisionInput) -> DecisionInput {
     overrides
 }
 
-/// 回溯白名单项 fixture（相位 id + 表内特性描述）。
+/// 回溯白名单项 fixture（id + 表内特性描述 + 真实声明产物清单；产物清单取
+/// `phase_table` 同名相位的 `artifact_manifest`，与写面 `backtrack_options`
+/// 下发形态同源——用例断言的是真实决策 prompt 的形状，不是退化占位）。
 fn allowed_phase(phase: &str, description: &str) -> BacktrackOption {
+    let table = workflow::write::phase_table("requirement").expect("requirement 表可达");
+    let artifacts = table
+        .iter()
+        .find(|def| def.id == phase)
+        .map(|def| def.artifact_manifest.to_vec())
+        .unwrap_or_default();
     BacktrackOption {
         phase: phase.to_owned(),
         description: description.to_owned(),
+        artifacts,
+    }
+}
+
+/// 零声明产物的白名单项 fixture（`test-gen` / `code-review` 等相位形态；渲染为
+/// 「无声明产物」）。
+fn allowed_phase_without_artifacts(phase: &str, description: &str) -> BacktrackOption {
+    BacktrackOption {
+        phase: phase.to_owned(),
+        description: description.to_owned(),
+        artifacts: Vec::new(),
+    }
+}
+
+/// 覆写产物清单的白名单项 fixture（产物段渲染用例面）。
+fn allowed_phase_with_artifacts(
+    phase: &str,
+    description: &str,
+    artifacts: &[(&'static str, &'static str, &'static str)],
+) -> BacktrackOption {
+    BacktrackOption {
+        phase: phase.to_owned(),
+        description: description.to_owned(),
+        artifacts: artifacts
+            .iter()
+            .map(|(kind, path, title)| workflow::write::ArtifactSpec { kind, path, title })
+            .collect(),
     }
 }
 
@@ -213,9 +248,12 @@ fn decision_prompt白名单自注记两形态() {
         "自含条目在特性描述后追加注记: {self_included}"
     );
     assert!(
-        self_included.contains("- proposal（需求提案与规格说明）\n")
-            && self_included.contains("- dev-design（详细设计与任务拆解）\n"),
-        "其余条目携描述且零注记"
+        self_included.contains(
+            "- proposal（需求提案与规格说明）：`proposal.md`（提案）、`specs/**`（规格）\n"
+        ) && self_included.contains(
+            "- dev-design（详细设计与任务拆解）：`design.md`（开发设计）、`tasks.md`（任务拆分）\n"
+        ),
+        "其余条目携描述与真实声明产物且零注记"
     );
     assert!(
         !self_included.contains("- proposal（需求提案与规格说明）（= 重做本相位）"),
@@ -232,37 +270,70 @@ fn decision_prompt白名单自注记两形态() {
         !not_included.contains("（= 重做本相位）"),
         "白名单不含自身 → 零注记"
     );
+    assert!(
+        not_included.contains("- test-gen（测试代码生成）：无声明产物\n"),
+        "test-gen 零声明产物（真实表项）：{not_included}"
+    );
 }
 
-/// `decision_prompt` 白名单携相位特性描述（正向，表驱动 2 形态）：每条白名单
-/// 行渲染 `- <id>（<description>）`，描述取白名单项随行值；描述空串退化为
-/// id-only 行（不渲染空括号）。
+/// `decision_prompt` 白名单携相位特性描述与可操作产物（正向，表驱动 3 形态）：
+/// 每条白名单行渲染 `- <id>（<description>）：<产物段>`，描述与产物取白名单项
+/// 随行值；描述空串退化为 id-only 行（不渲染空括号）；零声明产物相位渲染
+/// 「无声明产物」。
 #[test]
-fn decision_prompt白名单逐条携特性描述() {
-    // 形态一：描述在场 → id + 全角括号描述
+fn decision_prompt白名单逐条携特性描述与可操作产物() {
+    // 形态一：真实表项产物（proposal.md + specs/**）与零产物相位对照
     let described = decision_prompt(&decision_input(DecisionInput {
         allowed: vec![
             allowed_phase("proposal", "需求提案与规格说明"),
-            allowed_phase("dev-design", "详细设计与任务拆解"),
+            allowed_phase("code-review", "代码审查"),
         ],
         ..base_input()
     }));
     assert!(
-        described.contains("- proposal（需求提案与规格说明）\n"),
-        "白名单首条携特性描述: {described}"
+        described.contains(
+            "- proposal（需求提案与规格说明）：`proposal.md`（提案）、`specs/**`（规格）\n"
+        ),
+        "白名单首条携特性描述与声明产物（路径 + 标题）: {described}"
     );
     assert!(
-        described.contains("- dev-design（详细设计与任务拆解）\n"),
-        "白名单次条携特性描述"
+        described.contains("- code-review（代码审查）：无声明产物\n"),
+        "零声明产物相位显式标注"
     );
 
-    // 形态二：描述空串 → id-only 行，不渲染空括号
-    let bare = decision_prompt(&decision_input(DecisionInput {
-        allowed: vec![allowed_phase("proposal", "")],
+    // 形态二：多产物逐项渲染（「、」分隔，顺序随清单）
+    let multi = decision_prompt(&decision_input(DecisionInput {
+        allowed: vec![
+            allowed_phase("dev-design", "详细设计与任务拆解"),
+            allowed_phase_with_artifacts(
+                "test-design",
+                "测试设计",
+                &[
+                    ("markdown-doc", "a.md", "甲"),
+                    ("markdown-doc", "b.md", "乙"),
+                ],
+            ),
+        ],
         ..base_input()
     }));
     assert!(
-        bare.contains("- proposal\n"),
+        multi.contains(
+            "- dev-design（详细设计与任务拆解）：`design.md`（开发设计）、`tasks.md`（任务拆分）\n"
+        ),
+        "内置多产物逐项出线"
+    );
+    assert!(
+        multi.contains("- test-design（测试设计）：`a.md`（甲）、`b.md`（乙）\n"),
+        "覆写多产物逐项出线"
+    );
+
+    // 形态三：描述空串 → id-only 行，不渲染空括号
+    let bare = decision_prompt(&decision_input(DecisionInput {
+        allowed: vec![allowed_phase_without_artifacts("proposal", "")],
+        ..base_input()
+    }));
+    assert!(
+        bare.contains("- proposal：无声明产物\n"),
         "空描述退化为 id-only 行: {bare}"
     );
     assert!(!bare.contains("- proposal（）"), "空描述不得渲染空括号");
@@ -343,7 +414,7 @@ fn decision_prompt集合面边界五形态() {
     }));
     for option in &many {
         assert!(
-            prompt.contains(&format!("- {}\n", option.phase)),
+            prompt.contains(&format!("- {}：无声明产物\n", option.phase)),
             "50 项逐条出线: {}",
             option.phase
         );

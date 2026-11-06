@@ -6,11 +6,12 @@ use crate::decision::{
     MAX_REASON_CHARS,
 };
 
-/// 白名单项 fixture（id-only；描述缺省空串——预校验只看 id）。
+/// 白名单项 fixture（id-only；描述缺省空串、产物清单空——预校验只看 id）。
 fn allowed_phase(phase: &str) -> BacktrackOption {
     BacktrackOption {
         phase: phase.to_owned(),
         description: String::new(),
+        artifacts: Vec::new(),
     }
 }
 

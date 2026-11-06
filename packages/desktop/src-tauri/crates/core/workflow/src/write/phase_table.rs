@@ -808,16 +808,21 @@ pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
     None
 }
 
-/// 回溯白名单项：相位 id + 表内自描述的特性文案（决策 agent 判断回溯目标的
-/// 上下文；描述单一来源 = `PhaseDefinition.description`，调用方零第二份文案
-/// 映射）。
+/// 回溯白名单项：相位 id + 表内自描述的特性文案 + 相位声明产物清单（决策
+/// agent 判断回溯目标的上下文；描述单一来源 = `PhaseDefinition.description`、
+/// 产物单一来源 = `PhaseDefinition.artifact_manifest`，调用方零第二份文案 /
+/// 清单映射）。评估 checklist 不在产物清单内——它是 PhaseRecord 投影，非相位
+/// 声明产物（清单本就零 `eval-checklist` 项）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BacktrackOption {
     pub phase: String,
     pub description: String,
+    /// 该相位可操作的声明产物（相对路径模式 + 人读标题；空 = 相位无声明产物）
+    pub artifacts: Vec<ArtifactSpec>,
 }
 
-/// 当前相位在表中的全部前置相位项
+/// 当前相位在表中的全部前置相位项（每项携表内特性描述与声明产物清单：回溯
+/// 到某相位意味着重做其产物，决策 agent 需知道该相位有哪些可操作产物）。
 pub fn backtrack_options(table: &[PhaseDefinition], current_phase: &str) -> Vec<BacktrackOption> {
     let Some(idx) = table.iter().position(|phase| phase.id == current_phase) else {
         return Vec::new();
@@ -836,6 +841,7 @@ pub fn backtrack_options(table: &[PhaseDefinition], current_phase: &str) -> Vec<
         .map(|phase| BacktrackOption {
             phase: phase.id.to_owned(),
             description: phase.description.to_owned(),
+            artifacts: phase.artifact_manifest.to_vec(),
         })
         .collect()
 }

@@ -908,12 +908,14 @@ fn route_outcome(phase: &str, allowed: &[&str]) -> PhaseNextOutcome {
 
 /// 预录路由产出装置：executor / evaluator prompt 为**已组装**的静态主体
 /// （`change: c` 上下文头在场——与 phase_next 组装面同形，消费面断言的事实源）；
-/// 回溯白名单 fixture（id-only；描述缺省空串——walker 装置只关心 id 路由）。
+/// 回溯白名单 fixture（id-only；描述缺省空串、产物清单空——walker 装置只关心
+/// id 路由）。
 fn allowed_options(ids: &[&str]) -> Vec<BacktrackOption> {
     ids.iter()
         .map(|id| BacktrackOption {
             phase: (*id).to_owned(),
             description: String::new(),
+            artifacts: Vec::new(),
         })
         .collect()
 }

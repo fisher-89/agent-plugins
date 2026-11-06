@@ -3,14 +3,41 @@ use workflow::write::BacktrackOption;
 use crate::decision::{DecisionInput, MAX_REASON_CHARS};
 use crate::verdict::MAX_REPORT_CHARS;
 
-/// 白名单项单行标签：`<相位 id>（<特性描述>）`；描述空串退化为 id-only
-/// （不渲染空括号）。决策 prompt 与纠正文案共用本单点，描述格式零副本。
-fn backtrack_option_label(option: &BacktrackOption) -> String {
+/// 白名单项可操作产物段：`` `<相对路径>`（<产物标题>） ``，多项以「、」分隔；
+/// 相位零声明产物时显式标注「无声明产物」（沉默会让决策 agent 误判产物未
+/// 列出）。评估 checklist 不在本段：它由 PhaseRecord 投影而来、非相位声明
+/// 产物，`artifact_manifest` 本就零 `eval-checklist` 项。
+fn backtrack_option_artifacts(option: &BacktrackOption) -> String {
+    if option.artifacts.is_empty() {
+        return "无声明产物".to_owned();
+    }
+    option
+        .artifacts
+        .iter()
+        .map(|spec| format!("`{}`（{}）", spec.path, spec.title))
+        .collect::<Vec<_>>()
+        .join("、")
+}
+
+/// 白名单项头部：`<相位 id>（<特性描述>）`；描述空串退化为 id-only（不渲染空
+/// 括号）。软拒纠正文案只用头部（一行重申目标），完整决策 prompt 在头部后缀
+/// 可操作产物段。
+fn backtrack_option_head(option: &BacktrackOption) -> String {
     if option.description.trim().is_empty() {
         option.phase.clone()
     } else {
         format!("{}（{}）", option.phase, option.description)
     }
+}
+
+/// 白名单项单行标签：`<头部><自注记>：<可操作产物>`。决策 prompt 与纠正文案
+/// 共用头部单点，描述 / 产物格式零副本。
+fn backtrack_option_label(option: &BacktrackOption, redo_note: &str) -> String {
+    format!(
+        "{}{redo_note}：{}",
+        backtrack_option_head(option),
+        backtrack_option_artifacts(option)
+    )
 }
 
 /// evaluator 输出协议附录：写通道唯一红线（禁调 MCP phase-log / phase-next /
@@ -57,9 +84,10 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
     } else {
         input.fail_report.clone()
     };
-    // 白名单逐条渲染「相位 id（表内特性描述）」：描述供决策 agent 判断回溯
-    // 目标；自注记：`allowed` 含失败相位自身 ⟺ 该相位可重做（零 agent 步相位
-    // 自排除），重做本相位由白名单自含承载——零新字段
+    // 白名单逐条渲染「相位 id（表内特性描述）：可操作产物」：描述与产物清单
+    // 供决策 agent 判断回溯目标（回溯即重做该相位产物）；自注记：`allowed`
+    // 含失败相位自身 ⟺ 该相位可重做（零 agent 步相位自排除），重做本相位由
+    // 白名单自含承载——零新字段
     let allowed = input
         .allowed
         .iter()
@@ -69,7 +97,7 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
             } else {
                 ""
             };
-            format!("- {}{redo_note}", backtrack_option_label(option))
+            format!("- {}", backtrack_option_label(option, redo_note))
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -93,7 +121,7 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
         "相位「{phase}」第 {attempt} 次 attempt 评估失败，需要你做出路由决策。\n\n\
 ## 失败相位报告\n\n{fail_report}\n\n\
 ## 失败清单\n\n{fail_items}\n\n\
-## 可回溯白名单（仅可从中选择 backtrack 目标）\n\n{allowed}\n\n\
+## 可回溯白名单（仅可从中选择 backtrack 目标；每项括注该相位可操作的声明产物）\n\n{allowed}\n\n\
 ## 候选相位最近一次评估报告\n\n{candidates}\n\n\
 ## 报告文件\n\n\
 你可使用 `read` 工具读取报告树取全量明细：test-execution 的 `reports/test/summary.json`、突变的段级 / 归并报告（路径见失败明细）。\
@@ -119,7 +147,7 @@ pub(crate) fn decision_fix_prompt(input: &DecisionInput, error: &str) -> String 
         allowed = input
             .allowed
             .iter()
-            .map(backtrack_option_label)
+            .map(backtrack_option_head)
             .collect::<Vec<_>>()
             .join(" / ")
     )
