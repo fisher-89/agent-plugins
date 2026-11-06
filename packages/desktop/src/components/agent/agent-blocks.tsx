@@ -1,12 +1,19 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { ChevronRightIcon } from 'lucide-react';
+import { DotIcon, GlobeIcon, ToolboxIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { CodeBlock, CodeBlockContent, CodeBlockHeader } from '@/components/ui/code-block';
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '@/components/ui/trace';
 import type { AgentToolOutput, AgentToolPart, AgentUIMessage } from '@/lib/agent-adapter';
 import { asRecord, textOf } from '@/lib/parse';
 import type { AgentCitation } from '@/types/dto';
@@ -125,10 +132,7 @@ function TextBlockBase({
     [text],
   );
   return (
-    <div
-      className="prose prose-sm prose-invert max-w-none wrap-break-word [--tw-prose-links:var(--primary)] prose-pre:rounded prose-pre:bg-background prose-code:bg-background prose-code:text-foreground"
-      data-testid="block-text"
-    >
+    <div data-testid="block-text">
       {markdown}
       {citations !== undefined && citations.length > 0 && <CitationList citations={citations} />}
     </div>
@@ -141,23 +145,25 @@ export const TextBlock = memo(
 );
 
 /** 思考块：默认折叠 */
-function ThinkingBlockBase({ text }: { text: string }): React.JSX.Element {
+function ThinkingBlockBase({
+  text,
+  state,
+}: {
+  text: string;
+  state?: 'streaming' | 'done';
+}): React.JSX.Element {
   return (
-    <Collapsible className="my-1" data-testid="block-thinking">
-      <CollapsibleTrigger
-        render={({ onClick }, state) => (
-          <Button variant="ghost" className="text-muted-foreground" onClick={onClick}>
-            思考
-            <ChevronRightIcon className={state.open ? 'rotate-90' : ''} />
-          </Button>
-        )}
-      />
-      <CollapsibleContent>
-        <ScrollArea className="max-h-50 mt-1 whitespace-pre-wrap wrap-break-word border-l-2 border-border pl-2.5 text-sm text-muted-foreground">
-          <span>{text}</span>
-        </ScrollArea>
-      </CollapsibleContent>
-    </Collapsible>
+    <TraceCollapsible data-testid="block-thinking">
+      <TraceCollapsibleTrigger>
+        <TraceLine status={state === 'streaming' ? 'running' : undefined}>
+          <TraceIcon>
+            <DotIcon />
+          </TraceIcon>
+          <TraceTitle>{state === 'streaming' ? '思考中…' : '思考'}</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>{text}</TraceCollapsibleContent>
+    </TraceCollapsible>
   );
 }
 
@@ -176,28 +182,28 @@ function ToolPairCardBase({
   output: AgentToolOutput | null;
 }): React.JSX.Element {
   return (
-    <details className="my-1" data-testid="block-tool-use" data-tool-id={toolCallId}>
-      <summary className="cursor-pointer text-sm">
-        <code>
-          {name[0].toUpperCase()}
-          {name.slice(1)}
-        </code>
-        {output !== null && output.isError && (
-          <span className="ml-1.5 text-xs text-fail">出错</span>
-        )}
-      </summary>
-      <pre className="mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 text-xs wrap-break-word">
-        {JSON.stringify(input, null, 2)}
-      </pre>
-      {output !== null && (
-        <div
-          className={`mt-1 whitespace-pre-wrap wrap-break-word rounded px-2 py-1.5 text-sm ${output.isError ? 'bg-fail-bg text-fail' : 'bg-muted'}`}
-          data-testid="block-tool-result"
-        >
-          {output.content}
-        </div>
-      )}
-    </details>
+    <TraceCollapsible data-testid="block-tool-use" data-tool-id={toolCallId}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={output?.isError ? 'error' : undefined}>
+          <TraceIcon>
+            <ToolboxIcon />
+          </TraceIcon>
+          <TraceTitle>{name}</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        <CodeBlock>
+          <CodeBlockHeader>输入</CodeBlockHeader>
+          <CodeBlockContent className="max-h-48">{JSON.stringify(input, null, 2)}</CodeBlockContent>
+          <CodeBlockHeader>输出</CodeBlockHeader>
+          {output !== null && (
+            <CodeBlockContent className="max-h-48" data-testid="block-tool-result">
+              {output.content}
+            </CodeBlockContent>
+          )}
+        </CodeBlock>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
   );
 }
 
@@ -229,39 +235,50 @@ function WebSearchCardBase({
   output: AgentToolOutput | null;
 }): React.JSX.Element {
   const query = searchQuery(input);
-  // 载荷来自 IPC / 线上替身：`search` 加位缺席与显式 `null` 同义（均按「无结构化
-  // 载荷」处理，卡面 MUST NOT 因形态异常抛错）
+  const content = output?.content ?? '';
   const search = output?.search ?? null;
   const sources = search === null ? [] : dedupeByUrl(search.results);
   const error = search === null || search.error === '' ? null : search.error;
   return (
-    <details className="my-1" data-testid="block-web-search" data-tool-id={toolCallId}>
-      <summary className="cursor-pointer text-sm">网络搜索</summary>
-      <div className="mt-1 flex flex-col gap-1">
-        {query !== null && (
-          <div className="text-xs text-muted-foreground" data-testid="block-web-search-query">
-            查询：{query}
-          </div>
-        )}
-        {sources.length > 0 && (
-          <ul
-            className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs"
-            data-testid="block-web-search-sources"
-          >
-            {sources.map((source) => (
-              <li key={source.url} className="truncate">
-                <ExternalLink url={source.url}>{source.title ?? source.url}</ExternalLink>
-              </li>
-            ))}
-          </ul>
-        )}
-        {error !== null && (
+    <TraceCollapsible data-testid="block-web-search" data-tool-id={toolCallId}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={error ? 'error' : undefined}>
+          <TraceIcon>
+            <GlobeIcon />
+          </TraceIcon>
+          <TraceTitle data-testid={query === null ? undefined : 'block-web-search-query'}>
+            {query}
+          </TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        {error !== null ? (
           <div className="text-xs text-fail" data-testid="block-web-search-error">
             {error}
           </div>
+        ) : (
+          <div>
+            {content}
+            {sources.length > 0 && (
+              <Trace data-testid="block-web-search-sources">
+                {sources.map((source) => (
+                  <TraceLine>
+                    <TraceIcon>
+                      <GlobeIcon />
+                    </TraceIcon>
+                    <TraceTitle>
+                      <ExternalLink url={source.url}>
+                        {source.title ?? new URL(source.url).hostname}
+                      </ExternalLink>
+                    </TraceTitle>
+                  </TraceLine>
+                ))}
+              </Trace>
+            )}
+          </div>
         )}
-      </div>
-    </details>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
   );
 }
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { AgentSessionActions } from '@/components/agent/agent-session-view';
@@ -620,7 +620,10 @@ describe('AgentSessionView：组合链路', () => {
     // 跨消息 tool 配对收敛为单卡（无双卡残留）
     const panel = screen.getByTestId('agent-messages');
     expect(within(panel).getAllByTestId('block-tool-use')).toHaveLength(1);
-    expect(within(panel).getAllByTestId('block-tool-result')).toHaveLength(1);
+    // 结果正文在卡面展开后挂载（TraceCollapsible 默认折叠）
+    const toolCard = within(panel).getByTestId('block-tool-use');
+    fireEvent.click(within(toolCard).getByRole('button'));
+    expect(await within(toolCard).findByTestId('block-tool-result')).toBeTruthy();
     expect(callsOf('agent_session_watch'), '收口后订阅关闭且不再重订').toHaveLength(1);
   });
 });

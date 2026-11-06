@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { CodeBlockCopyButton } from '@/components/ui/code-block-copy-button';
+import { CodeBlockCopyButton } from '@/components/ui/code-block';
 
 import type { ChangeStepStatus } from '../../../types/dto';
 import { useExecOutput } from '../hooks/use-exec-output';

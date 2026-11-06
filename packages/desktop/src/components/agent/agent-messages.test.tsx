@@ -126,11 +126,14 @@ describe('AgentMessages：四变体气泡', () => {
       expect(thinking.textContent).toContain('先梳理调用链');
     });
 
-    expect(screen.getByTestId('block-tool-use').getAttribute('data-tool-id')).toBe('tu_1');
-    expect(screen.getByTestId('block-tool-result').textContent).toContain('目录内容');
+    const toolCard = screen.getByTestId('block-tool-use');
+    expect(toolCard.getAttribute('data-tool-id')).toBe('tu_1');
+    // 结果正文在卡面展开后挂载（TraceCollapsible 默认折叠）
+    fireEvent.click(within(toolCard).getByRole('button'));
+    expect((await screen.findByTestId('block-tool-result')).textContent).toContain('目录内容');
   });
 
-  it('user 气泡靠右（align=end）、assistant 靠左（对齐属性迁移基线）', () => {
+  it('user 气泡为整宽 tinted 泡、assistant 无泡底（对齐属性迁移基线）', () => {
     render(
       <AgentMessages
         messages={eventsToUIMessages(bubbleEvents())}
@@ -140,11 +143,12 @@ describe('AgentMessages：四变体气泡', () => {
     );
 
     const bubbles = screen.getAllByTestId('chat-bubble');
-    expect(bubbles[0]?.getAttribute('data-align')).toBe('end');
+    // user 泡改整宽表达，不再靠 align 属性撑右对齐
+    expect(bubbles[0]?.getAttribute('data-align')).toBe('start');
     expect(bubbles[1]?.getAttribute('data-align')).toBe('start');
-    // 内容块底色：user 泡走 Bubble muted（bubble-content 取 bg-muted），assistant 泡无泡底
+    // 内容块底色：user 泡走 Bubble tinted，assistant 泡无泡底
     const userBubble = bubbles[0]?.querySelector('[data-slot="bubble"]');
-    expect(userBubble?.getAttribute('data-variant')).toBe('muted');
+    expect(userBubble?.getAttribute('data-variant')).toBe('tinted');
     expect(userBubble?.querySelector('[data-slot="bubble-content"]')).toBeTruthy();
     expect(bubbles[1]?.querySelector('[data-slot="bubble"]')).toBeNull();
   });

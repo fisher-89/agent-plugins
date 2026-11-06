@@ -1,14 +1,24 @@
-/**
- * 工具卡注册表：特化工具卡可插拔位（name 命中特化卡、miss 回退消费方
- * 默认工具对卡）。AskUserQuestion 静态卡自 explore-conversation 收编——
- * 问题与选项原样可读，答案经 composer 文本输入 + resume 续话（questionnaire
- * 接线为二期，能力 spec 留痕）。
- */
-
+import { FileIcon, TerminalIcon } from 'lucide-react';
 import type { ComponentType } from 'react';
 
-import type { AgentToolOutput } from '../../lib/agent-adapter';
-import { asRecord } from '../../lib/parse';
+import {
+  CodeBlock,
+  CodeBlockContent,
+  CodeBlockHeader,
+  CodeBlockLine,
+} from '@/components/ui/code-block';
+import {
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '@/components/ui/trace';
+import { useHighlightedCode } from '@/hooks/use-highlighted-code';
+import type { AgentToolOutput } from '@/lib/agent-adapter';
+import { asRecord, textOf } from '@/lib/parse';
+
 import { WebSearchCard } from './agent-blocks';
 
 /** 特化工具卡入参（output 为 null 即尚无结果；渲染 or null 回退由卡自决） */
@@ -102,9 +112,122 @@ function AskUserQuestionCard({ input }: AgentToolCardProps): React.JSX.Element {
   );
 }
 
-/** 默认注册表：AskUserQuestion → 静态卡；web_search → 搜索卡（可插拔，消费方
- * 按 name 查找；未注册名仍回退消费方默认对卡） */
-export const DEFAULT_TOOL_CARDS: Record<string, AgentToolCard> = {
+/** 特化卡共用的卡根钩子：与默认对卡同形（消费方按 `block-tool-use` 定位一张工具卡） */
+function cardAttrs(toolCallId: string): {
+  'data-testid': string;
+  'data-tool-id': string;
+} {
+  return { 'data-testid': 'block-tool-use', 'data-tool-id': toolCallId };
+}
+
+/** Bash 特化卡：命令作标题栏，输出折叠在下方（命令形态缺席时标题栏留空） */
+function BashCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
+  const command = textOf(asRecord(input).command);
+  return (
+    <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
+          <TraceIcon>
+            <TerminalIcon />
+          </TraceIcon>
+          <TraceTitle>Bash</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        <CodeBlock>
+          <CodeBlockHeader>{command}</CodeBlockHeader>
+          <CodeBlockContent className="max-h-60" wrap data-testid="block-tool-result">
+            {output?.content}
+          </CodeBlockContent>
+        </CodeBlock>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
+/** 行区间后缀：`offset` 在场时展示 `:起-止`（`limit` 缺席即「最后」） */
+function rangeSuffix(offset: unknown, limit: unknown): string {
+  if (typeof offset !== 'number') return '';
+  const end = typeof limit === 'number' ? `${offset + limit}` : '最后';
+  return `:${offset}-${end}`;
+}
+
+/** Read 特化卡：路径 + 行区间作标题，内容折叠在下方 */
+function ReadCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
+  const record = asRecord(input);
+  const path = textOf(record.path);
+  return (
+    <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
+          <TraceIcon>
+            <FileIcon />
+          </TraceIcon>
+          <TraceTitle>Read</TraceTitle>
+          <TraceTitle>
+            {path}
+            {rangeSuffix(record.offset, record.limit)}
+          </TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        {output?.isError && <div className="text-destructive mb-2">{output.content}</div>}
+        <CodeBlock>
+          <CodeBlockHeader>{path}</CodeBlockHeader>
+          <CodeBlockContent className="max-h-60" data-testid="block-tool-result">
+            {output?.content}
+          </CodeBlockContent>
+        </CodeBlock>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
+/** 语法名：路径扩展名（无扩展名 → 无高亮语言） */
+function languageOf(path: string | null): string | null {
+  if (path === null) return null;
+  const suffix = path.split('.').at(-1);
+  return suffix === undefined || suffix === path ? null : suffix;
+}
+
+/** Write 特化卡：写入内容按路径扩展名着色，无扩展名按纯文本切行 */
+function WriteCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
+  const record = asRecord(input);
+  const path = textOf(record.path);
+  const content = textOf(record.content) ?? '';
+  const language = languageOf(path);
+  const highlighted = useHighlightedCode(content, language ?? '');
+  const lines = language === null ? content.split(/\n/) : highlighted;
+  return (
+    <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
+          <TraceIcon>
+            <FileIcon />
+          </TraceIcon>
+          <TraceTitle>Write</TraceTitle>
+          <TraceTitle>{path}</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        {output?.isError && <div className="text-destructive mb-2">{output.content}</div>}
+        <CodeBlock>
+          <CodeBlockHeader>{path}</CodeBlockHeader>
+          <CodeBlockContent className="max-h-60" lineNumbers>
+            {lines.map((line, index) => (
+              <CodeBlockLine key={index}>{line}</CodeBlockLine>
+            ))}
+          </CodeBlockContent>
+        </CodeBlock>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
+export const BUILD_IN_TOOL_CARDS: Record<string, AgentToolCard> = {
   AskUserQuestion: AskUserQuestionCard,
   web_search: WebSearchCard,
+  bash: BashCard,
+  read: ReadCard,
+  write: WriteCard,
 };

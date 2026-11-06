@@ -195,7 +195,7 @@
 - `AgentSessionView` 会话级唯一入口: 入参 `root` + `sessionId`(+ 可选 `refreshKey` / composer 插槽),内部经通用查询面装配会话并按会话状态挂流(契约见「会话级统一渲染组件」requirement);消费点 MUST NOT 自行拼装消息、轮行或事件流;
 - `AgentMessages` 对话透镜: user / assistant 气泡、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;
 - `AgentInput` composer: prompt 输入（空串禁发;纯空白字符不单独拦截——trim 守卫不在组件侧）、permission-mode 档位（`StandardSelect` 选择器）、发送、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 为「呈停止入口」——发送入口不禁用,重复发送由会话层 `isStreaming` 守卫忽略;停止入口 SHALL 只随 `running` 呈现且 MUST NOT 被 `disabled` 隐去(运行中即便整面板禁用仍可从面板停止);`disabled` MUST NOT 复用为「运行中」的第二表达;
-- 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位,未注册工具名回退默认对卡;
+- 工具卡注册表: 特化卡(`AskUserQuestionCard` / `WebSearchCard` / 内建 bash / read / write 卡等)为可插拔位,未注册工具名回退默认对卡;特化卡与默认对卡 SHALL 共用同一卡根钩子(`block-tool-use` / `data-tool-id`)与结果正文钩子(`block-tool-result`);
 - 组件族 SHALL 共享底层块渲染件(文本 markdown / 思考折叠 / 工具卡一套实现);滚动 SHALL 沿用 shadcn `message-scroller` 组合,消息状态留在应用层。
 
 调试页的 run 表单 / 历史列表 / JSONL 开关 SHALL 为页面级 chrome,包在共享核心外圈,MUST NOT 强行塞进组件族。
@@ -250,23 +250,23 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 前端 SHALL 把一次云端 `web_search` 呈现为**搜索卡 + 正文引用列表**，并保证「空部件消息不进对话透镜」：
 
-- **承载部件**：搜索活动 SHALL 复用既有工具卡管线承载为 `tool-web_search` 部件（MUST NOT 新增 `AgentDataParts` 成员、MUST NOT 引入独立 `data-citations` 部件）——`planBlock` 产 `tool` 计划、`planToolPart` 产部件、`plansToChunks` 产 chunk、`DEFAULT_TOOL_CARDS` 注册特化卡，四段均为既有机械管线（`plansToChunks` 与 `planToolPart` SHALL 零改动）。
-- **搜索卡**：`WebSearchCard`（`packages/desktop/src/components/agent/agent-blocks.tsx`）summary SHALL **恒为「网络搜索」**——MUST NOT 出现「正在搜索…」态、MUST NOT 出现超时降级文案、MUST NOT 依赖流内状态切换；body SHALL 呈查询词（`input.query`）、来源列表（`title ?? url`，落定后）、错误码（`error` 非空时）。卡片根 SHALL 带 `data-testid="block-web-search"`。判定为「未落定」还是「已落定」仅由 `output` 在场与否决定（无状态文案使两态视觉一致，用户不把「进行中」误读为「加载失败」）。
+- **承载部件**：搜索活动 SHALL 复用既有工具卡管线承载为 `tool-web_search` 部件（MUST NOT 新增 `AgentDataParts` 成员、MUST NOT 引入独立 `data-citations` 部件）——`planBlock` 产 `tool` 计划、`planToolPart` 产部件、`plansToChunks` 产 chunk、`BUILD_IN_TOOL_CARDS` 注册特化卡，四段均为既有机械管线（`plansToChunks` 与 `planToolPart` SHALL 零改动）。
+- **搜索卡**：`WebSearchCard`（`packages/desktop/src/components/agent/agent-blocks.tsx`）标题行 SHALL 呈查询词（`input.query`，缺席时不显）——MUST NOT 出现「正在搜索…」态、MUST NOT 出现超时降级文案、MUST NOT 依赖流内状态切换；body SHALL 呈查询词、来源列表（`title ?? 主机名`，落定后）、错误码（`error` 非空时，与来源列表并存不互斥）。卡片根 SHALL 带 `data-testid="block-web-search"`，查询词行带 `data-testid="block-web-search-query"`，来源列表带 `data-testid="block-web-search-sources"`。判定为「未落定」还是「已落定」仅由 `output` 在场与否决定（无状态文案使两态视觉一致，用户不把「进行中」误读为「加载失败」）。
 - **引用列表**：`CitationList` SHALL 挂在正文 text 部件**底部**，条目显示 `title ?? url`，**按 url 去重**；MUST NOT 做行内角标、MUST NOT 做原句高亮。数据来源 SHALL 为 text 部件的 `providerMetadata.agent.citations`（命名空间 `agent`——消费点在 provider 之外，MUST NOT 借用 `anthropic` 命名空间）。
 - **外链**：`ExternalLink` SHALL 为**唯一外链调用点**（搜索卡来源与引用列表共用）：仅 `http:` / `https:` 目标的 url SHALL 渲染为可点击链接并经壳侧 opener 打开；其他 scheme（`javascript:`、`file:`、`mailto:` 等）MUST NOT 渲染为链接（降级为纯文本）。壳侧插件注册与 capabilities 权限面见 desktop-app-shell「外链打开插件与 capabilities 最小权限面」。
 - **空部件消息**：`AgentMessages` 的 `useHistoryWindow` SHALL 在既有「system 角色不进对话呈现」过滤之后追加 `message.parts.length > 0` 过滤——实时路 `pause_turn` 第二段可能只有被消费的孤儿搜索结果而产出 0 部件 assistant 消息，MUST NOT 渲染为空气泡；分页计数 SHALL 基于过滤后列表（不把空消息计入 `remaining`）。
-- **工具卡注册表**：`DEFAULT_TOOL_CARDS['web_search'] = WebSearchCard`（注册表 `Object.keys` 断言随之更新）；未注册工具名的回退默认对卡语义不变。
+- **工具卡注册表**：`BUILD_IN_TOOL_CARDS` SHALL 注册内建工具特化卡——`AskUserQuestion`（静态卡）、`web_search`（`WebSearchCard`）、`bash` / `read` / `write`（终端 / 文件读写卡）；`Object.keys` 断言随注册表键面更新。未注册工具名 SHALL 回退默认对卡，且特化卡与默认对卡 SHALL 共用同一卡根钩子（`data-testid="block-tool-use"` + `data-tool-id`）与结果正文钩子（`data-testid="block-tool-result"`，展开后挂载），使消费方无需区分卡型即可定位。
 - **两路一致**：实时路（流内）与重放路（库为准）SHALL 收敛到同一卡片形状——实时路 `pause_turn` 期间卡片只显查询词（`output` 未到），轮收口后由重放折叠补出来源列表；终态一致性由「收口以重放重建」保证（见「会话级统一渲染组件」），MUST NOT 为搜索另立一条收口路径。
 
-#### Scenario: 搜索卡恒标题与两态
+#### Scenario: 搜索卡标题与两态
 
 - **WHEN** 实时流先到达「仅 use 侧」的搜索块（`pause_turn` 进行中），随后轮收口重放补出配对结果
-- **THEN** 两态下卡片摘要均为「网络搜索」；前态 body 只有查询词，后态 body 出现来源列表；全程无「正在搜索…」文案、无状态切换闪烁
+- **THEN** 两态下标题行均为该查询词；前态 body 只有查询词，后态 body 出现来源列表；全程无「正在搜索…」文案、无状态切换闪烁
 
 #### Scenario: 来源列表与错误码
 
 - **WHEN** 搜索块携 3 条来源（其中两条同 url）与 `error = "max_uses_exceeded"`
-- **THEN** 卡片来源列表按 url 去重后呈 2 条（`title` 缺省时回退 url），并呈现错误码文本
+- **THEN** 卡片来源列表按 url 去重后呈 2 条（`title` 缺省时回退主机名），并呈现错误码文本（错误区与来源列表并存）
 
 #### Scenario: 正文引用去重列表
 
@@ -327,8 +327,8 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 | 组件 / 模块 | 变化 | 描述 |
 |------|------|----------|
-| `agent-blocks.tsx` | 新增 `WebSearchCard` / `CitationList` / `ExternalLink` | 搜索卡 summary 恒「网络搜索」（`data-testid="block-web-search"`）；引用底部去重列表；外链唯一调用点（仅 http(s)） |
-| `tool-cards.tsx` | `DEFAULT_TOOL_CARDS['web_search'] = WebSearchCard` | 注册表可插拔位扩展；未注册回退默认对卡不变 |
+| `agent-blocks.tsx` | 新增 `WebSearchCard` / `CitationList` / `ExternalLink` | 搜索卡标题行为查询词（`data-testid="block-web-search"`）；引用底部去重列表；外链唯一调用点（仅 http(s)） |
+| `tool-cards.tsx` | `BUILD_IN_TOOL_CARDS` 注册 `web_search` / `bash` / `read` / `write` | 注册表可插拔位扩展；未注册回退默认对卡；卡根与结果正文钩子与默认对卡同形 |
 | `agent-messages.tsx` | `useHistoryWindow` 过滤追加 `parts.length > 0` | 空部件消息不渲染、不计入分页 `remaining` |
 
 ### 零改动面

@@ -480,8 +480,11 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
     );
 
     // 成对块经同一对话透镜呈现（block 级 testid 复用；收口归一后 input 与同 id output 合卡）
-    expect(screen.getByTestId('block-tool-use').getAttribute('data-tool-id')).toBe('tu_sdk_1');
-    expect(screen.getByTestId('block-tool-result').textContent).toContain('文件内容 🎉');
+    const toolCard = screen.getByTestId('block-tool-use');
+    expect(toolCard.getAttribute('data-tool-id')).toBe('tu_sdk_1');
+    // 结果正文在卡面展开后呈现（TraceCollapsible 默认折叠）
+    fireEvent.click(within(toolCard).getByRole('button'));
+    expect((await screen.findByTestId('block-tool-result')).textContent).toContain('文件内容 🎉');
   });
 
   it('SDK 启动失败（ConfigMissing 错误串）→ run-error 横幅呈现错误串（Err 抵达前端）', async () => {

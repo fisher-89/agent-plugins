@@ -11,12 +11,13 @@ import {
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
 import { Spinner } from '@/components/ui/spinner';
+import { Trace } from '@/components/ui/trace';
 import type { AgentToolPart, AgentUIMessage } from '@/lib/agent-adapter';
 import { asRecord, textOf } from '@/lib/parse';
 import type { AgentCitation } from '@/types/dto';
 
 import { TextBlock, ThinkingBlock, ToolPairCard, isToolPart } from './agent-blocks';
-import { DEFAULT_TOOL_CARDS } from './tool-cards';
+import { BUILD_IN_TOOL_CARDS } from './tool-cards';
 
 export interface AgentMessagesProps {
   /** 对话状态（历史重放装载 + 实时累积，共用本透镜；全量入参，system 过滤在组件内） */
@@ -35,7 +36,7 @@ const HISTORY_PRELOAD_MARGIN_PX = 300;
 function ToolPartView({ part }: { part: AgentToolPart }): React.JSX.Element | null {
   const toolName = part.type.slice('tool-'.length);
   const output = part.state === 'output-available' ? part.output : null;
-  const registered = DEFAULT_TOOL_CARDS[toolName];
+  const registered = BUILD_IN_TOOL_CARDS[toolName];
   if (registered !== undefined) {
     const Card = registered;
     return (
@@ -71,7 +72,7 @@ function citationsOfPart(part: AgentUIMessage['parts'][number]): AgentCitation[]
 /** 气泡内部件分发（text / reasoning / tool；data 部件随 system 载体不进对话呈现） */
 function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JSX.Element | null {
   if (part.type === 'text') return <TextBlock citations={citationsOfPart(part)} text={part.text} />;
-  if (part.type === 'reasoning') return <ThinkingBlock text={part.text} />;
+  if (part.type === 'reasoning') return <ThinkingBlock text={part.text} state={part.state} />;
   if (isToolPart(part)) return <ToolPartView part={part} />;
   return null;
 }
@@ -80,10 +81,10 @@ function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JS
 function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Element {
   const isUser = message.role === 'user';
   return isUser ? (
-    <Message align="end" data-testid="chat-bubble" data-role={message.role}>
+    <Message data-testid="chat-bubble" data-role={message.role}>
       <MessageContent>
-        <Bubble align="end" variant="muted">
-          <BubbleContent>
+        <Bubble variant="tinted" className="w-full max-w-full">
+          <BubbleContent className="w-full">
             {message.parts.map((part, index) => (
               <PartView key={index} part={part} />
             ))}
@@ -94,9 +95,11 @@ function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Ele
   ) : (
     <Message data-testid="chat-bubble" data-role={message.role}>
       <MessageContent>
-        {message.parts.map((part, index) => (
-          <PartView key={index} part={part} />
-        ))}
+        <Trace className="pl-3">
+          {message.parts.map((part, index) => (
+            <PartView key={index} part={part} />
+          ))}
+        </Trace>
       </MessageContent>
     </Message>
   );

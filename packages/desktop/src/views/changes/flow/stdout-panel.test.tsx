@@ -3,7 +3,7 @@ import { cn } from 'cn';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { buttonVariants } from '@/components/ui/button';
-import { CodeBlockCopyButton } from '@/components/ui/code-block-copy-button';
+import { CodeBlockCopyButton } from '@/components/ui/code-block';
 
 import type { ChangeStepStatus } from '../../../types/dto';
 import { StdoutPanel } from './stdout-panel';
