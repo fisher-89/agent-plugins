@@ -141,6 +141,7 @@ fn seed_chat_session(store: &store::Store, id: &str, source_ref: Option<&str>) -
 /// 一条盖戳 Raw 事件（级联断言的最小载荷）。
 fn raw_event(seq: u64) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::Raw {
             event_type: "mystery".to_owned(),

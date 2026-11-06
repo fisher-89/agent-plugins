@@ -78,6 +78,7 @@ fn seed_session(store: &Store, id: &str) -> String {
 
 fn append_raw(store: &Store, session_id: &str, seq: u64) {
     let event = AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::Raw {
             event_type: "mystery".to_owned(),

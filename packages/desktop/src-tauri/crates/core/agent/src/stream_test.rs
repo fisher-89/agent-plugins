@@ -34,6 +34,7 @@ fn outcome(status: AgentRunStatus) -> TurnOutcome {
 
 fn sealed_event(seq: u64) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::Message {
             role: AgentMessageRole::Assistant,
@@ -45,6 +46,7 @@ fn sealed_event(seq: u64) -> AgentEvent {
 
 fn delta_event(seq: u64, text: &str) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::MessageDelta {
             parent_tool_use_id: None,
@@ -235,6 +237,7 @@ async fn publish连续事件按序投递_seq严格递增且载荷逐字相等() 
     let delta = delta_event(1, "第一片 🎉");
     let sealed = sealed_event(2);
     let notice = AgentEvent::stamp(
+        None,
         3,
         AgentEventKind::SystemNotice {
             subtype: "api_retry".to_owned(),

@@ -1,0 +1,125 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/agent/src/kernel.rs:211:9: replace RunningTurn::drive -> TurnOutcome with Default::default()",
+          "package": "agent",
+          "file": "crates/core/agent/src/kernel.rs",
+          "function": {
+            "function_name": "RunningTurn::drive",
+            "return_type": "-> TurnOutcome",
+            "span": {
+              "start": {
+                "line": 207,
+                "column": 5
+              },
+              "end": {
+                "line": 332,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 211,
+              "column": 9
+            },
+            "end": {
+              "line": 331,
+              "column": 15
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__agent__src__kernel.rs_line_211_col_9.log",
+      "diff_path": "diff/crates__core__agent__src__kernel.rs_line_211_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.3118831,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/agent/src/event.rs:243:9: replace AgentEvent::stamp -> Self with Default::default()",
+          "package": "agent",
+          "file": "crates/core/agent/src/event.rs",
+          "function": {
+            "function_name": "AgentEvent::stamp",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 235,
+                "column": 5
+              },
+              "end": {
+                "line": 249,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 243,
+              "column": 9
+            },
+            "end": {
+              "line": 248,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__agent__src__event.rs_line_243_col_9.log",
+      "diff_path": "diff/crates__core__agent__src__event.rs_line_243_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.8520681,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 2,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 2,
+  "success": 0,
+  "start_time": "2026-11-05T19:35:57.6351265Z",
+  "end_time": "2026-11-05T19:36:17.5575071Z",
+  "cargo_mutants_version": "27.1.0"
+}

@@ -2607,3 +2607,374 @@ fn 登记面_三命令清单与产物一一对应() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 事件信封新增可选键出线（agent-event-turn-id）：`bindings.ts` 的
+// `turnId?: number | null` 摊平在 envelope 段内（D2 字段序 + D7 出线形态），
+// `bindings.zod.ts` 的基座判型 + 六变体放行由既有 `allowed_object_keys` 机制
+// 自动补齐。产物 MUST NOT 手改——本节全部断言只读权威快照（重导出后读盘）。
+// ---------------------------------------------------------------------------
+
+/// `AgentEvent` 摊平段内的轮归属字段行（可空可选形态，字面量单点）。
+const TURN_ID_TS_FIELD: &str = "turnId?: number | null,";
+
+/// zod 基座段的判型行（`z.number().nullable().optional()`）。
+const TURN_ID_ZOD_BASE: &str = "get turnId() { return z.number().nullable().optional(); },";
+
+/// zod 六变体逐一的放行行（与 `seq` / `timestampMs` 同式）。
+const TURN_ID_ZOD_VARIANT: &str = "turnId: z.unknown().optional(),";
+
+/// `AgentEvent` 的 zod 基座段（`z.strictObject({` 之后、`.and(z.union([` 之前）。
+fn zod_agent_event_base_section(zod: &str) -> &str {
+    let start = zod
+        .find("export const AgentEventSchema = z.strictObject({")
+        .expect("zod 产物缺 AgentEventSchema 基座声明")
+        + "export const AgentEventSchema = z.strictObject({".len();
+    let end = zod[start..]
+        .find("}).and(z.union([")
+        .map_or(zod.len(), |offset| start + offset);
+    &zod[start..end]
+}
+
+/// `AgentEvent` 的 zod 变体段（`.and(z.union([` 之后至该声明收尾）。
+fn zod_agent_event_variant_section(zod: &str) -> &str {
+    let start = zod
+        .find("export const AgentEventSchema = z.strictObject({")
+        .expect("zod 产物缺 AgentEventSchema 声明");
+    let end = zod[start..]
+        .find("export const AgentEventKindSchema")
+        .map_or(zod.len(), |offset| start + offset);
+    &zod[start..end]
+}
+
+#[test]
+fn agent_event出线含可选turn_id且字段序先于seq() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let section = type_section(&content, "AgentEvent");
+    assert!(
+        section.contains(TURN_ID_TS_FIELD),
+        "AgentEvent 摊平段缺可选轮归属字段 {TURN_ID_TS_FIELD}，实际段:\n{section}"
+    );
+    // 字段声明序由 Rust 结构体字段序确定性派生（非 serde_json 运行期键序）
+    let turn_pos = section.find(TURN_ID_TS_FIELD).expect("轮归属字段行在场");
+    let seq_pos = section.find("seq: number,").expect("seq 字段行在场");
+    let ts_pos = section
+        .find("timestampMs: number,")
+        .expect("timestampMs 字段行在场");
+    assert!(
+        turn_pos < seq_pos && seq_pos < ts_pos,
+        "轮归属声明排在 seq / timestampMs 之前（D2 字段序），实际位置 {turn_pos} / {seq_pos} / {ts_pos}"
+    );
+}
+
+#[test]
+fn agent_event出线无相位伴生类型与必填或改名形态() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let section = type_section(&content, "AgentEvent");
+
+    for forbidden in ["_Deserialize", "_Serialize"] {
+        assert!(
+            !content.contains(forbidden),
+            "产物全文不得含相位分裂伴生名 {forbidden}（skip_serializing_if 被加上的机械判据）"
+        );
+    }
+    assert!(
+        !section.contains("turnId: number,"),
+        "轮归属只允许可选可空形态（必填形态即契约破），实际段:\n{section}"
+    );
+    assert!(
+        !content.contains("eventTurnId"),
+        "轮归属不得改名（D9-a 明令禁止 eventTurnId）"
+    );
+    // 文档注释里出现 `turn_id`（Rust 字段名原文）是预期；判据是**字段声明行**
+    // 不得为 snake_case
+    let snake_case_field_lines: Vec<&str> = content
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| line.starts_with("turn_id"))
+        .collect();
+    assert!(
+        snake_case_field_lines.is_empty(),
+        "产物字段声明行不得漏出 snake_case 键（出线为 camelCase），实际: {snake_case_field_lines:?}"
+    );
+}
+
+#[test]
+fn 轮行面与信封面同名不同型并存不冲突() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let event_section = type_section(&content, "AgentEvent");
+    let turn_section = type_section(&content, "TurnSummary");
+    assert!(
+        event_section.contains(TURN_ID_TS_FIELD),
+        "信封面 turnId 为可选可空"
+    );
+    assert!(
+        turn_section.contains("turnId: number,"),
+        "轮行面 turnId 为必填数字（既有），实际段:\n{turn_section}"
+    );
+    assert!(
+        !event_section.contains("turnId: number,"),
+        "信封面不得退化为必填形态（同名不同型的第一半）"
+    );
+    assert!(
+        !turn_section.contains(TURN_ID_TS_FIELD),
+        "轮行面不得退化为可选可空形态（同名不同型的第二半），实际段:
+{turn_section}"
+    );
+}
+
+#[test]
+fn 命令面相依类型零漂移_信封多一键不改签名() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert!(
+        content.contains("export type AgentRunMessage ="),
+        "AgentRunMessage 出线在场"
+    );
+    assert!(
+        content.contains("{ ipc: \"event\"; event: AgentEvent }"),
+        "实时事件臂逐字在场"
+    );
+    assert!(
+        content.contains("{ ipc: \"record\"; record: TurnSummary }"),
+        "终态轮行臂逐字在场"
+    );
+    assert!(
+        content.contains("agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent[]>(\"agent_session_transcript\", { root, sessionId })"),
+        "转录命令签名零漂移（返回 AgentEvent 数组，命令面不改）"
+    );
+}
+
+#[test]
+fn 重导出后turn_id行零diff且幂等() {
+    let _lock = lock();
+    let _restore = RestoreOnDrop;
+
+    let first = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let second = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert_eq!(
+        first, second,
+        "连续两次重导出逐字节零 diff（新键不引入不确定性输出）"
+    );
+    for content in [&first, &second] {
+        assert_eq!(
+            content.matches(TURN_ID_TS_FIELD).count(),
+            1,
+            "轮归属字段行在产物中恰一次（无重复落键 / 无变体内层重复）"
+        );
+    }
+}
+
+#[test]
+fn zod产物基座判型且六变体放行turn_id() {
+    let _lock = lock();
+    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+
+    let base = zod_agent_event_base_section(&zod);
+    assert!(
+        base.contains(TURN_ID_ZOD_BASE),
+        "zod 基座缺判型行 {TURN_ID_ZOD_BASE}，实际段:\n{base}"
+    );
+    assert!(
+        !base.contains(TURN_ID_ZOD_VARIANT),
+        "基座只判型不放行（放行属六变体，`z.unknown()` 在基座会让类型判据静默失效）"
+    );
+
+    let variants = zod_agent_event_variant_section(&zod);
+    assert_eq!(
+        variants.matches(TURN_ID_ZOD_VARIANT).count(),
+        6,
+        "六个变体各含一行放行（逐变体一次，不多不少），实际段:\n{variants}"
+    );
+    // 与既有 seq / timestampMs 放行同式（同一 allowed_object_keys 机制）
+    assert_eq!(
+        variants.matches("seq: z.unknown().optional(),").count(),
+        6,
+        "seq 放行同样六处（同式机制对照组）"
+    );
+    assert_eq!(
+        variants
+            .matches("timestampMs: z.unknown().optional(),")
+            .count(),
+        6,
+        "timestampMs 放行同样六处"
+    );
+    // intersection 形态保持
+    assert!(
+        zod.contains("export const AgentEventSchema = z.strictObject({"),
+        "基座 strictObject 形态保持"
+    );
+    assert!(
+        zod.contains("}).and(z.union(["),
+        "intersection 形态保持（基座 ∧ 变体联合）"
+    );
+}
+
+#[test]
+fn zod产物轮归属仅限事件模式且不触命令面三表() {
+    let _lock = lock();
+    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+
+    assert_eq!(
+        zod.matches(TURN_ID_ZOD_VARIANT).count(),
+        6,
+        "放行行全产物恰六处（只在 AgentEventSchema 的六变体）"
+    );
+    assert_eq!(
+        zod.matches("get turnId()").count(),
+        2,
+        "判型行两处：信封面可空可选 + 轮行面必填（TurnSummarySchema）"
+    );
+    assert!(
+        zod.contains("get turnId() { return z.number(); },"),
+        "轮行面 turnId 为必填数字判型（与信封面并存不冲突）"
+    );
+    // turnId 不进 argsSchemas / resultSchemas / channelArgs（新字段不触命令面）
+    for (table, body) in zod_tables(&zod) {
+        assert!(
+            !body.contains("turnId"),
+            "{table} 表不得出现 turnId（信封字段不进命令面）"
+        );
+    }
+}
+
+/// `bindings.ts` 的 `commands` 对象顶层包装名（单制表符缩进，`名称: (...) =>` 形态）。
+fn command_wrappers(ts: &str) -> Vec<String> {
+    let marker = "export const commands = {";
+    let start = ts.find(marker).expect("产物缺 commands 对象") + marker.len();
+    let end = ts[start..]
+        .find("\n};")
+        .map_or(ts.len(), |offset| start + offset);
+    ts[start..end]
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix('\t')?;
+            if rest.starts_with('\t') || rest.starts_with('*') || rest.starts_with('/') {
+                return None;
+            }
+            let name = rest.split(':').next()?.trim();
+            let mut chars = name.chars();
+            match chars.next() {
+                Some(c) if c.is_ascii_alphabetic() => name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric())
+                    .then(|| name.to_owned()),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// zod 单表顶层键（单制表符缩进的 `get "<命令>"()` 形态；形参位缩进更深）。
+fn zod_table_keys(body: &str) -> Vec<String> {
+    body.lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("\tget \"")?;
+            if rest.starts_with('\t') {
+                return None;
+            }
+            Some(rest.split('"').next()?.to_owned())
+        })
+        .collect()
+}
+
+/// 三张命令表各自的键集与表体（`export const <table> = {` 至顶层收尾）。
+fn zod_tables(zod: &str) -> [(&'static str, &str); 3] {
+    let extract = |table: &'static str| -> (&'static str, &str) {
+        let marker = format!("export const {table} = {{");
+        let start = zod
+            .find(&marker)
+            .unwrap_or_else(|| panic!("zod 产物缺 {table} 表"));
+        let body_start = start + marker.len();
+        let end = zod[body_start..]
+            .find("\n} as const;")
+            .map_or(zod.len(), |offset| body_start + offset);
+        (table, &zod[body_start..end])
+    };
+    [
+        extract("argsSchemas"),
+        extract("resultSchemas"),
+        extract("channelArgs"),
+    ]
+}
+
+#[test]
+fn zod产物三表键集与命令面一致且禁用片段零命中() {
+    let _lock = lock();
+    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+
+    let ts = String::from_utf8(fs::read(generated_path()).expect("读取产物应成功"))
+        .expect("产物为 UTF-8 文本");
+
+    // 命令面键集（`bindings.ts` 的 `commands` 顶层包装名）与三表键集逐表相等——
+    // 新字段只进 `AgentEventSchema`，不增减任何命令面条目。
+    let mut expected = command_wrappers(&ts);
+    expected.sort();
+    assert!(!expected.is_empty(), "命令面非空");
+    for (table, body) in zod_tables(&zod) {
+        let mut actual = zod_table_keys(body);
+        actual.sort();
+        assert_eq!(
+            actual, expected,
+            "{table} 键集与 commands 完全一致（信封新字段不触命令面）"
+        );
+    }
+
+    // 生成期硬约束（既有断言零改动即成立）：新键未引入禁用写法
+    for snippet in [
+        "export type ",
+        "z.infer",
+        "z.object(",
+        ".refine(",
+        ".default(",
+    ] {
+        assert!(!zod.contains(snippet), "zod 产物命中禁用片段 {snippet}");
+    }
+    assert!(
+        !zod.contains("turnId: z.number()"),
+        "轮归属不得出必填判型（放行行用 z.unknown()）"
+    );
+    assert!(
+        !zod.contains("AgentEventSchema_S"),
+        "产物不得含相位伴生名 AgentEventSchema_S*"
+    );
+}
+
+#[test]
+fn zod产物连续两次导出零diff且篡改后恢复仍含轮归属行() {
+    let _lock = lock();
+    let _restore = RestoreOnDrop;
+
+    let first = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+    let second = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+    assert_eq!(first, second, "连续两次导出逐字节零 diff（幂等）");
+    assert!(first.contains(TURN_ID_ZOD_BASE), "权威内容含基座判型行");
+
+    // 篡改：抹掉轮归属的判型行与六处放行行 → 重导出恢复权威内容
+    let tampered = first
+        .replace(TURN_ID_ZOD_BASE, "")
+        .replace(TURN_ID_ZOD_VARIANT, "");
+    assert_ne!(tampered, first, "前置：篡改生效");
+    fs::write(zod_generated_path(), &tampered).expect("篡改 zod 产物应成功");
+
+    export_bindings().expect("重导出应成功");
+    let restored = String::from_utf8(fs::read(zod_generated_path()).expect("读取产物应成功"))
+        .expect("zod 产物为 UTF-8 文本");
+    assert_eq!(restored, first, "篡改不留存（重导出恢复权威内容）");
+    assert!(
+        restored.contains(TURN_ID_ZOD_BASE),
+        "恢复后的内容仍含判型行——该行是产物而非手写残留"
+    );
+    assert_eq!(
+        restored.matches(TURN_ID_ZOD_VARIANT).count(),
+        6,
+        "恢复后六处放行行齐全"
+    );
+}

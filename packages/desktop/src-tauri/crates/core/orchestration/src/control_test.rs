@@ -77,6 +77,7 @@ fn session_event(session_id: &str, seq: u64) -> RunUpdate {
     RunUpdate::SessionEvent {
         session_id: session_id.to_owned(),
         event: agent::AgentEvent {
+            turn_id: None,
             seq,
             timestamp_ms: 1_726_000_000_000,
             kind: agent::AgentEventKind::Raw {
@@ -558,6 +559,7 @@ async fn publish快照面状态机镜像() {
     guard.emit(RunUpdate::SessionEvent {
         session_id: "sess-1".to_owned(),
         event: agent::AgentEvent {
+            turn_id: None,
             seq: 0,
             timestamp_ms: 1_726_000_000_000,
             kind: agent::AgentEventKind::Raw {
@@ -866,6 +868,7 @@ async fn publish_session_event已挂载节点零快照面突变_广播notice() {
     guard.emit(RunUpdate::SessionEvent {
         session_id: "sess-1".to_owned(),
         event: agent::AgentEvent {
+            turn_id: None,
             seq: 0,
             timestamp_ms: 1_726_000_000_000,
             kind: agent::AgentEventKind::Raw {

@@ -171,6 +171,7 @@ fn new_session_row() -> NewSessionRow {
 
 fn sealed_event(seq: u64) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::Message {
             role: AgentMessageRole::Assistant,

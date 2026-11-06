@@ -24,6 +24,7 @@ use crate::state::{
 /// kind / seq 为准，时间戳不参与等值断言）。
 fn sealed_event(seq: u64) -> agent::AgentEvent {
     agent::AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::Message {
             role: AgentMessageRole::Assistant,

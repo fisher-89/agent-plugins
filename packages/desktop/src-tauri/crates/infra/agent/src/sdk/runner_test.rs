@@ -89,6 +89,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
     use agent::{AgentEvent, AgentEventKind};
     vec![
         AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::Message {
                 role: AgentMessageRole::User,
@@ -100,6 +101,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::Message {
                 role: AgentMessageRole::Assistant,
@@ -120,6 +122,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
     use agent::{AgentEvent, AgentEventKind};
     vec![
         AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::Message {
                 role: AgentMessageRole::User,
@@ -131,6 +134,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::Message {
                 role: AgentMessageRole::Assistant,
@@ -143,6 +147,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             2,
             AgentEventKind::Message {
                 role: AgentMessageRole::Tool,
@@ -155,6 +160,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             3,
             AgentEventKind::Message {
                 role: AgentMessageRole::User,

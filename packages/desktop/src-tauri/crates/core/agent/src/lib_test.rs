@@ -123,6 +123,7 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
 
     // 事件词汇与状态机形态
     let event = AgentEvent::stamp(
+        None,
         0,
         AgentEventKind::MessageDelta {
             parent_tool_use_id: None,
@@ -269,6 +270,7 @@ fn crate根路径sum_usage_tokens可达与签名锚定() {
 
     // 单值转录：根路径调用语义与 usage_test 全量面同源
     let events = vec![AgentEvent::stamp(
+        None,
         0,
         AgentEventKind::TurnDone {
             subtype: String::new(),
@@ -289,6 +291,7 @@ fn crate根路径sum_usage_tokens可达与签名锚定() {
 fn crate根路径sum_usage_tokens缺席key与重复调用稳定() {
     let root_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
     let events = vec![AgentEvent::stamp(
+        None,
         0,
         AgentEventKind::TurnDone {
             subtype: String::new(),
@@ -429,6 +432,7 @@ async fn crate根路径会话流注册表全链路可用() {
     registry.publish(
         "ses-root",
         AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::MessageDelta {
                 parent_tool_use_id: None,

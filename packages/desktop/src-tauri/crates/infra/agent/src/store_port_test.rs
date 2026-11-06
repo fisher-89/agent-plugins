@@ -64,7 +64,7 @@ fn new_row(id: &str, source: &str, source_ref: Option<&str>) -> NewSessionRow {
 }
 
 fn sealed(seq: u64, kind: AgentEventKind) -> AgentEvent {
-    AgentEvent::stamp(seq, kind)
+    AgentEvent::stamp(None, seq, kind)
 }
 
 fn message_kind() -> AgentEventKind {
@@ -77,6 +77,7 @@ fn message_kind() -> AgentEventKind {
 
 fn turn_done(seq: u64, input_tokens: u64, duration_ms: u64) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::TurnDone {
             subtype: "success".to_owned(),
@@ -92,6 +93,7 @@ fn turn_done(seq: u64, input_tokens: u64, duration_ms: u64) -> AgentEvent {
 
 fn delta(seq: u64) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::MessageDelta {
             parent_tool_use_id: None,

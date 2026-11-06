@@ -3,7 +3,7 @@ use crate::state::{AgentRunState, RunStateMachine};
 
 /// 构造一枚事件（不盖真实时钟也行——状态机只读 kind，stamp 即可）。
 fn event(seq: u64, kind: AgentEventKind) -> AgentEvent {
-    AgentEvent::stamp(seq, kind)
+    AgentEvent::stamp(None, seq, kind)
 }
 
 fn run_started(seq: u64) -> AgentEvent {

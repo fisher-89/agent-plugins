@@ -9,7 +9,7 @@ use crate::sdk::resume::rebuild;
 // ---------------------------------------------------------------------------
 
 fn event(seq: u64, kind: AgentEventKind) -> AgentEvent {
-    AgentEvent::stamp(seq, kind)
+    AgentEvent::stamp(None, seq, kind)
 }
 
 fn user_text(seq: u64, text: &str) -> AgentEvent {

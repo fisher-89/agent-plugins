@@ -394,10 +394,25 @@ export type AgentEngineKind =
 "sdk";
 
 /**
- *  统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
- *  `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
+ *  统一事件信封：每事件携带 `turn_id`（轮归属）、`seq`（单调序号，入库排序
+ *  键）与时间戳；`kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端
+ *  DTO 基准）。
  */
 export type AgentEvent = {
+	/**
+	 *  轮归属：**持久层权威分配的轮 id**（内核 `begin_turn` 经
+	 *  `sink.begin_turn` 取得，与轮统计行主键同源），一轮内全部事件（含
+	 *  `MessageDelta`）同值；`None` 仅出现在无轮归属的构造面（测试夹具 /
+	 *  手工构造）。
+	 * 
+	 *  与该层 `TurnDone.session_id`（引擎侧会话标识，双 id 映射半边）语义
+	 *  **完全不同**，MUST NOT 互相替代或混用命名。
+	 * 
+	 *  属性面只标 `default`：`skip_serializing_if` 无法在 unified 相位模型下
+	 *  表达，加则 bindings 分裂为相位伴生类型（沿 `Text.citations` 同款措辞）；
+	 *  线格式键恒在、值可 `null`。
+	 */
+	turnId?: number | null,
 	/**  单调序号，会话级续排 */
 	seq: number,
 	/**  事件盖戳时刻（UTC unix 毫秒） */

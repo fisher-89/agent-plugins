@@ -1991,7 +1991,7 @@ fn native格式已有库重开直通此前写入的会话与转录完整读回()
 
 /// 以指定 kind 构造盖戳事件（seq 由调用方给定，时间戳取当前钟面）。
 fn stamped(seq: u64, kind: AgentEventKind) -> AgentEvent {
-    AgentEvent::stamp(seq, kind)
+    AgentEvent::stamp(None, seq, kind)
 }
 
 fn run_started_kind() -> AgentEventKind {

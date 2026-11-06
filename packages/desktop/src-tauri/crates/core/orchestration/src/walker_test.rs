@@ -463,7 +463,7 @@ impl WorkerAgentPort for FakeWorker {
                 kinds
                     .into_iter()
                     .enumerate()
-                    .map(|(seq, kind)| agent::AgentEvent::stamp(seq as u64, kind))
+                    .map(|(seq, kind)| agent::AgentEvent::stamp(None, seq as u64, kind))
                     .collect()
             });
             // executor 失败注入：Failed 收敛 + 携成因的密封转录（真实引擎
@@ -478,6 +478,7 @@ impl WorkerAgentPort for FakeWorker {
                         let subtype = match cause {
                             Some(cause) => {
                                 transcript.push(agent::AgentEvent::stamp(
+                                    None,
                                     0,
                                     agent::AgentEventKind::SystemNotice {
                                         subtype: "api_error".to_owned(),
@@ -489,6 +490,7 @@ impl WorkerAgentPort for FakeWorker {
                             None => "",
                         };
                         transcript.push(agent::AgentEvent::stamp(
+                            None,
                             1,
                             agent::AgentEventKind::TurnDone {
                                 subtype: subtype.to_owned(),

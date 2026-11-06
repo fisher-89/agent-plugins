@@ -515,6 +515,7 @@ export const AgentDeltaSchema = z.union([z.strictObject({
 export const AgentEngineKindSchema = z.union([z.literal("cli"), z.literal("sdk")]);
 
 export const AgentEventSchema = z.strictObject({
+	get turnId() { return z.number().nullable().optional(); },
 	get seq() { return z.number(); },
 	get timestampMs() { return z.number(); },
 }).and(z.union([z.strictObject({
@@ -523,12 +524,14 @@ export const AgentEventSchema = z.strictObject({
 	get sessionId() { return z.string().nullable(); },
 	get tools() { return z.array(z.string()); },
 	get mcpServers() { return z.array(z.string()); },
+	turnId: z.unknown().optional(),
 	seq: z.unknown().optional(),
 	timestampMs: z.unknown().optional(),
 }), z.strictObject({
 	get kind() { return z.literal("messageDelta"); },
 	get parentToolUseId() { return z.string().nullable(); },
 	get delta() { return AgentDeltaSchema; },
+	turnId: z.unknown().optional(),
 	seq: z.unknown().optional(),
 	timestampMs: z.unknown().optional(),
 }), z.strictObject({
@@ -536,12 +539,14 @@ export const AgentEventSchema = z.strictObject({
 	get role() { return AgentMessageRoleSchema; },
 	get blocks() { return z.array(AgentBlockSchema); },
 	get parentToolUseId() { return z.string().nullable(); },
+	turnId: z.unknown().optional(),
 	seq: z.unknown().optional(),
 	timestampMs: z.unknown().optional(),
 }), z.strictObject({
 	get kind() { return z.literal("systemNotice"); },
 	get subtype() { return z.string(); },
 	get payload() { return z.unknown(); },
+	turnId: z.unknown().optional(),
 	seq: z.unknown().optional(),
 	timestampMs: z.unknown().optional(),
 }), z.strictObject({
@@ -553,12 +558,14 @@ export const AgentEventSchema = z.strictObject({
 	get costUsd() { return z.number().nullable().nullable(); },
 	get usage() { return z.unknown(); },
 	get sessionId() { return z.string().nullable(); },
+	turnId: z.unknown().optional(),
 	seq: z.unknown().optional(),
 	timestampMs: z.unknown().optional(),
 }), z.strictObject({
 	get kind() { return z.literal("raw"); },
 	get eventType() { return z.string(); },
 	get rawJson() { return z.string(); },
+	turnId: z.unknown().optional(),
 	seq: z.unknown().optional(),
 	timestampMs: z.unknown().optional(),
 })]));

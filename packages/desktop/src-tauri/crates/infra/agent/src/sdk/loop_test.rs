@@ -925,6 +925,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
     use agent::{AgentBlock, AgentEvent};
     let transcript = vec![
         AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::Message {
                 role: AgentMessageRole::User,
@@ -936,6 +937,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
             },
         ),
         AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::Message {
                 role: AgentMessageRole::Assistant,

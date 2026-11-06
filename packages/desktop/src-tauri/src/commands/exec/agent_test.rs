@@ -8,6 +8,7 @@ use super::{outcome_summary, running_summary, AgentRunMessage};
 
 fn stamped_event(seq: u64) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::MessageDelta {
             parent_tool_use_id: None,
@@ -20,6 +21,7 @@ fn stamped_event(seq: u64) -> AgentEvent {
 
 fn sealed_event(seq: u64) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::TurnDone {
             subtype: "success".to_owned(),

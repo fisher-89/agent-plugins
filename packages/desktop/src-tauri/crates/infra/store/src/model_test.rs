@@ -20,6 +20,7 @@ use crate::store::Store;
 
 fn event(seq: u64, kind: AgentEventKind) -> AgentEvent {
     AgentEvent {
+        turn_id: None,
         seq,
         timestamp_ms: 1727000000000 + seq as i64,
         kind,
@@ -4363,4 +4364,361 @@ fn 含web_search块的session_event_record往返保真且无schema版本升级()
         serde_json::from_value(serde_json::json!({ "kind": "text", "text": "旧正文" }))
             .expect("旧 JSON 可读");
     assert!(matches!(&legacy_text, AgentBlock::Text { citations, .. } if citations.is_none()));
+}
+
+// ---------------------------------------------------------------------------
+// 信封新增字段的零迁移口径（agent-event-turn-id）
+//
+// `model.rs` 与 `store.rs` 零改动（design D6）：本组用例是「零改动仍然成立」的
+// 回归判据——新字段随载荷自然落键（`turnId`）、旧行缺键读出 `None`、**记录层**
+// decode→encode 逐字节不变（缺键不被补成显式 `"turnId":null`），且字段面 / 版本
+// 头 / 打包键零变化（AC-5 / AC-6）。
+//
+// 两层不可混：记录层（`Box<RawValue>` 原文，字节判等）与类型层（`AgentEvent`
+// 往返，缺键补默认值）是同一机制的两个层级——D6 明令 MUST NOT 读出类型后重写
+// 存量行，故两条路径的字节形态差异本身即是判据。
+// ---------------------------------------------------------------------------
+
+/// 指定轮归属的事件（新写入行形态）。
+fn turn_event(seq: u64, turn_id: Option<i64>, kind: AgentEventKind) -> AgentEvent {
+    let mut event = AgentEvent::stamp(turn_id, seq, kind);
+    // 固定时间戳：等值断言与钟面无关（沿既有 `event()` 装置口径）
+    event.timestamp_ms = 1727000000000 + seq as i64;
+    event
+}
+
+/// 六变体各一枚（含永不由 `append_session_events` 写入的 `MessageDelta`——
+/// `new()` 不看 `kind`，记录层零业务判别）。
+fn six_variant_kinds() -> Vec<AgentEventKind> {
+    vec![
+        run_started(0).kind,
+        AgentEventKind::MessageDelta {
+            parent_tool_use_id: Some("tu-1".to_owned()),
+            delta: agent::AgentDelta::Text {
+                text: "增量".to_owned(),
+            },
+        },
+        message(2).kind,
+        system_notice(3).kind,
+        turn_done(4).kind,
+        raw(5).kind,
+    ]
+}
+
+/// 存量载荷形态：当前线格式删去 `turnId` 键后的原文（旧行无该键）。
+fn legacy_payload(event: &AgentEvent) -> String {
+    let mut value = serde_json::to_value(event).expect("序列化应成功");
+    assert!(
+        value
+            .as_object_mut()
+            .expect("顶层为对象")
+            .remove("turnId")
+            .is_some(),
+        "前置：当前线格式含 turnId 键"
+    );
+    serde_json::to_string(&value).expect("序列化应成功")
+}
+
+/// 以原文直构记录（绕过 `new()` 的类型化序列化，模拟存量行）。
+fn legacy_record(session_id: &str, event_key_seq: u64, payload: &str) -> SessionEventRecord {
+    SessionEventRecord {
+        event_key: pack_session_event_key(session_id, event_key_seq),
+        session_id: session_id.to_owned(),
+        event: serde_json::value::RawValue::from_string(payload.to_owned())
+            .expect("原文为合法 JSON"),
+    }
+}
+
+#[test]
+fn 新行载荷原文含turn_id键且打包键字段零变化() {
+    let record = SessionEventRecord::new("ses-turn", turn_event(5, Some(7), message(5).kind));
+
+    let payload: serde_json::Value =
+        serde_json::from_str(record.event.get()).expect("载荷原文可解析");
+    assert_eq!(payload["turnId"], serde_json::json!(7), "新字段随载荷落键");
+    assert_eq!(
+        record.event_key,
+        pack_session_event_key("ses-turn", 5),
+        "event_key 仍打包自 (hash64(session_id), seq)——新字段不进键"
+    );
+    assert_eq!(record.seq(), 5);
+    assert_eq!(record.session_id(), "ses-turn");
+}
+
+#[test]
+fn 新行经native_model往返逐字段保真且轮归属回读相等() {
+    let record = SessionEventRecord::new("ses-turn", turn_event(5, Some(7), message(5).kind));
+
+    let decoded = roundtrip(&record);
+
+    assert_eq!(decoded, record, "记录层往返相等（版本头恒 1）");
+    let event = decoded.event().expect("载荷原文可解析为 AgentEvent");
+    assert_eq!(event.turn_id, Some(7), "轮归属回读相等");
+    assert_eq!(
+        event,
+        turn_event(5, Some(7), message(5).kind),
+        "整条事件逐字段等于写入值（AC-6 新行往返保真）"
+    );
+}
+
+#[test]
+fn 记录构造对六变体零业务判别且轮归属逐字相等() {
+    for kind in six_variant_kinds() {
+        let original = turn_event(3, Some(7), kind);
+        let record = SessionEventRecord::new("ses-six", original.clone());
+
+        let payload: serde_json::Value =
+            serde_json::from_str(record.event.get()).expect("载荷原文可解析");
+        assert_eq!(
+            payload["turnId"],
+            serde_json::json!(7),
+            "变体 {:?} 的轮归属逐字落键",
+            original.kind
+        );
+        assert_eq!(
+            record.event().expect("类型化视图可解析").turn_id,
+            Some(7),
+            "new() 不看 kind，六变体一律回读"
+        );
+    }
+}
+
+#[test]
+fn 轮归属四形态落库回读逐字相等不截断不改符号() {
+    for turn_id in [Some(0_i64), Some(-1), Some(i64::MIN), Some(i64::MAX)] {
+        let original = turn_event(1, turn_id, message(1).kind);
+        let record = SessionEventRecord::new("ses-extremes", original.clone());
+
+        let decoded = roundtrip(&record);
+        let event = decoded.event().expect("载荷原文可解析");
+        assert_eq!(event.turn_id, turn_id, "轮归属回读逐字相等: {turn_id:?}");
+
+        let payload: serde_json::Value =
+            serde_json::from_str(record.event.get()).expect("载荷原文可解析");
+        assert_eq!(
+            payload["turnId"],
+            serde_json::to_value(turn_id).expect("Option<i64> 可 JSON 化"),
+            "载荷原文数字不截断、不改符号: {turn_id:?}"
+        );
+    }
+}
+
+#[test]
+fn 轮归属none落库时载荷原文仍留显式null键() {
+    let record = SessionEventRecord::new("ses-none", turn_event(0, None, message(0).kind));
+
+    let payload: serde_json::Value = serde_json::from_str(record.event.get()).expect("可解析");
+    let object = payload.as_object().expect("顶层为对象");
+    assert!(
+        object.contains_key("turnId"),
+        "键恒在纪律在落库原文层同样成立（不因存储面省略键），实际: {object:?}"
+    );
+    assert_eq!(payload["turnId"], serde_json::Value::Null);
+    assert_eq!(
+        record.event().expect("类型化视图可解析").turn_id,
+        None,
+        "null 回读为 None"
+    );
+}
+
+#[test]
+fn 旧行缺turn_id键经类型化视图读出none其余字段逐字不变() {
+    for kind in six_variant_kinds() {
+        let current = turn_event(2, Some(7), kind);
+        let payload = legacy_payload(&current);
+        let record = legacy_record("ses-legacy-turn", 2, &payload);
+
+        let event = record
+            .event()
+            .expect("旧行必须可读（缺键不使整条事件解码失败）");
+        assert_eq!(event.turn_id, None, "缺键读出 None");
+        assert_eq!(event.seq, current.seq, "seq 逐字段不变");
+        assert_eq!(event.timestamp_ms, current.timestamp_ms, "时间戳逐字段不变");
+        assert_eq!(event.kind, current.kind, "kind 与变体字段逐字段不变");
+        assert!(
+            !payload.contains("turnId"),
+            "前置：旧行原文不含 turnId 键，实际: {payload}"
+        );
+    }
+}
+
+#[test]
+fn 旧行非法turn_id形态经类型化视图返回err() {
+    let base = legacy_payload(&turn_event(0, None, message(0).kind));
+    for invalid in ["\"x\"", "7.5", "[7]"] {
+        let payload = base.replacen('{', &format!("{{\"turnId\":{invalid},"), 1);
+        let record = legacy_record("ses-bad-turn", 0, &payload);
+
+        assert!(
+            record.event().is_err(),
+            "非法 turnId 原文 {invalid} 必须 Err（default 只放行缺键、不吞类型错）"
+        );
+    }
+    // 对照组：缺键可读
+    assert!(legacy_record("ses-bad-turn", 0, &base).event().is_ok());
+}
+
+#[test]
+fn 载荷原文为非对象合法json时类型化视图返回err() {
+    for payload in ["null", "[]", "42"] {
+        let record = legacy_record("ses-non-object", 0, payload);
+        assert!(
+            record.event().is_err(),
+            "非对象原文 {payload} 必须 Err（新字段不改变既有错误面）"
+        );
+    }
+}
+
+#[test]
+fn 旧行记录层解码重编码逐字节不变且原文不含turn_id() {
+    let payload = legacy_payload(&turn_event(0, Some(7), message(0).kind));
+    let record = legacy_record("ses-bytes", 0, &payload);
+
+    let encoded = native_model::encode(&record).expect("encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<SessionEventRecord>(encoded.clone()).expect("decode 应成功");
+    assert_eq!(version, 1);
+    assert_eq!(
+        native_model::encode(&decoded).expect("reencode 应成功"),
+        encoded,
+        "旧行解码重编码逐字节不变（缺键不得被补成显式 turnId:null）"
+    );
+    assert!(
+        !decoded.event.get().contains("turnId"),
+        "重编码文本不含 turnId（缺键未被补默认值），实际: {}",
+        decoded.event.get()
+    );
+}
+
+#[test]
+fn 类型层补默认值与记录层字节面不可混() {
+    let payload = legacy_payload(&turn_event(0, Some(7), message(0).kind));
+    let record = legacy_record("ses-layers", 0, &payload);
+
+    let event = record.event().expect("类型化视图可解析");
+    let retyped = serde_json::to_string(&event).expect("序列化应成功");
+
+    assert_ne!(
+        retyped, payload,
+        "类型层往返会落出显式 turnId:null（MUST NOT 读出 AgentEvent 后重写存量行）"
+    );
+    assert!(retyped.contains("\"turnId\":null"), "差异键即 turnId");
+    assert_eq!(
+        record.event.get(),
+        payload,
+        "记录层原文保持未动（两条路径不互相污染）"
+    );
+}
+
+#[test]
+fn 旧行可被native_db删除_严格字节判等不误报() {
+    let payload = legacy_payload(&turn_event(1, None, message(1).kind));
+    let record = legacy_record("ses-turn-remove", 1, &payload);
+
+    let mut models = native_db::Models::new();
+    models
+        .define::<SessionEventRecord>()
+        .expect("定义 SessionEventRecord");
+    let db = native_db::Builder::new()
+        .create_in_memory(&models)
+        .expect("建内存库");
+    let rw = db.rw_transaction().expect("写事务");
+    rw.insert(record.clone()).expect("落旧行");
+    rw.commit().expect("提交");
+
+    let r = db.r_transaction().expect("读事务");
+    let scanned: Vec<SessionEventRecord> = r
+        .scan()
+        .primary::<SessionEventRecord>()
+        .expect("扫描")
+        .all()
+        .expect("迭代")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("收集");
+    drop(r);
+    assert_eq!(scanned, vec![record], "旧行原样读出（新字段不参与键）");
+    assert_eq!(
+        scanned[0].event().expect("类型化视图可解析").turn_id,
+        None,
+        "库里旧行回读仍为 None"
+    );
+
+    let rw = db.rw_transaction().expect("写事务");
+    rw.remove(scanned[0].clone())
+        .expect("旧行可删（严格字节判等不误报 IncorrectInputData）");
+    rw.commit().expect("提交");
+}
+
+#[test]
+fn 模型元数据与字段面零变化_无新列() {
+    assert_eq!(
+        <SessionEventRecord as native_model::Model>::native_model_id(),
+        8,
+        "native_model id 不变"
+    );
+    assert_eq!(
+        <SessionEventRecord as native_model::Model>::native_model_version(),
+        1,
+        "版本头不变（零迁移：新字段只在 JSON 载荷内，不进 bincode 结构）"
+    );
+
+    // 字段面判据：serde 线格式顶层键恰三枚（无新列）
+    let record = SessionEventRecord::new("ses-face", turn_event(0, Some(7), message(0).kind));
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("顶层为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["event", "eventKey", "sessionId"],
+        "SessionEventRecord 字段面仍为三列（新字段只随 event 载荷透出）"
+    );
+}
+
+#[test]
+fn 新旧行混存同一会话按seq升序返回且各自轮归属两形态共存() {
+    // 预置库：直写旧行（无 turnId）+ 当前格式标记，随后经 Store 追加新行
+    let db_dir = tempfile::Builder::new()
+        .prefix("store-test-turn-id-mixed-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    let path = db_dir.path().join("ws.redb");
+    let legacy_payload_text = legacy_payload(&turn_event(0, Some(7), message(0).kind));
+    let legacy = legacy_record("ses-mixed", 0, &legacy_payload_text);
+    {
+        let db = native_db::Builder::new()
+            .create(crate::store::workspace_models(), &path)
+            .expect("预置库失败");
+        let rw = db.rw_transaction().expect("开启写事务失败");
+        rw.insert(legacy.clone()).expect("写入旧行失败");
+        rw.insert(crate::model::StoreMetaRecord {
+            key: crate::model::WORKSPACE_STORE_FORMAT_KEY.to_owned(),
+            format_version: crate::model::WORKSPACE_STORE_FORMAT_VERSION,
+        })
+        .expect("写入格式标记失败");
+        rw.commit().expect("提交预置事务失败");
+    }
+
+    let store = Store::open_workspace(&path).expect("打开 workspace 库应成功");
+    let fresh = turn_event(1, Some(7), turn_done(1).kind);
+    store
+        .append_session_events("ses-mixed", std::slice::from_ref(&fresh))
+        .expect("追加新行应成功");
+
+    let replayed = store
+        .list_session_events("ses-mixed")
+        .expect("转录重放应成功");
+    assert_eq!(replayed.len(), 2, "新旧行共存于同一转录");
+    assert_eq!(
+        replayed.iter().map(|event| event.seq).collect::<Vec<_>>(),
+        vec![0, 1],
+        "排序仍按 (session_id, seq)——新字段不进键"
+    );
+    assert_eq!(replayed[0].turn_id, None, "旧行读出 None");
+    assert_eq!(replayed[1].turn_id, Some(7), "新行读出轮归属");
+    assert_eq!(replayed[1], fresh, "新行逐字段等于写入值");
 }

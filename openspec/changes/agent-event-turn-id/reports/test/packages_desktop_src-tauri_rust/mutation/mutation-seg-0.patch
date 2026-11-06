@@ -1,0 +1,2396 @@
+diff --git a/crates/core/agent/src/event.rs b/crates/core/agent/src/event.rs
+index f71bd644fdfb..b6e0c82aa809 100644
+--- a/crates/core/agent/src/event.rs
++++ b/crates/core/agent/src/event.rs
+@@ -203,11 +203,25 @@ impl AgentEventKind {
+     }
+ }
+ 
+-/// 统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
+-/// `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
++/// 统一事件信封：每事件携带 `turn_id`（轮归属）、`seq`（单调序号，入库排序
++/// 键）与时间戳；`kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端
++/// DTO 基准）。
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub struct AgentEvent {
++    /// 轮归属：**持久层权威分配的轮 id**（内核 `begin_turn` 经
++    /// `sink.begin_turn` 取得，与轮统计行主键同源），一轮内全部事件（含
++    /// `MessageDelta`）同值；`None` 仅出现在无轮归属的构造面（测试夹具 /
++    /// 手工构造）。
++    ///
++    /// 与该层 `TurnDone.session_id`（引擎侧会话标识，双 id 映射半边）语义
++    /// **完全不同**，MUST NOT 互相替代或混用命名。
++    ///
++    /// 属性面只标 `default`：`skip_serializing_if` 无法在 unified 相位模型下
++    /// 表达，加则 bindings 分裂为相位伴生类型（沿 `Text.citations` 同款措辞）；
++    /// 线格式键恒在、值可 `null`。
++    #[serde(default)]
++    pub turn_id: Option<i64>,
+     /// 单调序号，会话级续排
+     pub seq: u64,
+     /// 事件盖戳时刻（UTC unix 毫秒）
+@@ -218,9 +232,16 @@ pub struct AgentEvent {
+ }
+ 
+ impl AgentEvent {
+-    /// 盖当前时钟毫秒的统一生产入口：seq 由调用方（事件生产者）传入
+-    pub fn stamp(seq: u64, kind: AgentEventKind) -> Self {
++    /// 盖当前时钟毫秒的唯一生产入口：**轮归属为首参**（「归属 → 身份 →
++    /// 载荷」阅读序），`seq` 由调用方（事件生产者）传入；`timestamp_ms` 仍取
++    /// `now_millis()`。
++    ///
++    /// 轮 id 是**持久层分配的治理信息**，引擎不该知道——真实运行事件的轮归属
++    /// 只在会话内核的盖戳单点传入（`Some(turn_id)`）。MUST NOT 另立第二条生产
++    /// 入口：两条入口会让「漏写轮归属」从编译错误退化为运行期静默 `null`。
++    pub fn stamp(turn_id: Option<i64>, seq: u64, kind: AgentEventKind) -> Self {
+         Self {
++            turn_id,
+             seq,
+             timestamp_ms: now_millis(),
+             kind,
+diff --git a/crates/core/agent/src/event_test.rs b/crates/core/agent/src/event_test.rs
+index a693a2a61c12..ec227ca5c06b 100644
+--- a/crates/core/agent/src/event_test.rs
++++ b/crates/core/agent/src/event_test.rs
+@@ -72,6 +72,7 @@ fn web_search_block() -> AgentBlock {
+ fn variant_events() -> Vec<AgentEvent> {
+     vec![
+         AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::RunStarted {
+                 model: Some("claude-opus".to_owned()),
+@@ -81,6 +82,7 @@ fn variant_events() -> Vec<AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::MessageDelta {
+                 parent_tool_use_id: None,
+@@ -90,6 +92,7 @@ fn variant_events() -> Vec<AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             2,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+@@ -104,6 +107,7 @@ fn variant_events() -> Vec<AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             3,
+             AgentEventKind::SystemNotice {
+                 subtype: "permission_denial".to_owned(),
+@@ -111,6 +115,7 @@ fn variant_events() -> Vec<AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             4,
+             AgentEventKind::TurnDone {
+                 subtype: "success".to_owned(),
+@@ -123,6 +128,7 @@ fn variant_events() -> Vec<AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             5,
+             AgentEventKind::Raw {
+                 event_type: "mystery".to_owned(),
+@@ -207,6 +213,7 @@ fn 六变体判别矩阵_仅message_delta为增量_其余五变体为密封() {
+ #[test]
+ fn message_delta序列化判别值为驼峰() {
+     let event = AgentEvent::stamp(
++        None,
+         7,
+         AgentEventKind::MessageDelta {
+             parent_tool_use_id: None,
+@@ -236,6 +243,7 @@ fn message_delta序列化判别值为驼峰() {
+ #[test]
+ fn thinking_delta往返保真且与text增量可辨() {
+     let thinking = AgentEvent::stamp(
++        None,
+         8,
+         AgentEventKind::MessageDelta {
+             parent_tool_use_id: Some("tu_1".to_owned()),
+@@ -307,6 +315,7 @@ fn 六变体各自反序列化往返逐字段相等() {
+ #[test]
+ fn turn_done序列化判别值为驼峰() {
+     let event = AgentEvent::stamp(
++        None,
+         9,
+         AgentEventKind::TurnDone {
+             subtype: "success".to_owned(),
+@@ -365,6 +374,7 @@ fn 旧线值run_result反序列化返回err更名不别名() {
+ #[test]
+ fn turn_done全字段缺席形态serde往返无损() {
+     let bare = AgentEvent::stamp(
++        None,
+         10,
+         AgentEventKind::TurnDone {
+             subtype: String::new(),
+@@ -422,6 +432,7 @@ fn agent_delta两变体序列化判别值逐字为text与thinking且往返一致
+ fn stamp以0盖戳产出seq为0且时间戳为当前时钟毫秒() {
+     let before = millis_now();
+     let event = AgentEvent::stamp(
++        None,
+         0,
+         AgentEventKind::Raw {
+             event_type: "x".to_owned(),
+@@ -441,6 +452,7 @@ fn stamp以0盖戳产出seq为0且时间戳为当前时钟毫秒() {
+ #[test]
+ fn stamp对u64最大seq原样保留不截断且往返无损() {
+     let event = AgentEvent::stamp(
++        None,
+         u64::MAX,
+         AgentEventKind::Raw {
+             event_type: "x".to_owned(),
+@@ -463,6 +475,7 @@ fn stamp对u64最大seq原样保留不截断且往返无损() {
+ #[test]
+ fn message四类块混合数组往返无损且块判别值为驼峰() {
+     let mixed = AgentEvent::stamp(
++        None,
+         11,
+         AgentEventKind::Message {
+             role: AgentMessageRole::Assistant,
+@@ -499,6 +512,7 @@ fn message四类块混合数组往返无损且块判别值为驼峰() {
+ fn raw变体原文json逐字节保留含中文emoji换行引号() {
+     let original = "第一行 🎉\n\"quoted\" {\"inner\":true}\t制表";
+     let event = AgentEvent::stamp(
++        None,
+         12,
+         AgentEventKind::Raw {
+             event_type: "unparsable".to_owned(),
+@@ -941,3 +955,352 @@ fn 五变体信封整体往返逐字段相等且agentdelta词汇仍为两变体(
+         }
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 信封轮归属 turn_id（agent-event-turn-id）
++//
++// 契约面断言：轮归属为 `Option<i64>`、线格式键 `turnId` 恒在（`None` → null）、
++// 缺键旧载荷仍可读（AC-5）、`Some` 往返保真（AC-7 / AC-1）。不新增第二条生产
++// 入口；本组全部调用以三参形态 `stamp(turn_id, seq, kind)` 书写。
++// ---------------------------------------------------------------------------
++
++/// 六变体线格式判别值（与既有六变体用例同序）。
++const TURN_VARIANT_KINDS: [&str; 6] = [
++    "runStarted",
++    "messageDelta",
++    "message",
++    "systemNotice",
++    "turnDone",
++    "raw",
++];
++
++/// 六变体各一枚以给定轮归属盖戳（复用既有 `variant_events()` 的变体载荷，
++/// 轮归属就地指定——不修改既有夹具语义）。
++fn turn_scoped_events(turn_id: Option<i64>) -> Vec<AgentEvent> {
++    variant_events()
++        .into_iter()
++        .enumerate()
++        .map(|(index, event)| AgentEvent::stamp(turn_id, index as u64, event.kind))
++        .collect()
++}
++
++/// 无轮归属的出行形态（时钟不可注入，故用 Raw 变体承载）。
++fn raw_kind() -> AgentEventKind {
++    AgentEventKind::Raw {
++        event_type: "x".to_owned(),
++        raw_json: "{}".to_owned(),
++    }
++}
++
++/// 存量转录载荷形态：当前线格式去掉 `turnId` 键（旧行原文面）。
++fn legacy_value_without_turn_id(event: &AgentEvent) -> Value {
++    let mut value = serde_json::to_value(event).expect("序列化成功");
++    let object = value.as_object_mut().expect("顶层为对象");
++    assert!(
++        object.remove("turnId").is_some(),
++        "前置：当前线格式含 turnId 键"
++    );
++    value
++}
++
++#[test]
++fn stamp对some轮归属逐字保留且时间戳落在调用区间() {
++    let expected_kind = raw_kind();
++    let before = millis_now();
++    let event = AgentEvent::stamp(Some(7), 3, expected_kind.clone());
++    let after = millis_now();
++
++    assert_eq!(event.turn_id, Some(7), "轮归属逐字保留（首参）");
++    assert_eq!(event.seq, 3, "seq 逐字保留");
++    assert_eq!(event.kind, expected_kind, "kind 逐字保留");
++    assert!(
++        event.timestamp_ms >= before && event.timestamp_ms <= after,
++        "时间戳落在调用时刻区间内，实际: {}（区间 [{before}, {after}]）",
++        event.timestamp_ms
++    );
++}
++
++#[test]
++fn stamp首参none不改盖戳口径且其余字段与扩参前等价() {
++    let before = millis_now();
++    let event = AgentEvent::stamp(
++        None,
++        0,
++        AgentEventKind::TurnDone {
++            subtype: "success".to_owned(),
++            is_error: false,
++            num_turns: Some(1),
++            duration_ms: Some(10),
++            cost_usd: None,
++            usage: json!({ "input_tokens": 1 }),
++            session_id: None,
++        },
++    );
++    let after = millis_now();
++
++    assert_eq!(event.turn_id, None, "无轮归属构造面读出 None");
++    assert_eq!(event.seq, 0);
++    assert!(
++        event.timestamp_ms >= before && event.timestamp_ms <= after,
++        "时间戳仍取 now_millis()（None 不改盖戳口径）"
++    );
++    assert!(
++        matches!(&event.kind, AgentEventKind::TurnDone { subtype, .. } if subtype == "success"),
++        "kind 逐字保留，实际: {:?}",
++        event.kind
++    );
++}
++
++#[test]
++fn turn_id五形态经盖戳与往返逐字相等不夹取不改符号() {
++    for turn_id in [None, Some(0), Some(-1), Some(i64::MIN), Some(i64::MAX)] {
++        let event = AgentEvent::stamp(turn_id, 3, raw_kind());
++        assert_eq!(event.turn_id, turn_id, "轮归属逐字相等: {turn_id:?}");
++
++        let value = serde_json::to_value(&event).expect("序列化成功");
++        assert_eq!(
++            value["turnId"],
++            serde_json::to_value(turn_id).expect("Option<i64> 可 JSON 化"),
++            "线格式 turnId 逐字等于入参: {turn_id:?}"
++        );
++        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
++        assert_eq!(roundtrip, event, "往返逐字段相等: {turn_id:?}");
++    }
++}
++
++#[test]
++fn seq三形态与轮归属极值正交且无截断() {
++    for seq in [0_u64, 1, u64::MAX] {
++        let event = AgentEvent::stamp(Some(i64::MAX), seq, raw_kind());
++
++        assert_eq!(event.seq, seq, "seq 原样保留");
++        assert_eq!(event.turn_id, Some(i64::MAX), "轮归属不被 seq 覆盖");
++        let value = serde_json::to_value(&event).expect("序列化成功");
++        assert_eq!(value["seq"], json!(seq), "seq 线格式不截断");
++        assert_eq!(value["turnId"], json!(i64::MAX), "轮归属线格式不截断");
++        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
++        assert_eq!(roundtrip, event, "两字段互不干扰地往返");
++    }
++}
++
++#[test]
++fn 六变体线格式顶层turn_id为驼峰键且kind仍扁平() {
++    for (event, expected_kind) in turn_scoped_events(Some(7))
++        .into_iter()
++        .zip(TURN_VARIANT_KINDS)
++    {
++        let value = serde_json::to_value(&event).expect("序列化成功");
++        let object = value.as_object().expect("顶层为对象");
++
++        assert_eq!(value["turnId"], json!(7), "顶层 turnId 为数字");
++        assert_eq!(value["kind"], json!(expected_kind), "判别值为驼峰字符串");
++        assert!(
++            object.contains_key("turnId")
++                && object.contains_key("seq")
++                && object.contains_key("timestampMs")
++                && object.contains_key("kind"),
++            "信封四键与变体字段同层（turnId 不是变体内键），实际键: {object:?}"
++        );
++        // 轮归属与 TurnDone.session_id（引擎侧标识）同层并存、互不影响
++        if expected_kind == "turnDone" {
++            assert_eq!(value["sessionId"], json!("s-1"));
++            assert_ne!(
++                value["turnId"], value["sessionId"],
++                "轮归属（数字）与引擎侧会话标识（字符串）语义不可混用"
++            );
++        }
++    }
++}
++
++#[test]
++fn turn_id为none时线格式键恒在且值为null() {
++    let event = AgentEvent::stamp(None, 0, raw_kind());
++    let value = serde_json::to_value(&event).expect("序列化成功");
++    let object = value.as_object().expect("顶层为对象");
++
++    assert!(
++        object.contains_key("turnId"),
++        "None 形态键恒在（反向判据：键缺席即说明 skip_serializing_if 被加上），实际: {object:?}"
++    );
++    assert_eq!(value["turnId"], Value::Null, "None 落 null");
++}
++
++#[test]
++fn 六变体顶层键集合只增turn_id一个信封键() {
++    let expected_own_keys: [&[&str]; 6] = [
++        &["model", "sessionId", "tools", "mcpServers"],
++        &["parentToolUseId", "delta"],
++        &["role", "blocks", "parentToolUseId"],
++        &["subtype", "payload"],
++        &[
++            "subtype",
++            "isError",
++            "numTurns",
++            "durationMs",
++            "costUsd",
++            "usage",
++            "sessionId",
++        ],
++        &["eventType", "rawJson"],
++    ];
++
++    for (event, own_keys) in turn_scoped_events(Some(7))
++        .into_iter()
++        .zip(expected_own_keys)
++    {
++        let value = serde_json::to_value(&event).expect("序列化成功");
++        let object = value.as_object().expect("顶层为对象");
++        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
++        keys.sort_unstable();
++
++        let mut expected: Vec<&str> = vec!["turnId", "seq", "timestampMs", "kind"];
++        expected.extend_from_slice(own_keys);
++        expected.sort_unstable();
++
++        assert_eq!(
++            keys, expected,
++            "顶层键集合 = 信封四键 ∪ 变体自有键（信封字段面只增 turnId、无相位伴生键），实际: {object:?}"
++        );
++    }
++}
++
++#[test]
++fn 六变体序列化文本中turn_id片段恰出现一次() {
++    for event in turn_scoped_events(Some(7)) {
++        let text = serde_json::to_string(&event).expect("序列化成功");
++        assert_eq!(
++            text.matches("\"turnId\"").count(),
++            1,
++            "kind 扁平且信封字段不重复落键（出现 2 次即说明被误置于变体内层），实际: {text}"
++        );
++    }
++}
++
++#[test]
++fn 六变体旧json无turn_id键仍可读且读出none其余字段不变() {
++    for (event, expected_kind) in turn_scoped_events(Some(7))
++        .into_iter()
++        .zip(TURN_VARIANT_KINDS)
++    {
++        let legacy = legacy_value_without_turn_id(&event);
++        let decoded: AgentEvent =
++            serde_json::from_value(legacy).expect("旧 JSON 必须可读（缺键不使整条事件解码失败）");
++
++        assert_eq!(decoded.turn_id, None, "缺键读出 None");
++        assert_eq!(decoded.seq, event.seq, "seq 逐字段不变");
++        assert_eq!(decoded.timestamp_ms, event.timestamp_ms, "时间戳逐字段不变");
++        assert_eq!(decoded.kind, event.kind, "kind 与变体字段逐字段不变");
++        let value = serde_json::to_value(&decoded).expect("序列化成功");
++        assert_eq!(value["kind"], json!(expected_kind));
++    }
++}
++
++#[test]
++fn 显式null与缺键解出同一形态且再序列化均键恒在() {
++    let baseline = AgentEvent::stamp(None, 7, raw_kind());
++    let missing = legacy_value_without_turn_id(&baseline);
++    let mut explicit = missing.clone();
++    explicit["turnId"] = Value::Null;
++
++    let from_missing: AgentEvent = serde_json::from_value(missing).expect("缺键可读");
++    let from_explicit: AgentEvent = serde_json::from_value(explicit).expect("显式 null 可读");
++
++    assert_eq!(
++        from_missing, from_explicit,
++        "显式 null 与缺键解出同一形态（不可分辨地归一到 None）"
++    );
++    assert_eq!(from_missing, baseline);
++    for event in [&from_missing, &from_explicit] {
++        let value = serde_json::to_value(event).expect("序列化成功");
++        assert_eq!(
++            value.get("turnId"),
++            Some(&Value::Null),
++            "再序列化均落 turnId:null（键恒在）"
++        );
++    }
++}
++
++#[test]
++fn 非法turn_id形态四类均err不产半成品事件() {
++    let base = legacy_value_without_turn_id(&AgentEvent::stamp(None, 0, raw_kind()));
++
++    for invalid in [
++        json!("7"),
++        json!(7.5),
++        json!(9223372036854775808_u64),
++        json!([7]),
++    ] {
++        let mut value = base.clone();
++        value["turnId"] = invalid.clone();
++        assert!(
++            serde_json::from_value::<AgentEvent>(value).is_err(),
++            "非法 turnId 形态 {invalid} 必须 Err（不产半成品事件）"
++        );
++    }
++    // 对照组：合法数字可读
++    let mut valid = base;
++    valid["turnId"] = json!(7);
++    assert!(serde_json::from_value::<AgentEvent>(valid).is_ok());
++}
++
++#[test]
++fn snake_case键输入不产出轮归属_线键只认camel_case() {
++    let mut value = legacy_value_without_turn_id(&AgentEvent::stamp(None, 0, raw_kind()));
++    value["turn_id"] = json!(7);
++
++    // 析取形态：未知键被忽略则读回 None，被拒绝则 Err——两种策略都不认 snake_case
++    if let Ok(event) = serde_json::from_value::<AgentEvent>(value) {
++        assert_ne!(
++            event.turn_id,
++            Some(7),
++            "snake_case 键不得被识别为轮归属（线键只认 camelCase turnId）"
++        );
++    }
++}
++
++#[test]
++fn some轮归属六变体往返逐字段相等() {
++    for event in turn_scoped_events(Some(7)) {
++        let value = serde_json::to_value(&event).expect("序列化成功");
++        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
++        assert_eq!(roundtrip, event, "seq={} 轮归属参与往返", event.seq);
++        assert_eq!(roundtrip.turn_id, Some(7));
++    }
++}
++
++#[test]
++fn none轮归属六变体往返闭环() {
++    for event in turn_scoped_events(None) {
++        let value = serde_json::to_value(&event).expect("序列化成功");
++        assert_eq!(value["turnId"], Value::Null, "None 落 null");
++        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
++        assert_eq!(roundtrip, event, "seq={} null 与 None 闭环", event.seq);
++    }
++}
++
++#[test]
++fn 轮归属极值经json文本往返不失符号不截断() {
++    for turn_id in [Some(i64::MIN), Some(i64::MAX)] {
++        let event = AgentEvent::stamp(turn_id, 2, raw_kind());
++        let text = serde_json::to_string(&event).expect("序列化成功");
++        let roundtrip: AgentEvent = serde_json::from_str(&text).expect("JSON 文本往返成功");
++        assert_eq!(roundtrip, event, "文本面不发生 f64 化截断: {turn_id:?}");
++        assert_eq!(roundtrip.turn_id, turn_id, "符号与量值逐字保留");
++    }
++}
++
++#[test]
++fn turn_id参与相等性比较不被skip() {
++    let event = AgentEvent::stamp(Some(7), 3, raw_kind());
++    let mut other = event.clone();
++    other.turn_id = Some(8);
++
++    assert_ne!(event, other, "turn_id 不同即事件不等（derive 面敏感）");
++    assert_eq!(event, event.clone(), "同 turn_id 同形态相等");
++    let mut same = other.clone();
++    same.turn_id = Some(7);
++    assert_eq!(
++        event, same,
++        "turn_id 相同且其余全同时相等（该字段被 PartialEq 纳入比较，未被 skip）"
++    );
++}
+diff --git a/crates/core/agent/src/kernel.rs b/crates/core/agent/src/kernel.rs
+index 2aaf5198ea1e..9a4589d12396 100644
+--- a/crates/core/agent/src/kernel.rs
++++ b/crates/core/agent/src/kernel.rs
+@@ -245,7 +245,9 @@ impl RunningTurn {
+         let mut seq: u64 = seq_base;
+         let mut stats = TurnStats::default();
+         while let Some(kind) = session.observations.recv().await {
+-            let event = AgentEvent::stamp(seq, kind);
++            // 全事件唯一盖戳点：轮归属就在 `self` 上；delta 与密封共用此点，
++            // 两实时出口（注册表发布 / 输出回调）投递同一值
++            let event = AgentEvent::stamp(Some(turn_id), seq, kind);
+             seq += 1;
+             if event.kind.is_delta() {
+                 // 增量只上传输面（store 永不见；盖戳治理单点的传输半边）：
+diff --git a/crates/core/agent/src/kernel_test.rs b/crates/core/agent/src/kernel_test.rs
+index 3cf5e540d49e..eb94da2f8d48 100644
+--- a/crates/core/agent/src/kernel_test.rs
++++ b/crates/core/agent/src/kernel_test.rs
+@@ -1618,3 +1618,507 @@ async fn drive停止置位收敛stopped_订阅端终态error为none() {
+     assert_eq!(terminal.status, AgentRunStatus::Stopped);
+     assert_eq!(terminal.error, None, "用户主动终止不记因");
+ }
++
++// ---------------------------------------------------------------------------
++// 盖戳治理单点的轮归属（agent-event-turn-id）
++//
++// 判据：真实运行事件的轮归属只在 `drive` 的盖戳单点产生（`Some(turn_id)`），
++// 一轮内 delta 与密封同值、两实时出口同源同值、续轮各自恒定（AC-2 / AC-3 /
++// AC-4）。装置沿用既有 `FakeSink` / `FakeRunner` / `drive_all` / `drain_stream`。
++// ---------------------------------------------------------------------------
++
++/// 摘出全部 Observation 的轮归属（按流出序）。
++fn observed_turn_ids(observations: &[AgentEvent]) -> Vec<Option<i64>> {
++    observations.iter().map(|event| event.turn_id).collect()
++}
++
++#[tokio::test]
++async fn drive流出事件全部携本轮轮归属且无一枚为none() {
++    let (sink, _calls) = FakeSink::new();
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(16));
++
++    let running = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++    runner
++        .feed(vec![
++            run_started_kind("sdk-9-1727000000009"),
++            text_delta_kind("第一片"),
++            text_delta_kind("第二片 🎉"),
++            message_kind(),
++            AgentEventKind::SystemNotice {
++                subtype: "api_retry".to_owned(),
++                payload: serde_json::json!({ "attempt": 2 }),
++            },
++            turn_done_kind(false),
++        ])
++        .await;
++    runner.close_stream();
++
++    let (observations, _finished, outcome) = drive_all(running).await;
++
++    assert_eq!(observations.len(), 6, "混合流全量流出");
++    assert_eq!(
++        observed_turn_ids(&observations),
++        vec![Some(turn_id); 6],
++        "每枚观察事件的轮归属恒等于开轮 id（无一枚 None——漏盖即静默 null）"
++    );
++    assert!(
++        observations.iter().all(|event| event.turn_id.is_some()),
++        "真实运行事件不存在无轮归属形态"
++    );
++    assert_eq!(outcome.turn_id, turn_id, "终态轮 id 与开轮 id 同源");
++    assert_eq!(outcome.status, AgentRunStatus::Completed);
++}
++
++#[tokio::test]
++async fn drive的delta组与密封组turn_id集合各为单元素集且相等() {
++    let (sink, _calls) = FakeSink::new();
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(16));
++
++    let running = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++    runner
++        .feed(vec![
++            text_delta_kind("增量一"),
++            text_delta_kind("增量二"),
++            message_kind(),
++            turn_done_kind(false),
++        ])
++        .await;
++    runner.close_stream();
++
++    let (observations, _finished, _outcome) = drive_all(running).await;
++
++    let collect = |delta: bool| -> std::collections::BTreeSet<Option<i64>> {
++        observations
++            .iter()
++            .filter(|event| event.kind.is_delta() == delta)
++            .map(|event| event.turn_id)
++            .collect()
++    };
++    let delta_ids = collect(true);
++    let sealed_ids = collect(false);
++
++    assert_eq!(delta_ids.len(), 1, "delta 组轮归属单一");
++    assert_eq!(sealed_ids.len(), 1, "密封组轮归属单一");
++    assert_eq!(
++        delta_ids, sealed_ids,
++        "delta 亦带轮归属（不做「delta 允许缺省」的豁免）"
++    );
++    assert_eq!(
++        delta_ids.iter().next().copied().flatten(),
++        Some(turn_id),
++        "两组同值且等于开轮 id"
++    );
++}
++
++#[tokio::test]
++async fn drive两实时出口投递同一轮归属值() {
++    let (sink, _calls) = FakeSink::new();
++    let streams = Arc::new(SessionStreamRegistry::new());
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::clone(&streams),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(16));
++
++    let running = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++    let subscription = streams
++        .subscribe(&running.session_id, 0)
++        .expect("订阅方可接入");
++    runner
++        .feed(vec![
++            run_started_kind("sdk-9-1727000000009"),
++            text_delta_kind("第一片"),
++            message_kind(),
++            turn_done_kind(false),
++        ])
++        .await;
++    runner.close_stream();
++
++    let (observations, _finished, _outcome) = drive_all(running).await;
++    let (streamed, _terminal) = drain_stream(subscription).await;
++
++    assert_eq!(
++        streamed,
++        observations[1..],
++        "注册表发布与输出回调投递同一枚事件（逐字段相等，含 turn_id）"
++    );
++    assert_eq!(
++        observed_turn_ids(&streamed),
++        vec![Some(turn_id); streamed.len()],
++        "订阅端的轮归属与输出回调同源同值"
++    );
++    assert_eq!(
++        observed_turn_ids(&streamed),
++        observed_turn_ids(&observations[1..]),
++        "两出口 turn_id 序列逐条相等"
++    );
++}
++
++#[tokio::test]
++async fn continue续轮两轮轮归属各自恒定且跨轮互异() {
++    let (sink, _calls) = FakeSink::new();
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(16));
++
++    let first = kernel
++        .begin_turn(
++            runner.clone(),
++            request(SessionRef::Continue {
++                id: "ses-exist-1".to_owned(),
++            }),
++        )
++        .expect("首轮 begin 应成功");
++    let first_turn_id = first.turn_id;
++    runner
++        .feed(vec![message_kind(), turn_done_kind(false)])
++        .await;
++    runner.close_stream();
++    let (first_observations, _finished, _outcome) = drive_all(first).await;
++
++    let second = kernel
++        .begin_turn(
++            runner.clone(),
++            request(SessionRef::Continue {
++                id: "ses-exist-1".to_owned(),
++            }),
++        )
++        .expect("次轮 begin 应成功");
++    let second_turn_id = second.turn_id;
++    runner
++        .feed(vec![message_kind(), turn_done_kind(false)])
++        .await;
++    runner.close_stream();
++    let (second_observations, _finished, second_outcome) = drive_all(second).await;
++
++    assert_ne!(first_turn_id, second_turn_id, "续轮轮 id 递增互异");
++    assert_eq!(
++        observed_turn_ids(&first_observations),
++        vec![Some(first_turn_id); 2],
++        "首轮事件轮归属恒定"
++    );
++    assert_eq!(
++        observed_turn_ids(&second_observations),
++        vec![Some(second_turn_id); 2],
++        "次轮事件轮归属为新轮 id（不串轮）"
++    );
++    assert_ne!(
++        first_observations[0].turn_id, second_observations[0].turn_id,
++        "跨轮互不污染"
++    );
++    assert_eq!(second_outcome.turn_id, second_turn_id);
++}
++
++#[tokio::test]
++async fn drive_append失败前已投递观察的轮归属不降级为none() {
++    let (sink, _calls) = FakeSink::new();
++    *sink.append_failures_from.lock().expect("失败锁不可中毒") = Some(1);
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(16));
++
++    let running = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++    runner
++        .feed(vec![text_delta_kind("先到的增量"), message_kind()])
++        .await;
++    runner.close_stream();
++
++    let (observations, finished, outcome) = drive_all(running).await;
++
++    assert_eq!(outcome.status, AgentRunStatus::Failed, "落库失败显式收敛");
++    assert_eq!(observations.len(), 1, "失败前已投递的增量一枚");
++    assert_eq!(
++        observations[0].turn_id,
++        Some(turn_id),
++        "失败路径不把轮归属降级为 None"
++    );
++    assert_eq!(outcome.turn_id, turn_id);
++    let terminal = finished.expect("TurnFinished 尽力流出");
++    assert_eq!(terminal.turn_id, turn_id, "终态轮归属与开轮 id 相等");
++}
++
++#[tokio::test]
++async fn drive_ask送达失败零事件轮不产生补盖戳伪事件() {
++    let (sink, _calls) = FakeSink::new();
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++
++    let running = kernel
++        .begin_turn(Arc::new(AskFailingRunner), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++
++    let (observations, finished, outcome) = drive_all(running).await;
++
++    assert!(
++        observations.is_empty(),
++        "零事件轮零观察（不为轮归属造事件）"
++    );
++    assert_eq!(outcome.status, AgentRunStatus::Failed);
++    assert_eq!(
++        outcome.turn_id, turn_id,
++        "终态仍携开轮 id（轮归属不因零事件丢失）"
++    );
++    assert_eq!(finished.map(|turn| turn.turn_id), Some(turn_id));
++}
++
++#[tokio::test]
++async fn drive空观察流兜底failed不合成事件且终态携开轮id() {
++    let (sink, _calls) = FakeSink::new();
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(4));
++
++    let running = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++    runner.close_stream();
++
++    let (observations, finished, outcome) = drive_all(running).await;
++
++    assert!(observations.is_empty(), "兜底不合成盖戳事件");
++    assert_eq!(outcome.status, AgentRunStatus::Failed);
++    assert_eq!(
++        outcome.error.as_deref(),
++        Some("轮结束但未产出收敛事件"),
++        "兜底记因不变"
++    );
++    assert_eq!(outcome.turn_id, turn_id);
++    assert_eq!(finished.map(|turn| turn.turn_id), Some(turn_id));
++}
++
++/// 轮 id 三形态（含负值与极大值）：`Option<i64>` 不做符号归一 / 不夹取，且不与
++/// seq 混淆。`FakeSink` 是同文件既有装置，`begin_turn` 前预置 `next_turn_id` 即可
++/// 指定 sink 分配值（无需新增公开 API）。
++///
++/// 极大值取 `i64::MAX - 1`：`FakeSink::begin_turn` 分配后执行 `*next += 1`，预置
++/// `i64::MAX` 会在 debug 下溢出 panic（那是装置的自增臂事实，不是被测契约）。
++#[tokio::test]
++async fn drive轮id三形态逐字落盖戳且不与seq混淆() {
++    for expected in [1_i64, -1, i64::MAX - 1] {
++        let (sink, _calls) = FakeSink::new();
++        *sink.next_turn_id.lock().expect("轮 id 锁不可中毒") = expected;
++        let kernel = SessionKernel::new(
++            Arc::new(sink),
++            Arc::new(StopRegistry::new()),
++            Arc::new(SessionStreamRegistry::new()),
++        );
++        let runner = Arc::new(FakeRunner::with_capacity(8));
++
++        let running = kernel
++            .begin_turn(runner.clone(), request(SessionRef::New))
++            .expect("begin 应成功");
++        assert_eq!(running.turn_id, expected, "sink 分配值原样承接");
++        runner
++            .feed(vec![text_delta_kind("片"), message_kind()])
++            .await;
++        runner.close_stream();
++
++        let (observations, _finished, outcome) = drive_all(running).await;
++
++        assert_eq!(
++            observed_turn_ids(&observations),
++            vec![Some(expected), Some(expected)],
++            "流出事件轮归属逐字等于 sink 分配值（轮 id = {expected}）"
++        );
++        assert_eq!(
++            observations
++                .iter()
++                .map(|event| event.seq)
++                .collect::<Vec<_>>(),
++            vec![0, 1],
++            "轮归属与 seq 正交（seq 自基点独立递增）"
++        );
++        assert_eq!(outcome.turn_id, expected);
++    }
++}
++
++#[tokio::test]
++async fn 同会话两轮seq续排且两轮轮归属集合互异() {
++    let (sink, calls) = FakeSink::new();
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(16));
++
++    let first = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("首轮 begin 应成功");
++    let session_id = first.session_id.clone();
++    let first_turn_id = first.turn_id;
++    runner
++        .feed(vec![message_kind(), turn_done_kind(false)])
++        .await;
++    runner.close_stream();
++    let (first_observations, _finished, _outcome) = drive_all(first).await;
++
++    let second = kernel
++        .begin_turn(
++            runner.clone(),
++            request(SessionRef::Continue {
++                id: session_id.clone(),
++            }),
++        )
++        .expect("次轮 begin 应成功");
++    let second_turn_id = second.turn_id;
++    runner
++        .feed(vec![message_kind(), turn_done_kind(false)])
++        .await;
++    runner.close_stream();
++    let (second_observations, _finished, _outcome) = drive_all(second).await;
++
++    // 既有口径：两轮各 2 枚密封，seq 全程续排
++    let appends: Vec<u64> = calls_of(&calls)
++        .iter()
++        .filter_map(|call| match call {
++            SinkCall::AppendSealed { seq, .. } => Some(*seq),
++            _ => None,
++        })
++        .collect();
++    assert_eq!(appends, vec![0, 1, 2, 3], "同会话两轮 seq 全程续排");
++
++    // 轮归属与 seq 空间正交：新字段不进 next_seq、不改打包键
++    let first_ids: std::collections::BTreeSet<Option<i64>> =
++        observed_turn_ids(&first_observations).into_iter().collect();
++    let second_ids: std::collections::BTreeSet<Option<i64>> =
++        observed_turn_ids(&second_observations)
++            .into_iter()
++            .collect();
++    assert_eq!(
++        first_ids,
++        [Some(first_turn_id)]
++            .into_iter()
++            .collect::<std::collections::BTreeSet<_>>()
++    );
++    assert_eq!(
++        second_ids,
++        [Some(second_turn_id)]
++            .into_iter()
++            .collect::<std::collections::BTreeSet<_>>()
++    );
++    assert_ne!(first_ids, second_ids, "两轮轮归属集合互异");
++}
++
++#[tokio::test]
++async fn drive观察洪峰全部事件携本轮轮归属且seq无跳号() {
++    let (sink, _calls) = FakeSink::new();
++    let kernel = SessionKernel::new(
++        Arc::new(sink),
++        Arc::new(StopRegistry::new()),
++        Arc::new(SessionStreamRegistry::new()),
++    );
++    let runner = Arc::new(FakeRunner::with_capacity(8)); // 容量 8 < 洪峰 64
++
++    let running = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++    let feeder_runner = runner.clone();
++    let producer = tokio::spawn(async move {
++        let mut events = Vec::with_capacity(66);
++        for index in 0..64 {
++            events.push(text_delta_kind(&format!("片{index}")));
++        }
++        events.push(message_kind());
++        events.push(turn_done_kind(false));
++        feeder_runner.feed(events).await;
++        feeder_runner.close_stream();
++    });
++
++    let (observations, _finished, outcome) = drive_all(running).await;
++    producer.await.expect("生产任务正常结束");
++
++    assert_eq!(observations.len(), 66, "洪峰全量送达零丢失");
++    assert_eq!(
++        observations
++            .iter()
++            .map(|event| event.seq)
++            .collect::<Vec<_>>(),
++        (0..66).collect::<Vec<u64>>(),
++        "seq 仍 0..66 单调无跳号（背压不丢轮归属值）"
++    );
++    assert_eq!(
++        observed_turn_ids(&observations),
++        vec![Some(turn_id); 66],
++        "背压下轮归属恒为本轮 id"
++    );
++    assert_eq!(outcome.status, AgentRunStatus::Completed);
++}
++
++#[tokio::test]
++async fn drive停止置位收敛零新增事件且既有密封轮归属不变() {
++    let (sink, _calls) = FakeSink::new();
++    let registry = Arc::new(StopRegistry::new());
++    let streams = Arc::new(SessionStreamRegistry::new());
++    let kernel = SessionKernel::new(Arc::new(sink), Arc::clone(&registry), Arc::clone(&streams));
++    let runner = Arc::new(FakeRunner::with_capacity(8));
++
++    let running = kernel
++        .begin_turn(runner.clone(), request(SessionRef::New))
++        .expect("begin 应成功");
++    let turn_id = running.turn_id;
++    let subscription = streams
++        .subscribe(&running.session_id, 0)
++        .expect("订阅方可接入");
++    runner.feed(vec![message_kind(), message_kind()]).await;
++    runner.close_stream();
++    assert!(registry.request_stop(&running.session_id), "停止链置位");
++
++    let (observations, _finished, outcome) = drive_all(running).await;
++    let (streamed, terminal) = drain_stream(subscription).await;
++
++    assert_eq!(outcome.status, AgentRunStatus::Stopped, "停止收敛 stopped");
++    assert_eq!(observations.len(), 2, "收敛路径零新增事件");
++    assert_eq!(
++        observed_turn_ids(&observations),
++        vec![Some(turn_id); 2],
++        "置位前流出的密封事件轮归属不变"
++    );
++    // 订阅端 since_seq=0 只投严格更大者（seq 0 由重放装载覆盖）
++    assert_eq!(
++        streamed.len(),
++        1,
++        "订阅端只余 seq 1 一条（stopped 不合成事件）"
++    );
++    assert_eq!(streamed[0].turn_id, Some(turn_id), "订阅端轮归属同值");
++    assert_eq!(terminal.turn_id, turn_id, "终态携开轮 id");
++    assert_eq!(terminal.error, None, "用户主动终止不记因");
++}
+diff --git a/crates/core/agent/src/lib_test.rs b/crates/core/agent/src/lib_test.rs
+index 75ac32e2350f..1bf410def81d 100644
+--- a/crates/core/agent/src/lib_test.rs
++++ b/crates/core/agent/src/lib_test.rs
+@@ -123,6 +123,7 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
+ 
+     // 事件词汇与状态机形态
+     let event = AgentEvent::stamp(
++        None,
+         0,
+         AgentEventKind::MessageDelta {
+             parent_tool_use_id: None,
+@@ -269,6 +270,7 @@ fn crate根路径sum_usage_tokens可达与签名锚定() {
+ 
+     // 单值转录：根路径调用语义与 usage_test 全量面同源
+     let events = vec![AgentEvent::stamp(
++        None,
+         0,
+         AgentEventKind::TurnDone {
+             subtype: String::new(),
+@@ -289,6 +291,7 @@ fn crate根路径sum_usage_tokens可达与签名锚定() {
+ fn crate根路径sum_usage_tokens缺席key与重复调用稳定() {
+     let root_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
+     let events = vec![AgentEvent::stamp(
++        None,
+         0,
+         AgentEventKind::TurnDone {
+             subtype: String::new(),
+@@ -429,6 +432,7 @@ async fn crate根路径会话流注册表全链路可用() {
+     registry.publish(
+         "ses-root",
+         AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::MessageDelta {
+                 parent_tool_use_id: None,
+diff --git a/crates/core/agent/src/port_test.rs b/crates/core/agent/src/port_test.rs
+index df3d6960d34e..d63e90692f06 100644
+--- a/crates/core/agent/src/port_test.rs
++++ b/crates/core/agent/src/port_test.rs
+@@ -171,6 +171,7 @@ fn new_session_row() -> NewSessionRow {
+ 
+ fn sealed_event(seq: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::Message {
+             role: AgentMessageRole::Assistant,
+diff --git a/crates/core/agent/src/state_test.rs b/crates/core/agent/src/state_test.rs
+index 46fd8f9b9fd5..49c0635f9ec7 100644
+--- a/crates/core/agent/src/state_test.rs
++++ b/crates/core/agent/src/state_test.rs
+@@ -3,7 +3,7 @@ use crate::state::{AgentRunState, RunStateMachine};
+ 
+ /// 构造一枚事件（不盖真实时钟也行——状态机只读 kind，stamp 即可）。
+ fn event(seq: u64, kind: AgentEventKind) -> AgentEvent {
+-    AgentEvent::stamp(seq, kind)
++    AgentEvent::stamp(None, seq, kind)
+ }
+ 
+ fn run_started(seq: u64) -> AgentEvent {
+diff --git a/crates/core/agent/src/stream_test.rs b/crates/core/agent/src/stream_test.rs
+index a6d077f27110..5998f9c0bb28 100644
+--- a/crates/core/agent/src/stream_test.rs
++++ b/crates/core/agent/src/stream_test.rs
+@@ -34,6 +34,7 @@ fn outcome(status: AgentRunStatus) -> TurnOutcome {
+ 
+ fn sealed_event(seq: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::Message {
+             role: AgentMessageRole::Assistant,
+@@ -45,6 +46,7 @@ fn sealed_event(seq: u64) -> AgentEvent {
+ 
+ fn delta_event(seq: u64, text: &str) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::MessageDelta {
+             parent_tool_use_id: None,
+@@ -235,6 +237,7 @@ async fn publish连续事件按序投递_seq严格递增且载荷逐字相等()
+     let delta = delta_event(1, "第一片 🎉");
+     let sealed = sealed_event(2);
+     let notice = AgentEvent::stamp(
++        None,
+         3,
+         AgentEventKind::SystemNotice {
+             subtype: "api_retry".to_owned(),
+diff --git a/crates/core/agent/src/usage_test.rs b/crates/core/agent/src/usage_test.rs
+index bedd21089ef8..7da46c4949f8 100644
+--- a/crates/core/agent/src/usage_test.rs
++++ b/crates/core/agent/src/usage_test.rs
+@@ -4,7 +4,7 @@
+ //! u64 饱和 / 超大转录 / 类型漂移 / 干扰事件 / 两键对照。
+ //!
+ //! Mock策略（test-design 本节 Mock 表）：零 mock——纯函数直测，`AgentEvent`
+-//! 字面量直构（`AgentEvent::stamp(seq, AgentEventKind::TurnDone { usage, .. })`，
++//! 字面量直构（`AgentEvent::stamp(None, seq, AgentEventKind::TurnDone { usage, .. })`，
+ //! 非 TurnDone 变体同式构造）。
+ //!
+ //! AC 锚注记：本函数自 infra/store 上移（desktop-step-running-snapshot D3 /
+@@ -21,6 +21,7 @@ use crate::usage::sum_usage_tokens;
+ /// `stamp` 取当前时钟，不参与等值断言）。
+ fn turn_done(seq: u64, usage: Value) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::TurnDone {
+             subtype: "success".to_owned(),
+@@ -163,6 +164,7 @@ fn 值类型漂移该事件不计入不panic() {
+ fn 非turndone事件全部跳过仅turndone参与求和() {
+     let noise = vec![
+         AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::RunStarted {
+                 model: Some("claude-opus".to_owned()),
+@@ -172,6 +174,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::MessageDelta {
+                 parent_tool_use_id: None,
+@@ -181,6 +184,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             2,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+@@ -192,6 +196,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             3,
+             AgentEventKind::SystemNotice {
+                 subtype: "api_retry".to_owned(),
+@@ -199,6 +204,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             4,
+             AgentEventKind::Raw {
+                 event_type: "mystery".to_owned(),
+diff --git a/crates/core/orchestration/src/control_test.rs b/crates/core/orchestration/src/control_test.rs
+index 8c5ed7fd5b7b..49aa6f798c09 100644
+--- a/crates/core/orchestration/src/control_test.rs
++++ b/crates/core/orchestration/src/control_test.rs
+@@ -77,6 +77,7 @@ fn session_event(session_id: &str, seq: u64) -> RunUpdate {
+     RunUpdate::SessionEvent {
+         session_id: session_id.to_owned(),
+         event: agent::AgentEvent {
++            turn_id: None,
+             seq,
+             timestamp_ms: 1_726_000_000_000,
+             kind: agent::AgentEventKind::Raw {
+@@ -558,6 +559,7 @@ async fn publish快照面状态机镜像() {
+     guard.emit(RunUpdate::SessionEvent {
+         session_id: "sess-1".to_owned(),
+         event: agent::AgentEvent {
++            turn_id: None,
+             seq: 0,
+             timestamp_ms: 1_726_000_000_000,
+             kind: agent::AgentEventKind::Raw {
+@@ -866,6 +868,7 @@ async fn publish_session_event已挂载节点零快照面突变_广播notice() {
+     guard.emit(RunUpdate::SessionEvent {
+         session_id: "sess-1".to_owned(),
+         event: agent::AgentEvent {
++            turn_id: None,
+             seq: 0,
+             timestamp_ms: 1_726_000_000_000,
+             kind: agent::AgentEventKind::Raw {
+diff --git a/crates/core/orchestration/src/state_test.rs b/crates/core/orchestration/src/state_test.rs
+index 3332c8b93253..704a71e7ad6f 100644
+--- a/crates/core/orchestration/src/state_test.rs
++++ b/crates/core/orchestration/src/state_test.rs
+@@ -24,6 +24,7 @@ use crate::state::{
+ /// kind / seq 为准，时间戳不参与等值断言）。
+ fn sealed_event(seq: u64) -> agent::AgentEvent {
+     agent::AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::Message {
+             role: AgentMessageRole::Assistant,
+diff --git a/crates/core/orchestration/src/transcript_test.rs b/crates/core/orchestration/src/transcript_test.rs
+index 120a132f8d12..7b3c8dd8b884 100644
+--- a/crates/core/orchestration/src/transcript_test.rs
++++ b/crates/core/orchestration/src/transcript_test.rs
+@@ -13,6 +13,7 @@ use crate::transcript::{failure_reason, final_assistant_text};
+ 
+ fn message(seq: u64, role: AgentMessageRole, blocks: Vec<AgentBlock>) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::Message {
+             role,
+@@ -24,6 +25,7 @@ fn message(seq: u64, role: AgentMessageRole, blocks: Vec<AgentBlock>) -> AgentEv
+ 
+ fn notice(seq: u64, subtype: &str, payload: serde_json::Value) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::SystemNotice {
+             subtype: subtype.to_owned(),
+@@ -34,6 +36,7 @@ fn notice(seq: u64, subtype: &str, payload: serde_json::Value) -> AgentEvent {
+ 
+ fn turn_done(seq: u64, subtype: &str, is_error: bool) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::TurnDone {
+             subtype: subtype.to_owned(),
+diff --git a/crates/core/orchestration/src/walker_test.rs b/crates/core/orchestration/src/walker_test.rs
+index f46e13dc5b03..80fb9bed795f 100644
+--- a/crates/core/orchestration/src/walker_test.rs
++++ b/crates/core/orchestration/src/walker_test.rs
+@@ -463,7 +463,7 @@ impl WorkerAgentPort for FakeWorker {
+                 kinds
+                     .into_iter()
+                     .enumerate()
+-                    .map(|(seq, kind)| agent::AgentEvent::stamp(seq as u64, kind))
++                    .map(|(seq, kind)| agent::AgentEvent::stamp(None, seq as u64, kind))
+                     .collect()
+             });
+             // executor 失败注入：Failed 收敛 + 携成因的密封转录（真实引擎
+@@ -478,6 +478,7 @@ impl WorkerAgentPort for FakeWorker {
+                         let subtype = match cause {
+                             Some(cause) => {
+                                 transcript.push(agent::AgentEvent::stamp(
++                                    None,
+                                     0,
+                                     agent::AgentEventKind::SystemNotice {
+                                         subtype: "api_error".to_owned(),
+@@ -489,6 +490,7 @@ impl WorkerAgentPort for FakeWorker {
+                             None => "",
+                         };
+                         transcript.push(agent::AgentEvent::stamp(
++                            None,
+                             1,
+                             agent::AgentEventKind::TurnDone {
+                                 subtype: subtype.to_owned(),
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index d7b3222b039e..5a4fff6a143e 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -185,6 +185,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
+     use agent::{AgentBlock, AgentEvent, AgentEventKind};
+     let transcript = vec![
+         AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::User,
+@@ -196,6 +197,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+@@ -2070,6 +2072,20 @@ impl WatchProbe {
+             .filter(|update| matches!(update, RunUpdate::SessionEvent { .. }))
+             .count()
+     }
++
++    /// 只读快照：`RunUpdate::SessionEvent` 出口捕获的事件（按投递序）。
++    fn session_events(&self) -> Vec<agent::AgentEvent> {
++        self.sink
++            .updates
++            .lock()
++            .expect("事件捕获锁不可中毒")
++            .iter()
++            .filter_map(|update| match update {
++                RunUpdate::SessionEvent { event, .. } => Some(event.clone()),
++                _ => None,
++            })
++            .collect()
++    }
+ }
+ 
+ /// change 轨轮请求 fixture（sourceRef 按 `<change>/<phase>/<role>/<attempt>`）。
+@@ -2183,7 +2199,8 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与
+ }
+ 
+ /// change 轨形态（`KernelWorkerPort::run` 零改动）：同一 `streams` 上该会话条目
+-/// 可被订阅并收 `Finished`；`RunUpdate::SessionEvent` 出口照常（两出口同源）。
++/// 可被订阅并收 `Finished`；`RunUpdate::SessionEvent` 出口照常（两出口同源），
++/// 且两出口的事件逐条轮归属相等（跨层同值，见 design D3 的同一枚 `event.clone()`）。
+ #[tokio::test(start_paused = true)]
+ async fn change轨真实驱动_同一streams收终态且run_update出口照常() {
+     let env = DualEnv::new("streams-change-drive");
+@@ -2213,7 +2230,7 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
+     let subscription = probe
+         .take_subscription()
+         .expect("首个会话事件时已完成订阅（begin 先于驱动）");
+-    let (_events, terminal) = drain_stream(subscription).await;
++    let (events, terminal) = drain_stream(subscription).await;
+ 
+     assert_eq!(
+         terminal.status,
+@@ -2226,6 +2243,41 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
+         probe.session_event_count() > 0,
+         "RunUpdate::SessionEvent 出口照常（两出口同源）"
+     );
++
++    // 跨层轮归属：RunUpdate 出口与订阅流投递同一枚事件（内核盖戳单点），
++    // 故两出口的事件逐条 `turn_id` 相等，且全部等于终态轮 id。
++    let emitted_all = probe.session_events();
++    let emitted: Vec<Option<i64>> = emitted_all.iter().map(|event| event.turn_id).collect();
++    let streamed: Vec<Option<i64>> = events.iter().map(|event| event.turn_id).collect();
++
++    assert!(
++        emitted
++            .iter()
++            .all(|turn_id| *turn_id == Some(terminal.turn_id)),
++        "RunUpdate 出口的事件全部携终态轮 id，实际: {emitted:?}"
++    );
++    assert!(
++        !streamed.is_empty(),
++        "订阅流在首枚 SessionEvent 之后仍收到实时事件（fail-fast 前已有事件流出）"
++    );
++    assert_eq!(
++        emitted.len(),
++        streamed.len() + 1,
++        "订阅在首枚 SessionEvent 广播后才建立，恰漏首枚（订阅端从次枚起同源），条数: RunUpdate={} 订阅流={}",
++        emitted.len(),
++        streamed.len()
++    );
++    assert_eq!(
++        events.as_slice(),
++        &emitted_all[emitted_all.len() - events.len()..],
++        "两实时出口投递同一枚事件（逐字段相等，含 turn_id；跨层同源同值）"
++    );
++    assert!(
++        streamed
++            .iter()
++            .all(|turn_id| *turn_id == Some(terminal.turn_id)),
++        "订阅流的事件全部携终态轮 id，实际: {streamed:?}"
++    );
+     assert!(
+         streams.subscribe(&outcome.session_id, 0).is_none(),
+         "驱动结束条目除名"
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index 9b7bc9837839..95cd1699f476 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -925,6 +925,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
+     use agent::{AgentBlock, AgentEvent};
+     let transcript = vec![
+         AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::User,
+@@ -936,6 +937,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+diff --git a/crates/infra/agent/src/sdk/resume_test.rs b/crates/infra/agent/src/sdk/resume_test.rs
+index 54215f702469..a99fdc432b68 100644
+--- a/crates/infra/agent/src/sdk/resume_test.rs
++++ b/crates/infra/agent/src/sdk/resume_test.rs
+@@ -9,7 +9,7 @@ use crate::sdk::resume::rebuild;
+ // ---------------------------------------------------------------------------
+ 
+ fn event(seq: u64, kind: AgentEventKind) -> AgentEvent {
+-    AgentEvent::stamp(seq, kind)
++    AgentEvent::stamp(None, seq, kind)
+ }
+ 
+ fn user_text(seq: u64, text: &str) -> AgentEvent {
+diff --git a/crates/infra/agent/src/sdk/runner_test.rs b/crates/infra/agent/src/sdk/runner_test.rs
+index c7ed2ddab5a2..b1a092164da2 100644
+--- a/crates/infra/agent/src/sdk/runner_test.rs
++++ b/crates/infra/agent/src/sdk/runner_test.rs
+@@ -89,6 +89,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
+     use agent::{AgentEvent, AgentEventKind};
+     vec![
+         AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::User,
+@@ -100,6 +101,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+@@ -120,6 +122,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
+     use agent::{AgentEvent, AgentEventKind};
+     vec![
+         AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::User,
+@@ -131,6 +134,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+@@ -143,6 +147,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             2,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Tool,
+@@ -155,6 +160,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
+             },
+         ),
+         AgentEvent::stamp(
++            None,
+             3,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::User,
+diff --git a/crates/infra/agent/src/store_port_test.rs b/crates/infra/agent/src/store_port_test.rs
+index c355c6a4f317..ced252666639 100644
+--- a/crates/infra/agent/src/store_port_test.rs
++++ b/crates/infra/agent/src/store_port_test.rs
+@@ -64,7 +64,7 @@ fn new_row(id: &str, source: &str, source_ref: Option<&str>) -> NewSessionRow {
+ }
+ 
+ fn sealed(seq: u64, kind: AgentEventKind) -> AgentEvent {
+-    AgentEvent::stamp(seq, kind)
++    AgentEvent::stamp(None, seq, kind)
+ }
+ 
+ fn message_kind() -> AgentEventKind {
+@@ -77,6 +77,7 @@ fn message_kind() -> AgentEventKind {
+ 
+ fn turn_done(seq: u64, input_tokens: u64, duration_ms: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::TurnDone {
+             subtype: "success".to_owned(),
+@@ -92,6 +93,7 @@ fn turn_done(seq: u64, input_tokens: u64, duration_ms: u64) -> AgentEvent {
+ 
+ fn delta(seq: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::MessageDelta {
+             parent_tool_use_id: None,
+diff --git a/crates/infra/agent/src/worker_test.rs b/crates/infra/agent/src/worker_test.rs
+index 4a35db47cd39..91173b381e24 100644
+--- a/crates/infra/agent/src/worker_test.rs
++++ b/crates/infra/agent/src/worker_test.rs
+@@ -236,6 +236,7 @@ fn seed_sdk_session(store: &store::Store, id: &str, source_ref: Option<&str>) {
+ fn seed_transcript(store: &store::Store, session_id: &str) {
+     let transcript = vec![
+         agent::AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::User,
+@@ -247,6 +248,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
+             },
+         ),
+         agent::AgentEvent::stamp(
++            None,
+             1,
+             AgentEventKind::Message {
+                 role: AgentMessageRole::Assistant,
+diff --git a/crates/infra/store/src/envelope_test.rs b/crates/infra/store/src/envelope_test.rs
+index fc852ec146f0..5d422d78630f 100644
+--- a/crates/infra/store/src/envelope_test.rs
++++ b/crates/infra/store/src/envelope_test.rs
+@@ -78,6 +78,7 @@ fn seed_session(store: &Store, id: &str) -> String {
+ 
+ fn append_raw(store: &Store, session_id: &str, seq: u64) {
+     let event = AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::Raw {
+             event_type: "mystery".to_owned(),
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index 6d8919073fd2..e81cce6c7dad 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -20,6 +20,7 @@ use crate::store::Store;
+ 
+ fn event(seq: u64, kind: AgentEventKind) -> AgentEvent {
+     AgentEvent {
++        turn_id: None,
+         seq,
+         timestamp_ms: 1727000000000 + seq as i64,
+         kind,
+@@ -4364,3 +4365,360 @@ fn 含web_search块的session_event_record往返保真且无schema版本升级()
+             .expect("旧 JSON 可读");
+     assert!(matches!(&legacy_text, AgentBlock::Text { citations, .. } if citations.is_none()));
+ }
++
++// ---------------------------------------------------------------------------
++// 信封新增字段的零迁移口径（agent-event-turn-id）
++//
++// `model.rs` 与 `store.rs` 零改动（design D6）：本组用例是「零改动仍然成立」的
++// 回归判据——新字段随载荷自然落键（`turnId`）、旧行缺键读出 `None`、**记录层**
++// decode→encode 逐字节不变（缺键不被补成显式 `"turnId":null`），且字段面 / 版本
++// 头 / 打包键零变化（AC-5 / AC-6）。
++//
++// 两层不可混：记录层（`Box<RawValue>` 原文，字节判等）与类型层（`AgentEvent`
++// 往返，缺键补默认值）是同一机制的两个层级——D6 明令 MUST NOT 读出类型后重写
++// 存量行，故两条路径的字节形态差异本身即是判据。
++// ---------------------------------------------------------------------------
++
++/// 指定轮归属的事件（新写入行形态）。
++fn turn_event(seq: u64, turn_id: Option<i64>, kind: AgentEventKind) -> AgentEvent {
++    let mut event = AgentEvent::stamp(turn_id, seq, kind);
++    // 固定时间戳：等值断言与钟面无关（沿既有 `event()` 装置口径）
++    event.timestamp_ms = 1727000000000 + seq as i64;
++    event
++}
++
++/// 六变体各一枚（含永不由 `append_session_events` 写入的 `MessageDelta`——
++/// `new()` 不看 `kind`，记录层零业务判别）。
++fn six_variant_kinds() -> Vec<AgentEventKind> {
++    vec![
++        run_started(0).kind,
++        AgentEventKind::MessageDelta {
++            parent_tool_use_id: Some("tu-1".to_owned()),
++            delta: agent::AgentDelta::Text {
++                text: "增量".to_owned(),
++            },
++        },
++        message(2).kind,
++        system_notice(3).kind,
++        turn_done(4).kind,
++        raw(5).kind,
++    ]
++}
++
++/// 存量载荷形态：当前线格式删去 `turnId` 键后的原文（旧行无该键）。
++fn legacy_payload(event: &AgentEvent) -> String {
++    let mut value = serde_json::to_value(event).expect("序列化应成功");
++    assert!(
++        value
++            .as_object_mut()
++            .expect("顶层为对象")
++            .remove("turnId")
++            .is_some(),
++        "前置：当前线格式含 turnId 键"
++    );
++    serde_json::to_string(&value).expect("序列化应成功")
++}
++
++/// 以原文直构记录（绕过 `new()` 的类型化序列化，模拟存量行）。
++fn legacy_record(session_id: &str, event_key_seq: u64, payload: &str) -> SessionEventRecord {
++    SessionEventRecord {
++        event_key: pack_session_event_key(session_id, event_key_seq),
++        session_id: session_id.to_owned(),
++        event: serde_json::value::RawValue::from_string(payload.to_owned())
++            .expect("原文为合法 JSON"),
++    }
++}
++
++#[test]
++fn 新行载荷原文含turn_id键且打包键字段零变化() {
++    let record = SessionEventRecord::new("ses-turn", turn_event(5, Some(7), message(5).kind));
++
++    let payload: serde_json::Value =
++        serde_json::from_str(record.event.get()).expect("载荷原文可解析");
++    assert_eq!(payload["turnId"], serde_json::json!(7), "新字段随载荷落键");
++    assert_eq!(
++        record.event_key,
++        pack_session_event_key("ses-turn", 5),
++        "event_key 仍打包自 (hash64(session_id), seq)——新字段不进键"
++    );
++    assert_eq!(record.seq(), 5);
++    assert_eq!(record.session_id(), "ses-turn");
++}
++
++#[test]
++fn 新行经native_model往返逐字段保真且轮归属回读相等() {
++    let record = SessionEventRecord::new("ses-turn", turn_event(5, Some(7), message(5).kind));
++
++    let decoded = roundtrip(&record);
++
++    assert_eq!(decoded, record, "记录层往返相等（版本头恒 1）");
++    let event = decoded.event().expect("载荷原文可解析为 AgentEvent");
++    assert_eq!(event.turn_id, Some(7), "轮归属回读相等");
++    assert_eq!(
++        event,
++        turn_event(5, Some(7), message(5).kind),
++        "整条事件逐字段等于写入值（AC-6 新行往返保真）"
++    );
++}
++
++#[test]
++fn 记录构造对六变体零业务判别且轮归属逐字相等() {
++    for kind in six_variant_kinds() {
++        let original = turn_event(3, Some(7), kind);
++        let record = SessionEventRecord::new("ses-six", original.clone());
++
++        let payload: serde_json::Value =
++            serde_json::from_str(record.event.get()).expect("载荷原文可解析");
++        assert_eq!(
++            payload["turnId"],
++            serde_json::json!(7),
++            "变体 {:?} 的轮归属逐字落键",
++            original.kind
++        );
++        assert_eq!(
++            record.event().expect("类型化视图可解析").turn_id,
++            Some(7),
++            "new() 不看 kind，六变体一律回读"
++        );
++    }
++}
++
++#[test]
++fn 轮归属四形态落库回读逐字相等不截断不改符号() {
++    for turn_id in [Some(0_i64), Some(-1), Some(i64::MIN), Some(i64::MAX)] {
++        let original = turn_event(1, turn_id, message(1).kind);
++        let record = SessionEventRecord::new("ses-extremes", original.clone());
++
++        let decoded = roundtrip(&record);
++        let event = decoded.event().expect("载荷原文可解析");
++        assert_eq!(event.turn_id, turn_id, "轮归属回读逐字相等: {turn_id:?}");
++
++        let payload: serde_json::Value =
++            serde_json::from_str(record.event.get()).expect("载荷原文可解析");
++        assert_eq!(
++            payload["turnId"],
++            serde_json::to_value(turn_id).expect("Option<i64> 可 JSON 化"),
++            "载荷原文数字不截断、不改符号: {turn_id:?}"
++        );
++    }
++}
++
++#[test]
++fn 轮归属none落库时载荷原文仍留显式null键() {
++    let record = SessionEventRecord::new("ses-none", turn_event(0, None, message(0).kind));
++
++    let payload: serde_json::Value = serde_json::from_str(record.event.get()).expect("可解析");
++    let object = payload.as_object().expect("顶层为对象");
++    assert!(
++        object.contains_key("turnId"),
++        "键恒在纪律在落库原文层同样成立（不因存储面省略键），实际: {object:?}"
++    );
++    assert_eq!(payload["turnId"], serde_json::Value::Null);
++    assert_eq!(
++        record.event().expect("类型化视图可解析").turn_id,
++        None,
++        "null 回读为 None"
++    );
++}
++
++#[test]
++fn 旧行缺turn_id键经类型化视图读出none其余字段逐字不变() {
++    for kind in six_variant_kinds() {
++        let current = turn_event(2, Some(7), kind);
++        let payload = legacy_payload(&current);
++        let record = legacy_record("ses-legacy-turn", 2, &payload);
++
++        let event = record
++            .event()
++            .expect("旧行必须可读（缺键不使整条事件解码失败）");
++        assert_eq!(event.turn_id, None, "缺键读出 None");
++        assert_eq!(event.seq, current.seq, "seq 逐字段不变");
++        assert_eq!(event.timestamp_ms, current.timestamp_ms, "时间戳逐字段不变");
++        assert_eq!(event.kind, current.kind, "kind 与变体字段逐字段不变");
++        assert!(
++            !payload.contains("turnId"),
++            "前置：旧行原文不含 turnId 键，实际: {payload}"
++        );
++    }
++}
++
++#[test]
++fn 旧行非法turn_id形态经类型化视图返回err() {
++    let base = legacy_payload(&turn_event(0, None, message(0).kind));
++    for invalid in ["\"x\"", "7.5", "[7]"] {
++        let payload = base.replacen('{', &format!("{{\"turnId\":{invalid},"), 1);
++        let record = legacy_record("ses-bad-turn", 0, &payload);
++
++        assert!(
++            record.event().is_err(),
++            "非法 turnId 原文 {invalid} 必须 Err（default 只放行缺键、不吞类型错）"
++        );
++    }
++    // 对照组：缺键可读
++    assert!(legacy_record("ses-bad-turn", 0, &base).event().is_ok());
++}
++
++#[test]
++fn 载荷原文为非对象合法json时类型化视图返回err() {
++    for payload in ["null", "[]", "42"] {
++        let record = legacy_record("ses-non-object", 0, payload);
++        assert!(
++            record.event().is_err(),
++            "非对象原文 {payload} 必须 Err（新字段不改变既有错误面）"
++        );
++    }
++}
++
++#[test]
++fn 旧行记录层解码重编码逐字节不变且原文不含turn_id() {
++    let payload = legacy_payload(&turn_event(0, Some(7), message(0).kind));
++    let record = legacy_record("ses-bytes", 0, &payload);
++
++    let encoded = native_model::encode(&record).expect("encode 应成功");
++    let (decoded, version) =
++        native_model::decode::<SessionEventRecord>(encoded.clone()).expect("decode 应成功");
++    assert_eq!(version, 1);
++    assert_eq!(
++        native_model::encode(&decoded).expect("reencode 应成功"),
++        encoded,
++        "旧行解码重编码逐字节不变（缺键不得被补成显式 turnId:null）"
++    );
++    assert!(
++        !decoded.event.get().contains("turnId"),
++        "重编码文本不含 turnId（缺键未被补默认值），实际: {}",
++        decoded.event.get()
++    );
++}
++
++#[test]
++fn 类型层补默认值与记录层字节面不可混() {
++    let payload = legacy_payload(&turn_event(0, Some(7), message(0).kind));
++    let record = legacy_record("ses-layers", 0, &payload);
++
++    let event = record.event().expect("类型化视图可解析");
++    let retyped = serde_json::to_string(&event).expect("序列化应成功");
++
++    assert_ne!(
++        retyped, payload,
++        "类型层往返会落出显式 turnId:null（MUST NOT 读出 AgentEvent 后重写存量行）"
++    );
++    assert!(retyped.contains("\"turnId\":null"), "差异键即 turnId");
++    assert_eq!(
++        record.event.get(),
++        payload,
++        "记录层原文保持未动（两条路径不互相污染）"
++    );
++}
++
++#[test]
++fn 旧行可被native_db删除_严格字节判等不误报() {
++    let payload = legacy_payload(&turn_event(1, None, message(1).kind));
++    let record = legacy_record("ses-turn-remove", 1, &payload);
++
++    let mut models = native_db::Models::new();
++    models
++        .define::<SessionEventRecord>()
++        .expect("定义 SessionEventRecord");
++    let db = native_db::Builder::new()
++        .create_in_memory(&models)
++        .expect("建内存库");
++    let rw = db.rw_transaction().expect("写事务");
++    rw.insert(record.clone()).expect("落旧行");
++    rw.commit().expect("提交");
++
++    let r = db.r_transaction().expect("读事务");
++    let scanned: Vec<SessionEventRecord> = r
++        .scan()
++        .primary::<SessionEventRecord>()
++        .expect("扫描")
++        .all()
++        .expect("迭代")
++        .collect::<Result<Vec<_>, _>>()
++        .expect("收集");
++    drop(r);
++    assert_eq!(scanned, vec![record], "旧行原样读出（新字段不参与键）");
++    assert_eq!(
++        scanned[0].event().expect("类型化视图可解析").turn_id,
++        None,
++        "库里旧行回读仍为 None"
++    );
++
++    let rw = db.rw_transaction().expect("写事务");
++    rw.remove(scanned[0].clone())
++        .expect("旧行可删（严格字节判等不误报 IncorrectInputData）");
++    rw.commit().expect("提交");
++}
++
++#[test]
++fn 模型元数据与字段面零变化_无新列() {
++    assert_eq!(
++        <SessionEventRecord as native_model::Model>::native_model_id(),
++        8,
++        "native_model id 不变"
++    );
++    assert_eq!(
++        <SessionEventRecord as native_model::Model>::native_model_version(),
++        1,
++        "版本头不变（零迁移：新字段只在 JSON 载荷内，不进 bincode 结构）"
++    );
++
++    // 字段面判据：serde 线格式顶层键恰三枚（无新列）
++    let record = SessionEventRecord::new("ses-face", turn_event(0, Some(7), message(0).kind));
++    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
++    let mut keys: Vec<&str> = value
++        .as_object()
++        .expect("顶层为对象")
++        .keys()
++        .map(String::as_str)
++        .collect();
++    keys.sort_unstable();
++    assert_eq!(
++        keys,
++        vec!["event", "eventKey", "sessionId"],
++        "SessionEventRecord 字段面仍为三列（新字段只随 event 载荷透出）"
++    );
++}
++
++#[test]
++fn 新旧行混存同一会话按seq升序返回且各自轮归属两形态共存() {
++    // 预置库：直写旧行（无 turnId）+ 当前格式标记，随后经 Store 追加新行
++    let db_dir = tempfile::Builder::new()
++        .prefix("store-test-turn-id-mixed-")
++        .tempdir()
++        .expect("创建临时目录失败");
++    let path = db_dir.path().join("ws.redb");
++    let legacy_payload_text = legacy_payload(&turn_event(0, Some(7), message(0).kind));
++    let legacy = legacy_record("ses-mixed", 0, &legacy_payload_text);
++    {
++        let db = native_db::Builder::new()
++            .create(crate::store::workspace_models(), &path)
++            .expect("预置库失败");
++        let rw = db.rw_transaction().expect("开启写事务失败");
++        rw.insert(legacy.clone()).expect("写入旧行失败");
++        rw.insert(crate::model::StoreMetaRecord {
++            key: crate::model::WORKSPACE_STORE_FORMAT_KEY.to_owned(),
++            format_version: crate::model::WORKSPACE_STORE_FORMAT_VERSION,
++        })
++        .expect("写入格式标记失败");
++        rw.commit().expect("提交预置事务失败");
++    }
++
++    let store = Store::open_workspace(&path).expect("打开 workspace 库应成功");
++    let fresh = turn_event(1, Some(7), turn_done(1).kind);
++    store
++        .append_session_events("ses-mixed", std::slice::from_ref(&fresh))
++        .expect("追加新行应成功");
++
++    let replayed = store
++        .list_session_events("ses-mixed")
++        .expect("转录重放应成功");
++    assert_eq!(replayed.len(), 2, "新旧行共存于同一转录");
++    assert_eq!(
++        replayed.iter().map(|event| event.seq).collect::<Vec<_>>(),
++        vec![0, 1],
++        "排序仍按 (session_id, seq)——新字段不进键"
++    );
++    assert_eq!(replayed[0].turn_id, None, "旧行读出 None");
++    assert_eq!(replayed[1].turn_id, Some(7), "新行读出轮归属");
++    assert_eq!(replayed[1], fresh, "新行逐字段等于写入值");
++}
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index 750d83786c7b..95cf66d59b30 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -1991,7 +1991,7 @@ fn native格式已有库重开直通此前写入的会话与转录完整读回()
+ 
+ /// 以指定 kind 构造盖戳事件（seq 由调用方给定，时间戳取当前钟面）。
+ fn stamped(seq: u64, kind: AgentEventKind) -> AgentEvent {
+-    AgentEvent::stamp(seq, kind)
++    AgentEvent::stamp(None, seq, kind)
+ }
+ 
+ fn run_started_kind() -> AgentEventKind {
+diff --git a/src/bindings/mod_test.rs b/src/bindings/mod_test.rs
+index 04ea0805faf4..e312b71e67e3 100644
+--- a/src/bindings/mod_test.rs
++++ b/src/bindings/mod_test.rs
+@@ -2607,3 +2607,374 @@ fn 登记面_三命令清单与产物一一对应() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 事件信封新增可选键出线（agent-event-turn-id）：`bindings.ts` 的
++// `turnId?: number | null` 摊平在 envelope 段内（D2 字段序 + D7 出线形态），
++// `bindings.zod.ts` 的基座判型 + 六变体放行由既有 `allowed_object_keys` 机制
++// 自动补齐。产物 MUST NOT 手改——本节全部断言只读权威快照（重导出后读盘）。
++// ---------------------------------------------------------------------------
++
++/// `AgentEvent` 摊平段内的轮归属字段行（可空可选形态，字面量单点）。
++const TURN_ID_TS_FIELD: &str = "turnId?: number | null,";
++
++/// zod 基座段的判型行（`z.number().nullable().optional()`）。
++const TURN_ID_ZOD_BASE: &str = "get turnId() { return z.number().nullable().optional(); },";
++
++/// zod 六变体逐一的放行行（与 `seq` / `timestampMs` 同式）。
++const TURN_ID_ZOD_VARIANT: &str = "turnId: z.unknown().optional(),";
++
++/// `AgentEvent` 的 zod 基座段（`z.strictObject({` 之后、`.and(z.union([` 之前）。
++fn zod_agent_event_base_section(zod: &str) -> &str {
++    let start = zod
++        .find("export const AgentEventSchema = z.strictObject({")
++        .expect("zod 产物缺 AgentEventSchema 基座声明")
++        + "export const AgentEventSchema = z.strictObject({".len();
++    let end = zod[start..]
++        .find("}).and(z.union([")
++        .map_or(zod.len(), |offset| start + offset);
++    &zod[start..end]
++}
++
++/// `AgentEvent` 的 zod 变体段（`.and(z.union([` 之后至该声明收尾）。
++fn zod_agent_event_variant_section(zod: &str) -> &str {
++    let start = zod
++        .find("export const AgentEventSchema = z.strictObject({")
++        .expect("zod 产物缺 AgentEventSchema 声明");
++    let end = zod[start..]
++        .find("export const AgentEventKindSchema")
++        .map_or(zod.len(), |offset| start + offset);
++    &zod[start..end]
++}
++
++#[test]
++fn agent_event出线含可选turn_id且字段序先于seq() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    let section = type_section(&content, "AgentEvent");
++    assert!(
++        section.contains(TURN_ID_TS_FIELD),
++        "AgentEvent 摊平段缺可选轮归属字段 {TURN_ID_TS_FIELD}，实际段:\n{section}"
++    );
++    // 字段声明序由 Rust 结构体字段序确定性派生（非 serde_json 运行期键序）
++    let turn_pos = section.find(TURN_ID_TS_FIELD).expect("轮归属字段行在场");
++    let seq_pos = section.find("seq: number,").expect("seq 字段行在场");
++    let ts_pos = section
++        .find("timestampMs: number,")
++        .expect("timestampMs 字段行在场");
++    assert!(
++        turn_pos < seq_pos && seq_pos < ts_pos,
++        "轮归属声明排在 seq / timestampMs 之前（D2 字段序），实际位置 {turn_pos} / {seq_pos} / {ts_pos}"
++    );
++}
++
++#[test]
++fn agent_event出线无相位伴生类型与必填或改名形态() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++    let section = type_section(&content, "AgentEvent");
++
++    for forbidden in ["_Deserialize", "_Serialize"] {
++        assert!(
++            !content.contains(forbidden),
++            "产物全文不得含相位分裂伴生名 {forbidden}（skip_serializing_if 被加上的机械判据）"
++        );
++    }
++    assert!(
++        !section.contains("turnId: number,"),
++        "轮归属只允许可选可空形态（必填形态即契约破），实际段:\n{section}"
++    );
++    assert!(
++        !content.contains("eventTurnId"),
++        "轮归属不得改名（D9-a 明令禁止 eventTurnId）"
++    );
++    // 文档注释里出现 `turn_id`（Rust 字段名原文）是预期；判据是**字段声明行**
++    // 不得为 snake_case
++    let snake_case_field_lines: Vec<&str> = content
++        .lines()
++        .map(str::trim_start)
++        .filter(|line| line.starts_with("turn_id"))
++        .collect();
++    assert!(
++        snake_case_field_lines.is_empty(),
++        "产物字段声明行不得漏出 snake_case 键（出线为 camelCase），实际: {snake_case_field_lines:?}"
++    );
++}
++
++#[test]
++fn 轮行面与信封面同名不同型并存不冲突() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    let event_section = type_section(&content, "AgentEvent");
++    let turn_section = type_section(&content, "TurnSummary");
++    assert!(
++        event_section.contains(TURN_ID_TS_FIELD),
++        "信封面 turnId 为可选可空"
++    );
++    assert!(
++        turn_section.contains("turnId: number,"),
++        "轮行面 turnId 为必填数字（既有），实际段:\n{turn_section}"
++    );
++    assert!(
++        !event_section.contains("turnId: number,"),
++        "信封面不得退化为必填形态（同名不同型的第一半）"
++    );
++    assert!(
++        !turn_section.contains(TURN_ID_TS_FIELD),
++        "轮行面不得退化为可选可空形态（同名不同型的第二半），实际段:
++{turn_section}"
++    );
++}
++
++#[test]
++fn 命令面相依类型零漂移_信封多一键不改签名() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    assert!(
++        content.contains("export type AgentRunMessage ="),
++        "AgentRunMessage 出线在场"
++    );
++    assert!(
++        content.contains("{ ipc: \"event\"; event: AgentEvent }"),
++        "实时事件臂逐字在场"
++    );
++    assert!(
++        content.contains("{ ipc: \"record\"; record: TurnSummary }"),
++        "终态轮行臂逐字在场"
++    );
++    assert!(
++        content.contains("agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent[]>(\"agent_session_transcript\", { root, sessionId })"),
++        "转录命令签名零漂移（返回 AgentEvent 数组，命令面不改）"
++    );
++}
++
++#[test]
++fn 重导出后turn_id行零diff且幂等() {
++    let _lock = lock();
++    let _restore = RestoreOnDrop;
++
++    let first = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++    let second = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    assert_eq!(
++        first, second,
++        "连续两次重导出逐字节零 diff（新键不引入不确定性输出）"
++    );
++    for content in [&first, &second] {
++        assert_eq!(
++            content.matches(TURN_ID_TS_FIELD).count(),
++            1,
++            "轮归属字段行在产物中恰一次（无重复落键 / 无变体内层重复）"
++        );
++    }
++}
++
++#[test]
++fn zod产物基座判型且六变体放行turn_id() {
++    let _lock = lock();
++    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
++
++    let base = zod_agent_event_base_section(&zod);
++    assert!(
++        base.contains(TURN_ID_ZOD_BASE),
++        "zod 基座缺判型行 {TURN_ID_ZOD_BASE}，实际段:\n{base}"
++    );
++    assert!(
++        !base.contains(TURN_ID_ZOD_VARIANT),
++        "基座只判型不放行（放行属六变体，`z.unknown()` 在基座会让类型判据静默失效）"
++    );
++
++    let variants = zod_agent_event_variant_section(&zod);
++    assert_eq!(
++        variants.matches(TURN_ID_ZOD_VARIANT).count(),
++        6,
++        "六个变体各含一行放行（逐变体一次，不多不少），实际段:\n{variants}"
++    );
++    // 与既有 seq / timestampMs 放行同式（同一 allowed_object_keys 机制）
++    assert_eq!(
++        variants.matches("seq: z.unknown().optional(),").count(),
++        6,
++        "seq 放行同样六处（同式机制对照组）"
++    );
++    assert_eq!(
++        variants
++            .matches("timestampMs: z.unknown().optional(),")
++            .count(),
++        6,
++        "timestampMs 放行同样六处"
++    );
++    // intersection 形态保持
++    assert!(
++        zod.contains("export const AgentEventSchema = z.strictObject({"),
++        "基座 strictObject 形态保持"
++    );
++    assert!(
++        zod.contains("}).and(z.union(["),
++        "intersection 形态保持（基座 ∧ 变体联合）"
++    );
++}
++
++#[test]
++fn zod产物轮归属仅限事件模式且不触命令面三表() {
++    let _lock = lock();
++    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
++
++    assert_eq!(
++        zod.matches(TURN_ID_ZOD_VARIANT).count(),
++        6,
++        "放行行全产物恰六处（只在 AgentEventSchema 的六变体）"
++    );
++    assert_eq!(
++        zod.matches("get turnId()").count(),
++        2,
++        "判型行两处：信封面可空可选 + 轮行面必填（TurnSummarySchema）"
++    );
++    assert!(
++        zod.contains("get turnId() { return z.number(); },"),
++        "轮行面 turnId 为必填数字判型（与信封面并存不冲突）"
++    );
++    // turnId 不进 argsSchemas / resultSchemas / channelArgs（新字段不触命令面）
++    for (table, body) in zod_tables(&zod) {
++        assert!(
++            !body.contains("turnId"),
++            "{table} 表不得出现 turnId（信封字段不进命令面）"
++        );
++    }
++}
++
++/// `bindings.ts` 的 `commands` 对象顶层包装名（单制表符缩进，`名称: (...) =>` 形态）。
++fn command_wrappers(ts: &str) -> Vec<String> {
++    let marker = "export const commands = {";
++    let start = ts.find(marker).expect("产物缺 commands 对象") + marker.len();
++    let end = ts[start..]
++        .find("\n};")
++        .map_or(ts.len(), |offset| start + offset);
++    ts[start..end]
++        .lines()
++        .filter_map(|line| {
++            let rest = line.strip_prefix('\t')?;
++            if rest.starts_with('\t') || rest.starts_with('*') || rest.starts_with('/') {
++                return None;
++            }
++            let name = rest.split(':').next()?.trim();
++            let mut chars = name.chars();
++            match chars.next() {
++                Some(c) if c.is_ascii_alphabetic() => name
++                    .chars()
++                    .all(|c| c.is_ascii_alphanumeric())
++                    .then(|| name.to_owned()),
++                _ => None,
++            }
++        })
++        .collect()
++}
++
++/// zod 单表顶层键（单制表符缩进的 `get "<命令>"()` 形态；形参位缩进更深）。
++fn zod_table_keys(body: &str) -> Vec<String> {
++    body.lines()
++        .filter_map(|line| {
++            let rest = line.strip_prefix("\tget \"")?;
++            if rest.starts_with('\t') {
++                return None;
++            }
++            Some(rest.split('"').next()?.to_owned())
++        })
++        .collect()
++}
++
++/// 三张命令表各自的键集与表体（`export const <table> = {` 至顶层收尾）。
++fn zod_tables(zod: &str) -> [(&'static str, &str); 3] {
++    let extract = |table: &'static str| -> (&'static str, &str) {
++        let marker = format!("export const {table} = {{");
++        let start = zod
++            .find(&marker)
++            .unwrap_or_else(|| panic!("zod 产物缺 {table} 表"));
++        let body_start = start + marker.len();
++        let end = zod[body_start..]
++            .find("\n} as const;")
++            .map_or(zod.len(), |offset| body_start + offset);
++        (table, &zod[body_start..end])
++    };
++    [
++        extract("argsSchemas"),
++        extract("resultSchemas"),
++        extract("channelArgs"),
++    ]
++}
++
++#[test]
++fn zod产物三表键集与命令面一致且禁用片段零命中() {
++    let _lock = lock();
++    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
++
++    let ts = String::from_utf8(fs::read(generated_path()).expect("读取产物应成功"))
++        .expect("产物为 UTF-8 文本");
++
++    // 命令面键集（`bindings.ts` 的 `commands` 顶层包装名）与三表键集逐表相等——
++    // 新字段只进 `AgentEventSchema`，不增减任何命令面条目。
++    let mut expected = command_wrappers(&ts);
++    expected.sort();
++    assert!(!expected.is_empty(), "命令面非空");
++    for (table, body) in zod_tables(&zod) {
++        let mut actual = zod_table_keys(body);
++        actual.sort();
++        assert_eq!(
++            actual, expected,
++            "{table} 键集与 commands 完全一致（信封新字段不触命令面）"
++        );
++    }
++
++    // 生成期硬约束（既有断言零改动即成立）：新键未引入禁用写法
++    for snippet in [
++        "export type ",
++        "z.infer",
++        "z.object(",
++        ".refine(",
++        ".default(",
++    ] {
++        assert!(!zod.contains(snippet), "zod 产物命中禁用片段 {snippet}");
++    }
++    assert!(
++        !zod.contains("turnId: z.number()"),
++        "轮归属不得出必填判型（放行行用 z.unknown()）"
++    );
++    assert!(
++        !zod.contains("AgentEventSchema_S"),
++        "产物不得含相位伴生名 AgentEventSchema_S*"
++    );
++}
++
++#[test]
++fn zod产物连续两次导出零diff且篡改后恢复仍含轮归属行() {
++    let _lock = lock();
++    let _restore = RestoreOnDrop;
++
++    let first = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
++    let second = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
++    assert_eq!(first, second, "连续两次导出逐字节零 diff（幂等）");
++    assert!(first.contains(TURN_ID_ZOD_BASE), "权威内容含基座判型行");
++
++    // 篡改：抹掉轮归属的判型行与六处放行行 → 重导出恢复权威内容
++    let tampered = first
++        .replace(TURN_ID_ZOD_BASE, "")
++        .replace(TURN_ID_ZOD_VARIANT, "");
++    assert_ne!(tampered, first, "前置：篡改生效");
++    fs::write(zod_generated_path(), &tampered).expect("篡改 zod 产物应成功");
++
++    export_bindings().expect("重导出应成功");
++    let restored = String::from_utf8(fs::read(zod_generated_path()).expect("读取产物应成功"))
++        .expect("zod 产物为 UTF-8 文本");
++    assert_eq!(restored, first, "篡改不留存（重导出恢复权威内容）");
++    assert!(
++        restored.contains(TURN_ID_ZOD_BASE),
++        "恢复后的内容仍含判型行——该行是产物而非手写残留"
++    );
++    assert_eq!(
++        restored.matches(TURN_ID_ZOD_VARIANT).count(),
++        6,
++        "恢复后六处放行行齐全"
++    );
++}
+diff --git a/src/commands/change_flow/mod_test.rs b/src/commands/change_flow/mod_test.rs
+index 39a14c4b4eb5..388ec558f0b9 100644
+--- a/src/commands/change_flow/mod_test.rs
++++ b/src/commands/change_flow/mod_test.rs
+@@ -1332,6 +1332,7 @@ fn sink事件桥接_session_event记会话锚且首拍挂载在途节点() {
+     sink.emit(RunUpdate::SessionEvent {
+         session_id: "ses-sink".to_owned(),
+         event: AgentEvent::stamp(
++            None,
+             0,
+             AgentEventKind::Raw {
+                 event_type: "probe".to_owned(),
+@@ -1656,6 +1657,7 @@ fn channel面五kind通知各自一拍且零载荷键() {
+     guard.emit(super::RunUpdate::SessionEvent {
+         session_id: "sess-1".to_owned(),
+         event: agent::AgentEvent {
++            turn_id: None,
+             seq: 0,
+             timestamp_ms: 1_726_000_000_000,
+             kind: agent::AgentEventKind::Raw {
+diff --git a/src/commands/db/mod_test.rs b/src/commands/db/mod_test.rs
+index 32f40d3a85fd..574a2e1d8de3 100644
+--- a/src/commands/db/mod_test.rs
++++ b/src/commands/db/mod_test.rs
+@@ -77,6 +77,7 @@ fn append_events(store: &store::Store, session_id: &str, seqs: &[u64]) {
+         .iter()
+         .map(|&seq| {
+             AgentEvent::stamp(
++                None,
+                 seq,
+                 AgentEventKind::Raw {
+                     event_type: "mystery".to_owned(),
+diff --git a/src/commands/exec/agent_test.rs b/src/commands/exec/agent_test.rs
+index 56925c355692..b2b6070addf7 100644
+--- a/src/commands/exec/agent_test.rs
++++ b/src/commands/exec/agent_test.rs
+@@ -8,6 +8,7 @@ use super::{outcome_summary, running_summary, AgentRunMessage};
+ 
+ fn stamped_event(seq: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::MessageDelta {
+             parent_tool_use_id: None,
+@@ -20,6 +21,7 @@ fn stamped_event(seq: u64) -> AgentEvent {
+ 
+ fn sealed_event(seq: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::TurnDone {
+             subtype: "success".to_owned(),
+diff --git a/src/commands/exec/mod_test.rs b/src/commands/exec/mod_test.rs
+index 2cf477f27ecf..db7368b1e25a 100644
+--- a/src/commands/exec/mod_test.rs
++++ b/src/commands/exec/mod_test.rs
+@@ -163,7 +163,7 @@ fn seed_sdk_session(
+ 
+ /// 盖戳密封事件 fixture。
+ fn stamped(seq: u64, kind: AgentEventKind) -> ::agent::AgentEvent {
+-    ::agent::AgentEvent::stamp(seq, kind)
++    ::agent::AgentEvent::stamp(None, seq, kind)
+ }
+ 
+ // ---------------------------------------------------------------------------
+diff --git a/src/commands/explores/mod_test.rs b/src/commands/explores/mod_test.rs
+index 28067235d0ee..fbc44efc0eb4 100644
+--- a/src/commands/explores/mod_test.rs
++++ b/src/commands/explores/mod_test.rs
+@@ -141,6 +141,7 @@ fn seed_chat_session(store: &store::Store, id: &str, source_ref: Option<&str>) -
+ /// 一条盖戳 Raw 事件（级联断言的最小载荷）。
+ fn raw_event(seq: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::Raw {
+             event_type: "mystery".to_owned(),
+diff --git a/src/commands/workspaces/mod_test.rs b/src/commands/workspaces/mod_test.rs
+index 783753b170c1..59d035a78d15 100644
+--- a/src/commands/workspaces/mod_test.rs
++++ b/src/commands/workspaces/mod_test.rs
+@@ -101,6 +101,7 @@ fn seed_chat_session(
+ /// 一条盖戳 Raw 事件（级联与重放断言的最小载荷）。
+ fn raw_event(seq: u64) -> AgentEvent {
+     AgentEvent::stamp(
++        None,
+         seq,
+         AgentEventKind::Raw {
+             event_type: "mystery".to_owned(),

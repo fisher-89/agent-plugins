@@ -72,6 +72,7 @@ fn web_search_block() -> AgentBlock {
 fn variant_events() -> Vec<AgentEvent> {
     vec![
         AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::RunStarted {
                 model: Some("claude-opus".to_owned()),
@@ -81,6 +82,7 @@ fn variant_events() -> Vec<AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::MessageDelta {
                 parent_tool_use_id: None,
@@ -90,6 +92,7 @@ fn variant_events() -> Vec<AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             2,
             AgentEventKind::Message {
                 role: AgentMessageRole::Assistant,
@@ -104,6 +107,7 @@ fn variant_events() -> Vec<AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             3,
             AgentEventKind::SystemNotice {
                 subtype: "permission_denial".to_owned(),
@@ -111,6 +115,7 @@ fn variant_events() -> Vec<AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             4,
             AgentEventKind::TurnDone {
                 subtype: "success".to_owned(),
@@ -123,6 +128,7 @@ fn variant_events() -> Vec<AgentEvent> {
             },
         ),
         AgentEvent::stamp(
+            None,
             5,
             AgentEventKind::Raw {
                 event_type: "mystery".to_owned(),
@@ -207,6 +213,7 @@ fn 六变体判别矩阵_仅message_delta为增量_其余五变体为密封() {
 #[test]
 fn message_delta序列化判别值为驼峰() {
     let event = AgentEvent::stamp(
+        None,
         7,
         AgentEventKind::MessageDelta {
             parent_tool_use_id: None,
@@ -236,6 +243,7 @@ fn message_delta序列化判别值为驼峰() {
 #[test]
 fn thinking_delta往返保真且与text增量可辨() {
     let thinking = AgentEvent::stamp(
+        None,
         8,
         AgentEventKind::MessageDelta {
             parent_tool_use_id: Some("tu_1".to_owned()),
@@ -307,6 +315,7 @@ fn 六变体各自反序列化往返逐字段相等() {
 #[test]
 fn turn_done序列化判别值为驼峰() {
     let event = AgentEvent::stamp(
+        None,
         9,
         AgentEventKind::TurnDone {
             subtype: "success".to_owned(),
@@ -365,6 +374,7 @@ fn 旧线值run_result反序列化返回err更名不别名() {
 #[test]
 fn turn_done全字段缺席形态serde往返无损() {
     let bare = AgentEvent::stamp(
+        None,
         10,
         AgentEventKind::TurnDone {
             subtype: String::new(),
@@ -422,6 +432,7 @@ fn agent_delta两变体序列化判别值逐字为text与thinking且往返一致
 fn stamp以0盖戳产出seq为0且时间戳为当前时钟毫秒() {
     let before = millis_now();
     let event = AgentEvent::stamp(
+        None,
         0,
         AgentEventKind::Raw {
             event_type: "x".to_owned(),
@@ -441,6 +452,7 @@ fn stamp以0盖戳产出seq为0且时间戳为当前时钟毫秒() {
 #[test]
 fn stamp对u64最大seq原样保留不截断且往返无损() {
     let event = AgentEvent::stamp(
+        None,
         u64::MAX,
         AgentEventKind::Raw {
             event_type: "x".to_owned(),
@@ -463,6 +475,7 @@ fn stamp对u64最大seq原样保留不截断且往返无损() {
 #[test]
 fn message四类块混合数组往返无损且块判别值为驼峰() {
     let mixed = AgentEvent::stamp(
+        None,
         11,
         AgentEventKind::Message {
             role: AgentMessageRole::Assistant,
@@ -499,6 +512,7 @@ fn message四类块混合数组往返无损且块判别值为驼峰() {
 fn raw变体原文json逐字节保留含中文emoji换行引号() {
     let original = "第一行 🎉\n\"quoted\" {\"inner\":true}\t制表";
     let event = AgentEvent::stamp(
+        None,
         12,
         AgentEventKind::Raw {
             event_type: "unparsable".to_owned(),
@@ -940,4 +954,353 @@ fn 五变体信封整体往返逐字段相等且agentdelta词汇仍为两变体(
             AgentDelta::Text { .. } | AgentDelta::Thinking { .. } => {}
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 信封轮归属 turn_id（agent-event-turn-id）
+//
+// 契约面断言：轮归属为 `Option<i64>`、线格式键 `turnId` 恒在（`None` → null）、
+// 缺键旧载荷仍可读（AC-5）、`Some` 往返保真（AC-7 / AC-1）。不新增第二条生产
+// 入口；本组全部调用以三参形态 `stamp(turn_id, seq, kind)` 书写。
+// ---------------------------------------------------------------------------
+
+/// 六变体线格式判别值（与既有六变体用例同序）。
+const TURN_VARIANT_KINDS: [&str; 6] = [
+    "runStarted",
+    "messageDelta",
+    "message",
+    "systemNotice",
+    "turnDone",
+    "raw",
+];
+
+/// 六变体各一枚以给定轮归属盖戳（复用既有 `variant_events()` 的变体载荷，
+/// 轮归属就地指定——不修改既有夹具语义）。
+fn turn_scoped_events(turn_id: Option<i64>) -> Vec<AgentEvent> {
+    variant_events()
+        .into_iter()
+        .enumerate()
+        .map(|(index, event)| AgentEvent::stamp(turn_id, index as u64, event.kind))
+        .collect()
+}
+
+/// 无轮归属的出行形态（时钟不可注入，故用 Raw 变体承载）。
+fn raw_kind() -> AgentEventKind {
+    AgentEventKind::Raw {
+        event_type: "x".to_owned(),
+        raw_json: "{}".to_owned(),
+    }
+}
+
+/// 存量转录载荷形态：当前线格式去掉 `turnId` 键（旧行原文面）。
+fn legacy_value_without_turn_id(event: &AgentEvent) -> Value {
+    let mut value = serde_json::to_value(event).expect("序列化成功");
+    let object = value.as_object_mut().expect("顶层为对象");
+    assert!(
+        object.remove("turnId").is_some(),
+        "前置：当前线格式含 turnId 键"
+    );
+    value
+}
+
+#[test]
+fn stamp对some轮归属逐字保留且时间戳落在调用区间() {
+    let expected_kind = raw_kind();
+    let before = millis_now();
+    let event = AgentEvent::stamp(Some(7), 3, expected_kind.clone());
+    let after = millis_now();
+
+    assert_eq!(event.turn_id, Some(7), "轮归属逐字保留（首参）");
+    assert_eq!(event.seq, 3, "seq 逐字保留");
+    assert_eq!(event.kind, expected_kind, "kind 逐字保留");
+    assert!(
+        event.timestamp_ms >= before && event.timestamp_ms <= after,
+        "时间戳落在调用时刻区间内，实际: {}（区间 [{before}, {after}]）",
+        event.timestamp_ms
+    );
+}
+
+#[test]
+fn stamp首参none不改盖戳口径且其余字段与扩参前等价() {
+    let before = millis_now();
+    let event = AgentEvent::stamp(
+        None,
+        0,
+        AgentEventKind::TurnDone {
+            subtype: "success".to_owned(),
+            is_error: false,
+            num_turns: Some(1),
+            duration_ms: Some(10),
+            cost_usd: None,
+            usage: json!({ "input_tokens": 1 }),
+            session_id: None,
+        },
+    );
+    let after = millis_now();
+
+    assert_eq!(event.turn_id, None, "无轮归属构造面读出 None");
+    assert_eq!(event.seq, 0);
+    assert!(
+        event.timestamp_ms >= before && event.timestamp_ms <= after,
+        "时间戳仍取 now_millis()（None 不改盖戳口径）"
+    );
+    assert!(
+        matches!(&event.kind, AgentEventKind::TurnDone { subtype, .. } if subtype == "success"),
+        "kind 逐字保留，实际: {:?}",
+        event.kind
+    );
+}
+
+#[test]
+fn turn_id五形态经盖戳与往返逐字相等不夹取不改符号() {
+    for turn_id in [None, Some(0), Some(-1), Some(i64::MIN), Some(i64::MAX)] {
+        let event = AgentEvent::stamp(turn_id, 3, raw_kind());
+        assert_eq!(event.turn_id, turn_id, "轮归属逐字相等: {turn_id:?}");
+
+        let value = serde_json::to_value(&event).expect("序列化成功");
+        assert_eq!(
+            value["turnId"],
+            serde_json::to_value(turn_id).expect("Option<i64> 可 JSON 化"),
+            "线格式 turnId 逐字等于入参: {turn_id:?}"
+        );
+        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(roundtrip, event, "往返逐字段相等: {turn_id:?}");
+    }
+}
+
+#[test]
+fn seq三形态与轮归属极值正交且无截断() {
+    for seq in [0_u64, 1, u64::MAX] {
+        let event = AgentEvent::stamp(Some(i64::MAX), seq, raw_kind());
+
+        assert_eq!(event.seq, seq, "seq 原样保留");
+        assert_eq!(event.turn_id, Some(i64::MAX), "轮归属不被 seq 覆盖");
+        let value = serde_json::to_value(&event).expect("序列化成功");
+        assert_eq!(value["seq"], json!(seq), "seq 线格式不截断");
+        assert_eq!(value["turnId"], json!(i64::MAX), "轮归属线格式不截断");
+        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(roundtrip, event, "两字段互不干扰地往返");
+    }
+}
+
+#[test]
+fn 六变体线格式顶层turn_id为驼峰键且kind仍扁平() {
+    for (event, expected_kind) in turn_scoped_events(Some(7))
+        .into_iter()
+        .zip(TURN_VARIANT_KINDS)
+    {
+        let value = serde_json::to_value(&event).expect("序列化成功");
+        let object = value.as_object().expect("顶层为对象");
+
+        assert_eq!(value["turnId"], json!(7), "顶层 turnId 为数字");
+        assert_eq!(value["kind"], json!(expected_kind), "判别值为驼峰字符串");
+        assert!(
+            object.contains_key("turnId")
+                && object.contains_key("seq")
+                && object.contains_key("timestampMs")
+                && object.contains_key("kind"),
+            "信封四键与变体字段同层（turnId 不是变体内键），实际键: {object:?}"
+        );
+        // 轮归属与 TurnDone.session_id（引擎侧标识）同层并存、互不影响
+        if expected_kind == "turnDone" {
+            assert_eq!(value["sessionId"], json!("s-1"));
+            assert_ne!(
+                value["turnId"], value["sessionId"],
+                "轮归属（数字）与引擎侧会话标识（字符串）语义不可混用"
+            );
+        }
+    }
+}
+
+#[test]
+fn turn_id为none时线格式键恒在且值为null() {
+    let event = AgentEvent::stamp(None, 0, raw_kind());
+    let value = serde_json::to_value(&event).expect("序列化成功");
+    let object = value.as_object().expect("顶层为对象");
+
+    assert!(
+        object.contains_key("turnId"),
+        "None 形态键恒在（反向判据：键缺席即说明 skip_serializing_if 被加上），实际: {object:?}"
+    );
+    assert_eq!(value["turnId"], Value::Null, "None 落 null");
+}
+
+#[test]
+fn 六变体顶层键集合只增turn_id一个信封键() {
+    let expected_own_keys: [&[&str]; 6] = [
+        &["model", "sessionId", "tools", "mcpServers"],
+        &["parentToolUseId", "delta"],
+        &["role", "blocks", "parentToolUseId"],
+        &["subtype", "payload"],
+        &[
+            "subtype",
+            "isError",
+            "numTurns",
+            "durationMs",
+            "costUsd",
+            "usage",
+            "sessionId",
+        ],
+        &["eventType", "rawJson"],
+    ];
+
+    for (event, own_keys) in turn_scoped_events(Some(7))
+        .into_iter()
+        .zip(expected_own_keys)
+    {
+        let value = serde_json::to_value(&event).expect("序列化成功");
+        let object = value.as_object().expect("顶层为对象");
+        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+
+        let mut expected: Vec<&str> = vec!["turnId", "seq", "timestampMs", "kind"];
+        expected.extend_from_slice(own_keys);
+        expected.sort_unstable();
+
+        assert_eq!(
+            keys, expected,
+            "顶层键集合 = 信封四键 ∪ 变体自有键（信封字段面只增 turnId、无相位伴生键），实际: {object:?}"
+        );
+    }
+}
+
+#[test]
+fn 六变体序列化文本中turn_id片段恰出现一次() {
+    for event in turn_scoped_events(Some(7)) {
+        let text = serde_json::to_string(&event).expect("序列化成功");
+        assert_eq!(
+            text.matches("\"turnId\"").count(),
+            1,
+            "kind 扁平且信封字段不重复落键（出现 2 次即说明被误置于变体内层），实际: {text}"
+        );
+    }
+}
+
+#[test]
+fn 六变体旧json无turn_id键仍可读且读出none其余字段不变() {
+    for (event, expected_kind) in turn_scoped_events(Some(7))
+        .into_iter()
+        .zip(TURN_VARIANT_KINDS)
+    {
+        let legacy = legacy_value_without_turn_id(&event);
+        let decoded: AgentEvent =
+            serde_json::from_value(legacy).expect("旧 JSON 必须可读（缺键不使整条事件解码失败）");
+
+        assert_eq!(decoded.turn_id, None, "缺键读出 None");
+        assert_eq!(decoded.seq, event.seq, "seq 逐字段不变");
+        assert_eq!(decoded.timestamp_ms, event.timestamp_ms, "时间戳逐字段不变");
+        assert_eq!(decoded.kind, event.kind, "kind 与变体字段逐字段不变");
+        let value = serde_json::to_value(&decoded).expect("序列化成功");
+        assert_eq!(value["kind"], json!(expected_kind));
+    }
+}
+
+#[test]
+fn 显式null与缺键解出同一形态且再序列化均键恒在() {
+    let baseline = AgentEvent::stamp(None, 7, raw_kind());
+    let missing = legacy_value_without_turn_id(&baseline);
+    let mut explicit = missing.clone();
+    explicit["turnId"] = Value::Null;
+
+    let from_missing: AgentEvent = serde_json::from_value(missing).expect("缺键可读");
+    let from_explicit: AgentEvent = serde_json::from_value(explicit).expect("显式 null 可读");
+
+    assert_eq!(
+        from_missing, from_explicit,
+        "显式 null 与缺键解出同一形态（不可分辨地归一到 None）"
+    );
+    assert_eq!(from_missing, baseline);
+    for event in [&from_missing, &from_explicit] {
+        let value = serde_json::to_value(event).expect("序列化成功");
+        assert_eq!(
+            value.get("turnId"),
+            Some(&Value::Null),
+            "再序列化均落 turnId:null（键恒在）"
+        );
+    }
+}
+
+#[test]
+fn 非法turn_id形态四类均err不产半成品事件() {
+    let base = legacy_value_without_turn_id(&AgentEvent::stamp(None, 0, raw_kind()));
+
+    for invalid in [
+        json!("7"),
+        json!(7.5),
+        json!(9223372036854775808_u64),
+        json!([7]),
+    ] {
+        let mut value = base.clone();
+        value["turnId"] = invalid.clone();
+        assert!(
+            serde_json::from_value::<AgentEvent>(value).is_err(),
+            "非法 turnId 形态 {invalid} 必须 Err（不产半成品事件）"
+        );
+    }
+    // 对照组：合法数字可读
+    let mut valid = base;
+    valid["turnId"] = json!(7);
+    assert!(serde_json::from_value::<AgentEvent>(valid).is_ok());
+}
+
+#[test]
+fn snake_case键输入不产出轮归属_线键只认camel_case() {
+    let mut value = legacy_value_without_turn_id(&AgentEvent::stamp(None, 0, raw_kind()));
+    value["turn_id"] = json!(7);
+
+    // 析取形态：未知键被忽略则读回 None，被拒绝则 Err——两种策略都不认 snake_case
+    if let Ok(event) = serde_json::from_value::<AgentEvent>(value) {
+        assert_ne!(
+            event.turn_id,
+            Some(7),
+            "snake_case 键不得被识别为轮归属（线键只认 camelCase turnId）"
+        );
+    }
+}
+
+#[test]
+fn some轮归属六变体往返逐字段相等() {
+    for event in turn_scoped_events(Some(7)) {
+        let value = serde_json::to_value(&event).expect("序列化成功");
+        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(roundtrip, event, "seq={} 轮归属参与往返", event.seq);
+        assert_eq!(roundtrip.turn_id, Some(7));
+    }
+}
+
+#[test]
+fn none轮归属六变体往返闭环() {
+    for event in turn_scoped_events(None) {
+        let value = serde_json::to_value(&event).expect("序列化成功");
+        assert_eq!(value["turnId"], Value::Null, "None 落 null");
+        let roundtrip: AgentEvent = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(roundtrip, event, "seq={} null 与 None 闭环", event.seq);
+    }
+}
+
+#[test]
+fn 轮归属极值经json文本往返不失符号不截断() {
+    for turn_id in [Some(i64::MIN), Some(i64::MAX)] {
+        let event = AgentEvent::stamp(turn_id, 2, raw_kind());
+        let text = serde_json::to_string(&event).expect("序列化成功");
+        let roundtrip: AgentEvent = serde_json::from_str(&text).expect("JSON 文本往返成功");
+        assert_eq!(roundtrip, event, "文本面不发生 f64 化截断: {turn_id:?}");
+        assert_eq!(roundtrip.turn_id, turn_id, "符号与量值逐字保留");
+    }
+}
+
+#[test]
+fn turn_id参与相等性比较不被skip() {
+    let event = AgentEvent::stamp(Some(7), 3, raw_kind());
+    let mut other = event.clone();
+    other.turn_id = Some(8);
+
+    assert_ne!(event, other, "turn_id 不同即事件不等（derive 面敏感）");
+    assert_eq!(event, event.clone(), "同 turn_id 同形态相等");
+    let mut same = other.clone();
+    same.turn_id = Some(7);
+    assert_eq!(
+        event, same,
+        "turn_id 相同且其余全同时相等（该字段被 PartialEq 纳入比较，未被 skip）"
+    );
 }

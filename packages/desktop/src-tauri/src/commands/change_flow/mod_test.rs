@@ -1332,6 +1332,7 @@ fn sink事件桥接_session_event记会话锚且首拍挂载在途节点() {
     sink.emit(RunUpdate::SessionEvent {
         session_id: "ses-sink".to_owned(),
         event: AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::Raw {
                 event_type: "probe".to_owned(),
@@ -1656,6 +1657,7 @@ fn channel面五kind通知各自一拍且零载荷键() {
     guard.emit(super::RunUpdate::SessionEvent {
         session_id: "sess-1".to_owned(),
         event: agent::AgentEvent {
+            turn_id: None,
             seq: 0,
             timestamp_ms: 1_726_000_000_000,
             kind: agent::AgentEventKind::Raw {

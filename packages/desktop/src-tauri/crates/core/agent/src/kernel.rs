@@ -245,7 +245,9 @@ impl RunningTurn {
         let mut seq: u64 = seq_base;
         let mut stats = TurnStats::default();
         while let Some(kind) = session.observations.recv().await {
-            let event = AgentEvent::stamp(seq, kind);
+            // 全事件唯一盖戳点：轮归属就在 `self` 上；delta 与密封共用此点，
+            // 两实时出口（注册表发布 / 输出回调）投递同一值
+            let event = AgentEvent::stamp(Some(turn_id), seq, kind);
             seq += 1;
             if event.kind.is_delta() {
                 // 增量只上传输面（store 永不见；盖戳治理单点的传输半边）：

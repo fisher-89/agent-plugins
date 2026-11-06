@@ -185,6 +185,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
     use agent::{AgentBlock, AgentEvent, AgentEventKind};
     let transcript = vec![
         AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::Message {
                 role: AgentMessageRole::User,
@@ -196,6 +197,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
             },
         ),
         AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::Message {
                 role: AgentMessageRole::Assistant,
@@ -2070,6 +2072,20 @@ impl WatchProbe {
             .filter(|update| matches!(update, RunUpdate::SessionEvent { .. }))
             .count()
     }
+
+    /// 只读快照：`RunUpdate::SessionEvent` 出口捕获的事件（按投递序）。
+    fn session_events(&self) -> Vec<agent::AgentEvent> {
+        self.sink
+            .updates
+            .lock()
+            .expect("事件捕获锁不可中毒")
+            .iter()
+            .filter_map(|update| match update {
+                RunUpdate::SessionEvent { event, .. } => Some(event.clone()),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 /// change 轨轮请求 fixture（sourceRef 按 `<change>/<phase>/<role>/<attempt>`）。
@@ -2183,7 +2199,8 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与�
 }
 
 /// change 轨形态（`KernelWorkerPort::run` 零改动）：同一 `streams` 上该会话条目
-/// 可被订阅并收 `Finished`；`RunUpdate::SessionEvent` 出口照常（两出口同源）。
+/// 可被订阅并收 `Finished`；`RunUpdate::SessionEvent` 出口照常（两出口同源），
+/// 且两出口的事件逐条轮归属相等（跨层同值，见 design D3 的同一枚 `event.clone()`）。
 #[tokio::test(start_paused = true)]
 async fn change轨真实驱动_同一streams收终态且run_update出口照常() {
     let env = DualEnv::new("streams-change-drive");
@@ -2213,7 +2230,7 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
     let subscription = probe
         .take_subscription()
         .expect("首个会话事件时已完成订阅（begin 先于驱动）");
-    let (_events, terminal) = drain_stream(subscription).await;
+    let (events, terminal) = drain_stream(subscription).await;
 
     assert_eq!(
         terminal.status,
@@ -2225,6 +2242,41 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
     assert!(
         probe.session_event_count() > 0,
         "RunUpdate::SessionEvent 出口照常（两出口同源）"
+    );
+
+    // 跨层轮归属：RunUpdate 出口与订阅流投递同一枚事件（内核盖戳单点），
+    // 故两出口的事件逐条 `turn_id` 相等，且全部等于终态轮 id。
+    let emitted_all = probe.session_events();
+    let emitted: Vec<Option<i64>> = emitted_all.iter().map(|event| event.turn_id).collect();
+    let streamed: Vec<Option<i64>> = events.iter().map(|event| event.turn_id).collect();
+
+    assert!(
+        emitted
+            .iter()
+            .all(|turn_id| *turn_id == Some(terminal.turn_id)),
+        "RunUpdate 出口的事件全部携终态轮 id，实际: {emitted:?}"
+    );
+    assert!(
+        !streamed.is_empty(),
+        "订阅流在首枚 SessionEvent 之后仍收到实时事件（fail-fast 前已有事件流出）"
+    );
+    assert_eq!(
+        emitted.len(),
+        streamed.len() + 1,
+        "订阅在首枚 SessionEvent 广播后才建立，恰漏首枚（订阅端从次枚起同源），条数: RunUpdate={} 订阅流={}",
+        emitted.len(),
+        streamed.len()
+    );
+    assert_eq!(
+        events.as_slice(),
+        &emitted_all[emitted_all.len() - events.len()..],
+        "两实时出口投递同一枚事件（逐字段相等，含 turn_id；跨层同源同值）"
+    );
+    assert!(
+        streamed
+            .iter()
+            .all(|turn_id| *turn_id == Some(terminal.turn_id)),
+        "订阅流的事件全部携终态轮 id，实际: {streamed:?}"
     );
     assert!(
         streams.subscribe(&outcome.session_id, 0).is_none(),

@@ -4,7 +4,7 @@
 //! u64 饱和 / 超大转录 / 类型漂移 / 干扰事件 / 两键对照。
 //!
 //! Mock策略（test-design 本节 Mock 表）：零 mock——纯函数直测，`AgentEvent`
-//! 字面量直构（`AgentEvent::stamp(seq, AgentEventKind::TurnDone { usage, .. })`，
+//! 字面量直构（`AgentEvent::stamp(None, seq, AgentEventKind::TurnDone { usage, .. })`，
 //! 非 TurnDone 变体同式构造）。
 //!
 //! AC 锚注记：本函数自 infra/store 上移（desktop-step-running-snapshot D3 /
@@ -21,6 +21,7 @@ use crate::usage::sum_usage_tokens;
 /// `stamp` 取当前时钟，不参与等值断言）。
 fn turn_done(seq: u64, usage: Value) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::TurnDone {
             subtype: "success".to_owned(),
@@ -163,6 +164,7 @@ fn 值类型漂移该事件不计入不panic() {
 fn 非turndone事件全部跳过仅turndone参与求和() {
     let noise = vec![
         AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::RunStarted {
                 model: Some("claude-opus".to_owned()),
@@ -172,6 +174,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
             },
         ),
         AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::MessageDelta {
                 parent_tool_use_id: None,
@@ -181,6 +184,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
             },
         ),
         AgentEvent::stamp(
+            None,
             2,
             AgentEventKind::Message {
                 role: AgentMessageRole::Assistant,
@@ -192,6 +196,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
             },
         ),
         AgentEvent::stamp(
+            None,
             3,
             AgentEventKind::SystemNotice {
                 subtype: "api_retry".to_owned(),
@@ -199,6 +204,7 @@ fn 非turndone事件全部跳过仅turndone参与求和() {
             },
         ),
         AgentEvent::stamp(
+            None,
             4,
             AgentEventKind::Raw {
                 event_type: "mystery".to_owned(),

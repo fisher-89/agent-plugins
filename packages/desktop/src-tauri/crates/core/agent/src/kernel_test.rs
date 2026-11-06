@@ -1618,3 +1618,507 @@ async fn drive停止置位收敛stopped_订阅端终态error为none() {
     assert_eq!(terminal.status, AgentRunStatus::Stopped);
     assert_eq!(terminal.error, None, "用户主动终止不记因");
 }
+
+// ---------------------------------------------------------------------------
+// 盖戳治理单点的轮归属（agent-event-turn-id）
+//
+// 判据：真实运行事件的轮归属只在 `drive` 的盖戳单点产生（`Some(turn_id)`），
+// 一轮内 delta 与密封同值、两实时出口同源同值、续轮各自恒定（AC-2 / AC-3 /
+// AC-4）。装置沿用既有 `FakeSink` / `FakeRunner` / `drive_all` / `drain_stream`。
+// ---------------------------------------------------------------------------
+
+/// 摘出全部 Observation 的轮归属（按流出序）。
+fn observed_turn_ids(observations: &[AgentEvent]) -> Vec<Option<i64>> {
+    observations.iter().map(|event| event.turn_id).collect()
+}
+
+#[tokio::test]
+async fn drive流出事件全部携本轮轮归属且无一枚为none() {
+    let (sink, _calls) = FakeSink::new();
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(16));
+
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+    runner
+        .feed(vec![
+            run_started_kind("sdk-9-1727000000009"),
+            text_delta_kind("第一片"),
+            text_delta_kind("第二片 🎉"),
+            message_kind(),
+            AgentEventKind::SystemNotice {
+                subtype: "api_retry".to_owned(),
+                payload: serde_json::json!({ "attempt": 2 }),
+            },
+            turn_done_kind(false),
+        ])
+        .await;
+    runner.close_stream();
+
+    let (observations, _finished, outcome) = drive_all(running).await;
+
+    assert_eq!(observations.len(), 6, "混合流全量流出");
+    assert_eq!(
+        observed_turn_ids(&observations),
+        vec![Some(turn_id); 6],
+        "每枚观察事件的轮归属恒等于开轮 id（无一枚 None——漏盖即静默 null）"
+    );
+    assert!(
+        observations.iter().all(|event| event.turn_id.is_some()),
+        "真实运行事件不存在无轮归属形态"
+    );
+    assert_eq!(outcome.turn_id, turn_id, "终态轮 id 与开轮 id 同源");
+    assert_eq!(outcome.status, AgentRunStatus::Completed);
+}
+
+#[tokio::test]
+async fn drive的delta组与密封组turn_id集合各为单元素集且相等() {
+    let (sink, _calls) = FakeSink::new();
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(16));
+
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+    runner
+        .feed(vec![
+            text_delta_kind("增量一"),
+            text_delta_kind("增量二"),
+            message_kind(),
+            turn_done_kind(false),
+        ])
+        .await;
+    runner.close_stream();
+
+    let (observations, _finished, _outcome) = drive_all(running).await;
+
+    let collect = |delta: bool| -> std::collections::BTreeSet<Option<i64>> {
+        observations
+            .iter()
+            .filter(|event| event.kind.is_delta() == delta)
+            .map(|event| event.turn_id)
+            .collect()
+    };
+    let delta_ids = collect(true);
+    let sealed_ids = collect(false);
+
+    assert_eq!(delta_ids.len(), 1, "delta 组轮归属单一");
+    assert_eq!(sealed_ids.len(), 1, "密封组轮归属单一");
+    assert_eq!(
+        delta_ids, sealed_ids,
+        "delta 亦带轮归属（不做「delta 允许缺省」的豁免）"
+    );
+    assert_eq!(
+        delta_ids.iter().next().copied().flatten(),
+        Some(turn_id),
+        "两组同值且等于开轮 id"
+    );
+}
+
+#[tokio::test]
+async fn drive两实时出口投递同一轮归属值() {
+    let (sink, _calls) = FakeSink::new();
+    let streams = Arc::new(SessionStreamRegistry::new());
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::clone(&streams),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(16));
+
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+    let subscription = streams
+        .subscribe(&running.session_id, 0)
+        .expect("订阅方可接入");
+    runner
+        .feed(vec![
+            run_started_kind("sdk-9-1727000000009"),
+            text_delta_kind("第一片"),
+            message_kind(),
+            turn_done_kind(false),
+        ])
+        .await;
+    runner.close_stream();
+
+    let (observations, _finished, _outcome) = drive_all(running).await;
+    let (streamed, _terminal) = drain_stream(subscription).await;
+
+    assert_eq!(
+        streamed,
+        observations[1..],
+        "注册表发布与输出回调投递同一枚事件（逐字段相等，含 turn_id）"
+    );
+    assert_eq!(
+        observed_turn_ids(&streamed),
+        vec![Some(turn_id); streamed.len()],
+        "订阅端的轮归属与输出回调同源同值"
+    );
+    assert_eq!(
+        observed_turn_ids(&streamed),
+        observed_turn_ids(&observations[1..]),
+        "两出口 turn_id 序列逐条相等"
+    );
+}
+
+#[tokio::test]
+async fn continue续轮两轮轮归属各自恒定且跨轮互异() {
+    let (sink, _calls) = FakeSink::new();
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(16));
+
+    let first = kernel
+        .begin_turn(
+            runner.clone(),
+            request(SessionRef::Continue {
+                id: "ses-exist-1".to_owned(),
+            }),
+        )
+        .expect("首轮 begin 应成功");
+    let first_turn_id = first.turn_id;
+    runner
+        .feed(vec![message_kind(), turn_done_kind(false)])
+        .await;
+    runner.close_stream();
+    let (first_observations, _finished, _outcome) = drive_all(first).await;
+
+    let second = kernel
+        .begin_turn(
+            runner.clone(),
+            request(SessionRef::Continue {
+                id: "ses-exist-1".to_owned(),
+            }),
+        )
+        .expect("次轮 begin 应成功");
+    let second_turn_id = second.turn_id;
+    runner
+        .feed(vec![message_kind(), turn_done_kind(false)])
+        .await;
+    runner.close_stream();
+    let (second_observations, _finished, second_outcome) = drive_all(second).await;
+
+    assert_ne!(first_turn_id, second_turn_id, "续轮轮 id 递增互异");
+    assert_eq!(
+        observed_turn_ids(&first_observations),
+        vec![Some(first_turn_id); 2],
+        "首轮事件轮归属恒定"
+    );
+    assert_eq!(
+        observed_turn_ids(&second_observations),
+        vec![Some(second_turn_id); 2],
+        "次轮事件轮归属为新轮 id（不串轮）"
+    );
+    assert_ne!(
+        first_observations[0].turn_id, second_observations[0].turn_id,
+        "跨轮互不污染"
+    );
+    assert_eq!(second_outcome.turn_id, second_turn_id);
+}
+
+#[tokio::test]
+async fn drive_append失败前已投递观察的轮归属不降级为none() {
+    let (sink, _calls) = FakeSink::new();
+    *sink.append_failures_from.lock().expect("失败锁不可中毒") = Some(1);
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(16));
+
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+    runner
+        .feed(vec![text_delta_kind("先到的增量"), message_kind()])
+        .await;
+    runner.close_stream();
+
+    let (observations, finished, outcome) = drive_all(running).await;
+
+    assert_eq!(outcome.status, AgentRunStatus::Failed, "落库失败显式收敛");
+    assert_eq!(observations.len(), 1, "失败前已投递的增量一枚");
+    assert_eq!(
+        observations[0].turn_id,
+        Some(turn_id),
+        "失败路径不把轮归属降级为 None"
+    );
+    assert_eq!(outcome.turn_id, turn_id);
+    let terminal = finished.expect("TurnFinished 尽力流出");
+    assert_eq!(terminal.turn_id, turn_id, "终态轮归属与开轮 id 相等");
+}
+
+#[tokio::test]
+async fn drive_ask送达失败零事件轮不产生补盖戳伪事件() {
+    let (sink, _calls) = FakeSink::new();
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+
+    let running = kernel
+        .begin_turn(Arc::new(AskFailingRunner), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+
+    let (observations, finished, outcome) = drive_all(running).await;
+
+    assert!(
+        observations.is_empty(),
+        "零事件轮零观察（不为轮归属造事件）"
+    );
+    assert_eq!(outcome.status, AgentRunStatus::Failed);
+    assert_eq!(
+        outcome.turn_id, turn_id,
+        "终态仍携开轮 id（轮归属不因零事件丢失）"
+    );
+    assert_eq!(finished.map(|turn| turn.turn_id), Some(turn_id));
+}
+
+#[tokio::test]
+async fn drive空观察流兜底failed不合成事件且终态携开轮id() {
+    let (sink, _calls) = FakeSink::new();
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(4));
+
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+    runner.close_stream();
+
+    let (observations, finished, outcome) = drive_all(running).await;
+
+    assert!(observations.is_empty(), "兜底不合成盖戳事件");
+    assert_eq!(outcome.status, AgentRunStatus::Failed);
+    assert_eq!(
+        outcome.error.as_deref(),
+        Some("轮结束但未产出收敛事件"),
+        "兜底记因不变"
+    );
+    assert_eq!(outcome.turn_id, turn_id);
+    assert_eq!(finished.map(|turn| turn.turn_id), Some(turn_id));
+}
+
+/// 轮 id 三形态（含负值与极大值）：`Option<i64>` 不做符号归一 / 不夹取，且不与
+/// seq 混淆。`FakeSink` 是同文件既有装置，`begin_turn` 前预置 `next_turn_id` 即可
+/// 指定 sink 分配值（无需新增公开 API）。
+///
+/// 极大值取 `i64::MAX - 1`：`FakeSink::begin_turn` 分配后执行 `*next += 1`，预置
+/// `i64::MAX` 会在 debug 下溢出 panic（那是装置的自增臂事实，不是被测契约）。
+#[tokio::test]
+async fn drive轮id三形态逐字落盖戳且不与seq混淆() {
+    for expected in [1_i64, -1, i64::MAX - 1] {
+        let (sink, _calls) = FakeSink::new();
+        *sink.next_turn_id.lock().expect("轮 id 锁不可中毒") = expected;
+        let kernel = SessionKernel::new(
+            Arc::new(sink),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+        );
+        let runner = Arc::new(FakeRunner::with_capacity(8));
+
+        let running = kernel
+            .begin_turn(runner.clone(), request(SessionRef::New))
+            .expect("begin 应成功");
+        assert_eq!(running.turn_id, expected, "sink 分配值原样承接");
+        runner
+            .feed(vec![text_delta_kind("片"), message_kind()])
+            .await;
+        runner.close_stream();
+
+        let (observations, _finished, outcome) = drive_all(running).await;
+
+        assert_eq!(
+            observed_turn_ids(&observations),
+            vec![Some(expected), Some(expected)],
+            "流出事件轮归属逐字等于 sink 分配值（轮 id = {expected}）"
+        );
+        assert_eq!(
+            observations
+                .iter()
+                .map(|event| event.seq)
+                .collect::<Vec<_>>(),
+            vec![0, 1],
+            "轮归属与 seq 正交（seq 自基点独立递增）"
+        );
+        assert_eq!(outcome.turn_id, expected);
+    }
+}
+
+#[tokio::test]
+async fn 同会话两轮seq续排且两轮轮归属集合互异() {
+    let (sink, calls) = FakeSink::new();
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(16));
+
+    let first = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("首轮 begin 应成功");
+    let session_id = first.session_id.clone();
+    let first_turn_id = first.turn_id;
+    runner
+        .feed(vec![message_kind(), turn_done_kind(false)])
+        .await;
+    runner.close_stream();
+    let (first_observations, _finished, _outcome) = drive_all(first).await;
+
+    let second = kernel
+        .begin_turn(
+            runner.clone(),
+            request(SessionRef::Continue {
+                id: session_id.clone(),
+            }),
+        )
+        .expect("次轮 begin 应成功");
+    let second_turn_id = second.turn_id;
+    runner
+        .feed(vec![message_kind(), turn_done_kind(false)])
+        .await;
+    runner.close_stream();
+    let (second_observations, _finished, _outcome) = drive_all(second).await;
+
+    // 既有口径：两轮各 2 枚密封，seq 全程续排
+    let appends: Vec<u64> = calls_of(&calls)
+        .iter()
+        .filter_map(|call| match call {
+            SinkCall::AppendSealed { seq, .. } => Some(*seq),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(appends, vec![0, 1, 2, 3], "同会话两轮 seq 全程续排");
+
+    // 轮归属与 seq 空间正交：新字段不进 next_seq、不改打包键
+    let first_ids: std::collections::BTreeSet<Option<i64>> =
+        observed_turn_ids(&first_observations).into_iter().collect();
+    let second_ids: std::collections::BTreeSet<Option<i64>> =
+        observed_turn_ids(&second_observations)
+            .into_iter()
+            .collect();
+    assert_eq!(
+        first_ids,
+        [Some(first_turn_id)]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    assert_eq!(
+        second_ids,
+        [Some(second_turn_id)]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    assert_ne!(first_ids, second_ids, "两轮轮归属集合互异");
+}
+
+#[tokio::test]
+async fn drive观察洪峰全部事件携本轮轮归属且seq无跳号() {
+    let (sink, _calls) = FakeSink::new();
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(8)); // 容量 8 < 洪峰 64
+
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+    let feeder_runner = runner.clone();
+    let producer = tokio::spawn(async move {
+        let mut events = Vec::with_capacity(66);
+        for index in 0..64 {
+            events.push(text_delta_kind(&format!("片{index}")));
+        }
+        events.push(message_kind());
+        events.push(turn_done_kind(false));
+        feeder_runner.feed(events).await;
+        feeder_runner.close_stream();
+    });
+
+    let (observations, _finished, outcome) = drive_all(running).await;
+    producer.await.expect("生产任务正常结束");
+
+    assert_eq!(observations.len(), 66, "洪峰全量送达零丢失");
+    assert_eq!(
+        observations
+            .iter()
+            .map(|event| event.seq)
+            .collect::<Vec<_>>(),
+        (0..66).collect::<Vec<u64>>(),
+        "seq 仍 0..66 单调无跳号（背压不丢轮归属值）"
+    );
+    assert_eq!(
+        observed_turn_ids(&observations),
+        vec![Some(turn_id); 66],
+        "背压下轮归属恒为本轮 id"
+    );
+    assert_eq!(outcome.status, AgentRunStatus::Completed);
+}
+
+#[tokio::test]
+async fn drive停止置位收敛零新增事件且既有密封轮归属不变() {
+    let (sink, _calls) = FakeSink::new();
+    let registry = Arc::new(StopRegistry::new());
+    let streams = Arc::new(SessionStreamRegistry::new());
+    let kernel = SessionKernel::new(Arc::new(sink), Arc::clone(&registry), Arc::clone(&streams));
+    let runner = Arc::new(FakeRunner::with_capacity(8));
+
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let turn_id = running.turn_id;
+    let subscription = streams
+        .subscribe(&running.session_id, 0)
+        .expect("订阅方可接入");
+    runner.feed(vec![message_kind(), message_kind()]).await;
+    runner.close_stream();
+    assert!(registry.request_stop(&running.session_id), "停止链置位");
+
+    let (observations, _finished, outcome) = drive_all(running).await;
+    let (streamed, terminal) = drain_stream(subscription).await;
+
+    assert_eq!(outcome.status, AgentRunStatus::Stopped, "停止收敛 stopped");
+    assert_eq!(observations.len(), 2, "收敛路径零新增事件");
+    assert_eq!(
+        observed_turn_ids(&observations),
+        vec![Some(turn_id); 2],
+        "置位前流出的密封事件轮归属不变"
+    );
+    // 订阅端 since_seq=0 只投严格更大者（seq 0 由重放装载覆盖）
+    assert_eq!(
+        streamed.len(),
+        1,
+        "订阅端只余 seq 1 一条（stopped 不合成事件）"
+    );
+    assert_eq!(streamed[0].turn_id, Some(turn_id), "订阅端轮归属同值");
+    assert_eq!(terminal.turn_id, turn_id, "终态携开轮 id");
+    assert_eq!(terminal.error, None, "用户主动终止不记因");
+}

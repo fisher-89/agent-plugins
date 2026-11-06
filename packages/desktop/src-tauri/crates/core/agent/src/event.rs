@@ -203,11 +203,25 @@ impl AgentEventKind {
     }
 }
 
-/// 统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
-/// `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
+/// 统一事件信封：每事件携带 `turn_id`（轮归属）、`seq`（单调序号，入库排序
+/// 键）与时间戳；`kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端
+/// DTO 基准）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
+    /// 轮归属：**持久层权威分配的轮 id**（内核 `begin_turn` 经
+    /// `sink.begin_turn` 取得，与轮统计行主键同源），一轮内全部事件（含
+    /// `MessageDelta`）同值；`None` 仅出现在无轮归属的构造面（测试夹具 /
+    /// 手工构造）。
+    ///
+    /// 与该层 `TurnDone.session_id`（引擎侧会话标识，双 id 映射半边）语义
+    /// **完全不同**，MUST NOT 互相替代或混用命名。
+    ///
+    /// 属性面只标 `default`：`skip_serializing_if` 无法在 unified 相位模型下
+    /// 表达，加则 bindings 分裂为相位伴生类型（沿 `Text.citations` 同款措辞）；
+    /// 线格式键恒在、值可 `null`。
+    #[serde(default)]
+    pub turn_id: Option<i64>,
     /// 单调序号，会话级续排
     pub seq: u64,
     /// 事件盖戳时刻（UTC unix 毫秒）
@@ -218,9 +232,16 @@ pub struct AgentEvent {
 }
 
 impl AgentEvent {
-    /// 盖当前时钟毫秒的统一生产入口：seq 由调用方（事件生产者）传入
-    pub fn stamp(seq: u64, kind: AgentEventKind) -> Self {
+    /// 盖当前时钟毫秒的唯一生产入口：**轮归属为首参**（「归属 → 身份 →
+    /// 载荷」阅读序），`seq` 由调用方（事件生产者）传入；`timestamp_ms` 仍取
+    /// `now_millis()`。
+    ///
+    /// 轮 id 是**持久层分配的治理信息**，引擎不该知道——真实运行事件的轮归属
+    /// 只在会话内核的盖戳单点传入（`Some(turn_id)`）。MUST NOT 另立第二条生产
+    /// 入口：两条入口会让「漏写轮归属」从编译错误退化为运行期静默 `null`。
+    pub fn stamp(turn_id: Option<i64>, seq: u64, kind: AgentEventKind) -> Self {
         Self {
+            turn_id,
             seq,
             timestamp_ms: now_millis(),
             kind,

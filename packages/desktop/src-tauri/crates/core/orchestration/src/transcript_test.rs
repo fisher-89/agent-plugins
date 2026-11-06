@@ -13,6 +13,7 @@ use crate::transcript::{failure_reason, final_assistant_text};
 
 fn message(seq: u64, role: AgentMessageRole, blocks: Vec<AgentBlock>) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::Message {
             role,
@@ -24,6 +25,7 @@ fn message(seq: u64, role: AgentMessageRole, blocks: Vec<AgentBlock>) -> AgentEv
 
 fn notice(seq: u64, subtype: &str, payload: serde_json::Value) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::SystemNotice {
             subtype: subtype.to_owned(),
@@ -34,6 +36,7 @@ fn notice(seq: u64, subtype: &str, payload: serde_json::Value) -> AgentEvent {
 
 fn turn_done(seq: u64, subtype: &str, is_error: bool) -> AgentEvent {
     AgentEvent::stamp(
+        None,
         seq,
         AgentEventKind::TurnDone {
             subtype: subtype.to_owned(),

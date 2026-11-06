@@ -77,6 +77,7 @@ fn append_events(store: &store::Store, session_id: &str, seqs: &[u64]) {
         .iter()
         .map(|&seq| {
             AgentEvent::stamp(
+                None,
                 seq,
                 AgentEventKind::Raw {
                     event_type: "mystery".to_owned(),

@@ -236,6 +236,7 @@ fn seed_sdk_session(store: &store::Store, id: &str, source_ref: Option<&str>) {
 fn seed_transcript(store: &store::Store, session_id: &str) {
     let transcript = vec![
         agent::AgentEvent::stamp(
+            None,
             0,
             AgentEventKind::Message {
                 role: AgentMessageRole::User,
@@ -247,6 +248,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
             },
         ),
         agent::AgentEvent::stamp(
+            None,
             1,
             AgentEventKind::Message {
                 role: AgentMessageRole::Assistant,

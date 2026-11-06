@@ -163,7 +163,7 @@ fn seed_sdk_session(
 
 /// 盖戳密封事件 fixture。
 fn stamped(seq: u64, kind: AgentEventKind) -> ::agent::AgentEvent {
-    ::agent::AgentEvent::stamp(seq, kind)
+    ::agent::AgentEvent::stamp(None, seq, kind)
 }
 
 // ---------------------------------------------------------------------------
