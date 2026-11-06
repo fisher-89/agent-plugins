@@ -1141,6 +1141,40 @@ SDK 引擎 SHALL 支持按 provider 开关启用 Anthropic 云端 `web_search` �
 - **WHEN** `pause_turn` 终局伴随空 choice；或本轮 choice 含客户端 `ToolCall`
 - **THEN** 前者按既有空轮收敛路径收口（不续跑）；后者进入工具执行流程（不续跑），续跑计数不增
 
+### Requirement: 输出截断终局（不重试、不执行工具、显式留痕）
+
+引擎 SHALL 识别两类「输出被截断」的终局并显式留痕，MUST NOT 将其静默当作自然结束：
+
+- **`max_tokens` 撞顶**：rig 映射为 `FinishReason::Length`（Anthropic `stop_reason = "max_tokens"`）。
+- **上下文窗溢出**：rig 映射为 `FinishReason::Other("model_context_window_exceeded")`（Anthropic 4.5+ 在「输入 + `max_tokens` 越过窗长且生成触顶」时返回该值；更早代际为请求期 400）。判据 SHALL 为精确等值（不做字符串包含匹配，防 `Other("..._x")` 误判），与 `pause_turn` 同型。
+
+两类截断 SHALL：
+
+- **不重试**：MUST NOT 进入 `api_error` 退避重发链——截断与 IO 失败语义不同，请求体一字不改的重发必然再撞同一堵墙，只消耗重试预算。
+- **不执行工具、不续跑**：截断流的输出不完整，本轮声明的工具调用 MUST NOT 执行（tool input 可能是半截 JSON），`pause_turn` 续跑 MUST NOT 触发。
+- **正常收敛 + 显式留痕**：SHALL 以 `TurnDone{subtype:"success", is_error:false}` 收口（不是 `api_error`/run 级失败——那会绕过相位 evaluator 与决策重试链），并发 `SystemNotice{ subtype: "output_truncated", payload: { kind, turn_index, output_tokens } }`，`kind` 为 `max_tokens` | `context_window_exceeded`；同因 SHALL 落引擎日志（消费端关闭时事件面失声，日志面保观测）。
+- **判定权归属**：产物是否足以交付由相位 evaluator 判定（它知道该相位应产出什么），引擎只报「被截断了」。引擎 MUST NOT 注入续写消息、MUST NOT 自动抬高 `max_tokens`（续写等于绕过 provider 硬上限）。
+
+#### Scenario: `max_tokens` 截断
+
+- **WHEN** 一轮响应以 `FinishReason::Length` 收尾
+- **THEN** 该轮共发一次请求（零重试）、零 `api_retry` / `api_error` 通知；产出恰一条 `SystemNotice{output_truncated}` 且 `kind = "max_tokens"`；`TurnDone` 为 `success` / `is_error = false`
+
+#### Scenario: 上下文窗溢出截断
+
+- **WHEN** 一轮响应以 `Other("model_context_window_exceeded")` 收尾
+- **THEN** 行为同上，但 `kind = "context_window_exceeded"`（成因与用户可调性不同：前者调 `max_tokens` 可解，后者上限再大也会撞，属防线失守）
+
+#### Scenario: 截断流里的工具调用被弃用
+
+- **WHEN** 截断帧之前已流出一条客户端 `ToolCall`
+- **THEN** 该调用 MUST NOT 执行（零工具结果事件），MUST NOT 因它再发第二次请求；本轮以截断收口
+
+#### Scenario: 非截断终局不误判
+
+- **WHEN** 终局为 `Stop` / `ToolCalls` / `None` / `Other("pause_turn")`
+- **THEN** 零 `output_truncated` 通知，收敛语义与既有行为逐字一致
+
 ### Requirement: 上下文防线 server 块孤儿清扫
 
 `sweep_orphans`（`sdk/context.rs`）SHALL 在既有「`UserContent::ToolResult ↔ CallId`」配对清扫之外，同时认 **assistant 位 server 块配对**：
@@ -1378,6 +1412,9 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 | 块转换 | 换 `web_search::project_choice(&choice)` | 删内联四变体 match（块语义单一实现） |
 | `'attempt` 返回值 | `(choice, usage, finish_reason)` | `CompletionResponse::finish_reason()` |
 | 续跑循环 | 常量 `PAUSE_TURN_MAX_CONTINUATIONS = 5` | 独立计数轴（`attempt` 每次续跑前归零）；两条 notice；到顶按 `stop` 收口 |
+| `truncation_kind` | `fn(Option<&FinishReason>) -> Option<TruncationKind>` | 精确等值判定 `Length` → `OutputCap`、`Other("model_context_window_exceeded")` → `ContextWindow`；其余 `None`（不误判） |
+| `emit_truncated` | `async fn(&Sender, &LoopTurn, TruncationKind, u64, &Usage)` | `SystemNotice{output_truncated}` + 引擎日志双写；载荷 `{kind, turn_index, output_tokens}` |
+| 截断收口点 | 位于密封入史之后、`tool_calls` 执行判定之前 | 不重试、不执行工具、不续跑；`finish_success` 收口 |
 
 ### Function: `packages/desktop/src-tauri/crates/infra/agent/src/sdk/{resume,context}.rs`
 

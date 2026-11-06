@@ -30,6 +30,13 @@ const PAUSE_TURN_MAX_CONTINUATIONS: u32 = 5;
 /// `pause_turn` 的 rig 终局标记（`FinishReason::Other("pause_turn")` 的原值）。
 const PAUSE_TURN_REASON: &str = "pause_turn";
 
+/// Anthropic `model_context_window_exceeded` 的 rig 终局标记原值：输入 + 输出
+/// 越过上下文窗时 4.5+ 模型以该 `stop_reason` 停止（更早代际是请求期 400）。
+const CONTEXT_WINDOW_EXCEEDED_REASON: &str = "model_context_window_exceeded";
+
+/// 截断留痕的 notice subtype（开放词典，与 `api_retry` / `context_pruned` 同列）。
+const TRUNCATED_SUBTYPE: &str = "output_truncated";
+
 /// 提供者 IO 活性护栏
 const REQUEST_LIVENESS: Duration = Duration::from_secs(300);
 /// 流帧空闲预算分档宽于请求相位
@@ -391,6 +398,15 @@ pub(crate) async fn run(
                 ));
                 return history; // 消费端关闭：泵自行退出
             }
+            // 截断终局：输出不完整 → 本轮声明的工具调用不可信（tool input 可能
+            // 是半截 JSON），MUST NOT 执行、MUST NOT 续跑、MUST NOT 进重试链
+            // （请求体一字不改的重发必然再撞同一堵墙）。以正常收敛 + 显式留痕
+            // 收口：产物是否够用由相位 evaluator 判定，引擎只报「被截断了」。
+            if let Some(kind) = truncation_kind(finish_reason.as_ref()) {
+                emit_truncated(&sender, turn, kind, turn_index, &turn_usage).await;
+                finish_success(&sender, turn_index, started, &usage, turn).await;
+                return history;
+            }
             // 工具执行优先收口（含客户端 tool_calls 时不续跑，续跑计数不增）
             if !tool_calls.is_empty() {
                 break 'continuation tool_calls;
@@ -542,10 +558,75 @@ pub(crate) async fn run(
     }
 }
 
+/// 输出被截断的终局分类（非 IO 失败、不可退避重试）。
+///
+/// 两者的本地语义相同——本轮输出不完整、产物可能残缺；区别只在成因与用户
+/// 可调性：`OutputCap` 是 provider 输出上限撞顶（调 `max_tokens` 可解），
+/// `ContextWindow` 是输入 + 输出越过上下文窗（上限再大也会撞，属防线失守）。
+/// 统一走「正常收敛 + `output_truncated` 留痕」，**MUST NOT** 进 `api_error`
+/// 重试链——请求体一字不改的重发必然再撞同一堵墙。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TruncationKind {
+    /// `max_tokens` 撞顶（rig `FinishReason::Length`）
+    OutputCap,
+    /// 输入 + 输出越过上下文窗（rig `FinishReason::Other(..)`）
+    ContextWindow,
+}
+
+impl TruncationKind {
+    /// 留痕线值（notice 载荷 `kind` 字段 / 引擎日志）。
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::OutputCap => "max_tokens",
+            Self::ContextWindow => "context_window_exceeded",
+        }
+    }
+}
+
+/// 截断终局判据（精确等值，与 [`is_pause_turn`] 同型：不做字符串包含匹配）。
+/// `None` / 其余终局一律 `None`（不误判）。
+fn truncation_kind(finish_reason: Option<&FinishReason>) -> Option<TruncationKind> {
+    match finish_reason {
+        Some(FinishReason::Length) => Some(TruncationKind::OutputCap),
+        Some(FinishReason::Other(reason)) if reason == CONTEXT_WINDOW_EXCEEDED_REASON => {
+            Some(TruncationKind::ContextWindow)
+        }
+        _ => None,
+    }
+}
+
 /// `pause_turn` 终局判据（精确等值：不做字符串包含匹配，防
 /// `Other("pause_turn_x")` 误判；`None` 一律视为非 `pause_turn`）。
 fn is_pause_turn(finish_reason: Option<&FinishReason>) -> bool {
     matches!(finish_reason, Some(FinishReason::Other(reason)) if reason == PAUSE_TURN_REASON)
+}
+
+/// 截断留痕：`SystemNotice{output_truncated}` + 引擎日志（事件面与日志面
+/// 双写——消费端关闭时事件面失声，日志面保观测）。载荷只带可核事实，不带
+/// 处置建议：本轮未执行的工具调用与已入史的半截内容由转录天然可考。
+async fn emit_truncated(
+    sender: &mpsc::Sender<AgentEventKind>,
+    turn: &LoopTurn,
+    kind: TruncationKind,
+    turn_index: u64,
+    turn_usage: &Usage,
+) {
+    append_engine_log(&format!(
+        "loop 输出截断 session={} turn_index={turn_index} kind={} output_tokens={:?}",
+        turn.session_id,
+        kind.as_str(),
+        turn_usage.output_tokens
+    ));
+    let _ = sender
+        .send(AgentEventKind::SystemNotice {
+            subtype: TRUNCATED_SUBTYPE.to_owned(),
+            payload: serde_json::json!({
+                "kind": kind.as_str(),
+                "turn_index": turn_index,
+                "output_tokens": turn_usage.output_tokens,
+            }),
+        })
+        .await;
 }
 
 /// 拒绝合成：`SystemNotice{subtype}` + is_error ToolResult 密封 tool 消息

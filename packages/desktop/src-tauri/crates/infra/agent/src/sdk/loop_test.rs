@@ -3726,6 +3726,186 @@ async fn pause_turn空choice不续跑且走既有空轮收敛路径() {
     assert!(!*is_error);
 }
 
+// ---------------------------------------------------------------------------
+// 输出截断终局（max_tokens / model_context_window_exceeded）：不重试、不执行
+// 工具、不续跑，以正常收敛 + output_truncated 留痕收口
+// ---------------------------------------------------------------------------
+
+/// `max_tokens` 终局帧（rig 侧 `FinishReason::Length` 的原值来源）。
+fn raw_max_tokens(usage: Usage) -> MockStreamEvent {
+    raw_final_with_reason(FinishReason::Length, usage)
+}
+
+/// `model_context_window_exceeded` 终局帧（4.5+ 模型的窗长溢出停止值）。
+fn raw_context_window_exceeded(usage: Usage) -> MockStreamEvent {
+    raw_final_with_reason(
+        FinishReason::Other("model_context_window_exceeded".to_owned()),
+        usage,
+    )
+}
+
+/// 摘 `output_truncated` 通知载荷（零条即空 vec）。
+fn truncation_payloads(events: &[AgentEventKind]) -> Vec<serde_json::Value> {
+    notices_of(events)
+        .into_iter()
+        .filter(|(subtype, _)| *subtype == "output_truncated")
+        .map(|(_, payload)| payload.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn max_tokens截断时正常收敛且发output_truncated通知不重试() {
+    let dir = tempdir("truncate-max-tokens");
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("被截断的正文……"),
+        raw_max_tokens(usage(100, 32_000)),
+    ]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let payloads = truncation_payloads(&events);
+    assert_eq!(payloads.len(), 1, "恰一条 output_truncated 留痕");
+    assert_eq!(payloads[0]["kind"], serde_json::json!("max_tokens"));
+    assert_eq!(payloads[0]["turn_index"], serde_json::json!(1));
+    assert_eq!(payloads[0]["output_tokens"], serde_json::json!(32_000));
+
+    assert_eq!(
+        model.captured_requests().len(),
+        1,
+        "截断不进重试链（判据错误重发必然再撞同一上限）"
+    );
+    let subtypes: Vec<&str> = notices_of(&events).iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        subtypes,
+        vec!["output_truncated"],
+        "零 api_retry / api_error（截断不是 IO 失败）"
+    );
+
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(
+        subtype, "success",
+        "按正常收敛收口（判定权交相位 evaluator）"
+    );
+    assert!(!*is_error, "非失败终态");
+}
+
+#[tokio::test]
+async fn 窗长溢出截断时kind区分且同样不重试() {
+    let dir = tempdir("truncate-context-window");
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("撞窗正文"),
+        raw_context_window_exceeded(usage(200_000, 8_000)),
+    ]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let payloads = truncation_payloads(&events);
+    assert_eq!(payloads.len(), 1);
+    assert_eq!(
+        payloads[0]["kind"],
+        serde_json::json!("context_window_exceeded"),
+        "与 max_tokens 截断凭 kind 区分（成因与可调性不同）"
+    );
+    assert_eq!(model.captured_requests().len(), 1, "同样不重试");
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "success");
+    assert!(!*is_error);
+}
+
+#[tokio::test]
+async fn 截断流里的工具调用不被执行() {
+    let dir = tempdir("truncate-with-tool");
+    // 截断帧之前已流出一条完整的工具调用：仍 MUST NOT 执行（输出不完整，
+    // 工具面整体弃用）
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("先写文件"),
+        raw_tool_call("call-t1", "read", serde_json::json!({ "path": "a.txt" })),
+        raw_max_tokens(usage(100, 32_000)),
+    ]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    assert_eq!(truncation_payloads(&events).len(), 1, "截断留痕在场");
+    assert_eq!(
+        model.captured_requests().len(),
+        1,
+        "不因工具调用再发第二次请求（截断即收口）"
+    );
+    let tool_results = events
+        .iter()
+        .filter(|event| matches!(event, AgentEventKind::Message { role, .. } if role == &AgentMessageRole::Tool))
+        .count();
+    assert_eq!(tool_results, 0, "零工具结果事件（本轮工具面弃用）");
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error);
+}
+
+#[tokio::test]
+async fn 非截断终局不发output_truncated且行为零变化() {
+    let dir = tempdir("truncate-negative");
+    for (label, final_event) in [
+        ("自然结束", raw_final(usage(10, 20))),
+        (
+            "stop_sequence",
+            raw_final_with_reason(FinishReason::Stop, usage(10, 20)),
+        ),
+        (
+            "pause_turn 外的 Other 值",
+            raw_final_with_reason(
+                FinishReason::Other("pause_turn_x".to_owned()),
+                usage(10, 20),
+            ),
+        ),
+    ] {
+        let model = FakeModel::with_turns(vec![vec![raw_text("正文"), final_event]]);
+        let handle = RunHandle::default();
+        let events = drive_loop(
+            &model,
+            &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+            &handle,
+        )
+        .await;
+        assert!(
+            truncation_payloads(&events).is_empty(),
+            "{label}: 不误判为截断"
+        );
+        let AgentEventKind::TurnDone { subtype, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert_eq!(subtype, "success", "{label}: 收敛语义不变");
+    }
+}
+
 #[tokio::test]
 async fn 续跑间隙停止截停时返回且不投续跑请求与通知() {
     let dir = tempdir("pause-turn-stop");
