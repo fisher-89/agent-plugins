@@ -31,11 +31,22 @@ const EVENT_CHANNEL_CAPACITY: usize = 256;
 /// 提问通道有界容量（单问送达；单会话单活动轮，容量 4 为余量）。
 const QUESTION_CHANNEL_CAPACITY: usize = 4;
 
-/// anthropic 输出上限兜底（token 数）：rig 内置模型名单未命中且 provider 未填
-/// `max_tokens` 时的取值（对齐 Claude Code 表外行为 `32_000`）——名单外模型
-/// 因此不再触发编码期 `max_tokens must be set for Anthropic` 失败；
-/// 老代 / 第三方网关的小上限模型由用户显式填 `max_tokens` 覆盖。
-const OUTPUT_TOKENS_FALLBACK: u64 = 32_000;
+/// 输出上限分段表（标称窗长下界, 默认输出上限），升序；[`derive_output_tokens`]
+/// 取「下界 <= 窗长」的最后一档。编译期常量而非配置面——与 `MAX_ROUNDS` /
+/// `FEEDBACK_LOOP_LIMIT` 同类；用户级覆盖走 provider `max_tokens` 列，不是第二
+/// 条配置面。
+///
+/// 128K 档逐字保留既往 `32_000` 兜底：`DEFAULT_CONTEXT_WINDOW = 128 * 1024`，
+/// 未配置任何字段的用户取值因此不变。封顶 64_000 而非 128_000：rig 名单内模型
+/// 先命中其官方值（权威元数据），本表只服务名单外模型，对未知模型 64K 是安全
+/// 猜测。下限取 `MIN_OUTPUT_TOKENS`：推导值必须落在表单与命令层的合法区间内。
+const OUTPUT_TOKENS_SEGMENTS: &[(u64, u64)] = &[
+    (0, MIN_OUTPUT_TOKENS),
+    (32 * 1024, 16_384),
+    (128 * 1024, 32_000),
+    (256 * 1024, 48_000),
+    (512 * 1024, 64_000),
+];
 
 /// provider `max_tokens` 保存期下限（token 数）：命令层保存校验与引擎侧
 /// 取值链共用同一门槛（MUST NOT 造第二套字面量）。
@@ -53,7 +64,7 @@ pub struct SdkRunner {
     /// provider 上下文窗长（组合根旁路载荷；None = 128K 缺省启发式，该档模型
     /// 名带 `[1m]` 后缀时被覆盖）
     context_window: Option<u64>,
-    /// provider 输出上限（组合根旁路载荷；None = 按协议缺省）
+    /// provider 输出上限（组合根旁路载荷；None = 按标称窗长分档推导）
     max_tokens: Option<u64>,
     /// 云端 `web_search` 服务端工具开关（组合根已按协议门控的最终值；
     /// `new` 缺省 false——与「显式关」同义，故全链收 `bool` 而非 `Option`）
@@ -87,7 +98,7 @@ impl SdkRunner {
     }
 
     /// 输出上限旁路注入（builder 缝，与 `context_window` 并列的解码后载荷）：
-    /// `new` 签名不动（既有调用点零改），`None` = 按协议缺省。
+    /// `new` 签名不动（既有调用点零改），`None` = 按标称窗长分档推导。
     pub fn with_max_tokens(self, max_tokens: Option<u64>) -> Self {
         Self { max_tokens, ..self }
     }
@@ -175,7 +186,10 @@ impl AgentRunner for SdkRunner {
         // Continue：经装载缝取会话全史转录重建（New 空史）；先行句柄 sdk 引擎
         // 不消费（引擎侧标识每轮铸造，重建源即会话全史转录）
         let history = self.resolve_resume(&continue_session_id(&open))?;
-        let model = build_model(&self.config, &spec, self.max_tokens);
+        // 标称窗长单点：输出上限推导与防线装配同源（两者都读这一处，避免
+        // 「防线按一档、输出按另一档」的双源漂移）
+        let window = spec.length.or(self.context_window);
+        let (model, output_tokens) = build_model(&self.config, &spec, self.max_tokens, window);
         let (question_tx, question_rx) = mpsc::channel::<TurnQuestion>(QUESTION_CHANNEL_CAPACITY);
         let (observation_tx, observation_rx) =
             mpsc::channel::<agent::AgentEventKind>(EVENT_CHANNEL_CAPACITY);
@@ -184,7 +198,7 @@ impl AgentRunner for SdkRunner {
         // > 128K 缺省）+ 第一调用点：resume 重建史超 L2 水位即先行剪裁；
         // notice 交泵先于 RunStarted 转发（同任务同通道 FIFO 保序，重建史防线
         // 留痕）
-        let defense = ContextDefense::resolve(spec.length.or(self.context_window));
+        let defense = ContextDefense::resolve(window);
         let (history, resume_notices) = context::prune(history, &defense);
         tokio::spawn(session_pump(
             model,
@@ -193,6 +207,7 @@ impl AgentRunner for SdkRunner {
             PumpPayload {
                 history,
                 defense,
+                output_tokens,
                 resume_notices,
                 protocol: self.config.protocol,
                 web_search: self.web_search,
@@ -220,17 +235,26 @@ fn continue_session_id(open: &SessionOpen) -> Option<String> {
     }
 }
 
-/// rig 模型组装
+/// rig 模型组装（`context_window` = 该档**标称**窗长，供输出上限分段推导；
+/// None = 128K 缺省档）。
+///
+/// 返回值为 `(模型, 生效输出上限)`：上限与写进 wire 的值同源同值，调用方直接
+/// 用于泵启动日志——日志列 MUST NOT 另走一遍取值链（否则日志可能与实际请求
+/// 漂移）。openai 协议不写该字段，第二元恒 `None`。
 pub(crate) fn build_model(
     config: &EngineConfig,
     spec: &ModelSpec,
     max_tokens: Option<u64>,
-) -> DynModel<Completion> {
+    context_window: Option<u64>,
+) -> (DynModel<Completion>, Option<u64>) {
     match config.protocol {
-        Protocol::Openai => openai_provider(config)
-            .client()
-            .chat(spec.name.clone())
-            .erase(),
+        Protocol::Openai => (
+            openai_provider(config)
+                .client()
+                .chat(spec.name.clone())
+                .erase(),
+            None,
+        ),
         Protocol::Anthropic => {
             let mut model = with_prompt_cache(
                 anthropic_provider(config, spec)
@@ -239,11 +263,10 @@ pub(crate) fn build_model(
             );
             // 定型 wire 默认上限：wire `encode` 在请求 `max_tokens` 缺席时取该
             // 值，故 `loop` / `compact` 的 `max_tokens: None` 保持零改动
-            model.wire.default_max_tokens = Some(resolve_output_tokens(
-                max_tokens,
-                model.wire.default_max_tokens,
-            ));
-            model.erase()
+            let output_tokens =
+                resolve_output_tokens(max_tokens, model.wire.default_max_tokens, context_window);
+            model.wire.default_max_tokens = Some(output_tokens);
+            (model.erase(), Some(output_tokens))
         }
     }
 }
@@ -273,11 +296,32 @@ pub(crate) fn anthropic_provider(config: &EngineConfig, spec: &ModelSpec) -> Ant
 }
 
 /// anthropic 输出上限取值链：provider 显式值优先 → rig 名单内官方值（保留、
-/// 不降级）→ [`OUTPUT_TOKENS_FALLBACK`] 兜底（名单外模型）。
-pub(crate) fn resolve_output_tokens(provider_value: Option<u64>, rig_default: Option<u64>) -> u64 {
+/// 不降级）→ [`derive_output_tokens`] 按标称窗长分档推导（取代固定兜底）。
+pub(crate) fn resolve_output_tokens(
+    provider_value: Option<u64>,
+    rig_default: Option<u64>,
+    context_window: Option<u64>,
+) -> u64 {
     provider_value
         .or(rig_default)
-        .unwrap_or(OUTPUT_TOKENS_FALLBACK)
+        .unwrap_or_else(|| derive_output_tokens(context_window))
+}
+
+/// 标称窗长 → 默认输出上限（纯函数，无 IO）：查 [`OUTPUT_TOKENS_SEGMENTS`]
+/// 取「下界 <= 窗长」的最后一档；`None` / `Some(0)`（= 未配置）与
+/// [`DEFAULT_CONTEXT_WINDOW`](crate::sdk::context::DEFAULT_CONTEXT_WINDOW) 同档
+/// ——与防线装配的缺省口径同源，未配置用户的取值逐字不变。
+pub(crate) fn derive_output_tokens(context_window: Option<u64>) -> u64 {
+    let window = match context_window {
+        Some(window) if window > 0 => window,
+        _ => context::DEFAULT_CONTEXT_WINDOW,
+    };
+    OUTPUT_TOKENS_SEGMENTS
+        .iter()
+        .rev()
+        .find(|(lower, _)| *lower <= window)
+        .map(|(_, tokens)| *tokens)
+        .unwrap_or(MIN_OUTPUT_TOKENS)
 }
 
 /// 泵任务的防线与史载荷（参数面收敛分组：重建史 + 防线配置 + 重建剪裁的
@@ -287,6 +331,9 @@ struct PumpPayload {
     history: Vec<Message>,
     /// 上下文窗防线配置
     defense: ContextDefense,
+    /// 该次装配生效的 wire 输出上限（日志 `max_tokens=…`；anthropic 恒有值，
+    /// openai 恒 `None`——协议不写该字段）
+    output_tokens: Option<u64>,
     /// 重建剪裁产出的 notice（泵内先于 RunStarted 转发）
     resume_notices: Vec<DefenseNotice>,
     /// 模型协议（泵启动日志诊断面 `protocol=…`）
@@ -354,11 +401,15 @@ async fn session_pump(
     // = 会话 cwd——change 会话即 worktree）；上下文随 LoopTurn 携带、loop 侧路由
     let archi = mint_archi_context(open.injections.toolset.as_ref(), &open.ctx.workspace_root);
     // 泵启动日志（诊断面：同一 base_url 配错协议可一眼定位）。`model` 报裸名
-    // （= 实际发送）、`window` 报**生效**窗长（含 128K 缺省）、`raw` 留配置原文
+    // （= 实际发送）、`window` 报**生效**窗长（含 128K 缺省）、`max_tokens` 报
+    // **生效**输出上限（openai 协议不写该字段，记 `-`）、`raw` 留配置原文
     let session_id = SdkRunner::next_session_id();
     let window = payload.defense.window();
+    let output = payload
+        .output_tokens
+        .map_or_else(|| "-".to_owned(), |tokens| tokens.to_string());
     crate::sdk::log::append_engine_log(&format!(
-        "泵启动 session={session_id} protocol={} model={} window={window} web_search={} raw={}",
+        "泵启动 session={session_id} protocol={} model={} window={window} max_tokens={output} web_search={} raw={}",
         payload.protocol.as_str(),
         spec.name,
         payload.web_search,

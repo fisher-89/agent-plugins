@@ -100,7 +100,7 @@ impl EngineFacade {
 
     /// 携 sdk 引擎输出上限的门面（builder 缝，与 `with_context_window` 同型
     /// 并列）：provider 记录 `max_tokens` 列经组合根旁路抵达 sdk 引擎
-    /// （MUST NOT 进 `EngineConfig`）；`None` = 按协议缺省。
+    /// （MUST NOT 进 `EngineConfig`）；`None` = 按上下文窗长分档推导。
     pub fn with_max_tokens(self, max_tokens: Option<u64>) -> Self {
         Self {
             resume: self.resume,

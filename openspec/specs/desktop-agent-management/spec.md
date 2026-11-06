@@ -10,7 +10,7 @@
 
 命令层 SHALL 新增全局 agent 管理命令轨道（命名与文件分组由 design 定稿，落 `commands/` 全局轨，经 `WorkspaceStores::global()` 全局库实例执行，MUST NOT 误路由 workspace 库），承载两类实例的 CRUD 与默认标记：
 
-- **provider 实例**：新增 / 更新 / 删除 / 清单。name SHALL 全局唯一（重名保存 SHALL 以 `Err` 报错）；**`protocol`**（模型协议，线值 `openai` | `anthropic`；缺省 `openai`——存量 v2 行升级即 `openai`，行为零变化；写入面接受两值，MUST NOT 因协议为 `anthropic` 拒收）、base_url、api_key、models 三档（high / medium / low）、**可空 `context_length`**（provider 上下文窗长，token 数；sdk 引擎上下文防线消费，缺席走 128K 缺省启发式——desktop-agent-execution「SDK 引擎上下文窗防线（L2 剪裁与 L3 compaction）」）、**可空 `max_tokens`**（输出上限，token 数；`None` = 按协议缺省；仅 anthropic 协议消费，openai 协议请求保持省略上限——desktop-agent-execution「SDK 引擎模型名 `[1m]` 后缀与输出上限定档」）、**`web_search: bool`**（是否启用 Anthropic 云端 `web_search` 服务端工具；缺省 `false`——存量行升级即关，行为零变化）随记录保存；`context_length` 编辑语义 SHALL 为留空 = 未配置（存 `None`，MUST NOT 落 0 或把缺省启发式字面写库）；`max_tokens` 编辑语义 SHALL 为留空 = 未配置（存 `None`），非空值 MUST 满足 `>= 4096`（否则保存 SHALL 以 `Err` 拒收，MUST NOT 静默截断或夹到边界）；`web_search` 保存语义 SHALL 为**无条件接受**（MUST NOT 因 `protocol = openai` 拒收或清零——生效门在解析期，见下）；api_key 编辑语义 SHALL 为留空 = 保持原值不变（前端遮蔽占位配套，见「Agent 管理页」）；models 三档 SHALL 接受形如 `<模型名>[1m]` 的模型原文（后缀语义与解析规则归 desktop-agent-execution），保存期 SHALL 以引擎侧**同一**解析函数校验三档模型名——后缀非法（`[2m]`、`[8k]`、空方括号、方括号不在末尾等）SHALL 以 `Err` 拒收，MUST NOT 把带非法后缀的原文落库；
+- **provider 实例**：新增 / 更新 / 删除 / 清单。name SHALL 全局唯一（重名保存 SHALL 以 `Err` 报错）；**`protocol`**（模型协议，线值 `openai` | `anthropic`；缺省 `openai`——存量 v2 行升级即 `openai`，行为零变化；写入面接受两值，MUST NOT 因协议为 `anthropic` 拒收）、base_url、api_key、models 三档（high / medium / low）、**可空 `context_length`**（provider 上下文窗长，token 数；sdk 引擎上下文防线消费，缺席走 128K 缺省启发式——desktop-agent-execution「SDK 引擎上下文窗防线（L2 剪裁与 L3 compaction）」）、**可空 `max_tokens`**（输出上限，token 数；`None` = 按上下文窗长分档推导（未配置窗长时 32000）；仅 anthropic 协议消费，openai 协议请求保持省略上限——desktop-agent-execution「SDK 引擎模型名 `[1m]` 后缀与输出上限定档」）、**`web_search: bool`**（是否启用 Anthropic 云端 `web_search` 服务端工具；缺省 `false`——存量行升级即关，行为零变化）随记录保存；`context_length` 编辑语义 SHALL 为留空 = 未配置（存 `None`，MUST NOT 落 0 或把缺省启发式字面写库）；`max_tokens` 编辑语义 SHALL 为留空 = 未配置（存 `None`），非空值 MUST 满足 `>= 4096`（否则保存 SHALL 以 `Err` 拒收，MUST NOT 静默截断或夹到边界）；`web_search` 保存语义 SHALL 为**无条件接受**（MUST NOT 因 `protocol = openai` 拒收或清零——生效门在解析期，见下）；api_key 编辑语义 SHALL 为留空 = 保持原值不变（前端遮蔽占位配套，见「Agent 管理页」）；models 三档 SHALL 接受形如 `<模型名>[1m]` 的模型原文（后缀语义与解析规则归 desktop-agent-execution），保存期 SHALL 以引擎侧**同一**解析函数校验三档模型名——后缀非法（`[2m]`、`[8k]`、空方括号、方括号不在末尾等）SHALL 以 `Err` 拒收，MUST NOT 把带非法后缀的原文落库；
 - **agent 实例**：新增 / 更新 / 删除 / 清单与默认标记。name 全局唯一；engine 线值域 `cli` | `sdk` 保留（`cli` 为存量只读解码值——`AgentEngineKind::Cli` 变体是 bincode 解码锚，线值不演进），写入面 SHALL 仅接受 `engine: sdk`：携 `engine: Cli` 的保存（新建与更新整行同拒）SHALL 以 `Err("CLI 租户已下线…")` 拒绝，存量 cli 实例可读、可删、不可改；provider 引用 SHALL 必选（`sdk` 唯一活档，CLI 引擎不消费 provider 的「cli 可空」语义随 CLI 租户退役）；
 - **删除语义**：删被 agent 引用的 provider SHALL 阻止并报错（错误信息提示引用方，MUST NOT 级联删除）；删默认 agent SHALL 清空默认标记后删除（默认不顺延到其他 agent），MUST NOT 报错。
 
@@ -122,9 +122,9 @@ agent 实例 SHALL 支持「默认」标记，全局至多一个；标记新默�
 
 前端 SHALL 提供全局 Agent 管理页（路由 `/agents`，侧栏「系统工具」组新增入口，`data-testid="nav-agents"`，命名 design 可调）：
 
-- **单页两栏**：Providers 清单 + Agents 清单，各自承载新建 / 编辑 / 删除交互；Agents 栏另承载默认标记切换（标记即切换，至多一个默认）；Providers 栏编辑表单 SHALL 增可空 `context_length` 数字字段（留空 = 未配置，跟随缺省启发式的语义提示在场）、**`protocol` 选择器**（复用既有 `StandardSelect`，选项 `openai` / `anthropic`，新建缺省 `openai`；编辑态允许改协议，与改 name / base_url 同权）、**可空 `max_tokens` 数字字段**（留空 = 按协议缺省；非正整数或 `< 4096` 拒绝提交并给出下限提示；字段提示 SHALL 声明「仅 anthropic 协议生效」）、**`web_search` 勾选项**（仅 `protocol === 'anthropic'` 渲染，`data-testid="provider-web-search"`，缺省不勾；提示 SHALL 声明「Anthropic 服务端网页搜索（按次计费）」；协议由 `anthropic` 切走时 SHALL 就地清零该勾选，切回时不自动恢复）；Providers 栏清单每行 SHALL 呈现协议徽标（`openai` / `anthropic` 可辨）；
+- **单页两栏**：Providers 清单 + Agents 清单，各自承载新建 / 编辑 / 删除交互；Agents 栏另承载默认标记切换（标记即切换，至多一个默认）；Providers 栏编辑表单 SHALL 增可空 `context_length` 数字字段（留空 = 未配置，跟随缺省启发式的语义提示在场）、**`protocol` 选择器**（复用既有 `StandardSelect`，选项 `openai` / `anthropic`，新建缺省 `openai`；编辑态允许改协议，与改 name / base_url 同权）、**可空 `max_tokens` 数字字段**（留空 = 按 `context_length` 分档推导（未配置时 32000）；非正整数或 `< 4096` 拒绝提交并给出下限提示；字段提示 SHALL 声明「仅 anthropic 协议生效」）、**`web_search` 勾选项**（仅 `protocol === 'anthropic'` 渲染，`data-testid="provider-web-search"`，缺省不勾；提示 SHALL 声明「Anthropic 服务端网页搜索（按次计费）」；协议由 `anthropic` 切走时 SHALL 就地清零该勾选，切回时不自动恢复）；Providers 栏清单每行 SHALL 呈现协议徽标（`openai` / `anthropic` 可辨）；
 - **`base_url` 提示随协议切换**：`openai` 协议的 placeholder / 提示 SHALL 为含版本段的地址形态（`https://…/v1`）；`anthropic` 协议的提示 SHALL 为 `https://api.anthropic.com` 形态并说明「`/v1` 等后缀由引擎自动剥离后拼 `/v1/messages`」（不要求用户自行改写地址）；
-- **模型名后缀提示**：表单 SHALL 提示三档模型名可带 `[1m]` 后缀（只影响上下文窗长与 anthropic beta，不改输出上限）；当某档带 `[1m]` 后缀且已填 `context_length` 时，提示 SHALL 声明该档窗长「已被模型名覆盖」（清除歧义，MUST NOT 让用户以为两者叠加）；
+- **模型名后缀提示**：表单 SHALL 提示三档模型名可带 `[1m]` 后缀（影响上下文窗长与 anthropic beta，且经窗长**间接**影响输出上限分档推导）；当某档带 `[1m]` 后缀且已填 `context_length` 时，提示 SHALL 声明该档窗长「已被模型名覆盖」（清除歧义，MUST NOT 让用户以为两者叠加）；
 - **api_key 遮蔽展示**：列表与详情 SHALL 呈现遮蔽形态（`sk-***abc`）；编辑态输入框 SHALL 展示遮蔽占位，留空提交 = 保持原值不变；
 - **错误呈现**：删除被引用 provider、保存重名、无默认发起等错误 SHALL 以既有 error 态呈现，MUST NOT 静默；
 - **取数模型**：清单经取数 hooks 收口、显式动作触发，MUST NOT 轮询（管理数据无文件 watch 例外）。
@@ -167,7 +167,7 @@ agent 实例 SHALL 支持「默认」标记，全局至多一个；标记新默�
 #### Scenario: max_tokens 字段边界
 
 - **WHEN** 在 provider 表单填 `max_tokens = 4096` 与 `max_tokens = 4095` 两种形态，及留空提交
-- **THEN** `4096` 提交成功并回读为 4096；`4095` 拒绝提交（保存按钮不可用 / 提交被拦）并给出下限 4096 提示；留空提交后记录为未配置（表单呈现「按协议缺省」语义而非 0）
+- **THEN** `4096` 提交成功并回读为 4096；`4095` 拒绝提交（保存按钮不可用 / 提交被拦）并给出下限 4096 提示；留空提交后记录为未配置（表单呈现「按 context_length 分档推导」语义而非 0）
 
 #### Scenario: 模型名后缀提示
 

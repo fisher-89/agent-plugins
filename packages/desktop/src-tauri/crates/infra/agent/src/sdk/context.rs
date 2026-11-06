@@ -6,7 +6,9 @@ use serde_json::Value;
 use crate::sdk::web_search;
 
 /// 缺省窗长（token 数）：provider 记录 `context_length` 缺席时的 128K 启发式。
-const DEFAULT_CONTEXT_WINDOW: u64 = 128 * 1024;
+/// 同时是输出上限分段推导的缺省档输入（`runner::derive_output_tokens`）——
+/// 两处共用同一缺省口径，避免「防线按 128K、输出按别的缺省」的双源漂移。
+pub(crate) const DEFAULT_CONTEXT_WINDOW: u64 = 128 * 1024;
 
 /// 防线窗长上界（token 数）：模型标称窗长再大，防线也按此封顶。
 ///

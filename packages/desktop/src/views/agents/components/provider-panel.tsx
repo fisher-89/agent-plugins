@@ -118,7 +118,7 @@ const PROVIDER_FIELDS: {
     id: 'provider-max-tokens',
     label: 'max_tokens',
     key: 'maxTokens',
-    placeholder: '留空 = 按协议缺省',
+    placeholder: '留空 = 按 context_length 分档',
   },
 ];
 
@@ -157,7 +157,7 @@ const SUFFIX_1M = /\[1m\]$/i;
 function suffixHint(form: ProviderFormState): string {
   const base =
     form.protocol === 'anthropic'
-      ? '模型名可带 [1m] 后缀（只影响上下文窗长与 anthropic beta，不改输出上限；防线水位按 60% 折算且封顶 400K）'
+      ? '模型名可带 [1m] 后缀（影响上下文窗长与 anthropic beta；输出上限随窗长分档推导（128K→32K，512K+→64K）；防线水位按 60% 折算且封顶 400K）'
       : '';
   const suffixed = [
     { tier: 'high', value: form.high },
@@ -327,8 +327,8 @@ function ProviderHints({ form }: { form: ProviderFormState }): React.JSX.Element
     <div className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground">
       <span data-testid="provider-base-url-hint">{BASE_URL_HINTS[form.protocol].hint}</span>
       <span data-testid="provider-max-tokens-hint">
-        max_tokens：输出上限，留空 = 按协议缺省；仅 anthropic 协议生效（openai
-        协议请求保持省略上限）；下限 4096
+        max_tokens：输出上限，留空 = 按 context_length 分档推导（未配置时 32000）； 仅 anthropic
+        协议生效（openai 协议请求保持省略上限）；显式填值优先且须 ≥ 4096
       </span>
       <span data-testid="provider-suffix-hint">{suffixHint(form)}</span>
     </div>

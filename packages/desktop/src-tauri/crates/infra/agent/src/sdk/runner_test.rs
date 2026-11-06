@@ -9,8 +9,8 @@ use agent::{
 use crate::sdk::config::{EngineConfig, Protocol};
 use crate::sdk::model_spec::{parse_model_spec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW};
 use crate::sdk::runner::{
-    anthropic_provider, build_model, mint_archi_context, openai_provider, resolve_output_tokens,
-    with_prompt_cache, SdkRunner, MIN_OUTPUT_TOKENS,
+    anthropic_provider, build_model, derive_output_tokens, mint_archi_context, openai_provider,
+    resolve_output_tokens, with_prompt_cache, SdkRunner, MIN_OUTPUT_TOKENS,
 };
 use crate::sdk::tools::ARCHI_MODULE_TOOL;
 use crate::{EngineFacade, EngineKind, ResumeTranscript};
@@ -1068,7 +1068,7 @@ fn min_output_tokens常量逐字为4096且经crate根可达() {
 fn 双臂组装_openai臂描述面与现状逐字等价() {
     let cfg = complete_config();
     let spec = parse_model_spec(&cfg.model_high).expect("无后缀解析成功");
-    let model = build_model(&cfg, &spec, None);
+    let (model, _) = build_model(&cfg, &spec, None, None);
 
     assert_eq!(model.name(), "openai", "openai 臂 provider 描述名逐字");
     assert_eq!(
@@ -1079,7 +1079,7 @@ fn 双臂组装_openai臂描述面与现状逐字等价() {
 
     // 带 `[1m]` 后缀的 openai 档：裸名下发（本地窗长仍取 1M，但不发 beta）
     let suffixed = parse_model_spec("gpt-4o[1m]").expect("后缀解析成功");
-    let model = build_model(&cfg, &suffixed, Some(8192));
+    let (model, _) = build_model(&cfg, &suffixed, Some(8192), None);
     assert_eq!(model.name(), "openai");
     assert_eq!(model.id(), Some("gpt-4o"), "openai 臂下发裸名");
 }
@@ -1088,7 +1088,7 @@ fn 双臂组装_openai臂描述面与现状逐字等价() {
 fn 双臂组装_anthropic臂描述名为anthropic且id为裸名() {
     let cfg = anthropic_config("claude-sonnet-4-5[1m]", "claude-haiku-4-5");
     let spec = parse_model_spec(&cfg.model_high).expect("后缀解析成功");
-    let model = build_model(&cfg, &spec, None);
+    let (model, _) = build_model(&cfg, &spec, None, None);
 
     assert_eq!(
         model.name(),
@@ -1104,8 +1104,8 @@ fn 双臂组装_anthropic臂描述名为anthropic且id为裸名() {
     // 两臂同型：同一变量位接受两臂产物（编译期锚，loop 零改动可消费）
     let openai_spec = parse_model_spec("gpt-4o").expect("无后缀解析成功");
     let arms: [DynModel<Completion>; 2] = [
-        build_model(&complete_config(), &openai_spec, None),
-        build_model(&cfg, &spec, None),
+        build_model(&complete_config(), &openai_spec, None, None).0,
+        build_model(&cfg, &spec, None, None).0,
     ];
     assert_eq!(arms[0].name(), "openai");
     assert_eq!(arms[1].name(), "anthropic");
@@ -1135,7 +1135,7 @@ fn anthropic臂显式开启自动前缀缓存_openai臂不追加任何缓存参�
 
     // openai 臂无缓存装配概念（协议面无此字段，此处只锚组装不被污染）
     let openai_spec = parse_model_spec("gpt-4o").expect("无后缀解析成功");
-    let model = build_model(&complete_config(), &openai_spec, None);
+    let (model, _) = build_model(&complete_config(), &openai_spec, None, None);
     assert_eq!(model.name(), "openai", "openai 臂组装路径零改动");
 }
 
@@ -1225,7 +1225,7 @@ async fn 裸名上报_runstarted报裸名而非配置原文() {
 }
 
 #[test]
-fn 输出上限取值链_显式优先_名单内保留官方值_名单外兜底32000() {
+fn 输出上限取值链_显式优先_名单内保留官方值_名单外按窗长分档推导() {
     // rig 名单内模型的官方默认值（claude-opus-4* / claude-sonnet-4* /
     // claude-haiku-4-5 走 64_000）
     let rig_default_of = |model: &str| {
@@ -1233,47 +1233,57 @@ fn 输出上限取值链_显式优先_名单内保留官方值_名单外兜底32
         provider.client().completion(model).wire.default_max_tokens
     };
 
-    // ① provider 显式值优先（不被 rig 官方值覆盖）
+    // ① provider 显式值优先（不被 rig 官方值覆盖，也不被窗长推导覆盖）
     let in_list = rig_default_of("claude-opus-4-1");
     assert_eq!(in_list, Some(64_000), "名单内模型有 rig 官方默认值");
-    assert_eq!(
-        resolve_output_tokens(Some(8192), in_list),
-        8192,
-        "显式值优先（MUST NOT 被官方默认值覆盖）"
-    );
+    for window in [None, Some(1_000_000)] {
+        assert_eq!(
+            resolve_output_tokens(Some(8192), in_list, window),
+            8192,
+            "显式值优先（MUST NOT 被官方默认值或窗长推导覆盖），window={window:?}"
+        );
+    }
 
-    // ② None + 名单内：保留 rig 官方值（不降级）
-    assert_eq!(
-        resolve_output_tokens(None, in_list),
-        64_000,
-        "名单内模型保留官方默认值"
-    );
-    assert_eq!(
-        resolve_output_tokens(None, rig_default_of("claude-sonnet-4-5")),
-        64_000,
-        "claude-sonnet-4* 名单内"
-    );
-    assert_eq!(
-        resolve_output_tokens(None, rig_default_of("claude-haiku-4-5")),
-        64_000,
-        "claude-haiku-4-5 名单内"
-    );
+    // ② None + 名单内：保留 rig 官方值（不降级，窗长不参与）
+    for (model, expected) in [
+        ("claude-opus-4-1", 64_000),
+        ("claude-sonnet-4-5", 64_000),
+        ("claude-haiku-4-5", 64_000),
+        ("claude-sonnet-4-6", 128_000),
+    ] {
+        for window in [None, Some(1_000_000)] {
+            assert_eq!(
+                resolve_output_tokens(None, rig_default_of(model), window),
+                expected,
+                "{model} 名单内保留官方默认值（窗长 {window:?} 不参与）"
+            );
+        }
+    }
 
-    // ③ None + 名单外（老代 / 第三方网关名）：兜底 32_000
+    // ③ None + 名单外（老代 / 第三方网关名）：按标称窗长分档推导
     for out_of_list in ["claude-3-5-sonnet-20241022", "my-gateway-model-v2"] {
         let rig_default = rig_default_of(out_of_list);
         assert_eq!(rig_default, None, "{out_of_list} 不在 rig 名单内");
         assert_eq!(
-            resolve_output_tokens(None, rig_default),
+            resolve_output_tokens(None, rig_default, None),
             32_000,
-            "{out_of_list} 兜底 32_000（不再触发编码期 max_tokens must be set）"
+            "{out_of_list} 未配置窗长 → 128K 缺省档 32_000（不再触发编码期 max_tokens must be set）"
+        );
+        assert_eq!(
+            resolve_output_tokens(None, rig_default, Some(1_000_000)),
+            64_000,
+            "{out_of_list} 1M 窗长 → 封顶档 64_000"
         );
     }
 
     // 门面零下限校验：极小值原样作为 wire 默认值（拒面在命令层）
-    assert_eq!(resolve_output_tokens(Some(0), None), 0, "Some(0) 原样透传");
     assert_eq!(
-        resolve_output_tokens(Some(u64::MAX), None),
+        resolve_output_tokens(Some(0), None, None),
+        0,
+        "Some(0) 原样透传"
+    );
+    assert_eq!(
+        resolve_output_tokens(Some(u64::MAX), None, None),
         u64::MAX,
         "u64::MAX 原样透传（引擎不做上限校验）"
     );
@@ -1283,11 +1293,112 @@ fn 输出上限取值链_显式优先_名单内保留官方值_名单外兜底32
     let spec = parse_model_spec("claude-x").expect("解析成功");
     for max_tokens in [None, Some(0), Some(4096), Some(u64::MAX)] {
         assert_eq!(
-            build_model(&cfg, &spec, max_tokens).name(),
+            build_model(&cfg, &spec, max_tokens, None).0.name(),
             "anthropic",
             "上限载荷 {max_tokens:?} 下臂构造可达"
         );
     }
+}
+
+/// 分档推导边界逐值（左闭右开；128K 档与既往 `32_000` 兜底逐字相同）。
+#[test]
+fn 输出上限分档推导_边界逐值锚定() {
+    for (window, expected) in [
+        (1u64, 4_096),
+        (32_767, 4_096),
+        (32_768, 16_384),
+        (131_071, 16_384),
+        (131_072, 32_000),
+        (262_143, 32_000),
+        (262_144, 48_000),
+        (524_287, 48_000),
+        (524_288, 64_000),
+        (u64::MAX, 64_000),
+    ] {
+        assert_eq!(
+            derive_output_tokens(Some(window)),
+            expected,
+            "窗长 {window} 应落 {expected} 档"
+        );
+    }
+    // 未配置（None）与 0 同落 128K 缺省档——与 `ContextDefense::resolve` 的
+    // 缺省口径同源（0 非合法窗长，两处一致视作未配置）
+    assert_eq!(derive_output_tokens(None), 32_000, "None → 128K 缺省档");
+    assert_eq!(derive_output_tokens(Some(0)), 32_000, "0 视同未配置");
+}
+
+/// 全域不变式：非递减 + 恒不低于保存期下限（`0` 是「未配置」哨兵而非窗长，
+/// 不参与单调区间的起点）。
+#[test]
+fn 输出上限分档推导_单调非减且恒不低于下限() {
+    let mut previous = 0;
+    for window in (1..2_000_000u64).step_by(997) {
+        let derived = derive_output_tokens(Some(window));
+        assert!(
+            derived >= previous,
+            "窗长 {window} 推导值 {derived} 低于前一档 {previous}"
+        );
+        assert!(
+            derived >= MIN_OUTPUT_TOKENS,
+            "窗长 {window} 推导值 {derived} 低于下限 {MIN_OUTPUT_TOKENS}"
+        );
+        previous = derived;
+    }
+}
+
+/// 装配面：`build_model` 返回的生效输出上限随窗长分档（与写进 wire 的值同源）。
+#[test]
+fn 装配面_生效输出上限随窗长分档() {
+    let cfg = anthropic_config("claude-x", "claude-y");
+    let spec = parse_model_spec("claude-x").expect("解析成功");
+    let wired = |window: Option<u64>| {
+        let (model, output_tokens) = build_model(&cfg, &spec, None, window);
+        assert_eq!(model.name(), "anthropic", "anthropic 臂选臂");
+        output_tokens
+    };
+    assert_eq!(
+        wired(None),
+        Some(32_000),
+        "未配置窗长 → 128K 缺省档（逐字回归锚）"
+    );
+    assert_eq!(wired(Some(1_000_000)), Some(64_000), "1M 窗长 → 封顶档");
+    assert_eq!(wired(Some(400_000)), Some(48_000), "[262144, 524288) 档");
+
+    // provider 显式值优先，窗长不干扰
+    assert_eq!(
+        build_model(&cfg, &spec, Some(8192), Some(1_000_000)).1,
+        Some(8192),
+        "显式值最高优先"
+    );
+
+    // openai 臂：任何窗长都不写 max_tokens（协议自决，第二元恒 None）
+    let openai_cfg = complete_config();
+    let openai_spec = parse_model_spec(&openai_cfg.model_high).expect("解析成功");
+    for window in [None, Some(32_768), Some(1_000_000)] {
+        let (model, output_tokens) = build_model(&openai_cfg, &openai_spec, None, window);
+        assert_eq!(model.name(), "openai");
+        assert_eq!(
+            output_tokens, None,
+            "openai 臂不写 max_tokens，window={window:?}"
+        );
+    }
+}
+
+/// 名单内 + 大窗长：推导不得覆盖 rig 官方值（权威元数据优先）。
+#[test]
+fn 装配面_名单内模型大窗长仍取rig官方值() {
+    let cfg = anthropic_config("claude-opus-4-1", "claude-haiku-4-5");
+    let spec = parse_model_spec(&cfg.model_high).expect("解析成功");
+    assert_eq!(
+        build_model(&cfg, &spec, None, Some(1_000_000)).1,
+        Some(64_000),
+        "名单内 opus-4 官方 64_000（不因 1M 窗长推导漂移）"
+    );
+    assert_eq!(
+        build_model(&cfg, &spec, Some(8192), Some(1_000_000)).1,
+        Some(8192),
+        "显式值仍最高优先"
+    );
 }
 
 #[test]
@@ -1323,14 +1434,18 @@ fn beta条件发_仅anthropic协议且后缀在场时携1m头() {
         "窗长候选仍在（openai 侧本地防线仍按 1M）"
     );
     assert_eq!(
-        build_model(&complete_config(), &openai_suffixed, None).name(),
+        build_model(&complete_config(), &openai_suffixed, None, None)
+            .0
+            .name(),
         "openai",
         "openai 臂选臂不产生 anthropic provider（结构上无 beta 写入点，故不发 beta）"
     );
     // openai + 无后缀 → 不发（同一结构面）
     let openai_plain = parse_model_spec("claude-x").expect("解析成功");
     assert_eq!(
-        build_model(&complete_config(), &openai_plain, None).name(),
+        build_model(&complete_config(), &openai_plain, None, None)
+            .0
+            .name(),
         "openai"
     );
 
@@ -1361,7 +1476,7 @@ fn 模型名边界形态组装不panic且裸名保真() {
         "claude\nx".to_owned(),
     ] {
         let spec = parse_model_spec(&raw).expect("形态应解析成功");
-        let model = build_model(&cfg, &spec, None);
+        let (model, _) = build_model(&cfg, &spec, None, None);
         assert_eq!(model.name(), "anthropic", "模型名 {raw:?} 下臂构造可达");
         assert_eq!(model.id(), Some(spec.name.as_str()), "下发裸名保真");
     }
@@ -1586,7 +1701,7 @@ async fn 引擎三模块链路_裸名与窗长与上限一次装配不打架() {
     // 上限载荷经同一 runner 携带（组装面直断的旁路半边）
     let spec = parse_model_spec(&cfg.model_high).expect("解析成功");
     assert_eq!(
-        build_model(&cfg, &spec, Some(8192)).name(),
+        build_model(&cfg, &spec, Some(8192), None).0.name(),
         "anthropic",
         "同一配置上限载荷下臂构造可达"
     );
@@ -1877,7 +1992,7 @@ async fn with_web_search开关经泵启动日志两态可考() {
             "web_search={payload} 应原样进泵启动日志，实际: {line}"
         );
         // 与既有诊断列同列（同一行内并列）
-        for column in ["protocol=", "window=", "raw="] {
+        for column in ["protocol=", "window=", "max_tokens=", "raw="] {
             assert!(line.contains(column), "应与 {column} 同列，实际: {line}");
         }
         assert!(
@@ -1945,6 +2060,52 @@ async fn 未装配web_search缺省关且与显式关等价() {
             .expect_err("同口径失败")
             .to_string(),
         "未装配 = 显式关（行为与错误面一致）"
+    );
+}
+
+#[tokio::test]
+async fn 泵启动日志max_tokens列随生效窗长分档且openai臂记短横() {
+    // anthropic + 未配置窗长 → 128K 缺省档 32000
+    let default_anthropic = pump_start_line(&SdkRunner::new(
+        anthropic_config("claude-x", "claude-y"),
+        None,
+        None,
+        None,
+    ))
+    .await;
+    assert!(
+        default_anthropic.contains("max_tokens=32000"),
+        "未配置窗长 → 32000，实际: {default_anthropic}"
+    );
+
+    // anthropic + 1M 窗长（后缀定档）→ 封顶档 64000
+    let million = pump_start_line(&SdkRunner::new(
+        anthropic_config("claude-x[1m]", "claude-y"),
+        None,
+        None,
+        None,
+    ))
+    .await;
+    assert!(
+        million.contains("max_tokens=64000"),
+        "1M 窗长 → 64000，实际: {million}"
+    );
+    assert!(
+        million.contains("window=409600"),
+        "同源窗长列仍报防线生效值（40 万 token 封顶），实际: {million}"
+    );
+
+    // openai 协议不写该字段 → 记 `-`（列仍在，供对列排障）
+    let openai_line = pump_start_line(&SdkRunner::new(
+        complete_config(),
+        None,
+        Some(1_000_000),
+        None,
+    ))
+    .await;
+    assert!(
+        openai_line.contains("max_tokens=-"),
+        "openai 臂不写 max_tokens，实际: {openai_line}"
     );
 }
 

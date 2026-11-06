@@ -525,6 +525,19 @@ describe('ProviderPanel：模型名后缀提示（DD19）', () => {
 
     expect(screen.getByTestId('provider-suffix-hint').textContent).not.toContain('已被模型名覆盖');
   });
+
+  it('后缀基础说明声明输出上限随窗长分档推导（不再「不改输出上限」）', async () => {
+    mount(fakeState());
+    fireEvent.click(screen.getByTestId('provider-new'));
+    await pickProtocol('anthropic');
+
+    for (const contextLength of ['', '400000']) {
+      typeInto('provider-context-length', contextLength);
+      const hint = screen.getByTestId('provider-suffix-hint').textContent ?? '';
+      expect(hint).toContain('输出上限随窗长分档推导');
+      expect(hint).not.toContain('不改输出上限');
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -669,11 +682,12 @@ describe('ProviderPanel：max_tokens 字段（AC-11）', () => {
     fireEvent.click(screen.getByTestId('provider-new'));
 
     const hint = screen.getByTestId('provider-max-tokens-hint').textContent ?? '';
-    expect(hint).toContain('留空 = 按协议缺省');
+    expect(hint).toContain('留空 = 按 context_length 分档推导');
+    expect(hint).toContain('未配置时 32000');
     expect(hint).toContain('仅 anthropic 协议生效');
     expect(hint).toContain('4096');
     expect(screen.getByTestId<HTMLInputElement>('provider-max-tokens').placeholder).toBe(
-      '留空 = 按协议缺省',
+      '留空 = 按 context_length 分档',
     );
   });
 });

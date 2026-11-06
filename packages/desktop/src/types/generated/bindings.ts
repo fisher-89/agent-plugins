@@ -541,8 +541,9 @@ export type AgentProviderRecord = {
 	contextLength?: number | null,
 	/**
 	 *  provider 输出上限（token 数；等价 Claude Code 的
-	 *  `CLAUDE_CODE_MAX_OUTPUT_TOKENS`）：可空列，`None` = 按协议缺省；仅
-	 *  anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
+	 *  `CLAUDE_CODE_MAX_OUTPUT_TOKENS`）：可空列，`None` = 按上下文窗长分档
+	 *  推导（未配置窗长时 32000）；仅 anthropic 协议消费（openai 协议请求保持
+	 *  省略上限），保存期下限 4096
 	 */
 	maxTokens?: number | null,
 	/**
