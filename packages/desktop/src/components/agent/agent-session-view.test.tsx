@@ -470,7 +470,7 @@ describe('AgentSessionView：空态与错误面', () => {
     expect(screen.queryByTestId('agent-session-failure')).toBeNull();
   });
 
-  it('最新轮停止 → 不展示失败横幅', async () => {
+  it('最新轮停止 → 不展示失败横幅，同一时间线位置呈「已停止」轮内状态行（AC-9）', async () => {
     resetIpc({
       detail: summary([turn(11, 'stopped')]),
       transcript: [userEvent(0, '停止轮')],
@@ -478,7 +478,12 @@ describe('AgentSessionView：空态与错误面', () => {
     await mountedView({ root: ROOT, sessionId: SESSION_ID });
 
     await waitFor(() => expect(screen.getByTestId('session-meta')).toBeTruthy());
+    // stopped 不算失败：顶部横幅缺席（agent-error.ts 的既有判据零改）
     expect(screen.queryByTestId('agent-session-failure')).toBeNull();
+    // 空内容停止轮在时间线上就地呈状态行（而非被过滤成不可见）
+    const line = screen.getByTestId('turn-status-line');
+    expect(line.getAttribute('data-status')).toBe('stopped');
+    expect(screen.getByTestId('turn-status-line-stopped').textContent).toBe('已停止');
   });
 
   it('session_detail 返回 null → 空态（不虚构会话元信息、零订阅）', async () => {

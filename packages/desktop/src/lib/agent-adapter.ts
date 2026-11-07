@@ -4,52 +4,42 @@ import type {
   AgentBlock,
   AgentCitation,
   AgentEvent,
-  AgentMessageRole,
   TurnSummary,
   WebSearchSource,
 } from '../types/dto';
 
-/** 消息元数据：seq 保真（record 合成消息为 null）与子代理归因字段 */
+/**
+ * 消息元数据：`seq` 保真（record 合成消息为 null）、子代理归因字段，以及
+ * **回合元数据**载体 `record`（status / error / 统计）。
+ *
+ * `record` 取代既有轮行的 data 部件载体（`run-record` 成员已退役）：实时路由
+ * `finish` chunk 的 `messageMetadata` 写入，折叠路由轮行匹配写入。`null` = 该轮
+ * 无轮行且无 `TurnDone`；`undefined` = 实时流尚未收口。
+ */
 interface AgentMessageMetadata {
   seq: number | null;
   parentToolUseId: string | null;
+  record?: TurnSummary | null;
 }
+
+/**
+ * 事件载荷镜像的唯一派生器：`kind` 不进 data 部件（部件类型已表达）、
+ * `turnId` 由消息级 `metadata` 承载。信封加变体或加字段时由 `Extract` /
+ * `Omit` 编译期强制收敛（MUST NOT 保留无生成物守卫的手写副本）。
+ */
+type EventPayload<K extends AgentEvent['kind']> = Omit<
+  Extract<AgentEvent, { kind: K }>,
+  'kind' | 'turnId'
+>;
 
 /** data 部件载荷：源事件字段 + seq / timestampMs 保真 */
-interface AgentRunStartedData {
-  seq: number;
-  timestampMs: number;
-  model: string | null;
-  sessionId: string | null;
-  tools: string[];
-  mcpServers: string[];
-}
+type AgentRunStartedData = EventPayload<'runStarted'>;
 
-interface AgentSystemNoticeData {
-  seq: number;
-  timestampMs: number;
-  subtype: string;
-  payload: unknown;
-}
+type AgentSystemNoticeData = EventPayload<'systemNotice'>;
 
-interface AgentRunResultData {
-  seq: number;
-  timestampMs: number;
-  subtype: string;
-  isError: boolean;
-  numTurns: number | null;
-  durationMs: number | null;
-  costUsd: number | null;
-  usage: unknown;
-  sessionId: string | null;
-}
+type AgentRunResultData = EventPayload<'turnDone'>;
 
-interface AgentRawData {
-  seq: number;
-  timestampMs: number;
-  eventType: string;
-  rawJson: string;
-}
+type AgentRawData = EventPayload<'raw'>;
 
 /** 工具结果载荷（tool 部件 output 与 chunk output 同形）。`search` 为加位可选
  * ——云端 `web_search` 服务端工具的结构化载荷（既有消费面零改） */
@@ -59,14 +49,13 @@ export interface AgentToolOutput {
   search?: { results: WebSearchSource[]; error: string | null };
 }
 
-/** 五个 data 部件形状（`data-run-record` 的 data 即轮行 DTO 整行）。
+/** 四个 data 部件形状（`run-record` 成员已退役：轮行改挂消息 metadata）。
  * 类型别名（非 interface）：ai 的 UIDataTypes 约束要求对 Record 隐式索引签名 */
 type AgentDataParts = {
   'run-started': AgentRunStartedData;
   'system-notice': AgentSystemNoticeData;
   'run-result': AgentRunResultData;
   raw: AgentRawData;
-  'run-record': TurnSummary;
 };
 
 /** 前端对话状态一等模型 */
@@ -191,26 +180,26 @@ const ORPHAN_TOOL_NAME = '工具调用';
 /** 云端 `web_search` 服务端工具的线名（工具卡注册表键同值） */
 const WEB_SEARCH_TOOL_NAME = 'web_search';
 
-/** 消息 id：seq 保真的稳定 key（重放与实时同构锚点） */
+/** 消息 id：seq 保真的稳定 key（aux 消息与旧转录兜底 id——`evt-<seq>`） */
 function messageId(seq: number): string {
   return `evt-${seq}`;
 }
 
 /**
- * provisional 消息键：配对键派生（adapter 与 transport 共用锚点）。delta 先
- * 行累积于该键命名的 provisional 消息，密封 Message 到达以密封为准替换。
+ * delta 累积部件的稳定 part id：由**该 step 内首个同类 delta 的 `seq`** 派生
+ * （`t-<seq>` / `r-<seq>`）。同一 part 后续 delta 复用、跨 step 不撞
+ * （`start-step` 时簿记清空）；与折叠路整块部件 id `t-<seq>-<n>` 无碰撞域。
  */
-export function provisionalMessageId(parentToolUseId: string | null): string {
-  return `delta-${parentToolUseId ?? 'none'}`;
+export function deltaPartId(seq: number, part: 'text' | 'thinking'): string {
+  return part === 'text' ? `t-${seq}` : `r-${seq}`;
 }
 
 /**
- * delta 累积部件的稳定 part id（首 delta 开件、后续累积共用；text / thinking
- * 各自一条，与密封整块部件 id `t-<seq>-<n>` 无碰撞域）。
+ * delta part 锚解析回调：transport 传入持 per-step `partAnchors` 的实现；
+ * 缺省实现返回入参 `seq`（缺省即逐 delta 独立 part）。以回调注入而非可变
+ * Map 入参，使 `eventToChunk` 自身保持无状态（适配层「纯函数」纪律不破）。
  */
-export function deltaPartId(key: string, part: 'text' | 'thinking'): string {
-  return part === 'text' ? `t-delta-${key}` : `r-delta-${key}`;
-}
+export type DeltaPartAnchor = (kind: 'text' | 'thinking', seq: number) => number;
 
 /** 非 message 事件 → 单个 data 部件载荷（未知事件 `data-raw` 原文透传） */
 function auxEventData(event: Exclude<SealedAgentEvent, { kind: 'message' }>): AuxData {
@@ -448,49 +437,207 @@ function plansToParts(plans: BlockPlan[]): AgentUIMessage['parts'] {
   return parts;
 }
 
+/** 一轮的事件组：`turnId` 为主路径分组键，`null` 为旧转录（`RunStarted` 为组界） */
+interface EventGroup {
+  turnId: number | null;
+  events: SealedAgentEvent[];
+}
+
+/** 输出项：一个事件组 + 该轮的轮行（库态权威；缺失时为合成行 / `null`） */
+interface FoldEntry {
+  group: EventGroup;
+  record: TurnSummary | null;
+}
+
+type SealedMessage = Extract<SealedAgentEvent, { kind: 'message' }>;
+
 /**
- * `tool`（引擎工具结果管道，非对话言语）落 `system`——ai-sdk UIMessage 无 tool role
+ * 单遍扫描分组（单套实现，两条分支同一循环）：`turnId != null` 按 `turnId`
+ * 变化切组；`turnId == null` 的旧转录遇 `runStarted` 且当前组非空切组。
+ * `RunStarted` 只作**旧转录组界**——真实运行事件恒有 `turnId`，故轮边界与
+ * 轮计数 MUST NOT 依赖它（停止轮 / 失败轮 / 零事件轮可能看不到它）。
  */
-function uiRole(role: AgentMessageRole): AgentUIMessage['role'] {
-  if (role === 'tool') return 'system';
-  return role;
-}
-
-/** 单事件 → UIMessage（message 事件按 role 收窄；其余 system 角色单 data 部件） */
-function eventToUIMessage(event: SealedAgentEvent, results: PairedResults): AgentUIMessage {
-  const metadata: AgentMessageMetadata = {
-    seq: event.seq,
-    parentToolUseId: event.kind === 'message' ? event.parentToolUseId : null,
-  };
-  if (event.kind === 'message') {
-    return {
-      id: messageId(event.seq),
-      role: uiRole(event.role),
-      metadata,
-      parts: plansToParts(planBlocks(event.blocks, results)),
-    };
+function groupEvents(sealed: SealedAgentEvent[]): EventGroup[] {
+  const groups: EventGroup[] = [];
+  for (const event of sealed) {
+    const current = groups.at(-1);
+    const turnId = event.turnId ?? null;
+    const opensGroup =
+      current === undefined ||
+      current.turnId !== turnId ||
+      (turnId === null && event.kind === 'runStarted');
+    if (opensGroup) {
+      groups.push({ turnId, events: [event] });
+    } else {
+      current.events.push(event);
+    }
   }
-  return { id: messageId(event.seq), role: 'system', metadata, parts: [auxEventData(event)] };
+  return groups;
 }
 
-export function eventsToUIMessages(events: AgentEvent[]): AgentUIMessage[] {
+/**
+ * 轮行缺席时的**内存合成行**（`TurnDone` 只兜 status，MUST NOT 作轮边界或轮行
+ * 计数依据；`turnId = -1` 只活在内存，不落库、不作消息 id、不参与寻址）。
+ * `TurnSummary` 无 `usage` 字段，`TurnDone.usage` 只留在 `data-run-result` 部件。
+ */
+function synthesizeRow(group: EventGroup): TurnSummary | null {
+  const done = group.events.find((event) => event.kind === 'turnDone');
+  if (done === undefined) return null;
+  const first = group.events[0];
+  return {
+    turnId: done.turnId ?? -1,
+    sessionId: done.sessionId ?? '',
+    status: done.isError ? 'failed' : 'completed',
+    startedAt: first === undefined ? done.timestampMs : first.timestampMs,
+    finishedAt: done.timestampMs,
+    numTurns: done.numTurns,
+    costUsd: done.costUsd,
+    durationMs: done.durationMs,
+    error: null,
+  };
+}
+
+/**
+ * 输出序：轮行是库态权威（`SessionDetail.turns` 按发起序），故以其行序输出
+ * ——零事件轮（ask 失败 / 立即停止）由此就位；`turnId` 为 null 的旧转录组
+ * 按组序与轮行**逐位配对**（等价既有行为，不引入第二套分组）；未被任何行
+ * 命中的组追加在行序之后（行缺失 → 合成行 / `null`）。
+ */
+function foldEntries(groups: EventGroup[], turns: TurnSummary[]): FoldEntry[] {
+  const byTurn = new Map<number, EventGroup>();
+  for (const group of groups) {
+    if (group.turnId !== null && !byTurn.has(group.turnId)) byTurn.set(group.turnId, group);
+  }
+  const legacy = groups.filter((group) => group.turnId === null);
+  const matched = new Set<EventGroup>();
+  const entries: FoldEntry[] = [];
+  let legacyIndex = 0;
+  for (const row of turns) {
+    const group = byTurn.get(row.turnId);
+    if (group !== undefined) {
+      matched.add(group);
+      entries.push({ group, record: row });
+      continue;
+    }
+    const legacyGroup = legacy[legacyIndex];
+    if (legacyGroup === undefined) {
+      entries.push({ group: { turnId: row.turnId, events: [] }, record: row });
+      continue;
+    }
+    matched.add(legacyGroup);
+    legacyIndex += 1;
+    entries.push({ group: legacyGroup, record: row });
+  }
+  for (const group of groups) {
+    if (!matched.has(group)) entries.push({ group, record: synthesizeRow(group) });
+  }
+  return entries;
+}
+
+/** 该轮 assistant 消息自身首事件（首个 assistant / tool 密封事件；提问块不计） */
+function firstOwnEvent(group: EventGroup): SealedMessage | undefined {
+  return group.events.find(
+    (event): event is SealedMessage => event.kind === 'message' && event.role !== 'user',
+  );
+}
+
+/**
+ * 该轮 assistant 消息 id：主路径 `turn-<turnId>`；旧转录兜 `evt-<该消息首事件 seq>`
+ * （与提问消息 `evt-<提问 seq>` 不同源，故两者 id 不撞）。
+ *
+ * 旧转录组若**无** assistant / tool 密封事件（残缺转录，如只有 `runStarted`），
+ * 无「自身事件」可锚：退到组首事件 seq 并加 `-turn` 后缀，与同组的 aux 消息
+ * `evt-<seq>` 及提问 `evt-<seq>` 均不撞（组内独立 React key）。
+ */
+function assistantId(group: EventGroup): string {
+  if (group.turnId !== null) return `turn-${group.turnId}`;
+  const own = firstOwnEvent(group);
+  if (own !== undefined) return messageId(own.seq);
+  const first = group.events[0];
+  return `${messageId(first === undefined ? -1 : first.seq)}-turn`;
+}
+
+/** 该轮提问消息 id：`turn-<turnId>-user`（与 assistant 同族）；旧转录兜 `evt-<seq>` */
+function questionId(event: SealedMessage): string {
+  return event.turnId != null ? `turn-${event.turnId}-user` : messageId(event.seq);
+}
+
+/** aux 事件 → 逐事件独立 system 消息（保真透镜 `AgentRawStream` 依赖逐事件回放） */
+function auxMessage(event: Exclude<SealedAgentEvent, { kind: 'message' }>): AgentUIMessage {
+  return {
+    id: messageId(event.seq),
+    role: 'system',
+    metadata: { seq: event.seq, parentToolUseId: null },
+    parts: [auxEventData(event)],
+  };
+}
+
+/** 该轮提问事件 → user 消息（parts 为提问块直映射；可缺席） */
+function questionMessage(event: SealedMessage, paired: PairedResults): AgentUIMessage {
+  return {
+    id: questionId(event),
+    role: 'user',
+    metadata: { seq: event.seq, parentToolUseId: event.parentToolUseId },
+    parts: plansToParts(planBlocks(event.blocks, paired)),
+  };
+}
+
+/**
+ * 该轮 assistant 消息：**恒一条且为该轮末条**（`isContinuation` 成立的前提）。
+ * 部件 = 该轮全部 `role = assistant` 与 `role = tool` 密封事件的 blocks 顺序
+ * 拼接（思考 / 正文 / 工具卡各占一 part，按首次到达顺序）；`parts` 可为空
+ * （零内容轮）。`tool` 事件不产独立 system 消息，其配对结果就地补全工具部件。
+ */
+function assistantMessage(
+  group: EventGroup,
+  record: TurnSummary | null,
+  paired: PairedResults,
+): AgentUIMessage {
+  const blocks: AgentBlock[] = [];
+  // 子代理归因落**消息级单值**：取该轮首个 assistant 密封事件的归因
+  const own = firstOwnEvent(group);
+  const parentToolUseId = own === undefined ? null : own.parentToolUseId;
+  for (const event of group.events) {
+    if (event.kind !== 'message' || event.role === 'user') continue;
+    blocks.push(...event.blocks);
+  }
+  const first = group.events[0];
+  return {
+    id: assistantId(group),
+    role: 'assistant',
+    metadata: {
+      seq: first === undefined ? null : first.seq,
+      parentToolUseId,
+      record,
+    },
+    parts: plansToParts(planBlocks(blocks, paired)),
+  };
+}
+
+/** 单轮 → 消息序：aux system（按 seq 升序）→ 提问（可缺席）→ assistant（恒一条） */
+function entryToMessages(entry: FoldEntry, paired: PairedResults): AgentUIMessage[] {
+  const messages: AgentUIMessage[] = [];
+  for (const event of entry.group.events) {
+    if (event.kind !== 'message') messages.push(auxMessage(event));
+  }
+  const question = entry.group.events.find(
+    (event): event is SealedMessage => event.kind === 'message' && event.role === 'user',
+  );
+  if (question !== undefined) messages.push(questionMessage(question, paired));
+  messages.push(assistantMessage(entry.group, entry.record, paired));
+  return messages;
+}
+
+/**
+ * 重放 / 收口折叠唯一入口：只消费**密封事件**（转录中不存在 delta），按轮
+ * 产出「提问（可缺席）+ 恰一条 assistant + 逐事件 aux system」，轮行挂该轮
+ * assistant 的 `metadata.record`（按 `turnId` 匹配；缺失为合成行 / `null`）。
+ */
+export function foldSessionMessages(events: AgentEvent[], turns: TurnSummary[]): AgentUIMessage[] {
   const sealed = events.filter((event): event is SealedAgentEvent => event.kind !== 'messageDelta');
   // 折叠路视野：跨消息配对（重放 / 收口同一入口）
-  const results = PairingScope.global(sealed);
-  return sealed.map((event) => eventToUIMessage(event, results));
-}
-
-/**
- * 终态同构：轮统计行 → `data-run-record` 部件消息（重放与实时两路共用；
- * metadata.seq 为 null）。续轮（取当前会话）从中取。
- */
-export function runRecordToUIMessage(record: TurnSummary): AgentUIMessage {
-  return {
-    id: `turn-${record.turnId}`,
-    role: 'system',
-    metadata: { seq: null, parentToolUseId: null },
-    parts: [{ type: 'data-run-record', data: record }],
-  };
+  const paired = PairingScope.global(sealed);
+  return foldEntries(groupEvents(sealed), turns).flatMap((entry) => entryToMessages(entry, paired));
 }
 
 /** text 块 → 整块 text chunk 组（无 token 拆分）：`text-start` 与
@@ -586,33 +733,28 @@ function plansToChunks(plans: BlockPlan[], seq: number): AgentUIMessageChunk[] {
   return chunks;
 }
 
-/** 实时增量：单事件 → chunk 组 */
+/**
+ * 实时增量：单事件 → **块 chunk** 组（delta 路 + 密封块路 + 工具就地补全）。
+ *
+ * 事件头与 step 帧（`start` / `start-step` / `reset-step` / `finish`）SHALL 归
+ * transport，本函数 MUST NOT 产；`role = 'user'` 的密封事件零 chunk——chunk
+ * 协议无 role 字段，提问气泡由会话状态侧承载。
+ */
 export function eventToChunk(
   event: AgentEvent,
   currentMessageToolCalls: ReadonlySet<string> = EMPTY_TOOL_CALLS,
+  deltaAnchor: DeltaPartAnchor = (_kind, seq) => seq,
 ): AgentUIMessageChunk[] {
   if (event.kind === 'messageDelta') {
-    const key = event.parentToolUseId ?? '';
-    if (event.delta.kind === 'text') {
-      return [{ type: 'text-delta', id: deltaPartId(key, 'text'), delta: event.delta.text }];
-    }
-    return [
-      {
-        type: 'reasoning-delta',
-        id: deltaPartId(key, 'thinking'),
-        delta: event.delta.thinking,
-      },
-    ];
+    const kind = event.delta.kind === 'text' ? 'text' : 'thinking';
+    const id = deltaPartId(deltaAnchor(kind, event.seq), kind);
+    return event.delta.kind === 'text'
+      ? [{ type: 'text-delta', id, delta: event.delta.text }]
+      : [{ type: 'reasoning-delta', id, delta: event.delta.thinking }];
   }
-  const metadata: AgentMessageMetadata = {
-    seq: event.seq,
-    parentToolUseId: event.kind === 'message' ? event.parentToolUseId : null,
-  };
-  const header: AgentUIMessageChunk[] = [
-    { type: 'start', messageId: messageId(event.seq), messageMetadata: metadata },
-    { type: 'reset-step' },
-  ];
   if (event.kind === 'message') {
+    // 提问气泡由会话状态侧产生（transport 与该侧共同保证「同一提问恰一条」）
+    if (event.role === 'user') return [];
     const localUseIds = new Set<string>();
     for (const block of event.blocks) {
       if (block.kind === 'toolUse') localUseIds.add(block.id);
@@ -622,14 +764,13 @@ export function eventToChunk(
       (block) => !isConsumedResult(block, currentMessageToolCalls, localUseIds),
     );
     // 已配对结果先投 output（此刻 reducer 的当前消息仍是 toolUse 那条，就地补全），
-    // 再为新块开件；全部块均就地补全时本事件不产消息头
+    // 再为新块开件
     const mergedChunks = merged.map((block) =>
       outputChunk(block.id, { content: block.content, isError: block.isError }),
     );
-    if (mergedChunks.length > 0 && rest.length === 0) return mergedChunks;
     // 实时路视野：仅当前 message 内配对（跨消息差异由轮收口重放折叠纠正）
     const plans = planBlocks(rest, PairingScope.local(rest));
-    return [...mergedChunks, ...header, ...plansToChunks(plans, event.seq)];
+    return [...mergedChunks, ...plansToChunks(plans, event.seq)];
   }
-  return [...header, auxEventData(event)];
+  return [auxEventData(event)];
 }

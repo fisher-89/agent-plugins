@@ -1,11 +1,7 @@
 import { useChat } from '@ai-sdk/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  eventsToUIMessages,
-  runRecordToUIMessage,
-  type AgentUIMessage,
-} from '../lib/agent-adapter';
+import { foldSessionMessages, type AgentUIMessage } from '../lib/agent-adapter';
 import { TauriAgentTransport } from '../lib/agent-transport';
 import { ipc } from '../lib/ipc';
 import {
@@ -67,25 +63,70 @@ function isStreaming(status: AgentChat['status']): boolean {
   return status === 'submitted' || status === 'streaming';
 }
 
+/** `useChat` 的消息状态写入面：整表替换（重放 / 收口折叠）或函数式 updater
+ * （提问归一 / 追加——流式期间 ref 快照会滞后，MUST 用 updater） */
+type SetAgentMessages = (
+  updater: AgentUIMessage[] | ((messages: AgentUIMessage[]) => AgentUIMessage[]),
+) => void;
+
 /**
- * 重放/归一重建：密封转录折叠 + 轮统计行部件交错（每个 TurnDone 事件位后
- * 插入对应轮行，按轮序对齐；无 TurnDone 的轮行尾部补齐——停止收敛等）。
+ * 提问气泡 id：`turn-<turnId>-user`（与 assistant `turn-<turnId>` 同族）；
+ * `turnId` 缺席（旧转录 / 无轮归属构造面）兜 `evt-<seq>`。
  */
-function buildMessages(events: AgentEvent[], turns: TurnSummary[]): AgentUIMessage[] {
-  const replayed = eventsToUIMessages(events);
-  const messages: AgentUIMessage[] = [];
-  let turnIndex = 0;
-  events.forEach((event, index) => {
-    messages.push(replayed[index]);
-    if (event.kind === 'turnDone' && turnIndex < turns.length) {
-      messages.push(runRecordToUIMessage(turns[turnIndex]));
-      turnIndex += 1;
-    }
-  });
-  for (; turnIndex < turns.length; turnIndex += 1) {
-    messages.push(runRecordToUIMessage(turns[turnIndex]));
+function questionIdOf(event: AgentEvent): string {
+  return event.turnId != null ? `turn-${event.turnId}-user` : `evt-${event.seq}`;
+}
+
+/** 提问部件的直映射（提问块恒为 text；适配层计划层私有件不为此开导出） */
+function questionParts(
+  blocks: Extract<AgentEvent, { kind: 'message' }>['blocks'],
+): AgentUIMessage['parts'] {
+  const parts: AgentUIMessage['parts'] = [];
+  for (const block of blocks) {
+    if (block.kind === 'text') parts.push({ type: 'text', text: block.text, state: 'done' });
   }
-  return messages;
+  return parts;
+}
+
+/**
+ * 提问气泡的会话状态侧产生（两起点分化，同一不变式「同一提问恰一条」）：
+ * ①发起流已在发送时刻本地推入副本（`pendingQuestionIdRef` 持有其临时 id）→
+ * 把**该条**原地换 id 归一（消息数不增）；②订阅流（旁观 / 重挂，无本地副本）
+ * → 以 `turn-<turnId>-user` 追加在该轮 assistant 消息**之前**。两路一律经
+ * 函数式 updater 单次写入（非函数式会覆盖掉在飞的 assistant 消息）。
+ */
+function applyUserQuestion(
+  setMessagesRef: React.RefObject<SetAgentMessages | undefined>,
+  pendingQuestionIdRef: React.RefObject<string | null>,
+  event: Extract<AgentEvent, { kind: 'message' }>,
+): void {
+  const setMessages = setMessagesRef.current;
+  if (setMessages === undefined) return;
+  const id = questionIdOf(event);
+  const metadata = { seq: event.seq, parentToolUseId: event.parentToolUseId };
+  const pendingId = pendingQuestionIdRef.current;
+  pendingQuestionIdRef.current = null;
+  setMessages((messages) => {
+    // 重订 / 收口竞态下同一提问重投：id 替换幂等，不新增第二条气泡
+    if (messages.some((message) => message.id === id)) return messages;
+    if (pendingId !== null && messages.some((message) => message.id === pendingId)) {
+      return messages.map((message) =>
+        message.id === pendingId ? { ...message, id, metadata } : message,
+      );
+    }
+    const question: AgentUIMessage = {
+      id,
+      role: 'user',
+      metadata,
+      parts: questionParts(event.blocks),
+    };
+    const anchor =
+      event.turnId == null
+        ? -1
+        : messages.findIndex((message) => message.id === `turn-${event.turnId}`);
+    if (anchor < 0) return [...messages, question];
+    return [...messages.slice(0, anchor), question, ...messages.slice(anchor)];
+  });
 }
 
 /** 会话镜像与轮行的会话域同步（row 不变、stats/turns 现算） */
@@ -122,6 +163,8 @@ interface SessionMirrors {
   seqCursorRef: React.RefObject<number>;
   /** 收到的轮终态条数（订阅「无进展」判别的另一半） */
   recordCountRef: React.RefObject<number>;
+  /** 发起流本地推入的提问副本临时 id（提问事件到达时归一并清空） */
+  pendingQuestionIdRef: React.RefObject<string | null>;
   handleEvent: (event: AgentEvent) => void;
   handleRecord: (record: TurnSummary) => void;
   setSession: (session: SessionSummary | null) => void;
@@ -196,52 +239,75 @@ function chainWrites(
   return { upsertTurn, handleRecord, clear };
 }
 
+/** transport 观测点的 ref 面（写游标 / 追加镜像 / 提问归一读同一批 ref） */
+interface EventTapRefs {
+  /** 已观测事件的最大 seq（含 delta——订阅 `since_seq` 口径） */
+  seqCursorRef: React.RefObject<number>;
+  /** 密封事件镜像（append 保序；delta 不入） */
+  eventsRef: React.RefObject<AgentEvent[]>;
+  /** 发起流本地提问副本的临时 id */
+  pendingQuestionIdRef: React.RefObject<string | null>;
+  setEvents: (events: AgentEvent[]) => void;
+  setMessagesRef: React.RefObject<SetAgentMessages | undefined>;
+}
+
+/**
+ * transport 观测分派（镜像 ref 真相面 + 渲染态）：delta 只推高 seq 游标不入
+ * 镜像；密封事件 append 保序，并在提问事件处驱动会话状态侧的提问气泡
+ * （transport 对该事件零 chunk）。
+ */
+function acceptEvent(tap: EventTapRefs, event: AgentEvent): void {
+  if (event.seq > tap.seqCursorRef.current) tap.seqCursorRef.current = event.seq;
+  if (event.kind === 'messageDelta') return; // delta 仅实时流可见
+  const next = [...tap.eventsRef.current, event];
+  tap.eventsRef.current = next;
+  tap.setEvents(next);
+  if (event.kind === 'message' && event.role === 'user') {
+    applyUserQuestion(tap.setMessagesRef, tap.pendingQuestionIdRef, event);
+  }
+}
+
 /** 镜像与 transport 观测回调：running 轮行回写会话、终态按轮 id 替换、密封
  * 事件入镜像（delta 只上 chunk 流不入镜像，但同样推高 seq 游标） */
-function useSessionMirrors(source: string): SessionMirrors {
+function useSessionMirrors(
+  source: string,
+  setMessagesRef: React.RefObject<SetAgentMessages | undefined>,
+): SessionMirrors {
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [turns, setTurns] = useState<TurnSummary[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const sessionRef = useRef<SessionSummary | null>(null);
-  const turnsRef = useRef<TurnSummary[]>([]);
-  const eventsRef = useRef<AgentEvent[]>([]);
-  const currentSessionIdRef = useRef<string | null>(null);
-  const seqCursorRef = useRef(0);
-  const recordCountRef = useRef(0);
+  const refs = {
+    sessionRef: useRef<SessionSummary | null>(null),
+    turnsRef: useRef<TurnSummary[]>([]),
+    eventsRef: useRef<AgentEvent[]>([]),
+    currentSessionIdRef: useRef<string | null>(null),
+    seqCursorRef: useRef(0),
+    recordCountRef: useRef(0),
+    pendingQuestionIdRef: useRef<string | null>(null),
+  };
   const { handleRecord, clear } = chainWrites(
-    sessionRef,
-    turnsRef,
-    eventsRef,
-    currentSessionIdRef,
-    seqCursorRef,
-    recordCountRef,
+    refs.sessionRef,
+    refs.turnsRef,
+    refs.eventsRef,
+    refs.currentSessionIdRef,
+    refs.seqCursorRef,
+    refs.recordCountRef,
     setSession,
     setTurns,
     setEvents,
     source,
   );
-
-  // transport 观测点：实时事件推高游标（含 delta——订阅面 seq 空间含 delta，
-  // 只取密封最大 seq 会在「已消费 delta → 断流 → 重订」路径重投）；密封事件
-  // 另入镜像（append 保序）
-  const handleEvent = useCallback((event: AgentEvent) => {
-    if (event.seq > seqCursorRef.current) seqCursorRef.current = event.seq;
-    if (event.kind === 'messageDelta') return; // delta 仅实时流可见
-    const next = [...eventsRef.current, event];
-    eventsRef.current = next;
-    setEvents(next);
-  }, []);
+  // ref 成员与 setter 全跨渲染稳定，故回调身份稳定（transport 不必重建）
+  const handleEvent = useCallback(
+    (event: AgentEvent) => acceptEvent({ ...refs, setEvents, setMessagesRef }, event),
+    [setMessagesRef],
+  );
 
   return {
     session,
     turns,
     events,
-    sessionRef,
-    turnsRef,
-    eventsRef,
-    currentSessionIdRef,
-    seqCursorRef,
-    recordCountRef,
+    ...refs,
     handleEvent,
     handleRecord,
     setSession,
@@ -278,7 +344,7 @@ function applyReplay(
   mirrors.setSession(latest);
   mirrors.setTurns(latest?.turns ?? []);
   mirrors.setEvents(events);
-  setMessages(buildMessages(events, latest?.turns ?? []));
+  setMessages(foldSessionMessages(events, latest?.turns ?? []));
 }
 
 /** 重放装载产物：在途标记（同步可见，订阅调度据此让位）+ 完成拍（重放落地
@@ -313,7 +379,7 @@ function runReplayLoad(
     })
     .catch((cause: unknown) => {
       if (isCancelled()) return;
-      setMessages(buildMessages(mirrors.eventsRef.current, mirrors.turnsRef.current));
+      setMessages(foldSessionMessages(mirrors.eventsRef.current, mirrors.turnsRef.current));
       onSettled(String(cause));
     });
 }
@@ -435,6 +501,38 @@ function useSessionStreamSubscription(
   ]);
 }
 
+/** 发起流 body 的会话参数面（来源侧字段原样透传；transport 为无状态转换器） */
+interface StartBodyParams {
+  root: string;
+  source: string;
+  sessionId: string | null;
+  sourceRef: string | null;
+  cwd: string | null;
+  /** 镜像回写的当前会话（early-resolve）；未确立时回落来源侧会话引用 */
+  currentSessionId: string | null;
+}
+
+/** 发起 invoke 的 body 组装（八个字段唯一构造点） */
+function startBody(
+  session: StartBodyParams,
+  input: AgentSessionSendInput,
+): Record<string, unknown> {
+  return {
+    root: session.root,
+    prompt: input.prompt,
+    permissionMode: input.permissionMode,
+    agent: input.agent ?? null,
+    // 当前会话 Continue（early-resolve 轮行回写）；镜像尚未确立（重放未落地 /
+    // 失败）时回落来源侧的会话引用——来源已有会话就绝不新铸
+    sessionId: session.currentSessionId ?? session.sessionId,
+    source: session.source,
+    // 来源侧归属与执行根原样透传（未提供即 null：执行根回落 root、归属
+    // sourceRef 为 null——调试页 / explore 链语义零漂移）
+    sourceRef: session.sourceRef,
+    cwd: session.cwd,
+  };
+}
+
 /** 会话行为（发送组装 / 停止 / 重置）；会话参数在此收口、body 穿透 transport */
 function useSessionActions(
   chat: AgentChat,
@@ -449,36 +547,44 @@ function useSessionActions(
 } {
   const { source, sourceRef, cwd, sessionId, root } = params;
   const send = chat.sendMessage;
+  // 本地提问副本的临时 id 计数（归一后即弃，MUST NOT 出现在任何持久面 / IPC 载荷）
+  const pendingSeqRef = useRef(0);
+  const session: Omit<StartBodyParams, 'currentSessionId'> = {
+    root: root ?? '',
+    source,
+    sessionId,
+    sourceRef: sourceRef ?? null,
+    cwd: cwd ?? null,
+  };
 
   const sendMessage = useCallback(
     (input: AgentSessionSendInput) => {
       if (root === null) return;
       // 在挂流重复发送忽略（status 实例属性直读，同步无竞态）
       if (isStreaming(statusRef.current)) return;
-      void send(undefined, {
-        body: {
-          root,
-          prompt: input.prompt,
-          permissionMode: input.permissionMode,
-          agent: input.agent ?? null,
-          // 当前会话 Continue（early-resolve 轮行回写）；镜像尚未确立（重放
-          // 未落地 / 失败）时回落来源侧的会话引用——来源已有会话就绝不新铸
-          sessionId: mirrors.currentSessionIdRef.current ?? sessionId,
-          source,
-          // 来源侧归属与执行根原样透传（未提供即 null：执行根回落 root、
-          // 归属 sourceRef 为 null——调试页 / explore 链语义零漂移）
-          sourceRef: sourceRef ?? null,
-          cwd: cwd ?? null,
+      pendingSeqRef.current += 1;
+      const pendingId = `pending-user-${pendingSeqRef.current}`;
+      // 提问由会话状态侧本地推入：`sendMessage` 在 `await makeRequest` 之前同步
+      // pushMessage，故本地副本结构上先于任何 chunk（「思考跑到提问之前」因而
+      // 不可能）；该轮提问事件到达时归一到 `turn-<turnId>-user`
+      mirrors.pendingQuestionIdRef.current = pendingId;
+      void send(
+        { id: pendingId, parts: [{ type: 'text', text: input.prompt }] },
+        {
+          body: startBody(
+            { ...session, currentSessionId: mirrors.currentSessionIdRef.current },
+            input,
+          ),
         },
-      });
+      );
     },
-    [send, statusRef, mirrors.currentSessionIdRef, sessionId, root, source, sourceRef, cwd],
+    [send, statusRef, mirrors.currentSessionIdRef, mirrors.pendingQuestionIdRef, session, root],
   );
 
   const stop = useCallback(() => {
     const sessionId = mirrors.currentSessionIdRef.current;
-    // 不调 chat.stop() 截断前端流：终态 record 部件与 finish 由后端闭流推入；
-    // 停止寻址携 root（会话 id 即寻址键，root 寻址保留）
+    // 不调 chat.stop() 截断前端流：终态轮行由后端经在挂流以 `Record` 信封收尾
+    // （前端挂为该轮 `metadata.record`）；停止寻址携 root（会话 id 即寻址键）
     if (sessionId !== null && root !== null) void ipc.agentStop(root, sessionId);
   }, [mirrors.currentSessionIdRef, root]);
 
@@ -498,21 +604,24 @@ function useSessionActions(
  * `running` 为库态派生（轮行含 running），MUST NOT 以 `chat.status` 替代。
  */
 export function useAgentSession(params: UseAgentSessionParams): UseAgentSessionState {
-  const mirrors = useSessionMirrors(params.source);
+  // 消息状态写入面经 ref 延接：`onFinish` 闭包在 `useChat` 初始化前构造，提问
+  // 归一（镜像侧）与收口折叠（本 hook）写的是同一份消息状态
+  const setMessagesRef = useRef<SetAgentMessages | undefined>(undefined);
+  const mirrors = useSessionMirrors(params.source, setMessagesRef);
 
   const transport = useMemo(
     () => new TauriAgentTransport({ onEvent: mirrors.handleEvent, onRecord: mirrors.handleRecord }),
     [mirrors.handleEvent, mirrors.handleRecord],
   );
 
-  // 收口归一经 ref 延接 setMessages（onFinish 闭包在 useChat 初始化前构造）
-  const setMessagesRef = useRef<(next: AgentUIMessage[]) => void>(() => {});
   const chat = useChat<AgentUIMessage>({
     transport,
     throttle: STREAM_RENDER_THROTTLE_MS,
     onFinish: () => {
       // 流结束（含失败 / 断流）即时按镜像折叠归一；收口重放随后覆盖（库为准）
-      setMessagesRef.current(buildMessages(mirrors.eventsRef.current, mirrors.turnsRef.current));
+      setMessagesRef.current?.(
+        foldSessionMessages(mirrors.eventsRef.current, mirrors.turnsRef.current),
+      );
     },
   });
   const { messages, status, error, setMessages, resumeStream } = chat;

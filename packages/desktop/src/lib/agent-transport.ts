@@ -10,9 +10,9 @@ import {
 import {
   deltaPartId,
   eventToChunk,
-  provisionalMessageId,
   type AgentUIMessage,
   type AgentUIMessageChunk,
+  type DeltaPartAnchor,
 } from './agent-adapter';
 import { ipc } from './ipc';
 
@@ -89,28 +89,9 @@ function deltaPartKind(delta: AgentDelta): 'text' | 'thinking' {
   return delta.kind === 'text' ? 'text' : 'thinking';
 }
 
-/** part-start chunk（text / reasoning 按 kind 各一，id 与 delta 累积同源） */
-function partStartChunk(key: string, part: 'text' | 'thinking'): AgentUIMessageChunk {
-  return part === 'text'
-    ? { type: 'text-start', id: deltaPartId(key, 'text') }
-    : { type: 'reasoning-start', id: deltaPartId(key, 'thinking') };
-}
-
-/** provisional 开件 chunk 组：start（配对键派生键，metadata 携源 seq）+
- * reset-step 让位 + part-start（首 delta 由 transport 流内簿记补发） */
-function openProvisionalChunks(
-  event: Extract<AgentEvent, { kind: 'messageDelta' }>,
-): AgentUIMessageChunk[] {
-  const key = event.parentToolUseId ?? '';
-  return [
-    {
-      type: 'start',
-      messageId: provisionalMessageId(event.parentToolUseId),
-      messageMetadata: { seq: event.seq, parentToolUseId: event.parentToolUseId },
-    },
-    { type: 'reset-step' },
-    partStartChunk(key, deltaPartKind(event.delta)),
-  ];
+/** part-start chunk（text / reasoning 按 kind 各一；id 为已算好的 delta part id） */
+function partStartChunk(id: string, part: 'text' | 'thinking'): AgentUIMessageChunk {
+  return part === 'text' ? { type: 'text-start', id } : { type: 'reasoning-start', id };
 }
 
 /** 订阅流 body 参数（会话订阅面入参；`chat.resumeStream({ body })` 透传） */
@@ -135,7 +116,7 @@ function readStreamParams(body: object | undefined): SessionStreamParams | null 
   return { root, sessionId, sinceSeq };
 }
 
-/** 信封流的簿记单点产物（发起流与订阅流共用同一套开件簿记与终态收口） */
+/** 信封流的簿记单点产物（发起流与订阅流共用同一套 step 分段与终态收口） */
 interface EnvelopeStream {
   stream: ReadableStream<AgentUIMessageChunk>;
   /** Channel 信封入口（事件分派 + `Record` 收口；未知信封忽略不断流） */
@@ -145,6 +126,127 @@ interface EnvelopeStream {
   end: () => void;
   /** 注错断流（invoke 失败等） */
   fail: (cause: unknown) => void;
+}
+
+/**
+ * 实时路流内状态（两出口共用同一簿记单点）：
+ * - `messageStarted` / `messageId` / `startSeq`：每轮**仅一次** `start`
+ *   （`messageId = turn-<turnId>`，与折叠路同源）；
+ * - `stepOpen` / `partAnchors`：step = 一次模型响应（`start-step` 在响应首个
+ *   可渲染动作处发，密封到达时 `reset-step` 开下一段）；`partAnchors` 为当前
+ *   step 的 delta part 锚（kind → 首个同类 delta 的 seq，新 step 开出时清空）；
+ * - `currentToolCalls`：**本轮累积**的工具调用 id（跨 step 不清——工具结果就地
+ *   补全既有部件，不开新 step）。
+ */
+interface StreamState {
+  messageStarted: boolean;
+  messageId: string | null;
+  startSeq: number | null;
+  stepOpen: boolean;
+  partAnchors: Map<'text' | 'thinking', number>;
+  currentToolCalls: Set<string>;
+}
+
+/** 轮内首个信封事件发一次 `start`（已建消息即返回空——`turn-<turnId>` 单点） */
+function startChunks(
+  state: StreamState,
+  messageId: string,
+  seq: number | null,
+): AgentUIMessageChunk[] {
+  state.messageStarted = true;
+  state.messageId = messageId;
+  state.startSeq = seq;
+  return [{ type: 'start', messageId, messageMetadata: { seq, parentToolUseId: null } }];
+}
+
+/** delta part 锚解析（`eventToChunk` 第三参）：当前 step 内首个同类 delta 的 seq */
+function anchorOf(state: StreamState): DeltaPartAnchor {
+  return (kind, seq) => state.partAnchors.get(kind) ?? seq;
+}
+
+/** delta 事件的帧：新响应首 delta 前开 step，同类 delta 只在首个处发 part-start */
+function deltaFrame(state: StreamState, event: Extract<AgentEvent, { kind: 'messageDelta' }>) {
+  const chunks: AgentUIMessageChunk[] = [];
+  const kind = deltaPartKind(event.delta);
+  if (!state.stepOpen) {
+    chunks.push({ type: 'start-step' });
+    state.stepOpen = true;
+    state.partAnchors.clear();
+  }
+  if (!state.partAnchors.has(kind)) {
+    state.partAnchors.set(kind, event.seq);
+    chunks.push(partStartChunk(deltaPartId(event.seq, kind), kind));
+  }
+  chunks.push(...eventToChunk(event, state.currentToolCalls, anchorOf(state)));
+  return chunks;
+}
+
+/**
+ * 密封 assistant 事件的帧：**该响应无 delta 时先开 step**（否则 `reset-step`
+ * 会按「最后一个 `step-start` 之后」把上一段的密封块一并清掉），随后**恒发一次
+ * `reset-step`**（只清本 step 的临时部件，前面 step 的密封块存活）再追加整块。
+ */
+function sealedFrame(
+  state: StreamState,
+  event: Extract<AgentEvent, { kind: 'message' }>,
+): AgentUIMessageChunk[] {
+  const chunks: AgentUIMessageChunk[] = [];
+  if (!state.stepOpen) chunks.push({ type: 'start-step' });
+  chunks.push({ type: 'reset-step' });
+  state.stepOpen = false;
+  state.partAnchors.clear();
+  chunks.push(...eventToChunk(event, state.currentToolCalls, anchorOf(state)));
+  for (const block of event.blocks) {
+    if (block.kind === 'toolUse') state.currentToolCalls.add(block.id);
+  }
+  return chunks;
+}
+
+/** 信封分派产物：待投 chunk 组 + 该信封是否收口关流（未知信封两者皆空） */
+interface EnvelopeOutcome {
+  chunks: AgentUIMessageChunk[];
+  finish: boolean;
+}
+
+/** 单信封 → 待投 chunk 组（观察点回调由调用侧先行触发，与投递解耦） */
+function envelopeOutcome(state: StreamState, message: AgentRunMessage): EnvelopeOutcome {
+  if (message.ipc === 'event') {
+    return { chunks: frameChunks(state, message.event), finish: false };
+  }
+  if (message.ipc === 'record') {
+    return { chunks: recordChunks(state, message.record), finish: true };
+  }
+  // 未知信封判别：忽略单条消息，流不断开
+  return { chunks: [], finish: false };
+}
+
+/** 单事件 → chunk 组（帧 + 块）：`start` 每轮一次、`start-step` 每响应一次 */
+function frameChunks(state: StreamState, event: AgentEvent): AgentUIMessageChunk[] {
+  const messageId = event.turnId != null ? `turn-${event.turnId}` : `evt-${event.seq}`;
+  const start = state.messageStarted ? [] : startChunks(state, messageId, event.seq);
+  if (event.kind === 'messageDelta') return [...start, ...deltaFrame(state, event)];
+  if (event.kind === 'message' && event.role === 'assistant') {
+    return [...start, ...sealedFrame(state, event)];
+  }
+  // tool 结果就地补全（不开 step）/ user 提问（恒零 chunk）/ aux（单条 data 部件）
+  return [...start, ...eventToChunk(event, state.currentToolCalls, anchorOf(state))];
+}
+
+/**
+ * `Record` 收口：该轮消息尚未存在（零事件轮 / 旧转录 id 失配）时先发 `start`
+ * 建消息，再以 `finish` 的 `messageMetadata` 挂轮行。`seq` **显式回填**——
+ * `mergeObjects` 只跳过 `undefined`，`null` 会覆盖 `start` 写入的值。
+ */
+function recordChunks(state: StreamState, record: TurnSummary): AgentUIMessageChunk[] {
+  const messageId = `turn-${record.turnId}`;
+  const start = state.messageId === messageId ? [] : startChunks(state, messageId, state.startSeq);
+  return [
+    ...start,
+    {
+      type: 'finish',
+      messageMetadata: { seq: state.startSeq, parentToolUseId: null, record },
+    },
+  ];
 }
 
 /**
@@ -214,15 +316,20 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
   }
 
   /**
-   * 开件簿记单点（两出口共用）：内部持有 `openedParts` / `closed`；`accept`
-   * 分派事件 / `Record`，`end` 关流，`fail` 注错。
+   * step 分段簿记单点（两出口共用）：内部持有 `StreamState` 与 `closed`；
+   * `accept` 分派事件 / `Record`，`end` 关流，`fail` 注错。
    */
   private envelopeStream(channel: Channel<AgentRunMessage>): EnvelopeStream {
     let controller: ReadableStreamDefaultController<AgentUIMessageChunk> | null = null;
     let closed = false;
-    /** 流内 delta 簿记：配对键 → 已开 part kind 集 */
-    const openedParts = new Map<string, Set<'text' | 'thinking'>>();
-    const currentToolCalls = new Set<string>();
+    const state: StreamState = {
+      messageStarted: false,
+      messageId: null,
+      startSeq: null,
+      stepOpen: false,
+      partAnchors: new Map(),
+      currentToolCalls: new Set(),
+    };
     const close = () => {
       if (closed) return;
       closed = true;
@@ -230,23 +337,12 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     };
     const accept = (message: AgentRunMessage) => {
       if (closed) return;
-      if (message.ipc === 'event') {
-        this.onEvent?.(message.event);
-        for (const chunk of this.eventChunks(message.event, openedParts, currentToolCalls)) {
-          controller?.enqueue(chunk);
-        }
-        return;
-      }
-      if (message.ipc === 'record') {
-        this.onRecord?.(message.record);
-        if (controller !== null) {
-          this.enqueueRecord(controller, message.record);
-          closed = true;
-          controller.close();
-        }
-        return;
-      }
-      // 未知信封判别：忽略单条消息，流不断开
+      // 观察点先于投递（镜像与收口不依赖 chunk 消费进度）
+      if (message.ipc === 'event') this.onEvent?.(message.event);
+      else if (message.ipc === 'record') this.onRecord?.(message.record);
+      const outcome = envelopeOutcome(state, message);
+      for (const chunk of outcome.chunks) controller?.enqueue(chunk);
+      if (outcome.finish) close();
     };
     const fail = (cause: unknown) => {
       if (closed) return;
@@ -265,63 +361,6 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     // Channel 信封入口在簿记单点内接线（调用方只负责 invoke）
     channel.onmessage = accept;
     return { stream, accept, end: close, fail };
-  }
-
-  /** 单事件 → chunk 组 */
-  private eventChunks(
-    event: AgentEvent,
-    openedParts: Map<string, Set<'text' | 'thinking'>>,
-    currentToolCalls: Set<string>,
-  ): AgentUIMessageChunk[] {
-    if (event.kind === 'messageDelta') {
-      const key = event.parentToolUseId ?? '';
-      const part = deltaPartKind(event.delta);
-      const opened = openedParts.get(key);
-      const chunks =
-        opened === undefined
-          ? openProvisionalChunks(event)
-          : opened.has(part)
-            ? []
-            : [partStartChunk(key, part)];
-      if (opened === undefined) {
-        openedParts.set(key, new Set([part]));
-        // provisional 开件组含 start + reset-step：reducer 清空当前 step 部件，
-        // 跨消息配对视野随之失效（后续 result 回退占位卡，不撞 missing part）
-        currentToolCalls.clear();
-      } else {
-        opened.add(part);
-      }
-      return [...chunks, ...eventToChunk(event)];
-    }
-    const chunks = eventToChunk(event, currentToolCalls);
-    // 事件开新消息：reset-step 在 reducer 侧清空全部活跃 part，delta 簿记与
-    // 跨消息配对视野随之重武装——工具轮后模型再次流式时，裸 delta 会因 part
-    // 已被清而抛 missing reasoning/text part
-    if (chunks.some((chunk) => chunk.type === 'start')) {
-      openedParts.clear();
-      currentToolCalls.clear();
-      if (event.kind === 'message') {
-        for (const block of event.blocks) {
-          if (block.kind === 'toolUse') currentToolCalls.add(block.id);
-        }
-      }
-    }
-    return chunks;
-  }
-
-  /** 终态轮行 → 同构 record 部件 chunk 组（与重放两路同构）。 */
-  private enqueueRecord(
-    controller: ReadableStreamDefaultController<AgentUIMessageChunk>,
-    record: TurnSummary,
-  ): void {
-    controller.enqueue({
-      type: 'start',
-      messageId: `turn-${record.turnId}`,
-      messageMetadata: { seq: null, parentToolUseId: null },
-    });
-    controller.enqueue({ type: 'reset-step' });
-    controller.enqueue({ type: 'data-run-record', data: record });
-    controller.enqueue({ type: 'finish' });
   }
 
   /** 发起运行（生成绑定穿透会话参数 + Channel）：early-resolve 轮行经

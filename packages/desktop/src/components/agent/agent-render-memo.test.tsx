@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import { eventsToUIMessages, type AgentUIMessage } from '../../lib/agent-adapter';
+import { foldSessionMessages, type AgentUIMessage } from '../../lib/agent-adapter';
 import type { AgentBlock, AgentCitation, AgentEvent } from '../../types/dto';
 import { AgentMessages } from './agent-messages';
 
@@ -27,15 +27,21 @@ function citation(url: string, title: string | null = null): AgentCitation {
   return { url, title, citedText: null, raw: { url } };
 }
 
-function message(seq: number, blocks: AgentBlock[]): AgentEvent {
+function message(seq: number, blocks: AgentBlock[], turnId = seq + 1): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: TS,
     kind: 'message',
     role: 'assistant',
     blocks,
     parentToolUseId: null,
   };
+}
+
+/** 折叠唯一入口的薄包装（本套件只关心呈现层重渲染，不关心轮行） */
+function fold(events: AgentEvent[]): AgentUIMessage[] {
+  return foldSessionMessages(events, []);
 }
 
 /** 基线：历史文本 + [带引用文本、未落定工具、流式末尾文本] */
@@ -66,9 +72,7 @@ function streamNext(previous: AgentUIMessage[], text: string): AgentUIMessage[] 
 function withNewCitations(previous: AgentUIMessage[], next: AgentCitation): AgentUIMessage[] {
   const last = previous.at(-1);
   if (last === undefined) throw new Error('fixture 缺少消息');
-  const source = eventsToUIMessages([
-    message(1, [{ kind: 'text', text: '引用正文', citations: [next] }]),
-  ])[0];
+  const source = fold([message(1, [{ kind: 'text', text: '引用正文', citations: [next] }])])[0];
   const sourcePart = source?.parts[0];
   if (sourcePart === undefined || sourcePart.type !== 'text') throw new Error('fixture 引用缺失');
   const parts = last.parts.map((part) => ({ ...part }));
@@ -90,7 +94,7 @@ beforeEach(() => {
 
 describe('AgentMessages：流式重渲染只解析变化的 markdown', () => {
   it('历史消息、未变文本、未变引用全部跳过；仅流式末尾文本重解析', () => {
-    const first = eventsToUIMessages(baseEvents());
+    const first = fold(baseEvents());
     const { rerender } = render(<AgentMessages messages={first} />);
 
     expect(markdownCalls('历史结论')).toBe(1);
@@ -114,7 +118,7 @@ describe('AgentMessages：流式重渲染只解析变化的 markdown', () => {
   });
 
   it('citations 变化照常更新引用列表，但正文 markdown 不重解析', () => {
-    const first = eventsToUIMessages(baseEvents());
+    const first = fold(baseEvents());
     const { rerender } = render(<AgentMessages messages={first} />);
 
     markdownSpy.mockClear();

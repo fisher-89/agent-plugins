@@ -59,9 +59,10 @@ function run(turnId: number, status: TurnSummary['status']): TurnSummary {
   };
 }
 
-function runStarted(seq: number): AgentEvent {
+function runStarted(seq: number, turnId: number | null = 1): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000000,
     kind: 'runStarted',
     model: 'claude-opus',
@@ -71,9 +72,10 @@ function runStarted(seq: number): AgentEvent {
   };
 }
 
-function turnDone(seq: number): AgentEvent {
+function turnDone(seq: number, turnId: number | null = 1): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000001,
     kind: 'turnDone',
     subtype: 'success',
@@ -86,9 +88,10 @@ function turnDone(seq: number): AgentEvent {
   };
 }
 
-function textDeltaEvent(seq: number, text: string): AgentEvent {
+function textDeltaEvent(seq: number, text: string, turnId: number | null = 1): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000002,
     kind: 'messageDelta',
     parentToolUseId: null,
@@ -96,9 +99,10 @@ function textDeltaEvent(seq: number, text: string): AgentEvent {
   };
 }
 
-function sealedTextEvent(seq: number, text: string): AgentEvent {
+function sealedTextEvent(seq: number, text: string, turnId: number | null = 1): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000003,
     kind: 'message',
     role: 'assistant',
@@ -213,11 +217,14 @@ describe('AgentDebugView → AgentMessages 接线', () => {
     render(<AgentDebugView root={ROOT} />);
     await startRun();
 
-    // runStarted 为辅助载体（不进对话呈现），密封消息进对话气泡
+    // runStarted 为辅助载体（不进对话呈现），密封消息进对话气泡；提问由本地
+    // 推入（会话状态侧）故另有一条 user 气泡
     deliverEvent(runStarted(0));
     deliverEvent(sealedTextEvent(1, '调试运行正文'));
     await waitFor(() =>
-      expect(screen.getByTestId('block-text').textContent).toContain('调试运行正文'),
+      expect(screen.getAllByTestId('block-text').map((node) => node.textContent)).toContain(
+        '调试运行正文',
+      ),
     );
     // 运行中：对话区头部运行标记在场
     expect(screen.getByTestId('agent-messages-running') !== null).toBe(true);
@@ -339,9 +346,10 @@ describe('AgentDebugView：区域滚动框架', () => {
 // ---------------------------------------------------------------------------
 
 /** sdk 形态事件 fixture：ToolUse / ToolResult 成对 + 思考块。 */
-function toolUseEvent(seq: number): AgentEvent {
+function toolUseEvent(seq: number, turnId: number | null = 1): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000000,
     kind: 'message',
     role: 'assistant',
@@ -353,12 +361,15 @@ function toolUseEvent(seq: number): AgentEvent {
   };
 }
 
-function toolResultEvent(seq: number): AgentEvent {
+function toolResultEvent(seq: number, turnId: number | null = 1): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000001,
     kind: 'message',
-    role: 'user',
+    // 引擎工具结果管道 = `role: 'tool'`（`loop.rs` 生产点同值）；`role: 'user'`
+    // 只用于真实用户言语（其事件零 chunk，提问由会话状态侧承载）
+    role: 'tool',
     blocks: [{ kind: 'toolResult', id: 'tu_sdk_1', content: '文件内容 🎉', isError: false }],
     parentToolUseId: null,
   };
@@ -479,10 +490,21 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
       expect(screen.getByTestId('agent-start').hasAttribute('disabled')).toBe(false),
     );
 
-    // 成对块经同一对话透镜呈现（block 级 testid 复用；收口归一后 input 与同 id output 合卡）
-    const toolCard = screen.getByTestId('block-tool-use');
-    expect(toolCard.getAttribute('data-tool-id')).toBe('tu_sdk_1');
-    // 结果正文在卡面展开后呈现（TraceCollapsible 默认折叠）
+    // 成对块经同一对话透镜呈现（收口以重放重建 ⇒ 对话内该轮恰一条 assistant 气泡）
+    const assistantBubbles = () =>
+      screen
+        .getAllByTestId('chat-bubble')
+        .filter((bubble) => bubble.getAttribute('data-role') === 'assistant');
+    await waitFor(() => {
+      expect(assistantBubbles()).toHaveLength(1);
+      expect(
+        within(assistantBubbles()[0] as HTMLElement)
+          .getByTestId('block-tool-use')
+          .getAttribute('data-tool-id'),
+      ).toBe('tu_sdk_1');
+    });
+    // input 与同 id output 合卡；结果正文在卡面展开后呈现（TraceCollapsible 默认折叠）
+    const toolCard = within(assistantBubbles()[0] as HTMLElement).getByTestId('block-tool-use');
     fireEvent.click(within(toolCard).getByRole('button'));
     expect((await screen.findByTestId('block-tool-result')).textContent).toContain('文件内容 🎉');
   });
@@ -653,16 +675,21 @@ describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
     render(<AgentDebugView root={ROOT} />);
     await startRun();
 
-    // 两枚文本 delta：provisional 键单通道累积——对话恰一条气泡
-    //（sendMessage 不注入用户泡，对话列表只有 provisional 助手消息）
+    // 两枚文本 delta：同一 step 内累积为单条 assistant 气泡；提问由本地推入
+    //（会话状态侧）⇒ 对话为「提问 + 一条 assistant」两条
     deliverEvent(textDeltaEvent(0, '你好'));
     deliverEvent(textDeltaEvent(1, '工作区'));
     await waitFor(() => {
-      expect(screen.getAllByTestId('chat-bubble')).toHaveLength(1);
+      const roles = screen
+        .getAllByTestId('chat-bubble')
+        .map((bubble) => bubble.getAttribute('data-role'));
+      expect(roles).toEqual(['user', 'assistant']);
     });
     // messages 通知有节流窗：累积文本以终态等待
     await waitFor(() => {
-      expect(screen.getByTestId('block-text').textContent).toBe('你好工作区');
+      expect(screen.getAllByTestId('block-text').map((node) => node.textContent)).toContain(
+        '你好工作区',
+      );
     });
 
     // 密封 Message 到达：整块部件组（start + reset-step + 整块）

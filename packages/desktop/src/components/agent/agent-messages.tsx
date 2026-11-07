@@ -14,7 +14,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Trace } from '@/components/ui/trace';
 import type { AgentToolPart, AgentUIMessage } from '@/lib/agent-adapter';
 import { asRecord, textOf } from '@/lib/parse';
-import type { AgentCitation } from '@/types/dto';
+import type { AgentCitation, TurnSummary } from '@/types/dto';
 
 import { TextBlock, ThinkingBlock, ToolPairCard, isToolPart } from './agent-blocks';
 import { BUILD_IN_TOOL_CARDS } from './tool-cards';
@@ -69,7 +69,11 @@ function citationsOfPart(part: AgentUIMessage['parts'][number]): AgentCitation[]
   return parsed.length === 0 ? undefined : parsed;
 }
 
-/** 气泡内部件分发（text / reasoning / tool；data 部件随 system 载体不进对话呈现） */
+/**
+ * 气泡内部件分发（text / reasoning / tool）。非呈现部件返回 `null`：
+ * `step-start` 是 reducer 的 step 标记（收口后由折叠整表替换消失），
+ * `data-*` 是实时态 aux 载体（收口后归一到独立 system 消息）。
+ */
 function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JSX.Element | null {
   if (part.type === 'text') return <TextBlock citations={citationsOfPart(part)} text={part.text} />;
   if (part.type === 'reasoning') return <ThinkingBlock text={part.text} state={part.state} />;
@@ -77,9 +81,97 @@ function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JS
   return null;
 }
 
-/** 气泡：user / assistant 各成泡（user 靠右），部件按类型映射渲染 */
+/** 可见部件：`text` / `reasoning` / `tool-<name>` 三类计入；
+ * `data-*` 与 `step-start` 不计（实时态的空壳消息由此不产空气泡） */
+function hasVisibleParts(message: AgentUIMessage): boolean {
+  return message.parts.some(
+    (part) => part.type === 'text' || part.type === 'reasoning' || isToolPart(part),
+  );
+}
+
+/** 轮状态（唯一来源：该轮 assistant 消息的 `metadata.record.status`） */
+function turnStatusOf(message: AgentUIMessage): TurnSummary['status'] | null {
+  return message.metadata?.record?.status ?? null;
+}
+
+/** 该消息内 `api_error` 通知的错误原文（实时态 aux 落本轮消息内；折叠态已归一
+ * 为独立 system 消息，故该支在折叠态天然缺席） */
+function noticeError(message: AgentUIMessage): string | null {
+  for (const part of message.parts) {
+    if (part.type !== 'data-system-notice') continue;
+    if (part.data.subtype !== 'api_error') continue;
+    const error = textOf(asRecord(part.data.payload).error);
+    if (error !== null && error.trim() !== '') return error;
+  }
+  return null;
+}
+
+/** 状态行原文：库态权威（`record.error`）+ 该消息内 `api_error` 通知，去重拼接 */
+function statusRawText(message: AgentUIMessage, record: TurnSummary): string[] {
+  const lines: string[] = [];
+  for (const line of [record.error, noticeError(message)]) {
+    if (line === null || line.trim() === '') continue;
+    if (!lines.includes(line)) lines.push(line);
+  }
+  return lines;
+}
+
+/**
+ * 轮内状态行（`parts` 为空时）：「在发生的位置看到它」——正文是 content，
+ * 运行事实是 provenance。`failed` 呈通用标题 + 可展开原文；`stopped` 呈
+ * 「已停止」；其他 status 不渲染。`stopped` MUST NOT 触发顶部失败横幅
+ * （`agent-error.ts` 的既有判据正确，本文件零改动该面）。
+ */
+function TurnStatusLine({
+  message,
+  record,
+}: {
+  message: AgentUIMessage;
+  record: TurnSummary;
+}): React.JSX.Element | null {
+  if (record.status === 'failed') {
+    const raw = statusRawText(message, record);
+    return (
+      <div
+        className="my-1 text-sm text-destructive"
+        data-testid="turn-status-line"
+        data-status="failed"
+      >
+        <div data-testid="turn-status-line-failed">Agent 运行失败</div>
+        {raw.length > 0 && (
+          <details className="mt-1 text-xs text-muted-foreground">
+            <summary>原始错误</summary>
+            <div className="whitespace-pre-wrap break-all" data-testid="turn-status-line-raw">
+              {raw.join('\n')}
+            </div>
+          </details>
+        )}
+      </div>
+    );
+  }
+  if (record.status === 'stopped') {
+    return (
+      <div
+        className="my-1 text-sm text-muted-foreground"
+        data-testid="turn-status-line"
+        data-status="stopped"
+      >
+        <div data-testid="turn-status-line-stopped">已停止</div>
+      </div>
+    );
+  }
+  return null;
+}
+
+/** 气泡：user / assistant 各成泡（user 靠右），部件按类型映射渲染；assistant
+ * 无可见部件且该轮 failed / stopped 时以轮内状态行取代部件列表 */
 function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Element {
   const isUser = message.role === 'user';
+  const record = message.metadata?.record ?? null;
+  const statusLine =
+    !isUser && !hasVisibleParts(message) && record !== null ? (
+      <TurnStatusLine message={message} record={record} />
+    ) : null;
   return isUser ? (
     <Message data-testid="chat-bubble" data-role={message.role}>
       <MessageContent>
@@ -95,6 +187,7 @@ function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Ele
   ) : (
     <Message data-testid="chat-bubble" data-role={message.role}>
       <MessageContent>
+        {statusLine}
         <Trace className="pl-3">
           {message.parts.map((part, index) => (
             <PartView key={index} part={part} />
@@ -213,10 +306,16 @@ function useHistoryWindow(allMessages: AgentUIMessage[]): {
     }
   }, [allMessages, firstMessageId]);
 
-  // 空部件消息不进对话呈现（`pause_turn` 第二段可能只剩被消费的孤儿搜索
-  // 结果而产出 0 部件 assistant 消息 → 不渲染空气泡；分页计数基于过滤后列表）
+  // 可见性判据（**全文件唯一过滤点**，MUST NOT 在别处重复）：system 角色剔除
+  // → 存在可见部件即保留 → 否则按**轮状态**判定空内容轮（`failed` / `stopped`
+  // 呈状态行保留；`completed` / 轮行缺席不渲染空气泡）。`data-*` 与 `step-start`
+  // 不计入可见部件。分页计数基于过滤后列表。
   const conversationMessages = allMessages.filter(
-    (message) => message.role !== 'system' && message.parts.length > 0,
+    (message) =>
+      message.role !== 'system' &&
+      (hasVisibleParts(message) ||
+        turnStatusOf(message) === 'failed' ||
+        turnStatusOf(message) === 'stopped'),
   );
   const remaining = Math.max(0, conversationMessages.length - pages * MESSAGE_PAGE_SIZE);
 

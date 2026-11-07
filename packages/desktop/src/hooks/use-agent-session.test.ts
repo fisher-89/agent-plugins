@@ -88,9 +88,10 @@ function summary(
   };
 }
 
-function textEvent(seq: number, text: string): AgentEvent {
+function textEvent(seq: number, text: string, turnId: number | null = 11): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: TS,
     kind: 'message',
     role: 'assistant',
@@ -99,9 +100,10 @@ function textEvent(seq: number, text: string): AgentEvent {
   };
 }
 
-function userEvent(seq: number, text: string): AgentEvent {
+function userEvent(seq: number, text: string, turnId: number | null = 11): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: TS,
     kind: 'message',
     role: 'user',
@@ -110,9 +112,10 @@ function userEvent(seq: number, text: string): AgentEvent {
   };
 }
 
-function turnDoneEvent(seq: number): AgentEvent {
+function turnDoneEvent(seq: number, turnId: number | null = 11): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: TS,
     kind: 'turnDone',
     subtype: 'success',
@@ -125,9 +128,24 @@ function turnDoneEvent(seq: number): AgentEvent {
   };
 }
 
-function deltaEvent(seq: number, text: string): AgentEvent {
+/** run 启动事件（旧转录的组界锚：`turnId` 全 null 时按它切组） */
+function runStartedEvent(seq: number, turnId: number | null = 11): AgentEvent {
   return {
     seq,
+    turnId,
+    timestampMs: TS,
+    kind: 'runStarted',
+    model: 'claude-opus',
+    sessionId: 'sdk-1',
+    tools: ['Bash'],
+    mcpServers: [],
+  };
+}
+
+function deltaEvent(seq: number, text: string, turnId: number | null = 11): AgentEvent {
+  return {
+    seq,
+    turnId,
     timestampMs: TS,
     kind: 'messageDelta',
     parentToolUseId: null,
@@ -136,9 +154,10 @@ function deltaEvent(seq: number, text: string): AgentEvent {
 }
 
 /** toolUse + 跨消息 toolResult（收口收敛「单卡无双卡」的 fixture）。 */
-function toolUseEvent(seq: number): AgentEvent {
+function toolUseEvent(seq: number, turnId: number | null = 11): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: TS,
     kind: 'message',
     role: 'assistant',
@@ -147,9 +166,10 @@ function toolUseEvent(seq: number): AgentEvent {
   };
 }
 
-function toolResultEvent(seq: number): AgentEvent {
+function toolResultEvent(seq: number, turnId: number | null = 11): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: TS,
     kind: 'message',
     role: 'tool',
@@ -333,9 +353,14 @@ describe('useAgentSession：重放装载与库态派生', () => {
     expect(result.current.chain).toEqual([turn(11, 'completed')]);
     expect(result.current.events).toHaveLength(3);
     expect(result.current.loading).toBe(false);
-    // 密封事件逐条成消息 + TurnDone 位后插入对应轮行（尾部补齐）
-    expect(messageIds(result.current.messages)).toEqual(['evt-0', 'evt-1', 'evt-2', 'turn-11']);
+    // 折叠：该轮提问 + 恰一条 assistant（末条）+ 逐事件 aux system；
+    // 轮行挂 assistant 的 metadata.record（不再产 data-run-record 消息）
+    const ids = messageIds(result.current.messages);
+    expect(ids.at(-1)).toBe('turn-11');
+    expect(ids).toContain('turn-11-user');
+    expect(ids.filter((id) => id.startsWith('evt-'))).toHaveLength(1);
     expect(messageTexts(result.current.messages)).toEqual(['首轮提问', '首轮结论']);
+    expect(result.current.messages.at(-1)?.metadata?.record).toEqual(turn(11, 'completed'));
   });
 
   it('running 由轮行 status 派生（库态），非 chat.status 替代；全部收口时为 false', async () => {
@@ -509,14 +534,15 @@ describe('useAgentSession：实时流跨消息工具配对', () => {
     });
     await act(async () => {});
 
-    deliverEvent(toolUseEvent(3));
+    // 新跑即新轮：turnId 与原会话已重放的轮不同（同轮号只属同一轮的多次响应）
+    deliverEvent(toolUseEvent(3, 12));
     await waitFor(() => {
       const parts = bashToolParts(result.current.messages);
       expect(parts).toHaveLength(1);
       expect(parts[0]).toMatchObject({ state: 'input-available', input: { command: 'ls' } });
     });
 
-    deliverEvent(toolResultEvent(4));
+    deliverEvent(toolResultEvent(4, 12));
     await waitFor(() => {
       const parts = bashToolParts(result.current.messages);
       expect(parts).toHaveLength(1);
@@ -527,9 +553,8 @@ describe('useAgentSession：实时流跨消息工具配对', () => {
       });
     });
 
-    // 结果事件不另起消息：toolUse 消息（evt-3）就地补全，无 evt-4 / 孤儿占位卡
-    expect(messageIds(result.current.messages)).toContain('evt-3');
-    expect(messageIds(result.current.messages)).not.toContain('evt-4');
+    // 结果事件不另起消息：本轮恰一条 assistant（turn-12），结果就地补全该消息
+    expect(result.current.messages.filter((message) => message.id === 'turn-12')).toHaveLength(1);
     expect(bashToolParts(result.current.messages)).toHaveLength(1);
   });
 });
@@ -557,23 +582,24 @@ describe('useAgentSession：收口以重放收敛（AC-4）', () => {
     ];
     deliverRecord(turn(11, 'completed'));
 
-    await waitFor(() =>
-      expect(messageIds(result.current.messages)).toEqual([
-        'evt-0',
-        'evt-1',
-        'evt-2',
-        'turn-11',
-        'evt-3',
-      ]),
-    );
-    // 跨消息 tool 配对收敛为单卡（无双卡残留）
-    const toolParts = result.current.messages.flatMap((message) =>
-      message.parts.filter((part) => part.type === 'tool-Bash'),
-    );
-    expect(toolParts).toHaveLength(1);
-    expect(toolParts[0]).toMatchObject({
-      state: 'output-available',
-      output: { content: '目录内容', isError: false },
+    await waitFor(() => {
+      const ids = messageIds(result.current.messages);
+      // 提问 + 恰一条 assistant（末条）+ 逐事件 aux（TurnDone 与 toolResult 各一）
+      expect(ids.at(-1)).toBe('turn-11');
+      expect(ids).toContain('turn-11-user');
+      // toolResult 事件为 tool 角色：并入 assistant 消息，不产独立 system 消息
+      expect(ids.filter((id) => id.startsWith('evt-'))).toHaveLength(1);
+    });
+    // 跨消息 tool 配对收敛为单卡（无双卡残留）：output-available 即重放已落地
+    await waitFor(() => {
+      const toolParts = result.current.messages.flatMap((message) =>
+        message.parts.filter((part) => part.type === 'tool-Bash'),
+      );
+      expect(toolParts).toHaveLength(1);
+      expect(toolParts[0]).toMatchObject({
+        state: 'output-available',
+        output: { content: '目录内容', isError: false },
+      });
     });
     expect(callsOf('agent_session_watch')).toHaveLength(1);
   });
@@ -593,10 +619,12 @@ describe('useAgentSession：收口以重放收敛（AC-4）', () => {
     await waitFor(() =>
       expect(result.current.error, '重放失败经错误面呈现（不抛错）').toContain('重放失败'),
     );
-    // 镜像折叠：重放前的密封事件 + TurnDone 位后的轮行（镜像与折叠一致）
-    await waitFor(() =>
-      expect(messageIds(result.current.messages)).toEqual(['evt-0', 'evt-1', 'evt-2', 'turn-11']),
-    );
+    // 镜像折叠：重放前的密封事件折叠（提问 + assistant 末条 + aux system）
+    await waitFor(() => {
+      const ids = messageIds(result.current.messages);
+      expect(ids.at(-1)).toBe('turn-11');
+      expect(ids).toContain('turn-11-user');
+    });
   });
 });
 
@@ -889,17 +917,33 @@ describe('useAgentSession：early-resolve 镜像形态与订阅寻址', () => {
     });
   });
 
-  it('root 为 null → sendMessage 零 agent_start invoke（发送守卫单点）', async () => {
-    const { result } = await mounted({ root: null });
+  it.each([
+    ['root 为 null', { root: null }],
+    ['会话已在挂流（isStreaming 守卫）', {}],
+  ])(
+    '%s → sendMessage 零 agent_start 且零本地提问推入（不产生孤儿提问）',
+    async (label, overrides) => {
+      resetIpc({ detail: summary([turn(11, 'running')]) });
+      const { result } = await mounted(overrides as Partial<Params>);
+      if (label.includes('isStreaming')) {
+        // 库态 running 即已有在挂订阅流：守卫先于推入
+        await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+      }
+      const before = messageIds(result.current.messages);
 
-    act(() => {
-      result.current.sendMessage({ prompt: '无 root 不发', permissionMode: 'default' });
-    });
-    await act(async () => {});
+      act(() => {
+        result.current.sendMessage({ prompt: '守卫应拦下', permissionMode: 'default' });
+      });
+      await act(async () => {});
 
-    expect(callsOf('agent_start')).toHaveLength(0);
-    expect(result.current.messages).toEqual([]);
-  });
+      expect(callsOf('agent_start')).toHaveLength(0);
+      // 零本地推入：消息 id 集合不变、无 pending 临时 id
+      expect(messageIds(result.current.messages)).toEqual(before);
+      expect(messageIds(result.current.messages).some((id) => id.startsWith('pending-user-'))).toBe(
+        false,
+      );
+    },
+  );
 
   it('sessionId 从值切 null → 重放复位：镜像 / 轮行 / 事件 / 消息清空且零新取数', async () => {
     const { rerender, result } = await mounted();
@@ -1148,5 +1192,411 @@ describe('useAgentSession：经 ipc 的参数面 / 结果面', () => {
 
     expect(result.current.events).toEqual([]);
     expect(driftCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 提问气泡两起点（AC-2 / D5）：发起流本地推入副本 → 提问事件到达时归一；
+// 订阅流（无本地副本）在提问事件到达时以 `turn-<turnId>-user` 追加并置于该轮
+// assistant 之前。两路不变式：同一提问恰一条气泡、消息数不因归一增加。
+// ---------------------------------------------------------------------------
+
+/** 提问气泡的 id 集合（`turn-<turnId>-user` / `evt-<seq>` 兜底 / 临时 `pending-user-*`） */
+function userIds(messages: readonly { id: string; role: string }[]): string[] {
+  return messages.filter((message) => message.role === 'user').map((message) => message.id);
+}
+
+describe('useAgentSession：提问气泡两起点（AC-2）', () => {
+  it('发起流本地推入：sendMessage 后先有一条 user 消息（无 chunk 亦然），此刻无 assistant', async () => {
+    resetIpc({ detail: null, transcript: [] });
+    const { result } = await mounted({ sessionId: null });
+
+    act(() => {
+      result.current.sendMessage({ prompt: '同步可见的提问', permissionMode: 'default' });
+    });
+    await act(async () => {});
+
+    // 本地副本结构上先于任何 chunk：此刻未投递任何信封，提问已可见
+    await waitFor(() => expect(userIds(result.current.messages)).toHaveLength(1));
+    const question = result.current.messages.find((message) => message.role === 'user');
+    expect(question?.parts).toEqual([{ type: 'text', text: '同步可见的提问' }]);
+    expect(
+      result.current.messages.filter((message) => message.role === 'assistant'),
+      '尚无任何 chunk',
+    ).toHaveLength(0);
+    // body 八字段逐字不变（既有参数面）
+    expect(argsOf('agent_start')).toEqual({
+      onEvent: expect.any(ChannelMock),
+      root: ROOT,
+      prompt: '同步可见的提问',
+      permissionMode: 'default',
+      sessionId: null,
+      source: 'debug',
+      sourceRef: null,
+      agent: null,
+      cwd: null,
+    });
+  });
+
+  it('提问归一：该轮提问事件到达 → id 变 turn-13-user、metadata 取事件 seq、消息总数不增', async () => {
+    resetIpc({ detail: null, transcript: [] });
+    const { result } = await mounted({ sessionId: null });
+
+    act(() => {
+      result.current.sendMessage({ prompt: '待归一提问', permissionMode: 'default' });
+    });
+    await act(async () => {});
+    await waitFor(() => expect(userIds(result.current.messages)).toHaveLength(1));
+
+    deliverEvent(userEvent(5, '待归一提问', 13));
+    await act(async () => {});
+
+    await waitFor(() => expect(userIds(result.current.messages)).toEqual(['turn-13-user']));
+    // 提问数不增（id 原地替换，不追加第二条）
+    expect(userIds(result.current.messages)).toHaveLength(1);
+    expect(
+      messageTexts(result.current.messages).filter((text) => text === '待归一提问'),
+    ).toHaveLength(1);
+    const question = result.current.messages.find((message) => message.id === 'turn-13-user');
+    expect(question?.metadata).toEqual({ seq: 5, parentToolUseId: null });
+    // 临时 pending id 不残留
+    expect(messageIds(result.current.messages).some((id) => id.startsWith('pending-user-'))).toBe(
+      false,
+    );
+  });
+
+  it('提问归一后仍在该轮 assistant 之前（顺序不因归一改变）', async () => {
+    resetIpc({ detail: null, transcript: [] });
+    const { result } = await mounted({ sessionId: null });
+
+    act(() => {
+      result.current.sendMessage({ prompt: '顺序判据', permissionMode: 'default' });
+    });
+    await act(async () => {});
+    deliverEvent(userEvent(0, '顺序判据', 13));
+    deliverEvent(textEvent(1, '答一句', 13));
+    await act(async () => {});
+
+    await waitFor(() => expect(messageIds(result.current.messages)).toContain('turn-13'));
+    const ids = messageIds(result.current.messages);
+    expect(ids).toContain('turn-13-user');
+    expect(ids.indexOf('turn-13-user')).toBeLessThan(ids.indexOf('turn-13'));
+  });
+
+  it('订阅流旁观（无本地副本）：提问事件 → 以 turn-<turnId>-user 追加在该轮 assistant 之前', async () => {
+    resetIpc({ detail: summary([turn(11, 'running')]) });
+    const { result } = await mounted();
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+    await waitFor(() => expect(messageIds(result.current.messages)).toContain('turn-11'));
+
+    deliverEvent(textEvent(3, '新轮正文', 12));
+    await act(async () => {});
+    deliverEvent(userEvent(4, '旁观看到的提问', 12));
+    await act(async () => {});
+
+    await waitFor(() => expect(userIds(result.current.messages)).toContain('turn-12-user'));
+    const ids = messageIds(result.current.messages);
+    expect(ids.indexOf('turn-12-user')).toBeLessThan(ids.indexOf('turn-12'));
+  });
+
+  it('订阅流多轮：两轮各自提问事件 → 两条提问气泡各就位（不串轮、不重复）', async () => {
+    resetIpc({ detail: summary([turn(11, 'running')]) });
+    const { result } = await mounted();
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+
+    deliverEvent(userEvent(3, '轮十二提问', 12));
+    deliverEvent(textEvent(4, '轮十二正文', 12));
+    await act(async () => {});
+    deliverEvent(userEvent(5, '轮十三提问', 13));
+    deliverEvent(textEvent(6, '轮十三正文', 13));
+    await act(async () => {});
+
+    await waitFor(() =>
+      expect(userIds(result.current.messages)).toEqual([
+        'turn-11-user',
+        'turn-12-user',
+        'turn-13-user',
+      ]),
+    );
+    // 提问不串轮、不重复（同一提问恰一条）；assistant 侧不因提问事件新增第二条
+    const assistantCount = result.current.messages.filter(
+      (message) => message.role === 'assistant',
+    ).length;
+    expect(assistantCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('同一轮提问事件重投（重订 / 收口竞态）→ 归一后仍恰一条气泡（id 替换幂等）', async () => {
+    resetIpc({ detail: summary([turn(11, 'running')]) });
+    const { result } = await mounted();
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+
+    deliverEvent(userEvent(3, '重复投递的提问', 12));
+    deliverEvent(userEvent(3, '重复投递的提问', 12));
+    await act(async () => {});
+
+    await waitFor(() =>
+      expect(userIds(result.current.messages).filter((id) => id === 'turn-12-user')).toHaveLength(
+        1,
+      ),
+    );
+  });
+
+  it('连续两轮发送：pending 计数各自独立，第二轮归一为 turn-<第二轮 turnId>-user 且不串号', async () => {
+    resetIpc({ detail: null, transcript: [] });
+    const { result } = await mounted({ sessionId: null });
+
+    act(() => {
+      result.current.sendMessage({ prompt: '第一轮', permissionMode: 'default' });
+    });
+    await act(async () => {});
+    deliverEvent(userEvent(0, '第一轮', 13));
+    await act(async () => {});
+    // 收口后重放读同一批库内转录（轮行转 completed）
+    ipc.detail = summary([turn(13, 'completed')]);
+    ipc.transcript = [userEvent(0, '第一轮', 13)];
+    deliverRecord(turn(13, 'completed'));
+    await waitFor(() => expect(result.current.running).toBe(false));
+    await waitFor(() => expect(userIds(result.current.messages)).toEqual(['turn-13-user']));
+
+    act(() => {
+      result.current.sendMessage({ prompt: '第二轮', permissionMode: 'default' });
+    });
+    await act(async () => {});
+    deliverEvent(userEvent(1, '第二轮', 14));
+    await act(async () => {});
+
+    await waitFor(() =>
+      expect(userIds(result.current.messages)).toEqual(['turn-13-user', 'turn-14-user']),
+    );
+    expect(messageTexts(result.current.messages).filter((text) => text.startsWith('第'))).toEqual([
+      '第一轮',
+      '第二轮',
+    ]);
+  });
+
+  it.each([
+    { label: '空串', prompt: '' },
+    { label: '超长（>1000 chars）', prompt: '问'.repeat(1200) },
+    { label: '特殊字符（换行 / NUL / emoji）', prompt: '第一行\n第二行\u0000结束😀' },
+    // 越过 `AgentSessionSendInput.prompt: string` 签名的脏值：守卫层不在 hook 侧，
+    // 故不抛错且本地副本按原值就位（不夹取、不升级为空串）
+    { label: '越签名脏值（undefined）', prompt: undefined as unknown as string },
+  ])('prompt 边界 $label：本地 text 部件逐字保留不 trim、不抛错', async ({ prompt }) => {
+    resetIpc({ detail: null, transcript: [] });
+    const { result } = await mounted({ sessionId: null });
+
+    expect(() => {
+      act(() => {
+        result.current.sendMessage({ prompt, permissionMode: 'default' });
+      });
+    }).not.toThrow();
+    await act(async () => {});
+
+    await waitFor(() =>
+      expect(result.current.messages.filter((message) => message.role === 'user')).toHaveLength(1),
+    );
+    const question = result.current.messages.find((message) => message.role === 'user');
+    expect(question?.parts).toHaveLength(1);
+    const part = question?.parts[0] as { type: string; text?: string } | undefined;
+    expect(part?.type).toBe('text');
+    // 逐字保留：空串不升级、长串不截断、特殊字符不转义、脏值不改写
+    expect(part?.text).toBe(prompt);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 断流兜底（AC-5 兜底面）：发起流未收 Record 且提问事件也不可达时，`onFinish`
+// 以镜像折叠整表替换——本地推入的临时 `pending-user-*` 副本由 fold 覆盖掉，
+// 不残留任何临时 id（也不虚构孤儿提问）。
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：断流兜底（onFinish fold）', () => {
+  it('发起流断流 → onFinish 折叠兜底，临时 pending id 不残留、无孤儿提问', async () => {
+    resetIpc({
+      detail: null,
+      transcript: [],
+      start: new Error('启动失败：引擎未就绪'),
+    });
+    const { result } = await mounted({ sessionId: null });
+
+    act(() => {
+      result.current.sendMessage({ prompt: '断流提问', permissionMode: 'default' });
+    });
+    await act(async () => {});
+
+    // 前置事实：本地副本已随发送推入（守卫放行，agent_start 携该 prompt 发出）
+    expect(callsOf('agent_start')).toHaveLength(1);
+    expect(argsOf('agent_start').prompt).toBe('断流提问');
+
+    // agent_start reject → envelope.fail → 流注错 → makeRequest 的 finally 必调 onFinish
+    await waitFor(() => expect(result.current.error).toContain('启动失败'));
+    await waitFor(() => expect(result.current.messages).toEqual([]));
+
+    const ids = messageIds(result.current.messages);
+    expect(
+      ids.some((id) => id.startsWith('pending-user-')),
+      '临时 pending id 不残留',
+    ).toBe(false);
+    // 本地副本语义由 fold 覆盖：镜像零事件零轮行 → 折叠结果为空表（不虚构提问）
+    expect(
+      result.current.messages.filter((message) => message.role === 'user'),
+      '无孤儿提问',
+    ).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 收口一致（AC-5）：实时流后的 id 序列与收口后（onFinish fold → 重放覆盖）逐元素相同
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：收口前后 id 序列一致（AC-5）', () => {
+  it('实时流（delta + 密封 + Record）后的提问与 assistant id 在收口后逐元素保持', async () => {
+    resetIpc({ detail: summary([turn(11, 'running')]) });
+    const { result } = await mounted();
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+
+    // 实时流：提问 + 增量 + 密封块
+    deliverEvent(userEvent(3, '实时提问', 12));
+    deliverEvent(deltaEvent(4, '实时增量', 12));
+    deliverEvent(textEvent(5, '实时正文', 12));
+    await act(async () => {});
+    await waitFor(() => expect(messageIds(result.current.messages)).toContain('turn-12'));
+    const liveIds = messageIds(result.current.messages);
+
+    // 收口：库内转录补齐为同一批密封事件，轮行转 completed
+    ipc.detail = summary([turn(11, 'completed'), turn(12, 'completed')]);
+    ipc.transcript = [
+      userEvent(0, '首轮提问'),
+      textEvent(1, '首轮结论'),
+      turnDoneEvent(2),
+      userEvent(3, '实时提问', 12),
+      textEvent(5, '实时正文', 12),
+    ];
+    deliverRecord(turn(12, 'completed'));
+
+    await waitFor(() => expect(result.current.running).toBe(false));
+    await waitFor(() => expect(messageIds(result.current.messages)).toContain('turn-12'));
+
+    // 收口后不整段重挂：同一提问与同一 assistant 各恰一条
+    expect(liveIds.filter((id) => id === 'turn-12-user')).toHaveLength(1);
+    expect(liveIds.filter((id) => id === 'turn-12')).toHaveLength(1);
+    const settledIds = messageIds(result.current.messages);
+    expect(settledIds.filter((id) => id === 'turn-12-user')).toHaveLength(1);
+    expect(settledIds.filter((id) => id === 'turn-12')).toHaveLength(1);
+    // 收口后 assistant 的轮行来自库（completed）
+    expect(
+      result.current.messages.find((message) => message.id === 'turn-12')?.metadata?.record?.status,
+    ).toBe('completed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 旧转录与零内容轮（AC-8 / AC-9 前提）
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：旧转录与零内容轮', () => {
+  it('三轮重放（正常 / 停止 / 正常）：id 序列为 turn-<id>-user / turn-<id> 形状、停止轮 record 就位、轮行零错位（AC-7）', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'completed'), turn(12, 'stopped'), turn(13, 'completed')]),
+      transcript: [
+        runStartedEvent(0, 11),
+        userEvent(1, '第一问', 11),
+        textEvent(2, '第一答', 11),
+        turnDoneEvent(3, 11),
+        // 停止轮：停止路径不发 TurnDone
+        runStartedEvent(4, 12),
+        userEvent(5, '第二问', 12),
+        runStartedEvent(6, 13),
+        userEvent(7, '第三问', 13),
+        textEvent(8, '第三答', 13),
+        turnDoneEvent(9, 13),
+      ],
+    });
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const assistants = result.current.messages.filter((message) => message.role === 'assistant');
+    expect(assistants.map((message) => message.id)).toEqual(['turn-11', 'turn-12', 'turn-13']);
+    expect(assistants.map((message) => message.metadata?.record?.status)).toEqual([
+      'completed',
+      'stopped',
+      'completed',
+    ]);
+    // 停止轮 parts 为空仍就位（空内容轮恒一条）
+    expect(assistants[1]?.parts).toEqual([]);
+    expect(userIds(result.current.messages)).toEqual([
+      'turn-11-user',
+      'turn-12-user',
+      'turn-13-user',
+    ]);
+  });
+
+  it('旧转录重放（turnId 全 null）→ id 走 evt-<seq> 兜底、每轮提问 + 一条 assistant、error 为 null', async () => {
+    resetIpc({
+      detail: summary([turn(1, 'completed'), turn(2, 'completed')]),
+      transcript: [
+        runStartedEvent(0, null),
+        userEvent(1, '旧问一', null),
+        textEvent(2, '旧答一', null),
+        runStartedEvent(3, null),
+        userEvent(4, '旧问二', null),
+        textEvent(5, '旧答二', null),
+      ],
+    });
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const ids = messageIds(result.current.messages);
+    expect(userIds(result.current.messages)).toEqual(['evt-1', 'evt-4']);
+    // assistant 兜 `evt-<该消息首事件 seq>`：与提问 id 不同源，故不撞
+    expect(ids).toEqual(['evt-0', 'evt-1', 'evt-2', 'evt-3', 'evt-4', 'evt-5']);
+    expect(messageTexts(result.current.messages)).toEqual(['旧问一', '旧答一', '旧问二', '旧答二']);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('零内容轮：轮行 stopped 而事件侧无 assistant 密封 → 一条 parts 空的 assistant 且 record 就位', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'stopped'), turn(12, 'completed')]),
+      transcript: [
+        userEvent(0, '被停止的提问', 11),
+        userEvent(1, '后续提问', 12),
+        textEvent(2, '后续答', 12),
+      ],
+    });
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const stopped = result.current.messages.find((message) => message.id === 'turn-11');
+    expect(stopped).toBeDefined();
+    expect(stopped?.parts).toEqual([]);
+    expect(stopped?.metadata?.record?.status).toBe('stopped');
+    // 轮行不错位：第 2 轮轮行落在第 2 轮
+    expect(messageIds(result.current.messages).at(-1)).toBe('turn-12');
+    expect(
+      result.current.messages.find((message) => message.id === 'turn-12')?.metadata?.record?.status,
+    ).toBe('completed');
+  });
+
+  it('空会话（events = [] 且 turns = []）→ messages 为 []；运行中轮行不就地虚构消息', async () => {
+    resetIpc({ detail: summary([]), transcript: [] });
+    const empty = await mounted();
+    await waitFor(() => expect(empty.result.current.loading).toBe(false));
+    expect(empty.result.current.messages).toEqual([]);
+    empty.unmount();
+
+    // 库态含 running 轮行（挂流可建）：轮行只进 chain / running 派生，不就地折叠出消息
+    resetIpc({ detail: summary([turn(20, 'running')]), transcript: [] });
+    const { result } = await mounted();
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+
+    expect(result.current.chain.map((row) => row.turnId)).toEqual([20]);
+    expect(result.current.running).toBe(true);
+    // 零事件轮由折叠恒产一条 parts 空 assistant（AC-9 的「空内容轮恒产一条消息」）；
+    // 不因 running 轮行额外虚构第二条
+    const assistants = result.current.messages.filter((message) => message.role === 'assistant');
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.id).toBe('turn-20');
+    expect(assistants[0]?.parts).toEqual([]);
+    expect(assistants[0]?.metadata?.record?.status).toBe('running');
   });
 });

@@ -1,10 +1,12 @@
+import { useChat } from '@ai-sdk/react';
 import type { Channel } from '@tauri-apps/api/core';
-import { act } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ChatTransport } from 'ai';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vite-plus/test';
 
 import type { AgentEvent, AgentRunMessage, TurnSummary } from '../types/dto';
 import { type commands } from '../types/generated/bindings';
-import { eventToChunk, type AgentUIMessageChunk } from './agent-adapter';
+import { eventToChunk, type AgentUIMessage, type AgentUIMessageChunk } from './agent-adapter';
 import { TauriAgentTransport } from './agent-transport';
 import { ipc } from './ipc';
 import { driftCount, driftReports, resetDrift } from './ipc-drift';
@@ -47,10 +49,13 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 // ---------------------------------------------------------------------------
 
 const ROOT = 'C:\\demo\\alpha';
+/** 多数用例只见一轮：分组键与消息 id 锚点都由它派生（`turn-<turnId>`） */
+const TURN = 13;
 
-function runStarted(seq: number): AgentEvent {
+function runStarted(seq: number, turnId: number | null = TURN): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000000,
     kind: 'runStarted',
     model: 'claude-opus',
@@ -60,9 +65,10 @@ function runStarted(seq: number): AgentEvent {
   };
 }
 
-function textEvent(seq: number, text: string): AgentEvent {
+function textEvent(seq: number, text: string, turnId: number | null = TURN): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000000,
     kind: 'message',
     role: 'assistant',
@@ -71,9 +77,77 @@ function textEvent(seq: number, text: string): AgentEvent {
   };
 }
 
-function textDelta(seq: number, text: string): AgentEvent {
+/** 零块密封 assistant 事件（「无部件的事件」形态） */
+function emptyBlocksEvent(seq: number, turnId: number | null = TURN): AgentEvent {
   return {
     seq,
+    turnId,
+    timestampMs: 1727000000000,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [],
+    parentToolUseId: null,
+  };
+}
+
+/** 密封 user 提问事件（transport 侧恒零 chunk） */
+function userMessage(seq: number, text: string, turnId: number | null = TURN): AgentEvent {
+  return {
+    seq,
+    turnId,
+    timestampMs: 1727000000000,
+    kind: 'message',
+    role: 'user',
+    blocks: [{ kind: 'text', text }],
+    parentToolUseId: null,
+  };
+}
+
+/** system 通知事件（aux 四变体之一） */
+function systemNotice(seq: number, turnId: number | null = TURN): AgentEvent {
+  return {
+    seq,
+    turnId,
+    timestampMs: 1727000000000,
+    kind: 'systemNotice',
+    subtype: 'permission_denial',
+    payload: { tool: 'Bash' },
+  };
+}
+
+/** 轮收敛事件（aux 四变体之一；仍产 `data-run-result`） */
+function turnDone(seq: number, turnId: number | null = TURN): AgentEvent {
+  return {
+    seq,
+    turnId,
+    timestampMs: 1727000000000,
+    kind: 'turnDone',
+    subtype: 'success',
+    isError: false,
+    numTurns: 2,
+    durationMs: 900,
+    costUsd: 0.1,
+    usage: { input_tokens: 5 },
+    sessionId: 's-1',
+  };
+}
+
+/** 未识别事件透传（aux 四变体之一） */
+function raw(seq: number, turnId: number | null = TURN): AgentEvent {
+  return {
+    seq,
+    turnId,
+    timestampMs: 1727000000000,
+    kind: 'raw',
+    eventType: 'mystery',
+    rawJson: '{"type":"mystery"}',
+  };
+}
+
+function textDelta(seq: number, text: string, turnId: number | null = TURN): AgentEvent {
+  return {
+    seq,
+    turnId,
     timestampMs: 1727000000000,
     kind: 'messageDelta',
     parentToolUseId: null,
@@ -85,6 +159,7 @@ function textDelta(seq: number, text: string): AgentEvent {
 function keyedTextDelta(seq: number, parentToolUseId: string, text: string): AgentEvent {
   return {
     seq,
+    turnId: TURN,
     timestampMs: 1727000000000,
     kind: 'messageDelta',
     parentToolUseId,
@@ -93,9 +168,10 @@ function keyedTextDelta(seq: number, parentToolUseId: string, text: string): Age
 }
 
 /** thinking 增量（推理流半边；跨轮再流式回归的 fixture）。 */
-function thinkingDelta(seq: number, thinking: string): AgentEvent {
+function thinkingDelta(seq: number, thinking: string, turnId: number | null = TURN): AgentEvent {
   return {
     seq,
+    turnId,
     timestampMs: 1727000000000,
     kind: 'messageDelta',
     parentToolUseId: null,
@@ -107,6 +183,7 @@ function thinkingDelta(seq: number, thinking: string): AgentEvent {
 function toolUseEvent(seq: number): AgentEvent {
   return {
     seq,
+    turnId: TURN,
     timestampMs: 1727000000000,
     kind: 'message',
     role: 'assistant',
@@ -119,6 +196,7 @@ function toolUseEvent(seq: number): AgentEvent {
 function toolResultEvent(seq: number): AgentEvent {
   return {
     seq,
+    turnId: TURN,
     timestampMs: 1727000000000,
     kind: 'message',
     role: 'tool',
@@ -131,6 +209,7 @@ function toolResultEvent(seq: number): AgentEvent {
 function twoToolUseEvent(seq: number): AgentEvent {
   return {
     seq,
+    turnId: TURN,
     timestampMs: 1727000000000,
     kind: 'message',
     role: 'assistant',
@@ -146,6 +225,7 @@ function twoToolUseEvent(seq: number): AgentEvent {
 function toolResultOf(seq: number, id: string, content: string): AgentEvent {
   return {
     seq,
+    turnId: TURN,
     timestampMs: 1727000000000,
     kind: 'message',
     role: 'tool',
@@ -190,6 +270,40 @@ function lastChannel(): ChannelLike {
   const instance = ChannelMock.instances.at(-1);
   if (!instance) throw new Error('sendMessages 未创建 Channel');
   return instance;
+}
+
+/** `Record` 收口的 finish chunk（该轮消息已由事件建立时只有这一条） */
+function finishChunk(row: TurnSummary, seq: number | null): AgentUIMessageChunk {
+  return { type: 'finish', messageMetadata: { seq, parentToolUseId: null, record: row } };
+}
+
+/** 空传输：把已 drain 的 chunk 序列一次性回放给真实 reducer（帧序的归约侧判据） */
+function replayTransport(chunks: AgentUIMessageChunk[]): ChatTransport<AgentUIMessage> {
+  return {
+    sendMessages: async () =>
+      new ReadableStream<AgentUIMessageChunk>({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue(chunk);
+          controller.close();
+        },
+      }),
+    reconnectToStream: async () => null,
+  };
+}
+
+/** 已 drain 的 chunk 序列经真实 `useChat` reducer 归约后的消息（本地提问除外） */
+async function reducedBy(chunks: AgentUIMessageChunk[]): Promise<AgentUIMessage[]> {
+  const rendered = renderHook(() =>
+    useChat<AgentUIMessage>({ transport: replayTransport(chunks) }),
+  );
+  await act(async () => {
+    await rendered.result.current.sendMessage({
+      id: 'local-q',
+      parts: [{ type: 'text', text: '驱动发送' }],
+    });
+  });
+  await waitFor(() => expect(rendered.result.current.status).toBe('ready'));
+  return rendered.result.current.messages.filter((message) => message.id !== 'local-q');
 }
 
 /** 从 transport 读流并收集全部 chunk（流 error 则 promise reject）。 */
@@ -269,20 +383,21 @@ describe('TauriAgentTransport：sendMessages', () => {
     lastChannel().deliver({ ipc: 'record', record: row });
     const collected = await pumping;
 
-    const recordChunks: AgentUIMessageChunk[] = [
-      {
-        type: 'start',
-        messageId: 'turn-13',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
+    // 帧（start / reset-step …）归 transport、块归 eventToChunk：逐条对位
+    expect(collected).toEqual([
+      // 首个信封（runStarted）即建消息：每轮仅一次 `start`
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 0, parentToolUseId: null } },
+      ...eventToChunk(runStarted(0)),
+      // 密封 assistant：先 reset-step 再追加整块
+      { type: 'start-step' },
       { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
-    ];
-    expect(collected).toEqual([...events.flatMap((event) => eventToChunk(event)), ...recordChunks]);
+      ...eventToChunk(textEvent(1, '正文')),
+      // Record 收口：该轮消息已建立，故只发 `finish`（携轮行）
+      finishChunk(row, 0),
+    ]);
   });
 
-  it('流内首 delta 簿记：首个 messageDelta 补发 provisional 开件组（start + reset-step + part-start），后续 delta 直发累积 chunk', async () => {
+  it('step 分段：每轮 start 仅一次、首 delta 前开 step 并补 part-start，同 step 后续 delta 直发累积', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
@@ -296,27 +411,18 @@ describe('TauriAgentTransport：sendMessages', () => {
     const collected = await pumping;
 
     expect(collected).toEqual([
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 0, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'text-start', id: 't-delta-' },
-      { type: 'text-delta', id: 't-delta-', delta: '你' },
-      { type: 'text-delta', id: 't-delta-', delta: '好' },
-      {
-        type: 'start',
-        messageId: 'turn-13',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
+      // delta 首片：该轮首个信封即建消息（`turn-<turnId>`）+ 开 step + part-start
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 0, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-0' },
+      { type: 'text-delta', id: 't-0', delta: '你' },
+      // 同 step 同类后续 delta：part id 复用首片锚，不再开 step / part
+      { type: 'text-delta', id: 't-0', delta: '好' },
+      finishChunk(row, 0),
     ]);
   });
 
-  it('Record 信封 → data-run-record 部件 + finish 后可读流关闭，后续信封无 chunk', async () => {
+  it('Record 信封 → finish 携 messageMetadata.record 并关流；该轮尚无消息时先 start 建消息', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
     const row = recordRow(13, 'completed');
@@ -326,20 +432,337 @@ describe('TauriAgentTransport：sendMessages', () => {
     lastChannel().deliver({ ipc: 'record', record: row });
     const collected = await pumping;
 
+    // 零事件轮：此刻才建消息（metadata.seq 为 null），轮行挂 finish 的 metadata
     expect(collected).toEqual([
       {
         type: 'start',
         messageId: 'turn-13',
         messageMetadata: { seq: null, parentToolUseId: null },
       },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
+      finishChunk(row, null),
     ]);
+    // 无 `data-run-record` 部件、无第二条消息（AC-6：轮行只走 finish 的 metadata）
+    expect(collected.filter((chunk) => chunk.type === 'start')).toHaveLength(1);
     // 流已关闭：后续信封（含事件）不再产出 chunk
     lastChannel().deliver({ ipc: 'event', event: runStarted(0) });
-    expect(collected).toHaveLength(4);
+    expect(collected).toHaveLength(2);
   });
+
+  it('一轮两次响应：start 恰 1 次、start-step 恰 2 次、reset-step 恰 2 次且都紧跟密封块前，A₁ 段部件存活（AC-1 / AC-3）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: runStarted(0) });
+    channel.deliver({ ipc: 'event', event: userMessage(1, '跑个流程') });
+    channel.deliver({ ipc: 'event', event: textDelta(2, '思考中') });
+    channel.deliver({ ipc: 'event', event: textEvent(3, '第一段正文') });
+    channel.deliver({ ipc: 'event', event: toolResultEvent(4) });
+    channel.deliver({ ipc: 'event', event: textDelta(5, '续写') });
+    channel.deliver({ ipc: 'event', event: textEvent(6, '第二段正文') });
+    channel.deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    const types = collected.map((chunk) => chunk.type);
+    expect(types.filter((type) => type === 'start')).toHaveLength(1);
+    expect(types.filter((type) => type === 'start-step')).toHaveLength(2);
+    expect(types.filter((type) => type === 'reset-step')).toHaveLength(2);
+    // `start` 的 messageId 由该轮首个信封决定
+    expect(collected[0]).toEqual({
+      type: 'start',
+      messageId: 'turn-13',
+      messageMetadata: { seq: 0, parentToolUseId: null },
+    });
+    // 每个 reset-step 之后紧跟该密封事件的块 chunk
+    for (const resetIndex of types.flatMap((type, index) =>
+      type === 'reset-step' ? [index] : [],
+    )) {
+      expect(types[resetIndex + 1]).toBe('text-start');
+    }
+
+    // reducer 归约：前段密封块在第二段的 reset-step 后仍存活
+    const reduced = await reducedBy(collected);
+    expect(reduced.filter((message) => message.role === 'assistant')).toHaveLength(1);
+    const texts = reduced
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === 'text')
+      .map((part) => part.type === 'text' && part.text);
+    expect(texts).toContain('第一段正文');
+    expect(texts).toContain('第二段正文');
+  });
+
+  it('reducer 归约侧主判据（AC-1）：一轮「提问 + 思考 + 工具 + 回答」恰一条 assistant（id = turn-<turnId>）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: runStarted(0) });
+    channel.deliver({ ipc: 'event', event: userMessage(1, '帮我看看') });
+    channel.deliver({ ipc: 'event', event: thinkingDelta(2, '先想') });
+    channel.deliver({ ipc: 'event', event: toolUseEvent(3) });
+    channel.deliver({ ipc: 'event', event: toolResultEvent(4) });
+    channel.deliver({ ipc: 'event', event: textEvent(5, '结论') });
+    channel.deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    const reduced = await reducedBy(collected);
+    const assistants = reduced.filter((message) => message.role === 'assistant');
+
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.id).toBe('turn-13');
+    expect(assistants[0]?.metadata?.record).toEqual(row);
+    // 部件按首次到达顺序（step-start 是 reducer 标记、data-* 是实时态 aux 载体，
+    // 两者均不参与呈现）：工具卡 → 正文
+    const visible =
+      assistants[0]?.parts.filter(
+        (part) => part.type !== 'step-start' && !part.type.startsWith('data-'),
+      ) ?? [];
+    expect(visible.map((part) => part.type)).toEqual(['tool-Bash', 'text']);
+    expect(visible[0]).toMatchObject({
+      state: 'output-available',
+      output: { content: '目录内容', isError: false },
+    });
+    expect(visible[1]).toMatchObject({ type: 'text', text: '结论' });
+  });
+
+  it('finish 的 messageMetadata：record 与 start 写入的首事件 seq 同时在场（显式回填不被 null 覆盖）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().deliver({ ipc: 'event', event: runStarted(7) });
+    lastChannel().deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    const finish = collected.find((chunk) => chunk.type === 'finish');
+    expect(finish).toBeDefined();
+    expect(finish?.type === 'finish' && finish.messageMetadata).toEqual({
+      seq: 7,
+      parentToolUseId: null,
+      record: row,
+    });
+    // 全流零 data-run-record 部件（轮行只挂 metadata）：`run-record` 已退出发射面
+    const chunkTypes: string[] = collected.map((chunk) => chunk.type);
+    expect(chunkTypes).not.toContain('data-run-record');
+  });
+
+  it('role = user 的密封事件零 chunk：前后 chunk 序列与不含该事件的流逐条相等（AC-2）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const row = recordRow(13, 'completed');
+
+    const withoutUser = async () => {
+      const transport = new TauriAgentTransport();
+      const stream = await send(transport);
+      const pumping = drain(stream);
+      lastChannel().deliver({ ipc: 'event', event: runStarted(0) });
+      lastChannel().deliver({ ipc: 'event', event: textEvent(1, '正文') });
+      lastChannel().deliver({ ipc: 'record', record: row });
+      return pumping;
+    };
+    const withUser = async () => {
+      const transport = new TauriAgentTransport();
+      const stream = await send(transport);
+      const pumping = drain(stream);
+      lastChannel().deliver({ ipc: 'event', event: runStarted(0) });
+      lastChannel().deliver({ ipc: 'event', event: userMessage(5, '续问一句') });
+      lastChannel().deliver({ ipc: 'event', event: textEvent(1, '正文') });
+      lastChannel().deliver({ ipc: 'record', record: row });
+      return pumping;
+    };
+
+    expect(await withUser()).toEqual(await withoutUser());
+  });
+
+  it.each([
+    ['runStarted', (): AgentEvent => runStarted(0)],
+    ['systemNotice', (): AgentEvent => systemNotice(1)],
+    ['turnDone', (): AgentEvent => turnDone(2)],
+    ['raw', (): AgentEvent => raw(3)],
+  ])('aux 事件 %s：只产单条 data 部件 chunk，不开新消息也不开新 step', async (_label, build) => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().deliver({ ipc: 'event', event: build() });
+    lastChannel().deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+    const types = collected.map((chunk) => chunk.type);
+
+    // 首信封建消息（1 次 start），aux 自身不追加 start / start-step
+    expect(types.filter((type) => type === 'start')).toHaveLength(1);
+    expect(types).not.toContain('start-step');
+    expect(collected).toContainEqual(eventToChunk(build())[0]);
+    expect(types.at(-1)).toBe('finish');
+  });
+
+  it.each([
+    { label: 'RunStarted 首事件', build: (): AgentEvent => runStarted(4) },
+    { label: 'user 提问首事件', build: (): AgentEvent => userMessage(4, '首事件是提问') },
+    { label: 'delta 首事件', build: (): AgentEvent => textDelta(4, '首') },
+  ])('start 帧的 messageMetadata.seq = 该轮首个信封事件 seq：$label', async ({ build }) => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().deliver({ ipc: 'event', event: build() });
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(collected[0]).toMatchObject({
+      type: 'start',
+      messageId: 'turn-13',
+      messageMetadata: { seq: 4 },
+    });
+  });
+
+  it('currentToolCalls 本轮累积（跨 step 不清）：第一响应的 toolUse 在第二响应提交后仍命中', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: toolUseEvent(1) });
+    channel.deliver({ ipc: 'event', event: textEvent(2, '第二响应') });
+    channel.deliver({ ipc: 'event', event: toolResultEvent(3) });
+    channel.deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    // 结果事件只投一条 output（无 input 重投、无占位卡）
+    const ids = collected.flatMap((chunk) =>
+      chunk.type === 'tool-input-available' || chunk.type === 'tool-output-available'
+        ? [chunk.type]
+        : [],
+    );
+    expect(ids).toEqual(['tool-input-available', 'tool-output-available']);
+  });
+
+  it('连续两条密封 assistant 之间无 delta → 第二次仍先 start-step 再 reset-step，前段密封块存活', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: textEvent(1, '第一段') });
+    channel.deliver({ ipc: 'event', event: textEvent(2, '第二段') });
+    channel.deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    expect(collected.map((chunk) => chunk.type)).toEqual([
+      'start',
+      'start-step',
+      'reset-step',
+      'text-start',
+      'text-delta',
+      'text-end',
+      'start-step',
+      'reset-step',
+      'text-start',
+      'text-delta',
+      'text-end',
+      'finish',
+    ]);
+    const reduced = await reducedBy(collected);
+    const texts = reduced
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === 'text')
+      .map((part) => part.type === 'text' && part.text);
+    expect(texts).toEqual(['第一段', '第二段']);
+  });
+
+  it('空 blocks 密封 assistant → start-step + reset-step 恰一次、零块 chunk、前段部件存活', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: textEvent(1, '前段正文') });
+    channel.deliver({ ipc: 'event', event: emptyBlocksEvent(2) });
+    channel.deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    const types = collected.map((chunk) => chunk.type);
+    expect(types.filter((type) => type === 'start-step')).toHaveLength(2);
+    expect(types.filter((type) => type === 'reset-step')).toHaveLength(2);
+    // 第二个密封事件零块 chunk：两段之间只有帧
+    expect(types.slice(types.indexOf('reset-step') + 1, types.lastIndexOf('start-step'))).toEqual([
+      'text-start',
+      'text-delta',
+      'text-end',
+    ]);
+    expect(types.at(-1)).toBe('finish');
+    const reduced = await reducedBy(collected);
+    const texts = reduced
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === 'text')
+      .map((part) => part.type === 'text' && part.text);
+    expect(texts).toEqual(['前段正文']);
+  });
+
+  it('turnId 为 null 的信封 → start 的 messageId = evt-<首事件 seq>；随后 Record 另发 start 再 finish', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const row = recordRow(13, 'completed');
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().deliver({ ipc: 'event', event: textEvent(9, '无轮归属', null) });
+    lastChannel().deliver({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    const starts = collected.filter((chunk) => chunk.type === 'start');
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toMatchObject({ messageId: 'evt-9' });
+    expect(starts[1]).toMatchObject({ messageId: 'turn-13' });
+    expect(collected.at(-1)).toMatchObject({ type: 'finish' });
+  });
+
+  it.each(
+    [
+      { label: '空串', text: '' },
+      { label: '超长（>1000 chars）', text: '超'.repeat(1200) },
+      { label: '特殊字符', text: 'a\n\0🎉' },
+    ].flatMap((payload) =>
+      [
+        { seqLabel: '0', seq: 0 },
+        { seqLabel: '1', seq: 1 },
+        { seqLabel: 'MAX_SAFE_INTEGER', seq: Number.MAX_SAFE_INTEGER },
+      ].map((seqCase) => ({ ...payload, ...seqCase })),
+    ),
+  )(
+    'delta 载荷边界 $label × seq $seqLabel：delta 逐字透传、part id 稳定',
+    async ({ text, seq }) => {
+      invokeMock.mockResolvedValue(recordRow(13, 'running'));
+      const transport = new TauriAgentTransport();
+
+      const stream = await send(transport);
+      const pumping = drain(stream);
+      lastChannel().deliver({ ipc: 'event', event: textDelta(seq, text) });
+      lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+      const collected = await pumping;
+
+      const delta = collected.find((chunk) => chunk.type === 'text-delta');
+      expect(delta?.type === 'text-delta' && delta.delta, '不 trim 不改写').toBe(text);
+      // part id 由该 step 首个 delta 的 seq 派生（三形态皆稳定，不夹取）
+      expect(delta?.type === 'text-delta' && delta.id).toBe(`t-${seq}`);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -489,7 +912,7 @@ describe('TauriAgentTransport：agent 会话参数', () => {
 // ---------------------------------------------------------------------------
 
 describe('TauriAgentTransport：边界', () => {
-  it('Channel 无 Event 直达 Record → 仅 record 部件 + finish 关流', async () => {
+  it('Channel 无 Event 直达 Record → start 建消息 + finish 携轮行后关流（零事件轮）', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
     const row = recordRow(13, 'stopped');
@@ -499,13 +922,9 @@ describe('TauriAgentTransport：边界', () => {
     lastChannel().deliver({ ipc: 'record', record: row });
     const collected = await pumping;
 
-    expect(collected.map((chunk) => chunk.type)).toEqual([
-      'start',
-      'reset-step',
-      'data-run-record',
-      'finish',
-    ]);
-    expect(collected[2]?.type === 'data-run-record' && collected[2].data.status).toBe('stopped');
+    expect(collected.map((chunk) => chunk.type)).toEqual(['start', 'finish']);
+    const finish = collected[1];
+    expect(finish?.type === 'finish' && finish.messageMetadata?.record?.status).toBe('stopped');
   });
 
   it('ipc 判别值既非 event 也非 record 的消息被忽略，流不断开', async () => {
@@ -519,13 +938,8 @@ describe('TauriAgentTransport：边界', () => {
     lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
     const collected = await pumping;
 
-    // 未知信封不产出 chunk、不关流；record 照常收尾
-    expect(collected.map((chunk) => chunk.type)).toEqual([
-      'start',
-      'reset-step',
-      'data-run-record',
-      'finish',
-    ]);
+    // 未知信封不产出 chunk、不关流；record 照常收尾（零事件轮 → start + finish）
+    expect(collected.map((chunk) => chunk.type)).toEqual(['start', 'finish']);
   });
 });
 
@@ -610,16 +1024,16 @@ describe('TauriAgentTransport：reconnectToStream', () => {
       sessionId: STREAM_BODY.sessionId,
       sinceSeq: 12,
     });
-    // 与发起流同一簿记：start + reset-step + part-start（密封文本块）+ record 收尾
+    // 与发起流同一簿记：该轮首个信封即 start + start-step + reset-step + 整块；
+    // Record 属另一轮（turn-1 ≠ 事件轮 13）故先 start 再 finish
     expect(collected.map((chunk) => chunk.type)).toEqual([
       'start',
+      'start-step',
       'reset-step',
       'text-start',
       'text-delta',
       'text-end',
       'start',
-      'reset-step',
-      'data-run-record',
       'finish',
     ]);
   });
@@ -685,10 +1099,10 @@ describe('TauriAgentTransport：生成绑定调用面', () => {
     lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
     const collected = await pumping;
 
-    // 未知信封不产出 chunk、流不断；事件 chunk 在前（保序），Record 四部件收尾关流
+    // 未知信封不产出 chunk、流不断；`start` 仅一次（事件侧已建消息），收尾为 finish
     const types = collected.map((chunk) => chunk.type);
-    expect(types.length).toBeGreaterThan(4);
-    expect(types.slice(-4)).toEqual(['start', 'reset-step', 'data-run-record', 'finish']);
+    expect(types.filter((type) => type === 'start')).toHaveLength(1);
+    expect(types.at(-1)).toBe('finish');
   });
 
   it('生成绑定错误通道（Result<T, String> → reject）下启动失败：错误串透传、流以错误 reject、非 Error 原因包装行为不变', async () => {
@@ -718,8 +1132,8 @@ describe('TauriAgentTransport：生成绑定调用面', () => {
     lastChannel().deliver({ ipc: 'record', record: row });
     const collected = await pumping;
 
-    const recordChunk = collected.find((chunk) => chunk.type === 'data-run-record');
-    expect(recordChunk?.type === 'data-run-record' && recordChunk.data).toEqual(row);
+    const finish = collected.find((chunk) => chunk.type === 'finish');
+    expect(finish?.type === 'finish' && finish.messageMetadata?.record).toEqual(row);
   });
 });
 
@@ -744,72 +1158,45 @@ describe('TauriAgentTransport：流内簿记语义', () => {
     const collected = await pumping;
 
     expect(collected).toEqual([
-      // null 键首 delta：独立开件组（provisionalMessageId(null) 键）
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 0, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'text-start', id: 't-delta-' },
-      { type: 'text-delta', id: 't-delta-', delta: '主通道首片' },
-      // tu_1 键首 delta：独立开件组（provisionalMessageId('tu_1') 键）——
-      // 不与 null 键串件（每配对键独立簿记半边）
-      {
-        type: 'start',
-        messageId: 'delta-tu_1',
-        messageMetadata: { seq: 1, parentToolUseId: 'tu_1' },
-      },
-      { type: 'reset-step' },
-      { type: 'text-start', id: 't-delta-tu_1' },
-      { type: 'text-delta', id: 't-delta-tu_1', delta: '子代理甲' },
-      // 各键后续 delta 直发累积，part id 恒定归位各自通道
-      { type: 'text-delta', id: 't-delta-', delta: '主通道续片' },
-      { type: 'text-delta', id: 't-delta-tu_1', delta: '子代理乙' },
-      {
-        type: 'start',
-        messageId: 'turn-13',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
+      // 该轮首个信封即建消息（每轮仅一次 `start`）+ 首 delta 开 step
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 0, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-0' },
+      { type: 'text-delta', id: 't-0', delta: '主通道首片' },
+      // 同一 step 内：part id 由该 step 首个同类 delta 的 seq 派生，与
+      // `parentToolUseId` 无关（配对待子代理归因只落消息级 metadata）
+      { type: 'text-delta', id: 't-0', delta: '子代理甲' },
+      { type: 'text-delta', id: 't-0', delta: '主通道续片' },
+      { type: 'text-delta', id: 't-0', delta: '子代理乙' },
+      finishChunk(row, 0),
     ]);
   });
 
-  it('跨轮再流式回归：密封事件让位（reset-step 清活跃 part）后，下一批 delta 重新开件——reasoning-delta 前必有 reasoning-start', async () => {
+  it('跨轮再流式回归：密封 assistant 开下个 step 后，下一批 delta 重新 part-start——reasoning-delta 前必有 reasoning-start', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
     const stream = await send(transport);
     const pumping = drain(stream);
-    // 轮一：thinking 增量流式 → 密封 assistant（携工具调用）→ 工具结果密封
+    // 响应一：thinking 增量流式 → 密封 assistant（携工具调用）→ 工具结果密封
     lastChannel().deliver({ ipc: 'event', event: thinkingDelta(0, '先想一步') });
     lastChannel().deliver({ ipc: 'event', event: toolUseEvent(1) });
     lastChannel().deliver({ ipc: 'event', event: toolResultEvent(2) });
-    // 轮二：模型再次流式，thinking delta 再至（裸 delta 会在 reducer 抛
-    // missing reasoning part "r-delta-"，即 agent debug 运行发起失败报错）
+    // 响应二：模型再次流式，thinking delta 再至（裸 delta 会在 reducer 抛
+    // missing reasoning part，因上一 step 的部件表已被 reset-step 清空）
     lastChannel().deliver({ ipc: 'event', event: thinkingDelta(3, '再想一步') });
     const row = recordRow(13, 'completed');
     lastChannel().deliver({ ipc: 'record', record: row });
     const collected = await pumping;
 
     expect(collected).toEqual([
-      // 轮一 thinking 首片：完整开件组
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 0, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'reasoning-start', id: 'r-delta-' },
-      { type: 'reasoning-delta', id: 'r-delta-', delta: '先想一步' },
-      // 密封 assistant（工具调用）让位替换
-      {
-        type: 'start',
-        messageId: 'evt-1',
-        messageMetadata: { seq: 1, parentToolUseId: null },
-      },
+      // 该轮首个信封（delta）即建消息 + 开 step + part-start
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 0, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'reasoning-start', id: 'r-0' },
+      { type: 'reasoning-delta', id: 'r-0', delta: '先想一步' },
+      // 密封 assistant：本响应已有 delta（step 已开），故只发 reset-step
+      //（清本 step 临时部件）再追加整块——段标记已在，无需再补 start-step
       { type: 'reset-step' },
       {
         type: 'tool-input-available',
@@ -817,31 +1204,17 @@ describe('TauriAgentTransport：流内簿记语义', () => {
         toolName: 'Bash',
         input: { command: 'ls' },
       },
-      // 密封 tool 结果就地补全上一条消息的工具部件：不另起消息（无 start /
-      // reset-step）、不重投 input，input 与 output 合住同一条消息
+      // 密封 tool 结果就地补全同一消息的工具部件：不开 step、不重投 input
       {
         type: 'tool-output-available',
         toolCallId: 'tu_1',
         output: { content: '目录内容', isError: false },
       },
-      // 轮二 thinking 再至：簿记已重武装，重新补发完整开件组
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 3, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'reasoning-start', id: 'r-delta-' },
-      { type: 'reasoning-delta', id: 'r-delta-', delta: '再想一步' },
-      // Record 收尾
-      {
-        type: 'start',
-        messageId: 'turn-13',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
+      // 响应二再次流式：开新 step + 重新 part-start（part id 由新 step 首 delta 派生）
+      { type: 'start-step' },
+      { type: 'reasoning-start', id: 'r-3' },
+      { type: 'reasoning-delta', id: 'r-3', delta: '再想一步' },
+      finishChunk(row, 0),
     ]);
   });
 
@@ -860,11 +1233,8 @@ describe('TauriAgentTransport：流内簿记语义', () => {
 
     expect(collected).toEqual([
       // 密封 assistant：两枚工具调用同住一条消息
-      {
-        type: 'start',
-        messageId: 'evt-1',
-        messageMetadata: { seq: 1, parentToolUseId: null },
-      },
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 1, parentToolUseId: null } },
+      { type: 'start-step' },
       { type: 'reset-step' },
       {
         type: 'tool-input-available',
@@ -878,49 +1248,40 @@ describe('TauriAgentTransport：流内簿记语义', () => {
         toolName: 'Read',
         input: { path: 'a.ts' },
       },
-      // 逐条结果事件：就地补全同一消息（无 start / reset-step / 重投 input）
+      // 逐条结果事件：就地补全同一消息（无 start / start-step / reset-step / 重投 input）
       {
         type: 'tool-output-available',
         toolCallId: 'tu_1',
         output: { content: '目录内容', isError: false },
       },
-      // 首条结果补全后配对视野不重置：同消息内第二枚调用仍可就地补全
+      // currentToolCalls 本轮累积：第二枚调用仍可就地补全
       {
         type: 'tool-output-available',
         toolCallId: 'tu_2',
         output: { content: '文件内容', isError: false },
       },
-      {
-        type: 'start',
-        messageId: 'turn-13',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
+      finishChunk(row, 1),
     ]);
   });
 
-  it('配对视野随开件重武装：toolUse 与 result 之间插入 delta 后结果事件回退占位卡（不撞 missing tool part）', async () => {
+  it('工具结果落在新 step 时仍就地补全：currentToolCalls 本轮累积（跨 step 不清）', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
     const stream = await send(transport);
     const pumping = drain(stream);
     lastChannel().deliver({ ipc: 'event', event: toolUseEvent(1) });
-    // delta 开 provisional 新消息：reducer 当前 step 部件已清，配对视野失效
+    // 响应二另开 step（新一段正文）
     lastChannel().deliver({ ipc: 'event', event: textDelta(2, '新一段') });
+    // 结果在第二个 step 之后到达：仍命中本轮累积的 toolUse id，就地补全
     lastChannel().deliver({ ipc: 'event', event: toolResultEvent(3) });
     const row = recordRow(13, 'completed');
     lastChannel().deliver({ ipc: 'record', record: row });
     const collected = await pumping;
 
     expect(collected).toEqual([
-      {
-        type: 'start',
-        messageId: 'evt-1',
-        messageMetadata: { seq: 1, parentToolUseId: null },
-      },
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 1, parentToolUseId: null } },
+      { type: 'start-step' },
       { type: 'reset-step' },
       {
         type: 'tool-input-available',
@@ -928,39 +1289,21 @@ describe('TauriAgentTransport：流内簿记语义', () => {
         toolName: 'Bash',
         input: { command: 'ls' },
       },
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 2, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'text-start', id: 't-delta-' },
-      { type: 'text-delta', id: 't-delta-', delta: '新一段' },
-      // 视野已失效：回退既有「无主 result 就地合成占位卡」形态（安全不抛错）
-      {
-        type: 'start',
-        messageId: 'evt-3',
-        messageMetadata: { seq: 3, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'tool-input-available', toolCallId: 'tu_1', toolName: '工具调用', input: null },
+      // 响应二：开新 step + part-start
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-2' },
+      { type: 'text-delta', id: 't-2', delta: '新一段' },
+      // 结果事件只投 tool-output-available：就地补全既有工具部件、不开新 step
       {
         type: 'tool-output-available',
         toolCallId: 'tu_1',
         output: { content: '目录内容', isError: false },
       },
-      {
-        type: 'start',
-        messageId: 'turn-13',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
+      finishChunk(row, 1),
     ]);
   });
 
-  it('同键跨 kind 补 part-start：text 增量后 thinking 增量到达仅补 reasoning-start（不再 reset-step 剪除已累积文本），同 kind 后续直发累积', async () => {
+  it('同 step 跨 kind 补 part-start：text 增量后 thinking 增量仅补 reasoning-start（不清已累积文本）', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
@@ -974,37 +1317,25 @@ describe('TauriAgentTransport：流内簿记语义', () => {
     const collected = await pumping;
 
     expect(collected).toEqual([
-      // text 首片：完整开件组
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 0, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'text-start', id: 't-delta-' },
-      { type: 'text-delta', id: 't-delta-', delta: '正文先到' },
-      // 同键新 kind：仅补 part-start（无 start / reset-step，文本部件不被剪除）
-      { type: 'reasoning-start', id: 'r-delta-' },
-      { type: 'reasoning-delta', id: 'r-delta-', delta: '思考后至' },
-      // 同 kind 后续：直发累积 chunk
-      { type: 'reasoning-delta', id: 'r-delta-', delta: '思考续片' },
-      // Record 收尾
-      {
-        type: 'start',
-        messageId: 'turn-13',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: row },
-      { type: 'finish' },
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 0, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-0' },
+      { type: 'text-delta', id: 't-0', delta: '正文先到' },
+      // 同 step 新 kind：仅补 part-start（无 start / start-step / reset-step，
+      // 已累积的 text 部件不被剪除）
+      { type: 'reasoning-start', id: 'r-1' },
+      { type: 'reasoning-delta', id: 'r-1', delta: '思考后至' },
+      // 同 kind 后续：直发累积 chunk（part id 复用该 kind 首个 delta 的 seq）
+      { type: 'reasoning-delta', id: 'r-1', delta: '思考续片' },
+      finishChunk(row, 0),
     ]);
   });
 
-  it('无状态转换器约定：同一 transport 连续两次 sendMessages，第二流首 delta 再次补发开件组（簿记为流闭包局部状态，跨流不残留）', async () => {
+  it('无状态转换器约定：同一 transport 连续两次 sendMessages，第二流从干净状态起步（簿记为流闭包局部）', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
-    // 流一：首 delta 簿记开件后以 Record 收尾
+    // 流一：首 delta 开件后以 Record 收尾
     const firstStream = await send(transport);
     const pumpingFirst = drain(firstStream);
     lastChannel().deliver({ ipc: 'event', event: textDelta(0, '第一流增量') });
@@ -1020,29 +1351,30 @@ describe('TauriAgentTransport：流内簿记语义', () => {
     lastChannel().deliver({ ipc: 'record', record: rowTwo });
     const second = await pumpingSecond;
 
-    // 第二流首 delta 再次补发完整开件组（start + reset-step + part-start）——
-    // 簿记状态为流闭包局部，第一流的已开件不残留到第二流
+    // 第二流首 delta 再次发 `start` + 开 step + part-start——簿记为流闭包局部，
+    // 第一流的已开件不残留到第二流
     expect(second.slice(0, 4)).toEqual([
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 7, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'text-start', id: 't-delta-' },
-      { type: 'text-delta', id: 't-delta-', delta: '第二流增量' },
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 7, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-7' },
+      { type: 'text-delta', id: 't-7', delta: '第二流增量' },
     ]);
-    // 两流对同输入的转换行为一致（收尾 Record 组逐块相同，无跨流泄漏）
-    expect(second.slice(-4)).toEqual(first.slice(-4));
-    expect(second[second.length - 1]).toEqual({ type: 'finish' });
+    expect(first.slice(0, 4)).toEqual([
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 0, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-0' },
+      { type: 'text-delta', id: 't-0', delta: '第一流增量' },
+    ]);
+    expect(second.at(-1)?.type).toBe('finish');
   });
 });
+
 // ---------------------------------------------------------------------------
 // reconnectToStream：簿记单点 / 收口 / abort / 边界（AC-2 / AC-3 / AC-4 / AC-6）
 // ---------------------------------------------------------------------------
 
 describe('TauriAgentTransport：reconnectToStream 簿记与收口', () => {
-  it('首条 delta 无 provisional start → 流补 start + reset-step + part-start，同 kind 后续直发累积 chunk', async () => {
+  it('订阅流自 sinceSeq 起步、首个信封为 delta → 补 start + start-step + part-start，后续同 kind 直发累积', async () => {
     invokeMock.mockImplementation(hangingWatch);
     const transport = new TauriAgentTransport();
 
@@ -1055,23 +1387,14 @@ describe('TauriAgentTransport：reconnectToStream 簿记与收口', () => {
     const collected = await pumping;
 
     expect(collected).toEqual([
-      {
-        type: 'start',
-        messageId: 'delta-none',
-        messageMetadata: { seq: 13, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'text-start', id: 't-delta-' },
-      { type: 'text-delta', id: 't-delta-', delta: '第一片' },
-      { type: 'text-delta', id: 't-delta-', delta: '第二片' },
-      {
-        type: 'start',
-        messageId: 'turn-1',
-        messageMetadata: { seq: null, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'data-run-record', data: recordRow(1, 'completed') },
-      { type: 'finish' },
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 13, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-13' },
+      { type: 'text-delta', id: 't-13', delta: '第一片' },
+      { type: 'text-delta', id: 't-13', delta: '第二片' },
+      // 订阅流的 Record 属另一轮（turn-1）：id 与已建消息不同 → 先 start 再 finish
+      { type: 'start', messageId: 'turn-1', messageMetadata: { seq: 13, parentToolUseId: null } },
+      finishChunk(recordRow(1, 'completed'), 13),
     ]);
   });
 
@@ -1090,12 +1413,7 @@ describe('TauriAgentTransport：reconnectToStream 簿记与收口', () => {
 
     expect(onRecord).toHaveBeenCalledTimes(1);
     expect(onRecord).toHaveBeenCalledWith(recordRow(1, 'completed'));
-    expect(collected.map((chunk) => chunk.type)).toEqual([
-      'start',
-      'reset-step',
-      'data-run-record',
-      'finish',
-    ]);
+    expect(collected.map((chunk) => chunk.type)).toEqual(['start', 'finish']);
   });
 
   it('未知 ipc 判别值 → 忽略单条消息、流不断开（后续事件照常转 chunk）', async () => {
@@ -1111,7 +1429,9 @@ describe('TauriAgentTransport：reconnectToStream 簿记与收口', () => {
     const collected = await pumping;
 
     expect(collected.map((chunk) => chunk.type)).toContain('text-delta');
-    expect(collected.at(-1)).toEqual({ type: 'finish' });
+    expect(collected.at(-1)?.type).toBe('finish');
+    // 事件属 turn-13、Record 属 turn-1：两轮 id 不同，故收口前另发一次 start
+    expect(collected.filter((chunk) => chunk.type === 'start')).toHaveLength(2);
   });
 
   it('sinceSeq 边界：0 / 已观测最大 / Number.MAX_SAFE_INTEGER 原样透传（不做本地裁剪）', async () => {
@@ -1225,12 +1545,90 @@ describe('TauriAgentTransport：两出口共用收口单点（AC-3 / AC-4）', (
     const watchedChunks = await pumping;
 
     expect(watchedChunks).toEqual(sentChunks);
-    expect(sentChunks.map((chunk) => chunk.type)).toEqual([
-      'start',
-      'reset-step',
-      'data-run-record',
-      'finish',
+    expect(sentChunks.map((chunk) => chunk.type)).toEqual(['start', 'finish']);
+  });
+
+  it('两出口同一事件序列对拍：同一 reducer 归约后 id / 部件序 / metadata.record 全等', async () => {
+    const row = recordRow(13, 'completed');
+    const events: AgentEvent[] = [
+      runStarted(0),
+      userMessage(1, '同一序列'),
+      textDelta(2, '增量'),
+      textEvent(3, '正文'),
+      toolUseEvent(4),
+      toolResultEvent(5),
+      turnDone(6),
+    ];
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'session_detail') return Promise.resolve(sessionDetail('running'));
+      if (command === 'agent_start') return Promise.resolve(recordRow(13, 'running'));
+      if (command === 'agent_session_watch') return new Promise<null>(() => {});
+      return Promise.resolve(null);
+    });
+
+    const sendTransport = new TauriAgentTransport();
+    const sent = await send(sendTransport);
+    const sendingDrain = drain(sent);
+    for (const event of events) lastChannel().deliver({ ipc: 'event', event });
+    lastChannel().deliver({ ipc: 'record', record: row });
+    const sentChunks = await sendingDrain;
+
+    const watchTransport = new TauriAgentTransport();
+    const watched = await reconnect(watchTransport);
+    const watchingDrain = drain(watched!);
+    for (const event of events) lastChannel().deliver({ ipc: 'event', event });
+    lastChannel().deliver({ ipc: 'record', record: row });
+    const watchedChunks = await watchingDrain;
+
+    // 共用同一 `envelopeStream` 单点的机械判据：chunk 序列逐条相等
+    expect(watchedChunks).toEqual(sentChunks);
+
+    // 归约侧：两路算出同一批消息
+    const reducedSent = await reducedBy(sentChunks);
+    const reducedWatched = await reducedBy(watchedChunks);
+    expect(reducedWatched.map((message) => message.id)).toEqual(
+      reducedSent.map((message) => message.id),
+    );
+    expect(reducedWatched.map((message) => message.parts)).toEqual(
+      reducedSent.map((message) => message.parts),
+    );
+    expect(
+      reducedWatched
+        .filter((message) => message.role === 'assistant')
+        .map((m) => m.metadata?.record),
+    ).toEqual(
+      reducedSent.filter((message) => message.role === 'assistant').map((m) => m.metadata?.record),
+    );
+  });
+
+  it('订阅流从任意 sinceSeq 起步、首个信封为 delta → 补 start + start-step + part-start，无 missing part', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport, { ...STREAM_BODY, sinceSeq: 42 });
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: textDelta(42, '第一片') });
+    channel.deliver({ ipc: 'event', event: textDelta(43, '第二片') });
+    channel.deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      { type: 'start', messageId: 'turn-13', messageMetadata: { seq: 42, parentToolUseId: null } },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't-42' },
+      { type: 'text-delta', id: 't-42', delta: '第一片' },
+      { type: 'text-delta', id: 't-42', delta: '第二片' },
+      finishChunk(recordRow(13, 'completed'), 42),
     ]);
+    expect(watchCallArgs()['sinceSeq']).toBe(42);
+    // 补帧之后 reducer 归约不抛（无 missing part）：文本累积为一个部件
+    const reduced = await reducedBy(collected);
+    const texts = reduced
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === 'text')
+      .map((part) => part.type === 'text' && part.text);
+    expect(texts).toEqual(['第一片第二片']);
   });
 });
 
@@ -1312,25 +1710,21 @@ describe('TauriAgentTransport：delta 部件种类与 id 派生', () => {
     lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
     const collected = await pumping;
 
-    // 首 delta 补开件组（start + reset-step + text-start），同键跨 kind 仅补
-    // reasoning-start（不再发 start + reset-step 剪除已累积的 text part）；
-    // 末拍 Record 自开新消息（start + reset-step + record + finish）
+    // 首 delta 开 step + text-start；同 step 跨 kind 仅补 reasoning-start
+    //（不发 start / start-step / reset-step，已累积的 text part 不被剪除）
     expect(collected.map((chunk) => chunk.type)).toEqual([
       'start',
-      'reset-step',
+      'start-step',
       'text-start',
       'text-delta',
       'reasoning-start',
       'reasoning-delta',
-      'start',
-      'reset-step',
-      'data-run-record',
       'finish',
     ]);
     expect(collected).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: 'text-start', id: 't-delta-' }),
-        expect.objectContaining({ type: 'reasoning-start', id: 'r-delta-' }),
+        expect.objectContaining({ type: 'text-start', id: 't-14' }),
+        expect.objectContaining({ type: 'reasoning-start', id: 'r-15' }),
       ]),
     );
   });
@@ -1344,6 +1738,18 @@ describe('TauriAgentTransport：订阅参数守卫与状态门穷尽面', () => 
     expect(await reconnect(transport, { ...STREAM_BODY, sessionId: 7 })).toBeNull();
     expect(await reconnect(transport, { ...STREAM_BODY, sinceSeq: '12' })).toBeNull();
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: '空对象', body: {} },
+    { label: '缺 sinceSeq', body: { root: ROOT, sessionId: 'ses-1' } },
+    { label: '缺 sessionId', body: { root: ROOT, sinceSeq: 0 } },
+    { label: '值类型全错', body: { root: 1, sessionId: false, sinceSeq: null } },
+  ])('body 边界 $label → 参数面按非法处理，返回 null 且零 invoke', async ({ body }) => {
+    const transport = new TauriAgentTransport();
+
+    expect(await reconnect(transport, body)).toBeNull();
+    expect(invokeMock, '$label 时不发起任何命令').not.toHaveBeenCalled();
   });
 
   it('多轮行含 running（非全 running）→ 状态门放行订阅（some 而非 every 判据）', async () => {

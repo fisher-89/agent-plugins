@@ -610,7 +610,10 @@ describe('ChangeChatPanel：发起失败与重取', () => {
 
     const error = await screen.findByTestId('agent-session-error');
     expect(error.textContent).toContain('worktree 目录不存在（可能已被手动删除）');
-    expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
+    // 提问由会话状态侧在发送时刻本地推入（MUST NOT 被吞掉），故恰一条 user
+    // 气泡；失败轮无 assistant 气泡（残缺方向只有提问这一侧）
+    const bubbles = screen.queryAllByTestId('chat-bubble');
+    expect(bubbles.map((bubble) => bubble.getAttribute('data-role'))).toEqual(['user']);
     expect(promptBox().disabled).toBe(false);
   });
 

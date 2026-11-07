@@ -1,0 +1,460 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.38s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x typescript(TS2305): Module '"../../lib/agent-adapter"' has no exported member 'eventsToUIMessages'.
+   ,-[src/components/agent/agent-messages.test.tsx:5:3]
+ 4 | import {
+ 5 |   eventsToUIMessages,
+   :   ^^^^^^^^^^^^^^^^^^
+ 6 |   runRecordToUIMessage,
+   `----
+
+  x typescript(TS2305): Module '"../../lib/agent-adapter"' has no exported member 'runRecordToUIMessage'.
+   ,-[src/components/agent/agent-messages.test.tsx:6:3]
+ 5 |   eventsToUIMessages,
+ 6 |   runRecordToUIMessage,
+   :   ^^^^^^^^^^^^^^^^^^^^
+ 7 |   type AgentUIMessage,
+   `----
+
+  x typescript(TS2305): Module '"../../lib/agent-adapter"' has no exported member 'eventsToUIMessages'.
+   ,-[src/components/agent/agent-render-memo.test.tsx:5:10]
+ 4 | 
+ 5 | import { eventsToUIMessages, type AgentUIMessage } from '../../lib/agent-adapter';
+   :          ^^^^^^^^^^^^^^^^^^
+ 6 | import type { AgentBlock, AgentCitation, AgentEvent } from '../../types/dto';
+   `----
+
+  x typescript(TS2305): Module '"./agent-adapter"' has no exported member 'eventsToUIMessages'.
+    ,-[src/lib/agent-adapter.test.ts:11:3]
+ 10 |   eventToChunk,
+ 11 |   eventsToUIMessages,
+    :   ^^^^^^^^^^^^^^^^^^
+ 12 |   provisionalMessageId,
+    `----
+
+  x typescript(TS2305): Module '"./agent-adapter"' has no exported member 'provisionalMessageId'.
+    ,-[src/lib/agent-adapter.test.ts:12:3]
+ 11 |   eventsToUIMessages,
+ 12 |   provisionalMessageId,
+    :   ^^^^^^^^^^^^^^^^^^^^
+ 13 |   runRecordToUIMessage,
+    `----
+
+  x typescript(TS2305): Module '"./agent-adapter"' has no exported member 'runRecordToUIMessage'.
+    ,-[src/lib/agent-adapter.test.ts:13:3]
+ 12 |   provisionalMessageId,
+ 13 |   runRecordToUIMessage,
+    :   ^^^^^^^^^^^^^^^^^^^^
+ 14 |   type AgentToolPart,
+    `----
+
+  x typescript(TS7006): Parameter 'm' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:237:26]
+ 236 | 
+ 237 |     expect(messages.map((m) => m.id)).toEqual(['evt-0', 'evt-1']);
+     :                          ^
+ 238 |     expect(messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+     `----
+
+  x typescript(TS7006): Parameter 'm' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:238:26]
+ 237 |     expect(messages.map((m) => m.id)).toEqual(['evt-0', 'evt-1']);
+ 238 |     expect(messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+     :                          ^
+ 239 |     expect(messages[0]?.metadata).toEqual({ seq: 0, parentToolUseId: null });
+     `----
+
+  x typescript(TS7006): Parameter 'm' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:253:26]
+ 252 | 
+ 253 |     expect(messages.map((m) => m.role)).toEqual(['assistant', 'system']);
+     :                          ^
+ 254 |     // 已配对结果折叠进工具卡，tool 消息自身零部件（由呈现层不变式跳过空行）
+     `----
+
+  x typescript(TS7006): Parameter 'm' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:262:26]
+ 261 | 
+ 262 |     expect(messages.map((m) => m.id)).toEqual(['evt-0', 'evt-1', 'evt-2', 'evt-3']);
+     :                          ^
+ 263 |     expect(messages.map((m) => m.role)).toEqual(['system', 'system', 'system', 'system']);
+     `----
+
+  x typescript(TS7006): Parameter 'm' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:263:26]
+ 262 |     expect(messages.map((m) => m.id)).toEqual(['evt-0', 'evt-1', 'evt-2', 'evt-3']);
+ 263 |     expect(messages.map((m) => m.role)).toEqual(['system', 'system', 'system', 'system']);
+     :                          ^
+ 264 |     expect(messages.map((m) => m.parts.map((part) => part.type))).toEqual([
+     `----
+
+  x typescript(TS7006): Parameter 'm' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:264:26]
+ 263 |     expect(messages.map((m) => m.role)).toEqual(['system', 'system', 'system', 'system']);
+ 264 |     expect(messages.map((m) => m.parts.map((part) => part.type))).toEqual([
+     :                          ^
+ 265 |       ['data-run-started'],
+     `----
+
+  x typescript(TS7006): Parameter 'part' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:264:45]
+ 263 |     expect(messages.map((m) => m.role)).toEqual(['system', 'system', 'system', 'system']);
+ 264 |     expect(messages.map((m) => m.parts.map((part) => part.type))).toEqual([
+     :                                             ^^^^
+ 265 |       ['data-run-started'],
+     `----
+
+  x typescript(TS7006): Parameter 'm' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:459:26]
+ 458 | 
+ 459 |     expect(messages.map((m) => m.id)).toEqual(['evt-1']);
+     :                          ^
+ 460 |   });
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:759:24]
+ 758 |     // 同键同类幂等（delta 累积部件的稳定 part id 契约）
+ 759 |     expect(deltaPartId('tu_1', 'text')).toBe(deltaPartId('tu_1', 'text'));
+     :                        ^^^^^^
+ 760 |     expect(deltaPartId('tu_1', 'thinking')).toBe(deltaPartId('tu_1', 'thinking'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:759:58]
+ 758 |     // 同键同类幂等（delta 累积部件的稳定 part id 契约）
+ 759 |     expect(deltaPartId('tu_1', 'text')).toBe(deltaPartId('tu_1', 'text'));
+     :                                                          ^^^^^^
+ 760 |     expect(deltaPartId('tu_1', 'thinking')).toBe(deltaPartId('tu_1', 'thinking'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:760:24]
+ 759 |     expect(deltaPartId('tu_1', 'text')).toBe(deltaPartId('tu_1', 'text'));
+ 760 |     expect(deltaPartId('tu_1', 'thinking')).toBe(deltaPartId('tu_1', 'thinking'));
+     :                        ^^^^^^
+ 761 |     // 线格式逐字（与 eventToChunk 产出的 part id 同源）
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:760:62]
+ 759 |     expect(deltaPartId('tu_1', 'text')).toBe(deltaPartId('tu_1', 'text'));
+ 760 |     expect(deltaPartId('tu_1', 'thinking')).toBe(deltaPartId('tu_1', 'thinking'));
+     :                                                              ^^^^^^
+ 761 |     // 线格式逐字（与 eventToChunk 产出的 part id 同源）
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:762:24]
+ 761 |     // 线格式逐字（与 eventToChunk 产出的 part id 同源）
+ 762 |     expect(deltaPartId('tu_1', 'text')).toBe('t-delta-tu_1');
+     :                        ^^^^^^
+ 763 |     expect(deltaPartId('tu_1', 'thinking')).toBe('r-delta-tu_1');
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:763:24]
+ 762 |     expect(deltaPartId('tu_1', 'text')).toBe('t-delta-tu_1');
+ 763 |     expect(deltaPartId('tu_1', 'thinking')).toBe('r-delta-tu_1');
+     :                        ^^^^^^
+ 764 |     // text / thinking 两类互异（同键双通道无碰撞）
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:765:24]
+ 764 |     // text / thinking 两类互异（同键双通道无碰撞）
+ 765 |     expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_1', 'thinking'));
+     :                        ^^^^^^
+ 766 |     // 不同键互异
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:765:62]
+ 764 |     // text / thinking 两类互异（同键双通道无碰撞）
+ 765 |     expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_1', 'thinking'));
+     :                                                              ^^^^^^
+ 766 |     // 不同键互异
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:767:24]
+ 766 |     // 不同键互异
+ 767 |     expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_2', 'text'));
+     :                        ^^^^^^
+ 768 |     expect(deltaPartId('tu_1', 'thinking')).not.toBe(deltaPartId('tu_2', 'thinking'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:767:62]
+ 766 |     // 不同键互异
+ 767 |     expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_2', 'text'));
+     :                                                              ^^^^^^
+ 768 |     expect(deltaPartId('tu_1', 'thinking')).not.toBe(deltaPartId('tu_2', 'thinking'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:768:24]
+ 767 |     expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_2', 'text'));
+ 768 |     expect(deltaPartId('tu_1', 'thinking')).not.toBe(deltaPartId('tu_2', 'thinking'));
+     :                        ^^^^^^
+ 769 |   });
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:768:66]
+ 767 |     expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_2', 'text'));
+ 768 |     expect(deltaPartId('tu_1', 'thinking')).not.toBe(deltaPartId('tu_2', 'thinking'));
+     :                                                                  ^^^^^^
+ 769 |   });
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:773:24]
+ 772 |     // 空串键（provisionalMessageId(null) 的键投影形态）
+ 773 |     expect(deltaPartId('', 'text')).toBe('t-delta-');
+     :                        ^^
+ 774 |     expect(deltaPartId('', 'text')).toBe(deltaPartId('', 'text'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:774:24]
+ 773 |     expect(deltaPartId('', 'text')).toBe('t-delta-');
+ 774 |     expect(deltaPartId('', 'text')).toBe(deltaPartId('', 'text'));
+     :                        ^^
+ 775 |     // 特殊字符（引号 / 换行 / emoji / 制表）原样拼接不失真
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:774:54]
+ 773 |     expect(deltaPartId('', 'text')).toBe('t-delta-');
+ 774 |     expect(deltaPartId('', 'text')).toBe(deltaPartId('', 'text'));
+     :                                                      ^^
+ 775 |     // 特殊字符（引号 / 换行 / emoji / 制表）原样拼接不失真
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:777:24]
+ 776 |     const weird = ' "q"\n🎉\t';
+ 777 |     expect(deltaPartId(weird, 'text')).toBe(`t-delta-${weird}`);
+     :                        ^^^^^
+ 778 |     expect(deltaPartId(weird, 'thinking')).toBe(`r-delta-${weird}`);
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:778:24]
+ 777 |     expect(deltaPartId(weird, 'text')).toBe(`t-delta-${weird}`);
+ 778 |     expect(deltaPartId(weird, 'thinking')).toBe(`r-delta-${weird}`);
+     :                        ^^^^^
+ 779 |     expect(deltaPartId(weird, 'text')).toBe(deltaPartId(weird, 'text'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:779:24]
+ 778 |     expect(deltaPartId(weird, 'thinking')).toBe(`r-delta-${weird}`);
+ 779 |     expect(deltaPartId(weird, 'text')).toBe(deltaPartId(weird, 'text'));
+     :                        ^^^^^
+ 780 |     expect(deltaPartId('', 'text')).not.toBe(deltaPartId(weird, 'text'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:779:57]
+ 778 |     expect(deltaPartId(weird, 'thinking')).toBe(`r-delta-${weird}`);
+ 779 |     expect(deltaPartId(weird, 'text')).toBe(deltaPartId(weird, 'text'));
+     :                                                         ^^^^^
+ 780 |     expect(deltaPartId('', 'text')).not.toBe(deltaPartId(weird, 'text'));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:780:24]
+ 779 |     expect(deltaPartId(weird, 'text')).toBe(deltaPartId(weird, 'text'));
+ 780 |     expect(deltaPartId('', 'text')).not.toBe(deltaPartId(weird, 'text'));
+     :                        ^^
+ 781 |   });
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+     ,-[src/lib/agent-adapter.test.ts:780:58]
+ 779 |     expect(deltaPartId(weird, 'text')).toBe(deltaPartId(weird, 'text'));
+ 780 |     expect(deltaPartId('', 'text')).not.toBe(deltaPartId(weird, 'text'));
+     :                                                          ^^^^^
+ 781 |   });
+     `----
+
+  x typescript(TS7006): Parameter 'entry' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:995:24]
+ 994 |     expect(folded).toHaveLength(1000);
+ 995 |     expect(folded.map((entry) => entry.id)).toEqual(events.map((event) => `evt-${event.seq}`));
+     :                        ^^^^^
+ 996 |     const seqs = folded.map((entry) => entry.metadata?.seq ?? -1);
+     `----
+
+  x typescript(TS7006): Parameter 'entry' implicitly has an 'any' type.
+     ,-[src/lib/agent-adapter.test.ts:996:30]
+ 995 |     expect(folded.map((entry) => entry.id)).toEqual(events.map((event) => `evt-${event.seq}`));
+ 996 |     const seqs = folded.map((entry) => entry.metadata?.seq ?? -1);
+     :                              ^^^^^
+ 997 |     expect(seqs).toEqual(Array.from({ length: 1000 }, (_unused, index) => index));
+     `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+      ,-[src/lib/agent-adapter.test.ts:1141:24]
+ 1140 |     const longKey = 'k'.repeat(2000);
+ 1141 |     expect(deltaPartId(longKey, 'text')).toBe(deltaPartId(longKey, 'text'));
+      :                        ^^^^^^^
+ 1142 |     expect(deltaPartId(longKey, 'text')).not.toBe(deltaPartId(longKey, 'thinking'));
+      `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+      ,-[src/lib/agent-adapter.test.ts:1141:59]
+ 1140 |     const longKey = 'k'.repeat(2000);
+ 1141 |     expect(deltaPartId(longKey, 'text')).toBe(deltaPartId(longKey, 'text'));
+      :                                                           ^^^^^^^
+ 1142 |     expect(deltaPartId(longKey, 'text')).not.toBe(deltaPartId(longKey, 'thinking'));
+      `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+      ,-[src/lib/agent-adapter.test.ts:1142:24]
+ 1141 |     expect(deltaPartId(longKey, 'text')).toBe(deltaPartId(longKey, 'text'));
+ 1142 |     expect(deltaPartId(longKey, 'text')).not.toBe(deltaPartId(longKey, 'thinking'));
+      :                        ^^^^^^^
+ 1143 |     expect(deltaPartId('', 'text')).toBe('t-delta-');
+      `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+      ,-[src/lib/agent-adapter.test.ts:1142:63]
+ 1141 |     expect(deltaPartId(longKey, 'text')).toBe(deltaPartId(longKey, 'text'));
+ 1142 |     expect(deltaPartId(longKey, 'text')).not.toBe(deltaPartId(longKey, 'thinking'));
+      :                                                               ^^^^^^^
+ 1143 |     expect(deltaPartId('', 'text')).toBe('t-delta-');
+      `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+      ,-[src/lib/agent-adapter.test.ts:1143:24]
+ 1142 |     expect(deltaPartId(longKey, 'text')).not.toBe(deltaPartId(longKey, 'thinking'));
+ 1143 |     expect(deltaPartId('', 'text')).toBe('t-delta-');
+      :                        ^^
+ 1144 |     expect(deltaPartId('', 'thinking')).toBe('r-delta-');
+      `----
+
+  x typescript(TS2345): Argument of type 'string' is not assignable to parameter of type 'number'.
+      ,-[src/lib/agent-adapter.test.ts:1144:24]
+ 1143 |     expect(deltaPartId('', 'text')).toBe('t-delta-');
+ 1144 |     expect(deltaPartId('', 'thinking')).toBe('r-delta-');
+      :                        ^^
+ 1145 |   });
+      `----
+
+  x typescript(TS7006): Parameter 'entry' implicitly has an 'any' type.
+      ,-[src/lib/agent-adapter.test.ts:1227:38]
+ 1226 |     // AgentDataParts 成员零新增：不产任何 data-* 部件
+ 1227 |     expect(messages[0]?.parts.every((entry) => !entry.type.startsWith('data-'))).toBe(true);
+      :                                      ^^^^^
+ 1228 |   });
+      `----
+
+  x typescript(TS7006): Parameter 'part' implicitly has an 'any' type.
+      ,-[src/lib/agent-adapter.test.ts:1545:32]
+ 1544 | 
+ 1545 |     expect(assistantParts.map((part) => part.type)).toEqual([
+      :                                ^^^^
+ 1546 |       'text',
+      `----
+
+  x typescript(TS7006): Parameter 'entry' implicitly has an 'any' type.
+      ,-[src/lib/agent-adapter.test.ts:1560:41]
+ 1559 |     // AgentDataParts 成员零新增：无 data-citations / data-web-search 部件
+ 1560 |     const partTypes = messages.flatMap((entry) => entry.parts.map((part) => part.type));
+      :                                         ^^^^^
+ 1561 |     expect(partTypes).not.toContain('data-citations');
+      `----
+
+  x typescript(TS7006): Parameter 'part' implicitly has an 'any' type.
+      ,-[src/lib/agent-adapter.test.ts:1560:68]
+ 1559 |     // AgentDataParts 成员零新增：无 data-citations / data-web-search 部件
+ 1560 |     const partTypes = messages.flatMap((entry) => entry.parts.map((part) => part.type));
+      :                                                                    ^^^^
+ 1561 |     expect(partTypes).not.toContain('data-citations');
+      `----
+
+  x typescript(TS7006): Parameter 'type' implicitly has an 'any' type.
+      ,-[src/lib/agent-adapter.test.ts:1563:30]
+ 1562 |     expect(partTypes).not.toContain('data-web-search');
+ 1563 |     expect(partTypes.filter((type) => type.startsWith('data-')).sort()).toEqual([
+      :                              ^^^^
+ 1564 |       'data-raw',
+      `----
+
+  x typescript(TS2322): Type '"data-run-record"' is not assignable to type '"abort" | "custom" | "data-raw" | "data-run-result" | "data-run-started" | "data-system-notice" | "error" | "file" | "finish" | "finish-step" | "message-metadata" | "reasoning-delta" | ... 19 more ... | "tool-output-error"'.
+     ,-[src/lib/agent-transport.test.ts:279:9]
+ 278 |       { type: 'reset-step' },
+ 279 |       { type: 'data-run-record', data: row },
+     :         ^^^^
+ 280 |       { type: 'finish' },
+     `----
+
+  x typescript(TS2739): Type 'TurnSummary' is missing the following properties from type 'AgentSystemNoticeData': seq, timestampMs, subtype, payload
+     ,-[src/lib/agent-transport.test.ts:279:34]
+ 278 |       { type: 'reset-step' },
+ 279 |       { type: 'data-run-record', data: row },
+     :                                  ^^^^
+ 280 |       { type: 'finish' },
+     `----
+
+  x typescript(TS2367): This comparison appears to be unintentional because the types '"abort" | "custom" | "data-raw" | "data-run-result" | "data-run-started" | "data-system-notice" | "error" | "file" | "finish" | "finish-step" | "message-metadata" | "reasoning-delta" | ... 19 more ... | "tool-output-error"' and '"data-run-record"' have no overlap.
+     ,-[src/lib/agent-transport.test.ts:508:12]
+ 507 |     ]);
+ 508 |     expect(collected[2]?.type === 'data-run-record' && collected[2].data.status).toBe('stopped');
+     :            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 509 |   });
+     `----
+
+  x typescript(TS2339): Property 'data' does not exist on type 'never'.
+     ,-[src/lib/agent-transport.test.ts:508:69]
+ 507 |     ]);
+ 508 |     expect(collected[2]?.type === 'data-run-record' && collected[2].data.status).toBe('stopped');
+     :                                                                     ^^^^
+ 509 |   });
+     `----
+
+  x typescript(TS2367): This comparison appears to be unintentional because the types '"abort" | "custom" | "data-raw" | "data-run-result" | "data-run-started" | "data-system-notice" | "error" | "file" | "finish" | "finish-step" | "message-metadata" | "reasoning-delta" | ... 19 more ... | "tool-output-error"' and '"data-run-record"' have no overlap.
+     ,-[src/lib/agent-transport.test.ts:721:51]
+ 720 | 
+ 721 |     const recordChunk = collected.find((chunk) => chunk.type === 'data-run-record');
+     :                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 722 |     expect(recordChunk?.type === 'data-run-record' && recordChunk.data).toEqual(row);
+     `----
+
+  x typescript(TS2339): Property 'type' does not exist on type 'never'.
+     ,-[src/lib/agent-transport.test.ts:722:25]
+ 721 |     const recordChunk = collected.find((chunk) => chunk.type === 'data-run-record');
+ 722 |     expect(recordChunk?.type === 'data-run-record' && recordChunk.data).toEqual(row);
+     :                         ^^^^
+ 723 |   });
+     `----
+
+  x typescript(TS2339): Property 'data' does not exist on type 'never'.
+     ,-[src/lib/agent-transport.test.ts:722:67]
+ 721 |     const recordChunk = collected.find((chunk) => chunk.type === 'data-run-record');
+ 722 |     expect(recordChunk?.type === 'data-run-record' && recordChunk.data).toEqual(row);
+     :                                                                   ^^^^
+ 723 |   });
+     `----
+
+Found 55 errors and 0 warnings in 229 files (4.4s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(9.8s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.
