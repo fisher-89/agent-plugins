@@ -61,6 +61,16 @@ const ERROR_RULES: ErrorRule[] = [
     hint: '请检查 provider 的 max_tokens 是否超过模型上限；不确定时留空。',
   },
   {
+    match: (text) => text.includes('拒答') || text.includes('安全分类器'),
+    title: '模型拒绝执行该请求',
+    hint: 'provider 的安全分类器拦截了本次请求，重试无效。请调整任务描述或输入内容，或换用其他模型后重跑。',
+  },
+  {
+    match: (text) => text.includes('未识别的终局原因'),
+    title: '模型返回了无法识别的结束原因',
+    hint: '这通常来自第三方网关返回了未知的 finish_reason。请检查 provider 端点是否为官方 API；问题持续时联系网关方。',
+  },
+  {
     match: (text) => text.includes('timeout') || text.includes('timed out'),
     title: '模型请求超时',
     hint: '请检查网络、代理与 provider 端点可达性后重试。',

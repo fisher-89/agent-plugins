@@ -37,6 +37,14 @@ const CONTEXT_WINDOW_EXCEEDED_REASON: &str = "model_context_window_exceeded";
 /// 截断留痕的 notice subtype（开放词典，与 `api_retry` / `context_pruned` 同列）。
 const TRUNCATED_SUBTYPE: &str = "output_truncated";
 
+/// 拒答失败成因的 TurnDone subtype / 记因通知 subtype（provider 安全分类器
+/// 拦截，rig `FinishReason::ContentFilter`）。
+const SUBTYPE_MODEL_REFUSED: &str = "model_refused";
+
+/// 未识别终局的失败成因 subtype（provider 返回了本地词汇之外的 `stop_reason`，
+/// 如第三方网关自造值——fail-closed，不静默当成功）。
+const SUBTYPE_UNEXPECTED_FINISH: &str = "unexpected_finish";
+
 /// 提供者 IO 活性护栏
 const REQUEST_LIVENESS: Duration = Duration::from_secs(300);
 /// 流帧空闲预算分档宽于请求相位
@@ -369,6 +377,20 @@ pub(crate) async fn run(
             };
             usage += turn_usage;
             if choice.is_empty() {
+                // 空 choice 仍是异常终局（纯拒答 / 网关自造值常回零内容）→
+                // 先于「空轮收敛」处理，否则拒答被当成无话可说的自然结束
+                if fail_on_abnormal_finish(
+                    &sender,
+                    turn,
+                    finish_reason.as_ref(),
+                    turn_index,
+                    started,
+                    &usage,
+                )
+                .await
+                {
+                    return history;
+                }
                 // 空轮（无文本无工具调用）：以正常收敛防死循环；空 choice 不续跑
                 finish_success(&sender, turn_index, started, &usage, turn).await;
                 return history;
@@ -405,6 +427,22 @@ pub(crate) async fn run(
             if let Some(kind) = truncation_kind(finish_reason.as_ref()) {
                 emit_truncated(&sender, turn, kind, turn_index, &turn_usage).await;
                 finish_success(&sender, turn_index, started, &usage, turn).await;
+                return history;
+            }
+            // 异常终局（fail-closed）：拒答 / 未知终局 → run 级失败收敛。白名单
+            // 之外的 `stop_reason` 一律不静默当成功；与截断不同，这类终局没有
+            // 「产物不完整」可交给相位 evaluator 判——模型直接拒绝执行，重试
+            // 必然同判，故直接失败终止并留痕（session 横幅 / step detail 同文）。
+            if fail_on_abnormal_finish(
+                &sender,
+                turn,
+                finish_reason.as_ref(),
+                turn_index,
+                started,
+                &usage,
+            )
+            .await
+            {
                 return history;
             }
             // 工具执行优先收口（含客户端 tool_calls 时不续跑，续跑计数不增）
@@ -599,6 +637,61 @@ fn truncation_kind(finish_reason: Option<&FinishReason>) -> Option<TruncationKin
 /// `Other("pause_turn_x")` 误判；`None` 一律视为非 `pause_turn`）。
 fn is_pause_turn(finish_reason: Option<&FinishReason>) -> bool {
     matches!(finish_reason, Some(FinishReason::Other(reason)) if reason == PAUSE_TURN_REASON)
+}
+
+/// 非正常终局的失败成因（fail-closed）：已知正常终局之外一律返回 `Some`。
+///
+/// 白名单而非黑名单——**新增 / 未知的 `stop_reason` 值默认报错**，不静默当
+/// 成功（`ContentFilter` 与第三方网关自造值此前都落在 `finish_success`，run
+/// 报绿但模型可能一个字都没干）。正常终局三态：
+///
+/// - `Stop`：自然结束
+/// - `ToolCalls`：模型要调工具
+/// - `Other("pause_turn")`：服务端工具未完待续（由续跑循环消费）
+///
+/// **`None` 放行**：provider 未声明终局（rig `Finish::default()` 即 `None`；
+/// 部分网关不填 `finish_reason`），视作正常收敛——否则这类网关全线误报失败。
+/// `Length` / `Other("model_context_window_exceeded")` 不在此判据内（走
+/// [`truncation_kind`] 的截断路径，语义是「产物不完整」而非「模型拒绝」）。
+fn abnormal_finish(finish_reason: Option<&FinishReason>) -> Option<(String, String)> {
+    match finish_reason {
+        // 正常三态
+        None | Some(FinishReason::Stop) | Some(FinishReason::ToolCalls) => None,
+        Some(FinishReason::Other(reason)) if reason == PAUSE_TURN_REASON => None,
+        // 截断两态由 `truncation_kind` 先行消费（到达此处即表示未命中，
+        // 理论不可达；显式返回 `None` 保持判据局部自洽，不靠调用顺序保证）
+        Some(FinishReason::Length) => None,
+        Some(FinishReason::Other(reason)) if reason == CONTEXT_WINDOW_EXCEEDED_REASON => None,
+        // 拒答：provider 安全分类器拦截（rig 已把 `refusal` 归一为 ContentFilter；
+        // 原始 `stop_details.category` rig 0.43 解析层丢弃，故成因文案不含分类）
+        Some(FinishReason::ContentFilter) => Some((
+            SUBTYPE_MODEL_REFUSED.to_owned(),
+            "模型拒答：provider 安全分类器拦截了本次请求（不可重试；请调整输入或更换模型）"
+                .to_owned(),
+        )),
+        // 未知终局：fail-closed（不静默当成功）
+        Some(FinishReason::Other(reason)) => Some((
+            SUBTYPE_UNEXPECTED_FINISH.to_owned(),
+            format!("模型返回未识别的终局原因: {reason}（本地无对应处置，按失败收敛）"),
+        )),
+    }
+}
+
+/// 异常终局的统一收口（空 choice 与有内容两条路径共用）：命中即以失败收敛
+/// 并返回 `true`（调用方直接 `return history`）。
+async fn fail_on_abnormal_finish(
+    sender: &mpsc::Sender<AgentEventKind>,
+    turn: &LoopTurn,
+    finish_reason: Option<&FinishReason>,
+    turn_index: u64,
+    started: Instant,
+    usage: &Usage,
+) -> bool {
+    let Some((subtype, cause)) = abnormal_finish(finish_reason) else {
+        return false;
+    };
+    finish_error(sender, turn_index, started, usage, turn, &subtype, cause).await;
+    true
 }
 
 /// 截断留痕：`SystemNotice{output_truncated}` + 引擎日志（事件面与日志面

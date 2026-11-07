@@ -202,6 +202,53 @@ fn failure_reason_falls_back_to_failed_turn_done_subtype() {
 }
 
 #[test]
+fn failure_reason_carries_model_refusal_to_step_detail() {
+    // 拒答终局：sdk 引擎发 api_error 记因 + TurnDone{model_refused, is_error}。
+    // step detail 与 run 终态同文取记因载荷（walker 的 failure_reason 调用点），
+    // 故断言记因串即固定「session 横幅与 step 都显示」的闭环
+    let transcript = vec![
+        message(
+            0,
+            AgentMessageRole::Assistant,
+            vec![text_block("我不能协助")],
+        ),
+        notice(
+            1,
+            "api_error",
+            serde_json::json!({
+                "error": "模型拒答：provider 安全分类器拦截了本次请求（不可重试；请调整输入或更换模型）"
+            }),
+        ),
+        turn_done(2, "model_refused", true),
+    ];
+    let reason = failure_reason(&transcript).expect("拒答必有失败成因");
+    assert!(
+        reason.contains("拒答") && reason.contains("安全分类器"),
+        "记因串到达编排侧（步 detail 取同一串），实际: {reason}"
+    );
+}
+
+#[test]
+fn failure_reason_carries_unknown_finish_with_provider_value() {
+    // 未知终局（fail-closed）：成因必须携 provider 原值，便于排障归因网关
+    let transcript = vec![
+        notice(
+            0,
+            "api_error",
+            serde_json::json!({
+                "error": "模型返回未识别的终局原因: some_gateway_reason（本地无对应处置，按失败收敛）"
+            }),
+        ),
+        turn_done(1, "unexpected_finish", true),
+    ];
+    let reason = failure_reason(&transcript).expect("未知终局必有失败成因");
+    assert!(
+        reason.contains("some_gateway_reason"),
+        "成因携 provider 原值，实际: {reason}"
+    );
+}
+
+#[test]
 fn failure_reason_absence_shapes_return_none() {
     // 成功 TurnDone 不充当成因（非失败语境）
     let ok = vec![turn_done(0, "success", false)];

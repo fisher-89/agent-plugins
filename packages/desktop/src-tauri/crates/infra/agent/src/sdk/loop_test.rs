@@ -3880,11 +3880,8 @@ async fn 非截断终局不发output_truncated且行为零变化() {
             raw_final_with_reason(FinishReason::Stop, usage(10, 20)),
         ),
         (
-            "pause_turn 外的 Other 值",
-            raw_final_with_reason(
-                FinishReason::Other("pause_turn_x".to_owned()),
-                usage(10, 20),
-            ),
+            "工具调用终局",
+            raw_final_with_reason(FinishReason::ToolCalls, usage(10, 20)),
         ),
     ] {
         let model = FakeModel::with_turns(vec![vec![raw_text("正文"), final_event]]);
@@ -3904,6 +3901,164 @@ async fn 非截断终局不发output_truncated且行为零变化() {
         };
         assert_eq!(subtype, "success", "{label}: 收敛语义不变");
     }
+}
+
+#[tokio::test]
+async fn 拒答终局以失败收敛且成因可读不重试() {
+    let dir = tempdir("refusal");
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("我不能协助"),
+        raw_final_with_reason(FinishReason::ContentFilter, usage(100, 5)),
+    ]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    assert_eq!(model.captured_requests().len(), 1, "拒答不重试");
+    let notices = notices_of(&events);
+    let subtypes: Vec<&str> = notices.iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        subtypes,
+        vec!["api_error"],
+        "记因通知恒 api_error（session 横幅口径），TurnDone.subtype 区分成因"
+    );
+    let cause = notices[0].1["error"].as_str().expect("记因载荷携 error");
+    assert!(
+        cause.contains("拒答") && cause.contains("安全分类器"),
+        "成因可读，实际: {cause}"
+    );
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "model_refused");
+    assert!(*is_error, "run 级失败（不走相位重试）");
+}
+
+#[tokio::test]
+async fn 零内容拒答不被空轮分支吃掉() {
+    let dir = tempdir("refusal-empty");
+    // 纯拒答常回零内容：必须命中断言而非「空轮正常收敛」
+    let model = FakeModel::with_turns(vec![vec![raw_final_with_reason(
+        FinishReason::ContentFilter,
+        usage(100, 0),
+    )]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "model_refused", "零内容拒答仍按拒答收敛");
+    assert!(*is_error);
+}
+
+#[tokio::test]
+async fn 未知终局fail_closed报错而非静默成功() {
+    let dir = tempdir("unknown-finish");
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("正文"),
+        raw_final_with_reason(
+            FinishReason::Other("some_gateway_custom_reason".to_owned()),
+            usage(10, 20),
+        ),
+    ]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "unexpected_finish");
+    assert!(*is_error, "白名单之外的终局一律不静默当成功");
+    let cause = notices_of(&events)[0].1["error"]
+        .as_str()
+        .expect("记因载荷携 error");
+    assert!(
+        cause.contains("some_gateway_custom_reason"),
+        "成因携 provider 原值，实际: {cause}"
+    );
+}
+
+#[tokio::test]
+async fn 未知终局带工具调用时也不执行工具() {
+    let dir = tempdir("unknown-finish-tool");
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("先读文件"),
+        raw_tool_call("call-u1", "read", serde_json::json!({ "path": "a.txt" })),
+        raw_final_with_reason(FinishReason::Other("weird".to_owned()), usage(10, 20)),
+    ]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let tool_results = events
+        .iter()
+        .filter(|event| matches!(event, AgentEventKind::Message { role, .. } if role == &AgentMessageRole::Tool))
+        .count();
+    assert_eq!(tool_results, 0, "未知终局同样弃用本轮工具面");
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "unexpected_finish");
+    assert!(*is_error);
+}
+
+#[tokio::test]
+async fn 终局缺席放行不误报失败() {
+    let dir = tempdir("finish-none");
+    // provider 不声明 finish_reason（网关常见）：按正常收敛，不误报失败
+    let model = FakeModel::with_turns(vec![vec![raw_text("正文"), raw_final(usage(10, 20))]]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "success");
+    assert!(!*is_error);
 }
 
 #[tokio::test]
@@ -3953,21 +4108,24 @@ async fn 续跑间隙停止截停时返回且不投续跑请求与通知() {
 
 #[tokio::test]
 async fn finish_reason判据精确等值_pause_turn变体一律不续跑() {
-    // 非精确匹配四形态：pause_turn_x / PAUSE_TURN / Stop / None 一律不续跑
-    let cases: Vec<(&str, Option<FinishReason>)> = vec![
+    // 非精确匹配四形态：pause_turn_x / PAUSE_TURN / Stop / None 一律不续跑；
+    // 前两者属未知终局（fail-closed → unexpected_finish），后两者正常收敛
+    let cases: Vec<(&str, Option<FinishReason>, &str)> = vec![
         (
             "pause_turn_x",
             Some(FinishReason::Other("pause_turn_x".to_owned())),
+            "unexpected_finish",
         ),
         (
             "PAUSE_TURN",
             Some(FinishReason::Other("PAUSE_TURN".to_owned())),
+            "unexpected_finish",
         ),
-        ("stop", Some(FinishReason::Stop)),
-        ("none", None),
+        ("stop", Some(FinishReason::Stop), "success"),
+        ("none", None, "success"),
     ];
 
-    for (label, reason) in cases {
+    for (label, reason, expected_subtype) in cases {
         let dir = tempdir("pause-turn-exact");
         let final_frame = match reason {
             Some(reason) => raw_final_with_reason(reason, usage(1, 1)),
@@ -3986,7 +4144,7 @@ async fn finish_reason判据精确等值_pause_turn变体一律不续跑() {
         let AgentEventKind::TurnDone { subtype, .. } = turn_done_of(&events) else {
             panic!("{label}：应为 TurnDone");
         };
-        assert_eq!(subtype, "success", "{label}：正常收敛");
+        assert_eq!(subtype, expected_subtype, "{label}：终局收敛语义");
     }
 
     // 对照组：恰 Other("pause_turn") 唯一续跑

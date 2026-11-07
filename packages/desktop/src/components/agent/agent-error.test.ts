@@ -58,6 +58,16 @@ describe('latestAgentFailure：已知错误映射', () => {
     ['HttpError: 401 Unauthorized', 'Provider 认证失败', 'api_key'],
     ['HttpError: 429 rate limit exceeded', '请求过于频繁', '限流'],
     ['invalid_request_error: max_tokens too large', '输出上限被 Provider 拒绝', 'max_tokens'],
+    [
+      '模型拒答：provider 安全分类器拦截了本次请求（不可重试；请调整输入或更换模型）',
+      '模型拒绝执行该请求',
+      '重试无效',
+    ],
+    [
+      '模型返回未识别的终局原因: some_gateway_custom_reason（本地无对应处置，按失败收敛）',
+      '模型返回了无法识别的结束原因',
+      'finish_reason',
+    ],
     ['something unexpected', 'Agent 运行失败', '原始错误'],
   ];
 
