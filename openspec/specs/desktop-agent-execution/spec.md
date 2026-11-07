@@ -222,20 +222,20 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 
 命令面 SHALL 提供终止入口，发起命令 SHALL 维持提前 resolve 契约：
 
-- 发起命令 SHALL 在会话/轮记录落库并进入 running 后**提前 resolve**，返回 running 态记录（id 立即可知）；执行 SHALL 转入内核编排继续（内核持久面持有 store 收尾），终态记录经 Channel 以与实时事件同构的状态部件流出，MUST NOT 再依赖 invoke 返回携带终态。
-- 终止命令 SHALL 按运行中的会话活动轮寻址: 将轮状态收敛为受控终态 `stopped`、尽力终止引擎执行体（经停止信号取消泵任务（drop future）——机制由 design 定稿核实；寻址键（run/轮 id 沿用或会话键，root 消解跨库歧义保留）由 design 定稿）、经 Channel 流出终止终态部件（与实时事件同构）。`stopped` SHALL 与 `completed` / `failed` 同列受控终态（用户主动终止与引擎失败语义区分，收敛后 MUST NOT 再接受状态变更）。停止注册（内存态）收内核治理面。
+- 发起命令 SHALL 在会话/轮记录落库并进入 running 后**提前 resolve**，返回 running 态记录（id 立即可知）；执行 SHALL 转入内核编排继续（内核持久面持有 store 收尾），终态轮行 SHALL 经 Channel 以 `AgentRunMessage::Record` 信封（`{ ipc: 'record', record: TurnSummary }`）**收尾流出**，MUST NOT 再依赖 invoke 返回携带终态。后端 SHALL NOT 承诺该终态的**前端呈现载体形状**（部件类型、消息 id、是否独立消息）——前端把该轮行挂为对应回合消息的元数据属前端契约（见 desktop-agent-chat-infra「统一会话状态基建」的「record 归元数据」）。
+- 终止命令 SHALL 按运行中的会话活动轮寻址: 将轮状态收敛为受控终态 `stopped`、尽力终止引擎执行体（经停止信号取消泵任务（drop future）——机制由 design 定稿核实；寻址键（run/轮 id 沿用或会话键，root 消解跨库歧义保留）由 design 定稿）、经 Channel 流出 `Record` 信封（`record.status = stopped`）。`stopped` SHALL 与 `completed` / `failed` 同列受控终态（用户主动终止与引擎失败语义区分，收敛后 MUST NOT 再接受状态变更）。停止注册（内存态）收内核治理面。**停止轮 SHALL 恒有轮行**：即便该轮零事件（`loop.rs` 停止路径直接返回、不发 `TurnDone`），内核 `converge` 仍铸 `stopped` 终态行——前端据此在该轮位置呈现「已停止」状态行（见 desktop-agent-chat-infra「轮内状态行与空内容轮可见性」），MUST NOT 表现为「界面只是不再增长」。
 - 对非 running 目标（已终态或不存在）的终止 SHALL 幂等忽略，MUST NOT 报错崩溃或误改既有终态。
-- 停止后的重放 SHALL 与实时一致: 重放路径从会话转录（含 `stopped` 终态）还原与实时查看相同的呈现（终态部件同构）。
+- 停止后的重放 SHALL 与实时一致: 重放路径从会话转录（含 `stopped` 轮行）还原与实时查看相同的呈现（同一轮分组入口折叠，轮行落同一 `metadata.record`）。
 
 #### Scenario: 提前 resolve
 
 - **WHEN** 前端发起会话运行
-- **THEN** invoke 在轮记录落库进入 running 后即 resolve 返回 running 态记录（id 可用），引擎事件随后经 Channel 持续流入，终态以状态部件经 Channel 流出
+- **THEN** invoke 在轮记录落库进入 running 后即 resolve 返回 running 态记录（id 可用），引擎事件随后经 Channel 持续流入，终态以 `Record` 信封经 Channel 收尾
 
 #### Scenario: stop 收敛与引擎终止
 
 - **WHEN** 运行中 invoke 终止命令
-- **THEN** 轮状态收敛为 `stopped`，Channel 流出终止终态部件；运行的泵任务被取消（事件流终止、future drop），无孤儿泵残留
+- **THEN** 轮状态收敛为 `stopped`，Channel 流出 `Record` 信封（`status = stopped`）；运行的泵任务被取消（事件流终止、future drop），无孤儿泵残留；该轮即便零事件也恒有轮行（`stopped`），前端在该轮位置呈现「已停止」状态行
 
 #### Scenario: 幂等忽略
 
@@ -245,7 +245,7 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 #### Scenario: 停止后重放一致
 
 - **WHEN** 停止一轮运行后重新打开该会话查看
-- **THEN** 重放呈现与停止时实时呈现一致（含 `stopped` 终态部件），续话以会话最新状态为准
+- **THEN** 重放呈现与停止时实时呈现一致（含 `stopped` 轮行挂在该轮 `metadata.record`，同一折叠入口），续话以会话最新状态为准
 
 ### Requirement: 引擎门面与 EngineKind 参数选择
 
@@ -586,11 +586,13 @@ SDK 引擎 MUST NOT 自建会话存储：resume 时 SHALL 从**会话全史转�
 agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace 的独立 db 文件（落位与寻址见 desktop-workspace-store），MUST NOT 落全局库。持久化纪律（write-through）：
 
 - **密封唯一 durable**：store sink 只落密封类事件（Message / TurnDone / RunStarted / SystemNotice / Raw）；`MessageDelta` 永不落库（redb 不吃每 token 一行，碎事件根因的落库半边修复）
-- **write-through**：内核收到密封事件/返回值即 store 原子操作落盘；落库失败 SHALL 显式失败收敛（failed 记因、尽力流出终态部件），MUST NOT 静默
+- **write-through**：内核收到密封事件/返回值即 store 原子操作落盘；落库失败 SHALL 显式失败收敛（failed 记因、尽力流出 `Record` 终态轮行），MUST NOT 静默
 - **转录挂 session**：密封事件直挂 session（转录单表，键位形态由 design 定稿），run 退化为轮统计行（挂 session 外键）；转录 = 会话全史 = 重放与重建唯一来源
 - **对账纠偏**：查询 api 对账重导（从转录重建统计/索引）保留为纠偏机制，非主路径
 
 事件投递 SHALL 为「持久面 + 实时面」两面：内核持久面（write-through 单点落库）+ 会话实时面（同一事件源的两个出口——发起命令的 `Channel<AgentRunMessage>` 与会话订阅命令 `agent_session_watch` 的 `Channel<AgentRunMessage>`，同源同构、同一信封）；delta 只走实时面（`messageDelta` ephemeral，永不落库），密封事件两面同源同戳。历史查看 SHALL 走所属 workspace 库的会话查询重放（携 root），MUST NOT 依赖全局事件广播或要求运行进程存活。MVP MUST NOT 实现留存清理（转录无上限增长为已知限制留痕）。
+
+轮归属 SHALL 为**消费侧的轮分组唯一依据**：每条事件在信封顶层携带 `turnId`（生产点唯一，见「AgentEvent 信封与 loop 可见性」），前端折叠与实时路 SHALL 以 `turnId` 分组；`RunStarted` MUST NOT 被用作轮边界或轮计数依据——停止轮 / 失败轮 / 重订中途可能看不到它，零事件轮（ask 送达失败）连一枚事件都没有，按它推断会令后续轮整体错位。`TurnDone` SHALL 只用于该轮轮行缺席时兜底 status（`isError ? failed : completed`），MUST NOT 用于轮边界或轮行配对。`turnId` 为 `null` 的旧转录 SHALL 按 `RunStarted` 出现顺序分组（等价既有行为），MUST NOT 因此新增数据迁移或第二套分组逻辑。后端对前端折叠方式零契约要求（信封字段与轮行字段均已在前置变更定稿，本变更零后端改动）。
 
 #### Scenario: write-through 同源投递
 
@@ -616,6 +618,11 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 - **WHEN** workspace A 与 B 各有会话历史后审查两库内容与查询结果
 - **THEN** A 的会话/转录/统计仅存在于 A 的 workspace 库文件，B 的任何查询不可见（反之亦然）；全局库无会话数据
+
+#### Scenario: 轮归属可自证而不靠 RunStarted 计序
+
+- **WHEN** 一条会话转录含三轮：第 1 轮正常收口（有 `RunStarted` 与 `TurnDone`）、第 2 轮用户运行中停止（停止路径不发 `TurnDone`、无 `turnDone` 事件）、第 3 轮正常收口
+- **THEN** 每枚事件的信封 `turnId` 各自指向所属轮，消费方按 `turnId` 分组后三轮的轮行与事件一一对位（第 2 轮不缺席、第 3 轮不错位）；以 `RunStarted` 出现次数计序会得到错位结果，故该口径 MUST NOT 被采用；第 2 轮的 status 由轮行（`stopped`）而非 `TurnDone` 支撑
 
 ### Requirement: 会话级实时流订阅面（会话注册表 + agent_session_watch）
 
@@ -745,7 +752,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 前端 SHALL 提供 Agent 调试页（`AgentDebugView`），经侧栏「系统工具」组进入；视图切换 SHALL 沿用本地 state，MUST NOT 引入路由。页面 SHALL 包含：
 
 - **参数面（最小集）**：prompt（必填）、permission-mode 三档下拉（默认 bypassPermissions）、agent 选择器（管理页 agent 实例清单，默认选中默认 agent——与组合根缺省解析一致；**仅调试页暴露**，正式场景无 agent 选择入口）；cwd 不设参数（隐含当前 workspace root）、model 不设参数、env 不设参数
-- **事件时间线**：SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra，对话透镜 `AgentMessages`）呈现——**运行中 token 级流式**（delta → provisional 消息连续增长，思考/回复可辨，密封到达以密封为准替换，无碎行）、气泡序（seq 序）、tool_use / tool_result 成对卡；run-started / result / record 等辅助载体不进对话呈现（保真原文经下方「原始转录切换」与部件元数据可考）；两引擎共用同一会话组件
+- **事件时间线**：SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra，对话透镜 `AgentMessages`）呈现——**运行中 token 级流式**（delta 累积进**该轮唯一 assistant 消息**的当前 step 部件，思考/回复可辨，密封到达追加整块而非另起消息，无碎行、无第二条气泡）、气泡序（按行到达序）、tool_use / tool_result 成对卡；run-started / system-notice / result / raw 等辅助载体逐事件各为独立 system 消息且不进对话呈现（保真原文经下方「原始转录切换」与部件元数据可考）；两引擎共用同一会话组件
 - **运行中停止**：运行中 SHALL 呈现停止入口，触发终止命令（见「agent_stop 终止与提前 resolve」）
 - **原始转录切换**：落库密封转录（含 Raw）原文可见（与 store 一致）；delta 仅实时面可见，不进入原始转录视图
 - **历史会话**：会话列表 → 点开经同一 `AgentSessionView` 重放该会话（含轮行；invoke 查询 + 状态驱动挂流）
@@ -764,8 +771,8 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 #### Scenario: 流式连续呈现
 
-- **WHEN** 一次含长文本回复与思考的 SDK 运行进行中
-- **THEN** 对话视图呈单条连续增长的 provisional 消息（token 级、思考/回复可辨），轮末密封到达后以密封内容替换，不出现逐 delta 碎行
+- **WHEN** 一次含长文本回复与思考、且中途调用工具的 SDK 运行进行中
+- **THEN** 对话视图呈单条连续增长的 assistant 消息（token 级、思考/回复可辨），第二个响应段的 delta 在同一消息内继续增长（不另起气泡），不出现逐 delta 碎行
 
 #### Scenario: loop 可见性
 
@@ -791,6 +798,11 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 - **WHEN** 从历史列表点开一条仍在运行的会话（有 running 轮行）
 - **THEN** 组件以 `since_seq` 订阅该会话并 token 级流式呈现（不经发起流），轮收口后以重放收敛为与重开一致的形状
+
+#### Scenario: 停止轮可观可见
+
+- **WHEN** 在调试页运行中点击停止，该轮未产出任何 assistant 密封消息（零内容停止）
+- **THEN** 时间线在该轮位置呈现「已停止」状态行（不再是「界面只是不再增长」）；顶部失败横幅 MUST NOT 出现（`stopped` 不算失败）；轮行 status 为 `stopped` 可从该轮消息 metadata 读出
 
 ### Requirement: 调试页历史来源筛选
 
@@ -1175,6 +1187,36 @@ SDK 引擎 SHALL 支持按 provider 开关启用 Anthropic 云端 `web_search` �
 - **WHEN** 终局为 `Stop` / `ToolCalls` / `None` / `Other("pause_turn")`
 - **THEN** 零 `output_truncated` 通知，收敛语义与既有行为逐字一致
 
+### Requirement: 异常终局 fail-closed（拒答与未知终局报错）
+
+引擎 SHALL 以**白名单**判定正常终局，白名单之外一律按失败收敛，MUST NOT 静默当成功：
+
+- **正常终局**：`Stop`（自然结束）、`ToolCalls`（模型要调工具）、`Other("pause_turn")`（服务端工具待续，由续跑循环消费），以及 **`None`**（provider 未声明终局——rig `Finish::default()` 即 `None`，部分网关不填 `finish_reason`；放行以免这类网关全线误报失败）。
+- **拒答**：`FinishReason::ContentFilter`（rig 已把 Anthropic `stop_reason = "refusal"` 归一于此）SHALL 以 `TurnDone{subtype: "model_refused", is_error: true}` 失败收敛，并发 `SystemNotice{api_error}` 记因，成因文案 SHALL 声明「不可重试」并建议调整输入或更换模型。rig 0.43 的解析层丢弃 `stop_details`，故成因 MUST NOT 声明拒答分类（无数据即不编造）。
+- **未知终局**：`Other(<未知值>)` SHALL 以 `TurnDone{subtype: "unexpected_finish", is_error: true}` 失败收敛，记因串 SHALL 携 provider 原值。
+- **共处置**：两类均 MUST NOT 重试（同输入同判定）、MUST NOT 执行本轮声明的工具、MUST NOT 续跑；`choice` 为空时同样适用（**判定 SHALL 先于空轮收敛**，否则纯拒答被当成「无话可说」）。
+- **显示与记录**：成因经 `SystemNotice{api_error}` 载荷流出——会话横幅（前端 `latestAgentFailure`）与 step detail（编排侧 `failure_reason` → `会话失败收敛: <成因>`）取同一串，MUST NOT 只有一处可见。
+
+#### Scenario: 拒答以失败收敛
+
+- **WHEN** 一轮响应以 `FinishReason::ContentFilter` 收尾
+- **THEN** 该轮共发一次请求（零重试）；事件流含一条 `SystemNotice{api_error}` 且成因含「拒答」「安全分类器」「不可重试」；`TurnDone` 为 `subtype = model_refused` / `is_error = true`
+
+#### Scenario: 零内容拒答不被空轮吃掉
+
+- **WHEN** 拒答响应无任何内容块（`choice` 空）
+- **THEN** 仍按拒答失败收敛，MUST NOT 走「空轮正常收敛」分支
+
+#### Scenario: 未知终局 fail-closed
+
+- **WHEN** provider 返回本地方案之外的 `stop_reason`（如第三方网关自造值）
+- **THEN** `TurnDone{subtype: "unexpected_finish", is_error: true}`，记因串携 provider 原值；本轮工具不执行
+
+#### Scenario: 终局缺席放行
+
+- **WHEN** provider 未声明 `finish_reason`（`None`）且响应有内容
+- **THEN** 按正常收敛（`success`），不误报失败
+
 ### Requirement: 上下文防线 server 块孤儿清扫
 
 `sweep_orphans`（`sdk/context.rs`）SHALL 在既有「`UserContent::ToolResult ↔ CallId`」配对清扫之外，同时认 **assistant 位 server 块配对**：
@@ -1281,7 +1323,7 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 | `crates/infra/store` | 会话转录唯一家 + 查询面实现 | `SessionRecord` + 转录单表（session 键）+ 轮统计行；write-through 原子操作面；会话查询/对账 API；详见 desktop-workspace-store |
 | `src/commands/exec/agent.rs` | 内核薄包装命令面 | 三件事纪律；编排退役下沉；会话域查询/终止命令；`Result<T, String>` 模板；命名与参数面 design 定稿 |
 | 引擎门面 + 内核组合根 | 解析单点（自命令层下沉） | `runner_for` 签名零 diff、`EngineConfig` 连接配置字段面（含协议）零塌；默认 agent 解析语义不变（desktop-agent-management） |
-| `packages/desktop/src/lib/agent-adapter.ts` | 事件适配双层 | delta → provisional（correlator）、密封替换；`eventsToUIMessages` 仅消费密封转录；详见 desktop-agent-chat-infra |
+| `packages/desktop/src/lib/agent-adapter.ts` | 事件适配双层 | delta → 本轮唯一 assistant 消息的 step 部件、密封整块追加；`foldSessionMessages` 按轮分组（轮行挂 `metadata.record`）且仅消费密封转录；详见 desktop-agent-chat-infra |
 | `packages/desktop/src/lib/agent-transport.ts` + `src/hooks/use-agent-session.ts` | 会话域传输与状态基建 | 会话域 invoke/流参数（发送期发起流 / 旁观期订阅流双起点）；重放装载走会话转录；详见 desktop-agent-chat-infra |
 | `packages/desktop/src/views/agent/agent-debug-view.tsx` | 调试页参数面 | agent 选择器（默认选中默认 agent，仅调试页暴露）；对话视图 / 落库 / 重放组件零改动复用 |
 | `packages/desktop/src/views/agent/components/agent-run-form.tsx` | run 表单 | agent 选择 state（选中 id 随会话发起 invoke 传参；`engine` state 与下拉退役） |
@@ -1415,6 +1457,8 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 | `truncation_kind` | `fn(Option<&FinishReason>) -> Option<TruncationKind>` | 精确等值判定 `Length` → `OutputCap`、`Other("model_context_window_exceeded")` → `ContextWindow`；其余 `None`（不误判） |
 | `emit_truncated` | `async fn(&Sender, &LoopTurn, TruncationKind, u64, &Usage)` | `SystemNotice{output_truncated}` + 引擎日志双写；载荷 `{kind, turn_index, output_tokens}` |
 | 截断收口点 | 位于密封入史之后、`tool_calls` 执行判定之前 | 不重试、不执行工具、不续跑；`finish_success` 收口 |
+| `abnormal_finish` | `fn(Option<&FinishReason>) -> Option<(String, String)>` | 白名单判正常终局（`Stop` / `ToolCalls` / `pause_turn` / `None`）；`ContentFilter` → `model_refused`、未知 `Other` → `unexpected_finish` |
+| `fail_on_abnormal_finish` | `async fn(&Sender, &LoopTurn, Option<&FinishReason>, u64, Instant, &Usage) -> bool` | 异常终局统一收口（空 choice 与有内容两路径共用）；命中即 `finish_error` 并返回 `true` |
 
 ### Function: `packages/desktop/src-tauri/crates/infra/agent/src/sdk/{resume,context}.rs`
 
@@ -1441,3 +1485,21 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 | `AgentProviderRecord` | 增 `web_search: bool`（v4） | 见 desktop-agent-management Module Contract；本能力只读消费 |
 | `AgentProviderProtocol` | 新枚举 | 与本能力门面 `Protocol` 一对一映射（映射点 = 组合根解析单点） |
 | 事件转录模型 | 零变更 | `AgentEvent` 新增块变体为自描述 JSON，无需版本演进 |
+
+### 前端消费口径（本变更 delta 面，详述见 desktop-agent-chat-infra）
+
+| 模块 | 变化 | 描述 |
+|------|------|----------|
+| `packages/desktop/src/lib/agent-transport.ts` | `Record` → `finish` chunk 的 `messageMetadata` | 终态轮行落该回合消息元数据；后端 `Record` 信封载荷形状零改动 |
+| `packages/desktop/src/lib/agent-adapter.ts` | 折叠按 `turnId` 分组、轮行挂 `metadata.record` | 轮归属口径的唯一实现点 |
+| `packages/desktop/src/hooks/use-agent-session.ts` | `buildMessages` 删除，统一走 `foldSessionMessages` | 消除 `TurnDone` 计数配轮行的错位路径 |
+| `packages/desktop/src/components/agent/agent-messages.tsx` | 空内容轮按 `metadata.record.status` 判定 | 停止轮 / 失败轮不再从时间线消失 |
+
+### 零改动面
+
+| 模块 | 说明 |
+|------|------|
+| `packages/desktop/src-tauri/**` | **零改动**：信封 `turn_id`（出线 `turnId`）、`AgentEvent::stamp` 单点、`SessionStreamRegistry`、`agent_session_watch` 与 `since_seq` 过滤、`agent_stop` 幂等、`converge` 铸 `stopped` 轮行全部不变；本变更只改前端如何消化同一批信封 |
+| `crates/infra/agent/src/sdk/{loop,normalize,runner}.rs` / `crates/core/agent/src/kernel.rs` | **零改动**：停止路径不发 `TurnDone` 的既有行为保留（由内核 `converge` 铸 `stopped` 轮行兜底），MUST NOT 为「前端轮分组」而新增事件或信封字段 |
+| `packages/desktop/src/types/generated/**` | **零改动**：`bindings.ts` / `bindings.zod.ts` MUST NOT 重导出（本变更零信封字段增量） |
+| `src/commands/exec/**` | **零改动**：`agent_start` / `agent_session_watch` / `agent_stop` / `session_detail` 签名与语义不变 |

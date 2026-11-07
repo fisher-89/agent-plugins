@@ -10,36 +10,38 @@
 
 前端 SHALL 提供 headless 会话基建 hook `use-agent-session`(置于 `packages/desktop/src/hooks/`;由 `use-agent-chat` 收编改名,职责扩为「重放装载 + 状态驱动挂流 + 发送组装 + 停止接线」),内部以 ai-sdk v7 `useChat` 承载对话状态,transport 为自定义 `TauriAgentTransport`(实现 v7 `ChatTransport`),把会话发起 invoke 与**会话订阅 invoke**(Tauri `Channel<AgentRunMessage>`:发起流与订阅流共用同一信封)适配为 `ReadableStream<UIMessageChunk>`。`UIMessage` SHALL 成为前端对话状态的一等模型。基建 SHALL 满足:
 
-- **重放装载**: 打开会话时以会话 id **直查**会话单查命令 `session_detail(root, sessionId)`(携 root 寻址所属 workspace 库),再经会话转录重放取落库**密封转录**,经 `eventsToUIMessages` 纯函数重建 UIMessage 状态(`setMessages`);会话 id 由来源侧显式提供(`sourceRef` 反查取最近一条会话的路径 SHALL 退役;按 `source` / `source_ref` 列出会话供用户显式挑选的**清单筛选**不在此禁令内——属探测语义,选中后仍以 `sessionId` 直查)。重放重建的状态与实时累积收口的状态 SHALL **终态同一形状**(重开恢复 = 重放;两路契约见「事件适配层」的「终态同构 + 过程就地补全」,终态一致性由收口以重放收敛保证,而非由两条发射实现碰巧一致);`sessionId` 为 null 时不发起任何重放查询、不建立任何订阅。
+- **重放装载**: 打开会话时以会话 id **直查**会话单查命令 `session_detail(root, sessionId)`(携 root 寻址所属 workspace 库),再经会话转录重放取落库**密封转录**,经 `foldSessionMessages(events, turns)` 纯函数重建 UIMessage 状态(`setMessages`);会话 id 由来源侧显式提供(`sourceRef` 反查取最近一条会话的路径 SHALL 退役;按 `source` / `source_ref` 列出会话供用户显式挑选的**清单筛选**不在此禁令内——属探测语义,选中后仍以 `sessionId` 直查)。重放重建的状态与实时累积收口的状态 SHALL **终态同一形状**(重开恢复 = 重放;两路契约见「事件适配层」的「终态同构 + 过程就地补全」,终态一致性由收口以重放收敛保证,而非由两条发射实现碰巧一致);`sessionId` 为 null 时不发起任何重放查询、不建立任何订阅。
 - **发送穿透**: 发送 SHALL 经 `sendMessage` 以 `ChatRequestOptions.body` 携带应用层会话参数(`root`、`permissionMode`、会话引用 `sessionId`(`Continue` 语义,链尾/当前会话提供,无会话为 null)、`source`、可选 `sourceRef`、可选 `cwd`);会话状态由应用层在发送时刻提供,transport SHALL 为无状态转换器(不进构造闭包、无 ref 插线);会话文本组装(如 explore stance 拼接)SHALL 留在来源侧,基建只收口会话参数。`sourceRef` SHALL 由来源侧按需提供(如 change 详情通用 agent 面板以 change id 归属,见 desktop-change-chat),仅作归属记录与清单筛选,**MUST NOT 用于寻址或重放**;来源未提供时为 null(调试页 / explore 链行为不变)。`cwd` SHALL 同样由来源侧透传(change 环境 = worktree 执行根),只作会话执行根,MUST NOT 参与 store 寻址;来源未提供时缺省 `root`(既有语义)。transport SHALL 对两字段做运行时校验(非法形态即 `Err`,不改写),且会话参数 SHALL 以具名解构进入发起 invoke——MUST NOT 依赖位置参数索引拼接(参数面尾部增位时不得错位)。
-- **增量流式**: 实时路 SHALL 消费 `MessageDelta` 事件——经 `eventToChunk` 映射为 ai-sdk 原生 `text-delta` / `reasoning-delta` chunk 挂 provisional 消息(思考/回复可辨),密封 Message 到达后以密封内容替换;一轮回复 SHALL 呈现为单条连续增长的消息, MUST NOT 出现逐 delta 碎行。实时路的起点 SHALL 双态:发送期由发起流承载(Channel 先于 invoke 建立,零空洞),旁观 / 重挂期由会话订阅流承载(带 `since_seq`);两起点 SHALL 经同一适配与开件簿记单点产生 chunk,MUST NOT 各自实现一份;同一会话同一时刻 SHALL 至多一条在挂流。
-- **停止**: `stop` SHALL 触达 Rust 侧终止命令(MUST NOT 仅截断前端流);后端收敛后经由在挂流(发起流或订阅流)流出的终止终态部件照常进入状态。
-- **终态同构**: 终态记录 SHALL 转为与实时事件同构的状态部件(`data-run-record`)附进流;重放路径 SHALL 从会话记录合成同款部件,且轮收口 SHALL 以转录库重放重建会话状态(终态以库为唯一权威;收口查询失败回落本地事件镜像折叠),续轮(取当前会话)从中取。
+- **单消息回合**: 一轮运行(提问 + 思考 + 工具 + 回答)SHALL 呈现为**恰一条 assistant 消息**(气泡数一),部件数不受限——思考 / 正文 / 工具卡各占一个 part,按**首次到达顺序**排列,MUST NOT 重排、MUST NOT 刻意合并;MUST NOT 出现同一轮的第二个 assistant 气泡。
+- **step 分段(增量流式)**: 实时路 SHALL 以「一次模型响应 = 一个 step」分段:`start` 每轮**仅发一次**(`messageId = turn-<turnId>`,`turnId` 取自该轮首个事件的信封 `AgentEvent.turn_id`);新响应首个 delta 前发 `start-step`;密封 `Message` 到达时先 `reset-step`(只清本 step 的临时部件)再追加整块部件,前面 step 的已密封块 MUST 保留;工具结果 SHALL 就地补全既有工具部件(只投 `tool-output-available`,不开新 step)。delta SHALL 经 `eventToChunk` 映射为 `text-delta` / `reasoning-delta` 累积进本轮唯一消息的当前 step 部件,MUST NOT 出现逐 delta 碎行;part id SHALL 由**该 step 内首个同类 delta 的 `seq`** 派生(`t-<seq>` / `r-<seq>`),同一 part 的后续 delta MUST 复用同一 id,跨 step MUST NOT 相撞。实时路的起点 SHALL 双态:发送期由发起流承载(Channel 先于 invoke 建立,零空洞),旁观 / 重挂期由会话订阅流承载(带 `since_seq`);两起点 SHALL 经同一适配与同一 step 分段簿记单点产生 chunk,MUST NOT 各自实现一份;同一会话同一时刻 SHALL 至多一条在挂流。
+- **提问消息**: `role = user` 的密封 `Message` 事件 SHALL NOT 由 transport 转为 chunk(chunk 协议无 role 字段,硬造必产第二条 assistant 消息)。提问气泡 SHALL 由会话状态侧产生并**恰一条**,其**最终** id SHALL 为 `turn-<turnId>-user`(与 assistant 消息 `turn-<turnId>` 同族):发起流在发送时刻本地推入(同步先于任何 chunk,故结构上不可能出现「思考在提问之前」,此时可先持临时 id),该轮提问事件到达时把 id **归一**为 `turn-<turnId>-user`(事件不可达——断流 / 收口即到——时由收口 fold 整表替换对齐,用户无感);订阅流(旁观 / 重挂,无本地副本)在收到该轮提问事件时直接以 `turn-<turnId>-user` 追加。MUST NOT 让同一提问在收口后仍持临时 id 或出现两条气泡;MUST NOT 以 `seq` 猜测角色。
+- **停止**: `stop` SHALL 触达 Rust 侧终止命令(MUST NOT 仅截断前端流);后端收敛后经由在挂流(发起流或订阅流)流出的 `Record` 信封照常进入状态,并落到该轮 assistant 消息的 `metadata.record`。
+- **record 归元数据**: 终态轮行 SHALL 经 `finish` chunk 的 `messageMetadata` 挂为该轮 assistant 消息的 `metadata.record`(不产独立消息、不产 `data-run-record` 部件);重放路径 SHALL 由折叠按轮把轮行挂到同一位置;轮收口 SHALL 以转录库重放重建会话状态(终态以库为唯一权威;收口查询失败回落本地事件镜像折叠),续轮(取当前会话)从中取。`chain` 状态面 SHALL 照旧由轮行镜像维护(顶部失败横幅与 `running` 派生读它,不读 `metadata`)。
 
 #### Scenario: 重放装载重建
 
 - **WHEN** 打开一条已有两轮往复的会话(来源侧提供其 `sessionId`)
-- **THEN** `use-agent-session` 以 `sessionId` 直查 `session_detail` 并取会话转录重放,`eventsToUIMessages` 重建出的 UIMessage 序列与该会话收口后的状态形状一致(第一轮内容在场,无缺轮)
+- **THEN** `use-agent-session` 以 `sessionId` 直查 `session_detail` 并取会话转录重放,`foldSessionMessages` 重建出的 UIMessage 序列与该会话收口后的状态形状一致(每轮提问 + 一条 assistant 消息在场,轮行挂在该轮 `metadata.record`,无缺轮);assistant 消息 id 为 `turn-<turnId>`、提问为 `turn-<turnId>-user`
 
 #### Scenario: 会话参数穿透
 
 - **WHEN** 在已有会话(会话 id=`s1`)中发送一条消息
 - **THEN** `TauriAgentTransport.sendMessages` 收到的 options.body 含会话引用 `sessionId="s1"` 及 root / permissionMode / source,并原样进入会话发起 invoke 参数;transport 自身不持有会话状态
 
-#### Scenario: 增量流式与密封替换
+#### Scenario: 单消息回合与 step 分段
 
-- **WHEN** 一轮回复的 text delta 逐个到达后密封 Message 收口
-- **THEN** provisional 消息随 delta 连续增长(`text-delta` / `reasoning-delta`),密封到达后被密封内容替换,无碎行、无重复呈现
+- **WHEN** 一轮含两次模型响应(响应间夹一次工具调用)的回复经实时流到达,投递顺序为 `RunStarted` → user `Message` → delta₁ → 密封 `Message`(A₁) → toolResult → delta₂ → 密封 `Message`(A₂) → `Record`
+- **THEN** 归约后该轮恰一条 assistant 消息:id 为 `turn-<turnId>`,部件按 A₁ 段与 A₂ 段的到达顺序排列(思考 / 正文 / 工具卡各一 part),A₁ 段部件在 A₂ 段到达后仍在场;`start` 全轮仅一次、`start-step` 每段一次;该轮提问消息为右侧 `role = 'user'` 气泡且排在该 assistant 消息之前;轮末 `metadata.record` 为该轮轮行
 
 #### Scenario: 订阅流起点与簿记等价
 
 - **WHEN** 旁观 (非发送方) 打开一条 running 会话,订阅流自 `since_seq` 后的首个 delta 到达
-- **THEN** 该流复刻发起流的开件簿记(`start` + `reset-step` + part-start)后累积 delta,reducer 归约结果与发起流对同一事件序列的归约一致(无 `missing part` 错误),且两起点共用同一簿记实现
+- **THEN** 该流复刻发起流的同一 step 分段簿记(`start` + `start-step` + part-start + 以首个同类 delta 的 `seq` 派生 part id)后累积 delta,reducer 归约结果与发起流对同一事件序列的归约一致(无 `missing part` 错误),且两起点共用同一实现
 
 #### Scenario: 停止触达后端
 
 - **WHEN** 运行中调用 `stop`
-- **THEN** 前端发起 Rust 侧终止命令(收敛引擎与轮状态),在挂流随后流出的终止终态部件进入会话状态,MUST NOT 出现「前端已停、store 仍跑完」的偏差
+- **THEN** 前端发起 Rust 侧终止命令(收敛引擎与轮状态),在挂流随后流出的 `Record` 信封进入会话状态并挂为该轮 `metadata.record`(status = `stopped`),MUST NOT 出现「前端已停、store 仍跑完」的偏差
 
 #### Scenario: 来源引用与 cwd 穿透
 
@@ -55,6 +57,21 @@
 
 - **WHEN** 来源侧按 `source` / `source_ref` 拉取会话清单并点选其中一条
 - **THEN** 清单仅作探测 / 选择入口;选中后的重放装载仍以 `sessionId` 直查 `session_detail` 与会话转录,零「按来源反查取最近一条」调用
+
+#### Scenario: 提问气泡不靠 seq 猜角色
+
+- **WHEN** 在已有会话中续问第二轮(运行中 transport 同时收到该轮 `role = user` 的密封 `Message` 事件)
+- **THEN** 该轮的提问气泡为 `role = 'user'`(右侧)且排在 assistant 消息之前,id 为 `turn-<turnId>-user`;transport 对该 user 事件零 chunk 产出;若本地已推入该提问,事件到达后 id 归一到同一值(消息总数不增,无两条提问气泡)
+
+#### Scenario: 旁观路径的提问气泡
+
+- **WHEN** 旁观方(无本地提问副本)经会话订阅流收到某轮的 `role = user` 密封 `Message` 事件
+- **THEN** 该提问以 `turn-<turnId>-user` 追加进消息列表并排在该轮 assistant 消息之前;收口后经 `foldSessionMessages` 整表替换,提问仍恰一条、id 不变
+
+#### Scenario: 旧转录顺序分组回退
+
+- **WHEN** 重放一条 `turnId` 全为 `null` 的存量转录(前置变更前落库)
+- **THEN** 折叠按 `RunStarted` 出现顺序分组(组界 = 下一枚 `RunStarted` 或数组末尾),每轮仍产出提问 + 一条 assistant 消息,消息数与本变更前形状等价、不抛错;MUST NOT 引入第二套分组实现
 
 ### Requirement: 会话级统一渲染组件（sessionId 入参 + 状态驱动挂流）
 
@@ -106,35 +123,39 @@
 
 基建 SHALL 提供纯函数适配层(置于 `packages/desktop/src/lib/agent-adapter.ts`),分三层:入口层、语义层(IR)、发射层:
 
-- `eventsToUIMessages(events: AgentEvent[]): UIMessage[]` — 重放重建(仅消费**密封事件**:会话转录中不存在 delta,delta 不进重放路径)
-- `eventToChunk(event: AgentEvent, currentMessageToolCalls?: ReadonlySet<string>): UIMessageChunk[]` — 实时增量(含 delta 路;返回**chunk 组**:事件头 + 块 chunk);可选参为**流内跨消息配对视野**(transport 流内簿记:当前 UI 消息内已发出的工具调用 id 集),命中即就地补全
+- `foldSessionMessages(events: AgentEvent[], turns: TurnSummary[]): UIMessage[]` — 重放与收口折叠(**按轮分组**;仅消费**密封事件**:会话转录中不存在 delta,delta 不进重放路径)。分组键 SHALL 为信封 `AgentEvent.turn_id`(同一 `turn_id` 归同一轮);`turn_id` 为 `null` 的旧转录 SHALL 按 `RunStarted` 出现顺序分组(组界 = 下一枚 `RunStarted` 或数组末尾)。每轮 SHALL 产出:提问消息(该轮 `role = user` 密封事件;缺席即无提问消息)+ **恰一条** assistant 消息(id `turn-<turnId>`,parts 可为空)+ 逐事件 aux system 消息,且 `metadata.record` 为该轮轮行(按 `turnId` 匹配;轮行缺席为 `null`)。`TurnDone` MUST NOT 用作轮边界或轮行计数依据,仅在该轮轮行缺席时兜底 status(`isError ? failed : completed`)
+- `eventToChunk(event: AgentEvent, ...): UIMessageChunk[]` — 实时增量的**块 chunk 单点**(delta 路 + 密封块路);**事件头与 step 帧(`start` / `start-step` / `reset-step` / `finish`)SHALL 归 transport**,本函数 MUST NOT 产。`role = user` 的密封事件 SHALL 零 chunk(提问由会话状态侧承载)。可选参为**流内跨消息配对视野**(transport 流内簿记:本轮已发出的工具调用 id 集),命中即就地补全
 - **语义层 IR**: `BlockPlan` 为块语义的唯一表达(text / reasoning / tool 三变体;tool 的 `output: null` 即未配对),`planBlock(block, paired): BlockPlan | null` 为**唯一语义点**(五 block 变体 + 无主 result 合成在此收口;`null` = 已配对 result 不重复呈现);孤儿 result 与正常 tool 合并为同一 `tool` 变体(占位工具名 + `input: null`),MUST NOT 在两路各写一遍孤儿判定。`text` 变体 SHALL 携 `citations?: AgentCitation[]`(缺席 = 无引用),`tool` 变体 SHALL 为**唯一工具类承载位**——客户端工具与云端 `web_search` 服务端工具共用该变体(`toolName` 区分,MUST NOT 为搜索新增第四变体)
-- **视野层**: `PairingScope` 隔离配对视野差异——折叠路 `global`(跨消息预扫全部 toolUse 的配对 result),实时路 `local`(仅当前 message 内配对);两视野 SHALL 产出同一类型 `Map<toolCallId, PairedOutcome>`(配对载体为工具结果块 **或搜索来源载荷**的联合,与块种类同构),差异 MUST NOT 渗入语义层与发射层。实时路另有**流内跨消息配对视野**(`eventToChunk` 可选参,transport 按「最近开件消息」簿记并在开出新消息时重武装):命中的 toolResult 块 SHALL 就地补全既有消息里的工具部件——只投 `tool-output-available`,MUST NOT 另起消息 / 重投 input;全部块均命中时该事件 MUST NOT 产消息头(`start` / `reset-step`)。**搜索块配对 SHALL 以块 `id` 为键沿用同一视野机制**:use 侧块(`rawUse != null`)与 result 侧块(`rawUse == null`)分处两条消息时由 `global` 视野跨消息合并(`pause_turn` 拆分场景),`local` 视野下无配对 result 的 use 仍渲染(只显查询词)
-- **发射层**: `plansToParts` / `plansToChunks` 为纯机械映射(无判定、无视野),两路的块呈现 SHALL 由同一 `BlockPlan[]` 驱动;`plansToChunks` 只产块相关 chunk,事件头(`start` / `reset-step`)仍由 `eventToChunk` 负责。text 计划的 `citations` SHALL 由 `plansToParts` / `plansToChunks` 挂为同一份 `providerMetadata: { agent: { citations } }`(空数组 MUST NOT 挂;`text-start` 与 `text-delta` 带同一 metadata——ai-sdk 的 metadata 合并语义为**覆盖非累加**,故 citations 放一次即可,MUST NOT 指望多次 delta 累加)
+- **视野层**: `PairingScope` 隔离配对视野差异——折叠路 `global`(跨消息预扫全部 toolUse 的配对 result),实时路 `local`(仅当前 message 内配对);两视野 SHALL 产出同一类型 `Map<toolCallId, PairedOutcome>`(配对载体为工具结果块 **或搜索来源载荷**的联合,与块种类同构),差异 MUST NOT 渗入语义层与发射层。实时路另有**流内跨消息配对视野**(`eventToChunk` 可选参,transport 按「本轮最近开件 step 的消息」簿记并在新 step 开出时重武装):命中的 toolResult 块 SHALL 就地补全既有消息里的工具部件——只投 `tool-output-available`,MUST NOT 另起消息 / 重投 input / 开新 step;全部块均命中时该事件 MUST NOT 产任何块 chunk。**搜索块配对 SHALL 以块 `id` 为键沿用同一视野机制**:use 侧块(`rawUse != null`)与 result 侧块(`rawUse == null`)分处两条密封 message 时由 `global` 视野跨消息合并(`pause_turn` 拆分场景),`local` 视野下无配对 result 的 use 仍渲染(只显查询词)
+- **发射层**: `plansToParts` / `plansToChunks` 为纯机械映射(无判定、无视野),两路的块呈现 SHALL 由同一 `BlockPlan[]` 驱动;两者均只产块相关产物(部件 / chunk),**事件头与 step 帧由 `eventToChunk` 之外的 transport 负责**。text 计划的 `citations` SHALL 由 `plansToParts` / `plansToChunks` 挂为同一份 `providerMetadata: { agent: { citations } }`(空数组 MUST NOT 挂;`text-start` 与 `text-delta` 带同一 metadata——ai-sdk 的 metadata 合并语义为**覆盖非累加**,故 citations 放一次即可,MUST NOT 指望多次 delta 累加)
 
-映射 SHALL 为: `runStarted` → `data-run-started` 部件;`messageDelta` → provisional 消息上的 `text-delta`(文本增量)/ `reasoning-delta`(思考增量)chunk,配对键挂部件/消息元数据(键形态随信封定稿);密封 message 的 text block → text 部件(整块收口,替换同键 provisional);thinking block → reasoning 部件;toolUse block → tool 部件 input;同 id toolResult block → 该 tool 部件 output(配对收口于适配层,跨消息按 id 配对,MUST NOT 再由视图层全局扫描);**`webSearch` block → `tool-web_search` 部件**(`toolCallId` = 块 `id`、`input = { query }`、`output` 见下);`systemNotice` → `data-system-notice`;`turnDone`(现 runResult,随信封演进) → `data-run-result`(携带 finish 语义);`raw` → `data-raw` 原文透传。`eventToChunk` 的 delta 分支与 `agent-transport.ts` SHALL **零改动**(无搜索实时 delta)。
+映射 SHALL 为: `runStarted` → `data-run-started` 部件;`messageDelta` → 本轮 assistant 消息当前 step 的 `text-delta`(文本增量)/ `reasoning-delta`(思考增量)chunk,part id 由该 step 内首个同类 delta 的 `seq` 派生(同一 part 后续 delta 复用);密封 message 的 text block → text 部件(整块追加,`t-<seq>-<n>`);thinking block → reasoning 部件;toolUse block → tool 部件 input;同 id toolResult block → 该 tool 部件 output(配对收口于适配层,跨消息按 id 配对,MUST NOT 再由视图层全局扫描);**`webSearch` block → `tool-web_search` 部件**(`toolCallId` = 块 `id`、`input = { query }`、`output` 见下);`systemNotice` → `data-system-notice`;`turnDone`(现 runResult,随信封演进) → `data-run-result`(携带 finish 语义;转录内事件的保真面,与 `metadata.record` 是两个层级,MUST NOT 互相替代);`raw` → `data-raw` 原文透传。`eventToChunk` 的 delta 分支与 `agent-transport.ts` SHALL **零搜索改动**(无搜索实时 delta)。
 
 搜索块的部件载荷口径: use 侧块 → `input = { query }`,`output` 为配对命中时的来源载荷或 `null`;result 侧块(孤儿,use 已被裁)→ `input = null` + `output` 携带来源载荷(信息不丢,与既有孤儿工具卡片同哲学);两者 `output` 形状 SHALL 为 `AgentToolOutput` 的**加位形态**——`content` 保留字符串位(搜索无文本结果,置空串),`isError` = `error != null`,`search?: { results: WebSearchSource[]; error: string | null }` 承载结构化来源与错误(加位可选,既有消费面零改)。
 
-两路契约 SHALL 为**终态同构 + 过程就地补全**:折叠路(重放 / 收口)与实时路 SHALL 在轮收口后呈同一形状(MUST NOT 出现成对工具卡的分裂或重复);实时流式期间跨消息 tool 配对 SHALL 就地补全——结果事件不另起消息、input 与 output 合住同一条消息(与折叠路同形)。配对视野随开新消息重武装,失效残差(结果与 toolUse 之间插入其他消息 / 订阅起点晚于 toolUse)SHALL 回退既有占位卡形态并由轮收口以重放折叠纠正,MUST NOT 以「实时路复跑折叠语义」的方式消除(reducer 的配对视野物理上限于当前消息,复用即降级折叠路能力)。视野差异 SHALL 由视野层快照测试显式锁定(同消息配对两视野相等、未携流内视野时跨消息配对两视野可辨差异),MUST NOT 由单一路径 fixture 掩饰。
+两路契约 SHALL 为**终态同构 + 过程就地补全**:折叠路(重放 / 收口)与实时路 SHALL 在轮收口后呈同一形状(MUST NOT 出现成对工具卡的分裂或重复);实时流式期间跨消息 tool 配对 SHALL 就地补全——结果事件不另起消息、input 与 output 合住同一条消息(与折叠路同形)。配对视野随新 step 开出重武装,失效残差(结果与 toolUse 之间插入其他 step / 订阅起点晚于 toolUse)SHALL 回退既有占位卡形态并由轮收口以重放折叠纠正,MUST NOT 以「实时路复跑折叠语义」的方式消除(reducer 的配对视野物理上限于当前 step)。视野差异 SHALL 由视野层快照测试显式锁定(同消息配对两视野相等、未携流内视野时跨消息配对两视野可辨差异),MUST NOT 由单一路径 fixture 掩饰。
 
-保真 SHALL 锁定: `seq` 可考(进 message id 或部件元数据,保序与 key 稳定;delta chunk 元数据携带源 seq);`parentToolUseId` 可考(进部件元数据,子代理归因依赖它);未知事件 MUST NOT 丢弃(一律 `data-raw` 透传原文)。
+**id 锚点** SHALL 两路同源:assistant 消息 id = `turn-<turnId>`、提问消息 id = `turn-<turnId>-user`(折叠路与实时路 MUST 算出同一 id,否则收口时 ai-sdk 的 `isContinuation` 判定失配、消息重挂);`turnId` 缺席(旧转录 / 无轮归属构造面)时实时路 SHALL 以 `evt-<首事件 seq>` 兜 id,收口折叠以整表替换对齐(MUST NOT 为旧转录造第二套折叠路径)。
 
-穷尽性 SHALL 编译期可探测: `auxEventData` 与 `planBlock` SHALL 以 `const _exhaustive: never` 承接变体穷尽(新增 `AgentEvent` / `AgentBlock` 变体时编译报错提醒,MUST NOT 仅靠 runtime 静默降级 `data-raw`);runtime 未知变体的 `data-raw` 兜底语义照常保留(编译期穷尽 + runtime 兜底两层)。
+保真 SHALL 锁定: `seq` 可考(进消息 metadata 与部件元数据,保序与 key 稳定;delta chunk 元数据携带源 seq);`parentToolUseId` 可考(进部件元数据,子代理归因依赖它);未知事件 MUST NOT 丢弃(一律 `data-raw` 透传原文)。aux 事件(`runStarted` / `systemNotice` / `raw` / `turnDone`)SHALL 维持**逐事件独立 system 消息**(MUST NOT 并入轮 metadata:保真透镜 `AgentRawStream` 依赖逐事件回放,并入即失去数据源)。
+
+穷尽性 SHALL 编译期可探测: `auxEventData` 与 `planBlock` SHALL 以 `const _exhaustive: never` 承接变体穷尽(新增 `AgentEvent` / `AgentBlock` 变体时编译报错提醒,MUST NOT 仅靠 runtime 静默降级 `data-raw`);runtime 未知变体的 `data-raw` 兜底语义照常保留(编译期穷尽 + runtime 兜底两层)。手写事件载荷镜像(如 `AgentRunStartedData` / `AgentSystemNoticeData` / `AgentRawData`)SHALL 从生成绑定派生(`Extract<AgentEvent, { kind: … }>`),MUST NOT 保留无生成物守卫的重复定义(信封加变体时须编译报错)。
 
 > 2026-10-23 回溯修订(无 change 流直修):实时路补流内跨消息配对视野(`eventToChunk` 可选参 `currentMessageToolCalls` + transport 按「最近开件消息」簿记),tool 结果到达即就地补全、不再另起第二条消息;视野失效残差(插入其他消息 / 订阅起点晚于 toolUse)维持占位卡回退,终态仍由轮收口以重放折叠保证。
 
 > 2026-10-23 anthropic-web-search 修订:`AgentBlock` 增 `webSearch` 变体与 `text.citations` 字段;语义层/视野层/发射层各自扩面,**不新增第四种计划变体、不新增 data 部件成员、不改 delta 路与 transport**(搜索活动走既有工具卡管线,引用挂 text 部件 `providerMetadata`)。
 
+> 2026-11-06 agent-stream-single-message 修订:入口 `eventsToUIMessages` → `foldSessionMessages(events, turns)`(按 `turn_id` 分组、轮行挂 `metadata.record`);实时路改「一轮一条 assistant 消息 + step 分段」,事件头与 step 帧收归 transport;`provisionalMessageId` / `runRecordToUIMessage` / `data-run-record` 退役;`deltaPartId` 改 `(seq, part)` 派生。
+
 #### Scenario: 全变体映射
 
-- **WHEN** 以密封五变体 `AgentEvent` 序列(runStarted / message(五 block 变体:text / thinking / toolUse / toolResult / webSearch)/ systemNotice / turnDone / raw)驱动 `eventsToUIMessages`
-- **THEN** 产出对应的 UIMessage 部件序列:text、reasoning、tool、`data-run-started`、`data-system-notice`、`data-run-result`、`data-raw`,顺序与 seq 一致
+- **WHEN** 以密封五变体 `AgentEvent` 序列(runStarted / message(五 block 变体:text / thinking / toolUse / toolResult / webSearch)/ systemNotice / turnDone / raw)驱动 `foldSessionMessages`
+- **THEN** 产出:该轮一条 assistant 消息(部件序为 text、reasoning、tool)、逐事件 aux system 消息(`data-run-started` / `data-system-notice` / `data-run-result` / `data-raw`),`metadata.record` 为该轮轮行;部件顺序与 seq 一致
 
 #### Scenario: delta 路映射
 
-- **WHEN** `eventToChunk` 先后收到 text delta 与 thinking delta 事件
-- **THEN** 产出挂同一 provisional 消息键的 `text-delta` 与 `reasoning-delta` chunk(思考/回复可辨),后续密封 message 到达时整块替换 provisional 内容
+- **WHEN** `eventToChunk` 先后收到 text delta 与 thinking delta 事件(同一 step 内)
+- **THEN** 产出 `text-delta` 与 `reasoning-delta` chunk(思考/回复可辨),各自 part id 由该 step 内首个同类 delta 的 `seq` 派生且后续 delta 复用同一 id;本函数不产 `start` / `start-step` / `reset-step`
 
 #### Scenario: 工具同 id 配对
 
@@ -143,13 +164,13 @@
 
 #### Scenario: 实时流跨消息工具结果就地补全
 
-- **WHEN** 实时流中密封 assistant(携 toolUse id=`t1`)后,同 id toolResult 以另一事件到达,且其间未插入其他消息
-- **THEN** toolResult 事件只产出 `tool-output-available`(无 `start` / `reset-step`、不重投 input),reducer 归约后 `t1` 的 input 与 output 合住同一条消息(无双卡、无第二条气泡、消息 id 仍为 toolUse 事件的 `evt-<seq>`)
+- **WHEN** 实时流中密封 assistant(携 toolUse id=`t1`)后,同 id toolResult 以另一事件到达,且其间未插入其他 step
+- **THEN** toolResult 事件只产出 `tool-output-available`(无 `start` / `start-step` / `reset-step`、不重投 input),reducer 归约后 `t1` 的 input 与 output 合住同一条消息(无双卡、无第二条气泡、消息 id 仍为 `turn-<turnId>`)
 
 #### Scenario: 搜索块两态与视图层零扫描
 
 - **WHEN** 密封 message 含 `webSearch` use 侧块(id=`srvtoolu_1`)与（另一条消息中）同 id result 侧块
-- **THEN** `planBlock` 分别产出 `tool` 计划（use 侧携 `output` 来源载荷、result 侧返回 `null` 不重复呈现）;`eventsToUIMessages` 后 `srvtoolu_1` 收敛为单个 `tool-web_search` 部件（`input = { query }`、`output.search.results` 在场）,视图层无需跨消息扫描
+- **THEN** `planBlock` 分别产出 `tool` 计划（use 侧携 `output` 来源载荷、result 侧返回 `null` 不重复呈现）;`foldSessionMessages` 后 `srvtoolu_1` 收敛为单个 `tool-web_search` 部件（`input = { query }`、`output.search.results` 在场）,视图层无需跨消息扫描
 
 #### Scenario: 引用挂 text 部件元数据
 
@@ -159,7 +180,7 @@
 #### Scenario: 保真字段可考
 
 - **WHEN** 检查适配产出的任一 UIMessage
-- **THEN** 可从 message id 或部件元数据读出原事件 `seq`,message 部件元数据保留 `parentToolUseId`(含子代理消息的非空归因)
+- **THEN** 可从消息 metadata 或部件元数据读出原事件 `seq`,message 部件元数据保留 `parentToolUseId`(含子代理消息的非空归因);aux 事件仍各为独立 system 消息且原文未丢
 
 #### Scenario: 未知事件不丢
 
@@ -178,7 +199,7 @@
 
 #### Scenario: 收口折叠纠正残差双卡
 
-- **WHEN** 实时流式期间配对视野已失效(结果与 toolUse 之间插入其他消息 / 订阅起点晚于 toolUse),跨消息 tool 配对闪现「占位卡 + 结果卡」双卡
+- **WHEN** 实时流式期间配对视野已失效(结果与 toolUse 之间插入其他 step / 订阅起点晚于 toolUse),跨消息 tool 配对闪现「占位卡 + 结果卡」双卡
 - **THEN** 轮收口以重放折叠纠正为单张 `output-available` 工具卡(终态同构),MUST NOT 出现收口后仍双卡或部件重复
 
 #### Scenario: 变体穷尽编译期可探测
@@ -186,16 +207,31 @@
 - **WHEN** 审查 `auxEventData` / `planBlock` 实现
 - **THEN** 两者均以 `const _exhaustive: never` 承接穷尽;新增 `AgentEvent` / `AgentBlock` 变体而漏改时编译报错,runtime 未知事件的 `data-raw` 兜底仍保留
 
+#### Scenario: 按轮分组不依赖 RunStarted
+
+- **WHEN** 转录为一轮不含 `TurnDone` 的停止轮(其轮行 status = `stopped`)紧随一轮正常收口轮
+- **THEN** 折叠按信封 `turn_id` 分组:停止轮的 assistant 消息与提问消息在该轮位置、其 `metadata.record` 为 `stopped` 轮行;后续正常轮的轮行 MUST NOT 错位(第 2 轮轮行落在第 2 轮);折叠实现零 `RunStarted` 计数逻辑
+
+#### Scenario: 空内容轮恒产一条消息
+
+- **WHEN** 某轮事件只有 `RunStarted` 与轮行(零 assistant 密封消息,如 ask 失败 / 立即停止)
+- **THEN** 该轮仍产出恰一条 assistant 消息(id `turn-<turnId>`、`parts` 为空、`metadata.record` 为该轮轮行);MUST NOT 因 `parts` 为空而缺轮或抛错
+
+#### Scenario: id 锚点两路一致
+
+- **WHEN** 同一轮事件序列分别经实时路(transport chunk 归约)与折叠路(`foldSessionMessages`)处理
+- **THEN** assistant 消息 id 均为 `turn-<turnId>`、提问均 `turn-<turnId>-user`,`turnId` 缺席时实时路以 `evt-<首事件 seq>` 兜 id 并由收口整表替换对齐
+
 ### Requirement: 展示组件族(对话透镜)
 
-> 2026-10-10 回溯修订(无 change 流直修):保真透镜 `AgentTimeline` 撤编,组件族收敛为 `AgentMessages` 单对话透镜——辅助载体(system 角色消息:run-started / system-notice / raw / run-record)整条不进对话呈现;保真面由适配层状态部件(序列与归因字段见「事件适配层」requirement)与调试页页面级「原始 JSONL」切换承载,不再双透镜并行。
+> 2026-10-10 回溯修订(无 change 流直修):保真透镜 `AgentTimeline` 撤编,组件族收敛为 `AgentMessages` 单对话透镜——辅助载体(system 角色消息:run-started / system-notice / raw / run-result;2026-11-06 起 `run-record` 退役,轮行改挂回合元数据)整条不进对话呈现;保真面由适配层状态部件(序列与归因字段见「事件适配层」requirement)与调试页页面级「原始 JSONL」切换承载,不再双透镜并行。
 
 `packages/desktop/src/components/agent/` SHALL 提供共享展示组件族,全部 agent 会话页面(explore 会话 / agent 调试 / change 流程抽屉 / 历史重放 / 未来页面)统一消费:
 
 - `AgentSessionView` 会话级唯一入口: 入参 `root` + `sessionId`(+ 可选 `refreshKey` / composer 插槽),内部经通用查询面装配会话并按会话状态挂流(契约见「会话级统一渲染组件」requirement);消费点 MUST NOT 自行拼装消息、轮行或事件流;
-- `AgentMessages` 对话透镜: user / assistant 气泡、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;
+- `AgentMessages` 对话透镜: user / assistant 气泡(**一轮一条 assistant 气泡**,部件按到达顺序)、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;空内容轮的可见性 SHALL 按该轮 `metadata.record.status` 判定而非 `parts` 是否为空(失败 / 停止轮呈轮内状态行,见「轮内状态行与空内容轮可见性」);
 - `AgentInput` composer: prompt 输入（空串禁发;纯空白字符不单独拦截——trim 守卫不在组件侧）、permission-mode 档位（`StandardSelect` 选择器）、发送、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 为「呈停止入口」——发送入口不禁用,重复发送由会话层 `isStreaming` 守卫忽略;停止入口 SHALL 只随 `running` 呈现且 MUST NOT 被 `disabled` 隐去(运行中即便整面板禁用仍可从面板停止);`disabled` MUST NOT 复用为「运行中」的第二表达;
-- 工具卡注册表: 特化卡(`AskUserQuestionCard` / `WebSearchCard` / 内建 bash / read / write 卡等)为可插拔位,未注册工具名回退默认对卡;特化卡与默认对卡 SHALL 共用同一卡根钩子(`block-tool-use` / `data-tool-id`)与结果正文钩子(`block-tool-result`);
+- 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位,未注册工具名回退默认对卡;
 - 组件族 SHALL 共享底层块渲染件(文本 markdown / 思考折叠 / 工具卡一套实现);滚动 SHALL 沿用 shadcn `message-scroller` 组合,消息状态留在应用层。
 
 调试页的 run 表单 / 历史列表 / JSONL 开关 SHALL 为页面级 chrome,包在共享核心外圈,MUST NOT 强行塞进组件族。
@@ -209,7 +245,7 @@
 
 #### Scenario: 辅助载体不进对话
 
-- **WHEN** 会话状态含 run-started / system-notice / raw / run-record 等 system 载体消息
+- **WHEN** 会话状态含 run-started / system-notice / raw / run-result 等 system 载体消息
 - **THEN** 对话透镜不呈现其任何 data 部件(空态判定基于过滤后列表),seq / `parentToolUseId` 保真仍可考于部件元数据
 
 #### Scenario: composer 运行中重复发送与停止
@@ -220,17 +256,47 @@
 #### Scenario: 会话级入口归一
 
 - **WHEN** 检索全部会话呈现消费点(调试页 / explore 详情 / change 流程抽屉 / 历史重放)
-- **THEN** 全部经 `AgentSessionView` 渲染,视图层无 `eventsToUIMessages` 直调、无自有转录查询 hook、无自有事件流装配
+- **THEN** 全部经 `AgentSessionView` 渲染,视图层无折叠入口(`foldSessionMessages`)直调、无自有转录查询 hook、无自有事件流装配
 
 #### Scenario: 只读消费点形态
 
 - **WHEN** change 流程抽屉以只读方式渲染某 WorkerAgent 会话
-- **THEN** 组件呈对话透镜与轮行,不呈发送 / 停止入口;运行中会话的 delta 流式呈现,收口后与重放形状一致
+- **THEN** 组件呈对话透镜与各轮状态(轮行以回合元数据承载、由该轮消息呈现,不再是独立 system 消息),不呈发送 / 停止入口;运行中会话的 delta 流式呈现,收口后与重放形状一致
 
 #### Scenario: 整面板禁用与理由呈现
 
 - **WHEN** 来源侧以 `disabled = true` 与理由文案渲染 `AgentInput`
 - **THEN** 输入框与发送按钮同时禁用(空串禁用之外再叠加整面板禁用)、理由文案可见(用户不会「打了字发不出去」);`running` 的停止入口 SHALL 照常呈现(两标志语义正交,禁用只收发送面不收停止面)
+
+### Requirement: 轮内状态行与空内容轮可见性
+
+对话透镜 SHALL 让每一轮在时间线上**可见且带轮状态**，异常与主动停止 MUST NOT 表现为「界面只是不再增长」：
+
+- **每轮恒一条 assistant 消息**：折叠与实时两路 SHALL 都按轮产出恰一条 assistant 消息（id `turn-<turnId>`），空内容轮不例外；轮状态 SHALL 只从该消息的 `metadata.record.status` 读取（MUST NOT 从 `parts` 是否为空反推轮状态）。
+- **状态行（`parts` 为空时）**：`status = failed` SHALL 呈现状态行——**友好错误标题 + 可展开的原始错误原文**（原文取自 `metadata.record.error` 与该轮 `api_error` 通知，缺失时回退通用标题）；`status = stopped` SHALL 呈现「已停止」行；`status = completed` 或轮行缺席 SHALL 不渲染。状态行 SHALL 带 `data-testid` 挂钩（供测试与来源侧定位），MUST NOT 依赖样式类名查询。
+- **`parts` 非空时**：SHALL 只呈现正常气泡（思考 / 正文 / 工具卡），MUST NOT 额外叠加状态行；轮失败/停止的事实仍可由 `metadata.record` 与顶部提示读出。
+- **顶部失败横幅边界**：会话级入口的失败横幅 SHALL 只表达「最新一轮**失败**」（`status = failed`），`stopped` MUST NOT 触发该横幅（用户主动停止不是运行失败）；两处提示并存不冲突（横幅 = 全局最新状态，状态行 = 该轮位置）。
+- **过滤单一来源**：对话透镜的可见性判据 SHALL 只在一处维护（system 角色过滤 + 空内容轮按轮状态判定），MUST NOT 在其他组件重复实现第二份判据。
+
+#### Scenario: 失败轮空内容呈状态行
+
+- **WHEN** 某轮以 `parts` 空收口，`metadata.record.status = failed`、`error` 携 provider 错误原文
+- **THEN** 该轮在时间线该位置呈现状态行：友好标题可见，展开后原始错误原文可见；消息 id 为 `turn-<turnId>`（不参与分页 `remaining` 的错误计数）
+
+#### Scenario: 停止轮空内容呈已停止行
+
+- **WHEN** 用户在运行中点击停止，该轮以 `parts` 空收口、`metadata.record.status = stopped`
+- **THEN** 该轮位置呈现「已停止」行（不再是「界面只是不再增长」）；顶部失败横幅 MUST NOT 出现（`stopped` 不算失败）
+
+#### Scenario: 空内容 completed 轮不进时间线
+
+- **WHEN** 某轮 `parts` 空且 `metadata.record.status = completed`（或该轮无轮行）
+- **THEN** 对话透镜不渲染该轮（无空气泡、无状态行），分页 `remaining` 不计入
+
+#### Scenario: 有内容的轮不叠加状态行
+
+- **WHEN** 某轮 `parts` 非空且 `metadata.record.status = stopped`（停止前已产出部分回答）
+- **THEN** 该轮只呈现正常气泡（思考 / 正文 / 工具卡按到达顺序），MUST NOT 追加「已停止」状态行；轮状态仍可从消息 metadata 读出
 
 ### Requirement: ai-sdk 依赖收口
 
@@ -248,20 +314,22 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 ### Requirement: web 搜索活动与引用来源呈现
 
-前端 SHALL 把一次云端 `web_search` 呈现为**搜索卡 + 正文引用列表**，并保证「空部件消息不进对话透镜」：
+前端 SHALL 把一次云端 `web_search` 呈现为**搜索卡 + 正文引用列表**，并保证「空内容轮按轮状态决定是否可见」：
 
 - **承载部件**：搜索活动 SHALL 复用既有工具卡管线承载为 `tool-web_search` 部件（MUST NOT 新增 `AgentDataParts` 成员、MUST NOT 引入独立 `data-citations` 部件）——`planBlock` 产 `tool` 计划、`planToolPart` 产部件、`plansToChunks` 产 chunk、`BUILD_IN_TOOL_CARDS` 注册特化卡，四段均为既有机械管线（`plansToChunks` 与 `planToolPart` SHALL 零改动）。
 - **搜索卡**：`WebSearchCard`（`packages/desktop/src/components/agent/agent-blocks.tsx`）标题行 SHALL 呈查询词（`input.query`，缺席时不显）——MUST NOT 出现「正在搜索…」态、MUST NOT 出现超时降级文案、MUST NOT 依赖流内状态切换；body SHALL 呈查询词、来源列表（`title ?? 主机名`，落定后）、错误码（`error` 非空时，与来源列表并存不互斥）。卡片根 SHALL 带 `data-testid="block-web-search"`，查询词行带 `data-testid="block-web-search-query"`，来源列表带 `data-testid="block-web-search-sources"`。判定为「未落定」还是「已落定」仅由 `output` 在场与否决定（无状态文案使两态视觉一致，用户不把「进行中」误读为「加载失败」）。
 - **引用列表**：`CitationList` SHALL 挂在正文 text 部件**底部**，条目显示 `title ?? url`，**按 url 去重**；MUST NOT 做行内角标、MUST NOT 做原句高亮。数据来源 SHALL 为 text 部件的 `providerMetadata.agent.citations`（命名空间 `agent`——消费点在 provider 之外，MUST NOT 借用 `anthropic` 命名空间）。
 - **外链**：`ExternalLink` SHALL 为**唯一外链调用点**（搜索卡来源与引用列表共用）：仅 `http:` / `https:` 目标的 url SHALL 渲染为可点击链接并经壳侧 opener 打开；其他 scheme（`javascript:`、`file:`、`mailto:` 等）MUST NOT 渲染为链接（降级为纯文本）。壳侧插件注册与 capabilities 权限面见 desktop-app-shell「外链打开插件与 capabilities 最小权限面」。
-- **空部件消息**：`AgentMessages` 的 `useHistoryWindow` SHALL 在既有「system 角色不进对话呈现」过滤之后追加 `message.parts.length > 0` 过滤——实时路 `pause_turn` 第二段可能只有被消费的孤儿搜索结果而产出 0 部件 assistant 消息，MUST NOT 渲染为空气泡；分页计数 SHALL 基于过滤后列表（不把空消息计入 `remaining`）。
+- **空内容轮可见性**：`AgentMessages` 的 `useHistoryWindow` SHALL 在既有「system 角色不进对话呈现」过滤之后，按**轮状态**判定空内容 assistant 消息（`parts` 为空）是否呈现——`metadata.record.status` 为 `failed` / `stopped` 时 SHALL 呈现轮内状态行（见「轮内状态行与空内容轮可见性」），为 `completed` 或轮行缺席时 MUST NOT 渲染空气泡；分页计数 SHALL 基于过滤后列表（不把不渲染的空内容消息计入 `remaining`）。MUST NOT 仅以 `message.parts.length > 0` 作为唯一判据（那会吞掉失败 / 停止轮）。
 - **工具卡注册表**：`BUILD_IN_TOOL_CARDS` SHALL 注册内建工具特化卡——`AskUserQuestion`（静态卡）、`web_search`（`WebSearchCard`）、`bash` / `read` / `write`（终端 / 文件读写卡）；`Object.keys` 断言随注册表键面更新。未注册工具名 SHALL 回退默认对卡，且特化卡与默认对卡 SHALL 共用同一卡根钩子（`data-testid="block-tool-use"` + `data-tool-id`）与结果正文钩子（`data-testid="block-tool-result"`，展开后挂载），使消费方无需区分卡型即可定位。
-- **两路一致**：实时路（流内）与重放路（库为准）SHALL 收敛到同一卡片形状——实时路 `pause_turn` 期间卡片只显查询词（`output` 未到），轮收口后由重放折叠补出来源列表；终态一致性由「收口以重放重建」保证（见「会话级统一渲染组件」），MUST NOT 为搜索另立一条收口路径。
+- **两路一致**：实时路（流内）与重放路（库为准）SHALL 收敛到同一卡片形状——实时路 `pause_turn` 期间卡片只显查询词（`output` 未到），轮收口后由重放折叠补出来源列表；`pause_turn` 拆出的两段响应 SHALL 累积在**同一轮同一条 assistant 消息**内（MUST NOT 因拆段产生第二条气泡）；终态一致性由「收口以重放重建」保证（见「会话级统一渲染组件」），MUST NOT 为搜索另立一条收口路径。
+
+> 2026-11-06 agent-stream-single-message 修订:空内容轮可见性判据由 `parts.length > 0` 改为按 `metadata.record.status`(空内容 `failed` / `stopped` 呈轮内状态行,`completed` 不渲染),并明确 `pause_turn` 两段响应累积于同一轮同一条 assistant 消息。搜索卡自身条款(标题行 = 查询词、`title ?? 主机名` 回退、`BUILD_IN_TOOL_CARDS` 注册面与 `block-web-search-query` / `block-web-search-sources` 钩子)按主基线现行口径保留——delta 中该段为较早副本,与本变更自述 `agent-blocks.tsx` / `tool-cards.tsx` 零改动一致,MUST NOT 据其回退。
 
 #### Scenario: 搜索卡标题与两态
 
 - **WHEN** 实时流先到达「仅 use 侧」的搜索块（`pause_turn` 进行中），随后轮收口重放补出配对结果
-- **THEN** 两态下标题行均为该查询词；前态 body 只有查询词，后态 body 出现来源列表；全程无「正在搜索…」文案、无状态切换闪烁
+- **THEN** 两态下标题行均为该查询词；前态 body 只有查询词，后态 body 出现来源列表；全程无「正在搜索…」文案、无状态切换闪烁，且两态都在同一轮的同一条 assistant 消息内
 
 #### Scenario: 来源列表与错误码
 
@@ -278,10 +346,11 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **WHEN** 搜索来源 url 为 `javascript:alert(1)`、`file:///etc/passwd` 或 `mailto:a@b.c`
 - **THEN** 该条目以纯文本呈现（无 `<a>`、无点击打开），不触达 opener 插件
 
-#### Scenario: 空部件消息不渲染
+#### Scenario: 空内容 completed 轮不渲染
 
-- **WHEN** 会话状态含一条 0 部件的 assistant 消息（`pause_turn` 第二段只有被消费的孤儿搜索结果）
+- **WHEN** 会话状态含一条 `parts` 为空、`metadata.record.status = completed` 的 assistant 消息
 - **THEN** 对话透镜不渲染该条（无空白气泡），`remaining` 分页计数不计入它；其余消息计数与呈现不变
+
 
 ## Module Contract
 
@@ -295,7 +364,16 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 | 函数 | 签名 | 描述 |
 |------|------|------|
-| `useAgentSession` | `(params: { root: string \| null; sessionId: string \| null; source: string; refreshKey?: number }) => UseAgentSessionState` | 重放装载（密封转录 → `eventsToUIMessages`）；状态驱动挂流（running 且无在挂流才订阅，`since_seq` = 镜像最大 seq）；单流在挂；收口以重放收敛（失败回落镜像折叠）；断流重订；`sendMessage` / `stop` 动作面；返回 `messages` / `events` / `session` / `chain` / `loading` / `running`（库态驱动）/ `error` |
+| `useAgentSession` | `(params: { root: string \| null; sessionId: string \| null; source: string; refreshKey?: number }) => UseAgentSessionState` | 重放装载（密封转录 → `foldSessionMessages(events, turns)`）；状态驱动挂流（running 且无在挂流才订阅，`since_seq` = 镜像最大 seq）；单流在挂；收口以重放收敛（失败回落镜像折叠）；断流重订；`sendMessage` / `stop` 动作面；返回 `messages` / `events` / `session` / `chain` / `loading` / `running`（库态驱动）/ `error` |
+
+### Function: `packages/desktop/src/hooks/use-agent-session.ts`（会话状态侧动作面）
+
+| 函数 / 项 | 签名 / 变化 | 描述 |
+|------|------|------|
+| `buildMessages` | **删除** | 并入 `foldSessionMessages`；`TurnDone` 计数配轮行的错位实现退役 |
+| `sendMessage` | 本地推提问消息（id `turn-<turnId>-user`，事件到达时归一） | 发起流路径的提问气泡来源；body 会话参数面零改动 |
+| 订阅流提问 | 收到该轮 `role = user` 密封事件时以 `turn-<turnId>-user` 追加 | 旁观方无本地副本，跳过即丢提问气泡 |
+| `UseAgentSessionState` | 形状不变（`messages` / `events` / `session` / `chain` / `loading` / `running` / `error`） | `chain` 仍为轮行镜像（顶部横幅与 `running` 派生读它）；`events` 仍供 `AgentRawStream` 逐事件回放 |
 
 ### 退役: `packages/desktop/src/hooks/use-agent-chat.ts`（删）
 
@@ -309,6 +387,9 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 |------|------|------|
 | `sendMessages` | `(options) => Promise<ReadableStream<AgentUIMessageChunk>>` | 发送期发起流（`agent_start` + `Channel<AgentRunMessage>`），零空洞；信封 → chunk 经共享簿记单点 |
 | `reconnectToStream` | `(options: { chatId, abortSignal?, body?: { root, sessionId, sinceSeq } }) => Promise<ReadableStream<AgentUIMessageChunk> \| null>` | 旁观 / 重挂期订阅流（`agent_session_watch`）；body 参数由 `chat.resumeStream({ body })` 透传，transport 保持无状态；无运行轮时返回 `null` |
+| step 分段簿记 | 私有（`start-step` 触发条件：本轮已密封过响应后首个 delta） | 每轮一次 `start`（`turn-<turnId>`）；密封 `Message` → `reset-step` + 追加整块；工具结果就地补全不开新 step；`role = user` 密封事件零 chunk |
+| part 簿记 | 私有（`kind → 首个 delta 的 seq`，作用域 = 当前 step） | 取代按 `parentToolUseId` 的跨消息开件簿记；新 step 开出时重武装 |
+| `Record` 收口 | 私有（`finish` 携 `messageMetadata: { record }`） | 该轮消息不存在时先 `start` 建消息再 `finish`；删 `enqueueRecord` 独立消息组与 `data-run-record` 部件 |
 
 ### Function: `packages/desktop/src/lib/agent-adapter.ts`
 
@@ -320,8 +401,13 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `PairingScope.global` / `local` | 语义扩展（签名不变） | 并入 `webSearch` 块配对：use 侧（`rawUse != null`）为索引源、result 侧（`rawUse == null`）为配对产物；跨消息合并由 `global` 承担（`pause_turn` 拆分场景） |
 | `planBlock` | 新增 `webSearch` 分支 | use 侧 → `tool` 计划（配对命中携 `output`，未命中 `output: null`）；result 侧且已配对 → `null`；result 侧且无配对 use → `tool` 计划（`input: null` + `output` 来源载荷） |
 | `plansToParts` / `plansToChunks` | 扩 metadata 位（机械映射不变） | text 计划挂 `providerMetadata: { agent: { citations } }`（空数组不挂）；`textChunks` 的 `text-start` 带同一 metadata；tool 分支零改 |
-| `eventsToUIMessages` | `(events: AgentEvent[]) => AgentUIMessage[]` | 重放 / 收口折叠（`PairingScope.global`） |
-| `eventToChunk` | **零改动** | 无搜索实时 delta（`AgentDelta` 词汇不扩） |
+| `foldSessionMessages` | `(events: AgentEvent[], turns: TurnSummary[]) => AgentUIMessage[]` | 重放 / 收口折叠唯一入口（`PairingScope.global`）：按 `turn_id` 分组（旧转录按 `RunStarted` 顺序），每轮提问 + 恰一条 assistant（id `turn-<turnId>`）+ 逐事件 aux system 消息，轮行挂 `metadata.record` |
+| `deltaPartId` | `(seq: number, part: 'text' \| 'thinking') => string` | part id 由该 step 内首个同类 delta 的 `seq` 派生（`t-<seq>` / `r-<seq>`）；同一 part 后续 delta 复用（常量语义形态退役） |
+| `AgentMessageMetadata` | `{ seq: number \| null; parentToolUseId: string \| null; record?: TurnSummary \| null }` | 消息元数据：保真 + 回合统计载体（`record` 取代 `data-run-record` 部件） |
+| `AgentDataParts` | `run-started` / `system-notice` / `run-result` / `raw` | data 部件词汇收窄（`run-record` 成员退役）；`turnDone → data-run-result` 维持 |
+| 事件载荷类型 | 由生成绑定派生（`Extract<AgentEvent, { kind: 'runStarted' }>` 等） | 8 个手写镜像退役，信封加变体时编译报错 |
+| `eventToChunk` | `(event: AgentEvent, currentMessageToolCalls?: ReadonlySet<string>) => AgentUIMessageChunk[]` | 只产**块 chunk**（delta / 密封块 / 工具补全）；`role = user` 事件零 chunk；事件头与 step 帧（`start` / `start-step` / `reset-step` / `finish`）归 transport；搜索无实时 delta（`AgentDelta` 词汇不扩） |
+| 退役 | `eventsToUIMessages` / `runRecordToUIMessage` / `provisionalMessageId` | 由 `foldSessionMessages` / `metadata.record` / `turn-<turnId>` 取代（`knip` 零未用导出） |
 
 ### Component: `packages/desktop/src/components/agent/`（呈现层）
 
@@ -329,23 +415,27 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 |------|------|----------|
 | `agent-blocks.tsx` | 新增 `WebSearchCard` / `CitationList` / `ExternalLink` | 搜索卡标题行为查询词（`data-testid="block-web-search"`）；引用底部去重列表；外链唯一调用点（仅 http(s)） |
 | `tool-cards.tsx` | `BUILD_IN_TOOL_CARDS` 注册 `web_search` / `bash` / `read` / `write` | 注册表可插拔位扩展；未注册回退默认对卡；卡根与结果正文钩子与默认对卡同形 |
-| `agent-messages.tsx` | `useHistoryWindow` 过滤追加 `parts.length > 0` | 空部件消息不渲染、不计入分页 `remaining` |
+| `agent-messages.tsx` | `useHistoryWindow` 过滤判据改「system 过滤 + 按 `metadata.record.status` 判空内容轮」（原 `parts.length > 0` 判据退役） | 空内容 `failed` / `stopped` 轮 SHALL 可见（轮内状态行），空内容 `completed` 轮不渲染；分页计数基于过滤后列表；状态行带 `data-testid` 挂钩（`failed` → 友好标题 + 可展开原文；`stopped` → 「已停止」） |
 
 ### 零改动面
 
 | 文件 | 说明 |
 |------|------|
-| `packages/desktop/src/lib/agent-transport.ts` | 无新事件类型需转 chunk；transport 零改动 |
-| `packages/desktop/src/hooks/use-agent-session.ts` | 收口语义（流结束按库内转录重建）已天然覆盖搜索卡两态，零改动 |
+| `packages/desktop/src/lib/agent-transport.ts` | 搜索面无新事件类型需转 chunk（本变更的 step 分段簿记与 `Record` 收口见「API」表） |
+| `packages/desktop/src/hooks/use-agent-session.ts` | 收口语义（流结束按库内转录重建）已天然覆盖搜索卡两态 |
 | `AgentDataParts` | MUST NOT 新增成员（无 `data-citations` / `data-web-search`） |
+| `packages/desktop/src/components/agent/agent-error.ts` | `latestAgentFailure` 维持「`stopped` 不算失败」判据，MUST NOT 改造成失败横幅（`stopped` 由轮内状态行承接） |
+| `packages/desktop/src/components/agent/agent-blocks.tsx` / `agent-input.tsx` / `tool-cards.tsx` / `session-panel.tsx` / `agent-session-view.tsx` | 块渲染件、composer、工具卡注册表、面板骨架、会话级入口的入参与插槽形状零改动 |
+| `packages/desktop/src/views/**` | 消费点接线零改动（仍以 `useAgentSession` / `AgentSessionView` 为唯一入口；`AgentRawStream` 继续消费 `state.events`） |
+| `packages/desktop/src-tauri/**` / `packages/desktop/src/types/generated/**` | 后端与生成物零改动（信封已有 `turnId`；`Record` 信封与 `agent_session_watch` 语义不变） |
 
 ### 既有模块（更新）
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `packages/desktop/src/components/agent/` | 展示组件族 | 会话级入口 `AgentSessionView` + 对话透镜 `AgentMessages`(辅助载体 system 消息过滤)+ `AgentInput` + 工具卡注册表；provisional/密封差异由状态层吸收;共享块渲染件;`message-scroller` 滚动承载 |
+| `packages/desktop/src/components/agent/` | 展示组件族 | 会话级入口 `AgentSessionView` + 对话透镜 `AgentMessages`(辅助载体 system 消息过滤 + 一轮一条 assistant 气泡 + 空内容轮按轮状态判定)+ `AgentInput` + 工具卡注册表;共享块渲染件;`message-scroller` 滚动承载 |
 | `packages/desktop/src/views/explores/hooks/use-explore-session.ts` | 探索链消费面 | 会话域参数(source/sessionId 会话引用)语义等价切换,行为不回退;`sourceRef` 反查退役 |
-| Rust 会话域命令面(详见 desktop-agent-execution) | stop 与提前 resolve | 终止命令按运行中的会话活动轮寻址;发起命令提前 resolve;`stopped` 收敛;终态经 Channel 同构部件流出;会话订阅命令 `agent_session_watch` 供旁观 / 重挂期挂流 |
+| Rust 会话域命令面(详见 desktop-agent-execution) | stop 与提前 resolve | 终止命令按运行中的会话活动轮寻址;发起命令提前 resolve;`stopped` 收敛;终态经 Channel 以 `Record` 信封流出;会话订阅命令 `agent_session_watch` 供旁观 / 重挂期挂流 |
 | `packages/desktop/src/lib/agent-transport.ts` | 会话参数面透传 | `AgentStartSessionParams` 增 `sourceRef` / `cwd`(派生自生成绑定,无手写镜像);`readSessionParams` 增读两字段(`readNullableString` 复用,非法即 `Err`);`invokeStart` 改**具名解构**调用 `agentStart`(位置索引魔法 1/2/3/4/5/7 退役,尾部增位不再错位) |
 | `packages/desktop/src/hooks/use-agent-session.ts` | 参数面与发送 body | `UseAgentSessionParams` 增 `sourceRef?: string \| null` / `cwd?: string \| null`;`sendMessage` body 透传两字段(原 `sourceRef: null` 常量退役,未提供仍为 null) |
 | `packages/desktop/src/components/agent/agent-input.tsx` | 禁用态扩展 | 增 `disabled?: boolean` / `disabledReason?: string`(textarea 与发送同时禁用 + 理由文案呈现);`running` 只决定停止入口呈现(发送入口不禁,重复发送由会话层守卫);档位改用 `StandardSelect`;输入区改用 `Textarea` + `Ctrl/Cmd+Enter` 快捷发送 |
