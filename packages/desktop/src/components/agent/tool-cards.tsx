@@ -1,4 +1,4 @@
-import { FileIcon, TerminalIcon } from 'lucide-react';
+import { FileEditIcon, FileIcon, TerminalIcon } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 import {
@@ -163,11 +163,7 @@ function ReadCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.
           <TraceIcon>
             <FileIcon />
           </TraceIcon>
-          <TraceTitle>Read</TraceTitle>
-          <TraceTitle>
-            {path}
-            {rangeSuffix(record.offset, record.limit)}
-          </TraceTitle>
+          <TraceTitle>Read {`${path}${rangeSuffix(record.offset, record.limit)}`}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
@@ -199,26 +195,82 @@ function WriteCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX
   const highlighted = useHighlightedCode(content, language ?? '');
   const lines = language === null ? content.split(/\n/) : highlighted;
   return (
-    <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
+    <TraceCollapsible
+      {...cardAttrs(toolCallId)}
+      disabled={output === null}
+      defaultOpen={output !== null}
+    >
       <TraceCollapsibleTrigger>
         <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
           <TraceIcon>
-            <FileIcon />
+            <FileEditIcon />
           </TraceIcon>
-          <TraceTitle>Write</TraceTitle>
-          <TraceTitle>{path}</TraceTitle>
+          <TraceTitle>Write {path}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
-        {output?.isError && <div className="text-destructive mb-2">{output.content}</div>}
-        <CodeBlock>
-          <CodeBlockHeader>{path}</CodeBlockHeader>
-          <CodeBlockContent className="max-h-60" lineNumbers>
-            {lines.map((line, index) => (
-              <CodeBlockLine key={index}>{line}</CodeBlockLine>
-            ))}
-          </CodeBlockContent>
-        </CodeBlock>
+        {output?.isError ? (
+          <div className="text-destructive mb-2">{output.content}</div>
+        ) : (
+          <CodeBlock>
+            <CodeBlockHeader>{path}</CodeBlockHeader>
+            <CodeBlockContent className="max-h-60" lineNumbers>
+              {lines.map((line, index) => (
+                <CodeBlockLine key={index}>{line}</CodeBlockLine>
+              ))}
+            </CodeBlockContent>
+          </CodeBlock>
+        )}
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
+function EditCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
+  const record = asRecord(input);
+  const path = textOf(record.path);
+  const language = languageOf(path);
+  const oldContent = textOf(record.old_string) ?? '';
+  const oldHighlighted = useHighlightedCode(oldContent, language ?? '');
+  const oldLines = language === null ? oldContent.split(/\n/) : oldHighlighted;
+  const newContent = textOf(record.new_string) ?? '';
+  const newHighlighted = useHighlightedCode(newContent, language ?? '');
+  const newLines = language === null ? newContent.split(/\n/) : newHighlighted;
+  return (
+    <TraceCollapsible
+      {...cardAttrs(toolCallId)}
+      disabled={output === null}
+      defaultOpen={output !== null}
+    >
+      <TraceCollapsibleTrigger>
+        <TraceLine>
+          <TraceIcon>
+            <FileEditIcon />
+          </TraceIcon>
+          <TraceTitle>Edit {path}</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        {output?.isError ? (
+          <div className="text-destructive mb-2">{output.content}</div>
+        ) : (
+          <CodeBlock>
+            <CodeBlockContent className="max-h-40">
+              {oldLines.map((line, index) => (
+                <CodeBlockLine key={`removed-${index}`} variant="removed">
+                  {line}
+                </CodeBlockLine>
+              ))}
+            </CodeBlockContent>
+            <CodeBlockContent className="max-h-40">
+              {newLines.map((line, index) => (
+                <CodeBlockLine key={`added-${index}`} variant="added">
+                  {line}
+                </CodeBlockLine>
+              ))}
+            </CodeBlockContent>
+          </CodeBlock>
+        )}
       </TraceCollapsibleContent>
     </TraceCollapsible>
   );
@@ -230,4 +282,5 @@ export const BUILD_IN_TOOL_CARDS: Record<string, AgentToolCard> = {
   bash: BashCard,
   read: ReadCard,
   write: WriteCard,
+  edit: EditCard,
 };

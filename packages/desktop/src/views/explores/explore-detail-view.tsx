@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
-import type { ExploreRecord } from '../../types/dto';
+import type { ExploreRecord } from '@/types/dto';
+
 import { ExploreDetailPane } from './explore-detail-pane';
 import { useExploreRouteContext } from './explore-layout';
 
-/**
- * 探索详情页（路由 `/explores/:name`）：选中由路由参数承载（无本地 state 双轨），
- * 记录从布局清单三级派生——URL 名 find → miss 时以 `lastRecordRef` 快照 id 在
- * 清单重寻（id 桥：in-place 改名保 id，旧名寻址不再命中）→ 仍 miss 以快照本体
- * 兜底（MUST NOT 闪现 MissingRecord）。workspace 根切换（select / 移除当前根 /
- * 添加新根）时带旧选中即 replace 落清单。渲染与动作面见 [`ExploreDetailPane`]。
- */
 export function ExploreDetailView({ root }: { root: string }): React.JSX.Element {
   const { name } = useParams<'name'>();
   const { list } = useExploreRouteContext();

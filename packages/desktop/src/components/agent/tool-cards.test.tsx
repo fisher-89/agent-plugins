@@ -93,6 +93,7 @@ describe('BUILD_IN_TOOL_CARDS：回退与错误结果', () => {
       'bash',
       'read',
       'write',
+      'edit',
     ]);
   });
 

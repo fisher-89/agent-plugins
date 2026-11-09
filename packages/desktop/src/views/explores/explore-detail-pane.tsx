@@ -1,6 +1,8 @@
+import { ChevronLeftIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 
+import { Button } from '@/components/ui/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 
 import { AgentSessionView, type AgentSessionActions } from '../../components/agent';
@@ -233,6 +235,7 @@ function ExploreDetailHeader({
   workflowType,
   onWorkflowTypeChange,
   onPromote,
+  onBack,
 }: {
   record: ExploreRecord;
   onJump: () => void;
@@ -241,10 +244,14 @@ function ExploreDetailHeader({
   workflowType: string;
   onWorkflowTypeChange: (next: string) => void;
   onPromote: () => void;
+  onBack: () => void;
 }): React.JSX.Element {
   const promoted = record.promotedTo !== null;
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2.5" data-testid="explore-detail-header">
+      <Button variant="ghost" size="icon" title="返回列表" onClick={onBack}>
+        <ChevronLeftIcon />
+      </Button>
       <h2 className="m-0 break-all text-[17px]" data-testid="explore-detail-title">
         {record.title}
       </h2>
@@ -334,21 +341,13 @@ function MissingRecord(): React.JSX.Element {
   );
 }
 
-/**
- * 探索详情呈现面（双栏）：左对话区、右文档预览，resizable 可拖分界。记录由路由
- * 页按 URL 派生后注入（本件只读 URL 名做名变收敛导航，不自行派生记录）。文档取数
- * 与 watch 订阅收口 useExploreDoc（订阅生命周期即页面生命周期，卸载即退订）；会话链还原 /
- * 续话 / auto-send 收口 useExploreSession；run 终态（running true→false）定点重读
- * 文档并刷新清单（id 桥数据半边——记录可能已 in-place 改名），随后名变收敛 effect
- * 把 URL replace 至新名（id 桥导航半边，`useExploreDoc` 以 name 依赖自动重订阅）；
- * title 与 workflow_type 回填见 useRecordBackfill。
- */
 export function ExploreDetailPane({
   root,
   record,
   list,
 }: ExploreDetailPaneProps): React.JSX.Element {
   const navigate = useNavigate();
+  const backToList = useCallback(() => navigate('/explores'), [navigate]);
   const location = useLocation();
   const { name: routeName } = useParams<'name'>();
   const promotedTo = record?.promotedTo ?? null;
@@ -395,6 +394,7 @@ export function ExploreDetailPane({
         promoting={promoting}
         record={record}
         workflowType={workflowType}
+        onBack={backToList}
       />
       <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
         <ResizablePanel defaultSize="55" minSize="25">
