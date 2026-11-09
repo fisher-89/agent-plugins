@@ -210,15 +210,26 @@ async fn timeout_ms越界或非整数显式err_命令不执行() {
 async fn timeout_ms上下界放行_短命令成功() {
     let dir = tempdir("timeout-bounds-ok");
 
-    for ok in [json!(1_000), json!(1_800_000)] {
-        let output = execute(
-            dir.path(),
-            &json!({ "command": "echo bounds-ok", "timeout_ms": ok }),
-        )
-        .await
-        .expect("边界值在允许范围内应放行");
-        assert!(output.contains("bounds-ok"), "{output}");
+    // 下界 1000ms 与 shell 冷启动同量级（git-bash 空载约 0.2s，满载门禁可达
+    // 1s 以上）：echo 可能被自身超时护栏收口。那是「放行之后」的合法结果，
+    // 本例要锚定的是不被判越界拒绝。
+    match execute(
+        dir.path(),
+        &json!({ "command": "echo bounds-ok", "timeout_ms": 1_000 }),
+    )
+    .await
+    {
+        Ok(output) => assert!(output.contains("bounds-ok"), "{output}"),
+        Err(error) => assert!(!error.contains("允许范围"), "下界不得越界拒绝: {error}"),
     }
+
+    let ceiling = execute(
+        dir.path(),
+        &json!({ "command": "echo bounds-ok", "timeout_ms": 1_800_000 }),
+    )
+    .await
+    .expect("上界放行且短命令必成功");
+    assert!(ceiling.contains("bounds-ok"), "{ceiling}");
 }
 
 // ---------------------------------------------------------------------------
