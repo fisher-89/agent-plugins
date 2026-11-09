@@ -766,7 +766,10 @@ async fn 运行中cancel_段取消变体与文案且秒级收敛() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     let handle = cancel.handle();
-    let runner = tokio::spawn(async move { run_suite(&patch_path, &ws.exec_dir, 1, cancel, None, None).await });
+    let runner =
+        tokio::spawn(
+            async move { run_suite(&patch_path, &ws.exec_dir, 1, cancel, None, None).await },
+        );
 
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
     let started = Instant::now();

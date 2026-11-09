@@ -171,9 +171,7 @@ impl MutationRunner for ProcessMutation {
         let name = name.to_owned();
         let files = files.to_vec();
         let patch = patch.to_owned();
-        Box::pin(async move {
-            execute(&root, &name, &files, &patch, cancel, on_output_ref).await
-        })
+        Box::pin(async move { execute(&root, &name, &files, &patch, cancel, on_output_ref).await })
     }
 }
 
@@ -300,7 +298,9 @@ async fn execute(
     let retained = cleanup_stryker_dirs(&stryker_dirs, retain.as_ref());
     // 中断 / 取消面不 commit（同上：保留 live 已落盘的部分输出）
     let exec_id = if interruption.is_some() {
-        live.as_ref().map(|live| live.exec_id().to_owned()).unwrap_or_default()
+        live.as_ref()
+            .map(|live| live.exec_id().to_owned())
+            .unwrap_or_default()
     } else {
         commit_exec_id(live.as_ref(), &merged_output)
     };

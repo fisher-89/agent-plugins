@@ -15021,7 +15021,11 @@ async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
     let (runner, trace) = ScriptedStaticRunner::new(vec!["exec-x"], check_with_ref("exec-x"));
     let tools = Arc::new(ScriptedTools {
         mutation_runner: Arc::new(
-            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+            ScriptedMutationRunner::new(
+                vec![],
+                mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, ""),
+            )
+            .0,
         ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(runner),
@@ -15085,7 +15089,8 @@ async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
 async fn 四脚本步均组装上抛回调() {
     // 反馈边：static-check（实现站）
     let phase = feedback_static_check_phase();
-    let (static_trace, static_calls, _test_trace, _mutation_trace) = drive_scripted_run(phase).await;
+    let (static_trace, static_calls, _test_trace, _mutation_trace) =
+        drive_scripted_run(phase).await;
     assert!(
         static_calls > 0,
         "相位 {phase}: static-check 步被执行（反馈边形态）"
@@ -15289,7 +15294,11 @@ async fn 上抛时刻_图上节点已带output_ref() {
 
     let tools = Arc::new(ScriptedTools {
         mutation_runner: Arc::new(
-            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+            ScriptedMutationRunner::new(
+                vec![],
+                mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, ""),
+            )
+            .0,
         ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(ProbeRunner {
@@ -15402,7 +15411,11 @@ async fn 上抛后err_节点output_ref保持补发值() {
     let trace = RefTrace::default();
     let tools = Arc::new(ScriptedTools {
         mutation_runner: Arc::new(
-            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+            ScriptedMutationRunner::new(
+                vec![],
+                mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, ""),
+            )
+            .0,
         ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(EmitThenErr {
@@ -15458,7 +15471,11 @@ async fn 上抛两次_节点仍一条且取第二次值() {
     );
     let tools = Arc::new(ScriptedTools {
         mutation_runner: Arc::new(
-            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+            ScriptedMutationRunner::new(
+                vec![],
+                mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, ""),
+            )
+            .0,
         ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(runner),
@@ -15597,7 +15614,11 @@ async fn 反馈边重跑_两实例各自output_ref独立() {
     let trace = RefTrace::default();
     let tools = Arc::new(ScriptedTools {
         mutation_runner: Arc::new(
-            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+            ScriptedMutationRunner::new(
+                vec![],
+                mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, ""),
+            )
+            .0,
         ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(CountingRunner {

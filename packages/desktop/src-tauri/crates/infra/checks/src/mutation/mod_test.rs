@@ -833,7 +833,10 @@ async fn 跳过面_empty_diff空清单与桶外文件() {
     );
     assert_eq!((outcome.score, outcome.threshold), (0.0, 0.0), "0.0 占位");
     assert!(outcome.report_paths.is_empty() && outcome.feedback_text.is_empty());
-    assert!(outcome.exec_id.is_empty(), "跳过面零 spawn ⇒ 不建 live 记录（空串）");
+    assert!(
+        outcome.exec_id.is_empty(),
+        "跳过面零 spawn ⇒ 不建 live 记录（空串）"
+    );
     assert!(
         !foundation::layout::change_test_reports(&ws.root, ws.change)
             .join("exec-outputs")
@@ -1509,8 +1512,10 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     window.install_fake_cargo(&ws.root.join("app"));
     window.set_cargo_outcomes(CARGO_SEG_PASS);
     // canned stdout：假 spawn 向 stdout 吐进度行（记录正文的「脚本真实输出」面）
-    window.set_out("mutation progress line
-");
+    window.set_out(
+        "mutation progress line
+",
+    );
 
     let vcs = Arc::new(FakeVcs::new(vec!["app/src/lib.rs".to_owned()], COMBO_PATCH));
     let store = Arc::new(FakeStore::new());
@@ -1613,7 +1618,11 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     // 输出记录面：上抛恰一次且与终态 exec_id 同值（同 id 收口）；`.log` 在案、
     // 内容含桶分隔头 + 假 spawn 的真实输出；`.cmd` sidecar 携展开后的命令
     let emitted = seen.lock().expect("上抛记录锁不可中毒").clone();
-    assert_eq!(emitted.len(), 1, "上抛恰一次（跳过面之后、逐桶 spawn 之前）: {emitted:?}");
+    assert_eq!(
+        emitted.len(),
+        1,
+        "上抛恰一次（跳过面之后、逐桶 spawn 之前）: {emitted:?}"
+    );
     assert_eq!(
         emitted[0], outcome.exec_id,
         "运行中上抛 id 与终态 exec_id 同值（同 id 收口）"
@@ -1632,7 +1641,8 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     let cmd = fs::read_to_string(exec_dir.join(format!("{}.cmd", outcome.exec_id)))
         .expect("命令 sidecar 在案");
     assert!(
-        cmd.contains("=== app_rust (rust) · files=1 ===") && cmd.contains("cargo mutants --test-tool=nextest"),
+        cmd.contains("=== app_rust (rust) · files=1 ===")
+            && cmd.contains("cargo mutants --test-tool=nextest"),
         "sidecar 携桶段头 + 展开后的命令: {cmd}"
     );
 

@@ -285,7 +285,14 @@ async fn execute(
             let files = vcs.change_edit_set(Path::new(&step.root), "HEAD")?;
             let patch = vcs.change_edit_patch(Path::new(&step.root), "HEAD")?;
             let output = mutation
-                .run(&step.root, &name, &files, &patch, cancel, step.on_output_ref)
+                .run(
+                    &step.root,
+                    &name,
+                    &files,
+                    &patch,
+                    cancel,
+                    step.on_output_ref,
+                )
                 .await;
             audit_outcome(
                 store.as_ref(),

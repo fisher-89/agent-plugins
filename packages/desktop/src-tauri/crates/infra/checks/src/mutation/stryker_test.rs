@@ -439,7 +439,14 @@ async fn 超时中断_强制终止且pid消失不挂死() {
             framework: "vitest",
             suite_config: None,
         };
-        run_suite(&segment, None, foundation::cancel::CancelFlag::never(), None, None).await
+        run_suite(
+            &segment,
+            None,
+            foundation::cancel::CancelFlag::never(),
+            None,
+            None,
+        )
+        .await
     });
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
 
@@ -744,8 +751,12 @@ async fn live透传_字节落sink且命令回吐恰一次() {
 
     // 段层构造面是 crate 内的 `LiveExec::sink`；此处以真实 `LiveExec` 取 sink，
     // 顺带验证「先建文件再写字节」的落盘契约
-    let live = exec::LiveExec::begin(&ws.root, "demo-change", foundation::layout::ReportSlot::Test)
-        .expect("建 live 记录");
+    let live = exec::LiveExec::begin(
+        &ws.root,
+        "demo-change",
+        foundation::layout::ReportSlot::Test,
+    )
+    .expect("建 live 记录");
     let commands: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
     let on_command = |command: &str| {
         commands

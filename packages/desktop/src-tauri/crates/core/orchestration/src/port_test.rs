@@ -2122,7 +2122,14 @@ async fn mutation_runner边界入参逐字透传不截断() {
     // 单元素 + emoji 文件名（POSIX 形态）
     let single = vec!["src/文件 🚀.rs".to_owned()];
     runner
-        .run("/tmp/root", "c", &single, "patch 文本", CancelFlag::never(), None)
+        .run(
+            "/tmp/root",
+            "c",
+            &single,
+            "patch 文本",
+            CancelFlag::never(),
+            None,
+        )
         .await
         .expect("单元素应可用");
     {
@@ -2151,7 +2158,14 @@ async fn mutation_runner边界入参逐字透传不截断() {
     );
     assert!(long_patch.len() > 100_000, "补丁须越过 100KB 刻度");
     runner
-        .run("/tmp/root", "c", &[], &long_patch, CancelFlag::never(), None)
+        .run(
+            "/tmp/root",
+            "c",
+            &[],
+            &long_patch,
+            CancelFlag::never(),
+            None,
+        )
         .await
         .expect("超长补丁应可用");
     {
