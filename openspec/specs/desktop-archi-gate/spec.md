@@ -58,7 +58,7 @@ ArchiCheck 步 SHALL 按报告派生结论并分派（执行体见 desktop-chang
 #### Scenario: 反馈含处置提示
 
 - **WHEN** 某步以 `errors` 非空收场，反馈注入同一 executor 会话
-- **THEN** 文本末含「若真实设计如此，应回到 dev-design 补模型声明」的固定提示；`crates/core/workflow/src/prompts/` 的 16 份角色 md 字节零变化
+- **THEN** 文本末含「若真实设计如此，应回到 dev-design 补模型声明」的固定提示；`crates/core/workflow/src/prompts/` 的 14 份角色 md 字节零变化
 
 #### Scenario: 结构错同样拦截且零 panic
 

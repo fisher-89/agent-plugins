@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use agent::ModelLevel;
 
 use crate::model::{ChecklistItem, Verdict};
-use crate::state::{ArtifactSpec, ChangeStateStore, PhaseStateRecord, StepDefinition};
+use crate::state::{ArtifactSpec, ChangeStateStore, OnFail, PhaseStateRecord, StepDefinition};
 use crate::write::phase_table::{
     backtrack_options, phase_table, BacktrackOption, PhaseAgentSpec, PhaseDefinition,
     MAX_RETRY_TIMES, MAX_ROUNDS,
@@ -200,12 +200,18 @@ pub fn phase_next(
             },
         ));
     }
-    // verdict fail 立即决策分叉（所有带 evaluator 的相位）：决策一次的消耗
-    // 低于盲目同相位重跑（executor / evaluator 会话重复执行），重试修复或
-    // 回退由决策 agent 裁决。确定性相位（archive：executor / evaluator 双
-    // 缺席）不触发——重跑确定性步序列有效。已决条目（fail_decided）放行
-    // 一次重跑；决策 backtrack 重入为唯一合法重入路径。
-    if next.evaluator.is_some() && latest_fail.is_some() && !fail_decided {
+    // verdict fail 立即决策分叉（带评估步或升格门禁步的相位）：决策一次的
+    // 消耗低于盲目同相位重跑（executor / evaluator 会话重复执行），重试修复
+    // 或回退由决策 agent 裁决。判据取步声明而非角色 spec——test-execution 为
+    // 确定性相位（零角色 spec），其门禁步 `OnFail::Escalate` 即「首败交决策」
+    // 的自描述。archive（无评估步、无升格步）不触发——重跑确定性步序列有效。
+    // 已决条目（fail_decided）放行一次重跑；决策 backtrack 重入为唯一合法重入
+    // 路径。
+    let escalates = next
+        .steps
+        .iter()
+        .any(|step| step.on_fail == Some(OnFail::Escalate));
+    if (next.evaluator.is_some() || escalates) && latest_fail.is_some() && !fail_decided {
         return Ok(error_outcome(
             round,
             last_result,

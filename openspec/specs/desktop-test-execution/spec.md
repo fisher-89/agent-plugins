@@ -129,7 +129,7 @@ test-execution 相位两步（TestExecution / MutationTest）结论 fail / error
 
 以下边界 SHALL 作为 V1 显式限制留痕（后续切片偿还，不由实现隐式吸收）：
 
-1. **mutation 已移植（本变更偿还）**：突变由独立 MutationTest 步承载（js=Stryker / rust=cargo-mutants，见 desktop-mutation-testing）；`mutation: null` 保持合法（diff 空跳过 / 未跑，观察期），机械 checklist 第 3 条与 evaluator T3 null 语义不收紧——观察结果后再决定是否升格 error。
+1. **mutation 已移植（本变更偿还）**：突变由独立 MutationTest 步承载（js=Stryker / rust=cargo-mutants，见 desktop-mutation-testing）；`mutation: null` 保持合法（diff 空跳过 / 未跑，观察期），机械 checklist 第 3 条 null 语义不收紧——观察结果后再决定是否升格 error。
 2. **agent 修复能力不进本期**：修阻塞错误（Step1b）与根因唯一性裁决（T4）不实现——红跑以 findings 摘要 + 报告呈现升格相位 fail，根因裁决交决策 agent（本变更进一步明确：相位内零修复会话）。
 3. **net-zero 去噪不适用**：突变范围 = change 编辑集（`git diff HEAD` + untracked，`change_edit_set` 单点）；清单反推与 net-zero 去噪（CLI 先例）不移植——diff 面天然无「与 HEAD 同内容」噪音。
 4. **无-change 场景不实现**：CLI `<root>/reports/test/` 分支桌面不实现（恒有 change）。
@@ -206,7 +206,7 @@ Walker SHALL 在 test-execution 相位以独立 MutationTest 门禁步（`ToolCo
 
 ### Requirement: 机械 checklist 双槽与 evidence 三态
 
-PhaseLog 机械 checklist 产物面 SHALL 挂 `test_outcome` + `mutation_outcome` 双槽（两步结论独立成槽）。机械 checklist 第 3 条「mutation null 自动通过」判定语义 SHALL 保留（null 观察期不收紧，与 evaluator T3 一致），但 evidence SHALL 区分三态：「跑过且达标（score / threshold）/ diff 空跳过（突变面为空）/ null（未跑）」。`mutation: null` SHALL 保持合法（diff 空跳过 / 未跑场景不判 fail）。
+PhaseLog 机械 checklist 产物面 SHALL 挂 `test_outcome` + `mutation_outcome` 双槽（两步结论独立成槽）。机械 checklist 第 3 条「mutation null 自动通过」判定语义 SHALL 保留（null 观察期不收紧），但 evidence SHALL 区分三态：「跑过且达标（score / threshold）/ diff 空跳过（突变面为空）/ null（未跑）」。`mutation: null` SHALL 保持合法（diff 空跳过 / 未跑场景不判 fail）。
 
 #### Scenario: 三态 evidence 落账
 

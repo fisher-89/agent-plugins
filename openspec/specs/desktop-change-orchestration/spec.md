@@ -37,12 +37,12 @@ Desktop 后端 SHALL 提供编排运行时（walker，core/orchestration），�
 
 #### Scenario: verdict fail 直接决策分叉
 
-- **WHEN** 任意带 evaluator 相位落 verdict=fail 条目（最新 fail 条目未挂决策会话）
-- **THEN** 写面 `phase_next` 不自走重路由同相位（盲目重跑的会话消耗高于一次决策），立即返回决策分叉触发；窗口 fail 数达 `MAX_RETRY_TIMES`（5）时以重试上限变体（`MaxRetriesExceeded`）标注、否则以 verdict fail 变体（`VerdictFail`）标注——两变体同一决策路径，仅标注与文案不同。确定性相位（initialize / archive：executor / evaluator 双缺席）不触发，fail 落账照常同相位重路由
+- **WHEN** 任意带评估步或升格门禁步的相位落 verdict=fail 条目（最新 fail 条目未挂决策会话）
+- **THEN** 写面 `phase_next` 不自走重路由同相位（盲目重跑的会话消耗高于一次决策），立即返回决策分叉触发；窗口 fail 数达 `MAX_RETRY_TIMES`（5）时以重试上限变体（`MaxRetriesExceeded`）标注、否则以 verdict fail 变体（`VerdictFail`）标注——两变体同一决策路径，仅标注与文案不同。判据 SHALL 取「`evaluator.is_some()` 或 `steps` 含 `OnFail::Escalate` 步」：test-execution 为零角色 spec 的确定性相位，其门禁步的 `Escalate` 声明即「首败交决策」的自描述，故**照常触发**分叉。无评估步且无升格步的确定性相位（initialize / archive）不触发，fail 落账照常同相位重路由
 
 #### Scenario: fail 重试与预算上限
 
-- **WHEN** 同一相位窗口 fail 数达 `MAX_RETRY_TIMES`（5）且 evaluator 在场
+- **WHEN** 同一相位窗口 fail 数达 `MAX_RETRY_TIMES`（5）且该相位在决策分叉面内（带评估步或升格门禁步）
 - **THEN** `phase_next` 以重试上限变体标注分叉（与 verdict fail 变体同一决策路径）；重做本相位 SHALL 由决策回溯到自身表达（白名单自含），MUST NOT 自走同相位重跑；预算判断先于 verdict 判断，二者均进决策，无自走重跑分支
 
 #### Scenario: 中断续走不重头
@@ -382,7 +382,7 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 以下边界 SHALL 作为 V1 显式限制留痕（后续变更偿还，不由实现隐式吸收）：
 
-1. **引擎随默认 agent 解析（SDK 承载）**：change 执行会话经组合根缺省解析（默认 agent）发起——CLI 租户已随 retire-cli-engine 退役，change 执行由 SDK 租户承载。原「引擎恒 CLI」依据随桌面相位知识静态化（desktop-phase-prompts：16 个纯静态 prompt、MUST NOT 携带插件 Agent / MCP 工具假设——插件已退役，该条为防回退护栏）与插件整体退役失效；原「SDK 引擎 MUST NOT 承载 change 执行」禁令同步退役。change run 发起自此依赖 SDK 连接配置（默认 sdk agent + provider），缺失时按既有显式 `Err` 面失败并引导管理页，MUST NOT 静默回退。
+1. **引擎随默认 agent 解析（SDK 承载）**：change 执行会话经组合根缺省解析（默认 agent）发起——CLI 租户已随 retire-cli-engine 退役，change 执行由 SDK 租户承载。原「引擎恒 CLI」依据随桌面相位知识静态化（desktop-phase-prompts：14 个纯静态 prompt、MUST NOT 携带插件 Agent / MCP 工具假设——插件已退役，该条为防回退护栏）与插件整体退役失效；原「SDK 引擎 MUST NOT 承载 change 执行」禁令同步退役。change run 发起自此依赖 SDK 连接配置（默认 sdk agent + provider），缺失时按既有显式 `Err` 面失败并引导管理页，MUST NOT 静默回退。
 2. **工作流类型**：requirement 与 test-only 工作流全链；bug-fix 相位表后续独立 change。
 3. **计划图静态编译期、非通用图引擎**：计划图（workflow → phase → step 序列 + 依赖边 + artifact 清单）SHALL 为编译期 const 表 + `include_str!` 静态装配，MUST NOT 实现运行时加载的通用图引擎或图定义文件格式；执行图（节点 + 边）为 db 落库的运行记录，MUST NOT 上位为路由权威（路由仍问 `phase_next`）。原「walker 只硬编码 walk 本相位循环图」表述随本变更翻案显式立项（step 序列下沉为 `PhaseDefinition.steps`）。
 4. **file_log 载体退役**：desktop run 与视图全链零 file_log 触点（git diff 供变更上下文）为既定裁定；外部归档对账（openspec CLI 归档改名后的 db status 翻转时机）留 design 定稿（见 proposal 待决问题）。

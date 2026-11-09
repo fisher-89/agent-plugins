@@ -71,18 +71,21 @@ const ARCHIVE_STEP_ORDER: [StepNode; 11] = [
     StepNode::PhaseLog,
 ];
 
-/// executor / evaluator 两角色齐备的相位（评估-only 相位除外）。
-const DUAL_ROLE_PHASES: [&str; 6] = [
+/// executor / evaluator 两角色齐备的相位（评估-only 与确定性相位除外）。
+const DUAL_ROLE_PHASES: [&str; 5] = [
     "proposal",
     "dev-design",
     "test-design",
     "implement",
     "test-gen",
-    "test-execution",
 ];
 
 /// 评估-only 相位（executor 为 None）。
 const EVAL_ONLY_PHASES: [&str; 2] = ["code-review", "acceptance"];
+
+/// 确定性相位（executor / evaluator 双缺席；test-execution 与 archive / initialize
+/// 同形——其门禁步 `OnFail::Escalate` 自描述「首败交决策」，不借角色 spec 表达）。
+const DETERMINISTIC_PHASES: [&str; 3] = ["initialize", "test-execution", "archive"];
 
 /// 按 id 取相位定义（缺表项即 panic——fixture 表漂移立即显形）。
 fn phase_of(table: &'static [PhaseDefinition], id: &str) -> &'static PhaseDefinition {
@@ -158,6 +161,19 @@ fn phase_table_requirement返回全表且相位序稳定() {
         assert!(
             def.evaluator.is_some(),
             "评估-only 相位 {} evaluator 应在场",
+            def.id
+        );
+    }
+
+    // 确定性相位（initialize / test-execution / archive）：双角色 spec 均 None
+    //（test-execution 的「首败交决策」语义由步声明 `OnFail::Escalate` 承载）
+    for def in table
+        .iter()
+        .filter(|def| DETERMINISTIC_PHASES.contains(&def.id))
+    {
+        assert!(
+            def.executor.is_none() && def.evaluator.is_none(),
+            "确定性相位 {} 双角色 spec 均应为 None",
             def.id
         );
     }
@@ -761,11 +777,7 @@ fn phase_table各相位模型档位分派对照() {
         ),
         ("implement", Some(ModelLevel::Low), Some(ModelLevel::Low)),
         ("test-gen", Some(ModelLevel::Low), Some(ModelLevel::Low)),
-        (
-            "test-execution",
-            Some(ModelLevel::Low),
-            Some(ModelLevel::Low),
-        ),
+        ("test-execution", None, None),
         ("code-review", None, Some(ModelLevel::High)),
         ("acceptance", None, Some(ModelLevel::High)),
         ("archive", None, None),
@@ -803,7 +815,7 @@ fn phase_table各相位模型档位分派对照() {
 
 /// PhaseAgentSpec 结构收敛（编译期锚）：穷尽解构恰 `prompt` / `model_level`
 /// 两字段（无 `..` 兜底——`agent_type` 等字段回归即编译失败）；`prompt` 类型
-/// 收窄为 `&'static str` 且静态非空。全表 14 条目（6 executor + 8 evaluator）
+/// 收窄为 `&'static str` 且静态非空。全表 12 条目（5 executor + 7 evaluator）
 /// 逐条覆盖——prompt 为 `include_str!` 编译期装配的静态角色知识，不因相位缺席。
 #[test]
 fn phase_table_agent_spec结构收敛且全表prompt静态非空() {
@@ -841,8 +853,8 @@ fn phase_table_agent_spec结构收敛且全表prompt静态非空() {
             evaluator_count += 1;
         }
     }
-    assert_eq!(executor_count, 6, "6 executor 角色 prompt 齐备");
-    assert_eq!(evaluator_count, 8, "8 evaluator 角色 prompt 齐备");
+    assert_eq!(executor_count, 5, "5 executor 角色 prompt 齐备");
+    assert_eq!(evaluator_count, 7, "7 evaluator 角色 prompt 齐备");
 }
 
 #[test]
@@ -1482,17 +1494,22 @@ fn 计划图类型收敛与const表逐项等值() {
                 "相位 {id} 含 Evaluator 步则 evaluator spec 齐备"
             );
         }
-        // test-execution 相位无 agent 步但仍声明双角色 spec（编排身份面保留）
+        // test-execution 相位无 agent 步且双角色 spec 缺席（确定性相位，与
+        // archive 同形——「首败交决策」由门禁步 `OnFail::Escalate` 自描述）
         if *id == "test-execution" {
-            assert!(executor.is_some(), "test-execution 保留 executor spec");
+            assert!(
+                executor.is_none(),
+                "test-execution 确定性相位 executor spec 缺席"
+            );
             assert!(!has_executor_step && !has_evaluator_step);
         }
     }
-    // 全表 8 相位：executor 6 / evaluator 8（评估-only 两相位无 executor）
-    assert_eq!(table.iter().filter(|def| def.executor.is_some()).count(), 6);
+    // 全表 8 相位：executor 5 / evaluator 7（评估-only 两相位无 executor，
+    // test-execution 双缺席）
+    assert_eq!(table.iter().filter(|def| def.executor.is_some()).count(), 5);
     assert_eq!(
         table.iter().filter(|def| def.evaluator.is_some()).count(),
-        8
+        7
     );
 }
 
@@ -2127,13 +2144,13 @@ fn test_only表prompt静态非空且步spec同源() {
     //（test-execution 确定性相位无静态 prompt agent 步、archive 运行时组装）
     assert_eq!(agent_step_prompts, 8, "8 条 agent 步 prompt 齐备");
 
-    // test-execution 相位无 agent 步但保留双角色 spec（编排身份面）
+    // test-execution 相位无 agent 步且双角色 spec 缺席（确定性相位）
     let test_execution = phase_of(table, "test-execution");
     assert!(!test_execution
         .steps
         .iter()
         .any(|step| step.node.role().is_some()));
-    assert!(test_execution.executor.is_some() && test_execution.evaluator.is_some());
+    assert!(test_execution.executor.is_none() && test_execution.evaluator.is_none());
 }
 
 #[test]
@@ -2936,7 +2953,7 @@ fn prompt_text(name: &str) -> String {
         .unwrap_or_else(|error| panic!("读取 prompt {} 失败: {error}", path.display()))
 }
 
-/// 16 份 prompt md 的文件名（去扩展名，字典序）。
+/// 14 份 prompt md 的文件名（去扩展名，字典序）。
 fn prompt_names() -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(prompts_dir())
         .expect("读取 prompts 目录失败")
@@ -3010,7 +3027,7 @@ fn archi工具表述含何时用与返回什么() {
     }
 }
 
-/// 异常：其余 9 份 md 零 `archi` 字样（不许诺未下发工具面）。
+/// 异常：其余 7 份 md 零 `archi` 字样（不许诺未下发工具面）。
 #[test]
 fn 非命中md零archi字样() {
     let non_matching = [
@@ -3019,8 +3036,6 @@ fn 非命中md零archi字样() {
         "implementation-evaluator",
         "test-gen-generator",
         "test-gen-evaluator",
-        "test-execution-executor",
-        "test-execution-evaluator",
         "code-analyze-planner",
         "code-analyze-evaluator",
     ];
@@ -3088,11 +3103,11 @@ fn 命中md零路径模板() {
     }
 }
 
-/// 边界：16 份 md 零占位 / 零 `__MCP:*` 片段（既有扫描随动）。
+/// 边界：14 份 md 零占位 / 零 `__MCP:*` 片段（既有扫描随动）。
 #[test]
-fn 十六份md零占位与零mcp() {
+fn 十四份md零占位与零mcp() {
     let names = prompt_names();
-    assert_eq!(names.len(), 16, "prompt md 恰 16 份");
+    assert_eq!(names.len(), 14, "prompt md 恰 14 份");
     for name in names {
         let text = prompt_text(&name);
         for placeholder in [
@@ -3113,7 +3128,7 @@ fn 十六份md零占位与零mcp() {
     }
 }
 
-/// 回归：装配面逐字不变——16 条 `include_str!` 常量与盘面 md **逐字一致**
+/// 回归：装配面逐字不变——14 条 `include_str!` 常量与盘面 md **逐字一致**
 /// （工具名属 prompt 正文的既定事实，工具**清单 / schema** 仍不落 prompt：真源为
 /// `SessionToolset` 注入）。
 #[test]
@@ -3132,12 +3147,13 @@ fn 装配面include_str逐字不变且工具面不落prompt() {
             table_prompts.push(prompt);
         }
     }
-    // requirement 表 agent 槽位 = 7 执行 + 7 评估 = 14（archive 确定性相位无 agent；
-    // code-analyze 两 prompt 属 test-only 表与代码分析步骤，不在本表 agent 面）
+    // requirement 表 agent 槽位 = 5 执行 + 7 评估 = 12（initialize /
+    // test-execution / archive 为确定性相位、零 agent；code-analyze 两 prompt
+    // 属 test-only 表与代码分析步骤，不在本表 agent 面）
     assert_eq!(
         table_prompts.len(),
-        14,
-        "requirement 表 14 条 agent 装配常量（7 执行 + 7 评估）"
+        12,
+        "requirement 表 12 条 agent 装配常量（5 执行 + 7 评估）"
     );
     let unique: std::collections::BTreeSet<&str> = table_prompts.iter().copied().collect();
     assert_eq!(
@@ -3154,7 +3170,7 @@ fn 装配面include_str逐字不变且工具面不落prompt() {
     for prompt in table_prompts {
         assert!(
             disk.iter().any(|text| text == prompt),
-            "装配常量与盘面 md 逐字一致（16 条 include_str! 零漂移）"
+            "装配常量与盘面 md 逐字一致（14 条 include_str! 零漂移）"
         );
     }
 }

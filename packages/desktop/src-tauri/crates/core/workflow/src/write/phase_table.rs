@@ -79,9 +79,6 @@ const IMPLEMENT_EXECUTOR_PROMPT: &str = include_str!("../prompts/implementation-
 const IMPLEMENT_EVALUATOR_PROMPT: &str = include_str!("../prompts/implementation-evaluator.md");
 const TEST_GEN_EXECUTOR_PROMPT: &str = include_str!("../prompts/test-gen-generator.md");
 const TEST_GEN_EVALUATOR_PROMPT: &str = include_str!("../prompts/test-gen-evaluator.md");
-const TEST_EXECUTION_EXECUTOR_PROMPT: &str = include_str!("../prompts/test-execution-executor.md");
-const TEST_EXECUTION_EVALUATOR_PROMPT: &str =
-    include_str!("../prompts/test-execution-evaluator.md");
 const CODE_REVIEW_EVALUATOR_PROMPT: &str = include_str!("../prompts/code-review-evaluator.md");
 const ACCEPTANCE_EVALUATOR_PROMPT: &str = include_str!("../prompts/acceptance-evaluator.md");
 const CODE_ANALYZE_EXECUTOR_PROMPT: &str = include_str!("../prompts/code-analyze-planner.md");
@@ -339,7 +336,7 @@ static TEST_GEN_STEPS: &[StepDefinition] = &[
 ];
 
 /// test-execution 相位步序列：确定性门禁步承接（绿跑零 agent——无 Executor /
-/// Evaluator / VerdictGate 步），pass 后 PhaseLog 步携机械 checklist 落账。拆步
+/// Evaluator / VerdictGate 步，角色 spec 亦双缺席，与 archive 同形）。拆步
 /// 语义：`PhaseStart → TestExecution → MutationTest → PhaseLog`——测试 / 覆盖率
 /// 修绿后才跑突变（walker 顺序执行天然保证），两步失败即升格交决策（零修复
 /// 会话）；requirement / test-only 两表共用同一 static 天然同式。
@@ -636,14 +633,8 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         artifact_manifest: TEST_EXECUTION_MANIFEST,
         prerequisites: &["test-gen", "implement"],
         backtrackable: true,
-        executor: Some(PhaseAgentSpec {
-            prompt: TEST_EXECUTION_EXECUTOR_PROMPT,
-            model_level: ModelLevel::Low,
-        }),
-        evaluator: Some(PhaseAgentSpec {
-            prompt: TEST_EXECUTION_EVALUATOR_PROMPT,
-            model_level: ModelLevel::Low,
-        }),
+        executor: None,
+        evaluator: None,
     },
     PhaseDefinition {
         id: "code-review",
@@ -772,14 +763,8 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
         artifact_manifest: TEST_EXECUTION_MANIFEST,
         prerequisites: &["test-gen"],
         backtrackable: true,
-        executor: Some(PhaseAgentSpec {
-            prompt: TEST_EXECUTION_EXECUTOR_PROMPT,
-            model_level: ModelLevel::Low,
-        }),
-        evaluator: Some(PhaseAgentSpec {
-            prompt: TEST_EXECUTION_EVALUATOR_PROMPT,
-            model_level: ModelLevel::Low,
-        }),
+        executor: None,
+        evaluator: None,
     },
     PhaseDefinition {
         id: "archive",

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-桌面相位角色知识集中地：`core/workflow/src/prompts/` 下 16 个全静态 md（7 executor + 9 evaluator，含 code-analyze 两份）作为 executor / evaluator 会话 prompt 主体的单一真源。每文件 = 角色自述 + 阶段要求 + checklist，全静态零占位；经 `phase_table.rs` 编译期 `include_str!` 显式字面路径装配（无 `<role>` 间接读取）；文本为桌面端自持——按桌面端特性（七工具 / cwd=workspace root / change 名走上下文头 / 静态脚本外置）撰写与维护。
+桌面相位角色知识集中地：`core/workflow/src/prompts/` 下 14 个全静态 md（6 executor + 8 evaluator，含 code-analyze 两份）作为 executor / evaluator 会话 prompt 主体的单一真源。每文件 = 角色自述 + 阶段要求 + checklist，全静态零占位；经 `phase_table.rs` 编译期 `include_str!` 显式字面路径装配（无 `<role>` 间接读取）；文本为桌面端自持——按桌面端特性（七工具 / cwd=workspace root / change 名走上下文头 / 静态脚本外置）撰写与维护。
 
 ## Requirements
 
-### Requirement: 16 个静态角色知识文件清单
+### Requirement: 14 个静态角色知识文件清单
 
-`core/workflow/src/prompts/` SHALL 含 16 个 md 文件，文件名与角色一一对应：
+`core/workflow/src/prompts/` SHALL 含 14 个 md 文件，文件名与角色一一对应：
 
 | 类别 | 角色 | 文件 |
 |------|------|------|
@@ -18,24 +18,23 @@
 | executor | test-design-planner | `prompts/test-design-planner.md` |
 | executor | implementation-generator | `prompts/implementation-generator.md` |
 | executor | test-gen-generator | `prompts/test-gen-generator.md` |
-| executor | test-execution-executor | `prompts/test-execution-executor.md` |
 | evaluator | proposal-evaluator | `prompts/proposal-evaluator.md` |
 | evaluator | dev-design-evaluator | `prompts/dev-design-evaluator.md` |
 | evaluator | code-analyze-evaluator | `prompts/code-analyze-evaluator.md` |
 | evaluator | test-design-evaluator | `prompts/test-design-evaluator.md` |
 | evaluator | implementation-evaluator | `prompts/implementation-evaluator.md` |
 | evaluator | test-gen-evaluator | `prompts/test-gen-evaluator.md` |
-| evaluator | test-execution-evaluator | `prompts/test-execution-evaluator.md` |
 | evaluator | code-review-evaluator | `prompts/code-review-evaluator.md` |
 | evaluator | acceptance-evaluator | `prompts/acceptance-evaluator.md` |
 
-即 7 executor + 9 evaluator。`code-analyze` 为 test-only 工作流相位，executor / evaluator 双档俱在（`code-analyze-planner` / `code-analyze-evaluator`，装配见 `CODE_ANALYZE_STEPS` 相位表的 `include_str!` 字面路径）。code-review / acceptance 为 evaluator-only 相位，SHALL NOT 存在对应 executor md（`executor: None` 不变）。每文件 SHALL 含角色自述、阶段要求（输入 / 过程 / 输出 / 约束的桌面化表述）；9 个 evaluator 文件另 SHALL 含静态 checklist 表（检查项 ID + 检查项 + 判断依据）。
+即 6 executor + 8 evaluator。`code-analyze` 为 test-only 工作流相位，executor / evaluator 双档俱在（`code-analyze-planner` / `code-analyze-evaluator`，装配见 `CODE_ANALYZE_STEPS` 相位表的 `include_str!` 字面路径）。code-review / acceptance 为 evaluator-only 相位，SHALL NOT 存在对应 executor md（`executor: None` 不变）。test-execution 为确定性相位，executor / evaluator 双档俱缺（`executor: None` / `evaluator: None`，与 archive 同形）——其「首败即交决策」语义由门禁步声明 `OnFail::Escalate` 承载（见 desktop-workflow-write-face「相位定义有序 step 序列与 artifact 清单」与 desktop-change-orchestration「verdict fail 直接决策分叉」），MUST NOT 以角色 spec 存在性表达。每文件 SHALL 含角色自述、阶段要求（输入 / 过程 / 输出 / 约束的桌面化表述）；8 个 evaluator 文件另 SHALL 含静态 checklist 表（检查项 ID + 检查项 + 判断依据）。
 
-#### Scenario: 清单齐全与 evaluator-only 无 executor
+#### Scenario: 清单齐全与确定性相位无角色文件
 
 - **WHEN** 列出 `core/workflow/src/prompts/` 下全部 md
-- **THEN** 恰好 16 个文件，角色清单与上表一一对应（7 executor + 9 evaluator）
+- **THEN** 恰好 14 个文件，角色清单与上表一一对应（6 executor + 8 evaluator）
 - **AND** 无 `code-review-*.md` / `acceptance-*.md` 的 executor 文件（只有 evaluator 文件）
+- **AND** 无 `test-execution-*.md`（确定性相位零角色知识文件）
 - **AND** 每个 evaluator 文件含静态 checklist 表，每个 executor 文件含阶段要求
 
 ### Requirement: 全静态零占位
@@ -44,7 +43,7 @@
 
 #### Scenario: 零占位符扫描
 
-- **WHEN** 全文扫描 16 个 md
+- **WHEN** 全文扫描 14 个 md
 - **THEN** 无 `<change>` / `<phase>` / `__CALL_AGENT` / `__MCP:` / `__INCLUDE:` / `{{ }}` 等占位符或令牌字样
 - **AND** 无「change 名已注入本 prompt」类插值假设表述
 
@@ -54,7 +53,7 @@
 
 #### Scenario: 显式路径无间接读取
 
-- **WHEN** 审查 `phase_table.rs` 对 16 个 md 的装配方式
+- **WHEN** 审查 `phase_table.rs` 对 14 个 md 的装配方式
 - **THEN** 每个 prompt 经 `include_str!("prompts/<role>.md")` 字面路径取得
 - **AND** 无任何按 `<role>` / 变量拼接路径的动态读取调用
 
@@ -71,7 +70,7 @@
 
 #### Scenario: 只引桌面七工具与矩阵命中的 archi 工具
 
-- **WHEN** 审查 16 个 md 的工具引用
+- **WHEN** 审查 14 个 md 的工具引用
 - **THEN** 通用工具仅出现 read / grep / glob / ls / write / edit / bash 七项，无任何 `__MCP:*` 调用
 - **AND** archi 工具只出现在矩阵命中该工具的角色 md 内（`proposal` → 仅 `archi_search`；`dev-design` → 两者；`test-design` → 仅 `archi_search`；`implement` / `code-review` / `acceptance` → 仅 `archi_module`），其余 md 零 archi 工具字样
 - **AND** 无插件侧 `__DEV_TEAM_ROOT__` / `__INCLUDE:*` / `__MODEL_*__` 片段注入标记
@@ -88,11 +87,11 @@
 
 ### Requirement: evaluator 知识不含落账 / 路由指令
 
-9 个 evaluator md MUST NOT 含 "Call phase_log" / `phase_next` / `phase_start` / `backtrack` 等 MCP 落账或路由指令（桌面 evaluator 禁 MCP，落账由 walker 代写）；evaluator SHALL 只产出评估结论（最终消息 checklist JSON，形状见 desktop-change-orchestration「evaluator 输出协议瘦身」），MUST NOT 指示用 Write/Edit/Bash 写 `eval.json` / `workflow.json`。
+8 个 evaluator md MUST NOT 含 "Call phase_log" / `phase_next` / `phase_start` / `backtrack` 等 MCP 落账或路由指令（桌面 evaluator 禁 MCP，落账由 walker 代写）；evaluator SHALL 只产出评估结论（最终消息 checklist JSON，形状见 desktop-change-orchestration「evaluator 输出协议瘦身」），MUST NOT 指示用 Write/Edit/Bash 写 `eval.json` / `workflow.json`。
 
 #### Scenario: evaluator md 零落账指令
 
-- **WHEN** 读取 9 个 evaluator md
+- **WHEN** 读取 8 个 evaluator md
 - **THEN** 无 phase_log / phase_next / phase_start / backtrack 调用指令
 - **AND** 无「写入 eval.json / workflow.json」指令；输出面仅为评估结论（checklist JSON）
 
@@ -100,8 +99,8 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/workflow/src/prompts/`（16 份 md） | 相位角色知识单一真源 | 7 executor + 9 evaluator；全静态零占位；`code-analyze-planner` / `code-analyze-evaluator` 两份**登记入表**（此前漏登导致 spec 计数漂移） |
-| `crates/core/workflow/src/write/phase_table.rs` | 静态装配单源 | 16 条 `include_str!("../prompts/<role>.md")` 字面路径；`CODE_ANALYZE_EXECUTOR_PROMPT` / `CODE_ANALYZE_EVALUATOR_PROMPT` 与其余 14 条同权 |
+| `crates/core/workflow/src/prompts/`（14 份 md） | 相位角色知识单一真源 | 6 executor + 8 evaluator；全静态零占位；`code-analyze-planner` / `code-analyze-evaluator` 两份**登记入表**（此前漏登导致 spec 计数漂移）；test-execution 确定性相位零角色文件 |
+| `crates/core/workflow/src/write/phase_table.rs` | 静态装配单源 | 14 条 `include_str!("../prompts/<role>.md")` 字面路径；`CODE_ANALYZE_EXECUTOR_PROMPT` / `CODE_ANALYZE_EVALUATOR_PROMPT` 与其余 12 条同权 |
 | `crates/core/workflow/src/prompts/*.md`（矩阵命中 7 份：proposal-planner / dev-design-planner / dev-design-evaluator / test-design-planner / implementation-generator / code-review-evaluator / acceptance-evaluator） | 角色知识补充 | 各补 archi 工具「何时用 / 返回什么」一句（按矩阵勾选，不越权提及未下发工具）；零占位符、零 MCP、零路径模板、零写模型指令 |
-| `crates/core/workflow/src/prompts/*.md`（其余 9 份） | 零改动 | 矩阵未命中者 MUST NOT 出现任何 archi 工具字样（防"许诺未下发工具面"） |
-| `crates/core/workflow/src/write/phase_table.rs`（装配零改动） | 装配零改动 | 16 条 `include_str!` 字面路径与角色表逐字不变；工具面由 `SessionToolset` 注入承载，prompt 不含工具清单真源 |
+| `crates/core/workflow/src/prompts/*.md`（其余 7 份） | 零改动 | 矩阵未命中者 MUST NOT 出现任何 archi 工具字样（防"许诺未下发工具面"） |
+| `crates/core/workflow/src/write/phase_table.rs`（装配零改动） | 装配零改动 | 14 条 `include_str!` 字面路径与角色表逐字不变；工具面由 `SessionToolset` 注入承载，prompt 不含工具清单真源 |

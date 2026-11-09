@@ -892,6 +892,60 @@ fn 评估only相位已决fail放行恰一次重跑() {
     );
 }
 
+/// test-execution 首败即决策分叉（正向，确定性相位对照）：该相位零角色 spec
+/// （executor / evaluator 双 `None`），分叉判据由门禁步 `OnFail::Escalate` 的
+/// 自描述承载——升格 fail 条目落账后仍须立即分叉，MUST NOT 退化为同相位盲目
+/// 重跑。对照组 archive（无评估步、无升格步）落 fail 只重路由不分叉。
+#[test]
+fn test_execution首败即决策分叉不因零角色spec退化() {
+    let base: Vec<PhaseStateRecord> = [
+        ("proposal", 1u32),
+        ("dev-design", 1),
+        ("test-design", 1),
+        ("implement", 1),
+        ("test-gen", 1),
+    ]
+    .iter()
+    .enumerate()
+    .map(|(idx, (phase, attempt))| entry(phase, *attempt, Verdict::Pass, t(idx as u32 + 1)))
+    .collect();
+
+    // 升格落账（零会话：三槽位恒 None——恰是本用例的判据前提）
+    let fake = RouteStore::seeded(base);
+    let anchors = SessionAnchors::new();
+    let _ = route(&fake, RUN, &anchors);
+    let mut fail = entry("test-execution", 1, Verdict::Fail, t(6));
+    assert!(
+        fail.executor_session_id.is_none() && fail.evaluator_session_id.is_none(),
+        "升格条目零会话槽位（前置）"
+    );
+    fail.report = "测试执行结论 fail：total=3 failed=2".to_owned();
+    fake.push(fail);
+
+    let outcome = route(&fake, RUN, &anchors);
+    assert_eq!(
+        outcome.error,
+        Some(PhaseNextError::VerdictFail {
+            phase: "test-execution".to_owned(),
+            round: 2,
+        }),
+        "test-execution 首败即分叉（判据取步声明，不依赖角色 spec）"
+    );
+    assert_eq!(outcome.next_phase, None, "分叉响应不下发相位");
+    assert!(
+        outcome.executor.is_none() && outcome.evaluator.is_none(),
+        "分叉响应零角色 spec（本相位本就双 None）"
+    );
+
+    // 已决放行（决策 backtrack 重入）：同一条目不再重复分叉
+    let mut decided = entry("test-execution", 1, Verdict::Fail, t(7));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    fake.push(decided);
+    let allowed = route(&fake, RUN, &anchors);
+    assert!(allowed.error.is_none(), "已决条目不重复分叉");
+    assert_eq!(allowed.next_phase.as_deref(), Some("test-execution"));
+}
+
 /// 重试上限已决 fail 放行重跑（决策不空转的回归锚）：窗口 fail 数达上限但最新
 /// fail 条目已挂决策会话 → 不再返回 MaxRetriesExceeded，正常路由回同相位——
 /// 否则决策 backtrack 重入会陷入 phase-next ↔ 决策无限空转（相位永不重执行、
