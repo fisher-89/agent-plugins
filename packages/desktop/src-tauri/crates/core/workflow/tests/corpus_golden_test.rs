@@ -7,7 +7,9 @@
 //! `ChangeStateRecord.id` 与命令载荷 `change_id` 携固定 id 字面量，逐字入
 //! golden；name 恒裸名属性。防线机制：每份语料跑「detail / list 全读链」，
 //! 序列化为 pretty JSON 与入仓 golden 全量对比；db 中性状态类型不出线的线面
-//! 契约（id 键入、缺省 null、时间戳 RFC3339 ISO）在本目录逐字节钉死。
+//! 契约（id 键入、缺省 null、时间戳 RFC3339 ISO）在本目录钉死。对比按 JSON 结构
+//! 语义（对象键序无关、数组元素序相关）：键的书写先后由 `serde_json` Map 实现
+//! （`preserve_order` 特性）决定，非契约；相位表序 / attempt 升序 / emit 序是契约。
 //!
 //! ## 文档形态零发现反例（D13）
 //!
@@ -1397,38 +1399,42 @@ fn edge(from: NodeKey, to: NodeKey, kind: EdgeKind) -> ChangeStepEdge {
 // ---------------------------------------------------------------------------
 
 /// 读入仓 golden：缺失与非法 JSON 均以明确文案失败——不静默新建 golden、
-/// 不以空期望放过、不把坏文件当漂移覆写。
-fn read_expected_golden(path: &Path, golden_name: &str) -> Result<String, String> {
+/// 不以空期望放过、不把坏文件当漂移覆写。返回解析后的值：对比按 JSON 结构语义
+/// 进行（对象键序无关、数组元素序相关），对象键的书写先后由序列化器的 Map 实现
+/// 决定（`preserve_order` 特性开关与否），不承载业务含义，故不入契约。
+fn read_expected_golden(path: &Path, golden_name: &str) -> Result<serde_json::Value, String> {
     let expected = fs::read_to_string(path).map_err(|err| {
         format!("golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
     })?;
     serde_json::from_str::<serde_json::Value>(&expected).map_err(|err| {
         format!("golden {golden_name}.json 非法 JSON（不静默新建；先以 {REWRITE_ENV}=1 重写并 review diff）: {err}")
-    })?;
-    Ok(expected)
+    })
 }
 
 /// 对比或覆写单份 golden 的实现：目录与开关以形参注入，`check_or_rewrite` 是它在
 /// 仓内 `golden_dir()` + 真实环境变量上的单点包装（缺失 / 非法 / 漂移形态的用例
 /// 据此真实驱动同一实现，不复制比较逻辑）。
+///
+/// 对比以 `serde_json::Value` 的相等语义承载：对象按键值对无关顺序比较（键序非
+/// 契约），数组按元素序比较（相位表序 / attempt 升序 / emit 序等业务序在契约内）。
 fn compare_or_rewrite_at(
     dir: &Path,
     golden_name: &str,
     projection: &serde_json::Value,
     rewrite: bool,
 ) -> Result<(), String> {
-    let normalized = format!(
-        "{}\n",
-        serde_json::to_string_pretty(projection).expect("投影序列化失败")
-    );
     let golden_path = dir.join(format!("{golden_name}.json"));
     if rewrite {
+        let normalized = format!(
+            "{}\n",
+            serde_json::to_string_pretty(projection).expect("投影序列化失败")
+        );
         fs::create_dir_all(dir).map_err(|err| format!("创建 golden 目录失败: {err}"))?;
         fs::write(&golden_path, &normalized).map_err(|err| format!("写 golden 失败: {err}"))?;
         return Ok(());
     }
     let expected = read_expected_golden(&golden_path, golden_name)?;
-    if expected != normalized {
+    if expected != *projection {
         return Err(format!(
             "语料 {golden_name} 的投影与 golden 漂移；若为有意的线面演进，以 {REWRITE_ENV}=1 重写并 review diff"
         ));
@@ -1541,6 +1547,56 @@ fn golden重写轮覆写后复核轮等价() {
         expected,
         "重写幂等（字节相等）"
     );
+}
+
+/// 边界（对比语义）：对象键序非契约（同一份 JSON 的键书写先后不同 → 等价通过），
+/// 数组元素序是契约（相位表序 / attempt 升序 / emit 序等业务序，换位即漂移）。
+///
+/// 对象键序由 `preserve_order` 特性在 `BTreeMap` / `IndexMap` 之间切换决定（该特性
+/// 经 `oxc_resolver` / tauri 构建期依赖间接开启，故同一份 golden 在不同 `cargo test`
+/// 组合下序列化出的键序不同）——把它纳入契约会让防线随测试命令翻面，与业务无关。
+#[test]
+fn golden对比键序无关而数组序相关() {
+    let temp = tempfile::TempDir::new().expect("建临时目录失败");
+    let dir = temp.path();
+
+    // 键序差异：手写入仓形态的 golden（键书写序与结构体声明序一致），投影以
+    // 字母序序列化 —— 同一结构，必须等价通过。
+    let golden_path = dir.join("corpus-run-history.json");
+    fs::write(
+        &golden_path,
+        "{\n  \"title\": \"语料\",\n  \"runs\": [{ \"id\": \"run-1\", \"status\": \"passed\" }]\n}\n",
+    )
+    .expect("写 golden 失败");
+    let reordered = serde_json::json!({
+        "runs": [{ "status": "passed", "id": "run-1" }],
+        "title": "语料",
+    });
+    compare_or_rewrite_at(dir, "corpus-run-history", &reordered, false)
+        .expect("对象键序不同应等价通过");
+
+    // 数组序差异：同一组元素换位 → 仍判漂移（attempt 升序 / emit 序属契约）。
+    let swapped = serde_json::json!({
+        "title": "语料",
+        "runs": [{ "id": "run-1", "status": "passed" }, { "id": "run-2", "status": "passed" }],
+    });
+    let error = compare_or_rewrite_at(dir, "corpus-run-history", &swapped, false)
+        .expect_err("数组元素新增即漂移");
+    assert!(error.contains("漂移"), "漂移文案须点明语义：{error}");
+
+    // 元素内容序换位（等长、同元素集、异序）同样判漂移。
+    fs::write(
+        &golden_path,
+        "{\n  \"title\": \"语料\",\n  \"runs\": [{ \"id\": \"run-1\" }, { \"id\": \"run-2\" }]\n}\n",
+    )
+    .expect("写 golden 失败");
+    let permuted = serde_json::json!({
+        "title": "语料",
+        "runs": [{ "id": "run-2" }, { "id": "run-1" }],
+    });
+    let error = compare_or_rewrite_at(dir, "corpus-run-history", &permuted, false)
+        .expect_err("数组元素换位即漂移");
+    assert!(error.contains("漂移"), "漂移文案须点明语义：{error}");
 }
 
 /// detail 语料的投影：change_detail 全读链输出（id 寻址）。

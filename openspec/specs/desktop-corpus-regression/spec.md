@@ -42,16 +42,21 @@ workflow crate SHALL 在 `tests/fixtures/` 维护语料夹具，载体 SHALL 为
 
 ### Requirement: 全量聚合快照回归
 
-workflow crate SHALL 提供**全量聚合 + golden 快照对比**的回归测试：对 db 种子语料逐样本执行建档 → queries 聚合（列表 + 详情），输出序列化结果与 golden 文件比对。该测试 SHALL 防止 db 聚合与 detail 线面投影的静默劣化（原「TS schema 演进导致 Rust 解析静默劣化」防线随 parse 退役由本防线接管聚合面）；golden 更新 SHALL 是显式行为（`DESKTOP_GOLDEN_REWRITE=1` 覆写 → 人工确认 diff 预期范围并留痕 → 复核一致），MUST NOT 静默自动重写。
+workflow crate SHALL 提供**全量聚合 + golden 快照对比**的回归测试：对 db 种子语料逐样本执行建档 → queries 聚合（列表 + 详情），输出序列化结果与 golden 文件比对。该测试 SHALL 防止 db 聚合与 detail 线面投影的静默劣化（原「TS schema 演进导致 Rust 解析静默劣化」防线随 parse 退役由本防线接管聚合面）；golden 更新 SHALL 是显式行为（`DESKTOP_GOLDEN_REWRITE=1` 覆写 → 人工确认 diff 预期范围并留痕 → 复核一致），MUST NOT 静默自动重写。对比 SHALL 按 JSON 结构语义进行（对象键序无关、数组元素序相关）：对象成员顺序由序列化器 Map 实现决定（`serde_json` 的 `preserve_order` 特性经 `oxc_resolver` / tauri 构建期依赖间接开启，随 `cargo test` 的 crate 组合在插入序 / 字母序之间切换），MUST NOT 作为契约；相位表序、attempt 升序、节点 / 边 emit 序等业务序 SHALL 保持在契约内。
 
 #### Scenario: 快照回归通过
 
 - **WHEN** 运行快照回归测试
-- **THEN** 全部 db 种子样本的聚合输出与 golden 一致
+- **THEN** 全部 db 种子样本的聚合输出与 golden 结构等价（对象键序差异不影响判定）
+
+#### Scenario: 键序非契约
+
+- **WHEN** 仅调整 DTO 的字段声明顺序（或换一种 `cargo test` crate 组合使 `preserve_order` 翻面）
+- **THEN** 快照回归测试仍通过——对象键的书写先后不承载业务含义
 
 #### Scenario: 聚合漂移被捕获
 
-- **WHEN** 某聚合或线面投影形状变化导致输出改变
+- **WHEN** 某聚合或线面投影形状变化导致输出改变（含数组元素序换位）
 - **THEN** 回归测试失败并呈现差异，需显式确认后才能更新 golden
 
 ### Requirement: run 运行史语料维度

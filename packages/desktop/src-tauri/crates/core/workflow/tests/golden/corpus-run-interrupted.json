@@ -1,64 +1,64 @@
 {
+  "activePhase": null,
+  "artifacts": [],
+  "created": "2024-09-22",
   "id": "id-run-interrupted",
   "name": "run-interrupted",
-  "title": "run-interrupted",
-  "source": "active",
-  "status": "active",
-  "created": "2024-09-22",
   "pipeline": [
     {
-      "phase": "initialize",
-      "attempts": []
+      "attempts": [],
+      "phase": "initialize"
     },
     {
-      "phase": "proposal",
-      "attempts": []
+      "attempts": [],
+      "phase": "proposal"
     },
     {
-      "phase": "dev-design",
-      "attempts": []
+      "attempts": [],
+      "phase": "dev-design"
     },
     {
-      "phase": "test-design",
-      "attempts": []
+      "attempts": [],
+      "phase": "test-design"
     },
     {
-      "phase": "implement",
-      "attempts": []
+      "attempts": [],
+      "phase": "implement"
     },
     {
-      "phase": "test-gen",
-      "attempts": []
+      "attempts": [],
+      "phase": "test-gen"
     },
     {
-      "phase": "test-execution",
-      "attempts": []
+      "attempts": [],
+      "phase": "test-execution"
     },
     {
-      "phase": "code-review",
-      "attempts": []
+      "attempts": [],
+      "phase": "code-review"
     },
     {
-      "phase": "acceptance",
-      "attempts": []
+      "attempts": [],
+      "phase": "acceptance"
     },
     {
-      "phase": "archive",
-      "attempts": []
+      "attempts": [],
+      "phase": "archive"
     }
   ],
-  "activePhase": null,
   "runs": [
     {
-      "runId": "run-1727000005000",
-      "status": "interrupted",
-      "reason": "重启标定：桌面进程中断，run 客观已终止（中断于 phase implement attempt 1）",
-      "startedAt": "2024-09-22T10:13:25Z",
+      "edges": [],
       "finishedAt": "2024-09-22T10:13:29Z",
       "nodes": [],
-      "edges": []
+      "reason": "重启标定：桌面进程中断，run 客观已终止（中断于 phase implement attempt 1）",
+      "runId": "run-1727000005000",
+      "startedAt": "2024-09-22T10:13:25Z",
+      "status": "interrupted"
     }
   ],
-  "artifacts": [],
+  "source": "active",
+  "status": "active",
+  "title": "run-interrupted",
   "worktree": null
 }
