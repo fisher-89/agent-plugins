@@ -116,6 +116,8 @@ async fn spawn失败面_路径隔离下显式fatal() {
         std::path::Path::new("."),
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await;
 
@@ -141,7 +143,7 @@ async fn spawn失败面_路径隔离下显式fatal() {
         Err(SegmentFailure::Cancelled(error)) => {
             panic!("PATH 隔离下应 Fatal（拉起失败），实际 Cancelled: {error}")
         }
-        Ok((raw, _)) => panic!("PATH 隔离下应 Err，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("PATH 隔离下应 Err，实际 Ok: {raw}"),
     }
 }
 
@@ -212,11 +214,13 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     window.set_cargo_outcomes(CARGO_SEG_CANNED);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let (raw, _) = run_suite(
+    let (raw, _, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("假 spawn 段执行应 Ok");
@@ -340,6 +344,8 @@ async fn cargo_target_dir相对值覆盖继承的绝对路径() {
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("段 0 应 Ok");
@@ -348,6 +354,8 @@ async fn cargo_target_dir相对值覆盖继承的绝对路径() {
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("段 1 应 Ok");
@@ -437,11 +445,13 @@ async fn 退出零无报告_零突变体段合成空计数面() {
     // 不编程 outcomes —— 假执行体不写报告（真实工具零交叠面同形）
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let (raw, _) = run_suite(
+    let (raw, _, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("退出 0 无报告 = 零突变体段（非中断）");
@@ -481,11 +491,13 @@ async fn 陈旧报告清场_上一段残留不误读() {
 
     // 假执行体不写报告（本段零交叠面）——陈旧报告必须被清场而非误读
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
-    let (raw, _) = run_suite(
+    let (raw, _, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("清场后零交叠段应空计数面");
@@ -523,6 +535,8 @@ async fn 轮换目录清场_历史残留一并移除() {
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("段执行应 Ok");
@@ -549,6 +563,8 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await;
     match result {
@@ -569,7 +585,7 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
         }
-        Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
     }
 
     // 假 spawn 记录面（模板展开同装置承接）
@@ -605,6 +621,8 @@ async fn 超时中断_强制终止且pid消失不挂死() {
             &exec_dir,
             1,
             foundation::cancel::CancelFlag::never(),
+            None,
+            None,
         )
         .await
     });
@@ -633,7 +651,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("时钟推进应超时中断而非 Cancelled: {message}")
         }
-        Ok((raw, _)) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
     }
 }
 
@@ -661,11 +679,13 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
     for (index, content) in &patches {
         window.reset_records();
         let patch_path = ws.write_patch(*index, content);
-        let (raw, _) = run_suite(
+        let (raw, _, _) = run_suite(
             &patch_path,
             &ws.exec_dir,
             1,
             foundation::cancel::CancelFlag::never(),
+            None,
+            None,
         )
         .await
         .unwrap_or_else(|error| panic!("段 {index} 边界补丁段执行应 Ok: {error}"));
@@ -746,7 +766,7 @@ async fn 运行中cancel_段取消变体与文案且秒级收敛() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     let handle = cancel.handle();
-    let runner = tokio::spawn(async move { run_suite(&patch_path, &ws.exec_dir, 1, cancel).await });
+    let runner = tokio::spawn(async move { run_suite(&patch_path, &ws.exec_dir, 1, cancel, None, None).await });
 
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
     let started = Instant::now();
@@ -767,7 +787,7 @@ async fn 运行中cancel_段取消变体与文案且秒级收敛() {
         Err(SegmentFailure::Fatal(message)) => {
             panic!("置位取消应为 Cancelled，实际 Fatal: {message}")
         }
-        Ok((raw, _)) => panic!("取消应中断，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("取消应中断，实际 Ok: {raw}"),
     }
     assert!(
         elapsed < Duration::from_secs(20),
@@ -790,7 +810,7 @@ async fn 已置位cancel_入口短路零spawn() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     cancel.handle().set();
-    let result = run_suite(&patch_path, &ws.exec_dir, 1, cancel).await;
+    let result = run_suite(&patch_path, &ws.exec_dir, 1, cancel, None, None).await;
     match result {
         Err(SegmentFailure::Cancelled(message)) => {
             assert_eq!(message, "cargo-mutants 执行已取消");
@@ -842,6 +862,8 @@ async fn 合并流与大输出_双管道大块逐字节() {
                 &ws.exec_dir,
                 1,
                 foundation::cancel::CancelFlag::never(),
+                None,
+                None,
             ),
         )
         .await
@@ -863,7 +885,7 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         }
         // 真空输出的「裸 head」语义（无错误摘要段 / 无尾部段）直驱钉死
         assert_eq!(
@@ -897,6 +919,8 @@ async fn 合并流与大输出_双管道大块逐字节() {
                 &ws.exec_dir,
                 1,
                 foundation::cancel::CancelFlag::never(),
+                None,
+                None,
             ),
         )
         .await
@@ -911,7 +935,7 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         };
         assert!(
             message.starts_with(HEAD_BIG),
@@ -977,6 +1001,8 @@ async fn 输出含瞬态签名不触发段重试() {
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await;
 
@@ -992,8 +1018,9 @@ async fn 输出含瞬态签名不触发段重试() {
 }
 
 // ---------------------------------------------------------------------------
-// 零 live 接入（change-detail-live-stdout，D14 / Q2）：`RunOptions { live: None }`
-// 两处构造的编译面涟漪——突变段在 `reports/<slot>/exec-outputs/` **零新增文件**。
+// 段执行体的 live 形参（`RunOptions.live` 透传面）：缺省 `None` 时报告树
+// `reports/<slot>/exec-outputs/` **零新增文件**——记录生命周期（`begin` /
+// `commit`）归 `execute` 单点，段执行体只透传 tee 口。
 // ---------------------------------------------------------------------------
 
 /// 报告树文件名词表（相对路径排序——「零累积 / 零新增」的稳定快照面）。
@@ -1030,11 +1057,13 @@ async fn 同patch两跑幂等_报告树零累积() {
     window.set_cargo_outcomes(CARGO_SEG_CANNED);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let (first, _) = run_suite(
+    let (first, _, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("首跑应 Ok");
@@ -1042,11 +1071,13 @@ async fn 同patch两跑幂等_报告树零累积() {
     let report_root = ws.mutation_dir.parent().expect("报告树根").to_path_buf();
     let snapshot_after_first = tree_names(&report_root);
 
-    let (second, _) = run_suite(
+    let (second, _, _) = run_suite(
         &patch_path,
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("同 patch 再跑应 Ok");
@@ -1085,14 +1116,14 @@ async fn 同patch两跑幂等_报告树零累积() {
     );
     assert!(
         !report_root.join("exec-outputs").exists(),
-        "两次跑均零 live 记录面（无 exec-outputs 目录）"
+        "段执行体不建记录面（记录生命周期归 `execute`——本层零 live 时零文件）"
     );
 }
 
-/// 边界：段执行后其报告树 `exec-outputs/` **零新增文件**（零 live 记录面，
-/// Q2 裁定的运行期判据）。
+/// 边界：段执行体自身不建记录面——`live: None`（缺省调用形态）时其报告树
+/// `exec-outputs/` 零新增文件；记录生命周期 `begin` / `commit` 归 `execute` 单点。
 #[tokio::test]
-async fn 段执行后零exec_outputs新增() {
+async fn 段执行体零live时零exec_outputs新增() {
     let ws = SpawnWs::new("no-live");
     let window = SpawnWindow::enter("cargo-no-live");
     window.install_fake_cargo(&ws.exec_dir);
@@ -1104,6 +1135,8 @@ async fn 段执行后零exec_outputs新增() {
         &ws.exec_dir,
         1,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("假 spawn 段执行应 Ok");
@@ -1192,6 +1225,8 @@ async fn 超时中断_有增量成果时回读为部分结果() {
             &exec_dir,
             1,
             foundation::cancel::CancelFlag::never(),
+            None,
+            None,
         )
         .await
     });
@@ -1211,7 +1246,7 @@ async fn 超时中断_有增量成果时回读为部分结果() {
 
     let result = runner.await.expect("任务应正常结束");
     match result {
-        Ok((raw, recovered)) => {
+        Ok((raw, recovered, _)) => {
             assert!(recovered, "回读路径必须标记为部分结果");
             let parsed = checks::model::parse_cargo_mutants_seg(&raw).expect("合成载荷可解析");
             assert_eq!(parsed.measured.killed, 2);

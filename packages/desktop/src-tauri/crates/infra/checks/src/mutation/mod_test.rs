@@ -693,6 +693,7 @@ async fn run(ws: &ChainWs, files: &[String]) -> Result<ToolStepOutput, String> {
             files,
             "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
             foundation::cancel::CancelFlag::never(),
+            None,
         )
         .await
 }
@@ -832,6 +833,13 @@ async fn 跳过面_empty_diff空清单与桶外文件() {
     );
     assert_eq!((outcome.score, outcome.threshold), (0.0, 0.0), "0.0 占位");
     assert!(outcome.report_paths.is_empty() && outcome.feedback_text.is_empty());
+    assert!(outcome.exec_id.is_empty(), "跳过面零 spawn ⇒ 不建 live 记录（空串）");
+    assert!(
+        !foundation::layout::change_test_reports(&ws.root, ws.change)
+            .join("exec-outputs")
+            .exists(),
+        "跳过面零 exec-outputs（与 static-check「零 spawn 不建记录」同口径）"
+    );
 
     // 桶外文件（不落 app 桶——零突变面同样 EmptyDiff）
     let outside = vec!["other/lib.rs".to_owned()];
@@ -870,6 +878,7 @@ async fn 跳过面_no_executor_无执行器框架记evidence不err() {
             &files,
             "patch",
             foundation::cancel::CancelFlag::never(),
+            None,
         )
         .await
         .expect("NoExecutor 面恒 Ok");
@@ -885,6 +894,7 @@ async fn 跳过面_no_executor_无执行器框架记evidence不err() {
         outcome.feedback_text.is_empty(),
         "NoExecutor evidence 记 PhaseLog 面（本载荷零反馈）"
     );
+    assert!(outcome.exec_id.is_empty(), "跳过面不建 live 记录");
 }
 
 /// 异常：E5 显式 Err 面——报告目录不可建（`openspec/changes/<change>` 被文件
@@ -917,6 +927,7 @@ async fn 显式err面_写盘失败停给用户() {
             &files,
             "patch",
             foundation::cancel::CancelFlag::never(),
+            None,
         )
         .await
         .expect_err("写盘失败应显式 Err");
@@ -1497,6 +1508,9 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     let ws = ChainWs::with_config("combo-root", RUST_APP_CONFIG);
     window.install_fake_cargo(&ws.root.join("app"));
     window.set_cargo_outcomes(CARGO_SEG_PASS);
+    // canned stdout：假 spawn 向 stdout 吐进度行（记录正文的「脚本真实输出」面）
+    window.set_out("mutation progress line
+");
 
     let vcs = Arc::new(FakeVcs::new(vec!["app/src/lib.rs".to_owned()], COMBO_PATCH));
     let store = Arc::new(FakeStore::new());
@@ -1512,6 +1526,15 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
         "run-combo-0001".to_owned(),
     );
 
+    // 上抛录制：`ProcessMutation` → `execute` 在 live `.log` 创建后 emit 一次
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&seen);
+    let sink = OutputRefSink::new(move |exec_id: &str| {
+        recorder
+            .lock()
+            .expect("上抛记录锁不可中毒")
+            .push(exec_id.to_owned());
+    });
     let output = steps
         .run(ToolStepRequest {
             root: ws.root_str(),
@@ -1519,7 +1542,7 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
             command: ToolCommand::MutationTest {
                 change_id: COMBO_CHANGE_ID.to_owned(),
             },
-            on_output_ref: None,
+            on_output_ref: Some(sink),
         })
         .await
         .expect("组合根链路应成功");
@@ -1586,6 +1609,32 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     );
     assert_eq!(records[0].argv[2], "--workspace", "workspace 突变面");
     assert_eq!(records[0].argv[3], "--in-diff", "段补丁入参位");
+
+    // 输出记录面：上抛恰一次且与终态 exec_id 同值（同 id 收口）；`.log` 在案、
+    // 内容含桶分隔头 + 假 spawn 的真实输出；`.cmd` sidecar 携展开后的命令
+    let emitted = seen.lock().expect("上抛记录锁不可中毒").clone();
+    assert_eq!(emitted.len(), 1, "上抛恰一次（跳过面之后、逐桶 spawn 之前）: {emitted:?}");
+    assert_eq!(
+        emitted[0], outcome.exec_id,
+        "运行中上抛 id 与终态 exec_id 同值（同 id 收口）"
+    );
+    let exec_dir = reports.join("exec-outputs");
+    let log_path = exec_dir.join(format!("{}.log", outcome.exec_id));
+    let log = fs::read_to_string(&log_path).expect("输出记录在案");
+    assert!(
+        log.contains("=== app_rust (rust) · files=1 ==="),
+        "记录正文携桶分隔头: {log}"
+    );
+    assert!(
+        log.contains("mutation progress line"),
+        "记录正文 = 假 spawn 真实输出（stdout + stderr 合并流）: {log}"
+    );
+    let cmd = fs::read_to_string(exec_dir.join(format!("{}.cmd", outcome.exec_id)))
+        .expect("命令 sidecar 在案");
+    assert!(
+        cmd.contains("=== app_rust (rust) · files=1 ===") && cmd.contains("cargo mutants --test-tool=nextest"),
+        "sidecar 携桶段头 + 展开后的命令: {cmd}"
+    );
 
     // 审计行（StepKind::MutationTest，摘要携 conclusion / score / threshold）
     let rows = store.audit_rows();
@@ -2108,6 +2157,7 @@ async fn run_with_cancel(
             files,
             "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
             cancel,
+            None,
         )
         .await
 }
@@ -2151,10 +2201,12 @@ async fn 取消_fault为stopped且结论占位fail() {
     let files = vec!["app/src/lib.rs".to_owned()];
     let cancel = foundation::cancel::CancelFlag::never();
     let handle = cancel.handle();
+    // 报告树锚与执行根提前取：`ws` 本体留在测试作用域（tempdir 随它存活——
+    // 移进 spawn 任务会在任务结束后删除整棵 workspace，记录面无从回查）
+    let reports = foundation::layout::change_test_reports(&ws.root, ws.change);
+    let ws_root = ws.root_str();
+    let ws_change = ws.change;
     let runner_task = tokio::spawn(async move {
-        let ws_root = ws.root_str();
-        let ws_change = ws.change;
-        let _keep = &ws;
         ProcessMutation::new()
             .run(
                 &ws_root,
@@ -2162,6 +2214,7 @@ async fn 取消_fault为stopped且结论占位fail() {
                 &files,
                 "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
                 cancel,
+                None,
             )
             .await
     });
@@ -2203,6 +2256,27 @@ async fn 取消_fault为stopped且结论占位fail() {
         outcome.report_paths.is_empty(),
         "取消段零段块产出 → 无归并报告路径: {:?}",
         outcome.report_paths
+    );
+    // 取消面不 commit（`live` 已把段字节边跑边落盘）：终态 exec_id 仍在上抛 id
+    // 上（节点可回看），`.log` 保留段的部分输出而非被覆盖为空
+    let records = window.records();
+    assert_eq!(records.len(), 1, "取消前恰一次假 spawn");
+    let log_path = reports
+        .join("exec-outputs")
+        .join(format!("{}.log", outcome.exec_id));
+    let listing: Vec<String> = std::fs::read_dir(log_path.parent().unwrap())
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        log_path.is_file(),
+        "取消面记录在位（live 已创建）: {} / 目录内容 {listing:?} / exec_id {:?}",
+        log_path.display(),
+        outcome.exec_id
     );
 }
 
@@ -2318,6 +2392,7 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
                 &files,
                 "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
                 cancel,
+                None,
             )
             .await
     });
@@ -2402,6 +2477,7 @@ async fn 循环内clone共享原子_置位在链尾执行体可见() {
                 &files,
                 "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
                 cancel,
+                None,
             )
             .await
     });
@@ -2471,6 +2547,7 @@ async fn 取消后stryker临时面保留_保留段与路径在案() {
                 &files,
                 "diff --git a/app/src/a.ts b/app/src/a.ts\n",
                 cancel,
+                None,
             )
             .await
     });

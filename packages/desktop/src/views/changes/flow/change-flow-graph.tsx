@@ -92,10 +92,6 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
   const edges = useMemo(() => toChartEdges(graph), [graph]);
   const translateExtent = useMemo(() => graphTranslateExtent(graph), [graph]);
   const onNodeClick = (_event: unknown, node: ChartNode): void => {
-    // 点击判据（节点点击判据与 stdout 输出面板）：无信息源的 runtime 节点不可
-    // 点击——`role` 与 `outputRef` 皆 null（phaseStart / phaseLog / gate 三门 /
-    // git 四步 / preflight / seal）时 detail 短文本已在节点内显示，抽屉无增量
-    // 信息，不上抛 onSelect。列头点击经 PhaseColumnNode 本体上抛，不受本判据约束
     if (node.type !== 'runStep') return;
     if (node.data.node.role === null && node.data.node.outputRef === null) return;
     onSelect({ scope: 'node', nodeId: node.id });

@@ -80,7 +80,9 @@ pub(crate) async fn run_suite(
     segment: &StrykerSegment<'_>,
     round_duration_ms: Option<f64>,
     cancel: CancelFlag,
-) -> Result<(String, bool), SegmentFailure> {
+    live: Option<exec::LiveSink>,
+    on_command: Option<&(dyn Fn(&str) + Sync)>,
+) -> Result<(String, bool, Vec<u8>), SegmentFailure> {
     // 程序解析前置（E5：npx 不可达显式 Err——壳会吞缺失程序，先查 PATH）
     ensure_on_path("npx").map_err(SegmentFailure::Fatal)?;
 
@@ -114,6 +116,9 @@ pub(crate) async fn run_suite(
         to_posix(segment.suite_cwd),
         to_posix(&config_path)
     );
+    if let Some(on_command) = on_command {
+        on_command(&command);
+    }
     let run = exec::run_shell(
         SystemCommand::script_raw(&command),
         exec::RunOptions {
@@ -123,11 +128,17 @@ pub(crate) async fn run_suite(
             cancel,
             // 突变面零重试（同 cargo-mutants 口径）
             retry: exec::RetryPolicy::none(),
-            // 突变面零 live 接入（同 cargo-mutants 口径）
-            live: None,
+            // 运行中 tee：进程未结束即可读（收口时同 id 覆盖为权威内容）
+            live,
         },
     )
     .await;
+    // 被杀两臂（超时 / 取消）同样交回已收字节：面板可读部分输出优于空面
+    let merge_output = |report: exec::RunReport| {
+        let mut output = report.stdout;
+        output.extend_from_slice(&report.stderr);
+        output
+    };
     let (exit_code, output) = match run {
         Err(exec::RunError::Spawn(error)) => {
             return Err(SegmentFailure::Fatal(format!(
@@ -151,17 +162,15 @@ pub(crate) async fn run_suite(
         Ok(report) if report.outcome == exec::RunOutcome::Cancelled => {
             return Err(SegmentFailure::Cancelled("Stryker 执行已取消".to_owned()));
         }
-        Ok(report) => {
-            let mut output = report.stdout;
-            output.extend_from_slice(&report.stderr);
-            (report.exit_code, output)
-        }
+        Ok(report) => (report.exit_code, merge_output(report)),
     };
 
     // 报告为权威：在位且可解析 → 完成（工具以非零退出表达未达标等语义不中断）；
     // 缺失 / 损坏 → 中断（错误摘要 + 输出尾部，即时反馈面）
     match std::fs::read_to_string(&report_path) {
-        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok((raw, false)),
+        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => {
+            Ok((raw, false, output))
+        }
         _ => Err(SegmentFailure::Interrupted(segment_failure_message(
             exit_code, &output,
         ))),

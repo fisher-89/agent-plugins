@@ -268,7 +268,8 @@ Stryker 无相应的增量成果文件（报告只在正常退出时由 jsonRepo
 | `crates/infra/checks/src/mutation/stryker.rs` | 整体执行（js 族） | `run_suite(segment, round_duration_ms, cancel) -> (String, bool)` 经 `run_shell`（`cwd = suite_cwd`、超时按 `estimate_timeout_ms(突变数, 单轮测试耗时)`、`RetryPolicy::none()`）；突变数 = 文件总行数 × `MUTANTS_PER_LINE`（业界通用值）；`PER_MUTANT_TEST_RATIO` = 0.1（业界通用值）；无增量成果文件，终止面只有中断一条路径（布尔位恒 `false`） |
 | `crates/core/orchestration/src/port.rs` | 载荷 | `MutationTestOutcome { conclusion, skip, score, threshold, counts, report_paths, feedback_text, fault: Option<RunFault> }`（仍零 Serialize，不出线） |
 | `crates/core/orchestration/src/walker.rs`（`step_mutation_test_escalate`） | 步分派 | `fault = Stopped` 前置分支（`Terminal::stopped`）先于 pass / 升格；`fault == None` 时既有 pass / 升格链逐字不变 |
-| `crates/core/orchestration/src/port.rs` | port 契约 | `MutationRunner::run(&self, root: &str, name: &str, files: &[String], patch: &str, cancel: CancelFlag) -> BoxToolFuture` |
-| `crates/infra/checks/src/mutation/mod.rs`（port 实现） | runner 实现 | `impl MutationRunner for ProcessMutation`：签名加 `cancel` 并透传 `execute` |
+| `crates/core/orchestration/src/port.rs` | port 契约 | `MutationRunner::run(&self, root: &str, name: &str, files: &[String], patch: &str, cancel: CancelFlag, on_output_ref: Option<OutputRefSink>) -> BoxToolFuture`（末位与 `StaticCheckRunner` / `TestExecutionRunner` 同形） |
+| `crates/infra/checks/src/mutation/mod.rs`（port 实现） | runner 实现 | `impl MutationRunner for ProcessMutation`：透传 `cancel` 与 `on_output_ref` 给 `execute`；`execute` 自持 live 记录生命周期（`begin` → 逐桶 `write_command` → 上抛 → `commit`） |
+| `crates/core/orchestration/src/port.rs`（载荷） | 载荷扩字段 | `MutationTestOutcome.exec_id: String`（空串 = 未记录；与 `TestExecutionOutcome.exec_id` 同口径，仍零 `Serialize` 不出线） |
 | `crates/core/checks` | 纯层 | 逻辑零改动（`parse_*_seg` / score / 归并 / 阈值判定不变） |
 | `crates/core/checks/src/aggregate.rs` | excludes 口径单点 | `is_file_excluded(path, suites)` 由消费面复用（excludes 全桶口径单点） |

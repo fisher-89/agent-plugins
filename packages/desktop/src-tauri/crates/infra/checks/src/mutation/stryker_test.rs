@@ -318,10 +318,12 @@ async fn spawn模板展开_argv逐参等值与cwd捕获() {
     let report_path = ws.mutation_dir.join("mutation-seg-0.json");
     window.set_report(&report_path);
 
-    let (raw, _) = run_suite(
+    let (raw, _, _) = run_suite(
         &ws.segment(&files),
         None,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("假 spawn 段执行应 Ok");
@@ -376,6 +378,8 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
         &ws.segment(&files),
         None,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await;
     match result {
@@ -396,7 +400,7 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
         }
-        Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
     }
 
     // 假 spawn 记录面（模板展开同装置承接）
@@ -435,7 +439,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
             framework: "vitest",
             suite_config: None,
         };
-        run_suite(&segment, None, foundation::cancel::CancelFlag::never()).await
+        run_suite(&segment, None, foundation::cancel::CancelFlag::never(), None, None).await
     });
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
 
@@ -462,7 +466,7 @@ async fn 超时中断_强制终止且pid消失不挂死() {
         Err(SegmentFailure::Cancelled(message)) => {
             panic!("时钟推进应超时中断而非 Cancelled: {message}")
         }
-        Ok((raw, _)) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("自旋挂起应超时中断，实际 Ok: {raw}"),
     }
 }
 
@@ -502,7 +506,7 @@ async fn 运行中cancel_段取消变体且临时config保留() {
             framework: "vitest",
             suite_config: None,
         };
-        run_suite(&segment, None, cancel).await
+        run_suite(&segment, None, cancel, None, None).await
     });
 
     let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
@@ -521,7 +525,7 @@ async fn 运行中cancel_段取消变体且临时config保留() {
         Err(SegmentFailure::Fatal(message)) => {
             panic!("置位取消应为 Cancelled，实际 Fatal: {message}")
         }
-        Ok((raw, _)) => panic!("取消应中断，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("取消应中断，实际 Ok: {raw}"),
     }
     assert!(
         mutation_dir.exists(),
@@ -548,7 +552,7 @@ async fn 已置位cancel_入口短路零spawn且临时config在位() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     cancel.handle().set();
-    let result = run_suite(&ws.segment(&files), None, cancel).await;
+    let result = run_suite(&ws.segment(&files), None, cancel, None, None).await;
 
     match result {
         Err(SegmentFailure::Cancelled(message)) => {
@@ -560,7 +564,7 @@ async fn 已置位cancel_入口短路零spawn且临时config在位() {
         Err(SegmentFailure::Fatal(message)) => {
             panic!("已置位 cancel 应为 Cancelled，实际 Fatal: {message}")
         }
-        Ok((raw, _)) => panic!("已置位 cancel 应中断，实际 Ok: {raw}"),
+        Ok((raw, _, _)) => panic!("已置位 cancel 应中断，实际 Ok: {raw}"),
     }
     assert!(
         window.records().is_empty(),
@@ -602,6 +606,8 @@ async fn 合并流与大输出_双管道大块逐字节() {
                 &ws.segment(&files),
                 None,
                 foundation::cancel::CancelFlag::never(),
+                None,
+                None,
             ),
         )
         .await
@@ -619,7 +625,7 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         }
         assert_eq!(window.records().len(), 1, "空形态恰一次假 spawn");
     }
@@ -645,6 +651,8 @@ async fn 合并流与大输出_双管道大块逐字节() {
                 &ws.segment(&files),
                 None,
                 foundation::cancel::CancelFlag::never(),
+                None,
+                None,
             ),
         )
         .await
@@ -659,7 +667,7 @@ async fn 合并流与大输出_双管道大块逐字节() {
             Err(SegmentFailure::Cancelled(message)) => {
                 panic!("非零退出应 Interrupted 而非 Cancelled: {message}")
             }
-            Ok((raw, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
+            Ok((raw, _, _)) => panic!("零段报告应中断，实际 Ok: {raw}"),
         };
         // 行数 = 2 ≤ 50 → 输出末尾段逐字全量（逐字节等值即「不丢字节」）
         let expected = format!(
@@ -698,6 +706,8 @@ async fn 输出含瞬态签名不触发段重试() {
         &ws.segment(&files),
         None,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await;
 
@@ -713,9 +723,65 @@ async fn 输出含瞬态签名不触发段重试() {
 }
 
 // ---------------------------------------------------------------------------
-// 零 live 接入（change-detail-live-stdout，D14 / Q2）：`RunOptions { live: None }`
-// 单行构造的编译面涟漪——Stryker 段在 `reports/<slot>/exec-outputs/` **零新增**。
+// 段执行体的 live 形参（`RunOptions.live` 透传面）：缺省 `None` 时报告树
+// `reports/<slot>/exec-outputs/` **零新增**——记录生命周期（`begin` / `commit`）
+// 归 `execute` 单点。
 // ---------------------------------------------------------------------------
+
+/// 正向：`live: Some(..)` 与 `on_command` 透传——段执行体把 tee 口交给
+/// `run_shell`（假 spawn 的 stdout 落进 sink），并在 spawn 前恰一次回吐展开后的
+/// 命令串；返回值第三位 = 本次 spawn 的合并输出（stdout 前缀 + stderr 后缀）。
+#[tokio::test]
+async fn live透传_字节落sink且命令回吐恰一次() {
+    let ws = SpawnWs::new("live");
+    let files = vec!["app/src/a.test.ts".to_owned()];
+    let window = SpawnWindow::enter("stryker-live");
+    window.install_npx();
+    // 假执行体的 stdout 源同时充当段报告源（`FAKE_SPAWN_REPORT` 拷贝同内容到
+    // 报告路径）——故以合法报告体作输出面，断言取其中的文本片段
+    window.set_out(STRYKER_SEG_CANNED);
+    window.set_report(&ws.mutation_dir.join("mutation-seg-0.json"));
+
+    // 段层构造面是 crate 内的 `LiveExec::sink`；此处以真实 `LiveExec` 取 sink，
+    // 顺带验证「先建文件再写字节」的落盘契约
+    let live = exec::LiveExec::begin(&ws.root, "demo-change", foundation::layout::ReportSlot::Test)
+        .expect("建 live 记录");
+    let commands: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let on_command = |command: &str| {
+        commands
+            .lock()
+            .expect("命令记录锁不可中毒")
+            .push(command.to_owned());
+    };
+
+    let (_, _, output) = run_suite(
+        &ws.segment(&files),
+        None,
+        foundation::cancel::CancelFlag::never(),
+        Some(live.sink()),
+        Some(&on_command),
+    )
+    .await
+    .expect("假 spawn 段执行应 Ok");
+
+    let log = fs::read_to_string(live.log_path()).expect("live 记录已落盘");
+    assert!(
+        log.contains("\"totalMutants\": 10"),
+        "sink 收到假 spawn 字节: {log}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output),
+        log,
+        "返回的合并输出与 live tee 到的字节一致（stdout 前缀 + stderr 后缀）"
+    );
+    let recorded = commands.lock().expect("命令记录锁不可中毒").clone();
+    assert_eq!(recorded.len(), 1, "命令回吐恰一次");
+    assert!(
+        recorded[0].starts_with("npx --prefix") && recorded[0].contains("stryker run"),
+        "命令串 = 模板展开形态: {}",
+        recorded[0]
+    );
+}
 
 /// 报告树文件名词表（相对路径排序——「零新增」的稳定快照面）。
 fn tree_names(root: &Path) -> Vec<String> {
@@ -740,12 +806,12 @@ fn tree_names(root: &Path) -> Vec<String> {
     names
 }
 
-/// 正向：**端到端跑通 + 报告树零 exec-outputs**——假 `npx` 直写段报告（
-/// `jsonReporter` 面）→ 段执行 `Ok` 且载荷为 canned 原样；同时报告树
-/// （`reports/test/<planId>/`）与兄弟槽位下 `exec-outputs/` 目录均不存在、
-/// `mutation/` 内零 `.log` / `.cmd` 新增（`live: None` 未接入记录面）。
+/// 正向：**端到端跑通 + 段执行体零记录面**——假 `npx` 直写段报告（`jsonReporter`
+/// 面）→ 段执行 `Ok` 且载荷为 canned 原样；`live: None`（缺省调用形态）下报告树
+/// （`reports/test/<planId>/`）与兄弟槽位 `exec-outputs/` 均不新建、`mutation/`
+/// 内零 `.log` / `.cmd` 新增（记录生命周期归 `execute` 单点）。
 #[tokio::test]
-async fn 端到端跑通且报告树零exec_outputs() {
+async fn 端到端跑通且段执行体零exec_outputs() {
     let ws = SpawnWs::new("no-live");
     let files = vec!["app/src/a.test.ts".to_owned()];
     let window = SpawnWindow::enter("stryker-no-live");
@@ -756,10 +822,12 @@ async fn 端到端跑通且报告树零exec_outputs() {
     let report_root = ws.mutation_dir.parent().expect("报告树根").to_path_buf();
     let before = tree_names(&report_root);
 
-    let (raw, _) = run_suite(
+    let (raw, _, _) = run_suite(
         &ws.segment(&files),
         None,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("假 spawn 段执行应 Ok");
@@ -805,10 +873,12 @@ async fn 同段两跑幂等_临时config同路径覆写且零残留() {
     window.set_report(&report_path);
     let config_path = ws.mutation_dir.join("mutation-stryker-seg-0.conf.json");
 
-    let (first, _) = run_suite(
+    let (first, _, _) = run_suite(
         &ws.segment(&files),
         None,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("首跑应 Ok");
@@ -820,10 +890,12 @@ async fn 同段两跑幂等_临时config同路径覆写且零残留() {
     fs::remove_file(&report_path).expect("摘除首跑段报告");
     assert!(!report_path.exists(), "摘除后段报告不在盘");
 
-    let (second, _) = run_suite(
+    let (second, _, _) = run_suite(
         &ws.segment(&files),
         None,
         foundation::cancel::CancelFlag::never(),
+        None,
+        None,
     )
     .await
     .expect("同段再跑应 Ok");

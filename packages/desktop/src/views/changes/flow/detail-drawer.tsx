@@ -83,15 +83,6 @@ function StepSessionEmptyPlaceholder(): React.JSX.Element {
   );
 }
 
-/**
- * 抽屉内容单列分派（信息源判据）：
- * - 列头 → 该站过程素材（文档 + eval-checklist）；
- * - WorkerAgent 步节点（`role !== null`）→ 会话转录（sessionId 直查优先 /
- *   sourceRef 反查兜底）；
- * - 带输出引用的步节点（`outputRef !== null`，static-check / test-execution）→
- *   stdout 面板；
- * - 其余（悬空 / 无信息源）→ 中性空态占位（无 eval 分支、无「评估记录」节）。
- */
 function DrawerContent({
   selection,
   node,

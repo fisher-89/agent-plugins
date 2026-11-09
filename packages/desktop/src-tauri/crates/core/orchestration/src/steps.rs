@@ -285,7 +285,7 @@ async fn execute(
             let files = vcs.change_edit_set(Path::new(&step.root), "HEAD")?;
             let patch = vcs.change_edit_patch(Path::new(&step.root), "HEAD")?;
             let output = mutation
-                .run(&step.root, &name, &files, &patch, cancel)
+                .run(&step.root, &name, &files, &patch, cancel, step.on_output_ref)
                 .await;
             audit_outcome(
                 store.as_ref(),
@@ -300,7 +300,7 @@ async fn execute(
                             outcome.score,
                             outcome.threshold
                         ),
-                        None,
+                        (!outcome.exec_id.is_empty()).then(|| outcome.exec_id.clone()),
                     )),
                     Ok(_) => Err("mutation_test 输出漂移：产出类型不匹配".to_owned()),
                     Err(error) => Err(error.clone()),

@@ -91,14 +91,22 @@ fn read_tauri_version(exec_dir: &Path) -> Option<String> {
 /// `mutant_count` = 本次突变的**估算**突变体数（`--list` 精确值不可得时的兜底
 /// 密度 × 文件数），仅用于折算 spawn 硬超时；spawn 处 MUST NOT 行内算。
 ///
-/// 返回 `(原始报告, 是否为中断回读)`：`true` 表示执行被超时 / 取消终止，报告由
-/// [`recover_partial`] 从增量成果文件合成——已判完的突变体不丢。
+/// `live` / `on_command` 只做记录面透传（与 `testexec::execute_plan` 同式）：
+/// `live` 交给 `run_shell`（运行中 tee 落盘），`on_command` 在裁决出最终命令串、
+/// spawn 之前被调用恰一次。记录生命周期（`begin` / `write_command` / `commit`）
+/// MUST NOT 由本函数持有。
+///
+/// 返回 `(原始报告, 是否为中断回读, 本次 spawn 的输出字节)`：`true` 表示执行被
+/// 超时 / 取消终止，报告由 [`recover_partial`] 从增量成果文件合成——已判完的
+/// 突变体不丢；输出字节供调用方收口为权威记录（被杀两臂给已收字节）。
 pub(crate) async fn run_suite(
     patch_path: &Path,
     exec_dir: &Path,
     mutant_count: u64,
     cancel: CancelFlag,
-) -> Result<(String, bool), SegmentFailure> {
+    live: Option<exec::LiveSink>,
+    on_command: Option<&(dyn Fn(&str) + Sync)>,
+) -> Result<(String, bool, Vec<u8>), SegmentFailure> {
     let spawn_timeout_ms = segments::run_spawn_timeout_ms(mutant_count);
     // 目标目录用**相对路径** `target`：cargo 按各子进程自己的 cwd 解析，而
     // cargo-mutants 的每个 worker 各持一份独立临时副本——于是每个 worker 天然
@@ -143,16 +151,24 @@ pub(crate) async fn run_suite(
     // 漏网目录）。上一行的清场已消掉这条路径；这里再兜底清一次历史残留
     // （早前手工运行留下的），best-effort。
     let _ = std::fs::remove_dir_all(exec_dir.join(CARGO_MUTANTS_OUT_OLD_DIR));
-    let command = SystemCommand::bare("cargo")
-        .args(["mutants", "--test-tool=nextest", "--workspace", "--in-diff"])
-        .arg(patch_path)
-        .args(["--baseline", "skip", "--jobs"])
-        .arg(mutation_jobs().to_string())
-        .args(["--timeout"])
-        .arg(PER_MUTANT_TIMEOUT_SECS.to_string())
+    // argv 先收成显式清单：同一份清单既喂 `SystemCommand`，也用于 `.cmd` sidecar
+    // 的命令文本（面板「最上方显示执行的命令」面）——两处不可能漂移。
+    let argv: Vec<String> = vec![
+        "mutants".to_owned(),
+        "--test-tool=nextest".to_owned(),
+        "--workspace".to_owned(),
+        "--in-diff".to_owned(),
+        patch_path.to_string_lossy().into_owned(),
+        "--baseline".to_owned(),
+        "skip".to_owned(),
+        "--jobs".to_owned(),
+        mutation_jobs().to_string(),
+        "--timeout".to_owned(),
+        PER_MUTANT_TIMEOUT_SECS.to_string(),
         // 只关调试符号的专用 profile（见根 Cargo.toml `[profile.mutants]`）：
         // 突变体预期「编译通过、测试失败」，符号价值远不及编译速度。
-        .args(["--profile", MUTANTS_CARGO_PROFILE])
+        "--profile".to_owned(),
+        MUTANTS_CARGO_PROFILE.to_owned(),
         // worker 副本按 `.gitignore` 剪枝（cargo-mutants 默认**不看** gitignore，
         // 会把未跟踪的构建产物一并复制）。本仓库 `crates/target`（llvm-cov 的
         // 构建目录，~225MB）虽已从版本库撤出，但仍在工作区里——不剪枝时每份副本
@@ -161,13 +177,19 @@ pub(crate) async fn run_suite(
         // 安全性：被剪掉的只是未跟踪 / 已忽略的文件；构建所需的一切都在跟踪集内
         // （`gen/` 由 tauri-build 在副本内自行重建，`crates/target` 本来就不参与
         // 构建）。根包已实测可正常编译（含 tauri_build）。
-        .args(["--gitignore", "true"])
+        "--gitignore".to_owned(),
+        "true".to_owned(),
         // 每 worker 内的测试线程数：cargo-mutants 只把 `--cargo-test-arg` 追加到
         // Test 阶段（不进 `--check` 的 `cargo check`），nextest 档下落在
         // `cargo nextest run` 之后，正是它自己的 `-j` 位。不设则默认吃满核，
         // `jobs × 满核` 会把机器压到测试互相饿死（实测纯函数突变体撞满超时）。
-        .args(["--cargo-test-arg"])
-        .arg(format!("-j{MUTATION_TEST_THREADS}"));
+        "--cargo-test-arg".to_owned(),
+        format!("-j{MUTATION_TEST_THREADS}"),
+    ];
+    if let Some(on_command) = on_command {
+        on_command(&format!("cargo {}", argv.join(" ")));
+    }
+    let command = SystemCommand::bare("cargo").args(&argv);
     let run = exec::run_shell(
         command,
         exec::RunOptions {
@@ -178,11 +200,17 @@ pub(crate) async fn run_suite(
             // 突变面零重试（长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级
             // 复用门承担）
             retry: exec::RetryPolicy::none(),
-            // 突变段零 live 接入（段内不产输出记录面，记录面扩张留待后续变更）
-            live: None,
+            // 运行中 tee：进程未结束即可读（收口时同 id 覆盖为权威内容）
+            live,
         },
     )
     .await;
+    // 被杀两臂（超时 / 取消）同样交回已收字节：面板可读部分输出优于空面
+    let merge_output = |report: exec::RunReport| {
+        let mut output = report.stdout;
+        output.extend_from_slice(&report.stderr);
+        output
+    };
     let (exit_code, output) = match run {
         Err(exec::RunError::Spawn(error)) => {
             return Err(SegmentFailure::Fatal(format!(
@@ -197,24 +225,24 @@ pub(crate) async fn run_suite(
         // 超时：整树已杀 + 收尸完成。**先尝试回读部分成果**——增量文件在盘即
         // 已判完的突变体不丢；一件都读不到才走中断面（双时点②）。
         Ok(report) if report.outcome == exec::RunOutcome::TimedOut => {
+            let partial = merge_output(report);
             return recover_or(exec_dir, || {
                 SegmentFailure::Interrupted(format!(
                     "cargo-mutants 执行超时（{} 秒）强制终止",
                     spawn_timeout_ms / 1000
                 ))
-            });
+            })
+            .map(|(raw, recovered)| (raw, recovered, partial));
         }
         // 取消：同上——已判完的成果保留，回读不到才走取消面（MUST NOT 走 Fatal）
         Ok(report) if report.outcome == exec::RunOutcome::Cancelled => {
+            let partial = merge_output(report);
             return recover_or(exec_dir, || {
                 SegmentFailure::Cancelled("cargo-mutants 执行已取消".to_owned())
-            });
+            })
+            .map(|(raw, recovered)| (raw, recovered, partial));
         }
-        Ok(report) => {
-            let mut output = report.stdout;
-            output.extend_from_slice(&report.stderr);
-            (report.exit_code, output)
-        }
+        Ok(report) => (report.exit_code, merge_output(report)),
     };
 
     // 报告为权威：`outcomes.json` 在位且可解析 → 完整执行（cargo-mutants 以非零
@@ -224,11 +252,14 @@ pub(crate) async fn run_suite(
         .join(CARGO_MUTANTS_OUT_DIR)
         .join(CARGO_OUTCOMES_FILE);
     match std::fs::read_to_string(&outcomes_path) {
-        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok((raw, false)),
-        _ if exit_code == 0 => Ok((ZERO_MUTANTS_PAYLOAD.to_owned(), false)),
+        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => {
+            Ok((raw, false, output))
+        }
+        _ if exit_code == 0 => Ok((ZERO_MUTANTS_PAYLOAD.to_owned(), false, output)),
         _ => recover_or(exec_dir, || {
             SegmentFailure::Interrupted(segment_failure_message(exit_code, &output))
-        }),
+        })
+        .map(|(raw, recovered)| (raw, recovered, output)),
     }
 }
 

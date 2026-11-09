@@ -1318,7 +1318,12 @@ async fn step_mutation_test_escalate(
             change_id: ctx.request.change_id.clone(),
         },
         "mutation-test",
-        None,
+        Some(StepIdentity {
+            phase: ctx.phase.to_owned(),
+            attempt: cursor.attempt,
+            step: ChangeStepKind::MutationTest,
+            instance_no,
+        }),
     )
     .await
     {
@@ -1349,7 +1354,7 @@ async fn step_mutation_test_escalate(
             fault,
             None,
             "",
-            None,
+            output_ref(&outcome.exec_id),
         ));
     }
     if outcome.conclusion == MutationTestConclusion::Pass {
@@ -1365,7 +1370,8 @@ async fn step_mutation_test_escalate(
                 outcome.conclusion.as_str(),
                 outcome.score,
                 outcome.threshold
-            ))),
+            )))
+            .with_output_ref(output_ref(&outcome.exec_id)),
         );
         cursor.mutation_outcome = Some(outcome);
         return Ok(StepFlow::Proceed);
@@ -1376,7 +1382,8 @@ async fn step_mutation_test_escalate(
         cursor.attempt,
         ChangeStepKind::MutationTest,
         instance_no,
-        StepSettle::failed(Some(diagnose_brief(&outcome.feedback_text))),
+        StepSettle::failed(Some(diagnose_brief(&outcome.feedback_text)))
+            .with_output_ref(output_ref(&outcome.exec_id)),
     );
     // 首败升格（桌面代写 fail 落账，不跑 evaluator、零修复会话；三会话槽位恒
     // None），随后回 phase-next 进决策分叉
@@ -3729,6 +3736,11 @@ struct StepIdentity {
     attempt: u32,
     step: ChangeStepKind,
     instance_no: u32,
+}
+
+/// 终态拍的输出引用：空串（记录面降级 / 跳过面）→ `None`，否则原样回填。
+fn output_ref(exec_id: &str) -> Option<String> {
+    (!exec_id.is_empty()).then(|| exec_id.to_owned())
 }
 
 /// 工具步执行：产出按封闭集窄化（漂移显式失败）；步失败 `Err` 串映射终态。

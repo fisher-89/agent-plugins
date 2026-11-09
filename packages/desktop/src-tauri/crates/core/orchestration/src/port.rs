@@ -378,6 +378,10 @@ pub struct MutationTestOutcome {
     /// walker 先查 `fault`。mutation 面只产 `Stopped`：段超时仍走 `Interrupted` +
     /// `conclusion = Error`，有意不进 fault）
     pub fault: Option<RunFault>,
+    /// 输出记录引用（`ExecOutput::Recorded { exec_id }`；跳过面 / 记录面降级
+    /// 为空串 = 未记录——与 `TestExecutionOutcome.exec_id` 同口径，报告文件仍为
+    /// 全量权威）
+    pub exec_id: String,
 }
 
 /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]
@@ -464,10 +468,13 @@ pub trait TestExecutionRunner: Send + Sync {
 /// 取数后由 `steps.rs` 注入，checks-runtime 依赖面零 vcs（清单 / 补丁唯一入口在
 /// vcs 边界）。
 pub trait MutationRunner: Send + Sync {
-    /// 末位为取消信号（经 infra 执行体观测——core 零 spawn）；置位 → 进程树击杀
-    /// → 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 以 `Err` /
-    /// `conclusion = Error` 表达取消）。段超时仍走 `Interrupted` +
+    /// `cancel` 为取消信号（经 infra 执行体观测——core 零 spawn）；置位 → 进程树
+    /// 击杀 → 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 以 `Err`
+    /// / `conclusion = Error` 表达取消）。段超时仍走 `Interrupted` +
     /// `conclusion = Error` + `fault = None`（长跑是产品语义，超时是配置问题）。
+    ///
+    /// 末位 `on_output_ref`：输出引用上抛回调（同 [`StaticCheckRunner::run`]——
+    /// 实现须在 live 记录文件**已创建之后**调用一次；未提供或未调用 = 老行为）。
     fn run(
         &self,
         root: &str,
@@ -475,6 +482,7 @@ pub trait MutationRunner: Send + Sync {
         files: &[String],
         patch: &str,
         cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture;
 }
 

@@ -841,6 +841,7 @@ impl ToolStepPort for FakeTools {
                         counts: MutationCounts::default(),
                         report_paths: Vec::new(),
                         feedback_text: String::new(),
+                        exec_id: String::new(),
                     });
                 Box::pin(async move { Ok(ToolStepOutput::MutationTest(outcome)) })
             }
@@ -5009,6 +5010,7 @@ impl crate::port::MutationRunner for NullMutationRunner {
         _files: &[String],
         _patch: &str,
         _cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> crate::port::BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
@@ -5020,6 +5022,7 @@ impl crate::port::MutationRunner for NullMutationRunner {
                 counts: MutationCounts::default(),
                 report_paths: Vec::new(),
                 feedback_text: String::new(),
+                exec_id: String::new(),
             }))
         })
     }
@@ -8809,6 +8812,7 @@ fn mutation_outcome(
             "reports/test/app_rust/mutation/mutation.json".to_owned(),
         ],
         feedback_text: feedback_text.to_owned(),
+        exec_id: String::new(),
     }
 }
 
@@ -8827,6 +8831,7 @@ fn escalate_mutation_outcome(
         counts: MutationCounts::default(),
         report_paths,
         feedback_text: feedback_text.to_owned(),
+        exec_id: String::new(),
     }
 }
 
@@ -9401,6 +9406,7 @@ async fn 机械checklist第三条evidence三态映射() {
         counts: MutationCounts::default(),
         report_paths: Vec::new(),
         feedback_text: String::new(),
+        exec_id: String::new(),
     })
     .await;
     assert!(pass, "跳过面同样恒 pass（null 观察期不判 fail）");
@@ -9416,6 +9422,7 @@ async fn 机械checklist第三条evidence三态映射() {
         counts: MutationCounts::default(),
         report_paths: Vec::new(),
         feedback_text: String::new(),
+        exec_id: String::new(),
     })
     .await;
     assert!(pass);
@@ -12288,6 +12295,7 @@ fn faulted_mutation(fault: RunFault) -> MutationTestOutcome {
         counts: MutationCounts::default(),
         report_paths: vec!["reports/test/app_rust/mutation/mutation-seg-0.json".to_owned()],
         feedback_text: String::new(),
+        exec_id: String::new(),
     }
 }
 
@@ -14603,6 +14611,7 @@ async fn archi_check产出错型防护try_from四变体() {
             counts: MutationCounts::default(),
             report_paths: Vec::new(),
             feedback_text: String::new(),
+            exec_id: String::new(),
         }),
         ToolStepOutput::PhaseLog(PhaseLogOutcome {
             phase: "implement".to_owned(),
@@ -14911,6 +14920,56 @@ impl TestExecutionRunner for ScriptedTestExecutionRunner {
     }
 }
 
+/// 可编程 ScriptedMutationRunner：同型（mutation 门禁步的注入面）。
+struct ScriptedMutationRunner {
+    trace: RefTrace,
+    emits: Vec<String>,
+    outcome: MutationTestOutcome,
+    calls: Arc<AtomicUsize>,
+}
+
+impl ScriptedMutationRunner {
+    fn new(emits: Vec<&str>, outcome: MutationTestOutcome) -> (Self, RefTrace) {
+        let trace = RefTrace::default();
+        (
+            Self {
+                trace: trace.clone(),
+                emits: emits.into_iter().map(str::to_owned).collect(),
+                outcome,
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+            trace,
+        )
+    }
+}
+
+impl crate::port::MutationRunner for ScriptedMutationRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _files: &[String],
+        _patch: &str,
+        _cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
+    ) -> BoxToolFuture {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let trace = self.trace.clone();
+        if let Some(sink) = on_output_ref {
+            for exec_id in &self.emits {
+                sink.emit(exec_id);
+                trace
+                    .emits
+                    .lock()
+                    .expect("emit 记录锁不可中毒")
+                    .push(exec_id.clone());
+            }
+        }
+        let outcome = self.outcome.clone();
+        Box::pin(async move { Ok(ToolStepOutput::MutationTest(outcome)) })
+    }
+}
+
 /// 带 `output_ref` 的通过门禁产出（同 id 收口的上抛值）。
 fn check_with_ref(exec_id: &str) -> StaticCheckOutcome {
     StaticCheckOutcome {
@@ -14961,6 +15020,9 @@ async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
 
     let (runner, trace) = ScriptedStaticRunner::new(vec!["exec-x"], check_with_ref("exec-x"));
     let tools = Arc::new(ScriptedTools {
+        mutation_runner: Arc::new(
+            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+        ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(runner),
         test_runner: Arc::new(
@@ -15011,8 +15073,10 @@ async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
     );
 }
 
-/// 正向（参数化 4 脚本步）：static-check 与 test-execution 各自的**反馈边**与
-/// **`on_fail=Terminal` 边**四形态均组装上抛回调（判据：回调收到 `exec_id`）。
+/// 正向（参数化 4 脚本步 + mutation 步）：static-check 与 test-execution 各自的
+/// **反馈边**与 **`on_fail=Terminal` 边**四形态均组装上抛回调（判据：回调收到
+/// `exec_id`）；mutation-test 步自本变更起同样组装（第五位脚本步——运行中即可
+/// 查看 stdout）。
 ///
 /// - 反馈边两形态：非 initialize 相位（`implement` / `test-execution`）整 run 驱动；
 /// - Terminal 边两形态：`initialize` 表头在 `root != main_root` 时**不**走 legacy
@@ -15021,7 +15085,7 @@ async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
 async fn 四脚本步均组装上抛回调() {
     // 反馈边：static-check（实现站）
     let phase = feedback_static_check_phase();
-    let (static_trace, static_calls, _test_trace) = drive_scripted_run(phase).await;
+    let (static_trace, static_calls, _test_trace, _mutation_trace) = drive_scripted_run(phase).await;
     assert!(
         static_calls > 0,
         "相位 {phase}: static-check 步被执行（反馈边形态）"
@@ -15033,11 +15097,15 @@ async fn 四脚本步均组装上抛回调() {
 
     // 反馈边：test-execution（测试执行站）
     let phase = feedback_test_execution_phase();
-    let (_, static_calls, test_trace) = drive_scripted_run(phase).await;
+    let (_, static_calls, test_trace, mutation_trace) = drive_scripted_run(phase).await;
     assert_eq!(static_calls, 0, "相位 {phase}: 无 static-check 步");
     assert!(
         !test_trace.emitted().is_empty(),
         "相位 {phase}: test-execution 反馈边收到上抛回调"
+    );
+    assert!(
+        !mutation_trace.emitted().is_empty(),
+        "相位 {phase}: mutation-test 步收到上抛回调（第五位脚本步）"
     );
 
     // Terminal 边：initialize 表头（异 root 不触发 legacy 短路）
@@ -15059,7 +15127,7 @@ async fn 四脚本步均组装上抛回调() {
 /// 脚本步整 run 驱动（`phase` 单相位 + done）：返回
 /// `(static 上抛录制, static 调用次数, test 上抛录制)`——两 runner 均带预设
 /// `output_ref` 与一次 `emit`。
-async fn drive_scripted_run(phase: &str) -> (RefTrace, usize, RefTrace) {
+async fn drive_scripted_run(phase: &str) -> (RefTrace, usize, RefTrace, RefTrace) {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let worker = FakeWorker::new(&timeline).assemble().0;
     let (static_runner, static_trace) =
@@ -15067,10 +15135,15 @@ async fn drive_scripted_run(phase: &str) -> (RefTrace, usize, RefTrace) {
     let static_calls = Arc::clone(&static_runner.calls);
     let (test_runner, test_trace) =
         ScriptedTestExecutionRunner::new(vec!["exec-tests"], tests_with_ref("exec-tests"));
+    let (mutation_runner, mutation_trace) = ScriptedMutationRunner::new(
+        vec!["exec-mutation"],
+        mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, ""),
+    );
     let tools = Arc::new(ScriptedTools {
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(static_runner),
         test_runner: Arc::new(test_runner),
+        mutation_runner: Arc::new(mutation_runner),
         phase_next: Mutex::new(VecDeque::from(vec![
             route_outcome(phase, &["proposal"]),
             done_outcome(),
@@ -15091,6 +15164,7 @@ async fn drive_scripted_run(phase: &str) -> (RefTrace, usize, RefTrace) {
         static_trace,
         static_calls.load(Ordering::SeqCst),
         test_trace,
+        mutation_trace,
     )
 }
 
@@ -15106,10 +15180,15 @@ async fn drive_initialize_terminal_edges() -> (RefTrace, usize, RefTrace) {
         vec!["exec-init-tests"],
         tests_with_ref("exec-init-tests"),
     );
+    let (mutation_runner, _mutation_trace) = ScriptedMutationRunner::new(
+        vec!["exec-init-mutation"],
+        mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, ""),
+    );
     let tools = Arc::new(ScriptedTools {
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(static_runner),
         test_runner: Arc::new(test_runner),
+        mutation_runner: Arc::new(mutation_runner),
         phase_next: Mutex::new(VecDeque::from(vec![
             route_outcome(workflow::write::INITIALIZE_PHASE_ID, &[]),
             done_outcome(),
@@ -15209,6 +15288,9 @@ async fn 上抛时刻_图上节点已带output_ref() {
     }
 
     let tools = Arc::new(ScriptedTools {
+        mutation_runner: Arc::new(
+            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+        ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(ProbeRunner {
             control: probe_control,
@@ -15319,6 +15401,9 @@ async fn 上抛后err_节点output_ref保持补发值() {
 
     let trace = RefTrace::default();
     let tools = Arc::new(ScriptedTools {
+        mutation_runner: Arc::new(
+            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+        ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(EmitThenErr {
             trace: trace.clone(),
@@ -15372,6 +15457,9 @@ async fn 上抛两次_节点仍一条且取第二次值() {
         check_with_ref("exec-second"),
     );
     let tools = Arc::new(ScriptedTools {
+        mutation_runner: Arc::new(
+            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+        ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(runner),
         test_runner: Arc::new(
@@ -15405,9 +15493,10 @@ async fn 上抛两次_节点仍一条且取第二次值() {
     );
 }
 
-/// 边界（参数化 10 调用点）：十处非脚本步（archive preflight / phaseNext /
-/// phaseStart / mutation-test / archi / phaseLog / seal / backtrack /
-/// decisionLog / status）传 `None`：零补发拍、`output_ref` 恒 `None`。
+/// 边界（参数化 9 调用点）：九处非脚本步（archive preflight / phaseNext /
+/// phaseStart / archi / phaseLog / seal / backtrack / decisionLog / status）传
+/// `None`：零补发拍、`output_ref` 恒 `None`（mutation-test 自本变更起为第五位
+/// 脚本步，见下方 mutation 上抛用例）。
 #[tokio::test]
 async fn 非脚本步十处_output_ref恒none() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -15437,7 +15526,11 @@ async fn 非脚本步十处_output_ref恒none() {
     assert_eq!(status, ChangeRunStatus::Completed, "全 pass 收敛 completed");
 
     let finish = history.finish().expect("收口整包应在案");
-    let script_steps = [RunStepKind::StaticCheck, RunStepKind::TestExecution];
+    let script_steps = [
+        RunStepKind::StaticCheck,
+        RunStepKind::TestExecution,
+        RunStepKind::MutationTest,
+    ];
     let non_script_with_ref: Vec<(String, Option<String>)> = finish
         .nodes
         .iter()
@@ -15503,6 +15596,9 @@ async fn 反馈边重跑_两实例各自output_ref独立() {
 
     let trace = RefTrace::default();
     let tools = Arc::new(ScriptedTools {
+        mutation_runner: Arc::new(
+            ScriptedMutationRunner::new(vec![], mutation_outcome(MutationTestConclusion::Pass, 1.0, 0.8, "")).0,
+        ),
         timeline: Arc::clone(&timeline),
         static_runner: Arc::new(CountingRunner {
             seen: AtomicUsize::new(0),
@@ -15607,6 +15703,7 @@ struct ScriptedTools {
     timeline: Arc<Mutex<Vec<String>>>,
     static_runner: Arc<dyn StaticCheckRunner>,
     test_runner: Arc<dyn TestExecutionRunner>,
+    mutation_runner: Arc<dyn crate::port::MutationRunner>,
     phase_next: Mutex<VecDeque<PhaseNextOutcome>>,
 }
 
@@ -15689,18 +15786,27 @@ impl ToolStepPort for ScriptedTools {
                     async move { Ok(ToolStepOutput::DecisionLog(DecisionLogOutcome { phase })) },
                 )
             }
-            ToolCommand::MutationTest { .. } => Box::pin(async move {
-                Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
-                    conclusion: MutationTestConclusion::Pass,
-                    skip: Some(MutationSkipReason::EmptyDiff),
-                    score: 1.0,
-                    threshold: 0.8,
-                    counts: MutationCounts::default(),
-                    report_paths: Vec::new(),
-                    feedback_text: String::new(),
-                    fault: None,
-                }))
-            }),
+            ToolCommand::MutationTest { .. } => {
+                let runner = Arc::clone(&self.mutation_runner);
+                let request = step;
+                Box::pin(async move {
+                    let ToolCommand::MutationTest { change_id } = request.command else {
+                        unreachable!("标签已判定");
+                    };
+                    // 与 `LocalToolSteps` 同式：清单 / 补丁经 vcs 缝取数注入，本节
+                    // 以空清单 / 空补丁透传（上抛链路的观测面不消费两者）
+                    runner
+                        .run(
+                            &request.root,
+                            &change_id,
+                            &[],
+                            "",
+                            request.cancel,
+                            request.on_output_ref,
+                        )
+                        .await
+                })
+            }
             ToolCommand::ArchiCheck { .. } => Box::pin(async move {
                 Ok(ToolStepOutput::ArchiCheck(ArchiCheckOutcome {
                     passed: true,

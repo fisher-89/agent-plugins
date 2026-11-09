@@ -135,7 +135,7 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 
 - **列头**：该站过程文档 + eval-checklist 素材（`columnDocs`，经 `ArtifactTabs` 渲染）；
 - **WorkerAgent step 节点**（`role !== null`）：单列会话转录（复用 `SessionTranscriptPanel`，按节点 `sessionId` 直查；槽位缺席时呈「此步无会话记录」空态）；
-- **带 `outputRef` 的 step 节点**（static-check / test-execution）：单列 stdout 面板（新组件，见「节点点击判据与 stdout 输出面板」）。
+- **带 `outputRef` 的 step 节点**（static-check / test-execution / mutation-test）：单列 stdout 面板（新组件，见「节点点击判据与 stdout 输出面板」）。
 
 抽屉 SHALL 删除 `DrawerEvalSection` + `InlineChecklist` 与 eval/active 分支；评估 report（`node.record.report`）MUST NOT 展示（eval 节点已退役）。点击判据 SHALL 前置：`role` 与 `outputRef` 皆 null 的 runtime 节点不可点击（不 `onSelect`）；`role !== null` 而 `sessionId === null` 的节点仍可点击，抽屉呈「此步无会话记录」空态占位（不再回退 sourceRef 反查）。列头点击与节点点击 MUST NOT 出现两套并存的展开交互。
 
@@ -313,7 +313,7 @@ change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前
 
 WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 为节点 `sessionId` 直查：节点记录暴露的会话槽位 id（`sessionId`）经会话查询面精确寻址（`sessionDetail` + `agentSessionTranscript`），前端 MUST NOT 再以 `agentSessions` 按 `source_ref` 过滤反查会话（sourceRef 反查路径整体退役）。呈现 SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra，只读消费点：不接 composer 插槽、不呈现发送 / 停止）：运行中会话的事件增量 SHALL 经会话订阅面 `agent_session_watch`（载荷直投，含 delta）呈现 token 级流式，MUST NOT 以「通知 → 时间去抖重查转录库」作为实时面（delta 不落库，重查只能见密封粒度）；轮收口 SHALL 以转录库重放收敛（收口后形状与重开一致）。变更通知中的会话事件（`SessionEvent`）SHALL 仅作会话状态重评估信号（触发详情重查 → 组件重评估是否挂流），MUST NOT 作为增量数据源。槽位缺席（`role !== null` 而 `sessionId === null`）时 SHALL 呈「此步无会话记录」步面空态占位，MUST NOT 回退反查、MUST NOT 虚构会话、MUST NOT 建立任何订阅。归档步节点（spec_sync / resolve_conflicts）SHALL 同样经其节点 `sessionId` 直查转录（无 attempt 三槽位概念）。后端 provenance `source_ref` 定式（`<id>/<phase>/<role>/<attempt>`）仍由 walker 在会话创建时写入并持久化于会话记录（见 desktop-change-orchestration「会话挂靠 provenance 与转录 session id 直查」），但前端转录面板不再以其作反向寻址依据。
 
-eval 节点与 active 节点的三会话联动（executor / evaluator / decision 三 tab）SHALL 整体退役（eval / active 节点已移除）；ToolStep / Git / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果——无 role 且无 `outputRef` 的 ToolStep / Git / Gate 节点不可点击（`detail` 短文本已在节点内显示）；带 `outputRef` 的 static-check / test-execution 节点经 stdout 面板呈现输出（见「节点点击判据与 stdout 输出面板」）。
+eval 节点与 active 节点的三会话联动（executor / evaluator / decision 三 tab）SHALL 整体退役（eval / active 节点已移除）；ToolStep / Git / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果——无 role 且无 `outputRef` 的 ToolStep / Git / Gate 节点不可点击（`detail` 短文本已在节点内显示）；带 `outputRef` 的 static-check / test-execution / mutation-test 节点经 stdout 面板呈现输出（见「节点点击判据与 stdout 输出面板」）。
 
 #### Scenario: 归档步节点转录直查
 
@@ -426,7 +426,7 @@ change 清单条目 SHALL 渲染 `summary.title`（人类可读标题，恒非�
 
 runtime step 节点点击 SHALL 按信息源分派判据：`role !== null` → 单列会话转录（复用 `SessionTranscriptPanel`）；`outputRef !== null` → 单列 stdout 面板（新组件）；两者皆 null → 不可点击（不 `onSelect`）。该判据 SHALL 为转换 / 交互层纯函数可测（不依赖 react 宿主）。
 
-判据本身 SHALL **零改动**（`role === null && outputRef === null` 才拦）：脚本步节点在运行中即携 `outputRef`（后端前置上抛，见 desktop-change-orchestration「脚本步运行中输出引用前置上抛」），故运行中的 static-check / test-execution 节点自然可点击，前端 MUST NOT 为「运行中」另开分支或另设判据。
+判据本身 SHALL **零改动**（`role === null && outputRef === null` 才拦）：脚本步节点在运行中即携 `outputRef`（后端前置上抛，见 desktop-change-orchestration「脚本步运行中输出引用前置上抛」），故运行中的 static-check / test-execution / mutation-test 节点自然可点击，前端 MUST NOT 为「运行中」另开分支或另设判据。
 
 stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数，入参 SHALL 为 `(root, changeName, execId, status)`（`status` 取节点 `status`，由 `DetailDrawer` 下传；`changeName` 取 `detail.name`，非 id）。取数 SHALL **全部经 `src/lib/ipc.ts` 代理面**（MUST NOT 绕回裸 `commands.*`），命令面为三件：
 
@@ -451,7 +451,7 @@ stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数，入参 SHALL 为 `(r
 
 #### Scenario: 有 outputRef 节点分派到 stdout
 
-- **WHEN** 点击 `outputRef !== null` 的 runtime step 节点（static-check / test-execution）
+- **WHEN** 点击 `outputRef !== null` 的 runtime step 节点（static-check / test-execution / mutation-test）
 - **THEN** 抽屉分派到 stdout 面板，经 `readExecOutputDelta(root, name, outputRef, 0)` 与 `readExecCommand(root, name, outputRef)` 渲染命令头行与脚本真实输出
 
 #### Scenario: 运行中节点可点击且实时跟随

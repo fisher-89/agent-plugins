@@ -954,6 +954,7 @@ impl FakeMutationRunner {
             counts: Default::default(),
             report_paths: Vec::new(),
             feedback_text: String::new(),
+            exec_id: String::new(),
         }))
     }
 
@@ -975,6 +976,7 @@ impl FakeMutationRunner {
             },
             report_paths: vec!["reports/test/app_rust/mutation/mutation.json".to_owned()],
             feedback_text: String::new(),
+            exec_id: String::new(),
         }))
     }
 
@@ -1009,6 +1011,7 @@ impl crate::port::MutationRunner for FakeMutationRunner {
         files: &[String],
         patch: &str,
         cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> crate::port::BoxToolFuture {
         self.cancels
             .lock()

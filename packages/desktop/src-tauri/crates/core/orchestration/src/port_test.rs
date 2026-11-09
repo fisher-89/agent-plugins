@@ -1756,6 +1756,7 @@ fn sample_mutation_outcome(conclusion: MutationTestConclusion) -> MutationTestOu
                     .to_owned()
             }
         },
+        exec_id: String::new(),
     }
 }
 
@@ -1800,6 +1801,7 @@ impl MutationRunner for FakeMutationRunner {
         files: &[String],
         patch: &str,
         cancel: CancelFlag,
+        _on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         self.cancels
             .lock()
@@ -1905,6 +1907,7 @@ fn mutation_test_outcome边界_skip占位与posix报告路径() {
             counts: MutationCounts::default(),
             report_paths: Vec::new(),
             feedback_text: String::new(),
+            exec_id: String::new(),
         };
         assert_eq!(
             skipped.conclusion,
@@ -2039,6 +2042,7 @@ async fn mutation_runner假实现经arc注入且四参逐字透传() {
             &files,
             &patch,
             CancelFlag::never(),
+            None,
         )
         .await
         .expect("产出应可用");
@@ -2070,7 +2074,7 @@ async fn mutation_runner_err臂透传不吞且ok臂分发正确() {
         FakeMutationRunner::with_result(Err("cargo mutants 拉起失败（程序不可达？）".to_owned()));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
     let err = runner
-        .run("/tmp/root", "c", &[], "", CancelFlag::never())
+        .run("/tmp/root", "c", &[], "", CancelFlag::never(), None)
         .await
         .expect_err("Err 臂应上抛");
     assert_eq!(
@@ -2082,7 +2086,7 @@ async fn mutation_runner_err臂透传不吞且ok臂分发正确() {
         FakeMutationRunner::with_result(Ok(sample_mutation_outcome(MutationTestConclusion::Fail)));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
     match runner
-        .run("/tmp/root", "c", &[], "", CancelFlag::never())
+        .run("/tmp/root", "c", &[], "", CancelFlag::never(), None)
         .await
     {
         Ok(ToolStepOutput::MutationTest(outcome)) => {
@@ -2102,7 +2106,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
         FakeMutationRunner::with_result(Ok(sample_mutation_outcome(MutationTestConclusion::Pass)));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
     runner
-        .run("/tmp/root", "c", &[], "", CancelFlag::never())
+        .run("/tmp/root", "c", &[], "", CancelFlag::never(), None)
         .await
         .expect("空入参应可用");
     {
@@ -2118,7 +2122,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
     // 单元素 + emoji 文件名（POSIX 形态）
     let single = vec!["src/文件 🚀.rs".to_owned()];
     runner
-        .run("/tmp/root", "c", &single, "patch 文本", CancelFlag::never())
+        .run("/tmp/root", "c", &single, "patch 文本", CancelFlag::never(), None)
         .await
         .expect("单元素应可用");
     {
@@ -2131,7 +2135,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
         .map(|index| format!("src/f{index:04}.rs"))
         .collect();
     runner
-        .run("/tmp/root", "c", &huge, "p", CancelFlag::never())
+        .run("/tmp/root", "c", &huge, "p", CancelFlag::never(), None)
         .await
         .expect("超大清单应可用");
     {
@@ -2147,7 +2151,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
     );
     assert!(long_patch.len() > 100_000, "补丁须越过 100KB 刻度");
     runner
-        .run("/tmp/root", "c", &[], &long_patch, CancelFlag::never())
+        .run("/tmp/root", "c", &[], &long_patch, CancelFlag::never(), None)
         .await
         .expect("超长补丁应可用");
     {
@@ -2725,7 +2729,7 @@ async fn 三runner_trait接收cancel形参且原样透传() {
     let mutation_runner: Arc<dyn MutationRunner> = Arc::new(mutation_inner);
     let mutation_cancel = CancelFlag::never();
     mutation_runner
-        .run("/tmp/root", "c", &[], "", mutation_cancel.clone())
+        .run("/tmp/root", "c", &[], "", mutation_cancel.clone(), None)
         .await
         .expect("MutationRunner 假件应 Ok");
     let recorded = mutation_log.lock().expect("mutation cancel 锁").clone();
@@ -2777,7 +2781,7 @@ async fn 三runner_trait已置位信号不被丢弃() {
     let mutation_log = mutation_inner.cancel_log();
     let mutation_runner: Arc<dyn MutationRunner> = Arc::new(mutation_inner);
     mutation_runner
-        .run("/tmp/root", "c", &[], "", cancel.clone())
+        .run("/tmp/root", "c", &[], "", cancel.clone(), None)
         .await
         .expect("应 Ok");
     assert!(
@@ -3020,6 +3024,7 @@ fn mutation_test_outcome_fault三态与f64字段() {
             report_paths: vec!["reports/app_rust/mutation/merged.json".to_owned()],
             feedback_text: String::new(),
             fault: fault.clone(),
+            exec_id: String::new(),
         };
 
         let MutationTestOutcome {
@@ -3031,6 +3036,7 @@ fn mutation_test_outcome_fault三态与f64字段() {
             report_paths,
             feedback_text,
             fault: built_fault,
+            exec_id: _,
         } = outcome;
         assert_eq!(conclusion, MutationTestConclusion::Fail);
         assert_eq!(skip, None);
@@ -3056,6 +3062,7 @@ fn mutation_test_outcome_fault三态与f64字段() {
         report_paths: Vec::new(),
         feedback_text: String::new(),
         fault: None,
+        exec_id: String::new(),
     };
     assert_ne!(
         nan_outcome(f64::NAN),
@@ -3406,6 +3413,7 @@ fn archi_check_outcome_try_from八错型恒err() {
         report_paths: Vec::new(),
         feedback_text: String::new(),
         fault: None,
+        exec_id: String::new(),
     };
 
     let wrong_types = [

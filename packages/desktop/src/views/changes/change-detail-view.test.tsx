@@ -1801,6 +1801,62 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     await waitFor(() => expect(panel.textContent).toContain('（无输出记录）'));
   });
 
+  it('正向：运行中的 mutation-test 步（outputRef 在前）→ 点击开抽屉 + watch 增量跟随，节点 id 携 run 段', async () => {
+    loadActiveRun(
+      activeRunView({
+        nodes: [
+          stepRow({
+            phase: 'test-execution',
+            step: 'mutationTest',
+            status: 'running',
+            sessionId: null,
+            outputRef: 'exec-mutation-1',
+          }),
+        ],
+      }),
+    );
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'read_exec_output_delta') {
+        return Promise.resolve({ text: 'mutant 1/10 caught\n', nextOffset: 19 });
+      }
+      if (command === 'read_exec_command') {
+        return Promise.resolve('cargo mutants --test-tool=nextest');
+      }
+      if (command === 'exec_output_path') {
+        return Promise.resolve(`${ROOT}\reportsexec.log`);
+      }
+      if (command === 'watch_subscribe') return Promise.resolve(11);
+      if (command === 'watch_unsubscribe') return Promise.resolve(true);
+      return detailIpc(command, args);
+    });
+    renderDetail(
+      { detail: detail({ id: URL_ID, name: 'add-feature' }), artifacts: PROPOSAL_ENVELOPES },
+      ROOT,
+      `/changes/${URL_ID}`,
+    );
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+
+    // 运行中节点可点击（判据零特例：outputRef 在场即上抛）
+    fireEvent.click(screen.getByTestId('rf__node-run:run-1727:test-execution:1:mutationTest:0'));
+    await waitFor(() =>
+      expect(screen.getByTestId('stdout-command').textContent).toBe(
+        'cargo mutants --test-tool=nextest',
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('stdout-text').textContent).toBe('mutant 1/10 caught\n'),
+    );
+    // 运行中 ⇒ watch 订阅在位（增量跟随）
+    await waitFor(() => expect(ChannelMock.instances.length).toBeGreaterThan(0));
+    expect(
+      invokeMock.mock.calls.some(
+        ([name, args]) =>
+          name === 'read_exec_output_delta' &&
+          (args as { execId?: string }).execId === 'exec-mutation-1',
+      ),
+    ).toBe(true);
+  });
+
   it('异常：miss（未知 exec_id / 记录缺失）→ stdout 空态呈现，不因 id 寻址漂移而炸图', async () => {
     invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
       if (command === 'read_exec_output_delta') return Promise.resolve(null);

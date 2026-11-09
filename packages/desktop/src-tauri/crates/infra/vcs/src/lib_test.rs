@@ -291,6 +291,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
     use orchestration::port::MutationSkipReason;
     use orchestration::port::MutationTestConclusion;
     use orchestration::port::MutationTestOutcome;
+    use orchestration::port::OutputRefSink;
     use orchestration::port::{BoxToolFuture, MutationRunner, ToolStepOutput};
 
     /// 记录四参的 fake MutationRunner（缝注入面）。
@@ -306,6 +307,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
             files: &[String],
             patch: &str,
             _cancel: foundation::cancel::CancelFlag,
+            _on_output_ref: Option<OutputRefSink>,
         ) -> BoxToolFuture {
             self.calls.lock().expect("锁不可中毒").push((
                 root.to_owned(),
@@ -323,6 +325,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
                     counts: MutationCounts::default(),
                     report_paths: Vec::new(),
                     feedback_text: String::new(),
+                    exec_id: String::new(),
                 }))
             })
         }
@@ -353,6 +356,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
             &files,
             &patch,
             foundation::cancel::CancelFlag::never(),
+            None,
         )
         .await
         .expect("runner 应可用");

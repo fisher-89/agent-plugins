@@ -12,9 +12,10 @@ use checks::aggregate::{build_mutation_block, derive_plan_id, merge_mutation_blo
 use checks::model::{MutationBlock, MutationMeasured, MutationSegReport, MutationTool};
 use config::{TestFramework, TestSuite};
 use foundation::cancel::CancelFlag;
+use foundation::layout::ReportSlot;
 use orchestration::port::{
     BoxToolFuture, MutationCounts, MutationRunner, MutationSkipReason, MutationTestConclusion,
-    MutationTestOutcome, RunFault, ToolStepOutput,
+    MutationTestOutcome, OutputRefSink, RunFault, ToolStepOutput,
 };
 
 /// 突变执行并发除数（每份 worker 占用的逻辑核数）：jobs =
@@ -164,22 +165,32 @@ impl MutationRunner for ProcessMutation {
         files: &[String],
         patch: &str,
         cancel: CancelFlag,
+        on_output_ref: Option<OutputRefSink>,
     ) -> BoxToolFuture {
         let root = root.to_owned();
         let name = name.to_owned();
         let files = files.to_vec();
         let patch = patch.to_owned();
-        Box::pin(async move { execute(&root, &name, &files, &patch, cancel).await })
+        Box::pin(async move {
+            execute(&root, &name, &files, &patch, cancel, on_output_ref).await
+        })
     }
 }
 
 /// 一次 mutation-test 执行全链。
+///
+/// **记录链**（与 static-check / test-execution 同序）：跳过面判定之后
+/// `LiveExec::begin` → 逐桶 spawn 前写 `.cmd` 段头 → 上抛 `exec_id` → 各 runner
+/// 的 `live` tee 边跑边落盘 → 收口以**同一 id** `commit` 权威内容（逐桶
+/// 「段头 + stdout + stderr」合并流）。记录面是观测面，MUST NOT 阻断门禁主流程：
+/// `begin` 失败静默降级（`exec_id` 空串 = 未记录）。
 async fn execute(
     root: &str,
     change: &str,
     files: &[String],
     patch: &str,
     cancel: CancelFlag,
+    on_output_ref: Option<OutputRefSink>,
 ) -> Result<ToolStepOutput, String> {
     let root_path = Path::new(root);
     let report = config::load(root_path);
@@ -202,6 +213,19 @@ async fn execute(
         return Ok(skip_outcome(MutationSkipReason::NoExecutor));
     }
 
+    // 运行中记录链起点（跳过面之后：零 spawn 面 MUST NOT 留孤儿空记录，与
+    // static-check「无配置直过不建 live」同口径）。**先建目录建空 `.log` 再上抛
+    // exec_id**——父目录缺失会让前端 watch 订阅显式失败，运行中增量跟随因此失效。
+    //
+    // 降级面：`begin` 失败静默——记录面是观测面，MUST NOT 因它阻断门禁主流程；
+    // 缺席时 `exec_id` 以空串回填（与 test-execution「落盘失败降级空串」同口径）。
+    let live = exec::LiveExec::begin(root_path, change, ReportSlot::Test).ok();
+    if let (Some(live), Some(on_ref)) = (live.as_ref(), on_output_ref.as_ref()) {
+        on_ref.emit(live.exec_id());
+    }
+    let sink = live.as_ref().map(exec::LiveExec::sink);
+    let mut merged_output: Vec<u8> = Vec::new();
+
     // 逐 suite 顺序执行（分段 / 复用门 / 归并全在 run_suite 内；段中断即时收束）
     let mut suite_results: Vec<(String, MutationBlock)> = Vec::new();
     let mut report_paths: Vec<String> = Vec::new();
@@ -218,6 +242,23 @@ async fn execute(
         if bucket.tool == Some(MutationTool::Stryker) {
             stryker_dirs.push(mutation_dir.clone());
         }
+        // 命令 sidecar：spawn 之前追加一段「桶分隔头 + 展开后的命令」（纯文本，
+        // 与 `.log` 同目录同 id 前缀）。段格式单点在本处——runner 只回吐命令
+        // 文本，零格式化、零记录职责；写入失败静默降级（面板呈「命令未记录」）
+        let on_command = |command: &str| {
+            if let Some(live) = live.as_ref() {
+                let _ = live.write_command(&format!(
+                    "\n=== {} ({}) · files={} ===\n{command}\n",
+                    bucket.plan_id,
+                    bucket.framework,
+                    bucket.files.len()
+                ));
+            }
+        };
+        let record = RecordFace {
+            live: sink.clone(),
+            on_command: Some(&on_command),
+        };
         match run_suite(
             root_path,
             &reports_dir,
@@ -225,15 +266,23 @@ async fn execute(
             patch,
             &mut report_paths,
             cancel.clone(),
+            &record,
         )
         .await
         {
-            Ok(block) => suite_results.push((bucket.plan_id.clone(), block)),
+            // 记录正文按桶序累积（头在前、正文在后——与 `.cmd` 段头同序）
+            Ok((block, output)) => {
+                push_bucket_head(&mut merged_output, bucket);
+                merged_output.extend_from_slice(&output);
+                suite_results.push((bucket.plan_id.clone(), block));
+            }
             Err(SegmentFailure::Fatal(error)) => {
                 if bucket.tool == Some(MutationTool::Stryker) {
                     retain = Some(mutation_dir);
                 }
                 let retained = cleanup_stryker_dirs(&stryker_dirs, retain.as_ref());
+                // 失败面不 commit：live 已把各桶字节边跑边落盘，覆盖收口会丢掉
+                // 失败桶的部分输出（无头版本可读即可）
                 return Err(format!("{error}{}", retained_artifacts_section(&retained)));
             }
             // 中断 / 取消同走「保留失败桶临时面 + 收束」，文案与终态面按变体分
@@ -249,6 +298,12 @@ async fn execute(
     // sandbox 跨段复用后的全段一次清理（只清 `_stryker-tmp` 与临时 config，报告
     // 工件不触碰；keep 面 = 失败桶临时面保留）
     let retained = cleanup_stryker_dirs(&stryker_dirs, retain.as_ref());
+    // 中断 / 取消面不 commit（同上：保留 live 已落盘的部分输出）
+    let exec_id = if interruption.is_some() {
+        live.as_ref().map(|live| live.exec_id().to_owned()).unwrap_or_default()
+    } else {
+        commit_exec_id(live.as_ref(), &merged_output)
+    };
 
     let blocks: Vec<MutationBlock> = suite_results
         .iter()
@@ -277,6 +332,7 @@ async fn execute(
                 report_paths,
                 feedback_text: String::new(),
                 fault: Some(RunFault::Stopped),
+                exec_id,
             }));
         }
         // 双时点②中断面：不等汇总、不回填 summary（部分结论不落位）——错误摘要 +
@@ -296,6 +352,7 @@ async fn execute(
             report_paths,
             feedback_text,
             fault: None,
+            exec_id,
         }));
     }
 
@@ -323,6 +380,7 @@ async fn execute(
         report_paths,
         feedback_text,
         fault: None,
+        exec_id,
     }))
 }
 
@@ -476,7 +534,36 @@ fn skip_outcome(skip: MutationSkipReason) -> ToolStepOutput {
         report_paths: Vec::new(),
         feedback_text: String::new(),
         fault: None,
+        // 跳过面零 spawn ⇒ 无 live 记录（与 static-check「零 spawn 不建记录」同口径）
+        exec_id: String::new(),
     })
+}
+
+/// 记录收口（同 id 覆盖为权威内容）：`live` 缺席（记录面降级）→ 空串。
+fn commit_exec_id(live: Option<&exec::LiveExec>, merged_output: &[u8]) -> String {
+    live.and_then(|live| live.commit(merged_output).ok())
+        .unwrap_or_default()
+}
+
+/// 记录正文的桶分隔头（元数据面，非脚本输出；与 `.cmd` sidecar 的段头同词）。
+fn push_bucket_head(merged: &mut Vec<u8>, bucket: &SuiteBucket) {
+    merged.extend_from_slice(
+        format!(
+            "\n=== {} ({}) · files={} ===\n",
+            bucket.plan_id,
+            bucket.framework,
+            bucket.files.len()
+        )
+        .as_bytes(),
+    );
+}
+
+/// 记录面透传束（`execute` 建一次、逐桶共享）：tee 口交给各 runner 的
+/// `run_shell`，命令回吐口交给 `execute` 组装的桶段头 sidecar。两字段同生同灭
+/// ——都只在 `execute` 的 live 生命周期内有效。
+struct RecordFace<'a> {
+    live: Option<exec::LiveSink>,
+    on_command: Option<&'a (dyn Fn(&str) + Sync)>,
 }
 
 /// 单 suite 整体执行：一次 spawn 跑完该桶的突变面（不切段）→ 段报告解析 → 块
@@ -494,7 +581,8 @@ async fn run_suite(
     patch: &str,
     report_paths: &mut Vec<String>,
     cancel: CancelFlag,
-) -> Result<MutationBlock, SegmentFailure> {
+    record: &RecordFace<'_>,
+) -> Result<(MutationBlock, Vec<u8>), SegmentFailure> {
     let mutation_dir = reports_dir.join(&bucket.plan_id).join("mutation");
     std::fs::create_dir_all(&mutation_dir).map_err(|error| {
         SegmentFailure::Fatal(format!(
@@ -515,8 +603,10 @@ async fn run_suite(
     } else {
         None
     };
-    let (report, recovered) = match report {
-        Some(parsed) => (parsed, false),
+    let (report, recovered, output) = match report {
+        // 复用门命中：零 spawn ⇒ 本次零输出（`.log` 正文只有段头——与
+        // test-execution 复用分支「落空记录」同口径）
+        Some(parsed) => (parsed, false, Vec::new()),
         None => {
             // 旧段报告清除——段报告是本次执行的权威信号（防旧报告被误判）
             let _ = std::fs::remove_file(&report_path);
@@ -527,6 +617,7 @@ async fn run_suite(
                 bucket,
                 patch,
                 cancel.clone(),
+                record,
             )
             .await?
         }
@@ -560,7 +651,7 @@ async fn run_suite(
     let merged_path =
         report::write_merged_block(&mutation_dir, &block).map_err(SegmentFailure::Fatal)?;
     report_paths.push(report::to_posix(&merged_path));
-    Ok(block)
+    Ok((block, output))
 }
 
 /// 单次整体执行：补丁写盘 → 经 `exec::run_shell` 执行（超时 / 双管道 / 进程树
@@ -581,9 +672,10 @@ async fn execute_suite(
     bucket: &SuiteBucket,
     patch: &str,
     cancel: CancelFlag,
-) -> Result<(MutationSegReport, bool), SegmentFailure> {
+    record: &RecordFace<'_>,
+) -> Result<(MutationSegReport, bool, Vec<u8>), SegmentFailure> {
     let tool = bucket.tool.expect("可执行桶恒有执行器");
-    let (raw, recovered) = match tool {
+    let (raw, recovered, output) = match tool {
         MutationTool::CargoMutants => {
             // 执行目录相对项目根的 POSIX 路径（cargo-mutants 以 spawn cwd 相对路径
             // 对源树匹配 `--in-diff`）
@@ -599,10 +691,18 @@ async fn execute_suite(
             )
             .map_err(SegmentFailure::Fatal)?;
             let mutant_count = segments::estimate_mutants(bucket.files.len());
-            cargo_mutants::run_suite(&patch_path, &bucket.exec_dir, mutant_count, cancel).await?
+            cargo_mutants::run_suite(
+                &patch_path,
+                &bucket.exec_dir,
+                mutant_count,
+                cancel,
+                record.live.clone(),
+                record.on_command,
+            )
+            .await?
         }
         MutationTool::Stryker => {
-            let (raw, recovered) = stryker::run_suite(
+            let (raw, recovered, output) = stryker::run_suite(
                 &stryker::StrykerSegment {
                     suite_cwd: &bucket.exec_dir,
                     mutation_dir,
@@ -615,15 +715,17 @@ async fn execute_suite(
                 // 单轮测试耗时：同 plan 的 test-execution 报告（一次真实全量墙钟）
                 round_duration_ms(reports_dir, &bucket.plan_id),
                 cancel,
+                record.live.clone(),
+                record.on_command,
             )
             .await?;
-            (raw, recovered)
+            (raw, recovered, output)
         }
     };
     // 原始报告写盘（工具原始输出原样、全程留存）
     report::write_segment_report(mutation_dir, 0, &raw).map_err(SegmentFailure::Fatal)?;
     parse_seg(tool, &raw)
-        .map(|parsed| (parsed, recovered))
+        .map(|parsed| (parsed, recovered, output))
         .map_err(|error| SegmentFailure::Interrupted(format!("突变报告不可解析：{error}")))
 }
 

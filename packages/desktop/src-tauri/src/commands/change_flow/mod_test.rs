@@ -2613,6 +2613,7 @@ impl orchestration::port::MutationRunner for ZeroCallCheckRunner {
         _files: &[String],
         _patch: &str,
         _cancel: foundation::cancel::CancelFlag,
+        _on_output_ref: Option<orchestration::port::OutputRefSink>,
     ) -> orchestration::port::BoxToolFuture {
         self.seen
             .lock()
@@ -2629,6 +2630,7 @@ impl orchestration::port::MutationRunner for ZeroCallCheckRunner {
                     report_paths: Vec::new(),
                     feedback_text: String::new(),
                     fault: None,
+                    exec_id: String::new(),
                 },
             ))
         })
