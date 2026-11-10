@@ -610,10 +610,10 @@ describe('ChangeChatPanel：发起失败与重取', () => {
 
     const error = await screen.findByTestId('agent-session-error');
     expect(error.textContent).toContain('worktree 目录不存在（可能已被手动删除）');
-    // 提问由会话状态侧在发送时刻本地推入（MUST NOT 被吞掉），故恰一条 user
-    // 气泡；失败轮无 assistant 气泡（残缺方向只有提问这一侧）
-    const bubbles = screen.queryAllByTestId('chat-bubble');
-    expect(bubbles.map((bubble) => bubble.getAttribute('data-role'))).toEqual(['user']);
+    // 发起失败不留半截气泡：`onFinish` 以镜像折叠整表替换（零事件零轮行 → 空表），
+    // 发送时刻本地推入的提问副本随之被抹掉（与 useAgentSession「断流兜底」同口径）。
+    // 消息通知有 100ms 节流窗，须等终态而非发送后一拍采样
+    await waitFor(() => expect(screen.queryAllByTestId('chat-bubble')).toEqual([]));
     expect(promptBox().disabled).toBe(false);
   });
 
