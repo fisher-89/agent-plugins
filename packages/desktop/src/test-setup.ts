@@ -16,9 +16,9 @@ Object.assign(globalThis, { BASE_UI_ANIMATIONS_DISABLED: true });
 // 挂载 / 卸载语义。
 if (typeof globalThis.ResizeObserver !== 'function') {
   class ResizeObserverStub {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
+    public observe(): void {}
+    public unobserve(): void {}
+    public disconnect(): void {}
   }
   Object.assign(globalThis, { ResizeObserver: ResizeObserverStub });
 }

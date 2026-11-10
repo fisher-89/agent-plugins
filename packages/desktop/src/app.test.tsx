@@ -379,9 +379,9 @@ function fakeUpdate(version = '0.2.0') {
 // 而非业务 mock）——进入详情视图的用例全局兜底（xyflow 边标签度量另需
 // SVGGraphicsElement.getBBox 零包围盒垫片）
 class ResizeObserverStub {
-  observe = vi.fn();
-  unobserve = vi.fn();
-  disconnect = vi.fn();
+  public observe = vi.fn();
+  public unobserve = vi.fn();
+  public disconnect = vi.fn();
 }
 
 beforeEach(() => {

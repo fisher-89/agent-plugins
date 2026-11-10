@@ -28,35 +28,35 @@ import { driftCount, driftReports, reportDrift, resetDrift } from './ipc-drift';
 
 const { ChannelMock, AccessorChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((message: unknown) => void) | null = null;
-    id = 101;
-    toJSON(): string {
+    public onmessage: ((message: unknown) => void) | null = null;
+    private id = 101;
+    public toJSON(): string {
       return JSON.stringify({ id: this.id });
     }
   }
 
   class AccessorChannelMock {
     #onmessage: (message: unknown) => void;
-    id = 202;
+    private id = 202;
 
     constructor(handler: (message: unknown) => void = () => {}) {
       this.#onmessage = handler;
     }
 
-    get onmessage(): (message: unknown) => void {
+    public get onmessage(): (message: unknown) => void {
       return this.#onmessage;
     }
 
-    set onmessage(handler: (message: unknown) => void) {
+    public set onmessage(handler: (message: unknown) => void) {
       this.#onmessage = handler;
     }
 
     /** Rust → 前端投递：读私有字段（与真实 `Channel` 的 deliver 同构） */
-    deliver(message: unknown): void {
+    public deliver(message: unknown): void {
       this.#onmessage(message);
     }
 
-    toJSON(): string {
+    public toJSON(): string {
       return JSON.stringify({ id: this.id });
     }
   }

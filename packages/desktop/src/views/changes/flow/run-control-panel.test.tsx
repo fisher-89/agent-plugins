@@ -21,7 +21,7 @@ const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
   Channel: class {
-    onmessage: ((message: unknown) => void) | null = null;
+    public onmessage: ((message: unknown) => void) | null = null;
   },
 }));
 

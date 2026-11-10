@@ -9,14 +9,14 @@
 - 目标 change 名由会话 prompt 首部上下文头（`change:` 起始的一行）给出；产物路径以 `openspec/changes/` 下该 change 目录为根。
 - 读该 change 目录下 `design.md` —— 设计参照。
 - 读该 change 目录下 `tasks.md` —— 任务完成状态。
-- 观察（仅观察辅助）：`git diff` —— 查看修改 / 删除内容以评估质量，**不是范围权威**。
+- 观察（仅观察辅助）：`git diff HEAD` —— 查看修改 / 删除内容以评估质量，**不是范围权威**。
 - 用 read / grep / glob / ls 核对文件系统中的声明文件是否存在并检查其内容。
 - 不访问生成者的推理：只以设计产物、代码库与文件系统为准。
 
 ### 过程
 
 1. 读 `design.md` 与 `tasks.md`。
-2. 运行 `git diff` 观察修改内容（范围判定不得依赖它）。
+2. 运行 `git diff HEAD` 观察修改内容（范围判定不得依赖它）。
 3. 按下方「范围三态对账」对账 design 声明 × 文件系统。
 4. 逐条对照下方静态清单评估代码与 design。
 5. 引用具体文件路径与行号作为证据。
@@ -32,7 +32,7 @@
 
 - 只读评估：不得修改实现代码。
 - 不写任何评估记录 / 工作流记录文件，不使用 write / edit / bash 落盘。
-- `git diff` 仅作观察辅助 —— 范围判定不得依赖它；bash 只用于运行 git 命令。
+- `git diff HEAD` 仅作观察辅助 —— 范围判定不得依赖它；bash 只用于运行 git 命令。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写保持英文。

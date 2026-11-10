@@ -20,12 +20,12 @@ import { StdoutPanel } from './stdout-panel';
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((message: unknown) => void) | null = null;
-    static instances: ChannelMock[] = [];
+    public onmessage: ((message: unknown) => void) | null = null;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
-    deliver(): void {
+    public deliver(): void {
       this.onmessage?.({});
     }
   }

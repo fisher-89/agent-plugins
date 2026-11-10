@@ -17,8 +17,8 @@ import { ArchitectureView } from './architecture-view';
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((message: unknown) => void) | null = null;
-    static instances: ChannelMock[] = [];
+    public onmessage: ((message: unknown) => void) | null = null;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
@@ -31,26 +31,26 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 /** 分栏 / xyflow 共用的 ResizeObserver 垫片（可重放观测，尺寸取 offsetWidth）。 */
 class ResizeObserverStub {
   private elements: Element[] = [];
-  static instances: ResizeObserverStub[] = [];
+  public static instances: ResizeObserverStub[] = [];
 
   constructor(private readonly callback: ResizeObserverCallback) {
     ResizeObserverStub.instances.push(this);
   }
 
-  observe = (target: Element): void => {
+  public observe = (target: Element): void => {
     this.elements.push(target);
   };
 
-  unobserve = (target: Element): void => {
+  public unobserve = (target: Element): void => {
     this.elements = this.elements.filter((element) => element !== target);
   };
 
-  disconnect = (): void => {
+  public disconnect = (): void => {
     this.elements = [];
   };
 
   /** 重放全部观测目标（分栏读 `borderBoxSize[0]` 判分支，垫片同步给出报告尺寸）。 */
-  static flush(): void {
+  public static flush(): void {
     for (const observer of ResizeObserverStub.instances) {
       if (observer.elements.length === 0) continue;
       const entries = observer.elements.map(
@@ -192,7 +192,7 @@ beforeEach(() => {
   vi.stubGlobal(
     'DOMMatrixReadOnly',
     class {
-      m22 = 1;
+      public m22 = 1;
     },
   );
   const svgPrototype = globalThis.SVGElement?.prototype as unknown as

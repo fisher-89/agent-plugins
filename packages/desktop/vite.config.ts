@@ -47,6 +47,10 @@ export default defineConfig({
       'no-unused-vars': 'error',
       'import/no-duplicates': 'error',
       'typescript/consistent-type-imports': ['error', { fixStyle: 'inline-type-imports' }],
+      'typescript/explicit-member-accessibility': [
+        'error',
+        { overrides: { constructors: 'no-public' } },
+      ],
       'typescript/non-nullable-type-assertion-style': 'error',
       'typescript/no-explicit-any': 'error',
       'typescript/no-non-null-assertion': 'error',

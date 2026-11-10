@@ -264,7 +264,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     this.onRecord = options?.onRecord;
   }
 
-  async sendMessages(options: {
+  public async sendMessages(options: {
     trigger: 'submit-message' | 'regenerate-message';
     chatId: string;
     messageId: string | undefined;
@@ -288,7 +288,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
    * 会话状态门（无 running 轮行 → null）→ Channel + 簿记单点 → invoke；invoke
    * 解析（轮终态 / 断流 / 无条目）与 abort 均关流。
    */
-  async reconnectToStream(options: {
+  public async reconnectToStream(options: {
     chatId: string;
     abortSignal?: AbortSignal;
     body?: object;

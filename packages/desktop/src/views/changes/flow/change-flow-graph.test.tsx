@@ -39,29 +39,27 @@ const REQUIREMENT_PHASES = [
 // ---------------------------------------------------------------------------
 
 class ResizeObserverStub {
-  static instances: ResizeObserverStub[] = [];
-  callback: ResizeObserverCallback;
-  elements: Element[] = [];
+  public static instances: ResizeObserverStub[] = [];
+  public elements: Element[] = [];
 
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback;
+  constructor(public callback: ResizeObserverCallback) {
     ResizeObserverStub.instances.push(this);
   }
 
-  observe = (target: Element): void => {
+  public observe = (target: Element): void => {
     this.elements.push(target);
   };
 
-  unobserve = (target: Element): void => {
+  public unobserve = (target: Element): void => {
     this.elements = this.elements.filter((element) => element !== target);
   };
 
-  disconnect = (): void => {
+  public disconnect = (): void => {
     this.elements = [];
   };
 
   /** 重放全部观测目标，触发 xyflow 的节点度量（handleBounds / 尺寸）更新。 */
-  static flush(): void {
+  public static flush(): void {
     for (const observer of ResizeObserverStub.instances) {
       if (observer.elements.length === 0) continue;
       const entries = observer.elements.map(
@@ -105,7 +103,7 @@ beforeEach(() => {
   vi.stubGlobal(
     'DOMMatrixReadOnly',
     class {
-      m22 = 1;
+      public m22 = 1;
     },
   );
   // xyflow 边标签度量依赖 SVGGraphicsElement.getBBox，jsdom 未实现 → 零包围盒垫片

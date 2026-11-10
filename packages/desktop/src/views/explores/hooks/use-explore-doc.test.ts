@@ -17,17 +17,17 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
   // 投递读私有字段）：替身把 `onmessage` 放成实例字段时，投递会绕过装配层包裹面
   class ChannelMock {
     #onmessage: (event: unknown) => void = () => {};
-    static instances: ChannelMock[] = [];
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
-    get onmessage(): (event: unknown) => void {
+    public get onmessage(): (event: unknown) => void {
       return this.#onmessage;
     }
-    set onmessage(handler: (event: unknown) => void) {
+    public set onmessage(handler: (event: unknown) => void) {
       this.#onmessage = handler;
     }
-    deliver(event: unknown): void {
+    public deliver(event: unknown): void {
       this.#onmessage(event);
     }
   }

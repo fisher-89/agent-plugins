@@ -23,19 +23,19 @@ import { driftCount, driftReports, resetDrift } from './ipc-drift';
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
     #onmessage: (message: unknown) => void = () => {};
-    id = 1;
-    static instances: ChannelMock[] = [];
+    public id = 1;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
-    get onmessage(): (message: unknown) => void {
+    public get onmessage(): (message: unknown) => void {
       return this.#onmessage;
     }
-    set onmessage(handler: (message: unknown) => void) {
+    public set onmessage(handler: (message: unknown) => void) {
       this.#onmessage = handler;
     }
     /** Rust → 前端投递（与真实 `Channel` 的 deliver 同构：读私有字段） */
-    deliver(message: unknown): void {
+    public deliver(message: unknown): void {
       this.#onmessage(message);
     }
   }
@@ -1993,14 +1993,14 @@ describe('TauriAgentTransport：经 ipc 的参数面 / 结果面', () => {
   } {
     class AccessorChannel {
       #onmessage: (message: unknown) => void = () => {};
-      id = 7;
-      get onmessage(): (message: unknown) => void {
+      public id = 7;
+      public get onmessage(): (message: unknown) => void {
         return this.#onmessage;
       }
-      set onmessage(handler: (message: unknown) => void) {
+      public set onmessage(handler: (message: unknown) => void) {
         this.#onmessage = handler;
       }
-      deliver(message: unknown): void {
+      public deliver(message: unknown): void {
         this.#onmessage(message);
       }
     }

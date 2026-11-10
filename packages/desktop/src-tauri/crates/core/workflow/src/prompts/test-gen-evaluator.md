@@ -34,7 +34,7 @@
 
 - 只读评估：不得修改测试文件。
 - 不写任何评估记录 / 工作流记录文件，不使用 write / edit / bash 落盘。
-- bash 只用于语法检查；范围判定不得依赖 `git diff`。
+- bash 只用于语法检查；范围判定不得依赖 `git diff HEAD`。
 - 只使用桌面七工具（read / grep / glob / ls / write / edit / bash），cwd = workspace root；不依赖插件侧工具面。
 - 静态脚本（static-check / test-execution 等机械步骤）由桌面端执行，agent 内不重复执行。
 - 叙事内容用简体中文；代码标识符 / 文件路径 / CLI 命令 / 通用技术缩写 / 框架与工具名保持英文。

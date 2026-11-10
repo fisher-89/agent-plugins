@@ -345,7 +345,7 @@ function pagedConversation(count: number, seqOffset = 0): AgentUIMessage[] {
 
 /** jsdom 无 IntersectionObserver：仅记录装配参数，触顶由 trigger 显式驱动 */
 class FakeIntersectionObserver {
-  static instances: FakeIntersectionObserver[] = [];
+  public static instances: FakeIntersectionObserver[] = [];
 
   constructor(
     private readonly callback: (entries: { isIntersecting: boolean }[]) => void,
@@ -354,21 +354,21 @@ class FakeIntersectionObserver {
     FakeIntersectionObserver.instances.push(this);
   }
 
-  observe(): void {}
+  public observe(): void {}
 
-  unobserve(): void {}
+  public unobserve(): void {}
 
-  takeRecords(): never[] {
+  public takeRecords(): never[] {
     return [];
   }
 
-  disconnect(): void {
+  public disconnect(): void {
     FakeIntersectionObserver.instances = FakeIntersectionObserver.instances.filter(
       (io) => io !== this,
     );
   }
 
-  trigger(isIntersecting: boolean): void {
+  public trigger(isIntersecting: boolean): void {
     this.callback([{ isIntersecting }]);
   }
 }

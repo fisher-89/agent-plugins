@@ -12,7 +12,7 @@ import { useAgentSession } from './use-agent-session';
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((message: unknown) => void) | null = null;
+    public onmessage: ((message: unknown) => void) | null = null;
   }
   return { ChannelMock, invokeMock: vi.fn() };
 });

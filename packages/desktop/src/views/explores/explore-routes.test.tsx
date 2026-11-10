@@ -26,8 +26,8 @@ import { ExploreListView } from './explore-list-view';
 // 真实组合，fixture 经 mock IPC 流入后断言渲染输出（最小 mock 纪律）。
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((event: unknown) => void) | null = null;
-    static instances: ChannelMock[] = [];
+    public onmessage: ((event: unknown) => void) | null = null;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }

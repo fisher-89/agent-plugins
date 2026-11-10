@@ -12,8 +12,8 @@ import type { ExploreListState } from './hooks/use-explore-list';
 // reject——入参例外）。
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((event: unknown) => void) | null = null;
-    static instances: ChannelMock[] = [];
+    public onmessage: ((event: unknown) => void) | null = null;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
@@ -587,6 +587,11 @@ describe('ExploreDetailPane：run 终态刷新与名变收敛（AC-4 收敛链�
     });
 
     await waitFor(() => expect(startCalls()).toHaveLength(1));
+    // 运行态须先提交到 UI：上升沿判据取渲染态，running 行若与终态行并进同一次
+    // 提交（中间态从未落地），true→false 边沿不成立、refresh 不会触发
+    await waitFor(() =>
+      expect(screen.getByTestId('session-meta-status').textContent).toBe('运行中'),
+    );
 
     // 终态轮行信封回流 → running 复位 → doc.refresh + list.refresh 同点触发
     act(() => {

@@ -19,18 +19,18 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
   // 放成实例字段的替身会让投递绕过装配层的包裹面，信封面就测不到
   class ChannelMock {
     #onmessage: ((event: unknown) => void) | null = () => {};
-    static instances: ChannelMock[] = [];
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
-    get onmessage(): ((event: unknown) => void) | null {
+    public get onmessage(): ((event: unknown) => void) | null {
       return this.#onmessage;
     }
-    set onmessage(handler: ((event: unknown) => void) | null) {
+    public set onmessage(handler: ((event: unknown) => void) | null) {
       this.#onmessage = handler;
     }
     /** 投递读私有字段；置空（`onmessage = null` = 弃投递）时静默跳过 */
-    deliver(event: unknown): void {
+    public deliver(event: unknown): void {
       if (typeof this.#onmessage === 'function') this.#onmessage(event);
     }
   }

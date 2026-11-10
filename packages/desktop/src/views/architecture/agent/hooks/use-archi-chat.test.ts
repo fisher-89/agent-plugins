@@ -23,8 +23,8 @@ import { useArchiChat, type ArchiChatParams } from './use-archi-chat';
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((message: unknown) => void) | null = null;
-    static instances: ChannelMock[] = [];
+    public onmessage: ((message: unknown) => void) | null = null;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }

@@ -5,41 +5,20 @@ import { argsSchemas, channelArgs, resultSchemas } from '../types/generated/bind
 import { type IpcDriftReport, driftCount, driftReports, reportDrift } from './ipc-drift';
 
 /**
- * IPC 运行期校验装配层：命令集合与参数 / 结果形态**全部**由生成物推导
- * （`bindings.ts` 的 `commands` 键 + `bindings.zod.ts` 的三张表），零手写命令清单、
- * 零参数 / 结果类型镜像——新增命令零改本文件即自动具备两级校验。
- *
- * 分级策略（按方向）：
- * - **参数面**（前端 → Rust）strict：`safeParse` 失败 → 本地抛 {@link IpcArgsError}，
- *   **零 IPC 往返**；通过后以**原参数对象**发起调用（`Channel` 等非 JSON 可表达参数
- *   原样留在 payload 内，「跳过校验 ≠ 剔出对象」）。
- * - **结果面**（Rust → 前端）soft-report：失败只记一条漂移并**原值透传**，既有手写
- *   降级渲染照旧，UI 不崩。
- * - **Channel 信封**：逐条 soft-report，原消息原样交付 handler（不丢流、不断流），
- *   同一 `Channel` 实例重复传入幂等（`WeakSet` 短路）。
- *
- * 错误面三分：`invoke` reject（后端业务失败，原样向上抛）/ `IpcArgsError`（本地参数
- * 拒绝，`extends Error` 故既有 `String(err)` 呈现零改动）/ 漂移报告（只上报，永不 throw）。
- *
- * zod 面一律用**类型化的 issue**（`ZodIssue`）：`path` / `code` / `expected` 都是声明面
- * 的一部分，不再对 issue 做 `unknown` 收窄——那种「防御式再判空」在真实 zod 产物下
- * 恒为真，只会让语义被两层等价守卫遮住。
+ * IPC 运行期校验装配层
  */
 
 /** 本地参数拒绝：`extends Error` 使既有「`String(err)` 进 error 态」链路零改动 */
 class IpcArgsError extends Error {
-  readonly cmd: string;
-  readonly path: string;
-  readonly expected: string;
-  readonly got: unknown;
-
-  constructor(cmd: string, path: string, expected: string, got: unknown, detail: string) {
+  constructor(
+    public readonly cmd: string,
+    public readonly path: string,
+    public readonly expected: string,
+    public readonly got: unknown,
+    detail: string,
+  ) {
     super(`命令 ${cmd} 参数校验失败：${detail}`);
     this.name = 'IpcArgsError';
-    this.cmd = cmd;
-    this.path = path;
-    this.expected = expected;
-    this.got = got;
   }
 }
 

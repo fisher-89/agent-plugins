@@ -20,13 +20,13 @@ import { useExecOutput } from './use-exec-output';
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((message: unknown) => void) | null = null;
-    static instances: ChannelMock[] = [];
+    public onmessage: ((message: unknown) => void) | null = null;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
     /** 信号注入口（共享件把 `onmessage` 接到防抖 push）。 */
-    deliver(): void {
+    public deliver(): void {
       this.onmessage?.({});
     }
   }
@@ -64,7 +64,7 @@ type CommandAnswer = string | null | Error | RawReject;
  * 拒绝值原样上抛，故 cause 可能是 Error 对象 / 数字 / 普通对象而非串。
  */
 class RawReject {
-  constructor(readonly value: unknown) {}
+  constructor(public readonly value: unknown) {}
 }
 
 let deltaAnswers: DeltaAnswer[] = [];

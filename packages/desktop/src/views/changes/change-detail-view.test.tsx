@@ -23,13 +23,13 @@ import { mountMaterials } from './flow/attachments';
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
   class ChannelMock {
-    onmessage: ((message: unknown) => void) | null = null;
-    static instances: ChannelMock[] = [];
+    public onmessage: ((message: unknown) => void) | null = null;
+    public static instances: ChannelMock[] = [];
     constructor() {
       ChannelMock.instances.push(this);
     }
     /** 测试直投：模拟后端经 Channel 流出的 RunUpdate 信封。 */
-    push(message: unknown): void {
+    public push(message: unknown): void {
       this.onmessage?.(message);
     }
   }
@@ -180,29 +180,27 @@ function panelStartRecord(): SessionSummary['turns'][number] {
 let panelListResult: ((args: Record<string, unknown>) => SessionPage) | null = null;
 
 class ResizeObserverStub {
-  static instances: ResizeObserverStub[] = [];
-  callback: ResizeObserverCallback;
-  elements: Element[] = [];
+  public static instances: ResizeObserverStub[] = [];
+  private elements: Element[] = [];
 
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback;
+  constructor(private callback: ResizeObserverCallback) {
     ResizeObserverStub.instances.push(this);
   }
 
-  observe = (target: Element): void => {
+  public observe = (target: Element): void => {
     this.elements.push(target);
   };
 
-  unobserve = (target: Element): void => {
+  public unobserve = (target: Element): void => {
     this.elements = this.elements.filter((element) => element !== target);
   };
 
-  disconnect = (): void => {
+  public disconnect = (): void => {
     this.elements = [];
   };
 
   /** 重放全部观测目标，触发 xyflow 的节点度量（measured / handleBounds 更新）。 */
-  static flush(): void {
+  public static flush(): void {
     for (const observer of ResizeObserverStub.instances) {
       if (observer.elements.length === 0) continue;
       const entries = observer.elements.map(
@@ -259,7 +257,7 @@ beforeEach(() => {
   vi.stubGlobal(
     'DOMMatrixReadOnly',
     class {
-      m22 = 1;
+      public m22 = 1;
     },
   );
   // xyflow 边标签度量依赖 SVGGraphicsElement.getBBox，jsdom 未实现 → 零包围盒垫片

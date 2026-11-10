@@ -9,9 +9,9 @@ import type { WorkspaceRecord } from '../types/dto';
 import { AppSidebar } from './app-sidebar';
 
 class ResizeObserverStub {
-  observe = vi.fn();
-  unobserve = vi.fn();
-  disconnect = vi.fn();
+  public observe = vi.fn();
+  public unobserve = vi.fn();
+  public disconnect = vi.fn();
 }
 
 function stubEnvironment() {

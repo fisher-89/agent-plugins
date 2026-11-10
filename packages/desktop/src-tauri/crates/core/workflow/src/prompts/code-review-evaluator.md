@@ -10,14 +10,14 @@
 - 读该 change 目录下 `design.md` —— 设计参照。
 - 读该 change 目录下 `proposal.md` —— 需求上下文。
 - 审查范围以 design / proposal 声明（变更清单）× 文件系统圈定。
-- 观察（仅观察辅助）：`git diff --stat` 与 `git diff` —— 查看修改 / 删除内容以评估质量，范围判定不得依赖它。
+- 观察（仅观察辅助）：`git diff HEAD --stat` 与 `git diff HEAD` —— 查看修改 / 删除内容以评估质量，范围判定不得依赖它。
 - 用 grep 搜安全模式（硬编码密钥、危险函数），用 glob 找与变更模块对应的测试文件，用 read 读变更文件检查错误处理与空值检查。
 - 不访问生成者或规划者的推理：只以产物与代码库为准。
 
 ### 过程
 
 1. 读 `design.md` 与 `proposal.md` 获取上下文。
-2. 运行 `git diff` 查看修改内容（观察辅助）。
+2. 运行 `git diff HEAD` 查看修改内容（观察辅助）。
 3. grep 安全模式：`password`、`secret`、`token`、`api_key`、`eval(`、`exec(`、`system(`。
 4. glob 找与变更模块名匹配的测试文件。
 5. read 变更文件检查错误处理与空值安全。
