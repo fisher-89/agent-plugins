@@ -406,6 +406,35 @@ describe('useAgentSession：状态驱动挂流（AC-2）', () => {
     await waitFor(() => expect(messageTexts(result.current.messages)).toContain('流式累积正文'));
   });
 
+  it('订阅流起点重建运行轮既有部件：delta 到达后历史正文不被增量独占覆盖', async () => {
+    resetIpc({
+      detail: summary([turn(10, 'completed'), turn(11, 'running')]),
+      transcript: [
+        userEvent(0, '第一问', 10),
+        textEvent(1, '第一答', 10),
+        userEvent(2, '第二问', 11),
+        textEvent(3, '第二答已落库', 11),
+      ],
+    });
+    const { result } = await mounted();
+    await waitFor(() => expect(messageTexts(result.current.messages)).toContain('第二答已落库'));
+
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+    deliverEvent(deltaEvent(4, '新流式', 11));
+    deliverEvent(deltaEvent(5, '续写', 11));
+    await act(async () => {});
+
+    // 回归点：运行轮已落库的正文与到达的增量同处一条 assistant 消息
+    await waitFor(() => expect(messageTexts(result.current.messages)).toContain('新流式续写'));
+    const running = result.current.messages.find((message) => message.id === 'turn-11');
+    expect(
+      messageTexts(running !== undefined ? [running] : []),
+      '既有部件不被增量独占覆盖',
+    ).toContain('第二答已落库');
+    // 上一轮完全不受串扰
+    expect(messageTexts(result.current.messages)).toContain('第一答');
+  });
+
   it('轮行全收口 → 零订阅零轮询（推进假计时 5min 计数不增）', async () => {
     vi.useFakeTimers();
     const { result } = await mounted();

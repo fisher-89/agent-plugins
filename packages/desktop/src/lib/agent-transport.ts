@@ -37,6 +37,8 @@ type AgentStartSessionParams = {
 export interface TauriAgentTransportOptions {
   onEvent?: (event: AgentEvent) => void;
   onRecord?: (record: TurnSummary) => void;
+  /** 已装载密封事件镜像（订阅起点播种源；省略即不播种——发起流出口不用） */
+  observedEvents?: () => readonly AgentEvent[];
 }
 
 /** unknown → AgentPermissionMode（清单外值拒绝，transport 不改写） */
@@ -126,6 +128,9 @@ interface EnvelopeStream {
   end: () => void;
   /** 注错断流（invoke 失败等） */
   fail: (cause: unknown) => void;
+  /** 订阅流起点播种登记（仅订阅出口用）：首批实时事件到达时若同属 `turnId`，
+   * 先按其重建既有部件（见 [`reconnectToStream`]） */
+  expectSeed: (turnId: number | null, events: readonly AgentEvent[]) => void;
 }
 
 /**
@@ -249,6 +254,36 @@ function recordChunks(state: StreamState, record: TurnSummary): AgentUIMessageCh
   ];
 }
 
+/** 订阅起点播种：登记「待播种轮 + 其既有密封事件」，等首个实时事件确认轮次
+ * 后再预投。不在订阅建立时直接投，是因为订阅可能先收到别轮的事件（并发多轮 /
+ * 旧轮残留），无条件预投会让两条 `start` 塌成一条消息。 */
+interface PendingSeed {
+  expect: (turnId: number | null, events: readonly AgentEvent[]) => void;
+  seedIfMatching: (message: AgentRunMessage) => void;
+}
+
+function createPendingSeed(
+  state: StreamState,
+  controllerOf: () => ReadableStreamDefaultController<AgentUIMessageChunk> | null,
+): PendingSeed {
+  let pending: { turnId: number | null; events: readonly AgentEvent[] } | null = null;
+  return {
+    expect: (turnId, events) => {
+      pending = { turnId, events };
+    },
+    seedIfMatching: (message) => {
+      if (message.ipc !== 'event' || pending === null) return;
+      if (pending.turnId !== message.event.turnId) return;
+      const { events } = pending;
+      pending = null;
+      const controller = controllerOf();
+      for (const seeded of events) {
+        for (const chunk of frameChunks(state, seeded)) controller?.enqueue(chunk);
+      }
+    },
+  };
+}
+
 /**
  * Tauri `ChatTransport` 实现：两出口同源同信封（`Channel<AgentRunMessage>`），
  * 发起期走 `agent_start`（Channel 先于 invoke，零空洞）、旁观 / 重挂期走
@@ -258,10 +293,12 @@ function recordChunks(state: StreamState, record: TurnSummary): AgentUIMessageCh
 export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
   private readonly onEvent?: (event: AgentEvent) => void;
   private readonly onRecord?: (record: TurnSummary) => void;
+  private readonly observedEvents?: () => readonly AgentEvent[];
 
   constructor(options?: TauriAgentTransportOptions) {
     this.onEvent = options?.onEvent;
     this.onRecord = options?.onRecord;
+    this.observedEvents = options?.observedEvents;
   }
 
   public async sendMessages(options: {
@@ -285,8 +322,13 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
 
   /**
    * 订阅流：解析 body（`root` / `sessionId` / `sinceSeq`，非法或缺席 → null）→
-   * 会话状态门（无 running 轮行 → null）→ Channel + 簿记单点 → invoke；invoke
-   * 解析（轮终态 / 断流 / 无条目）与 abort 均关流。
+   * 会话状态门（无 running 轮行 → null）→ 转录起步播种 → Channel + 簿记单点 →
+   * invoke；invoke 解析（轮终态 / 断流 / 无条目）与 abort 均关流。
+   *
+   * 播种动因：`resume-stream` 在 ai-sdk 里以 `lastMessage: void 0` 起新消息状态，
+   * 首个 chunk 的 `start` 命中「替换末条」→ 该轮由重放折叠出的部件会被增量独占
+   * 覆盖（进行中会话「历史闪一下只剩新流」）。故订阅起点先把该会话已落库的密封
+   * 事件按序预投进同一簿记，reducer 从空态重建出的就是「既有部件 + 增量」。
    */
   public async reconnectToStream(options: {
     chatId: string;
@@ -301,8 +343,20 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     if (detail === null || !detail.turns.some((turn) => turn.status === 'running')) {
       return null;
     }
+    const running = detail.turns.find((turn) => turn.status === 'running');
+    if (running === undefined) return null;
     const channel = new Channel<AgentRunMessage>();
     const envelope = this.envelopeStream(channel);
+    // 起点播种：只投运行轮的、游标以内的密封事件（更早的轮属另一条 reducer
+    // 消息；超出 sinceSeq 的由 watch 自己投，避免重复）。来源是消费方已装载的
+    // 事件镜像——不额外取数
+    envelope.expectSeed(
+      running.turnId,
+      (this.observedEvents?.() ?? []).filter(
+        (event) =>
+          event.turnId === running.turnId && event.kind !== 'messageDelta' && event.seq <= sinceSeq,
+      ),
+    );
     ipc
       .agentSessionWatch(channel, root, sessionId, sinceSeq)
       .then(envelope.end)
@@ -335,19 +389,21 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
       closed = true;
       controller?.close();
     };
+    const fail = (cause: unknown) => {
+      if (closed) return;
+      closed = true;
+      controller?.error(cause instanceof Error ? cause : new Error(String(cause)));
+    };
+    const pendingSeed = createPendingSeed(state, () => controller);
     const accept = (message: AgentRunMessage) => {
       if (closed) return;
       // 观察点先于投递（镜像与收口不依赖 chunk 消费进度）
       if (message.ipc === 'event') this.onEvent?.(message.event);
       else if (message.ipc === 'record') this.onRecord?.(message.record);
+      pendingSeed.seedIfMatching(message);
       const outcome = envelopeOutcome(state, message);
       for (const chunk of outcome.chunks) controller?.enqueue(chunk);
       if (outcome.finish) close();
-    };
-    const fail = (cause: unknown) => {
-      if (closed) return;
-      closed = true;
-      controller?.error(cause instanceof Error ? cause : new Error(String(cause)));
     };
     const stream = new ReadableStream<AgentUIMessageChunk>({
       start: (next) => {
@@ -360,7 +416,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     });
     // Channel 信封入口在簿记单点内接线（调用方只负责 invoke）
     channel.onmessage = accept;
-    return { stream, accept, end: close, fail };
+    return { stream, accept, end: close, fail, expectSeed: pendingSeed.expect };
   }
 
   /** 发起运行（生成绑定穿透会话参数 + Channel）：early-resolve 轮行经

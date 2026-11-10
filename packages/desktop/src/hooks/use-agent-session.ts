@@ -610,8 +610,15 @@ export function useAgentSession(params: UseAgentSessionParams): UseAgentSessionS
   const mirrors = useSessionMirrors(params.source, setMessagesRef);
 
   const transport = useMemo(
-    () => new TauriAgentTransport({ onEvent: mirrors.handleEvent, onRecord: mirrors.handleRecord }),
-    [mirrors.handleEvent, mirrors.handleRecord],
+    () =>
+      new TauriAgentTransport({
+        onEvent: mirrors.handleEvent,
+        onRecord: mirrors.handleRecord,
+        // 订阅起点播种源：重放装载后的密封事件镜像（resume 流从空态起步，
+        // 不播种则运行轮的既有部件会被增量独占覆盖）
+        observedEvents: () => mirrors.eventsRef.current,
+      }),
+    [mirrors.handleEvent, mirrors.handleRecord, mirrors.eventsRef],
   );
 
   const chat = useChat<AgentUIMessage>({
