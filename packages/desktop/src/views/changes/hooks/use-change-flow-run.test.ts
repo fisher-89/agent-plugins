@@ -250,6 +250,57 @@ describe('useChangeFlowRun：start 发起与订阅（发起先行订阅再 invok
     deliver({ ipc: 'confirmWait' });
     expect(onNotice).toHaveBeenCalledWith('confirmWait');
   });
+
+  it('发起成功后 activeRun 在场：不重复补订（start 已订阅同一 Channel——零双投）', async () => {
+    const onNotice = vi.fn();
+    const rendered = renderHook(
+      (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: false, onNotice } },
+    );
+    await act(async () => {
+      await rendered.result.current.start(false);
+    });
+    const channel = ChannelMock.instances[0];
+
+    // 发起 resolve 后统一视图重查带回 activeRun → 补订 effect 重跑
+    rendered.rerender({ root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice });
+    await act(async () => {});
+
+    expect(calls('change_flow_watch')).toHaveLength(0);
+    expect(ChannelMock.instances).toHaveLength(1);
+    // 同一 Channel 实例持续承接发起侧订阅：投递恰一回流
+    channel.deliver({ ipc: 'step' });
+    expect(onNotice).toHaveBeenCalledTimes(1);
+  });
+
+  it('发起失败：Channel 未订阅，activeRun 在场时照常补订（watch 恰一次）', async () => {
+    startResult = '同 change 已有并行 run';
+    const rendered = renderHook(
+      (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
+      {
+        initialProps: {
+          root: ROOT,
+          id: CHANGE_ID,
+          activeRunPresent: false,
+          onNotice: noopNotice(),
+        },
+      },
+    );
+    await act(async () => {
+      await rendered.result.current.start(false);
+    });
+    expect(calls('change_flow_watch')).toHaveLength(0);
+
+    // 失败未订阅 → activeRun 翻真时补订（重挂恢复路径不被误判为已订阅）
+    rendered.rerender({
+      root: ROOT,
+      id: CHANGE_ID,
+      activeRunPresent: true,
+      onNotice: noopNotice(),
+    });
+    await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
+    expect(ChannelMock.instances).toHaveLength(1);
+  });
 });
 
 describe('useChangeFlowRun：start autoNextPhase 传参（停等节奏发起定格，D4）', () => {

@@ -1,30 +1,3 @@
-//! 统一进程执行体 [`run_shell`]：infra 层 tokio spawn 的唯一收口。
-//!
-//! 五能力单点（此前由各调用点各写一遍且齐不齐）：
-//! - **超时必填**：[`RunOptions::timeout`] 为必填字段（本类型不提供 `Default`、
-//!   无「None 即无限」分支）——「无超时 spawn」在类型层不可表达，杜绝检查域历史
-//!   上「cargo 卡在文件锁等待时永久悬挂」的缺陷复发；
-//! - **双管道并发排水**：stdout / stderr 各一路 **chunk 循环**并发进行（单管道
-//!   串行读会在对侧管道填满时互锁）；每读到一块即追加进该路内存缓冲（既有消费面）
-//!   并在 `RunOptions::live` 在位时 **tee** 给实时观察者——观察面零侵入（`live ==
-//!   None` 与改造前逐字节等价，见 [`drain`]）；
-//! - **进程树击杀**：超时与取消两臂统一 `crate::kill_tree(pid)` 杀整树（Windows
-//!   `taskkill /T /F` 连子孙），再以有界收尸 / 有界排水保证「预算 + 有限收尾」的
-//!   墙钟上界（只杀不收会换形为「杀后悬挂」：子孙若继承了管道写端，排水永不
-//!   EOF）；
-//! - **取消**：以 [`CancelFlag`] 轮询观测（`foundation` 零 tokio 纪律下唯一形态），
-//!   入口先查一次（已置位即不 spawn）；
-//! - **有限重试**：命中瞬态签名（见 [`crate::transient`]）时按 [`RetryPolicy`] 重试
-//!   ——循环复用同一执行骨架 [`attempt_once`]（不另写第二条 spawn 路径），每次尝试
-//!   同样观测 `cancel`，总预算自首跑起算硬顶；重试间按 `Compiling` 行计数判推进 /
-//!   卡死（推进序列的取数面为 [`crate::transient::progress_series`]）。
-//!
-//! 输出面只给 `stdout` / `stderr` 两路原始字节（零改写零截断、**不**预合流）——
-//! 合流顺序（`2>&1` 类 shell 级合流、或「stdout 前缀 + stderr 后缀」手工拼接）归
-//! 调用方，由各自的解读面语义决定。本执行体**不自带日志格式**（尝试分隔头 / 归因
-//! 文案归调用方，只提供 [`RunReport::attempts`] / [`RunReport::retried`] 尝试面
-//! 字节）。
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -37,7 +10,7 @@ use tokio::time::{sleep, timeout, Instant};
 use crate::transient::{
     compiling_count, is_progress_stalled, transient_signature, AttemptTrace, RetryPolicy,
 };
-use crate::{kill_tree, LiveSink, SystemCommand};
+use crate::{kill_tree, JobTree, LiveSink, SystemCommand};
 
 /// 取消轮询间隔：执行体观测取消信号的最小粒度（`foundation::cancel` 零 tokio，
 /// 无常量可订阅的通知面；200 ms 在「停止秒级收敛」验收面下足够，且不构成空转）。
@@ -295,6 +268,8 @@ async fn attempt_once(
     let mut child = shell
         .spawn()
         .map_err(|error| RunError::Spawn(error.to_string()))?;
+    // 作业成员资格必须紧贴 spawn：assign 之前创建的后代不进作业（见 [`crate::job`]）
+    let job = JobTree::attach(&child);
 
     // 两缓冲区 / 两条管道 / child 均落本函数局部作用域：竞速 future 只持可变借用
     //（不 move、不 tokio::spawn）——被杀两臂仍可继续收尸与排水，且本 crate 无需
@@ -337,6 +312,14 @@ async fn attempt_once(
     // 才以 EOF 收口）。排水仍以 FINISH_GRACE 截断——**tee 不引入新的无界等待**：
     // sink 为同步写文件（微秒级），且整段排水仍在外层 `timeout(FINISH_GRACE, ..)`
     // 之内。
+    //
+    // 作业对象在位时先整组终止：`taskkill /T` 按父子快照遍历，msys fork 副本可能
+    // 换过父 pid 而被漏杀（漏杀者持管道写端 ⇒ 排水永不 EOF ⇒ tokio 阻塞线程池被
+    // 钉死到该进程退出）。两条击杀都保留——作业挂载失败（系统调用失败）时回落既
+    // 有语义，成功时 `taskkill` 只是对已死管线的幂等补刀。
+    if let Some(job) = job.as_ref() {
+        job.terminate();
+    }
     kill_tree(child.id());
     let _ = timeout(FINISH_GRACE, child.wait()).await;
     let _ = timeout(FINISH_GRACE, async {

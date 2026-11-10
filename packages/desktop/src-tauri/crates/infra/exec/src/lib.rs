@@ -17,12 +17,14 @@
 //! - 进程输出解读面：[`ProcessOutput`]（错误信息 + 末尾行双面——失败归因
 //!   文本统一装配，替代各调用点自截尾部）。
 
+mod job;
 mod lockprobe;
 mod output;
 mod run;
 mod shell;
 mod transient;
 
+use job::JobTree;
 pub use lockprobe::{attribution_text, lock_holders, locked_paths, LockHolder};
 pub use output::ProcessOutput;
 pub use run::{run_shell, RunError, RunOptions, RunOutcome, RunReport};
@@ -488,6 +490,10 @@ fn mint_exec_id() -> String {
 
 /// 进程树击杀（尽力语义，静默不重试不阻塞收敛）：Windows `taskkill /PID
 /// <pid> /T /F`，unix `kill -9`。
+///
+/// Windows 执行体的主回收手段是作业对象（见 [`crate::job`]）——本函数只作幂等
+/// 补刀与「作业挂载失败」的回落面：`/T` 按调用时刻的父子快照向下遍历，msys fork
+/// 副本可能换过父 pid 而被报成功却漏杀。
 pub fn kill_tree(pid: Option<u32>) {
     let Some(pid) = pid else {
         return;

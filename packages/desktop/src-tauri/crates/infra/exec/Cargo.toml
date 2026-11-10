@@ -16,12 +16,20 @@ tokio = { workspace = true, features = ["process", "io-util", "time", "macros"] 
 
 # Windows 目标的系统 API 绑定（平台条件依赖——非 Windows 目标零新增编译依赖；
 # 依赖方向与分层零变，见 desktop-crate-layout「平台条件依赖的落位例外」）。
-# 唯一用途：锁占用诊断的**占用者点名**（Restart Manager：RmStartSession /
-# RmRegisterResources / RmGetList / RmEndSession / RM_PROCESS_INFO）。精确探针
-# 本身走 std `OpenOptionsExt` 的 `access_mode` / `share_mode`，故只开这一个
-# feature——不引 `Win32` 全量 / `Win32_Storage_FileSystem` / `Win32_Security`。
+# 两个用途，各只开所需 feature：
+# - 锁占用诊断的**占用者点名**（Restart Manager：RmStartSession /
+#   RmRegisterResources / RmGetList / RmEndSession / RM_PROCESS_INFO）。精确探针
+#   本身走 std `OpenOptionsExt` 的 `access_mode` / `share_mode`；
+# - 进程树回收的**作业对象**（`job`：CreateJobObjectW / AssignProcessToJobObject
+#   / TerminateJobObject / CloseHandle）——`taskkill /T` 按父子快照遍历，msys fork
+#   副本可能漏杀并持管道写端把 tokio 阻塞线程池钉死，作业成员资格才不受父子
+#   关系改写影响。不引 `Win32` 全量 / `Win32_Security` / `Win32_System_Threading`。
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_RestartManager"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_RestartManager",
+] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

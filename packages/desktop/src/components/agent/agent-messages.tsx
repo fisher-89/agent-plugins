@@ -295,21 +295,9 @@ function useHistoryWindow(allMessages: AgentUIMessage[]): {
   remaining: number;
   loadMore: () => void;
 } {
-  const [pages, setPages] = useState(1);
+  const [offset, setOffset] = useState(0);
   const [firstMessageId, setFirstMessageId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const headId = allMessages[0]?.id ?? null;
-    if (headId !== null && headId !== firstMessageId) {
-      setPages(1);
-      setFirstMessageId(headId);
-    }
-  }, [allMessages, firstMessageId]);
-
-  // 可见性判据（**全文件唯一过滤点**，MUST NOT 在别处重复）：system 角色剔除
-  // → 存在可见部件即保留 → 否则按**轮状态**判定空内容轮（`failed` / `stopped`
-  // 呈状态行保留；`completed` / 轮行缺席不渲染空气泡）。`data-*` 与 `step-start`
-  // 不计入可见部件。分页计数基于过滤后列表。
   const conversationMessages = allMessages.filter(
     (message) =>
       message.role !== 'system' &&
@@ -317,16 +305,23 @@ function useHistoryWindow(allMessages: AgentUIMessage[]): {
         turnStatusOf(message) === 'failed' ||
         turnStatusOf(message) === 'stopped'),
   );
-  const remaining = Math.max(0, conversationMessages.length - pages * MESSAGE_PAGE_SIZE);
+
+  useEffect(() => {
+    const headId = allMessages[0]?.id ?? null;
+    if (headId !== null && headId !== firstMessageId) {
+      setOffset(Math.max(conversationMessages.length - MESSAGE_PAGE_SIZE, 0));
+      setFirstMessageId(headId);
+    }
+  }, [allMessages, firstMessageId]);
 
   // 函数式更新 + 上限钳制：避免 pages 闭包过期，重复触顶也幂等
   const loadMore = useCallback(() => {
-    setPages((prev) => (prev * MESSAGE_PAGE_SIZE >= conversationMessages.length ? prev : prev + 1));
-  }, [conversationMessages.length]);
+    setOffset((prev) => Math.max(prev - MESSAGE_PAGE_SIZE, 0));
+  }, []);
 
   return {
-    visible: conversationMessages.slice(-pages * MESSAGE_PAGE_SIZE),
-    remaining,
+    visible: conversationMessages.slice(offset),
+    remaining: offset,
     loadMore,
   };
 }

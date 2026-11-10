@@ -2284,6 +2284,107 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
     );
 }
 
+/// 增量（`MessageDelta`）不进 run 变更通知：token 级事件只走会话订阅面。
+/// 通知是失效信号——前端收一条即重查整个统一视图（含全部产物），逐 token
+/// 广播会把重查放大到事件粒度；转录累积面同口径只收密封事件。
+#[tokio::test]
+async fn change轨增量不进run通知_仅密封事件透传() {
+    use agent::AgentDelta;
+
+    let env = DualEnv::new("delta-filtered");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let composed = ComposedTurn {
+        kernel: SessionKernel::new(
+            RecordingSink::new(),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+        ),
+        runner: Arc::new(ScriptedRunner::new(vec![
+            agent::AgentEventKind::MessageDelta {
+                parent_tool_use_id: None,
+                delta: AgentDelta::Text {
+                    text: "逐 token".to_owned(),
+                },
+            },
+            agent::AgentEventKind::SystemNotice {
+                subtype: "probe".to_owned(),
+                payload: serde_json::json!({}),
+            },
+            agent::AgentEventKind::TurnDone {
+                subtype: "success".to_owned(),
+                is_error: false,
+                num_turns: Some(1),
+                duration_ms: Some(1),
+                cost_usd: None,
+                usage: serde_json::json!({}),
+                session_id: None,
+            },
+        ])),
+        query: Arc::new(StoreQuery::new(store)),
+        store_kind: AgentEngineKind::Sdk,
+        models: Some(("m-high".to_owned(), "m-low".to_owned())),
+        agent_instance_id: 71,
+    };
+    let watch = WatchProbe::new(Arc::new(SessionStreamRegistry::new()));
+    let port = crate::KernelWorkerPort::new(composed, watch.sink());
+
+    let outcome = port
+        .run(change_turn_request(&env.root()))
+        .await
+        .expect("一轮应发起");
+
+    let emitted = watch.session_events();
+    assert_eq!(
+        emitted.iter().filter(|event| event.kind.is_delta()).count(),
+        0,
+        "增量零透传（密封以外不出 run 通知）"
+    );
+    assert_eq!(
+        emitted.len(),
+        2,
+        "SystemNotice + TurnDone 两枚密封事件照常透传"
+    );
+    assert_eq!(outcome.transcript.len(), 2, "转录累积面同口径只收密封事件");
+}
+
+/// 脚本化假 runner：按给定序列投递观察事件后关闭通道（内核盖戳 / 落库 /
+/// 收口全走真实链路；测试只替换引擎侧事件来源）。
+struct ScriptedRunner {
+    script: Mutex<Vec<agent::AgentEventKind>>,
+}
+
+impl ScriptedRunner {
+    fn new(script: Vec<agent::AgentEventKind>) -> Self {
+        Self {
+            script: Mutex::new(script),
+        }
+    }
+}
+
+impl AgentRunner for ScriptedRunner {
+    fn open_session(&self, _open: SessionOpen) -> Result<AgentSession, AgentStartError> {
+        let mut script = std::mem::take(&mut *self.script.lock().expect("脚本锁不可中毒"));
+        let (observation_tx, observation_rx) = mpsc::channel(script.len().max(1) + 4);
+        let (question_tx, mut question_rx) = mpsc::channel(4);
+        // 轮提问送达后按序投递脚本事件并关闭观察通道（驱动循环据此收口）
+        tokio::spawn(async move {
+            let _ = question_rx.recv().await;
+            for kind in script.drain(..) {
+                if observation_tx.send(kind).await.is_err() {
+                    break;
+                }
+            }
+            drop(observation_tx);
+        });
+        Ok(AgentSession {
+            observations: observation_rx,
+            questions: question_tx,
+            handle: RunHandle::default(),
+        })
+    }
+}
+
 /// 解析失败（无默认 agent / 显式不存在 id）→ `Err` 且注册表零条目。
 #[test]
 fn 解析失败不构造内核且零注册表条目() {

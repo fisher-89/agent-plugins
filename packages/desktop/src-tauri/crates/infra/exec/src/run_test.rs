@@ -883,6 +883,66 @@ async fn 自然退出_孤儿孙进程持写端时收尸后有界收口() {
 }
 
 // ---------------------------------------------------------------------------
+// 被杀两臂的整树回收（作业对象；仅 Windows——unix 侧是直接子进程语义）
+// ---------------------------------------------------------------------------
+
+/// 正向（Windows）：超时臂经作业对象整组终止——shim 起一个后台孙进程持写端
+/// 自旋，超时后**孙进程**也必须消失。
+///
+/// 回归锚：`taskkill /T` 按父子快照遍历，msys fork 副本可能被报 `SUCCESS` 却漏杀
+/// （漏杀者持管道写端 ⇒ 排水永不 EOF ⇒ tokio 阻塞线程池被钉死到该进程退出，整套
+/// 用例偶发百秒级拖尾）。作业成员资格不受父子关系改写影响，故此处断言的是
+/// 「快照之外的子孙也被回收」。
+///
+/// 虚拟时钟 + 真实握手：先等孙进程落 pid（真实时间让位），再推进预算——并发下
+/// shim 启动可能慢于预算，真实时钟会把「还没起孙进程」误判成「已被回收」。
+#[cfg(windows)]
+#[tokio::test(start_paused = true)]
+async fn 超时臂_作业对象回收快照外的孙进程() {
+    let _gate = ClockGate::new();
+    let ws = ShimWs::new("job-tree");
+    let pid_file = ws.file("pid.txt");
+    // 孙进程：后台自旋并落自身 winpid（父 shim 随后自己也自旋，被判超时）
+    let command = ws.shim(
+        "tree.sh",
+        &format!(
+            "#!/bin/sh\nsleep 600 &\nwin=$(cat \"/proc/$!/winpid\" 2>/dev/null || printf '%s' \"$!\")\nprintf '%s' \"$win\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
+            pid_file.display()
+        ),
+    );
+
+    let budget = Duration::from_secs(5);
+    let runner = tokio::spawn(async move { run_shell(command, options(budget)).await });
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while ws.read_pid("pid.txt").is_none() && Instant::now() < deadline {
+        real_sleep(Duration::from_millis(20)).await;
+    }
+    let grandchild = ws.read_pid("pid.txt").expect("孙进程应落 pid");
+
+    tokio::time::advance(budget + Duration::from_secs(1)).await;
+    // 收尾期显式泵虚拟时钟：作业对象缺席时孙进程持管道写端，阻塞排水让运行时
+    // 收尾无界等待（该用例即该缺陷的锚点）——泵时钟使回归时以断言失败收口，
+    // 而不是让用例挂死
+    let pump = tokio::spawn(async {
+        loop {
+            real_sleep(Duration::from_millis(10)).await;
+            tokio::time::advance(FINISH_GRACE).await;
+        }
+    });
+    let report = runner
+        .await
+        .expect("run_shell 任务应结束")
+        .expect("超时臂应返回报告");
+    pump.abort();
+    assert_eq!(report.outcome, RunOutcome::TimedOut);
+
+    if !wait_pid_gone(grandchild, Duration::from_secs(15)) {
+        crate::kill_tree(Some(grandchild));
+        panic!("超时整树回收后孙进程 {grandchild} 应消失（作业对象生效）");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 边界：被杀两臂的 pid 回收（AC-3 / AC-4）
 // ---------------------------------------------------------------------------
 

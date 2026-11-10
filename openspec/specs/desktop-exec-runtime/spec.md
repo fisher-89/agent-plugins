@@ -95,9 +95,18 @@
 
 ### Requirement: 进程树击杀与残留收敛
 
-超时与取消两臂 MUST 经 `exec::kill_tree(pid)` 终止**整棵进程树**并 `wait` 收尸（MUST NOT 仅 `start_kill()` 杀壳进程）：Windows 经 `taskkill /PID <pid> /T /F` 连子孙一并终止；unix 侧为既有 `kill -9 <pid>` 语义（直接子进程；进程组补强属独立变更，不在本要求内）。收尸后排水任务 MUST 以管道关闭后的 EOF 收口，MUST NOT 悬挂于未关闭管道。
+超时与取消两臂 MUST 终止**整棵进程树**并 `wait` 收尸（MUST NOT 仅 `start_kill()` 杀壳进程）。Windows 侧的回收 MUST 以作业对象（Job Object）为准：`spawn` 返回后**立即** `AssignProcessToJobObject` 把直接子进程挂进新建作业，被杀两臂以 `TerminateJobObject` 整组终止；`taskkill /PID <pid> /T /F` 可作幂等补刀，MUST NOT 作为唯一回收手段。unix 侧为既有 `kill -9 <pid>` 语义（直接子进程；进程组补强属独立变更，不在本要求内）。
+
+作业成员资格 MUST NOT 依赖父子关系快照：`taskkill /T` 按调用时刻的父子关系向下遍历，msys（Git for Windows bash）fork 副本可能换过父 pid 而被报成功却漏杀；漏杀者继承执行体的管道写端，排水永不 EOF，进而钉死 tokio 阻塞线程池（runtime 析构无界等待）。作业挂载 MUST 紧贴 `spawn`（assign 之前创建的后代不进作业），且作业句柄 MUST NOT 设置 `KILL_ON_JOB_CLOSE`——自然退出臂的「孤儿孙进程存续、排水有界截断」语义不受影响。
+
+收尸后排水任务 MUST 以管道关闭后的 EOF 收口，MUST NOT 悬挂于未关闭管道。
 
 检查域 MUST NOT 残留裸 `tokio::time::timeout` + `start_kill` 组合，也 MUST NOT 保留各调用点私有的管道排水助手（`read_all` 一类）。
+
+#### Scenario: 快照外的孙进程同样被回收
+
+- **WHEN** 被 spawn 的进程在超时前已创建后台孙进程，且该孙进程的父子关系在击杀时刻被改写
+- **THEN** 超时 / 取消两臂结束后该孙进程 MUST 已消失（作业成员资格不随父子关系改写失效）
 
 #### Scenario: 孙进程一并回收
 
@@ -389,14 +398,15 @@
 
 | 模块 | 定位 | 关键契约（Function / API） |
 |------|------|------|
-| `crates/infra/exec/src/run.rs`（新） | 统一执行体 | `run_shell(command: SystemCommand, options: RunOptions) -> RunReport`：spawn（`kill_on_drop`）→ 双管道并发排水 → `select!`（取消轮询 200 ms / timeout / `wait`）→ `kill_tree` + 收尸；外层按 `RetryPolicy` 循环（复用同一 `attempt_once`） |
+| `crates/infra/exec/src/run.rs`（新） | 统一执行体 | `run_shell(command: SystemCommand, options: RunOptions) -> RunReport`：spawn（`kill_on_drop`）→ 紧贴 spawn 挂作业对象（Windows）→ 双管道并发排水 → `select!`（取消轮询 200 ms / timeout / `wait`）→ `JobTree::terminate` + `kill_tree` + 收尸；外层按 `RetryPolicy` 循环（复用同一 `attempt_once`） |
+| `crates/infra/exec/src/job.rs`（新） | 进程树回收 | `JobTree::attach(&tokio::process::Child) -> Option<JobTree>`（Windows：`CreateJobObjectW` + `AssignProcessToJobObject`；失败返 `None` 由调用方回落 `taskkill` 语义）、`JobTree::terminate(&self)`（`TerminateJobObject`）、`Drop` 关句柄；非 Windows 为零行为差异空实现（`attach` 恒 `None`、`terminate` 空操作）。不设 `KILL_ON_JOB_CLOSE` |
 | 同上 | 执行入参 | `RunOptions { cwd: Option<PathBuf>, env: Vec<(OsString, OsString)>, timeout: Duration /* 必填 */, cancel: CancelFlag, retry: RetryPolicy, live: Option<LiveSink> }` |
 | 同上 | 执行产出 | `RunOutcome { Completed, TimedOut, Cancelled }`；`RunReport { outcome, exit_code: i32 /* TimedOut/Cancelled 为 -1 */, stdout, stderr, attempts: u32, retried: Vec<AttemptTrace> }`（`stdout` / `stderr` = 末次尝试） |
 | 同上 | 重试循环早停 | 循环内维护按尝试序的计数序列，命中签名之后按 `is_progress_stalled` 判卡死并返回末次结果（`attempts < max_attempts`）；`RunOptions` / `RunReport` / `RunOutcome` / `RunError` 字段面零变更 |
 | `crates/infra/exec/src/transient.rs`（新） | 瞬态判定、重试策略与推进判据 | `RetryPolicy::{none, transient}`（`backoff = [5, 10, 20, 40] s` / `total_budget = 1500 s` / `max_attempts = 5`）、`AttemptTrace { exit_code, transient: Option<String>, stdout, stderr }`、`is_transient(&RunReport) -> Option<&'static str>`；`compiling_count(stdout: &[u8], stderr: &[u8]) -> u32`、`progress_series(&RunReport) -> Vec<u32>`、`is_progress_stalled(&[u32]) -> bool`（三者纯函数，零 IO 零 spawn）；签名表封闭单点（remove 形态条目为 `failed to remove`） |
 | `crates/infra/exec/src/lockprobe.rs`（新） | 锁占用诊断 | `locked_paths(diagnostics: &str) -> Vec<PathBuf>`（三形态解析、去重、≤8）、`lock_holders(paths: &[PathBuf]) -> Vec<LockHolder>`（Windows Restart Manager / 非 Windows `lsof` 降级）、`LockHolder { name: String, pid: u32 }`、`attribution_text(diagnostics: &str) -> Option<String>`（占用者 + 被锁文件 + 降级说明单点装配） |
 | `crates/infra/exec/src/lib.rs` | 导出面 | `SystemCommand` 加 `#[derive(Clone)]`；`pub use run::{run_shell, RunOptions, RunReport, RunOutcome}`；`pub use transient::{compiling_count, is_progress_stalled, progress_series, is_transient, AttemptTrace, RetryPolicy}`（推进判据供 `crates/infra/checks` 装配「重试进展」文案）；`pub use lockprobe::{locked_paths, lock_holders, LockHolder, attribution_text}`；`kill_tree` / `ProcessOutput` / `record_exec_output` 语义零变 |
-| `crates/infra/exec/Cargo.toml` | 依赖面 | 新增 `[target.'cfg(windows)'.dependencies] windows-sys = { version = "0.61", features = ["Win32_System_RestartManager"] }`（仅 Restart Manager 绑定；精确探针用 std `OpenOptionsExt` 的 `access_mode` / `share_mode`，不引 FileSystem / Security feature）；非 Windows 目标零新增编译依赖 |
+| `crates/infra/exec/Cargo.toml` | 依赖面 | 新增 `[target.'cfg(windows)'.dependencies] windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_RestartManager"] }`（Restart Manager 占用者点名 + 作业对象进程树回收；精确探针用 std `OpenOptionsExt` 的 `access_mode` / `share_mode`，不引 FileSystem / Security / Threading feature）；非 Windows 目标零新增编译依赖 |
 | `crates/core/foundation/src/cancel.rs` | 取消原语 | 零改动（`CancelFlag::{never, is_set}` / `CancelHandle::set`） |
 | 既有输出解读面 | 边界 | `ProcessOutput` 三方法零改动；`read_exec_output` / `mint_exec_id` 零改动（`record_exec_output` 降为 `LiveExec::begin + commit` 薄包装，签名与语义零变）；尝试分隔头与归因文案的落文格式归调用方 |
 | `crates/core/foundation/src/cancel.rs`（新） | 取消原语 | `CancelFlag::{never, is_set}`（`Clone` 共享原子）、`CancelHandle::set`；std-only、零 tokio |

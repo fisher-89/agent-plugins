@@ -58,13 +58,17 @@ async fn execute(
     let outcome: TurnOutcome = running
         .drive(move |output| match output {
             KernelOutput::Observation(event) => {
-                // 密封事件累积（提取器输入全集）；增量只透传不累积
-                if event.kind.is_sealed() {
-                    collected
-                        .lock()
-                        .expect("转录累积锁不可中毒")
-                        .push(event.clone());
+                // 增量（token 级 delta）只走会话订阅面，不进 run 变更通知：通知是
+                // 失效信号，前端收一条即重查整个统一视图（含全部产物），逐 token
+                // 广播会把重查放大到事件粒度
+                if !event.kind.is_sealed() {
+                    return;
                 }
+                // 密封事件累积（提取器输入全集）
+                collected
+                    .lock()
+                    .expect("转录累积锁不可中毒")
+                    .push(event.clone());
                 event_sink.emit(RunUpdate::SessionEvent {
                     session_id: emit_session.clone(),
                     event,
