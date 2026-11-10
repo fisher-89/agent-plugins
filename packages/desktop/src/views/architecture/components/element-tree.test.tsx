@@ -10,6 +10,7 @@ function element(fqn: string, mark: ArchiElement['mark'] = 'none'): ArchiElement
     fqn,
     kind: 'module',
     gate: 'off',
+    api: 'declared',
     path: [],
     summary: null,
     metadata: {},

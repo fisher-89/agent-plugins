@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::dto::{ArchiElement, ElementKind, GateTier, NodeMark};
+use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::owner::{Owner, OwnerIndex};
 
@@ -17,6 +17,7 @@ fn element(fqn: &str, gate: GateTier, paths: &[&str]) -> ArchiElement {
         fqn: fqn.to_owned(),
         kind: ElementKind::Module,
         gate,
+        api: ApiStatus::Declared,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
@@ -336,4 +337,315 @@ fn 非ASCII与超长路径() {
         "App.Auth",
         "超长路径仍按前缀归属（不做长度上限）"
     );
+}
+
+// ===========================================================================
+// `.i.<ext>` 生成物剥离（`module-api-contract-format` / D3）
+//
+// 剥离判据 = 末段形如 `<stem>.i.<ext>`（`ext ∈ {rs, ts, tsx, js, jsx}`）时把该段替换为
+// `<stem>.<ext>`；`normalize` / `prefix_matches` / `build` 语义逐字零变化，非
+// `.i.<ext>` 路径的归属结果与改动前完全相同。
+// ===========================================================================
+
+/// 正向：剥后形态与原模块文件同名（`views/architecture.tsx` ← `architecture.tsx.i.ts`
+/// 走 `<stem>.<ext>` 规则时不等，故取真正的等价形态）——单文件元素的生成物
+/// `a.tsx.i.ts` 剥成 `a.tsx.ts`，与 `a.tsx` 不等；**目录内**的生成物由目录前缀命中。
+#[test]
+fn 生成物剥离四种形态各归其元素() {
+    let index = OwnerIndex::build(&[
+        element(
+            "App.Frontend.Views.Architecture",
+            GateTier::Off,
+            &["views/architecture/"],
+        ),
+        element(
+            "App.Frontend.Views.Welcome",
+            GateTier::Off,
+            &["views/welcome-view/"],
+        ),
+        element(
+            "App.Backend.Core.Archi",
+            GateTier::Off,
+            &["crates/core/archi/"],
+        ),
+        element(
+            "App.Backend.Core.Archi.Scan",
+            GateTier::Off,
+            &["crates/core/archi/src/scan/"],
+        ),
+    ]);
+
+    // 四种「目录形态」生成物：剥后仍落在目录内，由 `prefix + "/"` 判据命中。
+    let cases = [
+        (
+            "views/architecture/architecture.i.ts",
+            "App.Frontend.Views.Architecture",
+        ),
+        (
+            "views/welcome-view/welcome-view.i.ts",
+            "App.Frontend.Views.Welcome",
+        ),
+        ("crates/core/archi/archi.i.rs", "App.Backend.Core.Archi"),
+        (
+            "crates/core/archi/src/scan/scan.i.rs",
+            "App.Backend.Core.Archi.Scan",
+        ),
+    ];
+    for (probe, expected) in cases {
+        assert_eq!(
+            owned_fqn(&index.owner_of(probe)),
+            expected,
+            "{probe} 剥后缀后由目录前缀命中"
+        );
+    }
+
+    // 非 `.i` 路径的归属与改动前逐字相同
+    assert_eq!(
+        owned_fqn(&index.owner_of("crates/core/archi/src/dto.rs")),
+        "App.Backend.Core.Archi",
+        "非 `.i` 路径归属零变化"
+    );
+}
+
+/// 正向：剥离的唯一实质效果是「根同级生成物」——元素根取**带扩展名的单文件形态**
+/// 时，`<root>.i.<ext>` 剥成 `<root>.<ext>` 后与元素根全等（`rel == prefix` 分支）；
+/// 目录形态元素根（带尾 `/`）的根同级生成物仍不命中（目录前缀要求 `/` 分隔）。
+#[test]
+fn 生成物剥离使单文件元素根同级生成物归元素() {
+    let single = OwnerIndex::build(&[element(
+        "App.View.Welcome",
+        GateTier::Warn,
+        &["views/welcome.ts"],
+    )]);
+    // 剥成 `views/welcome.ts` 与元素根全等（`rel == prefix` 分支）→ 命中
+    assert_eq!(
+        owned_fqn(&single.owner_of("views/welcome.i.ts")),
+        "App.View.Welcome",
+        "单文件元素根（views/welcome.ts）的根同级生成物剥后全等"
+    );
+    // 其余扩展名剥后是 `views/welcome.rs` / `.tsx` / `.js` / `.jsx`，与元素根不等 → 无主
+    for extension in ["rs", "tsx", "js", "jsx"] {
+        assert_eq!(
+            single.owner_of(&format!("views/welcome.i.{extension}")),
+            Owner::None,
+            "views/welcome.i.{extension} 剥后与 views/welcome.ts 不等 → 如实无主"
+        );
+    }
+
+    let directory = OwnerIndex::build(&[element("App.Core.Dir", GateTier::Warn, &["src/dir/"])]);
+    assert_eq!(
+        directory.owner_of("src/dir.i.ts"),
+        Owner::None,
+        "目录形态元素根的根同级生成物剥后不在目录内 → 如实无主"
+    );
+    assert_eq!(
+        owned_fqn(&directory.owner_of("src/dir/dir.i.ts")),
+        "App.Core.Dir",
+        "目录形态元素根的目录内生成物由目录前缀命中"
+    );
+}
+
+/// 边界（D3 反例）：白名单外的后缀（`.i.py` / `.d.rs` / 无扩展名 `.i` / 大写标记
+/// `.I.rs`）→ 剥离不生效，归属按原路径判定，与改动前逐值相等。
+#[test]
+fn 生成物白名单外后缀不剥离() {
+    let index = OwnerIndex::build(&[element("App.Core.Mod", GateTier::Warn, &["src/mod/"])]);
+    // 目录内：剥与不剥都由目录前缀命中（这一面无法区分剥离是否发生）
+    for probe in ["src/mod/mod.i.py", "src/mod/mod.d.rs", "src/mod/mod.i"] {
+        assert_eq!(
+            owned_fqn(&index.owner_of(probe)),
+            "App.Core.Mod",
+            "{probe} 落在元素目录内 → 剥离不生效也照常归属"
+        );
+    }
+    // 目录外：剥离生效才会命中，故白名单外后缀必须落 None
+    let file_root = OwnerIndex::build(&[element("App.MyMod", GateTier::Warn, &["src/my.mod.rs"])]);
+    for probe in [
+        "src/my.mod.i.py",
+        "src/my.mod.d.rs",
+        "src/my.mod.i",
+        "src/my.mod.I.rs",
+    ] {
+        assert_eq!(
+            file_root.owner_of(probe),
+            Owner::None,
+            "{probe} 不在五扩展名 / 标记白名单内 → 无主（零误剥）"
+        );
+    }
+    // 对照：白名单内同前缀形态归元素
+    assert_eq!(
+        owned_fqn(&file_root.owner_of("src/my.mod.i.rs")),
+        "App.MyMod",
+        "白名单内后缀正常剥离"
+    );
+}
+
+/// 边界（剥的是整组 `.i.<ext>`，不是只去 `.i`）：`a.i.ts` → `a.ts`（与元素根全等）；
+/// `<root>` 自身含点时只剥最后一组（`my.mod.i.rs` → `my.mod.rs`）。
+#[test]
+fn 生成物剥离只去末段标记() {
+    let index = OwnerIndex::build(&[
+        element("App.A", GateTier::Warn, &["src/a.ts"]),
+        element("App.MyMod", GateTier::Warn, &["src/my.mod.rs"]),
+    ]);
+    assert_eq!(
+        owned_fqn(&index.owner_of("src/a.i.ts")),
+        "App.A",
+        "`a.i.ts` 剥成 `a.ts`（末段整组替换，不是只去 `.i`）"
+    );
+    assert_eq!(
+        owned_fqn(&index.owner_of("src/my.mod.i.rs")),
+        "App.MyMod",
+        "`<root>` 自身含点时只剥最后一组 `.i.<ext>`"
+    );
+    // 错判据对照：只去 `.i` 会得到 `src/a.ts.ts` / `src/my.mod.rs.rs`（皆不命中原文件）
+    let wrong_stem = OwnerIndex::build(&[element("App.A", GateTier::Warn, &["src/a.ts.ts"])]);
+    assert_eq!(
+        wrong_stem.owner_of("src/a.i.ts"),
+        Owner::None,
+        "若按「只去 `.i`」实现，剥后形态与真实元素根不等 → 可判为错"
+    );
+}
+
+/// 边界：末段为空 stem（`.i.rs`，其 `rsplit_once('.')` 的 module 为空）/ 以 `/` 结尾 →
+/// 归属落封闭三值内且零 panic；反斜杠分隔与 `./` 前缀的生成物仍剥。
+#[test]
+fn 生成物边界形态不panic() {
+    let index = OwnerIndex::build(&[element("App.MyMod", GateTier::Warn, &["src/my.mod.rs"])]);
+    for probe in [".i.rs", "src/my.mod.i.rs/"] {
+        let owner = index.owner_of(probe);
+        assert!(
+            matches!(
+                owner,
+                Owner::Element { .. } | Owner::Ambiguous(_) | Owner::None
+            ),
+            "{probe} 的归属落在封闭三值内：{owner:?}"
+        );
+    }
+    assert_eq!(
+        owned_fqn(&index.owner_of("src\\my.mod.i.rs")),
+        "App.MyMod",
+        "反斜杠分隔的生成物路径同样剥后缀"
+    );
+    assert_eq!(
+        owned_fqn(&index.owner_of("./src/my.mod.i.rs")),
+        "App.MyMod",
+        "`./` 前缀由 normalize 剥离（与剥后缀互不干扰）"
+    );
+}
+
+/// 边界：剥离不改变歧义语义——同长多命中的生成物仍 `Ambiguous`（候选全量、字典序）。
+#[test]
+fn 生成物形态下同长多命中仍歧义() {
+    let overlap = OwnerIndex::build(&[
+        element("App.C", GateTier::Warn, &["src/x.ts"]),
+        element("App.D", GateTier::Warn, &["src/x.ts"]),
+    ]);
+    match overlap.owner_of("src/x.i.ts") {
+        Owner::Ambiguous(candidates) => {
+            assert_eq!(candidates.len(), 2, "剥后同长多命中仍为全量候选");
+            let mut sorted = candidates.clone();
+            sorted.sort();
+            assert_eq!(candidates, sorted, "候选字典序");
+        }
+        other => panic!("同长多命中应 Ambiguous，实际：{other:?}"),
+    }
+}
+
+/// 边界（AC-16）：非生成物路径的归属结果与改动前逐值相等（新增剥离只对 `.i.<ext>`
+/// 生效）——三条既有点位逐条回归 + 文件名含 `.i` 的非生成物。
+#[test]
+fn 非生成物路径归属零变化() {
+    let index = OwnerIndex::build(&[
+        element(
+            "App.Frontend.Views.Architecture",
+            GateTier::Off,
+            &["views/architecture.tsx"],
+        ),
+        element(
+            "App.Frontend.Views.Welcome",
+            GateTier::Off,
+            &["views/welcome-view/"],
+        ),
+        element(
+            "App.Backend.Core.Archi",
+            GateTier::Off,
+            &["crates/core/archi/"],
+        ),
+    ]);
+    assert_eq!(
+        owned_fqn(&index.owner_of("views/architecture.tsx")),
+        "App.Frontend.Views.Architecture",
+        "单文件元素的原文件归属不变"
+    );
+    assert_eq!(
+        owned_fqn(&index.owner_of("views/welcome-view/index.ts")),
+        "App.Frontend.Views.Welcome",
+        "目录元素的普通源文件归属不变"
+    );
+    assert_eq!(
+        owned_fqn(&index.owner_of("crates/core/archi/src/scan/rust.rs")),
+        "App.Backend.Core.Archi",
+        "目录内的普通源文件归属不变（无第二套命名）"
+    );
+    for probe in ["views/welcome-view/a.i.txt", "views/welcome-view/a.i"] {
+        assert_eq!(
+            owned_fqn(&index.owner_of(probe)),
+            "App.Frontend.Views.Welcome",
+            "{probe} 不是生成物 → 由目录前缀照常归属"
+        );
+    }
+}
+
+/// 边界（D3 单源）：两常量各只定义一处（`include_str!` 计数自证）；五扩展名逐值可剥
+/// （缺 `js` / `jsx` 会落 `Owner::None`，即 D3 反例）。
+#[test]
+fn 生成物常量单源与五扩展名齐备() {
+    let source = include_str!("owner.rs");
+    assert_eq!(
+        source.matches("const GENERATED_MARKER").count(),
+        1,
+        "标记常量恰定义一处"
+    );
+    assert_eq!(
+        source.matches("const GENERATED_EXTENSIONS").count(),
+        1,
+        "扩展名常量恰定义一处"
+    );
+    assert!(
+        source.contains("const GENERATED_MARKER: &str = \"i\";"),
+        "标记值为 `i`"
+    );
+    assert!(
+        source.contains("[&str; 5]"),
+        "扩展名常量为五元数组（长度即判据）"
+    );
+
+    // 行为面：五扩展名各剥后命中（以文件名形态的元素根为基准）
+    let index = OwnerIndex::build(&[element("App.Core.Mod", GateTier::Warn, &["src/mod.ts"])]);
+    let mut hit = Vec::new();
+    for extension in ["rs", "ts", "tsx", "js", "jsx"] {
+        // 每个扩展名用各自可命中的元素根（`<stem>.<ext>` 与元素根全等）
+        let path = format!("src/mod.{extension}");
+        let one = OwnerIndex::build(&[element("App.Core.Mod", GateTier::Warn, &[path.as_str()])]);
+        if matches!(
+            one.owner_of(&format!("src/mod.i.{extension}")),
+            Owner::Element { .. }
+        ) {
+            hit.push(extension);
+        }
+    }
+    assert_eq!(
+        hit,
+        vec!["rs", "ts", "tsx", "js", "jsx"],
+        "五扩展名逐值可剥（长度 5、集合封闭）"
+    );
+    // 缺 js / jsx 的反例：这两类生成物若不被剥，元素根同级形态必落 None
+    let js_only = OwnerIndex::build(&[element("App.Core.Js", GateTier::Warn, &["src/js.js"])]);
+    assert_eq!(
+        owned_fqn(&js_only.owner_of("src/js.i.js")),
+        "App.Core.Js",
+        "`.i.js` 被剥（D3：漏 js 会让该元素生成物落 None）"
+    );
+    let _ = index;
 }

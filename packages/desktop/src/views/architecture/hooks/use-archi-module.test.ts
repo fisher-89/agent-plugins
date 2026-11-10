@@ -23,6 +23,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
       fqn,
       kind: 'domain',
       gate: 'strict',
+      api: 'declared',
       path: ['./src/auth/'],
       summary: '认证域',
       metadata: { owner: 'core' },
@@ -48,6 +49,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
       },
     ],
     warnings: [],
+    api: { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
   };
 }
 

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "timestamp": "<timestamp>",
   "mode": "incremental",
   "root": "<root>",
@@ -53,5 +53,6 @@
   "warnings": [],
   "suppressed": [],
   "observations": [],
+  "apiFindings": [],
   "status": "errors"
 }

@@ -1101,3 +1101,254 @@ fn archi_drift包装root校验前置() {
     }
     assert_eq!(before, snapshot(temp.path()), "包装侧 root 校验失败零写盘");
 }
+
+// ===========================================================================
+// `archi_module` 出参的 `api` 并列字段（`module-api-contract-format` / AC-10 / AC-13）
+//
+// 命令层仍是薄包装：`api` 由 `dto::module_detail` 填充，本层零特判、零路径拼装。
+// ===========================================================================
+
+/// 落一份元素契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`）。
+fn write_contract(root: &Path, fqn: &str, content: &str) {
+    let relative = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
+    let relative = relative
+        .strip_prefix(root)
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let path = root.join(&relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("建契约目录失败");
+    }
+    fs::write(&path, content).expect("写契约失败");
+}
+
+/// 正向（AC-10 / AC-13）：元素 + 契约 md 在案 → `archi_module_inner` 出参 `api.status`
+/// 为 `declared`、三路径均 `Some` 且 repo 相对 POSIX；序列化文本含 `"api"` 并列键。
+#[test]
+fn archi_module出参含api并列字段() {
+    let temp = healthy("module-api-field");
+    // 追加一个带 `path` 的元素（三路径全 `Some` 的形态；`CORE` 内元素 path 为空）
+    temp.write_model(
+        "02-shop.toml",
+        "[element.\"App.Shop\"]\nkind = \"module\"\npath = [\"./src/shop/\"]\n",
+    );
+    let fqn = "App.Shop";
+    write_contract(temp.path(), fqn, &format!("# {fqn}\n\n## 职能\n\n正文。\n"));
+
+    let detail = archi_module_inner(temp.path(), fqn).expect("archi_module_inner 应 Ok");
+    assert_eq!(
+        serde_json::to_value(&detail.api).expect("序列化成功")["status"],
+        serde_json::json!("declared"),
+        "md 在案 → status = declared"
+    );
+    let value = serde_json::to_value(&detail).expect("序列化成功");
+    let api = &value["api"];
+    for key in ["contractPath", "schemaPath", "generatedPath"] {
+        let text = api[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("{key} 应为字符串：{api:?}"));
+        assert!(!text.starts_with("./"), "{key} 零前导 `./`：{text}");
+        assert!(!text.contains('\\'), "{key} 为 POSIX 分隔：{text}");
+    }
+    assert!(value.get("api").is_some(), "序列化文本含 api 并列键");
+    // `api` 不在 `docs` 数组内（并列字段而非承重进 docs）
+    for doc in value["docs"].as_array().expect("docs 是数组") {
+        assert!(
+            doc.get("status").is_none(),
+            "契约投影 MUST NOT 进 docs 列表：{doc:?}"
+        );
+    }
+}
+
+/// 边界（AC-10）：元素存在但无 md → `status = none` 且三路径全 `null`（零配置、可枚举
+/// 「有契约 / 无契约」）。
+#[test]
+fn archi_module无契约三路径null() {
+    let temp = healthy("module-api-none");
+    let detail = archi_module_inner(temp.path(), "App.Auth").expect("archi_module_inner 应 Ok");
+    let value = serde_json::to_value(&detail).expect("序列化成功");
+    assert_eq!(
+        value["api"]["status"],
+        serde_json::json!("none"),
+        "无 md → status = none"
+    );
+    for key in ["contractPath", "schemaPath", "generatedPath"] {
+        assert_eq!(value["api"][key], serde_json::json!(null), "{key} 为 null");
+    }
+}
+
+/// 边界（AC-10）：容器元素（`path = []`）→ `status = None` 且三路径 `null`（天然无契约，
+/// 命令层零特判）。
+#[test]
+fn archi_module容器元素零契约() {
+    let temp = healthy("module-api-container");
+    let detail = archi_module_inner(temp.path(), "App").expect("容器元素应 Ok");
+    assert_eq!(
+        detail.api.status,
+        archi::dto::ApiStatus::None,
+        "容器元素天然无契约"
+    );
+    assert!(detail.api.contract_path.is_none());
+    assert!(detail.api.schema_path.is_none());
+    assert!(detail.api.generated_path.is_none());
+}
+
+/// 边界（AC-9）：命令层零领域规则——`mod.rs` 内零 `archi::api::` 调用（`api` 字段全由
+/// `dto::module_detail` 填）、零 `exists()` 直接判定、零路径拼装。
+#[test]
+fn 命令层零领域规则() {
+    let source = include_str!("mod.rs");
+    assert!(
+        !source.contains("archi::api::"),
+        "命令层 MUST NOT 直接调 archi::api（api 字段由 dto::module_detail 填）"
+    );
+    assert!(
+        !source.contains("contract_path") && !source.contains("schema_path"),
+        "命令层零契约路径拼装"
+    );
+    assert!(
+        source.contains("dto::module_detail"),
+        "archi_module 经 dto::module_detail 投影"
+    );
+
+    // 命令数量仍五 + 两个 drift/read 命令
+    let commands: Vec<&str> = source
+        .lines()
+        .filter(|line| line.starts_with("pub fn archi_"))
+        .collect();
+    assert!(commands.len() >= 6, "命令面仍在（实际：{commands:?}）");
+}
+
+/// 边界（AC-9）：只读命令零写盘——`archi_module` 调用前后 tempdir 字节快照相等（新增
+/// `api` 字段只是一次 `exists()` 定位）。
+#[test]
+fn archi_module零写盘() {
+    let temp = healthy("module-api-readonly");
+    write_contract(temp.path(), "App.Auth", "# App.Auth\n\n## 职能\n\n正文。\n");
+    let before = snapshot(temp.path());
+    let _ = archi_module_inner(temp.path(), "App.Auth").expect("Ok");
+    assert_eq!(snapshot(temp.path()), before, "只读命令零写盘");
+}
+
+/// 异常（既有口径零变化）：`root` 为空白 / 不存在 / 文件而非目录 → `Err`，且文案
+/// **不含**契约面词汇（错误映射未被新字段污染）。
+#[test]
+fn archi_module_root异常文案零契约词汇() {
+    let file_root = TempDir::new("module-api-file-root");
+    let root_file = file_root.write("not-a-dir.txt", "x");
+    let root_text = root_file.to_string_lossy().into_owned();
+    for root in ["", "   ", "/definitely/does/not/exist", root_text.as_str()] {
+        let error = archi_module_inner(Path::new(root), "App.Auth").expect_err("非法 root 应 Err");
+        for forbidden in ["declared", "contractPath", "schemaPath", "$defs"] {
+            assert!(
+                !error.contains(forbidden),
+                "错误文案不含契约面词汇 `{forbidden}`：{error}"
+            );
+        }
+    }
+}
+
+/// 正向（AC-13，两命令交叉）：试点形态（元素 + 入口 + 契约 md，且签名与代码一致）下
+/// `archi_module` 报 `declared`，同输入 `archi_drift` 的 `api_findings` 为空
+/// （该元素十判据零命中）。
+#[test]
+fn archi_module试点declared且同输入判据零命中() {
+    let temp = TempDir::new("module-api-pilot");
+    let fqn = "App.Backend.Core.Archi";
+    temp.write_model(
+        "01-pilot.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\ngate = \"off\"\n\n",
+            "[element.\"App.Backend\"]\nkind = \"domain\"\ngate = \"off\"\n\n",
+            "[element.\"App.Backend.Core\"]\nkind = \"domain\"\ngate = \"off\"\n\n",
+            "[element.\"App.Backend.Core.Archi\"]\nkind = \"module\"\ngate = \"off\"\n",
+            "path = [\"crates/core/archi/\"]\n",
+        ),
+    );
+    // 真实试点形态（D44 的两处取数面结构前提）：`file_stem` 的实现在生成物
+    // `crates/core/archi.i.rs` 内，入口经 `#[path = "../../archi.i.rs"] mod api_gen;` +
+    // `pub use api_gen::*;` 让它进符号集并升为 `External`——缺任一条则 `$defs` 的
+    // `LocalArchiCheck` 与 op `file_stem` 都会报 `apiMissing`（基线由 13 变 14）
+    temp.write(
+        "crates/core/archi/src/lib.rs",
+        "#[path = \"../../archi.i.rs\"]\nmod api_gen;\npub use api_gen::*;\n",
+    );
+    temp.write(
+        "crates/core/archi.i.rs",
+        "pub struct LocalArchiCheck;\n\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String {\n        timestamp.to_owned()\n    }\n}\n",
+    );
+    write_contract(
+        temp.path(),
+        fqn,
+        &format!(
+            "# {fqn}\n\n## 职能\n\n门禁执行体。\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
+             {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
+             \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
+             {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        ),
+    );
+
+    let detail = archi_module_inner(temp.path(), fqn).expect("archi_module_inner 应 Ok");
+    assert_eq!(
+        detail.api.status,
+        archi::dto::ApiStatus::Declared,
+        "试点 declared"
+    );
+    assert!(detail.api.contract_path.is_some());
+    assert!(detail.api.schema_path.is_some());
+    assert!(
+        detail.api.generated_path.is_some(),
+        "有 path 即有生成物路径"
+    );
+
+    let vcs = FakeVcs::with(&[]);
+    let report = archi_drift_inner(temp.path(), ArchiDriftMode::Full, &vcs).expect("全量应成功");
+    let api_findings: Vec<&archi::drift::report::ArchiApiFinding> = report
+        .api_findings
+        .iter()
+        .filter(|finding| finding.element.as_deref() == Some(fqn))
+        .collect();
+    assert!(
+        api_findings.is_empty(),
+        "试点元素十判据零命中：{:?}",
+        api_findings
+            .iter()
+            .map(|finding| (finding.kind.as_str(), finding.message.as_str()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// 边界（AC-16 否定断言）：`archi_read_doc` **不**覆盖 `<archi_api_dir>/**`——契约正文
+/// 不因本变更新增读取通路（契约权威在架构域 api 目录，命令面只读模块文档关联集）。
+#[test]
+fn read_doc不覆盖契约目录() {
+    let temp = healthy("read-doc-no-api");
+    let fqn = "App.Auth";
+    write_contract(
+        temp.path(),
+        fqn,
+        &format!("# {fqn}\n\n## 职能\n\n契约正文。\n"),
+    );
+    let contract_relative = archi::api::paths::contract_path(temp.path(), fqn).expect("合法 FQN");
+    let contract_relative = contract_relative
+        .strip_prefix(temp.path())
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    assert!(
+        contract_relative.contains("api/"),
+        "夹具确实落在契约目录：{contract_relative}"
+    );
+
+    let error = archi_read_doc(temp.root(), contract_relative.clone())
+        .err()
+        .unwrap_or_else(|| panic!("契约目录路径 {contract_relative:?} 应 Err（不在关联集内）"));
+    assert!(error.contains("关联集"), "错误文案点名关联集校验：{error}");
+    // 关联集本身也不含契约正文
+    let linked = archi::dto::linked_doc_paths(temp.path()).expect("Ok");
+    assert!(
+        linked.iter().all(|path| !path.contains("api/")),
+        "关联集零契约正文通路：{linked:?}"
+    );
+}

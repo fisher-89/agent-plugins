@@ -13,8 +13,8 @@ use foundation::layout::archi_models_dir;
 use serde_json::json;
 
 use crate::dto::{
-    self, ArchiDiagnostic, ArchiElement, ArchiGraph, ArchiRelation, DiagnosticKind, DocKind,
-    DocSource, EdgeMark, ElementKind, GateTier, NodeMark, SearchScope, WarningKind,
+    self, ApiStatus, ArchiDiagnostic, ArchiElement, ArchiGraph, ArchiRelation, DiagnosticKind,
+    DocKind, DocSource, EdgeMark, ElementKind, GateTier, NodeMark, SearchScope, WarningKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -485,8 +485,8 @@ fn module_detail边界形态() {
 // `module_overview` / `search` / `linked_doc_paths`
 // ---------------------------------------------------------------------------
 
-/// 正向 / 异常 / 边界：薄概览按 FQN 字典序、每条恰四字段；结构错 `Err`；空模型空
-/// 数组；单元素 1 条。
+/// 正向 / 异常 / 边界：薄概览按 FQN 字典序、每条为既有四字段 + `api`（同一模型字段的
+/// 纯拷贝）；结构错 `Err`；空模型空数组；单元素 1 条。
 #[test]
 fn module_overview三形态() {
     let temp = healthy_dir("overview");
@@ -505,7 +505,11 @@ fn module_overview三形态() {
         .map(String::as_str)
         .collect();
     keys.sort_unstable();
-    assert_eq!(keys, vec!["fqn", "gate", "kind", "summary"], "恰四字段");
+    assert_eq!(
+        keys,
+        vec!["api", "fqn", "gate", "kind", "summary"],
+        "既有四字段 + api（末尾追加，键集恰五）"
+    );
 
     let broken = TempDir::new("overview-broken");
     broken.write_model("01.toml", "[element.\"App\"]\nkind = \"pakage\"\n");
@@ -922,6 +926,7 @@ fn 缺省与可选字段显式线形() {
         fqn: "App".to_owned(),
         kind: ElementKind::Package,
         gate: GateTier::Off,
+        api: ApiStatus::Declared,
         path: Vec::new(),
         summary: None,
         metadata: std::collections::BTreeMap::new(),
@@ -1086,5 +1091,554 @@ fn 既有全量常量复用面零回归() {
         GateTier::default().as_str(),
         "off",
         "缺省档线词（知识文本 `gate` 缺省锚的派生源）"
+    );
+}
+
+// ===========================================================================
+// 契约状态投影（`module-api-contract-format` / AC-10 / D22）
+//
+// 两层口径：模型字段 `element.api`（声明意图）与 `ArchiApiRef.status`（文件在案
+// 事实）并列；投影只报文件事实、MUST NOT 回写模型字段。
+// ===========================================================================
+
+use crate::api::paths;
+
+/// 四字段契约引用（`Declared` 形态，三路径全 `Some`）的构造器。
+fn declared_ref(root: &Path, fqn: &str) -> serde_json::Value {
+    let element = crate::dto::ArchiElement {
+        fqn: fqn.to_owned(),
+        kind: ElementKind::Module,
+        gate: GateTier::Warn,
+        api: ApiStatus::Declared,
+        path: vec!["src/mod/".to_owned()],
+        summary: None,
+        metadata: std::collections::BTreeMap::new(),
+        model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+        model_line: 1,
+        mark: NodeMark::None,
+    };
+    let reference = crate::api::api_ref_of(root, fqn, &element.path);
+    serde_json::to_value(&reference).expect("序列化成功")
+}
+
+/// 正向（AC-10 / D22）：`ArchiApiRef` 四字段 camelCase 键名；`Declared` + 三路径
+/// `Some` → 文本三键皆为 repo 相对 POSIX 串。
+#[test]
+fn archi_api_ref四字段线形() {
+    let temp = TempDir::new("api-ref-line");
+    let fqn = "App.Core.Mod";
+    let schema_path = paths::schema_path(temp.root(), fqn).expect("合法 FQN");
+    temp.write(
+        &schema_path
+            .strip_prefix(temp.root())
+            .expect("相对")
+            .to_string_lossy()
+            .replace('\\', "/"),
+        "{\"$defs\": {}}\n",
+    );
+    let contract_relative = paths::contract_path(temp.root(), fqn)
+        .expect("合法 FQN")
+        .strip_prefix(temp.root())
+        .expect("相对")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(&contract_relative, &format!("# {fqn}\n"));
+
+    let value = declared_ref(temp.root(), fqn);
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["status", "contractPath", "schemaPath", "generatedPath"],
+        "四字段 camelCase 键名与顺序"
+    );
+    assert_eq!(value["status"], json!("declared"), "线词 declared");
+    for key in ["contractPath", "schemaPath", "generatedPath"] {
+        let text = value[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("{key} 应为字符串"));
+        assert!(!text.starts_with("./"), "{key} 零前导 `./`：{text}");
+        assert!(!text.contains('\\'), "{key} 为 POSIX 分隔：{text}");
+        assert!(!text.is_empty(), "{key} 非空");
+    }
+
+    // 往返后四字段逐字段相等（源文件字段按序列化形）
+    let back: crate::dto::ArchiApiRef =
+        serde_json::from_value(value.clone()).expect("反序列化成功");
+    assert_eq!(back.status, ApiStatus::Declared);
+    assert!(back.contract_path.is_some() && back.schema_path.is_some());
+}
+
+/// 边界（AC-10 / D22）：`status = None` 时三路径全 `None`（序列化为 `null`），
+/// 投影不产出「部分路径」组合。
+#[test]
+fn archi_api_ref为none时三路径全空() {
+    let temp = TempDir::new("api-ref-none");
+    let value = declared_ref(temp.root(), "App.Core.MissingMod");
+    assert_eq!(value["status"], json!("none"), "md 缺席 → none");
+    for key in ["contractPath", "schemaPath", "generatedPath"] {
+        assert_eq!(value[key], json!(null), "{key} 显式 null");
+        assert!(
+            value.as_object().expect("对象").contains_key(key),
+            "{key} 不被省略（四字段独立可空但 none 时三者全空）"
+        );
+    }
+
+    let back: crate::dto::ArchiApiRef = serde_json::from_value(value).expect("反序列化成功");
+    assert!(back.contract_path.is_none(), "往返后全 None");
+    assert!(back.schema_path.is_none());
+    assert!(back.generated_path.is_none());
+}
+
+/// 正向（AC-10 / D22）：`module_detail` 的 `api` 为**并列字段**（不在 `docs` 数组内），
+/// 键集含 `element` / `dependsOn` / `dependedBy` / `children` / `docs` / `warnings` /
+/// `api` 七项。
+#[test]
+fn module_detail并列api字段() {
+    let temp = healthy_dir("detail-api-field");
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("元素在场应 Ok");
+    let value = serde_json::to_value(&detail).expect("序列化成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            "element",
+            "dependsOn",
+            "dependedBy",
+            "children",
+            "docs",
+            "warnings",
+            "api"
+        ],
+        "七字段键序（api 为末位并列字段）"
+    );
+    // `api` 不在 `docs` 数组内
+    let docs = value["docs"].as_array().expect("docs 是数组");
+    assert!(
+        docs.iter()
+            .all(|doc| doc.get("status").is_none() && doc.get("contractPath").is_none()),
+        "契约投影 MUST NOT 进 docs 列表：{docs:?}"
+    );
+}
+
+/// 正向 / 边界（AC-10 / D22）：`module_detail(root, fqn).api.status` 随 md 存在与否
+/// 二值切换；容器元素（`path = []`）恒 `None` 且三路径全 `None`。
+#[test]
+fn module_detail投影随md存在性切换() {
+    let temp = healthy_dir("detail-api-switch");
+    let before = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    assert_eq!(before.api.status, ApiStatus::None, "无 md 时 status = none");
+
+    // 落 md 后重投影 → declared
+    let fqn = "App.Auth";
+    let contract_relative = paths::contract_path(temp.root(), fqn)
+        .expect("合法 FQN")
+        .strip_prefix(temp.root())
+        .expect("相对")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(
+        &contract_relative,
+        &format!("# {fqn}\n\n## 职能\n\n正文。\n"),
+    );
+
+    let after = dto::module_detail(temp.root(), fqn).expect("Ok");
+    assert_eq!(after.api.status, ApiStatus::Declared, "md 在案 → declared");
+    assert!(after.api.contract_path.is_some(), "契约路径在案");
+    assert!(after.api.schema_path.is_some(), "schema 路径同源给出");
+
+    // 容器元素（path 空）→ 恒 None
+    let graph = dto::graph_view(temp.root()).expect("Ok");
+    let container = graph
+        .elements
+        .iter()
+        .find(|element| element.path.is_empty())
+        .map(|element| element.fqn.clone());
+    if let Some(fqn) = container {
+        let detail = dto::module_detail(temp.root(), &fqn).expect("Ok");
+        assert_eq!(detail.api.status, ApiStatus::None, "容器元素天然无契约");
+        assert!(detail.api.contract_path.is_none());
+        assert!(detail.api.generated_path.is_none());
+    }
+}
+
+/// 边界（AC-10 / D22 零改写）：`api_ref` 报 `none` 时模型字段 `element.api` 仍为
+/// `declared`（投影只报文件事实，MUST NOT 回写模型字段）。
+#[test]
+fn module_detail投影零回写() {
+    let temp = healthy_dir("detail-api-no-writeback");
+    let detail = dto::module_detail(temp.root(), "App.Auth").expect("Ok");
+    assert_eq!(
+        detail.element.api,
+        ApiStatus::Declared,
+        "模型字段（模型未写 api 键 → 缺省 declared）不被投影回写"
+    );
+    assert_eq!(
+        detail.api.status,
+        ApiStatus::None,
+        "文件事实面（无 md）与之并列、互不覆写"
+    );
+
+    // 薄概览的 api 与模型字段逐值相等（纯拷贝）
+    let briefs = dto::module_overview(temp.root()).expect("Ok");
+    for brief in briefs {
+        let graph = dto::graph_view(temp.root()).expect("Ok");
+        let element = graph
+            .elements
+            .iter()
+            .find(|element| element.fqn == brief.fqn)
+            .expect("图里有该元素");
+        assert_eq!(
+            brief.api, element.api,
+            "薄概览 api 为模型字段的纯拷贝（零推导，{}）",
+            brief.fqn
+        );
+    }
+}
+
+/// 边界（AC-8）：`ArchiElement` 九字段 / `ArchiElementBrief` 四字段 /
+/// `ArchiModuleDetail` 六字段为既有面，`api` 为末位追加；`ArchiGraph` /
+/// `ArchiSearchResult` / `ArchiChangeSummary` 零新字段。
+#[test]
+fn 既有字段面零变化() {
+    let temp = healthy_dir("field-faces");
+    let graph = dto::graph_view(temp.root()).expect("Ok");
+    let graph_value = serde_json::to_value(&graph).expect("序列化成功");
+    let graph_keys: Vec<&str> = graph_value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        graph_keys,
+        vec!["elements", "relations", "diagnostics"],
+        "图三字段零新字段"
+    );
+
+    let element_value = serde_json::to_value(&graph.elements[0]).expect("序列化成功");
+    let element_keys: Vec<&str> = element_value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        element_keys,
+        vec![
+            "fqn",
+            "kind",
+            "gate",
+            "path",
+            "summary",
+            "metadata",
+            "modelFile",
+            "modelLine",
+            "mark",
+            "api"
+        ],
+        "元素十字段（api 为末位追加，既有九字段逐字与顺序不变）"
+    );
+
+    let search = dto::search(temp.root(), "Auth", SearchScope::All).expect("Ok");
+    if let Some(hit) = search.elements.first() {
+        let hit_value = serde_json::to_value(hit).expect("序列化成功");
+        let keys: Vec<&str> = hit_value
+            .as_object()
+            .expect("对象")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            vec!["fqn", "kind", "gate", "api", "summary"],
+            "薄条目既有四字段 + api（并列追加，顺序与 struct 字段一致）"
+        );
+    }
+}
+
+// ===========================================================================
+// `ApiStatus` 二值封闭与 `ArchiApiRef` 字符串边界（`module-api-contract-format` /
+// AC-10 / AC-8 / D22）
+//
+// `ApiStatus::ALL` 是知识文本与语料对拍的唯一派生源：长度即红灯（新增变体忘补
+// `ALL` 时本组断言与编译面双红）。路径是字符串，投影与我们都不做归一。
+// ===========================================================================
+
+/// 正向（AC-10）：`ALL.len() == 2`；`Declared` → `"declared"`、`None` → `"none"`；
+/// serde 线形与 `as_str` 逐值一致、往返恒等；`ALL` 去重后长度不变、序与 `as_str`
+/// 分支序一致。
+#[test]
+fn api_status二值封闭() {
+    assert_eq!(ApiStatus::ALL.len(), 2, "契约状态封闭二值");
+    let expected = [(ApiStatus::Declared, "declared"), (ApiStatus::None, "none")];
+    for (status, word) in expected {
+        assert_eq!(status.as_str(), word, "{status:?} 的线词");
+        assert_eq!(
+            serde_json::to_value(status).expect("序列化成功"),
+            json!(word),
+            "{word} 的 serde 线形与 as_str 一致"
+        );
+        assert_eq!(
+            serde_json::from_value::<ApiStatus>(json!(word)).expect("反序列化成功"),
+            status,
+            "{word} 往返逐值相等"
+        );
+    }
+
+    let mut words: Vec<&str> = ApiStatus::ALL
+        .iter()
+        .map(|status| status.as_str())
+        .collect();
+    let ordered = words.clone();
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), 2, "ALL 无重复值");
+    assert_eq!(
+        ordered,
+        expected
+            .iter()
+            .map(|(_, word)| *word)
+            .collect::<Vec<&str>>(),
+        "ALL 顺序与 as_str 分支序一致"
+    );
+}
+
+/// 边界（AC-10）：`ApiStatus::default() == Declared`（模型未写该键即承诺有契约）；
+/// 两值 `Eq` 可比较且互不相等。
+#[test]
+fn api_status缺省为declared() {
+    assert_eq!(
+        ApiStatus::default(),
+        ApiStatus::Declared,
+        "缺省 declared（承诺有契约）"
+    );
+    assert_ne!(ApiStatus::Declared, ApiStatus::None, "两值互不相等");
+    assert_eq!(ApiStatus::ALL[0], ApiStatus::default(), "ALL 首项即缺省值");
+}
+
+/// 异常（Enum N+1 / AC-10）：词汇外五形态 → 反序列化全 `Err`（`rename_all =
+/// "lowercase"` 严格，零宽松归一）。
+#[test]
+fn api_status词汇外反序列化即错() {
+    for word in ["Declared", "NONE", "none ", "off", ""] {
+        let result = serde_json::from_value::<ApiStatus>(json!(word));
+        assert!(result.is_err(), "词汇外应 Err（严格封闭）：{word:?}");
+    }
+    for word in [json!(null), json!(0), json!(true), json!(["declared"])] {
+        assert!(
+            serde_json::from_value::<ApiStatus>(word.clone()).is_err(),
+            "非字符串值应 Err：{word}"
+        );
+    }
+}
+
+/// 正向（AC-10）：`ArchiElement.api` 两态线形——文本含 `"api":"declared"` /
+/// `"api":"none"`，往返逐字段相等，且 `api` 为末位追加（既有九字段名与顺序不变）。
+#[test]
+fn archi_element_api两态线形() {
+    let base = ArchiElement {
+        fqn: "App.Core.Mod".to_owned(),
+        kind: ElementKind::Module,
+        gate: GateTier::Warn,
+        api: ApiStatus::Declared,
+        path: vec!["./src/mod/".to_owned()],
+        summary: Some("模块摘要".to_owned()),
+        metadata: std::collections::BTreeMap::from([("owner".to_owned(), "core".to_owned())]),
+        model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+        model_line: 7,
+        mark: NodeMark::None,
+    };
+    for (status, word) in [(ApiStatus::Declared, "declared"), (ApiStatus::None, "none")] {
+        let element = ArchiElement {
+            api: status,
+            ..base.clone()
+        };
+        let text = serde_json::to_string(&element).expect("序列化成功");
+        assert!(
+            text.contains(&format!("\"api\":\"{word}\"")),
+            "线形含 api = {word}：{text}"
+        );
+        let back: ArchiElement = serde_json::from_str(&text).expect("反序列化成功");
+        assert_eq!(back, element, "两态往返逐字段相等");
+
+        let keys: Vec<&str> = text
+            .split('"')
+            .filter(|segment| {
+                matches!(
+                    *segment,
+                    "fqn"
+                        | "kind"
+                        | "gate"
+                        | "path"
+                        | "summary"
+                        | "metadata"
+                        | "modelFile"
+                        | "modelLine"
+                        | "mark"
+                        | "api"
+                )
+            })
+            .collect();
+        assert_eq!(keys.last(), Some(&"api"), "api 为末位追加字段：{text}");
+        assert!(
+            !element.metadata.contains_key("api"),
+            "新增字段 MUST NOT 进 metadata（九字段面零变化）"
+        );
+    }
+}
+
+/// 边界（AC-8 / AC-10）：路径是字符串，不做归一——`>1000 chars` 的 repo 相对串与
+/// 含 emoji / NUL 的 FQN 经 `ArchiApiRef` 往返逐字相等；`status = None` 时三者保持
+/// `null`（`none` ⟹ 三路径全空，D22）。
+#[test]
+fn archi_api_ref超长与特殊字符路径() {
+    let long_path = format!("{}/Infra/App.Core.Mod.schema.json", "层".repeat(1000));
+    assert!(
+        long_path.chars().count() > 1000,
+        "构造超长路径（实际 {} 字符）",
+        long_path.chars().count()
+    );
+    let reference = crate::dto::ArchiApiRef {
+        status: ApiStatus::Declared,
+        contract_path: Some(long_path.clone()),
+        schema_path: Some(format!("{long_path}#/$defs/Mod")),
+        generated_path: Some("src/mod.i.ts".to_owned()),
+    };
+    let back: crate::dto::ArchiApiRef =
+        serde_json::from_str(&serde_json::to_string(&reference).expect("序列化成功"))
+            .expect("反序列化成功");
+    assert_eq!(back, reference, "超长路径逐字往返（不做归一 / 不截断）");
+    assert_eq!(
+        back.contract_path.as_deref(),
+        Some(long_path.as_str()),
+        "路径原文保留"
+    );
+
+    // 合法但形状极端的 FQN（emoji / NUL / 300 段）——线面逐字往返；尾点形态的空末段
+    // 按路径形态判据拒收，另在下方单独断言
+    let fqns = [
+        "App.🎯.模块".to_owned(),
+        "App.\u{0}.X".to_owned(),
+        format!("{}Tail", "App.".repeat(300)),
+    ];
+    for fqn in &fqns {
+        let fqn = fqn.as_str();
+        let mut element = ArchiElement {
+            fqn: fqn.to_owned(),
+            kind: ElementKind::Module,
+            gate: GateTier::Off,
+            api: ApiStatus::Declared,
+            path: vec!["src/x/".to_owned()],
+            summary: None,
+            metadata: std::collections::BTreeMap::new(),
+            model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+            model_line: 1,
+            mark: NodeMark::None,
+        };
+        let relative = crate::api::paths::contract_path(Path::new("/ws"), fqn)
+            .expect("合法 FQN")
+            .strip_prefix("/ws")
+            .expect("相对路径")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let reference = crate::dto::ArchiApiRef {
+            status: ApiStatus::Declared,
+            contract_path: Some(relative),
+            schema_path: None,
+            generated_path: None,
+        };
+        let text = serde_json::to_string(&reference).expect("序列化成功");
+        assert!(text.contains("\"schemaPath\":null"), "缺省路径显式 null");
+        let back: crate::dto::ArchiApiRef = serde_json::from_str(&text).expect("反序列化成功");
+        assert_eq!(back, reference, "特殊字符 FQN 的契约路径逐字往返");
+        element.api = ApiStatus::None;
+        let text = serde_json::to_string(&element).expect("序列化成功");
+        let back: ArchiElement = serde_json::from_str(&text).expect("反序列化成功");
+        assert_eq!(back.fqn, fqn, "emoji / NUL / 超长 FQN 逐字往返");
+    }
+
+    // 尾点 / 空段的 FQN 形态非法 ⇒ 路径派生 `None`（不 panic、`<Domain>` 不落空串）
+    for fqn in ["App.".to_owned(), "App..X".to_owned(), "App.".repeat(300)] {
+        assert_eq!(
+            crate::api::paths::contract_path(Path::new("/ws"), &fqn),
+            None,
+            "形态非法的 FQN 不派生路径：{fqn:?}"
+        );
+        assert_eq!(
+            crate::api::paths::schema_path(Path::new("/ws"), &fqn),
+            None,
+            "schema 路径同拒收：{fqn:?}"
+        );
+    }
+}
+
+/// 正向（AC-10 / AC-9）：`module_detail` 的 `api` 字段与直接调 `api::api_ref_of`
+/// **逐字段相等**——`dto` 只做一次定位（元素 `path` 已在手），零拼装、零第二套投影；
+/// 模型字段 `element.api` 在投影报 `none` 时仍保持 `declared`（投影零回写，D22）。
+#[test]
+fn module_detail的api与投影单点逐字段相等() {
+    let temp = healthy_dir("detail-api-same-source");
+    let fqn = "App.Auth";
+
+    // 形态一：无 md → 两路都是 none 且三路径全 None
+    let detail = dto::module_detail(temp.root(), fqn).expect("Ok");
+    let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+    assert_eq!(detail.api, direct, "无 md 时两路逐字段相等");
+    assert_eq!(detail.api.status, ApiStatus::None);
+    assert_eq!(detail.element.api, ApiStatus::Declared, "模型字段零回写");
+
+    // 形态二：md 在案 → 两路都是 declared 且三路径逐字相等
+    let contract_relative = paths::contract_path(temp.root(), fqn)
+        .expect("合法 FQN")
+        .strip_prefix(temp.root())
+        .expect("相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(
+        &contract_relative,
+        &format!("# {fqn}\n\n## 职能\n\n正文。\n"),
+    );
+
+    let detail = dto::module_detail(temp.root(), fqn).expect("Ok");
+    let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+    assert_eq!(detail.api, direct, "md 在案时两路逐字段相等（投影纯单点）");
+    assert_eq!(detail.api.status, ApiStatus::Declared);
+    assert!(
+        detail.api.generated_path.is_some(),
+        "有 path 即有生成物路径"
+    );
+
+    // 源码自证：`dto.rs` 只调 `api_ref_of`（元素形态入口），零 `api_ref` 二次读模型
+    let source = include_str!("dto.rs");
+    assert_eq!(
+        source.matches("api_ref_of").count(),
+        1,
+        "`dto.rs` 内 `api_ref_of` 恰一处（单点调用）"
+    );
+    assert!(
+        !source.contains("crate::api::api_ref("),
+        "`dto` MUST NOT 调 `api_ref`（已有元素 path，勿二次读模型）"
+    );
+    // 结构体定义行必然含 `ArchiApiRef`，故按「构造字面量」形态判定（定义行是 `pub struct`）
+    let constructed = source
+        .lines()
+        .filter(|line| line.contains("ArchiApiRef {"))
+        .filter(|line| !line.trim_start().starts_with("pub struct"))
+        .count();
+    assert!(
+        !source.contains("paths::")
+            && !source.contains("foundation::layout::archi_api_dir")
+            && constructed == 0,
+        "`dto` 内零契约路径拼装 / 零 `ArchiApiRef` 构造字面量（全由投影单点产出）"
     );
 }

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::dto::{DiagnosticKind, ElementKind, GateTier};
+use crate::dto::{ApiStatus, DiagnosticKind, ElementKind, GateTier};
 
 /// 聚合后的完整模型（多文件合并，声明序保留）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +42,9 @@ pub struct Element {
     pub kind: ElementKind,
     /// gate 档位（缺省 `off`）
     pub gate: GateTier,
+    /// 契约状态指针（缺省 `declared`；协议正文 MUST NOT 进模型——签名 / 导出符号 /
+    /// 接口定义写在架构域 `api` 目录的契约资产里）
+    pub api: ApiStatus,
     /// 覆盖路径（原文，不归一）
     pub path: Vec<String>,
     /// 显式文档路径（原文，不归一）

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "timestamp": "<timestamp>",
   "mode": "incremental",
   "root": "<root>",
@@ -44,5 +44,6 @@
       "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Billing → App.Auth 的 import（观察项，不参与门禁判据）"
     }
   ],
+  "apiFindings": [],
   "status": "clean"
 }

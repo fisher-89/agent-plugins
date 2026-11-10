@@ -646,10 +646,30 @@ export const AgentRunMessageSchema = z.union([z.strictObject({
 
 export const AgentRunStatusSchema = z.union([z.literal("running"), z.literal("completed"), z.literal("failed"), z.literal("stopped")]);
 
+export const ApiStatusSchema = z.union([z.literal("declared"), z.literal("none")]);
+
 export const AppEnvironmentSchema = z.strictObject({
 	get mode() { return z.string(); },
 	get dataRoot() { return z.string(); },
 	get source() { return z.string(); },
+});
+
+export const ArchiApiFindingSchema = z.strictObject({
+	get kind() { return ArchiApiFindingKindSchema; },
+	get category() { return z.string(); },
+	get element() { return z.string().nullable(); },
+	get target() { return z.string().nullable(); },
+	get message() { return z.string(); },
+	get occurrences() { return z.array(ArchiDriftOccurrenceSchema); },
+});
+
+export const ArchiApiFindingKindSchema = z.union([z.literal("apiEntryMissing"), z.literal("apiMissing"), z.literal("apiUndeclared"), z.literal("apiSignatureMismatch"), z.literal("apiUnexpected"), z.literal("apiShadowing"), z.literal("apiRefMissing"), z.literal("apiNestedCrossCrate"), z.literal("apiReexportDrift"), z.literal("apiConstructorDeclared")]);
+
+export const ArchiApiRefSchema = z.strictObject({
+	get status() { return ApiStatusSchema; },
+	get contractPath() { return z.string().nullable(); },
+	get schemaPath() { return z.string().nullable(); },
+	get generatedPath() { return z.string().nullable(); },
 });
 
 export const ArchiChangeSummarySchema = z.strictObject({
@@ -732,6 +752,7 @@ export const ArchiDriftReportSchema = z.strictObject({
 	get warnings() { return z.array(ArchiDriftEntrySchema); },
 	get suppressed() { return z.array(ArchiDriftSuppressedEntrySchema); },
 	get observations() { return z.array(ArchiDriftObservationSchema); },
+	get apiFindings() { return z.array(ArchiApiFindingSchema); },
 	get status() { return ArchiCheckStatusSchema; },
 });
 
@@ -754,6 +775,7 @@ export const ArchiElementSchema = z.strictObject({
 	get modelFile() { return z.string(); },
 	get modelLine() { return z.int().min(0).max(4294967295); },
 	get mark() { return NodeMarkSchema; },
+	get api() { return ApiStatusSchema; },
 });
 
 export const ArchiExcludedFileSchema = z.strictObject({
@@ -791,6 +813,7 @@ export const ArchiModuleDetailSchema = z.strictObject({
 	get children() { return z.array(z.string()); },
 	get docs() { return z.array(DocRefSchema); },
 	get warnings() { return z.array(ArchiWarningSchema); },
+	get api() { return ArchiApiRefSchema; },
 });
 
 export const ArchiObservationKindSchema = z.union([z.literal("unfulfilledDeclaration"), z.literal("unusedDeclaration")]);

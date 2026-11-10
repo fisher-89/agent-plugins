@@ -1,0 +1,384 @@
+# 由 archi-api-gen 生成 · 勿手改
+# review 口径：只读元素目录下的 `<FQN>.md`；本文件与 `*.schema.json` 的 diff 视为机械噪声。
+# 契约面：目录 .dev-team/architecture/api · 生成器 archi-api 0.1.0 · 映射规则摘要 sha256:1f8f0ec14abb
+
+[[entry]]
+fqn = "App.Backend.Core.Agent"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Core.Archi"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Core.Checks"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Core.Config"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Core.Foundation"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Core.Orchestration"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Core.Workflow"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Infra.AgentRuntime"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Infra.ArchiRuntime"
+status = "declared"
+types = 1
+ops = 1
+degraded = 0
+schema = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.schema.json"
+generated = "packages/desktop/src-tauri/crates/infra/archi.i.rs"
+
+[entry.categories]
+object = 1
+
+[[entry]]
+fqn = "App.Backend.Infra.ChecksRuntime"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Infra.Exec"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Infra.Store"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Infra.VcsRuntime"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Infra.Watch"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Shell"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Tools.ArchiApiGen"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Backend.Tools.ExportBindings"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Agent"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Agent.AgentBlocks"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Agent.AgentError"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Agent.AgentInput"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Agent.AgentMessages"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Agent.AgentSessionView"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Agent.ToolCards"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Standard.Dailog"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Standard.Drawer"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Standard.Pagination"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Standard.Select"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Ui"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Shell"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.AgentDebug"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Agents"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Architecture"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Changes"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Changes.Agent"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Changes.Flow"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Changes.Renderers"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Config"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.DbInspector"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Explores"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Info"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Views.Welcome"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""

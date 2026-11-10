@@ -525,3 +525,318 @@ fn 必静态条款在场八条关键词逐条() {
         }
     }
 }
+
+// ===========================================================================
+// `api` 状态面（`module-api-contract-format` / D25）
+//
+// 派生段追加一行 `api 状态：<ApiStatus::ALL 逐值以 " / " 连接>（缺省 declared）`，
+// 词表从 `ALL` 派生、MUST NOT 手抄；目录面追加契约目录相对路径。
+// ===========================================================================
+
+use archi::dto::ApiStatus;
+
+/// 正向（AC-10 / D25）：`ApiStatus::ALL` 两值逐值 `as_str()` 在场，且连接形态与
+/// 其余三面同源（`" / "` 分隔、缺省 `declared` 锚在括号内）。
+#[test]
+fn knowledge词表派生api状态二值逐值在场() {
+    let text = text();
+    for status in ApiStatus::ALL {
+        assert!(
+            text.contains(status.as_str()),
+            "知识文本缺 api 状态词 {:?}（词表 MUST NOT 手抄）",
+            status.as_str()
+        );
+    }
+    let expected = ApiStatus::ALL
+        .iter()
+        .map(|status| status.as_str())
+        .collect::<Vec<&str>>()
+        .join(" / ");
+    assert!(
+        text.contains(&format!("api 状态：{expected}")),
+        "连接形态须与 kind / gate / 诊断三面同源（`\" / \"` 分隔）：{expected}"
+    );
+    assert!(
+        text.contains(&format!("（缺省 {}）", ApiStatus::default().as_str())),
+        "缺省档锚定在括号内（`ApiStatus::default()` 派生）"
+    );
+}
+
+/// 正向（AC-10）：契约目录相对路径由 `archi_api_rel_dir()` 逐字注入；三棵目录前缀
+/// 同源（`archi_rel_dir()` 共享前缀）。
+#[test]
+fn knowledge契约目录派生注入且三目录同源() {
+    let text = text();
+    let api = foundation::layout::archi_api_rel_dir();
+    assert!(
+        text.contains(&api),
+        "知识文本缺契约目录派生串 {api}（目录 MUST NOT 手抄）"
+    );
+    for relative in [
+        foundation::layout::archi_models_rel_dir(),
+        foundation::layout::archi_decisions_rel_dir(),
+        api.clone(),
+    ] {
+        assert!(
+            relative.starts_with(&foundation::layout::archi_rel_dir()),
+            "{relative} 应以架构域相对根为前缀（同源派生）"
+        );
+    }
+}
+
+/// 边界（D25）：`api` 状态面与 gate 档面词集互不相交（`declared` / `none` 不出现在
+/// gate 词集，`off` / `warn` / `strict` 不出现在 api 词集）；四面去重后长度不变。
+#[test]
+fn knowledge词集四面不互相包含() {
+    let api_words: BTreeSet<&str> = ApiStatus::ALL
+        .iter()
+        .map(|status| status.as_str())
+        .collect();
+    let gate_words: BTreeSet<&str> = GateTier::ALL.iter().map(|gate| gate.as_str()).collect();
+    assert_eq!(api_words.len(), 2, "api 状态封闭二值");
+    assert_eq!(gate_words.len(), 3, "gate 封闭三值");
+    assert!(
+        api_words.is_disjoint(&gate_words),
+        "api 词集与 gate 词集 MUST 不相交：{api_words:?} / {gate_words:?}"
+    );
+
+    let kind_words: BTreeSet<&str> = ElementKind::ALL.iter().map(|kind| kind.as_str()).collect();
+    let diagnostic_words: BTreeSet<&str> = DiagnosticKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    for (label, words) in [
+        ("api", &api_words),
+        ("gate", &gate_words),
+        ("kind", &kind_words),
+        ("diagnostic", &diagnostic_words),
+    ] {
+        let mut copy: Vec<&&str> = words.iter().collect();
+        copy.sort_unstable();
+        copy.dedup();
+        assert_eq!(copy.len(), words.len(), "{label} 面去重后长度不变");
+    }
+}
+
+/// 边界：`ApiStatus` 线词与 `ArchiElement` 序列化文本的 `"api"` 字段值逐字相等
+/// （两面对拍，零手抄词表）。
+#[test]
+fn api_status线词与元素投影串相等() {
+    use archi::dto::{ArchiElement, ElementKind, GateTier};
+    use std::collections::BTreeMap;
+
+    for status in ApiStatus::ALL {
+        let element = ArchiElement {
+            fqn: "App.Core.Mod".to_owned(),
+            kind: ElementKind::Module,
+            gate: GateTier::Warn,
+            api: status,
+            path: vec!["src/mod/".to_owned()],
+            summary: None,
+            metadata: BTreeMap::new(),
+            model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+            model_line: 1,
+            mark: archi::dto::NodeMark::None,
+        };
+        let value = serde_json::to_value(&element).expect("序列化失败");
+        assert_eq!(
+            value["api"],
+            serde_json::json!(status.as_str()),
+            "元素投影串的 api 字段与 as_str() 逐字相等（{status:?}）"
+        );
+    }
+}
+
+/// 边界：`build` 的骨架降级判据零变化——空骨架 / 含 `<>` 占位符仍 `Err`（新增 api
+/// 行不引入新降级路径）。
+#[test]
+fn build降级判据零变化() {
+    assert!(build("   ").is_err(), "空骨架仍 Err（降级语义零变化）");
+    let placeholder = format!("示例：{}", "<>");
+    let error = build(&placeholder).expect_err("含 <> 占位符仍 Err");
+    assert!(error.contains("占位符"), "文案含触发点：{error}");
+}
+
+/// 边界：知识文本体量上限随 api 行与契约目录小幅增长后仍 ≤ 4KB。
+#[test]
+fn knowledge体量仍不超4kb() {
+    let text = text();
+    assert!(
+        text.len() <= 4096,
+        "体量上限 4096 字节（实得 {} 字节）",
+        text.len()
+    );
+}
+
+/// 边界：纯函数性——三次调用逐字相等（含新增 api 行与契约目录）。
+#[test]
+fn knowledge三次调用逐字相等() {
+    let first = text();
+    let second = text();
+    let third = text();
+    assert_eq!(first, second, "三次调用逐字相等");
+    assert_eq!(second, third, "三次调用逐字相等");
+}
+
+/// 边界：真实骨架（`include_str!`）与 `build` 同源——`build(SKELETON)` 的产物含
+/// api 状态行与契约目录（骨架零改动时的最小闭合）。
+#[test]
+fn build真实骨架产物含api面() {
+    let built = build(SKELETON).expect("真实骨架应拼装成功");
+    assert!(
+        built.contains("api 状态："),
+        "派生段含 api 状态行：\n{built}"
+    );
+    assert!(
+        built.contains(&foundation::layout::archi_api_rel_dir()),
+        "派生段含契约目录：\n{built}"
+    );
+    for status in ApiStatus::ALL {
+        assert!(
+            built.contains(status.as_str()),
+            "api 状态词 {:?} 在场",
+            status.as_str()
+        );
+    }
+}
+
+// ===========================================================================
+// 骨架 md 的两处改写（`module-api-contract-format` / D25）：字段面补 `api`、
+// 「边界」段换成「契约权威在契约资产」口径。
+//
+// 判据措辞口径（与设计 `:949` / `:983` 的对齐说明）：设计写「契约权威在…**api 目录**」，
+// 骨架 md 的实现措辞是「契约权威在**契约资产**（末段给出路径）」。二者不是同一字面——
+// 设计那半句是**语义要求**（权威指向契约资产、路径由派生段给出），md 侧按「零目录字面量」
+// 既有纪律只能写「契约资产」+「末段给出路径」，「api 目录」这个具体串由 `build()` 的派生段
+// 注入（`契约目录：<archi_api_rel_dir()>`）。故本组用例把判据落成三条可机械核对的形态：
+// ① 旧口径零命中；② 新语义的**关键词**在场（契约资产 / 数据末给出路径 / 状态指针 /
+// 正文不进模型）；③ 「api 目录」这一路径串由派生段承载而非骨架手抄。
+// ===========================================================================
+
+/// 正向（AC-10 / D25）：`格式约定` 段的元素字段枚举行含 `api`，且同处给出二值
+/// `declared`（缺省）/ `none`；六项既有字段`kind` / `gate` / `path` / `docs` /
+/// `summary` / `metadata` 仍在（追加非替换）。
+#[test]
+fn 骨架字段面补api且六项仍在() {
+    let field_line = SKELETON
+        .lines()
+        .find(|line| line.contains("元素字段面："))
+        .unwrap_or_else(|| panic!("骨架缺「元素字段面：」枚举行：\n{SKELETON}"));
+    assert!(
+        field_line.contains("`api`"),
+        "字段枚举行须含反引号形态的 `api`：{field_line}"
+    );
+    // 六项既有字段逐项仍在（追加非替换）
+    for field in [
+        "`kind`",
+        "`gate`",
+        "`path`",
+        "`docs`",
+        "`summary`",
+        "`metadata`",
+    ] {
+        assert!(
+            field_line.contains(field),
+            "既有字段 {field} 须仍在枚举行（追加非替换）：{field_line}"
+        );
+    }
+    assert!(
+        field_line.contains("必填"),
+        "`kind` 的必填语义须仍在：{field_line}"
+    );
+
+    // 二值定义同行给出：`declared`（缺省）/ `none`（显式无 API）
+    let api_line = SKELETON
+        .lines()
+        .find(|line| line.contains("状态指针"))
+        .unwrap_or_else(|| panic!("骨架缺 `api` 语义行：\n{SKELETON}"));
+    assert!(
+        api_line.contains("`declared`"),
+        "缺省值 declared：{api_line}"
+    );
+    assert!(api_line.contains("`none`"), "另一值 none：{api_line}");
+    assert!(api_line.contains("缺省"), "declared 标注为缺省：{api_line}");
+
+    // 二值从代码侧词表逐值在场（词表不手抄的对照面）
+    for status in ApiStatus::ALL {
+        assert!(
+            SKELETON.contains(status.as_str()),
+            "骨架须写出 api 线词 {:?}（与 `ApiStatus::ALL` 同源）",
+            status.as_str()
+        );
+    }
+}
+
+/// 正向（D25）：旧口径「契约权威在对应能力的 spec 文本」**零命中**；新表述含
+/// 「契约资产」与「末段给出路径」「模型只存状态指针」「签名 / 导出符号 / 接口正文
+/// 不进模型」三段语义（四条断言）。
+#[test]
+fn 骨架边界段改写为契约资产口径() {
+    assert!(
+        !SKELETON.contains("契约权威在对应能力的 spec 文本"),
+        "旧口径 MUST 零命中（本变更正是要替换它）"
+    );
+
+    let authority = SKELETON
+        .lines()
+        .find(|line| line.contains("契约权威"))
+        .unwrap_or_else(|| panic!("骨架缺「契约权威」行：\n{SKELETON}"));
+    assert!(
+        authority.contains("契约资产"),
+        "权威指向契约资产：{authority}"
+    );
+    assert!(
+        authority.contains("末段给出路径"),
+        "路径由派生段给出（骨架零目录字面量的等价形态）：{authority}"
+    );
+    assert!(
+        authority.contains("模型只存状态指针"),
+        "模型只存状态指针 `api`：{authority}"
+    );
+    assert!(
+        authority.contains("MUST NOT 抄契约正文"),
+        "契约正文不进模型：{authority}"
+    );
+
+    let boundary = SKELETON
+        .lines()
+        .find(|line| line.contains("模型里不写接口"))
+        .unwrap_or_else(|| panic!("骨架缺「模型里不写接口」行：\n{SKELETON}"));
+    for keyword in ["函数签名", "类型定义", "导出清单", "不进模型正文"] {
+        assert!(
+            boundary.contains(keyword),
+            "签名 / 导出符号 / 接口正文不进模型正文（缺 {keyword:?}）：{boundary}"
+        );
+    }
+
+    // 「api 目录」这一具体路径串位于**派生段**（骨架手抄会与 `零目录字面量` 冲突）
+    let derived = text();
+    assert!(
+        derived.contains(&foundation::layout::archi_api_rel_dir()),
+        "契约目录路径由派生段承载：{derived}"
+    );
+    assert!(
+        derived.contains("契约目录："),
+        "派生段须有契约目录引导语：{derived}"
+    );
+}
+
+/// 异常（AC-17 / 自查面）：骨架 md 内零 `crate` / `Cargo.toml` 字样；零 `api 状态：`
+/// 手写行与零 `元素 kind：` 手写行（词表只从代码派生，不落 md）；零 `<>` 占位符。
+#[test]
+fn 骨架语言词与派生行禁写() {
+    for forbidden in ["crate", "Cargo.toml"] {
+        assert!(
+            !SKELETON.contains(forbidden),
+            "骨架 MUST NOT 含语言词 {forbidden:?}（AC-17）"
+        );
+    }
+    // 派生段的四个引导语一律不得在骨架里手抄（否则词表会双写漂移）
+    for hand_written in ["api 状态：", "元素 kind：", "gate 档：", "结构诊断："] {
+        assert!(
+            !SKELETON.contains(hand_written),
+            "骨架 MUST NOT 手抄派生行 {hand_written:?}（词表只从代码派生）"
+        );
+    }
+    assert!(!SKELETON.contains("<>"), "骨架不得含 <> 占位符");
+}

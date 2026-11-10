@@ -1,0 +1,16 @@
+
+=== packages_desktop_src-tauri_rust (rust) · files=84 ===
+Found 828 mutants to test
+TIMEOUT  crates/core/archi/src/api/contract.rs:730:23: replace += with *= in duplicate_keys in 9s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:736:23: replace += with -= in duplicate_keys in 8s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:736:23: replace += with *= in duplicate_keys in 9s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:754:24: replace += with -= in duplicate_keys in 6s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:754:24: replace += with *= in duplicate_keys in 6s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:776:28: replace += with -= in string_end in 6s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:778:24: replace += with *= in string_end in 5s build + 300s test
+MISSED   crates/tools/archi-api-gen/src/main.rs:210:43: replace || with && in generated_files_on_disk in 5s build + 6s test
+MISSED   crates/tools/archi-api-gen/src/main.rs:230:14: replace > with == in walk_modules in 7s build + 6s test
+MISSED   crates/tools/archi-api-gen/src/main.rs:230:14: replace > with >= in walk_modules in 6s build + 7s test
+MISSED   crates/tools/archi-api-gen/src/main.rs:253:47: replace + with * in walk_modules in 7s build + 6s test
+MISSED   crates/tools/archi-api-gen/src/main.rs:264:5: replace walk with () in 6s build + 6s test
+828 mutants tested in 81m: 5 missed, 760 caught, 56 unviable, 7 timeouts

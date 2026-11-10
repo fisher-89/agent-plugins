@@ -76,6 +76,37 @@ impl GateTier {
     pub const ALL: [GateTier; 3] = [GateTier::Off, GateTier::Warn, GateTier::Strict];
 }
 
+/// 契约状态指针（封闭二值；缺省 `Declared`）。
+///
+/// 语义：`declared` = 本模块承诺有公共 API 契约（缺省）、`none` = 显式声明本模块
+/// 无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
+/// 模型里（契约权威在架构域 `api` 目录的契约资产，本枚举只是状态指针）。
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiStatus {
+    /// 承诺有契约（缺省）
+    #[default]
+    Declared,
+    /// 显式声明本模块无 API
+    None,
+}
+
+impl ApiStatus {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApiStatus::Declared => "declared",
+            ApiStatus::None => "none",
+        }
+    }
+
+    /// 全部合法值（清单单点：全量常量 = 知识文本与四面词汇对拍的唯一派生源）。新增
+    /// 变体必须同补本常量（长度即红灯），MUST NOT 在消费侧手抄一份词表字面量。
+    pub const ALL: [ApiStatus; 2] = [ApiStatus::Declared, ApiStatus::None];
+}
+
 /// 结构诊断种类（封闭九值：parser 免费五 + 自实现四；线格式 camelCase）。
 ///
 /// 类型名带 `Archi` 前缀是**线面约束**：specta 的类型注册表按裸类型名唯一，工作区
@@ -247,6 +278,28 @@ pub struct DocRef {
     pub source: DocSource,
 }
 
+/// 契约状态的线面投影（并列字段，**投影只报文件在案事实**）：
+///
+/// - `status` = 契约文件是否在案（`declared` / `none`）；
+/// - `none` 时三个路径字段为 `null`；在案时三者为 repo 相对 POSIX 路径（`schema`
+///   与生成物即使尚未生成也给路径串）。
+///
+/// 该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
+/// 而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文，MUST NOT
+/// 进 `docs` 列表。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiApiRef {
+    /// 契约状态（文件在案事实）
+    pub status: ApiStatus,
+    /// 契约文件（`<archi_dir>/api/<Domain>/<FQN>.md`）的 repo 相对路径
+    pub contract_path: Option<String>,
+    /// schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径
+    pub schema_path: Option<String>,
+    /// 元素生成物（`<root>.i.rs` / `<root>.i.ts`）的 repo 相对路径
+    pub generated_path: Option<String>,
+}
+
 /// 画布数据（停摆判据 = `diagnostics` 非空；停摆态 `elements` / `relations` 恒空）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -281,6 +334,8 @@ pub struct ArchiElement {
     pub model_line: u32,
     /// 节点标记（本期恒 `none`）
     pub mark: NodeMark,
+    /// 契约状态指针（模型字段的拷贝；协议正文不进模型）
+    pub api: ApiStatus,
 }
 
 /// 关系投影（`reason` 本期恒 `null`，`exempt` 场景的呈现载体）。
@@ -339,6 +394,8 @@ pub struct ArchiElementBrief {
     pub kind: ElementKind,
     /// gate 档位
     pub gate: GateTier,
+    /// 契约状态指针（模型字段的拷贝）
+    pub api: ApiStatus,
     /// 一行摘要
     pub summary: Option<String>,
 }
@@ -379,6 +436,8 @@ pub struct ArchiModuleDetail {
     pub docs: Vec<DocRef>,
     /// 文档警告（只报不拦）
     pub warnings: Vec<ArchiWarning>,
+    /// 契约状态与三路径的并列字段（MUST NOT 进 `docs` 列表）
+    pub api: ArchiApiRef,
 }
 
 /// 检索结果（薄条目 + 四字段文档条目）。
@@ -453,6 +512,7 @@ fn to_element(element: &Element) -> ArchiElement {
         model_file: element.file.clone(),
         model_line: element.line,
         mark: NodeMark::None,
+        api: element.api,
     }
 }
 
@@ -484,6 +544,7 @@ fn to_brief(element: &Element) -> ArchiElementBrief {
         fqn: element.fqn.clone(),
         kind: element.kind,
         gate: element.gate,
+        api: element.api,
         summary: element.summary.clone(),
     }
 }
@@ -491,18 +552,36 @@ fn to_brief(element: &Element) -> ArchiElementBrief {
 /// 诊断清单 → 单条错误文案（`kind @ file:line` 逐行；使调用方一眼看出「模型
 /// 本身坏了」而不是「没有这个模块」）。
 fn diagnostics_error(diagnostics: &[Diagnostic]) -> String {
-    let mut lines: Vec<String> = diagnostics
-        .iter()
-        .map(|diagnostic| {
-            let kind = diagnostic.kind.as_str();
-            if diagnostic.line == 0 {
-                format!("{kind} @ {}", diagnostic.file)
+    diagnostics_lines(
+        diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.kind, diagnostic.file.as_str(), diagnostic.line)),
+    )
+}
+
+/// 同一文案的投影侧入口（`api` 面经 [`graph_view`] 取元素时的错误面）——文案单点
+/// 在 [`diagnostics_lines`]，MUST NOT 在调用方另拼一份。
+pub(crate) fn graph_diagnostics_error(diagnostics: &[ArchiDiagnostic]) -> String {
+    diagnostics_lines(
+        diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.kind, diagnostic.file.as_str(), diagnostic.line)),
+    )
+}
+
+/// 两族诊断类型（进程内 / 线面投影）共用的文案形。
+fn diagnostics_lines<'a>(items: impl Iterator<Item = (DiagnosticKind, &'a str, u32)>) -> String {
+    let mut lines: Vec<String> = items
+        .map(|(kind, file, line)| {
+            let kind = kind.as_str();
+            if line == 0 {
+                format!("{kind} @ {file}")
             } else {
-                format!("{kind} @ {}:{}", diagnostic.file, diagnostic.line)
+                format!("{kind} @ {file}:{line}")
             }
         })
         .collect();
-    lines.insert(0, format!("模型结构错（共 {} 条）：", diagnostics.len()));
+    lines.insert(0, format!("模型结构错（共 {} 条）：", lines.len()));
     lines.join("\n")
 }
 
@@ -586,6 +665,8 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
                 path: Some(warning.path.clone()),
             })
             .collect(),
+        // 契约状态的定位与投影单点在 `crate::api`（本层零路径拼接、零二次读模型）
+        api: crate::api::api_ref_of(root, fqn, &element.path),
     })
 }
 

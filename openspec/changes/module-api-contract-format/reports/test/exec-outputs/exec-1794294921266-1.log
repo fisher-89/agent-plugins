@@ -1,0 +1,13 @@
+Found 828 mutants to test
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=-1073741571
+TIMEOUT  crates/core/archi/src/api/contract.rs:730:23: replace += with -= in duplicate_keys in 58s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:754:24: replace += with -= in duplicate_keys in 12s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:754:24: replace += with *= in duplicate_keys in 13s build + 300s test
+TIMEOUT  crates/core/archi/src/api/contract.rs:776:28: replace += with -= in string_end in 43s build + 300s test
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=-1073741523
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=110
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=102
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=102
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=102
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=104
+ WARN nextest process exited with unexpected code (allowed: [4, 100, 101]) code=102

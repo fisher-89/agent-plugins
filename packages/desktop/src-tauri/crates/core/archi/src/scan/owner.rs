@@ -6,8 +6,20 @@
 //!   不表示「元素不存在」；`off` 源文件的依赖**照常抽取**，见 `scan` 的归属段）；
 //! - 同长多命中 → [`Owner::Ambiguous`]（MUST NOT 任选）；
 //! - 无命中 → [`Owner::None`]。
+//!
+//! **`.i.<ext>` 生成物按去掉该后缀的模块根判定**：生成物落元素根同级（`<root>.i.rs`
+//! 在 `<root>` 的同级、不在其目录内），`prefix_matches` 的两条判据（全等 / 目录前缀）
+//! 对它都不成立；唯一改动点是 `owner_of` 入参准备处的 [`strip_generated`]，`normalize` /
+//! `prefix_matches` / `OwnerIndex::build` 语义逐字零变化——非 `.i.<ext>` 路径的归属结果
+//! 与改动前完全相同。
 
 use crate::dto::{ArchiElement, GateTier};
+
+/// 生成物命名后缀标记（`.i.<ext>` 的中间段）。
+const GENERATED_MARKER: &str = "i";
+
+/// 生成物可能的源文件扩展名（`.i.rs` / `.i.ts` / `.i.tsx` / `.i.js` / `.i.jsx`）。
+const GENERATED_EXTENSIONS: [&str; 5] = ["rs", "ts", "tsx", "js", "jsx"];
 
 /// 归属结果（封闭三值）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +82,7 @@ impl OwnerIndex {
     /// 最长前缀归属：判据 = `rel == prefix` 或 `rel.starts_with(prefix + "/")`
     /// （目录形态），或 `rel == prefix`（文件级 `path`）。
     pub fn owner_of(&self, rel_path: &str) -> Owner {
-        let rel = normalize(rel_path);
+        let rel = normalize(&strip_generated(rel_path));
         let mut best: Option<usize> = None;
         let mut hits: Vec<&OwnerEntry> = Vec::new();
         for entry in &self.entries {
@@ -106,6 +118,35 @@ impl OwnerIndex {
             }
         }
     }
+}
+
+/// 生成物后缀剥离：末段形如 `<stem>.i.<ext>`（`ext ∈ {rs, ts, tsx, js, jsx}`）时替换为
+/// `<stem>.<ext>`（`archi.i.rs` → `archi.rs`、`welcome-view.i.ts` → `welcome-view.ts`），
+/// 使既有前缀判据能命中元素根；其余路径原样返回（非生成物归属零变化）。
+fn strip_generated(rel_path: &str) -> String {
+    let unified = rel_path.replace('\\', "/");
+    let segments: Vec<&str> = unified.split('/').collect();
+    let Some(last) = segments.last() else {
+        return unified;
+    };
+    let Some((stem, extension)) = last.rsplit_once('.') else {
+        return unified;
+    };
+    if !GENERATED_EXTENSIONS.contains(&extension) {
+        return unified;
+    }
+    let Some((module, marker)) = stem.rsplit_once('.') else {
+        return unified;
+    };
+    if marker != GENERATED_MARKER || module.is_empty() {
+        return unified;
+    }
+    let mut replaced: Vec<String> = segments[..segments.len() - 1]
+        .iter()
+        .map(|segment| (*segment).to_owned())
+        .collect();
+    replaced.push(format!("{module}.{extension}"));
+    replaced.join("/")
 }
 
 /// 前缀判据（目录形态 `prefix + "/"` 与文件级 `path` 的全等形态）。

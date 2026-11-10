@@ -16,7 +16,9 @@ use foundation::layout::archi_config_path;
 use crate::dto;
 use crate::scan::{self, ScanInput};
 
-use super::report::{ArchiCheckStatus, ArchiDriftKind, ArchiObservationKind, ArchiSuppressVia};
+use super::report::{
+    ArchiApiFindingKind, ArchiCheckStatus, ArchiDriftKind, ArchiObservationKind, ArchiSuppressVia,
+};
 use super::{check, CheckError, CheckInput, Report};
 
 // ---------------------------------------------------------------------------
@@ -1016,7 +1018,7 @@ fn timestamp与version形态() {
     temp.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
     temp.write("src/a.ts", "export const a = 1;\n");
     let report = run_full(temp.root()).expect("判定应成功");
-    assert_eq!(report.version, 1, "报告版本号常量");
+    assert_eq!(report.version, 2, "报告版本号常量（REPORT_VERSION = 2）");
     assert_ne!(report.version, 0, "版本号非 0");
     let timestamp = &report.timestamp;
     assert!(timestamp.ends_with('Z'), "UTC 结尾 Z：{timestamp}");
@@ -1262,4 +1264,845 @@ fn 错误面文案三值() {
     assert_ne!(stopped, config, "三值互不相等");
     assert_ne!(config, scan, "三值互不相等");
     assert_ne!(stopped, scan, "三值互不相等");
+}
+
+// ===========================================================================
+// 契约判据装配（`module-api-contract-format` / AC-7 / AC-8 / AC-9 / D17 / D18 / D20）
+// ===========================================================================
+
+use foundation::layout::archi_api_dir;
+
+/// 落一份契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
+fn write_contract(temp: &TempDir, fqn: &str, content: &str) {
+    let path = crate::api::paths::contract_path(temp.root(), fqn).expect("合法 FQN");
+    let relative = path
+        .strip_prefix(temp.root())
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
+    temp.write(&relative, content);
+    assert!(
+        archi_api_dir(temp.root()).is_dir(),
+        "契约目录由落盘自动建立"
+    );
+}
+
+/// 单元素模型（含祖先链声明，避免 `orphanHierarchy` 结构错）。
+fn declared_chain_model(fqn: &str, element_root: &str) -> String {
+    let segments: Vec<&str> = fqn.split('.').collect();
+    let mut model = String::new();
+    for (index, segment) in segments.iter().enumerate() {
+        let prefix = segments[..=index].join(".");
+        let last = index + 1 == segments.len();
+        let (kind, gate, path) = if last {
+            ("module", "warn", format!("[\"{element_root}\"]"))
+        } else if index == 0 {
+            ("package", "off", "[]".to_owned())
+        } else {
+            ("domain", "off", "[]".to_owned())
+        };
+        model.push_str(&format!(
+            "[element.\"{prefix}\"]\nkind = \"{kind}\"\ngate = \"{gate}\"\npath = {path}\n\n"
+        ));
+        let _ = segment;
+    }
+    model
+}
+
+/// 与代码签名一致的试点契约（1 op `file_stem` + 1 类型）。
+fn pilot_contract(fqn: &str) -> String {
+    format!(
+        "# {fqn}\n\n## 职能\n\n门禁执行体。\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
+         {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
+         \"returns\": {{\"type\": \"string\"}}}}\n```\n\n## 类型\n\n```json api-types\n\
+         {{\"LocalArchiCheck\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+    )
+}
+
+/// 与代码签名**不一致**的契约（`file_stem` 的返回位声明为 `integer`）。
+fn mismatched_contract(fqn: &str) -> String {
+    format!(
+        "# {fqn}\n\n## 操作\n\n### file_stem\n\n```json api-op\n\
+         {{\"params\": [{{\"name\": \"timestamp\", \"schema\": {{\"type\": \"string\"}}}}], \
+         \"returns\": {{\"type\": \"integer\"}}}}\n```\n"
+    )
+}
+
+/// 边界（D17 / AC-8）：tempdir 有模型与源文件但无 `<archi_api_dir>` → `Ok`，
+/// `api_findings` 空、`version == 2`，既有各槽位与「契约面未引入时」等价。
+#[test]
+fn 契约面缺席时_api_findings为空() {
+    let temp = TempDir::new("contract-face-absent");
+    temp.write_model(
+        "[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n\n\
+         [element.\"App.Auth\"]\nkind = \"module\"\npath = [\"./src/auth/\"]\n",
+    );
+    temp.write("src/auth/token.ts", "export const token = 1;\n");
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(report.api_findings.is_empty(), "契约面缺席 → 空槽位");
+    assert_eq!(report.version, 2, "版本号为 2（REPORT_VERSION）");
+    assert_eq!(
+        report.status.as_str(),
+        "clean",
+        "既有 status 推导不受契约面影响"
+    );
+    assert!(report.errors.is_empty(), "既有 errors 空");
+    assert!(report.warnings.is_empty(), "既有 warnings 空");
+    assert!(report.observations.is_empty(), "既有 observations 空");
+}
+
+/// 正向（AC-13）：试点元素（入口命中 + 契约在案 + 签名一致）→ `api_findings` 空
+/// （十判据零命中）；`status` 与无契约时相同（契约面不进推导）。
+#[test]
+fn 试点元素零命中且不改status() {
+    let temp = TempDir::new("pilot-clean");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    write_contract(&temp, fqn, &pilot_contract(fqn));
+
+    let with_contract = run_full(temp.root()).expect("判定应成功");
+    assert!(
+        with_contract.api_findings.is_empty(),
+        "十判据零命中：{:?}",
+        with_contract
+            .api_findings
+            .iter()
+            .map(|finding| &finding.message)
+            .collect::<Vec<_>>()
+    );
+
+    // 对照：删掉契约目录 → 同一 status（契约面不参与推导）
+    let without = TempDir::new("pilot-clean-baseline");
+    without.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    without.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    let baseline = run_full(without.root()).expect("判定应成功");
+    assert_eq!(
+        with_contract.status.as_str(),
+        baseline.status.as_str(),
+        "api_findings 不影响 status 推导"
+    );
+    assert!(baseline.api_findings.is_empty(), "无契约面即空槽位");
+}
+
+/// 正向（AC-8 非空槽位）：契约签名与代码不一致 → `api_findings` 非空，
+/// `kind == apiSignatureMismatch`、`category == "signature"`、`occurrences` 逐项；
+/// `status` 仍按既有规则推导（契约面不进 `status`）。
+#[test]
+fn 契约不一致产出非空api_findings() {
+    let temp = TempDir::new("contract-mismatch");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    write_contract(&temp, fqn, &mismatched_contract(fqn));
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(!report.api_findings.is_empty(), "契约不一致应有条目");
+    let finding = &report.api_findings[0];
+    assert_eq!(
+        finding.kind,
+        crate::drift::report::ArchiApiFindingKind::ApiSignatureMismatch,
+        "kind 为 apiSignatureMismatch：{:?}",
+        finding.kind
+    );
+    assert_eq!(finding.category, "signature", "分类 = signature");
+    assert_eq!(finding.element.as_deref(), Some(fqn));
+    assert!(!finding.occurrences.is_empty(), "occurrences 逐项在案");
+    assert_eq!(
+        report.status.as_str(),
+        "clean",
+        "契约面 MUST NOT 影响 status（首期）"
+    );
+}
+
+/// 边界（AC-8）：`api_findings` 空时序列化文本含 `"apiFindings":[]`；非空时逐项在文本
+/// 中可辨（`kind` 与 `category` 双在）。
+#[test]
+fn 报告线面含契约判据槽位() {
+    let temp = TempDir::new("contract-slot-json");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+
+    let empty = run_full(temp.root()).expect("判定应成功");
+    let empty_text = serde_json::to_string(&empty).expect("序列化失败");
+    assert!(
+        empty_text.contains("\"apiFindings\":[]"),
+        "空槽位显式 []：{empty_text}"
+    );
+
+    write_contract(&temp, fqn, &mismatched_contract(fqn));
+    let filled = run_full(temp.root()).expect("判定应成功");
+    let filled_text = serde_json::to_string(&filled).expect("序列化失败");
+    assert!(
+        filled_text.contains("\"kind\":\"apiSignatureMismatch\""),
+        "非空条目的 kind 在文本中：{filled_text}"
+    );
+    assert!(
+        filled_text.contains("\"category\":\"signature\""),
+        "非空条目的 category 在文本中：{filled_text}"
+    );
+}
+
+/// 边界（D17 / AC-8）：无模型（`skipped`）→ `api_findings` 空、`version == 2`
+/// （未启用即空，零契约面参与）。
+#[test]
+fn skipped分支恒空且版本为二() {
+    let temp = TempDir::new("skipped-empty");
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(report.status.as_str(), "skipped", "无模型 → skipped");
+    assert!(report.api_findings.is_empty(), "skipped 分支恒空槽位");
+    assert_eq!(report.version, 2, "版本号为 2");
+}
+
+/// 边界（AC-8 / D18）：任一分支产出的报告 `version` 均为 `2`（`skipped` / `noChanges` /
+/// `clean` / `errors` 四分支表驱动）——常量与报告字段同源。
+#[test]
+fn 四分支版本号恒为二() {
+    // errors 分支：strict 元素引入未声明目标
+    let errors = TempDir::new("version-errors");
+    errors.write_model(
+        "[element.\"App.Strict\"]\nkind = \"module\"\ngate = \"strict\"\npath = [\"./src/strict/\"]\n\n\
+         [element.\"App.Shared\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"./src/shared/\"]\n",
+    );
+    errors.write(
+        "src/strict/a.ts",
+        "import { token } from '../shared/token';\nexport const a = token;\n",
+    );
+    errors.write("src/shared/token.ts", "export const token = 1;\n");
+
+    // clean 分支：无跨元素 import
+    let clean = TempDir::new("version-clean");
+    clean.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
+    clean.write("src/a.ts", "export const a = 1;\n");
+
+    // noChanges 分支：增量零变更集
+    let no_changes = TempDir::new("version-no-changes");
+    no_changes.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
+    no_changes.write("src/a.ts", "export const a = 1;\n");
+
+    // skipped 分支：无模型
+    let skipped = TempDir::new("version-skipped");
+
+    let cases: Vec<(&str, Report)> = vec![
+        ("errors", run_full(errors.root()).expect("判定应成功")),
+        ("clean", run_full(clean.root()).expect("判定应成功")),
+        (
+            "noChanges",
+            run_incremental(no_changes.root(), &[]).expect("判定应成功"),
+        ),
+        ("skipped", run_full(skipped.root()).expect("判定应成功")),
+    ];
+    for (label, report) in cases {
+        assert_eq!(report.version, 2, "{label} 分支的 version 恒为 2");
+        assert_eq!(
+            report.status.as_str(),
+            label,
+            "{label} 分支的 status 与登记一致"
+        );
+        assert!(
+            report.api_findings.is_empty(),
+            "{label} 分支的契约槽位为空（这些树均无契约面）"
+        );
+    }
+}
+
+/// 正向（D20）：契约资产结构非法 → `Err(CheckError::Config(..))`，检查不执行、
+/// 不落报告；`message()` 透传内层文案。
+#[test]
+fn 坏契约即config错误() {
+    let temp = TempDir::new("bad-contract");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    // H1 与文件名不一致 → 契约错误
+    write_contract(&temp, fqn, "# App.Backend.Other\n\n## 职能\n\n正文。\n");
+
+    match run_full(temp.root()) {
+        Err(CheckError::Config(message)) => {
+            assert!(
+                message.contains(fqn) || message.contains("App.Backend.Other"),
+                "文案含契约定位：{message}"
+            );
+            assert!(!message.is_empty(), "文案非空");
+        }
+        other => panic!("坏契约应报 CheckError::Config，实际：{other:?}"),
+    }
+
+    // 形态二：IO 类错误（契约文件在案但不可解码）→ 同样映射 `CheckError::Config`，
+    // 检查不执行、不产半真报告
+    let unreadable = TempDir::new("unreadable-contract");
+    unreadable.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    unreadable.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }
+",
+    );
+    let contract_file = crate::api::paths::contract_path(unreadable.root(), fqn).expect("合法 FQN");
+    std::fs::create_dir_all(contract_file.parent().expect("父目录")).expect("建契约目录");
+    std::fs::write(&contract_file, [0xff_u8, 0xfe, 0x00, 0x01]).expect("写非法 UTF-8 字节");
+    match run_full(unreadable.root()) {
+        Err(CheckError::Config(message)) => {
+            assert!(
+                message.contains("契约") || message.contains("ArchiRuntime"),
+                "IO 类错误文案含契约线索：{message}"
+            );
+            assert!(!message.is_empty(), "文案非空");
+            assert!(
+                !message.contains("检查已执行"),
+                "资产非法 ⇒ 检查不执行（MUST NOT 冒充已检查）"
+            );
+        }
+        other => panic!("不可解码契约应报 CheckError::Config，实际：{other:?}"),
+    }
+}
+
+/// 边界（D18）：`api_findings` 非空而 `status` / `passed` 派生零影响——同输入在契约面
+/// 追加不一致契约前后，`errors` / `warnings` / `suppressed` / `observations` / `status`
+/// 逐字段相等。
+#[test]
+fn 契约面不改既有槽位() {
+    let temp = TempDir::new("contract-parallel");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+
+    let before = run_full(temp.root()).expect("判定应成功");
+    write_contract(&temp, fqn, &mismatched_contract(fqn));
+    let after = run_full(temp.root()).expect("判定应成功");
+
+    assert!(!after.api_findings.is_empty(), "追加契约后契约槽位非空");
+    assert_eq!(before.errors, after.errors, "errors 零变化");
+    assert_eq!(before.warnings, after.warnings, "warnings 零变化");
+    assert_eq!(before.suppressed, after.suppressed, "suppressed 零变化");
+    assert_eq!(
+        before.observations, after.observations,
+        "observations 零变化"
+    );
+    assert_eq!(
+        before.status.as_str(),
+        after.status.as_str(),
+        "status 零变化（契约面不进推导）"
+    );
+    assert_eq!(
+        before.model, after.model,
+        "模型面事实零变化（契约 md 不是模型资产）"
+    );
+}
+
+/// 边界（AC-12）：契约面启用后判定仍零写盘——同一暂存树在两次判定前后字节快照相等。
+#[test]
+fn 契约面启用后仍零写盘() {
+    let temp = TempDir::new("contract-no-write");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    write_contract(&temp, fqn, &pilot_contract(fqn));
+
+    let before = temp.snapshot();
+    assert_eq!(temp.snapshot(), before, "判定 MUST NOT 写盘（含契约面）");
+}
+
+// ---------------------------------------------------------------------------
+// 契约判据装配的缺省面：启用条件 / ② 缺 md / ① 无入口 / ⑤ 留白
+// ---------------------------------------------------------------------------
+
+/// 链模型 + 若干同父兄弟模块（共用祖先链声明；兄弟各带 `path`）。
+fn chain_with_siblings(fqn: &str, element_root: &str, siblings: &[(&str, &str)]) -> String {
+    let mut model = declared_chain_model(fqn, element_root);
+    for (sibling, sibling_root) in siblings {
+        model.push_str(&format!(
+            "[element.\"{sibling}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"{sibling_root}\"]\n\n"
+        ));
+    }
+    model
+}
+
+/// 一个只含类型的契约（零 op；用于类型面提示 / 形状类用例）。
+fn types_only_contract(fqn: &str, defs: &str) -> String {
+    format!("# {fqn}\n\n## 职能\n\n类型面。\n\n## 类型\n\n```json api-types\n{defs}\n```\n")
+}
+
+/// 某种 kind 的条目数。
+fn count_kind(report: &Report, kind: ArchiApiFindingKind) -> usize {
+    report
+        .api_findings
+        .iter()
+        .filter(|finding| finding.kind == kind)
+        .count()
+}
+
+/// 边界（D17）：`<archi_api_dir>` 存在且只含 `INDEX.toml`（零 `*.md`）→ 契约面未
+/// 启用，`api_findings` 空、既有槽位与「目录缺席」形态逐字段等价。
+#[test]
+fn 契约目录存在但零md即未启用() {
+    let temp = TempDir::new("api-dir-without-md");
+    temp.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
+    temp.write("src/a.ts", "export const a = 1;\n");
+    temp.write(".dev-team/architecture/api/INDEX.toml", "# 空索引\n");
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(report.api_findings.is_empty(), "零 md ⇒ 未启用 ⇒ 空槽位");
+    assert_eq!(report.version, 2, "版本号仍为 2");
+    assert_eq!(report.status.as_str(), "clean", "既有 status 零变化");
+
+    // 对照：同树无契约目录 → 两报告除时间戳 / 根 / 摘要外逐字段相等
+    let bare = TempDir::new("api-dir-absent-baseline");
+    bare.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
+    bare.write("src/a.ts", "export const a = 1;\n");
+    let baseline = run_full(bare.root()).expect("判定应成功");
+
+    let mut comparable = report.clone();
+    comparable.timestamp = baseline.timestamp.clone();
+    comparable.root = baseline.root.clone();
+    comparable.model_hash = baseline.model_hash.clone();
+    assert_eq!(
+        comparable, baseline,
+        "「目录存在但零 md」与「目录缺席」逐字段等价（同一未启用分支）"
+    );
+}
+
+/// 正向（AC-7）：`api = declared` 元素有入口无 md → 1 条 `apiMissing`
+/// （`category = contract`、`element` 点名），其余元素零命中。
+#[test]
+fn 缺md产出契约缺失判据() {
+    let temp = TempDir::new("api-missing");
+    let pilot = "App.Backend.Infra.ArchiRuntime";
+    let sibling = "App.Backend.Infra.SecondRuntime";
+    temp.write_model(&chain_with_siblings(
+        pilot,
+        "crates/infra/archi/",
+        &[(sibling, "crates/infra/second/")],
+    ));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    temp.write(
+        "crates/infra/second/src/lib.rs",
+        "pub fn second() -> String { String::new() }\n",
+    );
+    write_contract(&temp, pilot, &pilot_contract(pilot));
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiMissing),
+        1,
+        "只有缺 md 的那个元素报 apiMissing：{:?}",
+        report
+            .api_findings
+            .iter()
+            .map(|finding| (finding.kind, finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    let finding = report
+        .api_findings
+        .iter()
+        .find(|finding| {
+            finding.kind == ArchiApiFindingKind::ApiMissing
+                && finding.element.as_deref() == Some(sibling)
+        })
+        .expect("缺 md 元素应产条目");
+    assert_eq!(finding.category, "contract", "② 的分类 = contract");
+    assert!(
+        finding.message.contains(sibling) || finding.message.contains(".md"),
+        "文案含元素与契约路径：{}",
+        finding.message
+    );
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiEntryMissing),
+        0,
+        "两个元素都有入口 → 无 apiEntryMissing"
+    );
+    assert_eq!(
+        report.status.as_str(),
+        "clean",
+        "api_findings 不进 status 推导"
+    );
+}
+
+/// 正向（AC-7 / D16）：元素 `path` 非空但四分支全不命中 → 1 条 `apiEntryMissing`，
+/// 且该元素不再参与 `apiMissing` / `apiUndeclared` / `apiSignatureMismatch`。
+#[test]
+fn 无入口产出入口缺失判据且互斥() {
+    let temp = TempDir::new("api-entry-missing");
+    let pilot = "App.Backend.Infra.ArchiRuntime";
+    let ghost = "App.Backend.Infra.GhostRuntime";
+    temp.write_model(&chain_with_siblings(
+        pilot,
+        "crates/infra/archi/",
+        &[(ghost, "crates/infra/ghost/")],
+    ));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    // ghost 的目录不落任何入口候选文件（也无 `<root>.i.rs` 生成物）
+    write_contract(&temp, pilot, &pilot_contract(pilot));
+    // ghost 亦有契约在案（签名与代码不可比）——互斥生效时它不能进 ④
+    write_contract(&temp, ghost, &pilot_contract(ghost));
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiEntryMissing),
+        1,
+        "恰一条 apiEntryMissing：{:?}",
+        report
+            .api_findings
+            .iter()
+            .map(|finding| (finding.kind, finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    let finding = report
+        .api_findings
+        .iter()
+        .find(|finding| finding.kind == ArchiApiFindingKind::ApiEntryMissing)
+        .expect("条目前置已断言");
+    assert_eq!(finding.category, "entry", "① 的分类 = entry");
+    assert_eq!(finding.element.as_deref(), Some(ghost), "点名无入口元素");
+    for kind in [
+        ArchiApiFindingKind::ApiMissing,
+        ArchiApiFindingKind::ApiUndeclared,
+        ArchiApiFindingKind::ApiSignatureMismatch,
+    ] {
+        assert_eq!(
+            count_kind(&report, kind),
+            0,
+            "① 命中后 MUST NOT 再求 {kind:?}"
+        );
+    }
+}
+
+/// 异常（D16 ⑤ / AC-7）：`api = none` + 契约文件在案 → 1 条 `apiUnexpected`，
+/// 同时 `apiMissing` 零条（两条 MUST NOT 双报）。
+#[test]
+fn 留白遇契约在案产出留白判据() {
+    let temp = TempDir::new("api-unexpected");
+    let fqn = "App.Backend.Infra.BlankRuntime";
+    temp.write_model(&format!(
+        "[element.\"App\"]\nkind = \"package\"\npath = []\n\n\
+         [element.\"App.Backend\"]\nkind = \"domain\"\npath = []\n\n\
+         [element.\"App.Backend.Infra\"]\nkind = \"domain\"\npath = []\n\n\
+         [element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\napi = \"none\"\npath = [\"crates/infra/blank/\"]\n"
+    ));
+    temp.write(
+        "crates/infra/blank/src/lib.rs",
+        "pub fn blank() -> String { String::new() }\n",
+    );
+    write_contract(&temp, fqn, &pilot_contract(fqn));
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiUnexpected),
+        1,
+        "留白 + md 在案 → 1 条 apiUnexpected：{:?}",
+        report
+            .api_findings
+            .iter()
+            .map(|finding| (finding.kind, finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiMissing),
+        0,
+        "反方向归 ②，两条 MUST NOT 双报"
+    );
+    let finding = report
+        .api_findings
+        .iter()
+        .find(|finding| finding.kind == ArchiApiFindingKind::ApiUnexpected)
+        .expect("条目前置已断言");
+    assert_eq!(finding.category, "entry", "⑤ 的分类 = entry");
+    assert_eq!(finding.element.as_deref(), Some(fqn));
+    assert_eq!(report.version, 2, "契约面启用不影响版本号");
+}
+
+/// 边界（D27 交汇）：`properties` 全为函数未标 `x-class` → 该提示只在生成器 stderr，
+/// **不**进 `apiFindings` 也不改 `status`；`x-class` 带属性 → 契约错误映射
+/// `CheckError::Config`（检查不执行、不产半真报告）。
+#[test]
+fn xclass两判据不串入报告装配() {
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+
+    // 形态一：函数指针结构体未标 x-class（合法意图，零判据）
+    let warn_shape = TempDir::new("xclass-warning-shape");
+    warn_shape.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    warn_shape.write("crates/infra/archi/src/lib.rs", "pub struct Handlers;\n");
+    write_contract(
+        &warn_shape,
+        fqn,
+        &types_only_contract(
+            fqn,
+            "{\"Handlers\": {\"type\": \"object\", \"properties\": {\"on_a\": {\"x-function\": {\"params\": [], \"returns\": {\"type\": \"string\"}}}}}}",
+        ),
+    );
+    let report = run_full(warn_shape.root()).expect("判定应成功");
+    assert!(
+        report.api_findings.is_empty(),
+        "未标 x-class 的提示 MUST NOT 成为判据：{:?}",
+        report
+            .api_findings
+            .iter()
+            .map(|finding| (finding.kind, finding.message.clone()))
+            .collect::<Vec<_>>()
+    );
+
+    // 对照：同树把类型改成普通对象（无函数属性）→ status 逐值相等
+    let plain_shape = TempDir::new("xclass-warning-baseline");
+    plain_shape.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    plain_shape.write("crates/infra/archi/src/lib.rs", "pub struct Handlers;\n");
+    write_contract(
+        &plain_shape,
+        fqn,
+        &types_only_contract(
+            fqn,
+            "{\"Handlers\": {\"type\": \"object\", \"properties\": {}}}",
+        ),
+    );
+    let baseline = run_full(plain_shape.root()).expect("判定应成功");
+    assert_eq!(
+        report.status.as_str(),
+        baseline.status.as_str(),
+        "提示面不影响 status"
+    );
+    assert!(baseline.api_findings.is_empty(), "对照树同样零判据");
+
+    // 形态二：x-class 带属性 → 契约错误（D20 映射，检查不执行）
+    let broken = TempDir::new("xclass-error-shape");
+    broken.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    broken.write("crates/infra/archi/src/lib.rs", "pub struct Handlers;\n");
+    write_contract(
+        &broken,
+        fqn,
+        &types_only_contract(
+            fqn,
+            "{\"Handlers\": {\"x-class\": true, \"properties\": {\"field\": {\"type\": \"string\"}}}}",
+        ),
+    );
+    match run_full(broken.root()) {
+        Err(CheckError::Config(message)) => {
+            assert!(message.contains("x-class"), "文案点名 x-class：{message}");
+        }
+        other => panic!("x-class 带属性应报 CheckError::Config，实际：{other:?}"),
+    }
+}
+
+/// 边界（AC-7 规模 / D18 聚合）：300 元素（100 有契约）+ 300 源文件 → 条数可判、不
+/// panic；同一元素缺 3 个 op 聚合成 1 条（`occurrences` 3 项）；同一元素族同时命中
+/// ⑥ / ⑧ / ⑩ → 每条独立。
+#[test]
+fn 组合链规模与多判据独立() {
+    // ---- 规模面：300 元素，前 100 有契约（签名一致），后 200 缺 md ----
+    let scale = TempDir::new("api-scale");
+    let mut model = String::new();
+    for index in 0..300 {
+        model.push_str(&format!(
+            "[element.\"E{index:03}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/e{index:03}/\"]\n\n"
+        ));
+    }
+    scale.write_model(&model);
+    for index in 0..300 {
+        scale.write(
+            &format!("src/e{index:03}/src/lib.rs"),
+            "pub fn run() -> String { String::new() }\n",
+        );
+        if index < 100 {
+            let fqn = format!("E{index:03}");
+            write_contract(
+                &scale,
+                &fqn,
+                &format!(
+                    "# {fqn}\n\n## 操作\n\n### run\n\n```json api-op\n\
+                     {{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+                ),
+            );
+        }
+    }
+    let report = run_full(scale.root()).expect("规模输入应成功");
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiMissing),
+        200,
+        "200 个 declared 元素缺 md 各 1 条"
+    );
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiEntryMissing),
+        0,
+        "300 个入口全部在案"
+    );
+    assert_eq!(
+        count_kind(&report, ArchiApiFindingKind::ApiSignatureMismatch),
+        0,
+        "100 份契约与代码签名一致"
+    );
+    assert_eq!(report.api_findings.len(), 200, "条数可判、零意外条目");
+    assert_eq!(report.status.as_str(), "clean", "契约面不进 status");
+
+    // ---- 聚合面：同一元素缺 3 个 op → 1 条 ②，`occurrences` 3 项 ----
+    let aggregate = TempDir::new("api-occurrences-aggregated");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    aggregate.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    aggregate.write("crates/infra/archi/src/lib.rs", "pub fn other() {}\n");
+    write_contract(
+        &aggregate,
+        fqn,
+        &format!(
+            "# {fqn}\n\n## 操作\n\n### alpha\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n\n\
+             ### beta\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n\n\
+             ### gamma\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n"
+        ),
+    );
+    let aggregated = run_full(aggregate.root()).expect("判定应成功");
+    let missing: Vec<&crate::drift::report::ArchiApiFinding> = aggregated
+        .api_findings
+        .iter()
+        .filter(|finding| finding.kind == ArchiApiFindingKind::ApiMissing)
+        .collect();
+    assert_eq!(
+        missing.len(),
+        1,
+        "三个缺实现聚合成 1 条（不铺开）：{missing:?}"
+    );
+    assert_eq!(missing[0].occurrences.len(), 3, "3 项命中点逐项在案");
+    assert!(
+        missing[0]
+            .target
+            .as_deref()
+            .is_some_and(|target| target.contains("alpha")
+                && target.contains("beta")
+                && target.contains("gamma")),
+        "target 点名三个缺失 op：{:?}",
+        missing[0].target
+    );
+
+    // ---- 多判据独立面：同一元素族同时命中 ⑥ / ⑧ / ⑩ ----
+    let multi = TempDir::new("api-multi-findings");
+    let parent = "App.Backend.Infra.ArchiRuntime";
+    let child = "App.Backend.Infra.ArchiRuntime.Sub";
+    multi.write_model(&format!(
+        "{}\n[element.\"{child}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/core/sub/\"]\n",
+        declared_chain_model(parent, "crates/infra/archi/")
+    ));
+    multi.write("crates/infra/archi/src/lib.rs", "pub struct Shared;\n");
+    multi.write("crates/core/sub/src/lib.rs", "pub struct Shared;\n");
+    write_contract(
+        &multi,
+        parent,
+        &format!(
+            "# {parent}\n\n## 操作\n\n### new\n\n```json api-op\n{{\"params\": [], \"returns\": {{\"type\": \"string\"}}}}\n```\n\n\
+             ## 类型\n\n```json api-types\n{{\"Shared\": {{\"type\": \"object\", \"properties\": {{}}}}}}\n```\n"
+        ),
+    );
+    write_contract(
+        &multi,
+        child,
+        &types_only_contract(
+            child,
+            "{\"Shared\": {\"type\": \"object\", \"properties\": {}}}",
+        ),
+    );
+    let multi_report = run_full(multi.root()).expect("判定应成功");
+    assert_eq!(
+        count_kind(&multi_report, ArchiApiFindingKind::ApiShadowing),
+        1,
+        "⑥ 父子 `$defs` 交集 → 1 条"
+    );
+    assert_eq!(
+        count_kind(&multi_report, ArchiApiFindingKind::ApiConstructorDeclared),
+        1,
+        "⑩ 契约声明构造器 → 1 条"
+    );
+    assert_eq!(
+        count_kind(&multi_report, ArchiApiFindingKind::ApiNestedCrossCrate),
+        1,
+        "⑧ 父子所属包根不同 → 1 条"
+    );
+    assert_eq!(
+        multi_report.api_findings.len(),
+        3,
+        "三条判据各自独立（不合并、不互相吞并）：{:?}",
+        multi_report
+            .api_findings
+            .iter()
+            .map(|finding| finding.kind)
+            .collect::<Vec<_>>()
+    );
+    for finding in &multi_report.api_findings {
+        assert!(
+            matches!(
+                finding.category.as_str(),
+                "reexport" | "constructor" | "nesting"
+            ),
+            "分类各归其面：{:?}",
+            finding.category
+        );
+    }
+    assert!(
+        multi_report
+            .api_findings
+            .windows(2)
+            .all(|window| window[0].kind.as_str() <= window[1].kind.as_str()),
+        "对外入口已按 (kind, element, target) 稳定排序"
+    );
+}
+
+/// 边界（D18 / AC-9）：`api_findings` 不参与 `status` 推导——`derive_status` 的实参
+/// 不含该字段；槽位装配排在 ⑦ 观察项之后、`status` 推导之前（源码自证）。
+#[test]
+fn 判定序源码自证不含api_findings() {
+    let source = include_str!("mod.rs");
+    assert!(
+        source.contains("let api_findings = if crate::api::enabled"),
+        "契约槽位在 `check` 内装配"
+    );
+    let call_start = source
+        .find("let status = derive_status(")
+        .expect("status 由 derive_status 推导");
+    let call = &source[call_start..];
+    let call = &call[..call.find(");").expect("调用以 `);` 收口")];
+    assert!(
+        !call.contains("api_findings"),
+        "derive_status 的实参 MUST NOT 含 api_findings：{call}"
+    );
+
+    let observations = source
+        .find("observations.push(ArchiDriftObservation")
+        .expect("⑦ 观察项装配在案");
+    let slot = source
+        .find("let api_findings = if crate::api::enabled")
+        .expect("槽位装配点");
+    assert!(
+        observations < slot,
+        "契约判据装配排在 ⑦ 观察项之后（判定序零漂移）"
+    );
+
+    assert!(
+        source.contains("api_findings: Vec::new(),"),
+        "skipped 分支显式空槽位（未启用即空）"
+    );
+    assert!(
+        source.contains("const REPORT_VERSION: u32 = 2;"),
+        "报告版本常量单点 = 2（改常量即全分支随动）"
+    );
 }

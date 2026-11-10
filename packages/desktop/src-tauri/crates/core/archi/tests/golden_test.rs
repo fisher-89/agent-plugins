@@ -451,6 +451,7 @@ fn 登记面kind均属封闭词汇() {
 // 语料形态（一 case 一目录）：
 //   `models/*.toml`  → 暂存到 `<tmp>/.dev-team/architecture/models/`
 //   `config.json`    → 暂存到 `<tmp>/.dev-team/architecture/config.json`（可选）
+//   `contracts/**`   → 暂存到 `<tmp>/.dev-team/architecture/api/**`（可选；契约面）
 //   `repo/**`        → 暂存到 `<tmp>/**`（源码观察面）
 // ===========================================================================
 
@@ -489,9 +490,12 @@ struct DriftExpectation {
     observations: &'static [(&'static str, &'static str)],
     /// `errors[]` 中 `typeOnly = true` 的 occurrence 总数
     type_only_occurrences: u32,
+    /// `apiFindings[]` 条数（契约判据面；这些语料均无 `<archi_api_dir>`，
+    /// 除 `api-mismatch` 外恒 0——契约面不进 `status` 推导）
+    api_findings: u32,
 }
 
-/// 判定语料登记面（13 个 case 目录 / 15 行驱动；`unfulfilled-declaration` 与
+/// 判定语料登记面（14 个 case 目录 / 16 行驱动；`unfulfilled-declaration` 与
 /// `two-modes-consistent` 各以全量 + 增量双行驱动同一目录——① 观察项在增量模式
 /// 同样产出、两模式元素对级一致两条断言的事实源）。
 const DRIFT_CASES: &[DriftExpectation] = &[
@@ -512,6 +516,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 2. occurrences 按元素对聚合（3 文件各 1 处 → 1 条 + 3 项）
     DriftExpectation {
@@ -530,6 +535,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 3. 目标不可归属：丢边 + 来源面留痕（零违例，MUST NOT 冒充 warning）
     DriftExpectation {
@@ -548,6 +554,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 4. 测试文件排除留痕（跨元素 import 零违例 + excluded 逐条）
     DriftExpectation {
@@ -566,6 +573,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 5. import type 同权（只标注 typeOnly，不豁免）
     DriftExpectation {
@@ -584,6 +592,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 1,
+        api_findings: 0,
     },
     // 6. 内联豁免留痕（via = inline，带 file / line / reason）
     DriftExpectation {
@@ -602,6 +611,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[("App.Billing", "App.Auth", "inline")],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 7. 配置豁免留痕（via = config，file / line 双 null）
     DriftExpectation {
@@ -620,6 +630,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[("App.Billing", "App.Auth", "config")],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 8. 解析失败只留痕（动态 import() 不可静态判定）
     DriftExpectation {
@@ -638,6 +649,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 9. 声明未兑现 → observations（全量 + 增量双模式驱动；status 不受影响）
     DriftExpectation {
@@ -656,6 +668,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[("App.Billing", "App.Auth")],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     DriftExpectation {
         case: "unfulfilled-declaration",
@@ -673,6 +686,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[("App.Billing", "App.Auth")],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 10. 结构错即不通过（errors[] 空、structuralErrors 非空；元素面停摆 →
     //     源文件无人认领，照实进 unmatchedFiles）
@@ -692,6 +706,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 11. 空模型合法（冷启动 clean，区别于无模型 skipped）
     DriftExpectation {
@@ -710,6 +725,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 12. 无变更（增量零变更集 → noChanges，MUST NOT 为 clean）
     DriftExpectation {
@@ -728,6 +744,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     // 13. 两模式元素对级一致（增量 ⊆ 全量，同一元素对同级别）
     DriftExpectation {
@@ -746,6 +763,7 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
     },
     DriftExpectation {
         case: "two-modes-consistent",
@@ -763,6 +781,26 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         suppressed: &[],
         observations: &[],
         type_only_occurrences: 0,
+        api_findings: 0,
+    },
+    // 新增：契约判据非空金样（`apiSignatureMismatch`；契约面不进 `status` 推导）
+    DriftExpectation {
+        case: "api-mismatch",
+        mode: "full",
+        changed: &[],
+        status: "clean",
+        changed_files: 0,
+        scanned_files: 1,
+        excluded: &[],
+        unmatched: &[],
+        unresolved: 0,
+        structural_errors: 0,
+        errors: &[],
+        warnings: &[],
+        suppressed: &[],
+        observations: &[],
+        type_only_occurrences: 0,
+        api_findings: 1,
     },
 ];
 
@@ -831,6 +869,14 @@ impl DriftStage {
                     .join("config.json"),
             )
             .expect("复制架构域配置失败");
+        }
+        // 契约 md → <tmp>/.dev-team/architecture/api/**（可选；契约判据面）
+        let contracts = source.join("contracts");
+        if contracts.is_dir() {
+            copy_tree(
+                &contracts,
+                &dir.join(foundation::layout::archi_api_rel_dir()),
+            );
         }
         // 源码 → <tmp>/**
         let repo = source.join("repo");
@@ -1092,6 +1138,16 @@ fn 判定语料逐case匹配登记面() {
             type_only, expectation.type_only_occurrences,
             "{label}：typeOnly occurrence 计数"
         );
+        assert_eq!(
+            report.api_findings.len() as u32,
+            expectation.api_findings,
+            "{label}：apiFindings 条数（契约面不进 status 推导）"
+        );
+        assert_eq!(
+            report.status.as_str(),
+            expectation.status,
+            "{label}：status 不受 apiFindings 影响"
+        );
 
         // 零写盘：判定纯读盘（同一暂存树字节快照前后相等）
         let before = stage.snapshot();
@@ -1129,7 +1185,7 @@ fn 判定语料目录与登记面互为镜像() {
     );
     let dangling: Vec<&String> = registered.difference(&on_disk).collect();
     assert!(dangling.is_empty(), "登记了不存在的 case：{dangling:?}");
-    assert_eq!(registered.len(), 13, "判定语料 13 个 case（语料维度封闭）");
+    assert_eq!(registered.len(), 14, "判定语料 14 个 case（语料维度封闭）");
 }
 
 /// 边界（快照对拍 + 显式重写闸）：未置位 `DESKTOP_GOLDEN_REWRITE=1` 时只读比对
@@ -1253,4 +1309,185 @@ fn 两模式元素对级一致() {
         full_report.status.as_str(),
         "同一元素对不因模式不同而级别不同"
     );
+}
+
+/// 边界（AC-8）：每份已登记快照都含 `apiFindings` 键且 `version == 2`——
+/// 旧金样未重写即在此点名（不静默补默认值，D21 与报告 `version` 兼容说明同口径）。
+#[test]
+#[allow(non_snake_case)]
+fn 判定语料快照均含apiFindings键且版本为二() {
+    for expectation in DRIFT_CASES {
+        let path = drift_expected_path(expectation);
+        let label = format!("case {}（{}）", expectation.case, expectation.mode);
+        let snapshot =
+            read_expected_snapshot(&path).unwrap_or_else(|error| panic!("{label}：{error}"));
+        let object = snapshot.as_object().expect("快照为对象");
+        assert!(
+            object.contains_key("apiFindings"),
+            "{label}：快照缺 `apiFindings` 键（旧金样未以 DESKTOP_GOLDEN_REWRITE=1 重写）"
+        );
+        assert_eq!(
+            snapshot["version"],
+            serde_json::json!(2),
+            "{label}：快照 version 随 REPORT_VERSION = 2"
+        );
+        // 除 `api-mismatch` 外恒空数组（这些语料均无契约面）
+        let expected_len = expectation.api_findings as usize;
+        assert_eq!(
+            snapshot["apiFindings"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{label}：apiFindings 应为数组"))
+                .len(),
+            expected_len,
+            "{label}：金样 apiFindings 条数与登记面一致"
+        );
+    }
+}
+
+/// 正向（AC-8 新增）：非空 `apiFindings` 金样在案——`api-mismatch` 快照含一条
+/// `apiSignatureMismatch`（`category = signature`），`occurrences` 逐项且 `status`
+/// 仍按既有规则推导（契约面不进 `status`）。
+#[test]
+#[allow(non_snake_case)]
+fn 非空apiFindings金样在案() {
+    let expectation = DRIFT_CASES
+        .iter()
+        .find(|expectation| expectation.case == "api-mismatch" && expectation.mode == "full")
+        .expect("api-mismatch 的 full 行在册");
+    assert_eq!(expectation.api_findings, 1, "登记面：恰一条判据");
+
+    let path = drift_expected_path(expectation);
+    let snapshot = read_expected_snapshot(&path).expect("快照可读");
+    let findings = snapshot["apiFindings"]
+        .as_array()
+        .expect("apiFindings 为数组");
+    assert_eq!(findings.len(), 1, "金样恰一条判据：{findings:?}");
+
+    let finding = &findings[0];
+    assert_eq!(
+        finding["kind"],
+        serde_json::json!("apiSignatureMismatch"),
+        "kind 为签名不符"
+    );
+    assert_eq!(
+        finding["category"],
+        serde_json::json!("signature"),
+        "category = signature"
+    );
+    assert!(
+        finding["occurrences"]
+            .as_array()
+            .is_some_and(|occurrences| !occurrences.is_empty()),
+        "occurrences 逐项在案：{finding:?}"
+    );
+    assert_eq!(
+        snapshot["status"],
+        serde_json::json!("clean"),
+        "status 按既有规则推导（契约面不进 status）"
+    );
+}
+
+/// 边界（**AC-8 / AC-7 ②**）：既有金样重写面——16 份快照的键集**逐字一致**（顶层恰
+/// `version` + 14 个既有字段 + `apiFindings`），且 `version == 2`；除 `api-mismatch`
+/// 外 `apiFindings` 均为空数组（这些语料无契约面）；`DESKTOP_GOLDEN_REWRITE=1` 之外
+/// 零残留旧形态（无 `"version": 1`、无缺 `apiFindings` 的键集）。
+#[test]
+fn 既有金样重写面键集一致() {
+    let expected_keys: BTreeSet<&str> = [
+        "apiFindings",
+        "base",
+        "change",
+        "errors",
+        "mode",
+        "model",
+        "modelHash",
+        "observations",
+        "root",
+        "scan",
+        "status",
+        "suppressed",
+        "timestamp",
+        "version",
+        "warnings",
+    ]
+    .into_iter()
+    .collect();
+
+    let mut files: Vec<PathBuf> = fs::read_dir(drift_corpus_root().join("expected"))
+        .expect("读快照目录失败")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 16, "快照总数 16（14 个 case，两 case 各双行）");
+
+    for path in files {
+        let label = path.file_name().unwrap_or_default().to_string_lossy();
+        let snapshot =
+            read_expected_snapshot(&path).unwrap_or_else(|error| panic!("{label}：{error}"));
+        let object = snapshot.as_object().expect("快照为对象");
+        let keys: BTreeSet<&str> = object.keys().map(String::as_str).collect();
+        assert_eq!(
+            keys, expected_keys,
+            "{label}：顶层键集逐字一致（AC-8 十四字段 + apiFindings）"
+        );
+        assert_eq!(
+            snapshot["version"],
+            serde_json::json!(2),
+            "{label}：version = 2"
+        );
+        assert!(
+            !path.to_string_lossy().is_empty(),
+            "快照路径非空（文件事实）"
+        );
+    }
+}
+
+/// 边界（**AC-7 ④ / 唯一驱动面**）：十判据的正反例一律落在 `crates/core/archi/src/api/**`
+/// 的 sidecar 用例内（直驱 `check::check`），**MUST NOT 另建 `tests/corpus/api/`**——
+/// 该目录在全仓零存在；判定语料只承载报告面金样。
+#[test]
+fn 零第二套判据语料目录() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let sidecar_corpus = manifest.join("tests").join("corpus").join("api");
+    assert!(
+        !sidecar_corpus.exists(),
+        "MUST NOT 另建 `tests/corpus/api/`（判据语料唯一驱动面是 sidecar 用例）：{}",
+        sidecar_corpus.display()
+    );
+
+    // 十一个 api/** sidecar 用例文件在案（判据正反例的唯一落点）
+    let api_dir = manifest.join("src").join("api");
+    let mut sidecars: Vec<String> = Vec::new();
+    collect_sidecars(&api_dir, &mut sidecars);
+    sidecars.sort();
+    assert_eq!(
+        sidecars.len(),
+        11,
+        "`api/**` sidecar 用例恰 11 份：{sidecars:?}"
+    );
+}
+
+/// 递归收集 `*_test.rs`（`api/**` sidecar 用例面）。
+fn collect_sidecars(dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_sidecars(&path, out);
+            continue;
+        }
+        let Some(name) = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        if name.ends_with("_test.rs") {
+            out.push(name);
+        }
+    }
 }

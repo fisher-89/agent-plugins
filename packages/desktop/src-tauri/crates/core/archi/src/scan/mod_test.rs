@@ -15,7 +15,7 @@ use foundation::cancel::CancelFlag;
 
 use crate::drift::report::ArchiDriftMode;
 use crate::drift::CheckError;
-use crate::dto::{ArchiElement, ElementKind, GateTier, NodeMark};
+use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::exclude::DEFAULT_EXCLUDE_RULES;
 use super::{inline_ignore, scan, DependencyEdge, ScanInput, ScanOutcome};
@@ -93,6 +93,7 @@ fn element(fqn: &str, gate: GateTier, paths: &[&str]) -> ArchiElement {
         fqn: fqn.to_owned(),
         kind: ElementKind::Module,
         gate,
+        api: ApiStatus::Declared,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),

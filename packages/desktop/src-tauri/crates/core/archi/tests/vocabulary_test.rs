@@ -478,3 +478,197 @@ fn 空模型与停摆态可区分() {
         "无布尔停摆位（判据只有 diagnostics）"
     );
 }
+
+// ===========================================================================
+// 第四面：`ApiStatus` 词汇并入四面一致性（`module-api-contract-format` / AC-8 / AC-10）
+//
+// `api` 状态二值（`declared` / `none`）作为第四面参与「枚举全值词表 ↔ DTO 投影串 ↔
+// 进程内诊断集」的三面同源对拍；词表从 `ApiStatus::ALL` 派生、MUST NOT 手抄。
+// ===========================================================================
+
+use archi::dto::{ApiStatus, ArchiElement};
+
+/// 正向（AC-8）：既有三面词数不变（`DiagnosticKind` 9 / `GateTier` 3 /
+/// `ElementKind` 4）+ 新增 `ApiStatus` 两值全部在场；四面各自去重后长度不变。
+#[test]
+fn 四面词汇集新增api面() {
+    assert_eq!(DiagnosticKind::ALL.len(), 9, "结构诊断九值不变");
+    assert_eq!(GateTier::ALL.len(), 3, "gate 三值不变");
+    assert_eq!(ElementKind::ALL.len(), 4, "元素 kind 四值不变");
+    assert_eq!(ApiStatus::ALL.len(), 2, "api 状态二值（第四面）");
+
+    let faces: [(&str, Vec<&str>); 4] = [
+        (
+            "diagnostic",
+            DiagnosticKind::ALL
+                .iter()
+                .map(|kind| kind.as_str())
+                .collect(),
+        ),
+        (
+            "gate",
+            GateTier::ALL.iter().map(|gate| gate.as_str()).collect(),
+        ),
+        (
+            "kind",
+            ElementKind::ALL.iter().map(|kind| kind.as_str()).collect(),
+        ),
+        (
+            "api",
+            ApiStatus::ALL
+                .iter()
+                .map(|status| status.as_str())
+                .collect(),
+        ),
+    ];
+    for (label, words) in faces {
+        let unique: BTreeSet<&str> = words.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            words.len(),
+            "{label} 面去重后长度不变（重复值不可绕过词表对拍）"
+        );
+    }
+}
+
+/// 正向（AC-10）：`ApiStatus::ALL` 逐值 `as_str()` 与含该值的 `ArchiElement` 序列化
+/// 文本中的 `"api"` 字段值逐字相等（两面对拍，零手抄词表）。
+#[test]
+fn api_status线词与投影串对拍() {
+    for status in ApiStatus::ALL {
+        let element = ArchiElement {
+            fqn: "App.Core.Mod".to_owned(),
+            kind: ElementKind::Module,
+            gate: GateTier::Warn,
+            api: status,
+            path: vec!["src/mod/".to_owned()],
+            summary: None,
+            metadata: std::collections::BTreeMap::new(),
+            model_file: ".dev-team/architecture/models/01.toml".to_owned(),
+            model_line: 1,
+            mark: NodeMark::None,
+        };
+        let value = serde_json::to_value(&element).expect("序列化成功");
+        assert_eq!(
+            value["api"],
+            serde_json::json!(status.as_str()),
+            "投影串的 api 字段与 as_str() 逐字相等（{status:?}）"
+        );
+        // 投影串的其余面词仍在既有词集内（零扩散）
+        let vocabulary: BTreeSet<String> =
+            vocabulary_in(&value, &["module", "warn", "declared", "none"]);
+        assert!(
+            vocabulary.contains(status.as_str()),
+            "投影串词集含 api 词 {:?}",
+            status.as_str()
+        );
+    }
+}
+
+/// 异常（Enum N+1）：四面词集两两不互相包含——`declared` / `none` 不出现在 gate 词集，
+/// `off` / `warn` / `strict` 不出现在 api 词集。
+#[test]
+fn 四面词集互不包含() {
+    let api_words: BTreeSet<&str> = ApiStatus::ALL
+        .iter()
+        .map(|status| status.as_str())
+        .collect();
+    let gate_words: BTreeSet<&str> = GateTier::ALL.iter().map(|gate| gate.as_str()).collect();
+    assert!(
+        api_words.is_disjoint(&gate_words),
+        "api 与 gate 词集 MUST 不相交：{api_words:?} / {gate_words:?}"
+    );
+    for word in ["declared", "none"] {
+        assert!(
+            !gate_words.contains(word),
+            "gate 词集 MUST NOT 含 api 词 `{word}`"
+        );
+    }
+    for word in ["off", "warn", "strict"] {
+        assert!(
+            !api_words.contains(word),
+            "api 词集 MUST NOT 含 gate 档词 `{word}`"
+        );
+    }
+
+    let kind_words: BTreeSet<&str> = ElementKind::ALL.iter().map(|kind| kind.as_str()).collect();
+    let diagnostic_words: BTreeSet<&str> = DiagnosticKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    for (left_label, left) in [
+        ("api", &api_words),
+        ("gate", &gate_words),
+        ("kind", &kind_words),
+    ] {
+        for (right_label, right) in [
+            ("api", &api_words),
+            ("gate", &gate_words),
+            ("diagnostic", &diagnostic_words),
+        ] {
+            if left_label == right_label {
+                continue;
+            }
+            assert!(
+                !left.is_subset(right) && !right.is_subset(left),
+                "{left_label} 与 {right_label} 词集互不包含"
+            );
+        }
+    }
+}
+
+/// 边界（既有三面零变化）：改动前三面的词集与词序逐字相等（api 面为追加，零重排 /
+/// 零删除）。
+#[test]
+fn 既有三面词序零变化() {
+    let diagnostics: Vec<&str> = DiagnosticKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(
+        diagnostics.len(),
+        9,
+        "结构诊断九词逐值（追加 api 面零重排）：{diagnostics:?}"
+    );
+    let gates: Vec<&str> = GateTier::ALL.iter().map(|gate| gate.as_str()).collect();
+    assert_eq!(gates, vec!["off", "warn", "strict"], "gate 三值词序不变");
+    let kinds: Vec<&str> = ElementKind::ALL.iter().map(|kind| kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        vec!["package", "domain", "module", "component"],
+        "元素 kind 四值词序不变"
+    );
+    let api: Vec<&str> = ApiStatus::ALL
+        .iter()
+        .map(|status| status.as_str())
+        .collect();
+    assert_eq!(api, vec!["declared", "none"], "api 二值（第四面追加）");
+}
+
+/// 边界：`ApiStatus` 缺省为 `declared`，且 serde 线形与 `as_str()` 一致；词汇外形态
+/// 反序列化即 `Err`。
+#[test]
+fn api_status缺省与线形封闭() {
+    assert_eq!(
+        ApiStatus::default(),
+        ApiStatus::Declared,
+        "缺省 declared（模型未写该键即承诺有契约）"
+    );
+    for status in ApiStatus::ALL {
+        let word = status.as_str();
+        assert_eq!(
+            serde_json::to_value(status).expect("序列化成功"),
+            serde_json::json!(word),
+            "serde 线形与 as_str() 一致（{word}）"
+        );
+        let back: ApiStatus =
+            serde_json::from_value(serde_json::json!(word)).expect("反序列化成功");
+        assert_eq!(back, status, "{word} 往返逐值相等");
+    }
+    for word in ["Declared", "NONE", "none ", "off", ""] {
+        assert!(
+            serde_json::from_value::<ApiStatus>(serde_json::json!(word)).is_err(),
+            "词汇外形态 MUST 反序列化失败：{word:?}"
+        );
+    }
+}

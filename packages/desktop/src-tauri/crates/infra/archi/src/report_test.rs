@@ -25,7 +25,7 @@ use crate::report::write_report;
 /// 空报告（`clean`）。
 fn empty_report(timestamp: &str) -> ArchiDriftReport {
     ArchiDriftReport {
-        version: 1,
+        version: 2,
         timestamp: timestamp.to_owned(),
         mode: ArchiDriftMode::Incremental,
         root: "/tmp/workspace".to_owned(),
@@ -52,6 +52,7 @@ fn empty_report(timestamp: &str) -> ArchiDriftReport {
         warnings: Vec::new(),
         suppressed: Vec::new(),
         observations: Vec::new(),
+        api_findings: Vec::new(),
         status: ArchiCheckStatus::Clean,
     }
 }
@@ -362,4 +363,182 @@ fn 空报告() {
         serde_json::from_slice(&fs::read(&written).expect("读回失败")).expect("反序列化失败");
     assert_eq!(back, report, "空报告逐字段往返相等");
     assert_eq!(back.status, ArchiCheckStatus::Clean, "status 原样保留");
+}
+
+// ===========================================================================
+// `write_report` 经 `LocalArchiCheck::file_stem` 取文件名主干（`module-api-contract-format` /
+// AC-13 / AC-16 / D23 / 事实校准 11）
+//
+// 实现体已从本文件迁进 `runner.rs` 的 `impl LocalArchiCheck` 并提升为 `pub`；
+// `write_report` 的调用点改为 `LocalArchiCheck::file_stem(&report.timestamp)`——
+// 两处共用同一实现，**本文件零 `fn file_stem` 定义**。行为断言（紧凑形态 / 退化 /
+// 字符集）挂在 `runner_test` 侧（单一事实源，禁两份等价实现）。
+// ===========================================================================
+
+use crate::LocalArchiCheck;
+
+/// 正向（AC-13 / D23）：三个时间戳各自落盘文件名逐字等于
+/// `LocalArchiCheck::file_stem(timestamp)` 的产物（迁移前后行为零变化）。
+#[test]
+fn write_report文件名取自契约实现() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    for (timestamp, expected) in [
+        ("2026-10-20T08:31:12Z", "20261020T083112Z.json"),
+        ("2027-01-02T03:04:05Z", "20270102T030405Z.json"),
+        ("2026-12-31T23:59:59Z", "20261231T235959Z.json"),
+    ] {
+        let report = empty_report(timestamp);
+        let written = write_report(temp.path(), "demo", &report).expect("写盘成功");
+        assert_eq!(
+            Path::new(&written)
+                .file_name()
+                .expect("文件名")
+                .to_string_lossy(),
+            expected,
+            "文件名主干 = LocalArchiCheck::file_stem({timestamp})"
+        );
+        assert_eq!(
+            Path::new(&written)
+                .file_name()
+                .expect("文件名")
+                .to_string_lossy()
+                .trim_end_matches(".json"),
+            LocalArchiCheck::file_stem(timestamp),
+            "落盘文件名与契约实现逐字同源"
+        );
+        assert!(Path::new(&written).is_file(), "文件真实在案：{written}");
+    }
+}
+
+/// 边界（AC-16 / D23）：`report.rs` 内零 `fn file_stem` 定义（实现体已迁往 `runner.rs`，
+/// 非复制）——源码自证，第二条等价实现的入口必须不存在。
+#[test]
+fn report内零file_stem定义() {
+    let source = include_str!("report.rs");
+    assert!(
+        !source.contains("fn file_stem"),
+        "report.rs MUST NOT 保留 file_stem 定义（实现体已迁移，禁副本）"
+    );
+    assert!(
+        source.contains("LocalArchiCheck::file_stem(&report.timestamp)"),
+        "调用点经契约实现单点：{source}"
+    );
+    assert!(
+        source.contains("pub(crate) fn write_report("),
+        "write_report 的 pub(crate) 可见性零变化"
+    );
+
+    let lib = include_str!("lib.rs");
+    assert!(
+        !lib.contains("pub use report::write_report"),
+        "lib.rs MUST NOT 再导出 write_report（E0364 反例不在案）"
+    );
+    assert!(
+        !lib.contains("pub use crate::report::write_report"),
+        "lib.rs MUST NOT 再导出 write_report（第二种写形态同样禁止）"
+    );
+}
+
+/// 正向（AC-8 交汇）：写完读回与入参报告逐字段相等，含非空 `api_findings` 与
+/// `version == 2`（契约槽位随报告一并往返，零裁剪、零默认值补齐）。
+#[test]
+fn 内容往返含非空api_findings() {
+    use archi::drift::report::ArchiDriftOccurrence;
+    use archi::drift::report::{ApiFindingSeverity, ArchiApiFinding, ArchiApiFindingKind};
+
+    let temp = TempDir::new().expect("建临时目录失败");
+
+    // 形态一：空槽位
+    let empty = empty_report("2026-10-20T08:31:12Z");
+    let written = write_report(temp.path(), "demo", &empty).expect("写盘成功");
+    let back: ArchiDriftReport =
+        serde_json::from_slice(&fs::read(&written).expect("读回失败")).expect("反序列化失败");
+    assert_eq!(back.api_findings.len(), 0, "空槽位往返仍为空");
+    assert_eq!(back.version, 2, "版本 2 往返");
+
+    // 形态二：非空槽位（三判据三种 category，occurrences 逐项）
+    let mut filled = empty_report("2026-10-20T08:31:13Z");
+    filled.api_findings = vec![
+        ArchiApiFinding {
+            kind: ArchiApiFindingKind::ApiMissing,
+            category: "contract".to_owned(),
+            element: Some("App.Backend.Infra.ArchiRuntime".to_owned()),
+            target: None,
+            message: "契约文件缺失".to_owned(),
+            occurrences: Vec::new(),
+        },
+        ArchiApiFinding {
+            kind: ArchiApiFindingKind::ApiSignatureMismatch,
+            category: "signature".to_owned(),
+            element: Some("App.Backend.Infra.ArchiRuntime".to_owned()),
+            target: Some("file_stem".to_owned()),
+            message: "契约签名与代码不一致".to_owned(),
+            occurrences: vec![
+                ArchiDriftOccurrence {
+                    file: "Infra/App.Backend.Infra.ArchiRuntime.md".to_owned(),
+                    line: 18,
+                    specifier: Some("file_stem".to_owned()),
+                    type_only: false,
+                },
+                ArchiDriftOccurrence {
+                    file: "Infra/App.Backend.Infra.ArchiRuntime.md".to_owned(),
+                    line: 19,
+                    specifier: Some("file_stem".to_owned()),
+                    type_only: true,
+                },
+            ],
+        },
+        ArchiApiFinding {
+            kind: ArchiApiFindingKind::ApiUndeclared,
+            category: "contract".to_owned(),
+            element: Some("App.Backend.Infra.ArchiRuntime".to_owned()),
+            target: Some("extra".to_owned()),
+            message: "未在契约声明".to_owned(),
+            occurrences: Vec::new(),
+        },
+    ];
+    assert_eq!(
+        ArchiApiFindingKind::ApiUndeclared.severity(),
+        ApiFindingSeverity::Off,
+        "本用例同时锁定 off 档判据的词汇归属（不因落盘而变）"
+    );
+
+    let written = write_report(temp.path(), "demo", &filled).expect("写盘成功");
+    let back: ArchiDriftReport =
+        serde_json::from_slice(&fs::read(&written).expect("读回失败")).expect("反序列化失败");
+    assert_eq!(back, filled, "含非空 api_findings 的报告逐字段往返相等");
+    assert_eq!(back.api_findings.len(), 3, "三条条目完整往返");
+    assert_eq!(
+        back.api_findings[1].occurrences.len(),
+        2,
+        "occurrences 逐项保留"
+    );
+    assert_eq!(
+        back.api_findings[1].occurrences[1].line, 19,
+        "occurrence 的行号保留"
+    );
+    assert_eq!(back.version, 2, "版本号随报告往返");
+
+    // 落盘文本含契约槽位键（线面名 camelCase）
+    let text = fs::read_to_string(&written).expect("读文本失败");
+    assert!(
+        text.contains("\"apiFindings\""),
+        "落盘文本含契约判据槽位：{text}"
+    );
+}
+
+/// 边界（交接清单版本值面）：夹具按 `REPORT_VERSION = 2` 构造可编译，且序列化往返
+/// 成立（值面本身由 `drift/mod.rs` 的常量单点裁定，此处只断言写下即读得回）。
+#[test]
+fn 夹具版本值面与序列化往返() {
+    let temp = TempDir::new().expect("建临时目录失败");
+    let report = empty_report("2026-10-20T08:31:12Z");
+    assert_eq!(report.version, 2, "夹具版本值与 REPORT_VERSION 同源");
+    let value = serde_json::to_value(&report).expect("序列化成功");
+    assert_eq!(value["version"], serde_json::json!(2), "线面版本为数字 2");
+    let written = write_report(temp.path(), "demo", &report).expect("写盘成功");
+    let text = fs::read_to_string(&written).expect("读文本失败");
+    assert!(text.contains("\"version\": 2"), "落盘文本版本为 2：{text}");
+    let back: ArchiDriftReport = serde_json::from_str(&text).expect("反序列化失败");
+    assert_eq!(back.version, 2, "读回版本仍为 2");
 }

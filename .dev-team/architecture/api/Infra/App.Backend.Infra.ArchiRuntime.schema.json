@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "App.Backend.Infra.ArchiRuntime.schema.json",
+  "title": "App.Backend.Infra.ArchiRuntime",
+  "$comment": "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败",
+  "$defs": {
+    "LocalArchiCheck": {
+      "type": "object",
+      "properties": {},
+      "x-common": {
+        "note": "零字段门禁执行体：类型本身即名义性，构造器由生成器产出"
+      }
+    }
+  },
+  "properties": {
+    "file_stem": {
+      "x-function": {
+        "owner": "LocalArchiCheck",
+        "params": [
+          {
+            "name": "timestamp",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "returns": {
+          "type": "string"
+        }
+      }
+    },
+    "LocalArchiCheck": {
+      "$ref": "#/$defs/LocalArchiCheck"
+    }
+  }
+}

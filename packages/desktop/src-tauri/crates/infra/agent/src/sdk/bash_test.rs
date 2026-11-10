@@ -163,32 +163,114 @@ async fn 超时收口返回err携超时记因且进程树清理路径被触达()
     );
 }
 
-#[tokio::test]
-async fn timeout_ms缺省走120s底座且短命令成功() {
-    let dir = tempdir("timeout-default");
+// timeout_ms 入参闸的判决面（缺省 / 放行 / 越界）全部钉在 `resolve_timeout_ms` 上——
+// 它是 `execute` 里唯一决定超时的判据（`execute` 只把它 `Duration::from_millis` 一次），
+// 因此「放行」= 不落越界拒绝分支，「缺省」= 常量底座。命令面的耗时属**活性面**，只在
+// `超时收口…`（>=900ms 收口）与「短命令成功」两用例里承重：门禁以
+// `cargo llvm-cov nextest --workspace --no-fail-fast` 全量并行跑，覆盖率插桩下
+// spawn 壳 + 进程启动实测可越过千毫秒（exec-1794026202127-0 / exec-1794038704172-1
+// 两跑同为 1.88s / 2.02s），把下界 1s 当「1s 内必跑完」是对护栏语义的误读。
+// 直测私有 `resolve_timeout_ms`（`pub(crate)`、同文件内联 `#[test]`，零 test-only export）。
 
-    let output = execute(dir.path(), &json!({ "command": "echo no-timeout-field" }))
-        .await
-        .expect("缺省超时下短命令应成功");
-    assert!(output.contains("no-timeout-field"), "{output}");
+/// 入参闸上界与下界的**独立真值**（不从 `bash.rs` 的常量导入：导入即与被测方同源，
+/// 常量搬错时两侧一起错，断言不再有判别力）。
+const MIN_TIMEOUT_MS: u64 = 1_000;
+const MAX_TIMEOUT_MS: u64 = 1_800_000;
+
+/// 入参闸的判决调用单点（用例只造入参、不重复解析口径）。
+fn timeout_ms_of(input: serde_json::Value) -> Result<u64, String> {
+    crate::sdk::bash::resolve_timeout_ms(&input)
 }
 
-#[tokio::test]
-async fn timeout_ms越界或非整数显式err_命令不执行() {
-    let dir = tempdir("timeout-reject");
-    // 命令留产物——若被执行则文件在场；越界拒绝必须先于 spawn（入参校验面）
-    let command = "echo should-not-run > leak-from-bash.txt";
-    // 越界上下侧（0 与 1_800_001）+ 非整数形态（float / 字符串 / 负数，as_u64 均不可解析）
+#[test]
+fn timeout_ms缺省不落入参闸_取120s底座() {
+    // 缺省形态：无 timeout_ms 键 / 整对象为空，均不落校验分支而回常量底座。
+    for input in [json!({}), json!({ "command": "echo no-timeout-field" })] {
+        let resolved = timeout_ms_of(input.clone()).expect("缺省超时不应报错");
+        assert_eq!(resolved, 120_000, "缺省即 120s 底座: {input}");
+    }
+}
+
+#[test]
+fn timeout_ms上下界原样放行_不钳位不落越界拒绝() {
+    for ok in [MIN_TIMEOUT_MS, MAX_TIMEOUT_MS] {
+        let resolved = timeout_ms_of(json!({ "timeout_ms": ok }))
+            .unwrap_or_else(|error| panic!("边界值 {ok} 应放行，实际拒绝: {error}"));
+        assert_eq!(resolved, ok, "放行即原样承接入参（不钳位）: {ok}");
+    }
+    // 界内非端点值同口径（防「只对两个端点特判」的实现蒙混）。
+    let inside = (MIN_TIMEOUT_MS + MAX_TIMEOUT_MS) / 2;
+    assert_eq!(
+        timeout_ms_of(json!({ "timeout_ms": inside })).expect("界内值应放行"),
+        inside,
+        "界内任意值原样透传"
+    );
+}
+
+#[test]
+fn timeout_ms越界或非整数显式err且记因指明字段() {
+    // 越界上侧（上界 +1、u64::MAX）与下侧（0、下界 -1）+ 非整数形态
+    // （float / 字符串 / 负数 / null / 数组，as_u64 均不可解析）。
     let rejected = [
         json!(0),
-        json!(1_800_001),
+        json!(MIN_TIMEOUT_MS - 1),
+        json!(MAX_TIMEOUT_MS + 1),
         json!(u64::MAX),
         json!(1.5),
         json!("1000"),
         json!(-1),
+        json!(null),
+        json!([1_000]),
     ];
 
     for bad in rejected {
+        let error = timeout_ms_of(json!({ "timeout_ms": bad }))
+            .expect_err("timeout_ms 非法必须 Err（不静默钳位）");
+        assert!(
+            error.contains("timeout_ms"),
+            "记因指明 timeout_ms 字段: {bad} -> {error}"
+        );
+    }
+}
+
+/// 边界（**AC-16**）：可见性提升是实现体零改动的纯签名一提——`bash.rs` 内
+/// `resolve_timeout_ms` 恰 1 处定义、`pub(crate)` 而非 `pub`（不扩大公共面）；入参闸语义
+/// 由上面三条用例逐面覆盖（缺省 / 上下界原样放行 / 越界与非整数显式 `Err`），本节只
+/// 固化「可见性与实现体」这一面。
+#[test]
+fn resolve_timeout_ms可见性提升且实现体零改动() {
+    let source = include_str!("bash.rs");
+    assert_eq!(
+        source.matches("fn resolve_timeout_ms(").count(),
+        1,
+        "`resolve_timeout_ms` 恰 1 处定义"
+    );
+    assert_eq!(
+        source.matches("pub(crate) fn resolve_timeout_ms(").count(),
+        1,
+        "可见性为 `pub(crate)`（兄弟测试模块直测所需）"
+    );
+    assert_eq!(
+        source.matches("pub fn resolve_timeout_ms(").count(),
+        0,
+        "MUST NOT 升为 `pub`（不涉公共面）"
+    );
+
+    // 行为面：缺省底座原样（实现体逐字不动 ⇒ 语义零变化）
+    assert_eq!(
+        timeout_ms_of(json!({})).expect("缺省不报错"),
+        120_000,
+        "缺省即 120s 底座（入参闸语义零变化）"
+    );
+}
+
+#[tokio::test]
+async fn timeout_ms越界时命令不执行() {
+    let dir = tempdir("timeout-reject");
+    // 命令留产物——若被执行则文件在场；越界拒绝必须先于 spawn（入参校验面）。
+    let command = "echo should-not-run > leak-from-bash.txt";
+
+    for bad in [json!(0), json!(MAX_TIMEOUT_MS + 1), json!("1000")] {
         let error = execute(
             dir.path(),
             &json!({ "command": command, "timeout_ms": bad }),
@@ -204,32 +286,6 @@ async fn timeout_ms越界或非整数显式err_命令不执行() {
         !dir.path().join("leak-from-bash.txt").exists(),
         "入参校验先于 spawn：非法 timeout_ms 调用不得执行命令"
     );
-}
-
-#[tokio::test]
-async fn timeout_ms上下界放行_短命令成功() {
-    let dir = tempdir("timeout-bounds-ok");
-
-    // 下界 1000ms 与 shell 冷启动同量级（git-bash 空载约 0.2s，满载门禁可达
-    // 1s 以上）：echo 可能被自身超时护栏收口。那是「放行之后」的合法结果，
-    // 本例要锚定的是不被判越界拒绝。
-    match execute(
-        dir.path(),
-        &json!({ "command": "echo bounds-ok", "timeout_ms": 1_000 }),
-    )
-    .await
-    {
-        Ok(output) => assert!(output.contains("bounds-ok"), "{output}"),
-        Err(error) => assert!(!error.contains("允许范围"), "下界不得越界拒绝: {error}"),
-    }
-
-    let ceiling = execute(
-        dir.path(),
-        &json!({ "command": "echo bounds-ok", "timeout_ms": 1_800_000 }),
-    )
-    .await
-    .expect("上界放行且短命令必成功");
-    assert!(ceiling.contains("bounds-ok"), "{ceiling}");
 }
 
 // ---------------------------------------------------------------------------

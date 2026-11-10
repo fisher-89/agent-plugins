@@ -1,0 +1,110 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\core\foundation)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\core\workflow)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\core\archi)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\core\config)
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri)
+    Checking watch v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling export-bindings v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\tools\export-bindings)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\core\checks)
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\infra\store)
+    Checking archi-api-gen v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\tools\archi-api-gen)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\infra\archi)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\infra\checks)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-api-contract-format\packages\desktop\src-tauri\crates\infra\agent)
+error[E0432]: unresolved import `super::ts::render_with_root`
+  --> crates\core\archi\src\api\emit\ts_test.rs:16:25
+   |
+16 | use super::ts::{render, render_with_root, ts_comment_text, ts_string_literal};
+   |                         ^^^^^^^^^^^^^^^^ no `render_with_root` in `api::emit::ts`
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+  --> crates\core\archi\src\api\emit\rust_test.rs:37:5
+   |
+37 |     render(&contract, &schema, &meta())
+   |     ^^^^^^----------------------------- argument #4 of type `&api::emit::EmitTarget` is missing
+   |
+note: function defined here
+  --> crates\core\archi\src\api\emit\rust.rs:46:8
+   |
+46 | pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String {
+   |        ^^^^^^                                                      -------------------
+help: provide the argument
+   |
+37 |     render(&contract, &schema, &meta(), /* &api::emit::EmitTarget */)
+   |                                       ++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\core\archi\src\api\emit\rust_test.rs:775:9
+    |
+775 |         render(&plain_contract, &plain_schema, &meta()),
+    |         ^^^^^^----------------------------------------- argument #4 of type `&api::emit::EmitTarget` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\emit\rust.rs:46:8
+    |
+ 46 | pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String {
+    |        ^^^^^^                                                      -------------------
+help: provide the argument
+    |
+775 |         render(&plain_contract, &plain_schema, &meta(), /* &api::emit::EmitTarget */),
+    |                                                       ++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+  --> crates\core\archi\src\api\emit\ts_test.rs:43:5
+   |
+43 |     render(&contract, &schema, &meta())
+   |     ^^^^^^----------------------------- argument #4 of type `&api::emit::EmitTarget` is missing
+   |
+note: function defined here
+  --> crates\core\archi\src\api\emit\ts.rs:96:8
+   |
+96 | pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String {
+   |        ^^^^^^                                                      -------------------
+help: provide the argument
+   |
+43 |     render(&contract, &schema, &meta(), /* &api::emit::EmitTarget */)
+   |                                       ++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\core\archi\src\api\emit\ts_test.rs:371:9
+    |
+371 |         render(&contract, &schema, &meta()),
+    |         ^^^^^^----------------------------- argument #4 of type `&api::emit::EmitTarget` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\emit\ts.rs:96:8
+    |
+ 96 | pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String {
+    |        ^^^^^^                                                      -------------------
+help: provide the argument
+    |
+371 |         render(&contract, &schema, &meta(), /* &api::emit::EmitTarget */),
+    |                                           ++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\core\archi\src\api\emit\ts_test.rs:380:21
+    |
+380 |     let by_render = render(&contract, &schema, &meta());
+    |                     ^^^^^^----------------------------- argument #4 of type `&api::emit::EmitTarget` is missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\emit\ts.rs:96:8
+    |
+ 96 | pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String {
+    |        ^^^^^^                                                      -------------------
+help: provide the argument
+    |
+380 |     let by_render = render(&contract, &schema, &meta(), /* &api::emit::EmitTarget */);
+    |                                                       ++++++++++++++++++++++++++++++
+
+Some errors have detailed explanations: E0061, E0432.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `archi` (lib test) due to 6 previous errors
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

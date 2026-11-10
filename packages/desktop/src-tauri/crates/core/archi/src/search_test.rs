@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::docs;
-use crate::dto::{DocRef, ElementKind, GateTier, SearchScope};
+use crate::dto::{ApiStatus, DocRef, ElementKind, GateTier, SearchScope};
 use crate::graph::ModelGraph;
 use crate::model::{Element, Model};
 
@@ -64,6 +64,7 @@ fn element(fqn: &str) -> Element {
         fqn: fqn.to_owned(),
         kind: ElementKind::Module,
         gate: GateTier::Off,
+        api: ApiStatus::Declared,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,

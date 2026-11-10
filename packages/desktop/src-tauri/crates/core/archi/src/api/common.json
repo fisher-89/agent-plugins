@@ -1,0 +1,8 @@
+{
+  "Outcome": {
+    "rust": "Result<{}, String>",
+    "typescript": "{ ok: {} } | { err: string }",
+    "degraded": "typescript",
+    "note": "错误通道：Rust 走 std Result（不生成新类型）；TS 侧走 Promise reject，不在类型系统内，故记 degraded"
+  }
+}

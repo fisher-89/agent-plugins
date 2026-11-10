@@ -2224,9 +2224,10 @@ fn archi_drift报告字段面出线逐键() {
             "warnings",
             "suppressed",
             "observations",
+            "apiFindings",
             "status",
         ],
-        "ArchiDriftReport 十四字段按声明序出线（camelCase 键），实际段:\n{report}"
+        "ArchiDriftReport 十四字段 + apiFindings（末位追加）按声明序出线（camelCase 键），实际段:\n{report}"
     );
     for literal in [
         "mode: ArchiDriftMode,",
@@ -2239,6 +2240,7 @@ fn archi_drift报告字段面出线逐键() {
         "warnings: ArchiDriftEntry[],",
         "suppressed: ArchiDriftSuppressedEntry[],",
         "observations: ArchiDriftObservation[],",
+        "apiFindings: ArchiApiFinding[],",
         "status: ArchiCheckStatus,",
     ] {
         assert!(

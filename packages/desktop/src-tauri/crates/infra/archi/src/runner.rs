@@ -19,6 +19,7 @@ use orchestration::port::{
 use orchestration::verdict::MAX_REPORT_CHARS;
 
 use crate::report::write_report;
+use crate::LocalArchiCheck;
 
 /// 失败态固定处置提示（提示来自本常量，MUST NOT 改动 `prompts/` 静态角色 md）。
 const FIX_HINT: &str = "先按模型改代码；若真实设计如此，应回到 dev-design 补模型声明，\
@@ -27,13 +28,21 @@ const FIX_HINT: &str = "先按模型改代码；若真实设计如此，应回�
 /// 截断留痕尾注。
 const TRUNCATED: &str = "…（已截断，全量见报告文件）";
 
-/// 架构漂移门禁 runner（零参构造——判定全在 `archi`，本层无可配项）。
-pub struct LocalArchiCheck;
-
 impl LocalArchiCheck {
-    /// 组合根装配（零参）。
-    pub fn new() -> Self {
-        Self
+    /// 时间戳 → 文件名主干：只保留 ASCII 数字与 `T` / `Z`（`2026-10-20T08:31:12Z` →
+    /// `20261020T083112Z`；冒号在 Windows 文件名上非法）。空输入退化为 `report`。
+    pub fn file_stem(timestamp: &str) -> String {
+        let stem: String = timestamp
+            .chars()
+            .filter(|character| {
+                character.is_ascii_digit() || *character == 'T' || *character == 'Z'
+            })
+            .collect();
+        if stem.is_empty() {
+            "report".to_owned()
+        } else {
+            stem
+        }
     }
 }
 

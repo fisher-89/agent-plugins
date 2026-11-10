@@ -77,7 +77,8 @@ pub(crate) async fn execute(root: &Path, input: &Value) -> Result<String, String
 
 /// `timeout_ms` 入参解析：缺省 120s；显式值须在 `[1s, 30min]` 内，超范围
 /// 显式 Err（模型据此自行调整申请值，而非被静默钳位后误判生效值）。
-fn resolve_timeout_ms(input: &Value) -> Result<u64, String> {
+/// `pub(crate)` 为兄弟测试模块 `bash_test` 直测入参闸所需（不涉公共面）。
+pub(crate) fn resolve_timeout_ms(input: &Value) -> Result<u64, String> {
     let Some(value) = input.get("timeout_ms") else {
         return Ok(DEFAULT_TIMEOUT_MS);
     };

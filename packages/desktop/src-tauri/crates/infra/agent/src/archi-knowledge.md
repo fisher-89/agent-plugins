@@ -7,7 +7,8 @@
 ## 格式约定
 
 - 一个元素一个表头，键是**带引号的完整 FQN 单键**：`[element."App.Auth"]`。禁点分嵌套写法（`[element.App.Auth]` 会被读成另一层结构）。
-- 元素字段面：`kind`（必填）、`gate`、`path`、`docs`、`summary`、`metadata`。
+- 元素字段面：`kind`（必填）、`gate`、`api`、`path`、`docs`、`summary`、`metadata`。
+- `api` 是状态指针，二值：`declared`（缺省）/ `none`（显式无 API）。
 - 关系写成 `[[relation]]` 条目，字段为 `from` / `to` / `desc`。
 - `metadata` 必须用**内联表**：`metadata = { owner = "..." }`。禁写 `[element."App.Auth".metadata]` 子表——那是合法 TOML，但会被读成另一个元素 `App.Auth.metadata`。
 
@@ -19,8 +20,8 @@
 
 ## 边界
 
-- 模型里不写接口 / 导出符号（函数签名、类型定义、导出清单都不进模型）。
-- 契约权威在对应能力的 spec 文本，只经元素的 `docs` 关联文档引用，MUST NOT 抄进模型正文。
+- 模型里不写接口 / 导出符号（函数签名、类型定义、导出清单都不进模型正文）。
+- 契约权威在契约资产（末段给出路径）——每个 `api = declared` 元素一份契约 md；模型只存状态指针 `api`，MUST NOT 抄契约正文。
 
 ## 自检纪律
 

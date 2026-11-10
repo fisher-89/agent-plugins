@@ -92,6 +92,7 @@ function element(fqn: string): ArchiElement {
     fqn,
     kind: 'module',
     gate: 'off',
+    api: 'declared',
     path: [],
     summary: null,
     metadata: {},

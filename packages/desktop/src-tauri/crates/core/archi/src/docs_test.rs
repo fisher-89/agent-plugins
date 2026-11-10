@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use foundation::layout::archi_decisions_dir;
 
-use crate::dto::{DocKind, DocSource, ElementKind, GateTier};
+use crate::dto::{ApiStatus, DocKind, DocSource, ElementKind, GateTier};
 use crate::graph::ModelGraph;
 use crate::model::{Element, Model};
 
@@ -72,6 +72,7 @@ fn element(fqn: &str) -> Element {
         fqn: fqn.to_owned(),
         kind: ElementKind::Module,
         gate: GateTier::Off,
+        api: ApiStatus::Declared,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,

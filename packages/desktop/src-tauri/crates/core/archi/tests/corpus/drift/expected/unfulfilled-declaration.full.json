@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "timestamp": "<timestamp>",
   "mode": "full",
   "root": "<root>",
@@ -50,5 +50,6 @@
       "message": "全量模式已覆盖观察根下的全部源文件，仍未见 App.Billing → App.Auth 的 import（观察项，不参与门禁判据）"
     }
   ],
+  "apiFindings": [],
   "status": "clean"
 }

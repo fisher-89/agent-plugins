@@ -24,6 +24,7 @@ function element(overrides: Partial<ArchiElement> = {}): ArchiElement {
     fqn: 'App.Auth',
     kind: 'domain',
     gate: 'strict',
+    api: 'declared',
     path: ['./src/auth/', './src/token/'],
     summary: '认证域',
     metadata: { owner: 'core' },

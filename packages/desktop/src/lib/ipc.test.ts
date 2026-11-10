@@ -1122,7 +1122,7 @@ function driftEntry(kind = 'undeclaredDependency'): Record<string, unknown> {
 }
 
 /**
- * 全字段 `ArchiDriftReport`：14 个根级字段全部非空，嵌套面 model 5 / scan 7 / 条目 6 /
+ * 全字段 `ArchiDriftReport`：14 个既有根级字段 + `apiFindings` 全部非空，嵌套面 model 5 / scan 7 / 条目 6 /
  * 命中点 4 / 结构诊断 5 各至少一项（单次 parse 即覆盖 drift / scan 图全部字段 getter）。
  */
 function archiDriftReport(): Record<string, unknown> {
@@ -1168,6 +1168,23 @@ function archiDriftReport(): Record<string, unknown> {
         from: 'App.Auth',
         to: 'App.Billing',
         message: '本次扫描面内未见该 import',
+      },
+    ],
+    apiFindings: [
+      {
+        kind: 'apiSignatureMismatch',
+        category: 'signature',
+        element: 'App.Backend.Infra.ArchiRuntime',
+        target: 'file_stem',
+        message: '契约签名与代码不一致',
+        occurrences: [
+          {
+            file: '.dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md',
+            line: 31,
+            specifier: 'file_stem',
+            typeOnly: false,
+          },
+        ],
       },
     ],
     status: 'errors',
@@ -1216,7 +1233,7 @@ function firstIssuePath(payload: unknown): string {
   return `#${first.path.map((segment) => `/${String(segment)}`).join('')}`;
 }
 
-/** 根级 14 个必填键（`ArchiDriftReport` 字段面全集）。 */
+/** 根级必填键（`ArchiDriftReport` 字段面全集：既有 14 + `apiFindings`）。 */
 const ARCHI_ROOT_KEYS = [
   'version',
   'timestamp',
@@ -1231,6 +1248,7 @@ const ARCHI_ROOT_KEYS = [
   'warnings',
   'suppressed',
   'observations',
+  'apiFindings',
   'status',
 ] as const;
 
@@ -1342,7 +1360,7 @@ describe('ipc archi_drift：resultSchemas.archiDrift 全字段 parse', () => {
     const [occurrence] = error.occurrences as Array<Record<string, unknown>>;
     const [diagnostic] = model.structuralErrors as Array<Record<string, unknown>>;
 
-    expect(Object.keys(report)).toHaveLength(14);
+    expect(Object.keys(report)).toHaveLength(15);
     expect(Object.keys(model)).toHaveLength(5);
     expect(Object.keys(scan)).toHaveLength(7);
     expect(Object.keys(error)).toHaveLength(6);

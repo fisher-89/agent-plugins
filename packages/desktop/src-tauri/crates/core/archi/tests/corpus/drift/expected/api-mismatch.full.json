@@ -1,0 +1,67 @@
+{
+  "version": 2,
+  "timestamp": "<timestamp>",
+  "mode": "full",
+  "root": "<root>",
+  "change": "api-mismatch",
+  "base": null,
+  "modelHash": "sha256:1e6c3ab7e3422289f51e086e0550a64ea24736e4a403be6e3ea9ab25efcce8b4",
+  "model": {
+    "elements": 2,
+    "relations": 0,
+    "byGate": {
+      "strict": 0,
+      "warn": 1,
+      "off": 1
+    },
+    "structuralErrors": [],
+    "warnings": [
+      {
+        "kind": "noPath",
+        "from": "App",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      }
+    ]
+  },
+  "scan": {
+    "mode": "full",
+    "changedFiles": 0,
+    "scannedFiles": 1,
+    "excluded": [],
+    "unmatchedFiles": [],
+    "matched": [
+      {
+        "element": "App.Mod",
+        "files": [
+          "src/mod/mod.rs"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "apiFindings": [
+    {
+      "kind": "apiSignatureMismatch",
+      "category": "signature",
+      "element": "App.Mod",
+      "target": "App.Mod",
+      "message": "元素 App.Mod 的契约签名与代码不一致（归一后仍需相等）：file_stem：契约 fn(str) -> int / 代码 fn(str) -> String",
+      "occurrences": [
+        {
+          "file": ".dev-team/architecture/api/App/App.Mod.md",
+          "line": 9,
+          "specifier": "file_stem",
+          "typeOnly": false
+        }
+      ]
+    }
+  ],
+  "status": "clean"
+}

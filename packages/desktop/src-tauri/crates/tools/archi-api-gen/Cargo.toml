@@ -1,0 +1,17 @@
+[package]
+name = "archi-api-gen"
+version = "0.1.0"
+edition = "2021"
+
+# 模块 API 契约生成器（CLI 唯一写盘面）：`generate` 写四类生成物 / `--check` 读盘比对
+# 零写入 / `bootstrap` 只出 stdout。判定（契约解析 / `$defs` 规则 / 十条判据 / 渲染出
+# 字符串）全部在 `crates/core/archi`，本 crate 零判定逻辑——它存在的唯一理由是
+# 「生成物要写盘」与「工具需要 CLI 入口」。
+#
+# 零依赖面：零 Tauri / 零 store / 零 config / 零 orchestration / 零 workflow / 零
+# infra crate / 零壳 / 零子进程（无 `std::process`）；只经 `cargo run -p archi-api-gen`
+# 驱动，不被 app 依赖（避免 tauri build 拖带工具 bin）。
+[dependencies]
+archi = { workspace = true }
+foundation = { workspace = true }
+serde_json = { workspace = true }

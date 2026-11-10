@@ -170,7 +170,11 @@ async fn archi_module省略元素返回薄概览() {
             .map(String::as_str)
             .collect();
         keys.sort_unstable();
-        assert_eq!(keys, vec!["fqn", "gate", "kind", "summary"], "恰四字段");
+        assert_eq!(
+            keys,
+            vec!["api", "fqn", "gate", "kind", "summary"],
+            "薄概览四字段 + api（同一模型字段的纯拷贝）"
+        );
     }
 }
 

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "timestamp": "<timestamp>",
   "mode": "full",
   "root": "<root>",
@@ -49,5 +49,6 @@
   "warnings": [],
   "suppressed": [],
   "observations": [],
+  "apiFindings": [],
   "status": "clean"
 }

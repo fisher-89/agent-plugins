@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use crate::dto::{DiagnosticKind, ElementKind, GateTier};
+use crate::dto::{ApiStatus, DiagnosticKind, ElementKind, GateTier};
 use crate::model::{Diagnostic, Element, Model, ParseOutcome, Relation, SourceSpan};
 
 use super::SourceParser;
@@ -31,6 +31,9 @@ struct RawElement {
     kind: ElementKind,
     #[serde(default)]
     gate: GateTier,
+    /// 契约状态指针（缺省 `declared`；拼错的值由既有 `classify` 归 `invalidValue`）
+    #[serde(default)]
+    api: ApiStatus,
     #[serde(default)]
     path: Vec<::toml::Spanned<String>>,
     #[serde(default)]
@@ -88,6 +91,7 @@ fn to_model(raw: RawDocument, source: &str) -> Model {
             fqn: key.into_inner(),
             kind: raw_element.kind,
             gate: raw_element.gate,
+            api: raw_element.api,
             path: raw_element
                 .path
                 .into_iter()

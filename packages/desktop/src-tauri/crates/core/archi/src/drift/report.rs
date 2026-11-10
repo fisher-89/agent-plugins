@@ -1,13 +1,14 @@
-//! 架构漂移报告结构（三组封闭词汇 + 全部线面 wire 类型）。
+//! 架构漂移报告结构（四组封闭词汇 + 全部线面 wire 类型）。
 //!
 //! 纯数据（零 IO、零判定）：词汇与字段面在这里单点定义，判定与装配在
 //! [`super::check`]，报告落盘在 `crates/infra/archi`。
 //!
 //! **词汇封闭且单点**：`status`（五值）、漂移条目 `kind`（四值）、观察项 `kind`
-//! （两值）各持一份 `ALL` 常量——新增变体必须同补 `ALL`（长度即红灯），语料对拍
-//! 覆盖全部取值。三组词汇 MUST NOT 复用既有 DTO 词汇（`DiagnosticKind` 结构诊断
-//! 九类 / `EdgeMark` / `NodeMark` 画布标记 / `WarningKind` 文档警告）——混用会让
-//! 「结构错」「文档警告」「漂移违例」三类在类型上不可辨。
+//! （两值）、**契约判据 `kind`（十值）** 各持一份 `ALL` 常量——新增变体必须同补
+//! `ALL`（长度即红灯），语料对拍覆盖全部取值。四组词汇 MUST NOT 复用既有 DTO 词汇
+//! （`DiagnosticKind` 结构诊断九类 / `EdgeMark` / `NodeMark` 画布标记 /
+//! `WarningKind` 文档警告）——混用会让「结构错」「文档警告」「漂移违例」三类在类型
+//! 上不可辨。
 //!
 //! **线面名带 `Archi` 前缀**：specta 的类型注册表按**裸类型名**唯一（`dto.rs` 的
 //! `ArchiDiagnosticKind` 先例同约束），故报告类型一律前缀化，短名 `Report` 经
@@ -147,6 +148,106 @@ impl ArchiObservationKind {
     ];
 }
 
+/// 判据级档位（封闭二值，纯进程内枚举——零 serde / specta，不进 IPC）：`off` 不产出
+/// 条目、`warn` 产出提示。
+///
+/// **与元素 `gate` 类型分立**：`strict` 在判据面上不可表达，复用 `GateTier` 会让
+/// 「契约判据档位」与「元素 gate」在类型上可互换——正是本变更要解耦的那件事。唯一
+/// 来源是 [`ArchiApiFindingKind::severity`]；无配置键、无环境变量、无命令行 flag
+/// 可改档位。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiFindingSeverity {
+    /// 不产出条目（完备性判据的档位）
+    Off,
+    /// 产出提示（一致性判据的档位）
+    Warn,
+}
+
+impl ApiFindingSeverity {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApiFindingSeverity::Off => "off",
+            ApiFindingSeverity::Warn => "warn",
+        }
+    }
+
+    /// 全部合法值（清单单点）。
+    pub const ALL: [ApiFindingSeverity; 2] = [ApiFindingSeverity::Off, ApiFindingSeverity::Warn];
+}
+
+/// 契约判据种类（封闭十值；线格式 camelCase）。
+///
+/// **与 [`ArchiDriftKind`] 分立**（不并入的四值枚举）：① 事实源不同——`ArchiDriftKind`
+/// 是「模型 relation 图 vs 代码」，本枚举是「契约文件 vs 代码」；② 定级语义不同——
+/// 前者看引入方元素 `gate`，后者自带 [`ArchiApiFindingKind::severity`]；③ 扩展节奏
+/// 不同——契约判据按迁移进度逐个打开，混装要动既有语料金样与全部 `match` 臂。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ArchiApiFindingKind {
+    /// 元素根路径下既无生成物也无实现入口（结构前提失效）
+    ApiEntryMissing,
+    /// 契约 → 代码缺失（`declared` 而契约文件缺失，或声明的 op / 类型在代码里没有）
+    ApiMissing,
+    /// 代码有 `external` 面但契约未声明（**唯一完备性判据**，档位 `off`）
+    ApiUndeclared,
+    /// 契约签名与代码签名（归一后）不一致
+    ApiSignatureMismatch,
+    /// 留白与其反面矛盾（`api = none` 而契约文件存在）
+    ApiUnexpected,
+    /// 父 `$defs` 与子元素 `$defs` 类型名交集非空
+    ApiShadowing,
+    /// 跨模块 `$ref` 目标缺失 / 未 declared / 非直接子元素
+    ApiRefMissing,
+    /// 嵌套元素父子分属不同 crate
+    ApiNestedCrossCrate,
+    /// markdown 散文列表与 `api-reexport` fence 键集不等
+    ApiReexportDrift,
+    /// 契约 `### 操作` 声明了构造器（应由生成器产出）
+    ApiConstructorDeclared,
+}
+
+impl ArchiApiFindingKind {
+    /// 线格式 camelCase 词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ArchiApiFindingKind::ApiEntryMissing => "apiEntryMissing",
+            ArchiApiFindingKind::ApiMissing => "apiMissing",
+            ArchiApiFindingKind::ApiUndeclared => "apiUndeclared",
+            ArchiApiFindingKind::ApiSignatureMismatch => "apiSignatureMismatch",
+            ArchiApiFindingKind::ApiUnexpected => "apiUnexpected",
+            ArchiApiFindingKind::ApiShadowing => "apiShadowing",
+            ArchiApiFindingKind::ApiRefMissing => "apiRefMissing",
+            ArchiApiFindingKind::ApiNestedCrossCrate => "apiNestedCrossCrate",
+            ArchiApiFindingKind::ApiReexportDrift => "apiReexportDrift",
+            ArchiApiFindingKind::ApiConstructorDeclared => "apiConstructorDeclared",
+        }
+    }
+
+    /// 判据级档位（**唯一来源**）：九条一致性判据 `warn`、唯一完备性判据
+    /// `apiUndeclared` 为 `off`（迁移期全量打开等于让门禁永久红）。
+    pub fn severity(self) -> ApiFindingSeverity {
+        match self {
+            ArchiApiFindingKind::ApiUndeclared => ApiFindingSeverity::Off,
+            _ => ApiFindingSeverity::Warn,
+        }
+    }
+
+    /// 全部合法值（清单单点：新增变体不同步即语料红）。
+    pub const ALL: [ArchiApiFindingKind; 10] = [
+        ArchiApiFindingKind::ApiEntryMissing,
+        ArchiApiFindingKind::ApiMissing,
+        ArchiApiFindingKind::ApiUndeclared,
+        ArchiApiFindingKind::ApiSignatureMismatch,
+        ArchiApiFindingKind::ApiUnexpected,
+        ArchiApiFindingKind::ApiShadowing,
+        ArchiApiFindingKind::ApiRefMissing,
+        ArchiApiFindingKind::ApiNestedCrossCrate,
+        ArchiApiFindingKind::ApiReexportDrift,
+        ArchiApiFindingKind::ApiConstructorDeclared,
+    ];
+}
+
 /// 豁免来源（封闭二值；线格式小写词）：`config` = 架构域配置元素对、`inline` =
 /// 内联注释 `// archi-ignore-next-line: <reason>`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -231,6 +332,30 @@ pub struct ArchiDriftObservation {
     pub to: String,
     /// 人读文案（增量模式显式声明扫描面，避免被读成全仓结论）
     pub message: String,
+}
+
+/// 契约判据条目（`apiFindings[]` 的条目形状）。
+///
+/// `element` 对应既有条目的「引入方」语义、`target` 对应「被引入方」语义；
+/// `occurrences` 复用 [`ArchiDriftOccurrence`]（同元素对的多处命中聚在一条内，不按行
+/// 铺开）。`category` 是**开放值集字符串**（无 `ALL`，渲染层据此分组）：新增分类只改
+/// 打标处，不动枚举、不动 `ALL`、不动金样词汇对拍。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiApiFinding {
+    /// 判据种类
+    pub kind: ArchiApiFindingKind,
+    /// 报告分组（开放值集：`entry` / `contract` / `signature` / `reexport` / `nesting` /
+    /// `constructor`）
+    pub category: String,
+    /// 归属元素 FQN
+    pub element: Option<String>,
+    /// 涉及对象（缺定义的类型名 / 缺失的 op / 重复类型名等）
+    pub target: Option<String>,
+    /// 人读文案
+    pub message: String,
+    /// 命中点（同元素对聚合）
+    pub occurrences: Vec<ArchiDriftOccurrence>,
 }
 
 /// gate 档位计数。
@@ -343,6 +468,10 @@ pub struct ArchiDriftReport {
     pub suppressed: Vec<ArchiDriftSuppressedEntry>,
     /// 观察项（永不影响 `status` / `passed`）
     pub observations: Vec<ArchiDriftObservation>,
+    /// 契约判据（并列槽位；空数组 = 无契约问题）。**首期 MUST NOT 影响
+    /// `status` / `passed`**——与 `observations` 同款纪律，严重度由判据级
+    /// [`ArchiApiFindingKind::severity`] 决定
+    pub api_findings: Vec<ArchiApiFinding>,
     /// 检查结论
     pub status: ArchiCheckStatus,
 }

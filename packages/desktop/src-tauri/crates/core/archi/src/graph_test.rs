@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::dto::{DiagnosticKind, ElementKind, GateTier};
+use crate::dto::{ApiStatus, DiagnosticKind, ElementKind, GateTier};
 use crate::model::{Element, Model, Relation};
 
 use crate::graph::ModelGraph;
@@ -18,6 +18,7 @@ fn element(fqn: &str) -> Element {
         fqn: fqn.to_owned(),
         kind: ElementKind::Module,
         gate: GateTier::Off,
+        api: ApiStatus::Declared,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,

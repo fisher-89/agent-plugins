@@ -582,6 +582,19 @@ export type AgentRunStatus =
 "stopped";
 
 /**
+ *  契约状态指针（封闭二值；缺省 `Declared`）。
+ * 
+ *  语义：`declared` = 本模块承诺有公共 API 契约（缺省）、`none` = 显式声明本模块
+ *  无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
+ *  模型里（契约权威在架构域 `api` 目录的契约资产，本枚举只是状态指针）。
+ */
+export type ApiStatus = 
+/**  承诺有契约（缺省） */
+"declared" | 
+/**  显式声明本模块无 API */
+"none";
+
+/**
  *  应用环境线面：`{ mode, dataRoot, source }`（camelCase，与 specta 生成物
  *  字段同形）。字段值只搬运，无第二处加工。
  */
@@ -592,6 +605,84 @@ export type AppEnvironment = {
 	dataRoot: string,
 	/**  数据根来源线值：`prod` | `dev-default` | `env`（`RootSource::wire()`） */
 	source: string,
+};
+
+/**
+ *  契约判据条目（`apiFindings[]` 的条目形状）。
+ * 
+ *  `element` 对应既有条目的「引入方」语义、`target` 对应「被引入方」语义；
+ *  `occurrences` 复用 [`ArchiDriftOccurrence`]（同元素对的多处命中聚在一条内，不按行
+ *  铺开）。`category` 是**开放值集字符串**（无 `ALL`，渲染层据此分组）：新增分类只改
+ *  打标处，不动枚举、不动 `ALL`、不动金样词汇对拍。
+ */
+export type ArchiApiFinding = {
+	/**  判据种类 */
+	kind: ArchiApiFindingKind,
+	/**
+	 *  报告分组（开放值集：`entry` / `contract` / `signature` / `reexport` / `nesting` /
+	 *  `constructor`）
+	 */
+	category: string,
+	/**  归属元素 FQN */
+	element: string | null,
+	/**  涉及对象（缺定义的类型名 / 缺失的 op / 重复类型名等） */
+	target: string | null,
+	/**  人读文案 */
+	message: string,
+	/**  命中点（同元素对聚合） */
+	occurrences: ArchiDriftOccurrence[],
+};
+
+/**
+ *  契约判据种类（封闭十值；线格式 camelCase）。
+ * 
+ *  **与 [`ArchiDriftKind`] 分立**（不并入的四值枚举）：① 事实源不同——`ArchiDriftKind`
+ *  是「模型 relation 图 vs 代码」，本枚举是「契约文件 vs 代码」；② 定级语义不同——
+ *  前者看引入方元素 `gate`，后者自带 [`ArchiApiFindingKind::severity`]；③ 扩展节奏
+ *  不同——契约判据按迁移进度逐个打开，混装要动既有语料金样与全部 `match` 臂。
+ */
+export type ArchiApiFindingKind = 
+/**  元素根路径下既无生成物也无实现入口（结构前提失效） */
+"apiEntryMissing" | 
+/**  契约 → 代码缺失（`declared` 而契约文件缺失，或声明的 op / 类型在代码里没有） */
+"apiMissing" | 
+/**  代码有 `external` 面但契约未声明（**唯一完备性判据**，档位 `off`） */
+"apiUndeclared" | 
+/**  契约签名与代码签名（归一后）不一致 */
+"apiSignatureMismatch" | 
+/**  留白与其反面矛盾（`api = none` 而契约文件存在） */
+"apiUnexpected" | 
+/**  父 `$defs` 与子元素 `$defs` 类型名交集非空 */
+"apiShadowing" | 
+/**  跨模块 `$ref` 目标缺失 / 未 declared / 非直接子元素 */
+"apiRefMissing" | 
+/**  嵌套元素父子分属不同 crate */
+"apiNestedCrossCrate" | 
+/**  markdown 散文列表与 `api-reexport` fence 键集不等 */
+"apiReexportDrift" | 
+/**  契约 `### 操作` 声明了构造器（应由生成器产出） */
+"apiConstructorDeclared";
+
+/**
+ *  契约状态的线面投影（并列字段，**投影只报文件在案事实**）：
+ * 
+ *  - `status` = 契约文件是否在案（`declared` / `none`）；
+ *  - `none` 时三个路径字段为 `null`；在案时三者为 repo 相对 POSIX 路径（`schema`
+ *    与生成物即使尚未生成也给路径串）。
+ * 
+ *  该字段 MUST NOT 回写模型字段（模型存的是意图，投影报的是事实——「`declared`
+ *  而文件缺失」是迁移期主形态，不得被投影抹平），MUST NOT 承载协议正文，MUST NOT
+ *  进 `docs` 列表。
+ */
+export type ArchiApiRef = {
+	/**  契约状态（文件在案事实） */
+	status: ApiStatus,
+	/**  契约文件（`<archi_dir>/api/<Domain>/<FQN>.md`）的 repo 相对路径 */
+	contractPath: string | null,
+	/**  schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径 */
+	schemaPath: string | null,
+	/**  元素生成物（`<root>.i.rs` / `<root>.i.ts`）的 repo 相对路径 */
+	generatedPath: string | null,
 };
 
 /**  模型结构 diff 摘要（归档确认面「架构变更」区块的数据源）。 */
@@ -794,6 +885,12 @@ export type ArchiDriftReport = {
 	suppressed: ArchiDriftSuppressedEntry[],
 	/**  观察项（永不影响 `status` / `passed`） */
 	observations: ArchiDriftObservation[],
+	/**
+	 *  契约判据（并列槽位；空数组 = 无契约问题）。**首期 MUST NOT 影响
+	 *  `status` / `passed`**——与 `observations` 同款纪律，严重度由判据级
+	 *  [`ArchiApiFindingKind::severity`] 决定
+	 */
+	apiFindings: ArchiApiFinding[],
 	/**  检查结论 */
 	status: ArchiCheckStatus,
 };
@@ -837,6 +934,8 @@ export type ArchiElement = {
 	modelLine: number,
 	/**  节点标记（本期恒 `none`） */
 	mark: NodeMark,
+	/**  契约状态指针（模型字段的拷贝；协议正文不进模型） */
+	api: ApiStatus,
 };
 
 /**  被排除的文件（逐条留痕，MUST NOT 静默丢弃）。 */
@@ -899,6 +998,8 @@ export type ArchiModuleDetail = {
 	docs: DocRef[],
 	/**  文档警告（只报不拦） */
 	warnings: ArchiWarning[],
+	/**  契约状态与三路径的并列字段（MUST NOT 进 `docs` 列表） */
+	api: ArchiApiRef,
 };
 
 /**

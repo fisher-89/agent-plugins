@@ -1,0 +1,15 @@
+# 契约判据语料：`apiSignatureMismatch` 非空金样（AC-8 新增）。
+#
+# 契约声明 `file_stem` 返回 `integer`，代码实现返回 `String` → 归一后不等 →
+# `apiSignatureMismatch` 一条；契约面 MUST NOT 进 `status` 推导（既有 `errors` /
+# `warnings` / `suppressed` / `observations` 全空，`status = clean`）。
+#
+# `App` 为容器元素（`path = []`）——容器天然无入口，故不进 `apiEntryMissing`。
+[element."App"]
+kind = "package"
+gate = "off"
+
+[element."App.Mod"]
+kind = "module"
+gate = "warn"
+path = ["./src/mod/"]

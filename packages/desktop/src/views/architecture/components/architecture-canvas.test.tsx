@@ -136,6 +136,7 @@ function element(fqn: string, overrides: Partial<ArchiElement> = {}): ArchiEleme
     fqn,
     kind: 'module',
     gate: 'off',
+    api: 'declared',
     path: [],
     summary: null,
     metadata: {},
@@ -259,6 +260,7 @@ function driftReport(
     warnings: [],
     suppressed: options.suppressed ?? [],
     observations: options.observations ?? [],
+    apiFindings: [],
     status: options.status ?? 'clean',
   };
 }

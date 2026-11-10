@@ -21,6 +21,14 @@ This repository is the **WPS AI desktop application** — a Tauri 2 + React app.
 - `crates/infra/agent/src/sdk/protect/` is the write-protection face (built-in locked files + user globs from `openspec/config.json`; shell / node / python write detection), mounted as a segment of the agent loop guard chain.
 - The frontend under `packages/desktop/src/` is React + Vite (vite-plus tooling: `vp check`, `vp test`, `knip` dead-code scan); generated IPC types live in `src/types/generated/` and are refreshed by `bindings:export` (staleness confirmed by reviewing the git diff before commit).
 
+## 模块 API 契约
+
+- **手写真相只有一份**：`.dev-team/architecture/api/<Domain>/<FQN>.md`（`<Domain>` = 父元素 FQN 末段）。散文 + `json api-op` / `json api-types` / `json api-reexport` 三类 fenced json 块；与代码一致性由机械闭环守，不靠 review 纪律。
+- **四类生成物勿手改**：`.schema.json`（同目录）、`INDEX.toml`（契约目录根）、元素根同级的 `<root>.i.rs` / `<root>.i.ts`。手改已提交即零 diff 门失败，未提交会被下次生成静默覆盖。
+- **两个脚本**：`api:export` 生成、`api:check` 读盘比对（零写入，差异即非零退出）。`check` 链为四段：`server:check` → `bindings:export` → `api:check` → `client:check`。
+- **`api = none` 是显式留白**（模型元素字段，非「还没写」）：断言本模块无公共 API；写了契约文件反而触发 `apiUnexpected`。
+- **契约判据进报告但不进 status**：漂移报告的并列槽位 `apiFindings`（定义见 `desktop-archi-api-check`），首期不影响 `status` / `passed`；索引与计数经 `.dev-team/architecture/api/INDEX.toml` 一眼看全。
+
 ## Coding Guidelines
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.

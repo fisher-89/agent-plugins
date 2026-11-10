@@ -6,7 +6,8 @@
 //! （声明 > 配置 > 内联）→ `occurrences` 聚合 → `status` 推导 → 报告装配。
 //!
 //! 边界：纯读盘、**零写盘**、**零 spawn**（报告落盘在 `crates/infra/archi`，本
-//! crate 只出结构）。`status` 推导序见 [`derive_status`]。
+//! crate 只出结构）。`status` 推导序见 [`derive_status`]——`api_findings` 是并列槽位，
+//! 不参与 `status` 推导，也不进 `passed`。
 
 pub mod config;
 pub mod report;
@@ -33,7 +34,10 @@ pub use report::{
 };
 
 /// 报告结构版本号（字段演进须递增并走显式兼容说明）。
-const REPORT_VERSION: u32 = 1;
+///
+/// `version = 1` 的报告没有 `api_findings` 字段（本变更新增的并列槽位），消费方按
+/// `version` 分支，MUST NOT 对旧报告补默认值。
+const REPORT_VERSION: u32 = 2;
 
 /// 判定域错误面（封闭三值）：取消与失败面必须**可辨**——runner 靠 `Stopped` 映射
 /// `fault = Some(RunFault::Stopped)`；配置非法 / 扫描硬失败透传文案（检查不执行、
@@ -42,7 +46,8 @@ const REPORT_VERSION: u32 = 1;
 pub enum CheckError {
     /// 取消（扫描长尾命中）
     Stopped,
-    /// 看护配置非法（未知键 / reason 缺失 / 非元素 FQN / 非法 exclude）
+    /// 判定输入资产非法（看护配置未知键 / reason 缺失 / 非元素 FQN / 非法 exclude，
+    /// 或契约资产结构非法）
     Config(String),
     /// 扫描硬失败（清单不可解析 / 排除规则编译失败）
     Scan(String),
@@ -283,6 +288,24 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
         });
     }
 
+    // ⑧ 契约判据（与模型面并列；`api_findings` 首期 MUST NOT 影响 `status` / `passed`
+    //    ——与 `observations` 同款纪律）。契约面未启用即空；`enabled` 判定与
+    //    `load_contracts` 同源，MUST NOT 两处各判一套。
+    let api_findings = if crate::api::enabled(input.root) {
+        let snapshot = crate::api::load_contracts(input.root, &graph.elements)
+            .map_err(|error| CheckError::Config(error.message()))?;
+        crate::api::check(crate::api::ApiCheckInput {
+            root: input.root,
+            elements: &graph.elements,
+            contracts: &snapshot.contracts,
+            schemas: &snapshot.schemas,
+            symbols: &snapshot.symbols,
+            enabled: true,
+        })
+    } else {
+        Vec::new()
+    };
+
     let structural_errors = graph.diagnostics.clone();
     let status = derive_status(
         &structural_errors,
@@ -304,6 +327,7 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
         warnings,
         suppressed,
         observations,
+        api_findings,
         status,
     })
 }
@@ -388,6 +412,7 @@ fn skipped_report(input: &CheckInput<'_>, timestamp: String, model_hash: String)
         warnings: Vec::new(),
         suppressed: Vec::new(),
         observations: Vec::new(),
+        api_findings: Vec::new(),
         status: ArchiCheckStatus::Skipped,
     }
 }

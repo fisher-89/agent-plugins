@@ -47,6 +47,7 @@ function driftReport(): ArchiDriftReport {
     warnings: [],
     suppressed: [],
     observations: [],
+    apiFindings: [],
     status: 'clean',
   };
 }

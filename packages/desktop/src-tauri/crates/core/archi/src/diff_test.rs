@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use crate::diff::{model_diff, GateChange, ModelDiff};
-use crate::dto::{ElementKind, GateTier};
+use crate::dto::{ApiStatus, ElementKind, GateTier};
 use crate::model::{Element, Model, Relation};
 
 /// 元素构造器（缺省 `module` / `off`；`file` / `line` 参与「非身份」断言）。
@@ -15,6 +15,7 @@ fn element(fqn: &str) -> Element {
         fqn: fqn.to_owned(),
         kind: ElementKind::Module,
         gate: GateTier::Off,
+        api: ApiStatus::Declared,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,
