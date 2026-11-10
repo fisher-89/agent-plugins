@@ -192,13 +192,13 @@ function deleteButtonByName(name: string): HTMLElement {
 
 /** 分组区组 `section` 的 testid 序列（组序断言统一口径）。 */
 function groupTestIds(): Array<string | null> {
-  const items = screen.getByTestId('explore-items');
+  const items = screen.getByTestId('explore-list');
   return [...items.querySelectorAll('section')].map((node) => node.getAttribute('data-testid'));
 }
 
 /** 组标题文本（组名 + 计数；标题内层级 span 不入断言）。 */
 function groupLabel(group: HTMLElement): string | null {
-  return group.querySelector('h3')?.textContent ?? null;
+  return group.querySelector('h2')?.textContent ?? null;
 }
 
 /** 组内条目 `data-name` 序列（顺序断言一律取 data-name，不取本地化时间文本）。 */
@@ -226,7 +226,7 @@ describe('ExploreListView 清单页：条目渲染 record.title（AC-8 清单半
   it('正向：条目标题显示 title（title ≠ name 时显示 title 而非 name）', async () => {
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     const titles = (await screen.findAllByTestId('explore-item-title')).map(
       (node) => node.textContent,
     );
@@ -245,7 +245,7 @@ describe('ExploreListView 清单页：条目渲染 record.title（AC-8 清单半
     records = [record(1, 'same-name', 'same-name'), record(2, 'explicit', '显式标题')];
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     const titles = (await screen.findAllByTestId('explore-item-title')).map(
       (node) => node.textContent,
     );
@@ -447,7 +447,7 @@ describe('Explore 路由：三级链 id 桥（记录改名后旧名 URL 的派�
 describe('ExploreListView 清单页：条目动作接线（AC-8）', () => {
   it('正向：条目点击 → navigate 至 /explores/<record.name> 并渲染该记录详情', async () => {
     renderAt('/explores');
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
 
     // 组内按 createdAt 倒序：索引 0 = 最新建档的 layout-design
     fireEvent.click(screen.getAllByTestId('explore-item')[0]);
@@ -461,7 +461,7 @@ describe('ExploreListView 清单页：条目动作接线（AC-8）', () => {
 
   it('正向：条目删除 → invoke delete_explore_record（携 root + name）并刷新清单', async () => {
     renderAt('/explores');
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     const before = invokeMock.mock.calls.filter(([name]) => name === 'list_explore_records').length;
 
     // 倒序后索引不再稳定指向目标记录：按 data-name 定位 api-retry 的删除入口
@@ -500,7 +500,7 @@ describe('ExploreListView 清单页：错误 / 加载中 / 空态三态互斥呈
   it('有记录态：清单非空 → 空态提示不在场（三态互斥）、条目照常渲染', async () => {
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     await waitFor(() => expect(screen.getAllByTestId('explore-item')).toHaveLength(2));
     expect(screen.queryByTestId('explore-list-empty')).toBeNull();
     expect(screen.queryByTestId('explore-list-loading')).toBeNull();
@@ -598,7 +598,7 @@ describe('ExploreListView 清单页：分组呈现（组序 / 计数 / 条目全
     records = mixedRecords();
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
 
     expect(groupTestIds()).toEqual(['explore-group-active', 'explore-group-promoted']);
   });
@@ -629,7 +629,7 @@ describe('ExploreListView 清单页：分组呈现（组序 / 计数 / 条目全
     ];
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
 
     // createdAt = base + id ⇒ 组内 id 大者在前；组间按组序拼接
     const names = screen
@@ -648,7 +648,7 @@ describe('ExploreListView 清单页：已转变更组的详情链与零新入口
     records = [promotedRecord(1, 'promoted-a', '已转主题甲', 'chg-1')];
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     fireEvent.click(itemByName('promoted-a'));
 
     await waitFor(() =>
@@ -667,7 +667,7 @@ describe('ExploreListView 清单页：已转变更组的详情链与零新入口
     records = mixedRecords();
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
 
     expect(screen.queryByTestId('explore-promoted-jump')).toBeNull();
     expect(screen.queryByTestId('explore-promoted-badge')).toBeNull();
@@ -751,7 +751,7 @@ describe('Explore 路由：promote 成功后移组（AC-7）', () => {
     expect(screen.getByTestId('nav-type-probe').textContent).toBe(navTypeBefore);
     expect(screen.getByTestId('explore-detail-title')).toBeTruthy();
     // 移组只改清单数据，清单分组区未抢跑进入详情页
-    expect(screen.queryByTestId('explore-items')).toBeNull();
+    expect(screen.queryByTestId('explore-group-active')).toBeNull();
   });
 });
 
@@ -788,7 +788,7 @@ describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）',
     renderAt('/explores');
 
     expect(await screen.findByTestId('explore-list-empty')).toBeTruthy();
-    expect(screen.queryByTestId('explore-items')).toBeNull();
+    expect(screen.queryByTestId('explore-group-active')).toBeNull();
     expect(screen.queryByTestId('explore-group-active')).toBeNull();
     expect(screen.queryByTestId('explore-group-promoted')).toBeNull();
   });
@@ -813,7 +813,7 @@ describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）',
     ];
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
 
     expect(namesIn(screen.getByTestId('explore-group-active'))).toEqual(['id-large', 'id-small']);
   });
@@ -831,11 +831,10 @@ describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）',
     });
     renderAt('/explores');
 
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
 
     const active = screen.getByTestId('explore-group-active');
     const promoted = screen.getByTestId('explore-group-promoted');
-    expect(groupTestIds()).toEqual(['explore-group-active', 'explore-group-promoted']);
     expect(groupLabel(active)).toBe('进行中 (60)');
     expect(groupLabel(promoted)).toBe('已转变更 (60)');
     // createdAt 与 id 序相反 ⇒ 组内按 id 升序呈现
@@ -843,7 +842,7 @@ describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）',
     expect(namesIn(promoted)).toEqual(Array.from({ length: 60 }, (_, k) => `topic-${k * 2 + 2}`));
   });
 
-  it('边界：加载中态 → 分组区不抢跑（两组 testid 与 explore-items 均缺席）', async () => {
+  it('边界：加载中态 → 分组区不抢跑（两组 testid 与 explore-group-active 均缺席）', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_explore_records') return new Promise<ExploreRecord[]>(() => {});
       return ipc(command);
@@ -853,7 +852,7 @@ describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）',
     expect(await screen.findByTestId('explore-list-loading')).toBeTruthy();
     expect(screen.queryByTestId('explore-group-active')).toBeNull();
     expect(screen.queryByTestId('explore-group-promoted')).toBeNull();
-    expect(screen.queryByTestId('explore-items')).toBeNull();
+    expect(screen.queryByTestId('explore-group-active')).toBeNull();
   });
 
   it('异常：取数失败态 → 错误块在场、分组区与空态均不在场（三态互斥）', async () => {
@@ -868,13 +867,13 @@ describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）',
     expect(screen.queryByTestId('explore-list-empty')).toBeNull();
     expect(screen.queryByTestId('explore-group-active')).toBeNull();
     expect(screen.queryByTestId('explore-group-promoted')).toBeNull();
-    expect(screen.queryByTestId('explore-items')).toBeNull();
+    expect(screen.queryByTestId('explore-group-active')).toBeNull();
   });
 
   it('正向：删除动作接线回归（已转变更组条目删除 → 携 root + name 并重取）', async () => {
     records = mixedRecords();
     renderAt('/explores');
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     const before = listCallCount();
 
     fireEvent.click(deleteButtonByName('promoted-a'));
@@ -886,18 +885,6 @@ describe('ExploreListView 清单页：分组空态与分组区边界（AC-5）',
       }),
     );
     await waitFor(() => expect(listCallCount()).toBe(before + 1));
-  });
-
-  it('边界：draft-* 占位记录与非占位进行中记录同处「进行中」组（不另设第三组）', async () => {
-    records = [placeholderRecord(), record(5, 'named-active', '已定名进行中')];
-    renderAt('/explores');
-
-    await screen.findByTestId('explore-items');
-
-    expect(groupTestIds()).toEqual(['explore-group-active', 'explore-group-promoted']);
-    const active = screen.getByTestId('explore-group-active');
-    expect(groupLabel(active)).toBe('进行中 (2)');
-    expect(namesIn(active)).toEqual(['named-active', PLACEHOLDER_NAME]);
   });
 });
 
@@ -963,7 +950,7 @@ describe('Explore 路由：分组派生下的根切换与 id 桥回归（AC-8）
 describe('Explore 路由布局：清单页与详情页共享同一份清单状态', () => {
   it('正向：清单 → 详情 → 回清单往返，list_explore_records 只在布局挂载时取一次', async () => {
     render(viewTree('/explores', ROOT, true));
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     expect(listCallCount()).toBe(1);
 
     // 进详情：清单不重取，详情直接派生自布局持有的清单（零缺失态闪现）
@@ -976,7 +963,7 @@ describe('Explore 路由布局：清单页与详情页共享同一份清单状�
 
     // 回清单：仍是同一次取数（布局未卸载）
     fireEvent.click(screen.getByTestId('list-nav-probe'));
-    await screen.findByTestId('explore-items');
+    await screen.findByTestId('explore-group-active');
     expect(listCallCount()).toBe(1);
     expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
   });

@@ -132,7 +132,10 @@ function TextBlockBase({
     [text],
   );
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-full" data-testid="block-text">
+    <div
+      className="prose prose-sm dark:prose-invert [&_pre]:text-[size:inherit] max-w-full"
+      data-testid="block-text"
+    >
       {markdown}
       {citations !== undefined && citations.length > 0 && <CitationList citations={citations} />}
     </div>
