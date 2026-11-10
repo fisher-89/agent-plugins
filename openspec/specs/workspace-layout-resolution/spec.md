@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 foundation crate 对用户选定 workspace 根目录的布局解析契约：`resolve` 纯函数返回 `Layout` 结构，作为整个 desktop 包内唯一知晓磁盘目录名的位置，支撑 workspace 语义通用化（可读取任意项目根下的 change 记录）。
+定义 foundation crate 对用户选定 workspace 根目录的布局解析与架构域路径派生契约：`resolve` 纯函数返回 `Layout` 结构，作为整个 desktop 包内唯一知晓磁盘目录名的位置，支撑 workspace 语义通用化（可读取任意项目根下的 change 记录）。
 
 ## Requirements
 
@@ -84,14 +84,16 @@ archi_dir(root)            → <root>/.dev-team/architecture  （架构域顶层
 archi_models_dir(root)     → <archi_dir>/models
 archi_decisions_dir(root)  → <archi_dir>/decisions
 archi_config_path(root)    → <archi_dir>/config.json      （架构域看护配置单点）
+archi_api_dir(root)        → <archi_dir>/api              （模块 API 契约单点）
 is_archi_rel_path(rel)     → rel 是否落在 <archi_dir> 之内（repo 相对路径判定）
 ```
 
-- 全部路径组件 SHALL 取自 layout/mod.rs 的目录名常量组，MUST NOT 行内字面量；架构域顶层段（`.dev-team`）与 `architecture` 段 SHALL 只由 `archi_dir` 单点持有，其余四项（含 `archi_config_path`）全从它派生。
+- 全部路径组件 SHALL 取自 layout/mod.rs 的目录名常量组，MUST NOT 行内字面量；架构域顶层段（`.dev-team`）与 `architecture` 段 SHALL 只由 `archi_dir` 单点持有，其余各项（含 `archi_config_path` 与 `archi_api_dir`）全从它派生。
 - `is_archi_rel_path` SHALL 接受 `/` 分隔的 repo 相对路径，MUST 同时对 `\` 分隔形态归一后判定（Windows 来源清单），并明确区分祖先判定（`.dev-team/architecture` 与 `.dev-team/architecture/models/x.toml` 均命中，`openspec/architecture/...` 与 `.dev-team/archived/...` 不命中）。
 - 该判定函数 SHALL 为归档冲突分流（`desktop-change-archive`「worktree 提交与主仓合入」）的唯一合法判据——core 侧 MUST NOT 出现 `architecture` 字面量比较。
 - **`archi_config_path`（本变更新增）**：`archi_config_path(root)` → `<archi_dir>/config.json`，SHALL 从 `archi_dir` 派生（`architecture` 段与 `config.json` 文件名均取自 layout 常量组，`config.json` 文件名常量沿用既有 `CONFIG_FILE_NAME` —— MUST NOT 新增第二个文件名字面量）。它 SHALL 是架构域看护配置（豁免元素对 / 扫描排除 glob，见 `desktop-archi-drift`「架构域看护配置」）的**唯一合法定位函数**——消费者（`crates/core/archi` 的配置读取面）MUST NOT 行内拼 `config.json`，产品 `.rs`（`*_test.rs` 除）的 `config.json` 字面量隔离纪律零变化。工作区配置仍只经 `config_path(root)`（`desktop-workspace-config` 唯一出口）。
-- 本族函数的落地 SHALL 在 `desktop-crate-layout` 的依赖与消费者登记中同步在案（`archi` crate 为路径派生函数的消费者；本变更新增 `archi_config_path` 的消费者登记）。
+- **`archi_api_dir`（本变更新增）**：`archi_api_dir(root)` → `<archi_dir>/api`，SHALL 从 `archi_dir` 派生（`api` 段取自 layout 常量组新增的 `API_DIR_NAME`）。它 SHALL 是模块 API 契约资产（`<Domain>/<FQN>.md` 与其生成物，见 `desktop-archi-api`）的**唯一合法定位函数**——消费者（`crates/core/archi` 的契约面与 `crates/tools/archi-api-gen`）MUST NOT 行内拼 `api` 段；`desktop-crate-layout` 的「代码命名隔离」纪律因此多一条机械可验的段名。
+- 本族函数的落地 SHALL 在 `desktop-crate-layout` 的依赖与消费者登记中同步在案（`archi` crate 为路径派生函数的消费者；`archi_config_path` 与 `archi_api_dir` 的消费者亦在案）。
 
 #### Scenario: 路径派生正确且同源
 
@@ -106,13 +108,18 @@ is_archi_rel_path(rel)     → rel 是否落在 <archi_dir> 之内（repo 相对
 
 #### Scenario: 纯推导无 IO 且配置路径单点
 
-- **WHEN** 以不存在的 root 调用四个派生函数，并审查 `crates/core/archi` 的配置读取面与产品源码字面量
-- **THEN** 路径照常返回、无文件系统访问；`archi_config_path(root)` 为 `<root>/.dev-team/architecture/config.json`；源码无行内 `config.json` 拼接（唯一触点仍是 `foundation/src/layout/mod.rs`）
+- **WHEN** 以不存在的 root 调用五个派生函数，并审查 `crates/core/archi` 的配置读取面 / 契约面与产品源码字面量
+- **THEN** 路径照常返回、无文件系统访问；`archi_config_path(root)` 为 `<root>/.dev-team/architecture/config.json`、`archi_api_dir(root)` 为 `<root>/.dev-team/architecture/api`；源码无行内 `config.json` / `api` 段拼接（唯一触点仍是 `foundation/src/layout/mod.rs`）
 
 #### Scenario: 与工作区配置路径互不遮蔽
 
 - **WHEN** 以同一 root 分别调用 `config_path(root)` 与 `archi_config_path(root)`
 - **THEN** 前者为 `<root>/openspec/config.json`、后者为 `<root>/.dev-team/architecture/config.json`，两路径无前缀关系；`Layout` 三字段与 `resolve` 语义零变化
+
+#### Scenario: archi_api_dir 与其他派生互不遮蔽
+
+- **WHEN** 以同一 root 分别调用 `archi_api_dir(root)` 与 `archi_models_dir(root)` / `archi_decisions_dir(root)` / `archi_config_path(root)`
+- **THEN** 依次为 `<root>/.dev-team/architecture/api`、`.../models`、`.../decisions`、`.../config.json`；四者互不为前缀、共享同一 `architecture` 段来源（改名只动常量组）；`archi_api_dir` 纯推导零 IO（不存在的 root 照常返回）
 
 ### Requirement: 架构域 repo 相对路径派生（会话知识用）
 
@@ -122,12 +129,13 @@ foundation crate SHALL 提供架构域的 **repo 相对路径**派生函数（�
 archi_rel_dir()          → 架构域根的 repo 相对路径（`/` 分隔）
 archi_models_rel_dir()   → <archi_rel_dir>/models
 archi_decisions_rel_dir()→ <archi_rel_dir>/decisions
+archi_api_rel_dir()      → <archi_rel_dir>/api
 ```
 
-- 三函数 SHALL 全部从 layout/mod.rs 的目录名常量组派生，MUST NOT 行内字面量；`archi_models_rel_dir` / `archi_decisions_rel_dir` SHALL 从 `archi_rel_dir` 派生（架构域段名不二次出现）。
+- 各函数 SHALL 全部从 layout/mod.rs 的目录名常量组派生，MUST NOT 行内字面量；`archi_models_rel_dir` / `archi_decisions_rel_dir` / `archi_api_rel_dir` SHALL 从 `archi_rel_dir` 派生（架构域段名不二次出现）。
 - 返回形态 SHALL 为 `String`（或等价的 `&'static str` 派生形态，取值形态由 design 定型），内容 MUST 为 `/` 分隔、无前导 `./`、无反斜杠——该形态直接用于模型可见文本（提示词 / 知识文本），MUST NOT 依赖调用方再归一。
-- 唯一消费者 SHALL 为架构会话知识文本（`desktop-archi-agent`「架构会话的系统知识注入」），MUST NOT 在产品源码手写 `.dev-team/architecture` 一类相对路径字面量。
-- 既有绝对路径族（`archi_dir` / `archi_models_dir` / `archi_decisions_dir`）、`is_archi_rel_path` 与 `Layout` 三字段 SHALL 语义零变化；`archi_config_path` 继续不在射程内（不因本变更预建）。
+- 消费者 SHALL 限于两处：架构会话知识文本（`desktop-archi-agent`「架构会话的系统知识注入」）与契约索引 `INDEX.toml` 的说明段（`desktop-archi-api`「schema.json 与 INDEX.toml 为纯派生且不可手改」）。MUST NOT 在产品源码手写 `.dev-team/architecture` 一类相对路径字面量。
+- 既有绝对路径族（`archi_dir` / `archi_models_dir` / `archi_decisions_dir` / `archi_config_path` / `archi_api_dir`）、`is_archi_rel_path` 与 `Layout` 三字段 SHALL 语义零变化。
 
 #### Scenario: 三函数同源且前缀一致
 
@@ -142,7 +150,12 @@ archi_decisions_rel_dir()→ <archi_rel_dir>/decisions
 #### Scenario: 零 IO 与零字面量
 
 - **WHEN** 审查实现与产品源码字面量
-- **THEN** 三函数无任何文件系统访问（对不存在的 root 无关，因为不接 root 入参）；产品 `.rs`（`*_test.rs` 除）无架构域顶层段 `.dev-team` 与 `architecture` 段字面量（唯一触点仍为 `foundation/src/layout/mod.rs`；壳层 `env` 的数据根常量 `.dev-team` 指向 `<home>` 侧，同名不同物，不构成架构域路径字面量）
+- **THEN** 各函数无任何文件系统访问（对不存在的 root 无关，因为不接 root 入参）；产品 `.rs`（`*_test.rs` 除）无架构域顶层段 `.dev-team` 与 `architecture` 段字面量（唯一触点仍为 `foundation/src/layout/mod.rs`；壳层 `env` 的数据根常量 `.dev-team` 指向 `<home>` 侧，同名不同物，不构成架构域路径字面量）
+
+#### Scenario: archi_api_rel_dir 同源且前缀一致
+
+- **WHEN** 分别调用 `archi_rel_dir()` / `archi_api_rel_dir()` 与 `archi_api_dir(root)`
+- **THEN** 前者以 `archi_rel_dir()` 为前缀、`/` 分隔零反斜杠零前导 `./`；`archi_api_dir(root)` 剥去 `root` 前缀后的相对段与 `archi_api_rel_dir()` 逐字相等（同源可验：改名只动常量组）
 
 ## Module Contract
 
@@ -160,4 +173,7 @@ archi_decisions_rel_dir()→ <archi_rel_dir>/decisions
 | `crates/infra/agent/src/archi_knowledge.rs`（消费点，见 desktop-archi-agent） | 知识拼装 | 以三函数注入目录路径，MUST NOT 手写相对路径字面量 |
 | `foundation::layout::archi_config_path` | 看护配置路径单点 | `archi_config_path(root: &Path) -> PathBuf` = `<archi_dir>/config.json`；从 `archi_dir` 派生、文件名复用既有常量；纯推导零 IO |
 | `crates/core/archi/src/drift/config.rs`（消费点） | 配置读取面 | 只经 `archi_config_path` 定位文件；缺失即空配置；`deny_unknown_fields` + reason 必填 + FQN 存在性校验 |
+| `foundation::layout::archi_api_dir` | 契约目录派生单点 | `archi_api_dir(root: &Path) -> PathBuf` = `<archi_dir>/api`；从 `archi_dir` 派生、段名取常量 `API_DIR_NAME`；纯推导零 IO；契约面与生成器工具的唯一定位入口 |
+| `foundation::layout::archi_api_rel_dir` | 契约目录相对路径 | `archi_api_rel_dir() -> String` = `<archi_rel_dir>/api`；`/` 分隔、零前导 `./`；消费者限于知识文本与 `INDEX.toml` 说明段 |
+| `foundation::layout`（常量组扩展，`api` 段） | 段名单点 | 新增 `API_DIR_NAME = "api"`；`archi_dir` 族其余函数语义零变化、`Layout` 三字段零变化 |
 | `foundation::layout::change_reports`（槽位复用） | 报告目录派生 | `ReportSlot::Archi` 经既有单点派生 `reports/archi`（槽位三值见 desktop-checks-domain）；`Layout` 三字段与 `resolve` 零变化 |

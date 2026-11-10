@@ -30,10 +30,11 @@ desc = "复用错误类型"
 
 - **键形裁决**：`element` 表的键 SHALL 为**带引号的完整 FQN 单键**（`[element."App.Auth"]`），MUST NOT 用未引号点分形式（`[element.App.Auth]`）声明层级——两种写法并存会使同一层级存在两种拼法、歧义不可判。层级 SHALL 由 **FQN 最长前缀**推导（`App.Auth.Token` 的父亲是 `App.Auth`），MUST NOT 由 TOML 表嵌套推导。
 - **字段面封闭**：元素字段 SHALL 为标量 / 数组 / **内联表**三形态；`metadata` MUST NOT 用子表（`[element."X".metadata]`）表达——子表与「子元素表头」同构，会被读成元素 `X.metadata`。
-- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `component` 四值之一；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；`path` / `docs` SHALL 为字符串数组（缺省空）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。
+- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `component` 四值之一；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；`path` / `docs` SHALL 为字符串数组（缺省空）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。
 - **未知字段拒绝**：元素表内出现未列出的字段（如 `gatte`）SHALL 由 `deny_unknown_fields` 拒绝（`unknownField`）。
 - **属性与语义分离**：`gate` 档位 SHALL 是模型属性（本能力定义其值域与缺省）；档位的**语义消费**（参与归属、违例定级、门禁结论）归 `desktop-archi-drift` 与 `desktop-archi-gate`，本能力 MUST NOT 定义任何定级规则。
-- **协议不经模型**（知情边界，防误加字段）：元素上 MUST NOT 出现接口 / 导出符号 / 签名一类协议字段。契约权威在 `openspec/specs/` 与 ADR；模型内再存一份必然漂移，且需要 Rust / TS 两套提取器对齐——该方案已被否决，重提须独立变更并先回答「契约权威在哪」与「两套提取器怎么对齐」两问。协议只经 `docs` 引用承载。
+- **`api` 状态指针（显式字段，非 `metadata`）**：元素 SHALL 有封闭二值的 `api` 字段（`declared` 缺省 / `none`，附 `ApiStatus::ALL`），语义为「本模块是否有公共 API 契约」的状态指针，MUST NOT 承载任何协议正文（签名 / 符号 / 接口 / 规范全文）。走显式字段而非 `metadata` 自由键的理由是可获得 `deny_unknown_fields` 的拼写校验：`api = "non"` 报 `invalidValue` 并列全合法值，而 `metadata = { api = "non" }` 会静默变成「未声明」。完备性判据：每个 `path` 非空元素 ∈ {`none`} ∪ {契约文件存在}，不存在「忘了建契约」这第三种状态（判据归 `desktop-archi-api-check`）。
+- **协议正文不经模型**（知情边界，防误加字段，本变更改写为状态指针口径）：元素上 MUST NOT 出现接口 / 导出符号 / 签名一类协议**正文**字段——唯一允许的协议相关字段是上述状态指针 `api`。原边界要求的两个问题，本变更正面回答：**契约权威在哪**——在 `<archi_dir>/api/<FQN>.md`（见 `desktop-archi-api`），模型只存状态指针；**两套提取器怎么对齐**——不提两套：单一 schema + 单一生成器，`scan/rust.rs` / `scan/ts.rs` 是既有取数器（非权威），只供一次性 bootstrap。模型内再存一份协议正文必然漂移，该做法仍被否决；重提须独立变更。
 - 新元素缺省 `gate = "off"`（ratchet：存量全 `off`，想收紧的模块逐个改 `strict`，一个 change 收紧一块）。
 
 #### Scenario: 四值 kind 与三值 gate 解析成功
@@ -60,6 +61,21 @@ desc = "复用错误类型"
 
 - **WHEN** 元素表写 `gatte = "strict"`，同时 `metadata` 内写 `{ unknownKey = "x" }`
 - **THEN** `gatte` 被拒（`unknownField` + 位置）；`metadata.unknownKey` 被接受（元数据可自由演进）——两侧严格性不同且各自可辨
+
+#### Scenario: api 状态二值与缺省
+
+- **WHEN** 解析三份模型：一份省略 `api`、一份显式 `api = "declared"`、一份 `api = "none"`
+- **THEN** 三者均解析成功；省略者取缺省 `declared`；`api = "none"` 原样读出 `none`；三者 `kind` / `gate` / `path` 语义零变化
+
+#### Scenario: api 拼写错被拒且列全合法值
+
+- **WHEN** 元素表写 `api = "non"`，对照写 `metadata = { api = "non" }`
+- **THEN** 前者报 `invalidValue`（位置 + 列出 `declared` / `none` 两值）；后者被接受且该元素的 `api` 仍为缺省 `declared`（元数据可自由演进）——两侧口径不同且各自可辨
+
+#### Scenario: 模型不含协议正文
+
+- **WHEN** 审查任一模型文件的元素字段面
+- **THEN** 元素字段只有 `kind` / `gate` / `api` / `path` / `docs` / `summary` / `metadata` 七项；任何签名 / 导出符号 / 接口定义写在 `<archi_dir>/api/<FQN>.md` 而非模型内
 
 ### Requirement: 多文件聚合与声明定位
 
@@ -184,6 +200,7 @@ archi 自实现（图规则）
 ```
 element kind   package / domain / module / component
 gate 档        off / warn / strict
+api 状态       declared / none
 结构诊断       syntaxError / missingField / invalidValue / unknownField /
                duplicateElement / cycle / dependsOnAncestor /
                unknownReference / orphanHierarchy
@@ -194,15 +211,15 @@ gate 档        off / warn / strict
 
 对拍 SHALL 以一份**含全部词汇**的模型语料驱动四面投影，断言四面的词汇集相等；新增或删除任一词汇而语料 / 投影未同步时对拍 MUST 变红（防「新增一个诊断类型、UI 静默不显示」）。对拍 SHALL 为机械测试（形态沿用 `src/views/changes/flow/run-state.test.ts` 的全词汇出图先例：一份语料走全投影、逐词汇断言在场）。
 
-- **`ALL` 全量常量为唯一派生源**：`element kind` / `gate` 档 / 结构诊断三类封闭词汇 SHALL 各自提供全量常量（`ElementKind::ALL` / `GateTier::ALL` / `DiagnosticKind::ALL`；其中 `DiagnosticKind::ALL` 由本变更补齐为九值），且 SHALL 与各自的线格式词函数（`as_str`）逐值对拍。派生型消费者（当前唯一 = 架构会话知识文本，见 `desktop-archi-agent`「架构会话的系统知识注入」）MUST 从这些常量取词，MUST NOT 在产品源码或静态文本里手抄一份词表。
-- **知识文本纳入射程**：架构会话知识文本出现在四面之列——它必须含全部 `kind` / `gate` / 结构诊断词；新增词汇而知识文本未同步（因为绕过了 `ALL`）MUST 由对拍或 `ALL` 对拍变红。
+- **`ALL` 全量常量为唯一派生源**：`element kind` / `gate` 档 / **`api` 状态** / 结构诊断四类封闭词汇 SHALL 各自提供全量常量（`ElementKind::ALL` / `GateTier::ALL` / **`ApiStatus::ALL`** / `DiagnosticKind::ALL`；其中 `DiagnosticKind::ALL` 为九值），且 SHALL 与各自的线格式词函数（`as_str`）逐值对拍。`ApiStatus` 两值（`declared` / `none`）由本变更新增，知识文本与四面投影 MUST 从该常量取词。派生型消费者（当前唯一 = 架构会话知识文本，见 `desktop-archi-agent`「架构会话的系统知识注入」）MUST 从这些常量取词，MUST NOT 在产品源码或静态文本里手抄一份词表。
+- **知识文本纳入射程**：架构会话知识文本出现在四面之列——它必须含全部 `kind` / `gate` / `api` 状态 / 结构诊断词；新增词汇而知识文本未同步（因为绕过了 `ALL`）MUST 由对拍或 `ALL` 对拍变红。
 
 可选字段的**线形态**（缺字段 vs `null`）不在本对拍射程内（见 proposal R-3）；本对拍只锚定词汇集。
 
 #### Scenario: 语料含全词汇
 
 - **WHEN** 检查对拍语料
-- **THEN** 上述每一词汇至少各一条在场（`kind` 四类元素、`gate` 三档、九类结构诊断各一坏点、`docNotFound` 一例、边标记四值、节点标记两值）
+- **THEN** 上述每一词汇至少各一条在场（`kind` 四类元素、`gate` 三档、`api` 状态两值、九类结构诊断各一坏点、`docNotFound` 一例、边标记四值、节点标记两值）
 
 #### Scenario: 三面（诊断 / 工具 / IPC）词汇集相等
 
@@ -217,12 +234,17 @@ gate 档        off / warn / strict
 #### Scenario: 知识文本与三面同词汇集
 
 - **WHEN** 取架构会话知识文本（`source = "archi"` 的 `preamble` 内容）并枚举其词汇
-- **THEN** 其中含 `kind` 四值、`gate` 三值（含缺省 `off`）、结构诊断九词，与另三面词汇集相等；把某个词从 `ALL` 删掉而知识侧仍能拼出该词（手抄）时测试红
+- **THEN** 其中含 `kind` 四值、`gate` 三值（含缺省 `off`）、`api` 状态两值（`declared` / `none`）、结构诊断九词，与另三面词汇集相等；把某个词从 `ALL` 删掉而知识侧仍能拼出该词（手抄）时测试红
 
 #### Scenario: ALL 与线格式词逐值对拍
 
-- **WHEN** 遍历 `ElementKind::ALL` / `GateTier::ALL` / `DiagnosticKind::ALL`
+- **WHEN** 遍历 `ElementKind::ALL` / `GateTier::ALL` / `ApiStatus::ALL` / `DiagnosticKind::ALL`
 - **THEN** 每一项的 `as_str` 产出唯一且与语料词一致；新增变体未补入对应 `ALL`（长度断言）时测试红
+
+#### Scenario: api 状态词汇四面在场
+
+- **WHEN** 检查对拍语料与四面投影（进程内诊断集 / `archi_module` 响应 / IPC DTO / 知识文本）
+- **THEN** 四面均含 `declared` 与 `none` 两词（语料含一个 `api = declared` 元素与一个 `api = none` 元素）；删掉 `ApiStatus::ALL` 的一项而知识侧仍能拼出该词时测试红
 
 ### Requirement: gate 档写回纯函数
 
@@ -271,7 +293,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 | 命令 | 入参 | 出参 / 语义 |
 |---|---|---|
 | `archi_graph` | `root` | `ArchiGraph`：正常态（元素 / 关系 / 标记）或停摆态（诊断清单、零图数据） |
-| `archi_module` | `root` + `element` | `ArchiModuleDetail`（与 agent 工具同一投影）：元素 + 邻接 + 子元素 + `docs` |
+| `archi_module` | `root` + `element` | `ArchiModuleDetail`（与 agent 工具同一投影）：元素 + 邻接 + 子元素 + `docs` + **`api`（并列字段）** |
 | `archi_read_doc` | `root` + `path` | 文档正文：仅接受**关联集内**路径（服务端现算关联集后校验），越界显式 `Err` |
 | `archi_change_summary` | `root` + `change_id` | `Option<ArchiChangeSummary>`：以 change 记录解析 worktree（归档 change 回落主仓根），两侧模型结构 diff；模型目录缺席或两侧等价 → `null` |
 | `archi_set_gate` | `root` + `element` + `gate` | 写前校验（元素存在 / 值合法 / 渲染自证可解析）通过后原子写回该模型文件；失败零写入并显式 `Err` |
@@ -279,7 +301,8 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 - 全部命令 SHALL 带显式 `root`（MUST NOT 依赖「当前选中 change」一类隐式上下文）；错误面 SHALL 为 `Result<T, String>`（沿既有命令面口径）。
 - `archi_graph` / `archi_module` / `archi_read_doc` / `archi_change_summary` MUST NOT 写盘；唯一写命令 SHALL 为 `archi_set_gate`（且只改 `gate` 单字段）。
 - `archi_set_gate` MUST NOT 出现在 `mode = full` 的前端调用路径（只读视图约束由前端承载、由命令可用性背书——命令本身不区分模式）。
-- 五个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（生成物随重导出入库，过期由提交前人工核对）。
+- 五个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（再生成后入库，过期由提交前 `git status` / `git diff` 人工核对——零 diff 守卫已退役，`check` 链只前置重导出、不做生成物比对）。
+- **`archi_module` 的 `api` 并列字段**：本变更为 `ArchiModuleDetail` 增加并列字段 `api`（`ArchiElement` 与薄概览条目同步带 `api` 状态），语义为「该元素的契约是否在案」——按 `<archi_api_dir>/<Domain>/<FQN>.md` 约定定位，文件不存在即 `status = none`（零配置，且「有契约 / 无契约」成为可枚举事实）。字段结构与定位规则定义归 `desktop-archi-api`，本能力只登记「命令数量仍为五个、`archi_module` 出参形状扩展、命令层仍零领域规则」。该字段 MUST NOT 承载协议正文（契约正文的读取通路不在本期；`archi_read_doc` 只接受文档关联集内的路径，不覆盖 `<archi_dir>/api/**`——本期不新增读取命令）。
 
 #### Scenario: 读命令零写盘
 
@@ -296,18 +319,25 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 - **WHEN** 调用 `archi_set_gate` 改合法元素的 `gate`，以及以非法值 / 不存在元素调用
 - **THEN** 前者目标行变为新档位且其余内容与注释逐字保留；后者显式 `Err` 且该文件字节零变化（校验先于任何写动作）
 
+#### Scenario: archi_module 出参带 api 并列字段
+
+- **WHEN** 调用 `archi_module(root, element = "App.Backend.Infra.ArchiRuntime")`（该元素契约在案）与另一无契约元素
+- **THEN** 前者 `api.status = "declared"` 且 `contractPath` / `schemaPath` 指向实际文件；后者 `api.status = "none"` 且三个路径字段为 `null`；两者其余字段（元素 / 邻接 / 子元素 / `docs`）语义零变化，命令总数仍为五个
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `crates/core/archi/Cargo.toml` | crate 落位与依赖 | 依赖 `foundation` + `serde` / `serde_json` / `specta` + `toml` / `toml_edit` / `petgraph` / `ignore`（均取自锁内既有版本，零新增包）；零 Tauri、零 store、零 spawn、零 `workflow` 依赖 |
-| `crates/core/archi/src/model.rs` | 格式无关 AST | `Model` / `Element`（`fqn` / `kind` / `gate` / `path` / `docs` / `summary` / `metadata` / `file` / `line`）/ `Relation` / `SourceSpan` / `Diagnostic`；`derive PartialEq`（UI diff 预留）；关系级 `Option<SourceSpan>` 占位 |
+| `crates/core/archi/src/model.rs` | 格式无关 AST | `Model` / `Element`（`fqn` / `kind` / `gate` / **`api`** / `path` / `docs` / `summary` / `metadata` / `file` / `line`）/ `Relation` / `SourceSpan` / `Diagnostic`；`derive PartialEq`（UI diff 预留）；关系级 `Option<SourceSpan>` 占位；`Element.api: ApiStatus`（`#[serde(default)]` 语义面 = 缺省 `Declared`），其余字段名 / 顺序 / 语义零变化 |
 | `crates/core/archi/src/parse/mod.rs` | 多文件聚合 | `trait SourceParser { fn parse(&str) -> ParseOutcome }`；`parse_dir(models_dir) -> ParseOutcome`：字典序、跨文件 `duplicateElement`、位置回填；空目录 → 空模型 |
-| `crates/core/archi/src/parse/toml.rs` | TOML 实现 | `toml` + span 反序列化；`deny_unknown_fields`；`kind` / `gate` 封闭枚举；parser 错误 → 结构化诊断（保留原文与 line/column） |
+| `crates/core/archi/src/parse/toml.rs` | TOML 实现 | `toml` + span 反序列化；`deny_unknown_fields`；`kind` / `gate` 封闭枚举；`RawElement` 新增 `api` 字段（`#[serde(default)]`），落在既有 `deny_unknown_fields` 面内 ⇒ `api = "non"` 报 `invalidValue` 并列全合法值，MUST NOT 走 `metadata` 自由键；parser 错误 → 结构化诊断（保留原文与 line/column） |
 | `crates/core/archi/src/graph.rs` | 图单点 | `ModelGraph`（petgraph）唯一构建点；SCC 成环 / 依赖祖先 / 未定义引用 / 孤儿层级；`depends_on` / `depended_by` / `children` / `neighborhood`（1-hop） |
-| `crates/core/archi/src/dto.rs` | 三面共用投影 + 封闭词汇单点（补全量常量） | `ArchiGraph`（含停摆态）/ `ArchiModuleDetail` / `ArchiSearchResult` / `ArchiChangeSummary`；封闭词汇枚举 `ElementKind` / `GateTier` / `DiagnosticKind` / `EdgeMark` / `NodeMark`（`specta::Type`）；`ArchiDiagnosticKind::ALL: [Self; 9]`（与 `as_str` 同源；长度与词面双向对拍；既有 `ElementKind::ALL` / `GateTier::ALL` 语义零变）；投影只裁剪，MUST NOT 重算 |
+| `crates/core/archi/src/dto.rs` | 三面共用投影 + 封闭词汇单点（补全量常量） | `ArchiGraph`（含停摆态）/ `ArchiModuleDetail` / `ArchiSearchResult` / `ArchiChangeSummary`；封闭词汇枚举 `ElementKind` / `GateTier` / **`ApiStatus`** / `DiagnosticKind` / `EdgeMark` / `NodeMark`（`specta::Type`）；`ArchiDiagnosticKind::ALL: [Self; 9]`（与 `as_str` 同源；长度与词面双向对拍；既有 `ElementKind::ALL` / `GateTier::ALL` 语义零变）；新增 `ApiStatus`（`declared` / `none`，`ALL` + `as_str` + `specta::Type`）与 `ArchiApiRef { status, contractPath, schemaPath, generatedPath }`；`ArchiElement.api` / `ArchiElementBrief.api` / `ArchiModuleDetail.api` 出线；路径由 `archi_api_dir` 派生（定义归 `desktop-archi-api`）；投影只裁剪，MUST NOT 重算 |
 | `crates/core/archi/src/edit.rs` | gate 写回纯函数 | `set_gate(source, fqn, gate) -> Result<String, String>`：`toml_edit` 渲染保留注释空行、前置校验（存在 / 值域）、渲染后自证可解析；零文件系统写 |
 | `crates/core/archi/src/diff.rs` | 结构 diff | `model_diff(base, next) -> ModelDiff`：元素增删（FQN 键）、关系增删（`(from,to)` 键）、`gate` 变更；文件 / 行序不参与身份 |
+| `crates/core/archi/src/model_test.rs` + `parse/toml_test.rs` | 模型语料（扩展） | 两态取值 / 缺省 `declared` / 拼写错报 `invalidValue` 并列全合法值 / 与 `metadata.api` 的口径差（静默变「未声明」的反例在案） |
 | `src-tauri/src/commands/archi/mod.rs` | 五命令薄包装 | `archi_graph` / `archi_module` / `archi_read_doc` / `archi_change_summary` / `archi_set_gate`；`Result<T, String>` 错误面；唯一写命令为 `archi_set_gate`（写前校验 + 原子写回）；命令层零领域规则 |
 | `crates/core/archi/tests/` | 语料与 golden | `corpus/dsl/<case>/*.toml` + `golden_test.rs` + `vocabulary_test.rs`；golden 沿既有 `DESKTOP_GOLDEN_REWRITE=1` 显式重写惯例 |
-| `crates/core/archi/tests/vocabulary_test.rs`（扩展） | 四面词汇对拍 | 语料 → 进程内诊断集 / `archi_module` 串 / IPC DTO / 架构会话知识文本四面词汇集相等；`ALL` 与 `as_str` 逐值对拍 |
+| `crates/core/archi/tests/vocabulary_test.rs`（扩展） | 四面词汇对拍 | 语料 → 进程内诊断集 / `archi_module` 串 / IPC DTO / 架构会话知识文本四面词汇集相等；`ALL` 与 `as_str` 逐值对拍；`ApiStatus::ALL` 二值与 `as_str` 逐值对拍；封闭词汇组新增 `api` 一面；知识文本含 `declared` / `none` |
+| `crates/infra/agent/src/archi_knowledge.rs` + `archi-knowledge.md`（见 `desktop-archi-agent`） | 知识文本（改） | 契约词汇面注入 `api`（`declared` / `none`）与契约目录入口；注入矩阵与 policy 零改动 |
