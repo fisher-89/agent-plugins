@@ -4,7 +4,7 @@ use crate::prompt::{
     spec_sync_prompt, verdict_fix_prompt,
 };
 use workflow::model::{ChecklistItem, Verdict};
-use workflow::write::BacktrackOption;
+use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 
 #[test]
 fn evaluator_prompt协议附录瘦身形状与红线() {
@@ -139,6 +139,7 @@ fn base_input() -> DecisionInput {
             verdict: Some(Verdict::Pass),
             report: Some("设计与任务拆解齐备".to_owned()),
         }],
+        backtrack_window: Vec::new(),
     }
 }
 
@@ -618,6 +619,7 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         fail_report: "失败明细".to_owned(),
         allowed: vec![allowed_phase("proposal", "需求提案与规格说明")],
         candidates: Vec::new(),
+        backtrack_window: Vec::new(),
     };
 
     assert_eq!(
@@ -799,4 +801,455 @@ fn 归档两prompt确定性_同输入重复组装逐字节一致() {
         merge_conflict_prompt("demo-change", &conflicts),
         merge_conflict_prompt("demo-change", &conflicts)
     );
+}
+
+// ---------------------------------------------------------------------------
+// 决策 prompt 的回溯重做窗口段（AC-8 / AC-9 / AC-10）：文案与渲染只调写面单点
+// （`workflow::write::backtrack_window_section`），本侧零第二份文案 / 零第二份
+// 判据 / 零二次裁剪；空集整段省略。
+// ---------------------------------------------------------------------------
+
+/// 窗口记录 fixture：`from_phase` / `to_phase` 取与白名单 / 候选段任何相位 id
+/// 均不重名的可辨合成串（使「零泄漏」成为可整篇断言的判据）。
+fn window_entry(index: usize, reason: &str) -> BacktrackWindowEntry {
+    BacktrackWindowEntry {
+        from_phase: format!("phase-from-{index}"),
+        from_index: 10 + index,
+        to_phase: format!("phase-to-{index}"),
+        to_index: index,
+        reason: reason.to_owned(),
+    }
+}
+
+/// 窗口条数（渲染块数的计数面）。
+fn block_count(prompt: &str, needle: &str) -> usize {
+    prompt.matches(needle).count()
+}
+
+/// 含指定窗口集合的决策输入（其余面取 `base_input()`）。
+fn input_with_windows(windows: Vec<BacktrackWindowEntry>) -> DecisionInput {
+    DecisionInput {
+        backtrack_window: windows,
+        ..base_input()
+    }
+}
+
+/// 多条按创建序渲染（正向，单次，AC-10）：2 条窗口 → 段标题在场、两条原因按
+/// 入参序各自被 `<backtrack reason>` / `</backtrack>` 定界、块间空行、渲染块数
+/// == 2。
+#[test]
+fn decision_prompt窗口段多条按创建序渲染() {
+    let windows = vec![
+        window_entry(0, "设计返工：缺产物区组件"),
+        window_entry(1, "需求返工：验收口径漂移"),
+    ];
+    let prompt = decision_prompt(&input_with_windows(windows.clone()));
+
+    assert!(
+        prompt.contains("## 回溯重做窗口"),
+        "窗口段标题在场: {prompt}"
+    );
+    assert_eq!(
+        block_count(&prompt, "<backtrack reason>"),
+        2,
+        "渲染块数 == 入参条数"
+    );
+    assert_eq!(
+        block_count(&prompt, "</backtrack>"),
+        2,
+        "定界收尾行逐条在场"
+    );
+    for window in &windows {
+        assert!(
+            prompt.contains(&format!(
+                "<backtrack reason>\n{}\n</backtrack>",
+                window.reason
+            )),
+            "每条原因被定界块包裹: {}",
+            window.reason
+        );
+    }
+    let first = prompt.find(&windows[0].reason).expect("首条在场");
+    let second = prompt.find(&windows[1].reason).expect("次条在场");
+    assert!(first < second, "创建序（入参序）渲染，不重排");
+    // 块间空行（两定界块以内为空行分隔，非同行拼接）
+    assert!(
+        !prompt.contains("</backtrack><backtrack reason>"),
+        "块间不以零空白相接"
+    );
+}
+
+/// 段位置断言（正向，单次，AC-10）：窗口段索引 <「失败相位报告」索引，且 >
+/// 开头句索引（段序最前、紧跟开头句）。
+#[test]
+fn decision_prompt窗口段位置先于失败相位报告紧随开头句() {
+    let prompt = decision_prompt(&input_with_windows(vec![window_entry(0, "设计返工")]));
+
+    let opening = prompt.find("需要你做出路由决策").expect("开头句在场");
+    let window_at = prompt.find("## 回溯重做窗口").expect("窗口段在场");
+    let report_at = prompt.find("## 失败相位报告").expect("失败相位报告段在场");
+    assert!(
+        window_at < report_at,
+        "窗口段在「失败相位报告」之前（{window_at} < {report_at}）"
+    );
+    assert!(
+        opening < window_at,
+        "窗口段紧跟开头句之后（{opening} < {window_at}）"
+    );
+    // 其余段序不变：失败清单 < 白名单 < 候选报告 < 报告文件 < 决策协议
+    let order = [
+        "## 失败相位报告",
+        "## 失败清单",
+        "## 可回溯白名单",
+        "## 候选相位最近一次评估报告",
+        "## 报告文件",
+        "## 决策协议",
+    ];
+    let positions: Vec<usize> = order
+        .iter()
+        .map(|section| {
+            prompt
+                .find(section)
+                .unwrap_or_else(|| panic!("段 {section} 在场"))
+        })
+        .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "其余六段序逐条不变: {positions:?}"
+    );
+}
+
+/// 文案单点跨 crate（正向，单次，AC-9）：prompt 中的窗口段片段与
+/// `workflow::write::backtrack_window_section(&input.backtrack_window)` 逐字节
+/// 相等（orchestration 侧零第二份文案的机械判据）。
+#[test]
+fn decision_prompt窗口段与写面渲染逐字节相等() {
+    let input = input_with_windows(vec![
+        window_entry(0, "设计返工：缺产物区组件"),
+        window_entry(1, "需求返工：验收口径漂移"),
+    ]);
+    let prompt = decision_prompt(&input);
+    let section = workflow::write::backtrack_window_section(&input.backtrack_window);
+
+    assert!(!section.is_empty(), "非空窗口渲非空段");
+    assert!(
+        prompt.contains(&section),
+        "prompt 内窗口段与写面渲染产物逐字节相等（零第二份文案）"
+    );
+    // 标题字面量在 orchestration 侧零副本：产物片段自写面取得，非本侧拼接
+    assert_eq!(
+        block_count(&prompt, "## 回溯重做窗口"),
+        1,
+        "prompt 恰有一处窗口段标题（非两处拼接）"
+    );
+    // 渲染确定性：同输入两次组装 + 片段位置稳定
+    assert_eq!(prompt, decision_prompt(&input), "同输入逐字节一致");
+    let at = prompt.find(&section).expect("片段可定位");
+    assert_eq!(
+        &prompt[at..at + section.len()],
+        section.as_str(),
+        "定位到的片段逐字节等于写面产物"
+    );
+}
+
+/// 其余段零扰动（正向，参数化迭代既有 5 段 + 2 注记）：窗口段引入后失败清单 /
+/// 白名单 / 候选报告 / 失败相位报告 / 报告文件五段仍在场，协议段仍恰列
+/// backtrack / stop / ask 三动作、零退役 `retry`；白名单自注记两形态照旧。
+#[test]
+fn decision_prompt窗口段引入后其余段零扰动() {
+    let prompt = decision_prompt(&input_with_windows(vec![window_entry(0, "设计返工")]));
+
+    for section in [
+        "## 失败清单",
+        "## 可回溯白名单",
+        "## 候选相位最近一次评估报告",
+        "## 失败相位报告",
+        "## 报告文件",
+        "## 决策协议",
+    ] {
+        assert!(prompt.contains(section), "段 {section} 仍在场");
+    }
+    for action in ["backtrack", "stop", "ask"] {
+        assert!(
+            prompt.contains(&format!("{{\"action\": \"{action}\"")),
+            "协议行含动作 {action}"
+        );
+    }
+    assert!(
+        !prompt.contains("\"action\": \"retry\""),
+        "退役 retry 动作行零残留"
+    );
+    assert!(
+        prompt.contains("- 覆盖 test-design 全行：缺失废弃行承接"),
+        "fail checklist 行照旧"
+    );
+    assert!(
+        prompt.contains("设计与任务拆解齐备"),
+        "候选 eval report 照旧"
+    );
+    assert!(
+        prompt.contains("## 失败用例明细\n\nexpected '[]' to equal '[a]'"),
+        "fail_report 原文照旧"
+    );
+
+    // 白名单自注记两形态：自含追加注记、不含零注记
+    let self_included = decision_prompt(&DecisionInput {
+        phase: "implement".to_owned(),
+        allowed: vec![
+            allowed_phase("proposal", "需求提案与规格说明"),
+            allowed_phase("implement", "代码实现"),
+        ],
+        backtrack_window: vec![window_entry(0, "设计返工")],
+        ..base_input()
+    });
+    assert!(
+        self_included.contains("- implement（代码实现）（= 重做本相位）"),
+        "自含条目照旧注记"
+    );
+    let not_included = decision_prompt(&DecisionInput {
+        phase: "test-execution".to_owned(),
+        allowed: vec![allowed_phase("test-gen", "测试代码生成")],
+        backtrack_window: vec![window_entry(0, "设计返工")],
+        ..base_input()
+    });
+    assert!(
+        !not_included.contains("（= 重做本相位）"),
+        "白名单不含自身 → 零注记照旧"
+    );
+}
+
+/// 空集整段省略（异常，单次，AC-10）：`backtrack_window == []` → prompt 零窗口段
+/// 字样、零空标题残留；组装结果与「窗口段引入前」逐字节等同（以既有五段 / 协议
+/// / 确定性用例零改动全绿为侧证，此处以「空集片段为空串 + 零标题」承载）。
+#[test]
+fn decision_prompt窗口段空集整段省略() {
+    let empty_section = workflow::write::backtrack_window_section(&[]);
+    assert_eq!(empty_section, "", "空集片段逐字节空串（插值即省略）");
+
+    let prompt = decision_prompt(&input_with_windows(Vec::new()));
+    assert!(
+        !prompt.contains("## 回溯重做窗口"),
+        "空集零窗口段标题: {prompt}"
+    );
+    assert!(!prompt.contains("<backtrack"), "空集零定界块残留: {prompt}");
+    // 段序不因空集破坏：开头句紧跟「失败相位报告」
+    let opening = prompt.find("需要你做出路由决策").expect("开头句在场");
+    let report_at = prompt.find("## 失败相位报告").expect("报告段在场");
+    assert_eq!(
+        &prompt[opening..report_at],
+        "需要你做出路由决策。\n\n",
+        "空集时开头句与报告段之间恰为原有分隔（窗口段零残留）"
+    );
+}
+
+/// 零二次裁剪（异常，单次，AC-10 / spec「条目数与双分支一致」）：直接构造 3 条
+/// 窗口的 `DecisionInput` → 三条原因全部逐条渲染（块数 == 3）、零「另有 N 条」/
+/// 「仅显示最近」类元信息——上限裁剪唯一点在写面。
+#[test]
+fn decision_prompt窗口段零二次裁剪() {
+    let windows: Vec<BacktrackWindowEntry> = (0..3)
+        .map(|index| window_entry(index, &format!("R{index}")))
+        .collect();
+    let prompt = decision_prompt(&input_with_windows(windows.clone()));
+
+    assert_eq!(
+        block_count(&prompt, "<backtrack reason>"),
+        3,
+        "3 条入参 → 3 块（本侧零裁剪）"
+    );
+    for window in &windows {
+        assert!(
+            prompt.contains(&window.reason),
+            "三条原因逐条渲染: {}",
+            window.reason
+        );
+    }
+    for meta in ["另有", "仅显示最近", "更多记录", "剩余"] {
+        assert!(!prompt.contains(meta), "零裁剪元信息: {meta}");
+    }
+    // 与写面渲染逐字节相等（零二次裁剪的机械判据：条数与内容均由写面产物决定）
+    assert!(
+        prompt.contains(&workflow::write::backtrack_window_section(&windows)),
+        "3 条形态与写面产物逐字节相等"
+    );
+}
+
+/// 零相位 id 泄漏（异常，参数化迭代 2 形态，AC-8）：fixture 的 `from_phase` /
+/// `to_phase` 取与白名单 / 候选段任何相位 id 均不重名的可辨合成串 → 二者在整篇
+/// prompt 零命中（「零命中」因此可整篇断言）。
+#[test]
+fn decision_prompt窗口段零相位id泄漏() {
+    for count in [1usize, 2] {
+        let windows: Vec<BacktrackWindowEntry> = (0..count)
+            .map(|index| window_entry(index, &format!("原因{index}")))
+            .collect();
+        let prompt = decision_prompt(&input_with_windows(windows.clone()));
+        for window in &windows {
+            assert!(
+                !prompt.contains(&window.from_phase),
+                "整篇 prompt 对 from_phase \"{}\" 零命中（{count} 条形态）",
+                window.from_phase
+            );
+            assert!(
+                !prompt.contains(&window.to_phase),
+                "整篇 prompt 对 to_phase \"{}\" 零命中（{count} 条形态）",
+                window.to_phase
+            );
+            // 两个 index 以独立数字形态零泄漏（窗口段只取 reason）
+            assert!(
+                !prompt.contains(&format!("from_index: {}", window.from_index)),
+                "零 index 元信息"
+            );
+        }
+        // 标签行零属性（逐行断言）
+        for line in prompt.lines().filter(|line| line.starts_with("<backtrack")) {
+            assert_eq!(line, "<backtrack reason>", "标签行逐字、零属性");
+        }
+    }
+}
+
+/// 入参条数四形态（边界，参数化迭代 0 / 1 / 2 / 3）：渲染块数恒等于入参长度
+///（1 条不做「退化一行」短式、3 条不被裁），段标题在场性 = 入参是否非空。
+#[test]
+fn decision_prompt窗口段入参条数四形态() {
+    for count in 0..=3usize {
+        let windows: Vec<BacktrackWindowEntry> = (0..count)
+            .map(|index| window_entry(index, &format!("R{index}")))
+            .collect();
+        let prompt = decision_prompt(&input_with_windows(windows));
+        assert_eq!(
+            block_count(&prompt, "<backtrack reason>"),
+            count,
+            "{count} 条 → 渲染块数 == 入参数"
+        );
+        assert_eq!(
+            block_count(&prompt, "## 回溯重做窗口"),
+            if count == 0 { 0 } else { 1 },
+            "{count} 条 → 段标题在场性 = 入参是否非空"
+        );
+        assert_eq!(
+            block_count(&prompt, "</backtrack>"),
+            count,
+            "{count} 条 → 定界收尾行数 == 入参数"
+        );
+    }
+}
+
+/// 原因原文保真（边界，参数化迭代 5 形态，AC-8）：`""` / `"  R  "`（首尾空白）
+/// / `"a\nb"` / `"a\0b🚀"` / 恰写面上限 1000 字符（该常量 workflow 侧
+/// `pub(crate)`，本侧取不到，故以字面 1000 构造）→ 逐字在 prompt 中，不 trim 不
+/// 截断不压平。
+#[test]
+fn decision_prompt窗口段原因原文保真五形态() {
+    let long = "字".repeat(1000);
+    let shapes = [
+        String::new(),
+        "  R  ".to_owned(),
+        "a\nb".to_owned(),
+        "a\0b🚀".to_owned(),
+        long.clone(),
+    ];
+    for reason in shapes {
+        let prompt = decision_prompt(&input_with_windows(vec![window_entry(0, &reason)]));
+        assert!(
+            prompt.contains(&format!("<backtrack reason>\n{reason}\n</backtrack>")),
+            "原因原文逐字定界（不 trim / 不截断 / 不压平）: {reason:?}"
+        );
+        if reason.chars().count() > 1 {
+            assert!(prompt.contains(&reason), "原因本体逐字在场: {reason:?}");
+        }
+    }
+    assert!(
+        prompt_contains_exact_reason(&long, 1000),
+        "恰 1000 字符原因全文承接（本侧零长度门）"
+    );
+}
+
+/// 1000 字符原因全文承接（原文保真的长度面判据；避免在断言消息里展开长文）。
+fn prompt_contains_exact_reason(reason: &str, expected_chars: usize) -> bool {
+    let prompt = decision_prompt(&input_with_windows(vec![window_entry(0, reason)]));
+    prompt.contains(reason) && reason.chars().count() == expected_chars
+}
+
+/// 信封插值与窗口段并存（边界，参数化迭代 4 形态）：`attempt` 取 `0` 与
+/// `u32::MAX`、`phase` 取 `""` 与超长串 → 开头句插值不受窗口段影响、不 panic、
+/// 段序稳定。
+#[test]
+fn decision_prompt信封插值与窗口段并存() {
+    let long_phase = "p".repeat(1200);
+    for attempt in [0u32, u32::MAX] {
+        for phase in [String::new(), long_phase.clone()] {
+            let input = DecisionInput {
+                phase,
+                attempt,
+                backtrack_window: vec![window_entry(0, "设计返工")],
+                ..base_input()
+            };
+            let prompt = decision_prompt(&input);
+            assert!(
+                prompt.contains(&format!("第 {attempt} 次 attempt")),
+                "attempt = {attempt} 插值原样"
+            );
+            assert!(
+                prompt.contains("## 回溯重做窗口"),
+                "窗口段在场（attempt {attempt}）"
+            );
+            let window_at = prompt.find("## 回溯重做窗口").expect("窗口段在场");
+            let report_at = prompt.find("## 失败相位报告").expect("报告段在场");
+            assert!(window_at < report_at, "段序稳定（attempt {attempt}）");
+        }
+    }
+    // 超长 phase 原样插值（不截断）
+    assert!(
+        prompt_contains_phase(&long_phase),
+        "1200 字符 phase 名原样插值（不 panic 不截断）"
+    );
+}
+
+/// 超长 phase 名原样插值（信封插值面判据）。
+fn prompt_contains_phase(phase: &str) -> bool {
+    let prompt = decision_prompt(&DecisionInput {
+        phase: phase.to_owned(),
+        attempt: 1,
+        backtrack_window: vec![window_entry(0, "R")],
+        ..base_input()
+    });
+    prompt.contains(&format!("相位「{phase}」"))
+}
+
+/// archive 两步与软拒纠正文案零窗口段（异常，参数化迭代 3 形态，AC-14 行为侧
+/// 证）：`spec_sync_prompt` / `merge_conflict_prompt` 产物零窗口段字样；
+/// `decision_fix_prompt` 仍只重申目标 + 白名单一行、零窗口段。
+#[test]
+fn archive两步与纠正文案零窗口段() {
+    let spec_sync = spec_sync_prompt("demo-change");
+    let merge_conflict = merge_conflict_prompt("demo-change", &["specs/a.md".to_owned()]);
+    let fix = decision_fix_prompt(
+        &input_with_windows(vec![window_entry(0, "设计返工")]),
+        "越权 backtrack：目标 \"test-gen\" 不在白名单内",
+    );
+    for (label, prompt) in [
+        ("spec_sync_prompt", &spec_sync),
+        ("merge_conflict_prompt", &merge_conflict),
+        ("decision_fix_prompt", &fix),
+    ] {
+        assert!(
+            !prompt.contains("## 回溯重做窗口"),
+            "{label} 零窗口段标题（archive 恒在窗口外 / 纠正面只重申协议）"
+        );
+        assert!(!prompt.contains("<backtrack reason>"), "{label} 零定界块");
+        assert!(!prompt.contains("设计返工"), "{label} 零窗口原因原文泄漏");
+    }
+    // 纠正文案仍只重申目标 + 白名单一行
+    assert!(
+        fix.contains("三动作封闭集：backtrack / stop / ask"),
+        "纠正文案三动作重申照旧"
+    );
+    assert!(
+        fix.contains(
+            "可回溯白名单：proposal（需求提案与规格说明） / dev-design（详细设计与任务拆解）"
+        ),
+        "白名单一行照旧（零窗口段插入）"
+    );
+    assert!(!fix.contains("## 失败清单"), "纠正文案不含全量失败明细照旧");
 }

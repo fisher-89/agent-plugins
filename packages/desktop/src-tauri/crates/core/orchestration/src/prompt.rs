@@ -1,4 +1,4 @@
-use workflow::write::BacktrackOption;
+use workflow::write::{backtrack_window_section, BacktrackOption};
 
 use crate::decision::{DecisionInput, MAX_REASON_CHARS};
 use crate::verdict::MAX_REPORT_CHARS;
@@ -69,9 +69,9 @@ pub(crate) fn verdict_fix_prompt(error: &str, feedback: u32, limit: u32) -> Stri
     )
 }
 
-/// 决策 prompt：有界输入组装（失败报告 + fail checklist + 白名单 + 候选 eval
-/// report）+ 三动作封闭集说明。输出协议同 evaluator——最终消息仅输出一个决策
-/// JSON。
+/// 决策 prompt：有界输入组装（回溯重做窗口 + 失败报告 + fail checklist +
+/// 白名单 + 候选 eval report）+ 三动作封闭集说明。输出协议同 evaluator——最终
+/// 消息仅输出一个决策 JSON。
 pub fn decision_prompt(input: &DecisionInput) -> String {
     let fail_items = input
         .fail_checklist
@@ -117,8 +117,11 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    // 回溯重做窗口段：文案与渲染只调写面单点（零第二份文案 / 零第二份判据 /
+    // 零二次裁剪），空集产出空串 ⇒ 段序与其余段逐字不变
+    let window_section = backtrack_window_section(&input.backtrack_window);
     format!(
-        "相位「{phase}」第 {attempt} 次 attempt 评估失败，需要你做出路由决策。\n\n\
+        "相位「{phase}」第 {attempt} 次 attempt 评估失败，需要你做出路由决策。{window_section}\n\n\
 ## 失败相位报告\n\n{fail_report}\n\n\
 ## 失败清单\n\n{fail_items}\n\n\
 ## 可回溯白名单（仅可从中选择 backtrack 目标；每项括注该相位可操作的声明产物）\n\n{allowed}\n\n\

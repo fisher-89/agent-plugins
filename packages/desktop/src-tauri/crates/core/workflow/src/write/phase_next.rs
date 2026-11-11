@@ -7,7 +7,7 @@ use crate::model::{ChecklistItem, Verdict};
 use crate::state::{ArtifactSpec, ChangeStateStore, OnFail, PhaseStateRecord, StepDefinition};
 use crate::write::phase_table::{
     backtrack_options, phase_table, BacktrackOption, PhaseAgentSpec, PhaseDefinition,
-    MAX_RETRY_TIMES, MAX_ROUNDS,
+    MAX_BACKTRACK_WINDOWS, MAX_RETRY_TIMES, MAX_ROUNDS,
 };
 
 /// 进程内会话锚点：(change_id, run_id) → 首见时 PhaseRecord 行数基线。每 run
@@ -61,12 +61,30 @@ pub struct LastResult {
 }
 
 /// 路由产出的已组装角色会话规格：静态角色知识主体 + 上下文头
-/// `change:` + 记录 `name`（append）+ 失败反馈段 / 回溯原因行（append）；跨
-/// crate 消费方（orchestration）只消费本类型。
+/// `change:` + 记录 `name`（append）+ 失败反馈段 / 回溯重做窗口段（append）；
+/// 跨 crate 消费方（orchestration）只消费本类型。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPhaseSpec {
     pub prompt: String,
     pub model_level: ModelLevel,
+}
+
+/// 一次未闭环回溯 = 一个窗口。结构面服务判据 / 堆叠 / 裁剪 / 测试断言，
+/// `from_phase` / `to_phase` / 两个 index 一律不进 prompt（相位标识是流程
+/// 机制的一部分，不是 agent 的领域知识）；prompt 只渲染 `reason`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BacktrackWindowEntry {
+    /// 发起相位（泳道位置靠后）—— 区间上界；不进 prompt
+    pub from_phase: String,
+    /// 发起相位的相位表下标（与 `detail.pipeline` 下标同源）；不进 prompt
+    pub from_index: usize,
+    /// 目标相位（泳道位置靠前）—— 区间下界；不进 prompt
+    pub to_phase: String,
+    /// 目标相位的相位表下标；不进 prompt
+    pub to_index: usize,
+    /// 标记行 `backtrack_reason` 原文逐字（不 trim / 不截断 / 不压平）；
+    /// **prompt 唯一渲染字段**
+    pub reason: String,
 }
 
 /// 路由产出（executor / evaluator prompt 已组装；白名单与 next 相位计划步序列
@@ -85,6 +103,10 @@ pub struct PhaseNextOutcome {
     pub artifact_manifest: Vec<ArtifactSpec>,
     pub executor: Option<ResolvedPhaseSpec>,
     pub evaluator: Option<ResolvedPhaseSpec>,
+    /// 覆盖本响应对应相位的开放回溯窗口（创建序升序，最早在前）：正常响应
+    /// 对 `next_phase`、error 响应对失败相位（决策输入取此处）。`Vec` 非
+    /// `Option`——空集即「无窗口」，`Default` 语义与「整段省略」同义。
+    pub backtrack_window: Vec<BacktrackWindowEntry>,
     /// 回溯白名单（相位 id + 表内特性描述；决策 prompt 逐条渲染供判断）
     pub allowed_backtrack_phases: Vec<BacktrackOption>,
     pub last_result: Option<LastResult>,
@@ -148,7 +170,7 @@ pub fn phase_next(
                 &table[idx],
                 round,
                 &record.name,
-                entry.backtrack_reason.as_deref(),
+                &entries,
                 last_result,
                 None,
             ));
@@ -169,6 +191,7 @@ pub fn phase_next(
             artifact_manifest: Vec::new(),
             executor: None,
             evaluator: None,
+            backtrack_window: Vec::new(),
             allowed_backtrack_phases: Vec::new(),
             last_result,
             error: None,
@@ -192,6 +215,8 @@ pub fn phase_next(
     let fail_decided = latest_fail.is_some_and(|entry| entry.decision_session_id.is_some());
     if window_fails >= MAX_RETRY_TIMES && !fail_decided {
         return Ok(error_outcome(
+            &entries,
+            table,
             round,
             last_result,
             PhaseNextError::MaxRetriesExceeded {
@@ -213,6 +238,8 @@ pub fn phase_next(
         .any(|step| step.on_fail == Some(OnFail::Escalate));
     if (next.evaluator.is_some() || escalates) && latest_fail.is_some() && !fail_decided {
         return Ok(error_outcome(
+            &entries,
+            table,
             round,
             last_result,
             PhaseNextError::VerdictFail {
@@ -228,19 +255,27 @@ pub fn phase_next(
         next,
         round,
         &record.name,
-        None,
+        &entries,
         last_result,
         retry_feedback,
     ))
 }
 
 /// 决策分叉错误响应（两触发点共用形：不下发相位 / 步序 / 清单 / 角色 spec，
-/// 白名单空——白名单由 walker 缓存的前一站正常路由响应供给）。
+/// 白名单空——白名单由 walker 缓存的前一站正常路由响应供给）。失败相位自
+/// `PhaseNextError` 单点取出，`backtrack_window` 填覆盖该失败相位的开放窗口
+/// （决策输入取此处）。
 fn error_outcome(
+    entries: &[PhaseStateRecord],
+    table: &'static [PhaseDefinition],
     round: u32,
     last_result: Option<LastResult>,
     error: PhaseNextError,
 ) -> PhaseNextOutcome {
+    let phase = match &error {
+        PhaseNextError::MaxRetriesExceeded { phase, .. }
+        | PhaseNextError::VerdictFail { phase, .. } => phase,
+    };
     PhaseNextOutcome {
         done: false,
         next_phase: None,
@@ -249,6 +284,7 @@ fn error_outcome(
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
+        backtrack_window: open_backtrack_windows(entries, table, phase),
         allowed_backtrack_phases: Vec::new(),
         last_result,
         error: Some(error),
@@ -308,6 +344,95 @@ fn latest_result(entries: &[PhaseStateRecord]) -> Option<LastResult> {
     })
 }
 
+/// 覆盖指定相位的开放回溯窗口（创建序升序；空集 = 无窗口）。
+///
+/// 三条判据（`col` = 该相位在相位表中的下标，与 `detail.pipeline` 下标、前端
+/// `colIndex` 同源，MUST NOT 另引第二份相位序）：
+///
+/// 1. 拼接 `to_index ≤ col(P) ≤ from_index`（含源头相位 `P = from`；自环
+///    `to == from` 自然退化为单点，零特判）；
+/// 2. 未闭环 = 发起相位不存在 `id` 大于标记行 `id` 的条目（窗口关闭靠本判据，
+///    标记行永久留在库中）；
+/// 3. 堆叠 = 按标记行 `id`（落账序）升序 → 取末位 `MAX_BACKTRACK_WINDOWS` 层。
+///
+/// 口径分层：本函数按 **db 事件序全量条目** 计算（背景层，跨 run 直到闭环），
+/// 与按 run 窗口 `entries[anchor..]` 计算的预算层（`round` / 窗口 fail 计数）
+/// MUST NOT 混用——入参亦不含 `SessionAnchors` / `run_id`。
+pub(crate) fn open_backtrack_windows(
+    entries: &[PhaseStateRecord],
+    table: &[PhaseDefinition],
+    phase_id: &str,
+) -> Vec<BacktrackWindowEntry> {
+    let Some(col) = table.iter().position(|def| def.id == phase_id) else {
+        return Vec::new();
+    };
+    // 中间元组：`order` 只是排序键（落账序），投影时不落结构体
+    let mut hits: Vec<(i64, BacktrackWindowEntry)> = Vec::new();
+    for entry in entries {
+        let Some(to) = entry
+            .backtrack_to
+            .as_deref()
+            .map(str::trim)
+            .filter(|target| !target.is_empty())
+        else {
+            continue;
+        };
+        let Some(from_index) = table.iter().position(|def| def.id == entry.phase) else {
+            continue;
+        };
+        let Some(to_index) = table.iter().position(|def| def.id == to) else {
+            continue;
+        };
+        let open = !entries
+            .iter()
+            .any(|later| later.phase == entry.phase && later.id > entry.id);
+        if !open || col < to_index || col > from_index {
+            continue;
+        }
+        hits.push((
+            entry.id,
+            BacktrackWindowEntry {
+                from_phase: entry.phase.clone(),
+                from_index,
+                to_phase: to.to_owned(),
+                to_index,
+                reason: entry.backtrack_reason.clone().unwrap_or_default(),
+            },
+        ));
+    }
+    hits.sort_by_key(|(order, _)| *order);
+    let dropped = hits.len().saturating_sub(MAX_BACKTRACK_WINDOWS);
+    hits.into_iter()
+        .skip(dropped)
+        .map(|(_, window)| window)
+        .collect()
+}
+
+/// 回溯重做窗口段（文案与渲染单点；经 `write/mod.rs` 再导出供 orchestration
+/// 复用，零第二份副本）：空集返回空串；非空时以说明段起首 + 逐条
+/// `<backtrack reason>` 定界的原因原文。前导 `\n\n` 归段内、尾随零换行（两处
+/// 消费点各只需一次插值，空集分支与未引入本段前的 prompt 逐字节相同）。
+///
+/// 只取 `reason` 一个字段：标签行零属性、零相位 id；原因原文不截断、不压平、
+/// 不 trim。
+pub fn backtrack_window_section(windows: &[BacktrackWindowEntry]) -> String {
+    if windows.is_empty() {
+        return String::new();
+    }
+    let mut section = String::from(
+        "\n\n## 回溯重做窗口（背景信息）\n\n\
+         本 change 发生过下列相位回退，且均尚未回到闭环。这些是此前回溯留下的、\
+         需要解决的问题——原因原文按发生先后排列（最上面最早），保留原始换行与\
+         标点，未做截断或改写。它们是背景，不构成额外验收条件。",
+    );
+    for window in windows {
+        section.push_str("\n\n<backtrack reason>\n");
+        section.push_str(&window.reason);
+        section.push_str("\n</backtrack>");
+    }
+    section
+}
+
 /// 失败反馈段：fail 重试时随 prompt 下发的检查结果——失败项优先（item +
 /// evidence）；全 pass 清单配 fail verdict 的漂移形态全量随行不虚减（与决策
 /// 输入 `build_decision_input` 同判）；清单空退回 report 全文。
@@ -334,25 +459,24 @@ fn fail_feedback_suffix(record: &PhaseStateRecord) -> String {
 }
 
 /// 正常路由响应：上下文头（`change:` + 记录 `name`）+ 静态角色知识主体 +
-/// 失败反馈段（fail 重试时在场）+ 回溯原因后缀（backtrack 路由时在场，与
-/// 反馈段互斥）+ 白名单随行（append 组装，零模板替换）。
+/// 回溯重做窗口段（静态主体之后、失败反馈段之前）+ 失败反馈段（fail 重试时
+/// 在场）+ 白名单随行（append 组装，零模板替换）。
 fn build_phase_response(
     table: &'static [PhaseDefinition],
     def: &PhaseDefinition,
     round: u32,
     name: &str,
-    backtrack_reason: Option<&str>,
+    entries: &[PhaseStateRecord],
     last_result: Option<LastResult>,
     retry_feedback: Option<&PhaseStateRecord>,
 ) -> PhaseNextOutcome {
     let context_header = format!("change: {name}\n\n");
-    let reason_suffix = backtrack_reason
-        .map(|reason| format!("\n\n⚠️ 回溯原因: {reason}"))
-        .unwrap_or_default();
+    let open_windows = open_backtrack_windows(entries, table, def.id);
+    let window_section = backtrack_window_section(&open_windows);
     let feedback_suffix = retry_feedback.map(fail_feedback_suffix).unwrap_or_default();
     let resolve = |spec: &PhaseAgentSpec| ResolvedPhaseSpec {
         prompt: format!(
-            "{context_header}{}{reason_suffix}{feedback_suffix}",
+            "{context_header}{}{window_section}{feedback_suffix}",
             spec.prompt
         ),
         model_level: spec.model_level,
@@ -367,6 +491,7 @@ fn build_phase_response(
         artifact_manifest: def.artifact_manifest.to_vec(),
         executor: def.executor.as_ref().map(resolve),
         evaluator: def.evaluator.as_ref().map(resolve),
+        backtrack_window: open_windows,
         allowed_backtrack_phases: backtrack_options(table, def.id),
         last_result,
         error: None,

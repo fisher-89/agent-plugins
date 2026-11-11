@@ -6,9 +6,9 @@ use foundation::layout::{domain_dir_name, ReportSlot};
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries::ChangeDetail;
 use workflow::write::{
-    ArchiveOutcome, BacktrackInput, BacktrackOption, BacktrackOutcome, DecisionLogOutcome, OnFail,
-    PhaseLogInput, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome,
-    StepDefinition, StepNode, INITIALIZE_PHASE_ID,
+    ArchiveOutcome, BacktrackInput, BacktrackOption, BacktrackOutcome, BacktrackWindowEntry,
+    DecisionLogOutcome, OnFail, PhaseLogInput, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome,
+    PhaseStartOutcome, StepDefinition, StepNode, INITIALIZE_PHASE_ID,
 };
 
 use crate::control::{emit_node, now_millis, ChangeFlowControl, RunGuard, StepSettle};
@@ -789,7 +789,7 @@ async fn step_initialize_skipped_phase_log(
 }
 
 /// ③ executor 步：本相位 executor 会话（prompt 由写面 phase-next 单点组装——
-/// 上下文头 + 失败反馈段 + 回溯原因后缀全在写面）。
+/// 上下文头 + 回溯重做窗口段 + 失败反馈段全在写面）。
 async fn step_executor(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -3325,7 +3325,7 @@ async fn resolve_deadlock(
             return Deadlock::Terminal(Terminal::failed(format!("快照读取失败: {message}")))
         }
     };
-    let input = build_decision_input(&detail, fail_phase, allowed);
+    let input = build_decision_input(&detail, fail_phase, allowed, &next.backtrack_window);
     let action = match decision_session(worker, tools, guard, request, &input, trace).await {
         Ok(action) => action,
         Err(terminal) => return Deadlock::Terminal(terminal),
@@ -3545,12 +3545,15 @@ async fn decision_session(
 }
 
 /// 决策有界输入组装（fail checklist + 白名单 + 候选 eval report + 失败条目
-/// report 原文）：`fail_report` 取失败相位最新 attempt 的 `report`（升格落账写入
-/// 的完整明细，空则空串——prompt 侧渲染「（无报告文本）」）。
+/// report 原文 + 回溯重做窗口）：`fail_report` 取失败相位最新 attempt 的
+/// `report`（升格落账写入的完整明细，空则空串——prompt 侧渲染「（无报告文
+/// 本）」）；`backtrack_window` 原样取自写面 error 响应（零 store 读取、零相位
+/// 表推导——判据单源在写面）。
 fn build_decision_input(
     detail: &ChangeDetail,
     fail_phase: &str,
     allowed: &[BacktrackOption],
+    backtrack_window: &[BacktrackWindowEntry],
 ) -> DecisionInput {
     let station = detail
         .pipeline
@@ -3604,6 +3607,7 @@ fn build_decision_input(
         fail_report,
         allowed: allowed.to_vec(),
         candidates,
+        backtrack_window: backtrack_window.to_vec(),
     }
 }
 

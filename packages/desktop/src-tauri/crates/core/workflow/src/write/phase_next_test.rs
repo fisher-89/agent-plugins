@@ -1,7 +1,12 @@
 use std::sync::Mutex;
 
-use super::phase_next::{phase_next, PhaseNextError, SessionAnchors};
-use super::phase_table::{BacktrackOption, MAX_RETRY_TIMES};
+use super::phase_next::{
+    backtrack_window_section, open_backtrack_windows, phase_next, BacktrackWindowEntry,
+    PhaseNextError, PhaseNextOutcome, SessionAnchors,
+};
+use super::phase_table::{
+    phase_table, BacktrackOption, MAX_BACKTRACK_WINDOWS, MAX_REASON_CHARS, MAX_RETRY_TIMES,
+};
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
     ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseStateRecord, RunEdgeStateRecord,
@@ -100,6 +105,62 @@ fn backtrack_entry(phase: &str, attempt: u32, ts: i64, to: &str, reason: &str) -
     record.backtrack_to = Some(to.to_owned());
     record.backtrack_reason = Some(reason.to_owned());
     record
+}
+
+/// 携指定 id 的评估条目：窗口判据的创建序与未闭环判据都取 `PhaseStateRecord.id`
+///（真实 store 在写事务内 `max+1` 分配，条目 id 恒递增互异）；既有 `entry` 工厂
+/// 恒写 `id: 0`，只服务路由面用例（其判据不读 id）。
+fn entry_with_id(
+    id: i64,
+    phase: &str,
+    attempt: u32,
+    verdict: Verdict,
+    ts: i64,
+) -> PhaseStateRecord {
+    let mut record = entry(phase, attempt, verdict, ts);
+    record.id = id;
+    record
+}
+
+/// 回溯标记条目（窗口用例种子形态，与真实落账同形）：标记改写发起相位最新条目
+/// ——该条目是失败条目（verdict fail）且已经过决策会话（`decision_session_id`
+/// 在位，否则该相位在下次路由时仍会二次分叉）。
+fn backtrack_marker(id: i64, phase: &str, ts: i64, to: &str, reason: &str) -> PhaseStateRecord {
+    let mut record = entry_with_id(id, phase, 1, Verdict::Fail, ts);
+    record.decision_session_id = Some(format!("sess-decision-{id}"));
+    record.backtrack_to = Some(to.to_owned());
+    record.backtrack_reason = Some(reason.to_owned());
+    record
+}
+
+/// requirement 相位表（真实静态表——`col` / `to_index` / `from_index` 的序真值源，
+/// 不替身化）。
+fn requirement_table() -> &'static [super::phase_table::PhaseDefinition] {
+    phase_table("requirement").expect("requirement 表可达")
+}
+
+/// 相位在表内的下标（`col` 断言的期望值来源，与 `detail.pipeline` 下标同源）。
+fn table_index(phase: &str) -> usize {
+    requirement_table()
+        .iter()
+        .position(|def| def.id == phase)
+        .unwrap_or_else(|| panic!("相位 {phase} 应在 requirement 表内"))
+}
+
+/// 窗口记录 fixture（渲染 / 结构面用例的直构形态）。
+fn window_entry(from: &str, to: &str, reason: &str) -> BacktrackWindowEntry {
+    BacktrackWindowEntry {
+        from_phase: from.to_owned(),
+        from_index: table_index(from),
+        to_phase: to.to_owned(),
+        to_index: table_index(to),
+        reason: reason.to_owned(),
+    }
+}
+
+/// 子串出现次数（渲染块数断言的计数面）。
+fn occurrences(text: &str, needle: &str) -> usize {
+    text.matches(needle).count()
 }
 
 /// requirement 建档中性快照（active、无 active_phase 残留；id 为身份锚、
@@ -702,7 +763,7 @@ fn 失败项随已决fail重跑prompt注入且首轮零注入() {
         executor.prompt
     );
 
-    // backtrack 路由目标相位携历史 fail 条目：反馈段仍零注入（回溯原因行独立，
+    // backtrack 路由目标相位携历史 fail 条目：反馈段仍零注入（窗口段独立，
     // 判别 None 直传——若误走正常路由过滤，该目标相位最新条目为 Fail 必注入）
     fake.push(backtrack_entry(
         "test-design",
@@ -715,9 +776,14 @@ fn 失败项随已决fail重跑prompt注入且首轮零注入() {
     assert_eq!(third.next_phase.as_deref(), Some("dev-design"));
     let third_prompt = third.executor.expect("executor 在场").prompt;
     assert!(
-        third_prompt.contains("⚠️ 回溯原因: 设计返工：缺产物区组件")
+        third_prompt.contains("## 回溯重做窗口")
+            && third_prompt.contains("<backtrack reason>\n设计返工：缺产物区组件\n</backtrack>")
             && !third_prompt.contains("上次评估未通过"),
-        "backtrack 路由零失败反馈注入（回溯原因行独立）: {third_prompt}"
+        "backtrack 路由零失败反馈注入（窗口段独立携原因原文）: {third_prompt}"
+    );
+    assert!(
+        !third_prompt.contains("⚠️ 回溯原因"),
+        "S2 退役文案零残留（窗口段取代原因行）: {third_prompt}"
     );
 }
 
@@ -1006,7 +1072,7 @@ fn 全部pass终态done收敛() {
 }
 
 /// backtrack 路由：最新条目 backtrack_to 在场 → 路由至目标相位重开，回溯
-/// 原因后缀随 prompt、白名单 = 目标的表序前置集。
+/// 重做窗口段（携原因原文）随 prompt、白名单 = 目标的表序前置集。
 #[test]
 fn backtrack字段落库路由至目标相位() {
     let fake = RouteStore::seeded(vec![
@@ -1030,22 +1096,28 @@ fn backtrack字段落库路由至目标相位() {
     );
     let executor = outcome.executor.expect("目标相位应有 executor");
     assert!(
-        executor
-            .prompt
-            .contains("⚠️ 回溯原因: 设计返工：缺产物区组件"),
-        "回溯原因后缀随 prompt 下发: {}",
+        executor.prompt.contains("## 回溯重做窗口")
+            && executor
+                .prompt
+                .contains("<backtrack reason>\n设计返工：缺产物区组件\n</backtrack>"),
+        "回溯重做窗口段随 prompt 下发: {}",
+        executor.prompt
+    );
+    assert!(
+        !executor.prompt.contains("⚠️ 回溯原因"),
+        "S2 退役文案零残留: {}",
         executor.prompt
     );
     assert!(
         executor
             .prompt
             .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
-        "backtrack prompt 上下文头（change: <name>）与回溯原因后缀并存: {}",
+        "backtrack prompt 上下文头（change: <name>）与窗口段并存: {}",
         executor.prompt
     );
     assert!(
         !executor.prompt.contains("上次评估未通过"),
-        "backtrack 路由零失败反馈注入（回溯原因行独立）: {}",
+        "backtrack 路由零失败反馈注入（窗口段独立）: {}",
         executor.prompt
     );
     assert_eq!(
@@ -1079,17 +1151,23 @@ fn backtrack标记与stale同行并存仍路由至目标相位() {
     );
     let executor = outcome.executor.expect("目标相位应有 executor");
     assert!(
-        executor
-            .prompt
-            .contains("⚠️ 回溯原因: 设计返工：缺产物区组件"),
-        "回溯原因后缀随 prompt 下发: {}",
+        executor.prompt.contains("## 回溯重做窗口")
+            && executor
+                .prompt
+                .contains("<backtrack reason>\n设计返工：缺产物区组件\n</backtrack>"),
+        "回溯重做窗口段随 prompt 下发: {}",
+        executor.prompt
+    );
+    assert!(
+        !executor.prompt.contains("⚠️ 回溯原因"),
+        "S2 退役文案零残留: {}",
         executor.prompt
     );
     assert!(
         executor
             .prompt
             .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
-        "backtrack prompt 上下文头（change: <name>）与回溯原因后缀并存: {}",
+        "backtrack prompt 上下文头（change: <name>）与窗口段并存: {}",
         executor.prompt
     );
     assert_eq!(
@@ -2095,8 +2173,8 @@ fn backtrack条目先手接管不二次分叉() {
             .executor
             .expect("目标相位 executor 在场")
             .prompt
-            .contains("⚠️ 回溯原因: 设计返工"),
-        "回溯原因行独立注入（零失败反馈段）"
+            .contains("<backtrack reason>\n设计返工\n</backtrack>"),
+        "回溯重做窗口段独立注入（零失败反馈段）"
     );
 }
 
@@ -2152,5 +2230,1369 @@ fn phase_next_error字段面边界() {
             round: 0,
         },
         "VerdictFail / MaxRetriesExceeded 同载荷仍可辨"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 回溯重做窗口：推导（`open_backtrack_windows`）+ 渲染（`backtrack_window_section`）
+// + 响应填充（`PhaseNextOutcome.backtrack_window`）三面。窗口由既有 PhaseRecord
+// 派生——标记行 id 即创建序；判据不读 SessionAnchors / run_id（背景层按 db 事件
+// 序全量条目，预算层的 run 窗口口径不受影响）。
+// ---------------------------------------------------------------------------
+
+/// 窗口段标题（渲染产物的可判形态；文案本体在源码单点，此处只断标题在场）。
+const WINDOW_TITLE: &str = "## 回溯重做窗口";
+
+/// 逐条定界块（`<backtrack reason>` 起首行零属性——AC-8 的唯一可整行精确匹配
+/// 形态）。
+fn expected_block(reason: &str) -> String {
+    format!("<backtrack reason>\n{reason}\n</backtrack>")
+}
+
+/// 窗口段固定开销上界（标题行 + 说明段 + 定界行之外的部分；体积界算式的常量
+/// 项，零字面量业务语义）。
+const WINDOW_SECTION_OVERHEAD: usize = 192;
+
+/// 双角色 prompt 的窗口段在场断言（executor / evaluator 同等携背景——AC-1）。
+fn assert_both_roles_carry(outcome: &PhaseNextOutcome, reason: &str, label: &str) {
+    for (role, spec) in [
+        ("executor", outcome.executor.as_ref()),
+        ("evaluator", outcome.evaluator.as_ref()),
+    ] {
+        let prompt = &spec
+            .unwrap_or_else(|| panic!("{label} 的 {role} spec 应在场"))
+            .prompt;
+        assert!(
+            prompt.contains(WINDOW_TITLE),
+            "{label} {role} prompt 应含窗口段: {prompt}"
+        );
+        assert!(
+            prompt.contains(&expected_block(reason)),
+            "{label} {role} prompt 应含原因原文定界块: {prompt}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 用例组一：四态（AC-1）——窗口内每个相位的每个 agent 步都带背景
+// ---------------------------------------------------------------------------
+
+/// 四态之下界（正向）：一次 `backtrack(test-gen → dev-design)` 后回溯分支接管，
+/// 路由至目标相位 dev-design——区间下界命中，双角色 prompt 均含窗口段与原因。
+#[test]
+fn 回溯窗口四态_下界目标相位双角色携背景() {
+    let reason = "设计返工：缺产物区组件";
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", reason),
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("dev-design"),
+        "backtrack_to 在场 → 回溯分支路由至区间下界"
+    );
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", reason)],
+        "下界命中：窗口逐字段等于推导结果"
+    );
+    assert_both_roles_carry(&outcome, reason, "下界相位 dev-design");
+}
+
+/// 四态之区间内部（正向）：窗口 `test-gen → proposal` 覆盖内部相位 test-design
+/// ——正常路由分支下发 test-design，双角色 prompt 同携窗口段（裁决 ①：区间内
+/// 每个相位都带背景，不只目标相位）。
+#[test]
+fn 回溯窗口四态_区间内部相位双角色携背景() {
+    let reason = "需求返工：目标偏离";
+    // 内部相位 test-design 的 fail 条目已挂决策标记（放行重跑，非分叉），时间戳
+    // 晚于标记行 ⇒ 最新条目非标记行 ⇒ 走正常路由分支
+    let mut decided = entry_with_id(30, "test-design", 1, Verdict::Fail, t(12));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        backtrack_marker(20, "test-gen", t(5), "proposal", reason),
+        decided,
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("test-design"),
+        "已决 fail 放行 → 正常路由落内部相位"
+    );
+    assert!(outcome.error.is_none(), "已决条目不分叉");
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "proposal", reason)],
+        "内部相位命中（to_index < col < from_index）"
+    );
+    assert_both_roles_carry(&outcome, reason, "内部相位 test-design");
+}
+
+/// 四态之上界（正向）：源头相位 `P = from` 命中——路由 test-gen 时窗口段仍在
+///（区间判据含上界；若无上界，agent 在源头相位重跑时反而丢失背景）。
+#[test]
+fn 回溯窗口四态_上界源头相位命中() {
+    let reason = "设计返工：缺产物区组件";
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        entry_with_id(13, "test-design", 1, Verdict::Pass, t(3)),
+        // 最新条目（时间戳最晚、非标记行）⇒ 正常路由分支，落首个未过相位
+        entry_with_id(14, "implement", 1, Verdict::Pass, t(12)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", reason),
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("test-gen"),
+        "前置相位全 pass → 首个未过相位即源头相位 test-gen"
+    );
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", reason)],
+        "源头相位命中（col == from_index，区间上界闭合）"
+    );
+    assert_both_roles_carry(&outcome, reason, "上界相位 test-gen");
+}
+
+/// 四态之窗外（正向）：区间下界之前的 proposal（`col < to_index`）→
+/// `backtrack_window` 空集、双角色 prompt 零窗口段（窗外相位零该段）。
+#[test]
+fn 回溯窗口四态_窗外相位零段且空集() {
+    let fake = RouteStore::seeded(vec![
+        backtrack_marker(20, "test-gen", t(5), "dev-design", "设计返工：缺产物区组件"),
+        // 时间戳晚于标记行 ⇒ 最新条目非标记行（回溯分支不接管）
+        entry_with_id(30, "code-review", 1, Verdict::Fail, t(12)),
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("proposal"),
+        "表头已过、proposal 未过 → 窗外相位路由"
+    );
+    assert!(
+        outcome.backtrack_window.is_empty(),
+        "窗外相位（col=1 < to_index=2）→ 窗口空集"
+    );
+    for (role, spec) in [
+        ("executor", outcome.executor.as_ref()),
+        ("evaluator", outcome.evaluator.as_ref()),
+    ] {
+        let prompt = &spec.expect("proposal 双角色 spec 在场").prompt;
+        assert!(
+            !prompt.contains(WINDOW_TITLE),
+            "窗外相位 {role} prompt 零窗口段: {prompt}"
+        );
+        assert!(
+            !prompt.contains("<backtrack reason>"),
+            "窗外相位 {role} prompt 零定界块: {prompt}"
+        );
+    }
+}
+
+/// 窗外相位直调判据（正向）：区间下界之前的每个相位（initialize / proposal）
+/// 直调推导恒空集，区间内（含两端）恒非空——四态的相位位置判据单源。
+#[test]
+fn 回溯窗口区间判据逐相位单源() {
+    let table = requirement_table();
+    let entries = vec![backtrack_marker(
+        20,
+        "implement",
+        t(5),
+        "dev-design",
+        "设计返工",
+    )];
+    let to_index = table_index("dev-design");
+    let from_index = table_index("implement");
+    for (index, def) in table.iter().enumerate() {
+        let windows = open_backtrack_windows(&entries, table, def.id);
+        if index < to_index || index > from_index {
+            assert!(
+                windows.is_empty(),
+                "{}（col={index}）在区间外 → 空集",
+                def.id
+            );
+        } else {
+            assert_eq!(
+                windows,
+                vec![window_entry("implement", "dev-design", "设计返工")],
+                "{}（col={index}）在区间内（含两端）→ 命中",
+                def.id
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 用例组二：自环（AC-2）——区间退化单点，与常规回溯同一条代码
+// ---------------------------------------------------------------------------
+
+/// 自环单点（正向，参数化迭代 2 形态）：`backtrack(implement → implement)` →
+/// 区间退化为单点、窗口命中 implement；发起相位重跑落新条目（id 更大）→ 窗口
+/// 由未闭环判据关闭（空集、prompt 零段）。反例侧证：自环与常规回溯输出同构
+///（同一构造路径，源码零 `if to == from`）。
+#[test]
+fn 自环回溯退化为单点且闭环后窗口关闭() {
+    let reason = "重做本相位：实现缺口";
+    let table = requirement_table();
+    let marker = backtrack_marker(20, "implement", t(5), "implement", reason);
+
+    // 形态一：未闭环 → 命中单点
+    let windows = open_backtrack_windows(std::slice::from_ref(&marker), table, "implement");
+    assert_eq!(
+        windows,
+        vec![window_entry("implement", "implement", reason)],
+        "自环 → 区间退化为单点"
+    );
+    assert_eq!(
+        windows[0].to_index, windows[0].from_index,
+        "自环的下界下标 = 上界下标"
+    );
+    assert_eq!(
+        windows[0].to_index,
+        table_index("implement"),
+        "单点下标 = 该相位的表位"
+    );
+
+    // 形态二：发起相位重跑落新条目（id 更大、无标记）→ 窗口已闭环
+    let rerun = entry_with_id(21, "implement", 2, Verdict::Fail, t(9));
+    let closed = open_backtrack_windows(&[marker, rerun], table, "implement");
+    assert!(
+        closed.is_empty(),
+        "发起相位存在 id 更大的条目 → 窗口闭环（标记行永久留库，判据关闭）"
+    );
+    assert_eq!(
+        backtrack_window_section(&closed),
+        "",
+        "闭环后渲染空串（prompt 零段）"
+    );
+
+    // 同构侧证：常规回溯（implement → dev-design）与自环的产物形状同式
+    let regular = open_backtrack_windows(
+        &[backtrack_marker(
+            20,
+            "implement",
+            t(5),
+            "dev-design",
+            reason,
+        )],
+        table,
+        "implement",
+    );
+    assert_eq!(
+        regular.len(),
+        windows.len(),
+        "条数同构（自环单点与常规回溯均为一条）"
+    );
+    assert_eq!(
+        regular[0].from_phase, "implement",
+        "两者上界同为发起相位（同一构造路径）"
+    );
+
+    // 响应面：自环标记为最新条目 → 回溯分支路由同一相位且窗口在场
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        backtrack_marker(20, "implement", t(5), "implement", reason),
+    ]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("implement"),
+        "自环回溯路由落同一相位"
+    );
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("implement", "implement", reason)],
+        "自环响应窗口逐字段等于推导结果"
+    );
+    assert_both_roles_carry(&outcome, reason, "自环相位 implement");
+}
+
+// ---------------------------------------------------------------------------
+// 用例组三：并集与上限双分支（AC-4 / AC-5）
+// ---------------------------------------------------------------------------
+
+/// 嵌套双窗并集（正向，组合迭代 3 相位 × 2 窗口）：Win1 `test-gen → dev-design`
+/// 与 Win2 `test-design → proposal` 同时开放 → 两区间共同覆盖的相位按创建序渲
+/// 两条（早者在前），各自独有区间只渲一条。
+#[test]
+fn 嵌套双窗并集按创建序渲染() {
+    let table = requirement_table();
+    // 创建序：Win1（id 20）先于 Win2（id 30）
+    let entries = vec![
+        backtrack_marker(20, "test-gen", t(5), "dev-design", "R1"),
+        backtrack_marker(30, "test-design", t(9), "proposal", "R2"),
+    ];
+
+    assert_eq!(
+        open_backtrack_windows(&entries, table, "test-design"),
+        vec![
+            window_entry("test-gen", "dev-design", "R1"),
+            window_entry("test-design", "proposal", "R2"),
+        ],
+        "两窗均覆盖 test-design → 并集按创建序升序"
+    );
+    assert_eq!(
+        open_backtrack_windows(&entries, table, "implement"),
+        vec![window_entry("test-gen", "dev-design", "R1")],
+        "只在 Win1 区间内的相位只渲一条"
+    );
+    assert_eq!(
+        open_backtrack_windows(&entries, table, "proposal"),
+        vec![window_entry("test-design", "proposal", "R2")],
+        "只在 Win2 区间内的相位只渲一条"
+    );
+
+    let section = backtrack_window_section(&open_backtrack_windows(&entries, table, "test-design"));
+    let r1 = section.find("R1").expect("R1 在场");
+    let r2 = section.find("R2").expect("R2 在场");
+    assert!(r1 < r2, "创建序早者在前（不重排）: {section}");
+    assert_eq!(
+        occurrences(&section, "<backtrack reason>"),
+        entries.len().min(MAX_BACKTRACK_WINDOWS),
+        "两窗全量并集（命中数 ≤ 上限时不做裁剪，条数由常量算式给出）"
+    );
+}
+
+/// 三层上限取末位两层（正向，单次）：三窗同命中且 `from_index` 按创建序严格
+/// 递减（Win1 最大、创建序最早）→ 段内恰 `MAX_BACKTRACK_WINDOWS` 条、原因为
+/// Win2 / Win3，Win1 原因文本零命中；被裁者恒为 `from_index` 最大者（等价链的
+/// 可断言形式），且零「另有 N 条」/「仅显示最近」类元信息。
+#[test]
+fn 三层裁剪取创建序末位两层且被裁者from_index最大() {
+    let table = requirement_table();
+    assert!(
+        table_index("acceptance") > table_index("code-review")
+            && table_index("code-review") > table_index("test-execution"),
+        "装置自检：同时开放的多窗按创建序 from_index 严格递减"
+    );
+    let entries = vec![
+        backtrack_marker(20, "acceptance", t(5), "proposal", "R1-最早创建"),
+        backtrack_marker(30, "code-review", t(7), "proposal", "R2-中"),
+        backtrack_marker(40, "test-execution", t(9), "proposal", "R3-最新"),
+    ];
+
+    let windows = open_backtrack_windows(&entries, table, "proposal");
+    assert_eq!(
+        windows.len(),
+        MAX_BACKTRACK_WINDOWS,
+        "命中三窗 → 裁剪至上限（断言引用常量，零字面量）"
+    );
+    assert_eq!(
+        windows,
+        vec![
+            window_entry("code-review", "proposal", "R2-中"),
+            window_entry("test-execution", "proposal", "R3-最新"),
+        ],
+        "取创建序末位两层（R2 / R3）"
+    );
+    let dropped = window_entry("acceptance", "proposal", "R1-最早创建");
+    assert!(!windows.contains(&dropped), "创建序最早的一条被裁");
+    let kept_max_from_index = windows
+        .iter()
+        .map(|window| window.from_index)
+        .max()
+        .expect("非空");
+    assert!(
+        dropped.from_index > kept_max_from_index,
+        "被裁者恒为该组 from_index 最大者（创建序最早 ≡ take_last 先丢）"
+    );
+
+    let section = backtrack_window_section(&windows);
+    assert!(
+        !section.contains("R1-最早创建"),
+        "被裁原因文本零命中: {section}"
+    );
+    assert_eq!(
+        occurrences(&section, "<backtrack reason>"),
+        MAX_BACKTRACK_WINDOWS,
+        "渲染块数 = 上限常量"
+    );
+    for meta in ["另有", "仅显示最近", "更多记录", "剩余"] {
+        assert!(!section.contains(meta), "窗口段零裁剪元信息: {meta}");
+    }
+}
+
+/// 求值顺序固定（正向，单次，AC-5）：`entries` 输入序 ≠ 创建序（id 序 30 / 10 /
+/// 20）→ 输出等于「按标记行 id 升序后取末位 `MAX_BACKTRACK_WINDOWS` 条」；反例
+/// 断言「先取输入末位两条再排序」必含 Win1（`from_index` 最大者）⇒ 该错序实现
+/// 被判红。
+#[test]
+fn 求值顺序固定_先排序后裁剪() {
+    let table = requirement_table();
+    // 创建序：id 10（acceptance）/ 20（code-review）/ 30（test-execution）；
+    // 输入序刻意打乱为 30 / 10 / 20
+    let entries = vec![
+        backtrack_marker(30, "test-execution", t(9), "proposal", "R3-最新"),
+        backtrack_marker(10, "acceptance", t(3), "proposal", "R1-最早创建"),
+        backtrack_marker(20, "code-review", t(6), "proposal", "R2-中"),
+    ];
+
+    let windows = open_backtrack_windows(&entries, table, "proposal");
+    assert_eq!(
+        windows,
+        vec![
+            window_entry("code-review", "proposal", "R2-中"),
+            window_entry("test-execution", "proposal", "R3-最新"),
+        ],
+        "输出 = 按标记行 id 升序后取末位上限条（与输入条目序无关）"
+    );
+
+    // 反例：先对输入序 take_last(2)（= id 10 / id 20）再排序 → [R1, R2]
+    let wrong_order = vec![
+        window_entry("acceptance", "proposal", "R1-最早创建"),
+        window_entry("code-review", "proposal", "R2-中"),
+    ];
+    assert_ne!(windows, wrong_order, "「先裁剪后排序」实现被判红");
+    assert!(
+        !windows.iter().any(|window| window.reason == "R1-最早创建"),
+        "错序实现的标志物（from_index 最大的 Win1）不出线"
+    );
+}
+
+/// 内层回跳不设状态机（正向，组合迭代 3 相位 × 2 窗口）：外层窗口
+/// `[dev-design..test-gen]` 开放期间内层 `implement → proposal` 亦开放 →
+/// proposal 只渲内层、dev-design 两条（两区间均含）、test-gen 只渲外层；零暂停
+/// / 恢复标志参与（区间判据自愈）。
+#[test]
+fn 内层回跳不设状态机_区间自愈() {
+    let table = requirement_table();
+    let entries = vec![
+        backtrack_marker(20, "test-gen", t(5), "dev-design", "外层"),
+        backtrack_marker(30, "implement", t(9), "proposal", "内层"),
+    ];
+
+    assert_eq!(
+        open_backtrack_windows(&entries, table, "proposal"),
+        vec![window_entry("implement", "proposal", "内层")],
+        "proposal：外层 to_index 之外 → 只渲内层"
+    );
+    assert_eq!(
+        open_backtrack_windows(&entries, table, "dev-design"),
+        vec![
+            window_entry("test-gen", "dev-design", "外层"),
+            window_entry("implement", "proposal", "内层"),
+        ],
+        "dev-design：两区间均含 → 两条（创建序）"
+    );
+    assert_eq!(
+        open_backtrack_windows(&entries, table, "test-gen"),
+        vec![window_entry("test-gen", "dev-design", "外层")],
+        "test-gen：内层 from_index 之外 → 只渲外层"
+    );
+}
+
+/// 上限条数与常量同源（边界，参数化迭代 2 形态）：`MAX_BACKTRACK_WINDOWS + 1`
+/// 与 `+2` 条命中 → 条数恒等于 `MAX_BACKTRACK_WINDOWS`（断言引用常量而非字面量；
+/// orchestration 侧取不到该常量，故本断言只允许出现在本 crate 内）。
+#[test]
+fn 上限条数与常量同源() {
+    let table = requirement_table();
+    let candidates = ["proposal", "dev-design", "test-design", "implement"];
+    for extra in [1usize, 2] {
+        let total = MAX_BACKTRACK_WINDOWS + extra;
+        let entries: Vec<PhaseStateRecord> = candidates
+            .iter()
+            .take(total)
+            .enumerate()
+            .map(|(offset, from)| {
+                backtrack_marker(
+                    (offset as i64 + 1) * 10,
+                    from,
+                    t(offset as u32 + 1),
+                    "proposal",
+                    &format!("R{offset}"),
+                )
+            })
+            .collect();
+        assert_eq!(entries.len(), total, "装置自检：候选条数 = 上限 + {extra}");
+        let windows = open_backtrack_windows(&entries, table, "proposal");
+        assert_eq!(
+            windows.len(),
+            MAX_BACKTRACK_WINDOWS,
+            "命中 {total} 条（上限 +{extra}）→ 条数恒等于上限常量"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 用例组四：响应填充（AC-6）——error / done / 正常三面共用同一推导 fn
+// ---------------------------------------------------------------------------
+
+/// error 响应携窗口（正向，参数化迭代 2 变体）：失败相位落在开放窗口内并触发
+/// 决策分叉 → `error` 为对应变体，`backtrack_window` 逐字段等于覆盖失败相位的
+/// 开放窗口。
+#[test]
+fn error响应携覆盖失败相位的窗口两变体() {
+    // 变体一：VerdictFail（第 1 条未决 fail 即分叉）
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", "设计返工"),
+        entry_with_id(30, "dev-design", 1, Verdict::Fail, t(12)),
+    ]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(
+        outcome.error,
+        Some(PhaseNextError::VerdictFail {
+            phase: "dev-design".to_owned(),
+            round: 1,
+        }),
+        "窗口内未决 fail → VerdictFail 分叉"
+    );
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", "设计返工")],
+        "error 响应逐字段等于覆盖失败相位的开放窗口（VerdictFail）"
+    );
+    assert!(
+        !outcome.backtrack_window.is_empty(),
+        "窗口非空（决策输入取此处）"
+    );
+
+    // 变体二：MaxRetriesExceeded（该相位本轮窗口内的 fail 数达上限）——先以
+    // 一次路由登记锚点基线（窗口 fail 计数按 run 窗口，非全量条目）
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", "设计返工"),
+    ]);
+    let anchors = SessionAnchors::new();
+    let _ = route(&fake, RUN, &anchors);
+    for attempt in 1..=MAX_RETRY_TIMES {
+        fake.push(entry_with_id(
+            30 + i64::from(attempt),
+            "dev-design",
+            attempt,
+            Verdict::Fail,
+            t(10 + attempt),
+        ));
+    }
+    let outcome = route(&fake, RUN, &anchors);
+    assert_eq!(
+        outcome.error,
+        Some(PhaseNextError::MaxRetriesExceeded {
+            phase: "dev-design".to_owned(),
+            round: MAX_RETRY_TIMES + 1,
+        }),
+        "恰达重试上限 → MaxRetriesExceeded 分叉"
+    );
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", "设计返工")],
+        "error 响应携同一窗口（MaxRetriesExceeded，两变体同形）"
+    );
+    assert!(
+        outcome.executor.is_none() && outcome.evaluator.is_none(),
+        "分叉响应零角色 spec（窗口仅随响应载荷下发）"
+    );
+}
+
+/// `done` 响应零窗口（正向，单次）：全相位 pass → `done` 且窗口空集、双角色
+/// spec 缺席（`done` 分支不消费窗口面）。
+#[test]
+fn done响应零窗口() {
+    let entries = ALL_PHASES
+        .iter()
+        .enumerate()
+        .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+        .collect();
+    let fake = RouteStore::seeded(entries);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert!(outcome.done, "全 pass → done");
+    assert!(
+        outcome.backtrack_window.is_empty(),
+        "done 响应窗口空集（与既有终态断言并存）"
+    );
+    assert!(
+        outcome.executor.is_none() && outcome.evaluator.is_none(),
+        "done 分支双角色缺席（零 prompt 面）"
+    );
+}
+
+/// 正常响应填覆盖 `next_phase` 的窗口（正向）：最新条目非标记行（发起相位已
+/// 重跑）⇒ 走正常路由分支，窗口覆盖 `next_phase` 而非其它相位——与 error 分支
+/// 共用同一推导 fn。
+#[test]
+fn 正常响应填覆盖next相位的窗口() {
+    let mut decided = entry_with_id(30, "dev-design", 1, Verdict::Fail, t(12));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", "R1"),
+        decided,
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("dev-design"),
+        "正常路由落首个未过相位"
+    );
+    assert!(outcome.error.is_none(), "正常路由零分叉");
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", "R1")],
+        "正常响应窗口覆盖 next_phase（与 error 分支同源）"
+    );
+    assert!(
+        outcome
+            .executor
+            .as_ref()
+            .expect("executor 在场")
+            .prompt
+            .contains(&expected_block("R1")),
+        "正常路由 prompt 同携窗口段"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 用例组五：段位置与渲染纪律（AC-7 / AC-8）
+// ---------------------------------------------------------------------------
+
+/// 段位置契约（正向，单次）：窗口内相位同时带 fail 重试反馈（已决 fail 放行重
+/// 跑）→「窗口段」索引 <「失败反馈段」索引，两者同时在场（静态主体 → 窗口段 →
+/// 反馈段）。
+#[test]
+fn 窗口段位置先于失败反馈段() {
+    let reason = "设计返工：缺产物区组件";
+    let mut stale_target = entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2));
+    stale_target.stale = true;
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        stale_target,
+        backtrack_marker(20, "test-gen", t(5), "dev-design", reason),
+    ]);
+    let anchors = SessionAnchors::new();
+    let _ = route(&fake, RUN, &anchors);
+
+    // 目标相位重跑再落 fail（未决）→ 分叉；决策挂账后放行重跑 → 反馈段 + 窗口段并存
+    fake.push(entry_with_id(30, "dev-design", 2, Verdict::Fail, t(11)));
+    let forked = route(&fake, RUN, &anchors);
+    assert!(
+        matches!(forked.error, Some(PhaseNextError::VerdictFail { .. })),
+        "未决 fail → 决策分叉"
+    );
+    let mut decided = entry_with_id(31, "dev-design", 2, Verdict::Fail, t(12));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    decided.checklist = vec![ChecklistItem {
+        item: "设计完整性".to_owned(),
+        pass: false,
+        evidence: "缺产物区组件".to_owned(),
+    }];
+    fake.push(decided);
+
+    let outcome = route(&fake, RUN, &anchors);
+    assert!(outcome.error.is_none(), "已决 fail 放行重跑");
+    assert_eq!(outcome.next_phase.as_deref(), Some("dev-design"));
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", reason)],
+        "窗口仍在（发起相位无更大 id 条目）"
+    );
+    let prompt = outcome.executor.expect("executor 在场").prompt;
+    let window_at = prompt.find(WINDOW_TITLE).expect("窗口段在场");
+    let feedback_at = prompt.find("⚠️ 上次评估未通过").expect("失败反馈段在场");
+    assert!(
+        window_at < feedback_at,
+        "窗口段位置先于失败反馈段（静态主体 → 窗口段 → 反馈段）: {prompt}"
+    );
+    assert!(
+        prompt.contains("- 设计完整性：缺产物区组件"),
+        "反馈段内容不受窗口段影响: {prompt}"
+    );
+}
+
+/// 窗口段零相位 id（异常，参数化迭代 2 形态）：渲染产物对 `from_phase` /
+/// `to_phase` 字面量零命中；`<backtrack` 起首的行恰为 `<backtrack reason>`
+///（抓「顺手带出相位名」的唯一失效方式）。MUST NOT 断言整篇 prompt（静态角色
+/// md 可能自然提及相位名），故以渲染产物 + prompt 内该子串定位承载。
+#[test]
+fn 窗口段零相位id泄漏两形态() {
+    let shapes = [
+        vec![window_entry("test-gen", "dev-design", "设计返工")],
+        vec![
+            window_entry("test-gen", "dev-design", "设计返工"),
+            window_entry("implement", "proposal", "需求返工"),
+        ],
+    ];
+    for windows in shapes {
+        let section = backtrack_window_section(&windows);
+        assert!(!section.is_empty(), "非空窗口渲非空段");
+        for window in &windows {
+            assert!(
+                !section.contains(&window.from_phase),
+                "渲染产物对 from_phase \"{}\" 零命中: {section}",
+                window.from_phase
+            );
+            assert!(
+                !section.contains(&window.to_phase),
+                "渲染产物对 to_phase \"{}\" 零命中: {section}",
+                window.to_phase
+            );
+        }
+        let tag_lines: Vec<&str> = section
+            .lines()
+            .filter(|line| line.starts_with("<backtrack"))
+            .collect();
+        assert_eq!(tag_lines.len(), windows.len(), "标签行数 = 窗口条数");
+        for line in tag_lines {
+            assert_eq!(line, "<backtrack reason>", "标签行零属性");
+        }
+    }
+
+    // 响应面：prompt 内窗口段子串与直调渲染逐字节相同（单点，零第二份文案）
+    let fake = RouteStore::seeded(vec![backtrack_marker(
+        20,
+        "test-gen",
+        t(5),
+        "dev-design",
+        "设计返工",
+    )]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    let section = backtrack_window_section(&outcome.backtrack_window);
+    let prompt = outcome.executor.expect("executor 在场").prompt;
+    let at = prompt
+        .find(&section)
+        .expect("prompt 内窗口段与直调产物逐字节一致");
+    let embedded = &prompt[at..at + section.len()];
+    assert!(
+        !embedded.contains("test-gen") && !embedded.contains("dev-design"),
+        "prompt 内窗口段对两相位 id 零命中: {embedded}"
+    );
+}
+
+/// S2 断言改写侧证（异常）：回溯分支与正常分支产出形状收敛——窗口段同形，仅
+/// 反馈段在场性不同；两分支 prompt 均零 `⚠️ 回溯原因` 字样。
+#[test]
+fn 回溯与正常分支窗口段同形且零退役文案() {
+    let reason = "设计返工：缺产物区组件";
+
+    // 回溯分支：最新条目即标记行
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", reason),
+    ]);
+    let backtrack_branch = route(&fake, RUN, &SessionAnchors::new());
+
+    // 正常分支：标记行之后发起相位之外的条目成为最新（回溯分支不接管）
+    let mut decided = entry_with_id(30, "dev-design", 1, Verdict::Fail, t(12));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", reason),
+        decided,
+    ]);
+    let normal_branch = route(&fake, RUN, &SessionAnchors::new());
+
+    for (label, outcome) in [
+        ("回溯分支", &backtrack_branch),
+        ("正常分支", &normal_branch),
+    ] {
+        assert_eq!(
+            outcome.backtrack_window,
+            vec![window_entry("test-gen", "dev-design", reason)],
+            "{label} 窗口逐字段同形"
+        );
+        let prompt = &outcome.executor.as_ref().expect("executor 在场").prompt;
+        assert!(
+            prompt.contains(WINDOW_TITLE) && prompt.contains(&expected_block(reason)),
+            "{label} prompt 窗口段同形: {prompt}"
+        );
+        assert!(
+            !prompt.contains("⚠️ 回溯原因"),
+            "{label} prompt 零 S2 退役文案: {prompt}"
+        );
+    }
+    assert!(
+        !backtrack_branch
+            .executor
+            .expect("executor 在场")
+            .prompt
+            .contains("上次评估未通过"),
+        "回溯分支零反馈段（两分支的唯一差异）"
+    );
+    assert!(
+        normal_branch
+            .executor
+            .expect("executor 在场")
+            .prompt
+            .contains("上次评估未通过"),
+        "正常分支反馈段在场"
+    );
+}
+
+/// 零窗口回归（异常，参数化迭代 3 形态）：库内零 backtrack 条目的既有种子（仅表
+/// 头 pass / 正常推进 / fail 重试）→ 窗口空集且 prompt 零窗口段（空集分支与改动
+/// 前 prompt 逐字节等同的侧证）。
+#[test]
+fn 零窗口回归_既有种子窗口空集且prompt零段() {
+    // 形态一：仅表头 pass
+    let fake = RouteStore::seeded(Vec::new());
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(outcome.next_phase.as_deref(), Some("proposal"));
+    assert!(
+        outcome.backtrack_window.is_empty(),
+        "零 backtrack 条目 → 窗口空集"
+    );
+    for prompt in [
+        outcome.executor.expect("executor 在场").prompt,
+        outcome.evaluator.expect("evaluator 在场").prompt,
+    ] {
+        assert!(
+            !prompt.contains(WINDOW_TITLE),
+            "空集 prompt 零窗口段: {prompt}"
+        );
+        assert!(
+            !prompt.contains("<backtrack reason>"),
+            "空集 prompt 零定界块: {prompt}"
+        );
+    }
+
+    // 形态二：正常推进（proposal pass → dev-design）
+    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(outcome.next_phase.as_deref(), Some("dev-design"));
+    assert!(outcome.backtrack_window.is_empty(), "正常推进窗口空集");
+    assert!(
+        !outcome
+            .executor
+            .expect("executor 在场")
+            .prompt
+            .contains(WINDOW_TITLE),
+        "正常推进 prompt 零窗口段"
+    );
+
+    // 形态三：fail 重试（已决 fail 放行）
+    let mut decided = entry("dev-design", 1, Verdict::Fail, t(2));
+    decided.decision_session_id = Some("sess-1".to_owned());
+    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1)), decided]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert!(outcome.backtrack_window.is_empty(), "fail 重试窗口空集");
+    let prompt = outcome.executor.expect("executor 在场").prompt;
+    assert!(
+        prompt.contains("上次评估未通过") && !prompt.contains(WINDOW_TITLE),
+        "fail 重试仅反馈段、零窗口段: {prompt}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 用例组六：`open_backtrack_windows` 直调判据（异常 / 防御式 / 边界）
+// ---------------------------------------------------------------------------
+
+/// `phase_id` 不在表内（异常，参数化迭代 3 形态）：空集、零 panic。
+#[test]
+fn open_windows_phase_id不在表内返回空集() {
+    let table = requirement_table();
+    let entries = vec![backtrack_marker(
+        20,
+        "test-gen",
+        t(5),
+        "dev-design",
+        "设计返工",
+    )];
+    for phase in ["unknown-phase", "", "   "] {
+        assert!(
+            open_backtrack_windows(&entries, table, phase).is_empty(),
+            "phase_id {phase:?} 不在表内 → 空集（零 panic）"
+        );
+    }
+}
+
+/// 防御式跳过（异常，参数化迭代 2 形态）：标记行自身相位或 `backtrack_to` 目标
+/// 不在表内 → 该候选被跳过、其余候选照常出线（生产不可达形态，判据不得 panic
+/// 或产越界索引）。
+#[test]
+fn open_windows_防御式跳过表外相位() {
+    let table = requirement_table();
+    let off_table_from = backtrack_marker(20, "ghost-phase", t(5), "proposal", "表外发起");
+    let off_table_to = backtrack_marker(30, "test-gen", t(9), "ghost-target", "表外目标");
+    let legit = backtrack_marker(40, "implement", t(11), "proposal", "有效窗口");
+
+    let windows = open_backtrack_windows(&[off_table_from, off_table_to, legit], table, "proposal");
+    assert_eq!(
+        windows,
+        vec![window_entry("implement", "proposal", "有效窗口")],
+        "两个表外候选被跳过，其余候选照常出线"
+    );
+
+    assert!(
+        open_backtrack_windows(
+            &[
+                backtrack_marker(20, "ghost-phase", t(5), "proposal", "表外发起"),
+                backtrack_marker(30, "implement", t(9), "ghost-target", "表外目标"),
+            ],
+            table,
+            "proposal"
+        )
+        .is_empty(),
+        "全候选均表外 → 空集（不 panic、不越界索引）"
+    );
+}
+
+/// 候选判据对 `backtrack_to` 的读取口径（异常，参数化迭代 5 形态）：
+/// `Some("dev-design")` / `Some("  dev-design  ")`（trim 命中）为候选；
+/// `Some("")` / `Some("   ")` / `None` 不是候选（trim 后空即无标记）。
+#[test]
+fn open_windows_backtrack_to读取口径五形态() {
+    let table = requirement_table();
+    let reason = "口径";
+    let shapes: [(Option<&str>, bool); 5] = [
+        (Some("dev-design"), true),
+        (Some("  dev-design  "), true),
+        (Some(""), false),
+        (Some("   "), false),
+        (None, false),
+    ];
+    for (backtrack_to, expect_candidate) in shapes {
+        let mut mark = entry_with_id(20, "test-gen", 1, Verdict::Fail, t(5));
+        mark.decision_session_id = Some("sess-1".to_owned());
+        mark.backtrack_to = backtrack_to.map(str::to_owned);
+        mark.backtrack_reason = Some(reason.to_owned());
+        let windows = open_backtrack_windows(&[mark], table, "dev-design");
+        if expect_candidate {
+            assert_eq!(
+                windows,
+                vec![window_entry("test-gen", "dev-design", reason)],
+                "backtrack_to = {backtrack_to:?} 为候选（trim 后非空）"
+            );
+            assert_eq!(windows[0].to_phase, "dev-design", "to 取 trim 后的值");
+        } else {
+            assert!(
+                windows.is_empty(),
+                "backtrack_to = {backtrack_to:?} 不是候选（trim 后空即无标记）"
+            );
+        }
+    }
+}
+
+/// legacy 缺 `reason`（异常，参数化迭代 2 形态，D14）：`backtrack_reason = None`
+/// 与 `Some("")` 两形态均仍入选（三条判据不含 `reason`），输出 `reason == ""`；
+/// 对应渲染块为空正文 `<backtrack reason>\n\n</backtrack>`，不 panic 不剔除。
+#[test]
+fn open_windows_legacy缺reason仍入选且渲染空正文块() {
+    let table = requirement_table();
+    for missing in [None, Some("")] {
+        let mut mark = entry_with_id(20, "test-gen", 1, Verdict::Fail, t(5));
+        mark.decision_session_id = Some("sess-1".to_owned());
+        mark.backtrack_to = Some("dev-design".to_owned());
+        mark.backtrack_reason = missing.map(str::to_owned);
+        let windows = open_backtrack_windows(&[mark], table, "dev-design");
+        assert_eq!(windows.len(), 1, "缺 reason 仍入选（判据不含 reason 面）");
+        assert_eq!(windows[0].reason, "", "None / 空串归一为空 reason");
+        let section = backtrack_window_section(&windows);
+        assert!(
+            section.contains("<backtrack reason>\n\n</backtrack>"),
+            "空正文块形态（不 panic 不剔除）: {section}"
+        );
+        assert!(section.contains(WINDOW_TITLE), "段标题照常在场");
+    }
+}
+
+/// 条目集合三形态（边界，参数化迭代 3 形态）：`entries = []` → 空集；仅一条
+/// 标记行 → 恰一条窗口；1000 条（标记行 + 大量非标记行混合）→ 不 panic 且长度
+/// ≤ `MAX_BACKTRACK_WINDOWS`。
+#[test]
+fn open_windows_条目集合三形态() {
+    let table = requirement_table();
+
+    assert!(
+        open_backtrack_windows(&[], table, "dev-design").is_empty(),
+        "空条目集合 → 空集"
+    );
+
+    let single = open_backtrack_windows(
+        &[backtrack_marker(20, "test-gen", t(5), "dev-design", "R1")],
+        table,
+        "dev-design",
+    );
+    assert_eq!(single.len(), 1, "仅一条标记行 → 恰一条窗口");
+
+    // 1000 条：998 条非标记行 + 末尾两条标记行（超大列表形态）
+    let mut entries: Vec<PhaseStateRecord> = Vec::new();
+    for index in 0..998i64 {
+        entries.push(entry_with_id(
+            index + 1,
+            "proposal",
+            1,
+            Verdict::Pass,
+            t(index as u32),
+        ));
+    }
+    entries.push(backtrack_marker(
+        999,
+        "test-gen",
+        t(998),
+        "proposal",
+        "R-大列表-1",
+    ));
+    entries.push(backtrack_marker(
+        1000,
+        "implement",
+        t(999),
+        "proposal",
+        "R-大列表-2",
+    ));
+    assert_eq!(entries.len(), 1000, "装置自检：超大列表 1000 条");
+    let windows = open_backtrack_windows(&entries, table, "proposal");
+    assert!(!windows.is_empty(), "超大列表中存在开放窗口（不 panic）");
+    assert!(
+        windows.len() <= MAX_BACKTRACK_WINDOWS,
+        "超大列表条数受上限约束（实得 {}）",
+        windows.len()
+    );
+}
+
+/// 索引边界（边界，单次）：`to_index == 0`（`initialize`）与
+/// `from_index == 表长-1`（`archive`）的合成标记行 → 区间覆盖全表（任意相位均
+/// 命中）；判据面无 `backtrackable` 额外过滤（白名单约束在写面 `backtrack` 侧）。
+#[test]
+fn open_windows_索引边界覆盖全表且零backtrackable过滤() {
+    let table = requirement_table();
+    assert_eq!(table_index("initialize"), 0, "initialize 为表首");
+    assert_eq!(table_index("archive"), table.len() - 1, "archive 为表末");
+    let entries = vec![backtrack_marker(
+        20,
+        "archive",
+        t(9),
+        "initialize",
+        "全表回退",
+    )];
+    for def in table {
+        assert_eq!(
+            open_backtrack_windows(&entries, table, def.id),
+            vec![window_entry("archive", "initialize", "全表回退")],
+            "区间 [0..表长-1] 覆盖全表：{} 命中",
+            def.id
+        );
+    }
+
+    // 零 backtrackable 过滤：非回溯资格相位（initialize）亦照常命中
+    let non_backtrackable: Vec<&str> = table
+        .iter()
+        .filter(|def| !def.backtrackable)
+        .map(|def| def.id)
+        .collect();
+    assert!(
+        !non_backtrackable.is_empty(),
+        "requirement 表存在非回溯资格相位（装置自检）"
+    );
+    for phase in non_backtrackable {
+        assert_eq!(
+            open_backtrack_windows(&entries, table, phase).len(),
+            1,
+            "{phase} 非 backtrackable 仍命中（窗口判据零该过滤）"
+        );
+    }
+}
+
+/// 跨 run 继承（正向，单次，AC-3）：回溯后未闭环，新建 `SessionAnchors::new()`
+/// 与新 `run_id`（`round` 归 1）→ 目标相位 prompt 仍含段与原因；`round == 1` 与
+/// 窗口非空并存（若判据误切片 `entries[anchor..]`，新 run 下该切片为空必得空窗
+/// 口，与断言相反）。
+#[test]
+fn 跨run继承_新锚点下窗口仍在且round归1() {
+    let reason = "设计返工：缺产物区组件";
+    let fake = RouteStore::seeded(vec![
+        entry_with_id(11, "proposal", 1, Verdict::Pass, t(1)),
+        entry_with_id(12, "dev-design", 1, Verdict::Pass, t(2)),
+        backtrack_marker(20, "test-gen", t(5), "dev-design", reason),
+    ]);
+    let fresh_anchors = SessionAnchors::new();
+
+    let outcome = phase_next(&fake, CHANGE_ID, "run-b", &fresh_anchors).expect("新 run 路由应成功");
+    assert_eq!(
+        outcome.round, 1,
+        "新 run 的锚点基线 = 当时条目数 ⇒ round 归 1（预算层按 run 窗口）"
+    );
+    assert_eq!(
+        outcome.backtrack_window,
+        vec![window_entry("test-gen", "dev-design", reason)],
+        "背景层按全量事件序：跨 run 未闭环窗口仍命中（判据不读 anchor / run_id）"
+    );
+    assert_both_roles_carry(&outcome, reason, "新 run 的目标相位 dev-design");
+
+    let again = phase_next(&fake, CHANGE_ID, "run-b", &fresh_anchors).expect("锚点复见路由应成功");
+    assert_eq!(
+        again.backtrack_window, outcome.backtrack_window,
+        "锚点复见不改变窗口（背景层与预算层口径分离）"
+    );
+}
+
+/// id 退化形态（边界，单次——装置口径的显式登记）：全部条目 `id == 0`（既有
+/// `entry` 工厂原样输出）→ 判据不 panic、不产越界索引；断言只落「稳定且可重
+/// 复」而非具体条数（真实 store 的 `max+1` 保证 id 互异）。
+#[test]
+fn open_windows_id全零退化解稳定不panic() {
+    let table = requirement_table();
+    let entries = vec![
+        backtrack_entry("test-gen", 1, t(5), "dev-design", "R1"),
+        backtrack_entry("implement", 1, t(9), "proposal", "R2"),
+    ];
+    assert!(
+        entries.iter().all(|entry| entry.id == 0),
+        "装置自检：既有工厂输出 id 全为 0"
+    );
+    let first = open_backtrack_windows(&entries, table, "proposal");
+    let second = open_backtrack_windows(&entries, table, "proposal");
+    assert_eq!(first, second, "退化解输出稳定可重复（同输入同输出）");
+    assert!(
+        first.len() <= MAX_BACKTRACK_WINDOWS,
+        "退化解条数仍受上限约束（实得 {}）",
+        first.len()
+    );
+    let section = backtrack_window_section(&first);
+    assert!(
+        section.is_empty() || section.starts_with("\n\n"),
+        "退化解渲染形态合法（空串或前导 \\n\\n）: {section:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 用例组七：`backtrack_window_section` 渲染字节契约（AC-8 / AC-13）
+// ---------------------------------------------------------------------------
+
+/// 形状（正向，参数化迭代 2 形态）：1 条与 2 条 → 标题行在场、说明段在场、每条
+/// 以 `\n<backtrack reason>\n` / `\n</backtrack>` 定界、块间 `\n\n`、结束无尾随
+/// 换行；按行切分断言「以 `<backtrack` 起首的行逐字等于 `<backtrack reason>`」
+///（零属性）。
+#[test]
+fn 窗口段形状一条与两条() {
+    for count in [1usize, 2] {
+        let windows: Vec<BacktrackWindowEntry> = (0..count)
+            .map(|index| window_entry("test-gen", "dev-design", &format!("原因{index}")))
+            .collect();
+        let section = backtrack_window_section(&windows);
+
+        assert!(
+            section.starts_with("\n\n"),
+            "前导 \\n\\n 归段内: {section:?}"
+        );
+        assert!(
+            section.contains("## 回溯重做窗口（背景信息）"),
+            "标题行逐字在场"
+        );
+        assert!(
+            section.contains("本 change 发生过下列相位回退"),
+            "说明段在场"
+        );
+        assert!(
+            !section.ends_with('\n'),
+            "尾随零换行（消费点各只需一次插值）: {section:?}"
+        );
+        assert_eq!(
+            occurrences(&section, "<backtrack reason>"),
+            count,
+            "{count} 条 → 定界起首行逐条在场"
+        );
+        assert_eq!(
+            occurrences(&section, "</backtrack>"),
+            count,
+            "{count} 条 → 定界收尾行逐条在场"
+        );
+        for window in &windows {
+            assert!(
+                section.contains(&format!(
+                    "\n<backtrack reason>\n{}\n</backtrack>",
+                    window.reason
+                )),
+                "每条以定界块形态在场（块间 \\n\\n，{count} 条形态）"
+            );
+        }
+
+        let tag_lines: Vec<&str> = section
+            .lines()
+            .filter(|line| line.starts_with("<backtrack"))
+            .collect();
+        assert_eq!(tag_lines.len(), count, "以 `<backtrack` 起首的行数 = 条数");
+        for line in tag_lines {
+            assert_eq!(
+                line, "<backtrack reason>",
+                "标签行逐字（零属性：from= / order= 形态零命中）"
+            );
+            for attribute in ["from=", "to=", "order=", "index=", "phase="] {
+                assert!(!line.contains(attribute), "标签行零属性: {attribute}");
+            }
+        }
+    }
+}
+
+/// 顺序与不重排（正向，单次）：入参 2 条按 `[R1, R2]` 传入 → R1 索引 < R2 索引；
+/// 同输入两次调用逐字节相等（纯函数确定性）；逆序入参 → 渲染序随之（本层零重
+/// 排，排序归推导 fn）。
+#[test]
+fn 窗口段顺序不可重排且确定性() {
+    let windows = vec![
+        window_entry("test-gen", "dev-design", "R1-较早"),
+        window_entry("implement", "proposal", "R2-较晚"),
+    ];
+    let section = backtrack_window_section(&windows);
+    let r1 = section.find("R1-较早").expect("R1 在场");
+    let r2 = section.find("R2-较晚").expect("R2 在场");
+    assert!(r1 < r2, "入参顺序即渲染顺序（不重排）: {section}");
+    assert_eq!(
+        section,
+        backtrack_window_section(&windows),
+        "同输入两次调用逐字节相等（纯函数确定性）"
+    );
+
+    let reversed = vec![windows[1].clone(), windows[0].clone()];
+    let reversed_section = backtrack_window_section(&reversed);
+    assert!(
+        reversed_section.find("R2-较晚").expect("R2 在场")
+            < reversed_section.find("R1-较早").expect("R1 在场"),
+        "逆序入参 → 渲染序随之（本层零重排）"
+    );
+}
+
+/// 空集（异常，单次）：逐字节空串——两处消费点（写面 prompt 拼接 / 决策 prompt
+/// 插值）因此与非窗口形态逐字节等同。
+#[test]
+fn 窗口段空集逐字节空串() {
+    assert_eq!(backtrack_window_section(&[]), "", "空集 → 逐字节空串");
+    assert!(
+        !backtrack_window_section(&[]).contains(WINDOW_TITLE),
+        "空集零标题残留"
+    );
+    assert!(
+        !backtrack_window_section(&[]).contains("<backtrack"),
+        "空集零定界块残留"
+    );
+}
+
+/// 下标脏值（边界，参数化迭代 3 形态）：`from_index` / `to_index` 取 `0`、
+/// 表长-1 与 `usize::MAX` → 渲染只取 `reason`，产物与下标取值无关（不 panic、
+/// 不产下标文本）；同 reason 不同下标的产物逐字节相等。
+#[test]
+fn 窗口段渲染与下标取值无关() {
+    let table_len = requirement_table().len();
+    let render = |from_index: usize, to_index: usize| {
+        backtrack_window_section(&[BacktrackWindowEntry {
+            from_phase: "test-gen".to_owned(),
+            from_index,
+            to_phase: "dev-design".to_owned(),
+            to_index,
+            reason: "设计返工".to_owned(),
+        }])
+    };
+    let baseline = render(table_len - 1, 0);
+    for (from_index, to_index) in [
+        (0usize, 0usize),
+        (table_len - 1, table_len - 1),
+        (usize::MAX, usize::MAX),
+    ] {
+        let section = render(from_index, to_index);
+        assert_eq!(
+            section, baseline,
+            "下标（{from_index} / {to_index}）不参与渲染（只取 reason）"
+        );
+        for index in [from_index, to_index] {
+            assert!(
+                !section.contains(&index.to_string()),
+                "下标文本零泄漏（{index}）"
+            );
+        }
+    }
+    assert!(
+        !render(usize::MAX, 0).contains(&usize::MAX.to_string()),
+        "usize::MAX 脏值不落任何文本（不 panic）"
+    );
+}
+
+/// 原因原文逐字保真（边界，参数化迭代 7 形态，AC-8 / AC-13）：`""`（空正文块）
+/// / `"  R  "`（首尾空白不 trim）/ `"a\nb"`（保留换行）/ `"a\0b🚀"`（特殊字符）
+/// / `"---"`（不动用 Markdown 分隔线）/ 恰 `MAX_REASON_CHARS` 长文 / 越上游门限
+/// 的 1200 字符直构脏值 → 每形态逐字命中，零截断零压平，越界值不 panic。
+#[test]
+fn 窗口段原因原文逐字保真七形态() {
+    let long_exact = "字".repeat(MAX_REASON_CHARS);
+    let long_over = "字".repeat(1200);
+    let truncated = |section: &str| {
+        ["…", "（截断）", "[truncated]"]
+            .iter()
+            .any(|marker| section.contains(marker))
+    };
+    let shapes = [
+        String::new(),
+        "  R  ".to_owned(),
+        "a\nb".to_owned(),
+        "a\0b🚀".to_owned(),
+        "---".to_owned(),
+        long_exact.clone(),
+        long_over.clone(),
+    ];
+    for reason in shapes {
+        let section = backtrack_window_section(&[window_entry("test-gen", "dev-design", &reason)]);
+        assert!(
+            section.contains(&format!("<backtrack reason>\n{reason}\n</backtrack>")),
+            "原因原文逐字定界（不截断 / 不压平 / 不 trim）: {reason:?}"
+        );
+        assert!(!truncated(&section), "零省略号 / 截断标记: {reason:?}");
+    }
+    // 恰上限 vs 越界值：两者全文在场（本层不设第二道长度门）
+    let exact_section =
+        backtrack_window_section(&[window_entry("test-gen", "dev-design", &long_exact)]);
+    assert!(
+        exact_section.contains(&long_exact),
+        "恰 MAX_REASON_CHARS({MAX_REASON_CHARS}) 全文在场"
+    );
+    let over_section =
+        backtrack_window_section(&[window_entry("test-gen", "dev-design", &long_over)]);
+    assert!(
+        over_section.contains(&long_over),
+        "1200 字符（越上游门限）直构脏值全文在场，本层零截断"
+    );
+    assert_eq!(long_over.chars().count(), 1200, "装置自检：越界值字符数");
+}
+
+// ---------------------------------------------------------------------------
+// 用例组八：体积有界（AC-13）
+// ---------------------------------------------------------------------------
+
+/// 体积界（边界，单次，AC-13）：`MAX_BACKTRACK_WINDOWS` 条窗口 ×
+/// `MAX_REASON_CHARS` 字符原因 → 段长 ≤ `MAX_BACKTRACK_WINDOWS ×（标签与说明行
+/// 上界 + MAX_REASON_CHARS）`（界用两常量算式表达，零字面量业务语义）；每原因仍
+/// 逐字在场（证实现零 `truncate` / `chars().take(…)`）。
+#[test]
+fn 窗口段体积界与常量算式() {
+    let reason = "字".repeat(MAX_REASON_CHARS);
+    let windows: Vec<BacktrackWindowEntry> = (0..MAX_BACKTRACK_WINDOWS)
+        .map(|_| window_entry("test-gen", "dev-design", &reason))
+        .collect();
+    let section = backtrack_window_section(&windows);
+
+    // 体积以字符计（reason 上限按字符裁定；多字节字符不改变度量口径）
+    let section_chars = section.chars().count();
+    let bound = MAX_BACKTRACK_WINDOWS * (WINDOW_SECTION_OVERHEAD + MAX_REASON_CHARS);
+    assert!(
+        section_chars <= bound,
+        "段长 {section_chars} ≤ 界 {bound}（上限 {} ×（标签与说明行上界 {} + {} 字符原因））",
+        MAX_BACKTRACK_WINDOWS,
+        WINDOW_SECTION_OVERHEAD,
+        MAX_REASON_CHARS
+    );
+
+    let reason_chars = MAX_BACKTRACK_WINDOWS * MAX_REASON_CHARS;
+    let overhead = section_chars - reason_chars;
+    assert!(
+        overhead <= WINDOW_SECTION_OVERHEAD,
+        "固定开销 {overhead} ≤ 标签与说明行上界 {WINDOW_SECTION_OVERHEAD}（标题 + 说明段 + 定界行）"
+    );
+    assert_eq!(
+        occurrences(&section, &reason),
+        MAX_BACKTRACK_WINDOWS,
+        "每条原因全文逐字在场（零自行截断）"
     );
 }

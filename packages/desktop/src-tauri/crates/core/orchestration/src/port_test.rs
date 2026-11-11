@@ -32,6 +32,7 @@ fn sample_phase_next_outcome() -> PhaseNextOutcome {
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
+        backtrack_window: Vec::new(),
         allowed_backtrack_phases: vec![
             BacktrackOption {
                 phase: "proposal".to_owned(),

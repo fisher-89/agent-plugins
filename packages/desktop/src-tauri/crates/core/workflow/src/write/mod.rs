@@ -19,7 +19,8 @@ pub use decision_log::{decision_log, DecisionLogOutcome};
 pub use delete::{delete, DeleteOutcome};
 pub use phase_log::{phase_log, PhaseLogInput, PhaseLogOutcome};
 pub use phase_next::{
-    phase_next, LastResult, PhaseNextError, PhaseNextOutcome, ResolvedPhaseSpec, SessionAnchors,
+    backtrack_window_section, phase_next, BacktrackWindowEntry, LastResult, PhaseNextError,
+    PhaseNextOutcome, ResolvedPhaseSpec, SessionAnchors,
 };
 pub use phase_start::{phase_start, PhaseStartOutcome};
 pub use phase_table::{

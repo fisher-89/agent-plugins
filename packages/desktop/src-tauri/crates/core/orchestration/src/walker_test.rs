@@ -29,9 +29,10 @@ use workflow::state::{
     RunNodeEntry, RunStartCommand, RunStatus, RunStepStatus,
 };
 use workflow::write::{
-    phase_table, ArtifactSpec, BacktrackOption, BacktrackOutcome, DecisionLogOutcome, LastResult,
-    OnFail, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, SessionAnchors,
-    StepDefinition, StepNode,
+    backtrack_window_section, phase_table, ArtifactSpec, BacktrackOption, BacktrackOutcome,
+    BacktrackWindowEntry, DecisionLogOutcome, LastResult, OnFail, PhaseLogOutcome, PhaseNextError,
+    PhaseNextOutcome, PhaseStartOutcome, ResolvedPhaseSpec, SessionAnchors, StepDefinition,
+    StepNode,
 };
 
 // ---------------------------------------------------------------------------
@@ -942,6 +943,7 @@ fn route_with_round(
             prompt: format!("change: c\n\nEvaluate the {phase} phase for change \"c\"."),
             model_level: ModelLevel::High,
         }),
+        backtrack_window: Vec::new(),
         allowed_backtrack_phases: allowed_options(allowed),
         last_result,
         error: None,
@@ -957,6 +959,7 @@ fn done_outcome() -> PhaseNextOutcome {
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
+        backtrack_window: Vec::new(),
         allowed_backtrack_phases: Vec::new(),
         last_result: None,
         error: None,
@@ -972,6 +975,7 @@ fn max_retries_outcome(phase: &str, allowed: &[&str], last_report: &str) -> Phas
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
+        backtrack_window: Vec::new(),
         allowed_backtrack_phases: allowed_options(allowed),
         last_result: Some(LastResult {
             phase: phase.to_owned(),
@@ -997,6 +1001,7 @@ fn verdict_fail_outcome(phase: &str, allowed: &[&str], last_report: &str) -> Pha
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
+        backtrack_window: Vec::new(),
         allowed_backtrack_phases: allowed_options(allowed),
         last_result: Some(LastResult {
             phase: phase.to_owned(),
@@ -1775,6 +1780,7 @@ fn archive_route_outcome() -> PhaseNextOutcome {
         artifact_manifest: manifest_of("archive"),
         executor: None,
         evaluator: None,
+        backtrack_window: Vec::new(),
         allowed_backtrack_phases: allowed_options(&TABLE),
         last_result: None,
         error: None,
@@ -15859,4 +15865,524 @@ impl ToolStepPort for ScriptedTools {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 回溯重做窗口透传（AC-10）：写面 error 响应的 `backtrack_window` 经
+// `resolve_deadlock` → `build_decision_input` 原样进入 `DecisionInput`，渲染单点
+// 在写面 `backtrack_window_section`——walker 零 store 读取、零相位表推导、零二次
+// 裁剪、零重排。
+// ---------------------------------------------------------------------------
+
+/// 窗口 fixture：`from_phase` / `to_phase` 取与白名单 / 候选段任何相位 id 均不
+/// 重名的合成串（使「零泄漏」可整篇断言）。
+fn decision_window(index: usize, reason: &str) -> BacktrackWindowEntry {
+    BacktrackWindowEntry {
+        from_phase: format!("phase-from-{index}"),
+        from_index: 10 + index,
+        to_phase: format!("phase-to-{index}"),
+        to_index: index,
+        reason: reason.to_owned(),
+    }
+}
+
+/// 给路由产出附加窗口集合（五处装置的「零窗口」基线不变，仅本组用例覆写）。
+fn with_windows(
+    mut outcome: PhaseNextOutcome,
+    windows: Vec<BacktrackWindowEntry>,
+) -> PhaseNextOutcome {
+    outcome.backtrack_window = windows;
+    outcome
+}
+
+/// 决策 prompt 内窗口段块数。
+fn window_blocks(prompt: &str) -> usize {
+    prompt.matches("<backtrack reason>").count()
+}
+
+/// 透传（正向，参数化迭代 2 变体）：携 2 条窗口的 error outcome → 决策会话请求
+/// prompt 含窗口段与两条原因；既有四面断言（fail checklist 只失败项 /
+/// fail_report 原文 / allowed 逐行 / candidates verdict + report）逐条保持。
+#[tokio::test]
+async fn 决策输入_窗口透传两变体且既有四面保持() {
+    let allowed = ["proposal", "dev-design", "implement"];
+    let windows = vec![
+        decision_window(0, "设计返工：缺产物区组件"),
+        decision_window(1, "需求返工：验收口径漂移"),
+    ];
+
+    // 变体一：VerdictFail
+    // 变体二：MaxRetriesExceeded —— 两变体同一路径（仅标注不同）
+    for variant in ["verdict-fail", "max-retries"] {
+        let (root, db) = decision_fixture(&format!("decision-window-{variant}"));
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+            .with_decision_reports(vec![
+                r#"{ "action": "stop", "reason": "人工介入" }"#.to_owned()
+            ])
+            .assemble();
+        let fork = if variant == "verdict-fail" {
+            verdict_fail_outcome("implement", &allowed, "首轮未过")
+        } else {
+            max_retries_outcome("implement", &allowed, "首轮未过")
+        };
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![
+                route_outcome("implement", &allowed),
+                with_windows(fork, windows.clone()),
+            ])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> =
+            Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, _history) =
+            spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+        let _confirmer = spawn_confirmer(&control, true);
+        let _ = task.await.expect("run 任务正常结束");
+
+        let prompt = decision_prompt_of(&requests);
+        assert!(
+            prompt.contains("## 回溯重做窗口"),
+            "{variant}：决策 prompt 含窗口段: {prompt}"
+        );
+        for window in &windows {
+            assert!(
+                prompt.contains(&window.reason),
+                "{variant}：两条原因逐条在场: {}",
+                window.reason
+            );
+        }
+        assert_eq!(
+            window_blocks(&prompt),
+            2,
+            "{variant}：渲染块数 == error 响应的窗口条数"
+        );
+        // 既有四面逐条保持
+        assert!(
+            prompt.contains("- 写面保形：custom_note 丢失"),
+            "{variant}：fail checklist 只失败项"
+        );
+        assert!(
+            prompt.contains("## 失败相位报告") && prompt.contains("首轮未过"),
+            "{variant}：fail_report 取失败条目 report 原文"
+        );
+        for phase in allowed {
+            assert!(
+                prompt.contains(&format!("- {phase}")),
+                "{variant}：白名单逐行（{phase}）"
+            );
+        }
+        assert!(
+            prompt.contains("## 候选相位最近一次评估报告"),
+            "{variant}：候选段在场"
+        );
+        assert!(
+            prompt.contains("提案通过") && prompt.contains("设计齐备"),
+            "{variant}：candidates verdict + report 逐条在场"
+        );
+    }
+}
+
+/// 原样不改写（正向，单次，AC-10）：`next.backtrack_window` 构造 3 条 → 决策
+/// prompt 渲 3 条且逐条等序等值于 `backtrack_window_section(&windows)` 对应片段
+///（walker 不重排、不裁剪、不改写）。
+#[tokio::test]
+async fn 决策输入_窗口原样不改写三条逐条等序() {
+    let allowed = ["proposal", "implement"];
+    let windows: Vec<BacktrackWindowEntry> = (0..3)
+        .map(|index| decision_window(index, &format!("R{index}-原因")))
+        .collect();
+    let (root, db) = decision_fixture("decision-window-passthrough");
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![r#"{ "action": "stop", "reason": "停" }"#.to_owned()])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            with_windows(
+                max_retries_outcome("implement", &allowed, "首轮未过"),
+                windows.clone(),
+            ),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    let prompt = decision_prompt_of(&requests);
+    let section = backtrack_window_section(&windows);
+    assert!(
+        prompt.contains(&section),
+        "决策 prompt 内窗口段与写面渲染产物逐字节相等（零重排 / 零裁剪 / 零改写）"
+    );
+    assert_eq!(window_blocks(&prompt), 3, "3 条入参 → 3 块");
+    let r0 = prompt.find("R0-原因").expect("首条在场");
+    let r1 = prompt.find("R1-原因").expect("次条在场");
+    let r2 = prompt.find("R2-原因").expect("末条在场");
+    assert!(r0 < r1 && r1 < r2, "逐条等序（不重排）");
+    // 零相位 id 泄漏（合成串整篇零命中）
+    for window in &windows {
+        assert!(
+            !prompt.contains(&window.from_phase) && !prompt.contains(&window.to_phase),
+            "零相位 id 泄漏: {} / {}",
+            window.from_phase,
+            window.to_phase
+        );
+    }
+}
+
+/// 空集基线（异常，参数化迭代 5 装置）：五处装置补空集后既有断言零改动，且决策
+/// prompt 零窗口段（空集分支与改动前逐字节等同）。本行以「装置输出的窗口集合恒
+/// 空集 → 决策 prompt 零段」承载（五装置的调用序覆盖由既有决策用例承载）。
+#[tokio::test]
+async fn 决策输入_五装置空集基线决策prompt零窗口段() {
+    let devices = [
+        (
+            "route_with_round",
+            route_with_round("implement", &["proposal"], 2, None),
+        ),
+        ("done_outcome", done_outcome()),
+        (
+            "max_retries_outcome",
+            max_retries_outcome("implement", &["proposal"], "未过"),
+        ),
+        (
+            "verdict_fail_outcome",
+            verdict_fail_outcome("implement", &["proposal"], "未过"),
+        ),
+        ("archive_route_outcome", archive_route_outcome()),
+    ];
+    for (label, device) in devices {
+        assert!(
+            device.backtrack_window.is_empty(),
+            "{label} 装置语义保持「零窗口」基线"
+        );
+        assert_eq!(
+            backtrack_window_section(&device.backtrack_window),
+            "",
+            "{label} 空集渲染空串 ⇒ 决策 prompt 零窗口段"
+        );
+    }
+
+    // 端到端侧证：空集 error 响应 → 决策 prompt 零段
+    let allowed = ["proposal", "implement"];
+    let (root, db) = decision_fixture("decision-window-empty");
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![r#"{ "action": "stop", "reason": "停" }"#.to_owned()])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            max_retries_outcome("implement", &allowed, "未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+    let prompt = decision_prompt_of(&requests);
+    assert!(
+        !prompt.contains("## 回溯重做窗口") && !prompt.contains("<backtrack"),
+        "空集形态决策 prompt 零窗口段: {prompt}"
+    );
+}
+
+/// 取数面窄化（异常，参数化迭代 2 形态，D9）：`last_result` 缺席 → `Terminal`
+/// 且零决策请求；快照 `detail` 读取 `Err` → `Terminal`（窗口字段零参与——窗口
+/// 非空时两早退面同样不受影响）。
+#[tokio::test]
+async fn 决策输入_窗口非空时两早退面仍terminal() {
+    let windows = vec![decision_window(0, "设计返工")];
+
+    // 形态一：last_result 缺席（窗口非空不改变早退判据）
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mut no_last_result = max_retries_outcome("implement", &["proposal", "implement"], "未过");
+    no_last_result.last_result = None;
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![with_windows(no_last_result, windows.clone())])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "缺 last_result 显式 failed"
+    );
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("缺 last_result"),
+        "记因无法组装决策输入: {:?}",
+        finish.reason
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零决策请求（窗口非空亦不改变早退）"
+    );
+
+    // 形态二：快照 detail 读取 Err
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![with_windows(
+            max_retries_outcome("implement", &["proposal", "implement"], "未过"),
+            windows,
+        )])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "快照读取失败显式 failed");
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("快照读取失败"),
+        "记因快照读取失败: {:?}",
+        finish.reason
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零决策请求（组装输入前失败）"
+    );
+}
+
+/// 段序（边界，单次，AC-1 / spec「段序窗口段先于反馈段」）：写面 outcome 的
+/// executor prompt（含窗口段 + 反馈段）直出 → 序为「上下文头 → 主体 → 窗口段 →
+/// 反馈段」；evaluator 经 `evaluator_prompt` append 协议 → 窗口段 < 反馈段 <
+/// 输出协议三者同时在场。
+#[tokio::test]
+async fn 决策输入_段序窗口段先于反馈段evaluator协议在末() {
+    let windows = vec![decision_window(0, "设计返工：缺产物区组件")];
+    let section = backtrack_window_section(&windows);
+    let feedback =
+        "\n\n⚠️ 上次评估未通过（attempt 2），请针对以下失败项修复：\n\n- 失败项：缺失目标段";
+    let mut route = route_outcome("implement", &["proposal", "implement"]);
+    route.executor = Some(ResolvedPhaseSpec {
+        prompt: format!("change: c\n\nImplement the implement phase.{section}{feedback}"),
+        model_level: ModelLevel::Low,
+    });
+    route.evaluator = Some(ResolvedPhaseSpec {
+        prompt: format!("change: c\n\nEvaluate the implement phase.{section}{feedback}"),
+        model_level: ModelLevel::High,
+    });
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![Ok(PASS_JSON.to_owned())])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route, done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    let captured = requests.lock().expect("请求锁");
+    let executor = captured
+        .iter()
+        .find(|request| request.role == WorkerRole::Executor)
+        .expect("executor 请求在场");
+    let header = executor.prompt.find("change: c").expect("上下文头在场");
+    let window_at = executor.prompt.find("## 回溯重做窗口").expect("窗口段在场");
+    let feedback_at = executor
+        .prompt
+        .find("⚠️ 上次评估未通过")
+        .expect("反馈段在场");
+    assert!(
+        header < window_at && window_at < feedback_at,
+        "executor 段序：上下文头 → 主体 → 窗口段 → 反馈段"
+    );
+
+    let evaluator = captured
+        .iter()
+        .find(|request| request.role == WorkerRole::Evaluator)
+        .expect("evaluator 请求在场");
+    let window_at = evaluator
+        .prompt
+        .find("## 回溯重做窗口")
+        .expect("窗口段在场");
+    let feedback_at = evaluator
+        .prompt
+        .find("⚠️ 上次评估未通过")
+        .expect("反馈段在场");
+    let protocol_at = evaluator.prompt.find("## 输出协议").expect("协议附录在场");
+    assert!(
+        window_at < feedback_at && feedback_at < protocol_at,
+        "evaluator 段序：窗口段 → 反馈段 → 输出协议附录（append 在外层）"
+    );
+}
+
+/// 窗内相位同时带 fail 反馈 + 窗口段并存（边界，单次）：`max_retries_outcome`
+/// 携非空窗口 → 决策 prompt 的窗口段仍在 `## 失败相位报告` 之前，失败明细段内容
+/// 零变化（walker 零重排）。
+#[tokio::test]
+async fn 决策输入_窗内fail反馈与窗口段并存且段位不变() {
+    let allowed = ["proposal", "implement"];
+    let windows = vec![decision_window(0, "设计返工：缺产物区组件")];
+    let (root, db) = decision_fixture("decision-window-with-feedback");
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![r#"{ "action": "stop", "reason": "停" }"#.to_owned()])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            with_windows(
+                max_retries_outcome("implement", &allowed, "首轮未过"),
+                windows.clone(),
+            ),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    let prompt = decision_prompt_of(&requests);
+    let window_at = prompt.find("## 回溯重做窗口").expect("窗口段在场");
+    let report_at = prompt.find("## 失败相位报告").expect("失败相位报告段在场");
+    assert!(
+        window_at < report_at,
+        "窗口段仍在失败相位报告之前（{window_at} < {report_at}）"
+    );
+    assert!(
+        prompt.contains("- 写面保形：custom_note 丢失"),
+        "失败明细段内容零变化（walker 零重排）: {prompt}"
+    );
+    assert!(
+        prompt.contains("首轮未过"),
+        "fail_report 原文零变化: {prompt}"
+    );
+}
+
+/// 组合：写面 → walker 决策链（组合，单次）：`TestDb` 种子回溯落账 + 真实
+/// `StoreSnapshot` + 携该窗口的 error outcome → 决策 prompt 同时满足「窗口段在场
+/// 且条数 == 响应 `backtrack_window.len()`」与「零相位 id 泄漏」；与 `prompt_test`
+/// 的单元行构成同一契约的两级判据（本行证明链路接线，不重复断言段内形状）。
+#[tokio::test]
+async fn 组合_写面回溯落账经walker透传至决策prompt() {
+    let root = TempRoot::new("decision-window-chain");
+    root.change(NAME);
+    let db = TestDb::open("decision-window-chain");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        TS_BASE,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "dev-design",
+        Verdict::Pass,
+        "设计齐备",
+        Vec::new(),
+        TS_BASE + 60_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "implement",
+        Verdict::Fail,
+        "首轮未过",
+        Vec::new(),
+        TS_BASE + 120_000,
+    );
+    // 真实回溯落账（改寫发起相位最新条目的 backtrack_to / backtrack_reason）
+    db.store
+        .apply_change_backtrack(&workflow::state::BacktrackCommand {
+            change_id: CHANGE_ID.to_owned(),
+            phase: "implement".to_owned(),
+            to: "dev-design".to_owned(),
+            reason: "设计返工：缺产物区组件".to_owned(),
+            stale_dependents: vec!["implement".to_owned()],
+        })
+        .expect("回溯落账种子应成功");
+    // 装置自检：落账后的标记行即写面推导的输入（真实库读回）
+    let records = db
+        .store
+        .list_phase_records(CHANGE_ID)
+        .expect("条目序列可读");
+    let marker = records
+        .iter()
+        .find(|record| record.backtrack_to.is_some())
+        .expect("回溯标记行在位");
+    assert_eq!(marker.phase, "implement", "标记行 = 发起相位最新条目");
+    assert_eq!(
+        marker.backtrack_to.as_deref(),
+        Some("dev-design"),
+        "标记行目标取自落库"
+    );
+    let reason = marker.backtrack_reason.clone().unwrap_or_default();
+    assert_eq!(reason, "设计返工：缺产物区组件", "原因原文逐字落库");
+
+    let allowed = ["proposal", "dev-design", "implement"];
+    let windows = vec![decision_window(0, &reason)];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![r#"{ "action": "stop", "reason": "停" }"#.to_owned()])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            with_windows(
+                verdict_fail_outcome("implement", &allowed, "首轮未过"),
+                windows.clone(),
+            ),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+
+    let prompt = decision_prompt_of(&requests);
+    assert!(
+        prompt.contains("## 回溯重做窗口"),
+        "决策 prompt 携窗口段（链路接线成立）: {prompt}"
+    );
+    assert_eq!(
+        window_blocks(&prompt),
+        windows.len(),
+        "渲染块数 == 写面响应 backtrack_window.len()"
+    );
+    assert!(
+        prompt.contains(&reason),
+        "落库原因原文经链路逐字抵达决策 prompt"
+    );
+    assert!(
+        !prompt.contains(&windows[0].from_phase) && !prompt.contains(&windows[0].to_phase),
+        "零相位 id 泄漏（合成串整篇零命中）"
+    );
 }

@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use workflow::model::{ChecklistItem, Verdict};
-use workflow::write::BacktrackOption;
+use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 
 /// 决策 reason 长度上限
 pub(crate) const MAX_REASON_CHARS: usize = 500;
@@ -46,6 +46,10 @@ pub struct DecisionInput {
     pub allowed: Vec<BacktrackOption>,
     /// 候选相位最近 eval report
     pub candidates: Vec<CandidateReport>,
+    /// 回溯重做窗口集合（透传自写面 error 响应；walker MUST NOT 自读 store、
+    /// MUST NOT 自相位表二次推导——判据与渲染单源 = 写面「回溯重做窗口推导
+    /// 与 prompt 携带」）
+    pub backtrack_window: Vec<BacktrackWindowEntry>,
 }
 
 /// 解析决策最终消息为三动作封闭集：JSON 载体提取 → tag `action` 判别。

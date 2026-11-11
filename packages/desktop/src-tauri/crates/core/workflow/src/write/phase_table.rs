@@ -45,6 +45,12 @@ pub(crate) const MAX_REPORT_CHARS: usize = 2000;
 /// 影响；插件 `backtrackInputSchema.backtrack_reason` 的 max 500 亦不受影响）。
 pub(crate) const MAX_REASON_CHARS: usize = 1000;
 
+/// 回溯窗口层级上限（写面单点，与 `MAX_REASON_CHARS` / `MAX_REPORT_CHARS` /
+/// `MAX_ROUNDS` 同区；prompt 文案与测试断言引用本常量，零写死数字）：命中
+/// 窗口数 ≤ 本上限时全量并集，超限取创建序末位两层（被裁的恒为创建序最早
+/// 那条，亦即该组中 `from_index` 最大者）。
+pub(crate) const MAX_BACKTRACK_WINDOWS: usize = 2;
+
 /// requirement 工作流类型键（相位表键之一；其余类型在写面 / 发起前置校验显式
 /// 拒绝）。
 const REQUIREMENT_WORKFLOW_TYPE: &str = "requirement";

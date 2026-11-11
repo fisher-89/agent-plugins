@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use super::phase_table::{
     allowed_backtrack_phases, backtrack_options, dependents, phase_table, PhaseAgentSpec,
-    PhaseDefinition, MAX_RETRY_TIMES,
+    PhaseDefinition, MAX_BACKTRACK_WINDOWS, MAX_REASON_CHARS, MAX_REPORT_CHARS, MAX_RETRY_TIMES,
+    MAX_ROUNDS,
 };
 use crate::state::{OnFail, StepDefinition, StepNode};
 use crate::write::INITIALIZE_PHASE_ID;
@@ -861,6 +862,94 @@ fn phase_table_agent_spec结构收敛且全表prompt静态非空() {
 fn 重试上限常量锚定为5与插件一致() {
     // 与插件 `MAX_RETRY_TIMES` 一致——重试上限语义的常量锚
     assert_eq!(MAX_RETRY_TIMES, 5);
+}
+
+// ---------------------------------------------------------------------------
+// 回溯窗口上限常量（`MAX_BACKTRACK_WINDOWS`）：与 `MAX_RETRY_TIMES` /
+// `MAX_REASON_CHARS` / `MAX_REPORT_CHARS` / `MAX_ROUNDS` 同址锚定——写面推导的
+// 裁剪量由它驱动，prompt 文案与测试断言引用本常量、零写死数字。
+// ---------------------------------------------------------------------------
+
+/// 常量锚定（正向，单次，AC-4 / AC-9）：`MAX_BACKTRACK_WINDOWS == 2` 且类型为
+/// `usize`（参与 `saturating_sub` / `skip` 算式，与切片长度同域）。
+#[test]
+fn 回溯窗口上限常量锚定为2() {
+    let limit: usize = MAX_BACKTRACK_WINDOWS;
+    assert_eq!(
+        limit, 2,
+        "回溯窗口层级上限锚定 2（≤ 上限全量、超限取末位两层）"
+    );
+    assert_eq!(
+        std::mem::size_of_val(&MAX_BACKTRACK_WINDOWS),
+        std::mem::size_of::<usize>(),
+        "常量类型为 usize（与 saturating_sub / skip 的算式同域）"
+    );
+}
+
+/// 新增常量零触碰既有常量（正向，参数化迭代 4 常量）：四个既有写面常量逐值不
+/// 变——新增上限常量不挤占 / 不重定义既有语义。
+#[test]
+fn 回溯窗口上限常量零触碰既有常量() {
+    let cases: [(&str, usize, usize); 3] = [
+        ("MAX_REASON_CHARS", MAX_REASON_CHARS, 1000),
+        ("MAX_REPORT_CHARS", MAX_REPORT_CHARS, 2000),
+        ("MAX_ROUNDS", MAX_ROUNDS as usize, 20),
+    ];
+    for (name, actual, expected) in cases {
+        assert_eq!(actual, expected, "{name} 逐值不变（新增常量零触碰）");
+    }
+    assert_eq!(MAX_RETRY_TIMES, 5, "MAX_RETRY_TIMES 逐值不变");
+}
+
+/// 新增常量零触碰表体（正向，参数化迭代 2 表）：两表的相位序逐条不变——上限
+/// 常量属常量区，不参与相位表结构。
+#[test]
+fn 回溯窗口上限常量零触碰两表相位序() {
+    let requirement = phase_table("requirement").expect("requirement 表可达");
+    let ids: Vec<&str> = requirement.iter().map(|def| def.id).collect();
+    assert_eq!(
+        ids,
+        REQUIREMENT_PHASE_ORDER.to_vec(),
+        "requirement 相位序不变"
+    );
+    let test_only = phase_table("test-only").expect("test-only 表可达");
+    let ids: Vec<&str> = test_only.iter().map(|def| def.id).collect();
+    assert_eq!(ids, TEST_ONLY_PHASE_ORDER.to_vec(), "test-only 相位序不变");
+}
+
+/// 语义下界（边界，单次）：`MAX_BACKTRACK_WINDOWS >= 1`（取 0 会让窗口段恒
+/// 空、上限语义退化）且 `< requirement 表长`（上限不越表内相位数，否则裁剪永不
+/// 触发）。
+#[test]
+fn 回溯窗口上限常量语义下界() {
+    let limit = MAX_BACKTRACK_WINDOWS;
+    assert!(limit >= 1, "上限 >= 1（取 0 会让窗口段恒空、上限语义退化）");
+    let table_len = phase_table("requirement")
+        .expect("requirement 表可达")
+        .len();
+    assert!(
+        MAX_BACKTRACK_WINDOWS < table_len,
+        "上限 {MAX_BACKTRACK_WINDOWS} < 相位数 {table_len}（否则裁剪永不触发）"
+    );
+}
+
+/// 体积界算式可用（边界，单次，AC-13）：`MAX_BACKTRACK_WINDOWS ×（标签与说明行
+/// 上界 + MAX_REASON_CHARS）` ≤ 2400（≈2.1K 加余量）——用常量算式断言，零浮点
+/// 面、零字面量 `2` 的业务语义。
+#[test]
+fn 回溯窗口上限常量体积界算式可用() {
+    // 标签与说明行上界：标题行 + 说明段 + 每条两条定界行（与渲染单点的固定开销
+    // 同量级；此处取值留足余量，判据是「算式可算出有界值」）
+    const LABEL_AND_PREAMBLE_BOUND: usize = 192;
+    let bound = MAX_BACKTRACK_WINDOWS * (LABEL_AND_PREAMBLE_BOUND + MAX_REASON_CHARS);
+    assert!(
+        bound <= 2400,
+        "体积界算式 {bound} ≤ 2400（上限 ×（标签上界 + {MAX_REASON_CHARS}））"
+    );
+    assert!(
+        bound > MAX_REASON_CHARS,
+        "界恒大于单条原因上限（否则上限语义无增量）"
+    );
 }
 
 #[test]

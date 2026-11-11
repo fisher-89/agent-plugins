@@ -1,5 +1,5 @@
 use workflow::model::Verdict;
-use workflow::write::BacktrackOption;
+use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 
 use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
@@ -369,6 +369,7 @@ fn decision_input_fail_report字段面() {
             verdict: Some(Verdict::Pass),
             report: Some("提案通过".to_owned()),
         }],
+        backtrack_window: Vec::new(),
     };
     let shapes = [
         String::new(),
@@ -420,4 +421,264 @@ fn decision_action封闭集边界可构造() {
     }
     // 空串与超长值两两可辨
     assert_ne!(cases[0], cases[1]);
+}
+
+// ---------------------------------------------------------------------------
+// `DecisionInput.backtrack_window` 字段面（透传面）：值原样取自写面 error
+// 响应；walker MUST NOT 自读 store、MUST NOT 自相位表推导。`Vec` 非 `Option`
+// ——空集即「无窗口」。行为面（透传与渲染）由 walker_test / prompt_test 覆盖，
+// 本章节只锁字段面。
+// ---------------------------------------------------------------------------
+
+/// 窗口记录 fixture（字段值全部可辨，逐字段等值断言的事实源）。
+fn window_entry(
+    from: &str,
+    from_index: usize,
+    to: &str,
+    to_index: usize,
+    reason: &str,
+) -> BacktrackWindowEntry {
+    BacktrackWindowEntry {
+        from_phase: from.to_owned(),
+        from_index,
+        to_phase: to.to_owned(),
+        to_index,
+        reason: reason.to_owned(),
+    }
+}
+
+/// 全空窗口（结构面「五字段必给」的基线形态——`{}` 不可构造）。
+fn empty_window() -> BacktrackWindowEntry {
+    window_entry("", 0, "", 0, "")
+}
+
+/// 字段面基座（既有五面置可辨值，窗口面取入参）。
+fn input_with_window(backtrack_window: Vec<BacktrackWindowEntry>) -> DecisionInput {
+    DecisionInput {
+        phase: "implement".to_owned(),
+        attempt: 2,
+        fail_checklist: Vec::new(),
+        fail_report: "失败明细".to_owned(),
+        allowed: vec![allowed_phase("proposal")],
+        candidates: vec![CandidateReport {
+            phase: "proposal".to_owned(),
+            verdict: Some(Verdict::Pass),
+            report: Some("提案通过".to_owned()),
+        }],
+        backtrack_window,
+    }
+}
+
+/// 字段面保真（正向，单次，AC-10）：含 2 条窗口的 `DecisionInput` → 逐字段等值、
+/// `PartialEq` 可辨、与既有五面并列且互不扰动。
+#[test]
+fn decision_input_backtrack_window字段面保真() {
+    let windows = vec![
+        window_entry("test-gen", 5, "dev-design", 2, "设计返工：缺产物区组件"),
+        window_entry("implement", 4, "proposal", 1, "需求返工：目标偏离"),
+    ];
+    let input = input_with_window(windows.clone());
+
+    assert_eq!(input.backtrack_window.len(), 2, "两条窗口随行");
+    for (actual, expected) in input.backtrack_window.iter().zip(windows.iter()) {
+        assert_eq!(actual.from_phase, expected.from_phase, "from_phase 逐字段");
+        assert_eq!(actual.from_index, expected.from_index, "from_index 逐字段");
+        assert_eq!(actual.to_phase, expected.to_phase, "to_phase 逐字段");
+        assert_eq!(actual.to_index, expected.to_index, "to_index 逐字段");
+        assert_eq!(actual.reason, expected.reason, "reason 逐字段");
+        assert_eq!(actual, expected, "整条 PartialEq 等值");
+    }
+
+    // 与既有五面并列且互不扰动
+    let without_window = input_with_window(Vec::new());
+    assert_eq!(input.phase, without_window.phase, "phase 面零扰动");
+    assert_eq!(input.attempt, without_window.attempt, "attempt 面零扰动");
+    assert_eq!(
+        input.fail_checklist, without_window.fail_checklist,
+        "fail_checklist 面零扰动"
+    );
+    assert_eq!(
+        input.fail_report, without_window.fail_report,
+        "fail_report 面零扰动"
+    );
+    assert_eq!(input.allowed, without_window.allowed, "allowed 面零扰动");
+    assert_eq!(
+        input.candidates, without_window.candidates,
+        "candidates 面零扰动"
+    );
+    assert_ne!(
+        input, without_window,
+        "窗口面独立参与 PartialEq（非空 / 空集可辨）"
+    );
+    assert_eq!(input.clone(), input, "PartialEq 自反");
+}
+
+/// spread 构造自动随动（正向，参数化迭代既有站点形态，AC-10 / R-9）：以
+/// `..base` 覆写单面的既有 19 处构造形态编译并全绿——两处完整构造器与 `base`
+/// 补字段后既有断言逐条不变（本行以 spread 形态自证随动）。
+#[test]
+fn decision_input_spread构造窗口面自动随动() {
+    let base = input_with_window(vec![window_entry(
+        "test-gen",
+        5,
+        "dev-design",
+        2,
+        "基座窗口",
+    )]);
+    let cases = [
+        DecisionInput {
+            phase: "dev-design".to_owned(),
+            ..base.clone()
+        },
+        DecisionInput {
+            attempt: 0,
+            ..base.clone()
+        },
+        DecisionInput {
+            fail_report: String::new(),
+            ..base.clone()
+        },
+        DecisionInput {
+            allowed: Vec::new(),
+            ..base.clone()
+        },
+        DecisionInput {
+            candidates: Vec::new(),
+            ..base.clone()
+        },
+    ];
+    for (index, case) in cases.iter().enumerate() {
+        assert_eq!(
+            case.backtrack_window, base.backtrack_window,
+            "形态 {index}：spread 构造保留窗口面（字段补齐自动随动）"
+        );
+    }
+    // 覆写窗口面本身亦随动（新值生效、其余面继承）
+    let overridden = DecisionInput {
+        backtrack_window: Vec::new(),
+        ..base.clone()
+    };
+    assert!(
+        overridden.backtrack_window.is_empty(),
+        "覆写窗口面生效（spread 后置字段优先）"
+    );
+    assert_eq!(overridden.phase, base.phase, "其余面继承不变");
+}
+
+/// 空集与非空集可辨（异常，参数化迭代 2 形态）：`assert_ne!` 双向；既有
+/// `parse_decision` / `ensure_backtrack_allowed` 两函数语义零耦合（窗口面不参与
+/// 判定——以既有判据在非空窗口输入下仍按白名单裁决承载）。
+#[test]
+fn decision_input_空集与非空集可辨且零语义耦合() {
+    let empty = input_with_window(Vec::new());
+    let filled = input_with_window(vec![window_entry("test-gen", 5, "dev-design", 2, "R")]);
+    assert_ne!(empty, filled, "空集 / 非空集可辨（正向）");
+    assert_ne!(filled, empty, "空集 / 非空集可辨（反向）");
+    assert!(empty.backtrack_window.is_empty(), "空集即「无窗口」");
+    assert_eq!(filled.backtrack_window.len(), 1, "非空集携条数");
+
+    // 零语义耦合：窗口面与 decision 判定两函数无关——非空窗口输入下
+    // parse_decision / ensure_backtrack_allowed 仍按各自契约裁决
+    let action = parse_decision(r#"{ "action": "backtrack", "to": "proposal", "reason": "任意" }"#)
+        .expect("解析不受窗口面影响");
+    assert!(
+        ensure_backtrack_allowed(&action, "implement", &filled.allowed).is_ok(),
+        "白名单命中判据不受窗口面影响"
+    );
+    let denied = ensure_backtrack_allowed(&action, "implement", &[]).expect_err("空白名单应 Err");
+    assert!(
+        denied.contains("越权") || denied.contains("白名单"),
+        "拒绝文案照常"
+    );
+    // 退役字段零残留（`eval_only` 等形态不存在：字段面恰为既有六面 + 窗口面）
+    let DecisionInput {
+        phase: _,
+        attempt: _,
+        fail_checklist: _,
+        fail_report: _,
+        allowed: _,
+        candidates: _,
+        backtrack_window: _,
+    } = filled;
+}
+
+/// 字段值边界（边界，组合迭代 2 index × 3 reason）：`from_index` / `to_index`
+/// 取 `0` 与 `usize::MAX`；`reason` 取 `""` / `MAX_REASON_CHARS` 长文（本 crate
+/// 的 500，与写面 1000 是两个常量，本层不裁决长度）/ 特殊字符；`from_phase` /
+/// `to_phase` 取 `""` 与 1200 字符超长串 → 逐字保真、不裁剪（截断归写面，本层
+/// 纯数据载体）。
+#[test]
+fn decision_input_backtrack_window字段值边界() {
+    let long = "字".repeat(MAX_REASON_CHARS);
+    let reasons = [String::new(), long.clone(), "a\n\0🚀".to_owned()];
+    for index in [0usize, usize::MAX] {
+        for reason in &reasons {
+            let entry = window_entry("", index, "", index, reason);
+            let input = input_with_window(vec![entry.clone()]);
+            let kept = &input.backtrack_window[0];
+            assert_eq!(kept.from_index, index, "from_index = {index} 逐字保真");
+            assert_eq!(kept.to_index, index, "to_index = {index} 逐字保真");
+            assert_eq!(kept.reason, *reason, "reason 原样保真（不裁剪）");
+            assert_eq!(kept, &entry, "整条等值（index {index}）");
+        }
+    }
+    // 恰上限 vs 超长：均原样承接（本层零长度门）
+    for reason in [long, "x".repeat(1200)] {
+        let entry = window_entry("", 0, "", 0, &reason);
+        let input = input_with_window(vec![entry]);
+        assert_eq!(
+            input.backtrack_window[0].reason.chars().count(),
+            reason.chars().count(),
+            "reason 字符数原样承接（{} 字符，零截断）",
+            reason.chars().count()
+        );
+    }
+    // 相位 id 取空串与超长串：本层是纯数据载体，逐字保真不裁剪（截断归写面）
+    for phase in [String::new(), "p".repeat(1200)] {
+        let entry = window_entry(&phase, 0, &phase, 0, "R");
+        let input = input_with_window(vec![entry.clone()]);
+        let kept = &input.backtrack_window[0];
+        assert_eq!(kept.from_phase, phase, "from_phase 逐字保真（零裁剪）");
+        assert_eq!(kept.to_phase, phase, "to_phase 逐字保真（零裁剪）");
+        assert_eq!(kept, &entry, "整条等值（相位 id 形态）");
+    }
+}
+
+/// 集合三形态（边界，参数化迭代 3 形态）：`[]` / 单元素 / 1000 元素 → 可构造、
+/// 可比较、不 panic；`None` 语义不可表达（`Vec` 非 `Option`，编译期事实）。
+#[test]
+fn decision_input_backtrack_window集合三形态() {
+    let shapes = [
+        Vec::new(),
+        vec![empty_window()],
+        (0..1000)
+            .map(|index| {
+                window_entry(
+                    &format!("phase-from-{index}"),
+                    index,
+                    &format!("phase-to-{index}"),
+                    index,
+                    &format!("R{index}"),
+                )
+            })
+            .collect::<Vec<_>>(),
+    ];
+    for (index, windows) in shapes.iter().enumerate() {
+        let len = windows.len();
+        let input = input_with_window(windows.clone());
+        assert_eq!(input.backtrack_window.len(), len, "形态 {index} 条数保真");
+        assert_eq!(input.backtrack_window, *windows, "形态 {index} 逐条等值");
+        assert_eq!(
+            input.clone(),
+            input,
+            "形态 {index} PartialEq 自反（不 panic）"
+        );
+    }
+    // 1000 条形态：首末条可辨（顺序保真，不重排）
+    let many = input_with_window(shapes[2].clone());
+    assert_eq!(many.backtrack_window[0].reason, "R0", "首条原位");
+    assert_eq!(
+        many.backtrack_window[999].reason, "R999",
+        "末条原位（顺序保真）"
+    );
 }
