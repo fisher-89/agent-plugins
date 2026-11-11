@@ -1,3 +1,4 @@
+import { type MenuTriggerState, type UseRenderRenderProp } from '@base-ui/react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -13,7 +14,7 @@ import { ipc } from '@/lib/ipc';
 import { type ExploreScanEntry } from '@/types/generated/bindings';
 
 export interface ExploreOpenFileProps {
-  trigger: Parameters<typeof DropdownMenuTrigger>[0]['render'];
+  trigger: UseRenderRenderProp<MenuTriggerState>;
   root: string;
   onCreated: (name: string, autoPrompt: string | null) => void;
 }

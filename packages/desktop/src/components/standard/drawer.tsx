@@ -1,3 +1,5 @@
+import { type DrawerTriggerState, type UseRenderRenderProp } from '@base-ui/react';
+
 import { Button } from '@/components/ui/button';
 import {
   Drawer,
@@ -8,6 +10,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 import { useOpen } from './hooks/use-open';
 
@@ -15,7 +18,7 @@ type StandardDrawerProps = {
   title: string;
   content: React.JSX.Element;
   containerClassName?: string;
-  trigger?: React.JSX.Element;
+  trigger?: UseRenderRenderProp<DrawerTriggerState>;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   /** 模态开关（缺省 `true`：遮罩 + 点遮罩关闭）；非模态时无遮罩、容器不吃
@@ -44,7 +47,7 @@ export function StandardDrawer({
         <DrawerHeader>
           <DrawerTitle>{title}</DrawerTitle>
         </DrawerHeader>
-        {content}
+        <ScrollArea className="p-4 max-h-[calc(100%-40px)] max-w-full">{content}</ScrollArea>
         <DrawerFooter>
           <DrawerClose render={<Button variant="outline" />}>关闭</DrawerClose>
         </DrawerFooter>

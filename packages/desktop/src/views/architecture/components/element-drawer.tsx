@@ -1,15 +1,6 @@
-/**
- * 右抽屉：① 元素概览（`kind` / `path` / `gate` / `modelFile:line`——位置可直接用于
- * `edit`）；② 文档关联列表（四字段条目，按来源强度序）；③ ADR 条目按需取正文并渲
- * 染 markdown（取数只接受关联集内路径）；④ `incremental` 模式下 `gate` 编辑入口。
- *
- * 本期边界（归 check 侧，零占位）：无「相邻报告」区块、无漂移统计、无门禁结论、
- * 无豁免 reason 编辑入口。`full` 模式只读——不渲染任何可提交的改档控件。
- */
 import { useEffect, useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
+import { FileViewer } from '@/components/file/file-viewer';
 import { Button } from '@/components/ui/button';
 
 import {
@@ -19,10 +10,7 @@ import {
   type ArchiRelation,
   type GateTier,
 } from '../../../types/generated/bindings';
-import { useArchiDoc, useArchiModule } from '../hooks/use-archi-module';
-
-/** 模块级稳定引用：react-markdown 每次渲染都重建 processor，插件数组不必每拍新建 */
-const REMARK_PLUGINS = [remarkGfm];
+import { useArchiModule } from '../hooks/use-archi-module';
 
 /** gate 三档（封闭值域；文案 = 线格式词）。 */
 const GATE_TIERS: GateTier[] = ['off', 'warn', 'strict'];
@@ -69,7 +57,7 @@ function Overview({ element }: { element: ArchiElement }): React.JSX.Element {
         {position}
       </div>
       {element.summary !== null && (
-        <div className="break-words text-muted-foreground">{element.summary}</div>
+        <div className="wrap-break-word text-muted-foreground">{element.summary}</div>
       )}
     </div>
   );
@@ -82,63 +70,33 @@ function DocRow({
   title,
   source,
   kind,
-  selected,
-  onToggle,
 }: {
-  root: string | null;
+  root: string;
   path: string;
   title: string;
   source: string;
   kind: string;
-  selected: boolean;
-  onToggle: () => void;
 }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-0.5" data-testid="archi-doc-item" data-source={source}>
-      <button
-        className="break-all text-left text-[13px]"
-        onClick={onToggle}
-        disabled={kind !== 'adr'}
-        title={path}
-      >
-        {title}
-        <span className="ml-1 text-xs text-muted-foreground">
-          {source} · {kind}
-        </span>
-      </button>
-      <div className="break-all font-mono text-[11px] text-muted-foreground">{path}</div>
-      {selected && <AdrBody root={root} path={path} />}
-    </div>
-  );
-}
-
-/** ADR 正文（`archi_read_doc` 按需取；`data-testid="archi-adr-body"`）。 */
-function AdrBody({ root, path }: { root: string | null; path: string }): React.JSX.Element {
-  const doc = useArchiDoc(root);
-  const { load, reset } = doc;
-  // 展开即取（挂载 / 换条目两触发）；收起（父级卸载）与换条目（依赖变化）皆清态——
-  // 上一份正文不跨条目残留
-  useEffect(() => {
-    load(path);
-    return () => {
-      reset();
-    };
-  }, [load, path, reset]);
-  if (doc.loading) return <div className="text-xs text-muted-foreground">正文加载中…</div>;
-  if (doc.error !== null) {
-    return (
-      <div
-        className="break-all rounded-md bg-fail-bg px-2 py-1 text-xs text-fail"
-        data-testid="archi-doc-error"
-      >
-        {doc.error}
-      </div>
-    );
-  }
-  if (doc.body === null) return <div className="text-xs text-muted-foreground">（空正文）</div>;
-  return (
-    <div className="prose prose-sm max-w-none text-[13px]" data-testid="archi-adr-body">
-      <Markdown remarkPlugins={REMARK_PLUGINS}>{doc.body}</Markdown>
+      <FileViewer
+        root={root}
+        files={[{ path }]}
+        trigger={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="justify-start"
+            disabled={kind !== 'adr'}
+            title={path}
+          >
+            {title}
+            <span className="ml-1 text-xs text-muted-foreground">
+              {source} · {kind}
+            </span>
+          </Button>
+        }
+      />
     </div>
   );
 }
@@ -224,10 +182,9 @@ function DocsSection({
   root,
   docs,
 }: {
-  root: string | null;
+  root: string;
   docs: ArchiModuleDetail['docs'];
 }): React.JSX.Element {
-  const [openDoc, setOpenDoc] = useState<string | null>(null);
   return (
     <div className="flex flex-col gap-1">
       <h3 className="m-0 text-[13px] font-medium text-muted-foreground">文档</h3>
@@ -244,8 +201,6 @@ function DocsSection({
             source={doc.source}
             kind={doc.kind}
             root={root}
-            selected={openDoc === doc.path}
-            onToggle={() => setOpenDoc(openDoc === doc.path ? null : doc.path)}
           />
         ))
       )}
@@ -318,7 +273,7 @@ export function ElementDrawer({
           {module.error}
         </div>
       )}
-      <DocsSection root={root} docs={module.detail?.docs ?? []} />
+      {root && <DocsSection root={root} docs={module.detail?.docs ?? []} />}
       <ExemptSection element={element} relations={relations} />
       {mode === 'incremental' ? (
         <GateEditor key={element.fqn} root={root} element={element} onChanged={onChanged} />

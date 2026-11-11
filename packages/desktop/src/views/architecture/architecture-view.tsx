@@ -13,6 +13,7 @@ export function ArchitectureView({ root }: { root: string | null }): React.JSX.E
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-[15px]">架构</h2>
+        <div className="flex-1"></div>
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"

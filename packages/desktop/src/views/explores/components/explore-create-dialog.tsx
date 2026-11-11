@@ -1,13 +1,13 @@
+import { type DialogTriggerProps, type UseRenderRenderProp } from '@base-ui/react';
 import { useCallback, useState } from 'react';
 
 import { StandardDialog } from '@/components/standard/dailog';
-import { type DialogTrigger } from '@/components/ui/dialog';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
 import { ipc } from '@/lib/ipc';
 
 export interface ExploreCreateDialogProps {
-  trigger: Parameters<typeof DialogTrigger>[0]['render'];
+  trigger: UseRenderRenderProp<DialogTriggerProps>;
   /** 当前 workspace root（扫描与建档入参） */
   root: string;
   /** 成功建档后回调（父层 refresh 清单并导航进详情）：`autoPrompt` = 新话题

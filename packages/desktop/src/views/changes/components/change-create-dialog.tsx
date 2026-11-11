@@ -1,7 +1,7 @@
+import { type DialogTriggerProps, type UseRenderRenderProp } from '@base-ui/react';
 import { useCallback, useState } from 'react';
 
 import { StandardDialog } from '@/components/standard/dailog';
-import { type DialogTrigger } from '@/components/ui/dialog';
 import { Field, FieldGroup, FieldLabel, FieldDescription } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ipc } from '../../../lib/ipc';
 
 export interface ChangeCreateDialogProps {
-  trigger: Parameters<typeof DialogTrigger>[0]['render'];
+  trigger: UseRenderRenderProp<DialogTriggerProps>;
   /** 当前 workspace root（建档入参） */
   root: string;
   /** 成功创建后回调（父层 refresh 清单并按铸出 id 导航进详情——`CreateOutcome.id`） */

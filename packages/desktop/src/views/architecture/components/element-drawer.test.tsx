@@ -158,7 +158,7 @@ describe('抽屉概览', () => {
 });
 
 describe('文档关联段', () => {
-  it('应按强度序渲染四字段条目且不含正文', async () => {
+  it('应按强度序渲染四字段条目（路径经 title 属性透出，不含正文）', async () => {
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
@@ -176,7 +176,7 @@ describe('文档关联段', () => {
       'text',
     ]);
     expect(items[0]?.textContent).toContain('认证说明');
-    expect(items[0]?.textContent).toContain('src/auth/README.md');
+    expect(screen.getByTitle('src/auth/README.md')).toBeTruthy();
     expect(callsOf('archi_read_doc')).toHaveLength(0);
   });
 
@@ -205,7 +205,7 @@ describe('文档关联段', () => {
     expect(screen.getByTestId('archi-docs-empty').textContent).toBe('无关联文档');
   });
 
-  it('应在展开 ADR 条目时按需取正文并渲染 markdown（未展开零 invoke）', async () => {
+  it('应在点击 ADR 条目时打开预览抽屉并取该路径正文，默认页签渲染 markdown（未点击零 invoke）', async () => {
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
@@ -220,14 +220,14 @@ describe('文档关联段', () => {
 
     const adrButton = screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md');
     fireEvent.click(adrButton);
-    await waitFor(() => expect(screen.getByTestId('archi-adr-body')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
     expect(callsOf('archi_read_doc')).toEqual([
       {
         root: 'C:\\demo\\alpha',
         path: '.dev-team/architecture/decisions/0007-token-sink.md',
       },
     ]);
-    const body = screen.getByTestId('archi-adr-body');
+    const body = screen.getByTestId('file-content-markdown');
     expect(body.textContent).toContain('令牌收口');
     expect(body.textContent).toContain('收口到 Token 模块');
     expect(body.querySelector('h1')).toBeTruthy();
@@ -235,7 +235,7 @@ describe('文档关联段', () => {
     expect(body.querySelector('code')).toBeTruthy();
   });
 
-  it('应在 ADR 取数失败时行内呈现错误且其余区块不变', async () => {
+  it('应在 ADR 取数失败时抽屉内行内呈现错误且抽屉其余区块不变', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'archi_module') {
         return Promise.resolve({
@@ -260,8 +260,10 @@ describe('文档关联段', () => {
     );
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
     fireEvent.click(screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md'));
-    await waitFor(() => expect(screen.getByTestId('archi-doc-error')).toBeTruthy());
-    expect(screen.getByTestId('archi-doc-error').textContent).toContain('路径不在模块文档关联集内');
+    await waitFor(() => expect(screen.getByTestId('file-content-error')).toBeTruthy());
+    expect(screen.getByTestId('file-content-error').textContent).toContain(
+      '路径不在模块文档关联集内',
+    );
     expect(screen.getByTestId('archi-drawer')).toBeTruthy();
   });
 });
@@ -392,7 +394,7 @@ describe('full 只读与本期边界', () => {
 });
 
 describe('抽屉取数态与 gate 编辑边界', () => {
-  it('应在 ADR 正文取数未回时呈现加载行（不空白、不提前显错误）', async () => {
+  it('应在 ADR 正文取数未回时呈加载行（不空白、不提前显错误）', async () => {
     let resolveDoc: ((body: string) => void) | undefined;
     invokeMock.mockImplementation((command: string) => {
       if (command === 'archi_module') {
@@ -421,15 +423,15 @@ describe('抽屉取数态与 gate 编辑边界', () => {
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
 
     fireEvent.click(screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md'));
-    await waitFor(() => expect(screen.getByText('正文加载中…')).toBeTruthy());
-    expect(screen.queryByTestId('archi-adr-body')).toBeNull();
-    expect(screen.queryByTestId('archi-doc-error')).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('file-content-loading')).toBeTruthy());
+    expect(screen.queryByTestId('file-content-markdown')).toBeNull();
+    expect(screen.queryByTestId('file-content-error')).toBeNull();
 
     await act(async () => {
       resolveDoc?.('# 令牌收口\n');
     });
-    await waitFor(() => expect(screen.getByTestId('archi-adr-body')).toBeTruthy());
-    expect(screen.queryByText('正文加载中…')).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
+    expect(screen.queryByTestId('file-content-loading')).toBeNull();
   });
 
   it('应在 gate 提交未回时禁用写回按钮，落定后恢复可提交', async () => {
@@ -560,7 +562,7 @@ describe('文档条目交互', () => {
     ).toBe(false);
   });
 
-  it('应再次点击同一条目收起正文（正文区卸载）', async () => {
+  it('应再次点击同一条目重新打开预览（抽屉关闭后正文卸载，取数不重复累积）', async () => {
     render(
       <ElementDrawer
         root={'C:\\demo\\alpha'}
@@ -573,10 +575,15 @@ describe('文档条目交互', () => {
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
     const adr = screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md');
     fireEvent.click(adr);
-    await waitFor(() => expect(screen.getByTestId('archi-adr-body')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    await waitFor(() => expect(screen.queryByTestId('file-content-markdown')).toBeNull());
+
     fireEvent.click(adr);
-    await waitFor(() => expect(screen.queryByTestId('archi-adr-body')).toBeNull());
-    expect(callsOf('archi_read_doc')).toHaveLength(1);
+    await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
+    // 每次打开各取一次（关闭即卸载，无跨开合的缓存复用）
+    expect(callsOf('archi_read_doc')).toHaveLength(2);
   });
 });
 
