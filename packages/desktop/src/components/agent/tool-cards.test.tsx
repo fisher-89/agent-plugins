@@ -282,6 +282,7 @@ describe('BUILD_IN_TOOL_CARDS：finish_step 命中渲染（经注册表）', () 
       <Card
         toolCallId="tu_finish"
         toolName="finish_step"
+        state="output-available"
         input={{
           report: '评估报告',
           items: [
@@ -306,6 +307,7 @@ describe('BUILD_IN_TOOL_CARDS：finish_step 命中渲染（经注册表）', () 
       <Card
         toolCallId="tu_back"
         toolName="finish_step"
+        state="input-available"
         input={{ action: 'backtrack', to: 'dev-design', reason: '设计返工' }}
         output={null}
       />,
@@ -320,7 +322,13 @@ describe('BUILD_IN_TOOL_CARDS：finish_step 命中渲染（经注册表）', () 
     const malformed: unknown[] = [null, 'str', ['arr'], { items: 'not-array' }, { action: 42 }, {}];
     for (const input of malformed) {
       const { unmount } = render(
-        <Card toolCallId="tu_bad" toolName="finish_step" input={input} output={null} />,
+        <Card
+          toolCallId="tu_bad"
+          toolName="finish_step"
+          state="input-available"
+          input={input}
+          output={null}
+        />,
       );
       expect(screen.getByTestId('block-tool-use')).toBeTruthy();
       unmount();
@@ -350,7 +358,12 @@ function expandCard(): void {
 /** 经注册表取卡渲染（未注册即断言失败，避免静默落空）。 */
 function renderToolCard(
   toolName: string,
-  options: { input?: unknown; output?: AgentToolOutput | null; toolCallId?: string } = {},
+  options: {
+    input?: unknown;
+    output?: AgentToolOutput | null;
+    state?: 'input-available' | 'output-available';
+    toolCallId?: string;
+  } = {},
 ) {
   const Card = BUILD_IN_TOOL_CARDS[toolName];
   expect(Card, `注册表缺 ${toolName}`).toBeDefined();
@@ -358,6 +371,7 @@ function renderToolCard(
     <Card
       toolCallId={options.toolCallId ?? `tu_${toolName}`}
       toolName={toolName}
+      state={options.state ?? 'input-available'}
       input={options.input ?? {}}
       output={options.output ?? null}
     />,
@@ -384,6 +398,7 @@ describe('BUILD_IN_TOOL_CARDS：既有六键零回归', () => {
     ['edit', 'block-tool-use'],
   ])('键 %s 经注册表取卡渲染 → 卡根 %s 在场且 data-tool-id 等于入参', (toolName, rootTestId) => {
     renderToolCard(toolName, {
+      state: 'output-available',
       input: { command: 'ls', path: 'a.ts', content: 'x', questions: [] },
       output: { content: 'ok', isError: false },
       toolCallId: `tu_${toolName}`,
@@ -403,6 +418,7 @@ describe('cardAttrs：卡根同形（既有分支）', () => {
     '卡 %s 的卡根 data-testid 为 block-tool-use 且 block-tool-use 恰 1 个',
     (toolName) => {
       const { unmount } = renderToolCard(toolName, {
+        state: 'output-available',
         input: { path: 'a.ts', content: 'x', command: 'ls' },
         output: { content: 'ok', isError: false },
         toolCallId: `id_${toolName}`,
@@ -415,7 +431,7 @@ describe('cardAttrs：卡根同形（既有分支）', () => {
   );
 
   it('对照：AskUserQuestion 为容器形态，不带该钩子', () => {
-    renderToolCard('AskUserQuestion', { input: { questions: [] } });
+    renderToolCard('AskUserQuestion', { state: 'input-available', input: { questions: [] } });
     expect(screen.queryByTestId('block-tool-use')).toBeNull();
     expect(screen.getByTestId('ask-question-card')).toBeTruthy();
   });
@@ -437,6 +453,7 @@ describe('BashCard：output 三态（既有分支）', () => {
 
   it('正常结果 → aria-disabled 显式落 false、无 data-status、展开后结果区为 content', () => {
     renderToolCard('bash', {
+      state: 'output-available',
       input: { command: 'ls -la' },
       output: { content: '目录内容', isError: false },
     });
@@ -452,6 +469,7 @@ describe('BashCard：output 三态（既有分支）', () => {
 
   it('isError → data-status 为 error 且结果区文本仍为该 content（错误不替换正文）', () => {
     renderToolCard('bash', {
+      state: 'output-available',
       input: { command: 'exit 1' },
       output: { content: '命令失败', isError: true },
     });
@@ -471,7 +489,7 @@ describe('BashCard：output 三态（既有分支）', () => {
     [null, true],
     [{ content: 'ok', isError: false }, false],
   ])('output 为 %j → 旋载图标在场 %s', (output, spinner) => {
-    renderToolCard('bash', { input: { command: 'ls' }, output });
+    renderToolCard('bash', { state: 'output-available', input: { command: 'ls' }, output });
     const icon = cardRoot().querySelector('[data-slot="trace-icon"]');
     expect(icon?.querySelector('[data-slot="spinner"]') !== null).toBe(spinner);
     // 两态恒落一枚 lucide 图标（旋载或终端）：图标位不空
@@ -487,6 +505,7 @@ describe('BashCard：命令栏与异常载荷（既有分支）', () => {
     ['裸字符串', ''],
   ])('input 为 %j + output 在场 → 展开后命令栏文本为 %j', (input, expected) => {
     const { unmount } = renderToolCard('bash', {
+      state: 'output-available',
       input,
       output: { content: 'ok', isError: false },
     });
@@ -516,6 +535,7 @@ describe('ReadCard：标题与行区间（既有分支 / rangeSuffix）', () => 
     [{}, 'Read null'],
   ])('input 为 %j → 标题逐字为 %j', (input, expected) => {
     const { unmount } = renderToolCard('read', {
+      state: 'output-available',
       input,
       output: { content: 'ok', isError: false },
     });
@@ -537,6 +557,7 @@ describe('ReadCard：output 三态与路径缺席（既有分支）', () => {
 
   it('正常结果 → aria-disabled 假、无 data-status、结果区为 content 且零 text-destructive', () => {
     renderToolCard('read', {
+      state: 'output-available',
       input: { path: 'src/a.ts' },
       output: { content: '文件内容', isError: false },
     });
@@ -552,6 +573,7 @@ describe('ReadCard：output 三态与路径缺席（既有分支）', () => {
 
   it('isError → 错误提示与正文两处并存（text-destructive 恰 1 个）', () => {
     renderToolCard('read', {
+      state: 'output-available',
       input: { path: 'src/a.ts' },
       output: { content: '读取失败', isError: true },
     });
@@ -570,6 +592,7 @@ describe('ReadCard：output 三态与路径缺席（既有分支）', () => {
 describe('WriteCard：高亮行 vs 纯文本切行（既有分支 / languageOf）', () => {
   it('有扩展名 → 语言实参 ts、行数 1（高亮路径削尾换行）、未点击即可见行', async () => {
     renderToolCard('write', {
+      state: 'output-available',
       input: { path: 'src/a.ts', content: 'x\n' },
       output: { content: 'ok', isError: false },
     });
@@ -589,6 +612,7 @@ describe('WriteCard：高亮行 vs 纯文本切行（既有分支 / languageOf�
     [{ path: null, content: 'x\n' }, '', 2],
   ])('input 为 %j → 语言实参 %j、行数 %i', async (input, language, lines) => {
     const { unmount } = renderToolCard('write', {
+      state: 'output-available',
       input,
       output: { content: 'ok', isError: false },
     });
@@ -612,6 +636,7 @@ describe('WriteCard：output 三态（既有分支）', () => {
 
   it('isError → trace-line error、错误提示取代正文（零 code-block-line）', () => {
     renderToolCard('write', {
+      state: 'output-available',
       input: { path: 'src/a.ts', content: 'x' },
       output: { content: '写入失败', isError: true },
     });
@@ -629,6 +654,7 @@ describe('WriteCard：output 三态（既有分支）', () => {
 
   it('content 缺失 → 行文本为空串（不落假串）', () => {
     renderToolCard('write', {
+      state: 'output-available',
       input: { path: 'README' },
       output: { content: 'ok', isError: false },
     });
@@ -642,6 +668,7 @@ describe('WriteCard：output 三态（既有分支）', () => {
 describe('EditCard：旧 / 新两区（既有分支）', () => {
   it('两区 variant 分别为 removed / added，旧区在新区之前', () => {
     renderToolCard('edit', {
+      state: 'output-available',
       input: { path: 'src/a.ts', old_string: '旧行', new_string: '新行' },
       output: { content: 'ok', isError: false },
     });
@@ -678,6 +705,7 @@ describe('EditCard：旧 / 新两区（既有分支）', () => {
     'input 为 %j → 语言实参两次为 %j、旧区行 %j、新区行 %j',
     async (input, expected, oldLines, newLines) => {
       const { unmount } = renderToolCard('edit', {
+        state: 'output-available',
         input,
         output: { content: 'ok', isError: false },
       });
@@ -701,6 +729,7 @@ describe('EditCard：旧 / 新两区（既有分支）', () => {
     [{ path: 'README' }, ['', '']],
   ])('两字段双双缺失（input 为 %j）→ 语言实参 %j 且两区行文本为空串', async (input, expected) => {
     const { unmount } = renderToolCard('edit', {
+      state: 'output-available',
       input,
       output: { content: 'ok', isError: false },
     });
@@ -723,6 +752,7 @@ describe('EditCard：output 三态与 trace-line 无 status（既有分支）', 
 
   it('正常结果 → aria-disabled 假、两区未点击即可见', () => {
     renderToolCard('edit', {
+      state: 'output-available',
       input: { path: 'src/a.ts', old_string: '旧', new_string: '新' },
       output: { content: 'ok', isError: false },
     });
@@ -732,6 +762,7 @@ describe('EditCard：output 三态与 trace-line 无 status（既有分支）', 
 
   it('isError → 错误提示在场且两区均不渲；trace-line 恒无 data-status（对照）', () => {
     renderToolCard('edit', {
+      state: 'output-available',
       input: { path: 'src/a.ts', old_string: '旧', new_string: '新' },
       output: { content: '写入失败', isError: true },
     });
@@ -756,6 +787,7 @@ describe('languageOf：分支表（经 WriteCard 驱动的语言实参）', () =
     ['', ''],
   ])('path 为 %j → 语言实参 %j', async (path, expected) => {
     const { unmount } = renderToolCard('write', {
+      state: 'output-available',
       input: { path, content: 'x' },
       output: { content: 'ok', isError: false },
     });
