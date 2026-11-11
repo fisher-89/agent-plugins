@@ -410,6 +410,11 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 - **WHEN** 用户对 waitingAsk 态应答、对 phase 间停等确认、对运行中 run 停止
 - **THEN** 三控制命令沿既有请求-应答契约执行（提前 resolve / 幂等 / 回流驱动语义不变），不经通知通道
 
+#### Scenario: 应答受理即解除停等
+
+- **WHEN** 命令层受理一次 ask 应答或停等确认（应答通道 take 成功）
+- **THEN** 同一把注册表锁内先解除停等态——`status` 回 `running`，`ask` / `archive` 载荷槽同刻清空——再向 walker 投递应答并广播一条失效通知；解除 SHALL 仅在「当前 status 恰为该停等态」时执行，`Finished` 已先到时终态 MUST NOT 被倒灌回运行中。应答通道已关闭（等待方先行退出）SHALL 仍按受理返回 `Ok` 并完成解除——前端继续呈现一个已无接收方的等待卡无意义。失效通知复用 `RunNotice::Step`（通用「状态已变、请重查」kind）；`Ask` / `ConfirmWait` 在通知面表示「新停等开始」，MUST NOT 用作解除信号
+
 ### Requirement: V1 范围与边界留痕
 
 以下边界 SHALL 作为 V1 显式限制留痕（后续变更偿还，不由实现隐式吸收）：

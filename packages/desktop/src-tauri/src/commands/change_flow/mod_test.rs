@@ -855,6 +855,134 @@ fn watch补订运行中接收后续信封_无run时ok非错误() {
 }
 
 // ---------------------------------------------------------------------------
+// 应答受理即解除停等（命令面：answer / confirm 后快照回运行态 + 失效通知到达）
+// ---------------------------------------------------------------------------
+
+/// `change_flow_answer` 受理后快照 status 回 `running`、ask 槽清空，且失效通知
+/// 经 Channel 到达（复用通用 kind `step`——前端 onNotice 全量重查，任一 kind
+/// 等价）。
+#[tokio::test]
+async fn answer后活面回运行态且失效通知到达() {
+    let env = Env::new("answer-resume");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let guard = Arc::new(
+        control
+            .begin_run(&root, CHANGE, "run-1".to_owned(), STARTED_AT)
+            .expect("登记应成功"),
+    );
+    let (channel, captured) = capturing_channel();
+    change_flow_watch_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        CHANGE.to_owned(),
+    )
+    .expect("补订应成功");
+
+    guard.emit(super::RunUpdate::Ask {
+        question: "采用哪个方案?".to_owned(),
+        options: vec!["A".to_owned(), "B".to_owned()],
+    });
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
+    // 轮询至等待方登记（answer 的 Ok 即登记证明；上限防挂死）
+    let mut accepted = false;
+    for _ in 0..1000 {
+        match change_flow_answer_with(
+            app.handle().clone(),
+            root.clone(),
+            CHANGE.to_owned(),
+            "采用方案 B".to_owned(),
+        ) {
+            Ok(()) => {
+                accepted = true;
+                break;
+            }
+            Err(err) => {
+                assert_eq!(err, "当前无等待中的 ask", "仅登记未完成时重试");
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+    assert!(accepted, "应答受理（等待方登记完成）");
+    assert_eq!(
+        waiter.await.unwrap().as_deref(),
+        Some("采用方案 B"),
+        "应答原文抵达 walker"
+    );
+
+    let snapshot = control.snapshot(&root, CHANGE).expect("run 仍运行中");
+    assert_eq!(snapshot.status, super::ChangeRunStatus::Running);
+    assert!(snapshot.ask.is_none(), "ask 槽清空（中断卡片消失判据）");
+    wait_for("应答失效通知", || {
+        captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .any(|value| value["ipc"] == "step")
+    });
+}
+
+/// `change_flow_confirm` 受理后快照 status 回 `running`、archive 槽清空（归档
+/// 前停等——命中率最高的一侧；恢复靠既有 onNotice 全量重查）。
+#[tokio::test]
+async fn confirm后活面回运行态且归档槽清空() {
+    let env = Env::new("confirm-resume");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let guard = Arc::new(
+        control
+            .begin_run(&root, CHANGE, "run-1".to_owned(), STARTED_AT)
+            .expect("登记应成功"),
+    );
+    guard.emit(super::RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(orchestration::state::ArchivePreflight {
+            name: CHANGE.to_owned(),
+            completed: true,
+            incomplete_phases: Vec::new(),
+            missing_artifacts: Vec::new(),
+            delta_specs: vec!["desktop-flow".to_owned()],
+            worktree: None,
+            branch: None,
+            merge_target: Some("main".to_owned()),
+        }),
+    });
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_confirm().await });
+    let mut accepted = false;
+    for _ in 0..1000 {
+        match change_flow_confirm_with(
+            app.handle().clone(),
+            root.clone(),
+            CHANGE.to_owned(),
+            true,
+            true,
+        ) {
+            Ok(()) => {
+                accepted = true;
+                break;
+            }
+            Err(err) => {
+                assert_eq!(err, "当前无等待中的 phase 确认", "仅登记未完成时重试");
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+    assert!(accepted, "确认受理（等待方登记完成）");
+    assert_eq!(waiter.await.unwrap(), (true, true));
+
+    let snapshot = control.snapshot(&root, CHANGE).expect("run 仍运行中");
+    assert_eq!(snapshot.status, super::ChangeRunStatus::Running);
+    assert!(snapshot.archive.is_none(), "归档前置载荷槽清空");
+}
+
+// ---------------------------------------------------------------------------
 // 参数转换守卫：blank root / blank change（守卫先行于前置校验，root 寻址与
 // `Result<T, String>` 模板保留）
 // ---------------------------------------------------------------------------

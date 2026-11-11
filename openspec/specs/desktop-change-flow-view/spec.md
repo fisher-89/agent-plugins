@@ -374,6 +374,11 @@ change 详情页 SHALL 提供运行控制入口：发起 run（按 change id—�
 - **WHEN** 决策 agent 输出 ask 动作（问题 + 选项）后用户在卡片中选择某选项
 - **THEN** 应答经命令回流 walker，run 按应答继续，中断卡片消失、控制入口回到运行态
 
+#### Scenario: 确认应答后控制入口回运行态
+
+- **WHEN** 用户在 phase 间停等点（含 archive 前停等点）确认「继续」或「终止」
+- **THEN** 确认卡片消失、控制入口不再显示等待确认态；同一 `entry.status` / 停等载荷槽的解除对两类停等一致——已确认的卡片 MUST NOT 因后续相位推进而继续挂着，也 MUST NOT 再点报「无等待中的 phase 确认」
+
 #### Scenario: 状态与操作不错配
 
 - **WHEN** run 已 fail 收口（或被用户停止）

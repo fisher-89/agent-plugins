@@ -62,7 +62,7 @@
 - [x] agent provider支持选择模型协议（openai/anthropic）
 - [ ] 内置CodeGraph，使用mcp桥接到agent
 - [ ] 归一Agent会话发送
-- [ ] 修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
+- [x] 修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
 - [ ] 进行中的agent step，统计实时消耗的token（允许误差）
 - [ ] 增加变更复盘agent
 - [x] rust改用cargo-nextest执行测试

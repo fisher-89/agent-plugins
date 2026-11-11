@@ -395,6 +395,155 @@ async fn answer应答原文回流挂起等待者_单次take() {
     assert!(err.contains("无等待中的 ask"), "单次通道已取走: {err}");
 }
 
+/// ask 应答即解除停等：`status` 回 `Running` 且 `ask` 槽清空——徽章（读
+/// status）与中断卡片（读 ask 槽）两处判据独立消费，必须同刻清；失效广播走
+/// 通用 `RunNotice::Step`（`Ask` 在通知面被读作「新停等开始」，重放会触发
+/// 订阅方对已解除的等待再答一次）。
+#[tokio::test]
+async fn answer后停等态解除且广播失效() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = Arc::new(
+        control
+            .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+            .unwrap(),
+    );
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    guard.emit(RunUpdate::Ask {
+        question: "采用哪个方案?".to_owned(),
+        options: vec!["A".to_owned(), "B".to_owned()],
+    });
+    assert!(matches!(rx.try_recv(), Ok(RunNotice::Ask)), "进入停等通知");
+
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
+    assert!(
+        until_ok(|| control.answer(ROOT, CHANGE_ID, "采用方案 B".to_owned())).await,
+        "answer 受理"
+    );
+    assert_eq!(waiter.await.unwrap().as_deref(), Some("采用方案 B"));
+
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.status, ChangeRunStatus::Running, "状态回运行态");
+    assert!(snap.ask.is_none(), "ask 载荷槽同刻清空");
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "解除失效广播（通用 kind）"
+    );
+
+    // 幂等：状态已回运行态，重复受理仍落空（通道单次 take）
+    let err = control
+        .answer(ROOT, CHANGE_ID, "再来一次".to_owned())
+        .expect_err("重复应答应 Err");
+    assert_eq!(err, "当前无等待中的 ask");
+    assert_eq!(
+        control.snapshot(ROOT, CHANGE_ID).unwrap().status,
+        ChangeRunStatus::Running,
+        "落空应答不改写状态"
+    );
+}
+
+/// confirm 应答即解除停等：`status` 回 `Running`、`archive` 槽清空（归档前
+/// 停等与普通相位停等两臂同形——残留命中率高的一侧）。
+#[tokio::test]
+async fn confirm后停等态解除且归档槽清空() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = Arc::new(
+        control
+            .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+            .unwrap(),
+    );
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(sample_preflight()),
+    });
+    assert!(matches!(rx.try_recv(), Ok(RunNotice::ConfirmWait)));
+
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_confirm().await });
+    assert!(
+        until_ok(|| control.confirm(ROOT, CHANGE_ID, true, true)).await,
+        "confirm 受理"
+    );
+    assert_eq!(waiter.await.unwrap(), (true, true));
+
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.status, ChangeRunStatus::Running, "状态回运行态");
+    assert!(snap.archive.is_none(), "归档前置载荷槽同刻清空");
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "解除失效广播（通用 kind）"
+    );
+
+    // 幂等：重复受理落空（单次通道已取走）
+    let err = control
+        .confirm(ROOT, CHANGE_ID, true, true)
+        .expect_err("重复确认应 Err");
+    assert_eq!(err, "当前无等待中的 phase 确认");
+}
+
+/// 通道已关闭（等待方被取消先行退出）：通道 take 成功即视为受理——send 失败
+/// 不改 `Ok`，停等态照常解除（前端继续挂一个已无接收方的等待卡无意义）。
+#[tokio::test]
+async fn answer通道关闭仍受理并解除停等() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = Arc::new(
+        control
+            .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+            .unwrap(),
+    );
+    guard.emit(RunUpdate::Ask {
+        question: "是否继续?".to_owned(),
+        options: vec!["继续".to_owned()],
+    });
+    assert!(control.request_stop(ROOT, CHANGE_ID), "停止置位");
+    // 先置位后登记：wait_answer 登记通道即被取消半边收敛，接收端随之释放
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
+    assert_eq!(waiter.await.unwrap(), None, "取消收敛（接收端已释放）");
+
+    control
+        .answer(ROOT, CHANGE_ID, "迟到应答".to_owned())
+        .expect("通道 take 成功即受理");
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.status, ChangeRunStatus::Running, "停等态照常解除");
+    assert!(snap.ask.is_none(), "ask 载荷槽同刻清空");
+}
+
+/// 终态先到的竞态守卫：`Finished` 已在应答前落值（walker 收口未被除名捕获
+/// 的毫秒窗口）时，应答不把终态倒灌回 `Running`——清理以「当前 status 恰为
+/// 该停等态」为条件。
+#[tokio::test]
+async fn answer不改写先到的终态() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = Arc::new(
+        control
+            .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+            .unwrap(),
+    );
+    guard.emit(RunUpdate::Ask {
+        question: "是否继续?".to_owned(),
+        options: vec!["继续".to_owned()],
+    });
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
+    tokio::task::yield_now().await;
+
+    guard.emit(RunUpdate::Finished {
+        status: ChangeRunStatus::Stopped,
+        reason: None,
+    });
+    assert_eq!(
+        control.answer(ROOT, CHANGE_ID, "继续".to_owned()),
+        Ok(()),
+        "通道 take 成功即受理（send 结果不改受理语义）"
+    );
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.status, ChangeRunStatus::Stopped, "终态不被倒灌");
+    // walker 侧收口：wait_answer 观察到取消/应答后由 run_worker 收敛
+    let _ = waiter.await;
+}
+
 /// answer 无等待方：无运行 run → Err 携 change id；有 run 无挂起 → Err
 /// 「无等待中的 ask」。
 #[tokio::test]

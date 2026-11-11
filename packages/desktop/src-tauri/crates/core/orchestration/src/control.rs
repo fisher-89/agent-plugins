@@ -215,21 +215,32 @@ impl ChangeFlowControl {
         }
     }
 
-    /// ask 应答回流：walker 以应答文本 Continue 决策会话重出封闭集；
-    /// 无运行 run / 无等待方 → `Err`。
+    /// ask 应答回流：walker 以应答文本 Continue 决策会话重出封闭集；无运行
+    /// run / 无等待方 → `Err`。通道 take 成功即视为「应答受理」——停等态解除
+    /// 先于 send（`Finished` 可能被唤醒后抢先 emit，清理若落在其后会把终态倒
+    /// 灌回运行中），send 失败（walker 已退出）仍按受理返回 Ok 并广播失效信号。
+    ///
+    /// 失效信号复用 `RunNotice::Step`（既有「状态已变、请重查」通用 kind）：
+    /// `Ask` / `ConfirmWait` 在通知面被读作「新停等已开始」（前端不分流，但
+    /// 测试与外部订阅以此 kind 驱动应答回路——重放同 kind 会让订阅方对已解除
+    /// 的等待再答一次）。
     pub fn answer(&self, root: &str, change_id: &str, text: String) -> Result<(), String> {
-        let sender = self
-            .take_pending(root, change_id, |entry| &entry.answer_tx)
-            .ok_or_else(|| format!("change \"{change_id}\" 无运行中的 run"))?;
-        sender
-            .ok_or_else(|| "当前无等待中的 ask".to_owned())?
-            .send(text)
-            .map_err(|_| "ask 应答通道已关闭".to_owned())
+        let (sender, updates) = self.accept_pending(
+            root,
+            change_id,
+            |entry| &entry.answer_tx,
+            ChangeRunStatus::WaitingAsk,
+            "当前无等待中的 ask",
+        )?;
+        let _ = sender.send(text);
+        let _ = updates.send(RunNotice::Step);
+        Ok(())
     }
 
     /// phase 间停等确认：proceed=false → walker 受控终态 stopped；`sync_specs`
     /// 为归档前停等点的「是否执行 delta specs 同步」选择回流（phase 间停等点
     /// 置位值不影响；archive 前停等点消费）；无运行 run / 无等待方 → `Err`。
+    /// 受理语义与 [`Self::answer`] 同形（先清停等态、后 send、失败仍算受理）。
     pub fn confirm(
         &self,
         root: &str,
@@ -237,13 +248,16 @@ impl ChangeFlowControl {
         proceed: bool,
         sync_specs: bool,
     ) -> Result<(), String> {
-        let sender = self
-            .take_pending(root, change_id, |entry| &entry.confirm_tx)
-            .ok_or_else(|| format!("change \"{change_id}\" 无运行中的 run"))?;
-        sender
-            .ok_or_else(|| "当前无等待中的 phase 确认".to_owned())?
-            .send((proceed, sync_specs))
-            .map_err(|_| "确认通道已关闭".to_owned())
+        let (sender, updates) = self.accept_pending(
+            root,
+            change_id,
+            |entry| &entry.confirm_tx,
+            ChangeRunStatus::WaitingConfirm,
+            "当前无等待中的 phase 确认",
+        )?;
+        let _ = sender.send((proceed, sync_specs));
+        let _ = updates.send(RunNotice::Step);
+        Ok(())
     }
 
     /// 重挂快照查询（进程内；run 终态后除名 → `None`）。快照含发起时刻与节点 /
@@ -264,17 +278,36 @@ impl ChangeFlowControl {
             })
     }
 
-    /// 单次应答通道取走（take 语义：单次应答，重复应答落空）；无运行 run
-    /// 返回 `None`（与通道空置 `Some(None)` 可辨）。
-    fn take_pending<T>(
+    /// 单次应答受理（take 语义：单次应答，重复应答落空）：同一把 `runs` 锁内
+    /// 完成「取通道 + 解除停等态」，锁外由调用方 send 与广播。无运行 run →
+    /// `Err`（与通道空置可辨）。
+    ///
+    /// 解除条件是「当前 status 恰为该停等态」——`Finished` 已先到时条件不成立，
+    /// 终态不被倒灌回 `Running`。`ask` / `archive` 槽与 `status` 是三个独立出线
+    /// 判据（徽章读 status、卡片读载荷槽），三处同刻清空，留任一即残留。
+    fn accept_pending<T>(
         &self,
         root: &str,
         change_id: &str,
         slot: impl Fn(&RunEntry) -> &Mutex<Option<oneshot::Sender<T>>>,
-    ) -> Option<Option<oneshot::Sender<T>>> {
-        let runs = self.runs.lock().expect("run 注册表锁不可中毒");
-        runs.get(&(root.to_owned(), change_id.to_owned()))
-            .map(|entry| slot(entry).lock().expect("应答通道锁不可中毒").take())
+        waiting: ChangeRunStatus,
+        missing: &str,
+    ) -> Result<(oneshot::Sender<T>, broadcast::Sender<RunNotice>), String> {
+        let mut runs = self.runs.lock().expect("run 注册表锁不可中毒");
+        let entry = runs
+            .get_mut(&(root.to_owned(), change_id.to_owned()))
+            .ok_or_else(|| format!("change \"{change_id}\" 无运行中的 run"))?;
+        let sender = slot(entry)
+            .lock()
+            .expect("应答通道锁不可中毒")
+            .take()
+            .ok_or_else(|| missing.to_owned())?;
+        if entry.status == waiting {
+            entry.status = ChangeRunStatus::Running;
+            entry.ask = None;
+            entry.archive = None;
+        }
+        Ok((sender, entry.updates.clone()))
     }
 }
 

@@ -2124,6 +2124,79 @@ fn 统一查询装配_active_run既有字段回归() {
     assert!(active.phase.is_none() && active.attempt.is_none());
 }
 
+/// 应答受理后统一视图活面回运行态（B1 / B2 修后行为）：`answer` 清 status 与
+/// ask 槽后，`get_change_detail` 的 activeRun.status 回 `running`、`ask` 退 null
+/// ——前端徽章（读 status）与中断卡片（读 ask 槽）两处判据同刻复位。
+#[tokio::test]
+async fn answer后统一视图活面回运行态() {
+    let env = Env::new("unified-answer-resume");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    let started_at = 1_727_000_600_000_i64;
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "resume-change");
+        use workflow::state::RunStartCommand;
+        store
+            .start_change_run(&RunStartCommand {
+                run_id: "run-7".to_owned(),
+                change_id: "resume-change".to_owned(),
+                started_at,
+            })
+            .expect("run-7 起始行应成功");
+    }
+    let guard = Arc::new(
+        control
+            .begin_run(&root, "resume-change", "run-7".to_owned(), started_at)
+            .expect("登记 run 应成功"),
+    );
+    guard.emit(orchestration::state::RunUpdate::Ask {
+        question: "采用哪个方案?".to_owned(),
+        options: vec!["A".to_owned(), "B".to_owned()],
+    });
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
+    // 轮询至等待方登记：Ok 即受理证明（上限防挂死）
+    let mut accepted = false;
+    for _ in 0..1000 {
+        match control.answer(&root, "resume-change", "采用方案 B".to_owned()) {
+            Ok(()) => {
+                accepted = true;
+                break;
+            }
+            Err(err) => {
+                assert_eq!(err, "当前无等待中的 ask", "仅登记未完成时重试");
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+    assert!(accepted, "应答受理（等待方登记完成）");
+    assert_eq!(
+        waiter.await.unwrap().as_deref(),
+        Some("采用方案 B"),
+        "应答原文抵达 walker"
+    );
+
+    let unified = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root,
+        "resume-change".to_owned(),
+    )
+    .expect("命令应 Ok")
+    .expect("应 Some");
+    let active = unified.active_run.as_ref().expect("应答后 run 仍运行中");
+    assert_eq!(
+        active.status,
+        orchestration::ChangeRunStatus::Running,
+        "状态回运行态（不再常挂 waitingAsk）"
+    );
+    assert!(active.ask.is_none(), "ask 槽清空（中断卡片消失判据）");
+}
+
 /// `archive_change` 裸双写逃生口回归（回归）：薄命令直调写面 `archive` 双写
 /// （Seal 步之外的既有逃生口），随后列表归档组可达（AC-10 零改动锚）。
 #[test]
