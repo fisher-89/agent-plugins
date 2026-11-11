@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义架构模型的格式与解析契约：`<archi_dir>/models/*.toml` 的「一元素一表头」格式与字段封闭、多文件聚合与声明位置回填、结构诊断九类分工（parser 免费组 / archi 自实现组）、`ModelGraph` 单点构建与三消费面裁剪型投影、消费面词汇集对拍（四面，含架构会话知识文本）、gate 写回纯函数、模型结构 diff 与五命令 IPC 契约。
+定义架构模型的格式与解析契约：`<archi_dir>/models/*.toml` 的「一元素一表头」格式与字段封闭、多文件聚合与声明位置回填、结构诊断九类分工（parser 免费组 / archi 自实现组）、`ModelGraph` 单点构建与三消费面裁剪型投影、消费面词汇集对拍（四面，含架构会话知识文本）、gate 写回纯函数、模型结构 diff 与四命令 IPC 契约。
 
 ## Requirements
 
@@ -286,33 +286,34 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 - **WHEN** 两侧模型元素 / 关系 / 档位完全相同（文件划分或行序不同）
 - **THEN** diff 输出全零（元素 / 关系 / `gate` 三组均空），MUST NOT 因文件或行序差异报告变更
 
-### Requirement: IPC 命令面契约（五命令）
+### Requirement: IPC 命令面契约（四命令）
 
-命令层 SHALL 提供五个命令，全部为薄包装（沿「三件事纪律」：解析入参 → 调 `archi` / store → 映射错误），MUST NOT 承载领域规则（投影、诊断、diff 全在 `archi`）：
+命令层 SHALL 提供四个命令，全部为薄包装（沿「三件事纪律」：解析入参 → 调 `archi` / store → 映射错误），MUST NOT 承载领域规则（投影、诊断、diff 全在 `archi`）：
 
 | 命令 | 入参 | 出参 / 语义 |
 |---|---|---|
 | `archi_graph` | `root` | `ArchiGraph`：正常态（元素 / 关系 / 标记）或停摆态（诊断清单、零图数据） |
 | `archi_module` | `root` + `element` | `ArchiModuleDetail`（与 agent 工具同一投影）：元素 + 邻接 + 子元素 + `docs` + **`api`（并列字段）** |
-| `archi_read_doc` | `root` + `path` | 文档正文：仅接受**关联集内**路径（服务端现算关联集后校验），越界显式 `Err` |
 | `archi_change_summary` | `root` + `change_id` | `Option<ArchiChangeSummary>`：以 change 记录解析 worktree（归档 change 回落主仓根），两侧模型结构 diff；模型目录缺席或两侧等价 → `null` |
 | `archi_set_gate` | `root` + `element` + `gate` | 写前校验（元素存在 / 值合法 / 渲染自证可解析）通过后原子写回该模型文件；失败零写入并显式 `Err` |
 
+文档正文读取 SHALL 由通用 `commands::fs::read_file`（见 `desktop-file-read`）按绝对路径承担：原 `archi_read_doc`（关联集成员校验 + 读盘）已退役，架构域不再持有专用文档读取命令。
+
 - 全部命令 SHALL 带显式 `root`（MUST NOT 依赖「当前选中 change」一类隐式上下文）；错误面 SHALL 为 `Result<T, String>`（沿既有命令面口径）。
-- `archi_graph` / `archi_module` / `archi_read_doc` / `archi_change_summary` MUST NOT 写盘；唯一写命令 SHALL 为 `archi_set_gate`（且只改 `gate` 单字段）。
+- `archi_graph` / `archi_module` / `archi_change_summary` MUST NOT 写盘；唯一写命令 SHALL 为 `archi_set_gate`（且只改 `gate` 单字段）。
 - `archi_set_gate` MUST NOT 出现在 `mode = full` 的前端调用路径（只读视图约束由前端承载、由命令可用性背书——命令本身不区分模式）。
-- 五个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（再生成后入库，过期由提交前 `git status` / `git diff` 人工核对——零 diff 守卫已退役，`check` 链只前置重导出、不做生成物比对）。
-- **`archi_module` 的 `api` 并列字段**：本变更为 `ArchiModuleDetail` 增加并列字段 `api`（`ArchiElement` 与薄概览条目同步带 `api` 状态），语义为「该元素的契约是否在案」——按 `<archi_api_dir>/<Domain>/<FQN>.md` 约定定位，文件不存在即 `status = none`（零配置，且「有契约 / 无契约」成为可枚举事实）。字段结构与定位规则定义归 `desktop-archi-api`，本能力只登记「命令数量仍为五个、`archi_module` 出参形状扩展、命令层仍零领域规则」。该字段 MUST NOT 承载协议正文（契约正文的读取通路不在本期；`archi_read_doc` 只接受文档关联集内的路径，不覆盖 `<archi_dir>/api/**`——本期不新增读取命令）。
+- 四个命令 SHALL 登记进命令清单并随 `bindings:export` 生成到 `bindings.ts`（再生成后入库，过期由提交前 `git status` / `git diff` 人工核对——零 diff 守卫已退役，`check` 链只前置重导出、不做生成物比对）。
+- **`archi_module` 的 `api` 并列字段**：本变更为 `ArchiModuleDetail` 增加并列字段 `api`（`ArchiElement` 与薄概览条目同步带 `api` 状态），语义为「该元素的契约是否在案」——按 `<archi_api_dir>/<Domain>/<FQN>.md` 约定定位，文件不存在即 `status = none`（零配置，且「有契约 / 无契约」成为可枚举事实）。字段结构与定位规则定义归 `desktop-archi-api`，本能力只登记「`archi_module` 出参形状扩展、命令层仍零领域规则」。该字段 MUST NOT 承载协议正文（契约正文与模块文档正文同一通路：由调用方经 `read_file` 自取）。
 
 #### Scenario: 读命令零写盘
 
-- **WHEN** 依次调用 `archi_graph` / `archi_module` / `archi_read_doc` / `archi_change_summary`
+- **WHEN** 依次调用 `archi_graph` / `archi_module` / `archi_change_summary`
 - **THEN** 磁盘字节零变化（模型与文档均只读）；取数结果与 `archi` 投影逐字段一致（命令层零改写）
 
-#### Scenario: 正文取数越界拒绝
+#### Scenario: 文档关联集不含契约正文
 
-- **WHEN** 以关联集之外的路径调用 `archi_read_doc`（如 `openspec/changes/x/proposal.md`）
-- **THEN** 返回显式 `Err`，不返回任何文件内容
+- **WHEN** 审查 `archi_module` 返回的 `docs` 条目集合
+- **THEN** 集合内不含 `<archi_dir>/api/**` 路径（关联集零契约正文通路）；契约正文的存在与否只经 `api` 字段表达
 
 #### Scenario: gate 写回原子与零残留
 
@@ -337,7 +338,7 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 | `crates/core/archi/src/edit.rs` | gate 写回纯函数 | `set_gate(source, fqn, gate) -> Result<String, String>`：`toml_edit` 渲染保留注释空行、前置校验（存在 / 值域）、渲染后自证可解析；零文件系统写 |
 | `crates/core/archi/src/diff.rs` | 结构 diff | `model_diff(base, next) -> ModelDiff`：元素增删（FQN 键）、关系增删（`(from,to)` 键）、`gate` 变更；文件 / 行序不参与身份 |
 | `crates/core/archi/src/model_test.rs` + `parse/toml_test.rs` | 模型语料（扩展） | 两态取值 / 缺省 `declared` / 拼写错报 `invalidValue` 并列全合法值 / 与 `metadata.api` 的口径差（静默变「未声明」的反例在案） |
-| `src-tauri/src/commands/archi/mod.rs` | 五命令薄包装 | `archi_graph` / `archi_module` / `archi_read_doc` / `archi_change_summary` / `archi_set_gate`；`Result<T, String>` 错误面；唯一写命令为 `archi_set_gate`（写前校验 + 原子写回）；命令层零领域规则 |
+| `src-tauri/src/commands/archi/mod.rs` | 四命令薄包装 | `archi_graph` / `archi_module` / `archi_change_summary` / `archi_set_gate`；`Result<T, String>` 错误面；唯一写命令为 `archi_set_gate`（写前校验 + 原子写回）；命令层零领域规则（文档正文经通用 `read_file`） |
 | `crates/core/archi/tests/` | 语料与 golden | `corpus/dsl/<case>/*.toml` + `golden_test.rs` + `vocabulary_test.rs`；golden 沿既有 `DESKTOP_GOLDEN_REWRITE=1` 显式重写惯例 |
 | `crates/core/archi/tests/vocabulary_test.rs`（扩展） | 四面词汇对拍 | 语料 → 进程内诊断集 / `archi_module` 串 / IPC DTO / 架构会话知识文本四面词汇集相等；`ALL` 与 `as_str` 逐值对拍；`ApiStatus::ALL` 二值与 `as_str` 逐值对拍；封闭词汇组新增 `api` 一面；知识文本含 `declared` / `none` |
 | `crates/infra/agent/src/archi_knowledge.rs` + `archi-knowledge.md`（见 `desktop-archi-agent`） | 知识文本（改） | 契约词汇面注入 `api`（`declared` / `none`）与契约目录入口；注入矩阵与 policy 零改动 |

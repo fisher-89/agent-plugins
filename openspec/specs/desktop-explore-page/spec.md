@@ -48,12 +48,12 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 ### Requirement: 双栏详情与实时预览
 
-探索详情页（`/explores/:name`）SHALL 为左右双栏布局（resizable，可拖分界）：左对话区、右文档预览。详情头 SHALL 渲染 `title`。预览 SHALL 经 `read_explore` 读取磁盘 `explore.md` 并以既有 `MarkdownDocRenderer` 渲染；页面挂载时 SHALL 对当前 explore.md 发起 watch 订阅，收到修改信号后前端防抖再经 `read_explore` 显式拉取刷新（数据面无轮询）。目标文件未落盘或已被删除时预览 SHALL 呈空态（记录保留、不报错）。记录 `promoted_to` 非空时（已 promote），详情 SHALL 显示「已转变更」徽标与「查看变更」跳转（路由 `/changes/<promoted_to>`），预览区 SHALL 显示已 promote 提示而非继续读 `explores/<name>.md`（笔记已移走）。
+探索详情页（`/explores/:name`）SHALL 为左右双栏布局（resizable，可拖分界）：左对话区、右文档预览。详情头 SHALL 渲染 `title`。预览 SHALL 经 `explore_doc_path` 派生绝对路径 + 通用 `read_file` 读取磁盘 `explore.md` 并以既有 `MarkdownDocRenderer` 渲染（路径解析按臂单次、读取与 watch 订阅共用）；页面挂载时 SHALL 对当前 explore.md 发起 watch 订阅，收到修改信号后前端防抖再显式重读刷新（数据面无轮询）。目标文件未落盘或已被删除时预览 SHALL 呈空态（记录保留、不报错）。记录 `promoted_to` 非空时（已 promote），详情 SHALL 显示「已转变更」徽标与「查看变更」跳转（路由 `/changes/<promoted_to>`），预览区 SHALL 显示已 promote 提示而非继续读 `explores/<name>.md`（笔记已移走）。
 
 #### Scenario: 预览随磁盘刷新
 
 - **WHEN** explore.md 被 agent（或外部编辑器）修改且 watch 信号到达
-- **THEN** 前端防抖后发起一次 `read_explore` 并更新预览，期间无定时轮询
+- **THEN** 前端防抖后发起一次重读（`read_file`）并更新预览，期间无定时轮询
 
 #### Scenario: 未落盘与已删除空态
 
@@ -164,12 +164,12 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 ### Requirement: title 回填
 
-详情页 SHALL 在 watch 重读笔记内容后解析首行 `# <标题>`（纯函数 `extractMarkdownTitle`，返回非空白标题或 `None`）：解析结果非空且与 `record.title` 不同时 SHALL 调显式写命令 `update_explore_title(root, name, title)` 回填 store `title`，成功后刷新清单（清单与详情头 title 一致）。回填 SHALL 仅经显式写命令完成，MUST NOT 在读取路径（`read_explore`）写入或修改任何文件；解析失败（无标题行）SHALL 保持 `record.title` 不变，不报错。
+详情页 SHALL 在 watch 重读笔记内容后解析首行 `# <标题>`（纯函数 `extractMarkdownTitle`，返回非空白标题或 `None`）：解析结果非空且与 `record.title` 不同时 SHALL 调显式写命令 `update_explore_title(root, name, title)` 回填 store `title`，成功后刷新清单（清单与详情头 title 一致）。回填 SHALL 仅经显式写命令完成，MUST NOT 在读取路径（`read_file`）写入或修改任何文件；解析失败（无标题行）SHALL 保持 `record.title` 不变，不报错。
 
 #### Scenario: 标题解析回填
 
 - **WHEN** 笔记首行为 `# API 重试调研` 而 `record.title` 为 `api-retry`，watch 重读后
-- **THEN** 前端调 `update_explore_title` 回填「API 重试调研」，成功后清单与详情头显示新 title；`read_explore` 路径零写入
+- **THEN** 前端调 `update_explore_title` 回填「API 重试调研」，成功后清单与详情头显示新 title；`read_file` 路径零写入
 
 #### Scenario: 无标题行不报错
 
@@ -197,12 +197,12 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 ### Requirement: workflow_type 回填与类型推算解析
 
-详情页 SHALL 在 watch 重读笔记内容后解析约定标记行（纯函数 `extractWorkflowType`，返回 `"requirement"` / `"test-only"` / `null`）：解析结果合法且与 `record.workflow_type` 不同时 SHALL 调显式写命令 `update_explore_workflow_type(root, name, workflow_type)` 回填 store `workflow_type`，成功后刷新清单。回填 SHALL 仅经显式写命令完成，MUST NOT 在读取路径（`read_explore`）写入或修改任何文件；解析失败（无约定标记行 / 非法值）SHALL 保持 `record.workflow_type` 不变，不报错。类型选择器的人工改选 SHALL 同样经 `update_explore_workflow_type` 回填落库（沿 title 改即写模式）。
+详情页 SHALL 在 watch 重读笔记内容后解析约定标记行（纯函数 `extractWorkflowType`，返回 `"requirement"` / `"test-only"` / `null`）：解析结果合法且与 `record.workflow_type` 不同时 SHALL 调显式写命令 `update_explore_workflow_type(root, name, workflow_type)` 回填 store `workflow_type`，成功后刷新清单。回填 SHALL 仅经显式写命令完成，MUST NOT 在读取路径（`read_file`）写入或修改任何文件；解析失败（无约定标记行 / 非法值）SHALL 保持 `record.workflow_type` 不变，不报错。类型选择器的人工改选 SHALL 同样经 `update_explore_workflow_type` 回填落库（沿 title 改即写模式）。
 
 #### Scenario: 标记解析回填
 
 - **WHEN** 笔记含约定标记行 `test-only` 而 `record.workflow_type` 为 `"requirement"`，watch 重读后
-- **THEN** 前端调 `update_explore_workflow_type` 回填 `"test-only"`，成功后清单刷新、promote 选择器默认值随动；`read_explore` 路径零写入
+- **THEN** 前端调 `update_explore_workflow_type` 回填 `"test-only"`，成功后清单刷新、promote 选择器默认值随动；`read_file` 路径零写入
 
 #### Scenario: 无标记或非法值不报错
 
@@ -264,7 +264,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 | `views/explores/components/`（composer / 预览 / 新建对话框 / 导入下拉；`explore-conversation.tsx` 已删） | 呈现件 | 对话区由 `components/agent/AgentSessionView` 承载（私有渲染实现收编，用例随迁组件族测试）；`ExploreComposer`（`running` / `onSend` / `onStop`，testid 前缀 `explore-*`）为 `AgentInput` 薄适配，经 composer 插槽注入；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
 | `views/explores/components/explore-create-dialog.tsx`（改） | 新建对话框 | `StandardDialog` 弹窗（标题「新建探索」、footer「取消 / 提交」、trigger 由清单页注入）：需求 textarea（testid `explore-topic-requirement`）以 `name = null` invoke建档；空白提交行内拒绝零 invoke；成功后清空输入并关窗；onCreated 携占位名 + 需求 trim 后回调；错误经 `explore-create-error` 行内呈现（不跨提交残留） |
 | `views/explores/components/explore-open-file.tsx`（新） | 导入下拉菜单 | `DropdownMenu`（trigger 由清单页注入，base-ui 触发 props 原样落地）：挂载即 `scan_explores(root)`（root 切换重扫、旧应答取消抑制）；扫描中 / 空态 / 候选三形态（`explore-import-loading` / `explore-import-empty` / `explore-import-item`）；扫描与建档失败经 toast 呈现、不阻断菜单；选中候选以显式名 invoke，成功后 onCreated(entry.name, null) |
-| `views/explores/hooks/use-explore-session.ts`（改） | 会话链与刷新编排 | `useExploreSession(root, record, autoPrompt?) => { sessionId, session, send, stop, ... }`；改走 `useAgentSession`（重放装载 + 链参数经 body 穿透）；stance 文本组装与 auto-send 闸门留本 hook（来源侧），首轮 stance 分形调用（占位 → 命名指令形 / 已定名 → 定位形）与三条件 auto-send effect 语义不变；会话 id 经记录回写 / `ensureExploreSession` 补齐后交组件挂流；watch 信号防抖 → `read_explore` 显式刷新 |
+| `views/explores/hooks/use-explore-session.ts`（改） | 会话链与刷新编排 | `useExploreSession(root, record, autoPrompt?) => { sessionId, session, send, stop, ... }`；改走 `useAgentSession`（重放装载 + 链参数经 body 穿透）；stance 文本组装与 auto-send 闸门留本 hook（来源侧），首轮 stance 分形调用（占位 → 命名指令形 / 已定名 → 定位形）与三条件 auto-send effect 语义不变；会话 id 经记录回写 / `ensureExploreSession` 补齐后交组件挂流；watch 信号防抖 → `read_file` 显式刷新 |
 | `packages/desktop/src/lib/explore-stance.ts`（新） | stance 前导模板 | `buildExplorePrompt` 两形（占位命名指令形 / 已定名笔记定位形）拼接进 explore run prompt 头部；注释**单源自持**（双源互链表述随插件退役删除） |
 | `routes.tsx` + `components/app-sidebar.tsx` | 路由与导航 | `/explores` 父路由挂 `ExploreLayout`（index = 清单页、`:name` = 详情页）——两个独立路由组件，清单状态由布局单源下传；`nav-explores` 入口（active 由 URL 派生） |
 | `types/dto.ts` | 前端 DTO | `ExploreRecord` / 导入扫描结果，与 store 自有类型一一对应 |

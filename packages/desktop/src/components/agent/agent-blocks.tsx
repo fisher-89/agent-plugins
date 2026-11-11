@@ -5,6 +5,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { CodeBlock, CodeBlockContent, CodeBlockHeader } from '@/components/ui/code-block';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Trace,
   TraceCollapsible,
@@ -158,10 +159,8 @@ function ThinkingBlockBase({
   return (
     <TraceCollapsible data-testid="block-thinking">
       <TraceCollapsibleTrigger>
-        <TraceLine status={state === 'streaming' ? 'running' : undefined}>
-          <TraceIcon>
-            <DotIcon />
-          </TraceIcon>
+        <TraceLine status={state === 'streaming' ? 'pending' : undefined}>
+          <TraceIcon>{state === 'streaming' ? <Spinner /> : <DotIcon />}</TraceIcon>
           <TraceTitle>{state === 'streaming' ? '思考中…' : '思考'}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -176,11 +175,13 @@ export const ThinkingBlock = memo(ThinkingBlockBase);
 function ToolPairCardBase({
   name,
   toolCallId,
+  state,
   input,
   output,
 }: {
   name: string;
   toolCallId: string;
+  state: 'input-available' | 'output-available';
   input: unknown;
   output: AgentToolOutput | null;
 }): React.JSX.Element {
@@ -188,9 +189,7 @@ function ToolPairCardBase({
     <TraceCollapsible data-testid="block-tool-use" data-tool-id={toolCallId}>
       <TraceCollapsibleTrigger>
         <TraceLine status={output?.isError ? 'error' : undefined}>
-          <TraceIcon>
-            <ToolboxIcon />
-          </TraceIcon>
+          <TraceIcon>{state === 'output-available' ? <ToolboxIcon /> : <Spinner />}</TraceIcon>
           <TraceTitle>{name}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>

@@ -349,6 +349,7 @@ describe('既有块回归', () => {
       <ToolPairCard
         name="Bash"
         toolCallId="tu_1"
+        state="output-available"
         input={{ command: 'ls' }}
         output={{ content: '目录内容', isError: true }}
       />,

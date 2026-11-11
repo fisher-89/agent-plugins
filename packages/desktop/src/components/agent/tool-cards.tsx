@@ -19,12 +19,14 @@ import { useHighlightedCode } from '@/hooks/use-highlighted-code';
 import type { AgentToolOutput } from '@/lib/agent-adapter';
 import { asRecord, textOf } from '@/lib/parse';
 
+import { Spinner } from '../ui/spinner';
 import { WebSearchCard } from './agent-blocks';
 
 /** 特化工具卡入参（output 为 null 即尚无结果；渲染 or null 回退由卡自决） */
 interface AgentToolCardProps {
   toolCallId: string;
   toolName: string;
+  state: 'input-available' | 'output-available';
   input: unknown;
   output: AgentToolOutput | null;
 }
@@ -127,9 +129,7 @@ function BashCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.
     <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
       <TraceCollapsibleTrigger>
         <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
-          <TraceIcon>
-            <TerminalIcon />
-          </TraceIcon>
+          <TraceIcon>{output === null ? <Spinner /> : <TerminalIcon />}</TraceIcon>
           <TraceTitle>Bash</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -255,6 +255,7 @@ function EditCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.
           <div className="text-destructive mb-2">{output.content}</div>
         ) : (
           <CodeBlock>
+            <CodeBlockHeader>{path}</CodeBlockHeader>
             <CodeBlockContent className="max-h-40">
               {oldLines.map((line, index) => (
                 <CodeBlockLine key={`removed-${index}`} variant="removed">

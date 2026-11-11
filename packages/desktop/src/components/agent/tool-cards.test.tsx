@@ -34,7 +34,15 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 特化', () => {
     const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
     expect(Card).toBeDefined();
 
-    render(<Card toolCallId="tu_ask" toolName="AskUserQuestion" input={ASK_INPUT} output={null} />);
+    render(
+      <Card
+        toolCallId="tu_ask"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={ASK_INPUT}
+        output={null}
+      />,
+    );
 
     expect(screen.getByTestId('ask-question-card').textContent).toContain('请在下方输入框作答');
     const questions = screen.getAllByTestId('ask-question');
@@ -53,6 +61,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 特化', () => {
       <Card
         toolCallId="tu_ask"
         toolName="AskUserQuestion"
+        state="input-available"
         input={{ note: '未知形态' }}
         output={null}
       />,
@@ -69,6 +78,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 特化', () => {
       <Card
         toolCallId="tu_ask"
         toolName="AskUserQuestion"
+        state="input-available"
         input={{ questions: [{ question: '残缺选项', options: [{ label: 42 }, '非法项'] }] }}
         output={null}
       />,
@@ -102,6 +112,7 @@ describe('BUILD_IN_TOOL_CARDS：回退与错误结果', () => {
       <ToolPairCard
         name="Bash"
         toolCallId="tu_err"
+        state="output-available"
         input={{ command: 'exit 1' }}
         output={{ content: '命令失败', isError: true }}
       />,
@@ -119,6 +130,7 @@ describe('BUILD_IN_TOOL_CARDS：回退与错误结果', () => {
       <ToolPairCard
         name="Bash"
         toolCallId="tu_ok"
+        state="output-available"
         input={{}}
         output={{ content: 'ok', isError: false }}
       />,
@@ -172,6 +184,7 @@ describe('BUILD_IN_TOOL_CARDS：web_search 命中渲染', () => {
       <Card
         toolCallId="srvtoolu_1"
         toolName="web_search"
+        state="output-available"
         input={{ query: '今日汇率' }}
         output={SEARCH_OUTPUT}
       />,
@@ -200,6 +213,7 @@ describe('BUILD_IN_TOOL_CARDS：web_search 命中渲染', () => {
         <Card
           toolCallId="srvtoolu_bad"
           toolName="web_search"
+          state="output-available"
           input={input}
           output={output as never}
         />,

@@ -20,7 +20,7 @@ const ROOT = 'C:\\demo\\alpha';
 
 function readCalls(): Record<string, unknown>[] {
   return invokeMock.mock.calls
-    .filter(([command]) => command === 'archi_read_doc')
+    .filter(([command]) => command === 'read_file')
     .map(([, params]) => (params ?? {}) as Record<string, unknown>);
 }
 
@@ -46,9 +46,21 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+/** 后端 FileSlice 的最小书面形状（内容 + stat + 游标）。 */
+function sliceOf(content: string) {
+  return {
+    content,
+    stat: { size: content.length, modifiedMs: null, isFile: true, isDir: false },
+    offset: 0,
+    nextOffset: content.length,
+    truncated: false,
+    encoding: 'utf8',
+  };
+}
+
 beforeEach(() => {
   invokeMock.mockReset();
-  invokeMock.mockImplementation(() => Promise.resolve('# 认证说明\n\n正文'));
+  invokeMock.mockImplementation(() => Promise.resolve(sliceOf('# 认证说明\n\n正文')));
 });
 
 afterEach(() => {
@@ -100,7 +112,9 @@ describe('FileViewer：抽屉与页签', () => {
 describe('FileViewer：按类型分派渲染', () => {
   it('md 后缀 → markdown 渲染（标题 / 列表 / 代码块）', async () => {
     invokeMock.mockImplementation(() =>
-      Promise.resolve('# 令牌收口\n\n- 收口到 Token 模块\n\n```ts\nconst sink = 1;\n```\n'),
+      Promise.resolve(
+        sliceOf('# 令牌收口\n\n- 收口到 Token 模块\n\n```ts\nconst sink = 1;\n```\n'),
+      ),
     );
     render(<FileViewer root={ROOT} files={[{ path: 'docs/adr.md' }]} trigger={trigger()} />);
     await open();
@@ -109,11 +123,11 @@ describe('FileViewer：按类型分派渲染', () => {
     expect(body.querySelector('h1')?.textContent).toBe('令牌收口');
     expect(body.querySelector('li')?.textContent).toContain('收口到 Token 模块');
     expect(body.querySelector('code')?.textContent).toContain('const sink = 1;');
-    expect(readCalls()).toEqual([{ root: ROOT, path: 'docs/adr.md' }]);
+    expect(readCalls()).toEqual([{ path: `${ROOT}/docs/adr.md`, offset: null, limit: null }]);
   });
 
   it('非 md 后缀 → 纯文本渲染（不解析 markdown 语法）', async () => {
-    invokeMock.mockImplementation(() => Promise.resolve('# 不是标题\n'));
+    invokeMock.mockImplementation(() => Promise.resolve(sliceOf('# 不是标题\n')));
     render(<FileViewer root={ROOT} files={[{ path: 'src/auth/index.ts' }]} trigger={trigger()} />);
     await open();
 
@@ -148,7 +162,7 @@ describe('FileViewer：按类型分派渲染', () => {
 
 describe('FileViewer：取数三态', () => {
   it('取数未回：呈加载行，不渲染正文 / 错误', async () => {
-    const pending = deferred<string>();
+    const pending = deferred<ReturnType<typeof sliceOf> | null>();
     invokeMock.mockImplementation(() => pending.promise);
     render(<FileViewer root={ROOT} files={[{ path: 'a.md' }]} trigger={trigger()} />);
     await open();
@@ -158,23 +172,39 @@ describe('FileViewer：取数三态', () => {
     expect(screen.queryByTestId('file-content-error')).toBeNull();
 
     await act(async () => {
-      pending.resolve('# 迟到正文');
+      pending.resolve(sliceOf('# 迟到正文'));
     });
     await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
     expect(screen.queryByTestId('file-content-loading')).toBeNull();
   });
 
   it('取数失败：行内呈现错误串，正文与加载行均不在场', async () => {
-    invokeMock.mockImplementation(() =>
-      Promise.reject(new Error('路径不在模块文档关联集内：a.md')),
-    );
+    invokeMock.mockImplementation(() => Promise.reject(new Error('读取失败：EPERM')));
     render(<FileViewer root={ROOT} files={[{ path: 'a.md' }]} trigger={trigger()} />);
     await open();
 
     const error = await screen.findByTestId('file-content-error');
-    expect(error.textContent).toContain('路径不在模块文档关联集内');
+    expect(error.textContent).toContain('读取失败');
     expect(screen.queryByTestId('file-content-loading')).toBeNull();
     expect(screen.queryByTestId('file-content-markdown')).toBeNull();
+  });
+
+  it('路径缺失（后端返回 null）：呈「文件不存在」错误态，不空白', async () => {
+    invokeMock.mockImplementation(() => Promise.resolve(null));
+    render(<FileViewer root={ROOT} files={[{ path: 'missing.md' }]} trigger={trigger()} />);
+    await open();
+
+    const error = await screen.findByTestId('file-content-error');
+    expect(error.textContent).toContain('文件不存在');
+  });
+
+  it('二进制文件：呈二进制提示，不渲染正文', async () => {
+    invokeMock.mockImplementation(() => Promise.resolve({ ...sliceOf(''), encoding: 'binary' }));
+    render(<FileViewer root={ROOT} files={[{ path: 'blob.bin' }]} trigger={trigger()} />);
+    await open();
+
+    expect(await screen.findByTestId('file-content-binary')).toBeTruthy();
+    expect(screen.queryByTestId('file-content-text')).toBeNull();
   });
 });
 
@@ -189,15 +219,19 @@ describe('FileViewer：多文件按需取数', () => {
     );
     await open();
 
-    await waitFor(() => expect(readCalls()).toEqual([{ root: ROOT, path: 'src/auth/README.md' }]));
+    await waitFor(() =>
+      expect(readCalls()).toEqual([
+        { path: `${ROOT}/src/auth/README.md`, offset: null, limit: null },
+      ]),
+    );
     expect(screen.getByTestId('file-content-markdown')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('tab', { name: 'index.ts' }));
 
     await waitFor(() =>
       expect(readCalls()).toEqual([
-        { root: ROOT, path: 'src/auth/README.md' },
-        { root: ROOT, path: 'src/auth/index.ts' },
+        { path: `${ROOT}/src/auth/README.md`, offset: null, limit: null },
+        { path: `${ROOT}/src/auth/index.ts`, offset: null, limit: null },
       ]),
     );
     expect(await screen.findByTestId('file-content-text')).toBeTruthy();
@@ -215,10 +249,10 @@ describe('FileViewer：多文件按需取数', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'a.md' }));
     await waitFor(() =>
-      expect(readCalls()).toEqual([
-        { root: ROOT, path: 'a.md' },
-        { root: ROOT, path: 'b.md' },
-        { root: ROOT, path: 'a.md' },
+      expect(readCalls().map((call) => call.path)).toEqual([
+        `${ROOT}/a.md`,
+        `${ROOT}/b.md`,
+        `${ROOT}/a.md`,
       ]),
     );
   });

@@ -27,14 +27,14 @@ desktop SHALL 新增通用「watch 文件变化」推送通道：订阅目标是
 
 ### Requirement: 失效信号语义（非数据通道）
 
-watch 通知 SHALL 只携带「目标文件被修改」信号与订阅标识，MUST NOT 携带任何文件内容——通道是**失效信号通道而非数据通道**。数据面 SHALL 维持既有取数纪律：前端收到信号后防抖，再经既有取数命令（如 `read_explore`）显式拉取刷新；后端 SHALL 只透传修改事件、MUST NOT 下沉去抖逻辑（防抖窗口由前端持有）。MUST NOT 将该通道扩展为内容推送、目录树事件广播或任意轮询替代品。
+watch 通知 SHALL 只携带「目标文件被修改」信号与订阅标识，MUST NOT 携带任何文件内容——通道是**失效信号通道而非数据通道**。数据面 SHALL 维持既有取数纪律：前端收到信号后防抖，再经既有取数命令（如 `read_file`）显式拉取刷新；后端 SHALL 只透传修改事件、MUST NOT 下沉去抖逻辑（防抖窗口由前端持有）。MUST NOT 将该通道扩展为内容推送、目录树事件广播或任意轮询替代品。
 
 前端持有防抖窗口的实现 SHALL 单点化：Channel 建立、布局派生路径订阅、trailing 防抖合并、卸载退订四件事 SHALL 集中在共享消费件 `packages/desktop/src/hooks/use-file-watch-signal.ts`（见「共享文件 watch 信号消费件」）；消费方 hook MUST NOT 自建 `Channel`、MUST NOT 直呼 `watch_subscribe` / `watch_unsubscribe`、MUST NOT 各自实现文件信号防抖。**单点口径的范围**：本纪律约束的是**生产代码**（`packages/desktop/src` 下排除 `*.test.ts` / `*.test.tsx`）；测试装置内的订阅探针与 `Parameters<typeof ipc.watchSubscribe>` 类类型断言是验证手段、MUST NOT 被当成第二消费点，也 MUST NOT 为满足本纪律而被删改（测试经公开 API 驱动消费方）。**划界**：本纪律只约束「文件失效信号」驱动源；以 run 内存通知（如 `change_flow_watch` 的 kind-only `RunNotice`）驱动、且无路径解析 / 无订阅 / 无退订的防抖（`views/changes/hooks/use-change-detail.ts` 的 `useDebouncedBump`）MUST NOT 被并入本件，其归属与语义零改动。
 
 #### Scenario: 通知无内容且触发显式拉取
 
 - **WHEN** 一次修改信号到达前端
-- **THEN** 通知体不含文件内容字节；前端防抖后恰发起一次 `read_explore` 刷新（防抖窗口内多次信号合并为一次拉取）
+- **THEN** 通知体不含文件内容字节；前端防抖后恰发起一次重读（`read_file`）刷新（防抖窗口内多次信号合并为一次拉取）
 
 #### Scenario: 消费侧样板单点化
 
@@ -78,7 +78,7 @@ onSignal: () => void           —— 信号到达（防抖后）调用
 4. **退订与清理**：臂键变化 / 卸载时取消失效计时并 `watch_unsubscribe(subscriptionId)`；订阅迟到就绪（清理已发生）MUST 立即补发退订；
 5. **订阅失败不阻断数据面**：订阅链 reject MUST NOT 冒泡为消费方错误态、MUST NOT 阻断消费方任何取数路径（页面仍可显式刷新，仅失自动刷新）。
 
-边界纪律：信号 SHALL 视为**无载荷**——本件 MUST NOT 读取、解释、转发信号载荷（载荷只作「有事发生」判据）；本件 MUST NOT 取数（不调 `read_explore` 等数据命令）、MUST NOT 触碰消费方的 `loading` / `error` 状态、MUST NOT 在挂载或重臂时替消费方发起取数（取数时机属消费方语义）；`resolvePath` / `onSignal` SHALL 以最新引用生效，MUST NOT 因回调身份变化而重订订阅。
+边界纪律：信号 SHALL 视为**无载荷**——本件 MUST NOT 读取、解释、转发信号载荷（载荷只作「有事发生」判据）；本件 MUST NOT 取数（不调 `read_file` 等数据命令）、MUST NOT 触碰消费方的 `loading` / `error` 状态、MUST NOT 在挂载或重臂时替消费方发起取数（取数时机属消费方语义）；`resolvePath` / `onSignal` SHALL 以最新引用生效，MUST NOT 因回调身份变化而重订订阅。
 
 #### Scenario: 500ms 窗口合并为一次信号
 
@@ -166,7 +166,7 @@ watch crate SHALL 区分两种「目标不可达」形态，MUST NOT 合并为�
 | `src-tauri/src/commands/watch/`（命令轨道） | Channel 桥接薄命令 | `watch_subscribe`（绑定 Tauri Channel）/ `watch_unsubscribe`；同文件重复订阅幂等；`Result<T, String>` 错误模板；`ParentUnavailable` 经既有错误串映射出线（**零改动**——错误模板不变，只是多一类因） |
 | `packages/desktop/src-tauri/Cargo.toml` | workspace 注册 | `crates/infra/watch` 进 members；notify 依赖收敛于该 crate（**零改动**） |
 | `packages/desktop/src/hooks/use-file-watch-signal.ts` | 前端信号消费（单点） | Channel 建立 / `resolvePath` → `watch_subscribe` / trailing 防抖（`SIGNAL_DEBOUNCE_MS = 500`）/ 卸载与臂键变化退订（含迟到补发）/ 订阅失败不阻断数据面；零取数、零状态、零载荷语义；参数面恰三项，不开 `debounceMs` / `enabled` / `retry` / 错误回调——explore 详情页与 change 详情脚本输出共用（**本变更零改动**：第二个消费方接入不开新参数、不新增常量） |
-| `packages/desktop/src/views/explores/hooks/use-explore-doc.ts` | explore 详情页消费方 | 持有取数语义（`read_explore` + 失败降级信封）与 `loading` / `error` 状态；`armKey = root + name`（不含刷新 tick）；信号重拉**不置** `loading`、不清 `error`；对外仅 `ExploreDocState` / `useExploreDoc` 两个导出（**零改动**：explore 父目录恒存在，`ParentUnavailable` 实际零触发） |
+| `packages/desktop/src/views/explores/hooks/use-explore-doc.ts` | explore 详情页消费方 | 持有取数语义（`explore_doc_path` + `read_file`，路径按臂单次解析）与 `loading` / `error` 状态；`armKey = root + name`（不含刷新 tick）；信号重拉**不置** `loading`、不清 `error`；对外仅 `ExploreDocState` / `useExploreDoc` 两个导出（**零改动**：explore 父目录恒存在，`ParentUnavailable` 实际零触发） |
 | `packages/desktop/src/views/changes/hooks/use-exec-output.ts` | change 详情脚本输出消费方（新增第二消费方） | 仅经 `useFileWatchSignal` 订阅（`armKey = running ? root + execId : null`），MUST NOT 自建 `Channel` / 直呼 watch 命令 / 自建防抖；订阅失败静默降级（面板仍可经装载首拍与终态整读取到内容） |
 
 ### Function: `packages/desktop/src/hooks/use-file-watch-signal.ts`

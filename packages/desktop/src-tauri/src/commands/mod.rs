@@ -7,6 +7,7 @@ pub mod db;
 pub mod env;
 pub mod exec;
 pub mod explores;
+pub mod fs;
 pub mod stats;
 pub mod watch;
 pub mod workspaces;
@@ -26,7 +27,6 @@ macro_rules! all_commands {
             $crate::commands::changes::list_changes,
             $crate::commands::changes::get_change_detail,
             $crate::commands::changes::read_artifact,
-            $crate::commands::changes::read_exec_output,
             $crate::commands::changes::exec_output_path,
             $crate::commands::changes::read_exec_command,
             $crate::commands::changes::read_exec_output_delta,
@@ -56,7 +56,6 @@ macro_rules! all_commands {
             $crate::commands::change_flow::change_flow_confirm,
             $crate::commands::change_flow::change_flow_watch,
             $crate::commands::changes::create_change,
-            $crate::commands::explores::read_explore,
             $crate::commands::explores::scan_explores,
             $crate::commands::explores::explore_doc_path,
             $crate::commands::explores::list_explore_records,
@@ -76,10 +75,10 @@ macro_rules! all_commands {
             $crate::commands::env::app_environment,
             $crate::commands::archi::archi_graph,
             $crate::commands::archi::archi_module,
-            $crate::commands::archi::archi_read_doc,
             $crate::commands::archi::archi_change_summary,
             $crate::commands::archi::archi_set_gate,
             $crate::commands::archi::archi_drift,
+            $crate::commands::fs::read_file,
         ]
     };
 }

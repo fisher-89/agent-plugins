@@ -150,7 +150,6 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "sessionDetail",
     "listChangeChatSessions",
     "listArchiChatSessions",
-    "readExplore",
     "scanExplores",
     "exploreDocPath",
     "listExploreRecords",
@@ -170,10 +169,10 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "appEnvironment",
     "archiGraph",
     "archiModule",
-    "archiReadDoc",
     "archiChangeSummary",
     "archiSetGate",
     "archiDrift",
+    "readFile",
 ];
 
 /// 38 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
@@ -203,7 +202,6 @@ const COMMAND_NAMES: &[&str] = &[
     "session_detail",
     "list_change_chat_sessions",
     "list_archi_chat_sessions",
-    "read_explore",
     "scan_explores",
     "explore_doc_path",
     "list_explore_records",
@@ -223,10 +221,10 @@ const COMMAND_NAMES: &[&str] = &[
     "app_environment",
     "archi_graph",
     "archi_module",
-    "archi_read_doc",
     "archi_change_summary",
     "archi_set_gate",
     "archi_drift",
+    "read_file",
 ];
 
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
@@ -268,10 +266,11 @@ const DTO_TYPES: &[&str] = &[
     "CoverageThresholds",
     "DiagnosticKind",
     "DirNode",
-    "ExploreDoc",
     "ExploreRecord",
     "ExploreScanEntry",
     "FileNode",
+    "FileSlice",
+    "FileStat",
     "FileWatchEvent",
     "LanguageStats",
     "ModelInfo",
@@ -1045,21 +1044,13 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
     // 本变更自身再补录一条（架构页会话清单）：条目数 43 → 44
-    assert_eq!(
-        COMMAND_NAMES.len(),
-        49,
-        "命令清单再补录 delete_change（48 → 49）"
-    );
-    assert_eq!(
-        COMMAND_WRAPPERS.len(),
-        49,
-        "包装清单再补录 delete_change（48 → 49）"
-    );
+    assert_eq!(COMMAND_NAMES.len(), 48, "命令清单删 2 增 1（49 → 48）");
+    assert_eq!(COMMAND_WRAPPERS.len(), 48, "包装清单删 2 增 1（49 → 48）");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
         COMMAND_NAMES.last(),
-        Some(&"archi_drift"),
-        "尾锚随六条 archi 命令后移（archi_drift 尾部登记）"
+        Some(&"read_file"),
+        "尾锚为通用读命令（archi 组之后登记）"
     );
     assert!(
         COMMAND_NAMES.contains(&"app_environment"),
@@ -1114,8 +1105,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        96,
-        "DTO 清单再补录 `DeleteOutcome`（95 + 1）"
+        97,
+        "DTO 清单再补录 FileSlice / FileStat，删 ExploreDoc（96 + 2 - 1）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -1628,14 +1619,14 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
         "invoke 目标在产物中恰一次"
     );
 
-    // 清单末条随尾部追加随动：`app_environment` 之后追加了 archi 五命令，随后是本
-    // 变更的 `archiDrift`（既有条目零位移——`appEnvironment` 仍在册且恰一次，见上）
-    let index = content.find("archiDrift:").expect("包装在场");
+    // 清单末条随尾部追加随动：`archi_drift` 之后是本变更的通用读命令 `readFile`
+    //（既有条目零位移——`appEnvironment` / `archiDrift` 仍在册且各恰一次，见上）
+    let index = content.find("readFile:").expect("包装在场");
     let tail = &content[index..];
     let line_end = tail.find('\n').expect("包装行有换行");
     assert!(
         tail[line_end + 1..].starts_with("};"),
-        "新命令为清单末条（生成物中其后即对象收尾）"
+        "readFile 为清单末条（生成物中其后即对象收尾）"
     );
 
     // 清单是产物的子集：逐条命中（历史缺录的滞后债不在本变更范围）
@@ -1654,14 +1645,13 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
 }
 
 // ---------------------------------------------------------------------------
-// archi 章节：五命令与架构域出线类型在册（AC-20 的守卫面）
+// archi 章节：四命令与架构域出线类型在册（AC-20 的守卫面）
 // ---------------------------------------------------------------------------
 
-/// 架构域五命令（invoke 名 / 包装名成对）。
-const ARCHI_COMMANDS: [(&str, &str); 5] = [
+/// 架构域四命令（invoke 名 / 包装名成对）。
+const ARCHI_COMMANDS: [(&str, &str); 4] = [
     ("archi_graph", "archiGraph"),
     ("archi_module", "archiModule"),
-    ("archi_read_doc", "archiReadDoc"),
     ("archi_change_summary", "archiChangeSummary"),
     ("archi_set_gate", "archiSetGate"),
 ];
@@ -1689,9 +1679,9 @@ const ARCHI_DTO_TYPES: [&str; 19] = [
     "WarningKind",
 ];
 
-/// 正向：五命令在册（清单 + 产物双面）；既有条目零位移（尾部追加）。
+/// 正向：四命令在册（清单 + 产物双面）；既有条目零位移（尾部追加）。
 #[test]
-fn archi五命令在册且既有条目零位移() {
+fn archi四命令在册且既有条目零位移() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -1714,7 +1704,7 @@ fn archi五命令在册且既有条目零位移() {
         );
     }
 
-    // 尾部追加：五条新命令位于 `app_environment` 之后且序固定
+    // 尾部追加：新命令位于 `app_environment` 之后且序固定
     let tail_start = COMMAND_NAMES
         .iter()
         .position(|name| *name == "app_environment")
@@ -1726,10 +1716,10 @@ fn archi五命令在册且既有条目零位移() {
             "app_environment",
             "archi_graph",
             "archi_module",
-            "archi_read_doc",
             "archi_change_summary",
             "archi_set_gate",
             "archi_drift",
+            "read_file",
         ],
         "archi 命令尾部追加（既有条目零位移）"
     );
@@ -1958,14 +1948,10 @@ fn 登记面_架构页会话清单命令在册() {
 /// 边界：命令总数 +1（43 → 44），两份清单条目数持衡（漏登记或重复登记即红）。
 #[test]
 fn 登记面_命令总数加一且两清单持衡() {
-    assert_eq!(
-        COMMAND_NAMES.len(),
-        49,
-        "再补录 delete_change 后的命令总数（48 → 49）"
-    );
+    assert_eq!(COMMAND_NAMES.len(), 48, "删 2 增 1 后的命令总数（49 → 48）");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        49,
+        48,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2039,7 +2025,6 @@ fn 登记面_既有条目零位移() {
         ("agent_start", "agentStart"),
         ("archi_graph", "archiGraph"),
         ("archi_module", "archiModule"),
-        ("archi_read_doc", "archiReadDoc"),
         ("archi_change_summary", "archiChangeSummary"),
         ("archi_set_gate", "archiSetGate"),
     ] {
@@ -2104,9 +2089,7 @@ const ARCHI_DRIFT_DTO_TYPES: [&str; 16] = [
     "ArchiUnresolvedFile",
 ];
 
-/// 正向（AC-20）：`all_commands!` 登记面 +1（尾部登记，登记序即
-/// `generate_handler` 序）→ 两份补录清单 44 → 45、尾锚由 `archi_set_gate` 移到
-/// `archi_drift`，且清单每条都能在产物命中（无遗漏）。
+/// 正向（AC-20）：`archi_drift` 在册（`read_file` 之后为通用读命令，尾锚随动）。
 #[test]
 fn archi_drift登记面加一且尾锚随动() {
     assert!(
@@ -2119,12 +2102,12 @@ fn archi_drift登记面加一且尾锚随动() {
     );
     assert_eq!(
         COMMAND_NAMES.last(),
-        Some(&ARCHI_DRIFT_COMMAND),
-        "尾部登记即尾锚（登记序 = generate_handler 序）"
+        Some(&"read_file"),
+        "尾锚为通用读命令（read_file 最后登记）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.last(),
-        Some(&ARCHI_DRIFT_WRAPPER),
+        Some(&"readFile"),
         "包装清单同序尾锚"
     );
     // 前一条 archi 命令下标零位移（尾部追加不改既有条目）
@@ -2135,7 +2118,7 @@ fn archi_drift登记面加一且尾锚随动() {
     assert_eq!(
         COMMAND_NAMES[gate_index + 1],
         ARCHI_DRIFT_COMMAND,
-        "新命令紧跟 archi_set_gate 之后登记"
+        "archi_drift 紧跟 archi_set_gate 之后登记"
     );
 
     // 清单每条都能在产物命中（登记 → 产物单向覆盖）
@@ -2289,11 +2272,10 @@ fn archi_drift清单与产物命令面互为镜像() {
         missing_in_list.is_empty(),
         "产物有而清单无（archi 族漏登记）：{missing_in_list:?}"
     );
-    // 清单有而产物无：archi 命令族逐条回查（六条在册 + 一条会话清单同名族）
+    // 清单有而产物无：archi 命令族逐条回查（四命令在册 + 架构指纹命令）
     for wrapper in [
         "archiGraph",
         "archiModule",
-        "archiReadDoc",
         "archiChangeSummary",
         "archiSetGate",
         "archiDrift",
@@ -2379,17 +2361,17 @@ fn 产物文件锁drop后立即可重取且文件常驻() {
 // ---------------------------------------------------------------------------
 // 三条 exec 记录读命令的登记面（change-detail-live-stdout，AC-14）
 //
-// 被测面：`all_commands!` 在 `read_exec_output` 之后增三行（45 → 48）——两份
+// 被测面：`all_commands!` 在 `read_artifact` 之后的三条 exec 记录读命令——两份
 // 补录清单（`COMMAND_NAMES` / `COMMAND_WRAPPERS`）逐名在册、总数锚 48、尾锚零
-// 位移（`archi_drift` 仍是末条）、插入位置紧跟 `readExecOutput`、三包装逐字
-// 形态、唯一登记（各恰一次）、`ExecOutputChunk` 出线类型在册。
+// 位移（`read_file` 是末条）、生成包装逐字形态、唯一登记（各恰一次）、
+// `ExecOutputChunk` 出线类型在册。
 //
 // Mock 策略（见 test-design 本节 Mock策略表）：生成物真实（`authoritative_snapshot()`
 // 读盘快照 + 既有跨进程文件锁 `lock()` 串行化）；`all_commands!` 为真实宏；
 // 本节零 IPC / 零 spawn。
 // ---------------------------------------------------------------------------
 
-/// 三条新命令的 invoke 名（登记序：紧跟 `read_exec_output`）。
+/// 三条 exec 记录读命令的 invoke 名（登记序：紧跟 `read_artifact`）。
 const NEW_COMMAND_NAMES: [&str; 3] = [
     "exec_output_path",
     "read_exec_command",
@@ -2434,33 +2416,32 @@ fn 登记面_三新命令在两清单与生成物各在册() {
     }
 }
 
-/// 正向：总数锚 45 → 48（两份清单持衡、一一对应）；尾锚仍为 `archi_drift`
-///（三行插入在 changes 组内，尾锚零位移）。
+/// 正向：总数锚 49 → 48（两份清单持衡、一一对应）；尾锚仍为 `archi_drift`
+///（`read_file` 在其后登记，三行删除在 changes / explores / archi 组内）。
 #[test]
 fn 登记面_总数四十八且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 49, "命令清单总数 48 → 49");
+    assert_eq!(COMMAND_NAMES.len(), 48, "命令清单总数 49 → 48");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        49,
+        48,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
         COMMAND_NAMES.last(),
-        Some(&"archi_drift"),
-        "尾锚零位移（三行插入在 changes 组内）"
+        Some(&"read_file"),
+        "尾锚为通用读命令（三行删除在 changes / explores / archi 组内，尾部 read_file 登记）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.last(),
-        Some(&"archiDrift"),
-        "包装清单同序尾锚零位移"
+        Some(&"readFile"),
+        "包装清单同序尾锚"
     );
 }
 
-/// 异常（参数化 3 命令）：唯一登记——三新名字在两清单与生成物中各恰 1 次
-///（无重复登记）；`read_exec_output` / `readExecOutput` 既有条目在册且
-/// 参数面逐字未变（既有条目零位移）。
+/// 异常（参数化 3 命令）：唯一登记——三命令在两清单与生成物中各恰 1 次
+///（无重复登记）；已退役的 `read_exec_output` 不再出现在任一登记面或产物中。
 #[test]
-fn 登记面_唯一登记且既有条目零位移() {
+fn 登记面_唯一登记且退役命令零残留() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -2491,30 +2472,36 @@ fn 登记面_唯一登记且既有条目零位移() {
         );
     }
 
-    // 既有条目零位移：`readExecOutput` 的生成行逐字不变（`COMMAND_NAMES` 对
-    // `read_exec_output` 的历史缺录是既有滞后债，不在本变更范围——见清单头部注记）
+    // 退役命令零残留：`read_exec_output` / `readExecOutput` 已退出登记面与产物
     assert!(
-        content.contains("readExecOutput: (root: string"),
-        "既有 readExecOutput 包装行在产物中"
+        !COMMAND_NAMES.contains(&"read_exec_output"),
+        "read_exec_output 已退出 invoke 清单"
     );
     assert!(
-        content.contains(
-            "readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>(\"read_exec_output\", { root, changeName, execId }),"
-        ),
-        "既有 readExecOutput 包装行逐字不变"
+        !COMMAND_WRAPPERS.contains(&"readExecOutput"),
+        "readExecOutput 已退出包装清单"
+    );
+    assert!(
+        !content.contains("\"read_exec_output\""),
+        "产物不再含 read_exec_output invoke 目标"
+    );
+    assert!(
+        !content.contains("readExecOutput: ("),
+        "产物不再含 readExecOutput 包装行"
     );
 }
 
-/// 边界：登记序——生成物内 `readExecOutput` 之后紧接三条新包装（与
-/// `all_commands!` 同序：`execOutputPath` → `readExecCommand` → `readExecOutputDelta`）。
+/// 边界：登记序——生成物内 `execOutputPath` → `readExecCommand` →
+/// `readExecOutputDelta` 三者相对序与 `all_commands!` 一致，且紧随
+/// `read_artifact`（changes 命令组内）。
 #[test]
-fn 登记面_三条包装紧跟read_exec_output同序() {
+fn 登记面_三条包装同序且紧随read_artifact() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
     let anchor = content
-        .find("readExecOutput: (")
-        .expect("既有 readExecOutput 包装在场");
+        .find("readArtifact: (")
+        .expect("既有 readArtifact 包装在场");
     let tail = &content[anchor..];
     let offsets: Vec<usize> = NEW_COMMAND_WRAPPERS
         .iter()
@@ -2527,15 +2514,14 @@ fn 登记面_三条包装紧跟read_exec_output同序() {
         offsets.windows(2).all(|pair| pair[0] < pair[1]),
         "三包装生成序 = all_commands! 登记序: {offsets:?}"
     );
-    // 首条紧跟 readExecOutput 行：其间只夹该命令的 JSDoc 注释，无其它命令包装
-    let after_anchor_line = tail.find(NEWLINE).expect("readExecOutput 行有换行");
+    // 首条紧跟 readArtifact 行：其间只夹该命令的 JSDoc 注释，无其它命令包装
+    let after_anchor_line = tail.find(NEWLINE).expect("readArtifact 行有换行");
     let between = &tail[after_anchor_line..offsets[0]];
     assert!(
         !between.contains("__TAURI_INVOKE<"),
         "其间无其它命令包装夹在中间: {between:?}"
     );
-    // `all_commands!` 侧同序：三新命令连续且同序（`read_exec_output` 的历史缺录
-    // 使「紧跟其下标」不可断言，故以连续相对序 + 公共前驱 `read_artifact` 为判据）
+    // `all_commands!` 侧同序：三命令连续且同序，前驱为 `read_artifact`
     let positions: Vec<usize> = NEW_COMMAND_NAMES
         .iter()
         .map(|name| {
@@ -2547,15 +2533,16 @@ fn 登记面_三条包装紧跟read_exec_output同序() {
         .collect();
     assert!(
         positions[1] == positions[0] + 1 && positions[2] == positions[0] + 2,
-        "invoke 清单内三新命令连续且同序: {positions:?}"
+        "invoke 清单内三命令连续且同序: {positions:?}"
     );
     let read_artifact = COMMAND_NAMES
         .iter()
         .position(|name| *name == "read_artifact")
         .expect("read_artifact 在册");
-    assert!(
-        positions[0] > read_artifact,
-        "三新命令位于 read_artifact 之后（changes 命令组内）"
+    assert_eq!(
+        positions[0],
+        read_artifact + 1,
+        "三命令紧跟 read_artifact 之后（changes 命令组内）"
     );
 }
 

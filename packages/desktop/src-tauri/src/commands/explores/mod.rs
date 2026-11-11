@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 use foundation::layout::resolve;
 use store::{ExploreRecord, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
 use vcs_runtime::ProcessWorktree;
-use workflow::queries::{self, ExploreDoc, ExploreScanEntry};
+use workflow::queries::{self, ExploreScanEntry};
 use workflow::write::{self, phase_table, PromoteOutcome};
 
 /// root 显式格式检查：空/空白串不进入查询链路（同 `commands::changes` 口径）。
@@ -52,17 +52,6 @@ fn is_kebab_case(name: &str) -> bool {
         None => return false,
     }
     segments.all(|segment| segment_ok(false, segment))
-}
-
-/// 读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。
-#[tauri::command]
-#[specta::specta]
-pub fn read_explore(root: String, name: String) -> Option<ExploreDoc> {
-    if is_blank_root(&root) {
-        return None;
-    }
-    let layout = resolve(Path::new(&root));
-    queries::read_explore(&layout, &name)
 }
 
 /// 导入扫描：列出笔记目录顶层 `*.md` 中**未被绑定且 stem 为 kebab-case** 的

@@ -2,7 +2,7 @@
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ExploreDoc } from '../../../types/dto';
+import type { ExploreDoc } from '../hooks/use-explore-doc';
 import { ExplorePreview } from './explore-preview';
 
 // ---------------------------------------------------------------------------

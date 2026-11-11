@@ -13,7 +13,7 @@ use workflow::queries as queries_lib;
 
 use super::{
     create_explore_record, delete_explore_record, ensure_explore_session, explore_doc_path,
-    list_explore_records, promote_explore_with, read_explore, rename_explore_record, scan_explores,
+    list_explore_records, promote_explore_with, rename_explore_record, scan_explores,
     update_explore_title, update_explore_workflow_type,
 };
 
@@ -151,64 +151,8 @@ fn raw_event(seq: u64) -> AgentEvent {
 }
 
 // ---------------------------------------------------------------------------
-// read_explore：薄包装不加工 + blank root / 防穿越边界
-// ---------------------------------------------------------------------------
-
-#[test]
-fn read_explore有效root与已落盘笔记返回与workflow直查serde等值的doc() {
-    let env = Env::new("read-passthrough");
-    let _app = app_with_stores(&env); // manage WorkspaceStores：本命令无 State 入参，仅 app 存活期保库
-    env.note("foo", "# 探索笔记\n全文内容");
-
-    let via_command = read_explore(env.root(), "foo".to_owned()).expect("已落盘笔记应可读");
-    let via_workflow =
-        queries_lib::read_explore(&foundation::layout::resolve(env.ws_root.path()), "foo")
-            .expect("workflow 直查应命中");
-
-    assert_eq!(
-        serde_json::to_value(&via_command).unwrap(),
-        serde_json::to_value(&via_workflow).unwrap(),
-        "薄包装不加工：命令面与 workflow 直查 serde 等值"
-    );
-    assert_eq!(via_command.name, "foo");
-    assert_eq!(via_command.content, "# 探索笔记\n全文内容");
-}
-
-#[test]
-fn read_explore_blank_root返回none不panic() {
-    let env = Env::new("read-blank");
-    let _app = app_with_stores(&env);
-    env.note("foo", "可读内容");
-
-    assert_eq!(
-        read_explore(String::new(), "foo".to_owned()),
-        None,
-        "空串 root 纪律"
-    );
-    assert_eq!(
-        read_explore("   ".to_owned(), "foo".to_owned()),
-        None,
-        "空白 root 同口径"
-    );
-}
-
-#[test]
-fn read_explore穿越分量名在命令边界拒绝返回none() {
-    let env = Env::new("read-traversal");
-    let _app = app_with_stores(&env);
-    env.note("x", "可读内容");
-
-    for name in ["a/b", "..", "../x"] {
-        assert_eq!(
-            read_explore(env.root(), name.to_owned()),
-            None,
-            "敌意名 {name:?} 在命令边界拒绝（同 commands/changes 敌意 source 口径）"
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// explore_doc_path：布局派生路径，无 IO
+// explore 读面：本轨道只留 `explore_doc_path`（布局派生路径）。
+// 正文读取由通用 `commands::fs::read_file` 承担——原 `read_explore` 命令已退役。
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1020,8 +964,8 @@ async fn promote_explore_blank_root与非kebab显式err零读写() {
     );
 }
 
-/// promote_explore 笔记未落盘 / 空白拒绝（异常）：`read_explore` 返回 None 或
-/// 空白 → 显式 `Err`，记录零改动。
+/// promote_explore 笔记未落盘 / 空白拒绝（异常）：workflow 直查 `read_explore`
+/// 返回 None 或空白 → 显式 `Err`，记录零改动。
 #[tokio::test]
 async fn promote_explore笔记未落盘或空白拒绝() {
     let env = Env::new("promote-no-note");
@@ -1459,10 +1403,11 @@ fn update_explore_workflow_type_miss透传err() {
     );
 }
 
-/// 读路径零写入（边界 / 保留）：`read_explore` 纯读——读取笔记不改动记录
-///（回填唯一写入口 = update_explore_workflow_type）。
+/// 读路径零写入（边界 / 保留）：读笔记正文（workflow 直查 `read_explore`，与
+/// 前端 `read_file` 同一磁盘面）不改动记录（回填唯一写入口 =
+/// update_explore_workflow_type）。
 #[test]
-fn read_explore读路径零写入不触回填() {
+fn 读笔记正文零写入不触回填() {
     let env = Env::new("read-wf-pure");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
@@ -1470,7 +1415,8 @@ fn read_explore读路径零写入不触回填() {
         .expect("建档应成功");
     env.note("topic-a", "# 标题\nworkflow_type: test-only\n");
 
-    let doc = read_explore(env.root(), "topic-a".to_owned());
+    let doc =
+        queries_lib::read_explore(&foundation::layout::resolve(env.ws_root.path()), "topic-a");
     assert!(doc.is_some(), "笔记读取应命中");
 
     assert_eq!(

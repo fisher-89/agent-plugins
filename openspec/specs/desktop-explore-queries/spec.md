@@ -2,32 +2,32 @@
 
 ## Purpose
 
-定义 workflow crate 的 explore 读面查询契约：`read_explore` 单文件读取（防穿越）、导入扫描，以及纯读纪律与 explore 薄命令面。
+定义 workflow crate 的 explore 读面查询契约：`explore_doc_path` 布局派生路径、导入扫描，以及纯读纪律与 explore 薄命令面。笔记正文由通用 `desktop-file-read` 的 `read_file` 承担。
 
 ## Requirements
 
-### Requirement: read_explore 单文件读取
+### Requirement: explore 笔记路径派生
 
-workflow crate 的 queries SHALL 新增 `read_explore(layout, name) -> Option<ExploreDoc>`：以 `Layout.explores_root`（既有字段，零新增布局解析）定位 `explores_root/<name>.md`，返回 UTF-8 文本内容与名称。`name` SHALL 为单个普通文件名 stem——校验口径与 `locate_change` 的 `is_change_name` 一致（非空、非 `.` / `..`、不含 `/` `\` `:`），拒绝路径穿越；文件不存在或不可读为 UTF-8 时 SHALL 返回 `None` 而非报错。explores 是扁平 markdown 文件集合（无 active / archive 两棵树），MUST NOT 引入树定位语义。
+queries / 命令层 SHALL 提供 `explore_doc_path(root, name) -> Option<String>`：以 `Layout.explores_root`（既有字段，零新增布局解析）派生 `explores_root/<name>.md` 的绝对路径，**纯拼接、不探盘**（文件是否存在由后续 `read_file` 回答）。`name` SHALL 为单个普通文件名 stem——校验口径与 `locate_change` 的 `is_change_name` 一致（非空、非 `.` / `..`、不含 `/` `\` `:`），拒绝路径穿越；blank root 或非法名 SHALL 返回 `None`。explores 是扁平 markdown 文件集合（无 active / archive 两棵树），MUST NOT 引入树定位语义。
 
-#### Scenario: 读取既有笔记
+#### Scenario: 派生既有笔记路径
 
-- **WHEN** 对含 `openspec/explores/api-design.md` 的 workspace 调用 `read_explore(layout, "api-design")`
-- **THEN** 返回该文件 UTF-8 文本，内容与磁盘一致
+- **WHEN** 对 workspace 调用 `explore_doc_path(root, "api-design")`
+- **THEN** 返回 `<explores_root>/api-design.md` 的绝对路径，与 `Layout::explores_root` 派生结果逐段相等
 
-#### Scenario: 未知与穿越名称
+#### Scenario: 非法名称与 blank root
 
-- **WHEN** 分别以不存在的 stem、`../changes`、`a/b` 调用 `read_explore`
-- **THEN** 均返回 `None`（穿越名在校验层即被拒），不触碰 `explores_root` 之外的任何路径
+- **WHEN** 分别以 `../changes`、`a/b`、空串 root 调用
+- **THEN** 均返回 `None`（穿越名在校验层即被拒），不拼接 `explores_root` 之外的任何路径
 
-#### Scenario: 缺失目录降级
+#### Scenario: 不探盘
 
-- **WHEN** workspace 无 `openspec/explores/` 目录
-- **THEN** `read_explore` 返回 `None`，不报错
+- **WHEN** 对尚不存在笔记文件的合法 stem 调用
+- **THEN** 仍返回派生路径（文件缺失不是路径派生的失败面；读取由 `read_file` 返回 `None`）
 
 ### Requirement: 导入扫描
 
-queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：列出 `explores_root` 下全部顶层 `*.md` 文件，每条至少含 stem 名称（修改时间可得时一并提供）；目录缺失 SHALL 返回空结果。扫描 SHALL 只列目录、MUST NOT 过滤「已绑定」——绑定状态属 store 域（workflow MUST NOT 认识 store），「未绑定」过滤 SHALL 在命令层以 `ExploreRecord` 清单求差完成。命令层 SHALL 在未绑定过滤之外再过滤 **非 kebab-case stem**（不列入可绑定清单，避免「点击后报错」；workflow 扫描口径保持宽松、旧非 kebab 文件仍可经 `read_explore` 读取）。
+queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：列出 `explores_root` 下全部顶层 `*.md` 文件，每条至少含 stem 名称（修改时间可得时一并提供）；目录缺失 SHALL 返回空结果。扫描 SHALL 只列目录、MUST NOT 过滤「已绑定」——绑定状态属 store 域（workflow MUST NOT 认识 store），「未绑定」过滤 SHALL 在命令层以 `ExploreRecord` 清单求差完成。命令层 SHALL 在未绑定过滤之外再过滤 **非 kebab-case stem**（不列入可绑定清单，避免「点击后报错」；workflow 扫描口径保持宽松、旧非 kebab 文件仍可经 `explore_doc_path` + `read_file` 读取）。
 
 #### Scenario: 全量列出与空目录降级
 
@@ -46,21 +46,21 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 
 ### Requirement: 查询层纪律与命令面
 
-查询层纪律 SHALL 不变：explore 读面为纯读操作（MUST NOT 写入、移动或修改任何文件——explore.md 由 agent 会话流程创建，应用无落盘路径）；域 crate（workflow）MUST NOT 依赖 Tauri。命令层 SHALL 开通 explore 薄命令（`commands/explores/` 轨道）：`read_explore` / 导入扫描 / explore 记录 CRUD / `update_explore_title` / `update_explore_workflow_type` / `promote_explore`——无状态、参数转换 → 调用 → DTO，blank root 返回空结果（读命令）或显式 `Err`（写命令，照 `commands/queries/mod.rs` 既有纪律）；`read_explore` 返回纯 markdown 文本 DTO，MUST NOT 套用 change 域的 `ArtifactEnvelope` 信封。explore 记录面（含 `ExploreRecord` 的 `session_id` 回写列）由 store 应用层持有，前端不再经 `source_ref` 反查会话（会话走 `sessionId` 直查，见 desktop-agent-execution「session_detail 单查面」）；读面 MUST NOT 新增反查类命令。`promote_explore` 为跨域写命令（见「promote_explore 命令与笔记搬运」），MUST NOT 在命令层直接执行磁盘删除——笔记搬运半边 SHALL 经 workflow 写面完成。
+查询层纪律 SHALL 不变：explore 读面为纯读操作（MUST NOT 写入、移动或修改任何文件——explore.md 由 agent 会话流程创建，应用无落盘路径）；域 crate（workflow）MUST NOT 依赖 Tauri。命令层 SHALL 开通 explore 薄命令（`commands/explores/` 轨道）：`explore_doc_path` / 导入扫描 / explore 记录 CRUD / `update_explore_title` / `update_explore_workflow_type` / `promote_explore`——无状态、参数转换 → 调用 → DTO，blank root 返回空结果（读命令）或显式 `Err`（写命令，照 `commands/queries/mod.rs` 既有纪律）；笔记正文由通用 `read_file` 读取，MUST NOT 套用 change 域的 `ArtifactEnvelope` 信封。explore 记录面（含 `ExploreRecord` 的 `session_id` 回写列）由 store 应用层持有，前端不再经 `source_ref` 反查会话（会话走 `sessionId` 直查，见 desktop-agent-execution「session_detail 单查面」）；读面 MUST NOT 新增反查类命令。`promote_explore` 为跨域写命令（见「promote_explore 命令与笔记搬运」），MUST NOT 在命令层直接执行磁盘删除——笔记搬运半边 SHALL 经 workflow 写面完成。
 
 #### Scenario: 只读保证
 
-- **WHEN** 连续调用 `read_explore` 与导入扫描
+- **WHEN** 连续调用 `explore_doc_path`、`read_file` 与导入扫描
 - **THEN** workspace 目录树的文件内容与结构无任何变化
 
 #### Scenario: 命令薄包装与空 root
 
-- **WHEN** 前端以空/空白 `root` invoke `read_explore` 或扫描命令
+- **WHEN** 前端以空/空白 `root` invoke `explore_doc_path` 或扫描命令
 - **THEN** 命令不进入查询链路直接返回空结果语义，无 panic、无错误弹窗；`promote_explore` / `update_explore_title` 以空白 root invoke 返回显式 `Err`
 
 ### Requirement: update_explore_title 回填命令
 
-命令层 SHALL 提供 `update_explore_title(root, name, title)`（落 `commands/explores/`）：blank root / 空白 title → 显式 `Err`；经 `for_root` 路由所属 workspace 库并调 store `set_explore_title`，返回更新后的 `ExploreRecord`。该命令 SHALL 为显式写命令（title 回填唯一写入口），读取路径 `read_explore` MUST NOT 回填或写入任何状态。
+命令层 SHALL 提供 `update_explore_title(root, name, title)`（落 `commands/explores/`）：blank root / 空白 title → 显式 `Err`；经 `for_root` 路由所属 workspace 库并调 store `set_explore_title`，返回更新后的 `ExploreRecord`。该命令 SHALL 为显式写命令（title 回填唯一写入口），读取路径 MUST NOT 回填或写入任何状态。
 
 #### Scenario: 回填成功与拒绝面
 
@@ -69,7 +69,7 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 
 #### Scenario: 读取路径零写入
 
-- **WHEN** 连续调用 `read_explore` 后查询 store 记录
+- **WHEN** 连续调用读取链路（`explore_doc_path` + `read_file`）后查询 store 记录
 - **THEN** `ExploreRecord.title` / `updated_at` 零变化（title 回填仅经 `update_explore_title`）
 
 ### Requirement: promote_explore 命令与笔记搬运
@@ -77,7 +77,7 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 命令层 SHALL 提供 `promote_explore(root, name, workflow_type)`（落 `commands/explores/`）：blank root / 非 kebab name / 非法 workflow_type 显式 `Err`。语义 SHALL 为 **move**：
 
 1. **占位前缀门禁**：记录名以 `draft-` 前缀（免命名建档的未定名态，见 desktop-workspace-store「ExploreRecord 模型与 explore 清单操作面」）→ 显式 `Err`（引导先在会话中完成定名再启动变更）；该校验 SHALL 先于笔记读取——占位名从未落盘，「笔记未落盘」错误形态对该态不足以引导；
-2. 读主仓笔记全文（`read_explore` 命中且内容非空白，否则显式 `Err` 引导先完成探索）；
+2. 读主仓笔记全文（`queries::read_explore` 命中且内容非空白，否则显式 `Err` 引导先完成探索）；
 3. 读 `ExploreRecord`（存在且 `promoted_to` 为空，否则显式 `Err`）；
 4. 调 workflow 写面 `promote_explore`（复用 change `create`：`name = explore.name`、`goal = 笔记全文`、`title = explore.title`、`workflow_type = 入参`，成功后删主仓 `explores/<name>.md`）；
 5. 写面成功后调 store `mark_explore_promoted(root, name, change_id)` 打标（会话链保留，MUST NOT 删 explore 记录）。
@@ -116,7 +116,7 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 
 ### Requirement: update_explore_workflow_type 回填命令
 
-命令层 SHALL 提供 `update_explore_workflow_type(root, name, workflow_type)`（落 `commands/explores/`）：blank root / 非法 `workflow_type`（`phase_table` 不命中）→ 显式 `Err`；经 `for_root` 路由所属 workspace 库并调 store `set_explore_workflow_type`，返回更新后的 `ExploreRecord`。该命令 SHALL 为显式写命令（workflow_type 回填唯一写入口），读取路径 `read_explore` MUST NOT 回填或写入任何状态。
+命令层 SHALL 提供 `update_explore_workflow_type(root, name, workflow_type)`（落 `commands/explores/`）：blank root / 非法 `workflow_type`（`phase_table` 不命中）→ 显式 `Err`；经 `for_root` 路由所属 workspace 库并调 store `set_explore_workflow_type`，返回更新后的 `ExploreRecord`。该命令 SHALL 为显式写命令（workflow_type 回填唯一写入口），读取路径 MUST NOT 回填或写入任何状态。
 
 #### Scenario: 回填成功与拒绝面
 
@@ -125,15 +125,15 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 
 #### Scenario: 读取路径零写入
 
-- **WHEN** 连续调用 `read_explore` 后查询 store 记录
+- **WHEN** 连续调用读取链路（`explore_doc_path` + `read_file`）后查询 store 记录
 - **THEN** `ExploreRecord.workflow_type` / `updated_at` 零变化（workflow_type 回填仅经 `update_explore_workflow_type`）
 
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/workflow/src/queries/explore.rs`（新） | explore 读面 | `read_explore(layout, name)`（stem 校验防穿越，缺失 → None）；`scan_explores(layout)`（顶层 `*.md` stem，缺失目录空）；纯读、零 Tauri |
+| `crates/core/workflow/src/queries/explore.rs`（新） | explore 读面 | `read_explore(layout, name)`（内部读取面：promote 读主仓笔记用；stem 校验防穿越，缺失 → None）；`scan_explores(layout)`（顶层 `*.md` stem，缺失目录空）；纯读、零 Tauri |
 | `crates/core/workflow/src/queries/mod.rs` | 模块注册与导出 | explore 读面挂入 queries，既有 change 查询不动 |
-| `src-tauri/src/commands/explores/`（新轨道） | 薄命令 | `read_explore` / 扫描 / 记录 CRUD；无状态三件事；blank root 空结果；纯文本 DTO 不套信封 |
+| `src-tauri/src/commands/explores/`（新轨道） | 薄命令 | `explore_doc_path` / 扫描 / 记录 CRUD；无状态三件事；blank root 空结果（正文经通用 `read_file`） |
 | `src-tauri/src/commands/explores/mod.rs`（`promote_explore_with`） | promote 步序 | 步序前置占位前缀门禁（`draft-` 前缀 → 显式 `Err` 引导定名，先于笔记读取）；其余步序与语义零变化 |
 | `src-tauri/src/commands/explores/mod.rs`（`create_explore_record`） | 建档命令 | `name: Option<String>` 透传 store（`None` = 占位建档；`Some` = 导入绑定显式名）；薄包装三件事纪律不变 |

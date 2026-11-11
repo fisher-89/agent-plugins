@@ -84,9 +84,9 @@ stdout / stderr 记录职责 SHALL 从 checks 层收敛到 `crates/infra/exec`�
 - `ExecOutput::Transient`：spawn 即得、反馈边消费、即弃（无 id，全量不进库 / 不落盘引用）；
 - `ExecOutput::Recorded { exec_id }`：stdout 落库 / 落盘、可回查（有 id 可查；`exec_id` 供 `RunNodeRecord.output_ref` 等引用，见 desktop-change-state-store「run 执行图落库」）。
 
-`record_exec_output` SHALL 收敛为**单一 `.log`**（`.err` 退役）：单一交错流（static-check 的 `2>&1` 交错、test-execution 的 stdout+stderr 合并流）即完整还原终端，MUST NOT 再分文件落 stdout / stderr。`read_exec_output(root, change, exec_id)` SHALL 读同一 `.log`（未知 / 非法 `exec_id` → `None`，miss 非错误）。
+`record_exec_output` SHALL 收敛为**单一 `.log`**（`.err` 退役）：单一交错流（static-check 的 `2>&1` 交错、test-execution 的 stdout+stderr 合并流）即完整还原终端，MUST NOT 再分文件落 stdout / stderr。`exec::read_exec_output(root, change, exec_id)`（库函数）SHALL 读同一 `.log`（未知 / 非法 `exec_id` → `None`，miss 非错误）；前端整读经 `exec_output_path` + `read_file`。
 
-static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run(root, name)` 收 name，`output_ref` 恒回填；反馈边仍消费 `diagnostics` 文本，全量经 `output_ref` 可回查）；test-execution 的 `report_dir` 与 `exec_id` SHALL 统一口径（报告全量仍落 change 报告目录，`exec_id` 为回查引用，record 内容为脚本真实输出——见 desktop-test-execution）。新增 desktop-app 命令 `read_exec_output(root, change_name, exec_id) -> Option<String>`（UTF-8 lossy；miss=None）暴露 `infra/exec::read_exec_output` 给前端 stdout 面板。agent 会话记录 SHALL 继续走 `SessionEventRecord`（`session_id` 重放唯一来源），MUST NOT 内嵌进 `ExecOutput`（不与转录单表不变量冲突）。`ExecOutput::Recorded` 的落库载体（独立 exec 输出表 vs 落盘文件 + 引用）由 design 定稿，但 MUST NOT 全文进 `RunNodeRecord.detail`（引用式与截断式口径不变）。
+static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run(root, name)` 收 name，`output_ref` 恒回填；反馈边仍消费 `diagnostics` 文本，全量经 `output_ref` 可回查）；test-execution 的 `report_dir` 与 `exec_id` SHALL 统一口径（报告全量仍落 change 报告目录，`exec_id` 为回查引用，record 内容为脚本真实输出——见 desktop-test-execution）。前端 stdout 面板经 `exec_output_path`（布局派生路径）+ `read_file`（字节读取）/ `read_exec_output_delta`（增量游标）回查 `infra/exec` 落盘的 `.log`。agent 会话记录 SHALL 继续走 `SessionEventRecord`（`session_id` 重放唯一来源），MUST NOT 内嵌进 `ExecOutput`（不与转录单表不变量冲突）。`ExecOutput::Recorded` 的落库载体（独立 exec 输出表 vs 落盘文件 + 引用）由 design 定稿，但 MUST NOT 全文进 `RunNodeRecord.detail`（引用式与截断式口径不变）。
 
 **运行中记录生命周期（本期扩写）**：两 runner 的记录落盘 SHALL 由既有一次性 `record_exec_output` 改为 `LiveExec` 三段链（见 desktop-exec-runtime「运行中实时输出记录与增量回查」），且 MUST 遵守下述顺序与口径：
 
@@ -115,11 +115,11 @@ static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run
 #### Scenario: 单一 .log 记录与回查
 
 - **WHEN** static-check（2>&1 交错）或 test-execution（stdout+stderr 合并）产出一段输出并经 `record_exec_output` 落盘
-- **THEN** 仅写 `<report_dir>/exec-outputs/<exec_id>.log`（无 `.err`）；`read_exec_output` 读回字节与该单一流逐字一致
+- **THEN** 仅写 `<report_dir>/exec-outputs/<exec_id>.log`（无 `.err`）；`exec::read_exec_output` 读回字节与该单一流逐字一致
 
-#### Scenario: read_exec_output 命令 miss 与 lossy
+#### Scenario: exec 输出读面 miss 与 lossy
 
-- **WHEN** 前端以未知 / 非法 `exec_id` 调 `read_exec_output` 命令，或以已知 `exec_id` 调取含非 UTF-8 字节的输出
+- **WHEN** 前端以未知 / 非法 `exec_id` 调 `exec_output_path` / `read_exec_output_delta`，或以已知 `exec_id` 读取含非 UTF-8 字节的输出
 - **THEN** 前者返回 `None`（miss 非错误）；后者返回 UTF-8 lossy 字符串（非法字节以替换符呈现），不 panic、不报错
 
 #### Scenario: static-check 运行中记录已可读
@@ -173,7 +173,7 @@ static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run
 
 ### Requirement: baseline 报告槽位参数化
 
-`crates/infra/checks` 两 runner（`static_check.rs` 的 `ProcessStaticCheck` 与 `testexec/` 的 test-execution runner）SHALL 支持报告槽位参数化：槽位 SHALL 为**封闭三值**——`test`（缺省——既有 `reports/test` 锚点，语义零改动）、`baseline`（initialize 相位基线检查——`reports/baseline` 锚点）与 `archi`（架构漂移门禁报告——`reports/archi` 锚点，消费者为 `desktop-archi-gate` 的 runner）。本域两 runner MUST NOT 接受 `archi` 槽位（传入即显式 `Err`——该槽位的报告体是漂移报告 JSON，非 checks 报告 schema，混入会让两套报告语义互相污染）。槽位 SHALL 仅参数化报告落点（summary / 子报告 / exec-outputs 同锚派生），执行语义（无配置直过 / 程序不可达显式 Err / 退出码映射 / 框架矩阵 / 复用门判定规则）MUST NOT 因槽位分叉；三槽位的目录派生 SHALL 经 foundation layout 单点（`reports/test` / `reports/baseline` / `reports/archi` 同源变体），runner 内 MUST NOT 出现第二份路径派生。walker 调用面（`StaticCheckRunner` / `TestExecutionRunner` port 签名）的槽位透传形态由 design 定稿；`read_exec_output` 回查面 SHALL 覆盖 test / baseline 两槽位的 exec-outputs（exec_id 跨槽位唯一）；`archi` 槽位零 exec-outputs（报告为 JSON 文件，非 exec 输出，回查走报告路径）。
+`crates/infra/checks` 两 runner（`static_check.rs` 的 `ProcessStaticCheck` 与 `testexec/` 的 test-execution runner）SHALL 支持报告槽位参数化：槽位 SHALL 为**封闭三值**——`test`（缺省——既有 `reports/test` 锚点，语义零改动）、`baseline`（initialize 相位基线检查——`reports/baseline` 锚点）与 `archi`（架构漂移门禁报告——`reports/archi` 锚点，消费者为 `desktop-archi-gate` 的 runner）。本域两 runner MUST NOT 接受 `archi` 槽位（传入即显式 `Err`——该槽位的报告体是漂移报告 JSON，非 checks 报告 schema，混入会让两套报告语义互相污染）。槽位 SHALL 仅参数化报告落点（summary / 子报告 / exec-outputs 同锚派生），执行语义（无配置直过 / 程序不可达显式 Err / 退出码映射 / 框架矩阵 / 复用门判定规则）MUST NOT 因槽位分叉；三槽位的目录派生 SHALL 经 foundation layout 单点（`reports/test` / `reports/baseline` / `reports/archi` 同源变体），runner 内 MUST NOT 出现第二份路径派生。walker 调用面（`StaticCheckRunner` / `TestExecutionRunner` port 签名）的槽位透传形态由 design 定稿；`read_file` / `read_exec_output_delta` 回查面 SHALL 覆盖 test / baseline 两槽位的 exec-outputs（exec_id 跨槽位唯一；路径由 `exec_output_path` 派生）；`archi` 槽位零 exec-outputs（报告为 JSON 文件，非 exec 输出，回查走报告路径）。
 
 #### Scenario: 缺省槽位零改动
 

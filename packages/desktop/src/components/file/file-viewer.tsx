@@ -61,20 +61,32 @@ interface FileContentProps {
 function FileContent({ root, path, type }: FileContentProps): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState<string | null>(null);
+  const [binary, setBinary] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setContent(null);
+    setBinary(false);
     setError(null);
-    // 命令面只有 `archi_read_doc`：关联集外路径由服务端 `Err` 拒绝（MUST NOT
-    // 成为任意文件读取通道），故本组件只能预览架构文档关联集内的路径
+    // 通用读面：`root` 与关联集校验都已退役，路径由调用方给出（可绝对 / 相对
+    // root），服务端按文件系统直读
+    const absolute =
+      path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
+        ? path
+        : `${root.replace(/[\\/]+$/, '')}/${path.replace(/^[\\/]+/, '')}`;
     commands
-      .archiReadDoc(root, path)
-      .then((text) => {
+      .readFile(absolute, null, null)
+      .then((slice) => {
         if (cancelled) return;
-        setContent(text);
+        if (slice === null) {
+          setError(`文件不存在：${path}`);
+          setLoading(false);
+          return;
+        }
+        setContent(slice.content);
+        setBinary(slice.encoding === 'binary');
         setLoading(false);
       })
       .catch((reason: unknown) => {
@@ -104,6 +116,9 @@ function FileContent({ root, path, type }: FileContentProps): React.JSX.Element 
         {error}
       </Alert>
     );
+  }
+  if (binary) {
+    return <Alert data-testid="file-content-binary">二进制文件，无法以文本呈现。</Alert>;
   }
   if (type === 'md') {
     return (

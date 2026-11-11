@@ -21,8 +21,7 @@ use archi::GateTier;
 
 use super::{
     archi_change_summary, archi_change_summary_inner, archi_drift, archi_drift_inner, archi_graph,
-    archi_graph_inner, archi_module, archi_module_inner, archi_read_doc, archi_read_doc_inner,
-    archi_set_gate, archi_set_gate_inner,
+    archi_graph_inner, archi_module, archi_module_inner, archi_set_gate, archi_set_gate_inner,
 };
 
 /// 确定性时间戳（UTC unix 毫秒）。
@@ -161,9 +160,9 @@ fn seed_record(store: &Store, id: &str, status: ChangeStatus, worktree: Option<S
 // 包装 ↔ inner 一一对应
 // ---------------------------------------------------------------------------
 
-/// 正向：四命令与其 `*_inner` 结果经 `serde_json` 逐字段一致（命令层零加工）。
+/// 正向：三命令与其 `*_inner` 结果经 `serde_json` 逐字段一致（命令层零加工）。
 #[test]
-fn 四命令与inner结果逐字段一致() {
+fn 三命令与inner结果逐字段一致() {
     let temp = healthy("wrapper");
 
     let graph_outer = archi_graph(temp.root()).expect("archi_graph 应 Ok");
@@ -181,11 +180,6 @@ fn 四命令与inner结果逐字段一致() {
         serde_json::to_value(&module_inner).expect("序列化"),
         "archi_module 与 _inner 逐字段一致"
     );
-
-    let doc_outer = archi_read_doc(temp.root(), "src/auth/README.md".to_owned()).expect("Ok");
-    let doc_inner = archi_read_doc_inner(temp.path(), "src/auth/README.md").expect("Ok");
-    assert_eq!(doc_outer, doc_inner, "archi_read_doc 与 _inner 一致");
-    assert_eq!(doc_outer, "# 认证说明\n\n正文\n", "正文逐字节返回");
 
     // 写命令：包装与 inner 均 Ok，且结果同为 `()`
     archi_set_gate(temp.root(), "App.Auth".to_owned(), GateTier::Warn).expect("包装 Ok");
@@ -235,13 +229,13 @@ fn change_summary包装与inner一致() {
 }
 
 // ---------------------------------------------------------------------------
-// root 校验（五命令共用）
+// root 校验（四命令共用）
 // ---------------------------------------------------------------------------
 
 /// 异常：root 为 `""` / 空白 / 指向文件 / 不存在 → 一律 `Err`，且不触达投影
 /// （写命令零写入）。
 #[test]
-fn 五命令root校验四形态一律err() {
+fn 四命令root校验四形态一律err() {
     let temp = TempDir::new("root-check");
     let file_root = temp.write("not-a-dir.txt", "我是文件\n");
     let missing = temp.path().join("no-such-dir");
@@ -263,10 +257,6 @@ fn 五命令root校验四形态一律err() {
         assert!(
             archi_module(rendering.clone(), "App".to_owned()).is_err(),
             "archi_module root 非法应 Err"
-        );
-        assert!(
-            archi_read_doc(rendering.clone(), "src/auth/README.md".to_owned()).is_err(),
-            "archi_read_doc root 非法应 Err"
         );
         assert!(
             archi_set_gate(rendering.clone(), "App".to_owned(), GateTier::Strict).is_err(),
@@ -330,72 +320,11 @@ fn module三形态() {
     );
 }
 
-/// 正向：关联集内路径 → 返回正文原文（逐字节等于文件内容）。
+// ---------------------------------------------------------------------------
+// 读命令零写盘 / 写命令：原子写回 / 零写入 / 往返
+// ---------------------------------------------------------------------------
 #[test]
-fn read_doc关联集内返回原文() {
-    let temp = healthy("read-doc");
-    let body = archi_read_doc(temp.root(), "src/auth/README.md".to_owned()).expect("Ok");
-    let expected = fs::read_to_string(temp.path().join("src/auth/README.md")).expect("读文件");
-    assert_eq!(body, expected, "正文逐字节等于文件内容");
-}
-
-/// 异常：越界拒绝——changes 产物 / 绝对路径 / `../` 逃逸 / 关联集内但文件已删
-/// → `Err` 且零内容返回。
-#[test]
-fn read_doc越界四形态拒绝() {
-    let temp = healthy("read-doc-deny");
-    temp.write("openspec/changes/x/proposal.md", "# 提案\n");
-
-    for path in [
-        "openspec/changes/x/proposal.md",
-        "../outside.md",
-        "/etc/passwd",
-    ] {
-        let error = archi_read_doc(temp.root(), path.to_owned())
-            .err()
-            .unwrap_or_else(|| panic!("越界路径 {path:?} 应 Err（零内容返回）"));
-        assert!(!error.is_empty(), "错误文案非空");
-    }
-
-    // 关联集内但文件已删除：关联集校验通过后读盘失败 → Err（不返回空串冒充正文）
-    fs::remove_file(temp.path().join("src/auth/README.md")).expect("删文档");
-    assert!(
-        archi_read_doc(temp.root(), "src/auth/README.md".to_owned()).is_err(),
-        "文件已删应 Err（零内容返回）"
-    );
-}
-
-/// 边界：`path` 为空 / 超长 / emoji；关联集为空（空模型）时任意路径 `Err`；目录
-/// 路径 `Err`。
-#[test]
-fn read_doc边界形态() {
-    let temp = healthy("read-doc-bounds");
-    let long = "x".repeat(1200);
-    for path in [String::new(), long, "src/auth/🚀.md".to_owned()] {
-        assert!(
-            archi_read_doc(temp.root(), path.clone()).is_err(),
-            "非法 path {path:?} 应 Err"
-        );
-    }
-    // 目录路径（关联集内无该条目）
-    assert!(
-        archi_read_doc(temp.root(), "src/auth".to_owned()).is_err(),
-        "目录路径应 Err"
-    );
-
-    // 关联集为空：空模型下任意路径一律 Err
-    let empty = TempDir::new("read-doc-empty");
-    fs::create_dir_all(archi_models_dir(empty.path())).expect("建空模型目录");
-    empty.write("docs/a.md", "# 文档\n");
-    assert!(
-        archi_read_doc(empty.root(), "docs/a.md".to_owned()).is_err(),
-        "关联集为空时任意路径均 Err（越界校验兜底）"
-    );
-}
-
-/// 回归：四条读命令调用前后模型与文档字节全等（读命令零写盘）。
-#[test]
-fn 四条读命令零写盘() {
+fn 三条读命令零写盘() {
     let data = TempDir::new("nowrite-data");
     let temp = healthy("nowrite");
     let app = app_with(data.path());
@@ -405,19 +334,14 @@ fn 四条读命令零写盘() {
     let before = snapshot(temp.path());
     let _ = archi_graph(temp.root());
     let _ = archi_module(temp.root(), "App.Auth".to_owned());
-    let _ = archi_read_doc(temp.root(), "src/auth/README.md".to_owned());
     let _ = archi_change_summary(
         app.state::<WorkspaceStores>(),
         temp.root(),
         "nowrite".to_owned(),
     );
     let after = snapshot(temp.path());
-    assert_eq!(before, after, "四条读命令零写盘");
+    assert_eq!(before, after, "三条读命令零写盘");
 }
-
-// ---------------------------------------------------------------------------
-// 写命令：原子写回 / 零写入 / 往返
-// ---------------------------------------------------------------------------
 
 /// 正向：改档后目标行变、其余内容与注释逐字保留；目录内无临时文件残留；读回为
 /// 新档位。
@@ -1319,10 +1243,11 @@ fn archi_module试点declared且同输入判据零命中() {
     );
 }
 
-/// 边界（AC-16 否定断言）：`archi_read_doc` **不**覆盖 `<archi_api_dir>/**`——契约正文
-/// 不因本变更新增读取通路（契约权威在架构域 api 目录，命令面只读模块文档关联集）。
+/// 边界（AC-16 否定断言）：模块**文档关联集**不含 `<archi_api_dir>/**`——契约正
+/// 文不经 `docs` 三源出线（契约权威在架构域 api 目录；正文由通用 `read_file`
+/// 按路径自取，不再是架构命令的专属通路）。
 #[test]
-fn read_doc不覆盖契约目录() {
+fn 文档关联集不含契约目录() {
     let temp = healthy("read-doc-no-api");
     let fqn = "App.Auth";
     write_contract(
@@ -1341,14 +1266,14 @@ fn read_doc不覆盖契约目录() {
         "夹具确实落在契约目录：{contract_relative}"
     );
 
-    let error = archi_read_doc(temp.root(), contract_relative.clone())
-        .err()
-        .unwrap_or_else(|| panic!("契约目录路径 {contract_relative:?} 应 Err（不在关联集内）"));
-    assert!(error.contains("关联集"), "错误文案点名关联集校验：{error}");
-    // 关联集本身也不含契约正文
+    // 关联集本身不含契约正文
     let linked = archi::dto::linked_doc_paths(temp.path()).expect("Ok");
     assert!(
         linked.iter().all(|path| !path.contains("api/")),
         "关联集零契约正文通路：{linked:?}"
+    );
+    assert!(
+        !linked.contains(&contract_relative),
+        "契约路径不在关联集内：{contract_relative}"
     );
 }

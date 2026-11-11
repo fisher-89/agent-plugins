@@ -170,7 +170,7 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 #### Scenario: 带输出引用节点点击单列 stdout
 
 - **WHEN** 点击 static-check 或 test-execution step 节点（`outputRef !== null`）
-- **THEN** 抽屉单列呈 stdout 面板（经 `read_exec_output` 渲染脚本输出），无会话转录区、无文档节
+- **THEN** 抽屉单列呈 stdout 面板（经 `exec_output_path` + `read_file` / `read_exec_output_delta` 渲染脚本输出），无会话转录区、无文档节
 
 #### Scenario: 列头点击同入口
 
@@ -447,7 +447,7 @@ stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数，入参 SHALL 为 `(r
 #### Scenario: 有 role 节点分派到转录
 
 - **WHEN** 点击 `role !== null` 的 runtime step 节点
-- **THEN** 抽屉分派到会话转录单列，不发起 `read_exec_output` / `readExecOutputDelta`
+- **THEN** 抽屉分派到会话转录单列，不发起 `read_file` / `readExecOutputDelta`
 
 #### Scenario: 有 outputRef 节点分派到 stdout
 
@@ -606,7 +606,7 @@ runtime step 节点（`RunStepNode`）SHALL 在标题行下新增**常驻行**�
 
 ### Requirement: initialize 相位列与 clean 步词呈现
 
-initialize 相位（表头一次性基线检查相位，见 desktop-change-orchestration「initialize 基线检查相位执行体」）SHALL 以**零结构改动**方式呈现：initialize 相位列随 `detail.pipeline` 出线自动成为首列（列头相位名文案补 initialize 人读标签），Clean / StaticCheck / TestExecution / PhaseLog 步节点以既有 runtime step 节点渲染（四类分组徽章可辨、running / failed / stopped / passed 状态如实）；基线检查输出经节点 `outputRef` 的既有 stdout 面板回查（`read_exec_output` 命中 baseline 树）；initialize 失败的 run 终态 reason（Error / Fail 分文案 + 报告目录指引）经既有终态呈现面直达。前端步词呈现 SHALL 补 `clean` 与 `archi_check` 两线词：`STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）与 `archiCheck` 键（人读文案「架构检查」）、`normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 与 `archi_check` ↔ `archiCheck` 两组映射、分类徽章覆盖（`RunStepGroup` / `GROUP_LABEL`：`clean` 归 git、`archiCheck` 归 toolStep），现有步骤渲染零改动直接吃。MUST NOT 为 initialize 引入新节点类型、新面板或独立交互入口。
+initialize 相位（表头一次性基线检查相位，见 desktop-change-orchestration「initialize 基线检查相位执行体」）SHALL 以**零结构改动**方式呈现：initialize 相位列随 `detail.pipeline` 出线自动成为首列（列头相位名文案补 initialize 人读标签），Clean / StaticCheck / TestExecution / PhaseLog 步节点以既有 runtime step 节点渲染（四类分组徽章可辨、running / failed / stopped / passed 状态如实）；基线检查输出经节点 `outputRef` 的既有 stdout 面板回查（`exec_output_path` 命中 baseline 树 + `read_file` / `read_exec_output_delta` 整读）；initialize 失败的 run 终态 reason（Error / Fail 分文案 + 报告目录指引）经既有终态呈现面直达。前端步词呈现 SHALL 补 `clean` 与 `archi_check` 两线词：`STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）与 `archiCheck` 键（人读文案「架构检查」）、`normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 与 `archi_check` ↔ `archiCheck` 两组映射、分类徽章覆盖（`RunStepGroup` / `GROUP_LABEL`：`clean` 归 git、`archiCheck` 归 toolStep），现有步骤渲染零改动直接吃。MUST NOT 为 initialize 引入新节点类型、新面板或独立交互入口。
 
 #### Scenario: initialize 列与步节点零结构呈现
 

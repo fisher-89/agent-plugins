@@ -55,11 +55,23 @@ function ToolPartView({ part }: { part: AgentToolPart }): React.JSX.Element | nu
   if (registered !== undefined) {
     const Card = registered;
     return (
-      <Card toolCallId={part.toolCallId} toolName={toolName} input={part.input} output={output} />
+      <Card
+        toolCallId={part.toolCallId}
+        toolName={toolName}
+        state={part.state}
+        input={part.input}
+        output={output}
+      />
     );
   }
   return (
-    <ToolPairCard name={toolName} toolCallId={part.toolCallId} input={part.input} output={output} />
+    <ToolPairCard
+      name={toolName}
+      toolCallId={part.toolCallId}
+      state={part.state}
+      input={part.input}
+      output={output}
+    />
   );
 }
 

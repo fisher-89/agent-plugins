@@ -221,7 +221,7 @@ zod exporter SHALL 以 vendored crate 落位 `packages/desktop/src-tauri/crates/
 - **`u64` 出线口径**：`from_offset` 与 `nextOffset` 沿用 workspace 既有 bigint 配置（`dangerously_cast_bigints_to_number`）出线为 `number`，MUST NOT 单独引入 `BigInt` 面（与 `tokenInput` / `tokenOutput` 同口径；文件长度上界受 2^53 约束，实际日志远小于此）。
 - **miss 语义与既有读命令一致**：三命令在 blank root、`exec_id` 非法 / 未知、或两槽位均无该记录时 SHALL 返回 `None`（miss 非错误、非 `Err`），MUST NOT 借故障通道表达「暂时还没输出」——运行中零字节由 `Some { text: "", nextOffset: 0 }` 表达（与「无记录」可分辨）。
 - **零新事件面**：三命令均为同步返回，MUST NOT 引入 `emit` / `listen` 事件或新 `Channel` 参数。
-- **既有命令零变**：`read_exec_output(root, change_name, exec_id) -> Option<String>` 的签名、参数键与返回类型 MUST NOT 改动（既有 spec 的「零变」承诺与既有前端 / 测试调用面因此不破）。
+- **退役命令**：`read_exec_output` 已退役（零消费者死命令，整读改走 `read_file`），其生成绑定条目 MUST NOT 继续出现在 `bindings.ts` / `bindings.zod.ts`；其余既有读取命令（`read_exec_command` / `read_exec_output_delta` / `read_artifact`）签名零变。
 - **重导出**：三命令与 `ExecOutputChunk` 出线后 MUST 经导出入口再生成并入库（`bindings:export` 即把盘上产物修至最新）；入库物是否过期由提交前 `git status` / `git diff` 人工核对，MUST NOT 依赖自动化 diff 门禁（零 diff 守卫已退役）。
 
 #### Scenario: 运行中零字节与无记录可分辨

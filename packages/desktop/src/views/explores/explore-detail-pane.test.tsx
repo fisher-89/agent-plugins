@@ -2,8 +2,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, ExploreDoc, ExploreRecord, SessionSummary } from '../../types/dto';
+import type { AgentEvent, ExploreRecord, SessionSummary } from '../../types/dto';
 import { ExploreDetailPane } from './explore-detail-pane';
+import type { ExploreDoc } from './hooks/use-explore-doc';
 import type { ExploreListState } from './hooks/use-explore-list';
 
 // 进程边界 Mock：invoke + Channel（@tauri-apps/api/core）；内部 hooks
@@ -60,9 +61,21 @@ function makeList(overrides: Partial<ExploreListState> = {}): ExploreListState {
 
 let docResult: ExploreDoc | null = null;
 
+/** 后端 `FileSlice` 的最小书面形状（读取面只消费 `content`）。 */
+function sliceOf(content: string) {
+  return {
+    content,
+    stat: { size: content.length, modifiedMs: null, isFile: true, isDir: false },
+    offset: 0,
+    nextOffset: content.length,
+    truncated: false,
+    encoding: 'utf8',
+  };
+}
+
 /** 进程边界应答面。 */
 function ipc(command: string): Promise<unknown> {
-  if (command === 'read_explore') return Promise.resolve(docResult);
+  if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
   if (command === 'explore_doc_path') {
     return Promise.resolve('C:\\demo\\alpha\\openspec\\explores\\api-retry.md');
   }
@@ -182,9 +195,10 @@ describe('ExploreDetailPane：title 回填 effect（AC-5 链路）', () => {
 
     await screen.findByTestId('explore-detail-title');
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('read_explore', {
-        root: ROOT,
-        name: 'api-retry',
+      expect(invokeMock).toHaveBeenCalledWith('read_file', {
+        path: 'C:\\demo\\alpha\\openspec\\explores\\api-retry.md',
+        offset: null,
+        limit: null,
       }),
     );
     expect(list.updateTitle).not.toHaveBeenCalled();
@@ -210,7 +224,7 @@ describe('ExploreDetailPane：promoted 停读与缺失态（AC-8 / 边界）', (
     expect(await screen.findByTestId('explore-promoted-preview')).toBeTruthy();
     expect(screen.queryByTestId('explore-preview')).toBeNull();
     const commands = invokeMock.mock.calls.map(([name]) => name);
-    expect(commands).not.toContain('read_explore');
+    expect(commands).not.toContain('read_file');
     expect(commands).not.toContain('explore_doc_path');
     expect(list.updateTitle).not.toHaveBeenCalled();
   });
@@ -221,7 +235,7 @@ describe('ExploreDetailPane：promoted 停读与缺失态（AC-8 / 边界）', (
     expect(await screen.findByTestId('explore-detail-missing')).toBeTruthy();
     expect(screen.queryByTestId('explore-detail-title')).toBeNull();
     const commands = invokeMock.mock.calls.map(([name]) => name);
-    expect(commands).not.toContain('read_explore');
+    expect(commands).not.toContain('read_file');
   });
 });
 
@@ -357,7 +371,11 @@ describe('ExploreDetailPane：workflow_type 回填 effect（AC-8 链路）', () 
 
     await screen.findByTestId('explore-detail-title');
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: 'api-retry' }),
+      expect(invokeMock).toHaveBeenCalledWith('read_file', {
+        path: 'C:\\demo\\alpha\\openspec\\explores\\api-retry.md',
+        offset: null,
+        limit: null,
+      }),
     );
     expect(list.updateWorkflowType).not.toHaveBeenCalled();
   });
@@ -375,9 +393,10 @@ describe('ExploreDetailPane：workflow_type 回填 effect（AC-8 链路）', () 
 
       await screen.findByTestId('explore-detail-title');
       await waitFor(() =>
-        expect(invokeMock).toHaveBeenCalledWith('read_explore', {
-          root: ROOT,
-          name: 'api-retry',
+        expect(invokeMock).toHaveBeenCalledWith('read_file', {
+          path: 'C:\\demo\\alpha\\openspec\\explores\\api-retry.md',
+          offset: null,
+          limit: null,
         }),
       );
       expect(list.updateWorkflowType).not.toHaveBeenCalled();
@@ -420,7 +439,7 @@ describe('ExploreDetailPane：workflow_type 回填 effect（AC-8 链路）', () 
 
     await screen.findByTestId('explore-detail-missing');
     expect(list.updateWorkflowType).not.toHaveBeenCalled();
-    expect(invokeMock.mock.calls.map(([name]) => name)).not.toContain('read_explore');
+    expect(invokeMock.mock.calls.map(([name]) => name)).not.toContain('read_file');
   });
 });
 
@@ -464,9 +483,9 @@ function renderDetailWithState(
 /** 会话链空态底座（session_detail null + 空转录——装载完成后闸门齐备）。 */
 function mockEmptySessionIpc() {
   invokeMock.mockImplementation((command: string) => {
-    if (command === 'read_explore') return Promise.resolve(docResult);
+    if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
     if (command === 'explore_doc_path') {
-      return Promise.resolve('C:demoalphaopenspecexploresapi-retry.md');
+      return Promise.resolve('C:\\demo\\alpha\\openspec\\explores\\api-retry.md');
     }
     if (command === 'watch_subscribe') return Promise.resolve(1);
     if (command === 'watch_unsubscribe') return Promise.resolve(null);
@@ -521,7 +540,7 @@ describe('ExploreDetailPane：autoPrompt 读数传递（AC-1 链路入口半边�
 
 /** mockEmptySessionIpc 的可复用应答臂（供局部 mockImplementation 回落）。 */
 function mockEmptySessionAnswer(command: string): Promise<unknown> {
-  if (command === 'read_explore') return Promise.resolve(docResult);
+  if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
   if (command === 'explore_doc_path') {
     return Promise.resolve('C:demoalphaopenspecexploresapi-retry.md');
   }
@@ -564,7 +583,7 @@ function completedTurn(sessionId: string): TurnSummaryLike {
 // ---------------------------------------------------------------------------
 
 describe('ExploreDetailPane：run 终态刷新与名变收敛（AC-4 收敛链）', () => {
-  it('正向：running true→false → list.refresh 与 doc 定点重读同点触发（read_explore 二次拉取）', async () => {
+  it('正向：running true→false → list.refresh 与 doc 定点重读同点触发（read_file 二次拉取）', async () => {
     mockEmptySessionIpc();
     // agent_start 提前 resolve running 轮行（库态 running 来源）；终态经 Channel
     // record 信封回流，收口按库内重放收敛
@@ -603,7 +622,7 @@ describe('ExploreDetailPane：run 终态刷新与名变收敛（AC-4 收敛链�
 
     await waitFor(() => expect(list.refresh).toHaveBeenCalled());
     await waitFor(() => {
-      const readCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_explore');
+      const readCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_file');
       expect(readCalls.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -618,15 +637,16 @@ describe('ExploreDetailPane：run 终态刷新与名变收敛（AC-4 收敛链�
     );
   });
 
-  it('正向：名变后 useExploreDoc 以新名读取（read_explore / explore_doc_path 入参为新名）', async () => {
+  it('正向：名变后 useExploreDoc 以新名派生路径并读取（explore_doc_path 入参为新名）', async () => {
     mockEmptySessionIpc();
     renderDetail(record({ name: 'new-final-name' }), makeList());
 
     await screen.findByTestId('explore-detail-title');
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('read_explore', {
-        root: ROOT,
-        name: 'new-final-name',
+      expect(invokeMock).toHaveBeenCalledWith('read_file', {
+        path: 'C:\\demo\\alpha\\openspec\\explores\\api-retry.md',
+        offset: null,
+        limit: null,
       }),
     );
     expect(invokeMock).toHaveBeenCalledWith('explore_doc_path', {
@@ -796,7 +816,7 @@ describe('ExploreDetailPane：promote 在飞标记（防重复提交态）', () 
 /** 会话 fixture（record.sessionId 在场 + agent_start 提前 resolve）。 */
 function seedChatSession(): void {
   invokeMock.mockImplementation((command: string) => {
-    if (command === 'read_explore') return Promise.resolve(docResult);
+    if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
     if (command === 'explore_doc_path') {
       return Promise.resolve('C:\\demo\\alpha\\openspec\\explores\\api-retry.md');
     }
@@ -906,7 +926,7 @@ describe('ExploreDetailPane：ChatPane 注入形态与 composer 插槽', () => {
     seedChatSession();
     invokeMock.mockImplementation((command: string) => {
       if (command === 'agent_session_transcript') return Promise.resolve([]);
-      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
       if (command === 'explore_doc_path') return Promise.resolve('C:\\a.md');
       if (command === 'watch_subscribe') return Promise.resolve(1);
       if (command === 'session_detail') {
@@ -998,7 +1018,7 @@ describe('ExploreDetailPane：记录切换（并行流 ≤ 1）', () => {
     const pending = new Map<string, (value: null) => void>();
 
     invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
-      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
       if (command === 'explore_doc_path') return Promise.resolve('C:\\demo\\alpha\\note.md');
       if (command === 'watch_subscribe') return Promise.resolve(1);
       if (command === 'watch_unsubscribe') return Promise.resolve(null);
@@ -1130,7 +1150,7 @@ describe('ExploreDetailPane：ChatPane 运行态边界（库态 running 禁发�
     const watchChannels: WatchChannel[] = [];
 
     invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
-      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
       if (command === 'explore_doc_path') return Promise.resolve('C:\\demo\\alpha\\note.md');
       if (command === 'watch_subscribe') return Promise.resolve(1);
       if (command === 'watch_unsubscribe') return Promise.resolve(null);
@@ -1204,9 +1224,9 @@ describe('ExploreDetailPane：ChatPane 运行态边界（库态 running 禁发�
     await waitFor(() =>
       expect(within(chat).getByTestId('session-meta-status').textContent).toBe('已收口'),
     );
-    // 终态定点重读触发重评估：文档重读一次（read_explore 第二次）
+    // 终态定点重读触发重评估：文档重读一次（read_file 第二次）
     await waitFor(() => {
-      const reads = invokeMock.mock.calls.filter(([name]) => name === 'read_explore');
+      const reads = invokeMock.mock.calls.filter(([name]) => name === 'read_file');
       expect(reads.length).toBeGreaterThanOrEqual(2);
     });
 
@@ -1235,7 +1255,7 @@ describe('ExploreDetailPane：ChatPane 错误面（会话查询失败不塌页�
   it('异常：会话查询 reject → 对话区错误提示呈现，记录头 / 右栏面板不塌、零伪气泡、零订阅', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'session_detail') return Promise.reject(new Error('会话查询失败：注入'));
-      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
       if (command === 'explore_doc_path') return Promise.resolve('C:\\demo\\alpha\\note.md');
       if (command === 'watch_subscribe') return Promise.resolve(1);
       if (command === 'watch_unsubscribe') return Promise.resolve(null);

@@ -23,11 +23,6 @@ export const argsSchemas = {
 			"kind": z.string(),
 			"source": z.string(),
 		}); },
-	get "readExecOutput"() { return z.strictObject({
-			"root": z.string(),
-			"changeName": z.string(),
-			"execId": z.string(),
-		}); },
 	get "execOutputPath"() { return z.strictObject({
 			"root": z.string(),
 			"changeName": z.string(),
@@ -170,10 +165,6 @@ export const argsSchemas = {
 			"goal": z.string(),
 			"workflowType": z.string(),
 		}); },
-	get "readExplore"() { return z.strictObject({
-			"root": z.string(),
-			"name": z.string(),
-		}); },
 	get "scanExplores"() { return z.strictObject({
 			"root": z.string(),
 		}); },
@@ -250,10 +241,6 @@ export const argsSchemas = {
 			"root": z.string(),
 			"element": z.string(),
 		}); },
-	get "archiReadDoc"() { return z.strictObject({
-			"root": z.string(),
-			"path": z.string(),
-		}); },
 	get "archiChangeSummary"() { return z.strictObject({
 			"root": z.string(),
 			"changeId": z.string(),
@@ -267,6 +254,11 @@ export const argsSchemas = {
 			"root": z.string(),
 			"mode": z.lazy(() => ArchiDriftModeSchema),
 		}); },
+	get "readFile"() { return z.strictObject({
+			"path": z.string(),
+			"offset": z.number().nullable(),
+			"limit": z.number().nullable(),
+		}); },
 } as const;
 
 /** 逐命令结果 schema（`Result` 取 Ok 臂；`Option` 出 nullable） */
@@ -274,7 +266,6 @@ export const resultSchemas = {
 	get "listChanges"() { return z.lazy(() => ChangeListSchema); },
 	get "getChangeDetail"() { return z.lazy(() => ChangeDetailUnifiedSchema).nullable(); },
 	get "readArtifact"() { return z.lazy(() => ArtifactEnvelopeSchema).nullable(); },
-	get "readExecOutput"() { return z.string().nullable(); },
 	get "execOutputPath"() { return z.string().nullable(); },
 	get "readExecCommand"() { return z.string().nullable(); },
 	get "readExecOutputDelta"() { return z.lazy(() => ExecOutputChunkSchema).nullable(); },
@@ -304,7 +295,6 @@ export const resultSchemas = {
 	get "changeFlowConfirm"() { return z.null(); },
 	get "changeFlowWatch"() { return z.null(); },
 	get "createChange"() { return z.lazy(() => CreateOutcomeSchema); },
-	get "readExplore"() { return z.lazy(() => ExploreDocSchema).nullable(); },
 	get "scanExplores"() { return z.array(z.lazy(() => ExploreScanEntrySchema)); },
 	get "exploreDocPath"() { return z.string().nullable(); },
 	get "listExploreRecords"() { return z.array(z.lazy(() => ExploreRecordSchema)); },
@@ -324,10 +314,10 @@ export const resultSchemas = {
 	get "appEnvironment"() { return z.lazy(() => AppEnvironmentSchema); },
 	get "archiGraph"() { return z.lazy(() => ArchiGraphSchema); },
 	get "archiModule"() { return z.lazy(() => ArchiModuleDetailSchema); },
-	get "archiReadDoc"() { return z.string(); },
 	get "archiChangeSummary"() { return z.lazy(() => ArchiChangeSummarySchema).nullable(); },
 	get "archiSetGate"() { return z.null(); },
 	get "archiDrift"() { return z.lazy(() => ArchiDriftReportSchema); },
+	get "readFile"() { return z.lazy(() => FileSliceSchema).nullable(); },
 } as const;
 
 /** 逐命令 `Channel<T>` 形参的信封 schema（键 = 形参名；无 Channel 的命令为空对象） */
@@ -337,8 +327,6 @@ export const channelArgs = {
 	get "getChangeDetail"() { return {
 		}; },
 	get "readArtifact"() { return {
-		}; },
-	get "readExecOutput"() { return {
 		}; },
 	get "execOutputPath"() { return {
 		}; },
@@ -402,8 +390,6 @@ export const channelArgs = {
 		}; },
 	get "createChange"() { return {
 		}; },
-	get "readExplore"() { return {
-		}; },
 	get "scanExplores"() { return {
 		}; },
 	get "exploreDocPath"() { return {
@@ -443,13 +429,13 @@ export const channelArgs = {
 		}; },
 	get "archiModule"() { return {
 		}; },
-	get "archiReadDoc"() { return {
-		}; },
 	get "archiChangeSummary"() { return {
 		}; },
 	get "archiSetGate"() { return {
 		}; },
 	get "archiDrift"() { return {
+		}; },
+	get "readFile"() { return {
 		}; },
 } as const;
 export const ActivePhaseSchema = z.strictObject({
@@ -1087,11 +1073,6 @@ export const ExecOutputChunkSchema = z.strictObject({
 	get nextOffset() { return z.number(); },
 });
 
-export const ExploreDocSchema = z.strictObject({
-	get name() { return z.string(); },
-	get content() { return z.string(); },
-});
-
 export const ExploreRecordSchema = z.strictObject({
 	get id() { return z.number(); },
 	get root() { return z.string(); },
@@ -1115,6 +1096,22 @@ export const FileNodeSchema = z.strictObject({
 	get code() { return z.number(); },
 	get comments() { return z.number(); },
 	get blanks() { return z.number(); },
+});
+
+export const FileSliceSchema = z.strictObject({
+	get content() { return z.string(); },
+	get stat() { return FileStatSchema; },
+	get offset() { return z.number(); },
+	get nextOffset() { return z.number(); },
+	get truncated() { return z.boolean(); },
+	get encoding() { return z.string(); },
+});
+
+export const FileStatSchema = z.strictObject({
+	get size() { return z.number(); },
+	get modifiedMs() { return z.number().nullable(); },
+	get isFile() { return z.boolean(); },
+	get isDir() { return z.boolean(); },
 });
 
 export const FileWatchEventSchema = z.strictObject({

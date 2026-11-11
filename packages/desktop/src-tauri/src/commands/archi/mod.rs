@@ -1,6 +1,7 @@
-//! 架构命令轨道：六命令薄包装（`archi_graph` / `archi_module` / `archi_read_doc` /
-//! `archi_change_summary` / `archi_set_gate` / `archi_drift`）+ 六个 `*_inner` 领域
+//! 架构命令轨道：五命令薄包装（`archi_graph` / `archi_module` /
+//! `archi_change_summary` / `archi_set_gate` / `archi_drift`）+ 五个 `*_inner` 领域
 //! 组装纯函数（`*_inner` app 层微形态先例，离 Tauri 运行时可测）。
+//! 文档正文读取归 `commands::fs::read_file`（通用读面，不再有架构专用读取命令）。
 //!
 //! `archi_drift` 是**架构漂移检查**的命令面（两模式）：全量模式直接调判定、增量
 //! 模式经 vcs 缝取变更集后同源判定；判定规则全在 `archi::drift`——命令层零判定
@@ -15,7 +16,7 @@
 //! 空白 / 不可读 root 一律 `Err`（画布无 root 画不出东西；静默空图会与「模型为
 //! 空」的冷启动合法态不可辨）。
 //!
-//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 五命令契约）。
+//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 四命令契约）。
 
 use std::fs;
 use std::path::Path;
@@ -96,27 +97,6 @@ pub fn archi_module(root: String, element: String) -> Result<ArchiModuleDetail, 
 pub fn archi_module_inner(root: &Path, element: &str) -> Result<ArchiModuleDetail, String> {
     check_root(root)?;
     dto::module_detail(root, element)
-}
-
-/// 文档正文（仅关联集内路径）。
-#[tauri::command]
-#[specta::specta]
-pub fn archi_read_doc(root: String, path: String) -> Result<String, String> {
-    archi_read_doc_inner(Path::new(&root), &path)
-}
-
-/// [`archi_read_doc`] 的领域组装纯函数：关联集成员校验 → 归一 → 只读读盘。越界
-/// 显式 `Err`（MUST NOT 成为任意文件读取通道）。
-pub fn archi_read_doc_inner(root: &Path, path: &str) -> Result<String, String> {
-    check_root(root)?;
-    let linked = dto::linked_doc_paths(root)?;
-    let normalized = path.replace('\\', "/");
-    let normalized = normalized.trim_start_matches("./");
-    if !linked.contains(normalized) {
-        return Err(format!("路径不在模块文档关联集内：{path}"));
-    }
-    let full = root.join(normalized);
-    fs::read_to_string(&full).map_err(|e| format!("文档读取失败（{}）：{e}", full.display()))
 }
 
 /// 归档确认面的模型结构 diff 摘要（`null` = 无改动 / 无可比基线）。

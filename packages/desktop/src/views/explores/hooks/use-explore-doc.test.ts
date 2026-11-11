@@ -2,11 +2,10 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { driftCount, driftReports, resetDrift } from '../../../lib/ipc-drift';
-import type { ExploreDoc } from '../../../types/dto';
-import { useExploreDoc } from './use-explore-doc';
+import { type ExploreDoc, useExploreDoc } from './use-explore-doc';
 
 // ---------------------------------------------------------------------------
-// 进程边界 Mock：invoke 按命令名分发（read_explore / explore_doc_path /
+// 进程边界 Mock：invoke 按命令名分发（read_file / explore_doc_path /
 // watch_subscribe / watch_unsubscribe）；Channel mock 为可编程 class（捕获
 // onmessage，测试内手动注入 FileWatchEvent 信号模拟后端推送）。防抖窗口用
 // vi.useFakeTimers 精确推进 500ms。
@@ -65,14 +64,33 @@ let docResult: ExploreDoc | null | string;
 let derivedPath: string | null | { reject: string };
 let subscribeResult: number | string;
 
+/** 单次读取的字节切片（与后端 `FileSlice` 形状一致的最小面）。 */
+function sliceOf(content: string) {
+  return {
+    content,
+    stat: {
+      size: content.length,
+      modifiedMs: null,
+      isFile: true,
+      isDir: false,
+    },
+    offset: 0,
+    nextOffset: content.length,
+    truncated: false,
+    encoding: 'utf8',
+  };
+}
+
 function mockIpc() {
   ChannelMock.instances.length = 0;
   docResult = doc('# 探索笔记\n初稿');
   derivedPath = `${ROOT}\\openspec\\explores\\${NAME}.md`;
   subscribeResult = 7;
   invokeMock.mockImplementation((command: string) => {
-    if (command === 'read_explore') {
-      return typeof docResult === 'string' ? Promise.reject(docResult) : Promise.resolve(docResult);
+    if (command === 'read_file') {
+      return typeof docResult === 'string'
+        ? Promise.reject(docResult)
+        : Promise.resolve(docResult === null ? null : sliceOf(docResult.content));
     }
     if (command === 'explore_doc_path') {
       // `{ reject }` 形态走失败臂（与 docResult / subscribeResult 的「字符串即 reject」
@@ -102,7 +120,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** 挂载并冲刷微任务：首轮 read_explore 与订阅链（path → subscribe）均就绪。 */
+/** 挂载并冲刷微任务：首轮 read_file 与订阅链（path → subscribe）均就绪。 */
 async function mounted(root: string | null = ROOT, name: string | null = NAME) {
   return renderHook((args: [string | null, string | null]) => useExploreDoc(args[0], args[1]), {
     initialProps: [root, name] as [string | null, string | null],
@@ -115,7 +133,14 @@ async function flush() {
 }
 
 function readCallCount(): number {
-  return invokeMock.mock.calls.filter(([name]) => name === 'read_explore').length;
+  return invokeMock.mock.calls.filter(([name]) => name === 'read_file').length;
+}
+
+/** `read_file` 的入参序列（路径 / 分页窗口面）。 */
+function readCalls(): Record<string, unknown>[] {
+  return invokeMock.mock.calls
+    .filter(([name]) => name === 'read_file')
+    .map(([, params]) => (params ?? {}) as Record<string, unknown>);
 }
 
 function subscribeCall(): { onEvent: unknown; path: unknown } | null {
@@ -124,7 +149,7 @@ function subscribeCall(): { onEvent: unknown; path: unknown } | null {
 }
 
 describe('useExploreDoc：文档取数与 watch 订阅（AC-7）', () => {
-  it('有效 root+name 挂载：read_explore 拉取一次、doc 呈现内容；explore_doc_path 后恰发起一次 watch_subscribe', async () => {
+  it('有效 root+name 挂载：read_file 拉取一次、doc 呈现内容；explore_doc_path 后恰发起一次 watch_subscribe', async () => {
     const { result } = await mounted();
     await flush();
 
@@ -156,7 +181,7 @@ describe('useExploreDoc：信号 500ms trailing 防抖重拉（AC-7）', () => {
     vi.useFakeTimers();
   });
 
-  it('Channel 推入 1 个信号：推进 500ms 后恰重拉一次 read_explore', async () => {
+  it('Channel 推入 1 个信号：推进 500ms 后恰重拉一次 read_file', async () => {
     const { result } = await mounted();
     await flush();
     expect(result.current.doc).not.toBeNull();
@@ -172,7 +197,7 @@ describe('useExploreDoc：信号 500ms trailing 防抖重拉（AC-7）', () => {
     });
     await flush();
     expect(readCallCount()).toBe(2);
-    expect(invokeMock).toHaveBeenLastCalledWith('read_explore', { root: ROOT, name: NAME });
+    expect(readCalls().at(-1)).toEqual({ path: derivedPath, offset: null, limit: null });
   });
 
   it('500ms 窗口内推入 3 个信号：合并为恰一次重拉', async () => {
@@ -233,19 +258,20 @@ describe('useExploreDoc：信号 500ms trailing 防抖重拉（AC-7）', () => {
 });
 
 describe('useExploreDoc：缺失与失败语义（AC-7/AC-8）', () => {
-  it('explore_doc_path 返回 null（穿越名/blank root）：不发起订阅、doc 空态不崩', async () => {
+  it('explore_doc_path 返回 null（穿越名/blank root）：零读取、不发起订阅、doc 空态不崩', async () => {
     derivedPath = null;
 
     const { result } = await mounted();
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(subscribeCall()).toBeNull();
-    expect(readCallCount()).toBe(1);
-    expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+    // 无派生路径 ⇒ 无文件可读（不再发一次注定失败的读取）
+    expect(readCallCount()).toBe(0);
+    expect(result.current.doc).toBeNull();
     expect(result.current.error).toBeNull();
   });
 
-  it('read_explore reject：error 置位、不崩；watch 订阅仍建立（文档缺失与订阅生命周期解耦，D5）', async () => {
+  it('read_file reject：error 置位、不崩；watch 订阅仍建立（文档缺失与订阅生命周期解耦，D5）', async () => {
     docResult = 'IPC 断开';
 
     const { result } = await mounted();
@@ -299,7 +325,7 @@ describe('useExploreDoc：loading 生命周期与订阅时序', () => {
   it('卸载先于订阅建立：订阅就绪后仍以订阅 id 补发退订', async () => {
     let resolveSubscribe: (id: number) => void = () => {};
     invokeMock.mockImplementation((command: string) => {
-      if (command === 'read_explore') return Promise.resolve(doc('# 慢订阅'));
+      if (command === 'read_file') return Promise.resolve(sliceOf('# 慢订阅'));
       if (command === 'explore_doc_path') return Promise.resolve(derivedPath);
       if (command === 'watch_subscribe') {
         return new Promise<number>((resolve) => {
@@ -351,15 +377,15 @@ describe('useExploreDoc：信号防抖与卸载取消', () => {
 
 describe('useExploreDoc：参数变更竞态（取消抑制）', () => {
   it('旧文档迟到的 resolve 不覆盖新文档（cancelled 抑制迟到写入）', async () => {
-    let resolveOld: (value: ExploreDoc | null) => void = () => {};
+    let resolveOld: (value: ReturnType<typeof sliceOf> | null) => void = () => {};
     invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
-      if (command === 'read_explore') {
-        if (params?.name === 'old-doc') {
-          return new Promise<ExploreDoc | null>((resolve) => {
+      if (command === 'read_file') {
+        if (String(params?.path).includes('old-doc')) {
+          return new Promise<ReturnType<typeof sliceOf> | null>((resolve) => {
             resolveOld = resolve;
           });
         }
-        return Promise.resolve({ name: 'new-doc', content: '新文档内容' });
+        return Promise.resolve(sliceOf('新文档内容'));
       }
       if (command === 'explore_doc_path') {
         return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
@@ -380,22 +406,22 @@ describe('useExploreDoc：参数变更竞态（取消抑制）', () => {
     expect(result.current.doc).toEqual({ name: 'new-doc', content: '新文档内容' });
 
     await act(async () => {
-      resolveOld({ name: 'old-doc', content: '迟到的旧文档' });
+      resolveOld(sliceOf('迟到的旧文档'));
     });
     expect(result.current.doc).toEqual({ name: 'new-doc', content: '新文档内容' });
     expect(result.current.error).toBeNull();
   });
 
   it('旧文档迟到的 reject 不置错误（cancelled 抑制迟到失败）', async () => {
-    let rejectOld: (err: unknown) => void = () => {};
+    let rejectOld: () => void = () => {};
     invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
-      if (command === 'read_explore') {
-        if (params?.name === 'old-doc') {
-          return new Promise<ExploreDoc | null>((_resolve, reject) => {
-            rejectOld = reject;
+      if (command === 'read_file') {
+        if (String(params?.path).includes('old-doc')) {
+          return new Promise<ReturnType<typeof sliceOf> | null>((_resolve, reject) => {
+            rejectOld = () => reject(new Error('迟到的 IPC 失败'));
           });
         }
-        return Promise.resolve({ name: 'new-doc', content: '新文档内容' });
+        return Promise.resolve(sliceOf('新文档内容'));
       }
       if (command === 'explore_doc_path') {
         return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
@@ -415,7 +441,7 @@ describe('useExploreDoc：参数变更竞态（取消抑制）', () => {
     await flush();
 
     await act(async () => {
-      rejectOld(new Error('迟到的 IPC 失败'));
+      rejectOld();
     });
     expect(result.current.error).toBeNull();
     expect(result.current.doc).toEqual({ name: 'new-doc', content: '新文档内容' });
@@ -423,7 +449,7 @@ describe('useExploreDoc：参数变更竞态（取消抑制）', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 生成绑定调用面（AC-5 回归锁定）：read_explore / explore_doc_path /
+// 生成绑定调用面（AC-5 回归锁定）：read_file / explore_doc_path /
 // watch_subscribe / watch_unsubscribe 裸 invoke → typed bindings 机械替换后，
 // 命令名与参数逐字不变；Channel<FileWatchEvent> 底层构造保留（类型来自生成
 // 物），信号仅按 { path } 处理（mock 机制切换后依旧生效）。
@@ -435,7 +461,7 @@ describe('useExploreDoc：生成绑定调用面', () => {
     const { result } = await mounted();
     await flush();
 
-    expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: NAME });
+    expect(readCalls()).toEqual([{ path: derivedPath, offset: null, limit: null }]);
     expect(invokeMock).toHaveBeenCalledWith('explore_doc_path', { root: ROOT, name: NAME });
     expect(subscribeCall()?.path).toBe(derivedPath);
     expect(subscribeCall()?.onEvent).toBeInstanceOf(ChannelMock);
@@ -450,19 +476,20 @@ describe('useExploreDoc：生成绑定调用面', () => {
     });
     await flush();
     expect(readCallCount()).toBe(2);
-    expect(invokeMock).toHaveBeenLastCalledWith('read_explore', { root: ROOT, name: NAME });
+    expect(readCalls().at(-1)).toEqual({ path: derivedPath, offset: null, limit: null });
     expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
   });
 
-  it('explore_doc_path 返回 null 不订阅、500ms 窗口内多信号合并为恰一次重拉（语义在绑定切换后不变）', async () => {
+  it('explore_doc_path 返回 null 不订阅、不读取；500ms 窗口内多信号合并为恰一次重拉（语义在绑定切换后不变）', async () => {
     vi.useFakeTimers();
     derivedPath = null;
     const noSubscribe = await mounted();
     await flush();
 
     expect(subscribeCall()).toBeNull();
-    expect(readCallCount()).toBe(1);
-    expect(noSubscribe.result.current.doc).not.toBeNull();
+    // 无派生路径 ⇒ 无文件可读（读取链在路径解析处短路）
+    expect(readCallCount()).toBe(0);
+    expect(noSubscribe.result.current.doc).toBeNull();
 
     // 正常订阅下防抖合并：窗口内两信号合并为一次重拉（第二次信号重置计时）
     derivedPath = `${ROOT}\\openspec\\explores\\${NAME}.md`;
@@ -482,7 +509,7 @@ describe('useExploreDoc：生成绑定调用面', () => {
     expect(result.current.doc).not.toBeNull();
   });
 
-  it('read_explore / watch_subscribe reject → 错误态与订阅生命周期解耦行为不变', async () => {
+  it('read_file / watch_subscribe reject → 错误态与订阅生命周期解耦行为不变', async () => {
     docResult = 'IPC 断开';
     const { result } = await mounted();
     await waitFor(() => expect(result.current.error).toContain('IPC 断开'));
@@ -518,7 +545,7 @@ describe('useExploreDoc：经 ipc 的参数面 / 结果面', () => {
     const { result } = await mounted();
     await flush();
 
-    expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: NAME });
+    expect(readCalls()).toEqual([{ path: derivedPath, offset: null, limit: null }]);
     expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
     expect(driftCount()).toBe(0);
   });
@@ -648,7 +675,7 @@ describe('useFileWatchSignal：经消费方公开面（C1–C5）', () => {
       expect(subscription?.onEvent).toBe(channels[0]);
       expect(subscription?.path).toBe(derivedPath);
       expect(callCountOf('watch_subscribe')).toBe(1);
-      // 本件零取数：订阅链完成不新增 read_explore
+      // 本件零取数：订阅链完成不新增 read_file
       expect(readCallCount()).toBe(1);
     });
 
@@ -718,7 +745,7 @@ describe('useFileWatchSignal：经消费方公开面（C1–C5）', () => {
       await flush();
 
       expect(readCallCount()).toBe(2);
-      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: NAME });
+      expect(readCalls().at(-1)).toEqual({ path: derivedPath, offset: null, limit: null });
     });
 
     it('窗口阈值：推进 499ms 零触发、恰好 500ms 触发恰一次', async () => {
@@ -786,7 +813,7 @@ describe('useFileWatchSignal：经消费方公开面（C1–C5）', () => {
       expect(result.current.doc).not.toBeNull();
     });
 
-    it('路径解析 reject：零订阅、零退订、静默（doc 正常呈现、error 为 null、loading 复位）', async () => {
+    it('路径解析 reject：零订阅、零退订；读取面据此呈错误态（同一解析被读取与订阅共用）', async () => {
       derivedPath = { reject: '布局派生失败' };
       const { result, unmount } = await mounted();
       await flush();
@@ -794,8 +821,9 @@ describe('useFileWatchSignal：经消费方公开面（C1–C5）', () => {
       // 臂键非 null ⇒ Channel 仍建立（失败只掐断「路径 → 订阅」这一段）
       expect(ChannelMock.instances).toHaveLength(1);
       expect(callCountOf('watch_subscribe')).toBe(0);
-      expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
-      expect(result.current.error).toBeNull();
+      // 读取面与订阅面共用同一次路径解析 ⇒ 解析失败即读取失败（可见错误，不静默吞）
+      expect(result.current.doc).toBeNull();
+      expect(result.current.error).toContain('布局派生失败');
       expect(result.current.loading).toBe(false);
 
       unmount();
@@ -863,7 +891,7 @@ describe('useFileWatchSignal：经消费方公开面（C1–C5）', () => {
         root: longRoot,
         name: longName,
       });
-      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: longRoot, name: longName });
+      expect(readCalls().at(-1)).toEqual({ path: derivedPath, offset: null, limit: null });
       expect(callCountOf('watch_subscribe')).toBe(1);
       expect(subscribeCall()?.path).toBe(derivedPath);
       expect(callCountOf('watch_unsubscribe')).toBe(0);
@@ -1038,11 +1066,8 @@ describe('useExploreDoc：信号重拉与状态面（AC-4）', () => {
 describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
   it('订阅身份含 name：name 变更 ⇒ 旧 id 退订一次、新增一次订阅、路径以新 name 派生、doc 为新文档', async () => {
     invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
-      if (command === 'read_explore') {
-        return Promise.resolve({
-          name: String(params?.name),
-          content: `内容-${String(params?.name)}`,
-        });
+      if (command === 'read_file') {
+        return Promise.resolve(sliceOf(`内容-${String(params?.path).split(/[\\/]/).at(-1)}`));
       }
       if (command === 'explore_doc_path') {
         return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
@@ -1057,7 +1082,7 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
       { initialProps: [ROOT, 'old-doc'] as [string | null, string | null] },
     );
     await flush();
-    expect(result.current.doc).toEqual({ name: 'old-doc', content: '内容-old-doc' });
+    expect(result.current.doc).toEqual({ name: 'old-doc', content: '内容-old-doc.md' });
 
     rerender([ROOT, 'new-doc'] as [string | null, string | null]);
     await flush();
@@ -1068,18 +1093,15 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
     ]);
     expect(callCountOf('watch_subscribe')).toBe(2);
     expect(payloadsOf('watch_unsubscribe')).toEqual([{ subscriptionId: 11 }]);
-    expect(result.current.doc).toEqual({ name: 'new-doc', content: '内容-new-doc' });
+    expect(result.current.doc).toEqual({ name: 'new-doc', content: '内容-new-doc.md' });
   });
 
   it('订阅身份含 root：切根 ⇒ 旧 id 退订一次 + 新根重订；随后卸载只以新 id 退订一次', async () => {
     const newRoot = 'C:\\demo\\beta';
     let nextId = 11;
     invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
-      if (command === 'read_explore') {
-        return Promise.resolve({
-          name: String(params?.name),
-          content: `根-${String(params?.root)}`,
-        });
+      if (command === 'read_file') {
+        return Promise.resolve(sliceOf(`根-${String(params?.path)}`));
       }
       if (command === 'explore_doc_path') {
         return Promise.resolve(
@@ -1124,11 +1146,8 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
   it('臂键变更与待发计时交叉：信号在飞时切 name ⇒ 旧臂计时随旧臂键清理，重拉只来自新臂挂载取数', async () => {
     vi.useFakeTimers();
     invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
-      if (command === 'read_explore') {
-        return Promise.resolve({
-          name: String(params?.name),
-          content: `内容-${String(params?.name)}`,
-        });
+      if (command === 'read_file') {
+        return Promise.resolve(sliceOf(`内容-${String(params?.path).split(/[\\/]/).at(-1)}`));
       }
       if (command === 'explore_doc_path') {
         return Promise.resolve(`${ROOT}\\openspec\\explores\\${String(params?.name)}.md`);
@@ -1163,7 +1182,7 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
 
     // 旧臂的待发信号已随旧臂键清理，不产生第三次取数
     expect(readCallCount()).toBe(2);
-    expect(result.current.doc).toEqual({ name: 'new-doc', content: '内容-new-doc' });
+    expect(result.current.doc).toEqual({ name: 'new-doc', content: '内容-new-doc.md' });
   });
 
   it('有参 → 空参（root 变 null）：旧订阅退订一次、零新订阅，doc / error 复位为 null、loading 为 false', async () => {
@@ -1203,17 +1222,17 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
 
   it('刷新后旧取数实例被作废：迟到信号只由当前实例发起一次重拉，旧实例结果不覆盖 doc', async () => {
     vi.useFakeTimers();
-    let resolveOld: (value: ExploreDoc | null) => void = () => {};
+    let resolveOld: (value: ReturnType<typeof sliceOf> | null) => void = () => {};
     let reads = 0;
     invokeMock.mockImplementation((command: string) => {
-      if (command === 'read_explore') {
+      if (command === 'read_file') {
         reads += 1;
         if (reads === 1) {
-          return new Promise<ExploreDoc | null>((resolve) => {
+          return new Promise<ReturnType<typeof sliceOf> | null>((resolve) => {
             resolveOld = resolve;
           });
         }
-        return Promise.resolve({ name: NAME, content: `第 ${reads} 次读取` });
+        return Promise.resolve(sliceOf(`第 ${reads} 次读取`));
       }
       if (command === 'explore_doc_path') return Promise.resolve(derivedPath);
       if (command === 'watch_subscribe') return Promise.resolve(7);
@@ -1242,7 +1261,7 @@ describe('useExploreDoc：订阅身份与有参 ↔ 空参平移', () => {
     expect(result.current.doc).toEqual({ name: NAME, content: '第 3 次读取' });
 
     await act(async () => {
-      resolveOld({ name: NAME, content: '迟到的旧结果' });
+      resolveOld(sliceOf('迟到的旧结果'));
     });
 
     expect(result.current.doc).toEqual({ name: NAME, content: '第 3 次读取' });

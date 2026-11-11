@@ -158,7 +158,7 @@ test-execution 的输出记录 SHALL 由 summary JSON 重序列化改为**脚本
 #### Scenario: 各 suite 输出按 plan 序聚合
 
 - **WHEN** 一次 test-execution 含多个 suite（如 jest 与 rust），各 suite 脚本分别产出 stdout / stderr
-- **THEN** record 落单一 `.log`，内容为各 suite 合并输出按 plan 序拼接（每段前有该 plan 的分隔头）；`read_exec_output` 回查内容在去掉分隔头与 `[argv]` 行后与脚本真实输出逐字节一致，MUST NOT 是 summary JSON 重序列化
+- **THEN** record 落单一 `.log`，内容为各 suite 合并输出按 plan 序拼接（每段前有该 plan 的分隔头）；`exec::read_exec_output` 回查内容（命令面经 `exec_output_path` + `read_file`）在去掉分隔头与 `[argv]` 行后与脚本真实输出逐字节一致，MUST NOT 是 summary JSON 重序列化
 
 #### Scenario: 结构化报告仍为全量权威
 
@@ -242,7 +242,7 @@ initialize 相位（desktop-change-orchestration「initialize 基线检查相位
 #### Scenario: 基线回查可达
 
 - **WHEN** 前端打开 initialize 相位 test-execution 节点的 stdout 面板（`outputRef` 回查）
-- **THEN** `read_exec_output` 命中 baseline 树的 exec-outputs 并返回脚本真实输出，miss 仍为 `None` 非错误
+- **THEN** `exec_output_path` 命中 baseline 树的 exec-outputs，`read_file` 读回脚本真实输出，miss 仍为 `None` 非错误
 
 ### Requirement: rust suite 单构建（一条命令同产结果与覆盖率）
 
@@ -414,7 +414,7 @@ test-execution 的命令展开 SHALL 受平台命令行长度预算约束（「�
 | `src/types/generated/bindings.ts`（重导） | IPC 类型跟随 | ChangeStepKind 新变体出线；生成物随前置重导出更新，过期由提交前人工核对 |
 | `crates/infra/checks/src/testexec/mod.rs` | 报告槽位参数化消费 | 报告目录经槽位（test 缺省 / baseline）派生；复用门按各自报告树判定（baseline 树内 mtime 判定复用，跨树零复用）；聚合与诊断链零改动 |
 | `crates/core/foundation/src/layout/mod.rs` | baseline 目录变体单点 | `reports/baseline` 后缀与 `reports/test` 同源派生（root / change 目录两变体）；零磁盘路径字面量扩散 |
-| `crates/infra/exec/src/lib.rs` | 输出记录同锚 | `record_exec_output` / `read_exec_output` 按槽位锚定 exec-outputs；exec_id 跨树唯一，回查覆盖两树 |
+| `crates/infra/exec/src/lib.rs` | 输出记录同锚 | `record_exec_output` / `read_exec_output`（库函数）按槽位锚定 exec-outputs；exec_id 跨树唯一，回查覆盖两树 |
 | `crates/core/workflow/src/state.rs` | `OnFail` 变体面 | `OnFail::{ FeedbackLoop { limit }, Terminal, Escalate }`（`Escalate` 无载荷，语义 = 落账后交决策） |
 | `crates/core/workflow/src/write/phase_table.rs` | 步声明单源 | `TEST_EXECUTION_STEPS` 两步 `on_fail = Some(OnFail::Escalate)`（零 agent、零反馈边） |
 | `crates/core/orchestration/src/walker.rs`（`step_test_execution` / `step_mutation_test`） | 门禁步执行体 | 删 `loop { run_tool; run_worker }`；`Escalate` 前置分支（保留 `Terminal` 前置分支与 runner `Err → Terminal`）；零 WorkerAgent 请求 |

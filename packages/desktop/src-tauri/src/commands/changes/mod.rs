@@ -194,26 +194,6 @@ fn change_dirs(stores: &WorkspaceStores, root: &str, change_name: &str) -> Vec<s
         .collect()
 }
 
-/// 读回某 exec 的输出记录
-#[tauri::command]
-#[specta::specta]
-pub fn read_exec_output(
-    stores: State<'_, WorkspaceStores>,
-    root: String,
-    change_name: String,
-    exec_id: String,
-) -> Option<String> {
-    if is_blank_root(&root) {
-        return None;
-    }
-    // exec_id 全局唯一，逐候选探测直至命中——永不取回他 change 的记录（miss 即
-    // None，非错读）；blank root / 开库失败 / miss 三条 None 语义逐条不变
-    change_dirs(&stores, &root, &change_name)
-        .into_iter()
-        .find_map(|dir| exec::read_exec_output_in(&dir, &exec_id))
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-}
-
 /// 布局派生的 `.log` 绝对路径（供前端 watch 寻址；目录名知识 MUST NOT 下沉
 /// 前端）。照 `explore_doc_path` 同构：blank root / 开库失败 / 非法或未知
 /// `exec_id` → `None`。

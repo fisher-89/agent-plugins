@@ -28,8 +28,6 @@ export const commands = {
 	 *  定位键（id → 记录 → name 分辨率单点）。
 	 */
 	readArtifact: (root: string, id: string, kind: string, source: string) => __TAURI_INVOKE<ArtifactEnvelope | null>("read_artifact", { root, id, kind, source }),
-	/**  读回某 exec 的输出记录 */
-	readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_output", { root, changeName, execId }),
 	/**
 	 *  布局派生的 `.log` 绝对路径（供前端 watch 寻址；目录名知识 MUST NOT 下沉
 	 *  前端）。照 `explore_doc_path` 同构：blank root / 开库失败 / 非法或未知
@@ -164,8 +162,6 @@ export const commands = {
 	changeFlowConfirm: (root: string, id: string, proceed: boolean, syncSpecs: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, id, proceed, syncSpecs }),
 	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, id: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, id }),
 	createChange: (root: string, name: string, goal: string, workflowType: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal, workflowType }),
-	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
-	readExplore: (root: string, name: string) => __TAURI_INVOKE<ExploreDoc | null>("read_explore", { root, name }),
 	/**
 	 *  导入扫描：列出笔记目录顶层 `*.md` 中**未被绑定且 stem 为 kebab-case** 的
 	 *  stem（绑定过滤与 kebab 过滤均在命令层：前者以 store 清单求差，后者对齐
@@ -266,14 +262,14 @@ export const commands = {
 	archiGraph: (root: string) => __TAURI_INVOKE<ArchiGraph>("archi_graph", { root }),
 	/**  单元素投影（与 agent 工具同一投影）。 */
 	archiModule: (root: string, element: string) => __TAURI_INVOKE<ArchiModuleDetail>("archi_module", { root, element }),
-	/**  文档正文（仅关联集内路径）。 */
-	archiReadDoc: (root: string, path: string) => __TAURI_INVOKE<string>("archi_read_doc", { root, path }),
 	/**  归档确认面的模型结构 diff 摘要（`null` = 无改动 / 无可比基线）。 */
 	archiChangeSummary: (root: string, changeId: string) => __TAURI_INVOKE<ArchiChangeSummary | null>("archi_change_summary", { root, changeId }),
 	/**  改档写回（唯一写命令）。 */
 	archiSetGate: (root: string, element: string, gate: GateTier) => __TAURI_INVOKE<null>("archi_set_gate", { root, element, gate }),
 	/**  架构漂移检查（两模式；命令层零判定）。 */
 	archiDrift: (root: string, mode: ArchiDriftMode) => __TAURI_INVOKE<ArchiDriftReport>("archi_drift", { root, mode }),
+	/**  通用文件读取（唯一内容出口）：字节分页 + 同批 stat。 */
+	readFile: (path: string, offset: number | null, limit: number | null) => __TAURI_INVOKE<FileSlice | null>("read_file", { path, offset, limit }),
 };
 
 /* Types */
@@ -1653,14 +1649,6 @@ export type ExecOutputChunk = {
 	nextOffset: number,
 };
 
-/**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
-export type ExploreDoc = {
-	/**  笔记名（= 文件 stem） */
-	name: string,
-	/**  UTF-8 文本内容 */
-	content: string,
-};
-
 /**  explore 清单记录 */
 export type ExploreRecord = {
 	/**  记录 id（主键，写事务内 max+1 分配；身份与文件名解耦） */
@@ -1715,6 +1703,34 @@ export type FileNode = {
 	comments: number,
 	/**  空行 */
 	blanks: number,
+};
+
+/**
+ *  内容切片：**字节**窗口（不是行窗口）——`read_exec_output_delta` 的游标就是
+ *  UTF-8 字节偏移，行分页无法表达无稳定行界的流式文本。
+ */
+export type FileSlice = {
+	/**  UTF-8 文本切片；`encoding == "binary"` 时为空串 */
+	content: string,
+	stat: FileStat,
+	/**  实际起点（已前向对齐到字符边界） */
+	offset: number,
+	/**  下次调用应传的游标；唯一产出方在后端 */
+	nextOffset: number,
+	/**  后面还有未读字节 */
+	truncated: boolean,
+	/**  `"utf8"` | `"binary"`（开放词表：后续可加 `"base64"` 而不破契约） */
+	encoding: string,
+};
+
+/**  文件 stat：与内容同一次取数一起出线（调用方无需二次往返）。 */
+export type FileStat = {
+	/**  全文件字节数 */
+	size: number,
+	/**  修改时间（Unix 毫秒；平台不支持时为 `None`） */
+	modifiedMs: number | null,
+	isFile: boolean,
+	isDir: boolean,
 };
 
 /**  桥接后的前端信号载荷（与 `FileWatchSignal` 同构，camelCase；无内容字节）。 */

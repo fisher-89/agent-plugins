@@ -11,7 +11,7 @@ import { ElementDrawer } from './element-drawer';
  * 报告」区块。
  *
  * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（`archi_module` /
- * `archi_read_doc` / `archi_set_gate` 按命令名分发）；`onChanged` 以 `vi.fn()`
+ * `read_file` / `archi_set_gate` 按命令名分发）；`onChanged` 以 `vi.fn()`
  * 观测（重取触发即被测语义）。
  */
 
@@ -90,8 +90,16 @@ beforeEach(() => {
         warnings: [],
       });
     }
-    if (command === 'archi_read_doc') {
-      return Promise.resolve('# 令牌收口\n\n- 收口到 Token 模块\n\n```ts\nconst sink = 1;\n```\n');
+    if (command === 'read_file') {
+      const content = '# 令牌收口\n\n- 收口到 Token 模块\n\n```ts\nconst sink = 1;\n```\n';
+      return Promise.resolve({
+        content,
+        stat: { size: content.length, modifiedMs: null, isFile: true, isDir: false },
+        offset: 0,
+        nextOffset: content.length,
+        truncated: false,
+        encoding: 'utf8',
+      });
     }
     if (command === 'archi_set_gate') {
       return Promise.resolve(null);
@@ -177,7 +185,7 @@ describe('文档关联段', () => {
     ]);
     expect(items[0]?.textContent).toContain('认证说明');
     expect(screen.getByTitle('src/auth/README.md')).toBeTruthy();
-    expect(callsOf('archi_read_doc')).toHaveLength(0);
+    expect(callsOf('read_file')).toHaveLength(0);
   });
 
   it('应在 docs 为空时呈现空态且不告警', async () => {
@@ -216,15 +224,16 @@ describe('文档关联段', () => {
       />,
     );
     await waitFor(() => expect(screen.queryAllByTestId('archi-doc-item')).toHaveLength(3));
-    expect(callsOf('archi_read_doc')).toHaveLength(0);
+    expect(callsOf('read_file')).toHaveLength(0);
 
     const adrButton = screen.getByTitle('.dev-team/architecture/decisions/0007-token-sink.md');
     fireEvent.click(adrButton);
     await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
-    expect(callsOf('archi_read_doc')).toEqual([
+    expect(callsOf('read_file')).toEqual([
       {
-        root: 'C:\\demo\\alpha',
-        path: '.dev-team/architecture/decisions/0007-token-sink.md',
+        path: 'C:\\demo\\alpha/.dev-team/architecture/decisions/0007-token-sink.md',
+        offset: null,
+        limit: null,
       },
     ]);
     const body = screen.getByTestId('file-content-markdown');
@@ -583,7 +592,7 @@ describe('文档条目交互', () => {
     fireEvent.click(adr);
     await waitFor(() => expect(screen.getByTestId('file-content-markdown')).toBeTruthy());
     // 每次打开各取一次（关闭即卸载，无跨开合的缓存复用）
-    expect(callsOf('archi_read_doc')).toHaveLength(2);
+    expect(callsOf('read_file')).toHaveLength(2);
   });
 });
 

@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react';
 
-import type { ArtifactEnvelope, ExploreDoc } from '../../../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 import { MarkdownDocRenderer } from '../../changes/renderers/markdown-doc-renderer';
+import type { ExploreDoc } from '../hooks/use-explore-doc';
 
 export interface ExplorePreviewProps {
   /** 当前笔记内容；null 即未落盘 / 已删除（空态，不报错） */

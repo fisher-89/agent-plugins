@@ -39,8 +39,8 @@ use workflow::queries as core_queries;
 use workflow::state::{ChangeStateRecord, ChangeStatus, PhaseLogCommand};
 
 use super::{
-    archive_change_with, create_change, create_change_with, delete_change_with, get_change_detail,
-    list_changes, read_artifact, read_exec_output,
+    archive_change_with, create_change, create_change_with, delete_change_with, exec_output_path,
+    get_change_detail, list_changes, read_artifact, read_exec_command, read_exec_output_delta,
 };
 
 /// 确定性时间戳（UTC unix 毫秒；2024-09-22 / 2026-02-02）。
@@ -2251,13 +2251,14 @@ fn 统一查询装配_早退与未知id未找到() {
 }
 
 // ---------------------------------------------------------------------------
-// read_exec_output（change-flow-show-step-only，AC-5）：IPC 薄命令暴露
-// `infra/exec` 输出记录回查——磁盘面按 change **name** 定位（与
-// `record_exec_output` 同口径），读单一 `.log` 全量字节并 UTF-8 lossy 成串；
-// miss（未知 / 非法 exec_id / blank root）恒 None，非错误。worktree / 归档
-// 感知（read_artifact 同式）：record 以 exec root 落盘，worktree-backed
+// exec 输出**路径 / 命令 / 增量**回查——磁盘面按 change **name** 定位（与
+// `record_exec_output` 同口径）；miss（未知 / 非法 exec_id / blank root）恒
+// None，非错误。worktree / 归档感知：record 以 exec root 落盘，worktree-backed
 // change 的记录在 worktree 内、归档 change 的记录在 archive 树（日期前缀），
-// 均 name → 记录 → locate_change 三态定位后回读。
+// 均 name → 记录 → locate_change 三态定位后回查。
+//
+// 整读面（原 `read_exec_output`）已退役：前端改「`exec_output_path` 取路径 +
+// `read_file` 读字节」，故本组只留路径 / 命令 / 增量三面。
 // ---------------------------------------------------------------------------
 
 /// 落一条输出记录（真实 infra/exec 落盘——命令面取数直调 State 直测）。
@@ -2272,151 +2273,26 @@ fn record(root: &str, change_name: &str, bytes: &[u8]) -> String {
 }
 
 #[test]
-fn read_exec_output命中_内容为落盘log字节() {
+fn exec_output_path命中_落盘log在案() {
     let env = Env::new("exec-hit");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let exec_id = record(&root, "add-feature", b"suite stdout\nsuite stderr\n");
 
-    let text = read_exec_output(
-        state.clone(),
+    let path = exec_output_path(
+        state,
         root.clone(),
         "add-feature".to_owned(),
         exec_id.clone(),
     )
-    .expect("已知 exec_id 应命中");
-    assert_eq!(
-        text, "suite stdout\nsuite stderr\n",
-        "内容 = 落盘 .log 字节（UTF-8 直读）"
-    );
-    // 落盘面：单一 .log（.err 退役）
+    .expect("已知 exec_id 应命中路径");
+    // 落盘面：单一 .log（.err 退役）；路径指向该文件
     let dir = foundation::layout::change_test_reports(Path::new(&root), "add-feature")
         .join("exec-outputs");
     assert!(dir.join(format!("{exec_id}.log")).is_file());
     assert!(!dir.join(format!("{exec_id}.err")).exists());
-}
-
-#[test]
-fn read_exec_output非utf8字节_lossy替换符不panic() {
-    let env = Env::new("exec-lossy");
-    let app = app_with(&env);
-    let state = app.state::<WorkspaceStores>();
-    let root = env.root();
-    // 非法 UTF-8 序列（0xFF / 0xFE / 0xC3 后缺续字节）——不 panic 不报错
-    let exec_id = record(&root, "add-feature", b"head\xff\xfemid\xc3tail");
-    let text = read_exec_output(state, root, "add-feature".to_owned(), exec_id)
-        .expect("非法字节仍应命中（值非 UTF-8 不构成 miss）");
-    assert_eq!(
-        text, "head\u{FFFD}\u{FFFD}mid\u{FFFD}tail",
-        "非法字节以 lossy 替换符呈现"
-    );
-}
-
-#[test]
-fn read_exec_output按change_name定位_与id相异时仍命中() {
-    let env = Env::new("exec-name-keyed");
-    let app = app_with(&env);
-    let state = app.state::<WorkspaceStores>();
-    let root = env.root();
-    let change_id = "0199a2f0-2010-7e45-8a9b-000000002010";
-    let exec_id = record(&root, "add-feature", b"name-keyed\n");
-
-    // name 命中（与 record_exec_output 同口径）
-    assert_eq!(
-        read_exec_output(
-            state.clone(),
-            root.clone(),
-            "add-feature".to_owned(),
-            exec_id.clone()
-        )
-        .as_deref(),
-        Some("name-keyed\n")
-    );
-    // id 形态寻址 miss（磁盘面恒按 name，非 id——id 只作命令面寻址键）
-    assert!(
-        read_exec_output(state, root, change_id.to_owned(), exec_id).is_none(),
-        "按 id 寻址 miss（name 化磁盘面）"
-    );
-}
-
-#[test]
-fn read_exec_output未命中与非法exec_id恒none() {
-    let env = Env::new("exec-miss");
-    let app = app_with(&env);
-    let state = app.state::<WorkspaceStores>();
-    let root = env.root();
-    let exec_id = record(&root, "add-feature", b"payload");
-
-    assert!(read_exec_output(
-        state.clone(),
-        root.clone(),
-        "add-feature".to_owned(),
-        "exec-unknown".to_owned()
-    )
-    .is_none());
-    for hostile in ["", "..", "../secret", "a/b", r"a\b", "C:evil", "exec-1.log"] {
-        assert!(
-            read_exec_output(
-                state.clone(),
-                root.clone(),
-                "add-feature".to_owned(),
-                hostile.to_owned()
-            )
-            .is_none(),
-            "非法 exec_id {hostile:?} 应拒绝（miss 非错误，零路径逃逸）"
-        );
-    }
-    assert!(
-        read_exec_output(state, root, "ghost-change".to_owned(), exec_id).is_none(),
-        "未定位到 change 目录 → None"
-    );
-}
-
-#[test]
-fn read_exec_output_blank_root早退none() {
-    let env = Env::new("exec-blank");
-    let app = app_with(&env);
-    let state = app.state::<WorkspaceStores>();
-    let root = env.root();
-    let exec_id = record(&root, "add-feature", b"payload");
-
-    for blank in ["", "   ", "\t"] {
-        assert!(
-            read_exec_output(
-                state.clone(),
-                blank.to_owned(),
-                "add-feature".to_owned(),
-                exec_id.clone()
-            )
-            .is_none(),
-            "blank root 早退 None: {blank:?}"
-        );
-    }
-}
-
-#[test]
-fn read_exec_output空输出与超长输出边界() {
-    let env = Env::new("exec-boundary");
-    let app = app_with(&env);
-    let state = app.state::<WorkspaceStores>();
-    let root = env.root();
-
-    // 空输出 → Some("")（命中语义，非 miss）
-    let empty = record(&root, "add-feature", b"");
-    assert_eq!(
-        read_exec_output(state.clone(), root.clone(), "add-feature".to_owned(), empty),
-        Some(String::new()),
-        "空输出 → Some(\"\")"
-    );
-
-    // 超长输出（>1000 chars）→ 完整返回不截断
-    let long = format!("{}\n尾行标记", "行".repeat(1200));
-    let exec_id = record(&root, "add-feature", long.as_bytes());
-    let text =
-        read_exec_output(state, root, "add-feature".to_owned(), exec_id).expect("超长应命中");
-    assert_eq!(text, long, "超长输出完整返回不截断");
-    assert!(text.ends_with("尾行标记"));
+    assert_eq!(Path::new(&path), dir.join(format!("{exec_id}.log")));
 }
 
 /// db 建档带 worktree 执行锚的 active 记录（worktree-backed change 形态——
@@ -2442,7 +2318,7 @@ fn seed_active_with_worktree(store: &Store, name: &str, worktree: &Path) {
 /// 的 `.log` 只在 worktree 内，主仓按 name 直读恒 miss 的原缺陷面）：name →
 /// 记录供给 worktree → locate_change 定位 worktree 目录 → 回读命中。
 #[test]
-fn read_exec_output_worktree记录经name定位回读命中() {
+fn exec_output_path_worktree记录经name定位命中() {
     let env = Env::new("exec-worktree");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -2462,16 +2338,20 @@ fn read_exec_output_worktree记录经name定位回读命中() {
     // 主仓 active 树无该 change 目录（worktree-backed change 主仓零目录）
     assert!(!env.changes_dir().join("add-feature").exists());
 
-    let text = read_exec_output(
+    let path = exec_output_path(
         state.clone(),
         root.clone(),
         "add-feature".to_owned(),
         exec_id.clone(),
     )
-    .expect("worktree 内记录经 name 定位应命中");
-    assert_eq!(text, "worktree stdout\n", "内容 = worktree 落盘字节");
+    .expect("worktree 内记录经 name 定位应命中路径");
+    assert_eq!(
+        String::from_utf8_lossy(&fs::read(&path).expect("worktree 内 `.log` 应可读")),
+        "worktree stdout\n",
+        "路径指向 worktree 落盘字节"
+    );
     // 未知 exec_id 仍 miss（定位命中 ≠ 记录命中）
-    assert!(read_exec_output(
+    assert!(exec_output_path(
         state,
         root,
         "add-feature".to_owned(),
@@ -2484,7 +2364,7 @@ fn read_exec_output_worktree记录经name定位回读命中() {
 /// 仍命中（locate_change 日期前缀后缀匹配覆盖）；记录归档形态（worktree 清位
 /// 感知——stale worktree 目录缺席走 archive 态）。
 #[test]
-fn read_exec_output_归档日期前缀目录命中() {
+fn exec_output_path_归档日期前缀目录命中() {
     let env = Env::new("exec-archive");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -2499,16 +2379,20 @@ fn read_exec_output_归档日期前缀目录命中() {
     )
     .expect("归档改名失败");
 
-    let text = read_exec_output(state, root, "add-feature".to_owned(), exec_id)
-        .expect("归档树日期前缀目录应命中");
-    assert_eq!(text, "archived stdout\n", "内容随 change 目录迁移仍可回读");
+    let path = exec_output_path(state, root, "add-feature".to_owned(), exec_id)
+        .expect("归档树日期前缀目录应命中路径");
+    assert_eq!(
+        String::from_utf8_lossy(&fs::read(&path).expect("归档树内 `.log` 应可读")),
+        "archived stdout\n",
+        "内容随 change 目录迁移仍可回读"
+    );
 }
 
 /// 同名共存（D11：归档同名合法）候选探测序：非 archived 记录的 worktree 先探
 ///（stale 不抢定位），miss 后逐候选下探——两同名 change 各自的 exec_id 均可
 /// 回读（exec_id 全局唯一，探测永不取回他 change 的记录）。
 #[test]
-fn read_exec_output_同名共存候选探测两change各自可回读() {
+fn exec_output_path_同名共存候选探测两change各自可回读() {
     let env = Env::new("exec-dup-name");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -2550,21 +2434,26 @@ fn read_exec_output_同名共存候选探测两change各自可回读() {
     .expect("live 落盘应成功");
 
     // active 记录 worktree 先探命中
-    let text = read_exec_output(
+    let path = exec_output_path(
         state.clone(),
         root.clone(),
         "add-feature".to_owned(),
         live_exec,
     )
-    .expect("active 记录 worktree 定位应命中");
+    .expect("active 记录 worktree 定位应命中路径");
     assert_eq!(
-        text, "live\n",
+        String::from_utf8_lossy(&fs::read(&path).expect("live 锚 `.log` 应可读")),
+        "live\n",
         "非 archived 记录 worktree 先探（stale 不抢定位）"
     );
-    // live 锚 miss 后下探 stale 锚 → archived change 的记录同样可回读
-    let text = read_exec_output(state, root, "add-feature".to_owned(), stale_exec)
-        .expect("探测序下探 stale worktree 应命中");
-    assert_eq!(text, "stale\n", "archived 记录的 stale worktree 次探可回读");
+    // live 锚 miss 后下探 stale 锚 → archived change 的记录同样可回查
+    let path = exec_output_path(state, root, "add-feature".to_owned(), stale_exec)
+        .expect("探测序下探 stale worktree 应命中路径");
+    assert_eq!(
+        String::from_utf8_lossy(&fs::read(&path).expect("stale 锚 `.log` 应可读")),
+        "stale\n",
+        "archived 记录的 stale worktree 次探可回读"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3024,20 +2913,20 @@ async fn create_change组合_第6个请求上限err逐字透传() {
 }
 
 // ---------------------------------------------------------------------------
-// 四条 exec 记录读命令（change-detail-live-stdout，AC-1 / AC-3 / AC-4）
+// 三条 exec 记录读命令（change-detail-live-stdout，AC-1 / AC-3 / AC-4）
 //
 // 被测面：`exec_output_path` / `read_exec_command` / `read_exec_output_delta`
-// 三条新命令与既有 `read_exec_output` 的同构面——blank root / 开库失败 / 未
-// 建档 / 未定位 / 非法 id / 未知 id 六条 `None` 语义逐条一致；增量读的
-// `fromOffset` 原样下传且 `nextOffset` 由后端产出（前端零字节计数）；worktree /
-// 归档三态定位感知沿既有 `change_dirs` 单点。
+// 三条命令的同构面——blank root / 开库失败 / 未建档 / 未定位 / 非法 id / 未知
+// id 六条 `None` 语义逐条一致；增量读的 `fromOffset` 原样下传且 `nextOffset`
+// 由后端产出（前端零字节计数）；worktree / 归档三态定位感知沿既有 `change_dirs`
+// 单点。（原第四条 `read_exec_output` 已退役，整读改走 `read_file`。）
 //
 // Mock 策略（见 test-design 本节 Mock策略表）：零替身——真实 `Env`（tempdir 双
 // 根）+ 真实 `WorkspaceStores` + 真实 store 种子 + 真实 `exec::LiveExec` 落盘；
 // 命令以 `app.state::<…>()` 直调（沿既有直调先例）。
 // ---------------------------------------------------------------------------
 
-use super::{exec_output_path, read_exec_command, read_exec_output_delta, ExecOutputChunk};
+use super::ExecOutputChunk;
 
 /// 落一条带命令 sidecar 的记录（真实 `LiveExec` 两写面）。
 fn record_with_command(root: &str, change_name: &str, bytes: &[u8], command: &str) -> String {
@@ -3157,10 +3046,10 @@ fn read_exec_output_delta_游标越界夹零() {
     }
 }
 
-/// 异常（参数化 4 命令 × 7 非法 id）：四条命令对非法 `exec_id` 一律 `None`
+/// 异常（参数化 3 命令 × 7 非法 id）：三条命令对非法 `exec_id` 一律 `None`
 ///（路径逃逸零命中）。
 #[test]
-fn 四命令_非法exec_id全部none() {
+fn 三命令_非法exec_id全部none() {
     let env = Env::new("exec-hostile");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -3177,16 +3066,6 @@ fn 四命令_非法exec_id全部none() {
     .is_some());
 
     for hostile in ["", "..", "../secret", "a/b", r"a\b", "C:evil", "exec-1.log"] {
-        assert!(
-            read_exec_output(
-                state.clone(),
-                root.clone(),
-                "add-feature".to_owned(),
-                hostile.to_owned()
-            )
-            .is_none(),
-            "read_exec_output 拒绝 {hostile:?}"
-        );
         assert!(
             exec_output_path(
                 state.clone(),
@@ -3221,10 +3100,10 @@ fn 四命令_非法exec_id全部none() {
     }
 }
 
-/// 异常（参数化 4 命令 × 2 blank 形态）：blank root（空串 / 全空白）→ 四命令
+/// 异常（参数化 3 命令 × 2 blank 形态）：blank root（空串 / 全空白）→ 三命令
 /// 一律 `None`（早退，零 store / 零 fs 触点）。
 #[test]
-fn 四命令_blank_root早退none() {
+fn 三命令_blank_root早退none() {
     let env = Env::new("exec-blank-root");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -3251,21 +3130,14 @@ fn 四命令_blank_root早退none() {
             0,
         )
         .is_none());
-        assert!(read_exec_output(
-            state.clone(),
-            blank.to_owned(),
-            "add-feature".to_owned(),
-            "exec-1-0".to_owned(),
-        )
-        .is_none());
     }
     let _ = env.root();
 }
 
-/// 异常（参数化 4 命令）：未知 change 名（未建档 / 未定位）→ 四命令一律 `None`
+/// 异常（参数化 3 命令）：未知 change 名（未建档 / 未定位）→ 三命令一律 `None`
 ///（miss 非错误）；已知 change 名 + 未知 exec_id → 同样 `None`。
 #[test]
-fn 四命令_未定位与未知id均none() {
+fn 三命令_未定位与未知id均none() {
     let env = Env::new("exec-unlocated");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -3340,11 +3212,11 @@ fn 四命令_未定位与未知id均none() {
     );
 }
 
-/// 异常（参数化 4 命令 × 2 change 名形态）：change 名为空串 / 超长（>200
-/// chars）→ 四命令一致 `None`（布局派生的边界不外溢为 panic；空名与超长名都走
+/// 异常（参数化 2 命令 × 2 change 名形态）：change 名为空串 / 超长（>200
+/// chars）→ 两命令一致 `None`（布局派生的边界不外溢为 panic；空名与超长名都走
 /// `locate_change` 的同一 `None` 出口）。
 #[test]
-fn 四命令_空串与超长change名一致none() {
+fn 两命令_空串与超长change名一致none() {
     let env = Env::new("exec-change-name-bounds");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -3401,16 +3273,6 @@ fn 四命令_空串与超长change名一致none() {
             .is_none(),
             "{label} change 名 → read_exec_output_delta None"
         );
-        assert!(
-            read_exec_output(
-                state.clone(),
-                root.clone(),
-                change_name.clone(),
-                exec_id.clone()
-            )
-            .is_none(),
-            "{label} change 名 → read_exec_output None"
-        );
     }
 }
 
@@ -3446,12 +3308,14 @@ fn 老记录无sidecar_三面仍可达() {
         ".log 仍可达"
     );
     assert_eq!(
-        read_exec_output(
+        read_exec_output_delta(
             state.clone(),
             root.clone(),
             "add-feature".to_owned(),
-            exec_id.clone()
+            exec_id.clone(),
+            0
         )
+        .map(|chunk| chunk.text)
         .as_deref(),
         Some("old-only-log\n")
     );
@@ -3495,7 +3359,7 @@ fn 空记录与空sidecar_可分辨() {
     );
 }
 
-/// 边界：worktree / 归档两态定位感知（与 `read_exec_output` 同 `change_dirs`
+/// 边界：worktree / 归档两态定位感知（与 `exec_output_path` 同 `change_dirs`
 /// 单点）——worktree 内落盘的三命令记录经主仓 name 定位可达；归档改名后仍可达。
 #[test]
 fn worktree与归档两态_三命令均可达() {
@@ -3601,13 +3465,13 @@ fn worktree与归档两态_三命令均可达() {
     );
 }
 
-/// 正向（四命令同锚，D8 单点抽取的等价性判据）：同一 change 同时存在 test 与
+/// 正向（三命令同锚，D8 单点抽取的等价性判据）：同一 change 同时存在 test 与
 /// baseline 两槽记录时，`exec_output_path` / `read_exec_command` /
-/// `read_exec_output_delta` / `read_exec_output` 四条命令对**同一** `exec_id`
-/// 命中同一 change 目录——`exec_output_path` 的 `.log` 父目录、其余三命令的实
-/// 读值（与盘上字节逐字比对）三者互证同锚。
+/// `read_exec_output_delta` 三条命令对**同一** `exec_id` 命中同一 change 目录
+/// ——`exec_output_path` 的 `.log` 父目录与其余两命令的实读值（与盘上字节逐字
+/// 比对）互证同锚。
 #[test]
-fn 四命令同锚_同一change的父目录前缀逐字相等() {
+fn 三命令同锚_同一change的父目录前缀逐字相等() {
     let env = Env::new("exec-same-anchor");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -3691,18 +3555,8 @@ fn 四命令同锚_同一change的父目录前缀逐字相等() {
         let expected_bytes =
             fs::read(anchor.join(format!("{exec_id}.log"))).expect("同锚目录内 `.log` 应可读");
         let expected_text = String::from_utf8_lossy(&expected_bytes).into_owned();
-        assert_eq!(
-            read_exec_output(
-                state.clone(),
-                root.to_owned(),
-                change_name.clone(),
-                exec_id.to_owned()
-            ),
-            Some(expected_text.clone()),
-            "整读面实读值来自同锚目录"
-        );
 
-        // 增量面：全量读与整读逐字相等 ⇒ 同锚同字节
+        // 增量面：全量读与同锚字节逐字相等 ⇒ 同锚同字节
         let chunk = read_exec_output_delta(
             state.clone(),
             root.to_owned(),
@@ -3788,18 +3642,18 @@ fn 四命令同锚_同一change的父目录前缀逐字相等() {
     }
     assert!(
         test_anchor.join(format!("{test_id}.log")).is_file(),
-        "test 槽 `.log` 落在四命令同锚目录内"
+        "test 槽 `.log` 落在三命令同锚目录内"
     );
     assert!(
         baseline_anchor.join(format!("{baseline_id}.log")).is_file(),
-        "baseline 槽 `.log` 落在四命令同锚目录内"
+        "baseline 槽 `.log` 落在三命令同锚目录内"
     );
 }
 
-/// 边界（组合 baseline 槽 × 4 命令）：`reports/baseline/exec-outputs/` 的记录经
-/// 四条命令均可达（双锚探测覆盖面；槽位名知识不下沉前端）。
+/// 边界（组合 baseline 槽 × 3 命令）：`reports/baseline/exec-outputs/` 的记录经
+/// 三条命令均可达（双锚探测覆盖面；槽位名知识不下沉前端）。
 #[test]
-fn baseline槽位记录_四命令均可达() {
+fn baseline槽位记录_三命令均可达() {
     let env = Env::new("exec-baseline-read");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -3834,16 +3688,6 @@ fn baseline槽位记录_四命令均可达() {
         Some("baseline-cmd 2>&1")
     );
     assert_eq!(
-        read_exec_output(
-            state.clone(),
-            root.clone(),
-            "add-feature".to_owned(),
-            exec_id.clone()
-        )
-        .as_deref(),
-        Some("baseline output\n")
-    );
-    assert_eq!(
         read_exec_output_delta(state, root, "add-feature".to_owned(), exec_id, 0)
             .map(|chunk| chunk.text)
             .as_deref(),
@@ -3851,8 +3695,8 @@ fn baseline槽位记录_四命令均可达() {
     );
 }
 
-/// 边界：超长文本与非法 UTF-8 字节——增量读原值透传零截断；`read_exec_output`
-/// 的 lossy 面（替换符）与增量读（字符边界收口）两口径并存可辨。
+/// 边界：超长文本与非法 UTF-8 字节——增量读原值透传零截断；同锚路径指向的
+/// `.log` 按 lossy 口径可读（替换符在场），两口径并存可辨。
 #[test]
 fn 超长与非法字节_两口径并存() {
     let env = Env::new("exec-bytes");
@@ -3865,14 +3709,15 @@ fn 超长与非法字节_两口径并存() {
     body.extend_from_slice(b"\xff\xfe tail\n");
     let exec_id = record(&root, "add-feature", &body);
 
-    // read_exec_output：lossy 串（替换符在场）
-    let lossy = read_exec_output(
+    // 同锚路径 + 盘上字节 lossy 读（前端 `read_file` 前的同口径形态）
+    let path = exec_output_path(
         state.clone(),
         root.clone(),
         "add-feature".to_owned(),
         exec_id.clone(),
     )
-    .expect("应命中");
+    .expect("应命中路径");
+    let lossy = String::from_utf8_lossy(&fs::read(&path).expect("`.log` 应可读")).into_owned();
     assert!(lossy.starts_with(&long), "超长前缀零截断");
     assert!(lossy.contains('\u{FFFD}'), "非法字节以替换符呈现");
 

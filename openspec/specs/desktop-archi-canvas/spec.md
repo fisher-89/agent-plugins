@@ -178,7 +178,7 @@
 | `src/views/architecture/components/element-drawer.tsx` | 右抽屉 | 概览（`kind` / `path` / `gate` / `modelFile:line`）+ `docs` 列表 + ADR 条目与按需正文；`incremental` 下 `gate` 编辑入口；本期零「相邻报告」区块 |
 | `src/views/architecture/lib/marks.ts` | 标记 → 样式映射（边） | 边标记四值（`none` 实线 / `unfulfilled` 灰虚线 / `crossKind` 橙虚线 / `exempt` 灰实线）；未知值退化为中性；封闭词汇（节点标记不做视觉映射）；标记生产由 `drift-marks.ts` 承担，本件 MUST NOT 参与判定 |
 | `src/views/architecture/hooks/use-archi-graph.ts` | 画布取数 | 挂载 / `root` 变化 / 手动刷新三触发；零 watch 零轮询；停摆态与正常态两形状透出 |
-| `src/views/architecture/hooks/use-archi-module.ts` | 抽屉取数 | 元素详情（`archi_module`）+ ADR 正文（`archi_read_doc`，仅关联集内路径） |
+| `src/views/architecture/hooks/use-archi-module.ts` | 抽屉取数 | 元素详情（`archi_module`）；文档正文由 `components/file` 的 `FileViewer` 经通用 `read_file` 自取 |
 | `src/views/architecture/architecture-view.tsx` | 挂载点 A | `/architecture` 全量只读；显式刷新入口 |
 | `src/views/changes/change-detail-view.tsx`（架构页签） | 挂载点 B | 以 `detail.worktree` 为根、归档回落主仓根；`incremental` 可改档；页签切换不重复取数 |
 | `src/routes.tsx` + `src/components/app-sidebar.tsx` | 入口 | `/architecture` 路由 + 页面组「架构」项（`data-testid="nav-architecture"`，active 由 URL 派生） |

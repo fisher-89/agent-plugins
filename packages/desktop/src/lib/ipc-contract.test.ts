@@ -12,6 +12,7 @@ import {
   type CodeStatsReport,
   type DirNode,
   type ExecOutputChunk,
+  type FileSlice,
   type FileWatchEvent,
   type RunNotice,
   type SessionSummary,
@@ -671,77 +672,63 @@ describe('三新命令结果面：脏结果只 soft-report 恰 1 条漂移', () 
 });
 
 // ---------------------------------------------------------------------------
-// 既有命令零变（`readExecOutput`）：本变更只在其后接三新命令 + 重导出生成物，
-// 逐字面（形参元组 / 返回类型 / 生成行）MUST 零改动——AC-14 的「既有命令零变」
-// 判据。三条用例对应 test-design `bindings.ts` 章节的三行，其余既有命令的类型面
-// 等价由本文件上半的逐命令 `ParamsMismatchKeys` / `ResultMismatchKeys` 全量断言
-// 覆盖（那两条已随 `commandKeys` 自动扩展到新命令）。
+// 通用读命令（`readFile`）的类型面：形参三元组（path / offset / limit）与
+// `FileSlice | null` 结果类型逐字持衡；退役命令（`readExecOutput` / `readExplore`
+// / `archiReadDoc`）已不在 `commands` 面（键集由上方 `commandKeys` 全量断言覆盖）。
 // ---------------------------------------------------------------------------
 
-describe('既有命令零变：readExecOutput 逐字面持衡', () => {
-  it('正向：形参元组与返回类型与既有断言逐字相等（`[string, string, string]` / `string | null`）', () => {
+describe('通用读命令：readFile 类型面与空态可分辨', () => {
+  it('正向：形参元组与返回类型逐字相等（`[string, number | null, number | null]` / `FileSlice | null`）', () => {
     expectTypeOf<
-      MutualAssignable<Parameters<typeof commands.readExecOutput>, [string, string, string]>
+      MutualAssignable<Parameters<typeof commands.readFile>, [string, number | null, number | null]>
     >().toEqualTypeOf<true>();
-    expectTypeOf<Awaited<ReturnType<typeof commands.readExecOutput>>>().toEqualTypeOf<
-      string | null
-    >();
-    // schema 端与类型端逐字对齐（三表自动纳入，无手写旁路）
     expectTypeOf<
-      MutualAssignable<z.infer<typeof resultSchemas.readExecOutput>, string | null>
+      MutualAssignable<Awaited<ReturnType<typeof commands.readFile>>, FileSlice | null>
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      MutualAssignable<z.infer<typeof resultSchemas.readFile>, FileSlice | null>
     >().toEqualTypeOf<true>();
     expectTypeOf<
       MutualAssignable<
-        z.infer<typeof argsSchemas.readExecOutput>,
-        { root: string; changeName: string; execId: string }
+        z.infer<typeof argsSchemas.readFile>,
+        { path: string; offset: number | null; limit: number | null }
       >
     >().toEqualTypeOf<true>();
-    expect(Object.keys((argsSchemas.readExecOutput as ZodObject).shape)).toEqual([
-      'root',
-      'changeName',
-      'execId',
+    expect(Object.keys((argsSchemas.readFile as ZodObject).shape)).toEqual([
+      'path',
+      'offset',
+      'limit',
     ]);
   });
 
   it('异常：反例校准 —— 丢掉 `| null` 或改宽形参元组即判不等价（断言非恒真）', () => {
     expectTypeOf<
-      MutualAssignable<Awaited<ReturnType<typeof commands.readExecOutput>>, string>
+      MutualAssignable<Awaited<ReturnType<typeof commands.readFile>>, FileSlice>
     >().toEqualTypeOf<false>();
     expectTypeOf<
-      MutualAssignable<Parameters<typeof commands.readExecOutput>, [string, string]>
+      MutualAssignable<Parameters<typeof commands.readFile>, [string]>
     >().toEqualTypeOf<false>();
     expectTypeOf<
-      MutualAssignable<Parameters<typeof commands.readExecOutput>, [string, string, number]>
-    >().toEqualTypeOf<false>();
-    // 与三新命令的形参面可分辨（`readExecOutputDelta` 多一位 fromOffset）
-    expectTypeOf<
-      MutualAssignable<
-        Parameters<typeof commands.readExecOutput>,
-        Parameters<typeof commands.readExecOutputDelta>
-      >
+      MutualAssignable<Parameters<typeof commands.readFile>, [string, number, number]>
     >().toEqualTypeOf<false>();
   });
 
-  it('边界：空态与 miss 形态在类型层可分辨（`string | null` 未被压成 `string`，`null` 与 `""` 各自合法）', async () => {
+  it('边界：空态（null）与脏结果在运行期可分辨（null 合法零漂移，异型 soft-report 原值透传）', async () => {
     invokeMock.mockResolvedValue(null);
-    expect(await ipc.readExecOutput('/ws', 'add-feature', 'exec-1')).toBeNull();
+    expect(await ipc.readFile('/ws/a.md', null, null)).toBeNull();
     expect(driftCount()).toBe(0);
 
-    invokeMock.mockResolvedValue('');
-    expect(await ipc.readExecOutput('/ws', 'add-feature', 'exec-1')).toBe('');
-    expect(driftCount()).toBe(0);
-
-    // 非 string / null 的脏结果只 soft-report，原值透传不 throw（分级策略未因新命令改）
+    // 非 FileSlice / null 的脏结果只 soft-report，原值透传不 throw
     invokeMock.mockResolvedValue(42);
-    expect(await ipc.readExecOutput('/ws', 'add-feature', 'exec-1')).toBe(42);
+    expect(await ipc.readFile('/ws/a.md', null, null)).toBe(42);
     expect(driftCount()).toBe(1);
 
-    // schema 面：null 与空串均为合法返回形态，异型被拒
-    const schema = resultSchemas.readExecOutput as ZodType;
+    // schema 面：null 合法、异型被拒
+    const schema = resultSchemas.readFile as ZodType;
     expect(schema.safeParse(null).success).toBe(true);
-    expect(schema.safeParse('').success).toBe(true);
     expect(schema.safeParse(42).success).toBe(false);
-    // nextOffset 类数值字段的 number 口径（`readExecOutputDelta`）与既有命令同源
-    expectTypeOf<ExecOutputChunk['nextOffset']>().toEqualTypeOf<number>();
+    // 游标与 stat 数值字段的 number 口径
+    expectTypeOf<NonNullable<FileSlice>['nextOffset']>().toEqualTypeOf<number>();
+    expectTypeOf<NonNullable<FileSlice>['stat']['size']>().toEqualTypeOf<number>();
   });
 });

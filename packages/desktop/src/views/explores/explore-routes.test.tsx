@@ -65,10 +65,22 @@ function placeholderRecord(): ExploreRecord {
 
 let records: ExploreRecord[] = [];
 
+/** 后端 `FileSlice` 的最小书面形状（读取面只消费 `content`）。 */
+function sliceOf(content: string) {
+  return {
+    content,
+    stat: { size: content.length, modifiedMs: null, isFile: true, isDir: false },
+    offset: 0,
+    nextOffset: content.length,
+    truncated: false,
+    encoding: 'utf8',
+  };
+}
+
 /** 进程边界应答面：清单 + 详情页 hooks 所需命令的空态应答。 */
 function ipc(command: string): Promise<unknown> {
   if (command === 'list_explore_records') return Promise.resolve(records);
-  if (command === 'read_explore') return Promise.resolve(null);
+  if (command === 'read_file') return Promise.resolve(null);
   if (command === 'explore_doc_path')
     return Promise.resolve('C:\\demo\\alpha\\openspec\\explores\\x.md');
   if (command === 'watch_subscribe') return Promise.resolve(1);
@@ -382,8 +394,8 @@ function mockRenamedFlow(secondList: ExploreRecord[]) {
   renamedQueue.push([oldRecord], secondList);
   invokeMock.mockImplementation((command: string) => {
     if (command === 'list_explore_records') return Promise.resolve(listShift());
-    if (command === 'read_explore') {
-      return Promise.resolve({ name: 'draft-old-name', content: '# 回填触发的标题\n正文' });
+    if (command === 'read_file') {
+      return Promise.resolve(sliceOf('# 回填触发的标题\n正文'));
     }
     return ipc(command);
   });
