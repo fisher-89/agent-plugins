@@ -1,24 +1,32 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { foldSessionMessages, type AgentUIMessage } from '../../lib/agent-adapter';
+import { filterConversation } from '../../lib/agent-virtual';
 import type { AgentBlock, AgentEvent, TurnSummary } from '../../types/dto';
 import { AgentMessages } from './agent-messages';
 
 // ---------------------------------------------------------------------------
 // 纯渲染组件，消费方注入 AgentUIMessage[]（由适配层真实折叠输出构造 fixture），
-// 无进程边界，不需要 Mock。
+// 无进程边界，不需要 Mock。呈现形状是「全量虚拟窗口 + user 提问 sticky 常驻」：
+// user 气泡恒在吸附层（各一条），assistant 气泡只在可见切片内成节点；
+// 纵向几何（gap / paddingStart / paddingEnd）全走虚拟器。
+// jsdom 零布局 ⇒ 每项高度即 estimateSize（user 72 / assistant 240），
+// 内容高度 = 12 + Σ估值 + 24 × (n − 1) + 12（AC-6 的账目判据）。
 // ---------------------------------------------------------------------------
 
 const TS = 1727000000000;
-/** 单轮 fixture 的分组键（消息 id 锚点派生自它） */
-const TURN = 1;
+/** 虚拟器估值常量（与 agent-messages.tsx 的角色分型一致） */
+const USER_ESTIMATE = 72;
+const ASSISTANT_ESTIMATE = 240;
+const GAP = 24;
+const PADDING = 12;
 
 function message(
   seq: number,
   blocks: AgentBlock[],
   parentToolUseId: string | null = null,
-  turnId: number = TURN,
+  turnId = seq + 1,
 ): AgentEvent {
   return {
     seq,
@@ -31,7 +39,7 @@ function message(
   };
 }
 
-function userMessage(seq: number, text: string, turnId: number = TURN): AgentEvent {
+function userMessage(seq: number, text: string, turnId = seq + 1): AgentEvent {
   return {
     seq,
     turnId,
@@ -43,7 +51,7 @@ function userMessage(seq: number, text: string, turnId: number = TURN): AgentEve
   };
 }
 
-function runStarted(seq: number, turnId: number = TURN): AgentEvent {
+function runStarted(seq: number, turnId = seq + 1): AgentEvent {
   return {
     seq,
     turnId,
@@ -56,7 +64,7 @@ function runStarted(seq: number, turnId: number = TURN): AgentEvent {
   };
 }
 
-function systemNotice(seq: number, turnId: number = TURN): AgentEvent {
+function systemNotice(seq: number, turnId = seq + 1): AgentEvent {
   return {
     seq,
     turnId,
@@ -67,7 +75,7 @@ function systemNotice(seq: number, turnId: number = TURN): AgentEvent {
   };
 }
 
-function raw(seq: number, turnId: number = TURN): AgentEvent {
+function raw(seq: number, turnId = seq + 1): AgentEvent {
   return {
     seq,
     turnId,
@@ -80,7 +88,7 @@ function raw(seq: number, turnId: number = TURN): AgentEvent {
 
 function recordRow(
   status: TurnSummary['status'],
-  turnId: number = TURN,
+  turnId = 1,
   error: string | null = null,
 ): TurnSummary {
   return {
@@ -101,18 +109,196 @@ function fold(events: AgentEvent[], turns: TurnSummary[] = []): AgentUIMessage[]
   return foldSessionMessages(events, turns);
 }
 
-/** 对话气泡基线：单轮（提问 + 思考/正文 + 工具对卡）→ 两条气泡 */
+/** 对话气泡基线：单轮（提问 + 思考/正文 + 工具对卡）→ 两条气泡（user 在吸附层） */
 function bubbleEvents(): AgentEvent[] {
   return [
-    userMessage(0, '帮我看看重试逻辑'),
-    message(1, [
-      { kind: 'thinking', thinking: '先梳理调用链' },
-      { kind: 'text', text: '**重试**采用指数退避' },
-      { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } },
-      { kind: 'toolResult', id: 'tu_1', content: '目录内容', isError: false },
-    ]),
+    userMessage(0, '帮我看看重试逻辑', 1),
+    message(
+      1,
+      [
+        { kind: 'thinking', thinking: '先梳理调用链' },
+        { kind: 'text', text: '**重试**采用指数退避' },
+        { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } },
+        { kind: 'toolResult', id: 'tu_1', content: '目录内容', isError: false },
+      ],
+      null,
+      1,
+    ),
   ];
 }
+
+/** 交替 user / assistant 的 N 条多轮会话（每对一轮，轮行按 completed 给） */
+function turnConversation(count: number, seqOffset = 0): AgentUIMessage[] {
+  const events: AgentEvent[] = [];
+  const turns: TurnSummary[] = [];
+  for (let index = 0; index < count; index += 2) {
+    const turnId = seqOffset + index + 1;
+    turns.push(recordRow('completed', turnId));
+    events.push(userMessage(seqOffset + index, `user-msg-${index}`, turnId));
+    if (index + 1 < count) {
+      events.push(
+        message(
+          seqOffset + index + 1,
+          [{ kind: 'text', text: `assistant-msg-${index}` }],
+          null,
+          turnId,
+        ),
+      );
+    }
+  }
+  return fold(events, turns);
+}
+
+/** 交替角色序列（与 `turnConversation` 的产出同形：user 起、偶数位 user） */
+function alternatingRoles(count: number): ('user' | 'assistant')[] {
+  return Array.from({ length: count }, (_, index) => (index % 2 === 0 ? 'user' : 'assistant'));
+}
+
+/** `parts: []` 的 assistant 消息（零内容轮形态；`record` 决定可见性） */
+function emptyTurnMessage(turnId: number, status: TurnSummary['status'] | null): AgentUIMessage {
+  return {
+    id: `turn-${turnId}`,
+    role: 'assistant',
+    metadata: {
+      seq: null,
+      parentToolUseId: null,
+      record: status === null ? null : recordRow(status, turnId),
+    },
+    parts: [],
+  };
+}
+
+function bubblesOfRole(role: 'user' | 'assistant'): HTMLElement[] {
+  return screen
+    .queryAllByTestId('chat-bubble')
+    .filter((bubble) => bubble.getAttribute('data-role') === role);
+}
+
+function itemNodes(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-slot="message-scroller-item"]')];
+}
+
+function stickyNodes(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-slot="message-scroller-sticky"]')];
+}
+
+function contentNode(): HTMLElement {
+  const node = document.querySelector<HTMLElement>('[data-slot="message-scroller-content"]');
+  if (node === null) throw new Error('缺少 message-scroller-content');
+  return node;
+}
+
+function contentHeight(): number {
+  return Number.parseFloat(contentNode().style.height);
+}
+
+/** 估值账目：12 + Σ估值 + 24 × (n − 1) + 12（jsdom 零测量 ⇒ 估值即几何） */
+function expectedHeight(roles: ('user' | 'assistant')[]): number {
+  const sizes = roles.map((role) => (role === 'user' ? USER_ESTIMATE : ASSISTANT_ESTIMATE));
+  const sum = sizes.reduce((acc, size) => acc + size, 0);
+  return PADDING * 2 + sum + GAP * Math.max(roles.length - 1, 0);
+}
+
+/** 估值起点序列（与虚拟项 translateY 同基准） */
+function expectedStarts(roles: ('user' | 'assistant')[]): number[] {
+  const starts: number[] = [];
+  let cursor = PADDING;
+  for (const role of roles) {
+    starts.push(cursor);
+    cursor += (role === 'user' ? USER_ESTIMATE : ASSISTANT_ESTIMATE) + GAP;
+  }
+  return starts;
+}
+
+function translateYOf(node: HTMLElement): number {
+  const matched = /translateY\((-?[\d.]+)px\)/.exec(node.style.transform);
+  if (matched === null) throw new Error(`缺少 translateY: ${node.style.transform}`);
+  return Number(matched[1]);
+}
+
+type ResizeEntries = { borderBoxSize: { blockSize: number }[] }[];
+
+/** 可编程 ResizeObserver 替身：由用例手动投 borderBoxSize（test-setup 的零回调桩为缺省值） */
+class ProgrammableResizeObserver {
+  public static instances: ProgrammableResizeObserver[] = [];
+
+  public readonly targets: Element[] = [];
+
+  constructor(private readonly callback: (entries: ResizeEntries) => void) {
+    ProgrammableResizeObserver.instances.push(this);
+  }
+
+  public observe(target: Element): void {
+    this.targets.push(target);
+  }
+
+  public unobserve(): void {}
+
+  public disconnect(): void {}
+
+  public trigger(blockSize: number): void {
+    this.callback([{ borderBoxSize: [{ blockSize }] }]);
+  }
+}
+
+function stickyObserver(): ProgrammableResizeObserver | undefined {
+  return ProgrammableResizeObserver.instances.find((instance) =>
+    instance.targets.some(
+      (target) => target.closest('[data-slot="message-scroller-sticky"]') !== null,
+    ),
+  );
+}
+
+/** 实例级滚动写入桩：jsdom 的 `Element` 无 `scrollTo`、`scrollTop` 不写回，
+ * 故按实例装最小桩（只写 `scrollTop`、不派发 `scroll` 事件），并把
+ * `scrollHeight` 抬到「内容一屏以上」使 `maxScroll > 0`。 */
+function installScrollStub(): { top: () => number; setTop: (value: number) => void } {
+  const viewport = document.querySelector<HTMLElement>('[data-slot="message-scroller-viewport"]');
+  if (viewport === null) throw new Error('缺少视口');
+  let top = 0;
+  Object.defineProperty(viewport, 'scrollHeight', {
+    configurable: true,
+    value: contentHeight() + 600,
+  });
+  Object.defineProperty(viewport, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      top = value;
+    },
+  });
+  Object.defineProperty(viewport, 'scrollTo', {
+    configurable: true,
+    value: (options: { top?: number }) => {
+      top = options.top ?? 0;
+    },
+  });
+  return {
+    top: () => top,
+    setTop: (value: number) => {
+      top = value;
+    },
+  };
+}
+
+/** 贴底目标值：`scrollHeight = 内容高度 + 视口高` ⇒ `maxScroll = 内容高度`，
+ * 末项 `align:'end'` 扣 `paddingEnd` */
+function endTarget(): number {
+  return Math.max(contentHeight() - PADDING, 0);
+}
+
+/** 会话身份可指定的一轮对话（user + assistant，轮行带该会话 id） */
+function sessionConversation(sessionId: string): AgentUIMessage[] {
+  return fold(
+    [userMessage(0, '问', 1), message(1, [{ kind: 'text', text: '答' }], null, 1)],
+    [{ ...recordRow('completed', 1), sessionId }],
+  );
+}
+
+afterEach(() => {
+  ProgrammableResizeObserver.instances = [];
+  vi.unstubAllGlobals();
+});
 
 // ---------------------------------------------------------------------------
 // 四变体气泡与注册表特化卡
@@ -122,12 +308,8 @@ describe('AgentMessages：四变体气泡', () => {
   it('user 文本、assistant 文本、reasoning（思考折叠）、tool 对卡四类部件分别呈现', async () => {
     render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
 
-    const bubbles = screen.getAllByTestId('chat-bubble');
-    expect(bubbles).toHaveLength(2);
-    expect(bubbles.map((bubble) => bubble.getAttribute('data-role'))).toEqual([
-      'user',
-      'assistant',
-    ]);
+    expect(bubblesOfRole('user')).toHaveLength(1);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
 
     const texts = screen.getAllByTestId('block-text');
     expect(texts).toHaveLength(2);
@@ -155,29 +337,30 @@ describe('AgentMessages：四变体气泡', () => {
   it('user 气泡为整宽 tinted 泡、assistant 无泡底（对齐属性迁移基线）', () => {
     render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
 
-    const bubbles = screen.getAllByTestId('chat-bubble');
+    const [userBubble] = bubblesOfRole('user');
+    const [assistantBubble] = bubblesOfRole('assistant');
     // user 泡改整宽表达，不再靠 align 属性撑右对齐
-    expect(bubbles[0]?.getAttribute('data-align')).toBe('start');
-    expect(bubbles[1]?.getAttribute('data-align')).toBe('start');
+    expect(userBubble?.getAttribute('data-align')).toBe('start');
+    expect(assistantBubble?.getAttribute('data-align')).toBe('start');
     // 内容块底色：user 泡走 Bubble tinted，assistant 泡无泡底
-    const userBubble = bubbles[0]?.querySelector('[data-slot="bubble"]');
-    expect(userBubble?.getAttribute('data-variant')).toBe('tinted');
-    expect(userBubble?.querySelector('[data-slot="bubble-content"]')).toBeTruthy();
-    expect(bubbles[1]?.querySelector('[data-slot="bubble"]')).toBeNull();
+    const tinted = userBubble?.querySelector('[data-slot="bubble"]');
+    expect(tinted?.getAttribute('data-variant')).toBe('tinted');
+    expect(tinted?.querySelector('[data-slot="bubble-content"]')).toBeTruthy();
+    expect(assistantBubble?.querySelector('[data-slot="bubble"]')).toBeNull();
   });
 
   it('一轮一条气泡：同轮两次响应（多段密封块）合成单个 assistant 气泡', () => {
     const events: AgentEvent[] = [
-      userMessage(0, '问'),
-      message(1, [{ kind: 'text', text: '第一段' }]),
-      message(2, [{ kind: 'text', text: '第二段' }]),
+      userMessage(0, '问', 1),
+      message(1, [{ kind: 'text', text: '第一段' }], null, 1),
+      message(2, [{ kind: 'text', text: '第二段' }], null, 1),
     ];
 
     render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
 
-    const bubbles = screen.getAllByTestId('chat-bubble');
-    expect(bubbles).toHaveLength(2);
-    const assistantTexts = within(bubbles[1] as HTMLElement)
+    const assistants = bubblesOfRole('assistant');
+    expect(assistants).toHaveLength(1);
+    const assistantTexts = within(assistants[0] as HTMLElement)
       .getAllByTestId('block-text')
       .map((node) => node.textContent);
     expect(assistantTexts).toEqual(['第一段', '第二段']);
@@ -251,18 +434,19 @@ describe('AgentMessages：system 消息过滤', () => {
     expect(screen.queryByTestId('event-raw')).toBeNull();
     expect(screen.queryByTestId('event-run-result')).toBeNull();
     // user / assistant 气泡不受影响
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(2);
+    expect(bubblesOfRole('user')).toHaveLength(1);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
     // 过滤不回写入参组
     expect(messages.length).toBeGreaterThan(bubbles.length);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 容器组合与状态呈现
+// 容器组合与状态呈现（虚拟化形态）
 // ---------------------------------------------------------------------------
 
 describe('AgentMessages：容器组合', () => {
-  it('message-scroller 组合与滚动容器结构与迁移前一致（Provider + 视口 + 到底按钮）', () => {
+  it('message-scroller 组合与滚动容器结构：Provider + 视口 + 内容 + 到底按钮', () => {
     render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
 
     const section = screen.getByTestId('agent-messages');
@@ -273,8 +457,11 @@ describe('AgentMessages：容器组合', () => {
     const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
     expect(viewport?.getAttribute('aria-label')).toBe('对话消息');
     expect(document.querySelector('[data-slot="message-scroller-button"]') !== null).toBe(true);
-    // 每条气泡一个 Item（消息状态留应用层的组合基线）
-    expect(document.querySelectorAll('[data-slot="message-scroller-item"]')).toHaveLength(2);
+    // 虚拟窗口：切片项数由窗口决定（> 0）且不含 user 索引（user 恒在吸附层）
+    const items = itemNodes();
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((node) => node.querySelector('[data-role="user"]') === null)).toBe(true);
+    expect(items.map((node) => node.getAttribute('data-index'))).toEqual(['1']);
   });
 });
 
@@ -283,7 +470,7 @@ describe('AgentMessages：空态与运行中态', () => {
     render(<AgentMessages messages={[]} loading={false} running={false} />);
 
     expect(screen.getByTestId('conversation-empty') !== null).toBe(true);
-    expect(screen.queryByTestId('chat-bubble')).toBeNull();
+    expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
   });
 
   it('全为 system 载体消息（过滤后为空）→ empty 态呈现（判定基于过滤后列表）', () => {
@@ -291,7 +478,7 @@ describe('AgentMessages：空态与运行中态', () => {
     render(<AgentMessages messages={messages} loading={false} running={false} />);
 
     expect(screen.getByTestId('conversation-empty') !== null).toBe(true);
-    expect(screen.queryByTestId('chat-bubble')).toBeNull();
+    expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
   });
 
   it('loading 且可见列表为空 → 会话还原中态', () => {
@@ -304,7 +491,8 @@ describe('AgentMessages：空态与运行中态', () => {
     render(<AgentMessages messages={fold(bubbleEvents())} loading={true} running={false} />);
 
     expect(screen.queryByTestId('agent-messages-loading')).toBeNull();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(2);
+    expect(bubblesOfRole('user')).toHaveLength(1);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
   });
 
   it('running 且无终态 record → 头部运行中标记呈现', () => {
@@ -322,255 +510,452 @@ describe('AgentMessages：空态与运行中态', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 历史分页：默认最新一页，触顶装载更早（prepend 后的滚动锚定由
-// message-scroller 原语的 preserveScrollOnPrepend 承担，此处只测自研分页层）
+// 全量虚拟窗口（AC-1 / AC-6）：只渲可见切片，账目按全量推算
 // ---------------------------------------------------------------------------
 
-/** 交替 user/assistant 的 N 条对话（每对消息一轮，轮行按 completed 给） */
-function pagedConversation(count: number, seqOffset = 0): AgentUIMessage[] {
-  const events: AgentEvent[] = [];
-  const turns: TurnSummary[] = [];
-  for (let i = 0; i < count; i += 2) {
-    const turnId = seqOffset + i + 1;
-    turns.push(recordRow('completed', turnId));
-    events.push(userMessage(seqOffset + i, `user-msg-${i}`, turnId));
-    if (i + 1 < count) {
-      events.push(
-        message(seqOffset + i + 1, [{ kind: 'text', text: `assistant-msg-${i}` }], null, turnId),
-      );
-    }
-  }
-  return fold(events, turns);
-}
-
-/** jsdom 无 IntersectionObserver：仅记录装配参数，触顶由 trigger 显式驱动 */
-class FakeIntersectionObserver {
-  public static instances: FakeIntersectionObserver[] = [];
-
-  constructor(
-    private readonly callback: (entries: { isIntersecting: boolean }[]) => void,
-    public readonly init?: { root?: Element | null; rootMargin?: string },
-  ) {
-    FakeIntersectionObserver.instances.push(this);
-  }
-
-  public observe(): void {}
-
-  public unobserve(): void {}
-
-  public takeRecords(): never[] {
-    return [];
-  }
-
-  public disconnect(): void {
-    FakeIntersectionObserver.instances = FakeIntersectionObserver.instances.filter(
-      (io) => io !== this,
+describe('AgentMessages：全量虚拟窗口', () => {
+  it('1000 条可见消息 + 50 条空内容 completed 轮 → assistant 气泡 ≪ 1000、user 全量常驻', () => {
+    const normal = turnConversation(1000);
+    const empties = Array.from({ length: 50 }, (_, index) =>
+      emptyTurnMessage(9000 + index, 'completed'),
     );
-  }
 
-  public trigger(isIntersecting: boolean): void {
-    this.callback([{ isIntersecting }]);
-  }
-}
+    render(<AgentMessages messages={[...normal, ...empties]} loading={false} running={false} />);
 
-function triggerReachTop(): void {
-  const active = FakeIntersectionObserver.instances.at(-1);
-  if (active === undefined) {
-    throw new Error('触顶触发时无活跃观察器');
-  }
-  act(() => {
-    active.trigger(true);
-  });
-}
-
-describe('AgentMessages：历史分页', () => {
-  beforeEach(() => {
-    FakeIntersectionObserver.instances = [];
-    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    const assistants = bubblesOfRole('assistant');
+    expect(assistants.length).toBeGreaterThan(0);
+    expect(assistants.length).toBeLessThan(100);
+    expect(bubblesOfRole('user')).toHaveLength(500);
+    // 空内容轮（completed）不计入过滤后列表：账目按 1000 条推算
+    expect(contentHeight()).toBe(expectedHeight(alternatingRoles(1000)));
+    // 分页面退役：零提示行、零触顶观察器装配
+    expect(document.querySelectorAll('[data-testid^="history-load"]')).toHaveLength(0);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+  it('同一 1000 条 fixture → 末项底边与内容底边对齐（末项 translateY + 估值 + paddingEnd = height）', () => {
+    render(<AgentMessages messages={turnConversation(1000)} loading={false} running={false} />);
+    const viewport = screen
+      .getByTestId('agent-messages')
+      .querySelector<HTMLElement>('[data-slot="message-scroller-viewport"]');
+    const height = contentHeight();
+    expect(height).toBe(expectedHeight(alternatingRoles(1000)));
 
-  it('默认仅渲染最新一页（10 条），更早消息不进 DOM，顶部提示加载中…', () => {
-    render(<AgentMessages messages={pagedConversation(25)} loading={false} running={false} />);
+    // 滚到末端：实例级抬高 scrollHeight / scrollTop（原型桩 600/600 恒贴底、maxScroll = 0）
+    act(() => {
+      Object.defineProperty(viewport, 'scrollHeight', {
+        configurable: true,
+        value: height + 600,
+      });
+      Object.defineProperty(viewport, 'scrollTop', {
+        configurable: true,
+        value: height,
+        writable: true,
+      });
+      fireEvent.scroll(viewport!);
+    });
 
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
-    const joined = screen
-      .getAllByTestId('block-text')
-      .map((node) => node.textContent)
-      .join('\n');
-    expect(joined).toContain('user-msg-24'); // 最新一条在
-    expect(joined).toContain('assistant-msg-14'); // 当前页最早一条
-    expect(joined).not.toContain('user-msg-14'); // 上一页及更早不渲染
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
-  });
-
-  it('触顶连续装载：每触发一次增一页，装满后转终态并撤销观察器', () => {
-    render(<AgentMessages messages={pagedConversation(25)} loading={false} running={false} />);
-
-    triggerReachTop();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(20);
-
-    triggerReachTop();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(25);
-    expect(screen.queryByTestId('history-load-hint')).toBeNull();
-    // 已到最早 → 不再保持任何触顶观察器
-    expect(FakeIntersectionObserver.instances).toHaveLength(0);
-  });
-
-  it('观察器 root 绑定消息滚动视口，rootMargin 形成临近顶部预载区', () => {
-    render(<AgentMessages messages={pagedConversation(25)} loading={false} running={false} />);
-
-    const io = FakeIntersectionObserver.instances.at(-1);
-    expect(io?.init?.root).toBe(document.querySelector('[data-slot="message-scroller-viewport"]'));
-    expect(io?.init?.rootMargin).toBe('300px 0px 0px 0px');
-  });
-
-  it('system 载体撑大入参不计入分页：可见消息足一页 → 无提示行、无观察器', () => {
-    const messages = [
-      ...pagedConversation(10),
-      ...fold([runStarted(90, 90), systemNotice(91, 91), raw(92, 92)]),
-    ];
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
-
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
-    expect(screen.queryByTestId('history-load-hint')).toBeNull();
-    expect(screen.queryByTestId('history-load-complete')).toBeNull();
-    expect(FakeIntersectionObserver.instances).toHaveLength(0);
-  });
-
-  it('换会话（头部消息变化）→ 分页窗口复位回默认最新一页', () => {
-    const { rerender } = render(
-      <AgentMessages messages={pagedConversation(25)} loading={false} running={false} />,
-    );
-    triggerReachTop();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(20);
-
-    rerender(
-      <AgentMessages messages={pagedConversation(25, 100)} loading={false} running={false} />,
-    );
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
+    const last = itemNodes().at(-1)!;
+    expect(last.getAttribute('data-index')).toBe('999');
+    expect(translateYOf(last) + ASSISTANT_ESTIMATE + PADDING).toBe(height);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 空内容轮的可见性判据（AC-9 / D15）：按 metadata.record.status 判定
+// user 消息常驻吸附（AC-3 / AC-4）：吸附层几何与虚拟层零 user 节点
 // ---------------------------------------------------------------------------
 
-/** `parts: []` 的 assistant 消息（零内容轮形态；`record` 决定可见性） */
-function emptyTurnMessage(turnId: number, status: TurnSummary['status'] | null): AgentUIMessage {
-  return {
-    id: `turn-${turnId}`,
-    role: 'assistant',
-    metadata: {
-      seq: null,
-      parentToolUseId: null,
-      record: status === null ? null : recordRow(status, turnId),
-    },
-    parts: [],
-  };
-}
+describe('AgentMessages：user 消息常驻吸附', () => {
+  it('12 条 user → 吸附层恰 12 条（各一条 user 气泡），虚拟层 user 节点为零', () => {
+    render(<AgentMessages messages={turnConversation(24)} loading={false} running={false} />);
 
-describe('AgentMessages：空内容轮可见性判据（AC-9）', () => {
-  beforeEach(() => {
-    FakeIntersectionObserver.instances = [];
-    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    const stickies = stickyNodes();
+    expect(stickies).toHaveLength(12);
+    expect(bubblesOfRole('user')).toHaveLength(12);
+    expect(stickies.every((node) => node.querySelectorAll('[data-role="user"]').length === 1)).toBe(
+      true,
+    );
+    const items = itemNodes();
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((node) => node.querySelector('[data-role="user"]') === null)).toBe(true);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  it('吸附层几何与虚拟项同基准：sticky top 逐条等于该索引的估值起点，且无 transform', () => {
+    render(<AgentMessages messages={turnConversation(24)} loading={false} running={false} />);
+    const roles = alternatingRoles(24);
+    const starts = expectedStarts(roles);
+
+    stickyNodes().forEach((node, position) => {
+      const index = position * 2; // user 索引 0 / 2 / 4 …
+      expect(Number.parseFloat(node.style.top), `sticky-${position}`).toBe(starts[index]);
+      expect(node.style.getPropertyValue('transform'), `sticky-${position}`).toBe('');
+      expect(node.getAttribute('style')?.toLowerCase()).not.toContain('transform');
+    });
   });
 
-  it('1 条空 parts + completed 轮 + 2 条正常消息 → 恰 2 个 chat-bubble（不渲染空气泡）', () => {
+  it('吸附层 span 首尾闭合：第 k 条 height = 第 k+1 条 top − 第 k 条 top，末条闭合到内容高度', () => {
+    render(<AgentMessages messages={turnConversation(24)} loading={false} running={false} />);
+    const stickies = stickyNodes();
+    const tops = stickies.map((node) => Number.parseFloat(node.style.top));
+    const heights = stickies.map((node) => Number.parseFloat(node.style.height));
+    const total = contentHeight();
+
+    for (let index = 0; index < stickies.length - 1; index += 1) {
+      expect(heights[index], `span-${index}`).toBe((tops[index + 1] ?? 0) - (tops[index] ?? 0));
+    }
+    expect(heights.at(-1)).toBe(total - (tops.at(-1) ?? 0));
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('气泡同渲染件：吸附层 user 气泡为 tinted 泡 + 底衬容器，零渐变 / 零阴影', () => {
+    render(<AgentMessages messages={turnConversation(4)} loading={false} running={false} />);
+    const sticky = stickyNodes()[0] as HTMLElement;
+    const inner = sticky.firstElementChild as HTMLElement;
+
+    const bubble = sticky.querySelector('[data-testid="chat-bubble"]');
+    expect(bubble?.getAttribute('data-role')).toBe('user');
+    expect(bubble?.querySelector('[data-slot="bubble"]')?.getAttribute('data-variant')).toBe(
+      'tinted',
+    );
+    expect(inner.className).toContain('bg-card');
+    for (const forbidden of ['shadow', 'bg-gradient', 'from-', 'to-']) {
+      expect(inner.className, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  it('异常：无 user 消息（全 assistant）→ 零吸附层节点，不抛错', () => {
+    const messages = fold([message(1, [{ kind: 'text', text: '只有回答' }])]);
+
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    expect(stickyNodes()).toHaveLength(0);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
+  });
+
+  it('边界：单条 user → 恰 1 条 sticky，top 为 paddingStart、height 为内容高度减之', () => {
+    render(<AgentMessages messages={turnConversation(1)} loading={false} running={false} />);
+    const sticky = stickyNodes()[0] as HTMLElement;
+    const total = contentHeight();
+
+    expect(stickyNodes()).toHaveLength(1);
+    expect(Number.parseFloat(sticky.style.top)).toBe(PADDING);
+    expect(Number.parseFloat(sticky.style.height)).toBe(total - PADDING);
+    expect(bubblesOfRole('assistant')).toHaveLength(0);
+  });
+
+  it('边界：单条 assistant（无 user）→ 零 sticky、恰 1 条 assistant 气泡', () => {
+    const messages = fold([message(1, [{ kind: 'text', text: '只有回答' }])]);
+
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    expect(stickyNodes()).toHaveLength(0);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
+  });
+
+  it('异常：过滤后为空（空列表 / 全 system）→ 零 sticky、零 item、空态块仍在', () => {
+    const cases: [string, AgentUIMessage[]][] = [
+      ['空列表', []],
+      ['全 system', fold([runStarted(0, 1), systemNotice(1, 2)], [])],
+    ];
+
+    for (const [label, messages] of cases) {
+      const { unmount } = render(
+        <AgentMessages messages={messages} loading={false} running={false} />,
+      );
+      expect(stickyNodes(), label).toHaveLength(0);
+      expect(itemNodes(), label).toHaveLength(0);
+      expect(screen.getByTestId('conversation-empty'), label).not.toBeNull();
+      expect(contentHeight(), label).toBe(PADDING * 2);
+      unmount();
+    }
+  });
+
+  it('异常：吸附层高度回填 —— 实测 0 回落 estimateSize、实测 88 生效且账目随之变化', () => {
+    vi.stubGlobal('ResizeObserver', ProgrammableResizeObserver);
+    ProgrammableResizeObserver.instances = [];
+    render(<AgentMessages messages={turnConversation(2)} loading={false} running={false} />);
+    const roles = alternatingRoles(2);
+    const baseHeight = expectedHeight(roles);
+    expect(contentHeight()).toBe(baseHeight);
+
+    const observer = stickyObserver();
+    expect(observer).toBeDefined();
+
+    act(() => {
+      observer?.trigger(0);
+    });
+    expect(contentHeight()).toBe(baseHeight);
+    expect(Number.parseFloat((stickyNodes()[0] as HTMLElement).style.height)).toBe(
+      baseHeight - PADDING,
+    );
+
+    act(() => {
+      observer?.trigger(88);
+    });
+    expect(contentHeight()).toBe(baseHeight - USER_ESTIMATE + 88);
+    expect(Number.parseFloat((stickyNodes()[0] as HTMLElement).style.height)).toBe(
+      baseHeight - USER_ESTIMATE + 88 - PADDING,
+    );
+  });
+
+  it('异常：反向判据 —— 零 history-load-* 节点、零 IntersectionObserver 装配、Content 无 p-3', () => {
+    class CountingObserver {
+      public static instances = 0;
+
+      constructor() {
+        CountingObserver.instances += 1;
+      }
+
+      public observe(): void {}
+
+      public unobserve(): void {}
+
+      public disconnect(): void {}
+    }
+    vi.stubGlobal('IntersectionObserver', CountingObserver);
+
+    const { container } = render(
+      <AgentMessages messages={turnConversation(30)} loading={false} running={false} />,
+    );
+
+    expect(CountingObserver.instances).toBe(0);
+    expect(screen.queryByTestId('history-load-hint')).toBeNull();
+    expect(screen.queryByTestId('history-load-complete')).toBeNull();
+    expect(container.querySelectorAll('[data-testid^="history-load"]')).toHaveLength(0);
+    // 触顶 sentinel 产物（h-2 w-full）缺席
+    expect(contentNode().querySelector('.h-2')).toBeNull();
+    expect(contentNode().className).not.toContain('p-3');
+  });
+
+  it('边界：estimateSize 角色分型 —— 全 user 与全 assistant（同条数）高度差为 168 × n', () => {
+    const build = (count: number, role: 'user' | 'assistant'): AgentUIMessage[] => {
+      const events: AgentEvent[] = [];
+      const turns: TurnSummary[] = [];
+      for (let index = 0; index < count; index += 1) {
+        turns.push(recordRow('completed', index + 1));
+        events.push(
+          role === 'user'
+            ? userMessage(index, `问-${index}`, index + 1)
+            : message(index, [{ kind: 'text', text: `答-${index}` }], null, index + 1),
+        );
+      }
+      return fold(events, turns);
+    };
+
+    const usersFixture = build(6, 'user');
+    const assistantsFixture = build(6, 'assistant');
+    expect(filterConversation(usersFixture)).toHaveLength(6);
+    expect(filterConversation(assistantsFixture)).toHaveLength(6);
+
+    const users = render(<AgentMessages messages={usersFixture} loading={false} running={false} />);
+    const userHeight = contentHeight();
+    users.unmount();
+
+    const assistants = render(
+      <AgentMessages messages={assistantsFixture} loading={false} running={false} />,
+    );
+    const assistantHeight = contentHeight();
+    assistants.unmount();
+
+    expect(assistantHeight - userHeight).toBe((ASSISTANT_ESTIMATE - USER_ESTIMATE) * 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 贴底复位（AC-13）：换会话回末端，同会话追加与键单侧为 null 一概不拽回
+// ---------------------------------------------------------------------------
+
+describe('AgentMessages：首帧与换会话贴底复位', () => {
+  it('正向：换会话（sessionId A → B、条数不变）→ 视口复位回末端目标值', () => {
+    const { rerender } = render(
+      <AgentMessages messages={sessionConversation('A')} loading={false} running={false} />,
+    );
+    const scroll = installScrollStub();
+
+    act(() => {
+      scroll.setTop(0);
+    });
+    rerender(<AgentMessages messages={sessionConversation('B')} loading={false} running={false} />);
+
+    // 复位键经透镜重渲染通道成立：两侧非 null 且不等 ⇒ 贴底一次
+    expect(scroll.top()).toBe(endTarget());
+  });
+
+  it('边界：只传 messages（loading / running 缺席）→ 复位键派生不改变入参契约', () => {
+    const { rerender } = render(<AgentMessages messages={sessionConversation('A')} />);
+    const scroll = installScrollStub();
+
+    act(() => {
+      scroll.setTop(0);
+    });
+    // 三字段外的额外入参一律不需要：复位完全由消息集合的会话身份驱动
+    rerender(<AgentMessages messages={sessionConversation('B')} />);
+
+    expect(scroll.top()).toBe(endTarget());
+  });
+
+  it('异常：同会话追加（sessionId 不变、尾部新增消息）→ 不把视口拽回末端', () => {
+    const base = sessionConversation('A');
+    const { rerender } = render(<AgentMessages messages={base} loading={false} running={false} />);
+    const scroll = installScrollStub();
+
+    act(() => {
+      scroll.setTop(0);
+    });
+    rerender(
+      <AgentMessages
+        messages={[
+          ...base,
+          ...fold(
+            [userMessage(2, '追问', 2), message(3, [{ kind: 'text', text: '追答' }], null, 2)],
+            [{ ...recordRow('completed', 2), sessionId: 'A' }],
+          ),
+        ]}
+        loading={false}
+        running={false}
+      />,
+    );
+
+    // 上滑用户不被拽走：端锚定可作保持补偿，但不得落到末端
+    expect(scroll.top()).not.toBe(endTarget());
+  });
+
+  it('异常：复位键单侧为 null（首轮 record 落库、条数不变）→ 不复位', () => {
+    const before = fold([message(1, [{ kind: 'text', text: '答' }])]);
+    // 首轮未收口：轮行缺席 ⇒ conversationIdentity 返回 null
+    expect(before[0]?.metadata?.record ?? null).toBeNull();
+
+    const { rerender } = render(
+      <AgentMessages messages={before} loading={false} running={false} />,
+    );
+    const scroll = installScrollStub();
+
+    act(() => {
+      scroll.setTop(17);
+    });
+    rerender(
+      <AgentMessages
+        messages={fold([message(1, [{ kind: 'text', text: '答' }])], [recordRow('completed', 1)])}
+        loading={false}
+        running={false}
+      />,
+    );
+
+    expect(scroll.top()).toBe(17);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 空内容轮的可见性判据：按 metadata.record.status 判定
+// ---------------------------------------------------------------------------
+
+describe('AgentMessages：空内容轮可见性判据', () => {
+  it('1 条空 parts + completed 轮 + 3 条正常消息 → 空气泡零渲染、正常气泡按角色分查', () => {
     const messages: AgentUIMessage[] = [
       ...fold(
-        [userMessage(1, '第一问'), message(2, [{ kind: 'text', text: '第一答' }])],
-        [recordRow('completed')],
+        [userMessage(1, '第一问', 1), message(2, [{ kind: 'text', text: '第一答' }], null, 1)],
+        [recordRow('completed', 1)],
+      ),
+      ...fold(
+        [message(3, [{ kind: 'text', text: '第二答' }], null, 2)],
+        [recordRow('completed', 2)],
       ),
       emptyTurnMessage(42, 'completed'),
     ];
 
     render(<AgentMessages messages={messages} loading={false} running={false} />);
 
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(2);
+    expect(bubblesOfRole('assistant')).toHaveLength(2);
+    expect(bubblesOfRole('user')).toHaveLength(1);
     expect(document.body.textContent).toContain('第一问');
     expect(document.body.textContent).toContain('第一答');
+    // 空内容 completed 轮不计入账目：3 条可见
+    expect(contentHeight()).toBe(expectedHeight(['user', 'assistant', 'assistant']));
   });
 
-  it('分页不计不可见空内容轮：11 条正常 + 5 条空 + completed → 一页 10 条且提示行在场', () => {
+  it('空内容轮批（50 条 completed）混入 1000 条正常对话 → 项数按 1000、气泡与账目同口径', () => {
     const messages = [
-      ...pagedConversation(11),
-      ...Array.from({ length: 5 }, (_, index) => emptyTurnMessage(500 + index, 'completed')),
+      ...turnConversation(1000),
+      ...Array.from({ length: 50 }, (_, index) => emptyTurnMessage(5000 + index, 'completed')),
     ];
 
     render(<AgentMessages messages={messages} loading={false} running={false} />);
 
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
-
-    // 触顶装载按过滤后列表递增（装载后 11 条，提示行撤销，观察器归零）
-    triggerReachTop();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(11);
-    expect(screen.queryByTestId('history-load-hint')).toBeNull();
-    // loadMore 幂等：再触发不增条
-    expect(FakeIntersectionObserver.instances).toHaveLength(0);
+    expect(contentHeight()).toBe(expectedHeight(alternatingRoles(1000)));
+    expect(bubblesOfRole('user')).toHaveLength(500);
+    expect(stickyNodes()).toHaveLength(500);
   });
 
-  it('分页计入可见的失败 / 停止空内容轮：10 条正常 + 1 条空 + failed → 一页 10 条 + 提示行在场', () => {
-    const messages = [...pagedConversation(10), emptyTurnMessage(600, 'failed')];
+  it('空内容 failed / stopped 轮计入虚拟列表项数与吸附层几何', () => {
+    for (const status of ['failed', 'stopped'] as const) {
+      const messages = [
+        ...turnConversation(2),
+        emptyTurnMessage(status === 'failed' ? 7 : 8, status),
+      ];
+      const { unmount } = render(
+        <AgentMessages messages={messages} loading={false} running={false} />,
+      );
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
-
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
-    // 状态可读的轮参与计数 ⇒ 过滤后 11 条 > 一页
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
-    triggerReachTop();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(11);
-    expect(screen.getByTestId('turn-status-line')).toBeTruthy();
+      // 状态行载体在透镜内 ⇒ 计入 count 与账目高度
+      expect(screen.getByTestId('turn-status-line').getAttribute('data-status'), status).toBe(
+        status,
+      );
+      expect(contentHeight(), status).toBe(expectedHeight(['user', 'assistant', 'assistant']));
+      const sticky = stickyNodes()[0] as HTMLElement;
+      expect(Number.parseFloat(sticky.style.height), status).toBe(contentHeight() - PADDING);
+      unmount();
+    }
   });
 
   it('只含被消费孤儿搜索 result 的消息（折叠后 0 部件、record 为 null）不进对话透镜', () => {
     const events: AgentEvent[] = [
-      userMessage(1, '帮我搜'),
-      message(2, [
-        {
-          kind: 'webSearch',
-          id: 'srvtoolu_ghost',
-          query: '查询',
-          results: [],
-          error: null,
-          rawUse: { type: 'server_tool_use', id: 'srvtoolu_ghost' },
-          rawResult: null,
-        },
-      ]),
+      userMessage(1, '帮我搜', 1),
+      message(
+        2,
+        [
+          {
+            kind: 'webSearch',
+            id: 'srvtoolu_ghost',
+            query: '查询',
+            results: [],
+            error: null,
+            rawUse: { type: 'server_tool_use', id: 'srvtoolu_ghost' },
+            rawResult: null,
+          },
+        ],
+        null,
+        1,
+      ),
       // 第二段：仅被 use 消费的 result 侧块 → 折叠后 parts.length === 0
-      message(3, [
-        {
-          kind: 'webSearch',
-          id: 'srvtoolu_ghost',
-          query: '',
-          results: [{ url: 'https://ghost/1', title: '幽灵来源', pageAge: null }],
-          error: null,
-          rawUse: null,
-          rawResult: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_ghost' },
-        },
-      ]),
+      message(
+        3,
+        [
+          {
+            kind: 'webSearch',
+            id: 'srvtoolu_ghost',
+            query: '',
+            results: [{ url: 'https://ghost/1', title: '幽灵来源', pageAge: null }],
+            error: null,
+            rawUse: null,
+            rawResult: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_ghost' },
+          },
+        ],
+        null,
+        2,
+      ),
     ];
     // 无轮行 ⇒ record 为 null；该轮 assistant 有搜索卡一个部件，故仍在透镜内
     const messages = fold(events);
-    expect(messages.find((m) => m.role === 'assistant')?.parts).toHaveLength(1);
+    expect(messages.find((message) => message.role === 'assistant')?.parts).toHaveLength(1);
 
     render(<AgentMessages messages={messages} loading={false} running={false} />);
 
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(2);
+    expect(bubblesOfRole('user')).toHaveLength(1);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 轮内状态行（AC-9 / D16）：failed / stopped 空内容轮
+// 轮内状态行：failed / stopped 空内容轮
 // ---------------------------------------------------------------------------
 
 describe('AgentMessages：轮内状态行', () => {
@@ -612,27 +997,28 @@ describe('AgentMessages：轮内状态行', () => {
 
   it('parts 非空 + stopped → 只呈正常气泡，状态行缺席（不叠加）', () => {
     const messages = fold(
-      [userMessage(0, '问'), message(1, [{ kind: 'text', text: '部分回答' }])],
-      [recordRow('stopped')],
+      [userMessage(0, '问', 1), message(1, [{ kind: 'text', text: '部分回答' }], null, 1)],
+      [recordRow('stopped', 1)],
     );
 
     render(<AgentMessages messages={messages} loading={false} running={false} />);
 
     expect(screen.queryByTestId('turn-status-line')).toBeNull();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(2);
+    expect(bubblesOfRole('user')).toHaveLength(1);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
   });
 
   it('parts 非空 + failed → 只呈正常气泡，状态行缺席（轮失败事实仍可从 metadata 读出）', () => {
     const messages = fold(
-      [message(1, [{ kind: 'text', text: '部分回答' }])],
-      [recordRow('failed', TURN, 'provider 认证失败')],
+      [message(1, [{ kind: 'text', text: '部分回答' }], null, 1)],
+      [recordRow('failed', 1, 'provider 认证失败')],
     );
 
     expect(messages[0]?.metadata?.record?.status).toBe('failed');
     render(<AgentMessages messages={messages} loading={false} running={false} />);
 
     expect(screen.queryByTestId('turn-status-line')).toBeNull();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(1);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
   });
 
   it('原文来源四形态：仅 record.error / 仅 api_error 通知 / 两者去重 / 两者皆空', () => {
@@ -714,21 +1100,17 @@ describe('AgentMessages：轮内状态行', () => {
     }
   });
 
-  it('可见性判据单一来源：空 parts + failed 既计入分页又只渲染一次状态行', () => {
-    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
-    FakeIntersectionObserver.instances = [];
-    try {
-      const messages = [...pagedConversation(10), emptyTurnMessage(700, 'failed')];
-      render(<AgentMessages messages={messages} loading={false} running={false} />);
+  it('可见性判据单一来源：空 parts + failed 既计入虚拟列表账目又只渲染一次状态行', () => {
+    const messages = [...turnConversation(4), emptyTurnMessage(700, 'failed')];
 
-      // 过滤保留（计入分页 ⇒ 有提示行）
-      expect(screen.getByTestId('history-load-hint')).toBeTruthy();
-      triggerReachTop();
-      // 渲染恰一次（不出现两处各渲染一次）
-      expect(screen.getAllByTestId('turn-status-line')).toHaveLength(1);
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    // 过滤保留 ⇒ 计入 count 与账目高度
+    expect(contentHeight()).toBe(
+      expectedHeight(['user', 'assistant', 'user', 'assistant', 'assistant']),
+    );
+    // 渲染恰一次（不出现两处各渲染一次）
+    expect(screen.queryAllByTestId('turn-status-line')).toHaveLength(1);
   });
 
   it('边界：只有 data-* / step-start 部件的 assistant 视为无可见部件；status 决定是否呈状态行', () => {
@@ -771,7 +1153,7 @@ describe('AgentMessages：轮内状态行', () => {
         <AgentMessages messages={messages} loading={false} running={false} />,
       );
       expect(screen.queryByTestId('turn-status-line')).toBeNull();
-      expect(screen.queryByTestId('chat-bubble')).toBeNull();
+      expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
       unmount();
     }
   });
@@ -794,38 +1176,41 @@ describe('AgentMessages：轮内状态行', () => {
         <AgentMessages messages={messages} loading={false} running={false} />,
       );
       expect(screen.queryByTestId('turn-status-line')).toBeNull();
-      expect(screen.queryByTestId('chat-bubble')).toBeNull();
+      expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
       unmount();
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// 一轮一条气泡（呈现侧）与 pause_turn 搜索两段合轮（AC-1 / AC-10）
+// 一轮一条气泡（呈现侧）与 pause_turn 搜索两段合轮
 // ---------------------------------------------------------------------------
 
-describe('AgentMessages：一轮一条气泡与搜索两段合轮（AC-1 / AC-10）', () => {
+describe('AgentMessages：一轮一条气泡与搜索两段合轮', () => {
   it('同一轮 text + reasoning + tool 三部件 → 恰 1 个 assistant 气泡，部件按序呈现', () => {
     const events: AgentEvent[] = [
-      userMessage(0, '一轮多部件'),
-      message(1, [
-        { kind: 'thinking', thinking: '先想' },
-        { kind: 'text', text: '再答' },
-        { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } },
-      ]),
+      userMessage(0, '一轮多部件', 1),
+      message(
+        1,
+        [
+          { kind: 'thinking', thinking: '先想' },
+          { kind: 'text', text: '再答' },
+          { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } },
+        ],
+        null,
+        1,
+      ),
     ];
 
     render(
       <AgentMessages
-        messages={fold(events, [recordRow('completed')])}
+        messages={fold(events, [recordRow('completed', 1)])}
         loading={false}
         running={false}
       />,
     );
 
-    const assistants = screen
-      .getAllByTestId('chat-bubble')
-      .filter((bubble) => bubble.getAttribute('data-role') === 'assistant');
+    const assistants = bubblesOfRole('assistant');
     expect(assistants).toHaveLength(1);
     const bubble = assistants[0] as HTMLElement;
     expect(within(bubble).getByTestId('block-thinking')).toBeTruthy();
@@ -835,39 +1220,47 @@ describe('AgentMessages：一轮一条气泡与搜索两段合轮（AC-1 / AC-10
 
   it('pause_turn 两段同轮同消息：同一气泡内搜索卡呈查询词与来源列表，无第二条气泡', () => {
     const events: AgentEvent[] = [
-      userMessage(0, '帮我查今日汇率'),
+      userMessage(0, '帮我查今日汇率', 1),
       // use 侧段
-      message(1, [
-        {
-          kind: 'webSearch',
-          id: 'srvtoolu_1',
-          query: '今日汇率',
-          results: [],
-          error: null,
-          rawUse: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search' },
-          rawResult: null,
-        },
-      ]),
+      message(
+        1,
+        [
+          {
+            kind: 'webSearch',
+            id: 'srvtoolu_1',
+            query: '今日汇率',
+            results: [],
+            error: null,
+            rawUse: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search' },
+            rawResult: null,
+          },
+        ],
+        null,
+        1,
+      ),
       // result 侧段（另一条密封 message）
-      message(2, [
-        {
-          kind: 'webSearch',
-          id: 'srvtoolu_1',
-          query: '',
-          results: [{ url: 'https://fx/1', title: '汇率来源', pageAge: null }],
-          error: null,
-          rawUse: null,
-          rawResult: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1' },
-        },
-      ]),
+      message(
+        2,
+        [
+          {
+            kind: 'webSearch',
+            id: 'srvtoolu_1',
+            query: '',
+            results: [{ url: 'https://fx/1', title: '汇率来源', pageAge: null }],
+            error: null,
+            rawUse: null,
+            rawResult: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1' },
+          },
+        ],
+        null,
+        1,
+      ),
     ];
 
-    const messages = fold(events, [recordRow('completed')]);
+    const messages = fold(events, [recordRow('completed', 1)]);
     render(<AgentMessages messages={messages} loading={false} running={false} />);
 
-    const assistants = screen
-      .getAllByTestId('chat-bubble')
-      .filter((bubble) => bubble.getAttribute('data-role') === 'assistant');
+    const assistants = bubblesOfRole('assistant');
     expect(assistants).toHaveLength(1);
     const bubble = assistants[0] as HTMLElement;
     expect(within(bubble).getByTestId('block-web-search-query').textContent).toContain('今日汇率');
@@ -876,37 +1269,6 @@ describe('AgentMessages：一轮一条气泡与搜索两段合轮（AC-1 / AC-10
     expect(within(bubble).getByTestId('block-web-search-sources').textContent).toContain(
       '汇率来源',
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 大列表分页（1000 条含空内容轮）
-// ---------------------------------------------------------------------------
-
-describe('AgentMessages：大列表分页', () => {
-  beforeEach(() => {
-    FakeIntersectionObserver.instances = [];
-    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('1000 条消息（含若干空内容轮）→ 默认渲染最新一页 10 条、remaining 正确、不抛错', () => {
-    const normal = pagedConversation(1000);
-    const empties = Array.from({ length: 50 }, (_, index) =>
-      emptyTurnMessage(9000 + index, 'completed'),
-    );
-
-    render(<AgentMessages messages={[...normal, ...empties]} loading={false} running={false} />);
-
-    // 空内容轮（completed）不计入过滤后列表：可见 1000 条，一页 10 条
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
-    // 触顶装载增一页（remaining 基于过滤后列表）
-    triggerReachTop();
-    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(20);
   });
 });
 
@@ -945,10 +1307,10 @@ describe('AgentMessages：text 部件 citations 传递', () => {
 
     const lists = screen.getAllByTestId('block-citations');
     expect(lists).toHaveLength(1);
-    const items = lists[0].querySelectorAll('li');
+    const items = lists[0]?.querySelectorAll('li') ?? [];
     expect(items).toHaveLength(2);
-    expect(items[0].textContent).toBe('引用标题');
-    expect(items[1].textContent).toBe('https://only/2');
+    expect(items[0]?.textContent).toBe('引用标题');
+    expect(items[1]?.textContent).toBe('https://only/2');
     expect(screen.getAllByTestId('block-text')).toHaveLength(2);
   });
 

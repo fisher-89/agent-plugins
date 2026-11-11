@@ -1,0 +1,1124 @@
+{
+  "version": 2,
+  "timestamp": "2026-11-10T23:39:57.6394419Z",
+  "mode": "incremental",
+  "root": "D:/Projects\\.worktrees\\wps-claude-plugin\\agent-messages-virtual-list-pinning",
+  "change": "agent-messages-virtual-list-pinning",
+  "base": "HEAD",
+  "modelHash": "sha256:8fce3e0f50ec5c708f7d3830ae16bbd32166751caca0ce3603bf22214ab17125",
+  "model": {
+    "elements": 51,
+    "relations": 113,
+    "byGate": {
+      "strict": 0,
+      "warn": 0,
+      "off": 51
+    },
+    "structuralErrors": [],
+    "warnings": [
+      {
+        "kind": "noPath",
+        "from": "App",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Backend",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Backend 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Backend.Core",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Backend.Core 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Backend.Infra",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Backend.Infra 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Backend.Tools",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Backend.Tools 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Frontend",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Frontend 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Frontend.Components",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Frontend.Components 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Frontend.Components.Standard",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Frontend.Components.Standard 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      },
+      {
+        "kind": "noPath",
+        "from": "App.Frontend.Views",
+        "to": null,
+        "gate": "off",
+        "message": "元素 App.Frontend.Views 未声明 path（不参与归属；依赖提取会把它视作无主）",
+        "occurrences": []
+      }
+    ]
+  },
+  "scan": {
+    "mode": "incremental",
+    "changedFiles": 10,
+    "scannedFiles": 4,
+    "excluded": [
+      {
+        "file": "packages/desktop/src/components/agent/agent-messages.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/agent/agent-render-memo.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/components/ui/message-scroller.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/hooks/use-highlighted-code.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/lib/agent-virtual.test.ts",
+        "rule": "**/*.test.ts"
+      }
+    ],
+    "unmatchedFiles": [
+      "packages/desktop/src/components/agent/agent-messages.tsx",
+      "packages/desktop/src/components/ui/message-scroller.tsx",
+      "packages/desktop/src/lib/agent-virtual.ts",
+      "packages/desktop/src/test-setup.ts"
+    ],
+    "matched": [],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Archi",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Archi → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Checks",
+      "to": "App.Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Checks → App.Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Checks",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Checks → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Config",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Config → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Orchestration",
+      "to": "App.Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Orchestration → App.Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Orchestration",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Orchestration → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Orchestration",
+      "to": "App.Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Orchestration → App.Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Workflow",
+      "to": "App.Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Workflow → App.Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Core.Workflow",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Core.Workflow → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Core.Checks",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Core.Checks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.AgentRuntime",
+      "to": "App.Backend.Infra.Store",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.AgentRuntime → App.Backend.Infra.Store 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ArchiRuntime",
+      "to": "App.Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ArchiRuntime → App.Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ArchiRuntime",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ArchiRuntime → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ArchiRuntime",
+      "to": "App.Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ArchiRuntime → App.Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ChecksRuntime",
+      "to": "App.Backend.Core.Checks",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ChecksRuntime → App.Backend.Core.Checks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ChecksRuntime",
+      "to": "App.Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ChecksRuntime → App.Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ChecksRuntime",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ChecksRuntime → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ChecksRuntime",
+      "to": "App.Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ChecksRuntime → App.Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.ChecksRuntime",
+      "to": "App.Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.ChecksRuntime → App.Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.Exec",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.Exec → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.Store",
+      "to": "App.Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.Store → App.Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.Store",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.Store → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.Store",
+      "to": "App.Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.Store → App.Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.VcsRuntime",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.VcsRuntime → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.VcsRuntime",
+      "to": "App.Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.VcsRuntime → App.Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.VcsRuntime",
+      "to": "App.Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.VcsRuntime → App.Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Infra.VcsRuntime",
+      "to": "App.Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Infra.VcsRuntime → App.Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Core.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Core.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Core.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Core.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Core.Orchestration",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Core.Orchestration 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Core.Workflow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Core.Workflow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Infra.AgentRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Infra.AgentRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Infra.ArchiRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Infra.ArchiRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Infra.ChecksRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Infra.ChecksRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Infra.Exec",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Infra.Exec 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Infra.Store",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Infra.Store 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Infra.VcsRuntime",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Infra.VcsRuntime 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Shell",
+      "to": "App.Backend.Infra.Watch",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Shell → App.Backend.Infra.Watch 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Tools.ArchiApiGen",
+      "to": "App.Backend.Core.Archi",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Tools.ArchiApiGen → App.Backend.Core.Archi 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Tools.ArchiApiGen",
+      "to": "App.Backend.Core.Foundation",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Tools.ArchiApiGen → App.Backend.Core.Foundation 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Backend.Tools.ExportBindings",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Backend.Tools.ExportBindings → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent",
+      "to": "App.Frontend.Components.Agent.AgentInput",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent → App.Frontend.Components.Agent.AgentInput 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent",
+      "to": "App.Frontend.Components.Agent.AgentSessionView",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent → App.Frontend.Components.Agent.AgentSessionView 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent.AgentBlocks",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent.AgentBlocks → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent.AgentSessionView",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent.AgentSessionView → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent.AgentSessionView",
+      "to": "App.Frontend.Components.Agent.AgentError",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent.AgentSessionView → App.Frontend.Components.Agent.AgentError 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent.AgentSessionView",
+      "to": "App.Frontend.Components.Agent.AgentMessages",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent.AgentSessionView → App.Frontend.Components.Agent.AgentMessages 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent.AgentSessionView",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent.AgentSessionView → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Agent.ToolCards",
+      "to": "App.Frontend.Components.Agent.AgentBlocks",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Agent.ToolCards → App.Frontend.Components.Agent.AgentBlocks 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Standard.Dailog",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Standard.Dailog → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Standard.Drawer",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Standard.Drawer → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Standard.Pagination",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Standard.Pagination → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Components.Standard.Select",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Components.Standard.Select → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.AgentDebug",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.AgentDebug 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.Agents",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.Agents 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.Architecture",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.Architecture 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.Changes",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.Changes 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.Config",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.Config 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.DbInspector",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.DbInspector 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.Explores",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.Explores 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.Info",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.Info 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Shell",
+      "to": "App.Frontend.Views.Welcome",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Shell → App.Frontend.Views.Welcome 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.AgentDebug",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.AgentDebug → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.AgentDebug",
+      "to": "App.Frontend.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.AgentDebug → App.Frontend.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.AgentDebug",
+      "to": "App.Frontend.Components.Standard.Drawer",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.AgentDebug → App.Frontend.Components.Standard.Drawer 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.AgentDebug",
+      "to": "App.Frontend.Components.Standard.Pagination",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.AgentDebug → App.Frontend.Components.Standard.Pagination 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.AgentDebug",
+      "to": "App.Frontend.Components.Standard.Select",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.AgentDebug → App.Frontend.Components.Standard.Select 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.AgentDebug",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.AgentDebug → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Agents",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Agents → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Agents",
+      "to": "App.Frontend.Components.Standard.Select",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Agents → App.Frontend.Components.Standard.Select 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Agents",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Agents → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Architecture",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Architecture → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Architecture",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Architecture → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes",
+      "to": "App.Frontend.Components.Standard.Dailog",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes → App.Frontend.Components.Standard.Dailog 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes",
+      "to": "App.Frontend.Views.Architecture",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes → App.Frontend.Views.Architecture 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes",
+      "to": "App.Frontend.Views.Changes.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes → App.Frontend.Views.Changes.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes",
+      "to": "App.Frontend.Views.Changes.Flow",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes → App.Frontend.Views.Changes.Flow 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Agent",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Agent → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Agent",
+      "to": "App.Frontend.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Agent → App.Frontend.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Agent",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Agent → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Flow",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Flow → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Flow",
+      "to": "App.Frontend.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Flow → App.Frontend.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Flow",
+      "to": "App.Frontend.Components.Standard.Drawer",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Flow → App.Frontend.Components.Standard.Drawer 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Flow",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Flow → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Flow",
+      "to": "App.Frontend.Views.Architecture",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Flow → App.Frontend.Views.Architecture 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Flow",
+      "to": "App.Frontend.Views.Changes.Renderers",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Flow → App.Frontend.Views.Changes.Renderers 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Changes.Renderers",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Changes.Renderers → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Config",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Config → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Config",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Config → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.DbInspector",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.DbInspector → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.DbInspector",
+      "to": "App.Frontend.Components.Standard.Drawer",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.DbInspector → App.Frontend.Components.Standard.Drawer 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.DbInspector",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.DbInspector → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Explores",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Explores → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Explores",
+      "to": "App.Frontend.Components.Agent",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Explores → App.Frontend.Components.Agent 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Explores",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Explores → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Explores",
+      "to": "App.Frontend.Views.Changes.Renderers",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Explores → App.Frontend.Views.Changes.Renderers 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Info",
+      "to": "App.Backend.Shell",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Info → App.Backend.Shell 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Info",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Info → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    },
+    {
+      "kind": "unfulfilledDeclaration",
+      "from": "App.Frontend.Views.Welcome",
+      "to": "App.Frontend.Components.Ui",
+      "message": "增量模式只覆盖变更集内的源文件，本次扫描面内未见 App.Frontend.Views.Welcome → App.Frontend.Components.Ui 的 import（观察项，不参与门禁判据）"
+    }
+  ],
+  "apiFindings": [
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Backend.Shell",
+      "target": null,
+      "message": "元素 App.Backend.Shell 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Backend.Tools.ArchiApiGen",
+      "target": null,
+      "message": "元素 App.Backend.Tools.ArchiApiGen 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Backend.Tools.ExportBindings",
+      "target": null,
+      "message": "元素 App.Backend.Tools.ExportBindings 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Agent",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Agent 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Agent.AgentBlocks",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Agent.AgentBlocks 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Agent.AgentError",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Agent.AgentError 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Agent.AgentInput",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Agent.AgentInput 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Agent.AgentMessages",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Agent.AgentMessages 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Agent.AgentSessionView",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Agent.AgentSessionView 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Agent.ToolCards",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Agent.ToolCards 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Standard.Dailog",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Standard.Dailog 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Standard.Drawer",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Standard.Drawer 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Standard.Pagination",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Standard.Pagination 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Standard.Select",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Standard.Select 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Components.Ui",
+      "target": null,
+      "message": "元素 App.Frontend.Components.Ui 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Shell",
+      "target": null,
+      "message": "元素 App.Frontend.Shell 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.AgentDebug",
+      "target": null,
+      "message": "元素 App.Frontend.Views.AgentDebug 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Agents",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Agents 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Architecture",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Architecture 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Changes",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Changes 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Changes.Agent",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Changes.Agent 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Changes.Flow",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Changes.Flow 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Changes.Renderers",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Changes.Renderers 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Config",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Config 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.DbInspector",
+      "target": null,
+      "message": "元素 App.Frontend.Views.DbInspector 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Explores",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Explores 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Info",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Info 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiEntryMissing",
+      "category": "entry",
+      "element": "App.Frontend.Views.Welcome",
+      "target": null,
+      "message": "元素 App.Frontend.Views.Welcome 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，写契约之前先修路径",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Core.Agent",
+      "target": null,
+      "message": "元素 App.Backend.Core.Agent 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Core/App.Backend.Core.Agent.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Core.Archi",
+      "target": null,
+      "message": "元素 App.Backend.Core.Archi 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Core/App.Backend.Core.Archi.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Core.Checks",
+      "target": null,
+      "message": "元素 App.Backend.Core.Checks 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Core/App.Backend.Core.Checks.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Core.Config",
+      "target": null,
+      "message": "元素 App.Backend.Core.Config 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Core/App.Backend.Core.Config.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Core.Foundation",
+      "target": null,
+      "message": "元素 App.Backend.Core.Foundation 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Core/App.Backend.Core.Foundation.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Core.Orchestration",
+      "target": null,
+      "message": "元素 App.Backend.Core.Orchestration 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Core/App.Backend.Core.Orchestration.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Core.Workflow",
+      "target": null,
+      "message": "元素 App.Backend.Core.Workflow 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Core/App.Backend.Core.Workflow.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Infra.AgentRuntime",
+      "target": null,
+      "message": "元素 App.Backend.Infra.AgentRuntime 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Infra/App.Backend.Infra.AgentRuntime.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Infra.ChecksRuntime",
+      "target": null,
+      "message": "元素 App.Backend.Infra.ChecksRuntime 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Infra/App.Backend.Infra.ChecksRuntime.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Infra.Exec",
+      "target": null,
+      "message": "元素 App.Backend.Infra.Exec 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Infra/App.Backend.Infra.Exec.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Infra.Store",
+      "target": null,
+      "message": "元素 App.Backend.Infra.Store 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Infra/App.Backend.Infra.Store.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Infra.VcsRuntime",
+      "target": null,
+      "message": "元素 App.Backend.Infra.VcsRuntime 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Infra/App.Backend.Infra.VcsRuntime.md",
+      "occurrences": []
+    },
+    {
+      "kind": "apiMissing",
+      "category": "contract",
+      "element": "App.Backend.Infra.Watch",
+      "target": null,
+      "message": "元素 App.Backend.Infra.Watch 声明 `api = declared`（承诺有契约）但契约文件缺失：.dev-team/architecture/api/Infra/App.Backend.Infra.Watch.md",
+      "occurrences": []
+    }
+  ],
+  "status": "clean"
+}

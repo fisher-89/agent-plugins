@@ -1,18 +1,26 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
 import {
+  type MessageScrollerGeometry,
+  type MessageScrollerStickyEntry,
   MessageScroller,
   MessageScrollerButton,
   MessageScrollerContent,
-  MessageScrollerItem,
   MessageScrollerProvider,
+  MessageScrollerSticky,
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
 import { Spinner } from '@/components/ui/spinner';
 import { Trace } from '@/components/ui/trace';
 import type { AgentToolPart, AgentUIMessage } from '@/lib/agent-adapter';
+import {
+  conversationIdentity,
+  filterConversation,
+  hasVisibleParts,
+  userTurnSpans,
+} from '@/lib/agent-virtual';
 import { asRecord, textOf } from '@/lib/parse';
 import type { AgentCitation, TurnSummary } from '@/types/dto';
 
@@ -28,9 +36,16 @@ export interface AgentMessagesProps {
   running?: boolean;
 }
 
-const MESSAGE_PAGE_SIZE = 10;
-/** 触顶预载区高度：距顶部该距离即装载历史页，无需滚到绝对顶端 */
-const HISTORY_PRELOAD_MARGIN_PX = 300;
+/** user 消息首帧估值：首次测量即校正，取「一行正文 + 气泡内边距」的量级 */
+const USER_MESSAGE_ESTIMATE_PX = 72;
+/** assistant 消息首帧估值：单条含部件列表，取整轮量级 */
+const ASSISTANT_MESSAGE_ESTIMATE_PX = 240;
+/** 行距：经虚拟器 `gap` 表达（内容容器不再用 flex `gap`） */
+const MESSAGE_GAP_PX = 24;
+/** 内容容器纵向内边距：经虚拟器 `paddingStart` / `paddingEnd` 表达 */
+const MESSAGE_PADDING_PX = 12;
+/** 可见窗口外扩项数：留一屏内的滑动余量即可 */
+const VIRTUAL_OVERSCAN = 8;
 
 /** 工具部件 → 特化卡（注册表命中）或默认对卡（miss 回退） */
 function ToolPartView({ part }: { part: AgentToolPart }): React.JSX.Element | null {
@@ -79,19 +94,6 @@ function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JS
   if (part.type === 'reasoning') return <ThinkingBlock text={part.text} state={part.state} />;
   if (isToolPart(part)) return <ToolPartView part={part} />;
   return null;
-}
-
-/** 可见部件：`text` / `reasoning` / `tool-<name>` 三类计入；
- * `data-*` 与 `step-start` 不计（实时态的空壳消息由此不产空气泡） */
-function hasVisibleParts(message: AgentUIMessage): boolean {
-  return message.parts.some(
-    (part) => part.type === 'text' || part.type === 'reasoning' || isToolPart(part),
-  );
-}
-
-/** 轮状态（唯一来源：该轮 assistant 消息的 `metadata.record.status`） */
-function turnStatusOf(message: AgentUIMessage): TurnSummary['status'] | null {
-  return message.metadata?.record?.status ?? null;
 }
 
 /** 该消息内 `api_error` 通知的错误原文（实时态 aux 落本轮消息内；折叠态已归一
@@ -204,126 +206,79 @@ function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Ele
 const ChatBubble = memo(ChatBubbleBase);
 
 /**
- * 触顶预载观察：sentinel 进入视口上方预载区即触发装载。
- * root 必须绑消息滚动视口，rootMargin 才是相对该容器计算的“临近顶部”预载区；
- * remaining 变化（装页或入参增长）后重挂观察器，视口未填满时可持续自动装载。
+ * 虚拟窗口的纵向几何：`gap` / `paddingStart` / `paddingEnd` 全走虚拟器，
+ * 内容容器侧不再有 padding / flex gap——sticky 的夹取边界与绝对定位的包含块
+ * 都是 padding box，`border-box` 下 padding 又计入 `height`，两处叠加会让末项
+ * 越出容器、吸附层跨度与 `getTotalSize()` 账目不符。横向 gutter 落到行级 `px-3`。
  */
-function useTopReachObserver(
-  viewportRef: React.RefObject<HTMLDivElement | null>,
-  sentinelRef: React.RefObject<HTMLDivElement | null>,
-  remaining: number,
-  onReachTop: () => void,
-): void {
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    const sentinel = sentinelRef.current;
-    if (remaining === 0 || viewport === null || sentinel === null) {
-      return;
-    }
-    if (typeof IntersectionObserver === 'undefined') {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          onReachTop();
-        }
-      },
-      { root: viewport, rootMargin: `${HISTORY_PRELOAD_MARGIN_PX}px 0px 0px 0px` },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [viewportRef, sentinelRef, remaining, onReachTop]);
-}
-
-/** 触顶状态行：还有更早 → 装载提示；已装满且超过一页 → 全量终态；短对话不呈现 */
-function HistoryLoadStatus({ remaining }: { remaining: number }): React.JSX.Element | null {
-  if (remaining > 0) {
-    return (
-      <div className="self-center text-xs text-muted-foreground" data-testid="history-load-hint">
-        加载中…
-      </div>
-    );
-  }
-  return null;
-}
-
 function MessageContainer({
   messages,
-  remaining,
-  onReachTop,
+  resetKey,
 }: {
   messages: AgentUIMessage[];
-  /** 尚未渲染的更早消息条数（0 = 已到最早，不再观察触顶） */
-  remaining: number;
-  onReachTop: () => void;
+  resetKey: string | null;
 }): React.JSX.Element {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const topSentinelRef = useRef<HTMLDivElement | null>(null);
-  useTopReachObserver(viewportRef, topSentinelRef, remaining, onReachTop);
+  const estimateSize = useCallback(
+    (index: number) =>
+      messages[index]?.role === 'user' ? USER_MESSAGE_ESTIMATE_PX : ASSISTANT_MESSAGE_ESTIMATE_PX,
+    [messages],
+  );
+  const getItemKey = useCallback((index: number) => messages[index]?.id ?? index, [messages]);
+  const renderItem = useCallback(
+    (index: number) => {
+      const message = messages[index];
+      if (message === undefined || message.role === 'user') return null;
+      return <ChatBubble message={message} />;
+    },
+    [messages],
+  );
+  const renderSticky = useCallback(
+    (geometry: MessageScrollerGeometry): MessageScrollerStickyEntry[] =>
+      userTurnSpans(messages, geometry.measurements, geometry.totalSize).flatMap(
+        ({ index, start, span }) => {
+          const message = messages[index];
+          if (message === undefined) return [];
+          return [
+            {
+              index,
+              node: (
+                <MessageScrollerSticky key={message.id} index={index} start={start} span={span}>
+                  <ChatBubble message={message} />
+                </MessageScrollerSticky>
+              ),
+            },
+          ];
+        },
+      ),
+    [messages],
+  );
   return (
-    <MessageScroller>
-      <MessageScrollerViewport aria-label="对话消息" ref={viewportRef}>
-        <MessageScrollerContent className="p-3">
-          {messages.length === 0 && (
-            <div className="text-muted-foreground" data-testid="conversation-empty">
-              尚无对话。在下方输入以开始探索。
-            </div>
-          )}
-          <div ref={topSentinelRef} className="h-2 w-full">
-            <HistoryLoadStatus remaining={remaining} />
-          </div>
-          {messages.map((message) => (
-            <MessageScrollerItem
-              key={message.id}
-              messageId={message.id}
-              scrollAnchor={message.role === 'user'}
-            >
-              <ChatBubble message={message} />
-            </MessageScrollerItem>
-          ))}
-        </MessageScrollerContent>
-      </MessageScrollerViewport>
-      <MessageScrollerButton />
-    </MessageScroller>
+    <MessageScrollerProvider
+      count={messages.length}
+      estimateSize={estimateSize}
+      getItemKey={getItemKey}
+      renderItem={renderItem}
+      renderSticky={renderSticky}
+      resetKey={resetKey}
+      overscan={VIRTUAL_OVERSCAN}
+      gap={MESSAGE_GAP_PX}
+      paddingStart={MESSAGE_PADDING_PX}
+      paddingEnd={MESSAGE_PADDING_PX}
+    >
+      <MessageScroller>
+        <MessageScrollerViewport aria-label="对话消息">
+          <MessageScrollerContent>
+            {messages.length === 0 && (
+              <div className="px-3 text-muted-foreground" data-testid="conversation-empty">
+                尚无对话。在下方输入以开始探索。
+              </div>
+            )}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        <MessageScrollerButton />
+      </MessageScroller>
+    </MessageScrollerProvider>
   );
-}
-
-/** 历史分页窗口：默认仅渲染最新一页；触顶递增一页；换会话（头部消息变化）复位 */
-function useHistoryWindow(allMessages: AgentUIMessage[]): {
-  visible: AgentUIMessage[];
-  remaining: number;
-  loadMore: () => void;
-} {
-  const [offset, setOffset] = useState(0);
-  const [firstMessageId, setFirstMessageId] = useState<string | null>(null);
-
-  const conversationMessages = allMessages.filter(
-    (message) =>
-      message.role !== 'system' &&
-      (hasVisibleParts(message) ||
-        turnStatusOf(message) === 'failed' ||
-        turnStatusOf(message) === 'stopped'),
-  );
-
-  useEffect(() => {
-    const headId = allMessages[0]?.id ?? null;
-    if (headId !== null && headId !== firstMessageId) {
-      setOffset(Math.max(conversationMessages.length - MESSAGE_PAGE_SIZE, 0));
-      setFirstMessageId(headId);
-    }
-  }, [allMessages, firstMessageId]);
-
-  // 函数式更新 + 上限钳制：避免 pages 闭包过期，重复触顶也幂等
-  const loadMore = useCallback(() => {
-    setOffset((prev) => Math.max(prev - MESSAGE_PAGE_SIZE, 0));
-  }, []);
-
-  return {
-    visible: conversationMessages.slice(offset),
-    remaining: offset,
-    loadMore,
-  };
 }
 
 export function AgentMessages({
@@ -331,34 +286,29 @@ export function AgentMessages({
   loading,
   running,
 }: AgentMessagesProps): React.JSX.Element {
-  const { visible: visibleMessages, remaining, loadMore } = useHistoryWindow(messages);
+  const conversation = useMemo(() => filterConversation(messages), [messages]);
+  const resetKey = useMemo(() => conversationIdentity(conversation), [conversation]);
   return (
-    <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollPreviousItemPeek={64}>
-      <section
-        className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg border border-border bg-card"
-        data-testid="agent-messages"
-      >
-        {loading && visibleMessages.length === 0 ? (
-          <div className="p-3 text-muted-foreground" data-testid="agent-messages-loading">
-            会话还原中…
-          </div>
-        ) : (
-          <MessageContainer
-            messages={visibleMessages}
-            remaining={remaining}
-            onReachTop={loadMore}
-          />
-        )}
-        {running && (
-          <div
-            className="p-3 flex items-center text-muted-foreground"
-            data-testid="agent-messages-running"
-          >
-            <Spinner />
-            运行中…
-          </div>
-        )}
-      </section>
-    </MessageScrollerProvider>
+    <section
+      className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg border border-border bg-card"
+      data-testid="agent-messages"
+    >
+      {loading && conversation.length === 0 ? (
+        <div className="p-3 text-muted-foreground" data-testid="agent-messages-loading">
+          会话还原中…
+        </div>
+      ) : (
+        <MessageContainer messages={conversation} resetKey={resetKey} />
+      )}
+      {running && (
+        <div
+          className="p-3 flex items-center text-muted-foreground"
+          data-testid="agent-messages-running"
+        >
+          <Spinner />
+          运行中…
+        </div>
+      )}
+    </section>
   );
 }

@@ -32,6 +32,34 @@ if (typeof globalThis.PointerEvent !== 'function') {
   Object.assign(globalThis, { PointerEvent: PointerEventStub });
 }
 
+// 虚拟滚动视口尺寸桩：jsdom 无布局（`clientHeight` / `scrollHeight` 恒 0），
+// `@tanstack/virtual-core` 的视口测量经 `getRect` 同步读这两个值（挂载即回调，
+// 不依赖 ResizeObserver 的后续上报）⇒ 不打桩时 outerSize = 0、可见 range 恒空，
+// 所有气泡断言会变成 0 条。
+// 1. 只补两个 getter：项高度不在这里——虚拟项的零测量护栏（实测 ≤ 0 回落
+//    estimateSize）已兜住，故不桩 `getBoundingClientRect`、不桩 `clientWidth`；
+//    `scrollHeight` 只决定 `getDistanceFromEnd` 的分母。
+// 2. 原型级 getter：仓库既有实例级 `Object.defineProperty` 打桩优先于原型，互不
+//    干扰；`clientHeight = scrollHeight = 600` ⇒ maxScroll = 0 ⇒ 全局呈现「内容
+//    不足一屏且贴底」，需要非贴底形态的用例在自身内局部抬高 `scrollHeight`。
+// 3. 作用面按 `data-slot="message-scroller-viewport"` 收窄，不影响其余套件。
+const VIEWPORT_SLOT = 'message-scroller-viewport';
+const VIEWPORT_STUB_SIZE = 600;
+
+function stubViewportSize(property: 'clientHeight' | 'scrollHeight'): void {
+  const original = Object.getOwnPropertyDescriptor(Element.prototype, property);
+  if (original?.get === undefined) return;
+  Object.defineProperty(Element.prototype, property, {
+    ...original,
+    get(this: Element): number {
+      if (this.getAttribute('data-slot') === VIEWPORT_SLOT) return VIEWPORT_STUB_SIZE;
+      return original.get?.call(this) ?? 0;
+    },
+  });
+}
+stubViewportSize('clientHeight');
+stubViewportSize('scrollHeight');
+
 // 测试门禁高并行运行（覆盖度量 + rust llvm-cov 编译抢 CPU）时 jsdom 定时器 /
 // rAF 可被饿死：RTL 异步等待（waitFor / findBy）默认 1s 预算会被负载抖动打穿
 // （抽屉弹层等异步呈现断言偶发超时）。放宽到 5s——等待语义不变，仅失败反馈变慢。

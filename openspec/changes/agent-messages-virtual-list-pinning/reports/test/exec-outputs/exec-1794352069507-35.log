@@ -1,0 +1,16 @@
+
+=== packages_desktop_vite-plus (vite-plus) · files=3 ===
+[32m07:07:55 (25224) INFO ProjectReader[39m Found 3 of 30988 file(s) to be mutated.
+[32m07:07:55 (25224) INFO Instrumenter[39m Instrumented 3 source file(s) with 271 mutant(s)
+[32m07:07:56 (25224) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m07:08:15 (25224) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[32m07:11:12 (25224) INFO DryRunExecutor[39m Initial test run succeeded. Ran 3029 tests in 2 minutes and 57 seconds (net 70011.98389999924 ms, overhead 107401.01610000076 ms).
+[32m07:15:46 (25224) INFO JsonReporter[39m Your report can be found at: file:///D:/Projects/.worktrees/wps-claude-plugin/agent-messages-virtual-list-pinning/openspec/changes/agent-messages-virtual-list-pinning/reports/test/packages_desktop_vite-plus/mutation/mutation-seg-0.json
+[32m07:15:46 (25224) INFO MutationTestExecutor[39m Done in 7 minutes and 54 seconds.
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }

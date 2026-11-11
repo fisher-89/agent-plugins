@@ -1,0 +1,6 @@
+[profile.wps-desktop-gate]
+inherits = "default"
+
+[profile.wps-desktop-gate.junit]
+path = "D:/Projects/.worktrees/wps-claude-plugin/agent-messages-virtual-list-pinning/openspec/changes/agent-messages-virtual-list-pinning/reports/test/packages_desktop_src-tauri_rust/junit.xml"
+report-skipped = "ignored"

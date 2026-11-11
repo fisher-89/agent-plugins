@@ -117,6 +117,29 @@ describe('AgentMessages：流式重渲染只解析变化的 markdown', () => {
     }
   });
 
+  it('虚拟窗口重渲：历史 assistant 项仍在窗口内，且只有末条流式文本重解析', () => {
+    const first = fold(baseEvents());
+    const { rerender } = render(<AgentMessages messages={first} />);
+    const historyItem = screen
+      .getAllByTestId('chat-bubble')
+      .find((bubble) => bubble.textContent?.includes('历史结论'));
+    expect(historyItem).toBeDefined();
+    expect(historyItem?.closest('[data-slot="message-scroller-item"]')).not.toBeNull();
+
+    markdownSpy.mockClear();
+    rerender(<AgentMessages messages={streamNext(first, '甲乙')} />);
+
+    // 虚拟化未把历史项踢出 DOM：窗口重渲后仍可见
+    expect(
+      screen
+        .getAllByTestId('chat-bubble')
+        .some((bubble) => bubble.textContent?.includes('历史结论')),
+    ).toBe(true);
+    // memo(ChatBubble) 语义：历史项整棵子树跳过，仅末条新文本重解析
+    expect(markdownCalls('历史结论')).toBe(0);
+    expect(markdownCalls('甲乙')).toBe(1);
+  });
+
   it('citations 变化照常更新引用列表，但正文 markdown 不重解析', () => {
     const first = fold(baseEvents());
     const { rerender } = render(<AgentMessages messages={first} />);

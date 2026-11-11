@@ -141,12 +141,7 @@ describe('useHighlightedCode：增量 tokenize 与缓存键', () => {
     rerender({ v: 'a\nb\nc\nd', l: 'ts' });
 
     await waitFor(() =>
-      expect(result.current).toEqual([
-        '<h:fresh|a>',
-        '<h:+a|b>',
-        '<h:+a|c>',
-        '<h:+a+b/c|d>',
-      ]),
+      expect(result.current).toEqual(['<h:fresh|a>', '<h:+a|b>', '<h:+a|c>', '<h:+a+b/c|d>']),
     );
     expect(highlighter.highlight).toHaveBeenCalledWith('b\nc', '+a');
   });
