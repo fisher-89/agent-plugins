@@ -1717,7 +1717,7 @@ export type FileSlice = {
 	offset: number,
 	/**  下次调用应传的游标；唯一产出方在后端 */
 	nextOffset: number,
-	/**  后面还有未读字节 */
+	/**  后面还有未读字节（不变量：置真时 `nextOffset > offset`） */
 	truncated: boolean,
 	/**  `"utf8"` | `"binary"`（开放词表：后续可加 `"base64"` 而不破契约） */
 	encoding: string,

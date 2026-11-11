@@ -240,3 +240,84 @@ fn read_file零limit夹到1() {
     assert_eq!(slice.content, "a", "limit 下界为 1");
     assert!(slice.truncated);
 }
+
+#[test]
+fn read_file预算小于首字符宽度时前向取整() {
+    let dir = TempDir::new().expect("tempdir");
+    // 「甲」3 字节 + 'b'：limit = 1 装不下一个字符，须前向取整到字符边界
+    let path = write(&dir, "narrow.txt", "甲b");
+
+    let slice = read(&path, None, Some(1));
+
+    assert_eq!(slice.content, "甲", "前向取整至完整字符");
+    assert_eq!(slice.next_offset, 3, "游标落在字符边界且必须前进");
+    assert!(slice.truncated, "后面仍有 'b'");
+}
+
+#[test]
+fn read_file中段非法字节以替换符呈现不误判二进制() {
+    let dir = TempDir::new().expect("tempdir");
+    // 文本中段混入一个非法字节：文件级编码仍是 utf8，该字节以替换符消费
+    let mut bytes = b"abc".to_vec();
+    bytes.push(0xFF);
+    bytes.extend_from_slice(b"def");
+    let path = write(&dir, "mixed.log", &bytes);
+
+    let slice = read(&path, None, None);
+
+    assert_eq!(slice.encoding, "utf8", "中段非法字节不判二进制");
+    assert_eq!(slice.content, "abc\u{FFFD}def");
+    assert_eq!(slice.next_offset, slice.stat.size, "游标越过非法字节");
+    assert!(!slice.truncated);
+}
+
+#[test]
+fn read_file编码判定与偏移无关() {
+    let dir = TempDir::new().expect("tempdir");
+    // 开头即非法（0xC3 后不跟续接字节）——文件级二进制，任一 offset 同结论
+    let path = write(&dir, "head.bin", [0xC3, 0x28, b'a', b'b']);
+
+    for offset in [0u64, 2] {
+        let slice = read(&path, Some(offset), None);
+        assert_eq!(slice.encoding, "binary", "offset {offset} 仍判二进制");
+        assert_eq!(slice.next_offset, slice.stat.size, "游标一次到文件尾");
+        assert!(!slice.truncated, "binary 恒不报截断");
+    }
+}
+
+#[test]
+fn read_file文件尾半字符零推进不报截断() {
+    let dir = TempDir::new().expect("tempdir");
+    // 完整「甲」+「乙」的首字节：末字符永远补不齐
+    let mut bytes = "甲".as_bytes().to_vec();
+    bytes.push("乙".as_bytes()[0]);
+    let path = write(&dir, "tail.txt", &bytes);
+
+    let head_slice = read(&path, None, None);
+    assert_eq!(head_slice.content, "甲");
+    assert_eq!(head_slice.next_offset, 3);
+    assert!(head_slice.truncated, "半字符之前仍有内容");
+
+    let tail_slice = read(&path, Some(3), None);
+    assert_eq!(tail_slice.content, "", "半字符不产出内容");
+    assert_eq!(tail_slice.next_offset, 3, "零推进");
+    assert!(
+        !tail_slice.truncated,
+        "零推进时不得报截断（否则调用方死转）"
+    );
+}
+
+#[test]
+fn read_file大二进制文件游标到尾部且不报截断() {
+    let dir = TempDir::new().expect("tempdir");
+    let mut bytes = vec![0u8];
+    bytes.extend(std::iter::repeat(b'x').take(MAX_LIMIT as usize + 64));
+    let path = write(&dir, "big.bin", &bytes);
+
+    let slice = read(&path, None, None);
+
+    assert_eq!(slice.encoding, "binary");
+    assert_eq!(slice.content, "");
+    assert_eq!(slice.next_offset, slice.stat.size, "游标一次到文件尾");
+    assert!(!slice.truncated, "binary 是终局判定，不报截断");
+}

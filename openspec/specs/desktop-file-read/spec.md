@@ -24,26 +24,50 @@
 - **WHEN** 以固定小 `limit` 逐次调用 `read_file`，每次以上次的 `nextOffset` 作 `offset`，直至 `truncated = false`
 - **THEN** 各段 `content` 顺序拼接与整读结果逐字节相等（无重无漏）
 
-### Requirement: UTF-8 边界对齐与二进制探测
+### Requirement: UTF-8 边界对齐与文件级编码探测
 
-`read_file` SHALL 保证窗口内容落在字符边界：入参 `offset` 落在多字节字符中间时 SHALL **前向对齐**（跳过续接字节），返回值 `offset` 为实际起点；窗口尾部残缺的多字节序列 SHALL 整段丢弃（不产出替换符），`nextOffset` 恒落在字符边界。
+`read_file` SHALL 保证窗口内容落在字符边界，并满足三条不变量：
 
-窗口内容 SHALL 判定 `encoding`：含 NUL 字节、或（窗口 ≥ 4 字节时）整段即非法 UTF-8 起始 ⇒ `encoding = "binary"`、`content` 为空串、`truncated = false`（`stat` 仍给真实大小）；否则 `encoding = "utf8"`。`encoding` 为开放词表（后续可加 `"base64"` 而不破契约）。
+- **起点对齐**：入参 `offset` 落在多字节字符中间时 SHALL **前向对齐**（跳过续接字节），返回值 `offset` 为实际起点。
+- **终点补齐**：窗口终点 SHALL 为字符边界。末字符在 `limit` 处被截断且窗口内后续字节能补齐时 SHALL **前向取整**（`content` 至多 `limit + 3` 字节）；补不齐（文件尾半字符）时 SHALL 退位到该字符起点。
+- **窗口必须能推进**：`truncated = true` ⇒ `nextOffset > offset`；`nextOffset == offset` 时 `truncated` SHALL 恒为 `false`（零推进的唯一合法形态是文件尾半字符，此时残留不足一个字符，「后面还有未读字节」不成立）。`limit` 小于首字符字节宽度时 SHALL 前向取整到该完整字符，MUST NOT 停在原地。
+
+`encoding` SHALL 为**文件级**属性：判定只看文件头（`PROBE_LIMIT` = 4 KiB），与 `offset` 无关，同一文件任一 `offset` 结论一致。满足下列任一 ⇒ `encoding = "binary"`、`content = ""`、`nextOffset = stat.size`、`truncated = false`：
+
+- 头部含 NUL 字节；
+- 文件**开头**即真非法 UTF-8 序列（`valid_up_to() == 0 && error_len().is_some()`）。`error_len()` 为 `None` 只说明探测窗截断了合法前缀，MUST NOT 判二进制。
+
+中段非法字节（含代码页混入的日志）MUST NOT 判二进制：该字节 SHALL 以 `U+FFFD` 替换呈现并正常消费，游标越过。`encoding` 为开放词表（后续可加 `"base64"` 而不破契约）。
 
 #### Scenario: 偏移落在多字节中间
 
 - **WHEN** 文件以三字节字符开头，以 `offset = 1` 或 `2` 调用
 - **THEN** 实际 `offset` 前向对齐到该字符之后，`content` 从下一字符起，不产出替换符
 
+#### Scenario: 预算小于首字符宽度
+
+- **WHEN** 以 `limit = 1` 读一个以三字节字符开头的文件
+- **THEN** `content` 为该完整字符（前向取整，至多溢出 3 字节），`nextOffset` 落在该字符之后且大于入参 `offset`
+
 #### Scenario: 尾部残缺序列
 
-- **WHEN** 窗口在某个多字节字符中途截断
-- **THEN** 该残缺尾序列整体丢弃，`content` 不含替换符，`truncated = true`，`nextOffset` 落在完整字符边界
+- **WHEN** 窗口在某个多字节字符中途截断，且该字符在文件内能补齐
+- **THEN** 窗口前向取整包含该完整字符，`nextOffset` 落在其后，`content` 不含替换符
+
+#### Scenario: 文件尾半字符零推进
+
+- **WHEN** 以等于「文件长度减 1」的 `offset` 读取一个以三字节字符结尾的文件
+- **THEN** `content = ""`、`nextOffset == offset`、`truncated = false`（调用方据此收手，不会按游标死转）
+
+#### Scenario: 中段混入非 UTF-8 字节
+
+- **WHEN** 读取一个文本文件，其中段含一个非法 UTF-8 字节
+- **THEN** `encoding = "utf8"`、该字节呈现为 `U+FFFD`、`nextOffset` 越过它继续前进，MUST NOT 判整窗为二进制
 
 #### Scenario: 二进制文件
 
-- **WHEN** 对含 NUL 字节或首段即非法 UTF-8 的文件调用
-- **THEN** `encoding = "binary"`、`content = ""`、`truncated = false`；`stat.size` 仍为真实字节数
+- **WHEN** 对头部含 NUL 字节或开头即非法 UTF-8 的文件调用（任意 `offset`、任意大小）
+- **THEN** `encoding = "binary"`、`content = ""`、`nextOffset == stat.size`、`truncated = false`；`stat.size` 仍为真实字节数
 
 ### Requirement: 目录与缺失语义
 
@@ -79,7 +103,7 @@
 `read_file` 不限制路径，故其消费面 SHALL 守住两条不变量：
 
 - markdown 渲染 MUST NOT 注入可执行脚本：前端 MUST NOT 引入 `rehype-raw` 一类 raw-HTML 插件、MUST NOT 对读取内容使用 `dangerouslySetInnerHTML`；
-- 单次读取 SHALL 受 `MAX_LIMIT` 约束（8 MiB 硬顶），防止一次性把超大文件读入 WebView 内存。
+- 单次读取 SHALL 受 `MAX_LIMIT` 约束（8 MiB 硬顶，前向取整的至多 3 字节溢出除外），防止一次性把超大文件读入 WebView 内存。
 
 #### Scenario: raw HTML 不执行
 
@@ -90,7 +114,7 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `src-tauri/src/commands/fs/mod.rs`（新） | 通用读命令 | `read_file` / `read_file_inner`；`FileSlice` / `FileStat` DTO；字节窗口 + 字符边界对齐 + binary 探测 + 上限夹取；零领域规则（不认识 change / explore / 架构模型） |
+| `src-tauri/src/commands/fs/mod.rs`（新） | 通用读命令 | `read_file` / `read_file_inner`；`FileSlice` / `FileStat` DTO；字节窗口 + 字符边界对齐（起点对齐 / 终点补齐）+ 文件级编码探测（头部 NUL 或开头即非法）+ 上限夹取；零领域规则（不认识 change / explore / 架构模型） |
 | `src-tauri/src/commands/mod.rs` | 命令登记 | `all_commands!` 增 `commands::fs::read_file`；删 `archi_read_doc` / `read_explore` / `read_exec_output` 三行 |
 | `packages/desktop/src/components/file/file-viewer.tsx` | 文档预览消费方 | `archiReadDoc` → `readFile`（相对路径按 root 拼接）；binary / 缺失 / 失败三态呈现 |
 | `packages/desktop/src/views/explores/hooks/use-explore-doc.ts` | explore 预览取数 | `explore_doc_path`（按臂单次解析、读取与 watch 共用）+ `read_file`；`ExploreDoc` 转本地类型 |
