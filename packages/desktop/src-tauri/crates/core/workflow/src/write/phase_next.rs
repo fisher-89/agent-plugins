@@ -114,7 +114,7 @@ pub struct PhaseNextOutcome {
 }
 
 /// 只读路由状态机（按 change **id** 寻址）：不改状态库。路由权威唯一——
-/// walker 每步过渡都问本函数，白名单经其缓存下发；上下文头的 change 段由记录
+/// walker 每步过渡都问本函数，白名单随响应下发；上下文头的 change 段由记录
 /// `name` 供给（id → 记录 → name 分辨率单点）。
 pub fn phase_next(
     store: &dyn ChangeStateStore,
@@ -261,10 +261,11 @@ pub fn phase_next(
     ))
 }
 
-/// 决策分叉错误响应（两触发点共用形：不下发相位 / 步序 / 清单 / 角色 spec，
-/// 白名单空——白名单由 walker 缓存的前一站正常路由响应供给）。失败相位自
-/// `PhaseNextError` 单点取出，`backtrack_window` 填覆盖该失败相位的开放窗口
-/// （决策输入取此处）。
+/// 决策分叉错误响应（两触发点共用形：不下发相位 / 步序 / 清单 / 角色 spec）。
+/// 失败相位自 `PhaseNextError` 单点取出，`allowed_backtrack_phases` 为该相位的
+/// `backtrack_options`（与正常路由同一推导单点——决策输入不得依赖 walker 的
+/// 上一站缓存，run 首轮即分叉时无「上一站」可缓存）、`backtrack_window` 填覆盖
+/// 该失败相位的开放窗口（决策输入取此处）。
 fn error_outcome(
     entries: &[PhaseStateRecord],
     table: &'static [PhaseDefinition],
@@ -285,7 +286,7 @@ fn error_outcome(
         executor: None,
         evaluator: None,
         backtrack_window: open_backtrack_windows(entries, table, phase),
-        allowed_backtrack_phases: Vec::new(),
+        allowed_backtrack_phases: backtrack_options(table, phase),
         last_result,
         error: Some(error),
     }

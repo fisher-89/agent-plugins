@@ -1529,6 +1529,67 @@ fn 错误响应不下发计划步与清单() {
         outcome.artifact_manifest.is_empty(),
         "错误响应不下发产物清单"
     );
+    assert_eq!(
+        ids(&outcome.allowed_backtrack_phases),
+        vec!["proposal", "dev-design"],
+        "错误响应白名单 = 失败相位的 backtrack_options（与正常路由同一推导单点）"
+    );
+}
+
+/// 决策分叉白名单不依赖 walker 的上一站缓存（回归 / 正向）：新 run 首轮
+/// `phase_next` 即返回分叉错误（db 中该相位最新 fail 条目未挂决策会话——
+/// 上一 run 在决策落账前中断的形态）时，白名单仍为该失败相位的
+/// `backtrack_options`，不是空集。
+#[test]
+fn 首轮即分叉时白名单不依赖上一站缓存() {
+    // 前六相位 pass + code-review 未决 fail（决策会话槽位缺席）
+    let base: Vec<PhaseStateRecord> = [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+    .collect();
+    let mut seeded = base;
+    seeded.push(entry("code-review", 1, Verdict::Fail, t(7)));
+    let fake = RouteStore::seeded(seeded);
+
+    // 新 SessionAnchors（新 run）：本轮零 fail 计数，分叉只可能来自 VerdictFail
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.error,
+        Some(PhaseNextError::VerdictFail {
+            phase: "code-review".to_owned(),
+            round: 1,
+        }),
+        "首轮即分叉（上一 run 未落决策的未决 fail 条目）"
+    );
+    assert_eq!(
+        ids(&outcome.allowed_backtrack_phases),
+        vec![
+            "proposal",
+            "dev-design",
+            "test-design",
+            "implement",
+            "test-gen",
+            "test-execution",
+            "code-review",
+        ],
+        "白名单 = 失败相位的 backtrack_options（非空、不依赖上一站缓存）"
+    );
+    assert!(
+        outcome
+            .allowed_backtrack_phases
+            .iter()
+            .any(|option| option.phase == "code-review"),
+        "评估-only 相位自身在列（可重做语义不变）"
+    );
 }
 
 // ---------------------------------------------------------------------------

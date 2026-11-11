@@ -100,7 +100,7 @@ pub enum ToolCommand {
         phase: String,
         input: PhaseLogInput,
     },
-    /// 回溯落账（白名单由 walker 缓存随行，写面二次校验兜底）
+    /// 回溯落账（白名单自决策输出来源随行，写面二次校验兜底）
     Backtrack {
         change_id: String,
         phase: String,

@@ -10,7 +10,7 @@ core/workflow 保持 change 流程状态的 Rust 单一权威（读 + 写），�
 
 core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写），持久化载体 SHALL 由 workflow.json 重定义为 workspace 库（desktop-change-state-store；落库经 port 缝由壳层装配 store 实现，core/workflow 零 infra 依赖）。写面 SHALL 提供：
 
-- `phase_next`：相位路由状态机——返回 next_phase、已插值的 executor / evaluator prompt、`allowed_backtrack_phases` 白名单（项 = 相位 id + 表内特性描述 + 该相位声明的可操作产物清单，`backtrack_options` 自相位表 `description` / `artifact_manifest` 随行下发；评估 checklist 非声明产物，恒不在清单内）、重试上限判定；`sessionAnchors` 以进程内状态复活（mid-phase interruption 分支可达，重入时中断相位可感知并标定）；
+- `phase_next`：相位路由状态机——返回 next_phase、已插值的 executor / evaluator prompt、`allowed_backtrack_phases` 白名单（项 = 相位 id + 表内特性描述 + 该相位声明的可操作产物清单，`backtrack_options` 自相位表 `description` / `artifact_manifest` 随行下发；评估 checklist 非声明产物，恒不在清单内）、重试上限判定；**决策分叉错误响应 SHALL 同样携该失败相位的 `backtrack_options` 白名单**（与正常路由同一推导单点；MUST NOT 留空等消费方自备，MUST NOT 依赖消费方跨轮缓存——run 首轮即分叉时无「上一站」可缓存）；`sessionAnchors` 以进程内状态复活（mid-phase interruption 分支可达，重入时中断相位可感知并标定）；
 - `phase_start`：开启阶段并 attempt 计时；
 - `phase_log`：eval 记录落账（checklist 信封 + skipped + 会话槽位，见「eval 条目会话槽位落账」），单事务原子落库；
 - `backtrack`：回跳落账（stale 标记 + 传播 + reason ≤1000）；
@@ -215,6 +215,11 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 - **WHEN** 分别对 implement 与 test-execution 调用 `allowed_backtrack_phases`
 - **THEN** implement 的白名单含 implement 自身（`steps` 含 agent 步 ⇒ 可重做，「重做本相位」经回溯到自身表达）；test-execution 的白名单不含自身（`steps` 全为确定性步 ⇒ 不可重做，决策上下文无「重做本相位」选项），其余前序 `backtrackable` 相位照常在列
+
+#### Scenario: 决策分叉响应携白名单
+
+- **WHEN** `phase_next` 以 `VerdictFail` / `MaxRetriesExceeded` 返回决策分叉错误，且该轮是本 run 的第一次调用（无任何前置正常路由响应）
+- **THEN** 错误响应的 `allowed_backtrack_phases` 为该失败相位的 `backtrack_options`（非空、与正常路由同一推导单点，含「可重做」自排除语义）；消费方据此组装的决策输入白名单与写面二次校验载荷均非空，backtrack 决议可正常兑现——MUST NOT 返回空集要求消费方自行缓存前序响应
 
 #### Scenario: artifact 清单权威归属
 

@@ -212,7 +212,7 @@ pub async fn walk_run(
 
 /// 循环体：终态一律以 `(status, reason)` 返回，不触 finish。
 ///
-/// **计划图驱动**：每轮问写面 `phase_next`（路由唯一权威，白名单随响应缓存），
+/// **计划图驱动**：每轮问写面 `phase_next`（路由唯一权威，白名单随响应下发），
 /// next 相位按响应下发的 `steps` 计划步序列迭代执行——walker 零自持步序（门禁
 /// 由 step 声明、反馈 / 终态由步 `on_fail` 语义承载）；相位间 confirm 停等仍为
 /// run 级 `auto_next_phase` 开关（非 step 属性），并在 `stop_before` 相位前追加
@@ -225,7 +225,6 @@ async fn drive(
     guard: &RunGuard,
     request: &RunRequest,
 ) -> (ChangeRunStatus, Option<String>) {
-    let mut allowed: Vec<BacktrackOption> = Vec::new();
     let mut trace = EdgeTrace::default();
     loop {
         if let Err(terminal) = check_cancel(guard) {
@@ -244,9 +243,17 @@ async fn drive(
             );
         }
         if let Some(error) = &next.error {
-            // 决策分叉
+            // 决策分叉（白名单随 error 响应下发——walker 不持跨迭代缓存）
             match resolve_deadlock(
-                worker, tools, snapshot, guard, request, &next, error, &allowed, &mut trace,
+                worker,
+                tools,
+                snapshot,
+                guard,
+                request,
+                &next,
+                error,
+                &next.allowed_backtrack_phases,
+                &mut trace,
             )
             .await
             {
@@ -268,7 +275,6 @@ async fn drive(
             ))
             .into_pair();
         }
-        allowed = next.allowed_backtrack_phases.clone();
 
         // 停止门（stop-before-phase）：无论 auto 与否，进入 stop_before 相位前
         // 必发一道确认停等——归档前置只读载荷随行（停等面数据面），确认回流携

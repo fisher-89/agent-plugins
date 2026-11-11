@@ -41,8 +41,9 @@ pub struct DecisionInput {
     /// [`MAX_REPORT_CHARS`](crate::verdict::MAX_REPORT_CHARS)）——决策 prompt
     /// 「失败相位报告」段的唯一来源
     pub fail_report: String,
-    /// phase-next 白名单（walker 缓存，不自相位表推导——守住路由红线）；每项
-    /// 携相位特性描述（路由层自相位表下发），决策 prompt 逐条渲染供判断
+    /// phase-next 白名单（随 error 响应下发，walker 不自相位表推导——守住路由
+    /// 红线）；每项携相位特性描述（路由层自相位表下发），决策 prompt 逐条渲染
+    /// 供判断
     pub allowed: Vec<BacktrackOption>,
     /// 候选相位最近 eval report
     pub candidates: Vec<CandidateReport>,

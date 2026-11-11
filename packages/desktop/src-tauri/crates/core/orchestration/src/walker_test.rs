@@ -2552,8 +2552,7 @@ async fn 决策分叉唤起恰一次且输入有界() {
         .assemble();
     let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由：白名单缓存随行（决策分叉的 allowed 来自上一站
-            // phase-next 缓存——walker 的缓存语义面）
+            // 首轮正常路由；分叉响应的白名单自失败相位推导（walker 零缓存）
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
             max_retries_outcome(
                 "implement",
@@ -2696,7 +2695,7 @@ async fn verdict_fail分叉立即唤起决策_backtrack自身重跑同相位() {
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由（白名单缓存面）→ 相位 pass 落账 → 次轮分叉错误 →
+            // 首轮正常路由 → 相位 pass 落账 → 次轮分叉错误（白名单随分叉响应）→
             // 决策 backtrack 到自身 → 重路由同相位 → 重跑 pass → done
             route_outcome("code-review", &allowed),
             verdict_fail_outcome("code-review", &allowed, "审查未过"),
@@ -2786,7 +2785,7 @@ async fn backtrack决议携白名单执行并重路由() {
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由：白名单缓存随行
+            // 首轮正常路由（分叉响应的白名单不取此前缓存）
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
             max_retries_outcome(
                 "implement",
@@ -2914,7 +2913,7 @@ async fn 越权backtrack软拒一次后续注纠正并stop收敛() {
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由：白名单缓存随行
+            // 首轮正常路由（分叉响应的白名单不取此前缓存）
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
             max_retries_outcome(
                 "implement",
@@ -3025,8 +3024,7 @@ async fn ask中断与应答回流continue决策会话() {
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由：白名单缓存随行（决策分叉的 allowed 来自上一站
-            // phase-next 缓存——walker 的缓存语义面）
+            // 首轮正常路由；分叉响应的白名单自失败相位推导（walker 零缓存）
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
             max_retries_outcome(
                 "implement",
@@ -3434,8 +3432,7 @@ async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
         .assemble();
     let (tools, _) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由：白名单缓存随行（决策分叉的 allowed 来自上一站
-            // phase-next 缓存——walker 的缓存语义面）
+            // 首轮正常路由；分叉响应的白名单自失败相位推导（walker 零缓存）
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
             max_retries_outcome(
                 "implement",
@@ -4172,29 +4169,36 @@ async fn 会话失败收敛成因缺席回落通用文案() {
     );
 }
 
-/// walk_run 空白名单 backtrack 出口（边界）：phase-next 白名单为空 +
-/// MaxRetriesExceeded → 决策输入白名单段为空，backtrack 决议被门驳回（软拒
-/// 一次、同会话续注），stop 经门 passed 受控收敛——仅剩 stop / ask 出口。
+/// walk_run 首轮即决策分叉（回归）：本 run 第一次 `phase_next` 就返回分叉
+/// 错误（上一 run 在 decision-log 落账前中断，db 中该相位最新 fail 条目未挂
+/// 决策会话）——此时没有任何「上一站正常路由」可供缓存，决策输入的白名单
+/// 必须自 error 响应取得：backtrack 经门 passed 并真落账，run 继 backtrack 重
+/// 路由推进，而非拿空名单只剩 stop / ask。
 #[tokio::test]
-async fn 空白名单backtrack决议被拒() {
-    let (root, db) = decision_fixture("empty-whitelist-decision");
+async fn 首轮即分叉_白名单自错误响应下发_backtrack可兑现() {
+    let (root, db) = decision_fixture("first-call-fork-decision");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, _) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
-            r#"{ "action": "backtrack", "to": "proposal", "reason": "空名单越权" }"#.to_owned(),
-            r#"{ "action": "stop", "reason": "无回溯目标，人工介入" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "首轮即分叉" }"#.to_owned(),
         ])
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由：白名单缓存为空集（空白名单出口的缓存面）
-            route_outcome("implement", &[]),
-            max_retries_outcome("implement", &[], "首轮未过"),
+            // 首轮即分叉错误（无前置正常路由）
+            verdict_fail_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+            // backtrack 兑现后重路由至目标相位 → 推进至 done
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            done_outcome(),
         ])
         .assemble();
 
-    // 真实快照源：决策会话的 detail 读取（db 读源——空白名单出口的决策输入面）
+    // 真实快照源：决策会话的 detail 读取（db 读源）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
@@ -4206,34 +4210,46 @@ async fn 空白名单backtrack决议被拒() {
 
     assert_eq!(
         status,
-        ChangeRunStatus::Stopped,
-        "空白名单 backtrack 出口封死后 stop 受控收敛"
+        ChangeRunStatus::Completed,
+        "首轮分叉的 backtrack 被受理并重路由收敛"
     );
-    assert!(
-        commands
-            .lock()
-            .expect("命令锁")
-            .iter()
-            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
-        "backtrack 步零发起"
-    );
-
-    // 决策输入白名单段为空（无任何白名单相位行）
-    let requests = requests.lock().expect("请求锁");
-    let decision_requests: Vec<&WorkerTurnRequest> = requests
+    let backtracks: Vec<ToolCommand> = commands
+        .lock()
+        .expect("命令锁")
         .iter()
-        .filter(|request| request.role == WorkerRole::Decision)
+        .filter(|command| matches!(command, ToolCommand::Backtrack { .. }))
+        .cloned()
         .collect();
-    assert_eq!(decision_requests.len(), 2, "驳回后同会话续注一轮");
-    let decision_prompt = &decision_requests[0].prompt;
+    assert_eq!(backtracks.len(), 1, "backtrack 步恰发起一次（门未驳回）");
+    match &backtracks[0] {
+        ToolCommand::Backtrack { input, .. } => {
+            assert_eq!(input.to, "dev-design");
+            assert_eq!(
+                input.allowed,
+                vec![
+                    "proposal".to_owned(),
+                    "dev-design".to_owned(),
+                    "implement".to_owned(),
+                ],
+                "白名单随 error 响应落进写面兜底校验载荷"
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    let requests = requests.lock().expect("请求锁");
+    let decision_prompt = &requests
+        .iter()
+        .find(|request| request.role == WorkerRole::Decision)
+        .expect("决策会话在案")
+        .prompt;
     assert!(
-        !decision_prompt.contains("- proposal"),
-        "白名单段为空（无候选相位行）"
+        decision_prompt.contains("- proposal") && decision_prompt.contains("- dev-design"),
+        "决策输入白名单段非空（自 error 响应取得）: {decision_prompt}"
     );
     assert!(
-        decision_requests[1].prompt.contains("上一轮决策输出被驳回"),
-        "第二轮为纠正文案: {}",
-        decision_requests[1].prompt
+        !decision_prompt.contains("上一轮决策输出被驳回"),
+        "无软拒（白名单非空，首轮决议即通过）"
     );
 }
 
@@ -5724,7 +5740,7 @@ async fn exec_root透传锚_四缝root恒等于request_root() {
         ])
         .assemble();
     let tools_device = FakeTools::new(&timeline).with_phase_next(vec![
-        // 首轮正常路由（白名单缓存随行）→ 次轮预算耗尽分叉触快照 → 决策回跳
+        // 首轮正常路由 → 次轮预算耗尽分叉触快照（白名单随分叉响应）→ 决策回跳
         // 重跑 → 收敛
         route_outcome("implement", &["proposal", "implement"]),
         max_retries_outcome("implement", &["proposal", "implement"], "首轮未过"),
@@ -6000,7 +6016,7 @@ async fn 全词汇run零过滤_流程面与三门在案() {
     let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
             // implement：executor + static-check 反馈边（fail→pass）+ evaluator
-            // + verdict 门 + phase-log + phase-start（白名单缓存随行）
+            // + verdict 门 + phase-log + phase-start
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
             // 决策分叉：whitelist 门 + retry 门 + decision 会话
             max_retries_outcome(
