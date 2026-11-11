@@ -29,3 +29,14 @@ pub struct ChecklistItem {
     pub pass: bool,
     pub evidence: String,
 }
+
+/// verdict 推导全局单点：checklist 全 pass → pass，否则 fail（空 checklist →
+/// pass，与插件 `resolveVerdict` 的 every 语义一致）。落账路径（`phase_log`）
+/// 与编排侧 `finish_step` 校验器共用本实现——MUST NOT 出现第二份。
+pub fn derive_verdict(checklist: &[ChecklistItem]) -> Verdict {
+    if checklist.iter().all(|item| item.pass) {
+        Verdict::Pass
+    } else {
+        Verdict::Fail
+    }
+}

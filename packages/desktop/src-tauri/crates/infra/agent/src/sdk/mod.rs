@@ -9,6 +9,7 @@ pub(crate) mod log;
 // identifier 挂载（`r#loop`）
 pub(crate) mod r#loop;
 pub(crate) mod model_spec;
+pub(crate) mod mount;
 pub(crate) mod normalize;
 pub(crate) mod policy;
 pub(crate) mod preamble;
@@ -37,6 +38,8 @@ mod log_test;
 mod loop_test;
 #[cfg(test)]
 mod model_spec_test;
+#[cfg(test)]
+mod mount_test;
 #[cfg(test)]
 mod normalize_test;
 #[cfg(test)]

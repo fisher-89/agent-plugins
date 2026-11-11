@@ -1988,22 +1988,21 @@ async fn 未触水位时请求史原样且零防线notice() {
 // ---------------------------------------------------------------------------
 
 use crate::sdk::explore_note::ExploreNoteContext;
-use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
-use agent::SessionToolset;
+use crate::sdk::mount::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
 use store::Store;
 
-/// explore 来源注入底座（六名收窄 + Explore toolset）。
+/// explore 来源注入底座（六名 + `create_explore_note` 名字清单）。
 fn explore_injections() -> agent::SessionInjections {
+    let mut names: Vec<String> = TOOL_NAMES
+        .iter()
+        .filter(|n| **n != "write")
+        .map(|n| n.to_string())
+        .collect();
+    names.push(EXPLORE_NOTE_TOOL.to_owned());
     agent::SessionInjections {
         preamble: None,
-        tools: Some(
-            TOOL_NAMES
-                .iter()
-                .filter(|n| **n != "write")
-                .map(|n| n.to_string())
-                .collect(),
-        ),
-        toolset: Some(SessionToolset::Explore),
+        tools: Some(names),
+        finish: None,
     }
 }
 
@@ -3268,11 +3267,12 @@ async fn 开关两态下run_started_tools均等于definitions派生名单且不�
         let events = drive_loop(&model, &web_search_turn(dir.path(), enabled), &handle).await;
 
         let tools = run_started_tools(&events);
-        let expected: Vec<String> =
-            crate::sdk::tools::definitions(&agent::SessionInjections::default())
-                .iter()
-                .map(|definition| definition.name.clone())
-                .collect();
+        let mounts = crate::sdk::mount::definitions(&agent::SessionInjections::default(), "")
+            .expect("合法注入面");
+        let expected: Vec<String> = mounts
+            .iter()
+            .map(|mount| mount.definition.name.clone())
+            .collect();
         assert_eq!(
             tools, expected,
             "开关 {enabled}：RunStarted.tools = definitions 派生名单"
@@ -4220,7 +4220,7 @@ async fn 计数轴隔离_续跑不增轮数且run_started恰一条() {
 // ---------------------------------------------------------------------------
 
 use crate::sdk::archi_tool::ArchiContext;
-use crate::sdk::tools::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
+use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
 
 /// 健康模型（`App` / `App.Auth` 两元素，`App.Auth` 带 gate 与 summary）。
 const ARCHI_CORE: &str = concat!(
@@ -4248,12 +4248,19 @@ fn archi_fixture(tag: &str) -> tempfile::TempDir {
     dir
 }
 
-/// archi 来源注入底座（两布尔位按需；`tools` 不收窄 = 七通用工具全量）。
+/// archi 来源注入底座（两工具名按位；七工具名底座不变）。
 fn archi_injections(module: bool, search: bool) -> agent::SessionInjections {
+    let mut names: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    if module {
+        names.push(ARCHI_MODULE_TOOL.to_owned());
+    }
+    if search {
+        names.push(ARCHI_SEARCH_TOOL.to_owned());
+    }
     agent::SessionInjections {
         preamble: None,
-        tools: None,
-        toolset: Some(SessionToolset::Archi { module, search }),
+        tools: Some(names),
+        finish: None,
     }
 }
 
@@ -4752,7 +4759,7 @@ async fn run系统消息合成双在场恰一条system() {
         injections: agent::SessionInjections {
             preamble: Some("架构知识段".to_owned()),
             tools: None,
-            toolset: None,
+            finish: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -4785,7 +4792,7 @@ async fn run系统消息合成仅preamble恰一条system() {
         injections: agent::SessionInjections {
             preamble: Some("架构知识段".to_owned()),
             tools: None,
-            toolset: None,
+            finish: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -4828,7 +4835,7 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
         injections: agent::SessionInjections {
             preamble: Some("架构知识段".to_owned()),
             tools: None,
-            toolset: None,
+            finish: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -4859,16 +4866,16 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
 // 义），`tools::definitions` / `policy` / `protect` 全真实组合不 mock。
 // ---------------------------------------------------------------------------
 
-/// archi 会话面的注入底座（`source = "archi"` 臂的逐字段形态：七工具全量 +
-/// 双开 + 知识 preamble）。
+/// archi 会话面的注入底座（`source = "archi"` 臂的逐字段形态：七工具名 +
+/// 两 archi 名 + 知识 preamble）。
 fn archi_session_injections(knowledge: Option<&str>) -> agent::SessionInjections {
+    let mut names: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    names.push(ARCHI_MODULE_TOOL.to_owned());
+    names.push(ARCHI_SEARCH_TOOL.to_owned());
     agent::SessionInjections {
         preamble: knowledge.map(str::to_owned),
-        tools: None,
-        toolset: Some(SessionToolset::Archi {
-            module: true,
-            search: true,
-        }),
+        tools: Some(names),
+        finish: None,
     }
 }
 
@@ -5151,4 +5158,594 @@ async fn archi面写坏模型读面is_error带file_line且run不中断() {
         panic!("应为 TurnDone");
     };
     assert!(!*is_error, "坏模型不炸 run（正常收敛）");
+}
+
+// ---------------------------------------------------------------------------
+// `finish_step` 收口（agent-finalize-tool AC-5）：收口三纪律 + 校验 Err 回灌 +
+// 成员校验先于收口 + tier 门放行 + 截断终局零 notice
+// ---------------------------------------------------------------------------
+
+/// 两行静态清单 prompt（收口用例的合成语料）。
+fn finish_prompt() -> String {
+    "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
+     | C1 | 变更代码中无安全漏洞 | 检查注入面 |\n\
+     | C2 | 变更代码有对应测试 | 检查测试文件 |\n"
+        .to_owned()
+}
+
+/// 合法收口参数（覆盖合成清单全 ID）。
+fn finish_args() -> serde_json::Value {
+    serde_json::json!({
+        "report": "评估报告正文",
+        "items": [
+            { "id": "C1", "pass": true, "evidence": "src/a.rs:10" },
+            { "id": "C2", "pass": true, "evidence": "tests/a.rs:3" },
+        ]
+    })
+}
+
+/// 携 `finish` 档位 + 合成 prompt 的轮参数。
+fn loop_turn_with_finish(
+    cwd: &Path,
+    mode: AgentPermissionMode,
+    spec: agent::FinishSpec,
+) -> LoopTurn {
+    LoopTurn {
+        question: finish_prompt(),
+        injections: crate::sdk::mount::injected_finish(&[], Some(spec)),
+        ..loop_turn(cwd, mode)
+    }
+}
+
+/// 摘密封 tool role 的 ToolResult 三元组（id / content / is_error）。
+fn sealed_tool_results(events: &[AgentEventKind]) -> Vec<(String, String, bool)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEventKind::Message { role, blocks, .. } if *role == AgentMessageRole::Tool => {
+                Some(
+                    blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            agent::AgentBlock::ToolResult {
+                                id,
+                                content,
+                                is_error,
+                            } => Some((id.clone(), content.clone(), *is_error)),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+/// 收口成功零额外请求（AC-5 ③ / AC-4）：合法 `finish_step` 调用 → `SystemNotice{
+/// finish_step}` 恰一条且载荷可反序列化；`TurnDone{is_error:false}`；请求数恒 1；
+/// `RunStarted.tools` 含 `finish_step` 且**其余名单逐名有序等于**
+/// `mount::definitions` 的产出（上报面自同一挂载清单派生，零第二份名单）——
+/// 两种注入底座各一例：`tools: None`（内建七件）与 `tools: Some([])`（显式空面）。
+#[tokio::test]
+async fn finish_step收口成功零额外请求() {
+    let bases: [(&str, Option<Vec<String>>); 2] = [
+        ("finish-success-builtin", None),
+        ("finish-success-empty", Some(Vec::new())),
+    ];
+    for (tag, tools) in bases {
+        let dir = tempdir(tag);
+        let model = FakeModel::with_turns(vec![vec![raw_tool_call(
+            "tu_finish",
+            "finish_step",
+            finish_args(),
+        )]]);
+        let turn = LoopTurn {
+            question: finish_prompt(),
+            injections: agent::SessionInjections {
+                preamble: None,
+                tools: tools.clone(),
+                finish: Some(agent::FinishSpec::EvaluatorChecklist),
+            },
+            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+        };
+        let (events, _history) =
+            drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+        let finish_notices: Vec<&serde_json::Value> = notices_of(&events)
+            .into_iter()
+            .filter(|(subtype, _)| *subtype == "finish_step")
+            .map(|(_, payload)| payload)
+            .collect();
+        assert_eq!(finish_notices.len(), 1, "{tag}: finish_step notice 恰一条");
+        let payload: orchestration::finish::FinishPayload =
+            serde_json::from_value(finish_notices[0].clone())
+                .expect("载荷可反序列化为 FinishPayload");
+        let orchestration::finish::FinishPayload::Evaluator(checklist) = payload else {
+            panic!("{tag}: evaluator 形态载荷")
+        };
+        assert_eq!(
+            checklist.verdict.as_str(),
+            "pass",
+            "{tag}: 全 pass 推导 pass"
+        );
+
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("{tag}: 末事件为 TurnDone");
+        };
+        assert!(!is_error, "{tag}: 收口走成功链 TurnDone{{is_error:false}}");
+        assert_eq!(
+            model.captured_requests().len(),
+            1,
+            "{tag}: 收口后零额外请求（turn_index 未递增）"
+        );
+
+        // `RunStarted.tools` 自同一 mount 名单派生：含 `finish_step`（末尾追加），
+        // 其余逐名有序等于 `mount::definitions` 产出
+        let dispatched = run_started_tools(&events);
+        assert!(
+            dispatched.iter().any(|name| name == "finish_step"),
+            "{tag}: RunStarted.tools 含收口工具: {dispatched:?}"
+        );
+        assert_eq!(
+            dispatched.last().map(String::as_str),
+            Some("finish_step"),
+            "{tag}: 收口工具追加在末尾（其余名单序不变）"
+        );
+        let expected_names: Vec<String> =
+            crate::sdk::mount::definitions(&turn.injections, &turn.question)
+                .expect("合法注入面")
+                .into_iter()
+                .map(|mount| mount.definition.name)
+                .collect();
+        assert_eq!(
+            dispatched, expected_names,
+            "{tag}: RunStarted.tools 逐名有序等于 mount::definitions 产出"
+        );
+        if tools.is_none() {
+            assert_eq!(
+                dispatched[..dispatched.len() - 1].to_vec(),
+                TOOL_NAMES.to_vec(),
+                "{tag}: 收口之外的名单即内建七件（`tools: None` 的语义载体）"
+            );
+        } else {
+            assert_eq!(
+                dispatched.len(),
+                1,
+                "{tag}: 显式空清单底座下收口工具是唯一一项"
+            );
+        }
+    }
+}
+
+/// 同批假结果 `is_error: false` 且真经 `sender`（AC-5 ①）：先 `finish_step`
+/// 后 `read` → `read` 的假结果在密封事件流内可见、`is_error == false`、文案
+/// 「本步已 finish_step 收口，该调用未执行」。
+#[tokio::test]
+async fn finish_step同批后续调用产出假结果且真经sender() {
+    let dir = tempdir("finish-fake-result");
+    write_file(&dir.path().join("a.txt"), "内容");
+    let model = FakeModel::with_turns(vec![vec![
+        raw_tool_call("tu_finish", "finish_step", finish_args()),
+        raw_tool_call("tu_read", "read", serde_json::json!({ "path": "a.txt" })),
+    ]]);
+    let turn = loop_turn_with_finish(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::FinishSpec::EvaluatorChecklist,
+    );
+    let (events, _history) =
+        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+    let read_result = sealed_tool_results(&events)
+        .into_iter()
+        .find(|(id, _, _)| id == "tu_read");
+    let (_, content, is_error) =
+        read_result.expect("read 的假结果真经 sender 发出（密封事件流可见）");
+    assert_eq!(
+        content, "本步已 finish_step 收口，该调用未执行",
+        "假结果文案逐字"
+    );
+    assert!(!is_error, "假结果 is_error: false（协议收口不是失败）");
+
+    let interrupted = sealed_tool_results(&events)
+        .into_iter()
+        .any(|(_, content, _)| content.contains("INTERRUPTED_RESULT"));
+    assert!(
+        !interrupted,
+        "转录内 INTERRUPTED_RESULT 零命中（假结果已入库）"
+    );
+}
+
+/// 同批结果进恰一条 user 消息（AC-5 ②，表驱动两批形态）：`finish_step` + `read`
+/// （2 调用）与 `finish_step` + `read` + `bash`（3 调用）各一例 → `history` 末条
+/// user 消息含恰与调用数相同的 `ToolResult` 块、与 tool_use id **按调用序**一一
+/// 对应（`results` 收齐先于 `return`，零悬空 tool_use）。
+#[tokio::test]
+async fn finish_step同批结果进恰一条user消息() {
+    let batches: [(&str, Vec<MockStreamEvent>, Vec<&str>); 2] = [
+        (
+            "finish-pairing-2",
+            vec![
+                raw_tool_call("tu_finish", "finish_step", finish_args()),
+                raw_tool_call("tu_read", "read", serde_json::json!({ "path": "a.txt" })),
+            ],
+            vec!["tu_finish", "tu_read"],
+        ),
+        (
+            "finish-pairing-3",
+            vec![
+                raw_tool_call("tu_finish", "finish_step", finish_args()),
+                raw_tool_call("tu_read", "read", serde_json::json!({ "path": "a.txt" })),
+                raw_tool_call(
+                    "tu_bash",
+                    "bash",
+                    serde_json::json!({ "command": "echo 甲" }),
+                ),
+            ],
+            vec!["tu_finish", "tu_read", "tu_bash"],
+        ),
+    ];
+    for (tag, calls, expected_ids) in batches {
+        let dir = tempdir(tag);
+        write_file(&dir.path().join("a.txt"), "内容");
+        let model = FakeModel::with_turns(vec![calls]);
+        let turn = loop_turn_with_finish(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            agent::FinishSpec::EvaluatorChecklist,
+        );
+        let (events, history) =
+            drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+        assert!(!events.is_empty(), "{tag}: 事件流非空");
+
+        let tool_messages = history
+            .iter()
+            .filter(|message| matches!(message, Message::User { content } if content.iter().any(|item| matches!(item, UserContent::ToolResult(_)))))
+            .count();
+        assert_eq!(tool_messages, 1, "{tag}: 同批结果只进恰一条 user 消息");
+
+        let last_user = history
+            .iter()
+            .rev()
+            .find(|message| matches!(message, Message::User { .. }))
+            .expect("末条 user 消息在场");
+        let Message::User { content } = last_user else {
+            unreachable!()
+        };
+        let result_ids: Vec<String> = content
+            .iter()
+            .filter_map(|item| match item {
+                UserContent::ToolResult(result) => Some(result.call.to_string()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            result_ids.len(),
+            expected_ids.len(),
+            "{tag}: 恰与调用数相同的 ToolResult 块（零悬空 tool_use），实际: {result_ids:?}"
+        );
+        assert_eq!(
+            result_ids,
+            expected_ids
+                .iter()
+                .map(|id| (*id).to_owned())
+                .collect::<Vec<String>>(),
+            "{tag}: 结果与 tool_use id 按调用序一一对应"
+        );
+    }
+}
+
+/// 校验 `Err` 当场回灌且会话继续（AC-5 ③）：首轮 args 缺 `report` →
+/// `ToolResult{is_error:true}` 携校验文案、无收口 notice；第二轮请求发起；第二
+/// 轮合法收口成功。
+#[tokio::test]
+async fn finish_step校验err当场回灌且会话继续() {
+    let dir = tempdir("finish-retry");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_bad",
+            "finish_step",
+            serde_json::json!({ "items": finish_args()["items"].clone() }),
+        )],
+        vec![raw_tool_call("tu_ok", "finish_step", finish_args())],
+    ]);
+    let turn = loop_turn_with_finish(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::FinishSpec::EvaluatorChecklist,
+    );
+    let (events, _history) =
+        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+    let (_, content, is_error) = sealed_tool_results(&events)
+        .into_iter()
+        .find(|(id, _, _)| id == "tu_bad")
+        .expect("首轮 Err 结果可见");
+    assert!(is_error, "校验 Err 以 is_error: true 回灌");
+    assert!(
+        content.contains("report"),
+        "回灌文案即 validate 的 Err 原文（含字段名）: {content}"
+    );
+
+    let finish_notices = notices_of(&events)
+        .into_iter()
+        .filter(|(subtype, _)| *subtype == "finish_step")
+        .count();
+    assert_eq!(finish_notices, 1, "仅第二轮收口成功发 notice");
+    assert_eq!(
+        model.captured_requests().len(),
+        2,
+        "首轮失败后第二轮请求发起（会话继续）"
+    );
+}
+
+/// 成员校验先于收口（AC-1 / AC-4）：`finish: None` 的注入面下调用
+/// `finish_step` → `tool_unavailable` deny（`is_error: true`），不进入校验器、
+/// 不发 `finish_step` notice。
+#[tokio::test]
+async fn finish_step不在下发面时tool_unavailable() {
+    let dir = tempdir("finish-not-mounted");
+    let model = FakeModel::with_turns(vec![vec![raw_tool_call(
+        "tu_finish",
+        "finish_step",
+        finish_args(),
+    )]]);
+    // 缺省注入面：`finish: None` → finish_step 不在下发面
+    let turn = LoopTurn {
+        question: finish_prompt(),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+    let (events, _history) =
+        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+    let denied = notices_of(&events)
+        .into_iter()
+        .any(|(subtype, _)| subtype == "tool_unavailable");
+    assert!(denied, "成员校验先拒（tool_unavailable notice）");
+    let (_, content, is_error) = sealed_tool_results(&events)
+        .into_iter()
+        .find(|(id, _, _)| id == "tu_finish")
+        .expect("拒绝结果可见");
+    assert!(is_error, "拒绝结果 is_error: true");
+    assert!(
+        content.contains("不在本轮下发面"),
+        "拒绝文案携成员校验语义: {content}"
+    );
+    assert_eq!(
+        notices_of(&events)
+            .into_iter()
+            .filter(|(subtype, _)| *subtype == "finish_step")
+            .count(),
+        0,
+        "不进入校验器、不发收口 notice"
+    );
+}
+
+/// tier 门放行（AC-2 / AC-4）：Default 档下 `finish_step`（Protocol tier）放行；
+/// 同批 `write` 被 permission_denied 拒（tier 门仍按 mount tier 生效）。
+#[tokio::test]
+async fn finish_step的protocol档在default下放行() {
+    let dir = tempdir("finish-tier");
+    write_file(&dir.path().join("a.txt"), "内容");
+    // 顺序：write 先于 finish_step（收口后同批调用一律走假结果分支，测不到
+    // tier 门）
+    let model = FakeModel::with_turns(vec![vec![
+        raw_tool_call(
+            "tu_write",
+            "write",
+            serde_json::json!({ "path": "x.txt", "content": "x" }),
+        ),
+        raw_tool_call("tu_finish", "finish_step", finish_args()),
+    ]]);
+    // 内建七件 + finish_step（`tools: None` 的底座）——write 必须在下发面内，
+    // 否则会被成员校验先拒（tool_unavailable），测不到 tier 门
+    let turn = LoopTurn {
+        question: finish_prompt(),
+        injections: agent::SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: Some(agent::FinishSpec::EvaluatorChecklist),
+        },
+        ..loop_turn(dir.path(), AgentPermissionMode::Default)
+    };
+    let (events, _history) =
+        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+    let finish_result = sealed_tool_results(&events)
+        .into_iter()
+        .find(|(id, _, _)| id == "tu_finish")
+        .expect("finish_step 结果可见");
+    assert!(
+        !finish_result.2,
+        "Default 档下 finish_step 放行（Protocol tier 恒放，未被 permission_denied 拒）: {:?}",
+        finish_result.1
+    );
+
+    let denied = notices_of(&events).into_iter().any(|(subtype, payload)| {
+        subtype == "permission_denied" && payload["tool"] == serde_json::json!("write")
+    });
+    assert!(denied, "同批 write 仍按 Write tier 被拒（门未放宽）");
+}
+
+/// 截断终局不发 notice（AC-7 成因）：脚本以 `max_tokens` 收尾 → `TurnDone`
+/// 在、`SystemNotice{finish_step}` 零命中（`finalized` 恒 `None`），
+/// `output_truncated` notice 在场（walker 侧成因判据的输入）。
+#[tokio::test]
+async fn finish_step截断终局不发notice() {
+    let dir = tempdir("finish-truncated");
+    let model = FakeModel::with_turns(vec![vec![
+        raw_text("部分输出"),
+        raw_final_with_reason(FinishReason::Length, Usage::default()),
+    ]]);
+    let turn = loop_turn_with_finish(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::FinishSpec::EvaluatorChecklist,
+    );
+    let (events, _history) =
+        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
+        "TurnDone 在场"
+    );
+    assert_eq!(
+        notices_of(&events)
+            .into_iter()
+            .filter(|(subtype, _)| *subtype == "finish_step")
+            .count(),
+        0,
+        "截断终局不发收口 notice（finalized 恒 None）"
+    );
+    assert!(
+        notices_of(&events)
+            .into_iter()
+            .any(|(subtype, _)| subtype == "output_truncated"),
+        "output_truncated notice 在场（walker 侧成因判据输入）"
+    );
+}
+
+/// `definitions` 换参与 `Err` 早退（AC-1 / D3）：注入非法工具名 → loop 以
+/// `tool_mount_error` 早退（`TurnDone{is_error:true}`、零流请求发出）。
+#[tokio::test]
+async fn 非法工具名早退tool_mount_error且零请求() {
+    let dir = tempdir("finish-mount-error");
+    let model = FakeModel::with_turns(vec![vec![raw_text("不应到达")]]);
+    let turn = LoopTurn {
+        question: String::new(),
+        injections: crate::sdk::mount::injected(&["no_such_tool"]),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+    let (events, _history) =
+        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+    let AgentEventKind::TurnDone {
+        is_error, subtype, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("末事件为 TurnDone");
+    };
+    assert!(*is_error, "装配层 Err → TurnDone is_error: true");
+    assert_eq!(subtype, "tool_mount_error", "早退子类型");
+    assert_eq!(
+        model.captured_requests().len(),
+        0,
+        "RunStarted 后无请求发出（不静默降级为空工具面）"
+    );
+}
+
+/// `Err` 文案可见性（异常，AC-9 / D6 表驱动三类）：校验 `Err` 的 ToolResult
+/// 内容即 `orchestration::finish::validate` 的原文——三类 Err（缺项 / report
+/// 超长 / unknown action）各带「字段名 / 期望 / 当前值」三要素，模型可见的反馈
+/// 面自足（同一 turn 内可立即纠正重试）。
+#[tokio::test]
+async fn finish_step的err文案三要素可见() {
+    // 三类 Err：evaluator 清单外 ID、evaluator report 超长、decision unknown action
+    struct Case {
+        tag: &'static str,
+        spec: agent::FinishSpec,
+        args: serde_json::Value,
+        must_contain: [&'static str; 3],
+    }
+    let cases = [
+        Case {
+            tag: "evaluator 清单外 ID",
+            spec: agent::FinishSpec::EvaluatorChecklist,
+            // 只给清单外 ID：触发「清单外 ID」Err（携期望集与实际收到集）
+            args: serde_json::json!({
+                "report": "报告",
+                "items": [{ "id": "C9", "pass": true, "evidence": "甲" }],
+            }),
+            must_contain: ["items[].id", "C9", "实际收到"],
+        },
+        Case {
+            tag: "evaluator report 超长",
+            spec: agent::FinishSpec::EvaluatorChecklist,
+            args: serde_json::json!({
+                "report": "报".repeat(orchestration::verdict::MAX_REPORT_CHARS + 1),
+                "items": [
+                    { "id": "C1", "pass": true, "evidence": "甲" },
+                    { "id": "C2", "pass": true, "evidence": "乙" },
+                ],
+            }),
+            must_contain: ["report 超长", "2000", "2001"],
+        },
+        Case {
+            tag: "decision unknown action",
+            spec: agent::FinishSpec::Decision,
+            args: serde_json::json!({ "action": "retry" }),
+            must_contain: ["action 值非法", "backtrack", "stop"],
+        },
+    ];
+
+    for Case {
+        tag,
+        spec,
+        args,
+        must_contain,
+    } in cases
+    {
+        let dir = tempdir("finish-err-visible");
+        let model = FakeModel::with_turns(vec![vec![raw_tool_call("tu_err", "finish_step", args)]]);
+        let turn = loop_turn_with_finish(dir.path(), AgentPermissionMode::BypassPermissions, spec);
+        let (events, _history) =
+            drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+
+        let (_, content, is_error) = sealed_tool_results(&events)
+            .into_iter()
+            .find(|(id, _, _)| id == "tu_err")
+            .unwrap_or_else(|| panic!("{tag}: Err 结果可见"));
+        assert!(is_error, "{tag}: 校验 Err 以 is_error: true 回灌");
+        for needle in must_contain {
+            assert!(
+                content.contains(needle),
+                "{tag}: 文案含 `{needle}`（字段名 / 期望 / 当前值三要素自足）: {content}"
+            );
+        }
+        // Err 面不发收口 notice（finalized 恒 None）
+        assert_eq!(
+            notices_of(&events)
+                .into_iter()
+                .filter(|(subtype, _)| *subtype == "finish_step")
+                .count(),
+            0,
+            "{tag}: 校验失败不发收口 notice"
+        );
+    }
+}
+
+/// 沙箱与保护闸零放宽（边界，D9 回归锚定 + `finish_step` 新形态）：`finish_step`
+/// 的 args 不含路径字段 → `tools::input_path` 返 `None`（沙箱 `sandbox_rewrite`
+/// 的短路依据即该 None → 原样返回），`protect::evaluate` 走 `_ => None`（两闸对
+/// `finish_step` 零介入）；对照 `write` 越界仍被沙箱拒（门未放宽）。
+#[tokio::test]
+async fn finish_step两闸零介入且write越界仍拒() {
+    use crate::sdk::protect::ProtectRules;
+    use crate::sdk::{sandbox, tools};
+
+    let finish_input = finish_args();
+    // ① input_path 默认臂：取 `path` 字段 → finish_step 无该字段 → None
+    assert!(
+        tools::input_path("finish_step", &finish_input).is_none(),
+        "finish_step 无路径字段：input_path 返 None（零新增特判——沙箱短路依据）"
+    );
+    // ② 保护闸分派表：`_ => None`（两 archi / explore / finish_step 同臂）
+    let protect = ProtectRules::load(None);
+    assert_eq!(
+        protect.evaluate("finish_step", &finish_input, &std::env::temp_dir()),
+        None,
+        "写入保护闸走 `_ => None`（对 finish_step 零介入）"
+    );
+    // ③ 对照：write 越界仍被沙箱拒（两闸未因新工具放宽）
+    let escape = serde_json::json!({ "path": "../outside.txt", "content": "x" });
+    let root = std::env::temp_dir();
+    let raw = tools::input_path("write", &escape).expect("write 有 path 字段");
+    assert!(
+        sandbox::check(&root, raw).is_err(),
+        "对照：write 越界仍被沙箱拒（门未放宽）: {raw}"
+    );
 }

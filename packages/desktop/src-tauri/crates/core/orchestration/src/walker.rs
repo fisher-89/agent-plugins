@@ -12,9 +12,8 @@ use workflow::write::{
 };
 
 use crate::control::{emit_node, now_millis, ChangeFlowControl, RunGuard, StepSettle};
-use crate::decision::{
-    ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
-};
+use crate::decision::{ensure_backtrack_allowed, CandidateReport, DecisionAction, DecisionInput};
+use crate::finish::FinishPayload;
 use crate::port::{
     ArchiCheckOutcome, ArchiveVcsPort, MutationSkipReason, MutationTestConclusion,
     MutationTestOutcome, OutputRefSink, RebaseOutcome, RunFault, RunHistoryPort,
@@ -23,16 +22,16 @@ use crate::port::{
     WorkflowSnapshotPort, WorktreeSnapshot,
 };
 use crate::prompt::{
-    decision_fix_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
-    spec_sync_prompt, verdict_fix_prompt,
+    decision_answer_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
+    spec_sync_prompt,
 };
 use crate::run_history;
 use crate::state::{
     ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, EdgeKind, NodeKey, RunUpdate,
 };
 use crate::steps::{change_branch, check_rebase_halfway, clip_reason};
-use crate::transcript::{failure_reason, final_assistant_text};
-use crate::verdict::{parse_verdict, EvaluatorChecklist, MAX_REPORT_CHARS};
+use crate::transcript::failure_reason;
+use crate::verdict::{EvaluatorChecklist, MAX_REPORT_CHARS};
 
 /// 会话 provenance 来源（sourceRef = change id / 相位 / 角色 / attempt 四段——
 /// 身份段恒 change id）。
@@ -125,11 +124,6 @@ pub fn new_run_id() -> String {
         .unwrap_or(0);
     format!("run-{millis}")
 }
-
-/// 决策软拒环漂移上限：`drift > LIMIT`（第 3 次驳回）才 `Terminal::failed`——
-/// 前两次驳回均可同会话续注纠正；ask 轮次不计（用户驱动的停等，非模型漂移）。
-/// 与 `MAX_ROUNDS` / `MAX_RETRY_TIMES` 同类编译期常量（非运行期可调配置）。
-const DECISION_DRIFT_LIMIT: usize = 2;
 
 /// 内部终态：helper 层失败路径的携带物（guard 未动，finish 由主入口单点）。
 struct Terminal {
@@ -469,10 +463,8 @@ struct PhaseCursor {
     attempt: u32,
     /// 当前 executor 会话槽（反馈边续注同会话；phase-log 落账携出）
     executor_session: Option<String>,
-    /// executor 模型档（相位表 spec 供给；反馈边续注不换档）
+    /// executor 模型档（相位表 spec 供给；门禁反馈边续注不换档）
     executor_level: ModelLevel,
-    /// evaluator 模型档（相位表 spec 供给；verdict 反馈边续注不换档）
-    evaluator_level: ModelLevel,
     /// evaluator 步收口产物（VerdictGate / PhaseLog 步消费）
     eval_outcome: Option<WorkerTurnOutcome>,
     /// verdict 解析产物（PhaseLog 步消费）
@@ -505,11 +497,6 @@ impl PhaseCursor {
             executor_session: None,
             executor_level: next
                 .executor
-                .as_ref()
-                .map(|spec| spec.model_level)
-                .unwrap_or_default(),
-            evaluator_level: next
-                .evaluator
                 .as_ref()
                 .map(|spec| spec.model_level)
                 .unwrap_or_default(),
@@ -557,7 +544,7 @@ async fn run_step(
             step_evaluator(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
-        StepNode::VerdictGate => step_verdict_gate(ctx, trace, cursor, step).await,
+        StepNode::VerdictGate => step_verdict_gate(ctx, trace, cursor).await,
         StepNode::PhaseLog => {
             step_phase_log(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
@@ -1562,129 +1549,90 @@ async fn step_evaluator(
     )
     .await?;
     cursor.eval_outcome = Some(outcome);
-    cursor.evaluator_level = evaluator.model_level;
     Ok(())
 }
 
+/// verdict 门（单一裁决）：evaluator 步以 `finish_step` 收口后，本步读
+/// `WorkerTurnOutcome.finalized` 取结构化载荷——`Some(Evaluator(..))` 即 pass 并
+/// 交 PhaseLog 落账；缺席即终态 `Terminal::failed`（零反馈边重试、零升格落账），
+/// 成因文案按「输出被截断」与「未调用 finish_step」两态分列。
 async fn step_verdict_gate(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
     cursor: &mut PhaseCursor,
-    step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
-    // code-analyze 相位声明 VerdictGate on_fail=Terminal（分析相位：verdict
-    // 解析失败即终态，无 agent 会话可续注修复）→ 单次解析，失败即停。
-    if step.on_fail == Some(OnFail::Terminal) {
-        return step_verdict_gate_terminal(ctx, trace, cursor).await;
-    }
-    let limit = feedback_limit(step, "verdict-gate")?;
-    let mut feedback: u32 = 0;
-    loop {
-        let instance_no = begin_node(
-            ctx.guard,
-            trace,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::VerdictGate,
-            EdgeKind::Forward,
-        );
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::VerdictGate,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::VerdictGate,
+        instance_no,
+        StepSettle::running(),
+    );
+    let Some(outcome) = &cursor.eval_outcome else {
         emit_node(
             ctx.guard,
             ctx.phase,
             cursor.attempt,
             ChangeStepKind::VerdictGate,
             instance_no,
-            StepSettle::running(),
+            StepSettle::failed(Some("缺 evaluator 收口产物".to_owned())),
         );
-        // 会话 id 与最终消息文本一次取走（同会话续注 / 重解析所需），避免后续
-        // cursor 赋值与借用冲突；None 产物 = 计划图漂移（无会话可续注、无文本
-        // 可修）——保持显式失败停给用户，MUST NOT 走反馈边
-        let (session_id, text) = match cursor.eval_outcome.as_ref() {
-            Some(outcome) => (
-                outcome.session_id.clone(),
-                outcome
-                    .final_message
-                    .clone()
-                    .or_else(|| final_assistant_text(&outcome.transcript))
-                    .unwrap_or_default(),
-            ),
-            None => {
-                emit_node(
-                    ctx.guard,
-                    ctx.phase,
-                    cursor.attempt,
-                    ChangeStepKind::VerdictGate,
-                    instance_no,
-                    StepSettle::failed(Some("缺 evaluator 收口产物".to_owned())),
-                );
-                return Err(Terminal::failed(format!(
-                    "phase \"{}\" 计划步漂移：VerdictGate 步缺 evaluator 收口产物",
-                    ctx.phase
-                )));
-            }
-        };
-        match parse_verdict(&text) {
-            Ok(checklist) => {
-                emit_node(
-                    ctx.guard,
-                    ctx.phase,
-                    cursor.attempt,
-                    ChangeStepKind::VerdictGate,
-                    instance_no,
-                    StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
-                );
-                cursor.verdict = Some(checklist);
-                return Ok(StepFlow::Proceed);
-            }
-            Err(error) => {
-                emit_node(
-                    ctx.guard,
-                    ctx.phase,
-                    cursor.attempt,
-                    ChangeStepKind::VerdictGate,
-                    instance_no,
-                    StepSettle::failed(Some(diagnose_brief(&error))),
-                );
-                if feedback >= limit {
-                    // 超限升格相位 fail（桌面代写，不跑 executor；携 executor +
-                    // evaluator 双槽位——两会话均在反馈循环中在场）
-                    step_verdict_gate_upgraded_phase_log(
-                        ctx.tools,
-                        ctx.guard,
-                        trace,
-                        ctx.request,
-                        ctx.phase,
-                        cursor.attempt,
-                        cursor.executor_session.as_deref(),
-                        Some(session_id.as_str()),
-                        &error,
-                    )
-                    .await?;
-                    cursor.failed = true;
-                    return Ok(StepFlow::Upgraded);
-                }
-                feedback += 1;
-                // 反馈边：解析失败诊断注入同一 evaluator 会话（Continue）修复
-                // ——修复节点为 instance_no 递增的独立新节点，边 kind = feedback
-                let fix = run_worker(
-                    ctx.worker,
-                    ctx.guard,
-                    ctx.request,
-                    &ctx.request.root,
-                    ctx.phase,
-                    cursor.attempt,
-                    WorkerRole::Evaluator,
-                    verdict_fix_prompt(&error, feedback, limit),
-                    cursor.evaluator_level,
-                    Some(session_id),
-                    trace,
-                    EdgeKind::Feedback,
-                )
-                .await?;
-                cursor.eval_outcome = Some(fix);
-            }
+        return Err(Terminal::failed(format!(
+            "phase \"{}\" 计划步漂移：VerdictGate 步缺 evaluator 收口产物",
+            ctx.phase
+        )));
+    };
+    match outcome.finalized.as_ref() {
+        Some(FinishPayload::Evaluator(checklist)) => {
+            emit_node(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::VerdictGate,
+                instance_no,
+                StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
+            );
+            cursor.verdict = Some(checklist.clone());
+            Ok(StepFlow::Proceed)
+        }
+        // `None` = 未收口（含截断终局）；`Decision` 臂在 evaluator 步理论不可达
+        _ => {
+            let reason = if truncated(&outcome.transcript) {
+                "评估输出被截断（output_truncated），未产生 finish_step 收口产物"
+            } else {
+                "未调用 finish_step 收口（相位 evaluator 会话 Completed 但无收口载荷）"
+            };
+            emit_node(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::VerdictGate,
+                instance_no,
+                StepSettle::failed(Some(diagnose_brief(reason))),
+            );
+            Err(Terminal::failed(reason.to_owned()))
         }
     }
+}
+
+/// 截断成因判定：转录含 `output_truncated` notice 即真（只影响失败文案，不影响
+/// 判据；subtype 是开放词典，与 `infra` 侧常量同字面量，零跨 crate 收口）。
+fn truncated(transcript: &[agent::AgentEvent]) -> bool {
+    transcript.iter().any(|event| {
+        matches!(
+            &event.kind,
+            agent::AgentEventKind::SystemNotice { subtype, .. } if subtype == "output_truncated"
+        )
+    })
 }
 
 /// ⑧ phase-log 步：桌面代写落账（写通道唯一——经写面进程内直调）。三分流按
@@ -1803,9 +1751,10 @@ async fn step_phase_log(
 /// MUST NOT 由 walker 侧常量兜底（反馈边计数上限随门禁 step 声明退役，三门禁
 /// 步各自的独立预算不再驻 walker）。
 ///
-/// 本函数只服务 static-check / verdict-gate 两门禁步；TestExecution /
+/// 本函数只服务 static-check / archi-check 两门禁步；TestExecution /
 /// MutationTest 走 `on_fail=Escalate` 的单发执行体，不经反馈计数（Escalate 声明
-/// 落在此处即漂移，显式失败）。
+/// 落在此处即漂移，显式失败）；verdict-gate 的反馈面已随 `finish_step` 收口退役
+/// （`finalized` 缺席即终态，零反馈边）。
 fn feedback_limit(step: &StepDefinition, label: &str) -> Result<u32, Terminal> {
     match step.on_fail {
         Some(OnFail::FeedbackLoop { limit }) => Ok(limit),
@@ -1815,76 +1764,6 @@ fn feedback_limit(step: &StepDefinition, label: &str) -> Result<u32, Terminal> {
         Some(OnFail::Terminal) | None => Err(Terminal::failed(format!(
             "计划图漂移：{label} 步缺 OnFail::FeedbackLoop 声明"
         ))),
-    }
-}
-
-/// code-analyze 相位 VerdictGate 单次解析路径（`on_fail=Terminal`）：解析
-/// evaluator 收口产物中的 verdict——成功即 Proceed（交 PhaseLog 落账）；失败即
-/// Terminal（分析相位无 agent 会话可续注修复，显式停给用户）。
-async fn step_verdict_gate_terminal(
-    ctx: &StepContext<'_>,
-    trace: &mut EdgeTrace,
-    cursor: &mut PhaseCursor,
-) -> Result<StepFlow, Terminal> {
-    let instance_no = begin_node(
-        ctx.guard,
-        trace,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::VerdictGate,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        ctx.guard,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::VerdictGate,
-        instance_no,
-        StepSettle::running(),
-    );
-    let Some(outcome) = &cursor.eval_outcome else {
-        emit_node(
-            ctx.guard,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::VerdictGate,
-            instance_no,
-            StepSettle::failed(Some("缺 evaluator 收口产物".to_owned())),
-        );
-        return Err(Terminal::failed(format!(
-            "phase \"{}\" 计划步漂移：VerdictGate 步缺 evaluator 收口产物",
-            ctx.phase
-        )));
-    };
-    let text = outcome
-        .final_message
-        .clone()
-        .or_else(|| final_assistant_text(&outcome.transcript))
-        .unwrap_or_default();
-    match parse_verdict(&text) {
-        Ok(checklist) => {
-            emit_node(
-                ctx.guard,
-                ctx.phase,
-                cursor.attempt,
-                ChangeStepKind::VerdictGate,
-                instance_no,
-                StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
-            );
-            cursor.verdict = Some(checklist);
-            Ok(StepFlow::Proceed)
-        }
-        Err(error) => {
-            emit_node(
-                ctx.guard,
-                ctx.phase,
-                cursor.attempt,
-                ChangeStepKind::VerdictGate,
-                instance_no,
-                StepSettle::failed(Some(diagnose_brief(&error))),
-            );
-            Err(Terminal::failed(format!("verdict 解析失败: {error}")))
-        }
     }
 }
 
@@ -2201,68 +2080,6 @@ async fn step_mutation_test_upgraded_phase_log(
             skipped: false,
             executor_session_id: None,
             evaluator_session_id: None,
-            decision_session_id: None,
-        },
-    )
-    .await?;
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
-    );
-    Ok(())
-}
-
-/// 超限升格落账：桌面代写 fail checklist（评估输出反馈边超限），随后回
-/// phase-next 进重试 / 决策分叉。fail 条目携 executor + evaluator 双槽位（反馈
-/// 边续注同一 evaluator 会话、executor 会话自 executor 步在场；decision 未跑无
-/// 会话可记）——条目 item / evidence 会流入下一 attempt 双 prompt 与决策输入。
-#[allow(clippy::too_many_arguments)]
-async fn step_verdict_gate_upgraded_phase_log(
-    tools: &Arc<dyn ToolStepPort>,
-    guard: &RunGuard,
-    trace: &mut EdgeTrace,
-    request: &RunRequest,
-    phase: &str,
-    attempt: u32,
-    executor_session: Option<&str>,
-    evaluator_session: Option<&str>,
-    error: &str,
-) -> Result<(), Terminal> {
-    let instance_no = begin_node(
-        guard,
-        trace,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::running(),
-    );
-    let logged = run_phase_log(
-        tools,
-        guard,
-        request,
-        PhaseLogInput {
-            phase: phase.to_owned(),
-            report: "评估输出反馈边超限（连续修复未通过），相位升格 fail".to_owned(),
-            checklist: vec![ChecklistItem {
-                item: "评估输出格式".to_owned(),
-                pass: false,
-                evidence: error.to_owned(),
-            }],
-            skipped: false,
-            executor_session_id: executor_session.map(ToOwned::to_owned),
-            evaluator_session_id: evaluator_session.map(ToOwned::to_owned),
             decision_session_id: None,
         },
     )
@@ -3301,9 +3118,9 @@ enum Deadlock {
 }
 
 /// phase-next 决策分叉（两触发点：verdict fail 未决 / 重试上限标注——任意带
-/// evaluator 相位 fail 均直达决策，自走同相位重跑退役）：决策会话产出三动作，
-/// backtrack 经写面落账后回外层 phase-next 重路由（白名单门与解析软拒环在
-/// `decision_session` 内闭环）。
+/// evaluator 相位 fail 均直达决策，自走同相位重跑退役）：决策会话经
+/// `finish_step` 单轮收口产出三动作，backtrack 经写面落账后回外层 phase-next
+/// 重路由（白名单门在 `decision_session` 内一次即判，越权即终态）。
 #[allow(clippy::too_many_arguments)]
 async fn resolve_deadlock(
     worker: &Arc<dyn WorkerAgentPort>,
@@ -3404,8 +3221,8 @@ async fn resolve_deadlock(
             reason: Some(format!("决策 stop: {reason}")),
         }),
         DecisionAction::Ask { .. } => {
-            // ask 在决策会话内被应答循环消化（wait_answer → Continue 重出封闭
-            // 集）；携出封闭集外的 ask 到这里即漂移
+            // ask 在决策会话内已被 `wait_answer` 循环消化（应答后开新一轮决策
+            // 会话）；携出会话外的 ask 到这里即编排漂移
             Deadlock::Terminal(Terminal::failed(
                 "决策漂移：ask 动作未被应答循环消化".to_owned(),
             ))
@@ -3413,12 +3230,19 @@ async fn resolve_deadlock(
     }
 }
 
-/// 决策会话：白名单门与输出解析的软拒环内闭环（漂移 ≤ `DECISION_DRIFT_LIMIT`
-/// 可同会话续注纠正、超限 `Terminal::failed`「决策漂移」）、ask 停等不计漂移、
-/// 每轮 parsed 动作 emit 一个 `WhitelistGate` 实例（通过 passed / 驳回 failed 携
-/// 拒绝文案）、每轮 `decision-log` 幂等挂账（置于 parse 之前——parse 失败路径
-/// 同样留痕；失败 / 停止收口的 decision 会话不挂账，转录仍在库内可经调试页
-/// change 筛选回查）。取消信号置位 → 受控 stopped。
+/// 决策会话：单轮收口为常态（`finish_step` 一调即本 step 结束）。每轮跑一次
+/// 会话 → `decision-log` 幂等挂账（置于动作裁决**之前**——stop / 驳回路径同样
+/// 留痕）→ 读 `finalized`：
+///
+/// - `Ask` → emit `RunUpdate::Ask` → `wait_answer`（取消置位 → `stopped`）→ 以
+///   同一会话 `Continue` 开下一轮（prompt = [`decision_answer_prompt`]）——ask
+///   轮不计任何失败 / 漂移，也不 emit `WhitelistGate`（未产生动作裁决）；
+/// - 其余动作 → emit 一个 `WhitelistGate` 节点 → `ensure_backtrack_allowed`
+///   判定：通过即返回动作，越权**一次即** `Terminal::failed`（文案携 `allowed`）；
+/// - 缺席 → `Terminal::failed`（成因文案区分截断 / 未收口）。
+///
+/// 协议层纠错全部在工具内闭合（is_error 当场回灌），本函数无软拒环、无跨轮
+/// 漂移计数。
 async fn decision_session(
     worker: &Arc<dyn WorkerAgentPort>,
     tools: &Arc<dyn ToolStepPort>,
@@ -3429,7 +3253,6 @@ async fn decision_session(
 ) -> Result<DecisionAction, Terminal> {
     let mut prompt = decision_prompt(input);
     let mut continue_session: Option<String> = None;
-    let mut drift: usize = 0;
     loop {
         let outcome = run_worker(
             worker,
@@ -3439,7 +3262,7 @@ async fn decision_session(
             &input.phase,
             input.attempt,
             WorkerRole::Decision,
-            prompt.clone(),
+            prompt,
             // 决策 agent 恒 High 档（重试上限分叉的决策质量面）
             ModelLevel::High,
             continue_session.clone(),
@@ -3462,13 +3285,8 @@ async fn decision_session(
             None,
         )
         .await?;
-        let text = outcome
-            .final_message
-            .clone()
-            .or_else(|| final_assistant_text(&outcome.transcript))
-            .unwrap_or_default();
-        let action = match parse_decision(&text) {
-            Ok(DecisionAction::Ask { question, options }) => {
+        let action = match outcome.finalized {
+            Some(FinishPayload::Decision(DecisionAction::Ask { question, options })) => {
                 guard.emit(RunUpdate::Ask {
                     question: question.clone(),
                     options: options.clone(),
@@ -3476,30 +3294,30 @@ async fn decision_session(
                 match guard.wait_answer().await {
                     None => return Err(Terminal::stopped("ask 停等被终止")),
                     Some(answer) => {
-                        // ask 停在 WaitingAsk 属用户驱动停等，不计漂移
-                        prompt = format!(
-                            "用户应答：{answer}\n\n请基于应答重新输出决策 JSON（三选一封闭集）。"
-                        );
+                        // ask 停等在会话之外闭合：应答开启新一轮决策会话（resume
+                        // 全史），新轮同样以 `finish_step` 收口
+                        prompt = decision_answer_prompt(&answer);
                         continue_session = Some(session_id);
                         continue;
                     }
                 }
             }
-            Ok(action) => action,
-            Err(error) => {
-                // 解析失败（含已退役的 retry / 未知名）：软拒一次、同会话续注纠正
-                drift += 1;
-                if drift > DECISION_DRIFT_LIMIT {
-                    return Err(Terminal::failed(format!(
-                        "决策漂移：连续 {drift} 次决策输出无法解析（{error}）"
-                    )));
-                }
-                prompt = decision_fix_prompt(input, &error);
-                continue_session = Some(session_id);
-                continue;
+            Some(FinishPayload::Decision(action)) => action,
+            Some(FinishPayload::Evaluator(_)) => {
+                return Err(Terminal::failed(
+                    "决策会话返回 evaluator 收口载荷（相位表角色漂移）".to_owned(),
+                ))
+            }
+            None => {
+                let reason = if truncated(&outcome.transcript) {
+                    "决策输出被截断（output_truncated），未产生 finish_step 收口产物"
+                } else {
+                    "未调用 finish_step 收口（决策会话 Completed 但无收口载荷）"
+                };
+                return Err(Terminal::failed(reason.to_owned()));
             }
         };
-        // 每轮 parsed 动作 emit 一个门节点实例（驳回在图面可见）
+        // 每轮动作裁决 emit 一个门节点实例（通过 passed / 驳回 failed 携拒绝文案）
         let gate_instance = begin_node(
             guard,
             trace,
@@ -3516,7 +3334,7 @@ async fn decision_session(
             gate_instance,
             StepSettle::running(),
         );
-        match ensure_backtrack_allowed(&action, &input.phase, &input.allowed) {
+        return match ensure_backtrack_allowed(&action, &input.phase, &input.allowed) {
             Ok(()) => {
                 emit_node(
                     guard,
@@ -3526,7 +3344,7 @@ async fn decision_session(
                     gate_instance,
                     StepSettle::passed(None),
                 );
-                return Ok(action);
+                Ok(action)
             }
             Err(message) => {
                 emit_node(
@@ -3537,16 +3355,9 @@ async fn decision_session(
                     gate_instance,
                     StepSettle::failed(Some(diagnose_brief(&message))),
                 );
-                drift += 1;
-                if drift > DECISION_DRIFT_LIMIT {
-                    return Err(Terminal::failed(format!(
-                        "决策漂移：连续 {drift} 次决策输出被驳回（{message}）"
-                    )));
-                }
-                prompt = decision_fix_prompt(input, &message);
-                continue_session = Some(session_id);
+                Err(Terminal::failed(format!("决策越权：{message}")))
             }
-        }
+        };
     }
 }
 

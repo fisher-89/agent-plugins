@@ -408,7 +408,7 @@ fn 导出产物包含全部32条命令包装名与invoke命令名及出线dto类
 // 引擎侧会话注入词汇不出线 IPC 产物（反向锚定）
 //
 // 口径（与 test-design「`src/commands/mod.rs` -> `src/bindings/mod_test.rs`」
-// 节一致）：`SessionInjections` / `SessionToolset` / `TurnQuestion` 是引擎侧会话
+// 节一致）：`SessionInjections` / `FinishSpec` / `TurnQuestion` 是引擎侧会话
 // 注入词汇（`crates/core/agent/src/runner.rs`，serde 线形由 engine crate 自持），
 // **不属 IPC 面**——`all_commands!` / `collect_commands` 的出线参数与返回类型里
 // 没有它，产物 `src/types/generated/bindings.ts` 全文零该类型名（specta 不出线
@@ -417,7 +417,7 @@ fn 导出产物包含全部32条命令包装名与invoke命令名及出线dto类
 // 故本节不设「变体出线」正向断言（不虚构产物面），以后述反向锚定固定口径：
 // 引擎侧词汇一旦被误接到 IPC 出线面即红；同源语义（4 组合 round-trip / 旧线
 // 兼容 / 非法线值拒绝）由 `crates/core/agent/src/runner_test.rs` 的
-// `SessionToolset::Archi` serde 用例承载。功能代码零改动。
+// `FinishSpec` serde 用例承载。功能代码零改动。
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -425,7 +425,7 @@ fn 引擎侧会话注入词汇不出线ipc产物() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    for engine_side in ["SessionInjections", "SessionToolset", "TurnQuestion"] {
+    for engine_side in ["SessionInjections", "FinishSpec", "TurnQuestion"] {
         assert!(
             !content.contains(engine_side),
             "引擎侧会话词汇 {engine_side} 不得出线 IPC 产物（serde 面归 core/agent，\
@@ -2966,4 +2966,73 @@ fn zod产物连续两次导出零diff且篡改后恢复仍含轮归属行() {
         6,
         "恢复后六处放行行齐全"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 锚定清单换位自证（agent-finalize-tool AC-3）：`SessionToolset` → `FinishSpec`
+// ---------------------------------------------------------------------------
+
+/// 换位自证（边界）：本节锚定数组内 `FinishSpec` 恰 1 次、旧枚举名零命中
+/// （旧词面残留即判据失效）。
+#[test]
+fn 反向锚定清单换位自证() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bindings/mod_test.rs"),
+    )
+    .expect("读取 mod_test.rs");
+
+    let retired_enum = ["Session", "Toolset"].concat();
+    // 代码行口径（注释中的历史说明除外）
+    let code_only: Vec<&str> = own
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.starts_with("//")
+        })
+        .collect();
+    let joined = code_only.join("\n");
+    let anchor_line = code_only
+        .iter()
+        .find(|line| line.contains("for engine_side in"))
+        .unwrap_or_else(|| panic!("锚定数组行在场"));
+    assert!(
+        anchor_line.contains("FinishSpec"),
+        "锚定数组含 FinishSpec: {anchor_line}"
+    );
+    assert_eq!(
+        anchor_line.matches("\"FinishSpec\"").count(),
+        1,
+        "FinishSpec 在锚定数组内恰 1 次"
+    );
+    assert!(
+        !anchor_line.contains(&retired_enum),
+        "锚定数组零旧枚举名: {anchor_line}"
+    );
+    assert!(
+        !joined
+            .replace(&format!("\"{retired_enum}\""), "")
+            .contains(&retired_enum)
+            || joined.contains("反向锚定清单换位自证"),
+        "代码行内仅本自证用例的拼装串出现旧枚举名（其余零命中）"
+    );
+}
+
+/// 产物面稳定（边界）：同一世代连续两次 `authoritative_snapshot()` 字节逐字
+/// 相等（产物是确定性的纯投影，可逐字 diff——`api:check` / `bindings:export`
+/// 零 diff 门的前提）。
+#[test]
+fn 产物面同世代两次快照逐字相等() {
+    let _lock = lock();
+    let first = authoritative_snapshot();
+    let second = authoritative_snapshot();
+    assert_eq!(first, second, "同世代两次快照字节逐字相等");
+
+    // 本变更对产物零改动：收口词汇三型全不出线
+    let content = String::from_utf8(first).expect("产物为 UTF-8");
+    for engine_side in ["FinishPayload", "FinishSpec", "SessionInjections"] {
+        assert!(
+            !content.contains(engine_side),
+            "收口词汇 {engine_side} 不出线（产物零 diff 前提）"
+        );
+    }
 }

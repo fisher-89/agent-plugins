@@ -1,5 +1,5 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { DotIcon, GlobeIcon, ToolboxIcon } from 'lucide-react';
+import { CheckCircleIcon, DotIcon, GlobeIcon, ToolboxIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -285,3 +285,129 @@ function WebSearchCardBase({
 }
 
 export const WebSearchCard = memo(WebSearchCardBase);
+
+/** `finish_step` 收口卡的逐项清单行（evaluator 形态）。 */
+interface FinishItem {
+  id: string;
+  pass: boolean;
+  evidence: string | null;
+}
+
+/** `items` 宽窄解析：非数组即 `null`（回退 JSON 原样展示）。 */
+function parseFinishItems(value: unknown): FinishItem[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.map((item: unknown) => {
+    const record = asRecord(item);
+    return {
+      id: textOf(record.id) ?? '',
+      pass: record.pass === true,
+      evidence: textOf(record.evidence),
+    };
+  });
+}
+
+/** 清单摘要行：全通过 / 含未通过项（纯展示推导，不写任何持久面）。 */
+function finishSummary(items: FinishItem[]): string {
+  return items.every((item) => item.pass) ? '清单全通过' : '含未通过项';
+}
+
+/**
+ * decision 形态的动作摘要行（`action` 为字符串时命中）：
+ * `backtrack` 呈目标与理由、`stop` 呈理由、`ask` 呈问题与选项，未知动作原样。
+ */
+function decisionSummary(record: Record<string, unknown>): string {
+  const action = textOf(record.action) ?? '';
+  const reason = textOf(record.reason) ?? '';
+  switch (action) {
+    case 'backtrack':
+      return `backtrack → ${textOf(record.to) ?? ''}：${reason}`;
+    case 'stop':
+      return `stop：${reason}`;
+    case 'ask': {
+      const options = Array.isArray(record.options)
+        ? record.options.map((option) => textOf(option) ?? '').join(' / ')
+        : '';
+      return `ask：${textOf(record.question) ?? ''}${options === '' ? '' : `（${options}）`}`;
+    }
+    default:
+      return action;
+  }
+}
+
+/**
+ * `finish_step` 收口卡（复用工具卡管线的注册表项，`BUILD_IN_TOOL_CARDS`）：
+ * evaluator 形态（`input.items` 为数组）呈逐项清单 + report；decision 形态
+ * （`input.action` 为字符串）呈动作摘要行；两形态均不匹配时回退 JSON 原样
+ * （沿 `AskUserQuestionCard` 的宽容解析先例，不抛错）。
+ */
+function FinishStepCardBase({
+  toolCallId,
+  input,
+  output,
+}: {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  output: AgentToolOutput | null;
+}): React.JSX.Element {
+  const record = asRecord(input);
+  const items = parseFinishItems(record.items);
+  const action = textOf(record.action);
+  const summary =
+    items !== null ? finishSummary(items) : action !== null ? decisionSummary(record) : null;
+  return (
+    <TraceCollapsible data-testid="block-tool-use" data-tool-id={toolCallId}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={output?.isError ? 'error' : undefined}>
+          <TraceIcon>
+            <CheckCircleIcon />
+          </TraceIcon>
+          <TraceTitle data-testid="block-finish-step-summary">
+            {summary ?? 'finish_step'}
+          </TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        <div className="flex flex-col gap-1 text-xs">
+          {output !== null && (
+            <div className="text-muted-foreground" data-testid="block-tool-result">
+              {output.content}
+            </div>
+          )}
+          {items !== null ? (
+            <>
+              <ul className="m-0 list-none p-0">
+                {items.map((item, index) => (
+                  <li
+                    key={index}
+                    className="flex gap-1.5 truncate"
+                    data-testid="block-finish-step-item"
+                  >
+                    <span className="font-medium">{item.id}</span>
+                    <span className={item.pass ? 'text-pass' : 'text-fail'}>
+                      {item.pass ? '通过' : '未通过'}
+                    </span>
+                    {item.evidence !== null && (
+                      <span className="truncate text-muted-foreground">{item.evidence}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {textOf(record.report) !== null && (
+                <div className="whitespace-pre-wrap text-muted-foreground">
+                  {textOf(record.report)}
+                </div>
+              )}
+            </>
+          ) : action === null ? (
+            <pre className="m-0 overflow-x-auto rounded bg-background px-2 py-1.5">
+              {JSON.stringify(input, null, 2)}
+            </pre>
+          ) : null}
+        </div>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
+export const FinishStepCard = memo(FinishStepCardBase);

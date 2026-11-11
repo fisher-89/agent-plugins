@@ -20,7 +20,7 @@ import type { AgentToolOutput } from '@/lib/agent-adapter';
 import { asRecord, textOf } from '@/lib/parse';
 
 import { Spinner } from '../ui/spinner';
-import { WebSearchCard } from './agent-blocks';
+import { FinishStepCard, WebSearchCard } from './agent-blocks';
 
 /** 特化工具卡入参（output 为 null 即尚无结果；渲染 or null 回退由卡自决） */
 interface AgentToolCardProps {
@@ -279,6 +279,7 @@ function EditCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.
 
 export const BUILD_IN_TOOL_CARDS: Record<string, AgentToolCard> = {
   AskUserQuestion: AskUserQuestionCard,
+  finish_step: FinishStepCard,
   web_search: WebSearchCard,
   bash: BashCard,
   read: ReadCard,

@@ -19,7 +19,7 @@ pub(crate) struct ArchiContext {
 }
 
 impl ArchiContext {
-    /// 上下文构造（泵起播按 `toolset == Archi { .. }` 铸造；`root` = 会话 cwd）。
+    /// 上下文构造（泵起播按名字清单含 archi 工具名铸造；`root` = 会话 cwd）。
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }
     }

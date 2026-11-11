@@ -8,11 +8,11 @@ use agent::{
 
 use crate::sdk::config::{EngineConfig, Protocol};
 use crate::sdk::model_spec::{parse_model_spec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW};
+use crate::sdk::mount::ARCHI_MODULE_TOOL;
 use crate::sdk::runner::{
     anthropic_provider, build_model, derive_output_tokens, mint_archi_context, openai_provider,
     resolve_output_tokens, with_prompt_cache, SdkRunner, MIN_OUTPUT_TOKENS,
 };
-use crate::sdk::tools::ARCHI_MODULE_TOOL;
 use crate::{EngineFacade, EngineKind, ResumeTranscript};
 use rig::driver::DynModel;
 use rig::operation::Completion;
@@ -496,7 +496,7 @@ async fn 防线continue时全史事件仍全量进入重建_装载缝无写通�
 
 #[tokio::test]
 async fn runstarted_tools恰七工具清单() {
-    use crate::sdk::tools::TOOL_NAMES;
+    use crate::sdk::mount::TOOL_NAMES;
 
     let runner = SdkRunner::new(complete_config(), None, None, None);
     let mut session = runner.open_session(open_new()).expect("open 应成功");
@@ -726,7 +726,6 @@ fn 门面sdk分发的启动校验行为与直构runner一致() {
 // 端到端（泵铸造 → loop 下发面）
 // ---------------------------------------------------------------------------
 
-use agent::SessionToolset;
 use store::Store;
 
 /// 真实临时 workspace 库句柄装置（tempfile + open_workspace，不 mock）。
@@ -743,7 +742,7 @@ fn temp_store(tag: &str) -> (tempfile::TempDir, Arc<Store>) {
     (dir, store)
 }
 
-/// explore 来源注入底座（六名收窄 + Explore toolset）。
+/// explore 来源注入底座（六名 + `create_explore_note` 名字清单）。
 fn explore_injections() -> SessionInjections {
     SessionInjections {
         preamble: None,
@@ -754,8 +753,9 @@ fn explore_injections() -> SessionInjections {
             "ls".to_owned(),
             "edit".to_owned(),
             "bash".to_owned(),
+            crate::sdk::mount::EXPLORE_NOTE_TOOL.to_owned(),
         ]),
-        toolset: Some(SessionToolset::Explore),
+        finish: None,
     }
 }
 
@@ -785,7 +785,7 @@ fn sdk_runner第四参构造_some句柄与none缺省均编译可达() {
 /// 通的行为面证明；模型 IO 走 discard 端点，RunStarted 先于 IO 可观察）。
 #[tokio::test]
 async fn explore注入open_session端到端_runstarted报六工具加专用工具() {
-    use crate::sdk::tools::EXPLORE_NOTE_TOOL;
+    use crate::sdk::mount::EXPLORE_NOTE_TOOL;
 
     let (dir, store) = temp_store("e2e");
     let (resume, _calls) = loader(Ok(Some(Vec::new()))); // 预建空会话：空史开跑
@@ -860,7 +860,7 @@ async fn default注入零专用上下文_runstarted报七名() {
     };
     assert_eq!(
         tools.as_slice(),
-        crate::sdk::tools::TOOL_NAMES.as_slice(),
+        crate::sdk::mount::TOOL_NAMES.as_slice(),
         "default 轮工具面与七通用清单同源同序（含 write，AC-7）"
     );
     assert!(
@@ -1760,7 +1760,7 @@ async fn with_workspace_root链式构造两序均可达且open成功() {
 
 #[tokio::test]
 async fn with_workspace_root未注入零变化_runstarted与清单同序且失败面不变() {
-    use crate::sdk::tools::TOOL_NAMES;
+    use crate::sdk::mount::TOOL_NAMES;
 
     let runner = SdkRunner::new(complete_config(), None, None, None);
     let started = first_event_of(&runner).await;
@@ -2185,23 +2185,32 @@ async fn 启动失败面不被web_search开关改写() {
 }
 
 // ---------------------------------------------------------------------------
-// archi 注入面（`SessionToolset::Archi`）：下发面按位组装 + 与 `definitions` 单源
+// archi 注入面（名字清单含两 archi 名）：下发面组装 + 与 `mount::definitions` 单源
 //
-// 观测口径：per-turn 铸造已单点化为 `runner::mint_archi_context(toolset, root)`
-// （`session_pump` 唯一调用处，入参即 `open.injections.toolset` +
-// `open.ctx.workspace_root`）⇒ 铸造条件（`Some(Archi { .. })` → `Some(ctx)`，
-// `None` / `Explore` → `None`）与 root 传递（工具结果只取自该 root 下模型，换
-// root 即换内容）在本文件直断；`session_pump` 仍为私有面、`ArchiContext.root`
-// 仍为私有字段，不为测试提升可见性。loop 侧路由 / 整轮执行由
-// `sdk/loop_test.rs` 承接，`RunStarted.tools` 按 `toolset` 布尔位组装、与
-// `tools::definitions` 逐名同源、两专用上下文（`Explore` / `Archi`）互不串道
-// 亦在本节断言。
+// 观测口径：per-turn 铸造已单点化为 `runner::mint_archi_context(names, root)`
+// （`session_pump` 唯一调用处，入参即 `open.injections.tools` +
+// `open.ctx.workspace_root`）⇒ 铸造条件（含任一 archi 名 → `Some(ctx)`，否则
+// `None`）与 root 传递（工具结果只取自该 root 下模型，换 root 即换内容）在本
+// 文件直断；`session_pump` 仍为私有面、`ArchiContext.root` 仍为私有字段，不为
+// 测试提升可见性。loop 侧路由 / 整轮执行由 `sdk/loop_test.rs` 承接，
+// `RunStarted.tools` 按名字清单组装、与 `mount::definitions` 逐名同源、两专用
+// 上下文（explore / archi）互不串道亦在本节断言。
 // ---------------------------------------------------------------------------
 
-/// archi 注入底座（两布尔位按需；`tools` 不收窄 = 七通用工具全量）。
+/// archi 注入底座（两工具名按位；七工具名底座不变）。
 fn archi_injections(module: bool, search: bool) -> SessionInjections {
+    let mut names: Vec<String> = crate::sdk::mount::TOOL_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    if module {
+        names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
+    }
+    if search {
+        names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
+    }
     SessionInjections {
-        toolset: Some(SessionToolset::Archi { module, search }),
+        tools: Some(names),
         ..SessionInjections::default()
     }
 }
@@ -2242,7 +2251,7 @@ async fn run_started_tools(runner: &SdkRunner, open: SessionOpen) -> Vec<String>
 /// 追加的 archi 工具（尾追加）——注入面经泵进入 `definitions` 单源。
 #[tokio::test]
 async fn archi注入起播runstarted按位追加专用工具() {
-    use crate::sdk::tools::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, TOOL_NAMES};
+    use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, TOOL_NAMES};
 
     struct Case {
         module: bool,
@@ -2303,9 +2312,10 @@ async fn archi下发面与definitions逐名同源() {
             open_with_injections(injections.clone(), dir.path().to_path_buf()),
         )
         .await;
-        let definitions: Vec<String> = crate::sdk::tools::definitions(&injections)
+        let definitions: Vec<String> = crate::sdk::mount::definitions(&injections, "")
+            .expect("合法注入面")
             .into_iter()
-            .map(|definition| definition.name)
+            .map(|mount| mount.definition.name)
             .collect();
 
         assert_eq!(
@@ -2321,7 +2331,7 @@ async fn archi下发面与definitions逐名同源() {
 /// 且 archi 会话不追加它（两专用上下文互不串道）。
 #[tokio::test]
 async fn 非archi会话零archi工具面且两专用上下文不串道() {
-    use crate::sdk::tools::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES};
+    use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES};
 
     let archi_names = [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL];
 
@@ -2348,7 +2358,7 @@ async fn 非archi会话零archi工具面且两专用上下文不串道() {
     // 形态 B：`toolset = Some(Explore)`——既有 explore 臂零回归（仍只有笔记工具）
     let dir = workspace_root("archi-explore");
     let explore = SessionInjections {
-        toolset: Some(SessionToolset::Explore),
+        tools: Some(vec![crate::sdk::mount::EXPLORE_NOTE_TOOL.to_owned()]),
         ..SessionInjections::default()
     };
     let runner = SdkRunner::new(complete_config(), None, None, None);
@@ -2437,11 +2447,13 @@ async fn per_turn铸造archi上下文按toolset且root取会话根() {
             let open =
                 open_with_injections(archi_injections(module, search), dir.path().to_path_buf());
 
-            let context =
-                mint_archi_context(open.injections.toolset.as_ref(), &open.ctx.workspace_root)
-                    .unwrap_or_else(|| {
-                        panic!("{{module: {module}, search: {search}}}: Archi 会话必铸执行上下文")
-                    });
+            let context = mint_archi_context(
+                open.injections.tools.as_deref().unwrap_or_default(),
+                &open.ctx.workspace_root,
+            )
+            .unwrap_or_else(|| {
+                panic!("{{module: {module}, search: {search}}}: Archi 会话必铸执行上下文")
+            });
 
             // root 传递：薄概览只取该 root 下的模型（换 root 即换元素集合）
             let text = context
@@ -2472,11 +2484,286 @@ fn 非archi会话不铸archi上下文() {
     let root = dir.path().to_path_buf();
 
     assert!(
-        mint_archi_context(None, &root).is_none(),
-        "toolset = None：零 archi 上下文"
+        mint_archi_context(&[], &root).is_none(),
+        "名字清单无 archi 名：零 archi 上下文"
     );
     assert!(
-        mint_archi_context(Some(&SessionToolset::Explore), &root).is_none(),
-        "toolset = Explore：两专用上下文互不串道（不铸 archi）"
+        mint_archi_context(&[crate::sdk::mount::EXPLORE_NOTE_TOOL.to_owned()], &root).is_none(),
+        "explore 名字清单：两专用上下文互不串道（不铸 archi）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 名字清单面（AC-1 / AC-3）：per-turn 铸造判据按名字包含、枚举面零残留
+// ---------------------------------------------------------------------------
+
+/// explore 铸造判据（正向，AC-1 表驱动四形态）：名字清单含
+/// `create_explore_note` → 上下文铸造在场；零该名 / `tools: None`（内建七件
+/// 不含专用名）/ 名字大小写漂移（`Create_Explore_Note`）→ 均 `None`（精确名
+/// 比较，零归一化）。
+///
+/// 观测口径：`session_pump` 的铸造判据已单点化为 `contains_tool(&injections,
+/// EXPLORE_NOTE_TOOL)`（`runner.rs` 内私有单点），本组用例以同一对拍形态
+///（名字清单 → 判据）在 `LoopTurn` 铸造面直断，并以 `RunStarted.tools` 的
+/// 下发面作反向锚定。
+#[tokio::test]
+async fn explore铸造判据按名字包含四形态() {
+    use crate::sdk::mount::EXPLORE_NOTE_TOOL;
+
+    struct Case {
+        tag: &'static str,
+        tools: Option<Vec<String>>,
+        expect_present: bool,
+    }
+    let cases = [
+        Case {
+            tag: "含专用名",
+            tools: Some(vec![
+                "read".to_owned(),
+                "grep".to_owned(),
+                EXPLORE_NOTE_TOOL.to_owned(),
+            ]),
+            expect_present: true,
+        },
+        Case {
+            tag: "零该名的两内建",
+            tools: Some(vec!["read".to_owned(), "grep".to_owned()]),
+            expect_present: false,
+        },
+        Case {
+            tag: "内建七件（tools: None）",
+            tools: None,
+            expect_present: false,
+        },
+        Case {
+            tag: "大小写漂移",
+            tools: Some(vec!["read".to_owned(), "Create_Explore_Note".to_owned()]),
+            expect_present: false,
+        },
+    ];
+
+    for Case {
+        tag,
+        tools,
+        expect_present,
+    } in cases
+    {
+        let injections = SessionInjections {
+            tools,
+            ..SessionInjections::default()
+        };
+        let names = injections.tools.clone().unwrap_or_else(|| {
+            crate::sdk::mount::TOOL_NAMES
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect()
+        });
+        // 铸造判据（与 `runner.rs::contains_tool` 同形：精确名包含）
+        let present = names.iter().any(|name| name == EXPLORE_NOTE_TOOL);
+        assert_eq!(
+            present, expect_present,
+            "{tag}: explore 上下文铸造判据（精确名包含，零归一化）"
+        );
+
+        // 反向锚定：下发面同源。大小写漂移名本身是非法名（`definitions` 装配层
+        // `Err`——成员校验先于铸造判据），此时判据面不可达即等价于「零铸造」
+        match crate::sdk::mount::definitions(&injections, "") {
+            Ok(mounts) => {
+                let dispatched: Vec<&str> = mounts
+                    .iter()
+                    .map(|mount| mount.definition.name.as_str())
+                    .collect();
+                assert_eq!(
+                    dispatched.contains(&EXPLORE_NOTE_TOOL),
+                    expect_present,
+                    "{tag}: RunStarted.tools 侧同判（定义 / 上报同源）: {dispatched:?}"
+                );
+            }
+            Err(error) => {
+                assert!(
+                    error.contains("Create_Explore_Note"),
+                    "{tag}: 非法名在装配层 Err 携非法名: {error}"
+                );
+                assert!(!expect_present, "{tag}: 非法名形态必零铸造");
+            }
+        }
+    }
+}
+
+/// archi 铸造判据（正向，AC-1 表驱动五形态）：含 `archi_module` / 含
+/// `archi_search` / 两者同在 → `Some`；两者皆无（`tools: None` / 空清单）→
+/// `None`；近名（`archi` / `archi_module_x`）→ `None`（精确名比较）。
+#[tokio::test]
+async fn archi铸造判据精确名五形态() {
+    use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};
+
+    let dir = workspace_root("mint-archi-names");
+    let root = dir.path().to_path_buf();
+
+    struct Case {
+        tag: &'static str,
+        names: Vec<String>,
+        expect_present: bool,
+    }
+    let cases = [
+        Case {
+            tag: "含 archi_module",
+            names: vec![
+                "read".to_owned(),
+                ARCHI_MODULE_TOOL.to_owned(),
+                EXPLORE_NOTE_TOOL.to_owned(),
+            ],
+            expect_present: true,
+        },
+        Case {
+            tag: "含 archi_search",
+            names: vec!["read".to_owned(), ARCHI_SEARCH_TOOL.to_owned()],
+            expect_present: true,
+        },
+        Case {
+            tag: "两者同在",
+            names: vec![ARCHI_MODULE_TOOL.to_owned(), ARCHI_SEARCH_TOOL.to_owned()],
+            expect_present: true,
+        },
+        Case {
+            tag: "空清单",
+            names: Vec::new(),
+            expect_present: false,
+        },
+        Case {
+            tag: "近名（archi / archi_module_x）",
+            names: vec!["archi".to_owned(), "archi_module_x".to_owned()],
+            expect_present: false,
+        },
+    ];
+
+    for Case {
+        tag,
+        names,
+        expect_present,
+    } in cases
+    {
+        let minted = mint_archi_context(&names, &root);
+        assert_eq!(
+            minted.is_some(),
+            expect_present,
+            "{tag}: archi 上下文铸造判据（精确名比较，近名不命中）"
+        );
+    }
+    // `tools: None`（内建七件，不含两个 archi 名）→ None
+    let builtin: Vec<String> = crate::sdk::mount::TOOL_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    assert!(
+        mint_archi_context(&builtin, &root).is_none(),
+        "tools: None 的语义载体（内建七件）不含 archi 名 → 零铸造"
+    );
+}
+
+/// `mint_archi_context` 入参形态（边界，AC-1）：名字切片为空 `&[]` → `None`；
+/// workspace_root 不存在 → 不 panic（铸造为惰性，判据只读名字清单）；切片含
+/// 重复名 → 仍 `Some` 一份（不因重复二次铸造）。
+#[test]
+fn mint_archi_context入参形态三形态() {
+    use crate::sdk::mount::ARCHI_MODULE_TOOL;
+
+    let missing = std::env::temp_dir().join(format!(
+        "sdk-runner-mint-absent-{}-目录不存在",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&missing);
+
+    assert!(
+        mint_archi_context(&[], &missing).is_none(),
+        "空名字切片 → None（root 形态零校验，判据只在命名面）"
+    );
+    assert!(
+        mint_archi_context(&[ARCHI_MODULE_TOOL.to_owned()], &missing).is_some(),
+        "root 不存在不 panic（惰性铸造，判据只读名字清单）"
+    );
+    assert!(
+        mint_archi_context(
+            &[ARCHI_MODULE_TOOL.to_owned(), ARCHI_MODULE_TOOL.to_owned()],
+            &missing
+        )
+        .is_some(),
+        "重复名仍 Some 一份（不因重复二次铸造）"
+    );
+}
+
+/// 两臂互不污染（边界，AC-1）：只含 archi 名 → explore 侧判据零命中、archi 侧
+/// 命中；只含 `create_explore_note` → archi 侧 `None`、explore 侧命中（两判据
+/// 独立，不互相触发）。
+#[test]
+fn 两铸造判据互不污染两形态() {
+    use crate::sdk::mount::{ARCHI_MODULE_TOOL, EXPLORE_NOTE_TOOL};
+
+    let dir = workspace_root("mint-cross");
+    let root = dir.path().to_path_buf();
+
+    // 形态 A：只含 archi 名
+    let archi_only = vec![ARCHI_MODULE_TOOL.to_owned()];
+    assert!(
+        !archi_only.iter().any(|name| name == EXPLORE_NOTE_TOOL),
+        "只含 archi 名：explore 侧判据零命中（不互相触发）"
+    );
+    assert!(
+        mint_archi_context(&archi_only, &root).is_some(),
+        "只含 archi 名：archi 侧命中"
+    );
+
+    // 形态 B：只含 explore 名
+    let explore_only = vec![EXPLORE_NOTE_TOOL.to_owned()];
+    assert!(
+        mint_archi_context(&explore_only, &root).is_none(),
+        "只含 explore 名：archi 侧 None"
+    );
+    assert!(
+        explore_only.iter().any(|name| name == EXPLORE_NOTE_TOOL),
+        "只含 explore 名：explore 侧命中"
+    );
+}
+
+/// 枚举面零残留（异常，AC-3 源码自证）：`sdk/runner.rs` 代码行内
+/// `SessionToolset` / `toolset` 零命中；`use` 面改引 `crate::sdk::mount::{…}`
+/// 的三专用名常量（名字判定单点在挂载清单）。
+#[test]
+fn 枚举面零残留且引用面改挂载常量() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/runner.rs"),
+    )
+    .expect("读取 runner.rs");
+    let code_lines = own
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for retired in ["SessionToolset", "toolset"] {
+        assert!(
+            !code_lines.contains(retired),
+            "runner.rs 代码行内 {retired} 零命中（枚举面已删）"
+        );
+    }
+    assert!(
+        code_lines.contains(
+            "use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};"
+        ),
+        "引用面改引挂载清单的三专用名常量"
+    );
+    assert_eq!(
+        code_lines.matches("fn mint_archi_context").count(),
+        1,
+        "archi 铸造单点恰一处"
+    );
+    assert_eq!(
+        code_lines.matches("fn contains_tool").count(),
+        1,
+        "名字包含判据单点恰一处"
+    );
+    assert!(
+        code_lines.contains("open.injections.tools.as_deref()"),
+        "per-turn 铸造入参取自名字清单（`injections.tools`），非枚举位"
     );
 }

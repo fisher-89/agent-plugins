@@ -3,8 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use agent::{
-    AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle, SessionOpen, SessionToolset,
-    TurnQuestion,
+    AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle, SessionOpen, TurnQuestion,
 };
 use rig::driver::DynModel;
 use rig::message::Message;
@@ -21,6 +20,7 @@ use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::model_spec::{
     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
 };
+use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{context, r#loop, resume};
 use crate::ResumeTranscript;
@@ -69,8 +69,8 @@ pub struct SdkRunner {
     /// 云端 `web_search` 服务端工具开关（组合根已按协议门控的最终值；
     /// `new` 缺省 false——与「显式关」同义，故全链收 `bool` 而非 `Option`）
     web_search: bool,
-    /// workspace 库句柄（组合根注入缝）：`toolset == Explore` 会话 per-turn
-    /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
+    /// workspace 库句柄（组合根注入缝）：名字清单含 `create_explore_note` 的
+    /// 会话 per-turn 铸造该工具执行上下文的原料（None = 未注入）
     explore_store: Option<Arc<Store>>,
     /// 主仓 root（组合根注入缝）：写入保护规则装配的根（工作区配置权威所在
     /// 地）；`None` = 未注入 → 只装载内置规则（非「保护关闭」）
@@ -342,8 +342,8 @@ struct PumpPayload {
     web_search: bool,
     /// 该档模型原文（日志 `raw=…`；上报与请求用裸名——见 `ModelSpec.name`）
     raw_model: String,
-    /// workspace 库句柄（组合根注入缝）——`toolset == Explore` 会话 per-turn
-    /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
+    /// workspace 库句柄（组合根注入缝）——名字清单含 `create_explore_note` 的
+    /// 会话 per-turn 铸造该工具执行上下文的原料（None = 未注入）
     explore_store: Option<Arc<Store>>,
     /// 主仓 root（组合根注入缝）——写入保护规则装配的根（`None` = 未注入 →
     /// 只装载内置规则）
@@ -351,17 +351,22 @@ struct PumpPayload {
 }
 
 /// 架构只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
-/// `toolset == Some(Archi { .. })` 即铸（轮 root = 会话 cwd——change 会话即
-/// worktree），其余 toolset（`None` / `Explore`）恒 `None`。铸造值随 `LoopTurn`
-/// 携带、loop 侧路由，不经 `tools::execute`。
-pub(crate) fn mint_archi_context(
-    toolset: Option<&SessionToolset>,
-    workspace_root: &Path,
-) -> Option<ArchiContext> {
-    match toolset {
-        Some(SessionToolset::Archi { .. }) => Some(ArchiContext::new(workspace_root.to_path_buf())),
-        _ => None,
-    }
+/// 本轮名字清单含任一 archi 工具名即铸（轮 root = 会话 cwd——change 会话即
+/// worktree），否则 `None`。铸造值随 `LoopTurn` 携带、loop 侧路由，不经
+/// `tools::execute`。
+pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Option<ArchiContext> {
+    let present = names
+        .iter()
+        .any(|name| name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL);
+    present.then(|| ArchiContext::new(workspace_root.to_path_buf()))
+}
+
+/// 本轮名字清单是否包含某工具名（per-turn 铸造判据单点）。
+fn contains_tool(injections: &agent::SessionInjections, tool: &str) -> bool {
+    injections
+        .tools
+        .as_deref()
+        .is_some_and(|names| names.iter().any(|name| name == tool))
 }
 
 /// 会话泵任务（ask 段）
@@ -386,10 +391,10 @@ async fn session_pump(
             })
             .await;
     }
-    // `create_explore_note` 专用工具执行上下文 per-turn 铸造：toolset == Explore
+    // `create_explore_note` 专用工具执行上下文 per-turn 铸造：名字清单含该工具
     // 且 store 句柄在场才铸（Continue id 缺席则 None——生产不可达，explore 会话
     // 恒 Continue）；上下文随 LoopTurn 携带、loop 侧路由，不经 `tools::execute`
-    let explore_note = if open.injections.toolset == Some(SessionToolset::Explore) {
+    let explore_note = if contains_tool(&open.injections, EXPLORE_NOTE_TOOL) {
         payload
             .explore_store
             .zip(continue_session_id(&open))
@@ -397,9 +402,12 @@ async fn session_pump(
     } else {
         None
     };
-    // 架构只读工具执行上下文 per-turn 铸造：toolset == Archi { .. } 即铸（轮 root
-    // = 会话 cwd——change 会话即 worktree）；上下文随 LoopTurn 携带、loop 侧路由
-    let archi = mint_archi_context(open.injections.toolset.as_ref(), &open.ctx.workspace_root);
+    // 架构只读工具执行上下文 per-turn 铸造：名字清单含任一 archi 工具名即铸；
+    // 上下文随 LoopTurn 携带、loop 侧路由
+    let archi = mint_archi_context(
+        open.injections.tools.as_deref().unwrap_or_default(),
+        &open.ctx.workspace_root,
+    );
     // 泵启动日志（诊断面：同一 base_url 配错协议可一眼定位）。`model` 报裸名
     // （= 实际发送）、`window` 报**生效**窗长（含 128K 缺省）、`max_tokens` 报
     // **生效**输出上限（openai 协议不写该字段，记 `-`）、`raw` 留配置原文

@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use archi::dto::{ElementKind, GateTier, WarningKind};
 use regex::Regex;
-use rig::completion::ToolDefinition;
 use serde_json::Value;
 
 use crate::sdk::bash;
+// 名字常量本体驻挂载清单（单点）；本模块与 `archi_tool` 经此再导出引用，
+// 使「定义 / 常量只有一份」与「读面模块零改动」两约束同时成立。
+pub(crate) use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
 
 /// glob 单次结果上限（防大目录扫描灌爆上下文）。
 const MAX_GLOB_RESULTS: usize = 200;
@@ -31,25 +32,6 @@ const LARGE_FILE_BYTES: u64 = 100 * 1024;
 /// 大文件预览行数上限（`LARGE_FILE_BYTES` 触发时的缺省窗口）。
 const PREVIEW_LINES: usize = 100;
 
-/// 七通用工具封闭集基准面：policy 决策表与 compose 注入子集校验的基准；
-/// `RunStarted.tools` 与 loop 成员校验自 [`definitions`] 本体派生（下发面
-/// 单源——零第二份名单）。
-pub const TOOL_NAMES: [&str; 7] = ["read", "grep", "glob", "ls", "write", "edit", "bash"];
-
-/// `create_explore_note` 专用工具名（`toolset == Explore` 会话受控追加；执行
-/// 体在 [`crate::sdk::explore_note`]，经 `LoopTurn` 上下文路由——不经
-/// `tools::execute` 纯函数）。
-pub(crate) const EXPLORE_NOTE_TOOL: &str = "create_explore_note";
-
-/// `archi_module` 专用只读工具名（定位：已知在看哪个模块；`toolset == Archi
-/// { module: true, .. }` 时受控追加）。执行体在 [`crate::sdk::archi_tool`]，下发
-/// 判据单源在注入矩阵。
-pub(crate) const ARCHI_MODULE_TOOL: &str = "archi_module";
-
-/// `archi_search` 专用只读工具名（发现：还不知道功能归谁管；`toolset == Archi
-/// { search: true, .. }` 时受控追加）。执行体同上。
-pub(crate) const ARCHI_SEARCH_TOOL: &str = "archi_search";
-
 /// 模型入参字符串字段提取（缺失或非字符串 → Err）。
 fn string_field(input: &Value, field: &str) -> Result<String, String> {
     input
@@ -57,211 +39,6 @@ fn string_field(input: &Value, field: &str) -> Result<String, String> {
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| format!("入参缺失或非字符串字段: {field}"))
-}
-
-/// 工具定义面（按会话注入面组装）：七通用工具按 `injections.tools` 保序过滤
-/// （`None` = 全七——默认会话与上线前行为一致；`Some` = 子集，按
-/// [`TOOL_NAMES`] 序过滤），`toolset` 命中时追加专用工具定义——`Explore` 追加
-/// `create_explore_note`，`Archi { module, search }` 按位追加两个只读工具。
-/// `RunStarted.tools` 与成员校验自本函数返回值派生（下发面单源）。
-pub fn definitions(injections: &agent::SessionInjections) -> Vec<ToolDefinition> {
-    let selected: Vec<&str> = match &injections.tools {
-        None => TOOL_NAMES.to_vec(),
-        Some(names) => TOOL_NAMES
-            .iter()
-            .filter(|name| names.iter().any(|n| n == *name))
-            .copied()
-            .collect(),
-    };
-    let mut definitions: Vec<ToolDefinition> =
-        selected.into_iter().map(generic_definition).collect();
-    match &injections.toolset {
-        Some(agent::SessionToolset::Explore) => {
-            definitions.push(ToolDefinition {
-                name: EXPLORE_NOTE_TOOL.to_owned(),
-                description:
-                    "为当前探索会话的笔记落盘并定名。无路径参数——服务端按当前会话解析目标：\
-                     占位会话（未定名）原子完成文件创建与记录定名（一次调用即最终名，勿先用 bash 造\
-                     文件）；已定名会话仅接受与记录同名且文件缺失的补建。返回笔记路径（repo 相对、\
-                     `/` 分隔），供 edit 续用"
-                        .to_owned(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "name": { "type": "string", "description": "本次探索的 kebab-case 最终名（小写字母/数字，可用 `-` 连接；已定名会话必须与记录同名）" },
-                        "content": { "type": "string", "description": "笔记初稿全文（原样落盘）" }
-                    },
-                    "required": ["name", "content"]
-                }),
-            });
-        }
-        Some(agent::SessionToolset::Archi { module, search }) => {
-            if *module {
-                definitions.push(archi_module_definition());
-            }
-            if *search {
-                definitions.push(archi_search_definition());
-            }
-        }
-        None => {}
-    }
-    definitions
-}
-
-/// 词表拼接（`/` 分隔；值域清单由词汇单点派生，工具描述与响应共用同一份词表）。
-fn vocabulary(words: impl IntoIterator<Item = &'static str>) -> String {
-    words.into_iter().collect::<Vec<&str>>().join(" / ")
-}
-
-/// `archi_module` 定义（定位：邻接 / 直接子元素 / 文档引用 / 声明位置）。
-fn archi_module_definition() -> ToolDefinition {
-    ToolDefinition {
-        name: ARCHI_MODULE_TOOL.to_owned(),
-        description: format!(
-            "查询架构模型里的模块（定位：已知道在看哪个模块）。指定 element 返回该元素的\
-             kind（{}）/ gate（{}）/ path / metadata、声明位置（modelFile + modelLine，可直接 edit 到该行）、\
-             出边与入边（对端 FQN + 说明）、直接子元素与关联文档（四字段条目，正文用 read 自取）；\
-             省略 element 返回全部元素的薄概览。模型写坏时返回结构化诊断（先修模型）；\
-             docs 指向的文件不存在时以 {} 警告给出（只报不拦）",
-            vocabulary(ElementKind::ALL.map(ElementKind::as_str)),
-            vocabulary(GateTier::ALL.map(GateTier::as_str)),
-            WarningKind::DocNotFound.as_str(),
-        ),
-        parameters: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "element": { "type": "string", "description": "元素 FQN（如 App.Auth）；省略时返回全部元素的薄概览" }
-            },
-            "required": []
-        }),
-    }
-}
-
-/// `archi_search` 定义（发现：还不知道功能归谁管）。
-fn archi_search_definition() -> ToolDefinition {
-    ToolDefinition {
-        name: ARCHI_SEARCH_TOOL.to_owned(),
-        description: "在架构模型里按关键词检索元素与文档路径（发现：还不知道这功能归谁管时先搜）。\
-             匹配对象为元素 FQN / summary / metadata 值 / 文档路径与文件名（不搜文档正文——\
-             正文用 grep），大小写不敏感且支持驼峰分词（AuthToken → auth / token）。返回元素\
-             薄条目与四字段文档条目"
-            .to_owned(),
-        parameters: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "description": "关键词 / 元素名片段 / 文档路径片段（不得为空白）" },
-                "scope": { "type": "string", "enum": ["elements", "docs", "all"], "description": "检索范围（缺省 all）" }
-            },
-            "required": ["query"]
-        }),
-    }
-}
-
-/// 七通用工具定义（[`TOOL_NAMES`] 逐名 match；内容与参数化前的字面量逐字
-/// 一致）。
-fn generic_definition(name: &str) -> ToolDefinition {
-    match name {
-        "read" => ToolDefinition {
-            name: "read".to_owned(),
-            description:
-                "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）；\
-                          单次至多 2000 行，超限截断留痕，可用 offset 翻页读取后续窗口。\
-                          未指定 offset / limit 且文件较大时只预览前 100 行并提示分页——\
-                          需要整读请显式给 offset / limit"
-                    .to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "workspace 内文件路径" },
-                    "offset": { "type": "integer", "description": "起始行号（1 起始，缺省 1）" },
-                    "limit": { "type": "integer", "description": "读取行数（缺省至多 2000 行读到文件尾）" }
-                },
-                "required": ["path"]
-            }),
-        },
-        "grep" => ToolDefinition {
-            name: "grep".to_owned(),
-            description:
-                "行级正则匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件；\
-                 可选 context 携带匹配行上下文（命中行 ± N 行）"
-                    .to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "workspace 内文件或目录路径（目录时递归扫描）" },
-                    "pattern": { "type": "string", "description": "正则表达式（regex 语法，非法正则报错）" },
-                    "context": { "type": "integer", "description": "匹配行上下文行数（命中行 ± N，缺省 0；窗口合并去重，不连续组间以 -- 分隔）" }
-                },
-                "required": ["path", "pattern"]
-            }),
-        },
-        "glob" => ToolDefinition {
-            name: "glob".to_owned(),
-            description: "按 glob 模式列出 workspace 内匹配文件（root 相对模式，上限 200 条）"
-                .to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "root 相对 glob 模式（如 src/**/*.rs）" }
-                },
-                "required": ["pattern"]
-            }),
-        },
-        "ls" => ToolDefinition {
-            name: "ls".to_owned(),
-            description: "列目录：一级条目（目录带 / 后缀），字母序".to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "workspace 内目录路径" }
-                },
-                "required": ["path"]
-            }),
-        },
-        "write" => ToolDefinition {
-            name: "write".to_owned(),
-            description: "覆写文件（全量覆盖；缺失父目录自动创建）".to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "workspace 内文件路径" },
-                    "content": { "type": "string", "description": "写入全文" }
-                },
-                "required": ["path", "content"]
-            }),
-        },
-        "edit" => ToolDefinition {
-            name: "edit".to_owned(),
-            description: "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）"
-                .to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "workspace 内文件路径" },
-                    "old_string": { "type": "string", "description": "待替换的精确原文" },
-                    "new_string": { "type": "string", "description": "替换后的文本" },
-                    "replace_all": { "type": "boolean", "description": "全部替换（缺省仅首处且要求唯一命中）" }
-                },
-                "required": ["path", "old_string", "new_string"]
-            }),
-        },
-        "bash" => ToolDefinition {
-            name: "bash".to_owned(),
-            description: "执行 shell 命令并返回合并输出（stdout 段在前、stderr 段带 [stderr] \
-                          标记在后）；cwd 为 workspace root，非零退出码报错并携带输出。超时为活性\
-                          护栏，超时即终止进程树"
-                .to_owned(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "command": { "type": "string", "description": "待执行的命令行（git-bash / sh unix 语法优先，探测失败退 cmd）" },
-                    "timeout_ms": { "type": "integer", "description": "超时毫秒（缺省 120000；须在 1000-1800000 内，越界报错不执行，超时终止进程树）" }
-                },
-                "required": ["command"]
-            }),
-        },
-        other => unreachable!("generic_definition 仅承接 TOOL_NAMES 封闭集: {other}"),
-    }
 }
 
 /// 沙箱校验对象提取：工具名 → 入参中的路径类字段值（glob 为 pattern，

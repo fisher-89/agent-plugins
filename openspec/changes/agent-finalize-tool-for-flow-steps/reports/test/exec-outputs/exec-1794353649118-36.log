@@ -1,0 +1,765 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\agent\src\runner_test.rs:579:
+         .rev()
+         .take(3)
+         .collect::<Vec<_>>()
+[31m-        .join("
+[0m[31m-");
+[0m[32m+        .join(
+[0m[32m+            "
+[0m[32m+",
+[0m[32m+        );
+[0m     assert!(
+         !finish_spec_derive.contains("specta"),
+         "FinishSpec 的 derive 行不含 specta（收口档位不出线 IPC），实际: {finish_spec_derive}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\agent\src\runner_test.rs:709:
+         let back: SessionInjections =
+             serde_json::from_value(serde_json::to_value(&injections).expect("序列化"))
+                 .expect("反序列化");
+[31m-        assert_eq!(
+[0m[31m-            back.preamble,
+[0m[31m-            Some(preamble),
+[0m[31m-            "preamble 特殊字符逐字保真"
+[0m[31m-        );
+[0m[32m+        assert_eq!(back.preamble, Some(preamble), "preamble 特殊字符逐字保真");
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\agent\src\runner_test.rs:742:
+         .lines()
+         .filter(|line| !line.trim_start().starts_with("//"))
+         .collect::<Vec<_>>()
+[31m-        .join("
+[0m[31m-");
+[0m[32m+        .join(
+[0m[32m+            "
+[0m[32m+",
+[0m[32m+        );
+[0m     // 断言自身不写枚举字面量（否则自指命中）：以拼装串表达
+     let retired_enum = ["Session", "Toolset"].concat();
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\decision_test.rs:285:
+     // 空串 / 纯空白 reason → Err（比照缺失，文案携空白拒因）
+     for blank in [String::new(), "   ".to_owned()] {
+         let error = validate_decision(&make(blank)).expect_err("空白 reason 应 Err");
+[31m-        assert!(
+[0m[31m-            error.contains("空白"),
+[0m[31m-            "文案标明空白拒因: {error}"
+[0m[31m-        );
+[0m[32m+        assert!(error.contains("空白"), "文案标明空白拒因: {error}");
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\decision_test.rs:315:
+             "options": ["甲"],
+         }))
+         .expect_err("空白 question 应 Err");
+[31m-        assert!(
+[0m[31m-            error.contains("question"),
+[0m[31m-            "文案定位于 question: {error}"
+[0m[31m-        );
+[0m[32m+        assert!(error.contains("question"), "文案定位于 question: {error}");
+[0m     }
+     // 超长 question（5000）→ Ok（无上限）
+     let parsed = validate_decision(&serde_json::json!({
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\decision_test.rs:647:
+         "确定性门禁相位（零 agent 步），不支持重做",
+         "越权 backtrack：目标",
+     ] {
+[31m-        assert!(
+[0m[31m-            own.contains(wording),
+[0m[31m-            "既有拒绝文案逐字在场: {wording}"
+[0m[31m-        );
+[0m[32m+        assert!(own.contains(wording), "既有拒绝文案逐字在场: {wording}");
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:155:
+     let expected_ids: [(&str, &[&str]); 8] = [
+         (
+             "proposal",
+[31m-            &["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"],
+[0m[32m+            &[
+[0m[32m+                "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
+[0m[32m+            ],
+[0m         ),
+         (
+             "dev-design",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:165:
+             "test-design",
+             &["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"],
+         ),
+[32m+        ("implement", &["I1", "I2", "I3", "I4", "I5", "I6", "I7"]),
+[0m         (
+[31m-            "implement",
+[0m[31m-            &["I1", "I2", "I3", "I4", "I5", "I6", "I7"],
+[0m[31m-        ),
+[0m[31m-        (
+[0m             "test-gen",
+             &["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+         ),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:176:
+[32m+        ("code-review", &["C1", "C2", "C3", "C4", "C5", "C6", "C7"]),
+[0m         (
+[31m-            "code-review",
+[0m[31m-            &["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+[0m[31m-        ),
+[0m[31m-        (
+[0m             "code-analyze",
+             &["CA1", "CA2", "CA3", "CA4", "CA5", "CA6", "CA7", "CA8"],
+         ),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:184:
+[31m-        (
+[0m[31m-            "acceptance",
+[0m[31m-            &["A1", "A2", "A3", "A4", "A5"],
+[0m[31m-        ),
+[0m[32m+        ("acceptance", &["A1", "A2", "A3", "A4", "A5"]),
+[0m     ];
+     for (phase, ids) in expected_ids {
+         let prompt = evaluator_prompt_of(phase);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:208:
+             .unwrap_or_else(|| panic!("enum 数组在场，实际: {schema}"));
+         let actual: Vec<&str> = ids
+             .iter()
+[31m-            .map(|value| {
+[0m[31m-                value
+[0m[31m-                    .as_str()
+[0m[31m-                    .expect("enum 元素为字符串")
+[0m[31m-            })
+[0m[32m+            .map(|value| value.as_str().expect("enum 元素为字符串"))
+[0m             .collect();
+         assert_eq!(
+             actual,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:243:
+         "逐项三字段必填"
+     );
+     assert_eq!(
+[31m-        properties["items"]["items"]["properties"]["pass"]["type"],
+[0m[31m-        "boolean",
+[0m[32m+        properties["items"]["items"]["properties"]["pass"]["type"], "boolean",
+[0m         "pass 为布尔"
+     );
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:260:
+ 
+ #[test]
+ fn parameters的evaluator臂退化面_空id集省略enum键() {
+[31m-    for prompt in ["", "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n"] {
+[0m[32m+    for prompt in [
+[0m[32m+        "",
+[0m[32m+        "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n",
+[0m[32m+    ] {
+[0m         let schema = parameters(FinishSpec::EvaluatorChecklist, prompt);
+         let id_schema = &schema["properties"]["items"]["items"]["properties"]["id"];
+         assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\prompt_test.rs:747:
+ fn evaluator_protocol删json形状与回声禁令() {
+     let prompt = evaluator_prompt("主体");
+     for absent in ["\"verdict\"", "\"checklist\"", "\"report\":", "```json"] {
+[31m-        assert!(
+[0m[31m-            !prompt.contains(absent),
+[0m[31m-            "JSON 形状块要素 {absent} 零命中"
+[0m[31m-        );
+[0m[32m+        assert!(!prompt.contains(absent), "JSON 形状块要素 {absent} 零命中");
+[0m     }
+     for word in ["phase /", "\"phase\"", "\"attempt\"", "\"skipped\""] {
+         assert!(!prompt.contains(word), "回声禁令词 {word} 零命中");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\prompt_test.rs:759:
+         prompt.contains("verdict") && prompt.contains("推导"),
+         "verdict 由推导的说明仍在（不是静默省略）"
+     );
+[31m-    assert!(
+[0m[31m-        prompt.contains("evidence"),
+[0m[31m-        "逐项 evidence 语义在场"
+[0m[31m-    );
+[0m[32m+    assert!(prompt.contains("evidence"), "逐项 evidence 语义在场");
+[0m }
+ 
+ /// 拼接契约（回归锚定）：主体开头 + `\n\n---\n\n` 分隔 + 空主体不 panic。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\prompt_test.rs:777:
+ 
+     let empty = evaluator_prompt("");
+     assert!(!empty.is_empty(), "空主体产出非空（不 panic）");
+[31m-    assert!(empty.starts_with("---") || empty.starts_with('\n'), "空主体只余协议段");
+[0m[32m+    assert!(
+[0m[32m+        empty.starts_with("---") || empty.starts_with('\n'),
+[0m[32m+        "空主体只余协议段"
+[0m[32m+    );
+[0m     assert_eq!(
+         empty,
+         format!("{}", evaluator_protocol_text()),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\prompt_test.rs:816:
+ 
+ #[test]
+ fn 两个修正prompt退役且prompt源内零残留() {
+[31m-    let own = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/prompt.rs"))
+[0m[31m-        .expect("读取 prompt.rs");
+[0m[32m+    let own = std::fs::read_to_string(
+[0m[32m+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/prompt.rs"),
+[0m[32m+    )
+[0m[32m+    .expect("读取 prompt.rs");
+[0m     for retired in ["verdict_fix_prompt", "decision_fix_prompt"] {
+         assert!(
+             !own.contains(retired),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\transcript_test.rs:361:
+     let other_notices = vec![
+         notice(0, "api_retry", serde_json::json!({ "attempt": 1 })),
+         notice(1, "context_pruned", serde_json::json!({ "pruned": 2 })),
+[31m-        notice(2, "output_truncated", serde_json::json!({ "reason": "max_tokens" })),
+[0m[32m+        notice(
+[0m[32m+            2,
+[0m[32m+            "output_truncated",
+[0m[32m+            serde_json::json!({ "reason": "max_tokens" }),
+[0m[32m+        ),
+[0m     ];
+     assert_eq!(
+         finish_payload(&other_notices),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\transcript_test.rs:407:
+         matches!(payload, FinishPayload::Evaluator(_)),
+         "取末条（evaluator 臂），实际: {payload:?}"
+     );
+[31m-
+[0m }
+ 
+ /// 「末条」是语义而非「最后一条可解析的」：末条损坏时 MUST NOT 回退到前条
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\verdict_test.rs:148:
+         !error.contains("缺项"),
+         "清单外文案不得含缺项分类词（互斥）: {error}"
+     );
+[31m-    assert!(
+[0m[31m-        error.contains("清单外"),
+[0m[31m-        "文案标明清单外分类: {error}"
+[0m[31m-    );
+[0m[32m+    assert!(error.contains("清单外"), "文案标明清单外分类: {error}");
+[0m }
+ 
+ #[test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\verdict_test.rs:247:
+         "文案含上限 2000: {error}"
+     );
+     assert!(error.contains("2001"), "文案含当前值 2001: {error}");
+[31m-    assert!(
+[0m[31m-        error.contains("超出 1"),
+[0m[31m-        "文案含超出量 1: {error}"
+[0m[31m-    );
+[0m[32m+    assert!(error.contains("超出 1"), "文案含超出量 1: {error}");
+[0m 
+     // 5000 字符 → 报 5000 / 超出 3000
+     args["report"] = serde_json::json!("报".repeat(5000));
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\verdict_test.rs:452:
+     assert_eq!(MAX_REPORT_CHARS, 2000, "report 上限常量仍在场且为 2000");
+ 
+     let own = source_of("src/verdict.rs");
+[31m-    for retired in ["parse_verdict", "extract_json", "fenced_block", "brace_slice"] {
+[0m[32m+    for retired in [
+[0m[32m+        "parse_verdict",
+[0m[32m+        "extract_json",
+[0m[32m+        "fenced_block",
+[0m[32m+        "brace_slice",
+[0m[32m+    ] {
+[0m         assert!(
+             !own.contains(retired),
+             "verdict.rs 内 {retired} 零命中（文本解析面已退役）"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:2197:
+ async fn verdict门在位两值落位且detail携verdict() {
+     for (report, expect_verdict, expect_status) in [
+         (PASS_JSON, Verdict::Pass, ChangeRunStatus::Completed),
+[31m-        (fail_json("覆盖缺口").as_str(), Verdict::Fail, ChangeRunStatus::Failed),
+[0m[32m+        (
+[0m[32m+            fail_json("覆盖缺口").as_str(),
+[0m[32m+            Verdict::Fail,
+[0m[32m+            ChangeRunStatus::Failed,
+[0m[32m+        ),
+[0m     ] {
+         let timeline = Arc::new(Mutex::new(Vec::new()));
+         let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:2208:
+             .assemble();
+         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+         let control = Arc::new(ChangeFlowControl::new());
+[31m-        let (task, _rx, history) =
+[0m[31m-            spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+[0m[32m+        let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+[0m         let _confirmer = spawn_confirmer(&control, true);
+         let status = task.await.expect("run 任务正常结束");
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:2237:
+                 _ => None,
+             })
+             .expect("phase-log 落账在场");
+[32m+        assert_eq!(logged.checklist.len(), 1, "落账 checklist 与载荷项数相等");
+[0m         assert_eq!(
+[31m-            logged.checklist.len(),
+[0m[31m-            1,
+[0m[31m-            "落账 checklist 与载荷项数相等"
+[0m[31m-        );
+[0m[31m-        assert_eq!(
+[0m             logged.checklist[0].pass,
+             expect_verdict == Verdict::Pass,
+             "落账 pass 位随载荷"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:2249:
+         );
+         // pass 收敛 completed；fail 交决策 stop → stopped
+         assert!(
+[31m-            matches!(status, ChangeRunStatus::Completed | ChangeRunStatus::Stopped | ChangeRunStatus::Failed),
+[0m[32m+            matches!(
+[0m[32m+                status,
+[0m[32m+                ChangeRunStatus::Completed | ChangeRunStatus::Stopped | ChangeRunStatus::Failed
+[0m[32m+            ),
+[0m             "两值均正常收口（不 panic），实际: {status:?}"
+         );
+         let _ = expect_status;
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:3207:
+     let finish = history.finish().expect("finish 落包捕获");
+     assert_eq!(finish.status, RunStatus::Failed);
+     let reason = finish.reason.as_deref().unwrap_or_default();
+[32m+    assert!(reason.contains("决策越权"), "终态记因携越权语义: {reason}");
+[0m     assert!(
+[31m-        reason.contains("决策越权"),
+[0m[31m-        "终态记因携越权语义: {reason}"
+[0m[31m-    );
+[0m[31m-    assert!(
+[0m         reason.contains("proposal") && reason.contains("dev-design"),
+         "记因携 allowed 各相位 id: {reason}"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:10722:
+     // 白名单不含 implement → backtrack 到自身即自环（零 agent 步不可重做语义）
+     let allowed = ["proposal"];
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+[31m-    let self_loop =
+[0m[31m-        r#"{ "action": "backtrack", "to": "implement", "reason": "重做" }"#.to_owned();
+[0m[32m+    let self_loop = r#"{ "action": "backtrack", "to": "implement", "reason": "重做" }"#.to_owned();
+[0m     let (worker, requests, sessions) = FakeWorker::new(&timeline)
+         .with_decision_reports(vec![self_loop])
+         .assemble();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:10786:
+         "自环决议零 Backtrack 落账"
+     );
+ }
+[31m-
+[0m 
+ /// 决策输入面（正向 / 边界）：`fail_checklist` 仅携失败项（pass 项不随行）；
+ /// 全 pass 清单配 fail verdict → 全量随行不虚减；失败相位站缺席 → `attempt = 0`
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\model\checklist_test.rs:132:
+         assert!(!got.contains(&fake.to_owned()), "子项 {fake} 零命中");
+     }
+     // 双保险反证：若放宽为无边界 `[A-Z]+[0-9]+` 全行扫描，子项会被切成假 ID
+[31m-    let loose_hits = prompt
+[0m[31m-        .lines()
+[0m[31m-        .filter(|line| line.contains("T8-"))
+[0m[31m-        .count();
+[0m[32m+    let loose_hits = prompt.lines().filter(|line| line.contains("T8-")).count();
+[0m     assert_eq!(loose_hits, 3, "合成样本含三行子表（宽松扫描的假 ID 来源）");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\model\checklist_test.rs:207:
+         ("C1", "后现正文", "依据丙"),
+     ]);
+     assert_eq!(
+[31m-        checklist_entries(&prompt)[0].item, "首现正文",
+[0m[32m+        checklist_entries(&prompt)[0].item,
+[0m[32m+        "首现正文",
+[0m         "去重键是 ID，首现正文权威"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\model\checklist_test.rs:218:
+ 
+ #[test]
+ fn 空输入与缺席四形态() {
+[31m-    assert!(
+[0m[31m-        checklist_entries("").is_empty(),
+[0m[31m-        "空串 → 零项（不 panic）"
+[0m[31m-    );
+[0m[32m+    assert!(checklist_entries("").is_empty(), "空串 → 零项（不 panic）");
+[0m     let no_section = "这是一段很长的说明文本\n".repeat(100);
+     assert!(
+         checklist_entries(&no_section).is_empty(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\model\domain_test.rs:178:
+         "phase_log.rs 经 model 导入推导单点，实际导入面缺失"
+     );
+     assert_eq!(
+[31m-        phase_log.matches("derive_verdict(&input.checklist)").count(),
+[0m[32m+        phase_log
+[0m[32m+            .matches("derive_verdict(&input.checklist)")
+[0m[32m+            .count(),
+[0m         1,
+         "phase_log.rs 恰一处调用"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3272:
+         (
+             "proposal",
+             11,
+[31m-            &["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"],
+[0m[32m+            &[
+[0m[32m+                "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
+[0m[32m+            ],
+[0m         ),
+         (
+             "dev-design",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3313:
+             "相位 {phase} 静态清单项数（表结构被改坏即刻红）"
+         );
+         assert_eq!(
+[31m-            entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(),
+[0m[32m+            entries
+[0m[32m+                .iter()
+[0m[32m+                .map(|entry| entry.id.as_str())
+[0m[32m+                .collect::<Vec<_>>(),
+[0m             expected_ids,
+             "相位 {phase} ID 序列逐值且有序"
+         );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3395:
+             1,
+             "新串恰一处命中（同句改写）"
+         );
+[31m-        assert!(
+[0m[31m-            !prompt.contains(OLD_SENTENCE),
+[0m[31m-            "旧串零命中（改写彻底）"
+[0m[31m-        );
+[0m[32m+        assert!(!prompt.contains(OLD_SENTENCE), "旧串零命中（改写彻底）");
+[0m     }
+ 
+     // 8 份之间该行逐字相同
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3405:
+     let lines: Vec<&str> = prompts
+         .iter()
+[31m-        .filter_map(|prompt| {
+[0m[31m-            prompt
+[0m[31m-                .lines()
+[0m[31m-                .find(|line| line.contains(NEW_SENTENCE))
+[0m[31m-        })
+[0m[32m+        .filter_map(|prompt| prompt.lines().find(|line| line.contains(NEW_SENTENCE)))
+[0m         .collect();
+     assert_eq!(lines.len(), 8, "8 份各命中一行");
+     let first = lines[0];
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:1775:
+         } else {
+             None
+         };
+[31m-        assert_eq!(
+[0m[31m-            last.tools, expected_tools,
+[0m[31m-            "来源 {source:?} tools 面"
+[0m[31m-        );
+[0m[32m+        assert_eq!(last.tools, expected_tools, "来源 {source:?} tools 面");
+[0m         assert_eq!(last.finish, None, "来源 {source:?} finish = None");
+         assert_eq!(last.preamble, None);
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:3627:
+ #[test]
+ fn finish位按role置位三形态() {
+     let cases = [
+[31m-        (
+[0m[31m-            "evaluator",
+[0m[31m-            Some(agent::FinishSpec::EvaluatorChecklist),
+[0m[31m-        ),
+[0m[32m+        ("evaluator", Some(agent::FinishSpec::EvaluatorChecklist)),
+[0m         ("decision", Some(agent::FinishSpec::Decision)),
+         ("executor", None),
+     ];
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:3637:
+     for (role, expected) in cases {
+         let source_ref = format!("c/implement/{role}/1");
+         let injections = injections_of("change", Some(&source_ref));
+[31m-        assert_eq!(
+[0m[31m-            injections.finish, expected,
+[0m[31m-            "role {role} 的 finish 位"
+[0m[31m-        );
+[0m[32m+        assert_eq!(injections.finish, expected, "role {role} 的 finish 位");
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:3715:
+         source: "change".to_owned(),
+         source_ref: None,
+     };
+[31m-    let error = injected(&["read", "no_such_tool"], None, None, &provenance)
+[0m[31m-        .expect_err("清单外名字应 Err");
+[0m[32m+    let error =
+[0m[32m+        injected(&["read", "no_such_tool"], None, None, &provenance).expect_err("清单外名字应 Err");
+[0m     assert!(
+         error.contains("no_such_tool"),
+         "文案携非法名（可归因）: {error}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:5185:
+ }
+ 
+ /// 携 `finish` 档位 + 合成 prompt 的轮参数。
+[31m-fn loop_turn_with_finish(cwd: &Path, mode: AgentPermissionMode, spec: agent::FinishSpec) -> LoopTurn {
+[0m[32m+fn loop_turn_with_finish(
+[0m[32m+    cwd: &Path,
+[0m[32m+    mode: AgentPermissionMode,
+[0m[32m+    spec: agent::FinishSpec,
+[0m[32m+) -> LoopTurn {
+[0m     LoopTurn {
+         question: finish_prompt(),
+         injections: crate::sdk::mount::injected_finish(&[], Some(spec)),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:5198:
+     events
+         .iter()
+         .filter_map(|event| match event {
+[31m-            AgentEventKind::Message { role, blocks, .. } if *role == AgentMessageRole::Tool => Some(
+[0m[31m-                blocks
+[0m[31m-                    .iter()
+[0m[31m-                    .filter_map(|block| match block {
+[0m[31m-                        agent::AgentBlock::ToolResult {
+[0m[31m-                            id,
+[0m[31m-                            content,
+[0m[31m-                            is_error,
+[0m[31m-                        } => Some((id.clone(), content.clone(), *is_error)),
+[0m[31m-                        _ => None,
+[0m[31m-                    })
+[0m[31m-                    .collect::<Vec<_>>(),
+[0m[31m-            ),
+[0m[32m+            AgentEventKind::Message { role, blocks, .. } if *role == AgentMessageRole::Tool => {
+[0m[32m+                Some(
+[0m[32m+                    blocks
+[0m[32m+                        .iter()
+[0m[32m+                        .filter_map(|block| match block {
+[0m[32m+                            agent::AgentBlock::ToolResult {
+[0m[32m+                                id,
+[0m[32m+                                content,
+[0m[32m+                                is_error,
+[0m[32m+                            } => Some((id.clone(), content.clone(), *is_error)),
+[0m[32m+                            _ => None,
+[0m[32m+                        })
+[0m[32m+                        .collect::<Vec<_>>(),
+[0m[32m+                )
+[0m[32m+            }
+[0m             _ => None,
+         })
+         .flatten()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:5241:
+         .map(|(_, payload)| payload)
+         .collect();
+     assert_eq!(finish_notices.len(), 1, "finish_step notice 恰一条");
+[31m-    let payload: orchestration::finish::FinishPayload = serde_json::from_value(
+[0m[31m-        finish_notices[0].clone(),
+[0m[31m-    )
+[0m[31m-    .expect("载荷可反序列化为 FinishPayload");
+[0m[32m+    let payload: orchestration::finish::FinishPayload =
+[0m[32m+        serde_json::from_value(finish_notices[0].clone()).expect("载荷可反序列化为 FinishPayload");
+[0m     let orchestration::finish::FinishPayload::Evaluator(checklist) = payload else {
+         panic!("evaluator 形态载荷");
+     };
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:5251:
+[31m-    assert_eq!(
+[0m[31m-        checklist.verdict.as_str(),
+[0m[31m-        "pass",
+[0m[31m-        "全 pass 推导 pass"
+[0m[31m-    );
+[0m[32m+    assert_eq!(checklist.verdict.as_str(), "pass", "全 pass 推导 pass");
+[0m 
+     let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+         panic!("末事件为 TurnDone");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:5298:
+     let interrupted = sealed_tool_results(&events)
+         .into_iter()
+         .any(|(_, content, _)| content.contains("INTERRUPTED_RESULT"));
+[31m-    assert!(!interrupted, "转录内 INTERRUPTED_RESULT 零命中（假结果已入库）");
+[0m[32m+    assert!(
+[0m[32m+        !interrupted,
+[0m[32m+        "转录内 INTERRUPTED_RESULT 零命中（假结果已入库）"
+[0m[32m+    );
+[0m }
+ 
+ /// 同批结果进恰一条 user 消息（AC-5 ②）：`finish_step` + `read` + `bash` 三调用
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:5311:
+     let model = FakeModel::with_turns(vec![vec![
+         raw_tool_call("tu_finish", "finish_step", finish_args()),
+         raw_tool_call("tu_read", "read", serde_json::json!({ "path": "a.txt" })),
+[31m-        raw_tool_call("tu_bash", "bash", serde_json::json!({ "command": "echo 甲" })),
+[0m[32m+        raw_tool_call(
+[0m[32m+            "tu_bash",
+[0m[32m+            "bash",
+[0m[32m+            serde_json::json!({ "command": "echo 甲" }),
+[0m[32m+        ),
+[0m     ]]);
+     let turn = loop_turn_with_finish(
+         dir.path(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\loop_test.rs:5472:
+         finish_result.1
+     );
+ 
+[31m-    let denied = notices_of(&events)
+[0m[31m-        .into_iter()
+[0m[31m-        .any(|(subtype, payload)| {
+[0m[31m-            subtype == "permission_denied" && payload["tool"] == serde_json::json!("write")
+[0m[31m-        });
+[0m[32m+    let denied = notices_of(&events).into_iter().any(|(subtype, payload)| {
+[0m[32m+        subtype == "permission_denied" && payload["tool"] == serde_json::json!("write")
+[0m[32m+    });
+[0m     assert!(denied, "同批 write 仍按 Write tier 被拒（门未放宽）");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:9:
+ use agent::{FinishSpec, SessionInjections};
+ 
+ use crate::sdk::mount::{
+[31m-    builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount, ToolTier,
+[0m[31m-    ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
+[0m[32m+    builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
+[0m[32m+    ToolTier, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
+[0m };
+ 
+ /// 十项名字的期望序（前七恰七内建）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:66:
+     assert_eq!(unique.len(), 10, "无重复名: {names:?}");
+ 
+     assert_eq!(
+[31m-        registry()[..7].iter().map(|mount| mount.definition.name.as_str()).collect::<Vec<_>>(),
+[0m[32m+        registry()[..7]
+[0m[32m+            .iter()
+[0m[32m+            .map(|mount| mount.definition.name.as_str())
+[0m[32m+            .collect::<Vec<_>>(),
+[0m         TOOL_NAMES.to_vec(),
+         "前七项恰为七内建（`tools: None` 的语义载体）"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:95:
+         assert_eq!(mount.tier, tier, "工具 {name} 的 tier 归属");
+     }
+     // 计数面：Read 六 / Write 三 / Execute 一 / Protocol 零
+[31m-    let count = |tier: ToolTier| {
+[0m[31m-        registry()
+[0m[31m-            .iter()
+[0m[31m-            .filter(|mount| mount.tier == tier)
+[0m[31m-            .count()
+[0m[31m-    };
+[0m[32m+    let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
+[0m     assert_eq!(count(ToolTier::Read), 6, "Read 六项");
+     assert_eq!(count(ToolTier::Write), 3, "Write 三项");
+     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:107:
+[31m-    assert_eq!(count(ToolTier::Protocol), 0, "静态表零 Protocol（finish_step 不入表）");
+[0m[32m+    assert_eq!(
+[0m[32m+        count(ToolTier::Protocol),
+[0m[32m+        0,
+[0m[32m+        "静态表零 Protocol（finish_step 不入表）"
+[0m[32m+    );
+[0m }
+ 
+ #[test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:182:
+ fn definitions内建七件_tools为none即七内建且零finish_step() {
+     let mounts = definitions(&SessionInjections::default(), "").expect("缺省注入面合法");
+     assert_eq!(mounts.len(), 7, "`tools: None` = 内建七件");
+[31m-    assert_eq!(
+[0m[31m-        names(&mounts),
+[0m[31m-        TOOL_NAMES.to_vec(),
+[0m[31m-        "名字序 == TOOL_NAMES"
+[0m[31m-    );
+[0m[32m+    assert_eq!(names(&mounts), TOOL_NAMES.to_vec(), "名字序 == TOOL_NAMES");
+[0m     assert!(
+         !names(&mounts).contains(&"finish_step".to_owned()),
+         "finish 位缺席时零 finish_step"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:212:
+     // 三个专用工具以名字进清单后定义由 registry 提供
+     for special in [EXPLORE_NOTE_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL] {
+         let mounts = definitions(&injected(&[special]), "").expect("专用名合法");
+[31m-        assert_eq!(names(&mounts), vec![special.to_owned()], "专用名 {special} 可下发");
+[0m[32m+        assert_eq!(
+[0m[32m+            names(&mounts),
+[0m[32m+            vec![special.to_owned()],
+[0m[32m+            "专用名 {special} 可下发"
+[0m[32m+        );
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:236:
+ 
+ #[test]
+ fn definitions非法名err且不返回部分清单() {
+[31m-    let error = definitions(&injected(&["read", "no_such_tool"]), "")
+[0m[31m-        .expect_err("清单外名字应 Err");
+[0m[32m+    let error =
+[0m[32m+        definitions(&injected(&["read", "no_such_tool"]), "").expect_err("清单外名字应 Err");
+[0m     assert!(
+         error.contains("no_such_tool"),
+         "文案携非法名（可归因）: {error}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:313:
+     let mounts = definitions(&injections, &prompt).expect("finish 位置位合法");
+     assert_eq!(mounts.len(), 8, "七内建 + finish_step");
+     assert_eq!(
+[31m-        mounts[..7].iter().map(|mount| mount.definition.name.as_str()).collect::<Vec<_>>(),
+[0m[32m+        mounts[..7]
+[0m[32m+            .iter()
+[0m[32m+            .map(|mount| mount.definition.name.as_str())
+[0m[32m+            .collect::<Vec<_>>(),
+[0m         TOOL_NAMES.to_vec(),
+         "前七项逐名不变（RunStarted.tools 其余名单不变）"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:329:
+     ];
+     for (_, expected_ids) in cases {
+         let prompt = prompt_of(&expected_ids);
+[31m-        let expected: Vec<String> = expected_ids
+[0m[31m-            .into_iter()
+[0m[31m-            .map(str::to_owned)
+[0m[31m-            .collect();
+[0m[32m+        let expected: Vec<String> = expected_ids.into_iter().map(str::to_owned).collect();
+[0m         let mounts = definitions(
+             &injected_finish(&[], Some(FinishSpec::EvaluatorChecklist)),
+             &prompt,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:339:
+         )
+         .expect("合法");
+[31m-        let enum_values = mounts
+[0m[31m-            .last()
+[0m[31m-            .expect("末项")
+[0m[31m-            .definition
+[0m[31m-            .parameters["properties"]["items"]["items"]["properties"]["id"]["enum"]
+[0m[32m+        let enum_values = mounts.last().expect("末项").definition.parameters["properties"]["items"]
+[0m[32m+            ["items"]["properties"]["id"]["enum"]
+[0m             .as_array()
+             .unwrap_or_else(|| panic!("enum 数组在场，实际 prompt: {prompt}"))
+             .iter()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\worker_test.rs:639:
+     .expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+     let root = env.root();
+[31m-    let request = turn_request(&root, "chg-flow/implement/evaluator/1", WorkerRole::Evaluator);
+[0m[32m+    let request = turn_request(
+[0m[32m+        &root,
+[0m[32m+        "chg-flow/implement/evaluator/1",
+[0m[32m+        WorkerRole::Evaluator,
+[0m[32m+    );
+[0m 
+     let outcome = tokio::spawn(async move { port.run(request).await })
+         .await
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\worker_test.rs:679:
+         !own.contains("from_value::<FinishPayload>"),
+         "worker.rs 内零第二份提取实现（MUST NOT 各写一份）"
+     );
+[31m-    assert!(
+[0m[31m-        own.contains("finalized"),
+[0m[31m-        "finalized 字段由 worker.rs 填充"
+[0m[31m-    );
+[0m[32m+    assert!(own.contains("finalized"), "finalized 字段由 worker.rs 填充");
+[0m }
+ 
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\src\bindings\mod_test.rs:2989:
+ /// （旧词面残留即判据失效）。
+ #[test]
+ fn 反向锚定清单换位自证() {
+[31m-    let own = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+[0m[31m-        "src/bindings/mod_test.rs",
+[0m[31m-    ))
+[0m[32m+    let own = std::fs::read_to_string(
+[0m[32m+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bindings/mod_test.rs"),
+[0m[32m+    )
+[0m     .expect("读取 mod_test.rs");
+ 
+     let retired_enum = ["Session", "Toolset"].concat();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\src\bindings\mod_test.rs:3022:
+         "锚定数组零旧枚举名: {anchor_line}"
+     );
+     assert!(
+[31m-        !joined.replace(&format!("\"{retired_enum}\"") , "").contains(&retired_enum)
+[0m[32m+        !joined
+[0m[32m+            .replace(&format!("\"{retired_enum}\""), "")
+[0m[32m+            .contains(&retired_enum)
+[0m             || joined.contains("反向锚定清单换位自证"),
+         "代码行内仅本自证用例的拼装串出现旧枚举名（其余零命中）"
+     );
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

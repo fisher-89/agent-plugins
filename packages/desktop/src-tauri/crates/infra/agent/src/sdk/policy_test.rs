@@ -1,223 +1,221 @@
-//! `policy` 的单元测试（AC-4 / AC-10 / auto-named-explore AC-6）：权限三档纯
-//! 决策表逐格断言（档位 × 工具名 → 允许/拒绝；bash 行为三档首次真实分化；
-//! `create_explore_note` 归写面档位）+ 拒绝流出形态
-//! （`SystemNotice{permission_denied}` + is_error ToolResult）合成形状。
+//! `policy` 的单元测试（AC-2）：tier 准入纯函数的三档 × 四 tier 矩阵逐格断言
+//!（`Protocol` / `Read` 三档恒放行，`Write` / `Execute` 仅 Default 档拒绝）+
+//! 与改造前三张按名常量表的逐工具等价对拍 + 拒绝流出形态合成形状。
 //! 纯决策表无进程边界依赖，不需要 Mock。
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode};
 
+use crate::sdk::mount::{self, ToolTier};
 use crate::sdk::policy::allows;
-use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
 
-/// 只读四工具（default 档放行面，与 policy 模块清单同源口径）。
-const READONLY: [&str; 4] = ["read", "grep", "glob", "ls"];
-/// 写面两通用工具（acceptEdits 档追加放行）。
-const WRITE: [&str; 2] = ["write", "edit"];
-/// 执行面 bash（acceptEdits / bypassPermissions 档追加放行、default 档拒绝）。
-const EXECUTE: [&str; 1] = ["bash"];
-/// explore 专用工具（写面档位归属——Default 拒绝、两写档放行；不在七通用
-/// 封闭清单内，definitions 参数化时受控追加）。
-const EXPLORE_NOTE: [&str; 1] = [EXPLORE_NOTE_TOOL];
-
-// ---------------------------------------------------------------------------
-// 三档决策表（正向逐格）
-// ---------------------------------------------------------------------------
-
-#[test]
-fn default档只读四工具允许且write_edit拒绝() {
-    for tool in READONLY {
-        assert!(
-            allows(AgentPermissionMode::Default, tool),
-            "default 档应放行只读工具 {tool}"
-        );
-    }
-    for tool in WRITE {
-        assert!(
-            !allows(AgentPermissionMode::Default, tool),
-            "default 档应拒绝写面工具 {tool}"
-        );
-    }
-    for tool in EXPLORE_NOTE {
-        assert!(
-            !allows(AgentPermissionMode::Default, tool),
-            "default 档应拒绝 explore 专用工具 {tool}（写面档位归属，AC-6）"
-        );
-    }
+/// 工具名 → 挂载 tier（成员判定单点 = 挂载清单；清单外名无 tier）。
+fn tier(name: &str) -> ToolTier {
+    let mount = mount::registry()
+        .iter()
+        .find(|mount| mount.definition.name == name)
+        .expect("被测工具名在挂载清单内");
+    mount.tier
 }
 
-#[test]
-fn accept_edits档只读加写面全允许() {
-    for tool in READONLY {
-        assert!(
-            allows(AgentPermissionMode::AcceptEdits, tool),
-            "acceptEdits 档应放行只读工具 {tool}"
-        );
-    }
-    for tool in WRITE {
-        assert!(
-            allows(AgentPermissionMode::AcceptEdits, tool),
-            "acceptEdits 档应放行写面工具 {tool}"
-        );
-    }
-    for tool in EXPLORE_NOTE {
-        assert!(
-            allows(AgentPermissionMode::AcceptEdits, tool),
-            "acceptEdits 档应放行 explore 专用工具 {tool}（与 write/edit 同构写面语义）"
-        );
-    }
-}
-
-#[test]
-fn bypass_permissions档七工具全放行且与工具面清单逐一命中() {
-    // 与七工具定义面同源口径：只读 + 写面 + 执行面 == 通用工具清单（清单长度
-    // 等价断言；explore 专用工具为受控追加位，不在通用封闭清单内）
-    assert_eq!(
-        READONLY.len() + WRITE.len() + EXECUTE.len(),
-        TOOL_NAMES.len(),
-        "决策表三清单与通用工具面清单同源（bash 入册后的封闭口径）"
-    );
-    assert!(
-        !TOOL_NAMES.contains(&EXPLORE_NOTE_TOOL),
-        "explore 专用工具不在通用封闭清单内（受控追加位）"
-    );
-    for tool in TOOL_NAMES {
-        assert!(
-            allows(AgentPermissionMode::BypassPermissions, tool),
-            "bypassPermissions 档应全放行 {tool}"
-        );
-    }
-    for tool in EXPLORE_NOTE {
-        assert!(
-            allows(AgentPermissionMode::BypassPermissions, tool),
-            "bypassPermissions 档应放行 explore 专用工具 {tool}"
-        );
-    }
-    // 调试页既有默认档：permission-mode 默认即 BypassPermissions（决策表语义
-    // 与调试页默认一致——serde 线格式缺省档为 default，调试页 UI 恒显式传
-    // bypassPermissions，见 agent-run-form 断言；此处锁定档位枚举值存在且可匹配）
-    let mode = AgentPermissionMode::BypassPermissions;
-    assert_eq!(mode, AgentPermissionMode::BypassPermissions);
-}
+/// 三档单点遍历。
+const MODES: [AgentPermissionMode; 3] = [
+    AgentPermissionMode::Default,
+    AgentPermissionMode::AcceptEdits,
+    AgentPermissionMode::BypassPermissions,
+];
 
 // ---------------------------------------------------------------------------
-// bash 行为三档首次真实分化（AC-4 矩阵逐格）
+// 三档 × 四 tier 矩阵（正向逐格，12 格）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn allows_bash三档矩阵逐格_default拒accept与bypass放() {
-    // Default 拒（只读档不给执行权）
-    assert!(
-        !allows(AgentPermissionMode::Default, "bash"),
-        "default 档必须拒绝执行面 bash"
-    );
-    // AcceptEdits 放
-    assert!(
-        allows(AgentPermissionMode::AcceptEdits, "bash"),
-        "acceptEdits 档必须放行 bash（写档含执行面）"
-    );
-    // BypassPermissions 放
-    assert!(
-        allows(AgentPermissionMode::BypassPermissions, "bash"),
-        "bypassPermissions 档必须放行 bash（调试页默认档，无沙箱知情边界见 policy 模块文档）"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// create_explore_note 写面档位归属（auto-named-explore AC-6）
-// ---------------------------------------------------------------------------
-
-#[test]
-fn allows_create_explore_note三档矩阵_default拒两写档放() {
-    // Default 拒（写面归属——policy 写面拒绝形态与 write/edit 同构）
-    assert!(
-        !allows(AgentPermissionMode::Default, "create_explore_note"),
-        "default 档必须拒绝 create_explore_note（AC-6：policy 写面归属）"
-    );
-    // AcceptEdits 放
-    assert!(
-        allows(AgentPermissionMode::AcceptEdits, "create_explore_note"),
-        "acceptEdits 档必须放行 create_explore_note（与 write/edit 同构）"
-    );
-    // BypassPermissions 放
-    assert!(
-        allows(
-            AgentPermissionMode::BypassPermissions,
-            "create_explore_note"
-        ),
-        "bypassPermissions 档必须放行 create_explore_note"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 决策表封闭集逐格回归（三档 ×（七通用 + create_explore_note）扩展后矩阵）
-// ---------------------------------------------------------------------------
-
-#[test]
-fn 决策表封闭集逐格_三档乘八工具矩阵与档位语义一致() {
-    let tools: Vec<&str> = TOOL_NAMES.iter().copied().chain(EXPLORE_NOTE).collect();
-    assert_eq!(tools.len(), 8, "矩阵列 = 七通用 + 一专用");
-
-    for tool in tools {
-        let expected = match tool {
-            // 只读四工具：三档全放
-            "read" | "grep" | "glob" | "ls" => [true, true, true],
-            // 写面（write / edit / create_explore_note）：仅两写档放
-            "write" | "edit" | "create_explore_note" => [false, true, true],
-            // 执行面 bash：仅两写档放
-            "bash" => [false, true, true],
-            other => unreachable!("封闭集外名 {other} 不应出现在矩阵列"),
-        };
-        let actual = [
-            allows(AgentPermissionMode::Default, tool),
-            allows(AgentPermissionMode::AcceptEdits, tool),
-            allows(AgentPermissionMode::BypassPermissions, tool),
-        ];
-        assert_eq!(
-            actual, expected,
-            "工具 {tool} 三档行为漂移：期望 {expected:?} 实际 {actual:?}"
-        );
-    }
-}
-
-#[test]
-fn 未知名空串大写变体带空白变体三档一律拒绝() {
-    let unknowns = ["", "Write", "write ", " write", "create_Explore_Note"];
-    for unknown in unknowns {
-        for (label, mode) in [
-            ("default", AgentPermissionMode::Default),
-            ("acceptEdits", AgentPermissionMode::AcceptEdits),
-            ("bypassPermissions", AgentPermissionMode::BypassPermissions),
+fn 三档乘四tier矩阵逐格() {
+    for mode in MODES {
+        for (tier, expected) in [
+            (ToolTier::Read, true),
+            (ToolTier::Protocol, true),
+            (ToolTier::Write, mode != AgentPermissionMode::Default),
+            (ToolTier::Execute, mode != AgentPermissionMode::Default),
         ] {
-            assert!(
-                !allows(mode, unknown),
-                "未知名 {unknown:?} 在 {label} 档必须拒绝（封闭清单精确匹配）"
+            assert_eq!(
+                allows(mode, tier),
+                expected,
+                "{mode:?} 档 × {tier:?} tier 决策漂移"
             );
         }
     }
 }
 
+#[test]
+fn default档只放只读与协议两档() {
+    assert!(allows(AgentPermissionMode::Default, ToolTier::Read));
+    assert!(allows(AgentPermissionMode::Default, ToolTier::Protocol));
+    assert!(!allows(AgentPermissionMode::Default, ToolTier::Write));
+    assert!(!allows(AgentPermissionMode::Default, ToolTier::Execute));
+}
+
+/// 纯函数与幂等（边界）：同一 `(mode, tier)` 连续两次调用**同判**（零内部状态、
+/// 零 IO、零缓存）；四 tier × 三档全 12 格各两次调用无 panic（覆盖 `ToolTier`
+/// 全值域）。
+#[test]
+fn 同一mode与tier连续两次调用同判且12格全覆盖() {
+    let tiers = [
+        ToolTier::Read,
+        ToolTier::Write,
+        ToolTier::Execute,
+        ToolTier::Protocol,
+    ];
+    for mode in MODES {
+        for tier in tiers {
+            let first = allows(mode, tier);
+            let second = allows(mode, tier);
+            assert_eq!(
+                first, second,
+                "{mode:?} 档 × {tier:?} tier 连续两次调用判定不一致（幂等面破裂）"
+            );
+            let third = allows(mode, tier);
+            assert_eq!(first, third, "{mode:?} 档 × {tier:?} tier 第三次调用仍同判");
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
-// 缺席与清单外（边界）
+// 与改造前三张常量表逐格等价（对拍）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 清单外工具名与大小写变体与空串一律拒绝() {
-    // 未知工具名（模型幻觉）不静默放行
-    for unknown in ["rm_rf", "web_search", "execute", "Bash"] {
-        assert!(
-            !allows(AgentPermissionMode::BypassPermissions, unknown),
-            "清单外工具 {unknown} 即使 bypassPermissions 也必须拒绝"
+fn 十项挂载逐工具三档等价于原三张按名常量表() {
+    for mount in mount::registry() {
+        let name = mount.definition.name.as_str();
+        let expected = match name {
+            // 原 READONLY_TOOLS：三档全放
+            "read" | "grep" | "glob" | "ls" | "archi_module" | "archi_search" => [true, true, true],
+            // 原 WRITE_TOOLS（含 create_explore_note）
+            "write" | "edit" | "create_explore_note" => [false, true, true],
+            // 原 EXECUTE_TOOLS
+            "bash" => [false, true, true],
+            other => unreachable!("挂载清单封闭集外名 {other}"),
+        };
+        let actual = [
+            allows(AgentPermissionMode::Default, mount.tier),
+            allows(AgentPermissionMode::AcceptEdits, mount.tier),
+            allows(AgentPermissionMode::BypassPermissions, mount.tier),
+        ];
+        assert_eq!(
+            actual, expected,
+            "工具 {name} 三档行为与改造前常量表漂移：期望 {expected:?} 实际 {actual:?}"
         );
     }
-    // 大小写变体（"READ"）：封闭清单精确匹配，不做大小写归一
-    for mode in [
-        AgentPermissionMode::Default,
-        AgentPermissionMode::AcceptEdits,
-        AgentPermissionMode::BypassPermissions,
-    ] {
-        assert!(!allows(mode, "READ"), "大小写变体 READ 必须拒绝");
-        assert!(!allows(mode, ""), "空串工具名必须拒绝");
+}
+
+#[test]
+fn 档位归属抽样_read与protocol恒放写与执行需非default() {
+    assert_eq!(tier("read"), ToolTier::Read);
+    assert_eq!(tier("archi_module"), ToolTier::Read);
+    assert_eq!(tier("write"), ToolTier::Write);
+    assert_eq!(tier("create_explore_note"), ToolTier::Write);
+    assert_eq!(tier("bash"), ToolTier::Execute);
+}
+
+#[test]
+fn accept_edits与bypass对同一工具首次同判_与default分化() {
+    for name in ["write", "edit", "bash", "create_explore_note"] {
+        let tier = tier(name);
+        assert!(
+            !allows(AgentPermissionMode::Default, tier),
+            "default 拒 {name}"
+        );
+        assert!(
+            allows(AgentPermissionMode::AcceptEdits, tier),
+            "acceptEdits 放 {name}"
+        );
+        assert!(
+            allows(AgentPermissionMode::BypassPermissions, tier),
+            "bypassPermissions 放 {name}"
+        );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 清单外工具名（成员判定归属挂载清单，policy 零按名清单）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 清单外工具名不在挂载清单内() {
+    for unknown in [
+        "",
+        "Write",
+        "rm_rf",
+        "web_search",
+        "archi_write",
+        "READ",
+        "create_Explore_Note",
+    ] {
+        assert!(
+            mount::lookup(unknown).is_none(),
+            "未知名 {unknown:?} 必须不在挂载清单内（成员校验据此拒绝）"
+        );
+    }
+}
+
+#[test]
+fn 挂载清单内十项名字两两不同() {
+    let names: Vec<&str> = mount::registry()
+        .iter()
+        .map(|mount| mount.definition.name.as_str())
+        .collect();
+    let mut unique = names.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(names.len(), unique.len(), "挂载清单名字两两不同: {names:?}");
+}
+
+// ---------------------------------------------------------------------------
+// 常量表退役（AC-2 / 源码自证）：四名零命中 + `fn allows` 签名轴换位
+// ---------------------------------------------------------------------------
+
+/// 常量表退役（异常，AC-2 源码自证）：`policy.rs` 代码行内 `READONLY_TOOLS` /
+/// `WRITE_TOOLS` / `EXECUTE_TOOLS` / `listed` 四名零命中；`fn allows` 恰 1 处且
+/// 签名轴为 `(AgentPermissionMode, ToolTier)`（工具名轴零残留）。
+#[test]
+fn 常量表退役四名零命中且allows签名轴换位() {
+    // 剔除注释行：本文件的对拍基准注释里会出现「原 READONLY_TOOLS」等历史说明，
+    // 自证只看产品源的代码行。
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sdk/policy.rs"),
+    )
+    .expect("读取 policy.rs");
+    let code_lines = own
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for retired in ["READONLY_TOOLS", "WRITE_TOOLS", "EXECUTE_TOOLS", "listed"] {
+        assert!(
+            !code_lines.contains(retired),
+            "policy.rs 代码行内 {retired} 零命中（按名常量表已退役）"
+        );
+    }
+
+    assert_eq!(
+        code_lines.matches("fn allows").count(),
+        1,
+        "fn allows 恰一处"
+    );
+    assert!(
+        code_lines.contains("pub fn allows(mode: AgentPermissionMode, tier: ToolTier) -> bool"),
+        "allows 首参 AgentPermissionMode、次参 ToolTier（工具名轴零残留）"
+    );
+    assert!(
+        !code_lines.contains("tool: &str") && !code_lines.contains("tool_name"),
+        "签名面零工具名参数（判定轴已换为 tier）"
+    );
+    // 本变更加载点：`TOOL_NAMES` 不参与任何判定——policy.rs 内零引用
+    assert!(
+        !code_lines.contains("TOOL_NAMES"),
+        "policy.rs 内 TOOL_NAMES 零命中（常量不参与判定）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -226,14 +224,12 @@ fn 清单外工具名与大小写变体与空串一律拒绝() {
 
 #[test]
 fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id的is_error_tool_result() {
-    // loop 侧拒绝合成契约（run 不中断的流出形态，AC-5 后半句）：决策表拒绝
-    // 的工具（default 档 write）→ SystemNotice{subtype:"permission_denied"}
-    // 信封 + 与 tool_use 同 id 的 is_error ToolResult。此处以决策表驱动同一
-    // 形状的合成产物断言（合成执行体归 loop，loop 语义经 runner_test 假流缝
-    // 全链用例承载；本用例锁定信封与 ToolResult 的形状口径）。
+    // loop 侧拒绝合成契约（run 不中断的流出形态）：决策表拒绝的工具（default
+    // 档 write）→ SystemNotice{subtype:"permission_denied"} 信封 + 与 tool_use
+    // 同 id 的 is_error ToolResult。
     let denied_tool = "write";
     assert!(
-        !allows(AgentPermissionMode::Default, denied_tool),
+        !allows(AgentPermissionMode::Default, tier(denied_tool)),
         "前置：default 档 write 必须被决策表拒绝"
     );
 
@@ -281,64 +277,4 @@ fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id
     assert_eq!(id.as_str(), tool_use_id, "与 tool_use 同 id 成对");
     assert!(*is_error, "拒绝结果必须 is_error");
     assert_eq!(content.as_str(), reason);
-}
-
-// ---------------------------------------------------------------------------
-// 架构只读工具面（archi 章节）：只读清单扩至六名，三档全放行
-// ---------------------------------------------------------------------------
-
-/// 两 archi 工具名（与 `tools` 常量同源口径）。
-const ARCHI_TOOLS: [&str; 2] = [
-    crate::sdk::tools::ARCHI_MODULE_TOOL,
-    crate::sdk::tools::ARCHI_SEARCH_TOOL,
-];
-
-/// 正向：只读清单恰六名；三档（Default / AcceptEdits / BypassPermissions）对两
-/// archi 工具全部放行（6 格）。
-#[test]
-fn 两archi工具三档全放行且只读清单恰六名() {
-    let readonly: Vec<&str> = READONLY.iter().copied().chain(ARCHI_TOOLS).collect();
-    assert_eq!(
-        readonly,
-        vec!["read", "grep", "glob", "ls", "archi_module", "archi_search"],
-        "只读清单恰六名（原四名 + 两 archi 工具）"
-    );
-
-    for mode in [
-        AgentPermissionMode::Default,
-        AgentPermissionMode::AcceptEdits,
-        AgentPermissionMode::BypassPermissions,
-    ] {
-        for tool in ARCHI_TOOLS {
-            assert!(allows(mode, tool), "{mode:?} 档应放行只读工具 {tool}");
-        }
-    }
-}
-
-/// 异常：只读面未扩宽——`Default` 档仍拒写面 / 执行面工具。
-#[test]
-fn 只读面扩两名的同时不扩其他面() {
-    for tool in ["write", "edit", "bash", EXPLORE_NOTE_TOOL] {
-        assert!(
-            !allows(AgentPermissionMode::Default, tool),
-            "default 档仍拒 {tool}（只读面只扩两 archi 名）"
-        );
-    }
-}
-
-/// 异常：词汇外工具名（`archi_write` / `""` / `read2`）在任何档位一律拒绝。
-#[test]
-fn 词汇外archi工具名任何档位一律拒绝() {
-    for tool in ["archi_write", "", "read2", "ARCHI_MODULE"] {
-        for mode in [
-            AgentPermissionMode::Default,
-            AgentPermissionMode::AcceptEdits,
-            AgentPermissionMode::BypassPermissions,
-        ] {
-            assert!(
-                !allows(mode, tool),
-                "{mode:?} 档应拒词汇外工具名 {tool:?}（封闭清单语义）"
-            );
-        }
-    }
 }

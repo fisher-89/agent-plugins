@@ -70,13 +70,16 @@ pub struct WorkerTurnRequest {
 }
 
 /// WorkerAgent 会话产出：密封事件全集（提取器输入）+ 终态 + 最终消息载体
-/// 所属会话 id。
+/// 所属会话 id + 收口载荷（`finish_step` 的工具协议产物；缺席 = 本步未收口）。
 #[derive(Debug, Clone)]
 pub struct WorkerTurnOutcome {
     pub session_id: String,
     pub status: AgentRunStatus,
     pub final_message: Option<String>,
     pub transcript: Vec<AgentEvent>,
+    /// 收口载荷（转录末条 `SystemNotice{finish_step}` 反序列化；缺失 / 损坏即
+    /// `None`——提取单点在 [`crate::transcript::finish_payload`]）
+    pub finalized: Option<crate::finish::FinishPayload>,
 }
 
 /// WorkerAgent 会话执行契约（假引擎缝）：infra 内核适配实现，测试以预录

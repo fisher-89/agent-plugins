@@ -1,5 +1,6 @@
 pub mod control;
 pub mod decision;
+pub mod finish;
 pub mod port;
 pub mod prompt;
 pub mod run_history;
@@ -12,6 +13,7 @@ pub mod walker;
 
 pub use control::{ChangeFlowControl, RunGuard};
 pub use decision::{CandidateReport, DecisionAction, DecisionInput};
+pub use finish::{description, parameters, validate, FinishPayload};
 pub use port::{
     ArchiCheckOutcome, ArchiCheckRunner, ArchiveVcsPort, BoxDiffFuture, BoxToolFuture,
     BoxTurnFuture, DiffContextPort, RunEventSink, RunHistoryPort, StaticCheckOutcome,
@@ -33,6 +35,8 @@ pub use walker::{new_run_id, walk_run, RunRequest};
 mod control_test;
 #[cfg(test)]
 mod decision_test;
+#[cfg(test)]
+mod finish_test;
 #[cfg(test)]
 mod port_test;
 #[cfg(test)]

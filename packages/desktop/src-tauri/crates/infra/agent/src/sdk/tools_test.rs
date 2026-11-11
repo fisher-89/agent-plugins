@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use agent::{SessionInjections, SessionToolset};
+use agent::SessionInjections;
 use serde_json::{json, Value};
 
+use crate::sdk::mount::{definitions, EXPLORE_NOTE_TOOL, TOOL_NAMES};
 use crate::sdk::sandbox::check;
-use crate::sdk::tools::{definitions, execute, input_path, EXPLORE_NOTE_TOOL, TOOL_NAMES};
+use crate::sdk::tools::{execute, input_path};
 
 fn tempdir(tag: &str) -> tempfile::TempDir {
     tempfile::Builder::new()
@@ -25,17 +26,32 @@ fn write_rel(root: &Path, rel: &str, content: &str) -> PathBuf {
     path
 }
 
+/// 定义面取用单点：挂载清单 → 定义列表（合法注入面直接取值，断言体无需再解 Result）。
+fn defs(injections: &SessionInjections, prompt: &str) -> Vec<rig::completion::ToolDefinition> {
+    definitions(injections, prompt)
+        .expect("合法注入面")
+        .into_iter()
+        .map(|mount| mount.definition)
+        .collect()
+}
+
+/// 源码自证读产品源文件（`CARGO_MANIFEST_DIR` 相对）。
+fn source_of(relative: &str) -> String {
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative))
+        .unwrap_or_else(|error| panic!("读取 {relative} 失败: {error}"))
+}
+
 // ---------------------------------------------------------------------------
 // 七工具定义面（正向 + 封闭性边界）
 // ---------------------------------------------------------------------------
 
 #[test]
 fn 定义清单恰为七工具且名称_描述_schema齐全() {
-    let defs = definitions(&SessionInjections::default());
+    let defs = defs(&SessionInjections::default(), "");
     assert_eq!(defs.len(), 7, "恰为七工具（bash 入册后的封闭清单）");
     let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
     assert_eq!(names, TOOL_NAMES.to_vec(), "定义面与 TOOL_NAMES 同源同序");
-    for def in &defs {
+    for def in defs.iter() {
         assert!(!def.description.is_empty(), "{} 描述非空", def.name);
         assert_eq!(
             def.parameters["type"],
@@ -1027,7 +1043,7 @@ async fn 未知工具名执行分发显式拒绝() {
 }
 
 // ---------------------------------------------------------------------------
-// auto-named-explore：定义面参数化组装（definitions(injections)）与
+// auto-named-explore：定义面按名字清单组装（defs(injections, prompt)）与
 // create_explore_note 专用工具定义
 // ---------------------------------------------------------------------------
 
@@ -1037,8 +1053,8 @@ fn explore_note_tool常量值为create_explore_note() {
     assert_eq!(EXPLORE_NOTE_TOOL, "create_explore_note");
 }
 
-/// explore 收窄：`tools` = 六名（无 `write`）+ `toolset` = Explore → 定义不
-/// 含 `write`、序同 `TOOL_NAMES` 保序过滤、末位追加 `create_explore_note`。
+/// explore 收窄：`tools` = 六名（无 `write`）+ `create_explore_note` → 定义不
+/// 含 `write`、序同 `TOOL_NAMES` 保序过滤、末位为 `create_explore_note`。
 #[test]
 fn definitions_explore收窄_不含write_保序追加专用工具() {
     let six: Vec<String> = TOOL_NAMES
@@ -1047,13 +1063,15 @@ fn definitions_explore收窄_不含write_保序追加专用工具() {
         .filter(|name| *name != "write")
         .map(str::to_owned)
         .collect();
+    let mut names_injected = six;
+    names_injected.push(EXPLORE_NOTE_TOOL.to_owned());
     let injections = SessionInjections {
         preamble: None,
-        tools: Some(six),
-        toolset: Some(SessionToolset::Explore),
+        tools: Some(names_injected),
+        finish: None,
     };
 
-    let defs = definitions(&injections);
+    let defs = defs(&injections, "");
     let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
 
     assert_eq!(
@@ -1074,81 +1092,110 @@ fn definitions_explore收窄_不含write_保序追加专用工具() {
         "explore 工具面不含 write（AC-5 硬约束）"
     );
     assert_eq!(
-        defs.last().expect("追加的专用定义").name,
+        defs.last().expect("末位专用定义").name,
         EXPLORE_NOTE_TOOL,
         "专用工具以 EXPLORE_NOTE_TOOL 常量命名"
     );
 }
 
-/// 空 `tools` 边界：`tools = Some([])` + `toolset` None → 零通用定义；
-/// `toolset` = Explore → 仅 `create_explore_note` 一条。
+/// 空 `tools` 边界：`tools = Some([])` → 零定义（含 `finish` 位缺席面）。
 #[test]
-fn definitions空tools子集_零通用定义_追加面仅剩专用工具() {
+fn definitions空tools子集_零定义() {
     let empty_tools = SessionInjections {
         preamble: None,
         tools: Some(Vec::new()),
-        toolset: None,
+        finish: None,
     };
     assert!(
-        definitions(&empty_tools).is_empty(),
-        "Some([]) = 空子集：零通用定义（None 才是全七默认面）"
-    );
-
-    let empty_with_explore = SessionInjections {
-        preamble: None,
-        tools: Some(Vec::new()),
-        toolset: Some(SessionToolset::Explore),
-    };
-    let only_note = definitions(&empty_with_explore);
-    assert_eq!(
-        only_note
-            .iter()
-            .map(|def| def.name.as_str())
-            .collect::<Vec<_>>(),
-        vec![EXPLORE_NOTE_TOOL],
-        "空子集 + Explore → 仅 create_explore_note"
+        defs(&empty_tools, "").is_empty(),
+        "Some([]) = 空子集：零定义（None 才是全七默认面）"
     );
 }
 
 /// 单工具子集：`tools = Some(["read"])` → 恰单条 `read` 定义。
 #[test]
 fn definitions单工具子集恰产出对应单定义() {
-    let injections = SessionInjections {
-        preamble: None,
-        tools: Some(vec!["read".to_owned()]),
-        toolset: None,
-    };
-    let defs = definitions(&injections);
+    let injections = crate::sdk::mount::injected(&["read"]);
+    let defs = defs(&injections, "");
     assert_eq!(defs.len(), 1, "恰单定义，实际: {}", defs.len());
     assert_eq!(defs[0].name, "read");
 }
 
-/// 非法名与重复名过滤：`tools` 含 `"hacker"` / 重复名 → 定义面仅保留
-/// `TOOL_NAMES` 内成员（按封闭清单保序滤非法，幻觉名零定义产出）。
+/// 非法名：`tools` 含挂载清单外名字 → 显式 `Err`（文案携非法名），零工具下发。
 #[test]
-fn definitions非法名与重复名经封闭清单保序滤除() {
+fn definitions非法名显式err携非法名() {
     let injections = SessionInjections {
         preamble: None,
         tools: Some(vec![
+            "read".to_owned(),
             "hacker".to_owned(),
             "grep".to_owned(),
-            "grep".to_owned(),
-            "read".to_owned(),
-            "Bash".to_owned(),
         ]),
-        toolset: None,
+        finish: None,
     };
-    let defs = definitions(&injections);
-    let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
-    assert_eq!(
-        names,
-        vec!["read", "grep"],
-        "hacker / Bash 被滤除、重复名去重且保 TOOL_NAMES 序，实际: {names:?}"
-    );
+    let error = definitions(&injections, "").expect_err("清单外名字应 Err");
+    assert!(error.contains("hacker"), "文案携非法名: {error}");
+}
+
+/// 定义面迁出（AC-1 / 源码自证）：`tools.rs` 内定义面四函数（`definitions` /
+/// `generic_definition` / `vocabulary` / 两 archi 定义）与四常量（`TOOL_NAMES` /
+/// 三专用名）的**定义式**零命中——原文已整体迁入 `mount.rs`，不留副本；
+/// 迁出侧以 `use crate::sdk::mount::{…}` 引用在场（零命中的反面判据：若整块
+/// 删除而非迁出，引用行同样会缺，本断言即刻红）。
+#[test]
+fn 定义面迁出_tools零定义式且经mount引用() {
+    let own = source_of("src/sdk/tools.rs");
+
+    // 定义式零命中（迁出后不留副本）
+    for definition in [
+        "fn definitions",
+        "fn generic_definition",
+        "fn vocabulary",
+        "fn archi_module_definition",
+        "fn archi_search_definition",
+    ] {
+        assert!(
+            !own.contains(definition),
+            "tools.rs 内 {definition} 零命中（定义面已迁出至 mount.rs）"
+        );
+    }
+    for constant in [
+        "const TOOL_NAMES",
+        "const EXPLORE_NOTE_TOOL",
+        "const ARCHI_MODULE_TOOL",
+        "const ARCHI_SEARCH_TOOL",
+    ] {
+        assert!(
+            !own.contains(constant),
+            "tools.rs 内 {constant} 零命中（常量作者单点在 mount.rs）"
+        );
+    }
+
+    // 迁出侧引用面在场：执行体与名字读取经挂载清单单点
     assert!(
-        names.iter().all(|name| TOOL_NAMES.contains(name)),
-        "产出面逐名 ∈ TOOL_NAMES 封闭集"
+        own.contains("use crate::sdk::mount::{"),
+        "tools.rs 经 `use crate::sdk::mount::{{…}}` 引用迁出后的定义面 / 常量"
     );
+
+    // 迁入侧自证：同一批定义式在 mount.rs 各恰一处（迁出而非删除）
+    let registry_source = source_of("src/sdk/mount.rs");
+    for definition in [
+        "fn definitions",
+        "fn generic_definition",
+        "fn vocabulary",
+        "fn archi_module_definition",
+        "fn archi_search_definition",
+        "const TOOL_NAMES",
+        "const EXPLORE_NOTE_TOOL",
+        "const ARCHI_MODULE_TOOL",
+        "const ARCHI_SEARCH_TOOL",
+    ] {
+        assert_eq!(
+            registry_source.matches(definition).count(),
+            1,
+            "mount.rs 内 {definition} 恰一处（迁出后的唯一副本）"
+        );
+    }
 }
 
 /// `create_explore_note` 定义形状：入参仅 `name` / `content`（无 `path` 字段）、
@@ -1158,10 +1205,10 @@ fn definitions非法名与重复名经封闭清单保序滤除() {
 fn create_explore_note定义形状_name_content双参且无path字段() {
     let injections = SessionInjections {
         preamble: None,
-        tools: None,
-        toolset: Some(SessionToolset::Explore),
+        tools: Some(vec![EXPLORE_NOTE_TOOL.to_owned()]),
+        finish: None,
     };
-    let defs = definitions(&injections);
+    let defs = defs(&injections, "");
     let note = defs
         .iter()
         .find(|def| def.name == EXPLORE_NOTE_TOOL)
@@ -1210,7 +1257,7 @@ fn create_explore_note定义形状_name_content双参且无path字段() {
 /// 前字面量逐字一致（`generic_definition` 重构零内容漂移——描述串逐字锚定）。
 #[test]
 fn 七通用定义体逐字快照_描述与required面零漂移() {
-    let defs = definitions(&SessionInjections::default());
+    let defs = defs(&SessionInjections::default(), "");
     let by_name = |name: &str| {
         defs.iter()
             .find(|def| def.name == name)
@@ -1279,16 +1326,23 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
 
 /// `archi_module` / `archi_search` 工具名（与 `tools` 常量同源口径）。
 const ARCHI_NAMES: [&str; 2] = [
-    crate::sdk::tools::ARCHI_MODULE_TOOL,
-    crate::sdk::tools::ARCHI_SEARCH_TOOL,
+    crate::sdk::mount::ARCHI_MODULE_TOOL,
+    crate::sdk::mount::ARCHI_SEARCH_TOOL,
 ];
 
-/// 注入面构造：`Archi { module, search }` + 七工具全量。
+/// 注入面构造：七工具名 + 按位的 archi 工具名。
 fn archi_injections(module: bool, search: bool) -> SessionInjections {
+    let mut names: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    if module {
+        names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
+    }
+    if search {
+        names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
+    }
     SessionInjections {
         preamble: None,
-        tools: None,
-        toolset: Some(SessionToolset::Archi { module, search }),
+        tools: Some(names),
+        finish: None,
     }
 }
 
@@ -1296,7 +1350,7 @@ fn archi_injections(module: bool, search: bool) -> SessionInjections {
 #[test]
 fn archi四组合按位追加两工具() {
     for (module, search) in [(true, true), (true, false), (false, true), (false, false)] {
-        let defs = definitions(&archi_injections(module, search));
+        let defs = defs(&archi_injections(module, search), "");
         let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
 
         assert_eq!(
@@ -1312,10 +1366,10 @@ fn archi四组合按位追加两工具() {
             .collect();
         let mut expected: Vec<&str> = Vec::new();
         if module {
-            expected.push(crate::sdk::tools::ARCHI_MODULE_TOOL);
+            expected.push(crate::sdk::mount::ARCHI_MODULE_TOOL);
         }
         if search {
-            expected.push(crate::sdk::tools::ARCHI_SEARCH_TOOL);
+            expected.push(crate::sdk::mount::ARCHI_SEARCH_TOOL);
         }
         assert_eq!(
             archi_present,
@@ -1330,10 +1384,10 @@ fn archi四组合按位追加两工具() {
 /// 正向：两工具定义 schema 面（`element` 可选 / `query` 必填 + `scope` 三值）。
 #[test]
 fn archi两工具定义schema面() {
-    let defs = definitions(&archi_injections(true, true));
+    let defs = defs(&archi_injections(true, true), "");
     let module = defs
         .iter()
-        .find(|def| def.name == crate::sdk::tools::ARCHI_MODULE_TOOL)
+        .find(|def| def.name == crate::sdk::mount::ARCHI_MODULE_TOOL)
         .expect("archi_module 定义在场");
     assert_eq!(module.parameters["type"], json!("object"));
     assert!(
@@ -1349,7 +1403,7 @@ fn archi两工具定义schema面() {
 
     let search = defs
         .iter()
-        .find(|def| def.name == crate::sdk::tools::ARCHI_SEARCH_TOOL)
+        .find(|def| def.name == crate::sdk::mount::ARCHI_SEARCH_TOOL)
         .expect("archi_search 定义在场");
     assert_eq!(
         search.parameters["properties"]["query"]["type"],
@@ -1369,36 +1423,31 @@ fn archi两工具定义schema面() {
     assert!(!search.description.is_empty(), "描述非空");
 }
 
-/// 回归：`None` / `Explore` 臂逐字不变；`tools` 子集收窄仍按 `TOOL_NAMES` 序过滤。
+/// 回归：`None` 臂逐字不变；`tools` 子集收窄仍按清单序过滤。
 #[test]
 fn 既有注入臂零回归() {
-    let none = definitions(&SessionInjections::default());
+    let none = defs(&SessionInjections::default(), "");
     assert_eq!(
         none.iter().map(|def| def.name.as_str()).collect::<Vec<_>>(),
         TOOL_NAMES.to_vec(),
         "缺省会话零追加"
     );
 
-    let explore = definitions(&SessionInjections {
-        preamble: None,
-        tools: None,
-        toolset: Some(SessionToolset::Explore),
-    });
-    assert_eq!(explore.len(), 8, "explore 臂仍为七 + 笔记工具");
-    assert_eq!(explore[7].name, EXPLORE_NOTE_TOOL);
-
-    let narrowed = definitions(&SessionInjections {
-        preamble: None,
-        tools: Some(vec!["bash".to_owned(), "read".to_owned()]),
-        toolset: None,
-    });
+    let narrowed = defs(
+        &SessionInjections {
+            preamble: None,
+            tools: Some(vec!["bash".to_owned(), "read".to_owned()]),
+            finish: None,
+        },
+        "",
+    );
     assert_eq!(
         narrowed
             .iter()
             .map(|def| def.name.as_str())
             .collect::<Vec<_>>(),
         vec!["read", "bash"],
-        "子集按 TOOL_NAMES 序过滤"
+        "子集按清单序过滤"
     );
 }
 
@@ -1432,7 +1481,7 @@ fn tool_names封闭集不含archi名() {
     for name in ARCHI_NAMES {
         assert!(
             !TOOL_NAMES.contains(&name),
-            "{name} 只经 toolset 注入，不入封闭集"
+            "{name} 只经注入面名字清单下发，不入七内建封闭集"
         );
     }
 }

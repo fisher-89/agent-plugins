@@ -1,8 +1,16 @@
+//! `decision.rs`（决策动作校验器 + 越权白名单门）的单元测试：`validate_decision`
+//! 的 tag 封闭集 / 三动作必填字段 / `reason` 上限 / `options` 非空，`DecisionAction`
+//! 线形态，以及 `ensure_backtrack_allowed` 的既有回归锚定。
+//! 旧 `parse_decision`（文本 JSON 提取）用例随被测函数退役整体删除。
+//!
+//! 不 mock：`args` 为内存 `serde_json::json!` 字面量，白名单项以内存
+//! `BacktrackOption` 字面量构造——纯函数零进程边界依赖。
+
 use workflow::model::Verdict;
 use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 
 use crate::decision::{
-    ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
+    ensure_backtrack_allowed, validate_decision, CandidateReport, DecisionAction, DecisionInput,
     MAX_REASON_CHARS,
 };
 
@@ -15,170 +23,369 @@ fn allowed_phase(phase: &str) -> BacktrackOption {
     }
 }
 
-/// 三动作合法解析（正向，表驱动三变体）：`backtrack`（含 to + reason）/
-/// `stop` / `ask`（含 options 列表）逐变体解析成功。
+// ---------------------------------------------------------------------------
+// `validate_decision`：三动作合法面
+// ---------------------------------------------------------------------------
+
 #[test]
-fn 三动作合法解析封闭集逐变体() {
-    let backtrack = parse_decision(
-        r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计缺产物区组件" }"#,
-    )
-    .expect("backtrack 应解析");
+fn validate_decision三动作合法逐字段相等() {
+    let backtrack = validate_decision(&serde_json::json!({
+        "action": "backtrack",
+        "to": "dev-design",
+        "reason": "设计返工",
+    }))
+    .expect("合法 backtrack");
     assert_eq!(
         backtrack,
         DecisionAction::Backtrack {
             to: "dev-design".to_owned(),
-            reason: "设计缺产物区组件".to_owned(),
+            reason: "设计返工".to_owned(),
         },
-        "封闭集 backtrack 变体"
+        "backtrack 字段逐值相等"
     );
 
-    let stop = parse_decision(r#"{ "action": "stop", "reason": "需求基线漂移，人工介入" }"#)
-        .expect("stop 应解析");
+    let stop = validate_decision(&serde_json::json!({
+        "action": "stop",
+        "reason": "受控终止",
+    }))
+    .expect("合法 stop");
     assert_eq!(
         stop,
         DecisionAction::Stop {
-            reason: "需求基线漂移，人工介入".to_owned(),
+            reason: "受控终止".to_owned(),
         }
     );
 
-    let ask = parse_decision(
-        r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#,
-    )
-    .expect("ask 应解析");
+    let ask = validate_decision(&serde_json::json!({
+        "action": "ask",
+        "question": "选哪个？",
+        "options": ["甲", "乙"],
+    }))
+    .expect("合法 ask");
     assert_eq!(
         ask,
         DecisionAction::Ask {
-            question: "回溯目标选哪个?".to_owned(),
-            options: vec!["proposal".to_owned(), "dev-design".to_owned()],
-        }
-    );
-
-    // 三变体两两可辨（值域恰三态）
-    assert_ne!(backtrack, stop);
-    assert_ne!(stop, ask);
-    assert_ne!(backtrack, ask);
-}
-
-/// 围栏代码块与混杂叙述容忍提取（正向）：与 verdict 同款载体提取——```json
-/// 围栏包裹与前后混杂叙述均解析成功。
-#[test]
-fn 围栏代码块与混杂叙述容忍提取解析成功() {
-    let json = r#"{ "action": "stop", "reason": "任意" }"#;
-    let fenced = format!("```json\n{json}\n```");
-    assert_eq!(
-        parse_decision(&fenced).expect("围栏包裹应解析"),
-        DecisionAction::Stop {
-            reason: "任意".to_owned(),
-        },
-        "与 verdict 同款围栏容忍"
-    );
-
-    let noisy = format!("无法在白名单内裁决。\n\n```json\n{json}\n```\n（以上）");
-    assert_eq!(
-        parse_decision(&noisy).expect("混杂叙述应解析"),
-        DecisionAction::Stop {
-            reason: "任意".to_owned(),
+            question: "选哪个？".to_owned(),
+            options: vec!["甲".to_owned(), "乙".to_owned()],
         }
     );
 }
 
-/// 已退役动作（异常）：`{"action":"retry"}` 走 serde 结构漂移 `Err`——不产出
-/// 变体（软拒环由此计数，不一次打死 run）。
+// ---------------------------------------------------------------------------
+// 异常：tag 封闭集（Enum 边界 N+1）
+// ---------------------------------------------------------------------------
+
 #[test]
-fn 已退役retry动作解析err() {
-    let err = parse_decision(r#"{ "action": "retry" }"#).expect_err("retry 已退役应 Err");
-    assert!(
-        err.contains("结构漂移") || err.contains("JSON"),
-        "结构漂移记因: {err}"
-    );
-    // 携载荷形态同样拒绝（不静默降级为任一在役变体）
-    assert!(
-        parse_decision(r#"{ "action": "retry", "reason": "再试一次" }"#).is_err(),
-        "retry 携 reason 同拒"
-    );
+fn validate_decision的tag封闭集五形态() {
+    let cases: [(&str, serde_json::Value, &str); 5] = [
+        (
+            "retry（已退役动作）",
+            serde_json::json!({ "action": "retry" }),
+            "retry",
+        ),
+        (
+            "PascalCase",
+            serde_json::json!({ "action": "Backtrack" }),
+            "Backtrack",
+        ),
+        (
+            "未知值",
+            serde_json::json!({ "action": "unknown" }),
+            "unknown",
+        ),
+        ("空串", serde_json::json!({ "action": "" }), "action"),
+        ("tag 缺失", serde_json::json!({ "reason": "x" }), "action"),
+    ];
+    for (label, args, needle) in cases {
+        let error = validate_decision(&args).expect_err(&format!("形态 {label} 应 Err"));
+        assert!(
+            error.contains(needle),
+            "形态 {label} 文案含实际收到值 {needle}: {error}"
+        );
+        for action in ["backtrack", "stop", "ask"] {
+            assert!(
+                error.contains(action),
+                "形态 {label} 文案含封闭集值 {action}: {error}"
+            );
+        }
+    }
 }
 
-/// 非法结构（异常，参数化 5 值）：未知名 / 拼写漂移 / 缺 action / 空串 /
-/// 纯空白 → 均 `Err`（封闭集防线不被放宽）。
 #[test]
-fn 非法结构五形态解析err() {
-    for illegal in [
-        r#"{ "action": "explode" }"#,
-        r#"{ "action": "Retry" }"#,
-        r#"{ "reason": "缺 action" }"#,
-        "",
-        "   \n\t ",
+fn validate_decision非对象入参err且零panic() {
+    for args in [
+        serde_json::Value::Null,
+        serde_json::json!(["backtrack"]),
+        serde_json::json!("backtrack"),
     ] {
-        let outcome = parse_decision(illegal);
-        assert!(outcome.is_err(), "非法结构 {illegal:?} 应 Err");
-    }
-}
-
-#[test]
-fn reason超长解析层原样承接不崩() {
-    for len in [MAX_REASON_CHARS + 1, 2000] {
-        let reason = "因".repeat(len);
-        let json =
-            format!(r#"{{ "action": "backtrack", "to": "proposal", "reason": "{reason}" }}"#);
-        let action = parse_decision(&json).expect("解析层透传超长 reason，不设长度门");
-        assert_eq!(
-            action,
-            DecisionAction::Backtrack {
-                to: "proposal".to_owned(),
-                reason: reason.clone(),
-            },
-            "reason {len} 字符原样承接（逐字符保真）"
-        );
-
-        // stop 动作的 reason 同为透传（解析层不区分动作设门）
-        let json = format!(r#"{{ "action": "stop", "reason": "{reason}" }}"#);
-        assert_eq!(
-            parse_decision(&json).expect("stop reason 同样透传"),
-            DecisionAction::Stop { reason }
+        let error = validate_decision(&args).expect_err("非对象入参应 Err");
+        assert!(
+            error.contains("对象") || error.contains("参数形状"),
+            "非对象入参文案含形状说明: {error}"
         );
     }
 }
 
-/// 字段缺失 / 冗余（边界，表驱动 3 形态）：backtrack 缺 `reason` → `Err`；
-/// `to` 为空串 → 解析成功（交给门判定，解析层不校验内容）；含多余字段 →
-/// 解析成功（serde 宽容未知键）。
+// ---------------------------------------------------------------------------
+// 异常：必填字段缺失 / 类型错（dict 边界）
+// ---------------------------------------------------------------------------
+
 #[test]
-fn 字段缺失与冗余三形态() {
-    // 缺 reason → 结构漂移
+fn validate_decision必填字段缺失八形态() {
+    let cases: [(&str, serde_json::Value, &str, &str); 8] = [
+        (
+            "backtrack 缺 to",
+            serde_json::json!({ "action": "backtrack", "reason": "r" }),
+            "to",
+            "backtrack",
+        ),
+        (
+            "backtrack 缺 reason",
+            serde_json::json!({ "action": "backtrack", "to": "dev-design" }),
+            "reason",
+            "backtrack",
+        ),
+        (
+            "stop 缺 reason",
+            serde_json::json!({ "action": "stop" }),
+            "reason",
+            "stop",
+        ),
+        (
+            "ask 缺 question",
+            serde_json::json!({ "action": "ask", "options": ["甲"] }),
+            "question",
+            "ask",
+        ),
+        (
+            "ask 缺 options",
+            serde_json::json!({ "action": "ask", "question": "q" }),
+            "options",
+            "ask",
+        ),
+        (
+            "to 非字符串",
+            serde_json::json!({ "action": "backtrack", "to": 42, "reason": "r" }),
+            "to",
+            "backtrack",
+        ),
+        (
+            "reason 非字符串",
+            serde_json::json!({ "action": "stop", "reason": null }),
+            "reason",
+            "stop",
+        ),
+        (
+            "options 非数组",
+            serde_json::json!({ "action": "ask", "question": "q", "options": "甲" }),
+            "options",
+            "ask",
+        ),
+    ];
+    for (label, args, field, action) in cases {
+        let error = validate_decision(&args).expect_err(&format!("形态 {label} 应 Err"));
+        assert!(
+            error.contains(field),
+            "形态 {label} 文案含字段名 {field}: {error}"
+        );
+        // options 缺失的文案以字段名为主（不重复动作名），其余形态携动作名
+        assert!(
+            error.contains(action) || field == "options",
+            "形态 {label} 文案含动作名 {action}（options 形态以字段名为主）: {error}"
+        );
+    }
+}
+
+#[test]
+fn validate_decision的options非字符串元素err() {
+    let error = validate_decision(&serde_json::json!({
+        "action": "ask",
+        "question": "q",
+        "options": ["甲", 42],
+    }))
+    .expect_err("非字符串元素应 Err");
     assert!(
-        parse_decision(r#"{ "action": "backtrack", "to": "proposal" }"#).is_err(),
-        "backtrack 缺 reason 应 Err"
+        error.contains("options") && error.contains("字符串"),
+        "文案定位于 options 的字符串期望: {error}"
     );
-    // 缺 to → 结构漂移
+}
+
+// ---------------------------------------------------------------------------
+// 边界：options 非空 / reason 上限 / 文本特殊字符
+// ---------------------------------------------------------------------------
+
+#[test]
+fn validate_decision的options四形态() {
+    let error = validate_decision(&serde_json::json!({
+        "action": "ask",
+        "question": "q",
+        "options": [],
+    }))
+    .expect_err("空 options 应 Err");
     assert!(
-        parse_decision(r#"{ "action": "backtrack", "reason": "任意" }"#).is_err(),
-        "backtrack 缺 to 应 Err"
+        error.contains("非空") || error.contains("至少一个"),
+        "文案含非空语义: {error}"
     );
 
-    // to 空串 → 解析成功（内容面由门判定）
+    let single = validate_decision(&serde_json::json!({
+        "action": "ask",
+        "question": "q",
+        "options": ["甲"],
+    }))
+    .expect("单元素合法");
     assert_eq!(
-        parse_decision(r#"{ "action": "backtrack", "to": "", "reason": "任意" }"#)
-            .expect("空 to 解析层放行"),
-        DecisionAction::Backtrack {
-            to: String::new(),
-            reason: "任意".to_owned(),
+        single,
+        DecisionAction::Ask {
+            question: "q".to_owned(),
+            options: vec!["甲".to_owned()],
         }
     );
 
-    // 多余字段 → 解析成功（未知键不拒）
+    // 空串元素：元素内容不校验（只判数组非空）
+    validate_decision(&serde_json::json!({
+        "action": "ask",
+        "question": "q",
+        "options": ["", ""],
+    }))
+    .expect("空串元素合法（元素内容不校验）");
+
+    // 1000 元素：不 panic
+    let many: Vec<String> = (0..1000).map(|index| format!("选项{index}")).collect();
+    let parsed = validate_decision(&serde_json::json!({
+        "action": "ask",
+        "question": "q",
+        "options": many,
+    }))
+    .expect("千元素不 panic");
+    let DecisionAction::Ask { options, .. } = parsed else {
+        panic!("Ask 变体");
+    };
+    assert_eq!(options.len(), 1000);
+}
+
+#[test]
+fn validate_decision的reason上限四形态() {
+    let make = |reason: String| serde_json::json!({ "action": "stop", "reason": reason });
+
+    validate_decision(&make("r".repeat(MAX_REASON_CHARS))).expect("恰上限应通过");
+
+    let error =
+        validate_decision(&make("r".repeat(MAX_REASON_CHARS + 1))).expect_err("超一字符应 Err");
+    assert!(
+        error.contains(&MAX_REASON_CHARS.to_string()),
+        "文案含上限 500: {error}"
+    );
+    assert!(error.contains("501"), "文案含当前值 501: {error}");
+    assert!(error.contains("超出 1"), "文案含超出量 1: {error}");
+
+    let error = validate_decision(&make("r".repeat(5000))).expect_err("超长应 Err");
+    assert!(error.contains("5000"), "文案含当前值 5000: {error}");
+    assert!(error.contains("4500"), "文案含超出量 4500: {error}");
+
+    // 空串 / 纯空白 reason → Err（比照缺失，文案携空白拒因）
+    for blank in [String::new(), "   ".to_owned()] {
+        let error = validate_decision(&make(blank)).expect_err("空白 reason 应 Err");
+        assert!(error.contains("空白"), "文案标明空白拒因: {error}");
+    }
+}
+
+#[test]
+fn validate_decision文本特殊字符逐字保真() {
+    let special = "第一行\n第二行\0🚀 findings";
+    let parsed = validate_decision(&serde_json::json!({
+        "action": "backtrack",
+        "to": "dev-design\n尾",
+        "reason": special,
+    }))
+    .expect("特殊字符合法");
+    let DecisionAction::Backtrack { to, reason } = parsed else {
+        panic!("Backtrack 变体");
+    };
+    assert_eq!(reason, special, "reason 特殊字符逐字保真");
+    assert_eq!(to, "dev-design\n尾", "to 特殊字符逐字保真");
+
+    // question 空串 / 纯空白 → Err（必填字符串的空白比照缺失）
+    for blank in ["", "   "] {
+        let error = validate_decision(&serde_json::json!({
+            "action": "ask",
+            "question": blank,
+            "options": ["甲"],
+        }))
+        .expect_err("空白 question 应 Err");
+        assert!(error.contains("question"), "文案定位于 question: {error}");
+    }
+    // 超长 question（5000）→ Ok（无上限）
+    let parsed = validate_decision(&serde_json::json!({
+        "action": "ask",
+        "question": "q".repeat(5000),
+        "options": ["🚀", "含 "],
+    }))
+    .expect("超长 question 合法（无上限）");
+    let DecisionAction::Ask { question, options } = parsed else {
+        panic!("Ask 变体");
+    };
+    assert_eq!(question.chars().count(), 5000, "超长 question 不截断");
+    assert_eq!(options, vec!["🚀".to_owned(), "含 ".to_owned()]);
+}
+
+// ---------------------------------------------------------------------------
+// 边界：DecisionAction 线形态
+// ---------------------------------------------------------------------------
+
+#[test]
+fn decision_action线形态与往返等值() {
+    let backtrack = DecisionAction::Backtrack {
+        to: "dev-design".to_owned(),
+        reason: "设计返工".to_owned(),
+    };
+    let value = serde_json::to_value(&backtrack).expect("序列化");
     assert_eq!(
-        parse_decision(
-            r#"{ "action": "stop", "reason": "停", "confidence": 0.9, "extra": [1, 2] }"#
-        )
-        .expect("冗余字段应容忍"),
+        value,
+        serde_json::json!({
+            "action": "backtrack",
+            "to": "dev-design",
+            "reason": "设计返工",
+        }),
+        "tag + camelCase 线形态零变"
+    );
+    assert_eq!(
+        serde_json::from_value::<DecisionAction>(value).expect("反序列化"),
+        backtrack,
+        "backtrack 往返逐字段相等"
+    );
+
+    for action in [
         DecisionAction::Stop {
             reason: "停".to_owned(),
-        }
+        },
+        DecisionAction::Ask {
+            question: "选".to_owned(),
+            options: vec!["甲".to_owned()],
+        },
+    ] {
+        let value = serde_json::to_value(&action).expect("序列化");
+        assert_eq!(
+            serde_json::from_value::<DecisionAction>(value).expect("反序列化"),
+            action,
+            "三变体往返逐字段相等"
+        );
+    }
+
+    assert!(
+        serde_json::from_value::<DecisionAction>(serde_json::json!({ "action": "retry" })).is_err(),
+        "退役 tag 反序列化 Err"
     );
+
+    // 派生面：Debug / Clone / PartialEq / Eq
+    let cloned = backtrack.clone();
+    assert_eq!(cloned, backtrack);
+    assert!(!format!("{backtrack:?}").is_empty());
 }
 
-/// 白名单命中放行（正向，表驱动 3 动作）：`to` 在白名单 → `Ok`；`Stop` /
-/// `Ask` 动作恒 `Ok`（不看白名单）。
+// ---------------------------------------------------------------------------
+// 正向 / 异常：ensure_backtrack_allowed 回归锚定
+// ---------------------------------------------------------------------------
+
 #[test]
 fn 白名单命中放行_非backtrack恒ok() {
     let allowed = vec![
@@ -213,52 +420,48 @@ fn 白名单命中放行_非backtrack恒ok() {
     );
 }
 
-/// 自环（正向 / 异常面）：`to == failed_phase` 且不在白名单 → `Err`，文案含
-/// 「确定性门禁相位（零 agent 步）」与 `stop` / `ask` 出路。
 #[test]
-fn 自环非可重做相位backtrack被拒携出路() {
-    let action = DecisionAction::Backtrack {
+fn 自环拒绝文案与通用越权文案不相等() {
+    let self_loop = DecisionAction::Backtrack {
         to: "test-execution".to_owned(),
         reason: "重跑测试".to_owned(),
     };
     let allowed = vec![allowed_phase("proposal"), allowed_phase("test-gen")];
-    let err = ensure_backtrack_allowed(&action, "test-execution", &allowed)
+    let self_loop_err = ensure_backtrack_allowed(&self_loop, "test-execution", &allowed)
         .expect_err("零 agent 步自环应 Err");
     assert!(
-        err.contains("确定性门禁相位") && err.contains("零 agent 步"),
-        "自环文案显式说明不可重做: {err}"
+        self_loop_err.contains("确定性门禁相位") && self_loop_err.contains("零 agent 步"),
+        "自环文案显式说明不可重做: {self_loop_err}"
     );
     assert!(
-        err.contains("stop") && err.contains("ask"),
-        "自环文案携两条出路（stop / ask）: {err}"
+        self_loop_err.contains("stop") && self_loop_err.contains("ask"),
+        "自环文案携两条出路（stop / ask）: {self_loop_err}"
     );
-}
 
-/// 越权（异常）：`to` 在白名单外且 ≠ `failed_phase` → `Err`，文案携 `allowed`
-/// 列表原文。
-#[test]
-fn 越权backtrack预校验err携白名单原文() {
-    let action = DecisionAction::Backtrack {
+    let overreach = DecisionAction::Backtrack {
         to: "test-gen".to_owned(),
         reason: "任意".to_owned(),
     };
     let allowed = vec![allowed_phase("proposal"), allowed_phase("dev-design")];
-    let err = ensure_backtrack_allowed(&action, "implement", &allowed).expect_err("越权应 Err");
+    let overreach_err =
+        ensure_backtrack_allowed(&overreach, "implement", &allowed).expect_err("越权应 Err");
     assert!(
-        err.contains("test-gen") && err.contains("越权"),
-        "错误显式携带越权目标，实际: {err}"
+        overreach_err.contains("test-gen") && overreach_err.contains("越权"),
+        "错误显式携带越权目标: {overreach_err}"
     );
     assert!(
-        err.contains("proposal") && err.contains("dev-design"),
-        "文案携 allowed 列表原文: {err}"
+        overreach_err.contains("proposal") && overreach_err.contains("dev-design"),
+        "文案携 allowed 列表原文: {overreach_err}"
+    );
+
+    assert_ne!(
+        self_loop_err, overreach_err,
+        "两成因文案可区分（自环 ≠ 通用越权）"
     );
 }
 
-/// 空白名单（异常，表驱动 2 例）：`allowed = []` 时 backtrack 任意目标 →
-/// `Err`（自环与越权两类文案各一例，无静默放行出口）。
 #[test]
 fn 空白名单任何backtrack均err无跳转出口() {
-    // 越权类文案（to ≠ failed_phase）
     let action = DecisionAction::Backtrack {
         to: "proposal".to_owned(),
         reason: "任意".to_owned(),
@@ -269,7 +472,6 @@ fn 空白名单任何backtrack均err无跳转出口() {
         "越权记因: {err}"
     );
 
-    // 自环类文案（to == failed_phase 且空白名单）
     let action = DecisionAction::Backtrack {
         to: "implement".to_owned(),
         reason: "任意".to_owned(),
@@ -281,8 +483,6 @@ fn 空白名单任何backtrack均err无跳转出口() {
     );
 }
 
-/// 白名单自含即重做（边界）：`to == failed_phase` 且在白名单（可重做相位）→
-/// `Ok`（白名单自含 = 重做本相位，零新字段）。
 #[test]
 fn 白名单自含即重做放行() {
     let action = DecisionAction::Backtrack {
@@ -300,8 +500,6 @@ fn 白名单自含即重做放行() {
     );
 }
 
-/// 匹配边界（边界，参数化 4 形态）：`allowed` 含重复项 / 50 项超大列表 /
-/// `failed_phase` 空串 / 大小写差异 → 判定不误放行。
 #[test]
 fn 白名单匹配边界四形态() {
     // 形态一：allowed 含重复项（命中即放行，重复不误拒）
@@ -354,8 +552,10 @@ fn 白名单匹配边界四形态() {
     );
 }
 
-/// `DecisionInput.fail_report` 字段面（正向，参数化 3 形态）：空串 / 2000
-/// 字符 / 含 emoji 与换行 → `PartialEq` 等值可辨、字段独立于 `candidates`。
+// ---------------------------------------------------------------------------
+// 边界：DecisionInput 字段面（回归锚定）
+// ---------------------------------------------------------------------------
+
 #[test]
 fn decision_input_fail_report字段面() {
     let base = DecisionInput {
@@ -392,9 +592,6 @@ fn decision_input_fail_report字段面() {
     assert_eq!(variants[0].clone(), variants[0], "PartialEq 自反");
 }
 
-/// `DecisionAction` 封闭集边界（边界，参数化 4 形态）：`Backtrack` 的 `to` /
-/// `reason` 取空串与 1200 字符超长值可构造且不 panic（长度门在写面与门层，
-/// 不在类型层）。
 #[test]
 fn decision_action封闭集边界可构造() {
     let long = "x".repeat(1200);
@@ -419,7 +616,6 @@ fn decision_action封闭集边界可构造() {
         let cloned = case.clone();
         assert_eq!(&cloned, case, "形态 {index} 可构造且自反");
     }
-    // 空串与超长值两两可辨
     assert_ne!(cases[0], cases[1]);
 }
 
@@ -566,7 +762,7 @@ fn decision_input_spread构造窗口面自动随动() {
 }
 
 /// 空集与非空集可辨（异常，参数化迭代 2 形态）：`assert_ne!` 双向；既有
-/// `parse_decision` / `ensure_backtrack_allowed` 两函数语义零耦合（窗口面不参与
+/// `validate_decision` / `ensure_backtrack_allowed` 两函数语义零耦合（窗口面不参与
 /// 判定——以既有判据在非空窗口输入下仍按白名单裁决承载）。
 #[test]
 fn decision_input_空集与非空集可辨且零语义耦合() {
@@ -578,9 +774,13 @@ fn decision_input_空集与非空集可辨且零语义耦合() {
     assert_eq!(filled.backtrack_window.len(), 1, "非空集携条数");
 
     // 零语义耦合：窗口面与 decision 判定两函数无关——非空窗口输入下
-    // parse_decision / ensure_backtrack_allowed 仍按各自契约裁决
-    let action = parse_decision(r#"{ "action": "backtrack", "to": "proposal", "reason": "任意" }"#)
-        .expect("解析不受窗口面影响");
+    // validate_decision / ensure_backtrack_allowed 仍按各自契约裁决
+    let action = validate_decision(&serde_json::json!({
+        "action": "backtrack",
+        "to": "proposal",
+        "reason": "任意",
+    }))
+    .expect("校验不受窗口面影响");
     assert!(
         ensure_backtrack_allowed(&action, "implement", &filled.allowed).is_ok(),
         "白名单命中判据不受窗口面影响"
@@ -681,4 +881,31 @@ fn decision_input_backtrack_window集合三形态() {
         many.backtrack_window[999].reason, "R999",
         "末条原位（顺序保真）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 异常：退役面零残留（源码自证）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 退役面零残留且白名单门逐字不动() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/decision.rs"),
+    )
+    .expect("读取 decision.rs");
+    assert!(
+        !own.contains("parse_decision"),
+        "decision.rs 内 parse_decision 零命中（文本解析面已退役）"
+    );
+    assert_eq!(MAX_REASON_CHARS, 500, "reason 上限常量仍在场");
+    assert!(
+        own.contains("pub fn ensure_backtrack_allowed"),
+        "白名单门函数仍在场（逐字未改）"
+    );
+    for wording in [
+        "确定性门禁相位（零 agent 步），不支持重做",
+        "越权 backtrack：目标",
+    ] {
+        assert!(own.contains(wording), "既有拒绝文案逐字在场: {wording}");
+    }
 }

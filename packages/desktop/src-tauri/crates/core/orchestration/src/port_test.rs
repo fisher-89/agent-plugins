@@ -909,6 +909,7 @@ fn 既有三契约与中性类型保持() {
         session_id: "sess-1".to_owned(),
         status: AgentRunStatus::Completed,
         final_message: Some("结论".to_owned()),
+        finalized: None,
         transcript: Vec::new(),
     };
     assert_eq!(outcome.status, AgentRunStatus::Completed);
@@ -3919,4 +3920,119 @@ async fn 两trait末位形参跨复用同一实例() {
         vec!["exec-static".to_owned(), "exec-tests".to_owned()],
         "同一实例跨两 trait 复用、两次 emit 均抵达"
     );
+}
+
+// ---------------------------------------------------------------------------
+// `WorkerTurnOutcome.finalized` 字段面（agent-finalize-tool AC-6）
+// ---------------------------------------------------------------------------
+
+/// `finalized` 字段在场（正向，表驱动两形态）：`Some(Evaluator(..))` /
+/// `Some(Decision(..))` / `None` 均为合法构造，读回逐字段相等。
+#[test]
+fn worker_turn_outcome的finalized字段三形态() {
+    use crate::decision::DecisionAction;
+    use crate::finish::{FinishPayload, TOOL_NAME};
+    use crate::verdict::EvaluatorChecklist;
+
+    assert_eq!(TOOL_NAME, "finish_step", "收口工具名单点");
+
+    let evaluator = EvaluatorChecklist {
+        verdict: workflow::model::Verdict::Pass,
+        report: "报告".to_owned(),
+        checklist: vec![workflow::model::ChecklistItem {
+            item: "项".to_owned(),
+            pass: true,
+            evidence: "据".to_owned(),
+        }],
+    };
+    let shapes = [
+        Some(FinishPayload::Evaluator(evaluator.clone())),
+        Some(FinishPayload::Decision(DecisionAction::Stop {
+            reason: "停".to_owned(),
+        })),
+        None,
+    ];
+    for (index, finalized) in shapes.into_iter().enumerate() {
+        let outcome = WorkerTurnOutcome {
+            session_id: "sess-1".to_owned(),
+            status: AgentRunStatus::Completed,
+            final_message: Some("结论".to_owned()),
+            transcript: Vec::new(),
+            finalized: finalized.clone(),
+        };
+        assert_eq!(
+            outcome.finalized, finalized,
+            "形态 {index}：finalized 读回逐字段相等（Option 字段面）"
+        );
+        // Debug / Clone 派生仍成立
+        let cloned = outcome.clone();
+        assert_eq!(cloned.finalized, outcome.finalized);
+        assert!(!format!("{:?}", outcome).is_empty());
+    }
+}
+
+/// `finalized` 与 `final_message` 互不推导（边界，两组合）：`final_message`
+/// 非空 + `finalized: None` 合法；`final_message` 空 + `finalized: Some` 亦合法。
+#[test]
+fn finalized与final_message互不推导两组合() {
+    use crate::finish::{FinishPayload, TOOL_NAME};
+    use crate::verdict::EvaluatorChecklist;
+
+    // 组合一：有末条文本、无收口载荷
+    let text_only = WorkerTurnOutcome {
+        session_id: "sess-a".to_owned(),
+        status: AgentRunStatus::Completed,
+        final_message: Some("末条 assistant 文本".to_owned()),
+        transcript: Vec::new(),
+        finalized: None,
+    };
+    assert!(text_only.final_message.is_some());
+    assert!(text_only.finalized.is_none(), "两字段独立（组合一）");
+
+    // 组合二：无末条文本、有收口载荷
+    let payload_only = WorkerTurnOutcome {
+        session_id: "sess-b".to_owned(),
+        status: AgentRunStatus::Completed,
+        final_message: None,
+        transcript: Vec::new(),
+        finalized: Some(FinishPayload::Evaluator(EvaluatorChecklist {
+            verdict: workflow::model::Verdict::Fail,
+            report: String::new(),
+            checklist: Vec::new(),
+        })),
+    };
+    assert!(payload_only.final_message.is_none());
+    assert!(payload_only.finalized.is_some(), "两字段独立（组合二）");
+    let _ = TOOL_NAME;
+}
+
+/// `finalized` 载荷字段穷尽（边界）：两臂 `match` 编译期穷尽 + `port.rs` 零
+/// `unwrap()` / 零 `expect(`（不把载荷提取失败升级为 panic）。
+#[test]
+fn finalized两臂穷尽且port零panic升级() {
+    use crate::finish::FinishPayload;
+
+    fn describe(payload: &FinishPayload) -> &'static str {
+        match payload {
+            FinishPayload::Evaluator(_) => "evaluator",
+            FinishPayload::Decision(_) => "decision",
+        }
+    }
+    let checklist = crate::verdict::EvaluatorChecklist {
+        verdict: workflow::model::Verdict::Pass,
+        report: String::new(),
+        checklist: Vec::new(),
+    };
+    assert_eq!(
+        describe(&FinishPayload::Evaluator(checklist)),
+        "evaluator",
+        "两臂穷尽可 match"
+    );
+
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/port.rs"),
+    )
+    .expect("读取 port.rs");
+    assert!(!own.contains("unwrap()"), "port.rs 内零 unwrap()");
+    assert!(!own.contains("expect("), "port.rs 内零 expect(");
 }

@@ -338,6 +338,10 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
         AgentRunStatus::Stopped,
         "停止置位后驱动终止以 stopped 收敛"
     );
+    assert!(
+        outcome.finalized.is_none(),
+        "中止会话零收口载荷（finalized 缺席）"
+    );
 
     let store = stores.for_root(&root).expect("for_root 应成功");
     let row = store
@@ -538,6 +542,10 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
     // 终态与转录：密封事件全集收集（RunStarted / user / api_retry ×3 /
     // api_error / TurnDone 全部密封——增量以外皆落转录）
     assert_eq!(outcome.status, AgentRunStatus::Failed, "拒连端点失败收敛");
+    assert!(
+        outcome.finalized.is_none(),
+        "失败收敛零 finish_step notice → finalized 缺席（Option 缺省形态）"
+    );
     let transcript = &outcome.transcript;
     assert_eq!(
         transcript.len(),
@@ -606,6 +614,279 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
 }
 
 // ---------------------------------------------------------------------------
+// `finalized` 出口（agent-finalize-tool AC-6）：字段由 `worker.rs` 自转录填充，
+// 提取实现单点在 `orchestration::transcript::finish_payload`
+// ---------------------------------------------------------------------------
+
+/// 收口 notice 事件（`SystemNotice{finish_step}`——`finalized` 的唯一来源面）。
+fn finish_notice(payload: serde_json::Value) -> AgentEventKind {
+    AgentEventKind::SystemNotice {
+        subtype: orchestration::finish::TOOL_NAME.to_owned(),
+        payload,
+    }
+}
+
+/// assistant 文本事件（`final_message` 的取数面，与 `finalized` 互不推导）。
+fn assistant_text(text: &str) -> AgentEventKind {
+    AgentEventKind::Message {
+        role: AgentMessageRole::Assistant,
+        blocks: vec![AgentBlock::Text {
+            text: text.to_owned(),
+            citations: None,
+        }],
+        parent_tool_use_id: None,
+    }
+}
+
+/// 正常收敛终局事件（`is_error: false`）。
+fn turn_done_ok() -> AgentEventKind {
+    AgentEventKind::TurnDone {
+        subtype: "success".to_owned(),
+        is_error: false,
+        num_turns: Some(1),
+        duration_ms: Some(1),
+        cost_usd: None,
+        usage: serde_json::json!({}),
+        session_id: None,
+    }
+}
+
+/// 脚本化假 runner：按序投递预录观察事件后关闭通道——`KernelWorkerPort` 的真实
+/// 链路（内核盖戳 / 落库 / 收口）零改动，只替换引擎侧事件来源（收口 notice 的
+/// 注入面；真实 `compose_turn` 恒装 `SdkRunner`，无法预录）。
+struct ScriptedRunner {
+    script: Mutex<Vec<AgentEventKind>>,
+}
+
+impl ScriptedRunner {
+    fn new(script: Vec<AgentEventKind>) -> Arc<Self> {
+        Arc::new(Self {
+            script: Mutex::new(script),
+        })
+    }
+}
+
+impl agent::AgentRunner for ScriptedRunner {
+    fn open_session(
+        &self,
+        _open: agent::SessionOpen,
+    ) -> Result<agent::AgentSession, agent::AgentStartError> {
+        let script = std::mem::take(&mut *self.script.lock().expect("脚本锁不可中毒"));
+        let (observation_tx, observation_rx) = tokio::sync::mpsc::channel(script.len().max(1) + 4);
+        let (question_tx, mut question_rx) = tokio::sync::mpsc::channel(4);
+        tokio::spawn(async move {
+            let _ = question_rx.recv().await;
+            for kind in script {
+                if observation_tx.send(kind).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(agent::AgentSession {
+            observations: observation_rx,
+            questions: question_tx,
+            handle: agent::RunHandle::default(),
+        })
+    }
+}
+
+/// 驱动一轮脚本化会话（收口载荷注入面）：真库 `DualEnv` + 假 sink + 脚本
+/// runner → `KernelWorkerPort::run` 的真实产出。
+async fn run_scripted(
+    tag: &str,
+    script: Vec<AgentEventKind>,
+) -> orchestration::port::WorkerTurnOutcome {
+    let env = DualEnv::new(tag);
+    let (sink, _captured) = CapturingSink::capturing();
+    let composed = crate::compose::composed_with_runner(env.store(), ScriptedRunner::new(script));
+    let port = KernelWorkerPort::new(composed, sink);
+    let root = env.root();
+    port.run(turn_request(
+        &root,
+        "chg-flow/implement/evaluator/1",
+        WorkerRole::Evaluator,
+    ))
+    .await
+    .expect("脚本化会话应正常发起")
+}
+
+/// `finalized` 提取贯通（正向，AC-6）：转录含 `SystemNotice{finish_step}` 的
+/// evaluator 载荷 → `WorkerTurnOutcome.finalized == Some(Evaluator(..))` 且逐字段
+/// 相等；同轮 `final_message` 仍为末条 assistant 文本（两字段互不推导）。
+#[tokio::test]
+async fn finalized提取贯通_evaluator载荷逐字段相等() {
+    let outcome = run_scripted(
+        "finalized-present",
+        vec![
+            assistant_text("评估结论：见报告正文"),
+            finish_notice(serde_json::json!({
+                "evaluator": {
+                    "verdict": "fail",
+                    "report": "评估报告正文",
+                    "checklist": [{ "item": "覆盖缺口", "pass": false, "evidence": "缺失行" }],
+                }
+            })),
+            turn_done_ok(),
+        ],
+    )
+    .await;
+
+    let finalized = outcome.finalized.as_ref().expect("收口 notice 在案即 Some");
+    let orchestration::finish::FinishPayload::Evaluator(checklist) = finalized else {
+        panic!("evaluator 形态载荷，实际: {finalized:?}");
+    };
+    assert_eq!(
+        checklist.verdict.as_str(),
+        "fail",
+        "verdict 逐字段相等（线词 fail）"
+    );
+    assert_eq!(checklist.report, "评估报告正文", "report 逐字段相等");
+    assert_eq!(
+        checklist.checklist[0].item, "覆盖缺口",
+        "checklist 逐字段相等"
+    );
+    assert_eq!(
+        outcome.final_message.as_deref(),
+        Some("评估结论：见报告正文"),
+        "final_message 仍承载末条 assistant 文本（与 finalized 互不推导）"
+    );
+}
+
+/// decision 形态贯通（正向，AC-6）：决策会话的收口载荷走同一提取面，`finalized`
+/// 两臂可辨。
+#[tokio::test]
+async fn finalized提取贯通_decision形态两臂可辨() {
+    let outcome = run_scripted(
+        "finalized-decision",
+        vec![
+            finish_notice(serde_json::json!({
+                "decision": { "action": "stop", "reason": "用户裁决终止" }
+            })),
+            turn_done_ok(),
+        ],
+    )
+    .await;
+
+    assert_eq!(
+        outcome.finalized,
+        Some(orchestration::finish::FinishPayload::Decision(
+            orchestration::decision::DecisionAction::Stop {
+                reason: "用户裁决终止".to_owned(),
+            }
+        )),
+        "decision 臂逐字段相等"
+    );
+}
+
+/// 损坏载荷 → `None` 且 run 不报错（异常，AC-6）：`finish_step` notice 的
+/// `payload` 为 `null` / `{}` → `finalized == None`、`run` 仍 `Ok`（提取的宽容性
+/// 由 `transcript::finish_payload` 保证，worker 侧不把载荷提取失败升级为 `Err`）。
+#[tokio::test]
+async fn finalized载荷损坏两形态返回none且不err() {
+    for (tag, payload) in [
+        ("null", serde_json::Value::Null),
+        ("empty-object", serde_json::json!({})),
+    ] {
+        let outcome = run_scripted(
+            &format!("finalized-broken-{tag}"),
+            vec![
+                assistant_text("正常文本"),
+                finish_notice(payload),
+                turn_done_ok(),
+            ],
+        )
+        .await;
+        assert_eq!(
+            outcome.finalized, None,
+            "{tag}: 损坏载荷 → None（不 panic、不外溢 Err）"
+        );
+        assert_eq!(
+            outcome.status,
+            AgentRunStatus::Completed,
+            "{tag}: 会话仍以正常收敛收口（工作面无新增 Err 分支）"
+        );
+    }
+}
+
+/// `finalized` 与转录提取单点一致（正向，回归锚定）：全链产出的
+/// `WorkerTurnOutcome.finalized` 恒等于对同一转录调提取单点的结果——两处零
+/// 第二份提取实现（本条同时是全链用例的旁证断言，不改其既有断言语义）。
+#[tokio::test(start_paused = true)]
+async fn finalized恒等于转录提取单点结果() {
+    let env = DualEnv::new("finalized-single-point");
+    let stores = env.stores();
+    seed_sdk_default(stores, "收口实例");
+    let registry = Arc::new(StopRegistry::new());
+    let (sink, _captured) = CapturingSink::capturing();
+    let composed: ComposedTurn = compose_turn(
+        stores,
+        Arc::clone(&registry),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+    )
+    .expect("解析应成功");
+    let port = KernelWorkerPort::new(composed, sink);
+    let root = env.root();
+    let request = turn_request(
+        &root,
+        "chg-flow/implement/evaluator/1",
+        WorkerRole::Evaluator,
+    );
+
+    let outcome = tokio::spawn(async move { port.run(request).await })
+        .await
+        .expect("run 任务正常结束")
+        .expect("会话应正常发起");
+
+    assert_eq!(
+        outcome.finalized,
+        orchestration::transcript::finish_payload(&outcome.transcript),
+        "finalized 恒等于提取单点结果（worker 侧零第二份提取实现）"
+    );
+    assert!(
+        outcome.finalized.is_none(),
+        "本轮转录零 finish_step notice → 缺席"
+    );
+    // `final_message` 与 `finalized` 互不推导（前者是末条 assistant 文本）
+    assert!(
+        outcome.final_message.is_none() || outcome.finalized.is_none(),
+        "两字段独立：final_message 有值不蕴含 finalized 有值"
+    );
+}
+
+/// 提取实现单点（源码自证，异常）：`worker.rs` 内 `finish_payload` 调用恰一次、
+/// `from_value::<FinishPayload>` 零命中（MUST NOT 另写提取）。
+#[test]
+fn 提取实现单点_worker零第二份实现() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/worker.rs"),
+    )
+    .expect("读取 worker.rs");
+    assert_eq!(
+        own.matches("finish_payload").count(),
+        1,
+        "worker.rs 内 finish_payload 调用恰一处"
+    );
+    // 第二份提取实现判据（形态不敏感）：同一行同时出现 `from_value` 与
+    // `FinishPayload` 即「另写了一份提取」（裸调 / 带路径标注 / 带类型参数三形态
+    // 一并命中）。
+    let from_value = ["from", "_value"].concat();
+    let payload_type = ["Finish", "Payload"].concat();
+    let duplicated: Vec<&str> = own
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .filter(|line| line.contains(&from_value) && line.contains(&payload_type))
+        .collect();
+    assert!(
+        duplicated.is_empty(),
+        "worker.rs 内零第二份提取实现（MUST NOT 各写一份）: {duplicated:?}"
+    );
+    assert!(own.contains("finalized"), "finalized 字段由 worker.rs 填充");
+}
+
+// ---------------------------------------------------------------------------
 // 停止收敛（AC-7 停止半边）
 // ---------------------------------------------------------------------------
 
@@ -646,6 +927,10 @@ async fn 中途停止收敛stopped并保留已收集事件() {
         outcome.status,
         AgentRunStatus::Stopped,
         "停止置位后驱动终止以 stopped 收敛"
+    );
+    assert!(
+        outcome.finalized.is_none(),
+        "中止会话零收口载荷（finalized 缺席）"
     );
     assert!(
         matches!(

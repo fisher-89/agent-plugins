@@ -1,4 +1,4 @@
-use crate::model::{ChecklistItem, Verdict};
+use crate::model::{derive_verdict, ChecklistItem, Verdict};
 use crate::state::{ChangeStateStore, PhaseLogCommand};
 use crate::write::now_millis;
 use crate::write::phase_table::{phase_table, MAX_REPORT_CHARS};
@@ -23,16 +23,6 @@ pub struct PhaseLogInput {
 pub struct PhaseLogOutcome {
     pub phase: String,
     pub attempt: u32,
-}
-
-/// verdict 推导：checklist 全 pass → pass，否则 fail（空 checklist → pass，
-/// 与插件 `resolveVerdict` 的 every 语义一致）。
-fn derive_verdict(checklist: &[ChecklistItem]) -> Verdict {
-    if checklist.iter().all(|item| item.pass) {
-        Verdict::Pass
-    } else {
-        Verdict::Fail
-    }
 }
 
 /// 评估落账（按 change **id** 寻址）：校验（verdict-skipped 约束 / report 长度

@@ -41,15 +41,15 @@ fn backtrack_option_label(option: &BacktrackOption, redo_note: &str) -> String {
 }
 
 /// evaluator 输出协议附录：写通道唯一红线（禁调 MCP phase-log / phase-next /
-/// phase_start / backtrack，落账由桌面 walker 代写）+ 最终消息 checklist JSON
-/// 形状（phase / attempt / skipped 由 walker 按 provenance 盖戳，evaluator 不回声）。
+/// phase_start / backtrack，落账由桌面 walker 代写）+ 收口方式（调 `finish_step`
+/// 工具；参数形状由工具 schema 给出——协议文本不再复述 checklist JSON 形状）。
 fn evaluator_protocol() -> String {
     format!(
         "\n\n---\n\n## 输出协议（必须遵守）\n\n\
 1. 禁止调用 MCP 工具 phase_log / phase_next / phase_start / backtrack：评估落账由桌面编排代写，你只产出评估结论。\n\
-2. 评估完成后，最终消息必须输出且仅输出一个 checklist JSON 对象（裸 JSON 或 ```json 围栏代码块均可），形状：\n\n\
-{{\n  \"verdict\": \"pass\" | \"fail\",\n  \"report\": \"评估报告（不超过 {MAX_REPORT_CHARS} 字符）\",\n  \"checklist\": [{{\"item\": \"检查项名称\", \"pass\": true, \"evidence\": \"检查依据\"}}]\n}}\n\n\
-3. checklist 至少一项，pass 为布尔值，evidence 必须给出事实依据；不要输出 phase / attempt / skipped 字段（由桌面编排按 provenance 盖戳）。"
+2. 评估完成后**调用 `finish_step` 工具收口**——checklist 与 report 是工具参数（形状由工具 schema 给出），无需在最终消息里输出任何 JSON。\n\
+3. `report` 不超过 {MAX_REPORT_CHARS} 字符；checklist 逐项需 `id`（取自本 prompt「静态清单」表首列）+ `pass`（布尔）+ `evidence`（事实依据，含 file:line）。\n\
+4. 无需 `verdict` / `phase` / `attempt` / `skipped` 字段：verdict 由 checklist 推导，其余由桌面编排按 provenance 盖戳。"
     )
 }
 
@@ -58,20 +58,9 @@ pub fn evaluator_prompt(phase_prompt: &str) -> String {
     format!("{phase_prompt}{}", evaluator_protocol())
 }
 
-/// verdict 解析失败反馈修复 prompt：解析错误 + 输出协议重申（复用
-/// `evaluator_protocol`——形状文本单源，不落第三份副本）。续注同一 evaluator
-/// 会话（Continue）：保留评估结论，仅修正最终消息格式后重新收口。
-pub(crate) fn verdict_fix_prompt(error: &str, feedback: u32, limit: u32) -> String {
-    format!(
-        "评估输出解析失败（第 {feedback}/{limit} 次反馈修复）：{error}\n\n\
-         请保留你上一轮的评估结论，仅修正最终消息的输出格式后重新收口。{}",
-        evaluator_protocol()
-    )
-}
-
 /// 决策 prompt：有界输入组装（回溯重做窗口 + 失败报告 + fail checklist +
-/// 白名单 + 候选 eval report）+ 三动作封闭集说明。输出协议同 evaluator——最终
-/// 消息仅输出一个决策 JSON。
+/// 白名单 + 候选 eval report）+ 三动作封闭集说明（形状由工具 schema 给出）。
+/// 输出协议同 evaluator——调 `finish_step` 收口。
 pub fn decision_prompt(input: &DecisionInput) -> String {
     let fail_items = input
         .fail_checklist
@@ -129,30 +118,23 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
 ## 报告文件\n\n\
 你可使用 `read` 工具读取报告树取全量明细：test-execution 的 `reports/test/summary.json`、突变的段级 / 归并报告（路径见失败明细）。\
 决策输入有界——不得要求内联全量 findings / 存活突变体清单。\n\n\
-## 决策协议（最终消息必须输出且仅输出一个 JSON 对象，三选一）\n\n\
-- {{\"action\": \"backtrack\", \"to\": \"<白名单内相位 id>\", \"reason\": \"<≤{MAX_REASON_CHARS} 字符>\"}}：白名单内自主回溯，直接执行；目标为失败相位自身即重做本相位（仅当其在白名单内）。\n\
-- {{\"action\": \"stop\", \"reason\": \"<≤{MAX_REASON_CHARS} 字符>\"}}：终止本次运行。\n\
-- {{\"action\": \"ask\", \"question\": \"<问题>\", \"options\": [\"<选项>\"]}}：无法裁决时中断提问。\n\n\
-红线：backtrack 目标不在白名单内的决议会被拒绝；reason 超长会被拒绝。",
+## 决策协议（调用 finish_step 提交三选一动作，形状由工具 schema 给出）\n\n\
+- `backtrack`（`to` 取白名单内相位 id + `reason` ≤{MAX_REASON_CHARS} 字符）：白名单内自主回溯，直接执行；目标为失败相位自身即重做本相位（仅当其在白名单内）。\n\
+- `stop`（`reason` ≤{MAX_REASON_CHARS} 字符）：终止本次运行。\n\
+- `ask`（`question` + 非空 `options`）：无法裁决时中断提问。\n\n\
+红线：backtrack 目标不在白名单内的决议会被拒绝（一次即终止）；reason 超长会被拒绝。",
         phase = input.phase,
         attempt = input.attempt,
     )
 }
 
-/// 决策软拒环纠正文案（每轮驳回单点）：驳回原因 + 三动作重申 + 白名单一行。
-/// 不含全量失败明细——纠正面只重申协议与可选目标（续注同一决策会话）。
-pub(crate) fn decision_fix_prompt(input: &DecisionInput, error: &str) -> String {
+/// ask 应答的唯一再提示面（决策会话 ask 停等外移后，应答开启新一轮决策会话）：
+/// 用户应答原文 + 一句收口指引。协议形状不复述——工具 schema 是唯一形状源。
+pub fn decision_answer_prompt(answer: &str) -> String {
     format!(
-        "上一轮决策输出被驳回：{error}\n\n\
-         请仅输出一个决策 JSON（三动作封闭集：backtrack / stop / ask）。\n\n\
-         可回溯白名单：{allowed}\n\n\
-         回跳目标须在白名单内；无法裁决时用 ask。",
-        allowed = input
-            .allowed
-            .iter()
-            .map(backtrack_option_head)
-            .collect::<Vec<_>>()
-            .join(" / ")
+        "用户应答：{answer}\n\n\
+         请基于应答调用 `finish_step` 提交本步决策（三动作封闭集之一，形状由工具 schema 给出）；\
+         若应答仍不足以裁决，可再次以 ask 提问。"
     )
 }
 

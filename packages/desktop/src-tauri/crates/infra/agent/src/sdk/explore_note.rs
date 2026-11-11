@@ -58,7 +58,8 @@ pub(crate) struct ExploreNoteContext {
 }
 
 impl ExploreNoteContext {
-    /// 上下文构造（pump 侧 `toolset == Explore` 且句柄与 Continue id 在场时铸造）。
+    /// 上下文构造（pump 侧名字清单含 `create_explore_note` 且句柄与 Continue id
+    /// 在场时铸造）。
     pub(crate) fn new(store: Arc<Store>, root: PathBuf, session_id: String) -> Self {
         Self {
             store,

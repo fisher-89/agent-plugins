@@ -8,6 +8,7 @@ use agent::{
 use store::{AgentEngineKind, AgentProviderProtocol, Store, WorkspaceStores, CLI_TENANT_RETIRED};
 
 use crate::sdk::config::Protocol;
+use crate::sdk::mount;
 use crate::store_port::{StoreQuery, StoreSink};
 use crate::{EngineConfig, EngineFacade, EngineKind};
 
@@ -23,60 +24,81 @@ const CHANGE_SOURCE: &str = "change";
 /// `use-archi-chat` 的 `ARCHI_CHAT_SOURCE` 三处同字面量，改动需同步。
 const ARCHI_SOURCE: &str = "archi";
 
-/// 会话注入面装配（生产路径：explore 臂 + archi 臂 + change 臂）：
-/// - `explore` 来源 = 六工具收窄子集（write 移除，序同 `TOOL_NAMES`）+ `Explore`
-///   枚举（逐字未变）；
-/// - `archi` 来源 = 七工具全量（`tools: None`）+ `Archi { module: true, search:
-///   true }` + 架构会话知识 preamble；该臂以 `source` 短路命中，零 `source_ref`
-///   读取（不碰相位解析，`source_ref` 取任意值下发面不变）；
-/// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面矩阵，
-///   命中即 `toolset = Archi { .. }` 且 `tools` 位保持 `None`（七工具全量）；
-/// - 其余来源与矩阵未命中 / 解析失败恒 `SessionInjections::default()`
-///   （fail-closed，零 archi 工具）。
+/// 会话注入面装配（生产路径：explore 臂 + archi 臂 + change 臂），三臂全产
+/// **工具名字清单**，`finish` 位独立按 `role` 置位（与矩阵解耦——决策会话恒
+/// 不命中矩阵，收口档位不得随矩阵 `None` 一并丢）：
+/// - `explore` 来源 = 六工具名（write 移除）；
+/// - `archi` 来源 = 七工具名 + 两 archi 名 + 架构会话知识 preamble；该臂以
+///   `source` 短路命中，零 `source_ref` 读取（不碰相位解析，`source_ref` 取任意
+///   值下发面不变）；
+/// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面
+///   矩阵，命中即把勾选名并入七工具名清单；
+/// - 其余来源恒 `SessionInjections::default()`（内建七件、零 archi 工具）。
+///
+/// 三臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。
 fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
     if provenance.source == EXPLORE_SOURCE {
-        const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
-        for name in EXPLORE_TOOLS {
-            if !crate::sdk::tools::TOOL_NAMES.contains(&name) {
-                return Err(format!("注入面非法工具名: {name}（七通用工具封闭集外）"));
-            }
-        }
-        return Ok(agent::SessionInjections {
-            preamble: None,
-            tools: Some(
-                EXPLORE_TOOLS
-                    .iter()
-                    .map(|name| (*name).to_owned())
-                    .collect(),
-            ),
-            toolset: Some(agent::SessionToolset::Explore),
-        });
+        const EXPLORE_TOOLS: [&str; 7] = [
+            "read",
+            "grep",
+            "glob",
+            "ls",
+            "edit",
+            "bash",
+            mount::EXPLORE_NOTE_TOOL,
+        ];
+        return injected(&EXPLORE_TOOLS, None, None, provenance);
     }
     if provenance.source == ARCHI_SOURCE {
+        let mut names: Vec<&'static str> = mount::builtin().to_vec();
+        names.push(mount::ARCHI_MODULE_TOOL);
+        names.push(mount::ARCHI_SEARCH_TOOL);
         // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面不变。
-        return Ok(agent::SessionInjections {
-            preamble: crate::archi_knowledge::knowledge(),
-            tools: None,
-            toolset: Some(agent::SessionToolset::Archi {
-                module: true,
-                search: true,
-            }),
-        });
+        return injected(
+            &names,
+            crate::archi_knowledge::knowledge(),
+            None,
+            provenance,
+        );
     }
     if provenance.source != CHANGE_SOURCE {
         return Ok(agent::SessionInjections::default());
     }
-    let Some((phase, role)) = change_phase_role(provenance.source_ref.as_deref().unwrap_or(""))
-    else {
-        return Ok(agent::SessionInjections::default());
+    let mut names: Vec<&'static str> = mount::builtin().to_vec();
+    let phase_role = change_phase_role(provenance.source_ref.as_deref().unwrap_or(""));
+    if let Some((phase, role)) = phase_role {
+        if let Some(selected) = archi_matrix(phase, role) {
+            names.extend(selected);
+        }
+    }
+    let finish = match phase_role.map(|(_, role)| role) {
+        Some("evaluator") => Some(agent::FinishSpec::EvaluatorChecklist),
+        Some("decision") => Some(agent::FinishSpec::Decision),
+        _ => None,
     };
-    Ok(match archi_matrix(phase, role) {
-        Some(toolset) => agent::SessionInjections {
-            preamble: None,
-            tools: None,
-            toolset: Some(toolset),
-        },
-        None => agent::SessionInjections::default(),
+    injected(&names, None, finish, provenance)
+}
+
+/// 装配产物单点（成员校验 + 名字清单落地）：未知名显式 `Err` 携名与来源，
+/// 不静默滤过（滤过会让模型「什么都不能用」，装配面报错才可归因）。
+fn injected(
+    names: &[&'static str],
+    preamble: Option<String>,
+    finish: Option<agent::FinishSpec>,
+    provenance: &SessionProvenance,
+) -> Result<agent::SessionInjections, String> {
+    for name in names {
+        if mount::lookup(name).is_none() {
+            return Err(format!(
+                "注入面非法工具名: {name}（挂载清单外，来源 {}）",
+                provenance.source
+            ));
+        }
+    }
+    Ok(agent::SessionInjections {
+        preamble,
+        tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
+        finish,
     })
 }
 
@@ -97,19 +119,20 @@ fn change_phase_role(source_ref: &str) -> Option<(&str, &str)> {
     Some((phase, role))
 }
 
-/// archi 工具面注入矩阵单源（7 行，`(phase, role)` → 下发子集；未命中即零 archi
-/// 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
-fn archi_matrix(phase: &str, role: &str) -> Option<agent::SessionToolset> {
-    let (module, search) = match (phase, role) {
-        ("proposal", "executor") => (false, true),
-        ("dev-design", "executor") | ("dev-design", "evaluator") => (true, true),
-        ("test-design", "executor") => (false, true),
-        ("implement", "executor") => (true, false),
-        ("code-review", "evaluator") => (true, false),
-        ("acceptance", "evaluator") => (true, false),
-        _ => return None,
-    };
-    Some(agent::SessionToolset::Archi { module, search })
+/// archi 工具面注入矩阵单源（7 行，`(phase, role)` → 下发工具名清单；未命中即
+/// 零 archi 工具）。矩阵只决定**下发面**，不决定 prompt 文本。
+fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
+    match (phase, role) {
+        ("proposal", "executor") => Some(vec![mount::ARCHI_SEARCH_TOOL]),
+        ("dev-design", "executor") | ("dev-design", "evaluator") => {
+            Some(vec![mount::ARCHI_MODULE_TOOL, mount::ARCHI_SEARCH_TOOL])
+        }
+        ("test-design", "executor") => Some(vec![mount::ARCHI_SEARCH_TOOL]),
+        ("implement", "executor") => Some(vec![mount::ARCHI_MODULE_TOOL]),
+        ("code-review", "evaluator") => Some(vec![mount::ARCHI_MODULE_TOOL]),
+        ("acceptance", "evaluator") => Some(vec![mount::ARCHI_MODULE_TOOL]),
+        _ => None,
+    }
 }
 
 /// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
@@ -359,6 +382,28 @@ fn resolve_agent_engine(
             })
         }
         AgentEngineKind::Cli => Err(CLI_TENANT_RETIRED.to_owned()),
+    }
+}
+
+/// 测试夹具缝：以注入 runner 装配组合轮（`worker_test` 的收口载荷用例以脚本化
+/// runner 驱动 `KernelWorkerPort`——真实 [`compose_turn`] 恒装 `SdkRunner`，
+/// 无法预录 `SystemNotice{finish_step}` 进转录）。
+#[cfg(test)]
+pub(crate) fn composed_with_runner(
+    store: Arc<Store>,
+    runner: Arc<dyn AgentRunner>,
+) -> ComposedTurn {
+    ComposedTurn {
+        kernel: SessionKernel::new(
+            Arc::new(StoreSink::new(Arc::clone(&store))),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+        ),
+        runner,
+        query: Arc::new(StoreQuery::new(store)),
+        store_kind: AgentEngineKind::Sdk,
+        models: Some(("m-high".to_owned(), "m-low".to_owned())),
+        agent_instance_id: 0,
     }
 }
 

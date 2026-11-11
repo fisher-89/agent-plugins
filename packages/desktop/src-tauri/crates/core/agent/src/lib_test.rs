@@ -7,9 +7,8 @@ use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMess
 use crate::kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionQuery, SessionSink, TurnOutcome};
 use crate::runner::{
-    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
-    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
-    TurnQuestion,
+    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, FinishSpec,
+    ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 use crate::session::{
     new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
@@ -313,23 +312,13 @@ fn crate根路径sum_usage_tokens缺席key与重复调用稳定() {
 }
 
 // ---------------------------------------------------------------------------
-// auto-named-explore：SessionToolset 再导出与 SessionInjections 出口回归
+// auto-named-explore：FinishSpec 再导出与 SessionInjections 出口回归
 // ---------------------------------------------------------------------------
-
-#[test]
-fn crate根路径session_toolset可达且explore变体等值() {
-    // 根路径构造 + 等值（词汇本体驻 runner.rs，出口侧仅锚定可达与语义）
-    let toolset = crate::SessionToolset::Explore;
-    assert_eq!(toolset, SessionToolset::Explore, "根路径与模块路径同词汇");
-    // serde 可用性经出口侧复验（derive 随词汇出口可达）
-    let line = serde_json::to_string(&toolset).expect("序列化可达");
-    assert_eq!(line, r#""explore""#, "线值经出口侧不变");
-}
 
 #[test]
 #[allow(clippy::type_complexity)]
 fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
-    // runner 域（含增补的 SessionToolset 与既有词汇；trait 面以指针形态锚定）
+    // runner 域（含增补的 FinishSpec 与既有词汇；trait 面以指针形态锚定）
     let _runner_word_shapes: Option<(
         AgentPermissionMode,
         AgentRunStatus,
@@ -342,10 +331,10 @@ fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
         SessionInjections,
         SessionOpen,
         SessionRef,
-        SessionToolset,
+        FinishSpec,
         TurnQuestion,
     )> = None;
-    let _ = SessionToolset::Explore;
+    let _ = FinishSpec::EvaluatorChecklist;
     // session / port / kernel / state / event / usage 域既有快照（与文件顶部
     // use 清单一一对应，任一名丢失即编译失败）
     let _session_word_shapes: Option<(
@@ -378,16 +367,37 @@ fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
 
     // 构造形态断言（防「仅被 use」假锚）：增补词汇真实可用
     let default_injections = SessionInjections::default();
-    assert_eq!(default_injections.toolset, None, "增补位缺省 None");
+    assert_eq!(default_injections.finish, None, "收口档位缺省 None");
 }
 
 #[test]
-fn toolset非法线值经出口反序列化err() {
-    let result: Result<SessionInjections, _> = serde_json::from_str(r#"{"toolset":"unknown"}"#);
+fn finish非法线值经出口反序列化err() {
+    let result: Result<SessionInjections, _> = serde_json::from_str(r#"{"finish":"unknown"}"#);
     assert!(
         result.is_err(),
-        "出口侧非法 toolset 线值应 serde Err，实际: {result:?}"
+        "出口侧非法 finish 线值应 serde Err，实际: {result:?}"
     );
+}
+
+/// `FinishSpec` 经 crate 根再导出后线值不漂（AC-3 出口面）：`to_value` 线值逐字为
+/// `"evaluatorChecklist"` / `"decision"`（`rename_all = "camelCase"`），且 `from_value`
+/// 回转逐值相等——根导出的词汇面与 `runner.rs` 定义面同一实现。
+#[test]
+fn finish_spec经根再导出线值为camelcase且双向回转() {
+    let cases = [
+        (FinishSpec::EvaluatorChecklist, "evaluatorChecklist"),
+        (FinishSpec::Decision, "decision"),
+    ];
+    for (spec, wire) in cases {
+        let value = serde_json::to_value(spec).expect("序列化");
+        assert_eq!(
+            value,
+            serde_json::json!(wire),
+            "根导出 FinishSpec 的线值逐字为 {wire}"
+        );
+        let back: FinishSpec = serde_json::from_value(value).expect("反序列化");
+        assert_eq!(back, spec, "线值 round-trip 逐值相等（{wire}）");
+    }
 }
 
 #[test]
@@ -396,8 +406,8 @@ fn crate根路径session_injections_default三位全none() {
     assert_eq!(default_injections.preamble, None, "preamble None");
     assert_eq!(default_injections.tools, None, "tools None");
     assert_eq!(
-        default_injections.toolset, None,
-        "toolset None（增补位缺省）"
+        default_injections.finish, None,
+        "finish None（收口档位缺省）"
     );
 }
 

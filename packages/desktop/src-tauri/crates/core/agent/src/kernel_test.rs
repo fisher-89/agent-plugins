@@ -241,7 +241,7 @@ fn request(session: SessionRef) -> TurnRequest {
         injections: SessionInjections {
             preamble: Some("前导".to_owned()),
             tools: None,
-            toolset: None,
+            finish: None,
         },
         ctx: SessionCtx {
             workspace_root: std::path::PathBuf::from("D:\\工作区"),

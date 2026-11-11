@@ -3219,7 +3219,7 @@ fn 十四份md零占位与零mcp() {
 
 /// 回归：装配面逐字不变——14 条 `include_str!` 常量与盘面 md **逐字一致**
 /// （工具名属 prompt 正文的既定事实，工具**清单 / schema** 仍不落 prompt：真源为
-/// `SessionToolset` 注入）。
+/// infra 挂载清单注入）。
 #[test]
 fn 装配面include_str逐字不变且工具面不落prompt() {
     let mut table_prompts: Vec<&'static str> = Vec::new();
@@ -3230,7 +3230,7 @@ fn 装配面include_str逐字不变且工具面不落prompt() {
             assert!(!prompt.trim().is_empty(), "{} 的 prompt 非空", phase.id);
             assert!(
                 !prompt.contains("\"type\": \"object\"") && !prompt.contains("\"required\": ["),
-                "{} 的 prompt 不承载工具 schema（清单真源在 SessionToolset）",
+                "{} 的 prompt 不承载工具 schema（清单真源在 infra 挂载清单）",
                 phase.id
             );
             table_prompts.push(prompt);
@@ -3260,6 +3260,263 @@ fn 装配面include_str逐字不变且工具面不落prompt() {
         assert!(
             disk.iter().any(|text| text == prompt),
             "装配常量与盘面 md 逐字一致（14 条 include_str! 零漂移）"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 8 份 evaluator 语料的解析器双层守卫 + 输出面改写（agent-finalize-tool
+// AC-11 / AC-12）：语料自 `phase_table()` 的 `include_str!` 内嵌文本取得，
+// 零 `fs::read`（单源口径——盘面布局不参与判据）。
+// ---------------------------------------------------------------------------
+
+/// 两表去重后的 evaluator prompt（proposal / test-design / test-gen 两表共用同一
+/// `include_str!` 常量，按文本去重后恰 8 份）。
+fn evaluator_prompts() -> Vec<&'static str> {
+    let mut prompts: Vec<&'static str> = Vec::new();
+    for table_key in ["requirement", "test-only"] {
+        let table = phase_table(table_key).expect("相位表键合法");
+        for definition in table {
+            if let Some(spec) = &definition.evaluator {
+                if !prompts.contains(&spec.prompt) {
+                    prompts.push(spec.prompt);
+                }
+            }
+        }
+    }
+    prompts
+}
+
+/// 两表去重后的 executor prompt（6 份 planner / generator）。
+fn executor_prompts() -> Vec<&'static str> {
+    let mut prompts: Vec<&'static str> = Vec::new();
+    for table_key in ["requirement", "test-only"] {
+        let table = phase_table(table_key).expect("相位表键合法");
+        for definition in table {
+            if let Some(spec) = &definition.executor {
+                if !prompts.contains(&spec.prompt) {
+                    prompts.push(spec.prompt);
+                }
+            }
+        }
+    }
+    prompts
+}
+
+/// 按相位 id 取 evaluator prompt（逐份断言用）。
+fn evaluator_prompt_of(phase: &str) -> &'static str {
+    for table_key in ["requirement", "test-only"] {
+        let table = phase_table(table_key).expect("相位表键合法");
+        if let Some(definition) = table.iter().find(|definition| definition.id == phase) {
+            return definition
+                .evaluator
+                .as_ref()
+                .map(|spec| spec.prompt)
+                .unwrap_or_else(|| panic!("相位 {phase} 应有 evaluator prompt"));
+        }
+    }
+    panic!("相位 {phase} 在两表中缺席");
+}
+
+#[test]
+fn evaluator语料取得面恰八份且非空() {
+    let requirement = phase_table("requirement").expect("requirement 表");
+    let evaluator_count = requirement
+        .iter()
+        .filter(|definition| definition.evaluator.is_some())
+        .count();
+    assert_eq!(evaluator_count, 7, "requirement 表 evaluator 恰 7 份");
+
+    let test_only = phase_table("test-only").expect("test-only 表");
+    for terminal in ["test-execution", "archive"] {
+        let definition = test_only
+            .iter()
+            .find(|definition| definition.id == terminal)
+            .unwrap_or_else(|| panic!("test-only 表应含 {terminal}"));
+        assert!(
+            definition.evaluator.is_none(),
+            "{terminal} 相位 evaluator 恒 None（确定性相位）"
+        );
+    }
+    let code_analyze = test_only
+        .iter()
+        .find(|definition| definition.id == "code-analyze")
+        .expect("code-analyze 在 test-only 表内");
+    assert!(
+        code_analyze.evaluator.is_some(),
+        "code-analyze 是 requirement 表缺席的那一份 evaluator"
+    );
+
+    let prompts = evaluator_prompts();
+    assert_eq!(prompts.len(), 8, "两表去重后恰 8 份不同文本");
+    for prompt in prompts {
+        assert!(!prompt.is_empty(), "逐份 prompt 非空");
+    }
+}
+
+#[test]
+fn evaluator语料逐份项数与id序列守卫() {
+    // (相位 id, 期望项数, 期望 ID 序列)
+    let cases: [(&str, usize, &[&str]); 8] = [
+        (
+            "proposal",
+            11,
+            &[
+                "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
+            ],
+        ),
+        (
+            "dev-design",
+            10,
+            &["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10"],
+        ),
+        (
+            "test-design",
+            9,
+            &["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"],
+        ),
+        ("implement", 7, &["I1", "I2", "I3", "I4", "I5", "I6", "I7"]),
+        (
+            "test-gen",
+            8,
+            &["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+        ),
+        (
+            "code-review",
+            7,
+            &["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+        ),
+        (
+            "code-analyze",
+            8,
+            &["CA1", "CA2", "CA3", "CA4", "CA5", "CA6", "CA7", "CA8"],
+        ),
+        ("acceptance", 5, &["A1", "A2", "A3", "A4", "A5"]),
+    ];
+
+    let mut total = 0;
+    for (phase, expected_len, expected_ids) in cases {
+        let prompt = evaluator_prompt_of(phase);
+        let entries = crate::model::checklist_entries(prompt);
+        assert_eq!(
+            entries.len(),
+            expected_len,
+            "相位 {phase} 静态清单项数（表结构被改坏即刻红）"
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            expected_ids,
+            "相位 {phase} ID 序列逐值且有序"
+        );
+        total += entries.len();
+    }
+    assert_eq!(total, 65, "8 份合计 65 项");
+}
+
+#[test]
+fn evaluator语料段落集合等于全文边界集合() {
+    for prompt in evaluator_prompts() {
+        let section_ids: std::collections::BTreeSet<String> =
+            crate::model::checklist_entries(prompt)
+                .into_iter()
+                .map(|entry| entry.id)
+                .collect();
+        // 全文行首 `| <ID> |` 形态扫描（与解析器同形态，去掉段落边界约束）
+        let whole_ids: std::collections::BTreeSet<String> = prompt
+            .lines()
+            .filter_map(|line| {
+                let rest = line.strip_prefix("| ")?;
+                let letters: String = rest.chars().take_while(char::is_ascii_uppercase).collect();
+                if letters.is_empty() {
+                    return None;
+                }
+                let after = &rest[letters.len()..];
+                let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+                if digits.is_empty() || !after[digits.len()..].starts_with(" |") {
+                    return None;
+                }
+                Some(format!("{letters}{digits}"))
+            })
+            .collect();
+        assert_eq!(
+            section_ids, whole_ids,
+            "段落内 ID 集合 == 全文边界 ID 集合（无多无少）"
+        );
+        // 连字符子项在两集合中均零命中
+        for sub_item in ["T8-U1", "T8-G1", "T8-U2"] {
+            assert!(
+                !section_ids.contains(sub_item) && !whole_ids.contains(sub_item),
+                "连字符子项 {sub_item} 两集合均零命中"
+            );
+        }
+    }
+}
+
+#[test]
+fn evaluator语料静态清单表结构三断言() {
+    for prompt in evaluator_prompts() {
+        assert_eq!(
+            prompt.matches("## 静态清单").count(),
+            1,
+            "`## 静态清单` 段在场恰 1 处"
+        );
+        assert!(
+            prompt.contains("| ID | 检查项 | 判断依据 |"),
+            "三列表头逐字在场"
+        );
+        for entry in crate::model::checklist_entries(prompt) {
+            assert!(
+                !entry.item.trim().is_empty(),
+                "ID {} 的第二列非空",
+                entry.id
+            );
+        }
+    }
+}
+
+#[test]
+fn evaluator语料输出面同句改写且旧串零命中() {
+    const NEW_SENTENCE: &str = "调用 finish_step 工具收口";
+    const OLD_SENTENCE: &str = "最终消息输出一个 checklist JSON";
+    let prompts = evaluator_prompts();
+
+    for prompt in &prompts {
+        assert_eq!(
+            prompt.matches(NEW_SENTENCE).count(),
+            1,
+            "新串恰一处命中（同句改写）"
+        );
+        assert!(!prompt.contains(OLD_SENTENCE), "旧串零命中（改写彻底）");
+    }
+
+    // 8 份之间该行逐字相同
+    let lines: Vec<&str> = prompts
+        .iter()
+        .filter_map(|prompt| prompt.lines().find(|line| line.contains(NEW_SENTENCE)))
+        .collect();
+    assert_eq!(lines.len(), 8, "8 份各命中一行");
+    let first = lines[0];
+    assert!(
+        lines.iter().all(|line| *line == first),
+        "8 份该行逐字相同: {lines:?}"
+    );
+}
+
+#[test]
+fn executor语料零finish_step字样与零静态清单段() {
+    let prompts = executor_prompts();
+    assert_eq!(prompts.len(), 6, "6 份 planner / generator");
+    for prompt in prompts {
+        assert!(
+            !prompt.contains("finish_step"),
+            "executor 语料零 finish_step 字样（不设收口工具）"
+        );
+        assert!(
+            !prompt.contains("## 静态清单"),
+            "executor 语料零静态清单段（不设 ID 契约面）"
         );
     }
 }

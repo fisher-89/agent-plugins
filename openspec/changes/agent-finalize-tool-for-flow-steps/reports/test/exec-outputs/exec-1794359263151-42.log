@@ -1,0 +1,195 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:15736:
+             }
+         }
+     }
+[31m-}// ---------------------------------------------------------------------------
+[0m[31m-// verdict 门 `eval_outcome` 缺席 + 合并形态（AC-7 / D8）
+[0m[31m-// ---------------------------------------------------------------------------
+[0m[32m+} // ---------------------------------------------------------------------------
+[0m[32m+  // verdict 门 `eval_outcome` 缺席 + 合并形态（AC-7 / D8）
+[0m[32m+  // ---------------------------------------------------------------------------
+[0m 
+ /// 相位路由产出（两表可解析：`code-analyze` 只驻 test-only 表，`route_outcome`
+ /// 的 `steps_of` 仅查 requirement 表）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:15756:
+         steps: definition.steps.to_vec(),
+         artifact_manifest: definition.artifact_manifest.to_vec(),
+         executor: Some(workflow::write::ResolvedPhaseSpec {
+[31m-            prompt: format!("change: c
+[0m[32m+            prompt: format!(
+[0m[32m+                "change: c
+[0m 
+[31m-Implement the {phase} phase for change \"c\"."),
+[0m[32m+Implement the {phase} phase for change \"c\"."
+[0m[32m+            ),
+[0m             model_level: ModelLevel::Low,
+         }),
+         evaluator: Some(workflow::write::ResolvedPhaseSpec {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:15765:
+[31m-            prompt: format!("change: c
+[0m[32m+            prompt: format!(
+[0m[32m+                "change: c
+[0m 
+[31m-Evaluate the {phase} phase for change \"c\"."),
+[0m[32m+Evaluate the {phase} phase for change \"c\"."
+[0m[32m+            ),
+[0m             model_level: ModelLevel::High,
+         }),
+         allowed_backtrack_phases: Vec::new(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:15792:
+ 
+ /// `walker.rs` 源码自证入口（注释行剔除——自证只判代码行）。
+ fn walker_code_lines() -> String {
+[31m-    std::fs::read_to_string(
+[0m[31m-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
+[0m[31m-    )
+[0m[31m-    .expect("读取 walker.rs")
+[0m[31m-    .lines()
+[0m[31m-    .filter(|line| {
+[0m[31m-        let trimmed = line.trim_start();
+[0m[31m-        !(trimmed.starts_with("///") || trimmed.starts_with("//"))
+[0m[31m-    })
+[0m[31m-    .collect::<Vec<_>>()
+[0m[31m-    .join("\n")
+[0m[32m+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"))
+[0m[32m+        .expect("读取 walker.rs")
+[0m[32m+        .lines()
+[0m[32m+        .filter(|line| {
+[0m[32m+            let trimmed = line.trim_start();
+[0m[32m+            !(trimmed.starts_with("///") || trimmed.starts_with("//"))
+[0m[32m+        })
+[0m[32m+        .collect::<Vec<_>>()
+[0m[32m+        .join("\n")
+[0m }
+ 
+ /// 本文件（`walker_test.rs`）源码去注释后的代码行。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:15837:
+     let _confirmer = spawn_confirmer(&control, true);
+     let status = task.await.expect("run 任务正常结束");
+ 
+[31m-    assert_eq!(status, ChangeRunStatus::Failed, "eval_outcome 缺席 → failed");
+[0m[32m+    assert_eq!(
+[0m[32m+        status,
+[0m[32m+        ChangeRunStatus::Failed,
+[0m[32m+        "eval_outcome 缺席 → failed"
+[0m[32m+    );
+[0m     let finish = history.finish().expect("finish 落包捕获");
+     let reason = finish.reason.as_deref().unwrap_or_default();
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:15954:
+             r#"{ "action": "stop" }"#.to_owned(),
+             "未调用 finish_step 收口",
+         ),
+[31m-        (
+[0m[31m-            "角色漂移",
+[0m[31m-            PASS_JSON.to_owned(),
+[0m[31m-            "相位表角色漂移",
+[0m[31m-        ),
+[0m[32m+        ("角色漂移", PASS_JSON.to_owned(), "相位表角色漂移"),
+[0m     ] {
+         let (root, db) = decision_fixture(&format!("decision-drift-{tag}"));
+         let allowed = ["proposal", "implement"];
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:16053:
+     }
+     // 机械代写面零收口工具契约：不调校验器、不取挂载清单、不分派执行体
+     //（`finish_step` 仅作为 verdict 门失败文案的语义词出现于代码行，不是调用）
+[31m-    for absent in ["validate_checklist", "finish::validate", "ToolExec", "mount::"] {
+[0m[32m+    for absent in [
+[0m[32m+        "validate_checklist",
+[0m[32m+        "finish::validate",
+[0m[32m+        "ToolExec",
+[0m[32m+        "mount::",
+[0m[32m+    ] {
+[0m         assert!(
+             !code.contains(absent),
+             "机械代写面零 `{absent}`（七条目豁免、不经收口工具、不需 ID 集合）"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:16137:
+         "feedback_limit 本体仍在场（函数逐字未动）"
+     );
+     assert_eq!(
+[31m-        code.matches("feedback_limit(step, \"static-check\")").count(),
+[0m[32m+        code.matches("feedback_limit(step, \"static-check\")")
+[0m[32m+            .count(),
+[0m         1,
+         "static-check 调用点 1 处"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:16144:
+     assert_eq!(
+[31m-        code.matches("feedback_limit(step, \"archi-check\")").count(),
+[0m[32m+        code.matches("feedback_limit(step, \"archi-check\")")
+[0m[32m+            .count(),
+[0m         1,
+         "archi-check 调用点 1 处"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:16149:
+     assert_eq!(
+[31m-        code.matches("feedback_limit(step, \"verdict-gate\")").count(),
+[0m[32m+        code.matches("feedback_limit(step, \"verdict-gate\")")
+[0m[32m+            .count(),
+[0m         0,
+         "verdict-gate 调用点零命中（反馈面随 finish_step 收口退役）"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\compose.rs:389:
+ /// runner 驱动 `KernelWorkerPort`——真实 [`compose_turn`] 恒装 `SdkRunner`，
+ /// 无法预录 `SystemNotice{finish_step}` 进转录）。
+ #[cfg(test)]
+[31m-pub(crate) fn composed_with_runner(store: Arc<Store>, runner: Arc<dyn AgentRunner>) -> ComposedTurn {
+[0m[32m+pub(crate) fn composed_with_runner(
+[0m[32m+    store: Arc<Store>,
+[0m[32m+    runner: Arc<dyn AgentRunner>,
+[0m[32m+) -> ComposedTurn {
+[0m     ComposedTurn {
+         kernel: SessionKernel::new(
+             Arc::new(StoreSink::new(Arc::clone(&store))),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:2622:
+         },
+         Case {
+             tag: "两者同在",
+[31m-            names: vec![
+[0m[31m-                ARCHI_MODULE_TOOL.to_owned(),
+[0m[31m-                ARCHI_SEARCH_TOOL.to_owned(),
+[0m[31m-            ],
+[0m[32m+            names: vec![ARCHI_MODULE_TOOL.to_owned(), ARCHI_SEARCH_TOOL.to_owned()],
+[0m             expect_present: true,
+         },
+         Case {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:2687:
+     );
+     assert!(
+         mint_archi_context(
+[31m-            &[
+[0m[31m-                ARCHI_MODULE_TOOL.to_owned(),
+[0m[31m-                ARCHI_MODULE_TOOL.to_owned()
+[0m[31m-            ],
+[0m[32m+            &[ARCHI_MODULE_TOOL.to_owned(), ARCHI_MODULE_TOOL.to_owned()],
+[0m             &missing
+         )
+         .is_some(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\worker_test.rs:692:
+ 
+ /// 驱动一轮脚本化会话（收口载荷注入面）：真库 `DualEnv` + 假 sink + 脚本
+ /// runner → `KernelWorkerPort::run` 的真实产出。
+[31m-async fn run_scripted(tag: &str, script: Vec<AgentEventKind>) -> orchestration::port::WorkerTurnOutcome {
+[0m[32m+async fn run_scripted(
+[0m[32m+    tag: &str,
+[0m[32m+    script: Vec<AgentEventKind>,
+[0m[32m+) -> orchestration::port::WorkerTurnOutcome {
+[0m     let env = DualEnv::new(tag);
+     let (sink, _captured) = CapturingSink::capturing();
+     let composed = crate::compose::composed_with_runner(env.store(), ScriptedRunner::new(script));
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-finalize-tool-for-flow-steps\packages\desktop\src-tauri\crates\infra\agent\src\worker_test.rs:738:
+         "verdict 逐字段相等（线词 fail）"
+     );
+     assert_eq!(checklist.report, "评估报告正文", "report 逐字段相等");
+[31m-    assert_eq!(checklist.checklist[0].item, "覆盖缺口", "checklist 逐字段相等");
+[0m[32m+    assert_eq!(
+[0m[32m+        checklist.checklist[0].item, "覆盖缺口",
+[0m[32m+        "checklist 逐字段相等"
+[0m[32m+    );
+[0m     assert_eq!(
+         outcome.final_message.as_deref(),
+         Some("评估结论：见报告正文"),
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

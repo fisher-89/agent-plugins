@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 use futures::StreamExt;
+use orchestration::finish;
 use rig::completion::{CompletionRequest, FinishReason, Usage};
 use rig::driver::DynModel;
 use rig::message::{Message, ToolCall, ToolResult, ToolResultContent};
@@ -14,6 +15,7 @@ use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
+use crate::sdk::mount::{self, ToolExec};
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{
     compact, context, normalize, policy, preamble, resume, sandbox, tools, web_search,
@@ -158,10 +160,24 @@ pub(crate) async fn run(
 ) -> Vec<Message> {
     let started = Instant::now();
     let mut usage = Usage::default();
-    // 下发面单源：definitions 按会话注入面组装，RunStarted.tools 与成员校验
-    // 自 definitions 本体派生（零第二份名单——定义 / 上报 / 校验三者天然一致）
-    let definitions = tools::definitions(&turn.injections);
-    let dispatched: Vec<String> = definitions.iter().map(|d| d.name.clone()).collect();
+    // 下发面单源：挂载清单按会话注入面组装，RunStarted.tools 与成员校验自同一
+    // 清单派生（零第二份名单——定义 / 上报 / 校验三者天然一致）。非法名 `Err`
+    // 不静默降级为空工具面（降级会让模型「什么都不能用」而非可归因报错）
+    let mounts = match mount::definitions(&turn.injections, &turn.question) {
+        Ok(mounts) => mounts,
+        Err(error) => {
+            append_engine_log(&format!(
+                "loop 工具面装配失败 session={} cause={error}",
+                turn.session_id
+            ));
+            finish_error(&sender, 1, started, &usage, turn, "tool_mount_error", error).await;
+            return history;
+        }
+    };
+    let dispatched: Vec<String> = mounts
+        .iter()
+        .map(|mount| mount.definition.name.clone())
+        .collect();
 
     // run 启动事件（core 协议 RunStarted 的 model / session / tools 口径；MCP 恒空）
     let started_ok = sender
@@ -237,7 +253,10 @@ pub(crate) async fn run(
                     model: None,
                     chat_history: chat_history.clone(),
                     documents: Vec::new(),
-                    tools: definitions.clone(),
+                    tools: mounts
+                        .iter()
+                        .map(|mount| mount.definition.clone())
+                        .collect(),
                     temperature: None,
                     max_tokens: None,
                     tool_choice: None,
@@ -504,19 +523,54 @@ pub(crate) async fn run(
         // 特判；两 archi 工具为读面：`input_path` 的显式 None 臂使沙箱原样返回，
         // `protect::evaluate` 分派表 `_ => None`，二者零介入
         let mut results: Vec<ToolResult> = Vec::with_capacity(tool_calls.len());
+        // 收口载荷槽（本 turn 内被 `finish_step` 置位；置位后同批后续调用一律
+        // 出假结果，循环尾部零额外请求直接收口）
+        let mut finalized: Option<finish::FinishPayload> = None;
         for tool_call in tool_calls {
             let id = tool_call.id.to_string();
             let name = tool_call.function.name.as_str().to_owned();
             let input = tool_call.function.arguments.clone();
-            // 成员校验（先于 policy）：调用名 ∉ 本轮实际下发面即拒绝——「从
-            // definitions 移除」自此等于硬禁用，幻觉调用不直通执行、不触执行体
-            if !dispatched.contains(&name) {
+            // 收口后的同批调用：假结果必须 `is_error: false`（协议收口不是失
+            // 败，`resume::append_tool_results` 对 is_error 会拼「工具执行失
+            // 败」）且必须真的经 `sender` 发出（否则 `resume::rebuild` 补
+            // `INTERRUPTED_RESULT`，语义变差）
+            if finalized.is_some() {
+                let reason = "本步已 finish_step 收口，该调用未执行".to_owned();
+                if sender
+                    .send(AgentEventKind::Message {
+                        role: AgentMessageRole::Tool,
+                        blocks: vec![AgentBlock::ToolResult {
+                            id: id.clone(),
+                            content: reason.clone(),
+                            is_error: false,
+                        }],
+                        parent_tool_use_id: None,
+                    })
+                    .await
+                    .is_err()
+                {
+                    append_engine_log(&format!(
+                        "loop 事件通道关闭退出（收口假结果发送）session={} turn_index={turn_index}",
+                        turn.session_id
+                    ));
+                    return history;
+                }
+                results.push(outcome_result(tool_call, reason));
+                continue;
+            }
+            // 成员校验（先于 tier 准入）：调用名 ∉ 本轮实际下发面即拒绝——「从
+            // 清单移除」自此等于硬禁用，幻觉调用不直通执行、不触执行体
+            let Some(mount) = mounts
+                .iter()
+                .find(|mount| mount.definition.name == name)
+                .cloned()
+            else {
                 let reason = format!("工具不在本轮下发面: {name}");
                 deny(&sender, "tool_unavailable", &name, &reason, &id).await;
                 results.push(outcome_result(tool_call, reason));
                 continue;
-            }
-            if !policy::allows(turn.permission_mode, &name) {
+            };
+            if !policy::allows(turn.permission_mode, mount.tier) {
                 let reason = format!("权限档位不允许该工具: {name}");
                 deny(&sender, "permission_denied", &name, &reason, &id).await;
                 results.push(outcome_result(tool_call, reason));
@@ -538,31 +592,40 @@ pub(crate) async fn run(
                 results.push(outcome_result(tool_call, reason));
                 continue;
             }
-            // 执行臂路由（三分派）：专用工具走 `LoopTurn` 携带的执行上下文
-            // （per-turn 铸造——store 句柄 / 轮 root + 会话指针，`tools::execute`
-            // 纯函数签名零侵入）；七通用工具走纯函数分发。上下文缺席以 is_error
-            // 回灌（生产不可达——对应会话恒装配）
-            let (content, is_error) = if name == tools::EXPLORE_NOTE_TOOL {
-                match &turn.explore_note {
+            // 执行臂路由（按挂载项的 exec 分派，零按工具名的条件链）：专用工具走
+            // `LoopTurn` 携带的执行上下文（per-turn 铸造——store 句柄 / 轮 root +
+            // 会话指针，`tools::execute` 纯函数签名零侵入）；七通用工具走纯函数
+            // 分发；收口工具走编排校验。上下文缺席以 is_error 回灌（生产不可达
+            //——对应会话恒装配）
+            let (content, is_error) = match mount.exec {
+                ToolExec::ExploreNote => match &turn.explore_note {
                     Some(ctx) => match ctx.execute(&input).await {
                         Ok(text) => (text, false),
                         Err(error) => (error, true),
                     },
                     None => ("专用工具执行上下文未装配".to_owned(), true),
-                }
-            } else if name == tools::ARCHI_MODULE_TOOL || name == tools::ARCHI_SEARCH_TOOL {
-                match &turn.archi {
+                },
+                ToolExec::Archi => match &turn.archi {
                     Some(ctx) => match ctx.execute(&name, &input).await {
                         Ok(text) => (text, false),
                         Err(error) => (error, true),
                     },
                     None => ("专用工具执行上下文未装配".to_owned(), true),
+                },
+                ToolExec::FinishStep(spec) => {
+                    match finish::validate(spec, &input, &turn.question) {
+                        Ok(payload) => {
+                            finalized = Some(payload);
+                            ("已收口".to_owned(), false)
+                        }
+                        // 校验 Err 当场回灌（同一 turn 内可立即重试；文案自足）
+                        Err(message) => (message, true),
+                    }
                 }
-            } else {
-                match tools::execute(&turn.cwd, &name, &sandboxed).await {
+                ToolExec::Pure => match tools::execute(&turn.cwd, &name, &sandboxed).await {
                     Ok(text) => (text, false),
                     Err(error) => (error, true),
-                }
+                },
             };
             if sender
                 .send(AgentEventKind::Message {
@@ -587,10 +650,42 @@ pub(crate) async fn run(
             }
             results.push(outcome_result(tool_call, content));
         }
-        // 配对收口：全部结果收进恰一条 user 消息（tool_use 的下一条消息必须
-        // 覆盖全部 tool_result，逐条消息会被 provider 判 400）
+        // 配对收口：全部结果收进**恰一条** user 消息（tool_use 的下一条消息必须
+        // 覆盖全部 tool_result，逐条消息会被 provider 判 400）——本步 MUST 先于
+        // 下面的收口 return
         if !results.is_empty() {
             history.push(Message::tool_results(results));
+        }
+        // 收口在 loop 内闭合：载荷经 `SystemNotice` 出 loop（密封事件进转录与
+        // 时间线），随后走既有成功链（`TurnDone{is_error:false}`）并零额外请求
+        // 返回。MUST NOT 用 `RunHandle::request_stop()`——其语义链是
+        // `Stopped → Terminal::stopped → UI「已停止」`
+        if let Some(payload) = finalized {
+            match serde_json::to_value(&payload) {
+                Ok(notice) => {
+                    let _ = sender
+                        .send(AgentEventKind::SystemNotice {
+                            subtype: finish::TOOL_NAME.to_owned(),
+                            payload: notice,
+                        })
+                        .await;
+                }
+                Err(error) => {
+                    finish_error(
+                        &sender,
+                        turn_index,
+                        started,
+                        &usage,
+                        turn,
+                        "finish_step_error",
+                        format!("收口载荷序列化失败: {error}"),
+                    )
+                    .await;
+                    return history;
+                }
+            }
+            finish_success(&sender, turn_index, started, &usage, turn).await;
+            return history;
         }
         turn_index += 1;
     }

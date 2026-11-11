@@ -1,12 +1,13 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 
 /// 决策 reason 长度上限
 pub(crate) const MAX_REASON_CHARS: usize = 500;
 
-/// 决策三动作封闭集（JSON 形状见 `prompt.rs` 决策协议附录）。
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// 决策三动作封闭集（线形态见 `finish.rs` 的 decision 形态 parameters）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum DecisionAction {
     /// 白名单内自主回溯
@@ -53,15 +54,78 @@ pub struct DecisionInput {
     pub backtrack_window: Vec<BacktrackWindowEntry>,
 }
 
-/// 解析决策最终消息为三动作封闭集：JSON 载体提取 → tag `action` 判别。
-/// 已退役的 `retry`、拼写漂移与未知动作同走 serde 结构漂移 `Err`（由
-/// `decision_session` 软拒环处置，不一次打死 run）；reason 长度透传不设门——
-/// backtrack reason 上限归写面 `backtrack` 单点拒绝（写面裁定 1000）。
-pub fn parse_decision(text: &str) -> Result<DecisionAction, String> {
-    let raw = crate::verdict::extract_json(text)?;
-    let action: DecisionAction =
-        serde_json::from_str(&raw).map_err(|e| format!("决策 JSON 结构漂移: {e}"))?;
-    Ok(action)
+/// `finish_step` 的 decision 形态参数校验：`action` tag ∈ 封闭集 → 各动作必填
+/// 字段（`backtrack`: `to` + `reason`；`stop`: `reason`；`ask`: `question` + 非空
+/// `options`）→ `reason ≤ MAX_REASON_CHARS`。Err 文案自足（字段名 + 期望 + 当前
+/// 值），由工具体当场回灌——同一 turn 内模型可立即纠正重试，不跨轮计数。
+pub fn validate_decision(args: &Value) -> Result<DecisionAction, String> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| "参数形状非法：期望对象 { action, ... }，当前非对象".to_owned())?;
+    let action = object
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "字段 action 缺失或非字符串：期望 backtrack / stop / ask 之一".to_owned())?;
+    match action {
+        "backtrack" => {
+            let to = required_str(object, "to", "backtrack")?;
+            let reason = required_str(object, "reason", "backtrack")?;
+            ensure_reason_len(&reason)?;
+            Ok(DecisionAction::Backtrack { to, reason })
+        }
+        "stop" => {
+            let reason = required_str(object, "reason", "stop")?;
+            ensure_reason_len(&reason)?;
+            Ok(DecisionAction::Stop { reason })
+        }
+        "ask" => {
+            let question = required_str(object, "question", "ask")?;
+            let options: Vec<String> = object
+                .get("options")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "字段 options 缺失或非数组：期望至少一个选项字符串".to_owned())?
+                .iter()
+                .map(|option| option.as_str().map(str::to_owned))
+                .collect::<Option<Vec<String>>>()
+                .ok_or_else(|| "字段 options 含非字符串元素：期望字符串数组".to_owned())?;
+            if options.is_empty() {
+                return Err("字段 options 为空数组：期望至少一个选项".to_owned());
+            }
+            Ok(DecisionAction::Ask { question, options })
+        }
+        other => Err(format!(
+            "字段 action 值非法: {other:?}：期望封闭集 [\"backtrack\", \"stop\", \"ask\"] 之一"
+        )),
+    }
+}
+
+/// 动作必填字符串字段读取（缺失 / 空白即 Err，文案携动作名与字段名）。
+fn required_str(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+    action: &str,
+) -> Result<String, String> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            format!("动作 {action} 的字段 {field} 缺失 / 非字符串 / 空白：期望非空字符串")
+        })
+}
+
+/// reason 长度门（自包含：上限常量 + 当前值 + 超出量）。
+fn ensure_reason_len(reason: &str) -> Result<(), String> {
+    let chars = reason.chars().count();
+    if chars > MAX_REASON_CHARS {
+        return Err(format!(
+            "字段 reason 超长：上限 {MAX_REASON_CHARS} 字符，当前 {chars} 字符，超出 {}",
+            chars - MAX_REASON_CHARS
+        ));
+    }
+    Ok(())
 }
 
 /// 越权 backtrack 预校验（决策会话内每轮软拒环的一道）：非 backtrack 动作恒

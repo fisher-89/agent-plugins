@@ -1,0 +1,14 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.10s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- --check
+{"mismatched":[],"orphaned":["packages/desktop/.stryker-tmp/sandbox-NOHo8w/src-tauri/crates/infra/archi.i.rs"],"missing":[]}
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

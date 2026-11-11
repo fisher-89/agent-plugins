@@ -129,8 +129,8 @@ impl EngineFacade {
 
     /// 携 workspace 库句柄的门面（builder 缝，与 `with_resume_transcript` /
     /// `with_context_window` 同型）：组合根 store 句柄注入缝——per-turn 铸造
-    /// `create_explore_note` 专用工具执行上下文的铸造原料（pump 侧仅
-    /// `toolset == Explore` 且句柄在场时铸造）。
+    /// `create_explore_note` 专用工具执行上下文的铸造原料（pump 侧仅名字清单
+    /// 含该工具且句柄在场时铸造）。
     pub fn with_explore_note_store(self, store: Arc<store::Store>) -> Self {
         Self {
             resume: self.resume,

@@ -78,11 +78,13 @@ async fn execute(
         })
         .await;
     let transcript = transcript.lock().expect("转录累积锁不可中毒").clone();
+    let finalized = orchestration::transcript::finish_payload(&transcript);
     Ok(WorkerTurnOutcome {
         session_id,
         status: outcome.status,
         final_message: final_assistant_text(&transcript),
         transcript,
+        finalized,
     })
 }
 

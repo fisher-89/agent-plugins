@@ -1,5 +1,28 @@
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole};
 
+use crate::finish::FinishPayload;
+
+/// 密封转录 → 收口载荷：取**末条** `SystemNotice{subtype: finish_step}`，其
+/// `payload` 反序列化为 [`FinishPayload`]（缺失 / 损坏 → `None`）。本函数是收口
+/// 载荷**唯一提取实现**——`worker.rs` 与测试夹具同调它，MUST NOT 各写一份。
+///
+/// 「末条」是语义而非「最后一条可解析的」：末条损坏时 MUST NOT 回退到前条的
+/// 可解析载荷——定位与反序列化因此分两步，而非单条 `find_map` 扫描。
+pub fn finish_payload(transcript: &[agent::AgentEvent]) -> Option<FinishPayload> {
+    let payload = transcript
+        .iter()
+        .rev()
+        .find_map(|event| match &event.kind {
+            AgentEventKind::SystemNotice { subtype, payload }
+                if subtype == crate::finish::TOOL_NAME =>
+            {
+                Some(payload)
+            }
+            _ => None,
+        })?;
+    serde_json::from_value(payload.clone()).ok()
+}
+
 /// 密封转录 → 末条 assistant Message 的文本块拼接
 pub fn final_assistant_text(transcript: &[agent::AgentEvent]) -> Option<String> {
     transcript.iter().rev().find_map(|event| {

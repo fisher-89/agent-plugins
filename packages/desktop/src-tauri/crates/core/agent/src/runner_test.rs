@@ -5,8 +5,8 @@ use serde_json::json;
 
 use crate::event::AgentEventKind;
 use crate::runner::{
-    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle,
-    SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
+    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, FinishSpec, ModelLevel,
+    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
 /// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
@@ -81,7 +81,7 @@ fn new_open() -> SessionOpen {
         injections: SessionInjections {
             preamble: Some("会话前导".to_owned()),
             tools: Some(vec!["read".to_owned(), "grep".to_owned()]),
-            toolset: None,
+            finish: None,
         },
         ctx: SessionCtx {
             workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
@@ -329,7 +329,7 @@ fn session_injections默认形态tools与preamble均为none() {
     let narrowed = SessionInjections {
         preamble: None,
         tools: Some(vec!["read".to_owned()]),
-        toolset: None,
+        finish: None,
     };
     assert_ne!(default_injections, narrowed);
 }
@@ -501,274 +501,253 @@ fn start_error三变体display文案携带原因串() {
 }
 
 // ---------------------------------------------------------------------------
-// auto-named-explore：SessionToolset 受控枚举 serde 线值 + SessionInjections
-// toolset 位（additive 挂起激活）
+// 收口档位词汇（agent-finalize-tool AC-3）：`FinishSpec` 线值 / 派生面 /
+// `SessionInjections` 三字段与旧线兼容（旧注入枚举整体退役）
 // ---------------------------------------------------------------------------
 
-/// SessionToolset 序列化线值：`Explore` → `"explore"`（camelCase 口径），且
-/// round-trip 等值。
+/// `FinishSpec` 两线值双向 round-trip（正向，表驱动 2 值 × 双向）。
 #[test]
-fn session_toolset_explore序列化为explore线值且roundtrip等值() {
-    let value = serde_json::to_value(SessionToolset::Explore).expect("序列化成功");
-    assert_eq!(value, json!("explore"), "线值逐字 explore");
-
-    let roundtrip: SessionToolset = serde_json::from_value(value).expect("反序列化成功");
-    assert_eq!(roundtrip, SessionToolset::Explore, "round-trip 等值");
+fn finish_spec两线值双向round_trip() {
+    let cases = [
+        (FinishSpec::EvaluatorChecklist, "evaluatorChecklist"),
+        (FinishSpec::Decision, "decision"),
+    ];
+    for (spec, wire) in cases {
+        assert_eq!(
+            serde_json::to_value(spec).expect("序列化"),
+            json!(wire),
+            "线值 camelCase: {wire}"
+        );
+        let back: FinishSpec = serde_json::from_value(json!(wire)).expect("反序列化");
+        assert_eq!(back, spec, "双向 round-trip 逐值相等: {wire}");
+    }
 }
 
-/// SessionToolset 反序列化：线值 `"explore"` → `SessionToolset::Explore`。
+/// `FinishSpec` 非法线值四形态（异常，Enum 边界 N+1）：PascalCase / 短形 /
+/// 空串 / null 各 `Err`（大小写敏感、无别名容忍）。
 #[test]
-fn session_toolset_explore线值反序列化为explore变体() {
-    let parsed: SessionToolset =
-        serde_json::from_value(json!("explore")).expect("合法线值应反序列化成功");
-    assert_eq!(parsed, SessionToolset::Explore);
-}
-
-/// SessionToolset 非法线值：大小写敏感的 `"Explore"` / 未知 `"unknown"` / 空串
-/// 反序列化一律 `Err`（受控枚举封闭集，不静默兜底）。
-#[test]
-fn session_toolset非法线值反序列化err_大小写敏感与未知与空串() {
-    for line in ["Explore", "EXPLORE", "unknown", ""] {
-        let result = serde_json::from_value::<SessionToolset>(json!(line));
+fn finish_spec非法线值四形态均err() {
+    for (label, invalid) in [
+        ("PascalCase", json!("EvaluatorChecklist")),
+        ("短形", json!("evaluator")),
+        ("空串", json!("")),
+        ("null", serde_json::Value::Null),
+    ] {
+        let result: Result<FinishSpec, _> = serde_json::from_value(invalid.clone());
         assert!(
             result.is_err(),
-            "非法线值 {line:?} 应反序列化 Err（大小写敏感封闭集）"
+            "非法线值形态 {label}（{invalid}）应 Err，实际: {result:?}"
         );
     }
 }
 
-/// SessionInjections 全字段序列化：preamble / tools / toolset 三位齐备 →
-/// `toolset` 线值为 `"explore"`（位名逐字 toolset）。
+/// `FinishSpec` 派生面（边界）：`Copy` 锚定（赋值后原值仍可用）、
+/// `PartialEq + Eq` 逐值相等、`Debug` 非空；源码自证零 `specta::Type`、零
+/// `impl Default for FinishSpec`（不派生出线类型、不设缺省档）。
 #[test]
-fn session_injections全字段序列化_toolset线值为explore() {
+fn finish_spec派生面与源码自证() {
+    // 编译期锚定 Copy：赋值（非移动）后原值仍可用
+    let a = FinishSpec::Decision;
+    let b = a;
+    assert_eq!(a, b, "Copy 未被移走：赋值后原值仍可用");
+
+    assert_eq!(
+        FinishSpec::EvaluatorChecklist,
+        FinishSpec::EvaluatorChecklist,
+        "PartialEq + Eq 自反"
+    );
+    assert_ne!(
+        FinishSpec::EvaluatorChecklist,
+        FinishSpec::Decision,
+        "两档位可辨"
+    );
+    assert!(
+        !format!("{:?}", FinishSpec::EvaluatorChecklist).is_empty(),
+        "Debug 非空"
+    );
+
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runner.rs"),
+    )
+    .expect("读取 runner.rs");
+    // FinishSpec 的 derive 行不含 specta（其余类型仍派生 Type —— 本类型不出线）
+    let finish_spec_derive = own
+        .split("pub enum FinishSpec")
+        .next()
+        .expect("FinishSpec 定义在场")
+        .lines()
+        .rev()
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    assert!(
+        !finish_spec_derive.contains("specta"),
+        "FinishSpec 的 derive 行不含 specta（收口档位不出线 IPC），实际: {finish_spec_derive}"
+    );
+    assert!(
+        !own.contains("impl Default for FinishSpec"),
+        "零 FinishSpec 的 Default 实现（避免 finish 位被误缺省成「有收口」）"
+    );
+}
+
+/// `SessionInjections` 三字段 round-trip（正向）：键面恰 `preamble` / `tools` /
+/// `finish` 三键（`toolset` 零命中）且逐字段相等。
+#[test]
+fn session_injections三字段round_trip() {
     let injections = SessionInjections {
         preamble: Some("前导".to_owned()),
-        tools: Some(vec![
-            "read".to_owned(),
-            "grep".to_owned(),
-            "glob".to_owned(),
-            "ls".to_owned(),
-            "edit".to_owned(),
-            "bash".to_owned(),
-        ]),
-        toolset: Some(SessionToolset::Explore),
+        tools: Some(vec!["read".to_owned(), "archi_module".to_owned()]),
+        finish: Some(FinishSpec::Decision),
     };
-
-    let value = serde_json::to_value(&injections).expect("序列化成功");
-    assert!(value.is_object(), "序列化为对象");
-    assert_eq!(value["preamble"], json!("前导"), "preamble 位在场");
-    assert!(value["tools"].is_array(), "tools 位为数组");
-    assert_eq!(value["toolset"], json!("explore"), "toolset 线值 explore");
-
-    let roundtrip: SessionInjections = serde_json::from_value(value).expect("round-trip 成功");
-    assert_eq!(roundtrip, injections, "三位齐备 round-trip 逐字段等值");
-}
-
-/// SessionInjections 旧线 JSON additive：无 `toolset` 字段 → 反序列化成功且
-/// `toolset == None`（serde default 缺省读兼容——旧线不破）。
-#[test]
-fn session_injections旧线json无toolset字段读出none() {
-    let legacy = json!({
-        "preamble": "会话前导",
-        "tools": ["read", "grep"],
-    });
-    let parsed: SessionInjections = serde_json::from_value(legacy).expect("旧线应可读");
-    assert_eq!(parsed.preamble.as_deref(), Some("会话前导"));
+    let value = serde_json::to_value(&injections).expect("序列化");
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("对象形态")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
     assert_eq!(
-        parsed.tools,
-        Some(vec!["read".to_owned(), "grep".to_owned()]),
-        "旧线 tools 位照常承接"
+        keys,
+        vec!["finish", "preamble", "tools"],
+        "键面恰三键（toolset 零命中）"
     );
-    assert_eq!(
-        parsed.toolset, None,
-        "缺席 toolset 位 → None（additive 兼容）"
-    );
+    let back: SessionInjections = serde_json::from_value(value).expect("反序列化");
+    assert_eq!(back, injections, "逐字段相等");
 }
 
-/// SessionInjections 空对象 `{}` → 三位全 `None`，与 `default()` 等价。
+/// `SessionInjections` 旧线兼容（边界，表驱动 4 形态）：缺 `finish` 键 → `None`
+/// （`#[serde(default)]` 语义），非「必填缺失」`Err`。
 #[test]
-fn session_injections空对象反序列化三位全none且与default等价() {
-    let parsed: SessionInjections = serde_json::from_value(json!({})).expect("空对象应可读");
-    assert_eq!(parsed, SessionInjections::default(), "空对象 == default()");
-    assert_eq!(parsed.preamble, None);
-    assert_eq!(parsed.tools, None);
-    assert_eq!(parsed.toolset, None);
+fn session_injections旧线兼容四形态() {
+    // 缺 finish 键 → None
+    let legacy: SessionInjections =
+        serde_json::from_value(json!({ "preamble": "前导", "tools": ["read"] }))
+            .expect("旧线缺 finish 键应可反序列化");
+    assert_eq!(legacy.finish, None, "缺 finish 键读出 None");
+
+    // finish 显式 null → None
+    let null_finish: SessionInjections =
+        serde_json::from_value(json!({ "finish": null })).expect("null 可反序列化");
+    assert_eq!(null_finish.finish, None);
+
+    // 缺 tools 键 → None
+    let no_tools: SessionInjections =
+        serde_json::from_value(json!({ "preamble": "p" })).expect("缺 tools 可反序列化");
+    assert_eq!(no_tools.tools, None);
+
+    // 三键全缺 → default
+    let empty: SessionInjections = serde_json::from_value(json!({})).expect("空对象可反序列化");
+    assert_eq!(empty, SessionInjections::default());
 }
 
-/// SessionInjections `toolset: null` → 读出 `None`（显式 null 与缺席同语义）。
+/// `SessionInjections` 缺省与等值（边界，3 断言）：default 三字段全 None；
+/// 与「显式三 None」构造等值；两档位构造**不相等**（Eq 链可辨档位）。
 #[test]
-fn session_injections_toolset显式null读出none() {
-    let parsed: SessionInjections =
-        serde_json::from_value(json!({ "toolset": null })).expect("null 位应可读");
-    assert_eq!(parsed.toolset, None, "显式 null → None");
-    assert_eq!(parsed.preamble, None);
-    assert_eq!(parsed.tools, None);
-}
+fn session_injections缺省与等值三断言() {
+    let default_injections = SessionInjections::default();
+    assert_eq!(default_injections.preamble, None);
+    assert_eq!(default_injections.tools, None);
+    assert_eq!(default_injections.finish, None, "三字段全 None");
 
-/// SessionInjections 子集组合 round-trip：`tools` = 探索六名子集 + `toolset` =
-/// Explore → 序列化后反序列化逐字段等值（下发面载荷的线格式保真）。
-#[test]
-fn session_injections六名子集加explore组合roundtrip逐字段等值() {
-    let injections = SessionInjections {
+    let explicit = SessionInjections {
         preamble: None,
-        tools: Some(vec![
-            "read".to_owned(),
-            "grep".to_owned(),
-            "glob".to_owned(),
-            "ls".to_owned(),
-            "edit".to_owned(),
-            "bash".to_owned(),
-        ]),
-        toolset: Some(SessionToolset::Explore),
+        tools: None,
+        finish: None,
     };
+    assert_eq!(default_injections, explicit, "default 与显式三 None 等值");
 
-    let line = serde_json::to_string(&injections).expect("序列化成功");
-    let parsed: SessionInjections = serde_json::from_str(&line).expect("反序列化成功");
-    assert_eq!(parsed, injections, "round-trip 逐字段等值");
-    assert_eq!(parsed.tools.as_ref().expect("六名在场").len(), 6);
-    assert!(
-        !parsed
-            .tools
-            .expect("六名在场")
-            .contains(&"write".to_owned()),
-        "探索子集不含 write"
-    );
-    assert_eq!(parsed.toolset, Some(SessionToolset::Explore));
+    let evaluator = SessionInjections {
+        finish: Some(FinishSpec::EvaluatorChecklist),
+        ..SessionInjections::default()
+    };
+    let decision = SessionInjections {
+        finish: Some(FinishSpec::Decision),
+        ..SessionInjections::default()
+    };
+    assert_ne!(evaluator, decision, "Eq 链可辨两档位");
 }
 
-// ---------------------------------------------------------------------------
-// archi 章节：`SessionToolset::Archi` 线值与旧线兼容
-// ---------------------------------------------------------------------------
-
-/// 正向：`Archi` 四组合序列化线值（camelCase 外层变体名 + 内层布尔字段）。
+/// `SessionInjections` 值域边界（边界，4 形态）：`tools: Some(vec![])` 与 `None`
+/// 不相等且 round-trip 可辨；空串元素保真；preamble 超长 / 特殊字符逐字保真。
 #[test]
-fn session_toolset_archi四组合线值() {
-    let cases = [
-        (
-            (true, true),
-            json!({"archi": {"module": true, "search": true}}),
-        ),
-        (
-            (true, false),
-            json!({"archi": {"module": true, "search": false}}),
-        ),
-        (
-            (false, true),
-            json!({"archi": {"module": false, "search": true}}),
-        ),
-        (
-            (false, false),
-            json!({"archi": {"module": false, "search": false}}),
-        ),
-    ];
-    for ((module, search), expected) in cases {
-        let value =
-            serde_json::to_value(SessionToolset::Archi { module, search }).expect("序列化成功");
-        assert_eq!(
-            value, expected,
-            "Archi 线值逐字段（module={module}, search={search}）"
-        );
-    }
-}
+fn session_injections值域边界四形态() {
+    let empty_list = SessionInjections {
+        tools: Some(Vec::new()),
+        ..SessionInjections::default()
+    };
+    let none_tools = SessionInjections::default();
+    assert_ne!(empty_list, none_tools, "空清单与 None 语义可辨");
+    let back: SessionInjections =
+        serde_json::from_value(serde_json::to_value(&empty_list).expect("序列化"))
+            .expect("反序列化");
+    assert_eq!(back, empty_list, "空清单 round-trip 后仍可辨");
 
-/// 正向：四线值反序列化 round-trip 等值；`Explore` 线值逐字不变。
-#[test]
-fn session_toolset_archi反序列化roundtrip() {
-    for (module, search) in [(true, true), (true, false), (false, true), (false, false)] {
-        let value = json!({"archi": {"module": module, "search": search}});
-        let parsed: SessionToolset = serde_json::from_value(value).expect("反序列化成功");
-        assert_eq!(parsed, SessionToolset::Archi { module, search });
-    }
-    let parsed: SessionToolset =
-        serde_json::from_value(json!("explore")).expect("Explore 线值反序列化成功");
-    assert_eq!(parsed, SessionToolset::Explore, "Explore 臂零变化");
-}
-
-/// 边界：旧线兼容——`SessionInjections` 旧 JSON 无 `toolset` 字段 / `toolset: null`
-/// → 读出 `None`（`#[serde(default)]`）。
-#[test]
-fn session_injections旧线无toolset字段读出none() {
-    let legacy = json!({ "preamble": null, "tools": null });
-    let injections: SessionInjections = serde_json::from_value(legacy).expect("旧线应可反序列化");
-    assert_eq!(injections.toolset, None, "缺字段读出 None");
-
-    let explicit_null = json!({ "preamble": null, "tools": null, "toolset": null });
-    let injections: SessionInjections =
-        serde_json::from_value(explicit_null).expect("null 线值应可反序列化");
-    assert_eq!(injections.toolset, None, "null 读出 None");
-
-    // 新线：Archi 变体可回读
-    let archi = json!({
-        "preamble": null,
-        "tools": null,
-        "toolset": { "archi": { "module": true, "search": false } }
-    });
-    let injections: SessionInjections = serde_json::from_value(archi).expect("新线应可反序列化");
+    let empty_name = SessionInjections {
+        tools: Some(vec![String::new()]),
+        ..SessionInjections::default()
+    };
+    let back: SessionInjections =
+        serde_json::from_value(serde_json::to_value(&empty_name).expect("序列化"))
+            .expect("反序列化");
     assert_eq!(
-        injections.toolset,
-        Some(SessionToolset::Archi {
-            module: true,
-            search: false
-        })
+        back.tools,
+        Some(vec![String::new()]),
+        "空串元素 round-trip 保真（形态校验归 mount::definitions）"
     );
-}
 
-/// 异常：非法线值一律 `Err`（大小写敏感 / 缺布尔字段 / 非 bool / 未知变体 / 空串）。
-#[test]
-fn session_toolset_archi非法线值err() {
-    for line in [
-        json!("Archi"),
-        json!({"archi": {}}),
-        json!({"archi": {"module": 1, "search": true}}),
-        json!({"archi": {"module": "true", "search": false}}),
-        json!({"unknown": {}}),
-        json!("unknown"),
-        json!(""),
+    for preamble in [
+        "长".repeat(5000),
+        "含\n换行".to_owned(),
+        "🚀 emoji \0 空字节".to_owned(),
     ] {
-        let result = serde_json::from_value::<SessionToolset>(line.clone());
-        assert!(result.is_err(), "非法线值 {line} 应反序列化 Err");
+        let injections = SessionInjections {
+            preamble: Some(preamble.clone()),
+            ..SessionInjections::default()
+        };
+        let back: SessionInjections =
+            serde_json::from_value(serde_json::to_value(&injections).expect("序列化"))
+                .expect("反序列化");
+        assert_eq!(back.preamble, Some(preamble), "preamble 特殊字符逐字保真");
     }
 }
 
-/// 回归：`Explore` 臂序列化逐字不变；新增变体不进入 `tools` 名单表达。
+/// 旧注入枚举退役（异常，源码自证 3 断言）：`runner.rs` / `lib.rs` 内零命中，
+/// 本测试文件代码行内零旧枚举引用（27 处旧断言整体删除后不留残句）。
 #[test]
-fn session_toolset_explore臂零回归与tools名单分离() {
-    assert_eq!(
-        serde_json::to_value(SessionToolset::Explore).expect("序列化成功"),
-        json!("explore"),
-        "Explore 线值逐字"
-    );
-    let injections = SessionInjections {
-        preamble: None,
-        tools: Some(vec!["read".to_owned()]),
-        toolset: Some(SessionToolset::Archi {
-            module: true,
-            search: true,
-        }),
-    };
-    let value = serde_json::to_value(&injections).expect("序列化成功");
-    assert_eq!(
-        value["tools"],
-        json!(["read"]),
-        "`tools` 名单只承载七工具子集"
-    );
-    assert_eq!(
-        value["toolset"],
-        json!({"archi": {"module": true, "search": true}}),
-        "枚举位是 archi 工具面的唯一入口"
-    );
-}
+fn session_toolset退役零命中() {
+    for relative in ["src/runner.rs", "src/lib.rs"] {
+        let text = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative),
+        )
+        .expect("读取产品源文件");
+        assert!(
+            !text.contains("SessionToolset"),
+            "{relative} 内 SessionToolset 零命中"
+        );
+        assert!(!text.contains("toolset"), "{relative} 内 toolset 零命中");
+    }
 
-/// 边界：crate 根与模块路径同词汇（`crate::SessionToolset::Archi` 可构造）。
-#[test]
-fn session_toolset再导出锚定() {
-    let from_root: crate::SessionToolset = crate::SessionToolset::Archi {
-        module: true,
-        search: false,
-    };
-    let from_runner: SessionToolset = SessionToolset::Archi {
-        module: true,
-        search: false,
-    };
-    assert_eq!(from_root, from_runner, "两路径同词汇同值");
+    // 本文件自身的旧断言已整体删除：代码行内零旧枚举引用（含类型名的注释除外）
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runner_test.rs"),
+    )
+    .expect("读取 runner_test.rs");
+    let code_only = own
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    // 断言自身不写枚举字面量（否则自指命中）：以拼装串表达
+    let retired_enum = ["Session", "Toolset"].concat();
+    assert!(
+        !code_only.contains(&retired_enum) || code_only.contains("retired_enum"),
+        "runner_test.rs 代码行内仅本断言的拼装串出现该名（旧断言整体删除、无残句）"
+    );
 }

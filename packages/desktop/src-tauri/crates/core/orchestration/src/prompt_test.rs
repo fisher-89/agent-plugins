@@ -1,29 +1,31 @@
 use crate::decision::{CandidateReport, DecisionInput};
 use crate::prompt::{
-    decision_fix_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
-    spec_sync_prompt, verdict_fix_prompt,
+    decision_answer_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
+    spec_sync_prompt,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 
 #[test]
-fn evaluator_prompt协议附录瘦身形状与红线() {
+fn evaluator_prompt协议附录改指finish_step与红线() {
     let phase_prompt = "Evaluate implement phase for change \"c\".";
     let prompt = evaluator_prompt(phase_prompt);
 
-    // 协议附录：禁调 MCP 写通道四件 + 最终消息 checklist JSON 瘦身形状
+    // 协议附录：禁调 MCP 写通道四件 + 「调 finish_step 收口」；不再定义 JSON 形状
     assert!(prompt.contains("## 输出协议"), "附录段在场");
     assert!(prompt.contains("禁止调用"), "禁调 MCP 红线前置语在场");
     for tool in ["phase_log", "phase_next", "phase_start", "backtrack"] {
         assert!(prompt.contains(tool), "写通道四件红线含 {tool}");
     }
     assert!(
-        prompt.contains("\"verdict\"")
-            && prompt.contains("\"report\"")
-            && prompt.contains("\"checklist\""),
-        "checklist JSON 瘦身形状（verdict / report / checklist）约定在场"
+        prompt.contains("`finish_step`"),
+        "收口方式为调用 finish_step 工具"
     );
     assert!(prompt.contains("2000"), "report 上限约定在场");
+    assert!(
+        !prompt.contains("\"checklist\"") && !prompt.contains("```json"),
+        "MUST NOT 再定义 checklist JSON 形状（形状归工具 schema）"
+    );
     assert!(
         !prompt.contains("\"phase\"")
             && !prompt.contains("\"attempt\"")
@@ -35,40 +37,6 @@ fn evaluator_prompt协议附录瘦身形状与红线() {
         prompt,
         format!("{phase_prompt}{}", evaluator_prompt("")),
         "phase_prompt 逐字节保真（仅追加协议附录）"
-    );
-}
-
-#[test]
-fn verdict_fix_prompt解析错误与协议重申在场() {
-    let prompt = verdict_fix_prompt("checklist JSON 结构漂移: missing field `verdict`", 2, 5);
-
-    // 反馈修复信封：轮次 + 解析错误 + 保留结论仅修格式的引导
-    assert!(prompt.contains("第 2/5 次反馈修复"), "轮次信封在场");
-    assert!(
-        prompt.contains("checklist JSON 结构漂移: missing field `verdict`"),
-        "解析错误原样插值"
-    );
-    assert!(
-        prompt.contains("仅修正最终消息的输出格式"),
-        "保留结论引导在场"
-    );
-    // 协议重申复用 evaluator_protocol 单源：红线与 JSON 形状同附录（不落第三份
-    // 副本——与 evaluator_prompt 附录逐字节同尾）
-    assert!(
-        prompt.contains("## 输出协议")
-            && prompt.contains("禁止调用")
-            && prompt.contains("\"verdict\"")
-            && prompt.contains("\"checklist\""),
-        "输出协议附录随修复 prompt 重申"
-    );
-    assert_eq!(
-        prompt,
-        format!(
-            "评估输出解析失败（第 2/5 次反馈修复）：checklist JSON 结构漂移: missing field `verdict`\n\n\
-             请保留你上一轮的评估结论，仅修正最终消息的输出格式后重新收口。{}",
-            evaluator_prompt("")
-        ),
-        "修复 prompt 与 evaluator_prompt 共用同一协议附录文本"
     );
 }
 
@@ -172,21 +140,33 @@ fn decision_prompt五段在场与三动作协议() {
         prompt.contains("设计与任务拆解齐备") && prompt.contains("pass"),
         "候选相位最近一次评估报告（verdict + report）在场"
     );
-    // 三动作协议：逐动作在案，退役 retry 行零残留
+    // 三动作协议：工具协议形态（动作名逐条在案），退役 retry 行零残留
     for action in ["backtrack", "stop", "ask"] {
         assert!(
-            prompt.contains(&format!("{{\"action\": \"{action}\"")),
+            prompt.contains(&format!("`{action}`")),
             "协议行含动作 {action}"
         );
     }
     assert!(
+        prompt.contains("finish_step"),
+        "协议段要求经 finish_step 提交动作"
+    );
+    assert!(
         !prompt.contains("\"action\": \"retry\""),
         "退役 retry 动作行零残留"
     );
+    assert!(
+        !prompt.contains("{\"action\": \"backtrack\"") && !prompt.contains("```json"),
+        "MUST NOT 再定义决策 JSON 形状（形状归工具 schema）"
+    );
     assert!(prompt.contains("500"), "reason ≤500 约定在场");
     assert!(
+        prompt.contains("白名单"),
+        "越权红线说明在场（目标须取白名单）"
+    );
+    assert!(
         prompt.contains("红线") && prompt.contains("拒绝"),
-        "越权红线说明在场"
+        "拒绝语义在场"
     );
 }
 
@@ -512,99 +492,6 @@ fn decision_prompt零占位残留与确定性() {
     assert_eq!(prompt, decision_prompt(&input), "同输入逐字节一致");
 }
 
-/// `decision_fix_prompt` 组装（正向）：含驳回原因原文 + 三动作重申 + 白名单一行
-///（`id（特性描述） / id（特性描述）` 形式）。
-#[test]
-fn decision_fix_prompt组装含驳回原因三动作与白名单行() {
-    let input = decision_input(DecisionInput {
-        allowed: vec![
-            allowed_phase("proposal", "需求提案与规格说明"),
-            allowed_phase("dev-design", "详细设计与任务拆解"),
-            allowed_phase("implement", "代码实现"),
-        ],
-        ..base_input()
-    });
-    let prompt = decision_fix_prompt(&input, "越权 backtrack：目标 \"test-gen\" 不在白名单内");
-
-    assert!(
-        prompt.contains("上一轮决策输出被驳回：")
-            && prompt.contains("目标 \"test-gen\" 不在白名单内"),
-        "驳回原因原文在场"
-    );
-    assert!(
-        prompt.contains("三动作封闭集：backtrack / stop / ask"),
-        "三动作重申在场"
-    );
-    assert!(
-        prompt.contains(
-            "可回溯白名单：proposal（需求提案与规格说明） / dev-design（详细设计与任务拆解） / implement（代码实现）"
-        ),
-        "白名单一行（id + 特性描述）在场"
-    );
-    assert!(
-        prompt.contains("回跳目标须在白名单内") && prompt.contains("ask"),
-        "回跳纪律与 ask 出路在场"
-    );
-    // 纠正面不含全量失败明细（单点：只重申协议与可选目标）
-    assert!(
-        !prompt.contains("覆盖 test-design 全行") && !prompt.contains("## 失败清单"),
-        "纠正文案不含全量失败明细"
-    );
-}
-
-/// `decision_fix_prompt` 边界（边界，参数化 4 形态）：`error` 空串 / 500 字符 /
-/// 含换行；`allowed` 空（白名单行空占位）→ 组装不 panic 且段结构稳定。
-#[test]
-fn decision_fix_prompt边界四形态() {
-    let cases = [
-        String::new(),
-        "错".repeat(500),
-        "第一行错误\n第二行细节".to_owned(),
-        "a\0b🚀".to_owned(),
-    ];
-    for error in cases {
-        let prompt = decision_fix_prompt(&base_input(), &error);
-        assert!(
-            prompt.contains(&format!("上一轮决策输出被驳回：{error}")),
-            "error 原样插值: {error:?}"
-        );
-        assert!(prompt.contains("三动作封闭集"), "段结构稳定");
-    }
-
-    // allowed 空：白名单行空占位、不 panic
-    let prompt = decision_fix_prompt(
-        &decision_input(DecisionInput {
-            allowed: Vec::new(),
-            ..base_input()
-        }),
-        "任意错误",
-    );
-    assert!(
-        prompt.contains("可回溯白名单：\n") || prompt.contains("可回溯白名单："),
-        "空白名单行在场（空占位）"
-    );
-    assert!(prompt.contains("ask"), "空白名单仍给 ask 出路");
-}
-
-/// `decision_fix_prompt` 协议一致（异常）：三动作清单与红线句与
-/// `decision_prompt` 同源，不含退役 `retry` 动作。
-#[test]
-fn decision_fix_prompt协议一致无退役动作() {
-    let input = base_input();
-    let fix = decision_fix_prompt(&input, "任意错误");
-    let full = decision_prompt(&input);
-
-    for action in ["backtrack", "stop", "ask"] {
-        assert!(fix.contains(action), "纠正文案重申动作 {action}");
-        assert!(full.contains(action), "完整 prompt 三动作在案 {action}");
-    }
-    assert!(!fix.contains("retry"), "纠正文案零退役 retry 动作: {fix}");
-    assert!(
-        full.contains("红线") && fix.contains("回跳目标须在白名单内"),
-        "红线语义同源（完整 prompt 红线句 ↔ 纠正文案回跳纪律）"
-    );
-}
-
 #[test]
 fn prompt确定性_同输入重复组装逐字节一致() {
     let phase_prompt = "固定静态主体（零占位）";
@@ -633,9 +520,9 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         "决策 prompt 确定性"
     );
     assert_eq!(
-        decision_fix_prompt(&input, "错误"),
-        decision_fix_prompt(&input, "错误"),
-        "决策纠正文案确定性"
+        decision_answer_prompt("用户选了 proposal"),
+        decision_answer_prompt("用户选了 proposal"),
+        "ask 应答再提面确定性"
     );
 }
 
@@ -969,15 +856,24 @@ fn decision_prompt窗口段引入后其余段零扰动() {
     ] {
         assert!(prompt.contains(section), "段 {section} 仍在场");
     }
+    // 三动作协议：工具协议形态（动作名逐条在案），退役 retry 行零残留
     for action in ["backtrack", "stop", "ask"] {
         assert!(
-            prompt.contains(&format!("{{\"action\": \"{action}\"")),
+            prompt.contains(&format!("`{action}`")),
             "协议行含动作 {action}"
         );
     }
     assert!(
+        prompt.contains("finish_step"),
+        "协议段要求经 finish_step 提交动作"
+    );
+    assert!(
         !prompt.contains("\"action\": \"retry\""),
         "退役 retry 动作行零残留"
+    );
+    assert!(
+        !prompt.contains("{\"action\": \"backtrack\"") && !prompt.contains("```json"),
+        "MUST NOT 再定义决策 JSON 形状（形状归工具 schema）"
     );
     assert!(
         prompt.contains("- 覆盖 test-design 全行：缺失废弃行承接"),
@@ -1217,39 +1113,175 @@ fn prompt_contains_phase(phase: &str) -> bool {
     prompt.contains(&format!("相位「{phase}」"))
 }
 
-/// archive 两步与软拒纠正文案零窗口段（异常，参数化迭代 3 形态，AC-14 行为侧
+/// archive 两步与 ask 应答再提面零窗口段（异常，参数化迭代 3 形态，AC-14 行为侧
 /// 证）：`spec_sync_prompt` / `merge_conflict_prompt` 产物零窗口段字样；
-/// `decision_fix_prompt` 仍只重申目标 + 白名单一行、零窗口段。
+/// `decision_answer_prompt` 只携应答原文 + 收口指引、零窗口段。
 #[test]
-fn archive两步与纠正文案零窗口段() {
+fn archive两步与再提面零窗口段() {
     let spec_sync = spec_sync_prompt("demo-change");
     let merge_conflict = merge_conflict_prompt("demo-change", &["specs/a.md".to_owned()]);
-    let fix = decision_fix_prompt(
-        &input_with_windows(vec![window_entry(0, "设计返工")]),
-        "越权 backtrack：目标 \"test-gen\" 不在白名单内",
-    );
+    let answer = decision_answer_prompt("越权 backtrack：目标 \"test-gen\" 不在白名单内");
     for (label, prompt) in [
         ("spec_sync_prompt", &spec_sync),
         ("merge_conflict_prompt", &merge_conflict),
-        ("decision_fix_prompt", &fix),
+        ("decision_answer_prompt", &answer),
     ] {
         assert!(
             !prompt.contains("## 回溯重做窗口"),
-            "{label} 零窗口段标题（archive 恒在窗口外 / 纠正面只重申协议）"
+            "{label} 零窗口段标题（archive / 再提面恒在窗口外）"
         );
         assert!(!prompt.contains("<backtrack reason>"), "{label} 零定界块");
         assert!(!prompt.contains("设计返工"), "{label} 零窗口原因原文泄漏");
     }
-    // 纠正文案仍只重申目标 + 白名单一行
+    // 再提面仍只携应答原文 + 一句收口指引（不复述协议形状）
     assert!(
-        fix.contains("三动作封闭集：backtrack / stop / ask"),
-        "纠正文案三动作重申照旧"
+        answer.contains("越权 backtrack：目标 \"test-gen\" 不在白名单内"),
+        "应答原文逐字透传"
     );
     assert!(
-        fix.contains(
-            "可回溯白名单：proposal（需求提案与规格说明） / dev-design（详细设计与任务拆解）"
-        ),
-        "白名单一行照旧（零窗口段插入）"
+        answer.contains("finish_step") && !answer.contains("可回溯白名单："),
+        "只携收口指引（零协议复述 / 零白名单行）"
     );
-    assert!(!fix.contains("## 失败清单"), "纠正文案不含全量失败明细照旧");
+    assert!(!answer.contains("## 失败清单"), "再提面不含全量失败明细");
+}
+
+// ---------------------------------------------------------------------------
+// `decision_answer_prompt`：ask 应答的唯一再提示面（AC-8）
+// ---------------------------------------------------------------------------
+
+/// 应答原文逐字在场 + 一句 `finish_step` 收口指引 + 决策语义（正向）。
+#[test]
+fn decision_answer_prompt应答原文逐字在场且携收口指引() {
+    let prompt = decision_answer_prompt("选指数退避");
+    assert!(prompt.contains("选指数退避"), "应答原文逐字在场");
+    assert!(prompt.contains("finish_step"), "携 finish_step 收口指引");
+    assert!(prompt.contains("决策"), "携决策语义");
+    assert!(prompt.contains("ask"), "允许再次 ask（应答不足时）");
+}
+
+/// 边界（表驱动 3 形态）：空串 → 非空不 panic；两不同应答产出不相等。
+#[test]
+fn decision_answer_prompt边界三形态() {
+    let empty = decision_answer_prompt("");
+    assert!(!empty.is_empty(), "空应答仍产出非空提示（不 panic）");
+    assert!(empty.contains("finish_step"), "空应答形态仍携收口指引");
+
+    let first = decision_answer_prompt("甲");
+    let second = decision_answer_prompt("乙");
+    assert_ne!(first, second, "原文进提示（非固定模板）");
+    assert!(first.contains("甲") && !first.contains("乙"));
+}
+
+/// 文本特殊字符（表驱动 5 形态）：换行 / NUL / emoji / 超长应答逐字保真，
+/// 协议字样原样透传（不转义、不解析）。
+#[test]
+fn decision_answer_prompt特殊字符逐字保真且原样透传() {
+    for answer in [
+        "第一行\n第二行",
+        "含\0空字节",
+        "🚀 emoji",
+        &"长".repeat(5000),
+    ] {
+        let prompt = decision_answer_prompt(answer);
+        assert!(prompt.contains(answer), "应答原文逐字保真（不截断）");
+    }
+
+    let protocol_like = r#"{"action": "stop", "reason": "…"}"#;
+    let prompt = decision_answer_prompt(protocol_like);
+    assert!(
+        prompt.contains(protocol_like),
+        "应答含协议字样时原样透传（它不是协议载体）"
+    );
+    assert!(!prompt.contains("\\\""), "不做 JSON 转义");
+}
+
+// ---------------------------------------------------------------------------
+// `evaluator_protocol`：删 JSON 形状块与回声禁令（AC-12 反向面）
+// ---------------------------------------------------------------------------
+
+/// 产出文本内零 JSON 形状块要素 + 零 phase / attempt / skipped 措辞。
+#[test]
+fn evaluator_protocol删json形状与回声禁令() {
+    let prompt = evaluator_prompt("主体");
+    for absent in ["\"verdict\"", "\"checklist\"", "\"report\":", "```json"] {
+        assert!(!prompt.contains(absent), "JSON 形状块要素 {absent} 零命中");
+    }
+    for word in ["phase /", "\"phase\"", "\"attempt\"", "\"skipped\""] {
+        assert!(!prompt.contains(word), "回声禁令词 {word} 零命中");
+    }
+    assert!(
+        prompt.contains("verdict") && prompt.contains("推导"),
+        "verdict 由推导的说明仍在（不是静默省略）"
+    );
+    assert!(prompt.contains("evidence"), "逐项 evidence 语义在场");
+}
+
+/// 拼接契约（回归锚定）：主体开头 + `\n\n---\n\n` 分隔 + 空主体不 panic。
+#[test]
+fn evaluator_prompt拼接契约三断言() {
+    let prompt = evaluator_prompt("主体");
+    assert!(prompt.starts_with("主体"), "以 phase_prompt 开头");
+    assert!(
+        prompt.contains("\n\n---\n\n## 输出协议"),
+        "协议段以分隔符唯一动态 append"
+    );
+
+    let empty = evaluator_prompt("");
+    assert!(!empty.is_empty(), "空主体产出非空（不 panic）");
+    assert!(
+        empty.starts_with("---") || empty.starts_with('\n'),
+        "空主体只余协议段"
+    );
+    assert_eq!(
+        empty,
+        format!("{}", evaluator_protocol_text()),
+        "空主体 = 纯协议段"
+    );
+}
+
+/// 协议段单取（`evaluator_prompt("")` 即纯协议段）。
+fn evaluator_protocol_text() -> String {
+    evaluator_prompt("")
+}
+
+// ---------------------------------------------------------------------------
+// `decision_prompt`：删 JSON 代码块（AC-12 反向面）
+// ---------------------------------------------------------------------------
+
+/// 产出文本内零围栏 / 零 `"action":` 键面，且 `MAX_REASON_CHARS` 以数值形态提示。
+#[test]
+fn decision_prompt删json代码块且上限数值在场() {
+    let prompt = decision_prompt(&base_input());
+    assert!(!prompt.contains("```json"), "围栏零命中");
+    assert!(!prompt.contains("\"action\":"), "action 键面零命中");
+    assert!(
+        prompt.contains(&crate::decision::MAX_REASON_CHARS.to_string()),
+        "reason 上限数值仍以 500 形态提示（不退化为字面占位）"
+    );
+    assert!(
+        !prompt.contains("<MAX_REASON_CHARS>"),
+        "上限不退化为字面占位"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 两个 `*_fix_prompt` 退役（AC-7 / AC-8 源码自证）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 两个修正prompt退役且prompt源内零残留() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/prompt.rs"),
+    )
+    .expect("读取 prompt.rs");
+    for retired in ["verdict_fix_prompt", "decision_fix_prompt"] {
+        assert!(
+            !own.contains(retired),
+            "prompt.rs 内 {retired} 零命中（退役面）"
+        );
+    }
+    assert!(
+        own.contains("fn decision_answer_prompt"),
+        "唯一再提示面在 prompt.rs 内"
+    );
 }

@@ -739,3 +739,98 @@ fn 槽位some值逐字透传() {
         "decision 槽位透传（表位不校验、值不改写）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `derive_verdict` 迁位（agent-finalize-tool AC-9）：推导单点在
+// `workflow::model`，落账面三字段形状零变
+// ---------------------------------------------------------------------------
+
+/// 迁位后三态锚定（正向）：直接调 `model::derive_verdict` 与落账 verdict 逐值
+/// 一致（空表 / 全 pass / 含 fail）。
+#[test]
+fn derive_verdict迁位后三态锚定一致() {
+    use crate::model::derive_verdict;
+
+    assert_eq!(
+        derive_verdict(&[]),
+        Verdict::Pass,
+        "空表落账 → Pass（既有断言随迁位仍成立）"
+    );
+
+    let fake = LogStore::with_active_phase(active_dev_design());
+    fake.log(&PhaseLogInput {
+        checklist: Vec::new(),
+        ..base_input()
+    })
+    .expect("空 checklist 落账应成功");
+    assert_eq!(
+        fake.last_command().verdict,
+        derive_verdict(&[]),
+        "落账 verdict == 推导单点结果（单点复用，非第二份实现）"
+    );
+
+    let fake = LogStore::with_active_phase(active_dev_design());
+    fake.log(&PhaseLogInput {
+        checklist: pass_items(2),
+        ..base_input()
+    })
+    .expect("全 pass 落账应成功");
+    let command = fake.last_command();
+    assert_eq!(command.verdict, Verdict::Pass);
+    assert_eq!(command.verdict, derive_verdict(&command.checklist));
+    assert_eq!(command.checklist.len(), 2, "落账 checklist 项数保真");
+
+    let fake = LogStore::with_active_phase(active_dev_design());
+    fake.log(&PhaseLogInput {
+        checklist: with_fail_item(pass_items(1)),
+        ..base_input()
+    })
+    .expect("含 fail 项落账应成功");
+    let command = fake.last_command();
+    assert_eq!(command.verdict, Verdict::Fail);
+    assert_eq!(command.verdict, derive_verdict(&command.checklist));
+}
+
+/// 落账三字段形状零变（正向）：`item` / `pass` / `evidence` 与入参逐字段相等。
+#[test]
+fn 落账checklist三字段形状零变() {
+    let fake = LogStore::with_active_phase(active_dev_design());
+    let input_items = vec![
+        ChecklistItem {
+            item: "检查项甲".to_owned(),
+            pass: true,
+            evidence: "src/a.rs:1".to_owned(),
+        },
+        ChecklistItem {
+            item: "检查项乙".to_owned(),
+            pass: false,
+            evidence: "缺测试".to_owned(),
+        },
+    ];
+    fake.log(&PhaseLogInput {
+        checklist: input_items.clone(),
+        ..base_input()
+    })
+    .expect("落账应成功");
+    let command = fake.last_command();
+    assert_eq!(command.checklist, input_items, "三字段逐项相等");
+}
+
+/// 迁位结构自证（异常）：`phase_log.rs` 内零 `fn derive_verdict`，调用点恰 1
+/// 处（`derive_verdict(&input.checklist)`）。
+#[test]
+fn derive_verdict迁位结构自证() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/write/phase_log.rs"),
+    )
+    .expect("读取 phase_log.rs");
+    assert!(
+        !own.contains("fn derive_verdict"),
+        "phase_log.rs 内零私有实现（已迁位）"
+    );
+    assert_eq!(
+        own.matches("derive_verdict(&input.checklist)").count(),
+        1,
+        "调用点恰 1 处"
+    );
+}

@@ -1619,12 +1619,11 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
 // Explore 枚举，其余 default）
 // ---------------------------------------------------------------------------
 
-use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
-use agent::SessionToolset;
+use crate::sdk::mount::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
 
 /// explore 来源装配（正向）：`begin(source = "explore")` → 捕获的
 /// `TurnRequest.injections.tools` = 六名（无 `write`、序同 `TOOL_NAMES`）+
-/// `toolset = Explore`（生产路径首次非 default 注入）。
+/// 名字清单含 `create_explore_note`。
 #[tokio::test]
 async fn explore来源begin装配六工具收窄加explore枚举() {
     let env = DualEnv::new("explore-assemble");
@@ -1665,8 +1664,9 @@ async fn explore来源begin装配六工具收窄加explore枚举() {
             "ls".to_owned(),
             "edit".to_owned(),
             "bash".to_owned(),
+            EXPLORE_NOTE_TOOL.to_owned(),
         ],
-        "六名收窄子集（无 write，序同 TOOL_NAMES 保序）"
+        "六名收窄子集 + 专用名（无 write，序同 TOOL_NAMES 保序、专用名尾追加）"
     );
     assert!(
         !injections
@@ -1677,11 +1677,16 @@ async fn explore来源begin装配六工具收窄加explore枚举() {
             .any(|name| name == "write"),
         "explore 装配面不含 write（AC-5）"
     );
-    assert_eq!(
-        injections.toolset,
-        Some(SessionToolset::Explore),
-        "toolset = Explore（受控枚举位激活）"
+    assert!(
+        injections
+            .tools
+            .as_ref()
+            .expect("tools 在场")
+            .iter()
+            .any(|name| name == EXPLORE_NOTE_TOOL),
+        "名字清单含 create_explore_note（专用工具以名字进清单）"
     );
+    assert_eq!(injections.finish, None, "explore 臂无收口档位");
     assert_eq!(injections.preamble, None, "preamble 维持不消费");
 }
 
@@ -1716,11 +1721,11 @@ async fn explore装配产物逐名都在七通用封闭清单内() {
 
     let captured = runner.captured_injections();
     let tools = captured[0].tools.as_ref().expect("tools 在场");
-    assert_eq!(tools.len(), 6, "恰六名子集");
+    assert_eq!(tools.len(), 7, "六名收窄子集 + 一个专用名");
     for name in tools {
         assert!(
-            TOOL_NAMES.contains(&name.as_str()),
-            "装配名 {name} ∈ TOOL_NAMES 封闭集（装配层校验可达面收窄）"
+            TOOL_NAMES.contains(&name.as_str()) || name == EXPLORE_NOTE_TOOL,
+            "装配名 {name} ∈ 挂载清单（内建七件 ∪ 专用名）"
         );
     }
 }
@@ -1763,11 +1768,15 @@ async fn 非explore来源begin恒default注入() {
             .unwrap_or_else(|e| panic!("来源 {source:?} begin 应成功: {e}"));
         let captured = runner.captured_injections();
         let last = captured.last().expect("本轮捕获");
-        assert_eq!(
-            last.tools, None,
-            "来源 {source:?} tools = None（引擎默认七工具面）"
-        );
-        assert_eq!(last.toolset, None, "来源 {source:?} toolset = None");
+        // `change` 来源按 role 产名字清单（缺省 role 不影响七内建底座）；
+        // 其余来源恒 default（三字段全 None）
+        let expected_tools = if source == "change" {
+            Some(seven())
+        } else {
+            None
+        };
+        assert_eq!(last.tools, expected_tools, "来源 {source:?} tools 面");
+        assert_eq!(last.finish, None, "来源 {source:?} finish = None");
         assert_eq!(last.preamble, None);
     }
     assert_eq!(runner.captured_injections().len(), 6, "六来源各捕获一次");
@@ -1824,10 +1833,18 @@ async fn store侧explore来源字面量发起命中装配臂() {
     assert_eq!(captured.len(), 1);
     assert_eq!(
         captured[0].tools.as_ref().expect("tools 在场").len(),
-        6,
-        "命中 explore 装配臂（六名收窄）"
+        7,
+        "命中 explore 装配臂（六名收窄 + 专用名）"
     );
-    assert_eq!(captured[0].toolset, Some(SessionToolset::Explore));
+    assert!(
+        captured[0]
+            .tools
+            .as_ref()
+            .expect("tools 在场")
+            .iter()
+            .any(|name| name == EXPLORE_NOTE_TOOL),
+        "命中 explore 装配臂（名字清单含 create_explore_note）"
+    );
 }
 
 /// 装配产物真实驱动 explore（组合：compose → pump → loop 下发面，AC-5 端到
@@ -3184,16 +3201,27 @@ fn injections_of(source: &str, source_ref: Option<&str>) -> agent::SessionInject
     .expect("装配不得因 source_ref 形态报错（fail-closed 回落 default）")
 }
 
-/// 取 toolset 的两位（无 toolset 即 `None`）。
+/// 七内建工具名（名字清单底座）。
+fn seven() -> Vec<String> {
+    TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect()
+}
+
+/// 取 archi 工具面的两位（名字清单里两名的在场形态；均缺席即 `None`）。
 fn archi_bits(injections: &agent::SessionInjections) -> Option<(bool, bool)> {
-    match injections.toolset {
-        Some(agent::SessionToolset::Archi { module, search }) => Some((module, search)),
-        Some(agent::SessionToolset::Explore) => None,
-        None => None,
+    let names = injections.tools.as_deref().unwrap_or_default();
+    let module = names
+        .iter()
+        .any(|name| name == crate::sdk::mount::ARCHI_MODULE_TOOL);
+    let search = names
+        .iter()
+        .any(|name| name == crate::sdk::mount::ARCHI_SEARCH_TOOL);
+    match (module, search) {
+        (false, false) => None,
+        (module, search) => Some((module, search)),
     }
 }
 
-/// 正向：矩阵七行逐行命中（含每行 `tools = None` 全量七工具）。
+/// 正向：矩阵七行逐行命中（每行 = 七工具名 + 矩阵勾选的 archi 名）。
 #[test]
 fn 注入矩阵七行逐行命中() {
     let rows: [(&str, &str, (bool, bool)); 7] = [
@@ -3213,9 +3241,17 @@ fn 注入矩阵七行逐行命中() {
             Some(expected),
             "矩阵行 {phase}/{role} 的两位"
         );
-        assert!(
-            injections.tools.is_none(),
-            "命中行 tools 保持 None（七通用工具全量）: {phase}/{role}"
+        let mut expected_names = seven();
+        if expected.0 {
+            expected_names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
+        }
+        if expected.1 {
+            expected_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
+        }
+        assert_eq!(
+            injections.tools,
+            Some(expected_names),
+            "命中行名字清单 = 七工具名 + 矩阵勾选: {phase}/{role}"
         );
         assert!(injections.preamble.is_none(), "preamble 维持不消费");
     }
@@ -3234,10 +3270,11 @@ fn 矩阵外相位回落default() {
     ] {
         let injections = injections_of("change", Some(source_ref));
         assert_eq!(
-            injections,
-            agent::SessionInjections::default(),
-            "矩阵外相位零 archi 工具: {source_ref}"
+            injections.tools,
+            Some(seven()),
+            "矩阵外相位零 archi 工具（名字清单为七工具）: {source_ref}"
         );
+        assert_eq!(archi_bits(&injections), None, "零 archi 工具: {source_ref}");
     }
 }
 
@@ -3254,16 +3291,16 @@ fn 畸形source_ref恒default() {
     ] {
         let injections = injections_of("change", Some(source_ref));
         assert_eq!(
-            injections,
-            agent::SessionInjections::default(),
-            "畸形 source_ref {source_ref:?} 恒 default"
+            injections.tools,
+            Some(seven()),
+            "畸形 source_ref {source_ref:?} 恒零 archi 工具（七工具名）"
         );
+        assert_eq!(archi_bits(&injections), None);
     }
-    // source_ref 缺席亦 default
-    assert_eq!(
-        injections_of("change", None),
-        agent::SessionInjections::default()
-    );
+    // source_ref 缺席亦零 archi 工具
+    let absent = injections_of("change", None);
+    assert_eq!(absent.tools, Some(seven()));
+    assert_eq!(archi_bits(&absent), None);
 }
 
 /// 边界：`attempt` 段边界（判据只校验可解析性、不校验范围、不做符号黑名单）——
@@ -3291,14 +3328,15 @@ fn attempt段解析边界() {
     for attempt in ["-1", " 1", "1.0", "u32", "4294967296"] {
         let source_ref = format!("add-feature/implement/executor/{attempt}");
         assert_eq!(
-            injections_of("change", Some(&source_ref)),
-            agent::SessionInjections::default(),
-            "不可解析的 attempt {attempt:?} 回落 default"
+            archi_bits(&injections_of("change", Some(&source_ref))),
+            None,
+            "不可解析的 attempt {attempt:?} 零 archi 工具"
         );
     }
 }
 
-/// 回归：explore 臂逐字不变（六工具 + `Explore` 枚举、`preamble = None`）。
+/// 回归：explore 臂名字清单（六工具 + `create_explore_note` 专用名、
+/// `preamble = None`、零收口档位）。
 #[test]
 fn explore臂零回归() {
     let injections = injections_of("explore", Some("任何定位串"));
@@ -3311,11 +3349,12 @@ fn explore臂零回归() {
             "ls".to_owned(),
             "edit".to_owned(),
             "bash".to_owned(),
+            EXPLORE_NOTE_TOOL.to_owned(),
         ]),
-        "explore 六工具（write 移除、序同 TOOL_NAMES）"
+        "explore 臂名字清单 = 六工具 + 专用名（write 移除、序同 TOOL_NAMES + 尾追加）"
     );
-    assert_eq!(injections.toolset, Some(agent::SessionToolset::Explore));
     assert!(injections.preamble.is_none());
+    assert_eq!(injections.finish, None, "explore 臂零收口档位");
 }
 
 /// 回归：其余来源（`debug` / 未知 / explore 之外）→ `default()`。
@@ -3336,9 +3375,8 @@ fn 其余来源恒default() {
 // 命中，零 `source_ref` 读取（不碰相位解析、不 fail-closed）。
 // ---------------------------------------------------------------------------
 
-/// 正向：archi 臂全字段——`preamble` 与 `knowledge()` 逐字相等、`tools = None`
-/// （七通用工具全量语义）、`toolset = Archi { module: true, search: true }`，返
-/// 回 `Ok`（零 `Err` 路径）。
+/// 正向：archi 臂全字段——`preamble` 与 `knowledge()` 逐字相等、名字清单为七
+/// 工具名 + 两 archi 名、`finish = None`，返回 `Ok`（零 `Err` 路径）。
 #[test]
 fn archi臂全字段() {
     let injections = injections_of("archi", None);
@@ -3349,18 +3387,15 @@ fn archi臂全字段() {
         injections.preamble, expected,
         "preamble 即 knowledge() 同一调用结果（逐字相等）"
     );
-    assert!(
-        injections.tools.is_none(),
-        "tools = None 即七通用工具全量（不收窄）"
-    );
+    let mut expected_names = seven();
+    expected_names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
+    expected_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
     assert_eq!(
-        injections.toolset,
-        Some(agent::SessionToolset::Archi {
-            module: true,
-            search: true,
-        }),
-        "archi 臂两布尔位双开"
+        injections.tools,
+        Some(expected_names),
+        "archi 臂名字清单 = 七工具名 + 两 archi 名"
     );
+    assert_eq!(injections.finish, None, "archi 臂无收口档位");
 }
 
 /// 边界：`source_ref` 七形态一律落 archi 臂（不碰相位解析）——含合法四段
@@ -3388,7 +3423,11 @@ fn archi臂source_ref形态无关() {
             Some((true, true)),
             "source_ref = {source_ref:?} 恒落 archi 臂双开"
         );
-        assert!(injections.tools.is_none(), "工具面不收窄");
+        assert_eq!(
+            injections.tools.as_ref().map(Vec::len),
+            Some(9),
+            "工具面九名"
+        );
     }
 
     // 差异锁死：同一 source_ref 在 change 臂命中 `{true, false}`，archi 臂恒
@@ -3424,10 +3463,19 @@ fn 臂序explore在前() {
                 "ls".to_owned(),
                 "edit".to_owned(),
                 "bash".to_owned(),
+                EXPLORE_NOTE_TOOL.to_owned(),
             ]),
-            "source_ref = {source_ref:?} 仍为 explore 六工具子集"
+            "source_ref = {source_ref:?} 仍为 explore 名字清单（六名 + 专用名）"
         );
-        assert_eq!(injections.toolset, Some(agent::SessionToolset::Explore));
+        assert!(
+            injections
+                .tools
+                .as_ref()
+                .expect("tools 在场")
+                .iter()
+                .any(|name| name == EXPLORE_NOTE_TOOL),
+            "explore 臂名字清单含 create_explore_note"
+        );
         assert!(injections.preamble.is_none(), "explore 臂不注入 archi 知识");
     }
 }
@@ -3439,8 +3487,9 @@ fn 臂序explore在前() {
 fn 臂序archi在change短路之前三变形不落default() {
     for source_ref in ["chg-1/implement/executor/x", "chg-1/implement", "a/b"] {
         let injections = injections_of("archi", Some(source_ref));
-        assert!(
-            injections.toolset.is_some(),
+        assert_eq!(
+            archi_bits(&injections),
+            Some((true, true)),
             "archi 臂先于 change 短路：{source_ref:?} 不得 fail-closed"
         );
         assert_ne!(
@@ -3464,7 +3513,7 @@ fn source词面精确零归一() {
         );
         assert!(injections.preamble.is_none());
         assert!(injections.tools.is_none());
-        assert!(injections.toolset.is_none());
+        assert!(injections.finish.is_none());
     }
 }
 
@@ -3482,7 +3531,7 @@ fn 降级范围单字段preamble独立() {
         crate::archi_knowledge::knowledge(),
         "preamble 位是唯一的可选位（与 knowledge() 同源）"
     );
-    assert!(injections.tools.is_none());
+    assert_eq!(injections.tools.as_ref().map(Vec::len), Some(9));
     assert_eq!(
         archi_bits(&injections),
         Some((true, true)),
@@ -3493,7 +3542,7 @@ fn 降级范围单字段preamble独立() {
         "知识拼不出时只剩 preamble 缺席，注入面仍非 default"
     );
     assert!(
-        default.toolset.is_none(),
+        archi_bits(&default).is_none(),
         "default 形态零 archi 工具（对照：archi 臂工具面恒定）"
     );
 }
@@ -3563,4 +3612,112 @@ async fn archi臂调用点链路捕获与直调全等() {
         "链路上仍是 archi 臂双开"
     );
     assert_eq!(sink.begin_turns.load(Ordering::Relaxed), 1, "一轮已开");
+}
+
+// ---------------------------------------------------------------------------
+// `finish` 位按 role 置位 + 与矩阵解耦（agent-finalize-tool AC-4 / D5）
+// ---------------------------------------------------------------------------
+
+/// 三档 role 的 `finish` 位（正向）：evaluator → EvaluatorChecklist、
+/// decision → Decision、executor → None（6 份 executor md 无 finish_step 字样
+/// 的一致性面）。
+#[test]
+fn finish位按role置位三形态() {
+    let cases = [
+        ("evaluator", Some(agent::FinishSpec::EvaluatorChecklist)),
+        ("decision", Some(agent::FinishSpec::Decision)),
+        ("executor", None),
+    ];
+    for (role, expected) in cases {
+        let source_ref = format!("c/implement/{role}/1");
+        let injections = injections_of("change", Some(&source_ref));
+        assert_eq!(injections.finish, expected, "role {role} 的 finish 位");
+    }
+}
+
+/// `finish` 位与 archi 矩阵解耦（关键判据，AC-4 / D5）：决策会话落
+/// `(fail_phase, "decision")` 恒不命中 7 行矩阵 → `tools == 七内建`，但
+/// `finish` 位 MUST NOT 随矩阵 `None` 一并丢失（否则决策会话拿不到
+/// `finish_step`）。
+#[test]
+fn finish位与矩阵解耦_决策会话恒持收口档位() {
+    let injections = injections_of("change", Some("c/implement/decision/2"));
+    assert_eq!(
+        injections.finish,
+        Some(agent::FinishSpec::Decision),
+        "决策会话收口档位在位（finish 位不随矩阵 None 丢失）"
+    );
+    assert_eq!(
+        injections.tools,
+        Some(seven()),
+        "矩阵未命中 → 工具面为七内建（零 archi 名）"
+    );
+
+    // 对照臂：evaluator 命中矩阵（code-review）→ 七内建 + archi_module，
+    // finish 位同为 EvaluatorChecklist（两判据独立）
+    let injections = injections_of("change", Some("c/code-review/evaluator/1"));
+    assert_eq!(
+        injections.finish,
+        Some(agent::FinishSpec::EvaluatorChecklist)
+    );
+    assert_eq!(
+        archi_bits(&injections),
+        Some((true, false)),
+        "对照：矩阵命中 archi_module"
+    );
+}
+
+/// explore / archi 两臂 `finish: None`（边界）：专用会话与架构页通用会话不挂
+/// 收口工具。
+#[test]
+fn 专用会话两臂零收口档位() {
+    for (source, source_ref) in [
+        ("explore", None),
+        ("explore", Some("any/source/ref/1")),
+        ("archi", None),
+        ("archi", Some("c/implement/evaluator/1")),
+    ] {
+        let injections = injections_of(source, source_ref);
+        assert_eq!(
+            injections.finish, None,
+            "来源 {source}（source_ref {source_ref:?}）零收口档位"
+        );
+    }
+}
+
+/// 未命中来源恒 default（边界）：`source` 非三者 / 未知串 → 三字段全 None。
+#[test]
+fn 未命中来源恒default三字段全none() {
+    for source in ["chat", "", "CHANGE", "Explore"] {
+        assert_eq!(
+            injections_of(source, Some("c/implement/evaluator/1")),
+            agent::SessionInjections::default(),
+            "来源 {source} 落 default"
+        );
+    }
+}
+
+/// 非法名 `Err` 携名与来源（异常）：装配层成员校验经 `mount::lookup` 判定，
+/// `Err` 面 MUST NOT 返回部分注入面。
+#[test]
+fn 装配层非法名err携名与来源() {
+    use super::injected;
+    let provenance = SessionProvenance {
+        source: "change".to_owned(),
+        source_ref: None,
+    };
+    let error =
+        injected(&["read", "no_such_tool"], None, None, &provenance).expect_err("清单外名字应 Err");
+    assert!(
+        error.contains("no_such_tool"),
+        "文案携非法名（可归因）: {error}"
+    );
+    assert!(
+        error.contains("change"),
+        "文案携来源（装配面唯一可归因处）: {error}"
+    );
+    assert!(
+        error.starts_with("注入面非法工具名"),
+        "文案前缀与 mount 侧统一: {error}"
+    );
 }
