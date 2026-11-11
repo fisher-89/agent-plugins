@@ -62,6 +62,15 @@ fn config_relative() -> String {
     rules::normalize(&layout::config_path(Path::new("")).to_string_lossy())
 }
 
+/// 配置文件所在目录段（相对形态父目录；受保护前缀的祖先段）。
+fn config_parent_segment() -> String {
+    Path::new(&config_relative())
+        .parent()
+        .and_then(|parent| parent.to_str())
+        .expect("配置相对路径应有父目录")
+        .to_owned()
+}
+
 /// 用户规则载体（`reason` 三态直构，不走 IO）。
 fn user_rule(glob: &str, reason: Option<&str>) -> Rule {
     Rule {
@@ -114,7 +123,8 @@ fn 内置glob对近似形态不命中() {
     let cases = [
         format!("/ws/{}.bak", relative),
         format!("/ws/{}/x", relative),
-        "/ws/explores/config.json".to_owned(),
+        // 迁移前的位置（变更语料域根下）不再受内置锁定
+        "/ws/openspec/config.json".to_owned(),
         "/ws/config.json".to_owned(),
         format!("/ws/{}", relative.to_uppercase()),
     ];
@@ -541,14 +551,17 @@ fn 子树判定_祖先相等后代三面均命中() {
     let anchor = dir.path();
     let anchor_text = rules::normalize(&anchor.to_string_lossy());
     let glob = builtin_glob();
-    let domain = layout::domain_dir_name();
 
     assert!(
         rules::glob_dir_hit(&anchor_text, &glob, anchor),
         "祖先面：删整棵 anchor 必然波及受保护目标"
     );
     assert!(
-        rules::glob_dir_hit(&format!("{anchor_text}/{domain}"), &glob, anchor),
+        rules::glob_dir_hit(
+            &format!("{anchor_text}/{}", config_parent_segment()),
+            &glob,
+            anchor
+        ),
         "前缀面：dir 为受保护前缀的祖先段"
     );
     assert!(
@@ -627,8 +640,8 @@ fn 子树判定_目录参数边界不panic且不误判() {
 #[test]
 fn 归一_剥windows前缀且分隔符转正斜杠() {
     assert_eq!(
-        rules::normalize(r"\\?\D:\ws\openspec\config.json"),
-        "D:/ws/openspec/config.json",
+        rules::normalize(r"\\?\D:\ws\.dev-team\config.json"),
+        "D:/ws/.dev-team/config.json",
         r"剥 `\\?\` 前缀 + 反斜杠转 `/`"
     );
     assert_eq!(rules::normalize(r"a\b\c"), "a/b/c");

@@ -10,7 +10,7 @@
 
 保护规则 SHALL 由两部分合并而成，装配为单点纯数据结构 `ProtectRules`：
 
-- **内置锁定（独立于配置解析结果）**：SHALL 只收一条 `**/openspec/config.json`。该 glob MUST 由 `foundation::layout::config_path` 派生后加 `**/` 前缀，产品源码 MUST NOT 出现 `openspec` 目录名字面量或 `config.json` 文件名字面量（沿 desktop-crate-layout 两条隔离禁令）。内置规则 MUST NOT 依赖 `config::load` 是否成功——工作区配置缺失、坏 JSON、字段违例时内置面 SHALL 照常生效。`**/openspec/changes/**/workflow.json` MUST NOT 纳入内置锁定：工作流状态以库为唯一权威，legacy 文件零读取零产出，锁定它无对象可保护。该规则的存在使**该文件成为保护面的第一道拦截**（`protect/**` 内无 override 或跳过开关）——仓库面若需更新该文件内的指针，SHALL 以值级替换交付并复核（不变量见 `repo-surface-scope`），MUST NOT 为改写指针而改动本条内置锁定语义或给规则加 override。
+- **内置锁定（独立于配置解析结果）**：SHALL 只收一条 `**/.dev-team/config.json`。该 glob MUST 由 `foundation::layout::config_path` 派生后加 `**/` 前缀，产品源码 MUST NOT 出现 `openspec` 目录名字面量或 `config.json` 文件名字面量（沿 desktop-crate-layout 两条隔离禁令）。内置规则 MUST NOT 依赖 `config::load` 是否成功——工作区配置缺失、坏 JSON、字段违例时内置面 SHALL 照常生效。`**/openspec/changes/**/workflow.json` MUST NOT 纳入内置锁定：工作流状态以库为唯一权威，legacy 文件零读取零产出，锁定它无对象可保护。该规则的存在使**该文件成为保护面的第一道拦截**（`protect/**` 内无 override 或跳过开关）——仓库面若需更新该文件内的指针，SHALL 以值级替换交付并复核（不变量见 `repo-surface-scope`），MUST NOT 为改写指针而改动本条内置锁定语义或给规则加 override。
 - **用户规则**：SHALL 取自 `config::load(workspace_root).config.write_protection.files[]`（`config::load` 永不失败，恒返回合法配置 + diagnostics）。逐条规则：`glob` 为 `None`（config 组装层已剔除空串 / 非法值）SHALL 跳过；`glob` 为绝对路径 SHALL 原样使用；`glob` 为相对路径 SHALL 前缀 `**/`（无通配模式在匹配面走「相等或 `pattern/` 起手」语义，不加前缀只命中 root 相对形态）。`reason` SHALL 原样保留（含 `%s` / `%t` 占位符，替换见「拒绝指令文案」）。
 - **规则序**：内置规则 SHALL 排在用户规则之前；首个命中规则决定拒绝串（内置 `config.json` 规则恒优先，即使命中的是用户配置里另一条更宽规则）。同一次判定 MUST NOT 拼接多条 reason。
 - **方言单点**：规则匹配 SHALL 一律经 `checks::globmatch::match_glob`（`**/` 零段可命中、Windows 盘符归一、无通配模式走目录前缀、花括号交替已覆盖）；`agent-runtime` MUST NOT 自造第二份 glob 匹配实现。非法 / 超限模式 SHALL 按不命中收敛（不 panic、不拒绝启动）。
@@ -19,8 +19,8 @@
 
 #### Scenario: 内置规则独立于配置解析
 
-- **WHEN** 工作区无 `openspec/config.json`，或该文件为非法 JSON，或 `write_protection` 字段类型违例
-- **THEN** 装配结果含内置 `**/openspec/config.json` 一条，write / edit 指向该文件仍被拒；`config::load` 的 diagnostics 不参与保护面判定
+- **WHEN** 工作区无 `.dev-team/config.json`，或该文件为非法 JSON，或 `write_protection` 字段类型违例
+- **THEN** 装配结果含内置 `**/.dev-team/config.json` 一条，write / edit 指向该文件仍被拒；`config::load` 的 diagnostics 不参与保护面判定
 
 #### Scenario: 相对 glob 自动前缀
 
@@ -34,13 +34,13 @@
 
 #### Scenario: 内置优先于用户规则
 
-- **WHEN** 用户同时配置 `{ glob: "openspec/**", reason: "自定义原因" }`，模型写 `<root>/openspec/config.json`
+- **WHEN** 用户同时配置 `{ glob: "openspec/**", reason: "自定义原因" }`，模型写 `<root>/.dev-team/config.json`
 - **THEN** 拒绝串取内置 `config.json` 规则的原因（内置先行，首个命中即定），自定义 reason 不被拼接
 
 #### Scenario: 工作区根缺席仅内置
 
 - **WHEN** 装配入参为 `None`（root 未注入）
-- **THEN** 规则集只含内置一条；写 `openspec/config.json` 仍被拒，用户配置的任何 glob 均不生效
+- **THEN** 规则集只含内置一条；写 `.dev-team/config.json` 仍被拒，用户配置的任何 glob 均不生效
 
 #### Scenario: 规则面单源自述
 
@@ -59,13 +59,13 @@
 
 #### Scenario: write 命中拒绝而读面放行
 
-- **WHEN** 模型对 `<root>/openspec/config.json` 分别调用 `write`、`edit` 与 `read`、`grep`
+- **WHEN** 模型对 `<root>/.dev-team/config.json` 分别调用 `write`、`edit` 与 `read`、`grep`
 - **THEN** `write` / `edit` 返回拒绝串（`Some`），`read` / `grep` 返回 `None`（放行）
 
 #### Scenario: Windows 前缀与反斜杠归一
 
 - **WHEN** 沙箱改写后的路径形态为 `\\?\D:\ws\openspec\config.json`（或含 `\` 分隔符）
-- **THEN** 归一后与 `**/openspec/config.json` 命中，判定为拒（不得因前缀或分隔符漏判）
+- **THEN** 归一后与 `**/.dev-team/config.json` 命中，判定为拒（不得因前缀或分隔符漏判）
 
 #### Scenario: 专用工具不在射程
 
@@ -99,12 +99,12 @@
 
 #### Scenario: 重定向族命中
 
-- **WHEN** 命令为 `echo {} > openspec/config.json`、`cat x >> <root>/openspec/config.json`、`echo {} >| openspec/config.json`、`echo {} | tee openspec/config.json`、`echo {} &> openspec/config.json`
+- **WHEN** 命令为 `echo {} > .dev-team/config.json`、`cat x >> <root>/.dev-team/config.json`、`echo {} >| .dev-team/config.json`、`echo {} | tee .dev-team/config.json`、`echo {} &> .dev-team/config.json`
 - **THEN** 五种写法均被拒（`&>` 是照抄排除集 `[^-=]` 的既有结论，MUST NOT 反向"修复"）
 
 #### Scenario: 删除族与移动族命中
 
-- **WHEN** 命令为 `rm -f openspec/config.json`、`git rm openspec/config.json`、`Remove-Item openspec/config.json`、`mv openspec/config.json /tmp/x`
+- **WHEN** 命令为 `rm -f .dev-team/config.json`、`git rm .dev-team/config.json`、`Remove-Item .dev-team/config.json`、`mv .dev-team/config.json /tmp/x`
 - **THEN** 前三者按 delete 命中被拒；`mv` 按「旧路径 delete + 新路径 write」双记，旧路径命中即拒
 
 #### Scenario: fd 复制与箭头不误判
@@ -114,18 +114,18 @@
 
 #### Scenario: heredoc 与引号内的"写入"是数据
 
-- **WHEN** 命令为 `cat <<EOF > notes.txt\n> openspec/config.json\nEOF`，或 `echo "rm -rf /" > notes.txt`
+- **WHEN** 命令为 `cat <<EOF > notes.txt\n> .dev-team/config.json\nEOF`，或 `echo "rm -rf /" > notes.txt`
 - **THEN** heredoc 体里的 `>` 不产生 write 操作、引号内的 `rm` 不被当作命令；两条命令均放行（不因数据文本误拦）
 
 #### Scenario: 未展开变量丢弃
 
-- **WHEN** 命令为 `echo x > $OUT`、`rm $TARGET`、`cp $SRC openspec/config.json`
+- **WHEN** 命令为 `echo x > $OUT`、`rm $TARGET`、`cp $SRC .dev-team/config.json`
 - **THEN** `$OUT` / `$TARGET` 在操作落点被丢弃（不参与匹配）；`cp` 的目标位命中保护仍被拒
 
 #### Scenario: 相对路径按执行根解析
 
-- **WHEN** 会话执行根为 `<root>`，命令为 `rm openspec/config.json`
-- **THEN** 提取路径 `openspec/config.json` 拼为 `<root>/openspec/config.json` 后命中内置规则被拒
+- **WHEN** 会话执行根为 `<root>`，命令为 `rm .dev-team/config.json`
+- **THEN** 提取路径 `.dev-team/config.json` 拼为 `<root>/.dev-team/config.json` 后命中内置规则被拒
 
 ### Requirement: shell 提取的档 B 补充族
 
@@ -143,22 +143,22 @@
 
 #### Scenario: cp 目标位命中
 
-- **WHEN** 命令为 `cp /tmp/x openspec/config.json`、`cp /tmp/a /tmp/b openspec/config.json`、`Copy-Item C:\tmp\x openspec\config.json`
+- **WHEN** 命令为 `cp /tmp/x .dev-team/config.json`、`cp /tmp/a /tmp/b .dev-team/config.json`、`Copy-Item C:\tmp\x openspec\config.json`
 - **THEN** 三者均按目标位（末参）命中被拒
 
 #### Scenario: dd 的 if 不误拦而 of 拦截
 
-- **WHEN** 命令为 `dd if=openspec/config.json of=/tmp/backup.json` 与 `dd if=/tmp/x of=openspec/config.json`
+- **WHEN** 命令为 `dd if=.dev-team/config.json of=/tmp/backup.json` 与 `dd if=/tmp/x of=.dev-team/config.json`
 - **THEN** 前者放行（`if=` 是读源）、后者被拒（`of=` 是写目标）
 
 #### Scenario: 原地改写与纯读分界
 
-- **WHEN** 命令为 `sed -i s/a/b/ openspec/config.json` 与 `sed -n 1p openspec/config.json`、`perl -i -pe s/a/b/ openspec/config.json`
+- **WHEN** 命令为 `sed -i s/a/b/ .dev-team/config.json` 与 `sed -n 1p .dev-team/config.json`、`perl -i -pe s/a/b/ .dev-team/config.json`
 - **THEN** 带 `-i` 的两条被拒，不带 `-i` 的一条放行（纯读不得误拦）
 
 #### Scenario: 清空即毁与递归删除
 
-- **WHEN** 命令为 `truncate -s 0 openspec/config.json` 与 `find . -name '*.json' -delete`
+- **WHEN** 命令为 `truncate -s 0 .dev-team/config.json` 与 `find . -name '*.json' -delete`
 - **THEN** 前者按 `-s` 后的路径被拒；后者按搜索根 `.` 被拒（`find` 的匹配项不可静态预知，删除场景按"保护整个搜索根"保守处理）
 
 #### Scenario: 档 B 五族语义单源
@@ -215,27 +215,27 @@
 
 #### Scenario: node 内联写命中
 
-- **WHEN** 命令为 `node -e "require('fs').writeFileSync('openspec/config.json','{}')"`
+- **WHEN** 命令为 `node -e "require('fs').writeFileSync('.dev-team/config.json','{}')"`
 - **THEN** 被拒（整体豁免旁路 MUST NOT 存在——`node` / `python` 起手的脚本调用同样落判定）
 
 #### Scenario: python 内联写命中
 
-- **WHEN** 命令为 `python -c "open('openspec/config.json','w').write('{}')"` / `python3 -c "from pathlib import Path; Path('openspec/config.json').write_text('{}')"`
+- **WHEN** 命令为 `python -c "open('.dev-team/config.json','w').write('{}')"` / `python3 -c "from pathlib import Path; Path('.dev-team/config.json').write_text('{}')"`
 - **THEN** 两条均被拒
 
 #### Scenario: 嵌套形态覆盖
 
-- **WHEN** 命令为 `bash -c 'node -e "require(\"fs\").rmSync(\"openspec/config.json\")"'`
+- **WHEN** 命令为 `bash -c 'node -e "require(\"fs\").rmSync(\".dev-team/config.json\")"'`
 - **THEN** 被拒（关联式对整条文本扫描，不依赖脚本段定位）
 
 #### Scenario: 裸脚本放行
 
-- **WHEN** 命令为 `node scripts/setup.js openspec/config.json`、`python tools/gen.py`
+- **WHEN** 命令为 `node scripts/setup.js .dev-team/config.json`、`python tools/gen.py`
 - **THEN** 两条均放行（脚本内容不可静态判别，作为已知漏面留痕），不因参数里出现受保护路径而拒
 
 #### Scenario: 共现不误拦
 
-- **WHEN** 命令为 `node -e "console.log('writeFileSync','openspec/config.json')"`
+- **WHEN** 命令为 `node -e "console.log('writeFileSync','.dev-team/config.json')"`
 - **THEN** 放行（关联式要求 API 名后紧跟其路径实参，纯字符串共现不构成写操作）
 
 ### Requirement: 拒绝指令文案
@@ -250,7 +250,7 @@
 
 #### Scenario: 内置串含掐断换路链两要素
 
-- **WHEN** 命中内置 `openspec/config.json` 规则
+- **WHEN** 命中内置 `.dev-team/config.json` 规则
 - **THEN** 拒绝串含「不要改用其他命令或工具尝试绕过」与「立即停止并通知用户」两句，且含「改哪个字段、改成什么、为什么」的用户处置指引
 
 #### Scenario: 用户 reason 占位符替换
@@ -337,11 +337,11 @@
 | `crates/infra/agent/src/sdk/protect/rules.rs`（新） | 内置规则派生 + 用户规则合并 + 规则序 | 内置 glob = `**/` + `foundation::layout::config_path` 的 root 相对形态（源码零 `openspec` / `config.json` 字面量）；相对 glob 加 `**/`、绝对原样、空 glob 跳过；内置在前；`None` root = 仅内置 |
 | `crates/infra/agent/src/sdk/protect/shell.rs`（新） | 双变体等长掩码 + token 纪律 + 三态提取 + 档 B 五项 + bulk revert | `mask_heredocs`（变体 A）/ `mask_quoted_and_heredoc`（变体 B）等长；`>` 排除集如实 `[^-=]`；`>&` 跳 `\d+`；`$` token 落点丢弃；`cp`/`dd of=`/`sed -i`/`truncate`/`find -delete` 判据；`git stash`/`clean`/`restore openspec/changes/**` 三规则 |
 | `crates/infra/agent/src/sdk/protect/inline.rs`（新） | node / python 关联式写入判别 | JS / PY API 表逐条正则（路径取第一字符串实参）；对整条命令文本跑、不切脚本段；裸脚本 / `-m` 放行；MUST NOT 采用 `^(python\|node)\s` 整体豁免 |
-| `openspec/config.json` 的 `write_protection` | 用户规则实配（写保护内置锁定面内的配置） | `files[0].glob` 改指 `packages/desktop/knip.json`（保护动机：knip 配置决定死代码检出范围，是 `static_analysis` 入口 `client:check` 的唯一配置源）；该行 SHALL 以值级替换回填（逐值清单 + 复核命令，见 `repo-surface-scope`），MUST NOT 为回填改动本条内置锁定语义；内置 `**/openspec/config.json` 恒在兜底 |
+| `.dev-team/config.json` 的 `write_protection` | 用户规则实配（写保护内置锁定面内的配置） | `files[0].glob` 改指 `packages/desktop/knip.json`（保护动机：knip 配置决定死代码检出范围，是 `static_analysis` 入口 `client:check` 的唯一配置源）；该行 SHALL 以值级替换回填（逐值清单 + 复核命令，见 `repo-surface-scope`），MUST NOT 为回填改动本条内置锁定语义；内置 `**/.dev-team/config.json` 恒在兜底 |
 | `crates/infra/agent/src/sdk/protect/reason.rs`（新） | 三条拒绝指令串 | 内置串五要素（含"不得绕过"+"立即停止并通知用户"）；用户 reason `%s` / `%t` 全量替换；无 reason 回落串；单串返回（事件与 ToolResult 由 loop 合成） |
 | `crates/infra/agent/Cargo.toml` | glob 方言单点复用 | 新增 `checks = { workspace = true }`（仅取 `checks::globmatch::match_glob`；MUST NOT 自造第二份方言） |
 | `checks::globmatch::match_glob`（既有，零改） | 唯一 glob 方言实现 | `match_glob(path, pattern) -> bool`：`**/` 零段可命中、正斜杠归一、无通配模式走目录前缀；非法 / 超限按不命中收敛 |
 | `config::load` / `WriteProtection` / `WriteProtectionFile`（既有，零改） | 用户规则来源 | `load(root) -> ConfigReport` 永不失败；`files[].glob` / `files[].reason` 已由组装层剔空与校验 |
-| `foundation::layout::config_path`（既有，零改） | 内置 glob 派生源 | 返回 `<root>/openspec/config.json`；内置 glob = `**/` + 该相对形态（字面量隔离唯一触点） |
+| `foundation::layout::config_path`（既有，零改） | 内置 glob 派生源 | 返回 `<root>/.dev-team/config.json`；内置 glob = `**/` + 该相对形态（字面量隔离唯一触点） |
 | `crates/infra/agent/src/sdk/protect/rules.rs`（内置清单，架构域裁定） | 内置锁面的显式裁定 | 内置清单仍恰为工作区 `config.json` 一条；架构域 `models/**` 与架构域配置 MUST NOT 进入（worktree 内同样命中，纳入即断"模型 = 源码"通路） |
 | `crates/infra/agent/src/sdk/protect/**`（判定面，架构域语义零改动） | 判定面语义零改动 | `evaluate` 对架构域路径净结果 = `None`（无规则命中）；用户显式 glob 仍按首命中即拒；守卫链挂载点 / 失败面方向零变化 |

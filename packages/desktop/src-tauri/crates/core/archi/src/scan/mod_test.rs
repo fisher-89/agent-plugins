@@ -353,7 +353,7 @@ fn 配置追加不替换() {
     assert!(outcome.edges.is_empty(), "两文件均被排除 ⇒ 零边");
 }
 
-/// 边界（AC-1）：工作区 `openspec/config.json` 的 `tests[].excludes` 对扫描面零
+/// 边界（AC-1）：工作区 `.dev-team/config.json` 的 `tests[].excludes` 对扫描面零
 /// 影响（前后两次扫描逐值相同）。
 #[test]
 fn 工作区测试scope零耦合() {
@@ -367,7 +367,7 @@ fn 工作区测试scope零耦合() {
     let before = scan_full(temp.root(), &elements, &[]).expect("扫描应成功");
 
     temp.write(
-        "openspec/config.json",
+        ".dev-team/config.json",
         "{\n  \"tests\": [{ \"excludes\": [\"src/\"] }]\n}\n",
     );
     let after = scan_full(temp.root(), &elements, &[]).expect("扫描应成功");

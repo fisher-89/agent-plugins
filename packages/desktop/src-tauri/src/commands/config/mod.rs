@@ -11,7 +11,7 @@
 //! （工作区配置唯一出口），命令层零自有校验 / 默认值规则。无 State、无
 //! 缓存、不落库——每次调用完整重读重校验。
 //!
-//! 能力 spec：`specs/desktop-workspace-config/spec.md`（路径相对域根）。
+//! 能力 spec：`specs/desktop-workspace-config/spec.md`（路径相对架构域顶层目录）。
 
 use std::{fs, path::Path};
 

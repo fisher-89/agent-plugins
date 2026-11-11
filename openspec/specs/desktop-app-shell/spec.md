@@ -374,7 +374,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 
 ### Requirement: 变异测试守线与生成件 mutate 处置
 
-迁移完成后 SHALL 全量运行一次 `pnpm -C packages/desktop run mutation-test`,实测分数 SHALL 不低于 `stryker.config.json` break 线 50。`src/components/ui/**` 是否纳入 mutate glob SHALL 由 design 定夺并记录理由:维持纳入则补对应测试;选择排除则以「无对应测试投入的组件代码纳入 mutate 只产噪声」为由(与 `openspec/config.json` desktop 套件已预置的 `excludes: ["src/components/ui/**/*"]` 口径一致)。全局 `mutator.excludedMutations: ["StringLiteral"]` MUST NOT 作为首选手段——仅作漂移不可接受时的第二档兜底,且 MUST 记入 design(代价:连带放过 IPC 契约字符串等健康 mutant)。
+迁移完成后 SHALL 全量运行一次 `pnpm -C packages/desktop run mutation-test`,实测分数 SHALL 不低于 `stryker.config.json` break 线 50。`src/components/ui/**` 是否纳入 mutate glob SHALL 由 design 定夺并记录理由:维持纳入则补对应测试;选择排除则以「无对应测试投入的组件代码纳入 mutate 只产噪声」为由(与 `.dev-team/config.json` desktop 套件已预置的 `excludes: ["src/components/ui/**/*"]` 口径一致)。全局 `mutator.excludedMutations: ["StringLiteral"]` MUST NOT 作为首选手段——仅作漂移不可接受时的第二档兜底,且 MUST 记入 design(代价:连带放过 IPC 契约字符串等健康 mutant)。
 
 #### Scenario: 实测守线
 

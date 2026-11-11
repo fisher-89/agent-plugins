@@ -128,8 +128,8 @@ impl ChainWs {
         // includes 缺省吃注册表 default_glob 花括号形态
         // （`**/*.test.{mjs,js,cjs}`）——全链经 checks::globmatch 展开对齐
         // CLI picomatch 方言
-        let config_dir = root.join("openspec");
-        fs::create_dir_all(&config_dir).expect("创建 openspec 目录");
+        let config_dir = root.join(".dev-team");
+        fs::create_dir_all(&config_dir).expect("创建 .dev-team 目录");
         fs::write(
             config_dir.join("config.json"),
             r#"{ "tests": [ { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } } ] }"#,
@@ -257,7 +257,7 @@ impl ChainWs {
     /// 执行臂计数经 SHIM_MARKER 行数区分 plan 序）。
     fn two_plan(self) -> Self {
         fs::write(
-            self.root().join("openspec").join("config.json"),
+            self.root().join(".dev-team").join("config.json"),
             r#"{ "tests": [
   { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
   { "root": "app2", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } }
@@ -278,7 +278,7 @@ impl ChainWs {
     /// 工件事的注入面由用例自行补齐）。
     fn three_plan(self) -> Self {
         fs::write(
-            self.root().join("openspec").join("config.json"),
+            self.root().join(".dev-team").join("config.json"),
             r#"{ "tests": [
   { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
   { "root": "app2", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
@@ -311,7 +311,7 @@ impl ChainWs {
     /// 5 倍以上），故由消费用例显式注入。
     fn three_plan_mixed(self) -> Self {
         fs::write(
-            self.root().join("openspec").join("config.json"),
+            self.root().join(".dev-team").join("config.json"),
             r#"{ "tests": [
   { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
   { "root": "app2", "framework": "jest", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
@@ -759,9 +759,9 @@ async fn 测试程序不可达_run_err() {
         .expect("创建临时 workspace 失败");
     let root = tmp.path();
     // suite cwd = app/empty（无 shim）；文件清单命中 app/empty 内样本
-    fs::create_dir_all(root.join("openspec")).expect("创建 openspec");
+    fs::create_dir_all(root.join(".dev-team")).expect("创建 .dev-team");
     fs::write(
-        root.join("openspec").join("config.json"),
+        root.join(".dev-team").join("config.json"),
         r#"{ "tests": [ { "root": "app", "framework": "node-test", "cwd": "empty", "includes": ["**/*.mjs"], "coverage": { "lines": 60, "branches": 70, "functions": 75 } } ] }"#,
     )
     .expect("写 config");
@@ -3672,7 +3672,7 @@ async fn archi槽位零spawn_PATH隔离仍返槽位err() {
 // `.log`）；三分支（复用门 / fault / 正常）各以同 id `commit(&merged_output)`。
 //
 // Mock 策略（见 test-design 本节 Mock策略表）：真实 tempdir + 真实
-// `openspec/config.json`（`tests` 清单）+ 真实平台 shim（`set_shim_env` 既有
+// `.dev-team/config.json`（`tests` 清单）+ 真实平台 shim（`set_shim_env` 既有
 // 装配）+ 既有 `PathWindowGuard`；`exec` 三件真实组合（不替身化）。
 // ---------------------------------------------------------------------------
 
@@ -4025,7 +4025,7 @@ async fn 复用门命中_空log与无sidecar() {
 async fn detect失败_零记录目录() {
     let ws = ChainWs::new("sidecar-detect-err");
     fs::write(
-        ws.root().join("openspec").join("config.json"),
+        ws.root().join(".dev-team").join("config.json"),
         r#"{ "tests": [ { "root": "app", "framework": "go" } ] }"#,
     )
     .expect("覆写非法框架 config");
@@ -4047,7 +4047,7 @@ async fn detect失败_零记录目录() {
 async fn 零plan_空记录且无sidecar() {
     let ws = ChainWs::new("sidecar-zero-plan");
     fs::write(
-        ws.root().join("openspec").join("config.json"),
+        ws.root().join(".dev-team").join("config.json"),
         r#"{ "tests": [] }"#,
     )
     .expect("覆写空 tests config");
@@ -4411,7 +4411,7 @@ impl ChainWs {
     /// `plan.id`；同时铺足够多的输入文件使 `{files}` 展开长度 > 1000 字符。
     fn emoji_root_long_command(self) -> Self {
         fs::write(
-            self.root().join("openspec").join("config.json"),
+            self.root().join(".dev-team").join("config.json"),
             r#"{ "tests": [ { "root": "app🚀", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } } ] }"#,
         )
         .expect("覆写 emoji suite config");
@@ -4431,7 +4431,7 @@ impl ChainWs {
     #[cfg(windows)]
     fn non_degradable_over_budget(self) -> Self {
         fs::write(
-            self.root().join("openspec").join("config.json"),
+            self.root().join(".dev-team").join("config.json"),
             r#"{ "tests": [ { "root": "app", "framework": "node-test", "excludes": ["src/case000.test.mjs"], "coverage": { "lines": 60, "branches": 70, "functions": 75 } } ] }"#,
         )
         .expect("覆写不可降级 suite config");

@@ -481,7 +481,7 @@ SDK 引擎工具面 SHALL 增第七工具 `bash`，`RunStarted.tools` SHALL 报*
 
 #### Scenario: 受保护写入被拒而任意命令仍可执行
 
-- **WHEN** BypassPermissions 档下先执行 `echo {} > openspec/config.json`，再执行 `echo {} > notes.txt`
+- **WHEN** BypassPermissions 档下先执行 `echo {} > .dev-team/config.json`，再执行 `echo {} > notes.txt`
 - **THEN** 第一条被保护闸拒绝（`permission_denied`，run 不中断）；第二条正常执行——护栏只覆盖受保护文件面，不构成命令白/黑名单
 
 ### Requirement: SDK 引擎上下文窗防线（L2 剪裁与 L3 compaction）
@@ -1269,23 +1269,23 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 
 #### Scenario: 四段顺序与拒绝形态
 
-- **WHEN** BypassPermissions 档下模型调用 `write` 指向 `<root>/openspec/config.json`（路径在 root 内）
+- **WHEN** BypassPermissions 档下模型调用 `write` 指向 `<root>/.dev-team/config.json`（路径在 root 内）
 - **THEN** 事件流含 `SystemNotice{subtype:"permission_denied", payload:{tool:"write", reason:…}}` 与同 id 的 is_error ToolResult（内容为同一拒绝串）；`tools::execute` 未被调用（文件未被写）；run 不中断，同轮后续工具调用照常执行
 
 #### Scenario: 沙箱先于保护闸
 
-- **WHEN** 模型调用 `write` 指向 `<root>/../outside/openspec/config.json`（越出 workspace root）
+- **WHEN** 模型调用 `write` 指向 `<root>/../outside/.dev-team/config.json`（越出 workspace root）
 - **THEN** 拒绝理由为沙箱成因（`subtype:"sandbox_denied"`），而非 `permission_denied`——两段闸的错误归属不重叠、不抢报
 
 #### Scenario: 每 run 一次装配与 loop 零 IO
 
-- **WHEN** 在一次 run 进行中修改 `openspec/config.json` 的 `write_protection`，随后同一 run 内继续调用工具
+- **WHEN** 在一次 run 进行中修改 `.dev-team/config.json` 的 `write_protection`，随后同一 run 内继续调用工具
 - **THEN** 本轮行为不随修改改变（规则在泵起播时已装配）；`sdk/loop.rs` 内无 `config::load` / `fs` / `canonicalize` 调用点
 
 #### Scenario: 主仓口径与 worktree 执行根
 
 - **WHEN** change 流程会话的执行根为 worktree（`SessionCtx.workspace_root` = worktree 路径），主仓 root 另经 builder 缝注入
-- **THEN** 用户规则取自主仓 `config.json`；写 worktree 内 `openspec/config.json` 仍被内置规则拒（内置 glob 不区分主仓 / worktree）
+- **THEN** 用户规则取自主仓 `config.json`；写 worktree 内 `.dev-team/config.json` 仍被内置规则拒（内置 glob 不区分主仓 / worktree）
 
 #### Scenario: 未注入只内置
 

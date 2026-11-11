@@ -1766,9 +1766,9 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
     seed_change(&app, &root, CHANGE, "requirement");
     // 平台 shim 命令登记 config（真实 spawn 面）
     let shim = write_static_shim(env.ws_root.path());
-    fs::create_dir_all(env.ws_root.path().join("openspec")).expect("建 openspec 目录");
+    fs::create_dir_all(env.ws_root.path().join(".dev-team")).expect("建 .dev-team 目录");
     fs::write(
-        env.ws_root.path().join("openspec/config.json"),
+        env.ws_root.path().join(".dev-team/config.json"),
         format!("{{ \"static_analysis\": \"{shim}\" }}"),
     )
     .expect("写 config 失败");
@@ -2030,7 +2030,8 @@ async fn 基线绿走_initialize先于proposal_报告落baseline树() {
     fs::create_dir_all(env.data_dir.path().join("wt")).expect("建 wt 父目录失败");
     git_main_with_worktree(env.ws_root.path(), &worktree, &format!("change/{CHANGE}"));
 
-    // worktree 内预置 openspec 树（config 在排除面——clean 保留）；探针与 shim
+    // worktree 内预置 openspec 树（config 在排除面——clean 保留；`.dev-team`
+    // 命中 dot 目录排除 `.*`）；探针与 shim
     // 已随主仓提交（tracked——clean `reset --hard` 后仍在场；shim 相对路径读
     // cwd-probe.txt 即 spawn cwd = worktree 的内嵌断言）
     fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
@@ -2042,8 +2043,9 @@ async fn 基线绿走_initialize先于proposal_报告落baseline树() {
     let shim = "static-shim.cmd".to_owned();
     #[cfg(not(windows))]
     let shim = "static-shim".to_owned();
+    fs::create_dir_all(worktree.join(".dev-team")).expect("建 worktree .dev-team 目录失败");
     fs::write(
-        worktree.join("openspec/config.json"),
+        worktree.join(".dev-team/config.json"),
         format!("{{ \"static_analysis\": \"{shim}\" }}"),
     )
     .expect("写 config 失败");
@@ -2264,8 +2266,9 @@ async fn 基线红停_terminal收敛文案引导且转绿后干净重试() {
         }
     };
     arm_red(true);
+    fs::create_dir_all(worktree.join(".dev-team")).expect("建 worktree .dev-team 目录失败");
     fs::write(
-        worktree.join("openspec/config.json"),
+        worktree.join(".dev-team/config.json"),
         "{ \"static_analysis\": \"static-shim\" }",
     )
     .expect("写 config 失败");
@@ -3069,16 +3072,16 @@ async fn drive_static_check_ref_chain(
     }
 }
 
-/// 组合根上抛链的 workspace 装置：建档 + `openspec/config.json` 登记 shim 裸名。
+/// 组合根上抛链的 workspace 装置：建档 + `.dev-team/config.json` 登记 shim 裸名。
 fn ref_chain_env(tag: &str) -> (Env, App<tauri::test::MockRuntime>, String) {
     let env = Env::new(tag);
     env.change_dir(CHANGE);
     let app = app_with(&env);
     seed_change(&app, &env.root(), CHANGE, "requirement");
     let shim = write_static_shim(env.ws_root.path());
-    fs::create_dir_all(env.ws_root.path().join("openspec")).expect("建 openspec 目录");
+    fs::create_dir_all(env.ws_root.path().join(".dev-team")).expect("建 .dev-team 目录");
     fs::write(
-        env.ws_root.path().join("openspec/config.json"),
+        env.ws_root.path().join(".dev-team/config.json"),
         format!("{{ \"static_analysis\": \"{shim}\" }}"),
     )
     .expect("写 config 失败");
@@ -3351,9 +3354,9 @@ async fn 组合根装配_命令不可达臂上抛零调用() {
     env.change_dir(CHANGE);
     let app = app_with(&env);
     seed_change(&app, &env.root(), CHANGE, "requirement");
-    fs::create_dir_all(env.ws_root.path().join("openspec")).expect("建 openspec 目录");
+    fs::create_dir_all(env.ws_root.path().join(".dev-team")).expect("建 .dev-team 目录");
     fs::write(
-        env.ws_root.path().join("openspec/config.json"),
+        env.ws_root.path().join(".dev-team/config.json"),
         "{ \"static_analysis\": \"no-such-static-check-cmd-for-ref-xyz\" }",
     )
     .expect("写 config 失败");

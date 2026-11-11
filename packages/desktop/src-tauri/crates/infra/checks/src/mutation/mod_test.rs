@@ -655,8 +655,8 @@ impl ChainWs {
         let root = tmp.path().to_path_buf();
         let change = "demo-change";
 
-        let config_dir = root.join("openspec");
-        fs::create_dir_all(&config_dir).expect("建 openspec 目录");
+        let config_dir = root.join(".dev-team");
+        fs::create_dir_all(&config_dir).expect("建 .dev-team 目录");
         fs::write(config_dir.join("config.json"), config_json).expect("写 config");
 
         Self {
@@ -864,8 +864,8 @@ async fn 跳过面_no_executor_无执行器框架记evidence不err() {
         .tempdir()
         .expect("建临时 workspace");
     let root = tmp.path();
-    let config_dir = root.join("openspec");
-    fs::create_dir_all(&config_dir).expect("建 openspec");
+    let config_dir = root.join(".dev-team");
+    fs::create_dir_all(&config_dir).expect("建 .dev-team");
     fs::write(
         config_dir.join("config.json"),
         r#"{ "tests": [ { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } } ] }"#,
@@ -909,8 +909,8 @@ async fn 显式err面_写盘失败停给用户() {
         .tempdir()
         .expect("建临时 workspace");
     let root = tmp.path();
-    let config_dir = root.join("openspec");
-    fs::create_dir_all(&config_dir).expect("建 openspec");
+    let config_dir = root.join(".dev-team");
+    fs::create_dir_all(&config_dir).expect("建 .dev-team");
     fs::write(
         config_dir.join("config.json"),
         r#"{ "tests": [ { "root": "app", "framework": "rust", "coverage": { "lines": 80, "branches": 70, "functions": 75 }, "mutation": { "score": 80 } } ] }"#,

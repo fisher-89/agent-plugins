@@ -34,10 +34,10 @@ impl TempWs {
         fs::create_dir_all(&self.0).expect("创建临时根目录失败");
     }
 
-    /// 相对 root 落一份配置文件（自动建父目录域目录）。
+    /// 相对 root 落一份配置文件（自动建父目录 `.dev-team`）。
     fn write_config(&self, content: &str) {
-        let path = self.0.join("openspec").join("config.json");
-        fs::create_dir_all(path.parent().expect("配置路径应有父目录")).expect("建域目录失败");
+        let path = self.0.join(".dev-team").join("config.json");
+        fs::create_dir_all(path.parent().expect("配置路径应有父目录")).expect("建 .dev-team 失败");
         fs::write(path, content).expect("写配置文件失败");
     }
 }

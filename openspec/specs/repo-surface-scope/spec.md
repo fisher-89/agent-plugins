@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义仓库面的存活口径：`openspec/specs/` 只含描述当前存活代码的 capability（退役资产整目录下线、无空壳），仓库根文档与对外分发通道只描述存活产物，且活跃面（产品源码 / CI / `openspec/config.json` / 主 spec / 根文档 / `.gitignore`）不含指向已删资产的路径引用——历史由 `openspec/changes/archive/**` 承载，不由主基线承载。
+定义仓库面的存活口径：`openspec/specs/` 只含描述当前存活代码的 capability（退役资产整目录下线、无空壳），仓库根文档与对外分发通道只描述存活产物，且活跃面（产品源码 / CI / `.dev-team/config.json` / 主 spec / 根文档 / `.gitignore`）不含指向已删资产的路径引用——历史由 `openspec/changes/archive/**` 承载，不由主基线承载。
 
 ## Requirements
 
@@ -52,9 +52,9 @@
 
 ### Requirement: 活跃面无指向已删资产的路径引用
 
-仓库「活跃面」SHALL NOT 含指向已删资产的路径引用。活跃面含：产品源码（含注释）、CI 工作流、`openspec/config.json`、主 spec（`openspec/specs/**`）、仓库根文档与 `.gitignore`。
+仓库「活跃面」SHALL NOT 含指向已删资产的路径引用。活跃面含：产品源码（含注释）、CI 工作流、`.dev-team/config.json`、主 spec（`openspec/specs/**`）、仓库根文档与 `.gitignore`。
 
-- 改写通道 SHALL 明记：`openspec/config.json` 位于写保护的内置锁定面（`**/openspec/config.json` 由 `rules::builtin_rules` 派生、恒在规则首位、fail-closed、不可配置不可移除），故其指针改写 SHALL 限**值级替换**（改动恰 2 行，行尾与其余字段字节零改）；MUST NOT 为实现「零命中」观感给内置规则加 override 或改动 `protect/**` 任何代码——保护面 SHALL 零代码改动；
+- 改写通道 SHALL 明记：`.dev-team/config.json` 位于写保护的内置锁定面（`**/.dev-team/config.json` 由 `rules::builtin_rules` 派生、恒在规则首位、fail-closed、不可配置不可移除），故其指针改写 SHALL 限**值级替换**（改动恰 2 行，行尾与其余字段字节零改）；MUST NOT 为实现「零命中」观感给内置规则加 override 或改动 `protect/**` 任何代码——保护面 SHALL 零代码改动；
 - 指针改写 SHALL 有**逐值清单**在案：给出「位置 / 旧值 / 新值」与最小改动改法（值级替换、行尾与其余字段字节零改），清单 MUST 在该 change 目录内可考；MUST NOT 以「把该文件移出核对面」代替清单；
 - 改写 SHALL 以双段判据复核：**改写后**判「旧资产路径零命中 + 指针可达」；**改写前**（指针仍为旧值时）判「命中数恰等于清单行数且逐行逐值对应」。MUST NOT 把该文件排除出「活跃面零悬空」判据，也 MUST NOT 为实现相位「全绿」观感而改动产品保护语义（如给内置规则加 override）；
 - 指针 SHALL 恒可达：`$schema` 值 SHALL 以指向仓库内现存镜像路径的 raw URL 结尾（尾路径与仓库路径逐字同形），`write_protection.files[].glob` SHALL 命中现存文件且未被忽略——两者悬空即静默失效（`$schema` 悬空静默失去编辑器补全，glob 悬空静默失去用户规则）；
@@ -63,20 +63,20 @@
 
 #### Scenario: 全量 grep 无悬空引用（活跃面）
 
-- **WHEN** 对活跃面 grep 已下线资产的源码路径前缀（排除 `openspec/changes/archive`、`openspec/explores`、进行中 change 目录、`openspec/specs`、语料 fixture 与 `golden`、以及以旧路径为样本的 glob 测试文件；`openspec/config.json` **不入排除面**）
-- **THEN** 命中数为零（源码注释、CI 配置、根文档、`.gitignore`、`openspec/config.json` 与 desktop 产品面同属检索面）
+- **WHEN** 对活跃面 grep 已下线资产的源码路径前缀（排除 `openspec/changes/archive`、`openspec/explores`、进行中 change 目录、`openspec/specs`、语料 fixture 与 `golden`、以及以旧路径为样本的 glob 测试文件；`.dev-team/config.json` **不入排除面**）
+- **THEN** 命中数为零（源码注释、CI 配置、根文档、`.gitignore`、`.dev-team/config.json` 与 desktop 产品面同属检索面）
 - **AND** 每个排除项都有在案授权：历史事实 / 过程产物 / 归档相位判据 / 数据样本
 
 #### Scenario: 配置指针零命中与可达
 
-- **WHEN** 对 `openspec/config.json` grep 已下线资产的路径前缀
+- **WHEN** 对 `.dev-team/config.json` grep 已下线资产的路径前缀
 - **THEN** 命中数为零，两处指针（`$schema` / `write_protection.files[0].glob`）指向仓库内现存目标
 - **AND** 改动面恰为这两行值（其余字段与行尾字节零改），`protect/**` 零代码改动
 - **AND** 若某个副本内指针仍为旧值，同一命令的命中数应恰等于逐值清单行数且逐行逐值对应（改写前后的双段判据）
 
 #### Scenario: 配置指针可达
 
-- **WHEN** 读取 `openspec/config.json` 的指针
+- **WHEN** 读取 `.dev-team/config.json` 的指针
 - **THEN** `$schema` 指向的 schema 镜像在仓库内现存
 - **AND** `write_protection.files[].glob` 逐条命中现存文件
 
@@ -88,6 +88,6 @@
 | `openspec/changes/archive/**` · `openspec/explores/**` | 历史事实 | 原样保留，MUST NOT 为引用清理而改写 |
 | `README.md` · `AGENT.md` · `CLAUDE.md` | 仓库根文档 | 以存活产品为主叙事；含安装 / dev / build / 发版四段最小集 |
 | `.claude-plugin/marketplace.json` · `.cursor-plugin/marketplace.json` | 对外分发登记 | 只登记存活产物；无可分发产物时整文件删除，MUST NOT 留空壳 |
-| `openspec/config.json` | 仓库面配置（写保护内置锁定面） | `$schema` 与 `write_protection.files[].glob` 恒指向现存文件；改写限值级替换（恰 2 行、其余字节零改），保护面代码零改动 |
+| `.dev-team/config.json` | 仓库面配置（写保护内置锁定面） | `$schema` 与 `write_protection.files[].glob` 恒指向现存文件；改写限值级替换（恰 2 行、其余字节零改），保护面代码零改动 |
 | change 目录的「配置指针」表 | 指针改写与复核 | 逐值给出旧值 → 新值 + 最小改动改法（值级替换、其余字节零改）+ 复核命令（`grep` 零命中、`git diff` 恰 2 行）；MUST NOT 省略复核 |
 | `.gitignore` | 忽略规则 | MUST NOT 保留指向已删产物目录的忽略条目（死条目） |

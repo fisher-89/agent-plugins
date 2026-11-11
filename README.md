@@ -81,11 +81,14 @@ openspec/
 ├── specs/                         存活能力规格（只放仍在维护的能力）
 ├── changes/                       进行中的 change（archive/ 为历史存档）
 └── explores/                      探索笔记
+.dev-team/
+├── config.json                    工作区配置（测试套件 / 静态分析 / 写保护）
+└── architecture/                  架构域：模型 / 决策记录 / API 契约
 ```
 
-## 项目配置（`openspec/config.json`）
+## 项目配置（`.dev-team/config.json`）
 
-仓库级配置（测试套件、静态分析命令、写保护）在 `openspec/config.json`，schema 在
+仓库级配置（测试套件、静态分析命令、写保护）在 `.dev-team/config.json`，schema 在
 `packages/desktop/src-tauri/crates/core/config/config.schema.json`，文件顶部 `$schema` 指其 raw URL
 即可获得编辑器补全：
 
@@ -99,7 +102,7 @@ openspec/
 |------|------|----------|
 | `tests` | 测试套件：root / 框架 / 范围 / 覆盖率与变异门槛 | 两个 suite：`packages/desktop`（`vite-plus`）、`packages/desktop/src-tauri`（`rust`） |
 | `static_analysis` | 静态检查命令 | `pnpm run -C ./packages/desktop check` |
-| `write_protection` | 禁止 Agent 改写的文件（glob） | `packages/desktop/knip.json`（另内置锁定 `openspec/config.json`） |
+| `write_protection` | 禁止 Agent 改写的文件（glob） | `packages/desktop/knip.json`（另内置锁定 `.dev-team/config.json`） |
 
 ## 历史
 

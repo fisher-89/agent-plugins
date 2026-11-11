@@ -18,7 +18,7 @@ Layout {
 }
 ```
 
-layout/mod.rs SHALL 在模块顶部设**目录名常量组**：域目录名（`DOMAIN_DIR_NAME` = `openspec`）、`changes` / `archive` / `explores` 子目录名、架构域顶层目录名（`ARCHI_ROOT_DIR_NAME` = `.dev-team`）、架构域段名（`architecture`）、`models` / `decisions` 子目录名、`config.json` 文件名。架构域顶层段 `.dev-team` 与架构域段 `architecture`（及其中 `models` / `decisions` 子目录）SHALL 只经本模块的派生函数暴露（见「架构域路径派生」requirement）；架构域 SHALL 与 `openspec` 域根**分树**（顶层隐藏目录 `.dev-team`），MUST NOT 嵌套于域根之下。`Layout` 三字段（`changes_root` / `archive_root` / `explores_root`）SHALL NOT 因架构域新增而增字段或改语义——架构域是第四条独立派生面，不属于 change 树。`resolve` SHALL 全量引用常量组装路径（MUST NOT 行内字面量）；`domain_dir_name` 的 fn 形态 SHALL 收敛为常量（公开形态 design 定夺：导出 `pub const` 或保留 fn 包装），既有消费点（stats 轨道的 tokei `ignored_directories` 通道）随之更新、语义零变化。
+layout/mod.rs SHALL 在模块顶部设**目录名常量组**：域目录名（`DOMAIN_DIR_NAME` = `openspec`）、`changes` / `archive` / `explores` 子目录名、架构域顶层目录名（`ARCHI_ROOT_DIR_NAME` = `.dev-team`）、架构域段名（`architecture`）、`models` / `decisions` 子目录名、`config.json` 文件名。架构域顶层段 `.dev-team` 与架构域段 `architecture`（及其中 `models` / `decisions` 子目录）SHALL 只经本模块的派生函数暴露（见「架构域路径派生」requirement）；架构域 SHALL 与 `openspec` 域根**分树**（顶层隐藏目录 `.dev-team`），MUST NOT 嵌套于域根之下。工作区配置 `config.json` SHALL 锚定架构域顶层目录（`<root>/.dev-team/config.json`，与 `architecture/` 平级），MUST NOT 落 `openspec/` 域根。`Layout` 三字段（`changes_root` / `archive_root` / `explores_root`）SHALL NOT 因架构域新增而增字段或改语义——架构域是第四条独立派生面，不属于 change 树。`resolve` SHALL 全量引用常量组装路径（MUST NOT 行内字面量）；`domain_dir_name` 的 fn 形态 SHALL 收敛为常量（公开形态 design 定夺：导出 `pub const` 或保留 fn 包装），既有消费点（stats 轨道的 tokei `ignored_directories` 通道）随之更新、语义零变化。
 
 `resolve` 与常量组 SHALL 是整个 desktop 包内唯一知晓磁盘目录名、子目录名与 config.json 文件名的位置（字面量隔离执法见 desktop-crate-layout：`openspec` 与 `config.json` 双禁令）；目录或子目录未来改名 SHALL 只需修改 layout/mod.rs 常量组。`resolve` MUST NOT 访问文件系统（纯路径推导），对不存在的 root 亦 SHALL 正常返回 Layout（存在性检查交由上层查询处理）。
 
@@ -58,12 +58,12 @@ App SHALL 支持读取任意用户选定的项目根目录下的 change 记录�
 
 ### Requirement: config_path 提供 config.json 路径解析
 
-foundation crate SHALL 提供 config.json 路径解析能力：给定 workspace 根返回 `<root>/<域目录名>/config.json` 路径（倾向形态为独立函数 `config_path(root: &Path) -> PathBuf`——config.json 是文件而非目录树，`Layout` 加第四字段不贴切；最终形态 design 定夺并记录理由）。路径 SHALL 全量引用目录名常量组，MUST NOT 行内字面量；解析 SHALL 为纯路径推导、无任何文件系统访问（文件存在性交由 `config` crate 读取层处理）；该函数 SHALL 是 `config` crate 获取配置文件路径的唯一通道。
+foundation crate SHALL 提供 config.json 路径解析能力：给定 workspace 根返回 `<root>/.dev-team/config.json` 路径（倾向形态为独立函数 `config_path(root: &Path) -> PathBuf`——config.json 是文件而非目录树，`Layout` 加第四字段不贴切；最终形态 design 定夺并记录理由）。配置 SHALL 与变更语料域根 `openspec/` **分树**，落架构域顶层目录（与 `architecture/` 平级）。路径 SHALL 全量引用目录名常量组，MUST NOT 行内字面量；解析 SHALL 为纯路径推导、无任何文件系统访问（文件存在性交由 `config` crate 读取层处理）；该函数 SHALL 是 `config` crate 获取配置文件路径的唯一通道。
 
 #### Scenario: 路径解析正确
 
 - **WHEN** 以某 workspace 根调用 config.json 路径解析
-- **THEN** 返回路径为根目录拼接域目录名常量再拼接 config.json 文件名常量的结果，与 `resolve` 的域目录推导同源
+- **THEN** 返回路径为根目录拼接架构域顶层目录名常量再拼接 config.json 文件名常量的结果，与 `archi_dir` 的顶层推导同源
 
 #### Scenario: 纯推导无 IO
 
@@ -114,7 +114,7 @@ is_archi_rel_path(rel)     → rel 是否落在 <archi_dir> 之内（repo 相对
 #### Scenario: 与工作区配置路径互不遮蔽
 
 - **WHEN** 以同一 root 分别调用 `config_path(root)` 与 `archi_config_path(root)`
-- **THEN** 前者为 `<root>/openspec/config.json`、后者为 `<root>/.dev-team/architecture/config.json`，两路径无前缀关系；`Layout` 三字段与 `resolve` 语义零变化
+- **THEN** 前者为 `<root>/.dev-team/config.json`、后者为 `<root>/.dev-team/architecture/config.json`，两路径无前缀关系；`Layout` 三字段与 `resolve` 语义零变化
 
 #### Scenario: archi_api_dir 与其他派生互不遮蔽
 
@@ -161,7 +161,7 @@ archi_api_rel_dir()      → <archi_rel_dir>/api
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `foundation::layout` | 磁盘布局解析 + 目录名常量组 | `resolve(root: &Path) -> Layout`；常量组覆盖域目录名 / `changes` / `archive` / `explores` / `config.json`；`config_path`（形态 design 定夺）同源引用常量；纯路径推导、无 IO；全包唯一字面量触点（`openspec` + `config.json` 双禁令） |
+| `foundation::layout` | 磁盘布局解析 + 目录名常量组 | `resolve(root: &Path) -> Layout`；常量组覆盖域目录名 / `changes` / `archive` / `explores` / 架构域顶层目录名 / `config.json`；`config_path`（形态 design 定夺）同源引用常量（落架构域顶层，与变更语料分树）；纯路径推导、无 IO；全包唯一字面量触点（`openspec` + `config.json` 双禁令） |
 | `domain_dir_name`（fn → 常量形态） | 域目录名裸名消费通道 | tokei `ignored_directories` 等裸名语义消费方经此取字面量；公开形态（`pub const` vs fn 包装）design 定夺，消费点语义零变化 |
 | `dev-team`（workspace 状态） | 当前 workspace 持有 | 持有选定的根目录 |
 | `foundation::layout`（常量组扩展，架构域段） | 架构域段名单点 | 新增架构域顶层目录名 `.dev-team`、`architecture` 段名与 `models` / `decisions` 子目录名常量；架构域与 `openspec` 域根分树；`Layout` 三字段与 `resolve` 语义零变化 |

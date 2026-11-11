@@ -268,7 +268,7 @@
 }
 ```
 
-- **归属面写死**：工作区 `openspec/config.json` 管**执行**（命令 / scope / 阈值 / 保护），本文件管**看护策略**（豁免 / 扫描排除）；MUST NOT 出现第三个配置文件，MUST NOT 把 `architecture` 键塞进工作区 `config.json`（其 `KNOWN_KEYS` 七项零变化）。
+- **归属面写死**：工作区 `.dev-team/config.json` 管**执行**（命令 / scope / 阈值 / 保护），本文件管**看护策略**（豁免 / 扫描排除）；MUST NOT 出现第三个配置文件，MUST NOT 把 `architecture` 键塞进工作区 `config.json`（其 `KNOWN_KEYS` 七项零变化）。
 - **缺失即空配置**：文件不存在 SHALL 视为 `{ ignore: [], exclude: [] }`（冷启动合法起点），MUST NOT 报错。
 - **严格性**：未知键 SHALL 被拒绝（防拼错静默失效）；`ignore[].reason` 必填且非空白；`ignore[].from` / `to` SHALL 为模型内存在的元素 FQN（不存在即显式 `Err`——配置是声明，指向已删除元素就是配置漂移）；`exclude[]` SHALL 为文件级 glob（目录以 `/**` 收尾）。
 - **粒度封闭**：`ignore` MUST NOT 接受 glob 或元素名以外的形态（见「豁免两层与留痕」）。

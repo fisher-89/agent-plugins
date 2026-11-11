@@ -4509,11 +4509,11 @@ async fn archi两工具在守卫链后段零拦截() {
     let cases = [
         Case {
             tool: ARCHI_MODULE_TOOL,
-            input: serde_json::json!({ "element": "App.Auth", "path": "openspec/config.json" }),
+            input: serde_json::json!({ "element": "App.Auth", "path": ".dev-team/config.json" }),
         },
         Case {
             tool: ARCHI_SEARCH_TOOL,
-            input: serde_json::json!({ "query": "auth", "path": "openspec/config.json" }),
+            input: serde_json::json!({ "query": "auth", "path": ".dev-team/config.json" }),
         },
     ];
     for Case { tool, input } in cases {

@@ -103,7 +103,7 @@ ArchiCheck 步 SHALL 按报告派生结论并分派（执行体见 desktop-chang
 - **root**：SHALL 为 run 的 exec root（有 worktree 时 `detail.worktree`，legacy change 为主仓根）——模型与源码同根读盘，MUST NOT 混根。
 - **变更集**：增量模式的变更文件清单 SHALL 经 `ArchiveVcsPort::change_edit_set(root, "HEAD")` 由 `steps.rs` 取数后注入（与 mutation 的清单注入同式，唯一入口）；取数失败 SHALL 显式传播为步失败，MUST NOT 降级为空清单（空清单会静默变成 `noChanges` = 假通过）。
 - **模型**：SHALL 读同一 root 下的架构模型（`<archi_dir>/models/*.toml`）；模型不存在即 `skipped`（不阻断），模型结构错即不通过（阻断）。
-- **不读工作区配置**：本步 MUST NOT 读 `openspec/config.json`（不含 `tests[]` 扩展名矩阵、不含 `static_analysis`）；扫描排除与豁免只来自架构域配置（见 desktop-archi-drift「架构域看护配置」）。
+- **不读工作区配置**：本步 MUST NOT 读 `.dev-team/config.json`（不含 `tests[]` 扩展名矩阵、不含 `static_analysis`）；扫描排除与豁免只来自架构域配置（见 desktop-archi-drift「架构域看护配置」）。
 
 #### Scenario: worktree 根下模型与源码同根
 

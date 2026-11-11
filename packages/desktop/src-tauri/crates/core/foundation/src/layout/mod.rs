@@ -12,7 +12,7 @@ const ARCHIVE_DIR_NAME: &str = "archive";
 /// 探索笔记子目录名（相对域根锚定）
 const EXPLORES_DIR_NAME: &str = "explores";
 
-/// 工作区配置文件名（相对域根锚定）
+/// 工作区配置文件名（相对架构域顶层目录锚定——`<root>/.dev-team/config.json`）
 const CONFIG_FILE_NAME: &str = "config.json";
 
 /// change 报告子目录名（相对 change 目录锚定）
@@ -87,9 +87,10 @@ pub fn resolve(root: &Path) -> Layout {
     }
 }
 
-/// 把 workspace 根目录解析为配置文件路径
+/// 把 workspace 根目录解析为配置文件路径（`<root>/.dev-team/config.json`——
+/// 与变更语料 `openspec/` 分树，落架构域顶层）
 pub fn config_path(root: &Path) -> PathBuf {
-    root.join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
+    root.join(ARCHI_ROOT_DIR_NAME).join(CONFIG_FILE_NAME)
 }
 
 /// 槽位 → reports 子目录名映射（三树后缀单点——消费方零路径字面量扩散）。

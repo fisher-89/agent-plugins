@@ -18,7 +18,7 @@ This repository is the **WPS AI desktop application** — a Tauri 2 + React app.
 - Backend crates live in `src-tauri/crates/` in three groups. `core/`: `foundation` (layout / path resolution), `config` (workspace config read + validation), `workflow` (phase table, write face), `orchestration` (walker / step loop / report-driven routing), `agent` (session execution), `checks` (report semantics). `infra/`: adapters `agent`, `checks`, `exec`, `store`, `vcs`, `watch`. `tools/export-bindings`: TypeScript type generation. Dependency direction is one-way (infra → core, never core → infra).
 - `src-tauri/src/` is the Tauri app shell: IPC commands, error mapping, bindings export. It wires core/infra ports and owns no domain rules.
 - Phase role prompts are 16 static markdown files under `crates/core/workflow/src/prompts/` (7 executor + 9 evaluator), assembled at compile time through literal `include_str!` paths — fully static, zero placeholders.
-- `crates/infra/agent/src/sdk/protect/` is the write-protection face (built-in locked files + user globs from `openspec/config.json`; shell / node / python write detection), mounted as a segment of the agent loop guard chain.
+- `crates/infra/agent/src/sdk/protect/` is the write-protection face (built-in locked files + user globs from `.dev-team/config.json`; shell / node / python write detection), mounted as a segment of the agent loop guard chain.
 - The frontend under `packages/desktop/src/` is React + Vite (vite-plus tooling: `vp check`, `vp test`, `knip` dead-code scan); generated IPC types live in `src/types/generated/` and are refreshed by `bindings:export` (staleness confirmed by reviewing the git diff before commit).
 
 ## 模块 API 契约

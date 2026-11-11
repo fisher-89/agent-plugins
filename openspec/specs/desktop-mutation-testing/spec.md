@@ -66,7 +66,7 @@
 
 ### Requirement: score 口径与逐 suite 阈值判定
 
-突变得分 SHALL 沿既有公式：`score = (killed + timeout) / (total - ignored - compileError - runtimeError)`（分母排除 ignored + compileError + runtimeError；分母为 0 → 100.0），MUST NOT 引入百分比平均等新口径。阈值 SHALL 取 suite 配置 `mutation.score`（`openspec/config.json` 既有字段：desktop 80 / src-tauri 70）。门禁结论 SHALL 为逐 suite 判定、全过即 pass（任一 suite `score < threshold` 即 fail）。多 suite 计数归并 SHALL 沿 `aggregate_mutation` 既有计数求和公式（桶报告当子报告，MUST NOT 新增归并公式）；归并 MutationBlock SHALL 回填 `summary.json` 的 `mutation` 位（在位时），未跑 / diff 空跳过时位保持 null（null 合法观察期语义不变，见 desktop-test-execution）。
+突变得分 SHALL 沿既有公式：`score = (killed + timeout) / (total - ignored - compileError - runtimeError)`（分母排除 ignored + compileError + runtimeError；分母为 0 → 100.0），MUST NOT 引入百分比平均等新口径。阈值 SHALL 取 suite 配置 `mutation.score`（`.dev-team/config.json` 既有字段：desktop 80 / src-tauri 70）。门禁结论 SHALL 为逐 suite 判定、全过即 pass（任一 suite `score < threshold` 即 fail）。多 suite 计数归并 SHALL 沿 `aggregate_mutation` 既有计数求和公式（桶报告当子报告，MUST NOT 新增归并公式）；归并 MutationBlock SHALL 回填 `summary.json` 的 `mutation` 位（在位时），未跑 / diff 空跳过时位保持 null（null 合法观察期语义不变，见 desktop-test-execution）。
 
 #### Scenario: 公式与分母排除
 
@@ -201,7 +201,7 @@ Stryker 无相应的增量成果文件（报告只在正常退出时由 jsonRepo
 
 #### Scenario: schema 零扩展
 
-- **WHEN** 审查 `openspec/config.json` schema 与 `MutationConfig` 结构
+- **WHEN** 审查 `.dev-team/config.json` schema 与 `MutationConfig` 结构
 - **THEN** `suite.mutation` 仍为 `{ cwd?, score }`，无 jobs / timeout / 估算速率字段；对应常量在 mutation 执行模块内可考
 
 #### Scenario: 可迁移常数与需校准常数分列

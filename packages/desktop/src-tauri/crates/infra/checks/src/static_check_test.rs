@@ -41,10 +41,10 @@ impl TempWs {
         self.0.to_string_lossy().into_owned()
     }
 
-    /// 预置 config（`<root>/openspec/config.json`，layout config_path 单点）。
+    /// 预置 config（`<root>/.dev-team/config.json`，layout config_path 单点）。
     fn write_config(&self, static_analysis: Option<&str>) {
-        let config_dir = self.0.join("openspec");
-        fs::create_dir_all(&config_dir).expect("创建 openspec 目录失败");
+        let config_dir = self.0.join(".dev-team");
+        fs::create_dir_all(&config_dir).expect("创建 .dev-team 目录失败");
         let body = match static_analysis {
             Some(command) => format!("{{ \"static_analysis\": \"{command}\" }}"),
             None => "{}".to_owned(),
@@ -673,7 +673,7 @@ async fn run_slot_baseline_fail_report_dir仍回填baseline锚() {
     );
 }
 
-/// run 无配置直过（边界）：`openspec/config.json` 无 static_analysis 配置 →
+/// run 无配置直过（边界）：`.dev-team/config.json` 无 static_analysis 配置 →
 /// 直过 passed、零 spawn；report_dir 亦回填本槽位锚点（语义 = 本槽位报告树
 /// 锚点——「无配置分支 report_dir 亦回填」锚）。
 #[tokio::test]
@@ -1775,7 +1775,7 @@ async fn archi槽位显式Err且文案归因() {
     );
 }
 
-/// 边界：守卫先于一切 IO——空目录（无 `openspec/config.json`、无命令配置）仍返回
+/// 边界：守卫先于一切 IO——空目录（无 `.dev-team/config.json`、无命令配置）仍返回
 /// 槽位 `Err`（不是「缺配置」类错误），且零写盘（`reports/archi` 零创建）。
 #[tokio::test]
 #[allow(non_snake_case)]
@@ -1876,7 +1876,7 @@ async fn archi槽位零spawn_PATH隔离仍返槽位err() {
 // 命令分支零 `begin`。
 //
 // Mock 策略（见 test-design 本节 Mock策略表）：真实 `TempWs` tempdir + 真实
-// `openspec/config.json` + 真实平台 shim（分阶段输出用 gate 文件时序）；
+// `.dev-team/config.json` + 真实平台 shim（分阶段输出用 gate 文件时序）；
 // `PathPrefix` / `EnvWindow` 为既有 RAII 装置（非模块替身）。
 //
 // 上抛面（`OutputRefSink`）的构造面为 `pub`（design D16，本轮回溯补正）：checks

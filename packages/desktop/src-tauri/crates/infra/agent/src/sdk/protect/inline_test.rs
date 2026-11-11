@@ -12,7 +12,7 @@
 use super::inline;
 
 /// 受保护文件路径样本（判命中归 `protect/mod.rs`，本文件只锚候选提取）。
-const PROTECTED: &str = "/ws/openspec/config.json";
+const PROTECTED: &str = "/ws/.dev-team/config.json";
 
 fn targets(command: &str) -> Vec<String> {
     inline::write_targets(command)
@@ -239,7 +239,7 @@ fn 共现式文本不误拦() {
 #[test]
 fn 裸脚本与模块入口放行() {
     for command in [
-        "node scripts/setup.js /ws/openspec/config.json",
+        "node scripts/setup.js /ws/.dev-team/config.json",
         "python tools/gen.py",
         "node -m pkg",
         "python -m mod",

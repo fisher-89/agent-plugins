@@ -25,7 +25,7 @@ const NO_BYPASS_SENTENCE: &str = "不要改用其他命令或工具尝试绕过"
 
 #[test]
 fn 内置串含路径配置权威调整指引与两句功能句() {
-    let path = "/tmp/ws/openspec/config.json";
+    let path = "/tmp/ws/.dev-team/config.json";
     let reason = reason::deny_reason(&ReasonKind::BuiltinConfig, path, "write");
 
     assert!(reason.contains(path), "① 路径原文在串内，实际: {reason}");
@@ -178,12 +178,12 @@ fn 超长与特殊字符路径原样注入不截断() {
 fn 同入参两次调用逐字节相等() {
     let first = reason::deny_reason(
         &ReasonKind::BuiltinConfig,
-        "/ws/openspec/config.json",
+        "/ws/.dev-team/config.json",
         "bash",
     );
     let second = reason::deny_reason(
         &ReasonKind::BuiltinConfig,
-        "/ws/openspec/config.json",
+        "/ws/.dev-team/config.json",
         "bash",
     );
     assert_eq!(first, second, "纯函数无隐藏状态（确定性）");

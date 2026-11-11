@@ -384,7 +384,7 @@ fn 特殊字符原文保留() {
 // ---------------------------------------------------------------------------
 
 /// 边界（AC-9）：只有落在 `<archi_dir>/config.json` 的配置被读到——工作区配置
-/// 位置 `<root>/openspec/config.json` 与模型目录下的同名文件均不被读取。
+/// 位置 `<root>/.dev-team/config.json` 与模型目录下的同名文件均不被读取。
 #[test]
 fn 定位单点() {
     let temp = TempDir::new("location");
@@ -398,7 +398,7 @@ fn 定位单点() {
 
     let elsewhere = TempDir::new("location-elsewhere");
     elsewhere.write(
-        "openspec/config.json",
+        ".dev-team/config.json",
         "{ \"exclude\": [\"src/workspace/**\"] }",
     );
     elsewhere.write(

@@ -5,8 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::{
-    config_path, domain_dir_name, resolve, ARCHIVE_DIR_NAME, CHANGES_DIR_NAME, CONFIG_FILE_NAME,
-    DOMAIN_DIR_NAME, EXPLORES_DIR_NAME,
+    config_path, domain_dir_name, resolve, ARCHIVE_DIR_NAME, ARCHI_ROOT_DIR_NAME, CHANGES_DIR_NAME,
+    CONFIG_FILE_NAME, DOMAIN_DIR_NAME, EXPLORES_DIR_NAME,
 };
 
 /// 临时目录 RAII：测试结束自动清理。
@@ -285,7 +285,7 @@ fn resolve_三棵子树与常量组合路径逐字相等_体内全量常量引�
 // ---------------------------------------------------------------------------
 
 #[test]
-fn config_path等于root与域目录名和配置文件名的纯拼接_不存在root纯推导正常返回() {
+fn config_path等于root与架构域顶层目录名和配置文件名的纯拼接_不存在root纯推导正常返回() {
     let ghost = std::env::temp_dir().join("foundation-layout-test-不存在的目录-config_path");
     // 前置：确保该目录确实不存在
     let _ = fs::remove_dir_all(&ghost);
@@ -294,7 +294,7 @@ fn config_path等于root与域目录名和配置文件名的纯拼接_不存在r
     // 纯推导：对不存在的 root 照常返回，无 IO
     assert_eq!(
         config_path(&ghost),
-        ghost.join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
+        ghost.join(ARCHI_ROOT_DIR_NAME).join(CONFIG_FILE_NAME)
     );
 }
 
@@ -303,7 +303,7 @@ fn config_path空root与尾分隔符root与文件root纯拼接不panic() {
     // 空 root → 纯相对形式
     assert_eq!(
         config_path(Path::new("")),
-        PathBuf::from(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
+        PathBuf::from(ARCHI_ROOT_DIR_NAME).join(CONFIG_FILE_NAME)
     );
 
     // 尾分隔符 root：join 语义保持、不产生双分隔符
@@ -312,7 +312,7 @@ fn config_path空root与尾分隔符root与文件root纯拼接不panic() {
     assert_eq!(
         config_path(Path::new(&trailing)),
         Path::new(&trailing)
-            .join(DOMAIN_DIR_NAME)
+            .join(ARCHI_ROOT_DIR_NAME)
             .join(CONFIG_FILE_NAME)
     );
 
@@ -322,12 +322,12 @@ fn config_path空root与尾分隔符root与文件root纯拼接不panic() {
     fs::write(&file_root, "内容").expect("写文件失败");
     assert_eq!(
         config_path(&file_root),
-        file_root.join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
+        file_root.join(ARCHI_ROOT_DIR_NAME).join(CONFIG_FILE_NAME)
     );
 }
 
 #[test]
-fn config_path对同一输入结果稳定且父目录恰为resolve的域目录() {
+fn config_path对同一输入结果稳定且父目录恰为架构域顶层目录() {
     let temp = TempDir::new("config-path-invariants");
 
     // 确定性：同一输入结果稳定
@@ -335,14 +335,22 @@ fn config_path对同一输入结果稳定且父目录恰为resolve的域目录()
     let second = config_path(&temp.0);
     assert_eq!(first, second);
 
-    // 锚定基准不变量：config_path 的父目录恰为域目录（= resolve 的 changes
-    // 产物父目录），配置文件与 changes / explores 同域
+    // 锚定基准不变量：config_path 的父目录恰为架构域顶层目录（`archi_dir`
+    // 的父目录），配置文件与架构域同树、与变更语料域根分树
     let layout = resolve(&temp.0);
-    assert_eq!(first.parent(), Some(temp.0.join(DOMAIN_DIR_NAME).as_path()));
     assert_eq!(
         first.parent(),
+        Some(temp.0.join(ARCHI_ROOT_DIR_NAME).as_path())
+    );
+    assert_eq!(
+        first.parent(),
+        super::archi_dir(&temp.0).parent(),
+        "config_path 与架构域同属一棵树（架构域顶层目录单点）"
+    );
+    assert_ne!(
+        first.parent(),
         layout.changes_root.parent(),
-        "config_path 与 changes / explores 同属一棵域树"
+        "工作区配置与 changes / explores 分树（不落变更语料域根）"
     );
     assert_eq!(
         layout.archive_root.parent(),

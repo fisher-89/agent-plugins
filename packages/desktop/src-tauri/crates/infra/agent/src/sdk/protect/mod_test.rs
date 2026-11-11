@@ -212,7 +212,7 @@ fn root边界形态不panic且内置恒在() {
         );
         let reason = loaded.evaluate(
             "write",
-            &serde_json::json!({ "path": "/任意前缀/openspec/config.json" }),
+            &serde_json::json!({ "path": "/任意前缀/.dev-team/config.json" }),
             &root,
         );
         assert!(reason.is_some(), "内置命中面恒在，root: {root:?}");
@@ -402,8 +402,8 @@ fn 判定零io零副作用且不查盘() {
         "不存在的路径照判（零 IO）"
     );
     for command in [
-        "echo x > openspec/config.json",
-        "rm openspec/config.json",
+        "echo x > .dev-team/config.json",
+        "rm .dev-team/config.json",
         "git stash",
     ] {
         let _ = loaded.evaluate(
@@ -516,9 +516,9 @@ fn windows前缀与反斜杠归一后仍命中() {
     let dir = tempdir("eval-windows");
     let loaded = ProtectRules::load(None);
     let cases = [
-        (r"\\?\D:\ws\openspec\config.json", true),
-        (r"D:\ws\openspec\config.json", true),
-        (r"D:\ws\openspec\config.jsonx", false),
+        (r"\\?\D:\ws\.dev-team\config.json", true),
+        (r"D:\ws\.dev-team\config.json", true),
+        (r"D:\ws\.dev-team\config.jsonx", false),
     ];
     for (path, expected) in cases {
         let hit = loaded
@@ -877,15 +877,15 @@ fn 类型面_clone判定等价与空规则集恒放行() {
     for (tool, input) in [
         (
             "write",
-            serde_json::json!({ "path": "/ws/openspec/config.json" }),
+            serde_json::json!({ "path": "/ws/.dev-team/config.json" }),
         ),
         (
             "edit",
-            serde_json::json!({ "path": "/ws/openspec/config.json" }),
+            serde_json::json!({ "path": "/ws/.dev-team/config.json" }),
         ),
         (
             "bash",
-            serde_json::json!({ "command": "rm openspec/config.json" }),
+            serde_json::json!({ "command": "rm .dev-team/config.json" }),
         ),
     ] {
         assert!(
