@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/trace';
 import { useHighlightedCode } from '@/hooks/use-highlighted-code';
 import type { AgentToolOutput } from '@/lib/agent-adapter';
-import { asRecord, textOf } from '@/lib/parse';
+import { asRecord, numberOf, textOf } from '@/lib/parse';
 
 import { Spinner } from '../ui/spinner';
 import { FinishStepCard, WebSearchCard } from './agent-blocks';
@@ -156,6 +156,7 @@ function rangeSuffix(offset: unknown, limit: unknown): string {
 function ReadCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
   const record = asRecord(input);
   const path = textOf(record.path);
+  const offset = numberOf(record.offset);
   return (
     <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
       <TraceCollapsibleTrigger>
@@ -170,7 +171,12 @@ function ReadCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.
         {output?.isError && <div className="text-destructive mb-2">{output.content}</div>}
         <CodeBlock>
           <CodeBlockHeader>{path}</CodeBlockHeader>
-          <CodeBlockContent className="max-h-60" data-testid="block-tool-result">
+          <CodeBlockContent
+            className="max-h-60"
+            data-testid="block-tool-result"
+            lineNumbers
+            startLine={offset ?? 1}
+          >
             {output?.content}
           </CodeBlockContent>
         </CodeBlock>

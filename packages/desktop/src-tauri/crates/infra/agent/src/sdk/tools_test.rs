@@ -166,7 +166,7 @@ fn 定义清单恰为七工具且名称_描述_schema齐全() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn read返回行号前缀内容且中文与emoji保真() {
+async fn read返回中文与emoji保真() {
     let dir = tempdir("read-ok");
     let root = root_of(&dir);
     let path = write_rel(&root, "note.md", "第一行 中文\nsecond line 🎉\n第三行");
@@ -177,7 +177,6 @@ async fn read返回行号前缀内容且中文与emoji保真() {
     let mut lines = output.lines();
     let first = lines.next().expect("首行");
     assert!(first.contains("第一行 中文"), "内容保真: {first}");
-    assert!(first.contains('\t'), "行号前缀以制表符分隔: {first}");
     for line in lines {
         assert!(
             line.contains("second line 🎉") || line.contains("第三行"),
@@ -259,7 +258,7 @@ async fn read超2000行截断尾部留痕且offset翻页取回后续窗口() {
         "前 2000 行 + 1 行尾部留痕: {}",
         lines.len()
     );
-    assert!(output.contains("2000\tL2000"), "第 2000 行在场: {output}");
+    assert!(output.contains("L2000"), "第 2000 行在场: {output}");
     assert!(!output.contains("L2001"), "第 2001 行不在本段窗口");
     let tail = lines.last().expect("尾部留痕");
     assert!(
@@ -271,10 +270,7 @@ async fn read超2000行截断尾部留痕且offset翻页取回后续窗口() {
     let paged = execute(&root, "read", &json!({ "path": path, "offset": 2001 }))
         .await
         .expect("翻页读取成功");
-    assert!(
-        paged.contains("2001\tL2001"),
-        "offset 翻页取回后续窗口: {paged}"
-    );
+    assert!(paged.contains("L2001"), "offset 翻页取回后续窗口: {paged}");
     assert!(!paged.contains("L2000"), "翻页窗口不含前段行: {paged}");
 }
 
@@ -290,10 +286,7 @@ async fn read恰2000行不截断无留痕() {
         .expect("读取成功");
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines.len(), 2000, "恰阈值全量返回");
-    assert!(
-        output.contains("2000\tL2000"),
-        "末行在场（恰阈值过）: {output}"
-    );
+    assert!(output.contains("L2000"), "末行在场（恰阈值过）: {output}");
     assert!(!output.contains("已截断"), "恰 2000 行无截断留痕");
 }
 
@@ -346,8 +339,8 @@ async fn read大文件未给分页参数时只预览前100行并提示分页() {
         "前 100 行 + 1 行预览留痕: {}",
         lines.len()
     );
-    assert!(output.contains("   100\tL100"), "第 100 行在场");
-    assert!(!output.contains("   101\tL101"), "第 101 行不在预览窗口");
+    assert!(output.contains("L100"), "第 100 行在场");
+    assert!(!output.contains("L101"), "第 101 行不在预览窗口");
     let tail = lines.last().expect("留痕尾行");
     assert!(
         tail.contains("大文件预览") && tail.contains("共 600 行"),
@@ -374,9 +367,9 @@ async fn read大文件显式offset或limit时按调用方窗口读取() {
     )
     .await
     .expect("翻页读取成功");
-    assert!(paged.contains("   300\tL300"), "翻页起点行在场");
-    assert!(paged.contains("   499\tL499"), "翻页窗口到达第 499 行");
-    assert!(!paged.contains("   500\tL500"), "窗口外行不出现");
+    assert!(paged.contains("L300"), "翻页起点行在场");
+    assert!(paged.contains("L499"), "翻页窗口到达第 499 行");
+    assert!(!paged.contains("L500"), "窗口外行不出现");
     assert!(!paged.contains("大文件预览"), "显式 offset 不走预览分支");
 
     // 显式 limit：从第 1 行起取 200 行（> 预览行数但 < 文件行数，窗口体量落在
@@ -384,11 +377,8 @@ async fn read大文件显式offset或limit时按调用方窗口读取() {
     let windowed = execute(&root, "read", &json!({ "path": path, "limit": 200 }))
         .await
         .expect("显式窗口读取成功");
-    assert!(
-        windowed.contains("   200\tL200"),
-        "显式 limit 覆盖到第 200 行"
-    );
-    assert!(!windowed.contains("   201\tL201"), "窗口外行不出现");
+    assert!(windowed.contains("L200"), "显式 limit 覆盖到第 200 行");
+    assert!(!windowed.contains("L201"), "窗口外行不出现");
     assert!(!windowed.contains("大文件预览"), "显式 limit 不走预览分支");
 }
 
@@ -403,7 +393,7 @@ async fn read小文件未给分页参数时维持整读不回退为预览() {
     let output = execute(&root, "read", &json!({ "path": path }))
         .await
         .expect("读取成功");
-    assert!(output.contains("   150\tL150"), "小文件整读到底: {output}");
+    assert!(output.contains("L150"), "小文件整读到底: {output}");
     assert!(!output.contains("大文件预览"), "未过大文件阈值不预览");
 }
 

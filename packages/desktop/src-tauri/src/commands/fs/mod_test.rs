@@ -311,7 +311,7 @@ fn read_file文件尾半字符零推进不报截断() {
 fn read_file大二进制文件游标到尾部且不报截断() {
     let dir = TempDir::new().expect("tempdir");
     let mut bytes = vec![0u8];
-    bytes.extend(std::iter::repeat(b'x').take(MAX_LIMIT as usize + 64));
+    bytes.extend(std::iter::repeat_n(b'x', MAX_LIMIT as usize + 64));
     let path = write(&dir, "big.bin", &bytes);
 
     let slice = read(&path, None, None);

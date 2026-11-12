@@ -120,15 +120,14 @@ async fn read(input: &Value) -> Result<String, String> {
         .unwrap_or(default_limit);
     let start = (offset - 1).min(lines.len());
     let end = (start + limit).min(lines.len());
-    let numbered: Vec<String> = lines[start..end]
+    let output_chunk: Vec<String> = lines[start..end]
         .iter()
-        .enumerate()
-        .map(|(index, line)| format!("{:>6}\t{}", start + index + 1, line))
+        .map(|line| line.to_string())
         .collect();
-    if numbered.is_empty() {
+    if output_chunk.is_empty() {
         return Ok("(空区间)".to_owned());
     }
-    let mut body = numbered.join("\n");
+    let mut body = output_chunk.join("\n");
     if end < lines.len() {
         if preview {
             body.push_str(&format!(
