@@ -31,13 +31,19 @@ function formatTime(value: string | null): string {
   return value;
 }
 
+function ReturnButton({ onClick }: { onClick: () => void }): React.JSX.Element {
+  return (
+    <Button variant="ghost" size="icon" title="返回列表" onClick={onClick}>
+      <ChevronLeftIcon />
+    </Button>
+  );
+}
+
 function DetailHeader({ detail, onBack }: { detail: ChangeDetail; onBack: () => void }) {
   return (
     <div className="mb-3" data-testid="detail-header">
       <div className="flex flex-wrap items-center gap-2.5">
-        <Button variant="ghost" size="icon" title="返回列表" onClick={onBack}>
-          <ChevronLeftIcon />
-        </Button>
+        <ReturnButton onClick={onBack} />
         <h2 className="m-0 break-all text-[17px]">{detail.title}</h2>
         <span className="text-muted-foreground">
           {detail.source === 'archive' ? '已归档' : '进行中'}
@@ -106,7 +112,7 @@ function DetailFallback({
 }) {
   return (
     <div>
-      <Button onClick={onBack}>← 返回列表</Button>
+      <ReturnButton onClick={onBack} />
       {error ? (
         <div
           className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"

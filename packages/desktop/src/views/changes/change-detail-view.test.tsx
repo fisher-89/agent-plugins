@@ -486,9 +486,9 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     const { container } = renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
     const header = within(container).getByTestId('detail-header');
-    expect(within(header).getByText('add-feature') !== null).toBe(true);
-    expect(within(header).getByText('进行中') !== null).toBe(true);
-    expect(within(header).getByText('2026-09-01') !== null).toBe(true);
+    expect(within(header).getByText('add-feature')).toBeTruthy();
+    expect(within(header).getByText('进行中')).toBeTruthy();
+    expect(within(header).getByText('2026-09-01')).toBeTruthy();
     expect(container.textContent).not.toContain('已归档');
     // activePhase 为 null → 无运行中 badge
     expect(screen.queryByText(/运行中/)).toBeNull();
@@ -509,7 +509,7 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     }
     expect(archivedHeader.textContent).not.toContain('null');
     // activePhase startAt null → badge 不拼接时间与「 · —」占位
-    expect(within(archivedHeader).getByText('运行中 · implement · attempt 2') !== null).toBe(true);
+    expect(within(archivedHeader).getByText('运行中 · implement · attempt 2')).toBeTruthy();
     expect(archivedHeader.textContent).not.toContain(' · —');
   });
 
@@ -557,14 +557,14 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
 
     // 列头 → 该站过程素材单列（挂载层两参调用：文档 + checklist 均挂列头）
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
-    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    expect(screen.getByTestId('detail-drawer')).toBeTruthy();
     expect(screen.getByTestId('drawer-column-section').textContent).toContain('提案正文');
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(screen.queryByTestId('detail-drawer')).toBeNull();
 
     // 运行步节点（role 在场）→ 会话转录单列（页面组装层 selection 上抛链路可用）
     fireEvent.click(screen.getByTestId('rf__node-run:run-1727:proposal:1:executor:0'));
-    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    expect(screen.getByTestId('detail-drawer')).toBeTruthy();
     await screen.findByTestId('session-transcript-panel');
     expect(screen.getByTestId('detail-drawer').textContent).toContain(
       'proposal · attempt 1 · runtime',
@@ -611,7 +611,7 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     fireEvent.click(screen.getByRole('button', { name: '返回列表' }));
     expect(probePathname()).toBe('/changes');
     // 落点为 /changes（本装置以导航桩占位，真实清单页语义归 change-list-view.test）
-    expect(screen.getByTestId('nav-stub') !== null).toBe(true);
+    expect(screen.getByTestId('nav-stub')).toBeTruthy();
   });
 
   it('status 缺席 + pipeline 空（零列图）→ flow-graph 照常挂载，零 flow-empty 占位', async () => {
@@ -643,13 +643,13 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     // 未找到：get_change_detail 应答 null（非错误）
     const unfound = renderDetail({ detail: null });
     await waitFor(() => expect(unfound.container.textContent).toContain('未找到该 change。'));
-    expect(within(unfound.container).getByTestId('detail-note') !== null).toBe(true);
+    expect(within(unfound.container).getByTestId('detail-note')).toBeTruthy();
     expect(within(unfound.container).queryByTestId('error-note')).toBeNull();
 
     // loading：get_change_detail 挂起（请求未返回）
     const loading = renderDetail({ detail: null, hold: true });
     await waitFor(() => expect(loading.container.textContent).toContain('加载中…'));
-    expect(within(loading.container).getByTestId('detail-note') !== null).toBe(true);
+    expect(within(loading.container).getByTestId('detail-note')).toBeTruthy();
     expect(within(loading.container).queryByTestId('error-note')).toBeNull();
 
     // error：挂起请求以 reject 落定（错误提示样式挂钩归属正确）
@@ -671,7 +671,7 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     loadFixture({ detail: detail(), artifacts: PROPOSAL_ENVELOPES, hold: true });
     fireEvent.click(screen.getByTestId('refresh-change-detail-button'));
     expect(screen.queryByText('加载中…')).toBeNull();
-    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.getByTestId('flow-graph')).toBeTruthy();
     expect(screen.getByTestId('refresh-change-detail-button').hasAttribute('disabled')).toBe(true);
 
     await act(async () => {
@@ -694,10 +694,10 @@ describe('ChangeDetailView：路由参数取数、深链与根切换抑制（页
   it('未知 id 深链透传（/changes/ghost）：以 (root, ghost) 取数（null 应答），呈现「未找到该 change。」降级页且不崩', async () => {
     renderDetail({ detail: null }, ROOT, '/changes/ghost');
 
-    await waitFor(() => expect(screen.getByText('未找到该 change。') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByText('未找到该 change。')).toBeTruthy());
     expect(detailCalls()).toEqual([{ root: ROOT, id: 'ghost' }]);
     // detail=null → 既有「未找到该 change。」降级兜底，返回入口在场（降级页按钮）
-    expect(screen.getByRole('button', { name: '← 返回列表' }) !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '返回列表' })).toBeTruthy();
     // 未找到降级页零图区（不静默回落空图面）
     expect(screen.queryByTestId('flow-graph')).toBeNull();
   });
@@ -711,7 +711,7 @@ describe('ChangeDetailView：路由参数取数、深链与根切换抑制（页
 
     // 导航落点：/changes（URL 无 :id 段）
     await waitFor(() => expect(probePathname()).toBe('/changes'));
-    expect(screen.getByTestId('nav-stub') !== null).toBe(true);
+    expect(screen.getByTestId('nav-stub')).toBeTruthy();
 
     // 抑制不变量（invoke 观察面）：过渡轮 useChangeDetail(SECOND, null) 无从
     // 取数 → 零「新根 + 旧 id」误发、抑制轮零 invoke（抑制位随组件卸载终结；
@@ -882,7 +882,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       artifacts: PROPOSAL_ENVELOPES,
     });
     await screen.findByTestId('flow-graph');
-    expect(screen.getByTestId('run-start') !== null).toBe(true);
+    expect(screen.getByTestId('run-start')).toBeTruthy();
     expect(screen.queryByTestId('run-stop')).toBeNull();
     expect(screen.queryByTestId('run-status')).toBeNull();
     expect(screen.queryByTestId('run-error')).toBeNull();
@@ -1067,8 +1067,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
 
     // 库读史步节点常驻（passed 终态样式）+ 活步叠加（running）
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
-    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0') !== null).toBe(true);
-    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:evaluator:0') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0')).toBeTruthy();
+    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:evaluator:0')).toBeTruthy();
   });
 
   it('两 run 全史叠加 + 第三 run 活节点叠加（AC-9）：同列同相位 attempt 递增各自成节点可辨，稳定身份键 (phase,attempt,step,instanceNo) 无冲突', async () => {
@@ -1211,7 +1211,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
 
     // 两轮 executor 节点并存（id 携 run 段、互不顶替）
-    expect(screen.getByTestId('rf__node-run:run-1:implement:1:executor:0') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:run-1:implement:1:executor:0')).toBeTruthy();
     fireEvent.click(screen.getByTestId('rf__node-run:run-2:implement:1:executor:0'));
 
     const panel = await screen.findByTestId('session-transcript-panel');
@@ -1245,7 +1245,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     });
     expect(screen.getByTestId('run-finished-reason').textContent).toContain('全相位通过');
     // 收口对齐：终局后主操作回到发起
-    expect(screen.getByTestId('run-start') !== null).toBe(true);
+    expect(screen.getByTestId('run-start')).toBeTruthy();
   });
 
   it('抽屉选中运行步节点 → 转录 props 下传链路接通：运行步实时 sessionId 直查 session_detail、会话事件通知经 refreshKey 触发转录库重查', async () => {
@@ -1338,7 +1338,7 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
     const filed = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
-    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    expect(screen.getByTestId('detail-drawer')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     filed.unmount();
   });
@@ -1386,8 +1386,8 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
     // 取数面：URL id 即取数键
     expect(detailCalls()).toEqual([{ root: ROOT, id: urlId }]);
     // 展示面：头部标题与两面板 aria-label 取 detail.name
-    expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true);
-    expect(screen.getByLabelText('change add-feature 运行控制') !== null).toBe(true);
+    expect(screen.getByRole('heading', { name: 'add-feature' })).toBeTruthy();
+    expect(screen.getByLabelText('change add-feature 运行控制')).toBeTruthy();
 
     // 命令面（运行控制面板）：change_flow_start 携 URL id 而非 name
     fireEvent.click(screen.getByTestId('run-start'));
@@ -1538,10 +1538,10 @@ describe('ChangeDetailView：归档链退役（入口按钮 / 面板 / 状态源
     expect(within(container).getByTestId('detail-header').textContent).toContain('进行中');
     // 抽屉入口仍经列头可达（单一交互入口不变）
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
-    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    expect(screen.getByTestId('detail-drawer')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     // run 控制面板（归档入口的新承载）照常在场
-    expect(screen.getByTestId('run-start') !== null).toBe(true);
+    expect(screen.getByTestId('run-start')).toBeTruthy();
   });
 });
 
@@ -1563,7 +1563,7 @@ describe('ChangeDetailView：详情头渲染 detail.title（AC-8）', () => {
     );
     await screen.findByTestId('flow-graph');
 
-    expect(screen.getByRole('heading', { name: '新增特性（人类可读）' }) !== null).toBe(true);
+    expect(screen.getByRole('heading', { name: '新增特性（人类可读）' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
   });
 
@@ -1580,7 +1580,7 @@ describe('ChangeDetailView：详情头渲染 detail.title（AC-8）', () => {
     await screen.findByTestId('flow-graph');
 
     // 展示面取 title、命令面 / 面板面取 name（双字段可辨）
-    expect(screen.getByLabelText('change add-feature 运行控制') !== null).toBe(true);
+    expect(screen.getByLabelText('change add-feature 运行控制')).toBeTruthy();
     // 归档入口已并入 run 停等面：退役按钮零渲染（name 仅展名面留存）
     expect(screen.queryByTestId('archive-trigger')).toBeNull();
   });
@@ -1876,7 +1876,7 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     expect(screen.getByTestId('stdout-empty').textContent).toBe('（无输出记录）');
     expect(screen.queryByTestId('stdout-error')).toBeNull();
     // 抽屉其余面照常（错误态不阻断）
-    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    expect(screen.getByTestId('detail-drawer')).toBeTruthy();
   });
 
   it('正向（AC-5 组合行）：运行中 static-check 节点点击 → 命令头行 + 增量输出；信号到达后再取增量（offset 推进）', async () => {
@@ -2170,10 +2170,10 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     expect(note.textContent).toContain('刷新详情');
 
     // 保 last-good：header / 停止入口 / 状态徽章 / 图面照常（MUST NOT 兜底页）
-    expect(screen.getByTestId('detail-header') !== null).toBe(true);
-    expect(screen.getByTestId('run-stop') !== null).toBe(true);
+    expect(screen.getByTestId('detail-header')).toBeTruthy();
+    expect(screen.getByTestId('run-stop')).toBeTruthy();
     expect(screen.getByTestId('run-status').textContent).toBe('运行中');
-    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.getByTestId('flow-graph')).toBeTruthy();
     expect(screen.queryByTestId('error-note')).toBeNull();
     expect(screen.queryByText('未找到该 change。')).toBeNull();
   });
@@ -2233,7 +2233,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
 
     expect(screen.queryByTestId('refresh-stale-note')).toBeNull();
     expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
-    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0')).toBeTruthy();
   });
 
   it('error 收敛为首载语义（AC-6 异常半边）：detail 在手的刷新失败轮不渲染整页 DetailFallback（error-note / 「未找到该 change。」零出现、横幅在案）；对照首载失败整页错误兜底页（error-note 在案、横幅零出现）', async () => {
@@ -2243,10 +2243,10 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await act(async () => {});
     await notifyAndFlush();
-    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('refresh-stale-note')).toBeTruthy();
     expect(screen.queryByTestId('error-note')).toBeNull();
     expect(screen.queryByText('未找到该 change。')).toBeNull();
-    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.getByTestId('flow-graph')).toBeTruthy();
 
     // 半边二：首载失败（detail 不在手）→ 整页错误兜底页（既有语义不变）
     planDetailRounds([{ kind: 'reject', message: 'IPC 断开' }]);
@@ -2264,7 +2264,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await act(async () => {});
     await notifyAndFlush();
-    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('refresh-stale-note')).toBeTruthy();
 
     await flush(1000);
 
@@ -2282,7 +2282,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
 
     // 失败轮：detail / activeRun 保持 → activeRunPresent 真值 → 订阅不被拆
     await notifyAndFlush();
-    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('refresh-stale-note')).toBeTruthy();
     expect(ChannelMock.instances).toHaveLength(1);
     const callsAfterFailedRound = detailCalls().length;
     expect(callsAfterFailedRound).toBe(2);
@@ -2337,7 +2337,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     loadFixture({ detail: detail(), artifacts: PROPOSAL_ENVELOPES, hold: true });
     await flush(1000);
     expect(screen.queryByText('加载中…')).toBeNull();
-    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.getByTestId('flow-graph')).toBeTruthy();
     expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
     expect(screen.getByTestId('refresh-change-detail-button').hasAttribute('disabled')).toBe(false);
 
@@ -2354,7 +2354,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await act(async () => {});
     await notifyAndFlush();
-    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('refresh-stale-note')).toBeTruthy();
     expect(screen.getByTestId('run-status').textContent).toBe('运行中');
 
     fireEvent.click(screen.getByTestId('run-stop'));
@@ -2363,7 +2363,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
       root: ROOT,
       id: CHANGE_ID,
     });
-    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('refresh-stale-note')).toBeTruthy();
   });
 
   it('降级窗口动作可用（AC-8）：phase 间确认卡片照常呈现与提交（change_flow_confirm 独立 invoke，proceed=true）', async () => {
@@ -2372,7 +2372,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await act(async () => {});
     await notifyAndFlush();
-    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('refresh-stale-note')).toBeTruthy();
 
     // 控制入口状态与 last-good activeRun 一致：确认卡片携停等相位名
     const card = screen.getByTestId('run-confirm-card');
@@ -2399,7 +2399,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await act(async () => {});
     await notifyAndFlush();
-    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('refresh-stale-note')).toBeTruthy();
     expect(screen.getByTestId('run-ask-question').textContent).toBe('继续还是停止？');
 
     fireEvent.change(screen.getByTestId('run-ask-input'), { target: { value: '继续' } });
@@ -2596,8 +2596,8 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
 
-    expect(screen.getByTestId('change-chat-rail') !== null).toBe(true);
-    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-rail')).toBeTruthy();
+    expect(screen.getByTestId('change-chat-expand')).toBeTruthy();
     expect(screen.queryByTestId('change-chat-actions'), '收起后展开体不在场').toBeNull();
     expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
 
@@ -2611,15 +2611,15 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
     await expandChatPanel();
-    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-prompt')).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('change-chat-collapse'));
     await act(async () => {});
     expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
-    expect(screen.getByTestId('change-chat-rail') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-rail')).toBeTruthy();
 
     await expandChatPanel();
-    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-prompt')).toBeTruthy();
     expect(screen.queryByTestId('change-chat-rail')).toBeNull();
   });
 
@@ -2627,7 +2627,7 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
     await expandChatPanel();
-    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-prompt')).toBeTruthy();
 
     // 返回列表 → 再入另一 change（URL id 切换）
     fireEvent.click(screen.getByRole('button', { name: '返回列表' }));
@@ -2638,7 +2638,7 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     await screen.findByTestId('flow-graph');
 
     expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
-    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-expand')).toBeTruthy();
   });
 });
 
@@ -2678,7 +2678,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     expect(sessionCommandCalls('session_detail')).toHaveLength(0);
     expect(sessionCommandCalls('agent_session_transcript')).toHaveLength(0);
     expect(sessionCommandCalls('list_change_chat_sessions')).toHaveLength(0);
-    expect(screen.getByTestId('change-chat-rail') !== null).toBe(true);
+    expect(screen.getByTestId('change-chat-rail')).toBeTruthy();
   });
 
   it('组合：无 run 的 active 正常收发（发送恰一次且 sessionId 为 null）', async () => {
@@ -2744,7 +2744,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     renderDetail({ detail: detail({ worktree: null }), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
     await expandChatPanel();
-    expect(screen.getByTestId('run-control-panel') !== null).toBe(true);
+    expect(screen.getByTestId('run-control-panel')).toBeTruthy();
 
     await sendFromPanel('legacy 记录提问');
 
@@ -2819,7 +2819,7 @@ describe('ChangeDetailView：抽屉非模态回归与首载降级', () => {
 
   it('首载失败降级：get_change_detail reject → 降级页、面板零挂载、零 agent 类 invoke', async () => {
     renderDetail({ detail: 'db: 读详情失败' });
-    await waitFor(() => expect(screen.getByTestId('error-note') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('error-note')).toBeTruthy());
 
     expect(screen.getByTestId('error-note').textContent).toContain('db: 读详情失败');
     expect(screen.queryByTestId('change-chat-rail'), '面板不抢跑').toBeNull();
@@ -2837,26 +2837,26 @@ describe('ChangeDetailView：抽屉非模态回归与首载降级', () => {
 describe('ChangeDetailView：架构页签（挂载点 B）', () => {
   it('应呈现 flow 与 architecture 两页签，缺省 flow（架构画布不在场）', async () => {
     renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
-    await waitFor(() => expect(screen.getByTestId('detail-tab-flow') !== null).toBe(true));
-    expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true);
+    await waitFor(() => expect(screen.getByTestId('detail-tab-flow')).toBeTruthy());
+    expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy();
     expect(screen.queryByTestId('archi-canvas')).toBeNull();
   });
 
   it('应在切换页签时挂载架构画布并卸载流程图，切回后复原', async () => {
     renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('detail-tab-architecture'));
-    await waitFor(() => expect(screen.getByTestId('archi-canvas') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('archi-canvas')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('detail-tab-flow'));
     await waitFor(() => expect(screen.queryByTestId('archi-canvas')).toBeNull());
-    expect(screen.getByTestId('detail-tab-flow') !== null).toBe(true);
+    expect(screen.getByTestId('detail-tab-flow')).toBeTruthy();
   });
 
   it('应在未激活架构页签时零 archi 取数，首次激活发起一次，反复切换每次各一次', async () => {
     renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
     const archiCalls = () =>
       invokeMock.mock.calls.filter(([name]) => name === 'archi_graph').length;
     expect(archiCalls()).toBe(0);
@@ -2872,7 +2872,7 @@ describe('ChangeDetailView：架构页签（挂载点 B）', () => {
 
   it('应以 detail.worktree 为画布 root（archi_graph 参数逐字相等）', async () => {
     renderDetail({ detail: detail({ worktree: 'C:demoalpha.worktreesadd-feature' }) });
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
     fireEvent.click(screen.getByTestId('detail-tab-architecture'));
 
     await waitFor(() =>
@@ -2888,7 +2888,7 @@ describe('ChangeDetailView：架构页签（挂载点 B）', () => {
 
   it('应在归档 change（worktree = null）时回落到页面 root 取数', async () => {
     renderDetail({ detail: detail({ source: 'archive', worktree: null }) }, 'C:demomain');
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
     fireEvent.click(screen.getByTestId('detail-tab-architecture'));
 
     await waitFor(() =>
@@ -2903,23 +2903,23 @@ describe('ChangeDetailView：架构页签（挂载点 B）', () => {
 
   it('应以 incremental 模式装配画布（抽屉内 gate 可提交）', async () => {
     renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
     fireEvent.click(screen.getByTestId('detail-tab-architecture'));
-    await waitFor(() => expect(screen.getByTestId('archi-gate-select') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('archi-gate-select')).toBeTruthy());
     expect(screen.queryByTestId('archi-gate-readonly')).toBeNull();
   });
 
   it('应在架构页签取数失败时呈现错误态且 flow 页签仍可切回', async () => {
     renderDetail({ detail: detail({ worktree: 'C:demowt' }) });
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
     archiReject = 'root 无效（空路径）';
     fireEvent.click(screen.getByTestId('detail-tab-architecture'));
-    await waitFor(() => expect(screen.getByTestId('archi-canvas-error') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('archi-canvas-error')).toBeTruthy());
     expect(screen.getByTestId('archi-canvas-error').textContent).toContain('root 无效');
 
     fireEvent.click(screen.getByTestId('detail-tab-flow'));
     await waitFor(() => expect(screen.queryByTestId('archi-canvas-error')).toBeNull());
-    expect(screen.getByTestId('detail-tab-flow') !== null).toBe(true);
+    expect(screen.getByTestId('detail-tab-flow')).toBeTruthy();
   });
 });
 
@@ -2986,7 +2986,7 @@ describe('ChangeDetailView：archiRoot 派生边界（挂载点 B 回落口径�
 
   it('legacy change（worktree = null 且非归档）应以页面主仓根取数', async () => {
     renderDetail({ detail: detail({ worktree: null }), artifacts: PROPOSAL_ENVELOPES }, ROOT);
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
     fireEvent.click(screen.getByTestId('detail-tab-architecture'));
 
     await waitFor(() => expect(archiGraphRoots()).toEqual([ROOT]));
@@ -3000,7 +3000,7 @@ describe('ChangeDetailView：archiRoot 派生边界（挂载点 B 回落口径�
       },
       ROOT,
     );
-    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('detail-tab-architecture')).toBeTruthy());
     fireEvent.click(screen.getByTestId('detail-tab-architecture'));
 
     await waitFor(() => expect(archiGraphRoots()).toEqual([ROOT]));
