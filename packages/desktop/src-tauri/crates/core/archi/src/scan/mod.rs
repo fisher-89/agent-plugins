@@ -301,7 +301,9 @@ pub(crate) fn inline_ignore(source: &str, line: u32) -> Option<String> {
 
 /// gitignore 感知的目录遍历（跳过隐藏项与构建 / 依赖产物树）。MUST NOT 逐目录
 /// `read_dir` 自建遍历。
-fn walk_source_files(root: &Path) -> Vec<std::path::PathBuf> {
+///
+/// 供文件树（[`crate::tree`]）复用：语义零变化，MUST NOT 复制第二份遍历。
+pub(crate) fn walk_source_files(root: &Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     let walker = WalkBuilder::new(root)
         .hidden(true)
@@ -326,16 +328,18 @@ fn walk_source_files(root: &Path) -> Vec<std::path::PathBuf> {
     files
 }
 
-/// 扩展名是否属于扫描面（四种 TS/JS + `.rs`）。
-fn is_source_file(rel: &str) -> bool {
+/// 扩展名是否属于扫描面（四种 TS/JS + `.rs`）。供文件树复用：语义零变化，
+/// MUST NOT 另写扩展名清单。
+pub(crate) fn is_source_file(rel: &str) -> bool {
     match rel.rsplit_once('.') {
         Some((_, extension)) => SOURCE_EXTENSIONS.contains(&extension),
         None => false,
     }
 }
 
-/// 路径归一为 repo 相对 POSIX 形态（`\` → `/`、剥前导 `./`）。
-fn posix(path: &str) -> String {
+/// 路径归一为 repo 相对 POSIX 形态（`\` → `/`、剥前导 `./`）。供文件树复用：
+/// 语义零变化，MUST NOT 复制第二份归一。
+pub(crate) fn posix(path: &str) -> String {
     let unified = path.replace('\\', "/");
     let mut trimmed = unified.as_str();
     while let Some(rest) = trimmed.strip_prefix("./") {

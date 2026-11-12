@@ -13,8 +13,9 @@ use foundation::layout::archi_models_dir;
 use serde_json::json;
 
 use crate::dto::{
-    self, ApiStatus, ArchiDiagnostic, ArchiElement, ArchiGraph, ArchiRelation, DiagnosticKind,
-    DocKind, DocSource, EdgeMark, ElementKind, GateTier, NodeMark, SearchScope, WarningKind,
+    self, ApiStatus, ArchiDiagnostic, ArchiElement, ArchiFileEntry, ArchiFileTree, ArchiGraph,
+    ArchiRelation, DiagnosticKind, DocKind, DocSource, EdgeMark, ElementKind, FileEntryKind,
+    FileTreeMark, GateTier, NodeMark, SearchScope, WarningKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -1640,5 +1641,448 @@ fn module_detail的api与投影单点逐字段相等() {
             && !source.contains("foundation::layout::archi_api_dir")
             && constructed == 0,
         "`dto` 内零契约路径拼装 / 零 `ArchiApiRef` 构造字面量（全由投影单点产出）"
+    );
+}
+
+// ===========================================================================
+// 文件树出线面（`FileEntryKind` / `FileTreeMark` / `ArchiFileEntry` /
+// `ArchiFileTree`）：两值 / 五值封闭、线形、字段声明序、单字段扁平
+// ===========================================================================
+
+/// 全字段条目构造器（七字段按声明序）。
+fn file_entry() -> ArchiFileEntry {
+    ArchiFileEntry {
+        path: "crates/core/archi/src/tree.rs".to_owned(),
+        name: "tree.rs".to_owned(),
+        kind: FileEntryKind::File,
+        mark: FileTreeMark::Member,
+        owners: vec!["App.Core.Archi".to_owned()],
+        contains: 0,
+        exists: true,
+    }
+}
+
+/// 正向（AC-4 / spec Scenario ALL 与 as_str 逐值对拍）：`FileEntryKind` 二值封闭，
+/// `as_str` / serde 线形 / 往返三者一致，`ALL` 去重后长度不变。
+#[test]
+fn 文件条目形态二值封闭与线形一致() {
+    assert_eq!(FileEntryKind::ALL.len(), 2, "二值封闭（长度即红灯）");
+    let expected = [(FileEntryKind::Dir, "dir"), (FileEntryKind::File, "file")];
+    for (value, word) in expected {
+        assert_eq!(value.as_str(), word, "{value:?} 的词");
+        assert_eq!(
+            serde_json::to_value(value).expect("序列化"),
+            serde_json::Value::String(word.to_owned()),
+            "{value:?} 的 serde 线形与 as_str 一致"
+        );
+        let back: FileEntryKind =
+            serde_json::from_value(serde_json::Value::String(word.to_owned())).expect("反序列化");
+        assert_eq!(back, value, "{value:?} 往返恒等");
+    }
+    let mut words: Vec<&str> = FileEntryKind::ALL
+        .iter()
+        .map(|value| value.as_str())
+        .collect();
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), 2, "ALL 内无重复词");
+}
+
+/// 正向（AC-4 / spec Scenario ALL 与 as_str 逐值对拍）：`FileTreeMark` 五值封闭，
+/// 词形 camelCase，`ALL` 序与 `as_str` 分支序一致，往返恒等。
+#[test]
+fn 文件树标记五值封闭与线形一致() {
+    assert_eq!(FileTreeMark::ALL.len(), 5, "五值封闭（长度即红灯）");
+    let expected = [
+        (FileTreeMark::ElementRoot, "elementRoot"),
+        (FileTreeMark::Ambiguous, "ambiguous"),
+        (FileTreeMark::Member, "member"),
+        (FileTreeMark::ContainsElements, "containsElements"),
+        (FileTreeMark::None, "none"),
+    ];
+    for (value, word) in expected {
+        assert_eq!(value.as_str(), word, "{value:?} 的词");
+        assert_eq!(
+            serde_json::to_value(value).expect("序列化"),
+            serde_json::Value::String(word.to_owned()),
+            "{value:?} 的 serde 线形与 as_str 一致"
+        );
+        let back: FileTreeMark =
+            serde_json::from_value(serde_json::Value::String(word.to_owned())).expect("反序列化");
+        assert_eq!(back, value, "{value:?} 往返恒等");
+    }
+    let words: Vec<&str> = FileTreeMark::ALL
+        .iter()
+        .map(|value| value.as_str())
+        .collect();
+    let mut deduped = words.clone();
+    deduped.sort_unstable();
+    deduped.dedup();
+    assert_eq!(deduped.len(), 5, "ALL 内无重复词");
+    assert_eq!(
+        words,
+        expected
+            .iter()
+            .map(|(_, word)| *word)
+            .collect::<Vec<&str>>(),
+        "ALL 序与 as_str 分支序一致"
+    );
+}
+
+/// 异常（Enum N+1）：词汇外反序列化一律 `Err`（大小写 / 尾空格 / 空串 / 邻词均
+/// 零宽松归一）。
+#[test]
+fn 文件树词表词汇外反序列化一律失败() {
+    for probe in ["Dir", "DIR", "file ", "", "directory"] {
+        assert!(
+            serde_json::from_value::<FileEntryKind>(serde_json::Value::String(probe.to_owned()))
+                .is_err(),
+            "FileEntryKind 词外值 {probe:?} 应 Err（rename_all = lowercase 严格）"
+        );
+    }
+    // `NodeMark` 的词在同一位置必须被拒（两词表不互相放行）
+    for probe in [
+        "ElementRoot",
+        "elementroot",
+        "none ",
+        "",
+        "unfulfilled",
+        "crossKind",
+    ] {
+        assert!(
+            serde_json::from_value::<FileTreeMark>(serde_json::Value::String(probe.to_owned()))
+                .is_err(),
+            "FileTreeMark 词外值 {probe:?} 应 Err（rename_all = camelCase 严格）"
+        );
+    }
+    // 反向判据：`NodeMark` 的合法词不被 `FileTreeMark` 接受
+    assert!(
+        serde_json::from_value::<FileTreeMark>(
+            serde_json::to_value(NodeMark::Unfulfilled).expect("序列化")
+        )
+        .is_err(),
+        "两词表互不放行（FileTreeMark MUST NOT 复用 NodeMark 的词）"
+    );
+    assert!(
+        serde_json::from_value::<FileEntryKind>(
+            serde_json::to_value(FileTreeMark::Member).expect("序列化")
+        )
+        .is_err(),
+        "FileEntryKind 不接受 FileTreeMark 的词"
+    );
+}
+
+/// 正向（AC-3 / spec Scenario 条目七字段按声明序出线）：键序恰为七字段的 camelCase
+/// 形态，往返逐字段相等。
+#[test]
+fn 文件条目七字段按声明序出线() {
+    let entry = file_entry();
+    let value = serde_json::to_value(&entry).expect("序列化");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["path", "name", "kind", "mark", "owners", "contains", "exists"],
+        "七字段按声明序出线（camelCase 无损形）"
+    );
+    let back: ArchiFileEntry = serde_json::from_value(value).expect("反序列化");
+    assert_eq!(back, entry, "往返逐字段相等");
+}
+
+/// 边界（容器与数值映射）：`owners` 空 / 单元素 / 超大 / 非字典序（DTO 零重排）、
+/// `contains` 取 `0` / `u32::MAX`、`exists` 两值、`kind` / `mark` 全枚举值。
+#[test]
+fn 文件条目字段值边界往返() {
+    let owners_cases: Vec<Vec<String>> = vec![
+        vec![],
+        vec!["App.A".to_owned()],
+        (0..1000).map(|index| format!("App.M{index:04}")).collect(),
+        vec!["App.Z".to_owned(), "App.A".to_owned()],
+    ];
+    for owners in owners_cases {
+        for contains in [0u32, u32::MAX] {
+            for exists in [true, false] {
+                for kind in FileEntryKind::ALL {
+                    for mark in FileTreeMark::ALL {
+                        let entry = ArchiFileEntry {
+                            path: "a/b/c.rs".to_owned(),
+                            name: "c.rs".to_owned(),
+                            kind,
+                            mark,
+                            owners: owners.clone(),
+                            contains,
+                            exists,
+                        };
+                        let value = serde_json::to_value(&entry).expect("序列化");
+                        let back: ArchiFileEntry =
+                            serde_json::from_value(value.clone()).expect("反序列化");
+                        assert_eq!(back, entry, "组合边界往返逐字段相等");
+                        // DTO 零加工：owners 顺序原样出线（排序归投影侧）
+                        let Some(serde_json::Value::Array(out)) = value.get("owners") else {
+                            panic!("owners 应为数组");
+                        };
+                        assert_eq!(out.len(), entry.owners.len(), "owners 数量原样（零裁剪）");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 边界（字符串映射）：`path` / `name` 取空串（越签名脏值）、超长、含换行 / NUL /
+/// emoji 时序列化不 panic 且往返逐字相等。
+#[test]
+fn 文件条目路径与名字字符串边界() {
+    let long = "长".repeat(1200);
+    let cases: [(&str, &str); 4] = [
+        ("", ""),
+        ("a/b/c.rs", "c.rs"),
+        (long.as_str(), long.as_str()),
+        ("dir/c\nx\0🚀.ts", "c\nx\0🚀.ts"),
+    ];
+    for (path, name) in cases {
+        let entry = ArchiFileEntry {
+            path: path.to_owned(),
+            name: name.to_owned(),
+            kind: FileEntryKind::Dir,
+            mark: FileTreeMark::None,
+            owners: Vec::new(),
+            contains: 0,
+            exists: true,
+        };
+        let value = serde_json::to_value(&entry).expect("脏字符串不阻序列化");
+        let back: ArchiFileEntry = serde_json::from_value(value).expect("反序列化");
+        assert_eq!(back, entry, "字符串边界往返逐字相等");
+    }
+}
+
+/// 正向（AC-3）：`ArchiFileTree` 单字段扁平——空数组出线恰 `{"entries":[]}`，
+/// 三条条目为扁平数组、无 `children` 键、顺序即入参顺序。
+#[test]
+fn 文件树单字段扁平与顺序零重排() {
+    let empty = ArchiFileTree {
+        entries: Vec::new(),
+    };
+    assert_eq!(
+        serde_json::to_string(&empty).expect("序列化"),
+        "{\"entries\":[]}",
+        "空树恰单键单数组"
+    );
+
+    let three = ArchiFileTree {
+        entries: vec![
+            ArchiFileEntry {
+                path: "b.ts".to_owned(),
+                name: "b.ts".to_owned(),
+                ..file_entry()
+            },
+            ArchiFileEntry {
+                path: "a/c.ts".to_owned(),
+                name: "c.ts".to_owned(),
+                ..file_entry()
+            },
+            file_entry(),
+        ],
+    };
+    let value = serde_json::to_value(&three).expect("序列化");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, vec!["entries"], "ArchiFileTree 单字段");
+    let entries = value["entries"].as_array().expect("entries 是数组");
+    assert_eq!(entries.len(), 3, "扁平数组（无嵌套）");
+    assert!(
+        entries.iter().all(|entry| !entry
+            .as_object()
+            .expect("条目对象")
+            .contains_key("children")),
+        "零嵌套 children 键"
+    );
+    let paths: Vec<&str> = entries
+        .iter()
+        .map(|entry| entry["path"].as_str().expect("字符串"))
+        .collect();
+    assert_eq!(
+        paths,
+        vec!["b.ts", "a/c.ts", "crates/core/archi/src/tree.rs"],
+        "顺序即入参顺序（DTO 零重排，排序归投影侧）"
+    );
+    let back: ArchiFileTree = serde_json::from_value(value).expect("反序列化");
+    assert_eq!(back, three, "往返相等");
+}
+
+/// 正向（AC-3 / AC-14）：`specta::Type` 出线名与 Rust 类型名一致（四新类型各在册）。
+#[test]
+fn 四新类型的出线名与字段面() {
+    use specta::Type;
+
+    fn registered<T: Type>() -> Vec<String> {
+        let types = specta::Types::default().register::<T>();
+        types
+            .into_sorted_iter()
+            .map(|named| named.name.to_string())
+            .collect()
+    }
+
+    for (name, names) in [
+        ("ArchiFileTree", registered::<ArchiFileTree>()),
+        ("ArchiFileEntry", registered::<ArchiFileEntry>()),
+    ] {
+        assert!(
+            names.iter().any(|registered| registered == name),
+            "{name} 应注册进 specta 类型表：{names:?}"
+        );
+    }
+    for (name, names) in [
+        ("FileEntryKind", registered::<FileEntryKind>()),
+        ("FileTreeMark", registered::<FileTreeMark>()),
+    ] {
+        assert!(
+            names.iter().any(|registered| registered == name),
+            "{name} 应注册进 specta 类型表：{names:?}"
+        );
+    }
+}
+
+/// 枚举线值清单（`serde_json` 单值序列化；字面量镜像即尺寸判据）。
+fn line_words<T: serde::Serialize + Copy>(values: Vec<T>) -> Vec<String> {
+    values
+        .into_iter()
+        .map(|value| {
+            serde_json::to_value(value)
+                .expect("序列化")
+                .as_str()
+                .expect("线值为字符串")
+                .to_owned()
+        })
+        .collect()
+}
+
+/// 边界（AC-17 / 类型单点纪律）：新增类型为并列追加——既有九组词汇尺寸与既有
+/// 出线 DTO 的键序列逐字不变，两词表零交叉引用。
+#[test]
+fn 既有词汇与出线类型零变化() {
+    // 九组既有封闭词汇：有 `ALL` 常量的取长度，其余取 serde 线值——两份都钉死尺寸
+    assert_eq!(ElementKind::ALL.len(), 4, "ElementKind 仍四值");
+    assert_eq!(GateTier::ALL.len(), 3, "GateTier 仍三档");
+    assert_eq!(DiagnosticKind::ALL.len(), 9, "DiagnosticKind 仍九值");
+    assert_eq!(ApiStatus::ALL.len(), 2, "ApiStatus 仍二值");
+    assert_eq!(
+        line_words([NodeMark::None, NodeMark::Unfulfilled].to_vec()),
+        vec!["none", "unfulfilled"],
+        "NodeMark 仍两值"
+    );
+    assert_eq!(
+        line_words(
+            [
+                EdgeMark::None,
+                EdgeMark::Unfulfilled,
+                EdgeMark::CrossKind,
+                EdgeMark::Exempt,
+            ]
+            .to_vec()
+        ),
+        vec!["none", "unfulfilled", "crossKind", "exempt"],
+        "EdgeMark 仍四值"
+    );
+    assert_eq!(
+        line_words([WarningKind::DocNotFound].to_vec()),
+        vec!["docNotFound"],
+        "WarningKind 仍单值"
+    );
+    assert_eq!(
+        line_words([DocKind::Md, DocKind::Adr].to_vec()),
+        vec!["md", "adr"],
+        "DocKind 仍两值"
+    );
+    assert_eq!(
+        line_words([DocSource::Explicit, DocSource::Adjacent, DocSource::Text].to_vec()),
+        vec!["explicit", "adjacent", "text"],
+        "DocSource 仍三值（声明序即强度序）"
+    );
+    assert_eq!(
+        line_words([SearchScope::Elements, SearchScope::Docs, SearchScope::All].to_vec()),
+        vec!["elements", "docs", "all"],
+        "SearchScope 仍三值"
+    );
+
+    // 既有出线 DTO 键序列逐字不变（新增类型并列，不入既有 DTO）
+    let graph = serde_json::to_value(ArchiGraph {
+        elements: Vec::new(),
+        relations: Vec::new(),
+        diagnostics: Vec::new(),
+    })
+    .expect("序列化");
+    let keys: Vec<&str> = graph
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, vec!["elements", "relations", "diagnostics"]);
+    let element_value = serde_json::to_value(ArchiElement {
+        fqn: "App".to_owned(),
+        kind: ElementKind::Package,
+        gate: GateTier::Off,
+        api: ApiStatus::None,
+        path: Vec::new(),
+        summary: None,
+        metadata: std::collections::BTreeMap::new(),
+        model_file: "a.toml".to_owned(),
+        model_line: 1,
+        mark: NodeMark::None,
+    })
+    .expect("序列化");
+    let element_keys: Vec<&str> = element_value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        element_keys,
+        vec![
+            "fqn",
+            "kind",
+            "gate",
+            "path",
+            "summary",
+            "metadata",
+            "modelFile",
+            "modelLine",
+            "mark",
+            "api"
+        ],
+        "ArchiElement 既有键序零变化"
+    );
+
+    // 源码自证：两词表在 `dto.rs` 内各恰一处定义、零映射
+    let source = include_str!("dto.rs");
+    assert_eq!(
+        source.matches("pub enum FileTreeMark").count(),
+        1,
+        "FileTreeMark 恰一处定义"
+    );
+    assert_eq!(
+        source.matches("pub enum NodeMark").count(),
+        1,
+        "NodeMark 定义零变化（仍恰一处）"
+    );
+    assert_eq!(
+        source.matches("pub enum FileEntryKind").count(),
+        1,
+        "FileEntryKind 恰一处定义"
+    );
+    assert!(
+        !source.contains("NodeMark::Unfulfilled => FileTreeMark")
+            && !source.contains("FileTreeMark::None => NodeMark"),
+        "两词表零映射（MUST NOT 复用）"
     );
 }

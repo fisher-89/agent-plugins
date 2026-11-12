@@ -78,6 +78,7 @@ macro_rules! all_commands {
             $crate::commands::archi::archi_change_summary,
             $crate::commands::archi::archi_set_gate,
             $crate::commands::archi::archi_drift,
+            $crate::commands::archi::archi_file_tree,
             $crate::commands::fs::read_file,
         ]
     };

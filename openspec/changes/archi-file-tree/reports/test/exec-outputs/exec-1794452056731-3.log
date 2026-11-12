@@ -1,0 +1,28 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree\packages\desktop\src-tauri)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree\packages\desktop\src-tauri\crates\core\archi)
+warning: this `repeat().take()` can be written more concisely
+   --> src\commands\fs\mod_test.rs:314:18
+    |
+314 |     bytes.extend(std::iter::repeat(b'x').take(MAX_LIMIT as usize + 64));
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using `repeat_n()` instead: `std::iter::repeat_n(b'x', MAX_LIMIT as usize + 64)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_repeat_n
+    = note: `#[warn(clippy::manual_repeat_n)]` on by default
+
+warning: `dev-team` (lib test) generated 1 warning (run `cargo clippy --fix --lib -p dev-team --tests -- ` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.72s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- --check
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(3.6s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 241 files [2m(1.8s, 16 threads)[0m
+Configuration hints (1)
+src/**/*.i.ts    knip.json  Remove from ignore

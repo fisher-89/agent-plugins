@@ -1,0 +1,117 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\archi-file-tree\packages\desktop\src-tauri)
+warning: this `repeat().take()` can be written more concisely
+   --> src\commands\fs\mod_test.rs:314:18
+    |
+314 |     bytes.extend(std::iter::repeat(b'x').take(MAX_LIMIT as usize + 64));
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using `repeat_n()` instead: `std::iter::repeat_n(b'x', MAX_LIMIT as usize + 64)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_repeat_n
+    = note: `#[warn(clippy::manual_repeat_n)]` on by default
+
+warning: `dev-team` (lib test) generated 1 warning (run `cargo clippy --fix --lib -p dev-team --tests -- ` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.95s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- --check
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x eslint(max-lines-per-function): The function `CanvasBody` has too many lines (81). Maximum allowed is 80.
+     ,-[src/views/architecture/components/architecture-canvas.tsx:210:1]
+ 209 |      * 零标记照常渲染 + 画布区顶部一行内提示（叠加信息不阻断图）。 */
+ 210 | ,-> function CanvasBody({
+ 211 | |     graph,
+ 212 | |     root,
+ 213 | |     mode,
+ 214 | |     onChanged,
+ 215 | |     driftError,
+ 216 | |   }: {
+ 217 | |     graph: ArchiGraph;
+ 218 | |     root: string | null;
+ 219 | |     mode: CanvasMode;
+ 220 | |     onChanged: () => void;
+ 221 | |     driftError: string | null;
+ 222 | |   }): React.JSX.Element {
+ 223 | |     const [focusOverride, setFocusOverride] = useState<string | null>(null);
+ 224 | |     const [treeMode, setTreeMode] = useState<TreeMode>('file');
+ 225 | |     // 文件树取数：与图 / 漂移独立失败，失败只落左栏行内提示
+ 226 | |     const { tree, error: treeError } = useArchiFileTree(root);
+ 227 | |     const focus = useMemo(() => {
+ 228 | |       if (focusOverride !== null && graph.elements.some((element) => element.fqn === focusOverride)) {
+ 229 | |         return focusOverride;
+ 230 | |       }
+ 231 | |       return defaultFocus(graph);
+ 232 | |     }, [graph, focusOverride]);
+ 233 | |     const nodes = useMemo(() => (focus === null ? [] : toNodes(graph, focus)), [graph, focus]);
+ 234 | |     const edges = useMemo(() => (focus === null ? [] : toEdges(graph, focus)), [graph, focus]);
+ 235 | |     const focused =
+ 236 | |       focus === null ? null : (graph.elements.find((element) => element.fqn === focus) ?? null);
+ 237 | |     const relations: ArchiRelation[] = graph.relations;
+ 238 | |     if (graph.elements.length === 0) {
+ 239 | |       return (
+ 240 | |         <div className="text-[13px] text-muted-foreground" data-testid="archi-canvas-empty">
+ 241 | |           模型为空：先在 change 的 dev-design 阶段生成骨架（新元素缺省 gate = off）。
+ 242 | |         </div>
+ 243 | |       );
+ 244 | |     }
+ 245 | |     return (
+ 246 | |       <div className="flex h-full min-h-0 gap-2">
+ 247 | |         <TreeColumn
+ 248 | |           mode={treeMode}
+ 249 | |           onModeChange={setTreeMode}
+ 250 | |           elements={graph.elements}
+ 251 | |           focused={focus}
+ 252 | |           onFocus={setFocusOverride}
+ 253 | |           tree={tree}
+ 254 | |           treeError={treeError}
+ 255 | |         />
+ 256 | |         <div
+ 257 | |           className="min-h-0 flex-1 overflow-hidden rounded-md bg-background"
+ 258 | |           data-testid="archi-canvas"
+ 259 | |         >
+ 260 | |           {driftError === null ? null : (
+ 261 | |             <div
+ 262 | |               className="px-2 py-1 text-[11px] text-muted-foreground"
+ 263 | |               data-testid="archi-drift-error"
+ 264 | |             >
+ 265 | |               漂移取数失败：{driftError}（图照常渲染，零标记）
+ 266 | |             </div>
+ 267 | |           )}
+ 268 | |           <ReactFlow
+ 269 | |             nodes={nodes}
+ 270 | |             edges={edges}
+ 271 | |             nodeTypes={nodeTypes}
+ 272 | |             onNodeClick={(_event, node) => setFocusOverride(node.id)}
+ 273 | |             nodesDraggable={false}
+ 274 | |             nodesConnectable={false}
+ 275 | |             fitView={true}
+ 276 | |             fitViewOptions={FIT_VIEW_OPTIONS}
+ 277 | |             zoomOnScroll={false}
+ 278 | |             zoomOnDoubleClick={false}
+ 279 | |             panOnScroll
+ 280 | |           />
+ 281 | |         </div>
+ 282 | |         <ElementDrawer
+ 283 | |           root={root}
+ 284 | |           mode={mode}
+ 285 | |           element={focused}
+ 286 | |           relations={relations}
+ 287 | |           onChanged={onChanged}
+ 288 | |         />
+ 289 | |       </div>
+ 290 | |     );
+ 291 | `-> }
+ 292 |     
+     `----
+  help: Consider splitting it into smaller functions.
+
+Found 1 error and 0 warnings in 239 files (2.0s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(3.1s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

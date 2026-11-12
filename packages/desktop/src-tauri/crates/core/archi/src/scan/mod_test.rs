@@ -18,7 +18,10 @@ use crate::drift::CheckError;
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::exclude::DEFAULT_EXCLUDE_RULES;
-use super::{inline_ignore, scan, DependencyEdge, ScanInput, ScanOutcome};
+use super::{
+    inline_ignore, is_source_file, posix, scan, walk_source_files, DependencyEdge, ScanInput,
+    ScanOutcome,
+};
 
 // ---------------------------------------------------------------------------
 // 真实临时目录（本 crate 无 dev-dependency，故用 std 自建）
@@ -899,4 +902,221 @@ fn 边字段面与默认排除常量() {
         "type-only 只标注 `type_only`，specifier / 行号 / 豁免面逐字段在案"
     );
     assert_eq!(DEFAULT_EXCLUDE_RULES.len(), 13, "默认排除常量单点");
+}
+
+// ===========================================================================
+// 提权三 helper 的行为回归（`walk_source_files` / `is_source_file` / `posix`
+// 由私有提升为 `pub(crate)`，供文件树复用；语义零变化）
+// ===========================================================================
+
+/// 枚举面相对根（`walk_source_files` 返回绝对路径，此处转 repo 相对 POSIX）。
+fn relative_sources(root: &Path) -> Vec<String> {
+    let mut paths: Vec<String> = walk_source_files(root)
+        .iter()
+        .filter_map(|path| path.strip_prefix(root).ok())
+        .map(|relative| posix(&relative.to_string_lossy()))
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// 正向（AC-8 / 提权后行为回归）：五扩展名收、六类剪枝项一律不收。
+#[test]
+fn 遍历枚举面与六类剪枝() {
+    let temp = TempDir::new("walk-face");
+    for path in [
+        "src/a.rs",
+        "src/b.ts",
+        "src/c.tsx",
+        "src/d.js",
+        "src/e.jsx",
+        "src/f.md",
+        "target/x.rs",
+        "node_modules/y.js",
+        "dist/z.ts",
+        "build/w.ts",
+        ".git/v.ts",
+        ".hidden/u.ts",
+    ] {
+        temp.write(path, "x\n");
+    }
+
+    let walked = relative_sources(temp.root());
+    assert_eq!(
+        walked,
+        vec![
+            "src/a.rs",
+            "src/b.ts",
+            "src/c.tsx",
+            "src/d.js",
+            "src/e.jsx",
+            "src/f.md"
+        ],
+        "六类剪枝项零命中；扩展名收面不在本函数（`src/f.md` 在场，由 is_source_file 过滤）"
+    );
+    // 绝对路径形态：每条均以 root 起头
+    for path in walk_source_files(temp.root()) {
+        assert!(
+            path.starts_with(temp.root()),
+            "{path:?} 应以观察根起头（不做 canonicalize）"
+        );
+    }
+}
+
+/// 异常（AC-8 / 提权后行为回归）：`.gitignore` 命中项由遍历器跳过，MUST NOT 由
+/// 本函数二次过滤。
+#[test]
+fn 遍历感知版本控制忽略文件() {
+    let temp = TempDir::new("walk-gitignore");
+    // `git_ignore` 语义要求观察根是仓库边界（`.git` 在场），否则整条不生效
+    fs::create_dir_all(temp.root().join(".git")).expect("建 .git 目录");
+    temp.write(".gitignore", "ignored/**\n");
+    temp.write("ignored/a.ts", "export const a = 1;\n");
+    temp.write("src/b.ts", "export const b = 1;\n");
+
+    assert_eq!(
+        relative_sources(temp.root()),
+        vec!["src/b.ts"],
+        "忽略项由遍历器跳过"
+    );
+}
+
+/// 边界（AC-8 / 提权后行为回归）：不存在路径 / 空目录 → 空 `Vec`；相对根照旧
+/// 以该相对根起头（无 canonicalize）。
+#[test]
+fn 遍历对不存在与空目录返回空() {
+    assert!(
+        walk_source_files(Path::new("archi-no-such-root-for-test")).is_empty(),
+        "不存在路径 → 空 Vec 不 panic"
+    );
+
+    let empty = TempDir::new("walk-empty");
+    assert!(
+        walk_source_files(empty.root()).is_empty(),
+        "空目录 → 空 Vec"
+    );
+
+    // 相对根照原样交给遍历器（不 canonicalize）：cwd 下无该路径 ⇒ 空 Vec
+    assert!(
+        walk_source_files(Path::new("archi-no-such-relative-root")).is_empty(),
+        "相对根不存在 ⇒ 空 Vec（不解析为绝对路径）"
+    );
+}
+
+/// 正向（AC-8 / 提权后行为回归）：五扩展名逐值收、五类非法值拒、深路径照收。
+#[test]
+fn 源文件判据五扩展名与非法值() {
+    for accepted in ["a.rs", "a.ts", "a.tsx", "a.js", "a.jsx", "src/deep/a.rs"] {
+        assert!(is_source_file(accepted), "{accepted} 应判为源文件");
+    }
+    for rejected in ["a.py", "a.md", "a.json", "a", "a.RS"] {
+        assert!(!is_source_file(rejected), "{rejected} 应判为非源文件");
+    }
+}
+
+/// 边界（AC-8 / 提权后行为回归）：空串 / 点 / 空扩展名 / 末段非源 / 超长 /
+/// emoji 一律按末段扩展名判且不 panic。
+#[test]
+fn 源文件判据字符串边界不panic() {
+    let cases: [(&str, bool); 6] = [
+        ("", false),
+        (".", false),
+        ("a.", false),
+        ("a.rs.bak", false),
+        ("a🚀.rs", true),
+        ("a\n.rs", true),
+    ];
+    for (probe, expected) in cases {
+        assert_eq!(
+            is_source_file(probe),
+            expected,
+            "{probe:?} 按末段扩展名判（不 panic）"
+        );
+    }
+    let long = format!("{}.rs", "a".repeat(1200));
+    assert!(is_source_file(&long), "超长路径照常按末段判");
+}
+
+/// 异常（AC-8）：判据只看末段扩展名——裸词 / 尾 `/` / 空 stem 逐值钉死语义。
+#[test]
+fn 源文件判据只看末段扩展名() {
+    // 裸词无点 ⇒ 非源
+    assert!(!is_source_file("rs"), "裸词 `rs` 不是源文件");
+    // 尾 `/`：末段为空串 ⇒ 无点 ⇒ 非源
+    assert!(!is_source_file("src/a.rs/"), "尾 `/` 令末段为空 ⇒ 非源");
+    // 空 stem：扩展名仍是 `rs` ⇒ 与 `rsplit_once('.')` 语义一致（判为源）
+    assert_eq!(
+        is_source_file(".rs"),
+        ".rs".rsplit_once('.').is_some_and(|(_, extension)| {
+            ["ts", "tsx", "js", "jsx", "rs"].contains(&extension)
+        }),
+        "`.rs` 的结果与 rsplit_once 语义一致"
+    );
+    // NUL 尾部属末段扩展名的一部分 ⇒ 不在白名单内（不 panic）
+    assert!(!is_source_file("a.rs\0"), "NUL 尾部使扩展名不匹配");
+}
+
+/// 正向（AC-8 / 事实校准 1 / 提权后行为回归）：`\` → `/`、循环剥前导 `./`、
+/// 幂等。
+#[test]
+fn 路径归一三形态与幂等() {
+    assert_eq!(posix(r"a\b\c"), "a/b/c", "反斜杠归一为正斜杠");
+    assert_eq!(posix("./a/b"), "a/b", "剥前导 ./");
+    assert_eq!(posix("././a/b"), "a/b", "循环剥前导 ./");
+    assert_eq!(posix("a/b"), "a/b", "已归一形态幂等");
+}
+
+/// 异常（AC-8）：本函数只做两件事——不做过量归一（中间段 / 重复分隔符 / 前导
+/// `/` / 隐藏目录点名一律不动）。
+#[test]
+fn 路径归一只处理前导与分隔符() {
+    assert_eq!(posix(".hidden/a"), ".hidden/a", "`.hidden` 不是 `./`，原样");
+    assert_eq!(posix("a/./b"), "a/./b", "中间段不归一");
+    assert_eq!(posix("//a/b"), "//a/b", "不折叠重复分隔符");
+    assert_eq!(posix("/abs/path"), "/abs/path", "不剥前导 `/`");
+}
+
+/// 边界（AC-8）：空串 / 点 / 尾 `/` / 超长 / emoji 形态不 panic 且语义可判。
+#[test]
+fn 路径归一字符串边界与尾斜杠() {
+    assert_eq!(posix(""), "", "空串归一为空串");
+    assert_eq!(posix("."), ".", "`.` 非 `./` 形态，不剥");
+    assert_eq!(
+        posix("a/b/"),
+        "a/b/",
+        "尾 `/` 不被去除（尾剥离归 OwnerIndex::normalize，两函数职责不同）"
+    );
+    let long = format!("{}/x.ts", "a".repeat(1200));
+    assert_eq!(posix(&long), long, "超长路径原样");
+    assert_eq!(posix("./🚀/x.ts"), "🚀/x.ts", "emoji 段照常归一");
+}
+
+/// 异常（AC-6 / 事实校准 1）：三 helper 提权后仍是单源——`mod.rs` 内零第二份
+/// 遍历实现、`is_source_file` 恰一处定义、三处签名均为 `pub(crate) fn`。
+#[test]
+fn 三helper提权保持单源() {
+    let source = include_str!("mod.rs");
+    for signature in [
+        "pub(crate) fn walk_source_files(root: &Path)",
+        "pub(crate) fn is_source_file(rel: &str) -> bool",
+        "pub(crate) fn posix(path: &str) -> String",
+    ] {
+        assert_eq!(
+            source.matches(signature).count(),
+            1,
+            "{signature} 恰一处定义"
+        );
+    }
+    assert_eq!(
+        source.matches("fn is_source_file").count(),
+        1,
+        "扩展名判据单点（零复制）"
+    );
+    // `read_dir` 只在注释里出现（遍历唯一实现是 WalkBuilder）
+    let code_lines = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .filter(|line| line.contains("read_dir"))
+        .count();
+    assert_eq!(code_lines, 0, "遍历面零 `read_dir` 自建实现");
 }

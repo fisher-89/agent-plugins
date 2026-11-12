@@ -12,15 +12,22 @@ import { useMemo, useState } from 'react';
 import '@xyflow/react/dist/style.css';
 
 import { Badge } from '@/components/ui/badge';
-import type { ArchiElement, ArchiGraph, ArchiRelation } from '@/types/generated/bindings';
+import type {
+  ArchiElement,
+  ArchiFileTree,
+  ArchiGraph,
+  ArchiRelation,
+} from '@/types/generated/bindings';
 
 import { useArchiDrift } from '../hooks/use-archi-drift';
+import { useArchiFileTree } from '../hooks/use-archi-file-tree';
 import { useArchiGraph } from '../hooks/use-archi-graph';
 import { driftMarks } from '../lib/drift-marks';
 import { shortName } from '../lib/fqn';
 import { edgeVisual } from '../lib/marks';
 import { ElementDrawer, type CanvasMode } from './element-drawer';
 import { ElementTree } from './element-tree';
+import { FileTree, TreeModeSwitch, type TreeMode } from './file-tree';
 import { StructureErrorPanel } from './structure-error-panel';
 
 /** 邻域布局网格步长（纯拓扑定位，不引布局引擎）。 */
@@ -157,8 +164,67 @@ function toEdges(graph: ArchiGraph, focus: string): Edge[] {
     });
 }
 
-/** 正常态三段布局（元素树 / 画布 / 抽屉）。漂移取数失败时零标记照常渲染 +
- * 画布区顶部一行内提示（叠加信息不阻断图）。 */
+/** 左栏树栏位：分段控件 + 三态行（缺省文件树，可切元素树）。切换只换左栏组件，
+ * `focus` 共用；取数失败只落本栏行内提示，画布与抽屉照常渲染。 */
+function TreeColumn({
+  mode,
+  onModeChange,
+  elements,
+  focused,
+  onFocus,
+  tree,
+  treeError,
+}: {
+  mode: TreeMode;
+  onModeChange: (mode: TreeMode) => void;
+  elements: ArchiElement[];
+  focused: string | null;
+  onFocus: (fqn: string) => void;
+  tree: ArchiFileTree | null;
+  treeError: string | null;
+}): React.JSX.Element {
+  return (
+    <section className={`min-h-0 shrink-0 flex flex-col ${mode === 'file' ? 'w-80' : 'w-72'}`}>
+      <TreeModeSwitch mode={mode} onChange={onModeChange} />
+      <div className="min-h-0 flex-1 flex">
+        {mode === 'element' ? (
+          <ElementTree elements={elements} focused={focused} onFocus={onFocus} />
+        ) : treeError !== null ? (
+          <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-error">
+            文件树取数失败：{treeError}（画布照常渲染）
+          </div>
+        ) : tree === null ? (
+          <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-loading">
+            解析中…
+          </div>
+        ) : (
+          <FileTree entries={tree.entries} focused={focused} onFocus={onFocus} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** 空模型提示（结构性早退分支，画布零节点零边）。 */
+function ModelEmptyNotice(): React.JSX.Element {
+  return (
+    <div className="text-[13px] text-muted-foreground" data-testid="archi-canvas-empty">
+      模型为空：先在 change 的 dev-design 阶段生成骨架（新元素缺省 gate = off）。
+    </div>
+  );
+}
+
+/** 漂移取数失败行内提示（叠加信息，不阻断图）。 */
+function DriftErrorNotice({ message }: { message: string }): React.JSX.Element {
+  return (
+    <div className="px-2 py-1 text-[11px] text-muted-foreground" data-testid="archi-drift-error">
+      漂移取数失败：{message}（图照常渲染，零标记）
+    </div>
+  );
+}
+
+/** 正常态三段布局（左栏树——缺省文件树，可切元素树 / 画布 / 抽屉）。漂移取数失败时
+ * 零标记照常渲染 + 画布区顶部一行内提示（叠加信息不阻断图）。 */
 function CanvasBody({
   graph,
   root,
@@ -173,6 +239,9 @@ function CanvasBody({
   driftError: string | null;
 }): React.JSX.Element {
   const [focusOverride, setFocusOverride] = useState<string | null>(null);
+  const [treeMode, setTreeMode] = useState<TreeMode>('file');
+  // 文件树取数：与图 / 漂移独立失败，失败只落左栏行内提示
+  const { tree, error: treeError } = useArchiFileTree(root);
   const focus = useMemo(() => {
     if (focusOverride !== null && graph.elements.some((element) => element.fqn === focusOverride)) {
       return focusOverride;
@@ -185,27 +254,24 @@ function CanvasBody({
     focus === null ? null : (graph.elements.find((element) => element.fqn === focus) ?? null);
   const relations: ArchiRelation[] = graph.relations;
   if (graph.elements.length === 0) {
-    return (
-      <div className="text-[13px] text-muted-foreground" data-testid="archi-canvas-empty">
-        模型为空：先在 change 的 dev-design 阶段生成骨架（新元素缺省 gate = off）。
-      </div>
-    );
+    return <ModelEmptyNotice />;
   }
   return (
     <div className="flex h-full min-h-0 gap-2">
-      <ElementTree elements={graph.elements} focused={focus} onFocus={setFocusOverride} />
+      <TreeColumn
+        mode={treeMode}
+        onModeChange={setTreeMode}
+        elements={graph.elements}
+        focused={focus}
+        onFocus={setFocusOverride}
+        tree={tree}
+        treeError={treeError}
+      />
       <div
         className="min-h-0 flex-1 overflow-hidden rounded-md bg-background"
         data-testid="archi-canvas"
       >
-        {driftError === null ? null : (
-          <div
-            className="px-2 py-1 text-[11px] text-muted-foreground"
-            data-testid="archi-drift-error"
-          >
-            漂移取数失败：{driftError}（图照常渲染，零标记）
-          </div>
-        )}
+        {driftError === null ? null : <DriftErrorNotice message={driftError} />}
         <ReactFlow
           nodes={nodes}
           edges={edges}

@@ -7,11 +7,15 @@
 //! - 同长多命中 → [`Owner::Ambiguous`]（MUST NOT 任选）；
 //! - 无命中 → [`Owner::None`]。
 //!
-//! **`.i.<ext>` 生成物按去掉该后缀的模块根判定**：生成物落元素根同级（`<root>.i.rs`
-//! 在 `<root>` 的同级、不在其目录内），`prefix_matches` 的两条判据（全等 / 目录前缀）
-//! 对它都不成立；唯一改动点是 `owner_of` 入参准备处的 [`strip_generated`]，`normalize` /
-//! `prefix_matches` / `OwnerIndex::build` 语义逐字零变化——非 `.i.<ext>` 路径的归属结果
-//! 与改动前完全相同。
+//! **`.i.<ext>` 生成物按双形态并集判定**：生成物有两种落点形态且互不相交——
+//! ① 元素根同级（`<root>.i.rs`，需**整组剥离** `archi.i.rs → archi`）、② 元素目录内
+//! （`<dir>/<name>.i.<ext>`，需**替换扩展名** `archi.i.rs → archi.rs`）。故
+//! [`strip_candidates`] 返回 1~2 个候选，`owner_of` 对每个候选各跑一遍最长前缀、
+//! 合并去重后按前缀长度定档（**MUST NOT 候选短路**，否则 `src/dir.i.ts` 只走一条
+//! 路径）。`normalize` / `prefix_matches` / `OwnerIndex::build` 语义逐字零变化——
+//! 非 `.i.<ext>` 路径的归属结果与改动前完全相同。
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::dto::{ArchiElement, GateTier};
 
@@ -81,72 +85,127 @@ impl OwnerIndex {
 
     /// 最长前缀归属：判据 = `rel == prefix` 或 `rel.starts_with(prefix + "/")`
     /// （目录形态），或 `rel == prefix`（文件级 `path`）。
+    ///
+    /// 生成物候选集合并定档：每个候选各跑一遍最长前缀、合并去重后取最大档；任一条
+    /// 候选都不得提前返回（`src/dir.i.ts` 的整组剥离候选命中 `src/dir`、替换扩展名
+    /// 候选命中 `src/dir.ts`，短路即与并集语义不符）。同长仍归 [`Owner::Ambiguous`]。
     pub fn owner_of(&self, rel_path: &str) -> Owner {
-        let rel = normalize(&strip_generated(rel_path));
-        let mut best: Option<usize> = None;
-        let mut hits: Vec<&OwnerEntry> = Vec::new();
+        let mut merged: BTreeMap<String, (usize, GateTier)> = BTreeMap::new();
+        for candidate in strip_candidates(rel_path) {
+            for (fqn, length, gate) in self.longest_prefix_hits(&normalize(&candidate)) {
+                let slot = merged.entry(fqn).or_insert((length, gate));
+                if length > slot.0 {
+                    *slot = (length, gate);
+                }
+            }
+        }
+        let Some(best) = merged.values().map(|(length, _)| *length).max() else {
+            return Owner::None;
+        };
+        let hits: Vec<(&str, GateTier)> = merged
+            .iter()
+            .filter(|(_, (length, _))| *length == best)
+            .map(|(fqn, (_, gate))| (fqn.as_str(), *gate))
+            .collect();
+        match hits.as_slice() {
+            [(fqn, gate)] => Owner::Element {
+                fqn: (*fqn).to_owned(),
+                gate: *gate,
+            },
+            _ => Owner::Ambiguous(hits.iter().map(|(fqn, _)| (*fqn).to_owned()).collect()),
+        }
+    }
+
+    /// 模块根表：归一路径 → FQN 列表（每表项字典序去重）。`len == 1` 判
+    /// `elementRoot`、`len >= 2` 判 `ambiguous`；文件树构造模块根节点的唯一来源。
+    pub(crate) fn module_roots(&self) -> BTreeMap<&str, Vec<&str>> {
+        let mut roots: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
         for entry in &self.entries {
-            if !prefix_matches(&rel, &entry.prefix) {
+            let fqns = roots.entry(entry.prefix.as_str()).or_default();
+            if !fqns.contains(&entry.fqn.as_str()) {
+                fqns.push(entry.fqn.as_str());
+            }
+        }
+        for fqns in roots.values_mut() {
+            fqns.sort_unstable();
+        }
+        roots
+    }
+
+    /// 后代模块数：模块根表中路径严格以 `"{path}/"` 开头的元素数（按 FQN 去重、
+    /// 不含自身——自身 `prefix` 恰为 `path`，不满足严格前缀）。与 `mark` 正交。
+    pub(crate) fn contains_count(&self, path: &str) -> u32 {
+        let target = normalize(path);
+        if target.is_empty() {
+            return 0;
+        }
+        let prefix = format!("{target}/");
+        let descendants: BTreeSet<&str> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.prefix.starts_with(&prefix))
+            .map(|entry| entry.fqn.as_str())
+            .collect();
+        descendants.len() as u32
+    }
+
+    /// 单候选的最长前缀命中集（`best` / `hits` 语义与最长前缀匹配同源）：按前缀字符
+    /// 数取最大档，档内按 FQN 去重（字典序，同 FQN 多 `path` 条目只计一条）。
+    fn longest_prefix_hits(&self, rel: &str) -> Vec<(String, usize, GateTier)> {
+        let mut best: Option<usize> = None;
+        let mut hits: BTreeMap<String, (usize, GateTier)> = BTreeMap::new();
+        for entry in &self.entries {
+            if !prefix_matches(rel, &entry.prefix) {
                 continue;
             }
             let length = entry.prefix.chars().count();
             match best {
                 Some(current) if length < current => {}
                 Some(current) if length == current => {
-                    if !hits.iter().any(|hit| hit.fqn == entry.fqn) {
-                        hits.push(entry);
-                    }
+                    hits.insert(entry.fqn.clone(), (length, entry.gate));
                 }
                 _ => {
                     best = Some(length);
                     hits.clear();
-                    hits.push(entry);
+                    hits.insert(entry.fqn.clone(), (length, entry.gate));
                 }
             }
         }
-        match hits.len() {
-            0 => Owner::None,
-            1 => Owner::Element {
-                fqn: hits[0].fqn.clone(),
-                gate: hits[0].gate,
-            },
-            _ => {
-                let mut candidates: Vec<String> = hits.iter().map(|hit| hit.fqn.clone()).collect();
-                candidates.sort();
-                candidates.dedup();
-                Owner::Ambiguous(candidates)
-            }
-        }
+        hits.into_iter()
+            .map(|(fqn, (length, gate))| (fqn, length, gate))
+            .collect()
     }
 }
 
-/// 生成物后缀剥离：末段形如 `<stem>.i.<ext>`（`ext ∈ {rs, ts, tsx, js, jsx}`）时替换为
-/// `<stem>.<ext>`（`archi.i.rs` → `archi.rs`、`welcome-view.i.ts` → `welcome-view.ts`），
-/// 使既有前缀判据能命中元素根；其余路径原样返回（非生成物归属零变化）。
-fn strip_generated(rel_path: &str) -> String {
+/// 生成物候选集：白名单外返回单候选（归一后的原路径，归属与改动前逐值相同）；
+/// 末段形如 `<stem>.i.<ext>`（`ext ∈ {rs, ts, tsx, js, jsx}`）时返回两候选——
+/// 整组剥离 `<name>`（`archi.i.rs` → `archi`）与替换扩展名 `<stem>.<ext>`
+/// （`archi.i.rs` → `archi.rs`）。两种落点形态互不相交（元素根同级 / 元素目录内），
+/// 故取并集。
+fn strip_candidates(rel_path: &str) -> Vec<String> {
     let unified = rel_path.replace('\\', "/");
     let segments: Vec<&str> = unified.split('/').collect();
     let Some(last) = segments.last() else {
-        return unified;
+        return vec![unified];
     };
     let Some((stem, extension)) = last.rsplit_once('.') else {
-        return unified;
+        return vec![unified];
     };
     if !GENERATED_EXTENSIONS.contains(&extension) {
-        return unified;
+        return vec![unified];
     }
     let Some((module, marker)) = stem.rsplit_once('.') else {
-        return unified;
+        return vec![unified];
     };
     if marker != GENERATED_MARKER || module.is_empty() {
-        return unified;
+        return vec![unified];
     }
-    let mut replaced: Vec<String> = segments[..segments.len() - 1]
-        .iter()
-        .map(|segment| (*segment).to_owned())
-        .collect();
+    let parent = &segments[..segments.len() - 1];
+    let mut stripped: Vec<String> = parent.iter().map(|segment| (*segment).to_owned()).collect();
+    stripped.push(module.to_owned());
+    let mut replaced: Vec<String> = parent.iter().map(|segment| (*segment).to_owned()).collect();
     replaced.push(format!("{module}.{extension}"));
-    replaced.join("/")
+    vec![stripped.join("/"), replaced.join("/")]
 }
 
 /// 前缀判据（目录形态 `prefix + "/"` 与文件级 `path` 的全等形态）。

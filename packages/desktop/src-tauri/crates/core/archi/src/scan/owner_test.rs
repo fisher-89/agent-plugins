@@ -340,16 +340,20 @@ fn 非ASCII与超长路径() {
 }
 
 // ===========================================================================
-// `.i.<ext>` 生成物剥离（`module-api-contract-format` / D3）
+// `.i.<ext>` 生成物剥离（`module-api-contract-format` / D3 + 并集判据）
 //
-// 剥离判据 = 末段形如 `<stem>.i.<ext>`（`ext ∈ {rs, ts, tsx, js, jsx}`）时把该段替换为
-// `<stem>.<ext>`；`normalize` / `prefix_matches` / `build` 语义逐字零变化，非
+// 生成物有两种落点形态且互不相交：① 元素根同级（`<root>.i.rs`，需**整组剥离**
+// `archi.i.rs → archi`）、② 元素目录内（`<dir>/<name>.i.<ext>`，需**替换扩展名**
+// `archi.i.rs → archi.rs`）。`strip_candidates` 对白名单内的末段返回这两个候选，
+// `owner_of` 对每个候选各跑一遍最长前缀、合并去重后按前缀长度定档（**禁止候选
+// 短路**）。`normalize` / `prefix_matches` / `build` 语义逐字零变化——非
 // `.i.<ext>` 路径的归属结果与改动前完全相同。
 // ===========================================================================
 
 /// 正向：剥后形态与原模块文件同名（`views/architecture.tsx` ← `architecture.tsx.i.ts`
-/// 走 `<stem>.<ext>` 规则时不等，故取真正的等价形态）——单文件元素的生成物
-/// `a.tsx.i.ts` 剥成 `a.tsx.ts`，与 `a.tsx` 不等；**目录内**的生成物由目录前缀命中。
+/// 走 `<stem>.<ext>` 规则时不等，故取真正的等价形态）——目录形态元素根的**目录内**
+/// 生成物由目录前缀命中；根同级生成物由整组剥离候选（`<root>.i.<ext>` → `<root>`）
+/// 命中（见下一用例）。
 #[test]
 fn 生成物剥离四种形态各归其元素() {
     let index = OwnerIndex::build(&[
@@ -407,41 +411,128 @@ fn 生成物剥离四种形态各归其元素() {
     );
 }
 
-/// 正向：剥离的唯一实质效果是「根同级生成物」——元素根取**带扩展名的单文件形态**
-/// 时，`<root>.i.<ext>` 剥成 `<root>.<ext>` 后与元素根全等（`rel == prefix` 分支）；
-/// 目录形态元素根（带尾 `/`）的根同级生成物仍不命中（目录前缀要求 `/` 分隔）。
+/// 正向（AC-7 / 翻转臂）：根同级生成物的两种元素根形态——单文件形（`<root>.<ext>`）
+/// 由替换扩展名候选命中、目录形（`<root>/`）由整组剥离候选命中。目录形元素的
+/// `src/dir.i.ts` 修复前落 `None`，并集判据下归元素。
 #[test]
-fn 生成物剥离使单文件元素根同级生成物归元素() {
+fn 生成物根同级形态各归其元素() {
     let single = OwnerIndex::build(&[element(
         "App.View.Welcome",
         GateTier::Warn,
         &["views/welcome.ts"],
     )]);
-    // 剥成 `views/welcome.ts` 与元素根全等（`rel == prefix` 分支）→ 命中
+    // 替换扩展名候选 `views/welcome.ts` 与元素根全等（`rel == prefix` 分支）→ 命中
     assert_eq!(
         owned_fqn(&single.owner_of("views/welcome.i.ts")),
         "App.View.Welcome",
-        "单文件元素根（views/welcome.ts）的根同级生成物剥后全等"
+        "单文件元素根（views/welcome.ts）的根同级生成物由替换候选命中"
     );
-    // 其余扩展名剥后是 `views/welcome.rs` / `.tsx` / `.js` / `.jsx`，与元素根不等 → 无主
+    // 其余扩展名：两候选为 `views/welcome` 与 `views/welcome.{ext}`，皆与元素根不等 → 无主
     for extension in ["rs", "tsx", "js", "jsx"] {
         assert_eq!(
             single.owner_of(&format!("views/welcome.i.{extension}")),
             Owner::None,
-            "views/welcome.i.{extension} 剥后与 views/welcome.ts 不等 → 如实无主"
+            "views/welcome.i.{extension} 两候选均不命中 views/welcome.ts → 如实无主"
         );
     }
 
+    // 目录形元素根：整组剥离候选 `src/dir` 落在目录前缀内 → 命中（修复前为 None）
     let directory = OwnerIndex::build(&[element("App.Core.Dir", GateTier::Warn, &["src/dir/"])]);
     assert_eq!(
-        directory.owner_of("src/dir.i.ts"),
-        Owner::None,
-        "目录形态元素根的根同级生成物剥后不在目录内 → 如实无主"
+        owned_fqn(&directory.owner_of("src/dir.i.ts")),
+        "App.Core.Dir",
+        "目录形态元素根的根同级生成物由整组剥离候选命中（并集判据翻转臂）"
     );
     assert_eq!(
         owned_fqn(&directory.owner_of("src/dir/dir.i.ts")),
         "App.Core.Dir",
         "目录形态元素根的目录内生成物由目录前缀命中"
+    );
+}
+
+/// 正向（AC-7 / D1 并集判据）：四条根同级实形态——元素目录旁边的 `<末段>.i.<ext>`
+/// 全部归该元素（整组剥离候选生效）。
+#[test]
+fn 生成物根同级四实形态归元素() {
+    let cases = [
+        (
+            "App.Frontend.Views.Architecture",
+            "./views/architecture/",
+            "views/architecture/architecture.i.tsx",
+        ),
+        ("App.Frontend.Lib", "./src/lib/", "src/lib/lib.i.ts"),
+        ("App.Backend.Core.X", "./core/x/", "core/x/x.i.rs"),
+        (
+            "App.Backend.Infra.ArchiRuntime",
+            "./crates/infra/archi/",
+            "crates/infra/archi.i.rs",
+        ),
+    ];
+    for (fqn, path, probe) in cases {
+        let index = OwnerIndex::build(&[element(fqn, GateTier::Warn, &[path])]);
+        assert_eq!(
+            owned_fqn(&index.owner_of(probe)),
+            fqn,
+            "{probe} 的整组剥离候选落在 {path} 前缀内 → 归 {fqn}"
+        );
+    }
+}
+
+/// 异常（AC-7 / R-1）：并集定档下更具体的单文件根胜出——若实现成「首条候选命中
+/// 即短路」，整组候选 `src/dir` 会先给出 `App.Core.Dir`，本用例必红。
+#[test]
+fn 并集定档使更具体的单文件根胜出() {
+    let index = OwnerIndex::build(&[
+        element("App.Core.Dir", GateTier::Warn, &["./src/dir/"]),
+        element("App.Core.DirFile", GateTier::Warn, &["./src/dir.ts"]),
+    ]);
+    assert_eq!(
+        owned_fqn(&index.owner_of("src/dir.i.ts")),
+        "App.Core.DirFile",
+        "替换扩展名候选 `src/dir.ts` 更长 → 归更具体的单文件根（禁止候选短路）"
+    );
+}
+
+/// 异常（AC-7 / 既有语义保持）：两候选合并后同长仍歧义——三个元素分别被两条候选
+/// 命中（整组候选命中 1 个、替换候选命中 2 个），合并后取最长档仍为多命中，
+/// `Ambiguous` 全量字典序（不因合并且退化为单值）。
+#[test]
+fn 生成物并集合并后同长仍歧义() {
+    let index = OwnerIndex::build(&[
+        element("App.A", GateTier::Warn, &["src/x/"]),
+        element("App.B", GateTier::Warn, &["src/x.ts"]),
+        element("App.C", GateTier::Warn, &["src/x.ts"]),
+    ]);
+    match index.owner_of("src/x.i.ts") {
+        Owner::Ambiguous(candidates) => {
+            assert_eq!(
+                candidates,
+                vec!["App.B".to_owned(), "App.C".to_owned()],
+                "替换候选（`src/x.ts`，更长）的同长多命中全量保留且字典序"
+            );
+        }
+        other => panic!("并集合并后同长应 Ambiguous，实际：{other:?}"),
+    }
+}
+
+/// 正向（AC-7 / 两候选来源独立可达）：仅目录根时整组候选生效；仅文件根时替换
+/// 候选生效——两条候选路径各被一次独立证明。
+#[test]
+fn 两候选来源各自独立可达() {
+    let directory_only =
+        OwnerIndex::build(&[element("App.Core.Archi", GateTier::Warn, &["src/archi/"])]);
+    assert_eq!(
+        owned_fqn(&directory_only.owner_of("src/archi.i.rs")),
+        "App.Core.Archi",
+        "只声明目录根 ⇒ 整组剥离候选命中"
+    );
+
+    let file_only =
+        OwnerIndex::build(&[element("App.Core.Archi", GateTier::Warn, &["src/archi.rs"])]);
+    assert_eq!(
+        owned_fqn(&file_only.owner_of("src/archi.i.rs")),
+        "App.Core.Archi",
+        "只声明文件根 ⇒ 替换扩展名候选命中"
     );
 }
 
@@ -648,4 +739,226 @@ fn 生成物常量单源与五扩展名齐备() {
         "`.i.js` 被剥（D3：漏 js 会让该元素生成物落 None）"
     );
     let _ = index;
+}
+
+// ===========================================================================
+// `module_roots`（`pub(crate)` 新增）：归一路径 → FQN 列表（树侧唯一来源）
+// ===========================================================================
+
+/// 正向（AC-5 / AC-6 / D2）：两写法归一同路径去重后恰 1 条 ⇒ 该节点判
+/// `elementRoot`；键集为**归一形态**（无 `./`、无尾 `/`）。
+#[test]
+fn 模块根表按归一路径归并去重() {
+    let index = OwnerIndex::build(&[
+        element("A", GateTier::Warn, &["./src/auth/", "src/auth"]),
+        element("B", GateTier::Warn, &["./src/billing/"]),
+    ]);
+    let roots = index.module_roots();
+    let keys: Vec<&str> = roots.keys().copied().collect();
+    assert_eq!(
+        keys,
+        vec!["src/auth", "src/billing"],
+        "键集为归一形态（无前导 ./、无尾 /）且有序"
+    );
+    assert_eq!(
+        roots.get("src/auth").cloned(),
+        Some(vec!["A"]),
+        "同元素重复声明去重后恰 1 ⇒ 判 elementRoot"
+    );
+    assert_eq!(roots.get("src/billing").cloned(), Some(vec!["B"]));
+}
+
+/// 异常（AC-5 / spec Scenario 同一归一路径被多元素声明）：表项 ≥ 2 且字典序 ⇒
+/// 树侧据此判 `ambiguous`。
+#[test]
+fn 模块根表同路径多元素声明给出全量候选() {
+    let index = OwnerIndex::build(&[
+        element("App.Zeta", GateTier::Warn, &["./src/shared/"]),
+        element("App.Alpha", GateTier::Warn, &["src/shared"]),
+    ]);
+    let roots = index.module_roots();
+    assert_eq!(
+        roots.get("src/shared").cloned(),
+        Some(vec!["App.Alpha", "App.Zeta"]),
+        "同归一路径多元素 ⇒ 表项字典序全量（len >= 2 判 ambiguous）"
+    );
+}
+
+/// 异常（AC-5 / spec Scenario 容器元素零节点）：`path = []` 的元素不产任何表项。
+#[test]
+fn 模块根表对容器元素零表项() {
+    let index = OwnerIndex::build(&[
+        element("App", GateTier::Warn, &[]),
+        element("App.Auth", GateTier::Warn, &["./src/auth/"]),
+    ]);
+    let roots = index.module_roots();
+    assert_eq!(roots.len(), 1, "只有声明了 path 的元素进表");
+    assert!(
+        !roots.values().any(|fqns| fqns.contains(&"App")),
+        "容器元素零表项"
+    );
+}
+
+/// 边界：空路径条目（`""` / `"./"` 归一为空）被丢弃；空模型返回空表不 panic。
+#[test]
+fn 模块根表过滤空路径与空模型() {
+    let index = OwnerIndex::build(&[
+        element("App.Empty1", GateTier::Warn, &[""]),
+        element("App.Empty2", GateTier::Warn, &["./"]),
+    ]);
+    assert!(
+        index.module_roots().is_empty(),
+        "空条目归一为空后丢弃（不产兜底表项）"
+    );
+
+    let empty = OwnerIndex::build(&[]);
+    assert!(empty.module_roots().is_empty(), "空模型返回空表");
+}
+
+// ===========================================================================
+// `contains_count`（`pub(crate)` 新增）：严格前缀后代模块数
+// ===========================================================================
+
+/// 正向（AC-5 / D6③）：严格前缀 `"{path}/"` 的后代模块数（按 FQN 去重、不含自身）。
+#[test]
+fn 后代计数按严格前缀统计() {
+    let index = OwnerIndex::build(&[
+        element("Src", GateTier::Warn, &["src/"]),
+        element("A", GateTier::Warn, &["src/a/"]),
+        element("B", GateTier::Warn, &["src/b/"]),
+        element("A.Deep", GateTier::Warn, &["src/a/deep/"]),
+    ]);
+    assert_eq!(
+        index.contains_count("src"),
+        3,
+        "src 的后代模块三个（不含自身）"
+    );
+    assert_eq!(index.contains_count("src/a"), 1, "src/a 的后代模块一个");
+    assert_eq!(index.contains_count("src/b"), 0, "src/b 无后代模块");
+    assert_eq!(index.contains_count("src/a/deep"), 0, "叶子元素根无后代");
+}
+
+/// 正向（AC-5 / spec Scenario 多 path 元素与 contains 去重）：一元素的四条文件形
+/// 路径只计 1（按 FQN 去重）。
+#[test]
+fn 后代计数按元素去重() {
+    let index = OwnerIndex::build(&[element(
+        "App.Frontend.Shell",
+        GateTier::Warn,
+        &[
+            "src/shell/index.ts",
+            "src/shell/app.ts",
+            "src/shell/routes.ts",
+            "src/shell/store.ts",
+        ],
+    )]);
+    assert_eq!(
+        index.contains_count("src/shell"),
+        1,
+        "四条路径同属一元素 ⇒ 计 1（按 FQN 去重）而非 4"
+    );
+    assert_eq!(index.contains_count("src"), 1, "祖先层同样按元素去重");
+}
+
+/// 异常（AC-5 / spec 判据③）：非严格前缀不计数——`src/ab` 不以 `src/a/` 开头。
+#[test]
+fn 后代计数不误计非严格前缀() {
+    let index = OwnerIndex::build(&[element("Ab", GateTier::Warn, &["src/ab/"])]);
+    assert_eq!(
+        index.contains_count("src/a"),
+        0,
+        "`src/ab` 不以 `src/a/` 开头（MUST NOT 用裸 starts_with 前缀）"
+    );
+    assert_eq!(index.contains_count("src"), 1, "上一级照常计数");
+}
+
+/// 边界：非归一入参先归一（`./` / `\` / 尾 `/` 三写法等价）；空串与 `.` 返回 0。
+#[test]
+fn 后代计数入参先归一且空值零结果() {
+    let index = OwnerIndex::build(&[element("A", GateTier::Warn, &["src/a/"])]);
+    for probe in ["./src/", "src\\", "src/"] {
+        assert_eq!(
+            index.contains_count(probe),
+            1,
+            "{probe:?} 归一后与 src 等价"
+        );
+    }
+    for probe in ["", "."] {
+        assert_eq!(index.contains_count(probe), 0, "{probe:?} 返回 0 不 panic");
+    }
+}
+
+/// 边界：自身不计数、1000 个互不重叠的后代根容量足够、空模型恒 0。
+#[test]
+fn 后代计数上界与空模型() {
+    let single = OwnerIndex::build(&[element("Only", GateTier::Warn, &["src/"])]);
+    assert_eq!(single.contains_count("src"), 0, "自身不计入后代数");
+
+    let mut elements: Vec<ArchiElement> = vec![element("Src", GateTier::Warn, &["src/"])];
+    for index in 0..1000 {
+        elements.push(element(
+            &format!("Src.K{index:04}"),
+            GateTier::Warn,
+            &[format!("src/k{index:04}/").as_str()],
+        ));
+    }
+    let wide = OwnerIndex::build(&elements);
+    assert_eq!(
+        wide.contains_count("src"),
+        1000,
+        "1000 个后代根在 u32 容量内不溢出"
+    );
+
+    let empty = OwnerIndex::build(&[]);
+    assert_eq!(empty.contains_count("src"), 0, "空模型任意 path 皆 0");
+}
+
+// ===========================================================================
+// 判据面单源（AC-6）：源码自证
+// ===========================================================================
+
+/// 异常（AC-6）：`strip_generated` 零残留、`strip_candidates` 恰一处定义 + 一处调用、
+/// 三个新 helper 各恰一处、三处零改动件签名逐字未变。
+#[test]
+fn 判定面单源与零改动件签名() {
+    let source = include_str!("owner.rs");
+    assert_eq!(
+        source.matches("strip_generated").count(),
+        0,
+        "旧剥离函数零残留（并集判据已取代）"
+    );
+    assert_eq!(
+        source.matches("fn strip_candidates").count(),
+        1,
+        "候选构造函数恰一处定义"
+    );
+    assert_eq!(
+        source.matches("strip_candidates(").count(),
+        2,
+        "候选构造函数恰一处定义 + 一处调用（owner_of 内）"
+    );
+    for helper in [
+        "fn module_roots",
+        "fn contains_count",
+        "fn longest_prefix_hits",
+        "fn normalize",
+        "fn prefix_matches",
+        "pub fn build",
+        "pub fn owner_of",
+    ] {
+        assert_eq!(source.matches(helper).count(), 1, "{helper} 恰一处定义");
+    }
+    // 零短路结构：候选循环体内不得出现早退
+    assert!(
+        source.contains("for candidate in strip_candidates("),
+        "候选集合并定档的循环在案（MUST NOT 短路）"
+    );
+    assert!(
+        source.contains("pub(crate) fn module_roots(&self) -> BTreeMap<&str, Vec<&str>>"),
+        "模块根表签名（树侧唯一来源）"
+    );
+    assert!(
+        source.contains("pub(crate) fn contains_count(&self, path: &str) -> u32"),
+        "后代计数签名"
+    );
 }

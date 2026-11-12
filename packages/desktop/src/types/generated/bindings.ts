@@ -268,6 +268,8 @@ export const commands = {
 	archiSetGate: (root: string, element: string, gate: GateTier) => __TAURI_INVOKE<null>("archi_set_gate", { root, element, gate }),
 	/**  架构漂移检查（两模式；命令层零判定）。 */
 	archiDrift: (root: string, mode: ArchiDriftMode) => __TAURI_INVOKE<ArchiDriftReport>("archi_drift", { root, mode }),
+	/**  左栏文件树数据（仓库源文件与模块根的扁平条目投影）。 */
+	archiFileTree: (root: string) => __TAURI_INVOKE<ArchiFileTree>("archi_file_tree", { root }),
 	/**  通用文件读取（唯一内容出口）：字节分页 + 同批 stat。 */
 	readFile: (path: string, offset: number | null, limit: number | null) => __TAURI_INVOKE<FileSlice | null>("read_file", { path, offset, limit }),
 };
@@ -940,6 +942,30 @@ export type ArchiExcludedFile = {
 	file: string,
 	/**  命中的具体 glob 规则原文 */
 	rule: string,
+};
+
+/**  文件树条目（七字段按声明序出线；扁平、无嵌套）。 */
+export type ArchiFileEntry = {
+	/**  repo 相对 POSIX 路径（无前导 `./`、无尾 `/`；顶层条目即其单段名） */
+	path: string,
+	/**  末段名（无 `/` 时等于 `path`） */
+	name: string,
+	/**  形态（目录 / 文件） */
+	kind: FileEntryKind,
+	/**  归属标记（五值单值） */
+	mark: FileTreeMark,
+	/**  归属 FQN（字典序去重）：`elementRoot` 恰 1 / `ambiguous` ≥ 2 / 其余空数组 */
+	owners: string[],
+	/**  后代模块数（严格前缀、按 FQN 去重、不含自身）；`kind = File` 恒 0 */
+	contains: number,
+	/**  `Dir` 且为模块根时该目录是否在盘（其余恒 `true`） */
+	exists: boolean,
+};
+
+/**  文件树数据（扁平条目数组、`path` 字节序、确定性；不产 `""` 根条目）。 */
+export type ArchiFileTree = {
+	/**  条目（扁平：嵌套关系由前端按 `path` 前缀派生） */
+	entries: ArchiFileEntry[],
 };
 
 /**  gate 变更条目（`from` → `to`）。 */
@@ -1688,6 +1714,13 @@ export type ExploreScanEntry = {
 	modifiedAt: number | null,
 };
 
+/**  文件树条目的形态（封闭二值）。 */
+export type FileEntryKind = 
+/**  目录（枚举文件的祖先目录 / 模块根目录 / 缺失的声明根） */
+"dir" | 
+/**  文件（枚举出的源文件 / 单文件形模块根） */
+"file";
+
 /**
  *  文件叶节点：单个被解析文件的行统计；父目录在深度内时挂其 `children`
  *  （目录级数 0 = 根层直属文件挂树顶层），深度外的文件不出叶（仅并入祖先聚合）。
@@ -1732,6 +1765,26 @@ export type FileStat = {
 	isFile: boolean,
 	isDir: boolean,
 };
+
+/**
+ *  文件树节点的归属标记（封闭五值；优先级单值
+ *  `elementRoot > ambiguous > member > containsElements > none`）。
+ * 
+ *  与画布节点标记 [`NodeMark`] **同名不同义、MUST NOT 复用**：后者归画布节点、生命
+ *  周期在漂移报告；本词表只表达归属，MUST NOT 承载漂移违例 / 门禁 / 契约状态，且
+ *  MUST NOT 进「四面词汇对拍」（那四面锚定模型 / 报告词汇，另一条生命周期）。
+ */
+export type FileTreeMark = 
+/**  本节点恰是一个元素的 `path` 根（`owners` 恰 1） */
+"elementRoot" | 
+/**  同长多命中 ≥ 2 个元素（含同一归一路径被多元素声明、以及同长不同前缀两种来源） */
+"ambiguous" | 
+/**  位于某元素 `path` 的严格内部 */
+"member" | 
+/**  自身无归属，但后代含元素根 */
+"containsElements" | 
+/**  以上都不成立 */
+"none";
 
 /**  桥接后的前端信号载荷（与 `FileWatchSignal` 同构，camelCase；无内容字节）。 */
 export type FileWatchEvent = {

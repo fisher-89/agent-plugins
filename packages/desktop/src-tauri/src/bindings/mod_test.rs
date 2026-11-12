@@ -172,6 +172,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "archiChangeSummary",
     "archiSetGate",
     "archiDrift",
+    "archiFileTree",
     "readFile",
 ];
 
@@ -224,6 +225,7 @@ const COMMAND_NAMES: &[&str] = &[
     "archi_change_summary",
     "archi_set_gate",
     "archi_drift",
+    "archi_file_tree",
     "read_file",
 ];
 
@@ -308,6 +310,8 @@ const DTO_TYPES: &[&str] = &[
     "ArchiDriftSuppressedEntry",
     "ArchiElement",
     "ArchiExcludedFile",
+    "ArchiFileEntry",
+    "ArchiFileTree",
     "ArchiGateChange",
     "ArchiGateCount",
     "ArchiGraph",
@@ -324,6 +328,8 @@ const DTO_TYPES: &[&str] = &[
     "DocSource",
     "EdgeMark",
     "ElementKind",
+    "FileEntryKind",
+    "FileTreeMark",
     "GateTier",
     "NodeMark",
     "WarningKind",
@@ -1044,8 +1050,16 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
     // 本变更自身再补录一条（架构页会话清单）：条目数 43 → 44
-    assert_eq!(COMMAND_NAMES.len(), 48, "命令清单删 2 增 1（49 → 48）");
-    assert_eq!(COMMAND_WRAPPERS.len(), 48, "包装清单删 2 增 1（49 → 48）");
+    assert_eq!(
+        COMMAND_NAMES.len(),
+        49,
+        "命令清单新增 archi_file_tree（48 → 49）"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS.len(),
+        49,
+        "包装清单新增 archiFileTree（48 → 49）"
+    );
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
         COMMAND_NAMES.last(),
@@ -1105,8 +1119,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        97,
-        "DTO 清单再补录 FileSlice / FileStat，删 ExploreDoc（96 + 2 - 1）"
+        101,
+        "DTO 清单新增 ArchiFileEntry / ArchiFileTree / FileEntryKind / FileTreeMark（97 + 4）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -1645,22 +1659,26 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
 }
 
 // ---------------------------------------------------------------------------
-// archi 章节：四命令与架构域出线类型在册（AC-20 的守卫面）
+// archi 章节：命令族与架构域出线类型在册（AC-20 的守卫面）
 // ---------------------------------------------------------------------------
 
-/// 架构域四命令（invoke 名 / 包装名成对）。
-const ARCHI_COMMANDS: [(&str, &str); 4] = [
+/// 架构域命令族（invoke 名 / 包装名成对）。
+const ARCHI_COMMANDS: [(&str, &str); 6] = [
     ("archi_graph", "archiGraph"),
     ("archi_module", "archiModule"),
     ("archi_change_summary", "archiChangeSummary"),
     ("archi_set_gate", "archiSetGate"),
+    ("archi_drift", "archiDrift"),
+    ("archi_file_tree", "archiFileTree"),
 ];
 
 /// 架构域出线类型名（`Archi*` 投影 + 五组封闭词汇）。
-const ARCHI_DTO_TYPES: [&str; 19] = [
+const ARCHI_DTO_TYPES: [&str; 23] = [
     "ArchiChangeSummary",
     "ArchiDependedBy",
     "ArchiDependsOn",
+    "ArchiFileEntry",
+    "ArchiFileTree",
     "ArchiDiagnostic",
     "ArchiDiagnosticKind",
     "ArchiElement",
@@ -1674,14 +1692,16 @@ const ARCHI_DTO_TYPES: [&str; 19] = [
     "DocSource",
     "EdgeMark",
     "ElementKind",
+    "FileEntryKind",
+    "FileTreeMark",
     "GateTier",
     "NodeMark",
     "WarningKind",
 ];
 
-/// 正向：四命令在册（清单 + 产物双面）；既有条目零位移（尾部追加）。
+/// 正向：命令族在册（清单 + 产物双面）；既有条目零位移（尾部追加）。
 #[test]
-fn archi四命令在册且既有条目零位移() {
+fn archi命令族在册且既有条目零位移() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -1719,6 +1739,7 @@ fn archi四命令在册且既有条目零位移() {
             "archi_change_summary",
             "archi_set_gate",
             "archi_drift",
+            "archi_file_tree",
             "read_file",
         ],
         "archi 命令尾部追加（既有条目零位移）"
@@ -1948,10 +1969,10 @@ fn 登记面_架构页会话清单命令在册() {
 /// 边界：命令总数 +1（43 → 44），两份清单条目数持衡（漏登记或重复登记即红）。
 #[test]
 fn 登记面_命令总数加一且两清单持衡() {
-    assert_eq!(COMMAND_NAMES.len(), 48, "删 2 增 1 后的命令总数（49 → 48）");
+    assert_eq!(COMMAND_NAMES.len(), 49, "命令总数（48 → 49）");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        48,
+        49,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2272,13 +2293,14 @@ fn archi_drift清单与产物命令面互为镜像() {
         missing_in_list.is_empty(),
         "产物有而清单无（archi 族漏登记）：{missing_in_list:?}"
     );
-    // 清单有而产物无：archi 命令族逐条回查（四命令在册 + 架构指纹命令）
+    // 清单有而产物无：archi 命令族逐条回查（命令族在册 + 架构指纹命令）
     for wrapper in [
         "archiGraph",
         "archiModule",
         "archiChangeSummary",
         "archiSetGate",
         "archiDrift",
+        "archiFileTree",
     ] {
         assert!(
             COMMAND_WRAPPERS.contains(&wrapper),
@@ -2362,7 +2384,7 @@ fn 产物文件锁drop后立即可重取且文件常驻() {
 // 三条 exec 记录读命令的登记面（change-detail-live-stdout，AC-14）
 //
 // 被测面：`all_commands!` 在 `read_artifact` 之后的三条 exec 记录读命令——两份
-// 补录清单（`COMMAND_NAMES` / `COMMAND_WRAPPERS`）逐名在册、总数锚 48、尾锚零
+// 补录清单（`COMMAND_NAMES` / `COMMAND_WRAPPERS`）逐名在册、总数锚 49、尾锚零
 // 位移（`read_file` 是末条）、生成包装逐字形态、唯一登记（各恰一次）、
 // `ExecOutputChunk` 出线类型在册。
 //
@@ -2416,14 +2438,14 @@ fn 登记面_三新命令在两清单与生成物各在册() {
     }
 }
 
-/// 正向：总数锚 49 → 48（两份清单持衡、一一对应）；尾锚仍为 `archi_drift`
-///（`read_file` 在其后登记，三行删除在 changes / explores / archi 组内）。
+/// 正向：总数锚 48 → 49（两份清单持衡、一一对应）；尾锚仍为 `read_file`
+///（archi 组新条目插在其前，三行删除在 changes / explores / archi 组内）。
 #[test]
-fn 登记面_总数四十八且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 48, "命令清单总数 49 → 48");
+fn 登记面_总数四十九且尾锚零位移() {
+    assert_eq!(COMMAND_NAMES.len(), 49, "命令清单总数 48 → 49");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        48,
+        49,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
@@ -3035,4 +3057,184 @@ fn 产物面同世代两次快照逐字相等() {
             "收口词汇 {engine_side} 不出线（产物零 diff 前提）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 文件树面在册（archi-file-tree / AC-3 / AC-14）：四新出线类型与第六命令
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-3 / AC-14）：四新类型在两份产物各有具名导出一处；`archiFileTree`
+/// 包装签名与两个 zod 表项逐字命中；`ArchiFileEntry` 七字段按声明序出线。
+#[test]
+fn 文件树四类型与命令在双产物在册() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+
+    for dto in [
+        "ArchiFileEntry",
+        "ArchiFileTree",
+        "FileEntryKind",
+        "FileTreeMark",
+    ] {
+        assert!(DTO_TYPES.contains(&dto), "DTO 清单应在册 {dto}");
+        assert_eq!(
+            content.matches(&format!("export type {dto} =")).count(),
+            1,
+            "bindings.ts 应恰有一处 `export type {dto} =`"
+        );
+        assert_eq!(
+            zod.matches(&format!("export const {dto}Schema =")).count(),
+            1,
+            "bindings.zod.ts 应恰有一处 `{dto}Schema`"
+        );
+    }
+
+    // 命令包装：签名与 invoke 名逐字（沿既有产物形状）
+    assert!(
+        content.contains(
+            "archiFileTree: (root: string) => __TAURI_INVOKE<ArchiFileTree>(\"archi_file_tree\", { root })"
+        ),
+        "archiFileTree 包装签名与 invoke 名逐字"
+    );
+
+    // zod 两表：args 与 result 各一表项，形状与导出类型名一致
+    let [args, results, channels] = zod_tables(&zod);
+    assert!(
+        args.1.contains("get \"archiFileTree\"()"),
+        "argsSchemas 含 archiFileTree"
+    );
+    assert!(
+        args.1.contains("\"root\": z.string()"),
+        "argsSchemas 的 root 判型为字符串"
+    );
+    assert!(
+        results
+            .1
+            .contains("get \"archiFileTree\"() { return z.lazy(() => ArchiFileTreeSchema); }"),
+        "resultSchemas 指向 ArchiFileTreeSchema"
+    );
+    // `channelArgs` 逐命令在册：该命令无 Channel 形参 ⇒ 表项体为空对象
+    let channel_marker = "get \"archiFileTree\"() { return {";
+    let channel_start = channels
+        .1
+        .find(channel_marker)
+        .expect("channelArgs 含 archiFileTree 表项")
+        + channel_marker.len();
+    let channel_body = &channels.1[channel_start..];
+    let channel_end = channel_body.find("}; }").expect("表项收尾");
+    assert!(
+        channel_body[..channel_end].trim().is_empty(),
+        "无 Channel 形参 ⇒ 表项体为空对象，实际：{:?}",
+        &channel_body[..channel_end]
+    );
+
+    // 七字段按声明序出线（`serde_json` 默认保序即契约）
+    let entry = type_section(&content, "ArchiFileEntry");
+    let keys: Vec<String> = entry
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let name = trimmed.split(':').next()?.trim();
+            let plain = name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            (plain && !name.is_empty() && name != "export").then(|| name.to_owned())
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["path", "name", "kind", "mark", "owners", "contains", "exists"],
+        "`ArchiFileEntry` 七字段按声明序出线，实际段：\n{entry}"
+    );
+    // 单字段扁平：`ArchiFileTree` 恰一个 entries 字段
+    let tree_section = type_section(&content, "ArchiFileTree");
+    assert!(
+        tree_section.contains("entries: ArchiFileEntry[]"),
+        "`ArchiFileTree` 单字段 entries 为扁平数组，实际段：\n{tree_section}"
+    );
+    assert!(
+        !tree_section.contains("children"),
+        "`ArchiFileTree` 无嵌套字段"
+    );
+}
+
+/// 边界（AC-14 / 尾锚判据）：既有清单条目零位移——新增项只插在 archi 段尾部，
+/// `read_file` / `readFile` 仍为末条。
+#[test]
+fn 文件树登记面尾锚零位移() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    assert_eq!(
+        COMMAND_NAMES.last(),
+        Some(&"read_file"),
+        "命令清单尾锚仍 read_file"
+    );
+    assert_eq!(
+        COMMAND_WRAPPERS.last(),
+        Some(&"readFile"),
+        "包装清单尾锚仍 readFile"
+    );
+    // archi 段在清单中的相邻序：archi_file_tree 紧跟 archi_drift
+    let drift_index = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "archi_drift")
+        .expect("archi_drift 在册");
+    assert_eq!(
+        COMMAND_NAMES.get(drift_index + 1),
+        Some(&"archi_file_tree"),
+        "archi_file_tree 紧跟 archi_drift（尾部追加序）"
+    );
+    let drift_wrapper_index = COMMAND_WRAPPERS
+        .iter()
+        .position(|name| *name == "archiDrift")
+        .expect("archiDrift 在册");
+    assert_eq!(
+        COMMAND_WRAPPERS.get(drift_wrapper_index + 1),
+        Some(&"archiFileTree"),
+        "archiFileTree 紧跟 archiDrift"
+    );
+
+    // 产物面同样持序：两包装在产物中的相对位置随清单
+    let drift_pos = content.find("archiDrift:").expect("产物含 archiDrift");
+    let file_tree_pos = content
+        .find("archiFileTree:")
+        .expect("产物含 archiFileTree");
+    let read_file_pos = content.find("readFile:").expect("产物含 readFile");
+    assert!(
+        drift_pos < file_tree_pos && file_tree_pos < read_file_pos,
+        "产物包装序：archiDrift < archiFileTree < readFile"
+    );
+}
+
+/// 正向（AC-4 / AC-14）：`FileTreeMark` 五线值与 `FileEntryKind` 二线值在产物中
+/// 逐字命中，且两词表互不串味（`NodeMark` 的 `unfulfilled` 不进文件树词表）。
+#[test]
+fn 文件树词表线值在产物逐字命中() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let mark_section = type_section(&content, "FileTreeMark");
+    for word in [
+        "elementRoot",
+        "ambiguous",
+        "member",
+        "containsElements",
+        "none",
+    ] {
+        assert!(
+            mark_section.contains(&format!("\"{word}\"")),
+            "FileTreeMark 缺线值 {word}，实际段：\n{mark_section}"
+        );
+    }
+    let kind_section = type_section(&content, "FileEntryKind");
+    for word in ["\"dir\"", "\"file\""] {
+        assert!(
+            kind_section.contains(word),
+            "FileEntryKind 缺线值 {word}，实际段：\n{kind_section}"
+        );
+    }
+    assert!(
+        !mark_section.contains("unfulfilled") && !kind_section.contains("unfulfilled"),
+        "文件树词表不得含画布节点标记的词（MUST NOT 复用 NodeMark）"
+    );
 }

@@ -29,6 +29,7 @@ pub mod model;
 pub mod parse;
 pub mod scan;
 pub mod search;
+pub mod tree;
 
 pub use api::{
     api_ref, api_ref_of, bootstrap, check as api_check, enabled as api_enabled, load_contracts,
@@ -43,11 +44,13 @@ pub use drift::report::{
 };
 pub use drift::{check, CheckError, CheckInput};
 pub use dto::{
-    ArchiChangeSummary, ArchiGraph, ArchiModuleDetail, ArchiSearchResult, DiagnosticKind, DocKind,
-    DocRef, DocSource, EdgeMark, ElementKind, GateTier, NodeMark, SearchScope, WarningKind,
+    ArchiChangeSummary, ArchiFileEntry, ArchiFileTree, ArchiGraph, ArchiModuleDetail,
+    ArchiSearchResult, DiagnosticKind, DocKind, DocRef, DocSource, EdgeMark, ElementKind,
+    FileEntryKind, FileTreeMark, GateTier, NodeMark, SearchScope, WarningKind,
 };
 pub use model::{Diagnostic, Element, Model, Relation};
 pub use scan::{scan, ScanInput, ScanOutcome};
+pub use tree::file_tree;
 
 #[cfg(test)]
 mod diff_test;
@@ -63,3 +66,5 @@ mod graph_test;
 mod model_test;
 #[cfg(test)]
 mod search_test;
+#[cfg(test)]
+mod tree_test;

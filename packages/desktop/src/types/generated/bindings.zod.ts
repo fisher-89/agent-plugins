@@ -254,6 +254,9 @@ export const argsSchemas = {
 			"root": z.string(),
 			"mode": z.lazy(() => ArchiDriftModeSchema),
 		}); },
+	get "archiFileTree"() { return z.strictObject({
+			"root": z.string(),
+		}); },
 	get "readFile"() { return z.strictObject({
 			"path": z.string(),
 			"offset": z.number().nullable(),
@@ -317,6 +320,7 @@ export const resultSchemas = {
 	get "archiChangeSummary"() { return z.lazy(() => ArchiChangeSummarySchema).nullable(); },
 	get "archiSetGate"() { return z.null(); },
 	get "archiDrift"() { return z.lazy(() => ArchiDriftReportSchema); },
+	get "archiFileTree"() { return z.lazy(() => ArchiFileTreeSchema); },
 	get "readFile"() { return z.lazy(() => FileSliceSchema).nullable(); },
 } as const;
 
@@ -434,6 +438,8 @@ export const channelArgs = {
 	get "archiSetGate"() { return {
 		}; },
 	get "archiDrift"() { return {
+		}; },
+	get "archiFileTree"() { return {
 		}; },
 	get "readFile"() { return {
 		}; },
@@ -769,6 +775,20 @@ export const ArchiExcludedFileSchema = z.strictObject({
 	get rule() { return z.string(); },
 });
 
+export const ArchiFileEntrySchema = z.strictObject({
+	get path() { return z.string(); },
+	get name() { return z.string(); },
+	get kind() { return FileEntryKindSchema; },
+	get mark() { return FileTreeMarkSchema; },
+	get owners() { return z.array(z.string()); },
+	get contains() { return z.int().min(0).max(4294967295); },
+	get exists() { return z.boolean(); },
+});
+
+export const ArchiFileTreeSchema = z.strictObject({
+	get entries() { return z.array(ArchiFileEntrySchema); },
+});
+
 export const ArchiGateChangeSchema = z.strictObject({
 	get fqn() { return z.string(); },
 	get from() { return GateTierSchema; },
@@ -1090,6 +1110,8 @@ export const ExploreScanEntrySchema = z.strictObject({
 	get modifiedAt() { return z.number().nullable(); },
 });
 
+export const FileEntryKindSchema = z.union([z.literal("dir"), z.literal("file")]);
+
 export const FileNodeSchema = z.strictObject({
 	get name() { return z.string(); },
 	get path() { return z.string(); },
@@ -1113,6 +1135,8 @@ export const FileStatSchema = z.strictObject({
 	get isFile() { return z.boolean(); },
 	get isDir() { return z.boolean(); },
 });
+
+export const FileTreeMarkSchema = z.union([z.literal("elementRoot"), z.literal("ambiguous"), z.literal("member"), z.literal("containsElements"), z.literal("none")]);
 
 export const FileWatchEventSchema = z.strictObject({
 	get path() { return z.string(); },

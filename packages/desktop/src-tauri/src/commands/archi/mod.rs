@@ -1,6 +1,6 @@
-//! 架构命令轨道：五命令薄包装（`archi_graph` / `archi_module` /
-//! `archi_change_summary` / `archi_set_gate` / `archi_drift`）+ 五个 `*_inner` 领域
-//! 组装纯函数（`*_inner` app 层微形态先例，离 Tauri 运行时可测）。
+//! 架构命令轨道：六命令薄包装（`archi_graph` / `archi_module` /
+//! `archi_change_summary` / `archi_set_gate` / `archi_drift` / `archi_file_tree`）+
+//! 六个 `*_inner` 领域组装纯函数（`*_inner` app 层微形态先例，离 Tauri 运行时可测）。
 //! 文档正文读取归 `commands::fs::read_file`（通用读面，不再有架构专用读取命令）。
 //!
 //! `archi_drift` 是**架构漂移检查**的命令面（两模式）：全量模式直接调判定、增量
@@ -11,18 +11,18 @@
 //! 三件事纪律沿 `commands/config` 模板：参数转换 → 调用 → 错误映射。投影、诊断、
 //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
 //! 唯一写命令是 `archi_set_gate`（写前校验在 `archi::edit::plan_set_gate`，落盘
-//! 在本文件的原子写回）；其余四条 MUST NOT 写盘。
+//! 在本文件的原子写回）；其余五条 MUST NOT 写盘。
 //!
 //! 空白 / 不可读 root 一律 `Err`（画布无 root 画不出东西；静默空图会与「模型为
 //! 空」的冷启动合法态不可辨）。
 //!
-//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 四命令契约）。
+//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 六命令契约）。
 
 use std::fs;
 use std::path::Path;
 
 use archi::drift::{ArchiDriftMode, ArchiDriftReport, CheckInput};
-use archi::dto::{self, ArchiChangeSummary, ArchiGraph, ArchiModuleDetail};
+use archi::dto::{self, ArchiChangeSummary, ArchiFileTree, ArchiGraph, ArchiModuleDetail};
 use archi::GateTier;
 use foundation::cancel::CancelFlag;
 use orchestration::port::ArchiveVcsPort;
@@ -187,4 +187,20 @@ pub fn archi_drift_inner(
         cancel: CancelFlag::never(),
     })
     .map_err(|error| error.message())
+}
+
+/// 左栏文件树数据（仓库源文件与模块根的扁平条目投影）。
+#[tauri::command]
+#[specta::specta]
+pub fn archi_file_tree(root: String) -> Result<ArchiFileTree, String> {
+    archi_file_tree_inner(Path::new(&root))
+}
+
+/// [`archi_file_tree`] 的领域组装纯函数：root 检查 → `archi::tree::file_tree`。
+///
+/// 只读、零写盘、零 spawn；结构诊断非空 → `Err`（与 `archi_module` 同口径）、空模型
+/// → `Ok`（全条目 `mark = none`）；命令层零归属判定 / 零目录合成 / 零标记推导。
+pub fn archi_file_tree_inner(root: &Path) -> Result<ArchiFileTree, String> {
+    check_root(root)?;
+    archi::tree::file_tree(root)
 }

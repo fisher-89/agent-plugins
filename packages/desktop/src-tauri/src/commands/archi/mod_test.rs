@@ -5,7 +5,7 @@
 //!
 //! 装置沿 `commands/changes/mod_test.rs` 先例：`tauri::test::mock_app()` + 真实
 //! `WorkspaceStores`（tempdir 数据根）托管进 app，`archi_change_summary` 以
-//! `app.state::<…>()` 取 State 直调；无 State 的四命令直调原签名。命令层零领域规则
+//! `app.state::<…>()` 取 State 直调；无 State 的五命令直调原签名。命令层零领域规则
 //! 即被测语义——投影全在 `archi`，此处只验证「参数 → 调用 → 错误映射」。
 
 use std::fs;
@@ -20,8 +20,9 @@ use archi::drift::ArchiDriftMode;
 use archi::GateTier;
 
 use super::{
-    archi_change_summary, archi_change_summary_inner, archi_drift, archi_drift_inner, archi_graph,
-    archi_graph_inner, archi_module, archi_module_inner, archi_set_gate, archi_set_gate_inner,
+    archi_change_summary, archi_change_summary_inner, archi_drift, archi_drift_inner,
+    archi_file_tree, archi_file_tree_inner, archi_graph, archi_graph_inner, archi_module,
+    archi_module_inner, archi_set_gate, archi_set_gate_inner,
 };
 
 /// 确定性时间戳（UTC unix 毫秒）。
@@ -232,10 +233,11 @@ fn change_summary包装与inner一致() {
 // root 校验（四命令共用）
 // ---------------------------------------------------------------------------
 
-/// 异常：root 为 `""` / 空白 / 指向文件 / 不存在 → 一律 `Err`，且不触达投影
-/// （写命令零写入）。
+/// 异常：root 为 `""` / 空白 / 指向文件 / 不存在 → 六命令一律 `Err`，且不触达投影
+/// （写命令零写入）。`archi_drift` 与 `archi_file_tree` 的校验均前置，故 `Err` 时
+/// 零 vcs 零枚举。
 #[test]
-fn 四命令root校验四形态一律err() {
+fn 六命令root校验四形态一律err() {
     let temp = TempDir::new("root-check");
     let file_root = temp.write("not-a-dir.txt", "我是文件\n");
     let missing = temp.path().join("no-such-dir");
@@ -270,6 +272,14 @@ fn 四命令root校验四形态一律err() {
             )
             .is_err(),
             "archi_change_summary root 非法应 Err"
+        );
+        assert!(
+            archi_drift(rendering.clone(), ArchiDriftMode::Full).is_err(),
+            "archi_drift root 非法应 Err（校验前置，零 vcs）"
+        );
+        assert!(
+            archi_file_tree(rendering.clone()).is_err(),
+            "archi_file_tree root 非法应 Err（校验前置，零枚举）"
         );
     }
 
@@ -324,9 +334,11 @@ fn module三形态() {
 // 读命令零写盘 / 写命令：原子写回 / 零写入 / 往返
 // ---------------------------------------------------------------------------
 #[test]
-fn 三条读命令零写盘() {
+fn 四条读命令零写盘() {
     let data = TempDir::new("nowrite-data");
     let temp = healthy("nowrite");
+    // 文件树面需要进树源文件（`healthy` 语料只有模型与 md 文档）
+    temp.write("src/auth/token.ts", "export const token = 1;\n");
     let app = app_with(data.path());
     let store = store_of(&app, &temp.root());
     seed_record(&store, "nowrite", ChangeStatus::Active, Some(temp.root()));
@@ -339,8 +351,10 @@ fn 三条读命令零写盘() {
         temp.root(),
         "nowrite".to_owned(),
     );
+    let file_tree = archi_file_tree(temp.root()).expect("文件树命令应 Ok");
+    assert!(!file_tree.entries.is_empty(), "语料应产出条目");
     let after = snapshot(temp.path());
-    assert_eq!(before, after, "三条读命令零写盘");
+    assert_eq!(before, after, "四条读命令零写盘");
 }
 
 /// 正向：改档后目标行变、其余内容与注释逐字保留；目录内无临时文件残留；读回为
@@ -1276,4 +1290,276 @@ fn 文档关联集不含契约目录() {
         !linked.contains(&contract_relative),
         "契约路径不在关联集内：{contract_relative}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 文件树命令（archi_file_tree）：只读投影的第六命令
+// ---------------------------------------------------------------------------
+
+/// 健康模型 + 若干源文件的 tempdir（文件树用例的通用语料）。
+fn tree_fixture(tag: &str) -> TempDir {
+    let temp = TempDir::new(tag);
+    temp.write_model(
+        "01-tree.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.Core\"]\nkind = \"domain\"\n\n",
+            "[element.\"App.Core.Archi\"]\nkind = \"module\"\n",
+            "path = [\"./crates/core/archi/\"]\n",
+        ),
+    );
+    temp.write("crates/core/archi/src/tree.rs", "pub fn a() {}\n");
+    temp.write("crates/core/archi/src/scan/owner.rs", "pub fn b() {}\n");
+    temp.write("src/loose.ts", "export const loose = 1;\n");
+    temp
+}
+
+/// 正向（AC-1 / AC-3）：包装与 `_inner` 各自 `Ok` 且经 `serde_json` 逐字段相等
+/// （命令层零加工）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree包装与inner逐字段一致() {
+    let temp = tree_fixture("file-tree-wrapper");
+
+    let outer = archi_file_tree(temp.root()).expect("包装应 Ok");
+    let inner = archi_file_tree_inner(temp.path()).expect("inner 应 Ok");
+    assert_eq!(
+        serde_json::to_value(&outer).expect("序列化"),
+        serde_json::to_value(&inner).expect("序列化"),
+        "archi_file_tree 与 _inner 逐字段一致"
+    );
+    assert!(!outer.entries.is_empty(), "健康语料应产出条目");
+    // 命令层零加工：元素根节点的归属与后端投影逐字相同
+    let root_entry = outer
+        .entries
+        .iter()
+        .find(|entry| entry.path == "crates/core/archi")
+        .expect("元素根目录条目");
+    assert_eq!(
+        root_entry.mark,
+        archi::FileTreeMark::ElementRoot,
+        "归属标记来自后端（命令层零推导）"
+    );
+    assert_eq!(root_entry.owners, vec!["App.Core.Archi".to_owned()]);
+}
+
+/// 异常（AC-1 / spec「空白 / 缺失 / 非目录 → Err」）：root 四形态 × 两入口一律
+/// `Err`，文案沿用既有 `check_root` 口径。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree_root校验四形态一律err() {
+    let temp = TempDir::new("file-tree-root-check");
+    let file_root = temp.write("not-a-dir.txt", "我是文件\n");
+    let missing = temp.path().join("no-such-dir");
+    let cases: [PathBuf; 4] = [
+        PathBuf::from(""),
+        PathBuf::from("   "),
+        file_root.clone(),
+        missing.clone(),
+    ];
+    for root in &cases {
+        let rendering = root.to_string_lossy().into_owned();
+        let outer = archi_file_tree(rendering.clone()).expect_err("包装 root 非法应 Err");
+        assert!(
+            outer.contains("root 无效") || outer.contains("root 不是目录"),
+            "包装文案沿用 check_root 口径：{outer}"
+        );
+        let inner = archi_file_tree_inner(root).expect_err("inner root 非法应 Err");
+        assert!(
+            inner.contains("root 无效") || inner.contains("root 不是目录"),
+            "inner 文案沿用 check_root 口径：{inner}"
+        );
+    }
+}
+
+/// 异常（AC-1 / spec「唯一写命令仍是 archi_set_gate」）：新命令体内零
+/// `plan_set_gate` / 零 `write_atomic`；同盘调写命令才改变模型字节。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree与唯一写命令的边界() {
+    let temp = tree_fixture("file-tree-write-boundary");
+    let before = snapshot(temp.path());
+    let _ = archi_file_tree(temp.root()).expect("读命令 Ok");
+    assert_eq!(snapshot(temp.path()), before, "读命令不改模型字节");
+
+    archi_set_gate(temp.root(), "App.Core.Archi".to_owned(), GateTier::Strict).expect("写命令 Ok");
+    assert_ne!(
+        snapshot(temp.path()),
+        before,
+        "对照臂：唯一写命令改变模型字节"
+    );
+
+    let source = include_str!("mod.rs");
+    let inner_start = source
+        .find("pub fn archi_file_tree_inner")
+        .expect("新命令在案");
+    let body = &source[inner_start..];
+    for forbidden in ["plan_set_gate", "write_atomic"] {
+        assert!(
+            !body.contains(forbidden),
+            "`archi_file_tree_inner` 体内零 {forbidden}（只读命令）"
+        );
+    }
+}
+
+/// 异常 / 正向（AC-2 / spec Scenario「结构诊断非空即 Err」）：坏模型 → `Err`，文案含
+/// 「模型结构错」与诊断条数；同盘换健康模型 → `Ok`。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree结构诊断非空即err() {
+    let broken = TempDir::new("file-tree-broken");
+    broken.write_model(
+        "01-cycle.toml",
+        concat!(
+            "[element.\"A\"]\nkind = \"module\"\n\n",
+            "[element.\"B\"]\nkind = \"module\"\n\n",
+            "[[relation]]\nfrom = \"A\"\nto = \"B\"\n\n",
+            "[[relation]]\nfrom = \"B\"\nto = \"A\"\n",
+        ),
+    );
+    broken.write("src/a.ts", "export const a = 1;\n");
+
+    let error = archi_file_tree(broken.root()).expect_err("结构诊断非空应 Err");
+    assert!(error.contains("模型结构错"), "文案形：{error}");
+    assert!(error.contains("共 1 条"), "文案含诊断条数：{error}");
+
+    let healthy = tree_fixture("file-tree-healthy");
+    assert!(
+        archi_file_tree(healthy.root()).is_ok(),
+        "对照臂：同形态健康模型 Ok"
+    );
+}
+
+/// 边界（AC-2 / spec Scenario「空模型返回全 none」）：模型目录缺席与零 `.toml`
+/// 两形态均 `Ok`，全部条目 `mark = none` 且 `owners` 空。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree空模型返回ok且全无主() {
+    for tag in ["file-tree-models-absent", "file-tree-models-empty"] {
+        let temp = TempDir::new(tag);
+        if tag.ends_with("empty") {
+            fs::create_dir_all(archi_models_dir(temp.path())).expect("建空模型目录");
+        }
+        temp.write("src/a.ts", "export const a = 1;\n");
+
+        let tree = archi_file_tree(temp.root()).expect("空模型应 Ok（冷启动合法起点）");
+        assert!(!tree.entries.is_empty(), "条目仍由磁盘枚举得出");
+        for entry in &tree.entries {
+            assert_eq!(
+                entry.mark,
+                archi::FileTreeMark::None,
+                "{tag} 条目 {:?} 无主",
+                entry.path
+            );
+            assert!(entry.owners.is_empty(), "{tag} owners 为空");
+        }
+    }
+}
+
+/// 异常 / 正向（AC-9 / AC-8）：配置非法 → `Err` 且文案沿用既有显式口径；合法配置
+/// `Ok` 且排除生效。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree配置非法err且合法生效() {
+    let invalid = tree_fixture("file-tree-bad-config");
+    let config = foundation::layout::archi_config_path(invalid.path());
+    fs::create_dir_all(config.parent().expect("父目录")).expect("建架构域目录");
+    fs::write(&config, "{ \"exclude\": [\"src/legacy\"] }").expect("写配置");
+    let error = archi_file_tree(invalid.root()).expect_err("非法配置必须 Err");
+    assert!(
+        error.contains("不是文件级 glob"),
+        "文案点名非法条目：{error}"
+    );
+    assert!(error.contains("/**"), "文案提示 `/**` 形态：{error}");
+
+    let valid = tree_fixture("file-tree-good-config");
+    valid.write("openspec/changes/x/prototype.tsx", "export const p = 1;\n");
+    let config = foundation::layout::archi_config_path(valid.path());
+    fs::create_dir_all(config.parent().expect("父目录")).expect("建架构域目录");
+    fs::write(&config, "{ \"exclude\": [\"openspec/**\"] }").expect("写配置");
+    let tree = archi_file_tree(valid.root()).expect("合法配置应 Ok");
+    assert!(
+        !tree
+            .entries
+            .iter()
+            .any(|entry| entry.path == "openspec" || entry.path.starts_with("openspec/")),
+        "配置 exclude 命中项不进树"
+    );
+}
+
+/// 正向（AC-2 / AC-8 / R-6）：同根同模型上两命令互证——诊断空 ⇔ 树 `Ok`，
+/// 且带 `path` 的元素 FQN 在树的 `owners` 中出现、树中归属必是模型内元素（两投影
+/// 同源，零第二份模型）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree与archi_graph同根一致() {
+    let temp = tree_fixture("file-tree-graph-consistent");
+    let graph = archi_graph(temp.root()).expect("图命令 Ok");
+    assert!(graph.diagnostics.is_empty(), "健康语料零诊断");
+    let tree = archi_file_tree(temp.root()).expect("树命令 Ok");
+
+    let path_elements: Vec<&str> = graph
+        .elements
+        .iter()
+        .filter(|element| !element.path.is_empty())
+        .map(|element| element.fqn.as_str())
+        .collect();
+    assert!(!path_elements.is_empty(), "语料含带 path 的元素");
+    for element in &path_elements {
+        assert!(
+            tree.entries
+                .iter()
+                .any(|entry| entry.owners.iter().any(|fqn| fqn == element)),
+            "带 path 的元素 {element} 应在树的某个 owners 中出现"
+        );
+    }
+    for entry in &tree.entries {
+        for fqn in &entry.owners {
+            assert!(
+                graph.elements.iter().any(|element| &element.fqn == fqn),
+                "树中归属 {fqn} 必须是模型内元素"
+            );
+        }
+    }
+}
+
+/// 异常（AC-6 / D11）：命令层零领域规则——新命令体内零归属判定 / 零目录合成 /
+/// 零标记推导；文件头与注释口径为「六命令」（零残留旧口径）。
+#[test]
+#[allow(non_snake_case)]
+fn archi_file_tree命令层零领域规则() {
+    let source = include_str!("mod.rs");
+    let inner_start = source
+        .find("pub fn archi_file_tree_inner")
+        .expect("新命令在案");
+    let body = &source[inner_start..];
+    for forbidden in [
+        "OwnerIndex::build",
+        "starts_with",
+        "module_roots",
+        "contains_count",
+        "FileTreeMark::",
+        "FileEntryKind::",
+        "read_dir",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "`archi_file_tree_inner` 体内零 {forbidden}（归属 / 合成 / 标记全在后端）"
+        );
+    }
+    assert!(
+        body.contains("archi::tree::file_tree("),
+        "命令层只调 `archi::tree::file_tree`（薄包装）"
+    );
+    assert!(
+        source.contains("ArchiFileTree"),
+        "`use` 区含 `ArchiFileTree`（返回类型在册）"
+    );
+    for stale in ["五命令", "四命令"] {
+        assert!(
+            !source.contains(stale),
+            "文件头口径已改符实（零残留 `{stale}`）"
+        );
+    }
+    assert!(source.contains("六命令"), "文件头口径为六命令");
 }

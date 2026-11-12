@@ -234,6 +234,72 @@ pub enum NodeMark {
     Unfulfilled,
 }
 
+/// 文件树条目的形态（封闭二值）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum FileEntryKind {
+    /// 目录（枚举文件的祖先目录 / 模块根目录 / 缺失的声明根）
+    Dir,
+    /// 文件（枚举出的源文件 / 单文件形模块根）
+    File,
+}
+
+impl FileEntryKind {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FileEntryKind::Dir => "dir",
+            FileEntryKind::File => "file",
+        }
+    }
+
+    /// 全部合法值（清单单点：新增变体必须同补本常量，长度即红灯）。
+    pub const ALL: [FileEntryKind; 2] = [FileEntryKind::Dir, FileEntryKind::File];
+}
+
+/// 文件树节点的归属标记（封闭五值；优先级单值
+/// `elementRoot > ambiguous > member > containsElements > none`）。
+///
+/// 与画布节点标记 [`NodeMark`] **同名不同义、MUST NOT 复用**：后者归画布节点、生命
+/// 周期在漂移报告；本词表只表达归属，MUST NOT 承载漂移违例 / 门禁 / 契约状态，且
+/// MUST NOT 进「四面词汇对拍」（那四面锚定模型 / 报告词汇，另一条生命周期）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FileTreeMark {
+    /// 本节点恰是一个元素的 `path` 根（`owners` 恰 1）
+    ElementRoot,
+    /// 同长多命中 ≥ 2 个元素（含同一归一路径被多元素声明、以及同长不同前缀两种来源）
+    Ambiguous,
+    /// 位于某元素 `path` 的严格内部
+    Member,
+    /// 自身无归属，但后代含元素根
+    ContainsElements,
+    /// 以上都不成立
+    None,
+}
+
+impl FileTreeMark {
+    /// 线格式 camelCase 词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FileTreeMark::ElementRoot => "elementRoot",
+            FileTreeMark::Ambiguous => "ambiguous",
+            FileTreeMark::Member => "member",
+            FileTreeMark::ContainsElements => "containsElements",
+            FileTreeMark::None => "none",
+        }
+    }
+
+    /// 全部合法值（清单单点：新增变体必须同补本常量，长度即红灯）。
+    pub const ALL: [FileTreeMark; 5] = [
+        FileTreeMark::ElementRoot,
+        FileTreeMark::Ambiguous,
+        FileTreeMark::Member,
+        FileTreeMark::ContainsElements,
+        FileTreeMark::None,
+    ];
+}
+
 /// 检索范围（封闭三值）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
@@ -310,6 +376,34 @@ pub struct ArchiGraph {
     pub relations: Vec<ArchiRelation>,
     /// 结构诊断（非空即停摆）
     pub diagnostics: Vec<ArchiDiagnostic>,
+}
+
+/// 文件树条目（七字段按声明序出线；扁平、无嵌套）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiFileEntry {
+    /// repo 相对 POSIX 路径（无前导 `./`、无尾 `/`；顶层条目即其单段名）
+    pub path: String,
+    /// 末段名（无 `/` 时等于 `path`）
+    pub name: String,
+    /// 形态（目录 / 文件）
+    pub kind: FileEntryKind,
+    /// 归属标记（五值单值）
+    pub mark: FileTreeMark,
+    /// 归属 FQN（字典序去重）：`elementRoot` 恰 1 / `ambiguous` ≥ 2 / 其余空数组
+    pub owners: Vec<String>,
+    /// 后代模块数（严格前缀、按 FQN 去重、不含自身）；`kind = File` 恒 0
+    pub contains: u32,
+    /// `Dir` 且为模块根时该目录是否在盘（其余恒 `true`）
+    pub exists: bool,
+}
+
+/// 文件树数据（扁平条目数组、`path` 字节序、确定性；不产 `""` 根条目）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiFileTree {
+    /// 条目（扁平：嵌套关系由前端按 `path` 前缀派生）
+    pub entries: Vec<ArchiFileEntry>,
 }
 
 /// 元素投影（`modelFile` / `modelLine` 指向声明表头，可直接 `edit`）。
