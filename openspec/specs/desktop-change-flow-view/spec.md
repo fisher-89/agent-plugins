@@ -267,17 +267,19 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 
 change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的 step 节点 SHALL 呈现运行态（pulse 视觉），ToolStep 节点、Git 节点与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（分组徽章呈 Agent / Tool / Git / Gate，四类可区分）。运行态呈现 SHALL 与既有节点模型并存：step 节点 running / failed / stopped / passed 四态如实；`PIPELINE_PHASES` 10 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。eval 节点与 active 节点 SHALL 不再上图（相位节点整体退役，见「流程图节点模型与两分类」）。
 
-运行收口后，图 SHALL 保持**步节点常驻渲染**：已落库执行图节点（`runs[].nodes` 二十二值全词汇）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留），archive 相位节点随当前 run 常驻。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役。归档步词 SHALL 落到 `RunStepGroup` 的 git / exec / agent 分类（`GROUP_LABEL` 同步），`archive-panel` / `StageList` 六段清单 SHALL 退役（归档六段作为 archive 列 step 节点呈现，不设独立面板）。步词汇归一（库读史 snake 词 → 活面 camel 词，`normalizeKind` / `stepWord` 单点）SHALL 保持二十二值逐词对应：`mutation_test` ↔ `mutationTest`、`archi_check` ↔ `archiCheck`、`cleanup` ↔ `cleanup` 与 `clean` ↔ `clean` 在案、`mutationTest` 与 `archiCheck` 归 exec 分类、`cleanup` 与 `clean` 归 git 分类（现有步骤渲染直接吃，零渲染改动）。Cleanup 步的 detail 警告（清理失败 / 跳过注记）SHALL 随节点 detail 面呈现。
+运行收口后，图 SHALL 保持**步节点常驻渲染**：已落库执行图节点（`runs[].nodes` 二十二值全词汇）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留），archive 相位节点随当前 run 常驻。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役。归档步词 SHALL 落到 `RunStepGroup` 的 git / exec / agent 分类（`GROUP_LABEL` 同步），`archive-panel` / `StageList` 六段清单 SHALL 退役（归档步作为 archive 列 step 节点呈现，不设独立面板）。步词汇归一（库读史 snake 词 → 活面 camel 词，`normalizeKind` / `stepWord` 单点）SHALL 保持二十二值逐词对应：`mutation_test` ↔ `mutationTest`、`archi_check` ↔ `archiCheck`、`cleanup` ↔ `cleanup` 与 `clean` ↔ `clean` 在案、`mutationTest` 与 `archiCheck` 归 exec 分类、`cleanup` 与 `clean` 归 git 分类（现有步骤渲染直接吃，零渲染改动）。Cleanup 步的 detail 警告（清理失败 / 跳过注记）SHALL 随节点 detail 面呈现。
+
+**词汇冻结与存量解码面 SHALL 零改动**：后端的相位表辅助步（`phase_start` / `phase_log` / `verdict_gate`）退场后，新 run 不再产出这三类节点，但**旧库行仍会解码出这三词**——`STEP_LABEL` 的穷尽 Record、`normalizeKind` / `stepWord` 的 snake ↔ camel 映射、`runStepGroup` 的 `gate` 分类（`verdictGate` / `retryGate` / `whitelistGate` 三词归 `gate`）SHALL 逐键保留，MUST NOT 因「不再产出」而删除键、MUST NOT 收缩分组。前端 MUST NOT 为「辅助步退场」新增任何分支或占位：不存在的节点天然不上图，既有渲染零改动即可。
 
 #### Scenario: 运行态与四类并存
 
-- **WHEN** implement#2 相位运行中且历史上有 fail→retry 与 active_phase 残留，archive 相位随后进入
-- **THEN** 图上同时呈现：历史 step 节点（终态）、当前节点（pulse 运行态）及同相位的 ToolStep / Git / Gate 节点（类型可辨、状态如实），无 eval 节点、无 active 节点
+- **WHEN** implement#2 相位运行中且历史上有 fail 与 active_phase 残留，archive 相位随后进入
+- **THEN** 图上同时呈现：历史 step 节点（终态）、当前节点（pulse 运行态）及同相位的 ToolStep / Git / Agent 节点（类型可辨、状态如实），无 eval 节点、无 active 节点；历史 run 若含 gate 三门节点，其 gate 徽章照常呈现
 
 #### Scenario: archive 步节点上图
 
 - **WHEN** archive 相位运行中（或已收口）
-- **THEN** archive 列呈现 11 步节点：Preflight / Seal 为 exec、Commit / Rebase / Merge / Cleanup / Finalize 为 git、SpecSync / ResolveConflicts 为 agent、PhaseStart / PhaseLog 为 exec；git 步分类徽章可辨，无独立 ArchivePanel / StageList
+- **THEN** archive 列呈现 9 步节点：Preflight / Seal 为 exec、Commit / Rebase / Merge / Cleanup / Finalize 为 git、SpecSync / ResolveConflicts 为 agent；git 步分类徽章可辨，无独立 ArchivePanel / StageList；无 `phaseStart` / `phaseLog` 节点
 
 #### Scenario: 收口后常驻不回落
 
@@ -308,6 +310,11 @@ change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前
 
 - **WHEN** initialize 相位 Clean 步上图（活面或库读史）
 - **THEN** `clean` ↔ `clean` 归一在 `normalizeKind` / `stepWord` 单点可考，节点落 git 分类徽章（人读标签在案）；现有步骤渲染零改动消费
+
+#### Scenario: 存量辅助步节点仍可解码
+
+- **WHEN** 打开一个在辅助步退场前落库的 run 详情（节点含 `phaseStart` / `phaseLog` / `verdictGate` / `retryGate` / `whitelistGate`）
+- **THEN** 五词仍能经 `normalizeKind` / `stepWord` 归一、`STEP_LABEL` 取到非空人读文案、group 分别落 exec / gate；节点照常渲染为静默节点（`role` 与 `outputRef` 皆 null），点击不触发抽屉
 
 ### Requirement: 节点会话转录联动
 
@@ -431,7 +438,7 @@ change 清单条目 SHALL 渲染 `summary.title`（人类可读标题，恒非�
 
 runtime step 节点点击 SHALL 按信息源分派判据：`role !== null` → 单列会话转录（复用 `SessionTranscriptPanel`）；`outputRef !== null` → 单列 stdout 面板（新组件）；两者皆 null → 不可点击（不 `onSelect`）。该判据 SHALL 为转换 / 交互层纯函数可测（不依赖 react 宿主）。
 
-判据本身 SHALL **零改动**（`role === null && outputRef === null` 才拦）：脚本步节点在运行中即携 `outputRef`（后端前置上抛，见 desktop-change-orchestration「脚本步运行中输出引用前置上抛」），故运行中的 static-check / test-execution / mutation-test 节点自然可点击，前端 MUST NOT 为「运行中」另开分支或另设判据。
+判据本身 SHALL **零改动**（`role === null && outputRef === null` 才拦）：脚本步节点在运行中即携 `outputRef`（后端前置上抛，见 desktop-change-orchestration「脚本步运行中输出引用前置上抛」），故运行中的 static-check / test-execution / mutation-test 节点自然可点击，前端 MUST NOT 为「运行中」另开分支或另设判据。该判据对存量辅助步节点（`phaseStart` / `phaseLog` / 三门 gate）自然成立——它们 `role` 与 `outputRef` 皆 null，落「不可点击」臂，MUST NOT 为它们新增特例。
 
 stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数，入参 SHALL 为 `(root, changeName, execId, status)`（`status` 取节点 `status`，由 `DetailDrawer` 下传；`changeName` 取 `detail.name`，非 id）。取数 SHALL **全部经 `src/lib/ipc.ts` 代理面**（MUST NOT 绕回裸 `commands.*`），命令面为三件：
 
@@ -471,13 +478,13 @@ stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数，入参 SHALL 为 `(r
 
 #### Scenario: 双 null 节点不可点击
 
-- **WHEN** 点击 phaseStart / phaseLog / verdictGate / retryGate / whitelistGate / commit / rebase / merge / finalize / preflight / seal 节点（`role` 与 `outputRef` 皆 null）
+- **WHEN** 点击存量 run 的 `phaseStart` / `phaseLog` / `verdictGate` / `retryGate` / `whitelistGate` 节点，或任一新 run 的 `commit` / `rebase` / `merge` / `finalize` / `preflight` / `seal` 节点（`role` 与 `outputRef` 皆 null）
 - **THEN** 不触发 `onSelect`、抽屉不打开，节点本身仍照常渲染
 
 #### Scenario: stdout 面板空态与错误态
 
 - **WHEN** `readExecOutput` 返回 `None`（exec_id 未知 / 非法）、`readExecOutputDelta` 返回 `None`，或任一 invoke 被拒绝
-- **THEN** stdout 面板呈空态 / 错误态提示，流程图与抽屉不报错、不崩溃；运行中零字节呈「运行中，等待输出…」，非运行无记录呈「（无输出记录）」，两者不混同（既有「空态 / 错误态」不炸图语义不变，文案按 `status` 细分）
+- **THEN** stdout 面板呈空态 / 错误态提示，流程图与抽屉不报错、不崩溃；运行中零字节呈「运行中，等待输出…」，非运行无记录呈「（无输出记录）」，两者不混同
 
 #### Scenario: 命令头行与复制
 
@@ -578,7 +585,7 @@ runtime step 节点（`RunStepNode`）SHALL 在标题行下新增**常驻行**�
 
 呈现语义 SHALL 为：
 
-- **静态耗时**：已收口步（`endedAt !== null` 且 `startedAt > 0`）显格式化耗时；`phaseStart` 等瞬步 0ms 不显耗时缀；
+- **静态耗时**：已收口步（`endedAt !== null` 且 `startedAt > 0`）显格式化耗时；`startedAt === endedAt`（**存量**单 emit 辅助步节点——新写面已无生产例）按 0ms 呈现，MUST NOT 显「0ms」耗时缀；
 - **running 走秒**：**仅活面（在飞 run）节点**且 `status === 'running'` 时以 `Date.now() - startedAt` 每秒刷新呈现（节点组件自持 interval 局部重渲染——前端全库首例，xyflow 节点独立渲染不惊动画布；节点离开 running 态或卸载即清 timer，收口后回落静态耗时）；库读史 `status=running` 残留节点（run 已死）MUST NOT 走秒，恒静态呈现；
 - **缺席兜底**：`startedAt <= 0`（旧库行）或 `endedAt == null` 的非 running 态显 "-"（决策拍板：旧数据不从 turn 行回填）；token 缺席显 "—"。
 
@@ -609,14 +616,19 @@ runtime step 节点（`RunStepNode`）SHALL 在标题行下新增**常驻行**�
 - **WHEN** 以边界值（0ms / 999ms / 1s 级 / 分秒级 / 时分级）调用格式化函数
 - **THEN** 输出符合分级规则（0ms 由调用侧省显、缺席入参出 "-"），无需挂载 react 组件即可断言
 
+#### Scenario: 存量单 emit 节点 0ms 呈现
+
+- **WHEN** 打开含**存量**辅助步节点（`startedAt == endedAt`，如旧 run 的 `phaseStart`；新写面已无此生产例）的详情
+- **THEN** 该节点耗时按 0ms 处理、不显耗时缀；token 行不渲染（非 workerAgent 组）；渲染零特判分支新增
+
 ### Requirement: initialize 相位列与 clean 步词呈现
 
-initialize 相位（表头一次性基线检查相位，见 desktop-change-orchestration「initialize 基线检查相位执行体」）SHALL 以**零结构改动**方式呈现：initialize 相位列随 `detail.pipeline` 出线自动成为首列（列头相位名文案补 initialize 人读标签），Clean / StaticCheck / TestExecution / PhaseLog 步节点以既有 runtime step 节点渲染（四类分组徽章可辨、running / failed / stopped / passed 状态如实）；基线检查输出经节点 `outputRef` 的既有 stdout 面板回查（`exec_output_path` 命中 baseline 树 + `read_file` / `read_exec_output_delta` 整读）；initialize 失败的 run 终态 reason（Error / Fail 分文案 + 报告目录指引）经既有终态呈现面直达。前端步词呈现 SHALL 补 `clean` 与 `archi_check` 两线词：`STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）与 `archiCheck` 键（人读文案「架构检查」）、`normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 与 `archi_check` ↔ `archiCheck` 两组映射、分类徽章覆盖（`RunStepGroup` / `GROUP_LABEL`：`clean` 归 git、`archiCheck` 归 toolStep），现有步骤渲染零改动直接吃。MUST NOT 为 initialize 引入新节点类型、新面板或独立交互入口。
+initialize 相位（表头一次性基线检查相位，见 desktop-change-orchestration「initialize 基线检查相位执行体」）SHALL 以**零结构改动**方式呈现：initialize 相位列随 `detail.pipeline` 出线自动成为首列（列头相位名文案补 initialize 人读标签），Clean / StaticCheck / TestExecution 步节点以既有 runtime step 节点渲染（四类分组徽章可辨、running / failed / stopped / passed 状态如实）；基线检查输出经节点 `outputRef` 的既有 stdout 面板回查（`exec_output_path` 命中 baseline 树 + `read_file` / `read_exec_output_delta` 整读）；initialize 失败的 run 终态 reason（Error / Fail 分文案 + 报告目录指引）经既有终态呈现面直达。前端步词呈现 SHALL 补 `clean` 与 `archi_check` 两线词：`STEP_LABEL` 穷尽 Record 补 `clean` 键（人读文案）与 `archiCheck` 键（人读文案「架构检查」）、`normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 与 `archi_check` ↔ `archiCheck` 两组映射、分类徽章覆盖（`RunStepGroup` / `GROUP_LABEL`：`clean` 归 git、`archiCheck` 归 toolStep），现有步骤渲染零改动直接吃。MUST NOT 为 initialize 引入新节点类型、新面板或独立交互入口。辅助步退场后 initialize 相位的新 run 恰为 Clean / StaticCheck / TestExecution 三节点（无 `phaseStart` / `phaseLog`），MUST NOT 为缺失的两节点补占位或补空态。
 
 #### Scenario: initialize 列与步节点零结构呈现
 
 - **WHEN** 打开一个已跑过 initialize 相位（绿或红）的 change 详情
-- **THEN** initialize 列为首列（相位名人读文案在案），Clean（git 分类徽章）/ StaticCheck / TestExecution / PhaseLog 步节点按序呈现、状态如实；无新节点类型、无独立面板
+- **THEN** initialize 列为首列（相位名人读文案在案），Clean（git 分类徽章）/ StaticCheck / TestExecution 步节点按序呈现、状态如实；无 `phaseStart` / `phaseLog` 占位、无新节点类型、无独立面板
 
 #### Scenario: 基线失败终态与回查
 
@@ -626,7 +638,7 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 #### Scenario: clean 步词穷尽补齐
 
 - **WHEN** bindings 再生成后审查 `STEP_LABEL` / `normalizeKind` / `stepWord` / `GROUP_LABEL`
-- **THEN** `clean` 与 `archiCheck` 两键在案（人读文案非空）、snake ↔ camel 归一在单点可考、分别落 git / toolStep 分类；穷尽 Record 键集与二十二词全词汇一致（编译期穷尽表兜底）
+- **THEN** `clean` 与 `archiCheck` 两键在案（人读文案非空）、snake ↔ camel 归一在单点可考、分别落 git / toolStep 分类；穷尽 Record 键集与二十二词全词汇一致（编译期兜底），其中三辅助步与三门 gate 五键为存量解码词不删
 
 ## Module Contract
 
@@ -665,8 +677,8 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src-tauri/crates/core/workflow/tests/golden/*.json` + `tests/corpus_golden_test.rs` | golden 显式重写 | detail 线面 golden 按冻结契约的显式重写流程更新（v2-b 含实数据）；`interruptedCount` 投影随动删除 |
 | `workflow.json` 的 `interrupted[]` 字段（磁盘留档） | 历史数据 | 原样保留：不迁移、不清除、不解析；自此纯留档，无写入方 |
 | 图结构与取数模型（不改） | 零触点 | `PIPELINE_PHASES` 布局、边推导、显式刷新 + Channel 例外口径不变 |
-| `packages/desktop/src/views/changes/flow/run-state.ts` | 词归一单点 | `normalizeKind` / `stepWord` 补 `cleanup` ↔ `cleanup`；`cleanup` 归 git 分类 |
-| `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 节点呈现 | `STEP_LABEL` 补 cleanup 词条；detail 面呈现清理警告 / 跳过注记（节点恒 passed） |
+| `packages/desktop/src/views/changes/flow/run-state.ts` | 词汇归一与分组（**零改动**） | `STEP_LABEL` 穷尽 Record 保留 `phaseStart` / `phaseLog` / `verdictGate` / `retryGate` / `whitelistGate` 五键；`normalizeKind` / `stepWord` 五组映射保留；`runStepGroup` 的 gate 分支保留三词归属——旧库行解码必需，MUST NOT 因「新 run 零产出」删键 |
+| `packages/desktop/src/views/changes/flow/run-step-node.tsx` | 步节点渲染（**零改动**） | 耗时 / token 常驻行与 running 走秒逐字不变；存量 `startedAt == endedAt` 节点的 0ms 呈现走既有格式化判据（`0ms` 不显耗时缀） |
 | `packages/desktop/src/views/changes/hooks/use-change-detail.ts` | 失败轮降级与重试单点 | `loadUnifiedView` 失败分流（reject 且 detail 在手 → 保 last-good + 内联失败态 + 退避重试调度；首载失败维持整页 error 兜底）；重试计时器与 tick / 通知去抖同生命周期（新意图取代旧重试、卸载清计时器）；退避常量（3 次 / 1s / 2s / 4s）单点；`None` 清面语义不变 |
 | `packages/desktop/src/views/changes/change-detail-view.tsx` | 内联提示与兜底分流 | 内联「刷新失败」提示（data-testid 挂钩）随 last-good 态呈现 / 成功轮消失；`error` 分支收敛为首载语义（detail 在手的刷新失败不再整页 `DetailFallback`）；首载错误 / 真 `None` 兜底页分支不变 |
 | `packages/desktop/src/views/changes/hooks/use-change-flow-run.ts`（零实现改动） | 订阅粘性验证 | `activeRunPresent` 派生源（统一查询 activeRun）不清 → 订阅不闪拆；仅补测试断言，订阅生命周期实现不动 |
@@ -688,7 +700,8 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src/views/changes/hooks/use-exec-output.ts` | 运行中 / 收口后输出取数（重写） | 入参 `{ root, changeName, execId, status }`；**全部经 `ipc`**（`readExecCommand` 一次 / `readExecOutputDelta(fromOffset)` 多次 / `execOutputPath` 供 watch）；`fromOffset` 仅取自后端 `nextOffset`（前端零字节计数）；`status === 'running'` ⇒ `useFileWatchSignal({ armKey: root\0execId, resolvePath, onSignal })`，否则 `armKey = null` 且整读一次 + offset 归零；导出 `{ command, text, error }`（`command` 失败不阻断 `text`）；`\r` 归一为文件内私有纯函数（供面板复用同一口径） |
 | `packages/desktop/src/views/changes/flow/stdout-panel.tsx` | 单列 stdout 面板（扩） | 新增 `status` prop；三段呈现（命令头行 `<pre>` 多行原样 + `CodeBlockCopyButton` / 输出文本区 / 状态提示）；三态文案（「运行中，等待输出…」/「（无输出记录）」/「（命令未记录）」）可分辨；粘底跟随判据为纯函数（`data-testid` 挂钩在案）；错误态不炸图 |
 | `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 分派与 `status` 下传 | stdout 分派判据（`outputRef !== null`）零改动；给 `StdoutPanel` 增传 `status={node.status}`；会话转录与列头分派零改动 |
-| `packages/desktop/src/views/changes/flow/change-flow-graph.tsx` | 点击判据（零改动） | `role === null && outputRef === null` 拦截逻辑一字不动——运行中节点因后端前置上抛而自然可点 |
+| `packages/desktop/src/views/changes/flow/change-flow-graph.tsx` | 静默节点判据（**零改动**） | `role === null && outputRef === null` 判据逐字不变；不存在的节点天然不上图，零新增分支 |
 | `packages/desktop/src/hooks/use-file-watch-signal.ts` | watch 消费（零改动） | 第二消费方接入不开新参数（`armKey` / `resolvePath` / `onSignal` 三项照用）；`SIGNAL_DEBOUNCE_MS = 500` 单点沿用 |
 | `packages/desktop/src/views/changes/hooks/use-change-detail.ts` | 通知重查（零改动） | `useDebouncedBump` / 有界重试 / 保 last-good 语义不涉及本变更 |
 | `packages/desktop/src/views/changes/change-detail-view.tsx` | 零改动 | 选中态与抽屉装配不变；运行中刷新仍由既有通知链驱动（本变更不引入前端刷新键） |
+| `packages/desktop/src/views/changes/flow/{run-state,run-step-node,change-flow-graph}.test.tsx` | 用例面（**零改动**） | 既有渲染用例期望值零改写（`phaseStart` / `phaseLog` / `verdictGate` 样本节点仍须可解码 + 静默）；本变更 MUST NOT 新增前端用例——「新 run 三节点 initialize 列」由既有渲染路径天然承载（渲染层零源码改动），用例面随源码一并零 diff |

@@ -145,7 +145,9 @@ Stryker 桶 SHALL 为一次执行建一份 sandbox（`tempDirName`），执行�
 
 ### Requirement: 失败升格交决策（报告指引式信息面）
 
-MutationTest 失败 SHALL 一律升格相位 fail（零 WorkerAgent 会话，不注入修复、不续注会话），两时点同式：突变执行**中断**（执行 error / harness 崩 / 超时）与执行正常跑完但**未达标**（score < threshold）均以固定三步收场——代写一条 fail checklist → `phase_log` 落账 → 截断本相位余下步（`StepFlow::Upgraded`）回 `phase_next` 进决策分叉；达标 SHALL pass 直接收口（机械 checklist 落账、零会话）。升格落账的 `report` SHALL 携完整反馈文本（`feedback_text`，上限 `MAX_REPORT_CHARS = 2000` 字符）：中断时为中断错误摘要 + 已产报告路径清单 + 保留的失败调试产物路径（保留面非空时），未达标时为 score / threshold 结论摘要 + 原始报告路径清单；错误摘要沿用 `ProcessOutput` 双段落口径（错误行组 + 末 50 行；见 desktop-exec-runtime）；evidence SHALL 携诊断摘要（`diagnose_brief` 口径）+ 报告目录。反馈内容 MUST NOT 内联存活突变体清单——决策 agent SHALL 依决策 prompt 的指引自行 `read` 原始 / 归并报告定位（报告指引式取向由决策信息面承继）。失败步 `on_fail` SHALL 为 `OnFail::Escalate`（与 test-execution 两步同），MUST NOT 声明 `FeedbackLoop`；失败条目三会话槽位恒 `None`。`OnFail::Escalate` 的归属守卫 SHALL 保证其只出现在 TestExecution / MutationTest 步上。
+MutationTest 失败 SHALL 一律升格相位 fail（零 WorkerAgent 会话，不注入修复、不续注会话），两时点同式：突变执行**中断**（执行 error / harness 崩 / 超时）与执行正常跑完但**未达标**（score < threshold）均以固定三步收场——代写一条 fail checklist（经相位收口落账入口）→ 截断本相位余下步（`StepFlow::Upgraded`）→ 回 `phase_next` 进决策分叉；达标 SHALL pass 直接收口（机械 checklist 由相位收口落账、零会话）。升格落账的 `report` SHALL 携完整反馈文本（`feedback_text`，上限 `MAX_REPORT_CHARS = 2000` 字符）：中断时为中断错误摘要 + 已产报告路径清单 + 保留的失败调试产物路径（保留面非空时），未达标时为 score / threshold 结论摘要 + 原始报告路径清单；错误摘要沿用 `ProcessOutput` 双段落口径（错误行组 + 末 50 行；见 desktop-exec-runtime）；evidence SHALL 携诊断摘要（`diagnose_brief` 口径）+ 报告目录。反馈内容 MUST NOT 内联存活突变体清单——决策 agent SHALL 依决策 prompt 的指引自行 `read` 原始 / 归并报告定位（报告指引式取向由决策信息面承继）。失败步 `on_fail` SHALL 为 `OnFail::Escalate`（与 test-execution 两步同），MUST NOT 声明 `FeedbackLoop`；失败条目三会话槽位恒 `None`。`OnFail::Escalate` 的归属守卫 SHALL 保证其只出现在 TestExecution / MutationTest 步上。
+
+落账入口 SHALL 与相位收口共用（`settle_phase(PhaseSettle::Fail(PhaseFail { item, report, evidence, executor_session }))`，见 desktop-change-orchestration「相位入口与收口内化（计划图仅含真实步）」）：`item` = 「突变测试」、`executor_session` = `None`、report / evidence 装配逐字不变；落账产物形状（`PhaseRecord` + 一条 `ChecklistItemRecord`）与既有逐字一致，MUST NOT 依赖任何计划步节点。
 
 #### Scenario: 中断立即升格
 
@@ -160,7 +162,7 @@ MutationTest 失败 SHALL 一律升格相位 fail（零 WorkerAgent 会话，不
 #### Scenario: 达标零会话收口
 
 - **WHEN** 全部桶跑完且逐 suite 全部达标（或突变面为空跳过）
-- **THEN** MutationTest pass，机械 checklist 落账进入 PhaseLog，推进下一相位，零 WorkerAgent 会话发起
+- **THEN** MutationTest pass，机械 checklist 由相位收口落账（`PhaseRecord` + 三条 `ChecklistItemRecord`），推进下一相位，零 WorkerAgent 会话发起；图上零 `phase_log` 节点
 
 #### Scenario: 两口径并存红线随反馈边退役
 
@@ -267,9 +269,11 @@ Stryker 无相应的增量成果文件（报告只在正常退出时由 jsonRepo
 | `crates/infra/checks/src/mutation/cargo_mutants.rs` | 整体执行（rust） | `run_suite(patch_path, exec_dir, mutant_count, cancel) -> (String, bool)` 经 `run_shell`（`CARGO_TARGET_DIR=target` 相对注入 + `TEMP`/`TMP`/`TMPDIR` 重定向到 `target/mutants-scratch` + `--profile mutants` + `--gitignore true` + `TAURI_CONFIG` 版本覆盖、超时按 `segments::run_spawn_timeout_ms`、`RetryPolicy::none()`）；`recover_partial(exec_dir)` 从 `caught.txt`/`missed.txt`/`timeout.txt`/`unviable.txt` 行数合成计数面（全空 → `None`）；`TimedOut` / `Cancelled` / 崩溃臂先试回读，回读不到才映射 `Interrupted` / `Cancelled` |
 | `crates/infra/checks/src/mutation/stryker.rs` | 整体执行（js 族） | `run_suite(segment, round_duration_ms, cancel) -> (String, bool)` 经 `run_shell`（`cwd = suite_cwd`、超时按 `estimate_timeout_ms(突变数, 单轮测试耗时)`、`RetryPolicy::none()`）；突变数 = 文件总行数 × `MUTANTS_PER_LINE`（业界通用值）；`PER_MUTANT_TEST_RATIO` = 0.1（业界通用值）；无增量成果文件，终止面只有中断一条路径（布尔位恒 `false`） |
 | `crates/core/orchestration/src/port.rs` | 载荷 | `MutationTestOutcome { conclusion, skip, score, threshold, counts, report_paths, feedback_text, fault: Option<RunFault> }`（仍零 Serialize，不出线） |
-| `crates/core/orchestration/src/walker.rs`（`step_mutation_test_escalate`） | 步分派 | `fault = Stopped` 前置分支（`Terminal::stopped`）先于 pass / 升格；`fault == None` 时既有 pass / 升格链逐字不变 |
+| `crates/core/orchestration/src/walker.rs`（`step_mutation_test_escalate`） | 升格落账入口改调用 | 改调 `settle_phase(PhaseSettle::Fail(PhaseFail { item: "突变测试", report, evidence, executor_session: None }))`（原 `step_mutation_test_upgraded_phase_log` 退役）；`feedback_text` / 报告路径清单装配逐字不变；三会话槽位 None；随后 `StepFlow::Upgraded` |
 | `crates/core/orchestration/src/port.rs` | port 契约 | `MutationRunner::run(&self, root: &str, name: &str, files: &[String], patch: &str, cancel: CancelFlag, on_output_ref: Option<OutputRefSink>) -> BoxToolFuture`（末位与 `StaticCheckRunner` / `TestExecutionRunner` 同形） |
 | `crates/infra/checks/src/mutation/mod.rs`（port 实现） | runner 实现 | `impl MutationRunner for ProcessMutation`：透传 `cancel` 与 `on_output_ref` 给 `execute`；`execute` 自持 live 记录生命周期（`begin` → 逐桶 `write_command` → 上抛 → `commit`） |
 | `crates/core/orchestration/src/port.rs`（载荷） | 载荷扩字段 | `MutationTestOutcome.exec_id: String`（空串 = 未记录；与 `TestExecutionOutcome.exec_id` 同口径，仍零 `Serialize` 不出线） |
 | `crates/core/checks` | 纯层 | 逻辑零改动（`parse_*_seg` / score / 归并 / 阈值判定不变） |
 | `crates/core/checks/src/aggregate.rs` | excludes 口径单点 | `is_file_excluded(path, suites)` 由消费面复用（excludes 全桶口径单点） |
+| `crates/core/orchestration/src/walker.rs`（`settle_phase`） | 机械 checklist 落账 | mutation 双槽（`test_outcome` + `mutation_outcome`）与 evidence 三态语义逐字保留 |
+| `crates/core/checks` / `crates/infra/checks`（**零改动**） | 突变面 | 四桶执行、报告落盘、sandbox 清理、`MutationRunner` 签名逐字不变 |

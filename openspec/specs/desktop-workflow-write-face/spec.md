@@ -187,19 +187,18 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 - `artifact_manifest: [ArtifactSpec]`：相位声明产物清单；archive 相位 SHALL 无 `artifact_manifest`（不产文档）；requirement 表 test-design SHALL 声明 `markdown-doc·test-design.md`、implement SHALL 声明 `tasks-progress·tasks.md`（实现期进度视图，服务 phase_next 下发面——发现面同路径按首命中去重，tasks.md 出列为 dev-design 的 markdown-doc 单候选）；test-only 表 code-analyze SHALL 声明 `markdown-doc·design.md`（源码分析）；
 - `executor` / `evaluator: Option<PhaseAgentSpec>`：initialize / test-execution / archive 三个确定性相位 SHALL 为 `None` / `None`。test-execution 的角色 spec 缺席后，其「首败即交决策」语义 SHALL 由门禁步声明 `OnFail::Escalate` 承载——`phase_next` 的决策分叉判据 SHALL 取「`evaluator.is_some()` 或 `steps` 含 `OnFail::Escalate` 步」，MUST NOT 以相位名硬编码，且在两表上须与原 `evaluator.is_some()` 单判据的相位集合等价。
 
-`StepNode` 词汇 SHALL 为二十二值（`executor` / `evaluator` / `decision` / `static_check` / `test_execution` / `mutation_test` / `archi_check` / `clean` / `phase_start` / `phase_log` / `verdict_gate` / `retry_gate` / `whitelist_gate` / `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `cleanup` / `seal` / `finalize`），与 `RunStepKind` / `ChangeStepKind` 同词面 1:1 全映射（`mutation_test`、`cleanup`、`clean` 与 `archi_check` 线词入封闭集，18→19、19→20、20→21 与 21→22 均为白名单式扩展）；code-analyze 复用既有 `Executor` / `Evaluator` / `VerdictGate` / `PhaseStart` / `PhaseLog` 步词，MUST NOT 新增步词。`StepGroup` SHALL 保持四分类（`Exec` / `Agent` / `Gate` / `Git`），`mutation_test` 与 `archi_check` 归 `Exec`、`cleanup` 与 `clean` 归 `Git`。两表表头 SHALL 声明共享 `INITIALIZE_STEPS`：`PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog`（一次性基线检查相位——Clean 为 vcs 直调基线恢复步、StaticCheck / TestExecution 步 `on_fail=Terminal`（失败即停，无反馈边——基线的债不属于本次变更）、`PhaseStart` / `Clean` / `PhaseLog` `on_fail=None`；零 `artifact_manifest`——基线报告树非文档素材，回查经节点 `output_ref`）。两表共享的 `TEST_EXECUTION_STEPS` SHALL 为 `PhaseStart → TestExecution → MutationTest → PhaseLog` 四步：TestExecution / MutationTest 两步 `on_fail=Escalate`（零 WorkerAgent 会话——首败即落账后回 `phase_next` 交决策面，见 desktop-test-execution「失败即升格交决策（零 agent 修复）」与 desktop-mutation-testing「失败升格交决策（报告指引式信息面）」），`PhaseStart` / `PhaseLog` `on_fail=None`。requirement 表的 implement `PhaseDefinition` SHALL 声明 7 步序列：`PhaseStart → Executor → StaticCheck(FeedbackLoop{5}) → ArchiCheck(FeedbackLoop{3}) → Evaluator → VerdictGate(FeedbackLoop{5}) → PhaseLog`——`ArchiCheck` 步 MUST 位于 static-check 通过之后、evaluator 之前（先修机器能判的，再让评估面看已过门禁的产物），其 `on_fail` SHALL 为 `FeedbackLoop { limit: 3 }`（架构违例的反馈边上限独立于 static-check 的 5 次与 verdict 的 5 次，三段计数互不占用；见 desktop-change-orchestration「ArchiCheck 步接线与反馈边」）。同一步词在不同表项语义不同（initialize 表项的 TestExecution 为 `Terminal`、test-execution 表项为 `Escalate`），语义由表项声明承载，MUST NOT 由相位名推导；`Escalate` 归属 SHALL 由表测试守卫（只允许出现在 TestExecution / MutationTest 步上——四个执行体只按 `on_fail` 分派，误声明会静默失效）。`REQUIREMENT_TABLE` 的 archive `PhaseDefinition` SHALL 声明 11 步序列：`PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge → SpecSync → Cleanup → Seal → Finalize → PhaseLog`（`ResolveConflicts` 为条件执行步，`Cleanup` 为尽力步——清理失败仅 step detail 警告、步恒 `passed`，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」；其余步 `on_fail=None`——步失败即 Terminal）。`TEST_ONLY_TABLE` SHALL 复用 requirement 同名 step 静态（proposal / test-design / test-gen / test-execution / archive），并新增 `CODE_ANALYZE_STEPS`：`PhaseStart → Executor → Evaluator → VerdictGate → PhaseLog`（P→E，`on_fail=Terminal` 于 VerdictGate）；`ArchiCheck` 步 MUST NOT 出现在 `TEST_ONLY_TABLE` 的任何相位（该表无 implement 相位，代码改动落在 code-analyze；且测试文件被架构扫描全排除，挂上只会空转）。
+**`steps` SHALL 只含真实业务步**：相位开相与落账是相位机的固定工程动作（`enter_phase` / `settle_phase`，见 desktop-change-orchestration「相位入口与收口内化（计划图仅含真实步）」），MUST NOT 以计划步表达——`PhaseStart` / `PhaseLog` / `VerdictGate` 三类步 SHALL NOT 出现在任一相位的 `steps` 内。`kind` 的四类封闭集（`exec` / `agent` / `gate` / `git`）SHALL 保持为封闭集，其中 `gate` 类在辅助步退场后**无任何相位声明**（其统计恒零），类目本身 MUST NOT 删除（`StepGroup::Gate` 与存量行的 `group()` 依赖）。
+
+`StepNode` 词汇 SHALL 为二十二值（`executor` / `evaluator` / `decision` / `static_check` / `test_execution` / `mutation_test` / `archi_check` / `clean` / `phase_start` / `phase_log` / `verdict_gate` / `retry_gate` / `whitelist_gate` / `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `cleanup` / `seal` / `finalize`），与 `RunStepKind` / `ChangeStepKind` 同词面 1:1 全映射（`mutation_test`、`cleanup`、`clean` 与 `archi_check` 线词入封闭集，18→19、19→20、20→21 与 21→22 均为白名单式扩展）。**该二十二值 SHALL 冻结**：`phase_start` / `phase_log` / `verdict_gate` 三词转 **`decode-only`**（新表零引用、存量执行图节点行解码必需），MUST NOT 删除变体、MUST NOT 重排变体序（`RunNodeRecord.step` 经 bincode 按下标编码）、MUST NOT 删除 `StepGroup::Gate` 分支——辅助步退场后 `verdict_gate` / `retry_gate` / `whitelist_gate` 三词已不出现在任何相位的 `steps` 内，其 `group()` 分支与 `StepGroup::Gate` 枚举值 MUST 保留（存量执行图节点行的 `group()` 仍需可算）。`StepGroup` SHALL 保持四分类（`Exec` / `Agent` / `Gate` / `Git`），`mutation_test` 与 `archi_check` 归 `Exec`、`cleanup` 与 `clean` 归 `Git`。两表表头 SHALL 声明共享 `INITIALIZE_STEPS`：`Clean → StaticCheck → TestExecution`（一次性基线检查相位——Clean 为 vcs 直调基线恢复步、StaticCheck / TestExecution 步 `on_fail=Terminal`（失败即停，无反馈边——基线的债不属于本次变更）、`Clean` 步 `on_fail=None`；零 `artifact_manifest`——基线报告树非文档素材，回查经节点 `output_ref`）。两表共享的 `TEST_EXECUTION_STEPS` SHALL 为 `TestExecution → MutationTest` 两步：两步 `on_fail=Escalate`（零 WorkerAgent 会话——首败即落账后回 `phase_next` 交决策面，见 desktop-test-execution「失败即升格交决策（零 agent 修复）」与 desktop-mutation-testing「失败升格交决策（报告指引式信息面）」）。requirement 表的 implement `PhaseDefinition` SHALL 声明 4 步序列：`Executor → StaticCheck(FeedbackLoop{5}) → ArchiCheck(FeedbackLoop{3}) → Evaluator`——`ArchiCheck` 步 MUST 位于 static-check 通过之后、evaluator 之前（先修机器能判的，再让评估面看已过门禁的产物），其 `on_fail` SHALL 为 `FeedbackLoop { limit: 3 }`（架构违例的反馈边上限独立于 static-check 的 5 次，两段计数互不占用；见 desktop-change-orchestration「ArchiCheck 步接线与反馈边」）。evaluator 步的 `on_fail` SHALL 为 `None`（verdict 裁决在步内闭合，缺失即终态，无反馈边）。同一步词在不同表项语义不同（initialize 表项的 TestExecution 为 `Terminal`、test-execution 表项为 `Escalate`），语义由表项声明承载，MUST NOT 由相位名推导；`Escalate` 归属 SHALL 由表测试守卫（只允许出现在 TestExecution / MutationTest 步上——四个执行体只按 `on_fail` 分派，误声明会静默失效）。`REQUIREMENT_TABLE` 的 archive `PhaseDefinition` SHALL 声明 9 步序列：`Preflight → Commit → Rebase → ResolveConflicts → Merge → SpecSync → Cleanup → Seal → Finalize`（`ResolveConflicts` 为条件执行步，`Cleanup` 为尽力步——清理失败仅 step detail 警告、步恒 `passed`，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」；其余步 `on_fail=None`——步失败即 Terminal；落账由相位收口承载，不在 `steps` 内）。`TEST_ONLY_TABLE` SHALL 复用 requirement 同名 step 静态（proposal / test-design / test-gen / test-execution / archive），并新增 `CODE_ANALYZE_STEPS`：`Executor → Evaluator`（P→E）；`ArchiCheck` 步 MUST NOT 出现在 `TEST_ONLY_TABLE` 的任何相位（该表无 implement 相位，代码改动落在 code-analyze；且测试文件被架构扫描全排除，挂上只会空转）。
+
+各表相位的步数 SHALL 为：requirement 表 initialize 3 / proposal 2 / dev-design 2 / test-design 2 / implement 4 / test-gen 3 / test-execution 2 / code-review 1 / acceptance 1 / archive 9（合计 29）；test-only 表 initialize 3 / proposal 2 / code-analyze 2 / test-design 2 / test-gen 3 / test-execution 2 / archive 9（合计 23）。
 
 `steps` SHALL 全静态声明（const 表内联，`prompt_ref` 经编译期 `include_str!` 映射回静态 prompt 表）；MUST NOT 将 prompt 文本收进 db 定义表、MUST NOT 经 port 缝做运行时定义加载。`artifact_manifest` 为「相对路径 → phase」归属的权威来源，前端 `docColumn` 静态映射退役后 MUST NOT 在 core/workflow 之外再保留第二份 phase 归属表。
 
 #### Scenario: 步序列全静态声明
 
 - **WHEN** 审查 `phase_table.rs` 的 `PhaseDefinition` 表条目（含 initialize、implement、archive、test-execution 与 code-analyze）
-- **THEN** 每相位 `steps` 为编译期 const 有序序列（kind / role / prompt_ref / on_fail 齐备），initialize 相位 5 步在案（表头 `INITIALIZE_STEPS` 两表共享）且 `executor=None` / `evaluator=None` / `backtrackable=false`，implement 相位 7 步在案（`ArchiCheck` 位于 StaticCheck 与 Evaluator 之间、`on_fail=FeedbackLoop{3}`），archive 相位 11 步在案且 `executor=None` / `evaluator=None`，test-execution 4 步在案（TestExecution / MutationTest 两步 `on_fail=Escalate`），code-analyze 5 步在案（P→E）；无 db 定义表、无 port 缝定义读、无运行时文件 IO
-
-#### Scenario: StepNode 二十二值与四分类分组
-
-- **WHEN** 审查 `StepNode` / `RunStepKind` / `StepGroup` 定义
-- **THEN** 词汇二十二值全映射（9 个归档步词（含 `cleanup`）、`mutation_test`、`archi_check` 与 initialize 基线步词 `clean` 在案，code-analyze 零新步词）；`StepGroup` 含 Git，commit / rebase / merge / cleanup / finalize / clean 归 Git、preflight / seal / mutation_test / archi_check 归 Exec、spec_sync / resolve_conflicts 归 Agent
+- **THEN** 每相位 `steps` 为编译期 const 有序序列（kind / role / prompt_ref / on_fail 齐备），initialize 相位 3 步在案（表头 `INITIALIZE_STEPS` 两表共享）且 `executor=None` / `evaluator=None` / `backtrackable=false`，implement 相位 4 步在案（`ArchiCheck` 位于 StaticCheck 与 Evaluator 之间、`on_fail=FeedbackLoop{3}`），archive 相位 9 步在案且 `executor=None` / `evaluator=None`，test-execution 2 步在案（TestExecution / MutationTest 两步 `on_fail=Escalate`），code-analyze 2 步在案（P→E）；无 db 定义表、无 port 缝定义读、无运行时文件 IO
 
 #### Scenario: 架构门禁步只在 implement
 
@@ -231,6 +230,16 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 - **WHEN** 审查 `PhaseDefinition` 扩展后的 executor / evaluator spec
 - **THEN** 仍为 `{ prompt: &'static str, model_level }`（`include_str!` 产物），无 `agent_type` / `__CALL_AGENT__` / `interpolate` 残留；initialize / test-execution / archive 三确定性相位 executor / evaluator 均 None
 
+#### Scenario: 辅助步零声明
+
+- **WHEN** 遍历两表全部相位的 `steps`，统计 `PhaseStart` / `PhaseLog` / `VerdictGate` 出现次数
+- **THEN** 三者合计为 0 次；各相位步数与「29 / 23」逐相位断言一致；总步数 29（requirement）与 23（test-only）
+
+#### Scenario: StepNode 二十二值冻结与四分类分组
+
+- **WHEN** 审查 `StepNode` / `RunStepKind` / `StepGroup` 定义与三处 `decode-only` 注释
+- **THEN** 词汇仍为二十二值且变体序不变（`phase_start` / `phase_log` / `verdict_gate` 三词标 `decode-only`）；`StepGroup::Gate` 枚举值与 `group()` 的三词分支均在案；`StepGroup` 含 Git，commit / rebase / merge / cleanup / finalize / clean 归 Git、preflight / seal / mutation_test / archi_check 归 Exec、spec_sync / resolve_conflicts 归 Agent；code-analyze 零新步词
+
 ### Requirement: test-only 相位表与前置依赖
 
 `TEST_ONLY_TABLE` SHALL 为 7 个路由相位，序固定：`initialize → proposal → code-analyze → test-design → test-gen → test-execution → archive`。每相位的前置依赖 SHALL 为：
@@ -245,12 +254,12 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 | test-execution | [test-gen] |
 | archive | [] |
 
-step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`（两表共享同一 static），proposal / test-design / test-gen 复用 requirement 同名 `*_STEPS`（含同名 executor / evaluator prompt），test-execution 复用 `TEST_EXECUTION_STEPS`（确定性门禁 `[PhaseStart, TestExecution, MutationTest, PhaseLog]`——拆步：测试 / 覆盖率修绿后才跑突变，TestExecution / MutationTest 两步 `on_fail=Escalate`（零 agent、首败落账交决策），不照搬插件侧 Executor→E），archive 复用 `ARCHIVE_STEPS`，code-analyze 用新增 `CODE_ANALYZE_STEPS`。test-only 的 `proposal` 描述 SHALL 为「测试向提案」（description 字段语义，prompt 主体暂复用 requirement proposal prompt，是否拆分独立 prompt 留待看效果）。
+step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`（两表共享同一 static），proposal / test-design / test-gen 复用 requirement 同名 `*_STEPS`（含同名 executor / evaluator prompt），test-execution 复用 `TEST_EXECUTION_STEPS`（确定性门禁 `[TestExecution, MutationTest]` 两步——拆步：测试 / 覆盖率修绿后才跑突变，两步 `on_fail=Escalate`（零 agent、首败落账交决策），不照搬插件侧 Executor→E），archive 复用 `ARCHIVE_STEPS`，code-analyze 用新增 `CODE_ANALYZE_STEPS`。test-only 的 `proposal` 描述 SHALL 为「测试向提案」（description 字段语义，prompt 主体暂复用 requirement proposal prompt，是否拆分独立 prompt 留待看效果）。
 
 #### Scenario: test-only 七相位序与复用
 
 - **WHEN** 读取 `phase_table("test-only")` 的相位序与各相位 `steps`
-- **THEN** 序恰为 initialize / proposal / code-analyze / test-design / test-gen / test-execution / archive；initialize / proposal / test-design / test-gen / test-execution / archive 的 `steps` 指针与 requirement 同名 static 一致，code-analyze 为 `CODE_ANALYZE_STEPS`
+- **THEN** 序恰为 initialize / proposal / code-analyze / test-design / test-gen / test-execution / archive；initialize / proposal / test-design / test-gen / test-execution / archive 的 `steps` 指针与 requirement 同名 static 一致，code-analyze 为 `CODE_ANALYZE_STEPS`；逐相位步数为 3 / 2 / 2 / 2 / 3 / 2 / 9（合计 23），全表零 `PhaseStart` / `PhaseLog` / `VerdictGate` 声明
 
 #### Scenario: 前置依赖表内自描述
 
@@ -387,7 +396,7 @@ step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`�
 | `crates/core/orchestration`（消费方，不改面） | walker 经 port 缝进程内直调写面 | 依赖方向 orchestration → workflow；walker 零自持转移规则；LocalToolSteps 直调面签名不变（载体在写面内换血） |
 | `crates/infra/store`（workspace 库实例） | 状态落库载体 | ChangeRecord / PhaseRecord / ChecklistItemRecord / StepRecord（见 desktop-workspace-store / desktop-change-state-store） |
 | `crates/core/workflow/src/state.rs`（StepNode / RunStepKind） | 二十一值词面单点 | `Clean` / `clean` 白名单式入封闭集（20→21）；`StepNode::group()` 将 clean 派生 `StepGroup::Git`、`role()` 为 None；与 `RunStepKind` / `ChangeStepKind` 同词面 1:1 |
-| `crates/core/workflow/src/write/phase_table.rs`（ARCHIVE_STEPS） | 11 步序列静态 | SpecSync 与 Seal 之间插 `Cleanup`（`prompt_ref=None`、尽力步语义驻 walker 执行体）；`ARCHIVE_STEP_ORDER` 断言 10 → 11 |
+| `crates/core/workflow/src/write/phase_table.rs`（ARCHIVE_STEPS） | 9 步序列静态 | `SpecSync` 与 `Seal` 之间留 `Cleanup`（`prompt_ref=None`、尽力步语义驻 walker 执行体）；`PhaseStart` / `PhaseLog` 两项删除；`ARCHIVE_STEP_ORDER` 断言 11 → 9 |
 | `crates/core/workflow/src/write/phase_table.rs` | 表结构单源 | `PhaseDefinition` 增 `backtrackable: bool`（表内自描述）；`INITIALIZE_STEPS` 静态五步（`PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog`，StaticCheck / TestExecution `on_fail=Terminal`）+ 两表表头 `INITIALIZE` 表项（`executor=None` / `evaluator=None` / `prerequisites=[]` / `backtrackable=false` / 零 artifact_manifest）；`allowed_backtrack_phases` 按 `backtrackable` 过滤（无位置推导跳过）；`REQUIREMENT_TABLE` 10 相位 / `TEST_ONLY_TABLE` 7 相位 |
 | `crates/core/workflow/src/write/phase_next.rs`（零改动） | 路由 | 表驱动「首个未 pass 相位」天然含 initialize 表头，零特判、零新规则 |
 | `crates/core/workflow/src/state.rs` | `OnFail` 变体面 | 增 `Escalate`（无载荷）；三变体 `FeedbackLoop { limit }` / `Terminal` / `Escalate`，与缺省 `None` 各自语义见 `StepDefinition.on_fail` doc |
@@ -395,7 +404,7 @@ step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`�
 | `crates/core/workflow/src/write/phase_table.rs`（`backtrack_options` / `allowed_backtrack_phases`） | 白名单推导 | `redoable = phase.steps.iter().any(|step| step.node.role().is_some())`；`table[..=idx]` 过滤 `backtrackable` 后 `redoable \|\| phase.id != current_phase` 自排除；`backtrack_options` 每项携 `PhaseDefinition.description`（决策上下文特性文案单源）与 `PhaseDefinition.artifact_manifest`（该相位可操作产物清单单源；清单零 `eval-checklist` 项——评估 checklist 由 PhaseRecord 投影而来、非相位声明产物），`allowed_backtrack_phases` 为其 id 投影（过滤逻辑零副本） |
 | `crates/core/workflow/src/write/backtrack.rs` | 白名单二次校验 | `to == phase` 在白名单内时受理（重做本相位），否则拒绝且零写 |
 | `crates/core/workflow/src/write/phase_next.rs` | 路由与幂等闸 | `fail_decided`（decision_session_id 在案 ⇒ 不再分叉）语义注释改写；删 `eval_only` 派生，`PhaseNextError` 两变体去 `eval_only` 字段 |
-| `crates/core/workflow/src/write/phase_table_test.rs` | 声明守卫 | `Escalate` 仅允许出现在 TestExecution / MutationTest 步；两步 `on_fail` 期望值断言 |
+| `crates/core/workflow/src/write/phase_table_test.rs` | 序表断言随动 | 六处序表常量：`INITIALIZE_STEP_ORDER` 5→3、`CODE_ANALYZE_STEP_ORDER` 5→2、`ARCHIVE_STEP_ORDER` 11→9，另加 proposal / dev-design / test-design / implement / test-gen / test-execution / code-review / acceptance 的步数断言；新增「辅助步零声明」守卫 |
 | `crates/core/workflow/src/state.rs`（`StepNode` / `RunStepKind` / `ChangeStepKind`） | 词面单点 | `ArchiCheck` / `archi_check` 白名单式入封闭集（21→22，三枚举同词面 1:1）；`StepNode::group()` 派生 `StepGroup::Exec`、`role()` 为 `None` |
 | `crates/core/workflow/src/write/phase_table.rs`（`IMPLEMENT_STEPS`） | 计划图声明 | 7 步：`PhaseStart → Executor → StaticCheck{5} → ArchiCheck{3} → Evaluator → VerdictGate{5} → PhaseLog`；`ArchiCheck` 唯一的步词出处 |
 | `crates/core/workflow/src/write/phase_table.rs`（`TEST_ONLY_TABLE`） | 表项守卫 | 零 `ArchiCheck` 步（该表无 implement 相位）；表测试断言两条表全相位扫描 |
@@ -406,3 +415,7 @@ step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`�
 | `crates/core/workflow/src/write/phase_next_test.rs` | 窗口判据语料 | 四态（目标 / 中间 / 源头 / 窗外）、自环单点、嵌套双窗并集、三层末位裁剪、内层回跳、跨 run 继承、error 响应窗口、原因原文逐字保真、渲染零相位 id、求值顺序、S2 断言改写 |
 | `crates/core/workflow/src/queries/detail.rs`（零改动） | 泳道序真值源 | `pipeline` 仍按 `phase_table` 序投影（`col` 的取值来源）；本能力只消费该序，不改其构造 |
 | `crates/infra/store/**`（零改动） | 落库载体 | `PhaseStateRecord` 字段面不变；`list_phase_records` 的 id 升序语义即创建序来源；零 schema / 零迁移 |
+| `crates/core/workflow/src/write/phase_table.rs`（11 张 `*_STEPS`） | 计划步序列收窄 | 删全部 `PhaseStart` / `VerdictGate` / `PhaseLog` 声明（现盘 30 处）；步数 requirement 3/2/2/2/4/3/2/1/1/9、test-only 3/2/2/2/3/2/9；各 static 的 doc 注释步序串同步改写 |
+| `crates/core/workflow/src/state.rs`（`StepNode`） | 词汇冻结 | 二十二值保持、变体序不变；`PhaseStart` / `PhaseLog` / `VerdictGate` 三变体标 `decode-only`（新表零引用，存量执行图节点行解码必需） |
+| `crates/core/workflow/src/state.rs`（`StepGroup::group`） | Gate 分支保留 | `StepGroup::Gate` 枚举值与 `VerdictGate \| RetryGate \| WhitelistGate => Gate` 分支逐字保留（辅助步退场后无 StepNode 归属，但存量行 `group()` 仍需可算） |
+| `crates/core/workflow/src/state_test.rs` | 词汇冻结守卫 | 二十二值与变体序断言（删变体 / 重排即红）；`StepGroup::Gate` 三词归属断言 |

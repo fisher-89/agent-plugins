@@ -54,7 +54,7 @@ change 详情页 SHALL 以 run 流程的 archive 相位为归档入口：db `Cha
 
 ### Requirement: 归档编排链与阶段幂等
 
-归档 SHALL 为 walker 的第 11 个路由相位（`archive`，确定性相位：`PhaseDefinition.executor=None` / `evaluator=None`——initialize 表头相位之后的末相位），11 步有序 step 序列 SHALL 为：`PhaseStart`（开相，attempt max+1 分配）→ `Preflight`（store 读 + vcs 探测的只读校验，detail 携完成度警告 / delta specs 清单 / merge 目标）→ `Commit`（vcs.commit_all，step 内「干净」跳过）→ `Rebase`（vcs.rebase_branch 重放至主仓当前分支，产出冲突清单入 `PhaseCursor.rebase_conflicts`）→ `ResolveConflicts`（条件执行：无冲突 `passed` + `detail` 记「无冲突」；有冲突经解冲突 agent 会话解算）→ `Merge`（vcs.ff_merge 主仓 ff-only 快进）→ `SpecSync`（delta specs 在场且未跳过时 agent 会话，否则 `passed` + `detail` 记跳过）→ `Cleanup`（vcs worktree 移除尽力步——语义见「Cleanup 步与 worktree 自动清理」）→ `Seal`（经写面 `archive` 双写收口：目录改名 + db status 翻转）→ `Finalize`（vcs.commit_paths 落盘提交，step 内「已落盘」跳过）→ `PhaseLog`（空 report + 空 checklist 落 `verdict=pass` 的 PhaseRecord）。Cleanup 与 Finalize 的相对座位由 design 定稿（Finalize 语义不变：主仓归档两路径 + delta capability 主 specs 的脏探测落盘）。每步 SHALL 幂等可重入：**worktree 干净（`status --porcelain` 非空为假）是 Commit 步唯一跳过依据——分支可达性 MUST NOT 构成 Commit 步的跳过分支**；分支已合入则 Rebase / Merge 步幂等跳过（重放已在目标中的提交显式丢弃、ff-only 快进零 merge commit）；Cleanup 幂等面见其单点 requirement（worktree 已不在场即跳过）；双写半完成重试走写面既有续半边（仅补 db 翻转）。delta specs 缺席或用户选择跳过时 SpecSync SHALL 零会话（`passed` + 跳过因）。除 Cleanup（尽力步，步恒 `passed`）外任一步失败 SHALL 以 `Terminal` 收口（`on_fail=None` 的步失败即 run 失败），MUST NOT 静默跳过或降级；重试靠 step 内判断短路（干净 / 已合入 / 已落盘 / worktree 已不在场 / 双写续半边），已成功步不重复执行。
+归档 SHALL 为 walker 的第 11 个路由相位（`archive`，确定性相位：`PhaseDefinition.executor=None` / `evaluator=None`——initialize 表头相位之后的末相位），9 步有序 step 序列 SHALL 为：`Preflight`（store 读 + vcs 探测的只读校验，detail 携完成度警告 / delta specs 清单 / merge 目标）→ `Commit`（vcs.commit_all，step 内「干净」跳过）→ `Rebase`（vcs.rebase_branch 重放至主仓当前分支，产出冲突清单入 `PhaseCursor.rebase_conflicts`）→ `ResolveConflicts`（条件执行：无冲突 `passed` + `detail` 记「无冲突」；有冲突经解冲突 agent 会话解算）→ `Merge`（vcs.ff_merge 主仓 ff-only 快进）→ `SpecSync`（delta specs 在场且未跳过时 agent 会话，否则 `passed` + `detail` 记跳过）→ `Cleanup`（vcs worktree 移除尽力步——语义见「Cleanup 步与 worktree 自动清理」）→ `Seal`（经写面 `archive` 双写收口：目录改名 + db status 翻转）→ `Finalize`（vcs.commit_paths 落盘提交，step 内「已落盘」跳过）。相位的开相与落账 SHALL 由相位机固定动作承载（`enter_phase` / `settle_phase`，见 desktop-change-orchestration「相位入口与收口内化（计划图仅含真实步）」）：attempt 分配在 `enter_phase`（含 `start_at` 写 active_phase），落账由 `settle_phase` 以空 report + 空 checklist 落 `verdict=pass` 的 PhaseRecord——二者 MUST NOT 是计划步、MUST NOT 出图节点、MUST NOT 产 `StepRecord` 审计行。Cleanup 与 Finalize 的相对座位由 design 定稿（Finalize 语义不变：主仓归档两路径 + delta capability 主 specs 的脏探测落盘）。每步 SHALL 幂等可重入：**worktree 干净（`status --porcelain` 非空为假）是 Commit 步唯一跳过依据——分支可达性 MUST NOT 构成 Commit 步的跳过分支**；分支已合入则 Rebase / Merge 步幂等跳过（重放已在目标中的提交显式丢弃、ff-only 快进零 merge commit）；Cleanup 幂等面见其单点 requirement（worktree 已不在场即跳过）；双写半完成重试走写面既有续半边（仅补 db 翻转）。delta specs 缺席或用户选择跳过时 SpecSync SHALL 零会话（`passed` + 跳过因）。除 Cleanup（尽力步，步恒 `passed`）外任一步失败 SHALL 以 `Terminal` 收口（`on_fail=None` 的步失败即 run 失败），MUST NOT 静默跳过或降级；重试靠 step 内判断短路（干净 / 已合入 / 已落盘 / worktree 已不在场 / 双写续半边），已成功步不重复执行。相位收口落账失败 SHALL 以「相位 `archive` 全部步通过但落账失败」为 reason 前缀收 `Terminal::failed`（节点保持全绿，见 desktop-change-orchestration「相位收口失败可辨与相位内系统异常仍标 failed」）。
 
 **Preflight 的 rebase 半程挡回（本期增补）**：`Preflight` SHALL 在任何写动作之前（`Commit` 之前）以既有 `worktree_snapshot()` 的 `rebase_head` 在场性检出「上一次归档失败后留下的 rebase 半程」，命中即以 `Terminal` 收口挡回重跑，MUST NOT 继续走 `Commit`：
 
@@ -64,11 +64,6 @@ change 详情页 SHALL 以 run 流程的 archive 相位为归档入口：db `Cha
 - **放行态**：半程不在场（含用户已 `--continue` 或已 `--abort` 后重跑）SHALL 照常放行，后续步按既有幂等短路续走。
 - **连带成本（知情接受）**：半程期间该 change 持续占用 active 名额（上限 5）且 worktree 不可被 `Cleanup` 删除；前端失败面 MUST 呈现同一文案（worktree 绝对路径 + 两条命令）。
 
-#### Scenario: 11 步按序执行
-
-- **WHEN** 假引擎 + 假 vcs port + 假写面驱动 archive 相位
-- **THEN** 11 步按序执行：PhaseStart 开相、Preflight 校验、Commit 提交（或干净跳过）、Rebase 重放、ResolveConflicts 条件解算、Merge 快进、SpecSync 同步（或跳过）、Cleanup 清理（或幂等跳过）、Seal 双写、Finalize 落盘（或跳过）、PhaseLog 空 checklist 落账
-
 #### Scenario: 零提交分支脏工作区照常提交合入
 
 - **WHEN** 桌面执行相位全程未提交（分支零提交、tip = 创建基线）且主仓 HEAD 已前进，worktree 内编辑 / staged / change 目录在场
@@ -77,7 +72,7 @@ change 详情页 SHALL 以 run 流程的 archive 相位为归档入口：db `Cha
 #### Scenario: 已合入跳过合入直达收口
 
 - **WHEN** 分支已 merge 回主仓（主仓 active 树已含 `changes/<n>/`）且 worktree 干净
-- **THEN** Commit 步零动作（干净跳过）、Rebase / Merge 步幂等跳过（已合入），链径直到 SpecSync / Cleanup / Seal / Finalize 收口
+- **THEN** Commit 步零动作（干净跳过）、Rebase / Merge 步幂等跳过（已合入），链径直到 SpecSync / Cleanup / Seal / Finalize 与相位收口
 
 #### Scenario: 步失败即 Terminal 收口
 
@@ -93,6 +88,16 @@ change 详情页 SHALL 以 run 流程的 archive 相位为归档入口：db `Cha
 
 - **WHEN** 用户在 worktree 内已 `git rebase --continue`（或已 `git rebase --abort`）后重跑归档
 - **THEN** `Preflight` 因 `REBASE_HEAD` 不在场而放行；`Commit` 按干净或脏两态处置、`Rebase` / `Merge` 按已合入与否幂等短路，链续走至收口
+
+#### Scenario: 9 步按序执行
+
+- **WHEN** 假引擎 + 假 vcs port + 假写面驱动 archive 相位
+- **THEN** 9 步按序执行：Preflight 校验、Commit 提交（或干净跳过）、Rebase 重放、ResolveConflicts 条件解算、Merge 快进、SpecSync 同步（或跳过）、Cleanup 清理（或幂等跳过）、Seal 双写、Finalize 落盘（或跳过）；开相由 `enter_phase` 完成、空 checklist 落账由相位收口完成，二者零节点零审计
+
+#### Scenario: 步全绿但落账失败可辨
+
+- **WHEN** archive 相位 9 步全部 passed 后相位收口的 `log_phase` 返回 `Err`
+- **THEN** 全部节点终态 passed（零红节点）、run `failed`、reason 前缀「相位 `archive` 全部步通过但落账失败」并携 `Err` 文案；状态库无该 attempt 的 PhaseRecord
 
 ### Requirement: worktree 提交与主仓合入
 
@@ -207,15 +212,17 @@ archive 相位 SHALL 经 Seal 步复用写面 `archive` 单点收口（desktop-c
 
 archive 相位 SHALL 是 run 状态机的一部分（第 11 个路由相位），零独立归档链事件面：归档节点 / 边走当前 run 的 `RunNodeRecord` / `RunEdgeRecord` 整包落库，归档实时流经既有 `RunUpdate` / `RunNotice` 变更通知（`archive_flow` 独立 `ArchiveUpdate` / `ArchiveSink` 退役）。「独立手动执行」SHALL 由 stop-before-archive 停等面承载：run 走完全部前序路由相位（一次性 initialize + 内容相位）后 SHALL 停在 archive 前，MUST NOT 自动推进进入 archive 相位；用户显式确认后才进入 archive 相位；archive 相位完成后 run 才 `completed`（"Ready for archiving" 停等语义改写为「等待确认进入归档」）。归档相位的停止 SHALL 复用 run 的停止命令（停止 run 自然停归档相位）。
 
+**本变更为本 requirement 带来的改动点（逐条自足）**：① 相位的开相与落账 SHALL 由相位机固定动作承载（`enter_phase` 写 active_phase + `start_at` + attempt、`settle_phase` 以空 checklist 落账，见 desktop-change-orchestration「相位入口与收口内化（计划图仅含真实步）」），二者 MUST NOT 出图节点、MUST NOT 产审计行、MUST NOT 计入 `ARCHIVE_STEPS`——归档相位由此从 11 步收为 9 步计划步。② **stop-before 停等面语义 SHALL 逐字不变**：停等触发时机（走完全部前序路由相位后停在 archive 前）、确认载荷（完成度警告 / delta specs 清单 / merge 目标）、「未确认不入相位」「确认后才 `enter_phase` + 9 步」、「停止 run 自然停在 archive 前」五条均 MUST NOT 因辅助步退场而改变；辅助步退场只影响 archive 相位内（`enter_phase` 之后）的可观测面，不触及停等面本身。
+
 #### Scenario: 归档节点进 run 执行图
 
 - **WHEN** archive 相位一次 run 收口后查询执行图
-- **THEN** 归档 10 步节点与串行 forward 边落当前 run 的 `RunNodeRecord` / `RunEdgeRecord`（零新表、零独立归档链事件），详情页 refresh 后归档列全史常驻
+- **THEN** 归档 9 个 step 节点（Preflight / Commit / Rebase / ResolveConflicts / Merge / SpecSync / Cleanup / Seal / Finalize）与串行 forward 边落当前 run 的 `RunNodeRecord` / `RunEdgeRecord`（零新表、零独立归档链事件），详情页 refresh 后归档列全史常驻；无 `phase_start` / `phase_log` 节点，相位落账体现为 PhaseRecord 与 `active_phase` 清位
 
 #### Scenario: 停等面承载手动门
 
 - **WHEN** run 走完全部前序路由相位（含一次性 initialize）到达 archive 前
-- **THEN** 停等面呈现，用户确认后进入 archive 相位；run 未确认前不 completed、不归档；停止 run 自然停在 archive 前（零独立归档链停止命令）
+- **THEN** 停等面呈现（archive 预检载荷照常随行），用户确认后进入 archive 相位（`enter_phase` + 9 步计划步）；run 未确认前不 completed、不归档；停止 run 自然停在 archive 前（零独立归档链停止命令）
 
 ### Requirement: V1 范围与边界留痕
 
@@ -289,16 +296,19 @@ archive 相位 SHALL 在 SpecSync 步之后、Seal 步之前执行 `Cleanup` 步
 | `packages/desktop/src/views/changes/`（详情页） | 归档入口与链面呈现 | 归档按钮两态可见性；确认对话（警告清单 + worktree 合入告知）；阶段状态（新序 + 冲突子阶段与 lean 咨询面）与结果摘要；agent 会话转录入口（复用 AgentMessages 基建）；data-testid 挂钩 |
 | `packages/desktop/src/views/changes/flow/archive-panel.tsx` + `hooks/use-archive-flow.ts` | 面板 id 透传 | 命令携 change id；完成度 / 摘要 / 归档目录（`archivedDir` 含日期前缀）展示面语义不变（name 展示值取自 detail） |
 | `src/types/generated/bindings.ts` | IPC 类型跟随 | 新命令与 DTO 再生；生成物随前置重导出更新，过期由提交前人工核对 |
-| `crates/core/workflow/src/write/phase_table.rs`（ARCHIVE_STEPS） | 11 步序列单点 | SpecSync → Cleanup → Seal（Cleanup 尽力步；与 Finalize 相对座位 design 定稿）；其余步 `on_fail=None` |
 | `crates/core/orchestration/src/walker.rs`（step_cleanup，新） | Cleanup 步执行体 | 记录解析 worktree 字段 → 缺席 / legacy 幂等跳过（`passed` + detail）；remove 失败吞为 detail 警告（步恒 `passed`、链必收口）；零 branch 触点 |
 | `crates/core/orchestration/src/port.rs`（ArchiveVcsPort 清理面，扩） | 归档链 → vcs 清理的进程内缝 | worktree 在场探测 + 移除（形态 design 定稿）；实现复用 `crates/infra/vcs` 既有 `remove_worktree --force` 单点或等价；`Err` 面带路径与手动清理引导 |
 | `crates/infra/vcs/src/git.rs` | git 工作面进程执行 | `git worktree remove [--force]`（既有补偿面单点复用或等价新单点）；真实 git tempdir 夹具可测 |
 | `packages/desktop/src/views/changes/`（stop-before-archive 停等面） | 清理告知 | worktree 记录在场时确认面告知含「收口后自动移除 worktree（分支保留）」；legacy 零清理告知 |
 | `crates/core/workflow/src/write/archive.rs`（不动） | 双写本体零 git 触点 | Cleanup 步不属双写本体；写面 `archive` 语义零改动 |
-| `crates/core/orchestration/src/walker.rs`（archive 相位，零改动面） | 相位序随动 | archive 仍为表末确定性相位（第 11 个路由相位）；11 步序列与幂等语义零改动——表头 initialize 插入不影响归档链 |
+| `crates/core/orchestration/src/walker.rs`（archive 相位，零改动面） | 相位序随动 | archive 仍为表末确定性相位（第 11 个路由相位）；9 步序列与幂等语义零改动——表头 initialize 插入与辅助步退场均不影响归档链 |
 | 归档完成度核算（preflight / stop-before-archive 面板） | 核算面随动 | `all_passed` / `completion_of` 自动含 initialize 表项（表驱动）；零特判 |
 | `src/views/changes/flow/run-control-panel.tsx`（`ArchiveConfirmCard`） | 归档确认面增区块 | 「架构变更」区块：元素 / 关系增删计数 + `gate` 变更清单 + 「查看模型 diff」/「查看新图预览」入口；模型无改动零占位；结构错红字不阻断；数据经独立取数命令（`archi_change_summary`），零 `ArchivePreflight` 字段扩展 |
 | `crates/core/orchestration/src/steps.rs`（`run_archive_preflight`） | Preflight 半程检出 | 以既有 `ArchiveVcsPort::worktree_snapshot` 的 `rebase_head` 在场性判定；命中即 `Terminal`（worktree 绝对路径 + 两条处置命令），零新 vcs 能力、零 spawn |
 | `crates/core/orchestration/src/walker.rs`（`step_resolve_conflicts`） | 冲突路径分流 | 冲突清单按 `foundation::layout::is_archi_rel_path` 分流：含架构域路径即 `Terminal::failed` 且零 agent 会话、零 abort；纯代码路径走既有解算（逐字零改动） |
 | `foundation::layout::is_archi_rel_path`（冲突分流判据） | 分流判据 | 唯一路径判据（`\` 归一 + 祖先判定）；core 侧零 `architecture` 字面量 |
 | `crates/core/orchestration/src/state.rs`（`ArchivePreflight`） | DTO 零扩展 | 字段面逐字不变（架构变更摘要不经 walker 传递，走独立前端取数；golden wire 零 diff） |
+| `crates/core/workflow/src/write/phase_table.rs`（`ARCHIVE_STEPS`） | 9 步序列单点 | `Preflight → Commit → Rebase → ResolveConflicts → Merge → SpecSync → Cleanup → Seal → Finalize`；`PhaseStart` / `PhaseLog` 两项删除；其余步 `on_fail=None`；`ARCHIVE_STEP_ORDER` 断言 11 → 9 |
+| `crates/core/orchestration/src/walker.rs`（archive 相位执行面） | 相位序随动 | 归档步执行体（`step_preflight` / `step_commit` / `step_rebase` / `step_resolve_conflicts` / `step_merge` / `step_spec_sync` / `step_cleanup` / `step_seal` / `step_finalize`）逐字不动；开相与落账移出 `steps`，由 `enter_phase` / `settle_phase` 承载 |
+| `crates/core/orchestration/src/walker.rs`（`open_step` / `close_step`） | 归档步节点辅助合一 | 由 `begin_archive_node` / `settle_archive_node` 合流（二者只差「是否先发 running」）；九步调用点语义零变 |
+| `crates/core/orchestration/src/walker.rs`（`settle_phase`） | 归档空 checklist 落账 | archive 相位分支（`test_outcome` / `evaluator_turn` 双缺席 → 空 checklist → `derive_verdict([]) = Pass`）语义逐字保留；落账失败 → `Terminal::failed`「相位 archive 全部步通过但落账失败」 |
