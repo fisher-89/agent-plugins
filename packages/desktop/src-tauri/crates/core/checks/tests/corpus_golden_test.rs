@@ -1,28 +1,5 @@
-//! 集成测试：语料 fixtures → 解析 → 聚合 → 诊断全链 → golden 快照（AC-8 全链
-//! 黄金对拍；AC-1 core/checks crate 注册编译证据）。
-//!
-//! 防线机制：对每个 corpus fixture 跑「宽容解析 → 完整性 checklist → 诊断树 →
-//! 覆盖聚合」全链，投影为 JSON 与入仓 golden 全量对比；损坏样本的投影记录
-//! unparsable 标记（宽容解析不悄悄吞数据在 golden 上可见——workflow
-//! corpus_golden_test 先例同款）。istanbul / llvm-cov / node-test / 红跑 /
-//! mutation 块 / 未知字段 / 损坏族八套语料齐备（清单见 fixtures/README.md）。
-//!
-//! ## golden 重写开关
-//!
-//! 环境变量 `DESKTOP_GOLDEN_REWRITE=1` 时，投影不再对比而是覆写入仓 golden。
-//! 预期工作流（DESKTOP_GOLDEN_REWRITE 先例同款，env 开关 + 复核两步工作流）：
-//!
-//! ```text
-//! DESKTOP_GOLDEN_REWRITE=1 cargo test -p checks --test corpus_golden_test   # 重写
-//! cargo test -p checks --test corpus_golden_test                            # 复核：与现 golden 等价
-//! ```
-//!
-//! golden 期望值基准：已固化 `core/checks` 实现 + 入仓 golden 金样（语料采自
-//! 真实工作区产出形态：vite-plus / rust / node-test 三档绿跑 + 红跑 +
-//! 特殊样本族）。
-
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use checks::aggregate::aggregate_coverage;
 use checks::model::{parse_sub_report, parse_summary_report};
@@ -190,23 +167,45 @@ fn project_corpus_fixture(fixture: &str) -> serde_json::Value {
 
 /// 对比或覆写单份 golden（workflow corpus_golden_test 先例同款）。
 fn check_or_rewrite(golden_name: &str, projection: &serde_json::Value) {
-    let normalized = format!(
-        "{}\n",
-        serde_json::to_string_pretty(projection).expect("投影序列化失败")
-    );
     let golden_path = golden_dir().join(format!("{golden_name}.json"));
     if rewrite_mode() {
+        let normalized = format!(
+            "{}\n",
+            serde_json::to_string_pretty(projection).expect("投影序列化失败")
+        );
         fs::create_dir_all(golden_dir()).expect("创建 golden 目录失败");
         fs::write(&golden_path, &normalized).expect("写 golden 失败");
         return;
     }
-    let expected = fs::read_to_string(&golden_path).unwrap_or_else(|err| {
-        panic!("golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
-    });
-    assert_eq!(
-        normalized, expected,
-        "fixture {golden_name} 的全链投影与 golden 漂移；若为有意的 schema 演进，以 {REWRITE_ENV}=1 重写并 review diff"
-    );
+    if let Err(message) = compare_golden(&golden_path, golden_name, projection) {
+        panic!("{message}");
+    }
+}
+
+/// 读盘比对单份 golden：按 JSON 结构语义比较（对象键序无关、数组元素序相关）。
+///
+/// 对象键的书写先后由 `serde_json` 的 Map 实现决定——`preserve_order` 特性经
+/// 依赖图间接开启与否（如 `archi` 的 `oxc_resolver` 会开启）随编译包集翻面，
+/// 非契约；裸比字节会让同一份 golden 在不同 `cargo test` 组合下翻面。
+fn compare_golden(
+    golden_path: &Path,
+    golden_name: &str,
+    projection: &serde_json::Value,
+) -> Result<(), String> {
+    let expected = fs::read_to_string(golden_path).map_err(|err| {
+        format!("golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
+    })?;
+    let expected: serde_json::Value = serde_json::from_str(&expected).map_err(|err| {
+        format!(
+            "golden {golden_name}.json 非法 JSON（先以 {REWRITE_ENV}=1 重写并 review diff）: {err}"
+        )
+    })?;
+    if expected != *projection {
+        return Err(format!(
+            "golden {golden_name} 的投影与 golden 漂移；若为有意的 schema 演进，以 {REWRITE_ENV}=1 重写并 review diff"
+        ));
+    }
+    Ok(())
 }
 
 macro_rules! corpus_golden_test {
@@ -495,23 +494,19 @@ fn project_seg_fixture(fixture: &str) -> serde_json::Value {
 
 /// 对比或覆写单份段级 golden（corpus 先例同款——独立目录独立开关）。
 fn check_or_rewrite_seg(golden_name: &str, projection: &serde_json::Value) {
-    let normalized = format!(
-        "{}\n",
-        serde_json::to_string_pretty(projection).expect("投影序列化失败")
-    );
     let golden_path = mutation_seg_golden_dir().join(format!("{golden_name}.json"));
     if rewrite_mode() {
+        let normalized = format!(
+            "{}\n",
+            serde_json::to_string_pretty(projection).expect("投影序列化失败")
+        );
         fs::create_dir_all(mutation_seg_golden_dir()).expect("创建段级 golden 目录失败");
         fs::write(&golden_path, &normalized).expect("写段级 golden 失败");
         return;
     }
-    let expected = fs::read_to_string(&golden_path).unwrap_or_else(|err| {
-        panic!("段级 golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
-    });
-    assert_eq!(
-        normalized, expected,
-        "fixture {golden_name} 的段级投影与 golden 漂移；若为有意演进，以 {REWRITE_ENV}=1 重写并 review diff"
-    );
+    if let Err(message) = compare_golden(&golden_path, golden_name, projection) {
+        panic!("{message}");
+    }
 }
 
 /// 正向：cargo-mutants 段级 fixture → `parse_cargo_mutants_seg` → 计数归并 →

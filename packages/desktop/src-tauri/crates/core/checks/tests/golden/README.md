@@ -5,6 +5,11 @@
 为可读 diff。损坏样本的投影记录 unparsable 标记，使「宽松解析悄悄吞数据」在
 golden 上可见。
 
+对比按 JSON 结构语义（对象键序无关、数组元素序相关）：对象键的书写先后由
+`serde_json` 的 `preserve_order` 特性决定，该特性经依赖图间接开启与否（如
+`archi` 的 `oxc_resolver`）随编译包集翻面，非契约。故在不同 `cargo test` 组合下
+重写会产出键序不同但语义等价的 golden，属无意义 diff。
+
 ## 重写开关
 
 环境变量 `DESKTOP_GOLDEN_REWRITE=1` 时，投影不再对比而是覆写入仓 golden

@@ -4,7 +4,7 @@
 - [ ] 检测支持的agent
 - [ ] workspace配置
 - [ ] workspace基线设计（模块结构、spec）
-- [ ] 多任务预约，worktree隔离
+- [ ] 多任务预约，顺序执行
 - [ ] rust支持突变测试，使用cargo-mutants
 - [ ] static-check按目录划分
 - [x] 引入redb本地数据库，实现store；记录workspace清单；
@@ -36,7 +36,7 @@
 - [ ] infra/store扩展文件读写能力，将内核中读取特定文件的能力改为infra注入，内核不应感知持久化存储是数据库还是文件
 - [x] 增加全局agent管理页，不关联工作区；每个agent可自定义名称，选择agent engine，配置url、api_key等参数；配置好的agent实例与workspace关联；
 - [ ] core/checks仅定义测试的执行过程、报告数据格式，具体语言、框架实现应该移入infra/checks
-- [ ] change会话失败或中断后重新启动流程，页面应显示最新进行中的会话
+- [x] change会话失败或中断后重新启动流程，页面应显示最新进行中的会话
 - [x] 修复问题：进行中的流程，进入详情页后一瞬间，流程图消失，观察dom，所有泳道都被设置成hidden
 - [x] useChangeDetail、useChangeFlowRun 背后的两套流程数据应该统一口径，运行中返回的状态一并落库，保证页面实时更新和完成后查询内容一致
 - [x] worktree先合入主仓再归档
@@ -69,7 +69,6 @@
 - [ ] 变更初始化过后代码有变化（fmt、generate）如何处理？
 - [ ] 变更支持从任意phase继续
 - [x] read工具返回的文本不要行数，改为在metadata中包含读取的范围
-- [ ] 验收口径分层：AC 分「代码证据型」（acceptance 静态清单可直接核）/「运行测量型」（须装置或 release 打包环境，仅能核「已登记 + 归属相位」）两类，后者 MUST NOT 要求 acceptance 自证数字（来源：change `archi-check-and-gate` AC-18——五项成本中 NSIS / 主二进制 / CI 冷构建 / 本地增量四项，流程内无任何相位具备 release 打包环境，且发布 workflow 由合入 master 触发 = 归档之后，形成「验收前要有归档后才产生的数据」的闭环死结）
-- [ ] 性能类装置补 release 口径执行面：`.dev-team/config.json` 的 rust test plan 目前只跑 debug（`cargo test --workspace`，perf 落到 `--release` 之外的样本不作判据），需增「release 性能装置」独立命令 / plan（如 `cargo test -p <crate> --release --test perf -- --nocapture`）并把输出回填实测表；否则 p95 一格永远靠人工补跑（来源：change `archi-check-and-gate` AC-18——test-execution 门禁实跑命中 `llvm-cov-target\debug\deps\perf-*.exe`，617.4 ms 的 release 数值是 acceptance 前手工补跑所得）
-- [ ] acceptance 工具面补齐架构图级断言：`acceptance-evaluator` 现仅授 `archi_module`，而 `repo-archi-model` 的判据含 `archi_graph(root)` 的 `relations` / `warnings` 与 `archi_search` 命中——`archi_module` 省略 `element` 只出 `fqn` / `kind` / `gate` / `summary` 薄概览，评估者只能退而引用生成者自述的核对留痕（`reports/archi/`），证据强度不足；补 `archi_graph` / `archi_search` 两只读工具（或让薄概览带 counts 与 warnings）后，图级判据才可自证（来源：change `archi-check-and-gate` AC-21）
-- [ ] cargo test -p checks --test corpus_golden_test 单独跑会红，--workspace 下变绿——这是 serde_json 的 preserve_order 特性在全 workspace 下被 rig 统一开启、单包下没开导致的键序差异
+- [ ] acceptance 工具面补齐架构图级断言
+- [x] cargo test -p checks --test corpus_golden_test 单独跑会红，--workspace 下变绿——这是 serde_json 的 preserve_order 特性在全 workspace 下被 rig 统一开启、单包下没开导致的键序差异
+- [ ] 扩充project配置能力，标记语言、代替tests，支持自动检测（未来基于project划分架构模块、编码/测试按语言使用不同prompt、编码/测试并行）
