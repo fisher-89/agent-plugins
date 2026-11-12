@@ -163,18 +163,16 @@ export function DetailDrawer({
       title={selectionTitle(selection, node)}
       containerClassName="w-[960px] max-w-[85vw]"
       content={
-        <div className="flex min-h-0 flex-1 flex-col">
-          <DrawerContent
-            selection={selection}
-            node={node}
-            columnId={`col:${phase}`}
-            materials={materials}
-            root={root}
-            changeId={changeId}
-            name={name}
-            sessionRefreshKey={sessionRefreshKey}
-          />
-        </div>
+        <DrawerContent
+          selection={selection}
+          node={node}
+          columnId={`col:${phase}`}
+          materials={materials}
+          root={root}
+          changeId={changeId}
+          name={name}
+          sessionRefreshKey={sessionRefreshKey}
+        />
       }
     />
   );

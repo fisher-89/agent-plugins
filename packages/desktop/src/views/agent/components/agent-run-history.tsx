@@ -129,6 +129,7 @@ function ReplayArea({
     <StandardDrawer
       title="重放会话"
       data-testid="replay-area"
+      containerClassName="w-[960px] max-w-[85vw]"
       content={
         <AgentSessionView root={root} sessionId={sessionId} data-testid="replay-area-session" />
       }

@@ -235,7 +235,7 @@
 `packages/desktop/src/components/agent/` SHALL 提供共享展示组件族,全部 agent 会话页面(explore 会话 / agent 调试 / change 流程抽屉 / 历史重放 / 未来页面)统一消费:
 
 - `AgentSessionView` 会话级唯一入口: 入参 `root` + `sessionId`(+ 可选 `refreshKey` / composer 插槽),内部经通用查询面装配会话并按会话状态挂流(契约见「会话级统一渲染组件」requirement);消费点 MUST NOT 自行拼装消息、轮行或事件流;
-- `AgentMessages` 对话透镜: user / assistant 气泡(**一轮一条 assistant 气泡**,部件按到达顺序)、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;空内容轮的可见性 SHALL 按该轮 `metadata.record.status` 判定而非 `parts` 是否为空(失败 / 停止轮呈轮内状态行,见「轮内状态行与空内容轮可见性」);
+- `AgentMessages` 对话透镜: user / assistant 气泡(**一轮一条 assistant 气泡**,部件按到达顺序)、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);超长 user 提问 SHALL 默认折叠为预览(展开后回到原部件渲染,见「超长 user 提问默认折叠」);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;空内容轮的可见性 SHALL 按该轮 `metadata.record.status` 判定而非 `parts` 是否为空(失败 / 停止轮呈轮内状态行,见「轮内状态行与空内容轮可见性」);
 - `AgentInput` composer: prompt 输入（空串禁发;纯空白字符不单独拦截——trim 守卫不在组件侧）、permission-mode 档位（`StandardSelect` 选择器）、发送、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 为「呈停止入口」——发送入口不禁用,重复发送由会话层 `isStreaming` 守卫忽略;停止入口 SHALL 只随 `running` 呈现且 MUST NOT 被 `disabled` 隐去(运行中即便整面板禁用仍可从面板停止);`disabled` MUST NOT 复用为「运行中」的第二表达;
 - 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位,未注册工具名回退默认对卡;
 - 组件族 SHALL 共享底层块渲染件(文本 markdown / 思考折叠 / 工具卡一套实现);滚动 SHALL 由 `components/ui/message-scroller.tsx` 承载——该 shim 内部以 `@tanstack/react-virtual` 渲染**可见窗口切片**,并通过 sticky 吸附层让用户提问常驻(契约见「对话透镜虚拟窗口与用户消息顶部吸附」);消息状态仍留在应用层,MUST NOT 以分页窗口限制进入 DOM 的消息集合(MUST NOT 保留自研历史分页层)。上游 `message-scroller` primitives 退役后 `@shadcn/react` 在仓内再无**可达**消费者,该依赖与其零消费者残件(`components/ui/questionnaire.tsx`)SHALL 一并剪除(判据沿用 desktop-app-shell「knip 报出的未用导出 SHALL 删减」),MUST NOT 新增 `ignoreDependencies` / `ignore` 条目把未用面关成豁免。
@@ -303,6 +303,30 @@
 
 - **WHEN** 某轮 `parts` 非空且 `metadata.record.status = stopped`（停止前已产出部分回答）
 - **THEN** 该轮只呈现正常气泡（思考 / 正文 / 工具卡按到达顺序），MUST NOT 追加「已停止」状态行；轮状态仍可从消息 metadata 读出
+
+### Requirement: 超长 user 提问默认折叠
+
+对话透镜的 user 气泡 SHALL 对**超长提问**默认折叠，避免长 prompt 独占一屏；短提问 MUST NOT 出现折叠入口：
+
+- **判据**：折叠判定 SHALL 只基于 user 消息的正文文本（全部部件均为 `text` 时拼接成文；部件中含非 `text` 部件时 MUST NOT 折叠，部件原样呈现）。可见行数 SHALL 按「显式换行逐条计 + 单行按固定字符宽折算折行」估算，超过行预算（3 行）即折叠。
+- **折叠态**：SHALL 呈按行预算截取的纯文本预览（`whitespace-pre-line`，超出部分以省略号收尾）+ 下方「展开」按钮；折叠态 MUST NOT 渲染 markdown 或部件。
+- **展开态**：点开后 SHALL 回到与该气泡原始形态一致的部件渲染（与 assistant 共用同一套块渲染件），按钮文案改「收起」，再点回预览态。
+- **气泡形态不变**：折叠不改变 user 气泡的容器（整宽 tinted 泡）与 `data-testid="chat-bubble"` / `data-role` 钩子；折叠入口 SHALL 带独立 `data-testid` 挂钩供测试与来源侧定位，MUST NOT 依赖样式类名查询。
+
+#### Scenario: 短提问不折叠
+
+- **WHEN** user 消息正文为一两行（未超行预算）
+- **THEN** 气泡内直接呈正文，无折叠入口、无预览节点
+
+#### Scenario: 超长提问折叠与展开
+
+- **WHEN** user 消息正文超过行预算
+- **THEN** 气泡内呈截断预览（尾部省略号）+ 「展开」；点开后呈全文与「收起」，再点回到预览态
+
+#### Scenario: 非 text 部件的提问不折叠
+
+- **WHEN** user 消息含 `text` 以外的部件
+- **THEN** 不折叠，全部部件按原渲染件呈现
 
 ### Requirement: ai-sdk 依赖收口
 

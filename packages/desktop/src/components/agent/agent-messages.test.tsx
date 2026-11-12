@@ -400,6 +400,99 @@ describe('AgentMessages：四变体气泡', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 超长 user 提问默认折叠（短提问不折叠、展开回到原渲染件、多部件不折叠）
+// ---------------------------------------------------------------------------
+
+describe('AgentMessages：超长 user 提问默认折叠', () => {
+  it('短提问（一二行）→ 无折叠触发按钮，正文直出', () => {
+    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
+
+    const [userBubble] = bubblesOfRole('user');
+    expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-toggle')).toBeNull();
+    expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-preview')).toBeNull();
+    expect(screen.getAllByTestId('block-text')[0]?.textContent).toContain('帮我看看重试逻辑');
+  });
+
+  it('超长提问 → 折叠为预览 + 「展开」；点开呈全文与「收起」，再点回预览', () => {
+    const long = Array.from({ length: 6 }, (_, index) => `第 ${index + 1} 行提问内容`).join('\n');
+    const events: AgentEvent[] = [
+      userMessage(0, long, 1),
+      message(1, [{ kind: 'text', text: '答' }], null, 1),
+    ];
+    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+
+    const [userBubble] = bubblesOfRole('user');
+    expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-preview')).not.toBeNull();
+    const toggle = within(userBubble as HTMLElement).getByTestId('user-bubble-toggle');
+    expect(toggle.textContent).toContain('展开');
+    expect(toggle.hasAttribute('data-panel-open')).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-preview')).toBeNull();
+    // 展开态经 base-ui 的 `data-panel-open` 驱动箭头翻转（CSS 判据不在 jsdom 求值）
+    expect(
+      within(userBubble as HTMLElement)
+        .getByTestId('user-bubble-toggle')
+        .hasAttribute('data-panel-open'),
+    ).toBe(true);
+    expect(within(userBubble as HTMLElement).getByTestId('block-text').textContent).toContain(
+      '第 6 行提问内容',
+    );
+    expect(
+      within(userBubble as HTMLElement).getByTestId('user-bubble-toggle').textContent,
+    ).toContain('收起');
+
+    fireEvent.click(within(userBubble as HTMLElement).getByTestId('user-bubble-toggle'));
+    expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-preview')).not.toBeNull();
+    expect(within(userBubble as HTMLElement).queryByTestId('block-text')).toBeNull();
+  });
+
+  it('折叠预览保留前若干行并以省略号收尾（内容确实被截短）', () => {
+    const long = Array.from({ length: 8 }, (_, index) => `line-${index + 1}`).join('\n');
+    const events: AgentEvent[] = [
+      userMessage(0, long, 1),
+      message(1, [{ kind: 'text', text: '答' }], null, 1),
+    ];
+    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+
+    const preview = screen.getByTestId('user-bubble-preview').textContent ?? '';
+    expect(preview.endsWith('…')).toBe(true);
+    expect(preview).toContain('line-1');
+    expect(preview).not.toContain('line-8');
+  });
+
+  it('含非 text 部件的 user 消息不参与折叠（预览与按钮缺席，部件原样呈现）', () => {
+    const message: AgentUIMessage = {
+      id: 'turn-1-user',
+      role: 'user',
+      metadata: { seq: 0, parentToolUseId: null },
+      parts: [
+        { type: 'text', text: Array.from({ length: 8 }, () => '很长的一行').join('\n') },
+        { type: 'reasoning', text: '附带思考', state: 'done' },
+      ],
+    };
+
+    render(<AgentMessages messages={[message]} loading={false} running={false} />);
+
+    expect(screen.queryByTestId('user-bubble-toggle')).toBeNull();
+    expect(screen.queryByTestId('user-bubble-preview')).toBeNull();
+    expect(screen.getByTestId('block-text')).toBeTruthy();
+    expect(screen.getByTestId('block-thinking')).toBeTruthy();
+  });
+
+  it('折行估算：单行长文本（无换行）超过行高预算同样折叠', () => {
+    const events: AgentEvent[] = [
+      userMessage(0, '一'.repeat(200), 1),
+      message(1, [{ kind: 'text', text: '答' }], null, 1),
+    ];
+    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+
+    expect(screen.getByTestId('user-bubble-preview')).not.toBeNull();
+    expect(screen.getByTestId('user-bubble-toggle').textContent).toContain('展开');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // system 消息过滤（辅助行 / raw / record 不在对话透镜呈现）
 // ---------------------------------------------------------------------------
 
