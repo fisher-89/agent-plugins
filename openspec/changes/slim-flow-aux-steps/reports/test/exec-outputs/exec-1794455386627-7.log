@@ -1,0 +1,282 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\state_test.rs:1845:
+     ];
+     assert_eq!(ORDER.len(), 22, "二十二值");
+     assert_eq!(ORDER[0].0, "Executor", "首变体恒 Executor");
+[31m-    assert_eq!(ORDER[21].0, "ArchiCheck", "末变体恒 ArchiCheck（尾部追加先例）");
+[0m[32m+    assert_eq!(
+[0m[32m+        ORDER[21].0, "ArchiCheck",
+[0m[32m+        "末变体恒 ArchiCheck（尾部追加先例）"
+[0m[32m+    );
+[0m 
+     // snake as_str 与 camel 出线双词面各有词（不是只在一侧）
+     const KINDS: [ChangeStepKind; 22] = [
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\state_test.rs:1888:
+                     .next()
+                     .expect("变体名非空")
+                     .to_lowercase(),
+[31m-                &ORDER[index].0
+[0m[32m+                &ORDER[index]
+[0m[32m+                    .0
+[0m                     .chars()
+                     .skip(1)
+                     .collect::<String>()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\state_test.rs:1915:
+         (11, "WhitelistGate"),
+     ] {
+         assert_eq!(ORDER[index].0, expected, "{expected} 下标恒 {index}");
+[31m-        assert!(ORDER[index].1.contains("Gate") || ORDER[index].1.contains("phase"),
+[0m[31m-            "{expected} camel 词面在案");
+[0m[32m+        assert!(
+[0m[32m+            ORDER[index].1.contains("Gate") || ORDER[index].1.contains("phase"),
+[0m[32m+            "{expected} camel 词面在案"
+[0m[32m+        );
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\state_test.rs:1939:
+         );
+     }
+     // 语义说明：存量行依赖 / 新写面零产出
+[31m-    let has_stale_note = source.contains("新写面零产出")
+[0m[31m-        || source.contains("存量行")
+[0m[31m-        || source.contains("存量");
+[0m[32m+    let has_stale_note =
+[0m[32m+        source.contains("新写面零产出") || source.contains("存量行") || source.contains("存量");
+[0m     assert!(has_stale_note, "源内应有存量行依赖 / 新写面零产出类表述");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\steps_test.rs:5201:
+     );
+ 
+     let long = "长".repeat(1200);
+[31m-    for id in ["", "   ", "不存在的-change", long.as_str(), "emoji-🚀-\u{0}"] {
+[0m[32m+    for id in [
+[0m[32m+        "",
+[0m[32m+        "   ",
+[0m[32m+        "不存在的-change",
+[0m[32m+        long.as_str(),
+[0m[32m+        "emoji-🚀-\u{0}",
+[0m[32m+    ] {
+[0m         let err = assembled
+             .steps
+             .run(ToolStepRequest {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:2929:
+         "合法 backtrack 裁决 decision 节点 passed"
+     );
+     assert!(
+[31m-        gates[0]
+[0m[31m-            .detail
+[0m[31m-            .as_deref()
+[0m[31m-            .is_some_and(|detail| detail.starts_with("backtrack → ") || detail.starts_with("stop：")),
+[0m[32m+        gates[0].detail.as_deref().is_some_and(
+[0m[32m+            |detail| detail.starts_with("backtrack → ") || detail.starts_with("stop：")
+[0m[32m+        ),
+[0m         "detail 携动作摘要: {:?}",
+         gates[0].detail
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:7419:
+         "Seal 照常收口（ArchiveOutcome 字段零变化）"
+     );
+     assert!(
+[31m-        rows.iter().any(|row| row.1 == "finalize" && row.2 == "passed"),
+[0m[32m+        rows.iter()
+[0m[32m+            .any(|row| row.1 == "finalize" && row.2 == "passed"),
+[0m         "步 finalize 照常收口: {rows:?}"
+     );
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:11403:
+     instances.sort_unstable();
+     assert_eq!(instances, vec![0, 1, 2, 3], "instance_no 按轮递增");
+     assert!(
+[31m-        gates.iter().all(|node| node.status == RunStepStatus::Passed),
+[0m[32m+        gates
+[0m[32m+            .iter()
+[0m[32m+            .all(|node| node.status == RunStepStatus::Passed),
+[0m         "ask 轮与 stop 轮均 passed（ask 不计失败）"
+     );
+     let last = gates
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:17261:
+         ChangeRunStatus::Completed
+     );
+     let evaluator_input = phase_log_input(&commands.lock().expect("命令锁"), "proposal");
+[31m-    assert_eq!(evaluator_input.checklist.len(), 1, "evaluator checklist 条数");
+[0m[32m+    assert_eq!(
+[0m[32m+        evaluator_input.checklist.len(),
+[0m[32m+        1,
+[0m[32m+        "evaluator checklist 条数"
+[0m[32m+    );
+[0m     assert!(evaluator_input.checklist[0].pass);
+     assert!(
+         evaluator_input.evaluator_session_id.is_some(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:17323:
+ #[test]
+ fn 落账失败三前缀分文案且源内各恰一处() {
+     let code = walker_code_lines();
+[31m-    let prefixes = [
+[0m[31m-        "全部步通过但落账失败",
+[0m[31m-        "门禁失败落账失败",
+[0m[31m-        "跳过落账失败",
+[0m[31m-    ];
+[0m[32m+    let prefixes = ["全部步通过但落账失败", "门禁失败落账失败", "跳过落账失败"];
+[0m     for prefix in prefixes {
+         assert_eq!(
+             code.matches(prefix).count(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:17344:
+         }
+     }
+     assert!(
+[31m-        !"门禁失败落账失败".contains("全部步通过")
+[0m[31m-            && !"跳过落账失败".contains("全部步通过"),
+[0m[32m+        !"门禁失败落账失败".contains("全部步通过") && !"跳过落账失败".contains("全部步通过"),
+[0m         "后两形态零「全部步通过」字样"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:17571:
+         .lines()
+         .filter(|line| {
+             let trimmed = line.trim_start();
+[31m-            !trimmed.starts_with("///")
+[0m[31m-                && !trimmed.starts_with("//")
+[0m[31m-                && trimmed.contains(": ")
+[0m[32m+            !trimmed.starts_with("///") && !trimmed.starts_with("//") && trimmed.contains(": ")
+[0m         })
+         .count();
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:17608:
+     );
+     let body_end = new_tail.find("\n    }").expect("函数体应闭合");
+     let binding = &new_tail[sig_end..body_end];
+[31m-    assert!(binding.contains("attempt: 0"), "attempt 中性值 0 在 new 体内");
+[0m     assert!(
+[32m+        binding.contains("attempt: 0"),
+[0m[32m+        "attempt 中性值 0 在 new 体内"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m         binding.contains("failed: false"),
+         "failed 中性值 false 在 new 体内"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\orchestration\src\walker_test.rs:17844:
+     let long = "长".repeat(1200);
+     for phase in ["", "   ", "no-such-phase", long.as_str(), "emoji-🚀"] {
+         assert!(
+[31m-            enter_phase_for_test(&steps, &guard, &request, phase).await.is_err(),
+[0m[32m+            enter_phase_for_test(&steps, &guard, &request, phase)
+[0m[32m+                .await
+[0m[32m+                .is_err(),
+[0m             "非法相位 {phase:?} 应经写面 Err（不 panic）"
+         );
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:1984:
+ fn 词汇冻结_decode_only注释在场() {
+     let source = state_source();
+     for (enum_name, variants) in [
+[32m+        ("StepNode", vec!["PhaseStart", "PhaseLog", "VerdictGate"]),
+[0m         (
+[31m-            "StepNode",
+[0m[31m-            vec!["PhaseStart", "PhaseLog", "VerdictGate"],
+[0m[31m-        ),
+[0m[31m-        (
+[0m             "RunStepKind",
+             vec![
+                 "PhaseStart",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\src\state_test.rs:2167:
+     ];
+     let count = |group: StepGroup| all.iter().filter(|node| node.group() == group).count();
+     assert_eq!(
+[31m-        count(StepGroup::Exec) + count(StepGroup::Agent) + count(StepGroup::Git) + count(StepGroup::Gate),
+[0m[32m+        count(StepGroup::Exec)
+[0m[32m+            + count(StepGroup::Agent)
+[0m[32m+            + count(StepGroup::Git)
+[0m[32m+            + count(StepGroup::Gate),
+[0m         22,
+         "四组计数和 = 22（无遗漏无重叠）"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:1127:
+             def.id
+         );
+         // steps 序列有序且非空（每相位首末步恒真实步，零辅助步词）
+[31m-        assert!(
+[0m[31m-            !def.steps.is_empty(),
+[0m[31m-            "相位 {} 恒含至少一个真实步",
+[0m[31m-            def.id
+[0m[31m-        );
+[0m[32m+        assert!(!def.steps.is_empty(), "相位 {} 恒含至少一个真实步", def.id);
+[0m         for word in AUXILIARY_STEP_WORDS {
+             assert!(
+                 !actual.contains(&word),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:2275:
+                 step.node
+             );
+             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
+[31m-                let allowed =
+[0m[31m-                    def.id == "test-gen" && step.node == StepNode::StaticCheck;
+[0m[32m+                let allowed = def.id == "test-gen" && step.node == StepNode::StaticCheck;
+[0m                 assert!(
+                     allowed,
+                     "test-only 相位 {} 步 {:?} 不得携 FeedbackLoop",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\tests\corpus_golden_test.rs:2060:
+         ],
+         "归档九步词逐字在案（含 git 步分类词面与 cleanup 尽力步样本）"
+     );
+[31m-    assert_eq!(archive_steps.len(), 9, "归档节点数严格 9（原 11 的旧 golden 即红）");
+[0m[32m+    assert_eq!(
+[0m[32m+        archive_steps.len(),
+[0m[32m+        9,
+[0m[32m+        "归档节点数严格 9（原 11 的旧 golden 即红）"
+[0m[32m+    );
+[0m     for retired in ["phase_start", "phase_log"] {
+         assert!(
+             !archive_steps.contains(&retired),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\tests\corpus_golden_test.rs:2069:
+     }
+     // 位次边界：cleanup 介于 spec_sync 与 seal；seal 与 finalize 相邻
+     let pos = |word: &str| archive_steps.iter().position(|step| *step == word);
+[31m-    assert_eq!(pos("cleanup"), pos("spec_sync").map(|i| i + 1), "cleanup 紧随 spec_sync");
+[0m[31m-    assert_eq!(pos("seal"), pos("cleanup").map(|i| i + 1), "seal 紧随 cleanup");
+[0m[31m-    assert_eq!(pos("finalize"), pos("seal").map(|i| i + 1), "finalize 紧随 seal");
+[0m[32m+    assert_eq!(
+[0m[32m+        pos("cleanup"),
+[0m[32m+        pos("spec_sync").map(|i| i + 1),
+[0m[32m+        "cleanup 紧随 spec_sync"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        pos("seal"),
+[0m[32m+        pos("cleanup").map(|i| i + 1),
+[0m[32m+        "seal 紧随 cleanup"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        pos("finalize"),
+[0m[32m+        pos("seal").map(|i| i + 1),
+[0m[32m+        "finalize 紧随 seal"
+[0m[32m+    );
+[0m     let archive_edges = archive_run["edges"].as_array().expect("edges 为数组");
+     assert_eq!(archive_edges.len(), 8, "串行 forward 边八条");
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\tests\corpus_golden_test.rs:3643:
+             if let (Some(started), Some(ended)) =
+                 (node["startedAt"].as_i64(), node["endedAt"].as_i64())
+             {
+[31m-                assert_ne!(
+[0m[31m-                    started, ended,
+[0m[31m-                    "真实相位形态样本不得出现同刻节点: {node}"
+[0m[31m-                );
+[0m[32m+                assert_ne!(started, ended, "真实相位形态样本不得出现同刻节点: {node}");
+[0m             }
+         }
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\slim-flow-aux-steps\packages\desktop\src-tauri\crates\core\workflow\tests\corpus_golden_test.rs:4133:
+         }
+         assert!(node["startedAt"].as_i64().is_some(), "startedAt 数值在案");
+         assert!(node["endedAt"].as_i64().is_some(), "endedAt 数值在案");
+[31m-        assert!(node["tokenInput"].is_null(), "工具步 tokenInput null 两态之一");
+[0m[32m+        assert!(
+[0m[32m+            node["tokenInput"].is_null(),
+[0m[32m+            "工具步 tokenInput null 两态之一"
+[0m[32m+        );
+[0m         assert!(node["tokenOutput"].is_null());
+     }
+ 
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

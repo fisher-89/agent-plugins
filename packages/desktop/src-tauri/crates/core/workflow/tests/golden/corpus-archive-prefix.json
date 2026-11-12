@@ -132,11 +132,6 @@
       "edges": [
         {
           "edgeKind": "forward",
-          "fromNodeKey": "archive:1:phase_start:0",
-          "toNodeKey": "archive:1:preflight:0"
-        },
-        {
-          "edgeKind": "forward",
           "fromNodeKey": "archive:1:preflight:0",
           "toNodeKey": "archive:1:commit:0"
         },
@@ -174,29 +169,10 @@
           "edgeKind": "forward",
           "fromNodeKey": "archive:1:seal:0",
           "toNodeKey": "archive:1:finalize:0"
-        },
-        {
-          "edgeKind": "forward",
-          "fromNodeKey": "archive:1:finalize:0",
-          "toNodeKey": "archive:1:phase_log:0"
         }
       ],
       "finishedAt": "2024-09-22T10:13:49Z",
       "nodes": [
-        {
-          "attempt": 1,
-          "detail": null,
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "phase_start",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
         {
           "attempt": 1,
           "detail": "前置只读校验：8 相位已过 / 无缺产物",
@@ -320,20 +296,6 @@
           "startedAt": 1727000060000,
           "status": "passed",
           "step": "finalize",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": "空 checklist 落账 verdict=pass",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "archive",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "phase_log",
           "tokenInput": null,
           "tokenOutput": null
         }

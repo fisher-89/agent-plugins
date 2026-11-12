@@ -25,12 +25,16 @@ impl ChangeStatus {
     }
 }
 
-/// 相位机步骤种类封闭集（九臂命令包络；线格式 snake_case 词）。
+/// 相位机步骤种类封闭集（九臂命令包络；线格式 snake_case 词）。`PhaseStart` /
+/// `PhaseLog` 两词为 `decode-only`：命令变体与写面直调仍在（相位机固定动作经它们
+/// 走写通道），但两分支不再产审计行——词面为存量行解码而保留，MUST NOT 删变体。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
     PhaseNext,
+    /// 开相命令（decode-only 审计词：新写面零审计行）
     PhaseStart,
+    /// 落账命令（decode-only 审计词：新写面零审计行）
     PhaseLog,
     Backtrack,
     DecisionLog,
@@ -219,8 +223,7 @@ pub struct StepCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum StepGroup {
-    /// 脚本步（相位机步 phase-start / phase-log + 检查域 spawn 步 + 归档内联步
-    /// preflight / seal）
+    /// 脚本步（检查域 spawn 步 + 归档内联步 preflight / seal）
     Exec,
     /// agent 会话步（executor / evaluator / decision / spec-sync /
     /// resolve-conflicts）
@@ -228,7 +231,9 @@ pub enum StepGroup {
     /// vcs 步（clean / commit / rebase / merge / cleanup / finalize——独立 vcs
     /// 缝进程 spawn；clean 为 initialize 基线恢复步）
     Git,
-    /// 纯 Rust 分支门（verdict / retry / whitelist 三门）
+    /// 纯 Rust 分支门（verdict / retry / whitelist 三门）。辅助步退场后无任何
+    /// `StepNode` 归属本分组（存量执行图节点行的 `group()` 仍需可算），故枚举值
+    /// 与 `group()` 的三词分支一并冻结保留、不删。
     Gate,
 }
 
@@ -254,6 +259,10 @@ pub enum AgentRole {
 /// archi-check）、initialize 基线恢复步（clean）、流程面两步、三门 gate 与
 /// 归档 9 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）与执行图
 /// 落库（[`RunStepKind`]）同词面 1:1 全映射。
+///
+/// **22 值冻结**：`phase_start` / `phase_log` / `verdict_gate` 三词为 `decode-only`
+/// （计划图新表零引用、存量执行图节点行解码必需），MUST NOT 删除变体、MUST NOT
+/// 重排变体序（`RunNodeRecord.step` 经 bincode 按下标编码）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StepNode {
@@ -263,7 +272,7 @@ pub enum StepNode {
     Evaluator,
     /// 决策会话
     Decision,
-    /// phase-start 相位机步
+    /// phase-start 相位机步（decode-only：开相改相位机固定动作，计划图零引用）
     PhaseStart,
     /// static-check 门禁工具步（定向反馈边）
     StaticCheck,
@@ -273,13 +282,15 @@ pub enum StepNode {
     MutationTest,
     /// initialize 基线恢复步（vcs.restore_baseline）
     Clean,
-    /// phase-log 相位机步
+    /// phase-log 相位机步（decode-only：落账改相位机固定动作，计划图零引用）
     PhaseLog,
-    /// verdict 解析门
+    /// verdict 解析门（decode-only：裁决内化进 evaluator 步，计划图零引用）
     VerdictGate,
-    /// retry 预算门
+    /// retry 预算门（decode-only：节点写面已归零，变体沿 [`StepNode::PhaseStart`]
+    /// 先例冻结）
     RetryGate,
-    /// backtrack 白名单门
+    /// backtrack 白名单门（decode-only：动作裁决写 decision 节点 detail，节点写面
+    /// 已归零）
     WhitelistGate,
     /// 归档前置只读校验步（store 读 + vcs 探测；内联步）
     Preflight,
@@ -358,6 +369,7 @@ impl StepNode {
             | StepNode::Cleanup
             | StepNode::Finalize => StepGroup::Git,
             StepNode::VerdictGate | StepNode::RetryGate | StepNode::WhitelistGate => {
+                // 辅助步退场后无任何 `StepNode` 归属本分组，词汇面仍冻结、分支不删
                 StepGroup::Gate
             }
         }
@@ -402,11 +414,10 @@ pub enum OnFail {
         /// 反馈边独立计数上限
         limit: u32,
     },
-    /// 终态失败停给用户。消费点：code-analyze 相位 VerdictGate（分析相位
-    /// verdict 失败即终态——spec 定稿）与 initialize 相位两检查步 StaticCheck /
+    /// 终态失败停给用户。消费点仅 initialize 相位两检查步 StaticCheck /
     /// TestExecution（基线绿门——失败即停，无反馈边、零 agent 会话可注入，重试
-    /// 基线无意义）；其余 verdict 解析失败自 feedback 边改造后不再走终态。语义
-    /// 与缺省 `None` 等价。
+    /// 基线无意义）；verdict 裁决内化后不再有以终态收场 verdict 失败的门步。
+    /// 语义与缺省 `None` 等价。
     Terminal,
     /// 失败升格交决策：零 WorkerAgent 会话、代写一条 fail checklist 落账、
     /// 截断本相位余下步（`StepFlow::Upgraded`）回 `phase_next` 进决策分叉；
@@ -492,6 +503,12 @@ impl RunStatus {
 ///
 /// **落库编码为 bincode 枚举下标**（`RunNodeRecord.step`）：新增变体 MUST 仅
 /// 尾部追加，MUST NOT 中间插入 / 重排（会令存量节点行步词整体错位）。
+//
+// 五词 decode-only：phase_start / phase_log / verdict_gate / retry_gate /
+// whitelist_gate 新写面零产出（开相 / 落账改相位机固定动作、verdict 裁决内化进
+// evaluator 步、动作裁决写 decision 节点 detail），但仍为存量执行图节点行解码
+// 必需——变体与序冻结，MUST NOT 删除或重排。此注记用 `//` 而非 `///`：线面
+// bindings 直出 doc 注释，本词汇面（值集）零变化，注释不得溢出入线面。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStepKind {
@@ -510,14 +527,19 @@ pub enum RunStepKind {
     /// initialize 基线恢复步（vcs.restore_baseline）
     Clean,
     /// phase-start 相位机步
+    // decode-only：开相改相位机固定动作（enter_phase），新写面零产出
     PhaseStart,
     /// phase-log 相位机步
+    // decode-only：落账改相位机固定动作（settle_phase），新写面零产出
     PhaseLog,
     /// verdict 解析门
+    // decode-only：裁决内化进 evaluator 步，新写面零产出
     VerdictGate,
     /// retry 预算门
+    // decode-only：节点写面已归零，变体沿辅助步先例冻结
     RetryGate,
     /// backtrack 白名单门
+    // decode-only：动作裁决写 decision 节点 detail，节点写面已归零
     WhitelistGate,
     /// 归档前置只读校验步（内联步）
     Preflight,

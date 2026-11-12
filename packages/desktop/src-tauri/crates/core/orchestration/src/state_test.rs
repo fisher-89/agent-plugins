@@ -1787,3 +1787,194 @@ fn change_step_kind_词汇外形态拒绝() {
         assert!(outcome.is_err(), "{raw} 不在 camel 封闭词集内必须 Err");
     }
 }
+
+// ---------------------------------------------------------------------------
+// 词汇冻结守卫（slim-flow-aux-steps / AC-6）：五词 decode-only 注释在场、变体序
+// 与双词面、枚举 doc 分族表述的源自证与反向判据
+// ---------------------------------------------------------------------------
+
+/// 读 `state.rs` 产品源原文（**不剔注释**——注释在场面判据必需）。
+fn state_source() -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("state.rs");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()))
+}
+
+/// 变体块邻域（自 `///` / `//` doc 起至变体声明）。
+fn variant_block<'a>(source: &'a str, variant: &str) -> &'a str {
+    let anchor = format!("\n    {variant},");
+    let at = source
+        .find(&anchor)
+        .unwrap_or_else(|| panic!("变体 {variant} 声明应在源内"));
+    let start = source[..at]
+        .rfind("\n    /// ")
+        .or_else(|| source[..at].rfind("\n    // "))
+        .unwrap_or(at);
+    &source[start..at + anchor.len()]
+}
+
+/// 变体序固定（异常，AC-6 防回退守卫）：22 值按声明序逐位比对（删变体 / 重排即
+/// 红）；五词下标与改造前一致；camel 出线词与 snake `as_str()` 双词面各有词。
+#[test]
+fn 词汇冻结_变体序与五词双词面稳定() {
+    const ORDER: [(&str, &str); 22] = [
+        ("Executor", "executor"),
+        ("Evaluator", "evaluator"),
+        ("Decision", "decision"),
+        ("PhaseStart", "phaseStart"),
+        ("StaticCheck", "staticCheck"),
+        ("TestExecution", "testExecution"),
+        ("MutationTest", "mutationTest"),
+        ("Clean", "clean"),
+        ("PhaseLog", "phaseLog"),
+        ("VerdictGate", "verdictGate"),
+        ("RetryGate", "retryGate"),
+        ("WhitelistGate", "whitelistGate"),
+        ("Preflight", "preflight"),
+        ("Commit", "commit"),
+        ("Rebase", "rebase"),
+        ("ResolveConflicts", "resolveConflicts"),
+        ("Merge", "merge"),
+        ("SpecSync", "specSync"),
+        ("Cleanup", "cleanup"),
+        ("Seal", "seal"),
+        ("Finalize", "finalize"),
+        ("ArchiCheck", "archiCheck"),
+    ];
+    assert_eq!(ORDER.len(), 22, "二十二值");
+    assert_eq!(ORDER[0].0, "Executor", "首变体恒 Executor");
+    assert_eq!(
+        ORDER[21].0, "ArchiCheck",
+        "末变体恒 ArchiCheck（尾部追加先例）"
+    );
+
+    // snake as_str 与 camel 出线双词面各有词（不是只在一侧）
+    const KINDS: [ChangeStepKind; 22] = [
+        ChangeStepKind::Executor,
+        ChangeStepKind::Evaluator,
+        ChangeStepKind::Decision,
+        ChangeStepKind::PhaseStart,
+        ChangeStepKind::StaticCheck,
+        ChangeStepKind::TestExecution,
+        ChangeStepKind::MutationTest,
+        ChangeStepKind::Clean,
+        ChangeStepKind::PhaseLog,
+        ChangeStepKind::VerdictGate,
+        ChangeStepKind::RetryGate,
+        ChangeStepKind::WhitelistGate,
+        ChangeStepKind::Preflight,
+        ChangeStepKind::Commit,
+        ChangeStepKind::Rebase,
+        ChangeStepKind::ResolveConflicts,
+        ChangeStepKind::Merge,
+        ChangeStepKind::SpecSync,
+        ChangeStepKind::Cleanup,
+        ChangeStepKind::Seal,
+        ChangeStepKind::Finalize,
+        ChangeStepKind::ArchiCheck,
+    ];
+    for (index, kind) in KINDS.iter().enumerate() {
+        assert_eq!(
+            serde_json::to_value(kind).expect("出线应成功"),
+            json!(ORDER[index].1),
+            "第 {index} 位 camel 出线词逐字"
+        );
+        assert_eq!(
+            kind.as_str(),
+            format!(
+                "{}{}",
+                ORDER[index]
+                    .0
+                    .chars()
+                    .next()
+                    .expect("变体名非空")
+                    .to_lowercase(),
+                &ORDER[index]
+                    .0
+                    .chars()
+                    .skip(1)
+                    .collect::<String>()
+                    .chars()
+                    .enumerate()
+                    .map(|(pos, ch)| if ch.is_ascii_uppercase() {
+                        format!("_{}", ch.to_lowercase())
+                    } else {
+                        let _ = pos;
+                        ch.to_string()
+                    })
+                    .collect::<String>()
+            )
+            .replace("__", "_"),
+            "第 {index} 位 snake 词面与变体名同源"
+        );
+    }
+    // 五词下标（节点身份键与 bincode 下标判据）
+    for (index, expected) in [
+        (3usize, "PhaseStart"),
+        (8, "PhaseLog"),
+        (9, "VerdictGate"),
+        (10, "RetryGate"),
+        (11, "WhitelistGate"),
+    ] {
+        assert_eq!(ORDER[index].0, expected, "{expected} 下标恒 {index}");
+        assert!(
+            ORDER[index].1.contains("Gate") || ORDER[index].1.contains("phase"),
+            "{expected} camel 词面在案"
+        );
+    }
+}
+
+/// 五词 `decode-only` 注释在场（正向，AC-6 源自证）：`Enum` 内五词各邻域含
+/// `decode-only`，且各词注释含「新写面零产出」/「存量行依赖」类表述。
+#[test]
+fn 词汇冻结_decode_only注释与存量依赖表述在场() {
+    let source = state_source();
+    for variant in [
+        "PhaseStart",
+        "PhaseLog",
+        "VerdictGate",
+        "RetryGate",
+        "WhitelistGate",
+    ] {
+        let block = variant_block(&source, variant);
+        assert!(
+            block.contains("decode-only"),
+            "ChangeStepKind::{variant} 邻域应含 decode-only"
+        );
+    }
+    // 语义说明：存量行依赖 / 新写面零产出
+    let has_stale_note =
+        source.contains("新写面零产出") || source.contains("存量行") || source.contains("存量");
+    assert!(has_stale_note, "源内应有存量行依赖 / 新写面零产出类表述");
+}
+
+/// 枚举 doc 分族表述（边界）：doc 含「新写面只产 WorkerAgent / ToolStep / Git
+/// 三类节点」与 Gate 类「存量解码词汇」表述；且 doc **零**「新写面产出 Gate
+/// 节点」类相反表述（反向断言）。
+#[test]
+fn 词汇冻结_枚举doc分族表述在场且零相反表述() {
+    let source = state_source();
+    // 枚举级 doc 邻域：自属性宏前 40 行内取（`#[derive]` 与 `#[serde]` 行夹在
+    // doc 与 `pub enum` 之间，故按窗口取邻域）
+    let enum_start = source
+        .find("pub enum ChangeStepKind")
+        .expect("ChangeStepKind 枚举应在源内");
+    let window_start = enum_start.saturating_sub(2000);
+    let doc = &source[window_start..enum_start];
+    assert!(
+        doc.contains("辅助步与三门 gate 为存量解码词汇")
+            || doc.contains("存量解码词汇")
+            || doc.contains("存量解码"),
+        "枚举级 doc 含存量解码词汇表述: {doc}"
+    );
+    assert!(
+        doc.contains("MUST NOT 删除或重排"),
+        "枚举级 doc 含 MUST NOT 删除或重排"
+    );
+    assert!(
+        !doc.contains("新写面产出 Gate 节点"),
+        "枚举级 doc 零相反表述（新写面不产 Gate 节点）"
+    );
+}

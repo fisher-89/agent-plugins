@@ -37,6 +37,12 @@ impl ChangeRunStatus {
 /// seal）+ Git 步
 ///（clean / commit / rebase / merge / cleanup / finalize——clean 为 initialize
 /// 基线恢复步）+ Gate 三门。
+//
+// 辅助步与三门 gate 为存量解码词汇：PhaseStart / PhaseLog / VerdictGate /
+// RetryGate / WhitelistGate 新写面零产出（开相 / 落账改相位机固定动作、verdict
+// 裁决内化进 evaluator 步、动作裁决写 decision 节点 detail），但出线词与节点身份
+// 键的存量行依赖它们——变体与序冻结，MUST NOT 删除或重排。注记用 `//` 而非
+// `///`：线面 bindings 直出 doc 注释，本词汇面值集零变化，注释不得溢出入线面。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeStepKind {
@@ -47,6 +53,7 @@ pub enum ChangeStepKind {
     /// 决策会话
     Decision,
     /// phase-start 相位机步
+    // decode-only：开相改相位机固定动作（`enter_phase`），新写面零产出
     PhaseStart,
     /// static-check 工具步
     StaticCheck,
@@ -57,12 +64,16 @@ pub enum ChangeStepKind {
     /// initialize 基线恢复步（vcs）
     Clean,
     /// phase-log 相位机步
+    // decode-only：落账改相位机固定动作（`settle_phase`），新写面零产出
     PhaseLog,
     /// verdict 解析门
+    // decode-only：裁决内化进 evaluator 步，新写面零产出
     VerdictGate,
     /// retry 预算门（phase-next 重试 / 上限分叉）
+    // decode-only：节点写面已归零，变体沿辅助步先例冻结
     RetryGate,
     /// backtrack 白名单门（决策越权预校验）
+    // decode-only：动作裁决写 decision 节点 detail，节点写面已归零
     WhitelistGate,
     /// 归档前置只读校验步（内联步）
     Preflight,

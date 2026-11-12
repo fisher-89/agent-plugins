@@ -1924,3 +1924,252 @@ fn archi_check词汇外形态拒绝() {
         assert!(kind.is_err(), "RunStepKind 词集外的 {raw} 必须 Err");
     }
 }
+
+// ---------------------------------------------------------------------------
+// 词汇冻结守卫（slim-flow-aux-steps / AC-6）：五词 decode-only 注释在场、变体序
+// 与下标稳定、Gate 分支不可删的源自证与反向判据
+// ---------------------------------------------------------------------------
+
+/// 读 `state.rs` 产品源原文（**不剔注释**——注释在场面判据必需；`env!` 与既有
+/// `prompt_text` 装置同式）。
+fn state_source() -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("state.rs");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()))
+}
+
+/// 变体块邻域（自 `///` doc 起至变体声明后的若干行）：注释判据的定位面。
+fn variant_block<'a>(source: &'a str, variant: &str) -> &'a str {
+    let anchor = format!("\n    {variant},");
+    let at = source
+        .find(&anchor)
+        .unwrap_or_else(|| panic!("变体 {variant} 声明应在源内"));
+    let start = source[..at].rfind("\n    /// ").unwrap_or(at);
+    &source[start..at + anchor.len()]
+}
+
+/// 注释与行为零耦合的声明面无残留（异常）：`StepGroup::Exec` 的 doc 已去
+/// `phase-start` / `phase-log` 举例（辅助步退场后不再是组内成员示例），但
+/// `PhaseStart` / `PhaseLog` 实测仍归 `Exec`（注释改动不改归属——两判据并列）。
+#[test]
+fn 词汇冻结_exec组doc去辅助步举例而归属不变() {
+    let source = state_source();
+    let exec_doc_start = source
+        .find("pub enum StepGroup")
+        .expect("StepGroup 枚举应在源内");
+    let exec_block = &source[exec_doc_start..];
+    let exec_doc_end = exec_block.find("Gate,").expect("Gate 变体应在源内");
+    let doc = &exec_block[..exec_doc_end];
+    assert!(
+        !doc.contains("phase-start") && !doc.contains("phase-log"),
+        "StepGroup::Exec doc 已去除 phase-start / phase-log 举例"
+    );
+
+    // 行为面不变：两词实测仍归 Exec
+    for node in [StepNode::PhaseStart, StepNode::PhaseLog] {
+        assert_eq!(
+            node.group(),
+            StepGroup::Exec,
+            "{node:?} 归属 Exec（注释改动不改归属）"
+        );
+    }
+}
+
+/// 五词 `decode-only` 注释在场（正向，AC-6 源自证）：`StepNode` 的
+/// `PhaseStart` / `PhaseLog` / `VerdictGate` 三变体与 `RunStepKind` 的五词邻域
+/// 各含 `decode-only`。
+#[test]
+fn 词汇冻结_decode_only注释在场() {
+    let source = state_source();
+    for (enum_name, variants) in [
+        ("StepNode", vec!["PhaseStart", "PhaseLog", "VerdictGate"]),
+        (
+            "RunStepKind",
+            vec![
+                "PhaseStart",
+                "PhaseLog",
+                "VerdictGate",
+                "RetryGate",
+                "WhitelistGate",
+            ],
+        ),
+    ] {
+        let enum_start = source
+            .find(&format!("pub enum {enum_name}"))
+            .unwrap_or_else(|| panic!("枚举 {enum_name} 应在源内"));
+        let rest = &source[enum_start..];
+        let enum_end = rest.find("\n}").expect("枚举体应闭合");
+        let body = &rest[..enum_end];
+        for variant in variants {
+            assert!(
+                variant_block(body, variant).contains("decode-only"),
+                "{enum_name}::{variant} 邻域应含 decode-only"
+            );
+        }
+    }
+}
+
+/// 「MUST NOT 删除或重排」表述在场（异常，AC-6 源自证）：`RunStepKind` 的枚举级
+/// doc 与五词注记说明冻结语义；`StepGroup::Gate` 的枚举 doc 与 `group()` 的三词
+/// 分支含「不删 / 冻结」类说明。
+#[test]
+fn 词汇冻结_冻结语义说明在场() {
+    let source = state_source();
+    assert!(
+        source.contains("MUST NOT 删除或重排") || source.contains("MUST NOT 删除变体"),
+        "源内应有 MUST NOT 删除 / 重排的冻结表述"
+    );
+    assert!(
+        source.contains("bincode 枚举下标") || source.contains("按下标编码"),
+        "RunStepKind 冻结理由（bincode 下标）在场"
+    );
+    // Gate 分支说明
+    let gate_branch_start = source
+        .find("StepNode::VerdictGate | StepNode::RetryGate | StepNode::WhitelistGate =>")
+        .expect("三词分支应在源内");
+    let gate_branch = &source[gate_branch_start..];
+    let gate_branch_end = gate_branch.find("}\n").expect("分支体应闭合");
+    assert!(
+        gate_branch[..gate_branch_end].contains("冻结")
+            || gate_branch[..gate_branch_end].contains("不删"),
+        "三词 Gate 分支含冻结 / 不删说明"
+    );
+}
+
+/// 变体序与下标稳定（边界）：首变体 `Executor`、末变体 `ArchiCheck`（尾部追加
+/// 先例）；五词下标与改造前一致（`PhaseStart` 第 4 / `PhaseLog` 第 9 /
+/// `VerdictGate` 第 10 / `RetryGate` 第 11 / `WhitelistGate` 第 12 位）。
+#[test]
+fn 词汇冻结_变体序与五词下标稳定() {
+    const ORDER: [&str; 22] = [
+        "executor",
+        "evaluator",
+        "decision",
+        "phase_start",
+        "static_check",
+        "test_execution",
+        "mutation_test",
+        "clean",
+        "phase_log",
+        "verdict_gate",
+        "retry_gate",
+        "whitelist_gate",
+        "preflight",
+        "commit",
+        "rebase",
+        "resolve_conflicts",
+        "merge",
+        "spec_sync",
+        "cleanup",
+        "seal",
+        "finalize",
+        "archi_check",
+    ];
+    const NODES: [StepNode; 22] = [
+        StepNode::Executor,
+        StepNode::Evaluator,
+        StepNode::Decision,
+        StepNode::PhaseStart,
+        StepNode::StaticCheck,
+        StepNode::TestExecution,
+        StepNode::MutationTest,
+        StepNode::Clean,
+        StepNode::PhaseLog,
+        StepNode::VerdictGate,
+        StepNode::RetryGate,
+        StepNode::WhitelistGate,
+        StepNode::Preflight,
+        StepNode::Commit,
+        StepNode::Rebase,
+        StepNode::ResolveConflicts,
+        StepNode::Merge,
+        StepNode::SpecSync,
+        StepNode::Cleanup,
+        StepNode::Seal,
+        StepNode::Finalize,
+        StepNode::ArchiCheck,
+    ];
+    assert_eq!(NODES[0].as_str(), "executor", "首变体恒 Executor");
+    assert_eq!(
+        NODES[21].as_str(),
+        "archi_check",
+        "末变体恒 ArchiCheck（尾部追加先例）"
+    );
+    for (index, node) in NODES.iter().enumerate() {
+        assert_eq!(node.as_str(), ORDER[index], "第 {index} 位词面逐字");
+        // 两枚举同源 1:1（词面往返）
+        let kind: RunStepKind = serde_json::from_value(json!(ORDER[index]))
+            .unwrap_or_else(|error| panic!("{ORDER:?} 应可反序列化为 RunStepKind: {error}"));
+        assert_eq!(kind.as_str(), ORDER[index], "第 {index} 位两枚举同词面");
+    }
+    // 五词下标（bincode 下标稳定判据）
+    for (word, index) in [
+        ("phase_start", 3usize),
+        ("phase_log", 8),
+        ("verdict_gate", 9),
+        ("retry_gate", 10),
+        ("whitelist_gate", 11),
+    ] {
+        assert_eq!(ORDER[index], word, "{word} 下标恒 {index}");
+    }
+}
+
+/// 三词 `group()` 反向判据（异常，R9）：`VerdictGate` / `RetryGate` /
+/// `WhitelistGate` 不得改归 `Exec` / `Agent` / `Git`；`role()` 三词恒 `None`；
+/// `StepGroup::Gate` 枚举值仍在且线面为 `"gate"`。
+#[test]
+fn 词汇冻结_gate分支不可删的反向判据() {
+    for node in [
+        StepNode::VerdictGate,
+        StepNode::RetryGate,
+        StepNode::WhitelistGate,
+    ] {
+        assert_eq!(node.group(), StepGroup::Gate, "{node:?} 归 Gate");
+        assert_ne!(node.group(), StepGroup::Exec, "{node:?} 不得改归 Exec");
+        assert_ne!(node.group(), StepGroup::Agent, "{node:?} 不得改归 Agent");
+        assert_ne!(node.group(), StepGroup::Git, "{node:?} 不得改归 Git");
+        assert_eq!(node.role(), None, "{node:?} 恒无 agent 角色");
+    }
+    assert_eq!(
+        serde_json::to_value(StepGroup::Gate).expect("组出线应成功"),
+        json!("gate"),
+        "Gate 线面词冻结"
+    );
+    // 分组计数和 = 22（无遗漏无重叠）
+    let all = [
+        StepNode::Executor,
+        StepNode::Evaluator,
+        StepNode::Decision,
+        StepNode::PhaseStart,
+        StepNode::StaticCheck,
+        StepNode::TestExecution,
+        StepNode::MutationTest,
+        StepNode::Clean,
+        StepNode::PhaseLog,
+        StepNode::VerdictGate,
+        StepNode::RetryGate,
+        StepNode::WhitelistGate,
+        StepNode::Preflight,
+        StepNode::Commit,
+        StepNode::Rebase,
+        StepNode::ResolveConflicts,
+        StepNode::Merge,
+        StepNode::SpecSync,
+        StepNode::Cleanup,
+        StepNode::Seal,
+        StepNode::Finalize,
+        StepNode::ArchiCheck,
+    ];
+    let count = |group: StepGroup| all.iter().filter(|node| node.group() == group).count();
+    assert_eq!(
+        count(StepGroup::Exec)
+            + count(StepGroup::Agent)
+            + count(StepGroup::Git)
+            + count(StepGroup::Gate),
+        22,
+        "四组计数和 = 22（无遗漏无重叠）"
+    );
+    assert_eq!(count(StepGroup::Gate), 3, "Gate 恰三词");
+}

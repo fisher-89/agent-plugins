@@ -126,42 +126,17 @@ async fn execute(
             );
             Ok(ToolStepOutput::PhaseNext(Box::new(outcome?)))
         }
+        // 开相 / 落账两分支不产审计行（辅助步退场后它们不再是「相位机步骤」，
+        // 而是相位机固定动作的写通道）：写面直调与产出返回逐字保留，审计面归零
+        // ——否则这两类审计行照常产出，违反「零 StepRecord」判据
         ToolCommand::PhaseStart { change_id, phase } => {
             let outcome = workflow::write::phase_start(store.as_ref(), &change_id, &phase);
-            audit_outcome(
-                store.as_ref(),
-                &run_id,
-                &change_id,
-                StepKind::PhaseStart,
-                outcome.as_ref().map(|value| {
-                    (
-                        format!("phase_start {} attempt={}", value.phase, value.attempt),
-                        None,
-                    )
-                }),
-            );
             Ok(ToolStepOutput::PhaseStart(outcome?))
         }
         ToolCommand::PhaseLog {
             change_id, input, ..
         } => {
             let outcome = workflow::write::phase_log(store.as_ref(), &change_id, &input);
-            let reference = input
-                .evaluator_session_id
-                .clone()
-                .or_else(|| input.executor_session_id.clone());
-            audit_outcome(
-                store.as_ref(),
-                &run_id,
-                &change_id,
-                StepKind::PhaseLog,
-                outcome.as_ref().map(|value| {
-                    (
-                        format!("phase_log {} attempt={}", value.phase, value.attempt),
-                        reference,
-                    )
-                }),
-            );
             Ok(ToolStepOutput::PhaseLog(outcome?))
         }
         ToolCommand::Backtrack {
@@ -209,13 +184,7 @@ async fn execute(
             // 磁盘面 port 收 name（输出记录目录派生为 name 化、报告槽位随命令
             // 载荷透传）：消费点经 id → 记录 → name 解析（未建档显式 Err，与
             // TestExecution 分支同式）
-            let name = store
-                .get_change(&change_id)
-                .map_err(|error| error.to_string())?
-                .map(|record| record.name)
-                .ok_or_else(|| {
-                    format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行静态检查")
-                })?;
+            let name = resolve_change_name(store.as_ref(), &change_id, "静态检查")?;
             let output = static_check
                 .run(&step.root, &name, slot, cancel, step.on_output_ref)
                 .await;
@@ -237,13 +206,7 @@ async fn execute(
         ToolCommand::TestExecution { change_id, slot } => {
             // 磁盘面 port 收 name（报告目录派生为 name 化、报告槽位随命令载荷
             // 透传）：消费点经 id → 记录 → name 解析（未建档显式 Err）
-            let name = store
-                .get_change(&change_id)
-                .map_err(|error| error.to_string())?
-                .map(|record| record.name)
-                .ok_or_else(|| {
-                    format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行测试门禁")
-                })?;
+            let name = resolve_change_name(store.as_ref(), &change_id, "测试门禁")?;
             let output = test_execution
                 .run(&step.root, &name, slot, cancel, step.on_output_ref)
                 .await;
@@ -273,13 +236,7 @@ async fn execute(
         ToolCommand::MutationTest { change_id } => {
             // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经
             // id → 记录 → name 解析（未建档显式 Err，与 TestExecution 分支同式）
-            let name = store
-                .get_change(&change_id)
-                .map_err(|error| error.to_string())?
-                .map(|record| record.name)
-                .ok_or_else(|| {
-                    format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行突变门禁")
-                })?;
+            let name = resolve_change_name(store.as_ref(), &change_id, "突变门禁")?;
             // 突变范围与补丁唯一入口（vcs 缝取数注入 runner——checks 侧零 git；
             // 取数失败显式传播，MUST NOT 降级空清单 / 空补丁）
             let files = vcs.change_edit_set(Path::new(&step.root), "HEAD")?;
@@ -318,15 +275,7 @@ async fn execute(
         ToolCommand::ArchiCheck { change_id } => {
             // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经 id → 记录 →
             // name 解析（未建档显式 Err，与既有三 runner 同式）
-            let name = store
-                .get_change(&change_id)
-                .map_err(|error| error.to_string())?
-                .map(|record| record.name)
-                .ok_or_else(|| {
-                    format!(
-                        "change \"{change_id}\" 未建档（无 ChangeRecord），无从执行架构漂移门禁"
-                    )
-                })?;
+            let name = resolve_change_name(store.as_ref(), &change_id, "架构漂移门禁")?;
             // 变更集唯一入口（vcs 缝取数注入 runner——infra 侧零 git；取数失败显式
             // 传播为步失败，MUST NOT 降级空清单——空清单会静默变成 noChanges
             // = 假通过）
@@ -368,6 +317,21 @@ async fn execute(
             Ok(ToolStepOutput::ArchiveSeal(outcome))
         }
     }
+}
+
+/// change id → name 解析单点（四个门禁臂共用）：磁盘面 port 收 name（报告目录 /
+/// 输出记录按 name 派生），故各检查 / 突变 / 架构门禁步先取记录再调 runner；未
+/// 建档即显式 `Err`（文案携检查面名，供步 failed detail 归因）。
+fn resolve_change_name(
+    store: &dyn ChangeStateStore,
+    change_id: &str,
+    what: &str,
+) -> Result<String, String> {
+    store
+        .get_change(change_id)
+        .map_err(|error| error.to_string())?
+        .map(|record| record.name)
+        .ok_or_else(|| format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行{what}"))
 }
 
 /// 审计落行出口：成功行携摘要 + 引用（status `ok`），失败行携错误串（status

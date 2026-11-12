@@ -1431,8 +1431,8 @@ fn 计划步序列与清单随next相位下发() {
     );
     assert_eq!(
         outcome.steps.len(),
-        5,
-        "proposal 五步（含三门之 verdict 门）"
+        2,
+        "proposal 两步（P→E；开相 / verdict / 落账已内化为相位机动作）"
     );
 
     // pass 推进：next 相位换形 → steps / manifest 随新相位下发
@@ -1599,8 +1599,9 @@ fn 首轮即分叉时白名单不依赖上一站缓存() {
 
 /// 归档前停等路由（正向）：前 8 路由相位（proposal…acceptance）全
 /// `verdict=pass` 落账后 → `phase_next` 返回 `next_phase=Some("archive")`（archive
-/// 未落账故 `all_passed` 为假），steps 随行十一步序列（Cleanup 尽力步随表自然
-/// 出线）、executor / evaluator 缺席（archive `executor=None` / `evaluator=None`）、
+/// 未落账故 `all_passed` 为假），steps 随行九步序列（Cleanup 尽力步随表自然
+/// 出线、开相 / 落账不在 steps 内）、executor / evaluator 缺席（archive
+/// `executor=None` / `evaluator=None`）、
 /// artifact_manifest 空（AC-1 / AC-4 / AC-7 stop-before-archive 路由依据）。
 #[test]
 fn 八路由相位pass后路由至archive且零角色spec() {
@@ -1620,14 +1621,16 @@ fn 八路由相位pass后路由至archive且零角色spec() {
         "8 路由相位 pass 后下一相位即 archive"
     );
     assert!(outcome.error.is_none(), "归档路由非错误面");
-    assert_eq!(outcome.steps.len(), 11, "archive 十一步序列随行下发");
+    assert_eq!(outcome.steps.len(), 9, "archive 九步序列随行下发");
     assert_eq!(
         outcome.steps.first().map(|step| step.node),
-        Some(crate::state::StepNode::PhaseStart)
+        Some(crate::state::StepNode::Preflight),
+        "首步为真实步 Preflight（相位入口不再是 PhaseStart 节点）"
     );
     assert_eq!(
         outcome.steps.last().map(|step| step.node),
-        Some(crate::state::StepNode::PhaseLog)
+        Some(crate::state::StepNode::Finalize),
+        "末步为真实步 Finalize（落账不再是 PhaseLog 节点）"
     );
     assert!(
         outcome.artifact_manifest.is_empty(),

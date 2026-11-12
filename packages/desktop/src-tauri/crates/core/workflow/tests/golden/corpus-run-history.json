@@ -89,11 +89,6 @@
       "edges": [
         {
           "edgeKind": "forward",
-          "fromNodeKey": "implement:1:phase_start:0",
-          "toNodeKey": "implement:1:executor:0"
-        },
-        {
-          "edgeKind": "forward",
           "fromNodeKey": "implement:1:executor:0",
           "toNodeKey": "implement:1:static_check:0"
         },
@@ -109,26 +104,12 @@
         },
         {
           "edgeKind": "backtrack",
-          "fromNodeKey": "implement:1:whitelist_gate:0",
+          "fromNodeKey": "implement:1:decision:0",
           "toNodeKey": "dev-design:1:test_execution:0"
         }
       ],
       "finishedAt": "2024-09-22T10:13:39Z",
       "nodes": [
-        {
-          "attempt": 1,
-          "detail": null,
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "implement",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "phase_start",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
         {
           "attempt": 1,
           "detail": "实现完成",
@@ -187,7 +168,7 @@
         },
         {
           "attempt": 1,
-          "detail": "首轮评估 fail",
+          "detail": "verdict=fail（未通过：组件表缺项）",
           "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
@@ -201,35 +182,7 @@
         },
         {
           "attempt": 1,
-          "detail": "verdict=fail",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "implement",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "failed",
-          "step": "verdict_gate",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": "预算内同相位重跑",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "implement",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "retry_gate",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": null,
+          "detail": "backtrack → dev-design",
           "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
@@ -238,20 +191,6 @@
           "startedAt": 1727000060000,
           "status": "passed",
           "step": "decision",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": "回溯白名单内",
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "implement",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "whitelist_gate",
           "tokenInput": null,
           "tokenOutput": null
         },
@@ -280,20 +219,6 @@
           "startedAt": 1727000060000,
           "status": "passed",
           "step": "mutation_test",
-          "tokenInput": null,
-          "tokenOutput": null
-        },
-        {
-          "attempt": 1,
-          "detail": null,
-          "endedAt": 1727000061000,
-          "instanceNo": 0,
-          "outputRef": null,
-          "phase": "dev-design",
-          "sessionId": null,
-          "startedAt": 1727000060000,
-          "status": "passed",
-          "step": "phase_log",
           "tokenInput": null,
           "tokenOutput": null
         }
@@ -378,6 +303,164 @@
       "runId": "run-1727000030000",
       "startedAt": "2024-09-22T10:13:50Z",
       "status": "stopped"
+    },
+    {
+      "edges": [
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "dev-design:4:phase_start:0",
+          "toNodeKey": "dev-design:4:executor:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "dev-design:4:executor:0",
+          "toNodeKey": "dev-design:4:evaluator:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "dev-design:4:evaluator:0",
+          "toNodeKey": "dev-design:4:verdict_gate:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "dev-design:4:verdict_gate:0",
+          "toNodeKey": "dev-design:4:retry_gate:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "dev-design:4:retry_gate:0",
+          "toNodeKey": "dev-design:4:decision:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "dev-design:4:decision:0",
+          "toNodeKey": "dev-design:4:whitelist_gate:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "dev-design:4:whitelist_gate:0",
+          "toNodeKey": "dev-design:4:phase_log:0"
+        }
+      ],
+      "finishedAt": "2024-09-22T10:14:09Z",
+      "nodes": [
+        {
+          "attempt": 4,
+          "detail": null,
+          "endedAt": 1727000064000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "startedAt": 1727000064000,
+          "status": "passed",
+          "step": "phase_start",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 4,
+          "detail": "存量形态样本：实现完成",
+          "endedAt": 1727000066000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": "ses-dd-exec-a4",
+          "startedAt": 1727000065000,
+          "status": "passed",
+          "step": "executor",
+          "tokenInput": 1024,
+          "tokenOutput": 2048
+        },
+        {
+          "attempt": 4,
+          "detail": "存量形态样本：评估通过",
+          "endedAt": 1727000068000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": "ses-dd-eval-a4",
+          "startedAt": 1727000067000,
+          "status": "passed",
+          "step": "evaluator",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 4,
+          "detail": "verdict=pass",
+          "endedAt": 1727000069000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "startedAt": 1727000069000,
+          "status": "passed",
+          "step": "verdict_gate",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 4,
+          "detail": "预算内同相位重跑",
+          "endedAt": 1727000070000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "startedAt": 1727000070000,
+          "status": "passed",
+          "step": "retry_gate",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 4,
+          "detail": "stop：验收结论一致",
+          "endedAt": 1727000072000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": "ses-dd-decision-a4",
+          "startedAt": 1727000071000,
+          "status": "passed",
+          "step": "decision",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 4,
+          "detail": "回溯白名单内",
+          "endedAt": 1727000073000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "startedAt": 1727000073000,
+          "status": "passed",
+          "step": "whitelist_gate",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 4,
+          "detail": null,
+          "endedAt": 1727000074000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "startedAt": 1727000074000,
+          "status": "passed",
+          "step": "phase_log",
+          "tokenInput": null,
+          "tokenOutput": null
+        }
+      ],
+      "reason": "存量解码形态样本：辅助步与三门节点齐备",
+      "runId": "run-1727000040000",
+      "startedAt": "2024-09-22T10:14:00Z",
+      "status": "completed"
     }
   ],
   "source": "active",

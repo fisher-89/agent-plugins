@@ -68,8 +68,8 @@ pub(crate) const MAX_ROUNDS: u32 = 20;
 /// 门禁反馈边独立计数上限
 pub(crate) const FEEDBACK_LOOP_LIMIT: u32 = 5;
 
-/// 架构漂移门禁反馈边独立计数上限（与 static-check / verdict 的 5 次互不占用
-/// ——三段计数各按步声明承载，架构违例的修复轮次不挤占静态检查预算）
+/// 架构漂移门禁反馈边独立计数上限（与 static-check 的 5 次互不占用——两段计数
+/// 各按步声明承载，架构违例的修复轮次不挤占静态检查预算）
 pub(crate) const ARCHI_FEEDBACK_LIMIT: u32 = 3;
 
 // --- 相位 prompt 静态装配单源（`include_str!` 显式字面路径；executor /
@@ -106,15 +106,11 @@ const CODE_ANALYZE_DESCRIPTION: &str = "分析代码生成详细设计";
 // 门禁步由 step 声明而非 walker 常量注入）---------------------------------
 
 /// initialize 相位步序列（两表表头共用同一 static；一次性基线检查相位——
-/// `PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog`：Clean 为 vcs
-/// 直调基线恢复步，两检查步 `on_fail=Terminal`（失败即停——无反馈边、零 agent
-/// 会话注入，基线的债不属于本次变更），PhaseLog 机械 checklist 纯桌面代写）。
+/// `Clean → StaticCheck → TestExecution`：Clean 为 vcs 直调基线恢复步，两检查步
+/// `on_fail=Terminal`（失败即停——无反馈边、零 agent 会话注入，基线的债不属于
+/// 本次变更）。开相与相位收口不在 `steps` 内（`enter_phase` / `settle_phase`
+/// 承载相位机的固定动作）。
 static INITIALIZE_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Clean,
         prompt_ref: None,
@@ -130,19 +126,9 @@ static INITIALIZE_STEPS: &[StepDefinition] = &[
         prompt_ref: None,
         on_fail: Some(OnFail::Terminal),
     },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
 static PROPOSAL_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Executor,
         prompt_ref: Some(PROPOSAL_EXECUTOR_PROMPT),
@@ -153,29 +139,11 @@ static PROPOSAL_STEPS: &[StepDefinition] = &[
         prompt_ref: Some(PROPOSAL_EVALUATOR_PROMPT),
         on_fail: None,
     },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
 /// code-analyze 相位步序列（P→E，与 proposal / dev-design 同形的分析设计相位：
-/// PhaseStart → Executor → Evaluator → VerdictGate → PhaseLog；VerdictGate
-/// `on_fail=Terminal`）。
+/// Executor → Evaluator；verdict 裁决在 evaluator 步内闭合）。
 static CODE_ANALYZE_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Executor,
         prompt_ref: Some(CODE_ANALYZE_EXECUTOR_PROMPT),
@@ -186,24 +154,9 @@ static CODE_ANALYZE_STEPS: &[StepDefinition] = &[
         prompt_ref: Some(CODE_ANALYZE_EVALUATOR_PROMPT),
         on_fail: None,
     },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
 static DEV_DESIGN_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Executor,
         prompt_ref: Some(DEV_DESIGN_EXECUTOR_PROMPT),
@@ -214,26 +167,9 @@ static DEV_DESIGN_STEPS: &[StepDefinition] = &[
         prompt_ref: Some(DEV_DESIGN_EVALUATOR_PROMPT),
         on_fail: None,
     },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
 static TEST_DESIGN_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Executor,
         prompt_ref: Some(TEST_DESIGN_EXECUTOR_PROMPT),
@@ -244,26 +180,9 @@ static TEST_DESIGN_STEPS: &[StepDefinition] = &[
         prompt_ref: Some(TEST_DESIGN_EVALUATOR_PROMPT),
         on_fail: None,
     },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
 static IMPLEMENT_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Executor,
         prompt_ref: Some(IMPLEMENT_EXECUTOR_PROMPT),
@@ -277,7 +196,7 @@ static IMPLEMENT_STEPS: &[StepDefinition] = &[
         }),
     },
     // 架构漂移门禁（先修机器能判的，再让评估面看已过门禁的产物）：反馈边上限
-    // 独立于 static-check 的 5 次与 verdict 的 5 次
+    // 独立于 static-check 的 5 次
     StepDefinition {
         node: StepNode::ArchiCheck,
         prompt_ref: None,
@@ -290,26 +209,9 @@ static IMPLEMENT_STEPS: &[StepDefinition] = &[
         prompt_ref: Some(IMPLEMENT_EVALUATOR_PROMPT),
         on_fail: None,
     },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
 static TEST_GEN_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Executor,
         prompt_ref: Some(TEST_GEN_EXECUTOR_PROMPT),
@@ -327,31 +229,15 @@ static TEST_GEN_STEPS: &[StepDefinition] = &[
         prompt_ref: Some(TEST_GEN_EVALUATOR_PROMPT),
         on_fail: None,
     },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
 /// test-execution 相位步序列：确定性门禁步承接（绿跑零 agent——无 Executor /
-/// Evaluator / VerdictGate 步，角色 spec 亦双缺席，与 archive 同形）。拆步
-/// 语义：`PhaseStart → TestExecution → MutationTest → PhaseLog`——测试 / 覆盖率
-/// 修绿后才跑突变（walker 顺序执行天然保证），两步失败即升格交决策（零修复
-/// 会话）；requirement / test-only 两表共用同一 static 天然同式。
+/// Evaluator 步，角色 spec 亦双缺席，与 archive 同形）。拆步语义：
+/// `TestExecution → MutationTest`——测试 / 覆盖率修绿后才跑突变（walker 顺序执行
+/// 天然保证），两步失败即升格交决策（零修复会话）；requirement / test-only 两表
+/// 共用同一 static 天然同式。开相与相位收口由相位机固定动作承载，不计入
+/// `steps`。
 static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     // 确定性门禁步：首败即升格交决策，零 agent 修复
     StepDefinition {
         node: StepNode::TestExecution,
@@ -364,22 +250,13 @@ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
         prompt_ref: None,
         on_fail: Some(OnFail::Escalate),
     },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
-/// archive 相位步序列（11 步；确定性相位第二例；Cleanup 为尽力步——失败仅
+/// archive 相位步序列（9 步；确定性相位第二例；Cleanup 为尽力步——失败仅
 /// step detail 警告、步恒 passed，尽力语义驻 walker 执行体，`on_fail = None`
-/// 形态与其余步一致）
+/// 形态与其余步一致）。开相归 `enter_phase`、落账归 `settle_phase`，两者均不在
+/// `steps` 内。
 static ARCHIVE_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
     StepDefinition {
         node: StepNode::Preflight,
         prompt_ref: None,
@@ -425,62 +302,19 @@ static ARCHIVE_STEPS: &[StepDefinition] = &[
         prompt_ref: None,
         on_fail: None,
     },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
 ];
 
-static CODE_REVIEW_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
-    StepDefinition {
-        node: StepNode::Evaluator,
-        prompt_ref: Some(CODE_REVIEW_EVALUATOR_PROMPT),
-        on_fail: None,
-    },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
-];
+static CODE_REVIEW_STEPS: &[StepDefinition] = &[StepDefinition {
+    node: StepNode::Evaluator,
+    prompt_ref: Some(CODE_REVIEW_EVALUATOR_PROMPT),
+    on_fail: None,
+}];
 
-static ACCEPTANCE_STEPS: &[StepDefinition] = &[
-    StepDefinition {
-        node: StepNode::PhaseStart,
-        prompt_ref: None,
-        on_fail: None,
-    },
-    StepDefinition {
-        node: StepNode::Evaluator,
-        prompt_ref: Some(ACCEPTANCE_EVALUATOR_PROMPT),
-        on_fail: None,
-    },
-    StepDefinition {
-        node: StepNode::VerdictGate,
-        prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
-    },
-    StepDefinition {
-        node: StepNode::PhaseLog,
-        prompt_ref: None,
-        on_fail: None,
-    },
-];
+static ACCEPTANCE_STEPS: &[StepDefinition] = &[StepDefinition {
+    node: StepNode::Evaluator,
+    prompt_ref: Some(ACCEPTANCE_EVALUATOR_PROMPT),
+    on_fail: None,
+}];
 
 // --- 相位产物清单（相对路径 → phase 归属权威来源；无产物相位清单为空）-----
 
@@ -540,7 +374,7 @@ static TEST_EXECUTION_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
 /// requirement 相位表
 static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     // initialize：两表表头一次性基线检查相位（确定性相位——executor /
-    // evaluator 双缺席、零 artifact_manifest；`INITIALIZE_STEPS` 五步两表共享；
+    // evaluator 双缺席、零 artifact_manifest；`INITIALIZE_STEPS` 三步两表共享；
     // backtrackable=false——基线检查不可回溯重做）。
     PhaseDefinition {
         id: INITIALIZE_PHASE_ID,
@@ -669,8 +503,8 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         }),
     },
     // archive：确定性相位第二例（test-execution 为先例）——无 executor /
-    // evaluator 会话、零 artifact_manifest；末尾 PhaseLog 以空 checklist 落账
-    // 即「相位已 pass」标记（非评估证据面）。归档为固定停止点（stop-before-
+    // evaluator 会话、零 artifact_manifest；相位收口由 `settle_phase` 以空 checklist
+    // 落账即「相位已 pass」标记（非评估证据面）。归档为固定停止点（stop-before-
     // archive），用户显式确认后才进入本相位。
     PhaseDefinition {
         id: "archive",

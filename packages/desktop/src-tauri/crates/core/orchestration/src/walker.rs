@@ -93,6 +93,11 @@ const TXT_REBASE_CONTINUE_GUIDE: &str = "worktree 处于 rebase 态：可手动 
 /// Rebase 段冲突交据（冲突清单非空时交 ResolveConflicts 步条件解算）。
 const TXT_REBASE_CONFLICTED: &str = "冲突待解算";
 
+/// ask 携出会话外（`wait_answer` 循环未消化）= 编排漂移（防线单点文案：决策会
+/// 话内 ask 两路已 `continue` / `Err` 闭合，`resolve_deadlock` 与动作裁决面都只
+/// 能在漂移时读到 `Ask`）。
+const TXT_ASK_UNCONSUMED: &str = "决策漂移：ask 动作未被应答循环消化";
+
 /// run 发起入参：workspace 根（exec root —— 会话 cwd / 检查域执行目录）+ 主
 /// workspace root（归档相位的主仓锚：layout 解析 / 归档双写 / 落盘提交）+ change
 /// id + 会话窗口标识（`new_run_id` 铸造，每 run 一个）+ 发起时刻（命令层铸造，
@@ -262,7 +267,7 @@ async fn drive(
             .into_pair();
         };
         if next.steps.is_empty() {
-            // 计划步序列缺位即计划图漂移（相位定义恒含 PhaseStart 起步）：显式失
+            // 计划步序列缺位即计划图漂移（相位定义恒含至少一个真实步）：显式失
             // 败停给用户，MUST NOT 空转（无步可走却回 phase-next 会成为活锁）
             return Terminal::failed(format!(
                 "phase-next 输出漂移：相位 \"{phase}\" 缺计划步序列（PhaseDefinition.steps）"
@@ -321,27 +326,41 @@ async fn drive(
             next: &next,
             phase: &phase,
         };
-        let mut cursor = PhaseCursor::new(&next, entry_kind, sync_specs);
-        let mut upgraded = false;
+        let mut cursor = PhaseCursor::new(&next, sync_specs);
+        // 开相：相位机固定动作（零 emit / 零审计 / 零计划步）
+        cursor.attempt = match enter_phase(tools, guard, request, &phase).await {
+            Ok(attempt) => attempt,
+            Err(terminal) => {
+                trace.entry_override = None;
+                return terminal.into_pair();
+            }
+        };
         // legacy 整相位短路（initialize 表头一次性基线检查相位）：`worktree=None`
         // 的存量记录 exec root = 主仓（root == main_root ⟺ worktree 缺席——发起
         // 前置校验保证 worktree 在场时 exec root ≠ 主仓）——restore / 检查 spawn
         // 在主仓执行会 reset 用户未提交改动（灾难），故步序列零执行（零 vcs /
-        // 零检查 spawn、主仓零重置零 clean），仅 PhaseStart 开相 + PhaseLog 以
-        // skipped 落账（跳过因可见，一次性持久同 pass 语义）
+        // 零检查 spawn、主仓零重置零 clean），以 `settle_phase(skipped)` 收口（跳过
+        // 因可见，一次性持久同 pass 语义）
         if phase == INITIALIZE_PHASE_ID && request.root == request.main_root {
-            cursor.attempt = match step_phase_start(&ctx, &mut trace, &cursor).await {
-                Ok(attempt) => attempt,
-                Err(terminal) => return terminal.into_pair(),
-            };
-            if let Err(terminal) =
-                step_initialize_skipped_phase_log(&ctx, &mut trace, &cursor).await
+            trace.entry_override = None;
+            if let Err(terminal) = settle_phase(
+                tools,
+                guard,
+                request,
+                &mut cursor,
+                &phase,
+                PhaseSettle::Skipped(TXT_SKIP_LEGACY_INITIALIZE),
+            )
+            .await
             {
                 return terminal.into_pair();
             }
         } else {
-            // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / git / gate 由
-            //       `StepNode` 声明，walker 按 `group()` 语义分派执行体）
+            // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / git 由 `StepNode`
+            //      声明，walker 按 `group()` 语义分派执行体）。相位入口边由首个
+            //      真实步节点承载（辅助步退场后相位入口不再是节点）
+            trace.entry_override = Some(entry_kind);
+            let mut upgraded = false;
             for step in &next.steps {
                 match run_step(&ctx, &mut cursor, &mut trace, step).await {
                     Ok(StepFlow::Proceed) => {}
@@ -349,15 +368,36 @@ async fn drive(
                         upgraded = true;
                         break;
                     }
-                    Err(terminal) => return terminal.into_pair(),
+                    Err(terminal) => {
+                        trace.entry_override = None;
+                        return terminal.into_pair();
+                    }
                 }
             }
+            trace.entry_override = None;
+            trace.failed_phase = cursor.failed.then(|| phase.clone());
+            if upgraded {
+                // 门禁步失败升格（fail 已由 `settle_phase(Fail)` 落账、零会话）：
+                // 回 phase-next 进决策分叉
+                continue;
+            }
+            // 相位收口：三分流取自 cursor 产物 → 落账 → active_phase 清位（零 emit）
+            if let Err(terminal) = settle_phase(
+                tools,
+                guard,
+                request,
+                &mut cursor,
+                &phase,
+                PhaseSettle::Pass,
+            )
+            .await
+            {
+                return terminal.into_pair();
+            }
         }
+        // verdict fail 的结论由收口动作给出，故 failed_phase 的第二次置位必须在
+        // 收口之后（否则同相位重跑边判定读到旧值）
         trace.failed_phase = cursor.failed.then(|| phase.clone());
-        if upgraded {
-            // 门禁步失败升格（fail 已落账、零会话）：回 phase-next 进决策分叉
-            continue;
-        }
 
         // phase 间停等确认 or 自动确认（stop_before 相位前已在停止门确认过，
         // 收口后不再补一道——归档后零确认）
@@ -383,12 +423,16 @@ async fn drive(
 // ---------------------------------------------------------------------------
 
 /// 执行图边追踪：链尾节点身份键（incoming 边的源）+ 相位入口待消费边 kind
-///（决策 backtrack 落账后置位，相位入口消费一次即清）+ 上一轮相位 fail 记因
-///（同相位重跑 → retry 边判定）。
+///（决策 backtrack 落账后置位，相位入口消费一次即清）+ 相位入口边覆盖值
+///（walker 在进入步序列后置位，相位首个真实步节点落边时一次性消费）+ 上一轮
+/// 相位 fail 记因（同相位重跑 → retry 边判定）。
 #[derive(Default)]
 struct EdgeTrace {
     tail: Option<NodeKey>,
     incoming: Option<EdgeKind>,
+    /// 相位入口边覆盖值：辅助步退场后相位入口不再是节点，故该边由相位首个真实
+    /// 步节点承载（`begin_node` 一次性取用，`drive` 兜底清零）
+    entry_override: Option<EdgeKind>,
     failed_phase: Option<String>,
 }
 
@@ -400,6 +444,9 @@ fn node_key(phase: &str, attempt: u32, step: ChangeStepKind, instance_no: u32) -
 /// 步节点起点：分配实例号（`(phase, attempt, step)` 单点递增，feedback 重跑为递
 /// 增新实例）→ 落 incoming 边（链尾 → 本节点；run 首节点无源不落边）→ 链尾前
 /// 移；返回实例号供步状态行 emit 复用。
+///
+/// 落边时一次性消费 [`EdgeTrace::entry_override`]（相位入口边由相位首个真实步节点
+/// 承载：有覆盖值用覆盖值，否则用调用方传入的 `incoming`）。
 fn begin_node(
     guard: &RunGuard,
     trace: &mut EdgeTrace,
@@ -410,6 +457,7 @@ fn begin_node(
 ) -> u32 {
     let instance_no = guard.begin_instance(phase, attempt, step);
     let key = node_key(phase, attempt, step, instance_no);
+    let incoming = trace.entry_override.take().unwrap_or(incoming);
     if let Some(from) = trace.tail.clone() {
         if from != key {
             emit_edge(guard, from, key.clone(), incoming);
@@ -427,17 +475,19 @@ fn emit_edge(guard: &RunGuard, from: NodeKey, to: NodeKey, kind: EdgeKind) {
 }
 
 // ---------------------------------------------------------------------------
-// 相位内计划步执行体（initialize 表头一次性基线检查相位步序：PhaseStart →
-// Clean → StaticCheck → TestExecution → PhaseLog——Clean 为 vcs 直调基线恢复
-// 步，两检查步 `on_fail=Terminal` 无反馈边例外、失败即停给用户；其余相位沿各
-// 表 steps 声明执行，PhaseLog 机械 checklist 零改动复用）
+// 相位内计划步执行体（`next.steps` 只含真实业务步——开相归 `enter_phase`、落账归
+// `settle_phase`，两者是相位机固定动作而非计划步；initialize 表头一次性基线检查
+// 相位步序为 Clean → StaticCheck → TestExecution——Clean 为 vcs 直调基线恢复步，
+// 两检查步 `on_fail=Terminal` 无反馈边例外、失败即停给用户；其余相位沿各表
+// steps 声明执行，机械 checklist 由相位收口复写）
 // ---------------------------------------------------------------------------
 
 /// 计划步执行携出物。
 enum StepFlow {
     /// 步完成，继续计划序下一步。
     Proceed,
-    /// 门禁升格（fail phase-log 已代写）：截断本相位余下步回 phase-next。
+    /// 门禁升格（fail 已由 `settle_phase(PhaseSettle::Fail)` 代写）：截断本相位余
+    /// 下步回 phase-next。
     Upgraded,
 }
 
@@ -455,23 +505,26 @@ struct StepContext<'a> {
     phase: &'a str,
 }
 
-/// 相位内步序携出状态（跨 step 传递的产物；相位入口边 kind 单点消费）。
+/// evaluator 步收口产物：会话结果与收口载荷同源——消「有 `outcome` 无 checklist」
+/// 的非法可达态（两份事实合一槽）。
+struct EvaluatorTurn {
+    outcome: WorkerTurnOutcome,
+    checklist: EvaluatorChecklist,
+}
+
+/// 相位内步序携出状态（跨 step 传递的产物）。
 struct PhaseCursor {
-    /// 相位入口 incoming 边 kind（drive 计算：backtrack > retry > forward）
-    entry_kind: EdgeKind,
-    /// 开相 attempt（PhaseStart 步产出；未开相 0）
+    /// 开相 attempt（`enter_phase` 产出；未开相 0）
     attempt: u32,
-    /// 当前 executor 会话槽（反馈边续注同会话；phase-log 落账携出）
+    /// 当前 executor 会话槽（反馈边续注同会话；相位收口落账携出）
     executor_session: Option<String>,
     /// executor 模型档（相位表 spec 供给；门禁反馈边续注不换档）
     executor_level: ModelLevel,
-    /// evaluator 步收口产物（VerdictGate / PhaseLog 步消费）
-    eval_outcome: Option<WorkerTurnOutcome>,
-    /// verdict 解析产物（PhaseLog 步消费）
-    verdict: Option<EvaluatorChecklist>,
-    /// test-execution 门禁通过产物（PhaseLog 步机械代写消费）
+    /// evaluator 步收口产物（会话结果 + checklist 同源；相位收口消费）
+    evaluator_turn: Option<EvaluatorTurn>,
+    /// test-execution 门禁通过产物（相位收口机械代写消费）
     test_outcome: Option<TestExecutionOutcome>,
-    /// mutation-test 门禁通过产物（含跳过面——PhaseLog 步机械 checklist 第 3 条
+    /// mutation-test 门禁通过产物（含跳过面——相位收口机械 checklist 第 3 条
     /// evidence 三态消费；与 `test_outcome` 双槽并立互不覆盖）
     mutation_outcome: Option<MutationTestOutcome>,
     /// 归档前置载荷（Preflight 步产出 → Commit / Rebase / ResolveConflicts /
@@ -482,17 +535,16 @@ struct PhaseCursor {
     rebase_conflicts: Option<Vec<String>>,
     /// 归档前停等回流的「是否执行 delta specs 同步」（SpecSync 步消费）
     sync_specs: bool,
-    /// 归档双写产物（Seal 步产出 → Finalize / PhaseLog 步消费）
+    /// 归档双写产物（Seal 步产出 → Finalize 消费）
     seal_outcome: Option<ArchiveOutcome>,
-    /// 本相位是否以 fail 收场（相位重试边判定面；升格路径恒真）
+    /// 本相位是否以 fail 收场（相位重试边判定面；由 `settle_phase` 单点回写）
     failed: bool,
 }
 
 impl PhaseCursor {
     /// 空携出状态（attempt 未开、无会话、无收口产物）。
-    fn new(next: &PhaseNextOutcome, entry_kind: EdgeKind, sync_specs: bool) -> Self {
+    fn new(next: &PhaseNextOutcome, sync_specs: bool) -> Self {
         Self {
-            entry_kind,
             attempt: 0,
             executor_session: None,
             executor_level: next
@@ -500,8 +552,7 @@ impl PhaseCursor {
                 .as_ref()
                 .map(|spec| spec.model_level)
                 .unwrap_or_default(),
-            eval_outcome: None,
-            verdict: None,
+            evaluator_turn: None,
             test_outcome: None,
             mutation_outcome: None,
             preflight: None,
@@ -513,9 +564,11 @@ impl PhaseCursor {
     }
 }
 
-/// 计划步分派（**按 step 节点语义执行，无步序 / 门禁特判**）：决策分叉三节点
-///（decision / retry-gate / whitelist-gate）为 phase-next 错误触发的共享子序列，
-/// 不由相位 `steps` 声明——声明漂移即无操作跳过。
+/// 计划步分派（**按 step 节点语义执行，无步序 / 门禁特判**）：`steps` 只含真实
+/// 业务步——辅助步（phase-start / phase-log / verdict-gate）与三门 gate 已退出
+/// 计划图（前三者由相位机固定动作或 evaluator 步内化承载，后两者节点面归零），
+/// 故六变体共用一条不可达臂：计划图漂移即显式失败，MUST NOT 静默 `Proceed`（原
+/// 空臂形态会把漂移吞成一次空操作）。
 async fn run_step(
     ctx: &StepContext<'_>,
     cursor: &mut PhaseCursor,
@@ -523,10 +576,6 @@ async fn run_step(
     step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
     match step.node {
-        StepNode::PhaseStart => {
-            cursor.attempt = step_phase_start(ctx, trace, cursor).await?;
-            Ok(StepFlow::Proceed)
-        }
         // initialize 基线恢复步（vcs 直调，git 步族区段先例同归档步）
         StepNode::Clean => {
             step_clean(ctx, trace, cursor).await?;
@@ -542,11 +591,6 @@ async fn run_step(
         StepNode::ArchiCheck => step_archi_check(ctx, trace, cursor, step).await,
         StepNode::Evaluator => {
             step_evaluator(ctx, trace, cursor).await?;
-            Ok(StepFlow::Proceed)
-        }
-        StepNode::VerdictGate => step_verdict_gate(ctx, trace, cursor).await,
-        StepNode::PhaseLog => {
-            step_phase_log(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
         // ── 归档相位 9 步（Cleanup 尽力步例外：失败仅 detail 警告恒 passed；
@@ -587,7 +631,16 @@ async fn run_step(
             step_finalize(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
-        StepNode::Decision | StepNode::RetryGate | StepNode::WhitelistGate => Ok(StepFlow::Proceed),
+        StepNode::Decision
+        | StepNode::RetryGate
+        | StepNode::WhitelistGate
+        | StepNode::PhaseStart
+        | StepNode::PhaseLog
+        | StepNode::VerdictGate => Err(Terminal::failed(format!(
+            "计划图漂移：相位 \"{}\" 的 steps 含不可达步词 \"{}\"（该步词不出现在任何相位的 steps 内）",
+            ctx.phase,
+            step.node.as_str()
+        ))),
     }
 }
 
@@ -610,67 +663,37 @@ async fn step_phase_next(
     .await
 }
 
-/// ② phase-start 步：开相（attempt 计时）→ 单节点 emit（`Passed`；开相失败落
-/// `Failed` 节点后显式 `Err`）。incoming 边 kind = 相位入口值（backtrack / retry
-/// / forward）。
-async fn step_phase_start(
-    ctx: &StepContext<'_>,
-    trace: &mut EdgeTrace,
-    cursor: &PhaseCursor,
+/// 相位入口（相位机固定动作，非计划步、非图节点）：经写面既有 `phase_start` 单
+/// 事务写 `active_phase`（phase / attempt / start_at），返回 attempt。
+///
+/// **零 emit、零审计、零 `StepRecord`**——开相不再是可观测步（`active_phase` 在案，
+/// 列表 / 详情直接读该字段）。`attempt` 推导口径：store 内该 `(change_id, phase)`
+/// 的 PhaseRecord **全量条数（含 stale）+ 1**，由写面单点推导——walker MUST NOT 自
+/// 推导、MUST NOT 取 `detail.pipeline` 条数（后者过滤 stale，回溯会导致 attempt
+/// 回退、节点身份键撞号）。该口径与 `phase_next` 的 `round`（窗口口径）是两个
+/// 不同口径，MUST NOT 合并。
+///
+/// 写失败 = store 坏 / 编程错误 → `Terminal::failed`（重启由启动标定处置残留
+/// `active_phase`），MUST NOT 虚构 attempt、MUST NOT 进入步循环。
+async fn enter_phase(
+    tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
+    request: &RunRequest,
+    phase: &str,
 ) -> Result<u32, Terminal> {
-    let phase = ctx.phase;
-    let outcome: Result<PhaseStartOutcome, Terminal> = run_tool(
-        ctx.tools,
-        ctx.guard,
-        &ctx.request.root,
+    let outcome: PhaseStartOutcome = run_tool(
+        tools,
+        guard,
+        &request.root,
         ToolCommand::PhaseStart {
-            change_id: ctx.request.change_id.clone(),
+            change_id: request.change_id.clone(),
             phase: phase.to_owned(),
         },
         "phase-start",
         None,
     )
-    .await;
-    match outcome {
-        Ok(outcome) => {
-            let instance_no = begin_node(
-                ctx.guard,
-                trace,
-                phase,
-                outcome.attempt,
-                ChangeStepKind::PhaseStart,
-                cursor.entry_kind,
-            );
-            emit_node(
-                ctx.guard,
-                phase,
-                outcome.attempt,
-                ChangeStepKind::PhaseStart,
-                instance_no,
-                StepSettle::passed(Some(format!("attempt {} 已开跑", outcome.attempt))),
-            );
-            Ok(outcome.attempt)
-        }
-        Err(terminal) => {
-            let instance_no = begin_node(
-                ctx.guard,
-                trace,
-                phase,
-                0,
-                ChangeStepKind::PhaseStart,
-                cursor.entry_kind,
-            );
-            emit_node(
-                ctx.guard,
-                phase,
-                0,
-                ChangeStepKind::PhaseStart,
-                instance_no,
-                StepSettle::failed(Some("开相失败".to_owned())),
-            );
-            Err(terminal)
-        }
-    }
+    .await?;
+    Ok(outcome.attempt)
 }
 
 /// initialize Clean 步（vcs 直调先例同归档 git 步，不经 ToolCommand 枚举）：
@@ -685,9 +708,9 @@ async fn step_clean(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Clean;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     if ctx.request.root == ctx.request.main_root {
-        settle_archive_node(
+        close_step(
             ctx,
             cursor,
             kind,
@@ -708,7 +731,7 @@ async fn step_clean(
         .restore_baseline(Path::new(&ctx.request.root), &exclusion_refs)
     {
         Ok(summary) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -727,58 +750,130 @@ async fn step_clean(
     }
 }
 
-/// initialize legacy 短路落账（skipped=true + 空 checklist + 跳过因）：PhaseLog
-/// 节点 emit + 写面落账——skipped 条目与 pass 一次性持久同语义（写面
-/// `has_phase_passed` 谓词两者皆认），后续 run 持久跳过；三会话槽位恒 `None`
-///（零 agent 会话）。Clean / StaticCheck / TestExecution 三步零执行。
-async fn step_initialize_skipped_phase_log(
-    ctx: &StepContext<'_>,
-    trace: &mut EdgeTrace,
-    cursor: &PhaseCursor,
-) -> Result<(), Terminal> {
-    let instance_no = begin_node(
-        ctx.guard,
-        trace,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::PhaseLog,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        ctx.guard,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::running(),
-    );
-    let logged = run_phase_log(
-        ctx.tools,
-        ctx.guard,
-        ctx.request,
-        PhaseLogInput {
-            phase: ctx.phase.to_owned(),
-            report: TXT_SKIP_LEGACY_INITIALIZE.to_owned(),
-            checklist: Vec::new(),
-            skipped: true,
-            executor_session_id: None,
-            evaluator_session_id: None,
-            decision_session_id: None,
-        },
-    )
-    .await?;
-    emit_node(
-        ctx.guard,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::passed(Some(format!(
-            "attempt {} 已落账（skipped：{TXT_SKIP_LEGACY_INITIALIZE}）",
-            logged.attempt
-        ))),
-    );
-    Ok(())
+/// 相位收口形态（单入口三形态）：三形态共用同一落账单点（`run_phase_log` +
+/// `active_phase` 清位，单事务），零 emit、零审计。
+enum PhaseSettle<'a> {
+    /// 正常收口：三分流取自 [`PhaseCursor`]（机械双槽 / evaluator checklist / 空
+    /// checklist）
+    Pass,
+    /// 门禁升格与归档步失败：代写 fail checklist
+    Fail(PhaseFail<'a>),
+    /// legacy initialize 整相位短路：`skipped=true` + 跳过因
+    Skipped(&'a str),
+}
+
+/// fail 落账载荷（`PhaseSettle::Fail` 的条目面）：`item` 为 checklist 条目标题，
+/// `report` ≤ 写面 `MAX_REPORT_CHARS`（装配侧截断），`evidence` 为诊断摘要。
+struct PhaseFail<'a> {
+    item: &'a str,
+    report: String,
+    evidence: String,
+    executor_session: Option<String>,
+}
+
+/// 相位收口（相位机固定动作，非计划步、非图节点）：单入口三形态 → 落账（单事务
+/// 含 `active_phase` 清位）→ 回写 `cursor.failed`。**零 emit、零审计**。
+///
+/// 落账失败保留原 `status`（`Stopped` 不降级为 `Failed`）而按形态重写 `reason`：
+/// 节点侧仍是全绿（它们确实都通过了），用户靠 reason 前缀定位「收口未落库」——
+/// MUST NOT 与「相位内步骤系统异常」的文案混同（后者是红节点路径）。
+async fn settle_phase(
+    tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
+    request: &RunRequest,
+    cursor: &mut PhaseCursor,
+    phase: &str,
+    settle: PhaseSettle<'_>,
+) -> Result<u32, Terminal> {
+    // 形态判定与载荷装配（Pass 的三分流按「产物在否」分离，逐字沿用既有落账：
+    // test-execution 相位走机械 checklist 双槽 → 评估相位走 evaluator checklist
+    // → 二者皆无（archive）走空 checklist，`derive_verdict([]) = Pass`，零
+    // `phase == archive` 特判）
+    let (label, failed, input) = match settle {
+        PhaseSettle::Pass => {
+            let (input, failed) = take_phase_log_input(cursor, phase);
+            ("全部步通过但落账失败", failed, input)
+        }
+        PhaseSettle::Fail(fail) => (
+            "门禁失败落账失败",
+            true,
+            PhaseLogInput {
+                phase: phase.to_owned(),
+                report: fail.report,
+                checklist: vec![ChecklistItem {
+                    item: fail.item.to_owned(),
+                    pass: false,
+                    evidence: fail.evidence,
+                }],
+                skipped: false,
+                executor_session_id: fail.executor_session,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        ),
+        PhaseSettle::Skipped(reason) => (
+            "跳过落账失败",
+            false,
+            PhaseLogInput {
+                phase: phase.to_owned(),
+                report: reason.to_owned(),
+                checklist: Vec::new(),
+                skipped: true,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        ),
+    };
+    let outcome = run_phase_log(tools, guard, request, input)
+        .await
+        .map_err(|terminal| Terminal {
+            status: terminal.status,
+            reason: Some(format!(
+                "相位 {phase} {label}: {}",
+                terminal.reason.unwrap_or_default()
+            )),
+        })?;
+    cursor.failed = failed;
+    Ok(outcome.attempt)
+}
+
+/// `PhaseSettle::Pass` 的三分流载荷装配（返回载荷 + 本相位是否 fail）。
+///
+/// ① `test_outcome` 在场 → 机械 checklist（含 mutation 双槽）；② 否则
+/// `evaluator_turn` 在场 → 该 turn 的 checklist；③ 两者皆无（archive）→ 空
+/// checklist（`derive_verdict([]) = Pass` 即「相位已 pass」标记，非评估证据面）。
+fn take_phase_log_input(cursor: &mut PhaseCursor, phase: &str) -> (PhaseLogInput, bool) {
+    if let Some(outcome) = cursor.test_outcome.take() {
+        let mutation = cursor.mutation_outcome.take();
+        let input = test_execution_phase_log_input(phase, &outcome, mutation.as_ref());
+        return (input, false);
+    }
+    let Some(turn) = cursor.evaluator_turn.take() else {
+        return (
+            PhaseLogInput {
+                phase: phase.to_owned(),
+                report: String::new(),
+                checklist: Vec::new(),
+                skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+            false,
+        );
+    };
+    let failed = turn.checklist.verdict == Verdict::Fail;
+    let input = PhaseLogInput {
+        phase: phase.to_owned(),
+        report: turn.checklist.report,
+        checklist: turn.checklist.checklist,
+        skipped: false,
+        executor_session_id: cursor.executor_session.clone(),
+        evaluator_session_id: Some(turn.outcome.session_id),
+        decision_session_id: None,
+    };
+    (input, failed)
 }
 
 /// ③ executor 步：本相位 executor 会话（prompt 由写面 phase-next 单点组装——
@@ -807,17 +902,18 @@ async fn step_executor(
         None,
         trace,
         EdgeKind::Forward,
+        SettleMode::Immediate,
     )
     .await?;
-    cursor.executor_session = Some(outcome.session_id);
+    cursor.executor_session = Some(outcome.outcome.session_id);
     cursor.executor_level = executor.model_level;
     Ok(())
 }
 
 /// ④ static-check 步：门禁 spawn + 定向反馈边（步声明 `OnFail::FeedbackLoop`，
 /// 独立计数 ≤ limit）——失败诊断 Continue 注入同一 executor 会话修复重跑（新
-/// `instance_no` 节点 + `feedback` 边）；超限升格相位 fail（桌面代写 fail
-/// phase-log，不跑 evaluator），回 phase-next 进重试 / 决策分叉。
+/// `instance_no` 节点 + `feedback` 边）；超限升格相位 fail（经相位收口代写 fail
+/// checklist，不跑 evaluator），回 phase-next 进重试 / 决策分叉。
 ///
 /// **fault 先于结论**：产出带 `fault` 时早退——`Environment` → 节点 failed +
 /// `Terminal::failed`（零 worker 调用、零 fail phase_log、不进决策重试）；`Stopped`
@@ -829,8 +925,8 @@ async fn step_static_check(
     step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
     // initialize 相位声明 `on_fail=Terminal`（基线绿门：失败即停——无反馈边、
-    // 零 agent 会话可注入，重试基线无意义）→ 单发执行体（verdict-gate Terminal
-    // 前置分支同式先例）；缺省相位走反馈边路径不受影响
+    // 零 agent 会话可注入，重试基线无意义）→ 单发执行体；缺省相位走反馈边路径
+    // 不受影响
     if step.on_fail == Some(OnFail::Terminal) {
         return step_static_check_terminal(ctx, trace, cursor).await;
     }
@@ -912,11 +1008,9 @@ async fn step_static_check(
             step_gate_fail_phase_log(
                 ctx.tools,
                 ctx.guard,
-                trace,
                 ctx.request,
+                cursor,
                 ctx.phase,
-                cursor.attempt,
-                cursor.executor_session.as_deref(),
                 GateFailLog {
                     item: "静态检查",
                     reason: "静态检查反馈边超限（连续修复未通过），相位升格 fail",
@@ -924,7 +1018,6 @@ async fn step_static_check(
                 },
             )
             .await?;
-            cursor.failed = true;
             return Ok(StepFlow::Upgraded);
         }
         feedback += 1;
@@ -947,9 +1040,10 @@ async fn step_static_check(
             cursor.executor_session.clone(),
             trace,
             EdgeKind::Feedback,
+            SettleMode::Immediate,
         )
         .await?;
-        cursor.executor_session = Some(fix.session_id);
+        cursor.executor_session = Some(fix.outcome.session_id);
     }
 }
 
@@ -1061,17 +1155,16 @@ async fn step_test_execution_escalate(
         StepSettle::failed(Some(diagnose_brief(&outcome.findings_brief)))
             .with_output_ref(Some(outcome.exec_id.clone())),
     );
-    step_test_execution_upgraded_phase_log(
+    let fail = test_execution_fail(&outcome);
+    settle_phase(
         ctx.tools,
         ctx.guard,
-        trace,
         ctx.request,
+        cursor,
         ctx.phase,
-        cursor.attempt,
-        &outcome,
+        PhaseSettle::Fail(fail),
     )
     .await?;
-    cursor.failed = true;
     Ok(StepFlow::Upgraded)
 }
 
@@ -1165,7 +1258,7 @@ async fn step_static_check_terminal(
 /// initialize 相位 test-execution 单发执行体（`on_fail=Terminal` 前置分支分派）：
 /// 单节点 running → spawn（baseline 槽位）→ pass / Error / Fail 三态收口。
 /// pass：`passed` + 计数 detail + `output_ref` 回填，`cursor.test_outcome` 挂载
-///（PhaseLog 机械 checklist 分支天然分派）后 Proceed；Error / Fail：failed 节点
+///（相位收口机械 checklist 分支天然分派）后 Proceed；Error / Fail：failed 节点
 /// + `Terminal::failed` 分文案（环境 / 测试红可辨，携 baseline 报告目录）。
 ///
 /// **fault 先于结论**：环境错误走 `TXT_ENV_TEST`（不落基线红 / 基线错误文案），
@@ -1380,17 +1473,16 @@ async fn step_mutation_test_escalate(
     );
     // 首败升格（桌面代写 fail 落账，不跑 evaluator、零修复会话；三会话槽位恒
     // None），随后回 phase-next 进决策分叉
-    step_mutation_test_upgraded_phase_log(
+    let fail = mutation_test_fail(&outcome);
+    settle_phase(
         ctx.tools,
         ctx.guard,
-        trace,
         ctx.request,
+        cursor,
         ctx.phase,
-        cursor.attempt,
-        &outcome,
+        PhaseSettle::Fail(fail),
     )
     .await?;
-    cursor.failed = true;
     Ok(StepFlow::Upgraded)
 }
 
@@ -1478,11 +1570,9 @@ async fn step_archi_check(
             step_gate_fail_phase_log(
                 ctx.tools,
                 ctx.guard,
-                trace,
                 ctx.request,
+                cursor,
                 ctx.phase,
-                cursor.attempt,
-                cursor.executor_session.as_deref(),
                 GateFailLog {
                     item: "架构检查",
                     reason: "架构漂移门禁反馈边超限（连续修复未通过），相位升格 fail",
@@ -1490,7 +1580,6 @@ async fn step_archi_check(
                 },
             )
             .await?;
-            cursor.failed = true;
             return Ok(StepFlow::Upgraded);
         }
         feedback += 1;
@@ -1515,12 +1604,22 @@ async fn step_archi_check(
             cursor.executor_session.clone(),
             trace,
             EdgeKind::Feedback,
+            SettleMode::Immediate,
         )
         .await?;
-        cursor.executor_session = Some(fix.session_id);
+        cursor.executor_session = Some(fix.outcome.session_id);
     }
 }
 
+/// evaluator 步（含 verdict 裁决内化）：会话以 `SettleMode::Deferred` 跑，先过会
+/// 话状态面（系统异常仍落红节点 / 停止节点 + `Terminal`），再过业务面——读
+/// `finalized` 的 `FinishPayload::Evaluator(checklist)` 臂即「本步 passed、携
+/// verdict」并写 `cursor.evaluator_turn`（会话结果与收口载荷同源）；缺席即与本实
+/// 例 failed + `Terminal::failed`（零反馈边重试、零独立门步），成因文案按「输出被
+/// 截断」与「未调用 finish_step」两态分列。
+///
+/// **收口判定先于终态拍**（`Deferred` 的语义）：`Completed` 但无载荷 = 业务失败，
+/// MUST NOT 复用 `worker_settle` 的 passed（那会先 emit passed 再被 failed 覆盖）。
 async fn step_evaluator(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -1533,7 +1632,7 @@ async fn step_evaluator(
         )));
     };
     let eval_prompt = evaluator_prompt(&evaluator.prompt);
-    let outcome = run_worker(
+    let turn = run_worker(
         ctx.worker,
         ctx.guard,
         ctx.request,
@@ -1546,82 +1645,54 @@ async fn step_evaluator(
         None,
         trace,
         EdgeKind::Forward,
+        SettleMode::Deferred,
     )
     .await?;
-    cursor.eval_outcome = Some(outcome);
-    Ok(())
-}
-
-/// verdict 门（单一裁决）：evaluator 步以 `finish_step` 收口后，本步读
-/// `WorkerTurnOutcome.finalized` 取结构化载荷——`Some(Evaluator(..))` 即 pass 并
-/// 交 PhaseLog 落账；缺席即终态 `Terminal::failed`（零反馈边重试、零升格落账），
-/// 成因文案按「输出被截断」与「未调用 finish_step」两态分列。
-async fn step_verdict_gate(
-    ctx: &StepContext<'_>,
-    trace: &mut EdgeTrace,
-    cursor: &mut PhaseCursor,
-) -> Result<StepFlow, Terminal> {
-    let instance_no = begin_node(
-        ctx.guard,
-        trace,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::VerdictGate,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        ctx.guard,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::VerdictGate,
+    let WorkerTurn {
+        mut outcome,
         instance_no,
-        StepSettle::running(),
-    );
-    let Some(outcome) = &cursor.eval_outcome else {
+    } = turn;
+    let (settle, terminal) = worker_settle(&outcome);
+    if let Some(terminal) = terminal {
         emit_node(
             ctx.guard,
             ctx.phase,
             cursor.attempt,
-            ChangeStepKind::VerdictGate,
+            ChangeStepKind::Evaluator,
             instance_no,
-            StepSettle::failed(Some("缺 evaluator 收口产物".to_owned())),
+            with_turn(settle, &outcome),
         );
-        return Err(Terminal::failed(format!(
-            "phase \"{}\" 计划步漂移：VerdictGate 步缺 evaluator 收口产物",
-            ctx.phase
-        )));
-    };
-    match outcome.finalized.as_ref() {
-        Some(FinishPayload::Evaluator(checklist)) => {
-            emit_node(
-                ctx.guard,
-                ctx.phase,
-                cursor.attempt,
-                ChangeStepKind::VerdictGate,
-                instance_no,
-                StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
-            );
-            cursor.verdict = Some(checklist.clone());
-            Ok(StepFlow::Proceed)
-        }
-        // `None` = 未收口（含截断终局）；`Decision` 臂在 evaluator 步理论不可达
-        _ => {
-            let reason = if truncated(&outcome.transcript) {
-                "评估输出被截断（output_truncated），未产生 finish_step 收口产物"
-            } else {
-                "未调用 finish_step 收口（相位 evaluator 会话 Completed 但无收口载荷）"
-            };
-            emit_node(
-                ctx.guard,
-                ctx.phase,
-                cursor.attempt,
-                ChangeStepKind::VerdictGate,
-                instance_no,
-                StepSettle::failed(Some(diagnose_brief(reason))),
-            );
-            Err(Terminal::failed(reason.to_owned()))
-        }
+        return Err(terminal);
     }
+    let Some(FinishPayload::Evaluator(checklist)) = outcome.finalized.take() else {
+        let reason = if truncated(&outcome.transcript) {
+            "评估输出被截断（output_truncated），未产生 finish_step 收口产物"
+        } else {
+            "未调用 finish_step 收口（相位 evaluator 会话 Completed 但无收口载荷）"
+        };
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::Evaluator,
+            instance_no,
+            with_turn(StepSettle::failed(Some(diagnose_brief(reason))), &outcome),
+        );
+        return Err(Terminal::failed(reason.to_owned()));
+    };
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::Evaluator,
+        instance_no,
+        with_turn(
+            StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
+            &outcome,
+        ),
+    );
+    cursor.evaluator_turn = Some(EvaluatorTurn { outcome, checklist });
+    Ok(())
 }
 
 /// 截断成因判定：转录含 `output_truncated` notice 即真（只影响失败文案，不影响
@@ -1633,118 +1704,6 @@ fn truncated(transcript: &[agent::AgentEvent]) -> bool {
             agent::AgentEventKind::SystemNotice { subtype, .. } if subtype == "output_truncated"
         )
     })
-}
-
-/// ⑧ phase-log 步：桌面代写落账（写通道唯一——经写面进程内直调）。三分流按
-/// 「产物在否」分离：test-execution 相位走机械 checklist（绿跑零 agent 会话）→
-/// 无评估产物的确定性相位（archive）走空 checklist（`derive_verdict([]) = Pass`）
-/// → 其余相位走 verdict 解析产物（executor + evaluator 双槽位随行，decision
-/// 槽位归 decision-log 单点挂账恒缺省）。
-async fn step_phase_log(
-    ctx: &StepContext<'_>,
-    trace: &mut EdgeTrace,
-    cursor: &mut PhaseCursor,
-) -> Result<(), Terminal> {
-    let instance_no = begin_node(
-        ctx.guard,
-        trace,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::PhaseLog,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        ctx.guard,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::running(),
-    );
-    if let Some(outcome) = cursor.test_outcome.take() {
-        let mutation = cursor.mutation_outcome.take();
-        let logged = run_phase_log(
-            ctx.tools,
-            ctx.guard,
-            ctx.request,
-            test_execution_phase_log_input(ctx.phase, &outcome, mutation.as_ref()),
-        )
-        .await?;
-        emit_node(
-            ctx.guard,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::PhaseLog,
-            instance_no,
-            StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
-        );
-        cursor.failed = false;
-        return Ok(());
-    }
-    let Some(checklist) = cursor.verdict.take() else {
-        // 无评估产物（archive 确定性相位：无 TestExecution / Evaluator /
-        // VerdictGate step）→ 空 checklist 落账：`derive_verdict([]) = Pass` 即
-        // 「相位已 pass」标记（非评估证据面）。三分流按「产物在否」天然分离
-        //（test_outcome 分支在前、verdict 分支在后），零 `phase == archive` 特判。
-        let logged = run_phase_log(
-            ctx.tools,
-            ctx.guard,
-            ctx.request,
-            PhaseLogInput {
-                phase: ctx.phase.to_owned(),
-                report: String::new(),
-                checklist: Vec::new(),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .await?;
-        emit_node(
-            ctx.guard,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::PhaseLog,
-            instance_no,
-            StepSettle::passed(Some(format!(
-                "attempt {} 已落账（空 checklist）",
-                logged.attempt
-            ))),
-        );
-        cursor.failed = false;
-        return Ok(());
-    };
-    let evaluator_session = cursor
-        .eval_outcome
-        .as_ref()
-        .map(|outcome| outcome.session_id.clone());
-    let failed = checklist.verdict == Verdict::Fail;
-    let logged = run_phase_log(
-        ctx.tools,
-        ctx.guard,
-        ctx.request,
-        PhaseLogInput {
-            phase: ctx.phase.to_owned(),
-            report: checklist.report,
-            checklist: checklist.checklist,
-            skipped: false,
-            executor_session_id: cursor.executor_session.clone(),
-            evaluator_session_id: evaluator_session,
-            decision_session_id: None,
-        },
-    )
-    .await?;
-    emit_node(
-        ctx.guard,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
-    );
-    cursor.failed = failed;
-    Ok(())
 }
 
 /// 门禁步反馈边上限读取（**步声明单点**）：缺声明 / 误声明即计划图漂移——
@@ -1767,8 +1726,8 @@ fn feedback_limit(step: &StepDefinition, label: &str) -> Result<u32, Terminal> {
     }
 }
 
-/// phase-log 落账单点（写通道唯一：落账经写面进程内直调）；步状态行 emit 归调
-/// 用方。
+/// 相位落账单点（写通道唯一：落账经写面进程内直调）；零步状态行 emit——落账是
+/// 相位机固定动作，不是可观测步。
 async fn run_phase_log(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
@@ -1802,64 +1761,36 @@ struct GateFailLog<'a> {
     diagnostics: &'a str,
 }
 
-/// 升格落账：桌面代写 fail checklist（门禁反馈边超限），随后回 phase-next
-/// 进重试 / 决策分叉。fail 条目仅携 executor 槽位（反馈边续注同一 executor 会
-/// 话，id 稳定；evaluator 未跑）。static-check 与 archi-check 两条反馈边共用本
-/// 单点（文案经 [`GateFailLog`] 参数化，MUST NOT 复制第二份）。
-#[allow(clippy::too_many_arguments)]
+/// 门禁反馈边升格落账：装配 [`PhaseFail`] 后交相位收口动作代写 fail checklist
+/// （`PhaseSettle::Fail`），随后回 phase-next 进重试 / 决策分叉。fail 条目仅携
+/// executor 槽位（反馈边续注同一 executor 会话，id 稳定；evaluator 未跑）。
+/// static-check 与 archi-check 两条反馈边共用本单点（文案经 [`GateFailLog`] 参数
+/// 化，MUST NOT 复制第二份）。
 async fn step_gate_fail_phase_log(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
-    trace: &mut EdgeTrace,
     request: &RunRequest,
+    cursor: &mut PhaseCursor,
     phase: &str,
-    attempt: u32,
-    executor_session: Option<&str>,
     fail: GateFailLog<'_>,
 ) -> Result<(), Terminal> {
-    let instance_no = begin_node(
-        guard,
-        trace,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::running(),
-    );
-    let logged = run_phase_log(
+    // 先绑局部变量再传入：同一表达式内既 `&mut cursor` 又读 `cursor.executor_session`
+    // 会撞借用检查（签名 MUST NOT 改成 `&PhaseCursor`——那会逼出整包 clone）
+    let fail = PhaseFail {
+        item: fail.item,
+        report: fail.reason.to_owned(),
+        evidence: fail.diagnostics.to_owned(),
+        executor_session: cursor.executor_session.clone(),
+    };
+    settle_phase(
         tools,
         guard,
         request,
-        PhaseLogInput {
-            phase: phase.to_owned(),
-            report: fail.reason.to_owned(),
-            checklist: vec![ChecklistItem {
-                item: fail.item.to_owned(),
-                pass: false,
-                evidence: fail.diagnostics.to_owned(),
-            }],
-            skipped: false,
-            executor_session_id: executor_session.map(ToOwned::to_owned),
-            evaluator_session_id: None,
-            decision_session_id: None,
-        },
+        cursor,
+        phase,
+        PhaseSettle::Fail(fail),
     )
     .await?;
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
-    );
     Ok(())
 }
 
@@ -1948,35 +1879,10 @@ fn mutation_report_refs(outcome: &MutationTestOutcome) -> String {
     outcome.report_paths.join("、")
 }
 
-/// 首败升格落账（零会话）：report 携完整明细（≤2000，供决策 prompt 的失败
-/// 报告段），evidence 携诊断摘要 + 报告目录；三会话槽位恒 `None`（本相位零
-/// agent 会话，决策会话槽位由 `decision-log` 另行挂账）。随后回 phase-next 进
-/// 决策分叉。
-async fn step_test_execution_upgraded_phase_log(
-    tools: &Arc<dyn ToolStepPort>,
-    guard: &RunGuard,
-    trace: &mut EdgeTrace,
-    request: &RunRequest,
-    phase: &str,
-    attempt: u32,
-    outcome: &TestExecutionOutcome,
-) -> Result<(), Terminal> {
-    let instance_no = begin_node(
-        guard,
-        trace,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::running(),
-    );
+/// 首败升格落账载荷（零会话）：report 携完整明细（≤2000，供决策 prompt 的失败
+/// 报告段），evidence 携诊断摘要 + 报告目录；executor 槽位恒 `None`（相位零
+/// agent 会话）。
+fn test_execution_fail(outcome: &TestExecutionOutcome) -> PhaseFail<'static> {
     // report 携完整明细（空兜底结论行）+ 报告目录；evidence 携诊断摘要 + 报告目录
     let detail = if outcome.findings_detail.trim().is_empty() {
         format!(
@@ -1987,68 +1893,22 @@ async fn step_test_execution_upgraded_phase_log(
     } else {
         outcome.findings_detail.clone()
     };
-    let logged = run_phase_log(
-        tools,
-        guard,
-        request,
-        PhaseLogInput {
-            phase: phase.to_owned(),
-            report: truncate_report(&detail),
-            checklist: vec![ChecklistItem {
-                item: "测试执行".to_owned(),
-                pass: false,
-                evidence: format!(
-                    "{}；报告目录 {}",
-                    diagnose_brief(&outcome.findings_brief),
-                    outcome.report_dir
-                ),
-            }],
-            skipped: false,
-            executor_session_id: None,
-            evaluator_session_id: None,
-            decision_session_id: None,
-        },
-    )
-    .await?;
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
-    );
-    Ok(())
+    PhaseFail {
+        item: "测试执行",
+        report: truncate_report(&detail),
+        evidence: format!(
+            "{}；报告目录 {}",
+            diagnose_brief(&outcome.findings_brief),
+            outcome.report_dir
+        ),
+        executor_session: None,
+    }
 }
 
-/// 首败升格落账（零会话，两时点同式）：report 携完整反馈文本（≤2000，供决策
-/// prompt 的失败报告段），evidence 携诊断摘要 + 报告路径清单；三会话槽位恒
-/// `None`。随后回 phase-next 进决策分叉。
-async fn step_mutation_test_upgraded_phase_log(
-    tools: &Arc<dyn ToolStepPort>,
-    guard: &RunGuard,
-    trace: &mut EdgeTrace,
-    request: &RunRequest,
-    phase: &str,
-    attempt: u32,
-    outcome: &MutationTestOutcome,
-) -> Result<(), Terminal> {
-    let instance_no = begin_node(
-        guard,
-        trace,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::running(),
-    );
+/// 首败升格落账载荷（零会话，两时点同式）：report 携完整反馈文本（≤2000，供决策
+/// prompt 的失败报告段），evidence 携诊断摘要 + 报告路径清单；executor 槽位恒
+/// `None`。
+fn mutation_test_fail(outcome: &MutationTestOutcome) -> PhaseFail<'static> {
     // report 携完整反馈文本（空兜底结论行）+ 报告路径清单；evidence 携诊断摘要 +
     // 报告路径清单（零改写原文，供决策 agent 直读）
     let mutation_refs = mutation_report_refs(outcome);
@@ -2061,38 +1921,16 @@ async fn step_mutation_test_upgraded_phase_log(
     } else {
         outcome.feedback_text.clone()
     };
-    let logged = run_phase_log(
-        tools,
-        guard,
-        request,
-        PhaseLogInput {
-            phase: phase.to_owned(),
-            report: truncate_report(&detail),
-            checklist: vec![ChecklistItem {
-                item: "突变测试".to_owned(),
-                pass: false,
-                evidence: format!(
-                    "{}；{}",
-                    diagnose_brief(&outcome.feedback_text),
-                    mutation_refs
-                ),
-            }],
-            skipped: false,
-            executor_session_id: None,
-            evaluator_session_id: None,
-            decision_session_id: None,
-        },
-    )
-    .await?;
-    emit_node(
-        guard,
-        phase,
-        attempt,
-        ChangeStepKind::PhaseLog,
-        instance_no,
-        StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
-    );
-    Ok(())
+    PhaseFail {
+        item: "突变测试",
+        report: truncate_report(&detail),
+        evidence: format!(
+            "{}；{}",
+            diagnose_brief(&outcome.feedback_text),
+            mutation_refs
+        ),
+        executor_session: None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2101,9 +1939,10 @@ async fn step_mutation_test_upgraded_phase_log(
 // 失败一律 Terminal——相位表 `on_fail = None`，不唤决策、不进相位重试）
 // ---------------------------------------------------------------------------
 
-/// 归档步起点：分配实例号 + 落 incoming 边 + emit 运行中节点（git / 内联步与
-/// 条件短路分支共用；agent 步节点由 [`run_worker`] 单点 emit）。
-fn begin_archive_node(
+/// 步节点起点（与 [`close_step`] 成对）：分配实例号 + 落 incoming 边 + emit 运行
+/// 中节点（git / 内联步与条件短路分支共用；agent 步节点由 [`run_worker`] 单点
+/// emit）。
+fn open_step(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
     cursor: &PhaseCursor,
@@ -2128,9 +1967,9 @@ fn begin_archive_node(
     instance_no
 }
 
-/// 归档步收口（passed 携通过 / 跳过摘要，failed 携失败记因；同实例身份键就地
+/// 步节点收口（passed 携通过 / 跳过摘要，failed 携失败记因；同实例身份键就地
 /// 合并）。
-fn settle_archive_node(
+fn close_step(
     ctx: &StepContext<'_>,
     cursor: &PhaseCursor,
     kind: ChangeStepKind,
@@ -2168,7 +2007,7 @@ async fn step_preflight(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Preflight;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     let payload: ArchivePreflight = match run_tool(
         ctx.tools,
         ctx.guard,
@@ -2183,7 +2022,7 @@ async fn step_preflight(
     {
         Ok(payload) => payload,
         Err(terminal) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -2206,7 +2045,7 @@ async fn step_preflight(
                 Ok(merged) => merged,
                 Err(error) => {
                     let reason = format!("分支合入判定失败: {error}");
-                    settle_archive_node(
+                    close_step(
                         ctx,
                         cursor,
                         kind,
@@ -2221,7 +2060,7 @@ async fn step_preflight(
                     "worktree 目录不存在（可能已被手动删除）: {worktree}；\
                      请恢复目录，或手动将分支 {branch} 合入主仓后重试归档"
                 );
-                settle_archive_node(
+                close_step(
                     ctx,
                     cursor,
                     kind,
@@ -2244,7 +2083,7 @@ async fn step_preflight(
         .filter(|path| Path::new(path).is_dir())
     {
         if let Err(reason) = check_rebase_halfway(ctx.vcs.as_ref(), worktree) {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -2255,7 +2094,7 @@ async fn step_preflight(
         }
     }
     let brief = preflight_brief(&payload);
-    settle_archive_node(
+    close_step(
         ctx,
         cursor,
         kind,
@@ -2311,11 +2150,11 @@ async fn step_commit(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Commit;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     let (name, worktree) = match archive_context(cursor) {
         Ok(context) => context,
         Err(terminal) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -2339,7 +2178,7 @@ async fn step_commit(
                 Ok(()) => StepSettle::passed(Some(format!("worktree 已提交（{message}）"))),
                 Err(error) => {
                     let reason = format!("worktree 提交失败: {error}");
-                    settle_archive_node(
+                    close_step(
                         ctx,
                         cursor,
                         kind,
@@ -2351,7 +2190,7 @@ async fn step_commit(
             }
         }
     };
-    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    close_step(ctx, cursor, kind, instance_no, settle);
     Ok(())
 }
 
@@ -2365,11 +2204,11 @@ async fn step_rebase(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Rebase;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     let (name, worktree) = match archive_context(cursor) {
         Ok(context) => context,
         Err(terminal) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -2434,7 +2273,7 @@ async fn step_rebase(
             }
         }
     };
-    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    close_step(ctx, cursor, kind, instance_no, settle);
     Ok(())
 }
 
@@ -2446,11 +2285,11 @@ async fn step_merge(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Merge;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     let (name, worktree) = match archive_context(cursor) {
         Ok(context) => context,
         Err(terminal) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -2485,7 +2324,7 @@ async fn step_merge(
             }
         }
     };
-    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    close_step(ctx, cursor, kind, instance_no, settle);
     Ok(())
 }
 
@@ -2511,7 +2350,7 @@ fn fail_archive_node(
     instance_no: u32,
     reason: String,
 ) -> Terminal {
-    settle_archive_node(
+    close_step(
         ctx,
         cursor,
         kind,
@@ -2531,7 +2370,7 @@ fn fail_archive_step(
     kind: ChangeStepKind,
     reason: String,
 ) -> Terminal {
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     fail_archive_node(ctx, cursor, kind, instance_no, reason)
 }
 
@@ -2553,8 +2392,8 @@ async fn step_resolve_conflicts(
     let conflicts = cursor.rebase_conflicts.clone().unwrap_or_default();
     if conflicts.is_empty() {
         // 无冲突（含 legacy 跳过 / 已合入幂等跳过形态）：零 agent 会话
-        let instance_no = begin_archive_node(ctx, trace, cursor, kind);
-        settle_archive_node(
+        let instance_no = open_step(ctx, trace, cursor, kind);
+        close_step(
             ctx,
             cursor,
             kind,
@@ -2626,6 +2465,7 @@ async fn step_resolve_conflicts(
             None,
             trace,
             EdgeKind::Forward,
+            SettleMode::Immediate,
         )
         .await;
         if let Err(terminal) = turn {
@@ -2884,8 +2724,8 @@ async fn step_spec_sync(
         .map(|preflight| preflight.delta_specs.len())
         .unwrap_or(0);
     if delta_specs == 0 {
-        let instance_no = begin_archive_node(ctx, trace, cursor, kind);
-        settle_archive_node(
+        let instance_no = open_step(ctx, trace, cursor, kind);
+        close_step(
             ctx,
             cursor,
             kind,
@@ -2895,8 +2735,8 @@ async fn step_spec_sync(
         return Ok(());
     }
     if !cursor.sync_specs {
-        let instance_no = begin_archive_node(ctx, trace, cursor, kind);
-        settle_archive_node(
+        let instance_no = open_step(ctx, trace, cursor, kind);
+        close_step(
             ctx,
             cursor,
             kind,
@@ -2918,6 +2758,7 @@ async fn step_spec_sync(
         None,
         trace,
         EdgeKind::Forward,
+        SettleMode::Immediate,
     )
     .await?;
     Ok(())
@@ -2935,11 +2776,11 @@ async fn step_cleanup(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Cleanup;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     let (_, worktree) = match archive_context(cursor) {
         Ok(context) => context,
         Err(terminal) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -2961,14 +2802,14 @@ async fn step_cleanup(
             {
                 Ok(()) => StepSettle::passed(Some(format!("已移除 worktree（{path}）"))),
                 // 尽力步：失败仅 detail 警告（err 已含路径与手动清理指引），
-                // 步恒 passed、Seal / Finalize / PhaseLog 照常续走
+                // 步恒 passed、Seal / Finalize / 相位收口照常续走
                 Err(error) => StepSettle::passed(Some(format!(
                     "worktree 清理失败（尽力步，不影响归档收口）: {error}"
                 ))),
             }
         }
     };
-    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    close_step(ctx, cursor, kind, instance_no, settle);
     Ok(())
 }
 
@@ -2981,7 +2822,7 @@ async fn step_seal(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Seal;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     let outcome: ArchiveOutcome = match run_tool(
         ctx.tools,
         ctx.guard,
@@ -2996,7 +2837,7 @@ async fn step_seal(
     {
         Ok(outcome) => outcome,
         Err(terminal) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -3006,7 +2847,7 @@ async fn step_seal(
             return Err(terminal);
         }
     };
-    settle_archive_node(
+    close_step(
         ctx,
         cursor,
         kind,
@@ -3027,11 +2868,11 @@ async fn step_finalize(
     cursor: &mut PhaseCursor,
 ) -> Result<(), Terminal> {
     let kind = ChangeStepKind::Finalize;
-    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let instance_no = open_step(ctx, trace, cursor, kind);
     let name = match archive_context(cursor) {
         Ok((name, _)) => name,
         Err(terminal) => {
-            settle_archive_node(
+            close_step(
                 ctx,
                 cursor,
                 kind,
@@ -3043,7 +2884,7 @@ async fn step_finalize(
     };
     let Some(sealed) = cursor.seal_outcome.clone() else {
         let reason = "archive 相位计划步漂移：Finalize 步缺 Seal 步双写产物".to_owned();
-        settle_archive_node(
+        close_step(
             ctx,
             cursor,
             kind,
@@ -3081,7 +2922,7 @@ async fn step_finalize(
     } else {
         StepSettle::passed(Some(TXT_SKIP_FINALIZED.to_owned()))
     };
-    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    close_step(ctx, cursor, kind, instance_no, settle);
     Ok(())
 }
 
@@ -3156,30 +2997,6 @@ async fn resolve_deadlock(
 
     match action {
         DecisionAction::Backtrack { to, reason } => {
-            let retry_instance = begin_node(
-                guard,
-                trace,
-                fail_phase,
-                input.attempt,
-                ChangeStepKind::RetryGate,
-                EdgeKind::Forward,
-            );
-            emit_node(
-                guard,
-                fail_phase,
-                input.attempt,
-                ChangeStepKind::RetryGate,
-                retry_instance,
-                StepSettle::running(),
-            );
-            emit_node(
-                guard,
-                fail_phase,
-                input.attempt,
-                ChangeStepKind::RetryGate,
-                retry_instance,
-                StepSettle::passed(Some(format!("决策 backtrack → {to}"))),
-            );
             let backtrack: Result<BacktrackOutcome, Terminal> = run_tool(
                 tools,
                 guard,
@@ -3200,14 +3017,6 @@ async fn resolve_deadlock(
             .await;
             match backtrack {
                 Ok(_) => {
-                    emit_node(
-                        guard,
-                        fail_phase,
-                        input.attempt,
-                        ChangeStepKind::RetryGate,
-                        retry_instance,
-                        StepSettle::passed(Some("回溯已落账，回 phase-next 重路由".to_owned())),
-                    );
                     // 目标相位首节点 incoming 边 kind = backtrack（跨相位回跳，区
                     // 别于计划序推进）
                     trace.incoming = Some(EdgeKind::Backtrack);
@@ -3223,26 +3032,27 @@ async fn resolve_deadlock(
         DecisionAction::Ask { .. } => {
             // ask 在决策会话内已被 `wait_answer` 循环消化（应答后开新一轮决策
             // 会话）；携出会话外的 ask 到这里即编排漂移
-            Deadlock::Terminal(Terminal::failed(
-                "决策漂移：ask 动作未被应答循环消化".to_owned(),
-            ))
+            Deadlock::Terminal(Terminal::failed(TXT_ASK_UNCONSUMED.to_owned()))
         }
     }
 }
 
 /// 决策会话：单轮收口为常态（`finish_step` 一调即本 step 结束）。每轮跑一次
-/// 会话 → `decision-log` 幂等挂账（置于动作裁决**之前**——stop / 驳回路径同样
-/// 留痕）→ 读 `finalized`：
+/// 会话（`SettleMode::Deferred`）→ `decision-log` 幂等挂账（置于动作裁决**之前**
+/// ——stop / 驳回路径同样留痕）→ 会话状态面 → 读 `finalized`：
 ///
-/// - `Ask` → emit `RunUpdate::Ask` → `wait_answer`（取消置位 → `stopped`）→ 以
-///   同一会话 `Continue` 开下一轮（prompt = [`decision_answer_prompt`]）——ask
-///   轮不计任何失败 / 漂移，也不 emit `WhitelistGate`（未产生动作裁决）；
-/// - 其余动作 → emit 一个 `WhitelistGate` 节点 → `ensure_backtrack_allowed`
-///   判定：通过即返回动作，越权**一次即** `Terminal::failed`（文案携 `allowed`）；
-/// - 缺席 → `Terminal::failed`（成因文案区分截断 / 未收口）。
+/// - `Ask` → emit `RunUpdate::Ask` → `wait_answer`（取消置位 → `stopped`）→ 同
+///   实例 passed（`detail` 携问答摘要，用户驱动的停等不计失败）→ 以同一会话
+///   `Continue` 开下一轮（prompt = [`decision_answer_prompt`]；新轮为
+///   `instance_no` 递增的 decision 节点，轮数可由实例数直读）；
+/// - 其余动作 → `ensure_backtrack_allowed` 判定后**在同一 decision 节点实例**收
+///   口：通过即 passed + 动作摘要（`backtrack → <to>` / `stop：<reason>`），越权
+///   即 failed + 拒因（携 `allowed`）并由调用方**一次即** `Terminal::failed`；
+/// - 缺席 → 同实例 failed + `Terminal::failed`（成因文案区分截断 / 未收口）。
 ///
-/// 协议层纠错全部在工具内闭合（is_error 当场回灌），本函数无软拒环、无跨轮
-/// 漂移计数。
+/// 动作裁决不经独立 gate 节点（`WhitelistGate` / `RetryGate` 新写面零产出），
+/// 留痕由节点 `detail` 承载。协议层纠错全部在工具内闭合（is_error 当场回灌），
+/// 本函数无软拒环、无跨轮漂移计数。
 async fn decision_session(
     worker: &Arc<dyn WorkerAgentPort>,
     tools: &Arc<dyn ToolStepPort>,
@@ -3254,7 +3064,7 @@ async fn decision_session(
     let mut prompt = decision_prompt(input);
     let mut continue_session: Option<String> = None;
     loop {
-        let outcome = run_worker(
+        let turn = run_worker(
             worker,
             guard,
             request,
@@ -3268,8 +3078,13 @@ async fn decision_session(
             continue_session.clone(),
             trace,
             EdgeKind::Forward,
+            SettleMode::Deferred,
         )
         .await?;
+        let WorkerTurn {
+            mut outcome,
+            instance_no,
+        } = turn;
         let session_id = outcome.session_id.clone();
         // 决策会话槽位挂账（写面单点：最新 eval 条目定点改写，幂等覆写）
         let _: DecisionLogOutcome = run_tool(
@@ -3285,15 +3100,56 @@ async fn decision_session(
             None,
         )
         .await?;
-        let action = match outcome.finalized {
+        // 会话状态面：系统异常（Failed / Stopped / Running 漂移）仍落红节点 /
+        // 停止节点 + Terminal，MUST NOT 被业务分支吞成 passed
+        let (settle, terminal) = worker_settle(&outcome);
+        if let Some(terminal) = terminal {
+            emit_node(
+                guard,
+                &input.phase,
+                input.attempt,
+                ChangeStepKind::Decision,
+                instance_no,
+                with_turn(settle, &outcome),
+            );
+            return Err(terminal);
+        }
+        let action = match outcome.finalized.take() {
             Some(FinishPayload::Decision(DecisionAction::Ask { question, options })) => {
                 guard.emit(RunUpdate::Ask {
                     question: question.clone(),
                     options: options.clone(),
                 });
                 match guard.wait_answer().await {
-                    None => return Err(Terminal::stopped("ask 停等被终止")),
+                    None => {
+                        emit_node(
+                            guard,
+                            &input.phase,
+                            input.attempt,
+                            ChangeStepKind::Decision,
+                            instance_no,
+                            with_turn(
+                                StepSettle::stopped(Some("ask 停等被终止".to_owned())),
+                                &outcome,
+                            ),
+                        );
+                        return Err(Terminal::stopped("ask 停等被终止"));
+                    }
                     Some(answer) => {
+                        emit_node(
+                            guard,
+                            &input.phase,
+                            input.attempt,
+                            ChangeStepKind::Decision,
+                            instance_no,
+                            with_turn(
+                                StepSettle::passed(Some(format!(
+                                    "ask：{}",
+                                    diagnose_brief(&question)
+                                ))),
+                                &outcome,
+                            ),
+                        );
                         // ask 停等在会话之外闭合：应答开启新一轮决策会话（resume
                         // 全史），新轮同样以 `finish_step` 收口
                         prompt = decision_answer_prompt(&answer);
@@ -3302,11 +3158,20 @@ async fn decision_session(
                     }
                 }
             }
+            // Ask 的两路（应答 → continue 新一轮 / 终止 → Err）都在上一臂内闭合，
+            // 故落此处的动作恒为 Backtrack / Stop（Ask 的防线见下方 detail 组装）
             Some(FinishPayload::Decision(action)) => action,
             Some(FinishPayload::Evaluator(_)) => {
-                return Err(Terminal::failed(
-                    "决策会话返回 evaluator 收口载荷（相位表角色漂移）".to_owned(),
-                ))
+                let reason = "决策会话返回 evaluator 收口载荷（相位表角色漂移）".to_owned();
+                emit_node(
+                    guard,
+                    &input.phase,
+                    input.attempt,
+                    ChangeStepKind::Decision,
+                    instance_no,
+                    with_turn(StepSettle::failed(Some(reason.clone())), &outcome),
+                );
+                return Err(Terminal::failed(reason));
             }
             None => {
                 let reason = if truncated(&outcome.transcript) {
@@ -3314,35 +3179,46 @@ async fn decision_session(
                 } else {
                     "未调用 finish_step 收口（决策会话 Completed 但无收口载荷）"
                 };
-                return Err(Terminal::failed(reason.to_owned()));
-            }
-        };
-        // 每轮动作裁决 emit 一个门节点实例（通过 passed / 驳回 failed 携拒绝文案）
-        let gate_instance = begin_node(
-            guard,
-            trace,
-            &input.phase,
-            input.attempt,
-            ChangeStepKind::WhitelistGate,
-            EdgeKind::Forward,
-        );
-        emit_node(
-            guard,
-            &input.phase,
-            input.attempt,
-            ChangeStepKind::WhitelistGate,
-            gate_instance,
-            StepSettle::running(),
-        );
-        return match ensure_backtrack_allowed(&action, &input.phase, &input.allowed) {
-            Ok(()) => {
                 emit_node(
                     guard,
                     &input.phase,
                     input.attempt,
-                    ChangeStepKind::WhitelistGate,
-                    gate_instance,
-                    StepSettle::passed(None),
+                    ChangeStepKind::Decision,
+                    instance_no,
+                    with_turn(StepSettle::failed(Some(diagnose_brief(reason))), &outcome),
+                );
+                return Err(Terminal::failed(reason.to_owned()));
+            }
+        };
+        // 动作裁决写同一 decision 节点实例的 detail（不另立 gate 节点）
+        return match ensure_backtrack_allowed(&action, &input.phase, &input.allowed) {
+            Ok(()) => {
+                let detail = match &action {
+                    DecisionAction::Backtrack { to, .. } => format!("backtrack → {to}"),
+                    DecisionAction::Stop { reason } => format!("stop：{reason}"),
+                    // Ask 两路（应答 → continue 新一轮 / 终止 → Err）都在上一臂内
+                    // 闭合，故此处不可达；按编排漂移处理并收口本实例，不留 running
+                    // 节点（文案与 `resolve_deadlock` 的同名漂移臂一致）
+                    DecisionAction::Ask { .. } => {
+                        let reason = TXT_ASK_UNCONSUMED.to_owned();
+                        emit_node(
+                            guard,
+                            &input.phase,
+                            input.attempt,
+                            ChangeStepKind::Decision,
+                            instance_no,
+                            with_turn(StepSettle::failed(Some(reason.clone())), &outcome),
+                        );
+                        return Err(Terminal::failed(reason));
+                    }
+                };
+                emit_node(
+                    guard,
+                    &input.phase,
+                    input.attempt,
+                    ChangeStepKind::Decision,
+                    instance_no,
+                    with_turn(StepSettle::passed(Some(detail)), &outcome),
                 );
                 Ok(action)
             }
@@ -3351,9 +3227,9 @@ async fn decision_session(
                     guard,
                     &input.phase,
                     input.attempt,
-                    ChangeStepKind::WhitelistGate,
-                    gate_instance,
-                    StepSettle::failed(Some(diagnose_brief(&message))),
+                    ChangeStepKind::Decision,
+                    instance_no,
+                    with_turn(StepSettle::failed(Some(diagnose_brief(&message))), &outcome),
                 );
                 Err(Terminal::failed(format!("决策越权：{message}")))
             }
@@ -3432,11 +3308,83 @@ fn build_decision_input(
 // 共用执行面
 // ---------------------------------------------------------------------------
 
+/// 会话收口时机（`run_worker` 形参）：`Immediate` 由 `run_worker` 自收口（缺省
+/// 语义，其余会话步）；`Deferred` 只发 running 拍、终态由调用方在收口载荷判定
+/// 之后 emit（evaluator / decision 两会话步——它们的终态取决于 `finalized` 是否
+/// 在场，先 emit passed 再发现无载荷会自相矛盾）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettleMode {
+    Immediate,
+    Deferred,
+}
+
+/// 会话轮产出（`Deferred` 调用方据 `instance_no` 在同实例上补终态拍）。
+struct WorkerTurn {
+    outcome: WorkerTurnOutcome,
+    instance_no: u32,
+}
+
+/// 会话状态面分类单点（`Completed` → passed 无终态；`Failed` / `Stopped` /
+/// `Running` 漂移 → 对应终态拍 + `Terminal`）。`Immediate` 与 `Deferred` 两路
+/// 共用同一份判据与文案，MUST NOT 出现第二份。
+fn worker_settle(outcome: &WorkerTurnOutcome) -> (StepSettle, Option<Terminal>) {
+    match outcome.status {
+        AgentRunStatus::Completed => (StepSettle::passed(None), None),
+        AgentRunStatus::Failed => {
+            // 失败成因随行（api_error 记因 / TurnDone subtype 兜底）：步 detail
+            // 与 run 终态同文携真因；缺席回落通用文案
+            let reason = match failure_reason(&outcome.transcript) {
+                Some(cause) => format!("会话失败收敛: {}", diagnose_brief(&cause)),
+                None => "会话失败收敛".to_owned(),
+            };
+            (
+                StepSettle::failed(Some(reason.clone())),
+                Some(Terminal::failed(reason)),
+            )
+        }
+        AgentRunStatus::Stopped => (
+            StepSettle::stopped(Some("会话被终止".to_owned())),
+            Some(Terminal::stopped("会话被终止")),
+        ),
+        AgentRunStatus::Running => {
+            let reason = "会话收口缺终态".to_owned();
+            (
+                StepSettle::failed(Some(reason.clone())),
+                Some(Terminal::failed(reason)),
+            )
+        }
+    }
+}
+
+/// 本步 token 增量单点：对 `transcript` 的 TurnDone usage 求 in / out 两键之和
+///（`await` 收口后 transcript 已含 TurnDone——终态单次落值即会话结束后累计结果，
+/// 无二次刷新通道）；usage 缺席 → None。
+fn worker_tokens(outcome: &WorkerTurnOutcome) -> (Option<u64>, Option<u64>) {
+    (
+        sum_usage_tokens(&outcome.transcript, "input_tokens"),
+        sum_usage_tokens(&outcome.transcript, "output_tokens"),
+    )
+}
+
+/// 会话终态拍组装：状态面 settle 随行会话 id 与 token 两值（[`worker_tokens`] 的
+/// 单点消费面）。`Immediate` 的 `run_worker` 与 `Deferred` 的各调用方共用此一处，
+/// MUST NOT 在调用侧再手写 `.with_session(..).with_tokens(..)`。
+fn with_turn(settle: StepSettle, outcome: &WorkerTurnOutcome) -> StepSettle {
+    let (token_input, token_output) = worker_tokens(outcome);
+    settle
+        .with_session(Some(outcome.session_id.clone()))
+        .with_tokens(token_input, token_output)
+}
+
 /// WorkerAgent 会话执行（三类角色统一通道）：bypassPermissions 恒档、
 /// provenance（change id / 相位 / 角色 / attempt 四段；身份段恒 change id）、取消与
 /// 会话失败收敛终态。
 /// 步状态随行 emit（running → passed / failed / stopped，同实例身份键就地合并）；
 /// 会话 id 槽由命令层 sink 桥随首个会话事件先行同步（停止寻址不依赖 turn 收口）。
+///
+/// `Immediate` 与既有语义逐字等价；`Deferred` 成功路径零终态 emit，返回
+/// [`WorkerTurn`] 交调用方收口（`worker.run` 的 `Err` 臂两模式都发 failed 节点并
+/// `Err`）。
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     worker: &Arc<dyn WorkerAgentPort>,
@@ -3451,7 +3399,8 @@ async fn run_worker(
     continue_session: Option<String>,
     trace: &mut EdgeTrace,
     incoming: EdgeKind,
-) -> Result<WorkerTurnOutcome, Terminal> {
+    mode: SettleMode,
+) -> Result<WorkerTurn, Terminal> {
     let kind = match role {
         WorkerRole::Executor => ChangeStepKind::Executor,
         WorkerRole::Evaluator => ChangeStepKind::Evaluator,
@@ -3501,51 +3450,26 @@ async fn run_worker(
             return Err(Terminal::failed(format!("会话执行失败: {error}")));
         }
     };
-    // 本步 token 增量：终态 emit 前对 transcript 的 TurnDone.usage 单次求和落值
-    //——终态单次落值即「会话结束后累计结果」（await 收口后 transcript 已含
-    // TurnDone），无二次刷新通道；无论 outcome.status 为 Completed / Failed /
-    // Stopped / Running 漂移收敛（transcript 在手即求和），usage 缺席 → None。
-    // Err 路径（无 outcome / 无 transcript）failed emit 不落值恒 None。
-    let token_input = sum_usage_tokens(&outcome.transcript, "input_tokens");
-    let token_output = sum_usage_tokens(&outcome.transcript, "output_tokens");
-    let (settle, terminal) = match outcome.status {
-        AgentRunStatus::Completed => (StepSettle::passed(None), None),
-        AgentRunStatus::Failed => {
-            // 失败成因随行（api_error 记因 / TurnDone subtype 兜底）：步 detail
-            // 与 run 终态同文携真因；缺席回落通用文案
-            let reason = match failure_reason(&outcome.transcript) {
-                Some(cause) => format!("会话失败收敛: {}", diagnose_brief(&cause)),
-                None => "会话失败收敛".to_owned(),
-            };
-            (
-                StepSettle::failed(Some(reason.clone())),
-                Some(Terminal::failed(reason)),
-            )
-        }
-        AgentRunStatus::Stopped => (
-            StepSettle::stopped(Some("会话被终止".to_owned())),
-            Some(Terminal::stopped("会话被终止")),
-        ),
-        AgentRunStatus::Running => {
-            let reason = "会话收口缺终态".to_owned();
-            (
-                StepSettle::failed(Some(reason.clone())),
-                Some(Terminal::failed(reason)),
-            )
-        }
-    };
+    if mode == SettleMode::Deferred {
+        return Ok(WorkerTurn {
+            outcome,
+            instance_no,
+        });
+    }
+    let (settle, terminal) = worker_settle(&outcome);
     emit_node(
         guard,
         phase,
         attempt,
         kind,
         instance_no,
-        settle
-            .with_session(Some(outcome.session_id.clone()))
-            .with_tokens(token_input, token_output),
+        with_turn(settle, &outcome),
     );
     match terminal {
-        None => Ok(outcome),
+        None => Ok(WorkerTurn {
+            outcome,
+            instance_no,
+        }),
         Some(terminal) => Err(terminal),
     }
 }
@@ -3783,4 +3707,374 @@ impl TryFrom<ToolStepOutput> for ArchiCheckOutcome {
             _ => Err(()),
         }
     }
+}
+
+/// 同 crate 测试探针（`#[cfg(test)]`）：`enter_phase` 的重入幂等与 attempt 口径
+/// 经 `walk_run` 整链不可观测（整链两次同相开相之间恒隔一次落账），故以薄包装
+/// 返回 `Result<u32, String>` 供 `walker_test` 直调——不泄漏私有 `Terminal`，生产
+/// 编译零参与（无 export 面变化）。
+#[cfg(test)]
+pub(crate) async fn enter_phase_for_test(
+    tools: &std::sync::Arc<dyn crate::port::ToolStepPort>,
+    guard: &crate::control::RunGuard,
+    request: &RunRequest,
+    phase: &str,
+) -> Result<u32, String> {
+    enter_phase(tools, guard, request, phase)
+        .await
+        .map_err(|terminal| terminal.reason.unwrap_or_default())
+}
+
+/// 相位收口形态探针入参（`PhaseSettle` 三形态外部不可构造，测试经本枚举
+/// 表达意图）。
+#[cfg(test)]
+pub(crate) enum SettleProbe {
+    Pass {
+        evaluator_turn: Option<Box<(WorkerTurnOutcome, EvaluatorChecklist)>>,
+        test_outcome: Option<Box<TestExecutionOutcome>>,
+        mutation_outcome: Option<Box<MutationTestOutcome>>,
+        executor_session: Option<String>,
+    },
+    Fail {
+        item: &'static str,
+        report: String,
+        evidence: String,
+        executor_session: Option<String>,
+    },
+    Skipped {
+        reason: &'static str,
+    },
+}
+
+/// 相位收口探针产出：返回值 + `cursor.failed` 回写面 + `evaluator_turn` 消费面。
+#[cfg(test)]
+pub(crate) struct SettleProbeView {
+    pub result: Result<u32, String>,
+    pub failed: bool,
+    pub evaluator_turn_taken: bool,
+    pub terminal_status: Option<ChangeRunStatus>,
+}
+
+#[cfg(test)]
+fn cursor_for_probe(
+    evaluator_turn: Option<EvaluatorTurn>,
+    test_outcome: Option<TestExecutionOutcome>,
+    mutation_outcome: Option<MutationTestOutcome>,
+    executor_session: Option<String>,
+) -> PhaseCursor {
+    PhaseCursor {
+        attempt: 0,
+        executor_session,
+        executor_level: ModelLevel::Low,
+        evaluator_turn,
+        test_outcome,
+        mutation_outcome,
+        preflight: None,
+        rebase_conflicts: None,
+        sync_specs: true,
+        seal_outcome: None,
+        failed: false,
+    }
+}
+
+/// 相位收口直调探针：三形态逐分支可达（`walk_run` 整链内 `Pass` 的两条机械 /
+/// evaluator 分支依赖上下文产物、`Fail` / `Skipped` 的落账失败前缀不可注入，故
+/// 需绕步循环直取）。
+#[cfg(test)]
+pub(crate) async fn settle_phase_probe(
+    tools: &std::sync::Arc<dyn crate::port::ToolStepPort>,
+    guard: &crate::control::RunGuard,
+    request: &RunRequest,
+    phase: &str,
+    probe: SettleProbe,
+) -> SettleProbeView {
+    let (mut cursor, settle) = match probe {
+        SettleProbe::Pass {
+            evaluator_turn,
+            test_outcome,
+            mutation_outcome,
+            executor_session,
+        } => (
+            cursor_for_probe(
+                evaluator_turn.map(|turn| {
+                    let (outcome, checklist) = *turn;
+                    EvaluatorTurn { outcome, checklist }
+                }),
+                test_outcome.map(|outcome| *outcome),
+                mutation_outcome.map(|outcome| *outcome),
+                executor_session,
+            ),
+            PhaseSettle::Pass,
+        ),
+        SettleProbe::Fail {
+            item,
+            report,
+            evidence,
+            executor_session,
+        } => (
+            cursor_for_probe(None, None, None, executor_session.clone()),
+            PhaseSettle::Fail(PhaseFail {
+                item,
+                report,
+                evidence,
+                executor_session,
+            }),
+        ),
+        SettleProbe::Skipped { reason } => (
+            cursor_for_probe(None, None, None, None),
+            PhaseSettle::Skipped(reason),
+        ),
+    };
+    let had_turn = cursor.evaluator_turn.is_some();
+    let outcome = settle_phase(tools, guard, request, &mut cursor, phase, settle).await;
+    let (result, terminal_status) = match outcome {
+        Ok(attempt) => (Ok(attempt), None),
+        Err(terminal) => (
+            Err(terminal.reason.unwrap_or_default()),
+            Some(terminal.status),
+        ),
+    };
+    SettleProbeView {
+        result,
+        failed: cursor.failed,
+        evaluator_turn_taken: had_turn && cursor.evaluator_turn.is_none(),
+        terminal_status,
+    }
+}
+
+/// 会话状态面分类探针产出（`StepSettle` 字段私有，故经 `emit_node` 落一拍后从
+/// 快照面读取终态行）。
+#[cfg(test)]
+pub(crate) struct WorkerSettleProbeView {
+    pub step_status: Option<crate::state::ChangeStepStatus>,
+    pub detail: Option<String>,
+    pub session_id: Option<String>,
+    pub token_input: Option<u64>,
+    pub token_output: Option<u64>,
+    pub terminal_status: Option<ChangeRunStatus>,
+    pub terminal_reason: Option<String>,
+}
+
+/// 会话状态面分类探针（四臂逐文案 + 会话 id / token 随行）。
+#[cfg(test)]
+pub(crate) fn worker_settle_probe(outcome: &WorkerTurnOutcome) -> WorkerSettleProbeView {
+    let control = std::sync::Arc::new(crate::control::ChangeFlowControl::new());
+    let guard = control
+        .begin_run(PROBE_ROOT, PROBE_CHANGE, "probe-run".to_owned(), 0)
+        .expect("探针登记 run 应成功");
+    let (settle, terminal) = worker_settle(outcome);
+    emit_node(
+        &guard,
+        "probe",
+        1,
+        ChangeStepKind::Evaluator,
+        0,
+        with_turn(settle, outcome),
+    );
+    let node = guard.nodes().into_iter().next();
+    WorkerSettleProbeView {
+        step_status: node.as_ref().map(|node| node.status),
+        detail: node.as_ref().and_then(|node| node.detail.clone()),
+        session_id: node.as_ref().and_then(|node| node.session_id.clone()),
+        token_input: node.as_ref().and_then(|node| node.token_input),
+        token_output: node.as_ref().and_then(|node| node.token_output),
+        terminal_status: terminal.as_ref().map(|terminal| terminal.status),
+        terminal_reason: terminal
+            .as_ref()
+            .and_then(|terminal| terminal.reason.clone()),
+    }
+}
+
+#[cfg(test)]
+const PROBE_ROOT: &str = "/probe-root";
+#[cfg(test)]
+const PROBE_CHANGE: &str = "probe-change";
+
+/// token 求和单点探针（in / out 两键）。
+#[cfg(test)]
+pub(crate) fn worker_tokens_probe(outcome: &WorkerTurnOutcome) -> (Option<u64>, Option<u64>) {
+    worker_tokens(outcome)
+}
+
+/// 会话执行探针：返回（会话产出，实例号）——`Deferred` 调用方据实例号在同实例
+/// 补终态拍的断言面。
+#[cfg(test)]
+pub(crate) async fn run_worker_probe(
+    worker: &std::sync::Arc<dyn crate::port::WorkerAgentPort>,
+    guard: &crate::control::RunGuard,
+    request: &RunRequest,
+    phase: &str,
+    attempt: u32,
+    role: crate::port::WorkerRole,
+    mode: SettleMode,
+) -> Result<(WorkerTurnOutcome, u32), String> {
+    let mut trace = EdgeTrace::default();
+    let turn = run_worker(
+        worker,
+        guard,
+        request,
+        PROBE_ROOT,
+        phase,
+        attempt,
+        role,
+        "探针 prompt".to_owned(),
+        ModelLevel::Low,
+        None,
+        &mut trace,
+        EdgeKind::Forward,
+        mode,
+    )
+    .await
+    .map_err(|terminal| terminal.reason.unwrap_or_default())?;
+    Ok((turn.outcome, turn.instance_no))
+}
+
+/// 升格失败载荷装配探针视图（`test_execution_fail` / `mutation_test_fail` 的
+/// 字段面；两函数产物不进图节点，需直取）。
+#[cfg(test)]
+pub(crate) struct PhaseFailProbeView {
+    pub item: String,
+    pub report: String,
+    pub evidence: String,
+    pub executor_session: Option<String>,
+}
+
+#[cfg(test)]
+pub(crate) fn test_execution_fail_probe(outcome: &TestExecutionOutcome) -> PhaseFailProbeView {
+    let fail = test_execution_fail(outcome);
+    PhaseFailProbeView {
+        item: fail.item.to_owned(),
+        report: fail.report,
+        evidence: fail.evidence,
+        executor_session: fail.executor_session,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn mutation_test_fail_probe(outcome: &MutationTestOutcome) -> PhaseFailProbeView {
+    let fail = mutation_test_fail(outcome);
+    PhaseFailProbeView {
+        item: fail.item.to_owned(),
+        report: fail.report,
+        evidence: fail.evidence,
+        executor_session: fail.executor_session,
+    }
+}
+
+/// `PhaseCursor::new` 中性值探针（字段私有，经视图读出）。
+#[cfg(test)]
+pub(crate) struct CursorNewProbeView {
+    pub attempt: u32,
+    pub executor_session: Option<String>,
+    pub evaluator_turn: Option<()>,
+    pub test_outcome: Option<()>,
+    pub mutation_outcome: Option<()>,
+    pub sync_specs: bool,
+    pub failed: bool,
+    pub executor_level_default: bool,
+}
+
+#[cfg(test)]
+pub(crate) fn phase_cursor_new_probe(
+    next: &PhaseNextOutcome,
+    sync_specs: bool,
+) -> CursorNewProbeView {
+    let cursor = PhaseCursor::new(next, sync_specs);
+    CursorNewProbeView {
+        attempt: cursor.attempt,
+        executor_session: cursor.executor_session,
+        evaluator_turn: cursor.evaluator_turn.as_ref().map(|_| ()),
+        test_outcome: cursor.test_outcome.as_ref().map(|_| ()),
+        mutation_outcome: cursor.mutation_outcome.as_ref().map(|_| ()),
+        sync_specs: cursor.sync_specs,
+        failed: cursor.failed,
+        executor_level_default: cursor.executor_level == ModelLevel::default(),
+    }
+}
+
+/// 步节点起收成对探针（`open_step` / `close_step` 语义）：返回两次 open 的实例号
+/// （同名步单点递增，自 0 起）。
+#[cfg(test)]
+pub(crate) fn open_close_step_probe(
+    worker: &std::sync::Arc<dyn crate::port::WorkerAgentPort>,
+    tools: &std::sync::Arc<dyn crate::port::ToolStepPort>,
+    vcs: &std::sync::Arc<dyn crate::port::ArchiveVcsPort>,
+    guard: &crate::control::RunGuard,
+    request: &RunRequest,
+    next: &PhaseNextOutcome,
+    phase: &str,
+) -> (u32, u32) {
+    let ctx = StepContext {
+        worker,
+        tools,
+        vcs,
+        guard,
+        request,
+        next,
+        phase,
+    };
+    let mut trace = EdgeTrace::default();
+    let cursor = PhaseCursor {
+        attempt: 1,
+        ..cursor_for_probe(None, None, None, None)
+    };
+    let first = open_step(&ctx, &mut trace, &cursor, ChangeStepKind::Commit);
+    close_step(
+        &ctx,
+        &cursor,
+        ChangeStepKind::Commit,
+        first,
+        StepSettle::passed(Some("提交完成".to_owned())),
+    );
+    let second = open_step(&ctx, &mut trace, &cursor, ChangeStepKind::Commit);
+    close_step(
+        &ctx,
+        &cursor,
+        ChangeStepKind::Commit,
+        second,
+        StepSettle::passed(None),
+    );
+    (first, second)
+}
+
+/// 未成对 `close_step` 探针：`instance_no` 未由 `open_step` 开出（调用方不变量
+/// 由成对书写保证），仍按身份键就地合并且不 panic——返回（节点数，边数）。
+#[cfg(test)]
+pub(crate) fn close_step_unopened_probe(
+    worker: &std::sync::Arc<dyn crate::port::WorkerAgentPort>,
+    tools: &std::sync::Arc<dyn crate::port::ToolStepPort>,
+    vcs: &std::sync::Arc<dyn crate::port::ArchiveVcsPort>,
+    guard: &crate::control::RunGuard,
+    request: &RunRequest,
+    next: &PhaseNextOutcome,
+    phase: &str,
+) -> (usize, usize) {
+    let ctx = StepContext {
+        worker,
+        tools,
+        vcs,
+        guard,
+        request,
+        next,
+        phase,
+    };
+    let cursor = PhaseCursor {
+        attempt: 1,
+        ..cursor_for_probe(None, None, None, None)
+    };
+    close_step(
+        &ctx,
+        &cursor,
+        ChangeStepKind::Commit,
+        7,
+        StepSettle::passed(Some("未成对收口".to_owned())),
+    );
+    close_step(
+        &ctx,
+        &cursor,
+        ChangeStepKind::Commit,
+        7,
+        StepSettle::failed(Some("同键再收口".to_owned())),
+    );
+    (guard.nodes().len(), guard.edges().len())
 }

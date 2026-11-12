@@ -806,14 +806,7 @@ fn build_run_history(tag: &str) -> Corpus {
         "首轮 dev-design 未过（预算内 fail）",
         t(19),
         &[
-            step(
-                "implement",
-                1,
-                ChangeStepKind::PhaseStart,
-                ChangeStepStatus::Passed,
-                None,
-                None,
-            ),
+            // 真实相位形态样本（implement 首个真实步起——开相零节点）
             step(
                 "implement",
                 1,
@@ -853,45 +846,25 @@ fn build_run_history(tag: &str) -> Corpus {
                 None,
                 Some("archi_check passed=true（报告 reports/archi）"),
             ),
+            // evaluator 步内裁决（verdict=… 落 detail——verdict_gate 节点零产出的
+            // 真实形态；其存量解码样本另见下方 legacy attempt 4）
             step(
                 "implement",
                 1,
                 ChangeStepKind::Evaluator,
                 ChangeStepStatus::Failed,
                 Some("ses-eval-1"),
-                Some("首轮评估 fail"),
+                Some("verdict=fail（未通过：组件表缺项）"),
             ),
-            step(
-                "implement",
-                1,
-                ChangeStepKind::VerdictGate,
-                ChangeStepStatus::Failed,
-                None,
-                Some("verdict=fail"),
-            ),
-            step(
-                "implement",
-                1,
-                ChangeStepKind::RetryGate,
-                ChangeStepStatus::Passed,
-                None,
-                Some("预算内同相位重跑"),
-            ),
+            // 决策分叉同实例收口（Decision 节点承载动作裁决；retry_gate /
+            // whitelist_gate 节点零产出）
             step(
                 "implement",
                 1,
                 ChangeStepKind::Decision,
                 ChangeStepStatus::Passed,
                 Some("ses-decision-1"),
-                None,
-            ),
-            step(
-                "implement",
-                1,
-                ChangeStepKind::WhitelistGate,
-                ChangeStepStatus::Passed,
-                None,
-                Some("回溯白名单内"),
+                Some("backtrack → dev-design"),
             ),
             step(
                 "dev-design",
@@ -910,21 +883,8 @@ fn build_run_history(tag: &str) -> Corpus {
                 None,
                 Some("conclusion=pass score=95 threshold=80"),
             ),
-            step(
-                "dev-design",
-                1,
-                ChangeStepKind::PhaseLog,
-                ChangeStepStatus::Passed,
-                None,
-                None,
-            ),
         ],
         &[
-            edge(
-                key("implement", 1, ChangeStepKind::PhaseStart, 0),
-                key("implement", 1, ChangeStepKind::Executor, 0),
-                EdgeKind::Forward,
-            ),
             edge(
                 key("implement", 1, ChangeStepKind::Executor, 0),
                 key("implement", 1, ChangeStepKind::StaticCheck, 0),
@@ -946,7 +906,7 @@ fn build_run_history(tag: &str) -> Corpus {
                 EdgeKind::Retry,
             ),
             edge(
-                key("implement", 1, ChangeStepKind::WhitelistGate, 0),
+                key("implement", 1, ChangeStepKind::Decision, 0),
                 key("dev-design", 1, ChangeStepKind::TestExecution, 0),
                 EdgeKind::Backtrack,
             ),
@@ -1046,6 +1006,173 @@ fn build_run_history(tag: &str) -> Corpus {
         ],
         &[],
     );
+    // run-4：**存量解码形态**样本（辅助步退场后的双口径之一）——实现 /
+    // 收口期之前的 run 里辅助步（phase_start / phase_log）与三门（verdict_gate /
+    // retry_gate / whitelist_gate）都曾产出节点；这些行仍留在旧库中，故词面与
+    // 解码路径 MUST 有语料覆盖（新写面零产出 ≠ 词面可删）。本 attempt 与上方
+    // 「真实相位形态」样本并列存在、互不替换：真实形态样本内零五词，本 attempt
+    // 内五词各至少一次。瞬步同刻形态（verdict_gate 的 `startedAt == endedAt`）
+    // 亦由本存量侧承载——新写面无瞬步生产例
+    corpus.run_start("id-run-history", "run-1727000040000", t(40));
+    corpus.run_finish(
+        "id-run-history",
+        "run-1727000040000",
+        RunStatus::Completed,
+        "存量解码形态样本：辅助步与三门节点齐备",
+        t(49),
+        &[
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::PhaseStart,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+                None,
+                t(64),
+                Some(t(64)),
+                None,
+                None,
+            ),
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-dd-exec-a4"),
+                Some("存量形态样本：实现完成"),
+                None,
+                t(65),
+                Some(t(66)),
+                Some(1_024),
+                Some(2_048),
+            ),
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::Evaluator,
+                ChangeStepStatus::Passed,
+                Some("ses-dd-eval-a4"),
+                Some("存量形态样本：评估通过"),
+                None,
+                t(67),
+                Some(t(68)),
+                None,
+                None,
+            ),
+            // 瞬步同刻样本（存量侧）：verdict_gate 单 emit 形态（started == ended）
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::VerdictGate,
+                ChangeStepStatus::Passed,
+                None,
+                Some("verdict=pass"),
+                None,
+                t(69),
+                Some(t(69)),
+                None,
+                None,
+            ),
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::RetryGate,
+                ChangeStepStatus::Passed,
+                None,
+                Some("预算内同相位重跑"),
+                None,
+                t(70),
+                Some(t(70)),
+                None,
+                None,
+            ),
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::Decision,
+                ChangeStepStatus::Passed,
+                Some("ses-dd-decision-a4"),
+                Some("stop：验收结论一致"),
+                None,
+                t(71),
+                Some(t(72)),
+                None,
+                None,
+            ),
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::WhitelistGate,
+                ChangeStepStatus::Passed,
+                None,
+                Some("回溯白名单内"),
+                None,
+                t(73),
+                Some(t(73)),
+                None,
+                None,
+            ),
+            step_metrics(
+                "dev-design",
+                4,
+                0,
+                ChangeStepKind::PhaseLog,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+                None,
+                t(74),
+                Some(t(74)),
+                None,
+                None,
+            ),
+        ],
+        &[
+            edge(
+                key("dev-design", 4, ChangeStepKind::PhaseStart, 0),
+                key("dev-design", 4, ChangeStepKind::Executor, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("dev-design", 4, ChangeStepKind::Executor, 0),
+                key("dev-design", 4, ChangeStepKind::Evaluator, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("dev-design", 4, ChangeStepKind::Evaluator, 0),
+                key("dev-design", 4, ChangeStepKind::VerdictGate, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("dev-design", 4, ChangeStepKind::VerdictGate, 0),
+                key("dev-design", 4, ChangeStepKind::RetryGate, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("dev-design", 4, ChangeStepKind::RetryGate, 0),
+                key("dev-design", 4, ChangeStepKind::Decision, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("dev-design", 4, ChangeStepKind::Decision, 0),
+                key("dev-design", 4, ChangeStepKind::WhitelistGate, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("dev-design", 4, ChangeStepKind::WhitelistGate, 0),
+                key("dev-design", 4, ChangeStepKind::PhaseLog, 0),
+                EdgeKind::Forward,
+            ),
+        ],
+    );
     corpus
 }
 
@@ -1126,10 +1253,11 @@ fn build_archive_prefix(tag: &str) -> Corpus {
         )],
         &[],
     );
-    // 归档相位 run 史样本（AC-6 语料半边）：archive 十一步节点（9 归档步词，含
-    // cleanup 尽力步样本 + PhaseStart / PhaseLog）整包喂入 + 串行 forward 边
-    //（零反馈 / 重试 / 回溯），git 步（commit / rebase / merge / cleanup /
-    // finalize）与 agent 步（resolve_conflicts / spec_sync）会话面可辨
+    // 归档相位 run 史样本（AC-7 / AC-11 语料半边）：archive **真实相位形态**九步
+    // 节点（辅助步退场后零 phase_start / phase_log——开相与落账是相位机固定动作，
+    // 不产节点）整包喂入 + 8 条串行 forward 边（零反馈 / 重试 / 回溯），git 步
+    //（commit / rebase / merge / cleanup / finalize）与 agent 步
+    //（resolve_conflicts / spec_sync）会话面可辨
     corpus.run_start("id-seeded-archived", "run-1727000041000", t(20));
     corpus.run_finish(
         "id-seeded-archived",
@@ -1138,14 +1266,6 @@ fn build_archive_prefix(tag: &str) -> Corpus {
         "archive phase landed an empty checklist verdict=pass",
         t(29),
         &[
-            step(
-                "archive",
-                1,
-                ChangeStepKind::PhaseStart,
-                ChangeStepStatus::Passed,
-                None,
-                None,
-            ),
             step(
                 "archive",
                 1,
@@ -1218,22 +1338,9 @@ fn build_archive_prefix(tag: &str) -> Corpus {
                 None,
                 Some("归档产物已落盘，无待提交路径（跳过）"),
             ),
-            step(
-                "archive",
-                1,
-                ChangeStepKind::PhaseLog,
-                ChangeStepStatus::Passed,
-                None,
-                Some("空 checklist 落账 verdict=pass"),
-            ),
         ],
         &[
             edge(
-                key("archive", 1, ChangeStepKind::PhaseStart, 0),
-                key("archive", 1, ChangeStepKind::Preflight, 0),
-                EdgeKind::Forward,
-            ),
-            edge(
                 key("archive", 1, ChangeStepKind::Preflight, 0),
                 key("archive", 1, ChangeStepKind::Commit, 0),
                 EdgeKind::Forward,
@@ -1271,11 +1378,6 @@ fn build_archive_prefix(tag: &str) -> Corpus {
             edge(
                 key("archive", 1, ChangeStepKind::Seal, 0),
                 key("archive", 1, ChangeStepKind::Finalize, 0),
-                EdgeKind::Forward,
-            ),
-            edge(
-                key("archive", 1, ChangeStepKind::Finalize, 0),
-                key("archive", 1, ChangeStepKind::PhaseLog, 0),
                 EdgeKind::Forward,
             ),
         ],
@@ -1931,8 +2033,8 @@ fn corpus归档前缀样本_golden对拍() {
             .is_some_and(Vec::is_empty),
         "空 checklist 落账样本"
     );
-    // 归档相位 run 史：十一步节点全词汇（9 归档步词（cleanup 尽力步样本在案）
-    // + PhaseStart / PhaseLog）
+    // 归档相位 run 史：**真实相位形态**九节点词逐字在案（零 phase_start /
+    // phase_log——开相与落账是相位机固定动作，不产节点）+ 8 条 forward 串行边
     let archive_run = runs
         .iter()
         .find(|run| run["runId"].as_str() == Some("run-1727000041000"))
@@ -1946,7 +2048,6 @@ fn corpus归档前缀样本_golden对拍() {
     assert_eq!(
         archive_steps,
         vec![
-            "phase_start",
             "preflight",
             "commit",
             "rebase",
@@ -1956,17 +2057,52 @@ fn corpus归档前缀样本_golden对拍() {
             "cleanup",
             "seal",
             "finalize",
-            "phase_log",
         ],
-        "归档十一步词逐字在案（含 git 步分类词面与 cleanup 尽力步样本）"
+        "归档九步词逐字在案（含 git 步分类词面与 cleanup 尽力步样本）"
     );
+    assert_eq!(
+        archive_steps.len(),
+        9,
+        "归档节点数严格 9（原 11 的旧 golden 即红）"
+    );
+    for retired in ["phase_start", "phase_log"] {
+        assert!(
+            !archive_steps.contains(&retired),
+            "归档真实形态样本不得含辅助步节点 {retired}"
+        );
+    }
+    // 位次边界：cleanup 介于 spec_sync 与 seal；seal 与 finalize 相邻
+    let pos = |word: &str| archive_steps.iter().position(|step| *step == word);
+    assert_eq!(
+        pos("cleanup"),
+        pos("spec_sync").map(|i| i + 1),
+        "cleanup 紧随 spec_sync"
+    );
+    assert_eq!(
+        pos("seal"),
+        pos("cleanup").map(|i| i + 1),
+        "seal 紧随 cleanup"
+    );
+    assert_eq!(
+        pos("finalize"),
+        pos("seal").map(|i| i + 1),
+        "finalize 紧随 seal"
+    );
+    let archive_edges = archive_run["edges"].as_array().expect("edges 为数组");
+    assert_eq!(archive_edges.len(), 8, "串行 forward 边八条");
     assert!(
-        archive_run["edges"]
-            .as_array()
-            .expect("edges 为数组")
+        archive_edges
             .iter()
             .all(|edge| edge["edgeKind"].as_str() == Some("forward")),
-        "归档串行边全 forward"
+        "归档串行边全 forward（零 backtrack / feedback / retry）"
+    );
+    assert_eq!(
+        archive_edges[0]["fromNodeKey"], "archive:1:preflight:0",
+        "首端点身份串逐字（相位入口不再是 phase_start 节点）"
+    );
+    assert_eq!(
+        archive_edges[7]["toNodeKey"], "archive:1:finalize:0",
+        "末端点身份串逐字（落账不再是 phase_log 节点）"
     );
     assert!(
         projection["artifacts"]
@@ -2020,10 +2156,11 @@ fn corpusworktree建档语料_golden对拍() {
     check_or_rewrite("corpus-worktree", &projection);
 }
 
-/// run 运行史全史语料：两次 run 全史 → detail `runs` / `nodes` / `edges` 投影
-/// golden（全史不截、emit 序稳定、十词汇零过滤、四 kind 边齐备、稳定实例键、
-/// 时间戳 ISO 出线——AC-3 / AC-4 / AC-6 / AC-10 矩阵）；全词汇在案断言（流程面
-/// 步骤与三门不再被过滤弃落）+ feedback 边与实例号递增在场断言。
+/// run 运行史全史语料：四次 run 全史 → detail `runs` / `nodes` / `edges` 投影
+/// golden（全史不截、emit 序稳定、二十二值词汇零过滤、四 kind 边齐备、稳定实例
+/// 键、时间戳 ISO 出线——AC-11 / AC-12 矩阵）；全词汇在案断言 + **双口径**断言
+///（真实相位形态样本 vs 存量解码形态样本并列、互不替换）+ feedback 边与实例号
+/// 递增在场断言。
 #[test]
 fn corpusrun全史语料_golden对拍() {
     let corpus = build_run_history("run-history-golden");
@@ -2049,8 +2186,8 @@ fn corpusrun全史语料_golden对拍() {
     let runs = projection["runs"].as_array().expect("runs 为数组");
     assert_eq!(
         runs.len(),
-        3,
-        "三 run 全史样本（run-3 = 步级时间与 token 两态样本，desktop-step-running-snapshot D11）"
+        4,
+        "四 run 全史样本（run-3 = 步级时间与 token 两态样本；run-4 = 存量解码形态五词样本）"
     );
     let mut nodes_seen = 0usize;
     let mut seen_words: Vec<&str> = Vec::new();
@@ -2069,12 +2206,48 @@ fn corpusrun全史语料_golden对拍() {
         }
     }
     assert_eq!(
-        nodes_seen, 17,
-        "run-1 十三条（含 archi_check 门禁步与 mutation_test 拆步新词样本）+ run-2 一条 + run-3 三条（两态样本），实际: {nodes_seen}"
+        nodes_seen, 20,
+        "run-1 八条（真实相位形态：无 phase_start / phase_log / 三门）+ run-2 一条 + run-3 三条（两态样本）+ run-4 八条（存量解码形态五词样本），实际: {nodes_seen}"
     );
     for word in FULL_WORDS {
         assert!(seen_words.contains(&word), "词汇 {word} 应在案（零过滤）");
     }
+
+    // 双口径并列（AC-12）：真实相位形态样本内零五词；存量解码形态样本内五词各
+    // 至少一次——两侧互不替换（任一侧被删 / 被替代即红）
+    const DECODE_ONLY_WORDS: [&str; 5] = [
+        "phase_start",
+        "phase_log",
+        "verdict_gate",
+        "retry_gate",
+        "whitelist_gate",
+    ];
+    let words_of_run = |idx: usize, runs: &[serde_json::Value]| -> Vec<String> {
+        runs[idx]["nodes"]
+            .as_array()
+            .expect("nodes 为数组")
+            .iter()
+            .map(|node| node["step"].as_str().expect("step 为串").to_owned())
+            .collect()
+    };
+    let real_form_words = words_of_run(0, runs);
+    let legacy_form_words = words_of_run(3, runs);
+    for word in DECODE_ONLY_WORDS {
+        assert!(
+            !real_form_words.iter().any(|seen| seen == word),
+            "真实相位形态样本不得含存量解码词 {word}"
+        );
+        assert!(
+            legacy_form_words.iter().any(|seen| seen == word),
+            "存量解码形态样本应含 {word}（旧库行解码回归面）"
+        );
+    }
+    // 身份键不撞号：两类样本的 (attempt, instanceNo) 无重叠
+    assert_ne!(
+        runs[0]["nodes"][0]["attempt"].as_u64(),
+        runs[3]["nodes"][0]["attempt"].as_u64(),
+        "真实形态与存量形态样本 attempt 不撞号"
+    );
     assert!(
         !projection["runs"][0]
             .as_object()
@@ -2114,8 +2287,14 @@ fn corpusrun全史语料_golden对拍() {
         .map(|node| node["instanceNo"].as_u64().expect("instanceNo 为数字"))
         .collect();
     assert_eq!(instances, vec![0, 1], "feedback 重跑实例号递增可辨");
+    let static_check_node = projection["runs"][0]["nodes"]
+        .as_array()
+        .expect("run-1 nodes")
+        .iter()
+        .find(|node| node["step"] == "static_check")
+        .expect("run-1 static_check 在案");
     assert_eq!(
-        projection["runs"][0]["nodes"][2]["outputRef"], "exec-1727000019000",
+        static_check_node["outputRef"], "exec-1727000019000",
         "outputRef 出线（ExecOutput::Recorded 引用）"
     );
 
@@ -3433,34 +3612,57 @@ fn 真件run写面回环_running行与三终态整包() {
 
 /// 步级时间与 token 两态样本（时间三态：正常起止双值 / 瞬步同刻 / running
 /// 收口在途 ended=None；token 两态：WorkerAgent 带值 / 工具步 None）经
-/// run-3 语料与全语料 nodes 深查在案；漂移守卫对投影与入仓 golden 双面深查
-/// runs[].nodes[] 四 camelCase 键在场。
+/// run-3 / run-4 语料与全语料 nodes 深查在案；漂移守卫对投影与入仓 golden 双面
+/// 深查 runs[].nodes[] 四 camelCase 键在场。瞬步同刻形态由**存量解码形态**样本
+///（run-4 的 `verdict_gate`）承载——辅助步退场后新写面无瞬步生产例。
 #[test]
 fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫() {
     let corpus = build_run_history("run-history-guard");
     let projection = project_detail(&corpus, "id-run-history");
     let runs = projection["runs"].as_array().expect("runs 数组");
-    assert_eq!(runs.len(), 3, "三 run 全史（run-3 两态样本）");
+    assert_eq!(
+        runs.len(),
+        4,
+        "四 run 全史（run-3 两态样本；run-4 存量解码形态）"
+    );
     let run3_nodes = runs[2]["nodes"].as_array().expect("nodes 数组");
     assert_eq!(run3_nodes.len(), 3, "run-3 三步：瞬步 / token 带值 / 在途");
+    let run4_nodes = runs[3]["nodes"].as_array().expect("nodes 数组");
 
     let find_node = |step: &str| -> serde_json::Value {
         run3_nodes
             .iter()
+            .chain(run4_nodes.iter())
             .find(|node| node["step"] == step)
-            .unwrap_or_else(|| panic!("run-3 应含 {step} 节点"))
+            .unwrap_or_else(|| panic!("应含 {step} 节点"))
             .clone()
     };
 
-    // 瞬步样本（verdict_gate）：startedAt == endedAt 同刻定值（0ms 形态入
-    // golden——两键同值非省键）；token 两键在场 null
-    let instant = find_node("verdict_gate");
-    assert_eq!(instant["startedAt"], serde_json::json!(1727000060000_i64));
+    // 瞬时样本（存量解码形态的 verdict_gate，run-4）：startedAt == endedAt 同刻
+    // 定值（0ms 形态入 golden——两键同值非省键）；token 两键在场 null
+    let instant = run4_nodes
+        .iter()
+        .find(|node| node["step"] == "verdict_gate")
+        .expect("run-4 verdict_gate 存量样本在案")
+        .clone();
+    assert_eq!(instant["startedAt"], serde_json::json!(1727000069000_i64));
     assert_eq!(
         instant["startedAt"], instant["endedAt"],
         "瞬步 started == ended 同刻定值"
     );
     assert!(instant["tokenInput"].is_null() && instant["tokenOutput"].is_null());
+
+    // 新写面零瞬步生产例（判据反转的证据）：真实相位形态样本（run-1 / run-2）
+    // 内无同刻节点
+    for run in &runs[..2] {
+        for node in run["nodes"].as_array().expect("nodes 数组") {
+            if let (Some(started), Some(ended)) =
+                (node["startedAt"].as_i64(), node["endedAt"].as_i64())
+            {
+                assert_ne!(started, ended, "真实相位形态样本不得出现同刻节点: {node}");
+            }
+        }
+    }
 
     // 正常起止双值步（executor）+ token 两值（WorkerAgent 步带值两态之一）
     let worker = find_node("executor");
@@ -3493,13 +3695,13 @@ fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫()
     );
     assert!(in_flight["tokenInput"].is_null());
 
-    // token 两态之二：工具步 None（run-1 任一 phase_start 行 tokenInput null）
-    let tool_node = runs[0]["nodes"]
+    // token 两态之二：工具步 None（存量解码形态的 phase_start 行 tokenInput null）
+    let tool_node = runs[3]["nodes"]
         .as_array()
-        .expect("run-1 nodes")
+        .expect("run-4 nodes")
         .iter()
         .find(|node| node["step"] == "phase_start")
-        .expect("run-1 phase_start 在案");
+        .expect("run-4 存量形态 phase_start 在案");
     assert!(
         tool_node["tokenInput"].is_null(),
         "工具步 tokenInput null 两态在案"
@@ -3565,7 +3767,7 @@ fn corpus归档前缀语料_节点四键漂移守卫() {
             nodes_seen += 1;
         }
     }
-    assert_eq!(nodes_seen, 12, "归档前缀语料 12 节点全查（多节点规模锚）");
+    assert_eq!(nodes_seen, 10, "归档前缀语料 10 节点全查（多节点规模锚）");
 
     let golden_text = fs::read_to_string(golden_dir().join("corpus-archive-prefix.json"))
         .expect("读 golden 失败");
@@ -3797,16 +3999,9 @@ fn build_initialize(tag: &str) -> Corpus {
         })
         .expect("落账失败");
 
-    // initialize run 五节点整包（clean 词样本 + 串行 forward 边）
+    // initialize run **真实相位形态**三节点整包（clean 词样本 + 串行 forward 边）：
+    // 辅助步退场后开相 / 落账零节点（相位机固定动作，写面不产执行图节点）
     let nodes = [
-        step(
-            "initialize",
-            1,
-            ChangeStepKind::PhaseStart,
-            ChangeStepStatus::Passed,
-            None,
-            None,
-        ),
         step(
             "initialize",
             1,
@@ -3830,14 +4025,6 @@ fn build_initialize(tag: &str) -> Corpus {
             ChangeStepStatus::Passed,
             None,
             Some("conclusion=pass total=12 passed=10 failed=0 skipped=2"),
-        ),
-        step(
-            "initialize",
-            1,
-            ChangeStepKind::PhaseLog,
-            ChangeStepStatus::Passed,
-            None,
-            None,
         ),
     ];
     let edges: Vec<ChangeStepEdge> = nodes
@@ -3871,9 +4058,10 @@ fn build_initialize(tag: &str) -> Corpus {
     corpus
 }
 
-/// initialize 语料 golden 对拍：pass + skipped 两形态条目出线（skipped 读侧
-/// 透出——呈现面零结构改动前提）、clean 步词节点样本在案（二十一值词汇随动、
-/// 串行 forward 边序逐位）。
+/// initialize 语料 golden 对拍（AC-11）：pass + skipped 两形态条目出线（skipped
+/// 读侧透出——呈现面零结构改动前提）、**真实相位形态**三节点（clean /
+/// static_check / test_execution，零 phase_start / phase_log）+ 两条串行 forward
+/// 边；缺席断言与节点总数严格判据防「旧 golden 静默通过」。
 #[test]
 fn corpusinitialize语料_golden对拍() {
     let corpus = build_initialize("initialize-golden");
@@ -3910,29 +4098,60 @@ fn corpusinitialize语料_golden对拍() {
         "跳过因落账可见"
     );
 
-    // runs：clean 词节点样本在案 + 串行 forward 边序逐位
+    // runs：真实相位形态三节点样本在案 + 串行 forward 边序逐位
     let runs = projection["runs"].as_array().expect("runs 为数组");
     assert_eq!(runs.len(), 1);
     let nodes = runs[0]["nodes"].as_array().expect("nodes 数组");
+    assert_eq!(nodes.len(), 3, "真实形态样本节点数严格 3（多一即红）");
     let words: Vec<&str> = nodes
         .iter()
         .map(|node| node["step"].as_str().expect("step 出线词"))
         .collect();
     assert_eq!(
         words,
-        [
-            "phase_start",
-            "clean",
-            "static_check",
-            "test_execution",
-            "phase_log"
-        ],
-        "initialize 五节点词面逐位（clean 新词样本在案）"
+        ["clean", "static_check", "test_execution"],
+        "initialize 三节点词面逐位（真实相位形态，clean 词样本在案）"
     );
+    // 缺席断言：辅助步退场后本样本零 phase_start / phase_log 节点与端点
+    for retired in ["phase_start", "phase_log"] {
+        assert!(
+            !words.contains(&retired),
+            "真实形态样本不得含辅助步节点 {retired}"
+        );
+    }
     let edges = runs[0]["edges"].as_array().expect("edges 数组");
-    assert_eq!(edges.len(), 4, "串行 forward 边四条");
-    assert_eq!(edges[0]["fromNodeKey"], "initialize:1:phase_start:0");
-    assert_eq!(edges[3]["toNodeKey"], "initialize:1:phase_log:0");
+    assert_eq!(edges.len(), 2, "串行 forward 边两条（节点数 − 1）");
+    assert_eq!(edges[0]["fromNodeKey"], "initialize:1:clean:0");
+    assert_eq!(edges[1]["toNodeKey"], "initialize:1:test_execution:0");
+    for edge in edges {
+        assert_eq!(
+            edge["edgeKind"].as_str(),
+            Some("forward"),
+            "initialize 串行边全 forward"
+        );
+        let from = edge["fromNodeKey"].as_str().expect("fromNodeKey");
+        let to = edge["toNodeKey"].as_str().expect("toNodeKey");
+        for retired in ["phase_start", "phase_log"] {
+            assert!(
+                !from.contains(retired) && !to.contains(retired),
+                "边端点不得以辅助步为端点: {from} → {to}"
+            );
+        }
+    }
+    // 节点行四字段边界：时间两键数值在案、token 两键恒在场（工具步 null 不省键）
+    for node in nodes {
+        let object = node.as_object().expect("节点对象");
+        for key in ["startedAt", "endedAt", "tokenInput", "tokenOutput"] {
+            assert!(object.contains_key(key), "节点行缺 {key} 键");
+        }
+        assert!(node["startedAt"].as_i64().is_some(), "startedAt 数值在案");
+        assert!(node["endedAt"].as_i64().is_some(), "endedAt 数值在案");
+        assert!(
+            node["tokenInput"].is_null(),
+            "工具步 tokenInput null 两态之一"
+        );
+        assert!(node["tokenOutput"].is_null());
+    }
 
     check_or_rewrite("corpus-initialize", &projection);
 }

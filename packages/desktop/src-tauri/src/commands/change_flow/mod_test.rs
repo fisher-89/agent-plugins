@@ -476,13 +476,25 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
         nodes.iter().any(|node| node.phase == "proposal"),
         "phase-start 已开相位的节点整包在案（落库写缝证据）"
     );
+    // 开相审计 / 节点面归零（slim-flow-aux-steps）：`phase_start` 命令仍在
+    // （`enter_phase` 走写通道），但零执行图节点与零审计行——观察面改判「真实步
+    // 节点在案 + phase_start 节点零产出」
     assert_eq!(
         nodes
             .iter()
             .filter(|node| node.step == workflow::state::RunStepKind::PhaseStart)
             .count(),
-        1,
-        "phase_start 词汇零过滤落库（表头 initialize 预置 pass 零开相——proposal 单枚开相）"
+        0,
+        "phase_start 节点零产出（开相改相位机固定动作）"
+    );
+    assert!(
+        store
+            .list_change_steps(CHANGE, Some(&runs[0].run_id))
+            .expect("审计行回读应成功")
+            .iter()
+            .all(|row| row.step_kind != workflow::state::StepKind::PhaseStart
+                && row.step_kind != workflow::state::StepKind::PhaseLog),
+        "开相 / 落账零审计行（写面直调保留、审计面归零）"
     );
 }
 
@@ -2146,7 +2158,7 @@ fn git_main_with_worktree(main_root: &Path, worktree: &Path, branch: &str) {
 
 /// 基线绿走真件全链（组合，AC-1）：真实 git 主仓 + worktree 夹具（exec root ≠
 /// 主 root）+ 绿 static shim（退出 0）→ initialize 相位先于 proposal 路由、
-/// Clean / StaticCheck / TestExecution / PhaseLog 节点齐备、检查在 worktree 内
+/// Clean / StaticCheck / TestExecution 节点齐备（开相 / 落账零节点）、检查在 worktree 内
 /// 执行（cwd 断言：shim 相对路径读到 worktree 内探针文件）、报告与 exec-outputs
 /// 落 `openspec/changes/<name>/reports/baseline/`（AC-1 真件全链）。
 #[tokio::test]
@@ -2304,14 +2316,8 @@ async fn 基线绿走_initialize先于proposal_报告落baseline树() {
         .collect();
     assert_eq!(
         initialize_words,
-        [
-            "phase_start",
-            "clean",
-            "static_check",
-            "test_execution",
-            "phase_log"
-        ],
-        "initialize 五节点齐备且词面逐位"
+        ["clean", "static_check", "test_execution"],
+        "initialize 三节点齐备且词面逐位（开相 / 落账零节点）"
     );
     let first_phase = nodes
         .first()

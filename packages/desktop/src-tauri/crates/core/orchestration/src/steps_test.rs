@@ -1177,7 +1177,9 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
 /// 七臂审计落库：假 runner + 真实 store 驱动七臂各一命令 → 每臂一条
 /// StepRecord（`change_id` 恒为真实寻址 id——含 StaticCheck 臂，空串占位退役；
 /// step_kind 封闭集七值齐、run_id 串链、timestamp / status / summary 齐），
-/// 成功臂全 `ok`（AC-5 审计半边 / D12 归键锚）。
+/// 成功臂全 `ok`（AC-9 审计半边 / 归键锚）。**开相 / 落账两命令不产审计行**
+/// （辅助步退场后它们不是「相位机步骤」而是相位机固定动作的写通道——
+/// 九命令只留七行）。
 #[tokio::test]
 async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
     let db = TestDb::open("seven-arms");
@@ -1187,26 +1189,22 @@ async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
 
     assert_eq!(
         rows.len(),
-        9,
-        "九命令（七臂、phase_start / phase_log 各两入）"
+        5,
+        "五臂落行（九命令：phase_start / phase_log 各两入但零审计行）"
     );
     let kinds: Vec<StepKind> = rows.iter().map(|row| row.step_kind).collect();
     assert_eq!(
         kinds,
         [
             StepKind::PhaseNext,
-            StepKind::PhaseStart,
-            StepKind::PhaseLog,
-            StepKind::PhaseStart,
-            StepKind::PhaseLog,
             StepKind::Backtrack,
             StepKind::DecisionLog,
             StepKind::StaticCheck,
             StepKind::TestExecution,
         ],
-        "臂序与命令序逐一对应"
+        "臂序与命令序逐一对应（去掉开相 / 落账两侧位置）"
     );
-    // 封闭集七值齐备（step_kind 词汇面）
+    // 封闭集七值齐备（step_kind 词汇面）；本驱动只涉及其中五值
     let mut words: Vec<&str> = rows.iter().map(|row| row.step_kind.as_str()).collect();
     words.sort_unstable();
     words.dedup();
@@ -1215,13 +1213,11 @@ async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
         [
             "backtrack",
             "decision_log",
-            "phase_log",
             "phase_next",
-            "phase_start",
             "static_check",
             "test_execution",
         ],
-        "step_kind 封闭集七值齐备"
+        "本驱动涉及五臂词面（phase_start / phase_log 零行）"
     );
     for row in &rows {
         assert_eq!(
@@ -1253,13 +1249,21 @@ async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
             row.step_kind.as_str()
         );
     }
-    // 归键回读面（store 缝 `list_steps(change_id, …)`）：单桶枚举全九行，
+    // 归键回读面（store 缝 `list_steps(change_id, …)`）：单桶枚举全五行，
     // static_check 行可枚举；空串占位桶零行（D12 修正锚）
     let trait_rows = db
         .store
         .list_steps(CHANGE_ID, Some("run-audit"))
         .expect("缝回读审计行应成功");
-    assert_eq!(trait_rows.len(), 9, "按 change id 单桶枚举全九行");
+    assert_eq!(trait_rows.len(), 5, "按 change id 单桶枚举全五行");
+    // 审计面归零（AC-2）：开相 / 落账命令仍发出但零审计行
+    for retired in [StepKind::PhaseStart, StepKind::PhaseLog] {
+        assert!(
+            !trait_rows.iter().any(|row| row.step_kind == retired),
+            "{} 臂零审计行（写面直调保留、审计面归零）",
+            retired.as_str()
+        );
+    }
     assert!(
         trait_rows
             .iter()
@@ -1279,15 +1283,16 @@ async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
         "{}",
         rows[0].summary
     );
-    assert_eq!(rows[7].summary, "static_check passed=true");
+    assert_eq!(rows[3].summary, "static_check passed=true");
     assert_eq!(
-        rows[8].summary, "test_execution conclusion=pass total=5 passed=4 failed=0 skipped=1",
+        rows[4].summary, "test_execution conclusion=pass total=5 passed=4 failed=0 skipped=1",
         "test_execution 臂携结论 + 四计数摘要"
     );
 }
 
-/// 成功臂与失败臂皆落行：runner Err 臂与写面 Err 臂（未建档 change 开相）各
-/// 落 status `error` 审计行，摘要携错误串、reference 缺位（AC-5 失败半边）。
+/// 成功臂与失败臂皆落行：runner Err 臂落 status `error` 审计行，摘要携错误串、
+/// reference 缺位（AC-9 失败半边）。**开相臂失败仍零审计行**（审计面归零与失败
+/// 面正交——写面错误照常上抛，只是不产审计行）。
 #[tokio::test]
 async fn 成功臂与失败臂皆落行_error行携记因() {
     let db = TestDb::open("fail-rows");
@@ -1315,7 +1320,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
         .expect_err("runner Err 应透传");
     assert_eq!(err, "static-check 命令拉起失败");
 
-    // 失败臂二：写面 Err（未建档 change 开相）→ 步 Err，审计行同式落行
+    // 未建档 change 开相 → 写面 Err 上抛（审计面归零：该 id 桶仍零行）
     let err = assembled
         .steps
         .run(ToolStepRequest {
@@ -1342,17 +1347,23 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
     assert_eq!(check_rows[0].summary, "static-check 命令拉起失败");
     assert_eq!(check_rows[0].reference, None);
 
+    // 开相臂：无论成功失败皆零审计行（该 id 桶零行——缺席断言取代「error 行携
+    // 记因」）
     let start_rows = db
         .store
         .list_change_steps("不存在的-change", Some("run-fail"))
         .expect("读审计行应成功");
-    assert_eq!(start_rows.len(), 1);
-    assert_eq!(start_rows[0].step_kind, StepKind::PhaseStart);
-    assert_eq!(start_rows[0].status, "error");
     assert!(
-        start_rows[0].summary.contains("未建档"),
-        "错误串摘要留痕: {}",
-        start_rows[0].summary
+        start_rows.is_empty(),
+        "开相臂零审计行（成功 / 未建档两形态同判），实际: {start_rows:?}"
+    );
+    assert_eq!(
+        db.store
+            .list_change_steps(CHANGE_ID, Some("run-fail"))
+            .expect("读审计行应成功")
+            .len(),
+        1,
+        "余下臂行数不变（仅 static_check 一条 error 行）"
     );
 }
 
@@ -1533,7 +1544,8 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
         .expect("建档记录在场");
     assert!(record.active_phase.is_none(), "落账清位随命令链在场");
 
-    // StepRecord 同库可查：六命令六行，臂序与命令序一致
+    // StepRecord 同库可查：六命令只留两行（开相 / 落账两对命令零审计行），臂序
+    // 与命令序一致
     let rows = db
         .store
         .list_change_steps(CHANGE_ID, None)
@@ -1541,25 +1553,25 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     let kinds: Vec<StepKind> = rows.iter().map(|row| row.step_kind).collect();
     assert_eq!(
         kinds,
-        [
-            StepKind::PhaseNext,
-            StepKind::PhaseStart,
-            StepKind::PhaseLog,
-            StepKind::PhaseStart,
-            StepKind::PhaseLog,
-            StepKind::Backtrack,
-        ],
-        "phase_next / phase_start / phase_log / backtrack 臂落库可达"
+        [StepKind::PhaseNext, StepKind::Backtrack],
+        "phase_next / backtrack 臂落库可达（phase_start / phase_log 零行）"
     );
+    for retired in [StepKind::PhaseStart, StepKind::PhaseLog] {
+        assert!(
+            !kinds.contains(&retired),
+            "{} 零审计行（审计面归零）",
+            retired.as_str()
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
 // reference 随行：报告目录 / 会话 id 随臂携带
 // ---------------------------------------------------------------------------
 
-/// reference 随行：phase_log 臂携会话 id（evaluator 槽位优先，缺位回退
-/// executor）、decision_log 臂携决策会话 id、test_execution 臂携报告目录；
-/// static_check 与相位机无引用臂 reference=None。
+/// reference 随行：decision_log 臂携决策会话 id、test_execution 臂携报告目录；
+/// static_check 与相位机无引用臂 reference=None。phase_log 臂的「会话 id 优先 /
+/// 缺位回退」判据随审计面归零退场（零行，无 reference 可断）。
 #[tokio::test]
 async fn reference随行_报告目录与会话id随臂携带() {
     let db = TestDb::open("reference");
@@ -1567,32 +1579,19 @@ async fn reference随行_报告目录与会话id随臂携带() {
 
     let rows = drive_seven_arms(&db, "run-ref").await;
 
-    // 相位机无引用臂（phase_next / phase_start / backtrack）与 static_check
+    // 相位机无引用臂（phase_next / backtrack）与 static_check
     for row in rows.iter().filter(|row| {
         matches!(
             row.step_kind,
-            StepKind::PhaseNext
-                | StepKind::PhaseStart
-                | StepKind::Backtrack
-                | StepKind::StaticCheck
+            StepKind::PhaseNext | StepKind::Backtrack | StepKind::StaticCheck
         )
     }) {
         assert_eq!(row.reference, None, "{} 臂无引用", row.step_kind.as_str());
     }
-    // phase_log 臂：evaluator 槽位优先（首条），缺位回退 executor（次条）
-    let log_rows: Vec<&StepStateRecord> = rows
-        .iter()
-        .filter(|row| row.step_kind == StepKind::PhaseLog)
-        .collect();
-    assert_eq!(
-        log_rows[0].reference.as_deref(),
-        Some("sess-eval-1"),
-        "evaluator 会话 id 优先随行"
-    );
-    assert_eq!(
-        log_rows[1].reference.as_deref(),
-        Some("sess-exec-2"),
-        "evaluator 缺位回退 executor 会话 id"
+    // phase_log 臂零审计行（原 evaluator 优先 / executor 回退两行断言退场）
+    assert!(
+        !rows.iter().any(|row| row.step_kind == StepKind::PhaseLog),
+        "phase_log 臂零审计行（写通道保留、审计面归零）"
     );
     // decision_log 臂：决策会话 id 随行
     let decision = rows
@@ -1690,7 +1689,8 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
 // ---------------------------------------------------------------------------
 
 /// 假件 store 注入 `StoreFault::Conflict`（log_phase 缝）→ 落账臂 Err 记因
-/// 上抛不静默，审计 error 行照常落行（append_step 缝未故障）。
+/// 上抛不静默；**审计面归零**故两命令皆零审计行（缺席断言——「error 行携记因」
+/// 判据随审计归零退场，业务错误的可见面只剩步 Err）。
 #[tokio::test]
 async fn store故障_落账臂err记因上抛不静默() {
     let fake = Arc::new(FakeStore::new());
@@ -1749,15 +1749,11 @@ async fn store故障_落账臂err记因上抛不静默() {
         .expect_err("store fault 应记因上抛");
     assert!(err.contains("conflict"), "StoreFault 记因透传: {err}");
 
-    // 审计行照常落行（故障臂 status error + 记因摘要）
+    // 审计面归零：开相与落账两命令无论成功 / 故障皆零审计行
     let rows = fake.steps();
-    assert_eq!(rows.len(), 2, "phase_start ok 行 + phase_log error 行");
-    assert_eq!(rows[1].step_kind, StepKind::PhaseLog);
-    assert_eq!(rows[1].status, "error");
     assert!(
-        rows[1].summary.contains("conflict"),
-        "记因摘要: {}",
-        rows[1].summary
+        rows.is_empty(),
+        "开相 / 落账两臂零审计行（成功与故障同判），实际: {rows:?}"
     );
 }
 
@@ -4977,4 +4973,680 @@ async fn 上抛在位时错误面与归因面零变() {
         "fault 原样透传（steps 层零改写）"
     );
     assert_eq!(outcome.output_ref.as_deref(), Some("exec-fault"));
+}
+
+// ---------------------------------------------------------------------------
+// resolve_change_name 合流（slim-flow-aux-steps / D11 三阶段三）：四门禁臂共用
+// id → name 解析单点、文案逐字等价、未建档零发起
+// ---------------------------------------------------------------------------
+
+/// 四门禁臂的 `what` 词面（生产调用点的唯一取值集——文案合成面按此表逐项对拍）。
+const GATE_WHATS: [&str; 4] = ["静态检查", "测试门禁", "突变门禁", "架构漂移门禁"];
+
+/// 四门禁臂合流（正向）：已建档记录（`id ≠ name`）→ 各臂把记录 `name` 交磁盘面
+/// runner（调用面捕获）；未建档 → 合成文案与「原四处逐字等价」的结构
+/// `change "<id>" 未建档（无 ChangeRecord），无从执行<what>` 逐项对拍。
+#[tokio::test]
+async fn 门禁四臂name解析合流且文案逐字等价() {
+    let db = TestDb::open("gate-name-merge");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-gate",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    // 静态检查臂：name 交 runner
+    run_step(
+        &assembled.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await;
+    assert_eq!(
+        assembled.static_check.calls(),
+        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
+        "静态检查臂交解析后的 name（非寻址 id）"
+    );
+
+    // 测试门禁臂：name 交 runner
+    run_step(
+        &assembled.steps,
+        ToolCommand::TestExecution {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await;
+    assert_eq!(
+        assembled.execution.calls().last(),
+        Some(&(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)),
+        "测试门禁臂交解析后的 name"
+    );
+
+    // 四 what 的未建档文案逐字等价于原四处（`change "<id>" 未建档（无
+    // ChangeRecord），无从执行<what>`）：各臂以未建档 id 驱动，文案由该臂的
+    // what 合成——把 id 段替换回 CHANGE_ID 后与期望串逐字比对
+    let cases: [(ToolCommand, &str); 4] = [
+        (
+            ToolCommand::StaticCheck {
+                change_id: "未建档-static".to_owned(),
+                slot: ReportSlot::Test,
+            },
+            GATE_WHATS[0],
+        ),
+        (
+            ToolCommand::TestExecution {
+                change_id: "未建档-test".to_owned(),
+                slot: ReportSlot::Test,
+            },
+            GATE_WHATS[1],
+        ),
+        (
+            ToolCommand::MutationTest {
+                change_id: "未建档-mutation".to_owned(),
+            },
+            GATE_WHATS[2],
+        ),
+        (
+            ToolCommand::ArchiCheck {
+                change_id: "未建档-archi".to_owned(),
+            },
+            GATE_WHATS[3],
+        ),
+    ];
+    for (command, what) in cases {
+        let id = match &command {
+            ToolCommand::StaticCheck { change_id, .. }
+            | ToolCommand::TestExecution { change_id, .. }
+            | ToolCommand::MutationTest { change_id }
+            | ToolCommand::ArchiCheck { change_id } => change_id.clone(),
+            other => panic!("用例表只列四门禁臂，实际: {other:?}"),
+        };
+        let err = assembled
+            .steps
+            .run(ToolStepRequest {
+                root: ROOT.to_owned(),
+                cancel: foundation::cancel::CancelFlag::never(),
+                command,
+                on_output_ref: None,
+            })
+            .await
+            .expect_err("未建档应 Err");
+        let expected = format!("change \"{id}\" 未建档（无 ChangeRecord），无从执行{what}");
+        assert_eq!(err, expected, "未建档文案逐字等价（what = {what:?}）");
+    }
+}
+
+/// 未建档零发起（异常）：四门禁臂遇未建档 id → 各臂 `Err` 携该 `what` 对应门名、
+/// **零 runner 发起**（调用计数不增），且无新增审计行差异（除既有七臂外零新增）。
+#[tokio::test]
+async fn 门禁四臂未建档零发起且零审计行() {
+    let db = TestDb::open("gate-unregistered");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-miss",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let cases: [(ToolCommand, &str); 3] = [
+        (
+            ToolCommand::StaticCheck {
+                change_id: "miss-static".to_owned(),
+                slot: ReportSlot::Test,
+            },
+            "静态检查",
+        ),
+        (
+            ToolCommand::TestExecution {
+                change_id: "miss-test".to_owned(),
+                slot: ReportSlot::Test,
+            },
+            "测试门禁",
+        ),
+        (
+            ToolCommand::MutationTest {
+                change_id: "miss-mutation".to_owned(),
+            },
+            "突变门禁",
+        ),
+    ];
+    for (command, what) in cases {
+        let err = assembled
+            .steps
+            .run(ToolStepRequest {
+                root: ROOT.to_owned(),
+                cancel: foundation::cancel::CancelFlag::never(),
+                command,
+                on_output_ref: None,
+            })
+            .await
+            .expect_err("未建档应 Err");
+        assert!(
+            err.contains("未建档") && err.contains(what),
+            "Err 携该门禁的 what 词面 {what:?}: {err}"
+        );
+    }
+    assert!(
+        assembled.static_check.calls().is_empty(),
+        "静态检查臂零 runner 发起"
+    );
+    assert!(
+        assembled.execution.calls().is_empty(),
+        "测试门禁臂零 runner 发起"
+    );
+    assert!(
+        assembled.mutation.calls().is_empty(),
+        "突变门禁臂零 runner 发起"
+    );
+    assert!(
+        db.store
+            .list_change_steps("miss-static", None)
+            .expect("读审计行应成功")
+            .is_empty(),
+        "未建档桶零审计行（解析面早退）"
+    );
+}
+
+/// 读故障透传（异常）：`get_change` 缝注入 `StoreFault` → `Err(error.to_string())`
+/// 透传、零 runner 发起（对应 `map_err(|error| error.to_string())?` 分支）。
+#[tokio::test]
+async fn 门禁名解析读故障err透传且零发起() {
+    let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
+    fake.fail_read(StoreFault::Db("读取建档记录失败".to_owned()));
+    let assembled = assemble(
+        Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+        "run-read-fault",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
+            command: ToolCommand::TestExecution {
+                change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
+            },
+            on_output_ref: None,
+        })
+        .await
+        .expect_err("读故障应记因上抛");
+    assert!(err.contains("db:"), "StoreFault Display 记因透传: {err}");
+    assert!(
+        assembled.execution.calls().is_empty(),
+        "解析失败零 runner 发起"
+    );
+}
+
+/// `change_id` / `what` 边界（边界）：`""` / `"   "` / 不存在的 id / 超长
+/// （1200 chars）/ 含 emoji 与 `\0` → 文案逐字携原 id（不裁剪 / 不 trim）、不
+/// panic；`what = ""` 退化 → 尾句为「无从执行」（生产四调用点不产该值，仅登记
+/// 退化形态）。
+#[tokio::test]
+async fn 门禁名解析边界id逐字不裁剪() {
+    let db = TestDb::open("gate-name-boundary");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-boundary",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let long = "长".repeat(1200);
+    for id in [
+        "",
+        "   ",
+        "不存在的-change",
+        long.as_str(),
+        "emoji-🚀-\u{0}",
+    ] {
+        let err = assembled
+            .steps
+            .run(ToolStepRequest {
+                root: ROOT.to_owned(),
+                cancel: foundation::cancel::CancelFlag::never(),
+                command: ToolCommand::StaticCheck {
+                    change_id: id.to_owned(),
+                    slot: ReportSlot::Test,
+                },
+                on_output_ref: None,
+            })
+            .await
+            .expect_err("未建档边界 id 应 Err");
+        assert!(
+            err.contains(id),
+            "文案逐字携原 id（不裁剪 / 不 trim）: id={id:?} err={err}"
+        );
+        assert!(err.contains("无从执行静态检查"), "what 词面恒定: {err}");
+    }
+    assert!(
+        assembled.static_check.calls().is_empty(),
+        "边界 id 皆零 runner 发起"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 审计面归零（D11）：开相 / 落账两命令的写面直调保留、审计行零产出
+// ---------------------------------------------------------------------------
+
+/// 组合：审计面 → store 链（正向）：七臂 + 开相 + 落账命令各一（共 9 命令）→
+/// 真实 `TestDb` 内 StepRecord 总数 **7 → 5**（本驱动涉及的落行臂数）、
+/// `StepKind::PhaseStart` / `PhaseLog` 零行；`active_phase` 开 / 清交替在案。
+#[tokio::test]
+async fn 组合审计链_开相落账零审计行而写面在案() {
+    let db = TestDb::open("audit-chain");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-audit-chain",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    // 开相 → active_phase 在案、零审计行
+    run_step(
+        &assembled.steps,
+        ToolCommand::PhaseStart {
+            change_id: CHANGE_ID.to_owned(),
+            phase: "proposal".to_owned(),
+        },
+    )
+    .await;
+    let record = db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("读建档记录应成功")
+        .expect("建档记录在场");
+    assert!(
+        record.active_phase.is_some(),
+        "开相写面仍在案（active_phase 落库）"
+    );
+    assert!(
+        db.store
+            .list_change_steps(CHANGE_ID, Some("run-audit-chain"))
+            .expect("读审计行应成功")
+            .is_empty(),
+        "开相命令零审计行"
+    );
+
+    // 落账 → active_phase 清位、零审计行累积
+    run_step(
+        &assembled.steps,
+        ToolCommand::PhaseLog {
+            change_id: CHANGE_ID.to_owned(),
+            phase: "proposal".to_owned(),
+            input: PhaseLogInput {
+                phase: "proposal".to_owned(),
+                report: "提案已过".to_owned(),
+                checklist: vec![ChecklistItem {
+                    item: "验收标准在场".to_owned(),
+                    pass: true,
+                    evidence: "proposal.md 含验收节".to_owned(),
+                }],
+                skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: Some("sess-eval-1".to_owned()),
+                decision_session_id: None,
+            },
+        },
+    )
+    .await;
+    let record = db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("读建档记录应成功")
+        .expect("建档记录在场");
+    assert!(
+        record.active_phase.is_none(),
+        "落账后 active_phase 清位（写面通道保留）"
+    );
+    let entries = db
+        .store
+        .list_phase_records(CHANGE_ID)
+        .expect("读相位条目应成功");
+    assert_eq!(entries.len(), 1, "落账行落库（PhaseRecord 一条）");
+    assert!(
+        db.store
+            .list_change_steps(CHANGE_ID, Some("run-audit-chain"))
+            .expect("读审计行应成功")
+            .is_empty(),
+        "落账命令亦零审计行（零累积）"
+    );
+}
+
+/// 组合：审计面 → store 链（异常 / 词面仍可解码）：`StepKind::PhaseStart.as_str()
+/// == "phase_start"` 与 `PhaseLog == "phase_log"`（存量行解码必需）；存量形态
+/// 审计行（手工经写面直构造）仍可被 `list_change_steps` 读出——「新写面零产出」
+/// 与「存量可解码」两判据并列。
+#[tokio::test]
+async fn 组合审计链_存量phase行仍可解码() {
+    let db = TestDb::open("audit-legacy-decode");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+
+    assert_eq!(StepKind::PhaseStart.as_str(), "phase_start");
+    assert_eq!(StepKind::PhaseLog.as_str(), "phase_log");
+
+    // 存量形态行直构（模拟旧 run 落下的审计行）
+    for kind in [StepKind::PhaseStart, StepKind::PhaseLog] {
+        db.store
+            .append_step(&StepCommand {
+                change_id: CHANGE_ID.to_owned(),
+                run_id: "run-legacy".to_owned(),
+                step_kind: kind,
+                status: "ok".to_owned(),
+                summary: format!("{} attempt=1", kind.as_str()),
+                reference: None,
+                timestamp: TS_BASE,
+            })
+            .expect("存量形态行落库应成功");
+    }
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-legacy"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 2, "存量形态行可读出（解码路径在案）");
+    assert_eq!(rows[0].step_kind, StepKind::PhaseStart);
+    assert_eq!(rows[1].step_kind, StepKind::PhaseLog);
+}
+
+/// 开相命令写面失败不写入 active_phase（边界 / 写面事务性）：未建档 id 开相 →
+/// `Err`、该 id 桶零审计行、建档记录（另一 id）零 active_phase。
+#[tokio::test]
+async fn 开相失败不写active_phase且零审计行() {
+    let db = TestDb::open("phase-start-fail");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-start-fail",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
+            command: ToolCommand::PhaseStart {
+                change_id: "unregistered-start".to_owned(),
+                phase: "proposal".to_owned(),
+            },
+            on_output_ref: None,
+        })
+        .await
+        .expect_err("未建档开相应 Err");
+    assert!(err.contains("未建档"), "写面记因透传: {err}");
+    assert!(
+        db.store
+            .list_change_steps("unregistered-start", None)
+            .expect("读审计行应成功")
+            .is_empty(),
+        "失败开相零审计行"
+    );
+    let record = db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("读建档记录应成功")
+        .expect("建档记录在场");
+    assert!(
+        record.active_phase.is_none(),
+        "失败开相不写 active_phase（写面事务性）"
+    );
+}
+
+/// 开相相位串边界与空 run_id（边界，AC-2 / D11）：`ToolCommand::PhaseStart` 的
+/// 五形态相位串（`""` / `"   "` / 未知相位 / 超长 1200 chars / 含 emoji）一律经
+/// 写面 `Err` 上抛、零审计行、零 panic（不写 `active_phase`）；合法相位在
+/// `run_id = ""` 形态下写通道照旧在案而审计面同样零行——归零点与 run 维无关。
+#[tokio::test]
+async fn 开相相位串边界五形态与空run_id皆零审计行() {
+    let db = TestDb::open("phase-start-boundary");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    // run_id 取空串：审计归零点若依赖 run 维则会在此暴露（空串桶行）
+    let assembled = assemble(
+        db.store_arc(),
+        "",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let long = "长".repeat(1200);
+    for phase in ["", "   ", "no-such-phase", long.as_str(), "emoji-🚀"] {
+        let err = assembled
+            .steps
+            .run(ToolStepRequest {
+                root: ROOT.to_owned(),
+                cancel: foundation::cancel::CancelFlag::never(),
+                command: ToolCommand::PhaseStart {
+                    change_id: CHANGE_ID.to_owned(),
+                    phase: phase.to_owned(),
+                },
+                on_output_ref: None,
+            })
+            .await
+            .expect_err(&format!("非法相位 {phase:?} 应经写面 Err"));
+        assert!(!err.is_empty(), "写面记因非空（{phase:?}）");
+        assert!(
+            db.store
+                .list_change_steps(CHANGE_ID, None)
+                .expect("读审计行应成功")
+                .is_empty(),
+            "非法相位 {phase:?} 零审计行"
+        );
+    }
+    assert!(
+        db.store
+            .find_change_record(CHANGE_ID)
+            .expect("读建档记录应成功")
+            .expect("建档记录在场")
+            .active_phase
+            .is_none(),
+        "非法相位不写 active_phase（写面事务性）"
+    );
+
+    // 合法相位 + 空 run_id：写通道在案、审计面零行
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::PhaseStart {
+            change_id: CHANGE_ID.to_owned(),
+            phase: "proposal".to_owned(),
+        },
+    )
+    .await;
+    assert!(
+        matches!(output, ToolStepOutput::PhaseStart(_)),
+        "合法相位产出 PhaseStart 变体"
+    );
+    assert!(
+        db.store
+            .find_change_record(CHANGE_ID)
+            .expect("读建档记录应成功")
+            .expect("建档记录在场")
+            .active_phase
+            .is_some(),
+        "空 run_id 下写面照旧在案"
+    );
+    assert!(
+        db.store
+            .list_change_steps(CHANGE_ID, Some(""))
+            .expect("读空串桶应成功")
+            .is_empty(),
+        "空 run_id 桶零审计行（归零点与 run 维无关）"
+    );
+    assert!(
+        db.store
+            .list_change_steps(CHANGE_ID, None)
+            .expect("读审计行应成功")
+            .is_empty(),
+        "该 change 全量审计行亦零"
+    );
+}
+
+/// 落账载荷边界（边界，AC-2 / D11）：`skipped = true` + 空 checklist（skipped 是
+/// 跳过面）、`skipped = false` + 单条目（evaluator 质检面）、三会话槽全 `None`、
+/// 单槽在场、`report` 恰 `MAX_REPORT_CHARS`(2000) 上限——五形态均 `Ok` 收口且
+/// 审计面零行（载荷面差异不改变审计归零判据），落账后 `active_phase` 逐形态清位。
+#[tokio::test]
+async fn 落账载荷边界五形态皆零审计行且清位() {
+    let db = TestDb::open("phase-log-boundary");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-log-boundary",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let item = ChecklistItem {
+        item: "验收标准在场".to_owned(),
+        pass: true,
+        evidence: "proposal.md 含验收节".to_owned(),
+    };
+    let forms: Vec<(&str, PhaseLogInput)> = vec![
+        (
+            "跳过面（skipped + 空 checklist）",
+            PhaseLogInput {
+                phase: "proposal".to_owned(),
+                report: "存量形态跳过".to_owned(),
+                checklist: Vec::new(),
+                skipped: true,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        ),
+        (
+            "单条目（skipped=false + 一项）",
+            PhaseLogInput {
+                phase: "proposal".to_owned(),
+                report: "提案已过".to_owned(),
+                checklist: vec![item.clone()],
+                skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        ),
+        (
+            "单槽在场（evaluator 会话）",
+            PhaseLogInput {
+                phase: "proposal".to_owned(),
+                report: "评审判定 pass".to_owned(),
+                checklist: vec![item.clone()],
+                skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: Some("sess-eval-1".to_owned()),
+                decision_session_id: None,
+            },
+        ),
+        (
+            "三槽皆在场",
+            PhaseLogInput {
+                phase: "proposal".to_owned(),
+                report: "三会话同场".to_owned(),
+                checklist: vec![item.clone()],
+                skipped: false,
+                executor_session_id: Some("sess-exec-1".to_owned()),
+                evaluator_session_id: Some("sess-eval-1".to_owned()),
+                decision_session_id: Some("sess-decision-1".to_owned()),
+            },
+        ),
+        (
+            "report 恰 2000 字符上限",
+            PhaseLogInput {
+                phase: "proposal".to_owned(),
+                report: "字".repeat(2000),
+                checklist: vec![item],
+                skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        ),
+    ];
+
+    for (tag, input) in forms {
+        let report_chars = input.report.chars().count();
+        run_step(
+            &assembled.steps,
+            ToolCommand::PhaseStart {
+                change_id: CHANGE_ID.to_owned(),
+                phase: "proposal".to_owned(),
+            },
+        )
+        .await;
+        let output = run_step(
+            &assembled.steps,
+            ToolCommand::PhaseLog {
+                change_id: CHANGE_ID.to_owned(),
+                phase: "proposal".to_owned(),
+                input,
+            },
+        )
+        .await;
+        assert!(
+            matches!(output, ToolStepOutput::PhaseLog(_)),
+            "{tag}: 载荷应被写面接受（report {report_chars} 字符）"
+        );
+        assert!(
+            db.store
+                .list_change_steps(CHANGE_ID, Some("run-log-boundary"))
+                .expect("读审计行应成功")
+                .is_empty(),
+            "{tag}: 落账命令零审计行"
+        );
+        assert!(
+            db.store
+                .find_change_record(CHANGE_ID)
+                .expect("读建档记录应成功")
+                .expect("建档记录在场")
+                .active_phase
+                .is_none(),
+            "{tag}: 落账后 active_phase 清位"
+        );
+    }
+}
+
+/// `steps.rs` 源码去注释后的代码行（源自证判据面）。
+fn steps_code_lines() -> String {
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/steps.rs"))
+        .expect("读取 steps.rs")
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !(trimmed.starts_with("///") || trimmed.starts_with("//"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 审计单点消费面（回归，源自证）：`audit_outcome(` 在 `steps.rs` 代码行内恰
+/// 7 处（余下七臂各一次调用）、`clip_summary(` 恰 2 处（定义 + `audit_outcome`
+/// 体内单点）——开相 / 落账两分支的审计面归零不连带摘掉余下七臂的消费（两臂
+/// 若被重挂 `audit_outcome`，调用数即 9，本条即红）。
+#[test]
+fn 审计单点仍被余下七臂消费且摘除面零调用() {
+    let code = steps_code_lines();
+    assert_eq!(
+        code.matches("audit_outcome(").count(),
+        7,
+        "余下七臂各一次调用（开相 / 落账两臂零调用）"
+    );
+    assert!(
+        code.contains("fn audit_outcome<"),
+        "`audit_outcome` 定义仍在场（七臂单点）"
+    );
+    assert_eq!(
+        code.matches("clip_summary(").count(),
+        2,
+        "定义 + `audit_outcome` 体内单点"
+    );
 }
