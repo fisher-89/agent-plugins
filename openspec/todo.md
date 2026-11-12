@@ -60,7 +60,7 @@
 - [x] change详情，脚本步骤可以查看运行中stdout（当前仅能查看完成的步骤），最上方显示执行的命令；
 - [ ] 向agent提供db查询工具，可以访问桌面端数据，包含2个工具：1. 列出db的表名、介绍、字段说明；2. 按条件查询，返回数据上限1000条；
 - [x] agent provider支持选择模型协议（openai/anthropic）
-- [ ] 内置CodeGraph，使用mcp桥接到agent
+- [ ] 系统内置CodeGraph（无需用户额外安装），使用mcp桥接到agent
 - [ ] 归一Agent会话发送
 - [x] 修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
 - [ ] 进行中的agent step，统计实时消耗的token（允许误差）
@@ -71,4 +71,6 @@
 - [x] read工具返回的文本不要行数，改为在metadata中包含读取的范围
 - [ ] acceptance 工具面补齐架构图级断言
 - [x] cargo test -p checks --test corpus_golden_test 单独跑会红，--workspace 下变绿——这是 serde_json 的 preserve_order 特性在全 workspace 下被 rig 统一开启、单包下没开导致的键序差异
-- [ ] 扩充project配置能力，标记语言、代替tests，支持自动检测（未来基于project划分架构模块、编码/测试按语言使用不同prompt、编码/测试并行）
+- [ ] 扩充project配置能力，标记语言、代替tests，没有配置时支持自动检测（未来基于project划分架构模块、编码/测试按语言使用不同prompt、编码/测试并行）
+- [ ] step增加属性“是否支持并行”用来标记高消耗步骤（如：突变执行），所有类型高消耗步骤共享一个运行队列，当前一个完成后才执行下一个
+- [ ] 模型配置增加Effort选项 https://api-docs.deepseek.com/zh-cn/guides/thinking_mode

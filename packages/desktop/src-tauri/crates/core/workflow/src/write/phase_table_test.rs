@@ -3374,15 +3374,17 @@ fn evaluator语料逐份项数与id序列守卫() {
         ),
         (
             "code-review",
-            7,
-            &["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+            10,
+            &[
+                "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10",
+            ],
         ),
         (
             "code-analyze",
             8,
             &["CA1", "CA2", "CA3", "CA4", "CA5", "CA6", "CA7", "CA8"],
         ),
-        ("acceptance", 5, &["A1", "A2", "A3", "A4", "A5"]),
+        ("acceptance", 2, &["A1", "A2"]),
     ];
 
     let mut total = 0;

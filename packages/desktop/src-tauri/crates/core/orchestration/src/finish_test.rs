@@ -172,12 +172,17 @@ fn parameters的evaluator臂enum逐值对拍八份语料() {
             "test-gen",
             &["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
         ),
-        ("code-review", &["C1", "C2", "C3", "C4", "C5", "C6", "C7"]),
+        (
+            "code-review",
+            &[
+                "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10",
+            ],
+        ),
         (
             "code-analyze",
             &["CA1", "CA2", "CA3", "CA4", "CA5", "CA6", "CA7", "CA8"],
         ),
-        ("acceptance", &["A1", "A2", "A3", "A4", "A5"]),
+        ("acceptance", &["A1", "A2"]),
     ];
     for (phase, ids) in expected_ids {
         let prompt = evaluator_prompt_of(phase);

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-桌面相位角色知识集中地：`core/workflow/src/prompts/` 下 14 个全静态 md（6 executor + 8 evaluator，含 code-analyze 两份）作为 executor / evaluator 会话 prompt 主体的单一真源。每文件 = 角色自述 + 阶段要求 + checklist，全静态零占位；经 `phase_table.rs` 编译期 `include_str!` 显式字面路径装配（无 `<role>` 间接读取）；文本为桌面端自持——按桌面端特性（七工具 / cwd=workspace root / change 名走上下文头 / 静态脚本外置）撰写与维护。
+桌面相位角色知识集中地：`core/workflow/src/prompts/` 下 14 个全静态 md（6 executor + 8 evaluator，含 code-analyze 两份）作为 executor / evaluator 会话 prompt 主体的单一真源。每文件 = 角色自述 + 阶段要求 + checklist，全静态零占位；经 `phase_table.rs` 编译期 `include_str!` 显式字面路径装配（无 `<role>` 间接读取）；文本为桌面端自持——按桌面端特性（七工具 / cwd=workspace root / change 名走上下文头 / 静态脚本外置 / acceptance 可执行真实验收但不得影响生产数据）撰写与维护。
 
 ## Requirements
 
@@ -29,6 +29,8 @@
 
 即 6 executor + 8 evaluator。`code-analyze` 为 test-only 工作流相位，executor / evaluator 双档俱在（`code-analyze-planner` / `code-analyze-evaluator`，装配见 `CODE_ANALYZE_STEPS` 相位表的 `include_str!` 字面路径）。code-review / acceptance 为 evaluator-only 相位，SHALL NOT 存在对应 executor md（`executor: None` 不变）。test-execution 为确定性相位，executor / evaluator 双档俱缺（`executor: None` / `evaluator: None`，与 archive 同形）——其「首败即交决策」语义由门禁步声明 `OnFail::Escalate` 承载（见 desktop-workflow-write-face「相位定义有序 step 序列与 artifact 清单」与 desktop-change-orchestration「verdict fail 直接决策分叉」），MUST NOT 以角色 spec 存在性表达。每文件 SHALL 含角色自述、阶段要求（输入 / 过程 / 输出 / 约束的桌面化表述）；8 个 evaluator 文件另 SHALL 含静态 checklist 表（检查项 ID + 检查项 + 判断依据）。
 
+**acceptance 与 code-review 的判据分工**：acceptance-evaluator SHALL 只按 `proposal.md` 的目标（验收标准）判断目标是否达成，并 SHALL 可自行构建 / 运行 / 执行测试做真实验收；其验收动作 MUST NOT 影响生产数据（数据库 / 应用启动类验证在临时副本或独立数据根进行）。代码级验收（范围蔓延、`不要修改` 清单、风险缓解措施可见性）SHALL 归 code-review-evaluator 的静态清单（C8 / C9 / C10），MUST NOT 在 acceptance 重复。
+
 #### Scenario: 清单齐全与确定性相位无角色文件
 
 - **WHEN** 列出 `core/workflow/src/prompts/` 下全部 md
@@ -36,6 +38,12 @@
 - **AND** 无 `code-review-*.md` / `acceptance-*.md` 的 executor 文件（只有 evaluator 文件）
 - **AND** 无 `test-execution-*.md`（确定性相位零角色知识文件）
 - **AND** 每个 evaluator 文件含静态 checklist 表，每个 executor 文件含阶段要求
+
+#### Scenario: acceptance 只判目标达成且代码级验收归 code-review
+
+- **WHEN** 读取 acceptance-evaluator md 与 code-review-evaluator md 的静态清单
+- **THEN** acceptance 清单只含「proposal 目标是否达成」与「验收动作未影响生产数据」两类判据，且正文允许自行构建 / 运行 / 测试做真实验收
+- **AND** 范围蔓延 / `不要修改` 清单 / 风险缓解措施三类判据只出现在 code-review 清单（C8 / C9 / C10），acceptance 零复述
 
 ### Requirement: 全静态零占位
 
@@ -84,6 +92,7 @@
 
 - **WHEN** 读取 executor / evaluator md 中对 static-check / test-execution 等机械步骤的表述
 - **THEN** 含「由桌面端执行、agent 内不重复执行」类说明，agent 不承担重复运行测试执行门禁或静态检查脚本的职责
+- **AND** acceptance 的构建 / 运行 / 测试动作以「验收手段」定位与上述门禁区分，不构成重复执行门禁
 
 ### Requirement: evaluator 知识不含落账 / 路由指令
 
