@@ -38,6 +38,9 @@
 - 只被 `gate = off` 元素覆盖的文件 SHALL 计入 `scan.unmatchedFiles[]`（不产生任何违例；off 的语义是「本模块不参与判定」）。
 - 无元素认领的文件 SHALL 计入 `scan.unmatchedFiles[]`；元素未声明 `path` 时 SHALL 记 `noPath` warning 且不参与归属。
 - 归属结果 SHALL 按元素聚合出线到 `scan.matched[]`（`{ element, files[] }`），供门禁诊断与视图复用。
+- **生成物归属按双形态并集判据**：`.i.<ext>` 生成物（`ext ∈ {rs, ts, tsx, js, jsx}`）SHALL 由 `OwnerIndex` 的「整组剥离 `<name>.i.<ext> → <name>` ∪ 替换扩展名 `<stem>.i.<ext> → <stem>.<ext>`」并集判据归属（判据定义与断言面见 `desktop-archi-api`「生成物落点与入口查找」）——生成器产出的是**元素根同级**形态，既有前缀判据对它的两条分支（全等 / 目录前缀）都不成立，故并集是「生成物能归其元素」的唯一保证。归属判据 MUST NOT 在漂移侧另写一份：`scan` 的两处 `owner_of` 调用点（源文件归属与 `target_rel` 目标归属）自动获得同一判据。
+  - **对报告的语义影响**：`gate != off` 的已声明元素，其生成物 SHALL 由 `scan.unmatchedFiles[]` 移入 `scan.matched[]`（这是判定面的一次语义修正：生成物本就属于该元素）；`gate = off` 元素下的生成物仍落 `unmatchedFiles[]`（与改动前同分支，报告零变化）。本仓 `gate` 全 `off` ⇒ 既有报告逐字段、逐序不变。
+  - **目标侧同等受益**：生成物被 import 时 SHALL 可作为合法 `to` 归属（本仓生成物零 `use` 语句、无人 import，故同样零变化）。
 
 依赖提取 SHALL 由**两套解析器**承担、归属判定**只一套**：
 
@@ -75,6 +78,16 @@
 
 - **WHEN** 两个不同元素各声明同一长度的 `path` 前缀同时覆盖某文件
 - **THEN** 该文件计入 `scan.unmatchedFiles[]` 且记 `ambiguousOwner` warning，`errors` 不因它产生
+
+#### Scenario: 生成物按并集判据归元素并进入 matched
+
+- **WHEN** 元素 `App.X` 声明 `path = ["./src/x/"]` 且 `gate = "warn"`，盘上存在元素根同级生成物 `src/x.i.ts`
+- **THEN** 该文件归属 `App.X` 并出现在 `scan.matched[]` 的 `App.X` 条目下，MUST NOT 出现在 `scan.unmatchedFiles[]`；同场景把 `gate` 改为 `off` 后该文件回到 `unmatchedFiles[]`（与改动前同分支），报告其余字段不变
+
+#### Scenario: gate 全 off 时归属判据改动不移动报告字段
+
+- **WHEN** 在 `gate` 全为 `off` 的真仓上，**保持排除配置不变**（本变更同时新增的 `exclude` 条目不在本对照内，避免两个变量混在一条断言里）分别以并集判据改动前 / 改动后执行全量检查
+- **THEN** 两份报告的 `unmatchedFiles[]` 集合与序、`matched[]`、`errors` / `warnings` / `excluded[]` 逐字段相同——唯一生成物 `crates/infra/archi.i.rs` 所属元素 `gate = off`，`Owner::None` 与 `Owner::Element{off}` 同落 `unmatchedFiles[]`
 
 ### Requirement: 三类漂移与定级只看引入方
 
@@ -331,11 +344,13 @@
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/archi/src/scan/mod.rs` | 扫描编排 | `scan(root, mode, changed, config) -> ScanOutcome`：遍历 + 排除 + 归属 + 逐文件依赖收集；纯读盘、零写盘、零 spawn |
 | `crates/core/archi/src/scan/exclude.rs` | 排除矩阵 | 默认约定常量 + 配置 `exclude` 覆盖匹配（globset）；产出 `excluded[{ file, rule }]`；与工作区 `tests[].excludes` 零耦合 |
 | `crates/core/archi/src/scan/ts.rs` | TS / JS 提取 | 静态 `import` / `export … from` 的 specifier + `typeOnly` + 行号；tsconfig / jsconfig `baseUrl` + `paths` 解析；不可判定 → `unresolved` |
 | `crates/core/archi/src/scan/rust.rs` | Rust 提取 | workspace 清单解析（`Cargo.toml` + member glob，零子进程）→ crate 清单；模块树（`mod` 外部 / 内联 / `#[path]` / `cfg` 两臂）；`use` 树最长前缀匹配；孤儿与宏生成 → `unresolved` |
-| `crates/core/archi/src/scan/owner.rs` | 归属单点 | `owner_of(path) -> Option<fqn>`：元素 `path` 最长前缀；同长多命中 → `ambiguousOwner` + unmatched；`off` 元素覆盖 → unmatched |
+| `crates/core/archi/src/scan/owner.rs` | 归属单点（判据修正） | `owner_of(path) -> Option<fqn>`：元素 `path` 最长前缀；同长多命中 → `ambiguousOwner` + unmatched；`off` 元素覆盖 → unmatched。`owner_of` 对生成物候选集（整组剥离 `<name>.i.<ext> → <name>` ∪ 替换扩展名 `<stem>.i.<ext> → <stem>.<ext>`）各跑一遍最长前缀并合并定档；`normalize` / `prefix_matches` / `OwnerIndex::build` 语义零变化；同长多命中仍 `Ambiguous` |
+| `crates/core/archi/src/scan/mod.rs` | 扫描编排（零判据改动） | `scan(root, mode, changed, config) -> ScanOutcome`：遍历 + 排除 + 归属 + 逐文件依赖收集；纯读盘、零写盘、零 spawn。两处 `owner_of` 调用点（源文件归属、`target_rel` 目标归属）自动获得并集判据，`gate = off` 分支语义逐字不变；`walk_source_files` / `is_source_file` 提为 `pub(crate)` 供文件树复用 |
+| `crates/core/archi/src/scan/owner_test.rs` | 判据断言面（修正） | 根同级正例新增、`src/dir.i.ts` 期望翻转、并集定档用例、白名单外后缀反例保持（详见 `desktop-archi-api` Module Contract） |
+| `.dev-team/architecture/config.json`（新增，见 `repo-archi-model`） | 扫描排除配置 | `{ "exclude": ["openspec/**"] }`（不带 `$schema`）；生效后 `openspec/` 下源文件由 `unmatchedFiles[]` 移入 `scan.excluded[]`，判定规则零变化 |
 | `crates/core/archi/src/drift/mod.rs` | 判定单点 + 报告装配单点 | `check(CheckInput) -> Report`：事实 vs 声明对账、三档定级、豁免抑制、`status` 推导；`check()` 内调 `api::check` 装配 `api_findings`（与模型面并列）；`status` 推导与 `passed` 派生面 MUST NOT 读 `api_findings`；命令面与门禁面唯一入口 |
 | `crates/core/archi/src/drift/report.rs` | 报告结构与四组词汇单点 | `ArchiDriftReport` 既有 14 字段零改动 + 新增 `api_findings: Vec<ArchiApiFinding>`（线格式 `apiFindings`）；`REPORT_VERSION` 1 → 2；四组 `ALL`（`ArchiCheckStatus` / `ArchiDriftKind` / `ArchiObservationKind` / `ArchiApiFindingKind`）；`ArchiApiFindingKind`（十值 + `ALL` + `as_str` + `severity()`）、`ArchiApiFinding { kind, category, element, target, message, occurrences }`；`serde_json` 序列化 + `ArchiCheckStatus` 五值封闭 |
 | `crates/core/archi/src/drift/config.rs` | 看护配置 | `load_config(root) -> Result<CheckConfig, String>`：读 `<archi_dir>/config.json`（经 `foundation::layout` 派生）；缺失即空；`deny_unknown_fields`；`ignore` 元素对 + reason 必填 + FQN 存在性校验 |

@@ -221,7 +221,7 @@
 #### Scenario: 正常态而非停摆态
 
 - **WHEN** 调用 `archi_graph(root)`
-- **THEN** 返回正常态：`elements` 51、`relations` 113（后端 49 + 前端 64）、`diagnostics` 空、`warnings` 空；`/architecture` 页面呈现元素树 + 画布 + 抽屉三段，无结构错面板、零「修好后再看」文案
+- **THEN** 返回正常态：`elements` 51、`relations` 113（后端 49 + 前端 64）、`diagnostics` 空、`warnings` 空；`/architecture` 页面呈现左栏树 + 画布 + 抽屉三段，无结构错面板、零「修好后再看」文案
 
 #### Scenario: 成环与祖先禁边被机械拦住
 
@@ -286,6 +286,41 @@
 - **WHEN** 对新增 `crates/infra/archi` 的 change 执行覆盖核对
 - **THEN** 三件事同时成立：`App.Backend.Infra.ArchiRuntime` 元素与 `App.Backend.Infra` 容器归属在案；`archi-runtime` 的三条 `[dependencies]` 边与壳指向它的那条边逐条在案；`03` 段 8 元素 / 24 关系与全基线 51 / 113 在模型表头、计数表与 ADR `§9` 三处同值——缺任一件即不合格
 
+### Requirement: 本仓架构域看护配置与排除留痕
+
+本仓库 SHALL 落位一份**架构域看护配置** `<archi_dir>/config.json`（本期落点 `.dev-team/architecture/config.json`），内容 SHALL 恰为扫描排除一条：
+
+```json
+{ "exclude": ["openspec/**"] }
+```
+
+- **字段面只用 `exclude`**：本次不引入 `ignore`（零豁免条目）——配置缺失与「有配置但 `ignore` 为空」在语义上等价，故 MUST NOT 为凑形态写空 `ignore` 数组。
+- **MUST NOT 带 `$schema` 键**：该文件的读取面是 `desktop-archi-drift`「架构域看护配置」的严格解析（`deny_unknown_fields`，只登记 `ignore` / `exclude` 两键，`$schema` 既无 `rename` 也无容忍分支）；写 `$schema` 会让配置解析直接 `Err`，同时打断漂移命令、门禁 runner 与文件树三条消费面。本文件与工作区 `.dev-team/config.json`（带 `$schema`）形态不同，两者 MUST NOT 类比照抄。
+- **排除理由**：`openspec/` 下存在**未被 gitignore** 的源文件（实测 `openspec/changes/archive/2026-09-28-agent-component-ai-sdk/prototypes/{index,agent-input,agent-messages}.tsx` 三个原型），它们不在 `decisions/0001-model-granularity.md` §7 的封闭排除面内、也不被默认测试面约定命中，故必须经配置排除，MUST NOT 以「代码里写死一条 `openspec/` 前缀」替代（那会让「什么进扫描面」变成第二套判据）。
+- **连带留痕（必须如实登记，不是零改动）**：该文件生效后，上述三个文件在漂移报告中由 `scan.unmatchedFiles[]` 移入 `scan.excluded[]`（`{ file, rule }`，`rule = "openspec/**"`）——`unmatchedFiles` −3 / `excluded` +3；文件树的枚举面（`desktop-archi-file-tree`「枚举面与漂移判定面逐条一致」）随之同源变化（实测进树文件 667 → 358 中 −3 归此、−306 归测试面约定）。判定规则、`status` 推导与报告结构零变化。
+- **模型资产零变化**：该配置 MUST NOT 引起任何模型改动——元素 / 关系 / `path` / `gate` / 计数（51 元素 / 113 关系、`06` 段 28 / 64）与裁定记录 `§9` 复算表逐字不变；`views/architecture/**` 已是单元素 `App.Frontend.Views.Architecture`，本变更在该目录内新增的 `components/file-tree.tsx` / `hooks/use-archi-file-tree.ts` 不建元素、不贡献新边（视图内 `lib/` 与 `hooks/` 的依赖计入该视图元素）。
+- **工作区配置零触碰**：本文件 MUST NOT 被工作区配置 crate 读取；`.dev-team/config.json` 的 `KNOWN_KEYS`、`config.schema.json` 镜像与前端 config 页零变化（归属面写死：工作区配置管执行，架构域配置管看护策略）。
+
+#### Scenario: 配置文件在案且形态正确
+
+- **WHEN** 读取 `.dev-team/architecture/config.json`
+- **THEN** 内容为 `{ "exclude": ["openspec/**"] }`（单键、单条、目录形 glob）；`grep '$schema'` 该文件零命中；`archi_drift` 与 `archi_file_tree` 均正常返回（配置解析零 `Err`）
+
+#### Scenario: 排除生效与报告留痕
+
+- **WHEN** 在真仓执行全量漂移检查与文件树取数
+- **THEN** 漂移报告 `scan.excluded[]` 含 `openspec/changes/archive/2026-09-28-agent-component-ai-sdk/prototypes/{index,agent-input,agent-messages}.tsx`（`rule = "openspec/**"`），这三条 MUST NOT 出现在 `scan.unmatchedFiles[]`；文件树中 `openspec/` 前缀下零节点
+
+#### Scenario: 模型与计数零漂移
+
+- **WHEN** 对比配置加入前后的模型资产与计数复述
+- **THEN** `models/` 六个文件逐字不变（51 元素 / 113 关系、`06` 段 28 / 64、`gate` 全 `off`）、`decisions/0001-model-granularity.md` 的 `§9` 复算表逐字不变；`archi_graph(root)` 仍为正常态（零诊断、零告警）
+
+#### Scenario: 工作区配置零影响
+
+- **WHEN** 审查工作区 `.dev-team/config.json`、`crates/core/config` 的 `KNOWN_KEYS` 与 `config.schema.json` 镜像
+- **THEN** 三者与本变更前逐字一致；架构域配置只经 `foundation::layout::archi_config_path` 派生路径读取，未被工作区配置 crate 读取
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
@@ -302,4 +337,6 @@
 | 核对口径（命令 + 留痕） | 双向覆盖比对 | `crates/{core,infra,tools}/<dir>/` 目录集合 ↔ 元素 `path` 集合（自研 16 ↔ 16，`specta-zod-patched` 单列差集）；`archi_graph(root)` 正常态 51 / 113 零诊断零告警 |
 | `crates/core/archi/**`（模型读面） | 只读消费方 | `parse_dir` 聚合、`ModelGraph` 校验、`dto` 投影与结构诊断零改动（本变更只在同 crate 新增 `scan/` / `drift/`）；模型 MUST NOT 因新增扫描面扩字段 |
 | `src/views/architecture/**` | 画布 | 只被使用：`/architecture` 正常态渲染 51 节点 / 113 边；视图内 `lib/` 与 `hooks/` 不建元素（粒度 ≠ 解析面），本变更新增的 `lib/drift-marks.ts` 与 `hooks/use-archi-drift.ts` 依赖计入 `Views.Architecture` |
-
+| `.dev-team/architecture/config.json`（新增） | 架构域看护配置 | `{ "exclude": ["openspec/**"] }`；**不带 `$schema`**（读取面 `deny_unknown_fields` 只认 `ignore` / `exclude`）；生效后 `openspec/` 下三个原型 tsx 由 `unmatchedFiles[]` 移入 `excluded[]` |
+| `.dev-team/architecture/models/**` / `decisions/0001-model-granularity.md` / `api/**` | 模型与契约资产（零改动） | 元素 / 关系 / `path` / `gate` / 计数与 ADR 复算表逐字不变；配置加入 MUST NOT 引起模型改动 |
+| `packages/desktop/src/views/architecture/**`（见 `desktop-archi-file-tree`） | 画布（零模型漂移） | 该目录已是单元素 `App.Frontend.Views.Architecture`；新增 `components/file-tree.tsx` 与 `hooks/use-archi-file-tree.ts` 不建元素，其 import 计入该视图元素（计数零变化） |

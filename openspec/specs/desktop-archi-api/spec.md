@@ -213,15 +213,35 @@
 
   同一单点函数 SHALL 产出 TS 侧的 `import type` 路径（目录形态 `"../<name>.i"`、单文件形态 `"./<name>.i"`）。三形态的解析结果 SHALL 逐字等于 `<root>.i.rs` / `<root>.i.ts`；只凭「入口文件同级」写字面量会落到 `<dir>/<name>.i.rs`（错位），故 MUST NOT 手写。
 - **MUST NOT 生成 `_ext.rs`**：生成物只含类型定义（`struct` / `trait` / `enum` / newtype）与自动构造器；`impl` 块写在模块内任意手写文件（Rust 允许同 crate 内 `impl` 分散）。生成 / 手写分离靠**文件命名**（`.i.rs` / `.i.ts` 后缀）而非目录分离。
-- **归属规则 SHALL 加一条剥离特例**：`.i.rs` / `.i.ts` 生成物按**去掉 `.i` 后的路径**判定归属（`prefix_matches` 的 `rel == prefix || rel.startsWith(prefix + "/")` 判据不匹配根同级生成物）。判据改造 SHALL 只此一处，既有非 `.i` 路径的归属语义零变化。
+- **归属规则 SHALL 为「双形态并集」**：`.i.<ext>` 生成物（`ext ∈ {rs, ts, tsx, js, jsx}`，标记段恰为 `i` 且模块名非空）的归属 SHALL 由**两个剥离去向取并集**判定——
+
+  ```
+  候选 1  整组剥离      <name>.i.<ext>  →  <name>        archi.i.rs → archi
+  候选 2  替换扩展名    <stem>.i.<ext>  →  <stem>.<ext>  archi.i.rs → archi.rs
+  命中判据 = 任一候选满足 rel == prefix 或 rel.startsWith(prefix + "/")
+  ```
+
+  理由（两种落点形态互不相交，单条规则覆盖不了）：生成器 `paths::generated_path` 产出的是**元素根同级**（`crates/infra/archi.i.rs`，需候选 1）；历史 / 假设形态是**元素目录内**（`<dir>/<name>.i.<ext>`，需候选 2）。判据改造 SHALL 只此一处（`OwnerIndex` 的剥离函数与其调用点），`normalize` / `prefix_matches` / `OwnerIndex::build` 语义逐字不动，既有非 `.i` 路径的归属语义零变化。
+- **并集 MUST NOT 实现为候选短路**：命中集 SHALL 为「对每个候选各跑一遍最长前缀后合并去重」，再按前缀长度定档（同长仍归 `Ambiguous`）；MUST NOT 写成「候选 1 命中即返回」——那会让 `src/dir.i.ts`（候选 1 全等 `src/dir`、候选 2 得 `src/dir.ts`）只走一条路径，与并集语义不符。定档用例：元素根 `src/dir/` 与 `src/dir.ts` 同时在场、探针 `src/dir.i.ts` ⇒ 归更具体的单文件根（前缀更长者胜出）。
+- **白名单外后缀零误剥**：`.i.py` / `.d.rs` / 大写 `.I.rs` / 无扩展名 `.i` SHALL 原样返回单个候选（不剥），归属与改动前逐值相同。
 - **父子路径重叠不缩窄父契约**：子元素根路径是父元素根路径的前缀，最长前缀匹配已正确处理（`.../src/scan/x.rs` 归 `Scan`、`.../src/dto.rs` 归 `Archi`）。
 - **新判据 `apiEntryMissing`**：元素根路径下既无生成物（`.i`）也无实现入口 → 该元素不是真模块或已删除。它比 `apiMissing` 更基础——**在契约生成之前就失效**，防止给不存在的模块写契约（定义与档位见 `desktop-archi-api-check`）。
 - **`#[path]` 的读盘面 SHALL 与写盘面同一条限根纪律**：取数器定位 `#[path = "…"] mod` 时 MUST 满足三条——① **反斜杠归一在折叠之前**（否则反斜杠形态被当作单段名，`Path::join` 的纯拼接会把 `..` 原样带到 Windows 的路径解析里、逐级上溯到观察根之外）；② 分段折叠（`""` / `.` 跳过、`..` 弹栈、栈空即拒）；③ **`join` 后复核**目标仍在观察根之下（`starts_with(root)`）。任一条不成立即**不命中该子树**（与「模块定位失败即跳过」同口径，MUST NOT 新增错误变体、MUST NOT panic）。理由是 `#[path]` 的值经**手写入口行**落地（属性的值只能是字面量，等值性由机械断言守），属可被写错的入参；放行即让「模块树被带出观察根」，与 `paths` 侧的「任意文件读」是同一件事。判据与 `scan` 的 `normalize_rel` / `docs` 的 `resolved_within` 同一条纪律。
 
-#### Scenario: 四种剥离形态各归其元素
+#### Scenario: 两种落点形态各归其元素
 
-- **WHEN** 对 `views/architecture.i.ts` / `views/welcome-view.i.ts` / `crates/core/archi.i.rs` / `crates/core/archi/src/scan.i.rs` 求归属（对应元素前缀 `views/architecture` / `views/welcome-view` / `crates/core/archi` / `crates/core/archi/src/scan`）
-- **THEN** 四条各归其元素；非 `.i` 路径（如 `crates/core/archi/src/dto.rs`）归属结果与本变更前逐字相同
+- **WHEN** 分两组求归属：① 根同级形态（`crates/infra/archi.i.rs` 对目录形前缀 `crates/infra/archi`、`views/welcome-view.tsx.i.ts` 对单文件形前缀 `views/welcome-view.tsx`）；② 目录内形态（`views/architecture/architecture.i.ts`、`crates/core/archi/src/scan/scan.i.rs` 对各自目录形前缀）
+- **THEN** 四组用例各归其元素（①由整组剥离命中、②由替换扩展名命中，两者并集）；非 `.i` 路径（如 `crates/core/archi/src/dto.rs`）归属结果与改造前逐字相同
+
+#### Scenario: 并集定档不短路
+
+- **WHEN** 元素根 `src/dir/` 与 `src/dir.ts` 同时在场，探针为 `src/dir.i.ts`
+- **THEN** 归属为更具体的单文件根（`src/dir.ts` 所在元素，前缀更长）；若实现成「候选 1 命中即短路」则归目录形根——该差异即本 Scenario 的判红面
+
+#### Scenario: 白名单外后缀不误剥
+
+- **WHEN** 对 `src/mod/mod.i.py`、`src/mod/mod.d.rs`、`src/mod/mod.I.rs`、`src/mod/mod.i` 求归属（元素根 `src/mod/`）
+- **THEN** 四者按原路径判定归属（不剥），结果与改动前逐值相同；`.i.<白名单外后缀>` 不产生第二个候选
 
 #### Scenario: 入口三分支与四分支实测命中
 
@@ -429,7 +449,10 @@
 | `crates/core/archi/src/api/extract/ts.rs` | TS 声明抽取 | `oxc` 遍历：`export function` → 操作（唯一判定），`export type` / `interface` / `class` → `$defs`，`export const` 按初始化表达式分类（`memo(...)` → 组件留白 / 对象与 Proxy → 排除 / 箭头函数 → **不作操作**，沿本 capability「MUST NOT 为从初始化表达式推断函数造启发式」）；`unused` 的降级接口 `apply_knip_report` 已实现但**本期未接线**（生产面不产出 `Unused`，见待决 5 / 12）；接线是独立变更 |
 | `crates/core/archi/src/api/emit/rust.rs` | `.i.rs` 渲染 | `struct` / `trait` / `enum` / newtype / 自动构造器 / 透传 `pub use`；头注释含工具版本与 `common.json` 摘要；纯函数出字符串 |
 | `crates/core/archi/src/api/emit/ts.rs` | `.i.ts` 渲染 | `interface` / `as const` + `type` / 别名 / 透传 `export { } from`；ambient-free（MUST NOT 用 `.d.ts`）；头注释同上 |
-| `crates/core/archi/src/scan/owner.rs`（扩展） | 生成物归属 | 新增 `.i.rs` / `.i.ts` 剥离特例（按去 `.i` 路径判定）；非 `.i` 路径判据零变化 |
+| `crates/core/archi/src/scan/owner.rs` | 生成物归属（判据修正） | 剥离由「替换扩展名」改为**候选集**：整组剥离 `<name>.i.<ext> → <name>` ∪ 替换扩展名 `<stem>.i.<ext> → <stem>.<ext>`；`owner_of` 对每个候选各跑一遍最长前缀、按 `(fqn, 前缀长度)` 合并去重后定档（同长仍 `Ambiguous`），**MUST NOT 候选短路**；`normalize` / `prefix_matches` / `OwnerIndex::build` 语义逐字不变；非 `.i.<ext>` 路径归属零变化 |
+| `crates/core/archi/src/scan/owner_test.rs` | 判据断言面（修正） | `生成物剥离四种形态各归其元素` 保留既有四条目录内形态并**另加**四条根同级实形态正例（含 `crates/infra/archi.i.rs`）；`src/dir.i.ts`（根 `src/dir/`）期望由 `Owner::None` 翻转为 `Owner::Element`（把 bug 写成契约的那条断言即修复本身），`生成物剥离使单文件元素根同级生成物归元素` 的用例名 / doc / 断言意图同步改写；新增并集定档用例（`src/dir/` 与 `src/dir.ts` 同场 ⇒ 单文件根胜出）；白名单外后缀 4 条反例保持绿 |
+| `crates/core/archi/src/scan/mod.rs` | 扫描编排（零判据改动） | `walk_source_files` / `is_source_file` 提为 `pub(crate)` 供文件树复用；`scan()` 的枚举 / 排除 / 归属 / 抽取 / 聚合六段语义逐字不变（`owner_of` 的调用点两处——源文件归属与目标归属——自动获得并集判据） |
+| `crates/core/archi/src/tree.rs`（新增，见 `desktop-archi-file-tree`） | 文件树投影 | 归属与剥离一律经 `OwnerIndex`；本能力只要求「生成物按并集判据归属，树侧零第二份实现」 |
 | `foundation::layout::archi_api_dir` / `archi_api_rel_dir`（新增，见 workspace-layout-resolution） | 契约目录派生 | `archi_api_dir(root) -> PathBuf` = `<archi_dir>/api`；`archi_api_rel_dir() -> String`；全从既有派生族派生，纯推导零 IO |
 | `crates/tools/archi-api-gen/src/main.rs`（新，见 desktop-crate-layout） | 唯一写盘面 | CLI 三子命令 `generate` / `--check` / `bootstrap`；`--check` 零写入、有差异即非零退出并列文件；目录创建经 layout 派生 |
 | `packages/desktop/package.json`（脚本面） | 生成与门禁驱动 | `api:export`（写盘）/ `api:check`（`--check` 零写入 + 工具内比对）；`check` 由三段扩为四段（`server:check && bindings:export && api:check && client:check`——第二段是 `bindings:export`，生成物零 diff 守卫已退役），`bindings:export` 与 `client:check` 两段原文不变，`server:check` 的 fmt 段为 `cargo fmt --all --check`（clippy 段逐字不变） |
