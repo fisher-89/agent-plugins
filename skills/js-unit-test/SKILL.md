@@ -1,27 +1,27 @@
 ---
 name: js-unit-test
-description: 为已有的 JS/TS/JSX/TSX 代码生成 colocated 单元测试，跑到通过，并产出突变测试配置。适用于给存量代码补测试。
-version: 0.1.0
+description: 为已有的 JS/TS/JSX/TSX 代码生成 colocated 单元测试，跑到通过、核对覆盖率，并产出突变测试配置。适用于给存量代码补测试。
+version: 1.0.1
 ---
 
 # js-unit-test
 
-给**已有**的 JS/TS 代码补 colocated 单元测试：反构设计 → 设计用例 → 逐文件生成 → 跑到通过 → 产出突变配置。
-
-本 skill 自足运行：无 hook、无 subagent、无 MCP、无 CLI、无脚本。所有工程动作由本 agent 直接完成。
+给**已有**的 JS/TS 代码补 colocated 单元测试：反构设计 → 设计用例 → **用户确认** → 逐文件生成 → 跑到通过 → **覆盖率核对** → 产出突变配置。
 
 ## 硬约束
 
 | 约束 | 说明 |
 |---|---|
 | 不改生产代码 | 撞见被测代码的 bug 时停止并报告，不得自行修复 |
-| 只写三类文件 | `openspec/changes/<name>/` 下的设计产物、colocated 测试文件、突变配置 |
+| 只写四类文件 | 项目级画像 `openspec/test-profile.md`、`openspec/changes/<name>/` 下的设计产物、colocated 测试文件、突变配置；覆盖率报告目录由测试工具生成，不算产物 |
 | 不探测框架版本 | 直接使用项目自己的测试命令 |
-| 不自动重扫仓库 | 画像已存在则直接读取 |
 | 无快速通道 | 阶段 1–3 不可跳过 |
+| 设计必确认 | `test-design.md` 写完后由用户确认，确认前不得生成测试文件 |
+| 覆盖率有门 | 能收集就收集，低于 `lines 80 / branches 70 / functions 80` 必须归因，不得静默略过 |
+| 回补有界 | 覆盖率不足只回补流程内问题（阶段 2–5）；环境类问题只写报告，不动源码 |
 | 突变不代跑 | 只产出配置，由用户手动执行 |
 
-`references/` 下的文件按需读取，路径为 `<本 skill 的 base directory>/references/<name>.md`。
+`references/` 下的文件按需读取，路径为 `<本 skill 的 base directory>/references/<name>.md`。分支判定按主题分散在各 reference 里，走到对应判断点再读，不要预先通读。
 
 ## 输入
 
@@ -42,25 +42,11 @@ version: 0.1.0
 
 读取 `openspec/test-profile.md`（相对项目根）。
 
-**存在** → 走「过期抽查」，通过则直接用，进入阶段 1。
+**存在** → 按 `references/project-detection.md` 的「过期判定」抽查，通过则直接用，进入阶段 1。
 
 **不存在** → 执行首轮扫描（步骤见 `references/project-detection.md`），写入 `openspec/test-profile.md`，**展示给用户确认**后再继续。
 
-### 过期抽查
-
-```
-画像记录的每个包路径仍存在？
-  否 → 提示过期，询问是否重扫（重扫 = 重走首轮扫描并覆盖画像）
-任一 package.json 的 mtime 晚于画像文件的 mtime？
-  是 → 提示可能过期，询问是否重扫
-  否 → 直接使用
-```
-
-**永不自动重扫。** 用户选择不重扫时，按现有画像继续。
-
-### 多包时的目标选择
-
-画像可能列出多个测试域。由你根据用户给定的范围判断命中哪一个（路径前缀匹配优先）；无法判断时询问用户。
+多测试域时按范围做路径前缀匹配，判据见同文件的「多包时的目标选择」。
 
 ## 阶段 1：定范围
 
@@ -84,7 +70,7 @@ version: 0.1.0
 - 中文叙述；标识符、路径、命令保持英文
 - 不含测试策略、测试架构、用例设计（那是阶段 3）
 
-若 `design.md` 已存在：向用户确认是覆盖还是沿用。沿用则直接进入阶段 3。
+若 `design.md` 已存在：向用户确认是覆盖还是沿用（处置见 `references/design-template.md` 的「已存在时」）。
 
 ## 阶段 3：设计
 
@@ -96,10 +82,14 @@ version: 0.1.0
 - 每节的 `用例` 表覆盖该源文件的全部公共导出，含正向 / 异常 / 边界三类
 - 边界用例按 `references/edge-cases.md` 的类型映射系统推导
 - `Mock策略` 表遵守 `references/mock-rules.md` 的最小 mock 原则
-- 测试文件路径按 `references/naming.md` 推导
+- 测试文件路径按 `references/test-file-conventions.md` 的「命名规范」推导
 - 中文叙述
 
 **这份文件是阶段 4 的续跑锚**：其分节与 colocated 测试文件一一对应。分节标题必须精确，否则中断后无法比对进度。
+
+### 用户确认（阶段 3 出口）
+
+写完后**停在这里**，用 `AskUserQuestion` 请用户确认 `test-design.md`。确认结果的四种去向见 `references/test-design-template.md` 的「确认出口」。
 
 ## 阶段 4：生成
 
@@ -114,52 +104,48 @@ Read 同目录已有测试文件（学习命名、导入、断言风格）
 Write 对应的 colocated 测试文件
 ```
 
-测试代码要求见 `references/naming.md` 与 `references/frameworks.md`。核心几条：
+测试代码要求见 `references/test-file-conventions.md` 与 `references/frameworks.md`，不引入新依赖。
 
-- 用项目已有的框架与断言风格，不引入新依赖
-- `describe` / `it` / `test` 的描述用中文
-- 不加 `skip` / `ignore` / TODO 占位——生成即应可执行
-- 静态 import，不用动态 `import()`
-- 与源文件同目录、按命名规范命名
+**续跑**：每批开始前，检查该节对应的测试文件是否已存在且非空；是则跳过该节。其余判据见 `references/resume.md`。
 
-**续跑**：每批开始前，检查该节对应的测试文件是否已存在且非空；是则跳过该节，直接下一节。
+## 阶段 5：跑绿与覆盖率
 
-一批完成后不要回读已完成的章节，只保留在磁盘上。
+### 5a 跑绿
 
-## 阶段 5：跑绿
-
-用画像中该测试域的命令跑测试：
+先按 `references/coverage.md` 的前置判断确认覆盖率能否采集，据此决定命令：
 
 ```
-Bash: <画像中的测试命令>
+Bash: <画像中的测试命令> --coverage     # 可采集
+Bash: <画像中的测试命令>               # 不可采集
 ```
 
-不加覆盖率、不加突变开关，就是项目原本的那条命令。
+可采集时**一次执行同时拿到通过结果和覆盖率**，不要为了覆盖率多跑一遍。
 
-```
-exit 0  → 阶段 5 完成
-exit ≠0 → 读输出尾部（失败用例名与断言差异），判断：
-            ├─ 测试自身写错（断言错、导入错、mock 用错）→ 改测试 → 重跑（上限 3 轮）
-            └─ 被测代码有 bug → 停止，向用户报告：失败用例、现象、涉及的生产代码位置
-```
+退出码为 0 直接进 5b。非零时按 `references/frameworks.md` 的「失败时的读法」读输出尾部，再按 `references/coverage.md` 的「退出码」分叉：用例失败改测试重跑（上限 3 轮）；撞见产码 bug 则停止并交还用户。
 
-**最后那个分叉不可越过。** 本 skill 的职责是补测试，不是修业务逻辑。撞见产码 bug 时交还用户，同时说明已完成的测试文件仍然有效。
+**这条分叉不可越过。** 本 skill 的职责是补测试，不是修业务逻辑。撞见产码 bug 时交还用户，同时说明已完成的测试文件仍然有效。
+
+### 5b 覆盖率判定
+
+门禁（统计范围是阶段 1 的模块清单，不是全仓库）：
+
+| 维度 | 阈值 |
+|---|---|
+| lines | 80 |
+| branches | 70 |
+| functions | 80 |
+
+`references/coverage.md` 的「读法与判定」给出摘要表读法；三个维度全部达标 → 阶段 5 完成，进入阶段 6。采集不可用或任一维度低于阈值 → 按 `references/coverage.md` 的处置走：不可采集记原因直接进阶段 6；未达标进入 5c 归因。
+
+### 5c 覆盖率归因
+
+逐条读未覆盖行 / 分支，分成「流程内问题」与「环境问题」两类，分类规则、回补目标阶段与回补上限见 `references/coverage.md` 的「归因与回补」。环境类不改源码，带文件与行号记入最终报告。
 
 ## 阶段 6：突变配置
 
-先查项目是否已有 `stryker.config.{js,ts,mjs,cjs,json}`：
+先查项目是否已有 `stryker.config.{js,ts,mjs,cjs,json}`：有则记录路径、不再生成；无则生成 `openspec/changes/<name>/mutation/stryker.config.json`。查找范围、模板、字段填法与依赖检查见 `references/mutation-config.md`。
 
-- **有** → 在 profile 中记录路径（若 profile 里还没有），不再生成。告知用户可直接用该配置。
-- **无** → 生成 `openspec/changes/<name>/mutation/stryker.config.json`，模板见 `references/mutation-config.md`
-  - `mutate` 填本次模块清单（排除 `*.test.*`）
-  - `testRunner` 按画像记录的框架（vitest / jest）
-  - `$schema` 与 `plugins` 与 testRunner 对应
-
-产出后**不执行**，只给出一行运行命令：
-
-```
-npx --prefix <包根> stryker run <配置路径>
-```
+产出后**不执行**。阶段 7 只给出一行运行命令（见同一 reference 的「运行命令」）。
 
 ## 阶段 7：简报
 
@@ -170,19 +156,11 @@ npx --prefix <包根> stryker run <配置路径>
 - 覆盖的源文件数 / 模块清单中的总数
 - 未覆盖或特意跳过的部分及原因
 - 测试执行结果（通过数 / 总数）
+- 覆盖率：`lines` / `branches` / `functions` 三维度实测值与阈值对比，附采集命令
+- 覆盖率未达标时的归因：已回补的轮次与改动，以及留给用户的环境类缺口（源码 / 接口 / 文档 / 环境限制，逐条带文件与行号）
 - 突变配置位置与运行命令
 - 下一步建议（如"需要调整用例可重跑阶段 3"）
 
 ## 中断与恢复
 
-本 skill 不维护状态文件。所有进度判据来自磁盘：
-
-| 产物 | 存在时的行为 |
-|---|---|
-| `openspec/test-profile.md` | 跳过阶段 0 的扫描 |
-| `design.md` | 询问覆盖或沿用 |
-| `test-design.md` | 询问覆盖或沿用 |
-| 某节的测试文件 | 阶段 4 跳过该节 |
-| 突变配置 | 阶段 6 跳过生成 |
-
-新会话再次调用时，从阶段 0 重新进入，据上述判据自动推进到未完成的阶段。
+进度判据全部来自磁盘，不维护状态文件：见 `references/resume.md`。新会话再次调用时从阶段 0 重新进入，据该表自动推进到未完成的阶段。

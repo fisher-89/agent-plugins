@@ -111,3 +111,10 @@ class Session { begin(turn: Turn): void; end(): Promise<Result> }
 - 不复制源码，不贴完整实现片段
 
 若范围过大（源文件 > 20 个），建议在阶段 1 就与用户确认是否拆分为多次调用。
+
+## 已存在时
+
+`openspec/changes/<name>/design.md` 已存在时，向用户确认：
+
+- **覆盖** → 按本次模块清单重写，然后进入阶段 3
+- **沿用** → 不读不改，直接进入阶段 3；阶段 3 的用例设计以磁盘上的旧 `design.md` 为输入
