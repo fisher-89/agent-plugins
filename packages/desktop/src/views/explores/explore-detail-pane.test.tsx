@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import type * as AgentSessionViewModule from '@/components/agent/agent-session-view';
+
 import type { AgentEvent, ExploreRecord, SessionSummary } from '../../types/dto';
 import { ExploreDetailPane } from './explore-detail-pane';
 import type { ExploreDoc } from './hooks/use-explore-doc';
@@ -23,6 +25,24 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
+
+// ---------------------------------------------------------------------------
+// 探针装置（保留真实实现，仅记录 props）：在 `AgentSessionView` 边界把收到的
+// `askAnswer` 引用 push 进 `askAnswerProbe` 后原样渲染真实组件——「重渲染不击穿
+// memo」只能由引用相等（而非渲染次数近似）观测。`importOriginal` 保留全部真实
+// 实现（活卡 / 判活 / 气泡照旧），探针零行为、只记录。
+// ---------------------------------------------------------------------------
+
+const { askAnswerProbe } = vi.hoisted(() => ({ askAnswerProbe: { refs: [] as unknown[] } }));
+
+vi.mock('@/components/agent/agent-session-view', async (importOriginal) => {
+  const actual = await importOriginal<typeof AgentSessionViewModule>();
+  function ProbedAgentSessionView(props: Parameters<typeof actual.AgentSessionView>[0]) {
+    askAnswerProbe.refs.push(props.askAnswer ?? null);
+    return <actual.AgentSessionView {...props} />;
+  }
+  return { ...actual, AgentSessionView: ProbedAgentSessionView };
+});
 
 const ROOT = 'C:\\demo\\alpha';
 
@@ -1284,5 +1304,242 @@ describe('ExploreDetailPane：ChatPane 错误面（会话查询失败不塌页�
     // 错误态不误挂流（库态未确立 → 零订阅）
     await act(async () => {});
     expect(watchCalls()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：explore 聊天面合成 ask 动作面（session.session.answer）
+// ---------------------------------------------------------------------------
+
+describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
+  it('转录含 ask 工具调用 → 活卡选项可点即 invoke agent_answer（三参逐字）', async () => {
+    seedChatSession();
+    // 只覆盖转录面（其余命令沿用 seedChatSession 的既有应答——会话仍可装载）
+    const seeded = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, args: unknown) => {
+      if (command === 'agent_session_transcript') {
+        return Promise.resolve([
+          {
+            seq: 0,
+            turnId: 1,
+            timestampMs: 1727000000000,
+            kind: 'message',
+            role: 'assistant',
+            blocks: [
+              {
+                kind: 'toolUse',
+                id: 'call_1',
+                name: 'AskUserQuestion',
+                input: { question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
+              },
+            ],
+            parentToolUseId: null,
+          },
+        ]);
+      }
+      if (command === 'agent_answer') return Promise.resolve(null);
+      return seeded ? seeded(command, args) : Promise.resolve(null);
+    });
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+
+    const chat = await screen.findByTestId('explore-chat');
+    const buttons = await within(chat).findAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['指数退避', '固定间隔']);
+
+    fireEvent.click(buttons[1] as HTMLElement);
+    await act(async () => {});
+
+    const answerCall = invokeMock.mock.calls.filter(([name]) => name === 'agent_answer').at(-1);
+    expect(answerCall).toBeTruthy();
+    expect(answerCall?.[1]).toEqual({
+      root: ROOT,
+      sessionId: 'ses-explore-1',
+      text: '固定间隔',
+    });
+  });
+
+  it('引用稳定（DD12）：answer 未变时重渲染 → 活卡仍单次投递（askAnswer 不因重渲染换实现）', async () => {
+    seedChatSession();
+    const seeded = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, args: unknown) => {
+      if (command === 'agent_session_transcript') {
+        return Promise.resolve([
+          {
+            seq: 0,
+            turnId: 1,
+            timestampMs: 1727000000000,
+            kind: 'message',
+            role: 'assistant',
+            blocks: [
+              {
+                kind: 'toolUse',
+                id: 'call_rerender',
+                name: 'AskUserQuestion',
+                input: { question: '重渲染后仍可答？', options: ['是', '否'] },
+              },
+            ],
+            parentToolUseId: null,
+          },
+        ]);
+      }
+      if (command === 'agent_answer') return Promise.resolve(null);
+      return seeded ? seeded(command, args) : Promise.resolve(null);
+    });
+    const list = makeList();
+    const view = renderDetail(record({ sessionId: 'ses-explore-1' }), list);
+    const chat = await screen.findByTestId('explore-chat');
+    await within(chat).findAllByTestId('ask-answer-option');
+
+    // 换 list 引用（父层重渲染，会话与 answer 引用不变）
+    view.rerender(detailTree(record({ sessionId: 'ses-explore-1' }), list));
+    const buttons = await within(chat).findAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['是', '否']);
+
+    fireEvent.click(buttons[1] as HTMLElement);
+    await act(async () => {});
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(1);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')[0]?.[1]).toEqual({
+      root: ROOT,
+      sessionId: 'ses-explore-1',
+      text: '否',
+    });
+  });
+
+  it('无 ask 部件时聊天面零应答入口（既有形态零漂移）', async () => {
+    seedChatSession();
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+    const chat = await screen.findByTestId('explore-chat');
+    await waitFor(() => expect(within(chat).getAllByTestId('block-text')).toHaveLength(1));
+    expect(within(chat).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(0);
+  });
+
+  it('与 composer 插槽并存：两者均可用（互不前置）', async () => {
+    seedChatSession();
+    const seeded = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, args: unknown) => {
+      if (command === 'agent_session_transcript') {
+        return Promise.resolve([
+          {
+            seq: 0,
+            turnId: 1,
+            timestampMs: 1727000000000,
+            kind: 'message',
+            role: 'assistant',
+            blocks: [
+              {
+                kind: 'toolUse',
+                id: 'call_both',
+                name: 'AskUserQuestion',
+                input: { question: '并存？', options: ['是', '否'] },
+              },
+            ],
+            parentToolUseId: null,
+          },
+        ]);
+      }
+      if (command === 'agent_answer') return Promise.resolve(null);
+      return seeded ? seeded(command, args) : Promise.resolve(null);
+    });
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+
+    const chat = await screen.findByTestId('explore-chat');
+    // composer 插槽仍在位（发送输入 + 发送按钮），同时活卡选项可点
+    expect(within(chat).getByTestId('explore-composer')).toBeTruthy();
+    const buttons = await within(chat).findAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['是', '否']);
+    fireEvent.click(buttons[0] as HTMLElement);
+    await act(async () => {});
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(1);
+  });
+
+  it('引用稳定（DD12）：answer 未变时父层重渲染 → 下游 askAnswer 同引用', async () => {
+    seedChatSession();
+    const seeded = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, args: unknown) => {
+      if (command === 'agent_session_transcript') {
+        return Promise.resolve([
+          {
+            seq: 0,
+            turnId: 1,
+            timestampMs: 1727000000000,
+            kind: 'message',
+            role: 'assistant',
+            blocks: [
+              {
+                kind: 'toolUse',
+                id: 'call_ref',
+                name: 'AskUserQuestion',
+                input: { question: '引用稳定？', options: ['是', '否'] },
+              },
+            ],
+            parentToolUseId: null,
+          },
+        ]);
+      }
+      return seeded ? seeded(command, args) : Promise.resolve(null);
+    });
+    const list = makeList();
+    const view = renderDetail(record({ sessionId: 'ses-explore-1' }), list);
+    const chat = await screen.findByTestId('explore-chat');
+    await within(chat).findAllByTestId('ask-answer-option');
+    const before = askAnswerProbe.refs.filter((ref) => ref !== null).at(-1);
+
+    // 父层换 list 引用重渲染（会话与 answer 引用不变）
+    askAnswerProbe.refs.length = 0;
+    view.rerender(detailTree(record({ sessionId: 'ses-explore-1' }), makeList()));
+    await act(async () => {});
+
+    const after = askAnswerProbe.refs.filter((ref) => ref !== null) as {
+      onAnswer: unknown;
+    }[];
+    const beforeOnAnswer = (before as { onAnswer: unknown }).onAnswer;
+    expect(after.length).toBeGreaterThan(0);
+    // 引用相等判据：外层对象每渲染新造，但字段 `onAnswer` 与 `session.session.answer`
+    // 同引用 ⇒ `AgentMessages` 的 `useMemo([onAnswer, pendingToolCallId])` 合成引用
+    // 稳定，卡组件一帧都不重建（判活与交互面不因父层重渲染重置）
+    for (const ref of after) expect(ref.onAnswer).toBe(beforeOnAnswer);
+  });
+
+  it('无会话形态（会话未建立）→ ask 部件全静态、零 agent_answer invoke', async () => {
+    // 记录无 sessionId 且会话查询返回 null：会话 id 不落位，answer 的 null 守卫生效
+    seedChatSession();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
+      if (command === 'explore_doc_path') return Promise.resolve('C:a.md');
+      if (command === 'watch_subscribe') return Promise.resolve(1);
+      if (command === 'watch_unsubscribe') return Promise.resolve(null);
+      if (command === 'agent_sessions') return Promise.resolve([]);
+      if (command === 'session_detail') return Promise.resolve(null);
+      if (command === 'agent_session_transcript') {
+        return Promise.resolve([
+          {
+            seq: 0,
+            turnId: 1,
+            timestampMs: 1727000000000,
+            kind: 'message',
+            role: 'assistant',
+            blocks: [
+              {
+                kind: 'toolUse',
+                id: 'call_no_session',
+                name: 'AskUserQuestion',
+                input: { question: '无会话？', options: ['甲'] },
+              },
+            ],
+            parentToolUseId: null,
+          },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+    renderDetail(record(), makeList());
+
+    const chat = await screen.findByTestId('explore-chat');
+    await act(async () => {});
+    // 会话未建立：ask 部件不成活卡（无会话即不装载转录 → 连静态卡都不出现），
+    // 且零应答 invoke（answer 内部 null 守卫的另一半）
+    expect(within(chat).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(0);
   });
 });

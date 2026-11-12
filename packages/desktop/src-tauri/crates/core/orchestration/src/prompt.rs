@@ -59,8 +59,8 @@ pub fn evaluator_prompt(phase_prompt: &str) -> String {
 }
 
 /// 决策 prompt：有界输入组装（回溯重做窗口 + 失败报告 + fail checklist +
-/// 白名单 + 候选 eval report）+ 三动作封闭集说明（形状由工具 schema 给出）。
-/// 输出协议同 evaluator——调 `finish_step` 收口。
+/// 白名单 + 候选 eval report）+ 两动作封闭集说明（形状由工具 schema 给出）+
+/// 一句 ask 工具指路。输出协议同 evaluator——调 `finish_step` 收口。
 pub fn decision_prompt(input: &DecisionInput) -> String {
     let fail_items = input
         .fail_checklist
@@ -118,23 +118,13 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
 ## 报告文件\n\n\
 你可使用 `read` 工具读取报告树取全量明细：test-execution 的 `reports/test/summary.json`、突变的段级 / 归并报告（路径见失败明细）。\
 决策输入有界——不得要求内联全量 findings / 存活突变体清单。\n\n\
-## 决策协议（调用 finish_step 提交三选一动作，形状由工具 schema 给出）\n\n\
+## 决策协议（调用 finish_step 提交两选一动作，形状由工具 schema 给出）\n\n\
 - `backtrack`（`to` 取白名单内相位 id + `reason` ≤{MAX_REASON_CHARS} 字符）：白名单内自主回溯，直接执行；目标为失败相位自身即重做本相位（仅当其在白名单内）。\n\
 - `stop`（`reason` ≤{MAX_REASON_CHARS} 字符）：终止本次运行。\n\
-- `ask`（`question` + 非空 `options`）：无法裁决时中断提问。\n\n\
+无法裁决时调用 `AskUserQuestion` 工具提问（问题 + 非空选项，形状由工具 schema 给出）；应答后你可在同一轮内继续决策。\n\n\
 红线：backtrack 目标不在白名单内的决议会被拒绝（一次即终止）；reason 超长会被拒绝。",
         phase = input.phase,
         attempt = input.attempt,
-    )
-}
-
-/// ask 应答的唯一再提示面（决策会话 ask 停等外移后，应答开启新一轮决策会话）：
-/// 用户应答原文 + 一句收口指引。协议形状不复述——工具 schema 是唯一形状源。
-pub fn decision_answer_prompt(answer: &str) -> String {
-    format!(
-        "用户应答：{answer}\n\n\
-         请基于应答调用 `finish_step` 提交本步决策（三动作封闭集之一，形状由工具 schema 给出）；\
-         若应答仍不足以裁决，可再次以 ask 提问。"
     )
 }
 

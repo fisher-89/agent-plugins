@@ -39,7 +39,7 @@ pub enum AgentRunStatus {
 }
 
 /// 收口档位词汇：core 只承载词汇（`EvaluatorChecklist` = evaluator 步的逐项
-/// checklist 收口，`Decision` = 决策步的三动作收口），不认识 verdict / 动作语义
+/// checklist 收口，`Decision` = 决策步的路由决策收口），不认识 verdict / 动作语义
 ///（工具定义与校验归 infra / orchestration）。serde camelCase 线值
 /// `"evaluatorChecklist"` / `"decision"`。**不派生 `specta::Type`**——引擎侧会话
 /// 词汇不出线 IPC。
@@ -48,15 +48,33 @@ pub enum AgentRunStatus {
 pub enum FinishSpec {
     /// evaluator 步：`{ report, items: [{ id, pass, evidence }] }` 形态
     EvaluatorChecklist,
-    /// 决策步：三动作封闭集（backtrack / stop / ask）
+    /// 决策步：两动作封闭集（backtrack / stop）
     Decision,
 }
 
-/// 会话级注入三位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
+/// ask 装配档位：`Generic` = 只阻塞等应答（通用会话面，应答由聊天窗活卡回流）/
+/// `Flow` = 额外经 `AskPort` 广播编排状态（change 会话面，停等态与行内卡据此
+/// 驱动）。serde camelCase 线值 `"generic"` / `"flow"`。**不派生
+/// `specta::Type`**——引擎侧会话词汇不出线 IPC；不加 `Default`（避免 ask 位被
+/// 误缺省成「挂载」）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AskMode {
+    /// 只阻塞等应答，零编排广播
+    Generic,
+    /// 额外经 `AskPort` 广播「已开始 / 已解除」
+    Flow,
+}
+
+/// 会话级注入四位：`preamble`（会话级系统前导）/ `tools`（本轮下发的工具**名字
 /// 清单**，`None` = infra 内建七件）/ `finish`（收口档位，`None` = 本步无收口
-/// 工具）。工具定义与准入档唯一真源在 infra 挂载清单——core 只承载名字与收口
-/// 档位词汇，非法名在装配层（compose）`Err`。serde additive：旧线 JSON 缺
-/// `finish` 字段读出 `None`。
+/// 工具）/ `ask`（ask 装配档位，`None` = 显式禁用）。工具定义与准入档唯一真源
+/// 在 infra 挂载清单——core 只承载名字与两档位词汇，非法名在装配层（compose）
+/// `Err`。serde additive：旧线 JSON 缺字段读出 `None`。
+///
+/// `ask = None` 是**显式禁用**（该会话拿不到 ask 工具），非「未实现」——装配层
+/// MUST 逐臂显式置位（`SessionInjections::default()` 的 `ask = None` 是
+/// fail-closed 形态，MUST NOT 用作兜底装配）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionInjections {
     /// 会话级系统前导（None 即不注入；维持不消费）
@@ -66,6 +84,9 @@ pub struct SessionInjections {
     /// 收口档位（None = 本步无收口工具）
     #[serde(default)]
     pub finish: Option<FinishSpec>,
+    /// ask 装配档位（None = 显式禁用：该会话拿不到 ask 工具；Some = 按档挂载）
+    #[serde(default)]
+    pub ask: Option<AskMode>,
 }
 
 /// 模型等级（轮级选型档位）：引擎侧按档取 provider 双档模型（High = 高能力
@@ -103,8 +124,9 @@ pub enum SessionRef {
     Continue { id: String },
 }
 
-/// 会话建立参数（协议唯一入口的入参）：注入面 + 上下文 + 会话引用 + 引擎侧
-/// 先行句柄（Continue 时由编排侧自会话记录提取回供；New 恒 None）。
+/// 会话建立参数（协议唯一入口的入参）：注入面 + 上下文 + 会话引用 + core 铸
+/// 会话 id + 引擎侧先行句柄（Continue 时由编排侧自会话记录提取回供；New 恒
+/// None）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionOpen {
     /// 会话级注入（injections/轮分离不变量的会话级半边）
@@ -113,6 +135,9 @@ pub struct SessionOpen {
     pub ctx: SessionCtx,
     /// 会话引用
     pub session: SessionRef,
+    /// core 铸的会话 id（ask 注册表登记键；引擎侧另持自己的 `sdk-…` 标识，两者
+    /// 不同义，MUST NOT 互换）
+    pub session_id: String,
     /// 引擎侧先行句柄（引擎自译为传输层形态；None 即全新会话）
     pub prior_handle: Option<String>,
 }

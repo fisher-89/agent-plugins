@@ -19,6 +19,11 @@ pub mod workspaces;
 #[cfg(test)]
 pub(crate) static TEST_PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// ask 两条端到端链（`agent_answer` / `change_flow_answer`）的命令测试共享装置：
+/// 脚本化 SSE provider 桩 + 应答轮询 + 转录配对查询（单份实现，两命令测试复用）。
+#[cfg(test)]
+pub(crate) mod ask_test_support;
+
 /// 全量命令清单（单一登记面，纯路径注入零依赖）
 #[macro_export]
 macro_rules! all_commands {
@@ -44,6 +49,7 @@ macro_rules! all_commands {
             $crate::commands::agents::set_default_agent_instance,
             $crate::commands::exec::agent_start,
             $crate::commands::exec::agent_stop,
+            $crate::commands::exec::agent_answer,
             $crate::commands::exec::agent_session_watch,
             $crate::commands::exec::agent_sessions,
             $crate::commands::exec::agent_session_transcript,

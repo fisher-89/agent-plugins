@@ -2,9 +2,12 @@
 //! 事实源。成员校验、tier 准入、`RunStarted.tools`、loop 执行分派四处全查同一
 //! `definitions` 产出——MUST NOT 各自维护第二份名单。
 //!
-//! `finish_step` MUST NOT 进静态清单：其 description / parameters 按 step 动态
-//!（evaluator 形态的 ID enum 取自本轮 prompt），由 [`definitions`] 按注入面的
-//! `finish` 位铸造后追加。
+//! `finish_step` 与 `AskUserQuestion` MUST NOT 进静态清单：两者均由 [`definitions`]
+//! 按注入面的 `finish` / `ask` 位铸造后追加（前者的 evaluator 形态 ID enum 取自
+//! 本轮 prompt，后者按会话档位只换执行体）。
+//!
+//! provider 侧不变量：原生 ask 工具（provider 自己下发的同名工具）一律不挂——本
+//! 清单的 ask 项即全量覆盖，MUST NOT 同时下挂 provider 原生同名工具。
 
 use std::sync::OnceLock;
 
@@ -59,6 +62,8 @@ pub(crate) enum ToolExec {
     Archi,
     /// 收口工具：编排侧校验 + 本步收口（`orchestration::finish`）
     FinishStep(agent::FinishSpec),
+    /// ask 工具：一个变体带档位（schema 单源，仅执行体行为不同）
+    Ask(agent::AskMode),
 }
 
 /// 挂载项三元组（定义 / 准入档 / 执行体）。不含 `PartialEq`——`ToolDefinition`
@@ -123,8 +128,8 @@ pub(crate) fn lookup(name: &str) -> Option<ToolDefinition> {
 }
 
 /// 本轮下发的挂载清单：`tools = None` → 内建七件；`Some(names)` → 按清单序
-/// 过滤（未知名 `Err`，文案携非法名）；`finish` 位置位时铸造 `finish_step` 一项
-/// 追加到末尾。
+/// 过滤（未知名 `Err`，文案携非法名）；`ask` 位置位时追加 `AskUserQuestion`，
+/// `finish` 位置位时追加 `finish_step`（两条独立分支，序为 ask 先、finish 后）。
 pub(crate) fn definitions(
     injections: &agent::SessionInjections,
     prompt: &str,
@@ -144,6 +149,19 @@ pub(crate) fn definitions(
                 .collect()
         }
     };
+    // ask 位与 finish 位**互不依赖**（两条独立 `if`，无合取判据）：`finish = None`
+    // 的会话仍有 ask，`ask = None` 的会话仍有 `finish_step`
+    if let Some(mode) = injections.ask {
+        mounts.push(ToolMount {
+            definition: ToolDefinition {
+                name: orchestration::ask::TOOL_NAME.to_owned(),
+                description: orchestration::ask::description().to_owned(),
+                parameters: orchestration::ask::parameters(),
+            },
+            tier: ToolTier::Protocol,
+            exec: ToolExec::Ask(mode),
+        });
+    }
     if let Some(spec) = injections.finish {
         mounts.push(ToolMount {
             definition: ToolDefinition {
@@ -350,5 +368,6 @@ pub(crate) fn injected_finish(
         preamble: None,
         tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
         finish,
+        ask: None,
     }
 }

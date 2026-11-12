@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::ask::AskRegistry;
 use crate::event::{AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::kernel::{KernelOutput, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionSink, TurnOutcome};
@@ -242,6 +243,7 @@ fn request(session: SessionRef) -> TurnRequest {
             preamble: Some("前导".to_owned()),
             tools: None,
             finish: None,
+            ask: None,
         },
         ctx: SessionCtx {
             workspace_root: std::path::PathBuf::from("D:\\工作区"),
@@ -393,6 +395,7 @@ async fn begin_turn_new同步段sink调用序恰为建会话_开轮_登记且三
         Arc::new(sink),
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
 
     let running = kernel
@@ -449,6 +452,7 @@ async fn begin_turn_open失败时err传播且假sink零调用() {
         Arc::new(sink),
         registry,
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
 
     let result = kernel.begin_turn(runner, request(SessionRef::New));
@@ -477,6 +481,7 @@ async fn begin_turn_sink失败时err映射传播且错误映射单点在内核()
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let error = match kernel.begin_turn(
         Arc::new(FakeRunner::with_capacity(4)),
@@ -498,6 +503,7 @@ async fn begin_turn_sink失败时err映射传播且错误映射单点在内核()
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let error = match kernel.begin_turn(
         Arc::new(FakeRunner::with_capacity(4)),
@@ -524,6 +530,7 @@ async fn begin_turn_continue不重复建会话行且多轮轮id递增承接sink�
         Arc::new(sink),
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
 
     let session = SessionRef::Continue {
@@ -566,6 +573,7 @@ async fn 同会话次轮盖戳自库内最大seq续排_转录主键永不复用(
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -623,6 +631,7 @@ async fn drive增量只上输出回调_盖戳补齐单调且sink零append() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -681,6 +690,7 @@ async fn drive密封事件write_through恰一次且载荷为盖戳后事件() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -760,6 +770,7 @@ async fn drive_turn_done统计收口_唯一口径承接_除名流出终态() {
         Arc::new(sink),
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -836,6 +847,7 @@ async fn drive_append失败时failed收敛记因_finish尽力_除名后流出终
         Arc::new(sink),
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -888,6 +900,7 @@ async fn drive停止置位后观察流关闭_stopped收敛不记因() {
         Arc::new(sink),
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -931,6 +944,7 @@ async fn drive空观察流无停止信号时兜底failed且不悬挂() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(4));
 
@@ -969,6 +983,7 @@ async fn drive观察洪峰经背压全量送达零丢失且seq全程单调() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(8)); // 容量 8 < 洪峰 64
 
@@ -1008,6 +1023,7 @@ async fn drive_on_output慢速消费时密封落库与收口时序不受阻塞�
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1042,6 +1058,393 @@ async fn drive_on_output慢速消费时密封落库与收口时序不受阻塞�
         matches!(recorded.last(), Some(SinkCall::FinishTurn { .. })),
         "收口时序完整"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`SessionKernel` 第 4 参（`Arc<AskRegistry>`）——id 下传与
+// 轮收敛除名兜底
+// ---------------------------------------------------------------------------
+
+/// 新会话 id 下传（AC-1 的一半）：`SessionRef::New` 发起 → 假 runner 捕获的
+/// `SessionOpen.session_id` 等于 `RunningTurn.session_id`（core 铸 id，非 `sdk-`
+/// 引擎侧形态）；Continue 形态沿用既有会话 id（同会话同 id）。
+#[tokio::test]
+async fn begin_turn把core会话id下传open且continue沿用同id() {
+    // New 形态
+    let (sink, _calls) = FakeSink::new();
+    let runner = Arc::new(FakeRunner::with_capacity(4));
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
+    );
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("New 应成功");
+    let captured = runner.captured.lock().expect("捕获锁不可中毒").clone();
+    assert_eq!(
+        captured[0].session_id, running.session_id,
+        "New：open 的 session_id == RunningTurn.session_id（core 铸 id 下传）"
+    );
+    assert!(
+        captured[0].session_id.starts_with("ses-"),
+        "core 铸 id 形态（非引擎侧 sdk- 形态），实际: {}",
+        captured[0].session_id
+    );
+
+    // Continue 形态：沿用既有会话 id
+    let (sink, _calls) = FakeSink::new();
+    let runner = Arc::new(FakeRunner::with_capacity(4));
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
+    );
+    let running = kernel
+        .begin_turn(
+            runner.clone(),
+            request(SessionRef::Continue {
+                id: "ses-7-1727000000007".to_owned(),
+            }),
+        )
+        .expect("Continue 应成功");
+    let captured = runner.captured.lock().expect("捕获锁不可中毒").clone();
+    assert_eq!(
+        captured[0].session_id, "ses-7-1727000000007",
+        "Continue：session_id == 引用 id（同会话同 id）"
+    );
+    assert_eq!(running.session_id, "ses-7-1727000000007");
+}
+
+/// 除名兜底（AC-5，组合迭代 2 收敛形态）：轮中预置注册表登记（模拟引擎侧
+/// 执行体登记）→ 驱动至收敛 → 其后 `answer` → `Err`；同时断言 `StopRegistry`
+/// 该键亦已除名（两表同一出口）。
+#[tokio::test]
+async fn drive收敛后ask与stop两表同址除名() {
+    for (label, events, expect_status) in [
+        (
+            "Completed",
+            vec![message_kind(), turn_done_kind(false)],
+            AgentRunStatus::Completed,
+        ),
+        ("Stopped", vec![message_kind()], AgentRunStatus::Stopped),
+    ] {
+        let (sink, _calls) = FakeSink::new();
+        let stops = Arc::new(StopRegistry::new());
+        let asks = Arc::new(AskRegistry::default());
+        let kernel = SessionKernel::new(
+            Arc::new(sink),
+            Arc::clone(&stops),
+            Arc::new(SessionStreamRegistry::new()),
+            Arc::clone(&asks),
+        );
+        let runner = Arc::new(FakeRunner::with_capacity(8));
+        let running = kernel
+            .begin_turn(runner.clone(), request(SessionRef::New))
+            .expect("begin 应成功");
+        let session_id = running.session_id.clone();
+
+        // 轮中预置 ask 登记（引擎侧执行体进入阻塞前的形态）
+        let (tx, _rx) = tokio::sync::oneshot::channel::<String>();
+        assert!(asks.register(&session_id, tx), "轮中登记该会话的等待方");
+
+        if label == "Stopped" {
+            assert!(stops.request_stop(&session_id), "停止置位");
+        }
+        runner.feed(events).await;
+        runner.close_stream();
+        let (_observations, _finished, outcome) = drive_all(running).await;
+
+        assert_eq!(outcome.status, expect_status, "{label} 收敛");
+        assert!(
+            asks.answer(&session_id, "迟到应答".to_owned()).is_err(),
+            "{label}：收敛后 ask 槽已除名（answer → Err）"
+        );
+        assert!(
+            !stops.request_stop(&session_id),
+            "{label}：StopRegistry 该键亦已除名（两表同一出口）"
+        );
+    }
+}
+
+/// 只除本会话键（边界，组合迭代 2 会话 × 2 收敛序）：两会话并行登记 → 会话 A
+/// 收敛后 `answer(A)` → `Err`、`answer(B)` → `Ok`（按 core session id 隔离）。
+#[tokio::test]
+async fn 收敛只除本会话ask键不波及并行会话() {
+    // 两会话各用独立假 runner（feed 寻址按 runner 隔离），两种收敛序各跑一遍
+    for first in ["A", "B"] {
+        let (sink, _calls) = FakeSink::new();
+        let asks = Arc::new(AskRegistry::default());
+        let kernel = SessionKernel::new(
+            Arc::new(sink),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+            Arc::clone(&asks),
+        );
+        let runner_a = Arc::new(FakeRunner::with_capacity(8));
+        let runner_b = Arc::new(FakeRunner::with_capacity(8));
+
+        let running_a = kernel
+            .begin_turn(runner_a.clone(), request(SessionRef::New))
+            .expect("A begin 应成功");
+        let session_a = running_a.session_id.clone();
+        let running_b = kernel
+            .begin_turn(runner_b.clone(), request(SessionRef::New))
+            .expect("B begin 应成功");
+        let session_b = running_b.session_id.clone();
+        assert_ne!(session_a, session_b, "两会话 id 互异");
+
+        let (tx_a, mut rx_a) = tokio::sync::oneshot::channel::<String>();
+        let (tx_b, mut rx_b) = tokio::sync::oneshot::channel::<String>();
+        asks.register(&session_a, tx_a);
+        asks.register(&session_b, tx_b);
+
+        // 按序收敛首会话（另一会话保持运行以验证键隔离）
+        let (first_running, first_runner, first_id, second_runner) = if first == "A" {
+            (
+                running_a,
+                runner_a.clone(),
+                session_a.clone(),
+                runner_b.clone(),
+            )
+        } else {
+            (
+                running_b,
+                runner_b.clone(),
+                session_b.clone(),
+                runner_a.clone(),
+            )
+        };
+        first_runner
+            .feed(vec![message_kind(), turn_done_kind(false)])
+            .await;
+        first_runner.close_stream();
+        let (_obs, _fin, outcome) = drive_all(first_running).await;
+        assert_eq!(outcome.status, AgentRunStatus::Completed, "{first} 收敛");
+
+        assert!(
+            asks.answer(&first_id, "迟到应答".to_owned()).is_err(),
+            "{first} 收敛后除名"
+        );
+        if first == "A" {
+            assert!(
+                asks.answer(&session_b, "B 应答".to_owned()).is_ok(),
+                "B 仍可应答（未收敛，键隔离）"
+            );
+            assert_eq!(rx_b.try_recv().expect("B 收到"), "B 应答");
+        } else {
+            assert!(
+                asks.answer(&session_a, "A 应答".to_owned()).is_ok(),
+                "A 仍可应答（B 的收敛未波及，键隔离）"
+            );
+            assert_eq!(rx_a.try_recv().expect("A 收到"), "A 应答");
+        }
+        // 未收敛会话的观察流保持打开（不影响上面断言）
+        drop(second_runner);
+    }
+}
+
+/// 观察流异常终止（无 `TurnDone`）兜底 `Failed` 路径同样除名（异常）：关闭
+/// 观察流后 `answer` → `Err`。
+#[tokio::test]
+async fn 观察流异常终止兜底failed路径同样除名ask键() {
+    let (sink, _calls) = FakeSink::new();
+    let asks = Arc::new(AskRegistry::default());
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::clone(&asks),
+    );
+    let runner = Arc::new(FakeRunner::with_capacity(8));
+    let running = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+
+    let (tx, _rx) = tokio::sync::oneshot::channel::<String>();
+    asks.register(&session_id, tx);
+    // 无 TurnDone：投喂普通消息后直接关闭流
+    runner.feed(vec![message_kind()]).await;
+    runner.close_stream();
+
+    let (_obs, _fin, outcome) = drive_all(running).await;
+    assert_eq!(
+        outcome.status,
+        AgentRunStatus::Failed,
+        "异常终止兜底 failed"
+    );
+    assert!(
+        asks.answer(&session_id, "迟到应答".to_owned()).is_err(),
+        "兜底 failed 路径同样除名"
+    );
+}
+
+/// 送达失败臂（异常，引擎侧已终止）：提问 `send` 失败 → `Failed` 收敛且除名
+///（既有错误文案零改动，新字段不参与）。
+#[tokio::test]
+async fn ask送达失败臂failed收敛后同样除名ask键() {
+    let (sink, _calls) = FakeSink::new();
+    let asks = Arc::new(AskRegistry::default());
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::clone(&asks),
+    );
+    let running = kernel
+        .begin_turn(Arc::new(AskFailingRunner), request(SessionRef::New))
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+
+    let (tx, _rx) = tokio::sync::oneshot::channel::<String>();
+    asks.register(&session_id, tx);
+
+    let (observations, _finished, outcome) = drive_all(running).await;
+    assert_eq!(outcome.status, AgentRunStatus::Failed);
+    assert!(observations.is_empty(), "ask 送达失败零伪事件");
+    assert!(
+        asks.answer(&session_id, "迟到应答".to_owned()).is_err(),
+        "送达失败臂同样除名"
+    );
+}
+
+/// 启动失败四臂不污染注册表（异常，参数化 4 形态）：`open_session` Err /
+/// `create_session` Err / `begin_turn` Err / `next_seq` Err → 返回
+/// `AgentStartError`，`answer(<任何 id>)` 仍 `Err`、无 panic。
+#[tokio::test]
+async fn 启动失败四臂不污染ask注册表() {
+    struct NextSeqFailingSink {
+        inner: FakeSink,
+    }
+
+    impl SessionSink for NextSeqFailingSink {
+        fn create_session(&self, session: &NewSessionRow) -> Result<(), String> {
+            self.inner.create_session(session)
+        }
+        fn begin_turn(&self, session_id: &str, started_at: i64) -> Result<i64, String> {
+            self.inner.begin_turn(session_id, started_at)
+        }
+        fn next_seq(&self, _session_id: &str) -> Result<u64, String> {
+            Err("序号读取失败".to_owned())
+        }
+        fn append_sealed(&self, _session_id: &str, _event: &AgentEvent) -> Result<(), String> {
+            Ok(())
+        }
+        fn finish_turn(&self, _turn_id: i64, _outcome: &TurnOutcome) -> Result<(), String> {
+            Ok(())
+        }
+        fn bind_remote_session(
+            &self,
+            _session_id: &str,
+            _remote: &str,
+            _updated_at: i64,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let mut failures: Vec<(String, Result<crate::kernel::RunningTurn, AgentStartError>)> =
+        Vec::new();
+
+    // ① open_session Err
+    {
+        let (sink, _calls) = FakeSink::new();
+        let asks = Arc::new(AskRegistry::default());
+        let kernel = SessionKernel::new(
+            Arc::new(sink),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+            Arc::clone(&asks),
+        );
+        let result = kernel.begin_turn(
+            Arc::new(FakeRunner::failing(AgentStartError::ConfigMissing(
+                "凭据未配".to_owned(),
+            ))),
+            request(SessionRef::New),
+        );
+        assert!(asks.answer("任何 id", "x".to_owned()).is_err());
+        failures.push(("open_session".to_owned(), result));
+    }
+
+    // ② create_session Err
+    {
+        let (sink, _calls) = FakeSink::new();
+        let mut sink = sink;
+        sink.create_session_fails = true;
+        let asks = Arc::new(AskRegistry::default());
+        let kernel = SessionKernel::new(
+            Arc::new(sink),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+            Arc::clone(&asks),
+        );
+        let result = kernel.begin_turn(
+            Arc::new(FakeRunner::with_capacity(4)),
+            request(SessionRef::New),
+        );
+        assert!(asks.answer("任何 id", "x".to_owned()).is_err());
+        failures.push(("create_session".to_owned(), result));
+    }
+
+    // ③ begin_turn Err
+    {
+        let (sink, _calls) = FakeSink::new();
+        let mut sink = sink;
+        sink.begin_turn_fails = true;
+        let asks = Arc::new(AskRegistry::default());
+        let kernel = SessionKernel::new(
+            Arc::new(sink),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+            Arc::clone(&asks),
+        );
+        let result = kernel.begin_turn(
+            Arc::new(FakeRunner::with_capacity(4)),
+            request(SessionRef::New),
+        );
+        assert!(asks.answer("任何 id", "x".to_owned()).is_err());
+        failures.push(("begin_turn".to_owned(), result));
+    }
+
+    // ④ next_seq Err
+    {
+        let (sink, _calls) = FakeSink::new();
+        let asks = Arc::new(AskRegistry::default());
+        let kernel = SessionKernel::new(
+            Arc::new(NextSeqFailingSink { inner: sink }),
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+            Arc::clone(&asks),
+        );
+        let result = kernel.begin_turn(
+            Arc::new(FakeRunner::with_capacity(4)),
+            request(SessionRef::New),
+        );
+        assert!(asks.answer("任何 id", "x".to_owned()).is_err());
+        failures.push(("next_seq".to_owned(), result));
+    }
+
+    for (label, result) in failures {
+        // open_session 臂原样传播引擎侧错误类型；其余三臂包装为 SpawnFailed
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("{label} 臂应 Err（启动失败四臂）"),
+        };
+        assert!(
+            matches!(
+                (label.as_str(), &error),
+                ("open_session", AgentStartError::ConfigMissing(_))
+                    | (
+                        "create_session" | "begin_turn" | "next_seq",
+                        AgentStartError::SpawnFailed(_)
+                    )
+            ),
+            "{label} 臂的错误类型与既有语义一致，实际: {error:?}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1087,7 +1490,12 @@ async fn 内核三参构造后begin_turn使stop与streams两表各自命中且�
     let (sink, _calls) = FakeSink::new();
     let stops = Arc::new(StopRegistry::new());
     let streams = Arc::new(SessionStreamRegistry::new());
-    let kernel = SessionKernel::new(Arc::new(sink), Arc::clone(&stops), Arc::clone(&streams));
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::clone(&stops),
+        Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
+    );
     let runner = Arc::new(FakeRunner::with_capacity(4));
 
     let running = kernel
@@ -1116,6 +1524,7 @@ fn 内核未begin_turn时任意id订阅为none() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let _ = kernel;
 
@@ -1133,8 +1542,18 @@ async fn 两内核共享同一streams时各自登记条目并存互不覆盖() {
     let (sink_b, _calls_b) = FakeSink::new();
     let stops = Arc::new(StopRegistry::new());
     let streams = Arc::new(SessionStreamRegistry::new());
-    let kernel_a = SessionKernel::new(Arc::new(sink_a), Arc::clone(&stops), Arc::clone(&streams));
-    let kernel_b = SessionKernel::new(Arc::new(sink_b), Arc::clone(&stops), Arc::clone(&streams));
+    let kernel_a = SessionKernel::new(
+        Arc::new(sink_a),
+        Arc::clone(&stops),
+        Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
+    );
+    let kernel_b = SessionKernel::new(
+        Arc::new(sink_b),
+        Arc::clone(&stops),
+        Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
+    );
     let runner = Arc::new(FakeRunner::with_capacity(4));
 
     let first = kernel_a
@@ -1163,6 +1582,7 @@ async fn begin_turn返回前已登记_new与continue两形态均登记() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(8));
 
@@ -1201,6 +1621,7 @@ async fn begin_turn三类失败零条目() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let failed_open = kernel.begin_turn(
         Arc::new(FakeRunner::failing(AgentStartError::ConfigMissing(
@@ -1217,6 +1638,7 @@ async fn begin_turn三类失败零条目() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let failed_create = kernel.begin_turn(
         Arc::new(FakeRunner::with_capacity(4)),
@@ -1231,6 +1653,7 @@ async fn begin_turn三类失败零条目() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let failed_turn = kernel.begin_turn(
         Arc::new(FakeRunner::with_capacity(4)),
@@ -1255,6 +1678,7 @@ async fn drive的delta与密封同源发布_订阅端序列与输出回调逐条
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1318,6 +1742,7 @@ async fn drive_append失败时订阅端得failed终态且此前delta已投递且
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1365,6 +1790,7 @@ async fn drive_ask送达失败时订阅端仅得failed终态零伪事件() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
 
     let running = kernel
@@ -1398,6 +1824,7 @@ async fn drive空观察流无停止信号时投递failed兜底终态后除名() 
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(4));
 
@@ -1433,6 +1860,7 @@ async fn drive无订阅者全程发布静默且容量内不消费不阻塞驱动
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(8));
     let running = kernel
@@ -1456,6 +1884,7 @@ async fn drive无订阅者全程发布静默且容量内不消费不阻塞驱动
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(8));
     let running = kernel
@@ -1495,6 +1924,7 @@ async fn drive同会话次轮_以首轮最大seq为since_seq时只收次轮新�
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(8));
 
@@ -1552,6 +1982,7 @@ async fn drive_delta零落库不变而订阅端可见() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1600,7 +2031,12 @@ async fn drive停止置位收敛stopped_订阅端终态error为none() {
     let (sink, _calls) = FakeSink::new();
     let registry = Arc::new(StopRegistry::new());
     let streams = Arc::new(SessionStreamRegistry::new());
-    let kernel = SessionKernel::new(Arc::new(sink), Arc::clone(&registry), Arc::clone(&streams));
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::clone(&registry),
+        Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
+    );
     let runner = Arc::new(FakeRunner::with_capacity(8));
 
     let running = kernel
@@ -1639,6 +2075,7 @@ async fn drive流出事件全部携本轮轮归属且无一枚为none() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1684,6 +2121,7 @@ async fn drive的delta组与密封组turn_id集合各为单元素集且相等() 
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1734,6 +2172,7 @@ async fn drive两实时出口投递同一轮归属值() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1781,6 +2220,7 @@ async fn continue续轮两轮轮归属各自恒定且跨轮互异() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1840,6 +2280,7 @@ async fn drive_append失败前已投递观察的轮归属不降级为none() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -1873,6 +2314,7 @@ async fn drive_ask送达失败零事件轮不产生补盖戳伪事件() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
 
     let running = kernel
@@ -1901,6 +2343,7 @@ async fn drive空观察流兜底failed不合成事件且终态携开轮id() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(4));
 
@@ -1938,6 +2381,7 @@ async fn drive轮id三形态逐字落盖戳且不与seq混淆() {
             Arc::new(sink),
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
+            Arc::new(AskRegistry::default()),
         );
         let runner = Arc::new(FakeRunner::with_capacity(8));
 
@@ -1976,6 +2420,7 @@ async fn 同会话两轮seq续排且两轮轮归属集合互异() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(16));
 
@@ -2044,6 +2489,7 @@ async fn drive观察洪峰全部事件携本轮轮归属且seq无跳号() {
         Arc::new(sink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let runner = Arc::new(FakeRunner::with_capacity(8)); // 容量 8 < 洪峰 64
 
@@ -2088,7 +2534,12 @@ async fn drive停止置位收敛零新增事件且既有密封轮归属不变() 
     let (sink, _calls) = FakeSink::new();
     let registry = Arc::new(StopRegistry::new());
     let streams = Arc::new(SessionStreamRegistry::new());
-    let kernel = SessionKernel::new(Arc::new(sink), Arc::clone(&registry), Arc::clone(&streams));
+    let kernel = SessionKernel::new(
+        Arc::new(sink),
+        Arc::clone(&registry),
+        Arc::clone(&streams),
+        Arc::new(AskRegistry::default()),
+    );
     let runner = Arc::new(FakeRunner::with_capacity(8));
 
     let running = kernel

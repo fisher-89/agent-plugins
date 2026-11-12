@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { ResizablePanelGroup } from '@/components/ui/resizable';
 import type { UseAgentSessionState } from '@/hooks/use-agent-session';
 
+import type { AskAnswerActions as AgentMessagesAskAnswerActions } from './agent-messages';
 import {
   AgentSessionView,
   type AgentSessionActions,
@@ -44,6 +48,7 @@ function emptySession(): UseAgentSessionState {
     sendMessage: vi.fn(),
     stop: vi.fn(),
     reset: vi.fn(),
+    answer: vi.fn(),
   };
 }
 
@@ -159,5 +164,62 @@ describe('组件族 barrel：冒烟渲染', () => {
     expect(screen.getByTestId('barrel-session')).toBeTruthy();
     expect(screen.getByTestId('barrel-composer')).toBeTruthy();
     expect(invokeMock, '展开亦零 invoke').not.toHaveBeenCalled();
+  });
+});
+
+describe('组件族 barrel：ask 动作面类型出口（AC-13）', () => {
+  it('barrel 导出 AskAnswerActions 类型（消费点从 barrel 取，不穿透内部模块）', () => {
+    // 类型出口的存在性以编译期赋值锚定（`import()` 静态类型不可在运行期取值，
+    // 故用 type-only 使用 + 构造赋值；运行期只在断言里提及数值面）
+    const actions: barrel.AskAnswerActions = {
+      onAnswer: vi.fn(),
+      pendingToolCallId: null,
+    };
+    expect(typeof actions.onAnswer).toBe('function');
+    expect(actions.pendingToolCallId).toBeNull();
+
+    // 可选字段省略形态同型（undefined = 「无结果态即活」默认判据）
+    const loose: barrel.AskAnswerActions = { onAnswer: vi.fn() };
+    expect(loose.pendingToolCallId).toBeUndefined();
+
+    // barrel 与 agent-messages 的类型同源（无第二份定义）：双向赋值即编译期判据
+    const viaModule: AgentMessagesAskAnswerActions = actions;
+    const backToBarrel: barrel.AskAnswerActions = viaModule;
+    expect(backToBarrel.pendingToolCallId).toBeNull();
+  });
+});
+
+describe('组件族 barrel：ask 类型出口的导入纪律（源码自证）', () => {
+  /** 仓库内某文件的源码全文（vitest 以包根为 cwd，`src/**` 为稳定相对面）。 */
+  function sourceOf(relative: string): string {
+    return readFileSync(resolve(process.cwd(), relative), 'utf8');
+  }
+
+  it('流程侧三消费点经 barrel 取类型，零深路径仅类型导入（单一引用纪律）', () => {
+    for (const file of [
+      'src/views/changes/flow/detail-drawer.tsx',
+      'src/views/changes/flow/session-transcript-panel.tsx',
+      'src/views/changes/change-detail-view.tsx',
+    ]) {
+      const source = sourceOf(file);
+      // 经 barrel 取类型（`import type {…}` 与内联 `type` 两形态均合法，barrel 路径唯一）
+      expect(source, `${file} 从 barrel 取 AskAnswerActions`).toContain('AskAnswerActions');
+      expect(source, `${file} 的导入路径为 barrel`).toMatch(
+        /import\s*(?:type\s*)?\{[^}]*AskAnswerActions[^}]*\}\s*from '@\/components\/agent';/,
+      );
+      expect(
+        source.includes("from '@/components/agent/agent-messages'"),
+        `${file} 零深路径导入（两套导入形态并存即红）`,
+      ).toBe(false);
+    }
+  });
+
+  it('barrel 是类型再导出的唯一出口：index.tsx 的 AskAnswerActions 一行 export type', () => {
+    const source = sourceOf('src/components/agent/index.tsx');
+    expect(source).toContain("export type { AskAnswerActions } from './agent-messages';");
+    expect(
+      source.split("export type { AskAnswerActions } from './agent-messages';").length - 1,
+      '单处声明（不重复导出同名类型）',
+    ).toBe(1);
   });
 });

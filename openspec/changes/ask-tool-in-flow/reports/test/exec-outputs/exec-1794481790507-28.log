@@ -1,0 +1,26 @@
+
+=== packages_desktop_vite-plus (vite-plus) · files=11 ===
+[32m19:10:14 (24180) INFO ProjectReader[39m Found 11 of 54632 file(s) to be mutated.
+[32m19:10:14 (24180) INFO Instrumenter[39m Instrumented 11 source file(s) with 1317 mutant(s)
+[32m19:10:17 (24180) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m19:11:11 (24180) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[32m19:12:30 (24180) INFO DryRunExecutor[39m Initial test run succeeded. Ran 814 tests in 1 minute and 19 seconds (net 31744.223800000058 ms, overhead 47292.77619999994 ms).
+[32m19:33:44 (24180) INFO JsonReporter[39m Your report can be found at: file:///D:/Projects/.worktrees/wps-claude-plugin/ask-tool-in-flow/openspec/changes/ask-tool-in-flow/reports/test/packages_desktop_vite-plus/mutation/mutation-seg-0.json
+[32m19:33:44 (24180) INFO MutationTestExecutor[39m Done in 23 minutes and 50 seconds.
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+
+=== packages_desktop_src-tauri_rust (rust) · files=48 ===
+Found 64 mutants to test
+TIMEOUT  crates/infra/agent/src/lib.rs:165:9: replace EngineFacade::with_ask_registry -> Self with Default::default() in 8s build + 300s test
+TIMEOUT  crates/infra/agent/src/lib.rs:166:13: delete field ask_registry from struct Self expression in EngineFacade::with_ask_registry in 8s build + 300s test
+MISSED   crates/infra/agent/src/sdk/loop.rs:990:8: delete ! in execute_ask in 11s build + 28s test
+TIMEOUT  crates/infra/agent/src/sdk/loop.rs:973:13: replace == with != in execute_ask in 9s build + 300s test
+TIMEOUT  crates/infra/agent/src/sdk/runner.rs:110:13: delete field ask_registry from struct Self expression in SdkRunner::with_ask_registry in 9s build + 300s test
+TIMEOUT  crates/core/orchestration/src/control.rs:230:9: replace ChangeFlowControl::answer -> Result<(), String> with Ok(()) in 28s build + 300s test
+64 mutants tested in 20m: 1 missed, 42 caught, 16 unviable, 5 timeouts

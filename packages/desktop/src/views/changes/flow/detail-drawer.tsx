@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 
+import type { AskAnswerActions } from '@/components/agent';
 import { StandardDrawer } from '@/components/standard/drawer';
 
 import type { ArtifactEnvelope } from '../../../types/dto';
@@ -22,6 +23,8 @@ interface DetailDrawerProps {
   name: string;
   /** 会话状态重评估键（组件据其重评估是否挂流；会话事件通知并入统一重查） */
   sessionRefreshKey?: number;
+  /** ask 应答动作面（未传即零行为变化——转录面板全静态） */
+  askAnswer?: AskAnswerActions;
   onClose: () => void;
 }
 
@@ -91,6 +94,7 @@ function DrawerContent({
   root,
   name,
   sessionRefreshKey,
+  askAnswer,
 }: {
   selection: DrawerSelection;
   node: FlowNode | null;
@@ -100,6 +104,7 @@ function DrawerContent({
   changeId: string;
   name: string;
   sessionRefreshKey?: number;
+  askAnswer?: AskAnswerActions;
 }): React.JSX.Element {
   if (selection.scope === 'column') {
     return <ColumnMaterialsSection materials={materials.columnDocs[columnId] ?? []} />;
@@ -112,6 +117,7 @@ function DrawerContent({
         root={root}
         roleRef={selectionRoleRef(selection, node)}
         refreshKey={sessionRefreshKey}
+        askAnswer={askAnswer}
       />
     );
   }
@@ -134,6 +140,7 @@ export function DetailDrawer({
   changeId,
   name,
   sessionRefreshKey,
+  askAnswer,
   onClose,
 }: DetailDrawerProps): React.JSX.Element | null {
   // Esc 关闭兜底（非模态下 base-ui 的 dismiss 不保证触发）：选中缺席时不挂监
@@ -172,6 +179,7 @@ export function DetailDrawer({
           changeId={changeId}
           name={name}
           sessionRefreshKey={sessionRefreshKey}
+          askAnswer={askAnswer}
         />
       }
     />

@@ -25,7 +25,7 @@ pub const TOOL_NAME: &str = "finish_step";
 pub enum FinishPayload {
     /// evaluator 步：逐项 checklist（verdict 由 checklist 推导）
     Evaluator(EvaluatorChecklist),
-    /// 决策步：三动作封闭集之一
+    /// 决策步：两动作封闭集之一
     Decision(DecisionAction),
 }
 
@@ -39,9 +39,9 @@ pub fn description(spec: FinishSpec) -> &'static str {
              phase_next / phase_start / backtrack（落账由桌面编排代写）"
         }
         FinishSpec::Decision => {
-            "提交本步的路由决策（三动作封闭集之一）：backtrack（to 必须取 prompt 白名单内\
-             相位 + reason ≤500 字符）/ stop（reason ≤500 字符）/ ask（question + 非空 options）。\
-             无法裁决时用 ask 中断提问。越权目标与超长 reason 会被拒绝"
+            "提交本步的路由决策（两动作封闭集之一）：backtrack（to 必须取 prompt 白名单内\
+             相位 + reason ≤500 字符）/ stop（reason ≤500 字符）。无法裁决时调用 \
+             AskUserQuestion 工具（问题 + 非空选项）。越权目标与超长 reason 会被拒绝"
         }
     }
 }
@@ -98,8 +98,8 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["backtrack", "stop", "ask"],
-                    "description": "三动作封闭集之一",
+                    "enum": ["backtrack", "stop"],
+                    "description": "两动作封闭集之一",
                 },
                 "to": {
                     "type": "string",
@@ -108,15 +108,6 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
                 "reason": {
                     "type": "string",
                     "description": "backtrack / stop 的决策理由（≤500 字符）",
-                },
-                "question": {
-                    "type": "string",
-                    "description": "ask 的问题",
-                },
-                "options": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "ask 的选项（非空）",
                 },
             },
             "required": ["action"],

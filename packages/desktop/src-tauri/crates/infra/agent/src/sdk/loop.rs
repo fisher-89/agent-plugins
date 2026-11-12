@@ -1,15 +1,17 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 use futures::StreamExt;
-use orchestration::finish;
+use orchestration::state::AskPayload;
+use orchestration::{ask as ask_tool, finish};
 use rig::completion::{CompletionRequest, FinishReason, Usage};
 use rig::driver::DynModel;
 use rig::message::{Message, ToolCall, ToolResult, ToolResultContent};
 use rig::operation::Completion;
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
@@ -100,6 +102,18 @@ impl StreamRetry {
     }
 }
 
+/// ask 执行上下文（per-turn 铸造，按 `injections.ask` 位；`None` = 档位未装配，
+/// 工具调用以 is_error 回灌）。
+pub(crate) struct AskContext {
+    /// 会话级应答注册表（壳层托管、组合根注入）
+    pub(crate) registry: Arc<agent::AskRegistry>,
+    /// 注册表键：core 铸会话 id（**不是** [`LoopTurn::session_id`]——后者是引擎侧
+    /// `sdk-…` 标识，两者同名不同义，误用表现为「应答永远 miss」）
+    pub(crate) core_session_id: String,
+    /// 编排侧状态面（仅 `Flow` 档消费；`Generic` 档恒 `None`）
+    pub(crate) port: Option<Arc<dyn orchestration::port::AskPort>>,
+}
+
 /// 单轮驱动入参（协议轮参数的 loop 投影；引擎侧会话标识每轮铸造）。
 pub(crate) struct LoopTurn {
     /// 轮提问
@@ -120,7 +134,7 @@ pub(crate) struct LoopTurn {
     /// 提供者 IO 失败重试预算（泵装配缺省，测试注小值）
     pub retry: StreamRetry,
     /// 会话级注入（definitions 组装唯一源：收窄子集 + Explore 枚举追加专用
-    /// 工具；非 explore 来源恒 default）
+    /// 工具；`ask` 位按会话档位由装配层逐臂显式置位）
     pub injections: agent::SessionInjections,
     /// `create_explore_note` 专用工具执行上下文（per-turn 铸造随轮携带；
     /// `None` = 未装配——非 explore 会话恒 None，专用工具调用以 is_error 回灌）
@@ -128,6 +142,9 @@ pub(crate) struct LoopTurn {
     /// 架构只读工具执行上下文（per-turn 铸造随轮携带；`None` = 未装配——非
     /// Archi 会话恒 None，工具调用以 is_error 回灌）
     pub archi: Option<ArchiContext>,
+    /// ask 执行上下文（per-turn 铸造，按 `injections.ask` 位；`None` = 档位未
+    /// 装配——工具调用以 is_error 回灌）
+    pub ask: Option<AskContext>,
     /// 写入保护规则集（泵起播时装配一次、随轮携带；loop 纯消费——与
     /// `defense` / `retry` / `liveness` 同列的「装配点算好」载荷）
     pub protect: ProtectRules,
@@ -622,6 +639,9 @@ pub(crate) async fn run(
                         Err(message) => (message, true),
                     }
                 }
+                ToolExec::Ask(mode) => {
+                    execute_ask(turn.ask.as_ref(), mode, &input, &id, &handle).await
+                }
                 ToolExec::Pure => match tools::execute(&turn.cwd, &name, &sandboxed).await {
                     Ok(text) => (text, false),
                     Err(error) => (error, true),
@@ -927,6 +947,65 @@ async fn forward_notice(sender: &mpsc::Sender<AgentEventKind>, notice: &DefenseN
             payload: notice.payload.clone(),
         })
         .await;
+}
+
+/// ask 执行体（两档共用 validate 与阻塞骨架，档位只决定是否经 `AskPort` 广播）：
+/// `Generic` = 登记 + 阻塞等应答（通用会话面，应答由聊天窗活卡回流）；`Flow` =
+/// 先 `ask_started` → 登记 → 阻塞 → **两臂返回后都** `ask_resolved`（流程停等态
+/// 清理单点在此——外层泵的 `select!` 只 drop future，不执行清理代码，故显式
+/// 停止臂是唯一落点）。
+///
+/// 阻塞期间不收敛、不发新请求（ask 是本 loop 唯一可阻塞数十秒的执行臂）。
+async fn execute_ask(
+    ctx: Option<&AskContext>,
+    mode: agent::AskMode,
+    args: &Value,
+    tool_call_id: &str,
+    handle: &RunHandle,
+) -> (String, bool) {
+    let question = match ask_tool::validate(args) {
+        Ok(question) => question,
+        Err(message) => return (message, true),
+    };
+    let Some(ctx) = ctx else {
+        return ("ask 执行上下文未装配".to_owned(), true);
+    };
+    if mode == agent::AskMode::Flow && ctx.port.is_none() {
+        // 装配漂移防御臂（生产不可达）：两条生产轨道恒传 `Some(port)`
+        return ("ask 编排状态面未装配".to_owned(), true);
+    }
+    if mode == agent::AskMode::Flow {
+        if let Some(port) = &ctx.port {
+            port.ask_started(AskPayload {
+                question: question.question.clone(),
+                options: question.options.clone(),
+                tool_call_id: Some(tool_call_id.to_owned()),
+                session_id: Some(ctx.core_session_id.clone()),
+            });
+        }
+    }
+    let (tx, rx) = oneshot::channel::<String>();
+    // 返回值是诊断值（`false` = 顶替了上一问的等待方），不是失败面
+    let replaced = ctx.registry.register(&ctx.core_session_id, tx);
+    if !replaced {
+        append_engine_log(&format!(
+            "ask 同键覆盖（上一问的等待方已被放弃）tool_call={} core_session={}",
+            tool_call_id, ctx.core_session_id
+        ));
+    }
+    let outcome = tokio::select! {
+        answer = rx => match answer {
+            Ok(text) => (text, false),
+            Err(_) => ("ask 等待通道已关闭（会话已终止）".to_owned(), true),
+        },
+        _ = handle.wait_requested() => ("用户未应答（会话被终止）".to_owned(), true),
+    };
+    if mode == agent::AskMode::Flow {
+        if let Some(port) = &ctx.port {
+            port.ask_resolved();
+        }
+    }
+    outcome
 }
 
 /// sandbox 校验与入参改写：路径类工具（path 字段）经 [`sandbox::check`]

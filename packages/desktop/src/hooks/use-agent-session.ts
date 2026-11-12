@@ -53,6 +53,9 @@ export interface UseAgentSessionState {
   sendMessage: (input: AgentSessionSendInput) => void;
   stop: () => void;
   reset: () => void;
+  /** ask 应答（通用侧）：`agent_answer` 薄包装；`root` / `sessionId` 为 null 时
+   * 不 invoke、`Err` 进既有 error 面 */
+  answer: (text: string) => void;
 }
 
 /** `useChat` 返回值（chat 状态层句柄；本 hook 内聚，视图层不 import ai） */
@@ -597,6 +600,31 @@ function useSessionActions(
 }
 
 /**
+ * ask 应答动作面：`agent_answer` 薄包装（`root` / `sessionId` 为 null 时零
+ * invoke）；`Err` 收进 `actionError`（design DD11 的第三源，与重放 / 流错误
+ * 以 `??` 链保序合并——一次应答失败不遮蔽更权威的重放错误）。
+ */
+function useAskAnswer(
+  mirrors: SessionMirrors,
+  sessionId: string | null | undefined,
+  root: string | null | undefined,
+): { answer: (text: string) => void; actionError: string | null } {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const answer = useCallback(
+    (text: string) => {
+      const target = mirrors.currentSessionIdRef.current ?? sessionId ?? null;
+      if (root === null || root === undefined || target === null) return;
+      setActionError(null);
+      void ipc
+        .agentAnswer(root, target, text)
+        .catch((cause: unknown) => setActionError(String(cause)));
+    },
+    [mirrors.currentSessionIdRef, sessionId, root],
+  );
+  return { answer, actionError };
+}
+
+/**
  * 统一会话基建 hook（explore 会话 / agent 调试 / change 抽屉 / 历史重放统一
  * 消费，收编 `use-agent-chat`）：重放装载（密封转录 → 同一折叠入口）+ 状态驱动
  * 挂流（库态 running 且无在挂流才订阅）+ 单流在挂 + 收口以重放收敛（失败回落
@@ -642,6 +670,7 @@ export function useAgentSession(params: UseAgentSessionParams): UseAgentSessionS
 
   const replay = useSessionReplay(params, mirrorsRef, status, setMessages);
   const actions = useSessionActions(chat, statusRef, mirrors, params, setMessages);
+  const ask = useAskAnswer(mirrors, params.sessionId, params.root);
   // 库态派生：轮行含 running 即运行中（与查询面判定同源）
   const running = mirrors.turns.some((turn) => turn.status === 'running');
   useSessionStreamSubscription(params, mirrorsRef, resumeStream, running, replay, status);
@@ -653,7 +682,9 @@ export function useAgentSession(params: UseAgentSessionParams): UseAgentSessionS
     chain: mirrors.turns,
     loading: replay.loading,
     running,
-    error: replay.error ?? (error !== undefined ? error.message : null),
+    // 保序三源合并（重放 > 流 > 动作）：一次应答失败不遮蔽更权威的重放错误
+    error: replay.error ?? (error !== undefined ? error.message : null) ?? ask.actionError,
     ...actions,
+    answer: ask.answer,
   };
 }

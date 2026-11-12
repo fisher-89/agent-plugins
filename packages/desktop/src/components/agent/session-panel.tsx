@@ -307,6 +307,8 @@ function ExpandedBody({
       <AgentSessionView
         session={state.session}
         composer={composer}
+        // 骨架合成动作面：archi / change-chat 两处 hook 与面板零改动即得活卡
+        askAnswer={{ onAnswer: state.session.answer }}
         data-testid={testId(testIdPrefix, 'session')}
       />
     </div>

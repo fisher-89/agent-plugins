@@ -6,7 +6,7 @@
 //! 静态清单字符串；`orchestration::finish::{description, parameters}` 真实调用
 //!（铸造内容即被测面，替身会掩盖 enum 对拍）。
 
-use agent::{FinishSpec, SessionInjections};
+use agent::{AskMode, FinishSpec, SessionInjections};
 
 use crate::sdk::mount::{
     builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
@@ -266,6 +266,7 @@ fn definitions的finish位缺席时零追加() {
             preamble: None,
             tools,
             finish: None,
+            ask: None,
         };
         let mounts = definitions(&injections, "## 静态清单\n| C1 | 项 | 据 |\n").expect("合法");
         assert!(
@@ -311,6 +312,7 @@ fn definitions的finish位置位时末尾追加finish_step() {
         preamble: None,
         tools: None,
         finish: Some(FinishSpec::EvaluatorChecklist),
+        ask: None,
     };
     let mounts = definitions(&injections, &prompt).expect("finish 位置位合法");
     assert_eq!(mounts.len(), 8, "七内建 + finish_step");
@@ -391,7 +393,11 @@ fn definitions的decision形态与prompt无关() {
         .iter()
         .map(|value| value.as_str().expect("字符串"))
         .collect();
-    assert_eq!(actions, vec!["backtrack", "stop", "ask"]);
+    assert_eq!(
+        actions,
+        vec!["backtrack", "stop"],
+        "decision 形态两动作（ask 已迁出为独立阻塞工具）"
+    );
     assert_eq!(
         first.definition.parameters, second.definition.parameters,
         "decision 形态参数与 prompt 无关"
@@ -571,4 +577,354 @@ fn 工具名作者单点与字面量归属() {
             "{relative} 内 TOOL_NAMES 零命中（准入与成员校验全查挂载清单）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`ask` 位铸造（挂载项 / 四组合独立 / 追加序 / 定义单源）
+// ---------------------------------------------------------------------------
+
+/// ask 位夹具：名字清单 + ask 档位 + 收口档位（三面正交的构造面）。
+fn injected_ask(
+    names: &[&str],
+    ask: Option<AskMode>,
+    finish: Option<FinishSpec>,
+) -> SessionInjections {
+    SessionInjections {
+        preamble: None,
+        tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
+        finish,
+        ask,
+    }
+}
+
+/// `Some(Generic)` 追加（正向，AC-1 / AC-6）：挂载项数 = 七 + 1；末项名称 /
+/// tier / exec；`description` / `parameters` 与 `orchestration::ask::{description,
+/// parameters}` **逐字节相等**（同名覆盖的定义单源判据）。
+#[test]
+fn definitions的ask位generic档追加且定义与ask模块逐字节相等() {
+    let mounts = definitions(
+        &injected_ask(&EXPECTED_NAMES[..7], Some(AskMode::Generic), None),
+        "",
+    )
+    .expect("ask 位置位合法");
+
+    assert_eq!(mounts.len(), 8, "七内建 + AskUserQuestion");
+    let ask = mounts.last().expect("末项为 ask 工具");
+    assert_eq!(ask.definition.name, "AskUserQuestion", "工具名取 TOOL_NAME");
+    assert_eq!(ask.tier, ToolTier::Protocol, "ask 档位为 Protocol");
+    assert_eq!(ask.exec, ToolExec::Ask(AskMode::Generic), "执行体携档位");
+    assert_eq!(
+        ask.definition.description,
+        orchestration::ask::description(),
+        "描述取 ask 模块单点（逐字节相等）"
+    );
+    assert_eq!(
+        ask.definition.parameters,
+        orchestration::ask::parameters(),
+        "参数取 ask 模块单点（逐字节相等）"
+    );
+}
+
+/// `Some(Flow)` 档位可辨（正向，AC-2）：名称 / 描述 / schema 三项与 `Generic`
+/// 形态逐字相同（模型视角零差异），唯一差异是 `exec`。
+#[test]
+fn definitions的ask位两档位模型视角零差异仅执行体不同() {
+    let generic = definitions(&injected_ask(&[], Some(AskMode::Generic), None), "").expect("合法");
+    let flow = definitions(&injected_ask(&[], Some(AskMode::Flow), None), "").expect("合法");
+
+    assert_eq!(generic.len(), 1, "空名字清单 + ask 位 = 恰一项");
+    assert_eq!(flow.len(), 1);
+    assert_eq!(
+        generic[0].definition.name, flow[0].definition.name,
+        "名称逐字相同"
+    );
+    assert_eq!(
+        generic[0].definition.description, flow[0].definition.description,
+        "描述逐字相同"
+    );
+    assert_eq!(
+        generic[0].definition.parameters, flow[0].definition.parameters,
+        "schema 逐字相同"
+    );
+    assert_eq!(generic[0].tier, flow[0].tier, "档位相同");
+    assert_eq!(generic[0].exec, ToolExec::Ask(AskMode::Generic));
+    assert_eq!(flow[0].exec, ToolExec::Ask(AskMode::Flow));
+    assert_ne!(generic[0].exec, flow[0].exec, "唯一差异为执行体");
+}
+
+/// 追加序（正向，DD14）：`ask: Some` + `finish: Some(Decision)` → 名单尾两项
+/// 依次 `AskUserQuestion`、`finish_step`（ask 先、finish 保持末位）。
+#[test]
+fn definitions的ask位追加在finish之前() {
+    let mounts = definitions(
+        &injected_ask(&[], Some(AskMode::Generic), Some(FinishSpec::Decision)),
+        "",
+    )
+    .expect("两位并存合法");
+
+    assert_eq!(mounts.len(), 2, "空名字清单 + 两位 = 两项");
+    let tail: Vec<&str> = mounts
+        .iter()
+        .map(|mount| mount.definition.name.as_str())
+        .collect();
+    assert_eq!(
+        tail,
+        vec!["AskUserQuestion", "finish_step"],
+        "追加序为 ask 先、finish 后（finish 保持末位）"
+    );
+}
+
+/// 名字清单不收窄 ask（正向）：`tools: Some([六件名])`（explore 面）+ ask 位
+/// → ask 仍追加（按位追加的基线工具，不占名字清单、不被清单过滤碰到）。
+#[test]
+fn definitions的ask位不被名字清单过滤() {
+    let explore_names = [
+        "read",
+        "grep",
+        "glob",
+        "ls",
+        "write",
+        "edit",
+        "create_explore_note",
+    ];
+    let mounts = definitions(
+        &injected_ask(&explore_names, Some(AskMode::Generic), None),
+        "",
+    )
+    .expect("explore 面 + ask 合法");
+
+    let projected = names(&mounts);
+    assert_eq!(projected.len(), explore_names.len() + 1, "清单 + ask 一项");
+    assert_eq!(
+        projected.last().map(String::as_str),
+        Some("AskUserQuestion")
+    );
+    assert!(
+        !explore_names.contains(&"AskUserQuestion"),
+        "ask 不占名字清单（清单本身不含该名）"
+    );
+}
+
+/// 四组合独立（异常，AC-3 / AC-4，核心判据）：`(ask, finish)` 四组合 → 名单
+/// 投影逐一断言，证两分支无合取判据。
+#[test]
+fn definitions的ask与finish四组合互相独立() {
+    let combinations: [(Option<AskMode>, Option<FinishSpec>, [bool; 2]); 4] = [
+        (
+            Some(AskMode::Generic),
+            Some(FinishSpec::Decision),
+            [true, true],
+        ),
+        (Some(AskMode::Generic), None, [true, false]),
+        (None, Some(FinishSpec::Decision), [false, true]),
+        (None, None, [false, false]),
+    ];
+    for (ask, finish, [expect_ask, expect_finish]) in combinations {
+        let mounts = definitions(&injected_ask(&[], ask, finish), "").expect("四组合均合法");
+        let projected = names(&mounts);
+        assert_eq!(
+            projected.contains(&"AskUserQuestion".to_owned()),
+            expect_ask,
+            "(ask={ask:?}, finish={finish:?}) 的 ask 项在场性"
+        );
+        assert_eq!(
+            projected.contains(&"finish_step".to_owned()),
+            expect_finish,
+            "(ask={ask:?}, finish={finish:?}) 的 finish 项在场性"
+        );
+    }
+}
+
+/// `ask: None` 零追加（异常，AC-3）：七件名清单 + `ask: None` → 挂载项数恰 7、
+/// 名单内零 `AskUserQuestion`。
+#[test]
+fn definitions的ask位缺席时零追加() {
+    for tools in [
+        Some(
+            EXPECTED_NAMES[..7]
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<_>>(),
+        ),
+        None,
+    ] {
+        let injections = SessionInjections {
+            preamble: None,
+            tools,
+            finish: None,
+            ask: None,
+        };
+        let mounts = definitions(&injections, "").expect("合法");
+        assert_eq!(mounts.len(), 7, "AskUserQuestion 不追加到内建七件");
+        assert!(
+            !names(&mounts).contains(&"AskUserQuestion".to_owned()),
+            "ask = None 时名单零该名（RunStarted.tools 随名单派生）"
+        );
+    }
+}
+
+/// `tools` 三形态 × ask 两位（边界，组合）：`None`（内建七件）/ `Some(vec![])`
+/// / `Some(含 archi 名)` 配 `ask: None` / `Some(Generic)` → 七件底座形态零改动；
+/// ask 追加与 `tools` 形态无关（唯一依赖 = ask 位）。
+#[test]
+fn definitions的tools三形态与ask两位组合() {
+    let archi_names = ["read", "archi_module", "archi_search"];
+    let tool_shapes: [Option<Vec<String>>; 3] = [
+        None,
+        Some(Vec::new()),
+        Some(archi_names.iter().map(|name| (*name).to_owned()).collect()),
+    ];
+    for tools in &tool_shapes {
+        for ask in [None, Some(AskMode::Generic)] {
+            let injections = SessionInjections {
+                preamble: None,
+                tools: tools.clone(),
+                finish: None,
+                ask,
+            };
+            let mounts = definitions(&injections, "").expect("组合合法");
+            let projected = names(&mounts);
+            let expect_ask = ask.is_some();
+            assert_eq!(
+                projected.contains(&"AskUserQuestion".to_owned()),
+                expect_ask,
+                "tools={tools:?} 与 ask={ask:?} 组合下 ask 追加只依赖 ask 位"
+            );
+            if tools.is_none() {
+                assert_eq!(
+                    projected.len(),
+                    if expect_ask { 8 } else { 7 },
+                    "内建七件底座 + ask 一位"
+                );
+            }
+        }
+    }
+}
+
+/// `prompt` 无关性（边界，参数化 2 形态）：ask 位置位时 `parameters()` 不依赖
+/// prompt 文本（`prompt: ""` 与长清单产出逐字节相等）；对照臂 =
+/// `finish: Some(EvaluatorChecklist)` 的 schema 随 prompt 变化（证明本行非空转）。
+#[test]
+fn definitions的ask位参数与prompt无关而对照片随prompt变化() {
+    let long_prompt = prompt_of(&["C1", "C2", "C3", "C4", "C5"]);
+    let ask_empty = definitions(&injected_ask(&[], Some(AskMode::Generic), None), "")
+        .expect("合法")
+        .pop()
+        .expect("末项")
+        .definition
+        .parameters;
+    let ask_long = definitions(
+        &injected_ask(&[], Some(AskMode::Generic), None),
+        &long_prompt,
+    )
+    .expect("合法")
+    .pop()
+    .expect("末项")
+    .definition
+    .parameters;
+    assert_eq!(ask_empty, ask_long, "ask schema 与 prompt 无关");
+
+    let finish_empty = definitions(
+        &injected_ask(&[], None, Some(FinishSpec::EvaluatorChecklist)),
+        "",
+    )
+    .expect("合法")
+    .pop()
+    .expect("末项")
+    .definition
+    .parameters;
+    let finish_long = definitions(
+        &injected_ask(&[], None, Some(FinishSpec::EvaluatorChecklist)),
+        &long_prompt,
+    )
+    .expect("合法")
+    .pop()
+    .expect("末项")
+    .definition
+    .parameters;
+    assert_ne!(
+        finish_empty, finish_long,
+        "对照臂：evaluator schema 随 prompt 变化（本行非空转）"
+    );
+}
+
+/// 五臂可辨（边界，参数化 5 臂）：`ToolExec` 五值两两 `!=`；
+/// `Ask(Generic) != Ask(Flow)`（档位参与 `Eq`）。
+#[test]
+fn tool_exec五臂两两可辨且ask档位参与相等语义() {
+    let arms = [
+        ToolExec::Pure,
+        ToolExec::ExploreNote,
+        ToolExec::Archi,
+        ToolExec::FinishStep(FinishSpec::Decision),
+        ToolExec::Ask(AskMode::Generic),
+    ];
+    for outer in 0..arms.len() {
+        for inner in (outer + 1)..arms.len() {
+            assert_ne!(arms[outer], arms[inner], "五臂 {outer} 与 {inner} 两两可辨");
+        }
+    }
+    assert_ne!(
+        ToolExec::Ask(AskMode::Generic),
+        ToolExec::Ask(AskMode::Flow),
+        "档位参与 Eq（执行体可辨）"
+    );
+    assert_eq!(
+        ToolExec::Ask(AskMode::Generic),
+        ToolExec::Ask(AskMode::Generic)
+    );
+}
+
+/// 无合取自证（异常，源码自证，AC-4）：`mount.rs` 代码行内零合取形态；两处
+/// `if` 分别只读 `injections.ask` 与 `injections.finish`。
+#[test]
+fn mount_rs的ask与finish两分支无合取判据() {
+    let own = source_of("src/sdk/mount.rs");
+    let code_only = own
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !(trimmed.starts_with("///") || trimmed.starts_with("//"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for forbidden in [
+        "ask.is_some() &&",
+        "&& injections.ask",
+        "&& injections.finish",
+    ] {
+        assert!(
+            !code_only.contains(forbidden),
+            "mount.rs 代码行内零合取形态 {forbidden}（两分支独立）"
+        );
+    }
+    assert!(
+        code_only.contains("if let Some(mode) = injections.ask"),
+        "ask 分支只读 injections.ask"
+    );
+    assert!(
+        code_only.contains("if let Some(spec) = injections.finish"),
+        "finish 分支只读 injections.finish"
+    );
+}
+
+/// 工具名字面量单点（异常，源码自证，AC-4 延伸）：`mount.rs` 全文零
+/// `"AskUserQuestion"` 字面量（经 `orchestration::ask::TOOL_NAME` 引用）；
+/// `TOOL_NAMES` 常量内亦不含该名（它不是七件之一）。
+#[test]
+fn mount_rs零ask工具名字面量且不在静态清单() {
+    let own = source_of("src/sdk/mount.rs");
+    assert!(
+        !own.contains("\"AskUserQuestion\""),
+        "mount.rs 零工具名字面量（经 TOOL_NAME 单点引用）"
+    );
+    assert!(
+        own.contains("orchestration::ask::TOOL_NAME"),
+        "工具名经 ask 模块单点引用"
+    );
+    assert!(
+        !TOOL_NAMES.contains(&"AskUserQuestion"),
+        "AskUserQuestion 不在十项静态清单（按位追加的基线工具）"
+    );
 }

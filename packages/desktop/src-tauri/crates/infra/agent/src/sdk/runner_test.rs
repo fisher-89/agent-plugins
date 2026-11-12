@@ -42,6 +42,7 @@ fn open_new() -> SessionOpen {
             model_level: ModelLevel::High,
         },
         session: SessionRef::New,
+        session_id: "core-session-1".to_owned(),
         prior_handle: None,
     }
 }
@@ -756,6 +757,7 @@ fn explore_injections() -> SessionInjections {
             crate::sdk::mount::EXPLORE_NOTE_TOOL.to_owned(),
         ]),
         finish: None,
+        ask: None,
     }
 }
 
@@ -2765,5 +2767,680 @@ fn 枚举面零残留且引用面改挂载常量() {
     assert!(
         code_lines.contains("open.injections.tools.as_deref()"),
         "per-turn 铸造入参取自名字清单（`injections.tools`），非枚举位"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`with_ask_registry` / `with_ask_port` 两条 builder 缝
+//
+// 观测边界：`session_pump` / `PumpPayload` 为私有面，per-turn 铸造点内部的
+// `AskContext` 形态由 `loop_test` 的 ask 执行体用例承接；本节断言 runner 侧的
+// 可观测面——链式构造、注册表 `Arc` 同一性（未自铸第二张表）、缺省形态
+// （空表兜底 = 阻塞恒 miss）、以及 `Flow` 档 port 的贯通。
+// ---------------------------------------------------------------------------
+
+/// 打开指定 open 入参的会话并取首事件（RunStarted 先于模型 IO，可观察）。
+async fn first_event_with_injections(
+    runner: SdkRunner,
+    open: SessionOpen,
+) -> agent::AgentEventKind {
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "ask 注入缝一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let started = session.observations.recv().await.expect("RunStarted");
+    drop(session);
+    started
+}
+
+/// 链式构造（正向）：`.with_ask_registry(reg).with_ask_port(Some(port))` 后 open
+/// 成功，且注册表在会话侧仍可 `answer`（同一 `Arc` 未被克隆出新表）。
+#[tokio::test]
+async fn with_ask_registry链式构造后注册表仍为同一张表() {
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port: Arc<dyn orchestration::port::AskPort> = Arc::new(NoopAskPort);
+    let runner = SdkRunner::new(complete_config(), None, None, None)
+        .with_ask_registry(Arc::clone(&registry))
+        .with_ask_port(Some(port));
+
+    let first = first_event_with_injections(runner, open_new()).await;
+    assert!(matches!(first, agent::AgentEventKind::RunStarted { .. }));
+
+    // 外部登记的槽经同一张表被应答命中（表未自铸）
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(registry.register("core-session-1", tx), "首登 true");
+    assert!(
+        registry
+            .answer("core-session-1", "注入缝应答".to_owned())
+            .is_ok(),
+        "同一张表可应答"
+    );
+    assert_eq!(rx.try_recv().expect("收到"), "注入缝应答");
+}
+
+/// 缺省形态（正向，空表兜底）：未调两条 builder 的 `SdkRunner` 仍可 open；
+/// `answer(<任何 id>, …)` 恒 `Err`、无 panic（未注入 ≠ 装配失败）。
+#[tokio::test]
+async fn 未注入ask注册表时open成功且应答恒miss() {
+    let runner = SdkRunner::new(complete_config(), None, None, None);
+    let first = first_event_with_injections(runner, open_new()).await;
+    assert!(matches!(first, agent::AgentEventKind::RunStarted { .. }));
+
+    // 缺省自铸的空表在 runner 内部——外部无从登记，故以「未注入不 panic」为判据：
+    // 另铸一张表验证 miss 语义与空表一致
+    let empty = agent::AskRegistry::default();
+    for session_id in ["core-session-1", "", "sdk-test-0"] {
+        assert!(
+            empty.answer(session_id, "x".to_owned()).is_err(),
+            "空表应答恒 miss（未注入 = 无等待方，非装配失败）"
+        );
+    }
+}
+
+/// 注册表独立性（边界，组合 2 形态）：两实例各持不同 `Arc` → A 的表登记不影响
+/// B（`answer` 互不命中）；同一 `Arc` 注入两实例 → 共享（登记后另一实例可见）。
+#[tokio::test]
+async fn with_ask_registry两实例独立与共享两形态() {
+    // 形态一：两枚不同 Arc → 互不命中
+    let registry_a = Arc::new(agent::AskRegistry::default());
+    let registry_b = Arc::new(agent::AskRegistry::default());
+    let (tx_a, mut rx_a) = tokio::sync::oneshot::channel::<String>();
+    assert!(registry_a.register("core-1", tx_a));
+    assert!(
+        registry_b.answer("core-1", "B 侧应答".to_owned()).is_err(),
+        "独立表互不命中"
+    );
+    assert!(registry_a.answer("core-1", "A 侧应答".to_owned()).is_ok());
+    assert_eq!(rx_a.try_recv().expect("收到"), "A 侧应答");
+
+    // 形态二：同一 Arc 注入两 runner → 共享（登记后另一实例可见）
+    let shared = Arc::new(agent::AskRegistry::default());
+    let _runner_one =
+        SdkRunner::new(complete_config(), None, None, None).with_ask_registry(Arc::clone(&shared));
+    let _runner_two =
+        SdkRunner::new(complete_config(), None, None, None).with_ask_registry(Arc::clone(&shared));
+    let (tx_shared, mut rx_shared) = tokio::sync::oneshot::channel::<String>();
+    assert!(shared.register("core-shared", tx_shared), "首登 true");
+    assert!(
+        shared
+            .answer("core-shared", "共享表应答".to_owned())
+            .is_ok(),
+        "两 runner 共享同一张表"
+    );
+    assert_eq!(rx_shared.try_recv().expect("收到"), "共享表应答");
+}
+
+/// `with_ask_port` 两形态（正向，参数化 2 形态）：`Some(port)` 与 `None` 均可
+/// 构造且 open 成功（`None` 是 debug / explore 轨道的正常形态）。
+#[tokio::test]
+async fn with_ask_port两形态均可构造并open() {
+    for (label, port) in [
+        (
+            "Some",
+            Some(Arc::new(NoopAskPort) as Arc<dyn orchestration::port::AskPort>),
+        ),
+        ("None", None),
+    ] {
+        let runner = SdkRunner::new(complete_config(), None, None, None).with_ask_port(port);
+        let first = first_event_with_injections(runner, open_new()).await;
+        assert!(
+            matches!(first, agent::AgentEventKind::RunStarted { .. }),
+            "{label} 形态 open 成功"
+        );
+    }
+}
+
+/// `Flow` 铸造形态（异常，DD2 降级的两级判据之一）：`ask: Some(Flow)` 且未注入
+/// `ask_port` → 上下文在场但 `port == None`；本层断言 open 成功且不 panic（执行
+/// 体行为判据在 `loop_test` 的 DD2 行）。
+#[tokio::test]
+async fn flow档未注入port时open仍成功() {
+    let runner = SdkRunner::new(complete_config(), None, None, None)
+        .with_ask_registry(Arc::new(agent::AskRegistry::default()));
+    let open = SessionOpen {
+        injections: SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: Some(agent::AskMode::Flow),
+        },
+        ..open_new()
+    };
+    let first = first_event_with_injections(runner, open).await;
+    assert!(matches!(first, agent::AgentEventKind::RunStarted { .. }));
+}
+
+/// 空实现 `AskPort`（构造面用具）。
+struct NoopAskPort;
+
+impl orchestration::port::AskPort for NoopAskPort {
+    fn ask_started(&self, _ask: orchestration::state::AskPayload) {}
+    fn ask_resolved(&self) {}
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`session_pump` 的 per-turn `AskContext` 铸造（泵内单点）
+//
+// 直测面：`session_pump` 是私有函数，但铸造点在其体内单点；可观测面 = 泵内
+// 铸出的 `LoopTurn.ask` 经 loop 的执行体行为外显（真实泵 + 脚本化 SSE provider
+// ——`AskUserQuestion` 调用与 `Generic` / `Flow` 两档 `AskPort` 广播都在这里
+// 落地，不靠直构 `AskContext` 绕过铸造点）。
+// ---------------------------------------------------------------------------
+
+use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::Mutex;
+use std::time::Duration;
+
+/// 脚本化 SSE provider 桩（本机回环）：逐请求回一段固定 `text/event-stream`，
+/// 记录收到的请求体（第 N 次请求即「模型请求序」的观测面）。
+///
+/// 为什么需要它：`AskContext` 的铸造点在 `session_pump` 内，`core_session_id`
+/// 取自 `SessionOpen.session_id` 而 `port` 取自 `PumpPayload.ask_port`；三者都
+/// 只能在「经真实泵起一轮并让 ask 工具真的被模型调用」时才可观测。discard 端点
+/// （恒拒连）只能证装配面不 panic，证不了铸造形态。
+struct ScriptedProvider {
+    base_url: String,
+    requests: Arc<Mutex<Vec<serde_json::Value>>>,
+    shutdown: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ScriptedProvider {
+    /// 起桩：`sse_bodies` 按请求序逐次回放（弹空后回同一段收口文本）。
+    fn new(tag: &str, sse_bodies: Vec<String>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("绑定回环端口失败");
+        let port = listener.local_addr().expect("取本地地址失败").port();
+        listener.set_nonblocking(true).expect("置非阻塞失败");
+        let base_url = format!("http://127.0.0.1:{port}/v1");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let state_requests = Arc::clone(&requests);
+        let state_shutdown = Arc::clone(&shutdown);
+        std::thread::Builder::new()
+            .name(format!("scripted-provider-{tag}"))
+            .spawn(move || {
+                let mut queue: std::collections::VecDeque<String> = sse_bodies.into();
+                let fallback = queue.back().cloned().unwrap_or_default();
+                while !state_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            let body = queue.pop_front().unwrap_or_else(|| fallback.clone());
+                            serve_one(stream, &state_requests, &body);
+                        }
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                || error.kind() == std::io::ErrorKind::Interrupted =>
+                        {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+            .expect("起桩线程失败");
+        Self {
+            base_url,
+            requests,
+            shutdown,
+        }
+    }
+
+    fn config(&self) -> EngineConfig {
+        EngineConfig {
+            base_url: self.base_url.clone(),
+            ..complete_config()
+        }
+    }
+
+    /// 收到的请求体（按到达序）。
+    fn captured(&self) -> Vec<serde_json::Value> {
+        self.requests.lock().expect("请求捕获锁不可中毒").clone()
+    }
+}
+
+impl Drop for ScriptedProvider {
+    fn drop(&mut self) {
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// 单连接应答（读请求头 + body → 回一段 SSE 后关闭）。
+fn serve_one(stream: TcpStream, requests: &Arc<Mutex<Vec<serde_json::Value>>>, sse_body: &str) {
+    stream.set_nonblocking(false).expect("连接置阻塞模式失败");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("置读超时失败");
+    let mut reader = BufReader::new(stream.try_clone().expect("克隆连接失败"));
+    let mut content_length = 0usize;
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => return,
+            Ok(_) => {}
+            Err(_) => return,
+        }
+        if line == "\r\n" || line == "\n" {
+            break;
+        }
+        let lower = line.to_ascii_lowercase();
+        if let Some(rest) = lower.strip_prefix("content-length:") {
+            content_length = rest.trim().parse::<usize>().unwrap_or(0);
+        }
+    }
+    let mut body = vec![0u8; content_length];
+    if content_length > 0 && std::io::Read::read_exact(&mut reader, &mut body).is_err() {
+        return;
+    }
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) {
+        requests.lock().expect("请求捕获锁不可中毒").push(value);
+    }
+    let mut stream = stream;
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        sse_body.len(),
+        sse_body
+    );
+    let _ = stream.write_all(response.as_bytes());
+    let _ = stream.flush();
+}
+
+/// SSE 数据行（OpenAI chat-completions 兼容形态）→ 完整流文本。
+fn sse_data(payload: &serde_json::Value) -> String {
+    format!("data: {payload}\n\n")
+}
+
+/// 一段「直接停」的收口流（模型不再调工具）。
+fn sse_stop(text: &str) -> String {
+    let mut body = String::new();
+    body.push_str(&sse_data(&serde_json::json!({
+        "id": "chatcmpl-stop",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {"content": text}}],
+    })));
+    body.push_str(&sse_data(&serde_json::json!({
+        "id": "chatcmpl-stop",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    })));
+    body.push_str("data: [DONE]\n\n");
+    body
+}
+
+/// 一段「调 `AskUserQuestion`」的流（工具名 + 完整参数单块）。
+fn sse_ask_tool_call(tool_call_id: &str, question: &str, options: &[&str]) -> String {
+    let mut body = String::new();
+    body.push_str(&sse_data(&serde_json::json!({
+        "id": "chatcmpl-ask",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "tool_calls": [{
+                    "index": 0,
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "AskUserQuestion",
+                        "arguments": serde_json::json!({ "question": question, "options": options }).to_string(),
+                    },
+                }],
+            },
+        }],
+    })));
+    body.push_str(&sse_data(&serde_json::json!({
+        "id": "chatcmpl-ask",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+    })));
+    body.push_str("data: [DONE]\n\n");
+    body
+}
+
+/// 记录式假 port（泵内铸造用例的 `AskPort` 观测面）。
+#[derive(Default)]
+struct PumpRecordingPort {
+    calls: Mutex<Vec<&'static str>>,
+    payloads: Mutex<Vec<orchestration::state::AskPayload>>,
+}
+
+impl PumpRecordingPort {
+    fn labels(&self) -> Vec<&'static str> {
+        self.calls.lock().expect("调用记录锁不可中毒").clone()
+    }
+
+    fn payloads(&self) -> Vec<orchestration::state::AskPayload> {
+        self.payloads.lock().expect("载荷记录锁不可中毒").clone()
+    }
+}
+
+impl orchestration::port::AskPort for PumpRecordingPort {
+    fn ask_started(&self, ask: orchestration::state::AskPayload) {
+        self.calls
+            .lock()
+            .expect("调用记录锁不可中毒")
+            .push("started");
+        self.payloads.lock().expect("载荷记录锁不可中毒").push(ask);
+    }
+
+    fn ask_resolved(&self) {
+        self.calls
+            .lock()
+            .expect("调用记录锁不可中毒")
+            .push("resolved");
+    }
+}
+
+/// 轮询至注册表登记该键（`answer` 命中即证明登记已完成）。
+async fn answer_when_registered_in_pump(
+    registry: Arc<agent::AskRegistry>,
+    key: &str,
+    text: &str,
+) -> Result<(), String> {
+    for _ in 0..3000 {
+        match registry.answer(key, text.to_owned()) {
+            Ok(()) => return Ok(()),
+            Err(error) if error == "当前无等待中的 ask" => {
+                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err("等待泵内 ask 登记超时".to_owned())
+}
+
+/// 泵事件收集（驱动至观测通道关闭：一轮一命，收口即泵任务返回）。
+async fn drain_session_events(session: &mut agent::AgentSession) -> Vec<agent::AgentEventKind> {
+    let mut events = Vec::new();
+    while let Some(event) = session.observations.recv().await {
+        events.push(event);
+    }
+    events
+}
+
+/// 事件流内某 `tool_use` 的配对 `tool_result`（转录回灌判据）。
+fn tool_result_of(events: &[agent::AgentEventKind], tool_call_id: &str) -> Option<(String, bool)> {
+    events.iter().find_map(|event| match event {
+        agent::AgentEventKind::Message { blocks, .. } => {
+            blocks.iter().find_map(|block| match block {
+                agent::AgentBlock::ToolResult {
+                    id,
+                    content,
+                    is_error,
+                } if id == tool_call_id => Some((content.clone(), *is_error)),
+                _ => None,
+            })
+        }
+        _ => None,
+    })
+}
+
+/// `Some(Generic)` 铸上下文（正向，AC-1）：`injections.ask: Some(Generic)` +
+/// `session_id: "core-session-1"` → 泵内 `LoopTurn.ask` 为 `Some`，注册表键 ==
+/// `open.session_id`（`Generic` 档 `port == None`），且与 `LoopTurn.session_id`
+/// 的 `sdk-…` 形态**不等**（两 id 隔离）。
+///
+/// 观测面：应答经 `open.session_id` 命中即证铸造键；模型请求数恰 2 且第二次在
+/// 应答之后（阻塞期间零新请求 = 同一 turn 内阻塞）。
+#[tokio::test]
+async fn 泵内铸ask上下文_泛用档键为core会话id且port为none() {
+    let provider = ScriptedProvider::new(
+        "pump-generic",
+        vec![
+            sse_ask_tool_call("tu_pump", "选哪个重试策略？", &["指数退避", "固定间隔"]),
+            sse_stop("已按你的选择继续"),
+        ],
+    );
+    let registry = Arc::new(agent::AskRegistry::default());
+    let runner = SdkRunner::new(provider.config(), None, None, None)
+        .with_ask_registry(Arc::clone(&registry));
+
+    let open = SessionOpen {
+        injections: SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: Some(agent::AskMode::Generic),
+        },
+        session_id: "core-session-1".to_owned(),
+        ..open_new()
+    };
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "泵内铸造一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    // 首事件 RunStarted：下发面含 ask 工具（名字面判据）
+    let started = session.observations.recv().await.expect("RunStarted");
+    let agent::AgentEventKind::RunStarted {
+        tools, session_id, ..
+    } = &started
+    else {
+        panic!("首事件应为 RunStarted，实际: {started:?}");
+    };
+    assert!(
+        tools.contains(&"AskUserQuestion".to_owned()),
+        "ask 位在场即下发该工具: {tools:?}"
+    );
+    let engine_id = session_id.clone().expect("引擎侧 id 在场");
+    assert!(
+        engine_id.starts_with("sdk-"),
+        "引擎侧 id 为 sdk- 形态，实际: {engine_id}"
+    );
+
+    // 应答面：只有键 == core session id 时命中（`AskContext.core_session_id`
+    // 来自 `SessionOpen.session_id`，不是引擎侧 id）
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer = tokio::spawn(async move {
+        answer_when_registered_in_pump(registry_for_answer, "core-session-1", "指数退避").await
+    });
+    let events = drain_session_events(&mut session).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    assert_eq!(
+        provider.captured().len(),
+        2,
+        "模型请求恰 2 次（阻塞期间零新请求）"
+    );
+    assert_eq!(
+        tool_result_of(&events, "tu_pump"),
+        Some(("指数退避".to_owned(), false)),
+        "应答原文回灌为 tool result（同 turn 续跑）"
+    );
+    assert!(
+        registry
+            .answer("core-session-1", "第二次".to_owned())
+            .is_err(),
+        "注册表已被 take（单次回灌）"
+    );
+    assert!(
+        registry.answer(&engine_id, "错键".to_owned()).is_err(),
+        "引擎侧 sdk- id 不能应答（铸造键为 core 会话 id）"
+    );
+}
+
+/// `Some(Flow)` 带 port（正向，AC-2）：`ask: Some(Flow)` +
+/// `with_ask_port(Some(fake_port))` → 泵内铸出的上下文携带该 port（以假 port
+/// 收到的两方法调用为证），`started` 载荷 `session_id` == core 会话 id。
+#[tokio::test]
+async fn 泵内铸ask上下文_流程档携带注入的port() {
+    let provider = ScriptedProvider::new(
+        "pump-flow",
+        vec![
+            sse_ask_tool_call("tu_flow_pump", "采用哪个方案？", &["A", "B"]),
+            sse_stop("继续"),
+        ],
+    );
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port = Arc::new(PumpRecordingPort::default());
+    let runner = SdkRunner::new(provider.config(), None, None, None)
+        .with_ask_registry(Arc::clone(&registry))
+        .with_ask_port(Some(port.clone() as Arc<dyn orchestration::port::AskPort>));
+
+    let open = SessionOpen {
+        injections: SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: Some(agent::AskMode::Flow),
+        },
+        session_id: "core-session-flow".to_owned(),
+        ..open_new()
+    };
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "流程档一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let _started = session.observations.recv().await.expect("RunStarted");
+
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer = tokio::spawn(async move {
+        answer_when_registered_in_pump(registry_for_answer, "core-session-flow", "A").await
+    });
+    let events = drain_session_events(&mut session).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    assert_eq!(port.labels(), vec!["started", "resolved"], "两方法各一次");
+    let payloads = port.payloads();
+    assert_eq!(
+        payloads[0].session_id.as_deref(),
+        Some("core-session-flow"),
+        "载荷 session_id 取 core 会话 id（泵内铸造值）"
+    );
+    assert_eq!(
+        payloads[0].tool_call_id.as_deref(),
+        Some("tu_flow_pump"),
+        "载荷 tool_call_id 取本次 tool_use id"
+    );
+    assert_eq!(
+        tool_result_of(&events, "tu_flow_pump"),
+        Some(("A".to_owned(), false)),
+        "应答回灌"
+    );
+}
+
+/// `None` 位不铸（异常，AC-3）：`ask: None` → 泵内零铸造（模型硬调该名即
+/// `tool_unavailable` + is_error 回灌、注册表零登记、run 不中断）。
+#[tokio::test]
+async fn 泵内ask位为none时不铸上下文且硬调即拒() {
+    let provider = ScriptedProvider::new(
+        "pump-none",
+        vec![
+            sse_ask_tool_call("tu_none", "不该到这", &["x"]),
+            sse_stop("已换路收口"),
+        ],
+    );
+    let registry = Arc::new(agent::AskRegistry::default());
+    let runner = SdkRunner::new(provider.config(), None, None, None)
+        .with_ask_registry(Arc::clone(&registry));
+
+    let open = SessionOpen {
+        injections: SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: None,
+        },
+        session_id: "core-session-none".to_owned(),
+        ..open_new()
+    };
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "硬调一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    let started = session.observations.recv().await.expect("RunStarted");
+    let agent::AgentEventKind::RunStarted { tools, .. } = &started else {
+        panic!("首事件应为 RunStarted");
+    };
+    assert!(
+        !tools.contains(&"AskUserQuestion".to_owned()),
+        "ask: None 时下发面不含该工具: {tools:?}"
+    );
+
+    let events = drain_session_events(&mut session).await;
+    let (content, is_error) = tool_result_of(&events, "tu_none").expect("该调用有配对结果");
+    assert!(is_error, "硬调以 is_error 回灌");
+    assert!(
+        content.contains("工具不在本轮下发面"),
+        "拒绝文案为成员校验口径，实际: {content}"
+    );
+    assert!(
+        registry
+            .answer("core-session-none", "x".to_owned())
+            .is_err(),
+        "注册表零登记（ask 位缺席不铸上下文）"
+    );
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            agent::AgentEventKind::SystemNotice { subtype, .. } if subtype == "tool_unavailable"
+        )),
+        "留痕通知 subtype = tool_unavailable"
+    );
+}
+
+/// `Flow` 无 port（异常，DD2 降级的两级判据之一）：`ask: Some(Flow)` 且未注入
+/// `ask_port` → 泵内上下文在场（铸造判据只看 `ask` 位）但 `port == None`，该
+/// 工具调用以 is_error 回灌「ask 编排状态面未装配」、注册表零登记、run 不中断。
+#[tokio::test]
+async fn 泵内铸造流程档无port时调用以is_error回灌() {
+    let provider = ScriptedProvider::new(
+        "pump-flow-no-port",
+        vec![
+            sse_ask_tool_call("tu_no_port", "无编排面", &["x"]),
+            sse_stop("已换路收口"),
+        ],
+    );
+    let registry = Arc::new(agent::AskRegistry::default());
+    let runner = SdkRunner::new(provider.config(), None, None, None)
+        .with_ask_registry(Arc::clone(&registry));
+
+    let open = SessionOpen {
+        injections: SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: Some(agent::AskMode::Flow),
+        },
+        session_id: "core-session-no-port".to_owned(),
+        ..open_new()
+    };
+    let mut session = runner.open_session(open).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "无 port 一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let events = drain_session_events(&mut session).await;
+
+    let (content, is_error) = tool_result_of(&events, "tu_no_port").expect("该调用有配对结果");
+    assert!(is_error, "无 port 的 Flow 档以 is_error 回灌");
+    assert_eq!(content, "ask 编排状态面未装配", "DD2 防御文案");
+    assert!(
+        registry
+            .answer("core-session-no-port", "x".to_owned())
+            .is_err(),
+        "零登记（防御臂先于登记）"
     );
 }

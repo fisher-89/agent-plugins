@@ -6,7 +6,7 @@ use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 /// 决策 reason 长度上限
 pub(crate) const MAX_REASON_CHARS: usize = 500;
 
-/// 决策三动作封闭集（线形态见 `finish.rs` 的 decision 形态 parameters）。
+/// 决策动作封闭集（线形态见 `finish.rs` 的 decision 形态 parameters）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum DecisionAction {
@@ -14,7 +14,9 @@ pub enum DecisionAction {
     Backtrack { to: String, reason: String },
     /// 受控终止 run
     Stop { reason: String },
-    /// 无法裁决 → UI 中断提问（应答后 Continue 决策会话重出封闭集）
+    /// **生产不可达**：`finish_step` 的 decision 形态 `enum` 已不含 `ask`（提问迁出
+    /// 为独立阻塞工具 `AskUserQuestion`）；保留以支持历史 `SystemNotice{finish_step}`
+    /// 载荷反序列化，walker 防御臂据此判漂移
     Ask {
         question: String,
         options: Vec<String>,
@@ -56,8 +58,9 @@ pub struct DecisionInput {
 
 /// `finish_step` 的 decision 形态参数校验：`action` tag ∈ 封闭集 → 各动作必填
 /// 字段（`backtrack`: `to` + `reason`；`stop`: `reason`；`ask`: `question` + 非空
-/// `options`）→ `reason ≤ MAX_REASON_CHARS`。Err 文案自足（字段名 + 期望 + 当前
-/// 值），由工具体当场回灌——同一 turn 内模型可立即纠正重试，不跨轮计数。
+/// `options`——该臂保留供历史 notice 反序列化，生产路径已无 schema 产出它）→
+/// `reason ≤ MAX_REASON_CHARS`。Err 文案自足（字段名 + 期望 + 当前值），由工具
+/// 体当场回灌——同一 turn 内模型可立即纠正重试，不跨轮计数。
 pub fn validate_decision(args: &Value) -> Result<DecisionAction, String> {
     let object = args
         .as_object()

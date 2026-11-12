@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::ask::AskRegistry;
 use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 // 新块词汇的 crate 根再导出面（`AgentBlock::WebSearch` / `Text.citations` 的
 // 类型依赖；`crate::AgentCitation` / `crate::WebSearchSource` 任一漏导出即编译
@@ -7,8 +8,9 @@ use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMess
 use crate::kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionQuery, SessionSink, TurnOutcome};
 use crate::runner::{
-    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, FinishSpec,
-    ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, AskMode,
+    FinishSpec, ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    TurnQuestion,
 };
 use crate::session::{
     new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
@@ -104,6 +106,7 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
         Arc::new(NoopSink),
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(AskRegistry::default()),
     );
     let request = TurnRequest {
         session: SessionRef::New,
@@ -370,6 +373,90 @@ fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
     assert_eq!(default_injections.finish, None, "收口档位缺省 None");
 }
 
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`AskRegistry` / `AskMode` 的 crate 根出口面锚定
+//（`mod ask;` + `pub use ask::AskRegistry`；`AskMode` 随 runner 出口）
+// ---------------------------------------------------------------------------
+
+/// `agent::AskRegistry` 根路径可达且三方法签名锚定：`register` → `bool`、
+/// `answer` → `Result<(), String>`、`remove` → `()`。签名以函数指针类型注解
+/// 锚定（形态漂移即编译失败），行为面全量归 `ask_test.rs` 章节。
+#[test]
+fn crate根路径ask_registry可达与三方法签名锚定() {
+    // 两构造面经根路径可达（`new` 是 `Default` 的薄包装）
+    let via_new = crate::AskRegistry::new();
+    let via_default = crate::AskRegistry::default();
+
+    let register: fn(&crate::AskRegistry, &str, tokio::sync::oneshot::Sender<String>) -> bool =
+        crate::AskRegistry::register;
+    let answer: fn(&crate::AskRegistry, &str, String) -> Result<(), String> =
+        crate::AskRegistry::answer;
+    let remove: fn(&crate::AskRegistry, &str) = crate::AskRegistry::remove;
+
+    // 根路径与 ask 模块路径同一实现（fn 指针等值——re-export 零包装）
+    let module_register: fn(
+        &crate::ask::AskRegistry,
+        &str,
+        tokio::sync::oneshot::Sender<String>,
+    ) -> bool = crate::ask::AskRegistry::register;
+    let module_answer: fn(&crate::ask::AskRegistry, &str, String) -> Result<(), String> =
+        crate::ask::AskRegistry::answer;
+    let module_remove: fn(&crate::ask::AskRegistry, &str) = crate::ask::AskRegistry::remove;
+    assert_eq!(
+        register as usize, module_register as usize,
+        "register 根路径与模块路径同源"
+    );
+    assert_eq!(
+        answer as usize, module_answer as usize,
+        "answer 根路径与模块路径同源"
+    );
+    assert_eq!(
+        remove as usize, module_remove as usize,
+        "remove 根路径与模块路径同源"
+    );
+
+    // 轻量行为锚：根路径两实例互不共享；未登记应答 Err；remove miss 幂等
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(register(&via_new, "core-1", tx), "首登返回 true");
+    assert!(
+        answer(&via_default, "core-1", "x".to_owned()).is_err(),
+        "另一实例零条目（表不共享）"
+    );
+    assert!(answer(&via_new, "core-1", "根路径应答".to_owned()).is_ok());
+    assert_eq!(rx.try_recv().expect("收到"), "根路径应答");
+    remove(&via_new, "core-1");
+    remove(&via_new, "core-1");
+}
+
+/// `agent::AskMode` 随 runner 出口可达：两变体可构造并赋给
+/// `SessionInjections.ask`（经 crate 根导入路径完成四字段构造）。
+#[test]
+fn crate根路径ask_mode可达且可赋给注入面ask位() {
+    let generic = crate::AskMode::Generic;
+    let flow = crate::AskMode::Flow;
+    assert_ne!(generic, flow, "两档位可辨");
+    assert!(matches!(generic, AskMode::Generic), "变体经根路径可 match");
+
+    let injections = SessionInjections {
+        preamble: None,
+        tools: None,
+        finish: None,
+        ask: Some(flow),
+    };
+    assert_eq!(injections.ask, Some(AskMode::Flow), "ask 位承接档位");
+
+    let disabled = SessionInjections {
+        ask: None,
+        ..injections.clone()
+    };
+    assert_ne!(disabled, injections, "ask 位参与 Eq 语义");
+    assert_eq!(
+        SessionInjections::default().ask,
+        None,
+        "fail-closed：default 的 ask 位为显式禁用"
+    );
+}
+
 #[test]
 fn finish非法线值经出口反序列化err() {
     let result: Result<SessionInjections, _> = serde_json::from_str(r#"{"finish":"unknown"}"#);
@@ -408,6 +495,10 @@ fn crate根路径session_injections_default三位全none() {
     assert_eq!(
         default_injections.finish, None,
         "finish None（收口档位缺省）"
+    );
+    assert_eq!(
+        default_injections.ask, None,
+        "ask None（显式禁用——装配层 MUST 逐臂显式置位）"
     );
 }
 

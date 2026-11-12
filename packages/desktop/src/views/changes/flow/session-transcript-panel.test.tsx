@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+
+import type { AskAnswerActions } from '@/components/agent';
+import type * as AgentSessionViewModule from '@/components/agent/agent-session-view';
 
 import type { AgentEvent, SessionSummary, TurnSummary } from '../../../types/dto';
 import { SessionTranscriptPanel } from './session-transcript-panel';
@@ -9,8 +12,9 @@ import type { RoleSessionRef } from './types';
 // ---------------------------------------------------------------------------
 // 进程边界 Mock（Mock策略表）：invoke 按命令名分发并可计数（session_detail /
 // agent_session_transcript / agent_session_watch），Channel mock 捕获 onmessage
-// 供直投事件与 Record；`AgentSessionView` / `useAgentSession` / `AgentMessages`
-// 真实组合（SessionMeta 由组件提供，本文件不再自定义）。
+// 供直投事件与 Record；`useAgentSession` / `AgentMessages` 真实组合（SessionMeta
+// 由组件提供，本文件不再自定义），`AgentSessionView` 保留真实实现、只在其边界挂
+// props 探针（见下）。
 // ---------------------------------------------------------------------------
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
@@ -25,6 +29,43 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
+
+// ---------------------------------------------------------------------------
+// 探针装置（保留真实实现，仅记录 props）：在 `AgentSessionView` 边界把每次渲染
+// 实收的 props push 进 `propsLog` 后原样渲染真实组件——「注入对象是否原样到位」
+// 只能由引用相等判定（活卡呈现与调用次数反推不出引用相等）。`importOriginal`
+// 保留全部真实实现（活卡 / 判活 / 气泡照旧），探针零行为、只记录。
+// ---------------------------------------------------------------------------
+
+const { propsLog } = vi.hoisted(() => ({ propsLog: [] as unknown[] }));
+
+vi.mock('@/components/agent/agent-session-view', async (importOriginal) => {
+  const actual = await importOriginal<typeof AgentSessionViewModule>();
+  function ProbedAgentSessionView(props: Parameters<typeof actual.AgentSessionView>[0]) {
+    propsLog.push(props);
+    return <actual.AgentSessionView {...props} />;
+  }
+  return { ...actual, AgentSessionView: ProbedAgentSessionView };
+});
+
+interface RecordedViewProps {
+  root?: string | null;
+  sessionId?: string | null;
+  refreshKey?: number;
+  askAnswer?: AskAnswerActions;
+}
+
+/** 探针实收的 props 全集（每次渲染一条，按发生序；空 = 下游从未渲染）。 */
+function recordedViewProps(): RecordedViewProps[] {
+  return propsLog as RecordedViewProps[];
+}
+
+/** 最近一次渲染实收的 props。 */
+function lastViewProps(): RecordedViewProps {
+  const props = recordedViewProps().at(-1);
+  if (props === undefined) throw new Error('探针未捕获 AgentSessionView 渲染');
+  return props;
+}
 
 // ---------------------------------------------------------------------------
 // fixture
@@ -146,6 +187,7 @@ function resetIpc(overrides: Partial<IpcState> = {}): void {
 
 beforeEach(() => {
   resetIpc();
+  propsLog.length = 0;
 });
 
 afterEach(() => {
@@ -350,5 +392,285 @@ describe('SessionTranscriptPanel：refreshKey 状态重评估', () => {
     ).toBe('evaluator');
     // 两条会话均无运行中轮行 → 零订阅（并行流 ≤ 1 的上界）
     expect(callsOf('agent_session_watch')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`askAnswer` 透传（本面板唯一例外动作面）
+// ---------------------------------------------------------------------------
+
+/** ask 工具调用消息（活卡判据面）。 */
+function askMessage(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [
+      {
+        kind: 'toolUse',
+        id: 'call_flow_1',
+        name: 'AskUserQuestion',
+        input: { question: '回溯到哪？', options: ['proposal', 'dev-design'] },
+      },
+    ],
+    parentToolUseId: null,
+  };
+}
+
+/** 同一会话转录内两条 ask 工具调用（`call_1` / `call_2`，均无结果态）。 */
+function twoAskMessage(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [
+      {
+        kind: 'toolUse',
+        id: 'call_1',
+        name: 'AskUserQuestion',
+        input: { question: '退回哪个相位？', options: ['proposal'] },
+      },
+      {
+        kind: 'toolUse',
+        id: 'call_2',
+        name: 'AskUserQuestion',
+        input: { question: '采用哪个实现方案？', options: ['方案甲', '方案乙'] },
+      },
+    ],
+    parentToolUseId: null,
+  };
+}
+
+/** 传 askAnswer 的面板挂载面。 */
+function renderPanelWithAsk(
+  askAnswer: { onAnswer: (text: string) => void; pendingToolCallId?: string | null },
+  refs: RoleSessionRef | null = roleRef(),
+) {
+  return render(
+    <SessionTranscriptPanel
+      root={ROOT}
+      roleRef={refs}
+      refreshKey={undefined}
+      askAnswer={askAnswer}
+    />,
+  );
+}
+
+describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
+  it('传 askAnswer（精确 toolCallId）→ 该卡活卡可点即回调 onAnswer', async () => {
+    resetIpc({ transcript: [askMessage(0)] });
+    const onAnswer = vi.fn();
+    const askAnswer = { onAnswer, pendingToolCallId: 'call_flow_1' };
+    renderPanelWithAsk(askAnswer);
+    await act(async () => {});
+    await act(async () => {});
+
+    const panel = screen.getByTestId('session-transcript-panel');
+    const buttons = await within(panel).findAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['proposal', 'dev-design']);
+
+    // 探针判据（DD12「同一对象」）：下游收到的就是注入的那一个对象，零包装零重建
+    const received = recordedViewProps();
+    expect(received.length, '下游应已渲染').toBeGreaterThan(0);
+    for (const props of received) {
+      expect(props.askAnswer).toBe(askAnswer);
+      expect(props.askAnswer?.onAnswer).toBe(onAnswer);
+    }
+
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledWith('proposal');
+  });
+
+  it('两 ask 部件精确对账：pendingToolCallId 指向者活、另一张静态，切换后互为镜像', async () => {
+    resetIpc({ transcript: [twoAskMessage(0)] });
+    const onAnswer = vi.fn();
+    const toSecond = { onAnswer, pendingToolCallId: 'call_2' };
+    const { rerender } = render(
+      <SessionTranscriptPanel
+        root={ROOT}
+        roleRef={roleRef()}
+        refreshKey={undefined}
+        askAnswer={toSecond}
+      />,
+    );
+    await act(async () => {});
+    await act(async () => {});
+
+    const panel = screen.getByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-question-card')).toHaveLength(2));
+    const [first, second] = within(panel).getAllByTestId('ask-question-card') as [
+      HTMLElement,
+      HTMLElement,
+    ];
+
+    // call_2 活卡：两条选项按钮 + 输入框；call_1 静态只读：单条只读行、零输入
+    expect(
+      within(second)
+        .getAllByTestId('ask-answer-option')
+        .map((node) => node.textContent),
+    ).toEqual(['方案甲', '方案乙']);
+    expect(within(second).queryAllByTestId('ask-answer-input')).toHaveLength(1);
+    expect(within(first).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(within(first).queryAllByTestId('ask-option')).toHaveLength(1);
+
+    // 探针判据：判活指针按值直通（对象同一、字段原值，未被重建）
+    expect(lastViewProps().askAnswer).toBe(toSecond);
+    expect(lastViewProps().askAnswer?.pendingToolCallId).toBe('call_2');
+
+    // 点活卡选项 → onAnswer 恰一次且参数为 call_2 的选项文本（不串卡）
+    fireEvent.click(within(second).getAllByTestId('ask-answer-option')[1] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer).toHaveBeenCalledWith('方案乙');
+
+    // 指针切到 call_1 → 两卡活性互为镜像
+    const toFirst = { onAnswer, pendingToolCallId: 'call_1' };
+    rerender(
+      <SessionTranscriptPanel
+        root={ROOT}
+        roleRef={roleRef()}
+        refreshKey={undefined}
+        askAnswer={toFirst}
+      />,
+    );
+    await act(async () => {});
+
+    const [mirroredFirst, mirroredSecond] = within(panel).getAllByTestId('ask-question-card') as [
+      HTMLElement,
+      HTMLElement,
+    ];
+    expect(
+      within(mirroredFirst)
+        .getAllByTestId('ask-answer-option')
+        .map((node) => node.textContent),
+    ).toEqual(['proposal']);
+    expect(within(mirroredSecond).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(within(mirroredSecond).queryAllByTestId('ask-option')).toHaveLength(2);
+    expect(lastViewProps().askAnswer).toBe(toFirst);
+    expect(lastViewProps().askAnswer?.pendingToolCallId).toBe('call_1');
+  });
+
+  it('askAnswer.pendingToolCallId = null → 全静态（历史重放零应答入口）', async () => {
+    resetIpc({ transcript: [askMessage(0)] });
+    const onAnswer = vi.fn();
+    const askAnswer = { onAnswer, pendingToolCallId: null };
+    renderPanelWithAsk(askAnswer);
+    await act(async () => {});
+    await act(async () => {});
+
+    const panel = screen.getByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    // 探针判据：`null` 指针按值直通（非缺省键、非重建为新对象）
+    expect(lastViewProps().askAnswer).toBe(askAnswer);
+    expect(lastViewProps().askAnswer?.pendingToolCallId).toBeNull();
+  });
+
+  it('不传 askAnswer → 全静态且其余动作面仍缺席（无发送 / 停止入口）', async () => {
+    resetIpc({ transcript: [askMessage(0)] });
+    await mounted();
+
+    const panel = screen.getByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(screen.queryByTestId('explore-send')).toBeNull();
+    expect(screen.queryByTestId('explore-stop')).toBeNull();
+    expect(callsOf('agent_start')).toHaveLength(0);
+  });
+
+  it('空态（roleRef null）时 askAnswer 在场也不虚构会话（零取数）', async () => {
+    resetIpc();
+    const onAnswer = vi.fn();
+    renderPanelWithAsk({ onAnswer }, null);
+    await act(async () => {});
+
+    expect(screen.getByTestId('drawer-session-empty').textContent).toContain('当前选中无关联会话');
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(recordedViewProps(), '空态不挂会话面（askAnswer 无处透传）').toHaveLength(0);
+  });
+
+  it('未注入即全静态：ask 卡零按钮零输入，双应答命令零 invoke（历史重放零应答入口）', async () => {
+    resetIpc({ transcript: [askMessage(0)] });
+    await mounted();
+
+    const panel = screen.getByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(within(panel).queryAllByTestId('ask-answer-input')).toHaveLength(0);
+    expect(callsOf('change_flow_answer')).toHaveLength(0);
+    expect(callsOf('agent_answer')).toHaveLength(0);
+    // 探针判据：不注入即下游每条渲染都收不到动作面（`viewProps` 不含该键）
+    expect(recordedViewProps().length).toBeGreaterThan(0);
+    for (const props of recordedViewProps()) expect(props.askAnswer).toBeUndefined();
+  });
+
+  it('composer 仍不可注入：渲染面无发送输入框（只读纪律不因 ask 例外而松动）', async () => {
+    resetIpc({ transcript: [askMessage(0)] });
+    const onAnswer = vi.fn();
+    renderPanelWithAsk({ onAnswer, pendingToolCallId: 'call_flow_1' });
+    await act(async () => {});
+    await act(async () => {});
+
+    await within(screen.getByTestId('session-transcript-panel')).findAllByTestId(
+      'ask-answer-option',
+    );
+    expect(screen.queryByTestId('explore-send')).toBeNull();
+    expect(screen.queryByTestId('explore-prompt')).toBeNull();
+    expect(callsOf('agent_start')).toHaveLength(0);
+  });
+
+  it('既有 viewProps 与 data-testid 不因新增键改变：注入与不注入两形态逐条相等', async () => {
+    resetIpc({ transcript: [askMessage(0)] });
+    const askAnswer = { onAnswer: vi.fn(), pendingToolCallId: 'call_flow_1' };
+    const withAsk = renderPanelWithAsk(askAnswer);
+    await act(async () => {});
+    await act(async () => {});
+    const injectedPanel = screen.getByTestId('session-transcript-panel');
+    // 探针判据：新增键只在 `askAnswer` 一位上出现，其余三项按值原样
+    expect(lastViewProps().root).toBe(ROOT);
+    expect(lastViewProps().sessionId).toBe(EXECUTOR_SESSION);
+    expect(lastViewProps().refreshKey).toBeUndefined();
+    expect(lastViewProps().askAnswer).toBe(askAnswer);
+    const injectedArgs = {
+      detail: callsOf('session_detail').length,
+      transcript: callsOf('agent_session_transcript').length,
+      role: injectedPanel
+        .querySelector('[data-transcript-role]')
+        ?.getAttribute('data-transcript-role'),
+      transcriptTestId: within(injectedPanel)
+        .getByTestId('session-transcript')
+        .getAttribute('data-testid'),
+    };
+    withAsk.unmount();
+
+    resetIpc({ transcript: [askMessage(0)] });
+    await mounted();
+    const plainPanel = screen.getByTestId('session-transcript-panel');
+    expect(lastViewProps().root).toBe(ROOT);
+    expect(lastViewProps().sessionId).toBe(EXECUTOR_SESSION);
+    expect(lastViewProps().refreshKey).toBeUndefined();
+    expect({
+      detail: callsOf('session_detail').length,
+      transcript: callsOf('agent_session_transcript').length,
+      role: plainPanel
+        .querySelector('[data-transcript-role]')
+        ?.getAttribute('data-transcript-role'),
+      transcriptTestId: within(plainPanel)
+        .getByTestId('session-transcript')
+        .getAttribute('data-testid'),
+    }).toEqual(injectedArgs);
+  });
+
+  it('roleRef.sessionId = null：仍走空态分支，askAnswer 在场也不渲染卡', async () => {
+    resetIpc();
+    const onAnswer = vi.fn();
+    renderPanelWithAsk({ onAnswer }, { role: 'executor', sessionId: null });
+    await act(async () => {});
+
+    expect(screen.getByTestId('drawer-session-empty').textContent).toContain('此步无会话记录');
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(recordedViewProps(), '空态不挂会话面（askAnswer 无处透传）').toHaveLength(0);
   });
 });

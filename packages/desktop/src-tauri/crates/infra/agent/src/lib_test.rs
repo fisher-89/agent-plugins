@@ -40,9 +40,11 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
         &WorkspaceStores,
         Arc<agent::StopRegistry>,
         Arc<agent::SessionStreamRegistry>,
+        Arc<agent::AskRegistry>,
         Arc<store::Store>,
         Option<i64>,
         &std::path::Path,
+        Option<Arc<dyn orchestration::port::AskPort>>,
     ) -> Result<ComposedTurn, String> = compose_turn;
     let _ = compose_signature;
 
@@ -135,6 +137,7 @@ fn sdk臂空配置open以config_missing显式失败() {
                 model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::New,
+            session_id: "core-session-1".to_owned(),
             prior_handle: None,
         })
         .expect_err("Sdk 臂空配置必须显式失败");
@@ -161,6 +164,7 @@ fn open_continue(session_id: &str) -> agent::SessionOpen {
         session: agent::SessionRef::Continue {
             id: session_id.to_owned(),
         },
+        session_id: "core-session-1".to_owned(),
         prior_handle: Some(session_id.to_owned()),
     }
 }
@@ -373,6 +377,7 @@ async fn sdk臂字段str边界怪值原样构造且空串仍逐字段判缺() {
                 model_level: agent::ModelLevel::Low,
             },
             session: agent::SessionRef::New,
+            session_id: "core-session-1".to_owned(),
             prior_handle: None,
         })
         .expect_err("model_low 空串低档必须显式失败");
@@ -390,6 +395,7 @@ async fn sdk臂字段str边界怪值原样构造且空串仍逐字段判缺() {
                 model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::New,
+            session_id: "core-session-1".to_owned(),
             prior_handle: None,
         })
         .expect("超长 / 特殊字符 / 纯空白怪值 open 应成功（原样携带）");
@@ -561,6 +567,7 @@ async fn with_max_tokens分发等价_与直构runner加同载荷行为一致() {
                 model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::New,
+            session_id: "core-session-1".to_owned(),
             prior_handle: None,
         })
         .expect("完整配置 New 会话 open 应成功");
@@ -955,6 +962,7 @@ async fn with_web_search分发等价_与直构runner加同载荷行为一致() {
                         model_level: agent::ModelLevel::High,
                     },
                     session: agent::SessionRef::New,
+                    session_id: "core-session-1".to_owned(),
                     prior_handle: None,
                 })
                 .expect("完整配置 New 会话 open 应成功"),
@@ -1068,5 +1076,113 @@ fn 退役cli臂不被开关改写_逐字退役文案且不静默回退sdk臂() {
     assert_eq!(
         error, CLI_TENANT_RETIRED,
         "开关不静默回退、不改走 sdk 臂（文案逐字）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`EngineFacade` 两条 ask builder 缝（门面 → runner 单一通道）
+// ---------------------------------------------------------------------------
+
+/// 空实现 `AskPort`（构造面用具）。
+struct NoopAskPort;
+
+impl orchestration::port::AskPort for NoopAskPort {
+    fn ask_started(&self, _ask: orchestration::state::AskPayload) {}
+    fn ask_resolved(&self) {}
+}
+
+/// `with_ask_registry`（正向）：链式构造后 `runner_for` 产出的 `SdkRunner` 持
+/// 同一 `Arc`（与直构 `SdkRunner::new(...).with_ask_registry(reg)` 行为等价）。
+#[test]
+fn with_ask_registry链式构造且分发行为与直构一致() {
+    let registry = Arc::new(agent::AskRegistry::default());
+    let via_facade = EngineFacade::new()
+        .with_ask_registry(Arc::clone(&registry))
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功");
+    let via_direct = SdkRunner::new(EngineConfig::empty(), None, None, None)
+        .with_ask_registry(Arc::clone(&registry));
+
+    // 分发行为与直构一致（open 校验错误面等价——open 校验先于泵铸造）
+    assert_eq!(
+        via_facade
+            .open_session(open_continue("ses-ask-registry"))
+            .expect_err("空配置必须 Err"),
+        via_direct
+            .open_session(open_continue("ses-ask-registry"))
+            .expect_err("直构同口径 Err"),
+        "with_ask_registry 门面分发与直构一致"
+    );
+
+    // 同一张表：门面构造未克隆出新表（外部登记后 answer 命中）
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(registry.register("core-1", tx), "首登 true");
+    assert!(registry.answer("core-1", "门面表应答".to_owned()).is_ok());
+    assert_eq!(rx.try_recv().expect("收到"), "门面表应答");
+}
+
+/// `with_ask_port` 两形态（正向，参数化 2 形态）：`Some(port)` 与 `None` 均可
+/// 构造且 Sdk 臂分发成功。
+#[test]
+fn with_ask_port两形态均可构造并分发() {
+    for (label, port) in [
+        (
+            "Some",
+            Some(Arc::new(NoopAskPort) as Arc<dyn orchestration::port::AskPort>),
+        ),
+        ("None", None),
+    ] {
+        let runner = EngineFacade::new()
+            .with_ask_port(port)
+            .runner_for(EngineKind::Sdk, EngineConfig::empty());
+        assert!(runner.is_ok(), "{label} 形态 Sdk 臂分发成功");
+    }
+}
+
+/// 缺省形态零漂移（异常，回归）：未调两条 builder 的既有 open / 配置校验用例
+/// 零改动全绿（字段面扩张不改变既有行为）——本用例只锚「缺省仍可分发」。
+#[test]
+fn 未调ask两条builder时门面默认形态零漂移() {
+    let facade = EngineFacade::new();
+    assert!(
+        facade
+            .runner_for(EngineKind::Sdk, EngineConfig::empty())
+            .is_ok(),
+        "缺省形态仍可分发（ask 字段扩张不改既有构造）"
+    );
+}
+
+/// 与既有 builder 并存（边界）：全链后各字段互不覆盖（以行为观测替代字段读取
+///——窗口 / 上限 / 注册表 三面各自可辨）。
+#[test]
+fn ask两条builder与既有六条builder并存互不覆盖() {
+    let registry = Arc::new(agent::AskRegistry::default());
+    let (loader, calls) = counting_loader(Ok(None));
+    let facade = EngineFacade::with_resume_transcript(loader)
+        .with_context_window(Some(128_000))
+        .with_max_tokens(Some(4_096))
+        .with_web_search(true)
+        .with_workspace_root(std::path::PathBuf::from("D:/ws"))
+        .with_ask_registry(Arc::clone(&registry))
+        .with_ask_port(Some(Arc::new(NoopAskPort)));
+
+    let runner = facade
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("全链后 Sdk 臂构造成功");
+
+    // 注册表未被后置 builder 覆盖：外部登记后可应答
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(registry.register("core-1", tx), "首登 true");
+    assert!(registry.answer("core-1", "全链应答".to_owned()).is_ok());
+    assert_eq!(rx.try_recv().expect("收到"), "全链应答");
+
+    // 装载缝仍在位（continue 会话经装载缝取史；空配置先 Era 校验失败→零装载）
+    let _ = runner
+        .open_session(open_continue("ses-ask-chain"))
+        .expect_err("空配置必须 Err");
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        0,
+        "配置校验先于装载（既有顺序不被 ask builder 改变）"
     );
 }

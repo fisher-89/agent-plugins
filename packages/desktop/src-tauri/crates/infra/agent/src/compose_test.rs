@@ -102,10 +102,15 @@ impl DualEnv {
 
 /// sdk provider fixture（端点指向本机 discard 端口，解析仅组装不触网络）。
 fn seed_provider(stores: &WorkspaceStores, name: &str) -> i64 {
+    seed_provider_at(stores, name, "http://127.0.0.1:9/v1")
+}
+
+/// 端点可指定的 sdk provider fixture（脚本化桩端点注入面）。
+fn seed_provider_at(stores: &WorkspaceStores, name: &str, base_url: &str) -> i64 {
     let provider = AgentProviderRecord::new(
         name.to_owned(),
         AgentProviderProtocol::Openai,
-        "http://127.0.0.1:9/v1".to_owned(),
+        base_url.to_owned(),
         "sk-compose".to_owned(),
         AgentModelTiers {
             high: "m-high".to_owned(),
@@ -244,9 +249,11 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("缺省解析应成功");
 
@@ -288,9 +295,11 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
@@ -345,9 +354,11 @@ async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         Some(cli_id),
         Path::new(&env.root()),
+        None,
     ));
 
     assert_eq!(
@@ -358,7 +369,7 @@ async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     assert!(
         store
-            .list_sessions(None, None)
+            .list_sessions(None, None,)
             .expect("清单应成功")
             .is_empty(),
         "拒收零落库"
@@ -375,9 +386,11 @@ fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记�
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     ));
 
     assert_eq!(
@@ -395,7 +408,7 @@ fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记�
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     assert!(
         store
-            .list_sessions(None, None)
+            .list_sessions(None, None,)
             .expect("清单应成功")
             .is_empty(),
         "拒收零落库"
@@ -411,9 +424,11 @@ fn 空库缺省解析err引导管理页且零落库() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     ));
 
     assert!(
@@ -424,7 +439,7 @@ fn 空库缺省解析err引导管理页且零落库() {
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     assert!(
         store
-            .list_sessions(None, None)
+            .list_sessions(None, None,)
             .expect("清单应成功")
             .is_empty(),
         "解析失败零落库"
@@ -440,9 +455,11 @@ fn 显式不存在agent的id解析err携id记因() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         Some(404),
         Path::new(&env.root()),
+        None,
     ));
     assert!(error.contains("404"), "Err 携 id 记因，实际: {error}");
 }
@@ -472,9 +489,11 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("provider 完好时缺省解析应成功");
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
@@ -515,9 +534,11 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -555,9 +576,11 @@ fn continue会话不存在时显式失败() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let error = err_of(composed.begin(
@@ -604,9 +627,11 @@ fn continue跨引擎续会话被快照比对拒绝() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let error = err_of(composed.begin(
@@ -637,9 +662,11 @@ async fn continue未开轮会话首轮放行并定型快照() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -686,9 +713,11 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -737,9 +766,11 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -783,9 +814,11 @@ async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐�
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
 
@@ -847,9 +880,11 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     composed
@@ -897,9 +932,11 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     ));
 
     assert!(
@@ -910,7 +947,7 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     assert!(
         store
-            .list_sessions(None, None)
+            .list_sessions(None, None,)
             .expect("清单应成功")
             .is_empty(),
         "解析失败零落库"
@@ -1007,9 +1044,11 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         std::sync::Arc::clone(&injected),
         Some(sdk_id),
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
 
@@ -1186,6 +1225,7 @@ fn composed_with_fakes(
             sink,
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
+            Arc::new(agent::AskRegistry::default()),
         ),
         runner,
         query: Arc::new(StoreQuery::new(store)),
@@ -1497,9 +1537,11 @@ fn 显式agent_id边界零与负数与i64max均miss记因() {
             stores,
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
+            Arc::new(agent::AskRegistry::default()),
             env.store(),
             Some(id),
             Path::new(&env.root()),
+            None,
         ));
         assert!(
             error.contains("agent 不存在") && error.contains(&id.to_string()),
@@ -1518,9 +1560,11 @@ fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     for id in [
@@ -1554,9 +1598,11 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         Some(sdk_id),
         Path::new(&env.root()),
+        None,
     )
     .expect("显式解析应成功");
     let running = composed
@@ -1589,9 +1635,11 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("缺省解析应成功");
     let running = composed
@@ -1769,7 +1817,7 @@ async fn 非explore来源begin恒default注入() {
         let captured = runner.captured_injections();
         let last = captured.last().expect("本轮捕获");
         // `change` 来源按 role 产名字清单（缺省 role 不影响七内建底座）；
-        // 其余来源恒 default（三字段全 None）
+        // 其余来源三字段全 None（ask 位恒显式 Generic）
         let expected_tools = if source == "change" {
             Some(seven())
         } else {
@@ -1778,6 +1826,17 @@ async fn 非explore来源begin恒default注入() {
         assert_eq!(last.tools, expected_tools, "来源 {source:?} tools 面");
         assert_eq!(last.finish, None, "来源 {source:?} finish = None");
         assert_eq!(last.preamble, None);
+        // ask 位逐臂显式置位：change 恒 Flow，其余恒 Generic（任何来源都不落 None）
+        let expected_ask = if source == "change" {
+            agent::AskMode::Flow
+        } else {
+            agent::AskMode::Generic
+        };
+        assert_eq!(
+            last.ask,
+            Some(expected_ask),
+            "来源 {source:?} 的 ask 位（D13：首期无禁用场景）"
+        );
     }
     assert_eq!(runner.captured_injections().len(), 6, "六来源各捕获一次");
 }
@@ -1868,9 +1927,11 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -1888,7 +1949,8 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
         .expect("begin 应成功");
     drop(running.drive(|_output| {}).await);
 
-    // 转录首事件 RunStarted.tools = 六工具保序 + 专用工具（下发面单源）
+    // 转录首事件 RunStarted.tools = 六工具保序 + 专用工具 + ask 工具（下发面单源；
+    // ask 为按位追加的基线工具，恒在名单末位）
     let transcript = store.list_session_events(&session_id).expect("转录应成功");
     let agent::AgentEventKind::RunStarted { tools, .. } = &transcript.first().expect("非空").kind
     else {
@@ -1904,14 +1966,15 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
             "edit".to_owned(),
             "bash".to_owned(),
             EXPLORE_NOTE_TOOL.to_owned(),
+            "AskUserQuestion".to_owned(),
         ],
-        "注入经泵铸造与下发链端到端（AC-5）"
+        "注入经泵铸造与下发链端到端（AC-5 + ask 位 Generic 追加）"
     );
     assert!(!tools.contains(&"write".to_owned()), "explore 面不含 write");
 }
 
 /// 装配产物真实驱动 default（组合端到端）：debug 来源 → RunStarted.tools 报
-/// 七名（AC-7 端到端）。
+/// 七名 + ask 工具（AC-7 端到端；ask 位恒 Generic 显式置位）。
 #[tokio::test(start_paused = true)]
 async fn 装配产物真实驱动_debug来源runstarted报七名() {
     let env = DualEnv::new("drive-debug");
@@ -1924,9 +1987,11 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -1945,10 +2010,11 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
     else {
         panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
     };
+    let mut expected: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    expected.push("AskUserQuestion".to_owned());
     assert_eq!(
-        tools.as_slice(),
-        TOOL_NAMES.as_slice(),
-        "debug 轮七名与 TOOL_NAMES 逐名一致（AC-7 端到端）"
+        tools, &expected,
+        "debug 轮七名 + ask 工具（AC-7 端到端；ask 位恒显式置位）"
     );
 }
 
@@ -1971,9 +2037,11 @@ async fn explore装配不破坏失败收敛语义() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -2136,9 +2204,11 @@ async fn compose_turn注入缝生效_begin后会话在传入streams中可订阅(
         stores,
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -2170,9 +2240,11 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与�
         stores,
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -2230,9 +2302,11 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
         stores,
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let probe = WatchProbe::new(Arc::clone(&streams));
@@ -2316,6 +2390,7 @@ async fn change轨增量不进run通知_仅密封事件透传() {
             RecordingSink::new(),
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
+            Arc::new(agent::AskRegistry::default()),
         ),
         runner: Arc::new(ScriptedRunner::new(vec![
             agent::AgentEventKind::MessageDelta {
@@ -2413,9 +2488,11 @@ fn 解析失败不构造内核且零注册表条目() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     ));
     assert!(
         error.contains("默认 agent"),
@@ -2426,9 +2503,11 @@ fn 解析失败不构造内核且零注册表条目() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         Some(404),
         Path::new(&env.root()),
+        None,
     ));
     assert!(error.contains("404"), "显式不存在 id Err，实际: {error}");
 
@@ -2455,9 +2534,11 @@ async fn stop与streams两表互不串台_收口后两表同时除名() {
         stores,
         Arc::clone(&registry),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let running = composed
@@ -2502,18 +2583,22 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("exec 轨解析应成功");
     let change_track = compose_turn(
         stores,
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("change 轨解析应成功");
 
@@ -2768,6 +2853,7 @@ async fn 组合根全链_provider协议与上限与后缀抵达引擎且裸名�
             injections: agent::SessionInjections::default(),
             ctx: ctx(&env.root()),
             session: SessionRef::New,
+            session_id: "core-session-1".to_owned(),
             prior_handle: None,
         })
         .expect("协议配置 open 应成功（组装不触网）");
@@ -2816,9 +2902,11 @@ async fn compose_turn尾参在场装配照常_引擎快照与既有口径一致(
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("尾参在场解析应成功");
 
@@ -2871,9 +2959,11 @@ async fn compose_turn尾参root形态不校验() {
             stores,
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
+            Arc::new(agent::AskRegistry::default()),
             env.store(),
             None,
             &root,
+            None,
         )
         .unwrap_or_else(|error| panic!("root 形态 {root:?} 只透传不校验（仍 Ok）: {error}"));
         drop(composed);
@@ -2898,9 +2988,11 @@ async fn compose_turn尾参与store的root不同源_双root不变量成立() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         std::sync::Arc::clone(&injected),
         None,
         main_root.path(),
+        None,
     )
     .expect("尾参与 store 不同源仍应成功");
 
@@ -3121,6 +3213,7 @@ fn 解析失败面不被开关改写_agent缺失与cli两形态同一err且不�
             session: SessionRef::Continue {
                 id: "ses-incomplete".to_owned(),
             },
+            session_id: "core-session-1".to_owned(),
             prior_handle: Some("ses-incomplete".to_owned()),
         };
         assert_eq!(
@@ -3171,6 +3264,7 @@ fn 门面链传递可考_解析产物经门面装配后与直构runner同值等�
         session: SessionRef::Continue {
             id: "ses-facade-web-search".to_owned(),
         },
+        session_id: "core-session-1".to_owned(),
         prior_handle: Some("ses-facade-web-search".to_owned()),
     };
     assert_eq!(
@@ -3189,6 +3283,23 @@ fn 门面链传递可考_解析产物经门面装配后与直构runner同值等�
 // ---------------------------------------------------------------------------
 // 注入矩阵（archi 章节）：`(phase, role)` 七行单源 + fail-closed 面
 // ---------------------------------------------------------------------------
+
+/// 观察流内某 `tool_use` 的配对 `tool_result`（应答回灌判据）。
+fn tool_result_in(events: &[agent::AgentEventKind], tool_call_id: &str) -> Option<(String, bool)> {
+    events.iter().find_map(|event| match event {
+        agent::AgentEventKind::Message { blocks, .. } => {
+            blocks.iter().find_map(|block| match block {
+                agent::AgentBlock::ToolResult {
+                    id,
+                    content,
+                    is_error,
+                } if id == tool_call_id => Some((content.clone(), *is_error)),
+                _ => None,
+            })
+        }
+        _ => None,
+    })
+}
 
 /// 装配入口（模块私有，本子模块直读——矩阵单源即被测语义）。
 fn injections_of(source: &str, source_ref: Option<&str>) -> agent::SessionInjections {
@@ -3359,12 +3470,24 @@ fn explore臂零回归() {
 
 /// 回归：其余来源（`debug` / 未知 / explore 之外）→ `default()`。
 #[test]
-fn 其余来源恒default() {
+fn 其余来源恒显式generic且零archi与零收口() {
     for source in ["debug", "unknown-source", ""] {
+        let injections = injections_of(source, Some("add-feature/implement/executor/1"));
         assert_eq!(
-            injections_of(source, Some("add-feature/implement/executor/1")),
+            injections.tools, None,
+            "来源 {source:?} 不注入 archi 工具面（tools 位 None = 内建七件）"
+        );
+        assert!(injections.preamble.is_none(), "其余来源零 preamble");
+        assert!(injections.finish.is_none(), "其余来源零收口档位");
+        assert_eq!(
+            injections.ask,
+            Some(agent::AskMode::Generic),
+            "来源 {source:?} 的 ask 位为显式 Generic（R8：MUST NOT default()）"
+        );
+        assert_ne!(
+            injections,
             agent::SessionInjections::default(),
-            "来源 {source:?} 不注入 archi 工具面"
+            "来源 {source:?} 不是 default（其 ask = None 即静默禁用）"
         );
     }
 }
@@ -3507,13 +3630,16 @@ fn source词面精确零归一() {
     for source in ["Archi", "ARCHI", " archi", "archi ", "archi-chat", ""] {
         let injections = injections_of(source, None);
         assert_eq!(
-            injections,
-            agent::SessionInjections::default(),
+            injections.tools, None,
             "来源 {source:?} 不命中 archi 臂（大小写敏感 + 零 trim）"
         );
         assert!(injections.preamble.is_none());
-        assert!(injections.tools.is_none());
         assert!(injections.finish.is_none());
+        assert_eq!(
+            injections.ask,
+            Some(agent::AskMode::Generic),
+            "来源 {source:?} 落其余来源臂（ask 位显式 Generic）"
+        );
     }
 }
 
@@ -3687,12 +3813,16 @@ fn 专用会话两臂零收口档位() {
 
 /// 未命中来源恒 default（边界）：`source` 非三者 / 未知串 → 三字段全 None。
 #[test]
-fn 未命中来源恒default三字段全none() {
+fn 未命中来源三字段全none且ask位显式generic() {
     for source in ["chat", "", "CHANGE", "Explore"] {
+        let injections = injections_of(source, Some("c/implement/evaluator/1"));
+        assert_eq!(injections.preamble, None, "来源 {source} 零 preamble");
+        assert_eq!(injections.tools, None, "来源 {source} 零名字清单");
+        assert_eq!(injections.finish, None, "来源 {source} 零收口档位");
         assert_eq!(
-            injections_of(source, Some("c/implement/evaluator/1")),
-            agent::SessionInjections::default(),
-            "来源 {source} 落 default"
+            injections.ask,
+            Some(agent::AskMode::Generic),
+            "来源 {source} 的 ask 位显式置位（不落 None）"
         );
     }
 }
@@ -3706,8 +3836,14 @@ fn 装配层非法名err携名与来源() {
         source: "change".to_owned(),
         source_ref: None,
     };
-    let error =
-        injected(&["read", "no_such_tool"], None, None, &provenance).expect_err("清单外名字应 Err");
+    let error = injected(
+        &["read", "no_such_tool"],
+        None,
+        None,
+        Some(agent::AskMode::Generic),
+        &provenance,
+    )
+    .expect_err("清单外名字应 Err");
     assert!(
         error.contains("no_such_tool"),
         "文案携非法名（可归因）: {error}"
@@ -3720,4 +3856,494 @@ fn 装配层非法名err携名与来源() {
         error.starts_with("注入面非法工具名"),
         "文案前缀与 mount 侧统一: {error}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`assemble_injections` 四臂显式置位 ask 位（装配链入口）
+// ---------------------------------------------------------------------------
+
+/// explore 臂（正向，AC-1）：`ask == Some(Generic)`；`tools` 清单逐名不变（七件
+/// 含 `create_explore_note`）；名字清单内不含 `AskUserQuestion`（ask 不占清单）。
+#[test]
+fn 装配explore臂ask位generic且清单零ask工具名() {
+    let injections = injections_of("explore", None);
+    assert_eq!(
+        injections.ask,
+        Some(agent::AskMode::Generic),
+        "explore 臂 = Generic（只阻塞，零编排广播）"
+    );
+    assert_eq!(injections.finish, None, "explore 臂无收口工具");
+    let names = injections.tools.as_deref().expect("explore 臂下发名字清单");
+    assert_eq!(names.len(), 7, "六件 + create_explore_note");
+    assert!(
+        names
+            .iter()
+            .any(|name| name == crate::sdk::mount::EXPLORE_NOTE_TOOL),
+        "清单含 explore 专用工具"
+    );
+    assert!(
+        !names.iter().any(|name| name == "AskUserQuestion"),
+        "ask 不占名字清单（按位追加的基线工具）"
+    );
+}
+
+/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；九名 +
+/// `preamble` 在场；`source_ref` 取任意值不改变该臂。
+#[test]
+fn 装配archi臂ask位generic且九名与preamble在场() {
+    for source_ref in [None, Some("add-feature/dev-design/executor/1")] {
+        let injections = injections_of("archi", source_ref);
+        assert_eq!(
+            injections.ask,
+            Some(agent::AskMode::Generic),
+            "archi 臂 = Generic（source_ref={source_ref:?} 不改变该臂）"
+        );
+        assert!(injections.preamble.is_some(), "archi 臂 preamble 在场");
+        let names = injections.tools.as_deref().expect("archi 臂下发名字清单");
+        assert_eq!(names.len(), 9, "七件 + 两 archi 名");
+        assert_eq!(
+            archi_bits(&injections),
+            Some((true, true)),
+            "两 archi 名双开"
+        );
+    }
+}
+
+/// change 臂（正向，组合 4 源形态 × 3 role，AC-2）：全部 `ask == Some(Flow)`
+///（**不分 role / 不分矩阵命中**）；`finish` 位按 role 各自置位。
+#[test]
+fn 装配change臂ask位恒flow且finish按role置位() {
+    let source_refs = [
+        "add-feature/implement/executor/1",
+        "add-feature/code-review/evaluator/2",
+        "add-feature/implement/decision/1",
+        // 畸形源（段数不足 / 空串）：role 解析失败但 ask 位不变
+        "add-feature",
+        "",
+    ];
+    for source_ref in source_refs {
+        let injections = injections_of("change", Some(source_ref));
+        assert_eq!(
+            injections.ask,
+            Some(agent::AskMode::Flow),
+            "change 臂恒 Flow（source_ref={source_ref:?}）"
+        );
+        let role = source_ref.split('/').nth(2).unwrap_or("");
+        let expect_finish = match role {
+            "evaluator" => Some(agent::FinishSpec::EvaluatorChecklist),
+            "decision" => Some(agent::FinishSpec::Decision),
+            _ => None,
+        };
+        assert_eq!(
+            injections.finish, expect_finish,
+            "finish 位按 role 置位（source_ref={source_ref:?}）"
+        );
+    }
+}
+
+/// 其余来源臂显式 Generic（正向，参数化 2 形态，AC-1 / R8）：`debug` 与「不传
+/// 来源」→ `ask == Some(Generic)`、其余三位全 None；**不是**
+/// `SessionInjections::default()`（`default().ask == None`）。
+#[test]
+fn 装配其余来源臂显式generic而非default() {
+    for source in ["debug", ""] {
+        let injections = injections_of(source, None);
+        assert_eq!(
+            injections.ask,
+            Some(agent::AskMode::Generic),
+            "source={source:?} 臂 = Generic（显式置位）"
+        );
+        assert_eq!(injections.preamble, None);
+        assert_eq!(injections.tools, None);
+        assert_eq!(injections.finish, None);
+        assert_ne!(
+            injections,
+            agent::SessionInjections::default(),
+            "MUST NOT default()（其 ask = None 即静默禁用）"
+        );
+    }
+}
+
+/// 逐臂 `ask` 位穷举（边界，参数化 6 形态）：任何来源都不落 `None`（首期无禁用
+/// 场景，D13）。
+#[test]
+fn 装配逐臂ask位穷举恒some() {
+    let cases: [(&str, agent::AskMode); 6] = [
+        ("explore", agent::AskMode::Generic),
+        ("archi", agent::AskMode::Generic),
+        ("change", agent::AskMode::Flow),
+        ("debug", agent::AskMode::Generic),
+        ("", agent::AskMode::Generic),
+        ("未知来源", agent::AskMode::Generic),
+    ];
+    for (source, expect) in cases {
+        let injections = injections_of(source, Some("add-feature/implement/executor/1"));
+        assert_eq!(
+            injections.ask,
+            Some(expect),
+            "source={source:?} 的 ask 位 = {expect:?}（任何来源都不落 None）"
+        );
+    }
+}
+
+/// 零 `default()` 兜底自证（异常，源码自证，R8）：`compose.rs` 的
+/// `assemble_injections` 函数体零 `SessionInjections::default()` 命中，其余来源臂
+/// 为显式结构字面量。
+#[test]
+fn 装配函数体零default兜底() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/compose.rs"),
+    )
+    .expect("读取 compose.rs");
+    let start = own
+        .find("fn assemble_injections(")
+        .expect("assemble_injections 在场");
+    let rest = &own[start..];
+    let end = rest
+        .find("\nfn ")
+        .filter(|offset| *offset > 0)
+        .unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        !body.contains("SessionInjections::default()"),
+        "assemble_injections 体内零 default() 命中（逐臂显式置位）"
+    );
+    assert!(
+        body.contains("ask: Some(agent::AskMode::Generic)"),
+        "其余来源臂为显式结构字面量（四字段全给）"
+    );
+}
+
+/// 非法名 `Err` 语义零改（异常）：注册表含非法名 → 既有 `Err`（文案携非法名与
+/// 来源），零 ask 相关新增分支干扰。
+#[test]
+fn 装配非法名err语义零改() {
+    // `injected` 单点的 Err 文案由未知来源的合成名字清单触发——经 mount 校验
+    let error = crate::sdk::mount::definitions(
+        &agent::SessionInjections {
+            preamble: None,
+            tools: Some(vec!["no_such_tool".to_owned()]),
+            finish: None,
+            ask: Some(agent::AskMode::Generic),
+        },
+        "",
+    )
+    .expect_err("非法名应 Err");
+    assert!(error.contains("no_such_tool"), "文案携非法名: {error}");
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`compose_turn` 两实参（注册表 + ask port）贯通
+// ---------------------------------------------------------------------------
+
+/// 记录式假 `AskPort`（组合面用具：把「组合根 → 执行体」的广播拍记成序）。
+#[derive(Default)]
+struct RecordingAskPort {
+    calls: Mutex<Vec<&'static str>>,
+    payloads: Mutex<Vec<orchestration::state::AskPayload>>,
+}
+
+impl RecordingAskPort {
+    fn labels(&self) -> Vec<&'static str> {
+        self.calls.lock().expect("调用记录锁不可中毒").clone()
+    }
+
+    fn payloads(&self) -> Vec<orchestration::state::AskPayload> {
+        self.payloads.lock().expect("载荷记录锁不可中毒").clone()
+    }
+}
+
+impl orchestration::port::AskPort for RecordingAskPort {
+    fn ask_started(&self, ask: orchestration::state::AskPayload) {
+        self.calls
+            .lock()
+            .expect("调用记录锁不可中毒")
+            .push("started");
+        self.payloads.lock().expect("载荷记录锁不可中毒").push(ask);
+    }
+
+    fn ask_resolved(&self) {
+        self.calls
+            .lock()
+            .expect("调用记录锁不可中毒")
+            .push("resolved");
+    }
+}
+
+/// 注册表单表共享（正向，DD3 的机械判据）：`compose_turn(…, Arc::clone(&reg), …)`
+/// 后组合根内的内核与门面指的是**同一张表**——外部 `reg.answer` 能命中引擎侧
+/// 登记（登记 → 外部应答 → 接收方收到）。
+#[tokio::test]
+async fn compose_turn的注册表经双通道注入为同一张表() {
+    let env = DualEnv::new("ask-shared-registry");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "ask 供应");
+    seed_sdk_instance(stores, "ask 实例", Some(provider_id));
+    let registry = Arc::new(agent::AskRegistry::default());
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::clone(&registry),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        Some(Arc::new(RecordingAskPort::default())),
+    )
+    .expect("解析应成功");
+
+    // 引擎侧登记的槽（模拟执行体进入阻塞前）经外部同一张表被应答
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(
+        registry.register("core-session-shared", tx),
+        "外部登记（与组合根同一张表）"
+    );
+    assert!(
+        registry
+            .answer("core-session-shared", "共享表应答".to_owned())
+            .is_ok(),
+        "外部应答命中引擎侧登记"
+    );
+    assert_eq!(rx.try_recv().expect("收到"), "共享表应答");
+    drop(composed);
+}
+
+/// 应答轮询：起轮后由测试侧等待注册表登记（登记点由执行体异步抵达）。
+async fn answer_until_registered(registry: &Arc<agent::AskRegistry>, key: &str, text: &str) {
+    for _ in 0..3000 {
+        match registry.answer(key, text.to_owned()) {
+            Ok(()) => return,
+            Err(error) => {
+                assert_eq!(error, "当前无等待中的 ask", "仅登记未完成时重试: {error}");
+                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }
+    }
+    panic!("等待 ask 登记超时（key={key}）");
+}
+
+/// `ask_port` 两形态（边界，参数化 2 形态，AC-2）：模型真的调用
+/// `AskUserQuestion` →
+/// - `Some(port)`：假 port 观测到 `["started","resolved"]` 两拍且载荷 `session_id`
+///   等于组合根铸的 core 会话 id（组合根 → 门面 → 泵 → 执行体的贯通判据）；
+/// - `None`：该调用以 `is_error` 回灌（DD2 防御臂），轮不中断。
+///
+/// 两形态都以脚本化 SSE 桩作模型边界——「组合成功」由此升级为「组合根注入的
+/// 端口真的被执行体吃到」。
+#[tokio::test]
+async fn compose_turn的ask_port两形态均贯通执行体() {
+    // Some 形态：广播两拍 + 载荷键为 core 会话 id
+    let env = DualEnv::new("ask-port-shape-Some");
+    let stores = env.stores();
+    let stub = crate::ask_scripted_provider::AskScriptedProvider::new(
+        "compose-flow",
+        "tu_compose_ask",
+        "选哪个？",
+        &["甲", "乙"],
+    );
+    let provider_id = seed_provider_at(stores, "ask port 供应", &stub.base_url);
+    seed_sdk_instance(stores, "ask port 实例", Some(provider_id));
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port = Arc::new(RecordingAskPort::default());
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::clone(&registry),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        Some(Arc::clone(&port) as Arc<dyn orchestration::port::AskPort>),
+    )
+    .expect("Some 形态组合成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "组合根 ask 一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: "change".to_owned(),
+                source_ref: Some("chg-ask/implement/executor/1".to_owned()),
+            },
+        )
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+    let answerer = {
+        let registry = Arc::clone(&registry);
+        let key = session_id.clone();
+        tokio::spawn(async move { answer_until_registered(&registry, &key, "甲").await })
+    };
+    let outcome = running.drive(|_output| {}).await;
+    answerer.await.expect("应答任务结束");
+
+    assert_eq!(
+        outcome.status,
+        agent::AgentRunStatus::Completed,
+        "应答后同 turn 收口"
+    );
+    assert_eq!(port.labels(), vec!["started", "resolved"], "两拍各一次");
+    let payloads = port.payloads();
+    assert_eq!(payloads.len(), 1, "started 载荷一条");
+    assert_eq!(
+        payloads[0].session_id.as_deref(),
+        Some(session_id.as_str()),
+        "载荷 session_id = 组合根铸的 core 会话 id"
+    );
+    assert_eq!(
+        payloads[0].tool_call_id.as_deref(),
+        Some("tu_compose_ask"),
+        "载荷 tool_call_id = 本次 tool_use id"
+    );
+
+    // None 形态：Flow 档无 port → is_error 防御臂（不悬挂）
+    let env_none = DualEnv::new("ask-port-shape-None");
+    let stores_none = env_none.stores();
+    let stub_none = crate::ask_scripted_provider::AskScriptedProvider::new(
+        "compose-flow-none",
+        "tu_compose_no_port",
+        "无编排面",
+        &["x"],
+    );
+    let provider_none = seed_provider_at(stores_none, "ask 无 port 供应", &stub_none.base_url);
+    seed_sdk_instance(stores_none, "ask 无 port 实例", Some(provider_none));
+    let composed_none = compose_turn(
+        stores_none,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        env_none.store(),
+        None,
+        Path::new(&env_none.root()),
+        None,
+    )
+    .expect("None 形态组合成功");
+    let running_none = composed_none
+        .begin(
+            SessionRef::New,
+            "无 port 一轮".to_owned(),
+            ctx(&env_none.root()),
+            SessionProvenance {
+                source: "change".to_owned(),
+                source_ref: Some("chg-ask/implement/executor/1".to_owned()),
+            },
+        )
+        .expect("begin 应成功");
+    let mut observed: Vec<agent::AgentEventKind> = Vec::new();
+    let outcome_none = running_none
+        .drive(|output| {
+            if let agent::KernelOutput::Observation(event) = output {
+                observed.push(event.kind);
+            }
+        })
+        .await;
+    assert_eq!(
+        outcome_none.status,
+        agent::AgentRunStatus::Completed,
+        "防御臂不中断 run"
+    );
+    assert_eq!(
+        tool_result_in(&observed, "tu_compose_no_port"),
+        Some(("ask 编排状态面未装配".to_owned(), true)),
+        "None 形态以 is_error 回灌 DD2 防御文案"
+    );
+}
+
+/// change 来源端到端（组合，AC-2 的装配链侧证）：`source="change"` +
+/// `source_ref = <change>/implement/executor/1` → `RunStarted.tools` 同样含
+/// `AskUserQuestion`（同名覆盖不因来源而变），且 ask 项排在名字清单末位
+/// （按位追加、不占名字清单）。
+#[tokio::test(start_paused = true)]
+async fn 装配产物真实驱动_change来源runstarted含ask工具() {
+    use crate::sdk::mount::ARCHI_MODULE_TOOL;
+
+    let env = DualEnv::new("drive-change-ask");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "驱动供应change");
+    seed_sdk_instance(stores, "驱动实例change", Some(provider_id));
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "change 驱动一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: "change".to_owned(),
+                source_ref: Some("chg-ask/implement/executor/1".to_owned()),
+            },
+        )
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+    drop(running.drive(|_output| {}).await);
+
+    let transcript = store.list_session_events(&session_id).expect("转录应成功");
+    let agent::AgentEventKind::RunStarted { tools, .. } = &transcript.first().expect("非空").kind
+    else {
+        panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
+    };
+    let expected: Vec<String> = TOOL_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .chain(std::iter::once(ARCHI_MODULE_TOOL.to_owned()))
+        .chain(std::iter::once("AskUserQuestion".to_owned()))
+        .collect();
+    assert_eq!(
+        tools, &expected,
+        "change 来源的 RunStarted.tools = 七内建 + 矩阵命中的 archi 工具 + ask（末位）"
+    );
+    assert!(
+        !tools[..tools.len() - 1].contains(&"AskUserQuestion".to_owned()),
+        "ask 不占名字清单（仅末位按位追加）"
+    );
+}
+
+/// 手工构造 `ask: None` 的注入面（不经 `assemble_injections`，异常 / AC-3）：
+/// 名单投影不含 `AskUserQuestion`——`RunStarted.tools` 随该名单派生，故「显式
+/// 禁用」在组合根下游等价于硬禁用。
+#[test]
+fn 手工构造ask位none的注入面零ask名单项() {
+    use crate::sdk::mount;
+
+    let injections = agent::SessionInjections {
+        preamble: None,
+        tools: None,
+        finish: None,
+        ask: None,
+    };
+    let mounts = mount::definitions(&injections, "").expect("内建名单装配应成功");
+    let names: Vec<String> = mounts
+        .iter()
+        .map(|mount| mount.definition.name.clone())
+        .collect();
+    assert_eq!(
+        names,
+        seven(),
+        "ask: None → 名单恰七内建（零 ask 项、零 finish 项）"
+    );
+    assert!(
+        !names.iter().any(|name| name == "AskUserQuestion"),
+        "显式禁用面: 名单零 ask 工具"
+    );
+    // 对照臂：装配链产出的注入面（任何来源）都带 ask 位，故上面形态只能手工构造
+    for source in ["explore", "archi", "change", "debug"] {
+        assert!(
+            injections_of(source, Some("chg/implement/executor/1"))
+                .ask
+                .is_some(),
+            "来源 {source} 的装配面 ask 位恒 Some（禁用形态不经装配链）"
+        );
+    }
 }

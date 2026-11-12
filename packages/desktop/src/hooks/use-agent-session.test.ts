@@ -1629,3 +1629,191 @@ describe('useAgentSession：旧转录与零内容轮', () => {
     expect(assistants[0]?.metadata?.record?.status).toBe('running');
   });
 });
+
+// ---------------------------------------------------------------------------
+// ask 应答动作面（`answer`）：`agent_answer` 薄包装（AC-13 / DD11）
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：ask 应答动作面（AC-13）', () => {
+  it('answer(text) → agent_answer(root, sessionId, text) 参数逐字；Err 落 error 面', async () => {
+    const { result } = await mounted();
+    expect(result.current.session?.row.id).toBe(SESSION_ID);
+
+    act(() => {
+      result.current.answer('指数退避');
+    });
+    expect(argsOf('agent_answer')).toEqual({
+      root: ROOT,
+      sessionId: SESSION_ID,
+      text: '指数退避',
+    });
+
+    // Err 进既有 error 面（第三源与重放 / 流错误 `??` 链保序合并）
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('当前无等待中的 ask')));
+    act(() => {
+      result.current.answer('迟到应答');
+    });
+    await act(async () => {});
+    await waitFor(() => {
+      expect(result.current.error).toContain('当前无等待中的 ask');
+    });
+  });
+
+  it('成功路径零错误：resolve 后 error 为 null，且不触发 send / stop / 重放重取', async () => {
+    const { result } = await mounted();
+    const mark = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.answer('选项A');
+    });
+    await act(async () => {});
+
+    expect(result.current.error).toBeNull();
+    // 本次动作只发一条 agent_answer（零 agent_start / agent_stop / 零重取）
+    const fresh = invokeMock.mock.calls.slice(mark).map(([name]) => name);
+    expect(fresh).toEqual(['agent_answer']);
+  });
+
+  it('root = null 或 sessionId = null → 零 invoke（answer 内部 null 守卫）', async () => {
+    const noRoot = await mounted({ root: null });
+    invokeMock.mockClear();
+    act(() => {
+      noRoot.result.current.answer('应答');
+    });
+    expect(callsOf('agent_answer')).toHaveLength(0);
+    expect(noRoot.result.current.error).toBeNull();
+
+    const noSession = await mounted({ sessionId: null });
+    invokeMock.mockClear();
+    act(() => {
+      noSession.result.current.answer('应答');
+    });
+    expect(callsOf('agent_answer')).toHaveLength(0);
+    expect(noSession.result.current.error).toBeNull();
+
+    // 两 null 并存同断言（历史重放空态）
+    const bothNull = await mounted({ root: null, sessionId: null });
+    invokeMock.mockClear();
+    act(() => {
+      bothNull.result.current.answer('应答');
+    });
+    expect(callsOf('agent_answer')).toHaveLength(0);
+  });
+
+  it('正文零加工：空串 / 纯空白 / 换行 / NUL 与 emoji / 超长逐字透传（本层不 trim）', async () => {
+    const { result } = await mounted();
+    const texts = ['', '   ', 'a\nb', 'a\0b🚀', '字'.repeat(1200)];
+    for (const text of texts) {
+      act(() => {
+        result.current.answer(text);
+      });
+      expect(argsOf('agent_answer').text).toBe(text);
+    }
+  });
+
+  it('错误面：仅 actionError 时呈现它；chatError 在场时压过它；重放错误压过两者（DD11 三源合并）', async () => {
+    // ① 仅 actionError
+    const first = await mounted();
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('当前无等待中的 ask')));
+    act(() => {
+      first.result.current.answer('迟到应答');
+    });
+    await act(async () => {});
+    await waitFor(() => {
+      expect(first.result.current.error).toContain('当前无等待中的 ask');
+    });
+    first.unmount();
+
+    // ② chatError（流错误）与 actionError 并存 → 呈现 chatError
+    resetIpc({ detail: null, transcript: [], start: new Error('启动失败：引擎未就绪') });
+    const second = await mounted({ sessionId: null });
+    act(() => {
+      second.result.current.sendMessage({ prompt: '流错误提问', permissionMode: 'default' });
+    });
+    await waitFor(() => expect(second.result.current.error).toContain('启动失败'));
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('动作面应答失败')));
+    act(() => {
+      second.result.current.answer('动作应答');
+    });
+    await act(async () => {});
+    expect(second.result.current.error, '流错误压过动作错误').toContain('启动失败');
+    second.unmount();
+
+    // ③ replay.error 与两者并存 → 呈现 replay.error
+    resetIpc();
+    ipc.detail = new Error('db: 会话查询失败');
+    const third = await mounted({ refreshKey: 3 });
+    await waitFor(() => {
+      expect(third.result.current.error).toContain('db: 会话查询失败');
+    });
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('当前无等待中的 ask')));
+    act(() => {
+      third.result.current.answer('再答一次');
+    });
+    await act(async () => {});
+    expect(third.result.current.error, '重放错误压过动作错误').toContain('db: 会话查询失败');
+  });
+
+  it('连续两次应答：第二次仍发出（前端不本地去重，去重归后端 take 语义）', async () => {
+    const { result } = await mounted();
+    act(() => {
+      result.current.answer('第一次');
+    });
+    act(() => {
+      result.current.answer('第二次');
+    });
+    await act(async () => {});
+    expect(callsOf('agent_answer')).toHaveLength(2);
+    expect(argsOf('agent_answer', 0).text).toBe('第一次');
+    expect(argsOf('agent_answer', 1).text).toBe('第二次');
+  });
+
+  it('引用稳定：同一 root / sessionId 下重渲染 → answer 同引用（不击穿 memo）', async () => {
+    const { result, rerender } = await mounted();
+    const first = result.current.answer;
+    await act(async () => {
+      rerender({ root: ROOT, sessionId: SESSION_ID, source: 'debug' });
+    });
+    expect(result.current.answer).toBe(first);
+  });
+
+  it('与既有动作面共存：answer 不进入发送链路（不推本地提问副本，agent_start 零调用）', async () => {
+    const { result } = await mounted();
+    const beforeMessages = result.current.messages;
+
+    act(() => {
+      result.current.answer('只是应答');
+    });
+    await act(async () => {});
+
+    expect(callsOf('agent_start')).toHaveLength(0);
+    expect(callsOf('agent_stop')).toHaveLength(0);
+    // 消息表零新增（不推本地提问副本）
+    expect(result.current.messages).toBe(beforeMessages);
+  });
+
+  it('成功应答后 error 面清除（下一次调用前重置 actionError）', async () => {
+    const { result } = await mounted();
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('首次失败')));
+    act(() => {
+      result.current.answer('第一次');
+    });
+    await act(async () => {});
+    await waitFor(() => {
+      expect(result.current.error).toContain('首次失败');
+    });
+
+    // 恢复成功实现后再答一次：actionError 被重置（重放 / 流错误均缺席时 error 归空）
+    ipc.detail = null;
+    ipc.transcript = [];
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'agent_answer') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+    act(() => {
+      result.current.answer('第二次');
+    });
+    await act(async () => {});
+    expect(callsOf('agent_answer').length).toBeGreaterThanOrEqual(2);
+  });
+});

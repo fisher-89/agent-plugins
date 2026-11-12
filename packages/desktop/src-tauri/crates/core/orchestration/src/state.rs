@@ -211,12 +211,19 @@ pub fn node_id(key: &NodeKey) -> String {
     format!("{}:{}:{}:{}", key.0, key.1, key.2.as_str(), key.3)
 }
 
-/// ask 载荷：决策会话 ask 动作的中断问题与候选选项。
+/// ask 载荷：阻塞工具 `AskUserQuestion` 的等待中问题与候选选项（详情页
+/// `AskCard` 与聊天窗 ask 活卡共读同一载荷）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AskPayload {
     pub question: String,
     pub options: Vec<String>,
+    /// 行内卡对账：本次 ask 对应哪个 `tool_use`（旧线载荷读 `None`）
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
+    /// core 铸会话 id（转录面板定位；旧线载荷读 `None`）
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// 归档前置只读载荷（store 读 + vcs 探测的聚合像）：归档相位前的停等面数据面，
@@ -293,11 +300,8 @@ pub enum RunUpdate {
         session_id: String,
         event: agent::AgentEvent,
     },
-    /// ask 中断（决策会话无法裁决 → UI 中断提问）
-    Ask {
-        question: String,
-        options: Vec<String>,
-    },
+    /// ask 中断（阻塞工具 `AskUserQuestion` 正在等待应答）
+    Ask { ask: AskPayload },
     /// phase 间停等确认（archive 前停等点随行归档前置只读载荷；其余停等点 None）
     ConfirmWait {
         phase: String,

@@ -8,9 +8,9 @@
 
 use agent::FinishSpec;
 use workflow::model::Verdict;
-use workflow::write::phase_table;
+use workflow::write::{backtrack_options, phase_table};
 
-use crate::decision::DecisionAction;
+use crate::decision::{ensure_backtrack_allowed, DecisionAction};
 use crate::finish::{description, parameters, validate, FinishPayload, TOOL_NAME};
 use crate::verdict::{EvaluatorChecklist, MAX_REPORT_CHARS};
 
@@ -86,6 +86,12 @@ fn code_lines(text: &str) -> String {
         .join("\n")
 }
 
+/// 源码扫描用的四枚字符常量（避免转义字面量噪声）。
+const NEWLINE: char = '\n';
+const BACKSLASH: char = '\\';
+const QUOTE: char = '"';
+const SLASH: char = '/';
+
 // ---------------------------------------------------------------------------
 // 正向：工具名单点
 // ---------------------------------------------------------------------------
@@ -124,13 +130,35 @@ fn description两形态_各含关键语义且互不相等且不膨胀() {
     );
 
     assert!(!decision.is_empty(), "decision 形态描述非空");
-    for action in ["backtrack", "stop", "ask"] {
+    for action in ["backtrack", "stop"] {
         assert!(
             decision.contains(action),
-            "decision 形态含动作名 {action}: {decision}"
+            "decision 形态含两动作名 {action}: {decision}"
         );
     }
     assert!(decision.contains("白名单"), "decision 形态含白名单语义");
+    // 指路文案（AC-12）：含工具名字面 + 无法裁决语义；不含 ask 动作词形态
+    assert!(
+        decision.contains("AskUserQuestion"),
+        "decision 形态指路 ask 工具（工具名字面）: {decision}"
+    );
+    assert!(
+        decision.contains("无法裁决"),
+        "decision 形态含「无法裁决」语义: {decision}"
+    );
+    for forbidden in ["ask（", "/ ask"] {
+        assert!(
+            !decision.contains(forbidden),
+            "decision 形态不含三动作枚举式表述 {forbidden}: {decision}"
+        );
+    }
+    // 形状不复述：形状归工具 schema
+    for forbidden in ["minItems", "properties", "required"] {
+        assert!(
+            !decision.contains(forbidden),
+            "decision 形态不复述 JSON Schema 词 {forbidden}"
+        );
+    }
 
     assert_ne!(evaluator, decision, "两形态可辨（档位不混）");
     for (label, text) in [("evaluator", evaluator), ("decision", decision)] {
@@ -273,7 +301,7 @@ fn parameters的evaluator臂退化面_空id集省略enum键() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn parameters的decision臂三动作形状且prompt零影响() {
+fn parameters的decision臂两动作形状且prompt零影响() {
     let schema = parameters(FinishSpec::Decision, "");
     let properties = &schema["properties"];
     let actions: Vec<&str> = properties["action"]["enum"]
@@ -284,21 +312,186 @@ fn parameters的decision臂三动作形状且prompt零影响() {
         .collect();
     assert_eq!(
         actions,
-        vec!["backtrack", "stop", "ask"],
-        "三动作封闭集且有序"
+        vec!["backtrack", "stop"],
+        "两动作封闭集且有序（ask 已迁出为独立工具）"
     );
-    for field in ["to", "reason", "question", "options"] {
+    assert_eq!(actions.len(), 2, "元素个数恰 2");
+    assert!(!actions.contains(&"ask"), "集合内不含 ask");
+
+    // 保留字段面：to / reason 仍在；新增必填零扩
+    for field in ["to", "reason"] {
         assert!(
             properties.get(field).is_some(),
-            "三动作字段 {field} 在 schema 内声明"
+            "保留字段 {field} 在 schema 内声明"
         );
     }
     assert_eq!(schema["required"], serde_json::json!(["action"]));
+    assert_eq!(properties["action"]["type"], "string", "action 为字符串");
 
     // prompt 入参对 decision 臂零影响（不依赖 ID 集）
     let first = parameters(FinishSpec::Decision, &synthetic_prompt());
     let second = parameters(FinishSpec::Decision, "完全不同的 prompt 文本 🚀");
     assert_eq!(first, second, "decision 臂与 prompt 无关");
+}
+
+/// 删面零残留（异常，AC-4）：decision 形态的 `properties` 键集**恰**
+/// `{action, to, reason}`（`question` / `options` 零命中）。
+#[test]
+fn parameters的decision臂键集恰三项_question与options零命中() {
+    let schema = parameters(FinishSpec::Decision, "");
+    let mut keys: Vec<&str> = schema["properties"]
+        .as_object()
+        .expect("properties 对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["action", "reason", "to"],
+        "键集恰三项（question / options 已删除）"
+    );
+    let text = serde_json::to_string(&schema).expect("序列化");
+    for removed in ["question", "options"] {
+        assert!(
+            !text.contains(removed),
+            "decision schema 全文零 {removed} 命中"
+        );
+    }
+}
+
+/// 两形态互不渗透（边界，参数化 2 形态）：decision 形态全文零 `report` /
+/// `items` / `evidence`；evaluator 形态全文零 `action` / `backtrack` / `stop` /
+/// `to` 键。
+#[test]
+fn parameters两形态互不渗透() {
+    let decision_text =
+        serde_json::to_string(&parameters(FinishSpec::Decision, "")).expect("序列化");
+    for forbidden in ["report", "items", "evidence"] {
+        assert!(
+            !decision_text.contains(forbidden),
+            "decision 形态零 evaluator 词汇 {forbidden}"
+        );
+    }
+
+    let prompt = synthetic_prompt();
+    let evaluator_text =
+        serde_json::to_string(&parameters(FinishSpec::EvaluatorChecklist, &prompt))
+            .expect("序列化");
+    for forbidden in ["action", "backtrack", "stop", "\"to\""] {
+        assert!(
+            !evaluator_text.contains(forbidden),
+            "evaluator 形态零 decision 词汇 {forbidden}"
+        );
+    }
+}
+
+/// `description` 体量与稳定性（边界）：两形态各 <500 字符；`description(Decision)`
+/// 连调两次逐字相等（`&'static str`，零动态段）。
+#[test]
+fn description两形态体量受控且decision稳定() {
+    for (label, spec) in [
+        ("evaluator", FinishSpec::EvaluatorChecklist),
+        ("decision", FinishSpec::Decision),
+    ] {
+        let text = description(spec);
+        assert!(
+            text.chars().count() < 500,
+            "{label} 形态描述 <500 字符，实际 {}",
+            text.chars().count()
+        );
+    }
+    assert_eq!(
+        description(FinishSpec::Decision),
+        description(FinishSpec::Decision),
+        "decision 描述连调两次逐字相等"
+    );
+}
+
+/// `ask` 不再产出但历史兼容（异常，AC-12）：`{"action":"ask", …}` → `validate`
+/// 仍可由 `validate_decision` 的 `"ask"` 臂通过（历史 notice 兼容），而
+/// `parameters` 的 enum 不含 `"ask"` ⇒ 模型侧不可见（schema 拒绝是契约面、
+/// validate 的兼容是历史面，两者并存且不矛盾）。
+#[test]
+fn ask动作schema不可见但validate历史兼容() {
+    let args = serde_json::json!({
+        "action": "ask",
+        "question": "q",
+        "options": ["a"],
+    });
+    let payload = validate(FinishSpec::Decision, &args, "")
+        .expect("历史 ask 载荷仍可经 validate_decision 通过");
+    assert!(
+        matches!(
+            &payload,
+            FinishPayload::Decision(DecisionAction::Ask { question, options })
+                if question == "q" && options == &vec!["a".to_owned()]
+        ),
+        "ask 臂逐字段承接，实际: {payload:?}"
+    );
+
+    let enum_values = parameters(FinishSpec::Decision, "")["properties"]["action"]["enum"]
+        .as_array()
+        .expect("枚举数组")
+        .clone();
+    assert!(
+        !enum_values.contains(&serde_json::json!("ask")),
+        "parameters 的 enum 不含 ask（模型侧不可见）"
+    );
+}
+
+/// 解耦反向半边（异常，源码自证，AC-4）：`finish.rs` 的 `ask` 字样只出现在
+/// **字符串字面量与注释**中（剔除后代码行零 `ask`）；且全文零 `use crate::ask`
+/// / `crate::ask::` 路径（两模块互不引用）。
+#[test]
+fn finish_rs的ask只在文案与注释里() {
+    let own = source_of("src/finish.rs");
+    assert!(
+        own.contains("AskUserQuestion"),
+        "description 里以文案指路 ask 工具（工具名出现在字符串内）"
+    );
+
+    // 剔除注释（含 doc 注释）与字符串字面量（含跨行续行）后，代码零 `ask` 字样
+    let mut code = String::new();
+    let mut chars = own.chars().peekable();
+    let mut in_string = false;
+    let mut in_comment = false;
+    while let Some(ch) = chars.next() {
+        if in_comment {
+            if ch == NEWLINE {
+                in_comment = false;
+                code.push(NEWLINE);
+            }
+            continue;
+        }
+        if in_string {
+            if ch == BACKSLASH {
+                chars.next();
+            } else if ch == QUOTE {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            QUOTE => in_string = true,
+            SLASH if chars.peek() == Some(&SLASH) => {
+                in_comment = true;
+                chars.next();
+            }
+            _ => code.push(ch),
+        }
+    }
+    assert!(
+        !code.to_lowercase().contains("ask"),
+        "finish.rs 代码（剔除注释与字符串）零 ask 字样"
+    );
+    // 两模块零交叉引用
+    for forbidden in ["use crate::ask", "crate::ask::"] {
+        assert!(
+            !own.contains(forbidden),
+            "finish.rs 零 {forbidden}（与 ask 模块互不引用）"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +559,61 @@ fn validate分派decision臂_外层tag为decision() {
     assert!(
         value.get("decision").is_some(),
         "线形态外层 tag 为 decision，实际: {value}"
+    );
+}
+
+/// 两动作各可通过（正向，`allowed` 列表逐项）：`backtrack` 的白名单内 `to`
+/// 逐项 `Ok` 且 `to` 逐字回读；`stop` 形态并存（`validate_decision` 逐字未改的
+/// 路径证据）。
+///
+/// 白名单来源 = 相位表 `backtrack_options`（路由白名单单一来源），不手写相位名
+/// 清单——相位表变更时本用例自动跟随。
+#[test]
+fn validate分派decision臂两动作各可通过_白名单to逐项回读() {
+    let table = phase_table("requirement").expect("相位表键合法");
+    let allowed = backtrack_options(table, "test-gen");
+    assert!(!allowed.is_empty(), "test-gen 的回溯白名单非空");
+
+    for option in &allowed {
+        let args = serde_json::json!({
+            "action": "backtrack",
+            "to": option.phase,
+            "reason": "重做本相位",
+        });
+        let payload = validate(FinishSpec::Decision, &args, "").expect("白名单内 to 应通过");
+        assert!(
+            matches!(
+                &payload,
+                FinishPayload::Decision(DecisionAction::Backtrack { to, reason })
+                    if to == &option.phase && reason == "重做本相位"
+            ),
+            "backtrack 逐字段回读（to = {}），实际: {payload:?}",
+            option.phase
+        );
+        // 白名单闸门同向放行（越权面由 decision_test / walker_test 锁定）
+        ensure_backtrack_allowed(
+            &DecisionAction::Backtrack {
+                to: option.phase.clone(),
+                reason: "重做本相位".to_owned(),
+            },
+            "test-gen",
+            &allowed,
+        )
+        .expect("白名单内目标恒放行");
+    }
+
+    let stop = validate(
+        FinishSpec::Decision,
+        &serde_json::json!({ "action": "stop", "reason": "受控终止" }),
+        "",
+    )
+    .expect("stop 应通过");
+    assert!(
+        matches!(
+            &stop,
+            FinishPayload::Decision(DecisionAction::Stop { reason }) if reason == "受控终止"
+        ),
+        "stop 逐字段回读，实际: {stop:?}"
     );
 }
 

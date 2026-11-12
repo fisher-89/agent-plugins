@@ -3,6 +3,7 @@ import { ChevronLeftIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
+import type { AskAnswerActions } from '@/components/agent';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -177,6 +178,7 @@ function DetailContent({
   graph,
   materials,
   sessionRefreshKey,
+  askAnswer,
   refreshLoading,
   onRefresh,
 }: {
@@ -187,6 +189,7 @@ function DetailContent({
   graph: FlowGraph;
   materials: FlowMaterials;
   sessionRefreshKey: number;
+  askAnswer: AskAnswerActions;
   /** 手动刷新在飞（仅刷新按钮禁用面，主图面不回落加载占位） */
   refreshLoading: boolean;
   onRefresh: () => void;
@@ -209,6 +212,7 @@ function DetailContent({
         changeId={id}
         name={name}
         sessionRefreshKey={sessionRefreshKey}
+        askAnswer={askAnswer}
         onClose={() => setSelection(null)}
       />
     </>
@@ -224,6 +228,7 @@ function DetailTabs({
   graph,
   materials,
   sessionRefreshKey,
+  askAnswer,
 }: {
   detail: ChangeDetail;
   refreshDetail: () => void;
@@ -233,6 +238,7 @@ function DetailTabs({
   graph: FlowGraph;
   materials: FlowMaterials;
   sessionRefreshKey: number;
+  askAnswer: AskAnswerActions;
 }): React.JSX.Element {
   const archiRoot =
     detail.source === 'archive' || detail.worktree === null ? root : detail.worktree;
@@ -254,6 +260,7 @@ function DetailTabs({
           graph={graph}
           materials={materials}
           sessionRefreshKey={sessionRefreshKey}
+          askAnswer={askAnswer}
           refreshLoading={refreshLoading}
           onRefresh={refreshDetail}
         />
@@ -358,6 +365,17 @@ function DetailLoaded({
   sessionRefreshKey,
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
+  // 流程侧 ask 动作面：走 `run.answer` 使 `Err` 落 `run.error` 既有错误行（与裸调
+  // `changeFlowAnswer` 参数面逐字等价）；活卡判据 = 当前等待条目的 `toolCallId`
+  const askAnswer = useMemo<AskAnswerActions>(
+    () => ({
+      onAnswer: (text: string) => {
+        void run.answer(text);
+      },
+      pendingToolCallId: activeRun?.ask?.toolCallId ?? null,
+    }),
+    [run.answer, activeRun?.ask?.toolCallId],
+  );
   return (
     <div className="flex flex-col h-full">
       {header}
@@ -391,6 +409,7 @@ function DetailLoaded({
                 graph={graph}
                 materials={materials}
                 sessionRefreshKey={sessionRefreshKey}
+                askAnswer={askAnswer}
               />
             </div>
           </div>

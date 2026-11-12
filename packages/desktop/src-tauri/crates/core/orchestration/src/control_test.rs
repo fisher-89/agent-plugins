@@ -10,9 +10,12 @@
 
 use std::sync::Arc;
 
+use agent::AskRegistry;
+
 use crate::control::ChangeFlowControl;
 use crate::state::{
-    ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice, RunUpdate,
+    AskPayload, ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice,
+    RunUpdate,
 };
 
 /// 固定 change **id** 字面量（注册表键第二段 = change id——name 非键）。
@@ -106,7 +109,7 @@ async fn until_ok(mut attempt: impl FnMut() -> Result<(), String>) -> bool {
 /// 终态除名后同键可重入（键构造点逐处置换为 id）。
 #[tokio::test]
 async fn 复合键登记与并行冲突_同root同id二次begin拒绝() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("新 change 首次 begin_run 应成功");
@@ -153,7 +156,7 @@ async fn 复合键登记与并行冲突_同root同id二次begin拒绝() {
 /// 复合 (root, change id)，D4）。
 #[tokio::test]
 async fn 跨change并行隔离_订阅与停止寻址按id不串台() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard_a = control
         .begin_run(ROOT, "change-a", "run-a".to_owned(), STARTED_AT)
         .unwrap();
@@ -200,7 +203,7 @@ async fn 跨change并行隔离_订阅与停止寻址按id不串台() {
 /// ——AC-7 停止半边）。
 #[tokio::test]
 async fn request_stop置位与miss幂等() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // miss 半边：无运行 run 幂等返回 false
     assert!(
@@ -221,7 +224,7 @@ async fn request_stop置位与miss幂等() {
 /// （change_flow_watch 消费形态）。
 #[tokio::test]
 async fn subscribe有run为some无run为none() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     assert!(
         control.subscribe(ROOT, CHANGE_ID).is_none(),
         "无 run → None"
@@ -240,7 +243,7 @@ async fn subscribe有run为some无run为none() {
 /// 同值信封（RunUpdate 流出口——D9 broadcast 半边）。
 #[tokio::test]
 async fn emit经broadcast流出kind通知() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -263,7 +266,7 @@ async fn emit经broadcast流出kind通知() {
 /// 侧直写与 guard 侧写入同槽。
 #[tokio::test]
 async fn 会话槽置写与清槽往返() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -296,7 +299,7 @@ async fn 会话槽置写与清槽往返() {
 #[tokio::test]
 async fn confirm应答回传挂起等待者_单次take() {
     // proceed=true 臂
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = Arc::new(
         control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
@@ -325,7 +328,7 @@ async fn confirm应答回传挂起等待者_单次take() {
     );
 
     // proceed=false 臂：独立 run，false 原样回传（收敛归 walker）
-    let control_b = Arc::new(ChangeFlowControl::new());
+    let control_b = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard_b = Arc::new(
         control_b
             .begin_run(ROOT, CHANGE_ID, "run-2".to_owned(), STARTED_AT)
@@ -346,7 +349,7 @@ async fn confirm应答回传挂起等待者_单次take() {
 /// 「无等待中的 phase 确认」（单次通道语义，change_flow_confirm 错误面输入）。
 #[tokio::test]
 async fn confirm无等待方err携id记因() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // 无运行 run
     let err = control
@@ -365,18 +368,19 @@ async fn confirm无等待方err携id记因() {
     assert_eq!(err, "当前无等待中的 phase 确认");
 }
 
-/// answer 应答回传：`wait_answer` 挂起后 answer(text) 回传原文（ask 应答回
-/// 流）；单次通道 take 语义——重复应答落空 Err。
+/// answer 应答回传：`AskRegistry` 登记等待方后 answer(text) 把原文转投该表
+/// （ask 应答回流）；单次通道 take 语义——重复应答落空 Err。
 #[tokio::test]
 async fn answer应答原文回流挂起等待者_单次take() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let ask_registry = Arc::new(AskRegistry::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
     let guard = Arc::new(
         control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
             .unwrap(),
     );
-    let waiter_guard = Arc::clone(&guard);
-    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
+    guard.set_session(Some("core-1".to_owned()));
+    let waiter = spawn_waiter(&ask_registry, "core-1");
 
     assert!(
         until_ok(|| control.answer(ROOT, CHANGE_ID, "采用方案 B".to_owned())).await,
@@ -401,26 +405,33 @@ async fn answer应答原文回流挂起等待者_单次take() {
 /// 订阅方对已解除的等待再答一次）。
 #[tokio::test]
 async fn answer后停等态解除且广播失效() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let ask_registry = Arc::new(AskRegistry::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
     let guard = Arc::new(
         control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
             .unwrap(),
     );
+    guard.set_session(Some("core-1".to_owned()));
     let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
     guard.emit(RunUpdate::Ask {
-        question: "采用哪个方案?".to_owned(),
-        options: vec!["A".to_owned(), "B".to_owned()],
+        ask: AskPayload {
+            question: "采用哪个方案?".to_owned(),
+            options: vec!["A".to_owned(), "B".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
     assert!(matches!(rx.try_recv(), Ok(RunNotice::Ask)), "进入停等通知");
 
-    let waiter_guard = Arc::clone(&guard);
-    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
+    let waiter = spawn_waiter(&ask_registry, "core-1");
     assert!(
         until_ok(|| control.answer(ROOT, CHANGE_ID, "采用方案 B".to_owned())).await,
         "answer 受理"
     );
     assert_eq!(waiter.await.unwrap().as_deref(), Some("采用方案 B"));
+    // 停等态清理搬到 ask 执行体返回后（`resolve_ask` 单点）
+    control.resolve_ask(ROOT, CHANGE_ID);
 
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::Running, "状态回运行态");
@@ -446,7 +457,7 @@ async fn answer后停等态解除且广播失效() {
 /// 停等与普通相位停等两臂同形——残留命中率高的一侧）。
 #[tokio::test]
 async fn confirm后停等态解除且归档槽清空() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = Arc::new(
         control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
@@ -486,25 +497,32 @@ async fn confirm后停等态解除且归档槽清空() {
 /// 不改 `Ok`，停等态照常解除（前端继续挂一个已无接收方的等待卡无意义）。
 #[tokio::test]
 async fn answer通道关闭仍受理并解除停等() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let ask_registry = Arc::new(AskRegistry::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
     let guard = Arc::new(
         control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
             .unwrap(),
     );
+    guard.set_session(Some("core-1".to_owned()));
     guard.emit(RunUpdate::Ask {
-        question: "是否继续?".to_owned(),
-        options: vec!["继续".to_owned()],
+        ask: AskPayload {
+            question: "是否继续?".to_owned(),
+            options: vec!["继续".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
     assert!(control.request_stop(ROOT, CHANGE_ID), "停止置位");
-    // 先置位后登记：wait_answer 登记通道即被取消半边收敛，接收端随之释放
-    let waiter_guard = Arc::clone(&guard);
-    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
-    assert_eq!(waiter.await.unwrap(), None, "取消收敛（接收端已释放）");
+    // 接收端已释放（会话被终止）：send 失败不改受理结论（槽已被 take）
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    drop(rx);
+    ask_registry.register("core-1", tx);
 
     control
         .answer(ROOT, CHANGE_ID, "迟到应答".to_owned())
         .expect("通道 take 成功即受理");
+    control.resolve_ask(ROOT, CHANGE_ID);
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::Running, "停等态照常解除");
     assert!(snap.ask.is_none(), "ask 载荷槽同刻清空");
@@ -515,19 +533,23 @@ async fn answer通道关闭仍受理并解除停等() {
 /// 该停等态」为条件。
 #[tokio::test]
 async fn answer不改写先到的终态() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let ask_registry = Arc::new(AskRegistry::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
     let guard = Arc::new(
         control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
             .unwrap(),
     );
+    guard.set_session(Some("core-1".to_owned()));
     guard.emit(RunUpdate::Ask {
-        question: "是否继续?".to_owned(),
-        options: vec!["继续".to_owned()],
+        ask: AskPayload {
+            question: "是否继续?".to_owned(),
+            options: vec!["继续".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
-    let waiter_guard = Arc::clone(&guard);
-    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
-    tokio::task::yield_now().await;
+    let waiter = spawn_waiter(&ask_registry, "core-1");
 
     guard.emit(RunUpdate::Finished {
         status: ChangeRunStatus::Stopped,
@@ -538,17 +560,32 @@ async fn answer不改写先到的终态() {
         Ok(()),
         "通道 take 成功即受理（send 结果不改受理语义）"
     );
+    control.resolve_ask(ROOT, CHANGE_ID);
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::Stopped, "终态不被倒灌");
-    // walker 侧收口：wait_answer 观察到取消/应答后由 run_worker 收敛
+    assert!(
+        snap.ask.is_none(),
+        "ask 槽仍被清空（行内卡判活靠 toolCallId）"
+    );
     let _ = waiter.await;
+}
+
+/// 等待方登记辅助：在 ask 注册表登记 `core-1` 并挂起等应答（单次 take 语义的
+/// 接收端）。
+fn spawn_waiter(
+    registry: &Arc<AskRegistry>,
+    session_id: &'static str,
+) -> tokio::task::JoinHandle<Option<String>> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    registry.register(session_id, tx);
+    tokio::spawn(async move { rx.await.ok() })
 }
 
 /// answer 无等待方：无运行 run → Err 携 change id；有 run 无挂起 → Err
 /// 「无等待中的 ask」。
 #[tokio::test]
 async fn answer无等待方err携id记因() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // 无运行 run
     let err = control
@@ -572,7 +609,7 @@ async fn answer无等待方err携id记因() {
 /// 信封先于除名到达订阅者（重入可达断言归复合键登记行）。
 #[tokio::test]
 async fn 终态除名三面与finished信封() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -607,7 +644,7 @@ async fn 终态除名三面与finished信封() {
 /// 可改写面（迟滞 publish 落空，首个终态不被改写）。
 #[tokio::test]
 async fn finish单次收口_除名后无残留可改写面() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -643,7 +680,7 @@ async fn finish单次收口_除名后无残留可改写面() {
 /// 并落停等载荷、SessionEvent 零改写（发布单点 `publish` 的快照同步面）。
 #[tokio::test]
 async fn publish快照面状态机镜像() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -695,8 +732,12 @@ async fn publish快照面状态机镜像() {
 
     // Ask：waitingAsk + 中断载荷
     guard.emit(RunUpdate::Ask {
-        question: "越权 backtrack 是否放行?".to_owned(),
-        options: vec!["拒绝".to_owned(), "放行".to_owned()],
+        ask: AskPayload {
+            question: "越权 backtrack 是否放行?".to_owned(),
+            options: vec!["拒绝".to_owned(), "放行".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::WaitingAsk);
@@ -727,11 +768,11 @@ async fn publish快照面状态机镜像() {
     assert!(snap.archive.is_none(), "会话事件不改写归档载荷槽");
 }
 
-/// 取消信号中断挂起停等：wait_confirm / wait_answer 挂起期间 request_stop
-/// 置位即收敛（proceed=false / None，停止不必先应答——guard 侧 select 半边）。
+/// 取消信号中断挂起停等：wait_confirm 挂起期间 request_stop 置位即收敛
+///（proceed=false，停止不必先应答——guard 侧 select 半边）。
 #[tokio::test]
 async fn cancel置位中断挂起停等() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = Arc::new(
         control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
@@ -740,8 +781,6 @@ async fn cancel置位中断挂起停等() {
 
     let confirm_guard = Arc::clone(&guard);
     let confirm_waiter = tokio::spawn(async move { confirm_guard.wait_confirm().await });
-    let answer_guard = Arc::clone(&guard);
-    let answer_waiter = tokio::spawn(async move { answer_guard.wait_answer().await });
 
     // 让 waiter 起跑挂起（取消语义与登记次序无关：先置位亦即刻收敛）
     tokio::task::yield_now().await;
@@ -751,11 +790,6 @@ async fn cancel置位中断挂起停等() {
         confirm_waiter.await.unwrap(),
         (false, false),
         "取消置位 → (false, false) 收敛（停止不必先应答）"
-    );
-    assert_eq!(
-        answer_waiter.await.unwrap(),
-        None,
-        "取消置位 → None（walker 收敛 stopped）"
     );
 }
 
@@ -769,7 +803,7 @@ async fn cancel置位中断挂起停等() {
 /// 修正锚——复合键 root 段）；同 root 两不同 id change 并行互不干扰。
 #[tokio::test]
 async fn 同名异id并行_异workspace同名不误拒() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     const ROOT_B: &str = "/ws/root-b";
     assert_ne!(CHANGE_ID, CHANGE_ID_B, "同名（{NAME}）异 id 形态");
 
@@ -824,7 +858,7 @@ async fn 同名异id并行_异workspace同名不误拒() {
 /// 复合键寻址不串台）。
 #[tokio::test]
 async fn 复合键订阅隔离_broadcast按复合键寻址不串台() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     const ROOT_B: &str = "/ws/root-b";
 
     let guard_a = control
@@ -843,8 +877,12 @@ async fn 复合键订阅隔离_broadcast按复合键寻址不串台() {
         archive: None,
     });
     guard_b.emit(RunUpdate::Ask {
-        question: "root-b 的提问".to_owned(),
-        options: vec!["甲".to_owned()],
+        ask: AskPayload {
+            question: "root-b 的提问".to_owned(),
+            options: vec!["甲".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
 
     // rootA 订阅者：仅收到 (rootA, x) 的信封
@@ -871,7 +909,7 @@ async fn 复合键订阅隔离_broadcast按复合键寻址不串台() {
 /// None）；(rootB, x) 同名键存活（snapshot 仍在）——guard 不误伤他键。
 #[tokio::test]
 async fn runguard复合键除名_仅本键除名他键存活() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     const ROOT_B: &str = "/ws/root-b";
 
     let guard_a = control
@@ -901,7 +939,7 @@ async fn runguard复合键除名_仅本键除名他键存活() {
 /// JSON 形状键集无 root 渗出（复合键是注册表内部寻址——IPC 面零改动）。
 #[tokio::test]
 async fn dto线面零root渗出_复合键不出线() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -942,7 +980,7 @@ async fn dto线面零root渗出_复合键不出线() {
 /// + 订阅端收到 RunNotice::Step（快照面与广播面同拍，AC-8/AC-10）。
 #[tokio::test]
 async fn publish_step快照面按到达序追加_广播run_notice_step() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1004,7 +1042,7 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
 /// phase 不动）+ 广播 RunNotice::SessionEvent（转录重查分流键，D8）。
 #[tokio::test]
 async fn publish_session_event已挂载节点零快照面突变_广播notice() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1045,7 +1083,7 @@ async fn publish_session_event已挂载节点零快照面突变_广播notice() {
 /// 转录）；后续事件不重复挂载 / 不重复通知。
 #[tokio::test]
 async fn publish_session_event首拍提前挂载会话id_补发step通知() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1092,7 +1130,7 @@ async fn publish_session_event首拍提前挂载会话id_补发step通知() {
 /// 已收口）→ 零挂载、零 Step 补发，仅原 kind 广播。
 #[tokio::test]
 async fn publish_session_event无运行中会话节点_零挂载仅session通知() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1121,7 +1159,7 @@ async fn publish_session_event无运行中会话节点_零挂载仅session通知
 /// 为正向 `matches!` 五类会话步，新步词天然判假，零代码改动）。
 #[tokio::test]
 async fn publish_session_event_archi_check工具步不挂会话id零补拍() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1160,7 +1198,7 @@ async fn publish_session_event_archi_check工具步不挂会话id零补拍() {
 #[tokio::test]
 async fn publish_archi_check节点两态出线且会话型步仍挂载() {
     for status in [ChangeStepStatus::Running, ChangeStepStatus::Passed] {
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let guard = control
             .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
             .unwrap();
@@ -1227,15 +1265,19 @@ async fn publish_archi_check节点两态出线且会话型步仍挂载() {
 /// 载荷照旧 + 对应 Notice kind 各自广播（AC-8 kind 位一一对应）。
 #[tokio::test]
 async fn publish停等与终态_状态迁移照旧且notice对应() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
     let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
 
     guard.emit(RunUpdate::Ask {
-        question: "回溯到哪?".to_owned(),
-        options: vec!["proposal".to_owned()],
+        ask: AskPayload {
+            question: "回溯到哪?".to_owned(),
+            options: vec!["proposal".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::WaitingAsk, "ask 状态迁移照旧");
@@ -1264,7 +1306,7 @@ async fn publish停等与终态_状态迁移照旧且notice对应() {
 /// 条目，迟滞 publish 无落点）。
 #[tokio::test]
 async fn 终态除名后publish零累积零广播() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1281,8 +1323,12 @@ async fn 终态除名后publish零累积零广播() {
         ROOT,
         CHANGE_ID,
         RunUpdate::Ask {
-            question: "q".to_owned(),
-            options: Vec::new(),
+            ask: AskPayload {
+                question: "q".to_owned(),
+                options: Vec::new(),
+                tool_call_id: None,
+                session_id: None,
+            },
         },
     );
 
@@ -1307,7 +1353,7 @@ async fn 终态除名后publish零累积零广播() {
 /// 同值锚，D5——统一视图活面 startedAt 投影源）。
 #[tokio::test]
 async fn begin_run_started_at等值入档快照() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let started_at = 1_726_000_123_456_i64;
     let _guard = control
         .begin_run(ROOT, CHANGE_ID, "run-42".to_owned(), started_at)
@@ -1323,7 +1369,7 @@ async fn begin_run_started_at等值入档快照() {
 /// 不变、新快照含新步（AC-10 重挂读一致性）。
 #[tokio::test]
 async fn snapshot_steps克隆语义_取后emit互不扰动() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1362,7 +1408,7 @@ async fn snapshot_steps克隆语义_取后emit互不扰动() {
 ///（walker 第二写取累积器的读面，AC-2/AC-5 组装输入一致性）。
 #[tokio::test]
 async fn run_guard读面与快照等值() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1411,7 +1457,7 @@ async fn run_guard读面与快照等值() {
 /// 累积互不串扰（AC-3 / AC-4）。
 #[tokio::test]
 async fn publish边累积四kind且节点实例号递增() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1470,7 +1516,7 @@ async fn publish边累积四kind且节点实例号递增() {
 /// 零残留（不 panic 不落半包状态）。
 #[tokio::test]
 async fn 零边快照空数组与未登记publish零残留() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1529,7 +1575,7 @@ fn sample_preflight() -> crate::state::ArchivePreflight {
 #[tokio::test]
 async fn confirm回流四组合proceed与sync_specs逐组合() {
     for (proceed, sync_specs) in [(true, true), (true, false), (false, true), (false, false)] {
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let guard = Arc::new(
             control
                 .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
@@ -1555,7 +1601,7 @@ async fn confirm回流四组合proceed与sync_specs逐组合() {
 #[tokio::test]
 async fn confirm异常面miss记因与取消收敛() {
     // 无运行 run → Err 携 id
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let err = control
         .confirm(ROOT, CHANGE_ID, true, true)
         .expect_err("无 run 应 Err");
@@ -1565,7 +1611,7 @@ async fn confirm异常面miss记因与取消收敛() {
     );
 
     // 有 run 无等待方 → Err（单次通道语义）
-    let run_control = Arc::new(ChangeFlowControl::new());
+    let run_control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let _guard = run_control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1575,7 +1621,7 @@ async fn confirm异常面miss记因与取消收敛() {
     assert_eq!(err, "当前无等待中的 phase 确认");
 
     // 取消置位 → (false, false) 收敛（即便 sync_specs 请求 true 也不回流）
-    let cancel_control = Arc::new(ChangeFlowControl::new());
+    let cancel_control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = Arc::new(
         cancel_control
             .begin_run(ROOT, CHANGE_ID, "run-2".to_owned(), STARTED_AT)
@@ -1596,7 +1642,7 @@ async fn confirm异常面miss记因与取消收敛() {
 /// 落值一致；终态除名后 snapshot 恒 None（archive 槽随之缺席，AC-7 / AC-10）。
 #[tokio::test]
 async fn snapshot_archive槽两态与除名缺席() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1637,7 +1683,7 @@ async fn snapshot_archive槽两态与除名缺席() {
 /// 仍 kind-only 零载荷（停等载荷不出进程——客户端经统一视图重查；AC-7 / D2）。
 #[tokio::test]
 async fn 归档停等广播零载荷kind_only() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1698,7 +1744,7 @@ fn metrics_step(
 /// started = running 首见值（终态同刻值被丢弃，AC-2 / AC-4）。
 #[tokio::test]
 async fn accumulate_node_started保首见终态同刻值被丢弃() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1740,7 +1786,7 @@ async fn accumulate_node_started保首见终态同刻值被丢弃() {
 /// 正向半边）。
 #[tokio::test]
 async fn accumulate_node_ended与token终态行值覆写() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1781,7 +1827,7 @@ async fn accumulate_node_ended与token终态行值覆写() {
 /// 区分首 emit 是否终态，D4）。
 #[tokio::test]
 async fn accumulate_node_瞬步单emit首见即真值() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1808,7 +1854,7 @@ async fn accumulate_node_瞬步单emit首见即真值() {
 /// 不串扰。
 #[tokio::test]
 async fn accumulate_node_多键混排独立合并不串扰() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1884,7 +1930,7 @@ async fn accumulate_node_多键混排独立合并不串扰() {
 /// 保持首见 None（None 不覆写半边）。
 #[tokio::test]
 async fn accumulate_node_终态行全none不覆写首见() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1933,7 +1979,7 @@ async fn accumulate_node_终态行全none不覆写首见() {
 /// 缺席侧保首见。
 #[tokio::test]
 async fn accumulate_node_token单侧在场单侧覆写() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -1974,7 +2020,7 @@ async fn accumulate_node_token单侧在场单侧覆写() {
 /// ended 取终态值（AC-4「同键多 emit 后快照与合并规则一致」）。
 #[tokio::test]
 async fn accumulate_node_三emit序列started仍首见ended取终态值() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -2032,7 +2078,7 @@ async fn accumulate_node_三emit序列started仍首见ended取终态值() {
 /// 校验——防御值直透）。
 #[tokio::test]
 async fn accumulate_node_逆序时间原样覆写零改写() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -2079,7 +2125,7 @@ async fn accumulate_node_逆序时间原样覆写零改写() {
 /// 不补值——构造值直透）。
 #[tokio::test]
 async fn accumulate_node_首见终态无ended零补值() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
@@ -2116,7 +2162,7 @@ async fn accumulate_node_首见终态无ended零补值() {
 /// 同源观测一致。
 #[tokio::test]
 async fn begin_run后cancel_flag初值零置位() {
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-flag-init".to_owned(), STARTED_AT)
         .expect("首次发起应成功");
@@ -2132,7 +2178,7 @@ async fn begin_run后cancel_flag初值零置位() {
 ///（`guard.cancelled()` 与 `cancel_flag().is_set()` 同刻为真）。
 #[tokio::test]
 async fn request_stop双写_watch面与进程面同刻置位() {
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-double-write".to_owned(), STARTED_AT)
         .expect("首次发起应成功");
@@ -2146,7 +2192,7 @@ async fn request_stop双写_watch面与进程面同刻置位() {
 /// `request_stop` → 进程面标志仍为真（`send_replace` 与原子双写均不依赖订阅者）。
 #[tokio::test]
 async fn request_stop无订阅者不丢位() {
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-no-subscriber".to_owned(), STARTED_AT)
         .expect("首次发起应成功");
@@ -2162,7 +2208,7 @@ async fn request_stop无订阅者不丢位() {
 /// 边界（D9）：`request_stop` 幂等——连调两次均返回 true，标志仍为真，无 panic。
 #[tokio::test]
 async fn request_stop幂等_连调两次均命中() {
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-idempotent".to_owned(), STARTED_AT)
         .expect("首次发起应成功");
@@ -2179,7 +2225,7 @@ async fn request_stop幂等_连调两次均命中() {
 /// 不 panic（已除名 run 的 flag 由在跑 runner 持有，置位与否不再经注册表）。
 #[tokio::test]
 async fn request_stop_miss面两形态() {
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // 形态一：未登记
     assert!(
@@ -2208,7 +2254,7 @@ async fn request_stop_miss面两形态() {
 #[tokio::test]
 async fn request_stop多run隔离() {
     // 形态一：同 root 异 change id
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let first = control
         .begin_run(ROOT, CHANGE_ID, "run-a".to_owned(), STARTED_AT)
         .expect("A 发起应成功");
@@ -2220,7 +2266,7 @@ async fn request_stop多run隔离() {
     assert!(!second.cancel_flag().is_set(), "另一 run B 不受影响");
 
     // 形态二：异 root 同 change id
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let here = control
         .begin_run(ROOT, CHANGE_ID, "run-root-a".to_owned(), STARTED_AT)
         .expect("root-a 发起应成功");
@@ -2236,7 +2282,7 @@ async fn request_stop多run隔离() {
 ///（`Arc::ptr_eq`），置位后两次取值均读 true。
 #[tokio::test]
 async fn run_guard_cancel_flag同一原子() {
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-same-arc".to_owned(), STARTED_AT)
         .expect("首次发起应成功");
@@ -2255,7 +2301,7 @@ async fn run_guard_cancel_flag同一原子() {
 /// 持有至释放（除名不丢置位能力）。
 #[tokio::test]
 async fn finish除名后flag仍可由runner侧置位() {
-    let control = Arc::new(ChangeFlowControl::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-after-finish".to_owned(), STARTED_AT)
         .expect("首次发起应成功");
@@ -2334,7 +2380,7 @@ fn emit_fixture() -> (ChangeStepKind, u32, u32) {
 /// 节点被写出。
 #[tokio::test]
 async fn emitter在guard_drop后仍可补发拍() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2359,7 +2405,7 @@ async fn emitter在guard_drop后仍可补发拍() {
 /// 写入，节点累积在同一 run 上（零串台）。
 #[tokio::test]
 async fn emitter两次产出写同一run() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2383,7 +2429,7 @@ async fn emitter两次产出写同一run() {
 /// → 静默无副作用（注册表 miss 分支），零 panic、零节点新增。
 #[tokio::test]
 async fn emitter在finish后静默无副作用() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2403,7 +2449,7 @@ async fn emitter在finish后静默无副作用() {
 /// → 各自 run 的节点互不可见（复合键隔离）。
 #[tokio::test]
 async fn emitter复合键隔离同root异change() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard_a = control
         .begin_run(ROOT, CHANGE_ID, "run-a".to_owned(), STARTED_AT)
         .expect("首个 run");
@@ -2430,7 +2476,7 @@ async fn emitter复合键隔离同root异change() {
 /// 1**、`started_at` 为首次 emit 值（AC-5 / AC-13 的合并语义）。
 #[tokio::test]
 async fn attach_output_ref就地合并不新增节点() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2477,7 +2523,7 @@ async fn attach_output_ref就地合并不新增节点() {
 /// `output_ref` 与补发拍同值（同 id 收口，AC-2）。
 #[tokio::test]
 async fn 终态拍与补发拍output_ref同值() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2515,7 +2561,7 @@ async fn 终态拍与补发拍output_ref同值() {
 /// 崩溃）；只锁「不 panic、不静默丢弃」。
 #[tokio::test]
 async fn attach_output_ref目标缺失时追加新节点() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2539,7 +2585,7 @@ async fn attach_output_ref目标缺失时追加新节点() {
 /// chars）`exec_id` 原样落 `output_ref`（零截断、零改写）。
 #[tokio::test]
 async fn attach_output_ref多实例与exec_id形态() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2589,7 +2635,7 @@ async fn attach_output_ref多实例与exec_id形态() {
 /// 补发只携 `output_ref` 与 `status`）。
 #[tokio::test]
 async fn attach_output_ref不覆盖在位字段() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2647,7 +2693,7 @@ fn now_millis非负不panic() {
 /// `>= started_at`。
 #[tokio::test]
 async fn emit_node时间戳区间与终态ended_at() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2701,7 +2747,7 @@ async fn emit_node时间戳区间与终态ended_at() {
 /// 非串台）；无 panic、无幽灵条目。
 #[tokio::test]
 async fn emit_node在除名后零panic且同键重入独立() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2741,7 +2787,7 @@ async fn emit_node在除名后零panic且同键重入独立() {
 /// `started_at` 恒有值、`ended_at` 仅终态有值。
 #[tokio::test]
 async fn step_settle四状态三builder组合落位() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("begin_run 应成功");
@@ -2818,4 +2864,455 @@ async fn step_settle四状态三builder组合落位() {
             "with_tokens out 落位"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`answer` 转投 / `resolve_ask` 单点清理 / `new` 的 `Arc` 共享 /
+// 退役面自证
+// ---------------------------------------------------------------------------
+
+/// 转投原文回流（正向，AC-2）：命令内**零副作用**——`status` / `ask` 槽 /
+/// 广播三者均未变（清理搬到执行体的 `resolve_ask`）。
+#[tokio::test]
+async fn answer转投原文回流且命令内零副作用() {
+    let ask_registry = Arc::new(AskRegistry::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.set_session(Some("core-1".to_owned()));
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "采用哪个方案?".to_owned(),
+            options: vec!["A".to_owned(), "B".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    });
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    while rx.try_recv().is_ok() {}
+
+    let waiter = spawn_waiter(&ask_registry, "core-1");
+    assert!(
+        control.answer(ROOT, CHANGE_ID, "选项A".to_owned()).is_ok(),
+        "命中即转投 Ok"
+    );
+    assert_eq!(
+        waiter.await.unwrap().as_deref(),
+        Some("选项A"),
+        "接收方逐字收原文"
+    );
+
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(
+        snap.status,
+        ChangeRunStatus::WaitingAsk,
+        "命令内零状态清理（status 未变）"
+    );
+    assert!(snap.ask.is_some(), "ask 槽未变（清理等 resolve_ask）");
+    assert!(rx.try_recv().is_err(), "命令内零广播（订阅端零新帧）");
+}
+
+/// 三段判定第一段（正向，AC-8）：未 `begin_run` 的 `(root, change)` → `Err`，
+/// 文案携 change id 可归因。
+#[tokio::test]
+async fn answer未begin_run时err携change_id() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let err = control
+        .answer(ROOT, CHANGE_ID, "应答".to_owned())
+        .expect_err("无 run 应 Err");
+    assert!(err.contains(CHANGE_ID), "错误显式携带 change id: {err}");
+    assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
+}
+
+/// 三段判定第二段（正向，参数化 2 形态）：有 run 但会话槽 `None` / 会话槽有值
+/// 而注册表无登记 → 同一文案 `Err`。
+#[tokio::test]
+async fn answer有run无等待方两形态同文案err() {
+    // 形态一：会话槽 None
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    let err = control
+        .answer(ROOT, CHANGE_ID, "应答".to_owned())
+        .expect_err("会话槽 None 应 Err");
+    assert_eq!(err, "当前无等待中的 ask", "会话槽 None 文案");
+
+    // 形态二：会话槽有值但注册表无登记
+    guard.set_session(Some("core-未登记".to_owned()));
+    let err = control
+        .answer(ROOT, CHANGE_ID, "应答".to_owned())
+        .expect_err("注册表无登记应 Err");
+    assert_eq!(err, "当前无等待中的 ask", "两种形态同文案");
+}
+
+/// 唯一构造面（边界，DD3）：`new(Arc::clone(&registry))` 后外部 `registry.answer`
+/// 与 `control.answer` 作用于**同一张表**（`new` 前登记的槽可被 `control.answer`
+/// 命中）——`Arc` 共享、未自铸第二张表的机械判据。
+#[tokio::test]
+async fn new共享同一注册表未自铸第二张表() {
+    let ask_registry = Arc::new(AskRegistry::default());
+    // new 之前就登记（若 control 内部另铸表则必然 miss）
+    let waiter = spawn_waiter(&ask_registry, "core-1");
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.set_session(Some("core-1".to_owned()));
+
+    assert!(
+        control
+            .answer(ROOT, CHANGE_ID, "共享表应答".to_owned())
+            .is_ok(),
+        "new 前登记的槽可被 control.answer 命中（同一张表）"
+    );
+    assert_eq!(waiter.await.unwrap().as_deref(), Some("共享表应答"));
+    assert!(
+        ask_registry
+            .answer("core-1", "外部再答".to_owned())
+            .is_err(),
+        "外部实例观测到同一 take（表已空）"
+    );
+}
+
+/// 条件清理（正向，AC-2 / DD5）：`publish(Ask)` → `WaitingAsk` + `ask` 在位；
+/// `resolve_ask` → `Running`、`ask == None`、订阅端恰收一条 `RunNotice::Step`。
+#[tokio::test]
+async fn resolve_ask条件清理且广播一条step() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    });
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    // 订阅建立后重发一次确保帧序可读
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    });
+    while rx.try_recv().is_ok() {}
+
+    let before = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(
+        before.status,
+        ChangeRunStatus::WaitingAsk,
+        "publish 切停等态"
+    );
+    assert_eq!(
+        before.ask.as_ref().map(|ask| ask.question.as_str()),
+        Some("q"),
+        "载荷单源在位"
+    );
+
+    control.resolve_ask(ROOT, CHANGE_ID);
+
+    let after = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(after.status, ChangeRunStatus::Running, "状态回运行态");
+    assert!(after.ask.is_none(), "ask 槽清空");
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "失效信号复用通用 Step"
+    );
+    assert!(rx.try_recv().is_err(), "只发一条");
+}
+
+/// `ask` 槽无条件清空 + 终态保护（正向，DD5 / spec「终态不被倒灌」）：
+/// `status` 已是 `Completed` 而 `ask` 槽仍被置位 → `resolve_ask` 后 `status`
+/// 仍 `Completed`（不被改回 `Running`）但 `ask == None`、广播仍发一条 `Step`。
+#[tokio::test]
+async fn resolve_ask终态不被倒灌但槽仍无条件清空() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: None,
+        },
+    });
+    guard.emit(RunUpdate::Finished {
+        status: ChangeRunStatus::Completed,
+        reason: None,
+    });
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+
+    control.resolve_ask(ROOT, CHANGE_ID);
+
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(
+        snap.status,
+        ChangeRunStatus::Completed,
+        "终态不被改回 Running"
+    );
+    assert!(snap.ask.is_none(), "ask 槽无条件清空（与状态条件两半独立）");
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "广播仍发一条 Step"
+    );
+}
+
+/// 锁外广播（正向）：`resolve_ask` 的广播不被 `runs` 锁持有阻塞——订阅端在
+/// 完成前可继续读快照（同线程调用即证未死锁）。
+#[tokio::test]
+async fn resolve_ask广播在锁外完成() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: Vec::new(),
+            tool_call_id: None,
+            session_id: None,
+        },
+    });
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    control.resolve_ask(ROOT, CHANGE_ID);
+
+    // 广播后立即读快照：持锁广播会让同线程后续访问自锁（此处不死锁即证）
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID).is_some(),
+        "锁外广播后可读快照"
+    );
+    assert!(matches!(rx.try_recv(), Ok(RunNotice::Step)));
+}
+
+/// 载荷单源（正向，AC-2）：`publish(Ask)` 的快照四字段逐字段相等、
+/// `status == WaitingAsk`；广播仍为 `RunNotice::Ask`（不是 `Step`）。
+#[tokio::test]
+async fn publish_ask载荷单源四字段与通知kind不变() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "选哪个重试策略？".to_owned(),
+            options: vec!["指数退避".to_owned(), "固定间隔".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    });
+
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.status, ChangeRunStatus::WaitingAsk);
+    let ask = snap.ask.expect("载荷在位");
+    assert_eq!(ask.question, "选哪个重试策略？");
+    assert_eq!(
+        ask.options,
+        vec!["指数退避".to_owned(), "固定间隔".to_owned()]
+    );
+    assert_eq!(ask.tool_call_id.as_deref(), Some("call_1"));
+    assert_eq!(ask.session_id.as_deref(), Some("core-1"));
+    assert!(matches!(rx.try_recv(), Ok(RunNotice::Ask)), "广播为 Ask");
+}
+
+/// 迟到 / 重复应答（异常，AC-7）：同键连续两次 `answer` → 第一次 `Ok`、第二次
+/// `Err`（文案含「当前无等待中的 ask」），第二次不产生第二条投递。
+#[tokio::test]
+async fn answer重复应答第二次err且零第二条投递() {
+    let ask_registry = Arc::new(AskRegistry::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.set_session(Some("core-1".to_owned()));
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    ask_registry.register("core-1", tx);
+
+    assert!(control.answer(ROOT, CHANGE_ID, "第一次".to_owned()).is_ok());
+    let err = control
+        .answer(ROOT, CHANGE_ID, "第二次".to_owned())
+        .expect_err("二次应答 Err");
+    assert!(err.contains("当前无等待中的 ask"), "文案: {err}");
+    assert_eq!(rx.try_recv().expect("唯一一次投递"), "第一次");
+    assert!(rx.try_recv().is_err(), "零第二条投递");
+}
+
+/// 除名后路径（异常，参数化 2 形态）：`end_run` 后 `answer` → `Err` 携 change
+/// id；`resolve_ask` 对已除名 run → 静默无操作、不 panic（miss 幂等）。
+#[tokio::test]
+async fn 除名后answer_err且resolve_ask静默() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.set_session(Some("core-1".to_owned()));
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: Vec::new(),
+            tool_call_id: None,
+            session_id: None,
+        },
+    });
+    guard.finish(ChangeRunStatus::Stopped, None);
+
+    let err = control
+        .answer(ROOT, CHANGE_ID, "迟到应答".to_owned())
+        .expect_err("除名后 answer 应 Err");
+    assert!(err.contains(CHANGE_ID), "Err 携 change id: {err}");
+
+    // resolve_ask 对已除名 run 静默（不 panic、不改任何状态）
+    control.resolve_ask(ROOT, CHANGE_ID);
+    assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "除名后无快照");
+}
+
+/// 退役面零残留（异常，源码自证，AC-8）：`control.rs` 代码行内零 `answer_tx`、
+/// 零 `wait_answer`；反向在场：五个既有标识符仍在位（逐字未改的机械判据另一半）。
+#[test]
+fn control_rs退役面零残留且既有五标识符在位() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/control.rs"),
+    )
+    .expect("读取 control.rs");
+    let code_only = own
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !(trimmed.starts_with("///") || trimmed.starts_with("//"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for retired in ["answer_tx", "wait_answer"] {
+        assert!(
+            !code_only.contains(retired),
+            "control.rs 代码行内零 {retired}（单通道改造的退役面）"
+        );
+    }
+    for kept in [
+        "accept_pending",
+        "register_pending",
+        "fn confirm",
+        "wait_confirm",
+        "cancelled_wait",
+    ] {
+        assert!(own.contains(kept), "既有标识符 {kept} 仍在位（逐字未改）");
+    }
+}
+
+/// 键边界（边界，参数化 3 形态）：`root` / `change_id` 取 `""` / `"   "` /
+/// `"a\\0b🚀"` → 未 `begin_run` 时 `Err`、零 panic（命令面 blank 校验在壳层，
+/// 本层不二次校验）。
+#[tokio::test]
+async fn answer键边界未发起时err且零panic() {
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    for (root, change_id) in [("", ""), ("   ", "   "), ("a\0b🚀", "a\0b🚀")] {
+        let err = control
+            .answer(root, change_id, "应答".to_owned())
+            .expect_err("未发起应 Err");
+        assert!(
+            err.contains(change_id),
+            "键 {root:?}/{change_id:?} 原样进文案（不 trim）: {err}"
+        );
+        // resolve_ask 对未发起键静默
+        control.resolve_ask(root, change_id);
+        assert!(control.snapshot(root, change_id).is_none());
+    }
+}
+
+/// 正文边界（边界，参数化 5 形态，零加工）：`text` 逐字到达接收方（`answer`
+/// 不裁量应答内容）。
+#[tokio::test]
+async fn answer正文边界逐字投递() {
+    let texts = [
+        String::new(),
+        "   ".to_owned(),
+        "a\nb".to_owned(),
+        "a\0b🚀".to_owned(),
+        "字".repeat(1200),
+    ];
+    for text in texts {
+        let ask_registry = Arc::new(AskRegistry::default());
+        let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
+        let guard = control
+            .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+            .unwrap();
+        guard.set_session(Some("core-1".to_owned()));
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+        ask_registry.register("core-1", tx);
+
+        assert!(
+            control.answer(ROOT, CHANGE_ID, text.clone()).is_ok(),
+            "正文 {text:?} 受理"
+        );
+        assert_eq!(rx.try_recv().expect("收到"), text, "逐字保真（零 trim）");
+    }
+}
+
+/// 锁序（边界，DD4）：`answer` 在转投注册表前已释放 `runs` 锁——并发探针证明
+/// 同期 `publish` 不被阻塞（超时护栏内完成，零死锁）。
+#[tokio::test]
+async fn answer转投前已释放runs锁_同期publish不被阻塞() {
+    let ask_registry = Arc::new(AskRegistry::default());
+    let control = Arc::new(ChangeFlowControl::new(Arc::clone(&ask_registry)));
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.set_session(Some("core-1".to_owned()));
+
+    // 并发探针：另一端持续 publish（若 answer 持着 runs 锁做投递，publish 会阻塞）
+    let publisher_control = Arc::clone(&control);
+    let published = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let published_hits = Arc::clone(&published);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_flag = Arc::clone(&stop);
+    let publisher = std::thread::spawn(move || {
+        while !stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            publisher_control.publish(
+                ROOT,
+                CHANGE_ID,
+                RunUpdate::Finished {
+                    status: ChangeRunStatus::Completed,
+                    reason: None,
+                },
+            );
+            published_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            std::thread::yield_now();
+        }
+    });
+
+    // 主线程连做三次「登记 + 应答」：若持锁投递，探针的 publish 计数会停摆
+    for _ in 0..3 {
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+        assert!(ask_registry.register("core-1", tx), "登记");
+        assert!(
+            control.answer(ROOT, CHANGE_ID, "应答".to_owned()).is_ok(),
+            "转投成功"
+        );
+        assert_eq!(rx.try_recv().expect("收到"), "应答");
+        let before = published.load(std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..200 {
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            published.load(std::sync::atomic::Ordering::Relaxed) >= before,
+            "同期 publish 持续推进（answer 不持锁投递）"
+        );
+    }
+
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    publisher.join().expect("探针线程正常结束");
+    assert!(
+        published.load(std::sync::atomic::Ordering::Relaxed) > 0,
+        "探针至少有若干次 publish 完成（零死锁）"
+    );
 }

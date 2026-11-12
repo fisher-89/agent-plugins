@@ -5,7 +5,7 @@ use tauri::{generate_handler, Manager};
 
 use store::WorkspaceStores;
 
-use agent::{SessionStreamRegistry, StopRegistry};
+use agent::{AskRegistry, SessionStreamRegistry, StopRegistry};
 use dev_team::commands::all_commands;
 use dev_team::commands::watch::WatchRegistry;
 use dev_team::env;
@@ -117,11 +117,16 @@ fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // 型托管）：内核 begin_turn 登记 / converge 投终态除名 /
     // agent_session_watch 订阅，进程内存态重启即清空（delta 永不落库）
     app.manage(Arc::new(SessionStreamRegistry::default()));
+    // agent ask 应答注册表（会话级，键 = core session id，与 StopRegistry 同
+    // 型托管）：ask 执行体 register / 应答命令 answer / 内核 converge 除名，
+    // 此处只挂空表
+    app.manage(Arc::new(AskRegistry::default()));
     // change-flow run 控制注册表（进程内，键 = (workspace root, change)
     // 复合）：change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只
     // 挂空表（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）。归档
     // 已并入 run 的 archive 相位（stop-before-archive 手动门），无独立
-    // 归档链注册表。
-    app.manage(Arc::new(ChangeFlowControl::new()));
+    // 归档链注册表。ask 注册表由壳层托管后注入——MUST NOT 内部自铸。
+    let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
+    app.manage(Arc::new(ChangeFlowControl::new(ask_registry)));
     Ok(())
 }

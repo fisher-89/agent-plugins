@@ -119,6 +119,15 @@ export const commands = {
 	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null, cwd: string | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd }),
 	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
 	/**
+	 *  ask 应答（薄包装三段：参数校验 → 注册表投递 → 错误原样透出，零状态机 /
+	 *  零广播 / 零清理）。
+	 * 
+	 *  校验面只覆盖两个**寻址**参数（空白会让注册表查不到任何条目，是纯误用）；
+	 *  `text` 原样透传（后端不替用户裁量应答内容）。miss 显式 `Err` 而非幂等 `Ok`：
+	 *  重复 / 迟到应答都是用户可感知的「卡已不在」事实，静默成功会掩盖双端不同步。
+	 */
+	agentAnswer: (root: string, sessionId: string, text: string) => __TAURI_INVOKE<null>("agent_answer", { root, sessionId, text }),
+	/**
 	 *  会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，
 	 *  无编排无落库）：按轮收流，轮终态以 `Record` 收尾后命令返回（订阅流按轮划
 	 *  分，不长连接跨轮）；blank root / 无运行轮（会话未运行 / 已终态 / 未知 id）
@@ -1163,10 +1172,17 @@ export type ArtifactEnvelope = {
 	fallbackText: string | null,
 };
 
-/**  ask 载荷：决策会话 ask 动作的中断问题与候选选项。 */
+/**
+ *  ask 载荷：阻塞工具 `AskUserQuestion` 的等待中问题与候选选项（详情页
+ *  `AskCard` 与聊天窗 ask 活卡共读同一载荷）。
+ */
 export type AskPayload = {
 	question: string,
 	options: string[],
+	/**  行内卡对账：本次 ask 对应哪个 `tool_use`（旧线载荷读 `None`） */
+	toolCallId?: string | null,
+	/**  core 铸会话 id（转录面板定位；旧线载荷读 `None`） */
+	sessionId?: string | null,
 };
 
 /**

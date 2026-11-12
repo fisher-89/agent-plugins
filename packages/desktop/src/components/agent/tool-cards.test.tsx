@@ -66,7 +66,10 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 特化', () => {
       />,
     );
 
-    expect(screen.getByTestId('ask-question-card').textContent).toContain('请在下方输入框作答');
+    // 静态态标题不再承诺输入框（活卡态才有输入面）
+    expect(screen.getByTestId('ask-question-card').textContent).toBe(
+      '向用户提问（AskUserQuestion）选择重试策略？指数退避推荐固定间隔是否同时清理缓存？是',
+    );
     const questions = screen.getAllByTestId('ask-question');
     expect(questions).toHaveLength(2);
     expect(questions[0]?.textContent).toBe('选择重试策略？');
@@ -828,5 +831,410 @@ describe('AskUserQuestionCard：宽容解析存活面（既有分支）', () => 
     const option = screen.getByTestId('ask-option');
     expect(option.textContent).toBe('甲');
     expect(option.querySelector('span')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`AskUserQuestion` 卡双态（静态 / 活卡）与双形态解析
+// ---------------------------------------------------------------------------
+
+/** 单问形态（阻塞工具 `AskUserQuestion` 的当前线形态，选项为裸字符串）。 */
+const SINGLE_ASK_INPUT = {
+  question: '选哪个重试策略？',
+  options: ['指数退避', '固定间隔'],
+};
+
+describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () => {
+  it('静态态零交互面（AC-11）：未注入动作面 → 零按钮、零 input / textarea、零 onAnswer', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_static"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+      />,
+    );
+
+    const card = screen.getByTestId('ask-question-card');
+    // 卡在场、题干与选项逐字可读（不是删文案，只是去掉输入承诺）
+    expect(card.textContent).toContain('向用户提问（AskUserQuestion）');
+    expect(card.textContent).not.toContain('请在下方输入框作答');
+    expect(screen.getByTestId('ask-question').textContent).toBe('选哪个重试策略？');
+    expect(screen.getAllByTestId('ask-option').map((node) => node.textContent)).toEqual([
+      '指数退避',
+      '固定间隔',
+    ]);
+    // 静态态零交互面
+    expect(within(card).queryAllByRole('button')).toHaveLength(0);
+    expect(card.querySelectorAll('input')).toHaveLength(0);
+    expect(card.querySelectorAll('textarea')).toHaveLength(0);
+  });
+
+  it('活卡自由文本与选项两路并存（AC-6）：选项按钮与输入框同卡在场，提交走 onAnswer', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_two_paths"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    // 两路并存
+    expect(screen.getAllByTestId('ask-answer-option')).toHaveLength(2);
+    expect(screen.getByTestId('ask-answer-input')).toBeTruthy();
+
+    // 自由文本路：输入 → 提交按钮 → onAnswer 收到原文（提交前 trim）
+    fireEvent.change(screen.getByTestId('ask-answer-input'), {
+      target: { value: ' 自由作答 ' },
+    });
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(onAnswer).toHaveBeenCalledWith('自由作答');
+  });
+
+  it('提交后本地禁用（选项与文本两形态）：二次提交零 replay', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const first = render(
+      <Card
+        toolCallId="tu_opt_once"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+    const buttons = screen.getAllByTestId('ask-answer-option');
+    fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const second = render(
+      <Card
+        toolCallId="tu_text_once"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId('ask-answer-input'), { target: { value: '文本作答' } });
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    // 提交后卡片回落静态（提交按钮 / 输入框退场），零第二次投递
+    expect(screen.queryByTestId('ask-answer-submit')).toBeNull();
+    expect(screen.queryByTestId('ask-answer-input')).toBeNull();
+    expect(onAnswer).toHaveBeenCalledTimes(2);
+    second.unmount();
+  });
+
+  it('空串与纯空白不提交（AC-11）：提交按钮禁用、click 后 onAnswer 零调用', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_blank"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    const submit = screen.getByTestId<HTMLButtonElement>('ask-answer-submit');
+    // 空串形态
+    expect(submit.disabled).toBe(true);
+    fireEvent.click(submit);
+    expect(onAnswer).not.toHaveBeenCalled();
+
+    // 纯空白形态
+    fireEvent.change(screen.getByTestId('ask-answer-input'), { target: { value: '   ' } });
+    expect(screen.getByTestId<HTMLButtonElement>('ask-answer-submit').disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it('cardAsk 动作面类型面两形态：省略与给值均可编译，给值时卡内不消费 pendingToolCallId', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const props: React.ComponentProps<typeof Card> = {
+      toolCallId: 'tu_type',
+      toolName: 'AskUserQuestion',
+      state: 'input-available',
+      input: SINGLE_ASK_INPUT,
+      output: null,
+    };
+    // 省略形态
+    const { unmount } = render(<Card {...props} />);
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    unmount();
+
+    // 给值形态：动作面只有 `onAnswer`（判活在上层 `ToolPartView` 完成）
+    const onAnswer = vi.fn();
+    const withAction: React.ComponentProps<typeof Card> = { ...props, askAnswer: { onAnswer } };
+    render(<Card {...withAction} />);
+    const buttons = screen.getAllByTestId('ask-answer-option');
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledWith('指数退避');
+  });
+
+  it('单问形态（question + 裸字符串 options）→ 结构化呈现，与历史 questions 形态同构', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_single"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+      />,
+    );
+
+    expect(screen.getAllByTestId('ask-question')).toHaveLength(1);
+    expect(screen.getByTestId('ask-question').textContent).toBe('选哪个重试策略？');
+    const options = screen.getAllByTestId('ask-option');
+    expect(options.map((node) => node.textContent)).toEqual(['指数退避', '固定间隔']);
+    // 静态态零交互
+    expect(screen.queryByTestId('ask-answer-option')).toBeNull();
+    expect(screen.queryByTestId('ask-answer-input')).toBeNull();
+  });
+
+  it('历史形态（questions 数组 + {label, description}）零改动仍可读', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_legacy"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={ASK_INPUT}
+        output={null}
+      />,
+    );
+    expect(screen.getAllByTestId('ask-question')).toHaveLength(2);
+    expect(screen.getAllByTestId('ask-option')[0]?.textContent).toContain('推荐');
+  });
+
+  it('活卡态（注入 askAnswer）→ 选项变可点按钮 + 自由文本输入与提交', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_live"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    expect(screen.getByTestId('ask-question-card').textContent).toContain('选择一个选项或自行作答');
+    expect(screen.queryAllByTestId('ask-option')).toHaveLength(0);
+    const buttons = screen.getAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['指数退避', '固定间隔']);
+    expect(screen.getByTestId('ask-answer-input')).toBeTruthy();
+    expect(screen.getByTestId('ask-answer-submit')).toBeTruthy();
+
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledWith('指数退避');
+  });
+
+  it('活卡提交后本地即时禁用（防连点）：二次点击零 replay', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_live_once"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId('ask-answer-option')[0] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    // 提交后 submitted = true → 卡片回落静态形态（零按钮）
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(screen.getAllByTestId('ask-option')).toHaveLength(2);
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it('自由文本：Enter 提交与按钮提交同效，且空白输入被拦（提交侧零 trim 到后端）', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_live_text"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    const input = screen.getByTestId('ask-answer-input');
+    // 纯空白：提交按钮禁用且 Enter 零提交
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect((screen.getByTestId('ask-answer-submit') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onAnswer).not.toHaveBeenCalled();
+
+    // 有内容回车提交（提交前 trim）
+    fireEvent.change(input, { target: { value: '  自定义方案  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onAnswer).toHaveBeenCalledWith('自定义方案');
+  });
+
+  it('两形态皆不匹配（DD9）：{} / question 非串 / 原串 / null / 数组 → 回退 JSON 原样，零 panic', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const cases: unknown[] = [{}, { question: 42, options: [] }, 'str', null, []];
+    for (const input of cases) {
+      const mounted = render(
+        <Card
+          toolCallId="tu_bad"
+          toolName="AskUserQuestion"
+          state="input-available"
+          input={input}
+          output={null}
+          askAnswer={{ onAnswer: vi.fn() }}
+        />,
+      );
+      const fallback = screen.getByTestId('ask-question-card').querySelector('pre');
+      // JSON 原样回退（宽容解析零回归）：题干节点缺席、pre 在场
+      expect(fallback, `${JSON.stringify(input)} 的回退呈现`).toBeTruthy();
+      expect(screen.queryByTestId('ask-question')).toBeNull();
+      mounted.unmount();
+    }
+  });
+
+  it('历史 SDK 形态（questions + {label, description}）在活卡态下同样可点（双形态归一）', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_legacy_live"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={{
+          questions: [
+            {
+              question: '历史形态问',
+              options: [{ label: '标签甲', description: '甲的说明' }],
+            },
+          ],
+        }}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    const buttons = screen.getAllByTestId('ask-answer-option');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toContain('标签甲');
+    expect(buttons[0]?.textContent).toContain('甲的说明');
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledWith('标签甲');
+  });
+
+  it('options 缺席（单问形态）→ 空选项清单不崩，输入面仍可用', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_no_options"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={{ question: '只有题干' }}
+        output={null}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+    expect(screen.getByTestId('ask-question').textContent).toBe('只有题干');
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(screen.getByTestId('ask-answer-input')).toBeTruthy();
+  });
+
+  it('混合选项形态：字符串与 {label, description} 并存 → 逐项归一到同一渲染（description 各自保真）', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_mixed"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={{
+          questions: [
+            {
+              question: '混合形态',
+              options: ['甲', { label: '乙', description: '乙的补充说明' }],
+            },
+          ],
+        }}
+        output={null}
+      />,
+    );
+
+    const options = screen.getAllByTestId('ask-option');
+    expect(options).toHaveLength(2);
+    expect(options[0]?.textContent).toContain('甲');
+    expect(options[0]?.textContent).not.toContain('null');
+    expect(options[1]?.textContent).toContain('乙');
+    expect(options[1]?.textContent).toContain('乙的补充说明');
+  });
+
+  it('零选项（options: []）→ 空列表、题干仍渲染；1000 选项逐项渲染不崩', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const empty = render(
+      <Card
+        toolCallId="tu_empty_options"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={{ question: '零选项', options: [] }}
+        output={null}
+      />,
+    );
+    expect(screen.getByTestId('ask-question').textContent).toBe('零选项');
+    expect(screen.queryAllByTestId('ask-option')).toHaveLength(0);
+    empty.unmount();
+
+    const many = Array.from({ length: 1000 }, (_, index) => `选项${index}`);
+    render(
+      <Card
+        toolCallId="tu_many_options"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={{ question: '千选项', options: many }}
+        output={null}
+      />,
+    );
+    expect(screen.getAllByTestId('ask-option')).toHaveLength(1000);
+  });
+
+  it('题干与选项边界：空串题干 / 特殊字符 / 超长选项逐字呈现', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    const long = '字'.repeat(1200);
+    render(
+      <Card
+        toolCallId="tu_bounds"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={{ question: '', options: ['a\nb', 'a\0b🚀', long] }}
+        output={null}
+      />,
+    );
+    expect(screen.getByTestId('ask-question').textContent).toBe('');
+    const options = screen.getAllByTestId('ask-option');
+    expect(options).toHaveLength(3);
+    expect(options[2]?.textContent).toBe(long);
   });
 });

@@ -145,6 +145,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "setDefaultAgentInstance",
     "agentStart",
     "agentStop",
+    "agentAnswer",
     "agentSessions",
     "agentSessionTranscript",
     "sessionDetail",
@@ -198,6 +199,7 @@ const COMMAND_NAMES: &[&str] = &[
     "set_default_agent_instance",
     "agent_start",
     "agent_stop",
+    "agent_answer",
     "agent_sessions",
     "agent_session_transcript",
     "session_detail",
@@ -1049,16 +1051,16 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
-    // 本变更自身再补录一条（架构页会话清单）：条目数 43 → 44
+    // 合并侧两变更各补录一条（架构页文件树 + agent_answer）：条目数 48 → 50
     assert_eq!(
         COMMAND_NAMES.len(),
-        49,
-        "命令清单新增 archi_file_tree（48 → 49）"
+        50,
+        "命令清单两变更各补录一条（archi_file_tree + agent_answer，48 → 50）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        49,
-        "包装清单新增 archiFileTree（48 → 49）"
+        50,
+        "包装清单两变更各补录一条（archiFileTree + agentAnswer，48 → 50）"
     );
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
@@ -1085,6 +1087,15 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     assert!(
         COMMAND_WRAPPERS.contains(&"ensureExploreSession"),
         "包装名补录（ensureExploreSession）"
+    );
+    // 本变更新增命令（ask 应答，通用侧）
+    assert!(
+        COMMAND_NAMES.contains(&"agent_answer"),
+        "invoke 名补录（agent_answer）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&"agentAnswer"),
+        "包装名补录（agentAnswer）"
     );
     // 本变更新增命令（某 change 的 chat 会话清单薄包装）
     assert!(
@@ -1966,13 +1977,17 @@ fn 登记面_架构页会话清单命令在册() {
     );
 }
 
-/// 边界：命令总数 +1（43 → 44），两份清单条目数持衡（漏登记或重复登记即红）。
+/// 边界：命令总数 +2（48 → 50），两份清单条目数持衡（漏登记或重复登记即红）。
 #[test]
-fn 登记面_命令总数加一且两清单持衡() {
-    assert_eq!(COMMAND_NAMES.len(), 49, "命令总数（48 → 49）");
+fn 登记面_命令总数加二且两清单持衡() {
+    assert_eq!(
+        COMMAND_NAMES.len(),
+        50,
+        "两变更各补录一条后的命令总数（48 → 50）"
+    );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        49,
+        50,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2438,14 +2453,14 @@ fn 登记面_三新命令在两清单与生成物各在册() {
     }
 }
 
-/// 正向：总数锚 48 → 49（两份清单持衡、一一对应）；尾锚仍为 `read_file`
+/// 正向：总数锚 48 → 50（两份清单持衡、一一对应）；尾锚仍为 `read_file`
 ///（archi 组新条目插在其前，三行删除在 changes / explores / archi 组内）。
 #[test]
-fn 登记面_总数四十九且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 49, "命令清单总数 48 → 49");
+fn 登记面_总数五十且尾锚零位移() {
+    assert_eq!(COMMAND_NAMES.len(), 50, "命令清单总数 48 → 50");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        49,
+        50,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
@@ -3236,5 +3251,162 @@ fn 文件树词表线值在产物逐字命中() {
     assert!(
         !mark_section.contains("unfulfilled") && !kind_section.contains("unfulfilled"),
         "文件树词表不得含画布节点标记的词（MUST NOT 复用 NodeMark）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`agent_answer` 出线面 + `AskMode` / `SessionInjections`
+// 反向锚定（引擎侧会话词汇不出线 IPC）
+// ---------------------------------------------------------------------------
+
+/// `agent_answer` 出线形态（正向）：生成包装的签名三参（`root` / `sessionId` /
+/// `text`）与 invoke 目标 `agent_answer` 逐字；返回 `null`（`Result<(), String>`
+/// 的 `()` 出线形态）。
+#[test]
+fn agent_answer出线签名为三参薄包装() {
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let expected = "agentAnswer: (root: string, sessionId: string, text: string) => \
+                    __TAURI_INVOKE<null>(\"agent_answer\", { root, sessionId, text })";
+    let squashed: String = content
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        squashed
+            .replace("\n", " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .contains(&expected.split_whitespace().collect::<Vec<_>>().join(" ")),
+        "agent_answer 包装签名与 invoke 目标逐字（三参 + null 返回）"
+    );
+    // 与既有 agent 两命令并存（新增不遮蔽既有出线名）
+    for kept in ["agentStart:", "agentStop:"] {
+        assert!(content.contains(kept), "既有命令 {kept} 仍在位");
+    }
+}
+
+/// 反向锚定（异常，AC-9）：`AskMode` 不出线 IPC——产物全文零 `AskMode` 类型名
+///（与既有 `SessionInjections` / `FinishSpec` 同口径的反向锚定清单）。
+#[test]
+fn 引擎侧词汇反向锚定清单含ask_mode() {
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    for forbidden in [
+        "AskMode",
+        "SessionInjections",
+        "FinishSpec",
+        "TurnQuestion",
+        "SessionOpen",
+        "SessionRef",
+    ] {
+        assert!(
+            !content.contains(forbidden),
+            "产物全文零 {forbidden}（引擎侧会话词汇不出线 IPC）"
+        );
+    }
+    // 对照：ask 的**出线**类型仍在（AskPayload 是 IPC 载荷，不是会话词汇）
+    assert!(
+        content.contains("export type AskPayload ="),
+        "AskPayload 仍在产物（ask 中断载荷面）"
+    );
+}
+
+/// `AskPayload` 两 additive 字段出线形态（正向，AC-9）：`toolCallId` /
+/// `sessionId` 为可选可空（`?: string | null`），旧线载荷（无两键）类型层面
+/// 仍合法。
+#[test]
+fn ask_payload两additive字段出线为可选可空() {
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let start = content
+        .find("export type AskPayload = {")
+        .expect("AskPayload 类型在场");
+    let body = &content[start..(start + 600).min(content.len())];
+    assert!(
+        body.contains("toolCallId?: string | null"),
+        "toolCallId 为可选可空: {body}"
+    );
+    assert!(
+        body.contains("sessionId?: string | null"),
+        "sessionId 为可选可空: {body}"
+    );
+    assert!(body.contains("question: string"), "既有必填 question 不变");
+    assert!(body.contains("options: string[]"), "既有必填 options 不变");
+}
+
+/// zod 产物同步（正向）：`bindings.zod.ts` 对 `AskPayload` 的两 additive 字段
+/// 给 `.optional()` / `.nullable()`，与类型层可选可空同源。
+#[test]
+fn ask_payload_zod产物两additive字段可选可空() {
+    let zod = std::fs::read_to_string(zod_generated_path()).expect("读取 bindings.zod.ts");
+    let ask_block_start = zod
+        .find("export const AskPayloadSchema")
+        .expect("AskPayloadSchema 段在场");
+    let ask_block = &zod[ask_block_start..(ask_block_start + 600).min(zod.len())];
+    for field in ["toolCallId", "sessionId"] {
+        assert!(
+            ask_block.contains(&format!("get {field}()")),
+            "zod 产物含 {field} 键"
+        );
+    }
+    assert!(
+        ask_block.contains(".nullable().optional()"),
+        "两 additive 字段在 zod 侧可空可选（旧线载荷可读）: {ask_block}"
+    );
+    // 既有必填两键零放宽
+    assert!(ask_block.contains("get question() { return z.string(); }"));
+    assert!(ask_block.contains("get options() { return z.array(z.string()); }"));
+}
+
+/// 生成序（正向，AC-10）：`agentAnswer` 在产物中的偏移紧随 `agentStop`——
+/// `all_commands!` 登记序 = 生成序（沿既有三包装相对序先例）；清单侧三命令
+/// 连续同序。
+#[test]
+#[allow(non_snake_case)]
+fn 登记面_agentAnswer紧随agentStop生成() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let stop_offset = content.find("agentStop: (").expect("agentStop 包装在场");
+    let answer_offset = content
+        .find("agentAnswer: (")
+        .expect("agentAnswer 包装在场");
+    assert!(
+        stop_offset < answer_offset,
+        "登记序 agentStop 先于 agentAnswer（{stop_offset} < {answer_offset}）"
+    );
+    // 两者之间只夹 agentAnswer 自己的 JSDoc 注释，无其它命令包装
+    let between = &content[stop_offset..answer_offset];
+    assert!(
+        !between[between.find('\n').expect("agentStop 行有换行")..].contains("__TAURI_INVOKE<"),
+        "其间无其它命令包装夹在中间: {between:?}"
+    );
+
+    // `all_commands!` 侧同序且连续（invoke 清单内三命令相邻）
+    let stop_index = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "agent_stop")
+        .expect("agent_stop 在册");
+    let answer_index = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "agent_answer")
+        .expect("agent_answer 在册");
+    assert_eq!(
+        answer_index,
+        stop_index + 1,
+        "invoke 清单内 agent_answer 紧随 agent_stop"
+    );
+    let wrapper_stop = COMMAND_WRAPPERS
+        .iter()
+        .position(|name| *name == "agentStop")
+        .expect("agentStop 在册");
+    let wrapper_answer = COMMAND_WRAPPERS
+        .iter()
+        .position(|name| *name == "agentAnswer")
+        .expect("agentAnswer 在册");
+    assert_eq!(
+        wrapper_answer,
+        wrapper_stop + 1,
+        "包装清单内 agentAnswer 紧随 agentStop"
     );
 }

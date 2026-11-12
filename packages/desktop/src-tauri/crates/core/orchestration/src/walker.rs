@@ -21,10 +21,7 @@ use crate::port::{
     ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
     WorkflowSnapshotPort, WorktreeSnapshot,
 };
-use crate::prompt::{
-    decision_answer_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
-    spec_sync_prompt,
-};
+use crate::prompt::{decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt};
 use crate::run_history;
 use crate::state::{
     ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, EdgeKind, NodeKey, RunUpdate,
@@ -93,10 +90,10 @@ const TXT_REBASE_CONTINUE_GUIDE: &str = "worktree 处于 rebase 态：可手动 
 /// Rebase 段冲突交据（冲突清单非空时交 ResolveConflicts 步条件解算）。
 const TXT_REBASE_CONFLICTED: &str = "冲突待解算";
 
-/// ask 携出会话外（`wait_answer` 循环未消化）= 编排漂移（防线单点文案：决策会
-/// 话内 ask 两路已 `continue` / `Err` 闭合，`resolve_deadlock` 与动作裁决面都只
-/// 能在漂移时读到 `Ask`）。
-const TXT_ASK_UNCONSUMED: &str = "决策漂移：ask 动作未被应答循环消化";
+/// ask 携出会话外（提问已迁出为阻塞工具 `AskUserQuestion`）= 编排漂移（防线单
+/// 点文案：`resolve_deadlock` 与决策会话动作裁决面的 `Ask` 臂共用——两处都只在
+/// 历史载荷回放 / 装配漂移时读到 `Ask`）。
+const TXT_ASK_DRIFT: &str = "决策漂移：ask 应经 AskUserQuestion 工具提交";
 
 /// run 发起入参：workspace 根（exec root —— 会话 cwd / 检查域执行目录）+ 主
 /// workspace root（归档相位的主仓锚：layout 解析 / 归档双写 / 落盘提交）+ change
@@ -3030,29 +3027,28 @@ async fn resolve_deadlock(
             reason: Some(format!("决策 stop: {reason}")),
         }),
         DecisionAction::Ask { .. } => {
-            // ask 在决策会话内已被 `wait_answer` 循环消化（应答后开新一轮决策
-            // 会话）；携出会话外的 ask 到这里即编排漂移
-            Deadlock::Terminal(Terminal::failed(TXT_ASK_UNCONSUMED.to_owned()))
+            // 生产不可达（decision 形态 enum 已不含 ask）：提问经阻塞工具
+            // `AskUserQuestion` 在 turn 内闭合，携出会话外的 ask 到这里即编排漂移
+            Deadlock::Terminal(Terminal::failed(TXT_ASK_DRIFT.to_owned()))
         }
     }
 }
 
-/// 决策会话：单轮收口为常态（`finish_step` 一调即本 step 结束）。每轮跑一次
-/// 会话（`SettleMode::Deferred`）→ `decision-log` 幂等挂账（置于动作裁决**之前**
+/// 决策会话：单轮收口为常态（`finish_step` 一调即本 step 结束）。跑一次会话
+/// （`SettleMode::Deferred`）→ `decision-log` 幂等挂账（置于动作裁决**之前**
 /// ——stop / 驳回路径同样留痕）→ 会话状态面 → 读 `finalized`：
 ///
-/// - `Ask` → emit `RunUpdate::Ask` → `wait_answer`（取消置位 → `stopped`）→ 同
-///   实例 passed（`detail` 携问答摘要，用户驱动的停等不计失败）→ 以同一会话
-///   `Continue` 开下一轮（prompt = [`decision_answer_prompt`]；新轮为
-///   `instance_no` 递增的 decision 节点，轮数可由实例数直读）；
-/// - 其余动作 → `ensure_backtrack_allowed` 判定后**在同一 decision 节点实例**收
+/// - 决策动作 → `ensure_backtrack_allowed` 判定后**在同一 decision 节点实例**收
 ///   口：通过即 passed + 动作摘要（`backtrack → <to>` / `stop：<reason>`），越权
 ///   即 failed + 拒因（携 `allowed`）并由调用方**一次即** `Terminal::failed`；
+/// - `Ask` 载荷 → failed 节点 + `Terminal::failed`（提问已迁出为独立阻塞工具
+///   `AskUserQuestion`，该载荷出现即决策漂移；不停等、不开新轮）；
 /// - 缺席 → 同实例 failed + `Terminal::failed`（成因文案区分截断 / 未收口）。
 ///
 /// 动作裁决不经独立 gate 节点（`WhitelistGate` / `RetryGate` 新写面零产出），
 /// 留痕由节点 `detail` 承载。协议层纠错全部在工具内闭合（is_error 当场回灌），
-/// 本函数无软拒环、无跨轮漂移计数。
+/// 本函数无软拒环、无跨轮漂移计数；提问经阻塞工具在同一 turn 内闭合，故无第
+/// 二轮（循环结构已退役）。
 async fn decision_session(
     worker: &Arc<dyn WorkerAgentPort>,
     tools: &Arc<dyn ToolStepPort>,
@@ -3061,179 +3057,130 @@ async fn decision_session(
     input: &DecisionInput,
     trace: &mut EdgeTrace,
 ) -> Result<DecisionAction, Terminal> {
-    let mut prompt = decision_prompt(input);
-    let mut continue_session: Option<String> = None;
-    loop {
-        let turn = run_worker(
-            worker,
+    let turn = run_worker(
+        worker,
+        guard,
+        request,
+        &request.root,
+        &input.phase,
+        input.attempt,
+        WorkerRole::Decision,
+        decision_prompt(input),
+        // 决策 agent 恒 High 档（重试上限分叉的决策质量面）
+        ModelLevel::High,
+        // 单轮收口：零续注（提问经阻塞工具在 turn 内闭合，不开新轮）
+        None,
+        trace,
+        EdgeKind::Forward,
+        SettleMode::Deferred,
+    )
+    .await?;
+    let WorkerTurn {
+        mut outcome,
+        instance_no,
+    } = turn;
+    let session_id = outcome.session_id.clone();
+    // 决策会话槽位挂账（写面单点：最新 eval 条目定点改写，幂等覆写）
+    let _: DecisionLogOutcome = run_tool(
+        tools,
+        guard,
+        &request.root,
+        ToolCommand::DecisionLog {
+            change_id: request.change_id.clone(),
+            phase: input.phase.clone(),
+            session_id: session_id.clone(),
+        },
+        "decision-log",
+        None,
+    )
+    .await?;
+    // 会话状态面：系统异常（Failed / Stopped / Running 漂移）仍落红节点 /
+    // 停止节点 + Terminal，MUST NOT 被业务分支吞成 passed
+    let (settle, terminal) = worker_settle(&outcome);
+    if let Some(terminal) = terminal {
+        emit_node(
             guard,
-            request,
-            &request.root,
             &input.phase,
             input.attempt,
-            WorkerRole::Decision,
-            prompt,
-            // 决策 agent 恒 High 档（重试上限分叉的决策质量面）
-            ModelLevel::High,
-            continue_session.clone(),
-            trace,
-            EdgeKind::Forward,
-            SettleMode::Deferred,
-        )
-        .await?;
-        let WorkerTurn {
-            mut outcome,
+            ChangeStepKind::Decision,
             instance_no,
-        } = turn;
-        let session_id = outcome.session_id.clone();
-        // 决策会话槽位挂账（写面单点：最新 eval 条目定点改写，幂等覆写）
-        let _: DecisionLogOutcome = run_tool(
-            tools,
-            guard,
-            &request.root,
-            ToolCommand::DecisionLog {
-                change_id: request.change_id.clone(),
-                phase: input.phase.clone(),
-                session_id: session_id.clone(),
-            },
-            "decision-log",
-            None,
-        )
-        .await?;
-        // 会话状态面：系统异常（Failed / Stopped / Running 漂移）仍落红节点 /
-        // 停止节点 + Terminal，MUST NOT 被业务分支吞成 passed
-        let (settle, terminal) = worker_settle(&outcome);
-        if let Some(terminal) = terminal {
+            with_turn(settle, &outcome),
+        );
+        return Err(terminal);
+    }
+    let action = match outcome.finalized.take() {
+        // `Ask` 载荷不在提取面拦（漂移判定单点在下方动作裁决面）
+        Some(FinishPayload::Decision(action)) => action,
+        Some(FinishPayload::Evaluator(_)) => {
+            let reason = "决策会话返回 evaluator 收口载荷（相位表角色漂移）".to_owned();
             emit_node(
                 guard,
                 &input.phase,
                 input.attempt,
                 ChangeStepKind::Decision,
                 instance_no,
-                with_turn(settle, &outcome),
+                with_turn(StepSettle::failed(Some(reason.clone())), &outcome),
             );
-            return Err(terminal);
+            return Err(Terminal::failed(reason));
         }
-        let action = match outcome.finalized.take() {
-            Some(FinishPayload::Decision(DecisionAction::Ask { question, options })) => {
-                guard.emit(RunUpdate::Ask {
-                    question: question.clone(),
-                    options: options.clone(),
-                });
-                match guard.wait_answer().await {
-                    None => {
-                        emit_node(
-                            guard,
-                            &input.phase,
-                            input.attempt,
-                            ChangeStepKind::Decision,
-                            instance_no,
-                            with_turn(
-                                StepSettle::stopped(Some("ask 停等被终止".to_owned())),
-                                &outcome,
-                            ),
-                        );
-                        return Err(Terminal::stopped("ask 停等被终止"));
-                    }
-                    Some(answer) => {
-                        emit_node(
-                            guard,
-                            &input.phase,
-                            input.attempt,
-                            ChangeStepKind::Decision,
-                            instance_no,
-                            with_turn(
-                                StepSettle::passed(Some(format!(
-                                    "ask：{}",
-                                    diagnose_brief(&question)
-                                ))),
-                                &outcome,
-                            ),
-                        );
-                        // ask 停等在会话之外闭合：应答开启新一轮决策会话（resume
-                        // 全史），新轮同样以 `finish_step` 收口
-                        prompt = decision_answer_prompt(&answer);
-                        continue_session = Some(session_id);
-                        continue;
-                    }
+        None => {
+            let reason = if truncated(&outcome.transcript) {
+                "决策输出被截断（output_truncated），未产生 finish_step 收口产物"
+            } else {
+                "未调用 finish_step 收口（决策会话 Completed 但无收口载荷）"
+            };
+            emit_node(
+                guard,
+                &input.phase,
+                input.attempt,
+                ChangeStepKind::Decision,
+                instance_no,
+                with_turn(StepSettle::failed(Some(diagnose_brief(reason))), &outcome),
+            );
+            return Err(Terminal::failed(reason.to_owned()));
+        }
+    };
+    // 动作裁决写同一 decision 节点实例的 detail（不另立 gate 节点）
+    match ensure_backtrack_allowed(&action, &input.phase, &input.allowed) {
+        Ok(()) => {
+            let detail = match &action {
+                DecisionAction::Backtrack { to, .. } => format!("backtrack → {to}"),
+                DecisionAction::Stop { reason } => format!("stop：{reason}"),
+                // Ask 载荷（历史回放 / 装配漂移）在动作裁决面收口：指路阻塞工具，
+                // 不留 running 节点（文案与 `resolve_deadlock` 的同名漂移臂同源）
+                DecisionAction::Ask { .. } => {
+                    emit_node(
+                        guard,
+                        &input.phase,
+                        input.attempt,
+                        ChangeStepKind::Decision,
+                        instance_no,
+                        with_turn(StepSettle::failed(Some(TXT_ASK_DRIFT.to_owned())), &outcome),
+                    );
+                    return Err(Terminal::failed(TXT_ASK_DRIFT.to_owned()));
                 }
-            }
-            // Ask 的两路（应答 → continue 新一轮 / 终止 → Err）都在上一臂内闭合，
-            // 故落此处的动作恒为 Backtrack / Stop（Ask 的防线见下方 detail 组装）
-            Some(FinishPayload::Decision(action)) => action,
-            Some(FinishPayload::Evaluator(_)) => {
-                let reason = "决策会话返回 evaluator 收口载荷（相位表角色漂移）".to_owned();
-                emit_node(
-                    guard,
-                    &input.phase,
-                    input.attempt,
-                    ChangeStepKind::Decision,
-                    instance_no,
-                    with_turn(StepSettle::failed(Some(reason.clone())), &outcome),
-                );
-                return Err(Terminal::failed(reason));
-            }
-            None => {
-                let reason = if truncated(&outcome.transcript) {
-                    "决策输出被截断（output_truncated），未产生 finish_step 收口产物"
-                } else {
-                    "未调用 finish_step 收口（决策会话 Completed 但无收口载荷）"
-                };
-                emit_node(
-                    guard,
-                    &input.phase,
-                    input.attempt,
-                    ChangeStepKind::Decision,
-                    instance_no,
-                    with_turn(StepSettle::failed(Some(diagnose_brief(reason))), &outcome),
-                );
-                return Err(Terminal::failed(reason.to_owned()));
-            }
-        };
-        // 动作裁决写同一 decision 节点实例的 detail（不另立 gate 节点）
-        return match ensure_backtrack_allowed(&action, &input.phase, &input.allowed) {
-            Ok(()) => {
-                let detail = match &action {
-                    DecisionAction::Backtrack { to, .. } => format!("backtrack → {to}"),
-                    DecisionAction::Stop { reason } => format!("stop：{reason}"),
-                    // Ask 两路（应答 → continue 新一轮 / 终止 → Err）都在上一臂内
-                    // 闭合，故此处不可达；按编排漂移处理并收口本实例，不留 running
-                    // 节点（文案与 `resolve_deadlock` 的同名漂移臂一致）
-                    DecisionAction::Ask { .. } => {
-                        let reason = TXT_ASK_UNCONSUMED.to_owned();
-                        emit_node(
-                            guard,
-                            &input.phase,
-                            input.attempt,
-                            ChangeStepKind::Decision,
-                            instance_no,
-                            with_turn(StepSettle::failed(Some(reason.clone())), &outcome),
-                        );
-                        return Err(Terminal::failed(reason));
-                    }
-                };
-                emit_node(
-                    guard,
-                    &input.phase,
-                    input.attempt,
-                    ChangeStepKind::Decision,
-                    instance_no,
-                    with_turn(StepSettle::passed(Some(detail)), &outcome),
-                );
-                Ok(action)
-            }
-            Err(message) => {
-                emit_node(
-                    guard,
-                    &input.phase,
-                    input.attempt,
-                    ChangeStepKind::Decision,
-                    instance_no,
-                    with_turn(StepSettle::failed(Some(diagnose_brief(&message))), &outcome),
-                );
-                Err(Terminal::failed(format!("决策越权：{message}")))
-            }
-        };
+            };
+            emit_node(
+                guard,
+                &input.phase,
+                input.attempt,
+                ChangeStepKind::Decision,
+                instance_no,
+                with_turn(StepSettle::passed(Some(detail)), &outcome),
+            );
+            Ok(action)
+        }
+        Err(message) => {
+            emit_node(
+                guard,
+                &input.phase,
+                input.attempt,
+                ChangeStepKind::Decision,
+                instance_no,
+                with_turn(StepSettle::failed(Some(diagnose_brief(&message))), &outcome),
+            );
+            Err(Terminal::failed(format!("决策越权：{message}")))
+        }
     }
 }
 
@@ -3858,7 +3805,9 @@ pub(crate) struct WorkerSettleProbeView {
 /// 会话状态面分类探针（四臂逐文案 + 会话 id / token 随行）。
 #[cfg(test)]
 pub(crate) fn worker_settle_probe(outcome: &WorkerTurnOutcome) -> WorkerSettleProbeView {
-    let control = std::sync::Arc::new(crate::control::ChangeFlowControl::new());
+    let control = std::sync::Arc::new(crate::control::ChangeFlowControl::new(std::sync::Arc::new(
+        agent::AskRegistry::default(),
+    )));
     let guard = control
         .begin_run(PROBE_ROOT, PROBE_CHANGE, "probe-run".to_owned(), 0)
         .expect("探针登记 run 应成功");

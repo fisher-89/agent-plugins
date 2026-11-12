@@ -56,6 +56,11 @@ pub struct EngineFacade {
     /// sdk 引擎主仓 root（组合根注入缝）：写入保护规则装配的根（`None` =
     /// 未注入 → 只装载内置规则，非「保护关闭」）
     workspace_root: Option<PathBuf>,
+    /// ask 应答注册表（组合根注入缝）：与内核侧同源的单表（`None` 不存在——
+    /// 未注入时门面自铸空表，阻塞恒 miss，fail-closed）
+    ask_registry: Arc<agent::AskRegistry>,
+    /// ask 编排状态面（组合根注入缝）：仅 `Flow` 档消费
+    ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
 }
 
 impl EngineFacade {
@@ -68,6 +73,8 @@ impl EngineFacade {
             web_search: false,
             explore_note_store: None,
             workspace_root: None,
+            ask_registry: Arc::new(agent::AskRegistry::default()),
+            ask_port: None,
         }
     }
 
@@ -80,6 +87,8 @@ impl EngineFacade {
             web_search: false,
             explore_note_store: None,
             workspace_root: None,
+            ask_registry: Arc::new(agent::AskRegistry::default()),
+            ask_port: None,
         }
     }
 
@@ -95,6 +104,8 @@ impl EngineFacade {
             web_search: self.web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
+            ask_registry: self.ask_registry,
+            ask_port: self.ask_port,
         }
     }
 
@@ -109,6 +120,8 @@ impl EngineFacade {
             web_search: self.web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
+            ask_registry: self.ask_registry,
+            ask_port: self.ask_port,
         }
     }
 
@@ -124,6 +137,8 @@ impl EngineFacade {
             web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
+            ask_registry: self.ask_registry,
+            ask_port: self.ask_port,
         }
     }
 
@@ -139,6 +154,26 @@ impl EngineFacade {
             web_search: self.web_search,
             explore_note_store: Some(store),
             workspace_root: self.workspace_root,
+            ask_registry: self.ask_registry,
+            ask_port: self.ask_port,
+        }
+    }
+
+    /// 携 ask 应答注册表的门面（builder 缝，与 `with_explore_note_store` 同型）：
+    /// 壳层托管的那张表经组合根下行至 sdk 引擎（与内核侧同源单表）。
+    pub fn with_ask_registry(self, registry: Arc<agent::AskRegistry>) -> Self {
+        Self {
+            ask_registry: registry,
+            ..self
+        }
+    }
+
+    /// 携 ask 编排状态面的门面（builder 缝）：仅 `Flow` 档消费；实现方是壳层
+    /// sink（`ChangeFlowSink` 或 change-chat 的空实现）。
+    pub fn with_ask_port(self, port: Option<Arc<dyn orchestration::port::AskPort>>) -> Self {
+        Self {
+            ask_port: port,
+            ..self
         }
     }
 
@@ -172,7 +207,9 @@ impl EngineFacade {
                     self.explore_note_store.clone(),
                 )
                 .with_max_tokens(self.max_tokens)
-                .with_web_search(self.web_search);
+                .with_web_search(self.web_search)
+                .with_ask_registry(Arc::clone(&self.ask_registry))
+                .with_ask_port(self.ask_port.clone());
                 if let Some(root) = &self.workspace_root {
                     runner = runner.with_workspace_root(root.clone());
                 }
@@ -193,6 +230,10 @@ mod lib_test;
 
 #[cfg(test)]
 mod archi_knowledge_test;
+
+#[cfg(test)]
+#[path = "ask_scripted_provider.rs"]
+pub(crate) mod ask_scripted_provider;
 
 #[cfg(test)]
 pub(crate) static TEST_PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

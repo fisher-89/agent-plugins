@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::{SessionStreamRegistry, StopRegistry};
+use ::agent::{AskRegistry, SessionStreamRegistry, StopRegistry};
 use orchestration::control::ChangeFlowControl;
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
@@ -20,7 +20,8 @@ use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 use ::agent::{AgentEvent, AgentEventKind};
 use orchestration::state::{
-    ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice, RunUpdate,
+    AskPayload, ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice,
+    RunUpdate,
 };
 use orchestration::RunEventSink;
 
@@ -76,7 +77,10 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
-    app.manage(Arc::new(ChangeFlowControl::new()));
+    // ask 注册表与 run 控制注册表同源（与 `src/main.rs` 同构托管）
+    let ask_registry = Arc::new(AskRegistry::default());
+    app.manage(Arc::clone(&ask_registry));
+    app.manage(Arc::new(ChangeFlowControl::new(ask_registry)));
     app.manage(Arc::new(StopRegistry::new()));
     // 会话实时流注册表：与 `src/main.rs` 同型空表托管（两轨同源注入面）
     app.manage(Arc::new(SessionStreamRegistry::new()));
@@ -895,12 +899,20 @@ async fn answer后活面回运行态且失效通知到达() {
     .expect("补订应成功");
 
     guard.emit(super::RunUpdate::Ask {
-        question: "采用哪个方案?".to_owned(),
-        options: vec!["A".to_owned(), "B".to_owned()],
+        ask: AskPayload {
+            question: "采用哪个方案?".to_owned(),
+            options: vec!["A".to_owned(), "B".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
-    let waiter_guard = Arc::clone(&guard);
-    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
-    // 轮询至等待方登记（answer 的 Ok 即登记证明；上限防挂死）
+    // 应答通道 = 会话级 ask 注册表（键 = core session id，经 current_session 翻译）
+    guard.set_session(Some("core-1".to_owned()));
+    let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    ask_registry.register("core-1", tx);
+    let waiter = tokio::spawn(async move { rx.await.ok() });
+    // 轮询至应答受理（Ok 即登记证明；上限防挂死）
     let mut accepted = false;
     for _ in 0..1000 {
         match change_flow_answer_with(
@@ -923,8 +935,11 @@ async fn answer后活面回运行态且失效通知到达() {
     assert_eq!(
         waiter.await.unwrap().as_deref(),
         Some("采用方案 B"),
-        "应答原文抵达 walker"
+        "应答原文抵达等待方"
     );
+
+    // 停等态清理由 ask 执行体返回后单点执行（`AskPort::ask_resolved`）
+    control.resolve_ask(&root, CHANGE);
 
     let snapshot = control.snapshot(&root, CHANGE).expect("run 仍运行中");
     assert_eq!(snapshot.status, super::ChangeRunStatus::Running);
@@ -1807,8 +1822,12 @@ fn channel面五kind通知各自一拍且零载荷键() {
         },
     });
     guard.emit(super::RunUpdate::Ask {
-        question: "回溯到哪?".to_owned(),
-        options: vec!["proposal".to_owned()],
+        ask: AskPayload {
+            question: "回溯到哪?".to_owned(),
+            options: vec!["proposal".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
     guard.emit(super::RunUpdate::ConfirmWait {
         phase: "test-gen".to_owned(),
@@ -3654,4 +3673,777 @@ async fn 组合根装配_请求上抛通道原样透传且core依赖零反向边
         !manifest.contains("checks-runtime"),
         "core → infra 反向边零引入（design D17）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`AskPort for ChangeFlowSink` 两方法与双入口单通道
+// ---------------------------------------------------------------------------
+
+/// 取测用 app 的 ask 注册表 `Arc`（与 `main.rs` 同构托管）。
+fn app_ask_registry(app: &App<tauri::test::MockRuntime>) -> Arc<AskRegistry> {
+    Arc::clone(app.state::<Arc<AskRegistry>>().inner())
+}
+
+/// `ask_started` → publish Ask（正向，AC-2）：sink 的 `ask_started` 直调后
+/// 快照 `status == WaitingAsk`、`ask` 四字段逐字、订阅端收 `RunNotice::Ask`。
+#[test]
+fn change_flow_sink的ask_started广播_ask并切停等态() {
+    let env = Env::new("ask-start");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let _guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    let mut rx = control.subscribe(&env.root(), CHANGE).expect("订阅应成功");
+
+    let sink = ChangeFlowSink {
+        root: env.root(),
+        change_id: CHANGE.to_owned(),
+        control: Arc::clone(&control),
+    };
+    use orchestration::port::AskPort;
+    sink.ask_started(AskPayload {
+        question: "选哪个重试策略？".to_owned(),
+        options: vec!["指数退避".to_owned(), "固定间隔".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-1".to_owned()),
+    });
+
+    let snap = control.snapshot(&env.root(), CHANGE).expect("快照在场");
+    assert_eq!(
+        snap.status,
+        ChangeRunStatus::WaitingAsk,
+        "ask_started 切停等态"
+    );
+    let ask = snap.ask.expect("载荷在位");
+    assert_eq!(ask.question, "选哪个重试策略？");
+    assert_eq!(
+        ask.options,
+        vec!["指数退避".to_owned(), "固定间隔".to_owned()]
+    );
+    assert_eq!(ask.tool_call_id.as_deref(), Some("call_1"));
+    assert_eq!(ask.session_id.as_deref(), Some("core-1"));
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Ask)),
+        "广播为 Ask（新的停等已开始）"
+    );
+}
+
+/// `ask_resolved` → resolve_ask（正向，AC-2 / DD5）：`status` 回 `Running`、
+/// `ask` 槽清空、广播 `RunNotice::Step`（解除信号复用通用 kind）。
+#[test]
+fn change_flow_sink的ask_resolved清槽并广播step() {
+    let env = Env::new("ask-resolved");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let _guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    let sink = ChangeFlowSink {
+        root: env.root(),
+        change_id: CHANGE.to_owned(),
+        control: Arc::clone(&control),
+    };
+    use orchestration::port::AskPort;
+    sink.ask_started(AskPayload {
+        question: "q".to_owned(),
+        options: vec!["a".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-1".to_owned()),
+    });
+    let mut rx = control.subscribe(&env.root(), CHANGE).expect("订阅应成功");
+    // 清掉此前已入队的帧（订阅早于 ask_started 时无帧；保险起见排空）
+    while rx.try_recv().is_ok() {}
+
+    sink.ask_resolved();
+
+    let snap = control.snapshot(&env.root(), CHANGE).expect("快照在场");
+    assert_eq!(snap.status, ChangeRunStatus::Running, "状态回运行态");
+    assert!(snap.ask.is_none(), "ask 槽清空");
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "解除失效广播（通用 kind，不是 Ask）"
+    );
+}
+
+/// 无运行 run 时两方法静默（异常，miss 幂等）：`ask_started` 对不存在的 run 条目
+/// `publish` 静默、`ask_resolved` 对已除名 run 静默——均不 panic。
+#[test]
+fn change_flow_sink无run时两方法静默不panic() {
+    let env = Env::new("ask-miss");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let sink = ChangeFlowSink {
+        root: env.root(),
+        change_id: CHANGE.to_owned(),
+        control: Arc::clone(&control),
+    };
+    use orchestration::port::AskPort;
+    sink.ask_started(AskPayload {
+        question: "q".to_owned(),
+        options: vec!["a".to_owned()],
+        tool_call_id: None,
+        session_id: None,
+    });
+    sink.ask_resolved();
+    assert!(
+        control.snapshot(&env.root(), CHANGE).is_none(),
+        "无 run 时零快照（静默无操作）"
+    );
+}
+
+/// 双入口单通道（正向，AC-8）：`change_flow_answer_with` 与 `agent_answer`
+/// 各投一次——两命令都只投 `AskRegistry`（同一张表 take 语义：第一个成功、
+/// 第二个 Err）；`change_flow_answer` 内部零清理（清理只在 `resolve_ask`）。
+#[test]
+fn 双入口应答经同一注册表且先到者胜() {
+    let env = Env::new("ask-dual-entry");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let ask_registry = app_ask_registry(&app);
+    let guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    guard.set_session(Some("core-1".to_owned()));
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    });
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(ask_registry.register("core-1", tx), "预置登记");
+
+    // 入口一：流程侧命令（寻址两段翻译为会话 id 后转投）
+    change_flow_answer_with(
+        app.handle().clone(),
+        env.root(),
+        CHANGE.to_owned(),
+        "流程侧应答".to_owned(),
+    )
+    .expect("流程侧应答受理");
+    assert_eq!(rx.try_recv().expect("收到"), "流程侧应答");
+
+    // 命令内零清理：status / ask 槽仍未变（清理搬到执行体返回后的 resolve_ask）
+    let snap = control.snapshot(&env.root(), CHANGE).expect("快照在场");
+    assert_eq!(
+        snap.status,
+        ChangeRunStatus::WaitingAsk,
+        "change_flow_answer 内零清理"
+    );
+    assert!(snap.ask.is_some(), "ask 槽未变");
+
+    // 入口二：通用侧命令（同一张表已 take → Err）
+    let error = crate::commands::exec::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        env.root(),
+        "core-1".to_owned(),
+        "通用侧应答".to_owned(),
+    )
+    .expect_err("表已 take → Err");
+    assert_eq!(error, "当前无等待中的 ask", "两入口同表 take 语义");
+    assert!(rx.try_recv().is_err(), "只回灌一次");
+}
+
+/// 双入口同表（正向，反向序）：通用侧先应答成功后流程侧立即 Err——证两命令
+/// 指向同一张表（不是两份注册表）。
+#[test]
+fn 双入口反向序同样先到者胜() {
+    let env = Env::new("ask-dual-entry-rev");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let ask_registry = app_ask_registry(&app);
+    let guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    guard.set_session(Some("core-1".to_owned()));
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(ask_registry.register("core-1", tx), "预置登记");
+
+    crate::commands::exec::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        env.root(),
+        "core-1".to_owned(),
+        "通用侧先应答".to_owned(),
+    )
+    .expect("通用侧受理");
+    assert_eq!(rx.try_recv().expect("收到"), "通用侧先应答");
+
+    let error = change_flow_answer_with(
+        app.handle().clone(),
+        env.root(),
+        CHANGE.to_owned(),
+        "流程侧迟应答".to_owned(),
+    )
+    .expect_err("表已 take → Err");
+    assert_eq!(error, "当前无等待中的 ask", "同表 take 语义");
+}
+
+/// 三轮判定回归（异常，零改动）：未 `begin_run` → Err 携 change id；
+/// `begin_run` 后会话槽 None → Err「当前无等待中的 ask」（既有断言零改）。
+#[test]
+fn change_flow_answer三段判定回归() {
+    let env = Env::new("ask-three-branch");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+
+    // 第一段：无 run
+    let err = change_flow_answer_with(
+        app.handle().clone(),
+        env.root(),
+        CHANGE.to_owned(),
+        "应答".to_owned(),
+    )
+    .expect_err("无 run 应 Err");
+    assert!(err.contains(CHANGE), "携 change id: {err}");
+    assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
+
+    // 第二段：有 run 但会话槽 None
+    let _guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    let err = change_flow_answer_with(
+        app.handle().clone(),
+        env.root(),
+        CHANGE.to_owned(),
+        "应答".to_owned(),
+    )
+    .expect_err("会话槽 None 应 Err");
+    assert_eq!(err, "当前无等待中的 ask");
+}
+
+/// `resolve_ask` 与命令分离（正向，Y-1）：`change_flow_answer_with` 后快照
+/// `status == WaitingAsk`；显式 `resolve_ask` 后才回 `Running`（清理单点在
+/// 执行体侧，命令内零清理）。
+#[test]
+fn change_flow_answer后清理由resolve_ask单点执行() {
+    let env = Env::new("ask-cleanup-point");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let ask_registry = app_ask_registry(&app);
+    let guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    guard.set_session(Some("core-1".to_owned()));
+    guard.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    });
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(ask_registry.register("core-1", tx));
+
+    change_flow_answer_with(
+        app.handle().clone(),
+        env.root(),
+        CHANGE.to_owned(),
+        "应答".to_owned(),
+    )
+    .expect("受理");
+    assert_eq!(rx.try_recv().expect("收到"), "应答");
+    assert_eq!(
+        control
+            .snapshot(&env.root(), CHANGE)
+            .expect("快照在场")
+            .status,
+        ChangeRunStatus::WaitingAsk,
+        "命令内零清理"
+    );
+
+    control.resolve_ask(&env.root(), CHANGE);
+    let snap = control.snapshot(&env.root(), CHANGE).expect("快照在场");
+    assert_eq!(snap.status, ChangeRunStatus::Running, "单点清理后回运行态");
+    assert!(snap.ask.is_none(), "ask 槽清空");
+}
+
+/// 正文边界（边界，参数化 5 形态）：`change_flow_answer_with` 的 `answer`
+/// 逐字透传到接收方（流程侧零裁量）。
+#[test]
+fn change_flow_answer正文边界逐字透传() {
+    let env = Env::new("ask-answer-text");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let ask_registry = app_ask_registry(&app);
+
+    let texts = [
+        String::new(),
+        "   ".to_owned(),
+        "a\nb".to_owned(),
+        "a\0b🚀".to_owned(),
+        "字".repeat(1200),
+    ];
+    for text in texts {
+        let guard = control
+            .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+            .expect("登记应成功");
+        guard.set_session(Some("core-1".to_owned()));
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+        assert!(ask_registry.register("core-1", tx));
+
+        change_flow_answer_with(
+            app.handle().clone(),
+            env.root(),
+            CHANGE.to_owned(),
+            text.clone(),
+        )
+        .expect("受理");
+        assert_eq!(rx.try_recv().expect("收到"), text, "正文逐字透传");
+        guard.finish(ChangeRunStatus::Completed, None);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`ChangeFlowSink` 的 `AskPort` 面余下判据（装配序 / 停止路
+// 径不残留 / 终态不倒灌 / 载荷四形态）
+// ---------------------------------------------------------------------------
+
+/// 装配序（正向，D 事实校准 9）：sink 先于 `compose_turn` 建成并两次强转同一
+/// `Arc`（`RunEventSink` 给 worker、`AskPort` 给门面）——以 `change_flow_start_with`
+/// 起一轮后「事件出口」与「ask 出口」作用于**同一条 run 条目**为证：`session`
+/// 槽经 `RunEventSink::emit` 的 `SessionEvent` 写入后，`AskPort::ask_started` 的
+/// `publish` 命中的就是同一条（快照 `status` / `ask` 两半同时到位）。
+#[test]
+fn sink同一实例两trait视图作用于同一条run() {
+    use orchestration::port::AskPort;
+
+    let env = Env::new("ask-sink-order");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let _guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+
+    let sink = Arc::new(ChangeFlowSink {
+        root: env.root(),
+        change_id: CHANGE.to_owned(),
+        control: Arc::clone(&control),
+    });
+    let event_face: Arc<dyn RunEventSink> = Arc::clone(&sink) as Arc<dyn RunEventSink>;
+    let ask_face: Arc<dyn AskPort> = sink;
+
+    // 事件面：会话事件 → session 槽（停止寻址）先行同步
+    event_face.emit(RunUpdate::SessionEvent {
+        session_id: "core-sink".to_owned(),
+        event: ::agent::AgentEvent::stamp(
+            None,
+            0,
+            ::agent::AgentEventKind::Message {
+                role: ::agent::AgentMessageRole::User,
+                blocks: Vec::new(),
+                parent_tool_use_id: None,
+            },
+        ),
+    });
+    assert_eq!(
+        control.current_session(&env.root(), CHANGE).as_deref(),
+        Some("core-sink"),
+        "RunEventSink 面写入会话槽"
+    );
+
+    // ask 面：同一 sink 的 publish 命中同一条 run 条目
+    ask_face.ask_started(AskPayload {
+        question: "q".to_owned(),
+        options: vec!["a".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-sink".to_owned()),
+    });
+    let snap = control.snapshot(&env.root(), CHANGE).expect("快照在场");
+    assert_eq!(
+        snap.status,
+        ChangeRunStatus::WaitingAsk,
+        "ask 面落在同一条 run 上（两 trait 视图同实例）"
+    );
+    assert!(snap.ask.is_some(), "ask 载荷在同一快照内");
+}
+
+/// 停止路径不残留（组合，AC-5 / spec「停止期间停等态不残留」）：
+/// `ask_started` 置位停等态后 run 取消 → `ask_resolved` 执行 → 快照 `ask` 清空、
+/// `status` 回运行态（run 随后由 walker 收口为 stopped）；`AskRegistry` 该键由
+/// 轮收敛除名（其后 `answer` → `Err`）。
+#[test]
+fn 停止路径ask_resolved不残留停等态且注册表除名() {
+    let env = Env::new("ask-stop-no-residue");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let ask_registry = app_ask_registry(&app);
+    let guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    guard.set_session(Some("core-stop".to_owned()));
+
+    let sink = ChangeFlowSink {
+        root: env.root(),
+        change_id: CHANGE.to_owned(),
+        control: Arc::clone(&control),
+    };
+    use orchestration::port::AskPort;
+    sink.ask_started(AskPayload {
+        question: "q".to_owned(),
+        options: vec!["a".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-stop".to_owned()),
+    });
+    let (tx, _rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(ask_registry.register("core-stop", tx), "执行体侧登记等待方");
+
+    // 停止置位（run 取消）→ 执行体返回 → 清理单点执行
+    assert!(
+        control.request_stop(&env.root(), CHANGE),
+        "停止信号置位（run 在册）"
+    );
+    assert!(guard.cancelled(), "取消标志可见");
+    sink.ask_resolved();
+
+    let snap = control.snapshot(&env.root(), CHANGE).expect("快照在场");
+    assert!(snap.ask.is_none(), "停止后 ask 槽不残留");
+    assert_eq!(
+        snap.status,
+        ChangeRunStatus::Running,
+        "清理把停等态解回运行态（终态收口归 walker）"
+    );
+
+    // 轮收敛除名：模拟内核 converge 的兜底除名后应答必 Err
+    ask_registry.remove("core-stop");
+    assert!(
+        ask_registry
+            .answer("core-stop", "迟到应答".to_owned())
+            .is_err(),
+        "收敛除名后应答 Err（停等通道不残留）"
+    );
+    guard.finish(ChangeRunStatus::Stopped, None);
+    wait_for("停止后 run 除名", || {
+        control.snapshot(&env.root(), CHANGE).is_none()
+    });
+}
+
+/// 终态不被倒灌（异常，DD5）：`ask_started` 后先 `publish(Finished{Completed})`
+/// → `ask_resolved()` → `status` 仍 `Completed`（不回 `Running`）但 `ask` 槽被
+/// 无条件清空、广播仍发一条 `Step`（两半各自独立成立）。
+#[test]
+fn sink的ask_resolved不倒灌已收口终态但清槽() {
+    let env = Env::new("ask-terminal");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+
+    let sink = ChangeFlowSink {
+        root: env.root(),
+        change_id: CHANGE.to_owned(),
+        control: Arc::clone(&control),
+    };
+    use orchestration::port::AskPort;
+    sink.ask_started(AskPayload {
+        question: "q".to_owned(),
+        options: vec!["a".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-1".to_owned()),
+    });
+    let mut rx = control.subscribe(&env.root(), CHANGE).expect("订阅应成功");
+    while rx.try_recv().is_ok() {}
+
+    // 终态先到（walker 收口；快照 status 落 Completed）
+    guard.emit(RunUpdate::Finished {
+        status: ChangeRunStatus::Completed,
+        reason: None,
+    });
+    sink.ask_resolved();
+
+    let snap = control.snapshot(&env.root(), CHANGE).expect("快照仍在册");
+    assert_eq!(
+        snap.status,
+        ChangeRunStatus::Completed,
+        "终态不被倒灌（Finished 先到即不回 Running）"
+    );
+    assert!(snap.ask.is_none(), "ask 槽无条件清空（两半独立成立）");
+    // 广播序：`Finished` 投影（终态）在前，`Step`（解除失效）在后
+    let notices: Vec<RunNotice> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(
+        matches!(notices.first(), Some(RunNotice::Finished)),
+        "终态通知先出，实际: {notices:?}"
+    );
+    assert!(
+        matches!(notices.last(), Some(RunNotice::Step)),
+        "失效信号仍发一条（通用 kind），实际: {notices:?}"
+    );
+    assert_eq!(notices.len(), 2, "恰两帧（终态 + 解除失效）");
+}
+
+/// 载荷边界（边界，组合 4 形态）：`ask_started` 的 `AskPayload` 取
+/// `question=""` / `options=[]` / 1000 元素 / 两 id 为 `None` → 快照逐字保真、
+/// `status` 仍切 `WaitingAsk`（sink 不裁量内容；`minItems` 的裁决在工具校验）。
+#[test]
+fn sink的ask_started载荷四形态逐字保真() {
+    let env = Env::new("ask-payload-shapes");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    use orchestration::port::AskPort;
+
+    let huge: Vec<String> = (0..1000).map(|index| format!("选项{index}")).collect();
+    let cases = [
+        ("空题空选", String::new(), Vec::new(), None, None),
+        ("千元素", "q".to_owned(), huge.clone(), None, None),
+        (
+            "特殊字符",
+            "a\0b🚀\n换行".to_owned(),
+            vec!["字".repeat(1200)],
+            Some(String::new()),
+            Some("字".repeat(1200)),
+        ),
+        (
+            "两 id 在位",
+            "q".to_owned(),
+            vec!["a".to_owned()],
+            Some("call_1".to_owned()),
+            Some("core-1".to_owned()),
+        ),
+    ];
+
+    for (tag, question, options, tool_call_id, session_id) in cases {
+        let guard = control
+            .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+            .expect("登记应成功");
+        let sink = ChangeFlowSink {
+            root: env.root(),
+            change_id: CHANGE.to_owned(),
+            control: Arc::clone(&control),
+        };
+        sink.ask_started(AskPayload {
+            question: question.clone(),
+            options: options.clone(),
+            tool_call_id: tool_call_id.clone(),
+            session_id: session_id.clone(),
+        });
+
+        let snap = control.snapshot(&env.root(), CHANGE).expect("快照在场");
+        assert_eq!(
+            snap.status,
+            ChangeRunStatus::WaitingAsk,
+            "{tag}: sink 不裁量内容，仍切停等态"
+        );
+        let ask = snap.ask.expect("载荷在位");
+        assert_eq!(ask.question, question, "{tag}: 题干逐字保真");
+        assert_eq!(ask.options, options, "{tag}: 选项逐项保真（不截断）");
+        assert_eq!(ask.tool_call_id, tool_call_id, "{tag}: tool_call_id 逐字");
+        assert_eq!(ask.session_id, session_id, "{tag}: session_id 逐字");
+        guard.finish(ChangeRunStatus::Completed, None);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：装配序端到端（sink 两 trait 视图 + 组合根注入真贯通）
+//
+// 直调 sink 的用例证不了「组合根真的把 ask_port 交给了门面」；本节以脚本化 SSE
+// provider 桩让 flow 档的 `AskUserQuestion` 真的进入执行体——`ask_started` /
+// `ask_resolved` 两拍真的落在 run 快照上，即装配序（sink 先建、两次强转、port
+// 注入）在真实链路上成立。
+// ---------------------------------------------------------------------------
+
+/// sdk 默认实例 fixture（provider 指向脚本化桩端点）。
+fn seed_sdk_instance_at(app: &App<tauri::test::MockRuntime>, base_url: &str, tag: &str) {
+    let stores = app.state::<WorkspaceStores>();
+    let provider = stores
+        .inner()
+        .global()
+        .upsert_agent_provider(AgentProviderRecord::new(
+            format!("{tag}供应"),
+            AgentProviderProtocol::Openai,
+            base_url.to_owned(),
+            "sk-flow-ask".to_owned(),
+            AgentModelTiers {
+                high: "m-high".to_owned(),
+                medium: "m-medium".to_owned(),
+                low: "m-low".to_owned(),
+            },
+            None,
+            None,
+        ))
+        .expect("落 provider fixture")
+        .id;
+    let id = stores
+        .inner()
+        .global()
+        .upsert_agent_instance(AgentInstanceRecord::new(
+            format!("{tag}实例"),
+            AgentEngineKind::Sdk,
+            Some(provider),
+        ))
+        .expect("落 sdk 实例 fixture")
+        .id;
+    stores
+        .inner()
+        .global()
+        .set_default_agent_instance(id)
+        .expect("置默认实例 fixture");
+}
+
+/// 轮询至谓词成立（异步版：current-thread 运行时下不得同步阻塞睡，否则后台
+/// walker 永不推进）。
+async fn wait_for_async(what: &str, mut probe: impl FnMut() -> bool) {
+    for _ in 0..15000 {
+        if probe() {
+            return;
+        }
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    panic!("等待{what}超时（30s）");
+}
+
+/// 装配序端到端（组合，AC-2）：`change_flow_start_with` 起一轮 → implement 相位
+/// 的 executor 会话（flow 档）调用 `AskUserQuestion` 进入执行体 → 快照
+/// `status == WaitingAsk` 且 `ask.toolCallId` 为本次 tool_use id（`ask_started`
+/// 经组合根注入的 `ChangeFlowSink` 抵达 `control.publish`）；随后
+/// `change_flow_answer` 投递成功、执行体返回触发 `ask_resolved` 清槽。
+///
+/// 本行使「sink 先建 + 两次强转 + `Some(ask_port)` 注入组合根」从装配声明变为
+/// 真实链路观测（直调 sink 的用例只证两方法语义，证不了注入贯通）。
+#[tokio::test]
+async fn 装配序端到端_流程档ask_started真的抵达快照且应答可投() {
+    let env = Env::new("ask-sink-e2e");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
+    // 路由相位种到 implement 之前：起跑即进 implement 的 executor 会话
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    for (index, phase) in ["initialize", "proposal", "dev-design", "test-design"]
+        .iter()
+        .enumerate()
+    {
+        let started = store
+            .start_change_phase(CHANGE, phase, STARTED_AT + (index as i64) * 1000)
+            .expect("开相种子应成功");
+        store
+            .log_change_phase(&workflow::state::PhaseLogCommand {
+                change_id: CHANGE.to_owned(),
+                phase: (*phase).to_owned(),
+                verdict: workflow::model::Verdict::Pass,
+                report: "种子通过".to_owned(),
+                skipped: false,
+                checklist: Vec::new(),
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+                start_at: Some(started.start_at),
+                timestamp: started.start_at + 500,
+            })
+            .expect("落账种子应成功");
+    }
+    let provider = crate::commands::ask_test_support::AskScriptedProvider::new(
+        "flow-e2e",
+        "回溯到哪个相位？",
+        &["proposal", "dev-design"],
+    );
+    seed_sdk_instance_at(&app, &provider.base_url, "流程应答");
+
+    let (channel, captured) = capturing_channel();
+    change_flow_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        CHANGE.to_owned(),
+        true,
+    )
+    .await
+    .expect("受理");
+
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    // 等执行体进入阻塞：快照切 WaitingAsk 且载荷四字段到位
+    wait_for_async("流程档 ask 抵达快照", || {
+        control
+            .snapshot(&root, CHANGE)
+            .is_some_and(|snapshot| snapshot.ask.is_some())
+    })
+    .await;
+    let snapshot = control.snapshot(&root, CHANGE).expect("快照在场");
+    assert_eq!(
+        snapshot.status,
+        ChangeRunStatus::WaitingAsk,
+        "ask_started 经注入的 sink 切停等态"
+    );
+    let ask = snapshot.ask.expect("载荷在位");
+    assert_eq!(ask.question, "回溯到哪个相位？", "题干逐字");
+    assert_eq!(ask.options, vec!["proposal", "dev-design"], "选项逐项");
+    assert!(
+        ask.tool_call_id.as_deref().is_some_and(|id| !id.is_empty()),
+        "tool_call_id 由执行体携带，实际: {:?}",
+        ask.tool_call_id
+    );
+    assert_eq!(
+        ask.session_id.as_deref(),
+        control.current_session(&root, CHANGE).as_deref(),
+        "载荷 session_id == run 的会话槽（同一 source 的 core 会话 id）"
+    );
+    // 通知面同拍到达（订阅端收 Ask）
+    wait_for_async("ask 通知到达", || {
+        captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .any(|value| value["ipc"] == "ask")
+    })
+    .await;
+
+    // 应答投递（三段判定的第二段之后）：经 run 会话槽转投注册表
+    let mut accepted = false;
+    for _ in 0..2000 {
+        match change_flow_answer_with(
+            app.handle().clone(),
+            root.clone(),
+            CHANGE.to_owned(),
+            "proposal".to_owned(),
+        ) {
+            Ok(()) => {
+                accepted = true;
+                break;
+            }
+            Err(error) => {
+                assert_eq!(error, "当前无等待中的 ask", "仅登记未完成时重试: {error}");
+                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        }
+    }
+    assert!(accepted, "流程侧应答受理");
+
+    // 执行体返回 → ask_resolved → 槽清空、状态解回运行态
+    wait_for_async("ask_resolved 清槽", || {
+        control
+            .snapshot(&root, CHANGE)
+            .is_some_and(|snapshot| snapshot.ask.is_none())
+    })
+    .await;
+    assert!(
+        !matches!(
+            control
+                .snapshot(&root, CHANGE)
+                .map(|snapshot| snapshot.status),
+            Some(ChangeRunStatus::WaitingAsk)
+        ),
+        "停等态已解除"
+    );
+    // 收尾：停止本 run（后续相位由既有用例承载，不在本用例延长驱动窗口）
+    change_flow_stop_with(app.handle().clone(), root, CHANGE.to_owned()).expect("停止受理");
 }

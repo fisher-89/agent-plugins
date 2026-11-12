@@ -107,7 +107,11 @@ export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element
       {showRaw ? (
         <AgentRawStream events={session.events} />
       ) : (
-        <AgentSessionView session={session} data-testid="agent-timeline" />
+        <AgentSessionView
+          session={session}
+          askAnswer={{ onAnswer: session.answer }}
+          data-testid="agent-timeline"
+        />
       )}
       <AgentRunHistory root={root} state={history} source={source} onSourceChange={setSource} />
     </div>

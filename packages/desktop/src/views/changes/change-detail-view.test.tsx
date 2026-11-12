@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import type * as DetailDrawerModule from '@/views/changes/flow/detail-drawer';
+
 import type {
   ActiveRunView,
   AgentEvent,
@@ -42,6 +44,40 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 // 与两参调用形态经 `spy: true` 自动 mock 观测（ESM 命名空间不支持 `vi.spyOn`；
 // 自动 mock 保留原实现——调用次数可观测、行为零替换）
 vi.mock(import('./flow/attachments'), { spy: true });
+
+// ---------------------------------------------------------------------------
+// 探针装置（保留真实实现，仅记录 props）：在 `DetailDrawer` 边界记录下游收到的
+// `askAnswer` 引用与整份 props——“透传是否同引用、既有 props 取值是否变形”只能
+// 由边界实收值判定（DOM 与调用次数反推不出引用相等）。`importOriginal` 保留抽屉
+// 内容 / 会话面板等全部真实实现，探针零行为、只记录。
+// ---------------------------------------------------------------------------
+
+const { askAnswerProbe, drawerPropsLog } = vi.hoisted(() => ({
+  askAnswerProbe: { refs: [] as unknown[] },
+  drawerPropsLog: [] as unknown[],
+}));
+
+/** 探针实收的 `DetailDrawer` props 观测面（只取断言读到的字段）。 */
+interface ProbedDrawerProps {
+  askAnswer?: { onAnswer: unknown; pendingToolCallId?: string | null };
+  selection: { scope: string; nodeId?: string } | null;
+  graph: { columns: { id: string }[]; nodes: { id: string; sessionId: string | null }[] };
+  materials: { columnDocs: Record<string, unknown[]> };
+  root: string | null;
+  changeId: string;
+  name: string;
+  sessionRefreshKey?: number;
+}
+
+vi.mock('@/views/changes/flow/detail-drawer', async (importOriginal) => {
+  const actual = await importOriginal<typeof DetailDrawerModule>();
+  function ProbedDetailDrawer(props: Parameters<typeof actual.DetailDrawer>[0]) {
+    askAnswerProbe.refs.push(props.askAnswer ?? null);
+    drawerPropsLog.push(props);
+    return <actual.DetailDrawer {...props} />;
+  }
+  return { ...actual, DetailDrawer: ProbedDetailDrawer };
+});
 
 // ---------------------------------------------------------------------------
 // 详情取数 fixture（useChangeDetail 的进程边界应答面）：get_change_detail 与
@@ -3005,5 +3041,482 @@ describe('ChangeDetailView：archiRoot 派生边界（挂载点 B 回落口径�
 
     await waitFor(() => expect(archiGraphRoots()).toEqual([ROOT]));
     expect(archiGraphRoots()).not.toContain('C:\\demo\\alpha\\.worktrees\\add-feature');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`askAnswer` 合成（activeRun.ask.toolCallId → 抽屉内活卡）
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
+  let transcriptFixture: Record<string, AgentEvent[]>;
+  let detailFixture: Record<string, SessionSummary | null>;
+
+  const ASK_SESSION = 'ses-ask-live';
+
+  /** ask 工具调用消息（活卡判据面：tool_use id 与 activeRun.ask.toolCallId 对账）。 */
+  function askEvent(seq: number, toolCallId: string): AgentEvent {
+    return {
+      seq,
+      timestampMs: 1727000000000 + seq,
+      kind: 'message',
+      role: 'assistant',
+      blocks: [
+        {
+          kind: 'toolUse',
+          id: toolCallId,
+          name: 'AskUserQuestion',
+          input: { question: '回溯到哪个相位？', options: ['proposal', 'dev-design'] },
+        },
+      ],
+      parentToolUseId: null,
+    };
+  }
+
+  beforeEach(() => {
+    activeRunResult = null;
+    transcriptFixture = {};
+    detailFixture = {};
+    invokeMock.mockImplementation(
+      (command: string, args: { sourceRef?: string; sessionId?: string } = {}) => {
+        if (command === 'get_change_detail' || command === 'read_artifact') {
+          return detailIpc(command, args);
+        }
+        if (command === 'session_detail') {
+          return Promise.resolve(detailFixture[args.sessionId ?? ''] ?? null);
+        }
+        if (command === 'agent_session_transcript') {
+          return Promise.resolve(transcriptFixture[args.sessionId ?? ''] ?? []);
+        }
+        return Promise.resolve(null);
+      },
+    );
+  });
+
+  afterEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) =>
+      detailIpc(command, args),
+    );
+  });
+
+  /** 运行中 run 的 executor 节点 + 转录含 ask 调用（活卡两半齐备）。 */
+  function loadLiveAskRun(toolCallId: string | null): void {
+    loadActiveRun(
+      activeRunView({
+        status: 'waitingAsk',
+        ask: {
+          question: '回溯到哪个相位？',
+          options: ['proposal', 'dev-design'],
+          toolCallId,
+          sessionId: ASK_SESSION,
+        },
+        nodes: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: ASK_SESSION,
+            detail: null,
+            instanceNo: 0,
+            outputRef: null,
+            startedAt: 1_727_000_000_000,
+            endedAt: null,
+            tokenInput: null,
+            tokenOutput: null,
+          },
+        ],
+      }),
+    );
+    detailFixture = {
+      [ASK_SESSION]: transcriptSession(ASK_SESSION, `${CHANGE_ID}/implement/executor/1`),
+    };
+    transcriptFixture = { [ASK_SESSION]: [askEvent(0, toolCallId ?? 'call_x')] };
+  }
+
+  it('activeRun.ask.toolCallId 命中 → 抽屉内 ask 卡活卡可点即 change_flow_answer（自由文本应答）', async () => {
+    loadLiveAskRun('call_ask_1');
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+    fireEvent.click(within(panel).getAllByTestId('ask-answer-option')[1] as HTMLElement);
+
+    expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
+      root: ROOT,
+      id: CHANGE_ID,
+      answer: 'dev-design',
+    });
+  });
+
+  it('错误面归因（DD13）：change_flow_answer reject → run.error 落值并经控制面板错误行呈现', async () => {
+    loadLiveAskRun('call_ask_err');
+    const baseImpl = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'change_flow_answer') {
+        return Promise.reject('当前无等待中的 ask');
+      }
+      return baseImpl ? baseImpl(command, args) : Promise.resolve(null);
+    });
+
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+    fireEvent.click(within(panel).getAllByTestId('ask-answer-option')[0] as HTMLElement);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('run-error').textContent).toContain('当前无等待中的 ask'),
+    );
+  });
+
+  it('activeRun.ask.toolCallId = null（旧线 / 无条件载荷）→ 抽屉内全静态（可接受降级不误呈）', async () => {
+    loadLiveAskRun(null);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+  });
+
+  it('引用稳定（DD12）：run.answer 与 toolCallId 均未变时 re-render → 下游卡片零重建', async () => {
+    loadLiveAskRun('call_ask_stable');
+    askAnswerProbe.refs.length = 0;
+    const view = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+    const firstRefs = askAnswerProbe.refs.filter((ref) => ref !== null) as {
+      onAnswer: unknown;
+    }[];
+    expect(firstRefs.length, '活卡渲染拍数').toBeGreaterThan(0);
+    // 同一次渲染内合成的 `askAnswer` 引用唯一（虚拟项与吸附层共用同一对象）
+    for (const ref of firstRefs) expect(ref.onAnswer).toBe(firstRefs[0]?.onAnswer);
+
+    // 父层重渲染（同 fixture 换引用）：`askAnswer` 的 `useMemo` 依赖
+    // `[run.answer, activeRun?.ask?.toolCallId]` 均未变 ⇒ 合成引用稳定
+    // （引用相等判据：重渲染后每一拍的 `onAnswer` 仍是同一引用——不新建实现、
+    // 不击穿 `AgentMessages` 的 memo 依赖数组）
+    askAnswerProbe.refs.length = 0;
+    view.rerender(
+      <MemoryRouter initialEntries={[`/changes/${CHANGE_ID}`]}>{detailTree(ROOT)}</MemoryRouter>,
+    );
+    await act(async () => {});
+    const afterRefs = askAnswerProbe.refs.filter((ref) => ref !== null) as {
+      onAnswer: unknown;
+    }[];
+    expect(afterRefs.length, '重渲染后仍有拍').toBeGreaterThan(0);
+    for (const ref of afterRefs) expect(ref.onAnswer).toBe(firstRefs[0]?.onAnswer);
+
+    // 交互面仍可单次投递（引用稳定未把闭包冻结在旧值上）
+    const buttons = await within(panel).findAllByTestId('ask-answer-option');
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer')).toHaveLength(1);
+  });
+
+  it('引用稳定（DD12）：activeRun 变化但 toolCallId 不变 → onAnswer 不重建（只依赖 run.answer）', async () => {
+    loadLiveAskRun('call_ask_same');
+    askAnswerProbe.refs.length = 0;
+    const view = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+    const before = askAnswerProbe.refs.filter((ref) => ref !== null)[0] as {
+      onAnswer: unknown;
+    };
+
+    // activeRun 快照换引用（同一 toolCallId，新增节点字段噪声）→ `onAnswer` 不重建
+    askAnswerProbe.refs.length = 0;
+    loadActiveRun(
+      activeRunView({
+        status: 'waitingAsk',
+        ask: {
+          question: '回溯到哪个相位？',
+          options: ['proposal', 'dev-design'],
+          toolCallId: 'call_ask_same',
+          sessionId: ASK_SESSION,
+        },
+        nodes: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: ASK_SESSION,
+            detail: null,
+            instanceNo: 0,
+            outputRef: null,
+            startedAt: 1_727_000_000_000,
+            endedAt: null,
+            tokenInput: 1,
+            tokenOutput: 2,
+          },
+        ],
+      }),
+    );
+    await act(async () => {
+      lastChannel().push({ ipc: 'step' });
+    });
+    await waitFor(() => expect(askAnswerProbe.refs.length).toBeGreaterThan(0));
+    for (const ref of askAnswerProbe.refs as { onAnswer: unknown }[]) {
+      expect(ref.onAnswer).toBe(before.onAnswer);
+    }
+    // 视图同步重渲染以满足未用变量检查（view 仍在用）
+    expect(view.container).toBeTruthy();
+  });
+
+  /** 运行中 executor 步节点（会话转录寻址面）。 */
+  function askRunNode(): ActiveRunView['nodes'][number] {
+    return {
+      phase: 'implement',
+      attempt: 1,
+      step: 'executor',
+      status: 'running',
+      sessionId: ASK_SESSION,
+      detail: null,
+      instanceNo: 0,
+      outputRef: null,
+      startedAt: 1_727_000_000_000,
+      endedAt: null,
+      tokenInput: null,
+      tokenOutput: null,
+    };
+  }
+
+  it('双端同步（AC-2）：RunUpdate::Ask 推入 → 详情 AskCard 与抽屉活卡同时呈现；Step 通知 → 两处同时收起', async () => {
+    loadActiveRun(activeRunView({ status: 'running', ask: null, nodes: [askRunNode()] }));
+    detailFixture = {
+      [ASK_SESSION]: transcriptSession(ASK_SESSION, `${CHANGE_ID}/implement/executor/1`),
+    };
+    transcriptFixture = { [ASK_SESSION]: [askEvent(0, 'call_sync_1')] };
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+    const panel = await screen.findByTestId('session-transcript-panel');
+    // 起始无停等：AskCard 不在场、抽屉内 ask 卡静态
+    expect(screen.queryByTestId('run-ask-card')).toBeNull();
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+
+    // 通道推入 ask 中断（统一视图重查后 activeRun.ask 到位）→ 两处同时呈现
+    loadActiveRun(
+      activeRunView({
+        status: 'waitingAsk',
+        ask: {
+          question: '回溯到哪个相位？',
+          options: ['proposal', 'dev-design'],
+          toolCallId: 'call_sync_1',
+          sessionId: ASK_SESSION,
+        },
+        nodes: [askRunNode()],
+      }),
+    );
+    await act(async () => {
+      lastChannel().push({ ipc: 'ask' });
+    });
+    await waitFor(() => expect(screen.getByTestId('run-ask-card')).toBeTruthy());
+    expect(screen.getByTestId('run-status').textContent).toBe('等待应答');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+
+    // 经 AskCard 应答 → change_flow_answer（流程侧命令）
+    fireEvent.click(screen.getAllByTestId('run-ask-option')[0] as HTMLElement);
+    expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
+      root: ROOT,
+      id: CHANGE_ID,
+      answer: 'proposal',
+    });
+
+    // 执行体返回 → 快照 ask 清空 + RunNotice::Step → 两处同时收起
+    loadActiveRun(activeRunView({ status: 'running', ask: null, nodes: [askRunNode()] }));
+    await act(async () => {
+      lastChannel().push({ ipc: 'step' });
+    });
+    await waitFor(() => expect(screen.queryByTestId('run-ask-card')).toBeNull());
+    expect(screen.getByTestId('run-status').textContent).toBe('运行中');
+    // 抽屉侧：统一视图重查后选中态复位（面板退场），活卡随 ask 槽清空而无处可活
+    await waitFor(() => expect(screen.queryByTestId('session-transcript-panel')).toBeNull());
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    // 应答只投一次（两处入口不可双投）
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer')).toHaveLength(1);
+  });
+
+  it('pendingToolCallId 取自统一视图：两 ask 部件场景仅当前条活（匹配 / 不匹配两形态）', async () => {
+    // 转录含两 ask 调用（call_cur / call_other），activeRun.ask.toolCallId = call_cur
+    loadLiveAskRun('call_cur');
+    transcriptFixture = {
+      [ASK_SESSION]: [
+        {
+          seq: 0,
+          timestampMs: 1_727_000_000_000,
+          kind: 'message',
+          role: 'assistant',
+          blocks: [
+            {
+              kind: 'toolUse',
+              id: 'call_cur',
+              name: 'AskUserQuestion',
+              input: { question: '当前问', options: ['甲', '乙'] },
+            },
+            {
+              kind: 'toolUse',
+              id: 'call_other',
+              name: 'AskUserQuestion',
+              input: { question: '历史问', options: ['丙', '丁'] },
+            },
+          ],
+          parentToolUseId: null,
+        },
+      ],
+    };
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    // 仅 call_cur 的选项是活卡按钮（call_other 保持静态只读行）
+    const buttons = await within(panel).findAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
+    expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2);
+
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
+      root: ROOT,
+      id: CHANGE_ID,
+      answer: '甲',
+    });
+  });
+
+  it('无运行 run（activeRun null）→ pendingToolCallId 为 null，抽屉内 ask 卡全静态', async () => {
+    loadActiveRun(null);
+    detailFixture = {
+      [ASK_SESSION]: transcriptSession(ASK_SESSION, `${CHANGE_ID}/implement/executor/1`),
+    };
+    transcriptFixture = { [ASK_SESSION]: [askEvent(0, 'call_stale')] };
+    renderDetail({
+      detail: detail({
+        runs: [
+          finishedRun({
+            nodes: [
+              {
+                instanceNo: 0,
+                phase: 'implement',
+                attempt: 1,
+                step: 'executor',
+                status: 'passed',
+                sessionId: ASK_SESSION,
+                detail: null,
+                outputRef: null,
+                startedAt: 1_727_000_000_000,
+                endedAt: null,
+                tokenInput: null,
+                tokenOutput: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node').length).toBeGreaterThan(0));
+    // 库读史节点的图上 id 前缀为 run:<runId>（activeRun 缺席时无 run-1727 段）
+    const node = screen
+      .getAllByTestId(/^rf__node-run:/)
+      .find((element) => element.getAttribute('data-id')?.includes('implement'));
+    fireEvent.click(node ?? (screen.getAllByTestId(/^rf__node-run:/)[0] as HTMLElement));
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    // 历史重放零应答 invoke
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer')).toHaveLength(0);
+  });
+
+  it('抽屉未选中任何节点：askAnswer 组装完成但下游零消费（零卡、零 invoke）', async () => {
+    loadLiveAskRun('call_unused');
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+
+    // 未点任何节点 → 抽屉无会话面板，组装好的 askAnswer 零消费
+    expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer')).toHaveLength(0);
+
+    // 选中会话后恢复正常（同一 askAnswer 组装面生效）
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+  });
+
+  it('props 链不变形：三层同名透传 askAnswer（同引用抵达抽屉），其余七项既有 props 逐项取值不变', async () => {
+    loadLiveAskRun('call_chain');
+    drawerPropsLog.length = 0;
+    const view = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+
+    // 只取判活 id 命中的拍（装配早期 `activeRun` 未到，`pendingToolCallId` 为 null）
+    const liveRecords = (): ProbedDrawerProps[] =>
+      (drawerPropsLog as ProbedDrawerProps[]).filter(
+        (props) => props.askAnswer?.pendingToolCallId === 'call_chain',
+      );
+    await waitFor(() => expect(liveRecords().length).toBeGreaterThan(0));
+    // 产物挂载落定后才取观测拍（`materials` 由 read_artifact 应答拼装，早于落定的拍跳过）
+    await waitFor(() =>
+      expect(Object.keys(liveRecords().at(-1)!.materials.columnDocs)).toEqual(['col:proposal']),
+    );
+    const settled = liveRecords().at(-1)!;
+
+    // 七项既有 props 逐项取值比对（探针实收值 = fixture 出线值；无改名、无包装）
+    expect(settled.root).toBe(ROOT);
+    expect(settled.changeId).toBe(CHANGE_ID);
+    expect(settled.name).toBe('add-feature');
+    expect(typeof settled.sessionRefreshKey).toBe('number');
+    expect(settled.graph.columns.map((column) => column.id)).toEqual(
+      PIPELINE.map((phase) => `col:${phase}`),
+    );
+    const askNode = settled.graph.nodes.find((node) => node.sessionId === ASK_SESSION);
+    expect(askNode, '点击节点的会话身份在 graph 内').toBeTruthy();
+    expect(settled.selection).toEqual({ scope: 'node', nodeId: askNode?.id });
+
+    // 三层同名透传（DetailLoaded 组装 → DetailTabs → DetailContent → DetailDrawer）：
+    // 父层重渲染后抵达抽屉的 `askAnswer` 仍是**同一对象**——任一透传层新造对象 /
+    // 改名包装即红（探针是最外层可观测边界）
+    drawerPropsLog.length = 0;
+    view.rerender(
+      <MemoryRouter initialEntries={[`/changes/${CHANGE_ID}`]}>{detailTree(ROOT)}</MemoryRouter>,
+    );
+    await act(async () => {});
+    await waitFor(() => expect(liveRecords().length).toBeGreaterThan(0));
+    for (const props of liveRecords()) {
+      expect(props.askAnswer, '三层透传后仍是同一对象').toBe(settled.askAnswer);
+    }
+  });
+
+  it('应答正文边界：超长文本逐字透传给 change_flow_answer（本层零 trim）', async () => {
+    loadLiveAskRun('call_long');
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+
+    // 自由文本（超长 1200 字）：提交侧不做长度裁剪，本层原样进命令参数
+    const long = '字'.repeat(1200);
+    const input = within(panel).getByTestId('ask-answer-input');
+    fireEvent.change(input, { target: { value: long } });
+    fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
+
+    const call = invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer').at(-1);
+    expect(call?.[1]).toEqual({ root: ROOT, id: CHANGE_ID, answer: long });
   });
 });

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use agent::AskRegistry;
 use foundation::cancel::CancelFlag;
 use tokio::sync::{broadcast, oneshot, watch};
 
@@ -44,20 +45,25 @@ struct RunEntry {
     /// 当前 WorkerAgent 会话 id 槽（停止寻址经既有 StopRegistry）
     session: Mutex<Option<String>>,
     confirm_tx: Mutex<Option<oneshot::Sender<(bool, bool)>>>,
-    answer_tx: Mutex<Option<oneshot::Sender<String>>>,
     updates: broadcast::Sender<RunNotice>,
 }
 
 /// run 控制注册表：命令层读写、walker 持 [`RunGuard`] 写。
-#[derive(Default)]
 pub struct ChangeFlowControl {
     runs: Mutex<HashMap<(String, String), RunEntry>>,
+    /// ask 应答注册表（壳层托管、组合根注入）：应答经 `current_session` 翻译
+    /// 成会话 id 后转投，命令层不再持有第二套通道
+    ask_registry: Arc<AskRegistry>,
 }
 
 impl ChangeFlowControl {
-    /// 空注册表。
-    pub fn new() -> Self {
-        Self::default()
+    /// 空注册表。ask 注册表由壳层托管后注入，MUST NOT 内部自铸——否则与引擎
+    /// 侧登记的表不是同一张（应答永远 miss）。
+    pub fn new(ask_registry: Arc<AskRegistry>) -> Self {
+        Self {
+            runs: Mutex::new(HashMap::new()),
+            ask_registry,
+        }
     }
 
     /// 发起登记：同 `(root, change_id)` 已有 run → `Err`（并行冲突；异
@@ -100,7 +106,6 @@ impl ChangeFlowControl {
                 cancel_flag: CancelFlag::never(),
                 session: Mutex::new(None),
                 confirm_tx: Mutex::new(None),
-                answer_tx: Mutex::new(None),
                 updates,
             },
         );
@@ -176,12 +181,9 @@ impl ChangeFlowControl {
                         accumulate_node(entry, step.clone());
                     }
                     RunUpdate::Edge { edge } => entry.edges.push(edge.clone()),
-                    RunUpdate::Ask { question, options } => {
+                    RunUpdate::Ask { ask } => {
                         entry.status = ChangeRunStatus::WaitingAsk;
-                        entry.ask = Some(AskPayload {
-                            question: question.clone(),
-                            options: options.clone(),
-                        });
+                        entry.ask = Some(ask.clone());
                     }
                     RunUpdate::ConfirmWait { phase, archive } => {
                         entry.phase = Some(phase.clone());
@@ -215,26 +217,49 @@ impl ChangeFlowControl {
         }
     }
 
-    /// ask 应答回流：walker 以应答文本 Continue 决策会话重出封闭集；无运行
-    /// run / 无等待方 → `Err`。通道 take 成功即视为「应答受理」——停等态解除
-    /// 先于 send（`Finished` 可能被唤醒后抢先 emit，清理若落在其后会把终态倒
-    /// 灌回运行中），send 失败（walker 已退出）仍按受理返回 Ok 并广播失效信号。
+    /// ask 应答回流：**通道唯一**——经 run 的当前会话 id 转投会话级 ask 注册表
+    ///（两段寻址由本方法翻译）。命令只做投递：零状态机操作、零通知广播、零停等
+    /// 态清理（清理单点在 ask 执行体返回后的 [`AskPort`](crate::port::AskPort)
+    /// 实现内）。
     ///
-    /// 失效信号复用 `RunNotice::Step`（既有「状态已变、请重查」通用 kind）：
-    /// `Ask` / `ConfirmWait` 在通知面被读作「新停等已开始」（前端不分流，但
-    /// 测试与外部订阅以此 kind 驱动应答回路——重放同 kind 会让订阅方对已解除
-    /// 的等待再答一次）。
+    /// 三段判定：无运行 run → `Err`（携 change id）；有 run 但无会话 / 无等待方
+    /// → `Err`（「当前无等待中的 ask」）；命中 → 投递原文。锁序取「先读后投」：
+    /// `runs` 锁与 ask 注册表锁绝不嵌套（反向嵌套会在引擎侧 `ask_started` →
+    /// `publish` 取 `runs` 锁时死锁）。
     pub fn answer(&self, root: &str, change_id: &str, text: String) -> Result<(), String> {
-        let (sender, updates) = self.accept_pending(
-            root,
-            change_id,
-            |entry| &entry.answer_tx,
-            ChangeRunStatus::WaitingAsk,
-            "当前无等待中的 ask",
-        )?;
-        let _ = sender.send(text);
+        let session_id = {
+            let runs = self.runs.lock().expect("run 注册表锁不可中毒");
+            let entry = runs
+                .get(&(root.to_owned(), change_id.to_owned()))
+                .ok_or_else(|| format!("change \"{change_id}\" 无运行中的 run"))?;
+            let slot = entry.session.lock().expect("会话槽锁不可中毒").clone();
+            slot.ok_or_else(|| "当前无等待中的 ask".to_owned())?
+        };
+        self.ask_registry.answer(&session_id, text)
+    }
+
+    /// ask 停等态清理单点（ask 执行体返回后经 `AskPort::ask_resolved` 驱动）；
+    /// 无运行 run（已收口除名）静默返回。
+    ///
+    /// `ask` 载荷槽**无条件清空**（行内卡的判活靠 `tool_call_id`，槽不清会让卡片
+    /// 永远判「正在等」）；`status` **仅当恰为 `WaitingAsk` 时**回 `Running`
+    ///（`Finished` 已先到时终态不被倒灌）。失效信号复用 `RunNotice::Step`
+    ///（既有「状态已变、请重查」通用 kind）：`Ask` / `ConfirmWait` 在通知面被读
+    /// 作「新停等已开始」，MUST NOT 用作解除信号。广播在锁外——持锁广播会把
+    /// 订阅方拉进锁竞争。
+    pub fn resolve_ask(&self, root: &str, change_id: &str) {
+        let updates = {
+            let mut runs = self.runs.lock().expect("run 注册表锁不可中毒");
+            let Some(entry) = runs.get_mut(&(root.to_owned(), change_id.to_owned())) else {
+                return;
+            };
+            entry.ask = None;
+            if entry.status == ChangeRunStatus::WaitingAsk {
+                entry.status = ChangeRunStatus::Running;
+            }
+            entry.updates.clone()
+        };
         let _ = updates.send(RunNotice::Step);
-        Ok(())
     }
 
     /// phase 间停等确认：proceed=false → walker 受控终态 stopped；`sync_specs`
@@ -383,19 +408,6 @@ impl RunGuard {
         tokio::select! {
             answer = rx => answer.unwrap_or((false, false)),
             _ = self.cancelled_wait() => (false, false),
-        }
-    }
-
-    /// ask 停等：挂起至 `change_flow_answer` 应答回流；取消信号置位 →
-    /// `None`（walker 收敛 stopped）。
-    pub async fn wait_answer(&self) -> Option<String> {
-        let (tx, rx) = oneshot::channel::<String>();
-        if !self.register_pending(|entry| &entry.answer_tx, tx) {
-            return None;
-        }
-        tokio::select! {
-            answer = rx => answer.ok(),
-            _ = self.cancelled_wait() => None,
         }
     }
 

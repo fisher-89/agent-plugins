@@ -1,8 +1,5 @@
 use crate::decision::{CandidateReport, DecisionInput};
-use crate::prompt::{
-    decision_answer_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
-    spec_sync_prompt,
-};
+use crate::prompt::{decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt};
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::write::{BacktrackOption, BacktrackWindowEntry};
 
@@ -112,10 +109,10 @@ fn base_input() -> DecisionInput {
 }
 
 /// `decision_prompt` 段落结构（正向，单值）：失败清单 / 可回溯白名单 / 候选
-/// 报告 / 失败相位报告 / 报告文件五段在场；协议段恰列 backtrack / stop / ask
-/// 三动作，且不含 `{"action": "retry"}` 行（退役动作零泄漏）。
+/// 报告 / 失败相位报告 / 报告文件五段在场；协议段恰列 backtrack / stop 两动作
+/// + 一句 ask 工具指路，且不含 `{"action": "retry"}` 行（退役动作零泄漏）。
 #[test]
-fn decision_prompt五段在场与三动作协议() {
+fn decision_prompt五段在场与两动作协议() {
     let prompt = decision_prompt(&base_input());
 
     for section in [
@@ -140,8 +137,8 @@ fn decision_prompt五段在场与三动作协议() {
         prompt.contains("设计与任务拆解齐备") && prompt.contains("pass"),
         "候选相位最近一次评估报告（verdict + report）在场"
     );
-    // 三动作协议：工具协议形态（动作名逐条在案），退役 retry 行零残留
-    for action in ["backtrack", "stop", "ask"] {
+    // 两动作协议：工具协议形态（动作名逐条在案），退役 retry 行零残留
+    for action in ["backtrack", "stop"] {
         assert!(
             prompt.contains(&format!("`{action}`")),
             "协议行含动作 {action}"
@@ -519,11 +516,6 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         decision_prompt(&input),
         "决策 prompt 确定性"
     );
-    assert_eq!(
-        decision_answer_prompt("用户选了 proposal"),
-        decision_answer_prompt("用户选了 proposal"),
-        "ask 应答再提面确定性"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -841,7 +833,7 @@ fn decision_prompt窗口段与写面渲染逐字节相等() {
 
 /// 其余段零扰动（正向，参数化迭代既有 5 段 + 2 注记）：窗口段引入后失败清单 /
 /// 白名单 / 候选报告 / 失败相位报告 / 报告文件五段仍在场，协议段仍恰列
-/// backtrack / stop / ask 三动作、零退役 `retry`；白名单自注记两形态照旧。
+/// backtrack / stop 两动作、零退役 `retry`；白名单自注记两形态照旧。
 #[test]
 fn decision_prompt窗口段引入后其余段零扰动() {
     let prompt = decision_prompt(&input_with_windows(vec![window_entry(0, "设计返工")]));
@@ -856,8 +848,8 @@ fn decision_prompt窗口段引入后其余段零扰动() {
     ] {
         assert!(prompt.contains(section), "段 {section} 仍在场");
     }
-    // 三动作协议：工具协议形态（动作名逐条在案），退役 retry 行零残留
-    for action in ["backtrack", "stop", "ask"] {
+    // 两动作协议：工具协议形态（动作名逐条在案），退役 retry 行零残留
+    for action in ["backtrack", "stop"] {
         assert!(
             prompt.contains(&format!("`{action}`")),
             "协议行含动作 {action}"
@@ -1113,86 +1105,23 @@ fn prompt_contains_phase(phase: &str) -> bool {
     prompt.contains(&format!("相位「{phase}」"))
 }
 
-/// archive 两步与 ask 应答再提面零窗口段（异常，参数化迭代 3 形态，AC-14 行为侧
-/// 证）：`spec_sync_prompt` / `merge_conflict_prompt` 产物零窗口段字样；
-/// `decision_answer_prompt` 只携应答原文 + 收口指引、零窗口段。
+/// archive 两步零窗口段（异常，参数化迭代 2 形态，AC-14 行为侧证）：
+/// `spec_sync_prompt` / `merge_conflict_prompt` 产物零窗口段字样。
 #[test]
-fn archive两步与再提面零窗口段() {
+fn archive两步零窗口段() {
     let spec_sync = spec_sync_prompt("demo-change");
     let merge_conflict = merge_conflict_prompt("demo-change", &["specs/a.md".to_owned()]);
-    let answer = decision_answer_prompt("越权 backtrack：目标 \"test-gen\" 不在白名单内");
     for (label, prompt) in [
         ("spec_sync_prompt", &spec_sync),
         ("merge_conflict_prompt", &merge_conflict),
-        ("decision_answer_prompt", &answer),
     ] {
         assert!(
             !prompt.contains("## 回溯重做窗口"),
-            "{label} 零窗口段标题（archive / 再提面恒在窗口外）"
+            "{label} 零窗口段标题（archive 恒在窗口外）"
         );
         assert!(!prompt.contains("<backtrack reason>"), "{label} 零定界块");
         assert!(!prompt.contains("设计返工"), "{label} 零窗口原因原文泄漏");
     }
-    // 再提面仍只携应答原文 + 一句收口指引（不复述协议形状）
-    assert!(
-        answer.contains("越权 backtrack：目标 \"test-gen\" 不在白名单内"),
-        "应答原文逐字透传"
-    );
-    assert!(
-        answer.contains("finish_step") && !answer.contains("可回溯白名单："),
-        "只携收口指引（零协议复述 / 零白名单行）"
-    );
-    assert!(!answer.contains("## 失败清单"), "再提面不含全量失败明细");
-}
-
-// ---------------------------------------------------------------------------
-// `decision_answer_prompt`：ask 应答的唯一再提示面（AC-8）
-// ---------------------------------------------------------------------------
-
-/// 应答原文逐字在场 + 一句 `finish_step` 收口指引 + 决策语义（正向）。
-#[test]
-fn decision_answer_prompt应答原文逐字在场且携收口指引() {
-    let prompt = decision_answer_prompt("选指数退避");
-    assert!(prompt.contains("选指数退避"), "应答原文逐字在场");
-    assert!(prompt.contains("finish_step"), "携 finish_step 收口指引");
-    assert!(prompt.contains("决策"), "携决策语义");
-    assert!(prompt.contains("ask"), "允许再次 ask（应答不足时）");
-}
-
-/// 边界（表驱动 3 形态）：空串 → 非空不 panic；两不同应答产出不相等。
-#[test]
-fn decision_answer_prompt边界三形态() {
-    let empty = decision_answer_prompt("");
-    assert!(!empty.is_empty(), "空应答仍产出非空提示（不 panic）");
-    assert!(empty.contains("finish_step"), "空应答形态仍携收口指引");
-
-    let first = decision_answer_prompt("甲");
-    let second = decision_answer_prompt("乙");
-    assert_ne!(first, second, "原文进提示（非固定模板）");
-    assert!(first.contains("甲") && !first.contains("乙"));
-}
-
-/// 文本特殊字符（表驱动 5 形态）：换行 / NUL / emoji / 超长应答逐字保真，
-/// 协议字样原样透传（不转义、不解析）。
-#[test]
-fn decision_answer_prompt特殊字符逐字保真且原样透传() {
-    for answer in [
-        "第一行\n第二行",
-        "含\0空字节",
-        "🚀 emoji",
-        &"长".repeat(5000),
-    ] {
-        let prompt = decision_answer_prompt(answer);
-        assert!(prompt.contains(answer), "应答原文逐字保真（不截断）");
-    }
-
-    let protocol_like = r#"{"action": "stop", "reason": "…"}"#;
-    let prompt = decision_answer_prompt(protocol_like);
-    assert!(
-        prompt.contains(protocol_like),
-        "应答含协议字样时原样透传（它不是协议载体）"
-    );
-    assert!(!prompt.contains("\\\""), "不做 JSON 转义");
 }
 
 // ---------------------------------------------------------------------------
@@ -1281,7 +1210,144 @@ fn 两个修正prompt退役且prompt源内零残留() {
         );
     }
     assert!(
-        own.contains("fn decision_answer_prompt"),
-        "唯一再提示面在 prompt.rs 内"
+        !own.contains("decision_answer_prompt"),
+        "ask 应答再提示面已退役（应答不再开新一轮）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：决策协议段的两动作 + ask 工具指路（AC-12）
+// ---------------------------------------------------------------------------
+
+/// ask 工具指路（正向，AC-12）：全文含 `AskUserQuestion` 字面 + 「无法裁决」
+/// 语义；指路句位于协议段内（`find("决策协议") < find("AskUserQuestion")`）。
+#[test]
+fn decision_prompt含ask工具指路且落在协议段内() {
+    let prompt = decision_prompt(&base_input());
+
+    assert!(
+        prompt.contains("AskUserQuestion"),
+        "全文含工具名字面: {prompt}"
+    );
+    assert!(
+        prompt.contains("无法裁决"),
+        "含「无法裁决」语义（何时改用工具的判据）: {prompt}"
+    );
+    let protocol_at = prompt.find("决策协议").expect("协议段在场");
+    let pointer_at = prompt.find("AskUserQuestion").expect("指路句在场");
+    assert!(
+        protocol_at < pointer_at,
+        "指路句位于协议段内（协议段偏移 {protocol_at} < 指路偏移 {pointer_at}）"
+    );
+}
+
+/// 形状不复述（正向，参数化）：指路句不复制 schema 形状——全文零
+/// `minItems` / `properties` / `required` 一类 JSON Schema 词。
+#[test]
+fn decision_prompt不复述ask工具schema形状() {
+    let prompt = decision_prompt(&base_input());
+    for forbidden in ["minItems", "properties", "required"] {
+        assert!(
+            !prompt.contains(forbidden),
+            "决策 prompt 零 JSON Schema 词 {forbidden}（形状归工具 schema）"
+        );
+    }
+    // 形状由工具 schema 给出的显式说明在场
+    assert!(
+        prompt.contains("形状由工具 schema 给出"),
+        "显式声明形状归工具 schema"
+    );
+}
+
+/// 三动作残留零命中（异常，AC-12）：全文零决策动作枚举式表述、零「三选一」/
+/// 「三动作」字样。
+#[test]
+fn decision_prompt零三动作残留() {
+    let prompt = decision_prompt(&base_input());
+    for forbidden in ["三动作", "三选一", "`ask`（`question`"] {
+        assert!(
+            !prompt.contains(forbidden),
+            "决策 prompt 零三动作表述 {forbidden}"
+        );
+    }
+    // 「两选一」表述在场（改写不是删文案）
+    assert!(prompt.contains("两选一"), "协议段标题声明两选一: {prompt}");
+}
+
+/// 信封插值边界（边界，组合迭代）：`attempt` 取 `0` / `u32::MAX`、`phase` 取
+/// `""` / 超长串、`fail_report` 取 `""` / 超长 → 不 panic、协议段与指路句仍逐字
+/// 在场。
+#[test]
+fn decision_prompt信封插值边界下协议段与指路句仍在场() {
+    let attempts = [0, u32::MAX];
+    let phases = [String::new(), "相位".repeat(600)];
+    let reports = [String::new(), "报告".repeat(600)];
+    for attempt in attempts {
+        for phase in &phases {
+            for report in &reports {
+                let mut input = base_input();
+                input.attempt = attempt;
+                input.phase = phase.clone();
+                input.fail_report = report.clone();
+                let prompt = decision_prompt(&input);
+                assert!(prompt.contains("决策协议"), "协议段在场");
+                assert!(prompt.contains("AskUserQuestion"), "指路句在场");
+                assert!(prompt.contains("`backtrack`"), "backtrack 条目在场");
+                assert!(prompt.contains("`stop`"), "stop 条目在场");
+                assert!(
+                    prompt.contains(&attempt.to_string()),
+                    "attempt 逐字插值（{attempt}）"
+                );
+            }
+        }
+    }
+}
+
+/// 白名单空集（边界）：`allowed == []` → 白名单段仍渲染（空清单占位），协议段
+/// 与指路句不受影响；`backtrack` 条目仍在（白名单由词表派生，不由条目数派生）。
+#[test]
+fn decision_prompt空白名单下协议段与指路句不受影响() {
+    let mut input = base_input();
+    input.allowed = Vec::new();
+    let prompt = decision_prompt(&input);
+
+    assert!(prompt.contains("可回溯白名单"), "白名单段标题仍在");
+    assert!(prompt.contains("决策协议"), "协议段仍在");
+    assert!(prompt.contains("AskUserQuestion"), "指路句仍在");
+    assert!(prompt.contains("`backtrack`"), "backtrack 条目仍在");
+}
+
+/// archive 两步零 `AskUserQuestion`（边界，零改动回归）：归档产物不消费 ask。
+#[test]
+fn archive两步产物零ask工具字样() {
+    let spec_sync = spec_sync_prompt("demo-change");
+    let merge_conflict = merge_conflict_prompt("demo-change", &["specs/a.md".to_owned()]);
+    for (label, prompt) in [
+        ("spec_sync_prompt", &spec_sync),
+        ("merge_conflict_prompt", &merge_conflict),
+    ] {
+        assert!(
+            !prompt.contains("AskUserQuestion"),
+            "{label} 不消费 ask 工具（归档面零 ask 字样）"
+        );
+        assert!(!prompt.contains("决策协议"), "{label} 零决策协议段");
+    }
+}
+
+/// 退役面零残留（异常，源码自证，AC-12）：`prompt.rs` 全文零
+/// `fn decision_answer_prompt`；反向在场：`fn decision_prompt` /
+/// `fn evaluator_protocol` 仍在位。
+#[test]
+fn prompt_rs零decision_answer_prompt且两个既有函数在位() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/prompt.rs"),
+    )
+    .expect("读取 prompt.rs");
+    assert!(
+        !own.contains("decision_answer_prompt"),
+        "prompt.rs 零 decision_answer_prompt（应答不再开新一轮）"
+    );
+    for kept in ["fn decision_prompt", "fn evaluator_protocol"] {
+        assert!(own.contains(kept), "既有函数 {kept} 仍在位");
+    }
 }

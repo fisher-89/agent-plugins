@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::ask::AskRegistry;
 use crate::event::{now_millis, AgentEvent, AgentEventKind};
 use crate::port::{SessionSink, TurnOutcome};
 use crate::runner::{
@@ -111,6 +112,8 @@ pub struct RunningTurn {
     registry: Arc<StopRegistry>,
     /// 会话实时流注册表（观察单点发布 + 终态投递除名）
     streams: Arc<SessionStreamRegistry>,
+    /// ask 应答注册表（轮收敛兜底除名）
+    ask_registry: Arc<AskRegistry>,
     /// 轮提问
     question: String,
     /// 本轮盖戳续排基点（会话级单调空间的开轮询定值，轮内自基点递增）
@@ -124,19 +127,25 @@ pub struct SessionKernel {
     registry: Arc<StopRegistry>,
     /// 会话实时流注册表（壳层 `Arc` 单例经组合根下行，exec / change 双轨同源）
     streams: Arc<SessionStreamRegistry>,
+    /// ask 应答注册表（壳层 `Arc` 单例经组合根下行，与引擎侧登记的是同一张表）
+    ask_registry: Arc<AskRegistry>,
 }
 
 impl SessionKernel {
-    /// 内核构造：持久面 port + 停止注册 + 会话实时流注册（组合根装配）。
+    /// 内核构造：持久面 port + 停止注册 + 会话实时流注册 + ask 注册表（组合根
+    /// 装配）。ask 注册表由组合根注入，MUST NOT 内部自铸——否则与引擎侧登记
+    /// 的表不是同一张。
     pub fn new(
         sink: Arc<dyn SessionSink>,
         registry: Arc<StopRegistry>,
         streams: Arc<SessionStreamRegistry>,
+        ask_registry: Arc<AskRegistry>,
     ) -> Self {
         Self {
             sink,
             registry,
             streams,
+            ask_registry,
         }
     }
 
@@ -158,6 +167,7 @@ impl SessionKernel {
             injections: request.injections,
             ctx: request.ctx,
             session: request.session,
+            session_id: session_id.clone(),
             prior_handle: request.prior_handle,
         })?;
         let started_at = now_millis();
@@ -197,6 +207,7 @@ impl SessionKernel {
             sink: Arc::clone(&self.sink),
             registry: Arc::clone(&self.registry),
             streams: Arc::clone(&self.streams),
+            ask_registry: Arc::clone(&self.ask_registry),
             question: request.question,
             seq_base,
         })
@@ -216,6 +227,7 @@ impl RunningTurn {
             sink,
             registry,
             streams,
+            ask_registry,
             question,
             seq_base,
         } = self;
@@ -236,6 +248,7 @@ impl RunningTurn {
                 &*sink,
                 &registry,
                 &streams,
+                &ask_registry,
                 &mut on_output,
             )
             .await;
@@ -292,6 +305,7 @@ impl RunningTurn {
                     &*sink,
                     &registry,
                     &streams,
+                    &ask_registry,
                     &mut on_output,
                 )
                 .await;
@@ -326,13 +340,14 @@ impl RunningTurn {
             &*sink,
             &registry,
             &streams,
+            &ask_registry,
             &mut on_output,
         )
         .await
     }
 
     /// 轮收口：组装终态 → 轮行落库（失败记因仍尽力流出）→ 实时面投终态并除名
-    /// → 停止注册表除名 → `TurnFinished` 流出。收口路径唯一（ask 失败 / 落库
+    /// → 停止注册表除名 → ask 槽除名 → `TurnFinished` 流出。收口路径唯一（ask 失败 / 落库
     /// 失败 / 正常 EOF 三臂共用），终态幂等。
     #[allow(clippy::too_many_arguments)]
     async fn converge<F>(
@@ -345,6 +360,7 @@ impl RunningTurn {
         sink: &dyn SessionSink,
         registry: &StopRegistry,
         streams: &SessionStreamRegistry,
+        ask_registry: &AskRegistry,
         on_output: &mut F,
     ) -> TurnOutcome
     where
@@ -369,6 +385,8 @@ impl RunningTurn {
         // 实时面投终态即除名（订阅端以 `Record` 收尾，其后 `Closed`）
         streams.finish(session_id, outcome.clone());
         registry.remove(session_id);
+        // ask 槽随轮收敛兜底除名；take 后的空槽在 miss 语义下等价
+        ask_registry.remove(session_id);
         on_output(KernelOutput::TurnFinished(outcome.clone()));
         outcome
     }

@@ -7,18 +7,18 @@ mod mod_test;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
-use ::agent::{SessionStreamRegistry, StopRegistry};
+use ::agent::{AskRegistry, SessionStreamRegistry, StopRegistry};
 use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
 use archi_runtime::LocalArchiCheck;
 use checks_runtime::{ProcessMutation, ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
 use orchestration::port::{
-    ArchiveVcsPort, RunEventSink, RunHistoryPort, ToolStepPort, WorkerAgentPort,
+    ArchiveVcsPort, AskPort, RunEventSink, RunHistoryPort, ToolStepPort, WorkerAgentPort,
     WorkflowSnapshotPort,
 };
 use orchestration::run_history::StoreRunHistory;
 use orchestration::snapshot::StoreSnapshot;
-use orchestration::state::{ChangeRunStatus, ChangeRunSummary, RunNotice, RunUpdate};
+use orchestration::state::{AskPayload, ChangeRunStatus, ChangeRunSummary, RunNotice, RunUpdate};
 use orchestration::steps::LocalToolSteps;
 use orchestration::walker::{new_run_id, walk_run, RunRequest};
 use store::WorkspaceStores;
@@ -62,6 +62,19 @@ impl RunEventSink for ChangeFlowSink {
                 .set_session(&self.root, &self.change_id, Some(session_id.clone()));
         }
         self.control.publish(&self.root, &self.change_id, update);
+    }
+}
+
+/// ask 编排状态面：同一 sink 的两 trait 视图（`RunEventSink` 给 worker、
+/// `AskPort` 给引擎门面）——ask 的状态广播与 run 的状态广播同源。
+impl AskPort for ChangeFlowSink {
+    fn ask_started(&self, ask: AskPayload) {
+        self.control
+            .publish(&self.root, &self.change_id, RunUpdate::Ask { ask });
+    }
+
+    fn ask_resolved(&self) {
+        self.control.resolve_ask(&self.root, &self.change_id);
     }
 }
 
@@ -141,21 +154,28 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     // walk_run 起点第一写 running 行 / 终态出口第二写整包，D5）
     let registry = Arc::clone(app.state::<Arc<StopRegistry>>().inner());
     let streams = Arc::clone(app.state::<Arc<SessionStreamRegistry>>().inner());
+    let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
+    // sink 同一实例两 trait 视图：`RunEventSink` 给 worker、`AskPort` 给引擎门面
+    // ——ask 的状态广播与 run 的状态广播同源（故构造先于组合根）
+    let sink_impl = Arc::new(ChangeFlowSink {
+        root: root.clone(),
+        change_id: id.clone(),
+        control: Arc::clone(&control),
+    });
+    let sink: Arc<dyn RunEventSink> = Arc::clone(&sink_impl) as Arc<dyn RunEventSink>;
+    let ask_port: Arc<dyn AskPort> = sink_impl;
     let composed: ComposedTurn = compose_turn(
         stores.inner(),
         Arc::clone(&registry),
         streams,
+        ask_registry,
         Arc::clone(&store),
         None,
         // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；
         // MUST NOT 传 `exec_root` / worktree 路径
         Path::new(&root),
+        Some(Arc::clone(&ask_port)),
     )?;
-    let sink: Arc<dyn RunEventSink> = Arc::new(ChangeFlowSink {
-        root: root.clone(),
-        change_id: id.clone(),
-        control: Arc::clone(&control),
-    });
     let worker: Arc<dyn WorkerAgentPort> = Arc::new(KernelWorkerPort::new(composed, sink));
     let anchors = Arc::new(SessionAnchors::new());
     let store_port: Arc<dyn ChangeStateStore> = store; // Arc<Store> → port 缝对象
@@ -252,7 +272,9 @@ pub fn change_flow_answer(
     change_flow_answer_with(app, root, id, answer)
 }
 
-/// [`change_flow_answer`] 的泛型测试缝。
+/// [`change_flow_answer`] 的泛型测试缝：应答只投 `AskRegistry`（经
+/// `current_session` 把两段寻址翻译成会话 id）；停等态清理由 ask 执行体返回后
+/// 单点执行（命令内零清理）。
 pub(crate) fn change_flow_answer_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,

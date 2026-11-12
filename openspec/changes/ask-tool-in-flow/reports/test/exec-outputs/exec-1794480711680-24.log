@@ -1,0 +1,29 @@
+npm warn EBADDEVENGINES The developer of this package has specified the following through devEngines
+npm warn EBADDEVENGINES Invalid devEngines.packageManager
+npm warn EBADDEVENGINES Invalid name "pnpm" does not match "npm" for "packageManager"
+npm warn EBADDEVENGINES {
+npm warn EBADDEVENGINES   current: { name: 'npm', version: '11.20.0' },
+npm warn EBADDEVENGINES   required: { name: 'pnpm', onFail: 'warn' }
+npm warn EBADDEVENGINES }
+[32m18:52:18 (23752) INFO ProjectReader[39m Found 11 of 54777 file(s) to be mutated.
+[32m18:52:18 (23752) INFO Instrumenter[39m Instrumented 11 source file(s) with 1317 mutant(s)
+[32m18:52:21 (23752) INFO ConcurrencyTokenProvider[39m Creating 8 test runner process(es).
+[32m18:52:54 (23752) INFO DryRunExecutor[39m Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+[91m18:53:06 (23752) ERROR DryRunExecutor[39m One or more tests failed in the initial test run:
+	ChangeDetailView：ask 动作面合成（AC-13 / DD11） props 链不变形：三层同名透传 askAnswer，其余七项既有 props 逐字不变
+		既有 props onClose={() => setSelection(null)} 逐字不变: expected '// @ts-nocheck\nfunction stryNS_9fa48…' to contain 'onClose={() => setSelection(null)}'
+[91m18:53:06 (23752) ERROR Stryker[39m There were failed tests in the initial test run.
+file:///D:/Projects/.worktrees/wps-claude-plugin/ask-tool-in-flow/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:65
+                    throw new ConfigError('There were failed tests in the initial test run.');
+                          ^
+
+ConfigError: There were failed tests in the initial test run.
+    at DryRunExecutor.validateResultCompleted (file:///D:/Projects/.worktrees/wps-claude-plugin/ask-tool-in-flow/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:65:27)
+    at DryRunExecutor.executeDryRun (file:///D:/Projects/.worktrees/wps-claude-plugin/ask-tool-in-flow/packages/desktop/node_modules/@stryker-mutator/core/dist/src/process/3-dry-run-executor.js:100:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async WorkItem.execute (file:///D:/Projects/.worktrees/wps-claude-plugin/ask-tool-in-flow/packages/desktop/node_modules/@stryker-mutator/core/dist/src/concurrent/pool.js:32:28)
+    at async file:///D:/Projects/.worktrees/wps-claude-plugin/ask-tool-in-flow/packages/desktop/node_modules/@stryker-mutator/core/dist/src/concurrent/pool.js:69:13 {
+  innerError: undefined
+}
+
+Node.js v26.13.1

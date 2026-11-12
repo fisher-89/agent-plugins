@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import type { AskAnswerActions } from '@/components/agent';
+
 import type {
   AgentEvent,
   ArtifactEnvelope,
@@ -10,6 +12,7 @@ import type {
 import { mountMaterials } from './attachments';
 import { DetailDrawer } from './detail-drawer';
 import { buildFlowGraph } from './graph';
+import type * as SessionTranscriptPanelModule from './session-transcript-panel';
 import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
 
 /**
@@ -35,7 +38,8 @@ const REQUIREMENT_PHASES = [
 // section / drawer-eval-section / DrawerEvalSection / InlineChecklist）整体
 // 退役。进程边界 mock：invoke 按命令名分发（agent_sessions /
 // agent_session_transcript / session_detail / read_exec_output）；内部模块
-//（SessionTranscriptPanel / ArtifactTabs / StdoutPanel）真实组合不 mock。
+//（ArtifactTabs / StdoutPanel）真实组合不 mock，SessionTranscriptPanel 亦保留
+// 真实实现（仅在其边界挂 props 探针，见下）。
 // ---------------------------------------------------------------------------
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
@@ -53,6 +57,45 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
+
+// ---------------------------------------------------------------------------
+// 探针装置（保留真实实现，仅记录 props）：在 `SessionTranscriptPanel` 边界把每次
+// 渲染实收的 props push 进 `propsLog` 后原样渲染真实组件——「三层原样透传、同一
+// 对象」只能由引用相等判定（活卡呈现与调用次数反推不出引用相等）。`importOriginal`
+// 保留全部真实实现（转录面 / 活卡 / 判活照旧），探针零行为、只记录。
+// ---------------------------------------------------------------------------
+
+const { propsLog } = vi.hoisted(() => ({ propsLog: [] as unknown[] }));
+
+vi.mock('./session-transcript-panel', async (importOriginal) => {
+  const actual = await importOriginal<typeof SessionTranscriptPanelModule>();
+  function ProbedSessionTranscriptPanel(
+    props: Parameters<typeof actual.SessionTranscriptPanel>[0],
+  ) {
+    propsLog.push(props);
+    return <actual.SessionTranscriptPanel {...props} />;
+  }
+  return { ...actual, SessionTranscriptPanel: ProbedSessionTranscriptPanel };
+});
+
+interface RecordedPanelProps {
+  root?: string | null;
+  roleRef?: unknown;
+  refreshKey?: number;
+  askAnswer?: AskAnswerActions;
+}
+
+/** 探针实收的转录面板 props 全集（每次渲染一条，按发生序；空 = 面板未渲染）。 */
+function recordedPanelProps(): RecordedPanelProps[] {
+  return propsLog as RecordedPanelProps[];
+}
+
+/** 最近一次渲染实收的 props。 */
+function lastPanelProps(): RecordedPanelProps {
+  const props = recordedPanelProps().at(-1);
+  if (props === undefined) throw new Error('探针未捕获 SessionTranscriptPanel 渲染');
+  return props;
+}
 
 /** change id（身份寻址键——sourceRef 定式身份段）与展示名（stdout 磁盘面键）。 */
 const CHANGE_ID = '0198f7a0-0000-7000-8000-000000000000';
@@ -104,6 +147,7 @@ beforeEach(() => {
   ChannelMock.instances = [];
   invokeMock.mockReset();
   invokeMock.mockImplementation(defaultInvoke);
+  propsLog.length = 0;
 });
 
 afterEach(() => {
@@ -1010,5 +1054,176 @@ describe('DetailDrawer：Esc 窗口监听（自挂兜底）', () => {
     // 效果重挂后只有最新回调生效，且恰 1 次（旧引用的监听已拆）
     expect(second).toHaveBeenCalledTimes(1);
     expect(first).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`askAnswer` 逐层透传至转录面板
+// ---------------------------------------------------------------------------
+
+/** ask 工具调用消息（活卡判据面）。 */
+function askEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000 + seq,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [
+      {
+        kind: 'toolUse',
+        id: 'call_drawer_1',
+        name: 'AskUserQuestion',
+        input: { question: '回溯到哪？', options: ['proposal', 'dev-design'] },
+      },
+    ],
+    parentToolUseId: null,
+  };
+}
+
+/** 以 askAnswer 渲染 node 范围抽屉。 */
+function renderWithAsk(
+  worldState: World,
+  askAnswer: { onAnswer: (text: string) => void; pendingToolCallId?: string | null } | undefined,
+) {
+  return render(
+    <DetailDrawer
+      selection={refreshSelection()}
+      graph={worldState.graph}
+      materials={worldState.materials}
+      root={ROOT}
+      changeId={CHANGE_ID}
+      name={NAME}
+      askAnswer={askAnswer}
+      onClose={() => {}}
+    />,
+  );
+}
+
+describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
+  it('传 askAnswer（精确 toolCallId）→ 面板活卡可点即回调 onAnswer', async () => {
+    detailFixture = {
+      [REFRESH_SESSION]: transcriptSession(REFRESH_SESSION, `${CHANGE_ID}/implement/executor/2`),
+    };
+    transcriptFixture = { [REFRESH_SESSION]: [askEvent(0)] };
+    const onAnswer = vi.fn();
+    const askAnswer = { onAnswer, pendingToolCallId: 'call_drawer_1' };
+
+    renderWithAsk(world([runtimeNode()]), askAnswer);
+    const panel = await screen.findByTestId('session-transcript-panel');
+    const buttons = await within(panel).findAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['proposal', 'dev-design']);
+
+    // 探针判据（DD12「同一对象」）：`DetailDrawer` → `DrawerContent` 逐层零加工，
+    // 下游收到的就是注入的那一个对象（DOM 与调用次数反推不出引用相等）
+    expect(recordedPanelProps().length, '下游应已渲染').toBeGreaterThan(0);
+    for (const props of recordedPanelProps()) {
+      expect(props.askAnswer).toBe(askAnswer);
+      expect(props.askAnswer?.onAnswer).toBe(onAnswer);
+    }
+
+    fireEvent.click(buttons[1] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledWith('dev-design');
+  });
+
+  it('非会话选中对象（scope=column）→ 不渲染会话面板，askAnswer 零消费', async () => {
+    const onAnswer = vi.fn();
+    render(
+      <DetailDrawer
+        selection={{ scope: 'column', phase: 'implement' }}
+        graph={world([runtimeNode()]).graph}
+        materials={world([runtimeNode()]).materials}
+        root={ROOT}
+        changeId={CHANGE_ID}
+        name={NAME}
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_drawer_1' }}
+        onClose={() => {}}
+      />,
+    );
+
+    await screen.findByTestId('detail-drawer');
+    expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(recordedPanelProps(), '非会话选中对象不挂转录面板').toHaveLength(0);
+  });
+
+  it('askAnswer 缺省 → 全静态（零行为变化，既有断言面保持）', async () => {
+    detailFixture = {
+      [REFRESH_SESSION]: transcriptSession(REFRESH_SESSION, `${CHANGE_ID}/implement/executor/2`),
+    };
+    transcriptFixture = { [REFRESH_SESSION]: [askEvent(0)] };
+
+    renderWithAsk(world([runtimeNode()]), undefined);
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    // 探针判据：缺省即下游每条渲染都收不到动作面
+    expect(recordedPanelProps().length).toBeGreaterThan(0);
+    for (const props of recordedPanelProps()) expect(props.askAnswer).toBeUndefined();
+  });
+
+  it('askAnswer.pendingToolCallId = null → 全静态（历史重放零应答入口）', async () => {
+    detailFixture = {
+      [REFRESH_SESSION]: transcriptSession(REFRESH_SESSION, `${CHANGE_ID}/implement/executor/2`),
+    };
+    transcriptFixture = { [REFRESH_SESSION]: [askEvent(0)] };
+    const onAnswer = vi.fn();
+    const askAnswer = { onAnswer, pendingToolCallId: null };
+
+    renderWithAsk(world([runtimeNode()]), askAnswer);
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(onAnswer).not.toHaveBeenCalled();
+    // 探针判据：`null` 指针按值直通（对象同一、非重建）
+    expect(lastPanelProps().askAnswer).toBe(askAnswer);
+    expect(lastPanelProps().askAnswer?.pendingToolCallId).toBeNull();
+  });
+
+  it('pendingToolCallId 同链透传：精确 id 注入 → 仅该 id 为活卡（三态矩阵跨两层保持）', async () => {
+    detailFixture = {
+      [REFRESH_SESSION]: transcriptSession(REFRESH_SESSION, `${CHANGE_ID}/implement/executor/2`),
+    };
+    // 两条 ask 调用（call_a / call_b），仅 call_b 为当前等待条目
+    transcriptFixture = {
+      [REFRESH_SESSION]: [
+        {
+          seq: 0,
+          timestampMs: 1727000000000,
+          kind: 'message',
+          role: 'assistant',
+          blocks: [
+            {
+              kind: 'toolUse',
+              id: 'call_a',
+              name: 'AskUserQuestion',
+              input: { question: '第一问', options: ['甲', '乙'] },
+            },
+            {
+              kind: 'toolUse',
+              id: 'call_b',
+              name: 'AskUserQuestion',
+              input: { question: '第二问', options: ['丙', '丁'] },
+            },
+          ],
+          parentToolUseId: null,
+        },
+      ],
+    };
+    const onAnswer = vi.fn();
+    const askAnswer = { onAnswer, pendingToolCallId: 'call_b' };
+
+    renderWithAsk(world([runtimeNode()]), askAnswer);
+    const panel = await screen.findByTestId('session-transcript-panel');
+    const buttons = await within(panel).findAllByTestId('ask-answer-option');
+    // 仅 call_b 的选项成为活卡按钮（call_a 保持静态只读行）
+    expect(buttons.map((node) => node.textContent)).toEqual(['丙', '丁']);
+    expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2);
+    // 探针判据：判活指针沿链条原值直通（未被重建为新对象）
+    expect(lastPanelProps().askAnswer).toBe(askAnswer);
+    expect(lastPanelProps().askAnswer?.pendingToolCallId).toBe('call_b');
+
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledWith('丙');
   });
 });

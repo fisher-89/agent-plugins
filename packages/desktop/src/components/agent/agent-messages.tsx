@@ -30,6 +30,13 @@ import type { AgentCitation, TurnSummary } from '@/types/dto';
 import { TextBlock, ThinkingBlock, ToolPairCard, isToolPart } from './agent-blocks';
 import { BUILD_IN_TOOL_CARDS } from './tool-cards';
 
+/** ask 应答动作面（三态判活的承载类型） */
+export interface AskAnswerActions {
+  onAnswer: (text: string) => void;
+  /** 明确「当前正在等哪一条」（null = 当前无等待；undefined = 未提供，按未配对判活） */
+  pendingToolCallId?: string | null;
+}
+
 export interface AgentMessagesProps {
   /** 对话状态（历史重放装载 + 实时累积，共用本透镜；全量入参，system 过滤在组件内） */
   messages: AgentUIMessage[];
@@ -37,6 +44,8 @@ export interface AgentMessagesProps {
   loading?: boolean;
   /** 运行中标记：头部呈现流式状态 */
   running?: boolean;
+  /** ask 应答动作面（缺席即全部 ask 卡静态只读） */
+  askAnswer?: AskAnswerActions;
 }
 
 /** user 消息首帧估值：首次测量即校正，取「一行正文 + 气泡内边距」的量级 */
@@ -50,13 +59,39 @@ const MESSAGE_PADDING_PX = 12;
 /** 可见窗口外扩项数：留一屏内的滑动余量即可 */
 const VIRTUAL_OVERSCAN = 8;
 
+/**
+ * ask 部件是否活卡（三态判活矩阵，`pendingToolCallId` 精确对账优先）：
+ * - `null`：当前无等待 → 全静态；
+ * - 字符串：仅 `toolCallId` 与之相等者为活卡（历史转录里崩溃残留的未配对
+ *   `tool_use` 同形，无 id 对账会误呈为可应答）；
+ * - `undefined`：未提供判据 → 按「该部件仍为无结果态」判活。
+ */
+function isLiveAsk(part: AgentToolPart, pendingToolCallId: string | null | undefined): boolean {
+  if (pendingToolCallId === null) return false;
+  if (typeof pendingToolCallId === 'string') return part.toolCallId === pendingToolCallId;
+  return part.state === 'input-available';
+}
+
 /** 工具部件 → 特化卡（注册表命中）或默认对卡（miss 回退） */
-function ToolPartView({ part }: { part: AgentToolPart }): React.JSX.Element | null {
+function ToolPartView({
+  part,
+  askAnswer,
+}: {
+  part: AgentToolPart;
+  askAnswer?: AskAnswerActions;
+}): React.JSX.Element | null {
   const toolName = part.type.slice('tool-'.length);
   const output = part.state === 'output-available' ? part.output : null;
   const registered = BUILD_IN_TOOL_CARDS[toolName];
   if (registered !== undefined) {
     const Card = registered;
+    // 动作面只达 ask 卡（其余三卡渲染与行为零变化）
+    const cardAsk =
+      askAnswer !== undefined &&
+      toolName === 'AskUserQuestion' &&
+      isLiveAsk(part, askAnswer.pendingToolCallId)
+        ? { onAnswer: askAnswer.onAnswer }
+        : undefined;
     return (
       <Card
         toolCallId={part.toolCallId}
@@ -64,6 +99,7 @@ function ToolPartView({ part }: { part: AgentToolPart }): React.JSX.Element | nu
         state={part.state}
         input={part.input}
         output={output}
+        {...(cardAsk === undefined ? {} : { askAnswer: cardAsk })}
       />
     );
   }
@@ -104,10 +140,16 @@ function citationsOfPart(part: AgentUIMessage['parts'][number]): AgentCitation[]
  * `step-start` 是 reducer 的 step 标记（收口后由折叠整表替换消失），
  * `data-*` 是实时态 aux 载体（收口后归一到独立 system 消息）。
  */
-function PartView({ part }: { part: AgentUIMessage['parts'][number] }): React.JSX.Element | null {
+function PartView({
+  part,
+  askAnswer,
+}: {
+  part: AgentUIMessage['parts'][number];
+  askAnswer?: AskAnswerActions;
+}): React.JSX.Element | null {
   if (part.type === 'text') return <TextBlock citations={citationsOfPart(part)} text={part.text} />;
   if (part.type === 'reasoning') return <ThinkingBlock text={part.text} state={part.state} />;
-  if (isToolPart(part)) return <ToolPartView part={part} />;
+  if (isToolPart(part)) return <ToolPartView part={part} askAnswer={askAnswer} />;
   return null;
 }
 
@@ -268,7 +310,13 @@ function UserBubbleBody({ message }: { message: AgentUIMessage }): React.JSX.Ele
 
 /** 气泡：user / assistant 各成泡（user 靠右），部件按类型映射渲染；assistant
  * 无可见部件且该轮 failed / stopped 时以轮内状态行取代部件列表 */
-function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Element {
+function ChatBubbleBase({
+  message,
+  askAnswer,
+}: {
+  message: AgentUIMessage;
+  askAnswer?: AskAnswerActions;
+}): React.JSX.Element {
   const isUser = message.role === 'user';
   const record = message.metadata?.record ?? null;
   const statusLine =
@@ -291,7 +339,7 @@ function ChatBubbleBase({ message }: { message: AgentUIMessage }): React.JSX.Ele
         {statusLine}
         <Trace className="pl-3">
           {message.parts.map((part, index) => (
-            <PartView key={index} part={part} />
+            <PartView key={index} part={part} askAnswer={askAnswer} />
           ))}
         </Trace>
       </MessageContent>
@@ -313,9 +361,11 @@ const ChatBubble = memo(ChatBubbleBase);
 function MessageContainer({
   messages,
   resetKey,
+  askAnswer,
 }: {
   messages: AgentUIMessage[];
   resetKey: string | null;
+  askAnswer?: AskAnswerActions;
 }): React.JSX.Element {
   const estimateSize = useCallback(
     (index: number) =>
@@ -327,9 +377,9 @@ function MessageContainer({
     (index: number) => {
       const message = messages[index];
       if (message === undefined || message.role === 'user') return null;
-      return <ChatBubble message={message} />;
+      return <ChatBubble message={message} askAnswer={askAnswer} />;
     },
-    [messages],
+    [messages, askAnswer],
   );
   const renderSticky = useCallback(
     (geometry: MessageScrollerGeometry): MessageScrollerStickyEntry[] =>
@@ -342,14 +392,14 @@ function MessageContainer({
               index,
               node: (
                 <MessageScrollerSticky key={message.id} index={index} start={start} span={span}>
-                  <ChatBubble message={message} />
+                  <ChatBubble message={message} askAnswer={askAnswer} />
                 </MessageScrollerSticky>
               ),
             },
           ];
         },
       ),
-    [messages],
+    [messages, askAnswer],
   );
   return (
     <MessageScrollerProvider
@@ -384,9 +434,25 @@ export function AgentMessages({
   messages,
   loading,
   running,
+  askAnswer,
 }: AgentMessagesProps): React.JSX.Element {
   const conversation = useMemo(() => filterConversation(messages), [messages]);
   const resetKey = useMemo(() => conversationIdentity(conversation), [conversation]);
+  // 引用稳定：`ChatBubble` 是 memo、虚拟列表 `renderItem` 是 useCallback——每渲染
+  // 新造对象会同时击穿两者（流式期间每个 delta 都整树重渲染）
+  const onAnswer = askAnswer?.onAnswer;
+  // 三态判活的第三态靠 `undefined`（未提供）与 `null`（当前无等待）可辨——此处
+  // MUST NOT 用 `?? null` 归一，否则「未提供」会退化为「全静态」
+  const pendingToolCallId = askAnswer?.pendingToolCallId;
+  const stableAskAnswer = useMemo<AskAnswerActions | undefined>(
+    () =>
+      onAnswer === undefined
+        ? undefined
+        : pendingToolCallId === undefined
+          ? { onAnswer }
+          : { onAnswer, pendingToolCallId },
+    [onAnswer, pendingToolCallId],
+  );
   return (
     <section
       className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg border border-border bg-card"
@@ -397,7 +463,7 @@ export function AgentMessages({
           会话还原中…
         </div>
       ) : (
-        <MessageContainer messages={conversation} resetKey={resetKey} />
+        <MessageContainer messages={conversation} resetKey={resetKey} askAnswer={stableAskAnswer} />
       )}
       {running && (
         <div

@@ -6,8 +6,8 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
 use ::agent::{
-    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, SessionStreamRegistry,
-    StopRegistry,
+    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, AskRegistry,
+    SessionStreamRegistry, StopRegistry,
 };
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
@@ -65,6 +65,8 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     app.manage(Arc::new(StopRegistry::new()));
     // 会话实时流注册表：与 `src/main.rs` 同型空表托管（watch 命令取用面）
     app.manage(Arc::new(SessionStreamRegistry::new()));
+    // ask 应答注册表：与 `src/main.rs` 同型空表托管（agent_answer 取用面）
+    app.manage(Arc::new(AskRegistry::default()));
     app
 }
 
@@ -2916,5 +2918,476 @@ async fn agent_start_with_archi归属cwd_null回落root且单库() {
         workspace_db_count(&env),
         before,
         "执行根回落不经 for_root 二次寻址（不铸第二份库）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`agent_answer` 薄包装四态（blank root / blank session_id /
+// 未登记 Err / 命中 Ok）+ 同 turn 单次回灌的组合行
+// ---------------------------------------------------------------------------
+
+/// 从测用 app 取托管注册表 `Arc`（与 `main.rs` 的 `app.manage` 同型）。
+fn ask_registry_of(app: &App<tauri::test::MockRuntime>) -> Arc<AskRegistry> {
+    Arc::clone(app.state::<Arc<AskRegistry>>().inner())
+}
+
+/// blank root（异常，AC-10）：`root` 空白 → `Err`，文案携「非法 root」；注册表
+/// 零触点（登记槽仍在，其后非空白 root 应答可命中）。
+#[test]
+fn agent_answer_blank_root_err且零触点() {
+    let env = Env::new("agent-answer-blank-root");
+    let app = app_with_stores(&env);
+    let registry = ask_registry_of(&app);
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(registry.register("core-1", tx), "预置登记");
+
+    for root in ["", "   ", "\t\n"] {
+        let error = super::agent_answer(
+            app.state::<Arc<AskRegistry>>(),
+            root.to_owned(),
+            "core-1".to_owned(),
+            "应答".to_owned(),
+        )
+        .expect_err("blank root 应 Err");
+        assert!(error.contains("非法 root"), "文案: {error}");
+    }
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "注册表零触点（槽未被取走）"
+    );
+
+    // 非空白 root 后应答可命中（校验不误伤正常路径）
+    super::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        env.root_of("ws"),
+        "core-1".to_owned(),
+        "正常应答".to_owned(),
+    )
+    .expect("正常路径受理");
+    assert_eq!(rx.try_recv().expect("收到"), "正常应答");
+}
+
+/// blank session_id（异常，AC-10）：`session_id` 空白 → `Err`，文案携
+/// 「非法 session_id」；注册表零触点。
+#[test]
+fn agent_answer_blank_session_id_err且零触点() {
+    let env = Env::new("agent-answer-blank-session");
+    let app = app_with_stores(&env);
+    let registry = ask_registry_of(&app);
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(registry.register("core-1", tx), "预置登记");
+
+    for session_id in ["", "   ", "\n"] {
+        let error = super::agent_answer(
+            app.state::<Arc<AskRegistry>>(),
+            env.root_of("ws"),
+            session_id.to_owned(),
+            "应答".to_owned(),
+        )
+        .expect_err("blank session_id 应 Err");
+        assert!(error.contains("非法 session_id"), "文案: {error}");
+    }
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "注册表零触点"
+    );
+}
+
+/// 未登记 Err（异常，AC-10）：非空白两参但注册表无该键 → `Err` 逐字
+/// 「当前无等待中的 ask」；重复调用稳定同文案（不改写表项）。
+#[test]
+fn agent_answer_未登记err文案逐字() {
+    let env = Env::new("agent-answer-miss");
+    let app = app_with_stores(&env);
+    let root = env.root_of("ws");
+
+    for _ in 0..2 {
+        let error = super::agent_answer(
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            "core-未知".to_owned(),
+            "应答".to_owned(),
+        )
+        .expect_err("未登记应 Err");
+        assert_eq!(error, "当前无等待中的 ask", "miss 文案逐字");
+    }
+    // 空串键与空白键同为未登记（命令面不 trim 归一，但 miss 语义一致）
+    for session_id in [String::new(), "   ".to_owned()] {
+        // 空白在命令面被拒（校验先行），空串亦被拒——此处断言两形态均 Err
+        assert!(
+            super::agent_answer(
+                app.state::<Arc<AskRegistry>>(),
+                root.clone(),
+                session_id,
+                "应答".to_owned(),
+            )
+            .is_err(),
+            "空白 / 空串 session_id 应 Err"
+        );
+    }
+}
+
+/// 命中 Ok（正向，AC-10 / AC-13）：登记后应答命中 → `Ok`、接收方逐字收原文；
+/// 二次应答 → `Err`（单次 take 语义）。
+#[test]
+fn agent_answer_命中ok且二次即err() {
+    let env = Env::new("agent-answer-hit");
+    let app = app_with_stores(&env);
+    let registry = ask_registry_of(&app);
+    let root = env.root_of("ws");
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(registry.register("core-1", tx));
+
+    super::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-1".to_owned(),
+        "选项A".to_owned(),
+    )
+    .expect("命中受理");
+    assert_eq!(rx.try_recv().expect("收到"), "选项A", "原文逐字");
+
+    let error = super::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        "core-1".to_owned(),
+        "第二次".to_owned(),
+    )
+    .expect_err("二次应答 Err");
+    assert_eq!(error, "当前无等待中的 ask");
+}
+
+/// `session_id` 边界（边界，参数化 4 形态）：特殊字符 / 超长串与注册表键**原样
+/// 比对**（不 trim、不截断），近邻键互不命中。
+#[test]
+fn agent_answer_session_id边界原样比对() {
+    let env = Env::new("agent-answer-session-key");
+    let app = app_with_stores(&env);
+    let registry = ask_registry_of(&app);
+    let root = env.root_of("ws");
+
+    // 纯空白键在命令面被 blank 守卫拒绝（上一行用例覆盖），本行取「非空白但
+    // 带空白」的三类形态，证命令面不 trim 归一
+    let keys = [
+        "a\0b🚀".to_owned(),
+        "字".repeat(1200),
+        " 前后空格 ".to_owned(),
+    ];
+    for key in &keys {
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+        assert!(registry.register(key, tx), "按原串登记");
+        // 近邻键（多一个空格）不命中，随后原串命中
+        let near = format!("{key} ");
+        super::agent_answer(
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            near,
+            "错键应答".to_owned(),
+        )
+        .expect_err("近邻键不命中");
+        super::agent_answer(
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            key.clone(),
+            "原键应答".to_owned(),
+        )
+        .expect("原串命中");
+        assert_eq!(rx.try_recv().expect("收到"), "原键应答", "正文逐字");
+    }
+}
+
+/// 正文边界（边界，参数化 5 形态）：`text` 逐字透传（命令面不裁量应答内容；
+/// 空白 / 空串亦原样投递，提交侧拦截在活卡）。
+#[test]
+fn agent_answer_正文边界逐字透传() {
+    let env = Env::new("agent-answer-text");
+    let app = app_with_stores(&env);
+    let registry = ask_registry_of(&app);
+    let root = env.root_of("ws");
+
+    let texts = [
+        String::new(),
+        "   ".to_owned(),
+        "a\nb".to_owned(),
+        "a\0b🚀".to_owned(),
+        "字".repeat(1200),
+    ];
+    for (index, text) in texts.into_iter().enumerate() {
+        let session_id = format!("core-{index}");
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+        assert!(registry.register(&session_id, tx));
+        super::agent_answer(
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            session_id,
+            text.clone(),
+        )
+        .expect("受理");
+        assert_eq!(rx.try_recv().expect("收到"), text, "正文逐字透传");
+    }
+}
+
+/// 命令登记面（正向，AC-10）：`agent_answer` 在 `all_commands!` 内（生成物
+/// `bindings.ts` 的 `agentAnswer` 包装与 IPC 名 `agent_answer` 同源）；与既有
+/// 命令名集合不冲突（单次登记）。
+#[test]
+fn agent_answer登记于全部命令表且名字唯一() {
+    let bindings = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/mod.rs"),
+    )
+    .expect("读取 commands/mod.rs");
+    assert!(
+        bindings.contains("$crate::commands::exec::agent_answer"),
+        "agent_answer 登记于 all_commands!"
+    );
+    assert_eq!(
+        bindings.matches("commands::exec::agent_answer").count(),
+        1,
+        "单次登记（零重复）"
+    );
+    // 既有 agent 命令面零扰动
+    for kept in [
+        "$crate::commands::exec::agent_start",
+        "$crate::commands::exec::agent_stop",
+        "$crate::commands::exec::agent_session_watch",
+    ] {
+        assert!(bindings.contains(kept), "既有命令 {kept} 仍在位");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：通用侧应答链端到端（入口 = 命令面）与 DD15 的 chat 空 port
+//
+// 组合根以下的铸造 / 执行体已由 `sdk/runner_test` 与 `sdk/loop_test` 的章节
+// 覆盖；本节补的是**最上层调用方**这一环：命令 → 组合根 → 泵 → 执行体 →
+// 应答 → 回灌 → 终态，全部经真实链路（脚本化 SSE provider 桩作模型边界）。
+// ---------------------------------------------------------------------------
+
+/// 通用侧应答链端到端（组合，AC-1 / AC-13）：`agent_start_with(source="explore")`
+/// 起一轮 → 模型调 `AskUserQuestion` 进入阻塞 → `agent_answer` 投递 → 同 turn
+/// 内回灌并收口 `completed`；会话 id 与提前 resolve 的 `summary.session_id` 同一
+/// （零新会话）。
+#[tokio::test]
+async fn explore轮ask阻塞经agent_answer回灌并同turn收口completed() {
+    let env = Env::new("ask-chain-explore");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let provider = crate::commands::ask_test_support::AskScriptedProvider::new(
+        "explore",
+        "选哪个重试策略？",
+        &["指数退避", "固定间隔"],
+    );
+    let provider_id = seed_provider(
+        stores.inner(),
+        "ask 链供应",
+        "sk-test",
+        &provider.base_url,
+        "m-high",
+    );
+    seed_sdk_default(stores.inner(), "ask 链实例", provider_id);
+
+    let (channel, captured) = capturing_channel();
+    let summary = agent_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        "explore 应答一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        Some("explore".to_owned()),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("受理");
+
+    crate::commands::ask_test_support::answer_until_registered(
+        &app,
+        &root,
+        &summary.session_id,
+        "指数退避",
+    )
+    .await;
+
+    let terminal = wait_for_record(&captured).await;
+    assert_eq!(
+        terminal["record"]["status"],
+        serde_json::json!("completed"),
+        "同 turn 续跑收口（不是 failed / stopped）"
+    );
+    assert_eq!(
+        terminal["record"]["sessionId"],
+        serde_json::json!(summary.session_id.clone()),
+        "零新会话（session_id 与提前 resolve 的轮行同值）"
+    );
+
+    let transcript = agent_session_transcript(
+        app.state::<WorkspaceStores>(),
+        root.clone(),
+        summary.session_id.clone(),
+    )
+    .expect("转录查询应成功");
+    // 该 tool_use 的配对 tool_result 逐字回灌应答原文（is_error = false）
+    let paired = crate::commands::ask_test_support::tool_result_in(&transcript, "tu_cmd_ask");
+    assert_eq!(
+        paired,
+        Some(("指数退避".to_owned(), false)),
+        "应答原文回灌为配对 tool_result（同 turn 续跑）"
+    );
+    // 二次应答必 Err（注册表已被 take）
+    let error = super::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        summary.session_id.clone(),
+        "第二次".to_owned(),
+    )
+    .expect_err("二次应答 Err");
+    assert_eq!(error, "当前无等待中的 ask");
+}
+
+/// change-chat 的 `Flow` 档可 ask（组合，AC-13 / DD15）：`source="change"` +
+/// `source_ref = <change id>`（无 run 形态）→ 装配层置 `ask=Some(Flow)`，
+/// `ChatAskPort` 空实现使该轮 `AskUserQuestion` **不返回 is_error**（若 port 缺席
+/// 则必为「ask 编排状态面未装配」），应答经 `agent_answer` 回灌成功。
+#[tokio::test]
+async fn change_chat轮ask经chat空port不误判且可应答() {
+    let env = Env::new("ask-chain-chat");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let provider = crate::commands::ask_test_support::AskScriptedProvider::new(
+        "chat",
+        "采用哪个方案？",
+        &["A", "B"],
+    );
+    let provider_id = seed_provider(
+        stores.inner(),
+        "chat 空 port 供应",
+        "sk-test",
+        &provider.base_url,
+        "m-high",
+    );
+    seed_sdk_default(stores.inner(), "chat 空 port 实例", provider_id);
+
+    let (channel, captured) = capturing_channel();
+    let summary = agent_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        "chat 应答一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        Some("change".to_owned()),
+        Some(CHAT_CHANGE_ID.to_owned()),
+        None,
+        None,
+    )
+    .await
+    .expect("受理");
+
+    crate::commands::ask_test_support::answer_until_registered(
+        &app,
+        &root,
+        &summary.session_id,
+        "B",
+    )
+    .await;
+    let terminal = wait_for_record(&captured).await;
+    assert_eq!(
+        terminal["record"]["status"],
+        serde_json::json!("completed"),
+        "应答回灌后续跑收口"
+    );
+
+    let transcript = agent_session_transcript(
+        app.state::<WorkspaceStores>(),
+        root,
+        summary.session_id.clone(),
+    )
+    .expect("转录查询应成功");
+    assert_eq!(
+        crate::commands::ask_test_support::tool_result_in(&transcript, "tu_cmd_ask"),
+        Some(("B".to_owned(), false)),
+        "ChatAskPort 使 Flow 档不落「编排状态面未装配」防御臂（is_error = false）"
+    );
+}
+
+/// 注册表未托管时的显式失败（异常，AC-10 的装配契约）：mock app 未
+/// `manage(AskRegistry)` → 发起路径在 `State` 取用处即失败（与既有
+/// `SessionStreamRegistry` / `StopRegistry` 的同型托管契约），且**会话表零新增**
+/// （不产生半截会话行）。
+///
+/// 判据面：`agent_start_with` 的注册表取用先于 `begin_turn`（同步段），故失败
+/// 发生时尚未落任何会话 / 轮行；panic 以 `catch_unwind` 收敛在本用例内。
+#[test]
+fn ask注册表未托管时发起即失败且零落库() {
+    let env = Env::new("ask-unmanaged");
+    let app = tauri::test::mock_app();
+    let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
+    app.manage(stores);
+    app.manage(Arc::new(StopRegistry::new()));
+    app.manage(Arc::new(SessionStreamRegistry::new()));
+    // 刻意不 manage `Arc<AskRegistry>`
+    let root = env.root_of("alpha");
+    let provider = seed_provider(
+        app.state::<WorkspaceStores>().inner(),
+        "未托管供应",
+        "sk-test",
+        "http://bad host/v1",
+        "m-high",
+    );
+    seed_sdk_default(
+        app.state::<WorkspaceStores>().inner(),
+        "未托管实例",
+        provider,
+    );
+
+    let handle = app.handle().clone();
+    let root_for_call = root.clone();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("建测试运行时");
+        runtime.block_on(async move {
+            agent_start_with(
+                handle,
+                discarding_channel(),
+                root_for_call,
+                "未托管一轮".to_owned(),
+                AgentPermissionMode::BypassPermissions,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+        })
+    }))
+    .is_err();
+    assert!(failed, "未托管注册表 → 发起路径显式失败（State 取用失败）");
+
+    let summaries = sessions_in_root(app.state::<WorkspaceStores>().inner(), &root);
+    assert!(summaries.is_empty(), "零落库（无半截会话行）");
+    let store = app
+        .state::<WorkspaceStores>()
+        .inner()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    assert!(
+        store
+            .list_session_events("ses-any")
+            .expect("转录查询")
+            .is_empty(),
+        "零转录行"
     );
 }

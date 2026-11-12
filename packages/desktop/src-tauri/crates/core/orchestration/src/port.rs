@@ -9,7 +9,7 @@ use foundation::layout::ReportSlot;
 use workflow::state::{RunFinishCommand, RunStartCommand};
 use workflow::write::{BacktrackInput, PhaseLogInput, PhaseNextOutcome, PhaseStartOutcome};
 
-use crate::state::{ArchivePreflight, RunUpdate};
+use crate::state::{ArchivePreflight, AskPayload, RunUpdate};
 
 /// WorkerAgent 轮 future 别名（std-only）。
 pub type BoxTurnFuture = Pin<Box<dyn Future<Output = Result<WorkerTurnOutcome, String>> + Send>>;
@@ -634,6 +634,19 @@ pub trait WorkflowSnapshotPort: Send + Sync {
 /// run 状态流出口：命令层桥接到 Channel 与 broadcast（walker 只认本缝）。
 pub trait RunEventSink: Send + Sync {
     fn emit(&self, update: RunUpdate);
+}
+
+/// ask 编排状态面（实现驻壳层 sink）：`ask_started` 广播「本条 ask 已开始」
+///（携完整载荷——`question` / `options` / `tool_call_id` / `session_id`），
+/// `ask_resolved` 表达「本条 ask 结束」（停等态清理单点触发）。
+///
+/// 与 [`RunEventSink`] 分立：前者是 `RunUpdate` 六变体的通用出口，本 trait 是
+/// ask 语义的收窄面（两方法），非 change 来源可由空实现满足。
+pub trait AskPort: Send + Sync {
+    /// 广播「本条 ask 已开始」（阻塞工具进入等待前）。
+    fn ask_started(&self, ask: AskPayload);
+    /// 广播「本条 ask 结束」（应答 / 停止两臂返回后各执行一次）。
+    fn ask_resolved(&self);
 }
 
 /// run 运行史落库缝（unify-run-state-persistence）：walker 侧两写（起点第

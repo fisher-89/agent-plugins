@@ -85,6 +85,7 @@ fn empty经is_complete判定为缺失且sdk启动以config_missing失败且文�
                 model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::New,
+            session_id: "core-session-1".to_owned(),
             prior_handle: None,
         })
         .expect_err("空配置 open_session 必须显式失败");

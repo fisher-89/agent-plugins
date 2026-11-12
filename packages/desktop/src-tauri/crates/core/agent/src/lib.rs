@@ -1,3 +1,4 @@
+mod ask;
 mod event;
 mod kernel;
 mod port;
@@ -7,6 +8,7 @@ mod state;
 mod stream;
 mod usage;
 
+pub use ask::AskRegistry;
 pub use event::{
     AgentBlock, AgentCitation, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole,
     WebSearchSource,
@@ -14,8 +16,9 @@ pub use event::{
 pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 pub use port::{SessionQuery, SessionSink, TurnOutcome};
 pub use runner::{
-    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, FinishSpec,
-    ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, AskMode,
+    FinishSpec, ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    TurnQuestion,
 };
 pub use session::{
     new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
@@ -27,6 +30,8 @@ pub use stream::{
 };
 pub use usage::sum_usage_tokens;
 
+#[cfg(test)]
+mod ask_test;
 #[cfg(test)]
 mod event_test;
 #[cfg(test)]

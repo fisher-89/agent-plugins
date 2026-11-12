@@ -909,3 +909,136 @@ fn 退役面零残留且白名单门逐字不动() {
         assert!(own.contains(wording), "既有拒绝文案逐字在场: {wording}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`DecisionAction::Ask` 保留变体（生产不可达）+ `"ask"` 臂历史
+// 兼容面逐字保留
+// ---------------------------------------------------------------------------
+
+/// 反序列化兼容（正向，历史 notice）：`DecisionAction` 的 `"ask"` tag 仍可读
+///（历史 `FinishPayload::Decision(Ask{..})` 载荷），逐字段相等。
+#[test]
+fn decision_action_ask变体反序列化兼容历史载荷() {
+    let parsed: DecisionAction = serde_json::from_value(serde_json::json!({
+        "action": "ask",
+        "question": "q",
+        "options": ["a"],
+    }))
+    .expect("历史 ask 载荷应可反序列化");
+    assert_eq!(
+        parsed,
+        DecisionAction::Ask {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+        },
+        "历史载荷逐字段承接"
+    );
+
+    // 往返等值（线形态 action tag 逐字 ask）
+    let value = serde_json::to_value(&parsed).expect("序列化");
+    assert_eq!(value["action"], "ask", "线形态 tag 逐字 ask");
+    let back: DecisionAction = serde_json::from_value(value).expect("反序列化");
+    assert_eq!(back, parsed, "往返逐字段相等");
+}
+
+/// `"ask"` 臂三个 Err 面逐字保留（异常，参数化 3 形态）：`question` 缺失 /
+/// `options` 非数组 / `options` 空数组 → 三文案与改动前逐字相同（历史兼容面
+/// MUST NOT 随本变更改文案）。
+#[test]
+fn validate_decision的ask臂三err面逐字保留() {
+    // 三文案与改动前逐字相同（`options` 两形态以字段名为主，不重复动作名）
+    let cases: [(&str, serde_json::Value, &[&str]); 3] = [
+        (
+            "question 缺失",
+            serde_json::json!({ "action": "ask", "options": ["甲"] }),
+            &["question", "ask"],
+        ),
+        (
+            "options 非数组",
+            serde_json::json!({ "action": "ask", "question": "q", "options": "甲" }),
+            &["options"],
+        ),
+        (
+            "options 空数组",
+            serde_json::json!({ "action": "ask", "question": "q", "options": [] }),
+            &["options"],
+        ),
+    ];
+    for (label, args, needles) in cases {
+        let error = validate_decision(&args).expect_err(&format!("{label} 应 Err"));
+        for needle in needles {
+            assert!(
+                error.contains(needle),
+                "{label}：文案须含「{needle}」，实际: {error}"
+            );
+        }
+    }
+}
+
+/// 三变体可辨（边界，参数化 3 变体）：`Backtrack` / `Stop` / `Ask` 两两 `!=`；
+/// serde tag 逐字 `backtrack` / `stop` / `ask`（线值与 `finish_step` schema 的
+/// 收窄无关——`DecisionAction` 是载荷类型，不是 schema）。
+#[test]
+fn decision_action三变体可辨且tag逐字() {
+    let variants = [
+        (
+            "backtrack",
+            DecisionAction::Backtrack {
+                to: "proposal".to_owned(),
+                reason: "r".to_owned(),
+            },
+        ),
+        (
+            "stop",
+            DecisionAction::Stop {
+                reason: "r".to_owned(),
+            },
+        ),
+        (
+            "ask",
+            DecisionAction::Ask {
+                question: "q".to_owned(),
+                options: vec!["a".to_owned()],
+            },
+        ),
+    ];
+    for (tag, variant) in &variants {
+        let value = serde_json::to_value(variant).expect("序列化");
+        assert_eq!(value["action"], serde_json::json!(tag), "tag 逐字 {tag}");
+    }
+    for outer in 0..variants.len() {
+        for inner in (outer + 1)..variants.len() {
+            assert_ne!(
+                variants[outer].1, variants[inner].1,
+                "变体 {} 与 {} 两两可辨",
+                variants[outer].0, variants[inner].0
+            );
+        }
+    }
+}
+
+/// 生产不可达的文档面自证（异常，源码自证）：`decision.rs` 含「生产不可达」
+/// 类注释且落在 `Ask` 变体上方（doc 注释落位）。
+#[test]
+fn decision_rs的ask变体带生产不可达注释() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/decision.rs"),
+    )
+    .expect("读取 decision.rs");
+
+    let ask_position = own.find("Ask {").expect("Ask 变体在场");
+    let before = &own[..ask_position];
+    // 取 Ask 变体上方的最近 3 行（doc 注释落位窗口）
+    let window = before.lines().rev().take(8).collect::<Vec<_>>().join(
+        "
+",
+    );
+    assert!(
+        window.contains("生产不可达"),
+        "Ask 变体上方的 doc 注释含「生产不可达」说明，实际: {window}"
+    );
+    assert!(
+        window.contains("AskUserQuestion"),
+        "注释指明提问已迁出为独立工具 AskUserQuestion，实际: {window}"
+    );
+}

@@ -12,11 +12,13 @@ use tauri::{AppHandle, Manager, State};
 // `mod agent`（本地薄包装模块）与外部 `agent` 契约 crate 同名：外部 crate
 // 以 `::agent::` 显式消歧
 use ::agent::{
-    KernelOutput, ModelLevel, SessionCtx, SessionPage, SessionProvenance, SessionRef,
+    AskRegistry, KernelOutput, ModelLevel, SessionCtx, SessionPage, SessionProvenance, SessionRef,
     SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionSummary, StopRegistry,
     TurnSummary,
 };
 use agent_runtime::compose_turn;
+use orchestration::port::AskPort;
+use orchestration::state::AskPayload;
 use store::WorkspaceStores;
 
 use agent::AgentRunMessage;
@@ -53,6 +55,21 @@ fn resolve_exec_root(cwd: Option<&str>, root: &str) -> Result<String, String> {
         "worktree 目录不存在（可能已被手动删除）: {dir}；\
          请恢复目录或手动清理后重建 change"
     ))
+}
+
+/// change-chat 会话的 ask 编排状态面（无 run 形态）：change 来源的 ask 位恒
+/// `Some(Flow)`，而 chat 会话没有 `ChangeFlowControl` 条目——空实现把「本会话无
+/// 编排停等面」这一事实类型化，使 `Flow` 档的两条广播成为显式无操作（而非
+/// `port` 缺席触发的 is_error 防御臂）。
+///
+/// 反例辨析：拿真实 `ChangeFlowSink` 会 `publish` 到一个不存在的 run 条目（静默
+/// 无操作，但多一层「以为有 run」的误解）；保留 `None` 则 change-chat 静默失去
+/// ask。
+struct ChatAskPort;
+
+impl AskPort for ChatAskPort {
+    fn ask_started(&self, _ask: AskPayload) {}
+    fn ask_resolved(&self) {}
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -132,17 +149,21 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
     let stores = app.state::<WorkspaceStores>();
     let registry = app.state::<Arc<StopRegistry>>();
     let streams = app.state::<Arc<SessionStreamRegistry>>();
+    // ask 注册表 `Arc` 先取出再进组合根（不跨 await 持 `State` 句柄）
+    let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
-    // 注册表 `Arc` 先取出再进入组合根（不跨 await 持 `State` 句柄）
     let composed = compose_turn(
         stores.inner(),
         Arc::clone(registry.inner()),
         Arc::clone(streams.inner()),
+        ask_registry,
         store,
         agent,
         // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；
         // `exec_root` 仍只进上方 `SessionCtx.workspace_root`
         Path::new(&root),
+        // 通用侧无编排停等面（change-chat 例外见 `ChatAskPort` doc）
+        Some(Arc::new(ChatAskPort)),
     )?;
     let running = composed.begin(session, prompt, ctx, provenance)?;
     // 后台转发任务：内核泵输出 → Channel（事件与终态同构流出）；提前 resolve
@@ -180,6 +201,29 @@ pub fn agent_stop(
     }
     registry.request_stop(&session_id);
     Ok(())
+}
+
+/// ask 应答（薄包装三段：参数校验 → 注册表投递 → 错误原样透出，零状态机 /
+/// 零广播 / 零清理）。
+///
+/// 校验面只覆盖两个**寻址**参数（空白会让注册表查不到任何条目，是纯误用）；
+/// `text` 原样透传（后端不替用户裁量应答内容）。miss 显式 `Err` 而非幂等 `Ok`：
+/// 重复 / 迟到应答都是用户可感知的「卡已不在」事实，静默成功会掩盖双端不同步。
+#[tauri::command]
+#[specta::specta]
+pub fn agent_answer(
+    registry: State<'_, Arc<AskRegistry>>,
+    root: String,
+    session_id: String,
+    text: String,
+) -> Result<(), String> {
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    if session_id.trim().is_empty() {
+        return Err("非法 session_id: 不得为空白".to_owned());
+    }
+    registry.answer(&session_id, text)
 }
 
 /// 会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，

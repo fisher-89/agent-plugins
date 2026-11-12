@@ -75,6 +75,10 @@ pub struct SdkRunner {
     /// 主仓 root（组合根注入缝）：写入保护规则装配的根（工作区配置权威所在
     /// 地）；`None` = 未注入 → 只装载内置规则（非「保护关闭」）
     workspace_root: Option<PathBuf>,
+    /// ask 应答注册表（组合根注入缝；`new` 缺省空表 = 阻塞恒 miss，fail-closed）
+    ask_registry: Arc<agent::AskRegistry>,
+    /// ask 编排状态面（组合根注入缝；仅 `Flow` 档消费）
+    ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
 }
 
 impl SdkRunner {
@@ -94,6 +98,26 @@ impl SdkRunner {
             web_search: false,
             explore_store,
             workspace_root: None,
+            ask_registry: Arc::new(agent::AskRegistry::default()),
+            ask_port: None,
+        }
+    }
+
+    /// ask 应答注册表旁路注入（builder 缝，与 `with_explore_note_store` 同型）：
+    /// 组合根注入壳层托管的那张表（与内核侧同源）。
+    pub fn with_ask_registry(self, registry: Arc<agent::AskRegistry>) -> Self {
+        Self {
+            ask_registry: registry,
+            ..self
+        }
+    }
+
+    /// ask 编排状态面旁路注入（builder 缝）：仅 `Flow` 档消费；`None` = 无编排
+    /// 停等面（`Flow` 档执行体将以装配漂移 is_error 回灌）。
+    pub fn with_ask_port(self, port: Option<Arc<dyn orchestration::port::AskPort>>) -> Self {
+        Self {
+            ask_port: port,
+            ..self
         }
     }
 
@@ -214,6 +238,8 @@ impl AgentRunner for SdkRunner {
                 raw_model: model_name,
                 explore_store: self.explore_store.clone(),
                 workspace_root: self.workspace_root.clone(),
+                ask_registry: Arc::clone(&self.ask_registry),
+                ask_port: self.ask_port.clone(),
             },
             question_rx,
             observation_tx,
@@ -348,6 +374,10 @@ struct PumpPayload {
     /// 主仓 root（组合根注入缝）——写入保护规则装配的根（`None` = 未注入 →
     /// 只装载内置规则）
     workspace_root: Option<PathBuf>,
+    /// ask 应答注册表（组合根注入缝）：per-turn 铸造 `AskContext` 的句柄
+    ask_registry: Arc<agent::AskRegistry>,
+    /// ask 编排状态面（组合根注入缝）：仅 `Flow` 档随上下文携带
+    ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
 }
 
 /// 架构只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
@@ -408,6 +438,18 @@ async fn session_pump(
         open.injections.tools.as_deref().unwrap_or_default(),
         &open.ctx.workspace_root,
     );
+    // ask 执行上下文 per-turn 铸造：判据 = `ask` 位存在（与 explore / archi 的
+    // 「名字包含」判据并列的第二类铸造判据）；`core_session_id` 取
+    // `SessionOpen.session_id`（core 铸 id），MUST NOT 取引擎侧 `sdk-…` 标识
+    let ask = open.injections.ask.map(|mode| r#loop::AskContext {
+        registry: Arc::clone(&payload.ask_registry),
+        core_session_id: open.session_id.clone(),
+        port: if mode == agent::AskMode::Flow {
+            payload.ask_port.clone()
+        } else {
+            None
+        },
+    });
     // 泵启动日志（诊断面：同一 base_url 配错协议可一眼定位）。`model` 报裸名
     // （= 实际发送）、`window` 报**生效**窗长（含 128K 缺省）、`max_tokens` 报
     // **生效**输出上限（openai 协议不写该字段，记 `-`）、`raw` 留配置原文
@@ -440,6 +482,7 @@ async fn session_pump(
         injections: open.injections.clone(),
         explore_note,
         archi,
+        ask,
         protect,
         web_search: payload.web_search,
     };

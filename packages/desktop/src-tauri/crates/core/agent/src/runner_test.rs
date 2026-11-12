@@ -5,8 +5,8 @@ use serde_json::json;
 
 use crate::event::AgentEventKind;
 use crate::runner::{
-    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, FinishSpec, ModelLevel,
-    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, AskMode, FinishSpec,
+    ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
 /// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
@@ -82,6 +82,7 @@ fn new_open() -> SessionOpen {
             preamble: Some("会话前导".to_owned()),
             tools: Some(vec!["read".to_owned(), "grep".to_owned()]),
             finish: None,
+            ask: None,
         },
         ctx: SessionCtx {
             workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
@@ -90,6 +91,7 @@ fn new_open() -> SessionOpen {
             model_level: ModelLevel::Low,
         },
         session: SessionRef::New,
+        session_id: "core-session-1".to_owned(),
         prior_handle: None,
     }
 }
@@ -166,6 +168,7 @@ async fn open_session_continue携会话id与prior_handle原样传递() {
         session: SessionRef::Continue {
             id: "ses-1-1727000000000".to_owned(),
         },
+        session_id: "core-session-1".to_owned(),
         prior_handle: Some("sdk-7-1727000000001".to_owned()),
     };
 
@@ -330,6 +333,7 @@ fn session_injections默认形态tools与preamble均为none() {
         preamble: None,
         tools: Some(vec!["read".to_owned()]),
         finish: None,
+        ask: None,
     };
     assert_ne!(default_injections, narrowed);
 }
@@ -596,11 +600,12 @@ fn finish_spec派生面与源码自证() {
 /// `SessionInjections` 三字段 round-trip（正向）：键面恰 `preamble` / `tools` /
 /// `finish` 三键（`toolset` 零命中）且逐字段相等。
 #[test]
-fn session_injections三字段round_trip() {
+fn session_injections四字段round_trip() {
     let injections = SessionInjections {
         preamble: Some("前导".to_owned()),
         tools: Some(vec!["read".to_owned(), "archi_module".to_owned()]),
         finish: Some(FinishSpec::Decision),
+        ask: Some(AskMode::Flow),
     };
     let value = serde_json::to_value(&injections).expect("序列化");
     let mut keys: Vec<&str> = value
@@ -612,11 +617,24 @@ fn session_injections三字段round_trip() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["finish", "preamble", "tools"],
-        "键面恰三键（toolset 零命中）"
+        vec!["ask", "finish", "preamble", "tools"],
+        "键面恰四键（toolset 零命中）"
     );
     let back: SessionInjections = serde_json::from_value(value).expect("反序列化");
     assert_eq!(back, injections, "逐字段相等");
+
+    // PartialEq / Eq 链：同值相等；ask 不同即不等；finish 不同即不等
+    assert_eq!(back.clone(), injections);
+    let other_ask = SessionInjections {
+        ask: Some(AskMode::Generic),
+        ..injections.clone()
+    };
+    assert_ne!(other_ask, injections, "ask 位差异即不等");
+    let other_finish = SessionInjections {
+        finish: Some(FinishSpec::EvaluatorChecklist),
+        ..injections.clone()
+    };
+    assert_ne!(other_finish, injections, "finish 位差异即不等");
 }
 
 /// `SessionInjections` 旧线兼容（边界，表驱动 4 形态）：缺 `finish` 键 → `None`
@@ -644,6 +662,235 @@ fn session_injections旧线兼容四形态() {
     assert_eq!(empty, SessionInjections::default());
 }
 
+/// `SessionInjections.ask` 缺省与显式 null（边界，2 形态）：旧线 JSON 无 `ask`
+/// 键 → `None`；`{"ask": null}` → `None`（`#[serde(default)]` + `Option` 双承接）。
+#[test]
+fn session_injections_ask缺省与显式null均读none() {
+    let missing: SessionInjections =
+        serde_json::from_value(json!({ "preamble": "前导", "finish": "decision" }))
+            .expect("旧线无 ask 键应可反序列化");
+    assert_eq!(missing.ask, None, "缺 ask 键读出 None（additive 承接）");
+
+    let explicit_null: SessionInjections =
+        serde_json::from_value(json!({ "ask": null })).expect("显式 null 可反序列化");
+    assert_eq!(explicit_null.ask, None, "显式 null 读出 None");
+
+    // default 的 ask 为 None（fail-closed 语义锚定）
+    assert_eq!(
+        SessionInjections::default().ask,
+        None,
+        "default 的 ask 位 = 显式禁用（装配层 MUST 显式置位）"
+    );
+    assert_ne!(
+        SessionInjections {
+            ask: Some(AskMode::Generic),
+            ..SessionInjections::default()
+        },
+        SessionInjections::default(),
+        "置位形态与 default 可辨（默认不是「挂载」）"
+    );
+}
+
+/// `SessionInjections.ask` 非法线值拒绝（异常，表驱动 4 形态）：闭合枚举无宽松承接。
+#[test]
+fn session_injections_ask非法线值四形态均err() {
+    for (label, invalid) in [
+        ("拼接词", json!({ "ask": "genericFlow" })),
+        ("数值", json!({ "ask": 1 })),
+        ("对象", json!({ "ask": {} })),
+        ("数组", json!({ "ask": ["generic"] })),
+    ] {
+        let result: Result<SessionInjections, _> = serde_json::from_value(invalid.clone());
+        assert!(
+            result.is_err(),
+            "{label}（{invalid}）应 serde Err，实际: {result:?}"
+        );
+    }
+}
+
+/// `SessionInjections` 两位独立可辨（边界，组合迭代 4 组合）：`(ask, finish)` 的
+/// 四组合各可构造且两两 `!=`——AC-4 的类型侧证。
+#[test]
+fn session_injections_ask与finish两位四组合两两可辨() {
+    let combinations: Vec<SessionInjections> = [
+        (Some(AskMode::Generic), Some(FinishSpec::Decision)),
+        (Some(AskMode::Generic), None),
+        (None, Some(FinishSpec::Decision)),
+        (None, None),
+    ]
+    .into_iter()
+    .map(|(ask, finish)| SessionInjections {
+        ask,
+        finish,
+        ..SessionInjections::default()
+    })
+    .collect();
+
+    for outer in 0..combinations.len() {
+        for inner in (outer + 1)..combinations.len() {
+            assert_ne!(
+                combinations[outer], combinations[inner],
+                "组合 {outer} 与 {inner} 两两可辨"
+            );
+        }
+    }
+    assert_eq!(combinations[0].ask, Some(AskMode::Generic));
+    assert_eq!(combinations[2].finish, Some(FinishSpec::Decision));
+    assert_eq!(combinations[3].ask, None);
+    assert_eq!(combinations[3].finish, None);
+}
+
+/// `SessionInjections.tools` 三形态与 `ask = Some(Generic)` 并存（边界，参数化）：
+/// round-trip 逐项保真，`Some(vec![])` 不被压成 `None`。
+#[test]
+fn session_injections_tools三形态与ask位并存round_trip() {
+    let seven = vec![
+        "read".to_owned(),
+        "grep".to_owned(),
+        "glob".to_owned(),
+        "bash".to_owned(),
+        "write".to_owned(),
+        "web_search".to_owned(),
+        "read_file".to_owned(),
+    ];
+    let shapes: [Option<Vec<String>>; 3] = [None, Some(Vec::new()), Some(seven)];
+    for tools in shapes {
+        let injections = SessionInjections {
+            tools: tools.clone(),
+            ask: Some(AskMode::Generic),
+            ..SessionInjections::default()
+        };
+        let back: SessionInjections =
+            serde_json::from_value(serde_json::to_value(&injections).expect("序列化"))
+                .expect("反序列化");
+        assert_eq!(back.tools, tools, "tools 形态逐项保真（空清单不压成 None）");
+        assert_eq!(back.ask, Some(AskMode::Generic), "ask 位并存不丢");
+    }
+}
+
+/// `AskMode` 两线值双向 round-trip + 与 `FinishSpec` 词面互不混用
+///（正向，参数化 2 变体）。
+#[test]
+fn ask_mode两线值双向round_trip且与finish_spec词面不混用() {
+    let cases = [(AskMode::Generic, "generic"), (AskMode::Flow, "flow")];
+    for (mode, wire) in cases {
+        assert_eq!(
+            serde_json::to_value(mode).expect("序列化"),
+            json!(wire),
+            "线值 camelCase: {wire}"
+        );
+        let back: AskMode = serde_json::from_value(json!(wire)).expect("反序列化");
+        assert_eq!(back, mode, "双向 round-trip 逐值相等: {wire}");
+    }
+
+    // 词面互不混用：ask 的两线值不被 finish 承接，反之亦然
+    for wire in ["generic", "flow", "evaluatorChecklist", "decision"] {
+        let as_ask: Result<AskMode, _> = serde_json::from_value(json!(wire));
+        let as_finish: Result<FinishSpec, _> = serde_json::from_value(json!(wire));
+        match wire {
+            "generic" | "flow" => {
+                assert!(as_ask.is_ok(), "{wire} 是 ask 线值");
+                assert!(as_finish.is_err(), "{wire} 不被 finish 承接");
+            }
+            _ => {
+                assert!(as_ask.is_err(), "{wire} 不被 ask 承接");
+                assert!(as_finish.is_ok(), "{wire} 是 finish 线值");
+            }
+        }
+    }
+}
+
+/// `AskMode` 派生面自证（异常，源码自证）：`runner.rs` 中 `AskMode` 的
+/// `#[derive(...)]` 不含 `specta::Type`（引擎侧会话词汇不出线 IPC），且无
+/// `Default` 实现（避免 ask 位被误缺省成「挂载」）。
+#[test]
+fn ask_mode派生面自证_零specta与零default() {
+    // Copy / Eq / Debug 编译期锚定
+    let a = AskMode::Flow;
+    let b = a;
+    assert_eq!(a, b, "Copy 未被移走");
+    assert_ne!(AskMode::Generic, AskMode::Flow, "两档位可辨");
+    assert!(!format!("{:?}", AskMode::Generic).is_empty(), "Debug 非空");
+
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runner.rs"),
+    )
+    .expect("读取 runner.rs");
+    let derive_before = |anchor: &str| {
+        own.split(anchor)
+            .next()
+            .expect("定义在场")
+            .lines()
+            .rev()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            )
+    };
+    assert!(
+        !derive_before("pub enum AskMode").contains("specta"),
+        "AskMode 的 derive 行不含 specta（档位不出线 IPC）"
+    );
+    assert!(
+        !own.contains("impl Default for AskMode"),
+        "零 AskMode 的 Default 实现（避免 ask 位被误缺省成「挂载」）"
+    );
+    // `SessionInjections` 的 derive 面亦不含 specta（承载 ask 位的结构不出线）
+    assert!(
+        !derive_before("pub struct SessionInjections").contains("specta"),
+        "SessionInjections 的 derive 行不含 specta"
+    );
+}
+
+/// `SessionOpen.session_id`（正向，参数化 2 形态）：New / Continue 两形态均可
+/// 构造且字段可读；`session_id` 与 `session.id` 互不推断（同值由内核填，本层
+/// 不约束）。
+#[test]
+fn session_open_session_id两形态可构造且字段可读() {
+    let new_open = SessionOpen {
+        injections: SessionInjections::default(),
+        ctx: SessionCtx {
+            workspace_root: PathBuf::from("D:\\ws"),
+            permission_mode: AgentPermissionMode::BypassPermissions,
+            model_level: ModelLevel::High,
+        },
+        session: SessionRef::New,
+        session_id: "core-session-new".to_owned(),
+        prior_handle: None,
+    };
+    assert_eq!(new_open.session_id, "core-session-new", "core 铸 id 可读");
+    assert!(matches!(new_open.session, SessionRef::New), "New 形态");
+
+    let continue_open = SessionOpen {
+        injections: SessionInjections::default(),
+        ctx: new_open.ctx.clone(),
+        session: SessionRef::Continue {
+            id: "ses-1-1727000000000".to_owned(),
+        },
+        session_id: "core-session-continue".to_owned(),
+        prior_handle: Some("sdk-7-1727000000001".to_owned()),
+    };
+    assert_eq!(
+        continue_open.session_id, "core-session-continue",
+        "Continue 形态的 session_id 独立可读（与 session.id 互不推断）"
+    );
+    assert!(
+        matches!(&continue_open.session, SessionRef::Continue { id } if id == "ses-1-1727000000000"),
+        "会话引用原样可读"
+    );
+
+    // 空串与超长形态（结构层不校验）
+    for session_id in [String::new(), "字".repeat(1200)] {
+        let open = SessionOpen {
+            session_id: session_id.clone(),
+            ..new_open.clone()
+        };
+        assert_eq!(open.session_id, session_id, "session_id 逐字保真");
+    }
+}
+
 /// `SessionInjections` 缺省与等值（边界，3 断言）：default 三字段全 None；
 /// 与「显式三 None」构造等值；两档位构造**不相等**（Eq 链可辨档位）。
 #[test]
@@ -657,6 +904,7 @@ fn session_injections缺省与等值三断言() {
         preamble: None,
         tools: None,
         finish: None,
+        ask: None,
     };
     assert_eq!(default_injections, explicit, "default 与显式三 None 等值");
 

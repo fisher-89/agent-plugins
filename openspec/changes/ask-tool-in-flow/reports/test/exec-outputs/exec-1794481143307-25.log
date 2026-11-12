@@ -1,0 +1,16 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+src\commands\fs\mod_test.rs:314:18: warning: this `repeat().take()` can be written more concisely: help: consider using `repeat_n()` instead: `std::iter::repeat_n(b'x', MAX_LIMIT as usize + 64)`
+warning: `dev-team` (lib test) generated 1 warning (run `cargo clippy --fix --lib -p dev-team --tests -- ` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.90s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml && pnpm run bindings:zod-check
+[zod-bindings] degraded: agentStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: agentSessionWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowStart.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: changeFlowWatch.onEvent — channel: 非 JSON 可表达，跳过值校验
+[zod-bindings] degraded: watchSubscribe.onEvent — channel: 非 JSON 可表达，跳过值校验
+$ tsc --noEmit -p tsconfig.zod.json
+$ cargo run -q --manifest-path src-tauri/Cargo.toml -p archi-api-gen -- --check
+{"mismatched":[],"orphaned":["openspec/changes/ask-tool-in-flow/reports/test/packages_desktop_vite-plus/mutation/_stryker-tmp/sandbox-6U4F6J/src-tauri/crates/infra/archi.i.rs"],"missing":[]}
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

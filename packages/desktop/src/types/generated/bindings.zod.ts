@@ -101,6 +101,11 @@ export const argsSchemas = {
 			"root": z.string(),
 			"sessionId": z.string(),
 		}); },
+	get "agentAnswer"() { return z.strictObject({
+			"root": z.string(),
+			"sessionId": z.string(),
+			"text": z.string(),
+		}); },
 	get "agentSessionWatch"() { return z.strictObject({
 			"onEvent": degraded("channel: 非 JSON 可表达，跳过值校验"),
 			"root": z.string(),
@@ -286,6 +291,7 @@ export const resultSchemas = {
 	get "setDefaultAgentInstance"() { return z.lazy(() => AgentInstanceRecordSchema); },
 	get "agentStart"() { return z.lazy(() => TurnSummarySchema); },
 	get "agentStop"() { return z.null(); },
+	get "agentAnswer"() { return z.null(); },
 	get "agentSessionWatch"() { return z.null(); },
 	get "agentSessions"() { return z.lazy(() => SessionPageSchema); },
 	get "agentSessionTranscript"() { return z.array(z.lazy(() => AgentEventSchema)); },
@@ -366,6 +372,8 @@ export const channelArgs = {
 			get "onEvent"() { return z.lazy(() => AgentRunMessageSchema); },
 		}; },
 	get "agentStop"() { return {
+		}; },
+	get "agentAnswer"() { return {
 		}; },
 	get "agentSessionWatch"() { return {
 			get "onEvent"() { return z.lazy(() => AgentRunMessageSchema); },
@@ -896,6 +904,8 @@ export const ArtifactEnvelopeSchema = z.strictObject({
 export const AskPayloadSchema = z.strictObject({
 	get question() { return z.string(); },
 	get options() { return z.array(z.string()); },
+	get toolCallId() { return z.string().nullable().optional(); },
+	get sessionId() { return z.string().nullable().optional(); },
 });
 
 export const AttemptRecordSchema = z.strictObject({

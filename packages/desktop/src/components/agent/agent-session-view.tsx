@@ -9,7 +9,7 @@ import {
 import type { SessionSummary } from '@/types/generated/bindings';
 
 import { latestAgentFailure, type AgentFailure } from './agent-error';
-import { AgentMessages } from './agent-messages';
+import { type AskAnswerActions, AgentMessages } from './agent-messages';
 
 /** composer 插槽入参：运行态 + 动作面（插槽内容据此呈现发送 / 停止） */
 export interface AgentSessionActions {
@@ -30,6 +30,9 @@ export interface AgentSessionViewProps {
   session?: UseAgentSessionState;
   /** composer 插槽（render prop：插槽自足取运行态与动作面；只读消费点不传） */
   composer?: (actions: AgentSessionActions) => React.ReactNode;
+  /** ask 应答动作面（可选注入位；与 composer 插槽互不前置——只读消费点可只接
+   * 它，本组件原样下行，**不自动接线**） */
+  askAnswer?: AskAnswerActions;
   'data-testid'?: string;
 }
 
@@ -109,7 +112,7 @@ function AgentFailureBanner({ failure }: { failure: AgentFailure }): React.JSX.E
  *   `sessionId = null` 空载（零取数、零订阅、零第二条流）。
  */
 export function AgentSessionView(props: AgentSessionViewProps): React.JSX.Element {
-  const { root, sessionId, refreshKey, session, composer } = props;
+  const { root, sessionId, refreshKey, session, composer, askAnswer } = props;
   const injected = session !== undefined;
   const internal = useAgentSession({
     root: injected ? null : (root ?? null),
@@ -148,7 +151,12 @@ export function AgentSessionView(props: AgentSessionViewProps): React.JSX.Elemen
           {state.error}
         </div>
       )}
-      <AgentMessages messages={state.messages} loading={state.loading} running={state.running} />
+      <AgentMessages
+        messages={state.messages}
+        loading={state.loading}
+        running={state.running}
+        askAnswer={askAnswer}
+      />
       {composer?.(actions)}
     </div>
   );

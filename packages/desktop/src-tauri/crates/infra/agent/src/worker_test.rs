@@ -11,8 +11,8 @@ use agent::{
     AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, ModelLevel,
     SessionProvenance, SessionStreamRegistry, StopRegistry,
 };
-use orchestration::port::{RunEventSink, WorkerAgentPort, WorkerRole, WorkerTurnRequest};
-use orchestration::state::RunUpdate;
+use orchestration::port::{AskPort, RunEventSink, WorkerAgentPort, WorkerRole, WorkerTurnRequest};
+use orchestration::state::{AskPayload, RunUpdate};
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
     AgentProviderRecord, SessionConfigSnapshot, SessionRecord, WorkspaceStores,
@@ -145,12 +145,17 @@ impl Captured {
 
 /// sdk 默认实例 fixture（provider 齐备——缺省解析可走通的唯一活档臂）。
 fn seed_sdk_default(stores: &WorkspaceStores, name: &str) -> i64 {
+    seed_sdk_at(stores, name, "http://127.0.0.1:9/v1")
+}
+
+/// 端点可指定的 sdk 默认实例 fixture（脚本化桩端点注入面）。
+fn seed_sdk_at(stores: &WorkspaceStores, name: &str, base_url: &str) -> i64 {
     let provider = stores
         .global()
         .upsert_agent_provider(AgentProviderRecord::new(
             format!("{name}供应"),
             AgentProviderProtocol::Openai,
-            "http://127.0.0.1:9/v1".to_owned(),
+            base_url.to_owned(),
             "sk-worker".to_owned(),
             AgentModelTiers {
                 high: "m-high".to_owned(),
@@ -296,6 +301,56 @@ fn session_events_of(updates: &[RunUpdate]) -> Vec<(String, agent::AgentEvent)> 
         .collect()
 }
 
+/// 等待首个会话事件并从捕获面取出会话 id（= ask 注册表键 / core 铸 id）。
+async fn wait_first_session_id(updates: &Arc<Mutex<Vec<RunUpdate>>>) -> String {
+    for _ in 0..3000 {
+        if let Some(RunUpdate::SessionEvent { session_id, .. }) = updates
+            .lock()
+            .expect("事件捕获锁不可中毒")
+            .iter()
+            .find(|update| matches!(update, RunUpdate::SessionEvent { .. }))
+        {
+            return session_id.clone();
+        }
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    panic!("等待首个会话事件超时");
+}
+
+/// 轮询至注册表受理应答（登记点由执行体异步抵达；未登记时文案稳定同值）。
+async fn answer_until_accepted(registry: &Arc<agent::AskRegistry>, session_id: &str, text: &str) {
+    for _ in 0..3000 {
+        match registry.answer(session_id, text.to_owned()) {
+            Ok(()) => return,
+            Err(error) => {
+                assert_eq!(error, "当前无等待中的 ask", "仅登记未完成时重试: {error}");
+                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }
+    }
+    panic!("等待 ask 登记超时（session={session_id}）");
+}
+
+/// 转录内某 `tool_use` 的配对 `tool_result`（应答回灌判据）。
+fn transcript_tool_result(
+    transcript: &[agent::AgentEvent],
+    tool_call_id: &str,
+) -> Option<(String, bool)> {
+    transcript.iter().find_map(|event| match &event.kind {
+        AgentEventKind::Message { blocks, .. } => blocks.iter().find_map(|block| match block {
+            AgentBlock::ToolResult {
+                id,
+                content,
+                is_error,
+            } if id == tool_call_id => Some((content.clone(), *is_error)),
+            _ => None,
+        }),
+        _ => None,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // 装配半边：provenance / permission / 实例外键（AC-7）
 // ---------------------------------------------------------------------------
@@ -311,9 +366,11 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
         stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -392,9 +449,11 @@ async fn continue会话复用既有行不重复建() {
         stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -438,9 +497,11 @@ fn 空库缺省解析err引导管理页且零落库() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     ) {
         Err(error) => error,
         Ok(_) => panic!("空库缺省解析必须 Err"),
@@ -453,7 +514,7 @@ fn 空库缺省解析err引导管理页且零落库() {
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     assert!(
         store
-            .list_sessions(None, None)
+            .list_sessions(None, None,)
             .expect("清单应成功")
             .is_empty(),
         "解析失败零落库"
@@ -472,9 +533,11 @@ async fn open段配置缺失显式err传播且零半成品记录() {
         stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -500,7 +563,7 @@ async fn open段配置缺失显式err传播且零半成品记录() {
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     assert!(
         store
-            .list_sessions(None, None)
+            .list_sessions(None, None,)
             .expect("清单应成功")
             .is_empty(),
         "open 阶段失败零半成品记录"
@@ -522,9 +585,11 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
         stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -822,9 +887,11 @@ async fn finalized恒等于转录提取单点结果() {
         stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -901,9 +968,11 @@ async fn 中途停止收敛stopped并保留已收集事件() {
         stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
@@ -966,9 +1035,11 @@ async fn 三角色provenance定式逐段落库且精确反查命中() {
         stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
+        None,
     )
     .expect("解析应成功");
     let port = Arc::new(KernelWorkerPort::new(composed, sink));
@@ -1049,5 +1120,356 @@ async fn 三角色provenance定式逐段落库且精确反查命中() {
     assert_eq!(
         evaluator_only[0].row.provenance.source_ref.as_deref(),
         Some("chg-flow/implement/evaluator/2")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`AskPort` 句柄经组合根抵达 `Flow` 档执行体（唯一装配点）
+// ---------------------------------------------------------------------------
+
+/// 双面假 sink：`RunEventSink` + `AskPort` 同实例（两路观测到同一份内部计数
+/// ——同一 `Arc` 两次 trait 强转的机械判据）。
+#[derive(Default)]
+struct DualFaceSink {
+    updates: Arc<Mutex<Vec<RunUpdate>>>,
+    ask_calls: Arc<Mutex<Vec<&'static str>>>,
+    ask_payloads: Arc<Mutex<Vec<AskPayload>>>,
+}
+
+/// 两路记录句柄（复杂度告警的类型别名）。
+type AskCallLog = Arc<Mutex<Vec<&'static str>>>;
+type AskPayloadLog = Arc<Mutex<Vec<AskPayload>>>;
+
+impl DualFaceSink {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn ask_handle(&self) -> (AskCallLog, AskPayloadLog) {
+        (Arc::clone(&self.ask_calls), Arc::clone(&self.ask_payloads))
+    }
+
+    fn updates_handle(&self) -> Arc<Mutex<Vec<RunUpdate>>> {
+        Arc::clone(&self.updates)
+    }
+}
+
+impl RunEventSink for DualFaceSink {
+    fn emit(&self, update: RunUpdate) {
+        self.updates
+            .lock()
+            .expect("事件捕获锁不可中毒")
+            .push(update);
+    }
+}
+
+impl AskPort for DualFaceSink {
+    fn ask_started(&self, ask: AskPayload) {
+        self.ask_calls
+            .lock()
+            .expect("ask 记录锁不可中毒")
+            .push("started");
+        self.ask_payloads
+            .lock()
+            .expect("ask 载荷锁不可中毒")
+            .push(ask);
+    }
+
+    fn ask_resolved(&self) {
+        self.ask_calls
+            .lock()
+            .expect("ask 记录锁不可中毒")
+            .push("resolved");
+    }
+}
+
+/// worker 装配夹具：按来源 + ask port 形态构造 `KernelWorkerPort`（注册表注入
+/// 同一张表以便应答回流）。
+fn worker_with_ask_port(
+    env: &DualEnv,
+    sink: Arc<dyn RunEventSink>,
+    registry: Arc<StopRegistry>,
+    ask_registry: Arc<agent::AskRegistry>,
+    ask_port: Option<Arc<dyn AskPort>>,
+) -> KernelWorkerPort {
+    let composed = compose_turn(
+        env.stores(),
+        registry,
+        Arc::new(SessionStreamRegistry::new()),
+        ask_registry,
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        ask_port,
+    )
+    .expect("解析应成功");
+    KernelWorkerPort::new(composed, sink)
+}
+
+/// change 来源拿到句柄（正向，AC-2）：假 sink 同时实现 `RunEventSink` +
+/// `AskPort`；`source="change"` + `ask = Some(Flow)` 的轮 → 脚本化流缝让模型
+/// **真的调用** `AskUserQuestion` → 假 sink 的 `ask_started` / `ask_resolved`
+/// 各记录一条、载荷 `tool_call_id` 非空、应答经 `AskRegistry` 回灌后续跑。
+///
+/// 观测边界：模型边界由本机回环脚本化 SSE 桩承担（`ask_scripted_provider`）；
+/// 轮内的铸造 / 广播由真实 `SdkRunner` 泵 + `loop` 执行体产生，不经直构
+/// `AskContext` 绕过。
+#[tokio::test]
+async fn change来源的flow档ask经组合根广播两拍并可应答() {
+    let env = DualEnv::new("ask-port-change");
+    let stores = env.stores();
+    let stub = crate::ask_scripted_provider::AskScriptedProvider::new(
+        "worker-flow",
+        "tu_w_ask",
+        "选哪个？",
+        &["甲", "乙"],
+    );
+    seed_sdk_at(stores, "ask 广播实例", &stub.base_url);
+    let ask_registry = Arc::new(agent::AskRegistry::default());
+    let sink = Arc::new(DualFaceSink::new());
+    let (ask_calls, ask_payloads) = sink.ask_handle();
+    let updates = sink.updates_handle();
+
+    // 两次 trait 强转同一 `Arc`（`RunEventSink` + `AskPort`）
+    let event_face: Arc<dyn RunEventSink> = sink.clone();
+    let ask_face: Arc<dyn AskPort> = sink.clone();
+    let port = worker_with_ask_port(
+        &env,
+        event_face,
+        Arc::new(StopRegistry::new()),
+        Arc::clone(&ask_registry),
+        Some(ask_face),
+    );
+    let root = env.root();
+    let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
+
+    let task = tokio::spawn(async move { port.run(request).await });
+    // 应答：等待执行体登记（键 = core 铸会话 id），投递后同 turn 续跑
+    let session_id = {
+        let mut found = None;
+        for _ in 0..3000 {
+            if let Some(RunUpdate::SessionEvent { session_id, .. }) = updates
+                .lock()
+                .expect("事件捕获锁不可中毒")
+                .iter()
+                .find(|update| matches!(update, RunUpdate::SessionEvent { .. }))
+            {
+                found = Some(session_id.clone());
+                break;
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        found.expect("装配后首事件透传（会话 id 为注册表键）")
+    };
+    let mut answered = false;
+    for _ in 0..3000 {
+        match ask_registry.answer(&session_id, "甲".to_owned()) {
+            Ok(()) => {
+                answered = true;
+                break;
+            }
+            Err(error) => {
+                assert_eq!(error, "当前无等待中的 ask", "仅登记未完成时重试: {error}");
+                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }
+    }
+    assert!(answered, "流程档 ask 经注册表受理");
+
+    let outcome = task.await.expect("run 任务正常结束").expect("会话应发起");
+    assert_eq!(
+        outcome.status,
+        AgentRunStatus::Completed,
+        "应答回灌后同 turn 续跑收口，实际: {:?}",
+        outcome.status
+    );
+
+    // `ask_started` / `ask_resolved` 各一次（两臂清理单点）
+    assert_eq!(
+        ask_calls.lock().expect("ask 记录锁不可中毒").as_slice(),
+        &["started", "resolved"],
+        "流程档两方法各一次"
+    );
+    let payloads = ask_payloads.lock().expect("ask 载荷锁不可中毒").clone();
+    assert_eq!(payloads.len(), 1, "started 载荷一条");
+    assert_eq!(payloads[0].question, "选哪个？", "题干逐字");
+    assert_eq!(payloads[0].options, vec!["甲", "乙"], "选项逐项");
+    assert_eq!(
+        payloads[0].tool_call_id.as_deref(),
+        Some("tu_w_ask"),
+        "tool_call_id 取本次 tool_use id"
+    );
+    assert_eq!(
+        payloads[0].session_id.as_deref(),
+        Some(session_id.as_str()),
+        "session_id 取 core 铸会话 id（注册表键）"
+    );
+    // 应答原文回灌为该 tool_use 的配对结果
+    let paired = transcript_tool_result(&outcome.transcript, "tu_w_ask");
+    assert_eq!(
+        paired,
+        Some(("甲".to_owned(), false)),
+        "应答原文回灌为配对 tool_result"
+    );
+}
+
+/// 同一 `Arc` 两次 trait 强转（边界）：`Arc<DualFaceSink>` 分别作为
+/// `Arc<dyn RunEventSink>` 与 `Arc<dyn AskPort>` 传入 → 两侧观测到同一实例状态
+///（以 sink 内部计数两路可见即证）。
+#[test]
+fn 同一arc两次trait强转两侧观测同一实例() {
+    let sink = Arc::new(DualFaceSink::new());
+    let event_face: Arc<dyn RunEventSink> = sink.clone();
+    let ask_face: Arc<dyn AskPort> = sink.clone();
+
+    ask_face.ask_started(AskPayload {
+        question: "q".to_owned(),
+        options: vec!["a".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-1".to_owned()),
+    });
+    ask_face.ask_resolved();
+    event_face.emit(RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    });
+
+    let (ask_calls, ask_payloads) = sink.ask_handle();
+    assert_eq!(
+        ask_calls.lock().expect("ask 记录锁不可中毒").as_slice(),
+        &["started", "resolved"],
+        "AskPort 侧记录"
+    );
+    assert_eq!(
+        ask_payloads.lock().expect("ask 载荷锁不可中毒").len(),
+        1,
+        "同一实例的载荷记录（非两份 sink）"
+    );
+    assert_eq!(
+        sink.updates_handle()
+            .lock()
+            .expect("事件捕获锁不可中毒")
+            .len(),
+        1,
+        "RunEventSink 侧记录同一实例状态"
+    );
+}
+
+/// 非 change 来源（`Generic` 档）→ `AskPort` 方法零调用（正向：port 只服务
+/// `Flow` 档；explore 来源装配 `ask = Some(Generic)`）。
+///
+/// 驱动面同上：模型真的调用 `AskUserQuestion` → 执行体只登记 + 阻塞（不吃
+/// port），应答回灌后同 turn 续跑。
+#[tokio::test]
+async fn 非change来源的泛用档不吃ask_port() {
+    let env = DualEnv::new("ask-port-explore");
+    let stub = crate::ask_scripted_provider::AskScriptedProvider::new(
+        "worker-generic",
+        "tu_w_generic",
+        "怎么答？",
+        &["甲", "乙"],
+    );
+    seed_sdk_at(env.stores(), "ask 泛用实例", &stub.base_url);
+    let ask_registry = Arc::new(agent::AskRegistry::default());
+    let sink = Arc::new(DualFaceSink::new());
+    let (ask_calls, ask_payloads) = sink.ask_handle();
+    let updates = sink.updates_handle();
+    let event_face: Arc<dyn RunEventSink> = sink.clone();
+    let ask_face: Arc<dyn AskPort> = sink;
+
+    let port = worker_with_ask_port(
+        &env,
+        event_face,
+        Arc::new(StopRegistry::new()),
+        Arc::clone(&ask_registry),
+        Some(ask_face),
+    );
+    let root = env.root();
+    let mut request = turn_request(&root, "unused", WorkerRole::Executor);
+    request.provenance = SessionProvenance {
+        source: "explore".to_owned(),
+        source_ref: None,
+    };
+
+    let task = tokio::spawn(async move { port.run(request).await });
+    let session_id = wait_first_session_id(&updates).await;
+    answer_until_accepted(&ask_registry, &session_id, "乙").await;
+    let outcome = task.await.expect("run 任务正常结束").expect("会话应发起");
+    assert_eq!(
+        outcome.status,
+        AgentRunStatus::Completed,
+        "泛用档应答回灌后续跑收口，实际: {:?}",
+        outcome.status
+    );
+
+    assert!(
+        ask_calls.lock().expect("ask 记录锁不可中毒").is_empty(),
+        "Generic 档不吃 port（触了 ask 工具仍零广播）"
+    );
+    assert!(
+        ask_payloads.lock().expect("ask 载荷锁不可中毒").is_empty(),
+        "零载荷记录"
+    );
+    assert_eq!(
+        transcript_tool_result(&outcome.transcript, "tu_w_generic"),
+        Some(("乙".to_owned(), false)),
+        "应答仍可回灌续跑（只阻塞，零编排广播）"
+    );
+}
+
+/// `Flow` 档但组合根传 `None` port（异常，DD2 防御臂的生产形态）：模型调
+/// `AskUserQuestion` → 该调用以 `is_error`「ask 编排状态面未装配」回灌、注册表
+/// 零登记、run 不中断（正常收口）。
+#[tokio::test]
+async fn 流程档无port时调用以is_error回灌且轮正常收口() {
+    let env = DualEnv::new("ask-port-flow-none");
+    let stub = crate::ask_scripted_provider::AskScriptedProvider::new(
+        "worker-flow-none",
+        "tu_w_no_port",
+        "无编排面",
+        &["x"],
+    );
+    seed_sdk_at(env.stores(), "ask 无 port 实例", &stub.base_url);
+    let ask_registry = Arc::new(agent::AskRegistry::default());
+    let sink = Arc::new(DualFaceSink::new());
+    let (ask_calls, _ask_payloads) = sink.ask_handle();
+
+    let port = worker_with_ask_port(
+        &env,
+        sink as Arc<dyn RunEventSink>,
+        Arc::new(StopRegistry::new()),
+        Arc::clone(&ask_registry),
+        None,
+    );
+    let root = env.root();
+    let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
+    let outcome = port.run(request).await.expect("会话应发起");
+
+    assert_eq!(
+        outcome.status,
+        AgentRunStatus::Completed,
+        "防御臂不中断 run，实际: {:?}",
+        outcome.status
+    );
+    assert_eq!(
+        transcript_tool_result(&outcome.transcript, "tu_w_no_port"),
+        Some(("ask 编排状态面未装配".to_owned(), true)),
+        "DD2 防御文案 + is_error"
+    );
+    assert!(
+        ask_calls.lock().expect("ask 记录锁不可中毒").is_empty(),
+        "无 port 形态零广播"
+    );
+    assert!(
+        ask_registry
+            .answer(&outcome.session_id, "x".to_owned())
+            .is_err(),
+        "零登记（防御臂先于登记）"
     );
 }

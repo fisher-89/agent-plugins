@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import type * as AgentSessionViewModule from '@/components/agent/agent-session-view';
+
 import type { AgentEvent, AgentInstanceRecord, SessionSummary, TurnSummary } from '../../types/dto';
 import { AgentDebugView } from './agent-debug-view';
 
@@ -27,6 +29,24 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
+
+// ---------------------------------------------------------------------------
+// 探针装置（保留真实实现，仅记录 props）：在 `AgentSessionView` 边界记录下游
+// 收到的 `askAnswer` 引用——「引用稳定未击穿 memo」以引用相等（而非渲染次数）
+// 为判据。`importOriginal` 保留全部真实实现（活卡 / 判活 / 气泡照旧），探针零
+// 行为、只记录。
+// ---------------------------------------------------------------------------
+
+const { askAnswerProbe } = vi.hoisted(() => ({ askAnswerProbe: { refs: [] as unknown[] } }));
+
+vi.mock('@/components/agent/agent-session-view', async (importOriginal) => {
+  const actual = await importOriginal<typeof AgentSessionViewModule>();
+  function ProbedAgentSessionView(props: Parameters<typeof actual.AgentSessionView>[0]) {
+    askAnswerProbe.refs.push(props.askAnswer ?? null);
+    return <actual.AgentSessionView {...props} />;
+  }
+  return { ...actual, AgentSessionView: ProbedAgentSessionView };
+});
 
 // ---------------------------------------------------------------------------
 // fixture（serde camelCase 线格式，debug 形态：sourceRef / parentRunId 皆 null）
@@ -839,5 +859,183 @@ describe('AgentDebugView：时间线位与历史区', () => {
     expect(screen.getByTestId('agent-no-root')).toBeTruthy();
     expect(screen.queryByTestId('agent-timeline')).toBeNull();
     expect(screen.queryByTestId('agent-run-history')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：调试页合成 ask 动作面（session.answer）
+// ---------------------------------------------------------------------------
+
+describe('AgentDebugView：ask 动作面（AC-13）', () => {
+  it('运行后 ask 工具调用 → 活卡选项可点即 invoke agent_answer（三参逐字）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun('请裁决');
+
+    deliverEvent(runStarted(0));
+    deliverEvent({
+      seq: 1,
+      turnId: 1,
+      timestampMs: 1727000000000,
+      kind: 'message',
+      role: 'assistant',
+      blocks: [
+        {
+          kind: 'toolUse',
+          id: 'call_1',
+          name: 'AskUserQuestion',
+          input: { question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
+        },
+      ],
+      parentToolUseId: null,
+    });
+    await act(async () => {});
+
+    const timeline = screen.getByTestId('agent-timeline');
+    const buttons = await within(timeline).findAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['指数退避', '固定间隔']);
+
+    fireEvent.click(buttons[0] as HTMLElement);
+    await act(async () => {});
+
+    const answerCall = invokeMock.mock.calls.filter(([name]) => name === 'agent_answer').at(-1);
+    expect(answerCall).toBeTruthy();
+    expect(answerCall?.[1]).toEqual({
+      root: ROOT,
+      sessionId: SESSION_ID,
+      text: '指数退避',
+    });
+  });
+
+  it('与 showRaw 切换互不干扰：原始流视图无 ask 卡，切回时间线后活卡在场', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun('请裁决');
+    deliverEvent(runStarted(0));
+    deliverEvent({
+      seq: 1,
+      turnId: 1,
+      timestampMs: 1727000000000,
+      kind: 'message',
+      role: 'assistant',
+      blocks: [
+        {
+          kind: 'toolUse',
+          id: 'call_raw',
+          name: 'AskUserQuestion',
+          input: { question: 'q', options: ['a'] },
+        },
+      ],
+      parentToolUseId: null,
+    });
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('toggle-raw'));
+    expect(screen.getByTestId('agent-raw-stream')).toBeTruthy();
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('toggle-timeline'));
+    // 切回时间线 → AgentMessages 重新挂载（事件镜像回流后活卡在场）
+    const timeline = screen.getByTestId('agent-timeline');
+    await waitFor(() =>
+      expect(within(timeline).getAllByTestId('ask-answer-option')).toHaveLength(1),
+    );
+  });
+
+  it('会话未建立（无运行轮）→ 全静态且零 agent_answer（answer 内部 null 守卫的上层一半）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await act(async () => {});
+
+    // 未 startRun：时间线骨架在但空态，ask 卡与应答入口均不存在
+    const timeline = screen.getByTestId('agent-timeline');
+    expect(within(timeline).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(within(timeline).queryAllByTestId('ask-option')).toHaveLength(0);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(0);
+  });
+
+  it('引用稳定（DD12）：answer 引用未变时重渲染 → 活卡仍单次投递（不击穿 memo）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun('请裁决');
+    deliverEvent(runStarted(0));
+    deliverEvent({
+      seq: 1,
+      turnId: 1,
+      timestampMs: 1727000000000,
+      kind: 'message',
+      role: 'assistant',
+      blocks: [
+        {
+          kind: 'toolUse',
+          id: 'call_stable',
+          name: 'AskUserQuestion',
+          input: { question: '答哪个？', options: ['甲', '乙'] },
+        },
+      ],
+      parentToolUseId: null,
+    });
+    await act(async () => {});
+
+    const timeline = screen.getByTestId('agent-timeline');
+    // 父层无关重渲染（视图切换回时间线同一面板）：活卡仍在且选项未变
+    await within(timeline).findAllByTestId('ask-answer-option');
+    const buttons = within(timeline).getAllByTestId('ask-answer-option');
+    fireEvent.click(buttons[0] as HTMLElement);
+    await act(async () => {});
+
+    const answers = invokeMock.mock.calls.filter(([name]) => name === 'agent_answer');
+    expect(answers).toHaveLength(1);
+    expect(answers[0]?.[1]).toEqual({ root: ROOT, sessionId: SESSION_ID, text: '甲' });
+  });
+
+  it('引用稳定（DD12）：answer 引用未变时父层重渲染 → 下游 askAnswer 的 onAnswer 同引用', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun('请裁决');
+    deliverEvent(runStarted(0));
+    deliverEvent({
+      seq: 1,
+      turnId: 1,
+      timestampMs: 1727000000000,
+      kind: 'message',
+      role: 'assistant',
+      blocks: [
+        {
+          kind: 'toolUse',
+          id: 'call_stable_ref',
+          name: 'AskUserQuestion',
+          input: { question: '引用稳定？', options: ['是', '否'] },
+        },
+      ],
+      parentToolUseId: null,
+    });
+    await act(async () => {});
+
+    const timeline = screen.getByTestId('agent-timeline');
+    await within(timeline).findAllByTestId('ask-answer-option');
+    const before = askAnswerProbe.refs.filter((ref) => ref !== null).at(-1) as {
+      onAnswer: unknown;
+    };
+
+    // 与 showRaw 切换无关的父层重渲染（历史区来源筛选变更触发整页重渲染）
+    askAnswerProbe.refs.length = 0;
+    fireEvent.click(screen.getByTestId('toggle-raw'));
+    fireEvent.click(screen.getByTestId('toggle-timeline'));
+    await act(async () => {});
+
+    const after = askAnswerProbe.refs.filter((ref) => ref !== null) as { onAnswer: unknown }[];
+    expect(after.length).toBeGreaterThan(0);
+    // 视图层每渲染新造 `{ onAnswer: session.answer }`，但字段引用稳定（不击穿 memo）
+    for (const ref of after) expect(ref.onAnswer).toBe(before.onAnswer);
+  });
+
+  it('无 ask 部件时时间线零应答入口（既有形态零漂移）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun();
+    deliverEvent(runStarted(0));
+    deliverEvent(sealedTextEvent(1, '普通正文'));
+    await waitFor(() =>
+      expect(screen.getAllByTestId('block-text').map((node) => node.textContent)).toContain(
+        '普通正文',
+      ),
+    );
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(0);
   });
 });

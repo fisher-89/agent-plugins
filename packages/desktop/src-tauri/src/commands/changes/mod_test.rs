@@ -30,6 +30,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use ::agent::AskRegistry;
+
 use foundation::layout::{resolve, Layout};
 use serde_json::json;
 use store::{Store, WorkspaceStores};
@@ -149,8 +151,13 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
-    // run 控制注册表（get_change_detail 统一视图活面投影读取——main.rs 同构托管）
-    app.manage(Arc::new(orchestration::control::ChangeFlowControl::new()));
+    // run 控制注册表（get_change_detail 统一视图活面投影读取——main.rs 同构托管）；
+    // ask 注册表与之同源（应答通道唯一）
+    let ask_registry = Arc::new(AskRegistry::default());
+    app.manage(Arc::clone(&ask_registry));
+    app.manage(Arc::new(orchestration::control::ChangeFlowControl::new(
+        ask_registry,
+    )));
     app
 }
 
@@ -1439,7 +1446,9 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
     let guard = control
         .begin_run(&root, "unified-change", "run-3".to_owned(), started_at)
         .expect("登记 run 应成功");
-    use orchestration::state::{ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate};
+    use orchestration::state::{
+        AskPayload, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate,
+    };
     for (phase, attempt, kind, status) in [
         (
             "implement",
@@ -1484,8 +1493,12 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         });
     }
     guard.emit(RunUpdate::Ask {
-        question: "是否回溯?".to_owned(),
-        options: vec!["dev-design".to_owned()],
+        ask: AskPayload {
+            question: "是否回溯?".to_owned(),
+            options: vec!["dev-design".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
 
     let live = get_change_detail(
@@ -2088,8 +2101,12 @@ fn 统一查询装配_active_run既有字段回归() {
         .begin_run(&root, "legacy-change", "run-6".to_owned(), started_at)
         .expect("登记 run 应成功");
     guard.emit(orchestration::state::RunUpdate::Ask {
-        question: "越权回溯是否放行?".to_owned(),
-        options: vec!["拒绝".to_owned(), "放行".to_owned()],
+        ask: orchestration::state::AskPayload {
+            question: "越权回溯是否放行?".to_owned(),
+            options: vec!["拒绝".to_owned(), "放行".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
 
     let unified = get_change_detail(
@@ -2154,12 +2171,19 @@ async fn answer后统一视图活面回运行态() {
             .expect("登记 run 应成功"),
     );
     guard.emit(orchestration::state::RunUpdate::Ask {
-        question: "采用哪个方案?".to_owned(),
-        options: vec!["A".to_owned(), "B".to_owned()],
+        ask: orchestration::state::AskPayload {
+            question: "采用哪个方案?".to_owned(),
+            options: vec!["A".to_owned(), "B".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     });
-    let waiter_guard = Arc::clone(&guard);
-    let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
-    // 轮询至等待方登记：Ok 即受理证明（上限防挂死）
+    guard.set_session(Some("core-1".to_owned()));
+    let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    ask_registry.register("core-1", tx);
+    let waiter = tokio::spawn(async move { rx.await.ok() });
+    // 轮询至应答受理：Ok 即受理证明（上限防挂死）
     let mut accepted = false;
     for _ in 0..1000 {
         match control.answer(&root, "resume-change", "采用方案 B".to_owned()) {
@@ -2177,8 +2201,10 @@ async fn answer后统一视图活面回运行态() {
     assert_eq!(
         waiter.await.unwrap().as_deref(),
         Some("采用方案 B"),
-        "应答原文抵达 walker"
+        "应答原文抵达等待方"
     );
+    // 停等态清理单点在 ask 执行体返回后（应答命令内零清理）
+    control.resolve_ask(&root, "resume-change");
 
     let unified = get_change_detail(
         state.clone(),

@@ -1,4 +1,8 @@
-import { AgentSessionView, type AgentSessionViewProps } from '@/components/agent';
+import {
+  type AskAnswerActions,
+  AgentSessionView,
+  type AgentSessionViewProps,
+} from '@/components/agent';
 
 import type { RoleSessionRef } from './types';
 
@@ -8,6 +12,8 @@ interface SessionTranscriptPanelProps {
   /** 会话状态重评估信号（会话事件通知并入统一视图重查 tick；组件据其重评估
    * 是否挂流——delta 不经通知重查，实时面走会话订阅） */
   refreshKey?: number;
+  /** ask 应答动作面（唯一例外：本面板其余动作面仍缺席——无发送 / 停止入口） */
+  askAnswer?: AskAnswerActions;
 }
 
 /** 槽位缺席空态（不虚构会话、零取数零订阅） */
@@ -28,6 +34,7 @@ export function SessionTranscriptPanel({
   root,
   roleRef,
   refreshKey,
+  askAnswer,
 }: SessionTranscriptPanelProps): React.JSX.Element {
   if (!roleRef) {
     return <SessionSlotEmpty text="（当前选中无关联会话）" />;
@@ -40,6 +47,7 @@ export function SessionTranscriptPanel({
     root,
     sessionId: roleRef.sessionId,
     refreshKey,
+    ...(askAnswer === undefined ? {} : { askAnswer }),
     'data-testid': 'session-transcript',
   };
   return (

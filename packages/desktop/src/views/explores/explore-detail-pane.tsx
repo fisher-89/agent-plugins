@@ -307,6 +307,7 @@ function ChatPane({
         composer={({ running }: AgentSessionActions) => (
           <ExploreComposer running={running} onSend={session.send} onStop={session.stop} />
         )}
+        askAnswer={{ onAnswer: session.session.answer }}
         data-testid="explore-chat"
       />
     </div>

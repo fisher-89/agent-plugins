@@ -5,11 +5,11 @@ use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 
 use crate::port::{
-    BoxDiffFuture, DiffContextPort, OutputRefSink, RunEventSink, RunFault, StaticCheckOutcome,
-    StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
-    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+    AskPort, BoxDiffFuture, DiffContextPort, OutputRefSink, RunEventSink, RunFault,
+    StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort,
+    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
 };
-use crate::state::{ArchivePreflight, RunUpdate};
+use crate::state::{ArchivePreflight, AskPayload, RunUpdate};
 use workflow::write::{
     ArchiveOutcome, BacktrackInput, BacktrackOption, BacktrackOutcome, DecisionLogOutcome,
     PhaseLogInput, PhaseLogOutcome, PhaseNextOutcome, PhaseStartOutcome,
@@ -4035,4 +4035,234 @@ fn finalized两臂穷尽且port零panic升级() {
     .expect("读取 port.rs");
     assert!(!own.contains("unwrap()"), "port.rs 内零 unwrap()");
     assert!(!own.contains("expect("), "port.rs 内零 expect(");
+}
+
+// ---------------------------------------------------------------------------
+// AskPort（ask-tool-in-flow）：ask 编排状态面的两方法 trait 形状与对象安全性
+//
+// 零 mock（替身即被测面）：`AskPort` 是 trait，用例自带手写实现——这是
+//「trait 形状 + 对象安全性」的唯一测试途径，不是对产品实现的替身。
+// ---------------------------------------------------------------------------
+
+/// 记录式假 port：逐条记下两方法的调用（`ask_started` 携完整载荷，`ask_resolved`
+/// 无载荷——以 `"resolved"` 占位表达调用序）。
+#[derive(Default)]
+struct RecordingAskPort {
+    calls: Mutex<Vec<RecordedAskCall>>,
+    on_started: Mutex<Option<AskPayload>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecordedAskCall {
+    Started(AskPayload),
+    Resolved,
+}
+
+impl RecordingAskPort {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn recorded(&self) -> Vec<RecordedAskCall> {
+        self.calls.lock().expect("记录锁不可中毒").clone()
+    }
+}
+
+impl AskPort for RecordingAskPort {
+    fn ask_started(&self, ask: AskPayload) {
+        *self.on_started.lock().expect("载荷锁不可中毒") = Some(ask.clone());
+        self.calls
+            .lock()
+            .expect("记录锁不可中毒")
+            .push(RecordedAskCall::Started(ask));
+    }
+
+    fn ask_resolved(&self) {
+        self.calls
+            .lock()
+            .expect("记录锁不可中毒")
+            .push(RecordedAskCall::Resolved);
+    }
+}
+
+fn sample_ask_payload() -> AskPayload {
+    AskPayload {
+        question: "采用哪个方案?".to_owned(),
+        options: vec!["方案 A".to_owned(), "方案 B".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-1".to_owned()),
+    }
+}
+
+/// 替身实现可注入（正向）：手写假 port 在 `Arc<dyn AskPort>` 位注入，调用后
+/// 记录逐条可读（trait 对象可用、两方法签名可直接调用）。
+#[test]
+fn ask_port替身可注入且两方法签名可直接调用() {
+    let port: Arc<dyn AskPort> = Arc::new(RecordingAskPort::new());
+    port.ask_started(sample_ask_payload());
+    port.ask_resolved();
+
+    // 经具体类型读记录（trait 对象已证可调用，此处读回观测面）
+    let concrete = RecordingAskPort::new();
+    concrete.ask_started(sample_ask_payload());
+    concrete.ask_resolved();
+    assert_eq!(
+        concrete.recorded(),
+        vec![
+            RecordedAskCall::Started(sample_ask_payload()),
+            RecordedAskCall::Resolved,
+        ],
+        "两方法各记一条，载荷与调用序逐条可读"
+    );
+}
+
+/// 载荷完整性（正向，AC-2）：四字段逐字段相等（零裁剪、零默认填充）。
+#[test]
+fn ask_port载荷四字段逐字保真() {
+    let port = RecordingAskPort::new();
+    let payload = AskPayload {
+        question: "选哪个重试策略？".to_owned(),
+        options: vec!["指数退避".to_owned(), "固定间隔".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-1".to_owned()),
+    };
+    port.ask_started(payload.clone());
+
+    let recorded = port.on_started.lock().expect("载荷锁不可中毒").clone();
+    let recorded = recorded.expect("载荷已记录");
+    assert_eq!(recorded.question, payload.question, "question 逐字");
+    assert_eq!(recorded.options, payload.options, "options 逐项且序保真");
+    assert_eq!(
+        recorded.tool_call_id, payload.tool_call_id,
+        "tool_call_id 逐字（行内卡对账键）"
+    );
+    assert_eq!(
+        recorded.session_id, payload.session_id,
+        "session_id 逐字（core 铸会话 id）"
+    );
+}
+
+/// 调用序可观测（异常）：`ask_started` → `ask_resolved` 记作
+/// `["started","resolved"]`；`ask_resolved` 无载荷且**不幂等**（连调两次产生两
+/// 条记录——幂等由实现方负责）。
+#[test]
+fn ask_port调用序可观测且resolved不幂等() {
+    let port = RecordingAskPort::new();
+    port.ask_started(sample_ask_payload());
+    port.ask_resolved();
+    let labels: Vec<&str> = port
+        .recorded()
+        .iter()
+        .map(|call| match call {
+            RecordedAskCall::Started(_) => "started",
+            RecordedAskCall::Resolved => "resolved",
+        })
+        .collect();
+    assert_eq!(labels, vec!["started", "resolved"], "调用序逐条可观测");
+
+    port.ask_resolved();
+    assert_eq!(
+        port.recorded().len(),
+        3,
+        "resolved 无载荷且不幂等（trait 不裁量，幂等归实现方）"
+    );
+}
+
+/// `Send + Sync` 可得（边界）：`Arc<dyn AskPort>` 跨任务传递的类型前提。
+#[test]
+fn ask_port超trait满足send_sync() {
+    fn assert_send_sync<T: Send + Sync + ?Sized>() {}
+    assert_send_sync::<dyn AskPort>();
+
+    // 跨线程移动：`Arc<dyn AskPort>` 可送入线程并调用
+    let port: Arc<dyn AskPort> = Arc::new(RecordingAskPort::new());
+    let handle = std::thread::spawn(move || {
+        port.ask_started(sample_ask_payload());
+        port.ask_resolved();
+    });
+    handle.join().expect("跨线程调用不 panic");
+}
+
+/// 载荷边界直构（边界，组合迭代）：`question` / `options` 取空串 / 空数组 /
+/// 1000 元素；`tool_call_id` / `session_id` 取 `None` / `Some("")` / `Some(超长)`
+/// → 替身记录逐字保真、零 panic（trait 层纯数据载体，不校验）。
+#[test]
+fn ask_port载荷边界直构逐字保真() {
+    let long = "字".repeat(1200);
+    let questions = ["", "a\n\0🚀", long.as_str()];
+    let option_shapes: [Vec<String>; 3] = [
+        Vec::new(),
+        vec!["单元素".to_owned()],
+        (0..1000).map(|index| format!("选项{index}")).collect(),
+    ];
+    let optional_shapes: [Option<String>; 3] = [None, Some(String::new()), Some(long.clone())];
+
+    let port = RecordingAskPort::new();
+    for question in questions {
+        for options in &option_shapes {
+            for tool_call_id in &optional_shapes {
+                for session_id in &optional_shapes {
+                    port.ask_started(AskPayload {
+                        question: (*question).to_owned(),
+                        options: options.clone(),
+                        tool_call_id: tool_call_id.clone(),
+                        session_id: session_id.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    let recorded = port.recorded();
+    assert_eq!(recorded.len(), 3 * 3 * 3 * 3, "组合全量记录（无 panic）");
+    // 抽查首条与末条：逐字保真
+    match &recorded[0] {
+        RecordedAskCall::Started(ask) => {
+            assert_eq!(ask.question, "");
+            assert!(ask.options.is_empty(), "空数组原样");
+            assert_eq!(ask.tool_call_id, None, "None 原样");
+        }
+        other => panic!("应为 Started，实际: {other:?}"),
+    }
+    match recorded.last().expect("末条在场") {
+        RecordedAskCall::Started(ask) => {
+            assert_eq!(ask.question, long, "超长题干逐字保真");
+            assert_eq!(ask.options.len(), 1000, "超大列表不截断");
+            assert_eq!(ask.session_id.as_deref(), Some(long.as_str()));
+        }
+        other => panic!("应为 Started，实际: {other:?}"),
+    }
+}
+
+/// 既有 port 面零改动侧证（异常，零改动回归，AC-8 侧证）：八条既有 trait 仍
+/// 可实现 / 可作 trait object，`ToolCommand` 描述用例零断言改动（新增 trait 不
+/// 扰动既有词汇）。
+#[test]
+fn 既有八条port面与ask_port并存不扰动() {
+    fn assert_send_sync<T: Send + Sync + ?Sized>() {}
+    assert_send_sync::<dyn RunEventSink>();
+    assert_send_sync::<dyn WorkerAgentPort>();
+    assert_send_sync::<dyn ToolStepPort>();
+    assert_send_sync::<dyn WorkflowSnapshotPort>();
+    assert_send_sync::<dyn DiffContextPort>();
+    assert_send_sync::<dyn StaticCheckRunner>();
+    assert_send_sync::<dyn AskPort>();
+
+    // 新增两 trait 并存：同一 `Arc` 强转到两个 trait 面无冲突（类型面可辨）
+    #[allow(dead_code)]
+    struct DualFace;
+    impl AskPort for DualFace {
+        fn ask_started(&self, _ask: AskPayload) {}
+        fn ask_resolved(&self) {}
+    }
+    impl RunEventSink for DualFace {
+        fn emit(&self, _update: RunUpdate) {}
+    }
+    let dual = Arc::new(DualFace);
+    let ask_face: Arc<dyn AskPort> = dual.clone();
+    let event_face: Arc<dyn RunEventSink> = dual;
+    ask_face.ask_resolved();
+    event_face.emit(RunUpdate::Ask {
+        ask: sample_ask_payload(),
+    });
 }

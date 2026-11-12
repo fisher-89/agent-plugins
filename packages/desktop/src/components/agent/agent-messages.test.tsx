@@ -1,10 +1,40 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import type * as ToolCards from '@/components/agent/tool-cards';
+
 import { foldSessionMessages, type AgentUIMessage } from '../../lib/agent-adapter';
 import { filterConversation } from '../../lib/agent-virtual';
 import type { AgentBlock, AgentEvent, TurnSummary } from '../../types/dto';
 import { AgentMessages } from './agent-messages';
+
+// ---------------------------------------------------------------------------
+// 探针装置（保留真实实现，仅记录 props）：注册表键 `BUILD_IN_TOOL_CARDS
+// ['AskUserQuestion']` 上包一层零行为探针，把每张 ask 特化卡收到的 `askAnswer`
+// 引用 push 进 `cardSpy` 后原样渲染真实卡。
+// `importOriginal` 保留全部真实实现（其余卡 / parseAsk 照旧）；探针挂注册表键而
+// 非组件名——`AskUserQuestionCard` 不是导出面，为测试加导出会污染死代码扫描。
+// ---------------------------------------------------------------------------
+
+const { cardSpy } = vi.hoisted(() => ({
+  cardSpy: { refs: [] as unknown[] },
+}));
+
+type ToolCardProps = React.ComponentProps<ToolCards.AgentToolCard>;
+type AskAnswerActions = ToolCardProps['askAnswer'];
+
+vi.mock('@/components/agent/tool-cards', async (importOriginal) => {
+  const actual = await importOriginal<typeof ToolCards>();
+  const Real = actual.BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+  function ProbedAskCard(props: ToolCardProps) {
+    cardSpy.refs.push(props.askAnswer ?? null);
+    return <Real {...props} />;
+  }
+  return {
+    ...actual,
+    BUILD_IN_TOOL_CARDS: { ...actual.BUILD_IN_TOOL_CARDS, AskUserQuestion: ProbedAskCard },
+  };
+});
 
 // ---------------------------------------------------------------------------
 // 纯渲染组件，消费方注入 AgentUIMessage[]（由适配层真实折叠输出构造 fixture），
@@ -1441,5 +1471,416 @@ describe('AgentMessages：text 部件 citations 传递', () => {
       expect(screen.getByTestId('block-text')).toBeTruthy();
       unmount();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：ask 卡三态判活矩阵（`pendingToolCallId`）与引用稳定
+// ---------------------------------------------------------------------------
+
+/** 一轮对话含两条 ask 工具调用（`call_1` / `call_2`，均为无结果态）。 */
+function twoAskEvents(): AgentEvent[] {
+  return [
+    userMessage(0, '请裁决', 1),
+    message(
+      1,
+      [
+        {
+          kind: 'toolUse',
+          id: 'call_1',
+          name: 'AskUserQuestion',
+          input: { question: '第一问', options: ['甲', '乙'] },
+        },
+        {
+          kind: 'toolUse',
+          id: 'call_2',
+          name: 'AskUserQuestion',
+          input: { question: '第二问', options: ['丙', '丁'] },
+        },
+      ],
+      null,
+      1,
+    ),
+  ];
+}
+
+/** 活卡选项按钮（`ask-answer-option`）文本集合。 */
+function liveAskLabels(): string[] {
+  return screen.queryAllByTestId('ask-answer-option').map((node) => node.textContent ?? '');
+}
+
+/** 一轮对话含两条 ask 工具调用：`call_1` 无结果态（`input-available`）、
+ * `call_2` 已配对结果（`output-available`）。 */
+function pairedAskEvents(): AgentEvent[] {
+  return [
+    userMessage(0, '请裁决', 1),
+    message(
+      1,
+      [
+        {
+          kind: 'toolUse',
+          id: 'call_1',
+          name: 'AskUserQuestion',
+          input: { question: '第一问（未配对）', options: ['甲', '乙'] },
+        },
+        {
+          kind: 'toolUse',
+          id: 'call_2',
+          name: 'AskUserQuestion',
+          input: { question: '第二问（已回灌）', options: ['丙', '丁'] },
+        },
+        { kind: 'toolResult', id: 'call_2', content: '丁', isError: false },
+      ],
+      null,
+      1,
+    ),
+  ];
+}
+
+describe('AgentMessages：ask 三态判活矩阵', () => {
+  it('未提供 pendingToolCallId（undefined）→ 按「无结果态」判活：两条均活卡', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running
+        askAnswer={{ onAnswer }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
+  });
+
+  it('未提供 pendingToolCallId（undefined）× 两 state：未配对即活、已配对（output-available）即静', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(pairedAskEvents())}
+        loading={false}
+        running={false}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+    const cards = screen.getAllByTestId('ask-question-card');
+    expect(cards).toHaveLength(2);
+    const [unpaired, paired] = cards as [HTMLElement, HTMLElement];
+
+    // call_1 仍为无结果态（input-available）→ 按「未配对即活」判活
+    expect(
+      within(unpaired)
+        .queryAllByTestId('ask-answer-option')
+        .map((node) => node.textContent),
+    ).toEqual(['甲', '乙']);
+    expect(within(unpaired).queryAllByTestId('ask-answer-input')).toHaveLength(1);
+
+    // call_2 结果已回灌（output-available）→ 静态只读卡（配对即静）
+    expect(within(paired).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(within(paired).queryAllByTestId('ask-answer-input')).toHaveLength(0);
+    expect(within(paired).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
+    expect(within(paired).queryAllByTestId('ask-option')).toHaveLength(2);
+  });
+
+  it('pendingToolCallId = null → 全静态（历史重放零应答入口）', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running={false}
+        askAnswer={{ onAnswer, pendingToolCallId: null }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual([]);
+    // 静态形态：只读行 + 零输入框
+    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+    expect(screen.queryAllByTestId('ask-answer-input')).toHaveLength(0);
+  });
+
+  it('pendingToolCallId = "call_2" → 仅 call_2 活（三态矩阵的精确对账）', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_2' }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual(['丙', '丁']);
+    // call_1 仍为静态只读行（两条只读行在 call_1 卡内）
+    expect(screen.queryAllByTestId('ask-option')).toHaveLength(2);
+  });
+
+  it('pendingToolCallId 不匹配任何 id → 零活卡（不误呈）', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_404' }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual([]);
+    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+  });
+
+  it('点活卡选项 → onAnswer 收到选项标签（动作面只达 ask 卡）', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
+      />,
+    );
+    fireEvent.click(screen.getAllByTestId('ask-answer-option')[1] as HTMLElement);
+    expect(onAnswer).toHaveBeenCalledWith('乙');
+  });
+
+  it('pendingToolCallId = ""（空串）→ 不匹配任何部件，全静态且零 panic', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: '' }}
+      />,
+    );
+    // 三态矩阵的退化取值：空串是「已给出但无对账目标」，不是「未给出」
+    expect(liveAskLabels()).toEqual([]);
+    expect(screen.queryAllByTestId('ask-answer-input')).toHaveLength(0);
+    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+  });
+
+  it('askAnswer 缺席 → 全静态（既有形态零漂移）', () => {
+    render(<AgentMessages messages={fold(twoAskEvents())} loading={false} running={false} />);
+    expect(liveAskLabels()).toEqual([]);
+    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+  });
+
+  it('其它三张内建卡不吃动作面：同轮 Bash 卡零交互面（memo 不被击穿）', () => {
+    const onAnswer = vi.fn();
+    const events: AgentEvent[] = [
+      userMessage(0, '跑一下', 1),
+      message(
+        1,
+        [
+          {
+            kind: 'toolUse',
+            id: 'call_bash',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+          {
+            kind: 'toolUse',
+            id: 'call_ask',
+            name: 'AskUserQuestion',
+            input: { question: '问', options: ['答'] },
+          },
+        ],
+        null,
+        1,
+      ),
+    ];
+    render(
+      <AgentMessages
+        messages={fold(events)}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_ask' }}
+      />,
+    );
+    // 只有 ask 卡有活卡选项；Bash 卡无 ask-answer-option
+    expect(liveAskLabels()).toEqual(['答']);
+    expect(screen.queryAllByTestId('ask-answer-input')).toHaveLength(1);
+  });
+
+  it('仅 ask 部件拿到动作面（AC-11）：同轮三部件中 read / bash 卡零动作面、零按钮差异', () => {
+    const onAnswer = vi.fn();
+    const events: AgentEvent[] = [
+      userMessage(0, '三件同轮', 1),
+      message(
+        1,
+        [
+          {
+            kind: 'toolUse',
+            id: 'call_read',
+            name: 'Read',
+            input: { path: 'a.md' },
+          },
+          {
+            kind: 'toolUse',
+            id: 'call_bash3',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+          {
+            kind: 'toolUse',
+            id: 'call_ask3',
+            name: 'AskUserQuestion',
+            input: { question: '问', options: ['答'] },
+          },
+        ],
+        null,
+        1,
+      ),
+    ];
+    cardSpy.refs.length = 0;
+    render(
+      <AgentMessages
+        messages={fold(events)}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_ask3' }}
+      />,
+    );
+    // ask 卡：活卡（选项按钮 + 输入框各一件）
+    expect(liveAskLabels()).toEqual(['答']);
+    expect(screen.queryAllByTestId('ask-answer-input')).toHaveLength(1);
+    // 探针侧证：只有 ask 卡这一张拿到 askAnswer 动作面
+    const received = cardSpy.refs.filter((ref) => ref !== null);
+    expect(received, '仅 ask 部件收到动作面').toHaveLength(1);
+    // read / bash 卡与既有形态逐字相同（零动作面 ⇒ 零新增按钮）：同轮三张卡
+    // 里只有 ask 那张带活卡面，其余两张零 ask-answer-* 节点
+    const toolIds = screen
+      .getAllByTestId('block-tool-use')
+      .map((node) => node.getAttribute('data-tool-id'));
+    expect(toolIds).toEqual(['call_read', 'call_bash3']);
+    for (const node of screen.getAllByTestId('block-tool-use')) {
+      expect(within(node).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+      expect(within(node).queryAllByTestId('ask-answer-input')).toHaveLength(0);
+    }
+    // ask 卡自身（`ask-question-card` 卡根）承载唯一活卡面
+    const askCard = screen.getByTestId('ask-question-card');
+    expect(within(askCard).getAllByTestId('ask-answer-option')).toHaveLength(1);
+  });
+
+  it('onAnswer 透传唯一性：多个活卡并存时点任一卡 → onAnswer 恰一次且参数为该卡选项', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running
+        askAnswer={{ onAnswer }}
+      />,
+    );
+    const buttons = screen.getAllByTestId('ask-answer-option');
+    expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙', '丙', '丁']);
+
+    // 点第二张卡（call_2）的选项 → 只投该卡的选项文本，不串卡
+    fireEvent.click(buttons[2] as HTMLElement);
+    expect(onAnswer.mock.calls).toEqual([['丙']]);
+  });
+
+  it('引用稳定（DD12）：每渲染新造 askAnswer 对象但两字段同值 → 下游卡片收到同一引用', () => {
+    const onAnswer = vi.fn();
+    const messages = fold(twoAskEvents());
+    cardSpy.refs.length = 0;
+    const { rerender } = render(
+      <AgentMessages
+        messages={messages}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual(['甲', '乙']);
+    const firstRefs = [...cardSpy.refs];
+    const liveRefs = firstRefs.filter((ref) => ref !== null);
+    expect(liveRefs, '活卡张数').toHaveLength(1);
+
+    // 父层重渲染：`askAnswer` 对象引用每次都新造，两字段同值 → `useMemo` 合成同引用
+    // ⇒ 卡组件（memo）一帧都不重建（渲染计数判据：重渲染期间零新增调用）
+    cardSpy.refs.length = 0;
+    rerender(
+      <AgentMessages
+        messages={messages}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
+      />,
+    );
+    expect(cardSpy.refs, '同值重渲染 → 卡组件零重建（引用稳定未击穿 memo）').toHaveLength(0);
+    // 合成对象字段面逐字：卡内只认 `onAnswer`（判活在上层完成，卡不下沉 pendingToolCallId）
+    expect(liveRefs[0]).toEqual({ onAnswer });
+    expect(liveAskLabels()).toEqual(['甲', '乙']);
+  });
+
+  it('引用稳定（DD12）：仅父层状态变化（messages 换引用、askAnswer 同值）→ 活卡判活不变', () => {
+    const onAnswer = vi.fn();
+    const first = fold(twoAskEvents());
+    cardSpy.refs.length = 0;
+    const { rerender } = render(
+      <AgentMessages messages={first} loading={false} running askAnswer={{ onAnswer }} />,
+    );
+    expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
+
+    // messages 换引用（等价内容）——askAnswer 两字段同值，合成引用保持
+    cardSpy.refs.length = 0;
+    rerender(
+      <AgentMessages
+        messages={fold(twoAskEvents())}
+        loading={false}
+        running
+        askAnswer={{ onAnswer }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
+  });
+
+  it('引用稳定（DD12）：onAnswer 引用变 → 下游卡片同拍换实现（不冻结旧闭包）', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const messages = fold(twoAskEvents());
+    cardSpy.refs.length = 0;
+    const { rerender } = render(
+      <AgentMessages messages={messages} loading={false} running askAnswer={{ onAnswer: first }} />,
+    );
+    const initial = cardSpy.refs.find((ref) => ref !== null) as NonNullable<AskAnswerActions>;
+
+    cardSpy.refs.length = 0;
+    rerender(
+      <AgentMessages
+        messages={messages}
+        loading={false}
+        running
+        askAnswer={{ onAnswer: second }}
+      />,
+    );
+    const updated = cardSpy.refs.find((ref) => ref !== null) as NonNullable<AskAnswerActions>;
+
+    expect(updated).not.toBe(initial);
+    expect(updated.onAnswer).toBe(second);
+    fireEvent.click(screen.getAllByTestId('ask-answer-option')[0] as HTMLElement);
+    expect(second).toHaveBeenCalledWith('甲');
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  it('pendingToolCallId 从字符串变 null → 活卡即时收起（不接受控残留）', () => {
+    const onAnswer = vi.fn();
+    const messages = fold(twoAskEvents());
+    const { rerender } = render(
+      <AgentMessages
+        messages={messages}
+        loading={false}
+        running
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual(['甲', '乙']);
+
+    rerender(
+      <AgentMessages
+        messages={messages}
+        loading={false}
+        running={false}
+        askAnswer={{ onAnswer, pendingToolCallId: null }}
+      />,
+    );
+    expect(liveAskLabels()).toEqual([]);
   });
 });

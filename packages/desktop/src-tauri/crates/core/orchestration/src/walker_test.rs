@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agent::{AgentEventKind, AgentRunStatus, ModelLevel};
+use agent::{AgentEventKind, AgentRunStatus, AskRegistry, ModelLevel};
 use foundation::cancel::CancelFlag;
 
 use crate::control::{emit_node, ChangeFlowControl, RunGuard, StepSettle};
@@ -2156,7 +2156,7 @@ async fn 全循环工具调用序保留写通道且计划步收缩() {
         .assemble()
         .0;
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -2195,7 +2195,7 @@ async fn pass自动推进至done且载荷逐条对齐() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -2277,7 +2277,7 @@ async fn verdict裁决内化_两值落位且detail携verdict() {
             .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let _confirmer = spawn_confirmer(&control, true);
         let status = task.await.expect("run 任务正常结束");
@@ -2393,7 +2393,7 @@ async fn verdict未收口即终态且零反馈边() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -2472,7 +2472,7 @@ async fn evaluator终态拍携token求和且与executor各自独立() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     assert_eq!(
@@ -2533,7 +2533,7 @@ async fn verdict截断成因文案可区分() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -2567,7 +2567,7 @@ async fn 上下文头消费面_executor直出主体evaluator尾随协议附录()
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -2655,7 +2655,7 @@ async fn 真实写面组合全程演进对照一致() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -2846,7 +2846,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -2934,7 +2934,7 @@ async fn fail预算内重试attempt递增重跑() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -2989,7 +2989,7 @@ async fn 决策分叉唤起恰一次且输入有界() {
     // id ≠ name 形态下 name 入参必 miss）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -3139,7 +3139,7 @@ async fn verdict_fail分叉立即唤起决策_backtrack自身重跑同相位() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -3233,7 +3233,7 @@ async fn backtrack决议携白名单执行并重路由() {
     // 真实快照源：决策会话的 detail 读取（db 读源——决策输入面）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -3313,7 +3313,7 @@ async fn 路由无error全程决策agent零调用() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -3358,7 +3358,7 @@ async fn 决策越权一次即停且会话数恒一() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -3438,23 +3438,21 @@ async fn 决策越权一次即停且会话数恒一() {
     );
 }
 
-/// walk_run ask 中断与应答回流（正向）：决议 ask → RunUpdate::Ask 流出 +
-/// wait_answer 挂起；answer 回流后以应答文本 Continue 决策会话重出封闭集
-///（AC-2 ask 半边）。
+/// 决策会话的 `ask` 决议已迁出（AC-12，正向侧证）：历史 `{ "action": "ask" }`
+/// 载荷不再触发 `RunUpdate::Ask` 停等，而是即刻 `Terminal::failed`（决策漂移），
+/// 且决策会话恒单轮（零 Continue 续会话）。
 #[tokio::test]
-async fn ask中断与应答回流continue决策会话() {
+async fn 决策ask载荷不再停等而即刻failed且单轮() {
     let (root, db) = decision_fixture("ask-decision");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
             r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#.to_owned(),
-            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
         ])
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            // 首轮正常路由；分叉响应的白名单自失败相位推导（walker 零缓存）
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
             max_retries_outcome(
                 "implement",
@@ -3464,62 +3462,53 @@ async fn ask中断与应答回流continue决策会话() {
         ])
         .assemble();
 
-    // 真实快照源：决策会话的 detail 读取（db 读源——ask 挂起前的输入面）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
-    let (task, mut rx, _history) =
+    let (task, mut rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
-
-    // Ask 通知流出（kind-only 降位——中断载荷面归注册表快照；current_thread
-    // 运行时以 try_recv 轮询，30s 上限防挂死）
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let ask = loop {
-        if let Some(ask) = futures_poll(&mut rx) {
-            break ask;
-        }
-        assert!(Instant::now() < deadline, "等待 Ask 通知超时（30s）");
-        tokio::task::yield_now().await;
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    };
-    assert_eq!(ask, RunNotice::Ask, "Ask 通知流出");
-
-    // 应答回流：walker 以应答文本 Continue 决策会话重出封闭集
-    control
-        .answer(ROOT, CHANGE_ID, "采用方案 A".to_owned())
-        .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Stopped, "应答后 stop 受控收敛");
 
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "历史 ask 载荷即决策漂移（不再停等应答）"
+    );
+    let finish = history.finish().expect("finish 落包捕获");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    assert!(reason.contains("决策漂移"), "记因含漂移语义: {reason}");
+    assert!(
+        reason.contains("AskUserQuestion"),
+        "记因指路独立阻塞工具: {reason}"
+    );
+
+    let notices = drain_notices(&mut rx);
+    assert!(
+        !notices.contains(&RunNotice::Ask),
+        "零 Ask 通知（停等面已迁出决策链）: {notices:?}"
+    );
+    assert!(notices.contains(&RunNotice::Finished));
+
+    // 单轮：决策会话恰一次，零 Continue 续会话、零 prompt 注入
     let requests = requests.lock().expect("请求锁");
     let decision_requests: Vec<&WorkerTurnRequest> = requests
         .iter()
         .filter(|request| request.role == WorkerRole::Decision)
         .collect();
-    assert_eq!(decision_requests.len(), 2, "ask 应答后重出一次决策会话");
+    assert_eq!(decision_requests.len(), 1, "决策会话恰一次（零第二轮）");
     assert!(
         decision_requests[0].continue_session.is_none(),
-        "首次决策会话 New"
+        "决策会话零 Continue（单轮收口）"
     );
-    let first_decision_session = sessions
-        .lock()
-        .expect("会话登记锁")
-        .iter()
-        .find(|(role, _)| *role == WorkerRole::Decision)
-        .map(|(_, session)| session.clone())
-        .expect("首次决策会话 id");
     assert_eq!(
-        decision_requests[1].continue_session.as_deref(),
-        Some(first_decision_session.as_str()),
-        "应答文本 Continue 同一决策会话（非新会话）"
+        sessions_of(&sessions.lock().expect("会话登记锁"), WorkerRole::Decision).len(),
+        1,
+        "会话登记面亦恒 1"
     );
-    assert!(
-        decision_requests[1].prompt.contains("用户应答：采用方案 A"),
-        "应答文本注入续会话 prompt"
-    );
-    // 零 backtrack（stop 决议）
+    drop(requests);
+    // 零 backtrack（无合法动作可落）
     assert!(commands
         .lock()
         .expect("命令锁")
@@ -3544,7 +3533,7 @@ async fn 相位间停等确认confirm流出且proceed继续推进() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -3589,7 +3578,7 @@ async fn confirm否决收敛stopped且不再发起新相位() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, false);
@@ -3657,7 +3646,7 @@ async fn 停止置位收敛stopped且不再发起新相位() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -3728,7 +3717,7 @@ async fn auto确认多相位直通零confirmwait信封终态口径不漂移() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -3785,7 +3774,7 @@ async fn auto确认不接confirmer不挂起自行推进completed() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // 关键：零 spawn_confirmer 接线——手动档同 fixture 在此必停等挂起
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
@@ -3814,7 +3803,7 @@ async fn auto确认写面失败显式failed零confirmwait() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -3849,119 +3838,6 @@ async fn auto确认写面失败显式failed零confirmwait() {
     );
 }
 
-#[tokio::test]
-async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
-    let (root, db) = decision_fixture("auto-ask");
-
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, sessions) = FakeWorker::new(&timeline)
-        .with_decision_reports(vec![
-            r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#.to_owned(),
-            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
-        ])
-        .assemble();
-    let (tools, _) = FakeTools::new(&timeline)
-        .with_phase_next(vec![
-            // 首轮正常路由；分叉响应的白名单自失败相位推导（walker 零缓存）
-            route_outcome("implement", &["proposal", "dev-design", "implement"]),
-            max_retries_outcome(
-                "implement",
-                &["proposal", "dev-design", "implement"],
-                "首轮未过",
-            ),
-            done_outcome(),
-        ])
-        .assemble();
-
-    // 真实快照源：决策会话的 detail 读取真实组合（db 种子——StoreSnapshot 读源）
-    let snapshot: Arc<dyn WorkflowSnapshotPort> =
-        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, mut rx, _history) =
-        spawn_run(worker, tools, snapshot, &control, true, &root.root_str());
-
-    // Ask 信封流出（更新流全量留档收集——零 ConfirmWait 断言面一并覆盖；
-    // current_thread 运行时以 try_recv 轮询，30s 上限防挂死）
-    let mut updates: Vec<RunNotice> = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let ask = loop {
-        match rx.try_recv() {
-            Ok(notice) => {
-                let hit = matches!(notice, RunNotice::Ask);
-                updates.push(notice);
-                if hit {
-                    break updates.pop().expect("Ask 通知在收集队尾");
-                }
-            }
-            Err(_) => {
-                assert!(Instant::now() < deadline, "等待 Ask 通知超时（30s）");
-                tokio::task::yield_now().await;
-                std::thread::sleep(Duration::from_millis(5));
-            }
-        }
-    };
-    assert_eq!(
-        ask,
-        RunNotice::Ask,
-        "auto 模式 ask 中断照常流出（不自动选择；载荷面归注册表快照）"
-    );
-
-    // 应答回流：Continue 决策会话重出封闭集 → retry → done 收敛
-    control
-        .answer(ROOT, CHANGE_ID, "采用方案 A".to_owned())
-        .expect("应答回传应成功");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Stopped, "ask 应答后 stop 受控收敛");
-    while let Ok(update) = rx.try_recv() {
-        updates.push(update);
-    }
-
-    // 全程零 ConfirmWait（auto 与 ask 互不干涉——ask 停等不附带确认停等）
-    while let Ok(notice) = rx.try_recv() {
-        updates.push(notice);
-    }
-    assert!(
-        updates
-            .iter()
-            .all(|notice| *notice != RunNotice::ConfirmWait),
-        "auto 模式全程零 ConfirmWait 通知"
-    );
-    assert!(updates.contains(&RunNotice::Finished), "终态收口照常流出");
-
-    // 决策会话两轮：ask 挂起前 New 会话 + 应答文本 Continue 同会话重出
-    let first_decision_session = sessions
-        .lock()
-        .expect("会话登记锁")
-        .iter()
-        .find(|(role, _)| *role == WorkerRole::Decision)
-        .map(|(_, session)| session.clone())
-        .expect("首次决策会话 id");
-    let requests = requests.lock().expect("请求锁");
-    let decision_requests: Vec<&WorkerTurnRequest> = requests
-        .iter()
-        .filter(|request| request.role == WorkerRole::Decision)
-        .collect();
-    assert_eq!(decision_requests.len(), 2, "ask 应答后重出一次决策会话");
-    assert!(
-        decision_requests[0].continue_session.is_none(),
-        "首次决策会话 New"
-    );
-    assert_eq!(
-        decision_requests[1].continue_session.as_deref(),
-        Some(first_decision_session.as_str()),
-        "应答文本 Continue 同一决策会话（非新会话）"
-    );
-    assert!(
-        decision_requests[1].prompt.contains("用户应答：采用方案 A"),
-        "应答文本注入续会话 prompt"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// static-check 门控 / 反馈边 / 升格; 步状态流出
-// ---------------------------------------------------------------------------
-
 /// walk_run static-check 步门控
 #[tokio::test]
 async fn static_check步门控implement站必经非门控相位零调用() {
@@ -3977,7 +3853,7 @@ async fn static_check步门控implement站必经非门控相位零调用() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -4036,7 +3912,7 @@ async fn 反馈边诊断同会话注入修复() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -4094,7 +3970,7 @@ async fn 反馈边恰五次且超限升格相位fail不跑evaluator() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -4175,7 +4051,7 @@ async fn 步状态流出三类节点逐档可辨() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -4239,7 +4115,7 @@ async fn 工具步失败显式failed且原因流出() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -4281,7 +4157,7 @@ async fn 会话失败收敛携真因随节点与终态() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -4327,7 +4203,7 @@ async fn 会话失败收敛成因缺席回落通用文案() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -4384,7 +4260,7 @@ async fn 首轮即分叉_白名单自错误响应下发_backtrack可兑现() {
     // 真实快照源：决策会话的 detail 读取（db 读源）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -4461,7 +4337,7 @@ async fn 空白名单backtrack决议被拒() {
     // 真实快照源：决策会话的 detail 读取（db 读源——空白名单出口的决策输入面）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -4578,7 +4454,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -4672,7 +4548,7 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -4786,7 +4662,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -4905,7 +4781,7 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -4977,7 +4853,7 @@ async fn 决策挂账失败显式failed且未达解析() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -5005,17 +4881,17 @@ async fn 决策挂账失败显式failed且未达解析() {
     );
 }
 
-/// ask 续轮同会话同值重挂（D6）：应答回流 Continue 同会话收口后重挂——
-/// DecisionLog 调用序两次且载荷逐字段相同（写面幂等覆写的调用方面）。
+/// 决策挂账与被拒动作的调用序（D6，正向）：决策动作越白名单 → 挂账先于门判定
+/// 一次、门 failed、`Terminal::failed`；决策会话恒单轮（零 Continue 续会话），
+/// 挂账载荷指向首次决策会话（同会话同值重挂的运行期前提）。
 #[tokio::test]
-async fn ask续轮同会话重挂同值幂等() {
-    let (root, db) = decision_fixture("ask-relog");
+async fn 决策挂账先于门判定且单轮零续会话() {
+    let (root, db) = decision_fixture("decision-log-before-gate");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
-            r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#.to_owned(),
-            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "test-gen", "reason": "越权目标" }"#.to_owned(),
         ])
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
@@ -5031,35 +4907,14 @@ async fn ask续轮同会话重挂同值幂等() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
-    let (task, mut rx, _history) =
+    let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
-
-    // Ask 信封流出（current_thread 运行时以 try_recv 轮询，30s 上限防挂死）
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if futures_poll(&mut rx).is_some() {
-            break;
-        }
-        assert!(Instant::now() < deadline, "等待 Ask 信封超时（30s）");
-        tokio::task::yield_now().await;
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    control
-        .answer(ROOT, CHANGE_ID, "终止".to_owned())
-        .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Stopped, "决策 stop 收敛");
+    assert_eq!(status, ChangeRunStatus::Failed, "越权一次即停");
 
-    // 同会话续注：第二轮 continue_session == 首轮决策会话 id
-    let requests = requests.lock().expect("请求锁");
-    let decision_requests: Vec<&WorkerTurnRequest> = requests
-        .iter()
-        .filter(|request| request.role == WorkerRole::Decision)
-        .collect();
-    assert_eq!(decision_requests.len(), 2, "ask 应答后重出一次决策会话");
     let first_session = {
         let sessions = sessions.lock().expect("会话登记锁");
         sessions_of(&sessions, WorkerRole::Decision)
@@ -5067,20 +4922,37 @@ async fn ask续轮同会话重挂同值幂等() {
             .cloned()
             .expect("首轮决策会话 id")
     };
-    assert_eq!(
-        decision_requests[1].continue_session.as_deref(),
-        Some(first_session.as_str()),
-        "应答文本 Continue 同一决策会话"
-    );
-    drop(decision_requests);
 
-    // DecisionLog 调用序两次、载荷逐字段相同（同会话同值重挂）
+    // 挂账恰一次且载荷指向该决策会话（挂账先于门判定的调用方面）
     let payloads = decision_log_payloads(&commands.lock().expect("命令锁"));
-    assert_eq!(payloads.len(), 2, "每轮收口即挂账");
-    assert_eq!(payloads[0], payloads[1], "同会话同值重挂（幂等覆写）");
+    assert_eq!(payloads.len(), 1, "越权路径同样留痕（挂账先于裁决）");
     assert_eq!(payloads[0].0, CHANGE_ID);
     assert_eq!(payloads[0].1, "implement");
-    assert_eq!(payloads[0].2, first_session, "两轮挂账同会话 id");
+    assert_eq!(payloads[0].2, first_session, "挂账指向本次决策会话");
+
+    // 单轮：决策会话恰一次、零 Continue
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 1, "决策会话恰一次");
+    assert!(
+        decision_requests[0].continue_session.is_none(),
+        "零 Continue 续会话（单轮收口）"
+    );
+    drop(requests);
+
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("决策越权"),
+        "终态记因为越权: {:?}",
+        finish.reason
+    );
 }
 
 /// emit_step 词汇零新增（结构证明——run-state.ts 零触点的 proposal「不要修
@@ -5110,7 +4982,7 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, &root.root_str());
     let status = task.await.expect("run 任务正常结束");
@@ -5309,17 +5181,6 @@ impl crate::port::MutationRunner for NullMutationRunner {
     }
 }
 
-/// broadcast receiver 的非阻塞轮询摘取（current_thread 运行时协作让位面）。
-fn futures_poll(rx: &mut tokio::sync::broadcast::Receiver<RunNotice>) -> Option<RunNotice> {
-    rx.try_recv()
-        .ok()
-        .filter(|notice| matches!(notice, RunNotice::Ask))
-}
-
-// ---------------------------------------------------------------------------
-// test-execution 扩展节（desktop-checks-domain）
-// ---------------------------------------------------------------------------
-
 /// test-execution 门禁产出 fixture
 fn execution_outcome(conclusion: TestExecutionConclusion, total: u64) -> TestExecutionOutcome {
     TestExecutionOutcome {
@@ -5363,7 +5224,7 @@ async fn test_execution步门控_站必经_非门控相位零调用() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -5429,7 +5290,7 @@ async fn 绿跑零agent_机械checklist代写落账() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -5579,7 +5440,7 @@ async fn drive_test_execution_escalate(
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     let commands = commands.lock().expect("命令锁").clone();
@@ -5731,7 +5592,7 @@ async fn test_execution_error结论同式升格() {
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -5774,7 +5635,7 @@ async fn test_execution_run_tool_err_terminal零落账零决策() {
         .fail_on("test-execution")
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -5833,7 +5694,7 @@ async fn test_execution分派漂移与terminal形态() {
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -5861,7 +5722,7 @@ async fn test_execution分派漂移与terminal形态() {
             .with_phase_next(vec![drifted_route])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(
@@ -6011,7 +5872,7 @@ async fn exec_root透传锚_四缝root恒等于request_root() {
     let snapshot_roots = Arc::new(Mutex::new(Vec::new()));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(RootCaptureSnapshot::new(Arc::clone(&snapshot_roots)));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, EXEC_ROOT);
     let _confirmer = spawn_confirmer(&control, true);
@@ -6063,7 +5924,7 @@ async fn 每run恰两次落库调用_一相位绿跑零额外run域写() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -6103,7 +5964,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, store) = spawn_real_run(
         &db,
@@ -6298,7 +6159,7 @@ async fn 真实形态run零过滤_真实步在案而辅助步退场() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), _db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
@@ -6400,7 +6261,7 @@ async fn 三死亡路径同一出口_第二写恰一次且终态记因各异() {
             .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let _confirmer = spawn_confirmer(&control, true);
         let status = task.await.expect("run 任务正常结束");
@@ -6425,7 +6286,7 @@ async fn 三死亡路径同一出口_第二写恰一次且终态记因各异() {
             .with_phase_next(vec![route_outcome("proposal", &[])])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let _confirmer = spawn_confirmer(&control, false);
         let status = task.await.expect("run 任务正常结束");
@@ -6451,7 +6312,7 @@ async fn 三死亡路径同一出口_第二写恰一次且终态记因各异() {
             .fail_on("phase-start")
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(status, ChangeRunStatus::Failed);
@@ -6487,7 +6348,7 @@ async fn 中途停止收口_active_phase清位() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, store) = spawn_real_run(
         &db,
@@ -6541,7 +6402,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
         ));
         let snapshot: Arc<dyn WorkflowSnapshotPort> =
             Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, store) = spawn_real_run(
             &db,
             worker,
@@ -6590,7 +6451,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
         ));
         let snapshot: Arc<dyn WorkflowSnapshotPort> =
             Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, store) = spawn_real_run(
             &db,
             worker,
@@ -6658,7 +6519,7 @@ async fn run_started_err_fail_fast_零相位执行() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let guard_history = RecordingHistory::new();
     guard_history.arm_start_failure("store 已坏注入");
@@ -6711,7 +6572,7 @@ async fn run_finished_err_best_effort_静默收口() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let history = RecordingHistory::new();
     history.arm_finish_failure("收口落包注入失败");
@@ -6787,7 +6648,7 @@ async fn feedback重跑executor两独立节点且边为feedback() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
@@ -6920,7 +6781,7 @@ async fn 三边kind正向_一次run覆盖forward与feedback与backtrack() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -7037,7 +6898,7 @@ async fn 边kind正向_相位fail经决策backtrack重入落backtrack边() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -7118,7 +6979,7 @@ async fn 四边kind正向_决策回跳跨相位落backtrack边() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -7180,7 +7041,7 @@ async fn 四边kind异常_悬空端点零落边与整包拒绝零半包() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -7307,7 +7168,7 @@ async fn 归档相位九步执行序按计划步序落包() {
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean());
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -7408,7 +7269,7 @@ async fn 归档cleanup成功移除_worktree目录消失且链照常收口() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean().with_real_removal());
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -7484,7 +7345,7 @@ async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链() 
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // Err 注入携真实 worktree 路径（与 ProcessArchiveVcs D6 Err 面同构——
     // 路径 + `git worktree remove --force {path}` 手动指引）
@@ -7586,7 +7447,7 @@ async fn 归档cleanup缺席幂等跳过_零失败面() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // 分支已合入（目录缺失分流 = 已合入照常；未合入会显式引导恢复目录——
     // 那是 Preflight 失败面，非 Cleanup 缺席跳过面）
@@ -7648,7 +7509,7 @@ async fn 归档cleanup缺席重试链重入同词注记不自绊() {
             .with_phase_next(vec![archive_route_outcome(), done_outcome()])
             .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
             .assemble();
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let vcs = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
@@ -7686,7 +7547,7 @@ async fn 归档cleanuplegacy跳过_零worktree触点与零branch触碰() {
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean());
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -7751,7 +7612,7 @@ async fn 归档cleanup缺前置载荷_计划漂移failed且terminal() {
         .with_phase_next(vec![drift])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean());
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -7810,7 +7671,7 @@ async fn 归档git四步经vcs缝直调() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean().with_dirty(true));
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -7895,7 +7756,7 @@ async fn 归档冲突三段agent解算与独立快进() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(
         FakeVcs::clean()
@@ -7972,7 +7833,7 @@ async fn 归档无冲突时解算步passed且零会话() {
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean());
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -8036,7 +7897,7 @@ async fn 归档spec同步条件执行与用户跳过选择() {
             vec!["desktop-flow".to_owned()],
         ))
         .assemble();
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -8094,7 +7955,7 @@ async fn 归档spec同步条件执行与用户跳过选择() {
             vec!["desktop-flow".to_owned()],
         ))
         .assemble();
-    let control_b = Arc::new(ChangeFlowControl::new());
+    let control_b = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task_b, _rx_b, history_b) = spawn_run_with_vcs(
         worker_b,
         tools_b,
@@ -8127,7 +7988,7 @@ async fn 归档spec同步条件执行与用户跳过选择() {
     let (tools_c, _commands_c) = FakeTools::new(&timeline_c)
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
-    let control_c = Arc::new(ChangeFlowControl::new());
+    let control_c = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task_c, _rx_c, history_c) = spawn_run_with_vcs(
         worker_c,
         tools_c,
@@ -8169,7 +8030,7 @@ async fn 归档步内短路形态与幂等跳过() {
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let vcs = Arc::new(FakeVcs::clean().with_dirty(false));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -8210,7 +8071,7 @@ async fn 归档步内短路形态与幂等跳过() {
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
-    let control_b = Arc::new(ChangeFlowControl::new());
+    let control_b = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let vcs_b = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
     let (task_b, _rx_b, history_b) = spawn_run_with_vcs(
         worker_b,
@@ -8246,7 +8107,7 @@ async fn 归档步内短路形态与幂等跳过() {
     let (tools_c, _commands_c) = FakeTools::new(&timeline_c)
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
-    let control_c = Arc::new(ChangeFlowControl::new());
+    let control_c = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let vcs_c = Arc::new(FakeVcs::clean());
     let (task_c, _rx_c, history_c) = spawn_run_with_vcs(
         worker_c,
@@ -8309,7 +8170,7 @@ async fn stop_before_archive停等载荷与双向选择() {
         ))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -8352,7 +8213,7 @@ async fn stop_before_archive停等载荷与双向选择() {
     let (tools_b, commands_b) = FakeTools::new(&timeline_b)
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
-    let control_b = Arc::new(ChangeFlowControl::new());
+    let control_b = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task_b, _rx_b, history_b) = spawn_run_with_vcs(
         worker_b,
         tools_b,
@@ -8408,7 +8269,7 @@ async fn auto模式归档前仍停等且归档后零确认() {
             .with_phase_next(vec![archive_route_outcome(), done_outcome()])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, _history) = spawn_run_with_vcs(
             worker,
             tools,
@@ -8452,7 +8313,7 @@ async fn 归档预案缺席_停等载荷none而停等判据不变() {
         .fail_on("archive-preflight")
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -8500,7 +8361,7 @@ async fn 归档预案缺席_停等载荷none而停等判据不变() {
         .with_phase_next(vec![archive_route_outcome()])
         .fail_on("archive-preflight")
         .assemble();
-    let control_b = Arc::new(ChangeFlowControl::new());
+    let control_b = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task_b, _rx_b, history_b) = spawn_run_with_vcs(
         worker_b,
         tools_b,
@@ -8570,7 +8431,7 @@ async fn 归档相位零角色spec仍可进入执行() {
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -8620,7 +8481,7 @@ async fn 归档步失败即failed收口不唤决策() {
             .fail_on(label)
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
             tools,
@@ -8710,7 +8571,7 @@ async fn 归档git步vcs失败即停链() {
             .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
             tools,
@@ -8793,7 +8654,7 @@ async fn 组合链路归档落库与空checklist落账() {
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx) = spawn_real_run_archive(
         &db,
@@ -8944,7 +8805,7 @@ async fn 归档seal产出驱动finalize落盘pathspec() {
         }])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let vcs = Arc::new(FakeVcs::clean().with_dirty(true));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -9015,7 +8876,7 @@ async fn 归档会话失败即停链() {
         ))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -9062,7 +8923,7 @@ async fn 归档冲突解算续走失败携引导() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let vcs = Arc::new(
         FakeVcs::clean()
             .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
@@ -9131,7 +8992,7 @@ async fn 归档快进与落盘失败即停链() {
             .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
             tools,
@@ -9175,7 +9036,7 @@ async fn 归档相位中途停止收敛stopped() {
         .with_phase_next(vec![archive_route_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -9303,7 +9164,7 @@ async fn drive_mutation_escalate(
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     let commands = commands.lock().expect("命令锁").clone();
@@ -9442,7 +9303,7 @@ async fn mutation_test_error结论同式升格_report取feedback_text() {
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -9485,7 +9346,7 @@ async fn mutation_test_run_tool_err_terminal零升格零决策() {
         .fail_on("mutation-test")
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Failed, "runner Err 停给用户");
@@ -9537,7 +9398,7 @@ async fn mutation_test分派漂移三值() {
             .with_phase_next(vec![drifted_route])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(
@@ -9684,7 +9545,7 @@ async fn mutation_pass零反馈收口_双槽evidence达标面() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -9733,7 +9594,7 @@ async fn phase_cursor双槽互不覆盖_机械checklist同时消费两槽() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -9796,7 +9657,7 @@ async fn 机械checklist第三条evidence三态映射() {
             .with_mutation(vec![mutation])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(status, ChangeRunStatus::Completed);
@@ -9911,7 +9772,7 @@ async fn emit铸造_executor双emit关系式_started正且ended不早于started(
         .with_phase_next(two_phase_routes())
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -9946,7 +9807,7 @@ async fn emit铸造_新写面零瞬步生产例() {
         .with_phase_next(two_phase_routes())
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     task.await.expect("run 任务正常结束");
@@ -9986,7 +9847,7 @@ async fn emit铸造_会话stopped收敛终态节点ended在场() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -10030,7 +9891,7 @@ async fn emit铸造_非工步终态emit_token恒none() {
         ])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     task.await.expect("run 任务正常结束");
@@ -10060,7 +9921,7 @@ async fn emit铸造_running在途snapshot_started正ended_none() {
         .with_phase_next(two_phase_routes())
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
 
@@ -10100,7 +9961,7 @@ async fn emit铸造_出面无中性值残留() {
         .with_phase_next(two_phase_routes())
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     task.await.expect("run 任务正常结束");
@@ -10136,7 +9997,7 @@ async fn emit铸造_构造器中性预填被按status覆写() {
         ])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     task.await.expect("run 任务正常结束");
@@ -10172,7 +10033,7 @@ async fn emit铸造_快照与落包出口同键四字段一致() {
         .with_phase_next(two_phase_routes())
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
 
@@ -10262,7 +10123,7 @@ async fn run_worker_transcript多turndone_usage求和落值() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     task.await.expect("run 任务正常结束");
@@ -10290,7 +10151,7 @@ async fn run_worker_会话失败收敛transcript在手token仍落值() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -10313,7 +10174,7 @@ async fn run_worker_零turndone_token恒none() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     task.await.expect("run 任务正常结束");
@@ -10344,7 +10205,7 @@ async fn run_worker_token单侧落值_缺席侧none() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     task.await.expect("run 任务正常结束");
@@ -10367,7 +10228,7 @@ async fn run_worker_err路径failed_emit_token恒none() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -10412,7 +10273,7 @@ async fn run_worker_干扰载荷仅合法turndone计入不panic() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -10500,7 +10361,7 @@ async fn initialize三步序全绿链_排除面与baseline槽位与机械checkli
         .assemble();
     let vcs = Arc::new(FakeVcs::clean());
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -10680,7 +10541,7 @@ async fn step_clean_err收敛_failed节点与terminal且检查步零执行() {
         FakeVcs::clean().with_restore_result(Err("git -C wt clean 失败（退出码 128）".to_owned())),
     );
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -10763,7 +10624,7 @@ async fn step_static_check_terminal_红文案携baseline报告目录() {
         .assemble();
     let vcs = Arc::new(FakeVcs::clean());
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -10847,7 +10708,7 @@ async fn step_test_execution_terminal_error与fail分文案() {
             .assemble();
         let vcs = Arc::new(FakeVcs::clean());
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
@@ -10904,7 +10765,7 @@ async fn terminal收敛后二次发起_仍路由initialize且干净重试() {
             .assemble();
         let vcs = Arc::new(FakeVcs::clean());
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, _history) = spawn_run_with_vcs(
             worker,
             tools,
@@ -10943,7 +10804,7 @@ async fn terminal收敛后二次发起_仍路由initialize且干净重试() {
             .assemble();
         let vcs = Arc::new(FakeVcs::clean());
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
             tools,
@@ -10993,7 +10854,7 @@ async fn legacy短路_零节点与零检查spawn() {
         .assemble();
     let vcs = Arc::new(FakeVcs::clean());
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // root == main_root（legacy 主仓形态——worktree=None 存量记录）
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -11102,7 +10963,7 @@ async fn 决策非法动作一次即停且零门实例() {
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> =
             Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) =
             spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
         let _confirmer = spawn_confirmer(&control, true);
@@ -11172,7 +11033,7 @@ async fn 决策自环一次即停且decision实例各一() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -11289,7 +11150,7 @@ async fn 决策输入_fail清单过滤与全pass随行与station缺席() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -11352,7 +11213,7 @@ async fn 决策输入_fail清单过滤与全pass随行与station缺席() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -11381,7 +11242,7 @@ async fn 决策输入_fail清单过滤与全pass随行与station缺席() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -11412,7 +11273,7 @@ async fn 决策输入_快照失败与last_result缺席均terminal() {
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Failed, "快照读取失败显式 failed");
@@ -11440,7 +11301,7 @@ async fn 决策输入_快照失败与last_result缺席均terminal() {
         .with_phase_next(vec![no_last_result])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -11480,7 +11341,7 @@ async fn feedback_limit_escalate误声明显式漂移err() {
         .with_phase_next(vec![drifted_route])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Failed, "误声明显式漂移失败");
@@ -11505,68 +11366,85 @@ async fn feedback_limit_escalate误声明显式漂移err() {
     assert!(requests.lock().expect("请求锁").is_empty(), "零 agent 会话");
 }
 
-/// ask 停等终止（边界）：决策 ask 流出后取消置位 → `wait_answer` 返回 `None`
-/// → `Terminal::stopped("ask 停等被终止")`（漂移不增、零 Backtrack）。
+/// 防御臂（异常，AC-12）：`finalized = Decision(Ask{..})` → `Terminal::failed`，
+/// 文案含「决策漂移」+ `AskUserQuestion` 字面；`RunUpdate::Ask` **零 emit**、
+/// worker 调用恰 1 次（不开新轮）。
 #[tokio::test]
-async fn 决策ask停等被终止收敛stopped() {
-    let (root, db) = decision_fixture("decision-ask-abort");
-    let allowed = ["proposal", "implement"];
+async fn 决策载荷ask出现即failed且零emit与单轮() {
+    let (root, db) = decision_fixture("decision-drift-ask");
+
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
-            r#"{ "action": "ask", "question": "回溯目标?", "options": ["proposal"] }"#.to_owned(),
+            r#"{ "action": "ask", "question": "选哪个？", "options": ["甲", "乙"] }"#.to_owned(),
+            // 第二轮预录产出（若开新轮必被消费）
+            r#"{ "action": "stop", "reason": "不应被消费" }"#.to_owned(),
         ])
         .assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
+    let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            route_outcome("implement", &allowed),
-            max_retries_outcome("implement", &allowed, "首轮未过"),
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
         ])
         .assemble();
+
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
     let (task, mut rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
-
-    // 等 Ask 通知后置取消（wait_answer 取消半边返回 None）
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if futures_poll(&mut rx).is_some() {
-            break;
-        }
-        assert!(Instant::now() < deadline, "等待 Ask 通知超时（30s）");
-        tokio::task::yield_now().await;
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert!(control.request_stop(ROOT, CHANGE_ID), "取消置位");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Stopped, "ask 停等被终止 → stopped");
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "Ask 载荷即编排漂移 → failed"
+    );
     let finish = history.finish().expect("finish 落包捕获");
+    let reason = finish.reason.as_deref().unwrap_or_default();
     assert!(
-        finish
-            .reason
-            .as_deref()
-            .unwrap_or_default()
-            .contains("ask 停等被终止"),
-        "记因: {:?}",
-        finish.reason
+        reason.contains("决策漂移"),
+        "终态记因含「决策漂移」: {reason}"
     );
     assert!(
-        commands
-            .lock()
-            .expect("命令锁")
-            .iter()
-            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
-        "零 Backtrack 落账"
+        reason.contains("AskUserQuestion"),
+        "记因指路独立阻塞工具: {reason}"
+    );
+
+    // 零 Ask 广播：`RunUpdate::Ask` 未 emit
+    let notices = drain_notices(&mut rx);
+    assert!(
+        !notices.contains(&RunNotice::Ask),
+        "零 Ask 广播（不停等）: {notices:?}"
+    );
+
+    // worker 调用恰 1 次决策会话（不开新轮）
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(
+        decision_requests.len(),
+        1,
+        "决策会话恰一次（Ask 载荷不开第二轮）"
+    );
+    assert!(
+        decision_requests[0].continue_session.is_none(),
+        "决策会话零续注（单轮收口）"
     );
 }
 
-/// 决策 ask 多轮（边界）：连续 3 轮 ask 应答后续问——漂移恒 0（ask 不计漂移）、
-/// 同会话续注、每轮 DecisionLog 各一次；第 4 轮合法 stop 经门 passed 收敛。
+/// 决策 ask 载荷不产生多轮（边界，AC-12）：连续预录 3 轮 ask 产出，仅首轮被
+/// 消费（即刻 failed 收口），后续轮零消费——决策会话数恒 1、挂账恰一次。
 #[tokio::test]
-async fn 决策ask连续三轮不计漂移后续stop() {
+async fn 决策ask载荷不产生多轮且后续预录零消费() {
     let (root, db) = decision_fixture("decision-ask-three-rounds");
     let allowed = ["proposal", "implement"];
     let ask = r#"{ "action": "ask", "question": "回溯目标?", "options": ["proposal"] }"#.to_owned();
@@ -11587,98 +11465,46 @@ async fn 决策ask连续三轮不计漂移后续stop() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, mut rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
 
-    // 逐轮应答（每轮 Ask 通知流出后回传应答）
-    for round in 1..=3 {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            if futures_poll(&mut rx).is_some() {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "等待第 {round} 轮 Ask 超时（30s）"
-            );
-            tokio::task::yield_now().await;
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        control
-            .answer(ROOT, CHANGE_ID, format!("采用方案 {round}"))
-            .expect("应答回传应成功");
-    }
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Stopped, "四轮后 stop 受控收敛");
+    assert_eq!(status, ChangeRunStatus::Failed, "首轮 ask 即收口");
+
+    let notices = drain_notices(&mut rx);
+    assert!(
+        !notices.contains(&RunNotice::Ask),
+        "零 Ask 通知（不开停等、不开新轮）"
+    );
 
     let requests = requests.lock().expect("请求锁");
     let decision_requests: Vec<&WorkerTurnRequest> = requests
         .iter()
         .filter(|request| request.role == WorkerRole::Decision)
         .collect();
-    assert_eq!(decision_requests.len(), 4, "3 轮 ask + 1 轮 stop");
-    let first_session =
-        sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision)[0].clone();
-    for request in decision_requests.iter().skip(1) {
-        assert_eq!(
-            request.continue_session.as_deref(),
-            Some(first_session.as_str()),
-            "ask 应答续问同会话（漂移不变）"
-        );
-    }
+    assert_eq!(decision_requests.len(), 1, "决策会话恒 1（后续预录零消费）");
     drop(requests);
+    assert_eq!(
+        sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision).len(),
+        1,
+        "会话登记面亦恒 1"
+    );
 
-    // 漂移恒 0：ask 三轮与 stop 轮同为 decision 节点（instance_no 按轮递增，
-    // 共四个实例——ask 不计失败，末轮 stop passed）
+    // 漂移路径零门节点、零 Backtrack、挂账恰一次
     let finish = history.finish().expect("finish 落包捕获");
-    let gates: Vec<&RunNodeEntry> = finish
+    let gates = finish
         .nodes
         .iter()
-        .filter(|node| node.step == workflow::state::RunStepKind::Decision)
-        .collect();
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .count();
+    assert_eq!(gates, 0, "ask 载荷防御臂零门节点（不 emit）");
     assert_eq!(
-        gates.len(),
-        4,
-        "四轮各一个 decision 节点实例（instance_no 递增）"
+        decision_log_payloads(&commands.lock().expect("命令锁")).len(),
+        1,
+        "挂账恰一次（单轮收口）"
     );
-    let mut instances: Vec<u32> = gates.iter().map(|node| node.instance_no).collect();
-    instances.sort_unstable();
-    assert_eq!(instances, vec![0, 1, 2, 3], "instance_no 按轮递增");
-    assert!(
-        gates
-            .iter()
-            .all(|node| node.status == RunStepStatus::Passed),
-        "ask 轮与 stop 轮均 passed（ask 不计失败）"
-    );
-    let last = gates
-        .iter()
-        .max_by_key(|node| node.instance_no)
-        .expect("末轮节点在案");
-    assert!(
-        last.detail
-            .as_deref()
-            .is_some_and(|detail| detail.starts_with("stop：")),
-        "末轮 detail 携 stop 动作摘要: {:?}",
-        last.detail
-    );
-    assert!(
-        !finish
-            .nodes
-            .iter()
-            .any(|node| node.step == workflow::state::RunStepKind::WhitelistGate),
-        "WhitelistGate 节点零产出"
-    );
-
-    // 每轮（含 ask 轮）DecisionLog 恰一次且 phase / session 一致
-    let payloads = decision_log_payloads(&commands.lock().expect("命令锁"));
-    assert_eq!(payloads.len(), 4, "每轮决策-log 各一次");
-    for payload in &payloads {
-        assert_eq!(payload.0, CHANGE_ID);
-        assert_eq!(payload.1, "implement");
-        assert_eq!(payload.2, first_session);
-    }
 }
 
 /// 组合链（正向，AC-6）：test-execution 首败升格 → 决策 backtrack 到 implement
@@ -11714,7 +11540,7 @@ async fn 组合链_fail决策backtrack重跑test_execution与入口边kind() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -11870,7 +11696,7 @@ async fn feedback_limit五值边界透传与漂移err() {
             .with_static_check(vec![failing_check("类型错误"); case.failing_checks])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let _confirmer = spawn_confirmer(&control, true);
         let status = task.await.expect("run 任务正常结束");
@@ -11971,7 +11797,7 @@ async fn 决策收口动作两序列逐值可辨() {
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> =
             Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) =
             spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
         let _confirmer = spawn_confirmer(&control, true);
@@ -12132,7 +11958,7 @@ async fn 停止运行中检查步_秒级收敛stopped且无failed节点() {
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, mut rx, history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -12243,7 +12069,7 @@ async fn 非取消类err收敛failed且文案含原错误串() {
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -12313,7 +12139,7 @@ async fn drive_three_gate_steps() -> (Vec<(&'static str, CancelFlag)>, ChangeRun
     let (tools, _commands) = tools.assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -12370,7 +12196,7 @@ async fn run_tool单点填充_stop后下一次请求携置位() {
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -12525,7 +12351,7 @@ async fn 挂起且不观测cancel_walker不作步内截止且收口由runner产�
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -12673,7 +12499,7 @@ async fn 环境错误_零worker且run失败() {
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -12765,7 +12591,7 @@ async fn 取消_节点stopped且run收敛stopped() {
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -12837,7 +12663,7 @@ async fn mutation取消_文案原样且零worker() {
         .with_mutation(vec![faulted_mutation(RunFault::Stopped)])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -12905,7 +12731,7 @@ async fn fault先于结论_绿不抵环境错误() {
             .with_test_execution(vec![outcome])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let (task, _rx, _history) =
             spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
@@ -12946,7 +12772,7 @@ async fn 环境错误不烧反馈边预算() {
         }])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
@@ -13023,7 +12849,7 @@ async fn 文案dir占位替换逐字() {
             )])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
@@ -13072,7 +12898,7 @@ async fn 环境文案空串与超长载荷() {
             )])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
@@ -13136,7 +12962,7 @@ async fn 基线静态检查_环境错误与真红文案可辨() {
             .assemble();
         let vcs = Arc::new(FakeVcs::clean());
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
@@ -13193,7 +13019,7 @@ async fn 基线静态检查_环境错误与真红文案可辨() {
             .assemble();
         let vcs = Arc::new(FakeVcs::clean());
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let (task, _rx, history) = spawn_run_with_vcs(
             worker,
@@ -13259,7 +13085,7 @@ async fn 基线测试执行_环境错误不落基线红文案() {
         .assemble();
     let vcs = Arc::new(FakeVcs::clean());
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
@@ -13404,7 +13230,7 @@ async fn 三面取消一致性_节点stopped且run收敛stopped() {
             .with_mutation(mutation)
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
@@ -13502,7 +13328,7 @@ async fn 归档模型冲突交人裁决零会话零abort() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
@@ -13577,7 +13403,7 @@ async fn 归档混合冲突走模型臂不先解代码() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
@@ -13624,7 +13450,7 @@ async fn 归档preflight半程挡回零提交零重放() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean().with_snapshot_head("head-b", Some("onto-commit")));
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -13700,7 +13526,7 @@ async fn 归档preflight探测失败fail_closed挡回() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean().with_snapshot_failure("fatal: 快照探测失败"));
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -13798,7 +13624,7 @@ async fn 归档preflight无worktree不探测即放行() {
         .with_archive_preflight(vec![legacy.clone(), legacy])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(FakeVcs::clean());
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -13862,7 +13688,7 @@ async fn 归档preflight目录不在场不探测即放行() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // 快照探测一旦被调用即失败：目录缺席面「不探测」是唯一让它放行的原因
     let vcs = Arc::new(
@@ -13934,7 +13760,7 @@ async fn 归档模型冲突文案命中分隔符与祖先路径两形态() {
             .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
         let vcs = Arc::new(
             FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![conflict.to_owned()]))),
@@ -14012,7 +13838,7 @@ async fn 归档模型冲突多路径文案计数与前两样本() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(
         FakeVcs::clean().with_rebase(Ok(RebaseOutcome::Conflicted(vec![
@@ -14087,7 +13913,7 @@ async fn 归档代码路径冲突不入模型臂() {
         .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let vcs = Arc::new(
         FakeVcs::clean()
@@ -14192,7 +14018,7 @@ async fn archi_check步门控implement站必经非门控相位零调用() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -14255,7 +14081,7 @@ async fn archi_check反馈边同会话注入修复() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -14328,7 +14154,7 @@ async fn archi_check三次超限升格相位fail不跑evaluator() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -14402,7 +14228,7 @@ async fn archi_check未检查态passed且detail逐字不反馈() {
             .assemble();
 
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let _confirmer = spawn_confirmer(&control, true);
         assert_eq!(
@@ -14525,7 +14351,7 @@ async fn archi_check报告路径随detail呈现且output_ref恒为空() {
             .assemble();
 
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
         let _confirmer = spawn_confirmer(&control, true);
         assert_eq!(
@@ -14589,7 +14415,7 @@ async fn archi_check取消收敛stopped零升格零反馈边() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     assert_eq!(
@@ -14671,7 +14497,7 @@ async fn archi_check反馈文本经diagnose_brief截断两百字符() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     assert_eq!(
@@ -14735,7 +14561,7 @@ async fn archi_check三段计数互不占用各自超限升格() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     assert_eq!(
@@ -14867,7 +14693,7 @@ async fn archi_check变更集取数失败收敛failed不降级无变更() {
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) =
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
@@ -15002,7 +14828,7 @@ async fn archi_check环境错误同形保留且文案即fault原文() {
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     assert_eq!(
@@ -15109,7 +14935,7 @@ async fn archi_check三态跑动后源码字节零变化() {
             .with_archi_check(outcomes)
             .assemble();
         let snapshot_port: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, _history) = spawn_run(
             worker,
             tools,
@@ -15391,7 +15217,7 @@ async fn 脚本步上抛_补发拍与终态拍合并为一节点() {
         ])),
     });
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(
         worker,
@@ -15507,7 +15333,7 @@ async fn drive_scripted_run(phase: &str) -> (RefTrace, usize, RefTrace, RefTrace
             done_outcome(),
         ])),
     });
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(
         worker,
         Arc::clone(&tools) as Arc<dyn ToolStepPort>,
@@ -15552,7 +15378,7 @@ async fn drive_initialize_terminal_edges() -> (RefTrace, usize, RefTrace) {
             done_outcome(),
         ])),
     });
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run_with_vcs(
         worker,
         Arc::clone(&tools) as Arc<dyn ToolStepPort>,
@@ -15594,7 +15420,7 @@ async fn 上抛时刻_图上节点已带output_ref() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let worker = FakeWorker::new(&timeline).assemble().0;
     let phase = feedback_static_check_phase();
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     // 回调内探测：取快照 → 找该 exec_id 的节点
     let probe_control = Arc::clone(&control);
@@ -15705,7 +15531,7 @@ async fn 无回调runner_零补发拍且终态按产出回填() {
         .with_static_check(vec![check_with_ref("exec-from-outcome")])
         .assemble()
         .0;
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
     let (task, _rx, history) = spawn_run(
         worker,
@@ -15782,7 +15608,7 @@ async fn 上抛后err_节点output_ref保持补发值() {
             done_outcome(),
         ])),
     });
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(
         worker,
         Arc::clone(&tools) as Arc<dyn ToolStepPort>,
@@ -15840,7 +15666,7 @@ async fn 上抛两次_节点仍一条且取第二次值() {
             done_outcome(),
         ])),
     });
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(
         worker,
         Arc::clone(&tools) as Arc<dyn ToolStepPort>,
@@ -15882,7 +15708,7 @@ async fn 非脚本步十处_output_ref恒none() {
         ])
         .assemble()
         .0;
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(
         worker,
         tools,
@@ -15986,7 +15812,7 @@ async fn 反馈边重跑_两实例各自output_ref独立() {
             done_outcome(),
         ])),
     });
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(
         worker,
         Arc::clone(&tools) as Arc<dyn ToolStepPort>,
@@ -16033,7 +15859,7 @@ async fn 收口时间戳口径零变() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble()
         .0;
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let before = crate::control::now_millis();
     let (task, _rx, history) = spawn_run(
         worker,
@@ -16281,7 +16107,7 @@ async fn 决策输入_窗口透传两变体且既有四面保持() {
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> =
             Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, _history) =
             spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
         let _confirmer = spawn_confirmer(&control, true);
@@ -16355,7 +16181,7 @@ async fn 决策输入_窗口原样不改写三条逐条等序() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -16431,7 +16257,7 @@ async fn 决策输入_五装置空集基线决策prompt零窗口段() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -16459,7 +16285,7 @@ async fn 决策输入_窗口非空时两早退面仍terminal() {
         .with_phase_next(vec![with_windows(no_last_result, windows.clone())])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -16492,7 +16318,7 @@ async fn 决策输入_窗口非空时两早退面仍terminal() {
         )])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Failed, "快照读取失败显式 failed");
@@ -16540,7 +16366,7 @@ async fn 决策输入_段序窗口段先于反馈段evaluator协议在末() {
         .with_phase_next(vec![route, done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let _ = task.await.expect("run 任务正常结束");
@@ -16603,7 +16429,7 @@ async fn 决策输入_窗内fail反馈与窗口段并存且段位不变() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -16708,7 +16534,7 @@ async fn 组合_写面回溯落账经walker透传至决策prompt() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
@@ -16810,7 +16636,7 @@ async fn verdict门eval_outcome缺席即failed且零门节点() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
@@ -16878,7 +16704,7 @@ async fn verdict裁决跨相位同源且零gate声明() {
                 .with_phase_next(vec![route_outcome_any_table(phase)])
                 .assemble();
             let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-            let control = Arc::new(ChangeFlowControl::new());
+            let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
             let (task, _rx, history) =
                 spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
             let _confirmer = spawn_confirmer(&control, true);
@@ -16964,7 +16790,7 @@ async fn 决策finalized缺席与角色漂移两分支failed() {
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> =
             Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) =
             spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
         let _confirmer = spawn_confirmer(&control, true);
@@ -17215,7 +17041,7 @@ fn 夹具提取单点_测试面零第二份提取实现() {
 /// 保首见不随后拍漂移。
 #[tokio::test]
 async fn 辅助步退场_瞬步语义仍由合并侧承载() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, new_run_id(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -17307,7 +17133,7 @@ async fn 计划图漂移六词逐词显式失败() {
             .with_phase_next(vec![drifted])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(
@@ -17352,7 +17178,7 @@ async fn 计划图漂移判据边界_空序列与并列与末位() {
         .with_phase_next(vec![empty])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -17395,7 +17221,7 @@ async fn 计划图漂移判据边界_空序列与并列与末位() {
             .with_phase_next(vec![route])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         assert_eq!(
             task.await.expect("run 任务正常结束"),
@@ -17453,7 +17279,7 @@ async fn 收口三分流_机械双槽与evaluator载荷逐字段可辨() {
         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -17501,7 +17327,7 @@ async fn 收口三分流_机械双槽与evaluator载荷逐字段可辨() {
         .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -17540,7 +17366,7 @@ async fn 收口三分流_archive空checklist落账pass且清位() {
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -17607,7 +17433,7 @@ async fn 落账失败节点全绿而run_failed且reason前缀() {
         .fail_on("phase-log")
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -17651,7 +17477,7 @@ async fn 双失败面文案对拍_两型归因互斥() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -17682,7 +17508,7 @@ async fn 双失败面文案对拍_两型归因互斥() {
         .fail_on("phase-log")
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -17939,7 +17765,7 @@ async fn 开相attempt口径含stale且与pipeline条数可辨() {
         stop_before: None,
         started_at: STARTED_AT,
     };
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-attempt".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -17992,7 +17818,7 @@ async fn 开相重入幂等_两次同attempt且行数不变() {
         stop_before: None,
         started_at: STARTED_AT,
     };
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-enter".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -18083,7 +17909,7 @@ async fn 开相相位串边界五形态经写面err() {
         stop_before: None,
         started_at: STARTED_AT,
     };
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-boundary".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -18127,7 +17953,7 @@ async fn 开相写面失败_零节点零审计() {
         .fail_on("phase-start")
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -18224,7 +18050,7 @@ fn worker_outcome(
 /// turn / 空 checklist 三形态载荷逐字段可辨，且 `cursor.evaluator_turn` 被 `take`。
 #[tokio::test]
 async fn 收口三分流直调_test双槽evaluator载荷与空checklist逐字段可辨() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-settle-pass".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -18388,7 +18214,7 @@ async fn 收口三分流直调_test双槽evaluator载荷与空checklist逐字段
 /// 执行器」；三态均 `pass = true`（null 观察期不收紧）。
 #[tokio::test]
 async fn 收口机械第三条evidence三态均pass() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(
             ROOT,
@@ -18455,7 +18281,7 @@ async fn 收口机械第三条evidence三态均pass() {
 /// 回写逐形态；`Fail` 的 `item` 四值逐值、空 evidence / 空槽位不省键。
 #[tokio::test]
 async fn 收口fail与skipped两形态载荷与回写逐形态() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-settle-fail".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -18586,7 +18412,7 @@ async fn 收口fail与skipped两形态载荷与回写逐形态() {
 /// `Fail` / `Skipped` 零「全部步通过」字样；`status` 保留写面原值。
 #[tokio::test]
 async fn 收口落账失败三形态前缀分文案() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-settle-err".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -18660,7 +18486,7 @@ async fn 收口落账失败三形态前缀分文案() {
 /// `u32::MAX` 原样返回；`phase` 取 `""` / 超长 / emoji 逐字透传不裁剪、不 panic。
 #[tokio::test]
 async fn 收口返回attempt原样透传与相位串不裁剪() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-settle-bound".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -18702,7 +18528,7 @@ async fn 收口返回attempt原样透传与相位串不裁剪() {
 /// `active_phase` 保持清位。
 #[tokio::test]
 async fn 收口重入幂等_三形态第二次拒绝且行数与清位不变() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-settle-reenter".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
@@ -19045,7 +18871,7 @@ fn probe_request(tag: &str) -> RunRequest {
 #[tokio::test]
 async fn run_worker_immediate自收口与deferred单拍待调用方补终态() {
     // Immediate：返回后节点已终态（passed），ended_at 在场
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let guard = probe_guard(&control, "immediate");
@@ -19077,7 +18903,7 @@ async fn run_worker_immediate自收口与deferred单拍待调用方补终态() {
     assert!(node.session_id.is_some(), "会话 id 终态随行");
 
     // Deferred：返回后只 running 拍（ended 缺席），调用方同实例补终态后仍一条节点
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let guard = probe_guard(&control, "deferred");
@@ -19126,7 +18952,7 @@ async fn run_worker_immediate自收口与deferred单拍待调用方补终态() {
 #[tokio::test]
 async fn run_worker_err臂两模式均落failed节点() {
     for mode in [SettleMode::Immediate, SettleMode::Deferred] {
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let timeline = Arc::new(Mutex::new(Vec::new()));
         let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
             .with_evaluator_reports(vec![Err("评估会话崩溃".to_owned())])
@@ -19178,7 +19004,7 @@ async fn run_worker模式与会话状态交叉八格() {
     ];
     for status in statuses {
         for mode in [SettleMode::Immediate, SettleMode::Deferred] {
-            let control = Arc::new(ChangeFlowControl::new());
+            let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
             let timeline = Arc::new(Mutex::new(Vec::new()));
             let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
                 .with_evaluator_status(vec![status])
@@ -19271,7 +19097,7 @@ fn phase_cursor_new中性值与档位回落() {
 /// 每次成对落一条节点与一条 forward 边、终态 detail 逐拍保留。
 #[tokio::test]
 async fn open_close_step成对语义_实例号自零递增且节点边对应() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = probe_guard(&control, "open-close");
     let request = probe_request("open-close");
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -19501,7 +19327,7 @@ async fn evaluator会话状态面先行_两态落对应节点且不被吞成pass
             .with_phase_next(vec![route_outcome("proposal", &[])])
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-        let control = Arc::new(ChangeFlowControl::new());
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
         let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         assert_eq!(
             task.await.expect("run 任务正常结束"),
@@ -19559,7 +19385,7 @@ async fn evaluator定义漂移_零会话零节点显式失败() {
         .with_phase_next(vec![route])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -19625,7 +19451,7 @@ async fn 决策截断态文案与未收口文案互不包含() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, &root.root_str());
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -19679,7 +19505,7 @@ async fn 决策backtrack落账失败_terminal且零backtrack边() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, &root.root_str());
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -19711,61 +19537,32 @@ async fn 决策backtrack落账失败_terminal且零backtrack边() {
     );
 }
 
-/// `Ask` 携出会话外（缺席断言，源自证）：ask 已在决策会话内被 `wait_answer` 循环
-/// 消化，`resolve_deadlock` 的「决策漂移：ask 动作未被应答循环消化」分支为编排
-/// 漂移防线——源内恰一处且四驱动用例的运行期 reason 零命中该文案。
+/// 漂移防线单点（正向 + 异常，源自证）：`Ask` 载荷的漂移措辞经常量
+/// `TXT_ASK_DRIFT` 单点定义（定义 1 + `resolve_deadlock` 与动作裁决不可达臂各 1
+/// 消费）；ask 摘要文案已随停等链路退役（`ask：` 零命中），`Stop` 终态文案仍
+/// 源内恰一处。
 #[test]
-fn 决策drift文案源内恰一处且运行期零命中() {
+fn 决策drift文案单点且零ask摘要文案() {
     let code = walker_code_lines();
     assert_eq!(
-        code.matches("决策漂移：ask 动作未被应答循环消化").count(),
+        code.matches("const TXT_ASK_DRIFT").count(),
         1,
-        "编排漂移防线文案源内恰一处"
+        "漂移防线文案定义单点"
+    );
+    assert_eq!(
+        code.matches("TXT_ASK_DRIFT").count(),
+        4,
+        "常量消费面 = 定义 1 + `resolve_deadlock` 1 + 动作裁决不可达臂 2"
+    );
+    assert_eq!(
+        code.matches("ask：").count(),
+        0,
+        "ask 摘要文案已随停等链路退役（零第二份措辞）"
     );
     assert_eq!(
         code.matches("决策 stop: ").count(),
         1,
         "`Stop` 终态文案源内恰一处（status 不降级为 Failed）"
-    );
-}
-
-/// ask 文案单点归属（正向 + 异常，源自证）：`ask：<摘要>` 只在决策会话的应答臂
-/// 出现一次；动作裁决面的 `Ask` 不可达臂改走 [`TXT_ASK_UNCONSUMED`] 常量（同一
-/// 漂移场景不写第二份 ask 摘要文案），该常量定义单点 + 两消费点（`resolve_deadlock`
-/// 与动作裁决不可达臂）——`Ask` 两路已在会话内闭合的两处事实同源。
-#[test]
-fn ask文案单点且漂移臂经常量复用() {
-    let code = walker_code_lines();
-    assert_eq!(
-        code.matches("ask：").count(),
-        1,
-        "`ask：` 摘要文案恰一处（仅决策会话 ask 应答臂）"
-    );
-    assert_eq!(
-        code.matches("const TXT_ASK_UNCONSUMED").count(),
-        1,
-        "漂移防线文案常量定义单点"
-    );
-    assert_eq!(
-        code.matches("TXT_ASK_UNCONSUMED").count(),
-        3,
-        "常量消费面 = 定义 1 + `resolve_deadlock` 1 + 动作裁决不可达臂 1"
-    );
-    // 不可达臂（`match &action` 的 `Ask { .. }`）走常量而非第二份 `ask：` 文案
-    let action_start = code
-        .find("match &action {")
-        .expect("动作裁决 match 应在源内");
-    let action_tail = &code[action_start..];
-    let action_end = action_tail
-        .find("Err(Terminal::failed(format!(\"决策越权")
-        .expect("动作裁决 match 应以越权臂收尾");
-    assert!(
-        action_tail[..action_end].contains("TXT_ASK_UNCONSUMED"),
-        "动作裁决不可达臂经漂移常量收口（不留第二份 ask 文案）"
-    );
-    assert!(
-        !action_tail[..action_end].contains("ask："),
-        "动作裁决面零 `ask：` 文案（摘要只在会话应答臂写一次）"
     );
 }
 
@@ -19817,7 +19614,7 @@ fn 会话终态拍组装单点_with_session与with_tokens各一处() {
 /// `token_input` / `token_output` 为转录 TurnDone usage 求和。
 #[tokio::test]
 async fn run_worker_immediate终态拍携会话与token() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
         .with_transcripts(vec![vec![
@@ -19877,7 +19674,7 @@ async fn drive_gate_escalate(
     };
     let (tools, commands) = tools;
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
     let commands = commands.lock().expect("命令锁").clone();
@@ -19973,7 +19770,7 @@ async fn 门禁升格空槽位与空诊断不省键() {
         ])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -20098,7 +19895,7 @@ async fn 整链节点总数等于真实步数之和且辅助步零出现() {
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, store) = spawn_real_run(
         &db,
         worker,
@@ -20209,7 +20006,7 @@ async fn legacy短路写面失败两分支分别归因() {
         .with_phase_next(vec![route_outcome("initialize", &[])])
         .fail_on("phase-start")
         .assemble();
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -20251,7 +20048,7 @@ async fn legacy短路写面失败两分支分别归因() {
         .with_phase_next(vec![route_outcome("initialize", &[])])
         .fail_on("phase-log")
         .assemble();
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -20315,7 +20112,7 @@ async fn 入口边承载_首节点取覆盖值而第二节点回forward() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, &root.root_str());
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -20387,7 +20184,7 @@ async fn 入口边覆盖值不泄漏_legacy短路与首步err两形态() {
             done_outcome(),
         ])
         .assemble();
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -20444,7 +20241,7 @@ async fn 入口边覆盖值不泄漏_legacy短路与首步err两形态() {
     let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(
         worker,
         tools,
@@ -20471,7 +20268,7 @@ async fn 入口边覆盖值不泄漏_legacy短路与首步err两形态() {
 /// 写面按 `MAX_REPORT_CHARS` 拒绝（截断归装配函数，`settle_phase` 不自行裁剪）。
 #[tokio::test]
 async fn 收口退化载荷_空跳过因落账与越界report写面拒绝() {
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = control
         .begin_run(
             ROOT,
@@ -20560,21 +20357,20 @@ async fn 收口退化载荷_空跳过因落账与越界report写面拒绝() {
 // `RetryGate` / `WhitelistGate` 节点零产出、`SettleMode` 两值封闭
 // ---------------------------------------------------------------------------
 
-/// ask 应答后同实例收口（正向）：`Ask` 轮 decision 节点 `passed` + `detail =
-/// "ask：<摘要>"`，应答续问同会话；`stop` 轮 detail = `"stop：<reason>"`。
+/// 决策 ask 载荷的停止面（边界，AC-5）：历史 ask 载荷不再进入停等态，`run`
+/// 即刻 `Terminal::failed`（决策漂移），停止置位在已收敛后为 miss 幂等——零
+/// Backtrack 落账、零 `Ask` 通知。
 #[tokio::test]
-async fn 决策ask轮detail携摘要且续问同会话() {
-    let (root, db) = decision_fixture("decision-ask-detail");
-    let allowed = ["proposal", "dev-design", "implement"];
+async fn 决策ask载荷路径停止置位幂等且零backtrack() {
+    let (root, db) = decision_fixture("decision-ask-abort");
+    let allowed = ["proposal", "implement"];
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
-            r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal"] }"#
-                .to_owned(),
-            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
+            r#"{ "action": "ask", "question": "回溯目标?", "options": ["proposal"] }"#.to_owned(),
         ])
         .assemble();
-    let (tools, _commands) = FakeTools::new(&timeline)
+    let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
             route_outcome("implement", &allowed),
             max_retries_outcome("implement", &allowed, "首轮未过"),
@@ -20582,95 +20378,45 @@ async fn 决策ask轮detail携摘要且续问同会话() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, mut rx, history) =
-        spawn_run(worker, tools, snapshot, &control, true, &root.root_str());
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
 
-    // Ask 通知流出后应答（`try_recv` 轮询 + 30s 上限防挂死）
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if futures_poll(&mut rx).is_some() {
-            break;
-        }
-        assert!(Instant::now() < deadline, "等待 Ask 通知超时（30s）");
-        tokio::task::yield_now().await;
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    control
-        .answer(ROOT, CHANGE_ID, "采用方案 A".to_owned())
-        .expect("应答回传应成功");
+    let status = task.await.expect("run 任务正常结束");
     assert_eq!(
-        task.await.expect("run 任务正常结束"),
-        ChangeRunStatus::Stopped,
-        "应答后 stop 受控收敛"
+        status,
+        ChangeRunStatus::Failed,
+        "历史 ask 载荷即决策漂移（不再停等）"
+    );
+    // 收敛后停止置位为 miss 幂等
+    assert!(
+        !control.request_stop(ROOT, CHANGE_ID),
+        "run 已收口除名：停止寻址 miss 幂等"
     );
 
+    let notices = drain_notices(&mut rx);
+    assert!(
+        !notices.contains(&RunNotice::Ask),
+        "零 Ask 通知（停等面不在决策链）: {notices:?}"
+    );
     let finish = history.finish().expect("finish 落包捕获");
-    let mut ask_rounds: Vec<&RunNodeEntry> = finish
-        .nodes
-        .iter()
-        .filter(|node| node.step == workflow::state::RunStepKind::Decision)
-        .collect();
-    ask_rounds.sort_by_key(|node| node.instance_no);
-    assert_eq!(ask_rounds.len(), 2, "ask 轮 + stop 轮各一实例");
     assert!(
-        ask_rounds[0]
-            .detail
+        finish
+            .reason
             .as_deref()
-            .is_some_and(|detail| detail.starts_with("ask：") && detail.contains("回溯目标")),
-        "ask 轮 detail 携问答摘要: {:?}",
-        ask_rounds[0].detail
+            .unwrap_or_default()
+            .contains("决策漂移"),
+        "记因: {:?}",
+        finish.reason
     );
-    assert_eq!(ask_rounds[0].status, RunStepStatus::Passed, "ask 不计失败");
     assert!(
-        ask_rounds[1]
-            .detail
-            .as_deref()
-            .is_some_and(|detail| detail.starts_with("stop：")),
-        "stop 轮 detail 携动作摘要: {:?}",
-        ask_rounds[1].detail
-    );
-    // 两 gate 节点面归零（动作裁决写 decision 节点）
-    for retired in [
-        workflow::state::RunStepKind::RetryGate,
-        workflow::state::RunStepKind::WhitelistGate,
-    ] {
-        assert!(
-            !finish.nodes.iter().any(|node| node.step == retired),
-            "{retired:?} 节点零产出"
-        );
-    }
-    // 会话 id / token 随行（`Deferred` 的终态拍由调用方经组装单点补：两轮节点
-    // 各携本轮会话 id；该轮转录零 TurnDone → token 两值 None 但在场不省键）
-    for node in &ask_rounds {
-        assert!(
-            node.session_id.is_some(),
-            "decision 节点携会话 id（instance {:?}）",
-            node.instance_no
-        );
-        assert_eq!(node.token_input, None, "零 TurnDone → token_input None");
-        assert_eq!(node.token_output, None, "零 TurnDone → token_output None");
-        assert!(
-            node.ended_at.is_some_and(|ended| ended >= node.started_at),
-            "Deferred 终态拍已补（ended 在场且不早于 started）"
-        );
-    }
-    assert_eq!(
-        ask_rounds[0].session_id, ask_rounds[1].session_id,
-        "两轮同会话（应答续问 resume 同一 id，会话槽不漂移）"
-    );
-    // 续问同会话（第二轮 continue_session 为第一轮 id）
-    let requests = requests.lock().expect("请求锁");
-    let decision_requests: Vec<&WorkerTurnRequest> = requests
-        .iter()
-        .filter(|request| request.role == WorkerRole::Decision)
-        .collect();
-    let first_session =
-        sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision)[0].clone();
-    assert_eq!(
-        decision_requests[1].continue_session.as_deref(),
-        Some(first_session.as_str()),
-        "应答续问同会话"
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
+        "零 Backtrack 落账"
     );
 }
 
@@ -20751,7 +20497,7 @@ async fn evaluator角色漂移_同失败分支且零落账() {
         .with_phase_next(vec![route_outcome("proposal", &[])])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -20807,7 +20553,7 @@ async fn 开相零节点零审计_运行中active_phase在案且落账后清位(
     ));
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, steps, snapshot, &control, true, &root.root_str());
 
     // evaluator 会话挂起 = 相位运行中窗口（开相已写、落账未发生）
@@ -20885,7 +20631,7 @@ async fn 空计划步序列_active_phase未写入且零相位条目() {
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -20957,7 +20703,7 @@ async fn 真实写面红节点_active_phase未清位且审计零行() {
         .with_executor_failures(vec![Some("模型拒绝服务".to_owned())])
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, steps, snapshot, &control, true, &root.root_str());
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -21050,7 +20796,7 @@ async fn 真实写面红节点_active_phase未清位且审计零行() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, steps, snapshot, &control, true, &root.root_str());
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -21155,7 +20901,7 @@ async fn 双失败面同run混合取先发生者() {
         .fail_on("phase-log")
         .assemble();
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     assert_eq!(
         task.await.expect("run 任务正常结束"),
@@ -21246,7 +20992,7 @@ async fn close_step未开出实例号就地合并不新增节点() {
         "新名成对在案（open_step / close_step）"
     );
 
-    let control = Arc::new(ChangeFlowControl::new());
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
     let guard = probe_guard(&control, "close-unopened");
     let request = probe_request("close-unopened");
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -21270,4 +21016,417 @@ async fn close_step未开出实例号就地合并不新增节点() {
         Some("同键再收口"),
         "末次收口 detail 在案"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：决策会话单轮收口（零 `continue_session` / 零第二轮）与
+// `Ask` 载荷防御臂（决策漂移）
+// ---------------------------------------------------------------------------
+
+/// 单轮收口零 `Continue`（正向，AC-12）：决策步一次
+/// `finish_step{action:"backtrack"}` → `FakeWorker` 收到的决策 `WorkerTurnRequest`
+/// 条数恰 1、`WhitelistGate` 节点零产出（裁决留 decision detail）、run 终态按
+/// 动作裁决（不是 `Failed`）。
+#[tokio::test]
+async fn 决策backtrack单轮收口零续注且零门节点() {
+    let (root, db) = decision_fixture("decision-single-round");
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            done_outcome(),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let (task, mut rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "backtrack 白名单内 → 重路由收敛（不是 Failed）"
+    );
+
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 1, "决策会话恰一次（零第二轮）");
+    assert!(
+        decision_requests
+            .iter()
+            .all(|request| request.continue_session.is_none()),
+        "决策会话零 continue_session（去循环化的运行期证据）"
+    );
+
+    // 动作裁决留在 decision 节点实例的 detail（gate 节点零产出）
+    let finish = history.finish().expect("finish 落包捕获");
+    let gates = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .count();
+    assert_eq!(gates, 0, "动作裁决不另立 gate 节点");
+    let decision = node_of(&finish, workflow::state::RunStepKind::Decision, 0);
+    assert_eq!(
+        decision.status,
+        RunStepStatus::Passed,
+        "合法动作 decision passed"
+    );
+
+    let notices = drain_notices(&mut rx);
+    assert!(
+        !notices.contains(&RunNotice::Ask),
+        "决策链零 Ask 广播（ask 已迁出为独立工具）: {notices:?}"
+    );
+}
+
+/// 合法两动作各自单轮（正向，参数化 2 形态）：`stop` 与 `backtrack`（白名单内）
+/// 两形态 → 各恰 1 次决策 worker 调用、零第二轮、终态与既有断言一致。
+#[tokio::test]
+async fn 决策两动作各自单轮收口() {
+    for (label, decision, expect_status) in [
+        (
+            "stop",
+            r#"{ "action": "stop", "reason": "受控终止" }"#,
+            ChangeRunStatus::Stopped,
+        ),
+        (
+            "backtrack",
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#,
+            ChangeRunStatus::Completed,
+        ),
+    ] {
+        let (root, db) = decision_fixture(&format!("decision-two-actions-{label}"));
+
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+            .with_decision_reports(vec![decision.to_owned()])
+            .assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![
+                route_outcome("implement", &["proposal", "dev-design", "implement"]),
+                max_retries_outcome(
+                    "implement",
+                    &["proposal", "dev-design", "implement"],
+                    "首轮未过",
+                ),
+                route_outcome("dev-design", &["proposal", "dev-design"]),
+                done_outcome(),
+            ])
+            .assemble();
+
+        let snapshot: Arc<dyn WorkflowSnapshotPort> =
+            Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+        let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+        let (task, _rx, _history) =
+            spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+        let _confirmer = spawn_confirmer(&control, true);
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(status, expect_status, "{label} 臂终态");
+
+        let requests = requests.lock().expect("请求锁");
+        let decision_requests: Vec<&WorkerTurnRequest> = requests
+            .iter()
+            .filter(|request| request.role == WorkerRole::Decision)
+            .collect();
+        assert_eq!(decision_requests.len(), 1, "{label}：决策会话恰一次");
+    }
+}
+
+/// `resolve_deadlock` 防御臂结构保留（DD10，异常，源码自证 + 运行期侧证）：
+/// `DecisionAction::Ask` 分支仍为 `Deadlock::Terminal(Terminal::failed(…))` 且
+/// 经漂移文案常量（措辞单点含「决策漂移」+ 指路 `AskUserQuestion`）；其余两动作
+/// 的既有分支文案逐字在位。
+#[tokio::test]
+async fn resolve_deadlock三分支结构保留() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
+    )
+    .expect("读取 walker.rs");
+
+    // Ask 分支：结构保留（`DecisionAction::Ask` 臂 → Terminal::failed）
+    let ask_arm = own
+        .find("DecisionAction::Ask { .. } =>")
+        .expect("resolve_deadlock 的 Ask 臂在场");
+    let arm_body = &own[ask_arm..(ask_arm + 400).min(own.len())];
+    assert!(
+        arm_body.contains("Terminal::failed"),
+        "Ask 臂仍收敛为 Terminal::failed"
+    );
+    assert!(
+        arm_body.contains("TXT_ASK_DRIFT"),
+        "Ask 臂经漂移文案常量收口（措辞单点）"
+    );
+    // 措辞本身单点在常量值内（两处消费点共用）
+    let const_at = own.find("const TXT_ASK_DRIFT").expect("漂移文案常量在场");
+    let const_line = &own[const_at..(const_at + 200).min(own.len())];
+    assert!(const_line.contains("决策漂移"), "常量值含「决策漂移」");
+    assert!(
+        const_line.contains("AskUserQuestion"),
+        "常量值指路独立阻塞工具"
+    );
+
+    // 其余两动作分支逐字在位（既有判定不变）
+    for kept in [
+        "DecisionAction::Stop { reason } => Deadlock::Terminal",
+        "决策 stop: {reason}",
+    ] {
+        assert!(own.contains(kept), "既有分支文案逐字在位: {kept}");
+    }
+}
+
+/// `Ask` 载荷历史兼容（异常）：`DecisionAction::Ask` 经收口载荷反序列化后可
+/// 提取（`finish_payload` 单点），且 walker 防御臂据此判漂移，而不是
+/// 「未收口／截断」成因。
+#[tokio::test]
+async fn ask载荷历史反序列化后可被防御臂识别() {
+    let transcript = finish_notice_transcript(
+        r#"{ "decision": { "action": "ask", "question": "q", "options": ["a"] } }"#,
+    );
+    let payload = crate::transcript::finish_payload(&transcript).expect("历史载荷可提取");
+    assert!(
+        matches!(
+            payload,
+            crate::finish::FinishPayload::Decision(crate::decision::DecisionAction::Ask { .. })
+        ),
+        "历史 ask 载荷仍可读（防御臂识别面）"
+    );
+}
+
+/// 既有失败臂零改动（异常，参数化 3 形态）：`finalized == None` 且输出被截断 →
+/// 截断文案；未截断 → 「未调用 finish_step 收口」文案；`Evaluator` 载荷 →
+/// 「相位表角色漂移」文案（三文案逐字不变）。
+#[tokio::test]
+async fn 决策会话既有失败臂三文案逐字不变() {
+    let expected: [(&str, &str); 3] = [
+        (
+            "截断",
+            "决策输出被截断（output_truncated），未产生 finish_step 收口产物",
+        ),
+        (
+            "未收口",
+            "未调用 finish_step 收口（决策会话 Completed 但无收口载荷）",
+        ),
+        (
+            "角色漂移",
+            "决策会话返回 evaluator 收口载荷（相位表角色漂移）",
+        ),
+    ];
+    // 三文案的常量来源在 walker.rs 内逐字在位（源码自证半边；运行期半边由
+    // 既有 decision_session 用例覆盖）
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
+    )
+    .expect("读取 walker.rs");
+    for (label, wording) in expected {
+        assert!(own.contains(wording), "{label} 成因文案逐字在位: {wording}");
+    }
+}
+
+/// 退役面零残留（异常，源码自证，AC-8 / AC-12）：`walker.rs` 代码行（注释行
+/// 剔除）零 `wait_answer`、零 `decision_answer_prompt`；`decision_session` 函数
+/// 体内零 `loop {` 与零 `continue;`（去循环化的机械判据）。
+#[test]
+fn walker_rs退役面零残留且决策会话去循环化() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
+    )
+    .expect("读取 walker.rs");
+    let code_only = own
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !(trimmed.starts_with("///") || trimmed.starts_with("//"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for retired in ["wait_answer", "decision_answer_prompt"] {
+        assert!(
+            !code_only.contains(retired),
+            "walker.rs 代码行内零 {retired}"
+        );
+    }
+
+    // decision_session 函数体（自签名到下一个顶层 `async fn` / `fn` 之间）零循环
+    let start = own
+        .find("async fn decision_session(")
+        .expect("decision_session 在场");
+    let rest = &own[start + 1..];
+    let end = rest
+        .find("\nfn ")
+        .or_else(|| rest.find("\nasync fn "))
+        .unwrap_or(rest.len());
+    let body = &rest[..end];
+    for forbidden in ["loop {", "continue;"] {
+        assert!(
+            !body.contains(forbidden),
+            "decision_session 体内零 {forbidden}（单轮收口）"
+        );
+    }
+}
+
+/// 白名单两形态（边界，AC-12）：空白名单 → `backtrack` 必越权 `Terminal::failed`；
+/// 单元素白名单 → 同目标通过。两形态下决策 prompt 的白名单段与 ask 指路句均在场。
+#[tokio::test]
+async fn 决策白名单两形态_空集越权_单元素通过() {
+    // 形态一：空白名单 → 越权失败
+    let (root, db) = decision_fixture("decision-empty-window");
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "返工" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["implement"]),
+            max_retries_outcome("implement", &["implement"], "首轮未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "空白名单下回溯必越权");
+
+    // prompt 白名单段与指路句两形态均在场（锁作用域收在块内，不跨 await）
+    {
+        let requests = requests.lock().expect("请求锁");
+        let decision = requests
+            .iter()
+            .find(|request| request.role == WorkerRole::Decision)
+            .expect("决策会话在场");
+        assert!(decision.prompt.contains("可回溯白名单"), "白名单段在场");
+        assert!(
+            decision.prompt.contains("AskUserQuestion"),
+            "ask 指路句在场（与白名单形态无关）"
+        );
+    }
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("决策越权"),
+        "越权记因: {:?}",
+        finish.reason
+    );
+
+    // 形态二：单元素白名单含目标 → 通过（终态非 Failed-越权）
+    let (root2, db2) = decision_fixture("decision-one-window");
+    let timeline2 = Arc::new(Mutex::new(Vec::new()));
+    let (worker2, _requests2, _sessions2) = FakeWorker::new(&timeline2)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools2, _commands2) = FakeTools::new(&timeline2)
+        .with_phase_next(vec![
+            route_outcome("implement", &["implement"]),
+            max_retries_outcome("implement", &["implement"], "首轮未过"),
+            route_outcome("implement", &["implement"]),
+            done_outcome(),
+        ])
+        .assemble();
+    let snapshot2: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root2.root_str(), db2.store_arc()));
+    let control2 = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+    let (task2, _rx2, history2) = spawn_run(
+        worker2,
+        tools2,
+        snapshot2,
+        &control2,
+        false,
+        &root2.root_str(),
+    );
+    let _confirmer2 = spawn_confirmer(&control2, true);
+    let status2 = task2.await.expect("run 任务正常结束");
+    assert_eq!(
+        status2,
+        ChangeRunStatus::Completed,
+        "单元素白名单内回溯通过"
+    );
+    let finish2 = history2.finish().expect("finish 落包捕获");
+    assert!(
+        !finish2
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("决策越权"),
+        "非越权记因: {:?}",
+        finish2.reason
+    );
+}
+
+/// 决策输入边界（边界，组合迭代）：`attempt` 取 `0` / `u32::MAX`、`phase` 取
+/// `""` → 单轮收口语义不变、零 panic；`fail_checklist` 空集 / 1000 项两形态的
+/// prompt 组装不阻断裁决。
+#[tokio::test]
+async fn 决策输入边界四组合下单轮收口语义不变() {
+    for attempt_shape in ["zero", "max"] {
+        for checklist_shape in ["empty", "many"] {
+            let (root, db) =
+                decision_fixture(&format!("decision-input-{attempt_shape}-{checklist_shape}"));
+            let timeline = Arc::new(Mutex::new(Vec::new()));
+            let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+                .with_decision_reports(vec![
+                    r#"{ "action": "stop", "reason": "受控终止" }"#.to_owned()
+                ])
+                .assemble();
+            let (tools, _commands) = FakeTools::new(&timeline)
+                .with_phase_next(vec![
+                    route_outcome("implement", &["implement"]),
+                    max_retries_outcome("implement", &["implement"], ""),
+                ])
+                .assemble();
+            let snapshot: Arc<dyn WorkflowSnapshotPort> =
+                Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+            let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+            let (task, _rx, _history) =
+                spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+            let _confirmer = spawn_confirmer(&control, true);
+            let status = task.await.expect("run 任务正常结束");
+            assert_eq!(
+                status,
+                ChangeRunStatus::Stopped,
+                "{attempt_shape}/{checklist_shape}: 单轮 stop 收口"
+            );
+
+            let requests = requests.lock().expect("请求锁");
+            let decision_count = requests
+                .iter()
+                .filter(|request| request.role == WorkerRole::Decision)
+                .count();
+            assert_eq!(
+                decision_count, 1,
+                "{attempt_shape}/{checklist_shape}: 决策会话恒单轮"
+            );
+        }
+    }
 }

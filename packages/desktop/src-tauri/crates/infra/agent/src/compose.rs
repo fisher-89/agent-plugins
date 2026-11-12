@@ -33,9 +33,13 @@ const ARCHI_SOURCE: &str = "archi";
 ///   值下发面不变）；
 /// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面
 ///   矩阵，命中即把勾选名并入七工具名清单；
-/// - 其余来源恒 `SessionInjections::default()`（内建七件、零 archi 工具）。
+/// - 其余来源（debug 等）显式构造 `tools = None`（内建七件）+ 零 archi 工具 +
+///   `ask = Some(Generic)`——MUST NOT 以默认构造兜底（默认值的 `ask = None` 即
+///   静默禁用，通用会话会失去 ask）。
 ///
-/// 三臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。
+/// 三臂的每个名字 SHALL 经 [`mount::lookup`] 成员校验（未知名 `Err`）。`ask` 位
+/// 逐臂显式置位：explore / archi / 其余来源 → `Generic`，change（**不分 role /
+/// 不分矩阵命中**）→ `Flow`。
 fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
     if provenance.source == EXPLORE_SOURCE {
         const EXPLORE_TOOLS: [&str; 7] = [
@@ -47,7 +51,13 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             "bash",
             mount::EXPLORE_NOTE_TOOL,
         ];
-        return injected(&EXPLORE_TOOLS, None, None, provenance);
+        return injected(
+            &EXPLORE_TOOLS,
+            None,
+            None,
+            Some(agent::AskMode::Generic),
+            provenance,
+        );
     }
     if provenance.source == ARCHI_SOURCE {
         let mut names: Vec<&'static str> = mount::builtin().to_vec();
@@ -58,11 +68,18 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             &names,
             crate::archi_knowledge::knowledge(),
             None,
+            Some(agent::AskMode::Generic),
             provenance,
         );
     }
     if provenance.source != CHANGE_SOURCE {
-        return Ok(agent::SessionInjections::default());
+        // 显式构造（MUST NOT default()：其 ask = None 即静默禁用）
+        return Ok(agent::SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: Some(agent::AskMode::Generic),
+        });
     }
     let mut names: Vec<&'static str> = mount::builtin().to_vec();
     let phase_role = change_phase_role(provenance.source_ref.as_deref().unwrap_or(""));
@@ -76,7 +93,8 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         Some("decision") => Some(agent::FinishSpec::Decision),
         _ => None,
     };
-    injected(&names, None, finish, provenance)
+    // change 来源的 ask 档位恒 Flow（不分 role / 不分矩阵命中）
+    injected(&names, None, finish, Some(agent::AskMode::Flow), provenance)
 }
 
 /// 装配产物单点（成员校验 + 名字清单落地）：未知名显式 `Err` 携名与来源，
@@ -85,6 +103,7 @@ fn injected(
     names: &[&'static str],
     preamble: Option<String>,
     finish: Option<agent::FinishSpec>,
+    ask: Option<agent::AskMode>,
     provenance: &SessionProvenance,
 ) -> Result<agent::SessionInjections, String> {
     for name in names {
@@ -99,6 +118,7 @@ fn injected(
         preamble,
         tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
         finish,
+        ask,
     })
 }
 
@@ -185,13 +205,19 @@ pub struct ComposedTurn {
 /// cwd 半边经既有 `SessionCtx` 通道不经 compose）；`workspace_root` 为命令层
 /// 在手的主仓 root（写入保护规则的装配根，与 `store` 半边同为「root 身份锚」），
 /// 会话执行根 `exec_root` / worktree **不经此通道**。
+///
+/// `ask_registry` 为壳层托管的 ask 应答注册表（透传内核 + 门面，两侧同一张表）；
+/// `ask_port` 仅门面（编排侧状态面的实现方是壳层 sink，内核侧不需要它）。
+#[allow(clippy::too_many_arguments)]
 pub fn compose_turn(
     stores: &WorkspaceStores,
     registry: Arc<StopRegistry>,
     streams: Arc<SessionStreamRegistry>,
+    ask_registry: Arc<agent::AskRegistry>,
     store: Arc<Store>,
     agent: Option<i64>,
     workspace_root: &Path,
+    ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
 ) -> Result<ComposedTurn, String> {
     // 解析语义自命令层原样平移（缺省 / 显式 / sdk provider 组装 / high 档 /
     // 无默认 Err 引导管理页）
@@ -200,7 +226,12 @@ pub fn compose_turn(
     // explore 专用工具执行上下文的句柄半边（组合根铸造、`tools::execute` 纯
     // 函数不动——句柄经门面 builder 下行至 pump per-turn 铸造）
     let explore_note_store = Arc::clone(&store);
-    let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry, streams);
+    let kernel = SessionKernel::new(
+        Arc::new(StoreSink::new(store)),
+        registry,
+        streams,
+        Arc::clone(&ask_registry),
+    );
     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件
     // 全史）
     let resume: crate::ResumeTranscript = {
@@ -226,6 +257,8 @@ pub fn compose_turn(
             .with_context_window(resolved.context_window)
             .with_max_tokens(resolved.max_tokens)
             .with_web_search(resolved.web_search)
+            .with_ask_registry(ask_registry)
+            .with_ask_port(ask_port)
             .with_explore_note_store(explore_note_store)
             .with_workspace_root(workspace_root.to_path_buf())
             .runner_for(resolved.kind, resolved.config)?,
@@ -398,6 +431,7 @@ pub(crate) fn composed_with_runner(
             Arc::new(StoreSink::new(Arc::clone(&store))),
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
+            Arc::new(agent::AskRegistry::default()),
         ),
         runner,
         query: Arc::new(StoreQuery::new(store)),

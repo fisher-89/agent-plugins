@@ -396,6 +396,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             injections: turn.injections.clone(),
             explore_note: None,
             archi: None,
+            ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
         };
@@ -431,12 +432,55 @@ async fn drive_loop_collecting_history(
             injections: turn.injections.clone(),
             explore_note: None,
             archi: None,
+            ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
         };
         let handle = handle.clone();
         async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
     });
+    let mut events = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        events.push(event);
+    }
+    let history = task.await.expect("loop 任务正常结束");
+    (events, history)
+}
+
+/// loop 直驱（按值携带整轮参数 + 回收历史）：`AskContext` 不是 `Clone`，
+/// ask 执行体用例需整轮参数原样进入 loop（不经 `..loop_turn(...)` 重建）。
+async fn drive_loop_turn_collecting_history(
+    model: &FakeModel,
+    turn: LoopTurn,
+) -> (Vec<AgentEventKind>, Vec<Message>) {
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let dyn_model = model.erased();
+    let handle = RunHandle::default();
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+        );
+    let mut events = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        events.push(event);
+    }
+    let history = task.await.expect("loop 任务正常结束");
+    (events, history)
+}
+
+/// loop 直驱（按值携带整轮参数 + 显式运行句柄 + 回收历史）：停止臂用例的
+/// 驱动面（真实 `RunHandle` 唤醒是判据本体）。
+async fn drive_loop_turn_with_handle(
+    model: &FakeModel,
+    turn: LoopTurn,
+    handle: RunHandle,
+) -> (Vec<AgentEventKind>, Vec<Message>) {
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let dyn_model = model.erased();
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+        );
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -458,6 +502,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         injections: agent::SessionInjections::default(),
         explore_note: None,
         archi: None,
+        ask: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
     }
@@ -1564,6 +1609,7 @@ fn loop_turn字段面完整构造锚定() {
         injections: agent::SessionInjections::default(),
         explore_note: None,
         archi: None,
+        ask: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
     };
@@ -2003,6 +2049,7 @@ fn explore_injections() -> agent::SessionInjections {
         preamble: None,
         tools: Some(names),
         finish: None,
+        ask: None,
     }
 }
 
@@ -4261,6 +4308,7 @@ fn archi_injections(module: bool, search: bool) -> agent::SessionInjections {
         preamble: None,
         tools: Some(names),
         finish: None,
+        ask: None,
     }
 }
 
@@ -4760,6 +4808,7 @@ async fn run系统消息合成双在场恰一条system() {
             preamble: Some("架构知识段".to_owned()),
             tools: None,
             finish: None,
+            ask: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -4793,6 +4842,7 @@ async fn run系统消息合成仅preamble恰一条system() {
             preamble: Some("架构知识段".to_owned()),
             tools: None,
             finish: None,
+            ask: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -4836,6 +4886,7 @@ async fn run系统消息合并每轮重读知识段不重读盘() {
             preamble: Some("架构知识段".to_owned()),
             tools: None,
             finish: None,
+            ask: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
@@ -4876,6 +4927,7 @@ fn archi_session_injections(knowledge: Option<&str>) -> agent::SessionInjections
         preamble: knowledge.map(str::to_owned),
         tools: Some(names),
         finish: None,
+        ask: None,
     }
 }
 
@@ -5247,6 +5299,7 @@ async fn finish_step收口成功零额外请求() {
                 preamble: None,
                 tools: tools.clone(),
                 finish: Some(agent::FinishSpec::EvaluatorChecklist),
+                ask: None,
             },
             ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
         };
@@ -5335,8 +5388,7 @@ async fn finish_step同批后续调用产出假结果且真经sender() {
         AgentPermissionMode::BypassPermissions,
         agent::FinishSpec::EvaluatorChecklist,
     );
-    let (events, _history) =
-        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
 
     let read_result = sealed_tool_results(&events)
         .into_iter()
@@ -5396,8 +5448,7 @@ async fn finish_step同批结果进恰一条user消息() {
             AgentPermissionMode::BypassPermissions,
             agent::FinishSpec::EvaluatorChecklist,
         );
-        let (events, history) =
-            drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+        let (events, history) = drive_loop_turn_collecting_history(&model, turn).await;
         assert!(!events.is_empty(), "{tag}: 事件流非空");
 
         let tool_messages = history
@@ -5456,8 +5507,7 @@ async fn finish_step校验err当场回灌且会话继续() {
         AgentPermissionMode::BypassPermissions,
         agent::FinishSpec::EvaluatorChecklist,
     );
-    let (events, _history) =
-        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
 
     let (_, content, is_error) = sealed_tool_results(&events)
         .into_iter()
@@ -5497,8 +5547,7 @@ async fn finish_step不在下发面时tool_unavailable() {
         question: finish_prompt(),
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
-    let (events, _history) =
-        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
 
     let denied = notices_of(&events)
         .into_iter()
@@ -5547,11 +5596,11 @@ async fn finish_step的protocol档在default下放行() {
             preamble: None,
             tools: None,
             finish: Some(agent::FinishSpec::EvaluatorChecklist),
+            ask: None,
         },
         ..loop_turn(dir.path(), AgentPermissionMode::Default)
     };
-    let (events, _history) =
-        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
 
     let finish_result = sealed_tool_results(&events)
         .into_iter()
@@ -5584,8 +5633,7 @@ async fn finish_step截断终局不发notice() {
         AgentPermissionMode::BypassPermissions,
         agent::FinishSpec::EvaluatorChecklist,
     );
-    let (events, _history) =
-        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
 
     assert!(
         events
@@ -5620,8 +5668,7 @@ async fn 非法工具名早退tool_mount_error且零请求() {
         injections: crate::sdk::mount::injected(&["no_such_tool"]),
         ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
     };
-    let (events, _history) =
-        drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
 
     let AgentEventKind::TurnDone {
         is_error, subtype, ..
@@ -5692,8 +5739,7 @@ async fn finish_step的err文案三要素可见() {
         let dir = tempdir("finish-err-visible");
         let model = FakeModel::with_turns(vec![vec![raw_tool_call("tu_err", "finish_step", args)]]);
         let turn = loop_turn_with_finish(dir.path(), AgentPermissionMode::BypassPermissions, spec);
-        let (events, _history) =
-            drive_loop_collecting_history(&model, &turn, &RunHandle::default()).await;
+        let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
 
         let (_, content, is_error) = sealed_tool_results(&events)
             .into_iter()
@@ -5747,5 +5793,823 @@ async fn finish_step两闸零介入且write越界仍拒() {
     assert!(
         sandbox::check(&root, raw).is_err(),
         "对照：write 越界仍被沙箱拒（门未放宽）: {raw}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`ToolExec::Ask` 两档执行体（阻塞 → 回灌 → 同 turn 续跑 /
+// `Flow` 档广播 / 停止臂 / 防护臂）
+// ---------------------------------------------------------------------------
+
+/// 记录式假 port：逐条记下 `ask_started` 载荷与 `ask_resolved` 调用（两方法
+/// 调用序即断言面）。
+#[derive(Default)]
+struct RecordingAskPort {
+    calls: Mutex<Vec<RecordedAskCall>>,
+    /// `ask_started` 回调（时序用例：广播先于阻塞的「回调内同步投递」）
+    on_started: Mutex<Option<AskStartedCallback>>,
+}
+
+/// `ask_started` 回调面（时间复杂度告警的类型别名）。
+type AskStartedCallback = Box<dyn FnOnce(&orchestration::state::AskPayload) + Send>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecordedAskCall {
+    Started(orchestration::state::AskPayload),
+    Resolved,
+}
+
+impl RecordingAskPort {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn recorded(&self) -> Vec<RecordedAskCall> {
+        self.calls.lock().expect("记录锁不可中毒").clone()
+    }
+
+    fn labels(&self) -> Vec<&'static str> {
+        self.recorded()
+            .iter()
+            .map(|call| match call {
+                RecordedAskCall::Started(_) => "started",
+                RecordedAskCall::Resolved => "resolved",
+            })
+            .collect()
+    }
+}
+
+impl orchestration::port::AskPort for RecordingAskPort {
+    fn ask_started(&self, ask: orchestration::state::AskPayload) {
+        self.calls
+            .lock()
+            .expect("记录锁不可中毒")
+            .push(RecordedAskCall::Started(ask.clone()));
+        let callback = self.on_started.lock().expect("回调锁不可中毒").take();
+        if let Some(callback) = callback {
+            callback(&ask);
+        }
+    }
+
+    fn ask_resolved(&self) {
+        self.calls
+            .lock()
+            .expect("记录锁不可中毒")
+            .push(RecordedAskCall::Resolved);
+    }
+}
+
+/// ask 执行上下文夹具（`core_session_id` 与 `LoopTurn.session_id` 不同义——
+/// 前者是注册表键，后者是引擎侧 `sdk-…` 标识）。
+fn ask_context(
+    registry: Arc<agent::AskRegistry>,
+    port: Option<Arc<dyn orchestration::port::AskPort>>,
+) -> crate::sdk::r#loop::AskContext {
+    crate::sdk::r#loop::AskContext {
+        registry,
+        core_session_id: CORE_SESSION.into(),
+        port,
+    }
+}
+
+/// 注册表键（core 铸会话 id——与 `LoopTurn.session_id` 的 `sdk-test-0` 不同义）。
+const CORE_SESSION: &str = "core-session-1";
+
+/// 携 ask 注入面与执行上下文的轮参数（两档执行体用例底座）。
+fn loop_turn_with_ask(
+    cwd: &Path,
+    mode: AgentPermissionMode,
+    ask_mode: agent::AskMode,
+    ctx: Option<crate::sdk::r#loop::AskContext>,
+) -> LoopTurn {
+    LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: Some(ask_mode),
+        },
+        ask: ctx,
+        ..loop_turn(cwd, mode)
+    }
+}
+
+/// 应答实施：起一轮后由测试侧线程等待注册表登记，再 `answer` 投递（阻塞
+/// 期间零新请求的判据面）。返回投递结果。
+async fn answer_when_registered(
+    registry: Arc<agent::AskRegistry>,
+    text: &'static str,
+) -> Result<(), String> {
+    for _ in 0..2000 {
+        match registry.answer(CORE_SESSION, text.to_owned()) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if error != "当前无等待中的 ask" {
+                    return Err(error);
+                }
+                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }
+    }
+    Err("等待 ask 登记超时".to_owned())
+}
+
+/// `ToolExec::Ask(Generic)` 阻塞 → 回灌 → 同 turn 续跑（正向，AC-1）：脚本化
+/// 「tool_call → 第二请求 → 文本收口」；应答后 tool_result 逐字回灌、同 turn
+/// 续跑、模型请求数恰 2。
+#[tokio::test]
+async fn ask泛用档阻塞后回灌并同turn续跑() {
+    let dir = tempdir("ask-generic");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_ask",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "选哪个重试策略？", "options": ["指数退避", "固定间隔"] }),
+            ),
+            raw_final(usage(1, 2)),
+        ],
+        vec![raw_text("已按你的选择继续"), raw_final(usage(3, 4))],
+    ]);
+
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Generic,
+        Some(ask_context(Arc::clone(&registry), None)),
+    );
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer =
+        tokio::spawn(async move { answer_when_registered(registry_for_answer, "指数退避").await });
+
+    let (events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    assert_eq!(
+        model.state.requests.lock().expect("请求锁").len(),
+        2,
+        "模型请求数恰 2（阻塞期间零新请求）"
+    );
+    assert_eq!(
+        history_tool_result_text(&history, "tu_ask").as_deref(),
+        Some("指数退避"),
+        "应答文本逐字回灌为 tool result"
+    );
+    // 同 turn 续跑：单条 TurnDone 收口、run 未中断
+    let done = turn_done_of(&events);
+    assert!(matches!(
+        done,
+        AgentEventKind::TurnDone {
+            is_error: false,
+            ..
+        }
+    ));
+    // Generic 档不吃 port：无广播面（本档 port 恒 None，此处以注册表 take 为证）
+    assert!(
+        registry.answer(CORE_SESSION, "第二次".to_owned()).is_err(),
+        "注册表已被 take（单次回灌）"
+    );
+}
+
+/// 同名工具双档 schema 同源（正向，AC-2 的模型视角）：`Generic` 与 `Flow` 两档
+/// 下发的 `RunStarted.tools` 名单逐名相等。
+#[tokio::test]
+async fn ask两档下发的工具名单逐名相等() {
+    let mut tools_of = Vec::new();
+    for ask_mode in [agent::AskMode::Generic, agent::AskMode::Flow] {
+        let dir = tempdir("ask-tools-parity");
+        let registry = Arc::new(agent::AskRegistry::default());
+        let port: Arc<dyn orchestration::port::AskPort> = Arc::new(RecordingAskPort::new());
+        let model = FakeModel::with_turns(vec![vec![raw_text("收口"), raw_final(usage(1, 1))]]);
+        let turn = loop_turn_with_ask(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            ask_mode,
+            Some(ask_context(Arc::clone(&registry), Some(port))),
+        );
+        let events = drive_loop_turn_collecting_history(&model, turn).await.0;
+        let AgentEventKind::RunStarted { tools, .. } = events
+            .iter()
+            .find(|event| matches!(event, AgentEventKind::RunStarted { .. }))
+            .expect("RunStarted 在场")
+        else {
+            panic!("应为 RunStarted");
+        };
+        tools_of.push(tools.clone());
+    }
+    assert_eq!(tools_of[0], tools_of[1], "两档工具名单逐名相等");
+    assert!(
+        tools_of[0].contains(&"AskUserQuestion".to_owned()),
+        "名单含 ask 工具（按位追加）"
+    );
+}
+
+/// `ToolExec::Ask(Flow)` 序列与次数（正向，AC-2）：假 port 记录调用序恰
+/// `["started","resolved"]`；`started` 载荷四字段逐字（`session_id` ==
+/// `AskContext.core_session_id`，**不是** `LoopTurn.session_id`）。
+#[tokio::test]
+async fn ask流程档广播序列与载荷逐字() {
+    let dir = tempdir("ask-flow");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port = Arc::new(RecordingAskPort::new());
+    let port_handle: Arc<dyn orchestration::port::AskPort> = port.clone();
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_flow",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "采用哪个方案？", "options": ["A", "B"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("继续"), raw_final(usage(2, 2))],
+    ]);
+
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Flow,
+        Some(ask_context(Arc::clone(&registry), Some(port_handle))),
+    );
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer =
+        tokio::spawn(async move { answer_when_registered(registry_for_answer, "A").await });
+
+    let (_events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    assert_eq!(port.labels(), vec!["started", "resolved"], "调用序恰两条");
+    let recorded = port.recorded();
+    let RecordedAskCall::Started(payload) = &recorded[0] else {
+        panic!("首条应为 started");
+    };
+    assert_eq!(
+        payload.tool_call_id.as_deref(),
+        Some("tu_flow"),
+        "tool_call_id 为本次 tool_use id"
+    );
+    assert_eq!(
+        payload.session_id.as_deref(),
+        Some(CORE_SESSION),
+        "session_id 取 core 会话 id（不是引擎侧 sdk-… 标识）"
+    );
+    assert_ne!(
+        payload.session_id.as_deref(),
+        Some("sdk-test-0"),
+        "两 id 不同义（误用即应答永远 miss）"
+    );
+    assert_eq!(payload.question, "采用哪个方案？", "题干逐字");
+    assert_eq!(
+        payload.options,
+        vec!["A".to_owned(), "B".to_owned()],
+        "选项逐项"
+    );
+}
+
+/// 应答后回灌与续跑（正向）：`Flow` 档应答 → tool result 逐字回灌、同 turn
+/// 续跑；`ask_resolved` 在回灌之前已调用（清理先于协议回灌的序）。
+#[tokio::test]
+async fn ask流程档应答回灌且resolved先于回灌() {
+    let dir = tempdir("ask-flow-order");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port = Arc::new(RecordingAskPort::new());
+    let port_handle: Arc<dyn orchestration::port::AskPort> = port.clone();
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_order",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["固定间隔"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("已继续"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Flow,
+        Some(ask_context(Arc::clone(&registry), Some(port_handle))),
+    );
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer =
+        tokio::spawn(async move { answer_when_registered(registry_for_answer, "固定间隔").await });
+
+    let (events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    assert_eq!(
+        history_tool_result_text(&history, "tu_order").as_deref(),
+        Some("固定间隔"),
+        "应答逐字回灌"
+    );
+    // 回灌发生在 tool result 密封事件之后；resolved 在 started 之后（清理先于回灌
+    // 的序以「两记录都在、tool result 亦在」表达）
+    assert_eq!(port.labels(), vec!["started", "resolved"]);
+    let tool_results = events
+        .iter()
+        .filter(|event| {
+            matches!(event, AgentEventKind::Message { role, blocks, .. }
+                if role == &AgentMessageRole::Tool && !blocks.is_empty())
+        })
+        .count();
+    assert_eq!(tool_results, 1, "恰一条 tool result 回灌");
+}
+
+/// 停止臂也清理（正向，AC-5 / DD2 的必要性）：`handle.request_stop()` 置位 →
+/// 执行体返回 `is_error` 且 `ask_resolved` **仍执行恰一次**。
+#[tokio::test]
+async fn ask流程档停止臂仍执行resolved恰一次() {
+    let dir = tempdir("ask-flow-stop");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port = Arc::new(RecordingAskPort::new());
+    let port_handle: Arc<dyn orchestration::port::AskPort> = port.clone();
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_stop",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["a"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("续跑"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Flow,
+        Some(ask_context(Arc::clone(&registry), Some(port_handle))),
+    );
+    let handle = RunHandle::default();
+    let handle_for_stop = handle.clone();
+    let probe = Arc::clone(&port);
+    let stopper = tokio::spawn(async move {
+        // 阻塞确实进入（ask_started 已记录）后再置停止位——否则停止会命中更早相位
+        for _ in 0..2000 {
+            if probe.labels().contains(&"started") {
+                handle_for_stop.request_stop();
+                return;
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    });
+
+    let (events, history) = drive_loop_turn_with_handle(&model, turn, handle).await;
+    stopper.await.expect("停止任务正常结束");
+
+    let text = history_tool_result_text(&history, "tu_stop").unwrap_or_default();
+    assert!(
+        text.contains("用户未应答") || text.contains("会话被终止"),
+        "停止臂回灌 is_error 文案，实际: {text}"
+    );
+    assert_eq!(
+        port.labels(),
+        vec!["started", "resolved"],
+        "resolved 仍执行恰一次"
+    );
+    assert!(!events.is_empty(), "事件流非空（run 不悬挂）");
+}
+
+/// `port` 缺席（异常，DD2 防御臂）：`ask: Some(Flow)` 但 `port == None` → 该
+/// 调用 is_error 回灌、注册表零登记（其后 `answer` → `Err`）、run 不中断。
+#[tokio::test]
+async fn ask流程档port缺席时is_error回灌且零登记() {
+    let dir = tempdir("ask-flow-no-port");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_no_port",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["a"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("继续"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Flow,
+        Some(ask_context(Arc::clone(&registry), None)),
+    );
+
+    let (events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+
+    let text = history_tool_result_text(&history, "tu_no_port").unwrap_or_default();
+    assert!(
+        text.contains("ask 编排状态面未装配"),
+        "DD2 防御文案，实际: {text}"
+    );
+    assert!(
+        registry.answer(CORE_SESSION, "x".to_owned()).is_err(),
+        "注册表零登记（校验与装配先于登记）"
+    );
+    assert_eq!(
+        model.state.requests.lock().expect("请求锁").len(),
+        2,
+        "run 不中断（同 turn 续跑）"
+    );
+    assert!(matches!(
+        turn_done_of(&events),
+        AgentEventKind::TurnDone {
+            is_error: false,
+            ..
+        }
+    ));
+}
+
+/// 上下文缺席（异常，字段面判据）：`injections.ask = Some(Generic)` 但
+/// `LoopTurn.ask == None`（装配漂移）→ is_error 回灌「ask 执行上下文未装配」类
+/// 文案、run 不中断、零 panic；注册表零登记。
+#[tokio::test]
+async fn ask上下文缺席时is_error回灌且零panic() {
+    let dir = tempdir("ask-no-context");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_no_ctx",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["a"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("继续"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Generic,
+        None,
+    );
+
+    let (_events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+
+    let text = history_tool_result_text(&history, "tu_no_ctx").unwrap_or_default();
+    assert!(
+        text.contains("ask 执行上下文未装配"),
+        "装配漂移文案，实际: {text}"
+    );
+    assert!(
+        registry.answer(CORE_SESSION, "x".to_owned()).is_err(),
+        "注册表零登记"
+    );
+}
+
+/// `validate` Err 当场回灌（异常）：`{"question":"","options":[]}` → is_error tool
+/// result 携 ask 模块的 Err 文案（字段名 + 期望）；注册表零登记（校验先于登记）。
+#[tokio::test]
+async fn ask参数非法当场回灌且零登记() {
+    let dir = tempdir("ask-invalid-args");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_bad_args",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "", "options": [] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("已按错误提示重试"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Generic,
+        Some(ask_context(Arc::clone(&registry), None)),
+    );
+
+    let (_events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+
+    let text = history_tool_result_text(&history, "tu_bad_args").unwrap_or_default();
+    assert!(text.contains("question"), "Err 文案含字段名: {text}");
+    assert!(text.contains("非空字符串"), "Err 文案含期望: {text}");
+    assert!(
+        registry.answer(CORE_SESSION, "x".to_owned()).is_err(),
+        "校验先于登记（注册表零登记）"
+    );
+    assert_eq!(
+        model.state.requests.lock().expect("请求锁").len(),
+        2,
+        "同 turn 内可重试（run 不中断）"
+    );
+}
+
+/// 单次回灌（异常，AC-7）：应答一次后再 `answer` → `Err`（注册表已 take）；转录
+/// 内该 `tool_use` 恰一条 `tool_result`（零第二条）。
+#[tokio::test]
+async fn ask单次回灌后二次应答err且转录恰一条tool_result() {
+    let dir = tempdir("ask-single");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_single",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["a"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("继续"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Generic,
+        Some(ask_context(Arc::clone(&registry), None)),
+    );
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer =
+        tokio::spawn(async move { answer_when_registered(registry_for_answer, "a").await });
+
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
+    answerer.await.expect("应答任务结束").expect("首次受理");
+
+    assert_eq!(
+        registry
+            .answer(CORE_SESSION, "第二次".to_owned())
+            .expect_err("已 take"),
+        "当前无等待中的 ask"
+    );
+    let tool_results = events
+        .iter()
+        .filter(|event| {
+            matches!(event, AgentEventKind::Message { blocks, .. }
+                if blocks.iter().any(|block| matches!(block, agent::AgentBlock::ToolResult { id, .. } if id == "tu_single")))
+        })
+        .count();
+    assert_eq!(tool_results, 1, "该 tool_use 恰一条 tool_result");
+}
+
+/// `ask_started` 先于阻塞（异常）：`ask_started` 回调触发时执行体尚未登记（回调
+/// 内 `answer` 必 miss，这正是「广播先于登记」的时序证据）；主线程随后登记后应答
+/// → 执行体不悬挂、序列仍 `["started","resolved"]`。
+#[tokio::test]
+async fn ask流程档started先于阻塞可回调内应答() {
+    let dir = tempdir("ask-started-first");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port = Arc::new(RecordingAskPort::new());
+    // 回调内应答的观测面：回调触发时登记尚未发生，故记录 miss 结果（时序判据）
+    let callback_misses = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let registry_for_callback = Arc::clone(&registry);
+    let misses_for_callback = Arc::clone(&callback_misses);
+    *port.on_started.lock().expect("回调锁不可中毒") = Some(Box::new(
+        move |payload: &orchestration::state::AskPayload| {
+            let session_id = payload
+                .session_id
+                .clone()
+                .expect("started 载荷携 core 会话 id");
+            let missed = registry_for_callback
+                .answer(&session_id, "回调内应答".to_owned())
+                .is_err();
+            misses_for_callback
+                .lock()
+                .expect("观测锁不可中毒")
+                .push(missed);
+        },
+    ));
+    let port_handle: Arc<dyn orchestration::port::AskPort> = port.clone();
+
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_callback",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["a"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("继续"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Flow,
+        Some(ask_context(Arc::clone(&registry), Some(port_handle))),
+    );
+    // 主线程应答方：登记完成后投递（执行体不悬挂的保证）
+    let answerer =
+        tokio::spawn(async move { answer_when_registered(registry, "登记后应答").await });
+
+    let (_events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    assert_eq!(
+        callback_misses.lock().expect("观测锁不可中毒").as_slice(),
+        &[true],
+        "started 回调触发时尚未登记（广播先于阻塞 / 登记的时序证据）"
+    );
+    assert_eq!(port.labels(), vec!["started", "resolved"], "序列仍恰两条");
+    assert_eq!(
+        history_tool_result_text(&history, "tu_callback").as_deref(),
+        Some("登记后应答"),
+        "登记后应答逐字回灌（执行体不悬挂）"
+    );
+}
+
+/// 应答正文边界（边界，参数化 5 形态）：逐字进 tool result（is_error false，
+/// 零 trim 零截断）。
+#[tokio::test]
+async fn ask应答正文边界逐字进tool_result() {
+    let texts: [String; 5] = [
+        String::new(),
+        "   ".to_owned(),
+        "a\nb".to_owned(),
+        "a\0b🚀".to_owned(),
+        "字".repeat(1200),
+    ];
+    for text in texts {
+        let dir = tempdir("ask-text-boundary");
+        let registry = Arc::new(agent::AskRegistry::default());
+        let model = FakeModel::with_turns(vec![
+            vec![
+                raw_tool_call(
+                    "tu_text",
+                    "AskUserQuestion",
+                    serde_json::json!({ "question": "q", "options": ["a"] }),
+                ),
+                raw_final(usage(1, 1)),
+            ],
+            vec![raw_text("继续"), raw_final(usage(2, 2))],
+        ]);
+        let turn = loop_turn_with_ask(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            agent::AskMode::Generic,
+            Some(ask_context(Arc::clone(&registry), None)),
+        );
+        // 应答文本需 'static：以泄漏换取跨任务可用（测试生命周期内不回收）
+        let leaked: &'static str = Box::leak(text.clone().into_boxed_str());
+        let registry_for_answer = Arc::clone(&registry);
+        let answerer =
+            tokio::spawn(async move { answer_when_registered(registry_for_answer, leaked).await });
+
+        let (_events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+        answerer.await.expect("应答任务结束").expect("应答受理");
+
+        assert_eq!(
+            history_tool_result_text(&history, "tu_text"),
+            Some(text.clone()),
+            "应答正文 {text:?} 逐字保真"
+        );
+    }
+}
+
+/// `options` 边界（边界，参数化 2 形态）：单元素 / 1000 元素均进 `ask_started`
+/// 载荷并逐项保真（`Generic` 档无 port，只断言回灌不受影响）。
+#[tokio::test]
+async fn ask选项边界逐项保真() {
+    for options in [
+        vec!["唯一".to_owned()],
+        (0..1000)
+            .map(|index| format!("选项{index}"))
+            .collect::<Vec<_>>(),
+    ] {
+        let dir = tempdir("ask-options-boundary");
+        let registry = Arc::new(agent::AskRegistry::default());
+        let port = Arc::new(RecordingAskPort::new());
+        let port_handle: Arc<dyn orchestration::port::AskPort> = port.clone();
+        let model = FakeModel::with_turns(vec![
+            vec![
+                raw_tool_call(
+                    "tu_options",
+                    "AskUserQuestion",
+                    serde_json::json!({ "question": "q", "options": options }),
+                ),
+                raw_final(usage(1, 1)),
+            ],
+            vec![raw_text("继续"), raw_final(usage(2, 2))],
+        ]);
+        let turn = loop_turn_with_ask(
+            dir.path(),
+            AgentPermissionMode::BypassPermissions,
+            agent::AskMode::Flow,
+            Some(ask_context(Arc::clone(&registry), Some(port_handle))),
+        );
+        let registry_for_answer = Arc::clone(&registry);
+        let answerer =
+            tokio::spawn(async move { answer_when_registered(registry_for_answer, "ok").await });
+
+        let (_events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+        answerer.await.expect("应答任务结束").expect("应答受理");
+
+        let recorded = port.recorded();
+        let RecordedAskCall::Started(payload) = &recorded[0] else {
+            panic!("首条应为 started");
+        };
+        assert_eq!(payload.options, options, "选项逐项保真（不截断）");
+        assert_eq!(
+            history_tool_result_text(&history, "tu_options").as_deref(),
+            Some("ok"),
+            "回灌不受选项规模影响"
+        );
+    }
+}
+
+/// 同批多工具共存（边界）：`read` + `AskUserQuestion` 同批两调用 → 结果收进
+/// 恰一条 user 消息（`history` 末条逐条覆盖）；`Ask` 臂不打断同批其它执行体。
+#[tokio::test]
+async fn ask与其它工具同批共存且结果收进一条user消息() {
+    let dir = tempdir("ask-batch");
+    write_file(&dir.path().join("b.txt"), "内容乙");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call("tu_read", "read", serde_json::json!({ "path": "b.txt" })),
+            raw_tool_call(
+                "tu_ask_batch",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["a"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("继续"), raw_final(usage(2, 2))],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Generic,
+        Some(ask_context(Arc::clone(&registry), None)),
+    );
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer =
+        tokio::spawn(async move { answer_when_registered(registry_for_answer, "a").await });
+
+    let (_events, history) = drive_loop_turn_collecting_history(&model, turn).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    assert!(
+        history_tool_result_text(&history, "tu_read").is_some(),
+        "同批 read 执行体未被 ask 臂打断"
+    );
+    assert_eq!(
+        history_tool_result_text(&history, "tu_ask_batch").as_deref(),
+        Some("a"),
+        "ask 结果同批回灌"
+    );
+    // 两个 tool_result 收进同一条 user 消息（配对协议零破坏）
+    let batches: Vec<usize> = history
+        .iter()
+        .filter_map(|message| match message {
+            Message::User { content } => {
+                let count = content
+                    .iter()
+                    .filter(|item| matches!(item, UserContent::ToolResult(_)))
+                    .count();
+                (count > 0).then_some(count)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(batches, vec![2], "同批两结果收进恰一条 user 消息");
+}
+
+/// `ask: None` 的硬禁用（边界，既有机制零改动回归，AC-3）：`ask: None` 会话中
+/// 模型硬调 `AskUserQuestion` → `tool_unavailable`、注册表零登记、run 不中断。
+#[tokio::test]
+async fn ask位缺席时硬调即tool_unavailable且零登记() {
+    let dir = tempdir("ask-disabled");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call(
+                "tu_disabled",
+                "AskUserQuestion",
+                serde_json::json!({ "question": "q", "options": ["a"] }),
+            ),
+            raw_final(usage(1, 1)),
+        ],
+        vec![raw_text("已按拒绝继续"), raw_final(usage(2, 2))],
+    ]);
+    let turn = LoopTurn {
+        injections: agent::SessionInjections {
+            preamble: None,
+            tools: None,
+            finish: None,
+            ask: None,
+        },
+        ask: Some(ask_context(Arc::clone(&registry), None)),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let (events, _history) = drive_loop_turn_collecting_history(&model, turn).await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1, "恰一次拒绝记因");
+    assert_eq!(notices[0].0, "tool_unavailable");
+    assert!(
+        registry.answer(CORE_SESSION, "x".to_owned()).is_err(),
+        "注册表零登记（成员校验先于执行体）"
+    );
+    assert_eq!(
+        model.state.requests.lock().expect("请求锁").len(),
+        2,
+        "run 不中断"
     );
 }

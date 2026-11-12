@@ -84,13 +84,26 @@ fn run_update五变体线格式tag_ipc判别且驼峰键() {
 
     // ask 变体
     let ask = serde_json::to_value(&RunUpdate::Ask {
-        question: "回溯到哪?".to_owned(),
-        options: vec!["proposal".to_owned(), "retry".to_owned()],
+        ask: AskPayload {
+            question: "回溯到哪?".to_owned(),
+            options: vec!["proposal".to_owned(), "retry".to_owned()],
+            tool_call_id: None,
+            session_id: None,
+        },
     })
     .expect("ask 出线应成功");
     assert_eq!(ask["ipc"], json!("ask"));
-    assert_eq!(ask["question"], json!("回溯到哪?"));
-    assert_eq!(ask["options"], json!(["proposal", "retry"]));
+    assert_eq!(
+        ask["ask"]["question"],
+        json!("回溯到哪?"),
+        "载荷单源：question 在 ask 键下（变体无第二份 question）"
+    );
+    assert_eq!(ask["ask"]["options"], json!(["proposal", "retry"]));
+    assert_eq!(
+        ask["ask"]["toolCallId"],
+        json!(null),
+        "additive 两新键出线为 null 不省键"
+    );
 
     // confirmWait 变体（普通相位停等：archive 载荷缺省 None）
     let wait = serde_json::to_value(&RunUpdate::ConfirmWait {
@@ -555,6 +568,8 @@ fn 快照与摘要全字段serde往返() {
         ask: Some(AskPayload {
             question: "是否回溯?".to_owned(),
             options: vec!["dev-design".to_owned(), "retry".to_owned()],
+            tool_call_id: None,
+            session_id: None,
         }),
         archive: None,
         started_at: 1_726_000_000_000,
@@ -831,8 +846,12 @@ fn run_notice自run_update投影五变体一一同型() {
     ));
     assert!(matches!(
         projection(&RunUpdate::Ask {
-            question: "q".to_owned(),
-            options: Vec::new()
+            ask: AskPayload {
+                question: "q".to_owned(),
+                options: Vec::new(),
+                tool_call_id: None,
+                session_id: None,
+            },
         }),
         crate::state::RunNotice::Ask
     ));
@@ -861,8 +880,12 @@ fn run_notice自run_update投影五变体一一同型() {
             event: sealed_event(1),
         },
         RunUpdate::Ask {
-            question: "q".to_owned(),
-            options: Vec::new(),
+            ask: AskPayload {
+                question: "q".to_owned(),
+                options: Vec::new(),
+                tool_call_id: None,
+                session_id: None,
+            },
         },
         RunUpdate::ConfirmWait {
             phase: "p".to_owned(),
@@ -1977,4 +2000,245 @@ fn 词汇冻结_枚举doc分族表述在场且零相反表述() {
         !doc.contains("新写面产出 Gate 节点"),
         "枚举级 doc 零相反表述（新写面不产 Gate 节点）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ask-tool-in-flow：`AskPayload` 两新字段（additive）与 `RunUpdate::Ask` 单载荷
+// ---------------------------------------------------------------------------
+
+/// 四字段往返（正向，AC-9）：serialize → deserialize 逐字段相等；camelCase
+/// 线键恰 `question` / `options` / `toolCallId` / `sessionId`。
+#[test]
+fn ask_payload四字段往返且线键为驼峰两新键() {
+    let payload = AskPayload {
+        question: "选哪个重试策略？".to_owned(),
+        options: vec!["指数退避".to_owned(), "固定间隔".to_owned()],
+        tool_call_id: Some("call_1".to_owned()),
+        session_id: Some("core-1".to_owned()),
+    };
+    let value = serde_json::to_value(&payload).expect("序列化");
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("对象形态")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["options", "question", "sessionId", "toolCallId"],
+        "camelCase 线键恰四键"
+    );
+    assert_eq!(value["toolCallId"], json!("call_1"));
+    assert_eq!(value["sessionId"], json!("core-1"));
+
+    let back: AskPayload = serde_json::from_value(value).expect("反序列化");
+    assert_eq!(back, payload, "四字段逐字段相等");
+}
+
+/// 旧线 additive 承接（边界，2 形态）：无两新键 / 显式 null → 均读 `None`，
+/// 不报错（旧线载荷可读，出线为 `null` 而非省略键）。
+#[test]
+fn ask_payload旧线无两新键与显式null均读none() {
+    let legacy: AskPayload = serde_json::from_value(json!({
+        "question": "q",
+        "options": ["a"],
+    }))
+    .expect("旧线无两新键应可反序列化");
+    assert_eq!(legacy.tool_call_id, None, "缺 toolCallId 读 None");
+    assert_eq!(legacy.session_id, None, "缺 sessionId 读 None");
+
+    let explicit_null: AskPayload = serde_json::from_value(json!({
+        "question": "q",
+        "options": ["a"],
+        "toolCallId": null,
+        "sessionId": null,
+    }))
+    .expect("显式 null 可反序列化");
+    assert_eq!(explicit_null.tool_call_id, None);
+    assert_eq!(explicit_null.session_id, None);
+
+    // 出线为 null 而非省略键（与既有 Option 形态一致）
+    let text = serde_json::to_string(&legacy).expect("序列化");
+    assert!(
+        text.contains("\"toolCallId\":null") && text.contains("\"sessionId\":null"),
+        "None 出线为 null 不省键: {text}"
+    );
+}
+
+/// 非法线值拒绝（异常，3 形态）：`question` 非字符串 / `toolCallId` 非字符串 /
+/// `sessionId` 为数组 → 反序列化 `Err`。
+#[test]
+fn ask_payload非法线值三形态均err() {
+    for (label, invalid) in [
+        (
+            "question 非字符串",
+            json!({ "question": 1, "options": ["a"] }),
+        ),
+        (
+            "toolCallId 非字符串",
+            json!({ "question": "q", "options": ["a"], "toolCallId": 1 }),
+        ),
+        (
+            "sessionId 为数组",
+            json!({ "question": "q", "options": ["a"], "sessionId": ["x"] }),
+        ),
+    ] {
+        let result: Result<AskPayload, _> = serde_json::from_value(invalid.clone());
+        assert!(
+            result.is_err(),
+            "{label}（{invalid}）应 serde Err，实际: {result:?}"
+        );
+    }
+}
+
+/// 必填缺失（异常，2 形态）：`options` 键完全缺席 / `question` 缺席 → `Err`
+///（additive 只覆盖两新字段，绝不覆盖既有必填）。
+#[test]
+fn ask_payload既有必填缺失两形态均err() {
+    for (label, invalid) in [
+        ("options 缺失", json!({ "question": "q" })),
+        ("question 缺失", json!({ "options": ["a"] })),
+    ] {
+        let result: Result<AskPayload, _> = serde_json::from_value(invalid.clone());
+        assert!(
+            result.is_err(),
+            "{label}（{invalid}）应 serde Err（既有必填不因 additive 放宽）"
+        );
+    }
+}
+
+/// 字段值边界（边界，组合）：`question` / `options` / 两 Option 各取边界值 →
+/// 逐字保真、零裁剪（本层纯数据载体，`minItems: 1` 的裁决在工具校验）。
+#[test]
+fn ask_payload字段值边界逐字保真() {
+    let long = "字".repeat(1200);
+    let questions = ["", "a\n\0🚀", long.as_str()];
+    let option_shapes: [Vec<String>; 3] = [
+        Vec::new(),
+        vec!["单元素".to_owned()],
+        (0..1000).map(|index| format!("选项{index}")).collect(),
+    ];
+    let optional_shapes: [Option<String>; 2] = [Some(String::new()), Some(long.clone())];
+
+    for question in questions {
+        for options in &option_shapes {
+            for tool_call_id in &optional_shapes {
+                for session_id in &optional_shapes {
+                    let payload = AskPayload {
+                        question: (*question).to_owned(),
+                        options: options.clone(),
+                        tool_call_id: tool_call_id.clone(),
+                        session_id: session_id.clone(),
+                    };
+                    let back: AskPayload =
+                        serde_json::from_value(serde_json::to_value(&payload).expect("序列化"))
+                            .expect("反序列化");
+                    assert_eq!(back, payload, "边界组合逐字保真");
+                }
+            }
+        }
+    }
+}
+
+/// 单源形态（正向，AC-9）：`RunUpdate::Ask { ask }` 可构造、`kind() == "ask"`；
+/// `RunNotice::from(&update) == RunNotice::Ask`（投影逐字不变）；变体字段只有
+/// `ask` 一个（写第二份 `question` 即 `E0560`，构造面签名强制）。
+#[test]
+fn run_update_ask单载荷形态与通知投影不变() {
+    let update = RunUpdate::Ask {
+        ask: AskPayload {
+            question: "q".to_owned(),
+            options: vec!["a".to_owned()],
+            tool_call_id: Some("call_1".to_owned()),
+            session_id: Some("core-1".to_owned()),
+        },
+    };
+    assert_eq!(update.kind(), "ask", "kind 判别词逐字");
+    assert_eq!(
+        crate::state::RunNotice::from(&update),
+        crate::state::RunNotice::Ask,
+        "通知投影仍为 Ask（载荷剥离单点）"
+    );
+
+    // 载荷经变体可读四字段（不是第二份 question / options）
+    match &update {
+        RunUpdate::Ask { ask } => {
+            assert_eq!(ask.question, "q");
+            assert_eq!(ask.options, vec!["a".to_owned()]);
+            assert_eq!(ask.tool_call_id.as_deref(), Some("call_1"));
+            assert_eq!(ask.session_id.as_deref(), Some("core-1"));
+        }
+        other => panic!("应为 Ask，实际 kind={}", other.kind()),
+    }
+}
+
+/// 六变体与通知投影零变（正向，参数化 6 变体，回归）：`RunUpdate` 六变体的
+/// `kind()` 逐字 `["step","edge","sessionEvent","ask","confirmWait","finished"]`；
+/// `RunNotice` 六变体一一对应且判别词同序同值。
+#[test]
+fn run_update六变体kind与通知投影同序同值() {
+    let updates = [
+        RunUpdate::Step {
+            step: sample_step(),
+        },
+        RunUpdate::Edge {
+            edge: crate::state::ChangeStepEdge {
+                from: crate::state::NodeKey::from((
+                    "p".to_owned(),
+                    0,
+                    crate::state::ChangeStepKind::Executor,
+                    0,
+                )),
+                to: crate::state::NodeKey::from((
+                    "q".to_owned(),
+                    0,
+                    crate::state::ChangeStepKind::Executor,
+                    1,
+                )),
+                kind: crate::state::EdgeKind::Forward,
+            },
+        },
+        RunUpdate::SessionEvent {
+            session_id: "s".to_owned(),
+            event: sealed_event(0),
+        },
+        RunUpdate::Ask {
+            ask: AskPayload {
+                question: "q".to_owned(),
+                options: Vec::new(),
+                tool_call_id: None,
+                session_id: None,
+            },
+        },
+        RunUpdate::ConfirmWait {
+            phase: "archive".to_owned(),
+            archive: None,
+        },
+        RunUpdate::Finished {
+            status: ChangeRunStatus::Completed,
+            reason: None,
+        },
+    ];
+    let kinds: Vec<&str> = updates.iter().map(RunUpdate::kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "step",
+            "edge",
+            "sessionEvent",
+            "ask",
+            "confirmWait",
+            "finished"
+        ],
+        "六变体 kind 逐字且同序"
+    );
+    for (update, kind) in updates.iter().zip(kinds) {
+        let notice = crate::state::RunNotice::from(update);
+        assert_eq!(
+            serde_json::to_value(notice).expect("出线应成功")["ipc"],
+            json!(kind),
+            "通知判别词与 RunUpdate::kind() 逐字同源: {kind}"
+        );
+    }
 }
