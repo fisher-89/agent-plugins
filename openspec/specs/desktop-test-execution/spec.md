@@ -42,7 +42,7 @@ Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族：`coverage
 
 ### Requirement: 执行链与报告落盘
 
-执行链 SHALL 依序：detect（config tests[] + glob → plan entries）→ 完整性校验（字段 / 计数 / conclusion 一致性 checklist）→ 复用门 → 逐 suite 命令模板展开（`{results_file}` / `{report_dir}` / `{config_args}` / `{files}`）→ **展开长度预算裁决**（超平台预算 → 安全降级或环境归因，见「命令展开长度预算与安全降级」）→ spawn（超时 + 输出捕获）→ 报告写盘 → 聚合（阈值 / override → conclusion）→ 诊断 findings。报告 SHALL 恒落 change 报告目录（`summary.json` + 逐 suite 子报告；路径经 foundation layout 推导，desktop 产品源码零磁盘路径字面量）；报告 MUST NOT 登记 file inventory / artifacts registry（MVP 口径）。突变面 SHALL 由独立 MutationTest 门禁步承载（见「MutationTest 确定性门禁步与时序」与 desktop-mutation-testing）：TestExecution 执行链不产突变结果；summary 的 `mutation` 位由 MutationTest 归并块回填（在位时），未跑 / diff 空跳过时保持 null（null 合法，见「机械 checklist 双槽与 evidence 三态」）。
+执行链 SHALL 依序：detect（config tests[] + glob → plan entries）→ 完整性校验（字段 / 计数 / conclusion 一致性 checklist）→ 复用门 → 逐 suite 命令模板展开（`{results_file}` / `{report_dir}` / `{config_args}` / `{files}`）→ **展开长度预算裁决**（超平台预算 → 安全降级或环境归因，见「命令展开长度预算与安全降级」）→ spawn（超时 + 输出捕获）→ 报告写盘 → 聚合（**逐 suite 布尔归并 → conclusion**，见 desktop-checks-domain「汇总结论布尔归并与报告瘦身」）→ 诊断 findings。报告 SHALL 恒落 change 报告目录（`summary.json` + 逐 suite 子报告；路径经 foundation layout 推导，desktop 产品源码零磁盘路径字面量）；报告 MUST NOT 登记 file inventory / artifacts registry（MVP 口径）。突变面 SHALL 由独立 MutationTest 门禁步承载（见「MutationTest 确定性门禁步与时序」与 desktop-mutation-testing）：TestExecution 执行链不产突变结果；summary MUST NOT 携 `mutation` 位——突变结论的唯一载体是 `MutationTest` 步载荷（`conclusion` / `score` / `threshold` / `counts`）与机械 checklist 第三槽（见 desktop-mutation-testing「score 口径与逐 suite 阈值判定」与「机械 checklist 双槽与 evidence 三态」）。同样地 summary MUST NOT 携 `coverage` 位：覆盖率判定唯一在子报告层（逐 suite），跨 suite 只做布尔归并。
 
 #### Scenario: 全链绿跑落盘
 
@@ -57,7 +57,7 @@ Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族：`coverage
 #### Scenario: 突变面独立步承载
 
 - **WHEN** TestExecution 全链绿跑完成进入 MutationTest
-- **THEN** TestExecution 产出不含突变结果（mutation 位由 MutationTest 归并回填或保持 null），两步报告各落其位
+- **THEN** TestExecution 产出不含突变结果、summary 无 `mutation` 位；MutationTest 的 score / threshold / counts 只在步载荷与机械 checklist evidence 呈现，两步报告各落其位
 
 #### Scenario: 展开预算裁决先于 spawn
 
@@ -117,6 +117,8 @@ test-execution 相位两步（TestExecution / MutationTest）结论 fail / error
 
 报告 schema 与聚合判定 SHALL 以**已固化 Rust 实现 + corpus 金样**为权威：`core/checks` 的解析与聚合实现为唯一权威源，`core/checks/tests/golden`（及 `tests/fixtures` 的 summary.json / report.json 真实样本）为冻结金样；原对齐源（CLI zod schema）已随插件退役删除，MUST NOT 再作为对齐目标或断言依据。金样对拍 SHALL 拦住实现漂移——金样变更必须经显式重写流程（与 `core/workflow` corpus golden 同款纪律），MUST NOT 以 `--force` / 全量重生成方式静默吞掉差异。
 
+本变更（汇总层取消）是金样的**首次非零 diff 演进**，范围 SHALL 逐份可核：summary 面删 `coverage` / `mutation` 两键后，四份含 summary 面的 golden（`green-istanbul` / `green-llvm-cov` / `green-node-test` / `red-run`）的 `computedCoverage` 投影整块退役（`corpus_golden_test.rs` 的 `aggregate_coverage` 导入、投影段与三条 `computedCoverage.*` 断言一并退役），另四份（`mutation-block` / `unknown-fields` / `corrupt-invalid-json` / `corrupt-missing-required`）MUST 零 diff。重写 SHALL 逐份确认「预期差异 = 仅该键消失」，MUST NOT 顺手接受其他字段漂移。
+
 #### Scenario: corpus 对拍拦截漂移
 
 - **WHEN** 以真实 fixtures 驱动 `core/checks` 解析与聚合
@@ -127,11 +129,16 @@ test-execution 相位两步（TestExecution / MutationTest）结论 fail / error
 - **WHEN** 审查 corpus 测试的权威断言来源
 - **THEN** 权威只指向 `core/checks` 实现与 `tests/golden` 金样；无「与 CLI 实现一致 / 以 zod schema 为权威」类残留断言（参照物已删除）
 
+#### Scenario: 金样演进范围可核
+
+- **WHEN** 以 `DESKTOP_GOLDEN_REWRITE=1` 重写并 review `git diff` 于 `tests/golden/`
+- **THEN** 恰四份含 summary 面的 golden 发生差异，且差异仅为 `computedCoverage` 键消失；另四份零 diff；`corpus_golden_test.rs` 无 `aggregate_coverage` 残留引用
+
 ### Requirement: V1 范围与边界留痕
 
 以下边界 SHALL 作为 V1 显式限制留痕（后续切片偿还，不由实现隐式吸收）：
 
-1. **mutation 已移植（本变更偿还）**：突变由独立 MutationTest 步承载（js=Stryker / rust=cargo-mutants，见 desktop-mutation-testing）；`mutation: null` 保持合法（diff 空跳过 / 未跑，观察期），机械 checklist 第 3 条 null 语义不收紧——观察结果后再决定是否升格 error。
+1. **mutation 已移植（本变更偿还）**：突变由独立 MutationTest 步承载（js=Stryker / rust=cargo-mutants，见 desktop-mutation-testing）；summary 无 `mutation` 位（突变结论由该步载荷与机械 checklist 第三槽承载），「未跑 / diff 空跳过不判 fail」的观察期语义不收紧——观察结果后再决定是否升格 error。
 2. **agent 修复能力不进本期**：修阻塞错误（Step1b）与根因唯一性裁决（T4）不实现——红跑以 findings 摘要 + 报告呈现升格相位 fail，根因裁决交决策 agent（本变更进一步明确：相位内零修复会话）。
 3. **net-zero 去噪不适用**：突变范围 = change 编辑集（`git diff HEAD` + untracked，`change_edit_set` 单点）；清单反推与 net-zero 去噪（CLI 先例）不移植——diff 面天然无「与 HEAD 同内容」噪音。
 4. **无-change 场景不实现**：CLI `<root>/reports/test/` 分支桌面不实现（恒有 change）。
@@ -213,7 +220,7 @@ Walker SHALL 在 test-execution 相位以独立 MutationTest 门禁步（`ToolCo
 
 ### Requirement: 机械 checklist 双槽与 evidence 三态
 
-相位收口的机械 checklist 产物面 SHALL 挂 `test_outcome` + `mutation_outcome` 双槽（两步结论独立成槽）。机械 checklist 第 3 条「mutation null 自动通过」判定语义 SHALL 保留（null 观察期不收紧），但 evidence SHALL 区分三态：「跑过且达标（score / threshold）/ diff 空跳过（突变面为空）/ null（未跑）」。`mutation: null` SHALL 保持合法（diff 空跳过 / 未跑场景不判 fail）。机械 checklist 的构造与落账由相位收口动作承载（`settle_phase` 的三分流之一），MUST NOT 依赖任何计划步节点。
+相位收口的机械 checklist 产物面 SHALL 挂 `test_outcome` + `mutation_outcome` 双槽（两步结论独立成槽）。机械 checklist 第 3 条「突变缺失自动通过」判定语义 SHALL 保留（未跑 / 跳过观察期不收紧），但 evidence SHALL 区分三态：「跑过且达标（score / threshold）/ diff 空跳过（突变面为空）/ null（未跑）」。`mutation_outcome` 槽缺省 SHALL 保持合法（diff 空跳过 / 未跑场景不判 fail）——该槽取自 MutationTest 步载荷，与 summary 位无关（summary 已无 `mutation` 位）。机械 checklist 的构造与落账由相位收口动作承载（`settle_phase` 的三分流之一），MUST NOT 依赖任何计划步节点。
 
 #### Scenario: 三态 evidence 落账
 
@@ -223,7 +230,7 @@ Walker SHALL 在 test-execution 相位以独立 MutationTest 门禁步（`ToolCo
 #### Scenario: null 合法不判 fail
 
 - **WHEN** 突变面为空（change 编辑集不含可突变文件）或 MutationTest 未执行
-- **THEN** summary mutation 位为 null，机械 checklist 第 3 条 pass（观察期语义不变），相位照常推进
+- **THEN** `mutation_outcome` 槽为空，机械 checklist 第 3 条 pass（观察期语义不变），相位照常推进
 
 #### Scenario: 落账不依赖辅助步节点
 
@@ -232,7 +239,7 @@ Walker SHALL 在 test-execution 相位以独立 MutationTest 门禁步（`ToolCo
 
 ### Requirement: baseline 报告槽位与树隔离
 
-initialize 相位（desktop-change-orchestration「initialize 基线检查相位执行体」）的 test-execution 基线检查 SHALL 与 run 内 test-execution 相位的报告**分树隔离**：基线检查的 summary 与逐 suite 子报告 SHALL 落该 change 目录的 `reports/baseline` 子树（路径经 foundation layout 的 baseline 变体单点推导，见 desktop-checks-domain「baseline 报告槽位参数化」），run 内 test-execution 相位报告仍恒落 `reports/test`（零改动）——两树零混居，MUST NOT 以 exec_id / 时间戳在同目录内区分。基线检查 MUST NOT 执行 mutation（initialize 步序列无 MutationTest 步，summary 的 `mutation` 位不适用）。
+initialize 相位（desktop-change-orchestration「initialize 基线检查相位执行体」）的 test-execution 基线检查 SHALL 与 run 内 test-execution 相位的报告**分树隔离**：基线检查的 summary 与逐 suite 子报告 SHALL 落该 change 目录的 `reports/baseline` 子树（路径经 foundation layout 的 baseline 变体单点推导，见 desktop-checks-domain「baseline 报告槽位参数化」），run 内 test-execution 相位报告仍恒落 `reports/test`（零改动）——两树零混居，MUST NOT 以 exec_id / 时间戳在同目录内区分。基线检查 MUST NOT 执行 mutation（initialize 步序列无 MutationTest 步；summary 已无 `mutation` 位，该位在 run 内相位报告中同样不复存在——突变结论只走 MutationTest 步载荷）。
 
 复用门 SHALL 按报告树各自判定：`reports/baseline` 树自身的 summary 可在输入未变时复用（clean 后输入 mtime 推进自动失效、语义正确）；run 内 test-execution 相位步 MUST NOT 复用 baseline 树的 summary（决策：不做跨树复用红利），`reports/test` 树的复用门语义零改动。static-check 基线执行的输出记录（exec-outputs）SHALL 同锚落 baseline 树；`read_exec_output` 回查面 SHALL 覆盖 baseline 树（exec_id 跨树唯一，查找策略由 design 定稿——槽位参数或跨树查找，回查 MUST 可达）。基线检查结论 fail / error 时 SHALL NOT 走「失败即升格交决策（零 agent 修复）」的升格路径（initialize 语义：Terminal 停止 + Error / Fail 分文案，见 desktop-change-orchestration）——同一 TestExecution 步词在 initialize 表项为 `Terminal`、在 test-execution 表项为 `Escalate`，语义由表项声明承载。
 
@@ -283,7 +290,7 @@ Test-execution 的 rust 档 SHALL 以**单条命令**执行测试并采集覆盖
 #### Scenario: 阈值零调整达标与红跑覆盖缺失
 
 - **WHEN** 真件回归聚合 summary，及测试红跑时 llvm-cov 不产覆盖率工件两种情形
-- **THEN** 前者 lines / functions 均达阈值（实测 96.64 % / 90.22 %）、conclusion=pass；后者子报告 `coverage=null`、覆盖维度按 null 感知跳过，结论仍由 `failed>0` / `execution_error` 定型为 fail / error——两情形均不产生假绿
+- **THEN** 前者 lines / functions 均达阈值（实测 96.64 % / 90.22 %）、conclusion=pass；后者子报告 `coverage=null`，该 suite 覆盖判定按「采集缺席」判非通过（工件缺席即不可测，见 desktop-checks-domain「覆盖率采集完整性（缺测不假通过）」），结论仍由 `failed>0` / `execution_error` 定型为 fail / error——两情形均不产生假绿
 
 ### Requirement: 结果工件零用例即执行错误
 
@@ -454,3 +461,26 @@ test-execution 的命令展开 SHALL 受平台命令行长度预算约束（「�
 | `crates/core/orchestration/src/walker.rs`（`step_test_execution_escalate` / `step_mutation_test_escalate`） | 升格落账入口 | 改调 `settle_phase(PhaseSettle::Fail(PhaseFail { item, report, evidence, executor_session: None }))`（原 `step_test_execution_upgraded_phase_log` / `step_mutation_test_upgraded_phase_log` 退役）；report / evidence 装配文案逐字不变；随后 `StepFlow::Upgraded` |
 | `crates/core/orchestration/src/walker.rs`（`settle_phase`） | 机械 checklist 落账 | `test_outcome` + `mutation_outcome` 双槽分支（`test_execution_phase_log_input` 逐字搬入）；三条目 pass、evidence 三态语义零变 |
 | `crates/core/checks` / `crates/infra/checks`（**零改动**） | runner 面 | 三 runner 签名、报告槽位、`fault` 归因逐字不变 |
+
+### Function: `packages/desktop/src-tauri/crates/infra/checks/src/testexec/mod.rs`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `build_summary_report` 调用点 | 改 | 去 `suites` 入参（该入参的唯一消费者 `aggregate_coverage` 已退役）；`build_sub_report` 的覆盖块判定（`coverage_meets_thresholds` + `suite_thresholds` 四档）**零改动**——它仍是「判定点在子报告层」的表达 |
+| `coverage_brief` / `findings_detail` / `outcome` / `fault_outcome` | **零改动** | 逐 suite 覆盖对照、明细面与载荷装配仍从子报告 / summary 的计数与 problems 取数；载荷字段面零变化 |
+
+### Function: `packages/desktop/src-tauri/crates/core/checks`（纯层）
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `aggregate.rs`（汇总组装 / 结论判定） | 改 | 计数求和 + 布尔归并；`determine_conclusion` 只读布尔（含「任一 suite 覆盖判定非通过」）；覆盖未达阈 / 采集缺席的问题条目逐 suite 产出（`framework` = 该 suite 框架）；加权 / override / 突变归并整链退役（清单见 desktop-checks-domain「聚合链退役清单与解析保真面保留」） |
+| `diagnose.rs` | 改 | `check_integrity` ③ 以子报告布尔重算（①② 零改动）；`diagnose_findings` 4c 改读 `problems` 的 `CoverageFailure`、4d / 4f 退役、4a / 4b / 4e 逐字保留 |
+| `model.rs` / `lib.rs` | 改 | `SummaryReport` 删 `coverage` / `mutation` 两字段；再导出收窄 |
+
+### Test: corpus 金样
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `crates/core/checks/tests/corpus_golden_test.rs` | 改 | 删 `aggregate_coverage` 导入、`computedCoverage` 投影段与三条 `computedCoverage.*` 断言；其余投影（subReport / summary 的 conclusion / counts / integrity / diagnose）零改动 |
+| `crates/core/checks/tests/golden/{green-istanbul,green-llvm-cov,green-node-test,red-run}.json` | 改 | `DESKTOP_GOLDEN_REWRITE=1` 显式重写，差异 = 仅 `computedCoverage` 键消失 |
+| `crates/core/checks/tests/golden/{mutation-block,unknown-fields,corrupt-invalid-json,corrupt-missing-required}.json` | **零改动** | 无 summary 聚合面 |
