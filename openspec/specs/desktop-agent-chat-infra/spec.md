@@ -140,7 +140,7 @@
 
 基建 SHALL 提供纯函数适配层(置于 `packages/desktop/src/lib/agent-adapter.ts`),分三层:入口层、语义层(IR)、发射层:
 
-- `foldSessionMessages(events: AgentEvent[], turns: TurnSummary[]): UIMessage[]` — 重放与收口折叠(**按轮分组**;仅消费**密封事件**:会话转录中不存在 delta,delta 不进重放路径)。分组键 SHALL 为信封 `AgentEvent.turn_id`(同一 `turn_id` 归同一轮);`turn_id` 为 `null` 的旧转录 SHALL 按 `RunStarted` 出现顺序分组(组界 = 下一枚 `RunStarted` 或数组末尾)。每轮 SHALL 产出:提问消息(该轮 `role = user` 密封事件;缺席即无提问消息)+ **恰一条** assistant 消息(id `turn-<turnId>`,parts 可为空)+ 逐事件 aux system 消息,且 `metadata.record` 为该轮轮行(按 `turnId` 匹配;轮行缺席为 `null`)。`TurnDone` MUST NOT 用作轮边界或轮行计数依据,仅在该轮轮行缺席时兜底 status(`isError ? failed : completed`)
+- `foldSessionMessages(events: AgentEvent[], turns: TurnSummary[]): UIMessage[]` — 重放与收口折叠(**按轮分组**;仅消费**密封事件**:会话转录中不存在 delta,delta 不进重放路径)。分组键 SHALL 为信封 `AgentEvent.turn_id`(同一 `turn_id` 归同一轮);`turn_id` 为 `null` 的旧转录 SHALL 按 `RunStarted` 出现顺序分组(组界 = 下一枚 `RunStarted` 或数组末尾)。每轮 SHALL 产出:提问消息(**组内首条** `role = user` 密封事件,id `turn-<turnId>-user`;缺席即无提问消息)+ **补充说明消息**(组内其余 `role = user` 密封事件**各一条**,按 `seq` 升序排在提问之后、assistant 之前,id `evt-<seq>`;无则零条)+ **恰一条** assistant 消息(id `turn-<turnId>`,parts 可为空)+ 逐事件 aux system 消息,且 `metadata.record` 为该轮轮行(按 `turnId` 匹配;轮行缺席为 `null`)。`TurnDone` MUST NOT 用作轮边界或轮行计数依据,仅在该轮轮行缺席时兜底 status(`isError ? failed : completed`)。MUST NOT 把组内第二条及之后的 `role = user` 事件当提问（丢弃即补充说明在重放里不可见,复用提问 id 即两条消息撞 id）
 - `eventToChunk(event: AgentEvent, ...): UIMessageChunk[]` — 实时增量的**块 chunk 单点**(delta 路 + 密封块路);**事件头与 step 帧(`start` / `start-step` / `reset-step` / `finish`)SHALL 归 transport**,本函数 MUST NOT 产。`role = user` 的密封事件 SHALL 零 chunk(提问由会话状态侧承载)。可选参为**流内跨消息配对视野**(transport 流内簿记:本轮已发出的工具调用 id 集),命中即就地补全
 - **语义层 IR**: `BlockPlan` 为块语义的唯一表达(text / reasoning / tool 三变体;tool 的 `output: null` 即未配对),`planBlock(block, paired): BlockPlan | null` 为**唯一语义点**(五 block 变体 + 无主 result 合成在此收口;`null` = 已配对 result 不重复呈现);孤儿 result 与正常 tool 合并为同一 `tool` 变体(占位工具名 + `input: null`),MUST NOT 在两路各写一遍孤儿判定。`text` 变体 SHALL 携 `citations?: AgentCitation[]`(缺席 = 无引用),`tool` 变体 SHALL 为**唯一工具类承载位**——客户端工具与云端 `web_search` 服务端工具共用该变体(`toolName` 区分,MUST NOT 为搜索新增第四变体)
 - **视野层**: `PairingScope` 隔离配对视野差异——折叠路 `global`(跨消息预扫全部 toolUse 的配对 result),实时路 `local`(仅当前 message 内配对);两视野 SHALL 产出同一类型 `Map<toolCallId, PairedOutcome>`(配对载体为工具结果块 **或搜索来源载荷**的联合,与块种类同构),差异 MUST NOT 渗入语义层与发射层。实时路另有**流内跨消息配对视野**(`eventToChunk` 可选参,transport 按「本轮最近开件 step 的消息」簿记并在新 step 开出时重武装):命中的 toolResult 块 SHALL 就地补全既有消息里的工具部件——只投 `tool-output-available`,MUST NOT 另起消息 / 重投 input / 开新 step;全部块均命中时该事件 MUST NOT 产任何块 chunk。**搜索块配对 SHALL 以块 `id` 为键沿用同一视野机制**:use 侧块(`rawUse != null`)与 result 侧块(`rawUse == null`)分处两条密封 message 时由 `global` 视野跨消息合并(`pause_turn` 拆分场景),`local` 视野下无配对 result 的 use 仍渲染(只显查询词)
@@ -152,7 +152,7 @@
 
 两路契约 SHALL 为**终态同构 + 过程就地补全**:折叠路(重放 / 收口)与实时路 SHALL 在轮收口后呈同一形状(MUST NOT 出现成对工具卡的分裂或重复);实时流式期间跨消息 tool 配对 SHALL 就地补全——结果事件不另起消息、input 与 output 合住同一条消息(与折叠路同形)。配对视野随新 step 开出重武装,失效残差(结果与 toolUse 之间插入其他 step / 订阅起点晚于 toolUse)SHALL 回退既有占位卡形态并由轮收口以重放折叠纠正,MUST NOT 以「实时路复跑折叠语义」的方式消除(reducer 的配对视野物理上限于当前 step)。视野差异 SHALL 由视野层快照测试显式锁定(同消息配对两视野相等、未携流内视野时跨消息配对两视野可辨差异),MUST NOT 由单一路径 fixture 掩饰。
 
-**id 锚点** SHALL 两路同源:assistant 消息 id = `turn-<turnId>`、提问消息 id = `turn-<turnId>-user`(折叠路与实时路 MUST 算出同一 id,否则收口时 ai-sdk 的 `isContinuation` 判定失配、消息重挂);`turnId` 缺席(旧转录 / 无轮归属构造面)时实时路 SHALL 以 `evt-<首事件 seq>` 兜 id,收口折叠以整表替换对齐(MUST NOT 为旧转录造第二套折叠路径)。
+**id 锚点** SHALL 两路同源:assistant 消息 id = `turn-<turnId>`、提问消息 id = `turn-<turnId>-user`(折叠路与实时路 MUST 算出同一 id,否则收口时 ai-sdk 的 `isContinuation` 判定失配、消息重挂);**补充说明消息 id = `evt-<seq>`**(两路同源;该 id 恒属该轮中段那条 user 事件,MUST NOT 复用 `turn-<turnId>-user`——一个 id 只能对应一条消息);`turnId` 缺席(旧转录 / 无轮归属构造面)时实时路 SHALL 以 `evt-<首事件 seq>` 兜 id,收口折叠以整表替换对齐(MUST NOT 为旧转录造第二套折叠路径)。
 
 保真 SHALL 锁定: `seq` 可考(进消息 metadata 与部件元数据,保序与 key 稳定;delta chunk 元数据携带源 seq);`parentToolUseId` 可考(进部件元数据,子代理归因依赖它);未知事件 MUST NOT 丢弃(一律 `data-raw` 透传原文)。aux 事件(`runStarted` / `systemNotice` / `raw` / `turnDone`)SHALL 维持**逐事件独立 system 消息**(MUST NOT 并入轮 metadata:保真透镜 `AgentRawStream` 依赖逐事件回放,并入即失去数据源)。
 
@@ -237,7 +237,17 @@
 #### Scenario: id 锚点两路一致
 
 - **WHEN** 同一轮事件序列分别经实时路(transport chunk 归约)与折叠路(`foldSessionMessages`)处理
-- **THEN** assistant 消息 id 均为 `turn-<turnId>`、提问均 `turn-<turnId>-user`,`turnId` 缺席时实时路以 `evt-<首事件 seq>` 兜 id 并由收口整表替换对齐
+- **THEN** assistant 消息 id 均为 `turn-<turnId>`、提问均 `turn-<turnId>-user`,补充说明均 `evt-<seq>`,`turnId` 缺席时实时路以 `evt-<首事件 seq>` 兜 id 并由收口整表替换对齐
+
+#### Scenario: 折叠路呈现轮中段补充说明
+
+- **WHEN** 某轮密封事件序列为 首条 `role = user`(提问,`seq = 3`)→ assistant 密封块 → `role = user`(补充说明,`seq = 9`)→ assistant 密封块 → `TurnDone` 与轮行
+- **THEN** 该轮产出三条对话消息且序为 提问(id `turn-<turnId>-user`)→ 补充说明(id `evt-9`,parts 为该 user 事件 text 块直映射)→ assistant(id `turn-<turnId>`,含两段密封块的全部部件);aux system 消息照常逐事件独立;MUST NOT 丢补充说明、MUST NOT 把两条 user 事件合成一条
+
+#### Scenario: 补充说明与提问 id 族不撞
+
+- **WHEN** 同一轮既有提问(user 密封事件)又有两条补充说明(user 密封事件)
+- **THEN** 三条 user 消息 id 两两不等(`turn-<turnId>-user` / `evt-<seq₁>` / `evt-<seq₂>`),assistant 消息仍恰一条;收口后重放同一转录产出同一 id 序列
 
 ### Requirement: 展示组件族(对话透镜)
 
@@ -510,6 +520,47 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **WHEN** 后端拒绝一次应答（返回 `Err`）
 - **THEN** 该 `Err` 进入来源侧既有错误面（会话错误横幅 / 控制面板错误行）并可读；组件族不重试、不吞错、不改写卡状态
 
+### Requirement: 补充说明动作面与 composer 变体（steer）
+
+前端 SHALL 让**一条正在跑的会话**可被用户补一句（补充说明，steer），且不新开轮：动作走会话级 `agent_steer` 薄包装（见 desktop-agent-execution「运行中会话的补充说明注入（steer 通道）」与「agent 执行命令面」）。本条与「展示组件族(对话透镜)」的 `AgentInput` 契约是**加位关系**：既有默认变体（含 permission-mode 档位、`running` 呈停止、`disabled` 整面板禁用）逐字不变，本条只追加变体与动作位。
+
+- **实时路的轮中段 user 消息**：会话状态侧接收 `role = user` 的密封事件时 SHALL 分工——该轮**首条**（该轮提问）沿用既有 id 归一路径（本地副本原地换 id 为 `turn-<turnId>-user`，消息数不增）；**其余** SHALL 以 `evt-<seq>` **追加**为独立 user 气泡，按到达顺序插入（MUST NOT 因「同轮已有同名 id」而丢弃、MUST NOT 复用提问的归一路径——`turn-<turnId>-user` 恒属该轮提问，一个 id 只能对应一条消息）。收口后仍以折叠整表替换收敛，形状与重放一致（折叠口径见「事件适配层(纯函数,保真)」）。
+- **headless 动作面**：`UseAgentSessionState` SHALL 增 `steer: (text: string) => void` 与 `steering: boolean`——前者为 `agent_steer(root, session_id, text)` 的薄包装（`root` / `sessionId` 为 null 时 MUST NOT invoke），后者为「已提交、等 ack 回流」的 pending 态（提交置 `true`，ack 成功或 `Err` 落地置 `false`）；`Err` SHALL 进既有 `error` 面呈现（与重放 / 流错误同一条保序合并链），MUST NOT 静默吞掉。既有 `answer` / `stop` / `sendMessage` 语义零改动。
+- **composer 插槽动作面**：`AgentSessionActions` SHALL 增 `steer` 与 `steering` 两个字段（**additive**——既有 `running` / `loading` / `send` / `stop` 零改动；未接字段的消费点零影响），使只接 composer 插槽的只读消费点能只取「补充说明 + 停止」两动作。
+- **`AgentInput` 补充说明变体**：`AgentInputProps` SHALL 增两个可选位——`hidePermissionMode?: boolean`（缺省 `false`；`true` 时不呈 permission-mode 档位行，`onSend` 的 `permissionMode` 参数位保留但下游 MUST NOT 消费）与 `pending?: boolean`（缺省 `false`；`true` 时发送入口呈「排队中…」态并禁用防连点，提示文案 SHALL 可辨；输入框与停止入口不受影响，`running` 的停止面照常呈现）。默认变体（两位皆缺省）的渲染与语义 MUST NOT 变化。
+- **吸附层不另立规则**：补充说明气泡为普通 `role = 'user'` 消息，既有「全部 user 消息无条件常驻吸附层」契约自然覆盖它（一轮内因此可能出现两次吸顶：提问被补充说明顶走、补充说明接续吸顶）——MUST NOT 为补充说明新增第二套吸附判据、MUST NOT 改动 `agent-virtual.ts` 的 `userTurnSpans`。
+- **判据不预判**：补充说明的可用性 MUST NOT 由前端判据决定（MUST NOT 依库态 `running`、轮行状态或会话是否存在禁用输入与发送）——后端三种不可送达各有独立 `Err` 文案，前端只负责呈现；`pending` 是「等 ack」的过程态，MUST NOT 被实现成「按运行态禁用」。
+
+#### Scenario: 实时路轮中段补充说明不被吞
+
+- **WHEN** 会话运行中，发送方 / 旁观方经在挂流收到该轮第二条 `role = user` 密封事件（`seq = 9`），该轮提问气泡已在场
+- **THEN** 消息列表追加一条 id `evt-9` 的 user 气泡（内容为该事件 text 块），位置按到达顺序（提问之后、后续 assistant 部件所在消息之前）；MUST NOT 因 `turn-<turnId>-user` 已存在而丢弃该事件、MUST NOT 出现两条提问气泡
+
+#### Scenario: 收口后补充说明仍可见
+
+- **WHEN** 含一条补充说明的轮收口，状态以转录重放重建
+- **THEN** 重建后该轮仍有 提问 → 补充说明（`evt-<seq>`）→ assistant 三部分，与实时路呈现形状一致
+
+#### Scenario: steer 动作的 null 守卫与 pending 复位
+
+- **WHEN** 调用 headless 的 `steer("先跑 lint")`：分别以在场 / `null` 的 `root` 或 `sessionId`；另在 ack 回流成功与后端 `Err` 两种收尾下观察
+- **THEN** 在场时 invoke `agent_steer` 且三参逐字（`root` / `sessionId` / `text`）并置 `steering = true`；`root` 或 `sessionId` 为 null 时零 invoke、零副作用（`steering` 不变）；ack 成功与 `Err` 两种收尾都把 `steering` 置回 `false`，`Err` 文案进 `error` 面
+
+#### Scenario: 补充说明 composer 无档位且呈 pending
+
+- **WHEN** 以 `hidePermissionMode = true`、`pending = true`、`running = true` 渲染 `AgentInput`
+- **THEN** 无 permission-mode 档位行；发送入口呈「排队中…」且不可重复提交；停止入口照常呈现可点；输入框仍可编辑
+
+#### Scenario: 已收口步仍可点发送并以后端 Err 说话
+
+- **WHEN** 某步会话已收口（库态无 running 轮行），用户在该步面板输入补充说明并点发送
+- **THEN** 发送入口未被前端禁用，调用到达后端并返回 `Err`（「会话已收口」类文案），该文案呈现在会话错误面；MUST NOT 以「此步已收口」类前端判据提前禁用
+
+#### Scenario: 默认 composer 变体零变化
+
+- **WHEN** 既有消费点（explore / archi / change-chat / 调试页）不传 `hidePermissionMode` 与 `pending` 渲染 `AgentInput`
+- **THEN** 渲染与交互与本变更前逐字一致（档位行在场、发送空串禁用、`running` 呈停止、`disabled` 整面板禁用 + 理由文案）
+
 ## Module Contract
 
 ### Component: `packages/desktop/src/components/agent/agent-session-view.tsx`（新增）
@@ -650,3 +701,14 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `packages/desktop/src/hooks/use-agent-session.ts`（扩） | 通用侧应答动作 | `UseAgentSessionState` 增 `answer: (text: string) => void`（`root` / `sessionId` 为 null 时不 invoke；`ipc.agentAnswer(root, sessionId, text)` 的 `Err` 进既有 `error` 面） |
 | `packages/desktop/src/views/explores/explore-detail-pane.tsx` / `views/agent/agent-debug-view.tsx`（扩） | 通用会话面接线 | 以 `askAnswer={{ onAnswer: session.answer }}` 注入（archi 与 change-chat 两处经 `SessionPanel` 骨架零改动即得——骨架从 `state.session.answer` 合成） |
 | `packages/desktop/src/components/agent/tool-cards.test.tsx` / `agent-messages.test.tsx` / `agent-session-view.test.tsx`（测试） | 双态与透传判据 | 活卡两路应答 / 空串不提交 / 提交后禁用 / 未注入即静态且无旧文案 / `pendingToolCallId` 精确对账 / 动作面只达 ask 卡 / 两形态透传 |
+
+### 模块增量：补充说明动作面与 composer 变体（steer）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Function / Component） |
+|------|------|------|
+| `packages/desktop/src/lib/agent-adapter.ts`（扩） | 折叠路的轮中段 user 消息 | `foldSessionMessages` 不变；`entryToMessages` 的 user 分支改「组内首条 → 提问（`questionMessage`）／其余 → 补充说明（`evt-<seq>`，parts 为 text 块直映射）」，按 `seq` 序排在该轮 assistant 之前；`questionId` 仅用于首条；`assistantMessage` 的 user 跳过逻辑不变 |
+| `packages/desktop/src/hooks/use-agent-session.ts`（扩） | headless 补充说明动作 | `UseAgentSessionState` 增 `steer: (text: string) => void` 与 `steering: boolean`；新增 `useSteer(mirrors, sessionId, root)`（与 `useAskAnswer` 同型：null 守卫 + `actionError` 进 `error` 保序链）；`applyUserQuestion` 分化为「首条提问归一 / 其余以 `evt-<seq>` 追加」 |
+| `packages/desktop/src/components/agent/agent-session-view.tsx`（扩） | 动作面加位 | `AgentSessionActions` 增 `steer: (text: string) => void` 与 `steering: boolean`（由 `state.steer` / `state.steering` 组装；composer render prop 原样多给两字段，既有插槽忽略即可） |
+| `packages/desktop/src/components/agent/agent-input.tsx`（扩） | 补充说明变体 | `AgentInputProps` 增 `hidePermissionMode?: boolean`（缺省 false）与 `pending?: boolean`（缺省 false）；`pending` 时发送呈「排队中…」并禁用、停止面不受影响；默认变体渲染零变化 |
