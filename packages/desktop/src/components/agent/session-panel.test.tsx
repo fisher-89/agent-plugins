@@ -516,7 +516,7 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
     ];
   }
 
-  it('展开体把 state.session.answer 合成 askAnswer 下传：ask 卡选项可点即触发 answer', () => {
+  it('展开体把 state.session.answer 合成 askAnswer 下传：ask 卡提交即触发 answer', () => {
     const answer = vi.fn();
     const session = sessionState({ answer, messages: askMessages() });
     mountExpanded({
@@ -529,7 +529,8 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
     // 探针判据：下游收到的 `onAnswer` 就是该 `answer` 引用
     expect(recordedAskAnswer()?.onAnswer).toBe(answer);
     fireEvent.click(buttons[0] as HTMLElement);
-    expect(answer).toHaveBeenCalledWith('指数退避');
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(answer.mock.calls).toEqual([['{"Q1":"指数退避"}']]);
   });
 
   it('两套前缀（change-chat / archi-chat）展开体均合成动作面且互不串味', () => {
@@ -541,8 +542,9 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
       });
       const buttons = screen.getAllByTestId('ask-answer-option');
       fireEvent.click(buttons[0] as HTMLElement);
+      fireEvent.click(screen.getByTestId('ask-answer-submit'));
       expect(answer).toHaveBeenCalledTimes(1);
-      expect(answer).toHaveBeenCalledWith('指数退避');
+      expect(answer).toHaveBeenCalledWith('{"Q1":"指数退避"}');
       mounted.unmount();
     }
   });
@@ -565,9 +567,10 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
     expect(second?.onAnswer).toBe(answer);
     expect(second?.onAnswer, '两次渲染字段同引用').toBe(first?.onAnswer);
 
-    // 行为侧证：点击直接以选项文本调用该引用（合成对象不额外包装）
+    // 行为侧证：提交直接以该引用投递（合成对象不额外包装）
     fireEvent.click(screen.getAllByTestId('ask-answer-option')[1] as HTMLElement);
-    expect(answer.mock.calls).toEqual([['固定间隔']]);
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(answer.mock.calls).toEqual([['{"Q1":"固定间隔"}']]);
   });
 
   it('无 ask 部件时会话体照常呈现（动作面在场零副作用）', () => {
@@ -577,7 +580,7 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
       testIdPrefix: 'archi-chat',
     });
     expect(screen.getByTestId('archi-chat-session')).toBeTruthy();
-    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(answer).not.toHaveBeenCalled();
   });
 

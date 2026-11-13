@@ -666,7 +666,7 @@ function askTranscript(): AgentEvent[] {
 }
 
 describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
-  it('传 askAnswer（无 pendingToolCallId）→ ask 卡呈活卡（选项可点，零自动接线）', async () => {
+  it('传 askAnswer（无 pendingToolCallId）→ ask 卡呈活卡（选项可提交，零自动接线）', async () => {
     const onAnswer = vi.fn();
     resetIpc({ transcript: askTranscript() });
     await mountedView({ root: ROOT, sessionId: SESSION_ID, askAnswer: { onAnswer } });
@@ -674,7 +674,8 @@ describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
     const buttons = await screen.findAllByTestId('ask-answer-option');
     expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
     fireEvent.click(buttons[1] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledWith('乙');
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"乙"}']]);
   });
 
   it('传 askAnswer.pendingToolCallId = null → 全静态（历史重放零应答入口）', async () => {
@@ -687,8 +688,9 @@ describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
     });
 
     await screen.findByTestId('agent-messages');
-    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
-    expect(screen.queryAllByTestId('ask-option')).toHaveLength(2);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
+    // 选项行仍按静态卡可读
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(2);
   });
 
   it('不自动接线（DD7）：自持形态未传 askAnswer → 全静态且 agent_answer 零 invoke（即便 hook 层有 answer）', async () => {
@@ -696,7 +698,7 @@ describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
     await mountedView({ root: ROOT, sessionId: SESSION_ID });
 
     await screen.findByTestId('agent-messages');
-    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(callsOf('agent_answer')).toHaveLength(0);
   });
 
@@ -704,7 +706,7 @@ describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
     const cases: { pending: string | null; expectLive: number }[] = [
       { pending: null, expectLive: 0 },
       { pending: 'call_404', expectLive: 0 },
-      { pending: 'call_1', expectLive: 2 },
+      { pending: 'call_1', expectLive: 1 },
     ];
     for (const { pending, expectLive } of cases) {
       resetIpc({ transcript: askTranscript() });
@@ -715,7 +717,7 @@ describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
       });
       await screen.findByTestId('agent-messages');
       expect(
-        screen.queryAllByTestId('ask-answer-option'),
+        screen.queryAllByTestId('ask-answer-submit'),
         `pendingToolCallId=${String(pending)} 的活卡数`,
       ).toHaveLength(expectLive);
       rendered.unmount();
@@ -727,8 +729,8 @@ describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
     await mountedView({ root: ROOT, sessionId: SESSION_ID });
 
     await screen.findByTestId('agent-messages');
-    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
-    expect(screen.queryAllByTestId('ask-option')).toHaveLength(2);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(2);
   });
 
   it('与 composer 互不前置：只接 askAnswer 时零发送 / 停止入口', async () => {
@@ -839,14 +841,15 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
     expect(messageProbes.last).toBe(askAnswer);
   });
 
-  it('注入形态透传：session 注入 + askAnswer 在场 → onAnswer 点击可达', async () => {
+  it('注入形态透传：session 注入 + askAnswer 在场 → onAnswer 提交可达', async () => {
     const onAnswer = vi.fn();
     render(<ControlledHost askAnswer={{ onAnswer }} />);
 
     const buttons = screen.getAllByTestId('ask-answer-option');
     expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
     fireEvent.click(buttons[1] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledWith('乙');
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"乙"}']]);
   });
 
   it('自持形态透传：root + sessionId（无 session）+ askAnswer 在场 → 活卡同样生效', async () => {
@@ -857,14 +860,15 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
     const buttons = await screen.findAllByTestId('ask-answer-option');
     expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
     fireEvent.click(buttons[0] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledWith('甲');
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"甲"}']]);
   });
 
   it('不自动接线（DD7）：注入形态未传 askAnswer → 全静态且零 invoke', async () => {
     render(<ControlledHost withComposer />);
 
-    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
-    expect(screen.getAllByTestId('ask-option')).toHaveLength(2);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
+    expect(screen.getAllByTestId('ask-answer-option')).toHaveLength(2);
     expect(messageProbes.last).toBeNull();
     expect(callsOf('agent_answer')).toHaveLength(0);
   });
@@ -872,26 +876,26 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
   it('两个动作面独立：composer 只给 → 静态卡 + composer 可用；askAnswer 只给 → 活卡 + 无 composer', () => {
     const { unmount } = render(<ControlledHost withComposer />);
     expect(screen.getByTestId('controlled-composer')).toBeTruthy();
-    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     unmount();
 
     render(<ControlledHost askAnswer={{ onAnswer: vi.fn() }} />);
     expect(screen.queryByTestId('controlled-composer')).toBeNull();
-    expect(screen.getAllByTestId('ask-answer-option')).toHaveLength(2);
+    expect(screen.getAllByTestId('ask-answer-submit')).toHaveLength(1);
   });
 
   it('pendingToolCallId 三态直通：null / 不匹配串 / 匹配串 → 下游判活与本层零改写', () => {
     const cases: { pending: string | null; expectLive: number }[] = [
       { pending: null, expectLive: 0 },
       { pending: 'call_404', expectLive: 0 },
-      { pending: 'call_view_1', expectLive: 2 },
+      { pending: 'call_view_1', expectLive: 1 },
     ];
     for (const { pending, expectLive } of cases) {
       const mounted = render(
         <ControlledHost askAnswer={{ onAnswer: vi.fn(), pendingToolCallId: pending }} />,
       );
       expect(
-        screen.queryAllByTestId('ask-answer-option'),
+        screen.queryAllByTestId('ask-answer-submit'),
         `pendingToolCallId=${String(pending)} 的活卡数`,
       ).toHaveLength(expectLive);
       expect(messageProbes.last).toEqual({

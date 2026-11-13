@@ -15,7 +15,6 @@ import {
   MessageScrollerSticky,
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
-import { Spinner } from '@/components/ui/spinner';
 import { Trace } from '@/components/ui/trace';
 import type { AgentToolPart, AgentUIMessage } from '@/lib/agent-adapter';
 import {
@@ -42,8 +41,6 @@ export interface AgentMessagesProps {
   messages: AgentUIMessage[];
   /** 重放装载进行中 */
   loading?: boolean;
-  /** 运行中标记：头部呈现流式状态 */
-  running?: boolean;
   /** ask 应答动作面（缺席即全部 ask 卡静态只读） */
   askAnswer?: AskAnswerActions;
 }
@@ -433,7 +430,6 @@ function MessageContainer({
 export function AgentMessages({
   messages,
   loading,
-  running,
   askAnswer,
 }: AgentMessagesProps): React.JSX.Element {
   const conversation = useMemo(() => filterConversation(messages), [messages]);
@@ -464,15 +460,6 @@ export function AgentMessages({
         </div>
       ) : (
         <MessageContainer messages={conversation} resetKey={resetKey} askAnswer={stableAskAnswer} />
-      )}
-      {running && (
-        <div
-          className="p-3 flex items-center text-muted-foreground"
-          data-testid="agent-messages-running"
-        >
-          <Spinner />
-          运行中…
-        </div>
       )}
     </section>
   );

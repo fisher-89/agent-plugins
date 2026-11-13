@@ -161,12 +161,7 @@ export function AgentSessionView(props: AgentSessionViewProps): React.JSX.Elemen
           {state.error}
         </div>
       )}
-      <AgentMessages
-        messages={state.messages}
-        loading={state.loading}
-        running={state.running}
-        askAnswer={askAnswer}
-      />
+      <AgentMessages messages={state.messages} loading={state.loading} askAnswer={askAnswer} />
       {composer?.(actions)}
     </div>
   );

@@ -1,13 +1,33 @@
-import { FileEditIcon, FileIcon, TerminalIcon } from 'lucide-react';
+import {
+  type QuestionnaireChoiceDefinition,
+  type QuestionnaireItemDefinition,
+} from '@shadcn/react/questionnaire';
+import { FileEditIcon, FileIcon, MessageCircleQuestionIcon, TerminalIcon } from 'lucide-react';
 import { type ComponentType, useState } from 'react';
 
-import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   CodeBlock,
   CodeBlockContent,
   CodeBlockHeader,
   CodeBlockLine,
 } from '@/components/ui/code-block';
+import {
+  Questionnaire,
+  QuestionnaireActions,
+  QuestionnaireChoice,
+  QuestionnaireChoiceDescription,
+  QuestionnaireChoices,
+  QuestionnaireError,
+  QuestionnaireInput,
+  QuestionnaireItem,
+  QuestionnaireNext,
+  QuestionnairePrevious,
+  QuestionnaireSubmit,
+  QuestionnaireTitle,
+} from '@/components/ui/questionnaire';
+import { Spinner } from '@/components/ui/spinner';
 import {
   TraceCollapsible,
   TraceCollapsibleContent,
@@ -20,7 +40,6 @@ import { useHighlightedCode } from '@/hooks/use-highlighted-code';
 import type { AgentToolOutput } from '@/lib/agent-adapter';
 import { asRecord, numberOf, textOf } from '@/lib/parse';
 
-import { Spinner } from '../ui/spinner';
 import { FinishStepCard, WebSearchCard } from './agent-blocks';
 
 /** 特化工具卡入参（output 为 null 即尚无结果；渲染 or null 回退由卡自决） */
@@ -38,23 +57,22 @@ interface AgentToolCardProps {
 export type AgentToolCard = ComponentType<AgentToolCardProps>;
 
 /** AskUserQuestion 静态卡的问题/选项形态（宽容解析，未知形态回退 JSON 原样） */
-interface AskOption {
-  label: string;
+interface AskOption extends QuestionnaireChoiceDefinition {
   description: string | null;
 }
-interface AskQuestion {
+interface AskQuestion extends QuestionnaireItemDefinition {
   question: string;
-  options: AskOption[];
+  choices: AskOption[];
 }
 
 /** 选项归一：新工具形态的元素是裸字符串（`description` 缺席），历史 SDK 形态
  * 是 `{ label, description }` 对象——两形态由元素形态直接判别，无需外部标记。 */
 function parseOptions(options: unknown[]): AskOption[] {
   return options.map((option: unknown) => {
-    if (typeof option === 'string') return { label: option, description: null };
+    if (typeof option === 'string') return { value: option, description: null };
     const item = asRecord(option);
     return {
-      label: typeof item.label === 'string' ? item.label : '',
+      value: typeof item.label === 'string' ? item.label : '',
       description: typeof item.description === 'string' ? item.description : null,
     };
   });
@@ -70,67 +88,79 @@ function parseAsk(input: unknown): AskQuestion[] | null {
   if (typeof record.question === 'string') {
     return [
       {
+        name: 'Q1',
         question: record.question,
-        options: Array.isArray(record.options) ? parseOptions(record.options) : [],
+        choices: Array.isArray(record.options) ? parseOptions(record.options) : [],
       },
     ];
   }
   const questions: unknown = record.questions;
   if (!Array.isArray(questions)) return null;
-  return questions.map((q: unknown) => {
+  return questions.map((q: unknown, index) => {
     const item = asRecord(q);
     return {
+      name: `Q${index + 1}`,
       question: typeof item.question === 'string' ? item.question : '',
-      options: Array.isArray(item.options) ? parseOptions(item.options) : [],
+      choices: Array.isArray(item.options) ? parseOptions(item.options) : [],
     };
   });
 }
 
-/** 单问题：题干 + 选项清单（活卡态选项为可点按钮，静态态为只读行） */
-function AskQuestionView({
+/**
+ * 已应答回灌的选项回填：工具结果正文是本卡提交时上行的 JSON map（`{ 问题名: 选项值 }`）。
+ * 历史转录里的结果正文是自由文本原文（旧线应答）或错误文案，非 JSON 对象——此时
+ * 无选项可回填，返回 `null` 由调用方按「无匹配选项」呈现原文。
+ */
+function parseSubmittedAnswers(output: AgentToolOutput | null): Record<string, string> | null {
+  if (output === null || output.isError) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output.content);
+  } catch {
+    return null;
+  }
+  const record = asRecord(parsed);
+  const answers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (typeof value !== 'string') return null;
+    answers[key] = value;
+  }
+  return Object.keys(answers).length === 0 ? null : answers;
+}
+
+/** 单问的选项区（选项行 + 已应答原文回显 + 活卡自由文本输入） */
+function AskChoicesView({
   item,
-  onPick,
+  answered,
+  live,
 }: {
   item: AskQuestion;
-  onPick?: (label: string) => void;
+  /** 该问已回灌的应答值（选项值或自由文本；`null` = 尚未应答） */
+  answered: string | null;
+  live: boolean;
 }): React.JSX.Element {
   return (
-    <div className="mb-2 last:mb-0">
-      <div className="text-sm" data-testid="ask-question">
-        {item.question}
-      </div>
-      <ul className="m-0 mt-1 list-none p-0">
-        {item.options.map((option, optionIndex) =>
-          onPick === undefined ? (
-            <li
-              key={optionIndex}
-              className="rounded border border-border bg-background px-2 py-1 text-sm"
-              data-testid="ask-option"
-            >
-              {option.label}
-              {option.description !== null && (
-                <span className="ml-1.5 text-xs text-muted-foreground">{option.description}</span>
-              )}
-            </li>
-          ) : (
-            <li key={optionIndex} className="mb-1 last:mb-0">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start"
-                data-testid="ask-answer-option"
-                onClick={() => onPick(option.label)}
-              >
-                {option.label}
-                {option.description !== null && (
-                  <span className="ml-1.5 text-xs text-muted-foreground">{option.description}</span>
-                )}
-              </Button>
-            </li>
-          ),
-        )}
-      </ul>
-    </div>
+    <QuestionnaireChoices>
+      {item.choices.map((option) => (
+        <QuestionnaireChoice
+          data-testid="ask-answer-option"
+          className="py-2 min-h-10"
+          key={option.value}
+          value={option.value}
+          disabled={answered !== null && answered !== option.value}
+          defaultChecked={answered === option.value}
+        >
+          {option.value}
+          <QuestionnaireChoiceDescription>{option.description}</QuestionnaireChoiceDescription>
+        </QuestionnaireChoice>
+      ))}
+      {answered !== null && item.choices.every((option) => option.value !== answered) && (
+        <div className="rounded-lg border border-primary/40 bg-muted px-3 py-2 text-start text-sm">
+          {answered}
+        </div>
+      )}
+      {live && <QuestionnaireInput data-testid="ask-answer-input" placeholder="或自行输入回复" />}
+    </QuestionnaireChoices>
   );
 }
 
@@ -140,59 +170,71 @@ function AskQuestionView({
  * - 活卡态（注入动作面）：选项为可点按钮 + 自由文本输入与提交；提交后本地
  *   即时禁用（防连点 / 重复应答），等待上层状态变化复位。
  */
-function AskUserQuestionCard({ input, askAnswer }: AgentToolCardProps): React.JSX.Element {
+function AskUserQuestionCard({ input, output, askAnswer }: AgentToolCardProps): React.JSX.Element {
   const questions = parseAsk(input);
   const [submitted, setSubmitted] = useState(false);
-  const [text, setText] = useState('');
-  const live = askAnswer !== undefined && !submitted;
-  const submit = (value: string) => {
-    const trimmed = value.trim();
-    if (trimmed === '' || askAnswer === undefined || submitted) return;
+  if (questions === null) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>无法解析问题，原始输入：</AlertTitle>
+        <AlertDescription>{JSON.stringify(input, null, 2)}</AlertDescription>
+      </Alert>
+    );
+  }
+
+  const live = output === null && askAnswer !== undefined && !submitted;
+  const submittedForm = parseSubmittedAnswers(output);
+  // Root 的 items 与逐项渲染的 Choice 必须同源（库按值对账，不一致会逐渲染告警）
+  const items: QuestionnaireItemDefinition[] = questions.map((item) => ({
+    name: item.name,
+    choices: item.choices.map((option) => ({
+      value: option.value,
+      disabled: submittedForm !== null && submittedForm[item.name] !== option.value,
+    })),
+  }));
+  const handleSubmit = (event: React.SubmitEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const answers: Record<string, string> = {};
+    new FormData(event.currentTarget).forEach((value, key) => {
+      answers[key] = value instanceof File ? value.name : value;
+    });
+    const trimmed = JSON.stringify(answers);
+    if (trimmed === '{}' || askAnswer === undefined || submitted) return;
     setSubmitted(true);
-    setText('');
     askAnswer.onAnswer(trimmed);
   };
+
   return (
-    <div
-      className="my-1 rounded-md border border-border bg-muted px-3 py-2.5"
-      data-testid="ask-question-card"
-    >
-      <div className="mb-1 text-xs font-medium text-muted-foreground">
-        {live
-          ? '向用户提问（AskUserQuestion）· 选择一个选项或自行作答'
-          : '向用户提问（AskUserQuestion）'}
-      </div>
-      {questions === null ? (
-        <pre className="m-0 overflow-x-auto rounded bg-background px-2 py-1.5 text-xs">
-          {JSON.stringify(input, null, 2)}
-        </pre>
-      ) : (
-        questions.map((item, index) => (
-          <AskQuestionView key={index} item={item} onPick={live ? submit : undefined} />
-        ))
-      )}
-      {live && (
-        <div className="mt-1 flex items-center gap-1.5">
-          <input
-            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-sm"
-            data-testid="ask-answer-input"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') submit(text);
-            }}
-          />
-          <Button
-            size="sm"
-            data-testid="ask-answer-submit"
-            disabled={submitted || text.trim() === ''}
-            onClick={() => submit(text)}
-          >
-            应答
-          </Button>
-        </div>
-      )}
-    </div>
+    <>
+      <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
+        <TraceIcon>{output === null ? <Spinner /> : <MessageCircleQuestionIcon />}</TraceIcon>
+        <TraceTitle>提问</TraceTitle>
+      </TraceLine>
+      <Card size="sm">
+        <CardContent>
+          <Questionnaire data-testid="ask-question-card" items={items} onSubmit={handleSubmit}>
+            {questions.map((item) => (
+              <QuestionnaireItem data-testid="ask-question" name={item.name} key={item.name}>
+                <QuestionnaireTitle className="text-sm">{item.question}</QuestionnaireTitle>
+                <AskChoicesView
+                  item={item}
+                  answered={submittedForm?.[item.name] ?? null}
+                  live={live}
+                />
+                {live && <QuestionnaireError />}
+              </QuestionnaireItem>
+            ))}
+            {live && (
+              <QuestionnaireActions>
+                <QuestionnairePrevious>上一个</QuestionnairePrevious>
+                <QuestionnaireNext>下一个</QuestionnaireNext>
+                <QuestionnaireSubmit data-testid="ask-answer-submit">提交</QuestionnaireSubmit>
+              </QuestionnaireActions>
+            )}
+          </Questionnaire>
+        </CardContent>
+      </Card>
+    </>
   );
 }
 

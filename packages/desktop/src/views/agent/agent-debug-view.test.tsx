@@ -246,13 +246,14 @@ describe('AgentDebugView → AgentMessages 接线', () => {
         '调试运行正文',
       ),
     );
-    // 运行中：对话区头部运行标记在场
-    expect(screen.getByTestId('agent-messages-running') !== null).toBe(true);
+    // 运行中：对话区不再单设运行标记，运行态由会话级停止入口承载
+    expect(screen.queryByTestId('agent-messages-running')).toBeNull();
+    expect(screen.getByTestId('run-stop') !== null).toBe(true);
 
-    // 终态收口：turnDone / record 均为辅助载体，以 running 复位观测回流
+    // 终态收口：turnDone / record 均为辅助载体，以停止入口退场观测回流
     deliverEvent(turnDone(2));
     deliverRecord(run(1, 'completed'));
-    await waitFor(() => expect(screen.queryByTestId('agent-messages-running')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('run-stop')).toBeNull());
   });
 
   it('原始 JSONL 切换二选一：AgentRawStream 消费 chat 的 events 镜像逐事件 dump，切回时间线', async () => {
@@ -895,6 +896,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
     expect(buttons.map((node) => node.textContent)).toEqual(['指数退避', '固定间隔']);
 
     fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(within(timeline).getByTestId('ask-answer-submit'));
     await act(async () => {});
 
     const answerCall = invokeMock.mock.calls.filter(([name]) => name === 'agent_answer').at(-1);
@@ -902,7 +904,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
     expect(answerCall?.[1]).toEqual({
       root: ROOT,
       sessionId: SESSION_ID,
-      text: '指数退避',
+      text: '{"Q1":"指数退避"}',
     });
   });
 
@@ -947,7 +949,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
     // 未 startRun：时间线骨架在但空态，ask 卡与应答入口均不存在
     const timeline = screen.getByTestId('agent-timeline');
     expect(within(timeline).queryAllByTestId('ask-answer-option')).toHaveLength(0);
-    expect(within(timeline).queryAllByTestId('ask-option')).toHaveLength(0);
+    expect(within(timeline).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(0);
   });
 
@@ -978,11 +980,16 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
     await within(timeline).findAllByTestId('ask-answer-option');
     const buttons = within(timeline).getAllByTestId('ask-answer-option');
     fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(within(timeline).getByTestId('ask-answer-submit'));
     await act(async () => {});
 
     const answers = invokeMock.mock.calls.filter(([name]) => name === 'agent_answer');
     expect(answers).toHaveLength(1);
-    expect(answers[0]?.[1]).toEqual({ root: ROOT, sessionId: SESSION_ID, text: '甲' });
+    expect(answers[0]?.[1]).toEqual({
+      root: ROOT,
+      sessionId: SESSION_ID,
+      text: '{"Q1":"甲"}',
+    });
   });
 
   it('引用稳定（DD12）：answer 引用未变时父层重渲染 → 下游 askAnswer 的 onAnswer 同引用', async () => {

@@ -3135,7 +3135,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     transcriptFixture = { [ASK_SESSION]: [askEvent(0, toolCallId ?? 'call_x')] };
   }
 
-  it('activeRun.ask.toolCallId 命中 → 抽屉内 ask 卡活卡可点即 change_flow_answer（自由文本应答）', async () => {
+  it('activeRun.ask.toolCallId 命中 → 抽屉内 ask 卡活卡提交即 change_flow_answer', async () => {
     loadLiveAskRun('call_ask_1');
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('run-stop');
@@ -3144,11 +3144,12 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     const panel = await screen.findByTestId('session-transcript-panel');
     await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
     fireEvent.click(within(panel).getAllByTestId('ask-answer-option')[1] as HTMLElement);
+    fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
 
     expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
       root: ROOT,
       id: CHANGE_ID,
-      answer: 'dev-design',
+      answer: '{"Q1":"dev-design"}',
     });
   });
 
@@ -3169,6 +3170,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     const panel = await screen.findByTestId('session-transcript-panel');
     await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
     fireEvent.click(within(panel).getAllByTestId('ask-answer-option')[0] as HTMLElement);
+    fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
 
     await waitFor(() =>
       expect(screen.getByTestId('run-error').textContent).toContain('当前无等待中的 ask'),
@@ -3182,8 +3184,10 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
 
     const panel = await screen.findByTestId('session-transcript-panel');
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
-    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 
   it('引用稳定（DD12）：run.answer 与 toolCallId 均未变时 re-render → 下游卡片零重建', async () => {
@@ -3220,6 +3224,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     // 交互面仍可单次投递（引用稳定未把闭包冻结在旧值上）
     const buttons = await within(panel).findAllByTestId('ask-answer-option');
     fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
     expect(invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer')).toHaveLength(1);
   });
 
@@ -3305,7 +3310,10 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     const panel = await screen.findByTestId('session-transcript-panel');
     // 起始无停等：AskCard 不在场、抽屉内 ask 卡静态
     expect(screen.queryByTestId('run-ask-card')).toBeNull();
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
 
     // 通道推入 ask 中断（统一视图重查后 activeRun.ask 到位）→ 两处同时呈现
     loadActiveRun(
@@ -3325,7 +3333,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     });
     await waitFor(() => expect(screen.getByTestId('run-ask-card')).toBeTruthy());
     expect(screen.getByTestId('run-status').textContent).toBe('等待应答');
-    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-option')).toHaveLength(2));
+    await waitFor(() => expect(within(panel).getAllByTestId('ask-answer-submit')).toHaveLength(1));
 
     // 经 AskCard 应答 → change_flow_answer（流程侧命令）
     fireEvent.click(screen.getAllByTestId('run-ask-option')[0] as HTMLElement);
@@ -3383,15 +3391,21 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
 
     const panel = await screen.findByTestId('session-transcript-panel');
     // 仅 call_cur 的选项是活卡按钮（call_other 保持静态只读行）
-    const buttons = await within(panel).findAllByTestId('ask-answer-option');
+    // 全部选项行两卡各两条，但提交入口只在当前条（call_cur）卡内
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(4);
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(1);
+    const liveCard = within(panel)
+      .getAllByTestId('ask-question-card')
+      .find((card) => within(card).queryAllByTestId('ask-answer-submit').length > 0)!;
+    const buttons = within(liveCard).getAllByTestId('ask-answer-option');
     expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
-    expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2);
 
     fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(within(liveCard).getByTestId('ask-answer-submit'));
     expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
       root: ROOT,
       id: CHANGE_ID,
-      answer: '甲',
+      answer: '{"Q1":"甲"}',
     });
   });
 
@@ -3433,8 +3447,10 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     fireEvent.click(node ?? (screen.getAllByTestId(/^rf__node-run:/)[0] as HTMLElement));
 
     const panel = await screen.findByTestId('session-transcript-panel');
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
-    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     // 历史重放零应答 invoke
     expect(invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer')).toHaveLength(0);
   });
@@ -3447,6 +3463,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     // 未点任何节点 → 抽屉无会话面板，组装好的 askAnswer 零消费
     expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
     expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer')).toHaveLength(0);
 
     // 选中会话后恢复正常（同一 askAnswer 组装面生效）
@@ -3517,6 +3534,6 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
 
     const call = invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer').at(-1);
-    expect(call?.[1]).toEqual({ root: ROOT, id: CHANGE_ID, answer: long });
+    expect(call?.[1]).toEqual({ root: ROOT, id: CHANGE_ID, answer: JSON.stringify({ Q1: long }) });
   });
 });

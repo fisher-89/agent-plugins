@@ -336,7 +336,7 @@ afterEach(() => {
 
 describe('AgentMessages：四变体气泡', () => {
   it('user 文本、assistant 文本、reasoning（思考折叠）、tool 对卡四类部件分别呈现', async () => {
-    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} />);
 
     expect(bubblesOfRole('user')).toHaveLength(1);
     expect(bubblesOfRole('assistant')).toHaveLength(1);
@@ -365,7 +365,7 @@ describe('AgentMessages：四变体气泡', () => {
   });
 
   it('user 气泡为整宽 tinted 泡、assistant 无泡底（对齐属性迁移基线）', () => {
-    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} />);
 
     const [userBubble] = bubblesOfRole('user');
     const [assistantBubble] = bubblesOfRole('assistant');
@@ -386,7 +386,7 @@ describe('AgentMessages：四变体气泡', () => {
       message(2, [{ kind: 'text', text: '第二段' }], null, 1),
     ];
 
-    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(events)} loading={false} />);
 
     const assistants = bubblesOfRole('assistant');
     expect(assistants).toHaveLength(1);
@@ -417,15 +417,19 @@ describe('AgentMessages：四变体气泡', () => {
         },
       ]),
     ];
-    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(events)} loading={false} />);
 
-    expect(screen.getByTestId('ask-question-card').textContent).toContain('AskUserQuestion');
-    expect(screen.getByTestId('ask-question').textContent).toBe('选择重试策略？');
-    const options = screen.getAllByTestId('ask-option');
+    // 命中注册表：呈问卷卡（问题与选项逐字可读），而非默认对卡
+    const card = screen.getByTestId('ask-question-card');
+    expect(card.textContent).toContain('选择重试策略？');
+    expect(screen.getByTestId('ask-question').textContent).toContain('选择重试策略？');
+    const options = screen.getAllByTestId('ask-answer-option');
     expect(options).toHaveLength(2);
     expect(options[0]?.textContent).toContain('指数退避');
     expect(options[0]?.textContent).toContain('推荐');
     expect(options[1]?.textContent).toContain('固定间隔');
+    // 静态消费点（未注入动作面）零应答入口
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 });
 
@@ -435,7 +439,7 @@ describe('AgentMessages：四变体气泡', () => {
 
 describe('AgentMessages：超长 user 提问默认折叠', () => {
   it('短提问（一二行）→ 无折叠触发按钮，正文直出', () => {
-    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} />);
 
     const [userBubble] = bubblesOfRole('user');
     expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-toggle')).toBeNull();
@@ -449,7 +453,7 @@ describe('AgentMessages：超长 user 提问默认折叠', () => {
       userMessage(0, long, 1),
       message(1, [{ kind: 'text', text: '答' }], null, 1),
     ];
-    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(events)} loading={false} />);
 
     const [userBubble] = bubblesOfRole('user');
     expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-preview')).not.toBeNull();
@@ -483,7 +487,7 @@ describe('AgentMessages：超长 user 提问默认折叠', () => {
       userMessage(0, long, 1),
       message(1, [{ kind: 'text', text: '答' }], null, 1),
     ];
-    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(events)} loading={false} />);
 
     const preview = screen.getByTestId('user-bubble-preview').textContent ?? '';
     expect(preview.endsWith('…')).toBe(true);
@@ -502,7 +506,7 @@ describe('AgentMessages：超长 user 提问默认折叠', () => {
       ],
     };
 
-    render(<AgentMessages messages={[message]} loading={false} running={false} />);
+    render(<AgentMessages messages={[message]} loading={false} />);
 
     expect(screen.queryByTestId('user-bubble-toggle')).toBeNull();
     expect(screen.queryByTestId('user-bubble-preview')).toBeNull();
@@ -515,7 +519,7 @@ describe('AgentMessages：超长 user 提问默认折叠', () => {
       userMessage(0, '一'.repeat(200), 1),
       message(1, [{ kind: 'text', text: '答' }], null, 1),
     ];
-    render(<AgentMessages messages={fold(events)} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(events)} loading={false} />);
 
     expect(screen.getByTestId('user-bubble-preview')).not.toBeNull();
     expect(screen.getByTestId('user-bubble-toggle').textContent).toContain('展开');
@@ -549,7 +553,7 @@ describe('AgentMessages：system 消息过滤', () => {
     const bubbles = fold(bubbleEvents());
     const messages = [...bubbles, ...carrierMessages];
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     // 载体消息的 data 部件不出现在对话透镜
     expect(screen.queryByTestId('event-run-started')).toBeNull();
@@ -570,7 +574,7 @@ describe('AgentMessages：system 消息过滤', () => {
 
 describe('AgentMessages：容器组合', () => {
   it('message-scroller 组合与滚动容器结构：Provider + 视口 + 内容 + 到底按钮', () => {
-    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} />);
 
     const section = screen.getByTestId('agent-messages');
     for (const className of ['flex', 'min-h-0', 'flex-1', 'flex-col']) {
@@ -590,7 +594,7 @@ describe('AgentMessages：容器组合', () => {
 
 describe('AgentMessages：空态与运行中态', () => {
   it('messages 为空 → empty 态呈现，不抛错', () => {
-    render(<AgentMessages messages={[]} loading={false} running={false} />);
+    render(<AgentMessages messages={[]} loading={false} />);
 
     expect(screen.getByTestId('conversation-empty') !== null).toBe(true);
     expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
@@ -598,37 +602,31 @@ describe('AgentMessages：空态与运行中态', () => {
 
   it('全为 system 载体消息（过滤后为空）→ empty 态呈现（判定基于过滤后列表）', () => {
     const messages = fold([runStarted(0, 1), systemNotice(1, 2)], []);
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(screen.getByTestId('conversation-empty') !== null).toBe(true);
     expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
   });
 
   it('loading 且可见列表为空 → 会话还原中态', () => {
-    render(<AgentMessages messages={[]} loading={true} running={false} />);
+    render(<AgentMessages messages={[]} loading={true} />);
 
     expect(screen.getByTestId('agent-messages-loading') !== null).toBe(true);
   });
 
   it('loading 但已有可见气泡 → 不呈现还原中态，气泡照常呈现', () => {
-    render(<AgentMessages messages={fold(bubbleEvents())} loading={true} running={false} />);
+    render(<AgentMessages messages={fold(bubbleEvents())} loading={true} />);
 
     expect(screen.queryByTestId('agent-messages-loading')).toBeNull();
     expect(bubblesOfRole('user')).toHaveLength(1);
     expect(bubblesOfRole('assistant')).toHaveLength(1);
   });
 
-  it('running 且无终态 record → 头部运行中标记呈现', () => {
-    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={true} />);
-
-    expect(screen.getByTestId('agent-messages-running') !== null).toBe(true);
-    expect(within(screen.getByTestId('agent-messages')).getByText('运行中…') !== null).toBe(true);
-  });
-
-  it('非运行态无运行中标记', () => {
-    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} running={false} />);
+  it('运行中标记已退役：头部不再有 agent-messages-running 节点', () => {
+    render(<AgentMessages messages={fold(bubbleEvents())} loading={false} />);
 
     expect(screen.queryByTestId('agent-messages-running')).toBeNull();
+    expect(within(screen.getByTestId('agent-messages')).queryByText('运行中…')).toBeNull();
   });
 });
 
@@ -643,7 +641,7 @@ describe('AgentMessages：全量虚拟窗口', () => {
       emptyTurnMessage(9000 + index, 'completed'),
     );
 
-    render(<AgentMessages messages={[...normal, ...empties]} loading={false} running={false} />);
+    render(<AgentMessages messages={[...normal, ...empties]} loading={false} />);
 
     const assistants = bubblesOfRole('assistant');
     expect(assistants.length).toBeGreaterThan(0);
@@ -656,7 +654,7 @@ describe('AgentMessages：全量虚拟窗口', () => {
   });
 
   it('同一 1000 条 fixture → 末项底边与内容底边对齐（末项 translateY + 估值 + paddingEnd = height）', () => {
-    render(<AgentMessages messages={turnConversation(1000)} loading={false} running={false} />);
+    render(<AgentMessages messages={turnConversation(1000)} loading={false} />);
     const viewport = screen
       .getByTestId('agent-messages')
       .querySelector<HTMLElement>('[data-slot="message-scroller-viewport"]');
@@ -689,7 +687,7 @@ describe('AgentMessages：全量虚拟窗口', () => {
 
 describe('AgentMessages：user 消息常驻吸附', () => {
   it('12 条 user → 吸附层恰 12 条（各一条 user 气泡），虚拟层 user 节点为零', () => {
-    render(<AgentMessages messages={turnConversation(24)} loading={false} running={false} />);
+    render(<AgentMessages messages={turnConversation(24)} loading={false} />);
 
     const stickies = stickyNodes();
     expect(stickies).toHaveLength(12);
@@ -703,7 +701,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
   });
 
   it('吸附层几何与虚拟项同基准：sticky top 逐条等于该索引的估值起点，且无 transform', () => {
-    render(<AgentMessages messages={turnConversation(24)} loading={false} running={false} />);
+    render(<AgentMessages messages={turnConversation(24)} loading={false} />);
     const roles = alternatingRoles(24);
     const starts = expectedStarts(roles);
 
@@ -716,7 +714,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
   });
 
   it('吸附层 span 首尾闭合：第 k 条 height = 第 k+1 条 top − 第 k 条 top，末条闭合到内容高度', () => {
-    render(<AgentMessages messages={turnConversation(24)} loading={false} running={false} />);
+    render(<AgentMessages messages={turnConversation(24)} loading={false} />);
     const stickies = stickyNodes();
     const tops = stickies.map((node) => Number.parseFloat(node.style.top));
     const heights = stickies.map((node) => Number.parseFloat(node.style.height));
@@ -730,7 +728,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
   });
 
   it('气泡同渲染件：吸附层 user 气泡为 tinted 泡 + 底衬容器，零渐变 / 有阴影', () => {
-    render(<AgentMessages messages={turnConversation(4)} loading={false} running={false} />);
+    render(<AgentMessages messages={turnConversation(4)} loading={false} />);
     const sticky = stickyNodes()[0] as HTMLElement;
     const inner = sticky.firstElementChild as HTMLElement;
 
@@ -748,14 +746,14 @@ describe('AgentMessages：user 消息常驻吸附', () => {
   it('异常：无 user 消息（全 assistant）→ 零吸附层节点，不抛错', () => {
     const messages = fold([message(1, [{ kind: 'text', text: '只有回答' }])]);
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(stickyNodes()).toHaveLength(0);
     expect(bubblesOfRole('assistant')).toHaveLength(1);
   });
 
   it('边界：单条 user → 恰 1 条 sticky，top 为 paddingStart、height 为内容高度减之', () => {
-    render(<AgentMessages messages={turnConversation(1)} loading={false} running={false} />);
+    render(<AgentMessages messages={turnConversation(1)} loading={false} />);
     const sticky = stickyNodes()[0] as HTMLElement;
     const total = contentHeight();
 
@@ -768,7 +766,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
   it('边界：单条 assistant（无 user）→ 零 sticky、恰 1 条 assistant 气泡', () => {
     const messages = fold([message(1, [{ kind: 'text', text: '只有回答' }])]);
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(stickyNodes()).toHaveLength(0);
     expect(bubblesOfRole('assistant')).toHaveLength(1);
@@ -781,9 +779,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     ];
 
     for (const [label, messages] of cases) {
-      const { unmount } = render(
-        <AgentMessages messages={messages} loading={false} running={false} />,
-      );
+      const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
       expect(stickyNodes(), label).toHaveLength(0);
       expect(itemNodes(), label).toHaveLength(0);
       expect(screen.getByTestId('conversation-empty'), label).not.toBeNull();
@@ -795,7 +791,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
   it('异常：吸附层高度回填 —— 实测 0 回落 estimateSize、实测 88 生效且账目随之变化', () => {
     vi.stubGlobal('ResizeObserver', ProgrammableResizeObserver);
     ProgrammableResizeObserver.instances = [];
-    render(<AgentMessages messages={turnConversation(2)} loading={false} running={false} />);
+    render(<AgentMessages messages={turnConversation(2)} loading={false} />);
     const roles = alternatingRoles(2);
     const baseHeight = expectedHeight(roles);
     expect(contentHeight()).toBe(baseHeight);
@@ -836,9 +832,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     }
     vi.stubGlobal('IntersectionObserver', CountingObserver);
 
-    const { container } = render(
-      <AgentMessages messages={turnConversation(30)} loading={false} running={false} />,
-    );
+    const { container } = render(<AgentMessages messages={turnConversation(30)} loading={false} />);
 
     expect(CountingObserver.instances).toBe(0);
     expect(screen.queryByTestId('history-load-hint')).toBeNull();
@@ -869,13 +863,11 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     expect(filterConversation(usersFixture)).toHaveLength(6);
     expect(filterConversation(assistantsFixture)).toHaveLength(6);
 
-    const users = render(<AgentMessages messages={usersFixture} loading={false} running={false} />);
+    const users = render(<AgentMessages messages={usersFixture} loading={false} />);
     const userHeight = contentHeight();
     users.unmount();
 
-    const assistants = render(
-      <AgentMessages messages={assistantsFixture} loading={false} running={false} />,
-    );
+    const assistants = render(<AgentMessages messages={assistantsFixture} loading={false} />);
     const assistantHeight = contentHeight();
     assistants.unmount();
 
@@ -890,14 +882,14 @@ describe('AgentMessages：user 消息常驻吸附', () => {
 describe('AgentMessages：首帧与换会话贴底复位', () => {
   it('正向：换会话（sessionId A → B、条数不变）→ 视口复位回末端目标值', () => {
     const { rerender } = render(
-      <AgentMessages messages={sessionConversation('A')} loading={false} running={false} />,
+      <AgentMessages messages={sessionConversation('A')} loading={false} />,
     );
     const scroll = installScrollStub();
 
     act(() => {
       scroll.setTop(0);
     });
-    rerender(<AgentMessages messages={sessionConversation('B')} loading={false} running={false} />);
+    rerender(<AgentMessages messages={sessionConversation('B')} loading={false} />);
 
     // 复位键经透镜重渲染通道成立：两侧非 null 且不等 ⇒ 贴底一次
     expect(scroll.top()).toBe(endTarget());
@@ -918,7 +910,7 @@ describe('AgentMessages：首帧与换会话贴底复位', () => {
 
   it('异常：同会话追加（sessionId 不变、尾部新增消息）→ 不把视口拽回末端', () => {
     const base = sessionConversation('A');
-    const { rerender } = render(<AgentMessages messages={base} loading={false} running={false} />);
+    const { rerender } = render(<AgentMessages messages={base} loading={false} />);
     const scroll = installScrollStub();
 
     act(() => {
@@ -934,7 +926,6 @@ describe('AgentMessages：首帧与换会话贴底复位', () => {
           ),
         ]}
         loading={false}
-        running={false}
       />,
     );
 
@@ -947,9 +938,7 @@ describe('AgentMessages：首帧与换会话贴底复位', () => {
     // 首轮未收口：轮行缺席 ⇒ conversationIdentity 返回 null
     expect(before[0]?.metadata?.record ?? null).toBeNull();
 
-    const { rerender } = render(
-      <AgentMessages messages={before} loading={false} running={false} />,
-    );
+    const { rerender } = render(<AgentMessages messages={before} loading={false} />);
     const scroll = installScrollStub();
 
     act(() => {
@@ -959,7 +948,6 @@ describe('AgentMessages：首帧与换会话贴底复位', () => {
       <AgentMessages
         messages={fold([message(1, [{ kind: 'text', text: '答' }])], [recordRow('completed', 1)])}
         loading={false}
-        running={false}
       />,
     );
 
@@ -985,7 +973,7 @@ describe('AgentMessages：空内容轮可见性判据', () => {
       emptyTurnMessage(42, 'completed'),
     ];
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(bubblesOfRole('assistant')).toHaveLength(2);
     expect(bubblesOfRole('user')).toHaveLength(1);
@@ -1001,7 +989,7 @@ describe('AgentMessages：空内容轮可见性判据', () => {
       ...Array.from({ length: 50 }, (_, index) => emptyTurnMessage(5000 + index, 'completed')),
     ];
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(contentHeight()).toBe(expectedHeight(alternatingRoles(1000)));
     expect(bubblesOfRole('user')).toHaveLength(500);
@@ -1014,9 +1002,7 @@ describe('AgentMessages：空内容轮可见性判据', () => {
         ...turnConversation(2),
         emptyTurnMessage(status === 'failed' ? 7 : 8, status),
       ];
-      const { unmount } = render(
-        <AgentMessages messages={messages} loading={false} running={false} />,
-      );
+      const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
 
       // 状态行载体在透镜内 ⇒ 计入 count 与账目高度
       expect(screen.getByTestId('turn-status-line').getAttribute('data-status'), status).toBe(
@@ -1070,7 +1056,7 @@ describe('AgentMessages：空内容轮可见性判据', () => {
     const messages = fold(events);
     expect(messages.find((message) => message.role === 'assistant')?.parts).toHaveLength(1);
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(bubblesOfRole('user')).toHaveLength(1);
     expect(bubblesOfRole('assistant')).toHaveLength(1);
@@ -1093,7 +1079,7 @@ describe('AgentMessages：轮内状态行', () => {
       },
     };
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     const line = screen.getByTestId('turn-status-line');
     expect(line.getAttribute('data-status')).toBe('failed');
@@ -1110,7 +1096,7 @@ describe('AgentMessages：轮内状态行', () => {
   it('空 parts + stopped（error 为 null）→ 「已停止」状态行，无原文 details', () => {
     const messages: AgentUIMessage[] = [emptyTurnMessage(8, 'stopped')];
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     const line = screen.getByTestId('turn-status-line');
     expect(line.getAttribute('data-status')).toBe('stopped');
@@ -1124,7 +1110,7 @@ describe('AgentMessages：轮内状态行', () => {
       [recordRow('stopped', 1)],
     );
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(screen.queryByTestId('turn-status-line')).toBeNull();
     expect(bubblesOfRole('user')).toHaveLength(1);
@@ -1138,7 +1124,7 @@ describe('AgentMessages：轮内状态行', () => {
     );
 
     expect(messages[0]?.metadata?.record?.status).toBe('failed');
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     expect(screen.queryByTestId('turn-status-line')).toBeNull();
     expect(bubblesOfRole('assistant')).toHaveLength(1);
@@ -1176,9 +1162,7 @@ describe('AgentMessages：轮内状态行', () => {
           parts,
         },
       ];
-      const { unmount } = render(
-        <AgentMessages messages={messages} loading={false} running={false} />,
-      );
+      const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
       expect(screen.getByTestId('turn-status-line'), label).toBeTruthy();
       if (expected === null) {
         expect(screen.queryByTestId('turn-status-line-raw'), label).toBeNull();
@@ -1214,9 +1198,7 @@ describe('AgentMessages：轮内状态行', () => {
           ],
         },
       ];
-      const { unmount } = render(
-        <AgentMessages messages={messages} loading={false} running={false} />,
-      );
+      const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
       expect(screen.getByTestId('turn-status-line')).toBeTruthy();
       expect(screen.queryByTestId('turn-status-line-raw')).toBeNull();
       unmount();
@@ -1226,7 +1208,7 @@ describe('AgentMessages：轮内状态行', () => {
   it('可见性判据单一来源：空 parts + failed 既计入虚拟列表账目又只渲染一次状态行', () => {
     const messages = [...turnConversation(4), emptyTurnMessage(700, 'failed')];
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     // 过滤保留 ⇒ 计入 count 与账目高度
     expect(contentHeight()).toBe(
@@ -1252,9 +1234,7 @@ describe('AgentMessages：轮内状态行', () => {
             parts,
           },
         ];
-        const { unmount } = render(
-          <AgentMessages messages={messages} loading={false} running={false} />,
-        );
+        const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
         const shown = status === 'failed' || status === 'stopped';
         expect(screen.queryAllByTestId('turn-status-line')).toHaveLength(shown ? 1 : 0);
         expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(shown ? 1 : 0);
@@ -1272,9 +1252,7 @@ describe('AgentMessages：轮内状态行', () => {
 
     for (const metadata of variants) {
       const messages: AgentUIMessage[] = [{ id: 'turn-1', role: 'assistant', metadata, parts: [] }];
-      const { unmount } = render(
-        <AgentMessages messages={messages} loading={false} running={false} />,
-      );
+      const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
       expect(screen.queryByTestId('turn-status-line')).toBeNull();
       expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
       unmount();
@@ -1295,9 +1273,7 @@ describe('AgentMessages：轮内状态行', () => {
           parts: [],
         },
       ];
-      const { unmount } = render(
-        <AgentMessages messages={messages} loading={false} running={false} />,
-      );
+      const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
       expect(screen.queryByTestId('turn-status-line')).toBeNull();
       expect(screen.queryAllByTestId('chat-bubble')).toHaveLength(0);
       unmount();
@@ -1325,13 +1301,7 @@ describe('AgentMessages：一轮一条气泡与搜索两段合轮', () => {
       ),
     ];
 
-    render(
-      <AgentMessages
-        messages={fold(events, [recordRow('completed', 1)])}
-        loading={false}
-        running={false}
-      />,
-    );
+    render(<AgentMessages messages={fold(events, [recordRow('completed', 1)])} loading={false} />);
 
     const assistants = bubblesOfRole('assistant');
     expect(assistants).toHaveLength(1);
@@ -1381,7 +1351,7 @@ describe('AgentMessages：一轮一条气泡与搜索两段合轮', () => {
     ];
 
     const messages = fold(events, [recordRow('completed', 1)]);
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     const assistants = bubblesOfRole('assistant');
     expect(assistants).toHaveLength(1);
@@ -1426,7 +1396,7 @@ describe('AgentMessages：text 部件 citations 传递', () => {
       },
     ];
 
-    render(<AgentMessages messages={messages} loading={false} running={false} />);
+    render(<AgentMessages messages={messages} loading={false} />);
 
     const lists = screen.getAllByTestId('block-citations');
     expect(lists).toHaveLength(1);
@@ -1464,9 +1434,7 @@ describe('AgentMessages：text 部件 citations 传递', () => {
           ],
         },
       ];
-      const { unmount } = render(
-        <AgentMessages messages={messages} loading={false} running={false} />,
-      );
+      const { unmount } = render(<AgentMessages messages={messages} loading={false} />);
       expect(screen.queryByTestId('block-citations')).toBeNull();
       expect(screen.getByTestId('block-text')).toBeTruthy();
       unmount();
@@ -1504,9 +1472,26 @@ function twoAskEvents(): AgentEvent[] {
   ];
 }
 
-/** 活卡选项按钮（`ask-answer-option`）文本集合。 */
+/** 活卡卡片（含提交入口的 ask 卡根；静态卡的选项行恒在，故以提交入口为判据）。 */
+function liveAskCards(): HTMLElement[] {
+  return screen
+    .queryAllByTestId('ask-question-card')
+    .filter((card) => within(card).queryAllByTestId('ask-answer-submit').length > 0);
+}
+
+/** 活卡选项标签集合（静态卡不进）。 */
 function liveAskLabels(): string[] {
-  return screen.queryAllByTestId('ask-answer-option').map((node) => node.textContent ?? '');
+  return liveAskCards().flatMap((card) =>
+    within(card)
+      .queryAllByTestId('ask-answer-option')
+      .map((node) => node.textContent ?? ''),
+  );
+}
+
+/** 在指定卡片内选一项并提交（新卡形态：选项点击不再即时应答）。 */
+function answerIn(card: HTMLElement, optionIndex: number): void {
+  fireEvent.click(within(card).getAllByTestId('ask-answer-option')[optionIndex] as HTMLElement);
+  fireEvent.click(within(card).getByTestId('ask-answer-submit'));
 }
 
 /** 一轮对话含两条 ask 工具调用：`call_1` 无结果态（`input-available`）、
@@ -1541,12 +1526,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
   it('未提供 pendingToolCallId（undefined）→ 按「无结果态」判活：两条均活卡', () => {
     const onAnswer = vi.fn();
     render(
-      <AgentMessages
-        messages={fold(twoAskEvents())}
-        loading={false}
-        running
-        askAnswer={{ onAnswer }}
-      />,
+      <AgentMessages messages={fold(twoAskEvents())} loading={false} askAnswer={{ onAnswer }} />,
     );
     expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
   });
@@ -1554,12 +1534,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
   it('未提供 pendingToolCallId（undefined）× 两 state：未配对即活、已配对（output-available）即静', () => {
     const onAnswer = vi.fn();
     render(
-      <AgentMessages
-        messages={fold(pairedAskEvents())}
-        loading={false}
-        running={false}
-        askAnswer={{ onAnswer }}
-      />,
+      <AgentMessages messages={fold(pairedAskEvents())} loading={false} askAnswer={{ onAnswer }} />,
     );
     const cards = screen.getAllByTestId('ask-question-card');
     expect(cards).toHaveLength(2);
@@ -1572,12 +1547,12 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
         .map((node) => node.textContent),
     ).toEqual(['甲', '乙']);
     expect(within(unpaired).queryAllByTestId('ask-answer-input')).toHaveLength(1);
+    expect(within(unpaired).queryAllByTestId('ask-answer-submit')).toHaveLength(1);
 
-    // call_2 结果已回灌（output-available）→ 静态只读卡（配对即静）
-    expect(within(paired).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    // call_2 结果已回灌（output-available）→ 静态卡（配对即静）：选项只读、零应答入口
+    expect(within(paired).queryAllByTestId('ask-answer-option')).toHaveLength(2);
     expect(within(paired).queryAllByTestId('ask-answer-input')).toHaveLength(0);
     expect(within(paired).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
-    expect(within(paired).queryAllByTestId('ask-option')).toHaveLength(2);
   });
 
   it('pendingToolCallId = null → 全静态（历史重放零应答入口）', () => {
@@ -1586,14 +1561,14 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={fold(twoAskEvents())}
         loading={false}
-        running={false}
         askAnswer={{ onAnswer, pendingToolCallId: null }}
       />,
     );
     expect(liveAskLabels()).toEqual([]);
-    // 静态形态：只读行 + 零输入框
-    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+    // 静态形态：选项行照常可读（两卡各两条），零输入框、零提交
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(4);
     expect(screen.queryAllByTestId('ask-answer-input')).toHaveLength(0);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 
   it('pendingToolCallId = "call_2" → 仅 call_2 活（三态矩阵的精确对账）', () => {
@@ -1602,13 +1577,13 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={fold(twoAskEvents())}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_2' }}
       />,
     );
     expect(liveAskLabels()).toEqual(['丙', '丁']);
-    // call_1 仍为静态只读行（两条只读行在 call_1 卡内）
-    expect(screen.queryAllByTestId('ask-option')).toHaveLength(2);
+    // 选项行两卡各两条（静态卡的只读行仍在），但提交入口只有活卡一处
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(4);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(1);
   });
 
   it('pendingToolCallId 不匹配任何 id → 零活卡（不误呈）', () => {
@@ -1617,26 +1592,31 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={fold(twoAskEvents())}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_404' }}
       />,
     );
     expect(liveAskLabels()).toEqual([]);
-    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 
-  it('点活卡选项 → onAnswer 收到选项标签（动作面只达 ask 卡）', () => {
+  it('点选项再提交 → onAnswer 收到该问的 JSON map（动作面只达 ask 卡）', () => {
     const onAnswer = vi.fn();
     render(
       <AgentMessages
         messages={fold(twoAskEvents())}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
       />,
     );
-    fireEvent.click(screen.getAllByTestId('ask-answer-option')[1] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledWith('乙');
+    const [live] = liveAskCards();
+    expect(live).toBeDefined();
+    // 选项点击本身不投递
+    fireEvent.click(
+      within(live as HTMLElement).getAllByTestId('ask-answer-option')[1] as HTMLElement,
+    );
+    expect(onAnswer).not.toHaveBeenCalled();
+    fireEvent.click(within(live as HTMLElement).getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"乙"}']]);
   });
 
   it('pendingToolCallId = ""（空串）→ 不匹配任何部件，全静态且零 panic', () => {
@@ -1645,20 +1625,20 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={fold(twoAskEvents())}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: '' }}
       />,
     );
     // 三态矩阵的退化取值：空串是「已给出但无对账目标」，不是「未给出」
     expect(liveAskLabels()).toEqual([]);
     expect(screen.queryAllByTestId('ask-answer-input')).toHaveLength(0);
-    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 
   it('askAnswer 缺席 → 全静态（既有形态零漂移）', () => {
-    render(<AgentMessages messages={fold(twoAskEvents())} loading={false} running={false} />);
+    render(<AgentMessages messages={fold(twoAskEvents())} loading={false} />);
     expect(liveAskLabels()).toEqual([]);
-    expect(screen.queryAllByTestId('ask-option')).toHaveLength(4);
+    expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(4);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 
   it('其它三张内建卡不吃动作面：同轮 Bash 卡零交互面（memo 不被击穿）', () => {
@@ -1689,7 +1669,6 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={fold(events)}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_ask' }}
       />,
     );
@@ -1733,7 +1712,6 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={fold(events)}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_ask3' }}
       />,
     );
@@ -1758,22 +1736,17 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
     expect(within(askCard).getAllByTestId('ask-answer-option')).toHaveLength(1);
   });
 
-  it('onAnswer 透传唯一性：多个活卡并存时点任一卡 → onAnswer 恰一次且参数为该卡选项', () => {
+  it('onAnswer 透传唯一性：多个活卡并存时提交任一卡 → onAnswer 恰一次且参数为该卡的 JSON map', () => {
     const onAnswer = vi.fn();
     render(
-      <AgentMessages
-        messages={fold(twoAskEvents())}
-        loading={false}
-        running
-        askAnswer={{ onAnswer }}
-      />,
+      <AgentMessages messages={fold(twoAskEvents())} loading={false} askAnswer={{ onAnswer }} />,
     );
-    const buttons = screen.getAllByTestId('ask-answer-option');
-    expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙', '丙', '丁']);
+    const cards = liveAskCards();
+    expect(cards).toHaveLength(2);
 
-    // 点第二张卡（call_2）的选项 → 只投该卡的选项文本，不串卡
-    fireEvent.click(buttons[2] as HTMLElement);
-    expect(onAnswer.mock.calls).toEqual([['丙']]);
+    // 提交第二张卡（call_2）的选项 → 只投该卡的值，不串卡
+    answerIn(cards[1] as HTMLElement, 0);
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"丙"}']]);
   });
 
   it('引用稳定（DD12）：每渲染新造 askAnswer 对象但两字段同值 → 下游卡片收到同一引用', () => {
@@ -1784,7 +1757,6 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={messages}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
       />,
     );
@@ -1800,7 +1772,6 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={messages}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
       />,
     );
@@ -1815,21 +1786,16 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
     const first = fold(twoAskEvents());
     cardSpy.refs.length = 0;
     const { rerender } = render(
-      <AgentMessages messages={first} loading={false} running askAnswer={{ onAnswer }} />,
+      <AgentMessages messages={first} loading={false} askAnswer={{ onAnswer }} />,
     );
-    expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
+    expect(liveAskCards()).toHaveLength(2);
 
     // messages 换引用（等价内容）——askAnswer 两字段同值，合成引用保持
     cardSpy.refs.length = 0;
     rerender(
-      <AgentMessages
-        messages={fold(twoAskEvents())}
-        loading={false}
-        running
-        askAnswer={{ onAnswer }}
-      />,
+      <AgentMessages messages={fold(twoAskEvents())} loading={false} askAnswer={{ onAnswer }} />,
     );
-    expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
+    expect(liveAskCards()).toHaveLength(2);
   });
 
   it('引用稳定（DD12）：onAnswer 引用变 → 下游卡片同拍换实现（不冻结旧闭包）', () => {
@@ -1838,25 +1804,20 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
     const messages = fold(twoAskEvents());
     cardSpy.refs.length = 0;
     const { rerender } = render(
-      <AgentMessages messages={messages} loading={false} running askAnswer={{ onAnswer: first }} />,
+      <AgentMessages messages={messages} loading={false} askAnswer={{ onAnswer: first }} />,
     );
     const initial = cardSpy.refs.find((ref) => ref !== null) as NonNullable<AskAnswerActions>;
 
     cardSpy.refs.length = 0;
     rerender(
-      <AgentMessages
-        messages={messages}
-        loading={false}
-        running
-        askAnswer={{ onAnswer: second }}
-      />,
+      <AgentMessages messages={messages} loading={false} askAnswer={{ onAnswer: second }} />,
     );
     const updated = cardSpy.refs.find((ref) => ref !== null) as NonNullable<AskAnswerActions>;
 
     expect(updated).not.toBe(initial);
     expect(updated.onAnswer).toBe(second);
-    fireEvent.click(screen.getAllByTestId('ask-answer-option')[0] as HTMLElement);
-    expect(second).toHaveBeenCalledWith('甲');
+    answerIn(liveAskCards()[0] as HTMLElement, 0);
+    expect(second).toHaveBeenCalledWith('{"Q1":"甲"}');
     expect(first).not.toHaveBeenCalled();
   });
 
@@ -1867,7 +1828,6 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={messages}
         loading={false}
-        running
         askAnswer={{ onAnswer, pendingToolCallId: 'call_1' }}
       />,
     );
@@ -1877,10 +1837,10 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
       <AgentMessages
         messages={messages}
         loading={false}
-        running={false}
         askAnswer={{ onAnswer, pendingToolCallId: null }}
       />,
     );
     expect(liveAskLabels()).toEqual([]);
+    expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 });

@@ -1100,7 +1100,7 @@ function renderWithAsk(
 }
 
 describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
-  it('传 askAnswer（精确 toolCallId）→ 面板活卡可点即回调 onAnswer', async () => {
+  it('传 askAnswer（精确 toolCallId）→ 面板活卡提交即回调 onAnswer', async () => {
     detailFixture = {
       [REFRESH_SESSION]: transcriptSession(REFRESH_SESSION, `${CHANGE_ID}/implement/executor/2`),
     };
@@ -1122,7 +1122,8 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
     }
 
     fireEvent.click(buttons[1] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledWith('dev-design');
+    fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"dev-design"}']]);
   });
 
   it('非会话选中对象（scope=column）→ 不渲染会话面板，askAnswer 零消费', async () => {
@@ -1155,8 +1156,10 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
 
     renderWithAsk(world([runtimeNode()]), undefined);
     const panel = await screen.findByTestId('session-transcript-panel');
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
-    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     // 探针判据：缺省即下游每条渲染都收不到动作面
     expect(recordedPanelProps().length).toBeGreaterThan(0);
     for (const props of recordedPanelProps()) expect(props.askAnswer).toBeUndefined();
@@ -1172,8 +1175,10 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
 
     renderWithAsk(world([runtimeNode()]), askAnswer);
     const panel = await screen.findByTestId('session-transcript-panel');
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
-    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(onAnswer).not.toHaveBeenCalled();
     // 探针判据：`null` 指针按值直通（对象同一、非重建）
     expect(lastPanelProps().askAnswer).toBe(askAnswer);
@@ -1215,15 +1220,20 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
 
     renderWithAsk(world([runtimeNode()]), askAnswer);
     const panel = await screen.findByTestId('session-transcript-panel');
-    const buttons = await within(panel).findAllByTestId('ask-answer-option');
-    // 仅 call_b 的选项成为活卡按钮（call_a 保持静态只读行）
+    // 两卡各两条选项行，但提交入口只在 call_b（当前等待条目）卡内
+    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(4);
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(1);
+    const liveCard = within(panel)
+      .getAllByTestId('ask-question-card')
+      .find((card) => within(card).queryAllByTestId('ask-answer-submit').length > 0)!;
+    const buttons = within(liveCard).getAllByTestId('ask-answer-option');
     expect(buttons.map((node) => node.textContent)).toEqual(['丙', '丁']);
-    expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2);
     // 探针判据：判活指针沿链条原值直通（未被重建为新对象）
     expect(lastPanelProps().askAnswer).toBe(askAnswer);
     expect(lastPanelProps().askAnswer?.pendingToolCallId).toBe('call_b');
 
     fireEvent.click(buttons[0] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledWith('丙');
+    fireEvent.click(within(liveCard).getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"丙"}']]);
   });
 });

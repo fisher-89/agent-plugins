@@ -1211,7 +1211,9 @@ describe('ExploreDetailPane：ChatPane 运行态边界（库态 running 禁发�
     await waitFor(() =>
       expect(within(chat).getByTestId('session-meta-status').textContent).toBe('运行中'),
     );
-    expect(within(chat).getByTestId('agent-messages-running')).toBeTruthy();
+    // 运行中标记已退役：运行态由会话徽标 + 停止入口承载
+    expect(within(chat).queryByTestId('agent-messages-running')).toBeNull();
+    expect(within(chat).getByTestId('session-meta-status').textContent).toBe('运行中');
     await waitFor(() => expect(watched).toEqual(['ses-explore-1']));
 
     // 发送入口保持可点（运行中守卫在会话层）——输入非空后点击零 agent_start
@@ -1347,6 +1349,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     expect(buttons.map((node) => node.textContent)).toEqual(['指数退避', '固定间隔']);
 
     fireEvent.click(buttons[1] as HTMLElement);
+    fireEvent.click(within(chat).getByTestId('ask-answer-submit'));
     await act(async () => {});
 
     const answerCall = invokeMock.mock.calls.filter(([name]) => name === 'agent_answer').at(-1);
@@ -1354,7 +1357,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     expect(answerCall?.[1]).toEqual({
       root: ROOT,
       sessionId: 'ses-explore-1',
-      text: '固定间隔',
+      text: '{"Q1":"固定间隔"}',
     });
   });
 
@@ -1396,12 +1399,13 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     expect(buttons.map((node) => node.textContent)).toEqual(['是', '否']);
 
     fireEvent.click(buttons[1] as HTMLElement);
+    fireEvent.click(within(chat).getByTestId('ask-answer-submit'));
     await act(async () => {});
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(1);
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')[0]?.[1]).toEqual({
       root: ROOT,
       sessionId: 'ses-explore-1',
-      text: '否',
+      text: '{"Q1":"否"}',
     });
   });
 
@@ -1411,6 +1415,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     const chat = await screen.findByTestId('explore-chat');
     await waitFor(() => expect(within(chat).getAllByTestId('block-text')).toHaveLength(1));
     expect(within(chat).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(within(chat).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(0);
   });
 
@@ -1449,6 +1454,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     const buttons = await within(chat).findAllByTestId('ask-answer-option');
     expect(buttons.map((node) => node.textContent)).toEqual(['是', '否']);
     fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(within(chat).getByTestId('ask-answer-submit'));
     await act(async () => {});
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(1);
   });
@@ -1540,6 +1546,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     // 会话未建立：ask 部件不成活卡（无会话即不装载转录 → 连静态卡都不出现），
     // 且零应答 invoke（answer 内部 null 守卫的另一半）
     expect(within(chat).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    expect(within(chat).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')).toHaveLength(0);
   });
 });

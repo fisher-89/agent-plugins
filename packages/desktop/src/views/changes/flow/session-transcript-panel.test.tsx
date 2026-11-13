@@ -480,7 +480,8 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     }
 
     fireEvent.click(buttons[0] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledWith('proposal');
+    fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"proposal"}']]);
   });
 
   it('两 ask 部件精确对账：pendingToolCallId 指向者活、另一张静态，切换后互为镜像', async () => {
@@ -505,24 +506,25 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
       HTMLElement,
     ];
 
-    // call_2 活卡：两条选项按钮 + 输入框；call_1 静态只读：单条只读行、零输入
+    // call_2 活卡：两条选项 + 输入框 + 提交；call_1 静态：单条只读选项行、零应答入口
     expect(
       within(second)
         .getAllByTestId('ask-answer-option')
         .map((node) => node.textContent),
     ).toEqual(['方案甲', '方案乙']);
     expect(within(second).queryAllByTestId('ask-answer-input')).toHaveLength(1);
-    expect(within(first).queryAllByTestId('ask-answer-option')).toHaveLength(0);
-    expect(within(first).queryAllByTestId('ask-option')).toHaveLength(1);
+    expect(within(second).queryAllByTestId('ask-answer-submit')).toHaveLength(1);
+    expect(within(first).queryAllByTestId('ask-answer-option')).toHaveLength(1);
+    expect(within(first).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
 
     // 探针判据：判活指针按值直通（对象同一、字段原值，未被重建）
     expect(lastViewProps().askAnswer).toBe(toSecond);
     expect(lastViewProps().askAnswer?.pendingToolCallId).toBe('call_2');
 
-    // 点活卡选项 → onAnswer 恰一次且参数为 call_2 的选项文本（不串卡）
+    // 活卡选一条 + 提交 → onAnswer 恰一次，载荷为该问的 JSON map（不串卡）
     fireEvent.click(within(second).getAllByTestId('ask-answer-option')[1] as HTMLElement);
-    expect(onAnswer).toHaveBeenCalledTimes(1);
-    expect(onAnswer).toHaveBeenCalledWith('方案乙');
+    fireEvent.click(within(second).getByTestId('ask-answer-submit'));
+    expect(onAnswer.mock.calls).toEqual([['{"Q1":"方案乙"}']]);
 
     // 指针切到 call_1 → 两卡活性互为镜像
     const toFirst = { onAnswer, pendingToolCallId: 'call_1' };
@@ -545,8 +547,8 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
         .getAllByTestId('ask-answer-option')
         .map((node) => node.textContent),
     ).toEqual(['proposal']);
-    expect(within(mirroredSecond).queryAllByTestId('ask-answer-option')).toHaveLength(0);
-    expect(within(mirroredSecond).queryAllByTestId('ask-option')).toHaveLength(2);
+    expect(within(mirroredSecond).queryAllByTestId('ask-answer-option')).toHaveLength(2);
+    expect(within(mirroredSecond).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(lastViewProps().askAnswer).toBe(toFirst);
     expect(lastViewProps().askAnswer?.pendingToolCallId).toBe('call_1');
   });
@@ -560,8 +562,10 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     await act(async () => {});
 
     const panel = screen.getByTestId('session-transcript-panel');
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
-    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     // 探针判据：`null` 指针按值直通（非缺省键、非重建为新对象）
     expect(lastViewProps().askAnswer).toBe(askAnswer);
     expect(lastViewProps().askAnswer?.pendingToolCallId).toBeNull();
@@ -572,8 +576,10 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     await mounted();
 
     const panel = screen.getByTestId('session-transcript-panel');
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
-    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(screen.queryByTestId('explore-send')).toBeNull();
     expect(screen.queryByTestId('explore-stop')).toBeNull();
     expect(callsOf('agent_start')).toHaveLength(0);
@@ -595,8 +601,10 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     await mounted();
 
     const panel = screen.getByTestId('session-transcript-panel');
-    await waitFor(() => expect(within(panel).queryAllByTestId('ask-option')).toHaveLength(2));
-    expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(0);
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(within(panel).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
     expect(within(panel).queryAllByTestId('ask-answer-input')).toHaveLength(0);
     expect(callsOf('change_flow_answer')).toHaveLength(0);
     expect(callsOf('agent_answer')).toHaveLength(0);
