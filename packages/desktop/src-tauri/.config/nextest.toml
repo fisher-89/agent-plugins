@@ -1,0 +1,11 @@
+# 卡死用例的硬上界：防「永不结束的 SLOW」静默挂住整个门禁。
+#
+# 现场：执行体 future 被 drop 时若遗留持有管道写端的孙进程，tokio 阻塞线程池会被
+# 钉死到该进程退出，runtime 析构无界等待——用例既不打 PASS 也不打 FAIL，nextest
+# 只持续输出 `SLOW [>600s]`，整套门禁静默空转十余分钟才被人发现。
+#
+# 取值依据：全量套件（含 llvm-cov 插桩、并发满载）实测最长合法用例 ≈ 40 s
+# （见 reports/*/junit.xml），period × terminate-after = 240 s 留 6 倍余量。
+# period 同时是 SLOW 行的步长——正常用例不会被误杀，真挂死者 4 分钟内判 FAIL。
+[profile.default]
+slow-timeout = { period = "120s", terminate-after = 2 }

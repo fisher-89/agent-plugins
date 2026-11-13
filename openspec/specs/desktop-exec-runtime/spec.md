@@ -99,6 +99,8 @@
 
 作业成员资格 MUST NOT 依赖父子关系快照：`taskkill /T` 按调用时刻的父子关系向下遍历，msys（Git for Windows bash）fork 副本可能换过父 pid 而被报成功却漏杀；漏杀者继承执行体的管道写端，排水永不 EOF，进而钉死 tokio 阻塞线程池（runtime 析构无界等待）。作业挂载 MUST 紧贴 `spawn`（assign 之前创建的后代不进作业），且作业句柄 MUST NOT 设置 `KILL_ON_JOB_CLOSE`——自然退出臂的「孤儿孙进程存续、排水有界截断」语义不受影响。
 
+作业对象 SHALL 兼任**异常展开路径**的兜底：执行体走不到任何收口代码时（future 被 drop——调用方 abort / panic 展开 / 外层 `select` 取消），`kill_on_drop` 只杀直接子进程，孙进程仍会带着继承的管道写端存活。故 `JobTree` SHALL 在 `Drop` 上整组终止，且仅在**未解除武装**时生效——自然退出臂须先解除武装（`disarm`），使孤儿孙进程按前款语义存续；被杀两臂显式 `terminate` 后同样处于解除武装态（幂等，`Drop` 不重复终止）。执行体 MUST NOT 依赖 `kill_on_drop` 作为孙进程回收手段。
+
 收尸后排水任务 MUST 以管道关闭后的 EOF 收口，MUST NOT 悬挂于未关闭管道。
 
 检查域 MUST NOT 残留裸 `tokio::time::timeout` + `start_kill` 组合，也 MUST NOT 保留各调用点私有的管道排水助手（`read_all` 一类）。
@@ -112,6 +114,11 @@
 
 - **WHEN** 被 spawn 的壳进程派生子进程与孙进程（各自把 pid 写入文件），随后触发超时或取消
 - **THEN** Windows 上壳进程与全部子孙进程均终止（pid 文件记录的进程在到期后可观测为不存在），执行体完成收尸并返回 `TimedOut` / `Cancelled`
+
+#### Scenario: future 被 drop 时孙进程同样被回收
+
+- **WHEN** 执行体 future 在子进程仍在运行时被 drop（调用方 abort / panic 展开），从未走到任何收口代码
+- **THEN** Windows 上该子进程派生的孙进程 MUST 在作业对象 `Drop` 后终止（`kill_on_drop` 只覆盖直接子进程，不足以收敛持管道写端的孙进程）
 
 #### Scenario: 收尸后不悬挂于管道
 
@@ -398,8 +405,8 @@
 
 | 模块 | 定位 | 关键契约（Function / API） |
 |------|------|------|
-| `crates/infra/exec/src/run.rs`（新） | 统一执行体 | `run_shell(command: SystemCommand, options: RunOptions) -> RunReport`：spawn（`kill_on_drop`）→ 紧贴 spawn 挂作业对象（Windows）→ 双管道并发排水 → `select!`（取消轮询 200 ms / timeout / `wait`）→ `JobTree::terminate` + `kill_tree` + 收尸；外层按 `RetryPolicy` 循环（复用同一 `attempt_once`） |
-| `crates/infra/exec/src/job.rs`（新） | 进程树回收 | `JobTree::attach(&tokio::process::Child) -> Option<JobTree>`（Windows：`CreateJobObjectW` + `AssignProcessToJobObject`；失败返 `None` 由调用方回落 `taskkill` 语义）、`JobTree::terminate(&self)`（`TerminateJobObject`）、`Drop` 关句柄；非 Windows 为零行为差异空实现（`attach` 恒 `None`、`terminate` 空操作）。不设 `KILL_ON_JOB_CLOSE` |
+| `crates/infra/exec/src/run.rs`（新） | 统一执行体 | `run_shell(command: SystemCommand, options: RunOptions) -> RunReport`：spawn（`kill_on_drop`）→ 紧贴 spawn 挂作业对象（Windows）→ 双管道并发排水 → `select!`（取消轮询 200 ms / timeout / `wait`）→ `JobTree::terminate` + `kill_tree` + 收尸；自然退出臂先 `JobTree::disarm`（孤儿孙进程存续）；外层按 `RetryPolicy` 循环（复用同一 `attempt_once`） |
+| `crates/infra/exec/src/job.rs`（新） | 进程树回收 | `JobTree::attach(&tokio::process::Child) -> Option<JobTree>`（Windows：`CreateJobObjectW` + `AssignProcessToJobObject`；失败返 `None` 由调用方回落 `taskkill` 语义）、`JobTree::terminate(&mut self)`（`TerminateJobObject` + 解除武装，幂等）、`JobTree::disarm(&mut self)`（自然退出臂解除武装）、`Drop` 未解除武装时整组终止再关句柄（future 被 drop 的兜底）；非 Windows 为零行为差异空实现（`attach` 恒 `None`、`terminate` / `disarm` 空操作）。不设 `KILL_ON_JOB_CLOSE` |
 | 同上 | 执行入参 | `RunOptions { cwd: Option<PathBuf>, env: Vec<(OsString, OsString)>, timeout: Duration /* 必填 */, cancel: CancelFlag, retry: RetryPolicy, live: Option<LiveSink> }` |
 | 同上 | 执行产出 | `RunOutcome { Completed, TimedOut, Cancelled }`；`RunReport { outcome, exit_code: i32 /* TimedOut/Cancelled 为 -1 */, stdout, stderr, attempts: u32, retried: Vec<AttemptTrace> }`（`stdout` / `stderr` = 末次尝试） |
 | 同上 | 重试循环早停 | 循环内维护按尝试序的计数序列，命中签名之后按 `is_progress_stalled` 判卡死并返回末次结果（`attempts < max_attempts`）；`RunOptions` / `RunReport` / `RunOutcome` / `RunError` 字段面零变更 |

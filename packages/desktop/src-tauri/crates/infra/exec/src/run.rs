@@ -269,7 +269,7 @@ async fn attempt_once(
         .spawn()
         .map_err(|error| RunError::Spawn(error.to_string()))?;
     // 作业成员资格必须紧贴 spawn：assign 之前创建的后代不进作业（见 [`crate::job`]）
-    let job = JobTree::attach(&child);
+    let mut job = JobTree::attach(&child);
 
     // 两缓冲区 / 两条管道 / child 均落本函数局部作用域：竞速 future 只持可变借用
     //（不 move、不 tokio::spawn）——被杀两臂仍可继续收尸与排水，且本 crate 无需
@@ -296,6 +296,11 @@ async fn attempt_once(
     let outcome = match raced {
         Race::Exited(status) => {
             let status = status.map_err(|error| RunError::Wait(error.to_string()))?;
+            // 自然退出臂解除武装：孤儿子孙按既有语义存续（排水已在 await_exit 内
+            // 以 FINISH_GRACE 有界收口），Drop 不再整组终止
+            if let Some(job) = job.as_mut() {
+                job.disarm();
+            }
             return Ok(Attempt {
                 outcome: RunOutcome::Completed,
                 // 无可读退出码（unix 信号终止）同记 -1 哨兵，不回落 0
@@ -317,7 +322,11 @@ async fn attempt_once(
     // 换过父 pid 而被漏杀（漏杀者持管道写端 ⇒ 排水永不 EOF ⇒ tokio 阻塞线程池被
     // 钉死到该进程退出）。两条击杀都保留——作业挂载失败（系统调用失败）时回落既
     // 有语义，成功时 `taskkill` 只是对已死管线的幂等补刀。
-    if let Some(job) = job.as_ref() {
+    //
+    // 走到这里之外还有第三条收口路径：本 future 被 drop（调用方 abort / panic
+    // 展开）时上述代码一行都执行不到，故 `JobTree::Drop` 在未解除武装时整组终止
+    // ——`kill_on_drop` 只杀直接子进程，孙进程持管道写端会让 runtime 析构无界等待。
+    if let Some(job) = job.as_mut() {
         job.terminate();
     }
     kill_tree(child.id());

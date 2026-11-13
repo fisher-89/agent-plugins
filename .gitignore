@@ -7,6 +7,8 @@
 .claude/*
 !.claude/skills/
 !.dev-team/
+# nextest 卡死兜底配置（点目录默认被 .*/ 忽略）
+!.config/
 memory
 
 node_modules

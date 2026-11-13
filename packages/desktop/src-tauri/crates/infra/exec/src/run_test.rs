@@ -942,10 +942,45 @@ async fn 超时臂_作业对象回收快照外的孙进程() {
     }
 }
 
+/// 异常（Windows）：**future 被 drop 时也整组回收**——调用方 abort / panic 展开
+/// 时 `run_shell` 走不到任何收口路径，此时 `kill_on_drop` 只杀直接子进程，孙进程
+/// 会带着继承的管道写端存活并钉死 tokio 阻塞线程池（runtime 析构无界等待，整包
+/// 用例表现为永不结束的 SLOW）。作业对象在 `Drop` 上整组终止是该面唯一兜底。
+#[cfg(windows)]
+#[tokio::test]
+async fn future被drop时作业对象整组回收孙进程() {
+    let ws = ShimWs::new("job-tree-drop");
+    let pid_file = ws.file("pid.txt");
+    let command = ws.shim(
+        "tree.sh",
+        &format!(
+            "#!/bin/sh\nsleep 600 &\nwin=$(cat \"/proc/$!/winpid\" 2>/dev/null || printf '%s' \"$!\")\nprintf '%s' \"$win\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
+            pid_file.display()
+        ),
+    );
+
+    // 预算远大于装置耗时：本用例要观测的是 drop 而非超时臂
+    let runner =
+        tokio::spawn(async move { run_shell(command, options(Duration::from_secs(600))).await });
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while ws.read_pid("pid.txt").is_none() && Instant::now() < deadline {
+        real_sleep(Duration::from_millis(20)).await;
+    }
+    let grandchild = ws.read_pid("pid.txt").expect("孙进程应落 pid");
+
+    // abort 后被 drop 的 future 走 JobTree::Drop（未解除武装）
+    runner.abort();
+    let _ = runner.await;
+
+    if !wait_pid_gone(grandchild, Duration::from_secs(15)) {
+        crate::kill_tree(Some(grandchild));
+        panic!("future 被 drop 后孙进程 {grandchild} 应消失（作业对象 Drop 兜底）");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 边界：被杀两臂的 pid 回收（AC-3 / AC-4）
 // ---------------------------------------------------------------------------
-
 #[tokio::test(start_paused = true)]
 async fn 超时臂_pid消失且墙钟上界() {
     let _gate = ClockGate::new();

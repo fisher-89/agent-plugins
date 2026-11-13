@@ -2333,7 +2333,7 @@ async fn 多plan环境错误继续跑余下plan() {
     });
     advance_until(
         || runner.is_finished(),
-        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(1),
         std::time::Duration::from_secs(120),
     )
     .await;
@@ -2430,8 +2430,15 @@ impl Drop for ClockGate {
     }
 }
 
-/// 推进虚拟时钟直到 `until` 为真（真实时间上界 `real_budget`）：每步 `step`
-/// 虚拟 + 10 ms 真实让出（子进程排水 / 收尸在真实时间上进行）。
+/// 推进虚拟时钟直到 `until` 为真（真实时间上界 `real_budget`）：每步推进 `step`
+/// 虚拟时间后真实让出 10 ms（子进程排水 / 收尸在真实时间上进行）。
+///
+/// **`step` 与被等的虚拟时长须同量级**：每轮的真实开销（一次 `spawn_blocking` +
+/// 10 ms 睡眠；门禁并发下被放大数倍）是固定的，故轮数（≈ 被等虚拟时长 / `step`）
+/// 直接决定真实耗时。小步长等长虚拟段（100 ms 步长等 plan1 的 5 次退避 75 s =
+/// 750 轮）会让驱动器自身开销吃穿真实预算，`start_paused` 下表现为「虚拟时钟推进
+/// 不动」的假失败——本文件统一取 1 s 步长（75 轮），与 `SUITE_COMMAND_TIMEOUT`
+/// 等测量面仍在同量级。
 async fn advance_until<F: Fn() -> bool>(
     until: F,
     step: std::time::Duration,
@@ -2492,7 +2499,7 @@ async fn 单plan环境错误_fault上传与占位装配() {
     });
     advance_until(
         || runner.is_finished(),
-        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(1),
         std::time::Duration::from_secs(120),
     )
     .await;
@@ -2590,7 +2597,7 @@ async fn 单plan环境错误_不写summary且重跑不复用() {
         });
         advance_until(
             || runner.is_finished(),
-            std::time::Duration::from_millis(100),
+            std::time::Duration::from_secs(1),
             std::time::Duration::from_secs(120),
         )
         .await;
@@ -2656,9 +2663,11 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
             .await
     });
 
+    // 就绪条件取「pid 可读」而非「文件存在」：shim 的 `Set-Content` 先建文件后写
+    // 内容，`exists()` 会赢这个竞态，随即 `read_pid` 拿到空内容即 panic。
     advance_until(
-        || pid_file.exists(),
-        std::time::Duration::from_millis(100),
+        || read_pid(&pid_file).is_some(),
+        std::time::Duration::from_secs(1),
         std::time::Duration::from_secs(120),
     )
     .await;
@@ -2668,7 +2677,7 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
     // 取消观测是 200 ms 轮询（虚拟时钟）：置位后继续推进，使轮询就绪
     advance_until(
         || runner.is_finished(),
-        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(1),
         std::time::Duration::from_secs(120),
     )
     .await;
@@ -2747,7 +2756,7 @@ async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
     });
     advance_until(
         || runner.is_finished(),
-        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(1),
         std::time::Duration::from_secs(120),
     )
     .await;
@@ -3104,7 +3113,7 @@ async fn 预算不覆盖既有environment() {
     });
     advance_until(
         || runner.is_finished(),
-        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(1),
         std::time::Duration::from_secs(120),
     )
     .await;
