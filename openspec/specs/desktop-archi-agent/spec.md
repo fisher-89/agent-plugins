@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 agent 侧的架构工具面：`archi_module`（定位）与 `archi_search`（发现）两个专用只读工具的契约、`SessionToolset::Archi` 变体与 `(phase, role)` 注入矩阵（含 `source = "archi"` 来源臂的全工具面 + 系统知识 preamble）、只读档位归属与成员校验不变，以及「模型 = 源码」的写纪律（无专用写工具，两条写通路并存）。
+定义 agent 侧的架构工具面：`archi_module`（定位）/ `archi_search`（发现）/ `archi_api`（契约面自检与草稿）三个专用只读工具的契约、以**工具名字清单**表达的 `(phase, role)` 注入矩阵与 `source = "archi"` 来源臂（全工具面 + 系统知识 preamble）、只读档位归属与成员校验不变，以及「模型 = 源码」的写纪律（无专用写工具，两条写通路并存）。已退役的枚举式 toolset（`SessionToolset`）不在本能力描述范围内。
 
 ## Requirements
 
@@ -92,34 +92,79 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 - **WHEN** 分别以 `scope="elements"` 与 `query=""` 调用
 - **THEN** 前者 `docs` 恒空数组；后者显式 `Err`（参数校验），MUST NOT 返回全量结果
 
-### Requirement: SessionToolset::Archi 与 (phase, role) 注入矩阵
+### Requirement: archi_api 只读工具的自检与草稿契约
 
-`core/agent` 的 `SessionToolset` SHALL 新增变体 `Archi { module: bool, search: bool }`（两工具封闭集上的子集表达；serde additive，旧线 JSON 无该字段仍读 `None`）。词汇封闭原则不变：专用工具仅经 `toolset` 枚举注入，自由字符串工具名 MUST NOT 进执行面。
+SDK 引擎 SHALL 提供专用**只读**工具 `archi_api`（不在七通用工具 `TOOL_NAMES` 封闭集内，经注入面的工具名字清单受控下发，且经 `mount::lookup` 成员校验），语义为**契约面自检**：
 
-会话装配（`agent-runtime` 组合根）SHALL 按 `(source, phase, role)` 决定注入面：
+```json
+{ "name": "archi_api",
+  "arguments": { "action": "check" | "bootstrap", "element": "<FQN>" } }
+```
 
-| phase | role | `archi_module` | `archi_search` |
-|---|---|---|---|
-| `proposal` | executor | ❌ | ✅ |
-| `dev-design` | executor / evaluator | ✅ | ✅ |
-| `test-design` | executor | ❌ | ✅ |
-| `implement` | executor | ✅ | ❌ |
-| `code-review` | evaluator | ✅ | ❌ |
-| `acceptance` | evaluator | ✅ | ❌ |
-| 其余相位（initialize / test-gen / test-execution / code-analyze / archive 的 SpecSync 等） | 任意 | ❌ | ❌ |
+- **两动作封闭**：`action` SHALL 只接受 `check` / `bootstrap` 两值（封闭值集；词汇外值以 `is_error` 回灌并点名合法值，MUST NOT 静默退化）。
+- **`check` = 两轴结构化结果**：返回「生成物新鲜度」与「契约 vs 代码」两轴的并列内容——① 三类差异（`mismatched` / `orphaned` / `missing`，repo 相对串，取自与 IPC / CLI 同一份比对实现）；② 契约判据摘要（按 `category` 计数的映射 + 逐条 `{ kind, category, element, target, message }`）。响应 SHALL 复用既有出线形状（`ArchiApiCheck` 的字段与 `ArchiApiFinding` 的条目），MUST NOT 在工具执行体内另拼一份投影；MUST NOT 各自实现在第二处（判定单源）。
+- **`bootstrap` = 草稿文本**：`element` 必填，返回与 CLI `bootstrap` 同一份草稿文本（契约 md 骨架，只出 stdout 语义）；`element` 缺失 / 元素不存在 / 无实现入口 ⇒ `is_error` 并透传 `ApiError` 文案。
+- **零写盘**：两动作 MUST NOT 创建 / 覆盖 / 删除任何文件——生成仍由会话经既有 `bash` 命令（`pnpm api:export` / `cargo run -p archi-api-gen -- generate`）执行。MUST NOT 存在「写生成物」的专用工具（`archi-runtime` 对 agent 面不可达，见 `desktop-crate-layout`）。
+- **结构错以 `is_error` 回灌**：模型含任一结构诊断时两动作 SHALL 返回 `is_error` ToolResult（诊断清单带 `file:line`），MUST NOT 返回部分结果、MUST NOT 抛 panic。
+- **体量受上限约束**：响应 SHALL 经 `tools::cap_result` 的既有 L1 上限单点（MUST NOT 为本工具新增截断逻辑）；超限时摘要（按 `category` 计数）优先保留。
+- **上下文路由沿用**：执行体 SHALL 经 `LoopTurn` 的 per-turn `ArchiContext` 路由（root + 模型读面），MUST NOT 新增 `ToolExec` 变体、MUST NOT 把 store 句柄塞进七通用工具的 `execute` 签名。
+- **无路径参数**：本工具不带 `path` 参数 ⇒ 路径沙箱对它恒原样返回（MUST NOT 因缺字段报错），写入保护对它零射程（读面全开放）。
+- **提示面**：被下发本工具的相位 prompt SHALL 有一行说明（沿既有「额外可用只读工具」写法，当前为 `implementation-generator.md`），内容限于「改完代码可自查生成物新鲜度与契约判据；生成物过期用既有命令重生成，MUST NOT 手改生成物」。
 
-- **archi 来源臂（新增）**：`source = "archi"` 的会话 SHALL 装配为 `tools = None`（七通用工具全量，含 `write` / `edit` / `bash`）+ `toolset = Archi { module: true, search: true }` + `preamble = Some(<架构会话知识文本>)`（知识内容见「架构会话的系统知识注入」）。该臂 SHALL 以 `source` 判定，MUST NOT 进入 `source_ref` 相位解析——`source_ref` 为 null（一 workspace 一份历史）与该定式无关，且其取任意值（含畸形四段）MUST NOT 改变该臂的下发面，MUST NOT 因解析失败退化为零 archi 工具。
-- `phase` / `role` SHALL 取自既有 provenance `source_ref` 定式 `{change_id}/{phase}/{role}/{attempt}`（不新增契约字段）；解析 SHALL 取尾三段的定式（`attempt` → `role` → `phase`）。
+#### Scenario: check 返回两轴且零写盘
+
+- **WHEN** 在 implement/executor 会话（或架构页 `source = "archi"` 会话）中调用 `archi_api(action = "check")`
+- **THEN** 响应含三类差异与按 `category` 计数的判据摘要（逐条含 `kind` / `element` / `message`）；调用前后磁盘字节完全相同；`archi_api` 与 IPC 的 `archi_api_check` 报的三类差异集合逐条相等
+
+#### Scenario: bootstrap 只出草稿
+
+- **WHEN** 调用 `archi_api(action = "bootstrap", element = "App.Auth")`
+- **THEN** 返回契约 md 草稿文本（H1 + 职能 / 不变量 / 操作 / 类型段），磁盘零变化；缺 `element` 或元素不存在 ⇒ `is_error` 且文案点名成因
+
+#### Scenario: 词汇外动作被拒
+
+- **WHEN** 调用 `archi_api(action = "generate")` 或 `action = "write"`（词汇外值）
+- **THEN** 返回 `is_error` 并点名合法值 `check` / `bootstrap`；零写盘、零副作用
+
+#### Scenario: 结构错回灌而不崩
+
+- **WHEN** 模型被写成语法错后调用 `archi_api(action = "check")`
+- **THEN** 返回 `is_error` ToolResult（诊断带 `file:line`），run 不中断、进程不 panic
+
+#### Scenario: 体量经单点上限
+
+- **WHEN** 契约面有数十条判据时调用 `check`
+- **THEN** 响应被 `tools::cap_result` 截断（沿既有 L1 上限），摘要保留；工具执行体内零第二份截断实现
+
+### Requirement: archi 工具面注入与 (phase, role) 矩阵
+
+archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工具名字清单**表达（`SessionInjections.tools: Option<Vec<String>>`；`None` = 七内建全量），MUST NOT 依赖已退役的枚举式 toolset 概念。清单内每个名字 SHALL 经 `mount::lookup` 成员校验（未知名显式 `Err` 携名与来源，不静默滤过）；自由字符串工具名 MUST NOT 进执行面。
+
+会话装配（`crates/infra/agent/src/compose.rs`）SHALL 按 `(source, phase, role)` 决定下发面：
+
+| phase | role | `archi_module` | `archi_search` | `archi_api` |
+|---|---|---|---|---|
+| `proposal` | executor | ❌ | ✅ | ❌ |
+| `dev-design` | executor / evaluator | ✅ | ✅ | ❌ |
+| `test-design` | executor | ❌ | ✅ | ❌ |
+| `implement` | executor | ✅ | ❌ | ✅ |
+| `code-review` | evaluator | ✅ | ❌ | ❌ |
+| `acceptance` | evaluator | ✅ | ❌ | ❌ |
+| 其余相位（initialize / test-gen / test-execution / code-analyze / archive 的 SpecSync 等） | 任意 | ❌ | ❌ | ❌ |
+
+- **矩阵单源**：`(phase, role)` → archi 工具名清单的映射 SHALL 只在 `archi_matrix` 一处（未命中即零 archi 工具），MUST NOT 在别处再写一份同名映射。
+- **archi 来源臂**：`source = "archi"` 的会话 SHALL 装配为七内建全量（含 `write` / `edit` / `bash`）+ 三个 archi 工具名（`archi_module` / `archi_search` / `archi_api`）+ `preamble = Some(<架构会话知识文本>)`（知识内容见「架构会话的系统知识注入」）。该臂 SHALL 以 `source` 短路命中，MUST NOT 进入 `source_ref` 相位解析——`source_ref` 为 null（一 workspace 一份历史）与该定式无关，且其取任意值（含畸形四段）MUST NOT 改变该臂的下发面，MUST NOT 因解析失败退化为零 archi 工具。
+- `phase` / `role` SHALL 取自既有 provenance `source_ref` 定式 `{change_id}/{phase}/{role}/{attempt}`（不新增契约字段）；解析 SHALL 取尾三段的定式（`attempt` → `role` → `phase`），段数 < 4 或末段非数字即 `None`。
 - 解析不出该定式（畸形 / 短段 / 未知 phase）SHALL **fail-closed**：零 archi 工具（MUST NOT 退化为"给全部工具"）。
-- 相位矩阵 SHALL 只对 `source = "change"` 生效（archi 来源臂不查矩阵、恒两工具全开）。
-- `source = "explore"` 臂 SHALL 逐字不变（六工具收窄 + `Explore`）；其余非 change 来源（debug 等）SHALL 恒 `SessionInjections::default()`（七工具面，零变化）。
-- 注入 archi 工具面时 `tools` 位 SHALL 保持 `None`（七通用工具全量），`toolset` 位携 `Archi`——MUST NOT 以扩宽 `tools` 名单表达 archi 工具（否则"七工具子集"契约被污染）。
+- 相位矩阵 SHALL 只对 `source = "change"` 生效（archi 来源臂不查矩阵、恒三工具全开）。
+- `source = "explore"` 臂 SHALL 逐字不变（六工具收窄 + `create_explore_note`）；其余非 change 来源（debug 等）SHALL 恒「七内建全量 + 零 archi 工具 + `ask = Generic`」的显式构造（MUST NOT 以默认构造兜底——默认值的 `ask = None` 即静默禁用）。
 - 矩阵只决定**下发面**，不决定 prompt 文本（prompt 侧见 `desktop-phase-prompts`）；`preamble` 位只由装配层按来源决定（当前唯一生产者 = archi 臂），前端 / 自由字符串 MUST NOT 直接供给。
+- **`archi_api` 只给 implement/executor 与 archi 臂**：其余相位 MUST NOT 下发（`code-review` / `acceptance` 判「改动是否越界」只读模型面，不自检生成物新鲜度——新鲜度由门禁与契约面板承担）。
 
 #### Scenario: 逐相位矩阵命中
 
 - **WHEN** 分别以 7 行矩阵的 `(phase, role)` 发起会话并审查该轮 definitions
-- **THEN** 每行 definitions 中 archi 工具恰为矩阵勾选者（proposal 只 `archi_search`；dev-design 两者；implement / code-review / acceptance 只 `archi_module`），`RunStarted.tools` 与实际下发面逐名一致
+- **THEN** 每行 definitions 中 archi 工具恰为矩阵勾选者（proposal 只 `archi_search`；dev-design 两工具；implement 三工具；code-review / acceptance 只 `archi_module`），`RunStarted.tools` 与实际下发面逐名一致
 
 #### Scenario: 矩阵外零 archi 工具
 
@@ -129,49 +174,49 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 #### Scenario: 畸形 source_ref fail-closed
 
 - **WHEN** `source = "change"` 而 `source_ref` 缺失 / 段数不足 / phase 段不可识别
-- **THEN** 装配结果为零 archi 工具（回落 default），MUST NOT 抛出装配错误、MUST NOT 给全量 archi 工具
+- **THEN** 装配结果为零 archi 工具（回落七内建全量），MUST NOT 抛出装配错误、MUST NOT 给全量 archi 工具
 
 #### Scenario: archi 来源全工具面加知识
 
 - **WHEN** 以 `source = "archi"`（`source_ref = null`）发起会话并审查该轮请求组装
-- **THEN** `tools` 位为 `None`（七通用工具全量含 `write`）、`toolset = Archi { module: true, search: true }`、`preamble` 为架构会话知识文本；definitions 含 `archi_module` / `archi_search` 两定义且 `RunStarted.tools` 逐名一致
+- **THEN** `tools` 位为七内建全量（含 `write`）另加三个 archi 工具名、`preamble` 为架构会话知识文本；definitions 含 `archi_module` / `archi_search` / `archi_api` 三定义且 `RunStarted.tools` 逐名一致
 
 #### Scenario: archi 臂不因 source_ref 变形漂移
 
 - **WHEN** 分别以 `source_ref = null`、`source_ref = "some-id"`、`source_ref = "a/b/c/1"` 发起 `source = "archi"` 会话
-- **THEN** 三者装配结果完全相同（同一 archi 臂：两工具全开 + 七工具面 + 知识 preamble）；MUST NOT 因 `source_ref` 形态触发相位解析或 fail-closed
+- **THEN** 三者装配结果完全相同（同一 archi 臂：三工具全开 + 七内建全量 + 知识 preamble）；MUST NOT 因 `source_ref` 形态触发相位解析或 fail-closed
 
 #### Scenario: explore 与 debug 来源零变化
 
 - **WHEN** 分别以 `source="explore"` 与 `source="debug"` 发起会话
-- **THEN** explore 为 read / grep / glob / ls / edit / bash + `create_explore_note`（逐字不变），debug 为七工具（含 `write`）；两者均无 archi 工具、`preamble` 均为 `None`
+- **THEN** explore 为 read / grep / glob / ls / edit / bash + `create_explore_note`（逐字不变），debug 为七内建（含 `write`）；两者均无 archi 工具、`preamble` 均为 `None`
 
 ### Requirement: 只读档位归属与成员校验不变
 
-两个 archi 工具 SHALL 归 **只读面**：`agent-runtime` 静态权限决策表的只读清单 SHALL 追加 `archi_module` / `archi_search`，使三档（`default` / `acceptEdits` / `bypassPermissions`）**全部放行**——只读工具在 `default` 档亦可用，与 `read` / `grep` / `glob` / `ls` 同款。
+三个 archi 工具 SHALL 归 **只读面**：挂载清单（`sdk/mount.rs`）中三者的准入档 SHALL 为 `ToolTier::Read`，由此 `policy::allows` 对三档（`default` / `acceptEdits` / `bypassPermissions`）**全部放行**——只读工具在 `default` 档亦可用，与 `read` / `grep` / `glob` / `ls` 同款；MUST NOT 为任一 archi 工具引入单独的放行名单（准入判据单点在挂载清单的准入档）。
 
 以下既有语义 MUST NOT 变化：
 
 - **成员校验先行**：调用名 ∉ 本轮实际下发 definitions 即 `SystemNotice{subtype:"tool_unavailable"}` + `is_error` ToolResult 回灌，run 不中断、不触执行体；
-- **路径沙箱不介入**：两工具无路径参数，`sandbox` 改写面对其恒原样返回（MUST NOT 因缺 `path` 字段报错）；
-- **写入保护不介入**：两工具为读面，`write_protection` 的守卫 MUST NOT 拦截（读面全开放是既有裁定）；
+- **路径沙箱不介入**：三工具无路径参数，`sandbox` 改写面对其恒原样返回（MUST NOT 因缺 `path` 字段报错）；
+- **写入保护不介入**：三工具为读面，`write_protection` 的守卫 MUST NOT 拦截（读面全开放是既有裁定）；
 - **未知工具仍拒**：词汇外的工具名在任何档位一律拒绝（封闭清单语义不变）。
 - 工具执行上下文 SHALL 经 `LoopTurn` 的 per-turn 上下文路由（root + 模型读面），MUST NOT 把 store 句柄塞进七通用工具的 `execute` 纯函数签名；上下文缺席 SHALL 以 `is_error` 回灌（生产不可达）。
 
-#### Scenario: 默认档放行两个 archi 工具
+#### Scenario: 默认档放行三个 archi 工具
 
-- **WHEN** 以 `permissionMode = default` 在矩阵命中相位调用 `archi_module`
-- **THEN** 调用放行并执行（无 `permission_denied`）；同档调用 `write` 仍被拒（只读面未扩宽）
+- **WHEN** 以 `permissionMode = default` 在矩阵命中相位调用 `archi_module` / `archi_search` / `archi_api`
+- **THEN** 三者均放行并执行（无 `permission_denied`）；同档调用 `write` 仍被拒（只读面未扩宽）
 
 #### Scenario: 矩阵外调用被成员校验拒绝
 
-- **WHEN** 在 `(test-gen, executor)` 会话中模型幻觉调用 `archi_search`
+- **WHEN** 在 `(test-gen, executor)` 会话中模型幻觉调用 `archi_search` 或 `archi_api`
 - **THEN** 收到 `tool_unavailable` + `is_error` ToolResult 回灌，run 不中断、执行体零调用
 
 #### Scenario: 沙箱与写入保护零介入
 
-- **WHEN** 在两个 archi 工具被下发的会话中审查 `sandbox` 改写与写入保护判定
-- **THEN** 两工具均原样通过（无路径参数、读面无保护射程）；受保护文件的 `write` / `edit` 行为逐字不变
+- **WHEN** 在三个 archi 工具被下发的会话中审查 `sandbox` 改写与写入保护判定
+- **THEN** 三工具均原样通过（无路径参数、读面无保护射程）；受保护文件的 `write` / `edit` 行为逐字不变
 
 ### Requirement: 模型 = 源码（写纪律与不设专用写工具）
 
@@ -189,6 +234,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 - **场景归属**：冷启动生成骨架 / 增量维护（新增或重构模块）/ 按现状补声明 / 直接修复图或文档错误，四类场景 SHALL 可走任一条通路（走 change 时落 dev-design 阶段，走架构页时落通用会话），MUST NOT 强制单一入口。
 - **新元素缺省档**：两通路生成的新元素均缺省 `gate = "off"`（ratchet 逐块收紧）。
 - **通路 B 的边界（软约束，非写入面强制）**：会话知识 SHALL 要求「只改架构域模型与 `docs` 关联文档；改源码须用户明确要求」，但写入面 MUST NOT 为该约束设硬隔离——该缺口 SHALL 在能力 spec 中如实留痕，MUST NOT 被表述为「会话只能改模型」。
+- **生成物同权但不可手改**：四类契约生成物（`.schema.json` / `INDEX.toml` / `.i.rs` / `.i.ts`）与模型文件同属磁盘可写面（零专用工具、零写前校验），但会话知识 SHALL 要求「MUST NOT 手改生成物，用既有命令重生成」——该约束同样只有事后兜底（零 diff 门 + 契约面板），MUST NOT 表述为写入面拦截。
 
 #### Scenario: worktree 内直改模型成功
 
@@ -208,7 +254,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 #### Scenario: 无专用写工具且两通路并存
 
 - **WHEN** 审查执行面工具清单与写模型入口
-- **THEN** 无「写模型」专用工具（`toolset` 词表内只有两个只读工具）；写模型恰有两条通路（change worktree / 架构页通用会话），MUST NOT 存在第三条（如独立写命令或画布写入口）
+- **THEN** 无「写模型」专用写工具（注入面可及的 archi 工具只有三个只读工具：`archi_module` / `archi_search` / `archi_api`，且三者 `ToolExec::Archi` 零写盘）；写模型恰有两条通路（change worktree / 架构页通用会话），MUST NOT 存在第三条（如独立写命令或画布写入口）
 
 ### Requirement: 架构会话的系统知识注入
 
@@ -217,8 +263,8 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 - **模型位置与聚合**：模型文件位于架构域 `models/` 下、按文件名字典序聚合；目录路径 SHALL 为**派生所得**的 repo 相对路径（见 `workspace-layout-resolution`），MUST NOT 在产品源码或知识文本中手写目录字面量。
 - **格式约定**：一元素一表头、键为带引号的完整 FQN 单键（禁点分嵌套写法）；元素字段面为 `kind`（必填）/ `gate` / `path` / `docs` / `summary` / `metadata`；关系为 `[[relation]]` 条目（`from` / `to` / `desc`）；`metadata` MUST 用内联表，MUST NOT 用子表（子表会被解析为另一个元素）。
 - **层级与缺省**：层级由 FQN 最长前缀推导（子元素须先声明祖先）；新元素 `gate` 缺省 `off`（ratchet 逐块收紧）。
-- **边界**：模型里 MUST NOT 写接口 / 导出符号（契约权威在 `openspec/specs`，只经 `docs` 引用）。
-- **自检纪律**：改完 SHALL 立即复查——调用 `archi_module`（不带 `element`）取得薄概览或结构诊断清单（诊断带 `file:line`），按行修复；该纪律 SHALL 为纯提示词约束，MUST NOT 依赖写盘校验或引擎自动校验回灌。
+- **边界**：模型里 MUST NOT 写接口 / 导出符号（契约权威在契约资产，只经 `docs` 引用）。
+- **自检纪律**：改完 SHALL 立即复查——调用 `archi_module`（不带 `element`）取得薄概览或结构诊断清单（诊断带 `file:line`），按行修复；契约面另可调 `archi_api`（`action = "check"`）查两轴（生成物三类差异 + 契约判据）；生成物过期 SHALL 用既有命令（`pnpm api:export` / `cargo run -p archi-api-gen -- generate`）重生成，MUST NOT 手改生成物。该纪律 SHALL 为纯提示词约束，MUST NOT 依赖写盘校验或引擎自动校验回灌。
 - **写面与可见性**：直改主仓（无 worktree、无归档确认），改动随 `git diff` 评审；只改架构域模型与 `docs` 关联文档，改源码须用户明确要求；写盘后画布不自动更新，须提示用户点「刷新」。
 - **历史会话续接**：续接历史会话时 SHALL 先取当下模型现状（`archi_module` 无参概览或指定元素）再回答「现在是什么样」一类问题，MUST NOT 依赖会话早前的描述。
 
@@ -246,29 +292,50 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_search`，语义为**发现**�
 #### Scenario: 拼装失败降级
 
 - **WHEN** 知识拼装路径出现异常（派生产物不可用）
-- **THEN** 装配结果为 `preamble = None`，session 照常发起、run 正常推进（七工具面 + 两 archi 工具不变），MUST NOT 抛装配错误
+- **THEN** 装配结果为 `preamble = None`，session 照常发起、run 正常推进（七工具面 + 三 archi 工具不变），MUST NOT 抛装配错误
 
 #### Scenario: 自检纪律在知识中可指认
 
 - **WHEN** 检查知识文本内容
-- **THEN** 同时含「改完调用 `archi_module` 复查并按其 `file:line` 修复」「写盘后画布不自动更新、提示用户刷新」「续接历史会话先取当下模型」三条；且知识文本内零 `<>` 占位符
+- **THEN** 同时含「改完调用 `archi_module` 复查并按其 `file:line` 修复」「契约面可调 `archi_api` 查两轴」「生成物过期用既有命令重生成、MUST NOT 手改生成物」「写盘后画布不自动更新、提示用户刷新」「续接历史会话先取当下模型」五条；且知识文本内零 `<>` 占位符
 
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/agent/src/runner.rs` | 注入词表 | `SessionToolset` 增 `Archi { module: bool, search: bool }`（serde camelCase additive，缺省旧线读 `None`）；既有 `Explore` 与 `tools` 收窄位语义零变 |
-| `crates/infra/agent/src/compose.rs` | 注入装配（新增第三臂） | `assemble_injections`：explore 臂逐字不变 → **archi 臂**（`source == "archi"` 短路命中：`preamble = Some(knowledge())`、`tools = None`、`toolset = Archi { module: true, search: true }`，不碰相位解析）→ change 臂（7 行矩阵 + fail-closed，零改动）→ default；`ARCHI_SOURCE` 常量为来源词单点 |
+| `crates/core/agent/src/runner.rs` | 注入词表（零改动） | 注入面即 `SessionInjections.tools: Option<Vec<String>>`（工具名字清单）；`SessionToolset` / `toolset` 已退役（产品源码零命中，`sdk/runner_test.rs` 有零命中断言），本表不再登记该枚举 |
+| `crates/infra/agent/src/compose.rs` | 注入装配（新增第三臂） | `assemble_injections`：explore 臂逐字不变 → **archi 臂**（`source == "archi"` 短路命中：`preamble = Some(knowledge())`、`tools = Some(七内建全量 + 三个 archi 工具名)`，不碰相位解析）→ change 臂（7 行矩阵 + fail-closed，`archi_matrix` 为矩阵单点）→ default（显式构造，非默认值兜底）；`ARCHI_SOURCE` 常量为来源词单点 |
 | `crates/infra/agent/src/archi_knowledge.rs`（新） | 知识拼装 | `knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；纯函数零 IO；失败 → `None` |
 | `crates/infra/agent/src/archi-knowledge.md`（新） | 知识静态骨架 | 格式与键形约定 / 层级推导 / `gate` 缺省 / 边界 / 自检 / 写面与可见性 / 历史会话续接 + 一段可解析示例 TOML；零 `<>` 占位符、零 `include_str!` 之外的动态指令 |
 | `crates/infra/agent/src/archi_knowledge.rs` + `archi-knowledge.md` | 知识文本（若补 `api` 词汇） | 四类词表仍从 `ALL` 派生（新增 `ApiStatus::ALL`）；骨架 MAY 增「契约位置与 `api` 状态」一段，MUST NOT 手抄契约正文或判据长表 |
 | `crates/core/archi/src/dto.rs` | 词汇单点（补 `ALL`） | `ArchiDiagnosticKind::ALL: [Self; 9]`，与 `as_str` 同源；既有 `ElementKind::ALL` / `GateTier::ALL` 复用 |
 | `crates/core/archi/src/dto.rs`（`ArchiApiRef` / `ArchiElement.api` / `ArchiModuleDetail.api`） | 契约状态的线面投影 | `api: { status: ApiStatus, contractPath: Option<String>, schemaPath: Option<String>, generatedPath: Option<String> }`；`specta::Type`；路径由 `archi_api_dir` 派生后转 repo 相对形态 |
 | `crates/core/foundation/src/layout/mod.rs` | 相对路径派生 | `archi_rel_dir()` / `archi_models_rel_dir()` / `archi_decisions_rel_dir()`（`/` 分隔、零 IO、零行内字面量） |
-| `crates/infra/agent/src/sdk/tools.rs` | 工具定义面 | 两工具名常量 + 定义（schema：`element`；`query` + `scope`）；`definitions` 在 `toolset` 命中时按位追加；`input_path` 对两名返回 `None`（不进路径沙箱） |
-| `crates/infra/agent/src/sdk/archi_tool.rs` | 工具执行体 | 经 `LoopTurn` per-turn 上下文取 root → `archi::dto` 投影（`archi_module` 两形态、`archi_search` 三 scope）；命中既有 L1 单结果上限收口；坏模型 → `is_error` 不 panic |
+| `crates/infra/agent/src/sdk/tools.rs` | 工具定义面 | 三个工具名常量 + 定义（schema：`element`；`query` + `scope`；`action` + `element`）；`definitions` 按本轮工具名字清单追加；`input_path` 对三者返回 `None`（不进路径沙箱） |
+| `crates/infra/agent/src/sdk/archi_tool.rs` | 工具执行体 | 经 `LoopTurn` per-turn 上下文取 root → `archi::dto` 投影（`archi_module` 两形态、`archi_search` 三 scope）与契约面自检（`archi_api` 的 `check` / `bootstrap` 两动作，零写盘）；命中既有 L1 单结果上限收口；坏模型 → `is_error` 不 panic |
 | `crates/infra/agent/src/sdk/tools/archi_module.rs`（消费点） | 工具响应装配 | 只调 `archi::dto` 投影并序列化；零路径拼接、零契约读取、零协议正文；只读属性与注入矩阵零变化 |
-| `crates/infra/agent/src/sdk/loop.rs` | 执行臂路由 + 系统消息消费 | 两个 archi 名与 `EXPLORE_NOTE_TOOL` 同式路由至执行体；上下文缺席以 `is_error` 回灌；知识 preamble 与 `AGENT.md` 合并为单条 System（由 `desktop-agent-execution`「SDK 引擎系统提示词（AGENT.md 注入）」承载） |
-| `crates/infra/agent/src/sdk/policy.rs` | 静态权限表 | `READONLY_TOOLS` += `archi_module` / `archi_search`（三档全放行）；写面 / 执行面清单零变化 |
+| `crates/infra/agent/src/sdk/loop.rs` | 执行臂路由 + 系统消息消费 | 三个 archi 名与 `EXPLORE_NOTE_TOOL` 同式路由至执行体；上下文缺席以 `is_error` 回灌；知识 preamble 与 `AGENT.md` 合并为单条 System（由 `desktop-agent-execution`「SDK 引擎系统提示词（AGENT.md 注入）」承载） |
+| `crates/infra/agent/src/sdk/policy.rs` | 静态权限表 | `READONLY_TOOLS` += `archi_module` / `archi_search` / `archi_api`（三档全放行）；准入判据单点在挂载清单的准入档（`ToolTier::Read`）；写面 / 执行面清单零变化 |
 | `crates/infra/agent/Cargo.toml` | 依赖边 | `archi = { workspace = true }`（工具执行体复用同一投影，避免第二份 JSON）；用途注释在案 |
 | `crates/core/workflow/src/prompts/*.md`（矩阵命中 7 份） | 角色知识 | 只补工具名与用法一句（何时用定位 / 何时用发现）；零占位符、零 MCP、其余 9 份零改动（见 `desktop-phase-prompts`） |
+
+### Function: `crates/infra/agent/src/sdk/**`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| `mount.rs` | 改 | 静态清单 10 → 11 项：`ARCHI_API_TOOL = "archi_api"`（`ToolTier::Read`、`ToolExec::Archi`）；`ToolTier::Read` 注释与 `ToolExec::Archi` 臂名清单同步 |
+| `archi_tool.rs` | 改 | `ArchiContext::execute` 加 `archi_api` 一臂：`check`（`graph_view` → `load_contracts` → `api::check` + `api::compare`，按 `category` 计数摘要）/ `bootstrap`（`api::bootstrap`）；输出过 `tools::cap_result`；零写盘 |
+| `runner.rs` | 改 | `mint_archi_context` 的 present 判据加 `archi_api` |
+| `archi-knowledge.md` | 改 | 自检纪律 bullet 补 `archi_api` 两轴查询与「生成物用既有命令重生成、MUST NOT 手改」 |
+
+### Function: `crates/infra/agent/src/compose.rs`（矩阵与来源臂）
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| 来源臂与矩阵 | 改 | `archi_matrix` 的 `(implement, executor)` 臂追加 `mount::ARCHI_API_TOOL`；archi 来源臂名字清单追加同名；其余相位与臂零变化；`core/agent` 零改动（注入面本就是工具名字清单，无枚举增字段） |
+
+### CLI: `crates/core/workflow/src/prompts/implementation-generator.md`
+
+| 项 | 变化 | 描述 |
+|---|---|---|
+| 只读工具行 | 改 | 补 `archi_api`（改完代码自查生成物新鲜度与契约判据）；其余相位 prompt 零改动（见 `desktop-phase-prompts`） |

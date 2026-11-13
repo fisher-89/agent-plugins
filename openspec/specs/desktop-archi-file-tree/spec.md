@@ -211,9 +211,10 @@ none               以上都不成立
 
 ### Requirement: 左栏文件树呈现、分段切换与双向联动
 
-`/architecture`（与 change 详情「架构」页签共用的同一画布组件）的三段布局第一段 SHALL 提供文件树，并与元素树以分段控件切换：
+`/architecture`（与 change 详情「架构」页签共用的同一画布组件）的三段布局第一段 SHALL 提供文件树，并与元素树、契约视图以分段控件切换：
 
-- **缺省文件树**：左栏缺省渲文件树；分段控件（`data-testid="archi-tree-mode"`，两钮 `data-mode="file"` / `data-mode="element"`）SHALL 切换左栏组件；切换只换左栏、`focus` 共用，MUST NOT 触发画布或抽屉重新取数。
+- **缺省文件树**：左栏缺省渲文件树；分段控件（`data-testid="archi-tree-mode"`，三钮 `data-mode="file"` / `data-mode="element"` / `data-mode="contract"`）SHALL 切换左栏组件；切换只换左栏、`focus` 共用，MUST NOT 触发画布或抽屉重新取数。
+- **契约视图转指**：`data-mode="contract"` 的视图形态、两轴呈现、生成交互与取数纪律归 `desktop-archi-contract-panel`；本能力只登记「分段控件存在第三值且切换不引发画布 / 抽屉重取数」。
 - **元素树保留**：元素树 MUST NOT 删除——容器元素（`path` 空）只在 FQN 树上可见，且「谁依赖谁」在 FQN 树上更顺；其入参、渲染与既有 testid（`archi-element-tree` / `archi-tree-node`）零变化。
 - **渲染顺序**：SHALL 目录先于文件、各自按 `name` 排序（后端只按 `path` 字节序，呈现序由前端派生）；缩进表达层级。
 - **标记呈现**（图标 + 色 + 名称 + tooltip）：
@@ -237,6 +238,11 @@ none               以上都不成立
 
 - **WHEN** 打开 `/architecture`（或 change 详情「架构」页签）
 - **THEN** 左栏缺省为文件树（`archi-file-tree` 在场、`archi-element-tree` 不在场）；点分段钮 `data-mode="element"` 后元素树在场且其 testid 与切换前既有断言一致；`archi_graph` / `archi_module` / `archi_drift` 调用次数不因切换增加
+
+#### Scenario: 第三钮切到契约视图
+
+- **WHEN** 点分段钮 `data-mode="contract"`
+- **THEN** 左栏渲契约视图（`archi-contract-panel` 在场、`archi-file-tree` 与 `archi-element-tree` 均不在场）；`archi_graph` / `archi_module` / `archi_drift` 调用次数不因切换增加（契约视图自身的检查取数归 `desktop-archi-contract-panel`）
 
 #### Scenario: 点模块行圈定范围
 
@@ -352,7 +358,8 @@ none               以上都不成立
 | 项 | Props / 变化 | 描述 |
 |------|------|------|
 | `FileTree` | `{ entries: ArchiFileEntry[]; focused: string \| null; onFocus: (fqn: string) => void }` | 前端派生嵌套（目录先于文件、各自按 `name`）、per-path 翻转展开集合（默认前 2 段）、折叠不渲 DOM、`ScrollArea`；五值标记呈现与 tooltip；`elementRoot` / `member` 点击 → `onFocus(owners[0])`，其余三值只切展开；`focused` 变化按「条目 `owners` 含该 FQN」定位全部命中条目并展开祖先链 + 多行高亮 + 滚到第一条（零命中 → 顶部一行弱提示，不断言成因）；底部可折叠图例；testid `archi-file-tree` / `archi-file-node` / `archi-file-mark`（`data-mark`）/ `archi-file-tree-error` / `archi-file-tree-empty` |
-| `TreeModeSwitch` | `{ mode: 'file' \| 'element'; onChange: (mode) => void }` | 分段控件 `data-testid="archi-tree-mode"`，两钮 `data-mode`；缺省 `file` |
+| `TreeMode` | `'file' \| 'element' \| 'contract'` | 左栏三视图枚举（第三值 = 契约视图，视图本体归 `desktop-archi-contract-panel`） |
+| `TreeModeSwitch` | `{ mode: 'file' \| 'element' \| 'contract'; onChange: (mode) => void }` | 分段控件 `data-testid="archi-tree-mode"`，三钮 `data-mode`（`file` / `element` / `contract`，第三钮文案「契约」）；控件 testid、栅格形态与另两钮语义零变化；缺省 `file` |
 
 ### Component: `packages/desktop/src/views/architecture/components/architecture-canvas.tsx`（改）
 
