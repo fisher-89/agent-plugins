@@ -106,6 +106,22 @@ const SPEC_OUTPUT: &str = "▶ math\n\
 | file | line % | branch % | funcs % |\n\
 | All files | 82.5 | 74.1 | 90.3 | 12 |\n";
 
+/// node-test 绿跑样本**无覆盖汇总行**（覆盖工件缺席形态：结果文本在位但不含
+/// `All files` 覆盖表格行 → 采集面 `None`）。
+const SPEC_OUTPUT_NO_COVERAGE: &str = "▶ math\n\
+✔ adds numbers (1.2ms)\n\
+✔ handles unicode 名称 (0.5ms)\n\
+﹣ skips todo case (0.1ms)\n\
+▶ nested\n\
+✔ works nested (0.3ms)\n\
+✔ math (2ms)\n\
+✔ nested (1ms)\n\
+✔ top level case (0.2ms)\n\
+ℹ tests 5\n\
+ℹ pass 4\n\
+ℹ fail 0\n\
+ℹ skipped 1\n";
+
 const CHANGE: &str = "demo-change";
 
 // ---------------------------------------------------------------------------
@@ -505,9 +521,10 @@ impl Drop for PathWindowGuard {
 /// 正向：绿跑全链组合——tempdir workspace + 真实 config tests[]（node-test
 /// suite）+ 真实命令 shim（拷贝预置 spec 工件到占位路径、退出 0）→
 /// ToolStepOutput::TestExecution conclusion=pass、四计数正确、summary.json 与
-/// planId/report.json 落 change_test_reports 推导目录（AC-5）。生产调用方
-/// `ProcessTestExecution::run` 以 `TESTEXEC_TOTAL_BUDGET` 全预算执行（预算内零行为
-/// 变化——本用例即该档的全链锚）。
+/// planId/report.json 落 change_test_reports 推导目录；逐 suite 覆盖判定经子报告
+/// `coverage.pass` 观测（summary 面无 coverage / mutation 两键，AC-2 / AC-5）。
+/// 生产调用方 `ProcessTestExecution::run` 以 `TESTEXEC_TOTAL_BUDGET` 全预算执行
+/// （预算内零行为变化——本用例即该档的全链锚）。
 #[tokio::test]
 async fn 绿跑全链_pass结论_四计数与报告落盘() {
     let ws = ChainWs::new("green-chain");
@@ -578,9 +595,6 @@ async fn 绿跑全链_pass结论_四计数与报告落盘() {
         ),
         (5, 4, 0, 1)
     );
-    let coverage = summary.coverage.as_ref().expect("覆盖块在场");
-    assert!(coverage.pass, "82.5 ≥ 60 / 74.1 ≥ 70 / 90.3 ≥ 75 达阈");
-    assert_eq!(coverage.measured.lines, Some(82.5));
     assert_eq!(summary.plans.len(), 1);
     assert_eq!(
         summary.plans[0].id, "app_node-test",
@@ -602,6 +616,34 @@ async fn 绿跑全链_pass结论_四计数与报告落盘() {
     );
     assert_eq!(sub.exit_code, 0);
 
+    // 覆盖面真值源改指子报告（summary 面不再产覆盖块）：实测三维达标 → 逐
+    // suite 判定 pass
+    let coverage = sub.coverage.as_ref().expect("子报告覆盖块在场");
+    assert!(
+        coverage.pass,
+        "82.5 ≥ 60 / 74.1 ≥ 70 / 90.3 ≥ 75 达阈（逐 suite 唯一判定点）"
+    );
+    assert_eq!(coverage.measured.lines, Some(82.5));
+    assert!(
+        summary.problems.is_empty(),
+        "全绿零归因: {:?}",
+        summary.problems
+    );
+
+    // summary 瘦身面（AC-2）：线格式无 coverage / mutation 两键
+    let summary_value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(reports_dir.join("summary.json")).expect("读回"))
+            .expect("summary.json 线格式可解析");
+    let summary_object = summary_value.as_object().expect("顶层对象");
+    assert!(
+        !summary_object.contains_key("coverage"),
+        "summary 面零 coverage 键"
+    );
+    assert!(
+        !summary_object.contains_key("mutation"),
+        "summary 面零 mutation 键"
+    );
+
     // 输出记录单点（AC-7）：record 内容 = 脚本真实输出合并流（stdout 标记在场），
     // 非 summary JSON 重序列化；单一 `.log` 落 report_dir 同锚
     assert!(!outcome.exec_id.is_empty(), "门禁产出恒回填 exec_id");
@@ -622,6 +664,278 @@ async fn 绿跑全链_pass结论_四计数与报告落盘() {
             .join(format!("{}.err", outcome.exec_id))
             .exists(),
         ".err 分文件退役（单一 .log）"
+    );
+}
+
+/// 异常（AC-5）：缺采集链级——绿跑但覆盖工件缺席（结果文本无覆盖汇总行）
+/// → 退出码 0 + 零失败 + 子报告 `coverage = None` → summary / 载荷结论 fail
+/// （MUST NOT error）、`problems` 恰一条 `coverage_failure`（零
+/// `execution_error`）、`findings_brief` 携 4c 逐 suite 归因。
+#[tokio::test]
+async fn 缺采集链级_判fail不判error() {
+    let ws = ChainWs::new("missing-coverage");
+    let spec_src = ws.root().join("preset-no-coverage.txt");
+    fs::write(&spec_src, SPEC_OUTPUT_NO_COVERAGE).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+
+    let output = {
+        let _window = path_window();
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        ws.run().await
+    }
+    .expect("缺采集面仍走产出（不 Err）");
+
+    let outcome = match output {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "缺采集判 fail（MUST NOT error）"
+    );
+    assert_eq!(outcome.failed, 0, "零失败用例（fail 来自采集缺口）");
+    assert!(
+        outcome.findings_brief.contains("覆盖判定未通过 ["),
+        "findings_brief 携 4c 逐 suite 归因，实际: {}",
+        outcome.findings_brief
+    );
+
+    let reports_dir = ws.reports_dir();
+    let summary: SummaryReport = checks::parse_summary_report(
+        &fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"),
+    )
+    .expect("summary.json 可解析");
+    assert_eq!(summary.conclusion, Conclusion::Fail);
+    let coverage_problems: Vec<&Problem> = summary
+        .problems
+        .iter()
+        .filter(|problem| problem.problem_type == ProblemType::CoverageFailure)
+        .collect();
+    assert_eq!(
+        coverage_problems.len(),
+        1,
+        "恰一条覆盖归因: {:?}",
+        summary.problems
+    );
+    assert!(
+        coverage_problems[0].message.contains("覆盖率采集缺失"),
+        "归因点名采集缺失: {}",
+        coverage_problems[0].message
+    );
+    assert!(
+        summary
+            .problems
+            .iter()
+            .all(|problem| problem.problem_type != ProblemType::ExecutionError),
+        "缺采集零 execution_error: {:?}",
+        summary.problems
+    );
+
+    let sub = checks::parse_sub_report(
+        &fs::read_to_string(reports_dir.join("app_node-test").join("report.json"))
+            .expect("子报告读回"),
+    )
+    .expect("report.json 可解析");
+    assert!(sub.coverage.is_none(), "采集缺席 → 子报告无覆盖块");
+    assert_eq!(sub.exit_code, 0, "退出码 0（绿跑形态）");
+    assert_eq!(sub.summary.failed, 0);
+}
+
+/// 正向（AC-4）：掩盖不可达链级——双 suite 覆盖两形态（app 阈 60/70/75
+/// 三维达标 + app2 functions 阈 95 而实测 90.3 未达）→ summary / 载荷结论
+/// fail、`problems` 恰一条 `coverage_failure`，两子报告各自 `coverage.pass`
+/// 保真（真值源仍逐 suite，达标 suite MUST NOT 稀释缺口 suite）。
+#[tokio::test]
+async fn 掩盖不可达链级_双suite覆盖两形态() {
+    let ws = ChainWs::new("masking").two_plan();
+    fs::write(
+        ws.root().join(".dev-team").join("config.json"),
+        r#"{ "tests": [
+  { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
+  { "root": "app2", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 95 } }
+] }"#,
+    )
+    .expect("覆写双 suite 阈值档");
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+
+    let output = {
+        let _window = path_window();
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        set_shim_dest_2(&ws.results_dest_of("app2_node-test"));
+        ws.run().await
+    }
+    .expect("双 suite 链应 Ok");
+
+    let outcome = match output {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "一个 suite 的达标值 MUST NOT 稀释另一个的 functions 缺口"
+    );
+    assert_eq!(outcome.total, 10, "两 suite 五用例各计");
+
+    let reports_dir = ws.reports_dir();
+    let summary: SummaryReport = checks::parse_summary_report(
+        &fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"),
+    )
+    .expect("summary.json 可解析");
+    assert_eq!(summary.conclusion, Conclusion::Fail);
+    let coverage_problems: Vec<&Problem> = summary
+        .problems
+        .iter()
+        .filter(|problem| problem.problem_type == ProblemType::CoverageFailure)
+        .collect();
+    assert_eq!(
+        coverage_problems.len(),
+        1,
+        "恰一条覆盖归因: {:?}",
+        summary.problems
+    );
+    assert_eq!(
+        coverage_problems[0].message,
+        "Coverage below threshold: functions 90.3% < 95%"
+    );
+
+    for (plan_id, expected_pass) in [("app_node-test", true), ("app2_node-test", false)] {
+        let sub = checks::parse_sub_report(
+            &fs::read_to_string(reports_dir.join(plan_id).join("report.json")).expect("子报告读回"),
+        )
+        .expect("report.json 可解析");
+        let coverage = sub.coverage.as_ref().expect("子报告覆盖块在场");
+        assert_eq!(
+            coverage.pass, expected_pass,
+            "{plan_id} 逐 suite 判定保真（真值源逐 suite）"
+        );
+    }
+}
+
+/// 边界（2 形态）：单 / 双 plan 汇总面——单 plan 与双 plan 各产 1 / 2 条
+/// 子报告与 `plans[]` 条目；两形态 summary 面均无覆盖 / 突变块，
+/// `plans[].id` 沿 `derive_plan_id` 派生。
+#[tokio::test]
+async fn 单双plan形态汇总面同形() {
+    // 单 plan 形态
+    let single = ChainWs::new("plan-single");
+    let spec_src = single.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    {
+        let _window = path_window();
+        set_shim_env(&spec_src, &single.results_dest(), None, None);
+        single.run().await.expect("单 plan 链应 Ok");
+    }
+    let single_summary: SummaryReport = checks::parse_summary_report(
+        &fs::read_to_string(single.reports_dir().join("summary.json")).expect("summary 读回"),
+    )
+    .expect("summary.json 可解析");
+    assert_eq!(single_summary.plans.len(), 1);
+    assert_eq!(single_summary.plans[0].id, "app_node-test");
+
+    // 双 plan 形态
+    let double = ChainWs::new("plan-double").two_plan();
+    let spec_src = double.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    {
+        let _window = path_window();
+        set_shim_env(&spec_src, &double.results_dest(), None, None);
+        set_shim_dest_2(&double.results_dest_of("app2_node-test"));
+        double.run().await.expect("双 plan 链应 Ok");
+    }
+    let reports_dir = double.reports_dir();
+    let double_summary: SummaryReport = checks::parse_summary_report(
+        &fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"),
+    )
+    .expect("summary.json 可解析");
+    assert_eq!(double_summary.plans.len(), 2);
+    assert_eq!(double_summary.plans[1].id, "app2_node-test");
+    for plan in &double_summary.plans {
+        assert_eq!(
+            plan.path,
+            format!("reports/test/{}", plan.id),
+            "path 前缀与 id 同源"
+        );
+        assert!(reports_dir.join(&plan.id).join("report.json").is_file());
+    }
+
+    for summary in [&single_summary, &double_summary] {
+        let text = fs::read_to_string(if summary.plans.len() == 1 {
+            single.reports_dir().join("summary.json")
+        } else {
+            reports_dir.join("summary.json")
+        })
+        .expect("summary 读回");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可解析");
+        let object = value.as_object().expect("顶层对象");
+        assert!(!object.contains_key("coverage"));
+        assert!(!object.contains_key("mutation"));
+    }
+}
+
+/// 边界（AC-9）：复用门三条件守恒——预置「覆盖缺失的 fail summary」+ 输入
+/// 未变 → 同样命中复用（marker 计数不增长、summary 未重写）；fail 与既有
+/// fail 同待遇，MUST NOT 因覆盖面拒复用。
+#[tokio::test]
+async fn 复用门_覆盖缺失fail报告同待遇() {
+    let ws = ChainWs::new("reuse-fail-coverage");
+    let spec_src = ws.root().join("preset-no-coverage.txt");
+    fs::write(&spec_src, SPEC_OUTPUT_NO_COVERAGE).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+
+    let first = {
+        let _window = path_window();
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        ws.run().await
+    }
+    .expect("首跑应 Ok");
+    let first_ts = ws.summary_timestamp().expect("首跑落 summary");
+    assert_eq!(ws.marker_count(), 1, "首跑恰一次执行");
+
+    let second = {
+        let _window = path_window();
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        ws.run().await
+    }
+    .expect("复用跑应 Ok");
+    assert_eq!(
+        ws.marker_count(),
+        1,
+        "复用零 spawn（fail 报告不被覆盖面拒绝）"
+    );
+    assert_eq!(
+        ws.summary_timestamp(),
+        Some(first_ts),
+        "复用上次 summary（未重写）"
+    );
+
+    let (ToolStepOutput::TestExecution(first_out), ToolStepOutput::TestExecution(second_out)) =
+        (&first, &second)
+    else {
+        panic!("两跑产出均应为 TestExecution 变体");
+    };
+    assert_eq!(first_out.conclusion, TestExecutionConclusion::Fail);
+    assert_eq!(
+        second_out.conclusion,
+        TestExecutionConclusion::Fail,
+        "复用结论与首跑一致"
+    );
+    assert_eq!(
+        (
+            second_out.total,
+            second_out.passed,
+            second_out.failed,
+            second_out.skipped
+        ),
+        (
+            first_out.total,
+            first_out.passed,
+            first_out.failed,
+            first_out.skipped
+        )
     );
 }
 
@@ -849,8 +1163,6 @@ fn hand_summary(conclusion: Conclusion, findings: Vec<String>) -> SummaryReport 
         skipped: 0,
         conclusion,
         problems: Vec::new(),
-        coverage: None,
-        mutation: None,
         plans: Vec::new(),
         findings: Some(findings),
     }
@@ -3298,6 +3610,13 @@ fn 子报告findings_降级注零注入且结论仍pass() {
     let note = "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（1 个测试文件）";
     let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
     let mut execution = head_execution(b"", 8230, Some(note));
+    // 覆盖面按绿跑形态给值（逐 suite 判定 pass）：本用例判据是降级注不入
+    // findings、结论仍 Pass——采集面缺失另由缺采集链级用例承载
+    execution.measured = Some(CoverageMeasured {
+        lines: Some(90.0),
+        branches: Some(80.0),
+        functions: Some(85.0),
+    });
     execution.cases = vec![TestCaseResult {
         name: "adds numbers".to_owned(),
         file: Some("src/add.test.mjs".to_owned()),
@@ -3323,7 +3642,6 @@ fn 子报告findings_降级注零注入且结论仍pass() {
 
     let summary = checks::build_summary_report(
         std::slice::from_ref(&sub),
-        &[],
         "desktop change run: test-execution gate",
         time::OffsetDateTime::now_utc(),
     );
@@ -3370,7 +3688,6 @@ fn 子报告findings_真红plan错误面不回退() {
 
     let summary = checks::build_summary_report(
         std::slice::from_ref(&sub),
-        &[],
         "desktop change run: test-execution gate",
         time::OffsetDateTime::now_utc(),
     );

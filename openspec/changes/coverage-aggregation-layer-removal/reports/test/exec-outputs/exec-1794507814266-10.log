@@ -1,0 +1,5 @@
+
+=== packages_desktop_src-tauri_rust (rust) · files=18 ===
+Found 32 mutants to test
+MISSED   crates/core/checks/src/aggregate.rs:222:34: replace > with >= in collect_problems in 7s build + 6s test
+32 mutants tested in 2m: 1 missed, 25 caught, 6 unviable

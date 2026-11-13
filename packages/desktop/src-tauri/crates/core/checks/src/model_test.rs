@@ -502,10 +502,6 @@ fn 真实形态summary全字段解析逐字段相等() {
         ],
         "problems 归并保真（type 三值 snake_case 线格式对位）"
     );
-    let coverage = parsed.coverage.as_ref().expect("coverage 块在场");
-    assert!(coverage.pass);
-    assert_eq!(coverage.measured.lines, Some(86.67));
-    assert_eq!(coverage.measured.functions, None, "null 维度对位 None");
     let plans = &parsed.plans;
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0].id, "vite-plus");
@@ -517,7 +513,6 @@ fn 真实形态summary全字段解析逐字段相等() {
                 .to_owned()
         ])
     );
-    assert!(parsed.mutation.is_none(), "mutation null 对位 None");
 }
 
 /// 异常：conclusion 非法枚举值 → Err（pass / fail / error 封闭集拒识）。
@@ -555,10 +550,23 @@ fn 最小合法summary解析成功() {
     assert_eq!(parsed.conclusion, Conclusion::Pass);
     assert!(parsed.problems.is_empty() && parsed.plans.is_empty());
     assert_eq!(parsed.total, 0);
-    assert!(parsed.coverage.is_none() && parsed.mutation.is_none());
 
     // 往返无损
     let text = serde_json::to_string(&parsed).expect("序列化应成功");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可回读");
+    let object = value.as_object().expect("顶层对象");
+    assert!(
+        !object.contains_key("coverage"),
+        "最小 summary 无 coverage 键"
+    );
+    assert!(
+        !object.contains_key("mutation"),
+        "最小 summary 无 mutation 键"
+    );
+    assert!(
+        !object.contains_key("findings"),
+        "findings 为 None 时整键不出现"
+    );
     let roundtrip = parse_summary_report(&text).expect("再出线重解析应成功");
     assert_eq!(roundtrip, parsed, "最小 summary 往返无损");
 }
@@ -917,4 +925,249 @@ fn mutation_seg_report类型面_零扩展与大值构造() {
     };
     assert_eq!(report.duration_ms, 0.0, "段耗时缺省 0.0");
     assert_eq!(report.tool, MutationTool::Stryker);
+}
+
+// ---------------------------------------------------------------------------
+// SummaryReport 瘦身面（AC-2 / AC-13）：两字段退役后的序列化键集与旧报告宽容
+// ---------------------------------------------------------------------------
+
+/// 汇总报告内存构造（全部字段显式——序列化键面 fixture）。
+fn summary_report(
+    problems: Vec<Problem>,
+    plans: Vec<crate::model::PlanIndexEntry>,
+    findings: Option<Vec<String>>,
+) -> crate::model::SummaryReport {
+    crate::model::SummaryReport {
+        phase: "test-execution".to_owned(),
+        command: "desktop change run: test-execution gate".to_owned(),
+        timestamp: "2026-10-06T08:00:00Z".to_owned(),
+        duration_seconds: 0.0,
+        total: 0,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        conclusion: Conclusion::Pass,
+        problems,
+        plans,
+        findings,
+    }
+}
+
+/// 正向（AC-2）：序列化瘦身——顶层键集恰 11 个必在键，`findings` 为 `None`
+/// 时整键不出现，`coverage` / `mutation` 两键缺席。
+#[test]
+fn 汇总序列化瘦身键集() {
+    let summary = summary_report(Vec::new(), Vec::new(), None);
+    let value = serde_json::to_value(&summary).expect("汇总应可序列化");
+    let object = value.as_object().expect("顶层对象");
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+
+    assert_eq!(
+        keys,
+        vec![
+            "command",
+            "conclusion",
+            "duration_seconds",
+            "failed",
+            "passed",
+            "phase",
+            "plans",
+            "problems",
+            "skipped",
+            "timestamp",
+            "total",
+        ],
+        "12 字段中 findings 缺省不出现 → 11 键"
+    );
+    assert!(!object.contains_key("coverage"));
+    assert!(!object.contains_key("mutation"));
+
+    let with_findings = summary_report(Vec::new(), Vec::new(), Some(vec!["正向锚".to_owned()]));
+    let value = serde_json::to_value(&with_findings).expect("序列化应成功");
+    assert_eq!(
+        value["findings"],
+        serde_json::json!(["正向锚"]),
+        "findings 在场时序列化"
+    );
+}
+
+/// 正向：往返无损——三类 problems + 一条 plans + findings 在场的汇总经出线
+/// 再解析逐字段相等。
+#[test]
+fn 汇总往返无损() {
+    let summary = summary_report(
+        vec![
+            Problem {
+                framework: "vite-plus".to_owned(),
+                problem_type: ProblemType::TestFailure,
+                message: "Test \"math > a\" failed: boom".to_owned(),
+            },
+            Problem {
+                framework: "rust".to_owned(),
+                problem_type: ProblemType::CoverageFailure,
+                message: "Coverage below threshold: functions 87.6% < 90%".to_owned(),
+            },
+            Problem {
+                framework: "go".to_owned(),
+                problem_type: ProblemType::ExecutionError,
+                message: "Exit code 2".to_owned(),
+            },
+        ],
+        vec![crate::model::PlanIndexEntry {
+            id: "crates_rust".to_owned(),
+            framework: "rust".to_owned(),
+            root: "crates".to_owned(),
+            path: "reports/test/crates_rust".to_owned(),
+        }],
+        Some(vec!["覆盖判定未通过 [rust]: 缺口留痕".to_owned()]),
+    );
+
+    let text = serde_json::to_string(&summary).expect("序列化应成功");
+    let roundtrip = parse_summary_report(&text).expect("再出线重解析应成功");
+    assert_eq!(roundtrip, summary, "汇总往返逐字段相等");
+}
+
+/// 正向（AC-13）：旧报告仍可读——历史 `summary.json`（含 `coverage` 块与
+/// `"mutation": null`）解析成功，两键被忽略（零残留、零 `Err`），problems /
+/// plans / findings 逐字保真。
+#[test]
+fn 旧报告带两键仍可解析() {
+    let parsed = parse_summary_report(FULL_SUMMARY_JSON).expect("旧报告应宽容解析成功");
+    assert_eq!(parsed.conclusion, Conclusion::Fail);
+    assert_eq!(parsed.problems.len(), 2, "两类 problem 逐字保真");
+    assert_eq!(
+        parsed.problems[1].message,
+        "Coverage below threshold: functions 78.9% < 75%"
+    );
+    assert_eq!(parsed.plans.len(), 1);
+    assert_eq!(parsed.plans[0].path, "reports/test/vite-plus");
+    assert!(parsed.findings.is_some(), "findings 保真");
+
+    let text = serde_json::to_string(&parsed).expect("序列化应成功");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可回读");
+    let object = value.as_object().expect("顶层对象");
+    assert!(!object.contains_key("coverage"), "旧键不再出线");
+    assert!(!object.contains_key("mutation"), "旧键不再出线");
+}
+
+/// 异常（AC-13 宽容边界，4 形态）：旧报告两键畸形（字符串 / 数组 / 数值 /
+/// 对象）仍 `Ok`——未知字段宽容不因旧键形态翻面。
+#[test]
+fn 旧报告两键畸形仍宽容() {
+    for legacy in [
+        r#" "coverage": "oops", "#,
+        r#" "coverage": [], "#,
+        r#" "mutation": 42, "#,
+        r#" "mutation": {}, "#,
+    ] {
+        let json = format!(
+            r#"{{
+              "phase": "test-execution", "command": "cmd", "timestamp": "2026-10-06T08:00:00Z",
+              "duration_seconds": 1.0, "total": 1, "passed": 1, "failed": 0, "skipped": 0,
+              "conclusion": "pass",
+              {legacy}
+              "problems": [], "plans": []
+            }}"#
+        );
+        let parsed = parse_summary_report(&json)
+            .unwrap_or_else(|error| panic!("旧键形态 {legacy} 应宽容解析: {error}"));
+        assert_eq!(parsed.total, 1);
+    }
+}
+
+/// 边界（2 形态）：极值字段——`duration_seconds = 0` 与四计数 `u64::MAX` 两
+/// 形态解析与往返保真、零饱和。
+#[test]
+fn 极值字段往返保真() {
+    let mut zero_duration = summary_report(Vec::new(), Vec::new(), None);
+    zero_duration.duration_seconds = 0.0;
+    let text = serde_json::to_string(&zero_duration).expect("序列化应成功");
+    let parsed = parse_summary_report(&text).expect("解析应成功");
+    assert_eq!(parsed.duration_seconds, 0.0);
+
+    let mut saturated = summary_report(Vec::new(), Vec::new(), None);
+    saturated.total = u64::MAX;
+    saturated.passed = u64::MAX;
+    saturated.failed = u64::MAX;
+    saturated.skipped = u64::MAX;
+    let text = serde_json::to_string(&saturated).expect("序列化应成功");
+    let parsed = parse_summary_report(&text).expect("解析应成功");
+    assert_eq!(parsed, saturated, "极大计数往返无损（零饱和）");
+}
+
+/// 边界（3 形态）：新形态反序列化缺省臂——缺 `problems` / `plans` /
+/// `findings` 的 JSON → `Vec::new()` / `Vec::new()` / `None`。
+#[test]
+fn 新形态缺省臂三形态() {
+    let base = r#""phase": "test-execution", "command": "cmd", "timestamp": "2026-10-06T08:00:00Z", "duration_seconds": 1.0, "total": 0, "passed": 0, "failed": 0, "skipped": 0, "conclusion": "pass""#;
+    for extra in [
+        r#", "plans": []"#,
+        r#", "problems": []"#,
+        r#", "problems": [], "plans": []"#,
+    ] {
+        let json = format!("{{ {base}{extra} }}");
+        let parsed = parse_summary_report(&json).expect("缺省字段应取默认值");
+        assert!(parsed.problems.is_empty(), "problems 缺省为空集: {extra}");
+        assert!(parsed.plans.is_empty(), "plans 缺省为空集: {extra}");
+        assert_eq!(parsed.findings, None, "findings 缺省为 None: {extra}");
+    }
+}
+
+/// 正向：`Problem` 线格式恰三键（`framework` / `type` / `message`），三类
+/// 问题类型 snake_case 对位往返保真。
+#[test]
+fn problem序列化恰三键() {
+    for (kind, wire) in [
+        (ProblemType::TestFailure, "test_failure"),
+        (ProblemType::CoverageFailure, "coverage_failure"),
+        (ProblemType::ExecutionError, "execution_error"),
+    ] {
+        let problem = Problem {
+            framework: "rust".to_owned(),
+            problem_type: kind,
+            message: "m".to_owned(),
+        };
+        let value = serde_json::to_value(&problem).expect("序列化应成功");
+        let object = value.as_object().expect("对象");
+        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec!["framework", "message", "type"]);
+        assert_eq!(value["type"], serde_json::json!(wire));
+        let roundtrip: Problem = serde_json::from_value(value).expect("回读应成功");
+        assert_eq!(roundtrip, problem);
+    }
+}
+
+/// 正向：`SourceFileEntry.coverage` 两态（`None` / `Some`）与
+/// `CoverageOverride` 七字段往返保真。
+#[test]
+fn 逐文件条目与override组往返() {
+    let no_coverage = crate::model::SourceFileEntry {
+        file: "src/app/main.rs".to_owned(),
+        coverage: None,
+    };
+    let text = serde_json::to_string(&no_coverage).expect("序列化应成功");
+    let roundtrip: crate::model::SourceFileEntry = serde_json::from_str(&text).expect("回读应成功");
+    assert_eq!(roundtrip, no_coverage, "coverage 缺省态往返");
+
+    let override_group = CoverageOverride {
+        glob: "src/**/*.rs".to_owned(),
+        thresholds: CoverageThresholds {
+            lines: 80.0,
+            branches: 70.0,
+            functions: 75.0,
+        },
+        measured: CoverageMeasured {
+            lines: Some(90.0),
+            branches: None,
+            functions: Some(88.0),
+        },
+        pass: true,
+        file_count: 7,
+        passed_count: 6,
+    };
+    let text = serde_json::to_string(&override_group).expect("序列化应成功");
+    let roundtrip: CoverageOverride = serde_json::from_str(&text).expect("回读应成功");
+    assert_eq!(roundtrip, override_group, "override 组七字段逐项保真");
 }

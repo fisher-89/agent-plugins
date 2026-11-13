@@ -1,11 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use checks::aggregate::aggregate_coverage;
 use checks::model::{parse_sub_report, parse_summary_report};
 use checks::parser::parse_spec_report;
 use checks::{check_integrity, diagnose_findings};
-use config::{MutationConfig, TestFramework};
 
 /// golden 重写开关环境变量（workflow corpus_golden_test 先例同款定名）。
 const REWRITE_ENV: &str = "DESKTOP_GOLDEN_REWRITE";
@@ -36,48 +34,6 @@ fn golden_dir() -> PathBuf {
 
 fn rewrite_mode() -> bool {
     std::env::var(REWRITE_ENV).is_ok_and(|value| value != "0" && !value.is_empty())
-}
-
-/// 语料对应的 config::TestSuite 集（suite 阈值随语料档位；config::TestSuite
-/// 为 Serialize-only 类型，Rust 侧显式构造——清单同步维护于 fixtures/README.md）。
-fn suites_for(fixture: &str) -> Vec<config::TestSuite> {
-    let thresholds = |lines: f64, branches: f64, functions: f64| config::CoverageThresholds {
-        lines,
-        branches,
-        functions,
-    };
-    let suite = |root: &str, framework: TestFramework, coverage| config::TestSuite {
-        root: root.to_owned(),
-        framework,
-        cwd: ".".to_owned(),
-        config: None,
-        includes: None,
-        excludes: None,
-        coverage,
-        mutation: MutationConfig {
-            cwd: None,
-            score: 70.0,
-        },
-    };
-    match fixture {
-        "green-istanbul" | "red-run" => vec![suite(
-            ".",
-            TestFramework::VitePlus,
-            thresholds(80.0, 70.0, 75.0),
-        )],
-        "green-llvm-cov" => vec![suite(
-            "crates/core",
-            TestFramework::Rust,
-            thresholds(70.0, 65.0, 60.0),
-        )],
-        "green-node-test" => vec![suite(
-            ".",
-            TestFramework::NodeTest,
-            thresholds(60.0, 70.0, 75.0),
-        )],
-        // 无 summary 面（无聚合消费）的解析保真样本：suites 不参与投影
-        _ => Vec::new(),
-    }
 }
 
 /// 单个 corpus fixture 的全链投影：宽容解析 → 完整性 checklist → 诊断树 →
@@ -128,8 +84,8 @@ fn project_corpus_fixture(fixture: &str) -> serde_json::Value {
     }
     projection["subReport"] = sub_projection;
 
-    // ② summary 面：完整性 checklist + 诊断树 + 计算侧覆盖聚合（绿跑三档与
-    // 红跑语料；本语料族均为单子报告形态）
+    // ② summary 面：完整性 checklist + 诊断树（绿跑三档与红跑语料；本语料族
+    // 均为单子报告形态）
     if let Ok(summary_text) = fs::read_to_string(dir.join("summary.json")) {
         match parse_summary_report(&summary_text) {
             Err(_) => {
@@ -149,15 +105,6 @@ fn project_corpus_fixture(fixture: &str) -> serde_json::Value {
                     "integrity": check_integrity(&summary, &own),
                     "diagnose": diagnose_findings(&summary),
                 });
-
-                // 计算侧聚合对拍：解析语料重算覆盖块与 summary 记载一致
-                let computed = aggregate_coverage(&own, &suites_for(fixture));
-                projection["computedCoverage"] = computed
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()
-                    .expect("CoverageBlock 序列化应成功")
-                    .unwrap_or(serde_json::Value::Null);
             }
         }
     }
@@ -246,19 +193,21 @@ fn 全链绿跑istanbul_conclusion_pass且golden一致() {
     check_or_rewrite("green-istanbul", &projection);
 }
 
-/// llvm-cov 绿跑 fixtures → 同链 conclusion 与聚合面一致（src-tauri rust 档）。
+/// llvm-cov 绿跑 fixtures → 同链 conclusion 与子报告覆盖面一致（src-tauri rust
+/// 档）：覆盖块保真面由子报告承接（`coveragePresent` 为源，summary 面不再产
+/// 覆盖率数值块）。
 #[test]
 fn 全链绿跑llvm_cov_conclusion_pass且聚合面一致() {
     let projection = project_corpus_fixture("green-llvm-cov");
     assert_eq!(projection["summary"]["conclusion"], "pass");
     assert_eq!(projection["summary"]["integrity"], serde_json::json!([]));
-    // 计算侧聚合与 summary 记载一致：lines 71.43 ≥ 70（branches / functions
-    // null 维度感知跳过）
-    assert_eq!(projection["computedCoverage"]["pass"], true);
-    assert_eq!(projection["computedCoverage"]["measured"]["lines"], 71.43);
     assert_eq!(
-        projection["computedCoverage"]["measured"]["branches"],
-        serde_json::json!(null)
+        projection["subReport"]["coveragePresent"], true,
+        "覆盖块真值源在子报告（branches / functions 的 null 维度由块承载）"
+    );
+    assert!(
+        projection.get("computedCoverage").is_none(),
+        "summary 面不再产覆盖率数值块（投影键退役）"
     );
     check_or_rewrite("green-llvm-cov", &projection);
 }
@@ -310,6 +259,73 @@ fn 全链红跑_conclusion_fail且findings一致() {
         "诊断树 4b 聚类措辞与既有金样口径一致"
     );
     check_or_rewrite("red-run", &projection);
+}
+
+/// 反向判据（③ 重算不引入新违例）：`summary.outcome == "parsed"` 的各语料
+/// `integrity` 仍为空集；两份 `corrupt-*` 仍 `subReport.outcome == "unparsable"`
+/// 且无 summary 面。
+#[test]
+fn 投影反向判据_parsed语料零违例与corrupt降级() {
+    let mut parsed_summaries = 0usize;
+    for fixture in CORPUS_FIXTURES {
+        let projection = project_corpus_fixture(fixture);
+        let sub_outcome = projection["subReport"]["outcome"]
+            .as_str()
+            .unwrap_or_default();
+        if sub_outcome != "parsed" {
+            assert!(
+                projection.get("summary").is_none(),
+                "{fixture}: 子报告不可解析即无 summary 面"
+            );
+            continue;
+        }
+        if let Some(summary) = projection.get("summary") {
+            assert_eq!(summary["outcome"], "parsed", "{fixture} summary 可解析");
+            assert_eq!(
+                summary["integrity"],
+                serde_json::json!([]),
+                "{fixture}: ③ 重算与记载一致（零完整性违例）"
+            );
+            parsed_summaries += 1;
+        }
+    }
+    assert_eq!(
+        parsed_summaries, 4,
+        "四份语料携 summary 面（绿跑三档 + 红跑）"
+    );
+}
+
+/// 装置边界：`CORPUS_FIXTURES` 恰八套，且「六 parsed + 两 unparsable」全量
+/// 统计（零静默丢弃）；golden 缺失时记因文案点名重写开关。
+#[test]
+fn 语料装置边界_清单规模与golden缺失记因() {
+    assert_eq!(
+        CORPUS_FIXTURES.len(),
+        8,
+        "语料清单八套（fixtures/README 同步）"
+    );
+    let mut parsed = 0usize;
+    let mut unparsable = 0usize;
+    for fixture in CORPUS_FIXTURES {
+        match project_corpus_fixture(fixture)["subReport"]["outcome"].as_str() {
+            Some("parsed") => parsed += 1,
+            Some("unparsable") => unparsable += 1,
+            other => panic!("{fixture}: 未知投影 outcome {other:?}"),
+        }
+    }
+    assert_eq!(
+        (parsed, unparsable),
+        (6, 2),
+        "六 parsed + 两 unparsable 全量"
+    );
+
+    let missing = golden_dir().join("no-such-golden.json");
+    let error = compare_golden(&missing, "no-such-golden", &serde_json::json!({}))
+        .expect_err("golden 缺失应显式 Err");
+    assert!(
+        error.contains(REWRITE_ENV),
+        "记因文案点名重写开关，实际: {error}"
+    );
 }
 
 /// 损坏样本（非法 JSON / 必填缺失）→ 宽容解析不悄悄吞数据：unparsable 标记与

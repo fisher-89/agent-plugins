@@ -666,7 +666,7 @@ impl ChainWs {
         }
     }
 
-    /// 预置 summary.json（E11 回填在位面 / 中断不回填面）。
+    /// 预置 summary.json（零回写判据面：执行前后字节逐字相等）。
     fn with_summary(self) -> Self {
         let reports = foundation::layout::change_test_reports(&self.root, self.change);
         fs::create_dir_all(&reports).expect("建报告目录");
@@ -706,10 +706,20 @@ fn outcome_of(output: ToolStepOutput) -> orchestration::port::MutationTestOutcom
     }
 }
 
-/// summary.json 回读（mutation 位回填断言面）。
+/// summary.json 路径（零回写字节判据面）。
+fn summary_path(ws: &ChainWs) -> PathBuf {
+    foundation::layout::change_test_reports(&ws.root, ws.change).join("summary.json")
+}
+
+/// summary.json 回读（零回写断言面：值索引 + 字节比对双重判据）。
 fn read_summary(ws: &ChainWs) -> serde_json::Value {
-    let path = foundation::layout::change_test_reports(&ws.root, ws.change).join("summary.json");
-    serde_json::from_str(&fs::read_to_string(path).expect("summary 在盘")).expect("summary 可解析")
+    serde_json::from_str(&fs::read_to_string(summary_path(ws)).expect("summary 在盘"))
+        .expect("summary 可解析")
+}
+
+/// summary.json 原始字节（「零回写」只由字节比对证明）。
+fn read_summary_bytes(ws: &ChainWs) -> Vec<u8> {
+    fs::read(summary_path(ws)).expect("summary 在盘")
 }
 
 /// 正向：`ProcessMutation::new` 与 `Default::default()` 等价可用（无状态空
@@ -940,30 +950,58 @@ async fn 显式err面_写盘失败停给用户() {
     );
 }
 
-/// 边界：summary mutation 位回填（E11）——summary 在位（可解析对象）→ 回写
-/// 归并块；不在位 → 不回填不崩（null 保持）。
+/// 边界（AC-10）：summary 零回写——summary 在位 → 执行前后字节逐字相等（读
+/// `Value` 索引分不出「零回写」与「回写后又清空」，字节比对才证得住回填面
+/// 不存在），预置 `mutation` 值未被归并块覆盖；summary 缺席 → run 仍 `Ok` 且
+/// 不新建该文件。
 #[tokio::test]
-async fn summary回填_在位回写不在位不崩() {
-    // 在位面：回写归并块
-    let ws = ChainWs::new("backfill", CARGO_SEG_PASS).with_summary();
+async fn summary零回写_在位不改写不在位不新建() {
+    let ws = ChainWs::new("no-backfill", CARGO_SEG_PASS).with_summary();
+    let before = read_summary_bytes(&ws);
     let files = vec!["app/src/lib.rs".to_owned()];
-    run(&ws, &files).await.expect("回填链应成功");
-    let summary = read_summary(&ws);
-    let mutation = summary["mutation"].as_object().expect("mutation 位已回填");
-    assert_eq!(mutation["score"], 90.0, "回填归并块分值");
-    assert_eq!(mutation["pass"], true);
-    assert_eq!(mutation["threshold"], 80.0);
 
-    // 不在位面：ChainWs 无 summary → 不回填不崩（run 已在 pass 用例覆盖——此处
-    // 断言 summary 路径缺席下 run 仍 Ok）
+    let outcome = outcome_of(run(&ws, &files).await.expect("执行链应成功"));
+    assert_eq!(
+        (outcome.score, outcome.threshold),
+        (90.0, 80.0),
+        "载荷展示口径（score / threshold）"
+    );
+    assert_eq!(
+        (
+            outcome.counts.killed,
+            outcome.counts.survived,
+            outcome.counts.timeout,
+            outcome.counts.compile_error,
+            outcome.counts.runtime_error,
+            outcome.counts.ignored,
+            outcome.counts.total,
+        ),
+        (9, 1, 0, 0, 0, 0, 10),
+        "载荷计数七字段"
+    );
+
+    assert_eq!(
+        read_summary_bytes(&ws),
+        before,
+        "执行前后 summary.json 字节逐字相等（MUST NOT 落盘归并块）"
+    );
+    let summary = read_summary(&ws);
+    assert!(
+        summary["mutation"].is_null(),
+        "预置 mutation 值未被归并块覆盖: {summary}"
+    );
+    assert!(
+        !summary
+            .as_object()
+            .expect("顶层对象")
+            .contains_key("coverage"),
+        "summary 面零 coverage 键: {summary}"
+    );
+
+    // 缺席面：ChainWs 无 summary → 不新建该文件
     let ws = ChainWs::new("no-summary", CARGO_SEG_PASS);
     run(&ws, &files).await.expect("summary 不在位不崩");
-    assert!(
-        !foundation::layout::change_test_reports(&ws.root, ws.change)
-            .join("summary.json")
-            .exists(),
-        "summary 不在位保持缺席（null 观察期语义不变）"
-    );
+    assert!(!summary_path(&ws).exists(), "summary 缺席面零写入");
 }
 
 // ---------------------------------------------------------------------------
@@ -972,14 +1010,15 @@ async fn summary回填_在位回写不在位不崩() {
 
 /// 正向：**js suite 全链（Stryker）**——vitest suite 零预置段报告（不走复用门）
 /// 经假 spawn 真执行 npx 段 → `ToolStepOutput::MutationTest` 载荷全字段 + 段级 /
-/// 归并报告落盘 + summary mutation 位回填；记录面 argv 逐参（`npx --prefix
-/// <suite cwd> stryker run <config>`）与 spawn cwd 断言（AC-4 js 族 → Stryker /
-/// E11；执行链按 Mock 表走假 spawn）。
+/// 归并报告落盘，summary 面零回写（AC-10 字节判据）；记录面 argv 逐参（`npx
+/// --prefix <suite cwd> stryker run <config>`）与 spawn cwd 断言（AC-4 js 族 →
+/// Stryker；执行链按 Mock 表走假 spawn）。
 #[tokio::test]
 async fn 执行链js_suite全链stryker假spawn产出() {
     let window = SpawnWindow::enter("js-chain");
     window.install_npx();
     let ws = ChainWs::with_config("js-chain", VITEST_CONFIG).with_summary();
+    let before = read_summary_bytes(&ws);
     let suite_cwd = ws.root.join("app");
     fs::create_dir_all(&suite_cwd).expect("建 suite 执行目录");
     let reports = foundation::layout::change_test_reports(&ws.root, ws.change);
@@ -1027,12 +1066,17 @@ async fn 执行链js_suite全链stryker假spawn产出() {
         "报告路径 POSIX 形态"
     );
 
-    // summary mutation 位回填（E11 在位面）
+    // summary 面零回写（AC-10）：字节判据 + 预置 mutation 值未被覆盖
+    assert_eq!(
+        read_summary_bytes(&ws),
+        before,
+        "js 全链执行前后 summary.json 字节逐字相等"
+    );
     let summary = read_summary(&ws);
-    let mutation = summary["mutation"].as_object().expect("mutation 位已回填");
-    assert_eq!(mutation["score"], 90.0);
-    assert_eq!(mutation["pass"], true);
-    assert_eq!(mutation["threshold"], 80.0);
+    assert!(
+        summary["mutation"].is_null(),
+        "载荷归并块 MUST NOT 落 summary.json: {summary}"
+    );
 
     // 假 spawn 执行链证据：恰一次 spawn（非复用门路径）+ argv 逐参 + cwd
     let records = window.records();
@@ -1066,6 +1110,7 @@ async fn 执行链js_suite全链stryker假spawn产出() {
 async fn 段中断_conclusion_error即时反馈不等汇总() {
     let window = SpawnWindow::enter("interrupt");
     let ws = ChainWs::with_config("interrupt", TWO_RUST_CONFIG).with_summary();
+    let before = read_summary_bytes(&ws);
     window.install_fake_cargo(&ws.root.join("app"));
     window.install_fake_cargo(&ws.root.join("src-tauri"));
     window.set_cargo_outcomes(CARGO_SEG_PASS); // suite1 面：90 ≥ 80 达标完成（报告文件落位）
@@ -1121,11 +1166,15 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
         "报告路径 POSIX 形态"
     );
 
-    // 不等汇总：summary mutation 位保持 null（E11 部分结论不落位）
-    let summary = read_summary(&ws);
+    // 不等汇总：summary 零回写（字节判据）——部分结论不落位
+    assert_eq!(
+        read_summary_bytes(&ws),
+        before,
+        "中断面 summary.json 字节逐字相等（无回填动作）"
+    );
     assert!(
-        summary["mutation"].is_null(),
-        "中断面 MUST NOT 回填 summary mutation 位"
+        read_summary(&ws)["mutation"].is_null(),
+        "中断面 MUST NOT 落归并块"
     );
     // rust 桶中断零保留（保留面只属 Stryker 失败桶的临时产物）
     assert!(
@@ -1170,7 +1219,8 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
     ];
 
     // run1：全过（app 90 ≥ 80、src-tauri 75 ≥ 70）
-    let ws1 = ChainWs::with_config("all-pass", TWO_RUST_CONFIG);
+    let ws1 = ChainWs::with_config("all-pass", TWO_RUST_CONFIG).with_summary();
+    let ws1_before = read_summary_bytes(&ws1);
     window.install_fake_cargo(&ws1.root.join("app"));
     window.install_fake_cargo(&ws1.root.join("src-tauri"));
     window.set_cargo_outcomes(CARGO_SEG_PASS); // 90
@@ -1198,10 +1248,20 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
     );
     assert_eq!(all_pass.report_paths.len(), 4, "两 suite 各段级 + 归并报告");
     assert_eq!(window.records().len(), 2, "两 suite 各一次假 spawn");
+    assert_eq!(
+        read_summary_bytes(&ws1),
+        ws1_before,
+        "多 suite 归并块 MUST NOT 落 summary.json（字节判据）"
+    );
+    assert!(
+        read_summary(&ws1)["mutation"].is_null(),
+        "预置 mutation 值未被归并块覆盖"
+    );
 
     // run2：app 50 < 80 → Fail（src-tauri 95 ≥ 70 过）
     window.reset_records();
-    let ws2 = ChainWs::with_config("has-fail", TWO_RUST_CONFIG);
+    let ws2 = ChainWs::with_config("has-fail", TWO_RUST_CONFIG).with_summary();
+    let ws2_before = read_summary_bytes(&ws2);
     window.install_fake_cargo(&ws2.root.join("app"));
     window.install_fake_cargo(&ws2.root.join("src-tauri"));
     window.set_cargo_outcomes(CARGO_SEG_FAIL); // 50
@@ -1231,6 +1291,11 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
         "报告路径清单: {feedback}"
     );
     assert_eq!(window.records().len(), 2, "两 suite 各一次假 spawn");
+    assert_eq!(
+        read_summary_bytes(&ws2),
+        ws2_before,
+        "未达阈面同样零回写（结论只走逐 suite 门禁）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1976,6 +2041,7 @@ fn 归桶过滤_excludes全桶消费() {
 async fn 全桶滤空_emptydiff零spawn假绿防线() {
     let window = SpawnWindow::enter("filter-empty");
     let ws = ChainWs::with_config("filter-empty", VITEST_CONFIG).with_summary();
+    let before = read_summary_bytes(&ws);
     let files = vec![
         "app/README.md".to_owned(),
         "app/package.json".to_owned(),
@@ -2004,10 +2070,14 @@ async fn 全桶滤空_emptydiff零spawn假绿防线() {
         outcome.report_paths
     );
     assert!(window.records().is_empty(), "零 spawn（假绿路径不可达）");
-    let summary = read_summary(&ws);
+    assert_eq!(
+        read_summary_bytes(&ws),
+        before,
+        "跳过面 summary.json 字节逐字相等（零回写）"
+    );
     assert!(
-        summary["mutation"].is_null(),
-        "跳过面 MUST NOT 回填 summary mutation 位"
+        read_summary(&ws)["mutation"].is_null(),
+        "跳过面 MUST NOT 落归并块"
     );
 }
 
@@ -2200,7 +2270,7 @@ fn segment_failure_display三臂同型() {
 /// 正向（AC-7 组合锚，旧「收敛 failed / Error」断言随裁决改写）：取消 →
 /// `fault = Some(RunFault::Stopped)` + `conclusion = Fail` 占位 + `feedback_text`
 /// 空串（stopped 面不被误读为「需修复」）——自旋假 spawn 运行中置位；非 Fatal
-/// `Err` 面，段报告 / summary 面不落位（中断不回填）。
+/// `Err` 面，段报告 / summary 面不落位（零回写）。
 #[tokio::test]
 async fn 取消_fault为stopped且结论占位fail() {
     let window = SpawnWindow::enter("cancel-run");
@@ -2379,7 +2449,7 @@ fn two_bucket_ws(tag: &str) -> (ChainWs, PathBuf) {
 /// 正反向组合锚（AC-7 / D17）：**多桶中途取消**——第 1 桶（rust 复用门）完成
 /// 后置位 → 第 2 桶（Stryker 假 spawn 自旋）观测取消 → 整体
 /// `fault = Some(Stopped)` + `conclusion = Fail` 占位、`feedback_text` 空、
-/// 第 1 桶报告路径仍在 `report_paths`、`summary.json` mutation 位不回填（取消面与
+/// 第 1 桶报告路径仍在 `report_paths`、`summary.json` 字节零改动（取消面与
 /// `Interrupted` 同型：不落部分结论）+ 第 2 桶进程被回收（pid 消失）。
 #[tokio::test]
 async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
@@ -2388,6 +2458,7 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
     window.set_sleep(1); // 第 2 桶自旋挂起（第 1 桶零 spawn，不受此键影响）
     let (ws, pid_file) = two_bucket_ws("cancel-multi-bucket");
     window.set_pidfile(&pid_file);
+    let before = read_summary_bytes(&ws);
 
     let files = vec!["app/src/lib.rs".to_owned(), "web/src/panel.ts".to_owned()];
     let cancel = foundation::cancel::CancelFlag::never();
@@ -2443,10 +2514,14 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
         wait_pid_gone(pid, std::time::Duration::from_secs(15)),
         "第 2 桶进程被回收（pid {pid} 消失——kill_tree 生效）"
     );
-    let summary = read_summary(&ws);
+    assert_eq!(
+        read_summary_bytes(&ws),
+        before,
+        "取消面 summary.json 字节逐字相等（零回写，部分结论不落位）"
+    );
     assert!(
-        summary["mutation"].is_null(),
-        "中断面不回填 summary mutation 位（部分结论不落位）: {summary}"
+        read_summary(&ws)["mutation"].is_null(),
+        "取消面 MUST NOT 落归并块"
     );
     assert!(
         !foundation::layout::change_test_reports(&ws.root, ws.change)

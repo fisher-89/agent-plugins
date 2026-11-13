@@ -36,18 +36,5 @@
     "diagnose": [
       "全部测试通过且覆盖率达阈值"
     ]
-  },
-  "computedCoverage": {
-    "pass": true,
-    "measured": {
-      "lines": 71.43,
-      "branches": null,
-      "functions": null
-    },
-    "thresholds": {
-      "lines": 70.0,
-      "branches": 65.0,
-      "functions": 60.0
-    }
   }
 }

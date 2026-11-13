@@ -335,8 +335,8 @@ async fn execute(
                 exec_id,
             }));
         }
-        // 双时点②中断面：不等汇总、不回填 summary（部分结论不落位）——错误摘要 +
-        // 已产报告路径清单即时反馈
+        // 双时点②中断面：不等汇总、部分结论不落位（summary 无 mutation 位，无回填
+        // 动作）——错误摘要 + 已产报告路径清单即时反馈
         let head = "突变执行中断";
         let feedback_text = format!(
             "{head}：{failure}\n已产报告路径：\n{}{}",
@@ -356,10 +356,10 @@ async fn execute(
         }));
     }
 
+    // 归并块仅服务载荷展示（`MutationTestOutcome.score/threshold/counts` 与
+    // fail_feedback）；MUST NOT 落盘、MUST NOT 作门禁判据（门禁 = 逐 suite `pass`）
     let merged = merge_mutation_blocks(&blocks)
         .ok_or_else(|| "突变段归并空（可执行 suite 桶在位却零段块）".to_owned())?;
-    // summary mutation 位回填（E11：归并块在位时回写；未跑 / 跳过保持 null）
-    backfill_summary(&reports_dir, &merged)?;
     // 门禁结论以逐 suite 全过为准（风险 6：多阈值并存时与归并块首块阈值的口径差
     // 留痕观察，MUST NOT 擅自统一）
     let all_pass = suite_results.iter().all(|(_, block)| block.pass);
@@ -762,33 +762,6 @@ fn newest_input_mtime(root_path: &Path, suite_root: &Path, reports_dir: &Path) -
         reports_dir.to_path_buf(),
     ];
     crate::testexec::newest_input_mtime_ms(&[suite_root.to_path_buf()], &prune)
-}
-
-/// summary mutation 位回填（E11）：summary 在位（可解析对象）→ 回写归并块；不在
-/// 位 / 损坏 → 不回填不崩（null 保持——null 观察期语义不变）；回写失败 → 显式
-/// `Err`（写盘失败面，E5）。
-fn backfill_summary(reports_dir: &Path, block: &MutationBlock) -> Result<(), String> {
-    let path = reports_dir.join("summary.json");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Ok(());
-    };
-    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Ok(());
-    };
-    if !value.is_object() {
-        return Ok(());
-    }
-    let block_value =
-        serde_json::to_value(block).map_err(|error| format!("归并块序列化失败: {error}"))?;
-    value["mutation"] = block_value;
-    let rewritten = serde_json::to_string_pretty(&value)
-        .map_err(|error| format!("summary 序列化失败: {error}"))?;
-    std::fs::write(&path, rewritten).map_err(|error| {
-        format!(
-            "summary mutation 位回写失败 {}: {error}",
-            report::to_posix(&path)
-        )
-    })
 }
 
 /// 未达标反馈文本（反馈边②报告指引式：score / threshold 结论摘要 + 逐 suite

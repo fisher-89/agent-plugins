@@ -5,9 +5,8 @@ use config::TestSuite;
 use crate::globmatch::match_glob;
 
 use crate::model::{
-    CaseSummary, Conclusion, CoverageBlock, CoverageMeasured, CoverageOverride, CoverageThresholds,
-    MutationBlock, MutationMeasured, PlanIndexEntry, Problem, ProblemType, SourceFileEntry,
-    SubReport, SummaryReport,
+    CaseSummary, Conclusion, CoverageMeasured, CoverageThresholds, MutationBlock, MutationMeasured,
+    PlanIndexEntry, Problem, ProblemType, SubReport, SummaryReport,
 };
 
 /// 汇总报告 phase 字面量（CLI 固定串同源）。
@@ -17,14 +16,6 @@ const PHASE_TEST_EXECUTION: &str = "test-execution";
 /// 常量组同名的 change 相对形式——plans[].path 为 change 目录相对索引串，
 /// 磁盘写盘路径仍唯一经 `foundation::layout::change_test_reports` 推导）。
 const RELATIVE_REPORTS_PREFIX: &str = "reports/test";
-
-/// schema 缺省覆盖阈值（CLI `defaults.ts` 同值：80 / 70 / 75；仅当无任何
-/// suite 配置时作为全局阈值兜底）。
-const DEFAULT_THRESHOLDS: CoverageThresholds = CoverageThresholds {
-    lines: 80.0,
-    branches: 70.0,
-    functions: 75.0,
-};
 
 // ---------------------------------------------------------------------------
 // plan id（CLI derivePlanId 同语义；diagnose / detect 共用的唯一实现）
@@ -51,21 +42,21 @@ pub fn derive_plan_id(root: &str, framework: &str) -> String {
 // conclusion 判定
 // ---------------------------------------------------------------------------
 
-/// 聚合结论判定（CLI `determineConclusion` 同语义）：error 优先 → failed>0 /
-/// 覆盖未达 / 突变未达 → fail → pass。
+/// 聚合结论判定（CLI `determineConclusion` 同语义的布尔面收窄）：error 优先 →
+/// failed>0 / 任一 suite 覆盖判定非通过 → fail → pass。
+///
+/// MUST NOT 接受或读取 `CoverageBlock` / `MutationBlock`（或任何覆盖率数值）——
+/// 逐 suite 覆盖判定是唯一判定点，汇总层只做布尔归并；突变结论唯一载体是
+/// MutationTest 步载荷，不参与汇总结论。
 pub fn determine_conclusion(
     failed: u64,
-    coverage: Option<&CoverageBlock>,
-    mutation: Option<&MutationBlock>,
+    sub_reports: &[SubReport],
     has_execution_error: bool,
 ) -> Conclusion {
     if has_execution_error {
         return Conclusion::Error;
     }
-    if failed > 0
-        || coverage.is_some_and(|block| !block.pass)
-        || mutation.is_some_and(|block| !block.pass)
-    {
+    if failed > 0 || sub_reports.iter().any(coverage_non_pass) {
         return Conclusion::Fail;
     }
     Conclusion::Pass
@@ -95,180 +86,9 @@ pub fn coverage_meets_thresholds(
 }
 
 // ---------------------------------------------------------------------------
-// 覆盖聚合
-// ---------------------------------------------------------------------------
-
-/// 全局覆盖聚合：全局阈值（首个 suite 的阈值，缺省 80 / 70 / 75）+ 实测块
-/// + per-suite override 组（CLI `computeCoverageResult` 同语义）。
-///
-/// 无实测数据 → `None`（覆盖采集失败语义，判定按 null 感知跳过）；**采集不完整**
-/// （任一 suite 结论非 pass 且无覆盖率块，见 [`misses_coverage`]）同样收敛 `None`
-/// ——与「无实测数据 → `None`」同源的不可测语义：部分 suite 的达标数值 MUST NOT
-/// 被呈现为整体通过（`pass == true` 是假话）。
-pub fn aggregate_coverage(
-    sub_reports: &[SubReport],
-    suites: &[TestSuite],
-) -> Option<CoverageBlock> {
-    if sub_reports.iter().any(misses_coverage) {
-        return None;
-    }
-    let thresholds = suites
-        .first()
-        .map(|suite| to_thresholds(&suite.coverage))
-        .unwrap_or(DEFAULT_THRESHOLDS);
-    let measured = weighted_measured(sub_reports)?;
-    let overrides = compute_overrides(sub_reports, suites);
-    let mut pass = coverage_meets_thresholds(&measured, &thresholds);
-    if !overrides.is_empty() {
-        pass = pass && overrides.iter().all(|override_entry| override_entry.pass);
-    }
-    Some(CoverageBlock {
-        pass,
-        measured,
-        thresholds,
-        overrides: if overrides.is_empty() {
-            None
-        } else {
-            Some(overrides)
-        },
-    })
-}
-
-/// per-suite override 组（CLI `computeOverrides` 同语义）：逐 suite 圈定范围
-/// 内的原始计数条目，按该 suite 阈值判定；范围零命中 → 该组不产条目。
-fn compute_overrides(sub_reports: &[SubReport], suites: &[TestSuite]) -> Vec<CoverageOverride> {
-    if suites.is_empty() {
-        return Vec::new();
-    }
-    let all_entries: Vec<&SourceFileEntry> = sub_reports
-        .iter()
-        .flat_map(|report| report.source_files.iter())
-        .collect();
-    let mut results = Vec::new();
-    for suite in suites {
-        let matched: Vec<&SourceFileEntry> = all_entries
-            .iter()
-            .copied()
-            .filter(|entry| in_suite_scope(&entry.file, suite, suites))
-            .collect();
-        if matched.is_empty() {
-            continue;
-        }
-        let thresholds = to_thresholds(&suite.coverage);
-        let measured = aggregate_measured(matched.iter().copied());
-        let file_count = matched.len() as u64;
-        let passed_count = matched
-            .iter()
-            .filter(|entry| file_meets_thresholds(entry, &thresholds))
-            .count() as u64;
-        results.push(CoverageOverride {
-            glob: suite.root.clone(),
-            thresholds,
-            measured,
-            pass: coverage_meets_thresholds(&measured, &thresholds),
-            file_count,
-            passed_count,
-        });
-    }
-    results
-}
-
-/// 逐文件判定：单文件覆盖计数换算百分点后过阈值（无计数条目不计通过）。
-fn file_meets_thresholds(entry: &SourceFileEntry, thresholds: &CoverageThresholds) -> bool {
-    let Some(coverage) = entry.coverage else {
-        return false;
-    };
-    let pct = |covered: Option<u64>, total: Option<u64>| -> Option<f64> {
-        match (total, covered) {
-            (Some(total), _) if total > 0 => Some(crate::parser::rust::round_two(
-                covered.unwrap_or(0) as f64 / total as f64 * 100.0,
-            )),
-            _ => None,
-        }
-    };
-    coverage_meets_thresholds(
-        &CoverageMeasured {
-            lines: pct(coverage.covered_lines, coverage.total_lines),
-            branches: pct(coverage.covered_branches, coverage.total_branches),
-            functions: pct(coverage.covered_functions, coverage.total_functions),
-        },
-        thresholds,
-    )
-}
-
-/// 原始计数加权聚合（CLI `computeRawOverrideCoverage` 同语义）：逐维度累计
-/// 非空正总数与覆盖数，真百分比两位舍入；零有效数据维度为 `None`。
-pub fn aggregate_measured<'a>(
-    entries: impl Iterator<Item = &'a SourceFileEntry>,
-) -> CoverageMeasured {
-    let mut totals = [0u64; 3];
-    let mut covered = [0u64; 3];
-    for entry in entries {
-        let Some(coverage) = entry.coverage else {
-            continue;
-        };
-        let dimensions = [
-            (coverage.total_lines, coverage.covered_lines),
-            (coverage.total_branches, coverage.covered_branches),
-            (coverage.total_functions, coverage.covered_functions),
-        ];
-        for (index, (total, hit)) in dimensions.iter().enumerate() {
-            if let Some(total) = total.filter(|total| *total > 0) {
-                totals[index] += total;
-                covered[index] += hit.unwrap_or(0);
-            }
-        }
-    }
-    let pct = |index: usize| -> Option<f64> {
-        if totals[index] > 0 {
-            Some(crate::parser::rust::round_two(
-                covered[index] as f64 / totals[index] as f64 * 100.0,
-            ))
-        } else {
-            None
-        }
-    };
-    CoverageMeasured {
-        lines: pct(0),
-        branches: pct(1),
-        functions: pct(2),
-    }
-}
-
-/// 汇总侧加权实测（CLI `computeRawWeightedCoverage` 同语义）：单子报告直接
-/// 取其覆盖块实测；多子报告自全部逐文件条目加权聚合；全部无数据 → `None`。
-fn weighted_measured(sub_reports: &[SubReport]) -> Option<CoverageMeasured> {
-    if sub_reports.len() == 1 {
-        return sub_reports[0].coverage.as_ref().map(|block| block.measured);
-    }
-    let has_any = sub_reports.iter().any(|report| {
-        report
-            .source_files
-            .iter()
-            .any(|entry| entry.coverage.is_some())
-    });
-    if !has_any {
-        return None;
-    }
-    Some(aggregate_measured(
-        sub_reports
-            .iter()
-            .flat_map(|report| report.source_files.iter()),
-    ))
-}
-
-fn to_thresholds(coverage: &config::CoverageThresholds) -> CoverageThresholds {
-    CoverageThresholds {
-        lines: coverage.lines,
-        branches: coverage.branches,
-        functions: coverage.functions,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// suite 范围匹配（CLI isInSuiteScope / isExcludedBySuite 同语义纯移植；
-// glob 匹配经 crate::globmatch——CLI `matchGlob` 同语义 + 花括号交替方言，
-// detect 与本模块共用实现）
+// suite 范围匹配（CLI isExcludedBySuite 同语义纯移植；glob 匹配经
+// crate::globmatch——CLI `matchGlob` 同语义 + 花括号交替方言，detect 与本模块
+// 共用实现。消费面 = checks-runtime 突变归桶过滤）
 // ---------------------------------------------------------------------------
 
 /// POSIX 正斜杠归一。
@@ -319,27 +139,9 @@ fn is_absolute_posix(path: &str) -> bool {
         || path.as_bytes().get(1) == Some(&b':') && path.as_bytes().get(2) == Some(&b'/')
 }
 
-/// 项目相对路径是否位于 suite root 树下（含等于）：前缀段匹配；绝对路径按
-/// CLI `relativeToRoot` 同口径以 `/root/` 段标记搜索容忍项目前缀。
-fn under_root(path: &str, root: &str) -> bool {
-    if path == root {
-        return true;
-    }
-    if path.starts_with(&format!("{root}/")) {
-        return true;
-    }
-    if is_absolute_posix(path) {
-        let marker = format!("/{root}/");
-        if path.contains(&marker) || path.ends_with(&format!("/{root}")) {
-            return true;
-        }
-    }
-    false
-}
-
 /// 文件是否被任一 suite 的 excludes 剔除（CLI `isFileExcluded` 同语义：
 /// 排除 glob 相对 suite root 解释，命中该 suite 树下文件即剔除）。消费面：
-/// coverage 归因 scope 判定 + checks-runtime mutation 归桶过滤。
+/// checks-runtime mutation 归桶过滤（`suite.excludes` 全桶消费）。
 pub fn is_file_excluded(path: &str, suites: &[TestSuite]) -> bool {
     suites.iter().any(|suite| is_excluded_by_suite(path, suite))
 }
@@ -388,72 +190,35 @@ fn relative_to_root(path: &str, root: &str) -> Option<String> {
     None
 }
 
-/// 文件是否落在 suite 范围内（CLI `isInSuiteScope` 同语义）：root 树下 ∧
-/// 未被任一 suite excludes 剔除 ∧ 命中 includes（未设吃框架 default_glob，
-/// 模式挂 root 归一为项目相对）。
-pub fn in_suite_scope(path: &str, suite: &TestSuite, suites: &[TestSuite]) -> bool {
-    let posix = to_forward_slash(path);
-    let root = normalize_root(&suite.root);
-    if !under_root(&posix, &root) {
-        return false;
-    }
-    if is_file_excluded(&posix, suites) {
-        return false;
-    }
-    let include_patterns: Vec<String> = match suite.includes.as_ref() {
-        Some(list) if !list.is_empty() => list.clone(),
-        _ => vec![default_glob(&suite.framework).to_owned()],
-    };
-    include_patterns
-        .iter()
-        .any(|pattern| match_glob(&posix, &posix_join(&root, pattern)))
-}
-
-/// 框架缺省 glob（CLI `test-framework.ts` 注册表 default_glob 同值镜像）：
-/// 纯层不可依赖 infra 注册表，此处仅镜像五支持框架的范围词汇供 suite 未设
-/// includes 时圈定（权威在 infra `detect.rs` 注册表，两侧由测试对齐锚定）。
-fn default_glob(framework: &config::TestFramework) -> &'static str {
-    match framework {
-        config::TestFramework::Jest
-        | config::TestFramework::Vitest
-        | config::TestFramework::VitePlus => "**/*.{test,spec}.{js,ts,jsx,tsx}",
-        config::TestFramework::Rust => "**/tests/**/*.rs",
-        config::TestFramework::NodeTest => "**/*.test.{mjs,js,cjs}",
-        // 不支持框架不出现在生产链（detect 显式 Err），范围退化为仅 root 圈定
-        config::TestFramework::Bun | config::TestFramework::Go | config::TestFramework::Pytest => {
-            "**"
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // problems 归并与 summary 组装
 // ---------------------------------------------------------------------------
 
-/// 覆盖率**采集完整性**判据单点（归因 [`collect_problems`] 与收敛
-/// [`aggregate_coverage`] 共用，MUST NOT 各写一份——否则会出现「报了缺失却不收敛」
-/// 或反之）：
-///
-/// 「自身结论非 pass」（非零退出 / 有失败用例 / 覆盖块自判未达）**且**「`coverage ==
-/// None`」（覆盖率采集缺失）→ 该 suite 的覆盖数据缺席，聚合面不可报通过。
+/// 块级覆盖判据之一：该 suite 无覆盖率块（工件缺失 / 解析失败）。判据**无条件**
+/// ——采集旗标在注册表模板里是常量，`coverage == None` 只可能是采集失败，不可测
+/// ≠ 达标。
 fn misses_coverage(report: &SubReport) -> bool {
-    let non_pass = report.exit_code != 0
-        || report.summary.failed > 0
-        || report.coverage.as_ref().is_some_and(|block| !block.pass);
-    non_pass && report.coverage.is_none()
+    report.coverage.is_none()
+}
+
+/// 该 suite 覆盖判定是否非通过：块缺席（[`misses_coverage`]）或块自判未达阈。
+///
+/// 覆盖判定的四形态封闭集在本层收敛：维度级 `None` 由 [`coverage_meets_thresholds`]
+/// 在子报告层消化成 `block.pass`，块级缺席由 [`misses_coverage`] 消化。MUST NOT
+/// 在别处再写 `coverage.is_none()` / `!block.pass` 的等价判断。
+fn coverage_non_pass(report: &SubReport) -> bool {
+    misses_coverage(report) || report.coverage.as_ref().is_some_and(|block| !block.pass)
 }
 
 /// 问题归并（CLI `collectProblems` 同语义）：失败用例逐条（至多 10 条）
 /// test_failure；非零退出且零失败、或零失败携 findings → execution_error。
 ///
-/// 另含**覆盖率采集缺失**归因（`ProblemType::ExecutionError`，见
-/// [`misses_coverage`]）：每 suite 至多一条，与该 suite 已有 `execution_error` 去重
-/// （既有条目消息面零改写）；[`build_summary_report`] 的「`has_execution_error →
-/// Error`」映射零改，故缺测 suite 把整份结论定为不可测。
+/// 另含**逐 suite 覆盖归因**（[`coverage_problem`]）：覆盖缺失不再与该 suite 的
+/// `execution_error` 去重——覆盖面无数据 / 未达阈与执行面失败是两件事，两类条目
+/// 并存且互不改写。
 fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
     let mut problems = Vec::new();
     for report in sub_reports {
-        let mut has_execution_error = false;
         if report.summary.failed > 0 {
             let failures = report
                 .error_cases
@@ -482,7 +247,6 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
                 problem_type: ProblemType::ExecutionError,
                 message: detail,
             });
-            has_execution_error = true;
         } else if report.summary.failed == 0
             && report
                 .findings
@@ -498,17 +262,9 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
                     .and_then(|findings| findings.first().cloned())
                     .unwrap_or_default(),
             });
-            has_execution_error = true;
         }
-        if !has_execution_error && misses_coverage(report) {
-            problems.push(Problem {
-                framework: report.framework.clone(),
-                problem_type: ProblemType::ExecutionError,
-                message: format!(
-                    "覆盖率采集缺失（退出码 {}）：该 suite 结论非通过且未产出覆盖率数据",
-                    report.exit_code
-                ),
-            });
+        if let Some(problem) = coverage_problem(report) {
+            problems.push(problem);
         }
     }
     problems
@@ -547,10 +303,35 @@ fn format_coverage_failure(measured: &CoverageMeasured, thresholds: &CoverageThr
     format!("Coverage below threshold: {}", parts.join(", "))
 }
 
-/// score 公式单点（`build_mutation_block` 与 `aggregate_mutation` 逐字同式）：
-/// `score = (killed + timeout) / (total - ignored - compileError - runtimeError)`
-///（分母排除 ignored + compileError + runtimeError；分母为 0 → 100.0；两位舍
-/// 入），阈值判定 `pass = score >= threshold`。MUST NOT 引入百分比平均等新口径。
+/// 逐 suite 覆盖归因（`framework` = 该 suite 框架，每 suite 至多一条
+/// `CoverageFailure`）：块缺席 → 采集缺失措辞（含退出码与动作指引）；块在场但
+/// 未达阈 → [`format_coverage_failure`] 原文；通过与块缺席之外的一切形态 → `None`。
+fn coverage_problem(report: &SubReport) -> Option<Problem> {
+    if misses_coverage(report) {
+        return Some(Problem {
+            framework: report.framework.clone(),
+            problem_type: ProblemType::CoverageFailure,
+            message: format!(
+                "覆盖率采集缺失（退出码 {}）：工件缺失 / 解析失败，该 suite 覆盖率不可测——请检查该 suite 的采集旗标与覆盖率工件路径",
+                report.exit_code
+            ),
+        });
+    }
+    let block = report.coverage.as_ref()?;
+    if block.pass {
+        return None;
+    }
+    Some(Problem {
+        framework: report.framework.clone(),
+        problem_type: ProblemType::CoverageFailure,
+        message: format_coverage_failure(&block.measured, &block.thresholds),
+    })
+}
+
+/// score 公式单点：`score = (killed + timeout) / (total - ignored - compileError -
+/// runtimeError)`（分母排除 ignored + compileError + runtimeError；分母为 0 →
+/// 100.0；两位舍入），阈值判定 `pass = score >= threshold`。MUST NOT 引入百分比
+/// 平均等新口径。
 pub fn build_mutation_block(measured: MutationMeasured, threshold: f64) -> MutationBlock {
     let valid = measured
         .total
@@ -574,8 +355,7 @@ pub fn build_mutation_block(measured: MutationMeasured, threshold: f64) -> Mutat
 }
 
 /// 段计数求和归并（段当子报告——计数求和后交 [`build_mutation_block`] 重算
-/// score；阈值取首块，`aggregate_mutation` 既有语义）。空 slice → `None`（不产
-/// 块）。MUST NOT 新增归并公式。
+/// score；阈值取首块）。空 slice → `None`（不产块）。MUST NOT 新增归并公式。
 pub fn merge_mutation_blocks(blocks: &[MutationBlock]) -> Option<MutationBlock> {
     let first = blocks.first()?;
     let mut measured = MutationMeasured::default();
@@ -594,23 +374,13 @@ pub fn merge_mutation_blocks(blocks: &[MutationBlock]) -> Option<MutationBlock> 
     Some(build_mutation_block(measured, first.threshold))
 }
 
-/// 突变聚合（CLI `computeMutationResult` 主干同语义）：无任何子报告携突变
-/// 块 → `None`（未跑 / 跳过——突变位由独立 MutationTest 步归并回填 summary 的
-/// mutation 位；corpus 含块样本时按计数加权归并）。override 组不产（V1 边界）。
-fn aggregate_mutation(sub_reports: &[SubReport]) -> Option<MutationBlock> {
-    let blocks: Vec<MutationBlock> = sub_reports
-        .iter()
-        .filter_map(|report| report.mutation.clone())
-        .collect();
-    merge_mutation_blocks(&blocks)
-}
-
-/// 汇总报告组装（CLI `generateSummaryReport` 同语义）：计数合并、problems
-/// 归并、coverage / mutation 块、plans 路径索引、conclusion 判定。`command`
-/// 为命令描述固定串、`started_at` 为链路起点（耗时取墙钟差整秒）。
+/// 汇总报告组装（CLI `generateSummaryReport` 同语义的布尔收敛面）：计数求和、
+/// problems 归并（含逐 suite 覆盖归因）、plans 路径索引、conclusion 布尔归并。
+/// `command` 为命令描述固定串、`started_at` 为链路起点（耗时取墙钟差整秒）。
+///
+/// MUST NOT 产 `coverage` / `mutation` 块——覆盖率数值的唯一权威面是逐 suite 子报告。
 pub fn build_summary_report(
     sub_reports: &[SubReport],
-    suites: &[TestSuite],
     command: &str,
     started_at: OffsetDateTime,
 ) -> SummaryReport {
@@ -621,37 +391,11 @@ pub fn build_summary_report(
         totals.failed += report.summary.failed;
         totals.skipped += report.summary.skipped;
     }
-    let mut problems = collect_problems(sub_reports);
-    let coverage = aggregate_coverage(sub_reports, suites);
-    if coverage.as_ref().is_some_and(|block| !block.pass) {
-        let block = coverage.as_ref().expect("coverage 已判定在位");
-        problems.push(Problem {
-            framework: "all".to_owned(),
-            problem_type: ProblemType::CoverageFailure,
-            message: format_coverage_failure(&block.measured, &block.thresholds),
-        });
-    }
-    let mutation = aggregate_mutation(sub_reports);
-    if mutation.as_ref().is_some_and(|block| !block.pass) {
-        let block = mutation.as_ref().expect("mutation 已判定在位");
-        problems.push(Problem {
-            framework: "all".to_owned(),
-            problem_type: ProblemType::CoverageFailure,
-            message: format!(
-                "Mutation score {:.1}% < threshold {}%",
-                block.score, block.threshold
-            ),
-        });
-    }
+    let problems = collect_problems(sub_reports);
     let has_execution_error = problems
         .iter()
         .any(|problem| problem.problem_type == ProblemType::ExecutionError);
-    let conclusion = determine_conclusion(
-        totals.failed,
-        coverage.as_ref(),
-        mutation.as_ref(),
-        has_execution_error,
-    );
+    let conclusion = determine_conclusion(totals.failed, sub_reports, has_execution_error);
     let plans = sub_reports
         .iter()
         .map(|report| {
@@ -679,8 +423,6 @@ pub fn build_summary_report(
         skipped: totals.skipped,
         conclusion,
         problems,
-        coverage,
-        mutation,
         plans,
         findings: None,
     }

@@ -17,8 +17,6 @@ fn summary(conclusion: Conclusion, timestamp: &str) -> SummaryReport {
         skipped: 0,
         conclusion,
         problems: Vec::new(),
-        coverage: None,
-        mutation: None,
         plans: Vec::new(),
         findings: None,
     }

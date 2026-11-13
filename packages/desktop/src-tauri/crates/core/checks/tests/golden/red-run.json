@@ -38,18 +38,5 @@
     "diagnose": [
       "「vite-plus」2 项测试失败——聚类失败（疑似同模块回归或共同假设变化）; 明细见子报告 error_cases"
     ]
-  },
-  "computedCoverage": {
-    "pass": true,
-    "measured": {
-      "lines": 88.0,
-      "branches": 76.19,
-      "functions": 81.82
-    },
-    "thresholds": {
-      "lines": 80.0,
-      "branches": 70.0,
-      "functions": 75.0
-    }
   }
 }

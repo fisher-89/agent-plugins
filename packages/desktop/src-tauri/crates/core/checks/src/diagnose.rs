@@ -1,5 +1,5 @@
 use crate::aggregate::{derive_plan_id, determine_conclusion};
-use crate::model::{Conclusion, CoverageMeasured, ProblemType, SubReport, SummaryReport};
+use crate::model::{Conclusion, ProblemType, SubReport, SummaryReport};
 
 /// 失败问题归并的单框架上限（措辞面收敛，明细在子报告 error_cases）。
 const CLUSTER_FRAMEWORK_LIMIT: usize = 10;
@@ -8,8 +8,9 @@ const CLUSTER_FRAMEWORK_LIMIT: usize = 10;
 ///
 /// ① 聚合计数对账——summary 四计数与子报告计数之和解恒等；
 /// ② plan 报告齐全性——`plans[]` 条目与子报告按 planId 双向一一对应；
-/// ③ conclusion 一致性——聚合结论与计数 / 覆盖 / 突变 / execution_error
-///    问题面重算结果恒等（"全绿计数却 fail" 等漂移即违例）。
+/// ③ conclusion 一致性——聚合结论与「计数 + 逐 suite 覆盖判定布尔 +
+///    execution_error 问题面」重算结果恒等（判据与门禁同一个
+///    [`determine_conclusion`]，MUST NOT 就地另写一套）。
 pub fn check_integrity(summary: &SummaryReport, sub_reports: &[SubReport]) -> Vec<String> {
     let mut findings = Vec::new();
 
@@ -59,20 +60,16 @@ pub fn check_integrity(summary: &SummaryReport, sub_reports: &[SubReport]) -> Ve
         }
     }
 
-    // ③ conclusion 一致性（重算比对）
+    // ③ conclusion 一致性（以子报告布尔重算比对）
     let has_execution_error = summary
         .problems
         .iter()
         .any(|problem| problem.problem_type == ProblemType::ExecutionError);
-    let expected_conclusion = determine_conclusion(
-        summary.failed,
-        summary.coverage.as_ref(),
-        summary.mutation.as_ref(),
-        has_execution_error,
-    );
+    let expected_conclusion =
+        determine_conclusion(summary.failed, sub_reports, has_execution_error);
     if expected_conclusion != summary.conclusion {
         findings.push(format!(
-            "conclusion 一致性失败: 计数 / 覆盖 / 突变面重算结论为 \"{}\", 报告记载 \"{}\"",
+            "conclusion 一致性失败: 计数 / 逐 suite 覆盖判定面重算结论为 \"{}\", 报告记载 \"{}\"",
             expected_conclusion.as_str(),
             summary.conclusion.as_str()
         ));
@@ -80,8 +77,8 @@ pub fn check_integrity(summary: &SummaryReport, sub_reports: &[SubReport]) -> Ve
     findings
 }
 
-/// 诊断树确定性分支：按 CLI executor 定义 4a → 4b → 4c → 4d/4e → 4f 顺序
-/// 产出 findings（全绿零误报——4e 产单条正向 finding）。
+/// 诊断树确定性分支：按 CLI executor 定义 4a → 4b → 4c → 4e 顺序产出 findings
+/// （全绿零误报——4e 产单条正向 finding）。
 pub fn diagnose_findings(summary: &SummaryReport) -> Vec<String> {
     let mut findings = Vec::new();
 
@@ -142,78 +139,22 @@ pub fn diagnose_findings(summary: &SummaryReport) -> Vec<String> {
         }
     }
 
-    // 4c: 覆盖阈值比对（null 维度感知跳过 + override 组缺口）
-    if let Some(coverage) = &summary.coverage {
-        if !coverage.pass {
-            findings.extend(threshold_findings(&coverage.measured, &coverage.thresholds));
-            for override_entry in coverage.overrides.iter().flatten() {
-                if !override_entry.pass {
-                    findings.push(format!(
-                        "覆盖 override \"{}\" 未达阈: {}（命中 {} 文件, 逐文件达阈 {}）",
-                        override_entry.glob,
-                        threshold_brief(&override_entry.measured, &override_entry.thresholds),
-                        override_entry.file_count,
-                        override_entry.passed_count
-                    ));
-                }
-            }
-        }
+    // 4c: 覆盖判定未通过（逐 suite 归因条目已在 problems 内）
+    for problem in summary
+        .problems
+        .iter()
+        .filter(|problem| problem.problem_type == ProblemType::CoverageFailure)
+        .take(CLUSTER_FRAMEWORK_LIMIT)
+    {
+        findings.push(format!(
+            "覆盖判定未通过 [{}]: {}",
+            problem.framework, problem.message
+        ));
     }
 
-    // 4d / 4e: pass 态覆盖面
+    // 4e: pass 态正向锚（缺席即 fail ⇒ pass 必为覆盖全达标）
     if summary.conclusion == Conclusion::Pass {
-        match &summary.coverage {
-            None => findings
-                .push("全部框架未产出覆盖数据（未配置采集或命令未及覆盖阶段即结束）".to_owned()),
-            Some(coverage) if coverage.pass => {
-                findings.push("全部测试通过且覆盖率达阈值".to_owned());
-            }
-            _ => {}
-        }
-    }
-
-    // 4f: 突变缺口（V1 生产恒 None，corpus 含块样本触达）
-    if let Some(mutation) = &summary.mutation {
-        if !mutation.pass {
-            findings.push(format!(
-                "突变得分 {:.1}% < 阈值 {}%（survived {} / noCoverage {}）",
-                mutation.score,
-                mutation.threshold,
-                mutation.measured.survived,
-                mutation.measured.no_coverage
-            ));
-        }
+        findings.push("全部测试通过且覆盖率达阈值".to_owned());
     }
     findings
-}
-
-/// 阈值比对 findings（逐维度，null 维度跳过）。
-fn threshold_findings(
-    measured: &CoverageMeasured,
-    thresholds: &crate::model::CoverageThresholds,
-) -> Vec<String> {
-    let mut findings = Vec::new();
-    for (name, value, threshold) in [
-        ("行覆盖", measured.lines, thresholds.lines),
-        ("分支覆盖", measured.branches, thresholds.branches),
-        ("函数覆盖", measured.functions, thresholds.functions),
-    ] {
-        if let Some(value) = value.filter(|value| *value < threshold) {
-            findings.push(format!("{name} {value:.1}% < 阈值 {threshold}%"));
-        }
-    }
-    findings
-}
-
-/// 阈值缺口人读摘要（override 行内嵌）。
-fn threshold_brief(
-    measured: &CoverageMeasured,
-    thresholds: &crate::model::CoverageThresholds,
-) -> String {
-    let parts = threshold_findings(measured, thresholds);
-    if parts.is_empty() {
-        "逐文件达阈数不足".to_owned()
-    } else {
-        parts.join(", ")
-    }
 }

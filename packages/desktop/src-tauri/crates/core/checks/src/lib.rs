@@ -6,9 +6,8 @@ pub mod parser;
 pub mod reuse;
 
 pub use aggregate::{
-    aggregate_coverage, aggregate_measured, build_mutation_block, build_summary_report,
-    coverage_meets_thresholds, derive_plan_id, determine_conclusion, in_suite_scope,
-    merge_mutation_blocks,
+    build_mutation_block, build_summary_report, coverage_meets_thresholds, derive_plan_id,
+    determine_conclusion, merge_mutation_blocks,
 };
 pub use diagnose::{check_integrity, diagnose_findings};
 pub use model::{

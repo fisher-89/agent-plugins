@@ -57,21 +57,6 @@ fn summary(_root: &str) -> SummaryReport {
         skipped: 0,
         conclusion: Conclusion::Pass,
         problems: Vec::new(),
-        coverage: Some(CoverageBlock {
-            pass: true,
-            measured: CoverageMeasured {
-                lines: Some(86.67),
-                branches: Some(72.73),
-                functions: Some(85.71),
-            },
-            thresholds: CoverageThresholds {
-                lines: 80.0,
-                branches: 70.0,
-                functions: 75.0,
-            },
-            overrides: None,
-        }),
-        mutation: None,
         plans: Vec::new(),
         findings: None,
     }

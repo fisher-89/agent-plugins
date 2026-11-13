@@ -249,7 +249,7 @@ async fn execute(
 
     // ④ 聚合 → 诊断 → 报告写盘（子报告批量落盘后 summary 写一次；findings
     // 随 summary 持久化——修复边 prompt 直嵌有界明细，全量以报告文件为权威）
-    let mut summary = build_summary_report(&sub_reports, suites, DESKTOP_COMMAND_LABEL, started_at);
+    let mut summary = build_summary_report(&sub_reports, DESKTOP_COMMAND_LABEL, started_at);
     let findings = diagnose_findings(&summary);
     if !findings.is_empty() {
         summary.findings = Some(findings);

@@ -1,0 +1,26 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\orchestration\src\finish_test.rs:202:
+         ),
+         (
+             "code-review",
+[31m-            &[
+[0m[31m-                "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10",
+[0m[31m-            ],
+[0m[32m+            &["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"],
+[0m         ),
+         (
+             "code-analyze",
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3375:
+         (
+             "code-review",
+             10,
+[31m-            &[
+[0m[31m-                "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10",
+[0m[31m-            ],
+[0m[32m+            &["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"],
+[0m         ),
+         (
+             "code-analyze",
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

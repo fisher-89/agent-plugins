@@ -1,0 +1,5154 @@
+diff --git a/crates/core/checks/src/aggregate.rs b/crates/core/checks/src/aggregate.rs
+index 1d0bf18d1c34..6c9a0b9b1df7 100644
+--- a/crates/core/checks/src/aggregate.rs
++++ b/crates/core/checks/src/aggregate.rs
+@@ -5,9 +5,8 @@ use config::TestSuite;
+ use crate::globmatch::match_glob;
+ 
+ use crate::model::{
+-    CaseSummary, Conclusion, CoverageBlock, CoverageMeasured, CoverageOverride, CoverageThresholds,
+-    MutationBlock, MutationMeasured, PlanIndexEntry, Problem, ProblemType, SourceFileEntry,
+-    SubReport, SummaryReport,
++    CaseSummary, Conclusion, CoverageMeasured, CoverageThresholds, MutationBlock, MutationMeasured,
++    PlanIndexEntry, Problem, ProblemType, SubReport, SummaryReport,
+ };
+ 
+ /// 汇总报告 phase 字面量（CLI 固定串同源）。
+@@ -18,14 +17,6 @@ const PHASE_TEST_EXECUTION: &str = "test-execution";
+ /// 磁盘写盘路径仍唯一经 `foundation::layout::change_test_reports` 推导）。
+ const RELATIVE_REPORTS_PREFIX: &str = "reports/test";
+ 
+-/// schema 缺省覆盖阈值（CLI `defaults.ts` 同值：80 / 70 / 75；仅当无任何
+-/// suite 配置时作为全局阈值兜底）。
+-const DEFAULT_THRESHOLDS: CoverageThresholds = CoverageThresholds {
+-    lines: 80.0,
+-    branches: 70.0,
+-    functions: 75.0,
+-};
+-
+ // ---------------------------------------------------------------------------
+ // plan id（CLI derivePlanId 同语义；diagnose / detect 共用的唯一实现）
+ // ---------------------------------------------------------------------------
+@@ -51,21 +42,21 @@ pub fn derive_plan_id(root: &str, framework: &str) -> String {
+ // conclusion 判定
+ // ---------------------------------------------------------------------------
+ 
+-/// 聚合结论判定（CLI `determineConclusion` 同语义）：error 优先 → failed>0 /
+-/// 覆盖未达 / 突变未达 → fail → pass。
++/// 聚合结论判定（CLI `determineConclusion` 同语义的布尔面收窄）：error 优先 →
++/// failed>0 / 任一 suite 覆盖判定非通过 → fail → pass。
++///
++/// MUST NOT 接受或读取 `CoverageBlock` / `MutationBlock`（或任何覆盖率数值）——
++/// 逐 suite 覆盖判定是唯一判定点，汇总层只做布尔归并；突变结论唯一载体是
++/// MutationTest 步载荷，不参与汇总结论。
+ pub fn determine_conclusion(
+     failed: u64,
+-    coverage: Option<&CoverageBlock>,
+-    mutation: Option<&MutationBlock>,
++    sub_reports: &[SubReport],
+     has_execution_error: bool,
+ ) -> Conclusion {
+     if has_execution_error {
+         return Conclusion::Error;
+     }
+-    if failed > 0
+-        || coverage.is_some_and(|block| !block.pass)
+-        || mutation.is_some_and(|block| !block.pass)
+-    {
++    if failed > 0 || sub_reports.iter().any(coverage_non_pass) {
+         return Conclusion::Fail;
+     }
+     Conclusion::Pass
+@@ -95,180 +86,9 @@ pub fn coverage_meets_thresholds(
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 覆盖聚合
+-// ---------------------------------------------------------------------------
+-
+-/// 全局覆盖聚合：全局阈值（首个 suite 的阈值，缺省 80 / 70 / 75）+ 实测块
+-/// + per-suite override 组（CLI `computeCoverageResult` 同语义）。
+-///
+-/// 无实测数据 → `None`（覆盖采集失败语义，判定按 null 感知跳过）；**采集不完整**
+-/// （任一 suite 结论非 pass 且无覆盖率块，见 [`misses_coverage`]）同样收敛 `None`
+-/// ——与「无实测数据 → `None`」同源的不可测语义：部分 suite 的达标数值 MUST NOT
+-/// 被呈现为整体通过（`pass == true` 是假话）。
+-pub fn aggregate_coverage(
+-    sub_reports: &[SubReport],
+-    suites: &[TestSuite],
+-) -> Option<CoverageBlock> {
+-    if sub_reports.iter().any(misses_coverage) {
+-        return None;
+-    }
+-    let thresholds = suites
+-        .first()
+-        .map(|suite| to_thresholds(&suite.coverage))
+-        .unwrap_or(DEFAULT_THRESHOLDS);
+-    let measured = weighted_measured(sub_reports)?;
+-    let overrides = compute_overrides(sub_reports, suites);
+-    let mut pass = coverage_meets_thresholds(&measured, &thresholds);
+-    if !overrides.is_empty() {
+-        pass = pass && overrides.iter().all(|override_entry| override_entry.pass);
+-    }
+-    Some(CoverageBlock {
+-        pass,
+-        measured,
+-        thresholds,
+-        overrides: if overrides.is_empty() {
+-            None
+-        } else {
+-            Some(overrides)
+-        },
+-    })
+-}
+-
+-/// per-suite override 组（CLI `computeOverrides` 同语义）：逐 suite 圈定范围
+-/// 内的原始计数条目，按该 suite 阈值判定；范围零命中 → 该组不产条目。
+-fn compute_overrides(sub_reports: &[SubReport], suites: &[TestSuite]) -> Vec<CoverageOverride> {
+-    if suites.is_empty() {
+-        return Vec::new();
+-    }
+-    let all_entries: Vec<&SourceFileEntry> = sub_reports
+-        .iter()
+-        .flat_map(|report| report.source_files.iter())
+-        .collect();
+-    let mut results = Vec::new();
+-    for suite in suites {
+-        let matched: Vec<&SourceFileEntry> = all_entries
+-            .iter()
+-            .copied()
+-            .filter(|entry| in_suite_scope(&entry.file, suite, suites))
+-            .collect();
+-        if matched.is_empty() {
+-            continue;
+-        }
+-        let thresholds = to_thresholds(&suite.coverage);
+-        let measured = aggregate_measured(matched.iter().copied());
+-        let file_count = matched.len() as u64;
+-        let passed_count = matched
+-            .iter()
+-            .filter(|entry| file_meets_thresholds(entry, &thresholds))
+-            .count() as u64;
+-        results.push(CoverageOverride {
+-            glob: suite.root.clone(),
+-            thresholds,
+-            measured,
+-            pass: coverage_meets_thresholds(&measured, &thresholds),
+-            file_count,
+-            passed_count,
+-        });
+-    }
+-    results
+-}
+-
+-/// 逐文件判定：单文件覆盖计数换算百分点后过阈值（无计数条目不计通过）。
+-fn file_meets_thresholds(entry: &SourceFileEntry, thresholds: &CoverageThresholds) -> bool {
+-    let Some(coverage) = entry.coverage else {
+-        return false;
+-    };
+-    let pct = |covered: Option<u64>, total: Option<u64>| -> Option<f64> {
+-        match (total, covered) {
+-            (Some(total), _) if total > 0 => Some(crate::parser::rust::round_two(
+-                covered.unwrap_or(0) as f64 / total as f64 * 100.0,
+-            )),
+-            _ => None,
+-        }
+-    };
+-    coverage_meets_thresholds(
+-        &CoverageMeasured {
+-            lines: pct(coverage.covered_lines, coverage.total_lines),
+-            branches: pct(coverage.covered_branches, coverage.total_branches),
+-            functions: pct(coverage.covered_functions, coverage.total_functions),
+-        },
+-        thresholds,
+-    )
+-}
+-
+-/// 原始计数加权聚合（CLI `computeRawOverrideCoverage` 同语义）：逐维度累计
+-/// 非空正总数与覆盖数，真百分比两位舍入；零有效数据维度为 `None`。
+-pub fn aggregate_measured<'a>(
+-    entries: impl Iterator<Item = &'a SourceFileEntry>,
+-) -> CoverageMeasured {
+-    let mut totals = [0u64; 3];
+-    let mut covered = [0u64; 3];
+-    for entry in entries {
+-        let Some(coverage) = entry.coverage else {
+-            continue;
+-        };
+-        let dimensions = [
+-            (coverage.total_lines, coverage.covered_lines),
+-            (coverage.total_branches, coverage.covered_branches),
+-            (coverage.total_functions, coverage.covered_functions),
+-        ];
+-        for (index, (total, hit)) in dimensions.iter().enumerate() {
+-            if let Some(total) = total.filter(|total| *total > 0) {
+-                totals[index] += total;
+-                covered[index] += hit.unwrap_or(0);
+-            }
+-        }
+-    }
+-    let pct = |index: usize| -> Option<f64> {
+-        if totals[index] > 0 {
+-            Some(crate::parser::rust::round_two(
+-                covered[index] as f64 / totals[index] as f64 * 100.0,
+-            ))
+-        } else {
+-            None
+-        }
+-    };
+-    CoverageMeasured {
+-        lines: pct(0),
+-        branches: pct(1),
+-        functions: pct(2),
+-    }
+-}
+-
+-/// 汇总侧加权实测（CLI `computeRawWeightedCoverage` 同语义）：单子报告直接
+-/// 取其覆盖块实测；多子报告自全部逐文件条目加权聚合；全部无数据 → `None`。
+-fn weighted_measured(sub_reports: &[SubReport]) -> Option<CoverageMeasured> {
+-    if sub_reports.len() == 1 {
+-        return sub_reports[0].coverage.as_ref().map(|block| block.measured);
+-    }
+-    let has_any = sub_reports.iter().any(|report| {
+-        report
+-            .source_files
+-            .iter()
+-            .any(|entry| entry.coverage.is_some())
+-    });
+-    if !has_any {
+-        return None;
+-    }
+-    Some(aggregate_measured(
+-        sub_reports
+-            .iter()
+-            .flat_map(|report| report.source_files.iter()),
+-    ))
+-}
+-
+-fn to_thresholds(coverage: &config::CoverageThresholds) -> CoverageThresholds {
+-    CoverageThresholds {
+-        lines: coverage.lines,
+-        branches: coverage.branches,
+-        functions: coverage.functions,
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------
+-// suite 范围匹配（CLI isInSuiteScope / isExcludedBySuite 同语义纯移植；
+-// glob 匹配经 crate::globmatch——CLI `matchGlob` 同语义 + 花括号交替方言，
+-// detect 与本模块共用实现）
++// suite 范围匹配（CLI isExcludedBySuite 同语义纯移植；glob 匹配经
++// crate::globmatch——CLI `matchGlob` 同语义 + 花括号交替方言，detect 与本模块
++// 共用实现。消费面 = checks-runtime 突变归桶过滤）
+ // ---------------------------------------------------------------------------
+ 
+ /// POSIX 正斜杠归一。
+@@ -319,27 +139,9 @@ fn is_absolute_posix(path: &str) -> bool {
+         || path.as_bytes().get(1) == Some(&b':') && path.as_bytes().get(2) == Some(&b'/')
+ }
+ 
+-/// 项目相对路径是否位于 suite root 树下（含等于）：前缀段匹配；绝对路径按
+-/// CLI `relativeToRoot` 同口径以 `/root/` 段标记搜索容忍项目前缀。
+-fn under_root(path: &str, root: &str) -> bool {
+-    if path == root {
+-        return true;
+-    }
+-    if path.starts_with(&format!("{root}/")) {
+-        return true;
+-    }
+-    if is_absolute_posix(path) {
+-        let marker = format!("/{root}/");
+-        if path.contains(&marker) || path.ends_with(&format!("/{root}")) {
+-            return true;
+-        }
+-    }
+-    false
+-}
+-
+ /// 文件是否被任一 suite 的 excludes 剔除（CLI `isFileExcluded` 同语义：
+ /// 排除 glob 相对 suite root 解释，命中该 suite 树下文件即剔除）。消费面：
+-/// coverage 归因 scope 判定 + checks-runtime mutation 归桶过滤。
++/// checks-runtime mutation 归桶过滤（`suite.excludes` 全桶消费）。
+ pub fn is_file_excluded(path: &str, suites: &[TestSuite]) -> bool {
+     suites.iter().any(|suite| is_excluded_by_suite(path, suite))
+ }
+@@ -388,72 +190,35 @@ fn relative_to_root(path: &str, root: &str) -> Option<String> {
+     None
+ }
+ 
+-/// 文件是否落在 suite 范围内（CLI `isInSuiteScope` 同语义）：root 树下 ∧
+-/// 未被任一 suite excludes 剔除 ∧ 命中 includes（未设吃框架 default_glob，
+-/// 模式挂 root 归一为项目相对）。
+-pub fn in_suite_scope(path: &str, suite: &TestSuite, suites: &[TestSuite]) -> bool {
+-    let posix = to_forward_slash(path);
+-    let root = normalize_root(&suite.root);
+-    if !under_root(&posix, &root) {
+-        return false;
+-    }
+-    if is_file_excluded(&posix, suites) {
+-        return false;
+-    }
+-    let include_patterns: Vec<String> = match suite.includes.as_ref() {
+-        Some(list) if !list.is_empty() => list.clone(),
+-        _ => vec![default_glob(&suite.framework).to_owned()],
+-    };
+-    include_patterns
+-        .iter()
+-        .any(|pattern| match_glob(&posix, &posix_join(&root, pattern)))
+-}
+-
+-/// 框架缺省 glob（CLI `test-framework.ts` 注册表 default_glob 同值镜像）：
+-/// 纯层不可依赖 infra 注册表，此处仅镜像五支持框架的范围词汇供 suite 未设
+-/// includes 时圈定（权威在 infra `detect.rs` 注册表，两侧由测试对齐锚定）。
+-fn default_glob(framework: &config::TestFramework) -> &'static str {
+-    match framework {
+-        config::TestFramework::Jest
+-        | config::TestFramework::Vitest
+-        | config::TestFramework::VitePlus => "**/*.{test,spec}.{js,ts,jsx,tsx}",
+-        config::TestFramework::Rust => "**/tests/**/*.rs",
+-        config::TestFramework::NodeTest => "**/*.test.{mjs,js,cjs}",
+-        // 不支持框架不出现在生产链（detect 显式 Err），范围退化为仅 root 圈定
+-        config::TestFramework::Bun | config::TestFramework::Go | config::TestFramework::Pytest => {
+-            "**"
+-        }
+-    }
+-}
+-
+ // ---------------------------------------------------------------------------
+ // problems 归并与 summary 组装
+ // ---------------------------------------------------------------------------
+ 
+-/// 覆盖率**采集完整性**判据单点（归因 [`collect_problems`] 与收敛
+-/// [`aggregate_coverage`] 共用，MUST NOT 各写一份——否则会出现「报了缺失却不收敛」
+-/// 或反之）：
+-///
+-/// 「自身结论非 pass」（非零退出 / 有失败用例 / 覆盖块自判未达）**且**「`coverage ==
+-/// None`」（覆盖率采集缺失）→ 该 suite 的覆盖数据缺席，聚合面不可报通过。
++/// 块级覆盖判据之一：该 suite 无覆盖率块（工件缺失 / 解析失败）。判据**无条件**
++/// ——采集旗标在注册表模板里是常量，`coverage == None` 只可能是采集失败，不可测
++/// ≠ 达标。
+ fn misses_coverage(report: &SubReport) -> bool {
+-    let non_pass = report.exit_code != 0
+-        || report.summary.failed > 0
+-        || report.coverage.as_ref().is_some_and(|block| !block.pass);
+-    non_pass && report.coverage.is_none()
++    report.coverage.is_none()
++}
++
++/// 该 suite 覆盖判定是否非通过：块缺席（[`misses_coverage`]）或块自判未达阈。
++///
++/// 覆盖判定的四形态封闭集在本层收敛：维度级 `None` 由 [`coverage_meets_thresholds`]
++/// 在子报告层消化成 `block.pass`，块级缺席由 [`misses_coverage`] 消化。MUST NOT
++/// 在别处再写 `coverage.is_none()` / `!block.pass` 的等价判断。
++fn coverage_non_pass(report: &SubReport) -> bool {
++    misses_coverage(report) || report.coverage.as_ref().is_some_and(|block| !block.pass)
+ }
+ 
+ /// 问题归并（CLI `collectProblems` 同语义）：失败用例逐条（至多 10 条）
+ /// test_failure；非零退出且零失败、或零失败携 findings → execution_error。
+ ///
+-/// 另含**覆盖率采集缺失**归因（`ProblemType::ExecutionError`，见
+-/// [`misses_coverage`]）：每 suite 至多一条，与该 suite 已有 `execution_error` 去重
+-/// （既有条目消息面零改写）；[`build_summary_report`] 的「`has_execution_error →
+-/// Error`」映射零改，故缺测 suite 把整份结论定为不可测。
++/// 另含**逐 suite 覆盖归因**（[`coverage_problem`]）：覆盖缺失不再与该 suite 的
++/// `execution_error` 去重——覆盖面无数据 / 未达阈与执行面失败是两件事，两类条目
++/// 并存且互不改写。
+ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
+     let mut problems = Vec::new();
+     for report in sub_reports {
+-        let mut has_execution_error = false;
+         if report.summary.failed > 0 {
+             let failures = report
+                 .error_cases
+@@ -482,7 +247,6 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
+                 problem_type: ProblemType::ExecutionError,
+                 message: detail,
+             });
+-            has_execution_error = true;
+         } else if report.summary.failed == 0
+             && report
+                 .findings
+@@ -498,17 +262,9 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
+                     .and_then(|findings| findings.first().cloned())
+                     .unwrap_or_default(),
+             });
+-            has_execution_error = true;
+         }
+-        if !has_execution_error && misses_coverage(report) {
+-            problems.push(Problem {
+-                framework: report.framework.clone(),
+-                problem_type: ProblemType::ExecutionError,
+-                message: format!(
+-                    "覆盖率采集缺失（退出码 {}）：该 suite 结论非通过且未产出覆盖率数据",
+-                    report.exit_code
+-                ),
+-            });
++        if let Some(problem) = coverage_problem(report) {
++            problems.push(problem);
+         }
+     }
+     problems
+@@ -547,10 +303,35 @@ fn format_coverage_failure(measured: &CoverageMeasured, thresholds: &CoverageThr
+     format!("Coverage below threshold: {}", parts.join(", "))
+ }
+ 
+-/// score 公式单点（`build_mutation_block` 与 `aggregate_mutation` 逐字同式）：
+-/// `score = (killed + timeout) / (total - ignored - compileError - runtimeError)`
+-///（分母排除 ignored + compileError + runtimeError；分母为 0 → 100.0；两位舍
+-/// 入），阈值判定 `pass = score >= threshold`。MUST NOT 引入百分比平均等新口径。
++/// 逐 suite 覆盖归因（`framework` = 该 suite 框架，每 suite 至多一条
++/// `CoverageFailure`）：块缺席 → 采集缺失措辞（含退出码与动作指引）；块在场但
++/// 未达阈 → [`format_coverage_failure`] 原文；通过与块缺席之外的一切形态 → `None`。
++fn coverage_problem(report: &SubReport) -> Option<Problem> {
++    if misses_coverage(report) {
++        return Some(Problem {
++            framework: report.framework.clone(),
++            problem_type: ProblemType::CoverageFailure,
++            message: format!(
++                "覆盖率采集缺失（退出码 {}）：工件缺失 / 解析失败，该 suite 覆盖率不可测——请检查该 suite 的采集旗标与覆盖率工件路径",
++                report.exit_code
++            ),
++        });
++    }
++    let block = report.coverage.as_ref()?;
++    if block.pass {
++        return None;
++    }
++    Some(Problem {
++        framework: report.framework.clone(),
++        problem_type: ProblemType::CoverageFailure,
++        message: format_coverage_failure(&block.measured, &block.thresholds),
++    })
++}
++
++/// score 公式单点：`score = (killed + timeout) / (total - ignored - compileError -
++/// runtimeError)`（分母排除 ignored + compileError + runtimeError；分母为 0 →
++/// 100.0；两位舍入），阈值判定 `pass = score >= threshold`。MUST NOT 引入百分比
++/// 平均等新口径。
+ pub fn build_mutation_block(measured: MutationMeasured, threshold: f64) -> MutationBlock {
+     let valid = measured
+         .total
+@@ -574,8 +355,7 @@ pub fn build_mutation_block(measured: MutationMeasured, threshold: f64) -> Mutat
+ }
+ 
+ /// 段计数求和归并（段当子报告——计数求和后交 [`build_mutation_block`] 重算
+-/// score；阈值取首块，`aggregate_mutation` 既有语义）。空 slice → `None`（不产
+-/// 块）。MUST NOT 新增归并公式。
++/// score；阈值取首块）。空 slice → `None`（不产块）。MUST NOT 新增归并公式。
+ pub fn merge_mutation_blocks(blocks: &[MutationBlock]) -> Option<MutationBlock> {
+     let first = blocks.first()?;
+     let mut measured = MutationMeasured::default();
+@@ -594,23 +374,13 @@ pub fn merge_mutation_blocks(blocks: &[MutationBlock]) -> Option<MutationBlock>
+     Some(build_mutation_block(measured, first.threshold))
+ }
+ 
+-/// 突变聚合（CLI `computeMutationResult` 主干同语义）：无任何子报告携突变
+-/// 块 → `None`（未跑 / 跳过——突变位由独立 MutationTest 步归并回填 summary 的
+-/// mutation 位；corpus 含块样本时按计数加权归并）。override 组不产（V1 边界）。
+-fn aggregate_mutation(sub_reports: &[SubReport]) -> Option<MutationBlock> {
+-    let blocks: Vec<MutationBlock> = sub_reports
+-        .iter()
+-        .filter_map(|report| report.mutation.clone())
+-        .collect();
+-    merge_mutation_blocks(&blocks)
+-}
+-
+-/// 汇总报告组装（CLI `generateSummaryReport` 同语义）：计数合并、problems
+-/// 归并、coverage / mutation 块、plans 路径索引、conclusion 判定。`command`
+-/// 为命令描述固定串、`started_at` 为链路起点（耗时取墙钟差整秒）。
++/// 汇总报告组装（CLI `generateSummaryReport` 同语义的布尔收敛面）：计数求和、
++/// problems 归并（含逐 suite 覆盖归因）、plans 路径索引、conclusion 布尔归并。
++/// `command` 为命令描述固定串、`started_at` 为链路起点（耗时取墙钟差整秒）。
++///
++/// MUST NOT 产 `coverage` / `mutation` 块——覆盖率数值的唯一权威面是逐 suite 子报告。
+ pub fn build_summary_report(
+     sub_reports: &[SubReport],
+-    suites: &[TestSuite],
+     command: &str,
+     started_at: OffsetDateTime,
+ ) -> SummaryReport {
+@@ -621,37 +391,11 @@ pub fn build_summary_report(
+         totals.failed += report.summary.failed;
+         totals.skipped += report.summary.skipped;
+     }
+-    let mut problems = collect_problems(sub_reports);
+-    let coverage = aggregate_coverage(sub_reports, suites);
+-    if coverage.as_ref().is_some_and(|block| !block.pass) {
+-        let block = coverage.as_ref().expect("coverage 已判定在位");
+-        problems.push(Problem {
+-            framework: "all".to_owned(),
+-            problem_type: ProblemType::CoverageFailure,
+-            message: format_coverage_failure(&block.measured, &block.thresholds),
+-        });
+-    }
+-    let mutation = aggregate_mutation(sub_reports);
+-    if mutation.as_ref().is_some_and(|block| !block.pass) {
+-        let block = mutation.as_ref().expect("mutation 已判定在位");
+-        problems.push(Problem {
+-            framework: "all".to_owned(),
+-            problem_type: ProblemType::CoverageFailure,
+-            message: format!(
+-                "Mutation score {:.1}% < threshold {}%",
+-                block.score, block.threshold
+-            ),
+-        });
+-    }
++    let problems = collect_problems(sub_reports);
+     let has_execution_error = problems
+         .iter()
+         .any(|problem| problem.problem_type == ProblemType::ExecutionError);
+-    let conclusion = determine_conclusion(
+-        totals.failed,
+-        coverage.as_ref(),
+-        mutation.as_ref(),
+-        has_execution_error,
+-    );
++    let conclusion = determine_conclusion(totals.failed, sub_reports, has_execution_error);
+     let plans = sub_reports
+         .iter()
+         .map(|report| {
+@@ -679,8 +423,6 @@ pub fn build_summary_report(
+         skipped: totals.skipped,
+         conclusion,
+         problems,
+-        coverage,
+-        mutation,
+         plans,
+         findings: None,
+     }
+diff --git a/crates/core/checks/src/aggregate_test.rs b/crates/core/checks/src/aggregate_test.rs
+index 49b9ac29d97d..52d1e3f5489a 100644
+--- a/crates/core/checks/src/aggregate_test.rs
++++ b/crates/core/checks/src/aggregate_test.rs
+@@ -3,8 +3,8 @@ use time::OffsetDateTime;
+ use config::{MutationConfig, TestFramework, TestSuite};
+ 
+ use crate::aggregate::{
+-    aggregate_coverage, build_summary_report, coverage_meets_thresholds, derive_plan_id,
+-    determine_conclusion, in_suite_scope,
++    build_summary_report, coverage_meets_thresholds, derive_plan_id, determine_conclusion,
++    is_file_excluded,
+ };
+ use crate::model::{
+     CaseSummary, Conclusion, CoverageBlock, CoverageMeasured, CoverageThresholds, MutationBlock,
+@@ -40,38 +40,6 @@ fn block(pass: bool, measured: CoverageMeasured, thresholds: CoverageThresholds)
+     }
+ }
+ 
+-fn config_thresholds(lines: f64, branches: f64, functions: f64) -> config::CoverageThresholds {
+-    config::CoverageThresholds {
+-        lines,
+-        branches,
+-        functions,
+-    }
+-}
+-
+-/// config::TestSuite 内存构造（framework 无 Copy，逐调用点显式构造枚举值）。
+-#[allow(clippy::too_many_arguments)]
+-fn suite(
+-    root: &str,
+-    framework: TestFramework,
+-    coverage: config::CoverageThresholds,
+-    includes: Option<Vec<String>>,
+-    excludes: Option<Vec<String>>,
+-) -> TestSuite {
+-    TestSuite {
+-        root: root.to_owned(),
+-        framework,
+-        cwd: ".".to_owned(),
+-        config: None,
+-        includes,
+-        excludes,
+-        coverage,
+-        mutation: MutationConfig {
+-            cwd: None,
+-            score: 70.0,
+-        },
+-    }
+-}
+-
+ /// 逐文件覆盖原始计数条目（lines / branches / functions 三维 total+covered）。
+ #[allow(clippy::too_many_arguments)]
+ fn entry(
+@@ -140,877 +108,692 @@ fn counts(total: u64, passed: u64, failed: u64, skipped: u64) -> CaseSummary {
+     }
+ }
+ 
++/// config::TestSuite 内存构造（framework 无 Copy，逐调用点显式构造枚举值）。
++fn suite(root: &str, framework: TestFramework, excludes: Option<Vec<String>>) -> TestSuite {
++    TestSuite {
++        root: root.to_owned(),
++        framework,
++        cwd: ".".to_owned(),
++        config: None,
++        includes: None,
++        excludes,
++        coverage: config::CoverageThresholds {
++            lines: 80.0,
++            branches: 70.0,
++            functions: 75.0,
++        },
++        mutation: MutationConfig {
++            cwd: None,
++            score: 70.0,
++        },
++    }
++}
++
+ // ---------------------------------------------------------------------------
+-// determine_conclusion（CLI determineConclusion 同语义）
++// build_summary_report（汇总组装）
+ // ---------------------------------------------------------------------------
+ 
++/// 边界：零子报告 → 空汇总（四计数 0、problems 空不 panic）。
+ #[test]
+-fn 结论判定_全绿pass() {
+-    let coverage = block(
+-        true,
+-        measured(Some(90.0), Some(80.0), Some(85.0)),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    let conclusion = determine_conclusion(0, Some(&coverage), None, false);
+-    assert_eq!(conclusion, Conclusion::Pass);
+-}
++fn 零子报告空汇总不panic() {
++    let summary = build_summary_report(&[], "cmd", OffsetDateTime::now_utc());
+ 
+-#[test]
+-fn 结论判定_failed大于零fail() {
+-    // error 不在场时 fail 优先于 pass
+-    let coverage = block(
+-        true,
+-        measured(Some(90.0), Some(80.0), Some(85.0)),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    let conclusion = determine_conclusion(1, Some(&coverage), None, false);
+-    assert_eq!(conclusion, Conclusion::Fail);
++    assert_eq!(summary.total, 0);
++    assert_eq!(summary.passed, 0);
++    assert_eq!(summary.failed, 0);
++    assert_eq!(summary.skipped, 0);
++    assert!(summary.problems.is_empty(), "零子报告零 problems");
++    assert!(summary.plans.is_empty());
++    assert_eq!(summary.conclusion, Conclusion::Pass, "空集绿态判定");
+ 
+-    // failed>0 且覆盖也未达 → 仍 fail（同档不升级）
+-    let failing_coverage = block(
+-        false,
+-        measured(Some(50.0), Some(40.0), Some(30.0)),
+-        thresholds(80.0, 70.0, 75.0),
++    // 汇总自洽：完整 SummaryReport 形态可序列化（写盘面消费形态）
++    let text = serde_json::to_string(&summary).expect("空汇总应可序列化");
++    assert!(text.contains("\"conclusion\":\"pass\""));
++    let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可回读");
++    assert!(
++        !value
++            .as_object()
++            .expect("顶层对象")
++            .contains_key("coverage"),
++        "空汇总零 coverage 键"
++    );
++    assert!(
++        !value
++            .as_object()
++            .expect("顶层对象")
++            .contains_key("mutation"),
++        "空汇总零 mutation 键"
+     );
+-    let conclusion = determine_conclusion(3, Some(&failing_coverage), None, false);
+-    assert_eq!(conclusion, Conclusion::Fail);
+ }
+ 
++/// 边界：command 字段断言仅存在性不锚措辞（桌面固定串实现期定稿——design
++/// 待决遗留：非空即持恒，措辞漂移不破坏聚合契约）。
+ #[test]
+-fn 结论判定_覆盖未达阈fail() {
+-    // 任一维度低于阈值 → fail（failed=0 不豁免覆盖缺口）
+-    let coverage = block(
+-        false,
+-        measured(Some(79.9), Some(80.0), Some(85.0)),
+-        thresholds(80.0, 70.0, 75.0),
++fn command字段仅存在性断言不锚措辞() {
++    let summary = build_summary_report(&[], "任意命令描述措辞", OffsetDateTime::now_utc());
++    assert!(
++        !summary.command.is_empty(),
++        "command 在场即可（透传入参，措辞不进契约）"
+     );
+-    let conclusion = determine_conclusion(0, Some(&coverage), None, false);
+-    assert_eq!(conclusion, Conclusion::Fail);
+ }
+ 
+-#[test]
+-fn 结论判定_execution_error优先级最高() {
+-    // error 优先级最高——即使 failed>0 且覆盖未达也判 error（CLI determineConclusion 同序）
+-    let failing_coverage = block(
+-        false,
+-        measured(Some(10.0), Some(10.0), Some(10.0)),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    let conclusion = determine_conclusion(5, Some(&failing_coverage), None, true);
+-    assert_eq!(conclusion, Conclusion::Error);
++// ---------------------------------------------------------------------------
++// mutation 聚合单点（desktop-fix-mutation-test / AC-4 / AC-5）：
++// build_mutation_block（score 公式单点 `(killed+timeout)/(total-ignored-
++// compileError-runtimeError)`，分母 0 → 100.0，两位舍入，pass = score >=
++// threshold）+ merge_mutation_blocks（段计数求和归并，阈值取首块；空 → None）
++// ---------------------------------------------------------------------------
+ 
+-    // 全绿面 + execution_error 仍 error
+-    let passing_coverage = block(
+-        true,
+-        measured(Some(99.0), Some(99.0), Some(99.0)),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    assert_eq!(
+-        determine_conclusion(0, Some(&passing_coverage), None, true),
+-        Conclusion::Error
+-    );
+-}
++use crate::aggregate::{build_mutation_block, merge_mutation_blocks};
+ 
+-#[test]
+-fn 结论判定_覆盖恰等于阈值达标() {
+-    // ≥ 边界不误判未达：三维恰等于阈值 → 达标 → pass
+-    let coverage = block(
+-        true,
+-        measured(Some(80.0), Some(70.0), Some(75.0)),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    assert_eq!(
+-        determine_conclusion(0, Some(&coverage), None, false),
+-        Conclusion::Pass
+-    );
+-    // 判定函数直接对齐（coverage_meets_thresholds 同边界）
+-    assert!(coverage_meets_thresholds(
+-        &measured(Some(80.0), Some(70.0), Some(75.0)),
+-        &thresholds(80.0, 70.0, 75.0)
+-    ));
+-    // 略低一分即未达
+-    assert!(!coverage_meets_thresholds(
+-        &measured(Some(79.999), Some(70.0), Some(75.0)),
+-        &thresholds(80.0, 70.0, 75.0)
+-    ));
++/// mutation 计数 fixture（全字段显式）。
++#[allow(clippy::too_many_arguments)]
++fn mutation_counts(
++    killed: u64,
++    survived: u64,
++    timeout: u64,
++    no_coverage: u64,
++    compile_error: u64,
++    runtime_error: u64,
++    ignored: u64,
++    total: u64,
++) -> MutationMeasured {
++    MutationMeasured {
++        killed,
++        survived,
++        timeout,
++        no_coverage,
++        compile_error,
++        runtime_error,
++        ignored,
++        total,
++        detected: killed + timeout,
++        undetected: survived + no_coverage,
++    }
+ }
+ 
++/// 正向：典型计数 → score 逐字等于公式值（两位舍入，1/3 → 33.33）；
++/// `pass = score >= threshold`。
+ #[test]
+-fn 结论判定_null维度感知跳过不误fail() {
+-    // coverage=None 且 mutation=None（null 维度感知跳过）→ 不因缺块误 fail
+-    assert_eq!(determine_conclusion(0, None, None, false), Conclusion::Pass);
++fn build_mutation_block典型计数score逐字与阈值判定() {
++    // killed=1, timeout=0, valid = total(3) - 0 - 0 - 0 = 3 → 1/3 → 33.33
++    let block = build_mutation_block(mutation_counts(1, 1, 0, 0, 0, 0, 0, 3), 80.0);
++    assert_eq!(block.score, 33.33, "两位舍入（1/3 → 33.33）");
++    assert!(!block.pass, "33.33 < 80 → fail");
++    assert_eq!(block.threshold, 80.0);
++    assert_eq!(block.overrides, None, "override 组不产（V1 边界）");
+ 
+-    // 部分维度 None：None 维度不参与判定（只有有值维度比对）
+-    let partial = block(
+-        true,
+-        measured(Some(90.0), None, None),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    assert_eq!(
+-        determine_conclusion(0, Some(&partial), None, false),
+-        Conclusion::Pass
+-    );
+-}
++    // killed=7, timeout=1 → 8/10-2(ignored)=8/8 → 100.0
++    let block = build_mutation_block(mutation_counts(7, 1, 1, 0, 0, 0, 2, 10), 80.0);
++    assert_eq!(block.score, 100.0);
++    assert!(block.pass, "100.0 >= 80 → pass");
+ 
+-#[test]
+-fn 结论判定_u64计数两极一致() {
+-    let coverage = block(
+-        true,
+-        measured(Some(90.0), Some(80.0), Some(85.0)),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    // failed=0 与全失败大计数两极判定一致
+-    assert_eq!(
+-        determine_conclusion(0, Some(&coverage), None, false),
+-        Conclusion::Pass
+-    );
+-    assert_eq!(
+-        determine_conclusion(u64::MAX, Some(&coverage), None, false),
+-        Conclusion::Fail
+-    );
+-    assert_eq!(
+-        determine_conclusion(1, Some(&coverage), None, false),
+-        Conclusion::Fail
+-    );
++    // 典型 55 分样本（corpus mutation-block fixture 同型：11 killed + 2 timeout
++    // / 27 total - 3 noCoverage 计入分母吗——noCoverage 不入分母排除面）
++    // valid = 27 - 0 - 0 - 0 = 27；(11+2)/27 = 48.15
++    let block = build_mutation_block(mutation_counts(11, 7, 2, 3, 0, 0, 0, 27), 70.0);
++    assert_eq!(block.score, 48.15, "(11+2)/27 = 48.148… → 48.15");
++    assert!(!block.pass);
+ }
+ 
++/// 正向：`killed + timeout` 混合计入分子、`no_coverage` 不入分母排除面（分母
++/// 仅排 `ignored / compileError / runtimeError`）。
+ #[test]
+-fn 结论判定_mutation未达阈fail() {
+-    // 函数面完整语义（生产聚合恒 None 不触达——corpus 含块样本与该面对齐）
+-    let passing_coverage = block(
+-        true,
+-        measured(Some(90.0), Some(80.0), Some(85.0)),
+-        thresholds(80.0, 70.0, 75.0),
+-    );
+-    let failing_mutation = MutationBlock {
+-        pass: false,
+-        score: 55.0,
+-        threshold: 70.0,
+-        measured: MutationMeasured {
+-            killed: 11,
+-            survived: 7,
+-            timeout: 2,
+-            no_coverage: 3,
+-            compile_error: 1,
+-            runtime_error: 1,
+-            ignored: 2,
+-            total: 27,
+-            detected: 13,
+-            undetected: 10,
+-        },
+-        overrides: None,
+-    };
+-    assert_eq!(
+-        determine_conclusion(0, Some(&passing_coverage), Some(&failing_mutation), false),
+-        Conclusion::Fail
+-    );
+-    // 突变达标 → pass
+-    let passing_mutation = MutationBlock {
+-        pass: true,
+-        ..failing_mutation
+-    };
+-    assert_eq!(
+-        determine_conclusion(0, Some(&passing_coverage), Some(&passing_mutation), false),
+-        Conclusion::Pass
+-    );
+-}
++fn build_mutation_block分子分母口径_no_coverage入分母不入排除面() {
++    // noCoverage 计入 total（分母）但不在排除面：
++    // killed=2, timeout=1, noCoverage=1, total=10 → valid = 10-0-0-0 = 10 → 3/10
++    let block = build_mutation_block(mutation_counts(2, 0, 1, 1, 0, 0, 0, 10), 30.0);
++    assert_eq!(block.score, 30.0, "noCoverage 计入分母（不入排除面）");
++    assert!(block.pass, "30.0 >= 30 → 恰等 pass");
+ 
+-// ---------------------------------------------------------------------------
+-// aggregate_coverage（全局聚合 + per-suite override 组）
+-// ---------------------------------------------------------------------------
++    // 排除面三键各扣：total=10, ignored=2, compileError=1, runtimeError=1 →
++    // valid = 6；killed=4, timeout=2 → 6/6 = 100.0
++    let block = build_mutation_block(mutation_counts(4, 0, 2, 0, 1, 1, 2, 10), 95.0);
++    assert_eq!(block.score, 100.0, "排除面三键各扣（valid = 6）");
++    assert!(block.pass);
++}
+ 
+-/// 正向：多子报告全局聚合 + per-suite override 组（suite glob 纯匹配命中
+-/// source_files 取该 suite 阈值；范围圈定 / 加权实测 / 达阈判定逐字段相等）。
++/// 异常：分母 0（全 ignored / compileError / runtimeError / 全 0）→ score =
++/// 100.0（既有语义）；`threshold` = `NaN` → `pass = false`（`>=` 恒假）；
++/// `threshold` = `Inf` → fail。
+ #[test]
+-fn 多子报告全局聚合与per_suite_override组() {
+-    let suites = vec![
+-        suite(
+-            "src/app",
+-            TestFramework::VitePlus,
+-            config_thresholds(60.0, 50.0, 40.0),
+-            Some(vec!["**/*.rs".to_owned()]),
+-            None,
+-        ),
+-        suite(
+-            "crates",
+-            TestFramework::Rust,
+-            config_thresholds(80.0, 70.0, 75.0),
+-            Some(vec!["**/*.rs".to_owned()]),
+-            None,
+-        ),
+-        suite(
+-            "absent",
+-            TestFramework::Vitest,
+-            config_thresholds(80.0, 70.0, 75.0),
+-            Some(vec!["**/*.rs".to_owned()]),
+-            None,
+-        ),
+-    ];
+-
+-    let vite_report = sub_report(
+-        "src/app",
+-        "vite-plus",
+-        counts(2, 2, 0, 0),
+-        vec![
+-            entry(
+-                "src/app/main.rs",
+-                10,
+-                9,
+-                Some(10),
+-                Some(5),
+-                Some(4),
+-                Some(2),
+-            ),
+-            entry("src/lib/extra.rs", 10, 5, None, None, None, None),
+-        ],
+-        None,
+-    );
+-    let rust_report = sub_report(
+-        "crates",
+-        "rust",
+-        counts(1, 1, 0, 0),
+-        vec![entry(
+-            "crates/foo/src/lib.rs",
+-            10,
+-            8,
+-            None,
+-            None,
+-            None,
+-            None,
+-        )],
+-        None,
+-    );
+-    let sub_reports = vec![vite_report, rust_report];
+-
+-    let result = aggregate_coverage(&sub_reports, &suites).expect("有覆盖数据应产块");
++#[allow(non_snake_case)]
++fn build_mutation_block分母零与NaN与Inf阈值() {
++    // 全 0（零段块边界）→ 100.0
++    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 0, 0, 0, 0), 80.0);
++    assert_eq!(block.score, 100.0, "分母 0 → 100.0（既有语义）");
++    assert!(block.pass, "100.0 >= 80");
+ 
+-    // 全局阈值 = 首 suite 阈值（60/50/40）
+-    assert_eq!(result.thresholds, thresholds(60.0, 50.0, 40.0));
++    // 全 ignored（valid = 3-3 = 0）→ 100.0
++    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 0, 0, 3, 3), 80.0);
++    assert_eq!(block.score, 100.0, "全 ignored → 分母 0 → 100.0");
+ 
+-    // 全局加权实测：lines 22/30=73.33、branches 5/10=50、functions 2/4=50
+-    assert_eq!(
+-        result.measured,
+-        measured(Some(73.33), Some(50.0), Some(50.0))
+-    );
++    // 全 compileError + runtimeError → 100.0
++    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 2, 1, 0, 3), 80.0);
++    assert_eq!(block.score, 100.0);
+ 
+-    // 全局达阈：73.33≥60 ∧ 50≥50 ∧ 50≥40 ✓
+-    assert!(result.pass);
++    // threshold NaN → pass = false（>= 恒假——f64 NaN 比较面）
++    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), f64::NAN);
++    assert_eq!(block.score, 100.0);
++    assert!(!block.pass, "threshold = NaN → pass 恒假");
+ 
+-    // override 组：命中圈定范围的两个 suite 各产一条，glob 不命中的 absent 组不产
+-    let overrides = result.overrides.as_ref().expect("override 组在场");
+-    assert_eq!(overrides.len(), 2, "absent 圈定零命中 → 该组不产条目");
+-    assert_eq!(overrides[0].glob, "src/app");
+-    assert_eq!(
+-        overrides[0].measured,
+-        measured(Some(90.0), Some(50.0), Some(50.0)),
+-        "src/app 圈定仅命中 main.rs（加权 9/10、5/10、2/4）"
+-    );
+-    assert_eq!(overrides[0].thresholds, thresholds(60.0, 50.0, 40.0));
+-    assert!(overrides[0].pass);
+-    assert_eq!(overrides[0].file_count, 1);
+-    assert_eq!(overrides[0].passed_count, 1, "逐文件达阈计数");
+-    assert_eq!(overrides[1].glob, "crates");
+-    assert_eq!(overrides[1].measured, measured(Some(80.0), None, None));
+-    assert!(overrides[1].pass, "None 维度感知跳过，lines 80≥80 达阈");
+-    assert_eq!(overrides[1].file_count, 1);
++    // threshold Inf → fail（100.0 < Inf）
++    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), f64::INFINITY);
++    assert!(!block.pass, "threshold = Inf → fail");
+ }
+ 
+-/// 异常：suite 阈值缺失（suites 空集——CLI config coverage null 的 Rust 形态）
+-/// → 默认档语义不 panic（80/70/75 兜底，CLI 同语义）。
++/// 边界：`score == threshold` 等值 → `pass = true`（`>=` 边界）；`threshold`
++/// = `0.0` / `-0.0` 恒 pass；`threshold` > 100 → 必 fail；计数极大（f64 转换
++/// 精度稳定不 panic）。
+ #[test]
+-fn suite阈值缺失走默认档不panic() {
+-    let report = sub_report(
+-        ".",
+-        "vite-plus",
+-        counts(1, 1, 0, 0),
+-        vec![entry("src/a.ts", 10, 9, None, None, None, None)],
+-        Some(block(
+-            true,
+-            measured(Some(90.0), None, None),
+-            thresholds(80.0, 70.0, 75.0),
+-        )),
+-    );
++fn build_mutation_block边界阈值与极大计数() {
++    // 恰等边界（killed=1 + timeout=1 / total=4 → 50.0 >= 50.0 → pass）
++    let block = build_mutation_block(mutation_counts(1, 0, 1, 0, 0, 0, 0, 4), 50.0);
++    assert_eq!(block.score, 50.0);
++    assert!(block.pass, "score == threshold → pass（>= 边界）");
+ 
+-    let result = aggregate_coverage(&[report], &[]).expect("空 suites 仍产块");
+-    assert_eq!(
+-        result.thresholds,
+-        thresholds(80.0, 70.0, 75.0),
+-        "无 suite 配置 → CLI defaults 同值兜底档"
+-    );
+-    assert!(result.pass, "90% ≥ 80% 默认档达阈");
+-    assert!(result.overrides.is_none(), "空 suites 无 override 组");
+-}
++    // threshold 0.0 / -0.0 恒 pass（score ≥ 0 恒真——全 survived 面 0 分也 pass）
++    for threshold in [0.0, -0.0] {
++        let block = build_mutation_block(mutation_counts(0, 5, 0, 0, 0, 0, 0, 5), threshold);
++        assert_eq!(block.score, 0.0, "全 survived → 0.0 分");
++        assert!(block.pass, "threshold = {threshold} → 恒 pass");
++    }
+ 
+-/// 边界：子报告 source_files 全空（无任何覆盖数据）→ 聚合产出 None 零维面
+-///（不产假计数；判定按 null 感知跳过）。
+-#[test]
+-fn 子报告source_files全空_产出null零维面() {
+-    // 单子报告无覆盖块 → None
+-    let bare = sub_report(".", "vite-plus", counts(1, 1, 0, 0), Vec::new(), None);
+-    let suites = vec![suite(
+-        ".",
+-        TestFramework::VitePlus,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        None,
+-        None,
+-    )];
+-    assert!(
+-        aggregate_coverage(std::slice::from_ref(&bare), &suites).is_none(),
+-        "无数据产 None 不产假块"
+-    );
++    // threshold > 100 → 必 fail
++    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), 100.001);
++    assert!(!block.pass, "threshold > 100 → 必 fail");
+ 
+-    // 多子报告全空 → None
+-    let another = sub_report("app", "node-test", counts(2, 2, 0, 0), Vec::new(), None);
+-    assert!(aggregate_coverage(&[bare, another], &suites).is_none());
++    // 极大计数（f64 转换精度稳定）：u64::MAX/4 量级不 panic、求和不溢出
++    let big = u64::MAX / 4;
++    let block = build_mutation_block(mutation_counts(big, 0, big, 0, 0, 0, 0, big * 2), 100.0);
++    assert_eq!(block.score, 100.0, "2big/2big = 100.0（极大计数精度稳定）");
++    assert!(block.pass, "恰等阈值 pass");
+ 
+-    // 逐文件条目在场但 coverage 计数缺失（entry.coverage = None）同 None
+-    let no_counts = SourceFileEntry {
+-        file: "src/x.ts".to_owned(),
+-        coverage: None,
+-    };
+-    let with_missing = sub_report(".", "vite-plus", counts(1, 1, 0, 0), vec![no_counts], None);
+-    assert!(
+-        aggregate_coverage(&[with_missing], &suites).is_none(),
+-        "计数缺失条目不产假计数"
+-    );
++    // 分子分母俱大但不等：killed=big, total=4big → big/4big = 25.0
++    let block = build_mutation_block(mutation_counts(big, 0, 0, 0, 0, 0, 0, big * 4), 20.0);
++    assert_eq!(block.score, 25.0, "big/4big = 25.0");
++    assert!(block.pass, "25.0 >= 20");
++}
++
++/// mutation 块 fixture（pass / score / threshold 显式——merge 用例构造面）。
++fn mutation_block(score: f64, threshold: f64, counts: MutationMeasured) -> MutationBlock {
++    MutationBlock {
++        pass: score >= threshold,
++        score,
++        threshold,
++        measured: counts,
++        overrides: None,
++    }
+ }
+ 
+-/// 边界：suite glob 不命中任何文件 → 该 suite override 不产条目（全局块
+-/// overrides 缺省 None）。
++/// 正向：多段计数求和归并（各字段和 = 段和）、阈值取首块（载荷展示归并口径
++/// ——MUST NOT 新增归并公式）。
+ #[test]
+-fn suite_glob不命中_override组不产条目() {
+-    let suites = vec![suite(
+-        "no/such/dir",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
+-    let report = sub_report(
+-        ".",
+-        "rust",
+-        counts(1, 1, 0, 0),
+-        vec![entry("src/elsewhere.rs", 10, 5, None, None, None, None)],
+-        Some(block(
+-            false,
+-            measured(Some(50.0), None, None),
+-            thresholds(80.0, 70.0, 75.0),
+-        )),
+-    );
++fn merge_mutation_blocks多段求和与阈值取首块() {
++    let seg0 = mutation_block(100.0, 80.0, mutation_counts(4, 0, 1, 0, 0, 0, 1, 6));
++    let seg1 = mutation_block(50.0, 70.0, mutation_counts(1, 2, 0, 0, 0, 0, 0, 4));
++    let merged = merge_mutation_blocks(&[seg0.clone(), seg1.clone()]).expect("归并块应在场");
+ 
+-    let result = aggregate_coverage(&[report], &suites).expect("覆盖块在场产块");
+-    assert!(result.overrides.is_none(), "圈定零命中 → 无 override 组");
+-    assert!(
+-        !result.pass,
+-        "全局实测 lines 50% 低于 80% 阈值（无 override 组时的纯全局判定）"
++    // 各字段和 = 段和
++    assert_eq!(merged.measured.killed, 5, "killed 求和");
++    assert_eq!(merged.measured.survived, 2);
++    assert_eq!(merged.measured.timeout, 1);
++    assert_eq!(merged.measured.ignored, 1);
++    assert_eq!(merged.measured.total, 10, "total 求和");
++    // 归并块重算 score：(5+1)/(10-1) = 6/9 = 66.67
++    assert_eq!(
++        merged.score, 66.67,
++        "归并块重算 score（计数求和后交 build 单点）"
+     );
++    assert_eq!(merged.threshold, 80.0, "阈值取首块（既有语义）");
++    assert!(!merged.pass, "66.67 < 80（首块阈值判定）");
++    assert_eq!(merged.overrides, None);
+ }
+ 
+-/// 花括号方言（CLI picomatch `{a,b}` 交替）：includes / excludes 花括号形态
+-/// 经共享 `globmatch` 展开——override 圈定面与本仓库 config 同形模式对齐。
++/// 正向：单段（`[单元素]`）→ 归并块计数 / 阈值与原段等值。
+ #[test]
+-fn suite范围_花括号includes与excludes() {
+-    let suites = vec![suite(
+-        "app",
+-        TestFramework::VitePlus,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["src/**/*.{ts,tsx}".to_owned()]),
+-        Some(vec!["src/{legacy,old}/**".to_owned()]),
+-    )];
+-    let scoped = |path: &str| in_suite_scope(path, &suites[0], &suites);
++fn merge_mutation_blocks单段等值透传() {
++    let seg = mutation_block(95.5, 80.0, mutation_counts(9, 0, 1, 0, 0, 0, 0, 10));
++    let merged = merge_mutation_blocks(std::slice::from_ref(&seg)).expect("单段归并不为空");
++    assert_eq!(merged.measured, seg.measured, "单段计数等值");
++    assert_eq!(merged.threshold, seg.threshold, "阈值等值");
++    assert_eq!(merged.score, 100.0, "(9+1)/10 = 100.0");
++    assert!(merged.pass);
++}
+ 
+-    assert!(scoped("app/src/a.ts"), "includes 花括号 .ts 选枝命中");
+-    assert!(
+-        scoped("app/src/nested/b.tsx"),
+-        "includes 花括号 .tsx 选枝命中"
++/// 异常：空 slice `&[]` → `None`（不产块——段清单非空前置的调用方语义）。
++#[test]
++fn merge_mutation_blocks空slice返回none() {
++    assert_eq!(
++        merge_mutation_blocks(&[]),
++        None,
++        "空 slice 不产块（不产半截归并）"
+     );
+-    assert!(!scoped("app/src/c.md"), "非选枝扩展不命中");
+-    assert!(!scoped("app/src/legacy/x.ts"), "excludes 花括号剪除");
+-    assert!(!scoped("app/src/old/y.tsx"), "excludes 花括号剪除");
+-    assert!(!scoped("other/src/a.ts"), "root 树外不命中");
+ }
+ 
+-/// 缺省 glob 花括号形态命中（jest / vitest / vite-plus 档镜像
+-/// `**/*.{test,spec}.{js,ts,jsx,tsx}`——修复前引擎无交替方言恒零命中，
+-/// 逐文件 override 圈定静默失效）。
++/// 边界：超大列表（1000 段）归并不炸、顺序不影响计数和；段计数含 0 / `u64`
++/// 大值混合。
+ #[test]
+-fn suite范围_缺省glob花括号命中() {
+-    let suites = vec![suite(
+-        "app",
+-        TestFramework::VitePlus,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        None,
+-        None,
+-    )];
++fn merge_mutation_blocks超大列表与顺序无关与大值混合() {
++    // 1000 段等值计数：每段 killed=1, total=2 → 归并 killed=1000, total=2000
++    let segs: Vec<MutationBlock> = (0..1000)
++        .map(|index| {
++            mutation_block(
++                if index % 2 == 0 { 100.0 } else { 0.0 },
++                50.0,
++                mutation_counts(1, 1, 0, 0, 0, 0, 0, 2),
++            )
++        })
++        .collect();
++    let merged = merge_mutation_blocks(&segs).expect("超大列表归并不炸");
++    assert_eq!(merged.measured.killed, 1000);
++    assert_eq!(merged.measured.total, 2000);
++    // (1000+0)/2000 = 50.0
++    assert_eq!(merged.score, 50.0);
++    assert!(merged.pass, "50.0 >= 50.0（首块阈值恰等）");
+ 
+-    assert!(
+-        in_suite_scope("app/src/a.test.ts", &suites[0], &suites),
+-        "缺省 glob .test.ts 命中"
+-    );
+-    assert!(
+-        in_suite_scope("app/src/b.spec.tsx", &suites[0], &suites),
+-        "缺省 glob .spec.tsx 命中"
+-    );
+-    assert!(
+-        !in_suite_scope("app/src/c.ts", &suites[0], &suites),
+-        "非测试命名不命中"
++    // 顺序无关：逆序归并计数和一致
++    let reversed: Vec<MutationBlock> = segs.iter().rev().cloned().collect();
++    let merged_rev = merge_mutation_blocks(&reversed).expect("逆序归并不炸");
++    assert_eq!(
++        merged_rev.measured, merged.measured,
++        "顺序不影响计数和（求和交换律）"
+     );
++
++    // 0 / 大值混合段
++    let mixed = [
++        mutation_block(0.0, 10.0, mutation_counts(0, 0, 0, 0, 0, 0, 0, 0)),
++        mutation_block(
++            100.0,
++            10.0,
++            mutation_counts(u64::MAX / 8, 0, 0, 0, 0, 0, 0, u64::MAX / 8),
++        ),
++    ];
++    let merged = merge_mutation_blocks(&mixed).expect("混合段归并不炸");
++    assert_eq!(merged.measured.total, u64::MAX / 8, "0 段不扰求和");
++    assert_eq!(merged.score, 100.0);
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// build_summary_report（汇总组装）
++// determine_conclusion（布尔归并唯一判定点：error → failed>0 / 逐 suite 覆盖
++// 判定非通过 → fail → pass；签名内无 CoverageBlock / MutationBlock）
+ // ---------------------------------------------------------------------------
+ 
+-/// 正向（AC-7 分支 a，改写既有语料的「齐全」臂）：全测齐全零变——两 suite 均产
+-/// 覆盖率（vite-plus 90% / rust 92%，均达阈）、全绿 → `coverage == Some(pass:
+-/// true)`、`measured` 加权逐值、`problems` 与改造前逐字节相同（无新增
+-/// `execution_error`）、`conclusion == Pass`；计数合并 / plans 索引 / `phase` /
+-/// `command` 透传 / mutation 恒 `None` 既有断言零变。
+-#[test]
+-fn 汇总组装逐字段相等_全测齐全() {
+-    let suites = vec![
+-        suite(
+-            "src/app",
+-            TestFramework::VitePlus,
+-            config_thresholds(80.0, 70.0, 75.0),
+-            Some(vec!["**/*.ts".to_owned()]),
+-            None,
+-        ),
+-        suite(
+-            "crates",
+-            TestFramework::Rust,
+-            config_thresholds(80.0, 70.0, 75.0),
+-            Some(vec!["**/*.rs".to_owned()]),
+-            None,
+-        ),
+-    ];
++/// 全绿布尔面子报告（覆盖判定 pass、计数绿态）。
++fn passing_report(root: &str, framework: &str) -> SubReport {
++    sub_report(
++        root,
++        framework,
++        counts(2, 2, 0, 0),
++        Vec::new(),
++        Some(block(
++            true,
++            measured(Some(95.0), Some(80.0), Some(85.0)),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++    )
++}
+ 
+-    let passing_case = TestCaseResult {
+-        name: "math > adds".to_owned(),
+-        file: None,
+-        duration_ms: None,
+-        status: TestCaseStatus::Passed,
+-        line: None,
+-        error_type: None,
+-        error_message: None,
+-        stack_trace: None,
+-    };
++/// 正向：`failed = 0` + 两子报告覆盖判定 pass + 无 execution_error → pass。
++#[test]
++fn 结论判定_全绿布尔面pass() {
++    let conclusion = determine_conclusion(
++        0,
++        &[
++            passing_report("src/app", "vite-plus"),
++            passing_report("crates", "rust"),
++        ],
++        false,
++    );
++    assert_eq!(conclusion, Conclusion::Pass);
++}
+ 
+-    let mut vite = sub_report(
++/// 正向（AC-4 核心回归锚）：掩盖不可达——vite-plus 三维全达标 + rust
++/// `functions 87.60 < 90` → fail（一个 suite 的达标值 MUST NOT 稀释另一个
++/// suite 的缺口）。
++#[test]
++fn 结论判定_掩盖不可达() {
++    let vite = sub_report(
+         "src/app",
+         "vite-plus",
+-        counts(2, 2, 0, 0),
+-        vec![entry("src/app/main.ts", 10, 9, None, None, None, None)],
++        counts(3, 3, 0, 0),
++        Vec::new(),
+         Some(block(
+             true,
+-            measured(Some(90.0), None, None),
++            measured(Some(95.40), Some(94.06), Some(91.60)),
+             thresholds(80.0, 70.0, 75.0),
+         )),
+     );
+-    vite.error_cases = vec![passing_case];
+     let rust = sub_report(
+         "crates",
+         "rust",
+-        counts(3, 3, 0, 0),
+-        vec![entry(
+-            "crates/foo/src/lib.rs",
+-            25,
+-            23,
+-            None,
+-            None,
+-            None,
+-            None,
+-        )],
++        counts(2, 2, 0, 0),
++        Vec::new(),
+         Some(block(
+-            true,
+-            measured(Some(92.0), None, None),
+-            thresholds(80.0, 70.0, 75.0),
++            false,
++            measured(Some(95.94), None, Some(87.60)),
++            thresholds(80.0, 70.0, 90.0),
+         )),
+     );
+-
+-    let summary = build_summary_report(
+-        &[vite, rust],
+-        &suites,
+-        "desktop change run: test-execution gate",
+-        OffsetDateTime::now_utc(),
+-    );
+-
+-    // 计数合并
+-    assert_eq!(summary.total, 5);
+-    assert_eq!(summary.passed, 5);
+-    assert_eq!(summary.failed, 0);
+-    assert_eq!(summary.skipped, 0);
+-
+-    // 固定串与 command 透传
+-    assert_eq!(summary.phase, "test-execution");
+-    assert_eq!(
+-        summary.command, "desktop change run: test-execution gate",
+-        "command 透传入参（措辞不锚定桌面固定串，仅存在性/透传面）"
+-    );
+-
+-    // problems 归并：全测齐全 → 零 problem（无新增 execution_error）
+-    assert!(
+-        summary.problems.is_empty(),
+-        "全测齐全零归因（缺测判据不误报）: {:?}",
+-        summary.problems
+-    );
+-
+-    // coverage 块：多子报告自全部逐文件条目加权聚合（9/10 + 23/25 = 32/35 →
+-    // 91.43%；branches / functions 零有效数据 → None 零维面）
+-    let coverage = summary.coverage.as_ref().expect("有覆盖数据应产块");
+-    assert!(coverage.pass, "lines 91.43% ≥ 80% 且 None 维度跳过");
+-    assert_eq!(coverage.measured, measured(Some(91.43), None, None));
+-    assert_eq!(coverage.thresholds, thresholds(80.0, 70.0, 75.0));
+-
+-    // mutation 恒 None（V1 不移植）
+-    assert!(summary.mutation.is_none());
+-
+-    // plans 路径索引（planId 推导 + reports/test 相对前缀）
+-    assert_eq!(summary.plans.len(), 2);
+-    assert_eq!(summary.plans[0].id, derive_plan_id("src/app", "vite-plus"));
+-    assert_eq!(summary.plans[0].framework, "vite-plus");
+     assert_eq!(
+-        summary.plans[0].path,
+-        format!("reports/test/{}", summary.plans[0].id)
++        determine_conclusion(0, &[vite, rust], false),
++        Conclusion::Fail
+     );
+-    assert_eq!(summary.plans[1].id, derive_plan_id("crates", "rust"));
+-
+-    // conclusion：全绿 + 覆盖达阈 + 无 execution_error → pass
+-    assert_eq!(summary.conclusion, Conclusion::Pass);
+-}
+-
+-/// 边界：零子报告 → 空汇总（四计数 0、problems 空不 panic）。
+-#[test]
+-fn 零子报告空汇总不panic() {
+-    let summary = build_summary_report(&[], &[], "cmd", OffsetDateTime::now_utc());
+-
+-    assert_eq!(summary.total, 0);
+-    assert_eq!(summary.passed, 0);
+-    assert_eq!(summary.failed, 0);
+-    assert_eq!(summary.skipped, 0);
+-    assert!(summary.problems.is_empty(), "零子报告零 problems");
+-    assert!(summary.coverage.is_none() && summary.mutation.is_none());
+-    assert!(summary.plans.is_empty());
+-    assert_eq!(summary.conclusion, Conclusion::Pass, "空集绿态判定");
+-
+-    // 汇总自洽：完整 SummaryReport 形态可序列化（写盘面消费形态）
+-    let text = serde_json::to_string(&summary).expect("空汇总应可序列化");
+-    assert!(text.contains("\"conclusion\":\"pass\""));
+ }
+ 
+-/// 边界：command 字段断言仅存在性不锚措辞（桌面固定串实现期定稿——design
+-/// 待决遗留：非空即持恒，措辞漂移不破坏聚合契约）。
++/// 正向：`failed > 0` → fail（覆盖全 pass 不豁免）。
+ #[test]
+-fn command字段仅存在性断言不锚措辞() {
+-    let summary = build_summary_report(&[], &[], "任意命令描述措辞", OffsetDateTime::now_utc());
+-    assert!(
+-        !summary.command.is_empty(),
+-        "command 在场即可（透传入参，措辞不进契约）"
++fn 结论判定_failed大于零fail() {
++    assert_eq!(
++        determine_conclusion(1, &[passing_report("src/app", "vite-plus")], false),
++        Conclusion::Fail
+     );
+ }
+ 
+-// ---------------------------------------------------------------------------
+-// mutation 聚合单点（desktop-fix-mutation-test / AC-4 / AC-5）：
+-// build_mutation_block（score 公式单点 `(killed+timeout)/(total-ignored-
+-// compileError-runtimeError)`，分母 0 → 100.0，两位舍入，pass = score >=
+-// threshold）+ merge_mutation_blocks（段计数求和归并，阈值取首块；空 → None）
+-// ---------------------------------------------------------------------------
+-
+-use crate::aggregate::{build_mutation_block, merge_mutation_blocks};
+-
+-/// mutation 计数 fixture（全字段显式）。
+-#[allow(clippy::too_many_arguments)]
+-fn mutation_counts(
+-    killed: u64,
+-    survived: u64,
+-    timeout: u64,
+-    no_coverage: u64,
+-    compile_error: u64,
+-    runtime_error: u64,
+-    ignored: u64,
+-    total: u64,
+-) -> MutationMeasured {
+-    MutationMeasured {
+-        killed,
+-        survived,
+-        timeout,
+-        no_coverage,
+-        compile_error,
+-        runtime_error,
+-        ignored,
+-        total,
+-        detected: killed + timeout,
+-        undetected: survived + no_coverage,
+-    }
+-}
+-
+-/// 正向：典型计数 → score 逐字等于公式值（两位舍入，1/3 → 33.33）；
+-/// `pass = score >= threshold`。
+-#[test]
+-fn build_mutation_block典型计数score逐字与阈值判定() {
+-    // killed=1, timeout=0, valid = total(3) - 0 - 0 - 0 = 3 → 1/3 → 33.33
+-    let block = build_mutation_block(mutation_counts(1, 1, 0, 0, 0, 0, 0, 3), 80.0);
+-    assert_eq!(block.score, 33.33, "两位舍入（1/3 → 33.33）");
+-    assert!(!block.pass, "33.33 < 80 → fail");
+-    assert_eq!(block.threshold, 80.0);
+-    assert_eq!(block.overrides, None, "override 组不产（V1 边界）");
+-
+-    // killed=7, timeout=1 → 8/10-2(ignored)=8/8 → 100.0
+-    let block = build_mutation_block(mutation_counts(7, 1, 1, 0, 0, 0, 2, 10), 80.0);
+-    assert_eq!(block.score, 100.0);
+-    assert!(block.pass, "100.0 >= 80 → pass");
+-
+-    // 典型 55 分样本（corpus mutation-block fixture 同型：11 killed + 2 timeout
+-    // / 27 total - 3 noCoverage 计入分母吗——noCoverage 不入分母排除面）
+-    // valid = 27 - 0 - 0 - 0 = 27；(11+2)/27 = 48.15
+-    let block = build_mutation_block(mutation_counts(11, 7, 2, 3, 0, 0, 0, 27), 70.0);
+-    assert_eq!(block.score, 48.15, "(11+2)/27 = 48.148… → 48.15");
+-    assert!(!block.pass);
+-}
+-
+-/// 正向：`killed + timeout` 混合计入分子、`no_coverage` 不入分母排除面（分母
+-/// 仅排 `ignored / compileError / runtimeError`）。
+-#[test]
+-fn build_mutation_block分子分母口径_no_coverage入分母不入排除面() {
+-    // noCoverage 计入 total（分母）但不在排除面：
+-    // killed=2, timeout=1, noCoverage=1, total=10 → valid = 10-0-0-0 = 10 → 3/10
+-    let block = build_mutation_block(mutation_counts(2, 0, 1, 1, 0, 0, 0, 10), 30.0);
+-    assert_eq!(block.score, 30.0, "noCoverage 计入分母（不入排除面）");
+-    assert!(block.pass, "30.0 >= 30 → 恰等 pass");
+-
+-    // 排除面三键各扣：total=10, ignored=2, compileError=1, runtimeError=1 →
+-    // valid = 6；killed=4, timeout=2 → 6/6 = 100.0
+-    let block = build_mutation_block(mutation_counts(4, 0, 2, 0, 1, 1, 2, 10), 95.0);
+-    assert_eq!(block.score, 100.0, "排除面三键各扣（valid = 6）");
+-    assert!(block.pass);
+-}
+-
+-/// 异常：分母 0（全 ignored / compileError / runtimeError / 全 0）→ score =
+-/// 100.0（既有语义）；`threshold` = `NaN` → `pass = false`（`>=` 恒假）；
+-/// `threshold` = `Inf` → fail。
+-#[test]
+-#[allow(non_snake_case)]
+-fn build_mutation_block分母零与NaN与Inf阈值() {
+-    // 全 0（零段块边界）→ 100.0
+-    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 0, 0, 0, 0), 80.0);
+-    assert_eq!(block.score, 100.0, "分母 0 → 100.0（既有语义）");
+-    assert!(block.pass, "100.0 >= 80");
+-
+-    // 全 ignored（valid = 3-3 = 0）→ 100.0
+-    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 0, 0, 3, 3), 80.0);
+-    assert_eq!(block.score, 100.0, "全 ignored → 分母 0 → 100.0");
+-
+-    // 全 compileError + runtimeError → 100.0
+-    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 2, 1, 0, 3), 80.0);
+-    assert_eq!(block.score, 100.0);
+-
+-    // threshold NaN → pass = false（>= 恒假——f64 NaN 比较面）
+-    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), f64::NAN);
+-    assert_eq!(block.score, 100.0);
+-    assert!(!block.pass, "threshold = NaN → pass 恒假");
+-
+-    // threshold Inf → fail（100.0 < Inf）
+-    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), f64::INFINITY);
+-    assert!(!block.pass, "threshold = Inf → fail");
+-}
+-
+-/// 边界：`score == threshold` 等值 → `pass = true`（`>=` 边界）；`threshold`
+-/// = `0.0` / `-0.0` 恒 pass；`threshold` > 100 → 必 fail；计数极大（f64 转换
+-/// 精度稳定不 panic）。
++/// 正向（2 形态）：`has_execution_error` 优先级最高——`failed = 5` + 覆盖未达
++/// + error → error；`failed = 0` + 覆盖全 pass + error → error。
+ #[test]
+-fn build_mutation_block边界阈值与极大计数() {
+-    // 恰等边界（killed=1 + timeout=1 / total=4 → 50.0 >= 50.0 → pass）
+-    let block = build_mutation_block(mutation_counts(1, 0, 1, 0, 0, 0, 0, 4), 50.0);
+-    assert_eq!(block.score, 50.0);
+-    assert!(block.pass, "score == threshold → pass（>= 边界）");
+-
+-    // threshold 0.0 / -0.0 恒 pass（score ≥ 0 恒真——全 survived 面 0 分也 pass）
+-    for threshold in [0.0, -0.0] {
+-        let block = build_mutation_block(mutation_counts(0, 5, 0, 0, 0, 0, 0, 5), threshold);
+-        assert_eq!(block.score, 0.0, "全 survived → 0.0 分");
+-        assert!(block.pass, "threshold = {threshold} → 恒 pass");
+-    }
+-
+-    // threshold > 100 → 必 fail
+-    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), 100.001);
+-    assert!(!block.pass, "threshold > 100 → 必 fail");
+-
+-    // 极大计数（f64 转换精度稳定）：u64::MAX/4 量级不 panic、求和不溢出
+-    let big = u64::MAX / 4;
+-    let block = build_mutation_block(mutation_counts(big, 0, big, 0, 0, 0, 0, big * 2), 100.0);
+-    assert_eq!(block.score, 100.0, "2big/2big = 100.0（极大计数精度稳定）");
+-    assert!(block.pass, "恰等阈值 pass");
++fn 结论判定_execution_error优先级最高() {
++    let failing = sub_report(
++        "crates",
++        "rust",
++        counts(5, 0, 5, 0),
++        Vec::new(),
++        Some(block(
++            false,
++            measured(Some(10.0), Some(10.0), Some(10.0)),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++    );
++    assert_eq!(determine_conclusion(5, &[failing], true), Conclusion::Error);
+ 
+-    // 分子分母俱大但不等：killed=big, total=4big → big/4big = 25.0
+-    let block = build_mutation_block(mutation_counts(big, 0, 0, 0, 0, 0, 0, big * 4), 20.0);
+-    assert_eq!(block.score, 25.0, "big/4big = 25.0");
+-    assert!(block.pass, "25.0 >= 20");
++    assert_eq!(
++        determine_conclusion(0, &[passing_report("crates", "rust")], true),
++        Conclusion::Error
++    );
+ }
+ 
+-/// mutation 块 fixture（pass / score / threshold 显式——merge 用例构造面）。
+-fn mutation_block(score: f64, threshold: f64, counts: MutationMeasured) -> MutationBlock {
+-    MutationBlock {
+-        pass: score >= threshold,
+-        score,
+-        threshold,
+-        measured: counts,
+-        overrides: None,
+-    }
++/// 正向（AC-11）：突变块退出判定——覆盖全 pass + 无失败 + 子报告
++/// `mutation = Some(pass: false)` → pass（突变只走 MutationTest 载荷）。
++#[test]
++fn 结论判定_突变不参与汇总() {
++    let mut report = passing_report("crates", "rust");
++    report.mutation = Some(mutation_block(
++        55.0,
++        70.0,
++        mutation_counts(11, 7, 2, 3, 0, 0, 0, 27),
++    ));
++    assert_eq!(determine_conclusion(0, &[report], false), Conclusion::Pass);
+ }
+ 
+-/// 正向：多段计数求和归并（各字段和 = 段和）、阈值取首块（`aggregate_mutation`
+-/// 既有语义——MUST NOT 新增归并公式）。
++/// 异常（AC-3 / AC-5）：缺采集判 fail 不判 error——绿跑子报告（退出码 0 /
++/// 零失败）`coverage = None` + 另一 suite 达标 → fail。
+ #[test]
+-fn merge_mutation_blocks多段求和与阈值取首块() {
+-    let seg0 = mutation_block(100.0, 80.0, mutation_counts(4, 0, 1, 0, 0, 0, 1, 6));
+-    let seg1 = mutation_block(50.0, 70.0, mutation_counts(1, 2, 0, 0, 0, 0, 0, 4));
+-    let merged = merge_mutation_blocks(&[seg0.clone(), seg1.clone()]).expect("归并块应在场");
++fn 结论判定_缺采集判fail不判error() {
++    let missing = sub_report("crates", "rust", counts(3, 3, 0, 0), Vec::new(), None);
++    let conclusion =
++        determine_conclusion(0, &[missing, passing_report("src/app", "vite-plus")], false);
++    assert_eq!(conclusion, Conclusion::Fail, "缺采集非 pass 亦非 error");
++}
+ 
+-    // 各字段和 = 段和
+-    assert_eq!(merged.measured.killed, 5, "killed 求和");
+-    assert_eq!(merged.measured.survived, 2);
+-    assert_eq!(merged.measured.timeout, 1);
+-    assert_eq!(merged.measured.ignored, 1);
+-    assert_eq!(merged.measured.total, 10, "total 求和");
+-    // 归并块重算 score：(5+1)/(10-1) = 6/9 = 66.67
++/// 异常：两缺口并存（一块自判未达 + 一块缺席）→ 单一 fail（零重复判据）。
++#[test]
++fn 结论判定_两类缺口并存单一fail() {
++    let below = sub_report(
++        "crates",
++        "rust",
++        counts(1, 1, 0, 0),
++        Vec::new(),
++        Some(block(
++            false,
++            measured(Some(50.0), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++    );
++    let missing = sub_report("src/app", "vite-plus", counts(1, 1, 0, 0), Vec::new(), None);
+     assert_eq!(
+-        merged.score, 66.67,
+-        "归并块重算 score（计数求和后交 build 单点）"
++        determine_conclusion(0, &[below, missing], false),
++        Conclusion::Fail
+     );
+-    assert_eq!(merged.threshold, 80.0, "阈值取首块（既有语义）");
+-    assert!(!merged.pass, "66.67 < 80（首块阈值判定）");
+-    assert_eq!(merged.overrides, None);
+ }
+ 
+-/// 正向：单段（`[单元素]`）→ 归并块计数 / 阈值与原段等值。
++/// 边界：空集两极——`failed = 0` + 无 error → pass；同空集 + error → error。
+ #[test]
+-fn merge_mutation_blocks单段等值透传() {
+-    let seg = mutation_block(95.5, 80.0, mutation_counts(9, 0, 1, 0, 0, 0, 0, 10));
+-    let merged = merge_mutation_blocks(std::slice::from_ref(&seg)).expect("单段归并不为空");
+-    assert_eq!(merged.measured, seg.measured, "单段计数等值");
+-    assert_eq!(merged.threshold, seg.threshold, "阈值等值");
+-    assert_eq!(merged.score, 100.0, "(9+1)/10 = 100.0");
+-    assert!(merged.pass);
++fn 结论判定_空集两极() {
++    assert_eq!(determine_conclusion(0, &[], false), Conclusion::Pass);
++    assert_eq!(determine_conclusion(0, &[], true), Conclusion::Error);
+ }
+ 
+-/// 异常：空 slice `&[]` → `None`（不产块——段清单非空前置的调用方语义）。
++/// 边界（2 形态）：计数两极——`failed = 0` 不触发 fail 臂；`u64::MAX` → fail
++/// （零溢出、零饱和）。
+ #[test]
+-fn merge_mutation_blocks空slice返回none() {
++fn 结论判定_u64计数两极() {
++    let reports = [passing_report("crates", "rust")];
++    assert_eq!(determine_conclusion(0, &reports, false), Conclusion::Pass);
+     assert_eq!(
+-        merge_mutation_blocks(&[]),
+-        None,
+-        "空 slice 不产块（不产半截归并）"
++        determine_conclusion(u64::MAX, &reports, false),
++        Conclusion::Fail
+     );
+ }
+ 
+-/// 边界：超大列表（1000 段）归并不炸、顺序不影响计数和；段计数含 0 / `u64`
+-/// 大值混合。
++/// 边界（2 组合）：`block.pass` 是单一真值源——块自判 pass 而维度值低于阈值
++/// （手搓不自洽块）→ pass；块自判未达而三维全 null → fail（判据不重算维度）。
+ #[test]
+-fn merge_mutation_blocks超大列表与顺序无关与大值混合() {
+-    // 1000 段等值计数：每段 killed=1, total=2 → 归并 killed=1000, total=2000
+-    let segs: Vec<MutationBlock> = (0..1000)
+-        .map(|index| {
+-            mutation_block(
+-                if index % 2 == 0 { 100.0 } else { 0.0 },
+-                50.0,
+-                mutation_counts(1, 1, 0, 0, 0, 0, 0, 2),
+-            )
+-        })
+-        .collect();
+-    let merged = merge_mutation_blocks(&segs).expect("超大列表归并不炸");
+-    assert_eq!(merged.measured.killed, 1000);
+-    assert_eq!(merged.measured.total, 2000);
+-    // (1000+0)/2000 = 50.0
+-    assert_eq!(merged.score, 50.0);
+-    assert!(merged.pass, "50.0 >= 50.0（首块阈值恰等）");
++fn 结论判定_只读块布尔不重算维度() {
++    let self_contradicting = sub_report(
++        "crates",
++        "rust",
++        counts(1, 1, 0, 0),
++        Vec::new(),
++        Some(block(
++            true,
++            measured(Some(50.0), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++    );
++    assert_eq!(
++        determine_conclusion(0, &[self_contradicting], false),
++        Conclusion::Pass
++    );
+ 
+-    // 顺序无关：逆序归并计数和一致
+-    let reversed: Vec<MutationBlock> = segs.iter().rev().cloned().collect();
+-    let merged_rev = merge_mutation_blocks(&reversed).expect("逆序归并不炸");
++    let no_dimension = sub_report(
++        "crates",
++        "rust",
++        counts(1, 1, 0, 0),
++        Vec::new(),
++        Some(block(
++            false,
++            measured(None, None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++    );
+     assert_eq!(
+-        merged_rev.measured, merged.measured,
+-        "顺序不影响计数和（求和交换律）"
++        determine_conclusion(0, &[no_dimension], false),
++        Conclusion::Fail
+     );
++}
+ 
+-    // 0 / 大值混合段
+-    let mixed = [
+-        mutation_block(0.0, 10.0, mutation_counts(0, 0, 0, 0, 0, 0, 0, 0)),
+-        mutation_block(
+-            100.0,
+-            10.0,
+-            mutation_counts(u64::MAX / 8, 0, 0, 0, 0, 0, 0, u64::MAX / 8),
++/// 边界（AC-6，2 组合）：rust 形态 `branches = None` + 有值维度达阈——块自判
++/// pass → pass；同形块自判未达 → fail（null 维度不进判定）。
++#[test]
++fn 结论判定_维度null跳过两形态() {
++    let rust_measured = || measured(Some(95.94), None, Some(95.0));
++    let pass = sub_report(
++        "crates",
++        "rust",
++        counts(1, 1, 0, 0),
++        Vec::new(),
++        Some(block(true, rust_measured(), thresholds(80.0, 70.0, 90.0))),
++    );
++    assert_eq!(determine_conclusion(0, &[pass], false), Conclusion::Pass);
++
++    let fail = sub_report(
++        "crates",
++        "rust",
++        counts(1, 1, 0, 0),
++        Vec::new(),
++        Some(block(false, rust_measured(), thresholds(80.0, 70.0, 90.0))),
++    );
++    assert_eq!(determine_conclusion(0, &[fail], false), Conclusion::Fail);
++}
++
++// ---------------------------------------------------------------------------
++// coverage_meets_thresholds（逐 suite 判定单点：null 维度感知跳过）
++// ---------------------------------------------------------------------------
++
++/// 正向：三维有值且 ≥ 阈（含恰等于阈值）→ true；任一维低于阈值 → false。
++#[test]
++fn 逐维达标与缺口判定() {
++    let limits = thresholds(80.0, 70.0, 75.0);
++    assert!(
++        coverage_meets_thresholds(&measured(Some(80.0), Some(70.0), Some(75.0)), &limits),
++        "恰等于阈值即达标（≥ 边界）"
++    );
++    assert!(
++        coverage_meets_thresholds(&measured(Some(99.9), Some(99.9), Some(99.9)), &limits),
++        "全维超出阈值达标"
++    );
++    assert!(
++        !coverage_meets_thresholds(&measured(Some(79.999), Some(70.0), Some(75.0)), &limits),
++        "差值 0.001 即未达（非四舍五入口径）"
++    );
++}
++
++/// 异常（3 形态）：病态数值不误判通过——`NaN` 维度沿既有比较语义视为达标；
++/// 负覆盖 → false；阈值 0.0 + 实测 0.0 → true（零阈不误 fail）。
++#[test]
++fn 病态数值不误判通过() {
++    let limits = thresholds(80.0, 70.0, 75.0);
++    assert!(
++        coverage_meets_thresholds(&measured(Some(f64::NAN), None, None), &limits),
++        "NaN < threshold 为假 ⇒ 沿既有比较语义不判未达"
++    );
++    assert!(
++        !coverage_meets_thresholds(&measured(Some(-1.0), None, None), &limits),
++        "负覆盖必未达"
++    );
++    assert!(
++        coverage_meets_thresholds(
++            &measured(Some(0.0), Some(0.0), Some(0.0)),
++            &thresholds(0.0, 0.0, 0.0)
+         ),
+-    ];
+-    let merged = merge_mutation_blocks(&mixed).expect("混合段归并不炸");
+-    assert_eq!(merged.measured.total, u64::MAX / 8, "0 段不扰求和");
+-    assert_eq!(merged.score, 100.0);
++        "零阈 + 零实测达标"
++    );
+ }
+ 
+-/// 组合（链路方向：`aggregate_mutation` → `merge_mutation_blocks` /
+-/// `build_mutation_block`）：corpus 样本下新旧公式逐字等值（公式不变回归锚），
+-/// 无块样本仍 `None`（corpus 保真语义——`build_summary_report` 消费面）。
++/// 边界（AC-6 / D4）：维度 `None` 跳过——`branches = None` + lines / functions
++/// 达标 → true；三维全 `None` → true（零维度面不误判）。
+ #[test]
+-fn aggregate_mutation同式对拍_经summary组装面() {
+-    // 子报告携 mutation 块 → summary.mutation 归并（两段求和交单点公式）
+-    let sub0 = SubReport {
+-        framework: "rust".to_owned(),
+-        root: "crates/core".to_owned(),
+-        timestamp: "2026-10-06T08:00:00.000Z".to_owned(),
+-        exit_code: 0,
+-        duration_ms: 10.0,
+-        summary: counts(3, 3, 0, 0),
+-        error_cases: Vec::new(),
+-        test_files: Vec::new(),
+-        source_files: Vec::new(),
+-        coverage: None,
+-        mutation: Some(mutation_block(
+-            100.0,
+-            80.0,
+-            mutation_counts(4, 0, 1, 0, 0, 0, 1, 6),
+-        )),
+-        findings: None,
+-    };
+-    let mut sub1 = sub0.clone();
+-    sub1.framework = "vite-plus".to_owned();
+-    sub1.mutation = Some(mutation_block(
+-        50.0,
+-        70.0,
+-        mutation_counts(1, 2, 0, 0, 0, 0, 0, 4),
++fn 维度null跳过不误判() {
++    assert!(
++        coverage_meets_thresholds(
++            &measured(Some(95.94), None, Some(95.0)),
++            &thresholds(80.0, 70.0, 90.0)
++        ),
++        "rust 形态 branches 不支持 → 该维跳过"
++    );
++    assert!(
++        coverage_meets_thresholds(&measured(None, None, None), &thresholds(80.0, 70.0, 75.0)),
++        "零维度面不判未达"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// is_file_excluded（突变归桶过滤唯一入口；excludes 全桶消费口径）
++// ---------------------------------------------------------------------------
++
++/// 正向（2 形态）：排除 glob 相对 suite root 解释——树下命中排除模式的路径
++/// 剔除，同树未命中路径保留。
++#[test]
++fn 排除面_树下命中与未命中() {
++    let suites = vec![suite(
++        "src/app",
++        TestFramework::VitePlus,
++        Some(vec!["**/ui/**".to_owned()]),
++    )];
++    assert!(
++        is_file_excluded("src/app/ui/button.ts", &suites),
++        "树下命中排除模式 → 剔除"
++    );
++    assert!(
++        !is_file_excluded("src/app/main.ts", &suites),
++        "同树未命中 → 保留"
++    );
++}
++
++/// 异常（4 形态）：非排除臂皆不剔除且零 panic——`excludes = None` /
++/// `excludes = Some(vec![])` / 路径不在任何 suite root 下 / `suites = []`。
++#[test]
++fn 非排除臂不剔除() {
++    let none_excludes = vec![suite("src/app", TestFramework::VitePlus, None)];
++    assert!(!is_file_excluded("src/app/ui/button.ts", &none_excludes));
++
++    let empty_excludes = vec![suite("src/app", TestFramework::VitePlus, Some(Vec::new()))];
++    assert!(!is_file_excluded("src/app/ui/button.ts", &empty_excludes));
++
++    let excludes = Some(vec!["**/ui/**".to_owned()]);
++    assert!(!is_file_excluded(
++        "other/x.ts",
++        &[suite("src/app", TestFramework::VitePlus, excludes.clone())]
+     ));
++    assert!(!is_file_excluded("src/app/ui/button.ts", &[]));
++}
+ 
+-    let summary = build_summary_report(&[sub0, sub1], &[], "cmd", OffsetDateTime::UNIX_EPOCH);
+-    let merged = summary.mutation.expect("归并块应在场");
+-    assert_eq!(merged.measured.killed, 5, "归并计数求和");
+-    assert_eq!(merged.measured.total, 10);
+-    assert_eq!(merged.score, 66.67, "新旧公式逐字等值（回归锚）");
+-    assert_eq!(merged.threshold, 80.0, "阈值取首块");
+-
+-    // 无块样本 → None（corpus 保真——mutation null 观察期）
+-    let no_block = sub0_clone_with_none();
+-    let summary = build_summary_report(&[no_block], &[], "cmd", OffsetDateTime::UNIX_EPOCH);
+-    assert_eq!(summary.mutation, None, "无块样本仍 None（corpus 保真语义）");
+-
+-    /// mutation 缺省子报告（null 观察期样本）。
+-    fn sub0_clone_with_none() -> SubReport {
+-        SubReport {
+-            framework: "rust".to_owned(),
+-            root: ".".to_owned(),
+-            timestamp: "2026-10-06T08:00:00.000Z".to_owned(),
+-            exit_code: 0,
+-            duration_ms: 1.0,
+-            summary: counts(1, 1, 0, 0),
+-            error_cases: Vec::new(),
+-            test_files: Vec::new(),
+-            source_files: Vec::new(),
+-            coverage: None,
+-            mutation: None,
+-            findings: None,
+-        }
+-    }
++/// 边界（5 形态）：路径形态边界——反斜杠归一命中；尾随 `/` 仍命中
++/// `ui/**`；绝对 POSIX 路径以 `/<root>/` 段标记容忍项目前缀；`root = "."`
++/// 的树根自身不剔除；花括号交替方言命中 `.ts`。
++#[test]
++fn 路径形态边界() {
++    let excludes = Some(vec!["**/ui/**".to_owned()]);
++    assert!(
++        is_file_excluded(
++            "src\\app\\ui\\x.ts",
++            &[suite("src/app", TestFramework::VitePlus, excludes.clone())]
++        ),
++        "反斜杠路径归一后命中"
++    );
++
++    let dir_excludes = Some(vec!["ui/**".to_owned()]);
++    assert!(
++        is_file_excluded(
++            "src/app/ui/",
++            &[suite("src/app", TestFramework::VitePlus, dir_excludes)]
++        ),
++        "尾随分隔符路径仍命中目录排除面"
++    );
++
++    assert!(
++        is_file_excluded(
++            "/repo/src/app/ui/x.ts",
++            &[suite("src/app", TestFramework::VitePlus, excludes.clone())]
++        ),
++        "绝对 POSIX 路径按 /<root>/ 段标记定位树内相对位置"
++    );
++
++    assert!(
++        !is_file_excluded(
++            ".",
++            &[suite(".", TestFramework::VitePlus, excludes.clone())]
++        ),
++        "树根自身（rel_to_root == \".\"）不进剔除面"
++    );
++
++    assert!(
++        is_file_excluded(
++            "src/app/ui/x.ts",
++            &[suite(
++                "src/app",
++                TestFramework::VitePlus,
++                Some(vec!["**/*.{ts,tsx}".to_owned()])
++            )]
++        ),
++        "花括号交替方言逐变体命中"
++    );
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 覆盖率采集完整性（AC-7 / D11–D14：`misses_coverage` 单点判据）
++// build_summary_report 的覆盖归因面（逐 suite `CoverageFailure`；缺采集判
++// fail 不判 error）与 summary 瘦身面
+ // ---------------------------------------------------------------------------
+ 
+ /// 失败用例 fixture（`TestFailure` 归因原料）。
+@@ -1056,146 +839,228 @@ fn covered_report(root: &str, framework: &str) -> SubReport {
+         vec![entry("src/lib.rs", 1000, 962, None, None, None, None)],
+         Some(block(
+             true,
+-            measured(Some(96.21), None, None),
++            measured(Some(96.21), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++        Vec::new(),
++        None,
++    )
++}
++
++/// 覆盖归因条目（`problems` 中该类问题的框架 / 消息对）。
++fn coverage_problems(summary: &crate::model::SummaryReport) -> Vec<(&str, &str)> {
++    summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == crate::model::ProblemType::CoverageFailure)
++        .map(|problem| (problem.framework.as_str(), problem.message.as_str()))
++        .collect()
++}
++
++fn count_of(summary: &crate::model::SummaryReport, kind: crate::model::ProblemType) -> usize {
++    summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == kind)
++        .count()
++}
++
++/// 正向：全测齐全零变——两 suite 达标 + 全绿 → 四计数求和、`problems` 空、
++/// `conclusion = pass`、`plans` 两条（`id == derive_plan_id(root, framework)`、
++/// `path == "reports/test/<id>"`）、`phase` / `command` 透传、`duration_seconds`
++/// 整秒。
++#[test]
++fn 全测齐全汇总逐字段() {
++    let started = OffsetDateTime::now_utc() - time::Duration::seconds(3);
++    let summary = build_summary_report(
++        &[
++            covered_report("src/app", "vite-plus"),
++            covered_report("crates", "rust"),
++        ],
++        "desktop change run: test-execution gate",
++        started,
++    );
++
++    assert_eq!(
++        (
++            summary.total,
++            summary.passed,
++            summary.failed,
++            summary.skipped
++        ),
++        (2, 2, 0, 0),
++        "四计数求和"
++    );
++    assert!(summary.problems.is_empty(), "全绿零归因");
++    assert_eq!(summary.conclusion, Conclusion::Pass);
++    assert_eq!(summary.phase, "test-execution");
++    assert_eq!(summary.command, "desktop change run: test-execution gate");
++    assert_eq!(summary.duration_seconds, 3.0, "墙钟差整秒");
++
++    assert_eq!(summary.plans.len(), 2);
++    for (plan, (root, framework)) in summary
++        .plans
++        .iter()
++        .zip([("src/app", "vite-plus"), ("crates", "rust")])
++    {
++        assert_eq!(plan.id, derive_plan_id(root, framework), "id 沿单点派生");
++        assert_eq!(
++            plan.path,
++            format!("reports/test/{}", plan.id),
++            "path 前缀恒定"
++        );
++        assert_eq!(plan.framework, framework);
++        assert_eq!(plan.root, root);
++    }
++}
++
++/// 正向（AC-2）：summary 瘦身面——序列化后顶层键集恰为 11 个必在键（`findings`
++/// 为 `None` 时整键不出现），`coverage` / `mutation` 两键缺席。
++#[test]
++fn 汇总序列化面无覆盖与突变块() {
++    let summary = build_summary_report(
++        &[covered_report("src/app", "vite-plus")],
++        "cmd",
++        OffsetDateTime::now_utc(),
++    );
++    let value = serde_json::to_value(&summary).expect("汇总应可序列化");
++    let object = value.as_object().expect("顶层为对象");
++
++    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
++    keys.sort_unstable();
++    assert_eq!(
++        keys,
++        vec![
++            "command",
++            "conclusion",
++            "duration_seconds",
++            "failed",
++            "passed",
++            "phase",
++            "plans",
++            "problems",
++            "skipped",
++            "timestamp",
++            "total",
++        ],
++        "summary 面 11 键（findings 为 None 时整键不出现）"
++    );
++    assert!(!object.contains_key("coverage"), "MUST NOT 产 coverage 块");
++    assert!(!object.contains_key("mutation"), "MUST NOT 产 mutation 块");
++}
++
++/// 正向（AC-4）：逐 suite 覆盖归因——vite 达标 + rust `functions 87.60` 未达
++/// 阈 90 → `problems` 恰一条 `coverage_failure`、`framework == "rust"`、消息为
++/// `format_coverage_failure` 原文、`conclusion = fail`。
++#[test]
++fn 逐suite覆盖缺口归因() {
++    let vite = sub_report(
++        "src/app",
++        "vite-plus",
++        counts(3, 3, 0, 0),
++        Vec::new(),
++        Some(block(
++            true,
++            measured(Some(95.40), Some(94.06), Some(91.60)),
+             thresholds(80.0, 70.0, 75.0),
+         )),
++    );
++    let rust = sub_report(
++        "crates",
++        "rust",
++        counts(2, 2, 0, 0),
+         Vec::new(),
+-        None,
+-    )
++        Some(block(
++            false,
++            measured(Some(95.94), None, Some(87.60)),
++            thresholds(80.0, 70.0, 90.0),
++        )),
++    );
++    let summary = build_summary_report(&[vite, rust], "cmd", OffsetDateTime::now_utc());
++
++    assert_eq!(
++        coverage_problems(&summary),
++        vec![("rust", "Coverage below threshold: functions 87.6% < 90%")],
++        "达标 suite 零归因，缺口 suite 恰一条（消息原文零改写）"
++    );
++    assert_eq!(summary.conclusion, Conclusion::Fail);
+ }
+ 
+-/// 正向（AC-7 组合锚）：缺测归因——rust suite `exit_code = 1` + 一条失败用例 +
+-/// `coverage = None`、vite-plus 96.21% 达标 → `conclusion == Error`、
+-/// `coverage == None`（**不为** `Some(pass: true)`）、`problems` 含恰 1 条
+-/// `ExecutionError`（`framework == "rust"`、消息含「覆盖率采集缺失」与退出码 1）。
++/// 异常（AC-5）：缺采集归因——单 suite 绿跑（退出码 0 / 零失败）
++/// `coverage = None` → `problems` 恰一条 `coverage_failure`（框架为该 suite、
++/// 消息携「覆盖率采集缺失」「退出码」与动作指引）、零 `execution_error`、
++/// `conclusion = fail`。
+ #[test]
+-fn 缺测归因_结论升格为不可测() {
+-    let suites = vec![
+-        suite(
+-            "crates",
+-            TestFramework::Rust,
+-            config_thresholds(80.0, 70.0, 75.0),
+-            Some(vec!["**/*.rs".to_owned()]),
+-            None,
+-        ),
+-        suite(
+-            "src/app",
+-            TestFramework::VitePlus,
+-            config_thresholds(80.0, 70.0, 75.0),
+-            Some(vec!["**/*.ts".to_owned()]),
+-            None,
+-        ),
+-    ];
+-    let rust = report_with(
++fn 缺采集归因判fail不判error() {
++    let missing = report_with(
+         "crates",
+         "rust",
+-        1,
+-        counts(1, 0, 1, 0),
++        0,
++        counts(3, 3, 0, 0),
+         Vec::new(),
+         None,
+-        vec![failed_case("parser > parse", "assertion failed")],
++        Vec::new(),
+         None,
+     );
+-    let vite = covered_report("src/app", "vite-plus");
+-
+-    let summary = build_summary_report(
+-        &[rust, vite],
+-        &suites,
+-        "desktop change run: test-execution gate",
+-        OffsetDateTime::now_utc(),
+-    );
++    let summary = build_summary_report(&[missing], "cmd", OffsetDateTime::now_utc());
+ 
+-    assert_eq!(
+-        summary.conclusion,
+-        Conclusion::Error,
+-        "缺测套件把整份结论定为不可测"
+-    );
++    let coverage = coverage_problems(&summary);
++    assert_eq!(coverage.len(), 1, "恰一条覆盖归因: {coverage:?}");
++    assert_eq!(coverage[0].0, "rust", "框架为该 suite");
+     assert!(
+-        summary.coverage.is_none(),
+-        "采集不完整 → 覆盖块收敛 None（不得为 pass: true）: {:?}",
+-        summary.coverage
+-    );
+-
+-    let execution_errors = summary
+-        .problems
+-        .iter()
+-        .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
+-        .collect::<Vec<_>>();
+-    assert_eq!(
+-        execution_errors.len(),
+-        1,
+-        "缺测恰归因一条: {execution_errors:?}"
++        coverage[0].1.contains("覆盖率采集缺失"),
++        "消息点名采集缺失: {}",
++        coverage[0].1
+     );
+-    assert_eq!(execution_errors[0].framework, "rust", "归因挂缺测套件框架");
+     assert!(
+-        execution_errors[0].message.contains("覆盖率采集缺失"),
+-        "消息点名覆盖率缺失: {}",
+-        execution_errors[0].message
++        coverage[0].1.contains("退出码 0"),
++        "消息携退出码: {}",
++        coverage[0].1
+     );
+     assert!(
+-        execution_errors[0].message.contains("退出码 1"),
+-        "消息携退出码: {}",
+-        execution_errors[0].message
++        coverage[0].1.contains("采集旗标与覆盖率工件路径"),
++        "消息携动作指引: {}",
++        coverage[0].1
+     );
+-    // 失败用例归因仍在（problems 顺序按 suite 迭代序：test_failure 先、缺测后）
+     assert_eq!(
+-        summary.problems[0].problem_type,
+-        crate::model::ProblemType::TestFailure,
+-        "失败用例归因排在缺测归因之前（同一 suite 内既有条目零改写）"
++        count_of(&summary, crate::model::ProblemType::ExecutionError),
++        0,
++        "缺采集不产 execution_error"
+     );
+-}
++    assert_eq!(summary.conclusion, Conclusion::Fail, "缺采集判 fail");
+ 
+-/// 正向（表驱动 2 形态）：`aggregate_coverage` 采集完整性收敛——混合两报告
+-/// （一缺测、一有覆盖率且达标）→ `None`（既有实现会报 `Some(pass: true)`，本
+-/// 用例即击杀点）；两报告均有覆盖率 → `Some` 且加权 / 阈值逐值同改造前。
+-#[test]
+-fn 覆盖聚合_采集完整性收敛() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
+-    let missing = report_with(
++    // 哨兵退出码（-1）+ 失败用例：覆盖归因逐值携该退出码，且不追加
++    // execution_error（失败臂先占，两臂互不改写）
++    let sentinel = report_with(
+         "crates",
+         "rust",
+-        1,
++        -1,
+         counts(1, 0, 1, 0),
+         Vec::new(),
+         None,
+-        vec![failed_case("it > x", "boom")],
++        vec![failed_case("a", "b")],
+         None,
+     );
+-    let covered = covered_report("src/app", "vite-plus");
+-
++    let summary = build_summary_report(&[sentinel], "cmd", OffsetDateTime::now_utc());
++    let coverage = coverage_problems(&summary);
++    assert_eq!(coverage.len(), 1, "哨兵面仍恰一条覆盖归因");
+     assert!(
+-        aggregate_coverage(&[missing.clone(), covered.clone()], &suites).is_none(),
+-        "任一 suite 缺测 → 整体收敛 None（不报假通过）"
++        coverage[0].1.contains("退出码 -1"),
++        "哨兵退出码逐值可读: {}",
++        coverage[0].1
+     );
+-
+-    let both = aggregate_coverage(&[covered.clone(), covered], &suites).expect("两者皆有覆盖率");
+     assert_eq!(
+-        both.measured,
+-        measured(Some(96.2), None, None),
+-        "加权逐值同改造前（962/1000 两位舍入）"
++        count_of(&summary, crate::model::ProblemType::ExecutionError),
++        0,
++        "失败用例面不产 execution_error"
+     );
+-    assert_eq!(both.thresholds, thresholds(80.0, 70.0, 75.0));
+-    assert!(both.pass, "96.21% ≥ 80% 达标");
+ }
+ 
+-/// 异常（AC-7）：去重不追加第二条——suite `exit_code = 1` + `failed == 0` +
+-/// `coverage == None`（既有 `execution_error` 臂命中）→ 该 suite `execution_error`
+-/// **恰 1 条**、消息仍为既有形态（`Exit code 1`，零改写）。
++/// 异常（R-10）：两类归因并存互不顶替——同 suite `exit_code = 1` + 零失败 +
++/// `coverage = None` → 恰两条（`execution_error` 文案 `Exit code 1` 零改写 +
++/// `coverage_failure`）、`conclusion = error`（error 优先定型）。
+ #[test]
+-fn 去重不追加第二条缺测归因() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
++fn 两类归因并存互不顶替() {
+     let report = report_with(
+         "crates",
+         "rust",
+@@ -1206,39 +1071,33 @@ fn 去重不追加第二条缺测归因() {
+         Vec::new(),
+         None,
+     );
++    let summary = build_summary_report(&[report], "cmd", OffsetDateTime::now_utc());
+ 
+-    let summary = build_summary_report(&[report], &suites, "cmd", OffsetDateTime::now_utc());
+-
+-    let execution_errors = summary
+-        .problems
+-        .iter()
+-        .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
+-        .collect::<Vec<_>>();
+     assert_eq!(
+-        execution_errors.len(),
+-        1,
+-        "每 suite 至多一条 execution_error"
++        summary.problems.len(),
++        2,
++        "两类各一条: {:?}",
++        summary.problems
+     );
+-    assert_eq!(execution_errors[0].message, "Exit code 1", "既有形态零改写");
+-    assert!(
+-        !execution_errors[0].message.contains("覆盖率采集缺失"),
+-        "已命中既有臂即不再追加缺测第二条"
++    assert_eq!(
++        count_of(&summary, crate::model::ProblemType::ExecutionError),
++        1
+     );
++    let execution = summary
++        .problems
++        .iter()
++        .find(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++        .expect("execution_error 在场");
++    assert_eq!(execution.message, "Exit code 1", "既有文案零改写");
++    assert_eq!(coverage_problems(&summary).len(), 1);
++    assert_eq!(summary.conclusion, Conclusion::Error, "error 优先定型");
+ }
+ 
+-/// 异常（D14 形态）：失败用例 + 缺测双归因——suite `exit_code = 0` +
+-/// `failed = 2` + `coverage == None` → `problems` 含 2 条 `TestFailure` + 1 条
+-/// `ExecutionError`（覆盖率缺失）、`conclusion == Error`（由 `Fail` 升格留痕）、
+-/// `coverage == None`。
++/// 异常：失败用例 + 缺采集——`exit_code = 0` + `failed = 2` + `coverage = None`
++/// → 2 条 `test_failure` + 1 条 `coverage_failure`、`conclusion = fail`（MUST NOT
++/// 升格 error）、`problems[0]` 仍为 `test_failure`（同 suite 内条目序不变）。
+ #[test]
+-fn 失败用例与缺测双归因() {
+-    let suites = vec![suite(
+-        "src/app",
+-        TestFramework::VitePlus,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.ts".to_owned()]),
+-        None,
+-    )];
++fn 失败用例与缺采集合并归因() {
+     let report = report_with(
+         "src/app",
+         "vite-plus",
+@@ -1252,41 +1111,33 @@ fn 失败用例与缺测双归因() {
+         ],
+         None,
+     );
++    let summary = build_summary_report(&[report], "cmd", OffsetDateTime::now_utc());
+ 
+-    let summary = build_summary_report(&[report], &suites, "cmd", OffsetDateTime::now_utc());
+-
+-    let failures = summary
+-        .problems
+-        .iter()
+-        .filter(|problem| problem.problem_type == crate::model::ProblemType::TestFailure)
+-        .count();
+-    let execution_errors = summary
+-        .problems
+-        .iter()
+-        .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
+-        .count();
+-    assert_eq!(failures, 2, "两条失败用例逐条归因");
+-    assert_eq!(execution_errors, 1, "缺测另计一条");
++    assert_eq!(
++        count_of(&summary, crate::model::ProblemType::TestFailure),
++        2
++    );
++    assert_eq!(coverage_problems(&summary).len(), 1);
++    assert_eq!(
++        count_of(&summary, crate::model::ProblemType::ExecutionError),
++        0
++    );
+     assert_eq!(
+         summary.conclusion,
+-        Conclusion::Error,
+-        "缺测把 Fail 升格为 Error"
++        Conclusion::Fail,
++        "失败 + 缺采集合判 fail"
++    );
++    assert_eq!(
++        summary.problems[0].problem_type,
++        crate::model::ProblemType::TestFailure,
++        "同 suite 内条目序不变"
+     );
+-    assert!(summary.coverage.is_none(), "覆盖块收敛 None");
+ }
+ 
+-/// 异常：全体缺覆盖率且全绿——全部子报告 `exit 0` / `failed 0` /
+-/// `coverage == None`（均非 pass 判否）→ 无新增 problem、`coverage == None`
+-/// （既有口径）、`conclusion == Pass`（口径不变）。
++/// 异常：全体缺采集——全绿但两 suite 皆 `coverage = None` → 逐 suite 各一条
++/// `coverage_failure`、`conclusion = fail`（绿计数不掩盖采集缺口）。
+ #[test]
+-fn 全体缺覆盖率且全绿不产新增归因() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
++fn 全体缺采集不因全绿而通过() {
+     let rust = report_with(
+         "crates",
+         "rust",
+@@ -1307,305 +1158,258 @@ fn 全体缺覆盖率且全绿不产新增归因() {
+         Vec::new(),
+         None,
+     );
++    let summary = build_summary_report(&[rust, vite], "cmd", OffsetDateTime::now_utc());
+ 
+-    let summary = build_summary_report(&[rust, vite], &suites, "cmd", OffsetDateTime::now_utc());
+-
+-    assert!(
+-        summary.problems.is_empty(),
+-        "全绿无归因: {:?}",
+-        summary.problems
+-    );
+-    assert!(
+-        summary.coverage.is_none(),
+-        "无覆盖率数据 → None（既有口径）"
+-    );
+-    assert_eq!(summary.conclusion, Conclusion::Pass, "全绿结论不变");
++    assert_eq!(coverage_problems(&summary).len(), 2, "逐 suite 各一条");
++    assert_eq!(summary.conclusion, Conclusion::Fail);
+ }
+ 
+-/// 边界（表驱动 2 形态）：单子报告与有覆盖率未达阈——单子报告
+-/// `coverage == None` → `aggregate_coverage` 恒 `None`（既有短路，不属「缺测」
+-/// 新增面）；单子报告 `coverage == Some(pass: false)` → 不判缺测（有覆盖率）、
+-/// `coverage` 保留 `Some(pass: false)`、既有 `CoverageFailure` problem 零变。
++/// 边界（2 形态）：每 suite 至多一条覆盖归因——块自判未达且三维全缺口 →
++/// 恰一条（多维缺口合成一条 message）；块自判未达且三维全 null → 仍一条
++/// （消息仅前缀，零维度片段——判据只读 `block.pass`）。
+ #[test]
+-fn 单子报告与有覆盖率未达阈() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
+-    let bare = report_with(
++fn 每suite至多一条覆盖归因() {
++    let all_dimensions = sub_report(
+         "crates",
+         "rust",
+-        0,
+         counts(1, 1, 0, 0),
+         Vec::new(),
+-        None,
+-        Vec::new(),
+-        None,
++        Some(block(
++            false,
++            measured(Some(10.0), Some(20.0), Some(30.0)),
++            thresholds(80.0, 70.0, 75.0),
++        )),
+     );
+-    assert!(
+-        aggregate_coverage(std::slice::from_ref(&bare), &suites).is_none(),
+-        "单子报告无覆盖块 → None（既有短路）"
++    let summary = build_summary_report(&[all_dimensions], "cmd", OffsetDateTime::now_utc());
++    assert_eq!(
++        count_of(&summary, crate::model::ProblemType::ExecutionError),
++        0,
++        "有覆盖率块即不判缺测（不追加 execution_error）"
++    );
++    let coverage = coverage_problems(&summary);
++    assert_eq!(coverage.len(), 1, "多维缺口合成一条");
++    assert_eq!(
++        coverage[0].1,
++        "Coverage below threshold: lines 10.0% < 80%, branches 20.0% < 70%, functions 30.0% < 75%"
+     );
+ 
+-    let below = report_with(
++    let no_dimension = sub_report(
+         "crates",
+         "rust",
+-        0,
+         counts(1, 1, 0, 0),
+-        vec![entry(
+-            "crates/foo/src/lib.rs",
+-            10,
+-            5,
+-            None,
+-            None,
+-            None,
+-            None,
+-        )],
++        Vec::new(),
+         Some(block(
+             false,
+-            measured(Some(50.0), None, None),
++            measured(None, None, None),
+             thresholds(80.0, 70.0, 75.0),
+         )),
+-        Vec::new(),
+-        None,
+     );
+-    let summary = build_summary_report(&[below], &suites, "cmd", OffsetDateTime::now_utc());
+-    let coverage = summary.coverage.as_ref().expect("有覆盖率 → 保留覆盖块");
+-    assert!(!coverage.pass, "未达阈保持 pass: false");
+-    assert_eq!(coverage.measured, measured(Some(50.0), None, None));
++    let summary = build_summary_report(&[no_dimension], "cmd", OffsetDateTime::now_utc());
++    let coverage = coverage_problems(&summary);
++    assert_eq!(coverage.len(), 1, "零维度面仍一条");
+     assert!(
+-        summary
+-            .problems
+-            .iter()
+-            .any(|problem| problem.problem_type == crate::model::ProblemType::CoverageFailure),
+-        "既有 CoverageFailure 归因零变: {:?}",
+-        summary.problems
++        coverage[0].1.starts_with("Coverage below threshold:"),
++        "前缀固定: {}",
++        coverage[0].1
+     );
+     assert!(
+-        !summary
+-            .problems
+-            .iter()
+-            .any(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError),
+-        "有覆盖率不判缺测（不追加 execution_error）"
++        !coverage[0].1.contains("lines") && !coverage[0].1.contains("branches"),
++        "零维度片段: {}",
++        coverage[0].1
+     );
+-    assert_eq!(summary.conclusion, Conclusion::Fail, "覆盖未达 → Fail");
+ }
+ 
+-/// 边界：超大列表——50 条 sub_reports 中恰 1 条缺测 → `coverage == None`、
+-/// 新增 `execution_error` 恰 1 条、其余 49 条问题面零改。
++/// 边界：超大列表——50 条子报告中恰 1 条 `coverage = None` → 恰 1 条
++/// `coverage_failure`、其余零归因、`conclusion = fail`。
+ #[test]
+ fn 超大列表恰一条缺测() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
+     let mut reports: Vec<SubReport> = (0..49)
+         .map(|index| covered_report(&format!("suite{index}"), "rust"))
+         .collect();
+     reports.push(report_with(
+         "missing",
+         "vite-plus",
+-        1,
+-        counts(1, 0, 1, 0),
++        0,
++        counts(1, 1, 0, 0),
+         Vec::new(),
+         None,
+-        vec![failed_case("x > y", "boom")],
++        Vec::new(),
+         None,
+     ));
+ 
+-    let summary = build_summary_report(&reports, &suites, "cmd", OffsetDateTime::now_utc());
++    let summary = build_summary_report(&reports, "cmd", OffsetDateTime::now_utc());
+ 
+-    assert!(summary.coverage.is_none(), "任一缺测即收敛 None");
++    let coverage = coverage_problems(&summary);
++    assert_eq!(coverage.len(), 1, "50 条中恰 1 条覆盖归因");
++    assert_eq!(coverage[0].0, "vite-plus", "归因挂缺采集 suite");
+     assert_eq!(
+         summary
+             .problems
+             .iter()
+-            .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++            .filter(|problem| problem.problem_type != crate::model::ProblemType::CoverageFailure)
+             .count(),
+-        1,
+-        "50 条中恰 1 条缺测 → 恰 1 条 execution_error"
+-    );
+-    assert_eq!(
+-        summary.total,
+-        49 + 1,
+-        "计数合并不因缺测面变化（各报告 total 逐值相加）"
++        0,
++        "其余 49 条零归因"
+     );
+-    assert_eq!(summary.conclusion, Conclusion::Error, "缺测使结论不可测");
++    assert_eq!(summary.total, 50, "计数合并不因覆盖缺口变化");
++    assert_eq!(summary.conclusion, Conclusion::Fail);
+ }
+ 
+-/// 边界（表驱动 3 形态）：判据边界值——`exit_code = -1`（哨兵）配
+-/// `failed > 0` 与 `coverage == None` → 计入缺测（非零）；`failed = u64::MAX`
+-/// 配 `coverage == None` → 计入且计数不溢出；`exit_code = 255` 配
+-/// `coverage == Some(pass: true)` → 不计入（有覆盖率）。
++/// 边界（3 形态）：`plans[]` 派生边界——`root = "."` → id 退化为框架名；
++/// 同 root 不同 framework → 两不同 id；`root` 含 `\` / `/` → 归一为 `_`
++/// （两种分隔符同 id）。
+ #[test]
+-fn 判据边界值() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
+-
+-    let sentinel = report_with(
+-        "crates",
+-        "rust",
+-        -1,
+-        counts(1, 0, 1, 0),
+-        Vec::new(),
+-        None,
+-        vec![failed_case("a", "b")],
+-        None,
++fn plans索引派生边界() {
++    let rootless = build_summary_report(
++        &[covered_report(".", "rust")],
++        "cmd",
++        OffsetDateTime::now_utc(),
+     );
+-    let summary = build_summary_report(&[sentinel], &suites, "cmd", OffsetDateTime::now_utc());
+-    let message = summary
+-        .problems
+-        .iter()
+-        .find(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
+-        .map(|problem| problem.message.clone())
+-        .expect("哨兵退出码计入缺测");
+-    assert!(message.contains("退出码 -1"), "哨兵逐值可读: {message}");
++    assert_eq!(rootless.plans[0].id, "rust", "root 为 . 时 id == framework");
++    assert_eq!(rootless.plans[0].path, "reports/test/rust");
+ 
+-    let saturated = report_with(
+-        "crates",
+-        "rust",
+-        1,
+-        counts(u64::MAX, 0, u64::MAX, 0),
+-        Vec::new(),
+-        None,
+-        Vec::new(),
+-        None,
++    let two_frameworks = build_summary_report(
++        &[
++            covered_report("crates", "rust"),
++            covered_report("crates", "go"),
++        ],
++        "cmd",
++        OffsetDateTime::now_utc(),
+     );
+-    let summary = build_summary_report(&[saturated], &suites, "cmd", OffsetDateTime::now_utc());
+-    assert_eq!(summary.failed, u64::MAX, "极大失败计数原样合并（不溢出）");
+-    assert_eq!(
+-        summary
+-            .problems
+-            .iter()
+-            .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
+-            .count(),
+-        1,
+-        "极大计数仍计入缺测"
++    assert_ne!(
++        two_frameworks.plans[0].id, two_frameworks.plans[1].id,
++        "同 root 不同框架 id 不撞"
+     );
+ 
+-    let covered = report_with(
+-        "crates",
+-        "rust",
+-        255,
+-        counts(1, 1, 0, 0),
+-        vec![entry(
+-            "crates/foo/src/lib.rs",
+-            10,
+-            9,
+-            None,
+-            None,
+-            None,
+-            None,
+-        )],
+-        Some(block(
+-            true,
+-            measured(Some(90.0), None, None),
+-            thresholds(80.0, 70.0, 75.0),
+-        )),
+-        Vec::new(),
+-        None,
++    let backslash = build_summary_report(
++        &[covered_report("src\\app", "rust")],
++        "cmd",
++        OffsetDateTime::now_utc(),
+     );
+-    let summary = build_summary_report(&[covered], &suites, "cmd", OffsetDateTime::now_utc());
+-    assert!(
+-        summary
+-            .problems
+-            .iter()
+-            .all(|problem| !problem.message.contains("覆盖率采集缺失")),
+-        "有覆盖率即不判缺测（既有 Exit code 臂照旧，缺测判据未参与）: {:?}",
+-        summary.problems
++    let slash = build_summary_report(
++        &[covered_report("src/app", "rust")],
++        "cmd",
++        OffsetDateTime::now_utc(),
+     );
+     assert_eq!(
+-        summary.conclusion,
+-        Conclusion::Error,
+-        "结论由既有 Exit code 臂定（缺测判据零贡献）"
++        backslash.plans[0].id, slash.plans[0].id,
++        "反斜杠与斜杠归一同形"
+     );
++    assert!(
++        !backslash.plans[0].id.contains(['\\', '/']),
++        "id 不含路径分隔符: {}",
++        backslash.plans[0].id
++    );
++}
++
++/// 边界（2 形态）：`duration_seconds` 不产负值——`started_at` 为未来时刻 →
++/// `0.0`；`started_at` 恰为现在 → `0.0`。
++#[test]
++fn duration秒差边界() {
++    let future = OffsetDateTime::now_utc() + time::Duration::seconds(5);
++    let summary = build_summary_report(&[], "cmd", future);
++    assert_eq!(summary.duration_seconds, 0.0, "未来时刻截 0（max(0.0)）");
++
++    let summary = build_summary_report(&[], "cmd", OffsetDateTime::now_utc());
++    assert_eq!(summary.duration_seconds, 0.0, "零差值整秒 0");
++}
++
++/// 边界（3 形态）：`framework` 串边界——空串 / 超长（1200 字符）/ 含换行 ·
++/// NUL · emoji → 覆盖归因的 `framework` 逐字透传（零 trim、零截断）。
++#[test]
++fn framework串边界逐字透传() {
++    let long = "f".repeat(1200);
++    let special = "框架\n\0🚀";
++    for framework in ["", long.as_str(), special] {
++        let report = report_with(
++            "crates",
++            framework,
++            0,
++            counts(1, 1, 0, 0),
++            Vec::new(),
++            None,
++            Vec::new(),
++            None,
++        );
++        let summary = build_summary_report(&[report], "cmd", OffsetDateTime::now_utc());
++        let coverage = coverage_problems(&summary);
++        assert_eq!(coverage.len(), 1);
++        assert_eq!(coverage[0].0, framework, "framework 逐字透传（零 trim）");
++    }
+ }
+ 
+-/// 边界：空集与序列化面——零子报告 → 空汇总不 panic（既有）；缺测归因面
+-/// summary 可序列化且 `coverage: null`、`problems[].type == "execution_error"`
++/// 边界：缺测面汇总可序列化——`coverage = None` 的归因面 summary 序列化后
++/// `conclusion: fail`、`type: coverage_failure`，且 `coverage` 键整键缺席
+ /// （落盘面消费形态）。
+ #[test]
+ fn 缺测面汇总可序列化() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
+     let report = report_with(
+         "crates",
+         "rust",
+         0,
+-        counts(1, 0, 1, 0),
++        counts(1, 1, 0, 0),
+         Vec::new(),
+         None,
+-        vec![failed_case("a", "b")],
++        Vec::new(),
+         None,
+     );
+-
+-    let summary = build_summary_report(&[report], &suites, "cmd", OffsetDateTime::now_utc());
++    let summary = build_summary_report(&[report], "cmd", OffsetDateTime::now_utc());
+     let json = serde_json::to_string(&summary).expect("缺测面汇总应可序列化");
+ 
+     assert!(
+-        json.contains("\"conclusion\":\"error\""),
++        json.contains("\"conclusion\":\"fail\""),
+         "结论线格式: {json}"
+     );
+     assert!(
+-        json.contains("\"coverage\":null"),
+-        "覆盖块线格式为 null: {json}"
++        json.contains("\"type\":\"coverage_failure\""),
++        "覆盖归因线格式: {json}"
++    );
++    assert!(
++        !json.contains("\"coverage\""),
++        "summary 面零 coverage 键: {json}"
+     );
+     assert!(
+-        json.contains("\"type\":\"execution_error\""),
+-        "缺测归因线格式: {json}"
++        !json.contains("\"mutation\""),
++        "summary 面零 mutation 键: {json}"
+     );
+ }
+ 
+-/// 边界：组合链路 aggregate → reuse（入口 = 本模块）——缺测归因产出的 summary 经
+-/// `checks::is_reusable` → `false`（`conclusion == Error` 的既有判定，零代码
+-/// 改动）：半可信报告不被复用；全测齐全的 summary → `true`（既有口径）。
++/// 边界：组合链路 aggregate → reuse（入口 = 本模块）——缺采集 fail 汇总按既有
++/// fail 同待遇经 `checks::is_reusable` → `true`（`is_reusable` 只拒 error）；
++/// error 结论仍 → `false`。
+ #[test]
+-fn 缺测汇总不进复用门() {
+-    let suites = vec![suite(
+-        "crates",
+-        TestFramework::Rust,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
++fn 缺采集fail汇总仍可复用() {
+     let missing = report_with(
+         "crates",
+         "rust",
+         0,
+-        counts(1, 0, 1, 0),
++        counts(1, 1, 0, 0),
+         Vec::new(),
+         None,
+-        vec![failed_case("a", "b")],
++        Vec::new(),
+         None,
+     );
+-    let summary = build_summary_report(&[missing], &suites, "cmd", OffsetDateTime::now_utc());
+-    assert_eq!(summary.conclusion, Conclusion::Error);
++    let summary = build_summary_report(&[missing], "cmd", OffsetDateTime::now_utc());
++    assert_eq!(summary.conclusion, Conclusion::Fail);
+     assert!(
+-        !crate::is_reusable(&summary, None),
+-        "Error 结论不可复用（既有判定，零代码改动）"
++        crate::is_reusable(&summary, None),
++        "覆盖缺失的 fail 报告按既有 fail 同待遇（复用门三条件守恒）"
+     );
+ 
+-    let green = covered_report("crates", "rust");
+-    let summary = build_summary_report(&[green], &suites, "cmd", OffsetDateTime::now_utc());
+-    assert_eq!(summary.conclusion, Conclusion::Pass);
++    let error_report = report_with(
++        "crates",
++        "rust",
++        1,
++        counts(1, 1, 0, 0),
++        Vec::new(),
++        None,
++        Vec::new(),
++        None,
++    );
++    let summary = build_summary_report(&[error_report], "cmd", OffsetDateTime::now_utc());
++    assert_eq!(summary.conclusion, Conclusion::Error);
+     assert!(
+-        crate::is_reusable(&summary, None),
+-        "全测齐全 → 可复用（既有口径）"
++        !crate::is_reusable(&summary, None),
++        "error 结论不可复用（既有判定零改动）"
+     );
+ }
+diff --git a/crates/core/checks/src/diagnose.rs b/crates/core/checks/src/diagnose.rs
+index abc83d3e36ef..cc93811e7051 100644
+--- a/crates/core/checks/src/diagnose.rs
++++ b/crates/core/checks/src/diagnose.rs
+@@ -1,5 +1,5 @@
+ use crate::aggregate::{derive_plan_id, determine_conclusion};
+-use crate::model::{Conclusion, CoverageMeasured, ProblemType, SubReport, SummaryReport};
++use crate::model::{Conclusion, ProblemType, SubReport, SummaryReport};
+ 
+ /// 失败问题归并的单框架上限（措辞面收敛，明细在子报告 error_cases）。
+ const CLUSTER_FRAMEWORK_LIMIT: usize = 10;
+@@ -8,8 +8,9 @@ const CLUSTER_FRAMEWORK_LIMIT: usize = 10;
+ ///
+ /// ① 聚合计数对账——summary 四计数与子报告计数之和解恒等；
+ /// ② plan 报告齐全性——`plans[]` 条目与子报告按 planId 双向一一对应；
+-/// ③ conclusion 一致性——聚合结论与计数 / 覆盖 / 突变 / execution_error
+-///    问题面重算结果恒等（"全绿计数却 fail" 等漂移即违例）。
++/// ③ conclusion 一致性——聚合结论与「计数 + 逐 suite 覆盖判定布尔 +
++///    execution_error 问题面」重算结果恒等（判据与门禁同一个
++///    [`determine_conclusion`]，MUST NOT 就地另写一套）。
+ pub fn check_integrity(summary: &SummaryReport, sub_reports: &[SubReport]) -> Vec<String> {
+     let mut findings = Vec::new();
+ 
+@@ -59,20 +60,16 @@ pub fn check_integrity(summary: &SummaryReport, sub_reports: &[SubReport]) -> Ve
+         }
+     }
+ 
+-    // ③ conclusion 一致性（重算比对）
++    // ③ conclusion 一致性（以子报告布尔重算比对）
+     let has_execution_error = summary
+         .problems
+         .iter()
+         .any(|problem| problem.problem_type == ProblemType::ExecutionError);
+-    let expected_conclusion = determine_conclusion(
+-        summary.failed,
+-        summary.coverage.as_ref(),
+-        summary.mutation.as_ref(),
+-        has_execution_error,
+-    );
++    let expected_conclusion =
++        determine_conclusion(summary.failed, sub_reports, has_execution_error);
+     if expected_conclusion != summary.conclusion {
+         findings.push(format!(
+-            "conclusion 一致性失败: 计数 / 覆盖 / 突变面重算结论为 \"{}\", 报告记载 \"{}\"",
++            "conclusion 一致性失败: 计数 / 逐 suite 覆盖判定面重算结论为 \"{}\", 报告记载 \"{}\"",
+             expected_conclusion.as_str(),
+             summary.conclusion.as_str()
+         ));
+@@ -80,8 +77,8 @@ pub fn check_integrity(summary: &SummaryReport, sub_reports: &[SubReport]) -> Ve
+     findings
+ }
+ 
+-/// 诊断树确定性分支：按 CLI executor 定义 4a → 4b → 4c → 4d/4e → 4f 顺序
+-/// 产出 findings（全绿零误报——4e 产单条正向 finding）。
++/// 诊断树确定性分支：按 CLI executor 定义 4a → 4b → 4c → 4e 顺序产出 findings
++/// （全绿零误报——4e 产单条正向 finding）。
+ pub fn diagnose_findings(summary: &SummaryReport) -> Vec<String> {
+     let mut findings = Vec::new();
+ 
+@@ -142,78 +139,22 @@ pub fn diagnose_findings(summary: &SummaryReport) -> Vec<String> {
+         }
+     }
+ 
+-    // 4c: 覆盖阈值比对（null 维度感知跳过 + override 组缺口）
+-    if let Some(coverage) = &summary.coverage {
+-        if !coverage.pass {
+-            findings.extend(threshold_findings(&coverage.measured, &coverage.thresholds));
+-            for override_entry in coverage.overrides.iter().flatten() {
+-                if !override_entry.pass {
+-                    findings.push(format!(
+-                        "覆盖 override \"{}\" 未达阈: {}（命中 {} 文件, 逐文件达阈 {}）",
+-                        override_entry.glob,
+-                        threshold_brief(&override_entry.measured, &override_entry.thresholds),
+-                        override_entry.file_count,
+-                        override_entry.passed_count
+-                    ));
+-                }
+-            }
+-        }
++    // 4c: 覆盖判定未通过（逐 suite 归因条目已在 problems 内）
++    for problem in summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == ProblemType::CoverageFailure)
++        .take(CLUSTER_FRAMEWORK_LIMIT)
++    {
++        findings.push(format!(
++            "覆盖判定未通过 [{}]: {}",
++            problem.framework, problem.message
++        ));
+     }
+ 
+-    // 4d / 4e: pass 态覆盖面
++    // 4e: pass 态正向锚（缺席即 fail ⇒ pass 必为覆盖全达标）
+     if summary.conclusion == Conclusion::Pass {
+-        match &summary.coverage {
+-            None => findings
+-                .push("全部框架未产出覆盖数据（未配置采集或命令未及覆盖阶段即结束）".to_owned()),
+-            Some(coverage) if coverage.pass => {
+-                findings.push("全部测试通过且覆盖率达阈值".to_owned());
+-            }
+-            _ => {}
+-        }
+-    }
+-
+-    // 4f: 突变缺口（V1 生产恒 None，corpus 含块样本触达）
+-    if let Some(mutation) = &summary.mutation {
+-        if !mutation.pass {
+-            findings.push(format!(
+-                "突变得分 {:.1}% < 阈值 {}%（survived {} / noCoverage {}）",
+-                mutation.score,
+-                mutation.threshold,
+-                mutation.measured.survived,
+-                mutation.measured.no_coverage
+-            ));
+-        }
+-    }
+-    findings
+-}
+-
+-/// 阈值比对 findings（逐维度，null 维度跳过）。
+-fn threshold_findings(
+-    measured: &CoverageMeasured,
+-    thresholds: &crate::model::CoverageThresholds,
+-) -> Vec<String> {
+-    let mut findings = Vec::new();
+-    for (name, value, threshold) in [
+-        ("行覆盖", measured.lines, thresholds.lines),
+-        ("分支覆盖", measured.branches, thresholds.branches),
+-        ("函数覆盖", measured.functions, thresholds.functions),
+-    ] {
+-        if let Some(value) = value.filter(|value| *value < threshold) {
+-            findings.push(format!("{name} {value:.1}% < 阈值 {threshold}%"));
+-        }
++        findings.push("全部测试通过且覆盖率达阈值".to_owned());
+     }
+     findings
+ }
+-
+-/// 阈值缺口人读摘要（override 行内嵌）。
+-fn threshold_brief(
+-    measured: &CoverageMeasured,
+-    thresholds: &crate::model::CoverageThresholds,
+-) -> String {
+-    let parts = threshold_findings(measured, thresholds);
+-    if parts.is_empty() {
+-        "逐文件达阈数不足".to_owned()
+-    } else {
+-        parts.join(", ")
+-    }
+-}
+diff --git a/crates/core/checks/src/diagnose_test.rs b/crates/core/checks/src/diagnose_test.rs
+index 08fb21ba6353..02cd1a1969c5 100644
+--- a/crates/core/checks/src/diagnose_test.rs
++++ b/crates/core/checks/src/diagnose_test.rs
+@@ -1,7 +1,5 @@
+ use time::OffsetDateTime;
+ 
+-use config::{MutationConfig, TestFramework};
+-
+ use crate::aggregate::build_summary_report;
+ use crate::diagnose::{check_integrity, diagnose_findings};
+ use crate::model::{
+@@ -13,30 +11,6 @@ use crate::model::{
+ // 装置：一致 summary 组装（真实聚合产出 → 完整性基准）
+ // ---------------------------------------------------------------------------
+ 
+-fn config_thresholds(lines: f64, branches: f64, functions: f64) -> config::CoverageThresholds {
+-    config::CoverageThresholds {
+-        lines,
+-        branches,
+-        functions,
+-    }
+-}
+-
+-fn suite(root: &str) -> config::TestSuite {
+-    config::TestSuite {
+-        root: root.to_owned(),
+-        framework: TestFramework::VitePlus,
+-        cwd: ".".to_owned(),
+-        config: None,
+-        includes: None,
+-        excludes: None,
+-        coverage: config_thresholds(80.0, 70.0, 75.0),
+-        mutation: MutationConfig {
+-            cwd: None,
+-            score: 70.0,
+-        },
+-    }
+-}
+-
+ fn file_entry(file: &str, total: u64, covered: u64) -> SourceFileEntry {
+     SourceFileEntry {
+         file: file.to_owned(),
+@@ -87,8 +61,7 @@ fn green_sub_report(root: &str, framework: &str, counts: CaseSummary) -> SubRepo
+ 
+ /// 一致 summary：由 build_summary_report 真实组装（聚合 → 完整性自洽基准）。
+ fn consistent_summary(sub_reports: &[SubReport]) -> SummaryReport {
+-    let suites = vec![suite("src/app")];
+-    build_summary_report(sub_reports, &suites, "cmd", OffsetDateTime::now_utc())
++    build_summary_report(sub_reports, "cmd", OffsetDateTime::now_utc())
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -233,12 +206,7 @@ fn 零子报告零plans空summary不panic且结论明确() {
+ // ---------------------------------------------------------------------------
+ 
+ /// 汇总内存构造（跳过聚合组装——诊断树分支的定向输入面）。
+-fn hand_summary(
+-    conclusion: Conclusion,
+-    failed: u64,
+-    problems: Vec<Problem>,
+-    coverage: Option<CoverageBlock>,
+-) -> SummaryReport {
++fn hand_summary(conclusion: Conclusion, failed: u64, problems: Vec<Problem>) -> SummaryReport {
+     SummaryReport {
+         phase: "test-execution".to_owned(),
+         command: "cmd".to_owned(),
+@@ -250,71 +218,11 @@ fn hand_summary(
+         skipped: 0,
+         conclusion,
+         problems,
+-        coverage,
+-        mutation: None,
+         plans: Vec::new(),
+         findings: None,
+     }
+ }
+ 
+-#[test]
+-fn 覆盖未达阈_阈值比对findings携维度与数值() {
+-    let coverage = CoverageBlock {
+-        pass: false,
+-        measured: CoverageMeasured {
+-            lines: Some(62.4),
+-            branches: Some(50.0),
+-            functions: None,
+-        },
+-        thresholds: CoverageThresholds {
+-            lines: 80.0,
+-            branches: 70.0,
+-            functions: 75.0,
+-        },
+-        overrides: Some(vec![crate::model::CoverageOverride {
+-            glob: "src/app".to_owned(),
+-            thresholds: CoverageThresholds {
+-                lines: 85.0,
+-                branches: 75.0,
+-                functions: 90.0,
+-            },
+-            measured: CoverageMeasured {
+-                lines: Some(62.4),
+-                branches: Some(50.0),
+-                functions: None,
+-            },
+-            pass: false,
+-            file_count: 3,
+-            passed_count: 0,
+-        }]),
+-    };
+-    let summary = hand_summary(Conclusion::Fail, 0, Vec::new(), Some(coverage));
+-
+-    let findings = diagnose_findings(&summary);
+-    assert!(
+-        findings
+-            .iter()
+-            .any(|finding| finding.contains("行覆盖 62.4% < 阈值 80%")),
+-        "阈值比对措辞携维度与数值（CLI 定义同型），实际: {findings:?}"
+-    );
+-    assert!(
+-        findings
+-            .iter()
+-            .any(|finding| finding.contains("分支覆盖 50.0% < 阈值 70%")),
+-        "分支维度同型比对，实际: {findings:?}"
+-    );
+-    assert!(
+-        !findings.iter().any(|finding| finding.contains("函数覆盖")),
+-        "null 维度感知跳过（functions None 不产比对行）"
+-    );
+-    assert!(
+-        findings
+-            .iter()
+-            .any(|finding| finding.contains("覆盖 override") && finding.contains("src/app")),
+-        "override 组缺口随行（CLI 定义 4c 同型），实际: {findings:?}"
+-    );
+-}
+-
+ #[test]
+ fn execution_error问题在场_归因findings() {
+     let summary = hand_summary(
+@@ -325,7 +233,6 @@ fn execution_error问题在场_归因findings() {
+             problem_type: ProblemType::ExecutionError,
+             message: "Exit code 1".to_owned(),
+         }],
+-        None,
+     );
+ 
+     let findings = diagnose_findings(&summary);
+@@ -340,7 +247,7 @@ fn execution_error问题在场_归因findings() {
+ #[test]
+ fn execution_error结论但problems未列_漂移记因() {
+     // 结论 error 但 problems 无 execution_error 条目 → 漂移显式记因
+-    let summary = hand_summary(Conclusion::Error, 0, Vec::new(), None);
++    let summary = hand_summary(Conclusion::Error, 0, Vec::new());
+     let findings = diagnose_findings(&summary);
+     assert!(
+         findings
+@@ -362,7 +269,6 @@ fn 多文件失败用例_失败聚类措辞() {
+         Conclusion::Fail,
+         3,
+         vec![failure("a"), failure("b"), failure("c")],
+-        None,
+     );
+     let findings = diagnose_findings(&multi);
+     assert!(
+@@ -372,7 +278,7 @@ fn 多文件失败用例_失败聚类措辞() {
+     );
+ 
+     // 单点失败 → flaky 疑似措辞
+-    let single = hand_summary(Conclusion::Fail, 1, vec![failure("a")], None);
++    let single = hand_summary(Conclusion::Fail, 1, vec![failure("a")]);
+     let findings = diagnose_findings(&single);
+     assert!(
+         findings.iter().any(|finding| finding
+@@ -382,61 +288,362 @@ fn 多文件失败用例_失败聚类措辞() {
+ }
+ 
+ #[test]
+-fn coverage维度null_null感知跳过不产覆盖findings() {
+-    // coverage 块 pass=false 但实测全 None（采集失败形态）→ 无阈值比对行
+-    let coverage = CoverageBlock {
+-        pass: false,
+-        measured: CoverageMeasured {
+-            lines: None,
+-            branches: None,
+-            functions: None,
++fn 全绿summary零误报_findings仅单条正向() {
++    // 全绿 + 覆盖达标：CLI 定义 4e 产单条正向 finding——零失败 / 阈值 / 归因
++    // 类误报（负向 findings 为空集）
++    let summary = hand_summary(Conclusion::Pass, 0, Vec::new());
++
++    let findings = diagnose_findings(&summary);
++    assert_eq!(
++        findings,
++        vec!["全部测试通过且覆盖率达阈值".to_owned()],
++        "全绿零误报：仅 CLI 定义 4e 的单条正向 finding"
++    );
++    assert!(
++        !findings.iter().any(|finding| finding.contains("失败")
++            || finding.contains("错误")
++            || finding.contains("未达")),
++        "负向 finding 零误报"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// check_integrity ③（以子报告布尔 + problems 的 execution_error 重算，复用
++// `determine_conclusion`；覆盖判定单一真值源 = 子报告 `coverage.pass`）
++// ---------------------------------------------------------------------------
++
++/// 正向：缺采集 fail 报告自洽（AC-5 / AC-8）——绿跑子报告 `coverage = None`
++/// → summary `conclusion = fail` + 一条 `coverage_failure` → ③ 重算同为 fail、
++/// 零违例（新判据不放宽既有结论）。
++#[test]
++fn 缺采集fail报告自洽零违例() {
++    let mut sub = green_sub_report(
++        "crates",
++        "rust",
++        CaseSummary {
++            total: 3,
++            passed: 3,
++            failed: 0,
++            skipped: 0,
++        },
++    );
++    sub.coverage = None;
++    let summary = consistent_summary(std::slice::from_ref(&sub));
++
++    assert_eq!(summary.conclusion, Conclusion::Fail);
++    assert_eq!(summary.problems.len(), 1, "恰一条覆盖归因");
++    let findings = check_integrity(&summary, &[sub]);
++    assert!(
++        findings.is_empty(),
++        "重算与记载一致 → 零违例，实际: {findings:?}"
++    );
++}
++
++/// 正向（AC-11）：突变块不入重算——子报告 `mutation = Some(pass: false)` +
++/// 覆盖全 pass + `failed = 0` + summary `conclusion = pass` → 零违例。
++#[test]
++fn 突变块不入重算() {
++    let mut sub = green_sub_report(
++        "crates",
++        "rust",
++        CaseSummary {
++            total: 2,
++            passed: 2,
++            failed: 0,
++            skipped: 0,
+         },
+-        thresholds: CoverageThresholds {
+-            lines: 80.0,
+-            branches: 70.0,
+-            functions: 75.0,
++    );
++    sub.mutation = Some(crate::model::MutationBlock {
++        pass: false,
++        score: 55.0,
++        threshold: 70.0,
++        measured: crate::model::MutationMeasured {
++            killed: 11,
++            survived: 7,
++            timeout: 2,
++            no_coverage: 3,
++            compile_error: 1,
++            runtime_error: 1,
++            ignored: 2,
++            total: 27,
++            detected: 13,
++            undetected: 10,
+         },
+         overrides: None,
+-    };
+-    let summary = hand_summary(Conclusion::Fail, 0, Vec::new(), Some(coverage));
++    });
++    let summary = consistent_summary(std::slice::from_ref(&sub));
++    assert_eq!(summary.conclusion, Conclusion::Pass, "突变不参与汇总结论");
+ 
+-    let findings = diagnose_findings(&summary);
++    let findings = check_integrity(&summary, &[sub]);
+     assert!(
+         findings.is_empty(),
+-        "null 维度全跳过且无失败无 error → 零覆盖 findings（不产假缺口），实际: {findings:?}"
++        "突变块零贡献于重算，实际: {findings:?}"
+     );
+ }
+ 
++/// 异常（AC-8 核心行）：篡改子报告 `coverage.pass`——子报告块自判未达而
++/// summary 记 pass → 恰一条违例，文案含「conclusion 一致性失败」且两侧
++/// `"fail"` / `"pass"` 俱陈。
+ #[test]
+-fn 全绿summary零误报_findings仅单条正向() {
+-    // 全绿 + 覆盖达标：CLI 定义 4e 产单条正向 finding——零失败 / 阈值 / 归因
+-    // 类误报（负向 findings 为空集）
+-    let coverage = CoverageBlock {
+-        pass: true,
+-        measured: CoverageMeasured {
+-            lines: Some(90.0),
+-            branches: Some(80.0),
+-            functions: Some(85.0),
++fn 篡改子报告覆盖布尔记因() {
++    let sub = green_sub_report(
++        "src/app",
++        "vite-plus",
++        CaseSummary {
++            total: 2,
++            passed: 2,
++            failed: 0,
++            skipped: 0,
++        },
++    );
++    let summary = consistent_summary(std::slice::from_ref(&sub));
++    assert_eq!(summary.conclusion, Conclusion::Pass);
++
++    let mut tampered = sub;
++    let block = tampered.coverage.as_mut().expect("覆盖块在场");
++    block.pass = false;
++
++    let findings = check_integrity(&summary, &[tampered]);
++    let violations: Vec<&String> = findings
++        .iter()
++        .filter(|finding| finding.contains("conclusion 一致性失败"))
++        .collect();
++    assert_eq!(violations.len(), 1, "恰一条结论违例，实际: {findings:?}");
++    assert!(
++        violations[0].contains("\"fail\"") && violations[0].contains("\"pass\""),
++        "重算结论与记载结论俱陈: {}",
++        violations[0]
++    );
++}
++
++/// 异常：缺采集子报告对记载 pass——子报告 `coverage = None`（绿跑）而 summary
++/// 记 `conclusion = pass` → 违例（重算 fail）。
++#[test]
++fn 缺采集子报告对记载pass记因() {
++    let mut sub = green_sub_report(
++        "crates",
++        "rust",
++        CaseSummary {
++            total: 1,
++            passed: 1,
++            failed: 0,
++            skipped: 0,
+         },
+-        thresholds: CoverageThresholds {
+-            lines: 80.0,
+-            branches: 70.0,
+-            functions: 75.0,
++    );
++    sub.coverage = None;
++    let mut summary = consistent_summary(std::slice::from_ref(&sub));
++    assert_eq!(summary.conclusion, Conclusion::Fail);
++    summary.conclusion = Conclusion::Pass;
++
++    let findings = check_integrity(&summary, &[sub]);
++    assert!(
++        findings
++            .iter()
++            .any(|finding| finding.contains("conclusion 一致性失败")),
++        "缺采集面重算 fail 与记载 pass 冲突，实际: {findings:?}"
++    );
++}
++
++/// 异常（2 组合）：`execution_error` 优先级在重算面成立——`problems` 含
++/// `execution_error` + 覆盖全 pass + `failed = 0` → 重算 error；summary 记
++/// error → 零违例；记 fail → 违例。
++#[test]
++fn execution_error优先级在重算面成立() {
++    let mut sub = green_sub_report(
++        "src/app",
++        "vite-plus",
++        CaseSummary {
++            total: 1,
++            passed: 1,
++            failed: 0,
++            skipped: 0,
+         },
+-        overrides: None,
+-    };
+-    let summary = hand_summary(Conclusion::Pass, 0, Vec::new(), Some(coverage));
++    );
++    sub.findings = Some(vec!["工件不可解析降级留痕".to_owned()]);
++    let summary = consistent_summary(std::slice::from_ref(&sub));
++    assert_eq!(summary.conclusion, Conclusion::Error, "error 重算定型");
++    assert!(
++        summary
++            .problems
++            .iter()
++            .any(|problem| problem.problem_type == ProblemType::ExecutionError),
++        "problems 携 execution_error: {:?}",
++        summary.problems
++    );
++    let findings = check_integrity(&summary, &[sub.clone()]);
++    assert!(findings.is_empty(), "记载一致 → 零违例: {findings:?}");
+ 
++    let mut drifted = summary;
++    drifted.conclusion = Conclusion::Fail;
++    let findings = check_integrity(&drifted, &[sub]);
++    assert!(
++        findings
++            .iter()
++            .any(|finding| finding.contains("conclusion 一致性失败")),
++        "优先级降格即违例，实际: {findings:?}"
++    );
++}
++
++/// 边界：超大列表——50 条子报告 + 1 条 `coverage = None` + summary
++/// `conclusion = fail` → 零违例（重算对 50 条遍历不误报）。
++#[test]
++fn 超大列表一条缺采集仍自洽() {
++    let mut sub_reports: Vec<SubReport> = (0..49)
++        .map(|index| {
++            green_sub_report(
++                &format!("suite{index}"),
++                "rust",
++                CaseSummary {
++                    total: 1,
++                    passed: 1,
++                    failed: 0,
++                    skipped: 0,
++                },
++            )
++        })
++        .collect();
++    let mut missing = green_sub_report(
++        "missing",
++        "vite-plus",
++        CaseSummary {
++            total: 1,
++            passed: 1,
++            failed: 0,
++            skipped: 0,
++        },
++    );
++    missing.coverage = None;
++    sub_reports.push(missing);
++
++    let summary = consistent_summary(&sub_reports);
++    assert_eq!(summary.conclusion, Conclusion::Fail);
++    let findings = check_integrity(&summary, &sub_reports);
++    assert!(findings.is_empty(), "50 条遍历零违例: {findings:?}");
++}
++
++// ---------------------------------------------------------------------------
++// diagnose_findings 4c（逐 suite 覆盖归因条目展开）与并存面
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-4 / D5）：4c 逐 suite 展开——`problems` 的 `coverage_failure` 条目
++/// 逐字展开为 `覆盖判定未通过 [framework]: message`。
++#[test]
++fn 覆盖归因逐suite展开() {
++    let summary = hand_summary(
++        Conclusion::Fail,
++        0,
++        vec![Problem {
++            framework: "rust".to_owned(),
++            problem_type: ProblemType::CoverageFailure,
++            message: "Coverage below threshold: functions 87.6% < 90%".to_owned(),
++        }],
++    );
+     let findings = diagnose_findings(&summary);
+-    assert_eq!(
+-        findings,
+-        vec!["全部测试通过且覆盖率达阈值".to_owned()],
+-        "全绿零误报：仅 CLI 定义 4e 的单条正向 finding"
++    assert!(
++        findings.contains(
++            &"覆盖判定未通过 [rust]: Coverage below threshold: functions 87.6% < 90%".to_owned()
++        ),
++        "逐 suite 覆盖归因展开，实际: {findings:?}"
++    );
++}
++
++/// 异常：4c 零假缺口——`conclusion = fail` + `problems` 无 `coverage_failure`
++/// 条目 → 零 4c 行（不再由 summary 覆盖块取值重算数值）。
++#[test]
++fn 覆盖面无假缺口() {
++    let summary = hand_summary(
++        Conclusion::Fail,
++        1,
++        vec![Problem {
++            framework: "vitest".to_owned(),
++            problem_type: ProblemType::TestFailure,
++            message: "Test \"a\" failed: boom".to_owned(),
++        }],
+     );
++    let findings = diagnose_findings(&summary);
+     assert!(
+-        !findings.iter().any(|finding| finding.contains("失败")
+-            || finding.contains("错误")
+-            || finding.contains("未达")),
+-        "负向 finding 零误报"
++        !findings
++            .iter()
++            .any(|finding| finding.starts_with("覆盖判定未通过")),
++        "无覆盖归因条目即零 4c 行，实际: {findings:?}"
++    );
++}
++
++/// 异常：4c 条数上限——12 条 `coverage_failure`（跨多 framework）→ 4c 行恰
++/// 10 条（`CLUSTER_FRAMEWORK_LIMIT`）。
++#[test]
++fn 覆盖归因条数上限() {
++    let problems: Vec<Problem> = (0..12)
++        .map(|index| Problem {
++            framework: format!("fw{index}"),
++            problem_type: ProblemType::CoverageFailure,
++            message: format!("Coverage below threshold: lines {index}.0% < 80%"),
++        })
++        .collect();
++    let summary = hand_summary(Conclusion::Fail, 0, problems);
++
++    let findings = diagnose_findings(&summary);
++    let coverage_lines = findings
++        .iter()
++        .filter(|finding| finding.starts_with("覆盖判定未通过"))
++        .count();
++    assert_eq!(coverage_lines, 10, "4c 条数上限 10，实际: {findings:?}");
++}
++
++/// 边界（R-10）：并存互不顶替——`problems = [execution_error,
++/// coverage_failure]` + `conclusion = error` → 4a 归因行与 4c 行同现，且 4a
++/// 的「另有 N 项测试 / 覆盖问题随报告留档」计数含该覆盖条目。
++#[test]
++fn 执行错误与覆盖归因并存() {
++    let summary = hand_summary(
++        Conclusion::Error,
++        0,
++        vec![
++            Problem {
++                framework: "vite-plus".to_owned(),
++                problem_type: ProblemType::ExecutionError,
++                message: "Exit code 1".to_owned(),
++            },
++            Problem {
++                framework: "rust".to_owned(),
++                problem_type: ProblemType::CoverageFailure,
++                message: "覆盖率采集缺失（退出码 0）：工件缺失 / 解析失败".to_owned(),
++            },
++        ],
++    );
++    let findings = diagnose_findings(&summary);
++
++    assert!(
++        findings
++            .iter()
++            .any(|finding| finding.contains("执行错误归因 [vite-plus]: Exit code 1")),
++        "4a 归因行在场，实际: {findings:?}"
+     );
++    assert!(
++        findings
++            .iter()
++            .any(|finding| finding == "error 结论优先: 另有 1 项测试 / 覆盖问题随报告留档"),
++        "并存计数含覆盖条目，实际: {findings:?}"
++    );
++    assert!(
++        findings
++            .iter()
++            .any(|finding| finding.starts_with("覆盖判定未通过 [rust]:")),
++        "4c 行与 4a 同现，实际: {findings:?}"
++    );
++}
++
++/// 边界（2 组合）：空输入——`problems = []` / `failed = 0` / `conclusion =
++/// pass` → 仅 4e 单条；同空输入 `conclusion = fail` → 零 findings（无块可读时
++/// 的既有空集语义）。
++#[test]
++fn 空输入两形态() {
++    let pass = hand_summary(Conclusion::Pass, 0, Vec::new());
++    assert_eq!(
++        diagnose_findings(&pass),
++        vec!["全部测试通过且覆盖率达阈值".to_owned()]
++    );
++
++    let fail = hand_summary(Conclusion::Fail, 0, Vec::new());
++    assert!(diagnose_findings(&fail).is_empty(), "无归因条目可读 → 空集");
+ }
+diff --git a/crates/core/checks/src/lib.rs b/crates/core/checks/src/lib.rs
+index 378ec91427aa..e2f02c904f4e 100644
+--- a/crates/core/checks/src/lib.rs
++++ b/crates/core/checks/src/lib.rs
+@@ -6,9 +6,8 @@ pub mod parser;
+ pub mod reuse;
+ 
+ pub use aggregate::{
+-    aggregate_coverage, aggregate_measured, build_mutation_block, build_summary_report,
+-    coverage_meets_thresholds, derive_plan_id, determine_conclusion, in_suite_scope,
+-    merge_mutation_blocks,
++    build_mutation_block, build_summary_report, coverage_meets_thresholds, derive_plan_id,
++    determine_conclusion, merge_mutation_blocks,
+ };
+ pub use diagnose::{check_integrity, diagnose_findings};
+ pub use model::{
+diff --git a/crates/core/checks/src/model.rs b/crates/core/checks/src/model.rs
+index 4b3bc7d27158..1ea515457048 100644
+--- a/crates/core/checks/src/model.rs
++++ b/crates/core/checks/src/model.rs
+@@ -89,7 +89,8 @@ pub struct TestCaseResult {
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub struct Problem {
+-    /// 问题发生的框架（覆盖 / 突变全局问题为 "all"）
++    /// 问题发生的框架（覆盖问题为该 suite 的框架——`CoverageFailure` 恒为具体
++    /// 框架，不再有 "all" 全局归因）
+     pub framework: String,
+     /// 问题类别
+     #[serde(rename = "type")]
+@@ -126,7 +127,8 @@ pub struct CoverageThresholds {
+     pub functions: f64,
+ }
+ 
+-/// per-suite 覆盖率 override 组结果（CLI `coverageOverrideSchema` 对齐）。
++/// per-suite 覆盖率 override 组结果（CLI `coverageOverrideSchema` 对齐；仅解析
++/// 保真面——汇总层 MUST NOT 再生产 override 组）。
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub struct CoverageOverride {
+@@ -192,8 +194,8 @@ pub struct MutationOverride {
+     pub passed_count: u64,
+ }
+ 
+-/// 突变测试结论块（由 MutationTest 步归并回填 summary 的 mutation 位；
+-/// corpus 样本保真解析不丢块）。
++/// 突变测试结论块（子报告解析保真 + 载荷展示口径——`MutationTestOutcome` 的
++/// score / threshold / counts 由归并块计算；MUST NOT 落 `summary.json`）。
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub struct MutationBlock {
+@@ -273,7 +275,7 @@ pub struct FileCoverageEntry {
+     pub covered_functions: Option<u64>,
+ }
+ 
+-/// 逐文件覆盖原始计数条目（override 聚合的原始计数源）。
++/// 逐文件覆盖原始计数条目（子报告覆盖保真面；汇总层不再消费）。
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub struct SourceFileEntry {
+@@ -350,7 +352,9 @@ pub struct PlanIndexEntry {
+ }
+ 
+ /// 汇总报告（`summary.json`；CLI `testExecutionSummaryReportSchema` 逐字段
+-/// 对齐）。
++/// 对齐）。汇总面 = 计数求和 + 布尔归并（判据见 `determine_conclusion`）——
++/// MUST NOT 携覆盖率 / 突变数值块（两者的权威面是逐 suite 子报告与 MutationTest
++/// 步载荷）。
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub struct SummaryReport {
+@@ -375,12 +379,6 @@ pub struct SummaryReport {
+     /// 问题清单
+     #[serde(default)]
+     pub problems: Vec<Problem>,
+-    /// 全局覆盖结论（全部框架未采到为 `None`）
+-    #[serde(default)]
+-    pub coverage: Option<CoverageBlock>,
+-    /// 全局突变结论（跳过 / 不支持为 `None`）
+-    #[serde(default)]
+-    pub mutation: Option<MutationBlock>,
+     /// 尝试过的 plan 路径索引
+     #[serde(default)]
+     pub plans: Vec<PlanIndexEntry>,
+diff --git a/crates/core/checks/src/model_test.rs b/crates/core/checks/src/model_test.rs
+index 310d2d966125..45f35c02d4a8 100644
+--- a/crates/core/checks/src/model_test.rs
++++ b/crates/core/checks/src/model_test.rs
+@@ -502,10 +502,6 @@ fn 真实形态summary全字段解析逐字段相等() {
+         ],
+         "problems 归并保真（type 三值 snake_case 线格式对位）"
+     );
+-    let coverage = parsed.coverage.as_ref().expect("coverage 块在场");
+-    assert!(coverage.pass);
+-    assert_eq!(coverage.measured.lines, Some(86.67));
+-    assert_eq!(coverage.measured.functions, None, "null 维度对位 None");
+     let plans = &parsed.plans;
+     assert_eq!(plans.len(), 1);
+     assert_eq!(plans[0].id, "vite-plus");
+@@ -517,7 +513,6 @@ fn 真实形态summary全字段解析逐字段相等() {
+                 .to_owned()
+         ])
+     );
+-    assert!(parsed.mutation.is_none(), "mutation null 对位 None");
+ }
+ 
+ /// 异常：conclusion 非法枚举值 → Err（pass / fail / error 封闭集拒识）。
+@@ -555,10 +550,23 @@ fn 最小合法summary解析成功() {
+     assert_eq!(parsed.conclusion, Conclusion::Pass);
+     assert!(parsed.problems.is_empty() && parsed.plans.is_empty());
+     assert_eq!(parsed.total, 0);
+-    assert!(parsed.coverage.is_none() && parsed.mutation.is_none());
+ 
+     // 往返无损
+     let text = serde_json::to_string(&parsed).expect("序列化应成功");
++    let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可回读");
++    let object = value.as_object().expect("顶层对象");
++    assert!(
++        !object.contains_key("coverage"),
++        "最小 summary 无 coverage 键"
++    );
++    assert!(
++        !object.contains_key("mutation"),
++        "最小 summary 无 mutation 键"
++    );
++    assert!(
++        !object.contains_key("findings"),
++        "findings 为 None 时整键不出现"
++    );
+     let roundtrip = parse_summary_report(&text).expect("再出线重解析应成功");
+     assert_eq!(roundtrip, parsed, "最小 summary 往返无损");
+ }
+@@ -918,3 +926,248 @@ fn mutation_seg_report类型面_零扩展与大值构造() {
+     assert_eq!(report.duration_ms, 0.0, "段耗时缺省 0.0");
+     assert_eq!(report.tool, MutationTool::Stryker);
+ }
++
++// ---------------------------------------------------------------------------
++// SummaryReport 瘦身面（AC-2 / AC-13）：两字段退役后的序列化键集与旧报告宽容
++// ---------------------------------------------------------------------------
++
++/// 汇总报告内存构造（全部字段显式——序列化键面 fixture）。
++fn summary_report(
++    problems: Vec<Problem>,
++    plans: Vec<crate::model::PlanIndexEntry>,
++    findings: Option<Vec<String>>,
++) -> crate::model::SummaryReport {
++    crate::model::SummaryReport {
++        phase: "test-execution".to_owned(),
++        command: "desktop change run: test-execution gate".to_owned(),
++        timestamp: "2026-10-06T08:00:00Z".to_owned(),
++        duration_seconds: 0.0,
++        total: 0,
++        passed: 0,
++        failed: 0,
++        skipped: 0,
++        conclusion: Conclusion::Pass,
++        problems,
++        plans,
++        findings,
++    }
++}
++
++/// 正向（AC-2）：序列化瘦身——顶层键集恰 11 个必在键，`findings` 为 `None`
++/// 时整键不出现，`coverage` / `mutation` 两键缺席。
++#[test]
++fn 汇总序列化瘦身键集() {
++    let summary = summary_report(Vec::new(), Vec::new(), None);
++    let value = serde_json::to_value(&summary).expect("汇总应可序列化");
++    let object = value.as_object().expect("顶层对象");
++    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
++    keys.sort_unstable();
++
++    assert_eq!(
++        keys,
++        vec![
++            "command",
++            "conclusion",
++            "duration_seconds",
++            "failed",
++            "passed",
++            "phase",
++            "plans",
++            "problems",
++            "skipped",
++            "timestamp",
++            "total",
++        ],
++        "12 字段中 findings 缺省不出现 → 11 键"
++    );
++    assert!(!object.contains_key("coverage"));
++    assert!(!object.contains_key("mutation"));
++
++    let with_findings = summary_report(Vec::new(), Vec::new(), Some(vec!["正向锚".to_owned()]));
++    let value = serde_json::to_value(&with_findings).expect("序列化应成功");
++    assert_eq!(
++        value["findings"],
++        serde_json::json!(["正向锚"]),
++        "findings 在场时序列化"
++    );
++}
++
++/// 正向：往返无损——三类 problems + 一条 plans + findings 在场的汇总经出线
++/// 再解析逐字段相等。
++#[test]
++fn 汇总往返无损() {
++    let summary = summary_report(
++        vec![
++            Problem {
++                framework: "vite-plus".to_owned(),
++                problem_type: ProblemType::TestFailure,
++                message: "Test \"math > a\" failed: boom".to_owned(),
++            },
++            Problem {
++                framework: "rust".to_owned(),
++                problem_type: ProblemType::CoverageFailure,
++                message: "Coverage below threshold: functions 87.6% < 90%".to_owned(),
++            },
++            Problem {
++                framework: "go".to_owned(),
++                problem_type: ProblemType::ExecutionError,
++                message: "Exit code 2".to_owned(),
++            },
++        ],
++        vec![crate::model::PlanIndexEntry {
++            id: "crates_rust".to_owned(),
++            framework: "rust".to_owned(),
++            root: "crates".to_owned(),
++            path: "reports/test/crates_rust".to_owned(),
++        }],
++        Some(vec!["覆盖判定未通过 [rust]: 缺口留痕".to_owned()]),
++    );
++
++    let text = serde_json::to_string(&summary).expect("序列化应成功");
++    let roundtrip = parse_summary_report(&text).expect("再出线重解析应成功");
++    assert_eq!(roundtrip, summary, "汇总往返逐字段相等");
++}
++
++/// 正向（AC-13）：旧报告仍可读——历史 `summary.json`（含 `coverage` 块与
++/// `"mutation": null`）解析成功，两键被忽略（零残留、零 `Err`），problems /
++/// plans / findings 逐字保真。
++#[test]
++fn 旧报告带两键仍可解析() {
++    let parsed = parse_summary_report(FULL_SUMMARY_JSON).expect("旧报告应宽容解析成功");
++    assert_eq!(parsed.conclusion, Conclusion::Fail);
++    assert_eq!(parsed.problems.len(), 2, "两类 problem 逐字保真");
++    assert_eq!(
++        parsed.problems[1].message,
++        "Coverage below threshold: functions 78.9% < 75%"
++    );
++    assert_eq!(parsed.plans.len(), 1);
++    assert_eq!(parsed.plans[0].path, "reports/test/vite-plus");
++    assert!(parsed.findings.is_some(), "findings 保真");
++
++    let text = serde_json::to_string(&parsed).expect("序列化应成功");
++    let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可回读");
++    let object = value.as_object().expect("顶层对象");
++    assert!(!object.contains_key("coverage"), "旧键不再出线");
++    assert!(!object.contains_key("mutation"), "旧键不再出线");
++}
++
++/// 异常（AC-13 宽容边界，4 形态）：旧报告两键畸形（字符串 / 数组 / 数值 /
++/// 对象）仍 `Ok`——未知字段宽容不因旧键形态翻面。
++#[test]
++fn 旧报告两键畸形仍宽容() {
++    for legacy in [
++        r#" "coverage": "oops", "#,
++        r#" "coverage": [], "#,
++        r#" "mutation": 42, "#,
++        r#" "mutation": {}, "#,
++    ] {
++        let json = format!(
++            r#"{{
++              "phase": "test-execution", "command": "cmd", "timestamp": "2026-10-06T08:00:00Z",
++              "duration_seconds": 1.0, "total": 1, "passed": 1, "failed": 0, "skipped": 0,
++              "conclusion": "pass",
++              {legacy}
++              "problems": [], "plans": []
++            }}"#
++        );
++        let parsed = parse_summary_report(&json)
++            .unwrap_or_else(|error| panic!("旧键形态 {legacy} 应宽容解析: {error}"));
++        assert_eq!(parsed.total, 1);
++    }
++}
++
++/// 边界（2 形态）：极值字段——`duration_seconds = 0` 与四计数 `u64::MAX` 两
++/// 形态解析与往返保真、零饱和。
++#[test]
++fn 极值字段往返保真() {
++    let mut zero_duration = summary_report(Vec::new(), Vec::new(), None);
++    zero_duration.duration_seconds = 0.0;
++    let text = serde_json::to_string(&zero_duration).expect("序列化应成功");
++    let parsed = parse_summary_report(&text).expect("解析应成功");
++    assert_eq!(parsed.duration_seconds, 0.0);
++
++    let mut saturated = summary_report(Vec::new(), Vec::new(), None);
++    saturated.total = u64::MAX;
++    saturated.passed = u64::MAX;
++    saturated.failed = u64::MAX;
++    saturated.skipped = u64::MAX;
++    let text = serde_json::to_string(&saturated).expect("序列化应成功");
++    let parsed = parse_summary_report(&text).expect("解析应成功");
++    assert_eq!(parsed, saturated, "极大计数往返无损（零饱和）");
++}
++
++/// 边界（3 形态）：新形态反序列化缺省臂——缺 `problems` / `plans` /
++/// `findings` 的 JSON → `Vec::new()` / `Vec::new()` / `None`。
++#[test]
++fn 新形态缺省臂三形态() {
++    let base = r#""phase": "test-execution", "command": "cmd", "timestamp": "2026-10-06T08:00:00Z", "duration_seconds": 1.0, "total": 0, "passed": 0, "failed": 0, "skipped": 0, "conclusion": "pass""#;
++    for extra in [
++        r#", "plans": []"#,
++        r#", "problems": []"#,
++        r#", "problems": [], "plans": []"#,
++    ] {
++        let json = format!("{{ {base}{extra} }}");
++        let parsed = parse_summary_report(&json).expect("缺省字段应取默认值");
++        assert!(parsed.problems.is_empty(), "problems 缺省为空集: {extra}");
++        assert!(parsed.plans.is_empty(), "plans 缺省为空集: {extra}");
++        assert_eq!(parsed.findings, None, "findings 缺省为 None: {extra}");
++    }
++}
++
++/// 正向：`Problem` 线格式恰三键（`framework` / `type` / `message`），三类
++/// 问题类型 snake_case 对位往返保真。
++#[test]
++fn problem序列化恰三键() {
++    for (kind, wire) in [
++        (ProblemType::TestFailure, "test_failure"),
++        (ProblemType::CoverageFailure, "coverage_failure"),
++        (ProblemType::ExecutionError, "execution_error"),
++    ] {
++        let problem = Problem {
++            framework: "rust".to_owned(),
++            problem_type: kind,
++            message: "m".to_owned(),
++        };
++        let value = serde_json::to_value(&problem).expect("序列化应成功");
++        let object = value.as_object().expect("对象");
++        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
++        keys.sort_unstable();
++        assert_eq!(keys, vec!["framework", "message", "type"]);
++        assert_eq!(value["type"], serde_json::json!(wire));
++        let roundtrip: Problem = serde_json::from_value(value).expect("回读应成功");
++        assert_eq!(roundtrip, problem);
++    }
++}
++
++/// 正向：`SourceFileEntry.coverage` 两态（`None` / `Some`）与
++/// `CoverageOverride` 七字段往返保真。
++#[test]
++fn 逐文件条目与override组往返() {
++    let no_coverage = crate::model::SourceFileEntry {
++        file: "src/app/main.rs".to_owned(),
++        coverage: None,
++    };
++    let text = serde_json::to_string(&no_coverage).expect("序列化应成功");
++    let roundtrip: crate::model::SourceFileEntry = serde_json::from_str(&text).expect("回读应成功");
++    assert_eq!(roundtrip, no_coverage, "coverage 缺省态往返");
++
++    let override_group = CoverageOverride {
++        glob: "src/**/*.rs".to_owned(),
++        thresholds: CoverageThresholds {
++            lines: 80.0,
++            branches: 70.0,
++            functions: 75.0,
++        },
++        measured: CoverageMeasured {
++            lines: Some(90.0),
++            branches: None,
++            functions: Some(88.0),
++        },
++        pass: true,
++        file_count: 7,
++        passed_count: 6,
++    };
++    let text = serde_json::to_string(&override_group).expect("序列化应成功");
++    let roundtrip: CoverageOverride = serde_json::from_str(&text).expect("回读应成功");
++    assert_eq!(roundtrip, override_group, "override 组七字段逐项保真");
++}
+diff --git a/crates/core/checks/src/reuse_test.rs b/crates/core/checks/src/reuse_test.rs
+index 264eb511e302..71444b9552b5 100644
+--- a/crates/core/checks/src/reuse_test.rs
++++ b/crates/core/checks/src/reuse_test.rs
+@@ -17,8 +17,6 @@ fn summary(conclusion: Conclusion, timestamp: &str) -> SummaryReport {
+         skipped: 0,
+         conclusion,
+         problems: Vec::new(),
+-        coverage: None,
+-        mutation: None,
+         plans: Vec::new(),
+         findings: None,
+     }
+diff --git a/crates/core/checks/tests/corpus_golden_test.rs b/crates/core/checks/tests/corpus_golden_test.rs
+index e341792f29d3..a57da4247df6 100644
+--- a/crates/core/checks/tests/corpus_golden_test.rs
++++ b/crates/core/checks/tests/corpus_golden_test.rs
+@@ -1,11 +1,9 @@
+ use std::fs;
+ use std::path::{Path, PathBuf};
+ 
+-use checks::aggregate::aggregate_coverage;
+ use checks::model::{parse_sub_report, parse_summary_report};
+ use checks::parser::parse_spec_report;
+ use checks::{check_integrity, diagnose_findings};
+-use config::{MutationConfig, TestFramework};
+ 
+ /// golden 重写开关环境变量（workflow corpus_golden_test 先例同款定名）。
+ const REWRITE_ENV: &str = "DESKTOP_GOLDEN_REWRITE";
+@@ -38,48 +36,6 @@ fn rewrite_mode() -> bool {
+     std::env::var(REWRITE_ENV).is_ok_and(|value| value != "0" && !value.is_empty())
+ }
+ 
+-/// 语料对应的 config::TestSuite 集（suite 阈值随语料档位；config::TestSuite
+-/// 为 Serialize-only 类型，Rust 侧显式构造——清单同步维护于 fixtures/README.md）。
+-fn suites_for(fixture: &str) -> Vec<config::TestSuite> {
+-    let thresholds = |lines: f64, branches: f64, functions: f64| config::CoverageThresholds {
+-        lines,
+-        branches,
+-        functions,
+-    };
+-    let suite = |root: &str, framework: TestFramework, coverage| config::TestSuite {
+-        root: root.to_owned(),
+-        framework,
+-        cwd: ".".to_owned(),
+-        config: None,
+-        includes: None,
+-        excludes: None,
+-        coverage,
+-        mutation: MutationConfig {
+-            cwd: None,
+-            score: 70.0,
+-        },
+-    };
+-    match fixture {
+-        "green-istanbul" | "red-run" => vec![suite(
+-            ".",
+-            TestFramework::VitePlus,
+-            thresholds(80.0, 70.0, 75.0),
+-        )],
+-        "green-llvm-cov" => vec![suite(
+-            "crates/core",
+-            TestFramework::Rust,
+-            thresholds(70.0, 65.0, 60.0),
+-        )],
+-        "green-node-test" => vec![suite(
+-            ".",
+-            TestFramework::NodeTest,
+-            thresholds(60.0, 70.0, 75.0),
+-        )],
+-        // 无 summary 面（无聚合消费）的解析保真样本：suites 不参与投影
+-        _ => Vec::new(),
+-    }
+-}
+-
+ /// 单个 corpus fixture 的全链投影：宽容解析 → 完整性 checklist → 诊断树 →
+ /// 覆盖聚合（确定性字段全量——时间戳等墙钟字段不入投影）。
+ fn project_corpus_fixture(fixture: &str) -> serde_json::Value {
+@@ -128,8 +84,8 @@ fn project_corpus_fixture(fixture: &str) -> serde_json::Value {
+     }
+     projection["subReport"] = sub_projection;
+ 
+-    // ② summary 面：完整性 checklist + 诊断树 + 计算侧覆盖聚合（绿跑三档与
+-    // 红跑语料；本语料族均为单子报告形态）
++    // ② summary 面：完整性 checklist + 诊断树（绿跑三档与红跑语料；本语料族
++    // 均为单子报告形态）
+     if let Ok(summary_text) = fs::read_to_string(dir.join("summary.json")) {
+         match parse_summary_report(&summary_text) {
+             Err(_) => {
+@@ -149,15 +105,6 @@ fn project_corpus_fixture(fixture: &str) -> serde_json::Value {
+                     "integrity": check_integrity(&summary, &own),
+                     "diagnose": diagnose_findings(&summary),
+                 });
+-
+-                // 计算侧聚合对拍：解析语料重算覆盖块与 summary 记载一致
+-                let computed = aggregate_coverage(&own, &suites_for(fixture));
+-                projection["computedCoverage"] = computed
+-                    .as_ref()
+-                    .map(serde_json::to_value)
+-                    .transpose()
+-                    .expect("CoverageBlock 序列化应成功")
+-                    .unwrap_or(serde_json::Value::Null);
+             }
+         }
+     }
+@@ -246,19 +193,21 @@ fn 全链绿跑istanbul_conclusion_pass且golden一致() {
+     check_or_rewrite("green-istanbul", &projection);
+ }
+ 
+-/// llvm-cov 绿跑 fixtures → 同链 conclusion 与聚合面一致（src-tauri rust 档）。
++/// llvm-cov 绿跑 fixtures → 同链 conclusion 与子报告覆盖面一致（src-tauri rust
++/// 档）：覆盖块保真面由子报告承接（`coveragePresent` 为源，summary 面不再产
++/// 覆盖率数值块）。
+ #[test]
+ fn 全链绿跑llvm_cov_conclusion_pass且聚合面一致() {
+     let projection = project_corpus_fixture("green-llvm-cov");
+     assert_eq!(projection["summary"]["conclusion"], "pass");
+     assert_eq!(projection["summary"]["integrity"], serde_json::json!([]));
+-    // 计算侧聚合与 summary 记载一致：lines 71.43 ≥ 70（branches / functions
+-    // null 维度感知跳过）
+-    assert_eq!(projection["computedCoverage"]["pass"], true);
+-    assert_eq!(projection["computedCoverage"]["measured"]["lines"], 71.43);
+     assert_eq!(
+-        projection["computedCoverage"]["measured"]["branches"],
+-        serde_json::json!(null)
++        projection["subReport"]["coveragePresent"], true,
++        "覆盖块真值源在子报告（branches / functions 的 null 维度由块承载）"
++    );
++    assert!(
++        projection.get("computedCoverage").is_none(),
++        "summary 面不再产覆盖率数值块（投影键退役）"
+     );
+     check_or_rewrite("green-llvm-cov", &projection);
+ }
+@@ -312,6 +261,73 @@ fn 全链红跑_conclusion_fail且findings一致() {
+     check_or_rewrite("red-run", &projection);
+ }
+ 
++/// 反向判据（③ 重算不引入新违例）：`summary.outcome == "parsed"` 的各语料
++/// `integrity` 仍为空集；两份 `corrupt-*` 仍 `subReport.outcome == "unparsable"`
++/// 且无 summary 面。
++#[test]
++fn 投影反向判据_parsed语料零违例与corrupt降级() {
++    let mut parsed_summaries = 0usize;
++    for fixture in CORPUS_FIXTURES {
++        let projection = project_corpus_fixture(fixture);
++        let sub_outcome = projection["subReport"]["outcome"]
++            .as_str()
++            .unwrap_or_default();
++        if sub_outcome != "parsed" {
++            assert!(
++                projection.get("summary").is_none(),
++                "{fixture}: 子报告不可解析即无 summary 面"
++            );
++            continue;
++        }
++        if let Some(summary) = projection.get("summary") {
++            assert_eq!(summary["outcome"], "parsed", "{fixture} summary 可解析");
++            assert_eq!(
++                summary["integrity"],
++                serde_json::json!([]),
++                "{fixture}: ③ 重算与记载一致（零完整性违例）"
++            );
++            parsed_summaries += 1;
++        }
++    }
++    assert_eq!(
++        parsed_summaries, 4,
++        "四份语料携 summary 面（绿跑三档 + 红跑）"
++    );
++}
++
++/// 装置边界：`CORPUS_FIXTURES` 恰八套，且「六 parsed + 两 unparsable」全量
++/// 统计（零静默丢弃）；golden 缺失时记因文案点名重写开关。
++#[test]
++fn 语料装置边界_清单规模与golden缺失记因() {
++    assert_eq!(
++        CORPUS_FIXTURES.len(),
++        8,
++        "语料清单八套（fixtures/README 同步）"
++    );
++    let mut parsed = 0usize;
++    let mut unparsable = 0usize;
++    for fixture in CORPUS_FIXTURES {
++        match project_corpus_fixture(fixture)["subReport"]["outcome"].as_str() {
++            Some("parsed") => parsed += 1,
++            Some("unparsable") => unparsable += 1,
++            other => panic!("{fixture}: 未知投影 outcome {other:?}"),
++        }
++    }
++    assert_eq!(
++        (parsed, unparsable),
++        (6, 2),
++        "六 parsed + 两 unparsable 全量"
++    );
++
++    let missing = golden_dir().join("no-such-golden.json");
++    let error = compare_golden(&missing, "no-such-golden", &serde_json::json!({}))
++        .expect_err("golden 缺失应显式 Err");
++    assert!(
++        error.contains(REWRITE_ENV),
++        "记因文案点名重写开关，实际: {error}"
++    );
++}
++
+ /// 损坏样本（非法 JSON / 必填缺失）→ 宽容解析不悄悄吞数据：unparsable 标记与
+ /// 跳过统计在 golden 上可见（workflow corpus_golden_test 先例同款）。
+ #[test]
+diff --git a/crates/core/checks/tests/golden/green-istanbul.json b/crates/core/checks/tests/golden/green-istanbul.json
+index 9fcb83272098..c1ee517e35fd 100644
+--- a/crates/core/checks/tests/golden/green-istanbul.json
++++ b/crates/core/checks/tests/golden/green-istanbul.json
+@@ -37,18 +37,5 @@
+     "diagnose": [
+       "全部测试通过且覆盖率达阈值"
+     ]
+-  },
+-  "computedCoverage": {
+-    "pass": true,
+-    "measured": {
+-      "lines": 86.67,
+-      "branches": 72.73,
+-      "functions": 85.71
+-    },
+-    "thresholds": {
+-      "lines": 80.0,
+-      "branches": 70.0,
+-      "functions": 75.0
+-    }
+   }
+ }
+diff --git a/crates/core/checks/tests/golden/green-llvm-cov.json b/crates/core/checks/tests/golden/green-llvm-cov.json
+index d6f0c7895255..142f61ad9fbb 100644
+--- a/crates/core/checks/tests/golden/green-llvm-cov.json
++++ b/crates/core/checks/tests/golden/green-llvm-cov.json
+@@ -36,18 +36,5 @@
+     "diagnose": [
+       "全部测试通过且覆盖率达阈值"
+     ]
+-  },
+-  "computedCoverage": {
+-    "pass": true,
+-    "measured": {
+-      "lines": 71.43,
+-      "branches": null,
+-      "functions": null
+-    },
+-    "thresholds": {
+-      "lines": 70.0,
+-      "branches": 65.0,
+-      "functions": 60.0
+-    }
+   }
+ }
+diff --git a/crates/core/checks/tests/golden/green-node-test.json b/crates/core/checks/tests/golden/green-node-test.json
+index 56601775225c..bb858fcdd065 100644
+--- a/crates/core/checks/tests/golden/green-node-test.json
++++ b/crates/core/checks/tests/golden/green-node-test.json
+@@ -33,18 +33,5 @@
+     "diagnose": [
+       "全部测试通过且覆盖率达阈值"
+     ]
+-  },
+-  "computedCoverage": {
+-    "pass": true,
+-    "measured": {
+-      "lines": 82.5,
+-      "branches": 74.1,
+-      "functions": 90.3
+-    },
+-    "thresholds": {
+-      "lines": 60.0,
+-      "branches": 70.0,
+-      "functions": 75.0
+-    }
+   }
+ }
+diff --git a/crates/core/checks/tests/golden/red-run.json b/crates/core/checks/tests/golden/red-run.json
+index f929e3e69c49..c08abdb9b3bb 100644
+--- a/crates/core/checks/tests/golden/red-run.json
++++ b/crates/core/checks/tests/golden/red-run.json
+@@ -38,18 +38,5 @@
+     "diagnose": [
+       "「vite-plus」2 项测试失败——聚类失败（疑似同模块回归或共同假设变化）; 明细见子报告 error_cases"
+     ]
+-  },
+-  "computedCoverage": {
+-    "pass": true,
+-    "measured": {
+-      "lines": 88.0,
+-      "branches": 76.19,
+-      "functions": 81.82
+-    },
+-    "thresholds": {
+-      "lines": 80.0,
+-      "branches": 70.0,
+-      "functions": 75.0
+-    }
+   }
+ }
+diff --git a/crates/infra/checks/src/mutation/mod.rs b/crates/infra/checks/src/mutation/mod.rs
+index f265a9fb9aab..65ee7870aad5 100644
+--- a/crates/infra/checks/src/mutation/mod.rs
++++ b/crates/infra/checks/src/mutation/mod.rs
+@@ -335,8 +335,8 @@ async fn execute(
+                 exec_id,
+             }));
+         }
+-        // 双时点②中断面：不等汇总、不回填 summary（部分结论不落位）——错误摘要 +
+-        // 已产报告路径清单即时反馈
++        // 双时点②中断面：不等汇总、部分结论不落位（summary 无 mutation 位，无回填
++        // 动作）——错误摘要 + 已产报告路径清单即时反馈
+         let head = "突变执行中断";
+         let feedback_text = format!(
+             "{head}：{failure}\n已产报告路径：\n{}{}",
+@@ -356,10 +356,10 @@ async fn execute(
+         }));
+     }
+ 
++    // 归并块仅服务载荷展示（`MutationTestOutcome.score/threshold/counts` 与
++    // fail_feedback）；MUST NOT 落盘、MUST NOT 作门禁判据（门禁 = 逐 suite `pass`）
+     let merged = merge_mutation_blocks(&blocks)
+         .ok_or_else(|| "突变段归并空（可执行 suite 桶在位却零段块）".to_owned())?;
+-    // summary mutation 位回填（E11：归并块在位时回写；未跑 / 跳过保持 null）
+-    backfill_summary(&reports_dir, &merged)?;
+     // 门禁结论以逐 suite 全过为准（风险 6：多阈值并存时与归并块首块阈值的口径差
+     // 留痕观察，MUST NOT 擅自统一）
+     let all_pass = suite_results.iter().all(|(_, block)| block.pass);
+@@ -764,33 +764,6 @@ fn newest_input_mtime(root_path: &Path, suite_root: &Path, reports_dir: &Path) -
+     crate::testexec::newest_input_mtime_ms(&[suite_root.to_path_buf()], &prune)
+ }
+ 
+-/// summary mutation 位回填（E11）：summary 在位（可解析对象）→ 回写归并块；不在
+-/// 位 / 损坏 → 不回填不崩（null 保持——null 观察期语义不变）；回写失败 → 显式
+-/// `Err`（写盘失败面，E5）。
+-fn backfill_summary(reports_dir: &Path, block: &MutationBlock) -> Result<(), String> {
+-    let path = reports_dir.join("summary.json");
+-    let Ok(text) = std::fs::read_to_string(&path) else {
+-        return Ok(());
+-    };
+-    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else {
+-        return Ok(());
+-    };
+-    if !value.is_object() {
+-        return Ok(());
+-    }
+-    let block_value =
+-        serde_json::to_value(block).map_err(|error| format!("归并块序列化失败: {error}"))?;
+-    value["mutation"] = block_value;
+-    let rewritten = serde_json::to_string_pretty(&value)
+-        .map_err(|error| format!("summary 序列化失败: {error}"))?;
+-    std::fs::write(&path, rewritten).map_err(|error| {
+-        format!(
+-            "summary mutation 位回写失败 {}: {error}",
+-            report::to_posix(&path)
+-        )
+-    })
+-}
+-
+ /// 未达标反馈文本（反馈边②报告指引式：score / threshold 结论摘要 + 逐 suite
+ /// 明细 + 原始报告路径清单；MUST NOT 内联存活突变体清单——明细由 executor 自行
+ /// 读报告）。
+diff --git a/crates/infra/checks/src/mutation/mod_test.rs b/crates/infra/checks/src/mutation/mod_test.rs
+index d4022598f792..d225552849b9 100644
+--- a/crates/infra/checks/src/mutation/mod_test.rs
++++ b/crates/infra/checks/src/mutation/mod_test.rs
+@@ -666,7 +666,7 @@ impl ChainWs {
+         }
+     }
+ 
+-    /// 预置 summary.json（E11 回填在位面 / 中断不回填面）。
++    /// 预置 summary.json（零回写判据面：执行前后字节逐字相等）。
+     fn with_summary(self) -> Self {
+         let reports = foundation::layout::change_test_reports(&self.root, self.change);
+         fs::create_dir_all(&reports).expect("建报告目录");
+@@ -706,10 +706,20 @@ fn outcome_of(output: ToolStepOutput) -> orchestration::port::MutationTestOutcom
+     }
+ }
+ 
+-/// summary.json 回读（mutation 位回填断言面）。
++/// summary.json 路径（零回写字节判据面）。
++fn summary_path(ws: &ChainWs) -> PathBuf {
++    foundation::layout::change_test_reports(&ws.root, ws.change).join("summary.json")
++}
++
++/// summary.json 回读（零回写断言面：值索引 + 字节比对双重判据）。
+ fn read_summary(ws: &ChainWs) -> serde_json::Value {
+-    let path = foundation::layout::change_test_reports(&ws.root, ws.change).join("summary.json");
+-    serde_json::from_str(&fs::read_to_string(path).expect("summary 在盘")).expect("summary 可解析")
++    serde_json::from_str(&fs::read_to_string(summary_path(ws)).expect("summary 在盘"))
++        .expect("summary 可解析")
++}
++
++/// summary.json 原始字节（「零回写」只由字节比对证明）。
++fn read_summary_bytes(ws: &ChainWs) -> Vec<u8> {
++    fs::read(summary_path(ws)).expect("summary 在盘")
+ }
+ 
+ /// 正向：`ProcessMutation::new` 与 `Default::default()` 等价可用（无状态空
+@@ -940,30 +950,58 @@ async fn 显式err面_写盘失败停给用户() {
+     );
+ }
+ 
+-/// 边界：summary mutation 位回填（E11）——summary 在位（可解析对象）→ 回写
+-/// 归并块；不在位 → 不回填不崩（null 保持）。
++/// 边界（AC-10）：summary 零回写——summary 在位 → 执行前后字节逐字相等（读
++/// `Value` 索引分不出「零回写」与「回写后又清空」，字节比对才证得住回填面
++/// 不存在），预置 `mutation` 值未被归并块覆盖；summary 缺席 → run 仍 `Ok` 且
++/// 不新建该文件。
+ #[tokio::test]
+-async fn summary回填_在位回写不在位不崩() {
+-    // 在位面：回写归并块
+-    let ws = ChainWs::new("backfill", CARGO_SEG_PASS).with_summary();
++async fn summary零回写_在位不改写不在位不新建() {
++    let ws = ChainWs::new("no-backfill", CARGO_SEG_PASS).with_summary();
++    let before = read_summary_bytes(&ws);
+     let files = vec!["app/src/lib.rs".to_owned()];
+-    run(&ws, &files).await.expect("回填链应成功");
++
++    let outcome = outcome_of(run(&ws, &files).await.expect("执行链应成功"));
++    assert_eq!(
++        (outcome.score, outcome.threshold),
++        (90.0, 80.0),
++        "载荷展示口径（score / threshold）"
++    );
++    assert_eq!(
++        (
++            outcome.counts.killed,
++            outcome.counts.survived,
++            outcome.counts.timeout,
++            outcome.counts.compile_error,
++            outcome.counts.runtime_error,
++            outcome.counts.ignored,
++            outcome.counts.total,
++        ),
++        (9, 1, 0, 0, 0, 0, 10),
++        "载荷计数七字段"
++    );
++
++    assert_eq!(
++        read_summary_bytes(&ws),
++        before,
++        "执行前后 summary.json 字节逐字相等（MUST NOT 落盘归并块）"
++    );
+     let summary = read_summary(&ws);
+-    let mutation = summary["mutation"].as_object().expect("mutation 位已回填");
+-    assert_eq!(mutation["score"], 90.0, "回填归并块分值");
+-    assert_eq!(mutation["pass"], true);
+-    assert_eq!(mutation["threshold"], 80.0);
++    assert!(
++        summary["mutation"].is_null(),
++        "预置 mutation 值未被归并块覆盖: {summary}"
++    );
++    assert!(
++        !summary
++            .as_object()
++            .expect("顶层对象")
++            .contains_key("coverage"),
++        "summary 面零 coverage 键: {summary}"
++    );
+ 
+-    // 不在位面：ChainWs 无 summary → 不回填不崩（run 已在 pass 用例覆盖——此处
+-    // 断言 summary 路径缺席下 run 仍 Ok）
++    // 缺席面：ChainWs 无 summary → 不新建该文件
+     let ws = ChainWs::new("no-summary", CARGO_SEG_PASS);
+     run(&ws, &files).await.expect("summary 不在位不崩");
+-    assert!(
+-        !foundation::layout::change_test_reports(&ws.root, ws.change)
+-            .join("summary.json")
+-            .exists(),
+-        "summary 不在位保持缺席（null 观察期语义不变）"
+-    );
++    assert!(!summary_path(&ws).exists(), "summary 缺席面零写入");
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -972,14 +1010,15 @@ async fn summary回填_在位回写不在位不崩() {
+ 
+ /// 正向：**js suite 全链（Stryker）**——vitest suite 零预置段报告（不走复用门）
+ /// 经假 spawn 真执行 npx 段 → `ToolStepOutput::MutationTest` 载荷全字段 + 段级 /
+-/// 归并报告落盘 + summary mutation 位回填；记录面 argv 逐参（`npx --prefix
+-/// <suite cwd> stryker run <config>`）与 spawn cwd 断言（AC-4 js 族 → Stryker /
+-/// E11；执行链按 Mock 表走假 spawn）。
++/// 归并报告落盘，summary 面零回写（AC-10 字节判据）；记录面 argv 逐参（`npx
++/// --prefix <suite cwd> stryker run <config>`）与 spawn cwd 断言（AC-4 js 族 →
++/// Stryker；执行链按 Mock 表走假 spawn）。
+ #[tokio::test]
+ async fn 执行链js_suite全链stryker假spawn产出() {
+     let window = SpawnWindow::enter("js-chain");
+     window.install_npx();
+     let ws = ChainWs::with_config("js-chain", VITEST_CONFIG).with_summary();
++    let before = read_summary_bytes(&ws);
+     let suite_cwd = ws.root.join("app");
+     fs::create_dir_all(&suite_cwd).expect("建 suite 执行目录");
+     let reports = foundation::layout::change_test_reports(&ws.root, ws.change);
+@@ -1027,12 +1066,17 @@ async fn 执行链js_suite全链stryker假spawn产出() {
+         "报告路径 POSIX 形态"
+     );
+ 
+-    // summary mutation 位回填（E11 在位面）
++    // summary 面零回写（AC-10）：字节判据 + 预置 mutation 值未被覆盖
++    assert_eq!(
++        read_summary_bytes(&ws),
++        before,
++        "js 全链执行前后 summary.json 字节逐字相等"
++    );
+     let summary = read_summary(&ws);
+-    let mutation = summary["mutation"].as_object().expect("mutation 位已回填");
+-    assert_eq!(mutation["score"], 90.0);
+-    assert_eq!(mutation["pass"], true);
+-    assert_eq!(mutation["threshold"], 80.0);
++    assert!(
++        summary["mutation"].is_null(),
++        "载荷归并块 MUST NOT 落 summary.json: {summary}"
++    );
+ 
+     // 假 spawn 执行链证据：恰一次 spawn（非复用门路径）+ argv 逐参 + cwd
+     let records = window.records();
+@@ -1066,6 +1110,7 @@ async fn 执行链js_suite全链stryker假spawn产出() {
+ async fn 段中断_conclusion_error即时反馈不等汇总() {
+     let window = SpawnWindow::enter("interrupt");
+     let ws = ChainWs::with_config("interrupt", TWO_RUST_CONFIG).with_summary();
++    let before = read_summary_bytes(&ws);
+     window.install_fake_cargo(&ws.root.join("app"));
+     window.install_fake_cargo(&ws.root.join("src-tauri"));
+     window.set_cargo_outcomes(CARGO_SEG_PASS); // suite1 面：90 ≥ 80 达标完成（报告文件落位）
+@@ -1121,11 +1166,15 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
+         "报告路径 POSIX 形态"
+     );
+ 
+-    // 不等汇总：summary mutation 位保持 null（E11 部分结论不落位）
+-    let summary = read_summary(&ws);
++    // 不等汇总：summary 零回写（字节判据）——部分结论不落位
++    assert_eq!(
++        read_summary_bytes(&ws),
++        before,
++        "中断面 summary.json 字节逐字相等（无回填动作）"
++    );
+     assert!(
+-        summary["mutation"].is_null(),
+-        "中断面 MUST NOT 回填 summary mutation 位"
++        read_summary(&ws)["mutation"].is_null(),
++        "中断面 MUST NOT 落归并块"
+     );
+     // rust 桶中断零保留（保留面只属 Stryker 失败桶的临时产物）
+     assert!(
+@@ -1170,7 +1219,8 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
+     ];
+ 
+     // run1：全过（app 90 ≥ 80、src-tauri 75 ≥ 70）
+-    let ws1 = ChainWs::with_config("all-pass", TWO_RUST_CONFIG);
++    let ws1 = ChainWs::with_config("all-pass", TWO_RUST_CONFIG).with_summary();
++    let ws1_before = read_summary_bytes(&ws1);
+     window.install_fake_cargo(&ws1.root.join("app"));
+     window.install_fake_cargo(&ws1.root.join("src-tauri"));
+     window.set_cargo_outcomes(CARGO_SEG_PASS); // 90
+@@ -1198,10 +1248,20 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
+     );
+     assert_eq!(all_pass.report_paths.len(), 4, "两 suite 各段级 + 归并报告");
+     assert_eq!(window.records().len(), 2, "两 suite 各一次假 spawn");
++    assert_eq!(
++        read_summary_bytes(&ws1),
++        ws1_before,
++        "多 suite 归并块 MUST NOT 落 summary.json（字节判据）"
++    );
++    assert!(
++        read_summary(&ws1)["mutation"].is_null(),
++        "预置 mutation 值未被归并块覆盖"
++    );
+ 
+     // run2：app 50 < 80 → Fail（src-tauri 95 ≥ 70 过）
+     window.reset_records();
+-    let ws2 = ChainWs::with_config("has-fail", TWO_RUST_CONFIG);
++    let ws2 = ChainWs::with_config("has-fail", TWO_RUST_CONFIG).with_summary();
++    let ws2_before = read_summary_bytes(&ws2);
+     window.install_fake_cargo(&ws2.root.join("app"));
+     window.install_fake_cargo(&ws2.root.join("src-tauri"));
+     window.set_cargo_outcomes(CARGO_SEG_FAIL); // 50
+@@ -1231,6 +1291,11 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
+         "报告路径清单: {feedback}"
+     );
+     assert_eq!(window.records().len(), 2, "两 suite 各一次假 spawn");
++    assert_eq!(
++        read_summary_bytes(&ws2),
++        ws2_before,
++        "未达阈面同样零回写（结论只走逐 suite 门禁）"
++    );
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -1976,6 +2041,7 @@ fn 归桶过滤_excludes全桶消费() {
+ async fn 全桶滤空_emptydiff零spawn假绿防线() {
+     let window = SpawnWindow::enter("filter-empty");
+     let ws = ChainWs::with_config("filter-empty", VITEST_CONFIG).with_summary();
++    let before = read_summary_bytes(&ws);
+     let files = vec![
+         "app/README.md".to_owned(),
+         "app/package.json".to_owned(),
+@@ -2004,10 +2070,14 @@ async fn 全桶滤空_emptydiff零spawn假绿防线() {
+         outcome.report_paths
+     );
+     assert!(window.records().is_empty(), "零 spawn（假绿路径不可达）");
+-    let summary = read_summary(&ws);
++    assert_eq!(
++        read_summary_bytes(&ws),
++        before,
++        "跳过面 summary.json 字节逐字相等（零回写）"
++    );
+     assert!(
+-        summary["mutation"].is_null(),
+-        "跳过面 MUST NOT 回填 summary mutation 位"
++        read_summary(&ws)["mutation"].is_null(),
++        "跳过面 MUST NOT 落归并块"
+     );
+ }
+ 
+@@ -2200,7 +2270,7 @@ fn segment_failure_display三臂同型() {
+ /// 正向（AC-7 组合锚，旧「收敛 failed / Error」断言随裁决改写）：取消 →
+ /// `fault = Some(RunFault::Stopped)` + `conclusion = Fail` 占位 + `feedback_text`
+ /// 空串（stopped 面不被误读为「需修复」）——自旋假 spawn 运行中置位；非 Fatal
+-/// `Err` 面，段报告 / summary 面不落位（中断不回填）。
++/// `Err` 面，段报告 / summary 面不落位（零回写）。
+ #[tokio::test]
+ async fn 取消_fault为stopped且结论占位fail() {
+     let window = SpawnWindow::enter("cancel-run");
+@@ -2379,7 +2449,7 @@ fn two_bucket_ws(tag: &str) -> (ChainWs, PathBuf) {
+ /// 正反向组合锚（AC-7 / D17）：**多桶中途取消**——第 1 桶（rust 复用门）完成
+ /// 后置位 → 第 2 桶（Stryker 假 spawn 自旋）观测取消 → 整体
+ /// `fault = Some(Stopped)` + `conclusion = Fail` 占位、`feedback_text` 空、
+-/// 第 1 桶报告路径仍在 `report_paths`、`summary.json` mutation 位不回填（取消面与
++/// 第 1 桶报告路径仍在 `report_paths`、`summary.json` 字节零改动（取消面与
+ /// `Interrupted` 同型：不落部分结论）+ 第 2 桶进程被回收（pid 消失）。
+ #[tokio::test]
+ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
+@@ -2388,6 +2458,7 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
+     window.set_sleep(1); // 第 2 桶自旋挂起（第 1 桶零 spawn，不受此键影响）
+     let (ws, pid_file) = two_bucket_ws("cancel-multi-bucket");
+     window.set_pidfile(&pid_file);
++    let before = read_summary_bytes(&ws);
+ 
+     let files = vec!["app/src/lib.rs".to_owned(), "web/src/panel.ts".to_owned()];
+     let cancel = foundation::cancel::CancelFlag::never();
+@@ -2443,10 +2514,14 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
+         wait_pid_gone(pid, std::time::Duration::from_secs(15)),
+         "第 2 桶进程被回收（pid {pid} 消失——kill_tree 生效）"
+     );
+-    let summary = read_summary(&ws);
++    assert_eq!(
++        read_summary_bytes(&ws),
++        before,
++        "取消面 summary.json 字节逐字相等（零回写，部分结论不落位）"
++    );
+     assert!(
+-        summary["mutation"].is_null(),
+-        "中断面不回填 summary mutation 位（部分结论不落位）: {summary}"
++        read_summary(&ws)["mutation"].is_null(),
++        "取消面 MUST NOT 落归并块"
+     );
+     assert!(
+         !foundation::layout::change_test_reports(&ws.root, ws.change)
+diff --git a/crates/infra/checks/src/testexec/mod.rs b/crates/infra/checks/src/testexec/mod.rs
+index c1cc24567124..dc8cc7657060 100644
+--- a/crates/infra/checks/src/testexec/mod.rs
++++ b/crates/infra/checks/src/testexec/mod.rs
+@@ -249,7 +249,7 @@ async fn execute(
+ 
+     // ④ 聚合 → 诊断 → 报告写盘（子报告批量落盘后 summary 写一次；findings
+     // 随 summary 持久化——修复边 prompt 直嵌有界明细，全量以报告文件为权威）
+-    let mut summary = build_summary_report(&sub_reports, suites, DESKTOP_COMMAND_LABEL, started_at);
++    let mut summary = build_summary_report(&sub_reports, DESKTOP_COMMAND_LABEL, started_at);
+     let findings = diagnose_findings(&summary);
+     if !findings.is_empty() {
+         summary.findings = Some(findings);
+diff --git a/crates/infra/checks/src/testexec/mod_test.rs b/crates/infra/checks/src/testexec/mod_test.rs
+index 9b3c32d20fc8..d5d5755eb2ca 100644
+--- a/crates/infra/checks/src/testexec/mod_test.rs
++++ b/crates/infra/checks/src/testexec/mod_test.rs
+@@ -106,6 +106,22 @@ const SPEC_OUTPUT: &str = "▶ math\n\
+ | file | line % | branch % | funcs % |\n\
+ | All files | 82.5 | 74.1 | 90.3 | 12 |\n";
+ 
++/// node-test 绿跑样本**无覆盖汇总行**（覆盖工件缺席形态：结果文本在位但不含
++/// `All files` 覆盖表格行 → 采集面 `None`）。
++const SPEC_OUTPUT_NO_COVERAGE: &str = "▶ math\n\
++✔ adds numbers (1.2ms)\n\
++✔ handles unicode 名称 (0.5ms)\n\
++﹣ skips todo case (0.1ms)\n\
++▶ nested\n\
++✔ works nested (0.3ms)\n\
++✔ math (2ms)\n\
++✔ nested (1ms)\n\
++✔ top level case (0.2ms)\n\
++ℹ tests 5\n\
++ℹ pass 4\n\
++ℹ fail 0\n\
++ℹ skipped 1\n";
++
+ const CHANGE: &str = "demo-change";
+ 
+ // ---------------------------------------------------------------------------
+@@ -505,9 +521,10 @@ impl Drop for PathWindowGuard {
+ /// 正向：绿跑全链组合——tempdir workspace + 真实 config tests[]（node-test
+ /// suite）+ 真实命令 shim（拷贝预置 spec 工件到占位路径、退出 0）→
+ /// ToolStepOutput::TestExecution conclusion=pass、四计数正确、summary.json 与
+-/// planId/report.json 落 change_test_reports 推导目录（AC-5）。生产调用方
+-/// `ProcessTestExecution::run` 以 `TESTEXEC_TOTAL_BUDGET` 全预算执行（预算内零行为
+-/// 变化——本用例即该档的全链锚）。
++/// planId/report.json 落 change_test_reports 推导目录；逐 suite 覆盖判定经子报告
++/// `coverage.pass` 观测（summary 面无 coverage / mutation 两键，AC-2 / AC-5）。
++/// 生产调用方 `ProcessTestExecution::run` 以 `TESTEXEC_TOTAL_BUDGET` 全预算执行
++/// （预算内零行为变化——本用例即该档的全链锚）。
+ #[tokio::test]
+ async fn 绿跑全链_pass结论_四计数与报告落盘() {
+     let ws = ChainWs::new("green-chain");
+@@ -578,9 +595,6 @@ async fn 绿跑全链_pass结论_四计数与报告落盘() {
+         ),
+         (5, 4, 0, 1)
+     );
+-    let coverage = summary.coverage.as_ref().expect("覆盖块在场");
+-    assert!(coverage.pass, "82.5 ≥ 60 / 74.1 ≥ 70 / 90.3 ≥ 75 达阈");
+-    assert_eq!(coverage.measured.lines, Some(82.5));
+     assert_eq!(summary.plans.len(), 1);
+     assert_eq!(
+         summary.plans[0].id, "app_node-test",
+@@ -602,6 +616,34 @@ async fn 绿跑全链_pass结论_四计数与报告落盘() {
+     );
+     assert_eq!(sub.exit_code, 0);
+ 
++    // 覆盖面真值源改指子报告（summary 面不再产覆盖块）：实测三维达标 → 逐
++    // suite 判定 pass
++    let coverage = sub.coverage.as_ref().expect("子报告覆盖块在场");
++    assert!(
++        coverage.pass,
++        "82.5 ≥ 60 / 74.1 ≥ 70 / 90.3 ≥ 75 达阈（逐 suite 唯一判定点）"
++    );
++    assert_eq!(coverage.measured.lines, Some(82.5));
++    assert!(
++        summary.problems.is_empty(),
++        "全绿零归因: {:?}",
++        summary.problems
++    );
++
++    // summary 瘦身面（AC-2）：线格式无 coverage / mutation 两键
++    let summary_value: serde_json::Value =
++        serde_json::from_str(&fs::read_to_string(reports_dir.join("summary.json")).expect("读回"))
++            .expect("summary.json 线格式可解析");
++    let summary_object = summary_value.as_object().expect("顶层对象");
++    assert!(
++        !summary_object.contains_key("coverage"),
++        "summary 面零 coverage 键"
++    );
++    assert!(
++        !summary_object.contains_key("mutation"),
++        "summary 面零 mutation 键"
++    );
++
+     // 输出记录单点（AC-7）：record 内容 = 脚本真实输出合并流（stdout 标记在场），
+     // 非 summary JSON 重序列化；单一 `.log` 落 report_dir 同锚
+     assert!(!outcome.exec_id.is_empty(), "门禁产出恒回填 exec_id");
+@@ -625,6 +667,278 @@ async fn 绿跑全链_pass结论_四计数与报告落盘() {
+     );
+ }
+ 
++/// 异常（AC-5）：缺采集链级——绿跑但覆盖工件缺席（结果文本无覆盖汇总行）
++/// → 退出码 0 + 零失败 + 子报告 `coverage = None` → summary / 载荷结论 fail
++/// （MUST NOT error）、`problems` 恰一条 `coverage_failure`（零
++/// `execution_error`）、`findings_brief` 携 4c 逐 suite 归因。
++#[tokio::test]
++async fn 缺采集链级_判fail不判error() {
++    let ws = ChainWs::new("missing-coverage");
++    let spec_src = ws.root().join("preset-no-coverage.txt");
++    fs::write(&spec_src, SPEC_OUTPUT_NO_COVERAGE).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++
++    let output = {
++        let _window = path_window();
++        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++        ws.run().await
++    }
++    .expect("缺采集面仍走产出（不 Err）");
++
++    let outcome = match output {
++        ToolStepOutput::TestExecution(outcome) => outcome,
++        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
++    };
++    assert_eq!(
++        outcome.conclusion,
++        TestExecutionConclusion::Fail,
++        "缺采集判 fail（MUST NOT error）"
++    );
++    assert_eq!(outcome.failed, 0, "零失败用例（fail 来自采集缺口）");
++    assert!(
++        outcome.findings_brief.contains("覆盖判定未通过 ["),
++        "findings_brief 携 4c 逐 suite 归因，实际: {}",
++        outcome.findings_brief
++    );
++
++    let reports_dir = ws.reports_dir();
++    let summary: SummaryReport = checks::parse_summary_report(
++        &fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"),
++    )
++    .expect("summary.json 可解析");
++    assert_eq!(summary.conclusion, Conclusion::Fail);
++    let coverage_problems: Vec<&Problem> = summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == ProblemType::CoverageFailure)
++        .collect();
++    assert_eq!(
++        coverage_problems.len(),
++        1,
++        "恰一条覆盖归因: {:?}",
++        summary.problems
++    );
++    assert!(
++        coverage_problems[0].message.contains("覆盖率采集缺失"),
++        "归因点名采集缺失: {}",
++        coverage_problems[0].message
++    );
++    assert!(
++        summary
++            .problems
++            .iter()
++            .all(|problem| problem.problem_type != ProblemType::ExecutionError),
++        "缺采集零 execution_error: {:?}",
++        summary.problems
++    );
++
++    let sub = checks::parse_sub_report(
++        &fs::read_to_string(reports_dir.join("app_node-test").join("report.json"))
++            .expect("子报告读回"),
++    )
++    .expect("report.json 可解析");
++    assert!(sub.coverage.is_none(), "采集缺席 → 子报告无覆盖块");
++    assert_eq!(sub.exit_code, 0, "退出码 0（绿跑形态）");
++    assert_eq!(sub.summary.failed, 0);
++}
++
++/// 正向（AC-4）：掩盖不可达链级——双 suite 覆盖两形态（app 阈 60/70/75
++/// 三维达标 + app2 functions 阈 95 而实测 90.3 未达）→ summary / 载荷结论
++/// fail、`problems` 恰一条 `coverage_failure`，两子报告各自 `coverage.pass`
++/// 保真（真值源仍逐 suite，达标 suite MUST NOT 稀释缺口 suite）。
++#[tokio::test]
++async fn 掩盖不可达链级_双suite覆盖两形态() {
++    let ws = ChainWs::new("masking").two_plan();
++    fs::write(
++        ws.root().join(".dev-team").join("config.json"),
++        r#"{ "tests": [
++  { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
++  { "root": "app2", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 95 } }
++] }"#,
++    )
++    .expect("覆写双 suite 阈值档");
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++
++    let output = {
++        let _window = path_window();
++        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++        set_shim_dest_2(&ws.results_dest_of("app2_node-test"));
++        ws.run().await
++    }
++    .expect("双 suite 链应 Ok");
++
++    let outcome = match output {
++        ToolStepOutput::TestExecution(outcome) => outcome,
++        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
++    };
++    assert_eq!(
++        outcome.conclusion,
++        TestExecutionConclusion::Fail,
++        "一个 suite 的达标值 MUST NOT 稀释另一个的 functions 缺口"
++    );
++    assert_eq!(outcome.total, 10, "两 suite 五用例各计");
++
++    let reports_dir = ws.reports_dir();
++    let summary: SummaryReport = checks::parse_summary_report(
++        &fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"),
++    )
++    .expect("summary.json 可解析");
++    assert_eq!(summary.conclusion, Conclusion::Fail);
++    let coverage_problems: Vec<&Problem> = summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == ProblemType::CoverageFailure)
++        .collect();
++    assert_eq!(
++        coverage_problems.len(),
++        1,
++        "恰一条覆盖归因: {:?}",
++        summary.problems
++    );
++    assert_eq!(
++        coverage_problems[0].message,
++        "Coverage below threshold: functions 90.3% < 95%"
++    );
++
++    for (plan_id, expected_pass) in [("app_node-test", true), ("app2_node-test", false)] {
++        let sub = checks::parse_sub_report(
++            &fs::read_to_string(reports_dir.join(plan_id).join("report.json")).expect("子报告读回"),
++        )
++        .expect("report.json 可解析");
++        let coverage = sub.coverage.as_ref().expect("子报告覆盖块在场");
++        assert_eq!(
++            coverage.pass, expected_pass,
++            "{plan_id} 逐 suite 判定保真（真值源逐 suite）"
++        );
++    }
++}
++
++/// 边界（2 形态）：单 / 双 plan 汇总面——单 plan 与双 plan 各产 1 / 2 条
++/// 子报告与 `plans[]` 条目；两形态 summary 面均无覆盖 / 突变块，
++/// `plans[].id` 沿 `derive_plan_id` 派生。
++#[tokio::test]
++async fn 单双plan形态汇总面同形() {
++    // 单 plan 形态
++    let single = ChainWs::new("plan-single");
++    let spec_src = single.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    {
++        let _window = path_window();
++        set_shim_env(&spec_src, &single.results_dest(), None, None);
++        single.run().await.expect("单 plan 链应 Ok");
++    }
++    let single_summary: SummaryReport = checks::parse_summary_report(
++        &fs::read_to_string(single.reports_dir().join("summary.json")).expect("summary 读回"),
++    )
++    .expect("summary.json 可解析");
++    assert_eq!(single_summary.plans.len(), 1);
++    assert_eq!(single_summary.plans[0].id, "app_node-test");
++
++    // 双 plan 形态
++    let double = ChainWs::new("plan-double").two_plan();
++    let spec_src = double.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    {
++        let _window = path_window();
++        set_shim_env(&spec_src, &double.results_dest(), None, None);
++        set_shim_dest_2(&double.results_dest_of("app2_node-test"));
++        double.run().await.expect("双 plan 链应 Ok");
++    }
++    let reports_dir = double.reports_dir();
++    let double_summary: SummaryReport = checks::parse_summary_report(
++        &fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"),
++    )
++    .expect("summary.json 可解析");
++    assert_eq!(double_summary.plans.len(), 2);
++    assert_eq!(double_summary.plans[1].id, "app2_node-test");
++    for plan in &double_summary.plans {
++        assert_eq!(
++            plan.path,
++            format!("reports/test/{}", plan.id),
++            "path 前缀与 id 同源"
++        );
++        assert!(reports_dir.join(&plan.id).join("report.json").is_file());
++    }
++
++    for summary in [&single_summary, &double_summary] {
++        let text = fs::read_to_string(if summary.plans.len() == 1 {
++            single.reports_dir().join("summary.json")
++        } else {
++            reports_dir.join("summary.json")
++        })
++        .expect("summary 读回");
++        let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可解析");
++        let object = value.as_object().expect("顶层对象");
++        assert!(!object.contains_key("coverage"));
++        assert!(!object.contains_key("mutation"));
++    }
++}
++
++/// 边界（AC-9）：复用门三条件守恒——预置「覆盖缺失的 fail summary」+ 输入
++/// 未变 → 同样命中复用（marker 计数不增长、summary 未重写）；fail 与既有
++/// fail 同待遇，MUST NOT 因覆盖面拒复用。
++#[tokio::test]
++async fn 复用门_覆盖缺失fail报告同待遇() {
++    let ws = ChainWs::new("reuse-fail-coverage");
++    let spec_src = ws.root().join("preset-no-coverage.txt");
++    fs::write(&spec_src, SPEC_OUTPUT_NO_COVERAGE).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++
++    let first = {
++        let _window = path_window();
++        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++        ws.run().await
++    }
++    .expect("首跑应 Ok");
++    let first_ts = ws.summary_timestamp().expect("首跑落 summary");
++    assert_eq!(ws.marker_count(), 1, "首跑恰一次执行");
++
++    let second = {
++        let _window = path_window();
++        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++        ws.run().await
++    }
++    .expect("复用跑应 Ok");
++    assert_eq!(
++        ws.marker_count(),
++        1,
++        "复用零 spawn（fail 报告不被覆盖面拒绝）"
++    );
++    assert_eq!(
++        ws.summary_timestamp(),
++        Some(first_ts),
++        "复用上次 summary（未重写）"
++    );
++
++    let (ToolStepOutput::TestExecution(first_out), ToolStepOutput::TestExecution(second_out)) =
++        (&first, &second)
++    else {
++        panic!("两跑产出均应为 TestExecution 变体");
++    };
++    assert_eq!(first_out.conclusion, TestExecutionConclusion::Fail);
++    assert_eq!(
++        second_out.conclusion,
++        TestExecutionConclusion::Fail,
++        "复用结论与首跑一致"
++    );
++    assert_eq!(
++        (
++            second_out.total,
++            second_out.passed,
++            second_out.failed,
++            second_out.skipped
++        ),
++        (
++            first_out.total,
++            first_out.passed,
++            first_out.failed,
++            first_out.skipped
++        )
++    );
++}
++
+ /// 正向：复用门装配（复用分支）——首跑落 summary 后输入未变二次 run 零命令
+ /// 执行（marker 计数不增长）→ 复用上次 summary 结论（AC-6 复用半边，与
+ /// reuse_test 纯判定半边互为表里）。
+@@ -849,8 +1163,6 @@ fn hand_summary(conclusion: Conclusion, findings: Vec<String>) -> SummaryReport
+         skipped: 0,
+         conclusion,
+         problems: Vec::new(),
+-        coverage: None,
+-        mutation: None,
+         plans: Vec::new(),
+         findings: Some(findings),
+     }
+@@ -3298,6 +3610,13 @@ fn 子报告findings_降级注零注入且结论仍pass() {
+     let note = "展开 8230 字符超平台预算 7000 字符，已降级为框架自发现（1 个测试文件）";
+     let plan = head_plan("app_node-test", "node-test", &["src/add.test.mjs"]);
+     let mut execution = head_execution(b"", 8230, Some(note));
++    // 覆盖面按绿跑形态给值（逐 suite 判定 pass）：本用例判据是降级注不入
++    // findings、结论仍 Pass——采集面缺失另由缺采集链级用例承载
++    execution.measured = Some(CoverageMeasured {
++        lines: Some(90.0),
++        branches: Some(80.0),
++        functions: Some(85.0),
++    });
+     execution.cases = vec![TestCaseResult {
+         name: "adds numbers".to_owned(),
+         file: Some("src/add.test.mjs".to_owned()),
+@@ -3323,7 +3642,6 @@ fn 子报告findings_降级注零注入且结论仍pass() {
+ 
+     let summary = checks::build_summary_report(
+         std::slice::from_ref(&sub),
+-        &[],
+         "desktop change run: test-execution gate",
+         time::OffsetDateTime::now_utc(),
+     );
+@@ -3370,7 +3688,6 @@ fn 子报告findings_真红plan错误面不回退() {
+ 
+     let summary = checks::build_summary_report(
+         std::slice::from_ref(&sub),
+-        &[],
+         "desktop change run: test-execution gate",
+         time::OffsetDateTime::now_utc(),
+     );
+diff --git a/crates/infra/checks/src/testexec/report_test.rs b/crates/infra/checks/src/testexec/report_test.rs
+index b1ea67a6931c..5addda657f8d 100644
+--- a/crates/infra/checks/src/testexec/report_test.rs
++++ b/crates/infra/checks/src/testexec/report_test.rs
+@@ -57,21 +57,6 @@ fn summary(_root: &str) -> SummaryReport {
+         skipped: 0,
+         conclusion: Conclusion::Pass,
+         problems: Vec::new(),
+-        coverage: Some(CoverageBlock {
+-            pass: true,
+-            measured: CoverageMeasured {
+-                lines: Some(86.67),
+-                branches: Some(72.73),
+-                functions: Some(85.71),
+-            },
+-            thresholds: CoverageThresholds {
+-                lines: 80.0,
+-                branches: 70.0,
+-                functions: 75.0,
+-            },
+-            overrides: None,
+-        }),
+-        mutation: None,
+         plans: Vec::new(),
+         findings: None,
+     }

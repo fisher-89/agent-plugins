@@ -89,7 +89,8 @@ pub struct TestCaseResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Problem {
-    /// 问题发生的框架（覆盖 / 突变全局问题为 "all"）
+    /// 问题发生的框架（覆盖问题为该 suite 的框架——`CoverageFailure` 恒为具体
+    /// 框架，不再有 "all" 全局归因）
     pub framework: String,
     /// 问题类别
     #[serde(rename = "type")]
@@ -126,7 +127,8 @@ pub struct CoverageThresholds {
     pub functions: f64,
 }
 
-/// per-suite 覆盖率 override 组结果（CLI `coverageOverrideSchema` 对齐）。
+/// per-suite 覆盖率 override 组结果（CLI `coverageOverrideSchema` 对齐；仅解析
+/// 保真面——汇总层 MUST NOT 再生产 override 组）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct CoverageOverride {
@@ -192,8 +194,8 @@ pub struct MutationOverride {
     pub passed_count: u64,
 }
 
-/// 突变测试结论块（由 MutationTest 步归并回填 summary 的 mutation 位；
-/// corpus 样本保真解析不丢块）。
+/// 突变测试结论块（子报告解析保真 + 载荷展示口径——`MutationTestOutcome` 的
+/// score / threshold / counts 由归并块计算；MUST NOT 落 `summary.json`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct MutationBlock {
@@ -273,7 +275,7 @@ pub struct FileCoverageEntry {
     pub covered_functions: Option<u64>,
 }
 
-/// 逐文件覆盖原始计数条目（override 聚合的原始计数源）。
+/// 逐文件覆盖原始计数条目（子报告覆盖保真面；汇总层不再消费）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SourceFileEntry {
@@ -350,7 +352,9 @@ pub struct PlanIndexEntry {
 }
 
 /// 汇总报告（`summary.json`；CLI `testExecutionSummaryReportSchema` 逐字段
-/// 对齐）。
+/// 对齐）。汇总面 = 计数求和 + 布尔归并（判据见 `determine_conclusion`）——
+/// MUST NOT 携覆盖率 / 突变数值块（两者的权威面是逐 suite 子报告与 MutationTest
+/// 步载荷）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SummaryReport {
@@ -375,12 +379,6 @@ pub struct SummaryReport {
     /// 问题清单
     #[serde(default)]
     pub problems: Vec<Problem>,
-    /// 全局覆盖结论（全部框架未采到为 `None`）
-    #[serde(default)]
-    pub coverage: Option<CoverageBlock>,
-    /// 全局突变结论（跳过 / 不支持为 `None`）
-    #[serde(default)]
-    pub mutation: Option<MutationBlock>,
     /// 尝试过的 plan 路径索引
     #[serde(default)]
     pub plans: Vec<PlanIndexEntry>,

@@ -1,0 +1,336 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:109:
+ }
+ 
+ /// config::TestSuite 内存构造（framework 无 Copy，逐调用点显式构造枚举值）。
+[31m-fn suite(
+[0m[31m-    root: &str,
+[0m[31m-    framework: TestFramework,
+[0m[31m-    excludes: Option<Vec<String>>,
+[0m[31m-) -> TestSuite {
+[0m[32m+fn suite(root: &str, framework: TestFramework, excludes: Option<Vec<String>>) -> TestSuite {
+[0m     TestSuite {
+         root: root.to_owned(),
+         framework,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:155:
+     assert!(text.contains("\"conclusion\":\"pass\""));
+     let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可回读");
+     assert!(
+[31m-        !value.as_object().expect("顶层对象").contains_key("coverage"),
+[0m[32m+        !value
+[0m[32m+            .as_object()
+[0m[32m+            .expect("顶层对象")
+[0m[32m+            .contains_key("coverage"),
+[0m         "空汇总零 coverage 键"
+     );
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:162:
+[31m-        !value.as_object().expect("顶层对象").contains_key("mutation"),
+[0m[32m+        !value
+[0m[32m+            .as_object()
+[0m[32m+            .expect("顶层对象")
+[0m[32m+            .contains_key("mutation"),
+[0m         "空汇总零 mutation 键"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:473:
+             thresholds(80.0, 70.0, 90.0),
+         )),
+     );
+[31m-    assert_eq!(determine_conclusion(0, &[vite, rust], false), Conclusion::Fail);
+[0m[32m+    assert_eq!(
+[0m[32m+        determine_conclusion(0, &[vite, rust], false),
+[0m[32m+        Conclusion::Fail
+[0m[32m+    );
+[0m }
+ 
+ /// 正向：`failed > 0` → fail（覆盖全 pass 不豁免）。
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:526:
+ #[test]
+ fn 结论判定_缺采集判fail不判error() {
+     let missing = sub_report("crates", "rust", counts(3, 3, 0, 0), Vec::new(), None);
+[31m-    let conclusion = determine_conclusion(
+[0m[31m-        0,
+[0m[31m-        &[missing, passing_report("src/app", "vite-plus")],
+[0m[31m-        false,
+[0m[31m-    );
+[0m[32m+    let conclusion =
+[0m[32m+        determine_conclusion(0, &[missing, passing_report("src/app", "vite-plus")], false);
+[0m     assert_eq!(conclusion, Conclusion::Fail, "缺采集非 pass 亦非 error");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:726:
+     let none_excludes = vec![suite("src/app", TestFramework::VitePlus, None)];
+     assert!(!is_file_excluded("src/app/ui/button.ts", &none_excludes));
+ 
+[31m-    let empty_excludes = vec![suite(
+[0m[31m-        "src/app",
+[0m[31m-        TestFramework::VitePlus,
+[0m[31m-        Some(Vec::new()),
+[0m[31m-    )];
+[0m[32m+    let empty_excludes = vec![suite("src/app", TestFramework::VitePlus, Some(Vec::new()))];
+[0m     assert!(!is_file_excluded("src/app/ui/button.ts", &empty_excludes));
+ 
+     let excludes = Some(vec!["**/ui/**".to_owned()]);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:773:
+     );
+ 
+     assert!(
+[31m-        !is_file_excluded(".", &[suite(".", TestFramework::VitePlus, excludes.clone())]),
+[0m[32m+        !is_file_excluded(
+[0m[32m+            ".",
+[0m[32m+            &[suite(".", TestFramework::VitePlus, excludes.clone())]
+[0m[32m+        ),
+[0m         "树根自身（rel_to_root == \".\"）不进剔除面"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:903:
+         .zip([("src/app", "vite-plus"), ("crates", "rust")])
+     {
+         assert_eq!(plan.id, derive_plan_id(root, framework), "id 沿单点派生");
+[31m-        assert_eq!(plan.path, format!("reports/test/{}", plan.id), "path 前缀恒定");
+[0m[32m+        assert_eq!(
+[0m[32m+            plan.path,
+[0m[32m+            format!("reports/test/{}", plan.id),
+[0m[32m+            "path 前缀恒定"
+[0m[32m+        );
+[0m         assert_eq!(plan.framework, framework);
+         assert_eq!(plan.root, root);
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:975:
+ 
+     assert_eq!(
+         coverage_problems(&summary),
+[31m-        vec![(
+[0m[31m-            "rust",
+[0m[31m-            "Coverage below threshold: functions 87.6% < 90%"
+[0m[31m-        )],
+[0m[32m+        vec![("rust", "Coverage below threshold: functions 87.6% < 90%")],
+[0m         "达标 suite 零归因，缺口 suite 恰一条（消息原文零改写）"
+     );
+     assert_eq!(summary.conclusion, Conclusion::Fail);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:1071:
+     );
+     let summary = build_summary_report(&[report], "cmd", OffsetDateTime::now_utc());
+ 
+[31m-    assert_eq!(summary.problems.len(), 2, "两类各一条: {:?}", summary.problems);
+[0m     assert_eq!(
+[32m+        summary.problems.len(),
+[0m[32m+        2,
+[0m[32m+        "两类各一条: {:?}",
+[0m[32m+        summary.problems
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m         count_of(&summary, crate::model::ProblemType::ExecutionError),
+         1
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:1115:
+         count_of(&summary, crate::model::ProblemType::ExecutionError),
+         0
+     );
+[31m-    assert_eq!(summary.conclusion, Conclusion::Fail, "失败 + 缺采集合判 fail");
+[0m     assert_eq!(
+[32m+        summary.conclusion,
+[0m[32m+        Conclusion::Fail,
+[0m[32m+        "失败 + 缺采集合判 fail"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m         summary.problems[0].problem_type,
+         crate::model::ProblemType::TestFailure,
+         "同 suite 内条目序不变"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:1258:
+     assert_eq!(rootless.plans[0].path, "reports/test/rust");
+ 
+     let two_frameworks = build_summary_report(
+[31m-        &[covered_report("crates", "rust"), covered_report("crates", "go")],
+[0m[32m+        &[
+[0m[32m+            covered_report("crates", "rust"),
+[0m[32m+            covered_report("crates", "go"),
+[0m[32m+        ],
+[0m         "cmd",
+         OffsetDateTime::now_utc(),
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\aggregate_test.rs:1342:
+     let summary = build_summary_report(&[report], "cmd", OffsetDateTime::now_utc());
+     let json = serde_json::to_string(&summary).expect("缺测面汇总应可序列化");
+ 
+[31m-    assert!(json.contains("\"conclusion\":\"fail\""), "结论线格式: {json}");
+[0m[32m+    assert!(
+[0m[32m+        json.contains("\"conclusion\":\"fail\""),
+[0m[32m+        "结论线格式: {json}"
+[0m[32m+    );
+[0m     assert!(
+         json.contains("\"type\":\"coverage_failure\""),
+         "覆盖归因线格式: {json}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\diagnose_test.rs:541:
+     let findings = diagnose_findings(&summary);
+     assert!(
+         findings.contains(
+[31m-            &"覆盖判定未通过 [rust]: Coverage below threshold: functions 87.6% < 90%"
+[0m[31m-                .to_owned()
+[0m[32m+            &"覆盖判定未通过 [rust]: Coverage below threshold: functions 87.6% < 90%".to_owned()
+[0m         ),
+         "逐 suite 覆盖归因展开，实际: {findings:?}"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\diagnose_test.rs:646:
+     );
+ 
+     let fail = hand_summary(Conclusion::Fail, 0, Vec::new());
+[31m-    assert!(
+[0m[31m-        diagnose_findings(&fail).is_empty(),
+[0m[31m-        "无归因条目可读 → 空集"
+[0m[31m-    );
+[0m[32m+    assert!(diagnose_findings(&fail).is_empty(), "无归因条目可读 → 空集");
+[0m }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\model_test.rs:555:
+     let text = serde_json::to_string(&parsed).expect("序列化应成功");
+     let value: serde_json::Value = serde_json::from_str(&text).expect("线格式可回读");
+     let object = value.as_object().expect("顶层对象");
+[31m-    assert!(!object.contains_key("coverage"), "最小 summary 无 coverage 键");
+[0m[31m-    assert!(!object.contains_key("mutation"), "最小 summary 无 mutation 键");
+[0m     assert!(
+[32m+        !object.contains_key("coverage"),
+[0m[32m+        "最小 summary 无 coverage 键"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m[32m+        !object.contains_key("mutation"),
+[0m[32m+        "最小 summary 无 mutation 键"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m         !object.contains_key("findings"),
+         "findings 为 None 时整键不出现"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\src\model_test.rs:1142:
+         coverage: None,
+     };
+     let text = serde_json::to_string(&no_coverage).expect("序列化应成功");
+[31m-    let roundtrip: crate::model::SourceFileEntry =
+[0m[31m-        serde_json::from_str(&text).expect("回读应成功");
+[0m[32m+    let roundtrip: crate::model::SourceFileEntry = serde_json::from_str(&text).expect("回读应成功");
+[0m     assert_eq!(roundtrip, no_coverage, "coverage 缺省态往返");
+ 
+     let override_group = CoverageOverride {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\tests\corpus_golden_test.rs:269:
+     let mut parsed_summaries = 0usize;
+     for fixture in CORPUS_FIXTURES {
+         let projection = project_corpus_fixture(fixture);
+[31m-        let sub_outcome = projection["subReport"]["outcome"].as_str().unwrap_or_default();
+[0m[32m+        let sub_outcome = projection["subReport"]["outcome"]
+[0m[32m+            .as_str()
+[0m[32m+            .unwrap_or_default();
+[0m         if sub_outcome != "parsed" {
+             assert!(
+                 projection.get("summary").is_none(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\tests\corpus_golden_test.rs:287:
+             parsed_summaries += 1;
+         }
+     }
+[31m-    assert_eq!(parsed_summaries, 4, "四份语料携 summary 面（绿跑三档 + 红跑）");
+[0m[32m+    assert_eq!(
+[0m[32m+        parsed_summaries, 4,
+[0m[32m+        "四份语料携 summary 面（绿跑三档 + 红跑）"
+[0m[32m+    );
+[0m }
+ 
+ /// 装置边界：`CORPUS_FIXTURES` 恰八套，且「六 parsed + 两 unparsable」全量
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\tests\corpus_golden_test.rs:294:
+ /// 统计（零静默丢弃）；golden 缺失时记因文案点名重写开关。
+ #[test]
+ fn 语料装置边界_清单规模与golden缺失记因() {
+[31m-    assert_eq!(CORPUS_FIXTURES.len(), 8, "语料清单八套（fixtures/README 同步）");
+[0m[32m+    assert_eq!(
+[0m[32m+        CORPUS_FIXTURES.len(),
+[0m[32m+        8,
+[0m[32m+        "语料清单八套（fixtures/README 同步）"
+[0m[32m+    );
+[0m     let mut parsed = 0usize;
+     let mut unparsable = 0usize;
+     for fixture in CORPUS_FIXTURES {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\core\checks\tests\corpus_golden_test.rs:304:
+             other => panic!("{fixture}: 未知投影 outcome {other:?}"),
+         }
+     }
+[31m-    assert_eq!((parsed, unparsable), (6, 2), "六 parsed + 两 unparsable 全量");
+[0m[32m+    assert_eq!(
+[0m[32m+        (parsed, unparsable),
+[0m[32m+        (6, 2),
+[0m[32m+        "六 parsed + 两 unparsable 全量"
+[0m[32m+    );
+[0m 
+     let missing = golden_dir().join("no-such-golden.json");
+     let error = compare_golden(&missing, "no-such-golden", &serde_json::json!({}))
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\infra\checks\src\mutation\mod_test.rs:991:
+         "预置 mutation 值未被归并块覆盖: {summary}"
+     );
+     assert!(
+[31m-        !summary.as_object().expect("顶层对象").contains_key("coverage"),
+[0m[32m+        !summary
+[0m[32m+            .as_object()
+[0m[32m+            .expect("顶层对象")
+[0m[32m+            .contains_key("coverage"),
+[0m         "summary 面零 coverage 键: {summary}"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\infra\checks\src\testexec\mod_test.rs:624:
+         "82.5 ≥ 60 / 74.1 ≥ 70 / 90.3 ≥ 75 达阈（逐 suite 唯一判定点）"
+     );
+     assert_eq!(coverage.measured.lines, Some(82.5));
+[31m-    assert!(summary.problems.is_empty(), "全绿零归因: {:?}", summary.problems);
+[0m[32m+    assert!(
+[0m[32m+        summary.problems.is_empty(),
+[0m[32m+        "全绿零归因: {:?}",
+[0m[32m+        summary.problems
+[0m[32m+    );
+[0m 
+     // summary 瘦身面（AC-2）：线格式无 coverage / mutation 两键
+[31m-    let summary_value: serde_json::Value = serde_json::from_str(
+[0m[31m-        &fs::read_to_string(reports_dir.join("summary.json")).expect("读回"),
+[0m[31m-    )
+[0m[31m-    .expect("summary.json 线格式可解析");
+[0m[32m+    let summary_value: serde_json::Value =
+[0m[32m+        serde_json::from_str(&fs::read_to_string(reports_dir.join("summary.json")).expect("读回"))
+[0m[32m+            .expect("summary.json 线格式可解析");
+[0m     let summary_object = summary_value.as_object().expect("顶层对象");
+     assert!(
+         !summary_object.contains_key("coverage"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\infra\checks\src\testexec\mod_test.rs:801:
+ 
+     for (plan_id, expected_pass) in [("app_node-test", true), ("app2_node-test", false)] {
+         let sub = checks::parse_sub_report(
+[31m-            &fs::read_to_string(reports_dir.join(plan_id).join("report.json"))
+[0m[31m-                .expect("子报告读回"),
+[0m[32m+            &fs::read_to_string(reports_dir.join(plan_id).join("report.json")).expect("子报告读回"),
+[0m         )
+         .expect("report.json 可解析");
+         let coverage = sub.coverage.as_ref().expect("子报告覆盖块在场");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\infra\checks\src\testexec\mod_test.rs:845:
+         double.run().await.expect("双 plan 链应 Ok");
+     }
+     let reports_dir = double.reports_dir();
+[31m-    let double_summary: SummaryReport =
+[0m[31m-        checks::parse_summary_report(&fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"))
+[0m[31m-            .expect("summary.json 可解析");
+[0m[32m+    let double_summary: SummaryReport = checks::parse_summary_report(
+[0m[32m+        &fs::read_to_string(reports_dir.join("summary.json")).expect("summary 读回"),
+[0m[32m+    )
+[0m[32m+    .expect("summary.json 可解析");
+[0m     assert_eq!(double_summary.plans.len(), 2);
+     assert_eq!(double_summary.plans[1].id, "app2_node-test");
+     for plan in &double_summary.plans {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\coverage-aggregation-layer-removal\packages\desktop\src-tauri\crates\infra\checks\src\testexec\mod_test.rs:898:
+         ws.run().await
+     }
+     .expect("复用跑应 Ok");
+[31m-    assert_eq!(ws.marker_count(), 1, "复用零 spawn（fail 报告不被覆盖面拒绝）");
+[0m[32m+    assert_eq!(
+[0m[32m+        ws.marker_count(),
+[0m[32m+        1,
+[0m[32m+        "复用零 spawn（fail 报告不被覆盖面拒绝）"
+[0m[32m+    );
+[0m     assert_eq!(
+         ws.summary_timestamp(),
+         Some(first_ts),
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.
