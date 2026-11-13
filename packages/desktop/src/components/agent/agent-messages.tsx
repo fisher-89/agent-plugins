@@ -455,7 +455,7 @@ export function AgentMessages({
   );
   return (
     <section
-      className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg border border-border bg-card"
+      className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg"
       data-testid="agent-messages"
     >
       {loading && conversation.length === 0 ? (

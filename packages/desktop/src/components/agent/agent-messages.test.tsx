@@ -729,7 +729,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     expect(Math.min(...heights)).toBeGreaterThanOrEqual(0);
   });
 
-  it('气泡同渲染件：吸附层 user 气泡为 tinted 泡 + 底衬容器，零渐变 / 零阴影', () => {
+  it('气泡同渲染件：吸附层 user 气泡为 tinted 泡 + 底衬容器，零渐变 / 有阴影', () => {
     render(<AgentMessages messages={turnConversation(4)} loading={false} running={false} />);
     const sticky = stickyNodes()[0] as HTMLElement;
     const inner = sticky.firstElementChild as HTMLElement;
@@ -739,8 +739,8 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     expect(bubble?.querySelector('[data-slot="bubble"]')?.getAttribute('data-variant')).toBe(
       'tinted',
     );
-    expect(inner.className).toContain('bg-card');
-    for (const forbidden of ['shadow', 'bg-gradient', 'from-', 'to-']) {
+    expect(inner.className).toContain('shadow');
+    for (const forbidden of ['bg-gradient', 'from-', 'to-']) {
       expect(inner.className, forbidden).not.toContain(forbidden);
     }
   });

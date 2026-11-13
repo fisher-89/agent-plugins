@@ -756,7 +756,6 @@ describe('MessageScrollerItem：定位与零测量回落', () => {
       '[content-visibility:auto]',
       '[contain-intrinsic-size:auto_10rem]',
       'min-w-0',
-      'px-3',
     ]) {
       expect(item.className, className).toContain(className);
     }
@@ -873,17 +872,17 @@ describe('MessageScrollerSticky：吸附层结构契约', () => {
     expect(inner?.style.top).toBe('0px');
   });
 
-  it('正向：内层底衬与可交互类名在场；外层零渐变 / 零阴影 / 零提示类名', () => {
+  it('正向：内层底衬与可交互类名在场；外层零渐变 / 有阴影 / 零提示类名', () => {
     const { container } = renderSticky(100);
     const outer = container.querySelector('[data-slot="message-scroller-sticky"]') as HTMLElement;
     const inner = outer.querySelector('div') as HTMLElement;
 
-    for (const className of ['bg-card', 'px-3', 'pointer-events-auto']) {
+    for (const className of ['pointer-events-auto']) {
       expect(inner.className, className).toContain(className);
     }
     // 与同轮 assistant 正文同层遮挡（z-index 不创建包含块）
     expect(outer.className).toContain('z-10');
-    for (const forbidden of ['bg-gradient', 'shadow', 'from-', 'to-']) {
+    for (const forbidden of ['bg-gradient', 'from-', 'to-']) {
       expect(outer.className, forbidden).not.toContain(forbidden);
       expect(inner.className, forbidden).not.toContain(forbidden);
     }

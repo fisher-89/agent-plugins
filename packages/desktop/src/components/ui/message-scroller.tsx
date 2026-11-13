@@ -242,14 +242,17 @@ function MessageScrollerContent({
 }): React.JSX.Element {
   const { virtualizer } = useScrollerContext();
   return (
-    <div
-      data-slot="message-scroller-content"
-      className={cn('relative', className)}
-      style={{ height: virtualizer.getTotalSize() }}
-    >
-      {children}
-      <MessageScrollerSlice />
-    </div>
+    <>
+     <div
+        data-slot="message-scroller-content"
+        className={cn('relative pr-3', className)}
+        style={{ height: virtualizer.getTotalSize() }}
+      >
+        {children}
+        <MessageScrollerSlice />
+      </div>
+      <div className="h-8"></div>
+    </>
   );
 }
 
@@ -329,7 +332,7 @@ function MessageScrollerItem({
       data-slot="message-scroller-item"
       data-index={index}
       className={cn(
-        'absolute top-0 left-0 w-full min-w-0 shrink-0 px-3 [contain-intrinsic-size:auto_10rem] [content-visibility:auto]',
+        'absolute top-0 left-0 w-full min-w-0 shrink-0 [contain-intrinsic-size:auto_10rem] [content-visibility:auto]',
         className,
       )}
       style={{ transform: `translateY(${start}px)` }}
@@ -394,7 +397,7 @@ function MessageScrollerSticky({
       <div
         ref={measure}
         style={{ position: 'sticky', top: 0 }}
-        className="pointer-events-auto bg-card px-3"
+        className="pointer-events-auto shadow-md shadow-black/20"
       >
         {children}
       </div>
