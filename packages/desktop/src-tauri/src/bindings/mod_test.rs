@@ -3276,6 +3276,7 @@ fn 文件树词表线值在产物逐字命中() {
 /// 的 `()` 出线形态）。
 #[test]
 fn agent_answer出线签名为三参薄包装() {
+    let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
     let expected = "agentAnswer: (root: string, sessionId: string, text: string) => \
                     __TAURI_INVOKE<null>(\"agent_answer\", { root, sessionId, text })";
@@ -3303,6 +3304,7 @@ fn agent_answer出线签名为三参薄包装() {
 ///（与既有 `SessionInjections` / `FinishSpec` 同口径的反向锚定清单）。
 #[test]
 fn 引擎侧词汇反向锚定清单含ask_mode() {
+    let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
     for forbidden in [
         "AskMode",
@@ -3329,6 +3331,7 @@ fn 引擎侧词汇反向锚定清单含ask_mode() {
 /// 仍合法。
 #[test]
 fn ask_payload两additive字段出线为可选可空() {
+    let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
     let start = content
         .find("export type AskPayload = {")
@@ -3350,6 +3353,7 @@ fn ask_payload两additive字段出线为可选可空() {
 /// 给 `.optional()` / `.nullable()`，与类型层可选可空同源。
 #[test]
 fn ask_payload_zod产物两additive字段可选可空() {
+    let _lock = lock();
     let zod = std::fs::read_to_string(zod_generated_path()).expect("读取 bindings.zod.ts");
     let ask_block_start = zod
         .find("export const AskPayloadSchema")
