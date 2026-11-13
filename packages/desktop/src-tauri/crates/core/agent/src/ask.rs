@@ -48,6 +48,16 @@ impl AskRegistry {
         Ok(())
     }
 
+    /// 该会话此刻是否有等待中的 ask（ask 阻塞窗口的唯一真相）。`SteerRegistry`
+    /// 的条目在 ask 阻塞期仍在场（会话没结束，只是 loop 卡在工具执行分支），
+    /// 故「条目在场」不能证明可送达——本方法只读 `contains_key`，O(1)，取锁即释放。
+    pub fn is_pending(&self, session_id: &str) -> bool {
+        self.slots
+            .lock()
+            .expect("ask 注册表锁不可中毒")
+            .contains_key(session_id)
+    }
+
     /// 除名（轮收敛时兜底清理；miss 幂等）。
     pub fn remove(&self, session_id: &str) {
         self.slots

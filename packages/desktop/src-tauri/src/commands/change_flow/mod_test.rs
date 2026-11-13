@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::{AskRegistry, SessionStreamRegistry, StopRegistry};
+use ::agent::{AskRegistry, SessionStreamRegistry, SteerRegistry, StopRegistry};
 use orchestration::control::ChangeFlowControl;
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
@@ -84,6 +84,8 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     app.manage(Arc::new(StopRegistry::new()));
     // 会话实时流注册表：与 `src/main.rs` 同型空表托管（两轨同源注入面）
     app.manage(Arc::new(SessionStreamRegistry::new()));
+    // steer 注入注册表：与 `src/main.rs` 同址同型空表托管（composition 第 5 实参）
+    app.manage(Arc::new(SteerRegistry::default()));
     app
 }
 

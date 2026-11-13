@@ -1,0 +1,1 @@
+pnpm run -C ./packages/desktop check 2>&1

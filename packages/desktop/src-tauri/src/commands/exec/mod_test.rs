@@ -7,7 +7,7 @@ use tauri::{App, Manager};
 
 use ::agent::{
     AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, AskRegistry,
-    SessionStreamRegistry, StopRegistry,
+    SessionStreamRegistry, SteerMessage, SteerRegistry, StopRegistry,
 };
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
@@ -67,6 +67,8 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     app.manage(Arc::new(SessionStreamRegistry::new()));
     // ask 应答注册表：与 `src/main.rs` 同型空表托管（agent_answer 取用面）
     app.manage(Arc::new(AskRegistry::default()));
+    // steer 注入注册表：与 `src/main.rs` 同址同型空表托管（agent_steer 取用面）
+    app.manage(Arc::new(SteerRegistry::default()));
     app
 }
 
@@ -3389,5 +3391,628 @@ fn ask注册表未托管时发起即失败且零落库() {
             .expect("转录查询")
             .is_empty(),
         "零转录行"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// steer-running-agent-step：`agent_steer` 四段薄包装（blank 三参校验 → ask 槽
+// 判据 → 注册表投递 → ack 等待）+ 六条不可送达文案 + 零副作用组合行
+//
+// 命令体零编排：不新开会话 / 轮、零状态机操作、零广播、零排队。三条不可送达
+// 文案各自独立（成因可辨），blank 三臂各携字段名。
+// ---------------------------------------------------------------------------
+
+/// 从测用 app 取托管 steer 注册表 `Arc`（与 `main.rs` 的 `app.manage` 同型）。
+fn steer_registry_of(app: &App<tauri::test::MockRuntime>) -> Arc<SteerRegistry> {
+    Arc::clone(app.state::<Arc<SteerRegistry>>().inner())
+}
+
+/// 命中（正向，AC-8）：预置登记 → 同任务 `tokio::join!` 驱动命令与接收端（收到
+/// 消息即 ack）→ 命令返 `Ok(())`、接收端正文逐字。
+#[tokio::test]
+async fn agent_steer_命中ok且正文逐字() {
+    let env = Env::new("agent-steer-hit");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        env.root_of("ws"),
+        "core-1".to_owned(),
+        "先跑 lint".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx.recv().await.expect("接收端收到该条");
+        let text = delivered.text.clone();
+        delivered.ack.send(()).expect("ack 回投");
+        text
+    };
+    let (result, text) = tokio::join!(command, receiver);
+
+    result.expect("命中受理");
+    assert_eq!(text, "先跑 lint", "正文逐字（命令体零加工）");
+}
+
+/// blank root（异常，参数化 3 形态）：三形态空白 → `Err` 携「非法 root」；注册
+/// 表零触点（其后合法 root 仍可命中）。
+#[tokio::test]
+async fn agent_steer_blank_root_err且零触点() {
+    let env = Env::new("agent-steer-blank-root");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+
+    for root in ["", "   ", "\t\n"] {
+        let error = super::agent_steer(
+            app.state::<Arc<SteerRegistry>>(),
+            app.state::<Arc<AskRegistry>>(),
+            root.to_owned(),
+            "core-1".to_owned(),
+            "补充说明".to_owned(),
+        )
+        .await
+        .expect_err("blank root 应 Err");
+        assert!(error.contains("非法 root"), "文案携字段名，实际: {error}");
+    }
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ),
+        "注册表零触点（零投递）"
+    );
+
+    // 校验不误伤正常路径：合法 root 仍可命中
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        env.root_of("ws"),
+        "core-1".to_owned(),
+        "合法 path".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx.recv().await.expect("合法 root 命中");
+        delivered.ack.send(()).expect("ack 回投");
+    };
+    let (result, ()) = tokio::join!(command, receiver);
+    result.expect("合法 root 受理");
+}
+
+/// blank session_id（异常，参数化 2 形态）：`Err` 携「非法 session_id」；注册表
+/// 零触点。
+#[tokio::test]
+async fn agent_steer_blank_session_id_err且零触点() {
+    let env = Env::new("agent-steer-blank-session");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+    let root = env.root_of("ws");
+
+    for session_id in ["", "   "] {
+        let error = super::agent_steer(
+            app.state::<Arc<SteerRegistry>>(),
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            session_id.to_owned(),
+            "补充说明".to_owned(),
+        )
+        .await
+        .expect_err("blank session_id 应 Err");
+        assert!(
+            error.contains("非法 session_id"),
+            "文案携字段名，实际: {error}"
+        );
+    }
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ),
+        "注册表零触点"
+    );
+}
+
+/// blank text（异常，参数化 3 形态，DD9）：`Err` 携「非法 text」；该文本不入通道
+/// （接收端 `Empty`）——空串进史等于给模型塞一条空消息，故命令面拒。
+#[tokio::test]
+async fn agent_steer_blank_text_err且不入通道() {
+    let env = Env::new("agent-steer-blank-text");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+    let root = env.root_of("ws");
+
+    for text in ["", "   ", "\n"] {
+        let error = super::agent_steer(
+            app.state::<Arc<SteerRegistry>>(),
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            "core-1".to_owned(),
+            text.to_owned(),
+        )
+        .await
+        .expect_err("blank text 应 Err");
+        assert!(error.contains("非法 text"), "文案携字段名，实际: {error}");
+    }
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ),
+        "该文本不入通道"
+    );
+}
+
+/// 校验次序（异常，组合迭代 3 组合）：三参同时 blank → 报 root 臂；root 合法 +
+/// 后两参 blank → 报 session_id 臂（先于 text）。
+#[tokio::test]
+async fn agent_steer_校验次序_root先于session_id先于text() {
+    let env = Env::new("agent-steer-order");
+    let app = app_with_stores(&env);
+    let root = env.root_of("ws");
+
+    let all_blank = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        "   ".to_owned(),
+        String::new(),
+        "\n".to_owned(),
+    )
+    .await
+    .expect_err("三参全 blank 应 Err");
+    assert!(all_blank.contains("非法 root"), "root 臂先行: {all_blank}");
+
+    let session_before_text = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "   ".to_owned(),
+        String::new(),
+    )
+    .await
+    .expect_err("后两参 blank 应 Err");
+    assert!(
+        session_before_text.contains("非法 session_id"),
+        "session_id 臂先于 text: {session_before_text}"
+    );
+
+    let text_arm = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        "core-1".to_owned(),
+        "  ".to_owned(),
+    )
+    .await
+    .expect_err("仅 text blank 应 Err");
+    assert!(text_arm.contains("非法 text"), "text 臂: {text_arm}");
+}
+
+/// ask 优先（异常，AC-4）：同键 ask 槽在场 + steer 已登记 → `Err`「等待应答中，
+/// 补充说明不可送达」；steer 通道零项，应答后仍 `Empty`（不补投、无排队）。
+#[tokio::test]
+async fn agent_steer_ask优先且应答后不补投() {
+    let env = Env::new("agent-steer-ask");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let asks = ask_registry_of(&app);
+    let (steer_tx, mut steer_rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", steer_tx);
+    let (ask_tx, mut ask_rx) = tokio::sync::oneshot::channel::<String>();
+    assert!(asks.register("core-1", ask_tx), "ask 阻塞窗口形态");
+
+    let error = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        env.root_of("ws"),
+        "core-1".to_owned(),
+        "阻塞期补充说明".to_owned(),
+    )
+    .await
+    .expect_err("ask 阻塞期应 Err");
+    assert_eq!(error, "等待应答中，补充说明不可送达");
+    assert!(
+        matches!(
+            steer_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ),
+        "判据先于投递（该文本不入通道）"
+    );
+
+    asks.answer("core-1", "选项A".to_owned()).expect("应答受理");
+    assert_eq!(ask_rx.try_recv().expect("ask 收到"), "选项A");
+    assert!(
+        matches!(
+            steer_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ),
+        "应答后不补投、无排队"
+    );
+}
+
+/// miss / 已收口（异常，参数化 2 形态）：从未登记键与 `remove` 后 → `Err`「会话
+/// 已收口，补充说明不可送达」，与 `send` 失败臂文案逐字相同。
+#[tokio::test]
+async fn agent_steer_miss与send失败同文案() {
+    let env = Env::new("agent-steer-miss");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let root = env.root_of("ws");
+
+    // 形态①：从未登记
+    let never = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-从未".to_owned(),
+        "补充说明".to_owned(),
+    )
+    .await
+    .expect_err("未登记应 Err");
+    assert_eq!(never, "会话已收口，补充说明不可送达");
+
+    // 形态②：登记后除名（轮已收口）
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+    steers.remove("core-1");
+    let removed = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-1".to_owned(),
+        "补充说明".to_owned(),
+    )
+    .await
+    .expect_err("除名后应 Err");
+    assert_eq!(removed, never, "两成因同一文案");
+
+    // 形态③：接收入端已 drop（send 失败臂）
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-2", tx);
+    drop(rx);
+    let send_failed = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        "core-2".to_owned(),
+        "补充说明".to_owned(),
+    )
+    .await
+    .expect_err("send 失败应 Err");
+    assert_eq!(send_failed, never, "send 失败与 miss 同臂");
+}
+
+/// ack 竞态诚实（异常，AC-5）：投递成功后接收侧 drop 该消息（不回 ack）→ 命令
+/// 返 `Err`「未送达（会话在补充说明生效前结束）」；用例内零计时器。
+#[tokio::test]
+async fn agent_steer_ack竞态返未送达err() {
+    let env = Env::new("agent-steer-ack-race");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        env.root_of("ws"),
+        "core-1".to_owned(),
+        "轮在生效前结束".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx.recv().await.expect("投递成功");
+        drop(delivered); // 不回 ack：等价「会话在补充说明生效前结束」
+    };
+    let (result, ()) = tokio::join!(command, receiver);
+
+    assert_eq!(
+        result.expect_err("ack 未回 → Err"),
+        "未送达（会话在补充说明生效前结束）"
+    );
+}
+
+/// 六文案可辨（异常，参数化 6 形态对拍）：三态 + 三 blank 的错误串两两不等，且
+/// 各含成因关键词。
+#[tokio::test]
+async fn agent_steer_六文案两两不等且各含成因() {
+    let env = Env::new("agent-steer-copywriting");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let asks = ask_registry_of(&app);
+    let root = env.root_of("ws");
+
+    // ① blank root
+    let blank_root = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        String::new(),
+        "core-1".to_owned(),
+        "正文".to_owned(),
+    )
+    .await
+    .expect_err("blank root");
+    // ② blank session_id
+    let blank_session = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        String::new(),
+        "正文".to_owned(),
+    )
+    .await
+    .expect_err("blank session_id");
+    // ③ blank text
+    let blank_text = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-1".to_owned(),
+        String::new(),
+    )
+    .await
+    .expect_err("blank text");
+    // ④ ask 阻塞
+    let (ask_tx, _ask_rx) = tokio::sync::oneshot::channel::<String>();
+    asks.register("core-ask", ask_tx);
+    let waiting = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-ask".to_owned(),
+        "正文".to_owned(),
+    )
+    .await
+    .expect_err("ask 阻塞");
+    // ⑤ 会话已收口
+    let closed = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-never".to_owned(),
+        "正文".to_owned(),
+    )
+    .await
+    .expect_err("miss");
+    // ⑥ ack 竞态
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-race", tx);
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        "core-race".to_owned(),
+        "正文".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx.recv().await.expect("投递成功");
+        drop(delivered);
+    };
+    let (undelivered, ()) = tokio::join!(command, receiver);
+    let undelivered = undelivered.expect_err("ack 未回");
+
+    let all = [
+        ("blank root", blank_root, "非法 root"),
+        ("blank session_id", blank_session, "非法 session_id"),
+        ("blank text", blank_text, "非法 text"),
+        ("ask 阻塞", waiting, "等待应答中"),
+        ("会话已收口", closed, "已收口"),
+        ("ack 竞态", undelivered, "未送达"),
+    ];
+    for (label, error, keyword) in &all {
+        assert!(
+            error.contains(keyword),
+            "{label} 文案须含成因关键词 {keyword}，实际: {error}"
+        );
+    }
+    for left in 0..all.len() {
+        for right in (left + 1)..all.len() {
+            assert_ne!(
+                all[left].1, all[right].1,
+                "{} 与 {} 文案不应归一",
+                all[left].0, all[right].0
+            );
+        }
+    }
+}
+
+/// 零副作用（异常，组合迭代 2 路径 × 库面观测）：命中与三态失败均不落库（会话
+/// 行计数不变），命令体零 agent_start / agent_stop / 零广播。
+#[tokio::test]
+async fn agent_steer_零副作用_库面无新增行() {
+    let env = Env::new("agent-steer-no-side-effect");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let steers = steer_registry_of(&app);
+    let root = env.root_of("ws");
+    let before = sessions_in_root(stores.inner(), &root).len();
+
+    // 路径①：命中
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-1".to_owned(),
+        "补充说明".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx.recv().await.expect("投递成功");
+        delivered.ack.send(()).expect("ack 回投");
+    };
+    let (result, ()) = tokio::join!(command, receiver);
+    result.expect("命中受理");
+
+    // 路径②：三态失败
+    for (session_id, text) in [
+        ("core-未登记".to_owned(), "补充说明".to_owned()),
+        ("core-1".to_owned(), String::new()),
+        (String::new(), "补充说明".to_owned()),
+    ] {
+        let _ = super::agent_steer(
+            app.state::<Arc<SteerRegistry>>(),
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            session_id,
+            text,
+        )
+        .await
+        .expect_err("失败路径");
+    }
+
+    assert_eq!(
+        sessions_in_root(stores.inner(), &root).len(),
+        before,
+        "库面无新会话行 / 新轮行"
+    );
+}
+
+/// 命中与失败都不触引擎（组合行，2 路径）：无 provider 配置 / 零网络即可完成
+/// ——命令体是四段薄包装（不构造组合根、不开轮）。
+#[tokio::test]
+async fn agent_steer_两路径均零provider依赖() {
+    let env = Env::new("agent-steer-no-engine");
+    // 刻意不落任何 provider / 实例 fixture（库为空）
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let root = env.root_of("ws");
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-1", tx);
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-1".to_owned(),
+        "零引擎依赖".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx.recv().await.expect("投递成功");
+        delivered.ack.send(()).expect("ack 回投");
+    };
+    let (hit, ()) = tokio::join!(command, receiver);
+    hit.expect("命中路径零 provider 依赖");
+
+    let failure = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        "core-未登记".to_owned(),
+        "零引擎依赖".to_owned(),
+    )
+    .await
+    .expect_err("失败路径");
+    assert_eq!(failure, "会话已收口，补充说明不可送达");
+}
+
+/// 多会话隔离（边界，组合迭代 2 会话 × 2 序）：对 A 投递只落 A 的接收端，B 仍
+/// `Empty`；随后对 B 投递落 B。
+#[tokio::test]
+async fn agent_steer_多会话隔离() {
+    let env = Env::new("agent-steer-isolation");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let (tx_a, mut rx_a) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    let (tx_b, mut rx_b) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+    steers.register("core-a", tx_a);
+    steers.register("core-b", tx_b);
+    let root = env.root_of("ws");
+
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "core-a".to_owned(),
+        "给 A".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx_a.recv().await.expect("A 收到");
+        assert_eq!(delivered.text, "给 A");
+        delivered.ack.send(()).expect("ack 回投");
+    };
+    let (result, ()) = tokio::join!(command, receiver);
+    result.expect("A 投递成功");
+    assert!(
+        matches!(
+            rx_b.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ),
+        "B 未被误投"
+    );
+
+    let command = super::agent_steer(
+        app.state::<Arc<SteerRegistry>>(),
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        "core-b".to_owned(),
+        "给 B".to_owned(),
+    );
+    let receiver = async move {
+        let delivered = rx_b.recv().await.expect("B 收到");
+        assert_eq!(delivered.text, "给 B");
+        delivered.ack.send(()).expect("ack 回投");
+    };
+    let (result, ()) = tokio::join!(command, receiver);
+    result.expect("B 投递成功");
+}
+
+/// 正文零加工（边界，参数化 3 形态）：仅 blank 被拒；换行 / NUL 与 emoji / 超长
+/// 逐字透传（命令体不 trim、不截断）。
+#[tokio::test]
+async fn agent_steer_正文零加工() {
+    let env = Env::new("agent-steer-text");
+    let app = app_with_stores(&env);
+    let steers = steer_registry_of(&app);
+    let root = env.root_of("ws");
+    let texts = ["a\nb".to_owned(), "a\0b🚀".to_owned(), "字".repeat(1200)];
+
+    for (index, text) in texts.iter().enumerate() {
+        let session_id = format!("core-{index}");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SteerMessage>();
+        steers.register(&session_id, tx);
+        let expected = text.clone();
+        let command = super::agent_steer(
+            app.state::<Arc<SteerRegistry>>(),
+            app.state::<Arc<AskRegistry>>(),
+            root.clone(),
+            session_id,
+            text.clone(),
+        );
+        let receiver = async move {
+            let delivered = rx.recv().await.expect("投递成功");
+            assert_eq!(delivered.text, expected, "正文逐字透传");
+            delivered.ack.send(()).expect("ack 回投");
+        };
+        let (result, ()) = tokio::join!(command, receiver);
+        result.expect("非空白正文受理");
+    }
+}
+
+/// 装配面锚定（边界）：`app_with_stores` 的 `manage(Arc::new(SteerRegistry))` 与
+/// `main.rs` 同址同型（缺托管即取 `State` panic，本文件全部用例即红）；命令登记
+/// 面（`all_commands!`）由 `src/bindings/mod_test.rs` 徽准。
+#[test]
+fn agent_steer_注册表托管与main同型() {
+    let env = Env::new("agent-steer-managed");
+    let app = app_with_stores(&env);
+    let managed = steer_registry_of(&app);
+    managed.register(
+        "core-1",
+        tokio::sync::mpsc::unbounded_channel::<SteerMessage>().0,
+    );
+    assert!(!ask_registry_of(&app).is_pending("core-1"), "ask 表独立");
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs"),
+    )
+    .expect("读取 main.rs");
+    assert!(
+        source.contains("app.manage(Arc::new(SteerRegistry::default()))"),
+        "生产托管与测试托管同址同型"
     );
 }

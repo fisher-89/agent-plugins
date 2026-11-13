@@ -23,6 +23,12 @@ export interface AgentInputProps {
   disabled?: boolean;
   /** 禁用理由文案（`disabled` 时呈于工具行上方；缺省不呈现） */
   disabledReason?: string;
+  /** 隐藏 permission-mode 档位行（缺省 false）：`true` 时工具行不渲档位，
+   * `onSend` 的 `permissionMode` 参数位保留但下游 MUST NOT 消费 */
+  hidePermissionMode?: boolean;
+  /** 在途提交态（缺省 false）：`true` 时发送禁用并呈「排队中…」可见文案
+   * （防连点）；输入框与停止入口不受影响 */
+  pending?: boolean;
   /** 发送上抛（链参数与 stance 组装由上游承担） */
   onSend: (input: { text: string; permissionMode: AgentPermissionMode }) => void;
   /** 停止上抛（触发 agent_stop） */
@@ -65,12 +71,14 @@ function ModeSelect({
   );
 }
 
-/** 工具行：permission-mode 档位 + 停止入口（运行中且未整面板禁用）+ 发送按钮 */
+/** 工具行：permission-mode 档位（可隐藏）+ 停止入口（运行中且未整面板禁用）+
+ * 发送按钮 */
 function ComposerToolbar({
   running,
   disabled,
   canSend,
   permissionMode,
+  hidePermissionMode,
   sendId,
   stopId,
   modeId,
@@ -82,6 +90,7 @@ function ComposerToolbar({
   disabled: boolean;
   canSend: boolean;
   permissionMode: AgentPermissionMode;
+  hidePermissionMode: boolean;
   sendId: string;
   stopId: string;
   modeId: string;
@@ -91,12 +100,14 @@ function ComposerToolbar({
 }): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <ModeSelect
-        id={modeId}
-        value={permissionMode}
-        onChange={onPermissionModeChange}
-        disabled={disabled}
-      />
+      {!hidePermissionMode && (
+        <ModeSelect
+          id={modeId}
+          value={permissionMode}
+          onChange={onPermissionModeChange}
+          disabled={disabled}
+        />
+      )}
       <span className="flex-1" />
 
       {running && (
@@ -135,7 +146,8 @@ function ComposerToolbar({
  * composer：prompt 输入（原生 styled textarea）+ permission-mode 档位（默认
  * bypassPermissions）+ 发送（运行中禁发）+ 停止入口（运行中呈现）。发送后
  * 输入清空；档位状态本地持有。整面板禁用态（`disabled`）下 textarea 与发送
- * 同时禁用并呈理由文案——用户不会「打了字发不出去」。
+ * 同时禁用并呈理由文案——用户不会「打了字发不出去」。`hidePermissionMode` 与
+ * `pending` 两位缺省即默认变体（渲染与交互逐字不变）。
  */
 export function AgentInput({
   idPrefix = 'common',
@@ -144,13 +156,18 @@ export function AgentInput({
   running,
   disabled = false,
   disabledReason,
+  hidePermissionMode = false,
+  pending = false,
   onSend,
   onStop,
 }: AgentInputProps): React.JSX.Element {
   const [prompt, setPrompt] = useState('');
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
 
-  const canSend = useMemo(() => !disabled && prompt.length > 0, [disabled, prompt]);
+  const canSend = useMemo(
+    () => !disabled && !pending && prompt.length > 0,
+    [disabled, pending, prompt],
+  );
   /** 发送收口：`text` 由调用方显式给出（快捷键路径取 textarea 原生值，避免读到
    * 尚未提交的闭包 state），点击发送与快捷键发送走同一条路径。 */
   const send = (text: string) => {
@@ -185,10 +202,16 @@ export function AgentInput({
           {disabledReason}
         </div>
       )}
+      {pending && (
+        <div className="mb-2 text-xs text-muted-foreground" data-testid={`${idPrefix}-pending`}>
+          排队中…
+        </div>
+      )}
       <ComposerToolbar
         running={running}
         disabled={disabled}
         canSend={canSend}
+        hidePermissionMode={hidePermissionMode}
         permissionMode={permissionMode}
         sendId={`${idPrefix}-send`}
         stopId={`${idPrefix}-stop`}

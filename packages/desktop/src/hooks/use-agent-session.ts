@@ -56,6 +56,11 @@ export interface UseAgentSessionState {
   /** ask 应答（通用侧）：`agent_answer` 薄包装；`root` / `sessionId` 为 null 时
    * 不 invoke、`Err` 进既有 error 面 */
   answer: (text: string) => void;
+  /** 补充说明注入（运行中会话的 steer）：`agent_steer` 薄包装；`root` /
+   * `sessionId` 为 null 时不 invoke、`Err` 进既有 error 面 */
+  steer: (text: string) => void;
+  /** 已提交、等 ack 回流的 pending 态（提交置 true，ack 成功或 Err 落地置 false） */
+  steering: boolean;
 }
 
 /** `useChat` 返回值（chat 状态层句柄；本 hook 内聚，视图层不 import ai） */
@@ -92,43 +97,48 @@ function questionParts(
 }
 
 /**
- * 提问气泡的会话状态侧产生（两起点分化，同一不变式「同一提问恰一条」）：
- * ①发起流已在发送时刻本地推入副本（`pendingQuestionIdRef` 持有其临时 id）→
- * 把**该条**原地换 id 归一（消息数不增）；②订阅流（旁观 / 重挂，无本地副本）
- * → 以 `turn-<turnId>-user` 追加在该轮 assistant 消息**之前**。两路一律经
- * 函数式 updater 单次写入（非函数式会覆盖掉在飞的 assistant 消息）。
+ * user 消息（提问 / 补充说明）的会话状态侧产生。判据 = **该轮提问气泡是否已在
+ * 场**（`turn-<turnId>-user` 或旧转录 `evt-<seq>`）：首条 user 事件按提问归一
+ * （①发起流已在发送时刻本地推入副本→把该条原地换 id，消息数不增；②订阅流无
+ * 本地副本→追加在该轮 assistant 消息**之前**）；其余 user 事件是该轮补充说明，
+ * 以自身 `evt-<seq>` 追加、MUST NOT 被「同轮已有提问」判据吞掉。
+ * 两路一律经函数式 updater 单次写入（非函数式会覆盖掉在飞的 assistant 消息）。
  */
-function applyUserQuestion(
+function applyUserMessage(
   setMessagesRef: React.RefObject<SetAgentMessages | undefined>,
   pendingQuestionIdRef: React.RefObject<string | null>,
   event: Extract<AgentEvent, { kind: 'message' }>,
 ): void {
   const setMessages = setMessagesRef.current;
   if (setMessages === undefined) return;
-  const id = questionIdOf(event);
+  const questionId = questionIdOf(event);
   const metadata = { seq: event.seq, parentToolUseId: event.parentToolUseId };
   const pendingId = pendingQuestionIdRef.current;
   pendingQuestionIdRef.current = null;
   setMessages((messages) => {
-    // 重订 / 收口竞态下同一提问重投：id 替换幂等，不新增第二条气泡
+    // 判据读的是「提问气泡在场」而非「本地副本在场」：旁观 / 重挂路径没有本地
+    // 副本，其首条 user 事件仍须按提问处理
+    const isQuestion =
+      event.turnId == null || !messages.some((message) => message.id === questionId);
+    const id = isQuestion ? questionId : `evt-${event.seq}`;
+    // 重订 / 收口竞态下同一事件重投：id 幂等，不新增重复气泡
     if (messages.some((message) => message.id === id)) return messages;
-    if (pendingId !== null && messages.some((message) => message.id === pendingId)) {
+    if (isQuestion && pendingId !== null && messages.some((message) => message.id === pendingId)) {
       return messages.map((message) =>
         message.id === pendingId ? { ...message, id, metadata } : message,
       );
     }
-    const question: AgentUIMessage = {
+    const message: AgentUIMessage = {
       id,
       role: 'user',
       metadata,
       parts: questionParts(event.blocks),
     };
+    // 锚点与提问同一条表达式：提问先落位，补充说明自然紧随其后
     const anchor =
-      event.turnId == null
-        ? -1
-        : messages.findIndex((message) => message.id === `turn-${event.turnId}`);
-    if (anchor < 0) return [...messages, question];
-    return [...messages.slice(0, anchor), question, ...messages.slice(anchor)];
+      event.turnId == null ? -1 : messages.findIndex((item) => item.id === `turn-${event.turnId}`);
+    if (anchor < 0) return [...messages, message];
+    return [...messages.slice(0, anchor), message, ...messages.slice(anchor)];
   });
 }
 
@@ -256,8 +266,8 @@ interface EventTapRefs {
 
 /**
  * transport 观测分派（镜像 ref 真相面 + 渲染态）：delta 只推高 seq 游标不入
- * 镜像；密封事件 append 保序，并在提问事件处驱动会话状态侧的提问气泡
- * （transport 对该事件零 chunk）。
+ * 镜像；密封事件 append 保序，并在 user 事件处驱动会话状态侧的提问 / 补充说明
+ * 气泡（transport 对该事件零 chunk）。
  */
 function acceptEvent(tap: EventTapRefs, event: AgentEvent): void {
   if (event.seq > tap.seqCursorRef.current) tap.seqCursorRef.current = event.seq;
@@ -266,7 +276,7 @@ function acceptEvent(tap: EventTapRefs, event: AgentEvent): void {
   tap.eventsRef.current = next;
   tap.setEvents(next);
   if (event.kind === 'message' && event.role === 'user') {
-    applyUserQuestion(tap.setMessagesRef, tap.pendingQuestionIdRef, event);
+    applyUserMessage(tap.setMessagesRef, tap.pendingQuestionIdRef, event);
   }
 }
 
@@ -625,6 +635,48 @@ function useAskAnswer(
 }
 
 /**
+ * 补充说明动作面：`agent_steer` 薄包装（`root` / `sessionId` 为 null 时零
+ * invoke）；`steering` 是「已提交、等 ack 回流」的 pending 态（提交置位、成功
+ * 与 `Err` 两收尾都复位）；`Err` 收进 `actionError`（与重放 / 流 / 应答错误以
+ * `??` 链保序合并）。前端不预判可用性——轮是否在跑由后端 `Err` 说话。
+ */
+function useSteer(
+  mirrors: SessionMirrors,
+  sessionId: string | null | undefined,
+  root: string | null | undefined,
+): { steer: (text: string) => void; steering: boolean; actionError: string | null } {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [steering, setSteering] = useState(false);
+  const steer = useCallback(
+    (text: string) => {
+      const target = mirrors.currentSessionIdRef.current ?? sessionId ?? null;
+      if (root === null || root === undefined || target === null) return;
+      setActionError(null);
+      setSteering(true);
+      void ipc
+        .agentSteer(root, target, text)
+        .catch((cause: unknown) => setActionError(String(cause)))
+        .finally(() => setSteering(false));
+    },
+    [mirrors.currentSessionIdRef, sessionId, root],
+  );
+  return { steer, steering, actionError };
+}
+
+/**
+ * 错误面保序合并（重放 > 流 > 动作）：一次动作失败不遮蔽更权威的重放错误；
+ * 两个动作源（ask / steer）同层，先后只保证确定性。
+ */
+function errorChain(
+  replayError: string | null,
+  streamError: string | undefined,
+  askError: string | null,
+  steerError: string | null,
+): string | null {
+  return replayError ?? streamError ?? askError ?? steerError;
+}
+
+/**
  * 统一会话基建 hook（explore 会话 / agent 调试 / change 抽屉 / 历史重放统一
  * 消费，收编 `use-agent-chat`）：重放装载（密封转录 → 同一折叠入口）+ 状态驱动
  * 挂流（库态 running 且无在挂流才订阅）+ 单流在挂 + 收口以重放收敛（失败回落
@@ -671,6 +723,7 @@ export function useAgentSession(params: UseAgentSessionParams): UseAgentSessionS
   const replay = useSessionReplay(params, mirrorsRef, status, setMessages);
   const actions = useSessionActions(chat, statusRef, mirrors, params, setMessages);
   const ask = useAskAnswer(mirrors, params.sessionId, params.root);
+  const steerAction = useSteer(mirrors, params.sessionId, params.root);
   // 库态派生：轮行含 running 即运行中（与查询面判定同源）
   const running = mirrors.turns.some((turn) => turn.status === 'running');
   useSessionStreamSubscription(params, mirrorsRef, resumeStream, running, replay, status);
@@ -682,9 +735,10 @@ export function useAgentSession(params: UseAgentSessionParams): UseAgentSessionS
     chain: mirrors.turns,
     loading: replay.loading,
     running,
-    // 保序三源合并（重放 > 流 > 动作）：一次应答失败不遮蔽更权威的重放错误
-    error: replay.error ?? (error !== undefined ? error.message : null) ?? ask.actionError,
+    error: errorChain(replay.error, error?.message, ask.actionError, steerAction.actionError),
     ...actions,
     answer: ask.answer,
+    steer: steerAction.steer,
+    steering: steerAction.steering,
   };
 }

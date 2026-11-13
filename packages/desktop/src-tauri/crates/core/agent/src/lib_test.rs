@@ -17,6 +17,7 @@ use crate::session::{
     SessionSummary, TurnSummary,
 };
 use crate::state::{AgentRunState, RunStateMachine};
+use crate::steer::SteerRegistry;
 use crate::stream::{
     SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionStreamSubscription,
 };
@@ -107,6 +108,7 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(AskRegistry::default()),
+        Arc::new(SteerRegistry::default()),
     );
     let request = TurnRequest {
         session: SessionRef::New,

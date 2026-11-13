@@ -557,7 +557,8 @@ function assistantId(group: EventGroup): string {
   return `${messageId(first === undefined ? -1 : first.seq)}-turn`;
 }
 
-/** 该轮提问消息 id：`turn-<turnId>-user`（与 assistant 同族）；旧转录兜 `evt-<seq>` */
+/** 该轮提问消息 id：`turn-<turnId>-user`（与 assistant 同族）；旧转录兜 `evt-<seq>`。
+ * 只服务组内**首条** user 事件——其余 user 事件是该轮补充说明，id 锚在自身 seq。 */
 function questionId(event: SealedMessage): string {
   return event.turnId != null ? `turn-${event.turnId}-user` : messageId(event.seq);
 }
@@ -576,6 +577,19 @@ function auxMessage(event: Exclude<SealedAgentEvent, { kind: 'message' }>): Agen
 function questionMessage(event: SealedMessage, paired: PairedResults): AgentUIMessage {
   return {
     id: questionId(event),
+    role: 'user',
+    metadata: { seq: event.seq, parentToolUseId: event.parentToolUseId },
+    parts: plansToParts(planBlocks(event.blocks, paired)),
+  };
+}
+
+/**
+ * 该轮补充说明事件 → user 消息（id 锚在自身 seq，与提问 id 不撞）。部件与提问
+ * 共用同一条映射单点：后续 text 块携带 citations 或载荷加宽时两路不漂移。
+ */
+function steerMessage(event: SealedMessage, paired: PairedResults): AgentUIMessage {
+  return {
+    id: messageId(event.seq),
     role: 'user',
     metadata: { seq: event.seq, parentToolUseId: event.parentToolUseId },
     parts: plansToParts(planBlocks(event.blocks, paired)),
@@ -614,24 +628,30 @@ function assistantMessage(
   };
 }
 
-/** 单轮 → 消息序：aux system（按 seq 升序）→ 提问（可缺席）→ assistant（恒一条） */
+/**
+ * 单轮 → 消息序：aux system（按 seq 升序）→ 提问（可缺席）→ 补充说明（组内其余
+ * user 事件，按 seq 序各一条）→ assistant（恒一条）。
+ */
 function entryToMessages(entry: FoldEntry, paired: PairedResults): AgentUIMessage[] {
   const messages: AgentUIMessage[] = [];
   for (const event of entry.group.events) {
     if (event.kind !== 'message') messages.push(auxMessage(event));
   }
-  const question = entry.group.events.find(
+  const users = entry.group.events.filter(
     (event): event is SealedMessage => event.kind === 'message' && event.role === 'user',
   );
+  const [question, ...steers] = users;
   if (question !== undefined) messages.push(questionMessage(question, paired));
+  for (const steer of steers) messages.push(steerMessage(steer, paired));
   messages.push(assistantMessage(entry.group, entry.record, paired));
   return messages;
 }
 
 /**
  * 重放 / 收口折叠唯一入口：只消费**密封事件**（转录中不存在 delta），按轮
- * 产出「提问（可缺席）+ 恰一条 assistant + 逐事件 aux system」，轮行挂该轮
- * assistant 的 `metadata.record`（按 `turnId` 匹配；缺失为合成行 / `null`）。
+ * 产出「提问（可缺席）+ 补充说明（组内其余 user 事件各一条，id `evt-<seq>`，
+ * 序在提问之后、assistant 之前）+ 恰一条 assistant + 逐事件 aux system」，轮行
+ * 挂该轮 assistant 的 `metadata.record`（按 `turnId` 匹配；缺失为合成行 / `null`）。
  */
 export function foldSessionMessages(events: AgentEvent[], turns: TurnSummary[]): AgentUIMessage[] {
   const sealed = events.filter((event): event is SealedAgentEvent => event.kind !== 'messageDelta');

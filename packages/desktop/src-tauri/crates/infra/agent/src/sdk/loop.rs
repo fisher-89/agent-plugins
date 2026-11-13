@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
+use agent::{
+    AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle, SteerMessage,
+};
 use futures::StreamExt;
 use orchestration::state::AskPayload;
 use orchestration::{ask as ask_tool, finish};
@@ -167,11 +169,45 @@ pub(crate) fn system_prompt(knowledge: Option<&str>, agent_md: Option<String>) -
     }
 }
 
+/// 请求边界 drain：把在途补充说明逐条落成「独立 user 密封事件 + 独立史消息 +
+/// 独立 ack」。返回 `false` = 事件通道已关闭（调用方直接 `return history`），
+/// 此时不补 ack——剩余项随接收入端 drop 收 `Err`（drop-Err 是送达语义的诚实面）。
+///
+/// 循环而非单次 `recv`：一次边界把全部在途项取走，后几条不滞留到下个边界。
+/// 必须 push **新的** `Message::user`（不并入 `tool_results` 那条）：rig 0.43.0
+/// 不合并相邻同角色消息，openai 侧展开会把 user 文本排到 tool 之前（provider 400）。
+async fn drain_steers(
+    steers: &mut mpsc::UnboundedReceiver<SteerMessage>,
+    history: &mut Vec<Message>,
+    sender: &mpsc::Sender<AgentEventKind>,
+) -> bool {
+    while let Ok(steer) = steers.try_recv() {
+        let ok = sender
+            .send(AgentEventKind::Message {
+                role: AgentMessageRole::User,
+                blocks: vec![AgentBlock::Text {
+                    text: steer.text.clone(),
+                    citations: None,
+                }],
+                parent_tool_use_id: None,
+            })
+            .await
+            .is_ok();
+        if !ok {
+            return false;
+        }
+        history.push(Message::user(steer.text));
+        let _ = steer.ack.send(());
+    }
+    true
+}
+
 /// loop 主体
 pub(crate) async fn run(
     model: &DynModel<Completion>,
     turn: &LoopTurn,
     mut history: Vec<Message>,
+    mut steers: mpsc::UnboundedReceiver<SteerMessage>,
     sender: mpsc::Sender<AgentEventKind>,
     handle: RunHandle,
 ) -> Vec<Message> {
@@ -244,6 +280,15 @@ pub(crate) async fn run(
         if handle.stop_requested() {
             append_engine_log(&format!(
                 "loop 停止截停（轮间快速路径）session={} turn_index={turn_index}",
+                turn.session_id
+            ));
+            return history;
+        }
+        // 请求边界 drain：补充说明在下一个请求可见（位置在 defend 之前、
+        // 尾部追加）
+        if !drain_steers(&mut steers, &mut history, &sender).await {
+            append_engine_log(&format!(
+                "loop 事件通道关闭退出（补充说明 drain）session={} turn_index={turn_index}",
                 turn.session_id
             ));
             return history;

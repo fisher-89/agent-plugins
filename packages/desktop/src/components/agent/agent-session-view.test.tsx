@@ -818,6 +818,8 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
       stop: vi.fn(),
       reset: vi.fn(),
       answer: vi.fn(),
+      steer: vi.fn(),
+      steering: false,
     };
   });
 
@@ -898,5 +900,106 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
       });
       mounted.unmount();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// steer-running-agent-step：`AgentSessionActions` 两加位（`steer` / `steering`）
+// 的组装（AC-11 / AC-12）
+//
+// 引用相等判据只能经插槽 render prop 直接观测（DOM 反推不出引用相等）；注入形态
+// 直接构造状态面，自持形态走真实 hook 全链。
+// ---------------------------------------------------------------------------
+
+/** 受控会话状态面（注入形态；默认值即空会话） */
+function sessionState(overrides: Partial<UseAgentSessionState> = {}): UseAgentSessionState {
+  return {
+    messages: [],
+    events: [],
+    session: null,
+    chain: [],
+    loading: false,
+    running: false,
+    error: null,
+    sendMessage: vi.fn(),
+    stop: vi.fn(),
+    reset: vi.fn(),
+    answer: vi.fn(),
+    steer: vi.fn(),
+    steering: false,
+    ...overrides,
+  };
+}
+
+describe('AgentSessionView：steer / steering 组装（AC-11）', () => {
+  it('注入形态：插槽收到 actions.steer === state.steer（引用相等）、actions.steering 值透传', () => {
+    const steer = vi.fn();
+    const session = sessionState({ steer, steering: true });
+    const captured: AgentSessionActions[] = [];
+    render(
+      <AgentSessionView
+        session={session}
+        composer={(actions) => {
+          captured.push(actions);
+          return <div data-testid="steer-slot" />;
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('steer-slot')).toBeTruthy();
+    const actions = captured.at(-1);
+    expect(actions?.steer).toBe(steer);
+    expect(actions?.steering).toBe(true);
+    // 既有四字段零变化
+    expect(actions?.running).toBe(false);
+    expect(actions?.loading).toBe(false);
+    expect(actions?.send).toBe(session.sendMessage);
+    expect(actions?.stop).toBe(session.stop);
+  });
+
+  it('steering 变化即时透传：true → false 两次渲染各收一次新值', () => {
+    const captured: boolean[] = [];
+    const session = sessionState({ steering: true });
+    const composer = (actions: AgentSessionActions): React.JSX.Element => {
+      captured.push(actions.steering);
+      return <div data-testid="steer-slot" />;
+    };
+    const { rerender } = render(<AgentSessionView session={session} composer={composer} />);
+    rerender(<AgentSessionView session={sessionState({ steering: false })} composer={composer} />);
+
+    expect(captured).toContain(true);
+    expect(captured.at(-1)).toBe(false);
+  });
+
+  it('自持形态：插槽 steer 为函数，点击后走 agent_steer（root / sessionId / text 逐字）', async () => {
+    await mountedView({
+      root: ROOT,
+      sessionId: SESSION_ID,
+      composer: (actions) => (
+        <button type="button" data-testid="slot-steer" onClick={() => actions.steer('先跑 lint')}>
+          补充一句
+        </button>
+      ),
+    });
+
+    fireEvent.click(screen.getByTestId('slot-steer'));
+    await act(async () => {});
+
+    expect(callsOf('agent_steer')).toHaveLength(1);
+    expect(callsOf('agent_steer')[0]?.[1]).toEqual({
+      root: ROOT,
+      sessionId: SESSION_ID,
+      text: '先跑 lint',
+    });
+    expect(callsOf('agent_start')).toHaveLength(0);
+  });
+
+  it('空态（sessionId null 自持）：空态占位呈现、composer 未被调用', async () => {
+    const composer = vi.fn(() => <div data-testid="steer-slot" />);
+    await mountedView({ root: ROOT, sessionId: null, composer });
+
+    expect(screen.getByTestId('agent-session-empty')).toBeTruthy();
+    expect(composer).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('steer-slot')).toBeNull();
   });
 });

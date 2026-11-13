@@ -1817,3 +1817,304 @@ describe('useAgentSession：ask 应答动作面（AC-13）', () => {
     expect(callsOf('agent_answer').length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// steer-running-agent-step：补充说明动作面（`steer` / `steering`）与轮中段 user
+// 气泡（AC-9 / AC-11）
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：补充说明动作面（AC-11）', () => {
+  it('steer(text) → agent_steer(root, sessionId, text) 三参逐字；同批零 agent_start / agent_stop', async () => {
+    const { result } = await mounted();
+    const mark = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.steer('先跑 lint');
+    });
+    await act(async () => {});
+
+    expect(argsOf('agent_steer')).toEqual({
+      root: ROOT,
+      sessionId: SESSION_ID,
+      text: '先跑 lint',
+    });
+    const fresh = invokeMock.mock.calls.slice(mark).map(([name]) => name);
+    expect(fresh).toEqual(['agent_steer']);
+    expect(callsOf('agent_start')).toHaveLength(0);
+    expect(callsOf('agent_stop')).toHaveLength(0);
+    // 前端不推本地副本（该文本由后端在下个请求边界入史）
+    expect(messageTexts(result.current.messages)).not.toContain('先跑 lint');
+  });
+
+  it('root = null / sessionId = null / 两者皆 null → 零 invoke、steering 保持 false', async () => {
+    const cases: Partial<Params>[] = [
+      { root: null },
+      { sessionId: null },
+      { root: null, sessionId: null },
+    ];
+    for (const overrides of cases) {
+      const { result } = await mounted(overrides);
+      invokeMock.mockClear();
+      act(() => {
+        result.current.steer('无主补充说明');
+      });
+      await act(async () => {});
+      expect(callsOf('agent_steer'), `形态 ${JSON.stringify(overrides)}：零 invoke`).toHaveLength(
+        0,
+      );
+      expect(result.current.steering).toBe(false);
+    }
+  });
+
+  it('提交即置位 steering，resolve 后复位 false', async () => {
+    const { result } = await mounted();
+    let release: (() => void) | null = null;
+    invokeMock.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          release = () => resolve(null);
+        }),
+    );
+
+    act(() => {
+      result.current.steer('排队中的补充说明');
+    });
+    expect(result.current.steering, '命令未 resolve 期间为 true').toBe(true);
+
+    await act(async () => {
+      release?.();
+    });
+    expect(result.current.steering, 'resolve 后复位').toBe(false);
+  });
+
+  it('命令 reject → steering 复位且 error 携后端文案（不静默吞）', async () => {
+    const { result } = await mounted();
+    invokeMock.mockImplementationOnce(() =>
+      Promise.reject(new Error('会话已收口，补充说明不可送达')),
+    );
+
+    act(() => {
+      result.current.steer('迟到补充说明');
+    });
+    await act(async () => {});
+
+    expect(result.current.steering).toBe(false);
+    await waitFor(() => {
+      expect(result.current.error).toContain('会话已收口，补充说明不可送达');
+    });
+  });
+
+  it('错误面保序：重放错误压过 steer 错误；重放错误消失后 steer 错误可见', async () => {
+    ipc.detail = new Error('db: 会话查询失败');
+    const { result } = await mounted({ refreshKey: 1 });
+    await waitFor(() => {
+      expect(result.current.error).toContain('db: 会话查询失败');
+    });
+
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('动作面补充说明失败')));
+    act(() => {
+      result.current.steer('动作面补充说明');
+    });
+    await act(async () => {});
+    expect(result.current.error, '重放错误更权威').toContain('db: 会话查询失败');
+
+    // 下一动作前重置 actionError：成功收尾后 error 面归空（重放 / 流错误均缺席）
+    resetIpc({ detail: null, transcript: [] });
+    const second = await mounted();
+    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('动作面补充说明失败')));
+    act(() => {
+      second.result.current.steer('第一次失败');
+    });
+    await act(async () => {});
+    await waitFor(() => {
+      expect(second.result.current.error).toContain('动作面补充说明失败');
+    });
+    act(() => {
+      second.result.current.steer('第二次成功');
+    });
+    await act(async () => {});
+    expect(second.result.current.error, '重新提交即清除上一轮动作错误').toBeNull();
+  });
+
+  it('正文零加工：空串 / 换行 / 超长逐字进 invoke（本层不 trim、不预判）', async () => {
+    const { result } = await mounted();
+    const texts = ['', 'a\nb', '字'.repeat(1200)];
+    for (const text of texts) {
+      act(() => {
+        result.current.steer(text);
+      });
+      expect(argsOf('agent_steer').text).toBe(text);
+    }
+  });
+
+  it('切会话不串投：提交时寻址取提交时刻的会话 id，steering 不永久挂起', async () => {
+    const { result, rerender } = await mounted();
+    let release: (() => void) | null = null;
+    invokeMock.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          release = () => resolve(null);
+        }),
+    );
+    act(() => {
+      result.current.steer('提交给会话一');
+    });
+    expect(argsOf('agent_steer').sessionId).toBe(SESSION_ID);
+
+    await rerenderWith(rerender, { sessionId: 'ses-2-1727000000001' });
+    expect(argsOf('agent_steer').sessionId, '不投到新会话').toBe(SESSION_ID);
+
+    await act(async () => {
+      release?.();
+    });
+    expect(result.current.steering, '复位与两收尾一致').toBe(false);
+  });
+});
+
+describe('useAgentSession：轮中段 user 气泡（AC-9）', () => {
+  it('提问已在场时第二条 user 事件 → 追加 evt-<seq> 气泡（不被吞）', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'running')]),
+      transcript: [userEvent(0, '首轮提问')],
+    });
+    const { result } = await mounted();
+
+    expect(messageIds(result.current.messages)).toContain('turn-11-user');
+    const before = result.current.messages.length;
+
+    deliverEvent(userEvent(9, '补一句'));
+    await waitFor(() => {
+      expect(messageIds(result.current.messages)).toContain('evt-9');
+    });
+
+    const ids = messageIds(result.current.messages);
+    expect(result.current.messages.length, '消息数 +1').toBe(before + 1);
+    expect(
+      ids.filter((id) => id === 'turn-11-user'),
+      '提问气泡恒一条',
+    ).toHaveLength(1);
+    expect(messageTexts(result.current.messages)).toContain('补一句');
+    // 位置：提问之后、该轮 assistant 之前
+    expect(ids.indexOf('turn-11-user')).toBeLessThan(ids.indexOf('evt-9'));
+    expect(ids.indexOf('evt-9')).toBeLessThan(ids.indexOf('turn-11'));
+  });
+
+  it('反向判据：turn-<turnId>-user 已在场时再收第二条 user 事件 → 仍追加（不 return、不去重丢弃）', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'running')]),
+      transcript: [userEvent(0, '首轮提问')],
+    });
+    const { result } = await mounted();
+    expect(messageIds(result.current.messages)).toContain('turn-11-user');
+
+    deliverEvent(userEvent(9, '第二条'));
+    deliverEvent(userEvent(11, '第三条'));
+    await waitFor(() => {
+      expect(messageIds(result.current.messages)).toContain('evt-11');
+    });
+
+    const ids = messageIds(result.current.messages);
+    expect(ids).toContain('evt-9');
+    expect(ids).toContain('evt-11');
+    expect(ids.filter((id) => id === 'turn-11-user')).toHaveLength(1);
+  });
+
+  it('旁观 / 重挂路（无本地副本）：首条 user 事件按提问处理，第二条为补充说明', async () => {
+    resetIpc({ detail: summary([turn(11, 'running')]), transcript: [] });
+    const { result } = await mounted();
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+
+    deliverEvent(userEvent(3, '订阅流首条提问'));
+    await waitFor(() => {
+      expect(messageIds(result.current.messages)).toContain('turn-11-user');
+    });
+    deliverEvent(userEvent(9, '订阅流补充说明'));
+    await waitFor(() => {
+      expect(messageIds(result.current.messages)).toContain('evt-9');
+    });
+
+    const ids = messageIds(result.current.messages);
+    expect(
+      ids.filter((id) => id === 'turn-11-user'),
+      '首条归一为提问',
+    ).toHaveLength(1);
+    expect(ids).toContain('evt-9');
+  });
+
+  it('三条补一句：提问 1 条 + 补充说明 2 条，按到达序', async () => {
+    resetIpc({ detail: summary([turn(11, 'running')]), transcript: [] });
+    const { result } = await mounted();
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+
+    deliverEvent(userEvent(3, '提问'));
+    deliverEvent(userEvent(9, '补充一'));
+    deliverEvent(userEvent(11, '补充二'));
+    await waitFor(() => {
+      expect(messageIds(result.current.messages)).toContain('evt-11');
+    });
+
+    const ids = messageIds(result.current.messages);
+    const questions = ids.filter((id) => id === 'turn-11-user');
+    const steers = ids.filter((id) => id === 'evt-9' || id === 'evt-11');
+    expect(questions).toHaveLength(1);
+    expect(steers, '两条补充说明按到达序').toEqual(['evt-9', 'evt-11']);
+  });
+
+  it('重投幂等：同一 evt-<seq> 事件重投两次 → 只一条气泡', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'running')]),
+      transcript: [userEvent(0, '首轮提问')],
+    });
+    const { result } = await mounted();
+
+    deliverEvent(userEvent(9, '重投'));
+    deliverEvent(userEvent(9, '重投'));
+    await waitFor(() => {
+      expect(messageIds(result.current.messages)).toContain('evt-9');
+    });
+    expect(messageIds(result.current.messages).filter((id) => id === 'evt-9')).toHaveLength(1);
+  });
+
+  it('收口同形（AC-10 实时半边）：含补充说明的转录重建为 提问 → 补充说明 → assistant', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'completed')]),
+      transcript: [
+        userEvent(3, '首轮提问'),
+        textEvent(5, '首轮结论'),
+        userEvent(9, '补充说明'),
+        textEvent(11, '补充后结论'),
+        turnDoneEvent(13),
+      ],
+    });
+    const { result } = await mounted();
+
+    const ids = messageIds(result.current.messages);
+    expect(ids).toContain('turn-11-user');
+    expect(ids).toContain('evt-9');
+    expect(ids.at(-1)).toBe('turn-11');
+    expect(ids.indexOf('turn-11-user')).toBeLessThan(ids.indexOf('evt-9'));
+    expect(ids.indexOf('evt-9')).toBeLessThan(ids.indexOf('turn-11'));
+    expect(messageTexts(result.current.messages)).toContain('补充说明');
+  });
+
+  it('turnId = null 旧转录：user 事件走 evt-<seq> 兜底，两两不等（不产生补充说明分支）', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'completed')], null, SESSION_ID),
+      transcript: [
+        runStartedEvent(0, null),
+        userEvent(1, '旧提问', null),
+        textEvent(2, '旧结论', null),
+        userEvent(3, '旧补充', null),
+        turnDoneEvent(4, null),
+      ],
+    });
+    const { result } = await mounted();
+
+    const ids = messageIds(result.current.messages);
+    expect(ids).toContain('evt-1');
+    expect(ids).toContain('evt-3');
+    expect(new Set(ids).size, 'id 两两不等').toBe(ids.length);
+    expect(messageTexts(result.current.messages)).toContain('旧提问');
+    expect(messageTexts(result.current.messages)).toContain('旧补充');
+  });
+});

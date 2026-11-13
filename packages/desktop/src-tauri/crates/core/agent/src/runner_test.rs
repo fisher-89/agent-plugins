@@ -67,9 +67,11 @@ impl AgentRunner for FakeRunner {
                 let _ = observation_tx.send(event).await;
             }
         });
+        let (steer_tx, _steer_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(AgentSession {
             observations: observation_rx,
             questions: question_tx,
+            steers: steer_tx,
             handle: RunHandle::default(),
         })
     }

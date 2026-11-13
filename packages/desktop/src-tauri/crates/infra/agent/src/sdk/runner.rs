@@ -217,6 +217,10 @@ impl AgentRunner for SdkRunner {
         let (question_tx, question_rx) = mpsc::channel::<TurnQuestion>(QUESTION_CHANNEL_CAPACITY);
         let (observation_tx, observation_rx) =
             mpsc::channel::<agent::AgentEventKind>(EVENT_CHANNEL_CAPACITY);
+        // 补充说明通道：每轮一条实例通道（非进程级共享表），无界——`request`
+        // 同步 `send`，不存在「队列满」的失败面；接收入端随本轮 loop 生命周期
+        // 存亡
+        let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
         let handle = RunHandle::default();
         // 上下文防线装配（按档现算窗长：模型名后缀 > provider `context_length`
         // > 128K 缺省）+ 第一调用点：resume 重建史超 L2 水位即先行剪裁；
@@ -242,12 +246,14 @@ impl AgentRunner for SdkRunner {
                 ask_port: self.ask_port.clone(),
             },
             question_rx,
+            steer_rx,
             observation_tx,
             handle.clone(),
         ));
         Ok(AgentSession {
             observations: observation_rx,
             questions: question_tx,
+            steers: steer_tx,
             handle,
         })
     }
@@ -400,12 +406,16 @@ fn contains_tool(injections: &agent::SessionInjections, tool: &str) -> bool {
 }
 
 /// 会话泵任务（ask 段）
+#[allow(clippy::too_many_arguments)]
 async fn session_pump(
     model: DynModel<Completion>,
     spec: ModelSpec,
     open: SessionOpen,
     payload: PumpPayload,
     mut questions: mpsc::Receiver<TurnQuestion>,
+    // 本轮补充说明接收入端（随 loop 生命周期存亡：loop 返回即 drop，残留项
+    // 与 ack 随之 drop → 命令侧收 `Err`）
+    steers: mpsc::UnboundedReceiver<agent::SteerMessage>,
     observations: mpsc::Sender<agent::AgentEventKind>,
     handle: RunHandle,
 ) {
@@ -490,7 +500,7 @@ async fn session_pump(
     let pump_session = turn.session_id.clone();
     tokio::select! {
         biased;
-        _ = r#loop::run(&model, &turn, payload.history, observations.clone(), pump_handle.clone()) => {
+        _ = r#loop::run(&model, &turn, payload.history, steers, observations.clone(), pump_handle.clone()) => {
             // 一轮一命：单轮收敛即泵生命周期终点；累积史（跨轮回灌）无
             // 消费方，弃用
             crate::sdk::log::append_engine_log(&format!(

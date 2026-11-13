@@ -250,6 +250,7 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -296,6 +297,7 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -355,6 +357,7 @@ async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         Some(cli_id),
         Path::new(&env.root()),
@@ -387,6 +390,7 @@ fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记�
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -425,6 +429,7 @@ fn 空库缺省解析err引导管理页且零落库() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -456,6 +461,7 @@ fn 显式不存在agent的id解析err携id记因() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         Some(404),
         Path::new(&env.root()),
@@ -490,6 +496,7 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -535,6 +542,7 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -577,6 +585,7 @@ fn continue会话不存在时显式失败() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -628,6 +637,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -663,6 +673,7 @@ async fn continue未开轮会话首轮放行并定型快照() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -714,6 +725,7 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -767,6 +779,7 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -815,6 +828,7 @@ async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐�
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -881,6 +895,7 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -933,6 +948,7 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -1045,6 +1061,7 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         std::sync::Arc::clone(&injected),
         Some(sdk_id),
         Path::new(&env.root()),
@@ -1148,9 +1165,11 @@ impl AgentRunner for RecordingRunner {
         let (question_tx, question_rx) = mpsc::channel(4);
         drop(observation_tx);
         drop(question_rx);
+        let (steer_tx, _steer_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(AgentSession {
             observations: observation_rx,
             questions: question_tx,
+            steers: steer_tx,
             handle: RunHandle::default(),
         })
     }
@@ -1226,6 +1245,7 @@ fn composed_with_fakes(
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
             Arc::new(agent::AskRegistry::default()),
+            Arc::new(agent::SteerRegistry::default()),
         ),
         runner,
         query: Arc::new(StoreQuery::new(store)),
@@ -1538,6 +1558,7 @@ fn 显式agent_id边界零与负数与i64max均miss记因() {
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
             Arc::new(agent::AskRegistry::default()),
+            Arc::new(agent::SteerRegistry::default()),
             env.store(),
             Some(id),
             Path::new(&env.root()),
@@ -1561,6 +1582,7 @@ fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -1599,6 +1621,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         Some(sdk_id),
         Path::new(&env.root()),
@@ -1636,6 +1659,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -1928,6 +1952,7 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -1988,6 +2013,7 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2038,6 +2064,7 @@ async fn explore装配不破坏失败收敛语义() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2205,6 +2232,7 @@ async fn compose_turn注入缝生效_begin后会话在传入streams中可订阅(
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2241,6 +2269,7 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与�
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2303,6 +2332,7 @@ async fn change轨真实驱动_同一streams收终态且run_update出口照常()
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2391,6 +2421,7 @@ async fn change轨增量不进run通知_仅密封事件透传() {
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
             Arc::new(agent::AskRegistry::default()),
+            Arc::new(agent::SteerRegistry::default()),
         ),
         runner: Arc::new(ScriptedRunner::new(vec![
             agent::AgentEventKind::MessageDelta {
@@ -2469,9 +2500,11 @@ impl AgentRunner for ScriptedRunner {
             }
             drop(observation_tx);
         });
+        let (steer_tx, _steer_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(AgentSession {
             observations: observation_rx,
             questions: question_tx,
+            steers: steer_tx,
             handle: RunHandle::default(),
         })
     }
@@ -2489,6 +2522,7 @@ fn 解析失败不构造内核且零注册表条目() {
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2504,6 +2538,7 @@ fn 解析失败不构造内核且零注册表条目() {
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         Some(404),
         Path::new(&env.root()),
@@ -2535,6 +2570,7 @@ async fn stop与streams两表互不串台_收口后两表同时除名() {
         Arc::clone(&registry),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2584,6 +2620,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2595,6 +2632,7 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         Arc::new(StopRegistry::new()),
         Arc::clone(&streams),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2903,6 +2941,7 @@ async fn compose_turn尾参在场装配照常_引擎快照与既有口径一致(
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -2960,6 +2999,7 @@ async fn compose_turn尾参root形态不校验() {
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
             Arc::new(agent::AskRegistry::default()),
+            Arc::new(agent::SteerRegistry::default()),
             env.store(),
             None,
             &root,
@@ -2989,6 +3029,7 @@ async fn compose_turn尾参与store的root不同源_双root不变量成立() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         std::sync::Arc::clone(&injected),
         None,
         main_root.path(),
@@ -4086,6 +4127,7 @@ async fn compose_turn的注册表经双通道注入为同一张表() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::clone(&registry),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -4152,6 +4194,7 @@ async fn compose_turn的ask_port两形态均贯通执行体() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::clone(&registry),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -4213,6 +4256,7 @@ async fn compose_turn的ask_port两形态均贯通执行体() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env_none.store(),
         None,
         Path::new(&env_none.root()),
@@ -4269,6 +4313,7 @@ async fn 装配产物真实驱动_change来源runstarted含ask工具() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -4344,6 +4389,233 @@ fn 手工构造ask位none的注入面零ask名单项() {
                 .ask
                 .is_some(),
             "来源 {source} 的装配面 ask 位恒 Some（禁用形态不经装配链）"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// steer 注册表注入缝：组合根只透传（第 5 实参紧跟 ask_registry），引擎门面不
+// 参与；登记 / 除名的行为面归 `kernel_test.rs`，本节锁「注入的实例即内核登记的
+// 那张表」这一组合事实。
+// ---------------------------------------------------------------------------
+
+/// 透传同一实例（正向，AC-1 的组合行）：以测试持有的 `Arc<SteerRegistry>` 传入
+/// → `begin` 返 `RunningTurn` → 同一实例 `request(&running.session_id)` → `Ok`
+/// （非自铸的第二张表）。
+#[tokio::test(start_paused = true)]
+async fn compose_turn透传steer实例_begin后同一实例可请求() {
+    let env = DualEnv::new("steer-inject");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "steer 注入供应");
+    seed_sdk_instance(stores, "steer 注入实例", Some(provider_id));
+    let steers = Arc::new(agent::SteerRegistry::default());
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::clone(&steers),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "steer 注入一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+
+    steers
+        .request(
+            &running.session_id,
+            agent::SteerMessage {
+                text: "组合根注入的那张表".to_owned(),
+                ack: tokio::sync::oneshot::channel().0,
+            },
+        )
+        .expect("同一实例命中（非自铸的第二张表）");
+    let _ = running.drive(|_output| {}).await;
+}
+
+/// 生命周期闭合（正向，AC-3 的组合行）：`begin` 后驱动至收敛 → 同一实例
+/// `request` → `Err`（`converge` 除名经注入表生效）。
+#[tokio::test(start_paused = true)]
+async fn compose_turn注入实例随轮收口除名() {
+    let env = DualEnv::new("steer-lifecycle");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "steer 生命周期供应");
+    seed_sdk_instance(stores, "steer 生命周期实例", Some(provider_id));
+    let steers = Arc::new(agent::SteerRegistry::default());
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::clone(&steers),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "steer 生命周期一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+    let outcome = running.drive(|_output| {}).await;
+    assert!(
+        matches!(
+            outcome.status,
+            agent::AgentRunStatus::Failed | agent::AgentRunStatus::Stopped
+        ),
+        "不可达 provider 快失败收敛，实际: {:?}",
+        outcome.status
+    );
+
+    let error = steers
+        .request(
+            &session_id,
+            agent::SteerMessage {
+                text: "收口后到达".to_owned(),
+                ack: tokio::sync::oneshot::channel().0,
+            },
+        )
+        .expect_err("收口后同一实例 miss");
+    assert_eq!(error, "会话已收口，补充说明不可送达");
+}
+
+/// 实例隔离（边界）：两次 `compose_turn` 各传不同 `Arc` → 各自 `begin` 后只命中
+/// 本表（互不串表）。
+#[tokio::test(start_paused = true)]
+async fn 两次compose_turn各自的steer实例互不串表() {
+    let env = DualEnv::new("steer-isolated");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "steer 隔离供应");
+    seed_sdk_instance(stores, "steer 隔离实例", Some(provider_id));
+    let left = Arc::new(agent::SteerRegistry::default());
+    let right = Arc::new(agent::SteerRegistry::default());
+
+    let left_turn = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::clone(&left),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("左表解析应成功");
+    let right_turn = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::clone(&right),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("右表解析应成功");
+
+    let left_running = left_turn
+        .begin(
+            SessionRef::New,
+            "左表一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("左表 begin 应成功");
+    let right_running = right_turn
+        .begin(
+            SessionRef::New,
+            "右表一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("右表 begin 应成功");
+
+    left.request(
+        &left_running.session_id,
+        agent::SteerMessage {
+            text: "左表".to_owned(),
+            ack: tokio::sync::oneshot::channel().0,
+        },
+    )
+    .expect("左表命中本会话");
+    assert!(
+        left.request(
+            &right_running.session_id,
+            agent::SteerMessage {
+                text: "串表".to_owned(),
+                ack: tokio::sync::oneshot::channel().0,
+            }
+        )
+        .is_err(),
+        "左表不命中右表会话"
+    );
+    right
+        .request(
+            &right_running.session_id,
+            agent::SteerMessage {
+                text: "右表".to_owned(),
+                ack: tokio::sync::oneshot::channel().0,
+            },
+        )
+        .expect("右表命中本会话");
+    let _ = left_running.drive(|_output| {}).await;
+    let _ = right_running.drive(|_output| {}).await;
+}
+
+/// 解析失败零接线（异常，参数化 2 成因）：无默认 agent / 显式不存在 id 两 `Err`
+/// → steer 表零触点（`request` 仍 `Err`），`Err` 文案零改动。
+#[test]
+fn 解析失败时steer表零触点() {
+    let env = DualEnv::new("steer-resolve-err");
+    let stores = env.stores();
+    let steers = Arc::new(agent::SteerRegistry::default());
+
+    for agent in [None, Some(404)] {
+        let error = err_of(compose_turn(
+            stores,
+            Arc::new(StopRegistry::new()),
+            Arc::new(SessionStreamRegistry::new()),
+            Arc::new(agent::AskRegistry::default()),
+            Arc::clone(&steers),
+            env.store(),
+            agent,
+            Path::new(&env.root()),
+            None,
+        ));
+        assert!(
+            error.contains("默认 agent") || error.contains("404"),
+            "既有解析 Err 文案零改动，实际: {error}"
+        );
+        assert!(
+            steers
+                .request(
+                    "ses-any",
+                    agent::SteerMessage {
+                        text: "无主".to_owned(),
+                        ack: tokio::sync::oneshot::channel().0,
+                    }
+                )
+                .is_err(),
+            "解析失败零接线（表内零条目）"
         );
     }
 }

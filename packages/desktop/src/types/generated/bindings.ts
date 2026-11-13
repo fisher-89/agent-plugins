@@ -128,6 +128,17 @@ export const commands = {
 	 */
 	agentAnswer: (root: string, sessionId: string, text: string) => __TAURI_INVOKE<null>("agent_answer", { root, sessionId, text }),
 	/**
+	 *  补充说明注入（薄包装四段：三参校验 → ask 槽判据 → 注册表投递 → ack 等待）：
+	 *  零新开会话 / 轮、零状态机操作、零通知广播、零排队续跑。判据次序是硬要求
+	 *  （ask 阻塞期 `SteerRegistry` 条目仍在场，只看 miss 判不出来）；三条不可送达
+	 *  文案各自独立（成因可辨，MUST NOT 归一成一句「发送失败」）。
+	 * 
+	 *  `text` 要校验空白：它会落成 `Message::user` 进史并成为下一次请求的输入，
+	 *  空串进去等于给模型塞一条空消息（应答是自由文本，故 `agent_answer` 不校验）。
+	 *  两个 `State` 的 `Arc` 先取出再 await（不跨 await 持借用）。
+	 */
+	agentSteer: (root: string, sessionId: string, text: string) => __TAURI_INVOKE<null>("agent_steer", { root, sessionId, text }),
+	/**
 	 *  会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，
 	 *  无编排无落库）：按轮收流，轮终态以 `Record` 收尾后命令返回（订阅流按轮划
 	 *  分，不长连接跨轮）；blank root / 无运行轮（会话未运行 / 已终态 / 未知 id）

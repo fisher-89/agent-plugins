@@ -2010,3 +2010,186 @@ describe('agent-adapter：web_search 取值边界与未知变体', () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// steer-running-agent-step：按轮产出的「补充说明」半边（AC-10）
+//
+// 每轮 user 消息由「提问（组内首条）」细化为「提问 + 补充说明（组内其余各一条，
+// id 锚在自身 seq，序在提问之后、assistant 之前）」。`entryToMessages` 为私有件，
+// 行为统一经公共入口 `foldSessionMessages` 观测。
+// ---------------------------------------------------------------------------
+
+/** 该轮 user 消息（提问 + 补充说明，按产出序） */
+function userMessagesOf(messages: AgentUIMessage[]): AgentUIMessage[] {
+  return messages.filter((message) => message.role === 'user');
+}
+
+describe('foldSessionMessages：轮中段补充说明（AC-10）', () => {
+  it('轮中段呈现：提问 → 补充说明 → assistant 三序，aux 逐事件独立不变', () => {
+    const messages = fold([
+      userMessage(3, '首轮提问'),
+      message(5, [{ kind: 'text', text: '首轮结论' }]),
+      userMessage(9, '补充说明'),
+      message(11, [{ kind: 'text', text: '补充后结论' }]),
+      turnDone(13),
+    ]);
+
+    expect(messages.filter((m) => m.role !== 'system').map((m) => m.id)).toEqual([
+      'turn-11-user',
+      'evt-9',
+      'turn-11',
+    ]);
+    // aux 逐事件独立（turnDone 一条 system 消息）
+    expect(messages.filter((m) => m.role === 'system')).toHaveLength(1);
+    // assistant 恒为该轮末条
+    expect(messages.at(-1)?.id).toBe('turn-11');
+  });
+
+  it('补充说明 parts 与提问同一表达式产出：text 块直映射（文本逐字、state done）', () => {
+    const messages = fold([
+      userMessage(3, '提问正文'),
+      userMessage(9, '补充正文'),
+      message(11, [{ kind: 'text', text: '结论' }]),
+    ]);
+
+    const users = userMessagesOf(messages);
+    expect(users.map((m) => m.parts)).toEqual([
+      [{ type: 'text', text: '提问正文', state: 'done' }],
+      [{ type: 'text', text: '补充正文', state: 'done' }],
+    ]);
+  });
+
+  it('id 族不撞：一条提问 + 两条补充说明 → 三条 user id 两两不等，assistant 恰一条', () => {
+    const messages = fold([
+      userMessage(3, '提问'),
+      userMessage(9, '补充一'),
+      userMessage(11, '补充二'),
+      message(13, [{ kind: 'text', text: '结论' }]),
+    ]);
+
+    const users = userMessagesOf(messages);
+    expect(users.map((m) => m.id)).toEqual(['turn-11-user', 'evt-9', 'evt-11']);
+    expect(new Set(users.map((m) => m.id)).size).toBe(users.length);
+    expect(messages.filter((m) => m.role === 'assistant')).toHaveLength(1);
+  });
+
+  it('补充说明不入 assistant（反向判据）：assistant parts 不含补充说明文本且恒为末条', () => {
+    const messages = fold([
+      userMessage(3, '提问'),
+      userMessage(9, '不该进 assistant 的补充'),
+      message(11, [{ kind: 'text', text: '结论' }]),
+    ]);
+
+    const assistant = assistantOf(messages);
+    const assistantText = (assistant?.parts ?? [])
+      .filter((part) => part.type === 'text')
+      .map((part) => (part as { text: string }).text);
+    expect(assistantText).not.toContain('不该进 assistant 的补充');
+    expect(messages.at(-1)?.role).toBe('assistant');
+  });
+
+  it('重放不丢：同一转录连续折叠两次 → id 序列与消息序逐字一致', () => {
+    const events = [
+      userMessage(3, '提问'),
+      message(5, [{ kind: 'text', text: '结论一' }]),
+      userMessage(9, '补充'),
+      message(11, [{ kind: 'text', text: '结论二' }]),
+      turnDone(13),
+    ];
+    const first = fold(events).map((m) => m.id);
+    const second = fold(events).map((m) => m.id);
+    expect(second).toEqual(first);
+  });
+
+  it('旧转录（turnId 全 null）：组内首条为提问、其余为补充说明，全部两两不等', () => {
+    const messages = fold([
+      runStarted(0, null),
+      userMessage(1, '旧提问', null),
+      message(2, [{ kind: 'text', text: '旧结论' }], null, null),
+      userMessage(3, '旧补充', null),
+      turnDone(4),
+    ]);
+
+    const ids = messages.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const users = userMessagesOf(messages);
+    expect(users.map((m) => m.id)).toEqual(['evt-1', 'evt-3']);
+    expect(messages.at(-1)?.role).toBe('assistant');
+    expect(messages.at(-1)?.id).not.toBe('evt-3');
+  });
+
+  it('零 / 单 user 形态：单条只有提问、零条零 user（既有形状零变）', () => {
+    const single = fold([userMessage(3, '唯一提问'), message(5, [{ kind: 'text', text: '结论' }])]);
+    expect(userMessagesOf(single).map((m) => m.id)).toEqual(['turn-11-user']);
+
+    const none = fold([message(5, [{ kind: 'text', text: '结论' }])]);
+    expect(userMessagesOf(none)).toHaveLength(0);
+    expect(assistantOf(none)).toBeDefined();
+  });
+
+  it('正文边界：空串 / 换行 / NUL 与 emoji / 超长逐字保留（不截断、不转义）', () => {
+    const texts = ['', 'a\nb', 'a\0b🚀', '字'.repeat(1200)];
+    for (const text of texts) {
+      const messages = fold([
+        userMessage(3, '提问'),
+        userMessage(9, text),
+        message(11, [{ kind: 'text', text: '结论' }]),
+      ]);
+      expect(userMessagesOf(messages)[1]?.parts).toEqual([{ type: 'text', text, state: 'done' }]);
+    }
+  });
+
+  it('多轮隔离：两轮各一条补充说明 → 各落本轮提问与 assistant 之间', () => {
+    const messages = fold(
+      [
+        userMessage(1, '第一问', 11),
+        message(2, [{ kind: 'text', text: '第一答' }], null, 11),
+        userMessage(3, '第一补充', 11),
+        turnDone(4, { turnId: 11 }),
+        userMessage(5, '第二问', 12),
+        message(6, [{ kind: 'text', text: '第二答' }], null, 12),
+        userMessage(7, '第二补充', 12),
+        turnDone(8, { turnId: 12 }),
+      ],
+      [record(11, 'completed'), record(12, 'completed')],
+    );
+
+    const ids = messages.map((m) => m.id);
+    const firstQuestion = ids.indexOf('turn-11-user');
+    const firstSupplement = ids.indexOf('evt-3');
+    const firstAssistant = ids.indexOf('turn-11');
+    const secondQuestion = ids.indexOf('turn-12-user');
+    const secondSupplement = ids.indexOf('evt-7');
+    const secondAssistant = ids.indexOf('turn-12');
+    for (const [name, value] of [
+      ['第一问', firstQuestion],
+      ['第一补充', firstSupplement],
+      ['第一答', firstAssistant],
+      ['第二问', secondQuestion],
+      ['第二补充', secondSupplement],
+      ['第二答', secondAssistant],
+    ] as [string, number][]) {
+      expect(value, `${name} 在场`).toBeGreaterThanOrEqual(0);
+    }
+    expect(firstQuestion).toBeLessThan(firstSupplement);
+    expect(firstSupplement).toBeLessThan(firstAssistant);
+    expect(firstAssistant).toBeLessThan(secondQuestion);
+    expect(secondQuestion).toBeLessThan(secondSupplement);
+    expect(secondSupplement).toBeLessThan(secondAssistant);
+  });
+
+  it('插入锚点（DD6）：补充说明事件与 assistant 块交错 → 仍排在提问之后、assistant 之前', () => {
+    const messages = fold([
+      message(1, [{ kind: 'text', text: '先说的话' }]),
+      userMessage(3, '提问'),
+      message(5, [{ kind: 'text', text: '中间结论' }]),
+      userMessage(9, '补充'),
+      message(11, [{ kind: 'text', text: '末结论' }]),
+    ]);
+
+    const ids = messages.map((m) => m.id);
+    expect(ids.indexOf('turn-11-user')).toBeLessThan(ids.indexOf('evt-9'));
+    expect(ids.indexOf('evt-9')).toBeLessThan(ids.indexOf('turn-11'));
+    expect(ids.at(-1)).toBe('turn-11');
+  });
+});

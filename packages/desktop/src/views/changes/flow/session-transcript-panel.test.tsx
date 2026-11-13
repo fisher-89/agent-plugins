@@ -567,7 +567,7 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     expect(lastViewProps().askAnswer?.pendingToolCallId).toBeNull();
   });
 
-  it('不传 askAnswer → 全静态且其余动作面仍缺席（无发送 / 停止入口）', async () => {
+  it('不传 askAnswer → ask 卡全静态（explore 形态动作面仍不可注入）', async () => {
     resetIpc({ transcript: [askMessage(0)] });
     await mounted();
 
@@ -605,7 +605,7 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     for (const props of recordedViewProps()) expect(props.askAnswer).toBeUndefined();
   });
 
-  it('composer 仍不可注入：渲染面无发送输入框（只读纪律不因 ask 例外而松动）', async () => {
+  it('composer 只以 step-session 前缀注入：explore 形态发送输入不出现', async () => {
     resetIpc({ transcript: [askMessage(0)] });
     const onAnswer = vi.fn();
     renderPanelWithAsk({ onAnswer, pendingToolCallId: 'call_flow_1' });
@@ -672,5 +672,144 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
     expect(invokeMock).not.toHaveBeenCalled();
     expect(recordedViewProps(), '空态不挂会话面（askAnswer 无处透传）').toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// steer-running-agent-step：composer 插槽接线（AC-11 的首个 steer 消费点）
+//
+// 面板自持形态增 composer 插槽：`AgentInput(idPrefix="step-session",
+// hidePermissionMode, pending=actions.steering, running=actions.running,
+// onSend=({text}) => actions.steer(text), onStop=actions.stop)`；可用性不预判
+// （轮是否在跑由后端 `Err` 说话）。
+// ---------------------------------------------------------------------------
+
+describe('SessionTranscriptPanel：composer 插槽（AC-11）', () => {
+  it('在场形态：输入 / 发送在场、档位行缺席（hidePermissionMode）', async () => {
+    await mounted();
+
+    expect(screen.getByTestId('step-session-composer')).toBeTruthy();
+    expect(screen.getByTestId('step-session-prompt')).toBeTruthy();
+    expect(screen.getByTestId('step-session-send')).toBeTruthy();
+    expect(screen.queryByTestId('step-session-permission-mode')).toBeNull();
+  });
+
+  it('onSend → actions.steer：点击发送 → agent_steer 三参逐字，零 agent_start', async () => {
+    await mounted();
+
+    fireEvent.change(screen.getByTestId('step-session-prompt'), {
+      target: { value: '给这一步补一句话' },
+    });
+    fireEvent.click(screen.getByTestId('step-session-send'));
+    await act(async () => {});
+
+    expect(callsOf('agent_steer')).toHaveLength(1);
+    expect(callsOf('agent_steer')[0]?.[1]).toEqual({
+      root: ROOT,
+      sessionId: EXECUTOR_SESSION,
+      text: '给这一步补一句话',
+    });
+    expect(callsOf('agent_start'), '本面板不发起新轮').toHaveLength(0);
+  });
+
+  it('onStop → actions.stop：库态 running 时停止入口在场，点击 → agent_stop 参数恰引用两参', async () => {
+    resetIpc({ detail: summary([turn(11, 'running')]) });
+    await mounted();
+
+    const stop = await screen.findByTestId('step-session-stop');
+    fireEvent.click(stop);
+    await act(async () => {});
+
+    expect(callsOf('agent_stop')).toHaveLength(1);
+    expect(callsOf('agent_stop')[0]?.[1]).toEqual({ root: ROOT, sessionId: EXECUTOR_SESSION });
+  });
+
+  it('pending 联动：ack 未回流期间发送禁用 + 呈「排队中…」，resolve 后复位可发', async () => {
+    await mounted();
+    let release: (() => void) | null = null;
+    invokeMock.mockImplementationOnce((command: string) =>
+      command === 'agent_steer'
+        ? new Promise<null>((resolve) => {
+            release = () => resolve(null);
+          })
+        : Promise.resolve(null),
+    );
+
+    fireEvent.change(screen.getByTestId('step-session-prompt'), {
+      target: { value: '排队中的补充说明' },
+    });
+    fireEvent.click(screen.getByTestId('step-session-send'));
+    await act(async () => {});
+
+    expect(screen.getByTestId('step-session-pending').textContent).toBe('排队中…');
+    expect(screen.getByTestId('step-session-send').hasAttribute('disabled')).toBe(true);
+
+    await act(async () => {
+      release?.();
+    });
+    expect(screen.queryByTestId('step-session-pending')).toBeNull();
+    fireEvent.change(screen.getByTestId('step-session-prompt'), {
+      target: { value: '复位后再发' },
+    });
+    expect(screen.getByTestId('step-session-send').hasAttribute('disabled')).toBe(false);
+  });
+
+  it('零预判判据：已收口步仍可点发送（禁用不预判），后端 Err 呈现在会话错误面', async () => {
+    resetIpc({ detail: summary([turn(11, 'completed')]) });
+    await mounted();
+    expect(callsOf('agent_session_watch'), '已收口零订阅').toHaveLength(0);
+    invokeMock.mockImplementationOnce((command: string) =>
+      command === 'agent_steer'
+        ? Promise.reject(new Error('会话已收口，补充说明不可送达'))
+        : Promise.resolve(null),
+    );
+
+    fireEvent.change(screen.getByTestId('step-session-prompt'), {
+      target: { value: '迟到补充说明' },
+    });
+    expect(screen.getByTestId('step-session-send').hasAttribute('disabled'), '不预判禁用').toBe(
+      false,
+    );
+    fireEvent.click(screen.getByTestId('step-session-send'));
+    await act(async () => {});
+
+    expect(callsOf('agent_steer')).toHaveLength(1);
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-session-error').textContent).toContain(
+        '会话已收口，补充说明不可送达',
+      );
+    });
+  });
+
+  it('空态不渲染 composer：roleRef = null 与 roleRef.sessionId = null 两形态', async () => {
+    const withoutRef = renderPanel(null);
+    await act(async () => {});
+    expect(screen.getByTestId('drawer-session-empty').textContent).toContain('当前选中无关联会话');
+    expect(screen.queryByTestId('step-session-composer')).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
+    withoutRef.unmount();
+
+    renderPanel({ role: 'executor', sessionId: null });
+    await act(async () => {});
+    expect(screen.getByTestId('drawer-session-empty').textContent).toContain('此步无会话记录');
+    expect(screen.queryByTestId('step-session-composer')).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('与 askAnswer 互不前置：两动作面同时在场，askAnswer 引用直通、composer 亦在 props 中', async () => {
+    resetIpc({ transcript: [askMessage(0)] });
+    const askAnswer = { onAnswer: vi.fn() };
+    renderPanelWithAsk(askAnswer);
+    await act(async () => {});
+    await act(async () => {});
+
+    const panel = screen.getByTestId('session-transcript-panel');
+    await waitFor(() =>
+      expect(within(panel).queryAllByTestId('ask-answer-option')).toHaveLength(2),
+    );
+    expect(lastViewProps().askAnswer).toBe(askAnswer);
+    const composer = (lastViewProps() as { composer?: unknown }).composer;
+    expect(typeof composer, 'composer 插槽同时在 props 中').toBe('function');
+    expect(screen.getByTestId('step-session-composer')).toBeTruthy();
   });
 });

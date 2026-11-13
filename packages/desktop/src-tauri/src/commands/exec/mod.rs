@@ -13,8 +13,8 @@ use tauri::{AppHandle, Manager, State};
 // 以 `::agent::` 显式消歧
 use ::agent::{
     AskRegistry, KernelOutput, ModelLevel, SessionCtx, SessionPage, SessionProvenance, SessionRef,
-    SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionSummary, StopRegistry,
-    TurnSummary,
+    SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionSummary, SteerMessage,
+    SteerRegistry, StopRegistry, TurnSummary,
 };
 use agent_runtime::compose_turn;
 use orchestration::port::AskPort;
@@ -151,12 +151,15 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
     let streams = app.state::<Arc<SessionStreamRegistry>>();
     // ask 注册表 `Arc` 先取出再进组合根（不跨 await 持 `State` 句柄）
     let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
+    // steer 注入注册表同址取出（与 ask 成组进组合根）
+    let steer_registry = Arc::clone(app.state::<Arc<SteerRegistry>>().inner());
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
     let composed = compose_turn(
         stores.inner(),
         Arc::clone(registry.inner()),
         Arc::clone(streams.inner()),
         ask_registry,
+        steer_registry,
         store,
         agent,
         // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；
@@ -224,6 +227,47 @@ pub fn agent_answer(
         return Err("非法 session_id: 不得为空白".to_owned());
     }
     registry.answer(&session_id, text)
+}
+
+/// 补充说明注入（薄包装四段：三参校验 → ask 槽判据 → 注册表投递 → ack 等待）：
+/// 零新开会话 / 轮、零状态机操作、零通知广播、零排队续跑。判据次序是硬要求
+/// （ask 阻塞期 `SteerRegistry` 条目仍在场，只看 miss 判不出来）；三条不可送达
+/// 文案各自独立（成因可辨，MUST NOT 归一成一句「发送失败」）。
+///
+/// `text` 要校验空白：它会落成 `Message::user` 进史并成为下一次请求的输入，
+/// 空串进去等于给模型塞一条空消息（应答是自由文本，故 `agent_answer` 不校验）。
+/// 两个 `State` 的 `Arc` 先取出再 await（不跨 await 持借用）。
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_steer(
+    steer: State<'_, Arc<SteerRegistry>>,
+    ask: State<'_, Arc<AskRegistry>>,
+    root: String,
+    session_id: String,
+    text: String,
+) -> Result<(), String> {
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    if session_id.trim().is_empty() {
+        return Err("非法 session_id: 不得为空白".to_owned());
+    }
+    if text.trim().is_empty() {
+        return Err("非法 text: 不得为空白".to_owned());
+    }
+    let steer_registry = Arc::clone(steer.inner());
+    let ask_registry = Arc::clone(ask.inner());
+    // ① ask 槽判据（取 ask 锁即释放）
+    if ask_registry.is_pending(&session_id) {
+        return Err("等待应答中，补充说明不可送达".to_owned());
+    }
+    // ② 注册表投递（取 steer 锁即释放；miss 与 send 失败同臂）
+    let (ack, delivered) = tokio::sync::oneshot::channel::<()>();
+    steer_registry.request(&session_id, SteerMessage { text, ack })?;
+    // ③ ack 等待（零锁；对端 drop 即「生效前结束」）
+    delivered
+        .await
+        .map_err(|_| "未送达（会话在补充说明生效前结束）".to_owned())
 }
 
 /// 会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，

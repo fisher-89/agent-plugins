@@ -207,13 +207,16 @@ pub struct ComposedTurn {
 /// 会话执行根 `exec_root` / worktree **不经此通道**。
 ///
 /// `ask_registry` 为壳层托管的 ask 应答注册表（透传内核 + 门面，两侧同一张表）；
-/// `ask_port` 仅门面（编排侧状态面的实现方是壳层 sink，内核侧不需要它）。
+/// `steer_registry` 为壳层托管的 steer 注入注册表（两张会话级注册表成组注入
+/// 内核；引擎门面不参与——登记发生在内核）；`ask_port` 仅门面（编排侧状态面的
+/// 实现方是壳层 sink，内核侧不需要它）。
 #[allow(clippy::too_many_arguments)]
 pub fn compose_turn(
     stores: &WorkspaceStores,
     registry: Arc<StopRegistry>,
     streams: Arc<SessionStreamRegistry>,
     ask_registry: Arc<agent::AskRegistry>,
+    steer_registry: Arc<agent::SteerRegistry>,
     store: Arc<Store>,
     agent: Option<i64>,
     workspace_root: &Path,
@@ -231,6 +234,7 @@ pub fn compose_turn(
         registry,
         streams,
         Arc::clone(&ask_registry),
+        steer_registry,
     );
     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件
     // 全史）
@@ -432,6 +436,7 @@ pub(crate) fn composed_with_runner(
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
             Arc::new(agent::AskRegistry::default()),
+            Arc::new(agent::SteerRegistry::default()),
         ),
         runner,
         query: Arc::new(StoreQuery::new(store)),

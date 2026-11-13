@@ -11,12 +11,20 @@ import type { SessionSummary } from '@/types/generated/bindings';
 import { latestAgentFailure, type AgentFailure } from './agent-error';
 import { type AskAnswerActions, AgentMessages } from './agent-messages';
 
-/** composer 插槽入参：运行态 + 动作面（插槽内容据此呈现发送 / 停止） */
+/**
+ * composer 插槽入参：运行态 + 动作面（插槽内容据此呈现发送 / 停止 / 补充说明）。
+ * `steer` / `steering` 为 additive 加位——不接的消费点零影响；能否发补充说明由
+ * 插槽自己决定（本组件不预判）。
+ */
 export interface AgentSessionActions {
   running: boolean;
   loading: boolean;
   send: (input: AgentSessionSendInput) => void;
   stop: () => void;
+  /** 补充说明注入（运行中会话） */
+  steer: (text: string) => void;
+  /** 已提交、等 ack 回流（供插槽呈「排队中…」并禁发防连点） */
+  steering: boolean;
 }
 
 export interface AgentSessionViewProps {
@@ -138,6 +146,8 @@ export function AgentSessionView(props: AgentSessionViewProps): React.JSX.Elemen
     loading: state.loading,
     send: state.sendMessage,
     stop: state.stop,
+    steer: state.steer,
+    steering: state.steering,
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid={testId}>

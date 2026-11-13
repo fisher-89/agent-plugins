@@ -109,6 +109,8 @@ function sessionState(overrides: Partial<UseAgentSessionState> = {}): UseAgentSe
     stop: vi.fn(),
     reset: vi.fn(),
     answer: vi.fn(),
+    steer: vi.fn(),
+    steering: false,
     ...overrides,
   };
 }
@@ -439,7 +441,7 @@ describe('SessionPanel：会话体与 composer 插槽', () => {
     // 故不作调用次数断言——判据是每次渲染拿到的四字段同源（骨架不另建会话流）。
     expect(seen.length, 'composer 至少被渲染一次').toBeGreaterThan(0);
     for (const [index, actions] of seen.entries()) {
-      expect(actions, `第 ${index + 1} 次 composer 渲染的四字段同源`).toEqual({
+      expect(actions, `第 ${index + 1} 次 composer 渲染的四字段同源`).toMatchObject({
         running: true,
         loading: false,
         send: sendMessage,

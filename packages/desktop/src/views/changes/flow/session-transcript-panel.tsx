@@ -1,5 +1,6 @@
 import {
   type AskAnswerActions,
+  AgentInput,
   AgentSessionView,
   type AgentSessionViewProps,
 } from '@/components/agent';
@@ -12,7 +13,7 @@ interface SessionTranscriptPanelProps {
   /** 会话状态重评估信号（会话事件通知并入统一视图重查 tick；组件据其重评估
    * 是否挂流——delta 不经通知重查，实时面走会话订阅） */
   refreshKey?: number;
-  /** ask 应答动作面（唯一例外：本面板其余动作面仍缺席——无发送 / 停止入口） */
+  /** ask 应答动作面（与 composer 插槽互不前置） */
   askAnswer?: AskAnswerActions;
 }
 
@@ -26,9 +27,11 @@ function SessionSlotEmpty({ text }: { text: string }): React.JSX.Element {
 }
 
 /**
- * role 会话转录面板（只读消费点）：会话 id 直查 + 会话级组件自持形态渲染
- * （不接 composer 插槽，无发送 / 停止入口）。`roleRef.sessionId` 缺席呈步面
- * 空态（「此步无会话记录」），`roleRef` 缺席呈「当前选中无关联会话」。
+ * role 会话转录面板（接 composer 插槽）：会话 id 直查 + 会话级组件自持形态
+ * 渲染，插槽呈补充说明输入 + 停止；不呈 permission-mode 档位与新会话入口，
+ * 可用性不预判（轮是否在跑由后端 `Err` 说话）。`roleRef.sessionId` 缺席呈步面
+ * 空态（「此步无会话记录」，不渲染 composer），`roleRef` 缺席呈「当前选中无
+ * 关联会话」。
  */
 export function SessionTranscriptPanel({
   root,
@@ -42,11 +45,23 @@ export function SessionTranscriptPanel({
   if (roleRef.sessionId === null) {
     return <SessionSlotEmpty text="此步无会话记录" />;
   }
-  // 自持形态入参：本面板的 root / sessionId / 重评估键即视图 props（只读，无插槽）
+  // 自持形态入参：本面板的 root / sessionId / 重评估键即视图 props
   const viewProps: AgentSessionViewProps = {
     root,
     sessionId: roleRef.sessionId,
     refreshKey,
+    // 补充说明输入：模型在下一个请求边界看到该文本（运行中有效，否则后端 Err）
+    composer: (actions) => (
+      <AgentInput
+        idPrefix="step-session"
+        placeholder="给这一步补一句话（模型在下一个请求边界看到）"
+        running={actions.running}
+        hidePermissionMode
+        pending={actions.steering}
+        onSend={({ text }) => actions.steer(text)}
+        onStop={actions.stop}
+      />
+    ),
     ...(askAnswer === undefined ? {} : { askAnswer }),
     'data-testid': 'session-transcript',
   };

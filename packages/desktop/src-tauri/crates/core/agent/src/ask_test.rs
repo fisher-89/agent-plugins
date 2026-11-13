@@ -373,3 +373,141 @@ fn 并发混读写不panic且结束态可查() {
         "末次应答结果二值之一，实际: {last:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 正向：`is_pending` 只读判据（ask 阻塞窗口的唯一真相）
+//
+// 与 `SteerRegistry` 条目并存是本判据的成因：ask 阻塞期会话没结束，steer 条目
+// 仍在场，故「条目在场」不能证明可送达——steer 命令面次序判据读的就是本方法。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn is_pending登记态为true且与steer条目并存() {
+    let registry = AskRegistry::new();
+    let steer = crate::steer::SteerRegistry::new();
+    let (tx, _rx) = oneshot::channel::<String>();
+    registry.register("s1", tx);
+    // ask 阻塞窗口形态：steer 已登记（内核开轮登记、收敛才除名），ask 槽在场
+    let (steer_tx, _steer_rx) =
+        tokio::sync::mpsc::unbounded_channel::<crate::steer::SteerMessage>();
+    steer.register("s1", steer_tx);
+
+    assert!(registry.is_pending("s1"), "登记态 true");
+    assert!(
+        matches!(
+            steer.request(
+                "s1",
+                crate::steer::SteerMessage {
+                    text: "阻塞期到达".to_owned(),
+                    ack: oneshot::channel().0,
+                }
+            ),
+            Ok(())
+        ),
+        "steer 条目此刻仍在场（条目在场不证明可送达，判据归 is_pending）"
+    );
+}
+
+#[test]
+fn is_pending应答后翻转false且受理口径零改动() {
+    let registry = AskRegistry::new();
+    let (tx, mut rx) = oneshot::channel::<String>();
+    assert!(registry.register("s1", tx), "首登诊断值 true");
+    assert!(registry.is_pending("s1"));
+
+    assert!(
+        registry.answer("s1", "选项A".to_owned()).is_ok(),
+        "首次受理"
+    );
+    assert!(!registry.is_pending("s1"), "take 后翻转 false");
+    assert_eq!(rx.try_recv().expect("收到"), "选项A", "原文逐字");
+    assert!(
+        registry.answer("s1", "第二次".to_owned()).is_err(),
+        "answer 的 take 语义零改动"
+    );
+    assert!(!registry.is_pending("s1"));
+}
+
+#[test]
+fn is_pending除名后false且同键可重开() {
+    let registry = AskRegistry::new();
+    let (tx, _rx) = oneshot::channel::<String>();
+    registry.register("s1", tx);
+
+    registry.remove("s1");
+    assert!(!registry.is_pending("s1"), "除名后 false");
+
+    let (tx, mut rx) = oneshot::channel::<String>();
+    assert!(registry.register("s1", tx), "同键再登记为「键原为空」");
+    assert!(registry.is_pending("s1"), "重开后 true");
+    assert!(registry.answer("s1", "重开应答".to_owned()).is_ok());
+    assert_eq!(rx.try_recv().expect("收到"), "重开应答");
+}
+
+#[test]
+fn is_pending未登记形态恒false不panic() {
+    let registry = AskRegistry::new();
+    let long_key = "字".repeat(1200);
+    let keys: [&str; 5] = ["", "   ", "a\0b🚀", &long_key, "s-从未登记"];
+
+    // 空表 + 五形态键（含空串 / 纯空白 / 特殊字符 / 超长 / 普通 miss 键）
+    for key in keys {
+        assert!(!registry.is_pending(key), "空表键 {key:?} 恒 false");
+    }
+
+    // 表内有其它键时，本键仍 false（不因表非空而误判）
+    let (tx, _rx) = oneshot::channel::<String>();
+    registry.register("s1", tx);
+    assert!(registry.is_pending("s1"));
+    for key in keys {
+        assert!(!registry.is_pending(key), "非本键 {key:?} 恒 false");
+    }
+}
+
+#[test]
+fn is_pending只读不take_连读两次仍命中应答() {
+    let registry = AskRegistry::new();
+    let (tx, mut rx) = oneshot::channel::<String>();
+    registry.register("s1", tx);
+
+    assert!(registry.is_pending("s1"));
+    assert!(registry.is_pending("s1"), "只读取锁即释放，不消费表项");
+
+    assert!(
+        registry.answer("s1", "仍可命中".to_owned()).is_ok(),
+        "连读后应答照常命中（未 take、未改写表项）"
+    );
+    assert_eq!(rx.try_recv().expect("收到"), "仍可命中");
+}
+
+#[test]
+fn is_pending同键覆盖形态恒true横跨诊断值差异() {
+    let registry = AskRegistry::new();
+    let (tx1, _rx1) = oneshot::channel::<String>();
+    let (tx2, mut rx2) = oneshot::channel::<String>();
+
+    assert!(registry.register("s1", tx1), "首登 true");
+    assert!(
+        !registry.register("s1", tx2),
+        "同键覆盖 → false（诊断值，不是 pending 判据）"
+    );
+    assert!(
+        registry.is_pending("s1"),
+        "覆盖后仍 pending（诊断值差异不显形）"
+    );
+    assert!(registry.answer("s1", "新应答".to_owned()).is_ok());
+    assert_eq!(rx2.try_recv().expect("新等待方收到"), "新应答");
+    assert!(!registry.is_pending("s1"));
+}
+
+#[test]
+fn is_pending两实例隔离_无全局串表() {
+    let left = AskRegistry::new();
+    let right = AskRegistry::new();
+    let (tx, _rx) = oneshot::channel::<String>();
+    left.register("s1", tx);
+
+    assert!(left.is_pending("s1"));
+    assert!(!right.is_pending("s1"), "另一实例不共享表项");
+    assert!(!left.is_pending("s2"));
+}

@@ -106,6 +106,11 @@ export const argsSchemas = {
 			"sessionId": z.string(),
 			"text": z.string(),
 		}); },
+	get "agentSteer"() { return z.strictObject({
+			"root": z.string(),
+			"sessionId": z.string(),
+			"text": z.string(),
+		}); },
 	get "agentSessionWatch"() { return z.strictObject({
 			"onEvent": degraded("channel: 非 JSON 可表达，跳过值校验"),
 			"root": z.string(),
@@ -292,6 +297,7 @@ export const resultSchemas = {
 	get "agentStart"() { return z.lazy(() => TurnSummarySchema); },
 	get "agentStop"() { return z.null(); },
 	get "agentAnswer"() { return z.null(); },
+	get "agentSteer"() { return z.null(); },
 	get "agentSessionWatch"() { return z.null(); },
 	get "agentSessions"() { return z.lazy(() => SessionPageSchema); },
 	get "agentSessionTranscript"() { return z.array(z.lazy(() => AgentEventSchema)); },
@@ -374,6 +380,8 @@ export const channelArgs = {
 	get "agentStop"() { return {
 		}; },
 	get "agentAnswer"() { return {
+		}; },
+	get "agentSteer"() { return {
 		}; },
 	get "agentSessionWatch"() { return {
 			get "onEvent"() { return z.lazy(() => AgentRunMessageSchema); },

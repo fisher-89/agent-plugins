@@ -146,6 +146,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "agentStart",
     "agentStop",
     "agentAnswer",
+    "agentSteer",
     "agentSessions",
     "agentSessionTranscript",
     "sessionDetail",
@@ -200,6 +201,7 @@ const COMMAND_NAMES: &[&str] = &[
     "agent_start",
     "agent_stop",
     "agent_answer",
+    "agent_steer",
     "agent_sessions",
     "agent_session_transcript",
     "session_detail",
@@ -1051,16 +1053,25 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
-    // 合并侧两变更各补录一条（架构页文件树 + agent_answer）：条目数 48 → 50
+    // 合并侧两变更各补录一条（架构页文件树 + agent_answer）：条目数 48 → 50；
+    // 本变更再补一条（agent_steer，50 → 51）
     assert_eq!(
         COMMAND_NAMES.len(),
-        50,
-        "命令清单两变更各补录一条（archi_file_tree + agent_answer，48 → 50）"
+        51,
+        "命令清单本变更补录一条（agent_steer，50 → 51）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        50,
-        "包装清单两变更各补录一条（archiFileTree + agentAnswer，48 → 50）"
+        51,
+        "包装清单本变更补录一条（agentSteer，50 → 51）"
+    );
+    assert!(
+        COMMAND_NAMES.contains(&"agent_steer"),
+        "invoke 名补录（agent_steer）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&"agentSteer"),
+        "包装名补录（agentSteer）"
     );
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(
@@ -1977,17 +1988,18 @@ fn 登记面_架构页会话清单命令在册() {
     );
 }
 
-/// 边界：命令总数 +2（48 → 50），两份清单条目数持衡（漏登记或重复登记即红）。
+/// 边界：命令总数 50 → 51（本变更新增 `agent_steer`），两份清单条目数持衡
+/// （漏登记或重复登记即红）。
 #[test]
 fn 登记面_命令总数加二且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        50,
-        "两变更各补录一条后的命令总数（48 → 50）"
+        51,
+        "本变更补录一条后的命令总数（50 → 51）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        50,
+        51,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2453,14 +2465,14 @@ fn 登记面_三新命令在两清单与生成物各在册() {
     }
 }
 
-/// 正向：总数锚 48 → 50（两份清单持衡、一一对应）；尾锚仍为 `read_file`
-///（archi 组新条目插在其前，三行删除在 changes / explores / archi 组内）。
+/// 正向：总数锚 50 → 51（本变更新增 `agent_steer`，两份清单持衡、一一对应）；
+/// 尾锚仍为 `read_file`（新条目插在 agent 组内，尾锚零位移）。
 #[test]
 fn 登记面_总数五十且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 50, "命令清单总数 48 → 50");
+    assert_eq!(COMMAND_NAMES.len(), 51, "命令清单总数 50 → 51");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        50,
+        51,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
@@ -3408,5 +3420,117 @@ fn 登记面_agentAnswer紧随agentStop生成() {
         wrapper_answer,
         wrapper_stop + 1,
         "包装清单内 agentAnswer 紧随 agentStop"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// steer-running-agent-step：`agent_steer` 登记面 / 出线面 / 生成序 / 引擎词汇
+// 反向锚定
+// ---------------------------------------------------------------------------
+
+/// 生成序（正向，AC-8）：`agentSteer` 在产物中的偏移紧随 `agentAnswer`——
+/// `all_commands!` 登记序 = 生成序（沿既有相对序先例）；两份清单侧的相邻关系
+/// 同源。
+#[test]
+#[allow(non_snake_case)]
+fn 登记面_agentSteer紧随agentAnswer生成() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    let answer_offset = content
+        .find("agentAnswer: (")
+        .expect("agentAnswer 包装在场");
+    let steer_offset = content.find("agentSteer: (").expect("agentSteer 包装在场");
+    assert!(
+        answer_offset < steer_offset,
+        "登记序 agentAnswer 先于 agentSteer（{answer_offset} < {steer_offset}）"
+    );
+    // 两者之间只夹 agentSteer 自己的 JSDoc 注释，无其它命令包装
+    let between = &content[answer_offset..steer_offset];
+    assert!(
+        !between[between.find('\n').expect("agentAnswer 行有换行")..].contains("__TAURI_INVOKE<"),
+        "其间无其它命令包装夹在中间: {between:?}"
+    );
+
+    let answer_index = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "agent_answer")
+        .expect("agent_answer 在册");
+    let steer_index = COMMAND_NAMES
+        .iter()
+        .position(|name| *name == "agent_steer")
+        .expect("agent_steer 在册");
+    assert_eq!(
+        steer_index,
+        answer_index + 1,
+        "invoke 清单内紧随 agent_answer"
+    );
+
+    let wrapper_answer = COMMAND_WRAPPERS
+        .iter()
+        .position(|name| *name == "agentAnswer")
+        .expect("agentAnswer 在册");
+    let wrapper_steer = COMMAND_WRAPPERS
+        .iter()
+        .position(|name| *name == "agentSteer")
+        .expect("agentSteer 在册");
+    assert_eq!(
+        wrapper_steer,
+        wrapper_answer + 1,
+        "包装清单内紧随 agentAnswer"
+    );
+}
+
+/// 签名出线（正向，AC-8）：产物内 `agentSteer` 三参逐字 + invoke 目标
+/// `agent_steer` + 返回 `null`（`Result<(), String>` 的出线形态）。
+#[test]
+fn agent_steer出线签名为三参薄包装() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let expected = "agentSteer: (root: string, sessionId: string, text: string) => \
+                    __TAURI_INVOKE<null>(\"agent_steer\", { root, sessionId, text })";
+    let squashed = content
+        .replace('\n', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        squashed.contains(&expected.split_whitespace().collect::<Vec<_>>().join(" ")),
+        "agent_steer 包装签名与 invoke 目标逐字（三参 + null 返回）"
+    );
+    // 与既有 agent 命令并存（新增不遮蔽既有出线名）
+    for kept in ["agentAnswer:", "agentStart:", "agentStop:"] {
+        assert!(content.contains(kept), "既有命令 {kept} 仍在位");
+    }
+}
+
+/// 引擎面不出线（异常，AC-8 反向锚定）：产物全文零 `SteerMessage` / `SteerRegistry`
+/// 类型名——`DTO_TYPES` 清单零补录即覆盖（只出命令包装，不出引擎词汇）。
+#[test]
+fn 引擎侧词汇反向锚定含steer两类型() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    // 只判「代码面」：命令包装的 JSDoc 会逐字带上 Rust 文档注释（含类型名，
+    // 非出线声明）；`export type` / 包装签名里出现才是真正的出线泄漏。
+    let code_lines: String = content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !(trimmed.starts_with('*') || trimmed.starts_with("/*") || trimmed.starts_with("//"))
+        })
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    for forbidden in ["SteerMessage", "SteerRegistry"] {
+        assert!(
+            !code_lines.contains(forbidden),
+            "产物代码面零 {forbidden}（引擎侧注入通道词汇不出线 IPC）"
+        );
+    }
+    assert!(
+        !DTO_TYPES.iter().any(|name| name.contains("Steer")),
+        "DTO 清单零补录（两类型不出线）"
     );
 }

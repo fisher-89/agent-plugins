@@ -49,6 +49,8 @@ function emptySession(): UseAgentSessionState {
     stop: vi.fn(),
     reset: vi.fn(),
     answer: vi.fn(),
+    steer: vi.fn(),
+    steering: false,
   };
 }
 
@@ -105,6 +107,8 @@ describe('组件族 barrel：出口集合与单一引用', () => {
       loading: false,
       send: () => {},
       stop: () => {},
+      steer: () => {},
+      steering: false,
     };
     expect(props.sessionId).toBeNull();
     expect(actions.running).toBe(false);

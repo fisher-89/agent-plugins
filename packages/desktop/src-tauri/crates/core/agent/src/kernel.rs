@@ -10,6 +10,7 @@ use crate::runner::{
 };
 use crate::session::{new_session_id, NewSessionRow, SessionProvenance};
 use crate::state::{AgentRunState, RunStateMachine};
+use crate::steer::SteerRegistry;
 use crate::stream::SessionStreamRegistry;
 
 /// 停止注册表（内存态，进程生命周期，应用重启即清空）：运行中会话的停止
@@ -114,6 +115,8 @@ pub struct RunningTurn {
     streams: Arc<SessionStreamRegistry>,
     /// ask 应答注册表（轮收敛兜底除名）
     ask_registry: Arc<AskRegistry>,
+    /// steer 注入注册表（轮收敛兜底除名）
+    steer_registry: Arc<SteerRegistry>,
     /// 轮提问
     question: String,
     /// 本轮盖戳续排基点（会话级单调空间的开轮询定值，轮内自基点递增）
@@ -129,23 +132,27 @@ pub struct SessionKernel {
     streams: Arc<SessionStreamRegistry>,
     /// ask 应答注册表（壳层 `Arc` 单例经组合根下行，与引擎侧登记的是同一张表）
     ask_registry: Arc<AskRegistry>,
+    /// steer 注入注册表（壳层 `Arc` 单例经组合根下行，与内核登记的是同一张表）
+    steer_registry: Arc<SteerRegistry>,
 }
 
 impl SessionKernel {
-    /// 内核构造：持久面 port + 停止注册 + 会话实时流注册 + ask 注册表（组合根
-    /// 装配）。ask 注册表由组合根注入，MUST NOT 内部自铸——否则与引擎侧登记
-    /// 的表不是同一张。
+    /// 内核构造：持久面 port + 停止注册 + 会话实时流注册 + ask 注册表 + steer
+    /// 注入注册表（组合根装配）。两张会话级注册表（ask / steer）由组合根注入，
+    /// MUST NOT 内部自铸——否则与引擎侧登记的不是同一张。
     pub fn new(
         sink: Arc<dyn SessionSink>,
         registry: Arc<StopRegistry>,
         streams: Arc<SessionStreamRegistry>,
         ask_registry: Arc<AskRegistry>,
+        steer_registry: Arc<SteerRegistry>,
     ) -> Self {
         Self {
             sink,
             registry,
             streams,
             ask_registry,
+            steer_registry,
         }
     }
 
@@ -199,6 +206,10 @@ impl SessionKernel {
             .register(&session_id, agent_session.handle.clone());
         // 流登记：先于驱动，订阅方可即刻接入（条目生命周期 = 本轮）
         self.streams.begin(&session_id);
+        // 补充说明登记（键 = core session id，与停止 / ask 同址）：sender 由本轮
+        // 引擎会话携带，接收入端在循环内 drain
+        self.steer_registry
+            .register(&session_id, agent_session.steers.clone());
         Ok(RunningTurn {
             session_id,
             turn_id,
@@ -208,6 +219,7 @@ impl SessionKernel {
             registry: Arc::clone(&self.registry),
             streams: Arc::clone(&self.streams),
             ask_registry: Arc::clone(&self.ask_registry),
+            steer_registry: Arc::clone(&self.steer_registry),
             question: request.question,
             seq_base,
         })
@@ -228,6 +240,7 @@ impl RunningTurn {
             registry,
             streams,
             ask_registry,
+            steer_registry,
             question,
             seq_base,
         } = self;
@@ -249,6 +262,7 @@ impl RunningTurn {
                 &registry,
                 &streams,
                 &ask_registry,
+                &steer_registry,
                 &mut on_output,
             )
             .await;
@@ -306,6 +320,7 @@ impl RunningTurn {
                     &registry,
                     &streams,
                     &ask_registry,
+                    &steer_registry,
                     &mut on_output,
                 )
                 .await;
@@ -341,14 +356,15 @@ impl RunningTurn {
             &registry,
             &streams,
             &ask_registry,
+            &steer_registry,
             &mut on_output,
         )
         .await
     }
 
     /// 轮收口：组装终态 → 轮行落库（失败记因仍尽力流出）→ 实时面投终态并除名
-    /// → 停止注册表除名 → ask 槽除名 → `TurnFinished` 流出。收口路径唯一（ask 失败 / 落库
-    /// 失败 / 正常 EOF 三臂共用），终态幂等。
+    /// → 停止注册表除名 → ask 槽除名 → steer 槽除名 → `TurnFinished` 流出。
+    /// 收口路径唯一（ask 失败 / 落库失败 / 正常 EOF 三臂共用），终态幂等。
     #[allow(clippy::too_many_arguments)]
     async fn converge<F>(
         session_id: &str,
@@ -361,6 +377,7 @@ impl RunningTurn {
         registry: &StopRegistry,
         streams: &SessionStreamRegistry,
         ask_registry: &AskRegistry,
+        steer_registry: &SteerRegistry,
         on_output: &mut F,
     ) -> TurnOutcome
     where
@@ -387,6 +404,8 @@ impl RunningTurn {
         registry.remove(session_id);
         // ask 槽随轮收敛兜底除名；take 后的空槽在 miss 语义下等价
         ask_registry.remove(session_id);
+        // steer 槽同址除名：残留补充说明随接收入端 drop 收 `Err`
+        steer_registry.remove(session_id);
         on_output(KernelOutput::TurnFinished(outcome.clone()));
         outcome
     }

@@ -47,7 +47,13 @@ struct FakeState {
     flaky: Mutex<VecDeque<StreamGlitch>>,
     /// 单点故障注入：第 N 次流请求（1 起）失败一次（续跑不吃重试预算用例）
     fail_at_request: Mutex<Option<(usize, String)>>,
+    /// 流请求点钩子队列（每次流请求弹一条执行）：补充说明 drain 用例在「流式
+    /// 中到达」的窗口推入消息 / 置位停止，免计时器同步
+    stream_hooks: Mutex<VecDeque<StreamHook>>,
 }
+
+/// 流请求点钩子（`FnOnce` 而非 `FnMut`：外部动作恰执行一次）。
+type StreamHook = Box<dyn FnOnce() + Send>;
 
 /// 悬挂点：`Request` = 首帧永不到达（发送 / 响应头相位死）；`Stream` = 首帧
 /// 之后无新帧且永不 EOF（帧间死）。
@@ -152,6 +158,15 @@ impl FakeModel {
             .expect("单点故障锁不可中毒") = Some((index, error.to_owned()));
     }
 
+    /// 追加一条流请求点钩子（按次弹用；补充说明「流式中到达」的同步装置）。
+    fn push_stream_hook(&self, hook: StreamHook) {
+        self.state
+            .stream_hooks
+            .lock()
+            .expect("钩子队列锁不可中毒")
+            .push_back(hook);
+    }
+
     fn captured_requests(&self) -> Vec<CompletionRequest> {
         self.state
             .requests
@@ -184,6 +199,7 @@ fn empty_state() -> FakeState {
         hang: None,
         flaky: Mutex::new(VecDeque::new()),
         fail_at_request: Mutex::new(None),
+        stream_hooks: Mutex::new(VecDeque::new()),
     }
 }
 
@@ -257,6 +273,17 @@ impl Transport<MockScript> for FakeTransport {
                             .expect("单点故障锁不可中毒") = None;
                         return Opening::ready(Opened::failed(ProviderError::Provider(error)));
                     }
+                }
+                // 流请求点钩子：测试在「本轮流式中」窗口注入补充说明 / 置位停止
+                //（drain 只读通道，推入序即下一边界的取走序）
+                if let Some(hook) = self
+                    .state
+                    .stream_hooks
+                    .lock()
+                    .expect("钩子队列锁不可中毒")
+                    .pop_front()
+                {
+                    hook();
                 }
                 // 轮间改写钩子：首轮流请求捕获后执行（次轮 preamble 重读见改后内容）
                 if let Some((path, content)) = self
@@ -401,7 +428,17 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             web_search: turn.web_search,
         };
         let handle = handle.clone();
-        async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
+        async move {
+            r#loop::run(
+                &dyn_model,
+                &turn,
+                Vec::new(),
+                mpsc::unbounded_channel::<agent::SteerMessage>().1,
+                sender,
+                handle,
+            )
+            .await
+        }
     });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
@@ -437,7 +474,17 @@ async fn drive_loop_collecting_history(
             web_search: turn.web_search,
         };
         let handle = handle.clone();
-        async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
+        async move {
+            r#loop::run(
+                &dyn_model,
+                &turn,
+                Vec::new(),
+                mpsc::unbounded_channel::<agent::SteerMessage>().1,
+                sender,
+                handle,
+            )
+            .await
+        }
     });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
@@ -456,10 +503,17 @@ async fn drive_loop_turn_collecting_history(
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let dyn_model = model.erased();
     let handle = RunHandle::default();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -477,10 +531,17 @@ async fn drive_loop_turn_with_handle(
 ) -> (Vec<AgentEventKind>, Vec<Message>) {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -546,8 +607,17 @@ async fn drive_loop_with_history(
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(async move { r#loop::run(&dyn_model, &turn, history, sender, handle).await });
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            history,
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -814,10 +884,17 @@ async fn 工具轮第二请求的chat_history含成对tool_result且提示词在
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 
@@ -867,10 +944,17 @@ async fn 轮内思考块不进请求史_密封事件与增量面仍可辨() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     let mut events: Vec<AgentEventKind> = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -919,10 +1003,17 @@ async fn 同一assistant多工具调用的第二请求将全部结果收进同�
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 
@@ -1002,8 +1093,17 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(async move { r#loop::run(&dyn_model, &turn, history, sender, handle).await });
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            history,
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 
@@ -1411,10 +1511,17 @@ async fn 停止先置位时泵终止不合成turn_done且已产出事件保留()
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(16);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -1446,12 +1553,19 @@ async fn 消费端先行关闭时loop自行退出不悬挂且不合成收敛() {
 
     // 自行退出：join 在有限时间内完成（悬挂则测试永不结束即失败）
     let dyn_model = model.erased();
-    let history =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+    let history = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
         )
         .await
-        .expect("loop 自行退出");
+    })
+    .await
+    .expect("loop 自行退出");
 
     // 返回累积史：消费端关闭先于任何事件送达（RunStarted 发送即失败），
     // loop 以未增史退出——不悬挂、不合成收敛
@@ -1641,10 +1755,17 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = fake.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -1679,10 +1800,17 @@ async fn preamble缺席时请求无system消息不注入空串() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     while receiver.recv().await.is_some() {}
     let _history = task.await.expect("loop 正常结束");
 
@@ -1706,10 +1834,17 @@ async fn preamble在场时请求系统提示词逐字含文件内容() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     while receiver.recv().await.is_some() {}
     let _history = task.await.expect("loop 正常结束");
 
@@ -1783,7 +1918,15 @@ async fn l2剪裁后捕获请求的chat_history老工具结果为占位符() {
     let handle = RunHandle::default();
     let dyn_model = model.erased();
     let task = tokio::spawn(async move {
-        r#loop::run(&dyn_model, &turn, oversized_seed_history(), sender, handle).await
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            oversized_seed_history(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
     });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -1872,7 +2015,15 @@ async fn l3摘要成功后请求史形态为摘要加首条加保护窗() {
     let handle = RunHandle::default();
     let dyn_model = model.erased();
     let task = tokio::spawn(async move {
-        r#loop::run(&dyn_model, &turn, oversized_seed_history(), sender, handle).await
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            oversized_seed_history(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
     });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -1975,7 +2126,15 @@ async fn l3降级硬裁后请求史为硬裁形态() {
     let handle = RunHandle::default();
     let dyn_model = model.erased();
     let task = tokio::spawn(async move {
-        r#loop::run(&dyn_model, &turn, oversized_seed_history(), sender, handle).await
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            oversized_seed_history(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
     });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -2012,10 +2171,17 @@ async fn 未触水位时请求史原样且零防线notice() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 
@@ -2059,10 +2225,17 @@ async fn drive_loop_turn(model: &FakeModel, turn: LoopTurn) -> Vec<AgentEventKin
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let dyn_model = model.erased();
-    let task =
-        tokio::spawn(
-            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
-        );
+    let task = tokio::spawn(async move {
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            handle,
+        )
+        .await
+    });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -4120,7 +4293,15 @@ async fn 续跑间隙停止截停时返回且不投续跑请求与通知() {
     let dyn_model = model.erased();
     let loop_handle = handle.clone();
     let task = tokio::spawn(async move {
-        r#loop::run(&dyn_model, &turn, Vec::new(), sender, loop_handle).await
+        r#loop::run(
+            &dyn_model,
+            &turn,
+            Vec::new(),
+            mpsc::unbounded_channel::<agent::SteerMessage>().1,
+            sender,
+            loop_handle,
+        )
+        .await
     });
 
     // 首个事件（RunStarted）到达即置位停止：loop 后续进入续跑间隙检查
@@ -6612,4 +6793,880 @@ async fn ask位缺席时硬调即tool_unavailable且零登记() {
         2,
         "run 不中断"
     );
+}
+
+// ---------------------------------------------------------------------------
+// steer 注入通道：请求边界 drain（一条一 ack / 不合并 / 不并入 tool_results /
+// 停止与收口的截停面）
+//
+// 「流式中到达」由流请求点钩子（`push_stream_hook`）同步注入——钩子在 loop 内
+// 每次流请求处执行，等价于外部线程在模型输出期间投递补充说明，无需计时器。
+// ---------------------------------------------------------------------------
+
+/// 补充说明载荷：正文 + 该条自带的 ack 两端。
+fn steer_msg(text: &str) -> (agent::SteerMessage, tokio::sync::oneshot::Receiver<()>) {
+    let (ack, ack_rx) = tokio::sync::oneshot::channel::<()>();
+    (
+        agent::SteerMessage {
+            text: text.to_owned(),
+            ack,
+        },
+        ack_rx,
+    )
+}
+
+/// loop 直驱（携 steer 接收入端）：drain 用例的驱动面。
+async fn drive_loop_with_steers(
+    model: &FakeModel,
+    turn: &LoopTurn,
+    steers: mpsc::UnboundedReceiver<agent::SteerMessage>,
+) -> (Vec<AgentEventKind>, Vec<Message>) {
+    drive_loop_with_steers_and_history(model, turn, steers, Vec::new()).await
+}
+
+/// loop 直驱（携 steer 接收入端 + 初始史）：防线相邻行的驱动面。
+async fn drive_loop_with_steers_and_history(
+    model: &FakeModel,
+    turn: &LoopTurn,
+    steers: mpsc::UnboundedReceiver<agent::SteerMessage>,
+    history: Vec<Message>,
+) -> (Vec<AgentEventKind>, Vec<Message>) {
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let handle = RunHandle::default();
+    let dyn_model = model.erased();
+    let task = tokio::spawn({
+        let turn = LoopTurn {
+            question: turn.question.clone(),
+            cwd: turn.cwd.clone(),
+            permission_mode: turn.permission_mode,
+            model_name: turn.model_name.clone(),
+            session_id: turn.session_id.clone(),
+            defense: ContextDefense::resolve(None),
+            liveness: turn.liveness,
+            retry: turn.retry,
+            injections: turn.injections.clone(),
+            explore_note: None,
+            archi: None,
+            ask: None,
+            protect: turn.protect.clone(),
+            web_search: turn.web_search,
+        };
+        let handle = handle.clone();
+        async move { r#loop::run(&dyn_model, &turn, history, steers, sender, handle).await }
+    });
+    let mut events = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        events.push(event);
+    }
+    let history = task.await.expect("loop 任务正常结束");
+    (events, history)
+}
+
+/// loop 直驱（携 steer 接收入端 + 显式句柄）：停止截停用例的驱动面（句柄是判据
+/// 本体，须由测试侧置位）。
+async fn drive_loop_with_steers_and_handle(
+    model: &FakeModel,
+    turn: &LoopTurn,
+    steers: mpsc::UnboundedReceiver<agent::SteerMessage>,
+    handle: RunHandle,
+) -> (Vec<AgentEventKind>, Vec<Message>) {
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let dyn_model = model.erased();
+    let task = tokio::spawn({
+        let turn = LoopTurn {
+            question: turn.question.clone(),
+            cwd: turn.cwd.clone(),
+            permission_mode: turn.permission_mode,
+            model_name: turn.model_name.clone(),
+            session_id: turn.session_id.clone(),
+            defense: ContextDefense::resolve(None),
+            liveness: turn.liveness,
+            retry: turn.retry,
+            injections: turn.injections.clone(),
+            explore_note: None,
+            archi: None,
+            ask: None,
+            protect: turn.protect.clone(),
+            web_search: turn.web_search,
+        };
+        async move { r#loop::run(&dyn_model, &turn, Vec::new(), steers, sender, handle).await }
+    });
+    let mut events = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        events.push(event);
+    }
+    let history = task.await.expect("loop 任务正常结束");
+    (events, history)
+}
+
+/// 摘密封 user 事件（提问与补充说明同形）的文本序。
+fn sealed_user_texts(events: &[AgentEventKind]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEventKind::Message {
+                role: AgentMessageRole::User,
+                blocks,
+                ..
+            } => blocks.first().and_then(|block| match block {
+                agent::AgentBlock::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 摘史内 user 文本消息序（工具结果条目不计——其块为 ToolResult）。
+fn history_user_texts(history: &[Message]) -> Vec<String> {
+    history
+        .iter()
+        .filter_map(|message| match message {
+            Message::User { content } => content.iter().find_map(|item| match item {
+                UserContent::Text(text) => Some(text.text.clone()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 首条 ToolResult 密封事件的下标（「补充说明在其后」的序判据）。
+fn first_tool_result_index(events: &[AgentEventKind]) -> Option<usize> {
+    events.iter().position(|event| {
+        matches!(
+            event,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Tool,
+                ..
+            }
+        )
+    })
+}
+
+/// 事件形状序列（无在途两形态的逐字对拍面）。
+fn event_shape(events: &[AgentEventKind]) -> Vec<String> {
+    events
+        .iter()
+        .map(|event| match event {
+            AgentEventKind::RunStarted { .. } => "runStarted".to_owned(),
+            AgentEventKind::Message { role, blocks, .. } => {
+                let role = match role {
+                    AgentMessageRole::User => "user",
+                    AgentMessageRole::Assistant => "assistant",
+                    AgentMessageRole::Tool => "tool",
+                };
+                let text = blocks.first().map(|block| match block {
+                    agent::AgentBlock::Text { text, .. } => text.clone(),
+                    agent::AgentBlock::ToolUse { name, .. } => name.clone(),
+                    agent::AgentBlock::ToolResult { id, .. } => id.clone(),
+                    other => format!("{other:?}"),
+                });
+                format!("{role}:{}", text.unwrap_or_default())
+            }
+            AgentEventKind::MessageDelta { .. } => "delta".to_owned(),
+            AgentEventKind::SystemNotice { subtype, .. } => format!("notice:{subtype}"),
+            AgentEventKind::TurnDone { is_error, .. } => format!("turnDone:{is_error}"),
+            AgentEventKind::Raw { event_type, .. } => format!("raw:{event_type}"),
+        })
+        .collect()
+}
+
+/// 工具轮脚本底座：首轮读一个真实文件，次轮文本收口。
+fn steer_tool_round(dir: &Path) -> FakeModel {
+    write_file(&dir.join("a.txt"), "内容甲");
+    FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_s",
+            "read",
+            serde_json::json!({ "path": "a.txt" }),
+        )],
+        vec![raw_text("已看到补充说明")],
+    ])
+}
+
+/// 请求边界送达（正向，AC-1）：脚本化工具轮里「流式中」投递一条补充说明 →
+/// 下一边界 drain 成独立密封 user 事件 + 独立 `Message::user`，且**不并入**
+/// `tool_results` 那条消息（并入会让 provider 侧 user 先于 tool → 400）。
+#[tokio::test]
+async fn 补充说明在下个请求边界入史且不并入tool_results() {
+    let dir = tempdir("steer-boundary");
+    let model = steer_tool_round(dir.path());
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let (msg, mut ack_rx) = steer_msg("先跑 lint");
+    model.push_stream_hook(Box::new(move || {
+        steer_tx.send(msg).expect("流式中投递");
+    }));
+
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) = drive_loop_with_steers(&model, &turn, steer_rx).await;
+
+    // 事件序：密封 user(补充说明) 落在 tool 结果密封之后
+    let user_texts = sealed_user_texts(&events);
+    assert_eq!(
+        user_texts,
+        vec![turn.question.clone(), "先跑 lint".to_owned()],
+        "提问 1 条 + 补充说明 1 条（各为独立密封 user 事件）"
+    );
+    let tool_index = first_tool_result_index(&events).expect("工具结果密封在场");
+    let steer_index = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                AgentEventKind::Message { role: AgentMessageRole::User, blocks, .. }
+                    if matches!(&blocks[0], agent::AgentBlock::Text { text, .. } if text == "先跑 lint")
+            )
+        })
+        .expect("补充说明密封在场");
+    assert!(
+        tool_index < steer_index,
+        "补充说明事件在 tool 结果之后（下一边界才 drain）"
+    );
+
+    // 史序：tool_results 消息之后紧跟独立的 Message::user(补充说明)
+    let tool_pos = history
+        .iter()
+        .position(|message| {
+            matches!(message, Message::User { content }
+                if content.iter().any(|item| matches!(item, UserContent::ToolResult(_))))
+        })
+        .expect("史内 tool_results 在场");
+    let steer_pos = history
+        .iter()
+        .position(|message| {
+            matches!(message, Message::User { content }
+                if matches!(&content[0], UserContent::Text(text) if text.text == "先跑 lint"))
+        })
+        .expect("史内独立的 Message::user(补充说明) 在场");
+    assert_eq!(
+        steer_pos,
+        tool_pos + 1,
+        "补充说明紧接 tool_results 的**下一条**（不并入那条消息）"
+    );
+
+    // 第二请求：tool_results 与补充说明是两条独立条目，补充说明殿后
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "工具轮后恰一次续请求");
+    let chat = &requests[1].chat_history;
+    let tool_pos = chat
+        .iter()
+        .position(|message| {
+            matches!(message, Message::User { content }
+                if content.iter().any(|item| matches!(item, UserContent::ToolResult(_))))
+        })
+        .expect("请求史含成对 tool_result");
+    let steer_pos = chat
+        .iter()
+        .position(|message| {
+            matches!(message, Message::User { content }
+                if content.iter().any(|item| matches!(item, UserContent::Text(text) if text.text == "先跑 lint")))
+        })
+        .expect("请求史含补充说明");
+    assert!(tool_pos < steer_pos, "补充说明排在 tool_results 之后");
+    assert_eq!(steer_pos, chat.len() - 1, "补充说明殿后（尾部追加）");
+    let tool_text = history_tool_result_text(chat, "tu_s").expect("tool_result 正文在场");
+    assert!(
+        !tool_text.contains("先跑 lint"),
+        "tool_results 正文不含补充说明（MUST NOT 并入同一条消息）"
+    );
+    assert_eq!(ack_rx.try_recv().expect("ack 已回"), ());
+}
+
+/// 一次边界三条不合并（正向，AC-2）：同一边界前投递三条 → 一次 drain 取净：
+/// 三条独立密封 user 事件、三条独立 `Message::user`、三个 ack 各自可回，后两条
+/// 不滞留到下一边界。
+#[tokio::test]
+async fn 一次边界三条不合并且逐条ack() {
+    let dir = tempdir("steer-batch");
+    let model = steer_tool_round(dir.path());
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let texts = ["第一条", "第二条", "第三条"];
+    let mut ack_receivers = Vec::new();
+    let mut messages = Vec::new();
+    for text in texts {
+        let (msg, ack_rx) = steer_msg(text);
+        messages.push(msg);
+        ack_receivers.push(ack_rx);
+    }
+    model.push_stream_hook(Box::new(move || {
+        for msg in messages {
+            steer_tx.send(msg).expect("流式中投递");
+        }
+    }));
+
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) = drive_loop_with_steers(&model, &turn, steer_rx).await;
+
+    // 三条独立密封事件（序 = 推入序）
+    let mut expected = vec![turn.question.clone()];
+    expected.extend(texts.iter().map(|text| (*text).to_owned()));
+    assert_eq!(sealed_user_texts(&events), expected, "提问 + 三条补充说明");
+
+    // 史内三条独立 Message::user（序保真）
+    assert_eq!(
+        history_user_texts(&history),
+        expected,
+        "三条各自入史（无合并、无覆盖、无滞留）"
+    );
+
+    // 第二请求一次取净：三条均在 tool_results 之后且序位保真
+    let requests = model.captured_requests();
+    let chat = &requests[1].chat_history;
+    let tool_pos = chat
+        .iter()
+        .position(|message| {
+            matches!(message, Message::User { content }
+                if content.iter().any(|item| matches!(item, UserContent::ToolResult(_))))
+        })
+        .expect("请求史含 tool_result");
+    for (index, text) in texts.iter().enumerate() {
+        let pos = chat
+            .iter()
+            .position(|message| {
+                matches!(message, Message::User { content }
+                    if content.iter().any(|item| matches!(item, UserContent::Text(t) if t.text == *text)))
+            })
+            .unwrap_or_else(|| panic!("{text} 在第二请求史内"));
+        assert!(tool_pos < pos, "{text} 在 tool_results 之后");
+        assert_eq!(pos, chat.len() - texts.len() + index, "{text} 序位保真");
+    }
+    for (index, mut ack_rx) in ack_receivers.into_iter().enumerate() {
+        assert!(ack_rx.try_recv().is_ok(), "第 {index} 个 ack 各自可回");
+    }
+}
+
+/// 三步序（正向，DD2）：ack 回即「密封事件已发 + 正文已入史」——ack 是三步的
+/// 最后一步，故 ack 可达蕴含前两步完成（反面对照见「事件通道已关闭」行）。
+#[tokio::test]
+async fn 补充说明ack回流时正文已入史且事件已发() {
+    let dir = tempdir("steer-ack-order");
+    let model = steer_tool_round(dir.path());
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let (msg, mut ack_rx) = steer_msg("ack 与入史同步");
+    model.push_stream_hook(Box::new(move || {
+        steer_tx.send(msg).expect("流式中投递");
+    }));
+
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) = drive_loop_with_steers(&model, &turn, steer_rx).await;
+
+    assert_eq!(ack_rx.try_recv().expect("ack 已回"), ());
+    assert!(
+        history_user_texts(&history).contains(&"ack 与入史同步".to_owned()),
+        "ack 可达 ⇒ 正文已在树内史中"
+    );
+    assert!(
+        sealed_user_texts(&events).contains(&"ack 与入史同步".to_owned()),
+        "ack 可达 ⇒ 密封 user 事件已流出"
+    );
+}
+
+/// 无在途零副作用（异常，参数化 2 形态）：接收入端已 drop（`try_recv` 立即
+/// `Disconnected`）与接收端在场零消息 → 事件序与史与本变更前逐字一致。
+#[tokio::test]
+async fn 无在途时drain零副作用_两形态对拍() {
+    let mut shapes = Vec::new();
+    for label in ["sender已drop", "sender在场零消息"] {
+        let dir = tempdir("steer-idle");
+        let model = steer_tool_round(dir.path());
+        let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+        let (sender, receiver) = mpsc::unbounded_channel::<agent::SteerMessage>();
+        let keep_alive = if label == "sender已drop" {
+            drop(sender);
+            None
+        } else {
+            Some(sender)
+        };
+        let (events, history) = drive_loop_with_steers(&model, &turn, receiver).await;
+        shapes.push((
+            label,
+            event_shape(&events),
+            history_user_texts(&history),
+            history.len(),
+        ));
+        // 第二形态的 sender 活到最后（接收端在场零消息）
+        drop(keep_alive);
+    }
+
+    assert_eq!(shapes[0].1, shapes[1].1, "两形态事件序逐字一致");
+    assert_eq!(shapes[0].2, shapes[1].2, "两形态史内 user 文本一致");
+    assert_eq!(shapes[0].3, shapes[1].3, "两形态史长一致");
+    assert_eq!(shapes[0].2.len(), 1, "史内 user 文本只有提问一条");
+}
+
+/// loop 直驱（按值携带整轮参数 + 显式 steer 接收入端）：ask 阻塞窗口用例面。
+async fn drive_loop_turn_with_steers(
+    model: &FakeModel,
+    turn: LoopTurn,
+    steers: mpsc::UnboundedReceiver<agent::SteerMessage>,
+) -> (Vec<AgentEventKind>, Vec<Message>) {
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let dyn_model = model.erased();
+    let handle = RunHandle::default();
+    let task = tokio::spawn(async move {
+        r#loop::run(&dyn_model, &turn, Vec::new(), steers, sender, handle).await
+    });
+    let mut events = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        events.push(event);
+    }
+    let history = task.await.expect("loop 任务正常结束");
+    (events, history)
+}
+
+/// 停止截停先于 drain（异常，AC-6）：在途一条 + 本轮停止置位 → 轮 `return`、
+/// 零合成 `TurnDone`；事件流无该文本的 user 密封事件、史无该 `Message::user`；
+/// ack 随接收端 drop 收 `Closed`。
+#[tokio::test]
+async fn 停止截停先于drain且补充说明不入史() {
+    let dir = tempdir("steer-stop");
+    let model = steer_tool_round(dir.path());
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let (msg, mut ack_rx) = steer_msg("停止前一刻到达");
+    let handle = RunHandle::default();
+    let stop_handle = handle.clone();
+    model.push_stream_hook(Box::new(move || {
+        steer_tx.send(msg).expect("流式中投递");
+        stop_handle.request_stop();
+    }));
+
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) =
+        drive_loop_with_steers_and_handle(&model, &turn, steer_rx, handle).await;
+
+    assert!(
+        !sealed_user_texts(&events).contains(&"停止前一刻到达".to_owned()),
+        "补充说明的 user 密封事件不出现（停止截停先于 drain）"
+    );
+    assert!(
+        !history_user_texts(&history).contains(&"停止前一刻到达".to_owned()),
+        "史无该 Message::user"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
+        "零合成 TurnDone（停止截停直接返回）"
+    );
+    assert!(
+        first_tool_result_index(&events).is_some(),
+        "停止置位晚于工具执行（本轮往返已完成）"
+    );
+    assert!(
+        matches!(
+            ack_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ),
+        "在途项随接收端 drop（等待侧 Closed）"
+    );
+}
+
+/// 事件通道关闭即停（边界，DD2 返回 `false`）：ask 阻塞窗口内置位「消费端
+/// 先行 drop」+ 在途一条 → 剩余项不补 ack（等待侧 `Closed`），loop 立即返回不
+/// 悬挂，既不 drain 也不入史。
+#[tokio::test]
+async fn 事件通道已关闭时在途项不补ack且loop不悬挂() {
+    let dir = tempdir("steer-closed-channel");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_ask",
+            "AskUserQuestion",
+            serde_json::json!({ "question": "继续？", "options": ["继续"] }),
+        )],
+        vec![raw_text("不应到达")],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Generic,
+        Some(ask_context(Arc::clone(&registry), None)),
+    );
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let dyn_model = model.erased();
+    let handle = RunHandle::default();
+    let task = tokio::spawn(async move {
+        r#loop::run(&dyn_model, &turn, Vec::new(), steer_rx, sender, handle).await
+    });
+
+    // 消费到 ask 阻塞窗口（RunStarted / 提问 / assistant 密封三条）
+    let mut events = Vec::new();
+    for _ in 0..3 {
+        events.push(receiver.recv().await.expect("阻塞前事件在场"));
+    }
+    for _ in 0..10_000 {
+        if registry.is_pending(CORE_SESSION) {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(registry.is_pending(CORE_SESSION), "ask 已进入阻塞窗口");
+
+    // 在途一条 + 消费端先行 drop（其后的每一次发送都失败）
+    let (msg, mut ack_rx) = steer_msg("窗口期补充说明");
+    steer_tx.send(msg).expect("投递在途");
+    drop(receiver);
+    registry
+        .answer(CORE_SESSION, "继续".to_owned())
+        .expect("应答受理");
+
+    let history = task.await.expect("loop 自行退出（不悬挂）");
+    assert_eq!(events.len(), 3, "阻塞后无事件送达（通道已关闭）");
+    assert!(
+        !history_user_texts(&history).contains(&"窗口期补充说明".to_owned()),
+        "剩余项不补 ack 亦不入史"
+    );
+    assert!(
+        matches!(
+            ack_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ),
+        "未消费项随接收端 drop（等待侧 Closed）"
+    );
+    assert_eq!(
+        model.captured_requests().len(),
+        1,
+        "下一边界未到达（零第二请求）"
+    );
+}
+
+/// 不在 ask 阻塞臂 drain（异常，D5）：`ask` 阻塞期间投递的补充说明该窗口零
+/// drain；应答后工具结果入史 → **下一边界**才取走（事件序即判据）。
+#[tokio::test]
+async fn ask阻塞窗口零drain_应答后下一边界才取走() {
+    let dir = tempdir("steer-ask-window");
+    let registry = Arc::new(agent::AskRegistry::default());
+    let port = Arc::new(RecordingAskPort::new());
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let (msg, mut ack_rx) = steer_msg("ask 阻塞期到达");
+    // `ask_started` 在 loop 任务内同步回调（阻塞 await 之前）——窗口投递的同步装置
+    *port.on_started.lock().expect("回调锁不可中毒") = Some(Box::new(move |_| {
+        steer_tx.send(msg).expect("阻塞期投递");
+    }));
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_ask",
+            "AskUserQuestion",
+            serde_json::json!({ "question": "继续？", "options": ["继续"] }),
+        )],
+        vec![raw_text("应答后继续")],
+    ]);
+    let turn = loop_turn_with_ask(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        agent::AskMode::Flow,
+        Some(ask_context(Arc::clone(&registry), Some(port))),
+    );
+    let registry_for_answer = Arc::clone(&registry);
+    let answerer =
+        tokio::spawn(async move { answer_when_registered(registry_for_answer, "继续").await });
+
+    let (events, history) = drive_loop_turn_with_steers(&model, turn, steer_rx).await;
+    answerer.await.expect("应答任务结束").expect("应答受理");
+
+    // 事件序：tool 结果密封 → 补充说明 user 密封 → assistant 收口
+    let tool_index = first_tool_result_index(&events).expect("工具结果密封在场");
+    let steer_index = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                AgentEventKind::Message { role: AgentMessageRole::User, blocks, .. }
+                    if matches!(&blocks[0], agent::AgentBlock::Text { text, .. } if text == "ask 阻塞期到达")
+            )
+        })
+        .expect("补充说明密封在场");
+    assert!(
+        tool_index < steer_index,
+        "阻塞窗口零 drain：补充说明在工具结果之后才流出"
+    );
+
+    // 第二请求（应答后才发）：补充说明在 tool_results 之后、殿后
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "阻塞期间零新请求");
+    let chat = &requests[1].chat_history;
+    assert!(
+        matches!(
+            chat.last(),
+            Some(Message::User { content })
+                if matches!(&content[0], UserContent::Text(text) if text.text == "ask 阻塞期到达")
+        ),
+        "下一边界才取走（尾部追加）"
+    );
+    assert_eq!(ack_rx.try_recv().expect("ack 已回"), ());
+    assert_eq!(
+        history_user_texts(&history)
+            .iter()
+            .filter(|text| *text == "ask 阻塞期到达")
+            .count(),
+        1,
+        "恰一条（无补投、无重复）"
+    );
+}
+
+/// 收口即终点（异常，AC-3 的引擎半边）：`loop::run` 返回后再投递 → 接收入端已
+/// drop（`send` 返 Err）、零事件、零入史，ack 随消息回退收 `Closed`。
+#[tokio::test]
+async fn 收口后投递零事件零入史() {
+    let dir = tempdir("steer-after-close");
+    let model = FakeModel::with_turns(vec![vec![raw_text("收口"), raw_final(usage(1, 1))]]);
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) = drive_loop_with_steers(&model, &turn, steer_rx).await;
+    assert!(matches!(
+        events.last(),
+        Some(AgentEventKind::TurnDone { .. })
+    ));
+
+    let (msg, mut ack_rx) = steer_msg("收口后到达");
+    let sent = steer_tx.send(msg);
+    assert!(sent.is_err(), "接收入端已随轮收口 drop（无 drain 机会）");
+    // 回退项就地 drop：其 ack 发送端随之释放
+    drop(sent);
+    assert!(
+        !history_user_texts(&history).contains(&"收口后到达".to_owned()),
+        "零入史"
+    );
+    assert!(
+        !sealed_user_texts(&events).contains(&"收口后到达".to_owned()),
+        "零事件"
+    );
+    assert!(
+        matches!(
+            ack_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ),
+        "ack 随消息回退 drop（等待侧 Closed）"
+    );
+}
+
+/// 正文边界（边界，参数化 5 形态）：`text` 为 `""` / 纯空白 / 换行 / NUL 与
+/// emoji / 超长 → 密封事件 `Text.text` 与史内正文与入参逐字相等，事件序不受
+/// 长度影响。
+#[tokio::test]
+async fn 补充说明正文零加工_五形态逐字保真() {
+    let dir = tempdir("steer-text-boundary");
+    let model = steer_tool_round(dir.path());
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let texts = [
+        String::new(),
+        "   ".to_owned(),
+        "a\nb".to_owned(),
+        "a\0b🚀".to_owned(),
+        "字".repeat(1200),
+    ];
+    let expected = texts.clone();
+    let mut ack_receivers = Vec::new();
+    let mut messages = Vec::new();
+    for text in texts {
+        let (msg, ack_rx) = steer_msg(&text);
+        messages.push(msg);
+        ack_receivers.push(ack_rx);
+    }
+    model.push_stream_hook(Box::new(move || {
+        for msg in messages {
+            steer_tx.send(msg).expect("流式中投递");
+        }
+    }));
+
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) = drive_loop_with_steers(&model, &turn, steer_rx).await;
+
+    let sealed = sealed_user_texts(&events);
+    assert_eq!(&sealed[1..], &expected[..], "密封事件正文逐字（零 trim）");
+    let streamed = history_user_texts(&history);
+    assert_eq!(&streamed[1..], &expected[..], "史内正文逐字（零截断）");
+    for (index, mut ack_rx) in ack_receivers.into_iter().enumerate() {
+        assert!(ack_rx.try_recv().is_ok(), "第 {index} 条 ack 可回");
+    }
+}
+
+/// 跨边界不混序（边界，组合迭代 2 边界 × 3 条）：第一边界两条 + 第二边界一条
+/// → 两次 drain 各自独立取净，事件与史依推入序追加，无一条被吞、无一条重复。
+#[tokio::test]
+async fn 跨边界不混序_各次drain独立取净() {
+    let dir = tempdir("steer-two-boundaries");
+    write_file(&dir.path().join("a.txt"), "内容甲");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_1",
+            "read",
+            serde_json::json!({ "path": "a.txt" }),
+        )],
+        vec![raw_tool_call(
+            "tu_2",
+            "read",
+            serde_json::json!({ "path": "a.txt" }),
+        )],
+        vec![raw_text("三轮收口")],
+    ]);
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let mut acks = Vec::new();
+    let mut first_batch = Vec::new();
+    for text in ["甲", "乙"] {
+        let (msg, ack_rx) = steer_msg(text);
+        first_batch.push(msg);
+        acks.push(ack_rx);
+    }
+    let (third, third_ack) = steer_msg("丙");
+    acks.push(third_ack);
+    let tx_first = steer_tx.clone();
+    model.push_stream_hook(Box::new(move || {
+        for msg in first_batch {
+            tx_first.send(msg).expect("第一边界投递");
+        }
+    }));
+    model.push_stream_hook(Box::new(move || {
+        steer_tx.send(third).expect("第二边界投递");
+    }));
+
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) = drive_loop_with_steers(&model, &turn, steer_rx).await;
+
+    // 事件序：提问 →（tool1）→ 甲 → 乙 →（tool2）→ 丙；两次 drain 各自取净
+    let expected = vec![
+        turn.question.clone(),
+        "甲".to_owned(),
+        "乙".to_owned(),
+        "丙".to_owned(),
+    ];
+    assert_eq!(
+        sealed_user_texts(&events),
+        expected,
+        "事件依推入序（无吞项、无重复）"
+    );
+    assert_eq!(history_user_texts(&history), expected, "史依推入序");
+
+    let tool_indexes: Vec<usize> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| {
+            matches!(
+                event,
+                AgentEventKind::Message {
+                    role: AgentMessageRole::Tool,
+                    ..
+                }
+            )
+        })
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(tool_indexes.len(), 2, "两轮各一条 tool 结果密封");
+    let position_of = |text: &str| {
+        events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    AgentEventKind::Message { role: AgentMessageRole::User, blocks, .. }
+                        if matches!(&blocks[0], agent::AgentBlock::Text { text: candidate, .. } if candidate == text)
+                )
+            })
+            .expect("事件在场")
+    };
+    assert!(
+        tool_indexes[0] < position_of("甲"),
+        "第一批在首个工具结果之后"
+    );
+    assert!(
+        position_of("乙") < tool_indexes[1],
+        "第二批投递先于第二轮工具结果"
+    );
+    assert!(
+        tool_indexes[1] < position_of("丙"),
+        "第二边界项在第二轮工具结果之后"
+    );
+    for (index, mut ack_rx) in acks.into_iter().enumerate() {
+        assert!(ack_rx.try_recv().is_ok(), "第 {index} 条 ack 可回");
+    }
+}
+
+/// 一轮一命护栏（异常，AC-7）：含补充说明的整轮内 `RunStarted` 恰一条、
+/// `TurnDone` 恰一条；user 密封事件 = 提问 1 条 + 补充说明 n 条（steer 不伪装成
+/// 第二条提问）。
+#[tokio::test]
+async fn 一轮一命_单run_started单turn_done且提问恒一条() {
+    let dir = tempdir("steer-one-turn-one-life");
+    let model = steer_tool_round(dir.path());
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let (msg, mut ack_rx) = steer_msg("补充甲");
+    let (msg_b, mut ack_rx_b) = steer_msg("补充乙");
+    model.push_stream_hook(Box::new(move || {
+        steer_tx.send(msg).expect("投递甲");
+        steer_tx.send(msg_b).expect("投递乙");
+    }));
+
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (events, history) = drive_loop_with_steers(&model, &turn, steer_rx).await;
+
+    let run_started = events
+        .iter()
+        .filter(|event| matches!(event, AgentEventKind::RunStarted { .. }))
+        .count();
+    let turn_done = events
+        .iter()
+        .filter(|event| matches!(event, AgentEventKind::TurnDone { .. }))
+        .count();
+    assert_eq!(run_started, 1, "恰一个 RunStarted");
+    assert_eq!(turn_done, 1, "恰一个 TurnDone");
+    let user_texts = sealed_user_texts(&events);
+    assert_eq!(
+        user_texts,
+        vec![
+            turn.question.clone(),
+            "补充甲".to_owned(),
+            "补充乙".to_owned()
+        ],
+        "提问 1 条 + 补充说明 2 条（不伪装成第二条提问）"
+    );
+    assert_eq!(
+        history_user_texts(&history)
+            .iter()
+            .filter(|text| **text == turn.question)
+            .count(),
+        1,
+        "史内提问恒一条"
+    );
+    assert!(ack_rx.try_recv().is_ok());
+    assert!(ack_rx_b.try_recv().is_ok());
+}
+
+/// 不为 steer 开免裁特权（边界，`R5` 已知代价）：超水位史 + 在途补充说明 →
+/// 防线按既有规则裁决（老工具结果照旧占位符替换、尾部追加照旧），无 steer
+/// 专用分支。
+#[tokio::test]
+async fn 补充说明不享受防线免裁特权() {
+    let dir = tempdir("steer-defense");
+    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(2, 2))]]);
+    // 与既有 L2 用例同参数：标称窗 133_333 → 生效窗 79_999 → L2 水位 59_999
+    let turn = loop_turn_with_defense(
+        dir.path(),
+        AgentPermissionMode::BypassPermissions,
+        ContextDefense::resolve(Some(133_333)),
+    );
+    let (steer_tx, steer_rx) = mpsc::unbounded_channel::<agent::SteerMessage>();
+    let (msg, mut ack_rx) = steer_msg("超水位时的补充说明");
+    steer_tx.send(msg).expect("起点在途");
+    let (_events, _history) =
+        drive_loop_with_steers_and_history(&model, &turn, steer_rx, oversized_seed_history()).await;
+
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 1, "单轮单请求");
+    let chat = &requests[0].chat_history;
+    let placeholder = history_tool_result_text(chat, "tu_big").expect("tool_result 配对保留");
+    assert!(
+        placeholder.contains("[已剪裁]"),
+        "防线照旧裁决（老工具结果占位符替换），实际: {placeholder}"
+    );
+    assert!(
+        matches!(
+            chat.last(),
+            Some(Message::User { content })
+                if matches!(&content[0], UserContent::Text(text) if text.text == "超水位时的补充说明")
+        ),
+        "补充说明照旧尾部追加（无 steer 专用豁免）"
+    );
+    assert_eq!(ack_rx.try_recv().expect("ack 已回"), ());
 }

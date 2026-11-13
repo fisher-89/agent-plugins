@@ -367,6 +367,7 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -450,6 +451,7 @@ async fn continue会话复用既有行不重复建() {
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -498,6 +500,7 @@ fn 空库缺省解析err引导管理页且零落库() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -534,6 +537,7 @@ async fn open段配置缺失显式err传播且零半成品记录() {
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -586,6 +590,7 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -747,9 +752,11 @@ impl agent::AgentRunner for ScriptedRunner {
                 }
             }
         });
+        let (steer_tx, _steer_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(agent::AgentSession {
             observations: observation_rx,
             questions: question_tx,
+            steers: steer_tx,
             handle: agent::RunHandle::default(),
         })
     }
@@ -888,6 +895,7 @@ async fn finalized恒等于转录提取单点结果() {
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -969,6 +977,7 @@ async fn 中途停止收敛stopped并保留已收集事件() {
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -1036,6 +1045,7 @@ async fn 三角色provenance定式逐段落库且精确反查命中() {
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),
@@ -1197,6 +1207,7 @@ fn worker_with_ask_port(
         registry,
         Arc::new(SessionStreamRegistry::new()),
         ask_registry,
+        Arc::new(agent::SteerRegistry::default()),
         env.store(),
         None,
         Path::new(&env.root()),

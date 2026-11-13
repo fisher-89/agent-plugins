@@ -158,6 +158,9 @@ pub struct AgentSession {
     pub questions: tokio::sync::mpsc::Sender<TurnQuestion>,
     /// 运行句柄（逻辑终止信号，kill 机制归租户实现）
     pub handle: RunHandle,
+    /// 用户 → turn 的单向注入（补充说明 / steer）：发送端交内核登记，接收入端
+    /// 由引擎侧建通道时交给泵并随本轮 loop 生命周期存亡（一轮一命不破）。
+    pub steers: tokio::sync::mpsc::UnboundedSender<crate::steer::SteerMessage>,
 }
 
 #[derive(Debug, Clone, Default)]

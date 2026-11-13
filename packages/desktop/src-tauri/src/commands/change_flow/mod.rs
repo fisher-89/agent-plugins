@@ -7,7 +7,7 @@ mod mod_test;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
-use ::agent::{AskRegistry, SessionStreamRegistry, StopRegistry};
+use ::agent::{AskRegistry, SessionStreamRegistry, SteerRegistry, StopRegistry};
 use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
 use archi_runtime::LocalArchiCheck;
 use checks_runtime::{ProcessMutation, ProcessStaticCheck, ProcessTestExecution};
@@ -155,6 +155,8 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let registry = Arc::clone(app.state::<Arc<StopRegistry>>().inner());
     let streams = Arc::clone(app.state::<Arc<SessionStreamRegistry>>().inner());
     let ask_registry = Arc::clone(app.state::<Arc<AskRegistry>>().inner());
+    // steer 注入注册表同址取出（与 ask 成组进组合根；流程会话同走该通道）
+    let steer_registry = Arc::clone(app.state::<Arc<SteerRegistry>>().inner());
     // sink 同一实例两 trait 视图：`RunEventSink` 给 worker、`AskPort` 给引擎门面
     // ——ask 的状态广播与 run 的状态广播同源（故构造先于组合根）
     let sink_impl = Arc::new(ChangeFlowSink {
@@ -169,6 +171,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         Arc::clone(&registry),
         streams,
         ask_registry,
+        steer_registry,
         Arc::clone(&store),
         None,
         // 写入保护规则装配根 = **主仓 root**（工作区配置权威所在）；

@@ -17,6 +17,10 @@ function mount(
     disabled?: boolean;
     /** 禁用理由文案（缺省不呈现） */
     disabledReason?: string;
+    /** 隐藏 permission-mode 档位行（缺省 false） */
+    hidePermissionMode?: boolean;
+    /** 在途提交态（缺省 false） */
+    pending?: boolean;
     onSend?: (input: { text: string; permissionMode: AgentPermissionMode }) => void;
     onStop?: () => void;
   } = {},
@@ -31,6 +35,8 @@ function mount(
       running={overrides.running ?? false}
       disabled={overrides.disabled}
       disabledReason={overrides.disabledReason}
+      hidePermissionMode={overrides.hidePermissionMode}
+      pending={overrides.pending}
       onSend={onSend}
       onStop={onStop}
     />,
@@ -396,5 +402,141 @@ describe('AgentInput：整面板禁用态', () => {
 
     typeText('有效文本');
     expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// steer-running-agent-step：composer 变体加位（AC-12）
+//
+// `hidePermissionMode`（缺省 false）：true 时档位行缺席、`onSend` 的
+// `permissionMode` 位保留但下游不消费；`pending`（缺省 false）：true 时发送禁用 +
+// 呈可见「排队中…」，输入与停止入口不受影响。两位缺省即默认变体（既有用例零
+// 改动即回归判据）。
+// ---------------------------------------------------------------------------
+
+/** 可切换两位的可控渲染（复位 / 并存用例需要 rerender）。 */
+function renderVariant(props: {
+  hidePermissionMode?: boolean;
+  pending?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+  running?: boolean;
+  onSend?: (input: { text: string; permissionMode: AgentPermissionMode }) => void;
+}) {
+  const onSend = props.onSend ?? vi.fn();
+  const onStop = vi.fn();
+  const rendered = render(
+    <AgentInput
+      idPrefix="explore"
+      label="探索输入"
+      placeholder="要探索什么？"
+      running={props.running ?? false}
+      disabled={props.disabled}
+      disabledReason={props.disabledReason}
+      hidePermissionMode={props.hidePermissionMode}
+      pending={props.pending}
+      onSend={onSend}
+      onStop={onStop}
+    />,
+  );
+  return { onSend, onStop, rendered };
+}
+
+describe('AgentInput：hidePermissionMode（AC-12）', () => {
+  it('true → 档位行缺席，输入 / 发送 / 停止照常呈现', () => {
+    mount({ hidePermissionMode: true, running: true });
+
+    expect(screen.queryByTestId('explore-permission-mode')).toBeNull();
+    expect(promptBox()).toBeTruthy();
+    expect(screen.getByTestId('explore-send')).toBeTruthy();
+    expect(screen.getByTestId('explore-stop')).toBeTruthy();
+  });
+
+  it('显式 false 与缺省等价：档位行在场', () => {
+    mount({ hidePermissionMode: false });
+    expect(screen.getByTestId('explore-permission-mode')).toBeTruthy();
+    expect(modeValue()).toBe('bypassPermissions');
+  });
+
+  it('参数位保留：隐藏档位行时 onSend 仍携 permissionMode（缺省 bypassPermissions）', () => {
+    const onSend = vi.fn();
+    mount({ hidePermissionMode: true, onSend });
+
+    typeText('隐藏档位行后发送');
+    fireEvent.click(screen.getByTestId('explore-send'));
+
+    expect(onSend).toHaveBeenCalledWith({
+      text: '隐藏档位行后发送',
+      permissionMode: 'bypassPermissions',
+    });
+  });
+});
+
+describe('AgentInput：pending 在途提交态（AC-12）', () => {
+  it('true → 发送禁用且呈可见「排队中…」文案', () => {
+    mount({ pending: true });
+
+    typeText('排队中的文本');
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('explore-pending').textContent).toBe('排队中…');
+  });
+
+  it('输入与停止不受影响：pending + running → 输入可编辑、停止入口可点', () => {
+    const onStop = vi.fn();
+    mount({ pending: true, running: true, onStop });
+
+    fireEvent.change(promptBox(), { target: { value: '仍可编辑' } });
+    expect(promptBox().value).toBe('仍可编辑');
+    expect(promptBox().disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('explore-stop'));
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('复位即恢复：pending 置 false 后同一 prompt 立即可发（无残留禁用态）', () => {
+    const onSend = vi.fn();
+    const { rendered } = renderVariant({ pending: true, onSend });
+    fireEvent.change(promptBox(), { target: { value: '待发送' } });
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByTestId('explore-pending')).toBeTruthy();
+
+    rendered.rerender(
+      <AgentInput
+        idPrefix="explore"
+        label="探索输入"
+        placeholder="要探索什么？"
+        running={false}
+        pending={false}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByTestId('explore-pending')).toBeNull();
+    fireEvent.click(screen.getByTestId('explore-send'));
+    expect(onSend).toHaveBeenCalledWith({
+      text: '待发送',
+      permissionMode: 'bypassPermissions',
+    });
+  });
+
+  it('与 disabled 并存：发送禁用（两成因叠加不产生第二句文案），理由行与 pending 行各自独立', () => {
+    mount({ disabled: true, disabledReason: '流程运行中', pending: true });
+
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('explore-disabled-reason').textContent).toBe('流程运行中');
+    expect(screen.getByTestId('explore-pending').textContent).toBe('排队中…');
+    // 无第二句禁用文案：pending 行与理由行分属两个节点，文案不互相覆盖
+    expect(screen.getByTestId('explore-pending').textContent).not.toContain('流程运行中');
+  });
+
+  it('快捷键路径同禁：pending 时 Ctrl+Enter 零 onSend（与点击同一 canSend 合成式）', () => {
+    const onSend = vi.fn();
+    mount({ pending: true, onSend });
+
+    fireEvent.change(promptBox(), { target: { value: '快捷键不发' } });
+    fireEvent.keyUp(promptBox(), { key: 'Enter', ctrlKey: true });
+
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
