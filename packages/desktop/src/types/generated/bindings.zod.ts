@@ -267,6 +267,12 @@ export const argsSchemas = {
 	get "archiFileTree"() { return z.strictObject({
 			"root": z.string(),
 		}); },
+	get "archiApiCheck"() { return z.strictObject({
+			"root": z.string(),
+		}); },
+	get "archiApiGenerate"() { return z.strictObject({
+			"root": z.string(),
+		}); },
 	get "readFile"() { return z.strictObject({
 			"path": z.string(),
 			"offset": z.number().nullable(),
@@ -333,6 +339,8 @@ export const resultSchemas = {
 	get "archiSetGate"() { return z.null(); },
 	get "archiDrift"() { return z.lazy(() => ArchiDriftReportSchema); },
 	get "archiFileTree"() { return z.lazy(() => ArchiFileTreeSchema); },
+	get "archiApiCheck"() { return z.lazy(() => ArchiApiCheckSchema); },
+	get "archiApiGenerate"() { return z.lazy(() => ArchiApiWriteOutcomeSchema); },
 	get "readFile"() { return z.lazy(() => FileSliceSchema).nullable(); },
 } as const;
 
@@ -456,6 +464,10 @@ export const channelArgs = {
 	get "archiDrift"() { return {
 		}; },
 	get "archiFileTree"() { return {
+		}; },
+	get "archiApiCheck"() { return {
+		}; },
+	get "archiApiGenerate"() { return {
 		}; },
 	get "readFile"() { return {
 		}; },
@@ -662,6 +674,14 @@ export const AppEnvironmentSchema = z.strictObject({
 	get source() { return z.string(); },
 });
 
+export const ArchiApiCheckSchema = z.strictObject({
+	get enabled() { return z.boolean(); },
+	get meta() { return ArchiApiMetaSchema; },
+	get mismatched() { return z.array(z.string()); },
+	get orphaned() { return z.array(z.string()); },
+	get missing() { return z.array(z.string()); },
+});
+
 export const ArchiApiFindingSchema = z.strictObject({
 	get kind() { return ArchiApiFindingKindSchema; },
 	get category() { return z.string(); },
@@ -673,11 +693,21 @@ export const ArchiApiFindingSchema = z.strictObject({
 
 export const ArchiApiFindingKindSchema = z.union([z.literal("apiEntryMissing"), z.literal("apiMissing"), z.literal("apiUndeclared"), z.literal("apiSignatureMismatch"), z.literal("apiUnexpected"), z.literal("apiShadowing"), z.literal("apiRefMissing"), z.literal("apiNestedCrossCrate"), z.literal("apiReexportDrift"), z.literal("apiConstructorDeclared")]);
 
+export const ArchiApiMetaSchema = z.strictObject({
+	get toolVersion() { return z.string(); },
+	get commonDigest() { return z.string(); },
+});
+
 export const ArchiApiRefSchema = z.strictObject({
 	get status() { return ApiStatusSchema; },
 	get contractPath() { return z.string().nullable(); },
 	get schemaPath() { return z.string().nullable(); },
 	get generatedPath() { return z.string().nullable(); },
+});
+
+export const ArchiApiWriteOutcomeSchema = z.strictObject({
+	get written() { return z.array(z.string()); },
+	get unchanged() { return z.array(z.string()); },
 });
 
 export const ArchiChangeSummarySchema = z.strictObject({

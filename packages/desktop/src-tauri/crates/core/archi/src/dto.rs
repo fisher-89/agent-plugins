@@ -406,6 +406,52 @@ pub struct ArchiFileTree {
     pub entries: Vec<ArchiFileEntry>,
 }
 
+/// 生成载元的出线形态（`ArchiApiCheck.meta`）。
+///
+/// 只两项：`ApiMeta` 的 `schemaUri` / `generatedNotice` / `common` 规则表 MUST NOT
+/// 出线（前端不消费，出线等于把内部载元变成协议面）。`commonDigest` 出**全量**
+/// `sha256:<hex>`——截断只发生在生成物文本（`api::short_digest`），面板自行截断显示。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiApiMeta {
+    /// 生成器 crate 版本（`CARGO_PKG_VERSION`）
+    pub tool_version: String,
+    /// 映射规则资产摘要（全量 `sha256:<hex>`）
+    pub common_digest: String,
+}
+
+/// 契约生成物新鲜度的出线事实（`archi_api_check` 出参）。
+///
+/// 三类差异合起来恰是「点生成会写什么」的完整清单；三列元素为 repo 相对 POSIX
+/// 串（经 `api::display` 单点产出，MUST NOT 在命令层或前端另归一）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiApiCheck {
+    /// 契约面是否启用（`api::enabled` 单点判定）
+    pub enabled: bool,
+    /// 生成载元（`api::meta()` 投影）
+    pub meta: ArchiApiMeta,
+    /// 内容不符（文件在盘但字节与渲染结果不同）
+    pub mismatched: Vec<String>,
+    /// 应删未删（盘上存在、命名符合生成物判据、不在应生成集）
+    pub orphaned: Vec<String>,
+    /// 应生成未生成（`enabled = false` 时通常只 `INDEX.toml` 一条）
+    pub missing: Vec<String>,
+}
+
+/// 生成物写盘结果（`archi_api_generate` 出参）。
+///
+/// `written` = 本次实际写入（新创建或内容变化）；`unchanged` = 应生成且盘上已一致
+/// （本次零写入、mtime 不动）。两者不交叠；生成从不删文件。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiApiWriteOutcome {
+    /// 本次实际写入的生成物（repo 相对 POSIX 串）
+    pub written: Vec<String>,
+    /// 应生成且盘上已一致的生成物（repo 相对 POSIX 串）
+    pub unchanged: Vec<String>,
+}
+
 /// 元素投影（`modelFile` / `modelLine` 指向声明表头，可直接 `edit`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -653,9 +699,10 @@ fn diagnostics_error(diagnostics: &[Diagnostic]) -> String {
     )
 }
 
-/// 同一文案的投影侧入口（`api` 面经 [`graph_view`] 取元素时的错误面）——文案单点
-/// 在 [`diagnostics_lines`]，MUST NOT 在调用方另拼一份。
-pub(crate) fn graph_diagnostics_error(diagnostics: &[ArchiDiagnostic]) -> String {
+/// 同一文案的投影侧入口（`api` 面经 [`graph_view`] 取元素时的错误面、agent 工具
+/// `archi_api` 的结构错回灌）——文案单点在 [`diagnostics_lines`]，MUST NOT 在调用方
+/// 另拼一份。
+pub fn graph_diagnostics_error(diagnostics: &[ArchiDiagnostic]) -> String {
     diagnostics_lines(
         diagnostics
             .iter()

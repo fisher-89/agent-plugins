@@ -491,7 +491,7 @@ struct DriftExpectation {
     /// `errors[]` 中 `typeOnly = true` 的 occurrence 总数
     type_only_occurrences: u32,
     /// `apiFindings[]` 条数（契约判据面；这些语料均无 `<archi_api_dir>`，
-    /// 除 `api-mismatch` 外恒 0——契约面不进 `status` 推导）
+    /// 除 `api-mismatch` 外恒 0——契约在案元素的判据才纳管进 `status`）
     api_findings: u32,
 }
 
@@ -783,12 +783,13 @@ const DRIFT_CASES: &[DriftExpectation] = &[
         type_only_occurrences: 0,
         api_findings: 0,
     },
-    // 新增：契约判据非空金样（`apiSignatureMismatch`；契约面不进 `status` 推导）
+    // 新增：契约判据非空金样（`apiSignatureMismatch`；契约在案 ⇒ 判据纳管 ⇒ `warnings`，
+    // `passed` 不受影响——与 design D8 / spec「契约在案判据把被 status 拉到 warnings」同口径）
     DriftExpectation {
         case: "api-mismatch",
         mode: "full",
         changed: &[],
-        status: "clean",
+        status: "warnings",
         changed_files: 0,
         scanned_files: 1,
         excluded: &[],
@@ -1311,11 +1312,11 @@ fn 两模式元素对级一致() {
     );
 }
 
-/// 边界（AC-8）：每份已登记快照都含 `apiFindings` 键且 `version == 2`——
+/// 边界（AC-7）：每份已登记快照都含 `apiFindings` 键且 `version == 3`——
 /// 旧金样未重写即在此点名（不静默补默认值，D21 与报告 `version` 兼容说明同口径）。
 #[test]
 #[allow(non_snake_case)]
-fn 判定语料快照均含apiFindings键且版本为二() {
+fn 判定语料快照均含apiFindings键且版本为三() {
     for expectation in DRIFT_CASES {
         let path = drift_expected_path(expectation);
         let label = format!("case {}（{}）", expectation.case, expectation.mode);
@@ -1328,8 +1329,8 @@ fn 判定语料快照均含apiFindings键且版本为二() {
         );
         assert_eq!(
             snapshot["version"],
-            serde_json::json!(2),
-            "{label}：快照 version 随 REPORT_VERSION = 2"
+            serde_json::json!(3),
+            "{label}：快照 version 随 REPORT_VERSION = 3"
         );
         // 除 `api-mismatch` 外恒空数组（这些语料均无契约面）
         let expected_len = expectation.api_findings as usize;
@@ -1344,9 +1345,9 @@ fn 判定语料快照均含apiFindings键且版本为二() {
     }
 }
 
-/// 正向（AC-8 新增）：非空 `apiFindings` 金样在案——`api-mismatch` 快照含一条
+/// 正向（AC-7 / AC-6）：非空 `apiFindings` 金样在案——`api-mismatch` 快照含一条
 /// `apiSignatureMismatch`（`category = signature`），`occurrences` 逐项且 `status`
-/// 仍按既有规则推导（契约面不进 `status`）。
+/// 为 `warnings`（契约在案的判据纳管进 `status`；判据条数与 kind 不变）。
 #[test]
 #[allow(non_snake_case)]
 fn 非空apiFindings金样在案() {
@@ -1382,13 +1383,13 @@ fn 非空apiFindings金样在案() {
     );
     assert_eq!(
         snapshot["status"],
-        serde_json::json!("clean"),
-        "status 按既有规则推导（契约面不进 status）"
+        serde_json::json!("warnings"),
+        "契约在案的判据把 status 拉到 warnings（passed 不受影响）"
     );
 }
 
 /// 边界（**AC-8 / AC-7 ②**）：既有金样重写面——16 份快照的键集**逐字一致**（顶层恰
-/// `version` + 14 个既有字段 + `apiFindings`），且 `version == 2`；除 `api-mismatch`
+/// `version` + 14 个既有字段 + `apiFindings`），且 `version == 3`；除 `api-mismatch`
 /// 外 `apiFindings` 均为空数组（这些语料无契约面）；`DESKTOP_GOLDEN_REWRITE=1` 之外
 /// 零残留旧形态（无 `"version": 1`、无缺 `apiFindings` 的键集）。
 #[test]
@@ -1434,8 +1435,8 @@ fn 既有金样重写面键集一致() {
         );
         assert_eq!(
             snapshot["version"],
-            serde_json::json!(2),
-            "{label}：version = 2"
+            serde_json::json!(3),
+            "{label}：version = 3"
         );
         assert!(
             !path.to_string_lossy().is_empty(),
@@ -1457,15 +1458,16 @@ fn 零第二套判据语料目录() {
         sidecar_corpus.display()
     );
 
-    // 十一个 api/** sidecar 用例文件在案（判据正反例的唯一落点）
+    // 十三个 api/** sidecar 用例文件在案（判据正反例的唯一落点；本变更新增
+    // `api/diff_test.rs` 与 `api/render_test.rs` 两份）
     let api_dir = manifest.join("src").join("api");
     let mut sidecars: Vec<String> = Vec::new();
     collect_sidecars(&api_dir, &mut sidecars);
     sidecars.sort();
     assert_eq!(
         sidecars.len(),
-        11,
-        "`api/**` sidecar 用例恰 11 份：{sidecars:?}"
+        13,
+        "`api/**` sidecar 用例恰 13 份：{sidecars:?}"
     );
 }
 
@@ -1490,4 +1492,74 @@ fn collect_sidecars(dir: &Path, out: &mut Vec<String>) {
             out.push(name);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：纳管口径的语料注释自洽与判据条数不变
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-7 / R-2）：`api-mismatch/models/01-app.toml` 的文件头注释与金样 `status` 自洽
+/// ——口径为「契约在案 ⇒ 判据纳管 ⇒ `status = warnings`；`passed` 不受影响」，且不再
+/// 出现旧口径「契约面 MUST NOT 进 status 推导」；模型条目（元素 / 关系 / 元数据）逐字保留
+/// （注释之外零改动）。
+#[test]
+fn 契约判据语料注释与金样自洽() {
+    let model_text = fs::read_to_string(
+        drift_corpus_root()
+            .join("api-mismatch")
+            .join("models")
+            .join("01-app.toml"),
+    )
+    .expect("语料模型可读");
+
+    assert!(
+        model_text.contains("纳管"),
+        "注释口径为纳管形态：\n{model_text}"
+    );
+    assert!(
+        model_text.contains("status = warnings"),
+        "注释点名 warnings：\n{model_text}"
+    );
+    assert!(
+        model_text.contains("passed"),
+        "注释声明 passed 不受影响：\n{model_text}"
+    );
+    assert!(
+        !model_text.contains("MUST NOT 进 `status` 推导"),
+        "旧口径（契约面不进 status 推导）MUST NOT 残留：\n{model_text}"
+    );
+    // 模型条目逐字保留（注释之外零改动）
+    for entry in [
+        "[element.\"App\"]",
+        "[element.\"App.Mod\"]",
+        "path = [\"./src/mod/\"]",
+    ] {
+        assert!(model_text.contains(entry), "模型条目在案：{entry}");
+    }
+}
+
+/// 边界（AC-7）：`api-mismatch` 的判据条数与 `kind` / `category` 不变——纳管只改 `status`，
+/// 不改判据条数 / 顺序；登记面 `api_findings == 1`。
+#[test]
+fn api_mismatch判据条数与类别不变() {
+    let expectation = DRIFT_CASES
+        .iter()
+        .find(|expectation| expectation.case == "api-mismatch" && expectation.mode == "full")
+        .expect("api-mismatch 的 full 行在册");
+    assert_eq!(expectation.api_findings, 1, "登记面恰一条");
+    assert_eq!(expectation.status, "warnings", "登记面 status 为纳管口径");
+
+    let snapshot = read_expected_snapshot(&drift_expected_path(expectation)).expect("快照可读");
+    let findings = snapshot["apiFindings"].as_array().expect("数组");
+    assert_eq!(findings.len(), 1, "快照只一条判据");
+    assert_eq!(
+        findings[0]["kind"],
+        serde_json::json!("apiSignatureMismatch"),
+        "kind 不变"
+    );
+    assert_eq!(
+        findings[0]["category"],
+        serde_json::json!("signature"),
+        "category 不变"
+    );
 }

@@ -1318,10 +1318,11 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
 // 架构只读工具面（archi 章节）：两布尔位子集表达 + schema + 沙箱面 + L1 收口
 // ---------------------------------------------------------------------------
 
-/// `archi_module` / `archi_search` 工具名（与 `tools` 常量同源口径）。
-const ARCHI_NAMES: [&str; 2] = [
+/// 三个架构只读工具名（与 `tools` 常量同源口径）。
+const ARCHI_NAMES: [&str; 3] = [
     crate::sdk::mount::ARCHI_MODULE_TOOL,
     crate::sdk::mount::ARCHI_SEARCH_TOOL,
+    crate::sdk::mount::ARCHI_API_TOOL,
 ];
 
 /// 注入面构造：七工具名 + 按位的 archi 工具名。
@@ -1447,7 +1448,7 @@ fn 既有注入臂零回归() {
     );
 }
 
-/// 正向：两 archi 工具恒不进路径沙箱（`input_path` → `None`，即便入参含 `path`）。
+/// 正向：三 archi 工具恒不进路径沙箱（`input_path` → `None`，即便入参含 `path`）。
 #[test]
 fn archi工具不参与路径沙箱() {
     let input = json!({ "element": "App.Auth", "path": "src/auth/README.md" });
@@ -1549,5 +1550,55 @@ async fn cap_result两条调用点共用同一实现() {
         direct.lines().last().expect("留痕尾行"),
         expected_marker_line,
         "两路留痕尾行逐字相同（同一实现）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_api` 的名字再导出与沙箱面（零路径分支）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-15 / 事实校准 2）：`tools::ARCHI_API_TOOL == "archi_api"`，与
+/// `mount::ARCHI_API_TOOL` 为同一常量（值相等）。
+#[test]
+fn archi_api名字再导出可见() {
+    assert_eq!(crate::sdk::tools::ARCHI_API_TOOL, "archi_api", "线值");
+    assert_eq!(
+        crate::sdk::tools::ARCHI_API_TOOL,
+        crate::sdk::mount::ARCHI_API_TOOL,
+        "两处同一常量（再导出，零第二份字面量）"
+    );
+}
+
+/// 边界（AC-15）：`input_path("archi_api", …)` 在多种入参形态下恒 `None`（脏入参不
+/// panic）；元素名不得被当作路径入参外泄。
+#[test]
+fn archi_api的input_path恒none() {
+    for input in [
+        json!({}),
+        json!({ "action": "check" }),
+        json!({ "element": "/etc/passwd" }),
+        json!({ "action": "bootstrap", "element": "App.Auth", "path": "src/a.ts" }),
+        json!(null),
+        json!({ "file_path": 123 }),
+    ] {
+        assert_eq!(
+            crate::sdk::tools::input_path(crate::sdk::tools::ARCHI_API_TOOL, &input),
+            None,
+            "archi_api 恒不进路径沙箱：{input}"
+        );
+    }
+    // 反向判据：它不在七内建封闭集内（不是路径型工具）
+    assert!(
+        !TOOL_NAMES.contains(&"archi_api"),
+        "archi_api 不在七内建名单"
+    );
+    let tier = crate::sdk::mount::registry()
+        .iter()
+        .find(|mount| mount.definition.name == "archi_api")
+        .map(|mount| mount.tier);
+    assert_eq!(
+        tier,
+        Some(crate::sdk::mount::ToolTier::Read),
+        "挂载表内档位为 Read（非 Write）"
     );
 }

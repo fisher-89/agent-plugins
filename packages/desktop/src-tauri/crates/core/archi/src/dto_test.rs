@@ -13,9 +13,10 @@ use foundation::layout::archi_models_dir;
 use serde_json::json;
 
 use crate::dto::{
-    self, ApiStatus, ArchiDiagnostic, ArchiElement, ArchiFileEntry, ArchiFileTree, ArchiGraph,
-    ArchiRelation, DiagnosticKind, DocKind, DocSource, EdgeMark, ElementKind, FileEntryKind,
-    FileTreeMark, GateTier, NodeMark, SearchScope, WarningKind,
+    self, ApiStatus, ArchiApiCheck, ArchiApiMeta, ArchiApiWriteOutcome, ArchiDiagnostic,
+    ArchiElement, ArchiFileEntry, ArchiFileTree, ArchiGraph, ArchiRelation, DiagnosticKind,
+    DocKind, DocSource, EdgeMark, ElementKind, FileEntryKind, FileTreeMark, GateTier, NodeMark,
+    SearchScope, WarningKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -2085,4 +2086,279 @@ fn 既有词汇与出线类型零变化() {
             && !source.contains("FileTreeMark::None => NodeMark"),
         "两词表零映射（MUST NOT 复用）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更新增三 DTO（ArchiApiCheck / ArchiApiMeta / ArchiApiWriteOutcome）
+// ---------------------------------------------------------------------------
+
+/// 五字段 DTO 夹具（全字段给定值）。
+fn api_check_fixture() -> ArchiApiCheck {
+    ArchiApiCheck {
+        enabled: true,
+        meta: ArchiApiMeta {
+            tool_version: "0.6.40".to_owned(),
+            common_digest: format!("sha256:{}", "a".repeat(64)),
+        },
+        mismatched: vec!["crates/core/archi.i.rs".to_owned()],
+        orphaned: vec!["src/loose.i.ts".to_owned()],
+        missing: vec![".dev-team/architecture/api/INDEX.toml".to_owned()],
+    }
+}
+
+/// 正向（AC-3 / spec「DTO 形状」）：五字段声明序出线（camelCase），序列化往返逐字段相等。
+#[test]
+fn api_check五字段声明序出线() {
+    let dto = api_check_fixture();
+    let value = serde_json::to_value(&dto).expect("序列化成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["enabled", "meta", "mismatched", "orphaned", "missing"],
+        "五字段声明序（camelCase）"
+    );
+
+    let back: ArchiApiCheck = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, dto, "往返逐字段相等");
+}
+
+/// 正向（AC-3）：`ArchiApiMeta` 二字段（`toolVersion` / `commonDigest`）；摘要为
+/// `sha256:<hex>` 形态且不截断（长度 ≥ 71）。
+#[test]
+fn api_meta二字段形态() {
+    let meta = api_check_fixture().meta;
+    let value = serde_json::to_value(&meta).expect("序列化成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, vec!["toolVersion", "commonDigest"], "二字段声明序");
+    assert_eq!(meta.tool_version, "0.6.40", "版本串逐字");
+    assert!(
+        meta.common_digest.starts_with("sha256:"),
+        "摘要形如 sha256:<hex>"
+    );
+    assert!(
+        meta.common_digest.len() >= 71,
+        "摘要不截断：{}",
+        meta.common_digest
+    );
+
+    let back: ArchiApiMeta = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, meta, "往返逐字段相等");
+}
+
+/// 正向（AC-3）：`ArchiApiWriteOutcome` 二字段（`written` / `unchanged`）；两列不交叠。
+#[test]
+fn api_write_outcome二字段() {
+    let outcome = ArchiApiWriteOutcome {
+        written: vec!["a.i.rs".to_owned(), "b.i.ts".to_owned()],
+        unchanged: vec!["c.schema.json".to_owned()],
+    };
+    let value = serde_json::to_value(&outcome).expect("序列化成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, vec!["written", "unchanged"], "二字段声明序");
+    for entry in &outcome.written {
+        assert!(
+            !outcome.unchanged.contains(entry),
+            "两列不交叠：{entry} 同时出现在两列"
+        );
+    }
+
+    let back: ArchiApiWriteOutcome = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, outcome, "往返逐字段相等");
+}
+
+/// 边界（边界 / str 与 list 映射）：`enabled` 取两值；字符串取空串 / 超长 / 含 `\n` 与
+/// emoji；三列与两列取 `[]` / 单元素 / 1000 条 / **非字典序输入**（DTO 零重排）→ 往返后
+/// 逐字段相等。
+#[test]
+fn 三新dto字段值边界() {
+    for enabled in [true, false] {
+        let mut dto = api_check_fixture();
+        dto.enabled = enabled;
+        let back: ArchiApiCheck =
+            serde_json::from_value(serde_json::to_value(&dto).expect("序列化")).expect("反序列化");
+        assert_eq!(back.enabled, enabled, "enabled 两值往返");
+    }
+
+    let dirty_strings = [
+        String::new(),
+        "x".repeat(1100),
+        "含换行\n与制表\t与控制\u{0}与 emoji 🎯".to_owned(),
+    ];
+    for dirty in dirty_strings {
+        let mut dto = api_check_fixture();
+        dto.meta.tool_version = dirty.clone();
+        dto.meta.common_digest = dirty.clone();
+        let back: ArchiApiCheck =
+            serde_json::from_value(serde_json::to_value(&dto).expect("序列化")).expect("反序列化");
+        assert_eq!(back.meta.tool_version, dirty, "越签名脏串往返不 panic");
+        assert_eq!(back.meta.common_digest, dirty, "脏串往返不 panic");
+    }
+
+    let column_forms: [Vec<String>; 4] = [
+        Vec::new(),
+        vec!["single.i.rs".to_owned()],
+        (0..1000)
+            .map(|index| format!("gen/o{index:04}.i.ts"))
+            .collect(),
+        vec![
+            "zzz.i.rs".to_owned(),
+            "aaa.i.ts".to_owned(),
+            "mmm.schema.json".to_owned(),
+        ],
+    ];
+    for column in column_forms {
+        let mut dto = api_check_fixture();
+        dto.mismatched = column.clone();
+        dto.orphaned = column.clone();
+        dto.missing = column.clone();
+        let back: ArchiApiCheck =
+            serde_json::from_value(serde_json::to_value(&dto).expect("序列化")).expect("反序列化");
+        assert_eq!(back, dto, "列容器形态往返（零重排）");
+        assert_eq!(back.mismatched, column, "列序逐字保留");
+    }
+
+    let outcome = ArchiApiWriteOutcome {
+        written: vec!["zzz.i.rs".to_owned(), "aaa.i.ts".to_owned()],
+        unchanged: (0..1000).map(|index| format!("u{index:04}.i.ts")).collect(),
+    };
+    let back: ArchiApiWriteOutcome =
+        serde_json::from_value(serde_json::to_value(&outcome).expect("序列化")).expect("反序列化");
+    assert_eq!(back, outcome, "写盘结果两列往返");
+}
+
+/// 异常（异常 / 对象映射）：缺必填键 / `null` / 类型错 → `Err`；多余字段按既有口径
+/// **忽略**（结构体无 `deny_unknown_fields`，用例钉死实际行为）。
+#[test]
+fn 三新dto词汇外与缺字段反序列化() {
+    let base = serde_json::to_value(api_check_fixture()).expect("序列化");
+
+    let mut missing_meta = base.clone();
+    missing_meta.as_object_mut().expect("对象").remove("meta");
+    assert!(
+        serde_json::from_value::<ArchiApiCheck>(missing_meta).is_err(),
+        "缺 meta 键 → Err"
+    );
+
+    let mut null_meta = base.clone();
+    null_meta["meta"] = json!(null);
+    assert!(
+        serde_json::from_value::<ArchiApiCheck>(null_meta).is_err(),
+        "meta 为 null → Err"
+    );
+
+    for column in ["mismatched", "orphaned", "missing"] {
+        let mut null_column = base.clone();
+        null_column[column] = json!(null);
+        assert!(
+            serde_json::from_value::<ArchiApiCheck>(null_column).is_err(),
+            "{column} 为 null → Err"
+        );
+    }
+
+    let mut wrong_type = base.clone();
+    wrong_type["enabled"] = json!("true");
+    assert!(
+        serde_json::from_value::<ArchiApiCheck>(wrong_type).is_err(),
+        "enabled 传字符串 → Err"
+    );
+
+    let mut extra = base.clone();
+    extra["extra"] = json!(1);
+    let with_extra: ArchiApiCheck =
+        serde_json::from_value(extra).expect("多余字段按既有口径忽略（无 deny_unknown_fields）");
+    assert_eq!(with_extra, api_check_fixture(), "多余字段不影响已知字段");
+}
+
+// ---------------------------------------------------------------------------
+// graph_diagnostics_error（提权后的文案单点）
+// ---------------------------------------------------------------------------
+
+/// 诊断构造器（`line = 0` 表示位置未知）。
+fn diagnostic(kind: DiagnosticKind, file: &str, line: u32) -> ArchiDiagnostic {
+    ArchiDiagnostic {
+        kind,
+        message: "原文文案".to_owned(),
+        file: file.to_owned(),
+        line,
+        column: None,
+    }
+}
+
+/// 正向（AC-15 的错误面）：0 / 1 / 3 条诊断 → 首行「模型结构错（共 N 条）：」，随后逐条
+/// `kind @ file:line`（`line = 0` 时只给 `kind @ file`）；空输入也是非空固定文案。
+#[test]
+fn graph_diagnostics_error文案形态() {
+    let empty = dto::graph_diagnostics_error(&[]);
+    assert!(!empty.is_empty(), "空诊断仍是非空文案：{empty}");
+    assert!(
+        empty.contains("模型结构错（共 0 条）："),
+        "空诊断的固定文案：{empty}"
+    );
+
+    let one = dto::graph_diagnostics_error(&[diagnostic(DiagnosticKind::Cycle, "01-a.toml", 7)]);
+    assert!(one.contains("模型结构错（共 1 条）："), "条数 1：{one}");
+    assert!(one.contains("cycle @ 01-a.toml:7"), "位置形态：{one}");
+
+    let sample = [
+        diagnostic(DiagnosticKind::Cycle, "01-a.toml", 7),
+        diagnostic(DiagnosticKind::OrphanHierarchy, "02-b.toml", 0),
+        diagnostic(DiagnosticKind::UnknownReference, "03-c.toml", 12),
+    ];
+    let three = dto::graph_diagnostics_error(&sample);
+    assert!(three.contains("模型结构错（共 3 条）："), "条数 3：{three}");
+    assert!(
+        three.contains("orphanHierarchy @ 02-b.toml"),
+        "line = 0 时只给文件：{three}"
+    );
+    assert_eq!(three.lines().count(), 4, "首行 + 三条诊断");
+
+    let again = dto::graph_diagnostics_error(&sample);
+    assert_eq!(again, three, "纯函数：同入参两次调用逐字相同");
+}
+
+/// 边界（边界）：提权后可从 crate 根出口调用；诊断含超长 `message` / 含 `\n` 与 emoji
+/// → 不 panic 且文案只投影 `kind` 与位置（诊断原文不进文案）。
+#[test]
+fn graph_diagnostics_error提权与脏值() {
+    let dirty = [
+        ArchiDiagnostic {
+            kind: DiagnosticKind::InvalidValue,
+            message: "y".repeat(1200),
+            file: "含 emoji 🎯 的文件.toml".to_owned(),
+            line: 1,
+            column: Some(3),
+        },
+        ArchiDiagnostic {
+            kind: DiagnosticKind::SyntaxError,
+            message: "换行\n与制表\t".to_owned(),
+            file: "a".repeat(1100),
+            line: 2,
+            column: None,
+        },
+    ];
+    let text = dto::graph_diagnostics_error(&dirty);
+    assert!(text.contains("模型结构错（共 2 条）："), "条数：{text}");
+    assert!(text.contains("🎯"), "文件名原样投影：{text}");
+    assert!(
+        !text.contains("y".repeat(20).as_str()),
+        "超长诊断原文不进文案（只投影 kind 与位置）"
+    );
+
+    let exported = crate::graph_diagnostics_error(&dirty);
+    assert_eq!(exported, text, "出口面与 dto 面同一函数");
 }

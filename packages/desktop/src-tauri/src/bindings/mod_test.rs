@@ -175,6 +175,8 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "archiSetGate",
     "archiDrift",
     "archiFileTree",
+    "archiApiCheck",
+    "archiApiGenerate",
     "readFile",
 ];
 
@@ -230,6 +232,8 @@ const COMMAND_NAMES: &[&str] = &[
     "archi_set_gate",
     "archi_drift",
     "archi_file_tree",
+    "archi_api_check",
+    "archi_api_generate",
     "read_file",
 ];
 
@@ -298,6 +302,9 @@ const DTO_TYPES: &[&str] = &[
     "WriteProtectionFile",
     "AppEnvironment",
     // archi 章节（架构模型纯读域）出线类型
+    "ArchiApiCheck",
+    "ArchiApiMeta",
+    "ArchiApiWriteOutcome",
     "ArchiChangeSummary",
     "ArchiCheckStatus",
     "ArchiDependedBy",
@@ -1054,16 +1061,16 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
     // 本变更范围）：条目数 37 → 38（app_environment，登记序即 all_commands!
     // 末尾），首锚不变、尾锚随新命令后移
     // 合并侧两变更各补录一条（架构页文件树 + agent_answer）：条目数 48 → 50；
-    // 本变更再补一条（agent_steer，50 → 51）
+    // 其后补 agent_steer（50 → 51）；本变更再补两条契约面命令（51 → 53）
     assert_eq!(
         COMMAND_NAMES.len(),
-        51,
-        "命令清单本变更补录一条（agent_steer，50 → 51）"
+        53,
+        "命令清单本变更补录两条（archi_api_check / archi_api_generate，51 → 53）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        51,
-        "包装清单本变更补录一条（agentSteer，50 → 51）"
+        53,
+        "包装清单本变更补录两条（archiApiCheck / archiApiGenerate，51 → 53）"
     );
     assert!(
         COMMAND_NAMES.contains(&"agent_steer"),
@@ -1141,8 +1148,8 @@ fn command清单补录_app_environment后38条且既有锚点与在册命令保�
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        101,
-        "DTO 清单新增 ArchiFileEntry / ArchiFileTree / FileEntryKind / FileTreeMark（97 + 4）"
+        104,
+        "DTO 清单新增 ArchiApiCheck / ArchiApiMeta / ArchiApiWriteOutcome（101 + 3）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(
@@ -1685,17 +1692,22 @@ fn 登记面_新命令为清单末条且既有清单零遗漏() {
 // ---------------------------------------------------------------------------
 
 /// 架构域命令族（invoke 名 / 包装名成对）。
-const ARCHI_COMMANDS: [(&str, &str); 6] = [
+const ARCHI_COMMANDS: [(&str, &str); 8] = [
     ("archi_graph", "archiGraph"),
     ("archi_module", "archiModule"),
     ("archi_change_summary", "archiChangeSummary"),
     ("archi_set_gate", "archiSetGate"),
     ("archi_drift", "archiDrift"),
     ("archi_file_tree", "archiFileTree"),
+    ("archi_api_check", "archiApiCheck"),
+    ("archi_api_generate", "archiApiGenerate"),
 ];
 
 /// 架构域出线类型名（`Archi*` 投影 + 五组封闭词汇）。
-const ARCHI_DTO_TYPES: [&str; 23] = [
+const ARCHI_DTO_TYPES: [&str; 26] = [
+    "ArchiApiCheck",
+    "ArchiApiMeta",
+    "ArchiApiWriteOutcome",
     "ArchiChangeSummary",
     "ArchiDependedBy",
     "ArchiDependsOn",
@@ -1762,6 +1774,8 @@ fn archi命令族在册且既有条目零位移() {
             "archi_set_gate",
             "archi_drift",
             "archi_file_tree",
+            "archi_api_check",
+            "archi_api_generate",
             "read_file",
         ],
         "archi 命令尾部追加（既有条目零位移）"
@@ -1988,18 +2002,18 @@ fn 登记面_架构页会话清单命令在册() {
     );
 }
 
-/// 边界：命令总数 50 → 51（本变更新增 `agent_steer`），两份清单条目数持衡
+/// 边界：命令总数 51 → 53（本变更新增两条契约面命令），两份清单条目数持衡
 /// （漏登记或重复登记即红）。
 #[test]
 fn 登记面_命令总数加二且两清单持衡() {
     assert_eq!(
         COMMAND_NAMES.len(),
-        51,
-        "本变更补录一条后的命令总数（50 → 51）"
+        53,
+        "本变更补录两条后的命令总数（51 → 53）"
     );
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        51,
+        53,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
 }
@@ -2465,14 +2479,14 @@ fn 登记面_三新命令在两清单与生成物各在册() {
     }
 }
 
-/// 正向：总数锚 50 → 51（本变更新增 `agent_steer`，两份清单持衡、一一对应）；
-/// 尾锚仍为 `read_file`（新条目插在 agent 组内，尾锚零位移）。
+/// 正向：总数锚 51 → 53（本变更新增两条契约面命令，两份清单持衡、一一对应）；
+/// 尾锚仍为 `read_file`（新条目插在 archi 组内，尾锚零位移）。
 #[test]
 fn 登记面_总数五十且尾锚零位移() {
-    assert_eq!(COMMAND_NAMES.len(), 51, "命令清单总数 50 → 51");
+    assert_eq!(COMMAND_NAMES.len(), 53, "命令清单总数 51 → 53");
     assert_eq!(
         COMMAND_WRAPPERS.len(),
-        51,
+        53,
         "包装清单条目数与 invoke 清单持衡（一一对应）"
     );
     assert_eq!(
@@ -3537,4 +3551,66 @@ fn 引擎侧词汇反向锚定含steer两类型() {
         !DTO_TYPES.iter().any(|name| name.contains("Steer")),
         "DTO 清单零补录（两类型不出线）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两条新命令的 zod 三表形态（AC-17 / AC-3）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-17 / AC-3）：`bindings.zod.ts` 的三表为两新命令各出一份——`argsSchemas` 的
+/// shape 键恰 `root`（`z.string()`）、`resultSchemas` 指向对应 DTO schema、`channelArgs`
+/// 为空表（非 Channel 命令）。
+#[test]
+fn 两新命令的zod三表形态() {
+    let _lock = lock();
+    let zod = String::from_utf8(zod_authoritative_snapshot()).expect("zod 产物为 UTF-8 文本");
+
+    for (name, result) in [
+        ("archiApiCheck", "ArchiApiCheckSchema"),
+        ("archiApiGenerate", "ArchiApiWriteOutcomeSchema"),
+    ] {
+        let args_anchor = format!("\tget \"{name}\"() {{ return z.strictObject({{\n\t\t\t\"root\": z.string(),\n\t\t}}); }},");
+        assert!(
+            zod.contains(&args_anchor),
+            "argsSchemas 的 `{name}` 表项形态（shape 键恰 root）：\n{zod}"
+        );
+        let result_anchor = format!("\tget \"{name}\"() {{ return z.lazy(() => {result}); }},");
+        assert!(
+            zod.contains(&result_anchor),
+            "resultSchemas 的 `{name}` 指向 {result}"
+        );
+        let channel_anchor = format!("\tget \"{name}\"() {{ return {{\n\t\t}}; }},");
+        assert!(
+            zod.contains(&channel_anchor),
+            "channelArgs 对 `{name}` 为空表（非 Channel 命令）"
+        );
+    }
+
+    // 两份产物各含三个新类型的具名导出
+    let bindings = String::from_utf8(authoritative_snapshot()).expect("bindings 产物为 UTF-8 文本");
+    for name in ["ArchiApiCheck", "ArchiApiMeta", "ArchiApiWriteOutcome"] {
+        assert!(
+            bindings.contains(&format!("export type {name} =")),
+            "bindings.ts 含 `export type {name} =`"
+        );
+        assert!(
+            zod.contains(&format!("const {name}Schema")),
+            "bindings.zod.ts 含 `{name}Schema`"
+        );
+    }
+
+    // 包装签名：(root: string) => __TAURI_INVOKE<T>("archi_api_*", { root })
+    for (wrapper, invoke, result) in [
+        ("archiApiCheck", "archi_api_check", "ArchiApiCheck"),
+        (
+            "archiApiGenerate",
+            "archi_api_generate",
+            "ArchiApiWriteOutcome",
+        ),
+    ] {
+        let signature = format!(
+            "{wrapper}: (root: string) => __TAURI_INVOKE<{result}>(\"{invoke}\", {{ root }}),"
+        );
+        assert!(bindings.contains(&signature), "包装签名为 `{signature}`");
+    }
 }

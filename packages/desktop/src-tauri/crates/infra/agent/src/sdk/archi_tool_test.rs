@@ -1,5 +1,6 @@
 //! `sdk::archi_tool` 的单元测试：per-turn 上下文构造、`archi_module` 两形态（指定
-//! 元素 / 省略元素的薄概览）、`archi_search` 三 scope、坏模型 / 参数缺失的 `Err`
+//! 元素 / 省略元素的薄概览）、`archi_search` 三 scope、`archi_api` 两动作（`check`
+//! 两轴结构化摘要 / `bootstrap` 草稿）、坏模型 / 参数缺失 / 未知 action 的 `Err`
 //! 回灌面与 L1 结果收口（30 KB 上限），以及工具串与 DTO 串的词汇等价。
 //!
 //! 零 mock：真实 tempdir 模型 + 真实 `archi::dto` 投影 + 真实 `tools::cap_result`
@@ -10,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::sdk::tools::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
+use crate::sdk::tools::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
 
 use super::archi_tool::ArchiContext;
 
@@ -425,4 +426,376 @@ async fn 词汇面与dto投影串等价() {
             "两面均只用一份线值写法（{forbidden} 不出现）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_api` 两动作（契约面自检）
+// ---------------------------------------------------------------------------
+
+/// 契约面语料根：模型（`App` 容器 + `App.Api` 域 + 叶元素）+ 入口源文 + 契约 md
+/// （契约返回位声明为 `integer`、代码返回 `String` ⇒ 一条签名不符判据）。
+fn api_root(tag: &str) -> tempfile::TempDir {
+    let dir = tempdir(tag);
+    write_model(
+        dir.path(),
+        "01-api.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n",
+            "[element.\"App.Api.Subject\"]\nkind = \"module\"\ngate = \"warn\"\n",
+            "path = [\"./crates/api/subject/\"]\n",
+        ),
+    );
+    write_file(
+        dir.path(),
+        "crates/api/subject/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/api/Api/App.Api.Subject.md",
+        "# App.Api.Subject\n\n## 职能\n\n工具语料。\n\n## 操作\n\n### file_stem\n\n\
+         ```json api-op\n{\"owner\": \"LocalApi\", \
+         \"params\": [{\"name\": \"timestamp\", \"schema\": {\"type\": \"string\"}}], \
+         \"returns\": {\"type\": \"integer\"}}\n```\n",
+    );
+    dir
+}
+
+/// 全量字节快照（零写盘对拍）。
+fn snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+        let Ok(reader) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in reader.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, out);
+                continue;
+            }
+            let relative = path
+                .strip_prefix(base)
+                .expect("相对路径")
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push((relative, fs::read(&path).expect("读文件失败")));
+        }
+    }
+    let mut entries = Vec::new();
+    walk(root, root, &mut entries);
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    entries
+}
+
+/// 异常（AC-15 / D13）：`check` 遇结构诊断 → `Err`（`is_error` 回灌），文案含「模型结构错」
+/// 与诊断条数（经 `graph_diagnostics_error` 单点，零第二份 `file:line` 拼装）；不返回部分
+/// 两轴。
+#[tokio::test]
+async fn archi_api_check结构诊断即err() {
+    let dir = tempdir("api-check-broken");
+    write_model(
+        dir.path(),
+        "01.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.A\"]\nkind = \"module\"\n\n",
+            "[element.\"App.B\"]\nkind = \"module\"\n\n",
+            "[[relation]]\nfrom = \"App.A\"\nto = \"App.B\"\n\n",
+            "[[relation]]\nfrom = \"App.B\"\nto = \"App.A\"\n",
+        ),
+    );
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let error = context
+        .execute(ARCHI_API_TOOL, &json!({ "action": "check" }))
+        .await
+        .expect_err("结构诊断 ⇒ Err（is_error）");
+    assert!(error.contains("模型结构错"), "文案点名结构诊断：{error}");
+    assert!(error.contains("共 "), "文案含诊断条数：{error}");
+}
+
+/// 正向（AC-15 / D13）：`check` 返回两轴结构化摘要——`artifacts` 五字段 + `findings`
+/// 三字段（`total` / `byCategory` / `items`）；`total == items.len()` 且 `byCategory`
+/// 与 `items` 的分组计数逐项相等（零新词表）。
+#[tokio::test]
+async fn archi_api_check两轴结构化摘要() {
+    let dir = api_root("api-check-healthy");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let payload = execute_json(&context, ARCHI_API_TOOL, json!({ "action": "check" })).await;
+
+    let artifacts = &payload["artifacts"];
+    for key in ["enabled", "meta", "mismatched", "orphaned", "missing"] {
+        assert!(
+            artifacts.get(key).is_some(),
+            "artifacts 含 {key}：{artifacts}"
+        );
+    }
+    assert_eq!(artifacts["enabled"], json!(true), "契约面启用");
+    assert!(
+        !artifacts["missing"]
+            .as_array()
+            .expect("missing 数组")
+            .is_empty(),
+        "未生成时报缺口：{artifacts}"
+    );
+
+    let findings = &payload["findings"];
+    let total = findings["total"].as_u64().expect("total 为数字") as usize;
+    let items = findings["items"].as_array().expect("items 数组");
+    assert_eq!(total, items.len(), "total == items.len()");
+    assert_eq!(total, 1, "一条签名不符判据：{findings}");
+
+    let mut counted = std::collections::BTreeMap::<String, usize>::new();
+    for item in items {
+        let category = item["category"].as_str().expect("category 串");
+        *counted.entry(category.to_owned()).or_insert(0) += 1;
+        assert!(item["kind"].is_string(), "条目含 kind：{item}");
+        assert!(item["message"].is_string(), "条目含 message：{item}");
+    }
+    let by_category = findings["byCategory"]
+        .as_object()
+        .expect("byCategory 为对象");
+    assert_eq!(
+        by_category.len(),
+        counted.len(),
+        "byCategory 键集与 items 分组一致"
+    );
+    for (category, count) in counted {
+        assert_eq!(
+            by_category[&category].as_u64().expect("计数为数字") as usize,
+            count,
+            "byCategory 计数与 items 分组相等：{category}"
+        );
+    }
+}
+
+/// 边界（AC-15）：契约面缺席 → `findings.total == 0` / `byCategory == {}` / `items == []`，
+/// `artifacts.enabled == false` 且 `missing` 恰 `INDEX.toml`（`is_error == false`）。
+#[tokio::test]
+async fn archi_api_check零判据成功态() {
+    let dir = tempdir("api-check-empty");
+    write_model(
+        dir.path(),
+        "01.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n\
+         [element.\"App.Api\"]\nkind = \"module\"\ngate = \"warn\"\n\
+         path = [\"./crates/api/\"]\n",
+    );
+    write_file(dir.path(), "crates/api/src/lib.rs", "pub fn noop() {}\n");
+
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let payload = execute_json(&context, ARCHI_API_TOOL, json!({ "action": "check" })).await;
+    assert_eq!(payload["findings"]["total"], json!(0), "零判据");
+    assert_eq!(payload["findings"]["byCategory"], json!({}), "空分组表");
+    assert_eq!(payload["findings"]["items"], json!([]), "空条目");
+    assert_eq!(
+        payload["artifacts"]["enabled"],
+        json!(false),
+        "契约面未启用"
+    );
+    let missing = payload["artifacts"]["missing"]
+        .as_array()
+        .expect("missing 数组");
+    assert_eq!(missing.len(), 1, "缺口恰一条：{missing:?}");
+    assert!(
+        missing[0]
+            .as_str()
+            .is_some_and(|path| path.ends_with("INDEX.toml")),
+        "缺口是索引：{missing:?}"
+    );
+}
+
+/// 正向（AC-15 / D13）：`bootstrap` 出草稿，且与 `archi::api::bootstrap` 直出逐字相等。
+#[tokio::test]
+async fn archi_api_bootstrap出草稿() {
+    let dir = api_root("api-bootstrap");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let payload = execute_json(
+        &context,
+        ARCHI_API_TOOL,
+        json!({ "action": "bootstrap", "element": "App.Api.Subject" }),
+    )
+    .await;
+    let draft = payload["draft"].as_str().expect("draft 为字符串");
+    assert!(!draft.trim().is_empty(), "草稿非空");
+    let direct = archi::api::bootstrap(dir.path(), "App.Api.Subject").expect("直调应成功");
+    assert_eq!(draft, direct, "与 core 单点逐字相等");
+}
+
+/// 异常（AC-15 / spec「未知 action 与缺参」）：`bootstrap` 缺参 / 空白参 → `Err`；未知 /
+/// 大小写变形 / 缺失 / null `action` → `Err`（文案点名合法值）。
+#[tokio::test]
+async fn archi_api非法action与缺参() {
+    let dir = api_root("api-bad-input");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+
+    for input in [
+        json!({ "action": "bootstrap" }),
+        json!({ "action": "bootstrap", "element": "" }),
+        json!({ "action": "bootstrap", "element": "   " }),
+    ] {
+        let error = context
+            .execute(ARCHI_API_TOOL, &input)
+            .await
+            .expect_err("缺参 / 空白参 ⇒ Err");
+        assert!(error.contains("element"), "文案点名缺参：{error}");
+    }
+
+    for input in [
+        json!({ "action": "write" }),
+        json!({ "action": "CHECK" }),
+        json!({}),
+        json!({ "action": null }),
+    ] {
+        let error = context
+            .execute(ARCHI_API_TOOL, &input)
+            .await
+            .expect_err("非法 action ⇒ Err");
+        assert!(
+            error.contains("check") && error.contains("bootstrap"),
+            "文案含合法值：{error}"
+        );
+    }
+}
+
+/// 边界（AC-15 / D13）：输出经 `tools::cap_result` 收口——3000 条判据时长度 ≤ L1 上限、
+/// 含截断留痕；`total` 与 `byCategory` 全量保留（摘要优先，截断不动计数）；不 panic。
+#[tokio::test]
+async fn archi_api输出过cap_result() {
+    let dir = tempdir("api-cap");
+    // 3000 个元素各带 `path` 但无入口 / 无契约 ⇒ 每元素一条 `apiEntryMissing`
+    let mut model = String::from("[element.\"App\"]\nkind = \"package\"\n\n");
+    for index in 0..3000 {
+        model.push_str(&format!(
+            "[element.\"App.E{index:04}\"]\nkind = \"module\"\ngate = \"warn\"\n\
+             path = [\"gen/e{index:04}/\"]\n\n"
+        ));
+    }
+    write_model(dir.path(), "01.toml", &model);
+    // 契约面启用（目录含一份 md）——否则 `findings` 走 `enabled` 短路返回空集，
+    // 「摘要优先 / 截断留痕」都无从表述；该 md 不属模型内元素，故不产生额外判据
+    write_file(
+        dir.path(),
+        ".dev-team/architecture/api/App/Ghost.md",
+        "# App.Ghost
+",
+    );
+
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let text = context
+        .execute(ARCHI_API_TOOL, &json!({ "action": "check" }))
+        .await
+        .expect("大语料不 panic");
+    assert!(
+        text.len() <= 50_000 + 200,
+        "输出受 L1 上限约束（上限 50000 字节 + 留痕文案；实际 {} 字节）",
+        text.len()
+    );
+    assert!(
+        text.contains("截断") || text.contains("truncated"),
+        "超限时含截断留痕：{}",
+        &text[text.len().saturating_sub(200)..]
+    );
+    assert!(
+        text.contains("\"total\":3000"),
+        "摘要优先：total 全量保留（{}）",
+        &text[..200.min(text.len())]
+    );
+}
+
+/// 边界（AC-15 / spec「零写盘」）：两动作前后对 `root` 快照相等；`archi_tool.rs` 零
+/// `fs::write` / `create_dir*`；判据来源单点（`archi::api::findings` 与
+/// `artifact_check` 各恰一处、零 `load_contracts` 直调）。
+#[tokio::test]
+async fn archi_api零写盘与判据来源单点() {
+    let dir = api_root("api-no-write");
+    let before = snapshot(dir.path());
+    let context = ArchiContext::new(dir.path().to_path_buf());
+    let _ = context
+        .execute(ARCHI_API_TOOL, &json!({ "action": "check" }))
+        .await;
+    let _ = context
+        .execute(
+            ARCHI_API_TOOL,
+            &json!({ "action": "bootstrap", "element": "App.Api.Subject" }),
+        )
+        .await;
+    assert_eq!(snapshot(dir.path()), before, "两动作零写盘");
+
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/sdk/archi_tool.rs"
+    ))
+    .expect("读 archi_tool.rs 失败");
+    for forbidden in ["fs::write", "create_dir", "create_dir_all"] {
+        assert!(
+            !source.contains(forbidden),
+            "`archi_tool.rs` 零 `{forbidden}`（零写盘）"
+        );
+    }
+    assert_eq!(
+        source.matches("archi::api::findings(").count(),
+        1,
+        "判据装配单点恰一处"
+    );
+    assert_eq!(
+        source.matches("archi::api::artifact_check(").count(),
+        1,
+        "两轴差异单点恰一处"
+    );
+    assert!(!source.contains("load_contracts"), "零第二份契约装配");
+}
+
+/// 边界（AC-15 / str 映射）：`bootstrap` 的 `element` 取脏值（超长 >1000 chars / 含
+/// emoji / 含 `/`）时，工具侧的成败与 `archi::api::bootstrap` 的直判**同向**、不 panic
+/// （脏值判定只由 core 单点裁定，工具层零前置校验、零第二份文案拼装）；`input` 为
+/// `null`（越签名脏值）→ `is_error`。
+#[tokio::test]
+async fn archi_api参数脏值不panic() {
+    let dir = api_root("api-dirty-param");
+    let context = ArchiContext::new(dir.path().to_path_buf());
+
+    let too_long = format!("App.Api.{}", "x".repeat(1024));
+    // 末项为对照臂（模型内在案元素）：脏值全落 `Err` 时，「同向」判据仍有 `Ok` 侧的实质。
+    for element in [
+        too_long.as_str(),
+        "App.Api.Subject🔒",
+        "App/Api/Subject",
+        "App.Api.Subject",
+    ] {
+        let direct = archi::api::bootstrap(dir.path(), element);
+        let result = context
+            .execute(
+                ARCHI_API_TOOL,
+                &json!({ "action": "bootstrap", "element": element }),
+            )
+            .await;
+        assert_eq!(
+            result.is_err(),
+            direct.is_err(),
+            "脏值 / 对照值的成败与 core 单点同向：{element:?}"
+        );
+        match (result, direct) {
+            (Ok(text), Ok(draft)) => {
+                let payload: Value = serde_json::from_str(&text).expect("结果为 JSON 串");
+                assert_eq!(
+                    payload["draft"].as_str(),
+                    Some(draft.as_str()),
+                    "草稿逐字透传（零加工）：{element:?}"
+                );
+            }
+            (Err(tool_error), Err(direct_error)) => assert_eq!(
+                tool_error,
+                direct_error.message(),
+                "错误文案原样透传（零第二份拼装）：{element:?}"
+            ),
+            (tool, direct) => panic!("成败不同向：tool={tool:?} / core={direct:?}"),
+        }
+    }
+
+    let error = context
+        .execute(ARCHI_API_TOOL, &json!(null))
+        .await
+        .expect_err("input 为 null（越签名脏值）⇒ is_error");
+    assert!(error.contains("action"), "文案点名缺失字段：{error}");
 }

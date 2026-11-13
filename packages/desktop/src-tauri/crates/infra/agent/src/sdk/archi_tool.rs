@@ -1,11 +1,13 @@
-//! 架构只读工具执行体：`archi_module`（定位：两形态——指定元素 / 省略元素薄概览）
-//! 与 `archi_search`（发现：三 scope）。无路径参数，执行上下文由组合根 per-turn
-//! 铸造（轮 root = 会话 cwd；change 会话即 worktree），经 `LoopTurn` 携带。
+//! 架构只读工具执行体：`archi_module`（定位：两形态——指定元素 / 省略元素薄概览）、
+//! `archi_search`（发现：三 scope）与 `archi_api`（契约面自检：`check` 两轴 /
+//! `bootstrap` 草稿）。无路径参数，执行上下文由组合根 per-turn 铸造（轮 root = 会话
+//! cwd；change 会话即 worktree），经 `LoopTurn` 携带。
 //!
-//! 响应经 `archi::dto` 单点投影（三方一致性的机械前提——MUST NOT 在此另拼一份
-//! JSON）；坏模型 / 参数缺失一律 `Err`（loop 侧 is_error 回灌，不 panic），命中
-//! 既有 L1 单结果上限收口（禁第二份上限实现）。
+//! 响应经 `archi::dto` / `archi::api` 单点投影（三方一致性的机械前提——MUST NOT 在此
+//! 另拼一份 JSON）；坏模型 / 参数缺失一律 `Err`（loop 侧 is_error 回灌，不 panic），
+//! 命中既有 L1 单结果上限收口（禁第二份上限实现）。
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use archi::dto::SearchScope;
@@ -24,12 +26,14 @@ impl ArchiContext {
         Self { root }
     }
 
-    /// 执行体：`archi_module`（有 / 无 `element` 两形态）、`archi_search`（`query`
-    /// + `scope`）；未知名 `Err`。输出紧凑 JSON 后过 L1 收口。
+    /// 执行体：`archi_module`（有 / 无 `element` 两形态）、`archi_search`（`query` +
+    /// `scope`）、`archi_api`（`action` + 可选 `element`）；未知名 `Err`。输出紧凑 JSON
+    /// 后过 L1 收口。
     pub(crate) async fn execute(&self, name: &str, input: &Value) -> Result<String, String> {
         let payload = match name {
             tools::ARCHI_MODULE_TOOL => self.module_payload(input)?,
             tools::ARCHI_SEARCH_TOOL => self.search_payload(input)?,
+            tools::ARCHI_API_TOOL => self.api_payload(input)?,
             other => return Err(format!("未知架构工具: {other}")),
         };
         let text = serde_json::to_string(&payload)
@@ -61,6 +65,63 @@ impl ArchiContext {
             None => SearchScope::All,
         };
         archi::dto::search(&self.root, query, scope).and_then(to_value)
+    }
+
+    /// `archi_api`：`action` 封闭二值（未知值 `Err` 并点名合法值）。
+    ///
+    /// - `check`：元素表（`graph_view`，结构诊断 → `is_error`）→ 三类差异
+    ///   （`api::artifact_check`）→ 契约判据（`api::findings`，与漂移判定同源）；
+    ///   响应 = `{ artifacts, findings: { total, byCategory, items } }`（摘要优先，
+    ///   `cap_result` 截断时计数仍在）。
+    /// - `bootstrap`：`element` 必填，出契约 md 草稿（零写盘）。
+    fn api_payload(&self, input: &Value) -> Result<Value, String> {
+        let action = input
+            .get("action")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|action| !action.is_empty())
+            .ok_or_else(|| {
+                "入参缺失或非字符串字段: action（合法值：check / bootstrap）".to_owned()
+            })?;
+        match action {
+            "check" => {
+                let graph = archi::dto::graph_view(&self.root)
+                    .map_err(|error| format!("模型读取失败：{error}"))?;
+                if !graph.diagnostics.is_empty() {
+                    return Err(archi::dto::graph_diagnostics_error(&graph.diagnostics));
+                }
+                let artifacts =
+                    archi::api::artifact_check(&self.root).map_err(|error| error.message())?;
+                let items = archi::api::findings(&self.root, &graph.elements)
+                    .map_err(|error| error.message())?;
+                let mut by_category: BTreeMap<String, usize> = BTreeMap::new();
+                for finding in &items {
+                    *by_category.entry(finding.category.clone()).or_insert(0) += 1;
+                }
+                Ok(serde_json::json!({
+                    "artifacts": artifacts,
+                    "findings": {
+                        "total": items.len(),
+                        "byCategory": by_category,
+                        "items": items,
+                    },
+                }))
+            }
+            "bootstrap" => {
+                let element = input
+                    .get("element")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|element| !element.is_empty())
+                    .ok_or_else(|| {
+                        "入参缺失或非字符串字段: element（bootstrap 必填）".to_owned()
+                    })?;
+                let draft =
+                    archi::api::bootstrap(&self.root, element).map_err(|error| error.message())?;
+                Ok(serde_json::json!({ "draft": draft }))
+            }
+            other => Err(format!("未知 action: {other}（合法值：check / bootstrap）")),
+        }
     }
 }
 

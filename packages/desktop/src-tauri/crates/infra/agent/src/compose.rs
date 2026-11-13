@@ -63,6 +63,7 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
         let mut names: Vec<&'static str> = mount::builtin().to_vec();
         names.push(mount::ARCHI_MODULE_TOOL);
         names.push(mount::ARCHI_SEARCH_TOOL);
+        names.push(mount::ARCHI_API_TOOL);
         // 知识为尽力增强项：拼装失败（`None`）只丢 preamble 位，工具面不变。
         return injected(
             &names,
@@ -148,7 +149,7 @@ fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>> {
             Some(vec![mount::ARCHI_MODULE_TOOL, mount::ARCHI_SEARCH_TOOL])
         }
         ("test-design", "executor") => Some(vec![mount::ARCHI_SEARCH_TOOL]),
-        ("implement", "executor") => Some(vec![mount::ARCHI_MODULE_TOOL]),
+        ("implement", "executor") => Some(vec![mount::ARCHI_MODULE_TOOL, mount::ARCHI_API_TOOL]),
         ("code-review", "evaluator") => Some(vec![mount::ARCHI_MODULE_TOOL]),
         ("acceptance", "evaluator") => Some(vec![mount::ARCHI_MODULE_TOOL]),
         _ => None,

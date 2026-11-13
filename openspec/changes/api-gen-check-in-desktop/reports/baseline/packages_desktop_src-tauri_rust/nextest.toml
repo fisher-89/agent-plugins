@@ -1,0 +1,6 @@
+[profile.wps-desktop-gate]
+inherits = "default"
+
+[profile.wps-desktop-gate.junit]
+path = "D:/Projects/.worktrees/wps-claude-plugin/api-gen-check-in-desktop/openspec/changes/api-gen-check-in-desktop/reports/baseline/packages_desktop_src-tauri_rust/junit.xml"
+report-skipped = "ignored"

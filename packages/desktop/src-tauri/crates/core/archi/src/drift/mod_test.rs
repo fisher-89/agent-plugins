@@ -1018,7 +1018,7 @@ fn timestamp与version形态() {
     temp.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
     temp.write("src/a.ts", "export const a = 1;\n");
     let report = run_full(temp.root()).expect("判定应成功");
-    assert_eq!(report.version, 2, "报告版本号常量（REPORT_VERSION = 2）");
+    assert_eq!(report.version, 3, "报告版本号常量（REPORT_VERSION = 3）");
     assert_ne!(report.version, 0, "版本号非 0");
     let timestamp = &report.timestamp;
     assert!(timestamp.ends_with('Z'), "UTC 结尾 Z：{timestamp}");
@@ -1329,7 +1329,7 @@ fn mismatched_contract(fqn: &str) -> String {
 }
 
 /// 边界（D17 / AC-8）：tempdir 有模型与源文件但无 `<archi_api_dir>` → `Ok`，
-/// `api_findings` 空、`version == 2`，既有各槽位与「契约面未引入时」等价。
+/// `api_findings` 空、`version == 3`，既有各槽位与「契约面未引入时」等价。
 #[test]
 fn 契约面缺席时_api_findings为空() {
     let temp = TempDir::new("contract-face-absent");
@@ -1341,7 +1341,7 @@ fn 契约面缺席时_api_findings为空() {
 
     let report = run_full(temp.root()).expect("判定应成功");
     assert!(report.api_findings.is_empty(), "契约面缺席 → 空槽位");
-    assert_eq!(report.version, 2, "版本号为 2（REPORT_VERSION）");
+    assert_eq!(report.version, 3, "版本号为 3（REPORT_VERSION）");
     assert_eq!(
         report.status.as_str(),
         "clean",
@@ -1352,8 +1352,8 @@ fn 契约面缺席时_api_findings为空() {
     assert!(report.observations.is_empty(), "既有 observations 空");
 }
 
-/// 正向（AC-13）：试点元素（入口命中 + 契约在案 + 签名一致）→ `api_findings` 空
-/// （十判据零命中）；`status` 与无契约时相同（契约面不进推导）。
+/// 正向（AC-13 / D9）：试点元素（入口命中 + 契约在案 + 签名一致）→ `api_findings` 空
+/// （十判据零命中）；契约面判据 0 条 ⇒ 纳管子集空 ⇒ `status` 与无契约目录时相同。
 #[test]
 fn 试点元素零命中且不改status() {
     let temp = TempDir::new("pilot-clean");
@@ -1376,7 +1376,7 @@ fn 试点元素零命中且不改status() {
             .collect::<Vec<_>>()
     );
 
-    // 对照：删掉契约目录 → 同一 status（契约面不参与推导）
+    // 对照：删掉契约目录 → 同一 status（契约面判据 0 条 ⇒ 不改 status）
     let without = TempDir::new("pilot-clean-baseline");
     without.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
     without.write(
@@ -1387,14 +1387,14 @@ fn 试点元素零命中且不改status() {
     assert_eq!(
         with_contract.status.as_str(),
         baseline.status.as_str(),
-        "api_findings 不影响 status 推导"
+        "判据 0 条 ⇒ 纳管子集空 ⇒ status 与无契约面时逐字相同"
     );
     assert!(baseline.api_findings.is_empty(), "无契约面即空槽位");
 }
 
-/// 正向（AC-8 非空槽位）：契约签名与代码不一致 → `api_findings` 非空，
+/// 正向（AC-8 非空槽位 / AC-6 / D9）：契约签名与代码不一致 → `api_findings` 非空，
 /// `kind == apiSignatureMismatch`、`category == "signature"`、`occurrences` 逐项；
-/// `status` 仍按既有规则推导（契约面不进 `status`）。
+/// **契约在案元素**的判据纳管进 `status`（`clean` → `warnings`），`passed` 不受影响。
 #[test]
 fn 契约不一致产出非空api_findings() {
     let temp = TempDir::new("contract-mismatch");
@@ -1420,8 +1420,14 @@ fn 契约不一致产出非空api_findings() {
     assert!(!finding.occurrences.is_empty(), "occurrences 逐项在案");
     assert_eq!(
         report.status.as_str(),
-        "clean",
-        "契约面 MUST NOT 影响 status（首期）"
+        "warnings",
+        "契约在案元素的判据把 status 拉到 warnings"
+    );
+    assert!(report.errors.is_empty(), "errors 空");
+    assert!(report.warnings.is_empty(), "既有 warnings 空");
+    assert!(
+        report.errors.is_empty() && report.model.structural_errors.is_empty(),
+        "门禁派生面不受影响（passed == true）"
     );
 }
 
@@ -1457,21 +1463,21 @@ fn 报告线面含契约判据槽位() {
     );
 }
 
-/// 边界（D17 / AC-8）：无模型（`skipped`）→ `api_findings` 空、`version == 2`
+/// 边界（D17 / AC-8）：无模型（`skipped`）→ `api_findings` 空、`version == 3`
 /// （未启用即空，零契约面参与）。
 #[test]
-fn skipped分支恒空且版本为二() {
+fn skipped分支恒空且版本为三() {
     let temp = TempDir::new("skipped-empty");
     let report = run_full(temp.root()).expect("判定应成功");
     assert_eq!(report.status.as_str(), "skipped", "无模型 → skipped");
     assert!(report.api_findings.is_empty(), "skipped 分支恒空槽位");
-    assert_eq!(report.version, 2, "版本号为 2");
+    assert_eq!(report.version, 3, "版本号为 3");
 }
 
-/// 边界（AC-8 / D18）：任一分支产出的报告 `version` 均为 `2`（`skipped` / `noChanges` /
+/// 边界（AC-8 / D18）：任一分支产出的报告 `version` 均为 `3`（`skipped` / `noChanges` /
 /// `clean` / `errors` 四分支表驱动）——常量与报告字段同源。
 #[test]
-fn 四分支版本号恒为二() {
+fn 四分支版本号恒为三() {
     // errors 分支：strict 元素引入未声明目标
     let errors = TempDir::new("version-errors");
     errors.write_model(
@@ -1507,7 +1513,7 @@ fn 四分支版本号恒为二() {
         ("skipped", run_full(skipped.root()).expect("判定应成功")),
     ];
     for (label, report) in cases {
-        assert_eq!(report.version, 2, "{label} 分支的 version 恒为 2");
+        assert_eq!(report.version, 3, "{label} 分支的 version 恒为 3");
         assert_eq!(
             report.status.as_str(),
             label,
@@ -1573,9 +1579,9 @@ fn 坏契约即config错误() {
     }
 }
 
-/// 边界（D18）：`api_findings` 非空而 `status` / `passed` 派生零影响——同输入在契约面
-/// 追加不一致契约前后，`errors` / `warnings` / `suppressed` / `observations` / `status`
-/// 逐字段相等。
+/// 边界（AC-6 / D9）：契约在案元素的判据只抬 `status`（`clean` → `warnings`）——同输入在
+/// 契约面追加不一致契约前后，`errors` / `warnings` / `suppressed` / `observations` /
+/// `model` 逐字段相等，`passed` 派生面（`errors` / `structural_errors` 双空）零改动。
 #[test]
 fn 契约面不改既有槽位() {
     let temp = TempDir::new("contract-parallel");
@@ -1598,10 +1604,15 @@ fn 契约面不改既有槽位() {
         before.observations, after.observations,
         "observations 零变化"
     );
+    assert_eq!(before.status.as_str(), "clean", "追加前 status 为 clean");
     assert_eq!(
-        before.status.as_str(),
         after.status.as_str(),
-        "status 零变化（契约面不进推导）"
+        "warnings",
+        "契约在案元素的判据纳管进 status（只有这一档被抬起）"
+    );
+    assert!(
+        after.errors.is_empty() && after.model.structural_errors.is_empty(),
+        "passed 派生面不受影响（errors / structural_errors 双空）"
     );
     assert_eq!(
         before.model, after.model,
@@ -1665,7 +1676,7 @@ fn 契约目录存在但零md即未启用() {
 
     let report = run_full(temp.root()).expect("判定应成功");
     assert!(report.api_findings.is_empty(), "零 md ⇒ 未启用 ⇒ 空槽位");
-    assert_eq!(report.version, 2, "版本号仍为 2");
+    assert_eq!(report.version, 3, "版本号仍为 3");
     assert_eq!(report.status.as_str(), "clean", "既有 status 零变化");
 
     // 对照：同树无契约目录 → 两报告除时间戳 / 根 / 摘要外逐字段相等
@@ -1836,7 +1847,7 @@ fn 留白遇契约在案产出留白判据() {
         .expect("条目前置已断言");
     assert_eq!(finding.category, "entry", "⑤ 的分类 = entry");
     assert_eq!(finding.element.as_deref(), Some(fqn));
-    assert_eq!(report.version, 2, "契约面启用不影响版本号");
+    assert_eq!(report.version, 3, "契约面启用不影响版本号");
 }
 
 /// 边界（D27 交汇）：`properties` 全为函数未标 `x-class` → 该提示只在生成器 stderr，
@@ -2067,15 +2078,27 @@ fn 组合链规模与多判据独立() {
     );
 }
 
-/// 边界（D18 / AC-9）：`api_findings` 不参与 `status` 推导——`derive_status` 的实参
-/// 不含该字段；槽位装配排在 ⑦ 观察项之后、`status` 推导之前（源码自证）。
+/// 边界（AC-6 / AC-7 / D7 / D9）：`api_findings` 不参与 `status` 推导——`derive_status`
+/// 的实参是**纳管子集** `&gating`；契约判据的装配单点在 `crate::api::findings`（drift 侧
+/// 零契约装载）；槽位装配排在 ⑦ 观察项之后、`status` 推导之前（源码自证）。
 #[test]
 fn 判定序源码自证不含api_findings() {
     let source = include_str!("mod.rs");
-    assert!(
-        source.contains("let api_findings = if crate::api::enabled"),
-        "契约槽位在 `check` 内装配"
+    assert_eq!(
+        source
+            .matches("let api_findings = crate::api::findings(")
+            .count(),
+        1,
+        "契约判据装配单点：`crate::api::findings` 恰一处"
     );
+    let slot = source
+        .find("let api_findings = crate::api::findings(")
+        .expect("槽位装配点");
+    let gating = source
+        .find("let gating = crate::api::gating_findings(")
+        .expect("纳管筛选单点");
+    assert!(slot < gating, "纳管筛选排在判据装配之后");
+
     let call_start = source
         .find("let status = derive_status(")
         .expect("status 由 derive_status 推导");
@@ -2085,24 +2108,315 @@ fn 判定序源码自证不含api_findings() {
         !call.contains("api_findings"),
         "derive_status 的实参 MUST NOT 含 api_findings：{call}"
     );
+    assert!(call.contains("&gating"), "status 只吃纳管子集：{call}");
+    assert!(gating < call_start, "status 推导排在纳管筛选之后");
 
     let observations = source
         .find("observations.push(ArchiDriftObservation")
         .expect("⑦ 观察项装配在案");
-    let slot = source
-        .find("let api_findings = if crate::api::enabled")
-        .expect("槽位装配点");
     assert!(
         observations < slot,
         "契约判据装配排在 ⑦ 观察项之后（判定序零漂移）"
     );
-
+    assert!(
+        !source.contains("load_contracts"),
+        "契约装载只在 `core::archi::api`（drift 侧零内联装配）"
+    );
     assert!(
         source.contains("api_findings: Vec::new(),"),
         "skipped 分支显式空槽位（未启用即空）"
     );
-    assert!(
-        source.contains("const REPORT_VERSION: u32 = 2;"),
-        "报告版本常量单点 = 2（改常量即全分支随动）"
+    assert_eq!(
+        source.matches("const REPORT_VERSION: u32 = 3;").count(),
+        1,
+        "报告版本常量单点 = 3（改常量即全分支随动）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：报告版本 3 与纳管子集（`status` / `passed` 双面）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-7 / D8）：`run_full` 与 `skipped` 早退臂的报告 `version` 均 3；源码自证
+/// `REPORT_VERSION: u32 = 3` 恰一处、零 `= 2`。
+#[test]
+fn 报告版本常量为3() {
+    let temp = TempDir::new("version-three");
+    temp.write_model("[element.\"Auth\"]\nkind = \"module\"\npath = [\"./src/auth/\"]\n");
+    temp.write("src/auth/token.ts", "export const token = 1;\n");
+    let full = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(full.version, 3, "全量报告的 version 为 3");
+
+    let skipped = TempDir::new("version-three-skipped");
+    let early = run_full(skipped.root()).expect("无模型不是错误");
+    assert_eq!(early.status, ArchiCheckStatus::Skipped, "早退臂");
+    assert_eq!(early.version, 3, "skipped 早退报告同样为 3");
+
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("REPORT_VERSION: u32 = 3").count(),
+        1,
+        "版本常量恰一处且为 3"
+    );
+    assert!(!source.contains("REPORT_VERSION: u32 = 2"), "零旧值 2");
+}
+
+/// 正向（AC-6 / D9）：契约在案的 `declared` 元素判据非空且 `errors` / `warnings` 双空 →
+/// `status == warnings`；`passed` 派生面不受影响。
+#[test]
+fn 纳管子集非空且无errors时status为warnings() {
+    let temp = TempDir::new("gating-warnings");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    write_contract(&temp, fqn, &mismatched_contract(fqn));
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(!report.api_findings.is_empty(), "判据非空");
+    assert_eq!(report.status, ArchiCheckStatus::Warnings, "纳管 ⇒ warnings");
+    assert!(report.errors.is_empty(), "errors 空");
+    assert!(report.warnings.is_empty(), "既存 warnings 空");
+    assert!(
+        report.errors.is_empty() && report.model.structural_errors.is_empty(),
+        "门禁派生面（errors / structural_errors 双空）⇒ passed == true"
+    );
+}
+
+/// 异常（AC-6 / D9 先后序不变）：同场造 `errors`（未声明依赖）+ 契约在案判据 →
+/// `status == errors`（纳管不得抢 `errors` 档）；`errors` 槽内容与非纳管语料逐字相同。
+#[test]
+fn errors非空时仍errors() {
+    let fqn = "Billing";
+    let with_contract = TempDir::new("gating-with-errors");
+    strict_over_auth(&with_contract);
+    with_contract.write("src/auth/token.ts", "export const token = 1;\n");
+    with_contract.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+    with_contract.write(
+        "src/billing/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    write_contract(&with_contract, fqn, &mismatched_contract(fqn));
+
+    let baseline = TempDir::new("gating-with-errors-baseline");
+    strict_over_auth(&baseline);
+    baseline.write("src/auth/token.ts", "export const token = 1;\n");
+    baseline.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+
+    let gated = run_full(with_contract.root()).expect("判定应成功");
+    let plain = run_full(baseline.root()).expect("判定应成功");
+    assert!(!gated.api_findings.is_empty(), "判据非空（前提）");
+    assert_eq!(gated.status, ArchiCheckStatus::Errors, "errors 档不被打穿");
+    assert_eq!(
+        gated.errors, plain.errors,
+        "errors 槽内容与非纳管语料逐字相同"
+    );
+}
+
+/// 边界（AC-6 / D9 / AC-8 的口径侧）：纳管子集空（契约面缺席）⇒ `status` 逐值不变
+/// （`clean` / `noChanges` / `skipped` 三形态）+ `api_findings` 空；`warnings` 形态在同场
+/// 仍由既有 warnings 决定。
+#[test]
+fn 纳管子集空时status不变() {
+    let clean = TempDir::new("gating-clean");
+    clean.write_model("[element.\"Auth\"]\nkind = \"module\"\npath = [\"./src/auth/\"]\n");
+    clean.write("src/auth/token.ts", "export const token = 1;\n");
+    let clean_report = run_full(clean.root()).expect("判定应成功");
+    assert_eq!(
+        clean_report.status,
+        ArchiCheckStatus::Clean,
+        "clean 逐值不变"
+    );
+    assert!(clean_report.api_findings.is_empty(), "契约面缺席 ⇒ 空槽位");
+
+    let no_changes = TempDir::new("gating-no-changes");
+    no_changes.write_model("[element.\"Auth\"]\nkind = \"module\"\npath = [\"./src/auth/\"]\n");
+    no_changes.write("src/auth/token.ts", "export const token = 1;\n");
+    let no_changes_report = run_incremental(no_changes.root(), &[]).expect("判定应成功");
+    assert_eq!(
+        no_changes_report.status,
+        ArchiCheckStatus::NoChanges,
+        "noChanges 逐值不变"
+    );
+
+    let skipped = TempDir::new("gating-skipped");
+    let skipped_report = run_full(skipped.root()).expect("无模型不是错误");
+    assert_eq!(
+        skipped_report.status,
+        ArchiCheckStatus::Skipped,
+        "skipped 逐值不变"
+    );
+    assert!(skipped_report.api_findings.is_empty(), "早退臂空槽位");
+
+    let warn = TempDir::new("gating-warn");
+    warn.write_model(
+        "[element.\"Auth\"]\nkind = \"module\"\ngate = \"off\"\npath = [\"./src/auth/\"]\n\n\
+         [element.\"Billing\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"./src/billing/\"]\n",
+    );
+    warn.write("src/auth/token.ts", "export const token = 1;\n");
+    warn.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+    let warn_report = run_full(warn.root()).expect("判定应成功");
+    assert_eq!(
+        warn_report.status,
+        ArchiCheckStatus::Warnings,
+        "warnings 逐值不变"
+    );
+    assert_eq!(warn_report.warnings.len(), 1, "既有 warnings 槽内容零增删");
+}
+
+/// 异常（AC-6 / D6 的对照臂）：元素 `api = declared` 但契约 md 缺席、代码入口缺失
+/// （`apiEntryMissing`）→ `api_findings` 非空、纳管子集空 ⇒ `status == clean`；补上契约 md
+/// 后同语料转 `warnings`（自激活，无白名单）。
+#[test]
+fn 契约不在案且判据存在时不改status() {
+    let temp = TempDir::new("gating-self-activate");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    // 契约面启用（目录含 md）但**本元素**契约不在案：`App.Backend.Ghost` 只为让
+    // `enabled` 为真（不在模型内，故不参与判据），本元素的判据仍只有 `apiEntryMissing`
+    write_contract(
+        &temp,
+        "App.Backend.Ghost",
+        "# App.Backend.Ghost
+",
+    );
+    // 一个可判文件（scanned_files > 0），避免 `noChanges` 档抢先——本用例判的是
+    // 「纳管子集空 ⇒ status 不被契约判据抬起」
+    temp.write(
+        "crates/infra/archi/src/token.rs",
+        "pub fn token() -> &'static str { \"t\" }
+",
+    );
+
+    let absent = run_full(temp.root()).expect("判定应成功");
+    assert!(!absent.api_findings.is_empty(), "判据非空（入口缺失）");
+    assert!(
+        absent
+            .api_findings
+            .iter()
+            .any(|finding| finding.kind == ArchiApiFindingKind::ApiEntryMissing),
+        "判据种类为 apiEntryMissing：{:?}",
+        absent.api_findings
+    );
+    assert_eq!(
+        absent.status,
+        ArchiCheckStatus::Clean,
+        "契约不在案 ⇒ 纳管子集空 ⇒ status 不改"
+    );
+
+    write_contract(&temp, fqn, &mismatched_contract(fqn));
+    let present = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(
+        present.status,
+        ArchiCheckStatus::Warnings,
+        "补上契约 md 后同一语料转 warnings"
+    );
+}
+
+/// 正向（AC-6 / spec「`passed` 本轮不动」）：`status == warnings` 且 `errors` /
+/// `structural_errors` 双空 → 门禁派生面判 `passed == true`；对照臂：造一条 `errors` →
+/// `passed == false` 且 `status == errors`（`status == errors ⟺ passed == false` 不破）。
+#[test]
+fn passed不因判据变假() {
+    let clean_ish = TempDir::new("gating-passed");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    clean_ish.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    clean_ish.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    write_contract(&clean_ish, fqn, &mismatched_contract(fqn));
+    let passed_report = run_full(clean_ish.root()).expect("判定应成功");
+    assert_eq!(
+        passed_report.status,
+        ArchiCheckStatus::Warnings,
+        "纳管 ⇒ warnings"
+    );
+    assert!(
+        passed_report.errors.is_empty() && passed_report.model.structural_errors.is_empty(),
+        "双空 ⇒ 门禁 passed == true"
+    );
+
+    let broken = TempDir::new("gating-not-passed");
+    strict_over_auth(&broken);
+    broken.write("src/auth/token.ts", "export const token = 1;\n");
+    broken.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+    write_contract(&broken, "Billing", &mismatched_contract("Billing"));
+    let failed_report = run_full(broken.root()).expect("判定应成功");
+    assert_eq!(failed_report.status, ArchiCheckStatus::Errors, "errors 档");
+    assert!(
+        !(failed_report.errors.is_empty() && failed_report.model.structural_errors.is_empty()),
+        "errors 非空 ⇒ 门禁 passed == false"
+    );
+}
+
+/// 边界（AC-6 / D9）：既有 `warnings` 非空 + 纳管子集非空 → 仍 `warnings`（或条件不产出
+/// 新档）；`warnings` 槽内容零增删。
+#[test]
+fn warnings与纳管并存不叠加升级() {
+    let temp = TempDir::new("gating-and-warnings");
+    let fqn = "Billing";
+    temp.write_model(
+        "[element.\"Auth\"]\nkind = \"module\"\ngate = \"off\"\npath = [\"./src/auth/\"]\n\n\
+         [element.\"Billing\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"./src/billing/\"]\n",
+    );
+    temp.write("src/auth/token.ts", "export const token = 1;\n");
+    temp.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';\n",
+    );
+    temp.write(
+        "src/billing/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+
+    let before = run_full(temp.root()).expect("判定应成功");
+    assert_eq!(before.status, ArchiCheckStatus::Warnings, "既有 warnings");
+    assert_eq!(before.warnings.len(), 1, "一条未声明依赖");
+
+    write_contract(&temp, fqn, &mismatched_contract(fqn));
+    let after = run_full(temp.root()).expect("判定应成功");
+    assert!(!after.api_findings.is_empty(), "纳管子集非空（前提）");
+    assert_eq!(after.status, ArchiCheckStatus::Warnings, "并仍为 warnings");
+    assert_eq!(after.warnings, before.warnings, "warnings 槽零增删");
+}
+
+/// 异常（AC-6 / D7）：`drift/mod.rs` 源码自证——判据装配与筛单各恰一处、零 `load_contracts`
+/// 内联、零 `is_file`、零「首期 MUST NOT」字样。
+#[test]
+fn 判据装配改走api单点() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("crate::api::findings(").count(),
+        1,
+        "判据装配经 `api::findings` 恰一处"
+    );
+    assert_eq!(
+        source.matches("crate::api::gating_findings(").count(),
+        1,
+        "纳管筛选经 `api::gating_findings` 恰一处"
+    );
+    assert!(
+        !source.contains("load_contracts"),
+        "契约装载只在 `core/archi::api`（drift 侧零内联装配）"
+    );
+    assert!(
+        !source.contains("is_file"),
+        "契约在案判据只在 `api::gating_findings`（drift 侧零 is_file）"
+    );
+    assert!(!source.contains("首期 MUST NOT"), "零旧口径字样");
 }

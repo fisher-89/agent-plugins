@@ -1,5 +1,7 @@
 //! 架构漂移门禁执行面（crate 裸名 `archi-runtime`）：只做「取输入 → 调
-//! [`archi::drift::check`] 判定 → 落 `reports/archi` 报告 → 派生 outcome」。
+//! [`archi::drift::check`] 判定 → 落 `reports/archi` 报告 → 派生 outcome」，并与报告
+//! 落盘并列承载**生成物写盘单点**（[`api_artifacts::write_artifacts`]，CLI 与两条
+//! 契约面 IPC 同源）。两处写盘都只是 dumb IO，零判定。
 //!
 //! **零第二套判定**：归属匹配、定级分支与 `status` 推导全部在 `crates/core/archi`
 //! （判定单源）；本层零 `owner_of` / 零 `ArchiDriftKind` 分支。
@@ -19,6 +21,11 @@ pub use api_gen::*;
 
 mod report;
 mod runner;
+
+pub mod api_artifacts;
+
+#[cfg(test)]
+mod api_artifacts_test;
 
 #[cfg(test)]
 mod report_test;

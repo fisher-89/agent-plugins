@@ -6,8 +6,8 @@
 //! （声明 > 配置 > 内联）→ `occurrences` 聚合 → `status` 推导 → 报告装配。
 //!
 //! 边界：纯读盘、**零写盘**、**零 spawn**（报告落盘在 `crates/infra/archi`，本
-//! crate 只出结构）。`status` 推导序见 [`derive_status`]——`api_findings` 是并列槽位，
-//! 不参与 `status` 推导，也不进 `passed`。
+//! crate 只出结构）。`status` 推导序见 [`derive_status`]——`api_findings` 经纳管子集
+//! （契约在案元素的判据）影响 `status`，不进 `passed`。
 
 pub mod config;
 pub mod report;
@@ -35,9 +35,10 @@ pub use report::{
 
 /// 报告结构版本号（字段演进须递增并走显式兼容说明）。
 ///
-/// `version = 1` 的报告没有 `api_findings` 字段（本变更新增的并列槽位），消费方按
-/// `version` 分支，MUST NOT 对旧报告补默认值。
-const REPORT_VERSION: u32 = 2;
+/// 兼容三点：`version = 1` 的报告没有 `api_findings` 字段；`version = 2` 有该字段但
+/// `status` 推导不读契约判据；`version = 3` 起**契约在案元素**的判据纳管进 `status`。
+/// 消费方按 `version` 分支，MUST NOT 对旧报告补默认值。
+const REPORT_VERSION: u32 = 3;
 
 /// 判定域错误面（封闭三值）：取消与失败面必须**可辨**——runner 靠 `Stopped` 映射
 /// `fault = Some(RunFault::Stopped)`；配置非法 / 扫描硬失败透传文案（检查不执行、
@@ -288,23 +289,12 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
         });
     }
 
-    // ⑧ 契约判据（与模型面并列；`api_findings` 首期 MUST NOT 影响 `status` / `passed`
-    //    ——与 `observations` 同款纪律）。契约面未启用即空；`enabled` 判定与
-    //    `load_contracts` 同源，MUST NOT 两处各判一套。
-    let api_findings = if crate::api::enabled(input.root) {
-        let snapshot = crate::api::load_contracts(input.root, &graph.elements)
-            .map_err(|error| CheckError::Config(error.message()))?;
-        crate::api::check(crate::api::ApiCheckInput {
-            root: input.root,
-            elements: &graph.elements,
-            contracts: &snapshot.contracts,
-            schemas: &snapshot.schemas,
-            symbols: &snapshot.symbols,
-            enabled: true,
-        })
-    } else {
-        Vec::new()
-    };
+    // ⑧ 契约判据（与模型面并列；装配单点在 `crate::api::findings`，drift 侧零第二份
+    //    装配）。`status` 只吃**纳管子集**（契约在案元素的判据，筛选单点在
+    //    `crate::api::gating_findings`）；`passed` 派生面零改动。
+    let api_findings = crate::api::findings(input.root, &graph.elements)
+        .map_err(|error| CheckError::Config(error.message()))?;
+    let gating = crate::api::gating_findings(input.root, &graph.elements, &api_findings);
 
     let structural_errors = graph.diagnostics.clone();
     let status = derive_status(
@@ -312,6 +302,7 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
         outcome.report.scanned_files,
         &errors,
         &warnings,
+        &gating,
     );
     Ok(Report {
         version: REPORT_VERSION,
@@ -336,16 +327,20 @@ pub fn check(input: CheckInput<'_>) -> Result<Report, CheckError> {
 ///
 /// `skipped`（无模型，调用方早退）→ `errors`（模型结构错）→ `errors`
 ///（`errors[]` 非空）→ `noChanges`（可判文件为 0）→ `warnings`（`warnings[]`
-/// 非空）→ `clean`。
+/// 非空 **或** 纳管子集非空）→ `clean`。
 ///
 /// **错误面先于 `noChanges`**：结构错与 `errors[]` 都必须在「无文件可判」之前
 /// 判定——否则会得到「步 failed 且 detail 写没检查」的自相矛盾。按本序
 /// `status == errors ⟺ passed == false` 恒成立。
+///
+/// **纳管只可能把 `clean` 抬到 `warnings`**：契约判据永不产 `errors` 槽，故 `passed`
+/// 派生面零改动（`errors.is_empty() && structural_errors.is_empty()`）。
 fn derive_status(
     structural_errors: &[dto::ArchiDiagnostic],
     scanned_files: u32,
     errors: &[ArchiDriftEntry],
     warnings: &[ArchiDriftEntry],
+    gating: &[report::ArchiApiFinding],
 ) -> ArchiCheckStatus {
     if !structural_errors.is_empty() || !errors.is_empty() {
         return ArchiCheckStatus::Errors;
@@ -353,7 +348,7 @@ fn derive_status(
     if scanned_files == 0 {
         return ArchiCheckStatus::NoChanges;
     }
-    if !warnings.is_empty() {
+    if !warnings.is_empty() || !gating.is_empty() {
         return ArchiCheckStatus::Warnings;
     }
     ArchiCheckStatus::Clean

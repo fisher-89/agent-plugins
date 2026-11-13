@@ -1061,12 +1061,12 @@ fn 试点元素判据零命中() {
             .map(|finding| (finding.kind, finding.message.clone()))
             .collect::<Vec<_>>()
     );
-    assert_eq!(report.version, 2, "报告版本 2");
+    assert_eq!(report.version, 3, "报告版本 3（REPORT_VERSION）");
 }
 
-/// 正向（AC-13 / D18）：`run` 产出的报告 `api_findings` 为槽位存在但**不影响**
-/// `passed` / `diagnostics` / `status`——契约不一致时槽位非空，其余面与无契约形态
-/// 逐值相等。
+/// 正向（AC-6 / AC-13）：`run` 产出的报告 `api_findings` 只把 `status` 抬到 `warnings`
+/// （契约在案元素的判据纳管），**不影响** `passed` / `diagnostics` 的结论面——契约不一致
+/// 时槽位非空，`errors` 面与无契约形态逐值相等。
 #[test]
 fn api_findings不影响passed() {
     let fqn = "App.Backend.Infra.ArchiRuntime";
@@ -1133,21 +1133,36 @@ fn api_findings不影响passed() {
         before.passed, after.passed,
         "api_findings MUST NOT 影响 passed（D18 在门禁面的体现）"
     );
-    // 文本尾注含报告落盘路径（各自 tempdir + 时间戳，逐字不同），只比对结论段
-    let conclusion = |text: &str| text.split("；报告 ").next().unwrap_or(text).to_owned();
-    assert_eq!(
-        conclusion(&before.diagnostics),
-        conclusion(&after.diagnostics),
-        "api_findings MUST NOT 进 diagnostics 文本"
+    // 文本面：两侧同属「通过」摘要（passed 同真的表达），差异只在 status 词——契约判据
+    // 不逐条进反馈文本（逐条事实在报告文件里）
+    assert!(
+        before
+            .diagnostics
+            .contains("架构检查通过（mode=incremental status=clean"),
+        "无契约面 ⇒ clean 摘要：{}",
+        before.diagnostics
+    );
+    assert!(
+        after
+            .diagnostics
+            .contains("架构检查通过（mode=incremental status=warnings"),
+        "契约在案的判据把摘要词抬到 warnings：{}",
+        after.diagnostics
     );
     assert!(
         !after.diagnostics.contains("apiSignatureMismatch"),
-        "反馈文本零契约词汇：{}",
+        "反馈文本零契约词汇（判据不逐条进 diagnostics）：{}",
         after.diagnostics
     );
     assert_eq!(
-        before_report.status, after_report.status,
-        "status 推导不受契约面影响"
+        before_report.status,
+        ArchiCheckStatus::Clean,
+        "无契约面 ⇒ clean"
+    );
+    assert_eq!(
+        after_report.status,
+        ArchiCheckStatus::Warnings,
+        "纳管子集非空 ⇒ warnings（只有这一档被抬起）"
     );
     assert_eq!(before_report.errors, after_report.errors, "errors 面零变化");
 }

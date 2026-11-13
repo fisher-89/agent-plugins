@@ -217,6 +217,9 @@ function detailOf(fqn: string) {
     children: [],
     docs: [],
     warnings: [],
+    // 契约状态投影（`ArchiModuleDetail.api` 为必填）：`declared` 才渲契约段与判据列表
+    // （`none` 走一行空态）；三路径此处不落事务态，取 `null`（行不渲）
+    api: { status: 'declared', contractPath: null, schemaPath: null, generatedPath: null },
   };
 }
 
@@ -1206,5 +1209,317 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(columnOf().className.split(/\s+/)).toContain('w-72');
     expect(columnOf().className.split(/\s+/)).not.toContain('w-80');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 本变更：左栏第三视图（contract）+ `apiFindings` 下传 + full 模式权限
+// ---------------------------------------------------------------------------
+
+/** `archi_api_check` 的 DTO 夹具（三列缺省空、`enabled` 缺省 true）。 */
+function apiCheck(overrides: Record<string, unknown> = {}) {
+  return {
+    enabled: true,
+    meta: { toolVersion: '0.6.40', commonDigest: `sha256:${'a'.repeat(64)}` },
+    mismatched: [],
+    orphaned: [],
+    missing: [],
+    ...overrides,
+  };
+}
+
+/** 在既有装置上补 `archi_api_check` / `archi_api_generate` 分发臂。 */
+function serveWithApiCheck(
+  graph: ArchiGraph,
+  report: ArchiDriftReport,
+  check: Record<string, unknown> = apiCheck(),
+): void {
+  invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+    if (command === 'archi_graph') return Promise.resolve(graph);
+    if (command === 'archi_drift') return Promise.resolve(report);
+    if (command === 'archi_module') {
+      const fqn = typeof params?.element === 'string' ? params.element : '';
+      return Promise.resolve(detailOf(fqn));
+    }
+    if (command === 'archi_file_tree') return Promise.resolve(fileTree());
+    if (command === 'archi_set_gate') return Promise.resolve(null);
+    if (command === 'archi_api_check') return Promise.resolve(check);
+    if (command === 'archi_api_generate') {
+      return Promise.resolve({ written: [], unchanged: [] });
+    }
+    return Promise.reject(new Error(`未预期命令: ${command}`));
+  });
+}
+
+/** 切到「契约」分段（左栏第三视图）。 */
+function switchToContract(): void {
+  const group = screen.getByTestId('archi-tree-mode');
+  fireEvent.click(group.querySelector('[data-mode="contract"]')!);
+}
+
+/** 报告夹具：含两条 `apiFindings`（面板 / 抽屉共用同一份报告）。 */
+function reportWithFindings(): ArchiDriftReport {
+  return {
+    ...driftReport(),
+    apiFindings: [
+      {
+        kind: 'apiSignatureMismatch',
+        category: 'signature',
+        element: 'App.Auth',
+        target: 'login',
+        message: '契约签名与代码签名不一致',
+        occurrences: [],
+      },
+      {
+        kind: 'apiMissing',
+        category: 'entry',
+        element: 'App.Billing',
+        target: 'compose',
+        message: '实现缺失',
+        occurrences: [],
+      },
+    ],
+  };
+}
+
+describe('左栏第三视图（契约）', () => {
+  it('应在点「契约」后只渲契约面板（文件树 / 元素树均不在场）', async () => {
+    serveWithApiCheck(healthyGraph(), reportWithFindings());
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+
+    switchToContract();
+    await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+    expect(screen.queryByTestId('archi-element-tree')).toBeNull();
+    // 三段布局齐备：左栏 + 画布 + 抽屉
+    expect(screen.getByTestId('archi-canvas')).toBeTruthy();
+    expect(screen.getByTestId('archi-drawer')).toBeTruthy();
+  });
+
+  it('应在三视图往返切换时零重取既有四条命令', async () => {
+    serveWithApiCheck(healthyGraph(), reportWithFindings());
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    await waitFor(() => expect(callsOf('archi_graph').length).toBeGreaterThan(0));
+    const baseline = {
+      graph: callsOf('archi_graph').length,
+      module: callsOf('archi_module').length,
+      drift: callsOf('archi_drift').length,
+      tree: callsOf('archi_file_tree').length,
+    };
+
+    for (let round = 0; round < 2; round += 1) {
+      switchToElementTree();
+      switchToContract();
+      switchToFileTree();
+    }
+    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
+
+    expect(callsOf('archi_graph').length).toBe(baseline.graph);
+    expect(callsOf('archi_module').length).toBe(baseline.module);
+    expect(callsOf('archi_drift').length).toBe(baseline.drift);
+    expect(callsOf('archi_file_tree').length).toBe(baseline.tree);
+    // `archi_api_check` 每次进契约视图各一次（面板挂载即取数），不连带既有命令
+    expect(callsOf('archi_api_check').length).toBe(2);
+  });
+
+  it('应把 apiFindings 下传到面板两轴与抽屉契约段', async () => {
+    serveWithApiCheck(healthyGraph(), reportWithFindings());
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    switchToContract();
+    await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
+
+    const findingsAxis = screen.getByTestId('archi-contract-axis-findings');
+    await waitFor(() => expect(findingsAxis.textContent).toContain('判据（2）'));
+    expect(
+      within(findingsAxis)
+        .queryAllByTestId('archi-contract-chip')
+        .map((chip) => chip.getAttribute('data-category')),
+    ).toEqual(['entry', 'signature']);
+
+    // 抽屉契约段按 `element === fqn` 过滤：缺省聚焦 `App`（零判据 ⇒「本元素无漂移」）
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-drawer').textContent).toContain('本元素无漂移'),
+    );
+
+    // 聚焦 `App.Auth` 后：只列本元素那一条判据（邻元素的事实不串场）
+    fireEvent.click(
+      within(findingsAxis)
+        .queryAllByTestId('archi-contract-item')
+        .find((item) => item.textContent?.includes('App.Auth'))!,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('App.Auth'),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-drawer').textContent).toContain('契约签名与代码签名不一致'),
+    );
+    expect(screen.getByTestId('archi-drawer').textContent).not.toContain('实现缺失');
+  });
+
+  it('应在判据条目点击时把聚焦传给抽屉（取数载荷随 fqn）', async () => {
+    serveWithApiCheck(healthyGraph(), reportWithFindings());
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    switchToContract();
+    const findingsAxis = screen.getByTestId('archi-contract-axis-findings');
+    await waitFor(() =>
+      expect(within(findingsAxis).queryAllByTestId('archi-contract-item')).toHaveLength(2),
+    );
+
+    fireEvent.click(
+      within(findingsAxis)
+        .queryAllByTestId('archi-contract-item')
+        .find((item) => item.textContent?.includes('App.Billing'))!,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-drawer-fqn').textContent).toBe('App.Billing'),
+    );
+    expect(callsOf('archi_module').some((payload) => payload.element === 'App.Billing')).toBe(true);
+    // 画布节点集合切到该元素的 1-hop 邻域（入边两条：App.Auth / 子元素 App.Billing.Invoice）
+    expect(renderedNodeIds().sort()).toEqual(['App.Auth', 'App.Billing', 'App.Billing.Invoice']);
+  });
+
+  it('应在 full 模式下零生成入口 + 一行只读提示', async () => {
+    serveWithApiCheck(healthyGraph(), reportWithFindings());
+    render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    switchToContract();
+    await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('archi-contract-check')).toBeTruthy());
+
+    expect(screen.queryByTestId('archi-contract-generate')).toBeNull();
+    expect(screen.getByTestId('archi-contract-readonly')).toBeTruthy();
+    expect(callsOf('archi_api_generate')).toHaveLength(0);
+  });
+
+  it('应在 incremental 模式下渲染可用的生成入口', async () => {
+    serveWithApiCheck(healthyGraph(), reportWithFindings());
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    switchToContract();
+    await waitFor(() =>
+      expect((screen.getByTestId('archi-contract-generate') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+  });
+
+  it('应按模式变更左栏宽度类名（file / element / contract）', async () => {
+    serveWithApiCheck(healthyGraph(), reportWithFindings());
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+
+    const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
+    expect(columnOf().className.split(/\s+/)).toContain('w-80');
+    switchToElementTree();
+    await waitFor(() => expect(columnOf().className.split(/\s+/)).toContain('w-72'));
+    switchToContract();
+    await waitFor(() => expect(columnOf().className.split(/\s+/)).toContain('w-80'));
+  });
+});
+
+describe('抽屉契约段链路（drawer → FileViewer → read_file）', () => {
+  it('应在抽屉契约段点「查看」时经 FileViewer 触达 read_file（载荷 = root + repo 相对串）', async () => {
+    const contractPath = '.dev-team/architecture/api/Core/App.Auth.md';
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_graph') return Promise.resolve(healthyGraph());
+      if (command === 'archi_drift') return Promise.resolve(driftReport());
+      if (command === 'archi_module') {
+        return Promise.resolve({
+          ...detailOf('App'),
+          api: { status: 'declared', contractPath, schemaPath: null, generatedPath: null },
+        });
+      }
+      if (command === 'archi_file_tree') return Promise.resolve(fileTree());
+      if (command === 'archi_api_check') return Promise.resolve(apiCheck());
+      if (command === 'read_file') {
+        const content = '# 契约\n';
+        return Promise.resolve({
+          content,
+          stat: { size: content.length, modifiedMs: null, isFile: true, isDir: false },
+          offset: 0,
+          nextOffset: content.length,
+          truncated: false,
+          encoding: 'utf8',
+        });
+      }
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
+
+    const rows = screen.queryAllByTestId('archi-contract-path');
+    const row = rows[0]!;
+    expect(row.getAttribute('title')).toBe(contractPath);
+    // 缺席的两槽位（schema / 生成物）行仍在场但「查看」禁用：不吞行、不误开空路径
+    for (const nullRow of [rows[1]!, rows[2]!]) {
+      expect(nullRow.querySelector('button')!.disabled).toBe(true);
+    }
+    fireEvent.click(row.querySelector('button')!);
+    await waitFor(() => expect(callsOf('read_file')).toHaveLength(1));
+    const payload = callsOf('read_file')[0]!;
+    expect(payload.path).toBe(`/ws/${contractPath}`);
+    expect(payload.offset).toBeNull();
+    expect(payload.limit).toBeNull();
+    // 链路只经既有读面：不触发生成命令
+    expect(callsOf('archi_api_generate')).toHaveLength(0);
+  });
+});
+
+describe('停摆 / 空模型 / 报告缺席三态的左栏', () => {
+  it('应在结构错停摆态与空模型分支挂载零契约视图（零 archi_api_check）', async () => {
+    serveWithApiCheck(
+      {
+        elements: [],
+        relations: [],
+        diagnostics: [
+          {
+            kind: 'cycle',
+            message: '依赖成环',
+            file: '.dev-team/architecture/models/01-core.toml',
+            line: 4,
+            column: 1,
+          },
+        ],
+      },
+      driftReport(),
+    );
+    const first = render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-error-panel')).toBeTruthy());
+    expect(screen.queryByTestId('archi-contract-panel')).toBeNull();
+    expect(screen.queryByTestId('archi-tree-mode')).toBeNull();
+    expect(callsOf('archi_api_check')).toHaveLength(0);
+    first.unmount();
+
+    serveWithApiCheck({ elements: [], relations: [], diagnostics: [] }, driftReport());
+    render(<ArchitectureCanvas root={'/ws'} mode="full" />);
+    await waitFor(() => expect(screen.getByTestId('archi-canvas-empty')).toBeTruthy());
+    expect(screen.queryByTestId('archi-contract-panel')).toBeNull();
+    expect(callsOf('archi_api_check')).toHaveLength(0);
+  });
+
+  it('应在报告缺席时面板判据区为零且与漂移错误行内提示并存', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'archi_graph') return Promise.resolve(healthyGraph());
+      if (command === 'archi_drift') return Promise.reject(new Error('git 不可用'));
+      if (command === 'archi_module') return Promise.resolve(detailOf('App.Auth'));
+      if (command === 'archi_file_tree') return Promise.resolve(fileTree());
+      if (command === 'archi_api_check') return Promise.resolve(apiCheck());
+      return Promise.reject(new Error(`未预期命令: ${command}`));
+    });
+    render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
+    await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
+    switchToContract();
+    await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
+
+    const findingsAxis = screen.getByTestId('archi-contract-axis-findings');
+    expect(findingsAxis.textContent).toContain('判据（0）');
+    expect(within(findingsAxis).queryAllByTestId('archi-contract-chip')).toHaveLength(0);
+    expect(screen.getByTestId('archi-drift-error')).toBeTruthy();
   });
 });

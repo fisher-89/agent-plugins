@@ -84,12 +84,14 @@ fn 同一mode与tier连续两次调用同判且12格全覆盖() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 十项挂载逐工具三档等价于原三张按名常量表() {
+fn 十一项挂载逐工具三档等价于原三张按名常量表() {
     for mount in mount::registry() {
         let name = mount.definition.name.as_str();
         let expected = match name {
-            // 原 READONLY_TOOLS：三档全放
-            "read" | "grep" | "glob" | "ls" | "archi_module" | "archi_search" => [true, true, true],
+            // 原 READONLY_TOOLS：三档全放（`archi_api` 属 Read 档，三档恒放）
+            "read" | "grep" | "glob" | "ls" | "archi_module" | "archi_search" | "archi_api" => {
+                [true, true, true]
+            }
             // 原 WRITE_TOOLS（含 create_explore_note）
             "write" | "edit" | "create_explore_note" => [false, true, true],
             // 原 EXECUTE_TOOLS
@@ -159,7 +161,7 @@ fn 清单外工具名不在挂载清单内() {
 }
 
 #[test]
-fn 挂载清单内十项名字两两不同() {
+fn 挂载清单内十一项名字两两不同() {
     let names: Vec<&str> = mount::registry()
         .iter()
         .map(|mount| mount.definition.name.as_str())

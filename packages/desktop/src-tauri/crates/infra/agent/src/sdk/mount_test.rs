@@ -1,4 +1,4 @@
-//! `mount.rs`（工具挂载单源）的单元测试：十项静态清单 / 名字查表 / 非法名
+//! `mount.rs`（工具挂载单源）的单元测试：十一项静态清单 / 名字查表 / 非法名
 //! `Err` / `finish` 位置位铸造 / `lookup` 单点 / 夹具形态 / 类型派生面。
 //!
 //! 不 mock：`registry()` / `definitions` / `lookup` 全为进程内纯函数
@@ -10,11 +10,11 @@ use agent::{AskMode, FinishSpec, SessionInjections};
 
 use crate::sdk::mount::{
     builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
-    ToolTier, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
+    ToolTier, ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
 };
 
-/// 十项名字的期望序（前七恰七内建）。
-const EXPECTED_NAMES: [&str; 10] = [
+/// 十一项名字的期望序（前七恰七内建）。
+const EXPECTED_NAMES: [&str; 11] = [
     "read",
     "grep",
     "glob",
@@ -25,6 +25,7 @@ const EXPECTED_NAMES: [&str; 10] = [
     "create_explore_note",
     "archi_module",
     "archi_search",
+    "archi_api",
 ];
 
 /// 名字投影（顺序断言面）。
@@ -51,19 +52,19 @@ fn source_of(relative: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：registry 十项
+// 正向：registry 十一项
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registry十项名字唯一且有序且前七恰内建() {
+fn registry十一项名字唯一且有序且前七恰内建() {
     let names = names(registry());
-    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十项名字逐值有序");
-    assert_eq!(names.len(), 10, "十项");
+    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十一项名字逐值有序");
+    assert_eq!(names.len(), 11, "十一项");
 
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 10, "无重复名: {names:?}");
+    assert_eq!(unique.len(), 11, "无重复名: {names:?}");
 
     assert_eq!(
         registry()[..7]
@@ -78,7 +79,7 @@ fn registry十项名字唯一且有序且前七恰内建() {
 
 #[test]
 fn registry的tier归属逐项对应改造前三张常量表() {
-    let expected: [(&str, ToolTier); 10] = [
+    let expected: [(&str, ToolTier); 11] = [
         ("read", ToolTier::Read),
         ("grep", ToolTier::Read),
         ("glob", ToolTier::Read),
@@ -89,6 +90,7 @@ fn registry的tier归属逐项对应改造前三张常量表() {
         ("create_explore_note", ToolTier::Write),
         ("archi_module", ToolTier::Read),
         ("archi_search", ToolTier::Read),
+        ("archi_api", ToolTier::Read),
     ];
     for (name, tier) in expected {
         let mount = registry()
@@ -97,9 +99,9 @@ fn registry的tier归属逐项对应改造前三张常量表() {
             .unwrap_or_else(|| panic!("挂载清单应含 {name}"));
         assert_eq!(mount.tier, tier, "工具 {name} 的 tier 归属");
     }
-    // 计数面：Read 六 / Write 三 / Execute 一 / Protocol 零
+    // 计数面：Read 七 / Write 三 / Execute 一 / Protocol 零
     let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
-    assert_eq!(count(ToolTier::Read), 6, "Read 六项");
+    assert_eq!(count(ToolTier::Read), 7, "Read 七项");
     assert_eq!(count(ToolTier::Write), 3, "Write 三项");
     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
     assert_eq!(
@@ -126,7 +128,7 @@ fn registry的exec归属且finish_step不入静态表() {
             .exec,
         ToolExec::ExploreNote
     );
-    for name in [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL] {
+    for name in [ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, ARCHI_API_TOOL] {
         assert_eq!(
             registry()
                 .iter()
@@ -145,7 +147,7 @@ fn registry的exec归属且finish_step不入静态表() {
 }
 
 #[test]
-fn registry定义面完整十项定义形状与非空() {
+fn registry定义面完整十一项定义形状与非空() {
     for mount in registry() {
         let definition = &mount.definition;
         assert!(
@@ -422,7 +424,7 @@ fn definitions非法名与finish并存时err优先() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn lookup十项命中四类未命中() {
+fn lookup十一项命中四类未命中() {
     for name in EXPECTED_NAMES {
         let definition = lookup(name).unwrap_or_else(|| panic!("{name} 应命中"));
         assert_eq!(definition.name, name, "命中项名与入参相等");
@@ -768,7 +770,7 @@ fn definitions的ask位缺席时零追加() {
 /// ask 追加与 `tools` 形态无关（唯一依赖 = ask 位）。
 #[test]
 fn definitions的tools三形态与ask两位组合() {
-    let archi_names = ["read", "archi_module", "archi_search"];
+    let archi_names = ["read", "archi_module", "archi_search", "archi_api"];
     let tool_shapes: [Option<Vec<String>>; 3] = [
         None,
         Some(Vec::new()),
@@ -925,6 +927,123 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
     );
     assert!(
         !TOOL_NAMES.contains(&"AskUserQuestion"),
-        "AskUserQuestion 不在十项静态清单（按位追加的基线工具）"
+        "AskUserQuestion 不在十一项静态清单（按位追加的基线工具）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_api` 只读工具的档位 / 路由 / 入参 schema
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-15 / D14 / spec「只读档位归属」）：`lookup("archi_api")` 命中且 `tier == Read`
+/// / `exec == Archi`；执行体 `ToolExec::Archi` 的成员恰三工具，分发臂在 loop 侧单处。
+#[test]
+fn archi_api的档位与执行路由() {
+    let mount = registry()
+        .iter()
+        .find(|mount| mount.definition.name == ARCHI_API_TOOL)
+        .expect("archi_api 在静态表内");
+    assert_eq!(mount.tier, ToolTier::Read, "只读档位");
+    assert_eq!(mount.exec, ToolExec::Archi, "执行路由 Archi");
+    assert_eq!(ARCHI_API_TOOL, "archi_api", "常量值");
+
+    // 执行路由面：恰三工具走 `ToolExec::Archi`（名字清单即三常量），
+    // 分发臂在 loop 侧按执行体路由（零按名分支）
+    let archi_mounts: Vec<&str> = registry()
+        .iter()
+        .filter(|mount| mount.exec == ToolExec::Archi)
+        .map(|mount| mount.definition.name.as_str())
+        .collect();
+    assert_eq!(
+        archi_mounts,
+        vec![ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, ARCHI_API_TOOL],
+        "`ToolExec::Archi` 的成员恰三工具（序即静态表序）"
+    );
+
+    let loop_source = source_of("src/sdk/loop.rs");
+    assert_eq!(
+        loop_source.matches("ToolExec::Archi =>").count(),
+        1,
+        "分发臂恰一处（零第二份按名分支）"
+    );
+    assert!(
+        loop_source.contains("ctx.execute(&name, &input)"),
+        "分发臂按执行体路由（零按工具名 match）"
+    );
+}
+
+/// 正向（AC-15）：`policy::allows` 对 `Read` 档在 `AgentPermissionMode` 全部三档恒放行
+/// （`archi_api` 属 Read 档，故零放行名单变化）。
+#[test]
+fn archi_api三档恒放行() {
+    use agent::AgentPermissionMode;
+
+    use crate::sdk::policy;
+
+    // `AgentPermissionMode` 封闭三值：Default 拒绝写 / 执行，其余两档全放行；Read 三档恒放行
+    for mode in [
+        AgentPermissionMode::Default,
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ] {
+        assert!(
+            policy::allows(mode, ToolTier::Read),
+            "{mode:?} 档对 Read 恒放行"
+        );
+    }
+}
+
+/// 正向（AC-15 / D13）：`archi_api` 的入参 schema 形态——`action` 为封闭二值
+/// （`check` / `bootstrap`）、`element` 可选字符串、`required == ["action"]`，描述里含
+/// 「生成物过期用既有命令重生成、MUST NOT 手改生成物」要点。
+#[test]
+fn archi_api入参schema形态() {
+    let definition = lookup(ARCHI_API_TOOL).expect("定义在案");
+    let parameters = &definition.parameters;
+    assert_eq!(parameters["type"], "object", "对象形态");
+    assert_eq!(
+        parameters["properties"]["action"]["enum"],
+        serde_json::json!(["check", "bootstrap"]),
+        "action 为封闭二值"
+    );
+    assert_eq!(
+        parameters["properties"]["element"]["type"], "string",
+        "element 为字符串（可选）"
+    );
+    assert_eq!(
+        parameters["required"],
+        serde_json::json!(["action"]),
+        "仅 action 必填"
+    );
+    for piece in ["MUST NOT", "手改生成物", "重生成"] {
+        assert!(
+            definition.description.contains(piece),
+            "描述含要点 `{piece}`：{}",
+            definition.description
+        );
+    }
+}
+
+/// 异常（AC-15 / 回归登记）：未知名 `"archi_write"` / 尾空格 / 空串 → `lookup` 均 `None`
+/// （成员校验 fail-closed）；既有十项全 `Some`。
+#[test]
+fn archi_api非法名与既有查表语义() {
+    for miss in ["archi_write", "archi_api ", "", "ARCHI_API"] {
+        assert!(lookup(miss).is_none(), "非法名 {miss:?} → None");
+    }
+    for name in [
+        "read",
+        "grep",
+        "glob",
+        "ls",
+        "write",
+        "edit",
+        "bash",
+        "create_explore_note",
+        "archi_module",
+        "archi_search",
+        ARCHI_API_TOOL,
+    ] {
+        assert!(lookup(name).is_some(), "在册名 {name} 应 Some");
+    }
 }

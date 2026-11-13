@@ -180,6 +180,7 @@ function detailIpc(command: string, args: Record<string, unknown> = {}): Promise
       children: [],
       docs: [],
       warnings: [],
+      api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
     });
   }
   if (command === 'archi_set_gate') return Promise.resolve(null);

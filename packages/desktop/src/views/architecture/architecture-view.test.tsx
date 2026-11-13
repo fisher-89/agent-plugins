@@ -166,6 +166,7 @@ beforeEach(() => {
         children: [],
         docs: [],
         warnings: [],
+        api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
       });
     }
     if (command === 'session_detail') return Promise.resolve(sessionDetail);

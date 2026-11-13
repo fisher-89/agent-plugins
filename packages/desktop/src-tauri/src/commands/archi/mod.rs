@@ -1,7 +1,8 @@
-//! 架构命令轨道：六命令薄包装（`archi_graph` / `archi_module` /
-//! `archi_change_summary` / `archi_set_gate` / `archi_drift` / `archi_file_tree`）+
-//! 六个 `*_inner` 领域组装纯函数（`*_inner` app 层微形态先例，离 Tauri 运行时可测）。
-//! 文档正文读取归 `commands::fs::read_file`（通用读面，不再有架构专用读取命令）。
+//! 架构命令轨道：八命令薄包装（`archi_graph` / `archi_module` /
+//! `archi_change_summary` / `archi_set_gate` / `archi_drift` / `archi_file_tree` /
+//! `archi_api_check` / `archi_api_generate`）+ 八个 `*_inner` 领域组装纯函数
+//! （`*_inner` app 层微形态先例，离 Tauri 运行时可测）。文档正文读取归
+//! `commands::fs::read_file`（通用读面，不再有架构专用读取命令）。
 //!
 //! `archi_drift` 是**架构漂移检查**的命令面（两模式）：全量模式直接调判定、增量
 //! 模式经 vcs 缝取变更集后同源判定；判定规则全在 `archi::drift`——命令层零判定
@@ -10,19 +11,24 @@
 //!
 //! 三件事纪律沿 `commands/config` 模板：参数转换 → 调用 → 错误映射。投影、诊断、
 //! diff 与待落盘产物全在 `archi`——命令层零领域规则（不建图、不解析、不推导）。
-//! 唯一写命令是 `archi_set_gate`（写前校验在 `archi::edit::plan_set_gate`，落盘
-//! 在本文件的原子写回）；其余五条 MUST NOT 写盘。
+//! 写命令两条（`archi_set_gate` / `archi_api_generate`）：前者的写前校验在
+//! `archi::edit::plan_set_gate` 且落盘为本文件的原子写回，后者的写盘单点在
+//! `archi_runtime::api_artifacts::write_artifacts`（只增只改、从不删）；其余六条
+//! MUST NOT 写盘。
 //!
 //! 空白 / 不可读 root 一律 `Err`（画布无 root 画不出东西；静默空图会与「模型为
 //! 空」的冷启动合法态不可辨）。
 //!
-//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 六命令契约）。
+//! 能力 spec：`specs/desktop-archi-model/spec.md`（IPC 八命令契约）。
 
 use std::fs;
 use std::path::Path;
 
 use archi::drift::{ArchiDriftMode, ArchiDriftReport, CheckInput};
-use archi::dto::{self, ArchiChangeSummary, ArchiFileTree, ArchiGraph, ArchiModuleDetail};
+use archi::dto::{
+    self, ArchiApiCheck, ArchiApiWriteOutcome, ArchiChangeSummary, ArchiFileTree, ArchiGraph,
+    ArchiModuleDetail,
+};
 use archi::GateTier;
 use foundation::cancel::CancelFlag;
 use orchestration::port::ArchiveVcsPort;
@@ -203,4 +209,40 @@ pub fn archi_file_tree(root: String) -> Result<ArchiFileTree, String> {
 pub fn archi_file_tree_inner(root: &Path) -> Result<ArchiFileTree, String> {
     check_root(root)?;
     archi::tree::file_tree(root)
+}
+
+/// 契约生成物新鲜度的检查（零写盘）。
+#[tauri::command]
+#[specta::specta]
+pub fn archi_api_check(root: String) -> Result<ArchiApiCheck, String> {
+    archi_api_check_inner(Path::new(&root))
+}
+
+/// [`archi_api_check`] 的领域组装纯函数：root 检查 → `archi::api::artifact_check`
+/// （三类差异 + `enabled` + `meta` 的投影单点在 `archi`）。
+///
+/// 零写盘、零 spawn、零 watch；`enabled = false` 仍 `Ok`（应生成集只含 `INDEX.toml`，
+/// `missing` 照实报）；结构错 / 契约资产非法 → `Err`（文案透传 `ApiError::message()`）。
+pub fn archi_api_check_inner(root: &Path) -> Result<ArchiApiCheck, String> {
+    check_root(root)?;
+    archi::api::artifact_check(root).map_err(|error| error.message())
+}
+
+/// 契约生成物写盘（只增只改、从不删）。
+#[tauri::command]
+#[specta::specta]
+pub fn archi_api_generate(root: String) -> Result<ArchiApiWriteOutcome, String> {
+    archi_api_generate_inner(Path::new(&root))
+}
+
+/// [`archi_api_generate`] 的领域组装纯函数：root 检查 → 应生成集
+/// （`archi::workspace_render`）→ 写盘单点
+/// （`archi_runtime::api_artifacts::write_artifacts`）。
+///
+/// 结构错即零写盘（应生成集不可得）；孤儿生成物只报告不删；写盘**非原子**——单份
+/// 失败即 `Err` 且已写部分不回滚（文案如实，不称「全或无」）。
+pub fn archi_api_generate_inner(root: &Path) -> Result<ArchiApiWriteOutcome, String> {
+    check_root(root)?;
+    let files = archi::workspace_render(root).map_err(|error| error.message())?;
+    archi_runtime::api_artifacts::write_artifacts(root, &files)
 }

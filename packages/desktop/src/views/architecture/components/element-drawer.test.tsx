@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -88,6 +91,8 @@ beforeEach(() => {
         children: [],
         docs: docsFixture(),
         warnings: [],
+        // 契约状态投影：既有用例不涉契约段，取「无契约」事实态（契约段呈一行空态）
+        api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
       });
     }
     if (command === 'read_file') {
@@ -120,6 +125,7 @@ describe('抽屉概览', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -141,6 +147,7 @@ describe('抽屉概览', () => {
         mode="full"
         element={element({ modelLine: 0 })}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -157,6 +164,7 @@ describe('抽屉概览', () => {
         mode="full"
         element={element({ path: [], summary: null })}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -173,6 +181,7 @@ describe('文档关联段', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -197,6 +206,7 @@ describe('文档关联段', () => {
         children: [],
         docs: [],
         warnings: [],
+        api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
       }),
     );
     render(
@@ -205,6 +215,7 @@ describe('文档关联段', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -220,6 +231,7 @@ describe('文档关联段', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -254,6 +266,8 @@ describe('文档关联段', () => {
           children: [],
           docs: docsFixture(),
           warnings: [],
+          // 契约状态投影：本组用例不涉契约段，取「无契约」事实态（契约段呈一行空态）
+          api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
       return Promise.reject(new Error('路径不在模块文档关联集内：a.md'));
@@ -264,6 +278,7 @@ describe('文档关联段', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -286,6 +301,7 @@ describe('incremental 改档', () => {
         mode="incremental"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={onChanged}
       />,
     );
@@ -327,6 +343,7 @@ describe('incremental 改档', () => {
           children: [],
           docs: [],
           warnings: [],
+          api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
       return Promise.reject(new Error('改档渲染自证失败：回读档位为 off'));
@@ -337,6 +354,7 @@ describe('incremental 改档', () => {
         mode="incremental"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={onChanged}
       />,
     );
@@ -358,6 +376,7 @@ describe('full 只读与本期边界', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -377,6 +396,7 @@ describe('full 只读与本期边界', () => {
         mode="full"
         element={element()}
         relations={[relation()]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -394,6 +414,7 @@ describe('full 只读与本期边界', () => {
         mode="full"
         element={element()}
         relations={[relation({ mark: 'exempt', reason: '平台层特例' })]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -414,6 +435,8 @@ describe('抽屉取数态与 gate 编辑边界', () => {
           children: [],
           docs: docsFixture(),
           warnings: [],
+          // 契约状态投影：本组用例不涉契约段，取「无契约」事实态（契约段呈一行空态）
+          api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
       return new Promise<string>((resolve) => {
@@ -426,6 +449,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -454,6 +478,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
           children: [],
           docs: [],
           warnings: [],
+          api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
       return new Promise<null>((resolve) => {
@@ -466,6 +491,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
         mode="incremental"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -493,6 +519,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
         mode="incremental"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -512,6 +539,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
         mode="incremental"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -527,6 +555,7 @@ describe('抽屉取数态与 gate 编辑边界', () => {
         mode="incremental"
         element={element({ gate: 'strict' })}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -558,6 +587,7 @@ describe('文档条目交互', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -578,6 +608,7 @@ describe('文档条目交互', () => {
         mode="full"
         element={element()}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -609,6 +640,7 @@ describe('豁免段', () => {
           relation({ from: 'App.Order', to: 'App.Pay', mark: 'exempt', reason: '无关边' }),
           relation({ from: 'App.Auth', to: 'App.Order', mark: 'unfulfilled', reason: null }),
         ]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -630,6 +662,7 @@ describe('豁免段', () => {
           relation({ from: 'App.Order', to: 'App.Pay', mark: 'exempt', reason: '无关边' }),
           relation({ from: 'App.Auth', to: 'App.Order', mark: 'none', reason: null }),
         ]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -650,6 +683,7 @@ describe('取数异常', () => {
         mode="full"
         element={element({ fqn: 'App.Missing' })}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -665,6 +699,7 @@ describe('取数异常', () => {
         mode="full"
         element={null}
         relations={[]}
+        findings={[]}
         onChanged={vi.fn()}
       />,
     );
@@ -673,5 +708,248 @@ describe('取数异常', () => {
     });
     expect(callsOf('archi_module')).toHaveLength(0);
     expect(screen.getByTestId('archi-drawer').textContent).toContain('未选中元素');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 本变更：契约段（`api.status` + 三路径行 + 本元素判据 + 空态）
+// ---------------------------------------------------------------------------
+
+/** 契约段 detail 覆盖（`api` 投影可指定；其余字段取既有缺省）。 */
+function serveModuleWithApi(api: Record<string, unknown>): void {
+  invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+    if (command === 'archi_module') {
+      const fqn = typeof params?.element === 'string' ? params.element : '';
+      return Promise.resolve({
+        element: element({ fqn }),
+        dependsOn: [],
+        dependedBy: [],
+        children: [],
+        docs: docsFixture(),
+        warnings: [],
+        api,
+      });
+    }
+    if (command === 'read_file') {
+      const content = '# 令牌收口\n';
+      return Promise.resolve({
+        content,
+        stat: { size: content.length, modifiedMs: null, isFile: true, isDir: false },
+        offset: 0,
+        nextOffset: content.length,
+        truncated: false,
+        encoding: 'utf8',
+      });
+    }
+    if (command === 'archi_set_gate') return Promise.resolve(null);
+    return Promise.reject(new Error(`未预期命令: ${command}`));
+  });
+}
+
+/** 判据夹具（六字段全给）。 */
+function finding(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: 'apiSignatureMismatch',
+    category: 'signature',
+    element: 'App.Auth',
+    target: 'login',
+    message: '契约签名与代码签名不一致',
+    occurrences: [],
+    ...overrides,
+  };
+}
+
+/** 渲染抽屉（契约段语料由 `api` 指定）。 */
+function renderWith(findings: Record<string, unknown>[], api: Record<string, unknown>) {
+  serveModuleWithApi(api);
+  render(
+    <ElementDrawer
+      root={'/ws'}
+      mode="full"
+      element={element()}
+      relations={[]}
+      findings={findings as never}
+      onChanged={vi.fn()}
+    />,
+  );
+}
+
+const DECLARED_API = {
+  status: 'declared',
+  contractPath: '.dev-team/architecture/api/Core/App.Auth.md',
+  schemaPath: '.dev-team/architecture/api/Core/App.Auth.schema.json',
+  generatedPath: 'src/auth.i.ts',
+};
+
+describe('抽屉契约段', () => {
+  it('应在概览与文档之间插入契约段（段标题为 h3）', async () => {
+    renderWith([], DECLARED_API);
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getAllByRole('heading', { level: 3 }).length).toBeGreaterThan(0),
+    );
+
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((node) => node.textContent);
+    expect(headings).toContain('契约');
+    const drawer = screen.getByTestId('archi-drawer');
+    const text = drawer.textContent ?? '';
+    const overviewIndex = text.indexOf('App.Auth');
+    const contractIndex = text.indexOf('契约');
+    const docsIndex = text.indexOf('文档');
+    expect(overviewIndex).toBeLessThan(contractIndex);
+    expect(contractIndex).toBeLessThan(docsIndex);
+  });
+
+  it('应让 declared 三路径行各自可打开（read_file 载荷 = root + 该 repo 相对串）', async () => {
+    const paths = [DECLARED_API.contractPath, DECLARED_API.schemaPath, DECLARED_API.generatedPath];
+    for (const path of paths) {
+      cleanup();
+      invokeMock.mockReset();
+      renderWith([], DECLARED_API);
+      await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+      await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
+
+      const row = screen
+        .queryAllByTestId('archi-contract-path')
+        .find((candidate) => candidate.textContent?.includes(path))!;
+      expect(row.getAttribute('title')).toBe(path);
+      fireEvent.click(row.querySelector('button')!);
+      await waitFor(() => expect(callsOf('read_file')).toHaveLength(1));
+      const payload = callsOf('read_file')[0]!;
+      expect(payload.path).toBe(`/ws/${path}`);
+      expect(payload.offset).toBeNull();
+      expect(payload.limit).toBeNull();
+    }
+  });
+
+  it('应对路径为 null 的槽位渲禁用行（行在场、「查看」不可点）', async () => {
+    renderWith([], { ...DECLARED_API, schemaPath: null });
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
+
+    const rows = screen.queryAllByTestId('archi-contract-path');
+    const labels = rows.map((row) => row.querySelector('span')?.textContent);
+    expect(labels).toEqual(['契约', 'schema', '生成物']);
+    // 缺席路径：行仍在场（不吞行），但「查看」禁用、点击零 read_file
+    const nullRow = rows[1]!;
+    expect(nullRow.textContent).toContain('（该路径未生成）');
+    expect(nullRow.getAttribute('title')).toBeNull();
+    const disabledView = nullRow.querySelector('button')!;
+    expect(disabledView.disabled).toBe(true);
+    fireEvent.click(disabledView);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(callsOf('read_file')).toHaveLength(0);
+    // 另两行照常可点（禁用只作用于缺席槽位）
+    for (const row of [rows[0]!, rows[2]!]) {
+      expect(row.querySelector('button')!.disabled).toBe(false);
+    }
+  });
+
+  it('应只列本元素判据（element === fqn 严格过滤）', async () => {
+    renderWith(
+      [
+        finding({ element: 'App.Auth', kind: 'apiSignatureMismatch' }),
+        finding({ element: 'App.Auth', kind: 'apiMissing', message: '实现缺失' }),
+        finding({ element: 'App.Billing', kind: 'apiUnexpected', message: '邻元素判据' }),
+        // 脏归属值：空串与 emoji 都不得被 `===` 判据误配到本元素（`App.Auth`）
+        finding({ element: '', kind: 'apiMissing', message: '空归属判据' }),
+        finding({ element: 'App.Aut🚀', kind: 'apiMissing', message: 'emoji判据' }),
+      ],
+      DECLARED_API,
+    );
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    const drawer = screen.getByTestId('archi-drawer');
+    await waitFor(() => expect(drawer.textContent).toContain('实现缺失'));
+
+    expect(drawer.textContent).toContain('契约签名与代码签名不一致');
+    for (const foreign of ['邻元素判据', '空归属判据', 'emoji判据']) {
+      expect(drawer.textContent).not.toContain(foreign);
+    }
+  });
+
+  it('应在本元素零判据时渲「本元素无漂移」', async () => {
+    renderWith([finding({ element: 'App.Billing' })], DECLARED_API);
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-contract-drawer-empty').textContent).toContain(
+        '本元素无漂移',
+      ),
+    );
+  });
+
+  it('应在 api.status = none 时只渲一行空态且三路径行均不渲', async () => {
+    renderWith([], {
+      status: 'none',
+      contractPath: null,
+      schemaPath: null,
+      generatedPath: null,
+    });
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-contract-drawer-empty').textContent).toContain('无契约'),
+    );
+    expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(0);
+  });
+
+  it('应零新增 invoke（只有 archi_module 与按需 read_file）', async () => {
+    renderWith([finding()], DECLARED_API);
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(3));
+    const commands = invokeMock.mock.calls.map(([name]) => name as string);
+    expect(commands).toEqual(['archi_module']);
+    expect(commands).not.toContain('archi_api_check');
+    expect(commands).not.toContain('archi_api_generate');
+    expect(commands).not.toContain('archi_drift');
+  });
+
+  it('应全量列出超大判据列表（1000 条不裁剪）', async () => {
+    const many = Array.from({ length: 1000 }, (_, index) =>
+      finding({ element: 'App.Auth', kind: 'apiMissing', message: `判据 ${index}` }),
+    );
+    renderWith(many, DECLARED_API);
+    await waitFor(() => expect(callsOf('archi_module')).toHaveLength(1));
+    const drawer = screen.getByTestId('archi-drawer');
+    await waitFor(() => expect(drawer.textContent).toContain('判据 999'));
+    expect(drawer.querySelectorAll('[data-kind]').length).toBe(1000);
+  });
+
+  it('应在 root = null 时不渲契约段且零 archi_module 取数', async () => {
+    serveModuleWithApi(DECLARED_API);
+    render(
+      <ElementDrawer
+        root={null}
+        mode="full"
+        element={element()}
+        relations={[]}
+        findings={[]}
+        onChanged={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(callsOf('archi_module')).toHaveLength(0);
+    expect(screen.queryByTestId('archi-contract-drawer-empty')).toBeNull();
+    expect(screen.queryAllByTestId('archi-contract-path')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 零新增 invoke（源码自证：契约段数据只来自既有 props）
+// ---------------------------------------------------------------------------
+
+describe('抽屉契约段：零新增 invoke（源码自证）', () => {
+  it('应零引用契约面两命令与漂移命令（数据只经既有 archi_module 与 read_file）', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/views/architecture/components/element-drawer.tsx'),
+      'utf8',
+    );
+    for (const command of ['archiApiCheck', 'archiApiGenerate', 'archiDrift']) {
+      expect(source.includes(command), `element-drawer.tsx 零 ${command} 引用`).toBe(false);
+    }
+    // 数据来源仍是既有模块详情 hook（零第二份取数）
+    expect(source).toContain('useArchiModule');
   });
 });

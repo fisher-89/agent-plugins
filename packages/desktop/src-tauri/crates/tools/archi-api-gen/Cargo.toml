@@ -1,17 +1,20 @@
+# 模块 API 契约生成器（CLI 编排面）：`generate` 写四类生成物 / `--check` 读盘比对
+# 零写入 / `bootstrap` 只出 stdout。判定（契约解析 / `$defs` 规则 / 十条判据 / 渲染 /
+# 比对）全部在 `crates/core/archi`；写盘实现已上移 `crates/infra/archi`——本 crate
+# MUST NOT 出现 `fs::write` / `create_dir_all` / `File::create`，只做 CLI 入口与三子
+# 命令编排。
+#
+# 零依赖面：零 Tauri / 零 store / 零 config / 零 workflow / 零壳 / 零子进程（无
+# `std::process`）；MUST NOT **直接**依赖 `orchestration`（`archi-runtime` 的传递边
+# 不可避免且在案留痕）。不被 app 依赖（避免 tauri build 拖带工具 bin）。
 [package]
 name = "archi-api-gen"
 version = "0.1.0"
 edition = "2021"
 
-# 模块 API 契约生成器（CLI 唯一写盘面）：`generate` 写四类生成物 / `--check` 读盘比对
-# 零写入 / `bootstrap` 只出 stdout。判定（契约解析 / `$defs` 规则 / 十条判据 / 渲染出
-# 字符串）全部在 `crates/core/archi`，本 crate 零判定逻辑——它存在的唯一理由是
-# 「生成物要写盘」与「工具需要 CLI 入口」。
-#
-# 零依赖面：零 Tauri / 零 store / 零 config / 零 orchestration / 零 workflow / 零
-# infra crate / 零壳 / 零子进程（无 `std::process`）；只经 `cargo run -p archi-api-gen`
-# 驱动，不被 app 依赖（避免 tauri build 拖带工具 bin）。
 [dependencies]
 archi = { workspace = true }
 foundation = { workspace = true }
 serde_json = { workspace = true }
+# 唯一用途：调生成物写盘单点 write_artifacts（写盘实现不在本 crate）
+archi-runtime = { workspace = true }

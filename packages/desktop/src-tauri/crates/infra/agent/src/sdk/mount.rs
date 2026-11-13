@@ -37,11 +37,16 @@ pub(crate) const ARCHI_MODULE_TOOL: &str = "archi_module";
 /// `archi_search` 专用只读工具名（发现：还不知道功能归谁管）。执行体同上。
 pub(crate) const ARCHI_SEARCH_TOOL: &str = "archi_search";
 
+/// `archi_api` 专用只读工具名（契约面自检：`check` 两轴 / `bootstrap` 草稿）。执行体
+/// 同上；**只读零写盘**——生成物写盘单点对 agent 面不可达（`archi-runtime` 不被
+/// `agent-runtime` 依赖），重生成仍由会话经既有 `bash` 命令完成。
+pub(crate) const ARCHI_API_TOOL: &str = "archi_api";
+
 /// 挂载项的准入档：`Protocol` 与 `Read` 三档恒放行，`Write` / `Execute` 需非
 /// Default 档（与改造前三张按名常量表逐格等价）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolTier {
-    /// 只读面（read / grep / glob / ls / archi_module / archi_search）
+    /// 只读面（read / grep / glob / ls / archi_module / archi_search / archi_api）
     Read,
     /// 写面（write / edit / create_explore_note）
     Write,
@@ -58,7 +63,7 @@ pub(crate) enum ToolExec {
     Pure,
     /// `create_explore_note`：`LoopTurn.explore_note` 上下文
     ExploreNote,
-    /// 两个 archi 只读工具：`LoopTurn.archi` 上下文
+    /// 三个 archi 只读工具：`LoopTurn.archi` 上下文
     Archi,
     /// 收口工具：编排侧校验 + 本步收口（`orchestration::finish`）
     FinishStep(agent::FinishSpec),
@@ -79,16 +84,16 @@ pub(crate) struct ToolMount {
 /// 构造）。
 static REGISTRY: OnceLock<Vec<ToolMount>> = OnceLock::new();
 
-/// 十项静态挂载清单（唯一工具事实源）。**前七项必须恰是七内建**——`tools: None`
+/// 十一项静态挂载清单（唯一工具事实源）。**前七项必须恰是七内建**——`tools: None`
 /// 的语义载体（[`definitions`] 直接取前七项）。
 pub(crate) fn registry() -> &'static [ToolMount] {
     REGISTRY.get_or_init(build_registry)
 }
 
-/// 十个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
-/// `create_explore_note`（Write / `ExploreNote`）→ 两 archi 只读（Read / `Archi`）。
+/// 十一个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
+/// `create_explore_note`（Write / `ExploreNote`）→ 三 archi 只读（Read / `Archi`）。
 fn build_registry() -> Vec<ToolMount> {
-    let mut mounts: Vec<ToolMount> = Vec::with_capacity(10);
+    let mut mounts: Vec<ToolMount> = Vec::with_capacity(11);
     for name in TOOL_NAMES {
         mounts.push(ToolMount {
             definition: generic_definition(name),
@@ -112,6 +117,11 @@ fn build_registry() -> Vec<ToolMount> {
     });
     mounts.push(ToolMount {
         definition: archi_search_definition(),
+        tier: ToolTier::Read,
+        exec: ToolExec::Archi,
+    });
+    mounts.push(ToolMount {
+        definition: archi_api_definition(),
         tier: ToolTier::Read,
         exec: ToolExec::Archi,
     });
@@ -221,6 +231,30 @@ fn archi_search_definition() -> ToolDefinition {
                 "scope": { "type": "string", "enum": ["elements", "docs", "all"], "description": "检索范围（缺省 all）" }
             },
             "required": ["query"]
+        }),
+    }
+}
+
+/// `archi_api` 定义（契约面自检：`check` 两轴 / `bootstrap` 草稿；零写盘）。
+fn archi_api_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ARCHI_API_TOOL.to_owned(),
+        description: concat!(
+            "查询模块 API 契约面的两轴事实（自检）。`check` 返回生成物新鲜度（三类差异：",
+            "内容不符 / 应删未删 / 应生成未生成）与契约判据摘要（按 category 计数 + 逐条 ",
+            "kind / element / message）；`bootstrap` 按元素 FQN 输出契约 md 草稿（只出 ",
+            "stdout 语义、零写盘）。模型结构错时返回诊断清单（先修模型）。生成物过期用既有",
+            "命令重生成（pnpm api:export / cargo run -p archi-api-gen -- generate），MUST NOT ",
+            "手改生成物"
+        )
+        .to_owned(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": { "type": "string", "enum": ["check", "bootstrap"], "description": "动作（封闭二值）：check 查两轴 / bootstrap 出草稿" },
+                "element": { "type": "string", "description": "元素 FQN（bootstrap 必填，如 App.Auth）" }
+            },
+            "required": ["action"]
         }),
     }
 }

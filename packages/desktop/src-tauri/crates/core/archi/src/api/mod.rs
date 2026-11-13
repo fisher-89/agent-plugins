@@ -2,9 +2,10 @@
 //! 判定与装配层。
 //!
 //! **纯读盘、零写盘、零 spawn**（沿本 crate 既有纪律）：契约解析、`$defs` 规则、
-//! schema / 索引装配、声明抽取、判据求值与渲染全在这里；唯一写盘面是
-//! `crates/tools/archi-api-gen`（CLI 工具，「生成物要写盘」与「工具需要 CLI 入口」
-//! 是该边界的正当属性，MUST NOT 反向稀释本 crate 的零写盘纪律）。
+//! schema / 索引装配、声明抽取、判据求值、渲染与比对全在这里。生成物写盘单点在
+//! `crates/infra/archi::api_artifacts`（与报告落盘并列的第二处 dumb IO 面），CLI
+//! （`archi-api-gen`）与两条 IPC（检查 / 生成）两个驱动面同源；本 crate 零写盘
+//! 纪律 MUST NOT 反向稀释。
 //!
 //! **契约面启用条件（冷启动纪律）**：契约目录缺席或其中零份 `*.md` ⇒ 未启用，判据
 //! 返回空集且既有漂移语料逐字不变；目录一旦存在即**全部 `path` 非空元素**纳入判据，
@@ -15,19 +16,22 @@
 
 pub mod check;
 pub mod contract;
+pub mod diff;
 pub mod emit;
 pub mod extract;
 pub mod paths;
+pub mod render;
 pub mod schema;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::dto::{ApiStatus, ArchiApiRef, ArchiElement};
+use crate::drift::report::ArchiApiFinding;
+use crate::dto::{ApiStatus, ArchiApiCheck, ArchiApiMeta, ArchiApiRef, ArchiElement};
 
 // 出口面只留 `lib.rs` 的逐名 `pub use`（D60）：本文件只 `use` 自己消费的名字。
 use contract::Contract;
@@ -243,6 +247,76 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<crate::drift::report::ArchiApiFind
             .then_with(|| left.target.cmp(&right.target))
     });
     findings
+}
+
+/// 检查即生成预览（DTO 投影单点）：三类差异 + `enabled` + `meta()` 三面对照。
+///
+/// 命令层零投影——`archi_api_check` 只是本函数 + `check_root` + 错误映射；
+/// `enabled = false` 仍 `Ok`（应生成集只含 `INDEX.toml`，`missing` 照实报，面板据此
+/// 呈现冷启动态而非空面板）。
+pub fn artifact_check(root: &Path) -> Result<ArchiApiCheck, ApiError> {
+    let diff = diff::compare(root)?;
+    let meta = meta();
+    Ok(ArchiApiCheck {
+        enabled: enabled(root),
+        meta: ArchiApiMeta {
+            tool_version: meta.tool_version.to_owned(),
+            common_digest: meta.common_digest,
+        },
+        mismatched: diff.mismatched,
+        orphaned: diff.orphaned,
+        missing: diff.missing,
+    })
+}
+
+/// 契约判据装配单点：`enabled` 短路 → 装载契约 → 十条判据（稳定排序）。
+///
+/// [`crate::drift::check`] 与 agent 工具 `archi_api` 共用本函数，MUST NOT 出现第二份
+/// 「契约输入装配」（两份必然在契约资产非法时分叉）。错误映射由调用方按既有面处置
+/// （`drift` → `CheckError::Config`）。
+pub fn findings(root: &Path, elements: &[ArchiElement]) -> Result<Vec<ArchiApiFinding>, ApiError> {
+    if !enabled(root) {
+        return Ok(Vec::new());
+    }
+    let snapshot = load_contracts(root, elements)?;
+    Ok(check(ApiCheckInput {
+        root,
+        elements,
+        contracts: &snapshot.contracts,
+        schemas: &snapshot.schemas,
+        symbols: &snapshot.symbols,
+        enabled: true,
+    }))
+}
+
+/// `status` 纳管子集筛选单点：口径 = **契约即承诺**（`api = declared` 且契约 md 在案）。
+///
+/// 「契约文件在案」判据与 [`api_ref_of`] 同源（同一 [`paths::contract_path`] +
+/// `is_file`）——`drift` 侧 MUST NOT 自行判 `is_file`（纳管口径只有这一个落点）。
+/// `element = None` 的条目落选（无归属即无承诺可对）。
+pub fn gating_findings(
+    root: &Path,
+    elements: &[ArchiElement],
+    findings: &[ArchiApiFinding],
+) -> Vec<ArchiApiFinding> {
+    let gating: BTreeSet<&str> = elements
+        .iter()
+        .filter(|element| element.api == ApiStatus::Declared)
+        .filter(|element| {
+            paths::contract_path(root, &element.fqn).is_some_and(|path| path.is_file())
+        })
+        .map(|element| element.fqn.as_str())
+        .collect();
+    findings
+        .iter()
+        .filter(|finding| {
+            finding
+                .element
+                .as_deref()
+                .is_some_and(|element| gating.contains(element))
+        })
+        .cloned()
+        .collect()
 }
 
 /// 契约面启用判定：契约目录存在且**递归**含 ≥1 份 `*.md`（手写 walk，不跟随符号
@@ -880,8 +954,12 @@ mod check_test;
 #[cfg(test)]
 mod contract_test;
 #[cfg(test)]
+mod diff_test;
+#[cfg(test)]
 mod mod_test;
 #[cfg(test)]
 mod paths_test;
+#[cfg(test)]
+mod render_test;
 #[cfg(test)]
 mod schema_test;

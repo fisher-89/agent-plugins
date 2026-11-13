@@ -195,6 +195,7 @@ name = "archi-api-gen"
 version = "0.1.0"
 dependencies = [
  "archi",
+ "archi-runtime",
  "foundation",
  "serde_json",
 ]

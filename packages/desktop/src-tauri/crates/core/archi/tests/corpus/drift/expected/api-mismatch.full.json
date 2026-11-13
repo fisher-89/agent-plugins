@@ -1,11 +1,11 @@
 {
-  "version": 2,
+  "version": 3,
   "timestamp": "<timestamp>",
   "mode": "full",
   "root": "<root>",
   "change": "api-mismatch",
   "base": null,
-  "modelHash": "sha256:1e6c3ab7e3422289f51e086e0550a64ea24736e4a403be6e3ea9ab25efcce8b4",
+  "modelHash": "sha256:7af8905b89810087e2b2ed115107c066ec53b12fccb2acd4c062c4061e38af4b",
   "model": {
     "elements": 2,
     "relations": 0,
@@ -63,5 +63,5 @@
       ]
     }
   ],
-  "status": "clean"
+  "status": "warnings"
 }

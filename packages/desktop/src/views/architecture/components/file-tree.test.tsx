@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ArchiFileEntry } from '../../../types/generated/bindings';
-import { FileTree, TreeModeSwitch } from './file-tree';
+import { FileTree, TreeModeSwitch, type TreeMode } from './file-tree';
 
 /**
  * 左栏文件树渲染面单测（AC-4 / AC-11 / AC-12 / AC-13）：扁平条目 → 森林的
@@ -426,7 +426,7 @@ describe('FileTree 入参越签名与规模边界', () => {
 });
 
 describe('TreeModeSwitch 分段控件', () => {
-  it('应渲两钮并以 aria-pressed 表达选中态，点击各发一次 onChange', () => {
+  it('应渲三钮并以 aria-pressed 表达选中态，点击各发一次 onChange', () => {
     const onChange = vi.fn();
     render(<TreeModeSwitch mode="file" onChange={onChange} />);
 
@@ -434,19 +434,28 @@ describe('TreeModeSwitch 分段控件', () => {
     expect(group.getAttribute('role')).toBe('group');
     const fileButton = group.querySelector<HTMLElement>('[data-mode="file"]');
     const elementButton = group.querySelector<HTMLElement>('[data-mode="element"]');
+    const contractButton = group.querySelector<HTMLElement>('[data-mode="contract"]');
     expect(fileButton?.getAttribute('aria-pressed')).toBe('true');
     expect(elementButton?.getAttribute('aria-pressed')).toBe('false');
+    expect(contractButton?.getAttribute('aria-pressed')).toBe('false');
+    expect(fileButton?.textContent).toBe('文件');
+    expect(elementButton?.textContent).toBe('元素');
+    expect(contractButton?.textContent).toBe('契约');
 
     fireEvent.click(elementButton!);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenLastCalledWith('element');
 
-    fireEvent.click(fileButton!);
+    fireEvent.click(contractButton!);
     expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith('contract');
+
+    fireEvent.click(fileButton!);
+    expect(onChange).toHaveBeenCalledTimes(3);
     expect(onChange).toHaveBeenLastCalledWith('file');
   });
 
-  it('应在 mode 变化后翻转两钮选中态且零内部 state 回写', () => {
+  it('应在 mode 变化后翻转三钮选中态且零内部 state 回写', () => {
     const onChange = vi.fn();
     const { rerender } = render(<TreeModeSwitch mode="file" onChange={onChange} />);
     rerender(<TreeModeSwitch mode="element" onChange={onChange} />);
@@ -454,7 +463,38 @@ describe('TreeModeSwitch 分段控件', () => {
     const group = screen.getByTestId('archi-tree-mode');
     expect(group.querySelector('[data-mode="file"]')?.getAttribute('aria-pressed')).toBe('false');
     expect(group.querySelector('[data-mode="element"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(group.querySelector('[data-mode="contract"]')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+
+    rerender(<TreeModeSwitch mode="contract" onChange={onChange} />);
+    expect(group.querySelector('[data-mode="file"]')?.getAttribute('aria-pressed')).toBe('false');
+    expect(group.querySelector('[data-mode="element"]')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+    expect(group.querySelector('[data-mode="contract"]')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('应对越签名的 mode 脏值渲全未选中（不兜底成 file）', () => {
+    const onChange = vi.fn();
+    const dirtyModes = ['tree', '', undefined] as unknown as TreeMode[];
+    for (const dirty of dirtyModes) {
+      const view = render(<TreeModeSwitch mode={dirty} onChange={onChange} />);
+      for (const mode of ['file', 'element', 'contract']) {
+        expect(
+          view.container.querySelector(`[data-mode="${mode}"]`)?.getAttribute('aria-pressed'),
+          `mode = ${String(dirty)} 时 ${mode} 钮不得选中（不猜模式）`,
+        ).toBe('false');
+      }
+      const modes = Array.from(view.container.querySelectorAll('[data-mode]')).map((node) =>
+        node.getAttribute('data-mode'),
+      );
+      expect(modes).toEqual(['file', 'element', 'contract']);
+      cleanup();
+    }
   });
 
   it('应与同屏 FileTree 相互独立（切换不改树的展开态与 onFocus 计数）', () => {

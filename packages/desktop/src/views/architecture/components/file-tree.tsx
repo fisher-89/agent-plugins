@@ -20,8 +20,8 @@ const DEFAULT_EXPAND_SEGMENTS = 2;
 /** 每层级缩进宽度（px）。 */
 const INDENT_STEP = 16;
 
-/** 左栏树视图（分段控件的两值）。 */
-export type TreeMode = 'file' | 'element';
+/** 左栏树视图（分段控件的三值；缺省 `file`）。 */
+export type TreeMode = 'file' | 'element' | 'contract';
 
 export interface FileTreeProps {
   /** 后端扁平条目（`path` 字节序；层级由本件按 `path` 派生） */
@@ -334,11 +334,15 @@ export function FileTree({ entries, focused, onFocus }: FileTreeProps): React.JS
   );
 }
 
-/** 左栏视图分段控件（缺省「文件」）。 */
+/**
+ * 左栏视图分段控件（缺省「文件」；三视图 = 文件 / 元素 / 契约）。文件 / 元素两视图的
+ * 分段语义与联动逐字不变，契约视图的内容归 `ContractPanel`。
+ */
 export function TreeModeSwitch({ mode, onChange }: TreeModeSwitchProps): React.JSX.Element {
   const options: { mode: TreeMode; label: string }[] = [
     { mode: 'file', label: '文件' },
     { mode: 'element', label: '元素' },
+    { mode: 'contract', label: '契约' },
   ];
   return (
     <div className="mb-1.5 flex shrink-0 gap-1" data-testid="archi-tree-mode" role="group">

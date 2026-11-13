@@ -840,3 +840,58 @@ fn 骨架语言词与派生行禁写() {
     }
     assert!(!SKELETON.contains("<>"), "骨架不得含 <> 占位符");
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：`archi_api` 自检纪律（两轴 + 生成物用既有命令重生成、MUST NOT 手改）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-16 / D21）：知识文本含 `archi_api` 自检句——点名两轴（生成物三类差异 /
+/// 契约判据）与重生成命令（`pnpm api:export` 或 `cargo run -p archi-api-gen -- generate`），
+/// 且与 `include_str!("archi-knowledge.md")` 同源（零测试内副本）。
+#[test]
+fn knowledge含archi_api自检纪律() {
+    let text = text();
+    for piece in [
+        "archi_api",
+        "生成物",
+        "契约判据",
+        "pnpm api:export",
+        "MUST NOT 手改生成物",
+    ] {
+        assert!(text.contains(piece), "知识文本含 `{piece}`");
+    }
+    // 同源：静态骨架里确有这段（拼装只做词表 / 路径派生，不改写散文）
+    assert!(
+        SKELETON.contains("archi_api"),
+        "骨架字节含 archi_api（零测试内副本）"
+    );
+    assert!(
+        SKELETON.contains("MUST NOT 手改生成物"),
+        "骨架字节含硬线（生成物禁手改）"
+    );
+}
+
+/// 异常（AC-16 / spec「零 `<>` 占位符」）：全文零 `<>`、零 `{{`、零 `__INCLUDE:`；
+/// `trim()` 非空；体量上限内（既有 4KB 上限）。
+#[test]
+fn knowledge零占位符与体量上限() {
+    let text = text();
+    assert!(!text.contains("<>"), "零 `<>` 占位符");
+    assert!(!text.contains("{{"), "零 `{{{{` 模板位");
+    assert!(!text.contains("__INCLUDE:"), "零 include 指令残留");
+    assert!(!text.trim().is_empty(), "产物非空");
+    assert!(
+        text.len() <= 4096,
+        "体量在既有上限内（{} 字节）",
+        text.len()
+    );
+    // 新增恰好一条 bullet 级增量（不是整段重写）：`archi_api` 句独占一行
+    let bullet = text
+        .lines()
+        .find(|line| line.contains("archi_api"))
+        .expect("自检句在案");
+    assert!(
+        bullet.trim_start().starts_with('-'),
+        "自检纪律以 bullet 形态追加：{bullet}"
+    );
+}

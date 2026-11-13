@@ -1,0 +1,425 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\diff_test.rs:477:
+ fn compare空仓库与契约面未启用() {
+     let absent = TempDir::new("compare-empty-absent");
+     let no_toml = TempDir::new("compare-empty-no-toml");
+[31m-    fs::create_dir_all(no_toml.root().join(".dev-team/architecture/models"))
+[0m[31m-        .expect("建空模型目录");
+[0m[32m+    fs::create_dir_all(no_toml.root().join(".dev-team/architecture/models")).expect("建空模型目录");
+[0m     let no_api_dir = TempDir::new("compare-empty-no-api");
+     no_api_dir.write_model(
+         "[element.\"App.Core.Archi\"]\nkind = \"module\"\ngate = \"warn\"\n\
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\diff_test.rs:537:
+     for entry in &exotic {
+         let absolute = temp.root().join(entry);
+         assert!(
+[31m-            diff.orphaned.contains(&super::display(temp.root(), &absolute)),
+[0m[32m+            diff.orphaned
+[0m[32m+                .contains(&super::display(temp.root(), &absolute)),
+[0m             "{entry}：串逐字等于 archi::display"
+         );
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\diff_test.rs:569:
+     let after = temp.snapshot();
+ 
+     assert_eq!(before, after, "纯读盘：字节与 mtime 逐项相等");
+[31m-    assert_eq!(diff.orphaned, vec!["src/loose.i.rs".to_owned()], "孤儿仍在报告内");
+[0m[32m+    assert_eq!(
+[0m[32m+        diff.orphaned,
+[0m[32m+        vec!["src/loose.i.rs".to_owned()],
+[0m[32m+        "孤儿仍在报告内"
+[0m[32m+    );
+[0m     assert_eq!(diff.missing.len(), 1, "缺口照实报");
+     assert_eq!(
+         before.len(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\diff_test.rs:696:
+     let mut sorted = diff.orphaned.clone();
+     sorted.sort();
+     assert_eq!(diff.orphaned, sorted, "序为路径字节序");
+[31m-    assert!(diff.mismatched.is_empty() && diff.missing.is_empty(), "另两列空");
+[0m[32m+    assert!(
+[0m[32m+        diff.mismatched.is_empty() && diff.missing.is_empty(),
+[0m[32m+        "另两列空"
+[0m[32m+    );
+[0m }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:3271:
+         .keys()
+         .map(String::as_str)
+         .collect();
+[31m-    assert_eq!(meta_keys, vec!["toolVersion", "commonDigest"], "meta 二字段");
+[0m[32m+    assert_eq!(
+[0m[32m+        meta_keys,
+[0m[32m+        vec!["toolVersion", "commonDigest"],
+[0m[32m+        "meta 二字段"
+[0m[32m+    );
+[0m     for absent in ["schemaUri", "schema_uri", "generatedNotice", "common"] {
+         assert!(
+             !value.as_object().expect("对象").contains_key(absent)
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:3278:
+[31m-                && !value["meta"].as_object().expect("meta").contains_key(absent),
+[0m[32m+                && !value["meta"]
+[0m[32m+                    .as_object()
+[0m[32m+                    .expect("meta")
+[0m[32m+                    .contains_key(absent),
+[0m             "内部载元不出线：{absent}"
+         );
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\render_test.rs:75:
+ 
+     /// 全量字节 + mtime 快照（零写盘对拍）。
+     fn snapshot(&self) -> Vec<(String, Vec<u8>, Option<SystemTime>)> {
+[31m-        fn walk(
+[0m[31m-            base: &Path,
+[0m[31m-            dir: &Path,
+[0m[31m-            out: &mut Vec<(String, Vec<u8>, Option<SystemTime>)>,
+[0m[31m-        ) {
+[0m[32m+        fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>, Option<SystemTime>)>) {
+[0m             let Ok(read) = fs::read_dir(dir) else {
+                 return;
+             };
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\render_test.rs:304:
+ #[test]
+ fn workspace_render坏模型零写盘() {
+     let temp = TempDir::new("render-broken-no-write");
+[31m-    temp.write(".dev-team/architecture/models/01-test.toml", broken_models()[0].1);
+[0m[32m+    temp.write(
+[0m[32m+        ".dev-team/architecture/models/01-test.toml",
+[0m[32m+        broken_models()[0].1,
+[0m[32m+    );
+[0m     temp.write_contract("App.Core.Archi", &typed_contract("App.Core.Archi"));
+ 
+     let before = temp.snapshot();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\render_test.rs:331:
+ fn workspace_render空模型冷启动应生成集() {
+     let absent = TempDir::new("render-empty-absent");
+     let no_toml = TempDir::new("render-empty-no-toml");
+[31m-    fs::create_dir_all(
+[0m[31m-        no_toml
+[0m[31m-            .root()
+[0m[31m-            .join(".dev-team/architecture/models"),
+[0m[31m-    )
+[0m[31m-    .expect("建空模型目录");
+[0m[32m+    fs::create_dir_all(no_toml.root().join(".dev-team/architecture/models")).expect("建空模型目录");
+[0m 
+     for (tag, temp) in [("模型目录缺席", &absent), ("零 toml", &no_toml)] {
+         let files = workspace_render(temp.root()).expect("空模型不报错");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\render_test.rs:388:
+ 
+     let cases: Vec<(&str, PathBuf)> = vec![
+         ("空 Path", PathBuf::from("")),
+[31m-        ("不存在路径", std::env::temp_dir().join("archi-render-no-such-root")),
+[0m[32m+        (
+[0m[32m+            "不存在路径",
+[0m[32m+            std::env::temp_dir().join("archi-render-no-such-root"),
+[0m[32m+        ),
+[0m         ("指向文件", file_path),
+         ("超长路径", long_root),
+         ("含空格", spaced),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\api\render_test.rs:435:
+     let first = workspace_render(temp.root()).expect("大语料不抛错");
+     let second = workspace_render(temp.root()).expect("大语料不抛错");
+     assert_eq!(first, second, "两次渲染逐字段相等");
+[31m-    assert_eq!(first.len(), 61, "60 份 schema + 1 份索引（无入口 ⇒ 零 .i.*）");
+[0m[32m+    assert_eq!(
+[0m[32m+        first.len(),
+[0m[32m+        61,
+[0m[32m+        "60 份 schema + 1 份索引（无入口 ⇒ 零 .i.*）"
+[0m[32m+    );
+[0m     assert_eq!(
+         first.last().map(|file| file.path.clone()),
+         Some(paths::index_path(temp.root())),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2138:
+         1,
+         "版本常量恰一处且为 3"
+     );
+[31m-    assert!(
+[0m[31m-        !source.contains("REPORT_VERSION: u32 = 2"),
+[0m[31m-        "零旧值 2"
+[0m[31m-    );
+[0m[32m+    assert!(!source.contains("REPORT_VERSION: u32 = 2"), "零旧值 2");
+[0m }
+ 
+ /// 正向（AC-6 / D9）：契约在案的 `declared` 元素判据非空且 `errors` / `warnings` 双空 →
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2213:
+     clean.write_model("[element.\"Auth\"]\nkind = \"module\"\npath = [\"./src/auth/\"]\n");
+     clean.write("src/auth/token.ts", "export const token = 1;\n");
+     let clean_report = run_full(clean.root()).expect("判定应成功");
+[31m-    assert_eq!(clean_report.status, ArchiCheckStatus::Clean, "clean 逐值不变");
+[0m[32m+    assert_eq!(
+[0m[32m+        clean_report.status,
+[0m[32m+        ArchiCheckStatus::Clean,
+[0m[32m+        "clean 逐值不变"
+[0m[32m+    );
+[0m     assert!(clean_report.api_findings.is_empty(), "契约面缺席 ⇒ 空槽位");
+ 
+     let no_changes = TempDir::new("gating-no-changes");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2228:
+ 
+     let skipped = TempDir::new("gating-skipped");
+     let skipped_report = run_full(skipped.root()).expect("无模型不是错误");
+[31m-    assert_eq!(skipped_report.status, ArchiCheckStatus::Skipped, "skipped 逐值不变");
+[0m[32m+    assert_eq!(
+[0m[32m+        skipped_report.status,
+[0m[32m+        ArchiCheckStatus::Skipped,
+[0m[32m+        "skipped 逐值不变"
+[0m[32m+    );
+[0m     assert!(skipped_report.api_findings.is_empty(), "早退臂空槽位");
+ 
+     let warn = TempDir::new("gating-warn");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\drift\mod_test.rs:2298:
+     );
+     write_contract(&clean_ish, fqn, &mismatched_contract(fqn));
+     let passed_report = run_full(clean_ish.root()).expect("判定应成功");
+[31m-    assert_eq!(passed_report.status, ArchiCheckStatus::Warnings, "纳管 ⇒ warnings");
+[0m[32m+    assert_eq!(
+[0m[32m+        passed_report.status,
+[0m[32m+        ArchiCheckStatus::Warnings,
+[0m[32m+        "纳管 ⇒ warnings"
+[0m[32m+    );
+[0m     assert!(
+         passed_report.errors.is_empty() && passed_report.model.structural_errors.is_empty(),
+         "双空 ⇒ 门禁 passed == true"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\drift\report_test.rs:9:
+ 
+ use super::report::{
+     ArchiApiFinding, ArchiApiFindingKind, ArchiCheckStatus, ArchiDriftEntry, ArchiDriftKind,
+[31m-    ArchiDriftMode, ArchiDriftModel,
+[0m[31m-    ArchiDriftObservation, ArchiDriftOccurrence, ArchiDriftReport, ArchiDriftSuppressedEntry,
+[0m[31m-    ArchiExcludedFile, ArchiGateCount, ArchiMatchedElement, ArchiObservationKind, ArchiScanReport,
+[0m[31m-    ArchiSuppressVia, ArchiUnresolvedFile, Report,
+[0m[32m+    ArchiDriftMode, ArchiDriftModel, ArchiDriftObservation, ArchiDriftOccurrence, ArchiDriftReport,
+[0m[32m+    ArchiDriftSuppressedEntry, ArchiExcludedFile, ArchiGateCount, ArchiMatchedElement,
+[0m[32m+    ArchiObservationKind, ArchiScanReport, ArchiSuppressVia, ArchiUnresolvedFile, Report,
+[0m };
+ 
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\drift\report_test.rs:1208:
+         .collect();
+     assert_eq!(
+         keys,
+[31m-        vec!["kind", "category", "element", "target", "message", "occurrences"],
+[0m[32m+        vec![
+[0m[32m+            "kind",
+[0m[32m+            "category",
+[0m[32m+            "element",
+[0m[32m+            "target",
+[0m[32m+            "message",
+[0m[32m+            "occurrences"
+[0m[32m+        ],
+[0m         "六字段声明序（camelCase）"
+     );
+     assert_eq!(entry["target"], serde_json::json!(null), "target 可为 null");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\src\drift\report_test.rs:1215:
+     assert_eq!(entry["element"], serde_json::json!("App.Core.Alpha"));
+ 
+[31m-    let back: ArchiDriftReport =
+[0m[31m-        serde_json::from_value(filled_value).expect("反序列化失败");
+[0m[32m+    let back: ArchiDriftReport = serde_json::from_value(filled_value).expect("反序列化失败");
+[0m     assert_eq!(back, filled, "往返逐字段相等");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\tests\golden_test.rs:1528:
+         "旧口径（契约面不进 status 推导）MUST NOT 残留：\n{model_text}"
+     );
+     // 模型条目逐字保留（注释之外零改动）
+[31m-    for entry in ["[element.\"App\"]", "[element.\"App.Mod\"]", "path = [\"./src/mod/\"]"] {
+[0m[32m+    for entry in [
+[0m[32m+        "[element.\"App\"]",
+[0m[32m+        "[element.\"App.Mod\"]",
+[0m[32m+        "path = [\"./src/mod/\"]",
+[0m[32m+    ] {
+[0m         assert!(model_text.contains(entry), "模型条目在案：{entry}");
+     }
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\archi\tests\golden_test.rs:1542:
+         .find(|expectation| expectation.case == "api-mismatch" && expectation.mode == "full")
+         .expect("api-mismatch 的 full 行在册");
+     assert_eq!(expectation.api_findings, 1, "登记面恰一条");
+[31m-    assert_eq!(
+[0m[31m-        expectation.status, "warnings",
+[0m[31m-        "登记面 status 为纳管口径"
+[0m[31m-    );
+[0m[32m+    assert_eq!(expectation.status, "warnings", "登记面 status 为纳管口径");
+[0m 
+     let snapshot = read_expected_snapshot(&drift_expected_path(expectation)).expect("快照可读");
+     let findings = snapshot["apiFindings"].as_array().expect("数组");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\core\workflow\src\write\phase_table_test.rs:3100:
+     assert!(text.contains("契约判据"), "说明自查契约判据");
+     assert!(text.contains("archi_module"), "既有 archi_module 仍在");
+     assert!(!text.contains("archi_search"), "不含未下发的 archi_search");
+[31m-    assert!(
+[0m[31m-        text.contains("MUST NOT 手改生成物"),
+[0m[31m-        "含生成物禁手改硬线"
+[0m[31m-    );
+[0m[32m+    assert!(text.contains("MUST NOT 手改生成物"), "含生成物禁手改硬线");
+[0m }
+ 
+ /// 异常（AC-16 / spec「其余相位 prompt 零 diff」）：13 份 md 逐份零 `archi_api`；矩阵
+error[E0762]: unterminated character literal
+   --> \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs:481:26
+    |
+481 |                 .replace('\', "/");
+    |                          ^^^^^^
+
+Error writing files: failed to resolve mod `archi_tool_test`: cannot parse \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\agent\src\sdk\archi_tool_test.rs
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\archi\src\api_artifacts_test.rs:74:
+ fn three_files(root: &Path) -> Vec<GeneratedFile> {
+     vec![
+         file(root, "crates/core/archi.i.rs", "// 生成物 A\n"),
+[31m-        file(root, ".dev-team/architecture/api/Core/App.md.schema.json", "{}\n"),
+[0m[32m+        file(
+[0m[32m+            root,
+[0m[32m+            ".dev-team/architecture/api/Core/App.md.schema.json",
+[0m[32m+            "{}\n",
+[0m[32m+        ),
+[0m         file(root, "src/types/generated/bindings.i.ts", "export {};\n"),
+     ]
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\archi\src\api_artifacts_test.rs:91:
+     let files = three_files(temp.path());
+ 
+     let outcome = write_artifacts(temp.path(), &files).expect("写盘应成功");
+[31m-    let ArchiApiWriteOutcome {
+[0m[31m-        written,
+[0m[31m-        unchanged,
+[0m[31m-    } = outcome;
+[0m[32m+    let ArchiApiWriteOutcome { written, unchanged } = outcome;
+[0m     assert_eq!(written.len(), 3, "三份全部写入：{written:?}");
+     assert!(unchanged.is_empty(), "首轮零 unchanged：{unchanged:?}");
+     for relative in &written {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\archi\src\api_artifacts_test.rs:101:
+[31m-        assert!(!relative.starts_with('/'), "repo 相对串无前导 /：{relative}");
+[0m[31m-        assert!(!relative.contains('\\'), "repo 相对串分隔符恒 /：{relative}");
+[0m[32m+        assert!(
+[0m[32m+            !relative.starts_with('/'),
+[0m[32m+            "repo 相对串无前导 /：{relative}"
+[0m[32m+        );
+[0m[32m+        assert!(
+[0m[32m+            !relative.contains('\\'),
+[0m[32m+            "repo 相对串分隔符恒 /：{relative}"
+[0m[32m+        );
+[0m     }
+     for item in &files {
+         assert_eq!(read(&item.path), item.content, "内容逐字节相同");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\archi\src\api_artifacts_test.rs:116:
+     let stamps: Vec<SystemTime> = files.iter().map(|item| mtime(&item.path)).collect();
+ 
+     let outcome = write_artifacts(temp.path(), &files).expect("次轮应成功");
+[31m-    assert!(outcome.written.is_empty(), "次轮零写入：{:?}", outcome.written);
+[0m[32m+    assert!(
+[0m[32m+        outcome.written.is_empty(),
+[0m[32m+        "次轮零写入：{:?}",
+[0m[32m+        outcome.written
+[0m[32m+    );
+[0m     assert_eq!(outcome.unchanged.len(), 3, "三份全部计入 unchanged");
+     for (index, item) in files.iter().enumerate() {
+         assert_eq!(mtime(&item.path), stamps[index], "未重写 ⇒ mtime 逐字不变");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\archi\src\api_artifacts_test.rs:202:
+     }];
+     leading.extend(three_files(temp_a.path()));
+     let error = write_artifacts(temp_a.path(), &leading).expect_err("越根 ⇒ Err");
+[32m+    assert!(error.contains("越出观察根"), "文案点名越根：{error}");
+[0m     assert!(
+[31m-        error.contains("越出观察根"),
+[0m[31m-        "文案点名越根：{error}"
+[0m[31m-    );
+[0m[31m-    assert!(
+[0m         error.contains(&outside.display().to_string()),
+         "文案含越根一侧路径：{error}"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\infra\archi\src\api_artifacts_test.rs:424:
+ #[test]
+ fn write_artifacts写盘实现单点() {
+     let source = include_str!("api_artifacts.rs");
+[31m-    assert_eq!(source.matches("std::fs::write").count(), 1, "fs::write 恰一处");
+[0m[32m+    assert_eq!(
+[0m[32m+        source.matches("std::fs::write").count(),
+[0m[32m+        1,
+[0m[32m+        "fs::write 恰一处"
+[0m[32m+    );
+[0m     assert_eq!(
+         source.matches("create_dir_all").count(),
+         1,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\crates\tools\archi-api-gen\src\main_test.rs:1396:
+         .keys()
+         .map(String::as_str)
+         .collect();
+[31m-    assert_eq!(keys, vec!["mismatched", "orphaned", "missing"], "键序即契约");
+[0m[31m-    assert_eq!(value["mismatched"], serde_json::json!(diff.mismatched), "逐值相同");
+[0m[31m-    assert_eq!(value["orphaned"], serde_json::json!(diff.orphaned), "逐值相同");
+[0m[31m-    assert_eq!(value["missing"], serde_json::json!(diff.missing), "逐值相同");
+[0m[32m+    assert_eq!(
+[0m[32m+        keys,
+[0m[32m+        vec!["mismatched", "orphaned", "missing"],
+[0m[32m+        "键序即契约"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        value["mismatched"],
+[0m[32m+        serde_json::json!(diff.mismatched),
+[0m[32m+        "逐值相同"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        value["orphaned"],
+[0m[32m+        serde_json::json!(diff.orphaned),
+[0m[32m+        "逐值相同"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        value["missing"],
+[0m[32m+        serde_json::json!(diff.missing),
+[0m[32m+        "逐值相同"
+[0m[32m+    );
+[0m     assert_eq!(
+         run(Command::Check, temp.root()).expect("check 不 Err"),
+         1,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\src\bindings\mod_test.rs:3602:
+     // 包装签名：(root: string) => __TAURI_INVOKE<T>("archi_api_*", { root })
+     for (wrapper, invoke, result) in [
+         ("archiApiCheck", "archi_api_check", "ArchiApiCheck"),
+[31m-        ("archiApiGenerate", "archi_api_generate", "ArchiApiWriteOutcome"),
+[0m[32m+        (
+[0m[32m+            "archiApiGenerate",
+[0m[32m+            "archi_api_generate",
+[0m[32m+            "ArchiApiWriteOutcome",
+[0m[32m+        ),
+[0m     ] {
+[31m-        let signature =
+[0m[31m-            format!("{wrapper}: (root: string) => __TAURI_INVOKE<{result}>(\"{invoke}\", {{ root }}),");
+[0m[31m-        assert!(
+[0m[31m-            bindings.contains(&signature),
+[0m[31m-            "包装签名为 `{signature}`"
+[0m[32m+        let signature = format!(
+[0m[32m+            "{wrapper}: (root: string) => __TAURI_INVOKE<{result}>(\"{invoke}\", {{ root }}),"
+[0m         );
+[32m+        assert!(bindings.contains(&signature), "包装签名为 `{signature}`");
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:1690:
+ 
+     archi_api_generate(temp.root()).expect("生成应 Ok");
+     assert!(orphan.is_file(), "孤儿仍在盘");
+[31m-    assert_eq!(fs::read(&orphan).expect("读孤儿失败"), before, "孤儿字节不变");
+[0m[32m+    assert_eq!(
+[0m[32m+        fs::read(&orphan).expect("读孤儿失败"),
+[0m[32m+        before,
+[0m[32m+        "孤儿字节不变"
+[0m[32m+    );
+[0m 
+     let report = archi_api_check(temp.root()).expect("复检应 Ok");
+     assert_eq!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\api-gen-check-in-desktop\packages\desktop\src-tauri\src\commands\archi\mod_test.rs:1774:
+ 
+     let error = archi_api_generate(temp.root()).expect_err("写盘失败应 Err");
+     assert!(error.contains("写入失败"), "文案透传写盘单点原因：{error}");
+[31m-    assert!(!error.contains("全部成功"), "MUST NOT 声称全部成功：{error}");
+[0m[32m+    assert!(
+[0m[32m+        !error.contains("全部成功"),
+[0m[32m+        "MUST NOT 声称全部成功：{error}"
+[0m[32m+    );
+[0m     assert!(
+         temp.path().join("crates/api/subject.i.rs").is_file(),
+         "非原子：失败点之前已写（不回滚）"
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

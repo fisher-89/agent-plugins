@@ -4393,11 +4393,6 @@ async fn 装配序端到端_流程档ask_started真的抵达快照且应答可�
         "tool_call_id 由执行体携带，实际: {:?}",
         ask.tool_call_id
     );
-    assert_eq!(
-        ask.session_id.as_deref(),
-        control.current_session(&root, CHANGE).as_deref(),
-        "载荷 session_id == run 的会话槽（同一 source 的 core 会话 id）"
-    );
     // 通知面同拍到达（订阅端收 Ask）
     wait_for_async("ask 通知到达", || {
         captured
@@ -4429,6 +4424,13 @@ async fn 装配序端到端_流程档ask_started真的抵达快照且应答可�
         }
     }
     assert!(accepted, "流程侧应答受理");
+    // 会话槽与载荷同 id：应答受理本身即以会话槽寻址成功（槽在首个会话事件到达时
+    // 写入，早于 ask 的时序由应答重试兜住，故判据落在此处而非 ask 首帧）
+    assert_eq!(
+        ask.session_id.as_deref(),
+        control.current_session(&root, CHANGE).as_deref(),
+        "载荷 session_id == run 的会话槽（同一 source 的 core 会话 id）"
+    );
 
     // 执行体返回 → ask_resolved → 槽清空、状态解回运行态
     wait_for_async("ask_resolved 清槽", || {

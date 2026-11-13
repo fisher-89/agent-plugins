@@ -313,6 +313,7 @@ function mockIpc() {
           children: [],
           docs: [],
           warnings: [],
+          api: { status: 'none', contractPath: null, schemaPath: null, generatedPath: null },
         });
       }
       return Promise.resolve(null);

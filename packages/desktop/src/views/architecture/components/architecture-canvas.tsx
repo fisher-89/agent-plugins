@@ -13,6 +13,7 @@ import '@xyflow/react/dist/style.css';
 
 import { Badge } from '@/components/ui/badge';
 import type {
+  ArchiApiFinding,
   ArchiElement,
   ArchiFileTree,
   ArchiGraph,
@@ -25,6 +26,7 @@ import { useArchiGraph } from '../hooks/use-archi-graph';
 import { driftMarks } from '../lib/drift-marks';
 import { shortName } from '../lib/fqn';
 import { edgeVisual } from '../lib/marks';
+import { ContractPanel } from './contract-panel';
 import { ElementDrawer, type CanvasMode } from './element-drawer';
 import { ElementTree } from './element-tree';
 import { FileTree, TreeModeSwitch, type TreeMode } from './file-tree';
@@ -164,9 +166,11 @@ function toEdges(graph: ArchiGraph, focus: string): Edge[] {
     });
 }
 
-/** 左栏树栏位：分段控件 + 三态行（缺省文件树，可切元素树）。切换只换左栏组件，
- * `focus` 共用；取数失败只落本栏行内提示，画布与抽屉照常渲染。 */
+/** 左栏树栏位：分段控件 + 三态行（缺省文件树，可切元素树 / 契约视图）。切换只换左栏
+ * 组件，`focus` 共用；取数失败只落本栏行内提示，画布与抽屉照常渲染。 */
 function TreeColumn({
+  root,
+  canvasMode,
   mode,
   onModeChange,
   elements,
@@ -174,7 +178,10 @@ function TreeColumn({
   onFocus,
   tree,
   treeError,
+  findings,
 }: {
+  root: string | null;
+  canvasMode: CanvasMode;
   mode: TreeMode;
   onModeChange: (mode: TreeMode) => void;
   elements: ArchiElement[];
@@ -182,12 +189,15 @@ function TreeColumn({
   onFocus: (fqn: string) => void;
   tree: ArchiFileTree | null;
   treeError: string | null;
+  findings: ArchiApiFinding[];
 }): React.JSX.Element {
   return (
-    <section className={`min-h-0 shrink-0 flex flex-col ${mode === 'file' ? 'w-80' : 'w-72'}`}>
+    <section className={`min-h-0 shrink-0 flex flex-col ${mode === 'element' ? 'w-72' : 'w-80'}`}>
       <TreeModeSwitch mode={mode} onChange={onModeChange} />
       <div className="min-h-0 flex-1 flex">
-        {mode === 'element' ? (
+        {mode === 'contract' ? (
+          <ContractPanel root={root} mode={canvasMode} findings={findings} onFocus={onFocus} />
+        ) : mode === 'element' ? (
           <ElementTree elements={elements} focused={focused} onFocus={onFocus} />
         ) : treeError !== null ? (
           <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-error">
@@ -231,12 +241,14 @@ function CanvasBody({
   mode,
   onChanged,
   driftError,
+  apiFindings,
 }: {
   graph: ArchiGraph;
   root: string | null;
   mode: CanvasMode;
   onChanged: () => void;
   driftError: string | null;
+  apiFindings: ArchiApiFinding[];
 }): React.JSX.Element {
   const [focusOverride, setFocusOverride] = useState<string | null>(null);
   const [treeMode, setTreeMode] = useState<TreeMode>('file');
@@ -259,6 +271,8 @@ function CanvasBody({
   return (
     <div className="flex h-full min-h-0 gap-2">
       <TreeColumn
+        root={root}
+        canvasMode={mode}
         mode={treeMode}
         onModeChange={setTreeMode}
         elements={graph.elements}
@@ -266,6 +280,7 @@ function CanvasBody({
         onFocus={setFocusOverride}
         tree={tree}
         treeError={treeError}
+        findings={apiFindings}
       />
       <div
         className="min-h-0 flex-1 overflow-hidden rounded-md bg-background"
@@ -291,6 +306,7 @@ function CanvasBody({
         mode={mode}
         element={focused}
         relations={relations}
+        findings={apiFindings}
         onChanged={onChanged}
       />
     </div>
@@ -346,6 +362,7 @@ export function ArchitectureCanvas({ root, mode }: ArchitectureCanvasProps): Rea
         mode={mode}
         onChanged={refresh}
         driftError={driftError}
+        apiFindings={report?.apiFindings ?? []}
       />
     </ReactFlowProvider>
   );

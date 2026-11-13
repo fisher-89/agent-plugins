@@ -8,10 +8,10 @@
 use crate::dto::{ArchiDiagnostic, DiagnosticKind, GateTier};
 
 use super::report::{
-    ArchiCheckStatus, ArchiDriftEntry, ArchiDriftKind, ArchiDriftMode, ArchiDriftModel,
-    ArchiDriftObservation, ArchiDriftOccurrence, ArchiDriftReport, ArchiDriftSuppressedEntry,
-    ArchiExcludedFile, ArchiGateCount, ArchiMatchedElement, ArchiObservationKind, ArchiScanReport,
-    ArchiSuppressVia, ArchiUnresolvedFile, Report,
+    ArchiApiFinding, ArchiApiFindingKind, ArchiCheckStatus, ArchiDriftEntry, ArchiDriftKind,
+    ArchiDriftMode, ArchiDriftModel, ArchiDriftObservation, ArchiDriftOccurrence, ArchiDriftReport,
+    ArchiDriftSuppressedEntry, ArchiExcludedFile, ArchiGateCount, ArchiMatchedElement,
+    ArchiObservationKind, ArchiScanReport, ArchiSuppressVia, ArchiUnresolvedFile, Report,
 };
 
 // ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ fn scan_report() -> ArchiScanReport {
 /// 十四字段全填充的报告。
 fn full_report() -> ArchiDriftReport {
     ArchiDriftReport {
-        version: 2,
+        version: 3,
         timestamp: "2026-10-20T08:31:12Z".to_owned(),
         mode: ArchiDriftMode::Incremental,
         root: "/tmp/workspace".to_owned(),
@@ -134,7 +134,7 @@ fn full_report() -> ArchiDriftReport {
 /// 全空数组 + `clean` 的报告。
 fn empty_report() -> ArchiDriftReport {
     ArchiDriftReport {
-        version: 2,
+        version: 3,
         timestamp: "2026-10-20T08:31:12Z".to_owned(),
         mode: ArchiDriftMode::Full,
         root: "/tmp/workspace".to_owned(),
@@ -550,7 +550,7 @@ fn 模型面字段面往返() {
 // 契约判据词汇与 `apiFindings` 槽位（`module-api-contract-format` / AC-8）
 // ===========================================================================
 
-use super::report::{ApiFindingSeverity, ArchiApiFinding, ArchiApiFindingKind};
+use super::report::ApiFindingSeverity;
 
 /// 全字段填充的契约判据条目（`occurrences` 两条）。
 fn api_finding() -> ArchiApiFinding {
@@ -822,12 +822,12 @@ fn 报告api_findings槽位与字段面() {
     }
 }
 
-/// 边界（AC-8）：`version` 可写 `2` / `0` / `u32::MAX` 三态往返；`version = 1` 的报告
+/// 边界（AC-8）：`version` 可写 `3` / `2` / `0` / `u32::MAX` 四态往返；`version = 1` 的报告
 /// 缺 `apiFindings` 时**反序列化失败**（零 `serde(default)`——消费方按版本分支，
 /// MUST NOT 补默认值）。
 #[test]
 fn 报告版本档面与旧报告不兼容() {
-    for version in [2_u32, 0, u32::MAX] {
+    for version in [3_u32, 2, 0, u32::MAX] {
         let report = ArchiDriftReport {
             version,
             ..empty_report()
@@ -1124,8 +1124,8 @@ fn 既有金样字段面基线与末位追加() {
     assert_eq!(keys[14], "status", "status 收口于末位");
     assert_eq!(
         golden["version"],
-        serde_json::json!(2),
-        "金样版本随 REPORT_VERSION = 2"
+        serde_json::json!(3),
+        "金样版本随 REPORT_VERSION = 3"
     );
     assert_eq!(
         golden["apiFindings"],
@@ -1161,4 +1161,90 @@ fn 既有金样字段面基线与末位追加() {
     for key in ["errors", "warnings", "suppressed", "observations"] {
         assert_eq!(golden[key], serde_json::json!([]), "{key} 在本语料为空数组");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：版本 3 的线形与 `status` 五值（回归登记 + 新增口径）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-7 / D8）：`version = 3` 的报告往返后仍 3，且为 `number` 类型（非字符串）；
+/// `api_findings` 槽位形状不变（空数组恰 `[]`、非空逐项六字段 camelCase）。
+#[test]
+fn 版本3线形与api_findings槽位() {
+    let report = empty_report();
+    assert_eq!(report.version, 3, "夹具版本 = REPORT_VERSION");
+    let value = serde_json::to_value(&report).expect("序列化失败");
+    assert!(
+        value["version"].is_number(),
+        "version 为 number（非字符串）：{:?}",
+        value["version"]
+    );
+    assert_eq!(value["version"], serde_json::json!(3), "版本 3");
+    assert_eq!(
+        value["apiFindings"],
+        serde_json::json!([]),
+        "空槽位恰 []（非 null）"
+    );
+
+    let filled = ArchiDriftReport {
+        api_findings: vec![ArchiApiFinding {
+            kind: ArchiApiFindingKind::ApiSignatureMismatch,
+            category: "signature".to_owned(),
+            element: Some("App.Core.Alpha".to_owned()),
+            target: None,
+            message: "契约签名与代码签名不一致".to_owned(),
+            occurrences: Vec::new(),
+        }],
+        ..empty_report()
+    };
+    let filled_value = serde_json::to_value(&filled).expect("序列化失败");
+    let entry = &filled_value["apiFindings"][0];
+    let keys: Vec<&str> = entry
+        .as_object()
+        .expect("条目为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            "kind",
+            "category",
+            "element",
+            "target",
+            "message",
+            "occurrences"
+        ],
+        "六字段声明序（camelCase）"
+    );
+    assert_eq!(entry["target"], serde_json::json!(null), "target 可为 null");
+    assert_eq!(entry["element"], serde_json::json!("App.Core.Alpha"));
+
+    let back: ArchiDriftReport = serde_json::from_value(filled_value).expect("反序列化失败");
+    assert_eq!(back, filled, "往返逐字段相等");
+}
+
+/// 边界（AC-6 / 回归登记）：`ArchiCheckStatus::ALL` 长度 5、`as_str` 逐值不变；词汇外
+/// 单数形态 `"warning"` → `Err`（零宽松归一）。
+#[test]
+fn 状态词五值线形不变() {
+    let values: Vec<&str> = ArchiCheckStatus::ALL
+        .iter()
+        .map(|status| status.as_str())
+        .collect();
+    assert_eq!(values.len(), 5, "五值");
+    assert_eq!(
+        values,
+        vec!["clean", "errors", "warnings", "noChanges", "skipped"],
+        "词序与词形逐字不变（ALL 声明序）"
+    );
+    for status in ArchiCheckStatus::ALL {
+        let back: ArchiCheckStatus =
+            serde_json::from_value(serde_json::json!(status.as_str())).expect("往返失败");
+        assert_eq!(back, status, "逐值往返");
+    }
+    assert!(
+        serde_json::from_value::<ArchiCheckStatus>(serde_json::json!("warning")).is_err(),
+        "词汇外单数形态 → Err（零宽松归一）"
+    );
 }

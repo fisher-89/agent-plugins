@@ -20,7 +20,7 @@ use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::model_spec::{
     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
 };
-use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};
+use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{context, r#loop, resume};
 use crate::ResumeTranscript;
@@ -391,9 +391,9 @@ struct PumpPayload {
 /// worktree），否则 `None`。铸造值随 `LoopTurn` 携带、loop 侧路由，不经
 /// `tools::execute`。
 pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Option<ArchiContext> {
-    let present = names
-        .iter()
-        .any(|name| name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL);
+    let present = names.iter().any(|name| {
+        name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL || name == ARCHI_API_TOOL
+    });
     present.then(|| ArchiContext::new(workspace_root.to_path_buf()))
 }
 

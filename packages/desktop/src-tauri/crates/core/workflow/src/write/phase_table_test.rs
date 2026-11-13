@@ -3053,20 +3053,21 @@ fn prompt_names() -> Vec<String> {
 }
 
 /// 矩阵命中面（7 份 md × 各自的 archi 工具勾选集合——矩阵单源逐文件对拍）。
-const ARCHI_PROMPT_MATRIX: [(&str, bool, bool); 7] = [
-    ("proposal-planner", false, true),
-    ("dev-design-planner", true, true),
-    ("dev-design-evaluator", true, true),
-    ("test-design-planner", false, true),
-    ("implementation-generator", true, false),
-    ("code-review-evaluator", true, false),
-    ("acceptance-evaluator", true, false),
+const ARCHI_PROMPT_MATRIX: [(&str, bool, bool, bool); 7] = [
+    ("proposal-planner", false, true, false),
+    ("dev-design-planner", true, true, false),
+    ("dev-design-evaluator", true, true, false),
+    ("test-design-planner", false, true, false),
+    ("implementation-generator", true, false, true),
+    ("code-review-evaluator", true, false, false),
+    ("acceptance-evaluator", true, false, false),
 ];
 
-/// 正向：7 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名。
+/// 正向：7 份命中 md 逐文件含其勾选工具名、且不含未勾选工具名（三维：模块 / 发现 /
+/// 契约自检）。
 #[test]
 fn archi工具引用与注入矩阵逐文件一致() {
-    for (name, module, search) in ARCHI_PROMPT_MATRIX {
+    for (name, module, search, api) in ARCHI_PROMPT_MATRIX {
         let text = prompt_text(name);
         assert_eq!(
             text.contains("archi_module"),
@@ -3078,7 +3079,51 @@ fn archi工具引用与注入矩阵逐文件一致() {
             search,
             "{name} 的 archi_search 勾选状态应一致"
         );
+        assert_eq!(
+            text.contains("archi_api"),
+            api,
+            "{name} 的 archi_api 勾选状态应一致"
+        );
     }
+}
+
+/// 正向（AC-16 / D21）：`implementation-generator` 的只读工具行含 `archi_api`，并说明
+/// 「改完代码自查生成物新鲜度与契约判据」；仍含既有 `archi_module`、不含 `archi_search`。
+#[test]
+fn implementation_generator含archi_api自检句() {
+    let text = prompt_text("implementation-generator");
+    assert!(text.contains("archi_api"), "只读工具行含 archi_api");
+    assert!(
+        text.contains("生成物新鲜度") || text.contains("生成物"),
+        "说明自查生成物新鲜度：{text}"
+    );
+    assert!(text.contains("契约判据"), "说明自查契约判据");
+    assert!(text.contains("archi_module"), "既有 archi_module 仍在");
+    assert!(!text.contains("archi_search"), "不含未下发的 archi_search");
+    assert!(text.contains("MUST NOT 手改生成物"), "含生成物禁手改硬线");
+}
+
+/// 异常（AC-16 / spec「其余相位 prompt 零 diff」）：13 份 md 逐份零 `archi_api`；矩阵
+/// `api` 维度仅 `implementation-generator` 为真（反向臂）。
+#[test]
+fn 其余md零archi_api() {
+    for name in prompt_names() {
+        if name == "implementation-generator" {
+            continue;
+        }
+        let text = prompt_text(&name);
+        assert!(!text.contains("archi_api"), "{name} 不应出现 archi_api");
+    }
+    let api_rows: Vec<&str> = ARCHI_PROMPT_MATRIX
+        .iter()
+        .filter(|(_, _, _, api)| *api)
+        .map(|(name, _, _, _)| *name)
+        .collect();
+    assert_eq!(
+        api_rows,
+        vec!["implementation-generator"],
+        "矩阵 api 维度仅一份命中"
+    );
 }
 
 /// 正向：每份命中 md 的工具表述含「何时用」与「返回什么」两类信息。
@@ -3089,7 +3134,7 @@ fn archi工具引用与注入矩阵逐文件一致() {
 /// 词汇在场——由各文件的 `modelFile` + `modelLine` 逐文件守住。
 #[test]
 fn archi工具表述含何时用与返回什么() {
-    for (name, _, _) in ARCHI_PROMPT_MATRIX {
+    for (name, _, _, _) in ARCHI_PROMPT_MATRIX {
         let text = prompt_text(name);
         let has_when = text.contains("（发现") || text.contains("（定位");
         assert!(
@@ -3128,24 +3173,26 @@ fn 非命中md零archi字样() {
     }
 }
 
-/// 正向：两工具名的并集恰为 7 份命中文件，且不存在第三个 archi 工具名。
+/// 正向：三工具名的并集恰为 7 份命中文件，且不存在矩阵之外的 archi 工具名。
 #[test]
-fn 两工具名并集恰七份且无第三工具() {
+fn 三工具名并集与矩阵一致() {
     let hit: Vec<String> = prompt_names()
         .into_iter()
         .filter(|name| {
             let text = prompt_text(name);
-            text.contains("archi_module") || text.contains("archi_search")
+            text.contains("archi_module")
+                || text.contains("archi_search")
+                || text.contains("archi_api")
         })
         .collect();
     let mut expected: Vec<String> = ARCHI_PROMPT_MATRIX
         .iter()
-        .map(|(name, _, _)| (*name).to_owned())
+        .map(|(name, _, _, _)| (*name).to_owned())
         .collect();
     expected.sort();
     assert_eq!(hit, expected, "命中面恰为矩阵七份（无遗漏 / 无越权）");
 
-    // 越权扫描：`archi_` 系列只出现两个名字
+    // 越权扫描：`archi_` 系列只出现三个名字（`archi_api` 已入白名单）
     for name in prompt_names() {
         let text = prompt_text(&name);
         for candidate in [
@@ -3153,6 +3200,7 @@ fn 两工具名并集恰七份且无第三工具() {
             "archi_set_gate",
             "archi_graph",
             "archi_read_doc",
+            "archi_api_write",
         ] {
             assert!(
                 !text.contains(candidate),
@@ -3166,7 +3214,7 @@ fn 两工具名并集恰七份且无第三工具() {
 /// 知识归工具返回值）。
 #[test]
 fn 命中md零路径模板() {
-    for (name, _, _) in ARCHI_PROMPT_MATRIX {
+    for (name, _, _, _) in ARCHI_PROMPT_MATRIX {
         let text = prompt_text(name);
         assert!(
             !text.contains(".dev-team/architecture"),

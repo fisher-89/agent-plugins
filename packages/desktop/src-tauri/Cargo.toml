@@ -22,7 +22,8 @@ agent-runtime = { workspace = true }
 # 命令面薄包装：投影、诊断、diff 与待落盘产物全在 archi
 archi = { workspace = true }
 # 架构漂移门禁执行体：取输入 → 调 archi 判定 → 落 reports/archi 报告 → 派生
-# outcome（组合根只做 runner 构造与注入，零判定）
+# outcome（组合根只做 runner 构造与注入，零判定）+ 生成物写盘单点
+# （`api_artifacts::write_artifacts`，两条契约面命令调用）
 archi-runtime = { workspace = true }
 checks-runtime = { workspace = true }
 config = { workspace = true }

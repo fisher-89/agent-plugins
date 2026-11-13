@@ -20,6 +20,7 @@ use archi::drift::ArchiDriftMode;
 use archi::GateTier;
 
 use super::{
+    archi_api_check, archi_api_check_inner, archi_api_generate, archi_api_generate_inner,
     archi_change_summary, archi_change_summary_inner, archi_drift, archi_drift_inner,
     archi_file_tree, archi_file_tree_inner, archi_graph, archi_graph_inner, archi_module,
     archi_module_inner, archi_set_gate, archi_set_gate_inner,
@@ -230,14 +231,15 @@ fn change_summary包装与inner一致() {
 }
 
 // ---------------------------------------------------------------------------
-// root 校验（四命令共用）
+// root 校验（八命令共用）
 // ---------------------------------------------------------------------------
 
-/// 异常：root 为 `""` / 空白 / 指向文件 / 不存在 → 六命令一律 `Err`，且不触达投影
-/// （写命令零写入）。`archi_drift` 与 `archi_file_tree` 的校验均前置，故 `Err` 时
-/// 零 vcs 零枚举。
+/// 异常：root 为 `""` / 空白 / 指向文件 / 不存在 → 八命令（含 `archi_api_check` /
+/// `archi_api_generate` 及其 `*_inner`）一律 `Err`，且不触达投影（写命令零写入）。
+/// `archi_drift` / `archi_file_tree` / 两新命令的校验均前置，故 `Err` 时零 vcs
+/// 零枚举零比对零写盘。
 #[test]
-fn 六命令root校验四形态一律err() {
+fn 八命令root校验四形态一律err() {
     let temp = TempDir::new("root-check");
     let file_root = temp.write("not-a-dir.txt", "我是文件\n");
     let missing = temp.path().join("no-such-dir");
@@ -280,6 +282,22 @@ fn 六命令root校验四形态一律err() {
         assert!(
             archi_file_tree(rendering.clone()).is_err(),
             "archi_file_tree root 非法应 Err（校验前置，零枚举）"
+        );
+        assert!(
+            archi_api_check(rendering.clone()).is_err(),
+            "archi_api_check root 非法应 Err（校验前置，零比对）"
+        );
+        assert!(
+            archi_api_check_inner(root).is_err(),
+            "archi_api_check_inner root 非法应 Err"
+        );
+        assert!(
+            archi_api_generate(rendering.clone()).is_err(),
+            "archi_api_generate root 非法应 Err（校验前置，零写盘）"
+        );
+        assert!(
+            archi_api_generate_inner(root).is_err(),
+            "archi_api_generate_inner root 非法应 Err"
         );
     }
 
@@ -334,7 +352,7 @@ fn module三形态() {
 // 读命令零写盘 / 写命令：原子写回 / 零写入 / 往返
 // ---------------------------------------------------------------------------
 #[test]
-fn 四条读命令零写盘() {
+fn 五条读命令零写盘() {
     let data = TempDir::new("nowrite-data");
     let temp = healthy("nowrite");
     // 文件树面需要进树源文件（`healthy` 语料只有模型与 md 文档）
@@ -353,8 +371,10 @@ fn 四条读命令零写盘() {
     );
     let file_tree = archi_file_tree(temp.root()).expect("文件树命令应 Ok");
     assert!(!file_tree.entries.is_empty(), "语料应产出条目");
+    let api_check = archi_api_check(temp.root()).expect("检查即生成预览应 Ok");
+    assert!(!api_check.meta.tool_version.is_empty(), "载元投影在案");
     let after = snapshot(temp.path());
-    assert_eq!(before, after, "四条读命令零写盘");
+    assert_eq!(before, after, "五条读命令零写盘（含 archi_api_check）");
 }
 
 /// 正向：改档后目标行变、其余内容与注释逐字保留；目录内无临时文件残留；读回为
@@ -1132,15 +1152,33 @@ fn archi_module容器元素零契约() {
     assert!(detail.api.generated_path.is_none());
 }
 
-/// 边界（AC-9）：命令层零领域规则——`mod.rs` 内零 `archi::api::` 调用（`api` 字段全由
-/// `dto::module_detail` 填）、零 `exists()` 直接判定、零路径拼装。
+/// 边界（AC-1 / D12）：命令层零领域规则——两新命令只调 core 的单点出口（`artifact_check`
+/// / `workspace_render` 各一处），零本地渲染 / 比对 / 归一 / 路径拼装；`fs::write` 与
+/// `create_dir_all` 仍只属 `archi_set_gate` 的原子写回面。
 #[test]
 fn 命令层零领域规则() {
     let source = include_str!("mod.rs");
-    assert!(
-        !source.contains("archi::api::"),
-        "命令层 MUST NOT 直接调 archi::api（api 字段由 dto::module_detail 填）"
+    assert_eq!(
+        source.matches("archi::api::artifact_check(").count(),
+        1,
+        "检查命令只调 `artifact_check`（DTO 投影单点在 core）"
     );
+    assert_eq!(
+        source.matches("archi::workspace_render(").count(),
+        1,
+        "生成命令只调 `workspace_render`（应生成集单点在 core）"
+    );
+    for forbidden in [
+        "archi::api::compare(",
+        "archi::api::meta(",
+        "archi::api::display(",
+        "archi::api::findings(",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "命令层零第二份判定 / 归一 / 装配（`{forbidden}` 零命中）"
+        );
+    }
     assert!(
         !source.contains("contract_path") && !source.contains("schema_path"),
         "命令层零契约路径拼装"
@@ -1149,13 +1187,36 @@ fn 命令层零领域规则() {
         source.contains("dto::module_detail"),
         "archi_module 经 dto::module_detail 投影"
     );
+    // 写盘面：`fs::write` / `create_dir_all` 仍只属 `archi_set_gate` 的 `write_atomic`
+    assert_eq!(
+        source.matches("fs::write(&temporary").count(),
+        1,
+        "`fs::write` 恰一处（`write_atomic` 的临时文件写入）"
+    );
+    assert!(
+        !source.contains("create_dir_all"),
+        "生成命令经 `write_artifacts` 建目录（命令层零 `create_dir_all`）"
+    );
 
-    // 命令数量仍五 + 两个 drift/read 命令
     let commands: Vec<&str> = source
         .lines()
         .filter(|line| line.starts_with("pub fn archi_"))
         .collect();
-    assert!(commands.len() >= 6, "命令面仍在（实际：{commands:?}）");
+    assert_eq!(
+        commands.len(),
+        16,
+        "八条命令 与 八条 *_inner 各一件（实际：{commands:?}）"
+    );
+    assert_eq!(
+        source.matches("#[tauri::command]").count(),
+        8,
+        "命令面八条（typed 包装各带一注解）"
+    );
+    assert_eq!(
+        source.matches("#[specta::specta]").count(),
+        8,
+        "八条命令均走 specta 出线"
+    );
 }
 
 /// 边界（AC-9）：只读命令零写盘——`archi_module` 调用前后 tempdir 字节快照相等（新增
@@ -1523,8 +1584,8 @@ fn archi_file_tree与archi_graph同根一致() {
     }
 }
 
-/// 异常（AC-6 / D11）：命令层零领域规则——新命令体内零归属判定 / 零目录合成 /
-/// 零标记推导；文件头与注释口径为「六命令」（零残留旧口径）。
+/// 异常（AC-6 / D11 / AC-1）：命令层零领域规则——`archi_file_tree_inner` 体内零归属判定 /
+/// 零目录合成 / 零标记推导；文件头口径为「八命令」与「写命令两条」（零残留旧口径）。
 #[test]
 #[allow(non_snake_case)]
 fn archi_file_tree命令层零领域规则() {
@@ -1555,11 +1616,300 @@ fn archi_file_tree命令层零领域规则() {
         source.contains("ArchiFileTree"),
         "`use` 区含 `ArchiFileTree`（返回类型在册）"
     );
-    for stale in ["五命令", "四命令"] {
+    for stale in ["五命令", "四命令", "六命令", "其余五条"] {
         assert!(
             !source.contains(stale),
             "文件头口径已改符实（零残留 `{stale}`）"
         );
     }
-    assert!(source.contains("六命令"), "文件头口径为六命令");
+    let header: String = source
+        .lines()
+        .take_while(|line| line.starts_with("//!"))
+        .collect::<Vec<&str>>()
+        .join("\n");
+    assert!(header.contains("八命令"), "文件头口径为八命令");
+    assert!(header.contains("写命令两条"), "文件头写明命令两条");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：archi_api_check / archi_api_generate（第二条写命令）
+// ---------------------------------------------------------------------------
+
+/// 契约语料（1 op `file_stem` + 1 类型；H1 = `App.Api.Subject`）。
+const API_CONTRACT: &str = "# App.Api.Subject\n\n## 职能\n\n命令面语料。\n\n## 操作\n\n\
+     ### file_stem\n\n```json api-op\n{\"owner\": \"LocalGate\", \
+     \"params\": [{\"name\": \"timestamp\", \"schema\": {\"type\": \"string\"}}], \
+     \"returns\": {\"type\": \"string\"}}\n```\n\n## 类型\n\n```json api-types\n\
+     {\"LocalGate\": {\"type\": \"object\", \"properties\": {}}}\n```\n";
+
+/// 契约面语料根：模型（`App` 容器 + `App.Api` 域 + 叶元素）+ 入口源文 + 契约 md。
+fn api_fixture(tag: &str) -> TempDir {
+    let temp = TempDir::new(tag);
+    temp.write_model(
+        "01-api.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n",
+            "[element.\"App.Api.Subject\"]\nkind = \"module\"\ngate = \"warn\"\n",
+            "path = [\"./crates/api/subject/\"]\n",
+        ),
+    );
+    temp.write(
+        "crates/api/subject/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    temp.write(
+        ".dev-team/architecture/api/Api/App.Api.Subject.md",
+        API_CONTRACT,
+    );
+    temp
+}
+
+/// 正向（AC-1 / AC-3）：包装与 `_inner` 各自 `Ok`，两者序列化逐字段相等（命令层零投影）。
+#[test]
+fn api_check包装与inner逐字段一致() {
+    let temp = api_fixture("api-check-parity");
+    let outer = archi_api_check(temp.root()).expect("包装应 Ok");
+    let inner = archi_api_check_inner(temp.path()).expect("inner 应 Ok");
+    assert_eq!(
+        serde_json::to_value(&outer).expect("序列化"),
+        serde_json::to_value(&inner).expect("序列化"),
+        "命令层零投影：包装与 inner 逐字段相等"
+    );
+    assert!(outer.enabled, "契约面启用");
+    assert!(
+        !outer.missing.is_empty() || !outer.mismatched.is_empty(),
+        "未生成时应报缺口：{outer:?}"
+    );
+}
+
+/// 正向（AC-1 / AC-2）：`check` 后 `generate` → 两列与 `_inner` 逐字段相等；复检三列全空、
+/// `enabled` 保持；`written + unchanged` = 应生成份数；二次 generate 幂等。
+#[test]
+fn api_generate写后复检三列全空() {
+    let temp = api_fixture("api-generate");
+    let before = archi_api_check(temp.root()).expect("检查应 Ok");
+    let expected_total = before.mismatched.len() + before.orphaned.len() + before.missing.len();
+    assert!(expected_total > 0, "首轮应有差异：{before:?}");
+
+    // 包装与 inner 各在一份等价语料上首轮驱动：写盘有副作用，同一棵树连调两次第二次
+    // 必然全 `unchanged`，不能拿来做逐字段对拍
+    let twin = api_fixture("api-generate-twin");
+    let outer = archi_api_generate(temp.root()).expect("生成应 Ok");
+    let inner = archi_api_generate_inner(twin.path()).expect("inner 应 Ok");
+    assert_eq!(
+        serde_json::to_value(&outer).expect("序列化"),
+        serde_json::to_value(&inner).expect("序列化"),
+        "包装与 inner 逐字段相等"
+    );
+    assert_eq!(
+        outer.written.len(),
+        expected_total,
+        "written + unchanged = 应生成份数"
+    );
+    assert!(outer.unchanged.is_empty(), "首轮零 unchanged");
+
+    let after = archi_api_check(temp.root()).expect("复检应 Ok");
+    assert!(after.mismatched.is_empty(), "复检零不符");
+    assert!(after.orphaned.is_empty(), "复检零孤儿");
+    assert!(after.missing.is_empty(), "复检零缺失");
+    assert!(after.enabled, "enabled 保持");
+
+    let again = archi_api_generate(temp.root()).expect("二次生成应 Ok");
+    assert!(again.written.is_empty(), "二次生成零写入");
+    assert_eq!(
+        again.unchanged.len(),
+        expected_total,
+        "二次生成全部 unchanged（幂等）"
+    );
+}
+
+/// 异常（AC-2 / 硬线二）：盘上预置孤儿 → `generate` 后孤儿字节不变、复检仍报同一条。
+#[test]
+fn api_generate孤儿仍在盘() {
+    let temp = api_fixture("api-generate-orphan");
+    temp.write("crates/api/orphan.i.rs", "// 历史孤儿\n");
+    let orphan = temp.path().join("crates/api/orphan.i.rs");
+    let before = fs::read(&orphan).expect("读孤儿失败");
+
+    archi_api_generate(temp.root()).expect("生成应 Ok");
+    assert!(orphan.is_file(), "孤儿仍在盘");
+    assert_eq!(
+        fs::read(&orphan).expect("读孤儿失败"),
+        before,
+        "孤儿字节不变"
+    );
+
+    let report = archi_api_check(temp.root()).expect("复检应 Ok");
+    assert_eq!(
+        report.orphaned,
+        vec!["crates/api/orphan.i.rs".to_owned()],
+        "复检仍报同一条孤儿"
+    );
+}
+
+/// 异常（AC-2 / D12 / D1）：结构错模型 → 两命令均 `Err`（文案含「模型结构错」）；两次调用
+/// 前后快照相等（零写盘）。
+#[test]
+fn 结构错模型两命令均err且零写盘() {
+    let temp = TempDir::new("api-structural-error");
+    temp.write_model(
+        "01-cycle.toml",
+        concat!(
+            "[element.\"App\"]\nkind = \"package\"\n\n",
+            "[element.\"App.A\"]\nkind = \"module\"\n\n",
+            "[element.\"App.B\"]\nkind = \"module\"\n\n",
+            "[[relation]]\nfrom = \"App.A\"\nto = \"App.B\"\n\n",
+            "[[relation]]\nfrom = \"App.B\"\nto = \"App.A\"\n",
+        ),
+    );
+    let before = snapshot(temp.path());
+    let check_error = archi_api_check(temp.root()).expect_err("检查应 Err");
+    assert!(
+        check_error.contains("模型结构错"),
+        "检查文案点名结构诊断：{check_error}"
+    );
+    let generate_error = archi_api_generate(temp.root()).expect_err("生成应 Err");
+    assert!(
+        generate_error.contains("模型结构错"),
+        "生成文案点名结构诊断：{generate_error}"
+    );
+    assert_eq!(snapshot(temp.path()), before, "两次调用前后零写盘");
+}
+
+/// 边界（AC-10 的数据侧）：无 `<archi_api_dir>` → `check` 仍 `Ok`、`enabled == false`、
+/// `missing` 恰 `INDEX.toml` 一条；`generate` 仍可写该份。
+#[test]
+fn 未启用契约面check仍ok且generate可写() {
+    let temp = TempDir::new("api-not-enabled");
+    temp.write_model(
+        "01-api.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n\
+         [element.\"App.Api\"]\nkind = \"domain\"\ngate = \"off\"\n\n\
+         [element.\"App.Api.Subject\"]\nkind = \"module\"\ngate = \"warn\"\n\
+         path = [\"./crates/api/subject/\"]\n",
+    );
+    temp.write(
+        "crates/api/subject/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+
+    let checked = archi_api_check(temp.root()).expect("未启用仍 Ok");
+    assert!(!checked.enabled, "enabled == false");
+    assert_eq!(checked.missing.len(), 1, "missing 恰一条");
+    assert!(
+        checked.missing[0].ends_with("INDEX.toml"),
+        "缺口是索引：{:?}",
+        checked.missing
+    );
+
+    let generated = archi_api_generate(temp.root()).expect("生成应 Ok");
+    assert_eq!(generated.written.len(), 1, "应生成集只此一份");
+    assert!(
+        generated.written[0].ends_with("INDEX.toml"),
+        "写入的是索引：{:?}",
+        generated.written
+    );
+}
+
+/// 异常（AC-2 / spec「非原子如实」）：目标落点被**目录**占位 → `generate` 返回 `Err`，
+/// 文案原样透传写盘单点的错误（零包装、零补默认值），不含「全部成功」类措辞。
+#[test]
+fn 写失败文案透传不称全或无() {
+    let temp = api_fixture("api-write-failure");
+    // `INDEX.toml` 落点被同名目录占位 ⇒ 该份 `fs::write` 必失败（前序份已写）
+    fs::create_dir_all(temp.path().join(".dev-team/architecture/api/INDEX.toml"))
+        .expect("建同名目录失败");
+
+    let error = archi_api_generate(temp.root()).expect_err("写盘失败应 Err");
+    assert!(error.contains("写入失败"), "文案透传写盘单点原因：{error}");
+    assert!(
+        !error.contains("全部成功"),
+        "MUST NOT 声称全部成功：{error}"
+    );
+    assert!(
+        temp.path().join("crates/api/subject.i.rs").is_file(),
+        "非原子：失败点之前已写（不回滚）"
+    );
+}
+
+/// 异常（AC-1 / D12）：`mod.rs` 自证命令层零领域规则——检查命令只调投影单点、生成命令 =
+/// 渲染单点 + 写盘单点；两新函数体零本地写盘；文件头「八命令」「写命令两条」在位。
+#[test]
+fn 命令层零领域规则与头注释口径() {
+    let source = include_str!("mod.rs");
+    let body_of = |name: &str| -> String {
+        source
+            .split_once(&format!("pub fn {name}("))
+            .unwrap_or_else(|| panic!("{name} 在案"))
+            .1
+            .split_once("\n}\n")
+            .expect("函数体收口")
+            .0
+            .to_owned()
+    };
+
+    let check_inner = body_of("archi_api_check_inner");
+    assert!(
+        check_inner.contains("archi::api::artifact_check("),
+        "检查命令调投影单点：\n{check_inner}"
+    );
+    assert!(
+        !check_inner.contains("workspace_render") && !check_inner.contains("compare("),
+        "检查命令零第二份渲染 / 比对：\n{check_inner}"
+    );
+
+    let generate_inner = body_of("archi_api_generate_inner");
+    assert!(
+        generate_inner.contains("archi::workspace_render(")
+            && generate_inner.contains("api_artifacts::write_artifacts("),
+        "生成命令 = 渲染单点 + 写盘单点：\n{generate_inner}"
+    );
+    assert!(
+        !generate_inner.contains("fs::write") && !generate_inner.contains("create_dir_all"),
+        "新命令零本地写盘：\n{generate_inner}"
+    );
+
+    let header: Vec<&str> = source
+        .lines()
+        .take_while(|line| line.starts_with("//!"))
+        .collect();
+    let header = header.join("\n");
+    assert!(header.contains("八命令"), "文件头「八命令」在位");
+    assert!(header.contains("写命令两条"), "文件头「写命令两条」在位");
+    assert!(!header.contains("六命令"), "文件头零旧口径「六命令」");
+}
+
+/// 边界（边界 / str 映射）：`root` 超长（>1000 chars）/ 含空格 / 非 ASCII / emoji → 落
+/// `Result` 内不 panic（空串形态已由 root 校验行覆盖）。
+#[test]
+fn api命令root字符串边界() {
+    let cases: [String; 4] = [
+        std::env::temp_dir()
+            .join("x".repeat(1100))
+            .to_string_lossy()
+            .into_owned(),
+        std::env::temp_dir()
+            .join("archi cmd with space")
+            .to_string_lossy()
+            .into_owned(),
+        std::env::temp_dir()
+            .join("架构-命令-根")
+            .to_string_lossy()
+            .into_owned(),
+        std::env::temp_dir()
+            .join("archi-cmd-🎯")
+            .to_string_lossy()
+            .into_owned(),
+    ];
+    for root in cases {
+        assert!(
+            archi_api_check(root.clone()).is_err(),
+            "不存在的 root 应 Err（形态边界不 panic）：{root}"
+        );
+        assert!(
+            archi_api_generate(root.clone()).is_err(),
+            "不存在的 root 应 Err（形态边界不 panic）：{root}"
+        );
+    }
 }

@@ -2592,12 +2592,14 @@ async fn explore铸造判据按名字包含四形态() {
     }
 }
 
-/// archi 铸造判据（正向，AC-1 表驱动五形态）：含 `archi_module` / 含
-/// `archi_search` / 两者同在 → `Some`；两者皆无（`tools: None` / 空清单）→
-/// `None`；近名（`archi` / `archi_module_x`）→ `None`（精确名比较）。
+/// archi 铸造判据（正向，AC-1 表驱动）：含 `archi_module` / 含 `archi_search` /
+/// 含 `archi_api` / 前两者同在 → `Some`；三皆无（`tools: None` / 空清单）→ `None`；近名
+/// （`archi` / `archi_module_x` / `archi_api_typo` / 大写 / 尾空格）→ `None`（精确名比较）。
 #[tokio::test]
-async fn archi铸造判据精确名五形态() {
-    use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};
+async fn archi铸造判据精确名表驱动() {
+    use crate::sdk::mount::{
+        ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL,
+    };
 
     let dir = workspace_root("mint-archi-names");
     let root = dir.path().to_path_buf();
@@ -2626,6 +2628,20 @@ async fn archi铸造判据精确名五形态() {
             tag: "两者同在",
             names: vec![ARCHI_MODULE_TOOL.to_owned(), ARCHI_SEARCH_TOOL.to_owned()],
             expect_present: true,
+        },
+        Case {
+            tag: "含 archi_api",
+            names: vec!["read".to_owned(), ARCHI_API_TOOL.to_owned()],
+            expect_present: true,
+        },
+        Case {
+            tag: "脏名（archi_api_typo / 尾空格 / 大写）",
+            names: vec![
+                "archi_api_typo".to_owned(),
+                "archi_api ".to_owned(),
+                "ARCHI_API".to_owned(),
+            ],
+            expect_present: false,
         },
         Case {
             tag: "空清单",
@@ -2750,9 +2766,9 @@ fn 枚举面零残留且引用面改挂载常量() {
     }
     assert!(
         code_lines.contains(
-            "use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};"
+            "use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};"
         ),
-        "引用面改引挂载清单的三专用名常量"
+        "引用面改引挂载清单的四专用名常量（含 `ARCHI_API_TOOL`）"
     );
     assert_eq!(
         code_lines.matches("fn mint_archi_context").count(),

@@ -468,8 +468,9 @@ pub struct ArchiDriftReport {
     pub suppressed: Vec<ArchiDriftSuppressedEntry>,
     /// 观察项（永不影响 `status` / `passed`）
     pub observations: Vec<ArchiDriftObservation>,
-    /// 契约判据（并列槽位；空数组 = 无契约问题）。**首期 MUST NOT 影响
-    /// `status` / `passed`**——与 `observations` 同款纪律，严重度由判据级
+    /// 契约判据（并列槽位；空数组 = 无契约问题）。**不进 `passed`**；对 `status`
+    /// 的影响限于**契约在案元素**的判据（纳管口径归 `desktop-archi-api-check`，筛选
+    /// 单点在 `api::gating_findings`）——严重度由判据级
     /// [`ArchiApiFindingKind::severity`] 决定
     pub api_findings: Vec<ArchiApiFinding>,
     /// 检查结论

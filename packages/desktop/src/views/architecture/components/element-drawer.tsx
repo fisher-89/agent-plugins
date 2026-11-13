@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 
 import {
   commands,
+  type ArchiApiFinding,
+  type ArchiApiRef,
   type ArchiElement,
   type ArchiModuleDetail,
   type ArchiRelation,
@@ -31,6 +33,8 @@ export interface ElementDrawerProps {
   element: ArchiElement | null;
   /** 图关系（`exempt` 边的 reason 行数据源） */
   relations: ArchiRelation[];
+  /** 契约判据（父级同一份漂移报告，零新 invoke） */
+  findings: ArchiApiFinding[];
   /** 改档成功后的父级重取（图与抽屉同步刷新） */
   onChanged: () => void;
 }
@@ -177,6 +181,107 @@ function GateEditor({
   );
 }
 
+/**
+ * 契约段的一条路径行（`status = declared` 才渲；「查看」经通用 `read_file`）。
+ * 路径为 `null` 时行仍渲、「查看」禁用：行数是「declared 三行」的契约面，缺席由
+ * 禁用态呈现，MUST NOT 静默少渲一行。
+ */
+function ContractPathRow({
+  root,
+  label,
+  path,
+}: {
+  root: string;
+  label: string;
+  path: string | null;
+}): React.JSX.Element {
+  return (
+    <div
+      className="flex items-center gap-1"
+      data-testid="archi-contract-path"
+      title={path ?? undefined}
+    >
+      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+        {path ?? '（该路径未生成）'}
+      </span>
+      {path === null ? (
+        // 路径缺席不吞行：行仍在场、「查看」禁用——`declared` 却缺路径的缺口要一眼可见
+        <Button variant="ghost" size="sm" disabled>
+          查看
+        </Button>
+      ) : (
+        <FileViewer
+          root={root}
+          files={[{ path }]}
+          trigger={
+            <Button variant="ghost" size="sm">
+              查看
+            </Button>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/** 契约段（概览与文档之间）：`api.status` + 三路径行 + 本元素判据。 */
+function ContractSection({
+  root,
+  element,
+  api,
+  findings,
+}: {
+  root: string | null;
+  element: ArchiElement;
+  api: ArchiApiRef;
+  findings: ArchiApiFinding[];
+}): React.JSX.Element {
+  const own = findings.filter((finding) => finding.element === element.fqn);
+  return (
+    <div className="flex flex-col gap-1">
+      <h3 className="m-0 text-[13px] font-medium text-muted-foreground">契约</h3>
+      {api.status === 'none' || root === null ? (
+        <div
+          className="text-[13px] text-muted-foreground"
+          data-testid="archi-contract-drawer-empty"
+        >
+          无契约（`api = none` 或契约文件不在案）
+        </div>
+      ) : (
+        <>
+          <div className="text-xs text-muted-foreground">api {api.status}</div>
+          <ContractPathRow label="契约" path={api.contractPath} root={root} />
+          <ContractPathRow label="schema" path={api.schemaPath} root={root} />
+          <ContractPathRow label="生成物" path={api.generatedPath} root={root} />
+          {own.length === 0 ? (
+            <div
+              className="text-[13px] text-muted-foreground"
+              data-testid="archi-contract-drawer-empty"
+            >
+              本元素无漂移
+            </div>
+          ) : (
+            own.map((finding, index) => (
+              <div
+                className="flex flex-col gap-0.5"
+                data-kind={finding.kind}
+                key={`${finding.kind}:${finding.target ?? ''}:${index}`}
+              >
+                <span className="text-[11px] text-muted-foreground">
+                  {finding.kind}
+                  {finding.target === null ? '' : ` · ${finding.target}`}
+                </span>
+                <span className="wrap-break-word text-xs">{finding.message}</span>
+              </div>
+            ))
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /** 文档关联段（四字段条目按强度序；ADR 条目展开才取正文）。 */
 function DocsSection({
   root,
@@ -238,14 +343,16 @@ function ExemptSection({
 }
 
 /**
- * 右抽屉：概览 → 文档关联 → 豁免 →（`incremental`）改档入口 /（`full`）只读提示。
- * 未选中元素时呈空态（不发 `archi_module` 取数）。
+ * 右抽屉：概览 → 契约 → 文档关联 → 豁免 →（`incremental`）改档入口 /（`full`）只读
+ * 提示。未选中元素时呈空态（不发 `archi_module` 取数）；契约段数据全部来自既有
+ * `ArchiModuleDetail.api` 与父级同一份判据（零新 invoke）。
  */
 export function ElementDrawer({
   root,
   mode,
   element,
   relations,
+  findings,
   onChanged,
 }: ElementDrawerProps): React.JSX.Element {
   const module = useArchiModule(root, element === null ? null : element.fqn);
@@ -272,6 +379,14 @@ export function ElementDrawer({
         >
           {module.error}
         </div>
+      )}
+      {root !== null && module.detail !== null && (
+        <ContractSection
+          root={root}
+          element={element}
+          api={module.detail.api}
+          findings={findings}
+        />
       )}
       {root && <DocsSection root={root} docs={module.detail?.docs ?? []} />}
       <ExemptSection element={element} relations={relations} />

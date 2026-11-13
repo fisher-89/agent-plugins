@@ -337,10 +337,10 @@ fn generate契约错误零写入() {
     assert_eq!(temp.snapshot(), before, "失败前零写入（不留半成品）");
 }
 
-/// 异常（D33 第二层拦截，写盘限根）：`write` 对落在观察根之外的目标 MUST 拒绝写盘
-/// ——`archi::api::paths` 的形态校验是第一层（D33），本函数的 `starts_with(root)` 是
-/// 第二层；两层判据交叉验证（`docs::resolved_within` 的既有先例），任一层失效另一层
-/// 仍拦得住「任意文件写」。
+/// 异常（D33 第二层拦截，写盘限根）：`archi_runtime::api_artifacts::write_artifacts` 对落在
+/// 观察根之外的目标 MUST 拒绝写盘——`archi::api::paths` 的形态校验是第一层（D33），
+/// `write_artifacts` 内的 `starts_with(root)` 是第二层；两层判据交叉验证
+/// （`docs::resolved_within` 的既有先例），任一层失效另一层仍拦得住「任意文件写」。
 #[test]
 fn write拒绝越出观察根的生成物() {
     let temp = TempDir::new("write-out-of-root");
@@ -355,18 +355,20 @@ fn write拒绝越出观察根的生成物() {
         path: outside.clone(),
         content: "// 越界\n".to_owned(),
     };
-    let error = super::write(temp.root(), &file).expect_err("越出观察根应拒绝");
+    let error =
+        archi_runtime::api_artifacts::write_artifacts(temp.root(), std::slice::from_ref(&file))
+            .expect_err("越出观察根应拒绝");
     assert!(error.contains("越出观察根"), "文案点明限根判据：{error}");
     assert!(!outside.exists(), "拒绝后客观外面零文件创建（零副作用）");
 
     // 反向：落点观察根之内 → 正常写入（判据不误伤）
     let inside = temp.root().join("ok.i.rs");
-    super::write(
+    archi_runtime::api_artifacts::write_artifacts(
         temp.root(),
-        &archi::api::GeneratedFile {
+        &[archi::api::GeneratedFile {
             path: inside.clone(),
             content: "// ok\n".to_owned(),
-        },
+        }],
     )
     .expect("根内目标应写入");
     assert!(inside.is_file(), "根内目标在盘");
@@ -441,7 +443,8 @@ fn check应生成未生成() {
 }
 
 /// 边界（AC-12）：三种偏差形态各跑一次 `Check`，调用前后 tempdir 全量快照逐字节相等；
-/// 来源文件内 `fs::write` / `create_dir_all` 只在 `Generate` 的 `write` 路径出现。
+/// 来源文件内 `fs::write` / `create_dir_all` / `File::create` **零命中**——写盘单点在
+/// `archi_runtime::api_artifacts`，`main.rs` 只调 `api_artifacts::write_artifacts(` 恰一处。
 #[test]
 fn check零写盘总断言() {
     let temp = TempDir::new("check-no-write");
@@ -470,13 +473,23 @@ fn check零写盘总断言() {
     let source = include_str!("main.rs");
     assert_eq!(
         source.matches("fs::write").count(),
-        1,
-        "`fs::write` 只出现一处（Generate 的 write 函数）"
+        0,
+        "`fs::write` 零命中（写盘单点在 `archi_runtime::api_artifacts`）"
     );
     assert_eq!(
         source.matches("create_dir_all").count(),
+        0,
+        "`create_dir_all` 零命中（建目录归写盘单点）"
+    );
+    assert_eq!(
+        source.matches("File::create").count(),
+        0,
+        "`File::create` 零命中"
+    );
+    assert_eq!(
+        source.matches("api_artifacts::write_artifacts(").count(),
         1,
-        "`create_dir_all` 只出现一处（Generate 的 write 函数）"
+        "写盘经 infra 单点恰一处"
     );
 }
 
@@ -947,8 +960,8 @@ fn check差异清单三数组独立且键名固定() {
         );
     }
     assert!(
-        source.contains("fn to_json"),
-        "差异清单的序列化单点在 `Report::to_json`"
+        source.contains("fn diff_json"),
+        "差异清单的序列化单点在 `diff_json`（`ArtifactDiff` 三列的投影）"
     );
 
     // 行为面：三类偏差各自单独可检出（互不吞并的最小形态）
@@ -1003,13 +1016,18 @@ fn check差异清单三数组独立且键名固定() {
     );
     assert_eq!(all.snapshot(), before, "三类并存的判据零写入");
 
-    // 源码自证：三类偏差各自独立成数组（三个 push 目标互不共用）
-    for needle in ["mismatched.push(", "orphaned.push(", "missing.push("] {
+    // 源码自证：三类偏差各自独立成数组（三列的收集在 `api::compare` 单点，CLI 只投影，
+    // 本地零第二份收集实现）
+    for key in ["mismatched", "orphaned", "missing"] {
         assert!(
-            source.contains(needle),
-            "三类偏差各有独立收集：`{needle}` 应在案"
+            source.contains(&format!("\"{key}\": diff.{key}")),
+            "差异清单逐列投影 `{key}`（零本地收集）"
         );
     }
+    assert!(
+        !source.contains(".push("),
+        "CLI 侧零本地三列收集（`push(` 零命中）"
+    );
 }
 
 /// 边界（AC-12 / D29）：生成物的不动点守卫有**两态**——生成后 `.i.rs` 满足格式化器
@@ -1131,24 +1149,49 @@ fn check孤儿扫描零误伤普通源文件() {
     );
 }
 
-/// 边界（源码自证）：递归遍历的三条纪律在案——命名判据单点（`is_generated_module_file`）、
-/// 跳过目录表单点（`SKIPPED_DIRECTORIES`）、深度上限（`MAX_MODULE_WALK_DEPTH`）。
+/// 异常（AC-4 / D11）：递归遍历与比对面**零本地副本**——命名判据、跳过目录表、深度上限、
+/// 元素根遍历、差异装配全部迁出到 `crates/core/archi`（判据名与新落点对齐）；本文件只留
+/// 编排，四条调用各恰一处。
 #[test]
-fn check孤儿扫描的三条纪律源码面() {
+fn check孤儿扫描零本地副本() {
     let source = include_str!("main.rs");
+    for absent in [
+        "is_generated_module_file",
+        "SKIPPED_DIRECTORIES",
+        "MAX_MODULE_WALK_DEPTH",
+        "fn walk_modules",
+        "generated_files_on_disk",
+        "model_elements",
+        "struct Report",
+        "fn collect",
+        "fn differences",
+        "fn walk(",
+        "remove_file",
+    ] {
+        assert!(
+            !source.contains(absent),
+            "`main.rs` 零本地副本 `{absent}`（实现单点在 core / infra）"
+        );
+    }
     assert_eq!(
-        source.matches("fn is_generated_module_file").count(),
+        source.matches("api::workspace_render(").count(),
         1,
-        "命名判据单点"
-    );
-    assert!(
-        source.contains("SKIPPED_DIRECTORIES") && source.contains("MAX_MODULE_WALK_DEPTH"),
-        "跳过目录表与深度上限在案"
+        "应生成集渲染恰一处（core 单点）"
     );
     assert_eq!(
-        source.matches("fn walk_modules").count(),
+        source.matches("api::compare(").count(),
         1,
-        "元素根同级的递归遍历单点"
+        "三类差异比对恰一处（core 单点）"
+    );
+    assert_eq!(
+        source.matches("api::bootstrap(").count(),
+        1,
+        "契约草稿恰一处（core 单点）"
+    );
+    assert_eq!(
+        source.matches("api_artifacts::write_artifacts(").count(),
+        1,
+        "写盘恰一处（infra 单点）"
     );
 }
 
@@ -1156,8 +1199,9 @@ fn check孤儿扫描的三条纪律源码面() {
 /// 各只命中自己的数组，不互相串位（「应删未删」的孤儿必须出现在 `orphaned` 里而不是
 /// 只靠退出码可判）。
 ///
-/// `differences` 是私有函数、`main_test` 是本文件的 `#[cfg(test)]` 子模块，故经
-/// `super::differences` 直调即可观测真实清单（MUST NOT 为测试放宽可见性）。
+/// 三列由 crate 根出口 `archi::compare` 取（`main.rs` 零本地收集），序列化为单行 JSON 的
+/// 私有函数是 `main` 的 `fn diff_json`；`main_test` 是本文件的 `#[cfg(test)]` 子模块，故经
+/// `super::diff_json` 直调即可观测真实清单（MUST NOT 为测试放宽可见性）。
 #[test]
 fn check差异清单逐数组点名该文件() {
     let temp = TempDir::new("check-report-content");
@@ -1165,12 +1209,12 @@ fn check差异清单逐数组点名该文件() {
     run(Command::Generate, temp.root()).expect("生成应成功");
 
     // 基线：无差异 → 三数组全空
-    let clean = super::differences(temp.root(), &super::collect(temp.root()).expect("应生成集"));
+    let clean = archi::compare(temp.root()).expect("比对应成功");
     assert!(clean.mismatched.is_empty(), "无差异：mismatched 空");
     assert!(clean.orphaned.is_empty(), "无差异：orphaned 空");
     assert!(clean.missing.is_empty(), "无差异：missing 空");
     assert_eq!(
-        clean.to_json(),
+        super::diff_json(&clean),
         "{\"mismatched\":[],\"orphaned\":[],\"missing\":[]}",
         "三键恒在场（零省略）"
     );
@@ -1182,13 +1226,11 @@ fn check差异清单逐数组点名该文件() {
     let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
     let original = mismatched.read(schema_rel).expect("schema 在盘");
     mismatched.write(schema_rel, &original.replace("\"title\"", "\"titleX\""));
-    let report = super::differences(
-        mismatched.root(),
-        &super::collect(mismatched.root()).expect("应生成集"),
-    );
+    let report = archi::compare(mismatched.root()).expect("比对应成功");
     assert_eq!(report.mismatched, vec![schema_rel.to_owned()], "点名该文件");
     assert!(report.orphaned.is_empty() && report.missing.is_empty());
-    let json: serde_json::Value = serde_json::from_str(&report.to_json()).expect("单行 JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&super::diff_json(&report)).expect("单行 JSON");
     assert_eq!(
         json["mismatched"],
         serde_json::json!([schema_rel]),
@@ -1200,10 +1242,7 @@ fn check差异清单逐数组点名该文件() {
     stage_crate(&orphaned);
     run(Command::Generate, orphaned.root()).expect("生成应成功");
     orphaned.write("crates/core/stale.i.rs", "// 孤儿\n");
-    let report = super::differences(
-        orphaned.root(),
-        &super::collect(orphaned.root()).expect("应生成集"),
-    );
+    let report = archi::compare(orphaned.root()).expect("比对应成功");
     assert_eq!(
         report.orphaned,
         vec!["crates/core/stale.i.rs".to_owned()],
@@ -1214,10 +1253,7 @@ fn check差异清单逐数组点名该文件() {
     // 应生成未生成：missing 点名该文件，另两数组空
     let missing = TempDir::new("check-report-missing");
     stage_crate(&missing);
-    let report = super::differences(
-        missing.root(),
-        &super::collect(missing.root()).expect("应生成集"),
-    );
+    let report = archi::compare(missing.root()).expect("比对应成功");
     assert!(
         report.missing.iter().any(
             |path| path == ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json"
@@ -1232,8 +1268,9 @@ fn check差异清单逐数组点名该文件() {
 // `display` 跨 crate 单点（D55 / AC-31 ⑤）
 // ---------------------------------------------------------------------------
 
-/// 工具侧 MUST NOT 自持一份路径归一实现：本地 `fn display` 已删，调用面是
-/// `archi::display`（D55 的唯一单点）。
+/// 工具侧 MUST NOT 自持一份路径归一实现：本地 `fn display` 已删，且 `--check` 的路径串
+/// 直接取自 `archi::compare` 的三列（归一单点在 `api::display`，CLI 侧零副本、零
+/// 二次归一）。
 #[test]
 fn 路径归一单点跨crate复用且本地零副本() {
     let source = include_str!("main.rs");
@@ -1243,11 +1280,19 @@ fn 路径归一单点跨crate复用且本地零副本() {
             .filter(|line| line.starts_with("fn display"))
             .count(),
         0,
-        "本地自由函数 `fn display` 已删（D55）"
+        "本地自由函数 `fn display` 已删"
     );
-    assert!(
-        source.matches("archi::display").count() >= 1,
-        "调用面改指跨 crate 单点"
+    for local in ["replace(\"\\\\\", \"/\")", "strip_prefix("] {
+        assert_eq!(
+            source.matches(local).count(),
+            0,
+            "CLI 侧零本地路径归一（{local}）"
+        );
+    }
+    assert_eq!(
+        source.matches("compare(").count(),
+        1,
+        "差异清单的三列经 `archi::api` 的比对取得（唯一来源）"
     );
 }
 
@@ -1267,10 +1312,170 @@ fn 差异清单路径串与跨crate单点同源() {
 
     let original = temp.read(schema_rel).expect("schema 在盘");
     temp.write(schema_rel, &original.replace("\"title\"", "\"titleX\""));
-    let report = super::differences(temp.root(), &super::collect(temp.root()).expect("应生成集"));
+    let report = archi::compare(temp.root()).expect("比对应成功");
     assert_eq!(
         report.mismatched,
         vec![archi::display(temp.root(), &absolute)],
         "清单串与单点逐字相等（零第二份归一）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：编排收窄的行为面（fail-closed / 孤儿不删 / 三键同源）
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-4 / D1）：结构错模型 → `run(Generate)` 产 `Err` 且零写盘（fail-closed：坏模型
+/// 不得固化成入库生成物）。
+#[test]
+fn generate结构错模型即err且零写盘() {
+    let temp = TempDir::new("generate-broken-model");
+    stage_crate(&temp);
+    // 用环语料覆盖模型（祖先链刻意缺失 ⇒ 结构诊断）
+    temp.write(
+        ".dev-team/architecture/models/01-broken.toml",
+        "[element.\"App\"]\nkind = \"package\"\n\n\
+         [element.\"App.A\"]\nkind = \"module\"\n\n\
+         [element.\"App.B\"]\nkind = \"module\"\n\n\
+         [[relation]]\nfrom = \"App.A\"\nto = \"App.B\"\n\n\
+         [[relation]]\nfrom = \"App.B\"\nto = \"App.A\"\n",
+    );
+    let staged_models = fs::read_dir(foundation::layout::archi_models_dir(temp.root()))
+        .expect("读模型目录")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
+        .count();
+    assert!(staged_models >= 1, "模型目录内有语料（前提）");
+
+    let before = temp.snapshot();
+    let error = run(Command::Generate, temp.root()).expect_err("结构错模型 ⇒ Err");
+    assert!(
+        error.contains("模型结构错"),
+        "文案点名结构诊断（core 单点透传）：{error}"
+    );
+    assert_eq!(temp.snapshot(), before, "fail-closed：坏模型零写盘");
+}
+
+/// 异常（AC-2 / 硬线二）：`Check` 报 `orphaned` 非空后执行 `Generate` → 孤儿仍在盘、字节
+/// 不变；后续 `Check` 仍报同一条孤儿（生成不清理）。
+#[test]
+fn 孤儿不删且复检仍报() {
+    let temp = TempDir::new("orphan-survives-generate");
+    stage_crate(&temp);
+    assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
+
+    temp.write("crates/core/stale.i.rs", "// 历史孤儿\n");
+    let orphan = temp.root().join("crates/core/stale.i.rs");
+    let before_bytes = fs::read(&orphan).expect("读孤儿失败");
+    assert_eq!(
+        run(Command::Check, temp.root()).expect("check 不 Err"),
+        1,
+        "孤儿 ⇒ 非零退出"
+    );
+
+    assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
+    assert!(orphan.is_file(), "生成后孤儿仍在盘");
+    assert_eq!(
+        fs::read(&orphan).expect("读孤儿失败"),
+        before_bytes,
+        "孤儿字节不变"
+    );
+
+    let report = archi::compare(temp.root()).expect("比对应成功");
+    assert_eq!(
+        report.orphaned,
+        vec!["crates/core/stale.i.rs".to_owned()],
+        "后续比对仍报同一条孤儿"
+    );
+}
+
+/// 正向（AC-4 / D11 / 脚本面契约）：`Check` 的单行 JSON 三键名与序是脚本面契约，且逐值与
+/// `api::compare` 三列相同（两驱动面同源）。
+#[test]
+fn check单行json与compare三列同源() {
+    let temp = TempDir::new("check-json-same-source");
+    stage_crate(&temp);
+    assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
+    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let original = temp.read(schema_rel).expect("schema 在盘");
+    temp.write(schema_rel, &original.replace("\"title\"", "\"titleY\""));
+    temp.write("crates/core/stale.i.rs", "// 孤儿\n");
+    fs::remove_file(temp.root().join("crates/core/archi.i.rs")).expect("移除应生成物");
+
+    let diff = archi::compare(temp.root()).expect("比对应成功");
+    let json_text = super::diff_json(&diff);
+    assert!(!json_text.contains('\n'), "单行 JSON：{json_text}");
+    let value: serde_json::Value = serde_json::from_str(&json_text).expect("可解析 JSON");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["mismatched", "orphaned", "missing"],
+        "键序即契约"
+    );
+    assert_eq!(
+        value["mismatched"],
+        serde_json::json!(diff.mismatched),
+        "逐值相同"
+    );
+    assert_eq!(
+        value["orphaned"],
+        serde_json::json!(diff.orphaned),
+        "逐值相同"
+    );
+    assert_eq!(
+        value["missing"],
+        serde_json::json!(diff.missing),
+        "逐值相同"
+    );
+    assert_eq!(
+        run(Command::Check, temp.root()).expect("check 不 Err"),
+        1,
+        "三类差异 ⇒ 退出码 1"
+    );
+}
+
+/// 边界（AC-4 / D11）：超大差异清单——1000 份孤儿仍出**单行** JSON，三数组长度与
+/// `compare` 三列逐项一致、孤儿序为路径字节序（不抛错、不换行）。
+#[test]
+fn check超大差异清单仍单行json() {
+    let temp = TempDir::new("check-large-diff");
+    stage_crate(&temp);
+    for index in 0..1000 {
+        temp.write(&format!("src/orphan{index:04}.i.rs"), "// 孤儿\n");
+    }
+
+    let diff = archi::compare(temp.root()).expect("比对应成功");
+    assert_eq!(diff.orphaned.len(), 1000, "1000 份孤儿全部入列");
+    let mut sorted = diff.orphaned.clone();
+    sorted.sort();
+    assert_eq!(diff.orphaned, sorted, "孤儿序为路径字节序");
+
+    let json_text = super::diff_json(&diff);
+    assert!(!json_text.contains('\n'), "单行 JSON 不随规模换行");
+    let value: serde_json::Value = serde_json::from_str(&json_text).expect("可解析 JSON");
+    assert_eq!(
+        value["orphaned"].as_array().expect("数组").len(),
+        1000,
+        "孤儿数组长度随语料"
+    );
+    assert_eq!(
+        value["mismatched"].as_array().expect("数组").len(),
+        diff.mismatched.len(),
+        "不符列逐值同源"
+    );
+    assert_eq!(
+        value["missing"].as_array().expect("数组").len(),
+        diff.missing.len(),
+        "缺失列逐值同源"
+    );
+    assert_eq!(
+        run(Command::Check, temp.root()).expect("check 不 Err"),
+        1,
+        "有差异 ⇒ 退出码 1"
     );
 }

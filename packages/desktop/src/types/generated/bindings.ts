@@ -290,6 +290,10 @@ export const commands = {
 	archiDrift: (root: string, mode: ArchiDriftMode) => __TAURI_INVOKE<ArchiDriftReport>("archi_drift", { root, mode }),
 	/**  左栏文件树数据（仓库源文件与模块根的扁平条目投影）。 */
 	archiFileTree: (root: string) => __TAURI_INVOKE<ArchiFileTree>("archi_file_tree", { root }),
+	/**  契约生成物新鲜度的检查（零写盘）。 */
+	archiApiCheck: (root: string) => __TAURI_INVOKE<ArchiApiCheck>("archi_api_check", { root }),
+	/**  契约生成物写盘（只增只改、从不删）。 */
+	archiApiGenerate: (root: string) => __TAURI_INVOKE<ArchiApiWriteOutcome>("archi_api_generate", { root }),
 	/**  通用文件读取（唯一内容出口）：字节分页 + 同批 stat。 */
 	readFile: (path: string, offset: number | null, limit: number | null) => __TAURI_INVOKE<FileSlice | null>("read_file", { path, offset, limit }),
 };
@@ -626,6 +630,25 @@ export type AppEnvironment = {
 };
 
 /**
+ *  契约生成物新鲜度的出线事实（`archi_api_check` 出参）。
+ * 
+ *  三类差异合起来恰是「点生成会写什么」的完整清单；三列元素为 repo 相对 POSIX
+ *  串（经 `api::display` 单点产出，MUST NOT 在命令层或前端另归一）。
+ */
+export type ArchiApiCheck = {
+	/**  契约面是否启用（`api::enabled` 单点判定） */
+	enabled: boolean,
+	/**  生成载元（`api::meta()` 投影） */
+	meta: ArchiApiMeta,
+	/**  内容不符（文件在盘但字节与渲染结果不同） */
+	mismatched: string[],
+	/**  应删未删（盘上存在、命名符合生成物判据、不在应生成集） */
+	orphaned: string[],
+	/**  应生成未生成（`enabled = false` 时通常只 `INDEX.toml` 一条） */
+	missing: string[],
+};
+
+/**
  *  契约判据条目（`apiFindings[]` 的条目形状）。
  * 
  *  `element` 对应既有条目的「引入方」语义、`target` 对应「被引入方」语义；
@@ -682,6 +705,20 @@ export type ArchiApiFindingKind =
 "apiConstructorDeclared";
 
 /**
+ *  生成载元的出线形态（`ArchiApiCheck.meta`）。
+ * 
+ *  只两项：`ApiMeta` 的 `schemaUri` / `generatedNotice` / `common` 规则表 MUST NOT
+ *  出线（前端不消费，出线等于把内部载元变成协议面）。`commonDigest` 出**全量**
+ *  `sha256:<hex>`——截断只发生在生成物文本（`api::short_digest`），面板自行截断显示。
+ */
+export type ArchiApiMeta = {
+	/**  生成器 crate 版本（`CARGO_PKG_VERSION`） */
+	toolVersion: string,
+	/**  映射规则资产摘要（全量 `sha256:<hex>`） */
+	commonDigest: string,
+};
+
+/**
  *  契约状态的线面投影（并列字段，**投影只报文件在案事实**）：
  * 
  *  - `status` = 契约文件是否在案（`declared` / `none`）；
@@ -701,6 +738,19 @@ export type ArchiApiRef = {
 	schemaPath: string | null,
 	/**  元素生成物（`<root>.i.rs` / `<root>.i.ts`）的 repo 相对路径 */
 	generatedPath: string | null,
+};
+
+/**
+ *  生成物写盘结果（`archi_api_generate` 出参）。
+ * 
+ *  `written` = 本次实际写入（新创建或内容变化）；`unchanged` = 应生成且盘上已一致
+ *  （本次零写入、mtime 不动）。两者不交叠；生成从不删文件。
+ */
+export type ArchiApiWriteOutcome = {
+	/**  本次实际写入的生成物（repo 相对 POSIX 串） */
+	written: string[],
+	/**  应生成且盘上已一致的生成物（repo 相对 POSIX 串） */
+	unchanged: string[],
 };
 
 /**  模型结构 diff 摘要（归档确认面「架构变更」区块的数据源）。 */
@@ -904,8 +954,9 @@ export type ArchiDriftReport = {
 	/**  观察项（永不影响 `status` / `passed`） */
 	observations: ArchiDriftObservation[],
 	/**
-	 *  契约判据（并列槽位；空数组 = 无契约问题）。**首期 MUST NOT 影响
-	 *  `status` / `passed`**——与 `observations` 同款纪律，严重度由判据级
+	 *  契约判据（并列槽位；空数组 = 无契约问题）。**不进 `passed`**；对 `status`
+	 *  的影响限于**契约在案元素**的判据（纳管口径归 `desktop-archi-api-check`，筛选
+	 *  单点在 `api::gating_findings`）——严重度由判据级
 	 *  [`ArchiApiFindingKind::severity`] 决定
 	 */
 	apiFindings: ArchiApiFinding[],

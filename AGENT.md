@@ -27,7 +27,7 @@ This repository is the **WPS AI desktop application** — a Tauri 2 + React app.
 - **四类生成物勿手改**：`.schema.json`（同目录）、`INDEX.toml`（契约目录根）、元素根同级的 `<root>.i.rs` / `<root>.i.ts`。手改已提交即零 diff 门失败，未提交会被下次生成静默覆盖。
 - **两个脚本**：`api:export` 生成、`api:check` 读盘比对（零写入，差异即非零退出）。`check` 链为四段：`server:check` → `bindings:export` → `api:check` → `client:check`。
 - **`api = none` 是显式留白**（模型元素字段，非「还没写」）：断言本模块无公共 API；写了契约文件反而触发 `apiUnexpected`。
-- **契约判据进报告但不进 status**：漂移报告的并列槽位 `apiFindings`（定义见 `desktop-archi-api-check`），首期不影响 `status` / `passed`；索引与计数经 `.dev-team/architecture/api/INDEX.toml` 一眼看全。
+- **契约在案元素的判据进 status、不进 passed**：漂移报告的并列槽位 `apiFindings`（定义见 `desktop-archi-api-check`）只把「契约文件在案元素」的判据折算进 `status`（可抬到 `warnings` 档），门禁布尔 `passed` 不受影响；索引与计数经 `.dev-team/architecture/api/INDEX.toml`，两轴（生成物新鲜度 / 契约 vs 代码）经架构页「契约」视图一眼看全。
 
 ## Coding Guidelines
 

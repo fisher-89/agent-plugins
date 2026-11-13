@@ -3373,25 +3373,41 @@ fn archi_bits(injections: &agent::SessionInjections) -> Option<(bool, bool)> {
     }
 }
 
+/// `archi_api` 名的在场形态（第三位；与上面两位独立计数）。
+fn api_bit(injections: &agent::SessionInjections) -> bool {
+    injections
+        .tools
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .any(|name| name == crate::sdk::mount::ARCHI_API_TOOL)
+}
+
 /// 正向：矩阵七行逐行命中（每行 = 七工具名 + 矩阵勾选的 archi 名）。
 #[test]
 fn 注入矩阵七行逐行命中() {
-    let rows: [(&str, &str, (bool, bool)); 7] = [
-        ("proposal", "executor", (false, true)),
-        ("dev-design", "executor", (true, true)),
-        ("dev-design", "evaluator", (true, true)),
-        ("test-design", "executor", (false, true)),
-        ("implement", "executor", (true, false)),
-        ("code-review", "evaluator", (true, false)),
-        ("acceptance", "evaluator", (true, false)),
+    // 三位 =（archi_module, archi_search, archi_api）；矩阵仅 `implement/executor` 勾 `archi_api`
+    let rows: [(&str, &str, (bool, bool, bool)); 7] = [
+        ("proposal", "executor", (false, true, false)),
+        ("dev-design", "executor", (true, true, false)),
+        ("dev-design", "evaluator", (true, true, false)),
+        ("test-design", "executor", (false, true, false)),
+        ("implement", "executor", (true, false, true)),
+        ("code-review", "evaluator", (true, false, false)),
+        ("acceptance", "evaluator", (true, false, false)),
     ];
     for (phase, role, expected) in rows {
         let source_ref = format!("add-feature/{phase}/{role}/1");
         let injections = injections_of("change", Some(&source_ref));
         assert_eq!(
             archi_bits(&injections),
-            Some(expected),
-            "矩阵行 {phase}/{role} 的两位"
+            Some((expected.0, expected.1)),
+            "矩阵行 {phase}/{role} 的 module / search 两位"
+        );
+        assert_eq!(
+            api_bit(&injections),
+            expected.2,
+            "矩阵行 {phase}/{role} 的 api 位"
         );
         let mut expected_names = seven();
         if expected.0 {
@@ -3399,6 +3415,9 @@ fn 注入矩阵七行逐行命中() {
         }
         if expected.1 {
             expected_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
+        }
+        if expected.2 {
+            expected_names.push(crate::sdk::mount::ARCHI_API_TOOL.to_owned());
         }
         assert_eq!(
             injections.tools,
@@ -3534,13 +3553,13 @@ fn 其余来源恒显式generic且零archi与零收口() {
 }
 
 // ---------------------------------------------------------------------------
-// 注入矩阵（archi 会话章节）：`source = "archi"` 臂——七工具全量 + `Archi
-// { module: true, search: true }` + 架构会话知识 preamble；该臂以 `source` 短路
+// 注入矩阵（archi 会话章节）：`source = "archi"` 臂——七工具全量 + 三 archi 工具
+// （module / search / api）+ 架构会话知识 preamble；该臂以 `source` 短路
 // 命中，零 `source_ref` 读取（不碰相位解析、不 fail-closed）。
 // ---------------------------------------------------------------------------
 
 /// 正向：archi 臂全字段——`preamble` 与 `knowledge()` 逐字相等、名字清单为七
-/// 工具名 + 两 archi 名、`finish = None`，返回 `Ok`（零 `Err` 路径）。
+/// 工具名 + 三 archi 名、`finish = None`，返回 `Ok`（零 `Err` 路径）。
 #[test]
 fn archi臂全字段() {
     let injections = injections_of("archi", None);
@@ -3554,10 +3573,11 @@ fn archi臂全字段() {
     let mut expected_names = seven();
     expected_names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
     expected_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
+    expected_names.push(crate::sdk::mount::ARCHI_API_TOOL.to_owned());
     assert_eq!(
         injections.tools,
         Some(expected_names),
-        "archi 臂名字清单 = 七工具名 + 两 archi 名"
+        "archi 臂名字清单 = 七工具名 + 三 archi 名"
     );
     assert_eq!(injections.finish, None, "archi 臂无收口档位");
 }
@@ -3589,8 +3609,8 @@ fn archi臂source_ref形态无关() {
         );
         assert_eq!(
             injections.tools.as_ref().map(Vec::len),
-            Some(9),
-            "工具面九名"
+            Some(10),
+            "工具面十名"
         );
     }
 
@@ -3698,7 +3718,11 @@ fn 降级范围单字段preamble独立() {
         crate::archi_knowledge::knowledge(),
         "preamble 位是唯一的可选位（与 knowledge() 同源）"
     );
-    assert_eq!(injections.tools.as_ref().map(Vec::len), Some(9));
+    assert_eq!(
+        injections.tools.as_ref().map(Vec::len),
+        Some(TOOL_NAMES.len() + 3),
+        "七内建 + 三 archi 名（`archi_module` / `archi_search` / `archi_api`）"
+    );
     assert_eq!(
         archi_bits(&injections),
         Some((true, true)),
@@ -3779,6 +3803,42 @@ async fn archi臂调用点链路捕获与直调全等() {
         "链路上仍是 archi 臂双开"
     );
     assert_eq!(sink.begin_turns.load(Ordering::Relaxed), 1, "一轮已开");
+}
+
+/// 零 `toolset` 概念（异常，源码自证 AC-15 / spec「零 toolset 概念」）：注入面
+/// 只有「工具名字清单」一个位——`compose.rs` 全文 `SessionToolset` / `toolset`
+/// **零命中**（零计数断言，非「某处未提及」的口径）；矩阵来源仍是名字常量直接
+/// `push`、`archi_matrix` 返回 `Vec<&'static str>`（零枚举 / 零 toolset 中间态）。
+#[test]
+fn 零toolset概念且矩阵来源为名字清单() {
+    const OWN: &str = include_str!("compose.rs");
+
+    for retired in ["SessionToolset", "toolset"] {
+        assert_eq!(
+            OWN.matches(retired).count(),
+            0,
+            "compose.rs 内 {retired} 零命中（注入面无 toolset 概念）"
+        );
+    }
+    assert_eq!(
+        OWN.matches("fn archi_matrix(phase: &str, role: &str) -> Option<Vec<&'static str>>")
+            .count(),
+        1,
+        "矩阵单源返回工具名字清单（零枚举 / 零 toolset 中间态）"
+    );
+    for constant in ["ARCHI_MODULE_TOOL", "ARCHI_SEARCH_TOOL", "ARCHI_API_TOOL"] {
+        assert_eq!(
+            OWN.matches(&format!("names.push(mount::{constant});"))
+                .count(),
+            1,
+            "archi 臂以 mount::{constant} 直接进入名字清单（恰一处）"
+        );
+    }
+    assert_eq!(
+        OWN.matches("fn assemble_injections").count(),
+        1,
+        "装配单点恰一处（注入面装配不分散）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3928,10 +3988,10 @@ fn 装配explore臂ask位generic且清单零ask工具名() {
     );
 }
 
-/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；九名 +
-/// `preamble` 在场；`source_ref` 取任意值不改变该臂。
+/// archi 臂（正向，参数化 2 形态 source_ref）：`ask == Some(Generic)`；十名（七内建 +
+/// 三 archi 工具）+ `preamble` 在场；`source_ref` 取任意值不改变该臂。
 #[test]
-fn 装配archi臂ask位generic且九名与preamble在场() {
+fn 装配archi臂ask位generic且十名与preamble在场() {
     for source_ref in [None, Some("add-feature/dev-design/executor/1")] {
         let injections = injections_of("archi", source_ref);
         assert_eq!(
@@ -3941,12 +4001,13 @@ fn 装配archi臂ask位generic且九名与preamble在场() {
         );
         assert!(injections.preamble.is_some(), "archi 臂 preamble 在场");
         let names = injections.tools.as_deref().expect("archi 臂下发名字清单");
-        assert_eq!(names.len(), 9, "七件 + 两 archi 名");
+        assert_eq!(names.len(), 10, "七件 + 三 archi 名");
         assert_eq!(
             archi_bits(&injections),
             Some((true, true)),
-            "两 archi 名双开"
+            "module / search 双开"
         );
+        assert!(api_bit(&injections), "archi 臂 api 名在场");
     }
 }
 
@@ -4300,7 +4361,7 @@ async fn compose_turn的ask_port两形态均贯通执行体() {
 /// （按位追加、不占名字清单）。
 #[tokio::test(start_paused = true)]
 async fn 装配产物真实驱动_change来源runstarted含ask工具() {
-    use crate::sdk::mount::ARCHI_MODULE_TOOL;
+    use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL};
 
     let env = DualEnv::new("drive-change-ask");
     let stores = env.stores();
@@ -4343,6 +4404,7 @@ async fn 装配产物真实驱动_change来源runstarted含ask工具() {
         .iter()
         .map(|name| (*name).to_owned())
         .chain(std::iter::once(ARCHI_MODULE_TOOL.to_owned()))
+        .chain(std::iter::once(ARCHI_API_TOOL.to_owned()))
         .chain(std::iter::once("AskUserQuestion".to_owned()))
         .collect();
     assert_eq!(

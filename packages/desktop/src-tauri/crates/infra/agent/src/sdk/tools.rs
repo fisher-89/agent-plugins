@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::sdk::bash;
 // 名字常量本体驻挂载清单（单点）；本模块与 `archi_tool` 经此再导出引用，
 // 使「定义 / 常量只有一份」与「读面模块零改动」两约束同时成立。
-pub(crate) use crate::sdk::mount::{ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
+pub(crate) use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL};
 
 /// glob 单次结果上限（防大目录扫描灌爆上下文）。
 const MAX_GLOB_RESULTS: usize = 200;
@@ -42,10 +42,10 @@ fn string_field(input: &Value, field: &str) -> Result<String, String> {
 }
 
 /// 沙箱校验对象提取：工具名 → 入参中的路径类字段值（glob 为 pattern，
-/// 其余为 path；未知工具 None——policy 已先行拒绝，此处兜底）。两个架构只读工具
+/// 其余为 path；未知工具 None——policy 已先行拒绝，此处兜底）。三个架构只读工具
 /// 无路径参数，显式返回 None（不进路径沙箱改写面——未来入参改名也不引入改写）。
 pub fn input_path<'a>(name: &str, input: &'a Value) -> Option<&'a str> {
-    if name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL {
+    if name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL || name == ARCHI_API_TOOL {
         return None;
     }
     let field = if name == "glob" { "pattern" } else { "path" };
