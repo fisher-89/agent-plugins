@@ -15,7 +15,7 @@ use crate::api::contract::Contract;
 
 use super::contract::parse;
 use super::paths;
-use super::schema::{build_index, build_schema, verify_defs};
+use super::schema::{build_index, build_schema, degraded_marks, verify_defs, DEGRADED_KINDS};
 use super::{ApiError, ApiFormStatus, ApiMeta, IndexEntry};
 
 /// 契约文件（repo 相对 POSIX）。
@@ -1178,5 +1178,419 @@ fn index_schema_rel与paths同源() {
     assert!(
         expected.ends_with(format!("{FQN}.schema.json")),
         "schema 路径文件名：{expected:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 降级词表与全深度标记扫描（AC-5 / D11 / D12）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-5）：`DEGRADED_KINDS` 逐值断言顺序与内容（词表封闭四值）。
+#[test]
+fn degraded_kinds逐值封闭() {
+    assert_eq!(
+        DEGRADED_KINDS,
+        [
+            "foreignElement",
+            "noElement",
+            "unrepresentable",
+            "crossLanguage"
+        ],
+        "词表顺序与内容逐值钉住（新增第五值 MUST 改 spec）"
+    );
+}
+
+/// 边界（AC-5）：长度恰 4、零重复、每值为非空 ASCII 驼峰词（无空格 / 连字符）——常量
+/// 本身无异常面（取值合法性由 `verify_defs` 用例承担）。
+#[test]
+fn degraded_kinds形态与长度() {
+    assert_eq!(DEGRADED_KINDS.len(), 4, "词表恰四值");
+    let mut unique: Vec<&str> = DEGRADED_KINDS.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), 4, "零重复");
+    for kind in DEGRADED_KINDS {
+        assert!(!kind.is_empty(), "值非空");
+        assert!(
+            kind.chars()
+                .all(|character| character.is_ascii_alphabetic()),
+            "`{kind}` 是纯 ASCII 驼峰词（无空格 / 连字符 / 数字）"
+        );
+        assert!(
+            kind.chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_lowercase()),
+            "`{kind}` 首字母小写（驼峰词形态）"
+        );
+    }
+}
+
+/// 正向（AC-5）：`$defs` 条目自身标记 → pointer 指到标记本身、值取原文 `&Value`；
+/// 属性位标记 → pointer 到属性值（旧口径看不见的落点）。
+#[test]
+fn degraded_marks条目自身与属性位pointer() {
+    let own = json!({"$defs": {"Widget": {"x-common": {"degraded": "noElement"}}}});
+    let marks = degraded_marks(&own);
+    assert_eq!(marks.len(), 1, "条目自身一处标记：{marks:?}");
+    assert_eq!(
+        marks[0].0, "$.$defs.Widget.x-common.degraded",
+        "pointer 指到标记本身"
+    );
+    assert_eq!(
+        marks[0].1,
+        &json!("noElement"),
+        "值取原文 `&Value`（不转写、不猜语义）"
+    );
+
+    let property = json!({"$defs": {"Widget": {
+        "type": "object",
+        "properties": {"session": {"x-common": {"degraded": "foreignElement"}}}
+    }}});
+    let marks = degraded_marks(&property);
+    assert_eq!(marks.len(), 1, "属性位一处标记：{marks:?}");
+    assert_eq!(
+        marks[0].0, "$.$defs.Widget.properties.session.x-common.degraded",
+        "pointer 到属性值（旧条目级口径看不见的落点）"
+    );
+}
+
+/// 正向（表驱动）：深层标记——`properties.x.items`、`x-function.params[0].schema`、
+/// `additionalProperties` 三处各扫出，pointer 含 `.items` 段与数组段 `[0]`。
+#[test]
+fn degraded_marks深层标记() {
+    let cases = [
+        (
+            "items",
+            json!({"$defs": {"W": {"type": "array", "items": {"x-common": {"degraded": "noElement"}}}}}),
+            "$.$defs.W.items.x-common.degraded",
+        ),
+        (
+            "params[0].schema",
+            json!({"$defs": {"W": {"type": "object", "properties": {"send": {"x-function": {
+                "params": [{"name": "input", "schema": {"x-common": {"degraded": "crossLanguage"}}}],
+                "returns": {"type": "boolean"}
+            }}}}}}),
+            "$.$defs.W.properties.send.x-function.params[0].schema.x-common.degraded",
+        ),
+        (
+            "additionalProperties",
+            json!({"$defs": {"W": {"type": "object", "additionalProperties": {"x-common": {"degraded": "unrepresentable"}}}}}),
+            "$.$defs.W.additionalProperties.x-common.degraded",
+        ),
+    ];
+    for (label, schema, expected) in cases {
+        let marks = degraded_marks(&schema);
+        assert_eq!(marks.len(), 1, "{label}：一处标记：{marks:?}");
+        assert_eq!(marks[0].0, expected, "{label}：pointer 逐段可读");
+    }
+}
+
+/// 异常（表驱动）：根节点自身标记 → pointer `$.x-common.degraded`；标量 / 数组根 →
+/// 空 `Vec`（零 panic）。
+#[test]
+fn degraded_marks根节点与标量根() {
+    let root = json!({"x-common": {"degraded": "noElement"}, "$defs": {}});
+    let marks = degraded_marks(&root);
+    assert_eq!(marks.len(), 1, "根节点自身一处标记：{marks:?}");
+    assert_eq!(marks[0].0, "$.x-common.degraded", "根节点段的 pointer");
+
+    for schema in [json!(null), json!(42), json!("text"), json!([1, 2])] {
+        assert!(
+            degraded_marks(&schema).is_empty(),
+            "标量 / 标量数组根 → 空 `Vec`（零 panic）：{schema}"
+        );
+    }
+}
+
+/// 异常（表驱动）：`x-common` 非对象（字符串 / 数组 / null）或对象但无 `degraded` 键
+/// → 不计入（锚点是对象自身的 `x-common.degraded`）。
+#[test]
+fn degraded_marks的x_common非对象() {
+    for schema in [
+        json!({"$defs": {"W": {"x-common": "noElement"}}}),
+        json!({"$defs": {"W": {"x-common": ["degraded"]}}}),
+        json!({"$defs": {"W": {"x-common": null}}}),
+        json!({"$defs": {"W": {"x-common": {"note": "待剪枝：自由注记"}}}}),
+        json!({"$defs": {"W": {"x-common": {}}}}),
+    ] {
+        assert!(
+            degraded_marks(&schema).is_empty(),
+            "非 `x-common.degraded` 形态不计入：{schema}"
+        );
+    }
+}
+
+/// 边界（AC-5 关键反例）：数据字段名恰为 `degraded`（`properties.degraded`）→ 不计入
+/// （锚点判据；松锚点会把数据字段计成债）。
+#[test]
+fn degraded_marks数据字段名degraded不计入() {
+    let schema = json!({"$defs": {"W": {
+        "type": "object",
+        "properties": {"degraded": {"type": "string"}}
+    }}});
+    assert!(
+        degraded_marks(&schema).is_empty(),
+        "数据字段名 `degraded` 不是标记（锚点是 `x-common.degraded`）：{schema}"
+    );
+}
+
+/// 边界（表驱动）：标记值为 `true` / 数字 / `null` → 仍被扫出（扫描不看取值类型；
+/// 合法性归 `verify_defs`）；`x-common.note` 永不计入。
+#[test]
+fn degraded_marks非字符串取值仍扫出() {
+    for value in [json!(true), json!(42), json!(null)] {
+        let schema = json!({"$defs": {"W": {"x-common": {"degraded": value}}}});
+        let marks = degraded_marks(&schema);
+        assert_eq!(marks.len(), 1, "取值 {value} 仍被扫出：{marks:?}");
+        assert_eq!(marks[0].1, &value, "值原样带出");
+    }
+
+    let note_only =
+        json!({"$defs": {"W": {"x-common": {"note": "待剪枝：AgentSessionSendInput"}}}});
+    assert!(
+        degraded_marks(&note_only).is_empty(),
+        "`x-common.note` 永不计入：{note_only}"
+    );
+}
+
+/// 边界（表驱动）：同一 schema 多处标记 → 逐处各一条，pointer 集合与出现点逐一对应；
+/// 同一数组内按索引序（`[0]` 先于 `[1]`）；零标记 → 空 `Vec`。
+#[test]
+fn degraded_marks多处标记与索引序() {
+    let schema = json!({"$defs": {"W": {
+        "x-common": {"degraded": "noElement"},
+        "type": "object",
+        "properties": {
+            "a": {"x-common": {"degraded": "foreignElement"}},
+            "b": {"type": "array", "items": {"x-common": {"degraded": "unrepresentable"}}}
+        }
+    }}});
+    let mut pointers: Vec<String> = degraded_marks(&schema)
+        .into_iter()
+        .map(|(pointer, _)| pointer)
+        .collect();
+    assert_eq!(pointers.len(), 3, "三处标记逐处各一条：{pointers:?}");
+    pointers.sort();
+    assert_eq!(
+        pointers,
+        vec![
+            "$.$defs.W.properties.a.x-common.degraded".to_owned(),
+            "$.$defs.W.properties.b.items.x-common.degraded".to_owned(),
+            "$.$defs.W.x-common.degraded".to_owned(),
+        ],
+        "pointer 集合与出现点逐一对应"
+    );
+
+    let array = json!({"$defs": {"W": {"oneOf": [
+        {"x-common": {"degraded": "noElement"}},
+        {"x-common": {"degraded": "crossLanguage"}}
+    ]}}});
+    let ordered: Vec<String> = degraded_marks(&array)
+        .into_iter()
+        .map(|(pointer, _)| pointer)
+        .collect();
+    assert_eq!(
+        ordered,
+        vec![
+            "$.$defs.W.oneOf[0].x-common.degraded".to_owned(),
+            "$.$defs.W.oneOf[1].x-common.degraded".to_owned(),
+        ],
+        "同一数组内按索引序"
+    );
+
+    assert!(
+        degraded_marks(&json!({"$defs": {"W": {"type": "object"}}})).is_empty(),
+        "零标记 → 空 `Vec`"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// verify_defs 的第 6 条规则：降级取值词表（AC-5 / D11）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-5，逐值）：四值逐个通过（同一契约的条目自身 + 属性位各一）。
+#[test]
+fn verify_defs降级四值逐个通过() {
+    for kind in DEGRADED_KINDS {
+        let schema = json!({"$defs": {"W": {
+            "x-common": {"degraded": kind},
+            "type": "object",
+            "properties": {"session": {"x-common": {"degraded": kind}}}
+        }}});
+        assert_eq!(
+            verify_defs(&schema),
+            Ok(()),
+            "词表内取值 `{kind}`（条目自身 + 属性位）应通过"
+        );
+    }
+}
+
+/// 正向（表驱动）：零标记 / 仅 `x-common.note` / 仅 `x-common.unit` → `Ok`；`note` 零
+/// 校验（自由注记）。
+#[test]
+fn verify_defs零标记与仅note() {
+    let cases = [
+        ("零标记", json!({"$defs": {"W": {"type": "object"}}})),
+        (
+            "仅 note",
+            json!({"$defs": {"W": {"x-common": {"note": "待剪枝：AgentSessionSendInput"}}}}),
+        ),
+        (
+            "仅 unit",
+            json!({"$defs": {"W": {"x-common": {"unit": "毫秒"}}}}),
+        ),
+    ];
+    for (label, schema) in cases {
+        assert_eq!(
+            verify_defs(&schema),
+            Ok(()),
+            "{label}：应通过（`note` 零校验）"
+        );
+    }
+}
+
+/// 异常（AC-5 关键反例）：`x-common.degraded = "typo"` → `Err`，文案含该标记 pointer 并
+/// 并列四值。
+#[test]
+fn verify_defs词表外值报错() {
+    let schema = json!({"$defs": {"Widget": {"x-common": {"degraded": "typo"}}}});
+    let error = contract_error(verify_defs(&schema));
+    assert!(
+        error.contains("$.$defs.Widget.x-common.degraded"),
+        "文案点名该标记的 pointer：{error}"
+    );
+    assert!(error.contains("typo"), "文案点名非法取值：{error}");
+    for kind in DEGRADED_KINDS {
+        assert!(error.contains(kind), "文案并列四值（缺 `{kind}`）：{error}");
+    }
+}
+
+/// 异常（表驱动）：`x-common.degraded = true` → `Err`，文案含 pointer、`kind_of` 形态
+/// （布尔）与四值；`null` / 数字 / 数组 / 对象同拒。
+#[test]
+fn verify_defs非字符串取值报错() {
+    let cases = [
+        (json!(true), "布尔"),
+        (json!(null), "null"),
+        (json!(7), "数字"),
+        (json!(["noElement"]), "数组"),
+        (json!({"kind": "noElement"}), "对象"),
+    ];
+    for (value, kind) in cases {
+        let schema = json!({"$defs": {"Widget": {"x-common": {"degraded": value}}}});
+        let error = contract_error(verify_defs(&schema));
+        assert!(
+            error.contains("$.$defs.Widget.x-common.degraded"),
+            "取值 {value}：文案含 pointer：{error}"
+        );
+        assert!(
+            error.contains(kind),
+            "取值 {value}：文案经 `kind_of` 报形态 `{kind}`：{error}"
+        );
+        assert!(
+            error.contains("crossLanguage"),
+            "取值 {value}：文案并列四值：{error}"
+        );
+    }
+}
+
+/// 异常（表驱动）：深层非法值（`items` / `params[].schema` 内）→ `Err` 并点名该
+/// pointer（校验面与计数面同源）。
+#[test]
+fn verify_defs深层非法值() {
+    let cases = [
+        (
+            json!({"$defs": {"W": {"type": "array", "items": {"x-common": {"degraded": "typo"}}}}}),
+            "$.$defs.W.items.x-common.degraded",
+        ),
+        (
+            json!({"$defs": {"W": {"type": "object", "properties": {"send": {"x-function": {
+                "params": [{"name": "input", "schema": {"x-common": {"degraded": true}}}],
+                "returns": {"type": "boolean"}
+            }}}}}}),
+            "$.$defs.W.properties.send.x-function.params[0].schema.x-common.degraded",
+        ),
+    ];
+    for (schema, pointer) in cases {
+        let error = contract_error(verify_defs(&schema));
+        assert!(error.contains(pointer), "深层非法值点名该 pointer：{error}");
+    }
+}
+
+/// 边界（表驱动，既有规则零回归）：嵌套 `$defs` / `$ref` 非顶层 / 同名两次 / `x-class`
+/// 带属性 / 透传条目带结构关键字各自仍报既有错误（新增取值校验不遮蔽）。
+#[test]
+fn verify_defs既有规则零回归() {
+    let nested = json!({"$defs": {"A": {"type": "object", "$defs": {"B": {"type": "object"}}}}});
+    let nested_error = contract_error(verify_defs(&nested));
+    assert!(
+        nested_error.contains("嵌套"),
+        "嵌套 `$defs`：{nested_error}"
+    );
+
+    let non_top = json!({"$defs": {"A": {"$ref": "#/properties/x"}}});
+    let non_top_error = contract_error(verify_defs(&non_top));
+    assert!(
+        non_top_error.contains("顶层"),
+        "`$ref` 非顶层：{non_top_error}"
+    );
+
+    let duplicated = format!(
+        "# {FQN}\n\n```json api-types\n{{\"A\": {{\"type\": \"object\"}}, \
+         \"A\": {{\"enum\": [\"x\"]}}}}\n```\n"
+    );
+    let duplicate_error = parse_error(parse(&duplicated, FQN, FILE));
+    assert!(
+        duplicate_error.contains("重复声明"),
+        "同名两次（文本层判据）：{duplicate_error}"
+    );
+
+    let x_class =
+        json!({"$defs": {"Gate": {"x-class": true, "properties": {"count": {"type": "integer"}}}}});
+    let x_class_error = contract_error(verify_defs(&x_class));
+    assert!(
+        x_class_error.contains("x-class") && x_class_error.contains("trait"),
+        "`x-class` 带属性：{x_class_error}"
+    );
+
+    let reexport = json!({"$defs": {"A": {
+        "$ref": "../Core/App.Backend.Core.Agent.schema.json#/$defs/AgentInput",
+        "type": "object"
+    }}});
+    let reexport_error = contract_error(verify_defs(&reexport));
+    assert!(
+        reexport_error.contains("结构关键字") && reexport_error.contains("type"),
+        "透传条目带结构关键字：{reexport_error}"
+    );
+}
+
+/// 边界：同契约既有五条违例 + 非法 `degraded` 并存 → 报既有规则（取值校验排在既有规则
+/// 之后，错误面稳定）；缺 `$defs` / 空对象 → 既有错误不变。
+#[test]
+fn verify_defs取值校验排在既有规则之后() {
+    let both = json!({"$defs": {"A": {
+        "type": "object",
+        "$defs": {"B": {"type": "object"}},
+        "x-common": {"degraded": "typo"}
+    }}});
+    let message = contract_error(verify_defs(&both));
+    assert!(
+        message.contains("嵌套"),
+        "先报既有规则（嵌套 `$defs`）：{message}"
+    );
+    assert!(
+        !message.contains("crossLanguage"),
+        "取值校验不抢先报（错误面稳定）：{message}"
+    );
+
+    let missing = contract_error(verify_defs(&json!({"properties": {}})));
+    assert!(
+        missing.contains("$defs"),
+        "缺 `$defs` 的既有错误不变：{missing}"
+    );
+    assert_eq!(
+        verify_defs(&json!({"$defs": {}})),
+        Ok(()),
+        "空 `$defs` 仍合法（零标记可校验）"
     );
 }

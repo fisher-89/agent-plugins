@@ -1,0 +1,3093 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/mod.rs:494:5: replace index_entries -> Vec<IndexEntry> with vec![Default::default()]",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/mod.rs",
+          "function": {
+            "function_name": "index_entries",
+            "return_type": "-> Vec<IndexEntry>",
+            "span": {
+              "start": {
+                "line": 488,
+                "column": 1
+              },
+              "end": {
+                "line": 539,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 494,
+              "column": 5
+            },
+            "end": {
+              "line": 538,
+              "column": 12
+            }
+          },
+          "replacement": "vec![Default::default()]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__api__mod.rs_line_494_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__mod.rs_line_494_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 82.2008689,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/contract.rs:278:5: replace verify -> Result<(), ApiError> with Ok(())",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/contract.rs",
+          "function": {
+            "function_name": "verify",
+            "return_type": "-> Result<(), ApiError>",
+            "span": {
+              "start": {
+                "line": 263,
+                "column": 1
+              },
+              "end": {
+                "line": 492,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 278,
+              "column": 5
+            },
+            "end": {
+              "line": 491,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__contract.rs_line_278_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__contract.rs_line_278_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 83.7085337,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.9296211,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/contract.rs:434:16: delete ! in verify",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/contract.rs",
+          "function": {
+            "function_name": "verify",
+            "return_type": "-> Result<(), ApiError>",
+            "span": {
+              "start": {
+                "line": 263,
+                "column": 1
+              },
+              "end": {
+                "line": 492,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 434,
+              "column": 16
+            },
+            "end": {
+              "line": 434,
+              "column": 17
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__contract.rs_line_434_col_16.log",
+      "diff_path": "diff/crates__core__archi__src__api__contract.rs_line_434_col_16.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 83.9229383,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 11.9226596,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/mod.rs:494:5: replace index_entries -> Vec<IndexEntry> with vec![]",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/mod.rs",
+          "function": {
+            "function_name": "index_entries",
+            "return_type": "-> Vec<IndexEntry>",
+            "span": {
+              "start": {
+                "line": 488,
+                "column": 1
+              },
+              "end": {
+                "line": 539,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 494,
+              "column": 5
+            },
+            "end": {
+              "line": 538,
+              "column": 12
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__mod.rs_line_494_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__mod.rs_line_494_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 84.6461397,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 20.3371059,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/contract.rs:612:5: replace identifier_error -> ApiError with Default::default()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/contract.rs",
+          "function": {
+            "function_name": "identifier_error",
+            "return_type": "-> ApiError",
+            "span": {
+              "start": {
+                "line": 599,
+                "column": 1
+              },
+              "end": {
+                "line": 630,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 612,
+              "column": 5
+            },
+            "end": {
+              "line": 629,
+              "column": 54
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__api__contract.rs_line_612_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__contract.rs_line_612_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.8051989,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/contract.rs:687:5: replace required_dangling_error -> ApiError with Default::default()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/contract.rs",
+          "function": {
+            "function_name": "required_dangling_error",
+            "return_type": "-> ApiError",
+            "span": {
+              "start": {
+                "line": 679,
+                "column": 1
+              },
+              "end": {
+                "line": 698,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 687,
+              "column": 5
+            },
+            "end": {
+              "line": 697,
+              "column": 7
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__api__contract.rs_line_687_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__contract.rs_line_687_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.2236617,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/contract.rs:450:20: delete ! in verify",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/contract.rs",
+          "function": {
+            "function_name": "verify",
+            "return_type": "-> Result<(), ApiError>",
+            "span": {
+              "start": {
+                "line": 263,
+                "column": 1
+              },
+              "end": {
+                "line": 492,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 450,
+              "column": 20
+            },
+            "end": {
+              "line": 450,
+              "column": 21
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__contract.rs_line_450_col_20.log",
+      "diff_path": "diff/crates__core__archi__src__api__contract.rs_line_450_col_20.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.9693445,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 11.3150666,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/contract.rs:672:5: replace required_elements -> Vec<&Value> with vec![]",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/contract.rs",
+          "function": {
+            "function_name": "required_elements",
+            "return_type": "-> Vec<&Value>",
+            "span": {
+              "start": {
+                "line": 668,
+                "column": 1
+              },
+              "end": {
+                "line": 677,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 672,
+              "column": 5
+            },
+            "end": {
+              "line": 676,
+              "column": 29
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__contract.rs_line_672_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__contract.rs_line_672_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.9709347,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.9799762,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/contract.rs:672:5: replace required_elements -> Vec<&Value> with vec![Box::leak(Box::new(Default::default()))]",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/contract.rs",
+          "function": {
+            "function_name": "required_elements",
+            "return_type": "-> Vec<&Value>",
+            "span": {
+              "start": {
+                "line": 668,
+                "column": 1
+              },
+              "end": {
+                "line": 677,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 672,
+              "column": 5
+            },
+            "end": {
+              "line": 676,
+              "column": 29
+            }
+          },
+          "replacement": "vec![Box::leak(Box::new(Default::default()))]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__contract.rs_line_672_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__contract.rs_line_672_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.5699084,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 8.771002,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:295:5: replace nullable_breakdown -> Option<NullableBreakdown<'_>> with None",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 295,
+              "column": 5
+            },
+            "end": {
+              "line": 337,
+              "column": 6
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_295_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_295_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.3412617,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.4292409,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:295:5: replace nullable_breakdown -> Option<NullableBreakdown<'_>> with Some(Default::default())",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 295,
+              "column": 5
+            },
+            "end": {
+              "line": 337,
+              "column": 6
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_295_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_295_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.7030534,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:304:36: delete ! in nullable_breakdown",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 304,
+              "column": 36
+            },
+            "end": {
+              "line": 304,
+              "column": 37
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_304_col_36.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_304_col_36.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.5727257,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.8461594,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:311:38: replace match guard kind == \"null\" with true in nullable_breakdown",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 311,
+              "column": 38
+            },
+            "end": {
+              "line": 311,
+              "column": 52
+            }
+          },
+          "replacement": "true",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_311_col_38.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_311_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.2495812,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 9.288882,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:311:43: replace == with != in nullable_breakdown",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 311,
+              "column": 43
+            },
+            "end": {
+              "line": 311,
+              "column": 45
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_311_col_43.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_311_col_43.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.486495,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.8982075,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:311:38: replace match guard kind == \"null\" with false in nullable_breakdown",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 311,
+              "column": 38
+            },
+            "end": {
+              "line": 311,
+              "column": 52
+            }
+          },
+          "replacement": "false",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_311_col_38_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_311_col_38_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.7734496,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 23.4996305,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:395:5: replace nullable_inner -> Option<ApiType> with Some(Default::default())",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_inner",
+            "return_type": "-> Option<ApiType>",
+            "span": {
+              "start": {
+                "line": 386,
+                "column": 1
+              },
+              "end": {
+                "line": 400,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 395,
+              "column": 5
+            },
+            "end": {
+              "line": 399,
+              "column": 7
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_395_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_395_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.266738,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:395:5: replace nullable_inner -> Option<ApiType> with None",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_inner",
+            "return_type": "-> Option<ApiType>",
+            "span": {
+              "start": {
+                "line": 386,
+                "column": 1
+              },
+              "end": {
+                "line": 400,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 395,
+              "column": 5
+            },
+            "end": {
+              "line": 399,
+              "column": 7
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_395_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_395_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.4761765,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.117101,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:317:16: delete ! in nullable_breakdown",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 317,
+              "column": 16
+            },
+            "end": {
+              "line": 317,
+              "column": 17
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_317_col_16.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_317_col_16.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.62782,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.8186511,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/extract/mod.rs:320:39: replace != with == in nullable_breakdown",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/extract/mod.rs",
+          "function": {
+            "function_name": "nullable_breakdown",
+            "return_type": "-> Option<NullableBreakdown<'_>>",
+            "span": {
+              "start": {
+                "line": 284,
+                "column": 1
+              },
+              "end": {
+                "line": 338,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 320,
+              "column": 39
+            },
+            "end": {
+              "line": 320,
+              "column": 41
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__extract__mod.rs_line_320_col_39.log",
+      "diff_path": "diff/crates__core__archi__src__api__extract__mod.rs_line_320_col_39.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.8194319,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 11.8804782,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/schema.rs:169:5: replace degraded_marks -> Vec<(String, &Value)> with vec![(String::new(), Box::leak(Box::new(Default::default())))]",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/schema.rs",
+          "function": {
+            "function_name": "degraded_marks",
+            "return_type": "-> Vec<(String, &Value)>",
+            "span": {
+              "start": {
+                "line": 157,
+                "column": 1
+              },
+              "end": {
+                "line": 172,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 169,
+              "column": 5
+            },
+            "end": {
+              "line": 171,
+              "column": 10
+            }
+          },
+          "replacement": "vec![(String::new(), Box::leak(Box::new(Default::default())))]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__schema.rs_line_169_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__schema.rs_line_169_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.9015527,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.9216017,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/schema.rs:169:5: replace degraded_marks -> Vec<(String, &Value)> with vec![]",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/schema.rs",
+          "function": {
+            "function_name": "degraded_marks",
+            "return_type": "-> Vec<(String, &Value)>",
+            "span": {
+              "start": {
+                "line": 157,
+                "column": 1
+              },
+              "end": {
+                "line": 172,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 169,
+              "column": 5
+            },
+            "end": {
+              "line": 171,
+              "column": 10
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__schema.rs_line_169_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__schema.rs_line_169_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.5788436,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 18.1616108,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/schema.rs:169:5: replace degraded_marks -> Vec<(String, &Value)> with vec![(\"xyzzy\".into(), Box::leak(Box::new(Default::default())))]",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/schema.rs",
+          "function": {
+            "function_name": "degraded_marks",
+            "return_type": "-> Vec<(String, &Value)>",
+            "span": {
+              "start": {
+                "line": 157,
+                "column": 1
+              },
+              "end": {
+                "line": 172,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 169,
+              "column": 5
+            },
+            "end": {
+              "line": 171,
+              "column": 10
+            }
+          },
+          "replacement": "vec![(\"xyzzy\".into(), Box::leak(Box::new(Default::default())))]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__schema.rs_line_169_col_5_002.log",
+      "diff_path": "diff/crates__core__archi__src__api__schema.rs_line_169_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.4315013,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.8251199,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/schema.rs:176:5: replace collect_degraded with ()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/schema.rs",
+          "function": {
+            "function_name": "collect_degraded",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 174,
+                "column": 1
+              },
+              "end": {
+                "line": 196,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 176,
+              "column": 5
+            },
+            "end": {
+              "line": 195,
+              "column": 6
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__schema.rs_line_176_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__schema.rs_line_176_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.0747787,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 18.1244707,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/schema.rs:216:5: replace verify_defs -> Result<(), ApiError> with Ok(())",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/schema.rs",
+          "function": {
+            "function_name": "verify_defs",
+            "return_type": "-> Result<(), ApiError>",
+            "span": {
+              "start": {
+                "line": 198,
+                "column": 1
+              },
+              "end": {
+                "line": 307,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 216,
+              "column": 5
+            },
+            "end": {
+              "line": 306,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__schema.rs_line_216_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__schema.rs_line_216_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.5182014,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 11.3351828,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/schema.rs:177:9: delete match arm Value::Object(object) in collect_degraded",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/schema.rs",
+          "function": {
+            "function_name": "collect_degraded",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 174,
+                "column": 1
+              },
+              "end": {
+                "line": 196,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 177,
+              "column": 9
+            },
+            "end": {
+              "line": 188,
+              "column": 10
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__schema.rs_line_177_col_9.log",
+      "diff_path": "diff/crates__core__archi__src__api__schema.rs_line_177_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.234595,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 16.3161597,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/schema.rs:189:9: delete match arm Value::Array(items) in collect_degraded",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/schema.rs",
+          "function": {
+            "function_name": "collect_degraded",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 174,
+                "column": 1
+              },
+              "end": {
+                "line": 196,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 189,
+              "column": 9
+            },
+            "end": {
+              "line": 193,
+              "column": 10
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__schema.rs_line_189_col_9.log",
+      "diff_path": "diff/crates__core__archi__src__api__schema.rs_line_189_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.7126838,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 16.2993785,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/rust.rs:174:5: replace struct_block -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/rust.rs",
+          "function": {
+            "function_name": "struct_block",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 167,
+                "column": 1
+              },
+              "end": {
+                "line": 201,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 174,
+              "column": 5
+            },
+            "end": {
+              "line": 200,
+              "column": 48
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__rust.rs_line_174_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__rust.rs_line_174_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.0916507,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.2174802,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/rust.rs:174:5: replace struct_block -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/rust.rs",
+          "function": {
+            "function_name": "struct_block",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 167,
+                "column": 1
+              },
+              "end": {
+                "line": 201,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 174,
+              "column": 5
+            },
+            "end": {
+              "line": 200,
+              "column": 48
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__rust.rs_line_174_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__rust.rs_line_174_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.3977154,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.1276419,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/rust.rs:360:5: replace value_type -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/rust.rs",
+          "function": {
+            "function_name": "value_type",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 358,
+                "column": 1
+              },
+              "end": {
+                "line": 414,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 360,
+              "column": 5
+            },
+            "end": {
+              "line": 413,
+              "column": 6
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__rust.rs_line_360_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__rust.rs_line_360_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.8085909,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.1583456,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/rust.rs:360:5: replace value_type -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/rust.rs",
+          "function": {
+            "function_name": "value_type",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 358,
+                "column": 1
+              },
+              "end": {
+                "line": 414,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 360,
+              "column": 5
+            },
+            "end": {
+              "line": 413,
+              "column": 6
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__rust.rs_line_360_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__rust.rs_line_360_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.869844,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.21448,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/rust.rs:419:5: replace optional_of -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/rust.rs",
+          "function": {
+            "function_name": "optional_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 416,
+                "column": 1
+              },
+              "end": {
+                "line": 426,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 419,
+              "column": 5
+            },
+            "end": {
+              "line": 425,
+              "column": 12
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__rust.rs_line_419_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__rust.rs_line_419_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.5379917,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.8016491,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/rust.rs:419:5: replace optional_of -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/rust.rs",
+          "function": {
+            "function_name": "optional_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 416,
+                "column": 1
+              },
+              "end": {
+                "line": 426,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 419,
+              "column": 5
+            },
+            "end": {
+              "line": 425,
+              "column": 12
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__rust.rs_line_419_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__rust.rs_line_419_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.9959379,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.8337211,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:206:5: replace interface_block -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "interface_block",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 198,
+                "column": 1
+              },
+              "end": {
+                "line": 237,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 206,
+              "column": 5
+            },
+            "end": {
+              "line": 236,
+              "column": 8
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_206_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_206_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.0942028,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.4783968,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:206:5: replace interface_block -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "interface_block",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 198,
+                "column": 1
+              },
+              "end": {
+                "line": 237,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 206,
+              "column": 5
+            },
+            "end": {
+              "line": 236,
+              "column": 8
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_206_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_206_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.8829139,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.9047934,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/rust.rs:419:34: replace && with || in optional_of",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/rust.rs",
+          "function": {
+            "function_name": "optional_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 416,
+                "column": 1
+              },
+              "end": {
+                "line": 426,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 419,
+              "column": 34
+            },
+            "end": {
+              "line": 419,
+              "column": 36
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__rust.rs_line_419_col_34.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__rust.rs_line_419_col_34.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.4551347,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.8160508,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:219:59: replace == with != in interface_block",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "interface_block",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 198,
+                "column": 1
+              },
+              "end": {
+                "line": 237,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 219,
+              "column": 59
+            },
+            "end": {
+              "line": 219,
+              "column": 61
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_219_col_59.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_219_col_59.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.7375036,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.4609127,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:263:5: replace function_type -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "function_type",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 259,
+                "column": 1
+              },
+              "end": {
+                "line": 294,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 263,
+              "column": 5
+            },
+            "end": {
+              "line": 293,
+              "column": 39
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_263_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_263_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.1088483,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 8.4272015,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:329:5: replace value_type -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "value_type",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 316,
+                "column": 1
+              },
+              "end": {
+                "line": 377,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 329,
+              "column": 5
+            },
+            "end": {
+              "line": 376,
+              "column": 6
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_329_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_329_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.9286594,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.0055091,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:276:71: replace == with != in function_type",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "function_type",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 259,
+                "column": 1
+              },
+              "end": {
+                "line": 294,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 276,
+              "column": 71
+            },
+            "end": {
+              "line": 276,
+              "column": 73
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_276_col_71.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_276_col_71.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.5284343,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 8.7835073,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:263:5: replace function_type -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "function_type",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 259,
+                "column": 1
+              },
+              "end": {
+                "line": 294,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 263,
+              "column": 5
+            },
+            "end": {
+              "line": 293,
+              "column": 39
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_263_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_263_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.0978046,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 8.6751097,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:329:5: replace value_type -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "value_type",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 316,
+                "column": 1
+              },
+              "end": {
+                "line": 377,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 329,
+              "column": 5
+            },
+            "end": {
+              "line": 376,
+              "column": 6
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_329_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_329_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.1171088,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.4175105,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:383:5: replace nullable_of -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "nullable_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 379,
+                "column": 1
+              },
+              "end": {
+                "line": 387,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 383,
+              "column": 5
+            },
+            "end": {
+              "line": 386,
+              "column": 27
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_383_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_383_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.4207915,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.03534,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:383:5: replace nullable_of -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "nullable_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 379,
+                "column": 1
+              },
+              "end": {
+                "line": 387,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 383,
+              "column": 5
+            },
+            "end": {
+              "line": 386,
+              "column": 27
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_383_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_383_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.5594751,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.0164575,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:392:5: replace array_of -> String with String::new()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "array_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 389,
+                "column": 1
+              },
+              "end": {
+                "line": 396,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 392,
+              "column": 5
+            },
+            "end": {
+              "line": 395,
+              "column": 25
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_392_col_5.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_392_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.8675376,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 9.833844,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/archi/src/api/emit/ts.rs:392:5: replace array_of -> String with \"xyzzy\".into()",
+          "package": "archi",
+          "file": "crates/core/archi/src/api/emit/ts.rs",
+          "function": {
+            "function_name": "array_of",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 389,
+                "column": 1
+              },
+              "end": {
+                "line": 396,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 392,
+              "column": 5
+            },
+            "end": {
+              "line": 395,
+              "column": 25
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__archi__src__api__emit__ts.rs_line_392_col_5_001.log",
+      "diff_path": "diff/crates__core__archi__src__api__emit__ts.rs_line_392_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.7872827,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.796652,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=archi@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 45,
+  "missed": 0,
+  "caught": 40,
+  "timeout": 0,
+  "unviable": 5,
+  "success": 0,
+  "start_time": "2026-11-13T17:14:32.3792946Z",
+  "end_time": "2026-11-13T17:20:09.9872917Z",
+  "cargo_mutants_version": "27.1.0"
+}

@@ -6,11 +6,15 @@
 //! `serde_json` 真实解析 fence 内容（JSON 语法错面即被测语义）；`verify` 的
 //! `schema` 入参由真实 `build_schema` 产出，另备手写 `json!` 反例注入缺定义。
 
+use std::collections::BTreeMap;
+
 use serde_json::{json, Value};
 
 use super::contract::{is_constructor, parse, verify, Contract, ContractOp};
 use super::schema::build_schema;
 use super::{meta, ApiError};
+use crate::api::emit::{self, EmitTarget};
+use crate::api::paths::{EntryForm, GeneratedKind};
 
 /// 契约文件（repo 相对 POSIX；错误文案的 `file:` 前缀来源）。
 const FILE: &str = ".dev-team/architecture/api/Demo/App.Demo.Item.md";
@@ -1814,5 +1818,322 @@ fn verify闸一名字合法面不被误伤() {
         verify(&contract, &schema),
         Ok(()),
         "两名字均合法（`Run` 与 `run` 各自在案）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 自洽闸：`required` ⊆ `properties`（AC-4 / D2）
+// ---------------------------------------------------------------------------
+
+/// 单条目 `api-types` 契约（`$defs.Widget` 取给定 JSON 原文）。
+fn widget_contract(definition: &str) -> Contract {
+    let source = format!("# {FQN}\n\n```json api-types\n{{\"Widget\": {definition}}}\n```\n");
+    parse(&source, FQN, FILE).expect("结构合法（自洽闸在 verify 判，不在 parse）")
+}
+
+/// `$defs.Widget` 取给定原文的契约经真实 `build_schema` 后的 `verify` 结果。
+fn verify_definition(definition: &str) -> Result<(), ApiError> {
+    let contract = widget_contract(definition);
+    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    verify(&contract, &schema)
+}
+
+/// 断言 `verify_definition` 报契约错误并返回文案。
+fn verify_definition_error(definition: &str) -> String {
+    match verify_definition(definition) {
+        Ok(()) => panic!("期望自洽闸报错，实际 Ok：{definition}"),
+        Err(ApiError::Contract(message)) => message,
+        Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
+    }
+}
+
+/// 正向（AC-4，表驱动）：`required ⊆ properties` 四形态——全字段必填 / 部分必填 /
+/// `required = []` / 无 `required` → 全 `Ok`。
+#[test]
+fn verify自洽闸四种required形态全过() {
+    let cases = [
+        (
+            "全字段必填",
+            r#"{"type": "object", "properties": {"name": {"type": "string"}, "total": {"type": "integer"}}, "required": ["name", "total"]}"#,
+        ),
+        (
+            "部分必填",
+            r#"{"type": "object", "properties": {"name": {"type": "string"}, "total": {"type": "integer"}}, "required": ["name"]}"#,
+        ),
+        (
+            "required 为空的数组",
+            r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": []}"#,
+        ),
+        (
+            "无 required 键",
+            r#"{"type": "object", "properties": {"name": {"type": "string"}}}"#,
+        ),
+    ];
+    for (label, definition) in cases {
+        assert_eq!(
+            verify_definition(definition),
+            Ok(()),
+            "{label}：自洽契约应通过"
+        );
+    }
+}
+
+/// 正向（AC-6 判据面侧）：现网契约形态（`properties: {}` 且零 `required`）→ `Ok`，
+/// 零误伤。
+#[test]
+fn verify自洽闸不误伤现网空属性形态() {
+    assert_eq!(
+        verify_definition(r#"{"type": "object", "properties": {}}"#),
+        Ok(()),
+        "`properties` 为空对象且零 `required` → Ok（现网契约形态）"
+    );
+    assert_eq!(
+        verify_definition(r#"{"type": "object"}"#),
+        Ok(()),
+        "无 `properties` 且无 `required` → Ok（零键可判）"
+    );
+}
+
+/// 异常（AC-4 关键反例）：`properties` 有 `name` 而 `required: ["nmae"]` → `Err`，文案
+/// 含 `$defs.Widget.required[0]` 与悬垂名 `nmae`。
+#[test]
+fn verify自洽闸点名悬垂required的pointer() {
+    let message = verify_definition_error(
+        r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["nmae"]}"#,
+    );
+    assert!(
+        message.contains("$defs.Widget.required[0]"),
+        "文案点名 JSON pointer：{message}"
+    );
+    assert!(message.contains("nmae"), "文案点名悬垂元素：{message}");
+    assert!(message.contains(FILE), "文案带文件定位：{message}");
+    assert!(
+        message.contains("required") && message.contains("properties"),
+        "文案点明 `required` 与 `properties` 的闭合关系：{message}"
+    );
+    assert!(
+        !message.contains("ASCII 标识符"),
+        "集合关系错与名字形态错是两类错误面（MUST NOT 借用闸一措辞）：{message}"
+    );
+}
+
+/// 异常（表驱动）：`required` 元素非字符串（`[42]` / `[true]` / `[null]`）→ `Err`，
+/// 文案点名 `required[<i>]` 并经 `kind_of` 报形态（数字 / 布尔 / null）。
+#[test]
+fn verify自洽闸的required元素非字符串() {
+    let cases = [
+        (r#"[42]"#, "数字"),
+        (r#"[true]"#, "布尔"),
+        (r#"[null]"#, "null"),
+    ];
+    for (required, kind) in cases {
+        let message = verify_definition_error(&format!(
+            r#"{{"type": "object", "properties": {{"name": {{"type": "string"}}}}, "required": {required}}}"#
+        ));
+        assert!(
+            message.contains("$defs.Widget.required[0]"),
+            "{required}：文案点名 pointer：{message}"
+        );
+        assert!(
+            message.contains(kind),
+            "{required}：文案经 `kind_of` 报形态 `{kind}`：{message}"
+        );
+    }
+}
+
+/// 异常（表驱动）：条目缺 `properties` 而 `required` 非空 → `Err` 且文案含
+/// `required[0]`；首层属性键 `data-testid` → `Err` 且文案含
+/// `$defs.Widget.properties.data-testid` 与「`data-testid` 一类键不进契约」出路句。
+#[test]
+fn verify自洽闸缺属性与非法属性键() {
+    let missing = verify_definition_error(r#"{"type": "object", "required": ["name"]}"#);
+    assert!(
+        missing.contains("$defs.Widget.required[0]"),
+        "缺 `properties` 时仍点名 pointer：{missing}"
+    );
+
+    let dotted = verify_definition_error(
+        r#"{"type": "object", "properties": {"data-testid": {"type": "string"}}}"#,
+    );
+    assert!(
+        dotted.contains("$defs.Widget.properties.data-testid"),
+        "非法属性键点名 pointer：{dotted}"
+    );
+    assert!(
+        dotted.contains("`data-testid` 一类键不进契约"),
+        "文案带可执行出路句：{dotted}"
+    );
+    assert!(
+        dotted.contains("properties 数据字段键"),
+        "族别串在案（⑤ 族）：{dotted}"
+    );
+}
+
+/// 异常（AC-4 边界）：同一 `$defs` 条目同时含非法属性键与悬垂 `required` → 报 ⑤ 族
+/// （同趟先判名字、后判闭合性，错误面稳定不漂移）。
+#[test]
+fn verify非法属性键先于悬垂required() {
+    let message = verify_definition_error(
+        r#"{"type": "object", "properties": {"data-testid": {"type": "string"}}, "required": ["nmae"]}"#,
+    );
+    assert!(
+        message.contains("properties 数据字段键"),
+        "同趟先判名字（⑤ 族）：{message}"
+    );
+    assert!(
+        message.contains("$defs.Widget.properties.data-testid"),
+        "⑤ 族的 pointer 在案：{message}"
+    );
+    assert!(
+        !message.contains("required[0]"),
+        "后判的闭合性不抢先报（错误面稳定）：{message}"
+    );
+}
+
+/// 边界（design 待决问题 1 的显式留白）：`required` 整体非数组（`"required": "name"`）
+/// → 维持既有静默（`Ok`）——本期不加判据。
+#[test]
+fn verify自洽闸的required非数组维持静默() {
+    assert_eq!(
+        verify_definition(
+            r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": "name"}"#
+        ),
+        Ok(()),
+        "`required` 非数组不在本期判据面（显式留白，零误报）"
+    );
+}
+
+/// 边界：`required` 指向 `x-function` 方法名（键在同条目 `properties` 全集内）→ `Ok`
+/// （闭合性按 `properties` 键集判，与 ① 族方法名判据互不吞并）。
+#[test]
+fn verify自洽闸的方法名闭合() {
+    assert_eq!(
+        verify_definition(
+            r#"{"type": "object", "properties": {"onAnswer": {"x-function": {"params": [], "returns": {"type": "boolean"}}}}, "required": ["onAnswer"]}"#
+        ),
+        Ok(()),
+        "函数指针字段名在 `properties` 全集内即闭合"
+    );
+
+    let missing = verify_definition_error(
+        r#"{"type": "object", "properties": {"onAnswer": {"x-function": {"params": [], "returns": {"type": "boolean"}}}}, "required": ["onAnswr"]}"#,
+    );
+    assert!(
+        missing.contains("$defs.Widget.required[0]") && missing.contains("onAnswr"),
+        "拼错的方法名仍报悬垂：{missing}"
+    );
+}
+
+/// 边界（表驱动）：非 ⑤ 族（op id / `$defs` 键名 / 透传导出名 / 参数名 / `$ref` 末段名）
+/// 的报错文案零 `JSON pointer` 段（pointer 只由 ⑤ 族传入，其余族保留通用句）。
+#[test]
+fn verify非五族文案零pointer句() {
+    let op_id = gate1_error(&gate1_op_source("file-stem", None), "op id", "file-stem");
+    let param = gate1_error(&gate1_op_source("run", Some("in-put")), "参数名", "in-put");
+    let defs_key = gate1_error(
+        &format!(
+            "# {FQN}\n\n```json api-types\n{{\"Local-Chk\": {{\"type\": \"object\"}}}}\n```\n"
+        ),
+        "$defs 键名",
+        "Local-Chk",
+    );
+    let reexport_source = format!(
+        "# {FQN}\n\n```json api-reexport\n{{\"Agent Input\": \"App.Frontend.Components.Agent.Input\"}}\n```\n"
+    );
+    let mut reexport_contract = parse(&reexport_source, FQN, FILE).expect("结构合法");
+    reexport_contract.reexport_prose = reexport_contract.reexports.keys().cloned().collect();
+    let reexport = verify_error(&reexport_contract, &json!({"$defs": {}}));
+    assert!(
+        reexport.contains("透传导出名") && reexport.contains("Agent Input"),
+        "透传导出名族族别串在案：{reexport}"
+    );
+    let reference = gate1_error(
+        &format!(
+            "# {FQN}\n\n```json api-types\n{{\"LocalArchiCheck\": {{\"type\": \"object\", \
+             \"properties\": {{\"summary\": {{\"$ref\": \"#/$defs/带 空格\"}}}}}}}}\n```\n"
+        ),
+        "$ref 末段名",
+        "带 空格",
+    );
+    for (family, message) in [
+        ("op id", op_id),
+        ("参数名", param),
+        ("$defs 键名", defs_key),
+        ("透传导出名", reexport),
+        ("$ref 末段名", reference),
+    ] {
+        assert!(
+            !message.contains("JSON pointer"),
+            "{family} 族的文案零 `JSON pointer` 段（只有 ⑤ 族带 pointer）：{message}"
+        );
+        assert!(
+            message.contains("ASCII 标识符"),
+            "{family} 族仍用通用句：{message}"
+        );
+    }
+}
+
+/// 边界（AC-4 零回归）：七族判据仍逐族在案（族别串齐备）、公开面仍恰 3 个 `pub fn`
+/// （不新增族编号、不拆第二个公开入口）。
+#[test]
+fn verify七族与公开面零回归() {
+    let source = include_str!("contract.rs");
+    for family in [
+        "op id",
+        "$defs 键名",
+        "透传导出名",
+        "参数名",
+        "properties 数据字段键",
+        "owner 键",
+        "$ref 末段名",
+    ] {
+        assert!(
+            source.contains(family),
+            "族别串 `{family}` 在案（七族不因自洽闸而增删）"
+        );
+    }
+    assert_eq!(
+        source.matches("\npub fn ").count(),
+        3,
+        "公开面仍恰 3 个 `pub fn`（parse / verify / is_constructor）"
+    );
+    assert_eq!(
+        source.matches("pub fn verify(").count(),
+        1,
+        "自洽闸与七族闸、落点闸同函数（MUST NOT 拆第二个公开入口）"
+    );
+}
+
+/// 正向（跨模块：`verify` → `emit::{ts,rust}::render`）：`required: ["name"]` 的自洽
+/// 契约通过 `verify` 后，TS 渲染 `name: string;`、Rust 渲染 `pub name: String,`（必填
+/// 两侧同真）。
+#[test]
+fn verify通过后两侧渲染为必填() {
+    let contract = widget_contract(
+        r#"{"type": "object", "properties": {"name": {"type": "string"}, "total": {"type": "integer"}}, "required": ["name"]}"#,
+    );
+    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    assert_eq!(verify(&contract, &schema), Ok(()), "自洽契约通过装载期");
+
+    let target = |kind: GeneratedKind| EmitTarget {
+        kind,
+        form: EntryForm::SubdirModule,
+        modules: BTreeMap::new(),
+    };
+    let ts = emit::ts::render(
+        &contract,
+        &schema,
+        &meta(),
+        &target(GeneratedKind::TypeScript),
+    );
+    let rust = emit::rust::render(&contract, &schema, &meta(), &target(GeneratedKind::Rust));
+    assert!(ts.contains("name: string;"), "TS 侧必填字段裸类型：\n{ts}");
+    assert!(
+        rust.contains("pub name: String,"),
+        "Rust 侧必填字段裸类型：\n{rust}"
+    );
+    assert!(
+        ts.contains("total?: number;") && rust.contains("pub total: Option<i64>,"),
+        "非必填字段两侧同判可选：\n{ts}\n{rust}"
     );
 }

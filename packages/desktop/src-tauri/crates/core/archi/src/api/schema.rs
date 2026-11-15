@@ -17,6 +17,25 @@ use toml_edit::{DocumentMut, Item, Table, Value as TomlValue};
 use super::contract::Contract;
 use super::{kind_of, paths, short_digest, ApiError, ApiMeta, DEFS_FRAGMENT, SCHEMA_FILE_SUFFIX};
 
+/// **封闭降级词表**（首期四值）：`x-common.degraded` 的取值域。
+///
+/// | 值 | 语义 |
+/// |---|---|
+/// | `foreignElement` | 跨域 / 非直接子元素引用 |
+/// | `noElement` | 目标无模型元素（如 hooks / 纯工具库 / 裸类型模块） |
+/// | `unrepresentable` | 目标语言类型系统表达不了（如 JSX 形态、错误通道走 `Promise` reject） |
+/// | `crossLanguage` | 规则表降级（`common.json` 的换算在目标语言侧的表达损失） |
+///
+/// 新增第五值 MUST 改 `desktop-archi-api` 的「降级词表与真实债表」（与既有「判据词表
+/// 封闭」同一条纪律）。**MUST NOT 进 `common.json`**：该资产的语义封闭为**映射规则**，
+/// 且其摘要进全部生成物的头注释（改它即批量重生成）。
+pub(crate) const DEGRADED_KINDS: [&str; 4] = [
+    "foreignElement",
+    "noElement",
+    "unrepresentable",
+    "crossLanguage",
+];
+
 /// `INDEX.toml` 的契约文件在案状态（封闭二值）：文件事实，与模型意图
 /// [`crate::dto::ApiStatus`] 分立——后者是「承诺有契约」，前者是「文件在案」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +67,9 @@ pub struct IndexEntry {
     pub types: usize,
     /// 操作数
     pub ops: usize,
-    /// `x-common.degraded` 条目数
+    /// `x-common.degraded` 标记的**出现次数**（全深度：`$defs` 条目自身、条目第一层
+    /// `properties` 的值、`properties` 里的 `x-function.params[].schema` 及更深；与
+    /// [`degraded_marks`] 同源，不再是 `$defs` 条目数）
     pub degraded: usize,
     /// 分类分布（`category` → 条数；开放值集）
     pub categories: BTreeMap<String, usize>,
@@ -133,6 +154,47 @@ pub fn build_schema(contract: &Contract, meta: &ApiMeta) -> Result<Value, ApiErr
     Ok(Value::Object(schema))
 }
 
+/// `x-common.degraded` 的**全深度单点扫描**：返回每个标记的 `(JSON pointer, 原值)`。
+///
+/// 扫描面是 `$defs` 条目自身、条目第一层 `properties` 的值、`properties` 里的
+/// `x-function.params[].schema` 以及更深的对象 / 数组。锚点是**对象自身的
+/// `x-common.degraded`**，而非任意名为 `degraded` 的键——数据字段名合法可为 `degraded`，
+/// 松锚点会把它计成债。pointer 指到标记本身（`$defs.<名>.properties.<字段>.x-common.degraded`，
+/// 数组段 `[i]`，根节点段 `$`）。
+///
+/// [`verify_defs`]（取值校验）与 [`super::index_entries`]（计数）各调一次本函数，
+/// MUST NOT 存在第二套遍历。返回值保留 [`Value`] 形态：校验面要能拒收**非字符串**值并
+/// 点名其形态，计数面只用 `.len()`。
+pub(crate) fn degraded_marks(schema: &Value) -> Vec<(String, &Value)> {
+    let mut marks: Vec<(String, &Value)> = Vec::new();
+    collect_degraded(schema, "$", &mut marks);
+    marks
+}
+
+/// [`degraded_marks`] 的递归主体（逐键下沉，对象键段 `.key`、数组段 `[i]`）。
+fn collect_degraded<'a>(value: &'a Value, pointer: &str, marks: &mut Vec<(String, &'a Value)>) {
+    match value {
+        Value::Object(object) => {
+            if let Some(mark) = object
+                .get("x-common")
+                .and_then(Value::as_object)
+                .and_then(|common| common.get("degraded"))
+            {
+                marks.push((format!("{pointer}.x-common.degraded"), mark));
+            }
+            for (key, inner) in object {
+                collect_degraded(inner, &format!("{pointer}.{key}"), marks);
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                collect_degraded(item, &format!("{pointer}[{index}]"), marks);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// `$defs` 五条规则 + 透传条目纯 `$ref` 校验 + `x-class` 带属性判错：
 ///
 /// 1. 身份 = 键名（JSON 对象天然键唯一）；
@@ -140,7 +202,10 @@ pub fn build_schema(contract: &Contract, meta: &ApiMeta) -> Result<Value, ApiErr
 /// 3. 所有 `$ref` target MUST 是顶层条目（`#/$defs/<名>`）或外部文件形式
 ///    （`<相对前缀><FQN>.schema.json#/$defs/<名>`）；
 /// 4. 同名只定义一次；
-/// 5. **MUST NOT 按结构去重**（本函数不做任何合并动作即满足；相等形状不合并）。
+/// 5. **MUST NOT 按结构去重**（本函数不做任何合并动作即满足；相等形状不合并）；
+/// 6. 任意对象位的 `x-common.degraded` 取值 MUST ∈ 封闭四值词表 [`DEGRADED_KINDS`]
+///    （**非字符串亦拒收**），错误点名该标记的 JSON pointer 并列四值；`x-common.note`
+///    不受校验、不进债表（自由注记）。
 ///
 /// `x-class: true` 的类型是 trait，**仅允许方法**：条目带 `required`，或某个
 /// `properties` 值不是 `x-function`（即声明了数据属性），即契约错误——本条拦在装载期
@@ -216,6 +281,27 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
             }
         }
         collect_nested_refs(name, definition)?;
+    }
+    // 降级词表（与计数同源的 `degraded_marks` 单点扫描）：取值 MUST ∈ 四值词表，非字符串
+    // 亦拒收——`true` 不携带任何原因信息，债表不可读。错误面沿用本函数既有形态
+    // （`$defs.<名>…` 的 pointer 文案，签名只有 schema）。
+    for (pointer, mark) in degraded_marks(schema) {
+        if mark
+            .as_str()
+            .is_some_and(|kind| DEGRADED_KINDS.contains(&kind))
+        {
+            continue;
+        }
+        let shown = match mark.as_str() {
+            Some(kind) => format!("`{kind}`"),
+            None => format!("{} `{mark}`", kind_of(mark)),
+        };
+        return Err(ApiError::Contract(format!(
+            "`{pointer}` 的取值必须是降级词表内的字符串（实际为 {shown}）——词表封闭为 {}；\
+             非字符串与词表外值都让债表不可读（`true` 不携带任何原因信息），\
+             新增第五值 MUST 改「降级词表与真实债表」",
+            DEGRADED_KINDS.join(" / ")
+        )));
     }
     Ok(())
 }

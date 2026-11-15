@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
 
 use super::{declared_ops, local_defs, notice_lines, reexport_defs, EmitTarget, ModuleRef};
 use crate::api::contract::{is_constructor, Contract};
-use crate::api::extract::Position;
+use crate::api::extract::{nullable_breakdown, Position};
 use crate::api::paths::{self, EntryForm};
 use crate::api::{protocol_key, reexport_target, ref_name, ApiMeta, CommonRule};
 
@@ -195,7 +195,8 @@ fn type_block(name: &str, definition: &Value, common: &BTreeMap<String, CommonRu
     interface_block(name, object, false, common)
 }
 
-/// `object` / `x-class` → `export interface`（非 `required` 字段 → `T | null`）。
+/// `object` / `x-class` → `export interface`（非 `required` 字段 → `{field}?:`，
+/// 零 `| null` 拼接——两个事实各只落自己的符号）。
 fn interface_block(
     name: &str,
     object: &Map<String, Value>,
@@ -207,6 +208,7 @@ fn interface_block(
     if let Some(properties) = object.get("properties").and_then(Value::as_object) {
         for (field, schema) in properties {
             if let Some(function) = schema.get("x-function") {
+                // 函数指针字段不参与可选轴（`x-class` 方法面 MUST NOT 变可选）
                 body.push_str(&format!(
                     "  {field}: {};\n",
                     function_type(function, common)
@@ -214,12 +216,12 @@ fn interface_block(
                 continue;
             }
             let base = value_type(schema, Position::Field, common);
-            let ty = if required.iter().any(|item| item == field) {
-                base
+            let line = if required.iter().any(|item| item == field) {
+                format!("  {field}: {base};\n")
             } else {
-                format!("{base} | null")
+                format!("  {field}?: {base};\n")
             };
-            body.push_str(&format!("  {field}: {ty};\n"));
+            body.push_str(&line);
         }
     }
     let mut out = String::new();
@@ -272,7 +274,7 @@ fn function_type(function: &Value, common: &BTreeMap<String, CommonRule>) -> Str
                     let schema = param.get("schema").unwrap_or(param);
                     let mut ty = value_type(schema, Position::Param, common);
                     if param.get("optional").and_then(Value::as_bool) == Some(true) {
-                        ty.push_str(" | null");
+                        ty = nullable_of(ty);
                     }
                     format!("{name}: {ty}")
                 })
@@ -333,6 +335,22 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
         // 的 `typescript` 槽位，MUST NOT 在此硬编码（改表即变产物）。
         return mapped;
     }
+    if let Some(breakdown) = nullable_breakdown(schema) {
+        // 与 `schema_type` 同序（`$ref` → 映射规则 → nullable → `type` 分派）：形状识别
+        // 单点在 `nullable_breakdown`，本文件 MUST NOT 二次判 null。纯 null 档落 `null`
+        // （MUST NOT 是 `unknown`）；`| null` 只经 `nullable_of` 追一次。
+        return match breakdown.non_null {
+            None => "null".to_owned(),
+            Some(inner) => {
+                let inner = value_type(inner.as_ref(), position, common);
+                if breakdown.explicit_null {
+                    nullable_of(inner)
+                } else {
+                    inner
+                }
+            }
+        };
+    }
     match schema.get("type").and_then(Value::as_str) {
         Some("string") => "string".to_owned(),
         Some("integer") | Some("number") => "number".to_owned(),
@@ -342,7 +360,7 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
                 .get("items")
                 .map(|items| value_type(items, Position::Field, common))
                 .unwrap_or_else(|| "unknown".to_owned());
-            format!("{items}[]")
+            array_of(items)
         }
         Some("object") => match schema
             .get("additionalProperties")
@@ -356,6 +374,25 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
         },
         Some(_) | None => "unknown".to_owned(),
     }
+}
+
+/// TS 侧 `| null` 的**唯一追加点**（幂等）：字段面的可空经 [`value_type`]、参数面的
+/// 可选经 [`function_type`]，两处都调它，故 `| null` 至多一次；`interface_block`
+/// MUST NOT 自行拼接。
+fn nullable_of(ty: String) -> String {
+    if ty.trim_end().ends_with("| null") {
+        return ty;
+    }
+    format!("{ty} | null")
+}
+
+/// 数组元素位的唯一拼装点：元素类型含顶层 `|` 时必须加括号（`(T | null)[]`），
+/// MUST NOT 出 `T | null[]` 这一优先级错误形态（映射规则的内容位同理）。
+fn array_of(items: String) -> String {
+    if items.contains(" | ") {
+        return format!("({items})[]");
+    }
+    format!("{items}[]")
 }
 
 /// union 成员连接（单元素无悬垂 `|`）。

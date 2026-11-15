@@ -1418,3 +1418,489 @@ fn 渲染器产品面零硬编码映射串() {
     );
     assert!(source.contains("fn common_type"), "查表单点在案（D54 ③）");
 }
+
+// ---------------------------------------------------------------------------
+// 可选与可空两个独立事实（AC-1 / AC-3 / D1）
+// ---------------------------------------------------------------------------
+
+/// struct 内某字段的整行（含缩进；缺席即断言失败）。
+fn field_line<'a>(text: &'a str, field: &str) -> &'a str {
+    text.lines()
+        .find(|line| line.trim_start().starts_with(&format!("pub {field}:")))
+        .unwrap_or_else(|| panic!("struct 内应有字段 `{field}`：\n{text}"))
+}
+
+/// 单字段 `api-types` 源文（`$defs.Holder.properties.f` 取给定片段）。
+fn holder_types(fragment: &str, required: bool) -> String {
+    let required = if required {
+        ", \"required\": [\"f\"]"
+    } else {
+        ""
+    };
+    format!(r#"{{"Holder": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}}}"#)
+}
+
+/// `api-op` 单操作源文（`params` / `returns` 原文直传）。
+fn op_source(params: &str, returns: &str) -> String {
+    format!(
+        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": {params}, \"returns\": {returns}}}\n```\n"
+    )
+}
+
+/// 异常（AC-3 关键反例）：可空与可选叠加（字段非 `required` 且 `type` 含 `null`）→
+/// `pub c: Option<String>,`（只多一层）；全渲染文本 `Option<Option<` 零命中。
+#[test]
+fn render的可空与可选叠加只包一层() {
+    let text = render_types(
+        r#"{
+  "Item": {
+    "type": "object",
+    "properties": {
+      "a": {"type": "string"},
+      "c": {"type": ["string", "null"]},
+      "d": {"type": ["array", "null"], "items": {"type": ["integer", "null"]}}
+    },
+    "required": ["a"]
+  }
+}"#,
+    );
+    assert_eq!(
+        field_line(&text, "a").trim(),
+        "pub a: String,",
+        "必填 + 非 nullable → 裸类型：\n{text}"
+    );
+    assert_eq!(
+        field_line(&text, "c").trim(),
+        "pub c: Option<String>,",
+        "可选 + 显式 null → 单层 `Option<…>`：\n{text}"
+    );
+    assert_eq!(
+        field_line(&text, "d").trim(),
+        "pub d: Option<Vec<Option<i64>>>,",
+        "数组位可空 + 元素位可空 → 逐层各一层：\n{text}"
+    );
+    assert!(
+        !text.contains("Option<Option<"),
+        "全渲染文本 MUST NOT 出 `Option<Option<`：\n{text}"
+    );
+}
+
+/// 边界（D6）：`x-function` 字段（即便非 `required`）→ `pub f: fn(…) -> …,` 零
+/// `Option<>`（可选轴不套方法面）。
+#[test]
+fn render的函数指针字段零optional() {
+    let text = render_types(
+        r#"{"Wrapper": {"type": "object", "properties": {
+  "f": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}
+}}}"#,
+    );
+    assert_eq!(
+        field_line(&text, "f").trim(),
+        "pub f: fn(input: &str) -> bool,",
+        "函数指针字段零 `Option<>`、零 `?`：\n{text}"
+    );
+    assert!(
+        !field_line(&text, "f").contains("Option<"),
+        "MUST NOT 出 `Option<fn(…)>` 形态：\n{text}"
+    );
+}
+
+/// 正向（AC-3，表驱动）：`required` 字段位的显式 null → `Option<T>`；入参位保留位置
+/// 语义（`Option<&str>`）。
+#[test]
+fn render的显式null落optional() {
+    let field = render_types(&holder_types(r#"{"type": ["string", "null"]}"#, true));
+    assert_eq!(
+        field_line(&field, "f").trim(),
+        "pub f: Option<String>,",
+        "必填 + 显式 null → `Option<String>`（单层）：\n{field}"
+    );
+
+    let param = render_source(&op_source(
+        r#"[{"name": "a", "schema": {"type": ["string", "null"]}}]"#,
+        r#"{"type": "string"}"#,
+    ));
+    assert!(
+        param.contains("const _: fn(Option<&str>) -> String = super::load;"),
+        "入参位保留位置语义（`Option<&str>`）：\n{param}"
+    );
+}
+
+/// 异常（AC-3）：非空分支本身已带兜底（`{"type":["object","null"]}` 且无
+/// `additionalProperties`）→ `Option<serde_json::Value>`（单层包装，零
+/// `Option<Option<`）。
+#[test]
+fn render的nullable非空分支自带兜底只包一层() {
+    let text = render_types(&holder_types(r#"{"type": ["object", "null"]}"#, true));
+    assert_eq!(
+        field_line(&text, "f").trim(),
+        "pub f: Option<serde_json::Value>,",
+        "兜底分支再包一层可空 → 单层 `Option<serde_json::Value>`：\n{text}"
+    );
+    assert!(
+        !text.contains("Option<Option<"),
+        "MUST NOT 出双层 `Option<`：\n{text}"
+    );
+}
+
+/// 边界（AC-3，表驱动）：纯 `null` 档——`required` 字段位 → `serde_json::Value`（既有
+/// 兜底，显式期望值）、非 `required` 位 → `Option<serde_json::Value>`（只多一层可选
+/// 包装）；零 `()`。
+#[test]
+fn render的纯null档() {
+    let required = render_types(&holder_types(r#"{"type": "null"}"#, true));
+    assert_eq!(
+        field_line(&required, "f").trim(),
+        "pub f: serde_json::Value,",
+        "纯 null 档必填位 → 既有兜底 `serde_json::Value`：\n{required}"
+    );
+
+    let optional = render_types(&holder_types(r#"{"type": "null"}"#, false));
+    assert_eq!(
+        field_line(&optional, "f").trim(),
+        "pub f: Option<serde_json::Value>,",
+        "纯 null 档可选位 → 只多一层可选包装：\n{optional}"
+    );
+
+    for text in [&required, &optional] {
+        assert!(
+            !text.contains("()"),
+            "纯 null 档 MUST NOT 落 `()`：\n{text}"
+        );
+    }
+}
+
+/// 正向（AC-3）：数组元素位可空 → `Vec<Option<String>>`；`Param` 位 →
+/// `&[Option<String>]`。
+#[test]
+fn render的数组元素位可空() {
+    let field = render_types(&holder_types(
+        r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&field, "f").trim(),
+        "pub f: Vec<Option<String>>,",
+        "字段位 array + 元素可空 → `Vec<Option<String>>`：\n{field}"
+    );
+
+    let param = render_source(&op_source(
+        r#"[{"name": "items", "schema": {"type": "array", "items": {"type": ["string", "null"]}}}]"#,
+        r#"{"type": "string"}"#,
+    ));
+    assert!(
+        param.contains("const _: fn(&[Option<String>]) -> String = super::load;"),
+        "入参位 array → `&[Option<String>]`（位置语义 + 元素可空）：\n{param}"
+    );
+}
+
+/// 异常：全渲染文本 `Option<Option<` 零命中（字段 / 参数 / 数组三面叠加的同一语料）。
+#[test]
+fn render全文本零双层option() {
+    let types = render_types(
+        r#"{
+  "Holder": {
+    "type": "object",
+    "properties": {
+      "scalar": {"type": ["string", "null"]},
+      "list": {"type": "array", "items": {"type": ["integer", "null"]}},
+      "nested": {"type": "array", "items": {"type": "array", "items": {"type": ["string", "null"]}}}
+    }
+  }
+}"#,
+    );
+    let op = render_source(&op_source(
+        r#"[{"name": "a", "schema": {"type": ["string", "null"]}}, {"name": "b", "schema": {"type": "array", "items": {"type": ["string", "null"]}}}]"#,
+        r#"{"type": ["boolean", "null"]}"#,
+    ));
+    for text in [&types, &op] {
+        assert!(
+            !text.contains("Option<Option<"),
+            "全渲染文本 MUST NOT 出 `Option<Option<`：\n{text}"
+        );
+    }
+}
+
+/// 边界（表驱动）：元素非 nullable → `Vec<String>`（零多余 `Option`）；缺 `items` →
+/// 既有 `Vec<String>` 形态不变。
+#[test]
+fn render的数组元素位非nullable() {
+    let plain = render_types(&holder_types(
+        r#"{"type": "array", "items": {"type": "string"}}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&plain, "f").trim(),
+        "pub f: Vec<String>,",
+        "元素非 nullable → 零多余 `Option`：\n{plain}"
+    );
+
+    let no_items = render_types(&holder_types(r#"{"type": "array"}"#, true));
+    assert_eq!(
+        field_line(&no_items, "f").trim(),
+        "pub f: Vec<String>,",
+        "缺 `items` → 既有 `Vec<String>` 形态：\n{no_items}"
+    );
+}
+
+/// 正向（D15 ②）：条目顶层 `oneOf` 含 `{"type": "null"}` 分支 → 该分支仍落
+/// `Variant{i}`（`FALLBACK_VALUE_TYPE` 判据逐字不变——纯 null 档的兜底文本未换成别的
+/// 形态）。
+#[test]
+fn render的oneof纯null分支仍落占位变体() {
+    let text = render_types(
+        r##"{"Choice": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/A"}]},
+  "A": {"type": "object", "properties": {}}}"##,
+    );
+    assert!(
+        text.contains("    Variant0,"),
+        "纯 null 分支落 `Variant0`（兜底判据不变）：\n{text}"
+    );
+    assert!(
+        !text.contains("serde_json::Value)"),
+        "MUST NOT 出 `(serde_json::Value)` 负载：\n{text}"
+    );
+    assert!(
+        text.contains("    AA(A),"),
+        "同条目其余分支形态不变：\n{text}"
+    );
+}
+
+/// 异常（表驱动，既有形态零回归）：对象型分支（无 `additionalProperties`）仍落
+/// `Variant{i}`；带具体负载的分支仍出「归一后的变体名 + 负载」形态。
+#[test]
+fn render的oneof兜底与负载分支零回归() {
+    let text = render_types(
+        r##"{"Choice": {"oneOf": [{"type": "object"}, {"type": "array", "items": {"type": "string"}}, {"outcome": {"type": "string"}}]}}"##,
+    );
+    assert!(
+        text.contains("    Variant0,"),
+        "对象型分支（无 additionalProperties）仍落 `Variant0`：\n{text}"
+    );
+    assert!(
+        text.contains("    VecStringVec<String>(Vec<String>),"),
+        "数组分支带负载（归一后的变体名 + 负载）：\n{text}"
+    );
+    assert!(
+        text.contains("    ResultStringStringResult<String, String>(Result<String, String>),"),
+        "映射规则分支带负载（查表展开）：\n{text}"
+    );
+    assert!(
+        !text.contains("serde_json::Value"),
+        "两分支均带负载，兜底文本零出现：\n{text}"
+    );
+}
+
+/// 边界：本变更新增的 nullable 前置分支不改「条目顶层 `oneOf`-含-null」的整体形态
+/// ——只有纯 null 分支被断言为 `Variant{i}`，其余分支形态逐字不变（多分支完整表达为
+/// D15 留白）。
+#[test]
+fn render的oneof含null整体形态不变() {
+    let text = render_types(
+        r##"{"Choice": {"oneOf": [{"type": "string"}, {"type": "null"}]},
+  "Holder": {"type": "object", "properties": {"payload": {"oneOf": [{"type": "string"}, {"type": "null"}]}}}}"##,
+    );
+    assert!(
+        text.contains("    StringString(String),"),
+        "非 null 分支的既有形态不变：\n{text}"
+    );
+    assert!(
+        text.contains("    Variant1,"),
+        "纯 null 分支落 `Variant1`：\n{text}"
+    );
+    assert!(
+        !text.contains("Option<String>)"),
+        "条目顶层 oneOf 不因 nullable 前置分支变成 `Option<…>` 负载：\n{text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 演练草案金样（AC-3 金样 / 泄漏面）
+// ---------------------------------------------------------------------------
+
+/// 演练草案金样（explore D.1 改写为降级词表形态）：三处 `x-common.degraded` 落在
+/// `send` 参数位 / `session` 属性位 / `sessions.items`，nullable 与可选两轴同时在场。
+fn golden_types() -> &'static str {
+    r##"{
+  "AskAnswerActions": {
+    "type": "object",
+    "properties": {
+      "onAnswer": {
+        "x-function": {
+          "params": [{ "name": "text", "schema": { "type": "string" } }],
+          "returns": { "type": "boolean" }
+        }
+      },
+      "pendingToolCallId": { "$ref": "#/$defs/SessionSummary" }
+    },
+    "required": ["onAnswer"]
+  },
+  "AgentSessionActions": {
+    "type": "object",
+    "properties": {
+      "running": { "type": "boolean" },
+      "loading": { "type": "boolean" },
+      "steering": { "type": "boolean" },
+      "send": {
+        "x-function": {
+          "params": [
+            {
+              "name": "input",
+              "schema": { "type": ["string", "null"], "x-common": { "degraded": "crossLanguage" } }
+            }
+          ],
+          "returns": { "type": "boolean" }
+        }
+      },
+      "stop": { "x-function": { "params": [], "returns": { "type": "boolean" } } },
+      "steer": {
+        "x-function": {
+          "params": [{ "name": "text", "schema": { "type": "string" } }],
+          "returns": { "type": "boolean" }
+        }
+      }
+    },
+    "required": ["running", "loading", "steering", "send", "stop", "steer"]
+  },
+  "AgentSessionViewProps": {
+    "type": "object",
+    "properties": {
+      "root": { "type": "string" },
+      "sessionId": { "type": "string" },
+      "refreshKey": { "type": "integer" },
+      "session": {
+        "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
+        "x-common": { "degraded": "noElement" }
+      },
+      "onDismiss": { "x-function": { "params": [], "returns": { "type": "boolean" } } }
+    }
+  },
+  "SessionPanelState": {
+    "type": "object",
+    "properties": {
+      "sessions": {
+        "type": "array",
+        "items": {
+          "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
+          "x-common": { "degraded": "noElement" }
+        }
+      },
+      "total": { "type": "integer" },
+      "listOpen": { "type": "boolean" },
+      "canStart": { "type": "boolean" },
+      "note": { "type": "string" }
+    },
+    "required": ["sessions", "total", "listOpen", "canStart"]
+  },
+  "SessionSummary": {
+    "type": "object",
+    "properties": { "id": { "type": "string" }, "total": { "type": "integer" } },
+    "required": ["id"]
+  }
+}"##
+}
+
+/// 正向（AC-3 金样）：nullable 字段全部落 `Option<…>`，字段名全为合法 Rust 标识符。
+#[test]
+fn render的演练草案金样() {
+    let text = render_types(golden_types());
+    for expected in [
+        "pub session: Option<SessionSummary>,",
+        "pub sessions: Vec<Option<SessionSummary>>,",
+        "pub pendingToolCallId: Option<SessionSummary>,",
+        "pub send: fn(input: Option<&str>) -> bool,",
+    ] {
+        assert!(
+            text.contains(expected),
+            "金样字段形态 `{expected}` 在案：\n{text}"
+        );
+    }
+
+    let fields: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("    pub "))
+        .filter_map(|line| line.trim_start().strip_prefix("pub "))
+        .filter_map(|rest| rest.split(':').next())
+        .collect();
+    assert!(!fields.is_empty(), "字段名清单非空：\n{text}");
+    for field in fields {
+        assert!(
+            is_rust_identifier(field),
+            "字段名 `{field}` MUST 是合法 Rust 标识符：\n{text}"
+        );
+    }
+}
+
+/// 异常（AC-3 泄漏面）：金样渲染文本 `serde_json::Value` 零命中（除纯 null 档用例外的
+/// 泄漏面）。
+#[test]
+fn render的演练草案金样零兜底泄漏() {
+    let text = render_types(golden_types());
+    assert!(
+        !text.contains("serde_json::Value"),
+        "金样 MUST NOT 泄漏兜底文本 `serde_json::Value`：\n{text}"
+    );
+    assert!(
+        !text.contains("Option<Option<"),
+        "金样 MUST NOT 出双层 `Option<`：\n{text}"
+    );
+}
+
+/// 边界（表驱动）：同一输入两次渲染逐字相等、为格式化器不动点（零尾随空白、零 tab）；
+/// 全语料（九组 nullable 片段）`Option<Option<` 零命中。
+#[test]
+fn render的幂等与不动点全语料() {
+    let first = render_types(golden_types());
+    let second = render_types(golden_types());
+    assert_eq!(first, second, "同一输入两次渲染逐字相等");
+    for line in first.lines() {
+        assert_eq!(line, line.trim_end(), "零尾随空白：{line:?}");
+        assert!(!line.contains('\t'), "零 tab 缩进：{line:?}");
+    }
+    assert!(first.ends_with('\n'), "末尾以换行收束");
+
+    let corpus = [
+        ("类型数组含 null", r#"{"type": ["string", "null"]}"#, true),
+        (
+            "三元素类型数组",
+            r#"{"type": ["string", "integer", "null"]}"#,
+            true,
+        ),
+        (
+            "anyOf 含 null",
+            r#"{"anyOf": [{"type": "string"}, {"type": "null"}]}"#,
+            true,
+        ),
+        (
+            "oneOf 含 null",
+            r#"{"oneOf": [{"type": "integer"}, {"type": "null"}]}"#,
+            true,
+        ),
+        (
+            "非 required 叠加显式 null",
+            r#"{"type": ["string", "null"]}"#,
+            false,
+        ),
+        (
+            "数组元素位可空",
+            r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
+            true,
+        ),
+        ("必填字段（可选轴）", r#"{"type": "string"}"#, true),
+        ("可选字段（可选轴）", r#"{"type": "string"}"#, false),
+        ("纯 null 档", r#"{"type": "null"}"#, true),
+    ];
+    assert_eq!(corpus.len(), 9, "语料九组（6 可空 + 2 可选 + 1 纯 null）");
+    for (label, fragment, required) in corpus {
+        let text = render_types(&holder_types(fragment, required));
+        assert!(
+            !text.contains("Option<Option<"),
+            "{label}：MUST NOT 出双层 `Option<`：\n{text}"
+        );
+        assert_eq!(
+            text,
+            render_types(&holder_types(fragment, required)),
+            "{label}：同一输入两次渲染逐字相等"
+        );
+    }
+}

@@ -1383,10 +1383,10 @@ path = [\"src/shapes/\"]
     assert_eq!(sum, 8, "六形状计数之和 == types");
 }
 
-/// 边界（D26 / 索引七字段）：`degraded` 计数由 `render_all` 从 `$defs` 的
-/// `x-common.degraded` 条目数派生（`index_entries` 单点，零第二套算法）——两条带标记
-/// 的定义 → `degraded = 2`；同一契约去掉这两条标记 → `degraded = 0`（键仍输出「0」而非
-/// 省略，见 `build_index` 章节）。
+/// 正向（AC-5 / D13）：`INDEX.toml` 的 `degraded` 计数口径是**标记出现次数**（全深度，
+/// `index_entries` 单点经 `schema::degraded_marks`，零第二套算法）——两条条目自身带词表
+/// 标记的定义 → `degraded = 2`；同一契约去掉这两条标记（只留仅 `note` 的草稿同形） →
+/// `degraded = 0`（键仍输出「0」而非省略，见 `build_index` 章节）。
 #[test]
 fn render_all的index_degraded派生() {
     let temp = TempDir::new("render-all-degraded");
@@ -1398,13 +1398,13 @@ path = [\"src/marked/\"]
 ",
     );
     let fqn = "App.Core.Marked";
-    // 两条带 `x-common.degraded` 的定义 + 一条不带（计数只数带标记者）
+    // 两条带词表取值 `x-common.degraded` 的定义 + 一条不带（计数只数带标记者）
     temp.write_contract(
         fqn,
         &format!(
             "# {fqn}\n\n```json api-types\n{{\"Degraded\": {{\"type\": \"object\", \
-             \"x-common\": {{\"degraded\": true}}}}, \
-             \"Rejected\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": true}}}}, \
+             \"x-common\": {{\"degraded\": \"noElement\"}}}}, \
+             \"Rejected\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": \"crossLanguage\"}}}}, \
              \"Plain\": {{\"type\": \"object\"}}}}\n```\n"
         ),
     );
@@ -1424,7 +1424,7 @@ path = [\"src/marked/\"]
     );
     assert!(
         index.content.contains("degraded = 2"),
-        "`x-common.degraded` 两条 → degraded = 2（派生单点在 `index_entries`）：\n{}",
+        "两处标记 → degraded = 2（派生单点在 `index_entries`）：\n{}",
         index.content
     );
 
@@ -2433,14 +2433,13 @@ fn kind_of六值词表() {
         ("contract.rs", include_str!("contract.rs")),
         ("schema.rs", include_str!("schema.rs")),
     ] {
-        assert_eq!(
-            text.matches("kind_of(").count(),
-            text.matches("super::kind_of(").count()
-                + text.matches("kind_of(&other)").count()
-                + text.matches("kind_of(target)").count()
-                + text.matches("kind_of(definition)").count()
-                + text.matches("kind_of(nested)").count(),
-            "{file} 内 `kind_of` 只以单点引用形态出现（零本地副本）"
+        assert!(
+            !text.contains("fn kind_of"),
+            "{file} 内零本地 `kind_of` 副本（只经 `use super::…` 引用单点）"
+        );
+        assert!(
+            text.contains("kind_of("),
+            "{file} 确有引用（词表不在此处复制）"
         );
         assert!(
             !text.contains("Value::Null => \"null\""),
@@ -3653,4 +3652,326 @@ fn findings装配单点与子模块声明序() {
         paths_pos < render && render < schema,
         "`pub mod render;` 置 paths 与 schema 之间（字母序）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// INDEX 的 degraded 口径：全深度标记出现次数（AC-5 / D13）
+// ---------------------------------------------------------------------------
+
+/// 演练草案形态的 `api-types` 原文（explore D.1 改写为降级词表形态）：三处标记分别落在
+/// `send` 参数位、`session` 属性位、`sessions.items` 元素位，`$defs` 条目自身零标记。
+fn rehearsal_types() -> &'static str {
+    r##"{
+  "AskAnswerActions": {
+    "type": "object",
+    "properties": {
+      "onAnswer": {
+        "x-function": {
+          "params": [{ "name": "text", "schema": { "type": "string" } }],
+          "returns": { "type": "boolean" }
+        }
+      },
+      "pendingToolCallId": { "$ref": "#/$defs/SessionSummary" }
+    },
+    "required": ["onAnswer"]
+  },
+  "AgentSessionActions": {
+    "type": "object",
+    "properties": {
+      "running": { "type": "boolean" },
+      "send": {
+        "x-function": {
+          "params": [
+            {
+              "name": "input",
+              "schema": { "type": ["string", "null"], "x-common": { "degraded": "crossLanguage" } }
+            }
+          ],
+          "returns": { "type": "boolean" }
+        }
+      }
+    },
+    "required": ["running", "send"]
+  },
+  "AgentSessionViewProps": {
+    "type": "object",
+    "properties": {
+      "root": { "type": "string" },
+      "session": {
+        "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
+        "x-common": { "degraded": "noElement" }
+      }
+    }
+  },
+  "SessionPanelState": {
+    "type": "object",
+    "properties": {
+      "sessions": {
+        "type": "array",
+        "items": {
+          "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
+          "x-common": { "degraded": "noElement" }
+        }
+      },
+      "total": { "type": "integer" }
+    },
+    "required": ["sessions"]
+  },
+  "SessionSummary": {
+    "type": "object",
+    "properties": { "id": { "type": "string" } },
+    "required": ["id"]
+  }
+}"##
+}
+
+/// 演练草案形态的契约源文（H1 = `fqn`，类型段取 [`rehearsal_types`]）。
+fn rehearsal_markdown(fqn: &str) -> String {
+    format!("# {fqn}\n\n## 职能\n\nagent 会话组件的统一出口。\n\n## 类型\n\n```json api-types\n")
+        + rehearsal_types()
+        + "\n```\n"
+}
+
+/// 落一个 Rust 元素（模型 + 实现入口 + 可选契约），返回其元素投影。
+fn write_element(temp: &TempDir, fqn: &str, root: &str, contract: Option<&str>) -> ArchiElement {
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"{root}\"]\n"
+    ));
+    if let Some(content) = contract {
+        temp.write_contract(fqn, content);
+    }
+    temp.write(&format!("{root}src/lib.rs"), "pub fn f() {}\n");
+    element(fqn, &[root])
+}
+
+/// 取 `render_all` 产出里的 INDEX 文本。
+fn index_text(root: &Path, snapshot: &ApiSnapshot) -> String {
+    let files = render_all(root, snapshot).expect("渲染应成功");
+    files
+        .iter()
+        .find(|file| file.path == paths::index_path(root))
+        .expect("INDEX 在案")
+        .content
+        .clone()
+}
+
+/// 正向（AC-5 关键 / D13）：演练草案形态 fixture（三处标记全在属性 / 参数位、条目自身零
+/// 标记）→ `degraded = 3`——旧条目级口径会给出 0，故本用例钉住「全深度标记出现次数」。
+#[test]
+fn index_degraded计全深度标记出现次数() {
+    let temp = TempDir::new("index-degraded-depth");
+    let fqn = "App.Frontend.Components.Agent";
+    let elements = [write_element(
+        &temp,
+        fqn,
+        "src/agent/",
+        Some(&rehearsal_markdown(fqn)),
+    )];
+
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let index = index_text(temp.root(), &snapshot);
+    assert!(
+        index.contains("degraded = 3"),
+        "三处标记（send 参数位 / session 属性位 / sessions.items）→ degraded = 3：\n{index}"
+    );
+    assert!(
+        index.contains("types = 5"),
+        "`$defs` 键数五项（计数口径不改变 `types`）：\n{index}"
+    );
+    assert!(
+        index.contains("status = \"declared\""),
+        "契约在案：\n{index}"
+    );
+}
+
+/// 异常（表驱动，AC-5）：词表外值（`"typo"`）与非字符串值（`true`）→ `load_contracts`
+/// 直接 `Err(ApiError::Contract)`（零半真报告、零生成物）。
+#[test]
+fn load_contracts拒收非法degraded取值() {
+    for (label, value) in [("词表外值", "\"typo\""), ("非字符串值", "true")] {
+        let temp = TempDir::new("load-illegal-degraded");
+        let fqn = "App.Core.Marked";
+        let contract = format!(
+            "# {fqn}\n\n```json api-types\n{{\"W\": {{\"type\": \"object\", \
+             \"x-common\": {{\"degraded\": {value}}}}}}}\n```\n"
+        );
+        let elements = [write_element(&temp, fqn, "src/marked/", Some(&contract))];
+
+        match load_contracts(temp.root(), &elements) {
+            Err(ApiError::Contract(message)) => {
+                assert!(
+                    message.contains("$.$defs.W.x-common.degraded"),
+                    "{label}：文案点名该标记 pointer：{message}"
+                );
+                assert!(
+                    message.contains("crossLanguage"),
+                    "{label}：文案并列四值：{message}"
+                );
+            }
+            other => panic!("{label}：期望 ApiError::Contract，实际：{other:?}"),
+        }
+        assert!(
+            !paths::index_path(temp.root()).exists(),
+            "{label}：装载失败即零生成物（本 crate 零写盘）"
+        );
+    }
+}
+
+/// 边界（表驱动）：零标记 → `degraded = 0` 且键仍输出（不省略）；仅 `x-common.note` 的
+/// bootstrap 草稿 → `0` 且契约装载成功（`note` 是自由注记，不进债表）。
+#[test]
+fn index_degraded零标记与仅note() {
+    let cases = [
+        ("零标记", r#"{"W": {"type": "object"}}"#),
+        (
+            "仅 note 的草稿",
+            r#"{"W": {"type": "object", "x-common": {"note": "待剪枝：AgentSessionSendInput"}}}"#,
+        ),
+    ];
+    for (label, types) in cases {
+        let temp = TempDir::new("index-degraded-zero");
+        let fqn = "App.Core.Plain";
+        let contract = format!("# {fqn}\n\n```json api-types\n{types}\n```\n");
+        let elements = [write_element(&temp, fqn, "src/plain/", Some(&contract))];
+
+        let snapshot = load_contracts(temp.root(), &elements)
+            .unwrap_or_else(|error| panic!("{label}：契约应装载成功，实际 Err：{error:?}"));
+        let index = index_text(temp.root(), &snapshot);
+        assert!(
+            index.contains("degraded = 0"),
+            "{label}：`degraded` 键仍输出 0（不省略）：\n{index}"
+        );
+    }
+}
+
+/// 边界（AC-5）：同一元素多处标记（条目自身 + 属性位 + `params[].schema` 深层）→ 计数
+/// 等于出现次数（累加，不是条目数）；同一快照两次 `render_all` 逐字相等。
+#[test]
+fn index_degraded累加且渲染幂等() {
+    let temp = TempDir::new("index-degraded-sum");
+    let fqn = "App.Core.Deep";
+    let contract = format!(
+        "# {fqn}\n\n```json api-types\n{{\"W\": {{\"type\": \"object\", \
+         \"x-common\": {{\"degraded\": \"noElement\"}}, \
+         \"properties\": {{\
+         \"deep\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": \"foreignElement\"}}}}, \
+         \"send\": {{\"x-function\": {{\"params\": [{{\"name\": \"input\", \"schema\": \
+         {{\"x-common\": {{\"degraded\": \"crossLanguage\"}}}}}}], \"returns\": \
+         {{\"type\": \"boolean\"}}}}}}}}}}}}\n```\n"
+    );
+    let elements = [write_element(&temp, fqn, "src/deep/", Some(&contract))];
+
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let first = index_text(temp.root(), &snapshot);
+    let second = index_text(temp.root(), &snapshot);
+    assert_eq!(first, second, "同一快照两次 `render_all` 逐字相等");
+    assert!(
+        first.contains("degraded = 3"),
+        "三处标记累加为 3（不是条目数 1）：\n{first}"
+    );
+    assert!(
+        first.contains("types = 1"),
+        "条目数仍为 1（计数口径与 `types` 互不混用）：\n{first}"
+    );
+
+    // 计数与校验同源（零第二套遍历）：`index_entries` 只经 `schema::degraded_marks` 取数
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("degraded_marks(").count(),
+        1,
+        "`mod.rs` 内 `degraded_marks(` 恰 1 处（零第二套扫描）"
+    );
+    assert!(
+        !source.contains("\"x-common\""),
+        "`mod.rs` 内零 `x-common` 键字面量（锚点只在 `schema::degraded_marks`）"
+    );
+}
+
+/// 边界（AC-5）：`absent`（契约文件缺失）元素 → `degraded = 0`，键仍输出（口径改动不
+/// 引入缺键形态）。
+#[test]
+fn index_degraded对absent元素仍输出() {
+    let temp = TempDir::new("index-degraded-absent");
+    let fqn = "App.Core.Absent";
+    let elements = [write_element(&temp, fqn, "src/absent/", None)];
+
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功（缺契约不算错）");
+    let index = index_text(temp.root(), &snapshot);
+    assert!(
+        index.contains("status = \"absent\""),
+        "契约缺失即 `absent`：\n{index}"
+    );
+    assert!(
+        index.contains("degraded = 0"),
+        "`absent` 元素仍输出 `degraded = 0`：\n{index}"
+    );
+}
+
+/// 正向（AC-6 零回归）：现网契约形态（`properties` 空对象、零 `required`、零
+/// `degraded`）→ `types` / `ops` / `degraded` 与改动前逐字相同；该元素的 `.i.rs` /
+/// `.schema.json` 渲染文本零 nullable 相关变化。
+#[test]
+fn index与生成物对现网契约零回归() {
+    let temp = TempDir::new("index-degraded-current");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    let elements = [write_element(
+        &temp,
+        fqn,
+        "crates/infra/archi/",
+        Some(&pilot_markdown(fqn)),
+    )];
+
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
+    let index = files
+        .iter()
+        .find(|file| file.path == paths::index_path(temp.root()))
+        .expect("INDEX 在案");
+    for expected in ["types = 1", "ops = 1", "degraded = 0"] {
+        assert!(
+            index.content.contains(expected),
+            "现网契约的索引三项逐字不变（缺 `{expected}`）：\n{}",
+            index.content
+        );
+    }
+
+    let schema = files
+        .iter()
+        .find(|file| file.path == paths::schema_path(temp.root(), fqn).expect("合法 FQN"))
+        .expect("schema 生成物在案");
+    for forbidden in ["\"null\"", "anyOf", "oneOf"] {
+        assert!(
+            !schema.content.contains(forbidden),
+            "现网 schema 零 nullable 形态（`{forbidden}` 零命中）：\n{}",
+            schema.content
+        );
+    }
+
+    let generated = files
+        .iter()
+        .find(|file| {
+            file.path
+                == paths::generated_path(
+                    temp.root(),
+                    "crates/infra/archi/",
+                    paths::GeneratedKind::Rust,
+                )
+                .expect("Rust 生成物路径")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                ".i.rs 生成物在案：{:?}",
+                files
+                    .iter()
+                    .map(|file| file.path.clone())
+                    .collect::<Vec<_>>()
+            )
+        });
+    for forbidden in ["Option<", "serde_json::Value", "unknown"] {
+        assert!(
+            !generated.content.contains(forbidden),
+            "现网 `.i.rs` 零 nullable 相关变化（`{forbidden}` 零命中）：\n{}",
+            generated.content
+        );
+    }
 }

@@ -21,10 +21,11 @@
 //! 键名即身份，同名即定义两次。
 //!
 //! **[`verify`] 是装载期的校验收口**：三条双向 gate + 闸一（七族名字 MUST 是 ASCII
-//! 标识符，D45）+ 落点闸（`x-function` 的合法落点封闭二处，D47）。三者同函数、同趟
-//! 收口——它们都是「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。
-//! 渲染期因此不做二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧
-//! `value_type` 零 `x-function` 分支。
+//! 标识符，D45）+ 落点闸（`x-function` 的合法落点封闭二处，D47）+ `required` 与
+//! `properties` 的自洽闸（集合关系，不占族别编号）。四者同函数、同趟收口——它们都是
+//! 「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。渲染期因此不做
+//! 二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧 `value_type` 零
+//! `x-function` 分支。
 //!
 //! 错误一律带 `file:line` 与原文片段——契约坏了要能直接改到那一行。
 
@@ -270,6 +271,9 @@ pub fn parse(source: &str, fqn: &str, file: &str) -> Result<Contract, ApiError> 
 /// 闸一之后是**落点闸**（D47）：`x-function` 的合法落点**封闭二处**——`api-op` fence 的顶层
 /// 签名与 `$defs` 条目第一层 `properties` 的**值**；其余位置一律契约错误并点名 JSON pointer
 /// （判的是「键在哪儿」而非「名字长什么样」，故它不是闸一的第八族，而是 ④ 族射程的前置）。
+///
+/// 落点闸之前、⑤ 族的同一趟遍历里还续判**自洽闸**：`required` 元素集 MUST ⊆ 同条目
+/// `properties` 键集（悬垂即契约错误）。判的是集合关系而非名字形态，故同样不占族别编号。
 pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
     let mut seen: Vec<&str> = Vec::new();
     for op in &contract.ops {
@@ -344,10 +348,12 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
     // 已生成文本）；渲染期 MUST NOT 重复校验同一事实（`emit/{rust,ts}.rs` 里零
     // `is_identifier` 调用），`params[].name` 的「缺名落 `arg`」兜底保留（缺名与非法名是
     // 两件事）。七族与渲染期插值点的对照见 D45 的「插值点 ↔ 来源族」枚举。
+    //
+    // 同趟续判 `required` ⊆ `properties`（自洽闸，零新增族别数）。
     for op in &contract.ops {
         if !is_identifier(&op.id) {
             return Err(identifier_error(
-                contract, "op id", &op.id, FENCE_OP, op.line,
+                contract, "op id", &op.id, FENCE_OP, op.line, None,
             ));
         }
         for name in function_param_names(&op.signature) {
@@ -358,6 +364,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                     &name,
                     FENCE_OP,
                     op.line,
+                    None,
                 ));
             }
         }
@@ -369,6 +376,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                     owner,
                     FENCE_OP,
                     op.line,
+                    None,
                 ));
             }
         }
@@ -380,6 +388,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                     &name,
                     FENCE_OP,
                     op.line,
+                    None,
                 ));
             }
         }
@@ -392,14 +401,15 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                 name,
                 FENCE_TYPES,
                 0,
+                None,
             ));
         }
     }
-    for definition in schema
+    for (name, definition) in schema
         .get("$defs")
         .and_then(Value::as_object)
-        .map(|defs| defs.values().collect::<Vec<&Value>>())
-        .unwrap_or_default()
+        .into_iter()
+        .flatten()
     {
         for field in property_names(definition) {
             if !is_identifier(&field) {
@@ -409,7 +419,20 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                     &field,
                     FENCE_TYPES,
                     0,
+                    Some(&format!("$defs.{name}.properties.{field}")),
                 ));
+            }
+        }
+        // 自洽闸：`required` 元素集 MUST ⊆ 同条目 `properties` 键集。它判的是**集合关系**、
+        // 不是名字形态，故不占族编号（①…⑦ 不动、无第八族）；同一趟、同一公开入口判完，
+        // MUST NOT 拆第二个 `pub fn`。
+        let properties = definition.get("properties").and_then(Value::as_object);
+        for (index, element) in required_elements(definition).into_iter().enumerate() {
+            let present = element
+                .as_str()
+                .is_some_and(|key| properties.is_some_and(|map| map.contains_key(key)));
+            if !present {
+                return Err(required_dangling_error(contract, name, index, element));
             }
         }
         for (method, function) in methods_of(definition) {
@@ -420,11 +443,19 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                     &method,
                     FENCE_TYPES,
                     0,
+                    None,
                 ));
             }
             for name in function_param_names(function) {
                 if !is_identifier(&name) {
-                    return Err(identifier_error(contract, "参数名", &name, FENCE_TYPES, 0));
+                    return Err(identifier_error(
+                        contract,
+                        "参数名",
+                        &name,
+                        FENCE_TYPES,
+                        0,
+                        None,
+                    ));
                 }
             }
         }
@@ -436,6 +467,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                     &name,
                     FENCE_TYPES,
                     0,
+                    None,
                 ));
             }
         }
@@ -448,6 +480,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
                 name,
                 FENCE_REEXPORT,
                 0,
+                None,
             ));
         }
     }
@@ -564,23 +597,36 @@ fn x_function_position_error(contract: &Contract, pointer: &str) -> ApiError {
 }
 
 /// 闸一的错误面（族别 + 名字 + fence + 行；行号未知时退化为 `file` 级前缀）。
+///
+/// `pointer` 只由 ⑤ 族传入——它是唯一「错误位置在 `$defs` 深处」的族，故 `pointer` 在案
+/// 即选属性键的可执行出路句；其余六族 MUST NOT 传 `Some`（通用句与出路句混说会让族别
+/// 文案失真）。
 fn identifier_error(
     contract: &Contract,
     family: &str,
     name: &str,
     fence: &str,
     line: u32,
+    pointer: Option<&str>,
 ) -> ApiError {
     let where_ = if line == 0 {
         contract.file.clone()
     } else {
         format!("{}:{line}", contract.file)
     };
-    ApiError::Contract(format!(
-        "{where_}: {fence} 的 {family} `{name}` 不是 ASCII 标识符（`[A-Za-z_][A-Za-z0-9_]*`）——\
-         契约里的名字会直接成为目标语言源码的标识符：MUST NOT 含空格 / 连字符 / 点 / 首字符数字；\
-         需要人类可读的措辞请写在散文区"
-    ))
+    let detail = match pointer {
+        Some(pointer) => format!(
+            "{fence} 的 {family} `{name}` 不是 ASCII 标识符（`[A-Za-z_][A-Za-z0-9_]*`）；\
+             JSON pointer `{pointer}`——属性键必须是标识符；`data-testid` 一类键不进契约\
+             （前端契约需避开 DOM 测试属性）；人类可读的措辞请写在散文区"
+        ),
+        None => format!(
+            "{fence} 的 {family} `{name}` 不是 ASCII 标识符（`[A-Za-z_][A-Za-z0-9_]*`）——\
+             契约里的名字会直接成为目标语言源码的标识符：MUST NOT 含空格 / 连字符 / 点 / 首字符数字；\
+             需要人类可读的措辞请写在散文区"
+        ),
+    };
+    ApiError::Contract(format!("{where_}: {detail}"))
 }
 
 /// 一段 `x-function` 形态值里的 `params[].name`（裸形态与 `{"x-function": …}` 包裹形态同判；
@@ -617,6 +663,38 @@ fn methods_of(definition: &Value) -> Vec<(String, &Value)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// `$defs` 条目的 `required` 数组元素（**保留 `Value` 形态**——非字符串元素也要能点名
+/// 它的形态，见 [`kind_of`]）。`required` 缺省 / 整体非数组 ⇒ 空 `Vec`（维持既有静默：
+/// 该形态的判据不在本期）。
+fn required_elements(definition: &Value) -> Vec<&Value> {
+    definition
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().collect())
+        .unwrap_or_default()
+}
+
+/// 自洽闸的错误面：点名 `$defs.<name>.required[<i>]` 的 JSON pointer、该元素（字符串原样、
+/// 非字符串经 [`kind_of`] 报形态）与可执行出路。
+fn required_dangling_error(
+    contract: &Contract,
+    definition: &str,
+    index: usize,
+    element: &Value,
+) -> ApiError {
+    let element = match element.as_str() {
+        Some(key) => format!("`{key}`"),
+        None => format!("（{}）", kind_of(element)),
+    };
+    ApiError::Contract(format!(
+        "{}: {FENCE_TYPES} 的 required 元素在同条目 `properties` 里没有对应键——该元素 = \
+         {element}（JSON pointer `$defs.{definition}.required[{index}]`）；`required` 与 \
+         `properties` 必须闭合：改成 `properties` 里已有的键，或补上该字段的定义\
+         （悬垂会让两侧产物把该字段静默渲染成可选）",
+        contract.file
+    ))
 }
 
 /// `$defs` 条目的 **`properties` 数据字段**键（⑤ 族：`struct_block` / `interface_block` 把

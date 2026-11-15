@@ -1,7 +1,8 @@
 //! `api::emit::ts`（`.i.ts` 渲染）的单元测试：七种协议映射（`object` →
 //! `export interface`、`enum` → `as const` + 同名 `type`、`x-class` → `interface` +
 //! 降级注释、标量 → 别名（不记 degraded）、`oneOf` / `anyOf` → union、`x-function` →
-//! `(…) => R` / `Promise<R>`、非 `required` → `T | null`）、透传 `export type { … } from`、
+//! `(…) => R` / `Promise<R>`、非 `required` → `{field}?: T`、显式 null → `T | null`
+//! 至多一次、数组元素位 → `(T | null)[]`）、透传 `export type { … } from`、
 //! 头注释、ambient-free 与无品牌类型、幂等与格式化器不动点（一律单引号）。
 //!
 //! 零 mock：真实 `contract::parse` + `schema::build_schema`；`paths::ts_import_specifier`
@@ -141,9 +142,11 @@ fn render的object为interface() {
     );
 }
 
-/// 正向（AC-5）：非 `required` 字段 → `T | null`；`required = []` → 全 `| null`。
+/// 正向（AC-1 (b) / AC-2 / D6）：非 `required` 字段只出 `{field}?: T`（可选符号）；
+/// `required = []` 与 `required` 缺省 → 全字段 `?`；`| null` 与 `?` 是两个独立事实
+/// （前者只由显式 null 出）。
 #[test]
-fn render的非required字段为可空() {
+fn render的非required字段为可选() {
     let partial = render_types(
         r#"{
   "Item": {
@@ -158,20 +161,87 @@ fn render的非required字段为可空() {
         "required 字段为裸类型：\n{partial}"
     );
     assert!(
-        partial
-            .lines()
-            .any(|line| line.trim() == "b: number | null;"),
-        "未列字段加 `| null`：\n{partial}"
+        partial.lines().any(|line| line.trim() == "b?: number;"),
+        "未列字段只加 `?`（零 `| null`）：\n{partial}"
     );
 
-    let none_required = render_types(
-        r#"{"Item": {"type": "object", "properties": {"a": {"type": "string"}}, "required": []}}"#,
+    for required in [r#", "required": []"#, ""] {
+        let none_required = render_types(&format!(
+            r#"{{"Item": {{"type": "object", "properties": {{"a": {{"type": "string"}}}}{required}}}}}"#
+        ));
+        assert!(
+            none_required
+                .lines()
+                .any(|line| line.trim() == "a?: string;"),
+            "required = [] / 缺省 → 全可选：\n{none_required}"
+        );
+        assert!(
+            !none_required.contains("| null"),
+            "可选轴零 `| null`（旧口径 `T | null` 不再产出）：\n{none_required}"
+        );
+    }
+}
+
+/// 异常（AC-1 (b) 反例）：`interface_block` MUST NOT 自行拼 `| null`——非 `required`
+/// 字段文本零 `| null`，该符号只由 `value_type` 的显式 null 分支产出。
+#[test]
+fn render的interface字段零null拼接() {
+    let text = render_types(
+        r##"{
+  "Item": {
+    "type": "object",
+    "properties": {"a": {"type": "string"}, "b": {"$ref": "#/$defs/Inner"}, "c": {"type": ["string", "null"]}}
+  }
+}"##,
+    );
+    let interface_body = function_body(include_str!("ts.rs"), "fn interface_block(");
+    assert!(
+        !interface_body.contains("| null"),
+        "`interface_block` 体内零 `| null` 字面量（追加点唯一在 `nullable_of`）：\n{interface_body}"
+    );
+    assert_eq!(
+        text.matches("| null").count(),
+        1,
+        "全文本 `| null` 恰 1 处（只有显式 null 的 `c` 出）：\n{text}"
+    );
+    for field in ["a?:", "b?:"] {
+        let line = text
+            .lines()
+            .find(|line| line.trim_start().starts_with(field))
+            .unwrap_or_else(|| panic!("应有字段行 `{field}`：\n{text}"));
+        assert!(
+            !line.contains("| null"),
+            "非 nullable 字段行零 `| null`（{line}）"
+        );
+    }
+}
+
+/// 边界（D6）：`x-function` 字段（即便非 `required`）→ `f: (…) => R;` 零 `?`（可选轴
+/// 不套方法面）；`$ref` 非 `required` 字段 → `inner?: T;`（`$ref` 优先于 nullable）。
+#[test]
+fn render的函数指针与ref字段形态() {
+    let text = render_types(
+        r##"{"Wrapper": {"type": "object", "properties": {
+  "f": {"x-function": {"params": [], "returns": {"type": "boolean"}}},
+  "inner": {"$ref": "#/$defs/T"},
+  "maybe": {"$ref": "#/$defs/T", "type": ["string", "null"]}
+}}}"##,
     );
     assert!(
-        none_required
-            .lines()
-            .any(|line| line.trim() == "a: string | null;"),
-        "required = [] → 全可空：\n{none_required}"
+        text.lines().any(|line| line.trim() == "f: () => boolean;"),
+        "`x-function` 字段零 `?`（方法面不参与可选轴）：\n{text}"
+    );
+    assert!(
+        !text.lines().any(|line| line.trim() == "f?: () => boolean;"),
+        "MUST NOT 出 `f?:` 形态：\n{text}"
+    );
+    assert!(
+        text.lines().any(|line| line.trim() == "inner?: T;"),
+        "`$ref` 非 required → `inner?: T;`：\n{text}"
+    );
+    assert!(
+        text.lines().any(|line| line.trim() == "maybe?: T;"),
+        "`$ref` 判在 nullable 之前（零 `| null`）：\n{text}"
     );
 }
 
@@ -573,6 +643,284 @@ fn render的可选参数与outcome信封() {
 }
 
 // ---------------------------------------------------------------------------
+// 显式 null / 数组元素位 / 可选参数幂等（AC-1 / AC-2 / D1）
+// ---------------------------------------------------------------------------
+
+/// interface 内某字段的整行（含缩进；缺席即断言失败）。
+fn field_line<'a>(text: &'a str, field: &str) -> &'a str {
+    text.lines()
+        .find(|line| {
+            let head = line.trim_start();
+            head.starts_with(&format!("{field}:")) || head.starts_with(&format!("{field}?:"))
+        })
+        .unwrap_or_else(|| panic!("interface 内应有字段 `{field}`：\n{text}"))
+}
+
+/// 单字段 `api-types` 源文（`$defs.Holder.properties.f` 取给定片段）。
+fn holder_types(fragment: &str, required: bool) -> String {
+    let required = if required {
+        ", \"required\": [\"f\"]"
+    } else {
+        ""
+    };
+    format!(r#"{{"Holder": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}}}"#)
+}
+
+/// `api-op` 单操作源文（`params` / `returns` 原文直传）。
+fn op_source(params: &str, returns: &str) -> String {
+    format!(
+        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": {params}, \"returns\": {returns}}}\n```\n"
+    )
+}
+
+/// 正向（AC-1 (a) / AC-2，表驱动）：显式 null 有非空分支 → `T | null`；必填位
+/// `a: string | null;`、可选位 `c?: string | null;`，每字段 `| null` 恰 1 次。
+#[test]
+fn render的显式null落nullable() {
+    let text = render_types(
+        r#"{
+  "Item": {
+    "type": "object",
+    "properties": {
+      "a": {"type": ["string", "null"]},
+      "c": {"type": ["integer", "null"]}
+    },
+    "required": ["a"]
+  }
+}"#,
+    );
+    assert_eq!(
+        field_line(&text, "a").trim(),
+        "a: string | null;",
+        "必填 + 显式 null → `T | null`：\n{text}"
+    );
+    assert_eq!(
+        field_line(&text, "c").trim(),
+        "c?: number | null;",
+        "可选 + 显式 null → `c?: T | null`：\n{text}"
+    );
+    for field in ["a", "c"] {
+        assert_eq!(
+            field_line(&text, field).matches("| null").count(),
+            1,
+            "字段 `{field}` 的 `| null` 恰 1 次（幂等追加点 `nullable_of`）：\n{text}"
+        );
+    }
+}
+
+/// 异常（逐组）：`anyOf` / `oneOf` 含 null 分支同判出 `| null`；三元素
+/// `["string","integer","null"]` 只出首个非空分支（零 `number` 泄漏、零 `unknown`）。
+#[test]
+fn render的nullable分支数组与多元素() {
+    let branch_cases = [
+        (
+            "anyOf",
+            r#"{"anyOf": [{"type": "string"}, {"type": "null"}]}"#,
+            "string | null",
+        ),
+        (
+            "oneOf",
+            r#"{"oneOf": [{"type": "integer"}, {"type": "null"}]}"#,
+            "number | null",
+        ),
+    ];
+    for (label, fragment, expected) in branch_cases {
+        let text = render_types(&format!(
+            r#"{{"Holder": {{"type": "object", "properties": {{"f": {fragment}}}, "required": ["f"]}}}}"#
+        ));
+        assert_eq!(
+            field_line(&text, "f").trim(),
+            format!("f: {expected};"),
+            "{label} 的 null 分支 → `{expected}`：\n{text}"
+        );
+    }
+
+    let three = render_types(&holder_types(
+        r#"{"type": ["string", "integer", "null"]}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&three, "f").trim(),
+        "f: string | null;",
+        "三元素只出首个非空分支（`integer` 静默丢弃）：\n{three}"
+    );
+    assert!(
+        !three.contains("number"),
+        "多分支不得泄漏第二分支的文本形：\n{three}"
+    );
+    assert!(
+        !three.contains("unknown"),
+        "多分支不得退化为 `unknown`：\n{three}"
+    );
+}
+
+/// 边界（AC-1 (c)，表驱动）：纯 `null` 档——`required` 字段位 → `null`（MUST NOT
+/// `unknown`），非 `required` 位 → `{field}?: null`（可选符号与纯 null 档各落一处）；
+/// `$ref` / 映射规则判在 nullable 之前（判序与 `schema_type` 同序）。
+#[test]
+fn render的纯null档() {
+    let required = render_types(&holder_types(r#"{"type": "null"}"#, true));
+    assert_eq!(
+        field_line(&required, "f").trim(),
+        "f: null;",
+        "纯 null 档必填位 → `null`：\n{required}"
+    );
+    assert!(
+        !required.contains("unknown"),
+        "纯 null 档 MUST NOT 落 `unknown`：\n{required}"
+    );
+
+    let optional = render_types(&holder_types(r#"{"type": "null"}"#, false));
+    assert_eq!(
+        field_line(&optional, "f").trim(),
+        "f?: null;",
+        "纯 null 档可选位 → `f?: null`：\n{optional}"
+    );
+
+    let ref_first = render_types(&holder_types(
+        r##"{"$ref": "#/$defs/T", "type": "null"}"##,
+        true,
+    ));
+    assert_eq!(
+        field_line(&ref_first, "f").trim(),
+        "f: T;",
+        "`$ref` 判在 nullable 之前：\n{ref_first}"
+    );
+
+    let mapped_first = render_types(&holder_types(
+        r#"{"outcome": {"type": "string"}, "type": "null"}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&mapped_first, "f").trim(),
+        "f: { ok: string } | { err: string };",
+        "映射规则判在 nullable 之前：\n{mapped_first}"
+    );
+}
+
+/// 正向（AC-2）：`{"type":"array","items":{"type":["string","null"]}}` →
+/// `(string | null)[]`（元素位加括号）。
+#[test]
+fn render的数组元素位可空加括号() {
+    let text = render_types(&holder_types(
+        r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&text, "f").trim(),
+        "f: (string | null)[];",
+        "元素位可空 → `(T | null)[]`：\n{text}"
+    );
+    assert!(
+        !text.contains("string | null[]"),
+        "MUST NOT 出优先级错误形态 `T | null[]`：\n{text}"
+    );
+}
+
+/// 异常（表驱动）：优先级错误形态 `string | null[]` 零命中；元素非 nullable →
+/// `string[]`（零多余括号）。
+#[test]
+fn render的数组元素位优先级() {
+    for fragment in [
+        r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
+        r#"{"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "null"}]}}"#,
+    ] {
+        let text = render_types(&holder_types(fragment, true));
+        assert!(
+            !text.contains("| null[]"),
+            "优先级错误形态零命中（{fragment}）：\n{text}"
+        );
+        assert!(
+            text.contains("| null)[]"),
+            "括号形态在案（{fragment}）：\n{text}"
+        );
+    }
+
+    let plain = render_types(&holder_types(
+        r#"{"type": "array", "items": {"type": "string"}}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&plain, "f").trim(),
+        "f: string[];",
+        "元素非 nullable → `string[]`（零多余括号）：\n{plain}"
+    );
+}
+
+/// 边界（表驱动）：元素位为映射规则 union（`Outcome`）→
+/// `({ ok: string } | { err: string })[]`（D7）；嵌套数组元素 nullable →
+/// `((string | null)[])[]`。
+#[test]
+fn render的数组元素位映射规则与嵌套() {
+    let mapped = render_types(&holder_types(
+        r#"{"type": "array", "items": {"outcome": {"type": "string"}}}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&mapped, "f").trim(),
+        "f: ({ ok: string } | { err: string })[];",
+        "映射规则 union 作元素位 → 整体加括号：\n{mapped}"
+    );
+
+    let nested = render_types(&holder_types(
+        r#"{"type": "array", "items": {"type": "array", "items": {"type": ["string", "null"]}}}"#,
+        true,
+    ));
+    assert_eq!(
+        field_line(&nested, "f").trim(),
+        "f: ((string | null)[])[];",
+        "嵌套数组元素 nullable → 逐层括号：\n{nested}"
+    );
+}
+
+/// 正向 / 异常 / 边界（AC-1 (a) 与 AC-2 的可选参数面）：`optional: true` 参数 →
+/// `a: string | null`（`nullable_of` 幂等）；`optional: true` 且 schema 自带显式 null →
+/// `| null` 恰一次（零 `| null | null`）；非 `optional` 参数零 `| null`；无 `returns` →
+/// `void`。
+#[test]
+fn render的可选参数幂等() {
+    let optional = render_source(&op_source(
+        r#"[{"name": "a", "schema": {"type": "string"}, "optional": true}]"#,
+        r#"{"type": "string"}"#,
+    ));
+    assert!(
+        optional.contains("export type load = (a: string | null) => string;"),
+        "可选参数只标一次 `| null`：\n{optional}"
+    );
+
+    let overlay = render_source(&op_source(
+        r#"[{"name": "a", "schema": {"type": ["string", "null"]}, "optional": true}]"#,
+        r#"{"type": "string"}"#,
+    ));
+    assert_eq!(
+        overlay.matches("| null").count(),
+        1,
+        "可选 + 显式 null 叠加 → `| null` 恰一次（零 `| null | null`）：\n{overlay}"
+    );
+    assert!(
+        overlay.contains("export type load = (a: string | null) => string;"),
+        "叠加后仍是单层 `T | null`：\n{overlay}"
+    );
+
+    let plain = render_source(&op_source(
+        r#"[{"name": "a", "schema": {"type": "string"}}]"#,
+        r#"{"type": "string"}"#,
+    ));
+    assert!(
+        !plain.contains("| null"),
+        "非 optional 参数零 `| null`：\n{plain}"
+    );
+
+    let no_return = render_source(&format!(
+        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": []}}\n```\n"
+    ));
+    assert!(
+        no_return.contains("export type load = () => void;"),
+        "无 `returns` → `void`（既有形态零回归）：\n{no_return}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 透传 / 头注释
 // ---------------------------------------------------------------------------
 
@@ -737,16 +1085,21 @@ fn render零eprintln且x_class只含方法() {
 // 泛型 / 幂等 / 空契约 / 规模
 // ---------------------------------------------------------------------------
 
-/// 异常（AC-5 反例）：本渲染器不处理泛型——`$ref` 名字原样落位、MUST NOT 自创
-/// `Array<T>` / `<T>` 形态（拦截在 `emit::render_target` 的 `reject_generics`）。
+/// 异常（AC-5 反例 / AC-1 (b) 边界）：本渲染器不处理泛型——`$ref` 名字原样落位、MUST
+/// NOT 自创 `Array<T>` / `<T>` 形态（拦截在 `emit::render_target` 的 `reject_generics`），
+/// 且 `$ref` 非 `required` 字段只出 `inner?: T;`（可选符号，零 `| null`）。
 #[test]
 fn render不猜泛型语法() {
     let text = render_types(
         r##"{"Wrapper": {"type": "object", "properties": {"inner": {"$ref": "#/$defs/T"}}}}"##,
     );
     assert!(
-        text.contains("inner: T | null;"),
-        "`$ref` 名字原样进字段类型：\n{text}"
+        text.contains("inner?: T;"),
+        "`$ref` 名字原样进字段类型（可选位只加 `?`）：\n{text}"
+    );
+    assert!(
+        !text.contains("inner: T | null;"),
+        "MUST NOT 回退到旧口径 `inner: T | null;`：\n{text}"
     );
     assert!(
         !text.contains("Array<"),
@@ -1613,4 +1966,210 @@ fn 渲染器产品面零硬编码映射串() {
         "映射文本形只许在 `common.json`，渲染器零字面量"
     );
     assert!(source.contains("fn common_type"), "查表单点在案（D54 ③）");
+}
+
+// ---------------------------------------------------------------------------
+// 演练草案金样与泄漏面（AC-2 / AC-1 泄漏面 / AC-4）
+// ---------------------------------------------------------------------------
+
+/// 演练草案金样（explore D.1 改写为降级词表形态）：三处 `x-common.degraded` 落在
+/// `send` 参数位 / `session` 属性位 / `sessions.items`，nullable 与可选两轴同时在场。
+fn golden_types() -> &'static str {
+    r##"{
+  "AskAnswerActions": {
+    "type": "object",
+    "properties": {
+      "onAnswer": {
+        "x-function": {
+          "params": [{ "name": "text", "schema": { "type": "string" } }],
+          "returns": { "type": "boolean" }
+        }
+      },
+      "pendingToolCallId": { "$ref": "#/$defs/SessionSummary" }
+    },
+    "required": ["onAnswer"]
+  },
+  "AgentSessionActions": {
+    "type": "object",
+    "properties": {
+      "running": { "type": "boolean" },
+      "loading": { "type": "boolean" },
+      "steering": { "type": "boolean" },
+      "send": {
+        "x-function": {
+          "params": [
+            {
+              "name": "input",
+              "schema": { "type": ["string", "null"], "x-common": { "degraded": "crossLanguage" } }
+            }
+          ],
+          "returns": { "type": "boolean" }
+        }
+      },
+      "stop": { "x-function": { "params": [], "returns": { "type": "boolean" } } },
+      "steer": {
+        "x-function": {
+          "params": [{ "name": "text", "schema": { "type": "string" } }],
+          "returns": { "type": "boolean" }
+        }
+      }
+    },
+    "required": ["running", "loading", "steering", "send", "stop", "steer"]
+  },
+  "AgentSessionViewProps": {
+    "type": "object",
+    "properties": {
+      "root": { "type": "string" },
+      "sessionId": { "type": "string" },
+      "refreshKey": { "type": "integer" },
+      "session": {
+        "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
+        "x-common": { "degraded": "noElement" }
+      },
+      "onDismiss": { "x-function": { "params": [], "returns": { "type": "boolean" } } }
+    }
+  },
+  "SessionPanelState": {
+    "type": "object",
+    "properties": {
+      "sessions": {
+        "type": "array",
+        "items": {
+          "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
+          "x-common": { "degraded": "noElement" }
+        }
+      },
+      "total": { "type": "integer" },
+      "listOpen": { "type": "boolean" },
+      "canStart": { "type": "boolean" },
+      "note": { "type": "string" }
+    },
+    "required": ["sessions", "total", "listOpen", "canStart"]
+  },
+  "SessionSummary": {
+    "type": "object",
+    "properties": { "id": { "type": "string" }, "total": { "type": "integer" } },
+    "required": ["id"]
+  }
+}"##
+}
+
+/// 正向（AC-2 金样）：演练草案 fixture 的 nullable 字段全部落 `| null`、可选字段只落
+/// `?`，interface 文本 `unknown` 零命中（九组语料的泄漏面在此 fixture 上复验一次）。
+#[test]
+fn render的演练草案金样() {
+    let text = render_types(golden_types());
+
+    // 显式 null（数组元素位 / anyOf-null）全部落 `| null`，且元素位加括号
+    assert!(
+        text.contains("sessions: (SessionSummary | null)[];"),
+        "数组元素位可空 → `(T | null)[]`：\n{text}"
+    );
+    assert!(
+        text.contains("session?: SessionSummary | null;"),
+        "anyOf-null 属性位 → `session?: T | null`：\n{text}"
+    );
+    assert!(
+        text.contains("send: (input: string | null) => boolean;"),
+        "`x-function` 参数位的显式 null → `| null`，字段零 `?`：\n{text}"
+    );
+    // 可选轴只落 `?`
+    for line in [
+        "pendingToolCallId?: SessionSummary;",
+        "note?: string;",
+        "total?: number;",
+    ] {
+        assert!(text.contains(line), "可选字段只落 `?`（{line}）：\n{text}");
+    }
+    // 必填位裸类型
+    assert!(
+        text.contains("onAnswer: (text: string) => boolean;"),
+        "必填方法字段零 `?`：\n{text}"
+    );
+
+    assert!(
+        !text.contains("unknown"),
+        "金样 interface 文本 `unknown` 零命中：\n{text}"
+    );
+    assert!(
+        !text.contains("| null | null"),
+        "叠加后 `| null` 至多一次：\n{text}"
+    );
+    // 纯 `null` 档（TS `null`）由 `render的纯null档` 钉住：本金样与 Rust 侧共用同一
+    // fixture，而 Rust 的纯 null 兜底是 `serde_json::Value`（金样要求零泄漏），故不混入
+}
+
+/// 边界（AC-4 否决项 / 格式化器不动点）：interface 字段行不以 `'` 开头（零引号键）；
+/// 同一输入两次渲染逐字相等；文本为格式化器不动点（零尾随空白、无 tab、单引号
+/// 字面量）。
+#[test]
+fn render的interface字段零引号键与不动点() {
+    let first = render_types(golden_types());
+    let second = render_types(golden_types());
+    assert_eq!(first, second, "同一输入两次渲染逐字相等");
+
+    let fields: Vec<&str> = first
+        .lines()
+        .filter(|line| line.starts_with("  ") && line.trim_end().ends_with(';'))
+        .collect();
+    assert!(!fields.is_empty(), "interface 字段行在案：\n{first}");
+    for line in fields {
+        assert!(
+            !line.trim_start().starts_with('\''),
+            "字段行 MUST NOT 以引号键起手（`'data-testid'` 类形态零产出）：{line:?}"
+        );
+        assert!(!line.contains("':"), "字段行零引号键形态：{line:?}");
+    }
+
+    for line in first.lines() {
+        assert_eq!(line, line.trim_end(), "零尾随空白：{line:?}");
+        assert!(!line.contains('\t'), "零 tab 缩进：{line:?}");
+    }
+    assert!(first.ends_with('\n'), "末尾以换行收束");
+    assert!(!first.contains("[\""), "数组字面量一律单引号：\n{first}");
+}
+
+/// 异常（AC-1 泄漏面，逐组 9 组）：九组 nullable 语料逐组取渲染文本，`unknown` 零命中
+/// ——判据认得而渲染不认得即在此暴露。
+#[test]
+fn render的九组nullable语料零unknown() {
+    let corpus = [
+        ("类型数组含 null", r#"{"type": ["string", "null"]}"#, true),
+        (
+            "三元素类型数组",
+            r#"{"type": ["string", "integer", "null"]}"#,
+            true,
+        ),
+        (
+            "anyOf 含 null",
+            r#"{"anyOf": [{"type": "string"}, {"type": "null"}]}"#,
+            true,
+        ),
+        (
+            "oneOf 含 null",
+            r#"{"oneOf": [{"type": "integer"}, {"type": "null"}]}"#,
+            true,
+        ),
+        (
+            "非 required 叠加显式 null",
+            r#"{"type": ["string", "null"]}"#,
+            false,
+        ),
+        (
+            "数组元素位可空",
+            r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
+            true,
+        ),
+        ("必填字段（可选轴）", r#"{"type": "string"}"#, true),
+        ("可选字段（可选轴）", r#"{"type": "string"}"#, false),
+        ("纯 null 档", r#"{"type": "null"}"#, true),
+    ];
+    assert_eq!(corpus.len(), 9, "语料九组（6 可空 + 2 可选 + 1 纯 null）");
+    for (label, fragment, required) in corpus {
+        let text = render_types(&holder_types(fragment, required));
+        assert!(
+            !text.contains("unknown"),
+            "{label}：渲染文本 `unknown` 零命中（泄漏面即失败）：\n{text}"
+        );
+    }
 }

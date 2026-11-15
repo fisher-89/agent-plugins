@@ -1,0 +1,3627 @@
+diff --git a/crates/core/archi/src/api/contract.rs b/crates/core/archi/src/api/contract.rs
+index 1d5612663e92..4aeb755bcf0d 100644
+--- a/crates/core/archi/src/api/contract.rs
++++ b/crates/core/archi/src/api/contract.rs
+@@ -21,10 +21,11 @@
+ //! 键名即身份，同名即定义两次。
+ //!
+ //! **[`verify`] 是装载期的校验收口**：三条双向 gate + 闸一（七族名字 MUST 是 ASCII
+-//! 标识符，D45）+ 落点闸（`x-function` 的合法落点封闭二处，D47）。三者同函数、同趟
+-//! 收口——它们都是「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。
+-//! 渲染期因此不做二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧
+-//! `value_type` 零 `x-function` 分支。
++//! 标识符，D45）+ 落点闸（`x-function` 的合法落点封闭二处，D47）+ `required` 与
++//! `properties` 的自洽闸（集合关系，不占族别编号）。四者同函数、同趟收口——它们都是
++//! 「契约资产的错」，须在 `load_contracts` 中止，MUST NOT 留到写盘面。渲染期因此不做
++//! 二次校验（名字与位置都已保证），`emit` 内零标识符判据、两侧 `value_type` 零
++//! `x-function` 分支。
+ //!
+ //! 错误一律带 `file:line` 与原文片段——契约坏了要能直接改到那一行。
+ 
+@@ -270,6 +271,9 @@ pub fn parse(source: &str, fqn: &str, file: &str) -> Result<Contract, ApiError>
+ /// 闸一之后是**落点闸**（D47）：`x-function` 的合法落点**封闭二处**——`api-op` fence 的顶层
+ /// 签名与 `$defs` 条目第一层 `properties` 的**值**；其余位置一律契约错误并点名 JSON pointer
+ /// （判的是「键在哪儿」而非「名字长什么样」，故它不是闸一的第八族，而是 ④ 族射程的前置）。
++///
++/// 落点闸之前、⑤ 族的同一趟遍历里还续判**自洽闸**：`required` 元素集 MUST ⊆ 同条目
++/// `properties` 键集（悬垂即契约错误）。判的是集合关系而非名字形态，故同样不占族别编号。
+ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+     let mut seen: Vec<&str> = Vec::new();
+     for op in &contract.ops {
+@@ -344,10 +348,12 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+     // 已生成文本）；渲染期 MUST NOT 重复校验同一事实（`emit/{rust,ts}.rs` 里零
+     // `is_identifier` 调用），`params[].name` 的「缺名落 `arg`」兜底保留（缺名与非法名是
+     // 两件事）。七族与渲染期插值点的对照见 D45 的「插值点 ↔ 来源族」枚举。
++    //
++    // 同趟续判 `required` ⊆ `properties`（自洽闸，零新增族别数）。
+     for op in &contract.ops {
+         if !is_identifier(&op.id) {
+             return Err(identifier_error(
+-                contract, "op id", &op.id, FENCE_OP, op.line,
++                contract, "op id", &op.id, FENCE_OP, op.line, None,
+             ));
+         }
+         for name in function_param_names(&op.signature) {
+@@ -358,6 +364,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                     &name,
+                     FENCE_OP,
+                     op.line,
++                    None,
+                 ));
+             }
+         }
+@@ -369,6 +376,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                     owner,
+                     FENCE_OP,
+                     op.line,
++                    None,
+                 ));
+             }
+         }
+@@ -380,6 +388,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                     &name,
+                     FENCE_OP,
+                     op.line,
++                    None,
+                 ));
+             }
+         }
+@@ -392,14 +401,15 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                 name,
+                 FENCE_TYPES,
+                 0,
++                None,
+             ));
+         }
+     }
+-    for definition in schema
++    for (name, definition) in schema
+         .get("$defs")
+         .and_then(Value::as_object)
+-        .map(|defs| defs.values().collect::<Vec<&Value>>())
+-        .unwrap_or_default()
++        .into_iter()
++        .flatten()
+     {
+         for field in property_names(definition) {
+             if !is_identifier(&field) {
+@@ -409,9 +419,22 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                     &field,
+                     FENCE_TYPES,
+                     0,
++                    Some(&format!("$defs.{name}.properties.{field}")),
+                 ));
+             }
+         }
++        // 自洽闸：`required` 元素集 MUST ⊆ 同条目 `properties` 键集。它判的是**集合关系**、
++        // 不是名字形态，故不占族编号（①…⑦ 不动、无第八族）；同一趟、同一公开入口判完，
++        // MUST NOT 拆第二个 `pub fn`。
++        let properties = definition.get("properties").and_then(Value::as_object);
++        for (index, element) in required_elements(definition).into_iter().enumerate() {
++            let present = element
++                .as_str()
++                .is_some_and(|key| properties.is_some_and(|map| map.contains_key(key)));
++            if !present {
++                return Err(required_dangling_error(contract, name, index, element));
++            }
++        }
+         for (method, function) in methods_of(definition) {
+             if !is_identifier(&method) {
+                 return Err(identifier_error(
+@@ -420,11 +443,19 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                     &method,
+                     FENCE_TYPES,
+                     0,
++                    None,
+                 ));
+             }
+             for name in function_param_names(function) {
+                 if !is_identifier(&name) {
+-                    return Err(identifier_error(contract, "参数名", &name, FENCE_TYPES, 0));
++                    return Err(identifier_error(
++                        contract,
++                        "参数名",
++                        &name,
++                        FENCE_TYPES,
++                        0,
++                        None,
++                    ));
+                 }
+             }
+         }
+@@ -436,6 +467,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                     &name,
+                     FENCE_TYPES,
+                     0,
++                    None,
+                 ));
+             }
+         }
+@@ -448,6 +480,7 @@ pub fn verify(contract: &Contract, schema: &Value) -> Result<(), ApiError> {
+                 name,
+                 FENCE_REEXPORT,
+                 0,
++                None,
+             ));
+         }
+     }
+@@ -564,23 +597,36 @@ fn x_function_position_error(contract: &Contract, pointer: &str) -> ApiError {
+ }
+ 
+ /// 闸一的错误面（族别 + 名字 + fence + 行；行号未知时退化为 `file` 级前缀）。
++///
++/// `pointer` 只由 ⑤ 族传入——它是唯一「错误位置在 `$defs` 深处」的族，故 `pointer` 在案
++/// 即选属性键的可执行出路句；其余六族 MUST NOT 传 `Some`（通用句与出路句混说会让族别
++/// 文案失真）。
+ fn identifier_error(
+     contract: &Contract,
+     family: &str,
+     name: &str,
+     fence: &str,
+     line: u32,
++    pointer: Option<&str>,
+ ) -> ApiError {
+     let where_ = if line == 0 {
+         contract.file.clone()
+     } else {
+         format!("{}:{line}", contract.file)
+     };
+-    ApiError::Contract(format!(
+-        "{where_}: {fence} 的 {family} `{name}` 不是 ASCII 标识符（`[A-Za-z_][A-Za-z0-9_]*`）——\
+-         契约里的名字会直接成为目标语言源码的标识符：MUST NOT 含空格 / 连字符 / 点 / 首字符数字；\
+-         需要人类可读的措辞请写在散文区"
+-    ))
++    let detail = match pointer {
++        Some(pointer) => format!(
++            "{fence} 的 {family} `{name}` 不是 ASCII 标识符（`[A-Za-z_][A-Za-z0-9_]*`）；\
++             JSON pointer `{pointer}`——属性键必须是标识符；`data-testid` 一类键不进契约\
++             （前端契约需避开 DOM 测试属性）；人类可读的措辞请写在散文区"
++        ),
++        None => format!(
++            "{fence} 的 {family} `{name}` 不是 ASCII 标识符（`[A-Za-z_][A-Za-z0-9_]*`）——\
++             契约里的名字会直接成为目标语言源码的标识符：MUST NOT 含空格 / 连字符 / 点 / 首字符数字；\
++             需要人类可读的措辞请写在散文区"
++        ),
++    };
++    ApiError::Contract(format!("{where_}: {detail}"))
+ }
+ 
+ /// 一段 `x-function` 形态值里的 `params[].name`（裸形态与 `{"x-function": …}` 包裹形态同判；
+@@ -619,6 +665,38 @@ fn methods_of(definition: &Value) -> Vec<(String, &Value)> {
+         .unwrap_or_default()
+ }
+ 
++/// `$defs` 条目的 `required` 数组元素（**保留 `Value` 形态**——非字符串元素也要能点名
++/// 它的形态，见 [`kind_of`]）。`required` 缺省 / 整体非数组 ⇒ 空 `Vec`（维持既有静默：
++/// 该形态的判据不在本期）。
++fn required_elements(definition: &Value) -> Vec<&Value> {
++    definition
++        .get("required")
++        .and_then(Value::as_array)
++        .map(|items| items.iter().collect())
++        .unwrap_or_default()
++}
++
++/// 自洽闸的错误面：点名 `$defs.<name>.required[<i>]` 的 JSON pointer、该元素（字符串原样、
++/// 非字符串经 [`kind_of`] 报形态）与可执行出路。
++fn required_dangling_error(
++    contract: &Contract,
++    definition: &str,
++    index: usize,
++    element: &Value,
++) -> ApiError {
++    let element = match element.as_str() {
++        Some(key) => format!("`{key}`"),
++        None => format!("（{}）", kind_of(element)),
++    };
++    ApiError::Contract(format!(
++        "{}: {FENCE_TYPES} 的 required 元素在同条目 `properties` 里没有对应键——该元素 = \
++         {element}（JSON pointer `$defs.{definition}.required[{index}]`）；`required` 与 \
++         `properties` 必须闭合：改成 `properties` 里已有的键，或补上该字段的定义\
++         （悬垂会让两侧产物把该字段静默渲染成可选）",
++        contract.file
++    ))
++}
++
+ /// `$defs` 条目的 **`properties` 数据字段**键（⑤ 族：`struct_block` / `interface_block` 把
+ /// `{field}` 直插为结构体字段 / interface 属性）。
+ ///
+diff --git a/crates/core/archi/src/api/contract_test.rs b/crates/core/archi/src/api/contract_test.rs
+index a5ff5bd5f965..08651dea1bc3 100644
+--- a/crates/core/archi/src/api/contract_test.rs
++++ b/crates/core/archi/src/api/contract_test.rs
+@@ -6,11 +6,15 @@
+ //! `serde_json` 真实解析 fence 内容（JSON 语法错面即被测语义）；`verify` 的
+ //! `schema` 入参由真实 `build_schema` 产出，另备手写 `json!` 反例注入缺定义。
+ 
++use std::collections::BTreeMap;
++
+ use serde_json::{json, Value};
+ 
+ use super::contract::{is_constructor, parse, verify, Contract, ContractOp};
+ use super::schema::build_schema;
+ use super::{meta, ApiError};
++use crate::api::emit::{self, EmitTarget};
++use crate::api::paths::{EntryForm, GeneratedKind};
+ 
+ /// 契约文件（repo 相对 POSIX；错误文案的 `file:` 前缀来源）。
+ const FILE: &str = ".dev-team/architecture/api/Demo/App.Demo.Item.md";
+@@ -1816,3 +1820,320 @@ fn verify闸一名字合法面不被误伤() {
+         "两名字均合法（`Run` 与 `run` 各自在案）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 自洽闸：`required` ⊆ `properties`（AC-4 / D2）
++// ---------------------------------------------------------------------------
++
++/// 单条目 `api-types` 契约（`$defs.Widget` 取给定 JSON 原文）。
++fn widget_contract(definition: &str) -> Contract {
++    let source = format!("# {FQN}\n\n```json api-types\n{{\"Widget\": {definition}}}\n```\n");
++    parse(&source, FQN, FILE).expect("结构合法（自洽闸在 verify 判，不在 parse）")
++}
++
++/// `$defs.Widget` 取给定原文的契约经真实 `build_schema` 后的 `verify` 结果。
++fn verify_definition(definition: &str) -> Result<(), ApiError> {
++    let contract = widget_contract(definition);
++    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
++    verify(&contract, &schema)
++}
++
++/// 断言 `verify_definition` 报契约错误并返回文案。
++fn verify_definition_error(definition: &str) -> String {
++    match verify_definition(definition) {
++        Ok(()) => panic!("期望自洽闸报错，实际 Ok：{definition}"),
++        Err(ApiError::Contract(message)) => message,
++        Err(other) => panic!("期望 ApiError::Contract，实际：{other:?}"),
++    }
++}
++
++/// 正向（AC-4，表驱动）：`required ⊆ properties` 四形态——全字段必填 / 部分必填 /
++/// `required = []` / 无 `required` → 全 `Ok`。
++#[test]
++fn verify自洽闸四种required形态全过() {
++    let cases = [
++        (
++            "全字段必填",
++            r#"{"type": "object", "properties": {"name": {"type": "string"}, "total": {"type": "integer"}}, "required": ["name", "total"]}"#,
++        ),
++        (
++            "部分必填",
++            r#"{"type": "object", "properties": {"name": {"type": "string"}, "total": {"type": "integer"}}, "required": ["name"]}"#,
++        ),
++        (
++            "required 为空的数组",
++            r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": []}"#,
++        ),
++        (
++            "无 required 键",
++            r#"{"type": "object", "properties": {"name": {"type": "string"}}}"#,
++        ),
++    ];
++    for (label, definition) in cases {
++        assert_eq!(
++            verify_definition(definition),
++            Ok(()),
++            "{label}：自洽契约应通过"
++        );
++    }
++}
++
++/// 正向（AC-6 判据面侧）：现网契约形态（`properties: {}` 且零 `required`）→ `Ok`，
++/// 零误伤。
++#[test]
++fn verify自洽闸不误伤现网空属性形态() {
++    assert_eq!(
++        verify_definition(r#"{"type": "object", "properties": {}}"#),
++        Ok(()),
++        "`properties` 为空对象且零 `required` → Ok（现网契约形态）"
++    );
++    assert_eq!(
++        verify_definition(r#"{"type": "object"}"#),
++        Ok(()),
++        "无 `properties` 且无 `required` → Ok（零键可判）"
++    );
++}
++
++/// 异常（AC-4 关键反例）：`properties` 有 `name` 而 `required: ["nmae"]` → `Err`，文案
++/// 含 `$defs.Widget.required[0]` 与悬垂名 `nmae`。
++#[test]
++fn verify自洽闸点名悬垂required的pointer() {
++    let message = verify_definition_error(
++        r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["nmae"]}"#,
++    );
++    assert!(
++        message.contains("$defs.Widget.required[0]"),
++        "文案点名 JSON pointer：{message}"
++    );
++    assert!(message.contains("nmae"), "文案点名悬垂元素：{message}");
++    assert!(message.contains(FILE), "文案带文件定位：{message}");
++    assert!(
++        message.contains("required") && message.contains("properties"),
++        "文案点明 `required` 与 `properties` 的闭合关系：{message}"
++    );
++    assert!(
++        !message.contains("ASCII 标识符"),
++        "集合关系错与名字形态错是两类错误面（MUST NOT 借用闸一措辞）：{message}"
++    );
++}
++
++/// 异常（表驱动）：`required` 元素非字符串（`[42]` / `[true]` / `[null]`）→ `Err`，
++/// 文案点名 `required[<i>]` 并经 `kind_of` 报形态（数字 / 布尔 / null）。
++#[test]
++fn verify自洽闸的required元素非字符串() {
++    let cases = [
++        (r#"[42]"#, "数字"),
++        (r#"[true]"#, "布尔"),
++        (r#"[null]"#, "null"),
++    ];
++    for (required, kind) in cases {
++        let message = verify_definition_error(&format!(
++            r#"{{"type": "object", "properties": {{"name": {{"type": "string"}}}}, "required": {required}}}"#
++        ));
++        assert!(
++            message.contains("$defs.Widget.required[0]"),
++            "{required}：文案点名 pointer：{message}"
++        );
++        assert!(
++            message.contains(kind),
++            "{required}：文案经 `kind_of` 报形态 `{kind}`：{message}"
++        );
++    }
++}
++
++/// 异常（表驱动）：条目缺 `properties` 而 `required` 非空 → `Err` 且文案含
++/// `required[0]`；首层属性键 `data-testid` → `Err` 且文案含
++/// `$defs.Widget.properties.data-testid` 与「`data-testid` 一类键不进契约」出路句。
++#[test]
++fn verify自洽闸缺属性与非法属性键() {
++    let missing = verify_definition_error(r#"{"type": "object", "required": ["name"]}"#);
++    assert!(
++        missing.contains("$defs.Widget.required[0]"),
++        "缺 `properties` 时仍点名 pointer：{missing}"
++    );
++
++    let dotted = verify_definition_error(
++        r#"{"type": "object", "properties": {"data-testid": {"type": "string"}}}"#,
++    );
++    assert!(
++        dotted.contains("$defs.Widget.properties.data-testid"),
++        "非法属性键点名 pointer：{dotted}"
++    );
++    assert!(
++        dotted.contains("`data-testid` 一类键不进契约"),
++        "文案带可执行出路句：{dotted}"
++    );
++    assert!(
++        dotted.contains("properties 数据字段键"),
++        "族别串在案（⑤ 族）：{dotted}"
++    );
++}
++
++/// 异常（AC-4 边界）：同一 `$defs` 条目同时含非法属性键与悬垂 `required` → 报 ⑤ 族
++/// （同趟先判名字、后判闭合性，错误面稳定不漂移）。
++#[test]
++fn verify非法属性键先于悬垂required() {
++    let message = verify_definition_error(
++        r#"{"type": "object", "properties": {"data-testid": {"type": "string"}}, "required": ["nmae"]}"#,
++    );
++    assert!(
++        message.contains("properties 数据字段键"),
++        "同趟先判名字（⑤ 族）：{message}"
++    );
++    assert!(
++        message.contains("$defs.Widget.properties.data-testid"),
++        "⑤ 族的 pointer 在案：{message}"
++    );
++    assert!(
++        !message.contains("required[0]"),
++        "后判的闭合性不抢先报（错误面稳定）：{message}"
++    );
++}
++
++/// 边界（design 待决问题 1 的显式留白）：`required` 整体非数组（`"required": "name"`）
++/// → 维持既有静默（`Ok`）——本期不加判据。
++#[test]
++fn verify自洽闸的required非数组维持静默() {
++    assert_eq!(
++        verify_definition(
++            r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": "name"}"#
++        ),
++        Ok(()),
++        "`required` 非数组不在本期判据面（显式留白，零误报）"
++    );
++}
++
++/// 边界：`required` 指向 `x-function` 方法名（键在同条目 `properties` 全集内）→ `Ok`
++/// （闭合性按 `properties` 键集判，与 ① 族方法名判据互不吞并）。
++#[test]
++fn verify自洽闸的方法名闭合() {
++    assert_eq!(
++        verify_definition(
++            r#"{"type": "object", "properties": {"onAnswer": {"x-function": {"params": [], "returns": {"type": "boolean"}}}}, "required": ["onAnswer"]}"#
++        ),
++        Ok(()),
++        "函数指针字段名在 `properties` 全集内即闭合"
++    );
++
++    let missing = verify_definition_error(
++        r#"{"type": "object", "properties": {"onAnswer": {"x-function": {"params": [], "returns": {"type": "boolean"}}}}, "required": ["onAnswr"]}"#,
++    );
++    assert!(
++        missing.contains("$defs.Widget.required[0]") && missing.contains("onAnswr"),
++        "拼错的方法名仍报悬垂：{missing}"
++    );
++}
++
++/// 边界（表驱动）：非 ⑤ 族（op id / `$defs` 键名 / 透传导出名 / 参数名 / `$ref` 末段名）
++/// 的报错文案零 `JSON pointer` 段（pointer 只由 ⑤ 族传入，其余族保留通用句）。
++#[test]
++fn verify非五族文案零pointer句() {
++    let op_id = gate1_error(&gate1_op_source("file-stem", None), "op id", "file-stem");
++    let param = gate1_error(&gate1_op_source("run", Some("in-put")), "参数名", "in-put");
++    let defs_key = gate1_error(
++        &format!(
++            "# {FQN}\n\n```json api-types\n{{\"Local-Chk\": {{\"type\": \"object\"}}}}\n```\n"
++        ),
++        "$defs 键名",
++        "Local-Chk",
++    );
++    let reexport_source = format!(
++        "# {FQN}\n\n```json api-reexport\n{{\"Agent Input\": \"App.Frontend.Components.Agent.Input\"}}\n```\n"
++    );
++    let mut reexport_contract = parse(&reexport_source, FQN, FILE).expect("结构合法");
++    reexport_contract.reexport_prose = reexport_contract.reexports.keys().cloned().collect();
++    let reexport = verify_error(&reexport_contract, &json!({"$defs": {}}));
++    assert!(
++        reexport.contains("透传导出名") && reexport.contains("Agent Input"),
++        "透传导出名族族别串在案：{reexport}"
++    );
++    let reference = gate1_error(
++        &format!(
++            "# {FQN}\n\n```json api-types\n{{\"LocalArchiCheck\": {{\"type\": \"object\", \
++             \"properties\": {{\"summary\": {{\"$ref\": \"#/$defs/带 空格\"}}}}}}}}\n```\n"
++        ),
++        "$ref 末段名",
++        "带 空格",
++    );
++    for (family, message) in [
++        ("op id", op_id),
++        ("参数名", param),
++        ("$defs 键名", defs_key),
++        ("透传导出名", reexport),
++        ("$ref 末段名", reference),
++    ] {
++        assert!(
++            !message.contains("JSON pointer"),
++            "{family} 族的文案零 `JSON pointer` 段（只有 ⑤ 族带 pointer）：{message}"
++        );
++        assert!(
++            message.contains("ASCII 标识符"),
++            "{family} 族仍用通用句：{message}"
++        );
++    }
++}
++
++/// 边界（AC-4 零回归）：七族判据仍逐族在案（族别串齐备）、公开面仍恰 3 个 `pub fn`
++/// （不新增族编号、不拆第二个公开入口）。
++#[test]
++fn verify七族与公开面零回归() {
++    let source = include_str!("contract.rs");
++    for family in [
++        "op id",
++        "$defs 键名",
++        "透传导出名",
++        "参数名",
++        "properties 数据字段键",
++        "owner 键",
++        "$ref 末段名",
++    ] {
++        assert!(
++            source.contains(family),
++            "族别串 `{family}` 在案（七族不因自洽闸而增删）"
++        );
++    }
++    assert_eq!(
++        source.matches("\npub fn ").count(),
++        3,
++        "公开面仍恰 3 个 `pub fn`（parse / verify / is_constructor）"
++    );
++    assert_eq!(
++        source.matches("pub fn verify(").count(),
++        1,
++        "自洽闸与七族闸、落点闸同函数（MUST NOT 拆第二个公开入口）"
++    );
++}
++
++/// 正向（跨模块：`verify` → `emit::{ts,rust}::render`）：`required: ["name"]` 的自洽
++/// 契约通过 `verify` 后，TS 渲染 `name: string;`、Rust 渲染 `pub name: String,`（必填
++/// 两侧同真）。
++#[test]
++fn verify通过后两侧渲染为必填() {
++    let contract = widget_contract(
++        r#"{"type": "object", "properties": {"name": {"type": "string"}, "total": {"type": "integer"}}, "required": ["name"]}"#,
++    );
++    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
++    assert_eq!(verify(&contract, &schema), Ok(()), "自洽契约通过装载期");
++
++    let target = |kind: GeneratedKind| EmitTarget {
++        kind,
++        form: EntryForm::SubdirModule,
++        modules: BTreeMap::new(),
++    };
++    let ts = emit::ts::render(
++        &contract,
++        &schema,
++        &meta(),
++        &target(GeneratedKind::TypeScript),
++    );
++    let rust = emit::rust::render(&contract, &schema, &meta(), &target(GeneratedKind::Rust));
++    assert!(ts.contains("name: string;"), "TS 侧必填字段裸类型：\n{ts}");
++    assert!(
++        rust.contains("pub name: String,"),
++        "Rust 侧必填字段裸类型：\n{rust}"
++    );
++    assert!(
++        ts.contains("total?: number;") && rust.contains("pub total: Option<i64>,"),
++        "非必填字段两侧同判可选：\n{ts}\n{rust}"
++    );
++}
+diff --git a/crates/core/archi/src/api/emit/rust.rs b/crates/core/archi/src/api/emit/rust.rs
+index c294779f71da..3dfc30f84477 100644
+--- a/crates/core/archi/src/api/emit/rust.rs
++++ b/crates/core/archi/src/api/emit/rust.rs
+@@ -11,6 +11,9 @@
+ //! `String`、入参位 `list<T>` → `&[T]`）：MUST NOT 变成对外门禁，偏离由契约
+ //! `x-common.note` 登记理由。
+ //!
++//! **可选与可空是两个独立事实**：可选（字段不在 `required` 内）与可空（`type` 含
++//! `null`）各只有一个判定点，叠加时经 [`optional_of`] 去重到至多一层 `Option<T>`。
++//!
+ //! 边界：纯函数出 `String`，零写盘。
+ 
+ use std::collections::BTreeMap;
+@@ -19,7 +22,7 @@ use serde_json::{Map, Value};
+ 
+ use super::{declared_ops, local_defs, notice_lines, reexport_defs, EmitTarget, ModuleRef};
+ use crate::api::contract::{is_constructor, Contract, ContractOp};
+-use crate::api::extract::Position;
++use crate::api::extract::{nullable_breakdown, Position};
+ use crate::api::{protocol_key, reexport_target, ref_name, ApiMeta, CommonRule};
+ 
+ /// 注释拼接的唯一转义点（D45 闸二）：`\n` / `\r` / `U+2028` / `U+2029` → 空格（防断行），
+@@ -161,7 +164,8 @@ fn type_block(name: &str, definition: &Value, common: &BTreeMap<String, CommonRu
+     struct_block(name, object, common)
+ }
+ 
+-/// `object` → `pub struct`（非 `required` 字段 → `Option<T>`）。
++/// `object` → `pub struct`（非 `required` 字段 → `Option<T>`，经 [`optional_of`] 幂等
++/// 包装：可选与可空叠加时至多一层）。
+ fn struct_block(
+     name: &str,
+     object: &Map<String, Value>,
+@@ -184,7 +188,7 @@ fn struct_block(
+             let ty = if required.iter().any(|item| item == field) {
+                 base
+             } else {
+-                format!("Option<{base}>")
++                optional_of(base)
+             };
+             body.push_str(&format!("    pub {field}: {ty},\n"));
+         }
+@@ -361,6 +365,22 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
+         // 的 `rust` 槽位，MUST NOT 在此硬编码（改表即变产物）。
+         return mapped;
+     }
++    if let Some(breakdown) = nullable_breakdown(schema) {
++        // 与 `schema_type` 同序（`$ref` → 映射规则 → nullable → `type` 分派）：形状识别
++        // 单点在 `nullable_breakdown`，本文件 MUST NOT 二次判 null。纯 null 档保持既有
++        // 兜底 `serde_json::Value`（MUST NOT 出 `()`），`Option<>` 只经 `optional_of` 包一次。
++        return match breakdown.non_null {
++            None => FALLBACK_VALUE_TYPE.to_owned(),
++            Some(inner) => {
++                let inner = value_type(inner.as_ref(), position, common);
++                if breakdown.explicit_null {
++                    optional_of(inner)
++                } else {
++                    inner
++                }
++            }
++        };
++    }
+     match schema.get("type").and_then(Value::as_str) {
+         Some("string") => match position {
+             Position::Param => "&str".to_owned(),
+@@ -393,6 +413,18 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
+     }
+ }
+ 
++/// 可选包装的**唯一单点**（幂等）——[`struct_block`] 与 [`value_type`] 的可空分支都调它，
++/// 故 `Option<Option<` 零产出（嵌套 `Option` 是退化产物，MUST NOT 出现）。
++fn optional_of(ty: String) -> String {
++    if ty.starts_with("Option<") && ty.ends_with('>') {
++        return ty;
++    }
++    let mut wrapped = String::from("Option<");
++    wrapped.push_str(&ty);
++    wrapped.push('>');
++    wrapped
++}
++
+ /// 枚举值 / 类型名 → Rust 变体名（驼峰；非标识符字符当分隔）。
+ ///
+ /// **不变量**：返回值 MUST 是合法 Rust 标识符。`enum` 值来自契约的任意文本（可能含
+diff --git a/crates/core/archi/src/api/emit/rust_test.rs b/crates/core/archi/src/api/emit/rust_test.rs
+index d5b9e7b2e71b..a2463736648b 100644
+--- a/crates/core/archi/src/api/emit/rust_test.rs
++++ b/crates/core/archi/src/api/emit/rust_test.rs
+@@ -1418,3 +1418,489 @@ fn 渲染器产品面零硬编码映射串() {
+     );
+     assert!(source.contains("fn common_type"), "查表单点在案（D54 ③）");
+ }
++
++// ---------------------------------------------------------------------------
++// 可选与可空两个独立事实（AC-1 / AC-3 / D1）
++// ---------------------------------------------------------------------------
++
++/// struct 内某字段的整行（含缩进；缺席即断言失败）。
++fn field_line<'a>(text: &'a str, field: &str) -> &'a str {
++    text.lines()
++        .find(|line| line.trim_start().starts_with(&format!("pub {field}:")))
++        .unwrap_or_else(|| panic!("struct 内应有字段 `{field}`：\n{text}"))
++}
++
++/// 单字段 `api-types` 源文（`$defs.Holder.properties.f` 取给定片段）。
++fn holder_types(fragment: &str, required: bool) -> String {
++    let required = if required {
++        ", \"required\": [\"f\"]"
++    } else {
++        ""
++    };
++    format!(r#"{{"Holder": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}}}"#)
++}
++
++/// `api-op` 单操作源文（`params` / `returns` 原文直传）。
++fn op_source(params: &str, returns: &str) -> String {
++    format!(
++        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": {params}, \"returns\": {returns}}}\n```\n"
++    )
++}
++
++/// 异常（AC-3 关键反例）：可空与可选叠加（字段非 `required` 且 `type` 含 `null`）→
++/// `pub c: Option<String>,`（只多一层）；全渲染文本 `Option<Option<` 零命中。
++#[test]
++fn render的可空与可选叠加只包一层() {
++    let text = render_types(
++        r#"{
++  "Item": {
++    "type": "object",
++    "properties": {
++      "a": {"type": "string"},
++      "c": {"type": ["string", "null"]},
++      "d": {"type": ["array", "null"], "items": {"type": ["integer", "null"]}}
++    },
++    "required": ["a"]
++  }
++}"#,
++    );
++    assert_eq!(
++        field_line(&text, "a").trim(),
++        "pub a: String,",
++        "必填 + 非 nullable → 裸类型：\n{text}"
++    );
++    assert_eq!(
++        field_line(&text, "c").trim(),
++        "pub c: Option<String>,",
++        "可选 + 显式 null → 单层 `Option<…>`：\n{text}"
++    );
++    assert_eq!(
++        field_line(&text, "d").trim(),
++        "pub d: Option<Vec<Option<i64>>>,",
++        "数组位可空 + 元素位可空 → 逐层各一层：\n{text}"
++    );
++    assert!(
++        !text.contains("Option<Option<"),
++        "全渲染文本 MUST NOT 出 `Option<Option<`：\n{text}"
++    );
++}
++
++/// 边界（D6）：`x-function` 字段（即便非 `required`）→ `pub f: fn(…) -> …,` 零
++/// `Option<>`（可选轴不套方法面）。
++#[test]
++fn render的函数指针字段零optional() {
++    let text = render_types(
++        r#"{"Wrapper": {"type": "object", "properties": {
++  "f": {"x-function": {"params": [{"name": "input", "schema": {"type": "string"}}], "returns": {"type": "boolean"}}}
++}}}"#,
++    );
++    assert_eq!(
++        field_line(&text, "f").trim(),
++        "pub f: fn(input: &str) -> bool,",
++        "函数指针字段零 `Option<>`、零 `?`：\n{text}"
++    );
++    assert!(
++        !field_line(&text, "f").contains("Option<"),
++        "MUST NOT 出 `Option<fn(…)>` 形态：\n{text}"
++    );
++}
++
++/// 正向（AC-3，表驱动）：`required` 字段位的显式 null → `Option<T>`；入参位保留位置
++/// 语义（`Option<&str>`）。
++#[test]
++fn render的显式null落optional() {
++    let field = render_types(&holder_types(r#"{"type": ["string", "null"]}"#, true));
++    assert_eq!(
++        field_line(&field, "f").trim(),
++        "pub f: Option<String>,",
++        "必填 + 显式 null → `Option<String>`（单层）：\n{field}"
++    );
++
++    let param = render_source(&op_source(
++        r#"[{"name": "a", "schema": {"type": ["string", "null"]}}]"#,
++        r#"{"type": "string"}"#,
++    ));
++    assert!(
++        param.contains("const _: fn(Option<&str>) -> String = super::load;"),
++        "入参位保留位置语义（`Option<&str>`）：\n{param}"
++    );
++}
++
++/// 异常（AC-3）：非空分支本身已带兜底（`{"type":["object","null"]}` 且无
++/// `additionalProperties`）→ `Option<serde_json::Value>`（单层包装，零
++/// `Option<Option<`）。
++#[test]
++fn render的nullable非空分支自带兜底只包一层() {
++    let text = render_types(&holder_types(r#"{"type": ["object", "null"]}"#, true));
++    assert_eq!(
++        field_line(&text, "f").trim(),
++        "pub f: Option<serde_json::Value>,",
++        "兜底分支再包一层可空 → 单层 `Option<serde_json::Value>`：\n{text}"
++    );
++    assert!(
++        !text.contains("Option<Option<"),
++        "MUST NOT 出双层 `Option<`：\n{text}"
++    );
++}
++
++/// 边界（AC-3，表驱动）：纯 `null` 档——`required` 字段位 → `serde_json::Value`（既有
++/// 兜底，显式期望值）、非 `required` 位 → `Option<serde_json::Value>`（只多一层可选
++/// 包装）；零 `()`。
++#[test]
++fn render的纯null档() {
++    let required = render_types(&holder_types(r#"{"type": "null"}"#, true));
++    assert_eq!(
++        field_line(&required, "f").trim(),
++        "pub f: serde_json::Value,",
++        "纯 null 档必填位 → 既有兜底 `serde_json::Value`：\n{required}"
++    );
++
++    let optional = render_types(&holder_types(r#"{"type": "null"}"#, false));
++    assert_eq!(
++        field_line(&optional, "f").trim(),
++        "pub f: Option<serde_json::Value>,",
++        "纯 null 档可选位 → 只多一层可选包装：\n{optional}"
++    );
++
++    for text in [&required, &optional] {
++        assert!(
++            !text.contains("()"),
++            "纯 null 档 MUST NOT 落 `()`：\n{text}"
++        );
++    }
++}
++
++/// 正向（AC-3）：数组元素位可空 → `Vec<Option<String>>`；`Param` 位 →
++/// `&[Option<String>]`。
++#[test]
++fn render的数组元素位可空() {
++    let field = render_types(&holder_types(
++        r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&field, "f").trim(),
++        "pub f: Vec<Option<String>>,",
++        "字段位 array + 元素可空 → `Vec<Option<String>>`：\n{field}"
++    );
++
++    let param = render_source(&op_source(
++        r#"[{"name": "items", "schema": {"type": "array", "items": {"type": ["string", "null"]}}}]"#,
++        r#"{"type": "string"}"#,
++    ));
++    assert!(
++        param.contains("const _: fn(&[Option<String>]) -> String = super::load;"),
++        "入参位 array → `&[Option<String>]`（位置语义 + 元素可空）：\n{param}"
++    );
++}
++
++/// 异常：全渲染文本 `Option<Option<` 零命中（字段 / 参数 / 数组三面叠加的同一语料）。
++#[test]
++fn render全文本零双层option() {
++    let types = render_types(
++        r#"{
++  "Holder": {
++    "type": "object",
++    "properties": {
++      "scalar": {"type": ["string", "null"]},
++      "list": {"type": "array", "items": {"type": ["integer", "null"]}},
++      "nested": {"type": "array", "items": {"type": "array", "items": {"type": ["string", "null"]}}}
++    }
++  }
++}"#,
++    );
++    let op = render_source(&op_source(
++        r#"[{"name": "a", "schema": {"type": ["string", "null"]}}, {"name": "b", "schema": {"type": "array", "items": {"type": ["string", "null"]}}}]"#,
++        r#"{"type": ["boolean", "null"]}"#,
++    ));
++    for text in [&types, &op] {
++        assert!(
++            !text.contains("Option<Option<"),
++            "全渲染文本 MUST NOT 出 `Option<Option<`：\n{text}"
++        );
++    }
++}
++
++/// 边界（表驱动）：元素非 nullable → `Vec<String>`（零多余 `Option`）；缺 `items` →
++/// 既有 `Vec<String>` 形态不变。
++#[test]
++fn render的数组元素位非nullable() {
++    let plain = render_types(&holder_types(
++        r#"{"type": "array", "items": {"type": "string"}}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&plain, "f").trim(),
++        "pub f: Vec<String>,",
++        "元素非 nullable → 零多余 `Option`：\n{plain}"
++    );
++
++    let no_items = render_types(&holder_types(r#"{"type": "array"}"#, true));
++    assert_eq!(
++        field_line(&no_items, "f").trim(),
++        "pub f: Vec<String>,",
++        "缺 `items` → 既有 `Vec<String>` 形态：\n{no_items}"
++    );
++}
++
++/// 正向（D15 ②）：条目顶层 `oneOf` 含 `{"type": "null"}` 分支 → 该分支仍落
++/// `Variant{i}`（`FALLBACK_VALUE_TYPE` 判据逐字不变——纯 null 档的兜底文本未换成别的
++/// 形态）。
++#[test]
++fn render的oneof纯null分支仍落占位变体() {
++    let text = render_types(
++        r##"{"Choice": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/A"}]},
++  "A": {"type": "object", "properties": {}}}"##,
++    );
++    assert!(
++        text.contains("    Variant0,"),
++        "纯 null 分支落 `Variant0`（兜底判据不变）：\n{text}"
++    );
++    assert!(
++        !text.contains("serde_json::Value)"),
++        "MUST NOT 出 `(serde_json::Value)` 负载：\n{text}"
++    );
++    assert!(
++        text.contains("    AA(A),"),
++        "同条目其余分支形态不变：\n{text}"
++    );
++}
++
++/// 异常（表驱动，既有形态零回归）：对象型分支（无 `additionalProperties`）仍落
++/// `Variant{i}`；带具体负载的分支仍出「归一后的变体名 + 负载」形态。
++#[test]
++fn render的oneof兜底与负载分支零回归() {
++    let text = render_types(
++        r##"{"Choice": {"oneOf": [{"type": "object"}, {"type": "array", "items": {"type": "string"}}, {"outcome": {"type": "string"}}]}}"##,
++    );
++    assert!(
++        text.contains("    Variant0,"),
++        "对象型分支（无 additionalProperties）仍落 `Variant0`：\n{text}"
++    );
++    assert!(
++        text.contains("    VecStringVec<String>(Vec<String>),"),
++        "数组分支带负载（归一后的变体名 + 负载）：\n{text}"
++    );
++    assert!(
++        text.contains("    ResultStringStringResult<String, String>(Result<String, String>),"),
++        "映射规则分支带负载（查表展开）：\n{text}"
++    );
++    assert!(
++        !text.contains("serde_json::Value"),
++        "两分支均带负载，兜底文本零出现：\n{text}"
++    );
++}
++
++/// 边界：本变更新增的 nullable 前置分支不改「条目顶层 `oneOf`-含-null」的整体形态
++/// ——只有纯 null 分支被断言为 `Variant{i}`，其余分支形态逐字不变（多分支完整表达为
++/// D15 留白）。
++#[test]
++fn render的oneof含null整体形态不变() {
++    let text = render_types(
++        r##"{"Choice": {"oneOf": [{"type": "string"}, {"type": "null"}]},
++  "Holder": {"type": "object", "properties": {"payload": {"oneOf": [{"type": "string"}, {"type": "null"}]}}}}"##,
++    );
++    assert!(
++        text.contains("    StringString(String),"),
++        "非 null 分支的既有形态不变：\n{text}"
++    );
++    assert!(
++        text.contains("    Variant1,"),
++        "纯 null 分支落 `Variant1`：\n{text}"
++    );
++    assert!(
++        !text.contains("Option<String>)"),
++        "条目顶层 oneOf 不因 nullable 前置分支变成 `Option<…>` 负载：\n{text}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 演练草案金样（AC-3 金样 / 泄漏面）
++// ---------------------------------------------------------------------------
++
++/// 演练草案金样（explore D.1 改写为降级词表形态）：三处 `x-common.degraded` 落在
++/// `send` 参数位 / `session` 属性位 / `sessions.items`，nullable 与可选两轴同时在场。
++fn golden_types() -> &'static str {
++    r##"{
++  "AskAnswerActions": {
++    "type": "object",
++    "properties": {
++      "onAnswer": {
++        "x-function": {
++          "params": [{ "name": "text", "schema": { "type": "string" } }],
++          "returns": { "type": "boolean" }
++        }
++      },
++      "pendingToolCallId": { "$ref": "#/$defs/SessionSummary" }
++    },
++    "required": ["onAnswer"]
++  },
++  "AgentSessionActions": {
++    "type": "object",
++    "properties": {
++      "running": { "type": "boolean" },
++      "loading": { "type": "boolean" },
++      "steering": { "type": "boolean" },
++      "send": {
++        "x-function": {
++          "params": [
++            {
++              "name": "input",
++              "schema": { "type": ["string", "null"], "x-common": { "degraded": "crossLanguage" } }
++            }
++          ],
++          "returns": { "type": "boolean" }
++        }
++      },
++      "stop": { "x-function": { "params": [], "returns": { "type": "boolean" } } },
++      "steer": {
++        "x-function": {
++          "params": [{ "name": "text", "schema": { "type": "string" } }],
++          "returns": { "type": "boolean" }
++        }
++      }
++    },
++    "required": ["running", "loading", "steering", "send", "stop", "steer"]
++  },
++  "AgentSessionViewProps": {
++    "type": "object",
++    "properties": {
++      "root": { "type": "string" },
++      "sessionId": { "type": "string" },
++      "refreshKey": { "type": "integer" },
++      "session": {
++        "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
++        "x-common": { "degraded": "noElement" }
++      },
++      "onDismiss": { "x-function": { "params": [], "returns": { "type": "boolean" } } }
++    }
++  },
++  "SessionPanelState": {
++    "type": "object",
++    "properties": {
++      "sessions": {
++        "type": "array",
++        "items": {
++          "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
++          "x-common": { "degraded": "noElement" }
++        }
++      },
++      "total": { "type": "integer" },
++      "listOpen": { "type": "boolean" },
++      "canStart": { "type": "boolean" },
++      "note": { "type": "string" }
++    },
++    "required": ["sessions", "total", "listOpen", "canStart"]
++  },
++  "SessionSummary": {
++    "type": "object",
++    "properties": { "id": { "type": "string" }, "total": { "type": "integer" } },
++    "required": ["id"]
++  }
++}"##
++}
++
++/// 正向（AC-3 金样）：nullable 字段全部落 `Option<…>`，字段名全为合法 Rust 标识符。
++#[test]
++fn render的演练草案金样() {
++    let text = render_types(golden_types());
++    for expected in [
++        "pub session: Option<SessionSummary>,",
++        "pub sessions: Vec<Option<SessionSummary>>,",
++        "pub pendingToolCallId: Option<SessionSummary>,",
++        "pub send: fn(input: Option<&str>) -> bool,",
++    ] {
++        assert!(
++            text.contains(expected),
++            "金样字段形态 `{expected}` 在案：\n{text}"
++        );
++    }
++
++    let fields: Vec<&str> = text
++        .lines()
++        .filter(|line| line.starts_with("    pub "))
++        .filter_map(|line| line.trim_start().strip_prefix("pub "))
++        .filter_map(|rest| rest.split(':').next())
++        .collect();
++    assert!(!fields.is_empty(), "字段名清单非空：\n{text}");
++    for field in fields {
++        assert!(
++            is_rust_identifier(field),
++            "字段名 `{field}` MUST 是合法 Rust 标识符：\n{text}"
++        );
++    }
++}
++
++/// 异常（AC-3 泄漏面）：金样渲染文本 `serde_json::Value` 零命中（除纯 null 档用例外的
++/// 泄漏面）。
++#[test]
++fn render的演练草案金样零兜底泄漏() {
++    let text = render_types(golden_types());
++    assert!(
++        !text.contains("serde_json::Value"),
++        "金样 MUST NOT 泄漏兜底文本 `serde_json::Value`：\n{text}"
++    );
++    assert!(
++        !text.contains("Option<Option<"),
++        "金样 MUST NOT 出双层 `Option<`：\n{text}"
++    );
++}
++
++/// 边界（表驱动）：同一输入两次渲染逐字相等、为格式化器不动点（零尾随空白、零 tab）；
++/// 全语料（九组 nullable 片段）`Option<Option<` 零命中。
++#[test]
++fn render的幂等与不动点全语料() {
++    let first = render_types(golden_types());
++    let second = render_types(golden_types());
++    assert_eq!(first, second, "同一输入两次渲染逐字相等");
++    for line in first.lines() {
++        assert_eq!(line, line.trim_end(), "零尾随空白：{line:?}");
++        assert!(!line.contains('\t'), "零 tab 缩进：{line:?}");
++    }
++    assert!(first.ends_with('\n'), "末尾以换行收束");
++
++    let corpus = [
++        ("类型数组含 null", r#"{"type": ["string", "null"]}"#, true),
++        (
++            "三元素类型数组",
++            r#"{"type": ["string", "integer", "null"]}"#,
++            true,
++        ),
++        (
++            "anyOf 含 null",
++            r#"{"anyOf": [{"type": "string"}, {"type": "null"}]}"#,
++            true,
++        ),
++        (
++            "oneOf 含 null",
++            r#"{"oneOf": [{"type": "integer"}, {"type": "null"}]}"#,
++            true,
++        ),
++        (
++            "非 required 叠加显式 null",
++            r#"{"type": ["string", "null"]}"#,
++            false,
++        ),
++        (
++            "数组元素位可空",
++            r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
++            true,
++        ),
++        ("必填字段（可选轴）", r#"{"type": "string"}"#, true),
++        ("可选字段（可选轴）", r#"{"type": "string"}"#, false),
++        ("纯 null 档", r#"{"type": "null"}"#, true),
++    ];
++    assert_eq!(corpus.len(), 9, "语料九组（6 可空 + 2 可选 + 1 纯 null）");
++    for (label, fragment, required) in corpus {
++        let text = render_types(&holder_types(fragment, required));
++        assert!(
++            !text.contains("Option<Option<"),
++            "{label}：MUST NOT 出双层 `Option<`：\n{text}"
++        );
++        assert_eq!(
++            text,
++            render_types(&holder_types(fragment, required)),
++            "{label}：同一输入两次渲染逐字相等"
++        );
++    }
++}
+diff --git a/crates/core/archi/src/api/emit/ts.rs b/crates/core/archi/src/api/emit/ts.rs
+index 1bd6420ac605..bcdc6a7b19e8 100644
+--- a/crates/core/archi/src/api/emit/ts.rs
++++ b/crates/core/archi/src/api/emit/ts.rs
+@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
+ 
+ use super::{declared_ops, local_defs, notice_lines, reexport_defs, EmitTarget, ModuleRef};
+ use crate::api::contract::{is_constructor, Contract};
+-use crate::api::extract::Position;
++use crate::api::extract::{nullable_breakdown, Position};
+ use crate::api::paths::{self, EntryForm};
+ use crate::api::{protocol_key, reexport_target, ref_name, ApiMeta, CommonRule};
+ 
+@@ -195,7 +195,8 @@ fn type_block(name: &str, definition: &Value, common: &BTreeMap<String, CommonRu
+     interface_block(name, object, false, common)
+ }
+ 
+-/// `object` / `x-class` → `export interface`（非 `required` 字段 → `T | null`）。
++/// `object` / `x-class` → `export interface`（非 `required` 字段 → `{field}?:`，
++/// 零 `| null` 拼接——两个事实各只落自己的符号）。
+ fn interface_block(
+     name: &str,
+     object: &Map<String, Value>,
+@@ -207,6 +208,7 @@ fn interface_block(
+     if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+         for (field, schema) in properties {
+             if let Some(function) = schema.get("x-function") {
++                // 函数指针字段不参与可选轴（`x-class` 方法面 MUST NOT 变可选）
+                 body.push_str(&format!(
+                     "  {field}: {};\n",
+                     function_type(function, common)
+@@ -214,12 +216,12 @@ fn interface_block(
+                 continue;
+             }
+             let base = value_type(schema, Position::Field, common);
+-            let ty = if required.iter().any(|item| item == field) {
+-                base
++            let line = if required.iter().any(|item| item == field) {
++                format!("  {field}: {base};\n")
+             } else {
+-                format!("{base} | null")
++                format!("  {field}?: {base};\n")
+             };
+-            body.push_str(&format!("  {field}: {ty};\n"));
++            body.push_str(&line);
+         }
+     }
+     let mut out = String::new();
+@@ -272,7 +274,7 @@ fn function_type(function: &Value, common: &BTreeMap<String, CommonRule>) -> Str
+                     let schema = param.get("schema").unwrap_or(param);
+                     let mut ty = value_type(schema, Position::Param, common);
+                     if param.get("optional").and_then(Value::as_bool) == Some(true) {
+-                        ty.push_str(" | null");
++                        ty = nullable_of(ty);
+                     }
+                     format!("{name}: {ty}")
+                 })
+@@ -333,6 +335,22 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
+         // 的 `typescript` 槽位，MUST NOT 在此硬编码（改表即变产物）。
+         return mapped;
+     }
++    if let Some(breakdown) = nullable_breakdown(schema) {
++        // 与 `schema_type` 同序（`$ref` → 映射规则 → nullable → `type` 分派）：形状识别
++        // 单点在 `nullable_breakdown`，本文件 MUST NOT 二次判 null。纯 null 档落 `null`
++        // （MUST NOT 是 `unknown`）；`| null` 只经 `nullable_of` 追一次。
++        return match breakdown.non_null {
++            None => "null".to_owned(),
++            Some(inner) => {
++                let inner = value_type(inner.as_ref(), position, common);
++                if breakdown.explicit_null {
++                    nullable_of(inner)
++                } else {
++                    inner
++                }
++            }
++        };
++    }
+     match schema.get("type").and_then(Value::as_str) {
+         Some("string") => "string".to_owned(),
+         Some("integer") | Some("number") => "number".to_owned(),
+@@ -342,7 +360,7 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
+                 .get("items")
+                 .map(|items| value_type(items, Position::Field, common))
+                 .unwrap_or_else(|| "unknown".to_owned());
+-            format!("{items}[]")
++            array_of(items)
+         }
+         Some("object") => match schema
+             .get("additionalProperties")
+@@ -358,6 +376,25 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
+     }
+ }
+ 
++/// TS 侧 `| null` 的**唯一追加点**（幂等）：字段面的可空经 [`value_type`]、参数面的
++/// 可选经 [`function_type`]，两处都调它，故 `| null` 至多一次；`interface_block`
++/// MUST NOT 自行拼接。
++fn nullable_of(ty: String) -> String {
++    if ty.trim_end().ends_with("| null") {
++        return ty;
++    }
++    format!("{ty} | null")
++}
++
++/// 数组元素位的唯一拼装点：元素类型含顶层 `|` 时必须加括号（`(T | null)[]`），
++/// MUST NOT 出 `T | null[]` 这一优先级错误形态（映射规则的内容位同理）。
++fn array_of(items: String) -> String {
++    if items.contains(" | ") {
++        return format!("({items})[]");
++    }
++    format!("{items}[]")
++}
++
+ /// union 成员连接（单元素无悬垂 `|`）。
+ fn union_of(members: &[String]) -> String {
+     match members {
+diff --git a/crates/core/archi/src/api/emit/ts_test.rs b/crates/core/archi/src/api/emit/ts_test.rs
+index 020863e85a80..ab0e9ea8a9f6 100644
+--- a/crates/core/archi/src/api/emit/ts_test.rs
++++ b/crates/core/archi/src/api/emit/ts_test.rs
+@@ -1,7 +1,8 @@
+ //! `api::emit::ts`（`.i.ts` 渲染）的单元测试：七种协议映射（`object` →
+ //! `export interface`、`enum` → `as const` + 同名 `type`、`x-class` → `interface` +
+ //! 降级注释、标量 → 别名（不记 degraded）、`oneOf` / `anyOf` → union、`x-function` →
+-//! `(…) => R` / `Promise<R>`、非 `required` → `T | null`）、透传 `export type { … } from`、
++//! `(…) => R` / `Promise<R>`、非 `required` → `{field}?: T`、显式 null → `T | null`
++//! 至多一次、数组元素位 → `(T | null)[]`）、透传 `export type { … } from`、
+ //! 头注释、ambient-free 与无品牌类型、幂等与格式化器不动点（一律单引号）。
+ //!
+ //! 零 mock：真实 `contract::parse` + `schema::build_schema`；`paths::ts_import_specifier`
+@@ -141,9 +142,11 @@ fn render的object为interface() {
+     );
+ }
+ 
+-/// 正向（AC-5）：非 `required` 字段 → `T | null`；`required = []` → 全 `| null`。
++/// 正向（AC-1 (b) / AC-2 / D6）：非 `required` 字段只出 `{field}?: T`（可选符号）；
++/// `required = []` 与 `required` 缺省 → 全字段 `?`；`| null` 与 `?` 是两个独立事实
++/// （前者只由显式 null 出）。
+ #[test]
+-fn render的非required字段为可空() {
++fn render的非required字段为可选() {
+     let partial = render_types(
+         r#"{
+   "Item": {
+@@ -158,20 +161,87 @@ fn render的非required字段为可空() {
+         "required 字段为裸类型：\n{partial}"
+     );
+     assert!(
+-        partial
+-            .lines()
+-            .any(|line| line.trim() == "b: number | null;"),
+-        "未列字段加 `| null`：\n{partial}"
++        partial.lines().any(|line| line.trim() == "b?: number;"),
++        "未列字段只加 `?`（零 `| null`）：\n{partial}"
+     );
+ 
+-    let none_required = render_types(
+-        r#"{"Item": {"type": "object", "properties": {"a": {"type": "string"}}, "required": []}}"#,
++    for required in [r#", "required": []"#, ""] {
++        let none_required = render_types(&format!(
++            r#"{{"Item": {{"type": "object", "properties": {{"a": {{"type": "string"}}}}{required}}}}}"#
++        ));
++        assert!(
++            none_required
++                .lines()
++                .any(|line| line.trim() == "a?: string;"),
++            "required = [] / 缺省 → 全可选：\n{none_required}"
++        );
++        assert!(
++            !none_required.contains("| null"),
++            "可选轴零 `| null`（旧口径 `T | null` 不再产出）：\n{none_required}"
++        );
++    }
++}
++
++/// 异常（AC-1 (b) 反例）：`interface_block` MUST NOT 自行拼 `| null`——非 `required`
++/// 字段文本零 `| null`，该符号只由 `value_type` 的显式 null 分支产出。
++#[test]
++fn render的interface字段零null拼接() {
++    let text = render_types(
++        r##"{
++  "Item": {
++    "type": "object",
++    "properties": {"a": {"type": "string"}, "b": {"$ref": "#/$defs/Inner"}, "c": {"type": ["string", "null"]}}
++  }
++}"##,
+     );
++    let interface_body = function_body(include_str!("ts.rs"), "fn interface_block(");
+     assert!(
+-        none_required
++        !interface_body.contains("| null"),
++        "`interface_block` 体内零 `| null` 字面量（追加点唯一在 `nullable_of`）：\n{interface_body}"
++    );
++    assert_eq!(
++        text.matches("| null").count(),
++        1,
++        "全文本 `| null` 恰 1 处（只有显式 null 的 `c` 出）：\n{text}"
++    );
++    for field in ["a?:", "b?:"] {
++        let line = text
+             .lines()
+-            .any(|line| line.trim() == "a: string | null;"),
+-        "required = [] → 全可空：\n{none_required}"
++            .find(|line| line.trim_start().starts_with(field))
++            .unwrap_or_else(|| panic!("应有字段行 `{field}`：\n{text}"));
++        assert!(
++            !line.contains("| null"),
++            "非 nullable 字段行零 `| null`（{line}）"
++        );
++    }
++}
++
++/// 边界（D6）：`x-function` 字段（即便非 `required`）→ `f: (…) => R;` 零 `?`（可选轴
++/// 不套方法面）；`$ref` 非 `required` 字段 → `inner?: T;`（`$ref` 优先于 nullable）。
++#[test]
++fn render的函数指针与ref字段形态() {
++    let text = render_types(
++        r##"{"Wrapper": {"type": "object", "properties": {
++  "f": {"x-function": {"params": [], "returns": {"type": "boolean"}}},
++  "inner": {"$ref": "#/$defs/T"},
++  "maybe": {"$ref": "#/$defs/T", "type": ["string", "null"]}
++}}}"##,
++    );
++    assert!(
++        text.lines().any(|line| line.trim() == "f: () => boolean;"),
++        "`x-function` 字段零 `?`（方法面不参与可选轴）：\n{text}"
++    );
++    assert!(
++        !text.lines().any(|line| line.trim() == "f?: () => boolean;"),
++        "MUST NOT 出 `f?:` 形态：\n{text}"
++    );
++    assert!(
++        text.lines().any(|line| line.trim() == "inner?: T;"),
++        "`$ref` 非 required → `inner?: T;`：\n{text}"
++    );
++    assert!(
++        text.lines().any(|line| line.trim() == "maybe?: T;"),
++        "`$ref` 判在 nullable 之前（零 `| null`）：\n{text}"
+     );
+ }
+ 
+@@ -572,6 +642,284 @@ fn render的可选参数与outcome信封() {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// 显式 null / 数组元素位 / 可选参数幂等（AC-1 / AC-2 / D1）
++// ---------------------------------------------------------------------------
++
++/// interface 内某字段的整行（含缩进；缺席即断言失败）。
++fn field_line<'a>(text: &'a str, field: &str) -> &'a str {
++    text.lines()
++        .find(|line| {
++            let head = line.trim_start();
++            head.starts_with(&format!("{field}:")) || head.starts_with(&format!("{field}?:"))
++        })
++        .unwrap_or_else(|| panic!("interface 内应有字段 `{field}`：\n{text}"))
++}
++
++/// 单字段 `api-types` 源文（`$defs.Holder.properties.f` 取给定片段）。
++fn holder_types(fragment: &str, required: bool) -> String {
++    let required = if required {
++        ", \"required\": [\"f\"]"
++    } else {
++        ""
++    };
++    format!(r#"{{"Holder": {{"type": "object", "properties": {{"f": {fragment}}}{required}}}}}"#)
++}
++
++/// `api-op` 单操作源文（`params` / `returns` 原文直传）。
++fn op_source(params: &str, returns: &str) -> String {
++    format!(
++        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": {params}, \"returns\": {returns}}}\n```\n"
++    )
++}
++
++/// 正向（AC-1 (a) / AC-2，表驱动）：显式 null 有非空分支 → `T | null`；必填位
++/// `a: string | null;`、可选位 `c?: string | null;`，每字段 `| null` 恰 1 次。
++#[test]
++fn render的显式null落nullable() {
++    let text = render_types(
++        r#"{
++  "Item": {
++    "type": "object",
++    "properties": {
++      "a": {"type": ["string", "null"]},
++      "c": {"type": ["integer", "null"]}
++    },
++    "required": ["a"]
++  }
++}"#,
++    );
++    assert_eq!(
++        field_line(&text, "a").trim(),
++        "a: string | null;",
++        "必填 + 显式 null → `T | null`：\n{text}"
++    );
++    assert_eq!(
++        field_line(&text, "c").trim(),
++        "c?: number | null;",
++        "可选 + 显式 null → `c?: T | null`：\n{text}"
++    );
++    for field in ["a", "c"] {
++        assert_eq!(
++            field_line(&text, field).matches("| null").count(),
++            1,
++            "字段 `{field}` 的 `| null` 恰 1 次（幂等追加点 `nullable_of`）：\n{text}"
++        );
++    }
++}
++
++/// 异常（逐组）：`anyOf` / `oneOf` 含 null 分支同判出 `| null`；三元素
++/// `["string","integer","null"]` 只出首个非空分支（零 `number` 泄漏、零 `unknown`）。
++#[test]
++fn render的nullable分支数组与多元素() {
++    let branch_cases = [
++        (
++            "anyOf",
++            r#"{"anyOf": [{"type": "string"}, {"type": "null"}]}"#,
++            "string | null",
++        ),
++        (
++            "oneOf",
++            r#"{"oneOf": [{"type": "integer"}, {"type": "null"}]}"#,
++            "number | null",
++        ),
++    ];
++    for (label, fragment, expected) in branch_cases {
++        let text = render_types(&format!(
++            r#"{{"Holder": {{"type": "object", "properties": {{"f": {fragment}}}, "required": ["f"]}}}}"#
++        ));
++        assert_eq!(
++            field_line(&text, "f").trim(),
++            format!("f: {expected};"),
++            "{label} 的 null 分支 → `{expected}`：\n{text}"
++        );
++    }
++
++    let three = render_types(&holder_types(
++        r#"{"type": ["string", "integer", "null"]}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&three, "f").trim(),
++        "f: string | null;",
++        "三元素只出首个非空分支（`integer` 静默丢弃）：\n{three}"
++    );
++    assert!(
++        !three.contains("number"),
++        "多分支不得泄漏第二分支的文本形：\n{three}"
++    );
++    assert!(
++        !three.contains("unknown"),
++        "多分支不得退化为 `unknown`：\n{three}"
++    );
++}
++
++/// 边界（AC-1 (c)，表驱动）：纯 `null` 档——`required` 字段位 → `null`（MUST NOT
++/// `unknown`），非 `required` 位 → `{field}?: null`（可选符号与纯 null 档各落一处）；
++/// `$ref` / 映射规则判在 nullable 之前（判序与 `schema_type` 同序）。
++#[test]
++fn render的纯null档() {
++    let required = render_types(&holder_types(r#"{"type": "null"}"#, true));
++    assert_eq!(
++        field_line(&required, "f").trim(),
++        "f: null;",
++        "纯 null 档必填位 → `null`：\n{required}"
++    );
++    assert!(
++        !required.contains("unknown"),
++        "纯 null 档 MUST NOT 落 `unknown`：\n{required}"
++    );
++
++    let optional = render_types(&holder_types(r#"{"type": "null"}"#, false));
++    assert_eq!(
++        field_line(&optional, "f").trim(),
++        "f?: null;",
++        "纯 null 档可选位 → `f?: null`：\n{optional}"
++    );
++
++    let ref_first = render_types(&holder_types(
++        r##"{"$ref": "#/$defs/T", "type": "null"}"##,
++        true,
++    ));
++    assert_eq!(
++        field_line(&ref_first, "f").trim(),
++        "f: T;",
++        "`$ref` 判在 nullable 之前：\n{ref_first}"
++    );
++
++    let mapped_first = render_types(&holder_types(
++        r#"{"outcome": {"type": "string"}, "type": "null"}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&mapped_first, "f").trim(),
++        "f: { ok: string } | { err: string };",
++        "映射规则判在 nullable 之前：\n{mapped_first}"
++    );
++}
++
++/// 正向（AC-2）：`{"type":"array","items":{"type":["string","null"]}}` →
++/// `(string | null)[]`（元素位加括号）。
++#[test]
++fn render的数组元素位可空加括号() {
++    let text = render_types(&holder_types(
++        r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&text, "f").trim(),
++        "f: (string | null)[];",
++        "元素位可空 → `(T | null)[]`：\n{text}"
++    );
++    assert!(
++        !text.contains("string | null[]"),
++        "MUST NOT 出优先级错误形态 `T | null[]`：\n{text}"
++    );
++}
++
++/// 异常（表驱动）：优先级错误形态 `string | null[]` 零命中；元素非 nullable →
++/// `string[]`（零多余括号）。
++#[test]
++fn render的数组元素位优先级() {
++    for fragment in [
++        r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
++        r#"{"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "null"}]}}"#,
++    ] {
++        let text = render_types(&holder_types(fragment, true));
++        assert!(
++            !text.contains("| null[]"),
++            "优先级错误形态零命中（{fragment}）：\n{text}"
++        );
++        assert!(
++            text.contains("| null)[]"),
++            "括号形态在案（{fragment}）：\n{text}"
++        );
++    }
++
++    let plain = render_types(&holder_types(
++        r#"{"type": "array", "items": {"type": "string"}}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&plain, "f").trim(),
++        "f: string[];",
++        "元素非 nullable → `string[]`（零多余括号）：\n{plain}"
++    );
++}
++
++/// 边界（表驱动）：元素位为映射规则 union（`Outcome`）→
++/// `({ ok: string } | { err: string })[]`（D7）；嵌套数组元素 nullable →
++/// `((string | null)[])[]`。
++#[test]
++fn render的数组元素位映射规则与嵌套() {
++    let mapped = render_types(&holder_types(
++        r#"{"type": "array", "items": {"outcome": {"type": "string"}}}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&mapped, "f").trim(),
++        "f: ({ ok: string } | { err: string })[];",
++        "映射规则 union 作元素位 → 整体加括号：\n{mapped}"
++    );
++
++    let nested = render_types(&holder_types(
++        r#"{"type": "array", "items": {"type": "array", "items": {"type": ["string", "null"]}}}"#,
++        true,
++    ));
++    assert_eq!(
++        field_line(&nested, "f").trim(),
++        "f: ((string | null)[])[];",
++        "嵌套数组元素 nullable → 逐层括号：\n{nested}"
++    );
++}
++
++/// 正向 / 异常 / 边界（AC-1 (a) 与 AC-2 的可选参数面）：`optional: true` 参数 →
++/// `a: string | null`（`nullable_of` 幂等）；`optional: true` 且 schema 自带显式 null →
++/// `| null` 恰一次（零 `| null | null`）；非 `optional` 参数零 `| null`；无 `returns` →
++/// `void`。
++#[test]
++fn render的可选参数幂等() {
++    let optional = render_source(&op_source(
++        r#"[{"name": "a", "schema": {"type": "string"}, "optional": true}]"#,
++        r#"{"type": "string"}"#,
++    ));
++    assert!(
++        optional.contains("export type load = (a: string | null) => string;"),
++        "可选参数只标一次 `| null`：\n{optional}"
++    );
++
++    let overlay = render_source(&op_source(
++        r#"[{"name": "a", "schema": {"type": ["string", "null"]}, "optional": true}]"#,
++        r#"{"type": "string"}"#,
++    ));
++    assert_eq!(
++        overlay.matches("| null").count(),
++        1,
++        "可选 + 显式 null 叠加 → `| null` 恰一次（零 `| null | null`）：\n{overlay}"
++    );
++    assert!(
++        overlay.contains("export type load = (a: string | null) => string;"),
++        "叠加后仍是单层 `T | null`：\n{overlay}"
++    );
++
++    let plain = render_source(&op_source(
++        r#"[{"name": "a", "schema": {"type": "string"}}]"#,
++        r#"{"type": "string"}"#,
++    ));
++    assert!(
++        !plain.contains("| null"),
++        "非 optional 参数零 `| null`：\n{plain}"
++    );
++
++    let no_return = render_source(&format!(
++        "# {FQN}\n\n### load\n\n```json api-op\n{{\"params\": []}}\n```\n"
++    ));
++    assert!(
++        no_return.contains("export type load = () => void;"),
++        "无 `returns` → `void`（既有形态零回归）：\n{no_return}"
++    );
++}
++
+ // ---------------------------------------------------------------------------
+ // 透传 / 头注释
+ // ---------------------------------------------------------------------------
+@@ -737,16 +1085,21 @@ fn render零eprintln且x_class只含方法() {
+ // 泛型 / 幂等 / 空契约 / 规模
+ // ---------------------------------------------------------------------------
+ 
+-/// 异常（AC-5 反例）：本渲染器不处理泛型——`$ref` 名字原样落位、MUST NOT 自创
+-/// `Array<T>` / `<T>` 形态（拦截在 `emit::render_target` 的 `reject_generics`）。
++/// 异常（AC-5 反例 / AC-1 (b) 边界）：本渲染器不处理泛型——`$ref` 名字原样落位、MUST
++/// NOT 自创 `Array<T>` / `<T>` 形态（拦截在 `emit::render_target` 的 `reject_generics`），
++/// 且 `$ref` 非 `required` 字段只出 `inner?: T;`（可选符号，零 `| null`）。
+ #[test]
+ fn render不猜泛型语法() {
+     let text = render_types(
+         r##"{"Wrapper": {"type": "object", "properties": {"inner": {"$ref": "#/$defs/T"}}}}"##,
+     );
+     assert!(
+-        text.contains("inner: T | null;"),
+-        "`$ref` 名字原样进字段类型：\n{text}"
++        text.contains("inner?: T;"),
++        "`$ref` 名字原样进字段类型（可选位只加 `?`）：\n{text}"
++    );
++    assert!(
++        !text.contains("inner: T | null;"),
++        "MUST NOT 回退到旧口径 `inner: T | null;`：\n{text}"
+     );
+     assert!(
+         !text.contains("Array<"),
+@@ -1614,3 +1967,209 @@ fn 渲染器产品面零硬编码映射串() {
+     );
+     assert!(source.contains("fn common_type"), "查表单点在案（D54 ③）");
+ }
++
++// ---------------------------------------------------------------------------
++// 演练草案金样与泄漏面（AC-2 / AC-1 泄漏面 / AC-4）
++// ---------------------------------------------------------------------------
++
++/// 演练草案金样（explore D.1 改写为降级词表形态）：三处 `x-common.degraded` 落在
++/// `send` 参数位 / `session` 属性位 / `sessions.items`，nullable 与可选两轴同时在场。
++fn golden_types() -> &'static str {
++    r##"{
++  "AskAnswerActions": {
++    "type": "object",
++    "properties": {
++      "onAnswer": {
++        "x-function": {
++          "params": [{ "name": "text", "schema": { "type": "string" } }],
++          "returns": { "type": "boolean" }
++        }
++      },
++      "pendingToolCallId": { "$ref": "#/$defs/SessionSummary" }
++    },
++    "required": ["onAnswer"]
++  },
++  "AgentSessionActions": {
++    "type": "object",
++    "properties": {
++      "running": { "type": "boolean" },
++      "loading": { "type": "boolean" },
++      "steering": { "type": "boolean" },
++      "send": {
++        "x-function": {
++          "params": [
++            {
++              "name": "input",
++              "schema": { "type": ["string", "null"], "x-common": { "degraded": "crossLanguage" } }
++            }
++          ],
++          "returns": { "type": "boolean" }
++        }
++      },
++      "stop": { "x-function": { "params": [], "returns": { "type": "boolean" } } },
++      "steer": {
++        "x-function": {
++          "params": [{ "name": "text", "schema": { "type": "string" } }],
++          "returns": { "type": "boolean" }
++        }
++      }
++    },
++    "required": ["running", "loading", "steering", "send", "stop", "steer"]
++  },
++  "AgentSessionViewProps": {
++    "type": "object",
++    "properties": {
++      "root": { "type": "string" },
++      "sessionId": { "type": "string" },
++      "refreshKey": { "type": "integer" },
++      "session": {
++        "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
++        "x-common": { "degraded": "noElement" }
++      },
++      "onDismiss": { "x-function": { "params": [], "returns": { "type": "boolean" } } }
++    }
++  },
++  "SessionPanelState": {
++    "type": "object",
++    "properties": {
++      "sessions": {
++        "type": "array",
++        "items": {
++          "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
++          "x-common": { "degraded": "noElement" }
++        }
++      },
++      "total": { "type": "integer" },
++      "listOpen": { "type": "boolean" },
++      "canStart": { "type": "boolean" },
++      "note": { "type": "string" }
++    },
++    "required": ["sessions", "total", "listOpen", "canStart"]
++  },
++  "SessionSummary": {
++    "type": "object",
++    "properties": { "id": { "type": "string" }, "total": { "type": "integer" } },
++    "required": ["id"]
++  }
++}"##
++}
++
++/// 正向（AC-2 金样）：演练草案 fixture 的 nullable 字段全部落 `| null`、可选字段只落
++/// `?`，interface 文本 `unknown` 零命中（九组语料的泄漏面在此 fixture 上复验一次）。
++#[test]
++fn render的演练草案金样() {
++    let text = render_types(golden_types());
++
++    // 显式 null（数组元素位 / anyOf-null）全部落 `| null`，且元素位加括号
++    assert!(
++        text.contains("sessions: (SessionSummary | null)[];"),
++        "数组元素位可空 → `(T | null)[]`：\n{text}"
++    );
++    assert!(
++        text.contains("session?: SessionSummary | null;"),
++        "anyOf-null 属性位 → `session?: T | null`：\n{text}"
++    );
++    assert!(
++        text.contains("send: (input: string | null) => boolean;"),
++        "`x-function` 参数位的显式 null → `| null`，字段零 `?`：\n{text}"
++    );
++    // 可选轴只落 `?`
++    for line in [
++        "pendingToolCallId?: SessionSummary;",
++        "note?: string;",
++        "total?: number;",
++    ] {
++        assert!(text.contains(line), "可选字段只落 `?`（{line}）：\n{text}");
++    }
++    // 必填位裸类型
++    assert!(
++        text.contains("onAnswer: (text: string) => boolean;"),
++        "必填方法字段零 `?`：\n{text}"
++    );
++
++    assert!(
++        !text.contains("unknown"),
++        "金样 interface 文本 `unknown` 零命中：\n{text}"
++    );
++    assert!(
++        !text.contains("| null | null"),
++        "叠加后 `| null` 至多一次：\n{text}"
++    );
++    // 纯 `null` 档（TS `null`）由 `render的纯null档` 钉住：本金样与 Rust 侧共用同一
++    // fixture，而 Rust 的纯 null 兜底是 `serde_json::Value`（金样要求零泄漏），故不混入
++}
++
++/// 边界（AC-4 否决项 / 格式化器不动点）：interface 字段行不以 `'` 开头（零引号键）；
++/// 同一输入两次渲染逐字相等；文本为格式化器不动点（零尾随空白、无 tab、单引号
++/// 字面量）。
++#[test]
++fn render的interface字段零引号键与不动点() {
++    let first = render_types(golden_types());
++    let second = render_types(golden_types());
++    assert_eq!(first, second, "同一输入两次渲染逐字相等");
++
++    let fields: Vec<&str> = first
++        .lines()
++        .filter(|line| line.starts_with("  ") && line.trim_end().ends_with(';'))
++        .collect();
++    assert!(!fields.is_empty(), "interface 字段行在案：\n{first}");
++    for line in fields {
++        assert!(
++            !line.trim_start().starts_with('\''),
++            "字段行 MUST NOT 以引号键起手（`'data-testid'` 类形态零产出）：{line:?}"
++        );
++        assert!(!line.contains("':"), "字段行零引号键形态：{line:?}");
++    }
++
++    for line in first.lines() {
++        assert_eq!(line, line.trim_end(), "零尾随空白：{line:?}");
++        assert!(!line.contains('\t'), "零 tab 缩进：{line:?}");
++    }
++    assert!(first.ends_with('\n'), "末尾以换行收束");
++    assert!(!first.contains("[\""), "数组字面量一律单引号：\n{first}");
++}
++
++/// 异常（AC-1 泄漏面，逐组 9 组）：九组 nullable 语料逐组取渲染文本，`unknown` 零命中
++/// ——判据认得而渲染不认得即在此暴露。
++#[test]
++fn render的九组nullable语料零unknown() {
++    let corpus = [
++        ("类型数组含 null", r#"{"type": ["string", "null"]}"#, true),
++        (
++            "三元素类型数组",
++            r#"{"type": ["string", "integer", "null"]}"#,
++            true,
++        ),
++        (
++            "anyOf 含 null",
++            r#"{"anyOf": [{"type": "string"}, {"type": "null"}]}"#,
++            true,
++        ),
++        (
++            "oneOf 含 null",
++            r#"{"oneOf": [{"type": "integer"}, {"type": "null"}]}"#,
++            true,
++        ),
++        (
++            "非 required 叠加显式 null",
++            r#"{"type": ["string", "null"]}"#,
++            false,
++        ),
++        (
++            "数组元素位可空",
++            r#"{"type": "array", "items": {"type": ["string", "null"]}}"#,
++            true,
++        ),
++        ("必填字段（可选轴）", r#"{"type": "string"}"#, true),
++        ("可选字段（可选轴）", r#"{"type": "string"}"#, false),
++        ("纯 null 档", r#"{"type": "null"}"#, true),
++    ];
++    assert_eq!(corpus.len(), 9, "语料九组（6 可空 + 2 可选 + 1 纯 null）");
++    for (label, fragment, required) in corpus {
++        let text = render_types(&holder_types(fragment, required));
++        assert!(
++            !text.contains("unknown"),
++            "{label}：渲染文本 `unknown` 零命中（泄漏面即失败）：\n{text}"
++        );
++    }
++}
+diff --git a/crates/core/archi/src/api/extract/mod.rs b/crates/core/archi/src/api/extract/mod.rs
+index cf8964fa0ac1..713858e03801 100644
+--- a/crates/core/archi/src/api/extract/mod.rs
++++ b/crates/core/archi/src/api/extract/mod.rs
+@@ -29,6 +29,7 @@
+ pub mod rust;
+ pub mod ts;
+ 
++use std::borrow::Cow;
+ use std::path::Path;
+ 
+ use serde_json::Value;
+@@ -265,6 +266,77 @@ pub fn signature_of(signature: &Value) -> String {
+     format!("fn({params}) -> {returns}")
+ }
+ 
++/// 可空形状识别的一次判定结果（[`nullable_breakdown`] 的产出）。
++///
++/// `non_null` = 可渲染的非空分支（`None` = 纯 `null` 档，无任何非空分支可取）；
++/// `explicit_null` = 显式 null 的存在，是渲染面 `| null` 的**唯一依据**（渲染器 MUST NOT
++/// 回到 `schema.get("type")` 二次判 null）。分支数组里的 null 分支走 `Cow::Borrowed`
++/// （零克隆），`type` 数组形态走 `Cow::Owned`（窄化克隆，与既有 `nullable_inner`
++/// 同一次开销）。
++#[derive(Debug, Clone)]
++pub(crate) struct NullableBreakdown<'a> {
++    /// 可渲染的非空分支（`None` = 纯 `null` 档）
++    pub non_null: Option<Cow<'a, Value>>,
++    /// 显式 null 的存在（渲染面 `| null` 的唯一依据）
++    pub explicit_null: bool,
++}
++
++/// 可空**形状**识别的唯一单点：`Option::Some` ⟺ schema 含显式 null。
++///
++/// 三分支（纯 `null` 的 `type` / 含 `null` 的 `type` 数组 / `anyOf`-`oneOf` 内含
++/// `{"type": "null"}` 的分支数组）的识别在此整体收口，判据面（[`schema_type`] 的
++/// nullable 一支）与两侧渲染面（`emit::{ts,rust}::value_type`）共用同一份判定——两端
++/// 各写一份即「判据认得、渲染不认得」的不对称。
++///
++/// **本函数不收字段级语境**：可选轴不属它（可选性只在字段级单点判定），MUST NOT 因
++/// 可选性扩参——同一 schema 片段在必填位与可选位必须判出同值。
++/// 多分支 union 沿用既有「取首个非空分支」语义（完整表达不在本期）。
++pub(crate) fn nullable_breakdown(schema: &Value) -> Option<NullableBreakdown<'_>> {
++    if let Some(branches) = schema
++        .get("anyOf")
++        .or_else(|| schema.get("oneOf"))
++        .and_then(Value::as_array)
++    {
++        if branches.iter().any(is_null_schema) {
++            return Some(NullableBreakdown {
++                non_null: branches
++                    .iter()
++                    .find(|branch| !is_null_schema(branch))
++                    .map(Cow::Borrowed),
++                explicit_null: true,
++            });
++        }
++    }
++    match schema.get("type") {
++        Some(Value::String(kind)) if kind == "null" => Some(NullableBreakdown {
++            non_null: None,
++            explicit_null: true,
++        }),
++        Some(Value::Array(kinds)) => {
++            let mut names: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
++            if !names.contains(&"null") {
++                return None;
++            }
++            names.retain(|name| *name != "null");
++            let Some(inner_kind) = names.first() else {
++                return Some(NullableBreakdown {
++                    non_null: None,
++                    explicit_null: true,
++                });
++            };
++            let mut narrowed = schema.as_object()?.clone();
++            narrowed.insert("type".to_owned(), Value::String((*inner_kind).to_owned()));
++            Some(NullableBreakdown {
++                non_null: Some(Cow::Owned(Value::Object(narrowed))),
++                explicit_null: true,
++            })
++        }
++        // 三形态穷尽（字符串 `null` / 类型数组 / 其余），零兜底臂：语言与形态的分派都不
++        // 猜测——兜底臂会让「新形态」静默落进某个既有分支
++        Some(_) | None => None,
++    }
++}
++
+ /// JSON Schema 片段 → 逻辑类型（**schema → 类型的唯一单点**，D43）。
+ ///
+ /// 语言无关：产出 [`ApiType`]，**零语言文本形**（`&str` / `Vec<T>` / `Record<…>` 一类是
+@@ -274,6 +346,9 @@ pub fn signature_of(signature: &Value) -> String {
+ /// 同名体系同形）；`outcome` 关键字 → [`ApiType::Outcome`]；nullable 三分支 → [`ApiType::Optional`]；
+ /// 其余按 `type` 分派（`string` 按位置分流 `Str` / `OwnedString`，`array` 与对象型
+ /// `additionalProperties` 的内容位固定 [`Position::Field`]）。
++///
++/// nullable 一支的**形状识别**在 [`nullable_breakdown`]，本函数只消费其非空分支——渲染面
++/// 同源取数，MUST NOT 保留「判据认得、渲染不认得」的不对称。
+ pub fn schema_type(schema: &Value, position: Position) -> ApiType {
+     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+         return ApiType::Unknown(super::ref_name(reference));
+@@ -308,46 +383,20 @@ pub fn schema_type(schema: &Value, position: Position) -> ApiType {
+     }
+ }
+ 
+-/// nullable 三分支（`"type": "null"` / 含 `"null"` 的 `type` 数组 / `anyOf`-`oneOf` 内含
++/// nullable 三分支（`"type": "null"` / 含 `"null"` 的 `type` 数组 / 分支数组内含
+ /// `{"type": "null"}` 分支）→ 非空分支的逻辑类型（由 [`schema_type`] 包成
+ /// [`ApiType::Optional`]）。非 nullable 形态 → `None`（交回常规分派）。
+ ///
+ /// 位置语义不因 nullable 改变：`{"type": ["string", "null"]}` 在入参位仍按
+ /// [`Position::Param`] 解成 `Str`，故「契约写可选参数」与「代码写 `Option<T>`」两侧同形。
++///
++/// 形状识别已收口到 [`nullable_breakdown`]（判据面与两侧渲染面共用）。
+ fn nullable_inner(schema: &Value, position: Position) -> Option<ApiType> {
+-    if let Some(branches) = schema
+-        .get("anyOf")
+-        .or_else(|| schema.get("oneOf"))
+-        .and_then(Value::as_array)
+-    {
+-        if branches.iter().any(is_null_schema) {
+-            return Some(
+-                match branches.iter().find(|branch| !is_null_schema(branch)) {
+-                    Some(branch) => schema_type(branch, position),
+-                    None => ApiType::Unknown("null".to_owned()),
+-                },
+-            );
+-        }
+-    }
+-    match schema.get("type") {
+-        Some(Value::String(kind)) if kind == "null" => Some(ApiType::Unknown("null".to_owned())),
+-        Some(Value::Array(kinds)) => {
+-            let mut names: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
+-            if !names.contains(&"null") {
+-                return None;
+-            }
+-            names.retain(|name| *name != "null");
+-            let Some(inner_kind) = names.first() else {
+-                return Some(ApiType::Unknown("null".to_owned()));
+-            };
+-            let mut narrowed = schema.as_object()?.clone();
+-            narrowed.insert("type".to_owned(), Value::String((*inner_kind).to_owned()));
+-            Some(schema_type(&Value::Object(narrowed), position))
+-        }
+-        // 三形态穷尽（字符串 `null` / 类型数组 / 其余），零兜底臂：语言与形态的分派都不
+-        // 猜测——兜底臂会让「新形态」静默落进某个既有分支
+-        Some(_) | None => None,
+-    }
++    let breakdown = nullable_breakdown(schema)?;
++    Some(match breakdown.non_null {
++        Some(inner) => schema_type(inner.as_ref(), position),
++        None => ApiType::Unknown("null".to_owned()),
++    })
+ }
+ 
+ /// `{"type": "null"}` 判据（nullable 分支的识别面）。
+diff --git a/crates/core/archi/src/api/extract/mod_test.rs b/crates/core/archi/src/api/extract/mod_test.rs
+index cc6727503682..fbe3a162dbb6 100644
+--- a/crates/core/archi/src/api/extract/mod_test.rs
++++ b/crates/core/archi/src/api/extract/mod_test.rs
+@@ -7,6 +7,7 @@
+ //! 会让「语言判错」不可见）；`extract` 零落盘（接 `source: &str`），`extract_element`
+ //! 用自建 `TempDir` RAII（本 crate 无 dev-dependency）落真实模块树。
+ 
++use std::borrow::Cow;
+ use std::collections::BTreeMap;
+ use std::fs;
+ use std::path::{Path, PathBuf};
+@@ -14,11 +15,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
+ 
+ use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
+ 
+-use serde_json::json;
++use serde_json::{json, Value};
++
++use crate::api::contract::parse;
++use crate::api::emit::{self, EmitTarget};
++use crate::api::meta;
++use crate::api::paths::{EntryForm, GeneratedKind};
++use crate::api::schema::build_schema;
+ 
+ use super::{
+-    extract, extract_element, normalize_signature, schema_type, signature_of, ApiParam, ApiSymbol,
+-    ApiSymbolKind, ApiType, Position, Visibility,
++    extract, extract_element, normalize_signature, nullable_breakdown, schema_type, signature_of,
++    ApiParam, ApiSymbol, ApiSymbolKind, ApiType, Position, Visibility,
+ };
+ 
+ /// 元素构造器（`path` 决定语言分派）。
+@@ -1128,9 +1135,11 @@ fn position三值封闭() {
+         );
+     }
+     assert!(
+-        include_str!("../emit/rust.rs").contains("use crate::api::extract::Position")
+-            && include_str!("../emit/ts.rs").contains("use crate::api::extract::Position"),
+-        "两渲染器都从本文件 `use Position`"
++        include_str!("../emit/rust.rs")
++            .contains("use crate::api::extract::{nullable_breakdown, Position}")
++            && include_str!("../emit/ts.rs")
++                .contains("use crate::api::extract::{nullable_breakdown, Position}"),
++        "两渲染器都从本文件 `use Position`（位置词汇与可空形状识别同一来源）"
+     );
+ }
+ 
+@@ -1469,3 +1478,535 @@ fn scan_product_rs(dir: &Path, out: &mut Vec<(String, String)>) {
+         }
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// nullable_breakdown：可空形状识别的唯一单点（AC-1 / D1）
++// ---------------------------------------------------------------------------
++
++/// 契约文件（repo 相对 POSIX）与元素 FQN（`parse` 的 H1 锚点）。
++const CONTRACT_FILE: &str = ".dev-team/architecture/api/Demo/App.Demo.Widget.md";
++const CONTRACT_FQN: &str = "App.Demo.Widget";
++
++/// 动态分支键的 schema 片段（`anyOf` / `oneOf` 二键同判）。
++fn branch_schema(key: &str, branches: Value) -> Value {
++    let mut object = serde_json::Map::new();
++    object.insert(key.to_owned(), branches);
++    Value::Object(object)
++}
++
++/// 单字段 `api-types` 源文（`$defs.Widget.properties.f` 取给定片段）。
++fn widget_source(fragment: &Value, required: bool) -> String {
++    let required = if required {
++        ", \"required\": [\"f\"]"
++    } else {
++        ""
++    };
++    format!(
++        "# {CONTRACT_FQN}\n\n```json api-types\n{{\"Widget\": {{\"type\": \"object\", \
++         \"properties\": {{\"f\": {fragment}}}{required}}}}}\n```\n"
++    )
++}
++
++/// 双字段源文（同一片段落在必填位 `a` 与可选位 `b` 上）。
++fn two_field_source(fragment: &Value) -> String {
++    format!(
++        "# {CONTRACT_FQN}\n\n```json api-types\n{{\"Widget\": {{\"type\": \"object\", \
++         \"properties\": {{\"a\": {fragment}, \"b\": {fragment}}}, \"required\": [\"a\"]}}}}\n```\n"
++    )
++}
++
++/// 两侧渲染文本（真实 `contract::parse` + `schema::build_schema` + `emit::{ts,rust}::render`）。
++fn render_both(source: &str) -> (String, String) {
++    let contract = parse(source, CONTRACT_FQN, CONTRACT_FILE).expect("契约应解析成功");
++    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
++    let target = |kind: GeneratedKind| EmitTarget {
++        kind,
++        form: EntryForm::SubdirModule,
++        modules: BTreeMap::new(),
++    };
++    let ts = emit::ts::render(
++        &contract,
++        &schema,
++        &meta(),
++        &target(GeneratedKind::TypeScript),
++    );
++    let rust = emit::rust::render(&contract, &schema, &meta(), &target(GeneratedKind::Rust));
++    (ts, rust)
++}
++
++/// TS interface 内某字段的整行（缺席即断言失败）。
++fn ts_field_line<'a>(text: &'a str, field: &str) -> &'a str {
++    text.lines()
++        .find(|line| {
++            let head = line.trim_start();
++            head.starts_with(&format!("{field}:")) || head.starts_with(&format!("{field}?:"))
++        })
++        .unwrap_or_else(|| panic!("TS interface 内应有字段 `{field}`：\n{text}"))
++}
++
++/// Rust struct 内某字段的整行（缺席即断言失败）。
++fn rust_field_line<'a>(text: &'a str, field: &str) -> &'a str {
++    text.lines()
++        .find(|line| line.trim_start().starts_with(&format!("pub {field}:")))
++        .unwrap_or_else(|| panic!("Rust struct 内应有字段 `{field}`：\n{text}"))
++}
++
++/// 三轴对拍语料：`(标签, 字段片段, 字段是否在 required 内)`，九组。
++///
++/// 前六组是**可空轴**（显式 null 的三种形状 + 叠加可选 + 数组元素位），次两组是**可选轴**
++/// （同一片段在必填 / 可选两位），末一组是**纯 null 档**（不参与可空轴的等价式）。
++fn corpus() -> Vec<(&'static str, Value, bool)> {
++    vec![
++        ("类型数组含 null", json!({"type": ["string", "null"]}), true),
++        (
++            "三元素类型数组",
++            json!({"type": ["string", "integer", "null"]}),
++            true,
++        ),
++        (
++            "anyOf 含 null 分支",
++            branch_schema("anyOf", json!([{"type": "string"}, {"type": "null"}])),
++            true,
++        ),
++        (
++            "oneOf 含 null 分支",
++            branch_schema("oneOf", json!([{"type": "integer"}, {"type": "null"}])),
++            true,
++        ),
++        (
++            "非 required 叠加显式 null",
++            json!({"type": ["string", "null"]}),
++            false,
++        ),
++        (
++            "数组元素位可空",
++            json!({"type": "array", "items": {"type": ["string", "null"]}}),
++            true,
++        ),
++        ("必填字段（可选轴对照）", json!({"type": "string"}), true),
++        ("可选字段（可选轴对照）", json!({"type": "string"}), false),
++        ("纯 null 档", json!({"type": "null"}), true),
++    ]
++}
++
++/// 正向：`{"type": ["string","null"]}` → `Some`——`explicit_null` 在案、`non_null` 是
++/// 「外层克隆 + `type` 换成首个非空 kind」的窄化视图（`Cow::Owned`）。
++#[test]
++fn nullable_breakdown类型数组窄化视图() {
++    let schema = json!({"type": ["string", "null"]});
++    let breakdown = nullable_breakdown(&schema).expect("类型数组含 null → Some");
++    assert!(breakdown.explicit_null, "显式 null 在案");
++    let inner = breakdown.non_null.as_ref().expect("有非空分支可取");
++    assert!(
++        matches!(inner, Cow::Owned(_)),
++        "类型数组形态经窄化克隆（`Cow::Owned`）：{inner:?}"
++    );
++    assert_eq!(
++        inner.as_ref(),
++        &json!({"type": "string"}),
++        "非空分支 = 外层克隆 + `type` 换成首个非空 kind"
++    );
++}
++
++/// 正向（表驱动）：`anyOf` / `oneOf` 含 `{"type": "null"}` 分支 → `Some`，`non_null`
++/// 借自首个非空分支（`Cow::Borrowed`，零克隆）。
++#[test]
++fn nullable_breakdown分支数组零克隆() {
++    for key in ["anyOf", "oneOf"] {
++        let schema = branch_schema(key, json!([{"type": "integer"}, {"type": "null"}]));
++        let breakdown = nullable_breakdown(&schema).expect("分支数组含 null 分支 → Some");
++        assert!(breakdown.explicit_null, "{key}：显式 null 在案");
++        let inner = breakdown.non_null.as_ref().expect("有非空分支可取");
++        assert!(
++            matches!(inner, Cow::Borrowed(_)),
++            "{key}：分支数组走借用（`Cow::Borrowed`，零克隆）：{inner:?}"
++        );
++        assert_eq!(
++            inner.as_ref(),
++            &json!({"type": "integer"}),
++            "{key}：非空分支逐字取自分支数组的首个非空项"
++        );
++    }
++}
++
++/// 正向：`{"type": "null"}` → 纯 null 档（`non_null == None`，无第二个分支可取）。
++#[test]
++fn nullable_breakdown纯null档() {
++    let schema = json!({"type": "null"});
++    let breakdown = nullable_breakdown(&schema).expect("`type: null` → Some");
++    assert!(breakdown.explicit_null, "显式 null 在案");
++    assert!(
++        breakdown.non_null.is_none(),
++        "纯 null 档无非空分支可取（MUST NOT 造占位分支）"
++    );
++}
++
++/// 异常（表驱动）：非 nullable 形态 → `None`（交回常规分派，零误判）——`string` /
++/// `$ref` / `outcome` / 空对象四形态。
++#[test]
++fn nullable_breakdown非nullable形态交回常规分派() {
++    let cases = [
++        json!({"type": "string"}),
++        json!({"$ref": "#/$defs/T"}),
++        json!({"outcome": {"type": "string"}}),
++        json!({}),
++    ];
++    for fragment in cases {
++        assert!(
++            nullable_breakdown(&fragment).is_none(),
++            "非 nullable 形态 → None（交回常规分派）：{fragment}"
++        );
++    }
++}
++
++/// 异常（表驱动）：`anyOf` / `oneOf` 非数组、空数组、数组内无 null 分支 → `None`
++/// （分支数组形态未成立即不猜）。
++#[test]
++fn nullable_breakdown分支数组非数组空数组无null() {
++    let cases = [
++        branch_schema("anyOf", json!("string")),
++        branch_schema("anyOf", json!([])),
++        branch_schema("anyOf", json!([{"type": "string"}, {"type": "integer"}])),
++        branch_schema("oneOf", json!({})),
++        branch_schema("oneOf", json!([])),
++        branch_schema("oneOf", json!([{"type": "boolean"}])),
++    ];
++    for fragment in cases {
++        assert!(
++            nullable_breakdown(&fragment).is_none(),
++            "分支数组形态未成立 → None：{fragment}"
++        );
++    }
++}
++
++/// 边界（表驱动）：三元素 `["string","integer","null"]` 只取首个非空分支（`integer`
++/// 静默丢弃，多分支完整表达不在本期）；`["null","string"]` 仍取 `string`。
++#[test]
++fn nullable_breakdown多分支取首个非空分支() {
++    let three_schema = json!({"type": ["string", "integer", "null"]});
++    let three = nullable_breakdown(&three_schema).expect("三元素 → Some");
++    assert_eq!(
++        three.non_null.as_ref().map(|inner| inner.as_ref().clone()),
++        Some(json!({"type": "string"})),
++        "只取首个非空分支（`integer` 静默丢弃，R-3 留白）"
++    );
++
++    let null_first_schema = json!({"type": ["null", "string"]});
++    let null_first = nullable_breakdown(&null_first_schema).expect("null 在前 → Some");
++    assert_eq!(
++        null_first
++            .non_null
++            .as_ref()
++            .map(|inner| inner.as_ref().clone()),
++        Some(json!({"type": "string"})),
++        "null 在前仍取第一个非空分支 `string`"
++    );
++}
++
++/// 边界（表驱动）：空类型表 → `None`（空 kind 表不含 `null`）；纯 null 类型表与只含
++/// null 分支的分支数组 → 纯 null 档（`non_null == None`）。
++#[test]
++fn nullable_breakdown空类型表与纯null数组形态() {
++    assert!(
++        nullable_breakdown(&json!({"type": []})).is_none(),
++        "空 kind 表不含 `null` → None（交回常规分派）"
++    );
++
++    for fragment in [json!({"type": ["null"]}), json!({"type": ["null", "null"]})] {
++        let breakdown = nullable_breakdown(&fragment).expect("纯 null 类型表 → Some");
++        assert!(breakdown.explicit_null, "{fragment}：显式 null 在案");
++        assert!(
++            breakdown.non_null.is_none(),
++            "{fragment}：无非空分支可取（纯 null 档）"
++        );
++    }
++
++    let only_null = branch_schema("anyOf", json!([{"type": "null"}]));
++    let breakdown = nullable_breakdown(&only_null).expect("分支数组只含 null → Some");
++    assert!(
++        breakdown.explicit_null,
++        "分支数组纯 null 档：显式 null 在案"
++    );
++    assert!(
++        breakdown.non_null.is_none(),
++        "分支数组纯 null 档：无非空分支可取"
++    );
++}
++
++/// 边界（表驱动）：非对象 schema（`null` / 数字 / 字符串 / 数组）→ `None`，零 panic。
++#[test]
++fn nullable_breakdown非对象零panic() {
++    for fragment in [json!(null), json!(42), json!("string"), json!([])] {
++        assert!(
++            nullable_breakdown(&fragment).is_none(),
++            "非对象 schema → None（零 panic）：{fragment}"
++        );
++    }
++}
++
++/// 正向（表驱动）：nullable 三分支 × `Position` 三值——带非空分支的两形态在 `Param`
++/// 位出 `Optional(Str)`、`Return` / `Field` 位出 `Optional(OwnedString)`（位置语义不因
++/// nullable 改变）；纯 null 档三位置同值 `Optional(Unknown("null"))`。
++#[test]
++fn schema_type的nullable三分支保位置语义() {
++    let string_branches = [
++        json!({"type": ["string", "null"]}),
++        branch_schema("anyOf", json!([{"type": "string"}, {"type": "null"}])),
++        branch_schema("oneOf", json!([{"type": "null"}, {"type": "string"}])),
++    ];
++    for fragment in string_branches {
++        for (position, inner) in [
++            (Position::Param, ApiType::Str),
++            (Position::Return, ApiType::OwnedString),
++            (Position::Field, ApiType::OwnedString),
++        ] {
++            assert_eq!(
++                schema_type(&fragment, position),
++                ApiType::Optional(Box::new(inner.clone())),
++                "{fragment} 在 {position:?} 位 → Optional({inner:?})"
++            );
++        }
++    }
++
++    for position in [Position::Param, Position::Return, Position::Field] {
++        assert_eq!(
++            schema_type(&json!({"type": "null"}), position),
++            ApiType::Optional(Box::new(ApiType::Unknown("null".to_owned()))),
++            "纯 null 档在 {position:?} 位同值 Optional(Unknown(\"null\"))"
++        );
++    }
++}
++
++/// 异常（表驱动）：判序不变——`$ref` 先于 nullable（→ `Unknown(ref)`）、`outcome` 先于
++/// nullable（→ `Outcome`）。
++#[test]
++fn schema_type判序ref与outcome先于nullable() {
++    assert_eq!(
++        schema_type(
++            &json!({"$ref": "#/$defs/T", "type": ["string", "null"]}),
++            Position::Param
++        ),
++        ApiType::Unknown("T".to_owned()),
++        "`$ref` 判在 nullable 之前（末段名留痕，不包 Optional）"
++    );
++    assert_eq!(
++        schema_type(
++            &json!({"outcome": {"type": "string"}, "type": ["string", "null"]}),
++            Position::Return
++        ),
++        ApiType::Outcome(Box::new(ApiType::OwnedString)),
++        "`outcome` 判在 nullable 之前（内容位沿用位置语义）"
++    );
++}
++
++/// 边界（表驱动）：`{"type":"null"}` → `Optional(Unknown("null"))`；数组位可空 →
++/// `Optional(List(OwnedString))`；`items` 内 nullable → 元素位 `Optional`（嵌套保位置）。
++#[test]
++fn schema_type的纯null与嵌套元素位() {
++    assert_eq!(
++        schema_type(&json!({"type": "null"}), Position::Field),
++        ApiType::Optional(Box::new(ApiType::Unknown("null".to_owned()))),
++        "纯 null 档显式留痕 `Unknown(\"null\")`"
++    );
++    assert_eq!(
++        schema_type(
++            &json!({"type": ["array", "null"], "items": {"type": "string"}}),
++            Position::Param
++        ),
++        ApiType::Optional(Box::new(ApiType::List(Box::new(ApiType::OwnedString)))),
++        "数组位可空 → Optional(List(..))（items 固定 Field）"
++    );
++    assert_eq!(
++        schema_type(
++            &json!({"type": "array", "items": {"type": ["integer", "null"]}}),
++            Position::Param
++        ),
++        ApiType::List(Box::new(ApiType::Optional(Box::new(ApiType::Int)))),
++        "items 内 nullable → 元素位 Optional（嵌套保位置）"
++    );
++}
++
++/// 边界：可选轴不进 `schema_type` 的判据面——同一片段 `{"type":"string"}` 在必填 /
++/// 可选语境取同值（`OwnedString`），可选性只在字段级由 `required` 决定（TS `?` /
++/// Rust `Option<>`）；签名两参、体内零 `required`。
++#[test]
++fn schema_type不收字段可选语境() {
++    let fragment = json!({"type": "string"});
++    assert_eq!(
++        schema_type(&fragment, Position::Field),
++        ApiType::OwnedString,
++        "片段本身的逻辑类型（可选语境不改它）"
++    );
++
++    let (required_ts, required_rust) = render_both(&widget_source(&fragment, true));
++    let (optional_ts, optional_rust) = render_both(&widget_source(&fragment, false));
++    assert_eq!(
++        ts_field_line(&required_ts, "f").trim(),
++        "f: string;",
++        "必填位零 `?` 零 `| null`：\n{required_ts}"
++    );
++    assert_eq!(
++        ts_field_line(&optional_ts, "f").trim(),
++        "f?: string;",
++        "可选位只加 `?`（零 `| null`）：\n{optional_ts}"
++    );
++    assert_eq!(
++        rust_field_line(&required_rust, "f").trim(),
++        "pub f: String,",
++        "必填位裸类型：\n{required_rust}"
++    );
++    assert_eq!(
++        rust_field_line(&optional_rust, "f").trim(),
++        "pub f: Option<String>,",
++        "可选位包 `Option<…>`：\n{optional_rust}"
++    );
++
++    let source = include_str!("mod.rs");
++    assert_eq!(
++        source
++            .matches("pub fn schema_type(schema: &Value, position: Position) -> ApiType")
++            .count(),
++        1,
++        "`schema_type` 签名两参（不因可选轴扩参）"
++    );
++    assert!(
++        !source.contains("required"),
++        "`schema_type` 的入参面零 `required`（可选轴只在字段级判）"
++    );
++}
++
++/// 正向（AC-1 (a)，逐组对拍 6 组）：可空轴三面同真同假——`schema_type` 为 `Optional`
++/// ⟺ TS 文本含 `| null` ⟺ Rust 文本含 `Option<`（数组组在元素位对拍）。
++#[test]
++fn 三轴对拍可空轴六组() {
++    for (label, fragment, required) in corpus().into_iter().take(6) {
++        let source = widget_source(&fragment, required);
++        let (ts, rust) = render_both(&source);
++        // 数组形态的判据面在**元素位**（`items`）：字段类型本身是 `List`，元素才是 Optional
++        let judged = match fragment.get("type").and_then(Value::as_str) {
++            Some("array") => schema_type(&fragment["items"], Position::Field),
++            _ => schema_type(&fragment, Position::Field),
++        };
++        let nullable = matches!(judged, ApiType::Optional(_));
++        let ts_nullable = ts_field_line(&ts, "f").contains("| null");
++        let rust_nullable = rust_field_line(&rust, "f").contains("Option<");
++        assert!(
++            nullable,
++            "{label}：`schema_type` 应为 Optional，实际 {judged:?}"
++        );
++        assert_eq!(
++            nullable, ts_nullable,
++            "{label}：`schema_type` 的 Optional 与 TS `| null` 必须同真同假：\n{ts}"
++        );
++        assert_eq!(
++            nullable, rust_nullable,
++            "{label}：`schema_type` 的 Optional 与 Rust `Option<` 必须同真同假：\n{rust}"
++        );
++    }
++}
++
++/// 正向（AC-1 (b)，单例两组）：可选轴——同一 `$defs` 条目内 `a`（在 `required`）与
++/// `b`（不在）用同一片段：`schema_type` 两者同值 `OwnedString`；TS `a: string;` /
++/// `b?: string;`（`a` 零 `?`、`b` 零 `| null`）；Rust `pub a: String,` /
++/// `pub b: Option<String>,`；MUST NOT 拿「Rust 含 `Option<`」当可空判据。
++#[test]
++fn 三轴对拍可选轴两组() {
++    let fragment = json!({"type": "string"});
++    let (ts, rust) = render_both(&two_field_source(&fragment));
++
++    assert_eq!(
++        schema_type(&fragment, Position::Field),
++        ApiType::OwnedString,
++        "同一片段在必填 / 可选两位同值"
++    );
++    assert!(
++        !matches!(
++            schema_type(&fragment, Position::Field),
++            ApiType::Optional(_)
++        ),
++        "可选字段的 `schema_type` MUST NOT 是 Optional（可选 ≠ 可空）"
++    );
++
++    assert_eq!(
++        ts_field_line(&ts, "a").trim(),
++        "a: string;",
++        "必填位零 `?`：\n{ts}"
++    );
++    assert_eq!(
++        ts_field_line(&ts, "b").trim(),
++        "b?: string;",
++        "可选位只出 `?`（零 `| null`）：\n{ts}"
++    );
++
++    assert_eq!(
++        rust_field_line(&rust, "a").trim(),
++        "pub a: String,",
++        "必填位裸类型：\n{rust}"
++    );
++    assert_eq!(
++        rust_field_line(&rust, "b").trim(),
++        "pub b: Option<String>,",
++        "可选位包 `Option<…>`：\n{rust}"
++    );
++    assert!(
++        !ts.contains("| null"),
++        "可选轴零 `| null`（该符号只属可空轴）：\n{ts}"
++    );
++}
++
++/// 边界（AC-1 (c)，单例）：纯 `null` 一组——`{"type":"null"}` 置于 `required` 字段位 →
++/// `Optional(Unknown("null"))` / TS `null` / Rust `serde_json::Value`（显式期望值，零
++/// `()`）；该组不参与可空轴的等价式（Rust 侧不出 `Option<`）。
++#[test]
++fn 三轴对拍纯null一组() {
++    let fragment = json!({"type": "null"});
++    let (ts, rust) = render_both(&widget_source(&fragment, true));
++
++    assert_eq!(
++        schema_type(&fragment, Position::Field),
++        ApiType::Optional(Box::new(ApiType::Unknown("null".to_owned()))),
++        "纯 null 档判据面：Optional(Unknown(\"null\"))"
++    );
++    assert_eq!(
++        ts_field_line(&ts, "f").trim(),
++        "f: null;",
++        "TS 纯 null 档落 `null`（MUST NOT `unknown`）：\n{ts}"
++    );
++    assert_eq!(
++        rust_field_line(&rust, "f").trim(),
++        "pub f: serde_json::Value,",
++        "Rust 纯 null 档落既有兜底 `serde_json::Value`（MUST NOT `()`）：\n{rust}"
++    );
++    assert!(
++        !rust.contains("Option<"),
++        "纯 null 档不出 `Option<`——故本组 MUST NOT 参与可空轴等价式：\n{rust}"
++    );
++}
++
++/// 异常（AC-1 泄漏面，逐组对拍 9 组）：九组语料逐组取渲染文本——TS 文本 `unknown` 零
++/// 命中；Rust 文本除纯 null 档外 `serde_json::Value` 零命中（判据认得、渲染不认得的
++/// 不对称即失败）。
++#[test]
++fn 三轴对拍泄漏面九组() {
++    let corpus = corpus();
++    assert_eq!(corpus.len(), 9, "语料九组（6 可空 + 2 可选 + 1 纯 null）");
++    for (label, fragment, required) in corpus {
++        let source = widget_source(&fragment, required);
++        let (ts, rust) = render_both(&source);
++        assert!(
++            !ts.contains("unknown"),
++            "{label}：TS 文本 `unknown` 零命中（泄漏面即失败）：\n{ts}"
++        );
++        if fragment == json!({"type": "null"}) {
++            assert!(
++                rust.contains("serde_json::Value"),
++                "{label}：纯 null 档的 Rust 兜底是显式期望值：\n{rust}"
++            );
++            continue;
++        }
++        assert!(
++            !rust.contains("serde_json::Value"),
++            "{label}：Rust 文本 `serde_json::Value` 零命中（泄漏面即失败）：\n{rust}"
++        );
++    }
++}
+diff --git a/crates/core/archi/src/api/mod.rs b/crates/core/archi/src/api/mod.rs
+index 4fadd83b14e9..5fb8996a947f 100644
+--- a/crates/core/archi/src/api/mod.rs
++++ b/crates/core/archi/src/api/mod.rs
+@@ -509,19 +509,10 @@ fn index_entries(
+             .map(|defs| defs.len())
+             .unwrap_or(0);
+         let ops = contract.map(|contract| contract.ops.len()).unwrap_or(0);
++        // 降级计数与取值校验同源（`schema::degraded_marks` 单点全深度扫描）：口径是
++        // **标记出现次数**，不是 `$defs` 条目数——真实降级落点在属性位。
+         let degraded = schema_value
+-            .and_then(|value| value.get("$defs"))
+-            .and_then(Value::as_object)
+-            .map(|defs| {
+-                defs.values()
+-                    .filter(|definition| {
+-                        definition
+-                            .get("x-common")
+-                            .and_then(|common| common.get("degraded"))
+-                            .is_some()
+-                    })
+-                    .count()
+-            })
++            .map(|value| schema::degraded_marks(value).len())
+             .unwrap_or(0);
+         let generated_rel = generated_path_of(root, &element.path)
+             .filter(|_| present)
+diff --git a/crates/core/archi/src/api/mod_test.rs b/crates/core/archi/src/api/mod_test.rs
+index 630d64a0655b..821056e8f441 100644
+--- a/crates/core/archi/src/api/mod_test.rs
++++ b/crates/core/archi/src/api/mod_test.rs
+@@ -1383,10 +1383,10 @@ path = [\"src/shapes/\"]
+     assert_eq!(sum, 8, "六形状计数之和 == types");
+ }
+ 
+-/// 边界（D26 / 索引七字段）：`degraded` 计数由 `render_all` 从 `$defs` 的
+-/// `x-common.degraded` 条目数派生（`index_entries` 单点，零第二套算法）——两条带标记
+-/// 的定义 → `degraded = 2`；同一契约去掉这两条标记 → `degraded = 0`（键仍输出「0」而非
+-/// 省略，见 `build_index` 章节）。
++/// 正向（AC-5 / D13）：`INDEX.toml` 的 `degraded` 计数口径是**标记出现次数**（全深度，
++/// `index_entries` 单点经 `schema::degraded_marks`，零第二套算法）——两条条目自身带词表
++/// 标记的定义 → `degraded = 2`；同一契约去掉这两条标记（只留仅 `note` 的草稿同形） →
++/// `degraded = 0`（键仍输出「0」而非省略，见 `build_index` 章节）。
+ #[test]
+ fn render_all的index_degraded派生() {
+     let temp = TempDir::new("render-all-degraded");
+@@ -1398,13 +1398,13 @@ path = [\"src/marked/\"]
+ ",
+     );
+     let fqn = "App.Core.Marked";
+-    // 两条带 `x-common.degraded` 的定义 + 一条不带（计数只数带标记者）
++    // 两条带词表取值 `x-common.degraded` 的定义 + 一条不带（计数只数带标记者）
+     temp.write_contract(
+         fqn,
+         &format!(
+             "# {fqn}\n\n```json api-types\n{{\"Degraded\": {{\"type\": \"object\", \
+-             \"x-common\": {{\"degraded\": true}}}}, \
+-             \"Rejected\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": true}}}}, \
++             \"x-common\": {{\"degraded\": \"noElement\"}}}}, \
++             \"Rejected\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": \"crossLanguage\"}}}}, \
+              \"Plain\": {{\"type\": \"object\"}}}}\n```\n"
+         ),
+     );
+@@ -1424,7 +1424,7 @@ path = [\"src/marked/\"]
+     );
+     assert!(
+         index.content.contains("degraded = 2"),
+-        "`x-common.degraded` 两条 → degraded = 2（派生单点在 `index_entries`）：\n{}",
++        "两处标记 → degraded = 2（派生单点在 `index_entries`）：\n{}",
+         index.content
+     );
+ 
+@@ -2433,14 +2433,13 @@ fn kind_of六值词表() {
+         ("contract.rs", include_str!("contract.rs")),
+         ("schema.rs", include_str!("schema.rs")),
+     ] {
+-        assert_eq!(
+-            text.matches("kind_of(").count(),
+-            text.matches("super::kind_of(").count()
+-                + text.matches("kind_of(&other)").count()
+-                + text.matches("kind_of(target)").count()
+-                + text.matches("kind_of(definition)").count()
+-                + text.matches("kind_of(nested)").count(),
+-            "{file} 内 `kind_of` 只以单点引用形态出现（零本地副本）"
++        assert!(
++            !text.contains("fn kind_of"),
++            "{file} 内零本地 `kind_of` 副本（只经 `use super::…` 引用单点）"
++        );
++        assert!(
++            text.contains("kind_of("),
++            "{file} 确有引用（词表不在此处复制）"
+         );
+         assert!(
+             !text.contains("Value::Null => \"null\""),
+@@ -3654,3 +3653,325 @@ fn findings装配单点与子模块声明序() {
+         "`pub mod render;` 置 paths 与 schema 之间（字母序）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// INDEX 的 degraded 口径：全深度标记出现次数（AC-5 / D13）
++// ---------------------------------------------------------------------------
++
++/// 演练草案形态的 `api-types` 原文（explore D.1 改写为降级词表形态）：三处标记分别落在
++/// `send` 参数位、`session` 属性位、`sessions.items` 元素位，`$defs` 条目自身零标记。
++fn rehearsal_types() -> &'static str {
++    r##"{
++  "AskAnswerActions": {
++    "type": "object",
++    "properties": {
++      "onAnswer": {
++        "x-function": {
++          "params": [{ "name": "text", "schema": { "type": "string" } }],
++          "returns": { "type": "boolean" }
++        }
++      },
++      "pendingToolCallId": { "$ref": "#/$defs/SessionSummary" }
++    },
++    "required": ["onAnswer"]
++  },
++  "AgentSessionActions": {
++    "type": "object",
++    "properties": {
++      "running": { "type": "boolean" },
++      "send": {
++        "x-function": {
++          "params": [
++            {
++              "name": "input",
++              "schema": { "type": ["string", "null"], "x-common": { "degraded": "crossLanguage" } }
++            }
++          ],
++          "returns": { "type": "boolean" }
++        }
++      }
++    },
++    "required": ["running", "send"]
++  },
++  "AgentSessionViewProps": {
++    "type": "object",
++    "properties": {
++      "root": { "type": "string" },
++      "session": {
++        "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
++        "x-common": { "degraded": "noElement" }
++      }
++    }
++  },
++  "SessionPanelState": {
++    "type": "object",
++    "properties": {
++      "sessions": {
++        "type": "array",
++        "items": {
++          "anyOf": [{ "$ref": "#/$defs/SessionSummary" }, { "type": "null" }],
++          "x-common": { "degraded": "noElement" }
++        }
++      },
++      "total": { "type": "integer" }
++    },
++    "required": ["sessions"]
++  },
++  "SessionSummary": {
++    "type": "object",
++    "properties": { "id": { "type": "string" } },
++    "required": ["id"]
++  }
++}"##
++}
++
++/// 演练草案形态的契约源文（H1 = `fqn`，类型段取 [`rehearsal_types`]）。
++fn rehearsal_markdown(fqn: &str) -> String {
++    format!("# {fqn}\n\n## 职能\n\nagent 会话组件的统一出口。\n\n## 类型\n\n```json api-types\n")
++        + rehearsal_types()
++        + "\n```\n"
++}
++
++/// 落一个 Rust 元素（模型 + 实现入口 + 可选契约），返回其元素投影。
++fn write_element(temp: &TempDir, fqn: &str, root: &str, contract: Option<&str>) -> ArchiElement {
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"{root}\"]\n"
++    ));
++    if let Some(content) = contract {
++        temp.write_contract(fqn, content);
++    }
++    temp.write(&format!("{root}src/lib.rs"), "pub fn f() {}\n");
++    element(fqn, &[root])
++}
++
++/// 取 `render_all` 产出里的 INDEX 文本。
++fn index_text(root: &Path, snapshot: &ApiSnapshot) -> String {
++    let files = render_all(root, snapshot).expect("渲染应成功");
++    files
++        .iter()
++        .find(|file| file.path == paths::index_path(root))
++        .expect("INDEX 在案")
++        .content
++        .clone()
++}
++
++/// 正向（AC-5 关键 / D13）：演练草案形态 fixture（三处标记全在属性 / 参数位、条目自身零
++/// 标记）→ `degraded = 3`——旧条目级口径会给出 0，故本用例钉住「全深度标记出现次数」。
++#[test]
++fn index_degraded计全深度标记出现次数() {
++    let temp = TempDir::new("index-degraded-depth");
++    let fqn = "App.Frontend.Components.Agent";
++    let elements = [write_element(
++        &temp,
++        fqn,
++        "src/agent/",
++        Some(&rehearsal_markdown(fqn)),
++    )];
++
++    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
++    let index = index_text(temp.root(), &snapshot);
++    assert!(
++        index.contains("degraded = 3"),
++        "三处标记（send 参数位 / session 属性位 / sessions.items）→ degraded = 3：\n{index}"
++    );
++    assert!(
++        index.contains("types = 5"),
++        "`$defs` 键数五项（计数口径不改变 `types`）：\n{index}"
++    );
++    assert!(
++        index.contains("status = \"declared\""),
++        "契约在案：\n{index}"
++    );
++}
++
++/// 异常（表驱动，AC-5）：词表外值（`"typo"`）与非字符串值（`true`）→ `load_contracts`
++/// 直接 `Err(ApiError::Contract)`（零半真报告、零生成物）。
++#[test]
++fn load_contracts拒收非法degraded取值() {
++    for (label, value) in [("词表外值", "\"typo\""), ("非字符串值", "true")] {
++        let temp = TempDir::new("load-illegal-degraded");
++        let fqn = "App.Core.Marked";
++        let contract = format!(
++            "# {fqn}\n\n```json api-types\n{{\"W\": {{\"type\": \"object\", \
++             \"x-common\": {{\"degraded\": {value}}}}}}}\n```\n"
++        );
++        let elements = [write_element(&temp, fqn, "src/marked/", Some(&contract))];
++
++        match load_contracts(temp.root(), &elements) {
++            Err(ApiError::Contract(message)) => {
++                assert!(
++                    message.contains("$.$defs.W.x-common.degraded"),
++                    "{label}：文案点名该标记 pointer：{message}"
++                );
++                assert!(
++                    message.contains("crossLanguage"),
++                    "{label}：文案并列四值：{message}"
++                );
++            }
++            other => panic!("{label}：期望 ApiError::Contract，实际：{other:?}"),
++        }
++        assert!(
++            !paths::index_path(temp.root()).exists(),
++            "{label}：装载失败即零生成物（本 crate 零写盘）"
++        );
++    }
++}
++
++/// 边界（表驱动）：零标记 → `degraded = 0` 且键仍输出（不省略）；仅 `x-common.note` 的
++/// bootstrap 草稿 → `0` 且契约装载成功（`note` 是自由注记，不进债表）。
++#[test]
++fn index_degraded零标记与仅note() {
++    let cases = [
++        ("零标记", r#"{"W": {"type": "object"}}"#),
++        (
++            "仅 note 的草稿",
++            r#"{"W": {"type": "object", "x-common": {"note": "待剪枝：AgentSessionSendInput"}}}"#,
++        ),
++    ];
++    for (label, types) in cases {
++        let temp = TempDir::new("index-degraded-zero");
++        let fqn = "App.Core.Plain";
++        let contract = format!("# {fqn}\n\n```json api-types\n{types}\n```\n");
++        let elements = [write_element(&temp, fqn, "src/plain/", Some(&contract))];
++
++        let snapshot = load_contracts(temp.root(), &elements)
++            .unwrap_or_else(|error| panic!("{label}：契约应装载成功，实际 Err：{error:?}"));
++        let index = index_text(temp.root(), &snapshot);
++        assert!(
++            index.contains("degraded = 0"),
++            "{label}：`degraded` 键仍输出 0（不省略）：\n{index}"
++        );
++    }
++}
++
++/// 边界（AC-5）：同一元素多处标记（条目自身 + 属性位 + `params[].schema` 深层）→ 计数
++/// 等于出现次数（累加，不是条目数）；同一快照两次 `render_all` 逐字相等。
++#[test]
++fn index_degraded累加且渲染幂等() {
++    let temp = TempDir::new("index-degraded-sum");
++    let fqn = "App.Core.Deep";
++    let contract = format!(
++        "# {fqn}\n\n```json api-types\n{{\"W\": {{\"type\": \"object\", \
++         \"x-common\": {{\"degraded\": \"noElement\"}}, \
++         \"properties\": {{\
++         \"deep\": {{\"type\": \"object\", \"x-common\": {{\"degraded\": \"foreignElement\"}}}}, \
++         \"send\": {{\"x-function\": {{\"params\": [{{\"name\": \"input\", \"schema\": \
++         {{\"x-common\": {{\"degraded\": \"crossLanguage\"}}}}}}], \"returns\": \
++         {{\"type\": \"boolean\"}}}}}}}}}}}}\n```\n"
++    );
++    let elements = [write_element(&temp, fqn, "src/deep/", Some(&contract))];
++
++    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
++    let first = index_text(temp.root(), &snapshot);
++    let second = index_text(temp.root(), &snapshot);
++    assert_eq!(first, second, "同一快照两次 `render_all` 逐字相等");
++    assert!(
++        first.contains("degraded = 3"),
++        "三处标记累加为 3（不是条目数 1）：\n{first}"
++    );
++    assert!(
++        first.contains("types = 1"),
++        "条目数仍为 1（计数口径与 `types` 互不混用）：\n{first}"
++    );
++
++    // 计数与校验同源（零第二套遍历）：`index_entries` 只经 `schema::degraded_marks` 取数
++    let source = include_str!("mod.rs");
++    assert_eq!(
++        source.matches("degraded_marks(").count(),
++        1,
++        "`mod.rs` 内 `degraded_marks(` 恰 1 处（零第二套扫描）"
++    );
++    assert!(
++        !source.contains("\"x-common\""),
++        "`mod.rs` 内零 `x-common` 键字面量（锚点只在 `schema::degraded_marks`）"
++    );
++}
++
++/// 边界（AC-5）：`absent`（契约文件缺失）元素 → `degraded = 0`，键仍输出（口径改动不
++/// 引入缺键形态）。
++#[test]
++fn index_degraded对absent元素仍输出() {
++    let temp = TempDir::new("index-degraded-absent");
++    let fqn = "App.Core.Absent";
++    let elements = [write_element(&temp, fqn, "src/absent/", None)];
++
++    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功（缺契约不算错）");
++    let index = index_text(temp.root(), &snapshot);
++    assert!(
++        index.contains("status = \"absent\""),
++        "契约缺失即 `absent`：\n{index}"
++    );
++    assert!(
++        index.contains("degraded = 0"),
++        "`absent` 元素仍输出 `degraded = 0`：\n{index}"
++    );
++}
++
++/// 正向（AC-6 零回归）：现网契约形态（`properties` 空对象、零 `required`、零
++/// `degraded`）→ `types` / `ops` / `degraded` 与改动前逐字相同；该元素的 `.i.rs` /
++/// `.schema.json` 渲染文本零 nullable 相关变化。
++#[test]
++fn index与生成物对现网契约零回归() {
++    let temp = TempDir::new("index-degraded-current");
++    let fqn = "App.Backend.Infra.ArchiRuntime";
++    let elements = [write_element(
++        &temp,
++        fqn,
++        "crates/infra/archi/",
++        Some(&pilot_markdown(fqn)),
++    )];
++
++    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
++    let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
++    let index = files
++        .iter()
++        .find(|file| file.path == paths::index_path(temp.root()))
++        .expect("INDEX 在案");
++    for expected in ["types = 1", "ops = 1", "degraded = 0"] {
++        assert!(
++            index.content.contains(expected),
++            "现网契约的索引三项逐字不变（缺 `{expected}`）：\n{}",
++            index.content
++        );
++    }
++
++    let schema = files
++        .iter()
++        .find(|file| file.path == paths::schema_path(temp.root(), fqn).expect("合法 FQN"))
++        .expect("schema 生成物在案");
++    for forbidden in ["\"null\"", "anyOf", "oneOf"] {
++        assert!(
++            !schema.content.contains(forbidden),
++            "现网 schema 零 nullable 形态（`{forbidden}` 零命中）：\n{}",
++            schema.content
++        );
++    }
++
++    let generated = files
++        .iter()
++        .find(|file| {
++            file.path
++                == paths::generated_path(
++                    temp.root(),
++                    "crates/infra/archi/",
++                    paths::GeneratedKind::Rust,
++                )
++                .expect("Rust 生成物路径")
++        })
++        .unwrap_or_else(|| {
++            panic!(
++                ".i.rs 生成物在案：{:?}",
++                files
++                    .iter()
++                    .map(|file| file.path.clone())
++                    .collect::<Vec<_>>()
++            )
++        });
++    for forbidden in ["Option<", "serde_json::Value", "unknown"] {
++        assert!(
++            !generated.content.contains(forbidden),
++            "现网 `.i.rs` 零 nullable 相关变化（`{forbidden}` 零命中）：\n{}",
++            generated.content
++        );
++    }
++}
+diff --git a/crates/core/archi/src/api/schema.rs b/crates/core/archi/src/api/schema.rs
+index c999f90dcb44..0c9c95f64708 100644
+--- a/crates/core/archi/src/api/schema.rs
++++ b/crates/core/archi/src/api/schema.rs
+@@ -17,6 +17,25 @@ use toml_edit::{DocumentMut, Item, Table, Value as TomlValue};
+ use super::contract::Contract;
+ use super::{kind_of, paths, short_digest, ApiError, ApiMeta, DEFS_FRAGMENT, SCHEMA_FILE_SUFFIX};
+ 
++/// **封闭降级词表**（首期四值）：`x-common.degraded` 的取值域。
++///
++/// | 值 | 语义 |
++/// |---|---|
++/// | `foreignElement` | 跨域 / 非直接子元素引用 |
++/// | `noElement` | 目标无模型元素（如 hooks / 纯工具库 / 裸类型模块） |
++/// | `unrepresentable` | 目标语言类型系统表达不了（如 JSX 形态、错误通道走 `Promise` reject） |
++/// | `crossLanguage` | 规则表降级（`common.json` 的换算在目标语言侧的表达损失） |
++///
++/// 新增第五值 MUST 改 `desktop-archi-api` 的「降级词表与真实债表」（与既有「判据词表
++/// 封闭」同一条纪律）。**MUST NOT 进 `common.json`**：该资产的语义封闭为**映射规则**，
++/// 且其摘要进全部生成物的头注释（改它即批量重生成）。
++pub(crate) const DEGRADED_KINDS: [&str; 4] = [
++    "foreignElement",
++    "noElement",
++    "unrepresentable",
++    "crossLanguage",
++];
++
+ /// `INDEX.toml` 的契约文件在案状态（封闭二值）：文件事实，与模型意图
+ /// [`crate::dto::ApiStatus`] 分立——后者是「承诺有契约」，前者是「文件在案」。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+@@ -48,7 +67,9 @@ pub struct IndexEntry {
+     pub types: usize,
+     /// 操作数
+     pub ops: usize,
+-    /// `x-common.degraded` 条目数
++    /// `x-common.degraded` 标记的**出现次数**（全深度：`$defs` 条目自身、条目第一层
++    /// `properties` 的值、`properties` 里的 `x-function.params[].schema` 及更深；与
++    /// [`degraded_marks`] 同源，不再是 `$defs` 条目数）
+     pub degraded: usize,
+     /// 分类分布（`category` → 条数；开放值集）
+     pub categories: BTreeMap<String, usize>,
+@@ -133,6 +154,47 @@ pub fn build_schema(contract: &Contract, meta: &ApiMeta) -> Result<Value, ApiErr
+     Ok(Value::Object(schema))
+ }
+ 
++/// `x-common.degraded` 的**全深度单点扫描**：返回每个标记的 `(JSON pointer, 原值)`。
++///
++/// 扫描面是 `$defs` 条目自身、条目第一层 `properties` 的值、`properties` 里的
++/// `x-function.params[].schema` 以及更深的对象 / 数组。锚点是**对象自身的
++/// `x-common.degraded`**，而非任意名为 `degraded` 的键——数据字段名合法可为 `degraded`，
++/// 松锚点会把它计成债。pointer 指到标记本身（`$defs.<名>.properties.<字段>.x-common.degraded`，
++/// 数组段 `[i]`，根节点段 `$`）。
++///
++/// [`verify_defs`]（取值校验）与 [`super::index_entries`]（计数）各调一次本函数，
++/// MUST NOT 存在第二套遍历。返回值保留 [`Value`] 形态：校验面要能拒收**非字符串**值并
++/// 点名其形态，计数面只用 `.len()`。
++pub(crate) fn degraded_marks(schema: &Value) -> Vec<(String, &Value)> {
++    let mut marks: Vec<(String, &Value)> = Vec::new();
++    collect_degraded(schema, "$", &mut marks);
++    marks
++}
++
++/// [`degraded_marks`] 的递归主体（逐键下沉，对象键段 `.key`、数组段 `[i]`）。
++fn collect_degraded<'a>(value: &'a Value, pointer: &str, marks: &mut Vec<(String, &'a Value)>) {
++    match value {
++        Value::Object(object) => {
++            if let Some(mark) = object
++                .get("x-common")
++                .and_then(Value::as_object)
++                .and_then(|common| common.get("degraded"))
++            {
++                marks.push((format!("{pointer}.x-common.degraded"), mark));
++            }
++            for (key, inner) in object {
++                collect_degraded(inner, &format!("{pointer}.{key}"), marks);
++            }
++        }
++        Value::Array(items) => {
++            for (index, item) in items.iter().enumerate() {
++                collect_degraded(item, &format!("{pointer}[{index}]"), marks);
++            }
++        }
++        _ => {}
++    }
++}
++
+ /// `$defs` 五条规则 + 透传条目纯 `$ref` 校验 + `x-class` 带属性判错：
+ ///
+ /// 1. 身份 = 键名（JSON 对象天然键唯一）；
+@@ -140,7 +202,10 @@ pub fn build_schema(contract: &Contract, meta: &ApiMeta) -> Result<Value, ApiErr
+ /// 3. 所有 `$ref` target MUST 是顶层条目（`#/$defs/<名>`）或外部文件形式
+ ///    （`<相对前缀><FQN>.schema.json#/$defs/<名>`）；
+ /// 4. 同名只定义一次；
+-/// 5. **MUST NOT 按结构去重**（本函数不做任何合并动作即满足；相等形状不合并）。
++/// 5. **MUST NOT 按结构去重**（本函数不做任何合并动作即满足；相等形状不合并）；
++/// 6. 任意对象位的 `x-common.degraded` 取值 MUST ∈ 封闭四值词表 [`DEGRADED_KINDS`]
++///    （**非字符串亦拒收**），错误点名该标记的 JSON pointer 并列四值；`x-common.note`
++///    不受校验、不进债表（自由注记）。
+ ///
+ /// `x-class: true` 的类型是 trait，**仅允许方法**：条目带 `required`，或某个
+ /// `properties` 值不是 `x-function`（即声明了数据属性），即契约错误——本条拦在装载期
+@@ -217,6 +282,27 @@ pub fn verify_defs(schema: &Value) -> Result<(), ApiError> {
+         }
+         collect_nested_refs(name, definition)?;
+     }
++    // 降级词表（与计数同源的 `degraded_marks` 单点扫描）：取值 MUST ∈ 四值词表，非字符串
++    // 亦拒收——`true` 不携带任何原因信息，债表不可读。错误面沿用本函数既有形态
++    // （`$defs.<名>…` 的 pointer 文案，签名只有 schema）。
++    for (pointer, mark) in degraded_marks(schema) {
++        if mark
++            .as_str()
++            .is_some_and(|kind| DEGRADED_KINDS.contains(&kind))
++        {
++            continue;
++        }
++        let shown = match mark.as_str() {
++            Some(kind) => format!("`{kind}`"),
++            None => format!("{} `{mark}`", kind_of(mark)),
++        };
++        return Err(ApiError::Contract(format!(
++            "`{pointer}` 的取值必须是降级词表内的字符串（实际为 {shown}）——词表封闭为 {}；\
++             非字符串与词表外值都让债表不可读（`true` 不携带任何原因信息），\
++             新增第五值 MUST 改「降级词表与真实债表」",
++            DEGRADED_KINDS.join(" / ")
++        )));
++    }
+     Ok(())
+ }
+ 
+diff --git a/crates/core/archi/src/api/schema_test.rs b/crates/core/archi/src/api/schema_test.rs
+index ebf6eb1a15e6..be5efb7d0f8e 100644
+--- a/crates/core/archi/src/api/schema_test.rs
++++ b/crates/core/archi/src/api/schema_test.rs
+@@ -15,7 +15,7 @@ use crate::api::contract::Contract;
+ 
+ use super::contract::parse;
+ use super::paths;
+-use super::schema::{build_index, build_schema, verify_defs};
++use super::schema::{build_index, build_schema, degraded_marks, verify_defs, DEGRADED_KINDS};
+ use super::{ApiError, ApiFormStatus, ApiMeta, IndexEntry};
+ 
+ /// 契约文件（repo 相对 POSIX）。
+@@ -1180,3 +1180,417 @@ fn index_schema_rel与paths同源() {
+         "schema 路径文件名：{expected:?}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 降级词表与全深度标记扫描（AC-5 / D11 / D12）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-5）：`DEGRADED_KINDS` 逐值断言顺序与内容（词表封闭四值）。
++#[test]
++fn degraded_kinds逐值封闭() {
++    assert_eq!(
++        DEGRADED_KINDS,
++        [
++            "foreignElement",
++            "noElement",
++            "unrepresentable",
++            "crossLanguage"
++        ],
++        "词表顺序与内容逐值钉住（新增第五值 MUST 改 spec）"
++    );
++}
++
++/// 边界（AC-5）：长度恰 4、零重复、每值为非空 ASCII 驼峰词（无空格 / 连字符）——常量
++/// 本身无异常面（取值合法性由 `verify_defs` 用例承担）。
++#[test]
++fn degraded_kinds形态与长度() {
++    assert_eq!(DEGRADED_KINDS.len(), 4, "词表恰四值");
++    let mut unique: Vec<&str> = DEGRADED_KINDS.to_vec();
++    unique.sort_unstable();
++    unique.dedup();
++    assert_eq!(unique.len(), 4, "零重复");
++    for kind in DEGRADED_KINDS {
++        assert!(!kind.is_empty(), "值非空");
++        assert!(
++            kind.chars()
++                .all(|character| character.is_ascii_alphabetic()),
++            "`{kind}` 是纯 ASCII 驼峰词（无空格 / 连字符 / 数字）"
++        );
++        assert!(
++            kind.chars()
++                .next()
++                .is_some_and(|first| first.is_ascii_lowercase()),
++            "`{kind}` 首字母小写（驼峰词形态）"
++        );
++    }
++}
++
++/// 正向（AC-5）：`$defs` 条目自身标记 → pointer 指到标记本身、值取原文 `&Value`；
++/// 属性位标记 → pointer 到属性值（旧口径看不见的落点）。
++#[test]
++fn degraded_marks条目自身与属性位pointer() {
++    let own = json!({"$defs": {"Widget": {"x-common": {"degraded": "noElement"}}}});
++    let marks = degraded_marks(&own);
++    assert_eq!(marks.len(), 1, "条目自身一处标记：{marks:?}");
++    assert_eq!(
++        marks[0].0, "$.$defs.Widget.x-common.degraded",
++        "pointer 指到标记本身"
++    );
++    assert_eq!(
++        marks[0].1,
++        &json!("noElement"),
++        "值取原文 `&Value`（不转写、不猜语义）"
++    );
++
++    let property = json!({"$defs": {"Widget": {
++        "type": "object",
++        "properties": {"session": {"x-common": {"degraded": "foreignElement"}}}
++    }}});
++    let marks = degraded_marks(&property);
++    assert_eq!(marks.len(), 1, "属性位一处标记：{marks:?}");
++    assert_eq!(
++        marks[0].0, "$.$defs.Widget.properties.session.x-common.degraded",
++        "pointer 到属性值（旧条目级口径看不见的落点）"
++    );
++}
++
++/// 正向（表驱动）：深层标记——`properties.x.items`、`x-function.params[0].schema`、
++/// `additionalProperties` 三处各扫出，pointer 含 `.items` 段与数组段 `[0]`。
++#[test]
++fn degraded_marks深层标记() {
++    let cases = [
++        (
++            "items",
++            json!({"$defs": {"W": {"type": "array", "items": {"x-common": {"degraded": "noElement"}}}}}),
++            "$.$defs.W.items.x-common.degraded",
++        ),
++        (
++            "params[0].schema",
++            json!({"$defs": {"W": {"type": "object", "properties": {"send": {"x-function": {
++                "params": [{"name": "input", "schema": {"x-common": {"degraded": "crossLanguage"}}}],
++                "returns": {"type": "boolean"}
++            }}}}}}),
++            "$.$defs.W.properties.send.x-function.params[0].schema.x-common.degraded",
++        ),
++        (
++            "additionalProperties",
++            json!({"$defs": {"W": {"type": "object", "additionalProperties": {"x-common": {"degraded": "unrepresentable"}}}}}),
++            "$.$defs.W.additionalProperties.x-common.degraded",
++        ),
++    ];
++    for (label, schema, expected) in cases {
++        let marks = degraded_marks(&schema);
++        assert_eq!(marks.len(), 1, "{label}：一处标记：{marks:?}");
++        assert_eq!(marks[0].0, expected, "{label}：pointer 逐段可读");
++    }
++}
++
++/// 异常（表驱动）：根节点自身标记 → pointer `$.x-common.degraded`；标量 / 数组根 →
++/// 空 `Vec`（零 panic）。
++#[test]
++fn degraded_marks根节点与标量根() {
++    let root = json!({"x-common": {"degraded": "noElement"}, "$defs": {}});
++    let marks = degraded_marks(&root);
++    assert_eq!(marks.len(), 1, "根节点自身一处标记：{marks:?}");
++    assert_eq!(marks[0].0, "$.x-common.degraded", "根节点段的 pointer");
++
++    for schema in [json!(null), json!(42), json!("text"), json!([1, 2])] {
++        assert!(
++            degraded_marks(&schema).is_empty(),
++            "标量 / 标量数组根 → 空 `Vec`（零 panic）：{schema}"
++        );
++    }
++}
++
++/// 异常（表驱动）：`x-common` 非对象（字符串 / 数组 / null）或对象但无 `degraded` 键
++/// → 不计入（锚点是对象自身的 `x-common.degraded`）。
++#[test]
++fn degraded_marks的x_common非对象() {
++    for schema in [
++        json!({"$defs": {"W": {"x-common": "noElement"}}}),
++        json!({"$defs": {"W": {"x-common": ["degraded"]}}}),
++        json!({"$defs": {"W": {"x-common": null}}}),
++        json!({"$defs": {"W": {"x-common": {"note": "待剪枝：自由注记"}}}}),
++        json!({"$defs": {"W": {"x-common": {}}}}),
++    ] {
++        assert!(
++            degraded_marks(&schema).is_empty(),
++            "非 `x-common.degraded` 形态不计入：{schema}"
++        );
++    }
++}
++
++/// 边界（AC-5 关键反例）：数据字段名恰为 `degraded`（`properties.degraded`）→ 不计入
++/// （锚点判据；松锚点会把数据字段计成债）。
++#[test]
++fn degraded_marks数据字段名degraded不计入() {
++    let schema = json!({"$defs": {"W": {
++        "type": "object",
++        "properties": {"degraded": {"type": "string"}}
++    }}});
++    assert!(
++        degraded_marks(&schema).is_empty(),
++        "数据字段名 `degraded` 不是标记（锚点是 `x-common.degraded`）：{schema}"
++    );
++}
++
++/// 边界（表驱动）：标记值为 `true` / 数字 / `null` → 仍被扫出（扫描不看取值类型；
++/// 合法性归 `verify_defs`）；`x-common.note` 永不计入。
++#[test]
++fn degraded_marks非字符串取值仍扫出() {
++    for value in [json!(true), json!(42), json!(null)] {
++        let schema = json!({"$defs": {"W": {"x-common": {"degraded": value}}}});
++        let marks = degraded_marks(&schema);
++        assert_eq!(marks.len(), 1, "取值 {value} 仍被扫出：{marks:?}");
++        assert_eq!(marks[0].1, &value, "值原样带出");
++    }
++
++    let note_only =
++        json!({"$defs": {"W": {"x-common": {"note": "待剪枝：AgentSessionSendInput"}}}});
++    assert!(
++        degraded_marks(&note_only).is_empty(),
++        "`x-common.note` 永不计入：{note_only}"
++    );
++}
++
++/// 边界（表驱动）：同一 schema 多处标记 → 逐处各一条，pointer 集合与出现点逐一对应；
++/// 同一数组内按索引序（`[0]` 先于 `[1]`）；零标记 → 空 `Vec`。
++#[test]
++fn degraded_marks多处标记与索引序() {
++    let schema = json!({"$defs": {"W": {
++        "x-common": {"degraded": "noElement"},
++        "type": "object",
++        "properties": {
++            "a": {"x-common": {"degraded": "foreignElement"}},
++            "b": {"type": "array", "items": {"x-common": {"degraded": "unrepresentable"}}}
++        }
++    }}});
++    let mut pointers: Vec<String> = degraded_marks(&schema)
++        .into_iter()
++        .map(|(pointer, _)| pointer)
++        .collect();
++    assert_eq!(pointers.len(), 3, "三处标记逐处各一条：{pointers:?}");
++    pointers.sort();
++    assert_eq!(
++        pointers,
++        vec![
++            "$.$defs.W.properties.a.x-common.degraded".to_owned(),
++            "$.$defs.W.properties.b.items.x-common.degraded".to_owned(),
++            "$.$defs.W.x-common.degraded".to_owned(),
++        ],
++        "pointer 集合与出现点逐一对应"
++    );
++
++    let array = json!({"$defs": {"W": {"oneOf": [
++        {"x-common": {"degraded": "noElement"}},
++        {"x-common": {"degraded": "crossLanguage"}}
++    ]}}});
++    let ordered: Vec<String> = degraded_marks(&array)
++        .into_iter()
++        .map(|(pointer, _)| pointer)
++        .collect();
++    assert_eq!(
++        ordered,
++        vec![
++            "$.$defs.W.oneOf[0].x-common.degraded".to_owned(),
++            "$.$defs.W.oneOf[1].x-common.degraded".to_owned(),
++        ],
++        "同一数组内按索引序"
++    );
++
++    assert!(
++        degraded_marks(&json!({"$defs": {"W": {"type": "object"}}})).is_empty(),
++        "零标记 → 空 `Vec`"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// verify_defs 的第 6 条规则：降级取值词表（AC-5 / D11）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-5，逐值）：四值逐个通过（同一契约的条目自身 + 属性位各一）。
++#[test]
++fn verify_defs降级四值逐个通过() {
++    for kind in DEGRADED_KINDS {
++        let schema = json!({"$defs": {"W": {
++            "x-common": {"degraded": kind},
++            "type": "object",
++            "properties": {"session": {"x-common": {"degraded": kind}}}
++        }}});
++        assert_eq!(
++            verify_defs(&schema),
++            Ok(()),
++            "词表内取值 `{kind}`（条目自身 + 属性位）应通过"
++        );
++    }
++}
++
++/// 正向（表驱动）：零标记 / 仅 `x-common.note` / 仅 `x-common.unit` → `Ok`；`note` 零
++/// 校验（自由注记）。
++#[test]
++fn verify_defs零标记与仅note() {
++    let cases = [
++        ("零标记", json!({"$defs": {"W": {"type": "object"}}})),
++        (
++            "仅 note",
++            json!({"$defs": {"W": {"x-common": {"note": "待剪枝：AgentSessionSendInput"}}}}),
++        ),
++        (
++            "仅 unit",
++            json!({"$defs": {"W": {"x-common": {"unit": "毫秒"}}}}),
++        ),
++    ];
++    for (label, schema) in cases {
++        assert_eq!(
++            verify_defs(&schema),
++            Ok(()),
++            "{label}：应通过（`note` 零校验）"
++        );
++    }
++}
++
++/// 异常（AC-5 关键反例）：`x-common.degraded = "typo"` → `Err`，文案含该标记 pointer 并
++/// 并列四值。
++#[test]
++fn verify_defs词表外值报错() {
++    let schema = json!({"$defs": {"Widget": {"x-common": {"degraded": "typo"}}}});
++    let error = contract_error(verify_defs(&schema));
++    assert!(
++        error.contains("$.$defs.Widget.x-common.degraded"),
++        "文案点名该标记的 pointer：{error}"
++    );
++    assert!(error.contains("typo"), "文案点名非法取值：{error}");
++    for kind in DEGRADED_KINDS {
++        assert!(error.contains(kind), "文案并列四值（缺 `{kind}`）：{error}");
++    }
++}
++
++/// 异常（表驱动）：`x-common.degraded = true` → `Err`，文案含 pointer、`kind_of` 形态
++/// （布尔）与四值；`null` / 数字 / 数组 / 对象同拒。
++#[test]
++fn verify_defs非字符串取值报错() {
++    let cases = [
++        (json!(true), "布尔"),
++        (json!(null), "null"),
++        (json!(7), "数字"),
++        (json!(["noElement"]), "数组"),
++        (json!({"kind": "noElement"}), "对象"),
++    ];
++    for (value, kind) in cases {
++        let schema = json!({"$defs": {"Widget": {"x-common": {"degraded": value}}}});
++        let error = contract_error(verify_defs(&schema));
++        assert!(
++            error.contains("$.$defs.Widget.x-common.degraded"),
++            "取值 {value}：文案含 pointer：{error}"
++        );
++        assert!(
++            error.contains(kind),
++            "取值 {value}：文案经 `kind_of` 报形态 `{kind}`：{error}"
++        );
++        assert!(
++            error.contains("crossLanguage"),
++            "取值 {value}：文案并列四值：{error}"
++        );
++    }
++}
++
++/// 异常（表驱动）：深层非法值（`items` / `params[].schema` 内）→ `Err` 并点名该
++/// pointer（校验面与计数面同源）。
++#[test]
++fn verify_defs深层非法值() {
++    let cases = [
++        (
++            json!({"$defs": {"W": {"type": "array", "items": {"x-common": {"degraded": "typo"}}}}}),
++            "$.$defs.W.items.x-common.degraded",
++        ),
++        (
++            json!({"$defs": {"W": {"type": "object", "properties": {"send": {"x-function": {
++                "params": [{"name": "input", "schema": {"x-common": {"degraded": true}}}],
++                "returns": {"type": "boolean"}
++            }}}}}}),
++            "$.$defs.W.properties.send.x-function.params[0].schema.x-common.degraded",
++        ),
++    ];
++    for (schema, pointer) in cases {
++        let error = contract_error(verify_defs(&schema));
++        assert!(error.contains(pointer), "深层非法值点名该 pointer：{error}");
++    }
++}
++
++/// 边界（表驱动，既有规则零回归）：嵌套 `$defs` / `$ref` 非顶层 / 同名两次 / `x-class`
++/// 带属性 / 透传条目带结构关键字各自仍报既有错误（新增取值校验不遮蔽）。
++#[test]
++fn verify_defs既有规则零回归() {
++    let nested = json!({"$defs": {"A": {"type": "object", "$defs": {"B": {"type": "object"}}}}});
++    let nested_error = contract_error(verify_defs(&nested));
++    assert!(
++        nested_error.contains("嵌套"),
++        "嵌套 `$defs`：{nested_error}"
++    );
++
++    let non_top = json!({"$defs": {"A": {"$ref": "#/properties/x"}}});
++    let non_top_error = contract_error(verify_defs(&non_top));
++    assert!(
++        non_top_error.contains("顶层"),
++        "`$ref` 非顶层：{non_top_error}"
++    );
++
++    let duplicated = format!(
++        "# {FQN}\n\n```json api-types\n{{\"A\": {{\"type\": \"object\"}}, \
++         \"A\": {{\"enum\": [\"x\"]}}}}\n```\n"
++    );
++    let duplicate_error = parse_error(parse(&duplicated, FQN, FILE));
++    assert!(
++        duplicate_error.contains("重复声明"),
++        "同名两次（文本层判据）：{duplicate_error}"
++    );
++
++    let x_class =
++        json!({"$defs": {"Gate": {"x-class": true, "properties": {"count": {"type": "integer"}}}}});
++    let x_class_error = contract_error(verify_defs(&x_class));
++    assert!(
++        x_class_error.contains("x-class") && x_class_error.contains("trait"),
++        "`x-class` 带属性：{x_class_error}"
++    );
++
++    let reexport = json!({"$defs": {"A": {
++        "$ref": "../Core/App.Backend.Core.Agent.schema.json#/$defs/AgentInput",
++        "type": "object"
++    }}});
++    let reexport_error = contract_error(verify_defs(&reexport));
++    assert!(
++        reexport_error.contains("结构关键字") && reexport_error.contains("type"),
++        "透传条目带结构关键字：{reexport_error}"
++    );
++}
++
++/// 边界：同契约既有五条违例 + 非法 `degraded` 并存 → 报既有规则（取值校验排在既有规则
++/// 之后，错误面稳定）；缺 `$defs` / 空对象 → 既有错误不变。
++#[test]
++fn verify_defs取值校验排在既有规则之后() {
++    let both = json!({"$defs": {"A": {
++        "type": "object",
++        "$defs": {"B": {"type": "object"}},
++        "x-common": {"degraded": "typo"}
++    }}});
++    let message = contract_error(verify_defs(&both));
++    assert!(
++        message.contains("嵌套"),
++        "先报既有规则（嵌套 `$defs`）：{message}"
++    );
++    assert!(
++        !message.contains("crossLanguage"),
++        "取值校验不抢先报（错误面稳定）：{message}"
++    );
++
++    let missing = contract_error(verify_defs(&json!({"properties": {}})));
++    assert!(
++        missing.contains("$defs"),
++        "缺 `$defs` 的既有错误不变：{missing}"
++    );
++    assert_eq!(
++        verify_defs(&json!({"$defs": {}})),
++        Ok(()),
++        "空 `$defs` 仍合法（零标记可校验）"
++    );
++}

@@ -509,19 +509,10 @@ fn index_entries(
             .map(|defs| defs.len())
             .unwrap_or(0);
         let ops = contract.map(|contract| contract.ops.len()).unwrap_or(0);
+        // 降级计数与取值校验同源（`schema::degraded_marks` 单点全深度扫描）：口径是
+        // **标记出现次数**，不是 `$defs` 条目数——真实降级落点在属性位。
         let degraded = schema_value
-            .and_then(|value| value.get("$defs"))
-            .and_then(Value::as_object)
-            .map(|defs| {
-                defs.values()
-                    .filter(|definition| {
-                        definition
-                            .get("x-common")
-                            .and_then(|common| common.get("degraded"))
-                            .is_some()
-                    })
-                    .count()
-            })
+            .map(|value| schema::degraded_marks(value).len())
             .unwrap_or(0);
         let generated_rel = generated_path_of(root, &element.path)
             .filter(|_| present)

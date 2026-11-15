@@ -7,6 +7,7 @@
 //! 会让「语言判错」不可见）；`extract` 零落盘（接 `source: &str`），`extract_element`
 //! 用自建 `TempDir` RAII（本 crate 无 dev-dependency）落真实模块树。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,11 +15,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
-use serde_json::json;
+use serde_json::{json, Value};
+
+use crate::api::contract::parse;
+use crate::api::emit::{self, EmitTarget};
+use crate::api::meta;
+use crate::api::paths::{EntryForm, GeneratedKind};
+use crate::api::schema::build_schema;
 
 use super::{
-    extract, extract_element, normalize_signature, schema_type, signature_of, ApiParam, ApiSymbol,
-    ApiSymbolKind, ApiType, Position, Visibility,
+    extract, extract_element, normalize_signature, nullable_breakdown, schema_type, signature_of,
+    ApiParam, ApiSymbol, ApiSymbolKind, ApiType, Position, Visibility,
 };
 
 /// 元素构造器（`path` 决定语言分派）。
@@ -1128,9 +1135,11 @@ fn position三值封闭() {
         );
     }
     assert!(
-        include_str!("../emit/rust.rs").contains("use crate::api::extract::Position")
-            && include_str!("../emit/ts.rs").contains("use crate::api::extract::Position"),
-        "两渲染器都从本文件 `use Position`"
+        include_str!("../emit/rust.rs")
+            .contains("use crate::api::extract::{nullable_breakdown, Position}")
+            && include_str!("../emit/ts.rs")
+                .contains("use crate::api::extract::{nullable_breakdown, Position}"),
+        "两渲染器都从本文件 `use Position`（位置词汇与可空形状识别同一来源）"
     );
 }
 
@@ -1467,5 +1476,537 @@ fn scan_product_rs(dir: &Path, out: &mut Vec<(String, String)>) {
         for line in text.lines() {
             out.push((display.clone(), line.to_owned()));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// nullable_breakdown：可空形状识别的唯一单点（AC-1 / D1）
+// ---------------------------------------------------------------------------
+
+/// 契约文件（repo 相对 POSIX）与元素 FQN（`parse` 的 H1 锚点）。
+const CONTRACT_FILE: &str = ".dev-team/architecture/api/Demo/App.Demo.Widget.md";
+const CONTRACT_FQN: &str = "App.Demo.Widget";
+
+/// 动态分支键的 schema 片段（`anyOf` / `oneOf` 二键同判）。
+fn branch_schema(key: &str, branches: Value) -> Value {
+    let mut object = serde_json::Map::new();
+    object.insert(key.to_owned(), branches);
+    Value::Object(object)
+}
+
+/// 单字段 `api-types` 源文（`$defs.Widget.properties.f` 取给定片段）。
+fn widget_source(fragment: &Value, required: bool) -> String {
+    let required = if required {
+        ", \"required\": [\"f\"]"
+    } else {
+        ""
+    };
+    format!(
+        "# {CONTRACT_FQN}\n\n```json api-types\n{{\"Widget\": {{\"type\": \"object\", \
+         \"properties\": {{\"f\": {fragment}}}{required}}}}}\n```\n"
+    )
+}
+
+/// 双字段源文（同一片段落在必填位 `a` 与可选位 `b` 上）。
+fn two_field_source(fragment: &Value) -> String {
+    format!(
+        "# {CONTRACT_FQN}\n\n```json api-types\n{{\"Widget\": {{\"type\": \"object\", \
+         \"properties\": {{\"a\": {fragment}, \"b\": {fragment}}}, \"required\": [\"a\"]}}}}\n```\n"
+    )
+}
+
+/// 两侧渲染文本（真实 `contract::parse` + `schema::build_schema` + `emit::{ts,rust}::render`）。
+fn render_both(source: &str) -> (String, String) {
+    let contract = parse(source, CONTRACT_FQN, CONTRACT_FILE).expect("契约应解析成功");
+    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    let target = |kind: GeneratedKind| EmitTarget {
+        kind,
+        form: EntryForm::SubdirModule,
+        modules: BTreeMap::new(),
+    };
+    let ts = emit::ts::render(
+        &contract,
+        &schema,
+        &meta(),
+        &target(GeneratedKind::TypeScript),
+    );
+    let rust = emit::rust::render(&contract, &schema, &meta(), &target(GeneratedKind::Rust));
+    (ts, rust)
+}
+
+/// TS interface 内某字段的整行（缺席即断言失败）。
+fn ts_field_line<'a>(text: &'a str, field: &str) -> &'a str {
+    text.lines()
+        .find(|line| {
+            let head = line.trim_start();
+            head.starts_with(&format!("{field}:")) || head.starts_with(&format!("{field}?:"))
+        })
+        .unwrap_or_else(|| panic!("TS interface 内应有字段 `{field}`：\n{text}"))
+}
+
+/// Rust struct 内某字段的整行（缺席即断言失败）。
+fn rust_field_line<'a>(text: &'a str, field: &str) -> &'a str {
+    text.lines()
+        .find(|line| line.trim_start().starts_with(&format!("pub {field}:")))
+        .unwrap_or_else(|| panic!("Rust struct 内应有字段 `{field}`：\n{text}"))
+}
+
+/// 三轴对拍语料：`(标签, 字段片段, 字段是否在 required 内)`，九组。
+///
+/// 前六组是**可空轴**（显式 null 的三种形状 + 叠加可选 + 数组元素位），次两组是**可选轴**
+/// （同一片段在必填 / 可选两位），末一组是**纯 null 档**（不参与可空轴的等价式）。
+fn corpus() -> Vec<(&'static str, Value, bool)> {
+    vec![
+        ("类型数组含 null", json!({"type": ["string", "null"]}), true),
+        (
+            "三元素类型数组",
+            json!({"type": ["string", "integer", "null"]}),
+            true,
+        ),
+        (
+            "anyOf 含 null 分支",
+            branch_schema("anyOf", json!([{"type": "string"}, {"type": "null"}])),
+            true,
+        ),
+        (
+            "oneOf 含 null 分支",
+            branch_schema("oneOf", json!([{"type": "integer"}, {"type": "null"}])),
+            true,
+        ),
+        (
+            "非 required 叠加显式 null",
+            json!({"type": ["string", "null"]}),
+            false,
+        ),
+        (
+            "数组元素位可空",
+            json!({"type": "array", "items": {"type": ["string", "null"]}}),
+            true,
+        ),
+        ("必填字段（可选轴对照）", json!({"type": "string"}), true),
+        ("可选字段（可选轴对照）", json!({"type": "string"}), false),
+        ("纯 null 档", json!({"type": "null"}), true),
+    ]
+}
+
+/// 正向：`{"type": ["string","null"]}` → `Some`——`explicit_null` 在案、`non_null` 是
+/// 「外层克隆 + `type` 换成首个非空 kind」的窄化视图（`Cow::Owned`）。
+#[test]
+fn nullable_breakdown类型数组窄化视图() {
+    let schema = json!({"type": ["string", "null"]});
+    let breakdown = nullable_breakdown(&schema).expect("类型数组含 null → Some");
+    assert!(breakdown.explicit_null, "显式 null 在案");
+    let inner = breakdown.non_null.as_ref().expect("有非空分支可取");
+    assert!(
+        matches!(inner, Cow::Owned(_)),
+        "类型数组形态经窄化克隆（`Cow::Owned`）：{inner:?}"
+    );
+    assert_eq!(
+        inner.as_ref(),
+        &json!({"type": "string"}),
+        "非空分支 = 外层克隆 + `type` 换成首个非空 kind"
+    );
+}
+
+/// 正向（表驱动）：`anyOf` / `oneOf` 含 `{"type": "null"}` 分支 → `Some`，`non_null`
+/// 借自首个非空分支（`Cow::Borrowed`，零克隆）。
+#[test]
+fn nullable_breakdown分支数组零克隆() {
+    for key in ["anyOf", "oneOf"] {
+        let schema = branch_schema(key, json!([{"type": "integer"}, {"type": "null"}]));
+        let breakdown = nullable_breakdown(&schema).expect("分支数组含 null 分支 → Some");
+        assert!(breakdown.explicit_null, "{key}：显式 null 在案");
+        let inner = breakdown.non_null.as_ref().expect("有非空分支可取");
+        assert!(
+            matches!(inner, Cow::Borrowed(_)),
+            "{key}：分支数组走借用（`Cow::Borrowed`，零克隆）：{inner:?}"
+        );
+        assert_eq!(
+            inner.as_ref(),
+            &json!({"type": "integer"}),
+            "{key}：非空分支逐字取自分支数组的首个非空项"
+        );
+    }
+}
+
+/// 正向：`{"type": "null"}` → 纯 null 档（`non_null == None`，无第二个分支可取）。
+#[test]
+fn nullable_breakdown纯null档() {
+    let schema = json!({"type": "null"});
+    let breakdown = nullable_breakdown(&schema).expect("`type: null` → Some");
+    assert!(breakdown.explicit_null, "显式 null 在案");
+    assert!(
+        breakdown.non_null.is_none(),
+        "纯 null 档无非空分支可取（MUST NOT 造占位分支）"
+    );
+}
+
+/// 异常（表驱动）：非 nullable 形态 → `None`（交回常规分派，零误判）——`string` /
+/// `$ref` / `outcome` / 空对象四形态。
+#[test]
+fn nullable_breakdown非nullable形态交回常规分派() {
+    let cases = [
+        json!({"type": "string"}),
+        json!({"$ref": "#/$defs/T"}),
+        json!({"outcome": {"type": "string"}}),
+        json!({}),
+    ];
+    for fragment in cases {
+        assert!(
+            nullable_breakdown(&fragment).is_none(),
+            "非 nullable 形态 → None（交回常规分派）：{fragment}"
+        );
+    }
+}
+
+/// 异常（表驱动）：`anyOf` / `oneOf` 非数组、空数组、数组内无 null 分支 → `None`
+/// （分支数组形态未成立即不猜）。
+#[test]
+fn nullable_breakdown分支数组非数组空数组无null() {
+    let cases = [
+        branch_schema("anyOf", json!("string")),
+        branch_schema("anyOf", json!([])),
+        branch_schema("anyOf", json!([{"type": "string"}, {"type": "integer"}])),
+        branch_schema("oneOf", json!({})),
+        branch_schema("oneOf", json!([])),
+        branch_schema("oneOf", json!([{"type": "boolean"}])),
+    ];
+    for fragment in cases {
+        assert!(
+            nullable_breakdown(&fragment).is_none(),
+            "分支数组形态未成立 → None：{fragment}"
+        );
+    }
+}
+
+/// 边界（表驱动）：三元素 `["string","integer","null"]` 只取首个非空分支（`integer`
+/// 静默丢弃，多分支完整表达不在本期）；`["null","string"]` 仍取 `string`。
+#[test]
+fn nullable_breakdown多分支取首个非空分支() {
+    let three_schema = json!({"type": ["string", "integer", "null"]});
+    let three = nullable_breakdown(&three_schema).expect("三元素 → Some");
+    assert_eq!(
+        three.non_null.as_ref().map(|inner| inner.as_ref().clone()),
+        Some(json!({"type": "string"})),
+        "只取首个非空分支（`integer` 静默丢弃，R-3 留白）"
+    );
+
+    let null_first_schema = json!({"type": ["null", "string"]});
+    let null_first = nullable_breakdown(&null_first_schema).expect("null 在前 → Some");
+    assert_eq!(
+        null_first
+            .non_null
+            .as_ref()
+            .map(|inner| inner.as_ref().clone()),
+        Some(json!({"type": "string"})),
+        "null 在前仍取第一个非空分支 `string`"
+    );
+}
+
+/// 边界（表驱动）：空类型表 → `None`（空 kind 表不含 `null`）；纯 null 类型表与只含
+/// null 分支的分支数组 → 纯 null 档（`non_null == None`）。
+#[test]
+fn nullable_breakdown空类型表与纯null数组形态() {
+    assert!(
+        nullable_breakdown(&json!({"type": []})).is_none(),
+        "空 kind 表不含 `null` → None（交回常规分派）"
+    );
+
+    for fragment in [json!({"type": ["null"]}), json!({"type": ["null", "null"]})] {
+        let breakdown = nullable_breakdown(&fragment).expect("纯 null 类型表 → Some");
+        assert!(breakdown.explicit_null, "{fragment}：显式 null 在案");
+        assert!(
+            breakdown.non_null.is_none(),
+            "{fragment}：无非空分支可取（纯 null 档）"
+        );
+    }
+
+    let only_null = branch_schema("anyOf", json!([{"type": "null"}]));
+    let breakdown = nullable_breakdown(&only_null).expect("分支数组只含 null → Some");
+    assert!(
+        breakdown.explicit_null,
+        "分支数组纯 null 档：显式 null 在案"
+    );
+    assert!(
+        breakdown.non_null.is_none(),
+        "分支数组纯 null 档：无非空分支可取"
+    );
+}
+
+/// 边界（表驱动）：非对象 schema（`null` / 数字 / 字符串 / 数组）→ `None`，零 panic。
+#[test]
+fn nullable_breakdown非对象零panic() {
+    for fragment in [json!(null), json!(42), json!("string"), json!([])] {
+        assert!(
+            nullable_breakdown(&fragment).is_none(),
+            "非对象 schema → None（零 panic）：{fragment}"
+        );
+    }
+}
+
+/// 正向（表驱动）：nullable 三分支 × `Position` 三值——带非空分支的两形态在 `Param`
+/// 位出 `Optional(Str)`、`Return` / `Field` 位出 `Optional(OwnedString)`（位置语义不因
+/// nullable 改变）；纯 null 档三位置同值 `Optional(Unknown("null"))`。
+#[test]
+fn schema_type的nullable三分支保位置语义() {
+    let string_branches = [
+        json!({"type": ["string", "null"]}),
+        branch_schema("anyOf", json!([{"type": "string"}, {"type": "null"}])),
+        branch_schema("oneOf", json!([{"type": "null"}, {"type": "string"}])),
+    ];
+    for fragment in string_branches {
+        for (position, inner) in [
+            (Position::Param, ApiType::Str),
+            (Position::Return, ApiType::OwnedString),
+            (Position::Field, ApiType::OwnedString),
+        ] {
+            assert_eq!(
+                schema_type(&fragment, position),
+                ApiType::Optional(Box::new(inner.clone())),
+                "{fragment} 在 {position:?} 位 → Optional({inner:?})"
+            );
+        }
+    }
+
+    for position in [Position::Param, Position::Return, Position::Field] {
+        assert_eq!(
+            schema_type(&json!({"type": "null"}), position),
+            ApiType::Optional(Box::new(ApiType::Unknown("null".to_owned()))),
+            "纯 null 档在 {position:?} 位同值 Optional(Unknown(\"null\"))"
+        );
+    }
+}
+
+/// 异常（表驱动）：判序不变——`$ref` 先于 nullable（→ `Unknown(ref)`）、`outcome` 先于
+/// nullable（→ `Outcome`）。
+#[test]
+fn schema_type判序ref与outcome先于nullable() {
+    assert_eq!(
+        schema_type(
+            &json!({"$ref": "#/$defs/T", "type": ["string", "null"]}),
+            Position::Param
+        ),
+        ApiType::Unknown("T".to_owned()),
+        "`$ref` 判在 nullable 之前（末段名留痕，不包 Optional）"
+    );
+    assert_eq!(
+        schema_type(
+            &json!({"outcome": {"type": "string"}, "type": ["string", "null"]}),
+            Position::Return
+        ),
+        ApiType::Outcome(Box::new(ApiType::OwnedString)),
+        "`outcome` 判在 nullable 之前（内容位沿用位置语义）"
+    );
+}
+
+/// 边界（表驱动）：`{"type":"null"}` → `Optional(Unknown("null"))`；数组位可空 →
+/// `Optional(List(OwnedString))`；`items` 内 nullable → 元素位 `Optional`（嵌套保位置）。
+#[test]
+fn schema_type的纯null与嵌套元素位() {
+    assert_eq!(
+        schema_type(&json!({"type": "null"}), Position::Field),
+        ApiType::Optional(Box::new(ApiType::Unknown("null".to_owned()))),
+        "纯 null 档显式留痕 `Unknown(\"null\")`"
+    );
+    assert_eq!(
+        schema_type(
+            &json!({"type": ["array", "null"], "items": {"type": "string"}}),
+            Position::Param
+        ),
+        ApiType::Optional(Box::new(ApiType::List(Box::new(ApiType::OwnedString)))),
+        "数组位可空 → Optional(List(..))（items 固定 Field）"
+    );
+    assert_eq!(
+        schema_type(
+            &json!({"type": "array", "items": {"type": ["integer", "null"]}}),
+            Position::Param
+        ),
+        ApiType::List(Box::new(ApiType::Optional(Box::new(ApiType::Int)))),
+        "items 内 nullable → 元素位 Optional（嵌套保位置）"
+    );
+}
+
+/// 边界：可选轴不进 `schema_type` 的判据面——同一片段 `{"type":"string"}` 在必填 /
+/// 可选语境取同值（`OwnedString`），可选性只在字段级由 `required` 决定（TS `?` /
+/// Rust `Option<>`）；签名两参、体内零 `required`。
+#[test]
+fn schema_type不收字段可选语境() {
+    let fragment = json!({"type": "string"});
+    assert_eq!(
+        schema_type(&fragment, Position::Field),
+        ApiType::OwnedString,
+        "片段本身的逻辑类型（可选语境不改它）"
+    );
+
+    let (required_ts, required_rust) = render_both(&widget_source(&fragment, true));
+    let (optional_ts, optional_rust) = render_both(&widget_source(&fragment, false));
+    assert_eq!(
+        ts_field_line(&required_ts, "f").trim(),
+        "f: string;",
+        "必填位零 `?` 零 `| null`：\n{required_ts}"
+    );
+    assert_eq!(
+        ts_field_line(&optional_ts, "f").trim(),
+        "f?: string;",
+        "可选位只加 `?`（零 `| null`）：\n{optional_ts}"
+    );
+    assert_eq!(
+        rust_field_line(&required_rust, "f").trim(),
+        "pub f: String,",
+        "必填位裸类型：\n{required_rust}"
+    );
+    assert_eq!(
+        rust_field_line(&optional_rust, "f").trim(),
+        "pub f: Option<String>,",
+        "可选位包 `Option<…>`：\n{optional_rust}"
+    );
+
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source
+            .matches("pub fn schema_type(schema: &Value, position: Position) -> ApiType")
+            .count(),
+        1,
+        "`schema_type` 签名两参（不因可选轴扩参）"
+    );
+    assert!(
+        !source.contains("required"),
+        "`schema_type` 的入参面零 `required`（可选轴只在字段级判）"
+    );
+}
+
+/// 正向（AC-1 (a)，逐组对拍 6 组）：可空轴三面同真同假——`schema_type` 为 `Optional`
+/// ⟺ TS 文本含 `| null` ⟺ Rust 文本含 `Option<`（数组组在元素位对拍）。
+#[test]
+fn 三轴对拍可空轴六组() {
+    for (label, fragment, required) in corpus().into_iter().take(6) {
+        let source = widget_source(&fragment, required);
+        let (ts, rust) = render_both(&source);
+        // 数组形态的判据面在**元素位**（`items`）：字段类型本身是 `List`，元素才是 Optional
+        let judged = match fragment.get("type").and_then(Value::as_str) {
+            Some("array") => schema_type(&fragment["items"], Position::Field),
+            _ => schema_type(&fragment, Position::Field),
+        };
+        let nullable = matches!(judged, ApiType::Optional(_));
+        let ts_nullable = ts_field_line(&ts, "f").contains("| null");
+        let rust_nullable = rust_field_line(&rust, "f").contains("Option<");
+        assert!(
+            nullable,
+            "{label}：`schema_type` 应为 Optional，实际 {judged:?}"
+        );
+        assert_eq!(
+            nullable, ts_nullable,
+            "{label}：`schema_type` 的 Optional 与 TS `| null` 必须同真同假：\n{ts}"
+        );
+        assert_eq!(
+            nullable, rust_nullable,
+            "{label}：`schema_type` 的 Optional 与 Rust `Option<` 必须同真同假：\n{rust}"
+        );
+    }
+}
+
+/// 正向（AC-1 (b)，单例两组）：可选轴——同一 `$defs` 条目内 `a`（在 `required`）与
+/// `b`（不在）用同一片段：`schema_type` 两者同值 `OwnedString`；TS `a: string;` /
+/// `b?: string;`（`a` 零 `?`、`b` 零 `| null`）；Rust `pub a: String,` /
+/// `pub b: Option<String>,`；MUST NOT 拿「Rust 含 `Option<`」当可空判据。
+#[test]
+fn 三轴对拍可选轴两组() {
+    let fragment = json!({"type": "string"});
+    let (ts, rust) = render_both(&two_field_source(&fragment));
+
+    assert_eq!(
+        schema_type(&fragment, Position::Field),
+        ApiType::OwnedString,
+        "同一片段在必填 / 可选两位同值"
+    );
+    assert!(
+        !matches!(
+            schema_type(&fragment, Position::Field),
+            ApiType::Optional(_)
+        ),
+        "可选字段的 `schema_type` MUST NOT 是 Optional（可选 ≠ 可空）"
+    );
+
+    assert_eq!(
+        ts_field_line(&ts, "a").trim(),
+        "a: string;",
+        "必填位零 `?`：\n{ts}"
+    );
+    assert_eq!(
+        ts_field_line(&ts, "b").trim(),
+        "b?: string;",
+        "可选位只出 `?`（零 `| null`）：\n{ts}"
+    );
+
+    assert_eq!(
+        rust_field_line(&rust, "a").trim(),
+        "pub a: String,",
+        "必填位裸类型：\n{rust}"
+    );
+    assert_eq!(
+        rust_field_line(&rust, "b").trim(),
+        "pub b: Option<String>,",
+        "可选位包 `Option<…>`：\n{rust}"
+    );
+    assert!(
+        !ts.contains("| null"),
+        "可选轴零 `| null`（该符号只属可空轴）：\n{ts}"
+    );
+}
+
+/// 边界（AC-1 (c)，单例）：纯 `null` 一组——`{"type":"null"}` 置于 `required` 字段位 →
+/// `Optional(Unknown("null"))` / TS `null` / Rust `serde_json::Value`（显式期望值，零
+/// `()`）；该组不参与可空轴的等价式（Rust 侧不出 `Option<`）。
+#[test]
+fn 三轴对拍纯null一组() {
+    let fragment = json!({"type": "null"});
+    let (ts, rust) = render_both(&widget_source(&fragment, true));
+
+    assert_eq!(
+        schema_type(&fragment, Position::Field),
+        ApiType::Optional(Box::new(ApiType::Unknown("null".to_owned()))),
+        "纯 null 档判据面：Optional(Unknown(\"null\"))"
+    );
+    assert_eq!(
+        ts_field_line(&ts, "f").trim(),
+        "f: null;",
+        "TS 纯 null 档落 `null`（MUST NOT `unknown`）：\n{ts}"
+    );
+    assert_eq!(
+        rust_field_line(&rust, "f").trim(),
+        "pub f: serde_json::Value,",
+        "Rust 纯 null 档落既有兜底 `serde_json::Value`（MUST NOT `()`）：\n{rust}"
+    );
+    assert!(
+        !rust.contains("Option<"),
+        "纯 null 档不出 `Option<`——故本组 MUST NOT 参与可空轴等价式：\n{rust}"
+    );
+}
+
+/// 异常（AC-1 泄漏面，逐组对拍 9 组）：九组语料逐组取渲染文本——TS 文本 `unknown` 零
+/// 命中；Rust 文本除纯 null 档外 `serde_json::Value` 零命中（判据认得、渲染不认得的
+/// 不对称即失败）。
+#[test]
+fn 三轴对拍泄漏面九组() {
+    let corpus = corpus();
+    assert_eq!(corpus.len(), 9, "语料九组（6 可空 + 2 可选 + 1 纯 null）");
+    for (label, fragment, required) in corpus {
+        let source = widget_source(&fragment, required);
+        let (ts, rust) = render_both(&source);
+        assert!(
+            !ts.contains("unknown"),
+            "{label}：TS 文本 `unknown` 零命中（泄漏面即失败）：\n{ts}"
+        );
+        if fragment == json!({"type": "null"}) {
+            assert!(
+                rust.contains("serde_json::Value"),
+                "{label}：纯 null 档的 Rust 兜底是显式期望值：\n{rust}"
+            );
+            continue;
+        }
+        assert!(
+            !rust.contains("serde_json::Value"),
+            "{label}：Rust 文本 `serde_json::Value` 零命中（泄漏面即失败）：\n{rust}"
+        );
     }
 }

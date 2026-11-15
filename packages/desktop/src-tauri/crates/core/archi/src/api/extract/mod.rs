@@ -29,6 +29,7 @@
 pub mod rust;
 pub mod ts;
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use serde_json::Value;
@@ -265,6 +266,77 @@ pub fn signature_of(signature: &Value) -> String {
     format!("fn({params}) -> {returns}")
 }
 
+/// 可空形状识别的一次判定结果（[`nullable_breakdown`] 的产出）。
+///
+/// `non_null` = 可渲染的非空分支（`None` = 纯 `null` 档，无任何非空分支可取）；
+/// `explicit_null` = 显式 null 的存在，是渲染面 `| null` 的**唯一依据**（渲染器 MUST NOT
+/// 回到 `schema.get("type")` 二次判 null）。分支数组里的 null 分支走 `Cow::Borrowed`
+/// （零克隆），`type` 数组形态走 `Cow::Owned`（窄化克隆，与既有 `nullable_inner`
+/// 同一次开销）。
+#[derive(Debug, Clone)]
+pub(crate) struct NullableBreakdown<'a> {
+    /// 可渲染的非空分支（`None` = 纯 `null` 档）
+    pub non_null: Option<Cow<'a, Value>>,
+    /// 显式 null 的存在（渲染面 `| null` 的唯一依据）
+    pub explicit_null: bool,
+}
+
+/// 可空**形状**识别的唯一单点：`Option::Some` ⟺ schema 含显式 null。
+///
+/// 三分支（纯 `null` 的 `type` / 含 `null` 的 `type` 数组 / `anyOf`-`oneOf` 内含
+/// `{"type": "null"}` 的分支数组）的识别在此整体收口，判据面（[`schema_type`] 的
+/// nullable 一支）与两侧渲染面（`emit::{ts,rust}::value_type`）共用同一份判定——两端
+/// 各写一份即「判据认得、渲染不认得」的不对称。
+///
+/// **本函数不收字段级语境**：可选轴不属它（可选性只在字段级单点判定），MUST NOT 因
+/// 可选性扩参——同一 schema 片段在必填位与可选位必须判出同值。
+/// 多分支 union 沿用既有「取首个非空分支」语义（完整表达不在本期）。
+pub(crate) fn nullable_breakdown(schema: &Value) -> Option<NullableBreakdown<'_>> {
+    if let Some(branches) = schema
+        .get("anyOf")
+        .or_else(|| schema.get("oneOf"))
+        .and_then(Value::as_array)
+    {
+        if branches.iter().any(is_null_schema) {
+            return Some(NullableBreakdown {
+                non_null: branches
+                    .iter()
+                    .find(|branch| !is_null_schema(branch))
+                    .map(Cow::Borrowed),
+                explicit_null: true,
+            });
+        }
+    }
+    match schema.get("type") {
+        Some(Value::String(kind)) if kind == "null" => Some(NullableBreakdown {
+            non_null: None,
+            explicit_null: true,
+        }),
+        Some(Value::Array(kinds)) => {
+            let mut names: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
+            if !names.contains(&"null") {
+                return None;
+            }
+            names.retain(|name| *name != "null");
+            let Some(inner_kind) = names.first() else {
+                return Some(NullableBreakdown {
+                    non_null: None,
+                    explicit_null: true,
+                });
+            };
+            let mut narrowed = schema.as_object()?.clone();
+            narrowed.insert("type".to_owned(), Value::String((*inner_kind).to_owned()));
+            Some(NullableBreakdown {
+                non_null: Some(Cow::Owned(Value::Object(narrowed))),
+                explicit_null: true,
+            })
+        }
+        // 三形态穷尽（字符串 `null` / 类型数组 / 其余），零兜底臂：语言与形态的分派都不
+        // 猜测——兜底臂会让「新形态」静默落进某个既有分支
+        Some(_) | None => None,
+    }
+}
+
 /// JSON Schema 片段 → 逻辑类型（**schema → 类型的唯一单点**，D43）。
 ///
 /// 语言无关：产出 [`ApiType`]，**零语言文本形**（`&str` / `Vec<T>` / `Record<…>` 一类是
@@ -274,6 +346,9 @@ pub fn signature_of(signature: &Value) -> String {
 /// 同名体系同形）；`outcome` 关键字 → [`ApiType::Outcome`]；nullable 三分支 → [`ApiType::Optional`]；
 /// 其余按 `type` 分派（`string` 按位置分流 `Str` / `OwnedString`，`array` 与对象型
 /// `additionalProperties` 的内容位固定 [`Position::Field`]）。
+///
+/// nullable 一支的**形状识别**在 [`nullable_breakdown`]，本函数只消费其非空分支——渲染面
+/// 同源取数，MUST NOT 保留「判据认得、渲染不认得」的不对称。
 pub fn schema_type(schema: &Value, position: Position) -> ApiType {
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
         return ApiType::Unknown(super::ref_name(reference));
@@ -308,46 +383,20 @@ pub fn schema_type(schema: &Value, position: Position) -> ApiType {
     }
 }
 
-/// nullable 三分支（`"type": "null"` / 含 `"null"` 的 `type` 数组 / `anyOf`-`oneOf` 内含
+/// nullable 三分支（`"type": "null"` / 含 `"null"` 的 `type` 数组 / 分支数组内含
 /// `{"type": "null"}` 分支）→ 非空分支的逻辑类型（由 [`schema_type`] 包成
 /// [`ApiType::Optional`]）。非 nullable 形态 → `None`（交回常规分派）。
 ///
 /// 位置语义不因 nullable 改变：`{"type": ["string", "null"]}` 在入参位仍按
 /// [`Position::Param`] 解成 `Str`，故「契约写可选参数」与「代码写 `Option<T>`」两侧同形。
+///
+/// 形状识别已收口到 [`nullable_breakdown`]（判据面与两侧渲染面共用）。
 fn nullable_inner(schema: &Value, position: Position) -> Option<ApiType> {
-    if let Some(branches) = schema
-        .get("anyOf")
-        .or_else(|| schema.get("oneOf"))
-        .and_then(Value::as_array)
-    {
-        if branches.iter().any(is_null_schema) {
-            return Some(
-                match branches.iter().find(|branch| !is_null_schema(branch)) {
-                    Some(branch) => schema_type(branch, position),
-                    None => ApiType::Unknown("null".to_owned()),
-                },
-            );
-        }
-    }
-    match schema.get("type") {
-        Some(Value::String(kind)) if kind == "null" => Some(ApiType::Unknown("null".to_owned())),
-        Some(Value::Array(kinds)) => {
-            let mut names: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
-            if !names.contains(&"null") {
-                return None;
-            }
-            names.retain(|name| *name != "null");
-            let Some(inner_kind) = names.first() else {
-                return Some(ApiType::Unknown("null".to_owned()));
-            };
-            let mut narrowed = schema.as_object()?.clone();
-            narrowed.insert("type".to_owned(), Value::String((*inner_kind).to_owned()));
-            Some(schema_type(&Value::Object(narrowed), position))
-        }
-        // 三形态穷尽（字符串 `null` / 类型数组 / 其余），零兜底臂：语言与形态的分派都不
-        // 猜测——兜底臂会让「新形态」静默落进某个既有分支
-        Some(_) | None => None,
-    }
+    let breakdown = nullable_breakdown(schema)?;
+    Some(match breakdown.non_null {
+        Some(inner) => schema_type(inner.as_ref(), position),
+        None => ApiType::Unknown("null".to_owned()),
+    })
 }
 
 /// `{"type": "null"}` 判据（nullable 分支的识别面）。

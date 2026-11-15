@@ -11,6 +11,9 @@
 //! `String`、入参位 `list<T>` → `&[T]`）：MUST NOT 变成对外门禁，偏离由契约
 //! `x-common.note` 登记理由。
 //!
+//! **可选与可空是两个独立事实**：可选（字段不在 `required` 内）与可空（`type` 含
+//! `null`）各只有一个判定点，叠加时经 [`optional_of`] 去重到至多一层 `Option<T>`。
+//!
 //! 边界：纯函数出 `String`，零写盘。
 
 use std::collections::BTreeMap;
@@ -19,7 +22,7 @@ use serde_json::{Map, Value};
 
 use super::{declared_ops, local_defs, notice_lines, reexport_defs, EmitTarget, ModuleRef};
 use crate::api::contract::{is_constructor, Contract, ContractOp};
-use crate::api::extract::Position;
+use crate::api::extract::{nullable_breakdown, Position};
 use crate::api::{protocol_key, reexport_target, ref_name, ApiMeta, CommonRule};
 
 /// 注释拼接的唯一转义点（D45 闸二）：`\n` / `\r` / `U+2028` / `U+2029` → 空格（防断行），
@@ -161,7 +164,8 @@ fn type_block(name: &str, definition: &Value, common: &BTreeMap<String, CommonRu
     struct_block(name, object, common)
 }
 
-/// `object` → `pub struct`（非 `required` 字段 → `Option<T>`）。
+/// `object` → `pub struct`（非 `required` 字段 → `Option<T>`，经 [`optional_of`] 幂等
+/// 包装：可选与可空叠加时至多一层）。
 fn struct_block(
     name: &str,
     object: &Map<String, Value>,
@@ -184,7 +188,7 @@ fn struct_block(
             let ty = if required.iter().any(|item| item == field) {
                 base
             } else {
-                format!("Option<{base}>")
+                optional_of(base)
             };
             body.push_str(&format!("    pub {field}: {ty},\n"));
         }
@@ -361,6 +365,22 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
         // 的 `rust` 槽位，MUST NOT 在此硬编码（改表即变产物）。
         return mapped;
     }
+    if let Some(breakdown) = nullable_breakdown(schema) {
+        // 与 `schema_type` 同序（`$ref` → 映射规则 → nullable → `type` 分派）：形状识别
+        // 单点在 `nullable_breakdown`，本文件 MUST NOT 二次判 null。纯 null 档保持既有
+        // 兜底 `serde_json::Value`（MUST NOT 出 `()`），`Option<>` 只经 `optional_of` 包一次。
+        return match breakdown.non_null {
+            None => FALLBACK_VALUE_TYPE.to_owned(),
+            Some(inner) => {
+                let inner = value_type(inner.as_ref(), position, common);
+                if breakdown.explicit_null {
+                    optional_of(inner)
+                } else {
+                    inner
+                }
+            }
+        };
+    }
     match schema.get("type").and_then(Value::as_str) {
         Some("string") => match position {
             Position::Param => "&str".to_owned(),
@@ -391,6 +411,18 @@ fn value_type(schema: &Value, position: Position, common: &BTreeMap<String, Comm
         },
         Some(_) | None => FALLBACK_VALUE_TYPE.to_owned(),
     }
+}
+
+/// 可选包装的**唯一单点**（幂等）——[`struct_block`] 与 [`value_type`] 的可空分支都调它，
+/// 故 `Option<Option<` 零产出（嵌套 `Option` 是退化产物，MUST NOT 出现）。
+fn optional_of(ty: String) -> String {
+    if ty.starts_with("Option<") && ty.ends_with('>') {
+        return ty;
+    }
+    let mut wrapped = String::from("Option<");
+    wrapped.push_str(&ty);
+    wrapped.push('>');
+    wrapped
 }
 
 /// 枚举值 / 类型名 → Rust 变体名（驼峰；非标识符字符当分隔）。
