@@ -1686,9 +1686,10 @@ fn add失败补偿删建档且尽力删分支() {
     );
 }
 
-/// 树写出失败补偿：worktree 内路径分量预置文件占位（真实 fs 注入）→
-/// `remove_worktree` → `delete_branch` → 删建档 全链下发（调用序）；Err 呈现
-/// 补偿完成与 `git worktree list` 残留清理指引。
+/// 树写出失败补偿（补偿成功面）：worktree 内路径分量预置文件占位（真实 fs 注入）
+/// → `remove_worktree` → `delete_branch` → 删建档 全链下发（调用序）；Err 呈现
+/// 补偿完成 + 双源对账 hint（落位根绝对路径逐字在场，`git worktree list` ∧
+/// 直接检查），不含单源祈使指引。
 #[test]
 fn 树写出失败补偿链全下发且残留指引() {
     let env = Env::new("fs-fail-compensate");
@@ -1700,6 +1701,7 @@ fn 树写出失败补偿链全下发且残留指引() {
         "changes_root 文件占位",
     )
     .expect("预置占位失败");
+    let root_str = env.worktree_root.display().to_string();
 
     let error = env
         .create("fix-bug", "补偿路径 goal")
@@ -1734,13 +1736,26 @@ fn 树写出失败补偿链全下发且残留指引() {
     );
     assert_eq!(env.store.record_count(), 0, "list 空（db 零残留）");
     assert!(
-        error.contains("git worktree list"),
-        "Err 呈现手动清理指引（git worktree list 文案锚），实际: {error}"
+        error.contains("已补偿回收"),
+        "Err 呈现补偿成功事实，实际: {error}"
+    );
+    assert!(
+        error.contains("git worktree list") && error.contains("直接检查"),
+        "Err 携双源对账 hint，实际: {error}"
+    );
+    assert!(
+        error.contains(&root_str),
+        "hint 携落位根绝对路径（display 逐字），实际: {error}"
+    );
+    assert!(
+        !error.contains("请手动执行"),
+        "MUST NOT 含单源祈使指引，实际: {error}"
     );
 }
 
 /// 补偿链再失败（双故障角落）：链中 `remove_worktree` 注入 Err → Err 呈现
-/// 残留对象（worktree / branch 名）与手动清理指引，不静默自愈。
+/// 残留对象（worktree 路径 / branch 名）+ 双源对账 hint + branch 侧兜底指引，
+/// 不静默自愈；`add_worktree` 支同理（残留 branch + 记因）。
 #[test]
 fn 补偿链再失败呈现残留对象与指引() {
     let env = Env::new("compensate-fault");
@@ -1751,18 +1766,32 @@ fn 补偿链再失败呈现残留对象与指引() {
         "changes_root 文件占位",
     )
     .expect("预置占位失败");
+    let root_str = env.worktree_root.display().to_string();
+    let target_str = env.worktree_root.join("orphan-name").display().to_string();
 
     let error = env
         .create("orphan-name", "双故障角落 goal")
         .expect_err("补偿再失败应 Err");
 
     assert!(
-        error.contains("残留") && error.contains("change/orphan-name"),
-        "Err 呈现残留对象（worktree / branch 名），实际: {error}"
+        error.contains(&format!("worktree {target_str}: worktree remove 模拟失败")),
+        "Err 残留行按「worktree <路径>: <注入原文>」逐字呈现，实际: {error}"
     );
     assert!(
-        error.contains("git worktree list"),
-        "Err 呈现手动清理指引，实际: {error}"
+        error.contains(&root_str) && error.contains(&target_str),
+        "落位根与残留 worktree 路径同现（各自正确、不串位），实际: {error}"
+    );
+    assert!(
+        error.contains("git worktree list") && error.contains("直接检查"),
+        "Err 携双源对账 hint，实际: {error}"
+    );
+    assert!(
+        error.contains("branch 侧仍以 git branch -D change/orphan-name 清理"),
+        "Err 携 branch 侧兜底指引，实际: {error}"
+    );
+    assert!(
+        !error.contains("请手动执行"),
+        "MUST NOT 含单源祈使指引，实际: {error}"
     );
     assert_eq!(env.store.create_call_count(), 1, "建档先行恰好一次");
     let id = env.store.created_id();
@@ -1772,10 +1801,11 @@ fn 补偿链再失败呈现残留对象与指引() {
     );
 
     // add 失败补偿链的双故障角落：add 注入 Err + delete_branch 再注入 Err →
-    // Err 呈现残留对象（branch 名）与手动清理指引（不静默自愈）
+    // Err 呈现残留对象（branch 名）与双源对账指引（不静默自愈）
     let env = Env::new("add-fail-branch-residual");
     env.vcs.set_add_fault("worktree add 模拟失败");
     env.vcs.set_delete_branch_fault("branch -D 模拟失败");
+    let root_str = env.worktree_root.display().to_string();
 
     let error = env
         .create("add-orphan", "add 双故障 goal")
@@ -1790,8 +1820,20 @@ fn 补偿链再失败呈现残留对象与指引() {
         "Err 呈现 branch 残留对象与记因，实际: {error}"
     );
     assert!(
-        error.contains("git worktree list"),
-        "Err 呈现手动清理指引（不静默自愈），实际: {error}"
+        error.contains("git worktree list") && error.contains("直接检查"),
+        "Err 携双源对账 hint（不静默自愈），实际: {error}"
+    );
+    assert!(
+        error.contains(&root_str),
+        "hint 携落位根绝对路径，实际: {error}"
+    );
+    assert!(
+        error.contains("branch 侧仍以 git branch -D change/add-orphan 清理"),
+        "Err 携 branch 侧兜底指引，实际: {error}"
+    );
+    assert!(
+        !error.contains("请手动执行"),
+        "MUST NOT 含单源祈使指引，实际: {error}"
     );
     // 建档补偿删除照常下发（记录半边回收不受 branch 残留影响）
     let id = env.store.created_id();
@@ -1825,6 +1867,195 @@ fn 补偿链再失败呈现残留对象与指引() {
     assert!(
         error.contains("git worktree list"),
         "手动清理指引在场，实际: {error}"
+    );
+}
+
+/// 正向（`(None, None)` 支零改动判据）：`add_worktree` 注入 `Err` 且无其它故障
+/// → Err 为「…（建档与分支已补偿回收）」；文案单点不外溢到本支（无双源 hint、
+/// 无残留清单）。
+#[test]
+fn add失败补偿全成功_err呈已补偿回收且不含双源hint() {
+    let env = Env::new("add-fail-clean");
+    env.vcs.set_add_fault("worktree add 模拟失败");
+
+    let error = env
+        .create("fix-bug", "add 失败 goal")
+        .expect_err("add 失败应 Err");
+
+    assert!(
+        error.contains("（建档与分支已补偿回收）"),
+        "Err 呈现补偿完成事实，实际: {error}"
+    );
+    assert!(
+        !error.contains("worktree 残留对账须双源"),
+        "双源 hint 不外溢到 (None, None) 支，实际: {error}"
+    );
+    assert!(
+        !error.contains("残留"),
+        "无残留清单（两半边均已回收），实际: {error}"
+    );
+    assert_eq!(env.store.record_count(), 0, "db 零残留");
+}
+
+/// 正向（新增形参面）：两处补偿出口的 hint 均携**落位根父锚**的 `display()`
+/// 逐字（而非 `worktree_root.join(<name>)` 的目标目录路径）；tree 支文案中
+/// 「落位根」与「残留行里的 worktree 路径」两个路径同时在场且各自正确。
+#[test]
+fn 补偿出口形参_落位根为父锚而非目标目录() {
+    // tree 支（残留面）
+    let env = Env::new("param-tree");
+    env.vcs.set_remove_fault("worktree remove 模拟失败");
+    fs::create_dir_all(env.root.join("openspec")).expect("预置主仓域根失败");
+    fs::write(
+        env.root.join("openspec").join("changes"),
+        "changes_root 文件占位",
+    )
+    .expect("预置占位失败");
+    let root_str = env.worktree_root.display().to_string();
+    let target_str = env.worktree_root.join("orphan-name").display().to_string();
+
+    let error = env
+        .create("orphan-name", "形参面 goal")
+        .expect_err("补偿再失败应 Err");
+
+    assert!(
+        error.contains(&format!("落位根 {root_str} 下的子目录")),
+        "hint 携落位根父锚 display() 逐字，实际: {error}"
+    );
+    assert!(
+        !error.contains(&format!("落位根 {target_str} 下的子目录")),
+        "hint 落位根不是目标目录（形参未串位），实际: {error}"
+    );
+    assert!(
+        error.contains(&format!("worktree {target_str}: ")),
+        "残留行 worktree 路径独立在场，实际: {error}"
+    );
+
+    // add 支（残留面）：hint 同样为父锚，目标目录路径零出现
+    let env = Env::new("param-add");
+    env.vcs.set_add_fault("worktree add 模拟失败");
+    env.vcs.set_delete_branch_fault("branch -D 模拟失败");
+    let root_str = env.worktree_root.display().to_string();
+    let target_str = env.worktree_root.join("add-orphan").display().to_string();
+
+    let error = env
+        .create("add-orphan", "add 形参面 goal")
+        .expect_err("add 失败 + 删分支失败应 Err");
+
+    assert!(
+        error.contains(&format!("落位根 {root_str} 下的子目录")),
+        "add 支 hint 携落位根父锚 display() 逐字，实际: {error}"
+    );
+    assert!(
+        !error.contains(&target_str),
+        "add 支零残留目标目录路径（形参为父锚），实际: {error}"
+    );
+}
+
+/// 边界（DD8 单行与零包转）：前置⑨ 与两处补偿三出口的 `Err` 均零换行；落位根
+/// 路径按 `display()` 原样插入（Windows 反斜杠不转义、分隔符不归一）。
+#[test]
+fn 双源文案三出口皆单行且落位根零转义() {
+    // 出口一：前置⑨（8 个直属子目录越门槛）
+    let threshold_env = Env::new("oneline-threshold");
+    fs::create_dir_all(&threshold_env.worktree_root).expect("建 worktree_root 失败");
+    for index in 0..8 {
+        fs::create_dir_all(
+            threshold_env
+                .worktree_root
+                .join(format!("residual-{index}")),
+        )
+        .expect("预置残留目录失败");
+    }
+    let threshold_error = threshold_env
+        .create("oneline-threshold", "单行 goal")
+        .expect_err("越门槛应 Err");
+
+    // 出口二：补偿成功面（树写出真实失败 + 全链补偿成功）
+    let clean_env = Env::new("oneline-clean");
+    fs::create_dir_all(clean_env.root.join("openspec")).expect("预置主仓域根失败");
+    fs::write(
+        clean_env.root.join("openspec").join("changes"),
+        "changes_root 文件占位",
+    )
+    .expect("预置占位失败");
+    let clean_error = clean_env
+        .create("fix-bug", "单行 goal")
+        .expect_err("fs 半边失败应 Err");
+
+    // 出口三：补偿残留面（remove_worktree 注入 Err）
+    let residual_env = Env::new("oneline-residual");
+    residual_env
+        .vcs
+        .set_remove_fault("worktree remove 模拟失败");
+    fs::create_dir_all(residual_env.root.join("openspec")).expect("预置主仓域根失败");
+    fs::write(
+        residual_env.root.join("openspec").join("changes"),
+        "changes_root 文件占位",
+    )
+    .expect("预置占位失败");
+    let residual_error = residual_env
+        .create("orphan-name", "单行 goal")
+        .expect_err("补偿再失败应 Err");
+
+    for (label, error) in [
+        ("前置⑨", &threshold_error),
+        ("补偿成功面", &clean_error),
+        ("补偿残留面", &residual_error),
+    ] {
+        assert!(
+            !error.contains('\n'),
+            "{label} 文案单行（零换行——UI / 日志渲染面）: {error}"
+        );
+    }
+    assert!(
+        threshold_error.contains(&threshold_env.worktree_root.display().to_string()),
+        "落位根按 display() 原样插入（反斜杠不转义）: {threshold_error}"
+    );
+    assert!(
+        clean_error.contains(&clean_env.worktree_root.display().to_string()),
+        "补偿成功面落位根同样原样插入: {clean_error}"
+    );
+}
+
+/// 边界（组合行：残留不改变链次序）：`remove_worktree` 注入 `Err` 时
+/// `delete_branch` 与建档删除仍照常下发；`residuals` 空与非空两支互斥（同一次
+/// 调用不可能既报残留又报已补偿）。
+#[test]
+fn 残留不改变链次序_删分支与建档删除仍照常下发() {
+    let env = Env::new("residual-order");
+    env.vcs.set_remove_fault("worktree remove 模拟失败");
+    fs::create_dir_all(env.root.join("openspec")).expect("预置主仓域根失败");
+    fs::write(
+        env.root.join("openspec").join("changes"),
+        "changes_root 文件占位",
+    )
+    .expect("预置占位失败");
+
+    let error = env
+        .create("orphan-name", "链次序 goal")
+        .expect_err("补偿再失败应 Err");
+
+    let calls = env.vcs.calls();
+    assert!(
+        calls.iter().any(|call| call == "remove_worktree"),
+        "链首 remove_worktree 下发: {calls:?}"
+    );
+    assert!(
+        calls
+            .iter()
+            .any(|call| call == "delete_branch:change/orphan-name"),
+        "remove 残留不阻断删分支下发: {calls:?}"
+    );
+    let id = env.store.created_id();
+    assert_eq!(
+        env.store.deletes.lock().expect("删除锁不可中毒").as_slice(),
+        [id.as_str()],
+        "remove 残留不阻断建档补偿删除（按 id 恰一次）"
+    );
+    assert!(
+        error.contains("残留") && !error.contains("已补偿回收"),
+        "残留支与已补偿支互斥，实际: {error}"
     );
 }
 
@@ -2034,15 +2265,17 @@ fn 归档记录不计入_5条archived加4条active创建成功() {
 // ---------------------------------------------------------------------------
 
 /// 前置⑨ 拒绝（异常）：`worktree_root` 直属子目录 8 个 → 显式 `Err`；文案含
-/// 目录数 8、门槛 7 与「git worktree list」对账引导；拒绝面零副作用。
+/// 目录数 8、门槛 7、落位根绝对路径与双源对账引导（`git worktree list` +
+/// 直接检查落位根子目录）；拒绝面零副作用。
 #[test]
-fn worktree门槛拒绝_8个直属子目录err文案含对账引导() {
+fn worktree门槛拒绝_8个直属子目录err文案含双源对账引导() {
     let env = Env::new("threshold-reject");
     fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
     for index in 0..8 {
         fs::create_dir_all(env.worktree_root.join(format!("residual-{index}")))
             .expect("预置残留目录失败");
     }
+    let root_str = env.worktree_root.display().to_string();
 
     let error = env
         .create("threshold-next", "门槛道 goal")
@@ -2057,8 +2290,24 @@ fn worktree门槛拒绝_8个直属子目录err文案含对账引导() {
         "文案含目录数 8 与门槛 7（严格大于才拒的派生门槛）: {error}"
     );
     assert!(
+        error.contains(&root_str),
+        "文案携落位根绝对路径（计数源逐字给出），实际: {error}"
+    );
+    assert!(
         error.contains("git worktree list"),
         "文案携「git worktree list」对账引导: {error}"
+    );
+    assert!(
+        error.contains("直接检查"),
+        "文案携「直接检查落位根子目录」第二源: {error}"
+    );
+    assert!(
+        error.contains("清理后再创建"),
+        "文案携动作收尾（清理后再创建）: {error}"
+    );
+    assert!(
+        !error.contains("请手动执行") && !error.contains("git worktree remove --force"),
+        "MUST NOT 含单源手动命令祈使指引: {error}"
     );
     // 拒绝面零副作用
     assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
@@ -2066,6 +2315,36 @@ fn worktree门槛拒绝_8个直属子目录err文案含对账引导() {
         env.vcs.calls(),
         vec!["worktree_root"],
         "仅落位派生一次（门槛道先于 probe / add）"
+    );
+}
+
+/// 异常（双源形态横向判据，spec Scenario「残留指引双源」）：前置⑨ 出口的两源
+/// 措辞同时在场（`git worktree list` ∧ `直接检查`），且不以 git 单源祈使句收尾
+/// （无 `请以 … 对账并手动清理`）。
+#[test]
+fn worktree门槛拒绝文案双源形态_两源俱在且无单源祈使收尾() {
+    let env = Env::new("threshold-dual-source");
+    fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
+    for index in 0..8 {
+        fs::create_dir_all(env.worktree_root.join(format!("residual-{index}")))
+            .expect("预置残留目录失败");
+    }
+
+    let error = env
+        .create("dual-source", "双源判据 goal")
+        .expect_err("8 个直属子目录越门槛应 Err");
+
+    assert!(
+        error.contains("git worktree list") && error.contains("直接检查"),
+        "两源措辞同时在场: {error}"
+    );
+    assert!(
+        !error.contains("对账并手动清理"),
+        "MUST NOT 以 git 单源的祈使句收尾: {error}"
+    );
+    assert!(
+        error.contains("不在 git 登记面"),
+        "双源的存在理由在案（残留不在 git 登记面）: {error}"
     );
 }
 

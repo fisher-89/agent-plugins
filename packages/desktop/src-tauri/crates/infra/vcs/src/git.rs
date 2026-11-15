@@ -1,3 +1,4 @@
+use std::io;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -216,16 +217,126 @@ pub(crate) fn add_worktree(main_root: &Path, worktree: &Path, branch: &str) -> R
     .map(|_| ())
 }
 
-/// worktree 补偿移除：`git worktree remove --force <path>`（补偿面，尽力
-/// 回收；目录登记与磁盘目录一并清）。create 补偿面之外由归档相位 Cleanup 步
-/// 经 `ProcessArchiveVcs` 复用本单点（`--force` 带走 bootstrap 产物；零逻辑
-/// 改动，`Err` 面语境由消费侧组装）。
+/// worktree 回收单点（两段式）：`git worktree remove --force <path>` 成功即
+/// `Ok`；该调用失败则以 **OS 层删除**兜底（目录已不在场 → `git worktree
+/// prune` → `Ok`；目录在场 → 删该目录树 → `prune` → `Ok`），两段皆失败才
+/// `Err`。`Ok` 语义统一为「磁盘已无该目录」（含缺席幂等）。三处消费：create
+/// 树写出补偿、删除面「同时清空 worktree」、归档相位 Cleanup 步——`WorktreePort`
+/// 与 `ArchiveVcsPort` 两缝委托本实现，同一 `Err` 文案。
+///
+/// 存在理由：git 的删除序是**先拆登记（admin 目录 + 登记表条目）、再删文件**
+/// （`--force` 与否一致），故任何一次删除失败都留下「git 已注销」的孤儿目录
+/// ——`git worktree list` 不显示、`prune` 无事可做、`remove` 报
+/// `not a working tree`。不存在「失败即回滚、可安全重试」的路径，OS 层兜底
+/// 因此是唯一的自愈手段。
+///
+/// 失败面（两段皆失败）携路径 / 原 git 错误 / OS 错误 / 占用成因清单 / 双源
+/// 对账指引；`prune` 仅在目标目录已不在场之后调用（登记仍有效的活 worktree
+/// 不受波及），失败静默吞；零重试零退避。兜底成功而 git 段失败时原 `git` 错误
+/// 以 `[vcs]` 前缀 stderr 留痕（`commit_all` 同一先例）。
 pub(crate) fn remove_worktree(main_root: &Path, worktree: &Path) -> Result<(), String> {
-    git(
+    if is_protected_path(main_root, worktree) {
+        return Err(format!(
+            "拒绝回收 worktree {}：该路径为主仓 {} 自身、其祖先、其子目录或文件系统根\
+             （护栏，磁盘零变化）",
+            worktree.display(),
+            main_root.display()
+        ));
+    }
+    let git_error = match git(
         main_root,
         &["worktree", "remove", "--force", &worktree.to_string_lossy()],
-    )
-    .map(|_| ())
+    ) {
+        Ok(_) => return Ok(()),
+        Err(error) => error,
+    };
+    // 第二段只看目录生死（git 段失败即「已注销」，MUST NOT 依 git 状态再判）
+    let root_hint = worktree.parent().map_or_else(
+        || "（未知：worktree 路径无父目录）".to_owned(),
+        |parent| parent.display().to_string(),
+    );
+    match delete_tree(worktree) {
+        Ok(()) => eprintln!(
+            "[vcs] git worktree remove 失败，已以 OS 层兜底回收 {}: {git_error}",
+            worktree.display()
+        ),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => eprintln!(
+            "[vcs] git worktree remove 失败且目录不在场（按幂等成功收口）{}: {git_error}",
+            worktree.display()
+        ),
+        Err(io_error) => {
+            return Err(format!(
+                "worktree 回收失败（{}）：git 与 OS 层删除均失败；原 git 错误: {git_error}；\
+                 OS 删除错误: {io_error}；常见占用源: {WT_HOLDERS_HINT}——释放占用后重试即收敛\
+                 （强杀占用进程后立即释放，无需等待）；残留对账须双源: ① git worktree list；\
+                 ② 直接检查 worktree 落位根 {root_hint} 下的子目录——删除失败留下的残留不在\
+                 git 登记面（git 已注销: list 不显示、prune 无事可做、remove 报 not a \
+                 working tree），直接删除该子目录即可",
+                worktree.display()
+            ));
+        }
+    }
+    let _ = prune_worktrees(main_root);
+    Ok(())
+}
+
+/// 两段式皆失败时的常见占用源（固定短语——失败面是「目录树里某个未知文件被
+/// 锁」，目录规模下逐文件点名不可行，故给可执行的排除动作而非假精确的占用
+/// 者）。
+const WT_HOLDERS_HINT: &str = "终端 cwd（终端或子进程在 worktree 内）、\
+    编辑器打开的文件、常驻子进程（dev server / watcher）、杀毒实时扫描、云同步客户端";
+
+/// 兜底护栏：拒绝回收主仓自身、其祖先、其子目录与文件系统根（空路径同拒）。
+/// 「子目录」判据不会误伤合法 worktree——落位根 `<git 根父目录>/` 与 git 根
+/// 同级，主仓（git 根或其子目录）不包含 `.worktrees` 子树。
+fn is_protected_path(main_root: &Path, worktree: &Path) -> bool {
+    if worktree.as_os_str().is_empty() {
+        return true;
+    }
+    let main = comparable_path(main_root);
+    let target = comparable_path(worktree);
+    // path == main_root 被 main.starts_with(&target) 涵盖
+    target.parent().is_none() || main.starts_with(&target) || target.starts_with(&main)
+}
+
+/// 护栏用的路径可比形态：能 canonicalize 则取其（存在路径的唯一真相，同时消解
+/// 符号链接与 Windows 大小写差异），失败退 `std::path::absolute`（缺席路径——
+/// 此时删除本就无对象，误判无害），再剥 Windows 扩展前缀并在 Windows 小写化。
+fn comparable_path(path: &Path) -> PathBuf {
+    let resolved = std::fs::canonicalize(path)
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf());
+    let text = resolved.to_string_lossy();
+    let stripped = text.strip_prefix(r"\\?\").unwrap_or(&text);
+    if cfg!(windows) {
+        PathBuf::from(stripped.to_lowercase())
+    } else {
+        PathBuf::from(stripped)
+    }
+}
+
+/// OS 层兜底删除（绕过 git 登记语义）：Windows 对**盘符绝对路径**包一层 `\\?\`
+/// 扩展前缀（超长路径面），UNC（`\\server\share`，需 `\\?\UNC\…` 形态）与已带
+/// 前缀的路径直删；POSIX 直删。零重试、零属性清理——只读 / 保留名 / ADS / 符号
+/// 链接目标失败即 `Err`（诚实上报）。
+fn delete_tree(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        // 前缀只对盘符路径有意义：`\\` 开头的 UNC / 已扩展形态加了反而失真，
+        // 直删即可（超长 UNC 属未覆盖面，失败照 Err 上报而非静默留残）
+        if path.is_absolute() && !text.starts_with(r"\\") {
+            return std::fs::remove_dir_all(PathBuf::from(format!(r"\\?\{}", text)));
+        }
+    }
+    std::fs::remove_dir_all(path)
+}
+
+/// `git worktree prune`（清「目录已不存在」的残留 admin）：**仅在目标目录已不
+/// 在场之后**调用——登记仍有效且目录在场的活 worktree 不受波及。失败由调用点
+/// 静默吞（目录已回收即主目标达成）。
+fn prune_worktrees(main_root: &Path) -> Result<String, String> {
+    git(main_root, &["worktree", "prune"])
 }
 
 /// 分支补偿删除：`git branch -D <branch>`（补偿面；不触碰主仓工作区）。

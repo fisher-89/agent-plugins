@@ -386,9 +386,11 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
 }
 
 // ---------------------------------------------------------------------------
-// ProcessArchiveVcs.remove_worktree（worktree-cleanup-and-active-cap / AC-5 /
-// AC-7）：归档 Cleanup 步执行缝真件面——委托既有 `git::remove_worktree` 单点
-//（与 ProcessWorktree 共点、零新 spawn），Err 面附路径与手动清理指引
+// ProcessArchiveVcs.remove_worktree（worktree-remove-orphan-defect / AC-1 /
+// AC-3 / AC-6）：归档 Cleanup 步执行缝真件面——委托既有 `git::remove_worktree`
+// 两段式单点（与 ProcessWorktree 同实现同文案、零新 spawn）；本缝自组手动指引
+// wrapper 已退役，`Ok` 语义 = 「磁盘已无该目录」（含缺席幂等），`Err` 面成因由
+// 单点提供
 // ---------------------------------------------------------------------------
 
 /// worktree 落位目录（与主仓分置 tempdir——git_test `worktree_slot` 同式，
@@ -400,6 +402,46 @@ fn archive_worktree_slot(tag: &str) -> (tempfile::TempDir, PathBuf) {
         .expect("创建 worktree 临时目录失败");
     let base = dir.path().join("wt");
     (dir, base)
+}
+
+/// 落位目录名可指定版（两缝 / 多 worktree 用例：admin 目录名取自落位目录
+/// basename，重名会撞车）。
+fn archive_worktree_slot_named(tag: &str, name: &str) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("vcs-lib-worktrees-{tag}-"))
+        .tempdir()
+        .expect("创建 worktree 临时目录失败");
+    let base = dir.path().join(name);
+    (dir, base)
+}
+
+/// 登记面快照：`<main>/.git/worktrees/` 下的 admin 目录名（升序；目录缺席即
+/// 空集）——admin 名不写死，由 read_dir 现场取。
+fn admin_names(root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root.join(".git").join("worktrees")) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// 「另一进程持有」的本进程等价面（Windows）：只读 + 无 delete 共享的句柄——
+/// 存活期间 git 段与 OS 段删除均失败（沿 `lockprobe_test` 形态，本文件自建
+/// 不跨模块引用私有装置）。
+#[cfg(windows)]
+fn hold_without_delete_share(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    const SHARE_READ_ONLY: u32 = 0x1;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(SHARE_READ_ONLY)
+        .open(path)
+        .expect("以无 delete 共享模式打开 worktree 内文件失败")
 }
 
 /// 正向：真实 git tempdir——`add_worktree` 建位 → `remove_worktree` Ok →
@@ -465,41 +507,212 @@ fn process_archive_vcs_remove_worktree转发与自由函数效果等值() {
     );
 }
 
-/// 异常（D6 Err 面）：目标非 worktree 目录 / 缺席路径 → `Err` 含 worktree 路径
-/// 字面量与「git worktree remove --force {path}」手动指引（walker 吞为 detail
-/// 警告的文案源）。
+/// 边界（AC-3 + 兜底，既有 Err 面改判 `Ok`）：① 缺席路径 → `Ok`（幂等、零删除
+/// 动作）② 普通目录在场（非 worktree）→ `Ok` 且目录消失。`Err` 面迁移至真占用
+/// 用例（两段式皆失败）。
 #[test]
-fn process_archive_vcs_remove_worktree_err携路径与手动指引() {
+fn process_archive_vcs_remove_worktree缺席与普通目录改判ok() {
     let port = ProcessArchiveVcs::new();
-    let (_dir, root) = init_repo("remove-err");
+    let (_dir, root) = init_repo("remove-ok-idempotent");
+    let absent =
+        std::env::temp_dir().join(format!("vcs-lib-absent-worktree-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&absent);
 
-    // 形态一：缺席路径
-    let absent = root.join("no-such-worktree");
-    let error = port
-        .remove_worktree(&root, &absent)
-        .expect_err("缺席路径应 Err");
-    let absent_str = absent.to_string_lossy().into_owned();
-    assert!(
-        error.contains(absent_str.as_str()),
-        "Err 含 worktree 路径字面量: {error}"
-    );
-    assert!(
-        error.contains(&format!("git worktree remove --force {absent_str}")),
-        "Err 携「git worktree remove --force <路径>」手动指引: {error}"
-    );
+    port.remove_worktree(&root, &absent)
+        .expect("形态一：缺席路径应 Ok（幂等收口）");
+    assert!(!absent.exists(), "缺席路径零产生");
 
-    // 形态二：存在但非 worktree 的普通目录
     let plain = tempfile::Builder::new()
         .prefix("vcs-lib-plain-remove-")
         .tempdir()
         .expect("创建普通目录失败");
+    std::fs::write(plain.path().join("stray.txt"), "非 worktree\n").expect("写普通目录文件");
+    port.remove_worktree(&root, plain.path())
+        .expect("形态二：普通目录应经 OS 层兜底回收成功");
+    assert!(!plain.path().exists(), "普通目录已从磁盘消失");
+    assert!(root.join("a.txt").is_file(), "主仓无损");
+}
+
+/// 正向（AC-6 wrapper 退役 / 单点透传）：真占用（无 delete 共享句柄）→ `Err`
+/// 携两段式五段成因；**MUST NOT 含**旧 wrapper 前缀 `worktree 移除失败（` 与
+/// 祈使短语 `请手动执行`（自组文案整段退役的判据——两缝同实现同文案）。
+#[cfg(windows)]
+#[test]
+fn process_archive_vcs_remove_worktree_wrapper退役_五段成因由单点提供() {
+    let port = ProcessArchiveVcs::new();
+    let (_dir, root) = init_repo("remove-wrapper-retired");
+    let (_wt_dir, wt) = archive_worktree_slot("remove-wrapper-retired");
+    super::git::add_worktree(&root, &wt, "change/locked").expect("add_worktree 应成功");
+    std::fs::write(wt.join("locked.txt"), "被持有的文件\n").expect("写占用文件失败");
+    let holder = hold_without_delete_share(&wt.join("locked.txt"));
+
     let error = port
-        .remove_worktree(&root, plain.path())
-        .expect_err("非 worktree 目录应 Err");
-    let plain_str = plain.path().to_string_lossy().into_owned();
+        .remove_worktree(&root, &wt)
+        .expect_err("两段式皆失败应 Err");
+    drop(holder);
+
     assert!(
-        error.contains(plain_str.as_str()) && error.contains("git worktree remove --force"),
-        "非 worktree 目录同口径 Err 面: {error}"
+        error.contains(&wt.to_string_lossy().into_owned()),
+        "Err 携 worktree 绝对路径: {error}"
+    );
+    assert!(
+        error.contains("git worktree remove --force") && error.contains("失败（退出码"),
+        "Err 携原 git 错误原文（含命令串与退出码）: {error}"
+    );
+    assert!(
+        error.contains("OS 删除错误"),
+        "Err 携 OS 段删除错误: {error}"
+    );
+    for phrase in ["终端 cwd", "编辑器", "常驻子进程", "杀毒实时扫描", "云同步"]
+    {
+        assert!(
+            error.contains(phrase),
+            "Err 成因清单含「{phrase}」: {error}"
+        );
+    }
+    assert!(
+        error.contains("① git worktree list") && error.contains("② 直接检查 worktree 落位根"),
+        "Err 携双源对账: {error}"
+    );
+    assert!(
+        !error.contains("worktree 移除失败（"),
+        "旧 wrapper 前缀已整段退役: {error}"
+    );
+    assert!(!error.contains("请手动执行"), "祈使短语缺席: {error}");
+    assert!(!error.contains('\n'), "文案单行（零换行）: {error}");
+}
+
+/// 正向（组合行：两缝同文案，D8 反向判据）：两个同形孤儿目录（各删自身
+/// admin 登记）分别经 `ProcessWorktree` 与 `ProcessArchiveVcs` → 两 `Ok`、两
+/// 目录均消失、`git worktree list` 均无该位；真占用下两缝产出的 `Err` 文案
+/// 除路径外等值（同一单点，零分歧）。
+#[test]
+fn 两缝同实现同文案_孤儿均回收且err除路径外等值() {
+    use workflow::write::WorktreePort as _;
+
+    let archive = ProcessArchiveVcs::new();
+    let worktree_port = super::ProcessWorktree::new();
+    let (_dir, root) = init_repo("two-seams");
+    let (_wt_dir_a, wt_a) = archive_worktree_slot_named("two-seams", "wt-archive");
+    let (_wt_dir_b, wt_b) = archive_worktree_slot_named("two-seams", "wt-worktree");
+
+    let admins_before_a = admin_names(&root);
+    super::git::add_worktree(&root, &wt_a, "change/via-archive").expect("add A 应成功");
+    let admins_after_a = admin_names(&root);
+    let admin_a: Vec<&String> = admins_after_a
+        .iter()
+        .filter(|name| !admins_before_a.contains(name))
+        .collect();
+    assert_eq!(admin_a.len(), 1, "前置：A 的新增 admin 恰一条");
+
+    let admins_before_b = admin_names(&root);
+    super::git::add_worktree(&root, &wt_b, "change/via-worktree").expect("add B 应成功");
+    let admins_after_b = admin_names(&root);
+    let admin_b: Vec<&String> = admins_after_b
+        .iter()
+        .filter(|name| !admins_before_b.contains(name))
+        .collect();
+    assert_eq!(admin_b.len(), 1, "前置：B 的新增 admin 恰一条");
+
+    // 两位各自造成孤儿形态（只删自身 admin——登记面已注销而目录仍在场）
+    for admin in [admin_a[0], admin_b[0]] {
+        std::fs::remove_dir_all(root.join(".git").join("worktrees").join(admin))
+            .expect("装置手删 admin 失败");
+    }
+    let list_before = git(&root, &["worktree", "list"]);
+    for wt in [&wt_a, &wt_b] {
+        assert!(
+            !list_before.contains(wt.to_string_lossy().replace('\\', "/").as_str()),
+            "前置：两位均已注销（孤儿形态）: {list_before}"
+        );
+    }
+
+    worktree_port
+        .remove_worktree(&root, &wt_b)
+        .expect("create / delete 缝孤儿回收应 Ok");
+    archive
+        .remove_worktree(&root, &wt_a)
+        .expect("归档缝孤儿回收应 Ok");
+
+    assert!(!wt_a.exists() && !wt_b.exists(), "两目录均消失");
+    let list_after = git(&root, &["worktree", "list"]);
+    for wt in [&wt_a, &wt_b] {
+        assert!(
+            !list_after.contains(wt.to_string_lossy().replace('\\', "/").as_str()),
+            "list 均无该位: {list_after}"
+        );
+    }
+
+    // Err 面：同一单点在两缝产出的文案除路径外等值
+    #[cfg(windows)]
+    {
+        // 同一落位根下两个 worktree（只有 basename 不同——文案对拍只差路径）
+        let err_slot = tempfile::Builder::new()
+            .prefix("vcs-lib-two-seams-err-")
+            .tempdir()
+            .expect("创建 worktree 临时目录失败");
+        let wt_c = err_slot.path().join("wt-err-a");
+        let wt_d = err_slot.path().join("wt-err-b");
+        super::git::add_worktree(&root, &wt_c, "change/err-a").expect("add C 应成功");
+        super::git::add_worktree(&root, &wt_d, "change/err-b").expect("add D 应成功");
+        for wt in [&wt_c, &wt_d] {
+            std::fs::write(wt.join("locked.txt"), "被持有的文件\n").expect("写占用文件失败");
+        }
+        let holder_c = hold_without_delete_share(&wt_c.join("locked.txt"));
+        let holder_d = hold_without_delete_share(&wt_d.join("locked.txt"));
+        let error_c = worktree_port
+            .remove_worktree(&root, &wt_c)
+            .expect_err("真占用应 Err");
+        let error_d = archive
+            .remove_worktree(&root, &wt_d)
+            .expect_err("真占用应 Err");
+        drop(holder_c);
+        drop(holder_d);
+
+        // git 输出恒 POSIX 分隔符、OS / 落位根用原样分隔符：两种形态一并归一
+        let normalize = |error: &str, wt: &Path| {
+            let display = wt.to_string_lossy().into_owned();
+            let posix = display.replace('\\', "/");
+            error.replace(&display, "<wt>").replace(&posix, "<wt>")
+        };
+        let normalized_c = normalize(&error_c, &wt_c);
+        let normalized_d = normalize(&error_d, &wt_d);
+        assert_eq!(
+            normalized_c, normalized_d,
+            "两缝对同一 `Err` 装置产出的文案除路径外等值（同一单点）"
+        );
+    }
+}
+
+/// 边界（AC-1 的缝面）：`add_worktree` 后手删 admin 造成已注销孤儿 → 经
+/// `&dyn ArchiveVcsPort` 调用 → `Ok`、目录消失、`list` 无该位（Cleanup 步的
+/// 真实受益面）。
+#[test]
+fn process_archive_vcs_remove_worktree孤儿经trait对象回收() {
+    let port = ProcessArchiveVcs::new();
+    let dyn_port: &dyn ArchiveVcsPort = &port;
+    let (_dir, root) = init_repo("remove-orphan");
+    let (_wt_dir, wt) = archive_worktree_slot("remove-orphan");
+
+    super::git::add_worktree(&root, &wt, "change/orphan").expect("add_worktree 应成功");
+    let admins: Vec<PathBuf> = std::fs::read_dir(root.join(".git").join("worktrees"))
+        .expect("读登记面失败")
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    assert_eq!(admins.len(), 1, "前置：admin 登记恰一条: {admins:?}");
+    std::fs::remove_dir_all(&admins[0]).expect("装置手删 admin 失败");
+    assert!(wt.is_dir(), "前置：目录仍在场（孤儿形态）");
+
+    dyn_port
+        .remove_worktree(&root, &wt)
+        .expect("孤儿应经兜底回收成功");
+
+    assert!(!wt.exists(), "孤儿目录已消失");
+    let list = git(&root, &["worktree", "list"]);
+    assert!(
+        !list.contains(wt.to_string_lossy().replace('\\', "/").as_str()),
+        "git worktree list 无该位: {list}"
     );
 }
 

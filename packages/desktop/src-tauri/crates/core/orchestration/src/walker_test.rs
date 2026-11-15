@@ -7309,6 +7309,19 @@ async fn 归档cleanup成功移除_worktree目录消失且链照常收口() {
         Some(format!("已移除 worktree（{worktree}）").as_str()),
         "Cleanup detail 携成功摘要（路径逐字）"
     );
+    // 已注销孤儿经兜底回收成功（AC-1 / spec Scenario「已注销孤儿经兜底回收成功」）：
+    // 假件 with_real_removal 表达「兜底删除成功 → Ok 且目录消失」——Cleanup 仍记
+    // 成功摘要，MUST NOT 因 git 段曾失败（not a working tree）判失败
+    let success_detail = node_detail(&command, workflow::state::RunStepKind::Cleanup)
+        .expect("Cleanup detail 应在案");
+    assert!(
+        !success_detail.contains("清理失败"),
+        "兜底回收成功不判失败: {success_detail}"
+    );
+    assert!(
+        !success_detail.contains("not a working tree"),
+        "detail 不呈原始 git 错误串（已注销形态不算失败）: {success_detail}"
+    );
     assert!(
         node_detail(&command, workflow::state::RunStepKind::Seal)
             .as_deref()
@@ -7328,9 +7341,10 @@ async fn 归档cleanup成功移除_worktree目录消失且链照常收口() {
     );
 }
 
-/// 归档 Cleanup 失败尽力不断链（异常，AC-9）：remove_worktree 可编程 Err →
-/// 步恒 `passed`、detail 携警告（worktree 路径 + `git worktree remove --force`
-/// 手动指引——生产 Err 语境由 `ProcessArchiveVcs` 组装，假件 Err 注入同构文案）；
+/// 归档 Cleanup 失败尽力不断链（异常，AC-8）：remove_worktree 可编程 Err（新形态
+/// 单行成因：路径 + 原 git 错误 + OS 错误 + 占用成因清单 + 双源对账——生产 Err 由
+/// `git::remove_worktree` 单点组装，假件注入同构单行文案）→ 步恒 `passed`、detail
+/// 携成因原文片段与双源短语、祈使短语缺席；
 /// Seal / Finalize 照常收口（落账是相位机固定动作、零节点）、run 收口
 /// Completed、`ArchiveOutcome` 消费面零变化（Seal detail 归档摘要与成功形态一致）。
 #[tokio::test]
@@ -7347,12 +7361,17 @@ async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链() 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
     let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
 
-    // Err 注入携真实 worktree 路径（与 ProcessArchiveVcs D6 Err 面同构——
-    // 路径 + `git worktree remove --force {path}` 手动指引）
-    let vcs = Arc::new(FakeVcs::clean().with_remove_result(Err(format!(
-        "worktree 移除失败（{worktree}）: \
-         请手动执行 git worktree remove --force {worktree} 清理"
-    ))));
+    // Err 注入与两段式单点的失败面同构（单行五段：路径 / 原 git 错误 / OS 错误 /
+    // 占用成因清单 / 双源对账——零换行、零祈使短语）
+    let injected = format!(
+        "worktree 回收失败（{worktree}）：git 与 OS 层删除均失败；原 git 错误: git \
+         worktree remove --force {worktree} 失败（退出码 255）: error: failed to delete \
+         '{worktree}': Invalid argument；OS 删除错误: 拒绝访问。 (os error 5)；常见占用源: \
+         终端 cwd（终端或子进程在 worktree 内）、编辑器打开的文件、常驻子进程（dev server / \
+         watcher）、杀毒实时扫描、云同步客户端；残留对账须双源: ① git worktree list；\
+         ② 直接检查 worktree 落位根 {worktree} 下的子目录"
+    );
+    let vcs = Arc::new(FakeVcs::clean().with_remove_result(Err(injected)));
     let (task, _rx, history) = spawn_run_with_vcs(
         worker,
         tools,
@@ -7384,8 +7403,17 @@ async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链() 
         "警告携 worktree 路径: {cleanup_detail}"
     );
     assert!(
-        cleanup_detail.contains("git worktree remove --force"),
-        "警告携手动清理指引: {cleanup_detail}"
+        cleanup_detail.contains("OS 删除错误") && cleanup_detail.contains("终端 cwd"),
+        "警告携成因原文片段（缝原文逐字转发）: {cleanup_detail}"
+    );
+    assert!(
+        cleanup_detail.contains("① git worktree list")
+            && cleanup_detail.contains("② 直接检查 worktree 落位根"),
+        "警告携双源对账短语: {cleanup_detail}"
+    );
+    assert!(
+        !cleanup_detail.contains("请手动执行"),
+        "MUST NOT 含单源祈使指引: {cleanup_detail}"
     );
     let rows = node_rows(&command);
     assert_eq!(
@@ -7421,6 +7449,90 @@ async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链() 
         vcs.call_count("remove_worktree:"),
         1,
         "remove_worktree 恰一次（失败也只试一次）: {calls:?}"
+    );
+}
+
+/// 边界（DD8 单行渲染）：注入含五段的**单行** Err → detail 在「worktree 清理失败
+/// （尽力步，不影响归档收口）: 」前缀之后逐字接原文、detail 文本零换行（walker
+/// 不改行、不截断）；成因清单为固定短语——不插值进程名 / 文件路径（含「终端 cwd」
+/// /「常驻子进程」等词，且不含该 worktree 内的文件名）。
+#[tokio::test]
+async fn 归档cleanup失败detail单行渲染_成因清单零插值() {
+    let root = TempRoot::new("archive-cleanup-oneline");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    // worktree 内的在场文件（「成因清单不点名占用文件」的判据锚）
+    std::fs::write(
+        std::path::Path::new(&worktree).join("held-probe.txt"),
+        "被持有的文件\n",
+    )
+    .expect("预置 worktree 内文件失败");
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
+
+    let injected = format!(
+        "worktree 回收失败（{worktree}）：git 与 OS 层删除均失败；原 git 错误: git \
+         worktree remove --force {worktree} 失败（退出码 255）: error: failed to delete \
+         '{worktree}': Invalid argument；OS 删除错误: 拒绝访问。 (os error 5)；常见占用源: \
+         终端 cwd（终端或子进程在 worktree 内）、编辑器打开的文件、常驻子进程（dev server / \
+         watcher）、杀毒实时扫描、云同步客户端；残留对账须双源: ① git worktree list；\
+         ② 直接检查 worktree 落位根 {worktree} 下的子目录"
+    );
+    let vcs = Arc::new(FakeVcs::clean().with_remove_result(Err(injected)));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "失败仅警告，run 照常收口"
+    );
+    let command = history.finish().expect("收口落包应在案");
+    let cleanup_detail = node_detail(&command, workflow::state::RunStepKind::Cleanup)
+        .expect("Cleanup detail 应在案");
+
+    assert!(
+        cleanup_detail.contains("（尽力步，不影响归档收口）: "),
+        "detail 前缀逐字在案: {cleanup_detail}"
+    );
+    assert!(
+        !cleanup_detail.contains('\n'),
+        "detail 单行渲染（walker 不改行、不截断）: {cleanup_detail:?}"
+    );
+    assert!(
+        cleanup_detail.contains("终端 cwd") && cleanup_detail.contains("常驻子进程"),
+        "成因清单为固定短语（排除动作而非占用者点名）: {cleanup_detail}"
+    );
+    assert!(
+        !cleanup_detail.contains("held-probe.txt"),
+        "成因清单不插值 worktree 内文件路径: {cleanup_detail}"
+    );
+    assert_eq!(
+        vcs.call_count("remove_worktree:"),
+        1,
+        "remove_worktree 恰一次（零重试）"
+    );
+    let calls = vcs.calls();
+    assert!(
+        !calls.iter().any(|call| call.contains("delete_branch")),
+        "branch 全程零触碰: {calls:?}"
     );
 }
 

@@ -2762,11 +2762,16 @@ async fn step_spec_sync(
 }
 
 /// 归档 Cleanup 步（vcs.remove_worktree 尽力步）：SpecSync 与 Seal 之间清场
-///——worktree 记录在案即移除（`--force` 带走 bootstrap 的 `node_modules` /
-/// `target`），legacy 与目录缺席（手动清 / 重试链）幂等跳过；移除失败吞为
-/// detail 警告——步恒 `passed`、链必收口（归档残留是警告不是回滚，永不
-/// `Terminal`）；branch `change/<name>` 全程零触碰。缺 preflight 载荷沿既有
-/// 计划漂移面 Terminal（非清理失败面）。
+///——worktree 记录在案即移除（回收经两段式单点：`--force` 带走 bootstrap 的
+/// `node_modules` / `target`；git 段失败即以 OS 层兜底回收并 `prune` 残留
+/// admin——已注销孤儿（git 已注销而目录仍在场）因此亦可回收，本步零 vcs 状态
+/// 机），legacy 与目录缺席（手动清 / 重试链）幂等跳过；移除失败吞为 detail
+/// 警告——失败面已收窄为「两段式皆失败」（git 与 OS 层删除均失败），步恒
+/// `passed`、链必收口（归档残留是警告不是回滚，永不 `Terminal`）；`detail` 必
+/// 携成因，即 `ArchiveVcsPort` 缝透出的 `Err` 原文（路径 + 原 git 错误 + OS 错
+/// 误 + 占用成因清单 + 双源对账——MUST NOT 只呈原始 git 错误串、MUST NOT 以
+/// `git worktree list` 单源对账收尾）；branch `change/<name>` 全程零触碰。缺
+/// preflight 载荷沿既有计划漂移面 Terminal（非清理失败面）。
 async fn step_cleanup(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,

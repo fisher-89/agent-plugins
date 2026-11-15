@@ -189,7 +189,8 @@ impl ChangeStateStore for DeleteStore {
 // 假件：WorktreePort
 // ---------------------------------------------------------------------------
 
-/// 假 vcs：调用捕获；分支在场表可编程；移除 / 删分支按臂注入 Err。
+/// 假 vcs：调用捕获；分支在场表可编程；移除 / 删分支按臂注入 Err；兜底成功臂
+/// 表达两段式语义（git 段失败留痕 → OS 段删除目录 → 对外 `Ok`）。
 #[derive(Default)]
 struct FakeVcs {
     removed: Mutex<Vec<PathBuf>>,
@@ -197,6 +198,11 @@ struct FakeVcs {
     existing_branches: Mutex<Vec<String>>,
     remove_fault: Mutex<Option<String>>,
     branch_fault: Mutex<Option<String>>,
+    /// 兜底成功臂开关（true 时 remove_worktree 走「git 段失败 → OS 段删除 →
+    /// Ok」路径，写面只看缝的 `Ok`）
+    fallback_recovery: Mutex<bool>,
+    /// 兜底臂内部 git 段失败次数（「git 段曾失败但不影响终裁」的观察面）
+    git_stage_failures: Mutex<usize>,
 }
 
 impl FakeVcs {
@@ -209,6 +215,12 @@ impl FakeVcs {
         vcs
     }
 
+    /// 兜底成功臂（AC-9：已注销孤儿回收——git 段失败后 OS 段删除，对外 `Ok`）。
+    fn with_fallback_recovery(self) -> Self {
+        *self.fallback_recovery.lock().expect("兜底开关锁不可中毒") = true;
+        self
+    }
+
     fn removed(&self) -> Vec<PathBuf> {
         self.removed.lock().expect("调用锁不可中毒").clone()
     }
@@ -218,6 +230,10 @@ impl FakeVcs {
             .lock()
             .expect("调用锁不可中毒")
             .clone()
+    }
+
+    fn git_stage_failures(&self) -> usize {
+        *self.git_stage_failures.lock().expect("失败计数锁不可中毒")
     }
 }
 
@@ -249,6 +265,16 @@ impl WorktreePort for FakeVcs {
     }
 
     fn remove_worktree(&self, _main_root: &Path, worktree: &Path) -> Result<(), String> {
+        if *self.fallback_recovery.lock().expect("兜底开关锁不可中毒") {
+            // 兜底成功臂：git 段失败留痕（登记已注销）→ OS 段删除目录 → 对外 Ok
+            *self.git_stage_failures.lock().expect("失败计数锁不可中毒") += 1;
+            fs::remove_dir_all(worktree).map_err(|error| format!("假件兜底移除失败: {error}"))?;
+            self.removed
+                .lock()
+                .expect("调用锁不可中毒")
+                .push(worktree.to_path_buf());
+            return Ok(());
+        }
         if let Some(fault) = self.remove_fault.lock().expect("故障锁不可中毒").clone() {
             return Err(fault);
         }
@@ -373,6 +399,60 @@ fn 删除勾选清空_worktree与分支移除且产物目录消失记录级联()
     );
     assert!(!active.exists(), "主仓产物目录应消失");
     assert_eq!(store.cascade_ids(), vec![CHANGE_ID.to_owned()]);
+    assert!(
+        store.record_present_at_cascade(),
+        "级联删库是最后一步（调用瞬间记录仍在）"
+    );
+}
+
+/// 正向（AC-9 / spec Scenario「已注销孤儿经删除面回收」）：假件兜底成功臂表达
+/// 「git 段失败留痕 → OS 段删除目录 → 对外 `Ok`」→ 写面 `Ok` 且全链收口：
+/// `removed_worktree = true`、branch 删除、产物目录消失、级联为最后一步、
+/// `remove_worktree` 恰一次（零重试）。判据要点：写面不因「git 段曾失败」中断。
+#[test]
+fn 已注销孤儿经删除面回收_写面ok且全链收口() {
+    let env = Env::new();
+    let active = env.make_active_dir();
+    let worktree = env.make_worktree();
+    let store = DeleteStore::with_record(record(
+        ChangeStatus::Active,
+        Some(&worktree.to_string_lossy()),
+        None,
+    ));
+    let vcs = FakeVcs::with_branch("change/seed-change").with_fallback_recovery();
+
+    let outcome = delete(
+        &env.main_root(),
+        &env.layout(),
+        &store,
+        &vcs,
+        CHANGE_ID,
+        true,
+    )
+    .expect("已注销孤儿应经删除面回收成功");
+
+    assert!(
+        outcome.removed_worktree,
+        "兜底回收成功 → removed_worktree = true"
+    );
+    assert!(outcome.warnings.is_empty(), "回收成功零保留注记");
+    assert_eq!(
+        vcs.git_stage_failures(),
+        1,
+        "兜底臂内部 git 段失败一次（写面不因此中断）"
+    );
+    assert_eq!(
+        vcs.removed(),
+        vec![worktree.clone()],
+        "remove_worktree 恰一次（零重试）"
+    );
+    assert_eq!(
+        vcs.deleted_branches(),
+        vec!["change/seed-change".to_owned()]
+    );
+    assert!(!worktree.exists(), "worktree 目录消失");
+    assert!(!active.exists(), "主仓产物目录消失");
+    assert_eq!(store.cascade_ids(), vec![CHANGE_ID.to_owned()], "级联删库");
     assert!(
         store.record_present_at_cascade(),
         "级联删库是最后一步（调用瞬间记录仍在）"
@@ -516,6 +596,9 @@ fn 分支不在场_零删除调用且删除成功() {
     assert!(vcs.deleted_branches().is_empty(), "分支不在场 → 零删除调用");
 }
 
+/// 异常（AC-9 皆失败面）：注入新形态单行 `Err`（路径 + 原 git 错误 + OS 错误 +
+/// 成因清单 + 双源）→ 写面 `Err` 逐字为 `worktree 移除失败（<path>）: <注入原文>`
+///（`delete.rs` wrapper 零改动）；失败即零库删除、产物目录原样、branch 零触碰。
 #[test]
 fn worktree移除失败_删除中断且记录与产物目录原样() {
     let env = Env::new();
@@ -527,8 +610,17 @@ fn worktree移除失败_删除中断且记录与产物目录原样() {
         None,
     ));
     let vcs = FakeVcs::with_branch("change/seed-change");
-    *vcs.remove_fault.lock().expect("故障锁不可中毒") =
-        Some("git worktree remove 非零退出".to_owned());
+    let worktree_str = worktree.to_string_lossy().into_owned();
+    let injected = format!(
+        "worktree 回收失败（{worktree_str}）：git 与 OS 层删除均失败；原 git 错误: \
+         git worktree remove --force {worktree_str} 失败（退出码 255）: error: failed to \
+         delete '{worktree_str}': Invalid argument；OS 删除错误: 拒绝访问。 (os error 5)；\
+         常见占用源: 终端 cwd（终端或子进程在 worktree 内）、编辑器打开的文件、常驻子进程\
+         （dev server / watcher）、杀毒实时扫描、云同步客户端——释放占用后重试即收敛（强杀\
+         占用进程后立即释放，无需等待）；残留对账须双源: ① git worktree list；② 直接检查 \
+         worktree 落位根 {worktree_str} 下的子目录"
+    );
+    *vcs.remove_fault.lock().expect("故障锁不可中毒") = Some(injected.clone());
 
     let error = delete(
         &env.main_root(),
@@ -540,10 +632,19 @@ fn worktree移除失败_删除中断且记录与产物目录原样() {
     )
     .expect_err("移除失败应显式 Err");
 
-    assert!(error.contains("worktree 移除失败"), "错误文案: {error}");
+    assert_eq!(
+        error,
+        format!("worktree 移除失败（{worktree_str}）: {injected}"),
+        "写面 wrapper 逐字（路径前缀 + 缝透出的成因原文，零改写）"
+    );
+    assert!(
+        error.contains("OS 删除错误") && error.contains("终端 cwd"),
+        "Err 携成因片段（缝原文透传）：{error}"
+    );
     assert!(store.cascade_ids().is_empty(), "失败即零库删除");
     assert!(active.exists(), "产物目录原样未动");
     assert!(vcs.deleted_branches().is_empty(), "分支零触碰");
+    assert!(worktree.exists(), "worktree 目录原样（未进入补偿）");
 }
 
 #[test]

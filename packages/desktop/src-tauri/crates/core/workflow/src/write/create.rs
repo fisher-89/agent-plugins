@@ -206,8 +206,9 @@ pub fn create(
     let worktree_threshold = ACTIVE_CHANGE_LIMIT + WORKTREE_DIR_SLACK;
     if worktree_dirs > worktree_threshold {
         return Err(format!(
-            "worktree 目录数已达保底门槛（当前 {worktree_dirs}，门槛 {worktree_threshold}）：\
-             请先以 git worktree list 对账并手动清理后再创建"
+            "worktree 目录数已达保底门槛（当前 {worktree_dirs}，门槛 {worktree_threshold}）：{}；\
+             清理后再创建",
+            worktree_reconcile_hint(&worktree_root)
         ));
     }
     // 前置⑤：git 探测三态（git 不可发现 / 非 git 仓 / 空仓无 HEAD 显式 Err
@@ -256,7 +257,13 @@ pub fn create(
     // 删分支（git worktree add 可能已铸分支后才失败）
     if let Err(error) = vcs.add_worktree(main_root, &worktree, &branch) {
         return Err(compensate_add_failure(
-            store, vcs, main_root, &id, &branch, &error,
+            store,
+            vcs,
+            main_root,
+            &id,
+            &branch,
+            &worktree_root,
+            &error,
         ));
     }
 
@@ -266,7 +273,14 @@ pub fn create(
     let change_dir = worktree_layout.changes_root.join(name);
     if let Err(error) = write_fs_half(&change_dir, goal) {
         return Err(compensate_tree_failure(
-            store, vcs, main_root, &id, &branch, &worktree, &error,
+            store,
+            vcs,
+            main_root,
+            &id,
+            &branch,
+            &worktree,
+            &worktree_root,
+            &error,
         ));
     }
 
@@ -376,8 +390,21 @@ fn bootstrap_project(
     }
 }
 
+/// worktree 残留对账引导（前置⑨ 与两处补偿的文案单点）：计数源与回收失败留下
+/// 的残留都不在 git 登记面（git 已注销：`list` 不显示、`prune` 无事可做、
+/// `remove` 报 `not a working tree`），单源指引会让用户无从自救——故 MUST 双源
+/// （`git worktree list` 对账 + 直接检查落位根下的子目录）。
+fn worktree_reconcile_hint(worktree_root: &Path) -> String {
+    format!(
+        "worktree 残留对账须双源: ① git worktree list；② 直接检查 worktree 落位根 {} 下的\
+         子目录——删除失败留下的残留不在 git 登记面（git 已注销: list 不显示、prune 无事\
+         可做、remove 报 not a working tree），直接删除该子目录即可",
+        worktree_root.display()
+    )
+}
+
 /// add_worktree 失败补偿（D3）：删本次建档（按 id）+ 尽力 `delete_branch`
-///（add 半途可能已铸分支）。补偿再失败 → Err 呈现残留对象与手动清理指引
+///（add 半途可能已铸分支）。补偿再失败 → Err 呈现残留对象与双源对账指引
 /// （不静默自愈）。
 fn compensate_add_failure(
     store: &dyn ChangeStateStore,
@@ -385,6 +412,7 @@ fn compensate_add_failure(
     main_root: &Path,
     id: &str,
     branch: &str,
+    worktree_root: &Path,
     add_error: &str,
 ) -> String {
     let record = compensate_record_delete(store, id);
@@ -400,8 +428,8 @@ fn compensate_add_failure(
             let residuals = residual_note(record_residual.into_iter().chain(branch_residual));
             format!(
                 "创建 change 失败: worktree 建域失败: {add_error}；补偿回收未完成，残留: {residuals}。\
-                 请以 git worktree list 对账并手动清理（git worktree remove --force <path> / \
-                 git branch -D {branch}）"
+                 {}；branch 侧仍以 git branch -D {branch} 清理",
+                worktree_reconcile_hint(worktree_root)
             )
         }
     }
@@ -409,7 +437,7 @@ fn compensate_add_failure(
 
 /// 目录树 / explore.md 写出失败补偿（D3 尽力链）：`remove_worktree --force`
 /// → `delete_branch` → 删本次建档（按 id）。任一失败 → Err 呈现残留对象
-///（worktree / branch / 记录 id）与 `git worktree list` 手动清理指引。
+///（worktree / branch / 记录 id）与双源对账指引。
 fn compensate_tree_failure(
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
@@ -417,6 +445,7 @@ fn compensate_tree_failure(
     id: &str,
     branch: &str,
     worktree: &Path,
+    worktree_root: &Path,
     fs_error: &str,
 ) -> String {
     let worktree_note = worktree.to_string_lossy().into_owned();
@@ -432,15 +461,15 @@ fn compensate_tree_failure(
     }
     if residuals.is_empty() {
         return format!(
-            "创建 change 失败: {fs_error}（worktree、分支 {branch} 与建档已补偿回收；\
-             可以 git worktree list 对账确认）"
+            "创建 change 失败: {fs_error}（worktree、分支 {branch} 与建档已补偿回收；{}）",
+            worktree_reconcile_hint(worktree_root)
         );
     }
     format!(
         "创建 change 失败: {fs_error}；补偿回收未完成，残留: {}。\
-         请以 git worktree list 对账并手动清理（git worktree remove --force <path> / \
-         git branch -D {branch}）",
-        residual_note(residuals.into_iter())
+         {}；branch 侧仍以 git branch -D {branch} 清理",
+        residual_note(residuals.into_iter()),
+        worktree_reconcile_hint(worktree_root)
     )
 }
 

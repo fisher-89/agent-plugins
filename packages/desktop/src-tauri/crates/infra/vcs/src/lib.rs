@@ -182,15 +182,10 @@ impl ArchiveVcsPort for ProcessArchiveVcs {
     }
 
     fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String> {
-        let path = worktree.to_string_lossy().into_owned();
-        // 与 `ProcessWorktree`（create 补偿面）同一 `git::remove_worktree` 单点，
-        // 零新 spawn；`Err` 面附路径与手动清理指引（walker 吞为 detail 警告）
-        git::remove_worktree(main_root, worktree).map_err(|error| {
-            format!(
-                "worktree 移除失败（{path}）: {error}；\
-                 请手动执行 git worktree remove --force {path} 清理"
-            )
-        })
+        // 文案单点收口：两段式（git 段失败即以 OS 层兜底回收 + prune）与失败面
+        // 成因由 `git::remove_worktree` 提供，本缝只透传——MUST NOT 在此追加任
+        // 何手动命令指引（与 create / delete 缝同一实现同一文案）
+        git::remove_worktree(main_root, worktree)
     }
 
     fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
