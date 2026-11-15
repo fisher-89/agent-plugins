@@ -8,7 +8,7 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 
 ### Requirement: 写面 create 操作进程内创建 change
 
-`core/workflow` 写面 `create` 操作 SHALL 创建 change 域并在同一次创建语义内分配 worktree（生命周期与落位细则见 desktop-change-worktree）：① 在 workspace 库建档（`ChangeRecord`：`id`（本次铸出的稳定唯一身份锚，UUID 形态——铸出点由 design 定稿）、`name` / `title`（人类可读标题，恒非空——`title` 入参空白时回退 `name`）/ workflow_type=入参（合法值 = `phase_table` 命中：`requirement` | `test-only`；非法值显式拒绝）/ created_at / status=active / worktree=本次分配的绝对路径 / base_commit=创建基线）；② 以主仓 HEAD 为基线 `git worktree add` 落位于 git 根同级 `.worktrees/<仓库目录名>/`（落位与 branch `change/<name>` 仍 name 化）并建 branch `change/<name>`；③ 在 worktree 内创建 `openspec/changes/<name>/` 目录树（含父树，`create_dir_all` 语义）并写出 `explore.md`（goal 原文）；④ 执行确定性 bootstrap 与脏仓探测、收集警告。四段 SHALL 构成一次创建语义（分段顺序与失败补偿边界由 design 定稿；MUST NOT 出现「目录在而记录缺」的可用性破口：建档先行的补偿语义保持，worktree 段失败的回收边界由 design 定稿，bootstrap 段失败 MUST NOT 回滚）。MUST NOT 产出 workflow.json。该操作 SHALL 为进程内同步调用（MUST NOT 引入 tokio / async runtime，沿写面 sync 纪律；落库与 worktree / bootstrap 执行均经 port 缝由壳层装配实现，core/workflow 零 infra 依赖、零进程 spawn），SHALL 经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 目录名字面量）。前置校验 SHALL 在任何写 IO 之前完成且拒绝面零副作用：名称 kebab-case + 长度、goal 非空白、`workflow_type` 合法值（`phase_table` 命中）、冲突检查（主仓 active 目录已存在或 db 已有同名 **active** 记录——name 无唯一约束，冲突判定为显式扫描查重，归档同名不拒）、git 可用性（git 不可发现或主仓非 git 仓）、branch `change/<name>` 已存在、worktree 目标目录已存在、**active 建档数上限**（db `status=active` 存量记录数 ≥ 5 时拒绝——上限 5 为硬编码定值，MUST NOT 进 `config.json`，对齐 `FEEDBACK_LOOP_LIMIT` 先例；错误文案 SHALL 含当前计数与上限并引导「归档或手动清理」）、**worktree 磁盘实占保底门槛**（`.worktrees/<仓库目录名>/` 子树直属目录数 > 7 时拒绝——门槛 = 上限 5 + 冗余 2，db 与磁盘漂移（孤儿 worktree / 手动残留不占 active 额度但占磁盘）防线；错误文案 SHALL 含当前目录数与门槛并引导 `git worktree list` 对账与手动清理）。两道上限检查为前置第八 / 九道，拒绝面零 worktree、零建档、零目录、零 branch 触碰。既有写面操作（`phase_next` / `phase_start` / `phase_log` / `backtrack` / `archive`）语义 MUST NOT 因新增语义改变（寻址参数随全库换锚改 change id，见 desktop-change-state-store）；写触点收口为 change 域目录内产物文件、workspace 库 change 状态与 worktree 建域三面，MUST NOT 泛化为任意 workspace 写通道。
+`core/workflow` 写面 `create` 操作 SHALL 创建 change 域并在同一次创建语义内分配 worktree（生命周期与落位细则见 desktop-change-worktree）：① 在 workspace 库建档（`ChangeRecord`：`id`（本次铸出的稳定唯一身份锚，UUID 形态——铸出点由 design 定稿）、`name` / `title`（人类可读标题，恒非空——`title` 入参空白时回退 `name`）/ workflow_type=入参（合法值 = `phase_table` 命中：`requirement` | `test-only`；非法值显式拒绝）/ created_at / status=active / worktree=本次分配的绝对路径 / base_commit=创建基线）；② 以主仓 HEAD 为基线 `git worktree add` 落位于 git 根同级 `.worktrees/<仓库目录名>/`（落位与 branch `change/<name>` 仍 name 化）并建 branch `change/<name>`；③ 在 worktree 内创建 `openspec/changes/<name>/` 目录树（含父树，`create_dir_all` 语义）并写出 `explore.md`（goal 原文）；④ 执行确定性 bootstrap 与脏仓探测、收集警告。四段 SHALL 构成一次创建语义（分段顺序与失败补偿边界由 design 定稿；MUST NOT 出现「目录在而记录缺」的可用性破口：建档先行的补偿语义保持，worktree 段失败的回收边界由 design 定稿，bootstrap 段失败 MUST NOT 回滚）。MUST NOT 产出 workflow.json。该操作 SHALL 为进程内同步调用（MUST NOT 引入 tokio / async runtime，沿写面 sync 纪律；落库与 worktree / bootstrap 执行均经 port 缝由壳层装配实现，core/workflow 零 infra 依赖、零进程 spawn），SHALL 经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 目录名字面量）。前置校验 SHALL 在任何写 IO 之前完成且拒绝面零副作用：名称 kebab-case + 长度、goal 非空白、`workflow_type` 合法值（`phase_table` 命中）、冲突检查（主仓 active 目录已存在或 db 已有同名 **active** 记录——name 无唯一约束，冲突判定为显式扫描查重，归档同名不拒）、git 可用性（git 不可发现或主仓非 git 仓）、branch `change/<name>` 已存在、worktree 目标目录已存在、**active 建档数上限**（db `status=active` 存量记录数 ≥ 5 时拒绝——上限 5 为硬编码定值，MUST NOT 进 `config.json`，对齐 `FEEDBACK_LOOP_LIMIT` 先例；错误文案 SHALL 含当前计数与上限并引导「归档或手动清理」）、**worktree 磁盘实占保底门槛**（`.worktrees/<仓库目录名>/` 子树直属目录数 > 7 时拒绝——门槛 = 上限 5 + 冗余 2，db 与磁盘漂移（孤儿 worktree / 手动残留不占 active 额度但占磁盘）防线；错误文案 SHALL 含当前目录数、门槛与 worktree 落位根绝对路径，并以**双源**引导（`git worktree list` 对账 + 直接检查该落位根下的子目录；已注销孤儿不在 git 登记面——`list` 不显示、`prune` 无事可做，单源指引会让用户无从自救）。自愈不归本门槛（回收单点自带 OS 层兜底，见 desktop-change-worktree「worktree 回收两段式」），本门槛仅为失控防线）。两道上限检查为前置第八 / 九道，拒绝面零 worktree、零建档、零目录、零 branch 触碰。既有写面操作（`phase_next` / `phase_start` / `phase_log` / `backtrack` / `archive`）语义 MUST NOT 因新增语义改变（寻址参数随全库换锚改 change id，见 desktop-change-state-store）；写触点收口为 change 域目录内产物文件、workspace 库 change 状态与 worktree 建域三面，MUST NOT 泛化为任意 workspace 写通道。
 
 #### Scenario: 空白树上创建成功并分配 worktree
 
@@ -70,7 +70,7 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 #### Scenario: worktree 磁盘实占超门槛被拒绝
 
 - **WHEN** `.worktrees/<仓库目录名>/` 子树直属目录数已达 8（如 3 个 active change 的 worktree + 5 个孤儿 / 手动残留）时调用写面 `create`
-- **THEN** 返回显式 `Err`（文案含当前目录数 8 与门槛 7、引导 `git worktree list` 对账与手动清理），零建档、零目录、零 worktree / branch；目录数 ≤ 7 时照常创建
+- **THEN** 返回显式 `Err`（文案含当前目录数 8、门槛 7、worktree 落位根绝对路径，并以双源引导——`git worktree list` 对账 + 直接检查该落位根下的子目录），零建档、零目录、零 worktree / branch；目录数 ≤ 7 时照常创建
 
 #### Scenario: 上限硬编码不进配置
 
@@ -208,3 +208,15 @@ desktop-app 命令层 SHALL 提供 `create_change` 命令（落位 `commands/cha
 | `crates/core/workflow/src/write/create.rs` 内 workflow.json 初始文档写出段 | **（退役）** | 初始 workflow.json 写出职责随载体退役删除（`persist.rs` raw Value 保形改写退役见 desktop-workflow-write-face） |
 | `crates/core/workflow/src/write/create.rs`（前置八 / 九道，新） | 上限两道执法 | 前置⑧ active 计数（store 读 `list_change_records` 过滤 `status=active`）；前置⑨ `.worktrees/<仓库目录名>/` 直属目录数（fs 扫描，worktree 落位父锚经 `WorktreePort::worktree_root` 派生）；上限常量驻 create 私有（沿 `BOOTSTRAP_LOCKFILE_COMMANDS` / `FEEDBACK_LOOP_LIMIT` 先例，命名 design 定稿）；文案含计数 / 上限 / 引导 |
 | `crates/core/workflow/src/write/create_test.rs` | 拒绝面覆盖 | 第 6 active 拒、8 目录拒、4 active / 7 目录边界通过、文案断言、拒绝面零副作用（⑧ 前拒绝零 vcs 调用；⑨ 门槛道仅落位派生一次） |
+
+### 模块增量：worktree 门槛双源文案与补偿残留（worktree-remove-orphan-defect）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Function / API / CLI / Component） |
+|------|------|------|
+| `crates/core/workflow/src/write/create.rs`（前置⑨ 文案） | worktree 磁盘保底门槛的拒绝面 | `Err` 文案含当前目录数、门槛（上限 5 + 冗余 2 = 7）与 worktree 落位根绝对路径，并以**双源**引导（`git worktree list` 对账 + 直接检查该落位根下的子目录——已注销孤儿不在 git 登记面）；判据与常量零改动（仍是失控防线，非自愈手段） |
+| `crates/core/workflow/src/write/create.rs`（`compensate_add_failure` / `compensate_tree_failure`） | 建域失败残留呈现 | 残留指引与前置⑨ 同形态（双源 + 「直接删除该子目录」可执行动作）；`git worktree remove --force <path>` 单源指引退役；branch 侧 `git branch -D <branch>` 保留；补偿链次序（`remove_worktree` → `delete_branch` → 删建档）与`residuals` 拼形零改动 |
+| `crates/infra/vcs/src/git.rs`（`remove_worktree`） | 补偿面回收实现 | 两段式（见 desktop-change-worktree「worktree 回收两段式」）；目录缺席 `Ok` 使「add 失败且目录未生成」不再产出假残留告警 |
+| `crates/core/workflow/src/write/create_test.rs` | 门槛与补偿文案覆盖 | 前置⑨ 断言增落位根路径与「直接检查」措辞（保留 `git worktree list` 锚）；补偿残留断言改为双源形态、断言不含单源 `git worktree remove --force` 指引；拒绝面零副作用断言零改动 |
+| `packages/desktop/package.json` | 版本交付 | 落地时 `HEAD` 现值 + 1 patch（现值 0.6.42 → 0.6.43）；`src-tauri/Cargo.toml` 不随动 |
