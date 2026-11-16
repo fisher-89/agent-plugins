@@ -3237,12 +3237,22 @@ async fn explore轮ask阻塞经agent_answer回灌并同turn收口completed() {
         summary.session_id.clone(),
     )
     .expect("转录查询应成功");
-    // 该 tool_use 的配对 tool_result 逐字回灌应答原文（is_error = false）
-    let paired = crate::commands::ask_test_support::tool_result_in(&transcript, "tu_cmd_ask");
+    // 该 tool_use 的配对 tool_result 为应答信封（is_error = false）
+    let (paired, paired_error) =
+        crate::commands::ask_test_support::tool_result_in(&transcript, "tu_cmd_ask")
+            .expect("该调用有配对结果");
+    assert!(!paired_error, "应答结果非错误面");
+    let parsed: serde_json::Value = serde_json::from_str(&paired)
+        .unwrap_or_else(|error| panic!("非 JSON 信封: {paired}（{error}）"));
     assert_eq!(
-        paired,
-        Some(("指数退避".to_owned(), false)),
-        "应答原文回灌为配对 tool_result（同 turn 续跑）"
+        parsed["status"],
+        serde_json::json!("answered"),
+        "信封 status"
+    );
+    assert_eq!(
+        parsed["answers"]["q"].as_str(),
+        Some("指数退避"),
+        "应答原文进信封（同 turn 续跑）"
     );
     // 二次应答必 Err（注册表已被 take）
     let error = super::agent_answer(
@@ -3315,11 +3325,16 @@ async fn change_chat轮ask经chat空port不误判且可应答() {
         summary.session_id.clone(),
     )
     .expect("转录查询应成功");
-    assert_eq!(
-        crate::commands::ask_test_support::tool_result_in(&transcript, "tu_cmd_ask"),
-        Some(("B".to_owned(), false)),
+    let (paired, paired_error) =
+        crate::commands::ask_test_support::tool_result_in(&transcript, "tu_cmd_ask")
+            .expect("该调用有配对结果");
+    assert!(
+        !paired_error,
         "ChatAskPort 使 Flow 档不落「编排状态面未装配」防御臂（is_error = false）"
     );
+    let parsed: serde_json::Value = serde_json::from_str(&paired)
+        .unwrap_or_else(|error| panic!("非 JSON 信封: {paired}（{error}）"));
+    assert_eq!(parsed["answers"]["q"].as_str(), Some("B"), "应答原文进信封");
 }
 
 /// 注册表未托管时的显式失败（异常，AC-10 的装配契约）：mock app 未

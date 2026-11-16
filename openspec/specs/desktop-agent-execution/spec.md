@@ -1365,11 +1365,13 @@ compose_turn(stores, registry, streams, store, agent, workspace_root: &Path)
 
 SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SHALL 为**会话级注册表**（`AskRegistry`，与 `StopRegistry` 同址托管）：
 
-- **工具契约**（定义单源在 `core/orchestration`，见 desktop-change-orchestration「流程内 ask 停等与双入口应答」）：工具名 `AskUserQuestion`，`parameters` 为 `{ question: string（必填）, options: string[]（必填，`minItems: 1`）}`——**一次问一个问题**，多问经多次调用表达；`options` 为空数组 SHALL 被工具校验 `Err` 拒绝（文案自足：字段名 + 期望「至少一个选项」+ 当前值）；用户应答 MAY 为任一选项文本或自由文本，工具 MUST NOT 限制应答取值域。
+- **工具契约**（定义单源在 `core/orchestration`，见 desktop-change-orchestration「流程内 ask 停等与双入口应答」）：工具名 `AskUserQuestion`，`parameters` 为 `{ name: string（必填，`pattern` = `^[A-Za-z][A-Za-z0-9_-]{0,63}$`）, question: string（必填）, options: string[]（必填，`minItems: 1`）}`——**一次问一个问题**，多问经多次调用表达；`name` 是**协议声明**的本问标识，即应答 map 的键（首字符须为字母，故控制键位不可能与之撞车）；`name` 非法或缺失、`options` 为空数组 SHALL 被工具校验 `Err` 拒绝（文案自足：字段名 + 期望 + 当前值）；用户应答 MAY 为任一选项文本或自由文本，工具 MUST NOT 限制应答取值域。**本工具要求必答**（无取消通路）：用户想改变主意时以自由文本表达，`status` 之外无第二种终态。
+- **应答结果形状**（单点在 `infra/agent` 的 ask 执行体）：成功臂的 tool result 正文 SHALL 为**信封** `{"status":"answered","answers":{"<name>":"<应答原文>"}}`——`status` 为封闭枚举，本版仅 `answered`（`declined` 为预留位，见下条）；`answers` 为「问题名 → 用户原文」map，原文逐字保真（零 trim、零截断）。信封形状 MUST NOT 在前端铸造（前端两处入口一律上行用户原文，见 desktop-agent-chat-infra / desktop-change-flow-view）。多问扩展只让 `answers` 多键，信封 MUST NOT 变更；读侧 SHALL 兼容历史三种正文——旧扁平 map（无 `status`）、更早的自由文本原文、错误文案（后者不进信封，随 is_error 回灌）。`status` 字段 MUST NOT 因「本版只有一个取值」而被删除——它是取消通路的唯一扩展位。
+- **取消通路（预留，未实现）**：若将来开放取消，结果 SHALL 为 `{"status":"declined"}`（无 `answers` 键），且 SHALL 以 `is_error: false` 回灌（用户主动取消不是工具故障）；`AskRegistry` 的投递类型相应扩为「应答 / 取消」两态。本条为形状预留，当前实现 MUST NOT 提供取消入口。
 - **`AskRegistry`（`core/agent`）**：形态 SHALL 为 `{ slots: Mutex<HashMap<String, oneshot::Sender<String>>> }`，键 = **core 铸的会话 id**（`core/agent` 不认识 workspace root / change——两段寻址由壳层翻译）；方法三件：`register(session_id, tx) -> bool`（登记等待方，同键覆盖 = 上一问已被放弃，返回是否登记成功）、`answer(session_id, text) -> Result<(), String>`（**take 语义**：单次投递，重复 / miss → `Err`，不产生第二次回灌）、`remove(session_id)`（轮收敛除名，miss 幂等）。注册表 MUST NOT 携带任何编排域类型（无 change id、无 `RunEventSink`）。
 - **会话 id 下传**：`open_session` 的入参 SHALL 携带 core 铸的会话 id（`SessionOpen.session_id`），使引擎侧能以自己的执行体上下文登记到正确键；逐轮的 `TurnQuestion` MUST NOT 重复携带该 id（会话级标识在会话建立时一次可知）。
 - **两档执行体（同名覆盖）**：`ToolExec::Ask(AskMode)` 为单一挂载变体带档位，`TOOL_NAME` 与 `parameters` 两档共用（schema 单源），差别只在执行体：
-  - `Generic`：`register(session_id, tx)` → 阻塞等待应答（无编排广播）→ 返回应答文本作为 tool result；
+  - `Generic`：`register(session_id, tx)` → 阻塞等待应答（无编排广播）→ 返回**应答信封**（形状见上条）作为 tool result；
   - `Flow`：经 `AskPort` 先广播「ask 已开始」（`AskPayload` 含 `tool_call_id` / `session_id`）→ `register` → 阻塞等待 → **两臂（应答 / 停止）返回后都广播「ask 已解除」**（流程停等态清理单点在此，见 desktop-change-orchestration）。
   两档 SHALL 与 `finish_step` **互不依赖**：`ask` 位与 `finish` 位独立置位，两模块代码互不引用（`grep` 可验的零互引，见 desktop-change-orchestration 同条）。
 - **`ask` 位与挂载**：`SessionInjections.ask: Option<AskMode>` 决定是否挂载（`None` = 不挂 = 硬禁用：`RunStarted.tools` 无该名，模型调用即 `tool_unavailable`；`Some(_)` = 挂载，tier 恒 `Protocol`，三档权限全放行）。执行上下文 SHALL 经组合根以 per-turn 形态铸造（注册表句柄 + core session id + 可选 `AskPort`）；上下文缺席 / 登记失败 SHALL 以 is_error ToolResult 回灌（MUST NOT panic、MUST NOT 静默成功）。
@@ -1378,13 +1380,13 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
 
 #### Scenario: 通用会话 turn 内阻塞问答
 
-- **WHEN** `ask = Some(Generic)` 的会话里模型调用 `AskUserQuestion { question, options }`，用户经 `agent_answer` 投递应答
-- **THEN** 该轮不收敛、不发额外模型请求；应答文本作为该 `tool_use` 的 tool result 回灌，模型在同一 turn 内继续（同一 `session_id`、`turn_index` 递增一次）
+- **WHEN** `ask = Some(Generic)` 的会话里模型调用 `AskUserQuestion { name: "retry", question, options }`，用户经 `agent_answer` 投递应答「指数退避」
+- **THEN** 该轮不收敛、不发额外模型请求；该 `tool_use` 的 tool result 正文为 `{"status":"answered","answers":{"retry":"指数退避"}}`（`is_error: false`），模型在同一 turn 内继续（同一 `session_id`、`turn_index` 递增一次）
 
 #### Scenario: 同名覆盖只多广播
 
 - **WHEN** `ask = Some(Flow)` 的 change 会话里模型调用同一工具
-- **THEN** 下发的工具名与 `parameters` 与 `Generic` 档逐字相同（模型视角零差异、历史转录无需分辨来源），额外经 `AskPort` 先后广播「已开始（携 `tool_call_id` 与 `session_id`）」与「已解除」；应答文本照常回灌
+- **THEN** 下发的工具名与 `parameters` 与 `Generic` 档逐字相同（模型视角零差异、历史转录无需分辨来源），额外经 `AskPort` 先后广播「已开始（携 `tool_call_id` 与 `session_id`）」与「已解除」；应答以同一信封形状照常回灌（形状与档位无关）
 
 #### Scenario: 显式禁用即硬禁用
 

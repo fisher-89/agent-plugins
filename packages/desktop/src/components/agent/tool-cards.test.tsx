@@ -841,6 +841,7 @@ describe('AskUserQuestionCard：宽容解析存活面（既有分支）', () => 
 
 /** 单问形态（阻塞工具 `AskUserQuestion` 的当前线形态，选项为裸字符串）。 */
 const SINGLE_ASK_INPUT = {
+  name: 'retry',
   question: '选哪个重试策略？',
   options: ['指数退避', '固定间隔'],
 };
@@ -888,13 +889,13 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     expect(screen.getAllByTestId('ask-answer-option')).toHaveLength(2);
     expect(screen.getByTestId('ask-answer-input')).toBeTruthy();
 
-    // 自由文本路：输入 → 提交 → onAnswer 收到以问题名为键的 JSON map
+    // 自由文本路：输入 → 提交 → onAnswer 收到用户原文（信封由后端铸造）
     fireEvent.change(screen.getByTestId('ask-answer-input'), { target: { value: '自由作答' } });
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer).toHaveBeenCalledWith('{"Q1":"自由作答"}');
+    expect(onAnswer).toHaveBeenCalledWith('自由作答');
   });
 
-  it('点选项不即时应答：须再点提交，载荷为问题名 → 选项值的 JSON map', () => {
+  it('点选项不即时应答：须再点提交，载荷为选项原文', () => {
     const onAnswer = vi.fn();
     const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
     render(
@@ -912,7 +913,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     expect(onAnswer).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"固定间隔"}']]);
+    expect(onAnswer.mock.calls).toEqual([['固定间隔']]);
   });
 
   it('提交后回落静态：提交与输入入口退场，二次点击零 replay', () => {
@@ -998,7 +999,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     render(<Card {...withAction} />);
     fireEvent.click(screen.getAllByTestId('ask-answer-option')[0] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer).toHaveBeenCalledWith('{"Q1":"指数退避"}');
+    expect(onAnswer).toHaveBeenCalledWith('指数退避');
   });
 
   it('单问形态（question + 裸字符串 options）→ 结构化呈现，与历史 questions 形态同构', () => {
@@ -1058,10 +1059,10 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
 
     fireEvent.click(buttons[0] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer).toHaveBeenCalledWith('{"Q1":"指数退避"}');
+    expect(onAnswer).toHaveBeenCalledWith('指数退避');
   });
 
-  it('多问形态：逐问翻页（上一个 / 下一个），末问提交时载荷含各问已选项', () => {
+  it('多问形态（历史转录）即便注入动作面也呈只读：零提交入口、零 onAnswer', () => {
     const onAnswer = vi.fn();
     const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
     render(
@@ -1080,15 +1081,13 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
       />,
     );
 
-    // 首问：提交入口在末问才可见
-    expect(screen.getByTestId('ask-answer-submit').hasAttribute('hidden')).toBe(true);
+    // 当前协议一次一问（name 定键、应答恒单值）：多问只可能是历史残留，投递一个
+    // 值会静默丢弃其余问，故整卡退为只读——问题与选项仍可读。
+    expect(screen.getAllByTestId('ask-question')).toHaveLength(2);
+    expect(screen.queryByTestId('ask-answer-submit')).toBeNull();
+    expect(screen.queryByTestId('ask-answer-input')).toBeNull();
     fireEvent.click(screen.getAllByTestId('ask-answer-option')[0] as HTMLElement);
-    fireEvent.click(screen.getByText('下一个'));
-    expect(screen.getByTestId('ask-answer-submit').hasAttribute('hidden')).toBe(false);
-    fireEvent.click(screen.getAllByTestId('ask-answer-option')[3] as HTMLElement);
-    fireEvent.click(screen.getByTestId('ask-answer-submit'));
-
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"甲","Q2":"丁"}']]);
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 
   it('两形态皆不匹配（DD9）：{} / question 非串 / 原串 / null / 数组 → 降级提示，零 panic', () => {
@@ -1140,7 +1139,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     expect(buttons[0]?.textContent).toContain('甲的说明');
     fireEvent.click(buttons[0] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer).toHaveBeenCalledWith('{"Q1":"标签甲"}');
+    expect(onAnswer).toHaveBeenCalledWith('标签甲');
   });
 
   it('options 缺席（单问形态）→ 空选项清单不崩，自由文本仍可提交', () => {
@@ -1160,7 +1159,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     expect(screen.queryAllByTestId('ask-answer-option')).toHaveLength(0);
     fireEvent.change(screen.getByTestId('ask-answer-input'), { target: { value: '自由作答' } });
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer).toHaveBeenCalledWith('{"Q1":"自由作答"}');
+    expect(onAnswer).toHaveBeenCalledWith('自由作答');
   });
 
   it('混合选项形态：字符串与 {label, description} 并存 → 逐项归一到同一渲染（description 各自保真）', () => {
@@ -1241,7 +1240,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     expect(options[2]?.textContent).toBe(long);
   });
 
-  it('已应答回灌（JSON map）：命中项选中且其余禁用，零提交入口', () => {
+  it('已应答回灌（信封）：命中项选中且其余禁用，零提交入口', () => {
     const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
     render(
       <Card
@@ -1249,7 +1248,7 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
         toolName="AskUserQuestion"
         state="output-available"
         input={SINGLE_ASK_INPUT}
-        output={{ content: '{"Q1":"固定间隔"}', isError: false }}
+        output={{ content: '{"status":"answered","answers":{"retry":"固定间隔"}}', isError: false }}
       />,
     );
 
@@ -1262,6 +1261,23 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     ]);
     expect(screen.queryByTestId('ask-answer-submit')).toBeNull();
     expect(screen.queryByTestId('ask-answer-input')).toBeNull();
+  });
+
+  it('已应答回灌（旧扁平 map，无 status 信封）：仍是兼容形态，命中项选中', () => {
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_legacy_map"
+        toolName="AskUserQuestion"
+        state="output-available"
+        // 旧线输入无 name（回填键回落 Q1）——与旧扁平 map 的键同源
+        input={{ question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] }}
+        output={{ content: '{"Q1":"固定间隔"}', isError: false }}
+      />,
+    );
+
+    const radios = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
+    expect(radios.map((node) => node.checked)).toEqual([false, true]);
   });
 
   it('已应答回灌（历史原文，非 JSON）：不抛错，选项原样可读且无提交入口', () => {

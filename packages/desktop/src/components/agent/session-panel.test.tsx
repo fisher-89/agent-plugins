@@ -509,7 +509,7 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
             type: 'tool-AskUserQuestion',
             toolCallId: 'call_1',
             state: 'input-available',
-            input: { question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
+            input: { name: 'q', question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
           },
         ],
       } as unknown as UseAgentSessionState['messages'][number],
@@ -530,7 +530,7 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
     expect(recordedAskAnswer()?.onAnswer).toBe(answer);
     fireEvent.click(buttons[0] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(answer.mock.calls).toEqual([['{"Q1":"指数退避"}']]);
+    expect(answer.mock.calls).toEqual([['指数退避']]);
   });
 
   it('两套前缀（change-chat / archi-chat）展开体均合成动作面且互不串味', () => {
@@ -544,7 +544,7 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
       fireEvent.click(buttons[0] as HTMLElement);
       fireEvent.click(screen.getByTestId('ask-answer-submit'));
       expect(answer).toHaveBeenCalledTimes(1);
-      expect(answer).toHaveBeenCalledWith('{"Q1":"指数退避"}');
+      expect(answer).toHaveBeenCalledWith('指数退避');
       mounted.unmount();
     }
   });
@@ -570,7 +570,7 @@ describe('SessionPanel：ask 动作面合成（骨架零改动即得活卡）', 
     // 行为侧证：提交直接以该引用投递（合成对象不额外包装）
     fireEvent.click(screen.getAllByTestId('ask-answer-option')[1] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(answer.mock.calls).toEqual([['{"Q1":"固定间隔"}']]);
+    expect(answer.mock.calls).toEqual([['固定间隔']]);
   });
 
   it('无 ask 部件时会话体照常呈现（动作面在场零副作用）', () => {

@@ -884,7 +884,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
           kind: 'toolUse',
           id: 'call_1',
           name: 'AskUserQuestion',
-          input: { question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
+          input: { name: 'q', question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
         },
       ],
       parentToolUseId: null,
@@ -904,7 +904,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
     expect(answerCall?.[1]).toEqual({
       root: ROOT,
       sessionId: SESSION_ID,
-      text: '{"Q1":"指数退避"}',
+      text: '指数退避',
     });
   });
 
@@ -923,7 +923,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
           kind: 'toolUse',
           id: 'call_raw',
           name: 'AskUserQuestion',
-          input: { question: 'q', options: ['a'] },
+          input: { name: 'q', question: 'q', options: ['a'] },
         },
       ],
       parentToolUseId: null,
@@ -968,7 +968,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
           kind: 'toolUse',
           id: 'call_stable',
           name: 'AskUserQuestion',
-          input: { question: '答哪个？', options: ['甲', '乙'] },
+          input: { name: 'q', question: '答哪个？', options: ['甲', '乙'] },
         },
       ],
       parentToolUseId: null,
@@ -988,7 +988,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
     expect(answers[0]?.[1]).toEqual({
       root: ROOT,
       sessionId: SESSION_ID,
-      text: '{"Q1":"甲"}',
+      text: '甲',
     });
   });
 
@@ -1007,7 +1007,7 @@ describe('AgentDebugView：ask 动作面（AC-13）', () => {
           kind: 'toolUse',
           id: 'call_stable_ref',
           name: 'AskUserQuestion',
-          input: { question: '引用稳定？', options: ['是', '否'] },
+          input: { name: 'q', question: '引用稳定？', options: ['是', '否'] },
         },
       ],
       parentToolUseId: null,

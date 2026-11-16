@@ -3152,7 +3152,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
       root: ROOT,
       id: CHANGE_ID,
-      answer: '{"Q1":"dev-design"}',
+      answer: 'dev-design',
     });
   });
 
@@ -3408,7 +3408,7 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
       root: ROOT,
       id: CHANGE_ID,
-      answer: '{"Q1":"甲"}',
+      answer: '甲',
     });
   });
 
@@ -3537,6 +3537,6 @@ describe('ChangeDetailView：ask 动作面合成（AC-13 / DD11）', () => {
     fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
 
     const call = invokeMock.mock.calls.filter(([name]) => name === 'change_flow_answer').at(-1);
-    expect(call?.[1]).toEqual({ root: ROOT, id: CHANGE_ID, answer: JSON.stringify({ Q1: long }) });
+    expect(call?.[1]).toEqual({ root: ROOT, id: CHANGE_ID, answer: long });
   });
 });

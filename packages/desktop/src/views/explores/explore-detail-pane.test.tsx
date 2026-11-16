@@ -1332,7 +1332,11 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
                 kind: 'toolUse',
                 id: 'call_1',
                 name: 'AskUserQuestion',
-                input: { question: '选哪个重试策略？', options: ['指数退避', '固定间隔'] },
+                input: {
+                  name: 'q',
+                  question: '选哪个重试策略？',
+                  options: ['指数退避', '固定间隔'],
+                },
               },
             ],
             parentToolUseId: null,
@@ -1357,7 +1361,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     expect(answerCall?.[1]).toEqual({
       root: ROOT,
       sessionId: 'ses-explore-1',
-      text: '{"Q1":"固定间隔"}',
+      text: '固定间隔',
     });
   });
 
@@ -1378,7 +1382,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
                 kind: 'toolUse',
                 id: 'call_rerender',
                 name: 'AskUserQuestion',
-                input: { question: '重渲染后仍可答？', options: ['是', '否'] },
+                input: { name: 'q', question: '重渲染后仍可答？', options: ['是', '否'] },
               },
             ],
             parentToolUseId: null,
@@ -1405,7 +1409,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_answer')[0]?.[1]).toEqual({
       root: ROOT,
       sessionId: 'ses-explore-1',
-      text: '{"Q1":"否"}',
+      text: '否',
     });
   });
 
@@ -1436,7 +1440,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
                 kind: 'toolUse',
                 id: 'call_both',
                 name: 'AskUserQuestion',
-                input: { question: '并存？', options: ['是', '否'] },
+                input: { name: 'q', question: '并存？', options: ['是', '否'] },
               },
             ],
             parentToolUseId: null,
@@ -1476,7 +1480,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
                 kind: 'toolUse',
                 id: 'call_ref',
                 name: 'AskUserQuestion',
-                input: { question: '引用稳定？', options: ['是', '否'] },
+                input: { name: 'q', question: '引用稳定？', options: ['是', '否'] },
               },
             ],
             parentToolUseId: null,
@@ -1530,7 +1534,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
                 kind: 'toolUse',
                 id: 'call_no_session',
                 name: 'AskUserQuestion',
-                input: { question: '无会话？', options: ['甲'] },
+                input: { name: 'q', question: '无会话？', options: ['甲'] },
               },
             ],
             parentToolUseId: null,

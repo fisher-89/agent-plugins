@@ -8,7 +8,7 @@
 
 use serde_json::{json, Value};
 
-use crate::ask::{self, AskQuestion, TOOL_NAME};
+use crate::ask::{self, AskQuestion, NAME_PATTERN, TOOL_NAME};
 
 // ---------------------------------------------------------------------------
 // 装置：源码自证读盘
@@ -34,6 +34,7 @@ fn code_lines(text: &str) -> String {
 /// 合法入参 fixture。
 fn valid_args() -> Value {
     json!({
+        "name": "retry",
         "question": "选哪个重试策略？",
         "options": ["指数退避", "固定间隔"],
     })
@@ -72,12 +73,23 @@ fn parameters的schema形状逐项锚定且连调两次相等() {
     let properties = schema["properties"].as_object().expect("properties 对象");
     let mut keys: Vec<&str> = properties.keys().map(String::as_str).collect();
     keys.sort_unstable();
-    assert_eq!(keys, vec!["options", "question"], "属性键集恰两键");
+    assert_eq!(keys, vec!["name", "options", "question"], "属性键集恰三键");
 
     assert_eq!(
         schema["required"],
-        json!(["question", "options"]),
-        "required 逐字序（question 在前）"
+        json!(["name", "question", "options"]),
+        "required 逐字序（name 在前）"
+    );
+
+    assert_eq!(
+        schema["properties"]["name"]["type"],
+        json!("string"),
+        "name 为字符串"
+    );
+    assert_eq!(
+        schema["properties"]["name"]["pattern"],
+        json!(NAME_PATTERN),
+        "name 的 pattern 与校验面同一常量（单一字面量）"
     );
 
     assert_eq!(
@@ -112,6 +124,12 @@ fn description含单问与选项非空与自由文本应答语义且体量受控
         text.contains("自由作答"),
         "含自由文本应答语义（应答不限于选项）: {text}"
     );
+    assert!(text.contains("name"), "含 name 契约指路: {text}");
+    assert!(
+        text.contains("\"status\":\"answered\"") && text.contains("\"answers\""),
+        "含应答信封形状（status + answers）: {text}"
+    );
+    assert!(text.contains("必答"), "含必须作答语义: {text}");
     assert!(
         text.chars().count() < 300,
         "描述 <300 字符（无 prompt 膨胀），实际 {}",
@@ -129,6 +147,7 @@ fn validate合法入参逐字段保真且顺序不重排() {
     assert_eq!(
         question,
         AskQuestion {
+            name: "retry".to_owned(),
             question: "选哪个重试策略？".to_owned(),
             options: vec!["指数退避".to_owned(), "固定间隔".to_owned()],
         },
@@ -139,6 +158,7 @@ fn validate合法入参逐字段保真且顺序不重排() {
 #[test]
 fn validate多余字段宽容且选项顺序与入参一致() {
     let args = json!({
+        "name": "pick",
         "question": "选哪个？",
         "options": ["乙", "甲", "丙"],
         "extra": 1,
@@ -153,40 +173,50 @@ fn validate多余字段宽容且选项顺序与入参一致() {
 }
 
 // ---------------------------------------------------------------------------
-// 异常：六态 Err（文案自足：字段名 + 期望 + 当前值）
+// 异常：八态 Err（文案自足：字段名 + 期望 + 当前值）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn validate六态err文案自足() {
-    let cases: [(&str, Value, &[&str]); 6] = [
+fn validate八态err文案自足() {
+    let cases: [(&str, Value, &[&str]); 8] = [
+        (
+            "name 缺失",
+            json!({ "question": "q", "options": ["a"] }),
+            &["name", "匹配"],
+        ),
+        (
+            "name 前导下划线",
+            json!({ "name": "_x", "question": "q", "options": ["a"] }),
+            &["name", "匹配"],
+        ),
         (
             "question 缺失",
-            json!({ "options": ["a"] }),
+            json!({ "name": "n", "options": ["a"] }),
             &["question", "非空字符串"],
         ),
         (
             "question 空白",
-            json!({ "question": "   ", "options": ["a"] }),
+            json!({ "name": "n", "question": "   ", "options": ["a"] }),
             &["question", "非空字符串"],
         ),
         (
             "options 缺失",
-            json!({ "question": "q" }),
+            json!({ "name": "n", "question": "q" }),
             &["options", "非空字符串数组"],
         ),
         (
             "options 非数组",
-            json!({ "question": "q", "options": "x" }),
+            json!({ "name": "n", "question": "q", "options": "x" }),
             &["options", "非空字符串数组"],
         ),
         (
             "options 元素非字符串",
-            json!({ "question": "q", "options": ["a", null] }),
+            json!({ "name": "n", "question": "q", "options": ["a", null] }),
             &["options", "字符串数组"],
         ),
         (
             "options 空数组",
-            json!({ "question": "q", "options": [] }),
+            json!({ "name": "n", "question": "q", "options": [] }),
             &["options", "至少一个选项"],
         ),
     ];
@@ -230,7 +260,7 @@ fn question边界五形态() {
         ("NUL 与 emoji", "a\0b🚀", true),
         ("超长", &"字".repeat(1001), true),
     ] {
-        let args = json!({ "question": question, "options": ["a"] });
+        let args = json!({ "name": "n", "question": question, "options": ["a"] });
         let result = ask::validate(&args);
         assert_eq!(
             result.is_ok(),
@@ -254,26 +284,27 @@ fn question边界五形态() {
 #[test]
 fn options边界四形态() {
     // 单元素：最小合法
-    let single =
-        ask::validate(&json!({ "question": "q", "options": ["唯一"] })).expect("单元素为最小合法");
+    let single = ask::validate(&json!({ "name": "n", "question": "q", "options": ["唯一"] }))
+        .expect("单元素为最小合法");
     assert_eq!(single.options, vec!["唯一".to_owned()]);
 
     // 空数组：下界 Err
     assert!(
-        ask::validate(&json!({ "question": "q", "options": [] })).is_err(),
+        ask::validate(&json!({ "name": "n", "question": "q", "options": [] })).is_err(),
         "空数组 Err（minItems: 1 的校验半边）"
     );
 
     // 1000 元素：超大且逐项保真
     let many: Vec<String> = (0..1000).map(|index| format!("选项{index}")).collect();
-    let validated = ask::validate(&json!({ "question": "q", "options": many.clone() }))
-        .expect("超大列表不截断");
+    let validated =
+        ask::validate(&json!({ "name": "n", "question": "q", "options": many.clone() }))
+            .expect("超大列表不截断");
     assert_eq!(validated.options.len(), 1000, "逐项保真不截断");
     assert_eq!(validated.options, many, "元素逐字与顺序保真");
 
     // 单元素为空串：本层不裁量内容
-    let blank =
-        ask::validate(&json!({ "question": "q", "options": [""] })).expect("空串选项本层不裁量");
+    let blank = ask::validate(&json!({ "name": "n", "question": "q", "options": [""] }))
+        .expect("空串选项本层不裁量");
     assert_eq!(blank.options, vec![String::new()]);
 }
 
@@ -284,27 +315,87 @@ fn options边界四形态() {
 #[test]
 fn ask_question构造面与相等性可辨() {
     let empty = AskQuestion {
+        name: String::new(),
         question: String::new(),
         options: Vec::new(),
     };
     assert_eq!(empty.question, "", "校验产物之外的结构不设约束");
 
     let base = AskQuestion {
+        name: "n".to_owned(),
         question: "q".to_owned(),
         options: vec!["a".to_owned(), "b".to_owned()],
+    };
+    let other_name = AskQuestion {
+        name: "m".to_owned(),
+        ..base.clone()
     };
     let other_question = AskQuestion {
         question: "q2".to_owned(),
         ..base.clone()
     };
     let other_options = AskQuestion {
-        question: "q".to_owned(),
         options: vec!["a".to_owned(), "c".to_owned()],
+        ..base.clone()
     };
+    assert_ne!(base, other_name, "name 不同即不等（应答键是身份面）");
     assert_ne!(base, other_question, "题干不同即不等");
     assert_ne!(base, other_options, "任一选项不同即不等");
     assert_eq!(base.clone(), base, "Clone 后逐字段相等");
     assert!(!format!("{base:?}").is_empty(), "Debug 非空");
+}
+
+// ---------------------------------------------------------------------------
+// 边界：name 的线格式（字母开头 / 余位字母数字 _ - / 1..=64）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn name边界七形态() {
+    for (label, name, expect_ok) in [
+        ("单字母", "a", true),
+        ("大写与数字", "Retry2", true),
+        ("下划线与短横", "a_b-c9", true),
+        ("前导下划线", "_x", false),
+        ("前导数字", "1x", false),
+        ("含空白", "a b", false),
+        ("含点号", "a.b", false),
+    ] {
+        let args = json!({ "name": name, "question": "q", "options": ["a"] });
+        let result = ask::validate(&args);
+        assert_eq!(
+            result.is_ok(),
+            expect_ok,
+            "name {label}（{name:?}）：期望 ok={expect_ok}，实际: {result:?}"
+        );
+        if expect_ok {
+            assert_eq!(
+                result.expect("已判 ok").name,
+                name,
+                "name {label} 逐字保真（本层零改写）"
+            );
+        }
+    }
+
+    // 长度上界：64 合法、65 非法（下界由「字母开头」隐含 ≥1）
+    let max = format!("a{}", "b".repeat(63));
+    assert_eq!(max.chars().count(), 64);
+    assert!(
+        ask::validate(&json!({ "name": max, "question": "q", "options": ["a"] })).is_ok(),
+        "64 字符为合法上界"
+    );
+    let over = format!("a{}", "b".repeat(64));
+    assert!(
+        ask::validate(&json!({ "name": over, "question": "q", "options": ["a"] })).is_err(),
+        "65 字符越界"
+    );
+
+    // 非字符串：缺失与非串同臂（字段名 + 期望自足）
+    let err = ask::validate(&json!({ "name": 1, "question": "q", "options": ["a"] }))
+        .expect_err("非字符串应 Err");
+    assert!(
+        err.contains("name") && err.contains("匹配"),
+        "文案自足: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +466,7 @@ fn crate根出口面可达且与ask模块路径同源() {
 
     // 类型可达且可构造：根路径与模块路径为同一类型（赋值即证）
     let root_shape: crate::AskQuestion = AskQuestion {
+        name: "n".to_owned(),
         question: "q".to_owned(),
         options: vec!["a".to_owned()],
     };
@@ -507,6 +599,7 @@ fn crate根既有再导出面零改动且ask_question与ask_payload不冲突() {
 
     // `AskQuestion`（ask 模块）与 `AskPayload`（state 模块）两名字不冲突
     let question_word: AskQuestion = AskQuestion {
+        name: "n".to_owned(),
         question: "q".to_owned(),
         options: Vec::new(),
     };

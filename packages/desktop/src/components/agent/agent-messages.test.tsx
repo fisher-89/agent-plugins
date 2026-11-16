@@ -1459,13 +1459,13 @@ function twoAskEvents(): AgentEvent[] {
           kind: 'toolUse',
           id: 'call_1',
           name: 'AskUserQuestion',
-          input: { question: '第一问', options: ['甲', '乙'] },
+          input: { name: 'q', question: '第一问', options: ['甲', '乙'] },
         },
         {
           kind: 'toolUse',
           id: 'call_2',
           name: 'AskUserQuestion',
-          input: { question: '第二问', options: ['丙', '丁'] },
+          input: { name: 'q', question: '第二问', options: ['丙', '丁'] },
         },
       ],
       null,
@@ -1508,13 +1508,13 @@ function pairedAskEvents(): AgentEvent[] {
           kind: 'toolUse',
           id: 'call_1',
           name: 'AskUserQuestion',
-          input: { question: '第一问（未配对）', options: ['甲', '乙'] },
+          input: { name: 'q', question: '第一问（未配对）', options: ['甲', '乙'] },
         },
         {
           kind: 'toolUse',
           id: 'call_2',
           name: 'AskUserQuestion',
-          input: { question: '第二问（已回灌）', options: ['丙', '丁'] },
+          input: { name: 'q', question: '第二问（已回灌）', options: ['丙', '丁'] },
         },
         { kind: 'toolResult', id: 'call_2', content: '丁', isError: false },
       ],
@@ -1618,7 +1618,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
     );
     expect(onAnswer).not.toHaveBeenCalled();
     fireEvent.click(within(live as HTMLElement).getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"乙"}']]);
+    expect(onAnswer.mock.calls).toEqual([['乙']]);
   });
 
   it('pendingToolCallId = ""（空串）→ 不匹配任何部件，全静态且零 panic', () => {
@@ -1660,7 +1660,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
             kind: 'toolUse',
             id: 'call_ask',
             name: 'AskUserQuestion',
-            input: { question: '问', options: ['答'] },
+            input: { name: 'q', question: '问', options: ['答'] },
           },
         ],
         null,
@@ -1702,7 +1702,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
             kind: 'toolUse',
             id: 'call_ask3',
             name: 'AskUserQuestion',
-            input: { question: '问', options: ['答'] },
+            input: { name: 'q', question: '问', options: ['答'] },
           },
         ],
         null,
@@ -1748,7 +1748,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
 
     // 提交第二张卡（call_2）的选项 → 只投该卡的值，不串卡
     answerIn(cards[1] as HTMLElement, 0);
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"丙"}']]);
+    expect(onAnswer.mock.calls).toEqual([['丙']]);
   });
 
   it('引用稳定（DD12）：每渲染新造 askAnswer 对象但两字段同值 → 下游卡片收到同一引用', () => {
@@ -1819,7 +1819,7 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
     expect(updated).not.toBe(initial);
     expect(updated.onAnswer).toBe(second);
     answerIn(liveAskCards()[0] as HTMLElement, 0);
-    expect(second).toHaveBeenCalledWith('{"Q1":"甲"}');
+    expect(second).toHaveBeenCalledWith('甲');
     expect(first).not.toHaveBeenCalled();
   });
 

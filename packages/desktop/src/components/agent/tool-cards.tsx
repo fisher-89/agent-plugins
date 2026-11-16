@@ -80,7 +80,8 @@ function parseOptions(options: unknown[]): AskOption[] {
 
 /**
  * 宽松解析 ask 输入（双形态归一，皆不匹配即 null → 卡内回退 JSON 展示）：
- * - 单问形态 `{ question, options }`（阻塞工具 `AskUserQuestion` 的当前线形态）；
+ * - 单问形态 `{ name, question, options }`（阻塞工具 `AskUserQuestion` 的当前线
+ *   形态；`name` 是**协议声明**的应答 map 键，缺失是历史转录，回落 `Q1`）；
  * - 历史形态 `{ questions: [{ question, options }] }`（旧工具参数面）。
  */
 function parseAsk(input: unknown): AskQuestion[] | null {
@@ -88,7 +89,7 @@ function parseAsk(input: unknown): AskQuestion[] | null {
   if (typeof record.question === 'string') {
     return [
       {
-        name: 'Q1',
+        name: typeof record.name === 'string' && record.name !== '' ? record.name : 'Q1',
         question: record.question,
         choices: Array.isArray(record.options) ? parseOptions(record.options) : [],
       },
@@ -107,9 +108,13 @@ function parseAsk(input: unknown): AskQuestion[] | null {
 }
 
 /**
- * 已应答回灌的选项回填：工具结果正文是本卡提交时上行的 JSON map（`{ 问题名: 选项值 }`）。
- * 历史转录里的结果正文是自由文本原文（旧线应答）或错误文案，非 JSON 对象——此时
- * 无选项可回填，返回 `null` 由调用方按「无匹配选项」呈现原文。
+ * 已应答回灌的选项回填：工具结果正文是**后端铸造**的应答信封
+ * `{ status: 'answered', answers: { 问题名: 应答原文 } }`（形状单点在
+ * `execute_ask`——本卡与右栏 `AskCard` 都只上行原文，不拼结构）。
+ *
+ * 历史转录两种形态兼容：旧扁平 map `{ 问题名: 值 }`（无 `status`）与更早的
+ * 自由文本原文。非 JSON / 无 `answers` 对象时返回 `null`，由调用方按「无匹配
+ * 选项」呈现原文——不抛错。
  */
 function parseSubmittedAnswers(output: AgentToolOutput | null): Record<string, string> | null {
   if (output === null || output.isError) return null;
@@ -119,9 +124,10 @@ function parseSubmittedAnswers(output: AgentToolOutput | null): Record<string, s
   } catch {
     return null;
   }
-  const record = asRecord(parsed);
+  const envelope = asRecord(parsed);
+  const body = 'status' in envelope ? asRecord(envelope.answers) : envelope;
   const answers: Record<string, string> = {};
-  for (const [key, value] of Object.entries(record)) {
+  for (const [key, value] of Object.entries(body)) {
     if (typeof value !== 'string') return null;
     answers[key] = value;
   }
@@ -182,7 +188,10 @@ function AskUserQuestionCard({ input, output, askAnswer }: AgentToolCardProps): 
     );
   }
 
-  const live = output === null && askAnswer !== undefined && !submitted;
+  // 活卡判据含「单问」：应答上行的是用户原文（一值），多问形态只存在于历史
+  // 转录（当前协议一次一问、`name` 定键），故历史多问卡呈只读——不提供会静默
+  // 丢弃其余问答的提交入口。
+  const live = output === null && askAnswer !== undefined && !submitted && questions.length === 1;
   const submittedForm = parseSubmittedAnswers(output);
   // Root 的 items 与逐项渲染的 Choice 必须同源（库按值对账，不一致会逐渲染告警）
   const items: QuestionnaireItemDefinition[] = questions.map((item) => ({
@@ -198,10 +207,12 @@ function AskUserQuestionCard({ input, output, askAnswer }: AgentToolCardProps): 
     new FormData(event.currentTarget).forEach((value, key) => {
       answers[key] = value instanceof File ? value.name : value;
     });
-    const trimmed = JSON.stringify(answers);
-    if (trimmed === '{}' || askAnswer === undefined || submitted) return;
+    // 单问必答：上行用户原文（选项值或自由文本）。结构（信封 / 键位）由后端按
+    // 工具声明铸造——本卡不拼 JSON，两入口（此卡与右栏 AskCard）载荷同形。
+    const text = Object.values(answers)[0];
+    if (text === undefined || text === '' || askAnswer === undefined || submitted) return;
     setSubmitted(true);
-    askAnswer.onAnswer(trimmed);
+    askAnswer.onAnswer(text);
   };
 
   return (

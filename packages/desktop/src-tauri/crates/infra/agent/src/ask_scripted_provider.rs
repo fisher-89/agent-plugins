@@ -124,7 +124,7 @@ fn sse_ask_body(tool_call_id: &str, question: &str, options: &[&str]) -> String 
                     "type": "function",
                     "function": {
                         "name": "AskUserQuestion",
-                        "arguments": serde_json::json!({ "question": question, "options": options }).to_string(),
+                        "arguments": serde_json::json!({ "name": "q", "question": question, "options": options }).to_string(),
                     },
                 }],
             },

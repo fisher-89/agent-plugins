@@ -1317,12 +1317,21 @@ async fn change来源的flow档ask经组合根广播两拍并可应答() {
         Some(session_id.as_str()),
         "session_id 取 core 铸会话 id（注册表键）"
     );
-    // 应答原文回灌为该 tool_use 的配对结果
-    let paired = transcript_tool_result(&outcome.transcript, "tu_w_ask");
+    // 应答原文进信封，作为该 tool_use 的配对结果
+    let (paired, paired_error) =
+        transcript_tool_result(&outcome.transcript, "tu_w_ask").expect("该调用有配对结果");
+    assert!(!paired_error, "应答结果非错误面");
+    let parsed: serde_json::Value = serde_json::from_str(&paired)
+        .unwrap_or_else(|error| panic!("非 JSON 信封: {paired}（{error}）"));
     assert_eq!(
-        paired,
-        Some(("甲".to_owned(), false)),
-        "应答原文回灌为配对 tool_result"
+        parsed["status"],
+        serde_json::json!("answered"),
+        "信封 status"
+    );
+    assert_eq!(
+        parsed["answers"]["q"].as_str(),
+        Some("甲"),
+        "应答原文进信封（answers.q）"
     );
 }
 
@@ -1427,9 +1436,14 @@ async fn 非change来源的泛用档不吃ask_port() {
         ask_payloads.lock().expect("ask 载荷锁不可中毒").is_empty(),
         "零载荷记录"
     );
+    let (generic, generic_error) =
+        transcript_tool_result(&outcome.transcript, "tu_w_generic").expect("该调用有配对结果");
+    assert!(!generic_error, "应答结果非错误面");
+    let generic: serde_json::Value = serde_json::from_str(&generic)
+        .unwrap_or_else(|error| panic!("非 JSON 信封: {generic}（{error}）"));
     assert_eq!(
-        transcript_tool_result(&outcome.transcript, "tu_w_generic"),
-        Some(("乙".to_owned(), false)),
+        generic["answers"]["q"].as_str(),
+        Some("乙"),
         "应答仍可回灌续跑（只阻塞，零编排广播）"
     );
 }

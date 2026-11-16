@@ -656,7 +656,7 @@ function askTranscript(): AgentEvent[] {
           kind: 'toolUse',
           id: 'call_1',
           name: 'AskUserQuestion',
-          input: { question: '选哪个？', options: ['甲', '乙'] },
+          input: { name: 'q', question: '选哪个？', options: ['甲', '乙'] },
         },
       ],
       parentToolUseId: null,
@@ -675,7 +675,7 @@ describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
     expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
     fireEvent.click(buttons[1] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"乙"}']]);
+    expect(onAnswer.mock.calls).toEqual([['乙']]);
   });
 
   it('传 askAnswer.pendingToolCallId = null → 全静态（历史重放零应答入口）', async () => {
@@ -799,7 +799,7 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
             type: 'tool-AskUserQuestion',
             toolCallId: 'call_view_1',
             state: 'input-available',
-            input: { question: '选哪个？', options: ['甲', '乙'] },
+            input: { name: 'q', question: '选哪个？', options: ['甲', '乙'] },
           },
         ],
       } as unknown as UseAgentSessionState['messages'][number],
@@ -849,7 +849,7 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
     expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
     fireEvent.click(buttons[1] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"乙"}']]);
+    expect(onAnswer.mock.calls).toEqual([['乙']]);
   });
 
   it('自持形态透传：root + sessionId（无 session）+ askAnswer 在场 → 活卡同样生效', async () => {
@@ -861,7 +861,7 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
     expect(buttons.map((node) => node.textContent)).toEqual(['甲', '乙']);
     fireEvent.click(buttons[0] as HTMLElement);
     fireEvent.click(screen.getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"甲"}']]);
+    expect(onAnswer.mock.calls).toEqual([['甲']]);
   });
 
   it('不自动接线（DD7）：注入形态未传 askAnswer → 全静态且零 invoke', async () => {

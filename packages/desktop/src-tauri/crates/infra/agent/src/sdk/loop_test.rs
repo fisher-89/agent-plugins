@@ -711,6 +711,21 @@ fn history_tool_result_text(history: &[Message], call: &str) -> Option<String> {
     })
 }
 
+/// 应答信封判据：正文须为 `{"status":"answered","answers":{<name>:<值>}}`，返回该
+/// 值（逐字，零 trim 零截断）。形状由 `execute_ask` 单点铸造——本装置只做读侧
+/// 对账，不复制铸造逻辑（键序无关，故按 JSON 解析而非字符串比对）。
+fn answered_value(history: &[Message], call: &str, name: &str) -> Option<String> {
+    let text = history_tool_result_text(history, call)?;
+    let parsed: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|error| panic!("应答正文非 JSON 信封: {text}（{error}）"));
+    assert_eq!(
+        parsed["status"],
+        serde_json::json!("answered"),
+        "信封 status 恒 answered（本版唯一取值）: {text}"
+    );
+    parsed["answers"][name].as_str().map(str::to_owned)
+}
+
 // ---------------------------------------------------------------------------
 // 单轮密封收口（AC-1 落库半边 / AC-2 引擎半边）
 // ---------------------------------------------------------------------------
@@ -6118,7 +6133,7 @@ async fn ask泛用档阻塞后回灌并同turn续跑() {
             raw_tool_call(
                 "tu_ask",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "选哪个重试策略？", "options": ["指数退避", "固定间隔"] }),
+                serde_json::json!({ "name": "q", "question": "选哪个重试策略？", "options": ["指数退避", "固定间隔"] }),
             ),
             raw_final(usage(1, 2)),
         ],
@@ -6144,9 +6159,9 @@ async fn ask泛用档阻塞后回灌并同turn续跑() {
         "模型请求数恰 2（阻塞期间零新请求）"
     );
     assert_eq!(
-        history_tool_result_text(&history, "tu_ask").as_deref(),
+        answered_value(&history, "tu_ask", "q").as_deref(),
         Some("指数退避"),
-        "应答文本逐字回灌为 tool result"
+        "应答文本逐字进信封（answers.q）"
     );
     // 同 turn 续跑：单条 TurnDone 收口、run 未中断
     let done = turn_done_of(&events);
@@ -6211,7 +6226,7 @@ async fn ask流程档广播序列与载荷逐字() {
             raw_tool_call(
                 "tu_flow",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "采用哪个方案？", "options": ["A", "B"] }),
+                serde_json::json!({ "name": "q", "question": "采用哪个方案？", "options": ["A", "B"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6272,7 +6287,7 @@ async fn ask流程档应答回灌且resolved先于回灌() {
             raw_tool_call(
                 "tu_order",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["固定间隔"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["固定间隔"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6292,9 +6307,9 @@ async fn ask流程档应答回灌且resolved先于回灌() {
     answerer.await.expect("应答任务结束").expect("应答受理");
 
     assert_eq!(
-        history_tool_result_text(&history, "tu_order").as_deref(),
+        answered_value(&history, "tu_order", "q").as_deref(),
         Some("固定间隔"),
-        "应答逐字回灌"
+        "应答逐字进信封"
     );
     // 回灌发生在 tool result 密封事件之后；resolved 在 started 之后（清理先于回灌
     // 的序以「两记录都在、tool result 亦在」表达）
@@ -6322,7 +6337,7 @@ async fn ask流程档停止臂仍执行resolved恰一次() {
             raw_tool_call(
                 "tu_stop",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["a"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6376,7 +6391,7 @@ async fn ask流程档port缺席时is_error回灌且零登记() {
             raw_tool_call(
                 "tu_no_port",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["a"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6426,7 +6441,7 @@ async fn ask上下文缺席时is_error回灌且零panic() {
             raw_tool_call(
                 "tu_no_ctx",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["a"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6463,7 +6478,7 @@ async fn ask参数非法当场回灌且零登记() {
             raw_tool_call(
                 "tu_bad_args",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "", "options": [] }),
+                serde_json::json!({ "name": "q", "question": "", "options": [] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6503,7 +6518,7 @@ async fn ask单次回灌后二次应答err且转录恰一条tool_result() {
             raw_tool_call(
                 "tu_single",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["a"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6572,7 +6587,7 @@ async fn ask流程档started先于阻塞可回调内应答() {
             raw_tool_call(
                 "tu_callback",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["a"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6598,9 +6613,9 @@ async fn ask流程档started先于阻塞可回调内应答() {
     );
     assert_eq!(port.labels(), vec!["started", "resolved"], "序列仍恰两条");
     assert_eq!(
-        history_tool_result_text(&history, "tu_callback").as_deref(),
+        answered_value(&history, "tu_callback", "q").as_deref(),
         Some("登记后应答"),
-        "登记后应答逐字回灌（执行体不悬挂）"
+        "登记后应答逐字进信封（执行体不悬挂）"
     );
 }
 
@@ -6623,7 +6638,7 @@ async fn ask应答正文边界逐字进tool_result() {
                 raw_tool_call(
                     "tu_text",
                     "AskUserQuestion",
-                    serde_json::json!({ "question": "q", "options": ["a"] }),
+                    serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
                 ),
                 raw_final(usage(1, 1)),
             ],
@@ -6645,9 +6660,9 @@ async fn ask应答正文边界逐字进tool_result() {
         answerer.await.expect("应答任务结束").expect("应答受理");
 
         assert_eq!(
-            history_tool_result_text(&history, "tu_text"),
+            answered_value(&history, "tu_text", "q"),
             Some(text.clone()),
-            "应答正文 {text:?} 逐字保真"
+            "应答正文 {text:?} 逐字进信封（零 trim 零截断）"
         );
     }
 }
@@ -6671,7 +6686,7 @@ async fn ask选项边界逐项保真() {
                 raw_tool_call(
                     "tu_options",
                     "AskUserQuestion",
-                    serde_json::json!({ "question": "q", "options": options }),
+                    serde_json::json!({ "name": "q", "question": "q", "options": options }),
                 ),
                 raw_final(usage(1, 1)),
             ],
@@ -6696,7 +6711,7 @@ async fn ask选项边界逐项保真() {
         };
         assert_eq!(payload.options, options, "选项逐项保真（不截断）");
         assert_eq!(
-            history_tool_result_text(&history, "tu_options").as_deref(),
+            answered_value(&history, "tu_options", "q").as_deref(),
             Some("ok"),
             "回灌不受选项规模影响"
         );
@@ -6716,7 +6731,7 @@ async fn ask与其它工具同批共存且结果收进一条user消息() {
             raw_tool_call(
                 "tu_ask_batch",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["a"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -6740,7 +6755,7 @@ async fn ask与其它工具同批共存且结果收进一条user消息() {
         "同批 read 执行体未被 ask 臂打断"
     );
     assert_eq!(
-        history_tool_result_text(&history, "tu_ask_batch").as_deref(),
+        answered_value(&history, "tu_ask_batch", "q").as_deref(),
         Some("a"),
         "ask 结果同批回灌"
     );
@@ -6772,7 +6787,7 @@ async fn ask位缺席时硬调即tool_unavailable且零登记() {
             raw_tool_call(
                 "tu_disabled",
                 "AskUserQuestion",
-                serde_json::json!({ "question": "q", "options": ["a"] }),
+                serde_json::json!({ "name": "q", "question": "q", "options": ["a"] }),
             ),
             raw_final(usage(1, 1)),
         ],
@@ -7285,7 +7300,7 @@ async fn 事件通道已关闭时在途项不补ack且loop不悬挂() {
         vec![raw_tool_call(
             "tu_ask",
             "AskUserQuestion",
-            serde_json::json!({ "question": "继续？", "options": ["继续"] }),
+            serde_json::json!({ "name": "q", "question": "继续？", "options": ["继续"] }),
         )],
         vec![raw_text("不应到达")],
     ]);
@@ -7361,7 +7376,7 @@ async fn ask阻塞窗口零drain_应答后下一边界才取走() {
         vec![raw_tool_call(
             "tu_ask",
             "AskUserQuestion",
-            serde_json::json!({ "question": "继续？", "options": ["继续"] }),
+            serde_json::json!({ "name": "q", "question": "继续？", "options": ["继续"] }),
         )],
         vec![raw_text("应答后继续")],
     ]);

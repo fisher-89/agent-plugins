@@ -171,3 +171,8 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
+
+/* 屏蔽react flow水印 */
+.react-flow__attribution {
+  display: none !important;
+}

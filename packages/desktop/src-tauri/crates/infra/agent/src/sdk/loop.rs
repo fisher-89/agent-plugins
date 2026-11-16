@@ -1013,6 +1013,12 @@ async fn forward_notice(sender: &mpsc::Sender<AgentEventKind>, notice: &DefenseN
 /// 清理单点在此——外层泵的 `select!` 只 drop future，不执行清理代码，故显式
 /// 停止臂是唯一落点）。
 ///
+/// 应答成功臂的正文是**信封**（形状单点在此，前端两入口恒上行原文）：`status`
+/// 为封闭枚举、本版仅 `answered`（`declined` 预留——工具当前要求必答，取消通路
+/// 未开），`answers` 为 `{问题名: 应答原文}`；多问扩展只让 `answers` 多键，信封
+/// 不动。校验失败 / 上下文缺席 / 停止臂**不进信封**（仍是 is_error + 原文，模型
+/// 读「工具执行失败: …」）。
+///
 /// 阻塞期间不收敛、不发新请求（ask 是本 loop 唯一可阻塞数十秒的执行臂）。
 async fn execute_ask(
     ctx: Option<&AskContext>,
@@ -1053,7 +1059,7 @@ async fn execute_ask(
     }
     let outcome = tokio::select! {
         answer = rx => match answer {
-            Ok(text) => (text, false),
+            Ok(text) => (answer_envelope(&question.name, text), false),
             Err(_) => ("ask 等待通道已关闭（会话已终止）".to_owned(), true),
         },
         _ = handle.wait_requested() => ("用户未应答（会话被终止）".to_owned(), true),
@@ -1064,6 +1070,17 @@ async fn execute_ask(
         }
     }
     outcome
+}
+
+/// 应答信封（形状唯一落点）：`{"status":"answered","answers":{"<name>":"<原文>"}}`。
+///
+/// 键走 `Map::insert` 而非 `json!` 宏插值——宏把 `name` 当**字面量键**渲染，
+/// 模型给的标识符会被写成固定字符串。`status` 为封闭枚举、本版仅 `answered`
+/// （取消通路未开时 `declined` 保留位，读侧已按缺 `answers` 判别）。
+fn answer_envelope(name: &str, text: String) -> String {
+    let mut answers = serde_json::Map::new();
+    answers.insert(name.to_owned(), Value::String(text));
+    serde_json::json!({ "status": "answered", "answers": answers }).to_string()
 }
 
 /// sandbox 校验与入参改写：路径类工具（path 字段）经 [`sandbox::check`]

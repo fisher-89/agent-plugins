@@ -411,7 +411,7 @@ function askMessage(seq: number): AgentEvent {
         kind: 'toolUse',
         id: 'call_flow_1',
         name: 'AskUserQuestion',
-        input: { question: '回溯到哪？', options: ['proposal', 'dev-design'] },
+        input: { name: 'q', question: '回溯到哪？', options: ['proposal', 'dev-design'] },
       },
     ],
     parentToolUseId: null,
@@ -430,13 +430,13 @@ function twoAskMessage(seq: number): AgentEvent {
         kind: 'toolUse',
         id: 'call_1',
         name: 'AskUserQuestion',
-        input: { question: '退回哪个相位？', options: ['proposal'] },
+        input: { name: 'q', question: '退回哪个相位？', options: ['proposal'] },
       },
       {
         kind: 'toolUse',
         id: 'call_2',
         name: 'AskUserQuestion',
-        input: { question: '采用哪个实现方案？', options: ['方案甲', '方案乙'] },
+        input: { name: 'q', question: '采用哪个实现方案？', options: ['方案甲', '方案乙'] },
       },
     ],
     parentToolUseId: null,
@@ -481,7 +481,7 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
 
     fireEvent.click(buttons[0] as HTMLElement);
     fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"proposal"}']]);
+    expect(onAnswer.mock.calls).toEqual([['proposal']]);
   });
 
   it('两 ask 部件精确对账：pendingToolCallId 指向者活、另一张静态，切换后互为镜像', async () => {
@@ -524,7 +524,7 @@ describe('SessionTranscriptPanel：ask 动作面透传（AC-13）', () => {
     // 活卡选一条 + 提交 → onAnswer 恰一次，载荷为该问的 JSON map（不串卡）
     fireEvent.click(within(second).getAllByTestId('ask-answer-option')[1] as HTMLElement);
     fireEvent.click(within(second).getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"方案乙"}']]);
+    expect(onAnswer.mock.calls).toEqual([['方案乙']]);
 
     // 指针切到 call_1 → 两卡活性互为镜像
     const toFirst = { onAnswer, pendingToolCallId: 'call_1' };

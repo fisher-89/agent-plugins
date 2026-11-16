@@ -1073,7 +1073,7 @@ function askEvent(seq: number): AgentEvent {
         kind: 'toolUse',
         id: 'call_drawer_1',
         name: 'AskUserQuestion',
-        input: { question: '回溯到哪？', options: ['proposal', 'dev-design'] },
+        input: { name: 'q', question: '回溯到哪？', options: ['proposal', 'dev-design'] },
       },
     ],
     parentToolUseId: null,
@@ -1123,7 +1123,7 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
 
     fireEvent.click(buttons[1] as HTMLElement);
     fireEvent.click(within(panel).getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"dev-design"}']]);
+    expect(onAnswer.mock.calls).toEqual([['dev-design']]);
   });
 
   it('非会话选中对象（scope=column）→ 不渲染会话面板，askAnswer 零消费', async () => {
@@ -1202,13 +1202,13 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
               kind: 'toolUse',
               id: 'call_a',
               name: 'AskUserQuestion',
-              input: { question: '第一问', options: ['甲', '乙'] },
+              input: { name: 'q', question: '第一问', options: ['甲', '乙'] },
             },
             {
               kind: 'toolUse',
               id: 'call_b',
               name: 'AskUserQuestion',
-              input: { question: '第二问', options: ['丙', '丁'] },
+              input: { name: 'q', question: '第二问', options: ['丙', '丁'] },
             },
           ],
           parentToolUseId: null,
@@ -1234,6 +1234,6 @@ describe('DetailDrawer：ask 动作面逐层透传（AC-13）', () => {
 
     fireEvent.click(buttons[0] as HTMLElement);
     fireEvent.click(within(liveCard).getByTestId('ask-answer-submit'));
-    expect(onAnswer.mock.calls).toEqual([['{"Q1":"丙"}']]);
+    expect(onAnswer.mock.calls).toEqual([['丙']]);
   });
 });

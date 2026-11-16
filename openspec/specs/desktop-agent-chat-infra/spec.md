@@ -484,30 +484,32 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 - **卡壳**：卡 SHALL 由 `TraceLine`（标题「提问」，`output` 缺席时为 running 图标、落定后为提问图标 / 错误态）与 `Card` 包裹；问卷表单根 SHALL 带 `data-testid="ask-question-card"`，每问节点带 `data-testid="ask-question"`，每个选项行带 `data-testid="ask-answer-option"`。
 - **静态态（未注入动作面）**：问题与选项原样可读、零应答出口——选项行 SHALL 照常呈现（表单行可选中，但无提交入口、无自由文本输入，故零 `onAnswer` 调用）；文案 MUST NOT 承诺「请在下方输入框作答」这类该页面并不成立的引导。
-- **活卡态（注入动作面且该部件无结果）**：选项 SHALL 呈现为可选的单选行，并 SHALL 提供自由文本输入（`data-testid="ask-answer-input"`）与提交入口（`data-testid="ask-answer-submit"`）；**选项点击本身 MUST NOT 提交**——须经提交入口（或表单 Enter）才投递；提交后 SHALL 在本地即时回落静态（提交与输入入口退场，防连点 / 重复应答），等待下一次 `activeRun` / 部件状态变化复位；空表单（未选项且未输入非空白文本）MUST NOT 提交。
-- **应答载荷与多问翻页**：表单按行提交，`onAnswer` SHALL 收到**以问题名为键、选项值或自由文本为值**的 JSON 对象字符串（问题名恒为 `Q1`…`Qn`；单问即 `{"Q1":"<值>"}`）。多问形态 SHALL 逐问翻页呈现（`上一个` / `下一个`；提交入口只在末问可见），提交时载荷 SHALL 包含各问已选值。自由文本值 MUST NOT 在组件内 trim 或改写（原文入载荷）。
-- **已应答回填**：工具结果正文为本卡提交的 JSON 对象时，SHALL 回填该问的选中项（选中项可选、其余项禁用）且零应答入口；结果正文非 JSON 对象（旧线原文应答 / 错误文案）时 MUST NOT 抛错——按无匹配选项呈现选项行原样。
+- **活卡态（注入动作面且该部件无结果，且为单问）**：选项 SHALL 呈现为可选的单选行，并 SHALL 提供自由文本输入（`data-testid="ask-answer-input"`）与提交入口（`data-testid="ask-answer-submit"`）；**选项点击本身 MUST NOT 提交**——须经提交入口（或表单 Enter）才投递；提交后 SHALL 在本地即时回落静态（提交与输入入口退场，防连点 / 重复应答），等待下一次 `activeRun` / 部件状态变化复位；空表单（未选项且未输入非空白文本）MUST NOT 提交。
+- **应答载荷（单值原文）**：`onAnswer` SHALL 收到**用户原文**——选中的选项值或自由文本，**不是** JSON 字符串。自由文本值 MUST NOT 在组件内 trim 或改写。结构（`{status, answers}` 信封与 `name` 键位）SHALL 由后端 ask 执行体按工具声明铸造（单点，见 desktop-agent-execution「ask 工具协议与阻塞应答通道」）；组件族 MUST NOT 拼装应答 JSON——两处入口（本卡与右栏 `AskCard`）载荷同形。协议一次一问，故载荷恒单值。
+- **多问形态只读**：历史转录里的 `questions` 数组形态（旧工具参数面）SHALL 仍可解析呈现（问题与选项逐项可读），即便注入了动作面也 MUST NOT 提供提交入口——当前协议一次一问、应答恒单值，投递一个值会静默丢弃其余问。
+- **已应答回填**：工具结果正文为应答信封时，SHALL 按 `answers[<本问 name>]` 回填选中项（选中项可选、其余项禁用）且零应答入口；旧扁平 map（无 `status`，键为该问名）SHALL 同样回填；结果正文既非信封亦非扁平 map（旧线原文应答 / 错误文案）时 MUST NOT 抛错——按无匹配选项呈现选项行原样。
 - **不可解析输入**：问题形态无法归一（既非单问也非 `questions` 数组）时 SHALL 呈破坏性提示（标题「无法解析问题」+ 原始输入 JSON），MUST NOT 渲染问卷卡根、MUST NOT 抛错。
 - **注入路径**：动作面 SHALL 经 `AgentSessionView` → `AgentMessages` → 工具部件三层**可选 prop** 下行（`askAnswer: { onAnswer: (text: string) => void; pendingToolCallId?: string | null }`）；`AgentToolCardProps` SHALL 增可选 `askAnswer` 位。缺席时各层 MUST NOT 改变任何既有行为（零新渲染、零新 invoke）。
+- **问题名来源**：卡内每问的 `name` SHALL 取输入声明的 `name` 字段（协议声明值）；历史转录输入无该字段时回落 `Q1`（与旧扁平 map 的键同源，保证回填仍命中）。
 - **活卡判据（精确对账优先）**：给出 `pendingToolCallId` 时，仅 `toolCallId` 与之相等的 ask 部件为活卡（其余为静态卡）；未给出时按「该部件仍为无结果态」判活。MUST NOT 以「工具结果缺席即认为在等」作为唯一判据用于流程抽屉（历史转录中崩溃残留的未配对 `tool_use` 同形，会误呈为可应答）。
-- **应答出口**：应答 SHALL 经消费点注入的 `onAnswer` 回流（通用会话面 = `useAgentSession.answer` → `agent_answer`；change 流程抽屉 = `change_flow_answer`），组件族 MUST NOT 直接 `invoke` 任何命令（组件族不认识业务域，沿用 composer 插槽「动作面由来源侧注入」纪律）。载荷为 JSON 对象字符串，后端工具结果原文即该字符串。
+- **应答出口**：应答 SHALL 经消费点注入的 `onAnswer` 回流（通用会话面 = `useAgentSession.answer` → `agent_answer`；change 流程抽屉 = `change_flow_answer`），组件族 MUST NOT 直接 `invoke` 任何命令（组件族不认识业务域，沿用 composer 插槽「动作面由来源侧注入」纪律）。载荷为用户原文单值；后端把它铸成信封后作为工具结果回灌。
 - **错误可归因**：应答被后端拒绝（`Err`，如「当前无等待中的 ask」）SHALL 走来源侧既有错误面呈现（会话错误横幅 / 运行控制面板错误行），组件族 MUST NOT 静默吞掉、MUST NOT 自行重试。
 - **零回退面变更**：未注册工具名仍回退 `ToolPairCard`；`finish_step` 卡与其余特化卡零改动。
 
 #### Scenario: 活卡选选项并提交
 
-- **WHEN** 以 `askAnswer` 注入动作面渲染一个 `input-available` 的 `AskUserQuestion` 部件（单问，`options = ["A","B"]`）
-- **THEN** 卡内呈 A / B 两个可选项、一个自由文本输入与提交入口；只点 A 时 `onAnswer` 零调用；再点提交 → `onAnswer('{"Q1":"A"}')` 恰调用一次，提交与输入入口随即退场；MUST NOT 直接调用任何 IPC 命令
+- **WHEN** 以 `askAnswer` 注入动作面渲染一个 `input-available` 的 `AskUserQuestion` 部件（单问，`name = "pick"`，`options = ["A","B"]`）
+- **THEN** 卡内呈 A / B 两个可选项、一个自由文本输入与提交入口；只点 A 时 `onAnswer` 零调用；再点提交 → `onAnswer('A')` 恰调用一次（用户原文，非 JSON），提交与输入入口随即退场；MUST NOT 直接调用任何 IPC 命令
 
 #### Scenario: 活卡自由文本应答
 
 - **WHEN** 在活卡的自由文本输入框键入「用方案 C」并提交
-- **THEN** `onAnswer('{"Q1":"用方案 C"}')` 恰调用一次（组件不 trim、不改写原文）；未选项且未输入非空白文本时提交入口不产生调用
+- **THEN** `onAnswer('用方案 C')` 恰调用一次（组件不 trim、不改写原文、不拼 JSON）；未选项且未输入非空白文本时提交入口不产生调用
 
-#### Scenario: 多问逐问翻页
+#### Scenario: 多问形态（历史转录）呈只读
 
-- **WHEN** 以两问形态（`questions = [Q1, Q2]`）渲染活卡
-- **THEN** 首问呈上一个 / 下一个但无可见提交入口；选定 Q1 后翻到 Q2，提交时 `onAnswer('{"Q1":"<Q1 选项>","Q2":"<Q2 选项>"}')` 恰调用一次
+- **WHEN** 以两问形态（`questions = [Q1, Q2]`，旧工具参数面）注入动作面渲染
+- **THEN** 两问的问题与选项 SHALL 逐项可读，但 MUST NOT 出现提交入口或自由文本输入（点击选项不产生 `onAnswer` 调用）——当前协议一次一问，单值载荷无法表达多问应答
 
 #### Scenario: 未注入即无应答出口
 
@@ -516,8 +518,8 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 #### Scenario: 已应答回填与历史原文兼容
 
-- **WHEN** 分别在 `output.content = '{"Q1":"B"}'` 与 `output.content = '旧线原文'` 下渲染同一部件
-- **THEN** 前者回填 B 为选中项、其余选项禁用且零应答入口；后者不抛错（不触发 `JSON.parse` 异常），选项行按原样可读、零应答入口
+- **WHEN** 分别在 `output.content = '{"status":"answered","answers":{"pick":"B"}}'`、`output.content = '{"Q1":"B"}'`（旧扁平 map）与 `output.content = '旧线原文'` 下渲染同一部件（`name = "pick"` / 无 `name` 两种输入各一）
+- **THEN** 信封按 `answers[<name>]` 回填 B 为选中项、其余选项禁用且零应答入口；旧扁平 map 按同名键回填（输入无 `name` 时键回落 `Q1`）；`旧线原文` 不抛错（不触发 `JSON.parse` 异常），选项行按原样可读、零应答入口
 
 #### Scenario: pendingToolCallId 精确对账
 
@@ -708,14 +710,14 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 | 模块 | 职责 | 关键契约（Component / Function / Type） |
 |------|------|------|
-| `packages/desktop/src/components/agent/tool-cards.tsx`（扩） | ask 卡双态（表单化） | `interface AgentToolCardProps` 增 `askAnswer?: { onAnswer: (text: string) => void }`；`AskUserQuestionCard` 以 `@shadcn/react/questionnaire`（经 `components/ui/questionnaire.tsx` shim）承载表单：`TraceLine` + `Card` 卡壳、`data-testid="ask-question-card"` 表单根、`ask-question` / `ask-answer-option` / `ask-answer-input` / `ask-answer-submit` 钩子；提交上行「问题名 → 值」的 JSON 对象字符串（多问逐问翻页）；已应答按 JSON 回填、非 JSON 结果不抛错；不可解析输入降级为破坏性提示；`BUILD_IN_TOOL_CARDS` 键面零变更 |
+| `packages/desktop/src/components/agent/tool-cards.tsx`（扩） | ask 卡双态（表单化） | `interface AgentToolCardProps` 增 `askAnswer?: { onAnswer: (text: string) => void }`；`AskUserQuestionCard` 以 `@shadcn/react/questionnaire`（经 `components/ui/questionnaire.tsx` shim）承载表单：`TraceLine` + `Card` 卡壳、`data-testid="ask-question-card"` 表单根、`ask-question` / `ask-answer-option` / `ask-answer-input` / `ask-answer-submit` 钩子；可见态下提交上行**用户原文单值**（选项值或自由文本；结构由后端按 `name` 铸造，组件不拼 JSON）；多问形态只读（零提交入口）；已应答按应答信封 `answers[<name>]` 回填、旧扁平 map 兼容、非 JSON 结果不抛错；不可解析输入降级为破坏性提示；`BUILD_IN_TOOL_CARDS` 键面零变更 |
 | `packages/desktop/src/components/ui/questionnaire.tsx`（新） | questionnaire shim | shadcn 生成的样式层：`Questionnaire` / `QuestionnaireItem` / `QuestionnaireTitle` / `QuestionnaireChoices` / `QuestionnaireChoice` / `QuestionnaireChoiceDescription` / `QuestionnaireInput` / `QuestionnaireError` / `QuestionnaireActions` / `QuestionnairePrevious` / `QuestionnaireNext` / `QuestionnaireSubmit` 等；底层为 `@shadcn/react/questionnaire` primitives |
 | `packages/desktop/src/components/agent/agent-messages.tsx`（扩） | 动作面透传单点 | `AgentMessagesProps` 增 `askAnswer?: { onAnswer: (text: string) => void; pendingToolCallId?: string \| null }`；`ToolPartView` 仅对 `AskUserQuestion` 名透传（按 `pendingToolCallId` 判活），其余卡零影响 |
 | `packages/desktop/src/components/agent/agent-session-view.tsx`（扩） | 两形态同透传 | `AgentSessionViewProps` 增可选 `askAnswer`；自持形态（内部 `useAgentSession`）与注入形态（`session` prop）SHALL 都把 `answer` 动作与 `askAnswer.pendingToolCallId` 合成为同一动作面下行（自持形态可由组件自行提供 `onAnswer = session.answer`，注入形态由来源侧提供） |
 | `packages/desktop/src/components/agent/session-panel.tsx`（扩） | 面板骨架合成动作面 | 不需新增 `SessionPanelState` 字段——`SessionPanelState.session` 已是 `UseAgentSessionState`，骨架直接以 `state.session.answer` 合成 `askAnswer` 下传 `AgentSessionView`（archi / change-chat 两处 hook 与面板零改动即得活卡） |
 | `packages/desktop/src/hooks/use-agent-session.ts`（扩） | 通用侧应答动作 | `UseAgentSessionState` 增 `answer: (text: string) => void`（`root` / `sessionId` 为 null 时不 invoke；`ipc.agentAnswer(root, sessionId, text)` 的 `Err` 进既有 `error` 面） |
 | `packages/desktop/src/views/explores/explore-detail-pane.tsx` / `views/agent/agent-debug-view.tsx`（扩） | 通用会话面接线 | 以 `askAnswer={{ onAnswer: session.answer }}` 注入（archi 与 change-chat 两处经 `SessionPanel` 骨架零改动即得——骨架从 `state.session.answer` 合成） |
-| `packages/desktop/src/components/agent/tool-cards.test.tsx` / `agent-messages.test.tsx` / `agent-session-view.test.tsx`（测试） | 双态与透传判据 | 活卡选项 + 提交两路应答（载荷为 JSON 对象串）/ 空表单不提交 / 提交后回落静态 / 未注入即静态且无旧文案 / 已应答 JSON 回填与历史原文兼容 / 多问逐问翻页 / `pendingToolCallId` 精确对账 / 动作面只达 ask 卡 / 两形态透传 |
+| `packages/desktop/src/components/agent/tool-cards.test.tsx` / `agent-messages.test.tsx` / `agent-session-view.test.tsx`（测试） | 双态与透传判据 | 活卡选项 + 提交两路应答（载荷为用户原文）/ 空表单不提交 / 提交后回落静态 / 未注入即静态且无旧文案 / 已应答信封回填 + 旧扁平 map 兼容 + 历史原文兼容 / 多问形态只读 / `pendingToolCallId` 精确对账 / 动作面只达 ask 卡 / 两形态透传 |
 
 ### 模块增量：补充说明动作面与 composer 变体（steer）
 

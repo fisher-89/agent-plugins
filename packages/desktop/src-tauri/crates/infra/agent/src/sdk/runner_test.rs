@@ -3118,7 +3118,7 @@ fn sse_ask_tool_call(tool_call_id: &str, question: &str, options: &[&str]) -> St
                     "type": "function",
                     "function": {
                         "name": "AskUserQuestion",
-                        "arguments": serde_json::json!({ "question": question, "options": options }).to_string(),
+                        "arguments": serde_json::json!({ "name": "q", "question": question, "options": options }).to_string(),
                     },
                 }],
             },
@@ -3212,6 +3212,19 @@ fn tool_result_of(events: &[agent::AgentEventKind], tool_call_id: &str) -> Optio
     })
 }
 
+/// 应答信封判据：正文须为 `{"status":"answered","answers":{<name>:<值>}}`，返回该
+/// 值。形状由 `execute_ask` 单点铸造，本装置只做读侧对账。
+fn answered_value(content: &str, name: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(content)
+        .unwrap_or_else(|error| panic!("应答正文非 JSON 信封: {content}（{error}）"));
+    assert_eq!(
+        parsed["status"],
+        serde_json::json!("answered"),
+        "信封 status 恒 answered: {content}"
+    );
+    parsed["answers"][name].as_str().map(str::to_owned)
+}
+
 /// `Some(Generic)` 铸上下文（正向，AC-1）：`injections.ask: Some(Generic)` +
 /// `session_id: "core-session-1"` → 泵内 `LoopTurn.ask` 为 `Some`，注册表键 ==
 /// `open.session_id`（`Generic` 档 `port == None`），且与 `LoopTurn.session_id`
@@ -3283,10 +3296,12 @@ async fn 泵内铸ask上下文_泛用档键为core会话id且port为none() {
         2,
         "模型请求恰 2 次（阻塞期间零新请求）"
     );
+    let (pumped, pumped_error) = tool_result_of(&events, "tu_pump").expect("该调用有配对结果");
+    assert!(!pumped_error, "应答结果非错误面");
     assert_eq!(
-        tool_result_of(&events, "tu_pump"),
-        Some(("指数退避".to_owned(), false)),
-        "应答原文回灌为 tool result（同 turn 续跑）"
+        answered_value(&pumped, "q").as_deref(),
+        Some("指数退避"),
+        "应答原文进信封（同 turn 续跑）"
     );
     assert!(
         registry
@@ -3357,10 +3372,13 @@ async fn 泵内铸ask上下文_流程档携带注入的port() {
         Some("tu_flow_pump"),
         "载荷 tool_call_id 取本次 tool_use id"
     );
+    let (flow_pumped, flow_error) =
+        tool_result_of(&events, "tu_flow_pump").expect("该调用有配对结果");
+    assert!(!flow_error, "应答结果非错误面");
     assert_eq!(
-        tool_result_of(&events, "tu_flow_pump"),
-        Some(("A".to_owned(), false)),
-        "应答回灌"
+        answered_value(&flow_pumped, "q").as_deref(),
+        Some("A"),
+        "应答进信封回灌"
     );
 }
 
