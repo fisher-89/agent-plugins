@@ -1148,8 +1148,8 @@ SDK 引擎 SHALL 支持按 provider 开关启用 Anthropic 云端 `web_search` �
 
 引擎 SHALL 把 rig 解码出的 Anthropic 服务端块投影为 `AgentBlock::WebSearch`，并以 raw 原文作为回放唯一事实源：
 
-- **常量单点**：`WEB_SEARCH_TOOL_KIND = "web_search_20250305"` / `WEB_SEARCH_TOOL_NAME = "web_search"` / `WEB_SEARCH_MAX_USES = 5` / `ANTHROPIC_RAW_CONTENT_KEY = "anthropic_content"` / `CITATIONS_KEY = "citations"` SHALL 由 `sdk/web_search.rs` 单点持有（MUST NOT 在 loop / resume 各写字面量）。
-- **投影规则**（`project_choice(&[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>)`）：先按 `tool_use_id` 索引全部 `web_search_tool_result`，再顺序遍历 choice——
+- **常量单点**：`WEB_SEARCH_TOOL_KIND = "web_search_20250305"` / `WEB_SEARCH_TOOL_NAME = "web_search"` / `WEB_SEARCH_MAX_USES = 5` / `ANTHROPIC_RAW_CONTENT_KEY = "anthropic_content"` / `CITATIONS_KEY = "citations"` SHALL 由 `sdk/web_search.rs` 单点持有（MUST NOT 在 loop / blocks / context 各写字面量；server 块 wire `type` 判别亦经该模块的 `use_id` / `result_use_id` 原语，`context::sweep_orphans` 复用同一判别）。
+- **投影规则**（`blocks::project_choice(&[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>)`；密封层双向分派住 `sdk/blocks.rs`，与增量层 `normalize` 对称，`web_search` 只提供 wire 原语）：先按 `tool_use_id` 索引全部 `web_search_tool_result`，再顺序遍历 choice——
   - `server_tool_use`（`name == "web_search"`）→ 产 `AgentBlock::WebSearch{ id, query, raw_use }`，其**配对 result 不重复产出**（载荷并入该块）；
   - 孤儿 `web_search_tool_result`（前序无配对 use）→ 单独产 `WebSearch{ raw_use: None, … }`；
   - 其他 raw server 块 → 跳过（不产块、不报错）；
@@ -1470,7 +1470,8 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
 | `crates/infra/agent/src/sdk/tools.rs` + `bash.rs` | 七工具面与质量 | `TOOL_NAMES` 七项；read 截断 + offset 翻页 + >100KB 无分页参数时前 100 行预览；grep 正则 + 上下文行；全工具单结果字节上限（`MAX_RESULT_BYTES` 50KB）；bash `tokio::process` + git-bash 探测 / `cmd /C` 兜底 / unix `sh -c`；`kill_on_drop` + `taskkill /T /F` 形状清理；超时活性护栏（缺省 120s、范围校验 [1s, 30min]，越界显式拒绝） |
 | `crates/infra/agent/src/sdk/policy.rs` | 三档决策表（bash 分化） | bash：Default 拒、AcceptEdits / Bypass 放；AcceptEdits ≠ Bypass 首次真实分化锁定测试 |
 | `crates/infra/agent/src/sdk/{context,compact}.rs` | L2 / L3 防线 | 标称窗长 = 该档模型名 `[1m]` 后缀 > provider `context_length` > 128K 启发式（按档独立）；生效窗长 = 标称 × 60% 与 400k 取小（水位一律据此推导）；字节启发式 token 估算（bytes ÷ 4）；prune 占位符（8k 门槛）+ 轮对裁剪 + 保首条 user；LLM compaction（失败降级硬裁，run 不中断）；`context_pruned` / `context_compacted` SystemNotice；调用点 = resume 重建后 + 每请求前；store 转录全量不变 |
-| `crates/infra/agent/src/sdk/reasoning.rs`（新） | 思考块回放与剔除 | `ISSUER = "anthropic"`；`replay(thinking, signature, redacted) -> Option<AssistantContent>`（凭证即回放权，redacted 优先，文本与凭证逐块配对）；`strip_all(history)` 跨轮剔除（重建史入口单点，滤空消息原样保留防空白消息）；`without_reasoning(message)` 单条剔除口径（摘要转录用） |
+| `crates/infra/agent/src/sdk/reasoning.rs`（新） | 思考块投影与回放 | `ISSUER = "anthropic"`；`project(&Sealed<Reasoning>) -> Vec<AgentBlock>`（逐载荷成块，不拼接）；`replay(thinking, signature, redacted) -> Option<AssistantContent>`（凭证即回放权，redacted 优先）；`strip_all(history)` 跨轮剔除（重建史入口单点，滤空消息原样保留防空白消息）；`without_reasoning(message)` 单条剔除口径（摘要转录用） |
+| `crates/infra/agent/src/sdk/blocks.rs`（新） | 密封块双向分派 | `project_choice` / `assistant_content` / `user_content` 三入口；与增量层 `normalize` 对称——遍历与变体分派单点，域模块只持 wire 原语 |
 | `crates/infra/agent/src/sdk/resume.rs` | 重建与思考回放口径 | `assistant_content` 带凭证的 `Thinking` 块经 `reasoning::replay` 回放；跨轮剔除不在重建侧（`runner::open_session` 重建后以 `reasoning::strip_all` 单点执行） |
 | `crates/infra/agent/src/sdk/runner.rs` | 模型装配 | anthropic 臂开启自动前缀缓存（top-level `cache_control`）；`[1m]` 后缀追加 beta；输出上限取值链（末档按标称窗长分档推导）；`window=` / `max_tokens=` 日志报生效值 |
 | `crates/core/agent/src/runner.rs` | 会话级注入面词汇 | `SessionInjections` 增 `toolset: Option<SessionToolset>`（首值 `Explore`）；`tools` 位激活为七工具子集收窄表达；`preamble` 位维持不消费；serde additive（缺省读兼容旧线格式） |
@@ -1593,17 +1594,38 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
 |------|------|----------|
 | `RunningTurn::drive` | 盖戳调用改 `AgentEvent::stamp(Some(turn_id), seq, kind)` | `turn_id` 取自 `self` 解构绑定，零新增字段、零新增参数；delta 与密封共用同一盖戳点，两个实时出口（`streams.publish` / `on_output`）投递同一值 |
 
-### Function: `packages/desktop/src-tauri/crates/infra/agent/src/sdk/web_search.rs`（新）
+### Function: `packages/desktop/src-tauri/crates/infra/agent/src/sdk/web_search.rs`
 
 | 项 | 签名 | 描述 |
 |------|------|----------|
-| 常量面 | `WEB_SEARCH_TOOL_KIND` / `WEB_SEARCH_TOOL_NAME` / `WEB_SEARCH_MAX_USES` / `ANTHROPIC_RAW_CONTENT_KEY` / `CITATIONS_KEY` | 字面量单点（loop / resume 零重复） |
+| 常量面 | `WEB_SEARCH_TOOL_KIND` / `WEB_SEARCH_TOOL_NAME` / `WEB_SEARCH_MAX_USES` / `ANTHROPIC_RAW_CONTENT_KEY` / `CITATIONS_KEY` | 字面量单点（loop / blocks / context 零重复） |
 | `provider_tool` | `fn() -> ProviderToolDefinition` | `{type: web_search_20250305, name: web_search, max_uses: 5}` |
 | `raw_content` | `fn(&Text) -> Option<&serde_json::Value>` | 取 `additional_params.anthropic_content` |
 | `citations_of` | `fn(&Text) -> Option<Vec<AgentCitation>>` | 展示字段自 raw 解，`raw` 保原值 |
-| `project_choice` | `fn(&[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>)` | 块投影唯一实现（use+result 收敛、孤儿 result、未知 server 块跳过） |
+| `use_id` | `fn(&serde_json::Value) -> Option<&str>` | `web_search` 的 `server_tool_use` → 配对键（非本域 server 块为 `None`） |
+| `result_use_id` | `fn(&serde_json::Value) -> Option<&str>` | `web_search_tool_result` → `tool_use_id`（wild 块为 `None`） |
+| `server_block` | `fn(&serde_json::Value, Option<&serde_json::Value>) -> AgentBlock` | use 侧成块，配对 result 载荷并入 |
+| `orphan_block` | `fn(&serde_json::Value) -> Option<AgentBlock>` | 孤儿 result 成块（无 `tool_use_id` 返回 `None`） |
 | `replay_raw` | `fn(&serde_json::Value) -> AssistantContent` | `Text{text:"", additional_params:{anthropic_content: raw}}`（raw 块必须配空文本） |
 | `replay_text` | `fn(&str, Option<&[AgentCitation]>) -> AssistantContent` | 非空 citations → `additional_params.citations = [raw, …]` |
+
+### Function: `packages/desktop/src-tauri/crates/infra/agent/src/sdk/blocks.rs`（新）
+
+| 项 | 签名 | 描述 |
+|------|------|----------|
+| `project_choice` | `fn(&[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>)` | 密封块投影唯一实现（遍历 + 变体分派；use+result 收敛、孤儿 result、未知 server 块跳过；`Reasoning` 委托 `reasoning::project`） |
+| `assistant_content` | `fn(&[AgentBlock]) -> Vec<AssistantContent>` | 事件块 → 重建载荷（`resume::rebuild` 调用；`WebSearch` 一条块产 use/result 两条，保原序） |
+| `user_content` | `fn(&[AgentBlock]) -> Vec<UserContent>` | user 位文本块映射（其余变体跳过） |
+
+### Function: `packages/desktop/src-tauri/crates/infra/agent/src/sdk/reasoning.rs`（新）
+
+| 项 | 签名 | 描述 |
+|------|------|----------|
+| `ISSUER` | `&str = "anthropic"` | 思考凭证签发方（anthropic wire 的回放判别值） |
+| `project` | `fn(&Sealed<Reasoning>) -> Vec<AgentBlock>` | 逐载荷成块（不拼接）：`Text`→文本+签名、`Summary`→仅文本、`Redacted`→密文、`Encrypted`→不产块 |
+| `replay` | `fn(&str, Option<&str>, Option<&str>) -> Option<AssistantContent>` | 凭证 → rig reasoning（redacted 优先；无凭证 `None`） |
+| `strip_all` | `fn(Vec<Message>) -> Vec<Message>` | 重建史入口整段剔除思考块（滤空消息原样保留） |
+| `without_reasoning` | `fn(Message) -> Option<Message>` | 单条剔除口径（摘要转录用） |
 
 ### Function: `packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop.rs`
 
@@ -1611,7 +1633,7 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
 |------|------|----------|
 | `LoopTurn` | 增 `web_search: bool` | runner 经 `PumpPayload` 下传的最终开关 |
 | 请求构造 | `request.provider_tool(web_search::provider_tool())`（条件） | 开关为真才挂；`tools`（客户端面）不变 |
-| 块转换 | 换 `web_search::project_choice(&choice)` | 删内联四变体 match（块语义单一实现） |
+| 块转换 | 换 `blocks::project_choice(&choice)` | 删内联四变体 match（块语义单一实现） |
 | `'attempt` 返回值 | `(choice, usage, finish_reason)` | `CompletionResponse::finish_reason()` |
 | 续跑循环 | 常量 `PAUSE_TURN_MAX_CONTINUATIONS = 5` | 独立计数轴（`attempt` 每次续跑前归零）；两条 notice；到顶按 `stop` 收口 |
 | `truncation_kind` | `fn(Option<&FinishReason>) -> Option<TruncationKind>` | 精确等值判定 `Length` → `OutputCap`、`Other("model_context_window_exceeded")` → `ContextWindow`；其余 `None`（不误判） |

@@ -267,11 +267,6 @@ fn oldest_unit_range(history: &[Message], protected: usize) -> Option<(usize, us
     (end <= protected.max(start + 1)).then_some((start, end))
 }
 
-/// assistant 位 server 块的 raw wire `type` 判别值（与 `web_search` 侧常量同
-/// 字面量；此处只做配对判别，不解载荷）。
-const SERVER_TOOL_USE_TYPE: &str = "server_tool_use";
-const WEB_SEARCH_RESULT_TYPE: &str = "web_search_tool_result";
-
 /// 孤儿配对清扫：tool_result 的 tool_use 伙伴不在其前（assistant 已被裁）
 /// 时剔除该结果条目（provider 端 tool 配对协议要求成对出现），纯文本位保留；
 /// 清空后无内容的 user 位消息整条移除。
@@ -307,18 +302,15 @@ pub(crate) fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
                         let Some(raw) = web_search::raw_content(text) else {
                             return true; // 普通文本块
                         };
-                        let keep = match raw.get("type").and_then(Value::as_str) {
-                            Some(SERVER_TOOL_USE_TYPE) => {
-                                if let Some(use_id) = raw.get("id").and_then(Value::as_str) {
-                                    server_uses.insert(use_id.to_owned());
-                                }
-                                true
-                            }
-                            Some(WEB_SEARCH_RESULT_TYPE) => raw
-                                .get("tool_use_id")
-                                .and_then(Value::as_str)
-                                .is_none_or(|use_id| server_uses.contains(use_id)),
-                            _ => true, // 其他 raw server 块不在本期清扫面
+                        // 判别复用 `web_search` 的 wire 原语（字面量单点）：
+                        // use 侧登记配对键并保留，result 侧仅保留已登记者
+                        let keep = if let Some(use_id) = web_search::use_id(raw) {
+                            server_uses.insert(use_id.to_owned());
+                            true
+                        } else if let Some(use_id) = web_search::result_use_id(raw) {
+                            server_uses.contains(use_id)
+                        } else {
+                            true // 其他 raw server 块不在本期清扫面
                         };
                         if !keep {
                             dropped = true;

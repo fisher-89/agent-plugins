@@ -1,10 +1,10 @@
 use rig::message::{
-    AssistantContent, Message, ToolCall, ToolName, ToolResult, ToolResultContent, UserContent,
+    AssistantContent, Message, ToolCall, ToolResult, ToolResultContent, UserContent,
 };
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
 
-use crate::sdk::{reasoning, web_search};
+use crate::sdk::blocks::{assistant_content, user_content};
 
 /// sdk 引擎侧会话 id 铸造前缀：`sdk-<进程内计数>-<毫秒时戳>`（每轮铸造，
 /// 经 RunStarted / TurnDone 上报由内核记双 id 映射；不再承担归属校验）。
@@ -15,6 +15,9 @@ pub const SESSION_PREFIX: &str = "sdk-";
 const INTERRUPTED_RESULT: &str = "工具执行失败: 工具执行被中断（会话在结果回灌前停止）";
 
 /// 重建 rig 对话历史
+///
+/// 块语义（投影 / 回放两侧的分派）住 `blocks`，本函数只负责**排序与配对**：
+/// 事件流 → 一条 assistant 消息 + 紧随的 tool_result 消息。
 ///
 /// provider 配对协议不变量：assistant 消息里的每个 `tool_use` 必须由**紧随
 /// 其后的同一条 user 消息**中的全部 `tool_result` 应答。转录按「每个结果一条
@@ -56,7 +59,7 @@ pub fn rebuild(events: &[AgentEvent]) -> Result<Vec<Message>, String> {
             AgentMessageRole::User | AgentMessageRole::Tool => {
                 // 文本块 = 新轮提问 / 用户言语（tool role 不产文本）；出现文本
                 // 即视作上一 assistant 的调用被中断，先行补齐配对
-                let content = text_content(blocks);
+                let content = user_content(blocks);
                 if !content.is_empty() {
                     answer_pending_interrupted(&mut history, &mut pending);
                     history.push(Message::User { content });
@@ -73,74 +76,6 @@ pub fn rebuild(events: &[AgentEvent]) -> Result<Vec<Message>, String> {
     } else {
         Ok(history)
     }
-}
-
-/// user 位文本块映射（非文本块跳过；user 侧 citations 不参与重建）
-fn text_content(blocks: &[AgentBlock]) -> Vec<UserContent> {
-    blocks
-        .iter()
-        .filter_map(|block| match block {
-            AgentBlock::Text { text, .. } => Some(UserContent::text(text.clone())),
-            _ => None, // user 消息内的 Thinking / ToolUse 非法形态跳过
-        })
-        .collect()
-}
-
-/// assistant 消息块映射：逐块展开为 `AssistantContent` 序列（一条块最多产
-/// 两条——`WebSearch` 的 `raw_use` → `raw_result` 保原序，双 `None` 跳过）。
-///
-/// 展示字段（`query` / `results` / `error`）MUST NOT 参与重建：回放唯一事实源
-/// 是 raw 原文（`encrypted_content` 等不可推导字段原样保全）；raw 块配空文本
-/// （rig 侧带文本即 `ConversionError`）。
-///
-/// **Thinking 回放**：带凭证（`signature` / `redacted`）的块经
-/// [`reasoning::replay`] 还原为 reasoning，凭证逐块配对（不拼接）；无凭证的
-/// 块不回放（发裸文本只会被 provider 拒）。跨轮剔除不在本函数——重建史全属
-/// 既往轮，`runner::open_session` 随后以 `reasoning::strip_all(history)`
-/// 统一剔除，保持「是否回放」只有一个策略点。
-pub(crate) fn assistant_content(blocks: &[AgentBlock]) -> Vec<AssistantContent> {
-    let mut content: Vec<AssistantContent> = Vec::with_capacity(blocks.len());
-    for block in blocks {
-        match block {
-            // 正文 + 引用原值回填（非空 citations 才挂）
-            AgentBlock::Text { text, citations } => {
-                content.push(web_search::replay_text(text, citations.as_deref()));
-            }
-            AgentBlock::Thinking {
-                thinking,
-                signature,
-                redacted,
-            } => {
-                if let Some(item) =
-                    reasoning::replay(thinking, signature.as_deref(), redacted.as_deref())
-                {
-                    content.push(item);
-                }
-            }
-            AgentBlock::ToolUse { id, name, input } => {
-                let Some(name) = ToolName::new(name.clone()).ok() else {
-                    continue;
-                };
-                content.push(AssistantContent::tool_call(id.clone(), name, input.clone()));
-            }
-            // 一次搜索 = 一条 use → 一条 result（保原始 wire 顺序）
-            AgentBlock::WebSearch {
-                raw_use,
-                raw_result,
-                ..
-            } => {
-                if let Some(raw) = raw_use {
-                    content.push(web_search::replay_raw(raw));
-                }
-                if let Some(raw) = raw_result {
-                    content.push(web_search::replay_raw(raw));
-                }
-            }
-            // assistant 消息内的 ToolResult 非法形态跳过
-            AgentBlock::ToolResult { .. } => {}
-        }
-    }
-    content
 }
 
 /// 工具结果并入历史：只收 [`pending`] 中声明的调用（紧邻 assistant 的配对），

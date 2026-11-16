@@ -1,5 +1,6 @@
 pub(crate) mod archi_tool;
 pub(crate) mod bash;
+pub(crate) mod blocks;
 pub(crate) mod compact;
 pub(crate) mod config;
 pub(crate) mod context;
@@ -26,6 +27,8 @@ pub(crate) mod web_search;
 mod archi_tool_test;
 #[cfg(test)]
 mod bash_test;
+#[cfg(test)]
+mod blocks_test;
 #[cfg(test)]
 mod compact_test;
 #[cfg(test)]

@@ -1000,7 +1000,8 @@ fn user位citations不参与重建且user位web_search块跳过不panic() {
 
 #[test]
 fn project与resume往返_重建后additional_params与原始wire逐字节等价() {
-    use crate::sdk::web_search::{project_choice, ANTHROPIC_RAW_CONTENT_KEY};
+    use crate::sdk::blocks::project_choice;
+    use crate::sdk::web_search::ANTHROPIC_RAW_CONTENT_KEY;
     use rig::message::{AdditionalParams, Text};
 
     let raw_use = web_search_use_raw("srvtoolu_rt", "往返查询");

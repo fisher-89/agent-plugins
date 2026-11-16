@@ -1,34 +1,8 @@
-//! Anthropic 云端 `web_search` 服务端工具：常量单点 + 六个纯函数
-//! （`provider_tool` / `raw_content` / `citations_of` / `project_choice` /
-//! `replay_raw` / `replay_text`）。
-//!
-//! 思考块的投影也住 [`project_choice`]（choice 分派的单一入口），但**回放
-//! 凭证的语义归 `reasoning` 模块**——本模块只负责把 rig 载荷原样摊成
-//! `AgentBlock::Thinking`。
-//!
-//! 两条不变量（实现期 MUST NOT 破）：
-//!
-//! 1. **raw 块必须配空文本**：rig 的 anthropic 回放侧校验「raw 与文本不可
-//!    共存」（非空文本 + `anthropic_content` → `ConversionError`），故
-//!    [`replay_raw`] 恒产 `Text { text: "" }`；正文与引用走 [`replay_text`]。
-//! 2. **展示字段不参与回放**：`query` / `results` / `error` 只供时间线呈现，
-//!    重建只吃 `raw_use` / `raw_result` 的原始 wire 值——`encrypted_content` 等
-//!    字段不可推导，任何经类型往返（如 rig `Citation` 的 `title: Option` →
-//!    `null`）都会失真。
-//!
-//! 常量单点：`kind` / `name` / `max_uses` / raw 承载键 / citations 承载键全部
-//! 住本模块，`loop` / `resume` / `context` 零字面量重复。
-//!
-//! 两轴上界分名：本模块的 [`WEB_SEARCH_MAX_USES`] 是**单请求**搜索次数上限
-//! （成本护栏，不可配置——配置化需 store v5 迁移）；`loop` 的
-//! `PAUSE_TURN_MAX_CONTINUATIONS` 是**单轮**续跑上限，两者概念不同，常量名 /
-//! 注释 / 日志字段 MUST NOT 混用。
-
-use std::collections::{HashMap, HashSet};
+//! Anthropic 云端 `web_search` 服务端工具：常量单点 + wire 原语 + 回放构造。
 
 use agent::{AgentBlock, AgentCitation, WebSearchSource};
 use rig::completion::ProviderToolDefinition;
-use rig::message::{AdditionalParams, AssistantContent, ReasoningContent, Text, ToolCall};
+use rig::message::{AdditionalParams, AssistantContent, Text};
 use serde_json::{json, Value};
 
 /// 请求侧 provider tool 的 `type`（anthropic 服务端工具版本化标识）。
@@ -96,169 +70,58 @@ pub(crate) fn citations_of(text: &Text) -> Option<Vec<AgentCitation>> {
     )
 }
 
-/// 块投影唯一实现（`loop` 只调用，不再各自解 raw）：先**完整预索引**（收集
-/// 全部 `web_search` 的 `server_tool_use` id + 按 `tool_use_id` 索引全部
-/// `web_search_tool_result`，并在预索引期即预置「已消费」下标），再顺序遍历
-/// choice——故 result 与 use 的**顺序无关**（`pause_turn` 拆分后 result 可能
-/// 先到）：
-///
-/// - `server_tool_use`（`name == "web_search"`）→ 一块
-///   [`AgentBlock::WebSearch`]，其配对 result 的载荷并入该块（result 侧不重复
-///   产出）；
-/// - 孤儿 `web_search_tool_result`（无配对 use）→ 单独成块
-///   （`raw_use: None`、`id` 取 `tool_use_id`、`query` 空串）；
-/// - 其他 raw server 块（非 `web_search` 的 `server_tool_use`、
-///   `code_execution_tool_result` 等）→ 跳过（不产块、不报错）；
-/// - `Text` 无 raw → [`AgentBlock::Text`]（citations 自
-///   `additional_params["citations"]` 提取）；
-/// - `Reasoning` → **逐载荷**产 `Thinking`（不拼接；回放凭证随块走，见
-///   `reasoning` 模块）；
-/// - `ToolCall` / `Image` → 现状不变。
-pub(crate) fn project_choice(choice: &[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>) {
-    // 预索引源 1：`web_search` 的 `server_tool_use` id 集合（配对判别值）
-    let mut use_ids: HashSet<&str> = HashSet::new();
-    // 预索引源 2：tool_use_id → （choice 下标, result 原文）；同 id 取首个
-    let mut result_by_use: HashMap<&str, (usize, &Value)> = HashMap::new();
-    for (index, content) in choice.iter().enumerate() {
-        let AssistantContent::Text(text) = content else {
-            continue;
-        };
-        let Some(raw) = raw_content(text) else {
-            continue;
-        };
-        if let Some(use_id) = web_search_use_id(raw) {
-            use_ids.insert(use_id);
-            continue;
-        }
-        if raw_type(raw) != Some(WEB_SEARCH_RESULT_TYPE) {
-            continue;
-        }
-        let Some(use_id) = raw.get("tool_use_id").and_then(Value::as_str) else {
-            continue;
-        };
-        result_by_use.entry(use_id).or_insert((index, raw));
+/// 预索引用：raw 为 `web_search` 的 `server_tool_use` 时取其 `id`
+/// （`None` = 非本域 server use——其他 server 工具、结果块、缺 `id`）。
+pub(crate) fn use_id(raw: &Value) -> Option<&str> {
+    if raw_type(raw) != Some(SERVER_TOOL_USE_TYPE) {
+        return None;
     }
+    if raw.get("name").and_then(Value::as_str) != Some(WEB_SEARCH_TOOL_NAME) {
+        return None;
+    }
+    raw.get("id").and_then(Value::as_str)
+}
 
-    let mut consumed: Vec<bool> = vec![false; choice.len()];
-    // 「已消费」在预索引期落定（而非遍历到 use 时才标）——否则 choice 倒序
-    // （result 先于 use）时 result 会先以孤儿成块、随后 use 再配出第二块。
-    // 只预置**有配对 use** 的首个 result 下标：无 use 的 result 不预置，保留
-    // 孤儿规则；同 id 的第二条 result 亦不预置，照常成块。
-    for (use_id, (index, _)) in &result_by_use {
-        if use_ids.contains(use_id) {
-            consumed[*index] = true;
-        }
+/// 预索引用：raw 为 `web_search_tool_result` 时取其 `tool_use_id`
+/// （`None` = 非结果块或缺配对键的 wild 块）。
+pub(crate) fn result_use_id(raw: &Value) -> Option<&str> {
+    if raw_type(raw) != Some(WEB_SEARCH_RESULT_TYPE) {
+        return None;
     }
+    raw.get("tool_use_id").and_then(Value::as_str)
+}
 
-    let mut blocks: Vec<AgentBlock> = Vec::new();
-    let mut tool_calls: Vec<ToolCall> = Vec::new();
-    for (index, content) in choice.iter().enumerate() {
-        match content {
-            AssistantContent::Text(text) => {
-                let Some(raw) = raw_content(text) else {
-                    // 普通文本：正文 + 引用原值
-                    blocks.push(AgentBlock::Text {
-                        text: text.text.clone(),
-                        citations: citations_of(text),
-                    });
-                    continue;
-                };
-                match raw_type(raw) {
-                    Some(SERVER_TOOL_USE_TYPE) => {
-                        // 非 web_search 的服务端工具（未来块类型）跳过
-                        if text_field(raw, "name").as_deref() != Some(WEB_SEARCH_TOOL_NAME) {
-                            continue;
-                        }
-                        let Some(use_id) = text_field(raw, "id") else {
-                            continue;
-                        };
-                        // 配对已由预索引落定（含 result 先于 use 的倒序形态），
-                        // 此处只取值、不再改 `consumed`
-                        let paired = result_by_use.get(use_id.as_str());
-                        let raw_result = paired.map(|(_, result)| (*result).clone());
-                        let (results, error) = match &raw_result {
-                            Some(result) => result_payload(result),
-                            None => (Vec::new(), None),
-                        };
-                        blocks.push(AgentBlock::WebSearch {
-                            id: use_id,
-                            query: query_of(raw),
-                            results,
-                            error,
-                            raw_use: Some(raw.clone()),
-                            raw_result,
-                        });
-                    }
-                    Some(WEB_SEARCH_RESULT_TYPE) => {
-                        if consumed[index] {
-                            continue; // 已被 use 侧消费：载荷并入、不重复产块
-                        }
-                        let Some(use_id) = text_field(raw, "tool_use_id") else {
-                            continue; // 无配对键的 wild 块：无 id 可承载，跳过
-                        };
-                        let (results, error) = result_payload(raw);
-                        blocks.push(AgentBlock::WebSearch {
-                            id: use_id,
-                            query: String::new(),
-                            results,
-                            error,
-                            raw_use: None,
-                            raw_result: Some(raw.clone()),
-                        });
-                    }
-                    // 其他 raw server 块（code_execution_tool_result 等）跳过
-                    _ => {}
-                }
-            }
-            // 0.43 起 reasoning 以 Sealed 承载（发行方才可读）：以自身发行方
-            // 打开后**逐载荷成块**（不拼接——文本与凭证逐块配对，拼成一条即
-            // 与凭证失真）。展示文本与回放凭证分开：`Text` 取 text + signature，
-            // `Summary` 只有文本（无凭证）、`Redacted` 只有密文（无可读文本）。
-            AssistantContent::Reasoning(reasoning) => {
-                let Some(value) = reasoning.open(reasoning.issuer()) else {
-                    continue;
-                };
-                for part in &value.content {
-                    match part {
-                        ReasoningContent::Text { text, signature } => {
-                            blocks.push(AgentBlock::Thinking {
-                                thinking: text.clone(),
-                                signature: signature.clone(),
-                                redacted: None,
-                            });
-                        }
-                        ReasoningContent::Summary(summary) => {
-                            blocks.push(AgentBlock::Thinking {
-                                thinking: summary.clone(),
-                                signature: None,
-                                redacted: None,
-                            });
-                        }
-                        ReasoningContent::Redacted { data } => {
-                            blocks.push(AgentBlock::Thinking {
-                                thinking: String::new(),
-                                signature: None,
-                                redacted: Some(data.clone()),
-                            });
-                        }
-                        // 加密载荷不可读（网关方言形态）：无可展示文本，本期
-                        // 也不在回放口径内——不产块
-                        ReasoningContent::Encrypted(_) => {}
-                    }
-                }
-            }
-            AssistantContent::ToolCall(tool_call) => {
-                blocks.push(AgentBlock::ToolUse {
-                    id: tool_call.id.to_string(),
-                    name: tool_call.function.name.as_str().to_owned(),
-                    input: tool_call.function.arguments.clone(),
-                });
-                tool_calls.push(tool_call.clone());
-            }
-            AssistantContent::Image(_) => {} // sdk 引擎不产图像内容（工具面无边）
-        }
+/// use 侧成块：`server_tool_use` 原文 + 可选配对 result 原文（载荷并入本块，
+/// result 侧不再产块）。
+pub(crate) fn server_block(raw_use: &Value, raw_result: Option<&Value>) -> AgentBlock {
+    let id = text_field(raw_use, "id").unwrap_or_default();
+    let (results, error) = match raw_result {
+        Some(result) => result_payload(result),
+        None => (Vec::new(), None),
+    };
+    AgentBlock::WebSearch {
+        id,
+        query: query_of(raw_use),
+        results,
+        error,
+        raw_use: Some(raw_use.clone()),
+        raw_result: raw_result.cloned(),
     }
-    (blocks, tool_calls)
+}
+
+/// 孤儿 result 成块（无配对 use）：载荷自 result 侧解，`query` 空串。
+/// 返回 `None` 即无 `tool_use_id` 可承载（wild 块，调用方跳过）。
+pub(crate) fn orphan_block(raw_result: &Value) -> Option<AgentBlock> {
+    let id = text_field(raw_result, "tool_use_id")?;
+    let (results, error) = result_payload(raw_result);
+    Some(AgentBlock::WebSearch {
+        id,
+        query: String::new(),
+        results,
+        error,
+        raw_use: None,
+        raw_result: Some(raw_result.clone()),
+    })
 }
 
 /// 回放侧 raw 构造：`Text { text: "", additional_params: { anthropic_content:
@@ -291,19 +154,6 @@ pub(crate) fn replay_text(text: &str, citations: Option<&[AgentCitation]>) -> As
 /// raw 块的 wire `type`。
 fn raw_type(raw: &Value) -> Option<&str> {
     raw.get("type").and_then(Value::as_str)
-}
-
-/// 预索引用：raw 为 `web_search` 的 `server_tool_use` 时取其 `id`
-/// （`None` = 不进配对索引集合——非 `server_tool_use`、非 `web_search` 或缺
-/// `id`）。
-fn web_search_use_id(raw: &Value) -> Option<&str> {
-    if raw_type(raw) != Some(SERVER_TOOL_USE_TYPE) {
-        return None;
-    }
-    if raw.get("name").and_then(Value::as_str) != Some(WEB_SEARCH_TOOL_NAME) {
-        return None;
-    }
-    raw.get("id").and_then(Value::as_str)
 }
 
 /// 宽松取值：键缺席 / 非字符串 → `None`（不报错）。

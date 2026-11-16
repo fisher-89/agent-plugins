@@ -16,6 +16,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::sdk::archi_tool::ArchiContext;
+use crate::sdk::blocks::project_choice;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::db_tool::DbContext;
 use crate::sdk::explore_note::ExploreNoteContext;
@@ -480,13 +481,13 @@ pub(crate) async fn run(
             }
             // 密封收口：choice 全部块收进恰一条密封 Message（role=assistant，
             // 增量层在传输面的 provisional 让位即同键替换）。块语义单点：
-            // `web_search::project_choice`（server 块投影 + 客户端工具调用）。
+            // `blocks::project_choice`（密封层双向分派，与增量层 `normalize` 对称）。
             // 入史用 **choice 原值**：思考凭证（signature / redacted）只在 rig
             // 的 sealed reasoning 里，投影块是有损展示面，回放不能经它往返。
             // 本轮内每次请求都整段重发本史 ⇒ 当前 tool loop 的思考天然回放
             // （回放范围 = 本轮，见 `reasoning` 模块）；跨轮剔除由
             // `runner::open_session` 在重建史入口单点执行
-            let (blocks, tool_calls) = web_search::project_choice(&choice);
+            let (blocks, tool_calls) = project_choice(&choice);
             history.push(Message::Assistant {
                 id: None,
                 content: choice,

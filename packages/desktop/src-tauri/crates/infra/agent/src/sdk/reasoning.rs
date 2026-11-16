@@ -1,7 +1,44 @@
-use rig::message::{AssistantContent, Issuer, Message, Reasoning};
+use agent::AgentBlock;
+use rig::message::{AssistantContent, Issuer, Message, Reasoning, ReasoningContent, Sealed};
 
 /// 思考凭证的签发方（见模块 doc：anthropic wire 的回放判别值）。
 pub(crate) const ISSUER: &str = "anthropic";
+
+/// 一条 sealed reasoning → 零到多块 `Thinking`：**逐载荷一块，保原序**。
+///
+/// 不拼接是硬约束：文本与凭证逐块配对，拼成一条即让凭证错位（严格 provider
+/// 直接拒收）。以**自身发行方**打开：展示不因跨发行方失明；凭证原样随块。
+///
+/// 载荷映射：`Text` → 文本 + 签名；`Summary` → 仅文本（无凭证）；`Redacted`
+/// → 只有密文（`thinking` 空串）；`Encrypted` → 不产块（无可展示文本，本期也
+/// 不在回放口径内）。
+pub(crate) fn project(reasoning: &Sealed<Reasoning>) -> Vec<AgentBlock> {
+    let Some(value) = reasoning.open(reasoning.issuer()) else {
+        return Vec::new();
+    };
+    value
+        .content
+        .iter()
+        .filter_map(|part| match part {
+            ReasoningContent::Text { text, signature } => Some(AgentBlock::Thinking {
+                thinking: text.clone(),
+                signature: signature.clone(),
+                redacted: None,
+            }),
+            ReasoningContent::Summary(summary) => Some(AgentBlock::Thinking {
+                thinking: summary.clone(),
+                signature: None,
+                redacted: None,
+            }),
+            ReasoningContent::Redacted { data } => Some(AgentBlock::Thinking {
+                thinking: String::new(),
+                signature: None,
+                redacted: Some(data.clone()),
+            }),
+            ReasoningContent::Encrypted(_) => None,
+        })
+        .collect()
+}
 
 /// 一条思考块 → 回放载荷（无凭证返回 `None`）。
 ///
