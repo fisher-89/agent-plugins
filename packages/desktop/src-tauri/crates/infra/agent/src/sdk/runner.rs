@@ -26,7 +26,7 @@ use crate::sdk::mount::{
     EXPLORE_NOTE_TOOL,
 };
 use crate::sdk::protect::ProtectRules;
-use crate::sdk::{context, r#loop, resume};
+use crate::sdk::{context, r#loop, reasoning, resume};
 use crate::ResumeTranscript;
 
 /// 事件通道有界容量（背压阻塞 send，事件不丢、内存有界）。
@@ -233,6 +233,10 @@ impl AgentRunner for SdkRunner {
         // Continue：经装载缝取会话全史转录重建（New 空史）；先行句柄 sdk 引擎
         // 不消费（引擎侧标识每轮铸造，重建源即会话全史转录）
         let history = self.resolve_resume(&continue_session_id(&open))?;
+        // 思考回放范围 = 当前 tool loop 一轮：重建史全部属既往轮，故整段剔除
+        // 思考块（本轮的思考由 `loop` 入史时原样携带）。剔除先于防线剪裁 ⇒
+        // 水位估算只计实际会发出的块
+        let history = reasoning::strip_all(history);
         // 标称窗长单点：输出上限推导与防线装配同源（两者都读这一处，避免
         // 「防线按一档、输出按另一档」的双源漂移）
         let window = spec.length.or(self.context_window);

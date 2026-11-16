@@ -799,9 +799,10 @@ fn project_choice既有分支不变_文本引用思考工具调用与图像() {
         }
         other => panic!("应为 Text 块，实际: {other:?}"),
     }
-    // Reasoning → Thinking（可显示文本口径不变）
+    // Reasoning → Thinking（展示文本原样；无签名块凭证为空）
     assert!(
-        matches!(&blocks[3], AgentBlock::Thinking { thinking } if thinking == "先想一下"),
+        matches!(&blocks[3], AgentBlock::Thinking { thinking, signature, redacted }
+            if thinking == "先想一下" && signature.is_none() && redacted.is_none()),
         "Reasoning 投影为 Thinking，实际: {:?}",
         blocks[3]
     );

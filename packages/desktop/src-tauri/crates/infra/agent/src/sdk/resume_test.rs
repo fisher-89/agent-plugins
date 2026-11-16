@@ -165,6 +165,8 @@ fn 单条密封message收三块时思考不回放_正文与工具调用保真() 
                 },
                 AgentBlock::Thinking {
                     thinking: "推理过程".to_owned(),
+                    signature: None,
+                    redacted: None,
                 },
                 tool_use_block("tu_1", "read"),
             ],
@@ -181,7 +183,7 @@ fn 单条密封message收三块时思考不回放_正文与工具调用保真() 
     assert_eq!(
         content.len(),
         2,
-        "思考块不进重建史（Text+ToolUse 两块）: {content:?}"
+        "无凭证的思考块不进重建史（Text+ToolUse 两块）: {content:?}"
     );
     assert!(matches!(
         &content[0],
@@ -191,7 +193,7 @@ fn 单条密封message收三块时思考不回放_正文与工具调用保真() 
         !content
             .iter()
             .any(|item| matches!(item, AssistantContent::Reasoning(_))),
-        "Thinking 不回放（只留 store 转录）"
+        "无凭证思考块不回放（凭证即回放权）"
     );
     assert!(matches!(
         &content[1],
@@ -203,29 +205,64 @@ fn 单条密封message收三块时思考不回放_正文与工具调用保真() 
 }
 
 #[test]
-fn 仅思考的assistant消息保留原样_不产空内容() {
-    // 退化保护：剔除思考会让内容为空 → 原样返回（空 assistant 消息会被拒）
-    use crate::sdk::resume::without_reasoning;
-    use rig::message::Reasoning;
-
-    let only_reasoning = vec![AssistantContent::Reasoning(
-        Reasoning::new("只有思考").sealed(rig::message::Issuer::from_static("test")),
+fn 带签名的思考块重建为可回放reasoning_无凭证块不回放() {
+    let transcript = vec![event(
+        0,
+        AgentEventKind::Message {
+            role: AgentMessageRole::Assistant,
+            blocks: vec![
+                AgentBlock::Thinking {
+                    thinking: "有凭证的思考".to_owned(),
+                    signature: Some("sig-1".to_owned()),
+                    redacted: None,
+                },
+                AgentBlock::Thinking {
+                    thinking: String::new(),
+                    signature: None,
+                    redacted: Some("密文".to_owned()),
+                },
+                AgentBlock::Thinking {
+                    thinking: "无凭证".to_owned(),
+                    signature: None,
+                    redacted: None,
+                },
+            ],
+            parent_tool_use_id: None,
+        },
     )];
-    assert_eq!(
-        without_reasoning(only_reasoning.clone()),
-        only_reasoning,
-        "仅思考内容原样保留（防空 assistant 消息）"
-    );
 
-    let mixed = vec![
-        AssistantContent::Reasoning(
-            Reasoning::new("思考").sealed(rig::message::Issuer::from_static("test")),
-        ),
-        AssistantContent::Text(rig::message::Text::new("正文")),
-    ];
-    let kept = without_reasoning(mixed);
-    assert_eq!(kept.len(), 1, "有实体内容时思考被剔除");
-    assert!(matches!(&kept[0], AssistantContent::Text(text) if text.text == "正文"));
+    let history = rebuild(&transcript).expect("重建应成功");
+    let Message::Assistant { content, .. } = &history[0] else {
+        panic!("应为 assistant 消息");
+    };
+    assert_eq!(
+        content.len(),
+        2,
+        "有凭证的两块回放、无凭证的不产: {content:?}"
+    );
+    let AssistantContent::Reasoning(first) = &content[0] else {
+        panic!("应为 reasoning，实际: {:?}", content[0]);
+    };
+    let opened = first.open(first.issuer()).expect("自身签发方可读");
+    assert_eq!(
+        opened.content,
+        vec![rig::message::ReasoningContent::Text {
+            text: "有凭证的思考".to_owned(),
+            signature: Some("sig-1".to_owned()),
+        }],
+        "文本与签名逐块配对（不拼接）"
+    );
+    let AssistantContent::Reasoning(second) = &content[1] else {
+        panic!("应为 reasoning，实际: {:?}", content[1]);
+    };
+    let opened = second.open(second.issuer()).expect("自身签发方可读");
+    assert_eq!(
+        opened.content,
+        vec![rig::message::ReasoningContent::Redacted {
+            data: "密文".to_owned(),
+        }],
+        "redacted 块还原为密文载荷"
+    );
 }
 
 // ---------------------------------------------------------------------------

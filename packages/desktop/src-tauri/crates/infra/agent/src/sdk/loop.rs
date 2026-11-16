@@ -22,9 +22,7 @@ use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::mount::{self, ToolExec};
 use crate::sdk::protect::ProtectRules;
-use crate::sdk::{
-    compact, context, normalize, policy, preamble, resume, sandbox, tools, web_search,
-};
+use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools, web_search};
 
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";
@@ -483,12 +481,15 @@ pub(crate) async fn run(
             // 密封收口：choice 全部块收进恰一条密封 Message（role=assistant，
             // 增量层在传输面的 provisional 让位即同键替换）。块语义单点：
             // `web_search::project_choice`（server 块投影 + 客户端工具调用）。
-            // 入史前剔除思考块（与 resume 重建同口径，见 `resume::without_reasoning`）；
-            // `choice` 的完整形态仍经 `blocks` 落转录，时间线可读
+            // 入史用 **choice 原值**：思考凭证（signature / redacted）只在 rig
+            // 的 sealed reasoning 里，投影块是有损展示面，回放不能经它往返。
+            // 本轮内每次请求都整段重发本史 ⇒ 当前 tool loop 的思考天然回放
+            // （回放范围 = 本轮，见 `reasoning` 模块）；跨轮剔除由
+            // `runner::open_session` 在重建史入口单点执行
             let (blocks, tool_calls) = web_search::project_choice(&choice);
             history.push(Message::Assistant {
                 id: None,
-                content: resume::without_reasoning(choice),
+                content: choice,
             });
             if sender
                 .send(AgentEventKind::Message {

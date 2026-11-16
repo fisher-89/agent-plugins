@@ -2,6 +2,10 @@
 //! （`provider_tool` / `raw_content` / `citations_of` / `project_choice` /
 //! `replay_raw` / `replay_text`）。
 //!
+//! 思考块的投影也住 [`project_choice`]（choice 分派的单一入口），但**回放
+//! 凭证的语义归 `reasoning` 模块**——本模块只负责把 rig 载荷原样摊成
+//! `AgentBlock::Thinking`。
+//!
 //! 两条不变量（实现期 MUST NOT 破）：
 //!
 //! 1. **raw 块必须配空文本**：rig 的 anthropic 回放侧校验「raw 与文本不可
@@ -24,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 
 use agent::{AgentBlock, AgentCitation, WebSearchSource};
 use rig::completion::ProviderToolDefinition;
-use rig::message::{AdditionalParams, AssistantContent, Text, ToolCall};
+use rig::message::{AdditionalParams, AssistantContent, ReasoningContent, Text, ToolCall};
 use serde_json::{json, Value};
 
 /// 请求侧 provider tool 的 `type`（anthropic 服务端工具版本化标识）。
@@ -107,7 +111,9 @@ pub(crate) fn citations_of(text: &Text) -> Option<Vec<AgentCitation>> {
 ///   `code_execution_tool_result` 等）→ 跳过（不产块、不报错）；
 /// - `Text` 无 raw → [`AgentBlock::Text`]（citations 自
 ///   `additional_params["citations"]` 提取）；
-/// - `Reasoning` / `ToolCall` / `Image` → 现状不变。
+/// - `Reasoning` → **逐载荷**产 `Thinking`（不拼接；回放凭证随块走，见
+///   `reasoning` 模块）；
+/// - `ToolCall` / `Image` → 现状不变。
 pub(crate) fn project_choice(choice: &[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>) {
     // 预索引源 1：`web_search` 的 `server_tool_use` id 集合（配对判别值）
     let mut use_ids: HashSet<&str> = HashSet::new();
@@ -205,13 +211,42 @@ pub(crate) fn project_choice(choice: &[AssistantContent]) -> (Vec<AgentBlock>, V
                 }
             }
             // 0.43 起 reasoning 以 Sealed 承载（发行方才可读）：以自身发行方
-            // 打开取可显示文本（text / summary 块按行拼接）
-            AssistantContent::Reasoning(reasoning) => blocks.push(AgentBlock::Thinking {
-                thinking: reasoning
-                    .open(reasoning.issuer())
-                    .map(|value| value.display_text())
-                    .unwrap_or_default(),
-            }),
+            // 打开后**逐载荷成块**（不拼接——文本与凭证逐块配对，拼成一条即
+            // 与凭证失真）。展示文本与回放凭证分开：`Text` 取 text + signature，
+            // `Summary` 只有文本（无凭证）、`Redacted` 只有密文（无可读文本）。
+            AssistantContent::Reasoning(reasoning) => {
+                let Some(value) = reasoning.open(reasoning.issuer()) else {
+                    continue;
+                };
+                for part in &value.content {
+                    match part {
+                        ReasoningContent::Text { text, signature } => {
+                            blocks.push(AgentBlock::Thinking {
+                                thinking: text.clone(),
+                                signature: signature.clone(),
+                                redacted: None,
+                            });
+                        }
+                        ReasoningContent::Summary(summary) => {
+                            blocks.push(AgentBlock::Thinking {
+                                thinking: summary.clone(),
+                                signature: None,
+                                redacted: None,
+                            });
+                        }
+                        ReasoningContent::Redacted { data } => {
+                            blocks.push(AgentBlock::Thinking {
+                                thinking: String::new(),
+                                signature: None,
+                                redacted: Some(data.clone()),
+                            });
+                        }
+                        // 加密载荷不可读（网关方言形态）：无可展示文本，本期
+                        // 也不在回放口径内——不产块
+                        ReasoningContent::Encrypted(_) => {}
+                    }
+                }
+            }
             AssistantContent::ToolCall(tool_call) => {
                 blocks.push(AgentBlock::ToolUse {
                     id: tool_call.id.to_string(),

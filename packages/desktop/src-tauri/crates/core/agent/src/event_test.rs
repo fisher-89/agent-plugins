@@ -486,6 +486,8 @@ fn message四类块混合数组往返无损且块判别值为驼峰() {
                 },
                 AgentBlock::Thinking {
                     thinking: "思考".to_owned(),
+                    signature: Some("sig".to_owned()),
+                    redacted: None,
                 },
                 AgentBlock::ToolUse {
                     id: "tu_1".to_owned(),

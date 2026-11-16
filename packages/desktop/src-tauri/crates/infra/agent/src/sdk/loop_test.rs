@@ -785,7 +785,7 @@ async fn 一轮文本加思考假流_delta逐发且轮末恰一条密封message�
     );
     assert!(matches!(
         &blocks[1],
-        agent::AgentBlock::Thinking { thinking } if thinking == "先读目录"
+        agent::AgentBlock::Thinking { thinking, .. } if thinking == "先读目录"
     ));
 
     // 无工具调用 → 正常收敛
@@ -926,9 +926,10 @@ async fn 工具轮第二请求的chat_history含成对tool_result且提示词在
 }
 
 #[tokio::test]
-async fn 轮内思考块不进请求史_密封事件与增量面仍可辨() {
+async fn 本轮思考随请求史回放_密封事件与增量面仍可辨() {
     let dir = tempdir("thinking-history");
-    // 首轮回思考 + 工具调用，次轮回到文本：两个请求史都不应带 reasoning 块
+    // 首轮回思考 + 工具调用，次轮回文本：第二个请求史应带回第一个 assistant
+    // 的 reasoning（本轮 tool loop 内回放），且密封事件面仍带 Thinking 块
     let model = FakeModel::with_turns(vec![
         vec![
             raw_reasoning("先看看目录"),
@@ -966,17 +967,25 @@ async fn 轮内思考块不进请求史_密封事件与增量面仍可辨() {
 
     let requests = model.captured_requests();
     assert_eq!(requests.len(), 2, "两轮请求");
-    for (index, request) in requests.iter().enumerate() {
-        assert!(
-            !request.chat_history.iter().any(|message| matches!(
-                message,
-                Message::Assistant { content, .. }
-                    if content.iter().any(|item| matches!(item, AssistantContent::Reasoning(_)))
-            )),
-            "第 {} 个请求史不含 reasoning 块（思考块只留转录与增量）",
-            index + 1
-        );
-    }
+    // 首个请求（本轮起始）史里只有提问，无 assistant 消息
+    assert!(
+        !requests[0]
+            .chat_history
+            .iter()
+            .any(|message| matches!(message, Message::Assistant { .. })),
+        "首个请求无 assistant 史"
+    );
+    // 第二个请求：上一轮 assistant 以 reasoning 原样回放（本轮 tool loop 内）
+    let second = &requests[1];
+    let replayed = second.chat_history.iter().any(|message| {
+        matches!(message, Message::Assistant { content, .. }
+            if content.iter().any(|item| matches!(item, AssistantContent::Reasoning(_))))
+    });
+    assert!(
+        replayed,
+        "本轮思考随续接请求回放（tool loop 内连续性）: {:?}",
+        second.chat_history
+    );
 
     // 密封事件面仍携带思考块（时间线可读），增量面亦照旧可辨
     let sealed = sealed_messages(&events);
@@ -984,10 +993,7 @@ async fn 轮内思考块不进请求史_密封事件与增量面仍可辨() {
         matches!(event, AgentEventKind::Message { blocks, .. }
             if blocks.iter().any(|block| matches!(block, agent::AgentBlock::Thinking { .. })))
     });
-    assert!(
-        has_thinking,
-        "密封事件仍含 Thinking 块（不参与回放，但落转录）"
-    );
+    assert!(has_thinking, "密封事件仍含 Thinking 块（转录与回放同源）");
 }
 
 #[tokio::test]

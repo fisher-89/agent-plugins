@@ -15,6 +15,7 @@ pub(crate) mod normalize;
 pub(crate) mod policy;
 pub(crate) mod preamble;
 pub(crate) mod protect;
+pub(crate) mod reasoning;
 pub(crate) mod resume;
 pub(crate) mod runner;
 pub(crate) mod sandbox;
@@ -49,6 +50,8 @@ mod normalize_test;
 mod policy_test;
 #[cfg(test)]
 mod preamble_test;
+#[cfg(test)]
+mod reasoning_test;
 #[cfg(test)]
 mod resume_test;
 #[cfg(test)]

@@ -497,6 +497,8 @@ export const AgentBlockSchema = z.union([z.strictObject({
 }), z.strictObject({
 	get kind() { return z.literal("thinking"); },
 	get thinking() { return z.string(); },
+	get signature() { return z.string().nullable().optional(); },
+	get redacted() { return z.string().nullable().optional(); },
 }), z.strictObject({
 	get kind() { return z.literal("toolUse"); },
 	get id() { return z.string(); },

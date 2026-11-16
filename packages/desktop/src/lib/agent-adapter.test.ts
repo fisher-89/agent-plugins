@@ -185,6 +185,20 @@ describe('foldSessionMessages：五变体映射', () => {
     ]);
   });
 
+  it('message.thinking 空文本不产部件（显示省略形态；凭证不回渲染）', () => {
+    const messages = fold([
+      message(1, [
+        { kind: 'thinking', thinking: '', signature: 'sig-1', redacted: null },
+        { kind: 'thinking', thinking: '', signature: null, redacted: '密文' },
+        { kind: 'text', text: '正文内容' },
+      ]),
+    ]);
+
+    expect(assistantOf(messages)?.parts).toEqual([
+      { type: 'text', text: '正文内容', state: 'done' },
+    ]);
+  });
+
   it('message.toolUse 产 tool 部件：type=tool-<name> 且 toolCallId=block.id、input 保真', () => {
     const messages = fold([
       message(1, [{ kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } }]),

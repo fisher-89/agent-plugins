@@ -144,7 +144,9 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
             text: String::new(),
             citations: None,
         } != AgentBlock::Thinking {
-            thinking: String::new()
+            thinking: String::new(),
+            signature: None,
+            redacted: None,
         }
     );
 

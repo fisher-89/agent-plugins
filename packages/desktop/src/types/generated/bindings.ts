@@ -343,8 +343,22 @@ export type AgentBlock =
  *  相位模型下表达，加则 bindings 分裂为相位伴生类型。
  */
 { kind: "text"; text: string; citations?: AgentCitation[] | null } | 
-/**  思考块 */
-{ kind: "thinking"; thinking: string } | 
+/**
+ *  思考块：**一条 provider 推理载荷一块**（多块保原序，MUST NOT 拼接——
+ *  文本与凭证逐块配对，拼成一条即与凭证失真）。
+ * 
+ *  `thinking` 为**展示**字段（前端渲染；显示被省略时为空串）。`signature`
+ *  / `redacted` 为**回放凭证**，两者互斥：
+ *  - `signature`：text 块的签名（密文，装全量推理原文，provider 据此重建
+ *    思考）。**空 `thinking` 且带 signature 是正常形态**（显示省略 /
+ *    adaptive thinking 只回凭证），故不可据此丢弃块；
+ *  - `redacted`：安全过滤后的加密载荷（无可读文本，`thinking` 恒空串）。
+ * 
+ *  两者皆 `None` 的块不可回放（无凭证的思考块发回即被拒），只作转录留痕。
+ *  属性面只标 `default`（沿 `Text.citations` 同款措辞：键恒在、值可 `null`，
+ *  旧 JSON 缺键读出 `None`）。
+ */
+{ kind: "thinking"; thinking: string; signature?: string | null; redacted?: string | null } | 
 /**  工具调用块（`input` 为原 JSON，结构由具体工具自解释） */
 { kind: "toolUse"; id: string; name: string; input: unknown } | 
 /**  工具结果块（`content` 已扁平化为字符串；`is_error` 缺失视作 false） */

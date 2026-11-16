@@ -4,6 +4,7 @@ use rig::message::{AssistantContent, Message};
 use rig::operation::Completion;
 
 use crate::sdk::context::{protected_start, sweep_orphans, ContextDefense};
+use crate::sdk::reasoning;
 
 /// 摘要指令要点集（措辞留实现期打磨窗，要点集不减）。
 const SUMMARY_INSTRUCTION: &str = "这是历史摘要，请勿重复已完成的工作。请将以下对话历史压缩为\
@@ -30,8 +31,11 @@ pub(crate) async fn summarize(
     if middle.is_empty() {
         return Err("保护窗前无可摘要段".to_owned());
     }
+    // 摘要输入剔除思考块：signature 是全量推理的密文，进摘要提示词既浪费
+    // 体量、模型也无从解读（保留实体行为空时该消息原样保留，防空消息）
+    let middle = reasoning::strip_all(middle.to_vec());
     let transcript =
-        serde_json::to_string(middle).map_err(|e| format!("待摘要历史序列化失败: {e}"))?;
+        serde_json::to_string(&middle).map_err(|e| format!("待摘要历史序列化失败: {e}"))?;
     let request = CompletionRequest {
         model: None,
         // 摘要器系统提示词以 chat_history 首条 System 消息承载（0.43 口径）

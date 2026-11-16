@@ -76,7 +76,7 @@ session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全�
 
 - `RunStarted` { model, session_id, tools, mcp_servers, … }（源自 system/init；session_id 即引擎侧标识上报形态之一）
 - `MessageDelta` { text/thinking 增量，配对键 }（**新增，ephemeral**）：token 级增量，思考/回复可辨；只上传输面，**store 永不见**；配对键形态（`parent_tool_use_id` vs 显式 correlator）由 dev-design 定稿
-- `Message` { role, blocks, parent_tool_use_id }（**密封，durable**）：唯一落库与重放单元；密封粒度 = 引擎一次 assistant 回应（全部块收进恰一条密封 Message）。其中 Block = Text | Thinking | ToolUse{id, name, input} | ToolResult{id, content, is_error} | **WebSearch{id, query, results, error, raw_use, raw_result}**
+- `Message` { role, blocks, parent_tool_use_id }（**密封，durable**）：唯一落库与重放单元；密封粒度 = 引擎一次 assistant 回应（全部块收进恰一条密封 Message）。其中 Block = Text | Thinking{thinking, signature, redacted} | ToolUse{id, name, input} | ToolResult{id, content, is_error} | **WebSearch{id, query, results, error, raw_use, raw_result}**
 - `SystemNotice` { subtype, payload }（permission_denied / api_retry 等 system 事件，subtype 不做封闭枚举）
 - `TurnDone`（现 `RunResult` 演进，更名/别名由 design 定稿）{ subtype, is_error, num_turns, duration_ms, cost, usage, session_id }：**统计唯一口径**（见「P1 引擎协议不变量与缺省降级」），唯一驱动收敛的变体
 - `Raw` { type, 原文 JSON }（未知 / 未来事件类型透传）
@@ -958,7 +958,7 @@ headless 交互面（本变更修订）：**ask 为阻塞工具，不消耗整�
 4. **bash 无沙箱（sdk-engine-gap-closure 偿还「bash 缺席」后的知情边界；desktop-write-protection 偿还「受保护文件写入面」半边）**：bash 已进工具面（Default 档拒绝、AcceptEdits / Bypass 放行）；受保护文件（内置工作区配置 + 用户 `write_protection` 规则）的写入经命令文本提取拦截，**但任意命令执行仍无沙箱**——BypassPermissions 默认档下 bash 可执行任意命令、可改动任何未受保护文件；命令级白/黑名单、真沙箱、交互审批留后续 change；已承认的静态判别漏面（`xargs` / `sh -c` 递归拆解 / 生成脚本再执行 / `-m` 模块 / 变量中转 / base64 编码）留痕于 desktop-write-protection
 5. **cost 恒缺**：`RunResult.cost_usd` 恒 `None`（无价格表），汇总卡如实呈现
 6. **engine_cfg 硬编码位（已偿还，desktop-agent-management）**：api_key / base_url / model 手填真机验证的限制已由全局 agent 管理偿还——engine_cfg 构造源换为管理数据解析（默认 agent / 显式 agent），连接配置经管理页维护，明文边界与遮蔽治理见 desktop-agent-management「api_key 机密边界」
-7. **resume 保真度缺口**：Raw 丢弃 / 子代理压平 / 仅顶层重建（L2 请求前剪裁只缓解请求侧成本随历史增长，重建源仍为 store 全量转录）；**服务端块（`WebSearch`）自本条起不再属该缺口**——其 raw 原文经 `raw_use` / `raw_result` 原样保全并原样回放；**`Thinking` 块不回放**属设计选择（非缺口）：思考块只留 store 转录与轮内增量，请求史（resume 重建与轮内续发同一口径）一律剔除——跨轮重发的思考块既不可被 provider 校验，又占实测请求史体积约 16%
+7. **resume 保真度缺口**：Raw 丢弃 / 子代理压平 / 仅顶层重建（L2 请求前剪裁只缓解请求侧成本随历史增长，重建源仍为 store 全量转录）；**服务端块（`WebSearch`）自本条起不再属该缺口**——其 raw 原文经 `raw_use` / `raw_result` 原样保全并原样回放；**`Thinking` 块按凭证回放**：一条 provider 推理载荷一块（`thinking` 展示、`signature` / `redacted` 凭证，互斥；**逐块配对，MUST NOT 拼接**）。带凭证的块按 `reasoning::replay` 还原为 reasoning（issuer `anthropic`），空 `thinking` + 有签名仍是合法可回放形态（显示省略不等于无思考）。回放范围 = **当前 tool loop 一轮**：`loop` 把每轮 choice 原值入史 ⇒ 本轮内续接请求整段重发该史即完成回放；重建史（跨轮）在入口经 `reasoning::strip_all` 整段剔除——跨轮重发的思考块凭证无意义且占体积。剔除先于防线剪裁 ⇒ 水位估算只计实际发出的块
 8. **引擎归属留痕未裁**：run 记录暂不区分引擎（座位 design 裁定后偿还）
 9. **无模型元数据表（协议与后缀的知情边界）**：不知道任意模型的 `default/upper` 输出上限，也无法判定 `supports_1m_suffix` / `supports_1m_beta`——故 `[1m]` 后缀一律接受（不做模型白名单校验）、`anthropic-beta` 一律发（第三方网关可能拒 → `api_error` 显式暴露，非静默）；名单外模型输出上限**按标称窗长分段推导**（128K 缺省档 `32_000`，与既往兜底逐字相同；封顶 `64_000`），老代模型（8K/16K 上限）与第三方网关仍需用户在 provider 显式填 `max_tokens` 才可跑通
 10. **不实现 `maxOutputTokensRecovery`**：撞输出上限即按既有 `finish` 语义收敛（不注入续写消息、不自动抬高上限），用户调 provider `max_tokens` 后重跑
@@ -1470,7 +1470,8 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
 | `crates/infra/agent/src/sdk/tools.rs` + `bash.rs` | 七工具面与质量 | `TOOL_NAMES` 七项；read 截断 + offset 翻页 + >100KB 无分页参数时前 100 行预览；grep 正则 + 上下文行；全工具单结果字节上限（`MAX_RESULT_BYTES` 50KB）；bash `tokio::process` + git-bash 探测 / `cmd /C` 兜底 / unix `sh -c`；`kill_on_drop` + `taskkill /T /F` 形状清理；超时活性护栏（缺省 120s、范围校验 [1s, 30min]，越界显式拒绝） |
 | `crates/infra/agent/src/sdk/policy.rs` | 三档决策表（bash 分化） | bash：Default 拒、AcceptEdits / Bypass 放；AcceptEdits ≠ Bypass 首次真实分化锁定测试 |
 | `crates/infra/agent/src/sdk/{context,compact}.rs` | L2 / L3 防线 | 标称窗长 = 该档模型名 `[1m]` 后缀 > provider `context_length` > 128K 启发式（按档独立）；生效窗长 = 标称 × 60% 与 400k 取小（水位一律据此推导）；字节启发式 token 估算（bytes ÷ 4）；prune 占位符（8k 门槛）+ 轮对裁剪 + 保首条 user；LLM compaction（失败降级硬裁，run 不中断）；`context_pruned` / `context_compacted` SystemNotice；调用点 = resume 重建后 + 每请求前；store 转录全量不变 |
-| `crates/infra/agent/src/sdk/resume.rs` | 重建与思考回放口径 | `without_reasoning` 单点：请求史（resume 重建 + loop 轮内入史）一律剔除 reasoning 块（仅思考的 assistant 消息原样保留，防空白消息）；`Thinking` 块仍落 store 转录与轮内增量 |
+| `crates/infra/agent/src/sdk/reasoning.rs`（新） | 思考块回放与剔除 | `ISSUER = "anthropic"`；`replay(thinking, signature, redacted) -> Option<AssistantContent>`（凭证即回放权，redacted 优先，文本与凭证逐块配对）；`strip_all(history)` 跨轮剔除（重建史入口单点，滤空消息原样保留防空白消息）；`without_reasoning(message)` 单条剔除口径（摘要转录用） |
+| `crates/infra/agent/src/sdk/resume.rs` | 重建与思考回放口径 | `assistant_content` 带凭证的 `Thinking` 块经 `reasoning::replay` 回放；跨轮剔除不在重建侧（`runner::open_session` 重建后以 `reasoning::strip_all` 单点执行） |
 | `crates/infra/agent/src/sdk/runner.rs` | 模型装配 | anthropic 臂开启自动前缀缓存（top-level `cache_control`）；`[1m]` 后缀追加 beta；输出上限取值链（末档按标称窗长分档推导）；`window=` / `max_tokens=` 日志报生效值 |
 | `crates/core/agent/src/runner.rs` | 会话级注入面词汇 | `SessionInjections` 增 `toolset: Option<SessionToolset>`（首值 `Explore`）；`tools` 位激活为七工具子集收窄表达；`preamble` 位维持不消费；serde additive（缺省读兼容旧线格式） |
 | `crates/infra/agent/src/compose.rs` | 注入装配 | `begin` 按 `provenance.source == "explore"` 装配注入（六工具收窄 + `Explore` 枚举）；per-turn 专用工具执行上下文铸造（store 句柄 + root）；其余来源恒 default |

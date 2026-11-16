@@ -266,7 +266,9 @@ function planBlock(block: AgentBlock, paired: PairedResults): BlockPlan | null {
     case 'text':
       return textPlan(block);
     case 'thinking':
-      return { kind: 'reasoning', text: block.thinking };
+      // 空文本 = 显示被省略（凭证仍完整、回放语义不变）：无可呈现内容，
+      // 不产部件——否则时间线多一张空白「思考」折叠卡
+      return block.thinking === '' ? null : { kind: 'reasoning', text: block.thinking };
     case 'toolUse':
       return toolUsePlan(block, paired);
     case 'toolResult':

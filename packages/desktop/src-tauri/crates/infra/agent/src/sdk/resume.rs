@@ -4,7 +4,7 @@ use rig::message::{
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
 
-use crate::sdk::web_search;
+use crate::sdk::{reasoning, web_search};
 
 /// sdk 引擎侧会话 id 铸造前缀：`sdk-<进程内计数>-<毫秒时戳>`（每轮铸造，
 /// 经 RunStarted / TurnDone 上报由内核记双 id 映射；不再承担归属校验）。
@@ -13,29 +13,6 @@ pub const SESSION_PREFIX: &str = "sdk-";
 /// 中断调用的合成结果正文（assistant 已声明、结果回灌前 run 停止——续会话
 /// 重建时补一条 is_error 语义的结果，保持 provider 配对协议不变量）。
 const INTERRUPTED_RESULT: &str = "工具执行失败: 工具执行被中断（会话在结果回灌前停止）";
-
-/// 剔除思考块后的对话史内容（回放统一口径）。
-///
-/// 思考块只留在 store 转录（时间线可读）与轮内 UI 增量，**不进请求史**：跨轮
-/// 重发的思考块既不可被 provider 校验（重发时已脱离签发上下文），又占实测
-/// 请求史体积约 16%，而每一轮都会整段重发。`resume::rebuild` 与 `loop` 的
-/// 密封入史共用本函数（单点）。
-///
-/// 退化保护：剔除后内容为空（模型只回了思考）时原样返回——空 assistant
-/// 消息会被 provider 拒。
-pub(crate) fn without_reasoning(content: Vec<AssistantContent>) -> Vec<AssistantContent> {
-    if content
-        .iter()
-        .any(|item| !matches!(item, AssistantContent::Reasoning(_)))
-    {
-        content
-            .into_iter()
-            .filter(|item| !matches!(item, AssistantContent::Reasoning(_)))
-            .collect()
-    } else {
-        content
-    }
-}
 
 /// 重建 rig 对话历史
 ///
@@ -116,12 +93,12 @@ fn text_content(blocks: &[AgentBlock]) -> Vec<UserContent> {
 /// 是 raw 原文（`encrypted_content` 等不可推导字段原样保全）；raw 块配空文本
 /// （rig 侧带文本即 `ConversionError`）。
 ///
-/// **Thinking 不回放**：`Thinking` 块只进 store 转录（时间线可读），不进重建
-/// 历史。理由两重——① 语义：重建出的思考块已脱离签发方（rig 的 wire 只回放
-/// 本 dialect issuer 的 reasoning，`open_for` 判定），本来就会被静默丢弃，
-/// 重建侧显式跳过只是把事实写明；② 成本：思考块占实测请求史体积约 16%，
-/// 且每轮整段重发。
-fn assistant_content(blocks: &[AgentBlock]) -> Vec<AssistantContent> {
+/// **Thinking 回放**：带凭证（`signature` / `redacted`）的块经
+/// [`reasoning::replay`] 还原为 reasoning，凭证逐块配对（不拼接）；无凭证的
+/// 块不回放（发裸文本只会被 provider 拒）。跨轮剔除不在本函数——重建史全属
+/// 既往轮，`runner::open_session` 随后以 `reasoning::strip_all(history)`
+/// 统一剔除，保持「是否回放」只有一个策略点。
+pub(crate) fn assistant_content(blocks: &[AgentBlock]) -> Vec<AssistantContent> {
     let mut content: Vec<AssistantContent> = Vec::with_capacity(blocks.len());
     for block in blocks {
         match block {
@@ -129,8 +106,17 @@ fn assistant_content(blocks: &[AgentBlock]) -> Vec<AssistantContent> {
             AgentBlock::Text { text, citations } => {
                 content.push(web_search::replay_text(text, citations.as_deref()));
             }
-            // 思考块不回放（见函数文档：跨发行方不可回放 + 成本）
-            AgentBlock::Thinking { .. } => {}
+            AgentBlock::Thinking {
+                thinking,
+                signature,
+                redacted,
+            } => {
+                if let Some(item) =
+                    reasoning::replay(thinking, signature.as_deref(), redacted.as_deref())
+                {
+                    content.push(item);
+                }
+            }
             AgentBlock::ToolUse { id, name, input } => {
                 let Some(name) = ToolName::new(name.clone()).ok() else {
                     continue;
