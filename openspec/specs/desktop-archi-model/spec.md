@@ -26,7 +26,7 @@ metadata = { owner = "platform" }
 kind = "domain"
 
 # 目录型壳的约定默认拼成 .../src-tauri/src/src/lib.rs（指不到），故此处显式 entry 是正当用法
-# （本变更模型数据零处：显式值随宿主重建后的后续变更落，见 repo-archi-model）
+# （本仓三处显式 entry 在案的实例，与本示例同形；数据纪律见 repo-archi-model）
 [element."App.Backend.Shell"]
 kind = "module"
 path = ["./packages/desktop/src-tauri/src/"]

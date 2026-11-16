@@ -311,7 +311,7 @@
 #### Scenario: 本仓入口面实测命中
 
 - **WHEN** 对本仓 42 个 `path` 非空元素跑 `entry_state`
-- **THEN** `Resolved` **27** 条（14 个 crate 由 ③ 命中 `src/lib.rs` + 多文件根 `App.Frontend.Shell` 由 ② 命中 `app.tsx` + 12 个前端单文件根由 ② 命中自身 = 14 + 1 + 12）；`Absent` **15** 条（8 个视图目录根 + 3 个视图内子域 + `components/ui` 缺 `index.ts`，共 12 条；+ 壳 `App.Backend.Shell`（约定候选 `src-tauri/src/src/lib.rs` 不在盘）+ 两个工具 crate（二进制 crate 无 `src/lib.rs`），共 3 条——三者的显式 `entry` 数据归宿主重建后的后续变更，届时 `Resolved` 30 / `Absent` 12）；`Invalid` 0 条。`App.Frontend.Shell` 因此不再落 `apiEntryMissing`；壳与两个工具 crate 仍落（`Absent`），MUST NOT 记为已解决
+- **THEN** `Resolved` **30** 条（14 个 crate 由 ③ 命中 `src/lib.rs` + 多文件根 `App.Frontend.Shell` 由 ② 命中 `app.tsx` + 12 个前端单文件根由 ② 命中自身 = 27；**+ 壳 `App.Backend.Shell` 与两个工具 crate** 由 ① 命中显式 `entry`：`packages/desktop/src-tauri/src/lib.rs` 与各自 crate 的 `src/main.rs` = 3）；`Absent` **12** 条（8 个视图目录根 + 3 个视图内子域 + `components/ui` 缺 `index.ts` / `index.tsx`）；`Invalid` 0 条。`App.Frontend.Shell`、壳与两个工具 crate 因此均不再落 `apiEntryMissing`——三处显式 `entry` 是本节 ① 在本仓的**唯一实例**，MUST NOT 为「凑齐形态」在单文件根或 14 个 `src/lib.rs` 命中的 crate 上再声明（约定默认已给出入口，多写即违 `repo-archi-model` 的字段纪律）
 
 #### Scenario: 生成物与手写 impl 共存编译
 

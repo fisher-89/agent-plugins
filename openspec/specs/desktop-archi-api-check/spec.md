@@ -125,8 +125,8 @@
 
 #### Scenario: 元素 gate 全 off 而判据仍报
 
-- **WHEN** 模型内全部元素 `gate = off`（本仓现状）且存在 15 个无可用入口元素
-- **THEN** 15 条 `apiEntryMissing` 照常产出（判据级 `warn`），与元素 `gate` 无关；把某元素 `gate` 改成 `strict` 后该 15 条数量与内容零变化
+- **WHEN** 模型内全部元素 `gate = off`（本仓现状）且存在 12 个无可用入口元素（12 个前端目录根）
+- **THEN** 12 条 `apiEntryMissing` 照常产出（判据级 `warn`），与元素 `gate` 无关；把某元素 `gate` 改成 `strict` 后该 12 条数量与内容零变化
 
 #### Scenario: 完备性判据保持 off
 
@@ -167,8 +167,8 @@
 
 #### Scenario: 存量 backlog 不拉黄灯
 
-- **WHEN** 报告含 15 条 `apiEntryMissing` 与 26 条 `apiMissing`（全部来自**契约不在案**的元素）
-- **THEN** 纳管子集为空、`status` 与引入 `apiFindings` 前逐字相同（本仓现状：唯一契约在案元素判据 0 条 ⇒ `status` 不变）；MUST NOT 因这 41 条把状态词常规化为 `warnings`
+- **WHEN** 报告含 12 条 `apiEntryMissing` 与 27 条 `apiMissing`（全部来自**契约不在案**的元素）
+- **THEN** 纳管子集为空、`status` 与引入 `apiFindings` 前逐字相同（本仓现状：唯一契约在案元素判据 0 条 ⇒ `status` 不变）；MUST NOT 因这 39 条把状态词常规化为 `warnings`（壳从此组落在 ② 桶里，仍是 backlog 而非承诺未兑现）
 
 #### Scenario: 稳定序与聚合
 
@@ -184,11 +184,11 @@
 
 契约判据的正确性 SHALL 以**报告数逐项对拍**验证（存量债务即验证语料），并 SHALL 有语料守护：
 
-- **基线表（本仓现状，实测复核；分母 = `path` 非空的 42 个元素）**：`apiEntryMissing` **15**（8 个视图目录根 + 3 个视图内子域 + `components/ui`——它们缺 `index.ts` / `index.tsx`，全为 `Absent`；**+ 壳 `App.Backend.Shell` 与两个工具 crate**——三者同样 `Absent`：目录型壳的约定候选 `src-tauri/src/src/lib.rs` 不在盘、二进制 crate 无 `src/lib.rs`）、`apiMissing` **26**（14 个 crate 元素 − 1 个试点 = 13，+ 多文件根 `App.Frontend.Shell` + 12 个前端单文件根元素；后 13 条是入口可解析之后才首次出现的「`declared` 但契约文件缺失」）、其余七条一致性判据各 **0**、`apiUndeclared` 不适用（`off`）。
-- **两条切分口径**：① `apiEntryMissing` 只由「无可用入口」产生——`Absent`（未声明且无约定默认）与 `Invalid`（形态 / 落位 / 存在 / 唯一任一违反）同归此项；② 入口一旦可解析，该元素就不再享有 `apiEntryMissing` 的静默，改为承担「有门无契约」的 `apiMissing`。故**总条目数 15 + 26 = 41 与旧基线（28 + 13 = 41）相等**：纯**分桶变化**（13 个前端文件型根元素从 `entry` 面移到 `contract` 面），不是新增债务；`api = none` 不豁免 ①（两个工具 crate 仍在 ① 面）。
-- **数据分两批，基线分两段**：壳与两个工具 crate 的显式 `entry` SHALL 归宿主重建后的后续变更（版本耦合理由见 `repo-archi-model`「基线落位与模型文件划分」首段）。**本段基线 = 15 / 26**；后续变更落地后 SHALL 更新为 **12 / 27**（总 39）：壳与两工具 crate 从 ① 面退役（壳转 `apiMissing`、两工具 crate 因 `api = none` 零判据）。MUST NOT 在本变更内按第二段数字验收。
+- **基线表（本仓现状，实测复核；分母 = `path` 非空的 42 个元素）**：`apiEntryMissing` **12**（8 个视图目录根 + 3 个视图内子域 + `components/ui`——它们缺 `index.ts` / `index.tsx`，全为 `Absent`）、`apiMissing` **27**（14 个 crate 元素 − 1 个试点 = 13，+ 多文件根 `App.Frontend.Shell` + 12 个前端单文件根元素 = 26，**+ 壳 `App.Backend.Shell`**——显式 `entry` 命中后 ① 不再成立，`declared` 但契约文件缺失使 ② 成立）、其余七条一致性判据各 **0**、`apiUndeclared` 不适用（`off`）——两者即字面的 **12 / 27**、总 **39**。
+- **两条切分口径**：① `apiEntryMissing` 只由「无可用入口」产生——`Absent`（未声明且无约定默认）与 `Invalid`（形态 / 落位 / 存在 / 唯一任一违反）同归此项；② 入口一旦可解析，该元素就不再享有 `apiEntryMissing` 的静默，改为承担「有门无契约」的 `apiMissing`（`api = none` 的元素除外：无库 API ⇒ ② 不适用，故 ① 退场即零判据）。故**总条目数 12 + 27 = 39** 全由这两条口径导出，且与两次历史读数连成同一规则的三段：`28 + 13 = 41`（A 之前，入口靠探测）→ `15 + 26 = 41`（A 落地，13 个前端文件型根由「猜不到入口」转为「有门无契约」，壳与两工具 crate 仍在 ① 面）→ `12 + 27 = 39`（本段：壳由 ① 平移至 ②，净 0；两工具 crate 各退出 ①，净 −2）。三段 MUST NOT 被读成「债务三次增减」——它是**分桶**的移动，其中只有最后一步真正收了两条债。
+- **基线单段（数据不分批）**：三处显式 `entry`（壳 + 两个工具 crate）SHALL 随模型数据在案（`repo-archi-model`「基线落位与模型文件划分」），故基线只有一段 **12 / 27（总 39）**；旧「数据分两批、基线分两段（本段 15 / 26，待换段 12 / 27）」的口径已退场——MUST NOT 再按 15 / 26 验收，MUST NOT 保留「后续变更再换段」的例外，也 MUST NOT 把该例外改写为「按第一段验收」的残留。
 - **判定口径**：**报告数与基线表逐项相等**即「检查能正确提示」。多于基线 = 判据误报（假阳），少于基线 = 判据漏报（假阴），两者都是检查器缺陷——MUST NOT 以「报告少就是代码干净」自我解释。
-- **基线须显式留痕**：基线数字写入 change 报告（`reports/`）与实现期实测对照；数字变更（如新增 crate 使 entry-missing +1、或前端补 barrel 使 `apiEntryMissing` 归零）SHALL 在报告内说明成因，MUST NOT 直接在代码里改期望数。基线表本身**不写进断言**（易随元素增减漂移），断言只锚定「实现期留痕的实测表与报告逐项相等」。
+- **基线须显式留痕**：基线数字写入 change 报告（`reports/`）与实现期实测对照；数字变更（如新增 crate 使 entry-missing +1、前端补 barrel 使 `apiEntryMissing` 归零、或补三处显式 `entry` 使壳换桶且两工具 crate 退出）SHALL 在报告内说明成因，MUST NOT 直接在代码里改期望数。基线表本身**不写进断言**（易随元素增减漂移），断言只锚定「实现期留痕的实测表与报告逐项相等」。
 - **语料守护（分两层，各有 owner）**：① **判定面逐判据用例**由 `crates/core/archi/src/api/**` 的十一份 sidecar 用例承担——契约解析（双向 gate 三条）/ `$defs` 规则五条 / 十判据各自正反例 / entry 互斥（含入口四理由）/ 签名归一 / 嵌套与透传（选择性 / 纯 `$ref` / 交集 / 直接子元素 / 跨 crate）/ 生成物渲染两侧键集一致；MUST NOT 另建 `tests/corpus/api/` 一类第二套判定语料（既有 crate 级语料只有 `corpus/dsl/` 与 `corpus/drift/` 两套，多一套即第二个驱动面）。② **crate 级报告面语料**沿既有 `crates/core/archi/tests/corpus/drift/` + `tests/golden_test.rs` 的 `DRIFT_CASES` 登记面驱动，快照为 `expected/<case>.<mode>.json`：既有 `api-mismatch` case（`contracts/App/App.Mod.md` + `models/01-app.toml` + `repo/src/mod/mod.rs`）SHALL 保持非空 `apiFindings`（其目录型根的 `src/mod/mod.rs` 由约定默认 `<root>/mod.rs` 命中，故 `modelHash` 与金样逐字不变）；新增 case 未登记进 `DRIFT_CASES` 即红、登记了但 case 目录不存在亦红。golden 更新 SHALL 沿既有 `DESKTOP_GOLDEN_REWRITE=1` 显式重写并人工确认（快照不参与判定）。
 - **MUST NOT 把本仓模型与契约塞进 crate 语料**：本仓 `models/**` 与 `api/**` 是仓库数据资产，纳入 crate 测试语料会破坏「语料自足、可移植」；本仓核对以命令 + 留痕执行（落 change `reports/`）。
 - **生成器正确性由自身单测守护**：`verify`（零 diff + 编译器）覆盖不到生成器自身的 bug——渲染、装配、抽取三面各有逐字段断言，MUST NOT 只靠端到端零 diff。
@@ -201,17 +201,17 @@
 #### Scenario: 试点契约落地后全量纳入
 
 - **WHEN** 同一根下加入试点契约（`<archi_api_dir>/Infra/App.Backend.Infra.ArchiRuntime.md`）后重跑
-- **THEN** 契约面转为启用，全部 `path` 非空元素（42 个）参与判据：产出基线表所述 15 条 `apiEntryMissing` 与 26 条 `apiMissing`（试点元素自身零命中）；试点元素不因「有契约」而被豁免于其它判据
+- **THEN** 契约面转为启用，全部 `path` 非空元素（42 个）参与判据：产出基线表所述 12 条 `apiEntryMissing` 与 27 条 `apiMissing`（试点元素自身零命中）；试点元素不因「有契约」而被豁免于其它判据
 
 #### Scenario: 报告数与基线逐项相等
 
 - **WHEN** 以本仓根跑一次全量检查并统计 `apiFindings` 按 `kind` 的分布
-- **THEN** `apiEntryMissing = 15`（逐条为 8 个视图目录根 + 3 个视图内子域 + `App.Frontend.Components.Ui` + `App.Backend.Shell` + `App.Backend.Tools.ExportBindings` + `App.Backend.Tools.ArchiApiGen`）、`apiMissing = 26`（13 个 crate + `App.Frontend.Shell` + 12 个前端单文件根，逐条为「declared 但契约文件缺失」）、其余七条各 0、`apiUndeclared = 0`；两个工具 crate 只落 ①（`api = none` 不豁免「无入口」，其显式 `entry` 归后续变更）；`status` 仍为 `clean`（纳管子集为空）
+- **THEN** `apiEntryMissing = 12`（逐条为 8 个视图目录根 + 3 个视图内子域 + `App.Frontend.Components.Ui`）、`apiMissing = 27`（13 个 crate + `App.Frontend.Shell` + 12 个前端单文件根 + `App.Backend.Shell`，逐条为「declared 但契约文件缺失」）、其余七条各 0、`apiUndeclared = 0`；壳 MUST NOT 同时出现在两个桶里（① 命中即跳过 ②）；两个工具 crate 两桶皆零（`entry` 命中 + `api = none`——「有入口」与「无库 API」两条事实同时在场，MUST NOT 只留一条）；`status` 仍为 `clean`（纳管子集为空）
 
 #### Scenario: 假阳与假阴都可辨
 
 - **WHEN** 人为让某入口可解析的元素也被判 `apiEntryMissing`（假阳），或让某无入口元素漏报（假阴）
-- **THEN** 前者的报告数变为 16（多于基线）后者变为 14（少于基线）；两种偏离都判为检查器缺陷，MUST NOT 更新基线表放行
+- **THEN** 前者的报告数变为 13（多于基线）后者变为 11（少于基线）；两种偏离都判为检查器缺陷，MUST NOT 更新基线表放行
 
 #### Scenario: 判定面用例与报告面语料各司其职
 
