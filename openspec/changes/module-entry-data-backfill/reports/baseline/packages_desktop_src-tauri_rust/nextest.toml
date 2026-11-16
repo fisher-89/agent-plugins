@@ -1,0 +1,6 @@
+[profile.wps-desktop-gate]
+inherits = "default"
+
+[profile.wps-desktop-gate.junit]
+path = "D:/Projects/.worktrees/wps-claude-plugin/module-entry-data-backfill/openspec/changes/module-entry-data-backfill/reports/baseline/packages_desktop_src-tauri_rust/junit.xml"
+report-skipped = "ignored"

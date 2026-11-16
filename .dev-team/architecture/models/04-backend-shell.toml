@@ -5,6 +5,7 @@
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src-tauri/src/"]
+entry = "./packages/desktop/src-tauri/src/lib.rs"
 summary = "Tauri 壳：IPC 命令面、端口装配与绑定导出"
 
 [[relation]]
