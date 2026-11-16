@@ -48,7 +48,7 @@ pub enum ApiError {
     Io(String),
     /// 契约资产非法（结构 / 双向 gate / `$defs` 规则 / 签名形态）
     Contract(String),
-    /// 元素入参非法（FQN 不存在 / 无实现入口 / 语言不可判）或元素表不可得
+    /// 元素入参非法（FQN 不存在 / 无可用入口 / 语言不可判）或元素表不可得
     /// （模型结构性错，见 [`elements_of`]——不新增第四变体，D20 的封闭三值不动）
     Element(String),
 }
@@ -394,7 +394,10 @@ pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnaps
         schema::verify_defs(&built)?;
         schemas.insert(element.fqn.clone(), built);
         contracts.push(parsed);
-        symbols.insert(element.fqn.clone(), element_symbols(root, element));
+        symbols.insert(
+            element.fqn.clone(),
+            element_symbols(root, elements, element),
+        );
     }
     contracts.sort_by(|left, right| left.fqn.cmp(&right.fqn));
     Ok(ApiSnapshot {
@@ -404,16 +407,21 @@ pub fn load_contracts(root: &Path, elements: &[ArchiElement]) -> Result<ApiSnaps
     })
 }
 
-/// 元素的代码符号集（无实现入口 → 空集，缺口由 `apiEntryMissing` 报）。
-fn element_symbols(root: &Path, element: &ArchiElement) -> Vec<ApiSymbol> {
-    let Some((_, entry)) = paths::entry_form(root, element) else {
+/// 元素的代码符号集（无可用入口 → 空集，缺口由 `apiEntryMissing` 报）。
+fn element_symbols(
+    root: &Path,
+    elements: &[ArchiElement],
+    element: &ArchiElement,
+) -> Vec<ApiSymbol> {
+    let paths::EntryState::Resolved { entry, .. } = paths::entry_state(root, elements, element)
+    else {
         return Vec::new();
     };
     extract::extract_element(root, &entry)
 }
 
 /// 装配四类生成物为内存清单（**零写盘**）：`<FQN>.schema.json` / `INDEX.toml` /
-/// `<root>.i.rs` / `<root>.i.ts`。
+/// `<入口主干>.i.rs` / `<入口主干>.i.ts`（后两者落**实现入口同级**）。
 ///
 /// 元素表经 [`elements_of`]（`dto::graph_view` 单点取数）——模型结构性坏 ⇒ `Err`
 /// （fail-closed：坏模型不得被固化成入库生成物）。
@@ -459,15 +467,16 @@ pub fn render_all(root: &Path, snapshot: &ApiSnapshot) -> Result<Vec<GeneratedFi
         if contract.ops.is_empty() && contract.types.is_empty() && contract.reexports.is_empty() {
             continue;
         }
-        // 语言 → 生成物种类由 `paths::generated_kind` 单点分派（D42：路径只收 `<root>`）
-        let scope = element.path.first().map(String::as_str).unwrap_or("");
-        let kind = paths::generated_kind(paths::language_of(scope));
-        let Some(path) = paths::generated_path(root, scope, kind) else {
+        // 入口形态与落点均取 `entry_state` 的 `Resolved`（D41 / D6）：无可用入口 ⇒ 该契约
+        // 不产 `.i.*`（与「零内容不生成」同口径）——形态 MUST NOT 由渲染器二次推导
+        let paths::EntryState::Resolved { form, entry } =
+            paths::entry_state(root, &elements, element)
+        else {
             continue;
         };
-        // 入口形态由调用方给（D41）：拿不到入口 ⇒ 该契约不产 `.i.*`（与「零内容不生成」
-        // 同口径）——形态 MUST NOT 由渲染器二次推导
-        let Some((form, _)) = paths::entry_form(root, element) else {
+        // 语言 → 生成物种类由 `paths::generated_kind` 单点分派（输入是入口扩展名）
+        let kind = paths::generated_kind(paths::language_of(&entry));
+        let Some(path) = paths::generated_path(root, &entry, kind) else {
             continue;
         };
         let target = EmitTarget {
@@ -486,6 +495,9 @@ pub fn render_all(root: &Path, snapshot: &ApiSnapshot) -> Result<Vec<GeneratedFi
 }
 
 /// `INDEX.toml` 条目（全部 `path` 非空元素各一条；`status` 按契约文件是否在案）。
+///
+/// `generated` 取**入口同级**的生成物路径；无可用入口（`Absent` / `Invalid`）留空——
+/// 生成物路径是入口的函数，无入口即无路径可写。
 fn index_entries(
     root: &Path,
     snapshot: &ApiSnapshot,
@@ -514,7 +526,7 @@ fn index_entries(
         let degraded = schema_value
             .map(|value| schema::degraded_marks(value).len())
             .unwrap_or(0);
-        let generated_rel = generated_path_of(root, &element.path)
+        let generated_rel = generated_path_of(root, elements, element)
             .filter(|_| present)
             .map(|path| display(root, &path));
         entries.push(IndexEntry {
@@ -609,9 +621,28 @@ pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
                 elements.len()
             ))
         })?;
-    let Some((_, entry)) = paths::entry_form(root, found) else {
+    let state = paths::entry_state(root, &elements, found);
+    let paths::EntryState::Resolved { entry, .. } = state else {
+        let candidates = paths::entry_candidates(found);
+        // 理由与 `check::entry_missing_message` 同一套判据（同一 `EntryProblem`）：判据面出
+        // 完整 finding 文案，本处只补「为什么没有入口」那一句
+        let reason = match &state {
+            paths::EntryState::Invalid(problem) => {
+                format!("声明的 `entry` {}", entry_problem_reason(problem))
+            }
+            _ => "未声明 `entry`".to_owned(),
+        };
+        let expected = if candidates.is_empty() {
+            "（`path` 为空或形态非法，无候选可派生）".to_owned()
+        } else {
+            candidates
+                .iter()
+                .map(|candidate| format!("`{candidate}`"))
+                .collect::<Vec<String>>()
+                .join(" / ")
+        };
         return Err(ApiError::Element(format!(
-            "元素 {element} 无实现入口（`path` 与三条 / 四条入口候选均未命中）——\
+            "元素 {element} 无可用入口（{reason}；约定的候选 {expected} 皆不在盘）——\
              无法起草契约"
         )));
     };
@@ -619,6 +650,23 @@ pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
     // 只读入口会把真正的操作漏掉，草稿随即失真
     let symbols = extract::extract_element(root, &entry);
     Ok(bootstrap_text(element, &entry, &symbols))
+}
+
+/// `EntryProblem` 的一句话理由（「为什么这个入口不可用」）——[`bootstrap`] 失败文案的
+/// 素材，与 `check::entry_missing_message` 同源（同一 `EntryProblem` 四值，零第二份判据）。
+fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
+    match problem {
+        paths::EntryProblem::Malformed { entry } => {
+            format!("`{entry}` 形态非法（MUST 是 repo 相对 POSIX 路径）")
+        }
+        paths::EntryProblem::OutsidePath { entry } => {
+            format!("`{entry}` 落在该元素的 `path` 之外")
+        }
+        paths::EntryProblem::NotOnDisk { entry } => format!("`{entry}` 不在盘上"),
+        paths::EntryProblem::Duplicated { entry, other_fqn } => {
+            format!("`{entry}` 与元素 {other_fqn} 是同一个文件")
+        }
+    }
 }
 
 /// md 骨架文本（H1 + 空散文段 + 每操作一个 `### <op-id>` + `api-types` fence）。
@@ -730,27 +778,38 @@ fn json_type(ty: &ApiType) -> String {
 /// **投影只报文件事实，MUST NOT 回写模型字段**——模型存的是意图（`declared` 而文件
 /// 缺失是迁移期主形态），抹平会让消费方以为「有契约可读」。
 ///
-/// 模型结构坏（[`elements_of`] 的停摆态）⇒ 拿不到元素 `path`，按空 `path` 投影：
-/// 契约 / schema 路径仍报文件事实，生成物路径退 `None`（本入口无错误面）。
+/// 模型结构坏（[`elements_of`] 的停摆态）⇒ 取不到元素表，按「元素缺席」投影：契约 /
+/// schema 路径仍报文件事实，生成物路径退 `None`（本入口无错误面）。
 pub fn api_ref(root: &Path, fqn: &str) -> ArchiApiRef {
-    let path = elements_of(root)
-        .ok()
-        .and_then(|elements| {
-            elements
-                .into_iter()
-                .find(|candidate| candidate.fqn == fqn)
-                .map(|element| element.path)
-        })
-        .unwrap_or_default();
-    api_ref_of(root, fqn, &path)
+    let elements = elements_of(root).unwrap_or_default();
+    match elements.iter().find(|candidate| candidate.fqn == fqn) {
+        Some(element) => api_ref_of(root, &elements, element),
+        None => ref_projection(root, fqn, None),
+    }
 }
 
-/// 同一投影的元素形态入口（消费方手上已有元素 `path` 时用——投影层不必为拿一条
-/// 路径而二次读模型）。
-pub fn api_ref_of(root: &Path, fqn: &str, element_path: &[String]) -> ArchiApiRef {
+/// 同一投影的元素形态入口（消费方已有元素表时用——入口解析需**全表**判跨元素唯一，
+/// 投影层不必为拿一条路径而二次读模型）。
+pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+    let entry = match paths::entry_state(root, elements, element) {
+        paths::EntryState::Resolved { entry, .. } => Some(entry),
+        _ => None,
+    };
+    ref_projection(root, &element.fqn, entry.as_deref())
+}
+
+/// 投影面唯一装配体：`entry = None` 同时表达「元素缺席」与「该元素无可用入口」两态
+/// （MUST NOT 为凑参数构造占位元素），契约 / schema 路径仍报文件事实。
+fn ref_projection(root: &Path, fqn: &str, entry: Option<&str>) -> ArchiApiRef {
     let contract = paths::contract_path(root, fqn).filter(|path| path.is_file());
     let schema = paths::schema_path(root, fqn);
-    let generated = generated_path_of(root, element_path);
+    let generated = entry.and_then(|entry| {
+        paths::generated_path(
+            root,
+            entry,
+            paths::generated_kind(paths::language_of(entry)),
+        )
+    });
     match (contract, schema, generated) {
         (Some(contract), Some(schema), generated) => ArchiApiRef {
             status: ApiStatus::Declared,
@@ -828,15 +887,22 @@ fn module_refs(
     modules
 }
 
-/// 元素生成物路径（按 `path[0]` 的扩展名判语言；`path` 空或语言不可判 → `None`）。
+/// 元素生成物路径（入口解析 → 语言分派 → 落点派生；无可用入口 → `None`）。
 ///
-/// 语言 → 生成物种类经 [`paths::generated_kind`] 单点分派，本函数零第二份 match；
-/// `paths::generated_path` 只收 `<root>` 字符串（D42）——「容器元素天然无生成物」由
-/// 本函数的 `path.first()?` 表达，MUST NOT 为凑参数构造占位 `ArchiElement`。
-fn generated_path_of(root: &Path, element_path: &[String]) -> Option<PathBuf> {
-    let element_root = element_path.first()?;
-    let kind = paths::generated_kind(paths::language_of(element_root));
-    paths::generated_path(root, element_root, kind)
+/// 语言 → 生成物种类经 [`paths::generated_kind`] 单点分派、**输入改为入口**，本函数零
+/// 第二份 match；`paths::generated_path` 只收入口串——「容器元素天然无生成物」由
+/// [`paths::entry_state`] 的 `Absent` 表达，MUST NOT 为凑参数构造占位 `ArchiElement`。
+fn generated_path_of(
+    root: &Path,
+    elements: &[ArchiElement],
+    element: &ArchiElement,
+) -> Option<PathBuf> {
+    let paths::EntryState::Resolved { entry, .. } = paths::entry_state(root, elements, element)
+    else {
+        return None;
+    };
+    let kind = paths::generated_kind(paths::language_of(&entry));
+    paths::generated_path(root, &entry, kind)
 }
 
 /// 模型元素表（`path` 非空判据的输入；模型目录缺席 → 空表）。

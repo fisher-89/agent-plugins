@@ -144,6 +144,7 @@ function element(fqn: string, overrides: Partial<ArchiElement> = {}): ArchiEleme
     metadata: {},
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 2,
+    entry: null,
     mark: 'none',
     ...overrides,
   };

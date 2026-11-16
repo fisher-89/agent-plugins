@@ -845,6 +845,20 @@ fn render_target的形态由调用方决定() {
             !source.contains("paths::entry_form("),
             "`emit/{label}` 零 `paths::entry_form` 调用（渲染器零 IO）"
         );
+        assert!(
+            !source.contains("entry_form"),
+            "`emit/{label}` 内旧词形 `entry_form` 零命中（含注释，已改述为 `entry_state`）"
+        );
+    }
+    // doc 面（D41）：形态位的表述改为来自 `paths::entry_state` 的 `Resolved`
+    for (label, source) in [
+        ("mod.rs", include_str!("mod.rs")),
+        ("ts.rs", include_str!("ts.rs")),
+    ] {
+        assert!(
+            source.contains("entry_state"),
+            "`emit/{label}` 的 doc 表述为来自 `paths::entry_state` 的 `Resolved` 形态位"
+        );
     }
 
     let (contract, schema) = prepare(&format!(

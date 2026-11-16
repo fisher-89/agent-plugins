@@ -4,7 +4,7 @@
 //!
 //! 零 mock（D18 / AC-9）：判据的事实源（契约 / 内存 schema / 符号集 / 入口存在性）全为
 //! 真实产出——`contract::parse` / `schema::build_schema` / `extract` 与真实 tempdir 落盘；
-//! 替身会让「判定单源」不可见。文件系统只用于驱动 `entry_form` / `contract_path` 的
+//! 替身会让「判定单源」不可见。文件系统只用于驱动 `entry_state` / `contract_path` 的
 //! 存在性判定。
 
 use std::collections::BTreeMap;
@@ -85,6 +85,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         kind: ElementKind::Module,
         gate: GateTier::Warn,
         api: ApiStatus::Declared,
+        entry: None,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
@@ -227,12 +228,12 @@ impl Fixture {
         })
     }
 
-    /// 落一份可被 `entry_form` 命中 `src/lib.rs`（crate 形态）的元素目录。
+    /// 落一份可被 `entry_state` 判 `Resolved(Crate)` 的 `src/lib.rs` 元素目录。
     fn touch_entry(&self, element_root: &str) {
         self.temp.write(&format!("{element_root}/src/lib.rs"), "");
     }
 
-    /// 落一份可被 `entry_form` 命中 `mod.rs`（目录形态）的元素目录。
+    /// 落一份可被 `entry_state` 判 `Resolved(SubdirModule)` 的 `mod.rs` 元素目录。
     fn touch_mod(&self, element_root: &str) {
         self.temp.write(&format!("{element_root}/mod.rs"), "");
     }
@@ -274,6 +275,79 @@ fn 判据一入口缺失命中() {
         count(&findings, ArchiApiFindingKind::ApiMissing),
         0,
         "① 命中后不再判 ②（MUST NOT 双报）"
+    );
+}
+
+/// 正向（AC-4 收益面 / test-design:123）：**单文件根**元素（`path` 只有文件本身、该文件
+/// 自身落盘）在新解析链下是 `Resolved`（候选 ②「根文件自身」命中）⇒ ① 零条，②③④ 照常
+/// 求值且全零。旧口径按目录形态探测入口，这类元素恒被判「无入口」——即 AC-4 里 12 个
+/// 前端单文件元素的**假报**来源。
+#[test]
+fn 判据一单文件根解析成功零判据() {
+    let fqn = "App.Frontend.Views.Welcome";
+    let fixture = Fixture::new("entry-single-file-resolved")
+        .with_element(element(fqn, &["views/welcome-view.tsx"]))
+        .with_contract(contract(fqn, &[], &["WelcomeProps"], &[]))
+        .with_symbols(fqn, vec![type_symbol("WelcomeProps", ApiSymbolKind::Type)]);
+    fixture.temp.write(
+        "views/welcome-view.tsx",
+        "export type WelcomeProps = { title: string };\n",
+    );
+
+    let findings = fixture.run();
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiEntryMissing),
+        0,
+        "单文件根的根文件即入口 ⇒ ① 零条：{:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+    assert!(
+        findings.is_empty(),
+        "②③④ 照常求值且全零（契约在案 + 符号齐）：{:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+}
+
+/// 正向（AC-4 可见收益 / test-design:124）：单文件根 + `api = declared` + **无契约** →
+/// ① 零条、② 恰一条 `apiMissing`——同一批前端单文件元素从此由「假报无入口」转为真话
+/// 「缺契约」。
+#[test]
+fn 判据一单文件根缺契约转真话() {
+    let fqn = "App.Frontend.Views.Welcome";
+    let fixture = Fixture::new("entry-single-file-declared")
+        .with_element(element(fqn, &["views/welcome-view.tsx"]));
+    fixture.temp.write(
+        "views/welcome-view.tsx",
+        "export const welcome = () => null;\n",
+    );
+
+    let findings = fixture.run();
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiEntryMissing),
+        0,
+        "① 已 `Resolved`（根文件自身即入口），不报无入口：{:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiMissing),
+        1,
+        "② 转真话：`api = declared` 而无契约文件"
+    );
+    let missing = findings
+        .iter()
+        .find(|finding| finding.kind == ArchiApiFindingKind::ApiMissing)
+        .expect("② 条目在案");
+    assert_eq!(missing.category, "contract", "分类 = contract");
+    assert!(
+        missing.message.contains(fqn),
+        "文案点名元素：{}",
+        missing.message
+    );
+    assert_eq!(
+        findings.len(),
+        1,
+        "除 ② 外零判据：{:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
 }
 
@@ -319,14 +393,15 @@ fn 入口缺失与二三四互斥() {
     );
 }
 
-/// 边界（AC-7 基线 28）：28 条无入口元素 → `ApiEntryMissing` 恰 28 条，且 `path` 空元素
-/// 不报（容器天然无入口）。
+/// 边界（test-design:136 规模面）：12 个无入口元素 → `ApiEntryMissing` 恰 12 条，且
+/// `path` 空元素不报（容器天然无入口）。构造数只取本用例的 12（AC-4 的收益面 12 由
+/// 桌面端实测留痕，MUST NOT 在本断言里读仓内真值）。
 #[test]
-fn 入口缺失基线二十八条() {
-    let mut fixture = Fixture::new("entry-missing-baseline");
-    for index in 0..28 {
+fn 判据一规模面十二条构造() {
+    let mut fixture = Fixture::new("entry-missing-scale");
+    for index in 0..12 {
         fixture = fixture.with_element(element(
-            &format!("App.Core.Shell{index:02}"),
+            &format!("App.Frontend.Shell{index:02}"),
             &[&format!("src/shell{index:02}/")],
         ));
     }
@@ -334,8 +409,8 @@ fn 入口缺失基线二十八条() {
     let findings = fixture.run();
     assert_eq!(
         count(&findings, ArchiApiFindingKind::ApiEntryMissing),
-        28,
-        "28 条逐条命中且容器元素不报：{:?}",
+        12,
+        "12 条逐条命中且容器元素不报：{:?}",
         findings.iter().map(|f| &f.element).collect::<Vec<_>>()
     );
     assert!(
@@ -343,6 +418,186 @@ fn 入口缺失基线二十八条() {
             .iter()
             .all(|finding| finding.element.as_deref() != Some("App.Core.Container")),
         "path 空元素零参与"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ① 的四条理由文案（R-3：同报一个 finding kind，理由只能落在文案里）
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-2 四条判据各一反例的文案面）：`Malformed` / `OutsidePath` / `NotOnDisk` /
+/// `Duplicated` 各报 1 条 `ApiEntryMissing`，文案点名具体对象（形态非法的声明值 / 越界
+/// 目标 / 缺失文件 / 冲突方 FQN），且四条理由同档同分类（MUST NOT 新增第 11 个 kind）。
+#[test]
+fn 判据一四理由文案各点名对象() {
+    // 每条理由一个独立夹具（四理由的载荷互不相同；混在一次求值里会引入跨元素冲突的
+    // 额外命中）。
+    let cases: [(&str, Fixture, &str, &str); 4] = [
+        (
+            "Malformed",
+            {
+                let fixture = Fixture::new("entry-problem-malformed");
+                let mut target = element("App.Core.Malformed", &["src/alpha/"]);
+                target.entry = Some("/abs/x.rs".to_owned());
+                fixture.with_element(target)
+            },
+            "/abs/x.rs",
+            "形态非法",
+        ),
+        (
+            "OutsidePath",
+            {
+                let fixture = Fixture::new("entry-problem-outside");
+                fixture.temp.write("src/beta/src/lib.rs", "");
+                let mut target = element("App.Core.Outside", &["src/alpha/"]);
+                target.entry = Some("src/beta/src/lib.rs".to_owned());
+                fixture.with_element(target)
+            },
+            "src/beta/src/lib.rs",
+            "path` 之外",
+        ),
+        (
+            "NotOnDisk",
+            {
+                let fixture = Fixture::new("entry-problem-not-on-disk");
+                fixture.temp.write("src/alpha/src/lib.rs", "");
+                let mut target = element("App.Core.NotOnDisk", &["src/alpha/"]);
+                target.entry = Some("src/alpha/missing.rs".to_owned());
+                fixture.with_element(target)
+            },
+            "src/alpha/missing.rs",
+            "不在盘上",
+        ),
+        (
+            // 冲突对：目录型根两侧约定形态同时在盘时按序取 `src/lib.rs`（不与自己冲突），
+            // 显式声明 `mod.rs` 的一侧被判 `Duplicated` ⇒ 恰一条
+            "Duplicated",
+            {
+                let fixture = Fixture::new("entry-problem-duplicated");
+                fixture.temp.write("src/gamma/src/lib.rs", "");
+                fixture.temp.write("src/gamma/mod.rs", "");
+                // 冲突源取 `api = none`（无契约意图）⇒ 自身零判据，本夹具只留一条
+                let owner = blank_element("App.Core.GammaOwner", &["src/gamma/"]);
+                let mut target = element("App.Core.Duplicated", &["src/gamma/"]);
+                target.entry = Some("src/gamma/mod.rs".to_owned());
+                fixture.with_element(owner).with_element(target)
+            },
+            "src/gamma/mod.rs",
+            "同一个文件",
+        ),
+    ];
+
+    for (label, fixture, named, phrase) in cases {
+        let findings = fixture.run();
+        assert_eq!(
+            count(&findings, ArchiApiFindingKind::ApiEntryMissing),
+            1,
+            "{label} 恰一条判据：{:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            count(&findings, ArchiApiFindingKind::ApiMissing),
+            0,
+            "{label}：① 命中即不再判 ②"
+        );
+        let finding = &findings[0];
+        assert_eq!(finding.kind, ArchiApiFindingKind::ApiEntryMissing);
+        assert_eq!(finding.category, "entry", "四理由同分类（{label}）");
+        assert_eq!(finding.target, None, "元素级命中 target 为 None");
+        assert!(finding.occurrences.is_empty(), "无命中点");
+        assert!(
+            finding.message.contains(named),
+            "{label} 文案点名具体对象 {named}：{}",
+            finding.message
+        );
+        assert!(
+            finding.message.contains(phrase),
+            "{label} 文案给出理由措辞 {phrase}：{}",
+            finding.message
+        );
+    }
+}
+
+/// 边界（AC-4 收益面）：`api = none` 的工具 crate 形态（`src/main.rs` 落盘、无契约文件）
+/// → ① 已 `Resolved`、② 因 `none` 不判、⑤ 无契约 ⇒ **零判据**。
+#[test]
+fn 判据一留白工具crate零判据() {
+    let mut tool = blank_element(
+        "App.Backend.Tools.ArchiApiGen",
+        &["crates/tools/archi-api-gen/"],
+    );
+    tool.entry = Some("crates/tools/archi-api-gen/src/main.rs".to_owned());
+
+    let fixture = Fixture::new("entry-resolved-blank").with_element(tool);
+    fixture
+        .temp
+        .write("crates/tools/archi-api-gen/src/main.rs", "fn main() {}\n");
+
+    let findings = fixture.run();
+    assert!(
+        findings.is_empty(),
+        "留白工具 crate 在口可解析时零判据：{:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+}
+
+/// 边界（AC-1 容器 / 非法根两态）：`path` 空元素零参与（早退不变）；`path` 非空但根形态
+/// 非法 → 参与且报 ①（`Absent`：候选表为空）。
+#[test]
+fn 判据一容器零参与与非法根参与() {
+    let fixture = Fixture::new("entry-container-vs-illegal")
+        .with_element(element("App.Core.Container", &[]))
+        .with_element(element("App.Core.IllegalRoot", &["../outside"]));
+    let findings = fixture.run();
+
+    assert_eq!(
+        count(&findings, ArchiApiFindingKind::ApiEntryMissing),
+        1,
+        "容器早退、非法根参与：{:?}",
+        findings.iter().map(|f| &f.element).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        findings[0].element.as_deref(),
+        Some("App.Core.IllegalRoot"),
+        "参与的是非法根元素"
+    );
+    assert!(
+        !findings[0].message.is_empty(),
+        "非法根文案非空（`path` 为空或形态非法，无候选可派生）"
+    );
+}
+
+/// 异常（AC-5 源码自证）：① 段零 `paths::generated_path(` 调用（落点不在判据面），且
+/// 判定不出现 `element.path.first()`——入口与路径都由 `paths` 单点给出。
+#[test]
+fn 判据一零落点派生与零根自取() {
+    let source = include_str!("check.rs");
+    let code: Vec<&str> = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect();
+    assert!(
+        !code
+            .iter()
+            .any(|line| line.contains("paths::generated_path(")),
+        "判据面零落点派生（`.i` 的存在不充当入口证据）"
+    );
+    let root_takes = code
+        .iter()
+        .filter(|line| line.contains("element.path.first()"))
+        .count();
+    assert_eq!(
+        root_takes, 1,
+        "`element.path.first()` 只剩 ⑧ 的包根判据一处消费（① 的入口解析单点在 `paths::entry_state`）"
+    );
+    assert!(
+        code.iter()
+            .any(|line| line.contains("fn crate_root(element: &ArchiElement)")),
+        "唯一消费点归属 `crate_root`（⑧ 嵌套跨 crate 判据）"
+    );
+    assert!(
+        code.iter().any(|line| line.contains("paths::entry_state(")),
+        "① 的判定经 `paths::entry_state`"
     );
 }
 
@@ -1439,30 +1694,34 @@ fn 档位判据来自词汇单点() {
     );
 }
 
-/// 边界（D42 / AC-7）：判据 ① 的 `has_generated` 只经 `element.path.first()` 取 `<root>`
-/// 再调 `paths::generated_path`（不构造占位 `ArchiElement`）；行为面：元素无实现入口但
-/// **生成物已在盘** → **不**报 `apiEntryMissing`（生成物在场即不属「既无生成物也无入口」）。
+/// 边界（D5 / D42 / AC-7）：判据 ① 单点取自 `paths::entry_state`（本文件零第二份入口
+/// 探测、零占位 `ArchiElement` 构造）；行为面：元素无可用入口但**生成物已在盘** ⇒ 仍报
+/// `apiEntryMissing`——`.i` 的存在不再是入口的替代证据（生成物路径是入口的函数）。
 #[test]
-fn 判据一生成物在场即不报入口缺失() {
+fn 判据一生成物在场不豁免入口缺失() {
     let source = include_str!("check.rs");
     assert!(
         !source.contains("ArchiElement {"),
-        "本文件零占位 `ArchiElement` 构造（D42：路径只收 `<root>` 字符串）"
+        "本文件零占位 `ArchiElement` 构造（D42：入口与路径都由 `paths` 单点给出）"
     );
     assert!(
-        source.contains("element.path.first()"),
-        "容器元素由 `path.first()` 表达（调用方判容器，`paths` 层不判）"
+        source.contains("entry_state"),
+        "① 的判定经 `paths::entry_state`（唯一判定点）"
+    );
+    assert!(
+        !source.contains("has_generated"),
+        "`has_generated` 已退役（生成物不充当入口证据）"
     );
 
     let fqn = "App.Core.GeneratedOnly";
     let fixture = Fixture::new("generated-only").with_element(element(fqn, &["src/generated/"]));
-    // 无入口（`src/generated/` 下无 `src/lib.rs` / `mod.rs` / `.rs`），但生成物已在盘
+    // 无可用入口（`src/generated/` 下四条约定候选皆不在盘），但旧位生成物仍在盘
     fixture.temp.write("src/generated.i.rs", "// 生成物\n");
     let findings = fixture.run();
     assert_eq!(
         count(&findings, ArchiApiFindingKind::ApiEntryMissing),
-        0,
-        "生成物在场即不报入口缺失：{:?}",
+        1,
+        "生成物在场不豁免入口缺失：{:?}",
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
 }

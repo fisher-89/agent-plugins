@@ -805,6 +805,75 @@ fn parse的重复键扫描判据面() {
 }
 
 // ---------------------------------------------------------------------------
+// 契约格式留白：模型 `entry` 字段不扩契约格式
+// ---------------------------------------------------------------------------
+
+/// 异常（test-design:874 契约格式留白）：模型新增 `entry` 字段 MUST NOT 扩契约格式——
+/// 契约源文里 `entry` 词形零语义：① 散文区的 `entry` 行与未知 fence（`api-entry`）都不
+/// 产出结构字段（fence 内容不入散文区）；② 未知 fence 落在 `### <op-id>` 位仍按既有
+/// 「op 缺 `api-op`」判据拒收；③ `entry` 当 `api-reexport` 键仍按既有键集 gate 拒收
+/// （零新增格式键）。源码自证：`contract.rs` 内零 `entry` 词形（格式面未扩的机械判据）。
+#[test]
+fn parse的entry词形零语义且未知fence按既有判据拒收() {
+    // ① 散文 + 未知 fence：不阻断解析，也不产 op / type / 透传
+    let prose = format!(
+        "# {FQN}\n\n## 边界\n\nentry = \"src/lib.rs\" 只是散文一行。\n\n\
+         ```json api-entry\n{{\"entry\": \"src/lib.rs\"}}\n```\n"
+    );
+    let contract = parse(&prose, FQN, FILE).expect("未知 fence 不构成结构错");
+    assert!(contract.ops.is_empty(), "未知 fence 不产 op");
+    assert!(contract.types.is_empty(), "未知 fence 不产 $defs 定义");
+    assert!(contract.reexports.is_empty(), "未知 fence 不产透传条目");
+    assert_eq!(contract.sections.len(), 1, "散文区仍只有一段");
+    assert!(
+        contract.sections[0].body.contains("entry"),
+        "散文行的 `entry` 词形原样留在散文里（零语义、零清洗）"
+    );
+    assert!(
+        !contract.sections[0].body.contains("{\"entry\""),
+        "fence 内容不入散文区：{:?}",
+        contract.sections[0].body
+    );
+
+    // ② 未知 fence 顶替 op fence：既有「op 缺 api-op」判据照旧拒收
+    let op_fence = format!(
+        "# {FQN}\n\n## 操作\n\n### run\n\n```json api-entry\n{{\"entry\": \"src/lib.rs\"}}\n```\n"
+    );
+    let message = contract_error(parse(&op_fence, FQN, FILE));
+    assert!(
+        message.contains("缺 api-op"),
+        "未知 fence 不算 op fence（既有判据）：{message}"
+    );
+    assert!(message.contains("run"), "文案点名该 op：{message}");
+    assert!(message.contains(FILE), "文案带文件定位：{message}");
+
+    // ③ `entry` 当透传键：既有键集 gate 照旧拒收（契约格式零新增键）
+    let reexport = format!(
+        "# {FQN}\n\n## 透传\n\n- WelcomeView → App.Demo.Welcome\n\n\
+         ```json api-reexport\n{{\"entry\": \"App.Demo.Welcome\"}}\n```\n"
+    );
+    let contract = parse(&reexport, FQN, FILE).expect("结构合法");
+    let schema = build_schema(&contract, &meta()).expect("schema 应装配成功");
+    let message = verify_error(&contract, &schema);
+    assert!(
+        message.contains("键集与散文透传列表不等"),
+        "`entry` 未被认作合法透传键（既有 gate）：{message}"
+    );
+    assert!(
+        message.contains("entry") && message.contains("WelcomeView"),
+        "文案点名两侧差集：{message}"
+    );
+
+    // ④ 源码自证：契约模块不认 `entry` 词形（格式面未随模型字段扩）
+    let source = include_str!("contract.rs");
+    assert_eq!(
+        source.matches("entry").count(),
+        0,
+        "契约模块内零 `entry` 词形（MUST NOT 因模型新增字段扩格式）"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 闸一：七族名字的 ASCII 标识符判据（D45 / AC-23 ①）
 // ---------------------------------------------------------------------------
 

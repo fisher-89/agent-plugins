@@ -1016,3 +1016,193 @@ fn 三百元素混合api形态逐元素可判() {
     assert_eq!(blank, 100, "显式 none 一百");
     assert_eq!(omitted, 100, "省略形态一百");
 }
+
+// ===========================================================================
+// `entry`：单值实现入口指针（缺省 `None` / 逐字保留 / 类型分类 / 拼错键 / 特殊字符 /
+// 与 `api` `path` `gate` 正交 / `metadata` 同名键互不干扰）
+// ===========================================================================
+
+/// 正向：省略 `entry` → `None`；显式值逐字保留（`./` 前导不剥——归一归 `api::paths`，
+/// 解析层零归一）。
+#[test]
+fn 解析entry键缺省与显式逐字保留() {
+    let omitted = parse("[element.\"App.Auth\"]\nkind = \"domain\"\npath = [\"src/auth/\"]\n");
+    assert!(omitted.diagnostics.is_empty(), "健康源零诊断");
+    assert_eq!(
+        omitted.model.element("App.Auth").expect("元素在案").entry,
+        None,
+        "省略 entry → None（不是空串）"
+    );
+
+    for raw in [
+        "packages/desktop/src-tauri/src/lib.rs",
+        "./packages/desktop/src-tauri/src/lib.rs",
+    ] {
+        let source = format!(
+            "[element.\"App.Auth\"]\nkind = \"domain\"\nentry = \"{raw}\"\npath = [\"src/auth/\"]\n"
+        );
+        let outcome = parse(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "健康源零诊断（{raw}）：{:?}",
+            outcome.diagnostics
+        );
+        assert_eq!(
+            outcome.model.element("App.Auth").expect("元素在案").entry,
+            Some(raw.to_owned()),
+            "解析层逐字保留（不做第二次归一）：{raw}"
+        );
+    }
+}
+
+/// 异常（类型分类）：数组 / 内联表形态 → `invalidValue`，零元素产出，文案含类型信息。
+#[test]
+fn 解析entry数组与表形态归invalid_value() {
+    for literal in ["[\"a\"]", "{ path = \"x\" }"] {
+        let source = format!("[element.\"App\"]\nkind = \"package\"\nentry = {literal}\n");
+        let outcome = parse(&source);
+        assert_eq!(
+            outcome.diagnostics.len(),
+            1,
+            "非单值 entry 形态 {literal} 应产出一条诊断：{:?}",
+            outcome.diagnostics
+        );
+        let diagnostic = &outcome.diagnostics[0];
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::InvalidValue,
+            "单值面被违反归 invalidValue：{diagnostic:?}"
+        );
+        assert!(
+            !diagnostic.message.is_empty(),
+            "文案非空（含类型信息）：{diagnostic:?}"
+        );
+        assert!(
+            outcome.model.elements.is_empty(),
+            "值域违例零元素产出（fail-closed）：{:?}",
+            outcome.model.elements
+        );
+    }
+}
+
+/// 异常（严格字段面）：拼错键 `entri` / 复数 `entries` 仍被 `deny_unknown_fields` 拒——
+/// 新字段不放松既有的未知键判据。
+#[test]
+fn 解析拼错entry键归unknown_field() {
+    for key in ["entri", "entries"] {
+        let source = format!("[element.\"App\"]\nkind = \"package\"\n{key} = \"src/lib.rs\"\n");
+        let diagnostic = single_diagnostic(&source);
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::UnknownField,
+            "拼错键 {key} 归 unknownField：{diagnostic:?}"
+        );
+    }
+    let accepted = parse("[element.\"App\"]\nkind = \"package\"\nentry = \"src/lib.rs\"\n");
+    assert!(
+        accepted.diagnostics.is_empty(),
+        "正确拼写被接受：{:?}",
+        accepted.diagnostics
+    );
+}
+
+/// 边界（str 四边）：空串 / 超长（>1000 chars）/ 换行与 emoji / `\0` 转义 → 逐字保留、
+/// 零诊断、不 panic（形态判据归 `api::paths`，解析层不筛）。
+#[test]
+fn 解析entry特殊字符逐字保留零诊断() {
+    let long = "a".repeat(1200);
+    for raw in [
+        String::new(),
+        long.clone(),
+        "src/\n模块🎯.tsx".to_owned(),
+        "src/\u{0}.rs".to_owned(),
+    ] {
+        let source = format!(
+            "[element.\"App.X\"]\nkind = \"module\"\nentry = \"{}\"\n",
+            raw.replace('\\', "\\\\")
+                .replace('\n', "\\n")
+                .replace('\0', "\\u0000")
+        );
+        let outcome = parse(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "特殊字符零诊断（{raw:?}）：{:?}",
+            outcome.diagnostics
+        );
+        assert_eq!(
+            outcome.model.element("App.X").expect("元素在案").entry,
+            Some(raw.clone()),
+            "逐字保留：{raw:?}"
+        );
+    }
+}
+
+/// 边界（正交四组合）：`entry` 有值 ↔ 缺省，`api = none` ↔ `declared`，`path` / `gate`
+/// 各自保留——两指针互不吞并，`entry` 不改变其它字段的解析结果。
+#[test]
+fn 解析entry与api_path_gate正交() {
+    let cases: [(&str, Option<&str>, &str); 4] = [
+        ("declared", None, "strict"),
+        ("declared", Some("src/a/lib.rs"), "warn"),
+        ("none", None, "off"),
+        ("none", Some("src/a/main.rs"), "strict"),
+    ];
+    for (api, entry, gate) in cases {
+        let entry_line = entry
+            .map(|value| format!("entry = \"{value}\"\n"))
+            .unwrap_or_default();
+        let source = format!(
+            "[element.\"App.Core.X\"]\nkind = \"module\"\ngate = \"{gate}\"\n\
+             api = \"{api}\"\n{entry_line}path = [\"./src/a/\"]\n"
+        );
+        let outcome = parse(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "四组合零诊断（{api} / {entry:?} / {gate}）：{:?}",
+            outcome.diagnostics
+        );
+        let element = outcome.model.element("App.Core.X").expect("元素在案");
+        assert_eq!(
+            element.api,
+            if api == "none" {
+                crate::dto::ApiStatus::None
+            } else {
+                crate::dto::ApiStatus::Declared
+            },
+            "api 逐值可读"
+        );
+        assert_eq!(element.entry, entry.map(str::to_owned), "entry 逐值可读");
+        assert_eq!(element.path, vec!["./src/a/".to_owned()], "path 原文保留");
+        assert_eq!(
+            element.gate,
+            match gate {
+                "strict" => GateTier::Strict,
+                "warn" => GateTier::Warn,
+                _ => GateTier::Off,
+            },
+            "gate 逐值可读"
+        );
+    }
+}
+
+/// 边界：`entry` 与 `metadata` 同名键互不干扰——`metadata.entry` 不改变 `Element.entry`，
+/// 该键原样进 metadata（未知键接受面）。
+#[test]
+fn 解析metadata的entry键不当入口指针() {
+    let source = "[element.\"App\"]\n\
+                  kind = \"package\"\n\n\
+                  [element.\"App\".metadata]\n\
+                  entry = \"src/not-an-entry.rs\"\n";
+    let outcome = parse(source);
+    assert!(outcome.diagnostics.is_empty(), "metadata 未知键被接受");
+    let element = outcome.model.element("App").expect("元素在案");
+    assert_eq!(
+        element.entry, None,
+        "metadata 的 entry 键不改变 Element.entry"
+    );
+    assert_eq!(
+        element.metadata.get("entry").map(String::as_str),
+        Some("src/not-an-entry.rs"),
+        "该键原样进 metadata"
+    );
+}

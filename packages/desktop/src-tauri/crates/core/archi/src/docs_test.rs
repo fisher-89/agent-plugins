@@ -73,6 +73,7 @@ fn element(fqn: &str) -> Element {
         kind: ElementKind::Module,
         gate: GateTier::Off,
         api: ApiStatus::Declared,
+        entry: None,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,
@@ -599,4 +600,34 @@ fn docref不含元素fqn字段() {
         !serialized.contains("App.Auth"),
         "条目内不出现元素 FQN: {serialized}"
     );
+}
+
+/// 边界（`entry` 零敏感面）：两元素仅 `entry` 不同 → 文档条目与强度序逐值相同（关联
+/// 判据只吃 `docs` / `path` 与目录事实）。
+#[test]
+fn 文档关联面对entry零敏感() {
+    let temp = TempDir::new("docs-entry-blind");
+    temp.write("src/auth/README.md", "# 认证说明\n");
+    temp.write("src/auth/src/lib.rs", "pub fn a() {}\n");
+
+    let build = |entry: Option<&str>| {
+        let mut target = element("App.Auth");
+        target.path = vec!["./src/auth/".to_owned()];
+        target.docs = vec!["./src/auth/README.md".to_owned()];
+        target.entry = entry.map(str::to_owned);
+        graph_of(vec![element("App"), target])
+    };
+
+    let plain = element_docs(&build(None), temp.root(), "App.Auth");
+    let declared = element_docs(&build(Some("src/auth/src/lib.rs")), temp.root(), "App.Auth");
+    assert_eq!(
+        paths(&plain),
+        paths(&declared),
+        "文档条目与 `entry` 无关（路径清单逐值相同）"
+    );
+    assert_eq!(
+        plain.docs, declared.docs,
+        "条目全字段与 `entry` 无关（强度序 / source / kind 均不变）"
+    );
+    assert_eq!(plain.warnings, declared.warnings, "警告面与 `entry` 无关");
 }

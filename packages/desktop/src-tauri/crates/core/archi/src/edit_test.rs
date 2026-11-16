@@ -417,3 +417,90 @@ fn plan边界_空白root与不存在root与emoji() {
         "缺席元素仍 Err（不 panic）"
     );
 }
+
+// ===========================================================================
+// `entry` 在写面上的保留语义（`toml_edit` 保留未知 / 既有键，本层不重排不归一）
+// ===========================================================================
+
+/// 正向：源含 `entry = "..."` → 改档后该行逐字保留，读回 `Element.entry` 逐字相等
+/// （写面不吞新字段）。
+#[test]
+fn 改档保留entry行逐字不变() {
+    let source = concat!(
+        "[element.\"App.Auth\"]\n",
+        "kind = \"domain\"\n",
+        "gate = \"warn\"\n",
+        "entry = \"./packages/desktop/src/auth/token.ts\"\n",
+        "path = [\"./src/auth/\"]\n",
+    );
+    let rendered = set_gate(source, "App.Auth", GateTier::Strict).expect("改档应成功");
+    assert!(
+        rendered.contains("entry = \"./packages/desktop/src/auth/token.ts\""),
+        "`entry` 行逐字保留（`./` 前缀不归一）：\n{rendered}"
+    );
+    let outcome = TomlParser::parse(&rendered);
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "改档产物可解析：{:?}",
+        outcome.diagnostics
+    );
+    let element = outcome.model.element("App.Auth").expect("元素在案");
+    assert_eq!(
+        element.entry.as_deref(),
+        Some("./packages/desktop/src/auth/token.ts"),
+        "读回 `entry` 逐字相等"
+    );
+    assert_eq!(element.gate, GateTier::Strict, "档位已更新");
+}
+
+/// 边界：`entry` 位于 `api` 之前 / 之后两种序均逐字保留（不重排）；无 `entry` 的源改档
+/// 后仍无 `entry` 键（写面不臆造字段）。
+#[test]
+fn 改档保留entry位置且不臆造字段() {
+    let before_api = concat!(
+        "[element.\"App.Auth\"]\n",
+        "kind = \"domain\"\n",
+        "gate = \"warn\"\n",
+        "entry = \"src/auth/token.ts\"\n",
+        "api = \"declared\"\n",
+    );
+    let after_api = concat!(
+        "[element.\"App.Auth\"]\n",
+        "kind = \"domain\"\n",
+        "gate = \"warn\"\n",
+        "api = \"declared\"\n",
+        "entry = \"src/auth/token.ts\"\n",
+    );
+    for source in [before_api, after_api] {
+        let rendered = set_gate(source, "App.Auth", GateTier::Off).expect("改档应成功");
+        assert!(
+            rendered.contains("entry = \"src/auth/token.ts\""),
+            "`entry` 行逐字保留（不重排）：\n{rendered}"
+        );
+        let entry_line = rendered
+            .lines()
+            .position(|line| line.starts_with("entry = "))
+            .expect("entry 行在案");
+        let api_line = rendered
+            .lines()
+            .position(|line| line.starts_with("api = "))
+            .expect("api 行在案");
+        assert_eq!(
+            entry_line < api_line,
+            source.find("entry = ").unwrap() < source.find("api = ").unwrap(),
+            "相对序逐字保留（写面零重排）：\n{rendered}"
+        );
+    }
+
+    let plain = concat!(
+        "[element.\"App.Auth\"]\n",
+        "kind = \"domain\"\n",
+        "gate = \"warn\"\n",
+        "path = [\"src/auth/\"]\n",
+    );
+    let rendered = set_gate(plain, "App.Auth", GateTier::Strict).expect("改档应成功");
+    assert!(
+        !rendered.contains("entry"),
+        "无 `entry` 的源改档后仍无该键（写面不臆造字段）：\n{rendered}"
+    );
+}

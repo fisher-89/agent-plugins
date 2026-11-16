@@ -18,6 +18,7 @@ fn element(fqn: &str, gate: GateTier, paths: &[&str]) -> ArchiElement {
         kind: ElementKind::Module,
         gate,
         api: ApiStatus::Declared,
+        entry: None,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
@@ -427,12 +428,13 @@ fn 生成物根同级形态各归其元素() {
         "App.View.Welcome",
         "单文件元素根（views/welcome.ts）的根同级生成物由替换候选命中"
     );
-    // 其余扩展名：两候选为 `views/welcome` 与 `views/welcome.{ext}`，皆与元素根不等 → 无主
+    // 其余扩展名：候选 1 / 2 皆与元素根不等，但**主干对齐**（候选 3）把 `<主干>.i.<ext>`
+    // 与文件型 `path` 的去扩展名形态对齐 ⇒ 归该元素（判据与扩展名无关）
     for extension in ["rs", "tsx", "js", "jsx"] {
         assert_eq!(
-            single.owner_of(&format!("views/welcome.i.{extension}")),
-            Owner::None,
-            "views/welcome.i.{extension} 两候选均不命中 views/welcome.ts → 如实无主"
+            owned_fqn(&single.owner_of(&format!("views/welcome.i.{extension}"))),
+            "App.View.Welcome",
+            "views/welcome.i.{extension} 由主干对齐候选命中（文件型根的去扩展名形态）"
         );
     }
 
@@ -739,6 +741,141 @@ fn 生成物常量单源与五扩展名齐备() {
         "`.i.js` 被剥（D3：漏 js 会让该元素生成物落 None）"
     );
     let _ = index;
+}
+
+/// 正向（第三候选的两种真实落点）：容器 barrel 的文件型 `path`
+/// （`components/agent/index.ts` → 条目 `index.i.ts`）与单文件 `.rs` 根
+/// （`src/a.rs` → `src/a.i.rs`）各自由候选命中。
+#[test]
+fn 生成物主干对齐命中barrel与单文件rs根() {
+    let barrel = OwnerIndex::build(&[element(
+        "Components.Agent",
+        GateTier::Warn,
+        &["components/agent/index.ts"],
+    )]);
+    assert_eq!(
+        owned_fqn(&barrel.owner_of("components/agent/index.i.ts")),
+        "Components.Agent",
+        "容器 barrel 的文件型 path：替换扩展名候选与元素根全等"
+    );
+    assert_eq!(
+        owned_fqn(&barrel.owner_of("components/agent/index.i.rs")),
+        "Components.Agent",
+        "主干对齐（不比对扩展名）⇒ `.i.rs` 同归该元素"
+    );
+
+    let single_rs = OwnerIndex::build(&[element("App.Core.A", GateTier::Warn, &["src/a.rs"])]);
+    assert_eq!(
+        owned_fqn(&single_rs.owner_of("src/a.i.rs")),
+        "App.Core.A",
+        "单文件 `.rs` 根：替换扩展名候选 `src/a.rs` 全等命中"
+    );
+    assert_eq!(
+        owned_fqn(&single_rs.owner_of("src/a.i.ts")),
+        "App.Core.A",
+        "单文件 `.rs` 根对 `.i.ts` 亦命中（主干对齐与扩展名无关）"
+    );
+}
+
+/// 边界（`stem` 的派生判据）：只有**源文件形态**的 `path` 才产出主干——非白名单扩展名
+/// （`src/a.py`）的条目对 `<主干>.i.<ext>` 零命中；同一 FQN 的多条同值 `path` 在主干面
+/// 只计一条（去重沿用既有，结果恒定非 `Ambiguous`）。
+#[test]
+fn 主干只在源文件形态path上派生() {
+    let non_source = OwnerIndex::build(&[element("App.Core.Py", GateTier::Warn, &["src/a.py"])]);
+    assert_eq!(
+        non_source.owner_of("src/a.i.ts"),
+        Owner::None,
+        "`src/a.py` 不产出主干 ⇒ 主干对齐候选零命中（剥离候选也不等于它）"
+    );
+
+    let source = OwnerIndex::build(&[element("App.Core.Ts", GateTier::Warn, &["src/a.ts"])]);
+    assert_eq!(
+        owned_fqn(&source.owner_of("src/a.i.ts")),
+        "App.Core.Ts",
+        "源文件形态 path 产出主干 ⇒ 同主干命中"
+    );
+
+    let duplicated_paths = OwnerIndex::build(&[element(
+        "App.Core.Dup",
+        GateTier::Warn,
+        &["src/a.ts", "./src/a.ts"],
+    )]);
+    assert_eq!(
+        owned_fqn(&duplicated_paths.owner_of("src/a.i.ts")),
+        "App.Core.Dup",
+        "同一 FQN 的多条同值 path 在主干面只计一条（不假阳成 Ambiguous）"
+    );
+
+    // 五扩展名逐值产出主干（集合与 `scan::is_source_file` 同源，零第二份清单）
+    for extension in ["rs", "ts", "tsx", "js", "jsx"] {
+        let path = format!("src/stem.{extension}");
+        let index =
+            OwnerIndex::build(&[element("App.Core.Stem", GateTier::Warn, &[path.as_str()])]);
+        assert_eq!(
+            owned_fqn(&index.owner_of("src/stem.i.ts")),
+            "App.Core.Stem",
+            "扩展名 {extension} 的 path 产出主干（与比对侧扩展名无关）"
+        );
+    }
+}
+
+/// 异常（源码自证）：`owner.rs` 零第二份扩展名清单（白名单字面只出现在
+/// `GENERATED_EXTENSIONS`）、文件型判据只经 `scan::is_source_file`、`stem` 只在
+/// `build` 的条目构造处派生一次。
+#[test]
+fn 主干派生单源与零第二份清单() {
+    let source = include_str!("owner.rs");
+    assert_eq!(
+        source.matches("use super::is_source_file;").count(),
+        1,
+        "文件型判据只经 `scan::is_source_file`（零第二份白名单）"
+    );
+    assert_eq!(
+        source.matches("is_source_file(").count(),
+        1,
+        "`is_source_file` 只被 `build` 的 `stem` 派生引用一次（文件型判据单源）"
+    );
+    assert_eq!(
+        source.matches("stem: Option<String>").count(),
+        1,
+        "`OwnerEntry.stem` 恰一处字段声明"
+    );
+    // `rsplit_once('.')` 三个落点：`build` 的去扩展名（主干派生）+ `strip_candidates`
+    // 的「扩展名 → `.i` 标记」两段切分（生成物剥离判据，非主干派生）
+    assert_eq!(
+        source.matches(".rsplit_once('.')").count(),
+        3,
+        "切分点全部在案：主干派生 1 + 生成物剥离 2（零第三类切分）"
+    );
+    let stem_derivations = source
+        .lines()
+        .filter(|line| line.contains("is_source_file(&prefix).then("))
+        .count();
+    assert_eq!(
+        stem_derivations, 1,
+        "`stem` 只在 `build` 的条目构造处派生一次"
+    );
+    for extension in ["rs", "ts", "tsx", "js", "jsx"] {
+        let literal = format!("\"{extension}\"");
+        assert_eq!(
+            source.matches(&literal).count(),
+            1,
+            "扩展名字面 {literal} 只出现在 `GENERATED_EXTENSIONS`（白名单单源）"
+        );
+    }
+    for unchanged in [
+        "fn normalize",
+        "fn prefix_matches",
+        "fn module_roots",
+        "fn contains_count",
+    ] {
+        assert_eq!(
+            source.matches(unchanged).count(),
+            1,
+            "{unchanged} 语义零改动（各恰一处定义）"
+        );
+    }
 }
 
 // ===========================================================================

@@ -121,11 +121,9 @@ fn stage_crate(temp: &TempDir) {
 
 /// 落一套前端元素（模型 + 入口 + 契约）。
 ///
-/// 入口文件落在 `<root>/index.ts`（目录形态）而非 `<root>` 本身：`paths::entry_form` 的
-/// 四分支按「盘上命中哪个入口文件」判形态，前端元素的 `<root>` 若自带 `.tsx` 后缀，四
-/// 分支的候选串（`<root>.ts` 等）结构上不可能命中——D41 因此规定「拿不到入口 ⇒ 该契约
-/// 不产 `.i.*`」。本装置取可命中的目录形态，使 `.i.ts` 落点仍为
-/// `views/welcome-view.tsx.i.ts`（`<root>` 同级、`<root>` 逐字不变）。
+/// 元素根自带 `.tsx` ⇒ **文件型根**：`paths::entry_candidates` 的 ② 让「根文件自身」成为
+/// 入口（MUST NOT 在带扩展名的根上再拼 `.tsx`）。故本装置直接把根文件落盘，`.i.ts` 落点为
+/// `views/welcome-view.i.ts`（入口同级、`<root>` 主干逐字不变）。
 fn stage_ts(temp: &TempDir) {
     temp.write(
         ".dev-team/architecture/models/02-test.toml",
@@ -136,7 +134,7 @@ fn stage_ts(temp: &TempDir) {
          path = [\"views/welcome-view.tsx\"]\n",
     );
     temp.write(
-        "views/welcome-view.tsx/index.ts",
+        "views/welcome-view.tsx",
         "export function view(): string { return ''; }\n",
     );
     temp.write(
@@ -234,7 +232,7 @@ fn generate落四类生成物() {
     );
 
     let module = temp
-        .read("crates/core/archi.i.rs")
+        .read("crates/core/archi/src/lib.i.rs")
         .expect("`<root>.i.rs` 生成物在盘");
     assert!(
         module.contains("pub struct LocalArchiCheck;"),
@@ -246,23 +244,23 @@ fn generate落四类生成物() {
     );
 }
 
-/// 正向（AC-12 / D41）：前端元素 → 磁盘出现 `<root>.i.ts`（`views/welcome-view.tsx.i.ts`），
-/// 含 `export interface`。形态由 `paths::entry_form` 判（本装置命中 `<root>/index.ts`，
-/// 故为目录形态），落点仍是 `<root>` 同级。
+/// 正向（AC-12 / D41）：前端元素 → 磁盘出现 `<入口主干>.i.ts`（`views/welcome-view.i.ts`），
+/// 含 `export interface`。形态由 `paths::entry_state` 判（本装置命中文件型根，故为
+/// `SingleFile`），落点在入口同级。
 #[test]
 fn generate前端元素产i_ts() {
     let temp = TempDir::new("generate-ts");
     stage_ts(&temp);
     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
     let generated = temp
-        .read("views/welcome-view.tsx.i.ts")
+        .read("views/welcome-view.i.ts")
         .expect("`<root>.i.ts` 生成物在盘");
     assert!(
         generated.contains("export interface LocalArchiCheck"),
         "TS 生成物含 interface：\n{generated}"
     );
     assert!(
-        !temp.exists("views/welcome-view.tsx.i.rs"),
+        !temp.exists("views/welcome-view.i.rs"),
         "前端元素不产 `.i.rs`"
     );
 }
@@ -465,7 +463,7 @@ fn check零写盘总断言() {
 
     // 形态三：孤儿 + 缺失并存
     temp.write("orphan-module.i.rs", "// orphan");
-    fs::remove_file(temp.root().join("crates/core/archi.i.rs")).expect("移除应生成物");
+    fs::remove_file(temp.root().join("crates/core/archi/src/lib.i.rs")).expect("移除应生成物");
     let before = temp.snapshot();
     let _ = run(Command::Check, temp.root()).expect("check 不报错");
     assert_eq!(temp.snapshot(), before, "孤儿 + 缺失形态零写入");
@@ -597,7 +595,7 @@ fn generate产物为格式化器不动点() {
     run(Command::Generate, temp.root()).expect("生成应成功");
 
     for relative in [
-        "crates/core/archi.i.rs",
+        "crates/core/archi/src/lib.i.rs",
         ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json",
         ".dev-team/architecture/api/INDEX.toml",
     ] {
@@ -1007,7 +1005,7 @@ fn check差异清单三数组独立且键名固定() {
         "// 孤儿
 ",
     );
-    fs::remove_file(all.root().join("crates/core/archi.i.rs")).expect("移除一件应生成物");
+    fs::remove_file(all.root().join("crates/core/archi/src/lib.i.rs")).expect("移除一件应生成物");
     let before = all.snapshot();
     assert_eq!(
         run(Command::Check, all.root()).expect("check 不 Err"),
@@ -1039,7 +1037,7 @@ fn check不动点守卫两态() {
     let temp = TempDir::new("check-format-guard");
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
-    let relative = "crates/core/archi.i.rs";
+    let relative = "crates/core/archi/src/lib.i.rs";
     let generated = temp.read(relative).expect("生成物在盘");
     for line in generated.lines() {
         assert_eq!(line, line.trim_end(), "不动点态零尾随空白：{line:?}");
@@ -1079,8 +1077,8 @@ fn check不动点守卫两态() {
 // D21 三类偏差之「应删未删」：孤儿扫描的覆盖范围
 // ---------------------------------------------------------------------------
 
-/// 正向（D21）：元素根同级的生成物可在**仓库任意深度**（`crates/core/archi.i.rs`、
-/// `views/welcome-view.tsx.i.ts`），故孤儿扫描 MUST 全树递归——只看仓库顶层会把
+/// 正向（D21）：元素根同级的生成物可在**仓库任意深度**（`crates/core/archi/src/lib.i.rs`、
+/// `views/welcome-view.i.ts`），故孤儿扫描 MUST 全树递归——只看仓库顶层会把
 /// 这些真实落点上的孤儿判成「不存在」，`api:check` 因此对它们失明。
 #[test]
 fn check孤儿扫描覆盖任意深度的元素根同级() {
@@ -1400,7 +1398,7 @@ fn check单行json与compare三列同源() {
     let original = temp.read(schema_rel).expect("schema 在盘");
     temp.write(schema_rel, &original.replace("\"title\"", "\"titleY\""));
     temp.write("crates/core/stale.i.rs", "// 孤儿\n");
-    fs::remove_file(temp.root().join("crates/core/archi.i.rs")).expect("移除应生成物");
+    fs::remove_file(temp.root().join("crates/core/archi/src/lib.i.rs")).expect("移除应生成物");
 
     let diff = archi::compare(temp.root()).expect("比对应成功");
     let json_text = super::diff_json(&diff);

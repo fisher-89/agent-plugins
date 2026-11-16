@@ -1431,6 +1431,66 @@ fn 契约不一致产出非空api_findings() {
     );
 }
 
+/// 边界（AC-4 / D9）：`Absent` 元素（目录根无入口）→ `api_findings` 出现
+/// `apiEntryMissing`，但该元素**无契约在案** ⇒ 不进纳管子集 ⇒ `status` 与 `passed`
+/// 与「无契约面」基线逐字相同。
+#[test]
+fn 入口缺失元素的判据不进纳管子集() {
+    let temp = TempDir::new("entry-missing-not-gated");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    // 目录根存在但四条约定候选全不落盘 ⇒ Absent；同目录也没有契约
+    temp.write("crates/infra/archi/README.md", "占位\n");
+    // 契约面启用判定只看 api 目录内 ≥1 份 md（`api::enabled`），故写一份**别的 FQN** 的
+    // 契约把判据面打开——目标元素自身仍无契约在案（纳管子集为空）。
+    write_contract(
+        &temp,
+        "App.Backend.Infra.Unrelated",
+        "# App.Backend.Infra.Unrelated\n\n## 职能\n\n正文。\n",
+    );
+
+    let report = run_full(temp.root()).expect("判定应成功");
+    assert!(
+        report
+            .api_findings
+            .iter()
+            .any(|finding| finding.kind
+                == crate::drift::report::ArchiApiFindingKind::ApiEntryMissing),
+        "无可用入口应有 `apiEntryMissing`：{:?}",
+        report
+            .api_findings
+            .iter()
+            .map(|finding| (&finding.kind, &finding.message))
+            .collect::<Vec<_>>()
+    );
+
+    // 基线：同一模型、同一盘面，但契约面整体未启用（除 README 外不写任何 md）
+    let baseline_temp = TempDir::new("entry-missing-baseline");
+    baseline_temp.write_model(&declared_chain_model(fqn, "crates/infra/archi/"));
+    baseline_temp.write("crates/infra/archi/README.md", "占位\n");
+    let baseline = run_full(baseline_temp.root()).expect("判定应成功");
+
+    assert_eq!(
+        report.status.as_str(),
+        baseline.status.as_str(),
+        "无契约在案 ⇒ 判据不进纳管子集 ⇒ status 逐字相同"
+    );
+    assert_eq!(
+        report.errors.len(),
+        baseline.errors.len(),
+        "门禁派生面（errors）与入口缺失判据无关"
+    );
+    assert!(
+        report.errors.is_empty() && report.model.structural_errors.is_empty(),
+        "`passed` 派生面（errors / structural_errors 双空）不受影响"
+    );
+    assert_eq!(
+        report.warnings.len(),
+        baseline.warnings.len(),
+        "既有 warnings 计数不受影响"
+    );
+}
+
 /// 边界（AC-8）：`api_findings` 空时序列化文本含 `"apiFindings":[]`；非空时逐项在文本
 /// 中可辨（`kind` 与 `category` 双在）。
 #[test]

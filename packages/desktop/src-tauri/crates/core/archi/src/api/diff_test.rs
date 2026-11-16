@@ -130,7 +130,7 @@ fn write_two_language_corpus(temp: &TempDir) -> (String, String) {
         "pub fn stem() -> String { String::new() }\n",
     );
     temp.write(
-        "views/welcome-view.tsx/index.ts",
+        "views/welcome-view.tsx",
         "export function view(): string { return ''; }\n",
     );
     (core.to_owned(), frontend.to_owned())
@@ -233,7 +233,7 @@ fn compare三类差异同场互不混淆() {
 
     let rust_generated = paths::generated_path(
         temp.root(),
-        "crates/core/archi/",
+        "crates/core/archi/src/lib.rs",
         paths::GeneratedKind::Rust,
     )
     .expect("Rust 生成物路径");
@@ -705,5 +705,30 @@ fn compare_root非法与超大孤儿列表() {
     assert!(
         diff.mismatched.is_empty() && diff.missing.is_empty(),
         "另两列空"
+    );
+}
+
+/// 边界（AC-8 doc 面）：`diff.rs` 的落点样例已改述为**入口同级**形态——旧样例
+/// （`crates/infra/archi.i.rs` / `views/welcome-view.tsx.i.ts`）零命中，新样例在场；
+/// 「命名即身份、与落点深度无关」的判据说明保留。
+#[test]
+fn 落点样例改述为入口同级() {
+    let source = include_str!("diff.rs");
+    for stale in [
+        "crates/infra/archi.i.rs",
+        "views/welcome-view.tsx.i.ts",
+        "archi.i.rs`（根同级",
+    ] {
+        assert!(!source.contains(stale), "旧落点样例零命中：{stale}");
+    }
+    for current in ["crates/infra/archi/src/lib.i.rs", "views/welcome-view.i.ts"] {
+        assert!(
+            source.contains(current),
+            "新样例（入口同级）在场：{current}"
+        );
+    }
+    assert!(
+        source.contains("命名即身份") || source.contains("与落点深度无关"),
+        "判据说明保留：命名即身份、与落点深度无关"
     );
 }

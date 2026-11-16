@@ -31,6 +31,12 @@ const FQN: &str = "App.Backend.Infra.ArchiRuntime";
 /// 试点元素根（`path[0]` 的归一形态）。
 const ELEMENT_ROOT: &str = "packages/desktop/src-tauri/crates/infra/archi";
 
+/// 试点元素的实现入口目录（`<root>/src`）。
+const ENTRY_DIR: &str = "packages/desktop/src-tauri/crates/infra/archi/src";
+
+/// 试点元素的实现入口（约定默认 `<root>/src/lib.rs` 命中，故模型不声明 `entry`）。
+const ENTRY_RS: &str = "packages/desktop/src-tauri/crates/infra/archi/src/lib.rs";
+
 /// 仓库根（`CARGO_MANIFEST_DIR` 位于 `<仓根>/packages/desktop/src-tauri/crates/core/archi`，
 /// 故上溯**六层**：`archi` → `core` → `crates` → `src-tauri` → `desktop` → `packages` → 仓根）。
 fn repository_root() -> PathBuf {
@@ -39,6 +45,23 @@ fn repository_root() -> PathBuf {
         root.pop();
     }
     root
+}
+
+/// 元素投影构造器（投影面测试只关心 `fqn` 与 `path`，其余取与真实模型同形的默认值）。
+fn pilot_element(fqn: &str, paths: &[&str]) -> archi::dto::ArchiElement {
+    archi::dto::ArchiElement {
+        fqn: fqn.to_owned(),
+        kind: archi::dto::ElementKind::Module,
+        gate: archi::dto::GateTier::Warn,
+        api: ApiStatus::Declared,
+        entry: None,
+        path: paths.iter().map(|path| (*path).to_owned()).collect(),
+        summary: None,
+        metadata: BTreeMap::new(),
+        model_file: ".dev-team/architecture/models/03-backend-infra.toml".to_owned(),
+        model_line: 1,
+        mark: archi::dto::NodeMark::None,
+    }
 }
 
 /// 试点契约的 repo 相对路径串。
@@ -51,9 +74,9 @@ fn schema_rel() -> String {
     format!(".dev-team/architecture/api/Infra/{FQN}.schema.json")
 }
 
-/// 试点 `.i.rs` 生成物的 repo 相对路径串。
+/// 试点 `.i.rs` 生成物的 repo 相对路径串（落**实现入口同级**）。
 fn generated_rel() -> String {
-    format!("{ELEMENT_ROOT}.i.rs")
+    format!("{ENTRY_DIR}/lib.i.rs")
 }
 
 /// 读仓库内文件（缺失即失败并点名绝对路径）。
@@ -98,8 +121,7 @@ fn 试点三件资产按单点派生落点在盘() {
     let root = repository_root();
     let contract = contract_path(&root, FQN).expect("合法 FQN 应可派生");
     let schema = paths::schema_path(&root, FQN).expect("合法 FQN 应可派生");
-    let generated =
-        generated_path(&root, ELEMENT_ROOT, GeneratedKind::Rust).expect("<root> 形态合法");
+    let generated = generated_path(&root, ENTRY_RS, GeneratedKind::Rust).expect("入口形态合法");
 
     for path in [&contract, &schema, &generated] {
         assert!(path.is_file(), "资产在盘：{}", path.display());
@@ -116,13 +138,20 @@ fn 试点三件资产按单点派生落点在盘() {
     );
     assert_eq!(
         generated,
-        root.join(format!("{ELEMENT_ROOT}.i.rs")),
-        "生成物 = `<根同级>.i.rs`（不在元素目录之内）"
+        root.join(format!("{ENTRY_DIR}/lib.i.rs")),
+        "生成物 = `<入口主干>.i.rs`（与实现入口同级）"
     );
     assert_eq!(
         generated.parent(),
-        root.join(ELEMENT_ROOT).parent(),
-        "生成物与元素根同级"
+        Some(root.join(ENTRY_DIR).as_path()),
+        "生成物与实现入口同目录"
+    );
+    // 迁移双向：旧落点（元素根同级的兄弟文件）已删，新落点（入口同级）在盘
+    let legacy = root.join(format!("{ELEMENT_ROOT}.i.rs"));
+    assert!(
+        !legacy.is_file(),
+        "旧落点已删：{}（`api:check` 的 orphaned 列由此为空）",
+        legacy.display()
     );
     assert!(index_path(&root).is_file(), "`INDEX.toml` 全局唯一一份在盘");
     assert_eq!(
@@ -264,9 +293,10 @@ fn 盘上生成物是纯派生且见证在本crate() {
 // ---------------------------------------------------------------------------
 
 /// 正向（AC-13 / D23 / D38）：契约零构造器 op（`### new` 不存在）；生成物与手写
-/// `impl Default` 共存——入口以**字面量** `#[path]` 把生成物编进本 crate，`mod_path_attr`
-/// 是那份字面量的等值真值源；手写侧零第二份 `pub struct`（否则 E0255）、零再导出（否定
-/// 断言锚**全串 `pub use`**，不写成只在特定排版下成立的复合串）。
+/// `impl Default` 共存——入口以**字面量** `#[path]` 把生成物编进本 crate；该字面量的等值
+/// 真值源是 `paths::generated_path(...)` 的**文件名**（入口同级后恒无目录段）；手写侧零
+/// 第二份 `pub struct`（否则 E0255）、零再导出（否定断言锚**全串 `pub use`**，不写成只在
+/// 特定排版下成立的复合串）。
 #[test]
 fn 契约零构造器且生成物与手写impl共存() {
     let contract = pilot_contract();
@@ -290,10 +320,15 @@ fn 契约零构造器且生成物与手写impl共存() {
         .find_map(|line| line.trim().strip_prefix("#[path = \""))
         .and_then(|tail| tail.strip_suffix("\"]"))
         .expect("入口行含 `#[path = \"…\"]` 字面量");
+    let expected_attribute = generated_path(&repository_root(), ENTRY_RS, GeneratedKind::Rust)
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .expect("生成物路径可派生");
     assert_eq!(
-        attribute,
-        paths::mod_path_attr(EntryForm::Crate, "archi"),
-        "`#[path]` 字面量与 `paths::mod_path_attr` 输出逐字相等（D38 等值真值源）"
+        attribute, expected_attribute,
+        "`#[path]` 字面量与 `paths::generated_path` 的文件名逐字相等（入口同级后恒为文件名）"
     );
     assert!(
         lib.contains("pub use api_gen::*;"),
@@ -480,8 +515,8 @@ fn 索引零语言词且计数与真实源文同源() {
 #[test]
 fn 投影三路径与单点派生逐字相等() {
     let root = repository_root();
-    let element_path = vec![format!("./{ELEMENT_ROOT}/")];
-    let projection: ArchiApiRef = api_ref_of(&root, FQN, &element_path);
+    let element = pilot_element(FQN, &[ELEMENT_ROOT]);
+    let projection: ArchiApiRef = api_ref_of(&root, std::slice::from_ref(&element), &element);
     assert_eq!(
         projection.status,
         ApiStatus::Declared,
@@ -524,7 +559,12 @@ fn 投影三路径与单点派生逐字相等() {
 #[test]
 fn 投影对容器元素与未声明fqn可辨() {
     let root = repository_root();
-    let container = api_ref_of(&root, FQN, &[]);
+    let container_element = pilot_element(FQN, &[]);
+    let container = api_ref_of(
+        &root,
+        std::slice::from_ref(&container_element),
+        &container_element,
+    );
     assert_eq!(
         container.status,
         ApiStatus::Declared,
@@ -539,19 +579,45 @@ fn 投影对容器元素与未声明fqn可辨() {
         Some(schema_rel().as_str())
     );
     assert_eq!(container.generated_path, None, "容器元素天然无生成物");
+    let empty_root = pilot_element(FQN, &[""]);
     assert_eq!(
         container,
-        api_ref_of(&root, FQN, &[String::new()]),
+        api_ref_of(&root, std::slice::from_ref(&empty_root), &empty_root),
         "空串元素根与空 `path` 同形（都无生成物）"
     );
 
+    let undeclared_element = pilot_element("App.Backend.Infra.NotExists", &[ELEMENT_ROOT]);
     let undeclared = api_ref_of(
         &root,
-        "App.Backend.Infra.NotExists",
-        &[ELEMENT_ROOT.to_owned()],
+        std::slice::from_ref(&undeclared_element),
+        &undeclared_element,
     );
     assert_eq!(undeclared.status, ApiStatus::None, "md 缺席即 none");
     assert_eq!(undeclared.contract_path, None);
     assert_eq!(undeclared.schema_path, None);
     assert_eq!(undeclared.generated_path, None);
+}
+
+/// 异常（AC-3 机械锚点）：试点测试内零旧名引用（旧 `#[path]` 真值源与旧入口形态函数），
+/// 等值真值源已改为 `paths::generated_path(...).file_name()`。
+#[test]
+fn 旧名零残留且等值源为生成物文件名() {
+    let own = include_str!("pilot_test.rs");
+    for removed in [["mod_path", "_attr"].concat(), ["entry", "_form"].concat()] {
+        assert_eq!(
+            own.matches(removed.as_str()).count(),
+            0,
+            "`pilot_test.rs` 内零旧名引用 `{removed}`（真值源已换为生成物文件名）"
+        );
+    }
+    let lib = read_repo("packages/desktop/src-tauri/crates/infra/archi/src/lib.rs");
+    let attribute = lib
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("#[path = \""))
+        .and_then(|tail| tail.strip_suffix("\"]"))
+        .expect("入口行含 `#[path = \"…\"]` 字面量");
+    assert!(
+        !attribute.contains('/') && !attribute.contains(".."),
+        "字面量恒为文件名（零目录段、零 `../`）：{attribute}"
+    );
 }

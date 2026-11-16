@@ -39,7 +39,8 @@ use crate::dto::{ApiStatus, ArchiElement};
 
 use super::contract::{is_constructor, Contract};
 use super::extract::{self, ApiSymbol, ApiSymbolKind};
-use super::{paths, ApiCheckInput};
+use super::paths::{self, EntryProblem, EntryState};
+use super::ApiCheckInput;
 
 /// 开放分类的单点打标（六值）：新增分类只改本函数，不动枚举、不动 `ALL`、不动金样
 /// 词汇对拍。
@@ -74,37 +75,27 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
             .map(Vec::as_slice)
             .unwrap_or(&[]);
 
-        // ① 结构前提：既无生成物也无实现入口 → 该元素不再判 ②③④
-        let entry = paths::entry_form(input.root, element);
-        // 生成物路径只收 `<root>` 字符串（D42）：容器元素无 `path` ⇒ 无生成物
-        let has_generated = element.path.first().is_some_and(|element_root| {
-            [paths::GeneratedKind::Rust, paths::GeneratedKind::TypeScript]
-                .into_iter()
-                .filter_map(|kind| paths::generated_path(input.root, element_root, kind))
-                .any(|path| path.is_file())
-        });
-        let entry_missing = entry.is_none() && !has_generated;
-        if entry_missing {
-            findings.push(finding(
+        // ① 结构前提：`entry_state` 判该元素是否解析出可用入口（`Resolved` ⇒ 继续 ②③④；
+        // `Absent` / `Invalid` ⇒ 一条 `apiEntryMissing`）。`.i` 生成物的存在 MUST NOT 再当
+        // 替代证据——生成物路径是入口的单值函数，无入口即无路径可派生
+        match paths::entry_state(input.root, input.elements, element) {
+            paths::EntryState::Resolved { .. } => {
+                // ② 契约 → 代码缺失（两种形态；`$defs` 类型面与 op 面同一条判据、同一次求值）
+                missing_contracts(&input, element, contract, schema, symbols, &mut findings);
+                // ③ 代码导出集 → 契约声明集（完备性判据，档位 off ⇒ 跳过、零条目）
+                if ArchiApiFindingKind::ApiUndeclared.severity() != ApiFindingSeverity::Off {
+                    undeclared(schema, symbols, element, &mut findings);
+                }
+                // ④ 契约签名 vs 代码签名（归一后）
+                signature_mismatch(element, contract, symbols, &mut findings);
+            }
+            state => findings.push(finding(
                 ArchiApiFindingKind::ApiEntryMissing,
                 element,
                 None,
-                format!(
-                    "元素 {} 的根路径下既无生成物也无实现入口——它可能不是真模块或已删除，\
-                     写契约之前先修路径",
-                    element.fqn
-                ),
+                entry_missing_message(element, &state),
                 Vec::new(),
-            ));
-        } else {
-            // ② 契约 → 代码缺失（两种形态；`$defs` 类型面与 op 面同一条判据、同一次求值）
-            missing_contracts(&input, element, contract, schema, symbols, &mut findings);
-            // ③ 代码导出集 → 契约声明集（完备性判据，档位 off ⇒ 跳过、零条目）
-            if ArchiApiFindingKind::ApiUndeclared.severity() != ApiFindingSeverity::Off {
-                undeclared(schema, symbols, element, &mut findings);
-            }
-            // ④ 契约签名 vs 代码签名（归一后）
-            signature_mismatch(element, contract, symbols, &mut findings);
+            )),
         }
         // ⑤ 留白与文件存在性矛盾（与 ① 独立、单向；反方向归 ②，两条 MUST NOT 双报）
         if element.api == ApiStatus::None
@@ -153,6 +144,58 @@ pub fn check(input: ApiCheckInput<'_>) -> Vec<ArchiApiFinding> {
     // ⑧ 嵌套元素父子分属不同 crate
     nested_cross_crate(&input, &mut findings);
     findings
+}
+
+/// ① 的文案（R-3）：**按 `EntryProblem` 分列理由**，MUST NOT 只写通用「无入口」。
+///
+/// 四条判据同报一个 finding kind、同档同分类（入口面因此不需要第 11 个值）；理由只能
+/// 落在文案里，故必须点名具体对象——越界目标 / 缺失文件 / 冲突方 FQN / 形态非法的声明值。
+fn entry_missing_message(element: &ArchiElement, state: &EntryState) -> String {
+    match state {
+        EntryState::Resolved { entry, .. } => {
+            format!("元素 {} 已解析出可用入口 {entry}", element.fqn)
+        }
+        EntryState::Absent => {
+            let candidates = paths::entry_candidates(element);
+            let expected = if candidates.is_empty() {
+                "（`path` 为空或形态非法，无候选可派生）".to_owned()
+            } else {
+                format!(
+                    "约定候选 {} 皆不在盘",
+                    candidates
+                        .iter()
+                        .map(|candidate| format!("`{candidate}`"))
+                        .collect::<Vec<String>>()
+                        .join(" / ")
+                )
+            };
+            format!(
+                "元素 {} 无可用入口：未声明 `entry`，且{expected}（目录型根缺 \
+                 `index.ts(x)`、或该元素本就没有门）——补约定入口、显式声明 `entry`，\
+                 或判 `api = none`",
+                element.fqn
+            )
+        }
+        EntryState::Invalid(EntryProblem::Malformed { entry }) => format!(
+            "元素 {} 声明的入口 `{entry}` 形态非法：入口 MUST 是 repo 相对 POSIX 路径\
+             （无绝对前缀 / 盘符 / `..` 段 / 空段）",
+            element.fqn
+        ),
+        EntryState::Invalid(EntryProblem::OutsidePath { entry }) => format!(
+            "元素 {} 声明的入口 `{entry}` 落在该元素的 `path` 之外：入口 MUST 等于某条 \
+             `path` 条目，或落在某条目录型 `path` 之内",
+            element.fqn
+        ),
+        EntryState::Invalid(EntryProblem::NotOnDisk { entry }) => format!(
+            "元素 {} 声明的入口 `{entry}` 不在盘上——写契约之前先修入口或删掉声明",
+            element.fqn
+        ),
+        EntryState::Invalid(EntryProblem::Duplicated { entry, other_fqn }) => format!(
+            "元素 {} 声明的入口 `{entry}` 与元素 {other_fqn} 是同一个文件——\
+             一个入口只能属于一个模块",
+            element.fqn
+        ),
+    }
 }
 
 /// ② `apiMissing` 的两种形态（契约文件缺失 / 契约声明了代码里没有的实现）。

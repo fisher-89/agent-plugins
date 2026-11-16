@@ -16,6 +16,7 @@ fn element(fqn: &str) -> Element {
         kind: ElementKind::Module,
         gate: GateTier::Off,
         api: ApiStatus::Declared,
+        entry: None,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,
@@ -347,4 +348,60 @@ fn is_empty单组非空即为假() {
     assert!(!only_gate.is_empty());
 
     assert!(ModelDiff::default().is_empty(), "全零即空");
+}
+
+/// 边界（`entry` 零敏感面）：base 与 next 仅 `entry` 不同 → `ModelDiff::is_empty()` 为真
+/// （元素身份仍 FQN、变更面只 `gate`）；500 元素全带 `entry` 与全 `None` 语料给出逐字段
+/// 相同的 `ModelDiff`（新增字段零噪声）。
+#[test]
+fn 结构diff对entry零噪声() {
+    let build = |entry: Option<&str>, gate: GateTier| {
+        let mut element = gated("App.Auth", gate);
+        element.entry = entry.map(str::to_owned);
+        element
+    };
+
+    let base = Model {
+        elements: vec![element("App"), build(None, GateTier::Off)],
+        relations: vec![relation("App", "App.Auth")],
+    };
+    let next = Model {
+        elements: vec![
+            element("App"),
+            build(Some("src/auth/token.ts"), GateTier::Off),
+        ],
+        relations: vec![relation("App", "App.Auth")],
+    };
+    let only_entry = model_diff(&base, &next);
+    assert!(
+        only_entry.is_empty(),
+        "仅 `entry` 不同 ⇒ 结构 diff 为空：{only_entry:?}"
+    );
+    assert!(
+        only_entry.gate_changes.is_empty(),
+        "`gate` 未变 ⇒ 变更清单空"
+    );
+
+    // 规模面：500 元素全带 `entry` vs 全 `None` → 逐字段相同的 `ModelDiff`
+    let with_entry = Model {
+        elements: (0..500)
+            .map(|index| {
+                let mut element = element(&format!("App.M{index:03}"));
+                element.entry = Some(format!("src/m{index:03}/lib.rs"));
+                element
+            })
+            .collect(),
+        relations: Vec::new(),
+    };
+    let without_entry = Model {
+        elements: (0..500)
+            .map(|index| element(&format!("App.M{index:03}")))
+            .collect(),
+        relations: Vec::new(),
+    };
+    assert_eq!(
+        model_diff(&with_entry, &without_entry),
+        ModelDiff::default(),
+        "500 元素全带 `entry` 亦零噪声"
+    );
 }

@@ -899,7 +899,7 @@ fn file_stem可见性与实现单点() {
         "report.rs 零 file_stem 定义（非复制）"
     );
 
-    let generated = include_str!("../../archi.i.rs");
+    let generated = include_str!("lib.i.rs");
     assert!(
         generated.contains("const _: fn(&str) -> String = super::LocalArchiCheck::file_stem;"),
         "生成物内的签名见证指向 file_stem：{generated}"
@@ -1007,7 +1007,7 @@ fn compose_text保持私有() {
         !source.contains("pub fn compose_text") && !source.contains("pub(crate) fn compose_text"),
         "compose_text MUST NOT 带可见性前缀（私有实现细节）"
     );
-    let generated = include_str!("../../archi.i.rs");
+    let generated = include_str!("lib.i.rs");
     assert!(
         !generated.contains("compose_text"),
         "生成物内零 compose_text 见证（不进契约）：{generated}"
@@ -1031,7 +1031,7 @@ fn write_report不进契约() {
         "lib.rs MUST NOT 导出 write_report（E0364 反例不在案）"
     );
     assert!(
-        !include_str!("../../archi.i.rs").contains("write_report"),
+        !include_str!("lib.i.rs").contains("write_report"),
         "crateOnly 可见性 ⟹ 不进契约"
     );
 }
@@ -1255,7 +1255,7 @@ fn 透传查表值经paths单点() {
     );
 
     // ② 试点元素的生成物零透传条目（契约无 `api-reexport`）
-    let pilot = include_str!("../../archi.i.rs");
+    let pilot = include_str!("lib.i.rs");
     assert!(
         !pilot.contains("pub use "),
         "试点契约零透传条目 ⇒ 生成物零 `pub use`：\n{pilot}"

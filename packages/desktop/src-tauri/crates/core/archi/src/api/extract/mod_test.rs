@@ -35,6 +35,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         kind: ElementKind::Module,
         gate: GateTier::Warn,
         api: ApiStatus::Declared,
+        entry: None,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),

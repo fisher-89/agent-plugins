@@ -527,11 +527,13 @@ fn 元素根判据是路径非空而非元素种类() {
     );
 }
 
-/// 正向（AC-7 / spec Scenario 生成物按并集判据归元素）：元素根**同级**生成物
-/// （`crates/infra/archi.i.rs`）由整组剥离候选命中，不落 `none`。
+/// 正向（AC-5 / AC-7）：生成物落**入口同级**后仍归其元素——crate 形态
+/// （`crates/infra/archi/src/lib.i.rs`）由目录前缀命中；文件型根
+/// （`packages/desktop/src/views/welcome-view.i.ts`）由主干对齐候选命中；两者
+/// `mark = member` 且 owners 唯一（树侧零第二份剥离规则）。
 #[test]
-fn 生成物按并集判据归元素() {
-    let temp = TempDir::new("generated-union");
+fn 生成物按入口同级落点归元素() {
+    let temp = TempDir::new("generated-entry-level");
     temp.write_model(&[
         ("App", "package", &[]),
         ("App.Backend", "domain", &[]),
@@ -541,17 +543,83 @@ fn 生成物按并集判据归元素() {
             "component",
             &["./crates/infra/archi/"],
         ),
+        ("App.Frontend", "domain", &[]),
+        ("App.Frontend.Views", "package", &[]),
+        (
+            "App.Frontend.Views.Welcome",
+            "component",
+            &["./packages/desktop/src/views/welcome-view.tsx"],
+        ),
     ]);
-    temp.write("crates/infra/archi.i.rs", "pub struct Session;\n");
+    temp.write("crates/infra/archi/src/lib.i.rs", "pub struct Session;\n");
+    temp.write("crates/infra/archi/src/lib.rs", "pub struct Session;\n");
+    temp.write(
+        "packages/desktop/src/views/welcome-view.tsx",
+        "export const view = 1;\n",
+    );
+    temp.write(
+        "packages/desktop/src/views/welcome-view.i.ts",
+        "export interface View {}\n",
+    );
 
     let tree = file_tree(temp.root()).expect("应 Ok");
     assert_entry(
         &tree,
-        "crates/infra/archi.i.rs",
+        "crates/infra/archi/src/lib.i.rs",
         FileEntryKind::File,
         FileTreeMark::Member,
         &["App.Backend.Infra.ArchiRuntime"],
     );
+    assert_entry(
+        &tree,
+        "crates/infra/archi/src/lib.rs",
+        FileEntryKind::File,
+        FileTreeMark::Member,
+        &["App.Backend.Infra.ArchiRuntime"],
+    );
+    assert_entry(
+        &tree,
+        "packages/desktop/src/views/welcome-view.i.ts",
+        FileEntryKind::File,
+        FileTreeMark::Member,
+        &["App.Frontend.Views.Welcome"],
+    );
+}
+
+/// 边界（AC-5 白名单外）：`.i.py` / `.d.rs` / `.i` / `.I.rs` 四形态的剥离不生效——树侧
+/// 归属与 `mark` 与改动前逐值相等。
+///
+/// 枚举面只收五扩展名源文件（`scan::is_source_file` 单源），故 `.d.rs` / `.I.rs` 在列且
+/// 照旧归目录元素，而 `.py` / 无扩展名（`.i`）根本不进枚举面——白名单外的剥离无从生效，
+/// 归属判定也不因此改判。
+#[test]
+fn 生成物白名单外后缀树侧零剥离() {
+    let temp = TempDir::new("generated-whitelist-outside");
+    temp.write_model(&[
+        ("App", "package", &[]),
+        ("App.Core", "domain", &[]),
+        ("App.Core.Mod", "module", &["./src/mod/"]),
+        ("App.Core.SoloFile", "module", &["./src/solo_file.rs"]),
+    ]);
+    temp.write("src/mod/mod.d.rs", "pub fn x() {}\n");
+    temp.write("src/mod/mod.I.rs", "pub fn x() {}\n");
+    temp.write("src/mod/mod.i.py", "x = 1\n");
+    temp.write("src/mod/mod.i", "x\n");
+    temp.write("src/solo_file.i.py", "x = 1\n");
+
+    let tree = file_tree(temp.root()).expect("应 Ok");
+    for probe in ["src/mod/mod.d.rs", "src/mod/mod.I.rs"] {
+        assert_entry(
+            &tree,
+            probe,
+            FileEntryKind::File,
+            FileTreeMark::Member,
+            &["App.Core.Mod"],
+        );
+    }
+    for probe in ["src/mod/mod.i.py", "src/mod/mod.i", "src/solo_file.i.py"] {
+        assert_absent(&tree, probe);
+    }
 }
 
 // ===========================================================================

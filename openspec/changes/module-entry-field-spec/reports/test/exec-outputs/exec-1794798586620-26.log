@@ -1,0 +1,77 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2601:
+     }
+     // `Absent` 侧：`src/absent/` 下四个约定候选全不落盘；`Invalid` 侧：同目录 `src/lib.rs`
+     // 在盘，但两条 `Invalid` 都不受它影响
+[31m-    temp.write("src/missing/src/lib.rs", "pub fn m() -> String { String::new() }\n");
+[0m[32m+    temp.write(
+[0m[32m+        "src/missing/src/lib.rs",
+[0m[32m+        "pub fn m() -> String { String::new() }\n",
+[0m[32m+    );
+[0m 
+     let absent = element(absent_fqn, &["src/absent/"]);
+     let reference = super::api_ref_of(temp.root(), std::slice::from_ref(&absent), &absent);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2624:
+         reference.generated_path, None,
+         "入口形态非法（Malformed）⇒ 生成物路径 None"
+     );
+[31m-    assert_eq!(reference.status, ApiStatus::Declared, "契约事实不受判据理由影响");
+[0m[32m+    assert_eq!(
+[0m[32m+        reference.status,
+[0m[32m+        ApiStatus::Declared,
+[0m[32m+        "契约事实不受判据理由影响"
+[0m[32m+    );
+[0m 
+     let mut not_on_disk = element(not_on_disk_fqn, &["src/missing/"]);
+     not_on_disk.entry = Some("src/missing/ghost.rs".to_owned());
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2637:
+         reference.generated_path, None,
+         "声明值不在盘（NotOnDisk）⇒ 生成物路径 None（同目录 src/lib.rs 在盘也不回落）"
+     );
+[31m-    assert_eq!(reference.status, ApiStatus::Declared, "契约事实仍按文件事实报");
+[0m[32m+    assert_eq!(
+[0m[32m+        reference.status,
+[0m[32m+        ApiStatus::Declared,
+[0m[32m+        "契约事实仍按文件事实报"
+[0m[32m+    );
+[0m }
+ 
+ /// 异常（test-design:183 逐值）：传入元素与元素表不同源时互不污染——① 元素**不在元素表
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2651:
+     let shared_fqn = "App.Backend.Infra.ArchiRuntime";
+     temp.write_contract(ghost_fqn, &pilot_markdown(ghost_fqn));
+     temp.write_contract(shared_fqn, &pilot_markdown(shared_fqn));
+[31m-    temp.write("src/ghost/src/lib.rs", "pub fn g() -> String { String::new() }\n");
+[0m     temp.write(
+[32m+        "src/ghost/src/lib.rs",
+[0m[32m+        "pub fn g() -> String { String::new() }\n",
+[0m[32m+    );
+[0m[32m+    temp.write(
+[0m         "crates/infra/archi/src/lib.rs",
+         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2659:
+[31m-    temp.write("crates/core/other/src/lib.rs", "pub fn o() -> String { String::new() }\n");
+[0m[32m+    temp.write(
+[0m[32m+        "crates/core/other/src/lib.rs",
+[0m[32m+        "pub fn o() -> String { String::new() }\n",
+[0m[32m+    );
+[0m 
+     // ① 元素不在元素表内：表里只有另一个元素
+     let neighbour = element("App.Core.Neighbour", &["crates/core/other/"]);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\core\archi\src\api\mod_test.rs:2672:
+         Some("crates/core/other/src/lib.i.rs"),
+         "表内元素的入口 MUST NOT 泄漏到传入元素的投影"
+     );
+[31m-    assert_eq!(reference.status, ApiStatus::Declared, "契约按 element.fqn 派生");
+[0m[32m+    assert_eq!(
+[0m[32m+        reference.status,
+[0m[32m+        ApiStatus::Declared,
+[0m[32m+        "契约按 element.fqn 派生"
+[0m[32m+    );
+[0m     assert!(
+         reference
+             .contract_path
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

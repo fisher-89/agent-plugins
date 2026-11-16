@@ -29,6 +29,7 @@ function detailOf(fqn: string): ArchiModuleDetail {
       metadata: { owner: 'core' },
       modelFile: '.dev-team/architecture/models/01-core.toml',
       modelLine: 6,
+      entry: null,
       mark: 'none',
     },
     dependsOn: [{ target: 'App.Billing', description: '认证调用计费' }],

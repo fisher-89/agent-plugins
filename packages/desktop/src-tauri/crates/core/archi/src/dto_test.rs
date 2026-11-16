@@ -929,6 +929,7 @@ fn 缺省与可选字段显式线形() {
         kind: ElementKind::Package,
         gate: GateTier::Off,
         api: ApiStatus::Declared,
+        entry: None,
         path: Vec::new(),
         summary: None,
         metadata: std::collections::BTreeMap::new(),
@@ -1112,6 +1113,7 @@ fn declared_ref(root: &Path, fqn: &str) -> serde_json::Value {
         kind: ElementKind::Module,
         gate: GateTier::Warn,
         api: ApiStatus::Declared,
+        entry: None,
         path: vec!["src/mod/".to_owned()],
         summary: None,
         metadata: std::collections::BTreeMap::new(),
@@ -1119,7 +1121,10 @@ fn declared_ref(root: &Path, fqn: &str) -> serde_json::Value {
         model_line: 1,
         mark: NodeMark::None,
     };
-    let reference = crate::api::api_ref_of(root, fqn, &element.path);
+    // 入口同级后生成物路径是入口的函数：先落一个入口文件，投影才给 `generatedPath`
+    std::fs::create_dir_all(root.join("src/mod/src")).expect("建入口目录");
+    std::fs::write(root.join("src/mod/src/lib.rs"), "pub fn f() {}\n").expect("落入入口");
+    let reference = crate::api::api_ref_of(root, std::slice::from_ref(&element), &element);
     serde_json::to_value(&reference).expect("序列化成功")
 }
 
@@ -1346,9 +1351,10 @@ fn 既有字段面零变化() {
             "modelFile",
             "modelLine",
             "mark",
-            "api"
+            "api",
+            "entry"
         ],
-        "元素十字段（api 为末位追加，既有九字段逐字与顺序不变）"
+        "元素十一字段（api / entry 依次末位追加，既有九字段逐字与顺序不变）"
     );
 
     let search = dto::search(temp.root(), "Auth", SearchScope::All).expect("Ok");
@@ -1453,6 +1459,7 @@ fn archi_element_api两态线形() {
         kind: ElementKind::Module,
         gate: GateTier::Warn,
         api: ApiStatus::Declared,
+        entry: None,
         path: vec!["./src/mod/".to_owned()],
         summary: Some("模块摘要".to_owned()),
         metadata: std::collections::BTreeMap::from([("owner".to_owned(), "core".to_owned())]),
@@ -1540,6 +1547,7 @@ fn archi_api_ref超长与特殊字符路径() {
             kind: ElementKind::Module,
             gate: GateTier::Off,
             api: ApiStatus::Declared,
+            entry: None,
             path: vec!["src/x/".to_owned()],
             summary: None,
             metadata: std::collections::BTreeMap::new(),
@@ -1592,9 +1600,16 @@ fn module_detail的api与投影单点逐字段相等() {
     let temp = healthy_dir("detail-api-same-source");
     let fqn = "App.Auth";
 
+    // 入口文件落盘：生成物路径是入口的函数（无入口即无路径）
+    temp.write("src/auth/src/lib.rs", "pub fn f() {}\n");
+
     // 形态一：无 md → 两路都是 none 且三路径全 None
     let detail = dto::module_detail(temp.root(), fqn).expect("Ok");
-    let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+    let direct = crate::api::api_ref_of(
+        temp.root(),
+        std::slice::from_ref(&detail.element),
+        &detail.element,
+    );
     assert_eq!(detail.api, direct, "无 md 时两路逐字段相等");
     assert_eq!(detail.api.status, ApiStatus::None);
     assert_eq!(detail.element.api, ApiStatus::Declared, "模型字段零回写");
@@ -1612,7 +1627,11 @@ fn module_detail的api与投影单点逐字段相等() {
     );
 
     let detail = dto::module_detail(temp.root(), fqn).expect("Ok");
-    let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+    let direct = crate::api::api_ref_of(
+        temp.root(),
+        std::slice::from_ref(&detail.element),
+        &detail.element,
+    );
     assert_eq!(detail.api, direct, "md 在案时两路逐字段相等（投影纯单点）");
     assert_eq!(detail.api.status, ApiStatus::Declared);
     assert!(
@@ -2033,6 +2052,7 @@ fn 既有词汇与出线类型零变化() {
         kind: ElementKind::Package,
         gate: GateTier::Off,
         api: ApiStatus::None,
+        entry: None,
         path: Vec::new(),
         summary: None,
         metadata: std::collections::BTreeMap::new(),
@@ -2059,9 +2079,10 @@ fn 既有词汇与出线类型零变化() {
             "modelFile",
             "modelLine",
             "mark",
-            "api"
+            "api",
+            "entry"
         ],
-        "ArchiElement 既有键序零变化"
+        "ArchiElement 既有键序零变化（entry 末位追加）"
     );
 
     // 源码自证：两词表在 `dto.rs` 内各恰一处定义、零映射
@@ -2361,4 +2382,149 @@ fn graph_diagnostics_error提权与脏值() {
 
     let exported = crate::graph_diagnostics_error(&dirty);
     assert_eq!(exported, text, "出口面与 dto 面同一函数");
+}
+
+// ===========================================================================
+// `ArchiElement.entry`：投影搬运（缺省 `null` 显式在场 / 原文不做第二次归一）与
+// `module_detail` 的入口同级落点
+// ===========================================================================
+
+/// 正向（AC-6 / AC-7）：显式 `entry` 逐字投影（`./` 原文保留，不做第二次归一）；
+/// 缺省元素出 `"entry": null` 且**键在场**（显式字段不省略）。
+#[test]
+fn graph_view的entry逐字投影且缺省为null() {
+    let temp = TempDir::new("graph-entry");
+    temp.write_model(
+        "01-entry.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"domain\"\n",
+            "gate = \"warn\"\n",
+            "entry = \"./src/auth/token.ts\"\n",
+            "path = [\"./src/auth/\"]\n",
+        ),
+    );
+    let graph = dto::graph_view(temp.root()).expect("健康模型应 Ok");
+    assert!(graph.diagnostics.is_empty(), "健康图零诊断");
+
+    let auth = graph
+        .elements
+        .iter()
+        .find(|element| element.fqn == "App.Auth")
+        .expect("App.Auth 在场");
+    assert_eq!(
+        auth.entry.as_deref(),
+        Some("./src/auth/token.ts"),
+        "显式值逐字投影（`./` 前缀不剥）"
+    );
+    let app = graph
+        .elements
+        .iter()
+        .find(|element| element.fqn == "App")
+        .expect("App 在场");
+    assert_eq!(app.entry, None, "缺省读作 `None`");
+
+    let value = serde_json::to_value(&graph).expect("序列化成功");
+    let elements = value["elements"].as_array().expect("元素数组");
+    let auth_json = elements
+        .iter()
+        .find(|element| element["fqn"] == json!("App.Auth"))
+        .expect("App.Auth 在场");
+    assert_eq!(
+        auth_json["entry"],
+        json!("./src/auth/token.ts"),
+        "线面逐字（`entry` 线键）"
+    );
+    let app_json = elements
+        .iter()
+        .find(|element| element["fqn"] == json!("App"))
+        .expect("App 在场");
+    assert!(
+        app_json
+            .as_object()
+            .expect("对象形态")
+            .contains_key("entry"),
+        "缺省元素的 `entry` 键显式在场（投影不省字段）"
+    );
+    assert_eq!(app_json["entry"], json!(null), "缺省值显式 null");
+}
+
+/// 正向（AC-3）：`module_detail` 的 `element.entry` 与模型逐字相等，`generatedPath`
+/// 为**入口同级**串（入口落盘后投影给路径；落点在入口目录内，与元素根无关）。
+#[test]
+fn module_detail的entry投影与入口同级落点() {
+    let temp = TempDir::new("detail-entry");
+    temp.write_model(
+        "01-entry.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Core\"]\n",
+            "kind = \"domain\"\n",
+            "\n",
+            "[element.\"App.Core.Archi\"]\n",
+            "kind = \"module\"\n",
+            "gate = \"warn\"\n",
+            "entry = \"crates/core/archi/src/lib.rs\"\n",
+            "path = [\"crates/core/archi/\"]\n",
+        ),
+    );
+    temp.write("crates/core/archi/src/lib.rs", "pub fn f() {}\n");
+    let contract_path = crate::api::paths::contract_path(temp.root(), "App.Core.Archi")
+        .expect("测试 FQN 恒为合法形态");
+    fs::create_dir_all(contract_path.parent().expect("契约目录")).expect("创建契约目录失败");
+    fs::write(&contract_path, "# App.Core.Archi\n\n## 职能\n\n正文。\n").expect("写契约失败");
+
+    let detail = dto::module_detail(temp.root(), "App.Core.Archi").expect("Ok");
+    assert_eq!(
+        detail.element.entry.as_deref(),
+        Some("crates/core/archi/src/lib.rs"),
+        "元素投影搬运入口（`to_element` 单点）"
+    );
+    assert_eq!(
+        detail.api.generated_path.as_deref(),
+        Some("crates/core/archi/src/lib.i.rs"),
+        "生成物路径是入口同级串（不是元素根同级）"
+    );
+    assert_eq!(
+        detail.api.status,
+        ApiStatus::Declared,
+        "契约在案即 declared"
+    );
+
+    // 停摆态逐值（test-design:141 两行）：① 结构诊断非空 → elements / relations 皆空 +
+    // 诊断清单在案；② `models/` 目录缺席 → 空模型（零诊断，不是结构错）、零 `entry`
+    // 泄漏、不 panic。
+    let broken = TempDir::new("detail-entry-broken");
+    broken.write_model(
+        "01-entry.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Core\"]\n",
+            "kind = \"domain\"\n",
+            "\n",
+            "[[relation]]\n",
+            "from = \"App.Core\"\n",
+            "to = \"App\"\n",
+        ),
+    );
+    let halted = dto::graph_view(broken.root()).expect("停摆态仍 Ok 返回（不 Err）");
+    assert_halted(&halted, "结构诊断");
+
+    let absent = TempDir::new("detail-entry-absent");
+    let graph = dto::graph_view(absent.root()).expect("目录缺席仍 Ok");
+    assert!(
+        graph.elements.is_empty() && graph.relations.is_empty(),
+        "模型目录缺席：元素 / 关系皆空"
+    );
+    assert!(
+        graph.elements.iter().all(|element| element.entry.is_none()),
+        "停摆态零 `entry` 泄漏（元素表本就为空）"
+    );
 }

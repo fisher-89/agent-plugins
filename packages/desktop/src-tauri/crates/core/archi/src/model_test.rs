@@ -23,6 +23,7 @@ fn element(fqn: &str) -> Element {
         kind: ElementKind::Module,
         gate: GateTier::Off,
         api: ApiStatus::Declared,
+        entry: None,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,
@@ -377,7 +378,7 @@ fn element_api大模型逐元素可读() {
 /// `path` / `docs` / `summary` / `metadata` / `file` / `line` = 10 个既有 + `api` 1 个），
 /// 且 `api` 是本变更唯一新增字段（`ApiStatus` 类型在场、协议正文四词零命中已在另测覆盖）。
 #[test]
-fn element字段数恰十一个且api为唯一新增() {
+fn element字段数恰十二个且两个指针各一处() {
     let source = include_str!("model.rs");
     let block_start = source
         .find("pub struct Element {")
@@ -393,11 +394,12 @@ fn element字段数恰十一个且api为唯一新增() {
         .collect();
     assert_eq!(
         fields.len(),
-        11,
-        "Element 字段数 = 11（原 10 + api），实际 {fields:?}"
+        12,
+        "Element 字段数 = 12（原 10 + api + entry），实际 {fields:?}"
     );
     for expected in [
-        "fqn", "kind", "gate", "api", "path", "docs", "summary", "metadata", "file", "line",
+        "fqn", "kind", "gate", "api", "entry", "path", "docs", "summary", "metadata", "file",
+        "line",
     ] {
         assert!(
             fields.iter().any(|field| field.contains(expected)),
@@ -415,6 +417,148 @@ fn element字段数恰十一个且api为唯一新增() {
             .count(),
         1,
         "`api` 字段只此一处（MUST NOT 顺手扩面）"
+    );
+    assert_eq!(
+        fields
+            .iter()
+            .filter(|field| field.contains("entry: Option<String>"))
+            .count(),
+        1,
+        "`entry` 是单值可选指针（MUST NOT 顺手扩面为数组）"
+    );
+
+    // 源码序：`entry` 插在 `api` 之后、`path` 之前（两指针相邻，`path` 仍紧随其后）
+    let position_of = |needle: &str| {
+        fields
+            .iter()
+            .position(|field| field.contains(needle))
+            .unwrap_or_else(|| panic!("字段面缺 {needle}"))
+    };
+    assert!(
+        position_of("api: ApiStatus") < position_of("entry: Option<String>"),
+        "`entry` 在 `api` 之后：{fields:?}"
+    );
+    assert!(
+        position_of("entry: Option<String>") < position_of("path: Vec<String>"),
+        "`entry` 在 `path` 之前：{fields:?}"
+    );
+}
+
+// ===========================================================================
+// `Element.entry`：缺省 `None` / 显式值逐字保留 / 与 `api` `path` 正交 /
+// 派生相等语义参与（单值实现入口指针）
+// ===========================================================================
+
+/// 正向（AC-6 字段面）：省略键 → `None`；显式值逐字保留（`./` 前导不剥——归一归
+/// `api::paths`，模型层零归一）。
+#[test]
+fn element_entry缺省与显式逐字保留() {
+    let omitted = parse_with_models(
+        "[element.\"App.Auth\"]
+kind = \"domain\"
+gate = \"warn\"
+path = [\"src/auth/\"]
+",
+    );
+    assert!(
+        omitted.diagnostics.is_empty(),
+        "健康源零诊断：{:?}",
+        omitted.diagnostics
+    );
+    let auth = omitted.model.element("App.Auth").expect("元素在案");
+    assert_eq!(auth.entry, None, "缺省读作 `None`（不是空串）");
+
+    for raw in ["./src/auth/token.ts", "src/auth/token.ts"] {
+        let source = format!(
+            "[element.\"App.Auth\"]
+kind = \"domain\"
+gate = \"warn\"
+             entry = \"{raw}\"
+path = [\"src/auth/\"]
+"
+        );
+        let outcome = parse_with_models(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "健康源零诊断：{:?}",
+            outcome.diagnostics
+        );
+        assert_eq!(
+            outcome.model.element("App.Auth").expect("元素在案").entry,
+            Some(raw.to_owned()),
+            "显式值逐字保留（模型层零归一）：{raw:?}"
+        );
+    }
+}
+
+/// 边界（正交四组合）：`entry` 有值 ↔ 缺省，`api = none` ↔ `declared` 四组合逐项可读，
+/// 两指针互不吞并。
+#[test]
+fn element_entry与api四组合正交() {
+    let cases = [
+        ("declared", None),
+        ("declared", Some("src/a/lib.rs")),
+        ("none", None),
+        ("none", Some("src/a/main.rs")),
+    ];
+    for (api, entry) in cases {
+        let entry_line = entry
+            .map(|value| {
+                format!(
+                    "entry = \"{value}\"
+"
+                )
+            })
+            .unwrap_or_default();
+        let source = format!(
+            "[element.\"App.Core.X\"]
+kind = \"module\"
+gate = \"warn\"
+             api = \"{api}\"
+{entry_line}path = [\"src/a/\"]
+"
+        );
+        let outcome = parse_with_models(&source);
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "健康源零诊断（{api} / {entry:?}）：{:?}",
+            outcome.diagnostics
+        );
+        let element = outcome.model.element("App.Core.X").expect("元素在案");
+        assert_eq!(
+            element.api,
+            if api == "none" {
+                ApiStatus::None
+            } else {
+                ApiStatus::Declared
+            },
+            "`api` 逐值可读（{api} / {entry:?}）"
+        );
+        assert_eq!(element.entry, entry.map(str::to_owned), "`entry` 逐值可读");
+    }
+}
+
+/// 异常（派生相等语义）：两元素仅 `entry` 不同 → 不相等；`Model::element` 的 FQN 查表
+/// 不受影响（相等语义只影响整模型对拍，不参与身份判据）。
+#[test]
+fn element_entry参与派生相等语义() {
+    let plain = element("App.Auth");
+    let mut declared = element("App.Auth");
+    declared.entry = Some("src/auth/src/lib.rs".to_owned());
+    assert_ne!(plain, declared, "仅 `entry` 不同即不相等（PartialEq 参与）");
+
+    let mut same = plain.clone();
+    same.entry = Some("src/auth/src/lib.rs".to_owned());
+    assert_eq!(same, declared, "同 `entry` 值相等");
+
+    let model = Model {
+        elements: vec![element("App"), declared.clone()],
+        relations: Vec::new(),
+    };
+    assert_eq!(
+        model.element("App.Auth").map(|element| &element.entry),
+        Some(&Some("src/auth/src/lib.rs".to_owned())),
+        "`Model::element` 按 FQN 查表，不受相等语义影响"
     );
 }
 

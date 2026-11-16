@@ -15,8 +15,8 @@
 //! `apiFindings`，也不改 `--check` 退出码。
 //!
 //! **形态与透传命名由调用方给**（D40 / D41）：[`EmitTarget::form`] 来自
-//! [`super::paths::entry_form`]（判据是「盘上命中哪个入口文件」），[`EmitTarget::modules`]
-//! 是「目标元素 FQN → [`ModuleRef`]」的查表结果（两条值分别经
+//! [`super::paths::entry_state`] 的 `Resolved` 形态位（判据是「入口与根的关系」），
+//! [`EmitTarget::modules`] 是「目标元素 FQN → [`ModuleRef`]」的查表结果（两条值分别经
 //! [`super::paths::module_name`] 与 [`super::paths::rust_module_path`] 产出）。渲染器只读
 //! 这两个字段、零派生、零读模型——MUST NOT 出现第二套形态判据（如「末段是否含 `.`」）
 //! 或第二套命名（如从 FQN 末段派生）。
@@ -44,7 +44,8 @@ use super::{short_digest, ApiError, ApiMeta};
 pub struct EmitTarget {
     /// 生成物语言（决定渲染器）
     pub kind: GeneratedKind,
-    /// 入口形态（调用方经 [`super::paths::entry_form`] 求出；渲染器零形态推导）
+    /// 入口形态（调用方经 [`super::paths::entry_state`] 的 `Resolved` 求出；渲染器零
+    /// 形态推导）
     pub form: EntryForm,
     /// 透传目标查表（键 = 目标元素 FQN；调用方从元素表逐条解析）
     pub modules: BTreeMap<String, ModuleRef>,

@@ -33,6 +33,7 @@ function element(overrides: Partial<ArchiElement> = {}): ArchiElement {
     metadata: { owner: 'core' },
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 6,
+    entry: null,
     mark: 'none',
     ...overrides,
   };

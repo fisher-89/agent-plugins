@@ -1,0 +1,520 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+warning: this function has too many arguments (8/7)
+   --> crates\core\workflow\src\write\create.rs:441:1
+    |
+441 | / fn compensate_tree_failure(
+442 | |     store: &dyn ChangeStateStore,
+443 | |     vcs: &dyn WorktreePort,
+444 | |     main_root: &Path,
+...   |
+449 | |     fs_error: &str,
+450 | | ) -> String {
+    | |___________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `workflow` (lib) generated 1 warning
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\core\archi)
+warning: `workflow` (lib test) generated 1 warning (1 duplicate)
+error[E0432]: unresolved imports `super::paths::entry_form`, `super::paths::mod_path_attr`
+  --> crates\core\archi\src\api\paths_test.rs:25:42
+   |
+25 |     contract_path, directory, domain_of, entry_form, generated_kind, generated_path, index_path,
+   |                                          ^^^^^^^^^^ no `entry_form` in `api::paths`
+26 |     is_module_segment, language_of, mod_path_attr, module_name, normalize_root, ref_relative,
+   |                                     ^^^^^^^^^^^^^ no `mod_path_attr` in `api::paths`
+   |
+help: a similar name exists in the module
+   |
+25 -     contract_path, directory, domain_of, entry_form, generated_kind, generated_path, index_path,
+25 +     contract_path, directory, domain_of, EntryForm, generated_kind, generated_path, index_path,
+   |
+
+error[E0425]: cannot find function `entry_form` in module `paths`
+   --> crates\core\archi\src\api\mod_test.rs:960:16
+    |
+960 |         paths::entry_form(temp.root(), &elements[0]).map(|(form, _)| form),
+    |                ^^^^^^^^^^ not found in `paths`
+
+error[E0425]: cannot find function `entry_form` in module `paths`
+    --> crates\core\archi\src\api\mod_test.rs:2852:23
+     |
+2852 |     let form = paths::entry_form(temp.root(), &with_target[0])
+     |                       ^^^^^^^^^^ not found in `paths`
+
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\infra\archi)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\infra\agent)
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\api\extract\mod_test.rs:33:5
+   |
+33 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `entry`
+
+error: couldn't read `crates\infra\archi\src\../../archi.i.rs`: 系统找不到指定的文件。 (os error 2)
+   --> crates\infra\archi\src\runner_test.rs:902:21
+    |
+902 |     let generated = include_str!("../../archi.i.rs");
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: couldn't read `crates\infra\archi\src\../../archi.i.rs`: 系统找不到指定的文件。 (os error 2)
+    --> crates\infra\archi\src\runner_test.rs:1010:21
+     |
+1010 |     let generated = include_str!("../../archi.i.rs");
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: couldn't read `crates\infra\archi\src\../../archi.i.rs`: 系统找不到指定的文件。 (os error 2)
+    --> crates\infra\archi\src\runner_test.rs:1034:10
+     |
+1034 |         !include_str!("../../archi.i.rs").contains("write_report"),
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: couldn't read `crates\infra\archi\src\../../archi.i.rs`: 系统找不到指定的文件。 (os error 2)
+    --> crates\infra\archi\src\runner_test.rs:1258:17
+     |
+1258 |     let pilot = include_str!("../../archi.i.rs");
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0425]: cannot find function `mod_path_attr` in module `paths`
+   --> crates\core\archi\tests\pilot_test.rs:295:16
+    |
+295 |         paths::mod_path_attr(EntryForm::Crate, "archi"),
+    |                ^^^^^^^^^^^^^ not found in `paths`
+
+    Checking archi-api-gen v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\tools\archi-api-gen)
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\api\check_test.rs:83:5
+   |
+83 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `archi::dto::ArchiElement`
+   --> crates\core\archi\tests\vocabulary_test.rs:539:23
+    |
+539 |         let element = ArchiElement {
+    |                       ^^^^^^^^^^^^ missing `entry`
+
+error[E0308]: arguments to this function are incorrect
+   --> crates\core\archi\tests\pilot_test.rs:484:35
+    |
+484 |     let projection: ArchiApiRef = api_ref_of(&root, FQN, &element_path);
+    |                                   ^^^^^^^^^^
+    |
+note: expected `&[ArchiElement]`, found `&str`
+   --> crates\core\archi\tests\pilot_test.rs:484:53
+    |
+484 |     let projection: ArchiApiRef = api_ref_of(&root, FQN, &element_path);
+    |                                                     ^^^
+    = note: expected reference `&[archi::dto::ArchiElement]`
+               found reference `&'static str`
+note: expected `&ArchiElement`, found `&Vec<String>`
+   --> crates\core\archi\tests\pilot_test.rs:484:58
+    |
+484 |     let projection: ArchiApiRef = api_ref_of(&root, FQN, &element_path);
+    |                                                          ^^^^^^^^^^^^^
+    = note: expected reference `&archi::dto::ArchiElement`
+               found reference `&std::vec::Vec<std::string::String>`
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:772:8
+    |
+772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+    |        ^^^^^^^^^^
+
+error[E0308]: arguments to this function are incorrect
+   --> crates\core\archi\tests\pilot_test.rs:527:21
+    |
+527 |     let container = api_ref_of(&root, FQN, &[]);
+    |                     ^^^^^^^^^^        ---  --- argument #3 of type `&archi::dto::ArchiElement` is missing
+    |                                       |
+    |                                       unexpected argument #2 of type `&'static str`
+    |
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:772:8
+    |
+772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+    |        ^^^^^^^^^^
+help: did you mean
+    |
+527 -     let container = api_ref_of(&root, FQN, &[]);
+527 +     let container = api_ref_of(&root, &[], /* &archi::dto::ArchiElement */);
+    |
+
+error[E0308]: arguments to this function are incorrect
+   --> crates\core\archi\tests\pilot_test.rs:544:9
+    |
+544 |         api_ref_of(&root, FQN, &[String::new()]),
+    |         ^^^^^^^^^^
+    |
+note: expected `&[ArchiElement]`, found `&str`
+   --> crates\core\archi\tests\pilot_test.rs:544:27
+    |
+544 |         api_ref_of(&root, FQN, &[String::new()]),
+    |                           ^^^
+    = note: expected reference `&[archi::dto::ArchiElement]`
+               found reference `&'static str`
+note: expected `&ArchiElement`, found `&[String; 1]`
+   --> crates\core\archi\tests\pilot_test.rs:544:32
+    |
+544 |         api_ref_of(&root, FQN, &[String::new()]),
+    |                                ^^^^^^^^^^^^^^^^
+    = note: expected reference `&archi::dto::ArchiElement`
+               found reference `&[std::string::String; 1]`
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:772:8
+    |
+772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+    |        ^^^^^^^^^^
+
+error[E0308]: arguments to this function are incorrect
+   --> crates\core\archi\tests\pilot_test.rs:548:22
+    |
+548 |     let undeclared = api_ref_of(
+    |                      ^^^^^^^^^^
+    |
+note: expected `&[ArchiElement]`, found `&str`
+   --> crates\core\archi\tests\pilot_test.rs:550:9
+    |
+550 |         "App.Backend.Infra.NotExists",
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: expected reference `&[archi::dto::ArchiElement]`
+               found reference `&'static str`
+note: expected `&ArchiElement`, found `&[String; 1]`
+   --> crates\core\archi\tests\pilot_test.rs:551:9
+    |
+551 |         &[ELEMENT_ROOT.to_owned()],
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: expected reference `&archi::dto::ArchiElement`
+               found reference `&[std::string::String; 1]`
+note: function defined here
+   --> crates\core\archi\src\api\mod.rs:772:8
+    |
+772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+    |        ^^^^^^^^^^
+
+Some errors have detailed explanations: E0308, E0425.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `archi` (test "pilot_test") due to 5 previous errors
+warning: build failed, waiting for other jobs to finish...
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `archi` (test "vocabulary_test") due to 1 previous error
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+   --> crates\core\archi\src\api\mod_test.rs:173:5
+    |
+173 |     ArchiElement {
+    |     ^^^^^^^^^^^^ missing `entry`
+
+error: could not compile `archi-runtime` (lib test) due to 4 previous errors
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\api\mod_test.rs:1978:18
+     |
+1978 |     let direct = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+     |                  ^^^^^^^^^^^^^^^^^
+     |
+note: expected `&[ArchiElement]`, found `&str`
+    --> crates\core\archi\src\api\mod_test.rs:1978:49
+     |
+1978 |     let direct = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+     |                                                 ^^^
+     = note: expected reference `&[dto::ArchiElement]`
+                found reference `&str`
+note: expected `&ArchiElement`, found `&[String; 1]`
+    --> crates\core\archi\src\api\mod_test.rs:1978:54
+     |
+1978 |     let direct = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+     |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&dto::ArchiElement`
+                found reference `&[std::string::String; 1]`
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^              -------------------------  ----------------------
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\api\mod_test.rs:1984:21
+     |
+1984 |     let container = super::api_ref_of(temp.root(), container_fqn, &[]);
+     |                     ^^^^^^^^^^^^^^^^^              -------------  --- argument #3 of type `&dto::ArchiElement` is missing
+     |                                                    |
+     |                                                    unexpected argument #2 of type `&str`
+     |
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^                                         ----------------------
+help: did you mean
+     |
+1984 -     let container = super::api_ref_of(temp.root(), container_fqn, &[]);
+1984 +     let container = super::api_ref_of(temp.root(), &[], /* &dto::ArchiElement */);
+     |
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\api\mod_test.rs:2012:21
+     |
+2012 |     let reference = super::api_ref_of(temp.root(), "App", &[]);
+     |                     ^^^^^^^^^^^^^^^^^              -----  --- argument #3 of type `&dto::ArchiElement` is missing
+     |                                                    |
+     |                                                    unexpected argument #2 of type `&'static str`
+     |
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^                                         ----------------------
+help: did you mean
+     |
+2012 -     let reference = super::api_ref_of(temp.root(), "App", &[]);
+2012 +     let reference = super::api_ref_of(temp.root(), &[], /* &dto::ArchiElement */);
+     |
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\api\mod_test.rs:2027:18
+     |
+2027 |     let single = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+     |                  ^^^^^^^^^^^^^^^^^
+     |
+note: expected `&[ArchiElement]`, found `&str`
+    --> crates\core\archi\src\api\mod_test.rs:2027:49
+     |
+2027 |     let single = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+     |                                                 ^^^
+     = note: expected reference `&[dto::ArchiElement]`
+                found reference `&str`
+note: expected `&ArchiElement`, found `&[String; 1]`
+    --> crates\core\archi\src\api\mod_test.rs:2027:54
+     |
+2027 |     let single = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+     |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&dto::ArchiElement`
+                found reference `&[std::string::String; 1]`
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^              -------------------------  ----------------------
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\api\mod_test.rs:2028:17
+     |
+2028 |     let multi = super::api_ref_of(
+     |                 ^^^^^^^^^^^^^^^^^
+     |
+note: expected `&[ArchiElement]`, found `&str`
+    --> crates\core\archi\src\api\mod_test.rs:2030:9
+     |
+2030 |         fqn,
+     |         ^^^
+     = note: expected reference `&[dto::ArchiElement]`
+                found reference `&str`
+note: expected `&ArchiElement`, found `&[String; 2]`
+    --> crates\core\archi\src\api\mod_test.rs:2031:9
+     |
+2031 | /         &[
+2032 | |             "crates/infra/archi/".to_owned(),
+2033 | |             "crates/infra/archi/src/".to_owned(),
+2034 | |         ],
+     | |_________^
+     = note: expected reference `&dto::ArchiElement`
+                found reference `&[std::string::String; 2]`
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^              -------------------------  ----------------------
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\api\mod_test.rs:2039:23
+     |
+2039 |     let conflicting = super::api_ref_of(temp.root(), fqn, &["crates/core/other/".to_owned()]);
+     |                       ^^^^^^^^^^^^^^^^^
+     |
+note: expected `&[ArchiElement]`, found `&str`
+    --> crates\core\archi\src\api\mod_test.rs:2039:54
+     |
+2039 |     let conflicting = super::api_ref_of(temp.root(), fqn, &["crates/core/other/".to_owned()]);
+     |                                                      ^^^
+     = note: expected reference `&[dto::ArchiElement]`
+                found reference `&str`
+note: expected `&ArchiElement`, found `&[String; 1]`
+    --> crates\core\archi\src\api\mod_test.rs:2039:59
+     |
+2039 |     let conflicting = super::api_ref_of(temp.root(), fqn, &["crates/core/other/".to_owned()]);
+     |                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&dto::ArchiElement`
+                found reference `&[std::string::String; 1]`
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^              -------------------------  ----------------------
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+   --> crates\core\archi\src\api\paths_test.rs:103:5
+    |
+103 |     ArchiElement {
+    |     ^^^^^^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\scan\mod_test.rs:95:5
+   |
+95 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+  --> crates\core\archi\src\scan\owner_test.rs:16:5
+   |
+16 |     ArchiElement {
+   |     ^^^^^^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `model::Element`
+  --> crates\core\archi\src\diff_test.rs:14:5
+   |
+14 |     Element {
+   |     ^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `model::Element`
+  --> crates\core\archi\src\docs_test.rs:71:5
+   |
+71 |     Element {
+   |     ^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+   --> crates\core\archi\src\dto_test.rs:927:19
+    |
+927 |     let element = ArchiElement {
+    |                   ^^^^^^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:1110:19
+     |
+1110 |     let element = crate::dto::ArchiElement {
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^ missing `entry`
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\dto_test.rs:1122:21
+     |
+1122 |     let reference = crate::api::api_ref_of(root, fqn, &element.path);
+     |                     ^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: expected `&[ArchiElement]`, found `&str`
+    --> crates\core\archi\src\dto_test.rs:1122:50
+     |
+1122 |     let reference = crate::api::api_ref_of(root, fqn, &element.path);
+     |                                                  ^^^
+     = note: expected reference `&[dto::ArchiElement]`
+                found reference `&str`
+note: expected `&ArchiElement`, found `&Vec<String>`
+    --> crates\core\archi\src\dto_test.rs:1122:55
+     |
+1122 |     let reference = crate::api::api_ref_of(root, fqn, &element.path);
+     |                                                       ^^^^^^^^^^^^^
+     = note: expected reference `&dto::ArchiElement`
+                found reference `&std::vec::Vec<std::string::String>`
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^              -------------------------  ----------------------
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:1451:16
+     |
+1451 |     let base = ArchiElement {
+     |                ^^^^^^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:1538:27
+     |
+1538 |         let mut element = ArchiElement {
+     |                           ^^^^^^^^^^^^ missing `entry`
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\dto_test.rs:1597:18
+     |
+1597 |     let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+     |                  ^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: expected `&[ArchiElement]`, found `&str`
+    --> crates\core\archi\src\dto_test.rs:1597:54
+     |
+1597 |     let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+     |                                                      ^^^
+     = note: expected reference `&[dto::ArchiElement]`
+                found reference `&str`
+note: expected `&ArchiElement`, found `&Vec<String>`
+    --> crates\core\archi\src\dto_test.rs:1597:59
+     |
+1597 |     let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+     |                                                           ^^^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&dto::ArchiElement`
+                found reference `&std::vec::Vec<std::string::String>`
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^              -------------------------  ----------------------
+
+error[E0308]: arguments to this function are incorrect
+    --> crates\core\archi\src\dto_test.rs:1615:18
+     |
+1615 |     let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+     |                  ^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: expected `&[ArchiElement]`, found `&str`
+    --> crates\core\archi\src\dto_test.rs:1615:54
+     |
+1615 |     let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+     |                                                      ^^^
+     = note: expected reference `&[dto::ArchiElement]`
+                found reference `&str`
+note: expected `&ArchiElement`, found `&Vec<String>`
+    --> crates\core\archi\src\dto_test.rs:1615:59
+     |
+1615 |     let direct = crate::api::api_ref_of(temp.root(), fqn, &detail.element.path);
+     |                                                           ^^^^^^^^^^^^^^^^^^^^
+     = note: expected reference `&dto::ArchiElement`
+                found reference `&std::vec::Vec<std::string::String>`
+note: function defined here
+    --> crates\core\archi\src\api\mod.rs:772:8
+     |
+ 772 | pub fn api_ref_of(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> ArchiApiRef {
+     |        ^^^^^^^^^^              -------------------------  ----------------------
+
+error[E0063]: missing field `entry` in initializer of `dto::ArchiElement`
+    --> crates\core\archi\src\dto_test.rs:2031:46
+     |
+2031 |     let element_value = serde_json::to_value(ArchiElement {
+     |                                              ^^^^^^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `model::Element`
+  --> crates\core\archi\src\graph_test.rs:17:5
+   |
+17 |     Element {
+   |     ^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `model::Element`
+  --> crates\core\archi\src\model_test.rs:21:5
+   |
+21 |     Element {
+   |     ^^^^^^^ missing `entry`
+
+error[E0063]: missing field `entry` in initializer of `model::Element`
+  --> crates\core\archi\src\search_test.rs:63:5
+   |
+63 |     Element {
+   |     ^^^^^^^ missing `entry`
+
+Some errors have detailed explanations: E0063, E0308, E0425, E0432.
+For more information about an error, try `rustc --explain E0063`.
+error: could not compile `archi` (lib test) due to 28 previous errors
+error[E0063]: missing field `entry` in initializer of `archi::dto::ArchiElement`
+   --> crates\infra\agent\src\archi_knowledge_test.rs:629:23
+    |
+629 |         let element = ArchiElement {
+    |                       ^^^^^^^^^^^^ missing `entry`
+
+error: could not compile `agent-runtime` (lib test) due to 1 previous error
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

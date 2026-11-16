@@ -175,6 +175,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         kind: ElementKind::Module,
         gate: GateTier::Warn,
         api: ApiStatus::Declared,
+        entry: None,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
@@ -423,7 +424,8 @@ fn load_contracts跳过api_none() {
     let mut skipped = element("App.Backend.Core.Agent", &["crates/core/agent/"]);
     skipped.api = ApiStatus::None;
 
-    let snapshot = load_contracts(temp.root(), &[skipped.clone()]).expect("api=none 零噪声");
+    let snapshot =
+        load_contracts(temp.root(), std::slice::from_ref(&skipped)).expect("api=none 零噪声");
     assert!(snapshot.contracts.is_empty());
     assert!(snapshot.schemas.is_empty(), "api=none 不装配 schema");
 
@@ -799,7 +801,7 @@ path = [\"crates/infra/archi/\"]
     );
     let generated = paths::generated_path(
         temp.root(),
-        elements[0].path.first().expect("非空 root"),
+        "crates/infra/archi/src/lib.rs",
         paths::GeneratedKind::Rust,
     )
     .expect("Rust 生成物路径");
@@ -888,7 +890,7 @@ path = [\"crates/core/no-entry/\"]
 ",
     );
 
-    // B：目录形态入口（`<root>/index.ts`，四分支第一支 = SubdirModule），透传目标为 A
+    // B：文件型根（根文件自身即入口 ⇒ SingleFile），透传目标为 A
     temp.write_contract(
         frontend,
         &format!(
@@ -913,12 +915,12 @@ path = [\"crates/core/no-entry/\"]
         ),
     );
     temp.write(
-        "views/welcome-view.tsx/index.ts",
+        "views/welcome-view.tsx",
         "export function view(): string { return ''; }
 ",
     );
 
-    // 无入口元素：`path` 非空但三分支 / 四分支全不命中（D41：拿不到形态 ⇒ 不产 `.i.*`）
+    // 无入口元素：`path` 非空但四条约定候选全不落盘（D41：无可用入口 ⇒ 不产 `.i.*`）
     temp.write_contract(
         no_entry,
         &format!(
@@ -948,7 +950,7 @@ path = [\"crates/core/no-entry/\"]
     // D40 的意图仍在：注释里是**目标 FQN**，不是由它派生的模块路径。
     let backend_generated = paths::generated_path(
         temp.root(),
-        elements[0].path.first().expect("非空 root"),
+        "crates/infra/archi/src/lib.rs",
         paths::GeneratedKind::Rust,
     )
     .expect("Rust 生成物路径");
@@ -957,9 +959,12 @@ path = [\"crates/core/no-entry/\"]
         .find(|file| file.path == backend_generated)
         .expect("A 的 .i.rs 在案");
     assert_eq!(
-        paths::entry_form(temp.root(), &elements[0]).map(|(form, _)| form),
+        match paths::entry_state(temp.root(), &elements, &elements[0]) {
+            paths::EntryState::Resolved { form, .. } => Some(form),
+            _ => None,
+        },
         Some(paths::EntryForm::Crate),
-        "A 的形态由 paths::entry_form 判（非渲染器推导）"
+        "A 的形态由 paths::entry_state 的 Resolved 给出（非渲染器推导）"
     );
     let target_name = paths::module_name("views/welcome-view.tsx");
     assert!(
@@ -984,7 +989,7 @@ path = [\"crates/core/no-entry/\"]
     // B 的 `.i.ts`：specifier 逐字取自 `paths::ts_import_specifier`
     let frontend_generated = paths::generated_path(
         temp.root(),
-        elements[1].path.first().expect("非空 root"),
+        "views/welcome-view.tsx",
         paths::GeneratedKind::TypeScript,
     )
     .expect("TS 生成物路径");
@@ -992,11 +997,12 @@ path = [\"crates/core/no-entry/\"]
         .iter()
         .find(|file| file.path == frontend_generated)
         .expect("B 的 .i.ts 在案");
+    // B 是文件型根 ⇒ 形态位 `SingleFile`（同目录 specifier）
     let expected_specifier = paths::ts_import_specifier(
-        paths::EntryForm::SubdirModule,
+        paths::EntryForm::SingleFile,
         &paths::module_name("crates/infra/archi"),
     );
-    assert_eq!(expected_specifier, "../archi.i");
+    assert_eq!(expected_specifier, "./archi.i");
     assert!(
         frontend_file.content.contains("export interface Item"),
         "B 的类型段在案：
@@ -1012,15 +1018,12 @@ path = [\"crates/core/no-entry/\"]
         frontend_file.content
     );
 
-    let no_entry_generated = paths::generated_path(
-        temp.root(),
-        elements[2].path.first().expect("非空 root"),
-        paths::GeneratedKind::Rust,
-    )
-    .expect("路径可派生（形态才不可得）");
     assert!(
-        !files.iter().any(|file| file.path == no_entry_generated),
-        "入口全不命中的元素不产 `.i.*`（D41：形态拿不到即不生成）"
+        !files.iter().any(|file| file
+            .path
+            .strip_prefix(temp.root())
+            .is_ok_and(|rel| rel.starts_with("crates/core/no-entry"))),
+        "无可用入口的元素不产 `.i.*`（D41 / D12：无入口即无生成物路径）"
     );
 }
 
@@ -1127,6 +1130,242 @@ path = [\"crates/core/agent/\"]
         .expect("INDEX 仍产出");
     assert!(index.content.contains("ops = 0"), "ops = 0 仍输出键");
     assert!(index.content.contains("types = 0"), "types = 0 仍输出键");
+}
+
+/// 异常（AC-3 落点迁移的反向面）：有契约有内容但**无可用入口**（`Absent` /
+/// `Invalid(NotOnDisk)`）→ 零 `.i.*`；盘上既有 `.i` 文件也不使其复位为「有入口」；
+/// `INDEX` 的 `generated` 留空串。
+#[test]
+fn render_all无可用入口不产生成物且index留空() {
+    let temp = TempDir::new("render-all-no-entry");
+    let absent = "App.Core.NoEntry";
+    let not_on_disk = "App.Core.Gone";
+    temp.write_model(&format!(
+        "[element.\"{absent}\"]
+kind = \"module\"
+gate = \"warn\"
+path = [\"crates/core/no-entry/\"]
+
+         [element.\"{not_on_disk}\"]
+kind = \"module\"
+gate = \"warn\"
+entry = \"crates/core/gone/src/lib.rs\"
+path = [\"crates/core/gone/\"]
+"
+    ));
+    temp.write_contract(absent, &pilot_markdown(absent));
+    temp.write_contract(not_on_disk, &pilot_markdown(not_on_disk));
+    // 盘上既有生成物（旧落点与新落点各一份）都 MUST NOT 充当入口证据
+    temp.write("crates/core/gone.i.rs", "// 旧落点生成物\n");
+    temp.write("crates/core/gone/src/lib.i.rs", "// 既有生成物\n");
+
+    let elements = [
+        element(absent, &["crates/core/no-entry/"]),
+        element(not_on_disk, &["crates/core/gone/"]),
+    ];
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
+
+    assert!(
+        !files.iter().any(|file| {
+            file.path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".i.rs") || name.ends_with(".i.ts"))
+        }),
+        "无可用入口即无 `.i.*`：{:?}",
+        files.iter().map(|file| &file.path).collect::<Vec<_>>()
+    );
+
+    let index = files
+        .iter()
+        .find(|file| file.path == paths::index_path(temp.root()))
+        .expect("INDEX 仍产出");
+    assert_eq!(
+        index.content.matches("generated = \"\"").count(),
+        2,
+        "无入口元素的 `generated` 留空串：\n{}",
+        index.content
+    );
+    assert!(
+        index.content.contains(absent) && index.content.contains(not_on_disk),
+        "两元素仍进 INDEX（缺的是落点，不是条目）：\n{}",
+        index.content
+    );
+}
+
+/// 边界（AC-3 落点迁移的正向面）：`INDEX` 的 `generated` 列给出**入口同级**的落点串，
+/// 与 `paths::generated_path` 逐字相等。
+#[test]
+fn render_all的index落点逐字等于入口同级派生() {
+    let temp = TempDir::new("render-all-index-generated");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/archi/\"]\n"
+    ));
+    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+
+    let elements = [element(fqn, &["crates/infra/archi/"])];
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let content = index_text(temp.root(), &snapshot);
+    let generated = paths::generated_path(
+        temp.root(),
+        "crates/infra/archi/src/lib.rs",
+        paths::GeneratedKind::Rust,
+    )
+    .expect("入口形态合法");
+    let expected = super::display(temp.root(), &generated);
+    assert_eq!(
+        expected, "crates/infra/archi/src/lib.i.rs",
+        "落点串是入口同级的 repo 相对形态"
+    );
+    assert!(
+        content.contains(&format!("generated = \"{expected}\"")),
+        "INDEX 的 generated 列 = 入口同级派生：\n{content}"
+    );
+}
+
+/// 正向（AC-3 / D41）：目录型根的第二候选 `<root>/mod.rs` 命中 → `form = SubdirModule`、
+/// 落点 `<root>/mod.i.rs`（入口同级）。落点入参是**入口全串**——元素根 `src/mod/` 既拼
+/// 不出 `mod.i.rs`，也拼不出同级层数。
+#[test]
+fn render_all的目录型根落点() {
+    let temp = TempDir::new("render-all-subdir-module");
+    let fqn = "App.Backend.Core.Agent";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/mod/\"]\n"
+    ));
+    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write(
+        "src/mod/mod.rs",
+        "pub fn run() -> String { String::new() }\n",
+    );
+
+    let elements = [element(fqn, &["src/mod/"])];
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
+
+    assert_eq!(
+        paths::entry_state(temp.root(), &elements, &elements[0]),
+        paths::EntryState::Resolved {
+            form: paths::EntryForm::SubdirModule,
+            entry: "src/mod/mod.rs".to_owned(),
+        },
+        "`src/lib.rs` 不在盘 ⇒ 第二候选 `<root>/mod.rs` 命中（形态位 SubdirModule）"
+    );
+    let expected = paths::generated_path(temp.root(), "src/mod/mod.rs", paths::GeneratedKind::Rust)
+        .expect("入口形态合法");
+    assert_eq!(
+        super::display(temp.root(), &expected),
+        "src/mod/mod.i.rs",
+        "落点 = `<入口目录>/<入口主干>.i.rs`（入口同级）"
+    );
+    let generated = files
+        .iter()
+        .find(|file| file.path == expected)
+        .expect("目录型根的 `.i.rs` 在案");
+    assert!(
+        generated.content.contains("LocalArchiCheck"),
+        "生成物内容非空（类型段在案）：
+{}",
+        generated.content
+    );
+}
+
+/// 正向（AC-1 ② / AC-3）：多文件根的 `path` 首条即元素根（`app.tsx`），文件型根命中
+/// 「根文件自身」→ 落点 `app.i.ts`。`path` 其余条目 MUST NOT 参与落点派生。
+#[test]
+fn render_all多文件根取首条为入口() {
+    let temp = TempDir::new("render-all-multi-root");
+    let fqn = "App.Frontend.App";
+    let paths_declared = ["app.tsx", "app.css", "main.ts"];
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
+         path = [\"app.tsx\", \"app.css\", \"main.ts\"]\n"
+    ));
+    temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write("app.tsx", "export function view(): string { return ''; }\n");
+
+    let elements = [element(fqn, &paths_declared)];
+    let snapshot = load_contracts(temp.root(), &elements).expect("装载应成功");
+    let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
+
+    assert_eq!(
+        paths::entry_state(temp.root(), &elements, &elements[0]),
+        paths::EntryState::Resolved {
+            form: paths::EntryForm::SingleFile,
+            entry: "app.tsx".to_owned(),
+        },
+        "多文件根只取 `path.first()` 作根（文件型根 ⇒ 根文件自身）"
+    );
+    let expected = paths::generated_path(temp.root(), "app.tsx", paths::GeneratedKind::TypeScript)
+        .expect("入口形态合法");
+    assert_eq!(
+        super::display(temp.root(), &expected),
+        "app.i.ts",
+        "落点是入口同级的仓根文件（无目录段不丢文件名）"
+    );
+    let generated = files
+        .iter()
+        .find(|file| file.path == expected)
+        .expect("多文件根的 `.i.ts` 在案");
+    assert!(
+        generated
+            .content
+            .contains("export interface LocalArchiCheck"),
+        "生成物内容非空（类型段在案）：
+{}",
+        generated.content
+    );
+
+    let index = files
+        .iter()
+        .find(|file| file.path == paths::index_path(temp.root()))
+        .expect("INDEX 仍产出");
+    assert!(
+        index.content.contains("generated = \"app.i.ts\""),
+        "INDEX 的 generated 列同为新落点：
+{}",
+        index.content
+    );
+}
+
+/// 异常（AC-5 源码自证）：`render_all` 体内零 `let scope = element.path.first()`；
+/// 落点入参唯一来源是 `entry_state` 的 `Resolved.entry`；`EmitTarget {` 字面量仍恰 1 处。
+#[test]
+fn render_all落点入参唯一来源为入口() {
+    let source = include_str!("mod.rs");
+    let code: Vec<&str> = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect();
+    assert!(
+        !code
+            .iter()
+            .any(|line| line.contains("let scope = element.path.first()")),
+        "落点面零 `let scope = element.path.first()`"
+    );
+    assert_eq!(
+        code.iter()
+            .filter(|line| line.contains("EmitTarget {"))
+            .count(),
+        1,
+        "`EmitTarget {{` 字面量恰 1 处"
+    );
+    assert!(
+        code.iter()
+            .any(|line| line.contains("paths::entry_state(root, &elements, element)")),
+        "入口经 `paths::entry_state` 单点（形态与落点同源）"
+    );
+    assert!(
+        code.iter()
+            .any(|line| line.contains("paths::generated_path(root, &entry, kind)")),
+        "落点入参是 `Resolved.entry`（不是元素根）"
+    );
 }
 
 /// 边界（AC-2 / AC-12）：同输入两次调用 → 两次 `Vec<GeneratedFile>` 逐字段相等。
@@ -1761,7 +2000,74 @@ fn bootstrap草稿形态() {
     );
 }
 
-/// 边界（AC-12）：调用前后 tempdir 全量字节快照相等（零写盘）；`entry_form` 全不命中 →
+/// 正向（AC-1 / D41）：草稿的 `@ <entry>:<line>` 注记用 `Resolved.entry`——crate 形态
+/// （`<dir>/src/lib.rs`）与单文件形态（根文件自身）各一，两者都**不是**元素根串（旧
+/// `<root>:line` 形态会让注记指向目录，读不到符号位置）。
+#[test]
+fn bootstrap注记行取解析链入口() {
+    let temp = TempDir::new("bootstrap-entry-annotation");
+    let backend = "App.Backend.Infra.ArchiRuntime";
+    let frontend = "App.Frontend.Views.Welcome";
+    temp.write_model(&format!(
+        "[element.\"{backend}\"]
+kind = \"module\"
+gate = \"warn\"
+path = [\"crates/infra/archi/\"]
+
+         [element.\"{frontend}\"]
+kind = \"module\"
+gate = \"warn\"
+path = [\"views/welcome-view.tsx\"]
+"
+    ));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    temp.write(
+        "views/welcome-view.tsx",
+        "export function view(): string { return ''; }\n",
+    );
+
+    for (fqn, root, entry) in [
+        (
+            backend,
+            "crates/infra/archi/",
+            "crates/infra/archi/src/lib.rs",
+        ),
+        (frontend, "views/welcome-view.tsx", "views/welcome-view.tsx"),
+    ] {
+        let elements = [element(fqn, &[root])];
+        assert_eq!(
+            paths::entry_state(temp.root(), &elements, &elements[0]),
+            paths::EntryState::Resolved {
+                form: if root.ends_with('/') {
+                    paths::EntryForm::Crate
+                } else {
+                    paths::EntryForm::SingleFile
+                },
+                entry: entry.to_owned(),
+            },
+            "解析链结论（注记的真值源）：{fqn}"
+        );
+        let text = bootstrap(temp.root(), fqn).expect("起草应成功");
+        assert!(
+            text.contains(&format!(" @ {entry}:1")),
+            "注记行用 `Resolved.entry`（{entry}），不是元素根 `{root}`：
+{text}"
+        );
+        // 根与入口不同的形态（crate）才可分辨：回落成元素根串会让注记指向目录
+        if root != entry {
+            assert!(
+                !text.contains(&format!(" @ {root}:")),
+                "注记行 MUST NOT 回落到元素根串（`{root}`）：
+{text}"
+            );
+        }
+    }
+}
+
+/// 边界（AC-12）：调用前后 tempdir 全量字节快照相等（零写盘）；入口解析链全不命中 →
 /// `Err(ApiError::Element(..))` 且文案含 FQN。
 #[test]
 fn bootstrap只出字符串() {
@@ -1910,6 +2216,139 @@ fn bootstrap元素面异常() {
     }
 }
 
+/// 异常（R-3 / D41）：`Absent` → `ApiError::Element`，文案列出四条约定候选（目录型根）；
+/// `path` 空 → 明写「无候选可派生」（不是同一句话的含糊版本）。
+#[test]
+fn bootstrap无入口文案列候选() {
+    let temp = TempDir::new("bootstrap-absent-candidates");
+    let dir_root = "App.Core.AbsentDir";
+    let container = "App.Core.AbsentContainer";
+    temp.write_model(&format!(
+        "[element.\"{dir_root}\"]
+kind = \"module\"
+gate = \"warn\"
+path = [\"crates/core/absent/\"]
+
+         [element.\"{container}\"]
+kind = \"module\"
+gate = \"warn\"
+path = []
+"
+    ));
+
+    match bootstrap(temp.root(), dir_root) {
+        Err(ApiError::Element(message)) => {
+            for candidate in [
+                "crates/core/absent/src/lib.rs",
+                "crates/core/absent/mod.rs",
+                "crates/core/absent/index.ts",
+                "crates/core/absent/index.tsx",
+            ] {
+                assert!(
+                    message.contains(candidate),
+                    "Absent 文案列出约定候选 {candidate}：{message}"
+                );
+            }
+            assert!(
+                message.contains("未声明 `entry`"),
+                "Absent 文案点明未声明：{message}"
+            );
+            assert!(
+                message.contains("无法起草契约"),
+                "文案收口到「无法起草契约」：{message}"
+            );
+        }
+        other => panic!("{dir_root} 应报 Element 错误，实际：{other:?}"),
+    }
+
+    match bootstrap(temp.root(), container) {
+        Err(ApiError::Element(message)) => assert!(
+            message.contains("无候选可派生"),
+            "`path` 空 → 明写无候选：{message}"
+        ),
+        other => panic!("{container} 应报 Element 错误，实际：{other:?}"),
+    }
+}
+
+/// 异常（R-3）：`Invalid` 四理由各带理由措辞——形态非法值 / 越界目标 / 缺失文件 /
+/// 冲突方（与 `check` 的文案同源，同一 `EntryProblem`）。
+#[test]
+fn bootstrap入口四理由文案可判() {
+    let temp = TempDir::new("bootstrap-entry-problems");
+    temp.write_model(
+        "[element.\"App.Core.Malformed\"]
+kind = \"module\"
+gate = \"warn\"
+         entry = \"/abs/x.rs\"
+path = [\"src/alpha/\"]
+
+         [element.\"App.Core.Outside\"]
+kind = \"module\"
+gate = \"warn\"
+         entry = \"src/beta/src/lib.rs\"
+path = [\"src/alpha/\"]
+
+         [element.\"App.Core.NotOnDisk\"]
+kind = \"module\"
+gate = \"warn\"
+         entry = \"src/alpha/missing.rs\"
+path = [\"src/alpha/\"]
+
+         [element.\"App.Core.GammaOwner\"]
+kind = \"module\"
+gate = \"warn\"
+         path = [\"src/gamma/\"]
+
+         [element.\"App.Core.Duplicated\"]
+kind = \"module\"
+gate = \"warn\"
+         entry = \"src/gamma/mod.rs\"
+path = [\"src/gamma/\"]
+",
+    );
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub fn a() {}
+",
+    );
+    temp.write(
+        "src/beta/src/lib.rs",
+        "pub fn b() {}
+",
+    );
+    temp.write(
+        "src/gamma/src/lib.rs",
+        "pub fn g() {}
+",
+    );
+    temp.write(
+        "src/gamma/mod.rs",
+        "pub fn gm() {}
+",
+    );
+
+    for (fqn, phrase) in [
+        ("App.Core.Malformed", "形态非法"),
+        ("App.Core.Outside", "path` 之外"),
+        ("App.Core.NotOnDisk", "不在盘上"),
+        ("App.Core.Duplicated", "同一个文件"),
+    ] {
+        match bootstrap(temp.root(), fqn) {
+            Err(ApiError::Element(message)) => {
+                assert!(
+                    message.contains(phrase),
+                    "{fqn} 的文案带理由措辞 {phrase}：{message}"
+                );
+                assert!(
+                    message.contains("无可用入口"),
+                    "{fqn} 的文案点名「无可用入口」：{message}"
+                );
+            }
+            other => panic!("{fqn} 应报 Element 错误，实际：{other:?}"),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // api_ref：双层投影口径
 // ---------------------------------------------------------------------------
@@ -1924,6 +2363,8 @@ fn api_ref_declared三路径() {
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/infra/archi/\"]\n"
     ));
+    // 生成物路径是**入口**的函数：入口落盘后投影才给 `generatedPath`
+    temp.write("crates/infra/archi/src/lib.rs", "pub fn f() {}\n");
 
     let reference = api_ref(temp.root(), fqn);
     assert_eq!(reference.status, ApiStatus::Declared, "md 在案 → declared");
@@ -1973,19 +2414,95 @@ fn api_ref两形态同源() {
     temp.write_model(&format!(
         "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"./crates/infra/archi/\"]\n"
     ));
+    temp.write("crates/infra/archi/src/lib.rs", "pub fn f() {}\n");
 
     let from_model = api_ref(temp.root(), fqn);
-    let direct = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+    let caller = element(fqn, &["crates/infra/archi/"]);
+    let direct = super::api_ref_of(temp.root(), std::slice::from_ref(&caller), &caller);
     assert_eq!(from_model, direct, "两形态同源（投影语义不得变形）");
 
     // 容器元素（`path` 空）但 md 在案
     let container_fqn = "App.Backend.Infra";
     temp.write_contract(container_fqn, &pilot_markdown(container_fqn));
-    let container = super::api_ref_of(temp.root(), container_fqn, &[]);
+    let container_element = element(container_fqn, &[]);
+    let container = super::api_ref_of(
+        temp.root(),
+        std::slice::from_ref(&container_element),
+        &container_element,
+    );
     assert_eq!(container.status, ApiStatus::Declared);
     assert!(container.generated_path.is_none(), "容器元素无生成物路径");
     assert!(container.contract_path.is_some(), "md 存在即可枚举契约");
     assert!(container.schema_path.is_some(), "schema 路径同源给出");
+}
+
+/// 边界（`ref_projection` 的两态合一）：元素缺席（模型里没有该 FQN）与模型结构错
+/// （元素表退化为空）⇒ 契约 / schema 事实**仍报**（`status = declared`、两路径 `Some`），
+/// 生成物路径退 `None`——投影层只报文件事实，MUST NOT 为凑生成物路径构造占位元素。
+#[test]
+fn api_ref元素缺席仍报契约事实() {
+    let absent_fqn = "App.Core.Ghost";
+    let declared_fqn = "App.Core.Alpha";
+
+    // ① 元素缺席：模型只声明另一元素（其入口落盘 ⇒ 模型可读、正常面不受影响）
+    let temp = TempDir::new("api-ref-element-absent");
+    temp.write_model(&format!(
+        "[element.\"{declared_fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"src/alpha/\"]\n"
+    ));
+    temp.write(
+        "src/alpha/src/lib.rs",
+        "pub fn a() -> String { String::new() }\n",
+    );
+    temp.write_contract(absent_fqn, &pilot_markdown(absent_fqn));
+    temp.write_contract(declared_fqn, &pilot_markdown(declared_fqn));
+
+    let absent = api_ref(temp.root(), absent_fqn);
+    assert_eq!(
+        absent.status,
+        ApiStatus::Declared,
+        "契约 md 在案 ⇒ declared（判定只看文件事实）"
+    );
+    assert!(absent.contract_path.is_some(), "契约路径仍报文件事实");
+    assert!(absent.schema_path.is_some(), "schema 路径同源给出");
+    assert!(
+        absent.generated_path.is_none(),
+        "元素缺席 ⇒ 无入口 ⇒ 生成物路径 None（不构造占位元素）"
+    );
+
+    let declared = api_ref(temp.root(), declared_fqn);
+    assert_eq!(
+        declared.generated_path.as_deref(),
+        Some("src/alpha/src/lib.i.rs"),
+        "模型可读面照常（缺席判定不是「模型整体不可读」的副作用）"
+    );
+
+    // ② 模型结构错（叶子缺祖先链 ⇒ orphanHierarchy）：元素表为空，文件事实仍报
+    let broken = TempDir::new("api-ref-broken-model");
+    broken.write(
+        ".dev-team/architecture/models/01-test.toml",
+        &format!(
+            "[element.\"{absent_fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
+             path = [\"src/ghost/\"]\n"
+        ),
+    );
+    broken.write(
+        "src/ghost/src/lib.rs",
+        "pub fn ghost() -> String { String::new() }\n",
+    );
+    broken.write_contract(absent_fqn, &pilot_markdown(absent_fqn));
+
+    let stopped = api_ref(broken.root(), absent_fqn);
+    assert_eq!(
+        stopped.status,
+        ApiStatus::Declared,
+        "结构错时元素表为空 ⇒ 走「元素缺席」同一分支（零 panic、零错误面）"
+    );
+    assert!(stopped.contract_path.is_some(), "契约路径仍报");
+    assert!(stopped.schema_path.is_some(), "schema 路径仍报");
+    assert!(
+        stopped.generated_path.is_none(),
+        "结构错 ⇒ 无元素 ⇒ 无入口 ⇒ 生成物路径 None"
+    );
 }
 
 /// 边界：md 缺席 → `status == None` 且三路径全 `None`；单段 FQN（`App`）→ 目录退化
@@ -2009,41 +2526,50 @@ fn api_ref为none时三路径全空() {
         single.to_string_lossy().contains("Root"),
         "单段 FQN 退化 Root 目录：{single:?}"
     );
-    let reference = super::api_ref_of(temp.root(), "App", &[]);
+    let app = element("App", &[]);
+    let reference = super::api_ref_of(temp.root(), std::slice::from_ref(&app), &app);
     assert_eq!(reference.status, ApiStatus::None);
 }
 
-/// 边界（AC-10 / D22）：`api_ref_of` 的元素形态边界——`element_path = []`（容器元素）+ md
-/// 在案 → 契约 / schema 路径仍 `Some`、`generated_path = None`（与 `api_ref` 逐字段相等）；
-/// 多段 `element_path` → 只取 `path[0]`（D2：`<root>` 取首条），结果与单段形态逐字相等；
-/// `fqn` 与 `element_path` 冲突 → 文档路径按 FQN 派生、生成物路径按 path 派生（各自单点，
-/// 不互相污染）。
+/// 边界（AC-10 / D22）：`api_ref_of` 的元素形态边界——多段 `path` 只取 `path[0]`
+/// （D2：入口解析同样只看首条），结果与单段形态逐字相等；`fqn` 与 `path` 冲突时文档路径
+/// 按 FQN 派生、生成物路径按入口派生（各自单点，不互相污染）。
 #[test]
 fn api_ref_of元素形态边界() {
     let temp = TempDir::new("api-ref-of-edges");
     let fqn = "App.Backend.Infra.ArchiRuntime";
     temp.write_contract(fqn, &pilot_markdown(fqn));
+    temp.write("crates/infra/archi/src/lib.rs", "pub fn f() {}\n");
+    temp.write("crates/core/other/src/lib.rs", "pub fn g() {}\n");
 
-    let single = super::api_ref_of(temp.root(), fqn, &["crates/infra/archi/".to_owned()]);
+    let single_element = element(fqn, &["crates/infra/archi/"]);
+    let single = super::api_ref_of(
+        temp.root(),
+        std::slice::from_ref(&single_element),
+        &single_element,
+    );
+    let multi_element = element(fqn, &["crates/infra/archi/", "crates/infra/archi/src/"]);
     let multi = super::api_ref_of(
         temp.root(),
-        fqn,
-        &[
-            "crates/infra/archi/".to_owned(),
-            "crates/infra/archi/src/".to_owned(),
-        ],
+        std::slice::from_ref(&multi_element),
+        &multi_element,
     );
     assert_eq!(single, multi, "多段只取 path[0]（D2），结果逐字相等");
 
-    // fqn 与 element_path 冲突：文档路径按 FQN、生成物路径按 path
-    let conflicting = super::api_ref_of(temp.root(), fqn, &["crates/core/other/".to_owned()]);
+    // fqn 与 path 冲突：文档路径按 FQN、生成物路径按入口
+    let conflicting_element = element(fqn, &["crates/core/other/"]);
+    let conflicting = super::api_ref_of(
+        temp.root(),
+        std::slice::from_ref(&conflicting_element),
+        &conflicting_element,
+    );
     assert_eq!(
         conflicting.status, single.status,
         "文档在案判定只看 FQN 派生的契约路径"
     );
     assert_eq!(
         conflicting.contract_path, single.contract_path,
-        "契约路径按 FQN 派生（不受 element_path 影响）"
+        "契约路径按 FQN 派生（不受 path 影响）"
     );
     assert_eq!(
         conflicting.schema_path, single.schema_path,
@@ -2051,39 +2577,155 @@ fn api_ref_of元素形态边界() {
     );
     assert_ne!(
         conflicting.generated_path, single.generated_path,
-        "生成物路径按 element_path 派生（两者各自单点，互不污染）"
+        "生成物路径按入口派生（两者各自单点，互不污染）"
     );
-    assert!(
-        conflicting
-            .generated_path
-            .as_deref()
-            .is_some_and(|path| path.starts_with("crates/core/other.i.")),
-        "生成物路径跟着 element_path 走（根同级形态）：{:?}",
-        conflicting.generated_path
+    assert_eq!(
+        conflicting.generated_path.as_deref(),
+        Some("crates/core/other/src/lib.i.rs"),
+        "生成物路径跟着入口走（入口同级形态）"
     );
 }
 
-/// 异常：`ApiError` 三值 `message()` 非空且互不相等；文案不外泄「检查已执行」语义。
+/// 边界（test-design:182 逐值）：`api_ref_of` 的入口两态退化——`Absent`（目录型根四候选
+/// 全不落盘）与 `Invalid`（形态非法 / 声明值不在盘）都退 `generated_path = None`，契约与
+/// schema 仍按文件事实报（`status = declared`）；盘上既有的 `src/lib.rs` 不把 `Invalid`
+/// 复位成「有入口」（零占位元素、零回写模型字段）。
 #[test]
-fn api_error三值与message() {
-    let errors = [
-        ApiError::Io("契约文件读取失败（.dev-team/.../X.md）：权限不足".to_owned()),
-        ApiError::Contract("X.md:3: H1 标题不一致".to_owned()),
-        ApiError::Element("元素不存在：App.Nope".to_owned()),
-    ];
-    let messages: Vec<String> = errors.iter().map(ApiError::message).collect();
-    for message in &messages {
-        assert!(!message.is_empty(), "文案非空");
-        assert!(
-            !message.contains("检查已执行"),
-            "资产非法 ⇒ 检查不执行（文案不外泄执行语义）：{message}"
-        );
+fn api_ref_of入口缺席与非法均无生成物路径() {
+    let temp = TempDir::new("api-ref-of-entry-states");
+    let absent_fqn = "App.Core.Absent";
+    let malformed_fqn = "App.Core.Malformed";
+    let not_on_disk_fqn = "App.Core.Missing";
+    for fqn in [absent_fqn, malformed_fqn, not_on_disk_fqn] {
+        temp.write_contract(fqn, &pilot_markdown(fqn));
     }
-    for (index, left) in messages.iter().enumerate() {
-        for right in &messages[index + 1..] {
-            assert_ne!(left, right, "三值文案互不相等（错误面可辨）");
-        }
-    }
+    // `Absent` 侧：`src/absent/` 下四个约定候选全不落盘；`Invalid` 侧：同目录 `src/lib.rs`
+    // 在盘，但两条 `Invalid` 都不受它影响
+    temp.write(
+        "src/missing/src/lib.rs",
+        "pub fn m() -> String { String::new() }\n",
+    );
+
+    let absent = element(absent_fqn, &["src/absent/"]);
+    let reference = super::api_ref_of(temp.root(), std::slice::from_ref(&absent), &absent);
+    assert_eq!(
+        reference.generated_path, None,
+        "入口 Absent ⇒ 生成物路径 None（不构造占位元素）"
+    );
+    assert_eq!(
+        reference.status,
+        ApiStatus::Declared,
+        "生成物缺席不改契约事实（md 在案 ⇒ declared）"
+    );
+    assert!(reference.contract_path.is_some(), "契约路径仍报文件事实");
+    assert!(reference.schema_path.is_some(), "schema 路径同源给出");
+
+    let mut malformed = element(malformed_fqn, &["src/malformed/"]);
+    malformed.entry = Some("/abs/x.rs".to_owned());
+    let reference = super::api_ref_of(temp.root(), std::slice::from_ref(&malformed), &malformed);
+    assert_eq!(
+        reference.generated_path, None,
+        "入口形态非法（Malformed）⇒ 生成物路径 None"
+    );
+    assert_eq!(
+        reference.status,
+        ApiStatus::Declared,
+        "契约事实不受判据理由影响"
+    );
+
+    let mut not_on_disk = element(not_on_disk_fqn, &["src/missing/"]);
+    not_on_disk.entry = Some("src/missing/ghost.rs".to_owned());
+    let reference = super::api_ref_of(
+        temp.root(),
+        std::slice::from_ref(&not_on_disk),
+        &not_on_disk,
+    );
+    assert_eq!(
+        reference.generated_path, None,
+        "声明值不在盘（NotOnDisk）⇒ 生成物路径 None（同目录 src/lib.rs 在盘也不回落）"
+    );
+    assert_eq!(
+        reference.status,
+        ApiStatus::Declared,
+        "契约事实仍按文件事实报"
+    );
+}
+
+/// 异常（test-design:183 逐值）：传入元素与元素表不同源时互不污染——① 元素**不在元素表
+/// 内**（表里只有别的元素）：契约与 schema 按 `element.fqn` 派生、生成物按该元素自己的
+/// 入口派生；② 表内有**同 FQN 的另一元素**：唯一判据按 FQN 排除同 FQN 者（不假阳成
+/// `Duplicated`），生成物仍取传入元素的入口。两例都 MUST NOT 静默改判。
+#[test]
+fn api_ref_of元素与表不同源互不污染() {
+    let temp = TempDir::new("api-ref-of-foreign-element");
+    let ghost_fqn = "App.Core.Ghost";
+    let shared_fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_contract(ghost_fqn, &pilot_markdown(ghost_fqn));
+    temp.write_contract(shared_fqn, &pilot_markdown(shared_fqn));
+    temp.write(
+        "src/ghost/src/lib.rs",
+        "pub fn g() -> String { String::new() }\n",
+    );
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+    );
+    temp.write(
+        "crates/core/other/src/lib.rs",
+        "pub fn o() -> String { String::new() }\n",
+    );
+
+    // ① 元素不在元素表内：表里只有另一个元素
+    let neighbour = element("App.Core.Neighbour", &["crates/core/other/"]);
+    let ghost = element(ghost_fqn, &["src/ghost/"]);
+    let reference = super::api_ref_of(temp.root(), std::slice::from_ref(&neighbour), &ghost);
+    assert_eq!(
+        reference.generated_path.as_deref(),
+        Some("src/ghost/src/lib.i.rs"),
+        "生成物按传入元素的入口派生（表内元素不参与）"
+    );
+    assert_ne!(
+        reference.generated_path.as_deref(),
+        Some("crates/core/other/src/lib.i.rs"),
+        "表内元素的入口 MUST NOT 泄漏到传入元素的投影"
+    );
+    assert_eq!(
+        reference.status,
+        ApiStatus::Declared,
+        "契约按 element.fqn 派生"
+    );
+    assert!(
+        reference
+            .contract_path
+            .as_deref()
+            .is_some_and(|path| path.contains("App.Core.Ghost")),
+        "契约路径按传入元素 FQN 派生：{:?}",
+        reference.contract_path
+    );
+
+    // ② 表内有同 FQN 的另一元素：唯一判据按 FQN 排除同 FQN 者，生成物取传入元素的入口
+    let table_twin = element(shared_fqn, &["crates/core/other/"]);
+    let passed = element(shared_fqn, &["crates/infra/archi/"]);
+    let reference = super::api_ref_of(temp.root(), std::slice::from_ref(&table_twin), &passed);
+    assert_eq!(
+        reference.generated_path.as_deref(),
+        Some("crates/infra/archi/src/lib.i.rs"),
+        "生成物按传入元素入口派生（同 FQN 的另一元素不把它判成 Duplicated）"
+    );
+    assert_ne!(
+        reference.generated_path.as_deref(),
+        Some("crates/core/other/src/lib.i.rs"),
+        "表内同 FQN 元素的入口不参与本元素的落点派生"
+    );
+    let by_fqn = api_ref(temp.root(), shared_fqn);
+    assert_eq!(
+        reference.contract_path, by_fqn.contract_path,
+        "契约路径按 FQN 派生（与元素形态同源）"
+    );
+    assert_eq!(
+        reference.schema_path, by_fqn.schema_path,
+        "schema 路径按 FQN 派生（与元素形态同源）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2241,7 +2883,7 @@ fn meta幂等且三处产出物载元一致() {
         .expect("INDEX 在案");
     let generated = paths::generated_path(
         temp.root(),
-        elements[0].path.first().expect("非空 root"),
+        "crates/infra/archi/src/lib.rs",
         paths::GeneratedKind::Rust,
     )
     .expect("Rust 生成物路径");
@@ -2685,7 +3327,7 @@ fn render_all拒绝关键字末段的rust透传目标() {
 
     let generated = paths::generated_path(
         temp.root(),
-        "crates/infra/archi/",
+        "crates/infra/archi/src/lib.rs",
         paths::GeneratedKind::Rust,
     )
     .expect("Rust 生成物路径");
@@ -2760,14 +3402,14 @@ fn render_all的emit_target三值构造() {
 {literal}"
         );
     }
-    // `path` / `scope` 仍是局部变量（落点与派生入参，不成为渲染器入参）
+    // `entry` / `path` 仍是局部变量（入口解析结果与落点，不成为渲染器入参）
     assert!(
-        body.contains("let scope = element.path.first()"),
-        "`scope` 是局部变量：\n{body}"
+        body.contains("paths::entry_state(root, &elements, element)"),
+        "入口由局部变量承接（`Resolved` 的 `form` / `entry`）：\n{body}"
     );
     assert!(
-        body.contains("let Some(path) = paths::generated_path(root, scope, kind)"),
-        "`path` 是局部变量且 `scope` 只作派生入参：\n{body}"
+        body.contains("let Some(path) = paths::generated_path(root, &entry, kind)"),
+        "`path` 是局部变量且 `entry` 只作派生入参：\n{body}"
     );
     assert!(
         body.contains("GeneratedFile { path, content }"),
@@ -2839,23 +3481,24 @@ gate = \"warn\"
         ),
     );
     temp.write(
-        "views/consumer.tsx/index.ts",
+        "views/consumer.tsx",
         "export function view(): string { return ''; }
 ",
     );
 
-    // 变量一：`form`（由盘上入口求出，渲染器零推导）——`index.ts` 命中 ⇒ `../<name>.i`
+    // 变量一：`form`（由盘上入口求出，渲染器零推导）——文件型根 ⇒ `SingleFile`
     let with_target = [
         element(consumer, &["views/consumer.tsx"]),
         element(target, &["views/agent/Input/"]),
     ];
-    let form = paths::entry_form(temp.root(), &with_target[0])
-        .map(|(form, _)| form)
-        .expect("入口在案");
+    let form = match paths::entry_state(temp.root(), &with_target, &with_target[0]) {
+        paths::EntryState::Resolved { form, .. } => form,
+        other => panic!("入口应在案（Resolved），实际：{other:?}"),
+    };
     assert_eq!(
         form,
-        paths::EntryForm::SubdirModule,
-        "`form` 来自 `paths::entry_form`（D41）"
+        paths::EntryForm::SingleFile,
+        "`form` 来自 `paths::entry_state` 的 `Resolved`（D41）"
     );
     let name = paths::module_name("views/agent/Input/");
     let expected = paths::ts_import_specifier(form, &name);
@@ -2873,7 +3516,7 @@ gate = \"warn\"
     );
     assert_ne!(
         expected,
-        paths::ts_import_specifier(paths::EntryForm::SingleFile, &name),
+        paths::ts_import_specifier(paths::EntryForm::SubdirModule, &name),
         "另一形态的单点值不同（`form` 是唯一差异源）"
     );
     assert!(
@@ -2921,7 +3564,7 @@ gate = \"warn\"
         ),
     );
     bare_temp.write(
-        "views/consumer.tsx/index.ts",
+        "views/consumer.tsx",
         "export function view(): string { return ''; }
 ",
     );
@@ -3953,7 +4596,7 @@ fn index与生成物对现网契约零回归() {
             file.path
                 == paths::generated_path(
                     temp.root(),
-                    "crates/infra/archi/",
+                    "crates/infra/archi/src/lib.rs",
                     paths::GeneratedKind::Rust,
                 )
                 .expect("Rust 生成物路径")

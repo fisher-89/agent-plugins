@@ -10,12 +10,14 @@ summary = "构建期工具 crate 容器"
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src-tauri/crates/tools/export-bindings/"]
+api = "none"
 summary = "把 IPC 类型导出为前端 TypeScript 绑定"
 
 [element."App.Backend.Tools.ArchiApiGen"]
 kind = "module"
 gate = "off"
 path = ["./packages/desktop/src-tauri/crates/tools/archi-api-gen/"]
+api = "none"
 summary = "模块 API 契约的唯一写盘面：生成四类生成物并做零 diff 比对"
 
 [[relation]]

@@ -1,0 +1,37 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:954:
+ {discipline}"
+         );
+     }
+[31m-    for piece in [
+[0m[31m-        "archi_api",
+[0m[31m-        "action = \"check\"",
+[0m[31m-        "三类差异",
+[0m[31m-        "契约判据",
+[0m[31m-    ] {
+[0m[32m+    for piece in ["archi_api", "action = \"check\"", "三类差异", "契约判据"] {
+[0m         assert!(
+             discipline.contains(piece),
+             "自检纪律缺 {piece:?}（两轴：生成物三类差异 + 契约判据）：
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\module-entry-field-spec\packages\desktop\src-tauri\crates\infra\agent\src\archi_knowledge_test.rs:984:
+     }
+ 
+     // 冻结面的条目面：两条纪律段各自 3 条要点，条目合并即视为压缩重写
+[31m-    assert_eq!(bullet_count(discipline), 3, "自检纪律条目数冻结为 3：
+[0m[31m-{discipline}");
+[0m     assert_eq!(
+[31m-        bullet_count(write_face), 3,
+[0m[32m+        bullet_count(discipline),
+[0m[32m+        3,
+[0m[32m+        "自检纪律条目数冻结为 3：
+[0m[32m+{discipline}"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        bullet_count(write_face),
+[0m[32m+        3,
+[0m         "写面与可见性条目数冻结为 3：
+ {write_face}"
+     );
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

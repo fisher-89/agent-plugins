@@ -2,26 +2,27 @@
 
 ## 模型位置与聚合
 
-架构模型由若干 `.toml` 文件构成，全部位于架构域的 models 目录内（本文件末「派生事实」段给出 repo 相对路径）。目录内所有模型文件按**文件名字典序**聚合为一张图；一份文件可声明多个元素与多条关系，跨文件引用只看 FQN，不看文件名。
+架构模型由架构域 models 目录内的多份 `.toml` 构成（repo 相对路径见末段），按**文件名字典序**聚合为一张图；一份文件可声明多个元素与多条关系，跨文件引用只看 FQN。
 
 ## 格式约定
 
-- 一个元素一个表头，键是**带引号的完整 FQN 单键**：`[element."App.Auth"]`。禁点分嵌套写法（`[element.App.Auth]` 会被读成另一层结构）。
-- 元素字段面：`kind`（必填）、`gate`、`api`、`path`、`docs`、`summary`、`metadata`。
+- 一个元素一个表头，键是**带引号的完整 FQN 单键**：`[element."App.Auth"]`；禁点分嵌套写法（会被读成另一层结构）。
+- 元素字段面：`kind`（必填）、`gate`、`api`、`entry`、`path`、`docs`、`summary`、`metadata`。
 - `api` 是状态指针，二值：`declared`（缺省）/ `none`（显式无 API）。
-- 关系写成 `[[relation]]` 条目，字段为 `from` / `to` / `desc`。
-- `metadata` 必须用**内联表**：`metadata = { owner = "..." }`。禁写 `[element."App.Auth".metadata]` 子表——那是合法 TOML，但会被读成另一个元素 `App.Auth.metadata`。
+- `entry` 是实现入口指针（**单值**、repo 相对、与 `path` 同口径）：只在约定默认指不到时写（目录型壳、二进制包），单文件根不写（根文件即入口）。
+- 关系写 `[[relation]]` 条目（`from` / `to` / `desc`）。
+- `metadata` 必须用**内联表**：`metadata = { owner = "..." }`；禁写 `[element."App.Auth".metadata]` 子表——会被读成另一个元素。
 
 ## 层级与缺省
 
-- 父子层级由 FQN 最长前缀推导（`App.Auth.Token` 属于 `App.Auth`），不靠额外声明父字段。
-- 子元素必须**先声明祖先**：写 `App.Auth` 前先有 `[element."App"]`；隐式祖先不会被自动创建。
-- 新元素的 `gate` 缺省不收紧（逐块 ratchet，按需再抬档）。
+- 父子层级由 FQN 最长前缀推导；子元素必须**先声明祖先**（写 `App.Auth` 前先有 `[element."App"]`）。
+- 新元素的 `gate` 缺省不收紧（逐块 ratchet）。
 
 ## 边界
 
 - 模型里不写接口 / 导出符号（函数签名、类型定义、导出清单都不进模型正文）。
-- 契约权威在契约资产（末段给出路径）——每个 `api = declared` 元素一份契约 md；模型只存状态指针 `api`，MUST NOT 抄契约正文。
+- 契约权威在契约资产（末段给出路径）：模型只存状态指针 `api`，MUST NOT 抄契约正文。
+- `api` 与 `entry` 都是**指针**（有无公共 API / 入口在哪），MUST NOT 由它们扩张出协议正文。
 
 ## 自检纪律
 
@@ -37,7 +38,7 @@
 
 ## 历史会话续接
 
-续接历史会话时，先调用 `archi_module` 取当下模型现状，再回答「现在是什么样」一类问题；不要依赖会话早前的描述（工具读取永远新鲜，记忆会旧）。
+续接历史会话时，先调用 `archi_module` 取当下模型现状，再回答「现在是什么样」；不要依赖会话早前的描述（读取永远新鲜）。
 
 ## 示例
 
@@ -51,6 +52,7 @@ summary = "示例应用"
 kind = "domain"
 gate = "off"
 path = ["packages/desktop/src/auth"]
+entry = "packages/desktop/src/auth/token.ts"
 docs = ["docs/auth.md"]
 summary = "认证域"
 metadata = { owner = "auth-team" }

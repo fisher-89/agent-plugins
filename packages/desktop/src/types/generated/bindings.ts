@@ -736,7 +736,10 @@ export type ArchiApiRef = {
 	contractPath: string | null,
 	/**  schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径 */
 	schemaPath: string | null,
-	/**  元素生成物（`<root>.i.rs` / `<root>.i.ts`）的 repo 相对路径 */
+	/**
+	 *  元素生成物（实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）的 repo 相对
+	 *  路径；无可用入口（`Absent` / `Invalid`）⇒ `null`
+	 */
 	generatedPath: string | null,
 };
 
@@ -1005,6 +1008,11 @@ export type ArchiElement = {
 	mark: NodeMark,
 	/**  契约状态指针（模型字段的拷贝；协议正文不进模型） */
 	api: ApiStatus,
+	/**
+	 *  实现入口指针（模型字段的拷贝；线格式 `entry`，缺省 `null`，**显式字段不省略**
+	 *  ——与「投影不补默认值」同款）
+	 */
+	entry: string | null,
 };
 
 /**  被排除的文件（逐条留痕，MUST NOT 静默丢弃）。 */

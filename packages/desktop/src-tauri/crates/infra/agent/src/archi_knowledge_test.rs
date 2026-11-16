@@ -631,6 +631,7 @@ fn api_status线词与元素投影串相等() {
             kind: ElementKind::Module,
             gate: GateTier::Warn,
             api: status,
+            entry: None,
             path: vec!["src/mod/".to_owned()],
             summary: None,
             metadata: BTreeMap::new(),
@@ -763,6 +764,240 @@ fn 骨架字段面补api且六项仍在() {
             SKELETON.contains(status.as_str()),
             "骨架须写出 api 线词 {:?}（与 `ApiStatus::ALL` 同源）",
             status.as_str()
+        );
+    }
+}
+
+/// 骨架某一节正文（`## 标题` 起至下一条 `## ` 前）。判据按**节**取用，避免绑死
+/// 某一行的措辞顺序（节内行序/折行可随体量上限微调，语义与关键词不变）。
+fn section(heading: &str) -> &'static str {
+    let start = SKELETON
+        .find(heading)
+        .unwrap_or_else(|| panic!("骨架缺节 {heading:?}：\n{SKELETON}"));
+    let rest = &SKELETON[start..];
+    let end = rest[heading.len()..]
+        .find("\n## ")
+        .map(|index| heading.len() + index)
+        .unwrap_or(rest.len());
+    &rest[..end]
+}
+
+/// 某一节内的 bullet 条目数（`- ` 起首行）。
+fn bullet_count(section: &str) -> usize {
+    section
+        .lines()
+        .filter(|line| line.trim_start().starts_with("- "))
+        .count()
+}
+
+/// 正向（AC-6 字段面）：元素字段枚举行八项逐词在场（`kind` / `gate` / `api` / `entry` /
+/// `path` / `docs` / `summary` / `metadata`），`entry` 是**追加**而非替换。
+#[test]
+fn 骨架字段面八项逐词在场() {
+    let field_line = SKELETON
+        .lines()
+        .find(|line| line.contains("元素字段面："))
+        .unwrap_or_else(|| {
+            panic!(
+                "骨架缺「元素字段面：」枚举行：
+{SKELETON}"
+            )
+        });
+    for field in [
+        "`kind`",
+        "`gate`",
+        "`api`",
+        "`entry`",
+        "`path`",
+        "`docs`",
+        "`summary`",
+        "`metadata`",
+    ] {
+        assert!(
+            field_line.contains(field),
+            "字段枚举行须含 {field}（八项，追加非替换）：{field_line}"
+        );
+    }
+    assert!(
+        field_line.contains("必填"),
+        "`kind` 的必填语义须仍在：{field_line}"
+    );
+}
+
+/// 正向（AC-6 `entry` 三条纪律）：单值 / 只在约定默认指不到时写 / 单文件根 MUST NOT 写
+/// ——三条语义在「格式约定」段内各有关键词在场（按节取用，行序与折行不作判据）。
+#[test]
+fn 骨架entry三条纪律在场() {
+    let conventions = section("## 格式约定");
+    let line = conventions
+        .lines()
+        .find(|line| line.contains("`entry`") && line.contains("入口"))
+        .unwrap_or_else(|| {
+            panic!(
+                "格式约定段缺 `entry` 入口纪律行：
+{conventions}"
+            )
+        });
+    assert!(line.contains("单值"), "纪律一：单值是唯一形态：{line}");
+    assert!(
+        line.contains("与 `path` 同口径") || line.contains("repo 相对"),
+        "纪律一：与 `path` 同口径（repo 相对）：{line}"
+    );
+    assert!(
+        line.contains("约定默认指不到"),
+        "纪律二：只在约定默认指不到时写：{line}"
+    );
+    assert!(line.contains("单文件根"), "纪律三：单文件根：{line}");
+    assert!(
+        line.contains("MUST NOT 写") || line.contains("不写"),
+        "纪律三：单文件根不写（根文件即入口）：{line}"
+    );
+    assert!(
+        line.contains("根文件即入口") || line.contains("根即入口"),
+        "纪律三的理由：根文件即入口：{line}"
+    );
+}
+
+/// 边界（AC-6 示例面）：唯一示例 TOML 含**单值** `entry`，经真实 `TomlParser` 与
+/// `ModelGraph` 双零诊断（既有自证链路的字段面延伸）。
+#[test]
+fn 示例toml含单值entry且双零诊断() {
+    let (model, diagnostics) = example_model();
+    assert!(
+        diagnostics.is_empty(),
+        "示例零结构诊断（新增 entry 键不失配）：{diagnostics:?}"
+    );
+    let entry = model
+        .element("App.Auth")
+        .and_then(|element| element.entry.clone());
+    assert_eq!(
+        entry.as_deref(),
+        Some("packages/desktop/src/auth/token.ts"),
+        "示例 `App.Auth` 带单值 `entry`"
+    );
+    assert!(
+        matches!(model.elements.len(), 2..=4),
+        "示例元素数与既有断言同量级：{}",
+        model.elements.len()
+    );
+
+    // `entry` 是单值：示例内零数组形态
+    let example = example_fence();
+    assert!(
+        !example.contains("entry = ["),
+        "示例 MUST 用单值形态（零数组）：
+{example}"
+    );
+}
+
+/// 异常（只指路不带正文）：四条判据的变体名与 `apiEntryMissing` 判据表在知识文本内
+/// **零命中**——判据长表不进知识文本，只指路到契约面复查。
+#[test]
+fn 骨架不抄四条判据长表() {
+    for forbidden in [
+        "Malformed",
+        "OutsidePath",
+        "NotOnDisk",
+        "Duplicated",
+        "apiEntryMissing",
+    ] {
+        assert!(
+            !SKELETON.contains(forbidden),
+            "判据长表项 {forbidden} MUST NOT 进知识文本（只指路）：
+{SKELETON}"
+        );
+    }
+    assert!(
+        SKELETON.contains("archi_api"),
+        "指路保留：契约面经 `archi_api` 复查"
+    );
+}
+
+/// 边界（边界段表述）：`api` 与 `entry` 以「两个指针」表述，且零契约正文示例。
+#[test]
+fn 骨架边界段以两个指针表述() {
+    let boundary_section = section("## 边界");
+    let line = boundary_section
+        .lines()
+        .find(|line| line.contains("指针") && line.contains("`entry`"))
+        .unwrap_or_else(|| {
+            panic!(
+                "边界段缺「两个指针」行：
+{boundary_section}"
+            )
+        });
+    assert!(line.contains("`api`"), "点明 `api` 指针：{line}");
+    assert!(
+        line.contains("两个") || line.contains("都是"),
+        "两个指针的并列表述：{line}"
+    );
+    assert!(
+        line.contains("MUST NOT") && line.contains("协议正文"),
+        "协议正文不进模型：{line}"
+    );
+    for body in ["```json", "\"properties\"", "signature"] {
+        assert!(!SKELETON.contains(body), "知识文本零契约正文示例 {body:?}");
+    }
+}
+
+/// 正向（spec「自检纪律在知识中可指认」）：冻结面逐条关键词在场——自检纪律的
+/// `archi_module` 裸调用（不带 `element`）+ 结构诊断 `file:line`、`archi_api`
+/// （`action = "check"`）查两轴、既有命令重生成 + 禁手改；写面与可见性三条与
+/// 历史会话续接一条各有关键词。
+#[test]
+fn 骨架自检纪律写面与续接逐条关键词在场() {
+    let discipline = section("## 自检纪律");
+    for piece in ["archi_module", "不带 `element`", "file:line"] {
+        assert!(
+            discipline.contains(piece),
+            "自检纪律缺 {piece:?}（裸调用 + 结构诊断行号）：
+{discipline}"
+        );
+    }
+    for piece in ["archi_api", "action = \"check\"", "三类差异", "契约判据"] {
+        assert!(
+            discipline.contains(piece),
+            "自检纪律缺 {piece:?}（两轴：生成物三类差异 + 契约判据）：
+{discipline}"
+        );
+    }
+    for piece in ["pnpm api:export", "MUST NOT 手改生成物"] {
+        assert!(
+            discipline.contains(piece),
+            "自检纪律缺 {piece:?}（过期重生成 + 禁手改）：
+{discipline}"
+        );
+    }
+
+    let write_face = section("## 写面与可见性");
+    for piece in ["直改主仓", "git diff", "不会自动更新", "刷新"] {
+        assert!(
+            write_face.contains(piece),
+            "写面与可见性缺 {piece:?}：
+{write_face}"
+        );
+    }
+
+    // 冻结面的条目面：两条纪律段各自 3 条要点，条目合并即视为压缩重写
+    assert_eq!(
+        bullet_count(discipline),
+        3,
+        "自检纪律条目数冻结为 3：
+{discipline}"
+    );
+    assert_eq!(
+        bullet_count(write_face),
+        3,
+        "写面与可见性条目数冻结为 3：
+{write_face}"
+    );
+
+    let resume = section("## 历史会话续接");
+    for piece in ["续接历史会话", "archi_module", "当下模型"] {
+        assert!(
+            resume.contains(piece),
+            "历史会话续接缺 {piece:?}：
+{resume}"
         );
     }
 }

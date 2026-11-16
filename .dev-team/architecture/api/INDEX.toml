@@ -81,7 +81,7 @@ types = 1
 ops = 1
 degraded = 0
 schema = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.schema.json"
-generated = "packages/desktop/src-tauri/crates/infra/archi.i.rs"
+generated = "packages/desktop/src-tauri/crates/infra/archi/src/lib.i.rs"
 
 [entry.categories]
 object = 1

@@ -1,0 +1,264 @@
+{
+  "version": 3,
+  "timestamp": "2026-11-16T01:51:07.111991Z",
+  "mode": "incremental",
+  "root": "D:/Projects\\.worktrees\\wps-claude-plugin\\module-entry-field-spec",
+  "change": "module-entry-field-spec",
+  "base": "HEAD",
+  "modelHash": "sha256:e69f8e78c493e3109ead543ad0f9ace9746be2ebc19088b98507eca0f8dd094e",
+  "model": {
+    "elements": 0,
+    "relations": 0,
+    "byGate": {
+      "strict": 0,
+      "warn": 0,
+      "off": 0
+    },
+    "structuralErrors": [
+      {
+        "kind": "unknownField",
+        "message": "TOML parse error at line 8, column 1\n  |\n8 | entry = \"./packages/desktop/src-tauri/src/lib.rs\"\n  | ^^^^^\nunknown field `entry`, expected one of `kind`, `gate`, `api`, `path`, `docs`, `summary`, `metadata`\n",
+        "file": ".dev-team/architecture/models/04-backend-shell.toml",
+        "line": 8,
+        "column": 1
+      },
+      {
+        "kind": "unknownField",
+        "message": "TOML parse error at line 21, column 1\n   |\n21 | entry = \"./packages/desktop/src-tauri/crates/tools/archi-api-gen/src/main.rs\"\n   | ^^^^^\nunknown field `entry`, expected one of `kind`, `gate`, `api`, `path`, `docs`, `summary`, `metadata`\n",
+        "file": ".dev-team/architecture/models/05-backend-tools.toml",
+        "line": 21,
+        "column": 1
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Components.Agent.AgentSessionView -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 251,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.AgentDebug -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 296,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Agents -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 326,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Architecture -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 341,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Changes -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 351,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Changes.Agent -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 381,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Changes.Flow -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 396,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Config -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 431,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.DbInspector -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 441,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Explores -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 456,
+        "column": null
+      },
+      {
+        "kind": "unknownReference",
+        "message": "未定义引用：App.Frontend.Views.Info -> App.Backend.Shell（App.Backend.Shell 未声明）",
+        "file": ".dev-team/architecture/models/06-frontend.toml",
+        "line": 476,
+        "column": null
+      }
+    ],
+    "warnings": []
+  },
+  "scan": {
+    "mode": "incremental",
+    "changedFiles": 46,
+    "scannedFiles": 15,
+    "excluded": [
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/check_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/diff_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/extract/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/paths_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/api/render_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/diff_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/docs_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/dto_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/graph_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/model_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/scan/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/scan/owner_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/src/search_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/pilot_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/archi/tests/vocabulary_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/core/checks/src/diagnose_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/agent/src/archi_knowledge_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/infra/archi/src/runner_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/crates/tools/archi-api-gen/src/main_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src-tauri/src/commands/archi/mod_test.rs",
+        "rule": "**/*_test.rs"
+      },
+      {
+        "file": "packages/desktop/src/app.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/architecture-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/architecture-canvas.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/element-drawer.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/components/element-tree.test.tsx",
+        "rule": "**/*.test.tsx"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-graph.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/hooks/use-archi-module.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/architecture/lib/drift-marks.test.ts",
+        "rule": "**/*.test.ts"
+      },
+      {
+        "file": "packages/desktop/src/views/changes/change-detail-view.test.tsx",
+        "rule": "**/*.test.tsx"
+      }
+    ],
+    "unmatchedFiles": [
+      "packages/desktop/src-tauri/crates/core/archi/src/api/check.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/diff.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/emit/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/emit/ts.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/extract/rust.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/mod.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/api/paths.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/dto.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/model.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/parse/toml.rs",
+      "packages/desktop/src-tauri/crates/core/archi/src/scan/owner.rs",
+      "packages/desktop/src-tauri/crates/infra/archi/src/lib.i.rs",
+      "packages/desktop/src-tauri/crates/infra/archi/src/lib.rs",
+      "packages/desktop/src/types/generated/bindings.ts",
+      "packages/desktop/src/types/generated/bindings.zod.ts"
+    ],
+    "matched": [],
+    "unresolved": []
+  },
+  "errors": [],
+  "warnings": [],
+  "suppressed": [],
+  "observations": [],
+  "apiFindings": [],
+  "status": "errors"
+}

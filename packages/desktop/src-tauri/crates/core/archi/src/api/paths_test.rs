@@ -1,8 +1,8 @@
 //! `api::paths` 的单元测试：`<root>` 归一两步法（不去扩展名）、四类路径派生
-//! （契约 / schema / 生成物 / 索引）、入口三分支与四分支的**顺序封闭**、`#[path]`
-//! 与 TS import specifier 的单点产出、跨域 `$ref` 前缀、`<Domain>` 与语言判定。
+//! （契约 / schema / 生成物 / 索引）、入口解析链三态与四条判据、`#[path]` 值退化为
+//! 生成物文件名、跨域 `$ref` 前缀、`<Domain>` 与语言判定。
 //!
-//! 零 mock：`entry_form` / `generated_path` 的存在性探测用真实临时目录落空文件
+//! 零 mock：`entry_state` / `generated_path` 的存在性探测用真实临时目录落空文件
 //! （零内容即足以驱动分支），其余函数零 IO；`foundation::layout` 的真实派生值是
 //! 前缀断言的基准（路径单点即被测语义）。
 
@@ -22,9 +22,10 @@ use crate::api::{load_contracts, meta, render_all};
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::paths::{
-    contract_path, directory, domain_of, entry_form, generated_kind, generated_path, index_path,
-    is_module_segment, language_of, mod_path_attr, module_name, normalize_root, ref_relative,
-    rust_module_path, schema_path, ts_import_specifier, EntryForm, GeneratedKind, Language,
+    contract_path, directory, domain_of, entry_candidates, entry_state, generated_kind,
+    generated_path, index_path, is_module_segment, language_of, module_name, normalize_root,
+    ref_relative, rust_module_path, schema_path, ts_import_specifier, EntryForm, EntryProblem,
+    EntryState, GeneratedKind, Language,
 };
 
 // ---------------------------------------------------------------------------
@@ -53,7 +54,7 @@ impl TempDir {
         &self.0
     }
 
-    /// 落一个空的 repo 相对文件（自动建父目录；`entry_form` 只看 `is_file`）。
+    /// 落一个空的 repo 相对文件（自动建父目录；`entry_state` 只看 `is_file`）。
     fn touch(&self, relative: &str) {
         let path = self.0.join(relative);
         if let Some(parent) = path.parent() {
@@ -105,6 +106,7 @@ fn element(fqn: &str, paths: &[&str]) -> ArchiElement {
         kind: ElementKind::Module,
         gate: GateTier::Warn,
         api: ApiStatus::Declared,
+        entry: None,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
@@ -125,19 +127,30 @@ fn dot_segments(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// 词法规范化（`a/b/../../c` → `c`；零触盘——`#[path]` 解析指向的自证装置）。
-fn lexical_normalize(path: &str) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    for segment in path.split('/') {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
+/// 递归收集目录下的 repo 相对文件清单（盘面零变化断言用，0 起始无隐藏过滤）。
+fn tree_listing(dir: &Path) -> Vec<String> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, out);
+                continue;
             }
-            other => parts.push(other),
+            out.push(
+                path.strip_prefix(base)
+                    .expect("相对路径")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
         }
     }
-    parts.join("/")
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
 }
 
 /// 递归收集产品 `.rs`（排除 `*_test.rs` 与构建产物目录）的（路径，行）二元组。
@@ -346,39 +359,39 @@ fn contract_path与schema_path拒收越界形态() {
 }
 
 // ---------------------------------------------------------------------------
-// generated_path：三种入口形态
+// generated_path：入参是入口（落点 = 入口同级）
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-4）：crate 形态落 `<root>.i.rs`（**根同级**，不在目录内）、`mod.rs`
-/// 形态与单文件形态同款规则（`<root>` 归一后追加 `.i.<ext>`）。
+/// 正向（AC-3）：crate / 子目录模块 / 文件型根三种入口形态的落点均为
+/// `<入口目录>/<入口主干>.i.<后缀>`——入口同级，不再回元素根同级。
 #[test]
 fn generated_path三种入口形态() {
     let root = Path::new("/ws");
     let cases = [
         (
-            element("App.Backend.Core.Archi", &["./crates/core/archi/"]),
+            "crates/infra/archi/src/lib.rs",
             GeneratedKind::Rust,
-            "/ws/crates/core/archi.i.rs",
+            "/ws/crates/infra/archi/src/lib.i.rs",
         ),
         (
-            element("App.Backend.Core.Archi", &["crates/core/archi/mod.rs"]),
+            "crates/core/archi/src/scan/mod.rs",
             GeneratedKind::Rust,
-            "/ws/crates/core/archi/mod.rs.i.rs",
+            "/ws/crates/core/archi/src/scan/mod.i.rs",
         ),
         (
-            element("App.Frontend.Views.Welcome", &["views/welcome-view.tsx"]),
+            "views/welcome-view.tsx",
             GeneratedKind::TypeScript,
-            "/ws/views/welcome-view.tsx.i.ts",
+            "/ws/views/welcome-view.i.ts",
         ),
     ];
-    for (element, kind, expected) in cases {
-        let path = generated_path(root, element.path.first().expect("非空 root"), kind)
-            .expect("路径应可派生");
-        assert_eq!(path, PathBuf::from(expected), "生成物落点：{element:?}");
+    for (entry, kind, expected) in cases {
+        let path = generated_path(root, entry, kind).expect("路径应可派生");
+        assert_eq!(path, PathBuf::from(expected), "生成物落点：{entry}");
+        let entry_dir = Path::new(entry).parent().expect("入口有目录段");
         assert_eq!(
             path.parent(),
-            root.join(&element.path[0]).parent(),
-            "根同级：不在元素目录之内"
+            Some(root.join(entry_dir).as_path()),
+            "入口同级：与入口同目录"
         );
     }
 }
@@ -401,10 +414,11 @@ fn generated_path路径空为零() {
 }
 
 /// 边界（路径形态校验，安全边界）：绝对路径 / 盘符 / 含 `..` 段 / 空段 / `~` 起始 →
-/// `generated_path` 与 `entry_form` 双 `None`——`root.join(绝对路径)` 会丢弃 base、
-/// `..` 段会上溯、`~` 会被下游 shell 形态展开，放行即让生成物落到仓外。
+/// `generated_path` 给 `None`、`entry_state` 给 `Absent`（候选表为空）——
+/// `root.join(绝对路径)` 会丢弃 base、`..` 段会上溯、`~` 会被下游 shell 形态展开，
+/// 放行即让生成物落到仓外。
 #[test]
-fn generated_path与entry_form拒收越界形态() {
+fn generated_path与entry_state拒收越界形态() {
     let root = Path::new("/ws");
     for raw in [
         "/abs/elsewhere",
@@ -420,11 +434,102 @@ fn generated_path与entry_form拒收越界形态() {
             None,
             "生成物路径拒收：{raw:?}"
         );
-        assert_eq!(entry_form(root, &candidate), None, "入口查找拒收：{raw:?}");
+        assert_eq!(
+            entry_state(root, std::slice::from_ref(&candidate), &candidate),
+            EntryState::Absent,
+            "入口解析拒收：{raw:?}"
+        );
     }
 }
 
-/// 边界（语言 → 生成物种类的分派单点）：`TypeScript` → `TypeScript`（四扩展名同族）、
+/// 边界（主干取法）：入口主干 = 文件名最后一次 `.` 之前的部分；无扩展名 / 仓根入口
+/// 不丢文件名；扩展名只随 `kind`（`kind` 由调用方经 `generated_kind` 分派，本函数零
+/// 第二次语言判定）。
+#[test]
+fn generated_path主干取法与扩展名随kind() {
+    let root = Path::new("/ws");
+    assert_eq!(
+        generated_path(root, "views/a.b.tsx", GeneratedKind::TypeScript),
+        Some(root.join("views/a.b.i.ts")),
+        "主干取最后一次 `.` 之前（`a.b` 整体保留）"
+    );
+    assert_eq!(
+        generated_path(root, "lib", GeneratedKind::Rust),
+        Some(root.join("lib.i.rs")),
+        "无扩展名入口：整个文件名即主干"
+    );
+    assert_eq!(
+        generated_path(root, "lib.rs", GeneratedKind::Rust),
+        Some(root.join("lib.i.rs")),
+        "仓根入口不丢文件名（目录段为空）"
+    );
+    for (kind, expected) in [
+        (GeneratedKind::Rust, "src/view.i.rs"),
+        (GeneratedKind::TypeScript, "src/view.i.ts"),
+    ] {
+        assert_eq!(
+            generated_path(root, "src/view.ts", kind),
+            Some(root.join(expected)),
+            "扩展名只随 kind：{kind:?}"
+        );
+    }
+}
+
+/// 异常（D41 / 删除面）：`entry_form` 与 `mod_path_attr` 两个函数体已删——`paths.rs`
+/// 内零定义 / 零词形（含注释）、产品 `.rs` 零调用形、本测试文件不再 import 该名。
+#[test]
+fn 已删函数零残留() {
+    let entry_form = ["entry", "_form"].concat();
+    let mod_path_attr = ["mod_path", "_attr"].concat();
+
+    let source = include_str!("paths.rs");
+    for removed in [&entry_form, &mod_path_attr] {
+        assert_eq!(
+            source.matches(&format!("fn {removed}(")).count(),
+            0,
+            "`{removed}` 定义已删"
+        );
+        assert_eq!(
+            source.matches(removed.as_str()).count(),
+            0,
+            "`{removed}` 在 `paths.rs` 内零命中（含注释）"
+        );
+    }
+
+    // 产品 `.rs` 的调用形零命中（扫描排除 `*_test.rs`；注释里的词形不构成调用）
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut src_tauri = manifest.clone();
+    for _ in 0..3 {
+        src_tauri.pop();
+    }
+    let mut hits: Vec<(String, String)> = Vec::new();
+    scan_product_rs(&src_tauri.join("crates"), &mut hits);
+    scan_product_rs(&src_tauri.join("src"), &mut hits);
+    let calls: Vec<&(String, String)> = hits
+        .iter()
+        .filter(|(_, line)| {
+            let code = line.trim_start();
+            !code.starts_with("//")
+                && (code.contains(&format!("{entry_form}("))
+                    || code.contains(&format!("{mod_path_attr}(")))
+        })
+        .collect();
+    assert!(calls.is_empty(), "产品 `.rs` 零旧名调用：{calls:?}");
+
+    // 本测试文件的 import 区不再引入这两个名字
+    let own = include_str!("paths_test.rs");
+    let header = own
+        .find("// ---")
+        .map(|index| &own[..index])
+        .expect("测试文件以注释分隔区成形");
+    for removed in [&entry_form, &mod_path_attr] {
+        assert!(
+            !header.contains(removed.as_str()),
+            "`paths_test.rs` 的 import 区不再含 `{removed}`"
+        );
+    }
+}
+
 /// `Rust` 与 `Unknown` → `Rust`（无扩展名的元素根唯一对应 Rust 形态；见函数 doc）。
 #[test]
 fn generated_kind语言分派单点() {
@@ -446,161 +551,818 @@ fn generated_kind语言分派单点() {
 }
 
 // ---------------------------------------------------------------------------
-// entry_form：Rust 三分支 / 前端四分支的顺序封闭
+// entry_state：入口解析链三态（显式 / 文件型根 / 约定默认 / Absent）
 // ---------------------------------------------------------------------------
 
-/// 正向（D4）：同目录同时存在 `<dir>/src/lib.rs` 与 `<dir>/mod.rs` → 命中第一分支
-/// （`Crate`）；移除后依次命中 `SubdirModule` / `SingleFile`。
+/// 正向（AC-1 ①②③）：显式 `entry` 命中；文件型根 = 根文件自身；目录型根按
+/// `src/lib.rs` → `mod.rs` → `index.ts` → `index.tsx` 的顺序取首个落盘者。
 #[test]
-fn entry_form的rust三分支顺序() {
-    let temp = TempDir::new("rust-branches");
-    let element = element("App.Backend.Core.Archi", &["crates/core/archi/"]);
+fn entry_state三态各命中一条() {
+    let temp = TempDir::new("entry-states");
 
+    // ① 显式 entry（目录型壳：约定默认拼成 .../src/src/lib.rs，指不到）
+    let mut shell = element("App.Backend.Shell", &["src-tauri/src/"]);
+    shell.entry = Some("src-tauri/src/lib.rs".to_owned());
+    temp.touch("src-tauri/src/lib.rs");
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&shell), &shell),
+        EntryState::Resolved {
+            form: EntryForm::Crate,
+            entry: "src-tauri/src/lib.rs".to_owned(),
+        },
+        "显式 entry 命中（Crate：入口以 src/lib.rs 收尾）"
+    );
+
+    // ② 文件型根 = 根文件自身（MUST NOT 在已带扩展名的根上再拼 `.tsx`）
+    temp.touch("src/views/welcome-view.tsx");
+    let single = element(
+        "App.Frontend.Views.Welcome",
+        &["src/views/welcome-view.tsx"],
+    );
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&single), &single),
+        EntryState::Resolved {
+            form: EntryForm::SingleFile,
+            entry: "src/views/welcome-view.tsx".to_owned(),
+        },
+        "文件型根：根文件自身即入口"
+    );
+
+    // ③ 目录型根：四条约定候选按序，取首个落盘者（不做语言判定）
+    let crate_element = element("App.Backend.Core.Archi", &["crates/core/archi/"]);
     temp.touch("crates/core/archi/src/lib.rs");
     temp.touch("crates/core/archi/mod.rs");
-    temp.touch("crates/core/archi.rs");
     assert_eq!(
-        entry_form(temp.root(), &element),
-        Some((EntryForm::Crate, "crates/core/archi/src/lib.rs".to_owned())),
-        "第一分支优先（三分支顺序封闭）"
+        entry_state(
+            temp.root(),
+            std::slice::from_ref(&crate_element),
+            &crate_element
+        ),
+        EntryState::Resolved {
+            form: EntryForm::Crate,
+            entry: "crates/core/archi/src/lib.rs".to_owned(),
+        },
+        "第一候选优先（src/lib.rs 胜过 mod.rs）"
     );
-
     fs::remove_file(temp.root().join("crates/core/archi/src/lib.rs")).expect("移除 lib.rs");
     assert_eq!(
-        entry_form(temp.root(), &element),
-        Some((
-            EntryForm::SubdirModule,
-            "crates/core/archi/mod.rs".to_owned()
-        )),
-        "第二分支：<dir>/mod.rs"
+        entry_state(
+            temp.root(),
+            std::slice::from_ref(&crate_element),
+            &crate_element
+        ),
+        EntryState::Resolved {
+            form: EntryForm::SubdirModule,
+            entry: "crates/core/archi/mod.rs".to_owned(),
+        },
+        "第二候选：<root>/mod.rs"
     );
 
-    fs::remove_file(temp.root().join("crates/core/archi/mod.rs")).expect("移除 mod.rs");
+    let view = element("App.Frontend.Views", &["src/views/"]);
+    temp.touch("src/views/index.ts");
+    temp.touch("src/views/index.tsx");
     assert_eq!(
-        entry_form(temp.root(), &element),
-        Some((EntryForm::SingleFile, "crates/core/archi.rs".to_owned())),
-        "第三分支：<dir>.rs"
+        entry_state(temp.root(), std::slice::from_ref(&view), &view),
+        EntryState::Resolved {
+            form: EntryForm::SubdirModule,
+            entry: "src/views/index.ts".to_owned(),
+        },
+        "前端目录根：index.ts 先于 index.tsx"
+    );
+
+    // ④ 其余：`path` 空 / 约定候选全不落盘 → Absent
+    let container = element("App", &[]);
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&container), &container),
+        EntryState::Absent,
+        "容器元素（path 空）无入口"
+    );
+    let missing = element("App.Frontend.Views.Missing", &["src/views/missing/"]);
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&missing), &missing),
+        EntryState::Absent,
+        "目录不存在 → 无入口"
     );
 }
 
-/// 正向（D4）：前端四分支顺序 `index.ts` → `index.tsx` → `<dir>.ts` → `<dir>.tsx`，
-/// 逐个移除后依次命中后三支（4 步递进）。
+/// 边界（AC-1 候选派生零 IO）：`entry_candidates` 只做字符串运算——目录型根的四条
+/// 约定候选逐个在案，且**不做语言判定**（同一目录根同时列出 rs 与 ts(x) 候选）。
 #[test]
-fn entry_form的前端四分支顺序() {
-    let temp = TempDir::new("ts-branches");
-    let element = element("App.Frontend.Views.Welcome", &["src/views/welcome/"]);
-
-    temp.touch("src/views/welcome/index.ts");
-    temp.touch("src/views/welcome/index.tsx");
-    temp.touch("src/views/welcome.ts");
-    temp.touch("src/views/welcome.tsx");
-
-    let steps = [
-        ("src/views/welcome/index.ts", EntryForm::SubdirModule),
-        ("src/views/welcome/index.tsx", EntryForm::SubdirModule),
-        ("src/views/welcome.ts", EntryForm::SingleFile),
-        ("src/views/welcome.tsx", EntryForm::SingleFile),
-    ];
-    for (expected_entry, expected_form) in steps {
-        assert_eq!(
-            entry_form(temp.root(), &element),
-            Some((expected_form, expected_entry.to_owned())),
-            "前端入口顺序封闭（当前应命中 {expected_entry}）"
-        );
-        fs::remove_file(temp.root().join(expected_entry)).expect("移除入口文件");
-    }
+fn entry_candidates目录型根四候选() {
+    let candidates = entry_candidates(&element("App.Backend.Core.Archi", &["crates/core/archi"]));
     assert_eq!(
-        entry_form(temp.root(), &element),
-        None,
-        "四分支全移除后无入口"
+        candidates,
+        vec![
+            "crates/core/archi/src/lib.rs".to_owned(),
+            "crates/core/archi/mod.rs".to_owned(),
+            "crates/core/archi/index.ts".to_owned(),
+            "crates/core/archi/index.tsx".to_owned(),
+        ],
+        "语言无关、按优先序列出（目录型根无扩展名，按语言分派会让前端候选失效）"
+    );
+    assert_eq!(
+        entry_candidates(&element(
+            "App.Frontend.Views.Welcome",
+            &["views/welcome-view.tsx"]
+        )),
+        vec!["views/welcome-view.tsx".to_owned()],
+        "文件型根 = 根文件自身（单候选）"
+    );
+    assert_eq!(
+        entry_candidates(&element("App", &[])),
+        Vec::<String>::new(),
+        "path 空 → 零候选"
+    );
+    // 已删的三条不在列：`<dir>.rs` / `<dir>.ts` / `<dir>.tsx`（只能指到 path 之外）
+    let dir_candidates = entry_candidates(&element("App.X", &["src/x"]));
+    for absent in ["src/x.rs", "src/x.ts", "src/x.tsx", "src/x/lib.rs"] {
+        assert!(
+            !dir_candidates.iter().any(|candidate| candidate == absent),
+            "{absent} MUST NOT 在候选列内"
+        );
+    }
+}
+
+/// 异常（AC-2 四条判据各一反例）：形态非法 / 落位越界 / 不在盘 / 跨元素同一入口，
+/// 外加「单文件根声明同目录的另一个文件」归 `OutsidePath`（落位判据兜住，不设第五条）；
+/// 存在判据只看声明值——同目录 `src/lib.rs` 在盘也不回落到约定候选。
+#[test]
+fn entry_state四条判据各一反例() {
+    let temp = TempDir::new("entry-problems");
+    temp.touch("src/a/x.rs");
+    temp.touch("src/b/y.rs");
+
+    let mut malformed = element("App.A", &["src/a/"]);
+    malformed.entry = Some("/abs/x.rs".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&malformed), &malformed),
+        EntryState::Invalid(EntryProblem::Malformed {
+            entry: "/abs/x.rs".to_owned(),
+        }),
+        "绝对路径 → Malformed"
+    );
+
+    let mut outside = element("App.A", &["src/a/"]);
+    outside.entry = Some("src/b/y.rs".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&outside), &outside),
+        EntryState::Invalid(EntryProblem::OutsidePath {
+            entry: "src/b/y.rs".to_owned(),
+        }),
+        "落在本元素 path 之外 → OutsidePath"
+    );
+
+    let mut not_on_disk = element("App.A", &["src/a/"]);
+    // 存在判据 MUST NOT 回落约定候选：同目录 `src/a/src/lib.rs` 在盘，显式声明仍只看声明值
+    temp.touch("src/a/src/lib.rs");
+    not_on_disk.entry = Some("src/a/missing.rs".to_owned());
+    assert_eq!(
+        entry_state(
+            temp.root(),
+            std::slice::from_ref(&not_on_disk),
+            &not_on_disk
+        ),
+        EntryState::Invalid(EntryProblem::NotOnDisk {
+            entry: "src/a/missing.rs".to_owned(),
+        }),
+        "声明值不在盘 → NotOnDisk（同目录 src/lib.rs 在盘也不回落约定候选）"
+    );
+
+    // 入口 MUST 落在自己 path 内才走到唯一判据：让两条 path 各自覆盖同一文件
+    let mut first = element("App.A", &["src/a/"]);
+    first.entry = Some("src/a/x.rs".to_owned());
+    let mut second = element("App.B", &["src/a/x.rs"]);
+    second.entry = Some("src/a/x.rs".to_owned());
+    let both = vec![first.clone(), second.clone()];
+    for element in [&first, &second] {
+        let other = if element.fqn == "App.A" {
+            "App.B"
+        } else {
+            "App.A"
+        };
+        match entry_state(temp.root(), &both, element) {
+            EntryState::Invalid(EntryProblem::Duplicated { other_fqn, .. }) => {
+                assert_eq!(other_fqn, other, "点名冲突方 FQN");
+            }
+            other_state => panic!("两元素同一入口应判 Duplicated，实际：{other_state:?}"),
+        }
+    }
+
+    // 单文件根声明「同目录的另一个文件」→ 落位判据覆盖（不设第五条判据）
+    temp.touch("src/solo/a.ts");
+    temp.touch("src/solo/b.ts");
+    let mut file_root = element("App.Solo", &["src/solo/a.ts"]);
+    file_root.entry = Some("src/solo/b.ts".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&file_root), &file_root),
+        EntryState::Invalid(EntryProblem::OutsidePath {
+            entry: "src/solo/b.ts".to_owned(),
+        }),
+        "文件型根声明别的文件 → OutsidePath"
+    );
+}
+
+/// 异常（test-design:74 逐值）：基准判据逐值拒收——绝对路径 / `..` 段 / 盘符 / `~` 起始 /
+/// 空串，各返 `Malformed { entry }`，载荷是**归一后原文**（`\` 先归一为 `/`，其余零清洗）。
+#[test]
+fn entry_state形态非法逐值拒收() {
+    let temp = TempDir::new("entry-malformed-values");
+    // （声明值，归一后原文）：`C:\x.rs` 的反斜杠由 `normalize_root` 归一为 `/`，
+    // 其余四值归一后逐字不变——载荷即「归一后原文」，故逐值对拍。
+    let cases = [
+        ("/abs/x.rs", "/abs/x.rs"),
+        ("../x.rs", "../x.rs"),
+        ("C:\\x.rs", "C:/x.rs"),
+        ("~/x.rs", "~/x.rs"),
+        ("", ""),
+    ];
+    for (declared, normalized) in cases {
+        let mut element = element("App.A", &["src/a/"]);
+        element.entry = Some(declared.to_owned());
+        assert_eq!(
+            entry_state(temp.root(), std::slice::from_ref(&element), &element),
+            EntryState::Invalid(EntryProblem::Malformed {
+                entry: normalized.to_owned(),
+            }),
+            "声明 {declared:?} 形态非法 ⇒ Malformed（载荷为归一后原文 {normalized:?}）"
+        );
+    }
+}
+
+/// 异常（test-design:75 逐值）：落位判据的跨元素两形态——① A 的 `entry` 等于**元素 B 的
+/// `path` 条目**；② A 的 `entry` 落在 B 的**目录型** `path` 之内。两者在盘、且对 B 合法，
+/// 但对 A 都在其 `path` 之外 ⇒ 各返 `OutsidePath { entry }`（落位判据按本元素 `path` 判，
+/// MUST NOT 因「别的元素认领了它」而放行）。
+#[test]
+fn entry_state落位判据跨元素越界逐值() {
+    let temp = TempDir::new("entry-outside-other-element");
+    temp.touch("src/b/entry.rs");
+    temp.touch("src/c/mod.rs");
+
+    let file_root = element("App.B", &["src/b/entry.rs"]);
+    let dir_root = element("App.C", &["src/c/"]);
+    let others = [file_root, dir_root];
+
+    // ① `entry` 等于另一元素的 `path` 条目（文件型根）
+    let mut same_as_other_path = element("App.A", &["src/a/"]);
+    same_as_other_path.entry = Some("src/b/entry.rs".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), &others, &same_as_other_path),
+        EntryState::Invalid(EntryProblem::OutsidePath {
+            entry: "src/b/entry.rs".to_owned(),
+        }),
+        "A 的 entry 等于 B 的 path 条目 ⇒ OutsidePath（B 的根不是 A 的根）"
+    );
+
+    // ② `entry` 落在另一元素的目录型 `path` 之内
+    let mut inside_other_dir = element("App.A", &["src/a/"]);
+    inside_other_dir.entry = Some("src/c/mod.rs".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), &others, &inside_other_dir),
+        EntryState::Invalid(EntryProblem::OutsidePath {
+            entry: "src/c/mod.rs".to_owned(),
+        }),
+        "A 的 entry 落在 B 的目录型 path 之内 ⇒ OutsidePath（前缀匹配只对本元素生效）"
     );
 }
 
 /// 异常：`<dir>/lib.rs`（非 `src/lib.rs`）MUST NOT 在列——如实报无入口。
 #[test]
-fn entry_form排除目录内lib_rs() {
+fn entry_candidates排除目录内lib_rs() {
     let temp = TempDir::new("lib-rs-not-listed");
     temp.touch("crates/core/archi/lib.rs");
+    let element = element("App.Backend.Core.Archi", &["crates/core/archi/"]);
     assert_eq!(
-        entry_form(
-            temp.root(),
-            &element("App.Backend.Core.Archi", &["crates/core/archi/"])
-        ),
-        None,
+        entry_state(temp.root(), std::slice::from_ref(&element), &element),
+        EntryState::Absent,
         "crate 的 lib.rs 恒在 src/ 下；<dir>/lib.rs 不是入口"
     );
 }
 
-/// 异常（AC-7 基线 28 的成因）：`path` 指向不存在目录 / 目录内只有非入口名文件 /
-/// `path` 空 → 全 `None`。
+/// 异常（AC-4 基线的成因）：目录内只有非入口名文件 → 无入口。
 #[test]
-fn entry_form全不命中() {
+fn entry_state约定候选全不落盘() {
     let temp = TempDir::new("entry-none");
     temp.touch("src/views/x.ts");
-
+    let element = element("App.Frontend.Views", &["src/views/"]);
     assert_eq!(
-        entry_form(
+        entry_state(temp.root(), std::slice::from_ref(&element), &element),
+        EntryState::Absent,
+        "目录内只有 views/x.ts，四条约定候选皆不落盘"
+    );
+}
+
+/// 边界（AC-1 ④ / 三态封闭）：`Absent` 的三形态逐值可判——① 无声明且目录型根四条约定
+/// 候选全不落盘；② `path` 空（容器，零候选）；③ `path` 首条形态非法（`checked_root` 收
+/// 空 ⇒ 零候选）。**形态判据只看声明的 `entry`**，无声明即无 `Malformed`，故第三种成因
+/// 仍归 `Absent`（与 `Invalid` 可分辨，不是同一个含糊终态）。
+#[test]
+fn entry_state的三种缺席形态() {
+    let temp = TempDir::new("entry-absent-three");
+    temp.touch("src/views/x.ts");
+
+    // ① 目录型根：候选表恒四条，盘上一个都不在 → Absent
+    let no_default = element("App.Frontend.Views", &["src/views/"]);
+    assert_eq!(
+        entry_candidates(&no_default).len(),
+        4,
+        "目录型根恒四条约定候选"
+    );
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&no_default), &no_default),
+        EntryState::Absent,
+        "四候选全不落盘 → Absent"
+    );
+
+    // ② / ③ 零候选的两种成因：容器（`path` 空）与根形态非法
+    for (tag, raw) in [("path 空", None), ("根形态非法", Some("/abs/x"))] {
+        let target = match raw {
+            Some(raw) => element("App.Core.Bad", &[raw]),
+            None => element("App", &[]),
+        };
+        assert_eq!(
+            entry_candidates(&target),
+            Vec::<String>::new(),
+            "{tag} → 零候选"
+        );
+        assert_eq!(
+            entry_state(temp.root(), std::slice::from_ref(&target), &target),
+            EntryState::Absent,
+            "{tag} ⇒ Absent（无声明即无 Malformed，不进 Invalid）"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// entry_candidates：显式优先 / 非法声明原样返回 / 非源扩展名归目录型 / 零 IO
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-1 ①）：显式 `entry` 归一后是**唯一**候选——哪怕元素根是目录型，也不追加
+/// 任何约定形态候选。
+#[test]
+fn entry_candidates显式声明单候选优先() {
+    let mut declared = element("App.Frontend.Views.Welcome", &["views/"]);
+    declared.entry = Some("./views/welcome-view.tsx".to_owned());
+    assert_eq!(
+        entry_candidates(&declared),
+        vec!["views/welcome-view.tsx".to_owned()],
+        "显式声明归一后单候选（`./` 前缀剥除），不追加约定候选"
+    );
+    for default_candidate in [
+        "views/src/lib.rs",
+        "views/mod.rs",
+        "views/index.ts",
+        "views/index.tsx",
+    ] {
+        assert!(
+            !entry_candidates(&declared)
+                .iter()
+                .any(|candidate| candidate == default_candidate),
+            "显式声明后 MUST NOT 追加约定候选 {default_candidate}"
+        );
+    }
+}
+
+/// 边界：非源扩展名的根（`.py` / `.txt`）不按文件型根命中——白名单判据只有一份
+/// （`scan::is_source_file`），故一律归目录型根（四条约定候选）。
+#[test]
+fn entry_candidates非源扩展名根归目录型() {
+    for root in ["foo.py", "x.txt"] {
+        let expected: Vec<String> = ["src/lib.rs", "mod.rs", "index.ts", "index.tsx"]
+            .iter()
+            .map(|tail| format!("{root}/{tail}"))
+            .collect();
+        assert_eq!(
+            entry_candidates(&element("App.X", &[root])),
+            expected,
+            "非源扩展名根不按文件型根命中：{root}"
+        );
+    }
+}
+
+/// 边界：`path` 空 → 空表；根形态非法（绝对 / `..` / 盘符 / `~` / 空串 / 空段）→
+/// 空表——候选派生与 `checked_root` 同口径，非法形态不产出可穿越候选。
+#[test]
+fn entry_candidates空表与非法根形态() {
+    assert_eq!(
+        entry_candidates(&element("App", &[])),
+        Vec::<String>::new(),
+        "容器元素零候选"
+    );
+    for raw in ["/abs/x", "../x", r"C:\x", "~/x", "", "a//b"] {
+        assert_eq!(
+            entry_candidates(&element("App.X", &[raw])),
+            Vec::<String>::new(),
+            "非法根形态零候选：{raw:?}"
+        );
+    }
+}
+
+/// 异常：非法显式声明**原样**进候选表（不滤空、不 panic）——形态判定归 `entry_state`，
+/// 这里滤掉就分不清「声明非法」与「没有声明」。
+#[test]
+fn entry_candidates非法声明原样返回() {
+    let long = format!("views/{}.tsx", "a".repeat(1100));
+    let special = "views/🎯\n模块.tsx";
+    for raw in ["/abs/x.rs", "", long.as_str(), special] {
+        let mut declared = element("App.X", &["views/"]);
+        declared.entry = Some(raw.to_owned());
+        assert_eq!(
+            entry_candidates(&declared),
+            vec![raw.to_owned()],
+            "非法声明逐字返回（不做校验）：{raw:?}"
+        );
+    }
+}
+
+/// 边界（AC-1「候选派生零 IO」行为面）：候选文件全不在盘的临时目录下仍返回完整文本
+/// 候选，且派生前后盘面零变化（不建目录、不落文件、不探测）。
+#[test]
+fn entry_candidates零io候选派生不触盘() {
+    let temp = TempDir::new("candidates-zero-io");
+    let element = element("App.Backend.Core.Archi", &["crates/core/archi"]);
+    let before = tree_listing(temp.root());
+
+    let candidates = entry_candidates(&element);
+    let again = entry_candidates(&element);
+
+    assert_eq!(candidates, again, "两次派生逐字相等（纯文本）");
+    assert_eq!(candidates.len(), 4, "候选表恒四条，与盘面无关");
+    for candidate in &candidates {
+        assert!(
+            !temp.root().join(candidate).exists(),
+            "候选文件全不在盘：{candidate}"
+        );
+    }
+    assert_eq!(
+        tree_listing(temp.root()),
+        before,
+        "派生前后盘面零变化（零 IO）"
+    );
+}
+
+/// 边界（AC-1「候选派生零 IO」源码自证）：`paths.rs` 的全部 `is_file(` 代码命中都落在
+/// `entry_state` 体内；`entry_candidates` 的函数体内零 `is_file(` / 零 `fs::`。
+#[test]
+fn 候选派生零io源码自证() {
+    let source = include_str!("paths.rs");
+    let code: Vec<&str> = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect();
+    let position_of = |needle: &str| {
+        code.iter()
+            .position(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("源码缺 {needle:?}"))
+    };
+
+    let candidates_at = position_of("pub fn entry_candidates(");
+    let state_at = position_of("pub fn entry_state(");
+    assert!(candidates_at < state_at, "解析链两个出口的定义序");
+
+    let probes: Vec<usize> = code
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.contains("is_file("))
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(probes.len(), 2, "全部 `is_file(` 代码命中：{probes:?}");
+    assert!(
+        probes.iter().all(|index| *index > state_at),
+        "读盘只发生在 `entry_state` 体内（候选派生零 IO）：{probes:?}"
+    );
+
+    let body = &code[candidates_at..state_at];
+    assert!(
+        !body.iter().any(|line| line.contains("is_file(")),
+        "`entry_candidates` 函数体内零 `is_file(`"
+    );
+    assert!(
+        !body.iter().any(|line| line.contains("fs::")),
+        "`entry_candidates` 函数体内零 `fs::`"
+    );
+}
+
+/// 正向（AC-1 ② / 形态位派生优先级）：显式 `entry` 落盘且等于元素根 → `SingleFile`；
+/// 文件型根 `crates/x/src/lib.rs` 同样先命中「入口 == 根」判据（`src/lib.rs` 收尾判据
+/// 不会把它误判成 `Crate`）。
+#[test]
+fn entry_state显式等于根即单文件形态() {
+    let temp = TempDir::new("entry-single-file");
+    temp.touch("views/welcome-view.tsx");
+    let mut single = element("App.Frontend.Views.Welcome", &["views/welcome-view.tsx"]);
+    single.entry = Some("views/welcome-view.tsx".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&single), &single),
+        EntryState::Resolved {
+            form: EntryForm::SingleFile,
+            entry: "views/welcome-view.tsx".to_owned(),
+        },
+        "显式 entry 命中且等于根 → SingleFile"
+    );
+
+    temp.touch("crates/x/src/lib.rs");
+    let mut crate_file_root = element("App.Core.X", &["crates/x/src/lib.rs"]);
+    crate_file_root.entry = Some("crates/x/src/lib.rs".to_owned());
+    assert_eq!(
+        entry_state(
             temp.root(),
-            &element("App.Frontend.Views.Missing", &["src/views/missing/"])
+            std::slice::from_ref(&crate_file_root),
+            &crate_file_root
         ),
-        None,
-        "目录不存在 → 无入口"
-    );
-    assert_eq!(
-        entry_form(temp.root(), &element("App.Frontend.Views", &["src/views/"])),
-        None,
-        "目录内只有 views/x.ts，不是 views 的入口"
-    );
-    assert_eq!(
-        entry_form(temp.root(), &element("App", &[])),
-        None,
-        "容器元素无入口"
+        EntryState::Resolved {
+            form: EntryForm::SingleFile,
+            entry: "crates/x/src/lib.rs".to_owned(),
+        },
+        "等值判据先于 `src/lib.rs` 收尾判据（形态位不反推入口）"
     );
 }
 
-// ---------------------------------------------------------------------------
-// mod_path_attr / ts_import_specifier：值单点产出
-// ---------------------------------------------------------------------------
-
-/// 正向（AC-4 / D5）：三形态值逐字相等，且解析后指向**根同级**生成物；手写
-/// 「入口同级」（`../archi.i.rs`）会错位到 `<dir>/archi.i.rs`（两值不相等）。
+/// 正向：多文件根只取 `path.first()`（`<root>` 仍是首条）；显式声明优先于同目录的
+/// 约定候选。
 #[test]
-fn mod_path_attr三形态与根同级自证() {
-    assert_eq!(mod_path_attr(EntryForm::Crate, "archi"), "../../archi.i.rs");
-    assert_eq!(
-        mod_path_attr(EntryForm::SubdirModule, "archi"),
-        "../archi.i.rs"
+fn entry_state多文件根与显式优先() {
+    let temp = TempDir::new("entry-multi-root");
+    temp.touch("app.tsx");
+    let multi = element(
+        "App.Frontend.App",
+        &["app.tsx", "app/main.tsx", "app/index.ts", "app/index.tsx"],
     );
-    assert_eq!(mod_path_attr(EntryForm::SingleFile, "archi"), "archi.i.rs");
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&multi), &multi),
+        EntryState::Resolved {
+            form: EntryForm::SingleFile,
+            entry: "app.tsx".to_owned(),
+        },
+        "多文件根取 `path.first()`，且不拼 `index.ts(x)`"
+    );
 
+    temp.touch("crates/x/src/lib.rs");
+    temp.touch("crates/x/mod.rs");
+    let mut declared = element("App.Core.X", &["crates/x/"]);
+    declared.entry = Some("crates/x/mod.rs".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&declared), &declared),
+        EntryState::Resolved {
+            form: EntryForm::SubdirModule,
+            entry: "crates/x/mod.rs".to_owned(),
+        },
+        "显式优先：同目录 `src/lib.rs` 在盘也不改选约定候选"
+    );
+}
+
+/// 正向（顺序封闭四形态各自独立可取）：只落 `src/lib.rs` / `mod.rs` / `index.ts` /
+/// `index.tsx` 之一时，各自独立命中，形态位按入口与根的关系分列。
+#[test]
+fn entry_state四种约定形态独立命中() {
+    let temp = TempDir::new("entry-four-defaults");
+    let cases: [(&str, &str, EntryForm); 4] = [
+        ("src/a/", "src/a/src/lib.rs", EntryForm::Crate),
+        ("src/b/", "src/b/mod.rs", EntryForm::SubdirModule),
+        ("src/c/", "src/c/index.ts", EntryForm::SubdirModule),
+        ("src/d/", "src/d/index.tsx", EntryForm::SubdirModule),
+    ];
+    for (root, entry, form) in cases {
+        temp.touch(entry);
+        let element = element("App.Core.Probe", &[root]);
+        assert_eq!(
+            entry_state(temp.root(), std::slice::from_ref(&element), &element),
+            EntryState::Resolved {
+                form,
+                entry: entry.to_owned(),
+            },
+            "只落 {entry} 时独立命中（入口是全串，不是主干 / 形态名）"
+        );
+    }
+}
+
+/// 异常（唯一判据的三条边）：单元素声明同一入口**不**假阳；同一目录型根下
+/// `src/lib.rs` 与 `mod.rs` 同时在盘时显式声明后者被判 `Duplicated`（保守近似，只多报
+/// 不瞒报）；另一元素的候选未落盘也参与候选交集（判据是候选文本交集，零递归读盘）。
+#[test]
+fn entry_state唯一判据不假阳与保守近似() {
+    let temp = TempDir::new("entry-dup-edges");
+    temp.touch("crates/solo/src/lib.rs");
+    let mut solo = element("App.Core.Solo", &["crates/solo/"]);
+    solo.entry = Some("crates/solo/src/lib.rs".to_owned());
+    assert_eq!(
+        entry_state(temp.root(), std::slice::from_ref(&solo), &solo),
+        EntryState::Resolved {
+            form: EntryForm::Crate,
+            entry: "crates/solo/src/lib.rs".to_owned(),
+        },
+        "同一入口只被一个元素声明 → Resolved（唯一判据不假阳）"
+    );
+
+    temp.touch("crates/pair/src/lib.rs");
+    temp.touch("crates/pair/mod.rs");
+    let dir_root = element("App.Core.Pair", &["crates/pair/"]);
+    let mut declared = element("App.Core.PairMod", &["crates/pair/"]);
+    declared.entry = Some("crates/pair/mod.rs".to_owned());
+    let pair = [dir_root.clone(), declared.clone()];
+    assert_eq!(
+        entry_state(temp.root(), &pair, &declared),
+        EntryState::Invalid(EntryProblem::Duplicated {
+            entry: "crates/pair/mod.rs".to_owned(),
+            other_fqn: "App.Core.Pair".to_owned(),
+        }),
+        "同一目录型根下两种约定形态同时在盘 ⇒ 声明后者被判冲突（保守近似）"
+    );
+    assert_eq!(
+        entry_state(temp.root(), &pair, &dir_root),
+        EntryState::Resolved {
+            form: EntryForm::Crate,
+            entry: "crates/pair/src/lib.rs".to_owned(),
+        },
+        "目录型根自身仍按序取 `src/lib.rs`（多报只发生在声明方）"
+    );
+
+    // 候选交集判据不递归读对方元素的盘面：对方元素的入口候选是纯文本
+    let ghost = element("App.Core.Ghost", &["crates/ghost/"]);
+    let mut ghost_declared = element("App.Core.GhostEntry", &["crates/ghost/"]);
+    ghost_declared.entry = Some("crates/ghost/src/lib.rs".to_owned());
+    temp.touch("crates/ghost/src/lib.rs");
+    let ghosts = [ghost.clone(), ghost_declared.clone()];
+    for element in [&ghost, &ghost_declared] {
+        match entry_state(temp.root(), &ghosts, element) {
+            EntryState::Invalid(EntryProblem::Duplicated { entry, other_fqn }) => {
+                assert_eq!(entry, "crates/ghost/src/lib.rs");
+                let expected = if element.fqn == ghost.fqn {
+                    ghost_declared.fqn.as_str()
+                } else {
+                    ghost.fqn.as_str()
+                };
+                assert_eq!(other_fqn, expected, "双方各点名冲突方");
+            }
+            other => panic!("同一入口的两个候选来源应判 Duplicated，实际：{other:?}"),
+        }
+    }
+}
+
+/// 边界：`EntryState` / `EntryProblem` 的派生相等语义——三态互不相等、四变体互不相等、
+/// 载荷逐字段参与比较（`entry` 是归一后原文、`other_fqn` 是冲突方）。
+#[test]
+fn entry_state与problem逐值可对拍() {
     let entry = "crates/infra/archi/src/lib.rs";
-    let entry_dir = entry
-        .rsplit_once('/')
-        .map(|(parent, _)| parent)
-        .expect("入口目录");
-    let correct = lexical_normalize(&format!(
-        "{entry_dir}/{}",
-        mod_path_attr(EntryForm::Crate, "archi")
-    ));
-    assert_eq!(correct, "crates/infra/archi.i.rs", "解析后落在根同级");
+    let resolved = EntryState::Resolved {
+        form: EntryForm::Crate,
+        entry: entry.to_owned(),
+    };
+    let problems = [
+        EntryProblem::Malformed {
+            entry: entry.to_owned(),
+        },
+        EntryProblem::OutsidePath {
+            entry: entry.to_owned(),
+        },
+        EntryProblem::NotOnDisk {
+            entry: entry.to_owned(),
+        },
+        EntryProblem::Duplicated {
+            entry: entry.to_owned(),
+            other_fqn: "App.Backend.Infra.Other".to_owned(),
+        },
+    ];
 
-    let wrong = lexical_normalize(&format!(
-        "{entry_dir}/{}",
-        mod_path_attr(EntryForm::SubdirModule, "archi")
-    ));
-    assert_eq!(
-        wrong, "crates/infra/archi/archi.i.rs",
-        "手写「入口同级」错位到目录内"
+    assert_ne!(resolved, EntryState::Absent, "三态互不相等");
+    for problem in &problems {
+        let invalid = EntryState::Invalid(problem.clone());
+        assert_ne!(resolved, invalid, "Resolved ≠ Invalid（{problem:?}）");
+        assert_ne!(
+            EntryState::Absent,
+            invalid,
+            "Absent ≠ Invalid（{problem:?}）"
+        );
+        assert_eq!(invalid, EntryState::Invalid(problem.clone()), "同值可对拍");
+    }
+    for (index, left) in problems.iter().enumerate() {
+        for right in &problems[index + 1..] {
+            assert_ne!(left, right, "四变体互不相等（同载荷也须可分辨）");
+        }
+    }
+    assert_ne!(
+        problems[3],
+        EntryProblem::Duplicated {
+            entry: entry.to_owned(),
+            other_fqn: "App.Backend.Infra.Third".to_owned(),
+        },
+        "`other_fqn` 参与相等语义"
     );
-    assert_ne!(correct, wrong, "两值 MUST NOT 相等（手算层数是禁用面）");
+    assert_ne!(
+        problems[0],
+        EntryProblem::Malformed {
+            entry: "crates/infra/archi".to_owned(),
+        },
+        "`entry` 参与相等语义"
+    );
 }
 
-/// 边界（D38）：`#[path]` 的值是**字面量**，等值真值源是 `mod_path_attr`——对已编排入口
-/// `crates/infra/archi/src/lib.rs`，其 `#[path = "…"]` 的字面量逐字等于
-/// `mod_path_attr(EntryForm::Crate, "archi")` 的输出；且该函数在产品 `.rs` 内**零调用
-/// 者**（`lib.rs` 的注释只写「字面量与函数输出等值」，不写「由该函数产出」）。
+// ---------------------------------------------------------------------------
+// 落点（入口同级）与 `#[path]` 值退化为文件名
+// ---------------------------------------------------------------------------
+
+/// 正向（D6）：crate / 子目录模块 / 文件型根三形态的落点均为 `<入口主干>.i.<后缀>`，
+/// 与入口同目录；`<入口主干>` 不是元素根末段。
 #[test]
-fn mod_path_attr被入口行等值消费() {
+fn generated_path落入口同级三形态() {
+    let root = Path::new("/ws");
+    for (entry, kind, expected) in [
+        (
+            "crates/infra/archi/src/lib.rs",
+            GeneratedKind::Rust,
+            "crates/infra/archi/src/lib.i.rs",
+        ),
+        (
+            "crates/core/archi/src/scan/mod.rs",
+            GeneratedKind::Rust,
+            "crates/core/archi/src/scan/mod.i.rs",
+        ),
+        (
+            "views/welcome-view.tsx",
+            GeneratedKind::TypeScript,
+            "views/welcome-view.i.ts",
+        ),
+        (
+            "views/architecture/index.ts",
+            GeneratedKind::TypeScript,
+            "views/architecture/index.i.ts",
+        ),
+    ] {
+        let derived = generated_path(root, entry, kind).expect("形态合法");
+        assert_eq!(
+            derived,
+            root.join(expected),
+            "落点 = <入口主干>.i.<后缀>（入口同级）"
+        );
+        assert!(
+            dot_segments(&derived).is_empty(),
+            "落点零 `..` 段（入口同级后不再手算层数）"
+        );
+    }
+
+    // 入口无目录段：落仓根（主干不丢文件名）
+    assert_eq!(
+        generated_path(root, "lib.rs", GeneratedKind::Rust),
+        Some(root.join("lib.i.rs")),
+        "无目录段时目录为空"
+    );
+}
+
+/// 边界（AC-3）：`#[path]` 的值是**字面量**，等值真值源退化为 `generated_path` 的
+/// 文件名——对已编排入口 `crates/infra/archi/src/lib.rs`，入口行字面量逐字等于
+/// `generated_path(entry).file_name()`，且恒无 `../`；`mod_path_attr` 已删，产品 `.rs`
+/// 内零命中。
+#[test]
+fn 入口行字面量等于生成物文件名() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // crates/core/archi → crates/core → crates → src-tauri
+    let mut src_tauri = manifest.clone();
+    for _ in 0..3 {
+        src_tauri.pop();
+    }
+    let lib_rs = src_tauri.join("crates/infra/archi/src/lib.rs");
+    let source = fs::read_to_string(&lib_rs).expect("入口编排文件在案");
+    let attribute = source
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("#[path = \""))
+        .and_then(|tail| tail.strip_suffix("\"]"))
+        .expect("入口行含 `#[path = \"…\"]` 字面量");
+
+    let expected = generated_path(
+        Path::new("/ws"),
+        "crates/infra/archi/src/lib.rs",
+        GeneratedKind::Rust,
+    )
+    .and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    })
+    .expect("生成物路径可派生");
+    assert_eq!(attribute, expected, "字面量 == generated_path 的文件名");
+    assert!(
+        !attribute.contains('/') && !attribute.contains(".."),
+        "值恒为文件名（零 `../`、零目录段）：{attribute}"
+    );
+
+    // 旧名零残留：`mod_path_attr(` 在产品 `.rs` 内零命中（函数已删）
+    let mut hits: Vec<(String, String)> = Vec::new();
+    scan_product_rs(&src_tauri.join("crates"), &mut hits);
+    scan_product_rs(&src_tauri.join("src"), &mut hits);
+    let calls: Vec<&(String, String)> = hits
+        .iter()
+        .filter(|(_, line)| !line.trim_start().starts_with("//") && line.contains("mod_path_attr("))
+        .collect();
+    assert!(
+        calls.is_empty(),
+        "`mod_path_attr` 已删（入口同级后属性值恒为文件名）：{calls:?}"
+    );
+}
+
+/// 边界（AC-3 机械面）：入口行上方注释与真实落点一致——零「与 `mod_path_attr` 输出
+/// 等值」与「`mod_path_attr` 零产品调用者」两句旧表述，且点名「入口同级」
+/// 「（值）恒为文件名」两条新纪律（注释改口是落点迁移的记账面，不能停在旧句上）。
+#[test]
+fn 入口行注释与入口同级落点一致() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // crates/core/archi → crates/core → crates → src-tauri
     let mut src_tauri = manifest.clone();
@@ -610,50 +1372,69 @@ fn mod_path_attr被入口行等值消费() {
     let lib_rs = src_tauri.join("crates/infra/archi/src/lib.rs");
     let source = fs::read_to_string(&lib_rs).expect("入口编排文件在案");
 
-    let attribute = source
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("#[path = \""))
-        .and_then(|tail| tail.strip_suffix("\"]"))
-        .expect("入口行含 `#[path = \"…\"]` 字面量");
-    assert_eq!(
-        attribute,
-        mod_path_attr(EntryForm::Crate, "archi"),
-        "入口行的字面量与单点函数输出逐字相等（D38 等值真值源）"
-    );
-
-    // 零产品调用者：`mod_path_attr(` 在产品 `.rs` 内只出现在定义行与注释引用行
-    let mut hits: Vec<(String, String)> = Vec::new();
-    scan_product_rs(&src_tauri.join("crates"), &mut hits);
-    scan_product_rs(&src_tauri.join("src"), &mut hits);
-    let product_calls: Vec<&(String, String)> = hits
+    let lines: Vec<&str> = source.lines().collect();
+    let attribute_at = lines
         .iter()
-        .filter(|(path, line)| {
-            !path.ends_with("api/paths.rs")
-                && !line.trim_start().starts_with("//")
-                && line.contains("mod_path_attr(")
-        })
+        .position(|line| line.trim_start().starts_with("#[path = \""))
+        .expect("入口行含 `#[path = \"…\"]` 字面量");
+    let mut comment: Vec<&str> = lines[..attribute_at]
+        .iter()
+        .rev()
+        .take_while(|line| line.trim_start().starts_with("//"))
+        .map(|line| line.trim_start().trim_start_matches("//").trim())
         .collect();
+    comment.reverse();
+    let text = comment.join("\n");
+    assert!(!text.is_empty(), "入口行上方有紧邻注释块");
 
+    for stale in ["输出等值", "零产品调用者", "mod_path_attr"] {
+        assert!(
+            !text.contains(stale),
+            "入口行注释零旧句 `{stale}`（等值真值源已退化为 `generated_path`）：
+{text}"
+        );
+    }
+    for current in ["入口同级", "恒为文件名"] {
+        assert!(
+            text.contains(current),
+            "入口行注释点到 `{current}`：
+{text}"
+        );
+    }
     assert!(
-        product_calls.is_empty(),
-        "`mod_path_attr` 零产品调用者（D38 显式形态，不是缺陷）：{product_calls:?}"
-    );
-    assert!(
-        !source.contains("由该函数产出"),
-        "入口注释 MUST NOT 写「由该函数产出」（只可写「字面量 + 与函数输出等值」）"
+        !source.contains("mod_path_attr"),
+        "整文件零 `mod_path_attr` 词形（函数已删、注释同批改述）"
     );
 }
 
-/// 正向：TS import specifier 两形态——目录形态 `../<name>.i`、单文件形态
-/// `./<name>.i`（零 `../`）。
+/// 正向：TS import specifier 三形态逐值——目录形态 `../<name>.i`（`Crate` / `SubdirModule`
+/// 同值）、单文件形态 `./<name>.i`（零 `../`）；doc 明确标注本期未接线，当前输出 MUST NOT
+/// 被当作既有真值（R-7）。
 #[test]
-fn ts_import_specifier两形态() {
+fn ts_import_specifier三形态() {
     assert_eq!(ts_import_specifier(EntryForm::Crate, "archi"), "../archi.i");
     assert_eq!(
         ts_import_specifier(EntryForm::SubdirModule, "archi"),
         "../archi.i"
     );
     assert_eq!(ts_import_specifier(EntryForm::SingleFile, "app"), "./app.i");
+
+    // 形态位取自 `entry_state` 的 `Resolved`（文件型根 → `SingleFile` ⇒ 同目录 specifier）
+    assert_eq!(
+        ts_import_specifier(EntryForm::SingleFile, "welcome-view.tsx"),
+        "./welcome-view.tsx.i",
+        "文件型根的 specifier 是同目录形态（旧 `../` 断言已按新形态位改写）"
+    );
+
+    let source = include_str!("paths.rs");
+    assert!(
+        source.contains("待接线留白"),
+        "doc 标注「本期未接线」（当前输出 MUST NOT 当既有真值）"
+    );
+    assert!(
+        source.contains("入口同级规则"),
+        "doc 点名入口同级规则归前端契约变更"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,8 +1839,8 @@ fn 形态判据三单点各一处定义() {
         );
     }
 
-    // 四类派生函数的形态校验只经三处：`contract_path` / `schema_path` 各调 `is_fqn`
-    // 一次（共 2），`generated_path` 调 `checked_root`、`entry_form` 调 `checked_root`
+    // 形态校验只经三处：`contract_path` / `schema_path` 各调 `is_fqn` 一次（共 2）；
+    // `checked_root` 定义 1 + 三个消费面（`generated_path` / `entry_candidates` / `form_of`）
     assert_eq!(
         source.matches("!is_fqn(").count(),
         2,
@@ -1067,14 +1848,15 @@ fn 形态判据三单点各一处定义() {
     );
     assert_eq!(
         source.matches("checked_root(").count(),
-        3,
-        "`checked_root` 定义 1 + 两个消费面（`generated_path` / `entry_form`）"
+        4,
+        "`checked_root` 定义 1 + 三个消费面（`generated_path` / `entry_candidates` / `form_of`）"
     );
-    // `is_repo_relative` 只被 `checked_root` 消费（定义 1 + 调用 1）
+    // `is_repo_relative` 只被 `checked_root` 与入口判据消费：定义 1 + `checked_root` 1
+    // + 基准 / 落位两条判据各 1
     assert_eq!(
         source.matches("is_repo_relative(").count(),
-        2,
-        "`is_repo_relative` 只经 `checked_root` 一处消费（零第二份判据）"
+        4,
+        "`is_repo_relative` 无第二份实现（定义 1 + 三处判据消费）"
     );
 }
 
@@ -1220,12 +2002,9 @@ fn module_refs的rust分支筛选() {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
 
-    // D：TS 消费方（元素根本身带 `.tsx`，目录形态入口 `<root>/index.ts`）
+    // D：TS 消费方（元素根本身带 `.tsx` ⇒ 文件型根，入口 = 根文件自身）
     temp.write_contract(ts_consumer, &reexports(ts_consumer));
-    temp.write(
-        "views/architecture.tsx/index.ts",
-        "export const architecture = 1;\n",
-    );
+    temp.write("views/architecture.tsx", "export const architecture = 1;\n");
 
     // B：被透传的 TS 元素（同一个带扩展名的元素根，也有自己的入口 → 自带 `.i.ts`）
     temp.write_contract(
@@ -1233,10 +2012,7 @@ fn module_refs的rust分支筛选() {
         "# App.Frontend.Views.Welcome\n\n## 职能\n\n正文。\n\n\
          ```json api-types\n{\"Item\": {\"type\": \"object\", \"properties\": {}}}\n```\n",
     );
-    temp.write(
-        "views/welcome-view.tsx/index.ts",
-        "export interface Item {}\n",
-    );
+    temp.write("views/welcome-view.tsx", "export interface Item {}\n");
 
     let elements = [
         element(rust_consumer, &["crates/infra/archi/"]),
@@ -1249,8 +2025,12 @@ fn module_refs的rust分支筛选() {
     let files = render_all(temp.root(), &snapshot).expect("渲染应成功");
 
     // Rust 侧（A 的 `.i.rs`）：两目标都不入表 ⇒ 只出注释、零 `pub use`
-    let rust_path =
-        generated_path(temp.root(), "crates/infra/archi/", GeneratedKind::Rust).expect("Rust 路径");
+    let rust_path = generated_path(
+        temp.root(),
+        "crates/infra/archi/src/lib.rs",
+        GeneratedKind::Rust,
+    )
+    .expect("Rust 路径");
     let rust_file = files
         .iter()
         .find(|file| file.path == rust_path)
@@ -1291,8 +2071,9 @@ fn module_refs的rust分支筛选() {
         .iter()
         .find(|file| file.path == ts_path)
         .expect("D 的 .i.ts 在案");
-    let expected = ts_import_specifier(EntryForm::SubdirModule, "welcome-view.tsx");
-    assert_eq!(expected, "../welcome-view.tsx.i");
+    // D 是文件型根 ⇒ 形态位 `SingleFile`（同目录 specifier）
+    let expected = ts_import_specifier(EntryForm::SingleFile, "welcome-view.tsx");
+    assert_eq!(expected, "./welcome-view.tsx.i");
     assert!(
         ts_file.content.contains(&format!("from '{expected}'")),
         "TS 侧零筛选（带扩展名的 specifier 合法且必需）：\n{}",
@@ -1309,6 +2090,21 @@ fn module_refs的rust分支筛选() {
         !ts_file.content.contains("Empty }"),
         "空末段目标零 specifier：\n{}",
         ts_file.content
+    );
+
+    // 语料落盘形态已改写：文件型根的入口是**根文件本身**，故被透传的 B 自己也产
+    // `.i.ts`（旧 `views/welcome-view.tsx/index.ts` 目录形态在新链下是 `NotOnDisk`）
+    let dotted_generated = generated_path(temp.root(), dotted_root, GeneratedKind::TypeScript)
+        .expect("文件型根的入口形态合法");
+    assert_eq!(
+        dotted_generated,
+        temp.root().join("views/welcome-view.i.ts"),
+        "B 的落点与入口同级（根文件的兄弟文件）"
+    );
+    assert!(
+        files.iter().any(|file| file.path == dotted_generated),
+        "被透传的单文件根元素自身产 `.i.ts`：{:?}",
+        files.iter().map(|file| &file.path).collect::<Vec<_>>()
     );
 
     // 形态闸单点在装配点：`is_module_segment(` 在产品侧只被 `api::module_refs` 消费

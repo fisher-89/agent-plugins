@@ -19,6 +19,7 @@ fn element(fqn: &str) -> Element {
         kind: ElementKind::Module,
         gate: GateTier::Off,
         api: ApiStatus::Declared,
+        entry: None,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,
@@ -567,4 +568,34 @@ fn 特殊字符fqn在诊断消息中逐字保留() {
         "环路径逐字: {}",
         diagnostics[0].message
     );
+}
+
+/// 边界（`entry` 零敏感面）：两元素仅 `entry` 不同（含 `"/abs/x.rs"` 这类非法值）→
+/// 结构诊断集合逐值相同——`entry` 违反判据走 `apiFindings`，不进九值结构诊断。
+#[test]
+fn 结构诊断面对entry零敏感() {
+    let render = |entry: Option<&str>| {
+        let mut auth = element("App.Auth");
+        auth.entry = entry.map(str::to_owned);
+        let model = Model {
+            elements: vec![element("App"), auth],
+            relations: Vec::new(),
+        };
+        ModelGraph::build(model).diagnostics()
+    };
+
+    let plain = render(None);
+    assert!(plain.is_empty(), "健康模型零诊断：{plain:?}");
+    for entry in [
+        "packages/desktop/src/auth/token.ts",
+        "/abs/x.rs",
+        "",
+        "src/🎯.ts",
+    ] {
+        assert_eq!(
+            render(Some(entry)),
+            plain,
+            "`entry` 值 {entry:?} 不进结构诊断（违反判据归 `apiFindings`）"
+        );
+    }
 }

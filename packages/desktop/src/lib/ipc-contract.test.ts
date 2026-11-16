@@ -5,6 +5,7 @@ import { ZodObject, ZodType, type z } from 'zod';
 import {
   type AgentEngineKind,
   type AgentEvent,
+  type ArchiElement,
   type AgentPermissionMode,
   type AgentProviderProtocol,
   type AgentRunMessage,
@@ -21,6 +22,9 @@ import {
   commands,
 } from '../types/generated/bindings';
 import {
+  ArchiElementSchema,
+  ArchiGraphSchema,
+  ArchiModuleDetailSchema,
   type DirNodeSchema,
   TreeEntrySchema,
   argsSchemas,
@@ -730,5 +734,65 @@ describe('通用读命令：readFile 类型面与空态可分辨', () => {
     // 游标与 stat 数值字段的 number 口径
     expectTypeOf<NonNullable<FileSlice>['nextOffset']>().toEqualTypeOf<number>();
     expectTypeOf<NonNullable<FileSlice>['stat']['size']>().toEqualTypeOf<number>();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `ArchiElement.entry` 出线形态（模型 `entry` 指针的投影拷贝）
+//
+// 类型主权在 `bindings.ts`（生成物），schema 与类型同源由本组逐面钉住：键存在、
+// 类型为 `string | null`、两态均可解析、`strictObject` 的严格性不因新增字段放宽。
+// ---------------------------------------------------------------------------
+
+/** 一份最小的合法 `ArchiElement`（`entry` 由各用例按需覆盖）。 */
+function archiElement(overrides: Partial<ArchiElement> = {}): ArchiElement {
+  return {
+    fqn: 'App.Auth',
+    kind: 'domain',
+    gate: 'warn',
+    path: ['packages/desktop/src/auth'],
+    summary: null,
+    metadata: {},
+    modelFile: '.dev-team/architecture/models/01-core.toml',
+    modelLine: 1,
+    mark: 'none',
+    api: 'declared',
+    entry: null,
+    ...overrides,
+  };
+}
+
+describe('ArchiElement.entry 出线形态', () => {
+  it('类型面：entry 为 string | null（类型与 schema 两端同源）', () => {
+    expectTypeOf<ArchiElement['entry']>().toEqualTypeOf<string | null>();
+    expectTypeOf<z.infer<typeof ArchiElementSchema>['entry']>().toEqualTypeOf<string | null>();
+    expectTypeOf<
+      MutualAssignable<ArchiElement, z.infer<typeof ArchiElementSchema>>
+    >().toEqualTypeOf<true>();
+  });
+
+  it('schema 面：shape 含 entry 键且两态（null / repo 相对串）均可解析', () => {
+    expect(Object.keys(ArchiElementSchema.shape)).toContain('entry');
+
+    for (const entry of [null, 'packages/desktop/src-tauri/src/lib.rs']) {
+      const parsed = ArchiElementSchema.parse(archiElement({ entry }));
+      expect(parsed.entry).toBe(entry);
+    }
+  });
+
+  it('schema 单实例：Graph 的 elements 与 ModuleDetail 的 element 引用同一个 ArchiElementSchema', () => {
+    expect(ArchiGraphSchema.shape.elements.element).toBe(ArchiElementSchema);
+    expect(ArchiModuleDetailSchema.shape.element).toBe(ArchiElementSchema);
+  });
+
+  it('严格性：缺 entry 键与多余字段（entryPath）都被 strictObject 拒', () => {
+    const { entry, ...withoutEntry } = archiElement();
+    expect(entry).toBeNull();
+    expect(ArchiElementSchema.safeParse(withoutEntry).success).toBe(false);
+    expect(
+      ArchiElementSchema.safeParse({ ...archiElement(), entryPath: 'src/lib.rs' }).success,
+    ).toBe(false);
+    // 多余键的反例只针对新增字段面：合法对象仍可解析
+    expect(ArchiElementSchema.safeParse(archiElement()).success).toBe(true);
   });
 });

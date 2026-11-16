@@ -541,6 +541,7 @@ fn api_status线词与投影串对拍() {
             kind: ElementKind::Module,
             gate: GateTier::Warn,
             api: status,
+            entry: None,
             path: vec!["src/mod/".to_owned()],
             summary: None,
             metadata: std::collections::BTreeMap::new(),
@@ -669,6 +670,51 @@ fn api_status缺省与线形封闭() {
         assert!(
             serde_json::from_value::<ApiStatus>(serde_json::json!(word)).is_err(),
             "词汇外形态 MUST 反序列化失败：{word:?}"
+        );
+    }
+}
+
+/// 异常（封闭性 / `entry` 的开放值域）：`entry` 的值域是**开放集**（任意 repo 相对
+/// 路径），故它不派生任何词表——四面 `ALL` 的线词集合里零 `entry` 字样，且
+/// `DiagnosticKind` 仍九值、`ArchiApiFindingKind` 仍十值（入口四条判据同报一个 kind）。
+#[test]
+fn entry不派生词表且四面封闭() {
+    assert_eq!(
+        archi::dto::ElementKind::ALL.len(),
+        4,
+        "元素 kind 四面之一仍封闭四值"
+    );
+    assert_eq!(archi::dto::GateTier::ALL.len(), 3, "gate 封闭三值");
+    assert_eq!(
+        archi::dto::DiagnosticKind::ALL.len(),
+        9,
+        "结构诊断仍九值（`entry` 违反判据 MUST NOT 扩成第十类诊断）"
+    );
+    assert_eq!(
+        archi::drift::report::ArchiApiFindingKind::ALL.len(),
+        10,
+        "契约判据仍十值（四条入口理由同报 `apiEntryMissing`）"
+    );
+
+    let words: Vec<&str> = archi::dto::ElementKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .chain(archi::dto::GateTier::ALL.iter().map(|gate| gate.as_str()))
+        .chain(
+            archi::dto::DiagnosticKind::ALL
+                .iter()
+                .map(|diagnostic| diagnostic.as_str()),
+        )
+        .chain(
+            archi::dto::ApiStatus::ALL
+                .iter()
+                .map(|status| status.as_str()),
+        )
+        .collect();
+    for word in &words {
+        assert_ne!(
+            *word, "entry",
+            "`entry` 不是词表值（开放值域不进封闭集）：{words:?}"
         );
     }
 }

@@ -362,7 +362,8 @@ pub struct ArchiApiRef {
     pub contract_path: Option<String>,
     /// schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径
     pub schema_path: Option<String>,
-    /// 元素生成物（`<root>.i.rs` / `<root>.i.ts`）的 repo 相对路径
+    /// 元素生成物（实现入口同级的 `<入口主干>.i.rs` / `<入口主干>.i.ts`）的 repo 相对
+    /// 路径；无可用入口（`Absent` / `Invalid`）⇒ `null`
     pub generated_path: Option<String>,
 }
 
@@ -476,6 +477,9 @@ pub struct ArchiElement {
     pub mark: NodeMark,
     /// 契约状态指针（模型字段的拷贝；协议正文不进模型）
     pub api: ApiStatus,
+    /// 实现入口指针（模型字段的拷贝；线格式 `entry`，缺省 `null`，**显式字段不省略**
+    /// ——与「投影不补默认值」同款）
+    pub entry: Option<String>,
 }
 
 /// 关系投影（`reason` 本期恒 `null`，`exempt` 场景的呈现载体）。
@@ -653,6 +657,7 @@ fn to_element(element: &Element) -> ArchiElement {
         model_line: element.line,
         mark: NodeMark::None,
         api: element.api,
+        entry: element.entry.clone(),
     }
 }
 
@@ -772,6 +777,18 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
     })?;
     let neighborhood = loaded.graph.neighborhood(fqn);
     let docs_outcome = docs::element_docs(&loaded.graph, root, fqn);
+    // 入口解析需全表（跨元素唯一判据），故投影一次元素表；投影只裁剪、零重算
+    let projected: Vec<ArchiElement> = loaded
+        .graph
+        .model()
+        .elements
+        .iter()
+        .map(to_element)
+        .collect();
+    let current = projected
+        .iter()
+        .find(|candidate| candidate.fqn == fqn)
+        .expect("元素已在上面查得");
     Ok(ArchiModuleDetail {
         element: to_element(element),
         depends_on: neighborhood
@@ -807,7 +824,7 @@ pub fn module_detail(root: &Path, fqn: &str) -> Result<ArchiModuleDetail, String
             })
             .collect(),
         // 契约状态的定位与投影单点在 `crate::api`（本层零路径拼接、零二次读模型）
-        api: crate::api::api_ref_of(root, fqn, &element.path),
+        api: crate::api::api_ref_of(root, &projected, current),
     })
 }
 

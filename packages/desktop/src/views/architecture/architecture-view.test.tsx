@@ -98,6 +98,7 @@ function element(fqn: string): ArchiElement {
     metadata: {},
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 2,
+    entry: null,
     mark: 'none',
   };
 }

@@ -88,11 +88,12 @@ pub fn ts_comment_text(text: &str) -> String {
 /// `modules` + `EntryForm::SubdirModule` 的 `EmitTarget` 表达）。
 ///
 /// **零形态推导**（D41）：specifier 形态取 [`EmitTarget::form`]（调用方经
-/// `paths::entry_form` 求出），本函数 MUST NOT 自行判断「末段是否含 `.`」——那是
-/// `paths::entry_form`「盘上命中哪个入口文件」的判据，两套判据必然漂移。
+/// `paths::entry_state` 的 `Resolved` 求出），本函数 MUST NOT 自行判断「末段是否含 `.`」
+/// ——那是入口解析链的判据，两套判据必然漂移。
 /// **零 FQN 派生**（D40）：透传条目的 `<name>` 取 [`ModuleRef::name`]（目标元素根路径
 /// 末段），查不到目标即只出注释、不产 specifier——MUST NOT 退化到 FQN 末段。
-/// specifier 值仍由 [`paths::ts_import_specifier`] 产出（零手算 `../` 层数）。
+/// specifier 值仍由 [`paths::ts_import_specifier`] 产出（零手算 `../` 层数）——**其
+/// 入口同级的真值待前端契约变更接线**，本期输出 MUST NOT 当既有真值（本仓零 `.i.ts`）。
 pub fn render(contract: &Contract, schema: &Value, meta: &ApiMeta, target: &EmitTarget) -> String {
     render_scope(contract, schema, meta, target.form, &target.modules)
 }

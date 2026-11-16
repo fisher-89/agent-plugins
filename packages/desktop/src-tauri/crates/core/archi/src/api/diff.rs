@@ -63,9 +63,9 @@ fn is_generated_module_file(path: &Path) -> bool {
 
 /// 盘上现有的四类生成物（`sorted` + `dedup` 前的原始集合）。
 ///
-/// 元素根同级的 `.i.*` 可在仓库任意深度（`crates/infra/archi` →
-/// `crates/infra/archi.i.rs`、`views/welcome-view.tsx` → `views/welcome-view.tsx.i.ts`），
-/// 故枚举经 [`crate::scan::walk_source_files`]（与文件树同源，gitignore 感知）；
+/// 生成物落**实现入口同级**，故可在仓库任意深度（`crates/infra/archi/src/lib.rs` →
+/// `crates/infra/archi/src/lib.i.rs`、`views/welcome-view.tsx` → `views/welcome-view.i.ts`），
+/// 枚举因而经 [`crate::scan::walk_source_files`]（与文件树同源，gitignore 感知）；
 /// 契约目录内的 `.schema.json` / `INDEX.toml` 经 [`api_dir_artifacts`]。
 fn generated_files_on_disk(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = crate::scan::walk_source_files(root)

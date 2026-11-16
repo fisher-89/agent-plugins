@@ -470,7 +470,7 @@ fn execution_error优先级在重算面成立() {
         "problems 携 execution_error: {:?}",
         summary.problems
     );
-    let findings = check_integrity(&summary, &[sub.clone()]);
+    let findings = check_integrity(&summary, std::slice::from_ref(&sub));
     assert!(findings.is_empty(), "记载一致 → 零违例: {findings:?}");
 
     let mut drifted = summary;

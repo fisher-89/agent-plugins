@@ -120,7 +120,7 @@ fn typed_contract(fqn: &str) -> String {
     )
 }
 
-/// 双元素语料：crate 形态（`src/lib.rs` 入口）+ 前端目录形态（`index.ts` 入口）。
+/// 双元素语料：crate 形态（`src/lib.rs` 入口）+ 前端文件型根（根文件自身即入口）。
 ///
 /// 返回 `(core, frontend)` 两个 FQN；模型与契约（及两处入口源文）已落盘。
 fn write_two_language_corpus(temp: &TempDir) -> (String, String) {
@@ -139,7 +139,7 @@ fn write_two_language_corpus(temp: &TempDir) -> (String, String) {
         "pub fn stem() -> String { String::new() }\n",
     );
     temp.write(
-        "views/welcome-view.tsx/index.ts",
+        "views/welcome-view.tsx",
         "export function view(): string { return ''; }\n",
     );
     (core.to_owned(), frontend.to_owned())
@@ -149,7 +149,7 @@ fn write_two_language_corpus(temp: &TempDir) -> (String, String) {
 // 正向：四类生成物 / 输出序 / 幂等
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-4 / D1）：目录型元素根 + 前端元素根 + 在案契约 → 四个生成物落点齐备，
+/// 正向（AC-4 / D1）：目录型元素根 + 前端文件型元素根 + 在案契约 → 四个生成物落点齐备，
 /// 每份落 `root` 之下、内容非空。
 #[test]
 fn workspace_render四类生成物齐备() {
@@ -163,7 +163,7 @@ fn workspace_render四类生成物齐备() {
     let schema_frontend = paths::schema_path(temp.root(), &frontend).expect("合法 FQN");
     let rust_generated = paths::generated_path(
         temp.root(),
-        "crates/core/archi/",
+        "crates/core/archi/src/lib.rs",
         paths::GeneratedKind::Rust,
     )
     .expect("Rust 生成物路径");
@@ -218,7 +218,7 @@ fn workspace_render输出序确定且幂等() {
             paths::schema_path(temp.root(), &frontend).expect("合法 FQN"),
             paths::generated_path(
                 temp.root(),
-                "crates/core/archi/",
+                "crates/core/archi/src/lib.rs",
                 paths::GeneratedKind::Rust
             )
             .expect("Rust 生成物路径"),

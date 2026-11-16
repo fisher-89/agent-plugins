@@ -566,3 +566,94 @@ fn 单文件解析空串与超长源不panic() {
     assert_eq!(outcome.diagnostics.len(), 1, "坏点数与诊断数一致");
     assert_eq!(outcome.diagnostics[0].kind, DiagnosticKind::SyntaxError);
 }
+
+// ===========================================================================
+// `entry` 在聚合面的零影响（聚合只按 FQN / 文件名，字段面逐元素保留）
+// ===========================================================================
+
+/// 边界（聚合面）：多文件语料各含显式 `entry` / 缺省 → 元素聚合序与
+/// `duplicateElement` / `unknownField` / `missingField` 诊断逐值等于改动前的口径
+/// （`entry` 不参与聚合键、不产任何诊断）。
+#[test]
+fn 聚合面entry不参与聚合键且零诊断() {
+    let temp = TempDir::new("entry-aggregation");
+    write_model(
+        temp.root(),
+        "02-with-entry.toml",
+        concat!(
+            "[element.\"App\"]\n",
+            "kind = \"package\"\n",
+            "\n",
+            "[element.\"App.Auth\"]\n",
+            "kind = \"domain\"\n",
+            "gate = \"warn\"\n",
+            "entry = \"packages/desktop/src/auth/token.ts\"\n",
+            "path = [\"packages/desktop/src/auth\"]\n",
+        ),
+    );
+    write_model(
+        temp.root(),
+        "01-plain.toml",
+        concat!(
+            "[element.\"App.Billing\"]\n",
+            "kind = \"module\"\n",
+            "gate = \"off\"\n",
+            "path = [\"packages/desktop/src/billing\"]\n",
+        ),
+    );
+
+    let outcome = parse_dir(temp.root());
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "显式 / 缺省 `entry` 均零诊断：{:?}",
+        outcome.diagnostics
+    );
+    let fqns: Vec<&str> = outcome
+        .model
+        .elements
+        .iter()
+        .map(|element| element.fqn.as_str())
+        .collect();
+    assert_eq!(
+        fqns,
+        vec!["App.Billing", "App", "App.Auth"],
+        "聚合序仍按文件名字典序（`01-plain.toml` 先于 `02-with-entry.toml`），文件内按源序；\
+         `entry` 不参与排序 / 聚合键"
+    );
+
+    // 字段面：显式值逐字保留在发明它的元素上，缺省元素仍 `None`
+    let auth = outcome.model.element("App.Auth").expect("App.Auth 在案");
+    assert_eq!(
+        auth.entry.as_deref(),
+        Some("packages/desktop/src/auth/token.ts"),
+        "显式 `entry` 逐元素保留"
+    );
+    assert_eq!(
+        outcome
+            .model
+            .element("App.Billing")
+            .expect("App.Billing 在案")
+            .entry,
+        None,
+        "缺省元素仍 None"
+    );
+
+    // 坏字段面照旧分类：拼错键仍 `unknownField`（新字段不放松判据）
+    write_model(
+        temp.root(),
+        "03-typo.toml",
+        "[element.\"App.Legacy\"]\nkind = \"module\"\nentri = \"src/lib.rs\"\n",
+    );
+    let broken = parse_dir(temp.root());
+    assert_eq!(
+        broken.diagnostics.len(),
+        1,
+        "拼错键仍恰一条诊断：{:?}",
+        broken.diagnostics
+    );
+    assert_eq!(
+        broken.diagnostics[0].kind,
+        DiagnosticKind::UnknownField,
+        "拼错键归 unknownField"
+    );
+}

@@ -1,13 +1,18 @@
-//! 契约与生成物路径单点：`<root>` 归一、四类路径派生、入口查找与形态判定、
-//! `#[path]` 值与 TS import specifier、跨域 `$ref` 相对前缀。
+//! 契约与生成物路径单点：`<root>` 归一、四类路径派生、入口解析链与形态判定、
+//! TS import specifier、跨域 `$ref` 相对前缀。
 //!
-//! **全部路径运算，零 IO**（[`entry_form`] 的存在性探测是唯一例外——它必须看盘才能
-//! 回答「入口在哪」）。契约目录一律经 [`foundation::layout::archi_api_dir`] 派生：
-//! 本文件 MUST NOT 行内拼 `api` 段，MUST NOT 手算 `../` 层数（值形态由本文件单点
-//! 产出，消费方零字面量）。
+//! **几乎全是路径运算，零 IO**：[`entry_state`] 的存在性探测是唯一例外——它必须看盘
+//! 才能回答「入口在哪」；[`entry_candidates`] 的候选派生**纯文本、零 IO**。契约目录
+//! 一律经 [`foundation::layout::archi_api_dir`] 派生：本文件 MUST NOT 行内拼 `api` 段，
+//! MUST NOT 手算 `../` 层数（值形态由本文件单点产出，消费方零字面量）。
+//!
+//! **生成物落点 = 实现入口同级**（`<入口目录>/<入口主干>.i.<ext>`）：元素根路径
+//! （`path.first()`）只回答「根在哪」，MUST NOT 参与落点派生；`#[path]` 的值因此恒为
+//! 文件名（零 `../`）。
 //!
 //! **路径形态校验是四类派生的共同前置**：[`contract_path`] / [`schema_path`] /
-//! [`generated_path`] / [`entry_form`] 一律**可失败**（非法形态 → `None`）。理由是
+//! [`generated_path`] / [`entry_state`] 一律**可失败**（非法形态 → `None` /
+//! `EntryState::Invalid`）。理由是
 //! `Path::join` 的语义：base 被绝对路径 / 盘符**替换**、`..` 段会**上溯**——放行即
 //! 让「证据在盘」的探测越出仓库（任意文件读），也让工具 crate 的写盘面落成任意文件
 //! 写。判据与 `docs::normalize_rel` / `scan::rust::normalize_rel` 同一条纪律（repo
@@ -25,7 +30,8 @@ const ROOT_DOMAIN: &str = "Root";
 /// 索引文件名（`<archi_api_dir>/INDEX.toml`，全局唯一一份）。
 const INDEX_FILE_NAME: &str = "INDEX.toml";
 
-/// 入口形态（封闭三值）：决定 `#[path]` 值与 TS import specifier 的形态。
+/// 入口形态（封闭三值）：由「入口与元素根的关系」派生（[`form_of`]），供
+/// `EmitTarget.form`（TS 侧形态位；`ts_import_specifier` 待接线）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryForm {
     /// `<dir>/src/lib.rs`（crate 形态）
@@ -36,12 +42,64 @@ pub enum EntryForm {
     SingleFile,
 }
 
+/// 入口不可用的理由（封闭四值）：与 `apiEntryMissing` 的四条理由一一对应（形态 /
+/// 落位 / 存在 / 跨元素唯一）。
+///
+/// 每个变体自带载荷（`entry` 是归一后的声明值、`other_fqn` 是冲突方），判据结论因此
+/// 自带措辞素材——`check` 不再回读模型字段拼文案，也不必为拿冲突方再跑一遍比对。
+/// **MUST NOT 进结构化诊断**（九类诊断会让整图停摆），只经 `apiFindings` 出线。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntryProblem {
+    /// 声明的 `entry` 不是 repo 相对 POSIX 形态（基准判据）
+    Malformed {
+        /// 归一后的声明值
+        entry: String,
+    },
+    /// 声明的 `entry` 落在本元素全部 `path` 之外（落位判据）
+    OutsidePath {
+        /// 归一后的声明值
+        entry: String,
+    },
+    /// 声明或默认命中的入口不在盘上（存在判据）
+    NotOnDisk {
+        /// 归一后的声明值
+        entry: String,
+    },
+    /// 与另一元素解析到同一入口文件（跨元素唯一判据）
+    Duplicated {
+        /// 归一后的声明值
+        entry: String,
+        /// 冲突方元素 FQN
+        other_fqn: String,
+    },
+}
+
+/// 入口解析链的结论（封闭三态）。
+///
+/// `Resolved` 的 `form` 只供 `EmitTarget.form`（TS 侧形态位，本期零 `.i.ts` 实例），
+/// `entry` 是落点派生与取数的唯一输入；`Absent` 是**合法终态**（该元素不参与契约面），
+/// MUST NOT 用 `api = none` 冒充——「没有门」与「明说无公共 API」是两个事实。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntryState {
+    /// 可用入口：形态位 + repo 相对入口路径
+    Resolved {
+        /// 入口形态（由入口与根的关系派生）
+        form: EntryForm,
+        /// 入口的 repo 相对 POSIX 路径
+        entry: String,
+    },
+    /// 有入口事实但被判不可用（四理由各带载荷）
+    Invalid(EntryProblem),
+    /// 无入口事实（未声明且无约定默认，或约定默认全不落盘）
+    Absent,
+}
+
 /// 生成物种类（封闭二值）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneratedKind {
-    /// `<root>.i.rs`
+    /// `<入口主干>.i.rs`
     Rust,
-    /// `<root>.i.ts`
+    /// `<入口主干>.i.ts`
     TypeScript,
 }
 
@@ -59,7 +117,7 @@ impl GeneratedKind {
 ///
 /// 两个消费面对 `Unknown` 的处置不同，且都由本文件的单点函数回答：
 /// - **取数面**（[`crate::api::extract`]）：`Unknown` → 零符号（不猜测语法）；
-/// - **生成物面**（[`generated_kind`]）：`Unknown` → [`GeneratedKind::Rust`]（`<root>` 不带
+/// - **生成物面**（[`generated_kind`]）：`Unknown` → [`GeneratedKind::Rust`]（入口不带
 ///   前端扩展名即 Rust 形态，判据见该函数 doc）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
@@ -73,8 +131,8 @@ pub enum Language {
 
 /// 元素根路径归一：`\` → `/`、循环剥前导 `./`、去尾 `/`。
 ///
-/// **MUST NOT 去文件扩展名**——`<root>` 是模块身份，前端单文件元素的 root 保留
-/// `.tsx` 后入口四分支必然零命中（如实报 `apiEntryMissing`，不为凑绿去扩展名）。
+/// **MUST NOT 去文件扩展名**——`<root>` 是模块身份，文件型根的扩展名正是「根即入口」
+/// 的判据（[`entry_candidates`] 的 ②），剥掉它就会把单文件根降级成目录型根。
 pub fn normalize_root(raw: &str) -> String {
     let unified = raw.replace('\\', "/");
     let mut trimmed = unified.as_str();
@@ -85,10 +143,11 @@ pub fn normalize_root(raw: &str) -> String {
 }
 
 /// `<root>` 末段（`crates/infra/archi` → `archi`、`views/welcome-view.tsx` →
-/// `welcome-view.tsx`）——生成物文件名与 `#[path]` 值都用它，MUST NOT 取 FQN 末段。
+/// `welcome-view.tsx`）——**只服务 Rust / TS 透传命名**（D40），MUST NOT 参与生成物
+/// 文件名或 `#[path]` 值（后者是入口主干的函数，见 [`generated_path`]），MUST NOT 取
+/// FQN 末段。
 ///
-/// **纯派生、零形态判据**：文件名与 `#[path]` 值对任意末段都成立
-/// （`welcome-view.tsx.i.ts` 是合法文件名），故本函数不校验字符集、零改名。**末段进目标
+/// **纯派生、零形态判据**：透传名字对任意末段都成立，故本函数不校验字符集、零改名。**末段进目标
 /// 语言源码时的形态闸按语言分列**：Rust 侧经 `is_module_segment` 拒绝（**形态且非
 /// 关键字**，语法位置只收标识符）、TS 侧经 `emit::ts::ts_string_literal` 转义（字符串字面量
 /// 任意文本都有安全形态、**零筛选**）。`checked_root` 只判整条 `<root>` 的段结构、**不判
@@ -128,11 +187,11 @@ const RUST_KEYWORDS: [&str; 51] = [
 /// 编译**（本仓真实形态：`crates/infra/agent/src/sdk/mod.rs` 的 `pub(crate) mod r#loop;`）。
 ///
 /// **只有合法 / 拒绝两态，零归一化、零第二形态**：清洗字符集（`-` → `_`、剥扩展名）就是第二
-/// 套命名（D40 明禁），且会制造「静默错配」；产出 `r#<段>` 同样被否——[`module_name`] 的另
-/// 一消费面是**文件名**（`<name>.i.ts`）与 **`#[path]` 值**（`"../<name>.i.rs"`），`r#` 在
-/// 那两处是错的（`welcome-r#loop.i.ts` 不是合法文件名、`#[path = "../r#loop.i.rs"]` 找不到
-/// 文件）。故正解是拒绝：不合法时装配点（`api::module_refs` 的 Rust 分支）令该目标不入透传
-/// 查表，渲染器只留 `// 透传自 <FQN>` 注释（与「模型里没有该元素」同一条降级通路）。
+/// 套命名（D40 明禁），且会制造「静默错配」；产出 `r#<段>` 同样被否——[`module_name`] 的
+/// 消费面是 **Rust 透传模块路径**与 **TS 透传 `<name>`**，两处都只接受原样末段（清洗或加
+/// 前缀会与目标元素的真实模块名错配）。故正解是拒绝：不合法时装配点
+/// （`api::module_refs` 的 Rust 分支）令该目标不入透传查表，渲染器只留
+/// `// 透传自 <FQN>` 注释（与「模型里没有该元素」同一条降级通路）。
 ///
 /// **为什么 TS 侧不用它**：TS 的 specifier 落在**字符串字面量**里（`from '<specifier>'`），
 /// 任意文本都有安全形态——经 `emit::ts::ts_string_literal` 转义即可，且带扩展名的末段
@@ -187,12 +246,12 @@ pub fn index_path(root: &Path) -> PathBuf {
 /// 语言 → 生成物种类（分派单点；MUST NOT 让调用方各自 match 语言再拼
 /// [`GeneratedKind`]）。
 ///
-/// `Unknown` 归 `Rust` **不是猜测**：按 D2 的 `<root>` 归一纪律，Rust 元素的根是
-/// **目录或无后缀文件**（`crates/infra/archi` → 无扩展名），前端元素根一律带
-/// `.ts` / `.tsx` / `.js` / `.jsx`。故「无扩展名」在生成物面上唯一对应 Rust 形态；
-/// 真正不可判的语言（`.py` / `.go` 等）不存在于模型元素 `path` 里，即便出现也只有
-/// Rust 一侧的渲染器能承接——把它静默丢弃会让 `render_all` 少出一份生成物，
-/// 那是比「按 Rust 形态渲染」更坏的静默失败。
+/// **输入是入口的扩展名**（入口恒带扩展名：目录型根的四个约定候选全是 `*.rs` /
+/// `*.ts(x)`）。`Unknown` 归 `Rust` **不是猜测**：显式 `entry` 若指向 `.md` 一类非源
+/// 文件，取数面本就零符号，生成物面按 Rust 形态渲染是唯一能承接的分支；真正不可判的
+/// 语言（`.py` / `.go` 等）不存在于入口里，即便出现也只有 Rust 一侧的渲染器能承接——
+/// 把它静默丢弃会让 `render_all` 少出一份生成物，那是比「按 Rust 形态渲染」更坏的静默
+/// 失败。
 pub fn generated_kind(language: Language) -> GeneratedKind {
     match language {
         Language::TypeScript => GeneratedKind::TypeScript,
@@ -220,73 +279,176 @@ pub fn schema_path(root: &Path, fqn: &str) -> Option<PathBuf> {
     Some(domain_dir(root, fqn).join(format!("{fqn}.schema.json")))
 }
 
-/// 元素生成物路径：`<root>.i.rs` / `<root>.i.ts`（`<root>` = `path[0]` 归一）。
+/// 元素生成物路径：`<入口目录>/<入口主干>.i.rs` / `.i.ts`（与**入口**同级）。
 ///
-/// 入参只收 `<root>` 字符串（D42）：「容器元素天然无生成物」由调用方以
-/// `element.path.first()?` 表达，本层只判形态——`<root>` 形态非法 → `None`
-/// （[`checked_root`]）。MUST NOT 为凑参数构造占位元素（接口面大于需求面会让占位值
-/// 被下游误用时静默出错）。
-pub fn generated_path(root: &Path, element_root: &str, kind: GeneratedKind) -> Option<PathBuf> {
-    let element_root = checked_root(element_root)?;
-    Some(root.join(format!("{element_root}.i.{}", kind.extension())))
+/// 入参是**入口**而非元素根：落点是入口的单值函数（无入口即无路径可派生），元素根
+/// 只回答「根在哪」。`<入口主干>` = 文件名最后一次 `.` 之前的部分（无 `.` 或主干为空
+/// → 整个文件名，MUST NOT 丢文件名）。`#[path]` 的值即本函数结果的文件名（零 `../`）。
+///
+/// 形态非法 → `None`（同 [`checked_root`] 的判据，见模块 doc 的安全边界）。
+pub fn generated_path(root: &Path, entry: &str, kind: GeneratedKind) -> Option<PathBuf> {
+    let entry = checked_root(entry)?;
+    let (directory, file) = match entry.rsplit_once('/') {
+        Some((directory, file)) => (Some(directory), file),
+        None => (None, entry.as_str()),
+    };
+    let stem = match file.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem,
+        _ => file,
+    };
+    let name = format!("{stem}.i.{}", kind.extension());
+    Some(match directory {
+        Some(directory) => root.join(directory).join(name),
+        None => root.join(name),
+    })
 }
 
-/// 入口查找（顺序封闭，MUST NOT 增分支）：Rust `<dir>/src/lib.rs` → `<dir>/mod.rs`
-/// → `<dir>.rs`；前端 `<dir>/index.ts` → `<dir>/index.tsx` → `<dir>.ts` →
-/// `<dir>.tsx`。
+/// 入口候选（**纯文本、零 IO、按优先序**）：三态解析链的唯一产出点。
 ///
-/// 返回形态与该入口的 repo 相对 POSIX 路径；`path` 为空或 `<root>` 形态非法 →
-/// `None`（同 [`generated_path`] 的判据）；形态合法但无一候选命中 → `None`（即
-/// `apiEntryMissing`）。`<dir>/lib.rs` MUST NOT 在列——crate 的 `lib.rs` 恒在
-/// `src/` 下。
-pub fn entry_form(root: &Path, element: &ArchiElement) -> Option<(EntryForm, String)> {
-    let element_root = checked_root(element.path.first()?)?;
-    let directory = root.join(&element_root);
-
-    // Rust 三分支
-    if directory.join("src").join("lib.rs").is_file() {
-        return Some((EntryForm::Crate, format!("{element_root}/src/lib.rs")));
+/// ```text
+/// ① 显式 entry（归一后）                        → [entry]        唯一候选
+/// ② 文件型根（末段扩展名 ∈ {rs,ts,tsx,js,jsx}） → [<root>]       根文件自身即模块
+/// ③ 目录型根（语言无关，按序取首个落盘者）
+///    → [<root>/src/lib.rs, <root>/mod.rs, <root>/index.ts, <root>/index.tsx]
+/// ④ 其余（`path` 空 / `<root>` 形态非法）        → []
+/// ```
+///
+/// **不做校验**：形态非法的声明原样返回，由 [`entry_state`] 判
+/// [`EntryProblem::Malformed`]——这里滤空就分不清「声明非法」与「没有声明」。
+///
+/// ③ **MUST NOT 做语言判定**：目录型根没有扩展名（`language_of` 对它是 `Unknown`），
+/// 按语言分派会让前端目录根的 `index.ts(x)` 候选失效。四种形态互不相交，按序取首个
+/// 落盘者即够。`<dir>/lib.rs` 不在列（crate 的 `lib.rs` 恒在 `src/` 下），
+/// `<dir>.rs` / `<dir>.ts` / `<dir>.tsx` 也不在列（对目录型根只能指到 `path` 之外的
+/// 兄弟文件，必违落位判据）。
+pub fn entry_candidates(element: &ArchiElement) -> Vec<String> {
+    if let Some(declared) = &element.entry {
+        return vec![normalize_root(declared)];
     }
-    if directory.join("mod.rs").is_file() {
-        return Some((EntryForm::SubdirModule, format!("{element_root}/mod.rs")));
+    let Some(root) = element.path.first().and_then(|raw| checked_root(raw)) else {
+        return Vec::new();
+    };
+    if crate::scan::is_source_file(&root) {
+        return vec![root];
     }
-    if root.join(format!("{element_root}.rs")).is_file() {
-        return Some((EntryForm::SingleFile, format!("{element_root}.rs")));
-    }
-
-    // 前端四分支
-    for name in ["index.ts", "index.tsx"] {
-        if directory.join(name).is_file() {
-            return Some((EntryForm::SubdirModule, format!("{element_root}/{name}")));
-        }
-    }
-    for extension in ["ts", "tsx"] {
-        if root.join(format!("{element_root}.{extension}")).is_file() {
-            return Some((EntryForm::SingleFile, format!("{element_root}.{extension}")));
-        }
-    }
-    None
+    vec![
+        format!("{root}/src/lib.rs"),
+        format!("{root}/mod.rs"),
+        format!("{root}/index.ts"),
+        format!("{root}/index.tsx"),
+    ]
 }
 
-/// `#[path]` 值的单点产出（目标恒为**根同级**生成物 `<root>.i.rs`）：
+/// 入口解析链的判定（三态）与四条判据的唯一判定点：**读盘只在此**（`is_file`）。
 ///
-/// | 入口形态 | 值 |
-/// |---|---|
-/// | `Crate` | `../../<name>.i.rs` |
-/// | `SubdirModule` | `../<name>.i.rs` |
-/// | `SingleFile` | `<name>.i.rs` |
-///
-/// 手写「入口同级」会错位到 `<dir>/<name>.i.rs`，故 MUST NOT 手算。
-pub fn mod_path_attr(form: EntryForm, name: &str) -> String {
-    match form {
-        EntryForm::Crate => format!("../../{name}.i.rs"),
-        EntryForm::SubdirModule => format!("../{name}.i.rs"),
-        EntryForm::SingleFile => format!("{name}.i.rs"),
+/// 显式声明走 ①（基准 → 落位 → 存在 → 唯一，判序固定、MUST NOT 增分支）；否则由
+/// [`entry_candidates`] 按序取**首个**落盘者，再对命中者补跑落位与唯一两条判据
+/// （约定默认不会「越界」之外还有别的形态问题：候选由本文件拼出，形态必然合法）。
+pub fn entry_state(root: &Path, elements: &[ArchiElement], element: &ArchiElement) -> EntryState {
+    if let Some(declared) = &element.entry {
+        let declared = normalize_root(declared);
+        if !is_repo_relative(&declared) {
+            return EntryState::Invalid(EntryProblem::Malformed { entry: declared });
+        }
+        if !within_path(element, &declared) {
+            return EntryState::Invalid(EntryProblem::OutsidePath { entry: declared });
+        }
+        if !root.join(&declared).is_file() {
+            return EntryState::Invalid(EntryProblem::NotOnDisk { entry: declared });
+        }
+        if let Some(other_fqn) = duplicate_of(elements, element, &declared) {
+            return EntryState::Invalid(EntryProblem::Duplicated {
+                entry: declared,
+                other_fqn: other_fqn.to_owned(),
+            });
+        }
+        return EntryState::Resolved {
+            form: form_of(&declared, element),
+            entry: declared,
+        };
     }
+    let Some(found) = entry_candidates(element)
+        .into_iter()
+        .find(|candidate| root.join(candidate).is_file())
+    else {
+        return EntryState::Absent;
+    };
+    if !within_path(element, &found) {
+        return EntryState::Invalid(EntryProblem::OutsidePath { entry: found });
+    }
+    if let Some(other_fqn) = duplicate_of(elements, element, &found) {
+        return EntryState::Invalid(EntryProblem::Duplicated {
+            entry: found,
+            other_fqn: other_fqn.to_owned(),
+        });
+    }
+    EntryState::Resolved {
+        form: form_of(&found, element),
+        entry: found,
+    }
+}
+
+/// 落位判据：入口 MUST 等于某条 `path` 条目，或落在某条**目录型** `path` 之内。
+///
+/// 目录分支只对非源文件形态的 `path` 条目生效（判据 = [`crate::scan::is_source_file`]
+/// 的扩展名白名单，与枚举面同源），故「文件型根声明同目录的另一个文件」自然落
+/// `OutsidePath`，也不会出现「`views/welcome-view.tsx/xx.rs` 被前缀匹配放行」的形态。
+/// `path` 条目形态非法时该条不成立。
+fn within_path(element: &ArchiElement, entry: &str) -> bool {
+    element.path.iter().any(|path| {
+        let normalized = normalize_root(path);
+        if !is_repo_relative(&normalized) {
+            return false;
+        }
+        if entry == normalized {
+            return true;
+        }
+        !crate::scan::is_source_file(&normalized) && entry.starts_with(&format!("{normalized}/"))
+    })
+}
+
+/// 跨元素唯一判据 = **候选交集**：其它元素（`fqn` 不同）中首个「候选表含同一入口文本」
+/// 者即冲突方。
+///
+/// 候选派生零 IO，故不必为另一个元素跑完整解析（那要递归 + 读盘）。代价是一处保守
+/// 近似：同一目录型根下 `src/lib.rs` 与 `mod.rs` **同时**在盘时，另一元素显式声明后者
+/// 会被判冲突（其实前者优先命中）——只多报不瞒报。
+fn duplicate_of<'a>(
+    elements: &'a [ArchiElement],
+    element: &ArchiElement,
+    entry: &str,
+) -> Option<&'a str> {
+    elements
+        .iter()
+        .filter(|candidate| candidate.fqn != element.fqn)
+        .find(|candidate| {
+            entry_candidates(candidate)
+                .iter()
+                .any(|candidate_entry| candidate_entry == entry)
+        })
+        .map(|candidate| candidate.fqn.as_str())
+}
+
+/// 形态位派生：由**入口与根的关系**回答，MUST NOT 反推入口。
+///
+/// 入口 == 根 → `SingleFile`；入口以 `src/lib.rs` 收尾 → `Crate`；其余 → `SubdirModule`。
+fn form_of(entry: &str, element: &ArchiElement) -> EntryForm {
+    let root = element.path.first().and_then(|raw| checked_root(raw));
+    if root.as_deref() == Some(entry) {
+        return EntryForm::SingleFile;
+    }
+    if entry == "src/lib.rs" || entry.ends_with("/src/lib.rs") {
+        return EntryForm::Crate;
+    }
+    EntryForm::SubdirModule
 }
 
 /// TS 侧 `import type` 路径的单点产出（目录形态 `../<name>.i`、单文件形态
 /// `./<name>.i`）。
+///
+/// **待接线留白**：入口同级规则（同目录 `./<目标入口主干>.i`、跨目录由入口到入口派生）
+/// 归前端契约变更；当前输出 MUST NOT 被当作既有真值——本仓 `.i.ts` 生成物为零，该规则
+/// 此刻无实例可验。
 pub fn ts_import_specifier(form: EntryForm, name: &str) -> String {
     match form {
         EntryForm::Crate | EntryForm::SubdirModule => format!("../{name}.i"),
@@ -319,7 +481,8 @@ fn domain_dir(root: &Path, fqn: &str) -> PathBuf {
     directory(root).join(domain_of(fqn).unwrap_or_else(|| ROOT_DOMAIN.to_owned()))
 }
 
-/// 元素根路径的形态判据 + 归一（[`entry_form`] / [`generated_path`] 的共同前置）：
+/// 路径形态判据 + 归一（[`entry_candidates`] / [`generated_path`] / [`entry_state`]
+/// 的共同前置）：
 /// [`normalize_root`] 后为空或形态非法 → `None`。
 fn checked_root(raw: &str) -> Option<String> {
     let root = normalize_root(raw);

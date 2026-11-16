@@ -187,6 +187,7 @@ const ARCHI_ELEMENTS = [
     metadata: {},
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 2,
+    entry: null,
     mark: 'none' as const,
   },
   {
@@ -198,6 +199,7 @@ const ARCHI_ELEMENTS = [
     metadata: {},
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 6,
+    entry: null,
     mark: 'none' as const,
   },
 ];

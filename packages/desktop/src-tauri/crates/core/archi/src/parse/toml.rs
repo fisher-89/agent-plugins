@@ -34,6 +34,11 @@ struct RawElement {
     /// 契约状态指针（缺省 `declared`；拼错的值由既有 `classify` 归 `invalidValue`）
     #[serde(default)]
     api: ApiStatus,
+    /// 实现入口指针（缺省 `None`）：数组 / 内联表形态由 serde `invalid type` 归
+    /// `invalidValue`（`entry` 是单值），拼错的键仍由 `deny_unknown_fields` 归
+    /// `unknownField`
+    #[serde(default)]
+    entry: Option<String>,
     #[serde(default)]
     path: Vec<::toml::Spanned<String>>,
     #[serde(default)]
@@ -92,6 +97,7 @@ fn to_model(raw: RawDocument, source: &str) -> Model {
             kind: raw_element.kind,
             gate: raw_element.gate,
             api: raw_element.api,
+            entry: raw_element.entry,
             path: raw_element
                 .path
                 .into_iter()

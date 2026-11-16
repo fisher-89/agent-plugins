@@ -18,9 +18,9 @@
 //! 模块里，类型本身经 `pub use` 出线）：类型 `External` 时其 `pub` 方法同为 `External`。
 //!
 //! **两处取数面的结构前提**（D44，缺任一条则自有生成物的元素上恒假阳）：① `mod` 带
-//! `#[path = "…"]` 时按**属性值相对当前模块目录**定位目标文件（生成物落元素根同级即靠它
-//! 进符号集）；② crate 根的 `pub use <模>::*` 的通配前缀参与升格（`walk_modules` 走到同名
-//! 模块即视其内声明为出线）。
+//! `#[path = "…"]` 时按**属性值相对当前模块目录**定位目标文件（生成物落实现入口同级、值
+//! 为同目录文件名，即靠它进符号集）；② crate 根的 `pub use <模>::*` 的通配前缀参与升格
+//! （`walk_modules` 走到同名模块即视其内声明为出线）。
 //!
 //! **`#[path]` 读盘面与写盘面同一条限根纪律**（D49）：定位走三步——① **反斜杠归一在折叠
 //! 之前**（`split('/')` 切不开 `\`，整串会被当单段名原样入栈 ⇒ `Path::join` 的纯拼接不折叠
@@ -213,7 +213,7 @@ fn collect_glob_types(glob_exported: bool, declared: &[ApiSymbol], glob_types: &
 /// `#[path = "…"]` 的属性值（`Meta::NameValue` 的字符串字面量；缺省或非字符串 → `None`）。
 ///
 /// 属性值本身是**字面量**（Rust 属性值不能求值），故本函数只读取、不推导：值的形态由
-/// 写入口行的人负责，与入口形态的等值性由 `paths::mod_path_attr` 与 `paths_test` 双守。
+/// 写入口行的人负责——入口同级后它恒为生成物文件名（零 `../`），等值性归 `paths_test`。
 fn path_attribute(attributes: &[syn::Attribute]) -> Option<String> {
     for attribute in attributes {
         if !attribute.path().is_ident("path") {
@@ -233,8 +233,8 @@ fn path_attribute(attributes: &[syn::Attribute]) -> Option<String> {
     None
 }
 
-/// `#[path]` 声明模块的定位：属性值**相对当前模块目录**解析（`../../archi.i.rs` 形态即
-/// 生成物落在元素根同级）；命中即取该文件、模块目录为「该文件的父目录」。
+/// `#[path]` 声明模块的定位：属性值**相对当前模块目录**解析（入口同级后恒为
+/// `lib.i.rs` 一类同目录文件名）；命中即取该文件、模块目录为「该文件的父目录」。
 ///
 /// **三步限根**（D49，与写盘面同一条纪律，见模块 doc）：① 反斜杠归一见先于折叠展开；
 /// ② 分段折叠；③ `root.join(candidate)` 必须 `starts_with(root)`。任一步不成立 → `None`

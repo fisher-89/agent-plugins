@@ -1,0 +1,95 @@
+{
+  "note": "AC-4 的 apiFindings 分桶实测（本变更数据面的两台状态对照）。量测仪器：对仓库根跑一次全量判定 `archi::drift::check(CheckInput { root, mode: Full, changed: [], change: Some(\"module-entry-field-spec\"), cancel: CancelFlag::never() })`，按 `apiFindings[].kind` 分桶。裁决口径：纯读盘、零替身。",
+  "repository_root": "本工作树根（change worktree）",
+  "measurements": [
+    {
+      "state": "分批前（`entry` 写在 04 / 05，已废弃）",
+      "models": "04-backend-shell.toml 含 `entry`；05-backend-tools.toml 各含 `entry` + `api = \"none\"`",
+      "status": "Clean",
+      "structuralErrors": 0,
+      "elements": 51,
+      "apiFindings": { "total": 39, "apiEntryMissing": 12, "apiMissing": 27 },
+      "apiEntryMissing.elements": [
+        "App.Frontend.Components.Ui",
+        "App.Frontend.Views.AgentDebug",
+        "App.Frontend.Views.Agents",
+        "App.Frontend.Views.Architecture",
+        "App.Frontend.Views.Changes",
+        "App.Frontend.Views.Changes.Agent",
+        "App.Frontend.Views.Changes.Flow",
+        "App.Frontend.Views.Changes.Renderers",
+        "App.Frontend.Views.Config",
+        "App.Frontend.Views.DbInspector",
+        "App.Frontend.Views.Explores",
+        "App.Frontend.Views.Info"
+      ]
+    },
+    {
+      "state": "分批后（本变更落地状态：04 零改动、05 只写 `api = \"none\"`、全库零 `entry`）",
+      "models": "04-backend-shell.toml 零改动；05-backend-tools.toml 各含 `api = \"none\"`；六份模型 `entry` 零行",
+      "status": "Clean",
+      "structuralErrors": 0,
+      "elements": 51,
+      "apiFindings": { "total": 41, "apiEntryMissing": 15, "apiMissing": 26 },
+      "apiEntryMissing.elements": [
+        "App.Backend.Shell",
+        "App.Backend.Tools.ArchiApiGen",
+        "App.Backend.Tools.ExportBindings",
+        "App.Frontend.Components.Ui",
+        "App.Frontend.Views.AgentDebug",
+        "App.Frontend.Views.Agents",
+        "App.Frontend.Views.Architecture",
+        "App.Frontend.Views.Changes",
+        "App.Frontend.Views.Changes.Agent",
+        "App.Frontend.Views.Changes.Flow",
+        "App.Frontend.Views.Changes.Renderers",
+        "App.Frontend.Views.Config",
+        "App.Frontend.Views.DbInspector",
+        "App.Frontend.Views.Explores",
+        "App.Frontend.Views.Info"
+      ],
+      "apiMissing.elements": [
+        "App.Backend.Core.Agent",
+        "App.Backend.Core.Archi",
+        "App.Backend.Core.Checks",
+        "App.Backend.Core.Config",
+        "App.Backend.Core.Foundation",
+        "App.Backend.Core.Orchestration",
+        "App.Backend.Core.Workflow",
+        "App.Backend.Infra.AgentRuntime",
+        "App.Backend.Infra.ChecksRuntime",
+        "App.Backend.Infra.Exec",
+        "App.Backend.Infra.Store",
+        "App.Backend.Infra.VcsRuntime",
+        "App.Backend.Infra.Watch",
+        "App.Frontend.Components.Agent",
+        "App.Frontend.Components.Agent.AgentBlocks",
+        "App.Frontend.Components.Agent.AgentError",
+        "App.Frontend.Components.Agent.AgentInput",
+        "App.Frontend.Components.Agent.AgentMessages",
+        "App.Frontend.Components.Agent.AgentSessionView",
+        "App.Frontend.Components.Agent.ToolCards",
+        "App.Frontend.Components.Standard.Dailog",
+        "App.Frontend.Components.Standard.Drawer",
+        "App.Frontend.Components.Standard.Pagination",
+        "App.Frontend.Components.Standard.Select",
+        "App.Frontend.Shell",
+        "App.Frontend.Views.Welcome"
+      ]
+    },
+    {
+      "state": "分批前·旧宿主实测（桌面端门禁，HEAD 的 archi crate 解析含 `entry` 的模型）",
+      "status": "errors",
+      "structuralErrors": 13,
+      "structuralErrors.detail": "04 / 05 各 1 条 unknownField（entry 未知字段）⇒ App.Backend.Shell 变「未声明」⇒ 06-frontend.toml 11 条 unknownReference",
+      "elements": 0,
+      "apiFindings": { "total": 0, "apiEntryMissing": 0, "apiMissing": 0 },
+      "provenance": "reports/archi/20261116T015107111991Z.json / 20261116T0154006105578Z.json / 20261116T0156308164987Z.json（三次重跑同形）"
+    }
+  ],
+  "conclusions": [
+    "本变更数据面在旧宿主上零结构错（13 → 0）：这是「数据落在 HEAD 字段面内」的直接结果。",
+    "新代码口径的分桶为 15 / 26 = 41，与 HEAD 的 28 / 13 = 41 总数相等 —— 分桶变化，不是新增债务。",
+    "需要新代码才能复现 15 / 26；宿主重建前，桌面端门禁只能复现旧基线 28 / 13。"
+  ]
+}

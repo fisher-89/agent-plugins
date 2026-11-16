@@ -30,6 +30,7 @@ function graph(): ArchiGraph {
         metadata: {},
         modelFile: '.dev-team/architecture/models/03-auth.toml',
         modelLine: 3,
+        entry: null,
         mark: 'none',
       },
       {
@@ -42,6 +43,7 @@ function graph(): ArchiGraph {
         metadata: {},
         modelFile: '.dev-team/architecture/models/03-auth.toml',
         modelLine: 9,
+        entry: null,
         mark: 'none',
       },
     ],
@@ -187,6 +189,7 @@ describe('driftMarks 未兑现声明', () => {
         metadata: {},
         modelFile: '.dev-team/architecture/models/03-auth.toml',
         modelLine: 15,
+        entry: null,
         mark: 'none',
       },
       {
@@ -199,6 +202,7 @@ describe('driftMarks 未兑现声明', () => {
         metadata: {},
         modelFile: '.dev-team/architecture/models/03-auth.toml',
         modelLine: 21,
+        entry: null,
         mark: 'none',
       },
     );
@@ -337,6 +341,7 @@ describe('driftMarks 纯函数性', () => {
         metadata: {},
         modelFile: '.dev-team/architecture/models/09-big.toml',
         modelLine: index + 1,
+        entry: null,
         mark: 'none',
       });
       big.relations.push({

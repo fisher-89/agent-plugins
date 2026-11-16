@@ -59,7 +59,7 @@ fn empty_scope() -> EmitTarget {
 /// [`EmitTarget`]，形态与查表在此**显式**给出——渲染器零形态推导、零 FQN 派生，故两者
 /// 只能由调用方（本装置即调用方姿态）提供。
 ///
-/// 这是**测试姿态**：产品侧的两值由 `render_all` 经 `paths::{entry_form, module_name,
+/// 这是**测试姿态**：产品侧的两值由 `render_all` 经 `paths::{entry_state, module_name,
 /// rust_module_path}` 算齐；用例的判据形态（查表 vs 派生）由测试相位按 D40 裁定。
 fn render_root(contract: &Contract, schema: &Value, meta: &ApiMeta, element_root: &str) -> String {
     render(
@@ -2170,6 +2170,39 @@ fn render的九组nullable语料零unknown() {
         assert!(
             !text.contains("unknown"),
             "{label}：渲染文本 `unknown` 零命中（泄漏面即失败）：\n{text}"
+        );
+    }
+}
+
+/// 边界（D41 / R-7 doc 面）：`ts.rs` 的 doc 把形态位来源改述为 `entry_state` 的
+/// `Resolved`，并明确标注 `ts_import_specifier` 的入口同级真值「待接线」——本期输出
+/// MUST NOT 当既有真值；三形态行为面逐值不变。
+#[test]
+fn ts渲染器doc改述为entry_state且specifier留白() {
+    let source = include_str!("ts.rs");
+    assert!(
+        source.contains("entry_state"),
+        "doc 内的形态位来源是 `paths::entry_state` 的 `Resolved`"
+    );
+    assert!(
+        !source.contains("entry_form"),
+        "旧词形 `entry_form` 零命中（含注释）"
+    );
+    assert!(
+        source.contains("待接线") || source.contains("MUST NOT 当既有真值"),
+        "`ts_import_specifier` 的入口同级真值标注为待接线留白"
+    );
+
+    // 行为面零变化：三形态逐值（`Crate` / `SubdirModule` 同值，`SingleFile` 同目录）
+    for (form, expected) in [
+        (EntryForm::Crate, "../archi.i"),
+        (EntryForm::SubdirModule, "../archi.i"),
+        (EntryForm::SingleFile, "./archi.i"),
+    ] {
+        assert_eq!(
+            paths::ts_import_specifier(form, "archi"),
+            expected,
+            "specifier 语义零变化（{form:?}）"
         );
     }
 }

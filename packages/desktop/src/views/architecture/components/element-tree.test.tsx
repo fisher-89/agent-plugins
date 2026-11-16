@@ -16,6 +16,7 @@ function element(fqn: string, mark: ArchiElement['mark'] = 'none'): ArchiElement
     metadata: {},
     modelFile: '.dev-team/architecture/models/01-core.toml',
     modelLine: 1,
+    entry: null,
     mark,
   };
 }

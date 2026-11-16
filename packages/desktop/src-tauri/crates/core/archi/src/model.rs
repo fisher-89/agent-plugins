@@ -45,6 +45,11 @@ pub struct Element {
     /// 契约状态指针（缺省 `declared`；协议正文 MUST NOT 进模型——签名 / 导出符号 /
     /// 接口定义写在架构域 `api` 目录的契约资产里）
     pub api: ApiStatus,
+    /// 实现入口指针（缺省 `None`）：单值、repo 相对 POSIX，与 `path` 同口径
+    /// （`./` 前缀由归一剥除、不参与身份）。四条判据（基准 / 落位 / 存在 /
+    /// 跨元素唯一）与三态解析链归 [`crate::api::paths`]——本字段只承载「入口在
+    /// 哪一扇门」，MUST NOT 承载协议正文。
+    pub entry: Option<String>,
     /// 覆盖路径（原文，不归一）
     pub path: Vec<String>,
     /// 显式文档路径（原文，不归一）

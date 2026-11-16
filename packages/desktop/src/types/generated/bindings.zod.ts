@@ -814,6 +814,7 @@ export const ArchiElementSchema = z.strictObject({
 	get modelLine() { return z.int().min(0).max(4294967295); },
 	get mark() { return NodeMarkSchema; },
 	get api() { return ApiStatusSchema; },
+	get entry() { return z.string().nullable(); },
 });
 
 export const ArchiExcludedFileSchema = z.strictObject({

@@ -1093,6 +1093,8 @@ fn archi_module出参含api并列字段() {
     );
     let fqn = "App.Shop";
     write_contract(temp.path(), fqn, &format!("# {fqn}\n\n## 职能\n\n正文。\n"));
+    // 生成物路径是**入口**的函数：入口落盘后三路径才全 `Some`
+    temp.write("src/shop/src/lib.rs", "pub fn f() {}\n");
 
     let detail = archi_module_inner(temp.path(), fqn).expect("archi_module_inner 应 Ok");
     assert_eq!(
@@ -1828,7 +1830,9 @@ fn 写失败文案透传不称全或无() {
         "MUST NOT 声称全部成功：{error}"
     );
     assert!(
-        temp.path().join("crates/api/subject.i.rs").is_file(),
+        temp.path()
+            .join("crates/api/subject/src/lib.i.rs")
+            .is_file(),
         "非原子：失败点之前已写（不回滚）"
     );
 }

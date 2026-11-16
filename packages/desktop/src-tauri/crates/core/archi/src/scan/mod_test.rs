@@ -97,6 +97,7 @@ fn element(fqn: &str, gate: GateTier, paths: &[&str]) -> ArchiElement {
         kind: ElementKind::Module,
         gate,
         api: ApiStatus::Declared,
+        entry: None,
         path: paths.iter().map(|path| (*path).to_owned()).collect(),
         summary: None,
         metadata: BTreeMap::new(),
@@ -1119,4 +1120,49 @@ fn 三helper提权保持单源() {
         .filter(|line| line.contains("read_dir"))
         .count();
     assert_eq!(code_lines, 0, "遍历面零 `read_dir` 自建实现");
+}
+
+/// 边界（`entry` 的零敏感面）：元素带显式 `entry`（合法 / 非法各一）→ 扫描结果与
+/// `entry = None` 逐字段相同（扫描只吃 `path` / 配置）。
+#[test]
+fn 扫描面对entry零敏感() {
+    let temp = TempDir::new("scan-entry-blind");
+    temp.write(
+        "src/auth/token.ts",
+        "export const token = 1;
+",
+    );
+    temp.write(
+        "src/billing/x.ts",
+        "import { token } from '../auth/token';
+",
+    );
+
+    let baseline = scan_full(temp.root(), &two_element_model(), &[]).expect("全量扫描应成功");
+    let mut with_entry = two_element_model();
+    with_entry[0].entry = Some("src/auth/token.ts".to_owned());
+    with_entry[1].entry = Some("/abs/illegal.ts".to_owned());
+    let decorated = scan_full(temp.root(), &with_entry, &[]).expect("全量扫描应成功");
+
+    assert_eq!(
+        baseline.report.scanned_files, decorated.report.scanned_files,
+        "扫描文件数与 `entry` 无关"
+    );
+    assert_eq!(
+        baseline.report.matched, decorated.report.matched,
+        "按元素聚合的归属结果逐字段相同"
+    );
+    assert_eq!(
+        baseline.report.unmatched_files, decorated.report.unmatched_files,
+        "未归属清单零差异"
+    );
+    assert_eq!(
+        baseline.report.excluded, decorated.report.excluded,
+        "排除清单零差异"
+    );
+    assert_eq!(
+        baseline.edges.len(),
+        decorated.edges.len(),
+        "跨元素边数与 `entry` 无关"
+    );
 }

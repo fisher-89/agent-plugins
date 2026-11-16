@@ -65,6 +65,7 @@ fn element(fqn: &str) -> Element {
         kind: ElementKind::Module,
         gate: GateTier::Off,
         api: ApiStatus::Declared,
+        entry: None,
         path: Vec::new(),
         docs: Vec::new(),
         summary: None,
@@ -431,4 +432,53 @@ fn 检索文档面为关联面的子集() {
             doc.path
         );
     }
+}
+
+/// 边界（`entry` 零敏感面）：两元素仅 `entry` 不同 → 命中集与文档条目逐值相同（检索面
+/// 只看 FQN / `summary` / `metadata` / `docs`，不搜 `path` / `api` / `entry`）。
+#[test]
+fn 检索面对entry零敏感() {
+    let temp = TempDir::new("search-entry-blind");
+    let plain = element("App.Auth");
+    let mut declared = element("App.Auth");
+    declared.entry = Some("packages/desktop/src/auth/token.ts".to_owned());
+
+    let baseline = search(
+        &graph_of(vec![plain]),
+        temp.root(),
+        "Auth",
+        SearchScope::All,
+    )
+    .expect("检索应成功");
+    let decorated = search(
+        &graph_of(vec![declared]),
+        temp.root(),
+        "Auth",
+        SearchScope::All,
+    )
+    .expect("检索应成功");
+
+    assert_eq!(
+        baseline.element_fqns, decorated.element_fqns,
+        "元素命中集与 `entry` 无关"
+    );
+    assert_eq!(baseline.docs, decorated.docs, "文档条目与 `entry` 无关");
+
+    // 反例校准：`entry` 的文本不是检索目标（搜入口串的末段不命中元素）
+    let by_entry = search(
+        &graph_of(vec![{
+            let mut element = element("App.Auth");
+            element.entry = Some("packages/desktop/src/auth/token.ts".to_owned());
+            element
+        }]),
+        temp.root(),
+        "token",
+        SearchScope::Elements,
+    )
+    .expect("检索应成功");
+    assert!(
+        by_entry.element_fqns.is_empty(),
+        "检索面不含 `entry` 文本：{:?}",
+        by_entry.element_fqns
+    );
 }
