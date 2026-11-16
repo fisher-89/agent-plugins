@@ -1,0 +1,13 @@
+# 行尾统一 LF（生效面：非归档的源码、文档、配置）。
+* text=auto eol=lf
+
+# 历史归档按字节保全：它是变更当时的快照，改写行尾等于篡改证据。`-text` = 不
+# 归一行尾，工作区写成什么就入库存什么。
+openspec/changes/archive/** -text
+
+# 归档测试证据同理：unified diff 与进程输出日志的字节内容是语义的一部分。
+*.patch -text
+*.log -text
+
+# Windows 批处理必须 CRLF（现存一份归档证据脚本）。
+*.cmd text eol=crlf

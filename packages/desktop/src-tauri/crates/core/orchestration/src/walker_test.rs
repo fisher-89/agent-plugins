@@ -46,6 +46,12 @@ use workflow::write::{
 // 夹具随双向墙退役，状态种子改经 store change 域操作面）
 // ---------------------------------------------------------------------------
 
+/// 自 `start` 起的字符窗口（源码自证用）：按**字符**而非**字节**截取——
+/// 字节偏移可能落在多字节字符中间而 panic，且偏移量对源码行尾敏感。
+fn byte_window(source: &str, start: usize, max_chars: usize) -> String {
+    source[start..].chars().take(max_chars).collect::<String>()
+}
+
 /// 临时 workspace 根 RAII。
 struct TempRoot(PathBuf);
 
@@ -21281,7 +21287,7 @@ async fn resolve_deadlock三分支结构保留() {
     let ask_arm = own
         .find("DecisionAction::Ask { .. } =>")
         .expect("resolve_deadlock 的 Ask 臂在场");
-    let arm_body = &own[ask_arm..(ask_arm + 400).min(own.len())];
+    let arm_body = byte_window(&own, ask_arm, 400);
     assert!(
         arm_body.contains("Terminal::failed"),
         "Ask 臂仍收敛为 Terminal::failed"
@@ -21292,7 +21298,7 @@ async fn resolve_deadlock三分支结构保留() {
     );
     // 措辞本身单点在常量值内（两处消费点共用）
     let const_at = own.find("const TXT_ASK_DRIFT").expect("漂移文案常量在场");
-    let const_line = &own[const_at..(const_at + 200).min(own.len())];
+    let const_line = byte_window(&own, const_at, 200);
     assert!(const_line.contains("决策漂移"), "常量值含「决策漂移」");
     assert!(
         const_line.contains("AskUserQuestion"),
