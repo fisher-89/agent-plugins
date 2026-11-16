@@ -721,9 +721,11 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     const total = contentHeight();
 
     for (let index = 0; index < stickies.length - 1; index += 1) {
-      expect(heights[index], `span-${index}`).toBe((tops[index + 1] ?? 0) - (tops[index] ?? 0));
+      expect(heights[index], `span-${index}`).toBe(
+        (tops[index + 1] ?? 0) - (tops[index] ?? 0) - GAP,
+      );
     }
-    expect(heights.at(-1)).toBe(total - (tops.at(-1) ?? 0));
+    expect(heights.at(-1)).toBe(total - (tops.at(-1) ?? 0) - GAP);
     expect(Math.min(...heights)).toBeGreaterThanOrEqual(0);
   });
 
@@ -759,7 +761,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
 
     expect(stickyNodes()).toHaveLength(1);
     expect(Number.parseFloat(sticky.style.top)).toBe(PADDING);
-    expect(Number.parseFloat(sticky.style.height)).toBe(total - PADDING);
+    expect(Number.parseFloat(sticky.style.height)).toBe(total - PADDING - GAP);
     expect(bubblesOfRole('assistant')).toHaveLength(0);
   });
 
@@ -804,7 +806,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     });
     expect(contentHeight()).toBe(baseHeight);
     expect(Number.parseFloat((stickyNodes()[0] as HTMLElement).style.height)).toBe(
-      baseHeight - PADDING,
+      baseHeight - PADDING - GAP,
     );
 
     act(() => {
@@ -812,7 +814,7 @@ describe('AgentMessages：user 消息常驻吸附', () => {
     });
     expect(contentHeight()).toBe(baseHeight - USER_ESTIMATE + 88);
     expect(Number.parseFloat((stickyNodes()[0] as HTMLElement).style.height)).toBe(
-      baseHeight - USER_ESTIMATE + 88 - PADDING,
+      baseHeight - USER_ESTIMATE + 88 - PADDING - GAP,
     );
   });
 
@@ -1010,7 +1012,7 @@ describe('AgentMessages：空内容轮可见性判据', () => {
       );
       expect(contentHeight(), status).toBe(expectedHeight(['user', 'assistant', 'assistant']));
       const sticky = stickyNodes()[0] as HTMLElement;
-      expect(Number.parseFloat(sticky.style.height), status).toBe(contentHeight() - PADDING);
+      expect(Number.parseFloat(sticky.style.height), status).toBe(contentHeight() - PADDING - GAP);
       unmount();
     }
   });

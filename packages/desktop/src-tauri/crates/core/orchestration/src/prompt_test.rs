@@ -8,12 +8,17 @@ fn evaluator_prompt协议附录改指finish_step与红线() {
     let phase_prompt = "Evaluate implement phase for change \"c\".";
     let prompt = evaluator_prompt(phase_prompt);
 
-    // 协议附录：禁调 MCP 写通道四件 + 「调 finish_step 收口」；不再定义 JSON 形状
+    // 协议附录：落账归属红线（不写任何落账数据）+ 「调 finish_step 收口」；
+    // 不再定义 JSON 形状
     assert!(prompt.contains("## 输出协议"), "附录段在场");
-    assert!(prompt.contains("禁止调用"), "禁调 MCP 红线前置语在场");
-    for tool in ["phase_log", "phase_next", "phase_start", "backtrack"] {
-        assert!(prompt.contains(tool), "写通道四件红线含 {tool}");
-    }
+    assert!(
+        prompt.contains("评估落账由桌面编排代写"),
+        "落账归属红线在场"
+    );
+    assert!(
+        prompt.contains("workflow.json"),
+        "落账数据禁写面（workflow.json）显式点名"
+    );
     assert!(
         prompt.contains("`finish_step`"),
         "收口方式为调用 finish_step 工具"
@@ -588,19 +593,22 @@ fn spec_sync_prompt边界空串超长与特殊字符原样插值() {
 }
 
 /// spec 同步 prompt 静态红线（异常）：零 `<role>` / `{{…}}` 占位、零 CLI skill
-/// 溯源；MCP 与 workflow.json 面恒为禁用声明（零读写依赖）。
+/// 溯源；MCP 面已随插件退役、不得再出现（工具面不存在，点名只会诱发幻觉调用）。
 #[test]
 fn spec_sync_prompt静态红线零占位零外部依赖() {
     let prompt = spec_sync_prompt("demo-change");
 
-    assert!(prompt.contains("禁止调用 MCP 工具"), "MCP 禁用红线显式声明");
+    assert!(
+        !prompt.contains("MCP") && !prompt.contains("__TOOL_ASK_USER__"),
+        "插件时代工具面已退役（零 MCP / 零 __TOOL_ASK_USER__ 字样）"
+    );
     assert!(!prompt.contains("<role>"), "零 <role> 占位");
     assert!(!prompt.contains("{{"), "零 {{…}} 占位");
     assert!(!prompt.contains("skill"), "零 CLI skill 溯源");
     assert!(!prompt.contains("include_str"), "零编译期占位标记残留");
     assert!(
         prompt.contains("不读写 workflow.json"),
-        "workflow.json 面为禁用声明"
+        "workflow.json 面为禁用声明（该路径真实可达，红线仍在）"
     );
 }
 
@@ -631,6 +639,10 @@ fn merge_conflict_prompt组装含change名与逐条冲突路径() {
     assert!(
         prompt.contains("清单外任何文件一律不动"),
         "清单外零改动约束在场"
+    );
+    assert!(
+        !prompt.contains("MCP") && !prompt.contains("__TOOL_ASK_USER__"),
+        "插件时代工具面已退役（零 MCP / 零 __TOOL_ASK_USER__ 字样）"
     );
 }
 

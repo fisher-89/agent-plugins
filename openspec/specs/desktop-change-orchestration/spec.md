@@ -489,7 +489,7 @@ run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guar
 
 ### Requirement: 相位 prompt 组装面静态化（静态主体 + 动态 append）
 
-executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；动态面 SHALL 全部 append 而非模板替换：上下文头一行 `change: <name>`、回溯重做窗口段（见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）、static-check / archi-check / 测试修复失败注入、输出协议附录（evaluator）、decision 两动作与有界输入段（决策会话）与一句「无法裁决时调用 `AskUserQuestion` 工具」指路。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换。段序 SHALL 为「上下文头 → 静态主体 → 回溯重做窗口段 → 失败反馈段（门禁修复注入）→ 输出协议附录（evaluator）」：窗口段是失败反馈段的上位语境（前者答「为什么这个相位被叫回来」，后者答「本相位这次错在哪」），MUST NOT 倒置于反馈段之后；单行「回溯原因」形式已退役（窗口段完全取代，单点渲染）。窗口段的条目数与裁剪完全由写面下发的集合决定（写面常量 `MAX_BACKTRACK_WINDOWS`：≤ 该上限时全量并集、超限取创建序末位两层；双分支完整表述见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」），orchestration 侧 MUST NOT 二次裁剪、亦不定义该常量。**verdict 裁决内化后动态面 SHALL NOT 含任何「verdict 解析失败修复注入」**——纠错由 `finish_step` 工具在同一 turn 内闭合，不产生跨轮反馈注入。**协议形状不进 prompt 主体**：`finish_step` 与 `AskUserQuestion` 的 description / parameters 形状 SHALL 由**工具挂载面**承载（挂载清单 + 动态 schema），MUST NOT 作为 prompt 正文重复一遍——prompt 侧只留「何时收口 / 何时提问」的各一句指引与禁调写通道红线。`decision_answer_prompt`（ask 应答的唯一再提示面）SHALL 随 ask 停等内移一并退役（应答不再开新一轮，`grep` 零命中）。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
+executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；动态面 SHALL 全部 append 而非模板替换：上下文头一行 `change: <name>`、回溯重做窗口段（见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」）、static-check / archi-check / 测试修复失败注入、输出协议附录（evaluator）、decision 两动作与有界输入段（决策会话）与一句「无法裁决时调用 `AskUserQuestion` 工具」指路。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换。段序 SHALL 为「上下文头 → 静态主体 → 回溯重做窗口段 → 失败反馈段（门禁修复注入）→ 输出协议附录（evaluator）」：窗口段是失败反馈段的上位语境（前者答「为什么这个相位被叫回来」，后者答「本相位这次错在哪」），MUST NOT 倒置于反馈段之后；单行「回溯原因」形式已退役（窗口段完全取代，单点渲染）。窗口段的条目数与裁剪完全由写面下发的集合决定（写面常量 `MAX_BACKTRACK_WINDOWS`：≤ 该上限时全量并集、超限取创建序末位两层；双分支完整表述见「决策协议」与 desktop-workflow-write-face「回溯重做窗口推导与 prompt 携带」），orchestration 侧 MUST NOT 二次裁剪、亦不定义该常量。**verdict 裁决内化后动态面 SHALL NOT 含任何「verdict 解析失败修复注入」**——纠错由 `finish_step` 工具在同一 turn 内闭合，不产生跨轮反馈注入。**协议形状不进 prompt 主体**：`finish_step` 与 `AskUserQuestion` 的 description / parameters 形状 SHALL 由**工具挂载面**承载（挂载清单 + 动态 schema），MUST NOT 作为 prompt 正文重复一遍——prompt 侧只留「何时收口 / 何时提问」的各一句指引与落账归属红线。`decision_answer_prompt`（ask 应答的唯一再提示面）SHALL 随 ask 停等内移一并退役（应答不再开新一轮，`grep` 零命中）。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
 
 #### Scenario: 上下文头在场
 
@@ -530,14 +530,14 @@ executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文
 
 ### Requirement: evaluator 输出协议瘦身
 
-`evaluator_protocol` 输出协议附录 SHALL 要求 evaluator **调用 `finish_step` 工具收口**（形状与落账红线由工具参数给出；MUST NOT 要求在最终消息输出任何 JSON 对象、MUST NOT 说明 `verdict` / `phase` / `attempt` / `skipped` 字段——verdict 由 checklist 推导、其余由 walker 按 provenance 盖戳）。协议 SHALL 保留禁调 MCP 写通道红线（phase_log / phase_next / phase_start / backtrack，落账由桌面编排代写）；checklist 至少一项、逐项含 `id`（取自 prompt「静态清单」表首列）+ `pass`（布尔）+ `evidence`（事实依据，含 `file:line`）；`report` ≤ `MAX_REPORT_CHARS`。
+`evaluator_protocol` 输出协议附录 SHALL 要求 evaluator **调用 `finish_step` 工具收口**（形状与落账红线由工具参数给出；MUST NOT 要求在最终消息输出任何 JSON 对象、MUST NOT 说明 `verdict` / `phase` / `attempt` / `skipped` 字段——verdict 由 checklist 推导、其余由 walker 按 provenance 盖戳）。协议 SHALL 声明落账归属红线（评估落账由桌面编排代写，agent 只产结论、不写任何落账数据含 `workflow.json`），MUST NOT 点名插件时代的 MCP 工具（`phase_log` / `phase_next` / `phase_start` / `backtrack`——桌面工具面不存在这些名字，点名只会诱发幻觉调用）；checklist 至少一项、逐项含 `id`（取自 prompt「静态清单」表首列）+ `pass`（布尔）+ `evidence`（事实依据，含 `file:line`）；`report` ≤ `MAX_REPORT_CHARS`。
 
 #### Scenario: 协议改为工具收口
 
 - **WHEN** 读取 evaluator 输出协议附录文本
 - **THEN** 要求「调用 `finish_step` 收口」
 - **AND** 无「输出一个 checklist JSON 对象」「形状为 `{ verdict, report, checklist }`」类要求，无「输出 phase / attempt / skipped 字段」要求
-- **AND** 仍含禁调 MCP 写通道红线与 `report` 上限
+- **AND** 仍含落账归属红线与 `report` 上限
 
 #### Scenario: 退役修复注入零命中
 

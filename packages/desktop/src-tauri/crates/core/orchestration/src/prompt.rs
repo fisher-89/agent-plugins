@@ -40,13 +40,13 @@ fn backtrack_option_label(option: &BacktrackOption, redo_note: &str) -> String {
     )
 }
 
-/// evaluator 输出协议附录：写通道唯一红线（禁调 MCP phase-log / phase-next /
-/// phase_start / backtrack，落账由桌面 walker 代写）+ 收口方式（调 `finish_step`
-/// 工具；参数形状由工具 schema 给出——协议文本不再复述 checklist JSON 形状）。
+/// evaluator 输出协议附录：落账归属红线（评估落账由桌面 walker 代写、agent 只产
+/// 结论）+ 收口方式（调 `finish_step` 工具；参数形状由工具 schema 给出——协议文本
+/// 不再复述 checklist JSON 形状）。
 fn evaluator_protocol() -> String {
     format!(
         "\n\n---\n\n## 输出协议（必须遵守）\n\n\
-1. 禁止调用 MCP 工具 phase_log / phase_next / phase_start / backtrack：评估落账由桌面编排代写，你只产出评估结论。\n\
+1. 评估落账由桌面编排代写——你只产出评估结论，不写任何落账数据（含 `workflow.json`）。\n\
 2. 评估完成后**调用 `finish_step` 工具收口**——checklist 与 report 是工具参数（形状由工具 schema 给出），无需在最终消息里输出任何 JSON。\n\
 3. `report` 不超过 {MAX_REPORT_CHARS} 字符；checklist 逐项需 `id`（取自本 prompt「静态清单」表首列）+ `pass`（布尔）+ `evidence`（事实依据，含 file:line）。\n\
 4. 无需 `verdict` / `phase` / `attempt` / `skipped` 字段：verdict 由 checklist 推导，其余由桌面编排按 provenance 盖戳。"
@@ -131,8 +131,7 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
 // ---------------------------------------------------------------------------
 // 归档 agent prompt 单点（自 archive_flow.rs 搬移，文本零语义改动——增量合并语义
 // 与解算纪律单源 = desktop-change-archive spec requirement 自述，零 CLI skill
-// 溯源；零 MCP / __TOOL_ASK_USER__ / workflow.json 依赖；git 面收缩由模板明令
-// ——归档编排代执行收口）
+// 溯源；零 workflow.json 读写依赖；git 面收缩由模板明令——归档编排代执行收口）
 // ---------------------------------------------------------------------------
 
 /// spec 同步 prompt（入参为记录供给的 change **name**——prompt 内文面向用户 /
@@ -154,7 +153,7 @@ pub(crate) fn spec_sync_prompt(change: &str) -> String {
 
 约束（必须遵守）：
 - 只编辑 `openspec/specs/**`；不修改 `openspec/changes/{change}/`（delta 原件由归档收口整体迁移）。
-- 禁止调用 MCP 工具（change_list 等）、禁止 __TOOL_ASK_USER__、不读写 workflow.json。
+- 不读写 workflow.json：change 清单与状态由桌面编排掌握，你只按上面的 delta 做合并。
 - 不执行任何 git 命令——提交与合入由桌面编排代执行。
 - 完成后最终消息简述各 capability 的合并动作（added / modified / removed / renamed）。"
     )
@@ -180,7 +179,6 @@ pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> Strin
 约束（必须遵守）：
 - 只编辑上面清单内的文件；清单外任何文件一律不动（含未提交 / staged 的无关内容——它们属于用户）。
 - 禁止 `git add -A` / `git add .`；禁止 `git commit` / `git merge` / `git rebase`（含 `git rebase --continue` / `git rebase --abort`）/ `git reset` / `git stash` 等收口或改写历史的命令——rebase 续走由桌面编排执行。
-- 禁止调用 MCP 工具、禁止 __TOOL_ASK_USER__。
 - 全部冲突文件解算并 add 后，最终消息简述各文件的裁决要点。"
     )
 }

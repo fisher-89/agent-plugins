@@ -96,13 +96,13 @@
 
 ### Requirement: evaluator 知识不含落账 / 路由指令
 
-8 个 evaluator md MUST NOT 含 "Call phase_log" / `phase_next` / `phase_start` / `backtrack` 等 MCP 落账或路由指令（桌面 evaluator 禁 MCP，落账由 walker 代写）；evaluator SHALL 只产出评估结论（最终消息 checklist JSON，形状见 desktop-change-orchestration「evaluator 输出协议瘦身」），MUST NOT 指示用 Write/Edit/Bash 写 `eval.json` / `workflow.json`。
+8 个 evaluator md MUST NOT 含 "Call phase_log" / `phase_next` / `phase_start` / `backtrack` 等落账或路由指令（落账由 walker 代写；这些名字属插件时代的 MCP 工具面，桌面端不存在）；evaluator SHALL 只产出评估结论（经 `finish_step` 工具收口，形状见 desktop-change-orchestration「evaluator 输出协议瘦身」），MUST NOT 指示用 Write/Edit/Bash 写 `eval.json` / `workflow.json`。
 
 #### Scenario: evaluator md 零落账指令
 
 - **WHEN** 读取 8 个 evaluator md
 - **THEN** 无 phase_log / phase_next / phase_start / backtrack 调用指令
-- **AND** 无「写入 eval.json / workflow.json」指令；输出面仅为评估结论（checklist JSON）
+- **AND** 无「写入 eval.json / workflow.json」指令；输出面仅为经 `finish_step` 提交的评估结论
 
 ## Module Contract
 

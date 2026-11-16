@@ -388,7 +388,12 @@ function MessageContainer({
             {
               index,
               node: (
-                <MessageScrollerSticky key={message.id} index={index} start={start} span={span}>
+                <MessageScrollerSticky
+                  key={message.id}
+                  index={index}
+                  start={start}
+                  span={span - MESSAGE_GAP_PX}
+                >
                   <ChatBubble message={message} askAnswer={askAnswer} />
                 </MessageScrollerSticky>
               ),
