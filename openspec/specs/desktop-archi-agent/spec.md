@@ -157,7 +157,7 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - `phase` / `role` SHALL 取自既有 provenance `source_ref` 定式 `{change_id}/{phase}/{role}/{attempt}`（不新增契约字段）；解析 SHALL 取尾三段的定式（`attempt` → `role` → `phase`），段数 < 4 或末段非数字即 `None`。
 - 解析不出该定式（畸形 / 短段 / 未知 phase）SHALL **fail-closed**：零 archi 工具（MUST NOT 退化为"给全部工具"）。
 - 相位矩阵 SHALL 只对 `source = "change"` 生效（archi 来源臂不查矩阵、恒三工具全开）。
-- `source = "explore"` 臂 SHALL 逐字不变（六工具收窄 + `create_explore_note`）；其余非 change 来源（debug 等）SHALL 恒「七内建全量 + 零 archi 工具 + `ask = Generic`」的显式构造（MUST NOT 以默认构造兜底——默认值的 `ask = None` 即静默禁用）。
+- `source = "explore"` 臂的 **archi 面 SHALL 恒为空**（零 archi 工具，逐字沿用）；该臂的**完整**名字清单（六工具收窄 + `create_explore_note` + 只读 DB 工具 `db_tables` / `db_query` 两件）单源见 `desktop-agent-execution`「会话级工具面注入与 explore 笔记工具」与 `desktop-agent-db-tools`，本能力 MUST NOT 另写一份；其余非 change 来源（debug 等）SHALL 恒「七内建全量 + 零 archi 工具 + `ask = Generic`」的显式构造（MUST NOT 以默认构造兜底——默认值的 `ask = None` 即静默禁用）。
 - 矩阵只决定**下发面**，不决定 prompt 文本（prompt 侧见 `desktop-phase-prompts`）；`preamble` 位只由装配层按来源决定（当前唯一生产者 = archi 臂），前端 / 自由字符串 MUST NOT 直接供给。
 - **`archi_api` 只给 implement/executor 与 archi 臂**：其余相位 MUST NOT 下发（`code-review` / `acceptance` 判「改动是否越界」只读模型面，不自检生成物新鲜度——新鲜度由门禁与契约面板承担）。
 
@@ -186,10 +186,10 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 - **WHEN** 分别以 `source_ref = null`、`source_ref = "some-id"`、`source_ref = "a/b/c/1"` 发起 `source = "archi"` 会话
 - **THEN** 三者装配结果完全相同（同一 archi 臂：三工具全开 + 七内建全量 + 知识 preamble）；MUST NOT 因 `source_ref` 形态触发相位解析或 fail-closed
 
-#### Scenario: explore 与 debug 来源零变化
+#### Scenario: explore 与 debug 来源零 archi 工具
 
 - **WHEN** 分别以 `source="explore"` 与 `source="debug"` 发起会话
-- **THEN** explore 为 read / grep / glob / ls / edit / bash + `create_explore_note`（逐字不变），debug 为七内建（含 `write`）；两者均无 archi 工具、`preamble` 均为 `None`
+- **THEN** explore 为 read / grep / glob / ls / edit / bash + `create_explore_note` + `db_tables` / `db_query`（只读 DB 工具两件，清单单源见 desktop-agent-db-tools），debug 为七内建（含 `write`）；两者均无 archi 工具、`preamble` 均为 `None`
 
 ### Requirement: 只读档位归属与成员校验不变
 
@@ -339,3 +339,13 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 | 项 | 变化 | 描述 |
 |---|---|---|
 | 只读工具行 | 改 | 补 `archi_api`（改完代码自查生成物新鲜度与契约判据）；其余相位 prompt 零改动（见 `desktop-phase-prompts`） |
+
+### 模块增量：explore 臂 archi 面口径对齐与成员校验覆盖（agent-db-query-tools）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Function / API） |
+|------|------|------|
+| `openspec/specs/desktop-archi-agent`（表述对齐） | explore 臂口径 | 仅改「explore 臂逐字不变」的两处表述（矩阵 bullet 与 `explore 与 debug 来源零 archi 工具` scenario）：archi 面恒空不变，完整清单单源指向 desktop-agent-execution / desktop-agent-db-tools |
+| `crates/infra/agent/src/compose.rs`（零 archi 语义改动） | 矩阵与两臂 | `archi_matrix` 7 行逐字不变；archi 臂三工具 + 知识 preamble 逐字不变；change 臂矩阵语义不变（DB 工具两名的恒 push 属 desktop-agent-execution 的装配面，不参与矩阵判定） |
+| `crates/infra/agent/src/sdk/mount.rs`（零 archi 语义改动） | 档位与成员校验 | 三 archi 工具仍 `ToolTier::Read`；成员校验对新增两 DB 工具名同样生效（同一条判据，无第二份名单） |
