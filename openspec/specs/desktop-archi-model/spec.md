@@ -22,6 +22,16 @@ summary = "认证与令牌签发"
 docs = ["./src/auth/README.md"]
 metadata = { owner = "platform" }
 
+[element."App.Backend"]
+kind = "domain"
+
+# 目录型壳的约定默认拼成 .../src-tauri/src/src/lib.rs（指不到），故此处显式 entry 是正当用法
+# （本变更模型数据零处：显式值随宿主重建后的后续变更落，见 repo-archi-model）
+[element."App.Backend.Shell"]
+kind = "module"
+path = ["./packages/desktop/src-tauri/src/"]
+entry = "./packages/desktop/src-tauri/src/lib.rs"
+
 [[relation]]
 from = "App.Auth"
 to   = "App.Shared"
@@ -30,11 +40,13 @@ desc = "复用错误类型"
 
 - **键形裁决**：`element` 表的键 SHALL 为**带引号的完整 FQN 单键**（`[element."App.Auth"]`），MUST NOT 用未引号点分形式（`[element.App.Auth]`）声明层级——两种写法并存会使同一层级存在两种拼法、歧义不可判。层级 SHALL 由 **FQN 最长前缀**推导（`App.Auth.Token` 的父亲是 `App.Auth`），MUST NOT 由 TOML 表嵌套推导。
 - **字段面封闭**：元素字段 SHALL 为标量 / 数组 / **内联表**三形态；`metadata` MUST NOT 用子表（`[element."X".metadata]`）表达——子表与「子元素表头」同构，会被读成元素 `X.metadata`。
-- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `component` 四值之一；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；`path` / `docs` SHALL 为字符串数组（缺省空）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。
+- **值域封闭**：`kind` 必填且 SHALL 为 `package` / `domain` / `module` / `component` 四值之一；`gate` 可选且 SHALL 为 `off` / `warn` / `strict` 三值之一（缺省 `off`）；**`api`** 可选且 SHALL 为 `declared` / `none` 二值之一（缺省 `declared`）；**`entry`** 可选且 SHALL 为**单个**字符串（缺省 `null`，MUST NOT 为数组——数组会让「一个入口只属于一个模块」这条约束不可表达）；`path` / `docs` SHALL 为字符串数组（缺省空）；`summary` 可选字符串；`metadata` SHALL 为字符串→字符串的自由表（未知键忽略，非字符串值即 `invalidValue`）。
 - **未知字段拒绝**：元素表内出现未列出的字段（如 `gatte`）SHALL 由 `deny_unknown_fields` 拒绝（`unknownField`）。
 - **属性与语义分离**：`gate` 档位 SHALL 是模型属性（本能力定义其值域与缺省）；档位的**语义消费**（参与归属、违例定级、门禁结论）归 `desktop-archi-drift` 与 `desktop-archi-gate`，本能力 MUST NOT 定义任何定级规则。
 - **`api` 状态指针（显式字段，非 `metadata`）**：元素 SHALL 有封闭二值的 `api` 字段（`declared` 缺省 / `none`，附 `ApiStatus::ALL`），语义为「本模块是否有公共 API 契约」的状态指针，MUST NOT 承载任何协议正文（签名 / 符号 / 接口 / 规范全文）。走显式字段而非 `metadata` 自由键的理由是可获得 `deny_unknown_fields` 的拼写校验：`api = "non"` 报 `invalidValue` 并列全合法值，而 `metadata = { api = "non" }` 会静默变成「未声明」。完备性判据：每个 `path` 非空元素 ∈ {`none`} ∪ {契约文件存在}，不存在「忘了建契约」这第三种状态（判据归 `desktop-archi-api-check`）。
-- **协议正文不经模型**（知情边界，防误加字段，本变更改写为状态指针口径）：元素上 MUST NOT 出现接口 / 导出符号 / 签名一类协议**正文**字段——唯一允许的协议相关字段是上述状态指针 `api`。原边界要求的两个问题，本变更正面回答：**契约权威在哪**——在 `<archi_dir>/api/<FQN>.md`（见 `desktop-archi-api`），模型只存状态指针；**两套提取器怎么对齐**——不提两套：单一 schema + 单一生成器，`scan/rust.rs` / `scan/ts.rs` 是既有取数器（非权威），只供一次性 bootstrap。模型内再存一份协议正文必然漂移，该做法仍被否决；重提须独立变更。
+- **`entry` 是实现入口指针（显式字段，非 `metadata`）**：语义为「本模块的实现入口文件」——**单值**、repo 相对 POSIX 路径（与 `path` 同口径，`./` 前缀由归一剥除、不参与身份）。四条判据（基准 / 落位 = 某条 `path` 或目录型 `path` 之内 / 存在 = 盘上必须有 / 跨元素唯一）与三态解析链（声明 → 语言约定默认 → 无入口）归 `desktop-archi-api`「生成物落点与入口查找」，本能力只定义字段本身的值域与解析面。走显式字段而非 `metadata` 自由键的理由同 `api`：`entry = ["a"]`（数组）与 `entery`（拼错）必须能机械拒收。
+- **两个指针都 MUST NOT 承载协议正文**：`entry` 是**位置**指针（文件在哪），`api` 是**状态**指针（有无公共 API）；二者都 MUST NOT 让模型开始携带签名 / 导出符号 / 接口定义。单文件根元素（`views/welcome-view.tsx` 一类）MUST NOT 声明 `entry`——它的根文件就是入口，声明即冗余；显式 `entry` 的正当用法只有「约定默认指不到」的两类：目录型壳（`src-tauri/src/` → 显式 `src/lib.rs`）与二进制 crate（只有 `src/main.rs`）。
+- **协议正文不经模型**（知情边界，防误加字段）：元素上 MUST NOT 出现接口 / 导出符号 / 签名一类协议**正文**字段——唯一允许的协议相关字段是上述两个指针 `api` / `entry`。原边界要求的两个问题：**契约权威在哪**——在 `<archi_dir>/api/<FQN>.md`（见 `desktop-archi-api`），模型只存状态指针；**两套提取器怎么对齐**——不提两套：单一 schema + 单一生成器，`scan/rust.rs` / `scan/ts.rs` 是既有取数器（非权威），只供一次性 bootstrap。模型内再存一份协议正文必然漂移，该做法仍被否决；重提须独立变更。
 - 新元素缺省 `gate = "off"`（ratchet：存量全 `off`，想收紧的模块逐个改 `strict`，一个 change 收紧一块）。
 
 #### Scenario: 四值 kind 与三值 gate 解析成功
@@ -72,10 +84,15 @@ desc = "复用错误类型"
 - **WHEN** 元素表写 `api = "non"`，对照写 `metadata = { api = "non" }`
 - **THEN** 前者报 `invalidValue`（位置 + 列出 `declared` / `none` 两值）；后者被接受且该元素的 `api` 仍为缺省 `declared`（元数据可自由演进）——两侧口径不同且各自可辨
 
+#### Scenario: entry 单值可解析且缺省为 null
+
+- **WHEN** 解析三份模型：一份省略 `entry`、一份对目录型壳 `App.Backend.Shell`（`path = ["./packages/desktop/src-tauri/src/"]`）写 `entry = "./packages/desktop/src-tauri/src/lib.rs"`、一份写 `entry = ["./a.rs", "./b.rs"]`
+- **THEN** 前者投影出 `entry = null`（字段不省略）；中者逐字读出该字符串（`./` 由归一剥除后参与判据；目录型壳的约定默认指不到，显式值正是本字段的正当用法——14 个 `src/lib.rs` 命中的 crate 与单文件根元素 MUST NOT 声明 `entry`，基线数据纪律见 `repo-archi-model`）；后者报 `invalidValue`（`entry` 是单值，数组形态直接拒收，MUST NOT 静默取首条）
+
 #### Scenario: 模型不含协议正文
 
 - **WHEN** 审查任一模型文件的元素字段面
-- **THEN** 元素字段只有 `kind` / `gate` / `api` / `path` / `docs` / `summary` / `metadata` 七项；任何签名 / 导出符号 / 接口定义写在 `<archi_dir>/api/<FQN>.md` 而非模型内
+- **THEN** 元素字段只有 `kind` / `gate` / `api` / `entry` / `path` / `docs` / `summary` / `metadata` 八项；任何签名 / 导出符号 / 接口定义写在 `<archi_dir>/api/<FQN>.md` 而非模型内
 
 ### Requirement: 多文件聚合与声明定位
 
@@ -339,14 +356,14 @@ diff 的消费面为归档确认面的「架构变更」区块（数据源经命
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `crates/core/archi/Cargo.toml` | crate 落位与依赖 | 依赖 `foundation` + `serde` / `serde_json` / `specta` + `toml` / `toml_edit` / `petgraph` / `ignore`（均取自锁内既有版本，零新增包）；零 Tauri、零 store、零 spawn、零 `workflow` 依赖 |
-| `crates/core/archi/src/model.rs` | 格式无关 AST | `Model` / `Element`（`fqn` / `kind` / `gate` / **`api`** / `path` / `docs` / `summary` / `metadata` / `file` / `line`）/ `Relation` / `SourceSpan` / `Diagnostic`；`derive PartialEq`（UI diff 预留）；关系级 `Option<SourceSpan>` 占位；`Element.api: ApiStatus`（`#[serde(default)]` 语义面 = 缺省 `Declared`），其余字段名 / 顺序 / 语义零变化 |
+| `crates/core/archi/src/model.rs` | 格式无关 AST | `Model` / `Element`（`fqn` / `kind` / `gate` / **`api`** / **`entry`** / `path` / `docs` / `summary` / `metadata` / `file` / `line`）/ `Relation` / `SourceSpan` / `Diagnostic`；`derive PartialEq`（UI diff 预留）；关系级 `Option<SourceSpan>` 占位；`Element.api: ApiStatus`（`#[serde(default)]` 语义面 = 缺省 `Declared`）与 `Element.entry: Option<String>`（缺省 `None`，语义归 `desktop-archi-api`）；其余字段名 / 顺序 / 语义零变化 |
 | `crates/core/archi/src/parse/mod.rs` | 多文件聚合 | `trait SourceParser { fn parse(&str) -> ParseOutcome }`；`parse_dir(models_dir) -> ParseOutcome`：字典序、跨文件 `duplicateElement`、位置回填；空目录 → 空模型 |
-| `crates/core/archi/src/parse/toml.rs` | TOML 实现 | `toml` + span 反序列化；`deny_unknown_fields`；`kind` / `gate` 封闭枚举；`RawElement` 新增 `api` 字段（`#[serde(default)]`），落在既有 `deny_unknown_fields` 面内 ⇒ `api = "non"` 报 `invalidValue` 并列全合法值，MUST NOT 走 `metadata` 自由键；parser 错误 → 结构化诊断（保留原文与 line/column） |
+| `crates/core/archi/src/parse/toml.rs` | TOML 实现 | `toml` + span 反序列化；`deny_unknown_fields`；`kind` / `gate` 封闭枚举；`RawElement` 含 `api` 与 **`entry`**（均 `#[serde(default)]`；`entry` 为 `Option<String>`），落在既有 `deny_unknown_fields` 面内 ⇒ `api = "non"` 报 `invalidValue` 并列全合法值、`entry = ["a"]` / `entry = {…}` 由 serde `invalid type` 归 `invalidValue`、拼错的键归 `unknownField`，MUST NOT 走 `metadata` 自由键；parser 错误 → 结构化诊断（保留原文与 line/column） |
 | `crates/core/archi/src/graph.rs` | 图单点 | `ModelGraph`（petgraph）唯一构建点；SCC 成环 / 依赖祖先 / 未定义引用 / 孤儿层级；`depends_on` / `depended_by` / `children` / `neighborhood`（1-hop） |
-| `crates/core/archi/src/dto.rs` | 三面共用投影 + 封闭词汇单点（补全量常量） | `ArchiGraph`（含停摆态）/ `ArchiModuleDetail` / `ArchiSearchResult` / `ArchiChangeSummary`；封闭词汇枚举 `ElementKind` / `GateTier` / **`ApiStatus`** / `DiagnosticKind` / `EdgeMark` / `NodeMark`（`specta::Type`）；`ArchiDiagnosticKind::ALL: [Self; 9]`（与 `as_str` 同源；长度与词面双向对拍；既有 `ElementKind::ALL` / `GateTier::ALL` 语义零变）；新增 `ApiStatus`（`declared` / `none`，`ALL` + `as_str` + `specta::Type`）与 `ArchiApiRef { status, contractPath, schemaPath, generatedPath }`；`ArchiElement.api` / `ArchiElementBrief.api` / `ArchiModuleDetail.api` 出线；路径由 `archi_api_dir` 派生（定义归 `desktop-archi-api`）；投影只裁剪，MUST NOT 重算 |
+| `crates/core/archi/src/dto.rs` | 三面共用投影 + 封闭词汇单点（补全量常量） | `ArchiGraph`（含停摆态）/ `ArchiModuleDetail` / `ArchiSearchResult` / `ArchiChangeSummary`；封闭词汇枚举 `ElementKind` / `GateTier` / **`ApiStatus`** / `DiagnosticKind` / `EdgeMark` / `NodeMark`（`specta::Type`）；`ArchiDiagnosticKind::ALL: [Self; 9]`（与 `as_str` 同源；长度与词面双向对拍；既有 `ElementKind::ALL` / `GateTier::ALL` 语义零变）；新增 `ApiStatus`（`declared` / `none`，`ALL` + `as_str` + `specta::Type`）与 `ArchiApiRef { status, contractPath, schemaPath, generatedPath }`；`ArchiElement.api` / `ArchiElementBrief.api` / `ArchiModuleDetail.api` 出线；`ArchiElement` 增 `entry: Option<String>`（线格式 `entry`，缺省 `null`，**显式字段不省略**——与「投影不补默认值」同款）；路径由 `archi_api_dir` 派生（定义归 `desktop-archi-api`）；既有 DTO 字段名 / 顺序 / 语义零变化；投影只裁剪，MUST NOT 重算（入口解析在 `api::paths`，不在投影层） |
 | `crates/core/archi/src/edit.rs` | gate 写回纯函数 | `set_gate(source, fqn, gate) -> Result<String, String>`：`toml_edit` 渲染保留注释空行、前置校验（存在 / 值域）、渲染后自证可解析；零文件系统写 |
 | `crates/core/archi/src/diff.rs` | 结构 diff | `model_diff(base, next) -> ModelDiff`：元素增删（FQN 键）、关系增删（`(from,to)` 键）、`gate` 变更；文件 / 行序不参与身份 |
-| `crates/core/archi/src/model_test.rs` + `parse/toml_test.rs` | 模型语料（扩展） | 两态取值 / 缺省 `declared` / 拼写错报 `invalidValue` 并列全合法值 / 与 `metadata.api` 的口径差（静默变「未声明」的反例在案） |
+| `crates/core/archi/src/model_test.rs` + `parse/toml_test.rs` + `dto_test.rs` | 模型语料（扩展） | `entry` 三态（省略 → `null` / 单值 / 数组被拒 `invalidValue`）；投影显式 `null` 不省略；既有 `api` / `path` / `docs` 语料逐字保留（两态取值 / 缺省 `declared` / 拼写错报 `invalidValue` 并列全合法值 / 与 `metadata.api` 的口径差）；`ArchiElement` 字面量补 `entry: None`（机械） |
 | `src-tauri/src/commands/archi/mod.rs` | **八命令**薄包装（八命令口径见「IPC 命令面契约（八命令）」） | `archi_graph` / `archi_module` / `archi_change_summary` / `archi_set_gate` / `archi_drift` / `archi_file_tree` / `archi_api_check` / `archi_api_generate`，各配一个 `*_inner` 领域组装纯函数（离 Tauri 可测）；`Result<T, String>` 错误面；写命令两条（`archi_set_gate` 写前校验 + 原子写回；`archi_api_generate` 只增只改零删除）；命令层零领域规则（文档正文经通用 `read_file`） |
 | `src-tauri/src/commands/mod.rs` | 命令登记面 | `all_commands!` 的 archi 段 5 → 6 条（追加 `commands::archi::archi_file_tree`，位于 `archi_drift` 之后、`read_file` 之前；builder 与 `generate_handler!` 同源） |
 | `crates/core/archi/src/tree.rs`（新增，见 `desktop-archi-file-tree`） | 文件树投影 | `file_tree(root) -> Result<ArchiFileTree, String>`：枚举 + 排除 + 归属 + 目录合成；纯读盘、零写盘、零 spawn；归属与剥离一律经 `OwnerIndex` |

@@ -117,7 +117,7 @@ none               以上都不成立
 - **嵌套最长前缀**：父子 `path` 前缀重叠时，内层文件 SHALL 归最深前缀者（既有最长前缀语义），父子各出各自 `elementRoot`。
 - **容器元素零节点**：`path` 恒空的容器元素 MUST NOT 出现在文件树上（这是 `decisions/0001-model-granularity.md` §3 的直接后果，不是遗漏）；容器只在元素树（FQN 前缀派生）上可见。
 - **`ambiguous` 必须实现**：同长多命中 SHALL 记 `ambiguous` 并保留全量候选于 `owners`，MUST NOT 任选其一；本仓预期恒 0，但分支 MUST 实现并由合成用例覆盖（不实现即退化成「任选其一」，与判定单源纪律冲突）。
-- **生成物归属沿用并集判据**：`.i.<ext>` 生成物的归属 SHALL 由 `OwnerIndex` 的「整组剥离 ∪ 替换扩展名」并集判据给出（定义与断言面见 `desktop-archi-api`「生成物落点与入口查找」与 `desktop-archi-drift`「文件归属」），树侧 MUST NOT 另加剥离规则（否则树与漂移对同一文件给出不同归属）。
+- **生成物归属沿用三候选并集判据**：`.i.<ext>` 生成物的归属 SHALL 由 `OwnerIndex` 的「整组剥离 ∪ 替换扩展名 ∪ **主干对齐**（与文件型 `path` 的去扩展名形态全等）」三候选并集判据给出（定义与断言面见 `desktop-archi-api`「生成物落点与入口查找」与 `desktop-archi-drift`「文件归属」），树侧 MUST NOT 另加剥离规则（否则树与漂移对同一文件给出不同归属）。生成物落点已改为**入口同级**：目录型根下仍在元素根之内（`crates/infra/archi/src/lib.i.rs`），文件型根下是根的兄弟文件（`views/welcome-view.i.ts`），后者只有主干对齐候选能命中。
 
 #### Scenario: 目录型元素根与其内部文件
 
@@ -154,10 +154,10 @@ none               以上都不成立
 - **WHEN** 两个元素声明同一个 `path`（如均写 `./src/shared/`，含 `./` 前缀与尾 `/` 两种拼法归一后相同）
 - **THEN** 该路径节点 `mark = ambiguous`、`owners` 为两个 FQN；MUST NOT 判 `elementRoot`（`owners` 恰 1 才是 `elementRoot`）
 
-#### Scenario: 生成物按并集判据归元素
+#### Scenario: 生成物按三候选并集归元素
 
-- **WHEN** 盘上存在 `crates/infra/archi.i.rs`（元素根同级的生成物）且元素 `App.Backend.Infra.ArchiRuntime` 的 `path = ["./crates/infra/archi/"]`
-- **THEN** 该文件节点 `mark = member`、`owners = ["App.Backend.Infra.ArchiRuntime"]`（不落 `none`）；树侧源码零第二份剥离 / 归一 / 前缀匹配实现
+- **WHEN** 盘上分别存在入口同级生成物 `crates/infra/archi/src/lib.i.rs`（元素根目录形 `path = ["./crates/infra/archi/"]`）与 `packages/desktop/src/views/welcome-view.i.ts`（元素根文件形 `path = ["./packages/desktop/src/views/welcome-view.tsx"]`）
+- **THEN** 两者各自 `mark = member`、`owners` 为对应元素（不落 `none`）；文件型根一例只有「主干对齐」候选能命中；树侧源码零第二份剥离 / 归一 / 前缀匹配实现
 
 ### Requirement: 枚举面与漂移判定面逐条一致
 
@@ -387,6 +387,13 @@ none               以上都不成立
 |------|------|------|
 | `packages/desktop/src/types/generated/bindings.ts` | 再生成 | `archiFileTree` typed 包装 + `ArchiFileTree` / `ArchiFileEntry` / `FileEntryKind` / `FileTreeMark` 类型 |
 | `packages/desktop/src/types/generated/bindings.zod.ts` | 再生成 | 上列命令的 `argsSchemas` / `resultSchemas` 表项 + 四个具名 schema（纯接受面、零修饰） |
+
+### Function: `packages/desktop/src-tauri/crates/core/archi/src/tree.rs` + `tree_test.rs`（归属判据同步：三候选并集）
+
+| 模块 | 职责 | 关键契约 |
+|------|------|----------|
+| `crates/core/archi/src/tree.rs` | 文件树投影 | 枚举 + 排除 + 归属 + 目录合成；归属与剥离一律经 `OwnerIndex`（零第二份判据）；生成物按**三候选并集**归属（含主干对齐：文件型根的入口同级生成物）；`ArchiFileTree` / `ArchiFileEntry` / `FileEntryKind` / `FileTreeMark` 出线形状零变化 |
+| `crates/core/archi/src/tree_test.rs` | 树语料 | 目录型根 / 文件型根 / 多 `path` / 嵌套 / 容器零节点 / 同长 ambiguous 各在案；生成物按三候选归元素（入口同级两形态各一例，不落 `none`） |
 
 ### 零改动面
 
