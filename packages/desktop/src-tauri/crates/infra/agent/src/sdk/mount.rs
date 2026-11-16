@@ -25,6 +25,14 @@ pub(crate) fn builtin() -> &'static [&'static str] {
     &TOOL_NAMES
 }
 
+/// `db_tables` 只读发现工具名（表清单 / 单表字段说明）：执行体在
+/// [`crate::sdk::db_tool`]，会话可见性单源在 `compose`（explore / change 两臂）。
+pub(crate) const DB_TABLES_TOOL: &str = "db_tables";
+
+/// `db_query` 只读取数工具名（条件 / 排序 / 投影 / 分页）：执行体同上；查询语义
+/// 单源在 `store`（本清单只管定义与准入档）。
+pub(crate) const DB_QUERY_TOOL: &str = "db_query";
+
 /// `create_explore_note` 专用工具名（explore 会话名字清单注入；执行体在
 /// [`crate::sdk::explore_note`]，经 `LoopTurn` 上下文路由——不经 `tools::execute`
 /// 纯函数）。
@@ -65,6 +73,9 @@ pub(crate) enum ToolExec {
     ExploreNote,
     /// 三个 archi 只读工具：`LoopTurn.archi` 上下文
     Archi,
+    /// 两个 DB 只读工具：`LoopTurn.db` 上下文（两工具共用一个执行体，工具名
+    /// 由 loop 侧传入——与 `Archi` 同形）
+    Db,
     /// 收口工具：编排侧校验 + 本步收口（`orchestration::finish`）
     FinishStep(agent::FinishSpec),
     /// ask 工具：一个变体带档位（schema 单源，仅执行体行为不同）
@@ -84,16 +95,18 @@ pub(crate) struct ToolMount {
 /// 构造）。
 static REGISTRY: OnceLock<Vec<ToolMount>> = OnceLock::new();
 
-/// 十一项静态挂载清单（唯一工具事实源）。**前七项必须恰是七内建**——`tools: None`
+/// 十三项静态挂载清单（唯一工具事实源）。**前七项仍是七内建**——`tools: None`
 /// 的语义载体（[`definitions`] 直接取前七项）。
 pub(crate) fn registry() -> &'static [ToolMount] {
     REGISTRY.get_or_init(build_registry)
 }
 
-/// 十一个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
-/// `create_explore_note`（Write / `ExploreNote`）→ 三 archi 只读（Read / `Archi`）。
+/// 十三个字面构造项按序：七内建（Read ×4 / Write ×2 / Execute ×1 + `Pure`）→
+/// `create_explore_note`（Write / `ExploreNote`）→ 三 archi 只读（Read / `Archi`）
+/// → 两 DB 只读（Read / `Db`，定义见 [`db_tables_definition`] /
+/// [`db_query_definition`]）。
 fn build_registry() -> Vec<ToolMount> {
-    let mut mounts: Vec<ToolMount> = Vec::with_capacity(11);
+    let mut mounts: Vec<ToolMount> = Vec::with_capacity(13);
     for name in TOOL_NAMES {
         mounts.push(ToolMount {
             definition: generic_definition(name),
@@ -124,6 +137,16 @@ fn build_registry() -> Vec<ToolMount> {
         definition: archi_api_definition(),
         tier: ToolTier::Read,
         exec: ToolExec::Archi,
+    });
+    mounts.push(ToolMount {
+        definition: db_tables_definition(),
+        tier: ToolTier::Read,
+        exec: ToolExec::Db,
+    });
+    mounts.push(ToolMount {
+        definition: db_query_definition(),
+        tier: ToolTier::Read,
+        exec: ToolExec::Db,
     });
     mounts
 }
@@ -255,6 +278,86 @@ fn archi_api_definition() -> ToolDefinition {
                 "element": { "type": "string", "description": "元素 FQN（bootstrap 必填，如 App.Auth）" }
             },
             "required": ["action"]
+        }),
+    }
+}
+
+/// `db_tables` 定义（发现：先知道有哪些表、每张表是什么、字段叫什么）。
+fn db_tables_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: DB_TABLES_TOOL.to_owned(),
+        description: "查询本机数据的表结构（**先 db_tables 后 db_query**）。省略 table 返回表清单，\
+             每行含 dimension（user / workspace）/ table（db_query 的 table 入参取值）/ count（记录数）/ \
+             summary（表介绍）；给定 table 返回该表字段清单，每字段含 name（**落库线名**，可直接喂 \
+             db_query 的 field）/ type（类型文本）/ doc（字段说明），不吐清单字段。可选 scope 收窄维度\
+             （\"user\" = 全局库，\"workspace\" = 当前工作区库），缺省两库全列；带 table 时按表所属维度解析"
+            .to_owned(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "scope": { "type": "string", "enum": ["user", "workspace"], "description": "收窄维度（缺省两库全列）" },
+                "table": { "type": "string", "description": "表名（省略 = 表清单；给出 = 该表字段说明）" }
+            },
+            "required": []
+        }),
+    }
+}
+
+/// `db_query` 定义（取数：声明式条件 / 排序 / 投影 / 分页，语义单源在 store）。
+fn db_query_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: DB_QUERY_TOOL.to_owned(),
+        description: format!(
+            "按条件取本机数据（只读）。scope 指定取哪一库：\"user\" = 全局库（跨工作区共享的表）、\
+             \"workspace\" = 当前工作区库（**缺省**）；表不属所选维度时按报错提示补 scope。\
+             字段名用**落库线名**（camelCase，如 changeId 而非 change_id；\
+             写错会报错并列出候选线名，拿不准先 db_tables 下钻）。where 为条件数组、**多项 AND**（无 OR）；\
+             op 词表：{}；点号下钻支持（event.kind、configSnapshot.model），**数组下标不支持**\
+             （event.blocks.0.name 报错）；LIKE 只用 %（前缀 / 后缀 / 包含，无 % 即等值，\\% \\_ 为字面）。\
+             order 缺省主键自然序（给出即全量排序后切页，null 恒排末位）；select 为投影路径\
+             （key 恒在、不占名额）；offset 缺省 0；limit 缺省 20 / 上限 1000（越界报错、不钳位）。\
+             **行数是名义上限、40 KB 字节预算是实际生效值**：一次可能只回 20 余行，请据返回体的 \
+             total（表全量）/ matched（命中）/ returned（本页）与 truncatedBy 判断，不要据 returned \
+             推断库里有多少。注意 session / session_event 是**本会话自身转录**，查询会把当前对话\
+             再次喂回上下文，慎查",
+            vocabulary(store::QUERY_OPS)
+        ),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "table": { "type": "string", "description": "表名（db_tables 清单取值）" },
+                "scope": { "type": "string", "enum": ["user", "workspace"], "description": "取哪一库（缺省 workspace）" },
+                "where": {
+                    "type": "array",
+                    "description": "条件数组（AND 组合）",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": { "type": "string", "description": "落库线名（支持点号下钻，不支持数组下标）" },
+                            "op": { "type": "string", "enum": store::QUERY_OPS, "description": "比较符（封闭词表）" },
+                            "value": { "description": "比较值（IN 须为数组；IS NULL / IS NOT NULL 不接）" }
+                        },
+                        "required": ["field", "op"]
+                    }
+                },
+                "order": {
+                    "type": "object",
+                    "description": "排序（缺省主键自然序）",
+                    "properties": {
+                        "field": { "type": "string", "description": "排序字段路径" },
+                        "desc": { "type": "boolean", "description": "降序（缺省升序；null 恒排末位）" }
+                    },
+                    "required": ["field"]
+                },
+                "select": {
+                    "type": "array",
+                    "description": "投影路径集（key 恒在）",
+                    "items": { "type": "string" }
+                },
+                "offset": { "type": "integer", "description": "深翻偏移（缺省 0）" },
+                "limit": { "type": "integer", "description": "本页行数上限（缺省 20、上限 1000；预算会先生效）" }
+            },
+            "required": ["table"]
         }),
     }
 }

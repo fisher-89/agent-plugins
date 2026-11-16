@@ -13,6 +13,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 specta = { workspace = true }
+# `Format::map_types` 应用 serde 重命名（camelCase 线名）并展平类型图——说明 /
+# 类型 / 线面的唯一派生入口。单 crate 构建下也须在本 crate 在案，MUST NOT
+# 指望壳层 feature 统一。
+specta-serde = { workspace = true }
 time = { workspace = true }
 workflow = { workspace = true }
 

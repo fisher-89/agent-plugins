@@ -1,15 +1,22 @@
 mod canonical;
 mod change_port;
+mod describe;
 mod envelope;
 mod model;
+mod query;
 mod store;
 
-pub use envelope::{ModelInfo, RecordEnvelope, RecordsPage};
+pub use describe::{FieldDoc, ModelDoc, TableDoc};
+pub use envelope::{dimension_of, ModelInfo, RecordEnvelope, RecordsPage};
 pub use model::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
     AgentProviderRecord, AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord,
-    ExploreRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
-    StepRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
+    ExploreRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
+    SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
+};
+pub use query::{
+    QueryCond, QueryError, QueryOrder, QueryPage, QuerySpec, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT,
+    QUERY_OPS,
 };
 pub use store::{
     DbDimension, Store, StoreError, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX,
@@ -19,8 +26,12 @@ pub use store::{
 #[cfg(test)]
 mod change_port_test;
 #[cfg(test)]
+mod describe_test;
+#[cfg(test)]
 mod envelope_test;
 #[cfg(test)]
 mod model_test;
+#[cfg(test)]
+mod query_test;
 #[cfg(test)]
 mod store_test;

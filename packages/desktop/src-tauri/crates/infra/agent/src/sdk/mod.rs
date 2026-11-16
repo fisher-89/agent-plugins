@@ -3,6 +3,7 @@ pub(crate) mod bash;
 pub(crate) mod compact;
 pub(crate) mod config;
 pub(crate) mod context;
+pub(crate) mod db_tool;
 pub(crate) mod explore_note;
 pub(crate) mod log;
 // `loop` 为 Rust 关键字：文件名按 design 定为 `loop.rs`，模块名以 raw
@@ -30,6 +31,8 @@ mod compact_test;
 mod config_test;
 #[cfg(test)]
 mod context_test;
+#[cfg(test)]
+mod db_tool_test;
 #[cfg(test)]
 mod explore_note_test;
 #[cfg(test)]

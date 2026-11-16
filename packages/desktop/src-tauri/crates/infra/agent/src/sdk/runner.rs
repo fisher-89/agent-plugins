@@ -16,11 +16,15 @@ use tokio::sync::mpsc;
 use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::config::{EngineConfig, Protocol};
 use crate::sdk::context::{ContextDefense, DefenseNotice};
+use crate::sdk::db_tool::DbContext;
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::model_spec::{
     parse_model_spec, ModelSpec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW,
 };
-use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};
+use crate::sdk::mount::{
+    ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL,
+    EXPLORE_NOTE_TOOL,
+};
 use crate::sdk::protect::ProtectRules;
 use crate::sdk::{context, r#loop, resume};
 use crate::ResumeTranscript;
@@ -75,6 +79,12 @@ pub struct SdkRunner {
     /// 主仓 root（组合根注入缝）：写入保护规则装配的根（工作区配置权威所在
     /// 地）；`None` = 未注入 → 只装载内置规则（非「保护关闭」）
     workspace_root: Option<PathBuf>,
+    /// 全局库句柄（组合根注入缝）：per-turn 铸造 `DbContext` 的两把原料之一
+    /// （`None` = 未注入——DB 工具上下文缺席）
+    db_global: Option<Arc<Store>>,
+    /// 会话 workspace 库句柄（组合根注入缝）：另一把原料。MUST 为会话
+    /// workspace root 的实例（change 会话 cwd 是 worktree，库身份锚恒主仓 root）
+    db_workspace: Option<Arc<Store>>,
     /// ask 应答注册表（组合根注入缝；`new` 缺省空表 = 阻塞恒 miss，fail-closed）
     ask_registry: Arc<agent::AskRegistry>,
     /// ask 编排状态面（组合根注入缝；仅 `Flow` 档消费）
@@ -98,6 +108,8 @@ impl SdkRunner {
             web_search: false,
             explore_store,
             workspace_root: None,
+            db_global: None,
+            db_workspace: None,
             ask_registry: Arc::new(agent::AskRegistry::default()),
             ask_port: None,
         }
@@ -142,6 +154,17 @@ impl SdkRunner {
     /// （既有调用点零改）。
     pub fn with_web_search(self, web_search: bool) -> Self {
         Self { web_search, ..self }
+    }
+
+    /// 双库句柄旁路注入（builder 缝，与 `with_workspace_root` 同型）：全局库经
+    /// `WorkspaceStores::global_shared()`、workspace 库取会话 workspace root 的
+    /// 实例——MUST NOT 二次 open（redb 单进程单句柄）。
+    pub fn with_db_stores(self, global: Arc<Store>, workspace: Arc<Store>) -> Self {
+        Self {
+            db_global: Some(global),
+            db_workspace: Some(workspace),
+            ..self
+        }
     }
 
     /// `sdk-<进程内计数>-<毫秒时戳>` 引擎侧会话 id（每轮铸造；前缀仅保留为
@@ -244,6 +267,8 @@ impl AgentRunner for SdkRunner {
                 workspace_root: self.workspace_root.clone(),
                 ask_registry: Arc::clone(&self.ask_registry),
                 ask_port: self.ask_port.clone(),
+                db_global: self.db_global.clone(),
+                db_workspace: self.db_workspace.clone(),
             },
             question_rx,
             steer_rx,
@@ -384,6 +409,10 @@ struct PumpPayload {
     ask_registry: Arc<agent::AskRegistry>,
     /// ask 编排状态面（组合根注入缝）：仅 `Flow` 档随上下文携带
     ask_port: Option<Arc<dyn orchestration::port::AskPort>>,
+    /// 全局库句柄（per-turn 铸造 `DbContext` 的原料；`None` = 未注入）
+    db_global: Option<Arc<Store>>,
+    /// 会话 workspace 库句柄（同上；另一把原料）
+    db_workspace: Option<Arc<Store>>,
 }
 
 /// 架构只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
@@ -395,6 +424,25 @@ pub(crate) fn mint_archi_context(names: &[String], workspace_root: &Path) -> Opt
         name == ARCHI_MODULE_TOOL || name == ARCHI_SEARCH_TOOL || name == ARCHI_API_TOOL
     });
     present.then(|| ArchiContext::new(workspace_root.to_path_buf()))
+}
+
+/// 两只 DB 只读工具执行上下文 per-turn 铸造（单点；`session_pump` 唯一调用处）：
+/// 本轮名字清单含任一 DB 工具名且两库句柄皆在场才铸，否则 `None`。判据与
+/// [`mint_archi_context`] 同形（名字清单包含），MUST NOT 用枚举比较或自由字符串
+/// 嗅探——两把手任一缺席即 `None`（生产不可达：两臂恒带名字）。
+pub(crate) fn mint_db_context(
+    injections: &agent::SessionInjections,
+    global: Option<Arc<Store>>,
+    workspace: Option<Arc<Store>>,
+) -> Option<DbContext> {
+    let present =
+        contains_tool(injections, DB_TABLES_TOOL) || contains_tool(injections, DB_QUERY_TOOL);
+    if !present {
+        return None;
+    }
+    global
+        .zip(workspace)
+        .map(|(global, workspace)| DbContext::new(global, workspace))
 }
 
 /// 本轮名字清单是否包含某工具名（per-turn 铸造判据单点）。
@@ -448,6 +496,13 @@ async fn session_pump(
         open.injections.tools.as_deref().unwrap_or_default(),
         &open.ctx.workspace_root,
     );
+    // 两只 DB 只读工具执行上下文 per-turn 铸造：名字清单含任一 DB 工具名且两库
+    // 句柄皆在场才铸；上下文随 LoopTurn 携带、loop 侧路由
+    let db = mint_db_context(
+        &open.injections,
+        payload.db_global.clone(),
+        payload.db_workspace.clone(),
+    );
     // ask 执行上下文 per-turn 铸造：判据 = `ask` 位存在（与 explore / archi 的
     // 「名字包含」判据并列的第二类铸造判据）；`core_session_id` 取
     // `SessionOpen.session_id`（core 铸 id），MUST NOT 取引擎侧 `sdk-…` 标识
@@ -493,6 +548,7 @@ async fn session_pump(
         explore_note,
         archi,
         ask,
+        db,
         protect,
         web_search: payload.web_search,
     };

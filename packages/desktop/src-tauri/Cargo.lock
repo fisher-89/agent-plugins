@@ -9218,6 +9218,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "specta",
+ "specta-serde",
  "tempfile",
  "time",
  "workflow",

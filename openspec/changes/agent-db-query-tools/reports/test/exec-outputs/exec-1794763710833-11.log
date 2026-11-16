@@ -1,0 +1,17 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:513:
+     seed_changes(&db);
+     // 语料五名：dev-design / dev_design / dev%x / Dev-upper / dev-
+     for (pattern, expected, tag) in [
+[31m-        ("dev-%", 2u64, "前缀命中 dev-design 与 dev-（`%` 亦匹配空串）"),
+[0m[32m+        (
+[0m[32m+            "dev-%",
+[0m[32m+            2u64,
+[0m[32m+            "前缀命中 dev-design 与 dev-（`%` 亦匹配空串）",
+[0m[32m+        ),
+[0m         ("%-design", 1, "后缀"),
+         ("%sign%", 2, "包含"),
+         ("dev-design", 1, "无通配 → 等值"),
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -138,7 +138,7 @@ fn add_ok(store: &Store, dir: &Path) -> WorkspaceRecord {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn open_global列user维度三模型_open_workspace仅列workspace维度八行() {
+fn open_global列user维度三模型_open_workspace仅列workspace维度十一行() {
     let env = Env::new("registry-split");
 
     let global = open_global_ok(&env.db_path("global"));
@@ -163,9 +163,9 @@ fn open_global列user维度三模型_open_workspace仅列workspace维度八行()
             .collect::<Vec<_>>(),
         vec![
             "agent_run", "session", "session_event", "explore", "change", "phase",
-            "checklist_item", "step"
+            "checklist_item", "step", "run", "run_node", "run_edge"
         ],
-        "workspace 组静态注册 4→8：轮统计行 / 会话 / 转录 / explore 四既有模型 + change 流程状态四模型（agent_event 退役出注册），两组无交叉"
+        "workspace 组静态注册 8→11：轮统计行 / 会话 / 转录 / explore 四既有模型 + change 流程状态四模型 + run 执行图三模型（agent_event 退役出注册），两组无交叉"
     );
     assert!(ws_models.iter().all(|model| model.count == 0));
 }
@@ -604,9 +604,12 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
             ("change", 0),
             ("phase", 0),
             ("checklist_item", 0),
-            ("step", 0)
+            ("step", 0),
+            ("run", 0),
+            ("run_node", 0),
+            ("run_edge", 0)
         ],
-        "workspace 库八模型组：按会话域布局写入 session / explore（建档预建空会话 +1），change 流程状态四模型计数 0 也列出，无注册表混入"
+        "workspace 库十一模型组：按会话域布局写入 session / explore（建档预建空会话 +1），change 流程状态四模型与 run 执行图三模型计数 0 也列出，无注册表混入"
     );
     assert_eq!(
         stores.global().list_workspaces().unwrap(),
@@ -6443,9 +6446,12 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
             ("change", 1),
             ("phase", 1),
             ("checklist_item", 2),
-            ("step", 1)
+            ("step", 1),
+            ("run", 0),
+            ("run_node", 0),
+            ("run_edge", 0)
         ],
-        "change 流程状态四模型经既有 list_models 零改动覆盖"
+        "change 流程状态四模型经既有 list_models 覆盖（run 三模型计数 0 也列出）"
     );
 
     // scan 零改动可读四新模型记录信封（change 信封 key = 记录 id 主键投影）
@@ -8967,4 +8973,297 @@ fn delete_change_cascade不删会话与转录行() {
         .expect("会话查询应成功");
     assert_eq!(rows.total, 1, "会话行保留（审计留痕不随 change 级联删除）");
     assert_eq!(rows.sessions[0].row.id, "ses-cascade-1");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`Store::{describe, describe_table, query}` 三薄包装 + `global_shared()`
+//
+// 观测口径：三包装的价值在于「不复制语义」，故断言是「与直调原语逐字段相等」
+// 与「与 `scan` 全量计数对拍」；`global_shared()` 的判据是 `Arc::ptr_eq`（同一
+// 实例、无二次 open）与双向可见（`global()` 写入经共享 `Arc` 读回）。
+// ---------------------------------------------------------------------------
+
+use crate::query::QuerySpec;
+use crate::{QueryError, QueryPage};
+
+fn query_spec(value: serde_json::Value) -> QuerySpec {
+    serde_json::from_value(value).unwrap_or_else(|error| panic!("spec 应可解析: {error}"))
+}
+
+/// 正向（AC-1）：`Store::describe` 两库行集与 `list_models` 逐名一致（同一注册
+/// 表，两读面同源）。
+#[test]
+fn store_describe两库行集与list_models逐名一致() {
+    let env = Env::new("describe-wrappers");
+    let global = open_global_ok(&env.db_path("global"));
+    let ws = open_workspace_ok(&env.db_path("ws"));
+
+    for (store, tag) in [(&global, "全局库"), (&ws, "workspace 库")] {
+        let docs = store
+            .describe()
+            .unwrap_or_else(|error| panic!("{tag} describe 应成功: {error}"));
+        let models = store.list_models().expect("list_models 应成功");
+        assert_eq!(
+            docs.iter()
+                .map(|doc| doc.table.as_str())
+                .collect::<Vec<_>>(),
+            models
+                .iter()
+                .map(|model| model.name.as_str())
+                .collect::<Vec<_>>(),
+            "{tag}: 表清单与 list_models 同源逐名一致"
+        );
+        assert!(
+            docs.iter().all(|doc| !doc.summary.trim().is_empty()),
+            "{tag}: 每行 summary 非空"
+        );
+    }
+    assert_eq!(
+        ws.describe().expect("workspace describe").len(),
+        11,
+        "workspace 十一行"
+    );
+    assert_eq!(
+        global.describe().expect("global describe").len(),
+        3,
+        "user 三行"
+    );
+}
+
+/// 正向 / 异常（AC-1）：`describe_table` 与 `describe::table` 直调结果相等；未知
+/// 表 `QueryError::Invalid` 且文案含候选表名（非 `StoreError`）。
+#[test]
+fn store_describe_table与直调相等且未知表invalid() {
+    let env = Env::new("describe-table");
+    let ws = open_workspace_ok(&env.db_path("ws"));
+    let direct =
+        crate::describe::table(crate::DbDimension::Workspace, "phase").expect("直调下钻应成功");
+    assert_eq!(
+        ws.describe_table("phase").expect("包装下钻应成功"),
+        direct,
+        "薄包装零语义复制（与直调逐字段相等）"
+    );
+
+    match ws.describe_table("nope") {
+        Err(QueryError::Invalid(message)) => {
+            assert!(message.contains("nope"), "文案携入参表名: {message}");
+            assert!(message.contains("phase"), "文案携候选表名: {message}");
+        }
+        Err(other) => panic!("未知表应为 Invalid 变体，实际: {other:?}"),
+        Ok(_) => panic!("未知表应 Err"),
+    }
+    // 跨维度表名：全局库查 workspace 表 → Invalid + 本维度候选
+    let global = open_global_ok(&env.db_path("global"));
+    let error = global
+        .describe_table("phase")
+        .expect_err("跨维度表名应 Err");
+    assert!(
+        matches!(error, QueryError::Invalid(_)),
+        "跨维度亦走 Invalid 变体"
+    );
+    assert!(
+        error.to_string().contains("agent_provider"),
+        "候选为本维度表名: {error}"
+    );
+}
+
+/// 正向（AC-5）：`Store::query` 全链（where + order + select + offset / limit）
+/// 一次跑通，三元与 `scan` 全量计数对拍。
+#[test]
+fn store_query全链三元与scan计数对拍() {
+    let env = Env::new("query-wrapper");
+    let ws = open_workspace_ok(&env.db_path("ws"));
+    for index in 0..5 {
+        seed_session(&ws, &format!("ses-query-{index}"));
+    }
+
+    let page: QueryPage = ws
+        .query(&query_spec(serde_json::json!({
+            "table": "session",
+            "where": [{"field": "source", "op": "=", "value": "debug"}],
+            "order": {"field": "id"},
+            "select": ["id", "source"],
+            "offset": 1,
+            "limit": 2
+        })))
+        .expect("全链查询应成功");
+    let scanned = ws.scan("session", 0, 10).expect("scan 应成功");
+    assert_eq!(page.total, scanned.total, "total 与 scan 全量计数对拍");
+    assert_eq!(page.matched, 5, "matched = 过滤后行数");
+    assert_eq!(page.records.len(), 2, "returned = 本页行数");
+    for record in &page.records {
+        let value = record.value.as_object().expect("投影为对象");
+        assert!(value.get("source").is_some(), "投影含 source");
+        assert!(value.get("configSnapshot").is_none(), "未选字段不出现");
+        assert!(value.get("id").is_some(), "投影含 id");
+    }
+}
+
+/// 边界（AC-5）：`limit = 1000` **不复用**查看页 500 上限——播种 520 行后
+/// `returned > 500` 且 `== min(matched, 1000)`（钳到 500 即本行红）。
+#[test]
+fn store_query_limit一千不复用查看页五百() {
+    let env = Env::new("query-limit-1000");
+    let ws = open_workspace_ok(&env.db_path("ws"));
+    let events: Vec<AgentEvent> = (0..520u64)
+        .map(|seq| AgentEvent {
+            turn_id: None,
+            seq,
+            timestamp_ms: 1727000000000 + seq as i64,
+            kind: AgentEventKind::Raw {
+                event_type: "mystery".to_owned(),
+                raw_json: format!(r#"{{"type":"mystery","seq":{seq}}}"#),
+            },
+        })
+        .collect();
+    ws.append_session_events("ses-520", &events)
+        .expect("批量落转录应成功");
+
+    let page = ws
+        .query(&query_spec(serde_json::json!({
+            "table": "session_event",
+            "limit": 1000
+        })))
+        .expect("恰上限查询应成功");
+    assert_eq!(page.matched, 520, "matched 精确");
+    assert_eq!(page.total, 520, "total 精确");
+    assert_eq!(page.records.len(), 520, "returned == min(matched, 1000)");
+    assert!(
+        page.records.len() > 500,
+        "未复用查看页 MAX_SCAN_LIMIT（钳到 500 即本行红）"
+    );
+}
+
+/// 异常（AC-5）：`limit = 1001` → `QueryError::Invalid`（文案含 1000），非
+/// `StoreError::Db`；未知表 / 未知字段 → `Invalid` 携候选。
+#[test]
+fn store_query越界与未知面均invalid() {
+    let env = Env::new("query-invalid");
+    let ws = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&ws, "ses-invalid");
+
+    let error = ws
+        .query(&query_spec(serde_json::json!({
+            "table": "session",
+            "limit": 1001
+        })))
+        .expect_err("limit 越界应 Err");
+    assert!(
+        matches!(error, QueryError::Invalid(_)),
+        "越界为 Invalid 变体（不进 StoreError 四变体），实际: {error:?}"
+    );
+    assert!(error.to_string().contains("1000"), "文案含上限: {error}");
+
+    for (spec, needle) in [
+        (serde_json::json!({"table": "phases"}), "未知表".to_owned()),
+        (
+            serde_json::json!({"table": "session_event",
+                "where": [{"field": "session_id", "op": "=", "value": "x"}]}),
+            "sessionId".to_owned(),
+        ),
+    ] {
+        let error = ws.query(&query_spec(spec.clone())).expect_err("应 Err");
+        assert!(
+            matches!(error, QueryError::Invalid(_)),
+            "{spec}: Invalid 变体"
+        );
+        assert!(
+            error.to_string().contains(&needle),
+            "{spec}: 文案含 {needle}: {error}"
+        );
+    }
+}
+
+/// 正向（AC-10）：`global_shared()` 两次调用同一实例（`Arc::ptr_eq`），且
+/// `global()` 写入经共享 `Arc` 读回（同一句柄双向可见）；`global()` 语义零改动
+///（`&*global_shared()` 与 `global()` 观测同一实例）。
+#[test]
+fn global_shared单开纪律与双向可见() {
+    let env = StoresEnv::new("global-shared");
+    let stores = env.open();
+
+    let first = stores.global_shared();
+    let second = stores.global_shared();
+    assert!(
+        Arc::ptr_eq(&first, &second),
+        "两次调用同一实例（无二次 open）"
+    );
+    assert!(
+        std::ptr::eq(first.as_ref(), stores.global()),
+        "`global()` 与 `global_shared()` 观测同一实例"
+    );
+
+    let record = add_ok(stores.global(), &env.ws("shared-ws"));
+    assert_eq!(
+        first.list_workspaces().expect("共享句柄读面应成功"),
+        vec![record.clone()],
+        "经 `global()` 写入 → 经共享 `Arc` 读回同一记录"
+    );
+    assert_eq!(
+        second.list_workspaces().expect("共享句柄读面应成功").len(),
+        1,
+        "同一句柄双向可见"
+    );
+    drop((first, second));
+}
+
+/// 边界（AC-10）：单开纪律——连调三次 + 其间 `for_root` 开 workspace 库 → 无
+/// panic / 无锁冲突；`for_root` 同 root 仍返回同一 `Arc`（既有缓存语义零改动）。
+#[test]
+fn global_shared连调与for_root缓存共存() {
+    let env = StoresEnv::new("global-shared-storm");
+    let stores = env.open();
+    let root = env.root_of("storm");
+
+    for _ in 0..3 {
+        let shared = stores.global_shared();
+        assert!(
+            stores
+                .global()
+                .list_models()
+                .expect("并发句柄读面应成功")
+                .iter()
+                .all(|model| model.count == 0),
+            "空库计数全 0（读面无锁冲突）"
+        );
+        drop(shared);
+    }
+
+    let first = stores.for_root(&root).expect("for_root 应成功");
+    let second = stores.for_root(&root).expect("同 root 再取应成功");
+    assert!(
+        Arc::ptr_eq(&first, &second),
+        "同 root 恒返回同一实例（缓存语义零改动）"
+    );
+    assert!(
+        !Arc::ptr_eq(&first, &stores.global_shared()),
+        "workspace 库实例与全局库实例不同（两库分立）"
+    );
+}
+
+/// 边界（只读行为侧证）：`describe` / `describe_table` / `query` 三调用前后
+/// `list_models` 计数逐表不变（零写面）。
+#[test]
+fn 三薄包装全程零写面() {
+    let env = Env::new("read-only-wrappers");
+    let ws = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&ws, "ses-readonly");
+    let before = ws.list_models().expect("查询前清单");
+
+    ws.describe().expect("describe 应成功");
+    ws.describe_table("phase").expect("describe_table 应成功");
+    ws.query(&query_spec(serde_json::json!({"table": "session"})))
+        .expect("query 应成功");
+
+    let after = ws.list_models().expect("查询后清单");
+    assert_eq!(before, after, "三调用前后逐表计数不变（只读零写面）");
+    assert_eq!(
+        after
+            .iter()
+            .find(|model| model.name == "session")
+            .expect("session 行")
+            .count,
+        1,
+        "会话行数不变"
+    );
 }

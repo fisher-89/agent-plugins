@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::sdk::archi_tool::ArchiContext;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
+use crate::sdk::db_tool::DbContext;
 use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::mount::{self, ToolExec};
@@ -147,6 +148,9 @@ pub(crate) struct LoopTurn {
     /// ask 执行上下文（per-turn 铸造，按 `injections.ask` 位；`None` = 档位未
     /// 装配——工具调用以 is_error 回灌）
     pub ask: Option<AskContext>,
+    /// 两只 DB 只读工具的执行上下文（per-turn 铸造随轮携带；`None` = 未装配——
+    /// 非 explore / change 会话恒 None，工具调用以 is_error 回灌）
+    pub db: Option<DbContext>,
     /// 写入保护规则集（泵起播时装配一次、随轮携带；loop 纯消费——与
     /// `defense` / `retry` / `liveness` 同列的「装配点算好」载荷）
     pub protect: ProtectRules,
@@ -668,6 +672,13 @@ pub(crate) async fn run(
                     None => ("专用工具执行上下文未装配".to_owned(), true),
                 },
                 ToolExec::Archi => match &turn.archi {
+                    Some(ctx) => match ctx.execute(&name, &input).await {
+                        Ok(text) => (text, false),
+                        Err(error) => (error, true),
+                    },
+                    None => ("专用工具执行上下文未装配".to_owned(), true),
+                },
+                ToolExec::Db => match &turn.db {
                     Some(ctx) => match ctx.execute(&name, &input).await {
                         Ok(text) => (text, false),
                         Err(error) => (error, true),

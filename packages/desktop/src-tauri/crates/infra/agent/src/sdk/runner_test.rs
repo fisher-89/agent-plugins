@@ -2764,12 +2764,27 @@ fn 枚举面零残留且引用面改挂载常量() {
             "runner.rs 代码行内 {retired} 零命中（枚举面已删）"
         );
     }
-    assert!(
-        code_lines.contains(
-            "use crate::sdk::mount::{ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL};"
-        ),
-        "引用面改引挂载清单的四专用名常量（含 `ARCHI_API_TOOL`）"
-    );
+    let normalized = code_lines.split_whitespace().collect::<Vec<_>>().join(" ");
+    let start = normalized
+        .find("use crate::sdk::mount::{")
+        .unwrap_or_else(|| panic!("runner.rs 引用面应改挂载清单常量"));
+    let end = normalized[start..]
+        .find('}')
+        .unwrap_or_else(|| panic!("挂载清单 import 块未收口"));
+    let import_block = &normalized[start..start + end];
+    for constant in [
+        "ARCHI_API_TOOL",
+        "ARCHI_MODULE_TOOL",
+        "ARCHI_SEARCH_TOOL",
+        "EXPLORE_NOTE_TOOL",
+        "DB_TABLES_TOOL",
+        "DB_QUERY_TOOL",
+    ] {
+        assert!(
+            import_block.contains(constant),
+            "引用面改引挂载清单常量（含 `{constant}`）：{import_block}"
+        );
+    }
     assert_eq!(
         code_lines.matches("fn mint_archi_context").count(),
         1,
@@ -3459,4 +3474,276 @@ async fn 泵内铸造流程档无port时调用以is_error回灌() {
             .is_err(),
         "零登记（防御臂先于登记）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`mint_db_context`（per-turn 铸造判据）与 `with_db_stores`（builder 缝）
+//
+// 观测口径：`session_pump` 的铸造点即 `mint_db_context(&open.injections, db_global,
+// db_workspace)` 的单点调用；本组用例以同两份原料直断铸造产物（判据 = 名字清单
+// 包含任一 DB 工具名 + 两把句柄皆在场），句柄用 `tempfile` 下真 `Store` 的 `Arc`
+//（判据只测在场性，但 `Arc<Store>` 无法以使实现替身替代——句柄类型即被测签名）。
+// ---------------------------------------------------------------------------
+
+use std::sync::Arc as StoreArc;
+
+use crate::sdk::db_tool::DbContext;
+use crate::sdk::mount::{DB_QUERY_TOOL, DB_TABLES_TOOL};
+use crate::sdk::runner::mint_db_context;
+
+/// 双库句柄底座（真库各开一次；判据不读库）。
+fn db_store_pair(
+    tag: &str,
+) -> (
+    tempfile::TempDir,
+    StoreArc<store::Store>,
+    StoreArc<store::Store>,
+) {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("runner-db-stores-{tag}-"))
+        .tempdir()
+        .expect("创建临时目录失败");
+    let global = StoreArc::new(
+        store::Store::open_global(&dir.path().join("global.redb"))
+            .unwrap_or_else(|error| panic!("打开全局库失败: {error}")),
+    );
+    let workspace = StoreArc::new(
+        store::Store::open_workspace(&dir.path().join("ws.redb"))
+            .unwrap_or_else(|error| panic!("打开 workspace 库失败: {error}")),
+    );
+    (dir, global, workspace)
+}
+
+fn names_of(names: &[&str]) -> SessionInjections {
+    SessionInjections {
+        preamble: None,
+        tools: Some(names.iter().map(|name| (*name).to_owned()).collect()),
+        finish: None,
+        ask: None,
+    }
+}
+
+/// 七内建 + 两 DB 名（change 臂同形；explore 臂为六工具 + 专用名 + 两 DB 名）。
+fn change_arm_injections() -> SessionInjections {
+    let mut names: Vec<String> = crate::sdk::mount::TOOL_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
+    names.push(DB_TABLES_TOOL.to_owned());
+    names.push(DB_QUERY_TOOL.to_owned());
+    SessionInjections {
+        preamble: None,
+        tools: Some(names),
+        finish: None,
+        ask: None,
+    }
+}
+
+/// 正向（AC-9 / AC-10）：名单含任一 DB 工具名（仅 `db_tables` / 仅 `db_query` /
+/// 两名皆含）且两把句柄在场 → `Some`。
+#[test]
+fn mint_db_context三名单形态均铸造() {
+    let (_dir, global, workspace) = db_store_pair("present");
+    for names in [
+        vec![DB_TABLES_TOOL],
+        vec![DB_QUERY_TOOL],
+        vec![DB_TABLES_TOOL, DB_QUERY_TOOL],
+    ] {
+        let context: Option<DbContext> = mint_db_context(
+            &names_of(&names),
+            Some(StoreArc::clone(&global)),
+            Some(StoreArc::clone(&workspace)),
+        );
+        assert!(
+            context.is_some(),
+            "名单 {names:?} 含 DB 工具名 → 铸造上下文"
+        );
+    }
+}
+
+/// 正向（AC-9）：两臂完整名字清单均铸造（判据只看「含任一 DB 名」，与清单长度
+/// 无关）。
+#[test]
+fn mint_db_context两臂名字清单均铸造() {
+    let (_dir, global, workspace) = db_store_pair("arms");
+    let explore = names_of(&[
+        "read",
+        "grep",
+        "glob",
+        "ls",
+        "edit",
+        "bash",
+        crate::sdk::mount::EXPLORE_NOTE_TOOL,
+        DB_TABLES_TOOL,
+        DB_QUERY_TOOL,
+    ]);
+    assert_eq!(
+        explore.tools.as_ref().map(Vec::len),
+        Some(9),
+        "explore 臂九名"
+    );
+    for (tag, injections) in [("explore", explore), ("change", change_arm_injections())] {
+        assert!(
+            mint_db_context(
+                &injections,
+                Some(StoreArc::clone(&global)),
+                Some(StoreArc::clone(&workspace)),
+            )
+            .is_some(),
+            "{tag} 臂铸造上下文"
+        );
+    }
+}
+
+/// 异常（AC-11）：名单不含任一 DB 工具名 → `None`（七内建 / archi 十名 /
+/// `create_explore_note` 单名 / `tools: None` / `Some([])` 五形态）。
+#[test]
+fn mint_db_context无线索名单为none() {
+    let (_dir, global, workspace) = db_store_pair("absent");
+    let mut archi: Vec<&str> = crate::sdk::mount::TOOL_NAMES.to_vec();
+    archi.push(crate::sdk::mount::ARCHI_MODULE_TOOL);
+    archi.push(crate::sdk::mount::ARCHI_SEARCH_TOOL);
+    archi.push(crate::sdk::mount::ARCHI_API_TOOL);
+    assert_eq!(archi.len(), 10, "archi 臂十名");
+    let cases = [
+        ("builtin", names_of(&crate::sdk::mount::TOOL_NAMES)),
+        ("archi", names_of(&archi)),
+        (
+            "explore-note",
+            names_of(&[crate::sdk::mount::EXPLORE_NOTE_TOOL]),
+        ),
+        ("none", SessionInjections::default()),
+        ("empty", names_of(&[])),
+    ];
+    for (tag, injections) in cases {
+        assert!(
+            mint_db_context(
+                &injections,
+                Some(StoreArc::clone(&global)),
+                Some(StoreArc::clone(&workspace)),
+            )
+            .is_none(),
+            "{tag}: 名单无 DB 工具名 → 不铸上下文（tools: None 的底座内建七件亦不含）"
+        );
+    }
+}
+
+/// 异常（AC-10）：句柄缺席任一把即 `None`（fail-closed，不铸半截上下文）。
+#[test]
+fn mint_db_context句柄缺席fail_closed() {
+    let (_dir, global, workspace) = db_store_pair("missing");
+    let injections = names_of(&[DB_TABLES_TOOL, DB_QUERY_TOOL]);
+    assert!(
+        mint_db_context(&injections, None, Some(StoreArc::clone(&workspace))).is_none(),
+        "global 缺席 → None"
+    );
+    assert!(
+        mint_db_context(&injections, Some(StoreArc::clone(&global)), None).is_none(),
+        "workspace 缺席 → None"
+    );
+    assert!(
+        mint_db_context(&injections, None, None).is_none(),
+        "两把皆缺席 → None"
+    );
+}
+
+/// 边界：近似名不命中（精确名判据，零前缀 / 大小写 / trim 归一）。
+#[test]
+fn mint_db_context近似名不命中() {
+    let (_dir, global, workspace) = db_store_pair("near-miss");
+    let long = format!("db{}", "字".repeat(1200));
+    for name in [
+        "db_query2".to_owned(),
+        "DB_QUERY".to_owned(),
+        "db_query ".to_owned(),
+        " db_tables".to_owned(),
+        "db".to_owned(),
+        String::new(),
+        long,
+    ] {
+        assert!(
+            mint_db_context(
+                &names_of(&[name.as_str()]),
+                Some(StoreArc::clone(&global)),
+                Some(StoreArc::clone(&workspace)),
+            )
+            .is_none(),
+            "近似名 {name:?} 不命中（精确名比较）"
+        );
+    }
+}
+
+/// 边界：判据不依赖位置（100 名 + 末位 `db_tables` 仍铸造）；重复名不影响。
+#[test]
+fn mint_db_context位置与重复无关() {
+    let (_dir, global, workspace) = db_store_pair("position");
+    let mut many: Vec<String> = (0..99).map(|index| format!("tool_{index}")).collect();
+    many.push(DB_TABLES_TOOL.to_owned());
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(many),
+        finish: None,
+        ask: None,
+    };
+    assert!(
+        mint_db_context(
+            &injections,
+            Some(StoreArc::clone(&global)),
+            Some(StoreArc::clone(&workspace)),
+        )
+        .is_some(),
+        "百名清单末位含 db_tables → 铸造（判据不依赖位置）"
+    );
+    assert!(
+        mint_db_context(
+            &names_of(&[DB_QUERY_TOOL, DB_QUERY_TOOL, DB_QUERY_TOOL]),
+            Some(StoreArc::clone(&global)),
+            Some(StoreArc::clone(&workspace)),
+        )
+        .is_some(),
+        "重复名去重无关 → 铸造"
+    );
+}
+
+/// 正向（AC-10 builder 缝）：`with_db_stores` 后 `open_session` 成功（不因新增
+/// 字段缺省 / 注入而 Err）；与其它 builder 任意序链式组合仍成功。
+#[tokio::test]
+async fn with_db_stores链式构造且open_session成功() {
+    let (_dir, global, workspace) = db_store_pair("builder");
+    for order in [true, false] {
+        let runner = if order {
+            SdkRunner::new(complete_config(), None, None, None)
+                .with_db_stores(StoreArc::clone(&global), StoreArc::clone(&workspace))
+                .with_max_tokens(Some(8192))
+                .with_web_search(false)
+                .with_workspace_root(PathBuf::from("D:\\工作区"))
+        } else {
+            SdkRunner::new(complete_config(), None, None, None)
+                .with_workspace_root(PathBuf::from("D:\\工作区"))
+                .with_web_search(false)
+                .with_max_tokens(Some(8192))
+                .with_db_stores(StoreArc::clone(&global), StoreArc::clone(&workspace))
+        };
+        runner
+            .open_session(open_new())
+            .unwrap_or_else(|error| panic!("builder 链（order={order}）后 open 应成功: {error}"));
+    }
+}
+
+/// 边界：未调 `with_db_stores`（两字段 `None`）→ `open_session` 仍成功（未注入 =
+/// 上下文缺席，非错误）；重复调用后者覆盖前者不 panic。
+#[tokio::test]
+async fn with_db_stores缺省与重复调用均不报错() {
+    SdkRunner::new(complete_config(), None, None, None)
+        .open_session(open_new())
+        .expect("未注入双库句柄 → New 会话仍成功");
+
+    let (_dir_a, global_a, workspace_a) = db_store_pair("override-a");
+    let (_dir_b, global_b, workspace_b) = db_store_pair("override-b");
+    SdkRunner::new(complete_config(), None, None, None)
+        .with_db_stores(StoreArc::clone(&global_a), StoreArc::clone(&workspace_a))
+        .with_db_stores(StoreArc::clone(&global_b), StoreArc::clone(&workspace_b))
+        .open_session(open_new())
+        .expect("重复调用后者覆盖前者（不 panic）");
 }

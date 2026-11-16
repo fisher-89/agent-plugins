@@ -423,6 +423,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             injections: turn.injections.clone(),
             explore_note: None,
             archi: None,
+            db: None,
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
@@ -469,6 +470,7 @@ async fn drive_loop_collecting_history(
             injections: turn.injections.clone(),
             explore_note: None,
             archi: None,
+            db: None,
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
@@ -563,6 +565,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         injections: agent::SessionInjections::default(),
         explore_note: None,
         archi: None,
+        db: None,
         ask: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
@@ -1723,6 +1726,7 @@ fn loop_turn字段面完整构造锚定() {
         injections: agent::SessionInjections::default(),
         explore_note: None,
         archi: None,
+        db: None,
         ask: None,
         protect: crate::sdk::protect::ProtectRules::load(None),
         web_search: false,
@@ -6847,6 +6851,7 @@ async fn drive_loop_with_steers_and_history(
             injections: turn.injections.clone(),
             explore_note: None,
             archi: None,
+            db: None,
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
@@ -6885,6 +6890,7 @@ async fn drive_loop_with_steers_and_handle(
             injections: turn.injections.clone(),
             explore_note: None,
             archi: None,
+            db: None,
             ask: None,
             protect: turn.protect.clone(),
             web_search: turn.web_search,
@@ -7669,4 +7675,330 @@ async fn 补充说明不享受防线免裁特权() {
         "补充说明照旧尾部追加（无 steer 专用豁免）"
     );
     assert_eq!(ack_rx.try_recv().expect("ack 已回"), ());
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：`ToolExec::Db` 分派臂（两 DB 只读工具经 `LoopTurn.db` 上下文执行）
+//
+// 装置：`tempfile` 真目录下真 `Store::open_global` / `open_workspace`（redb 单
+// 进程单句柄）+ `DbContext::new`；不 mock policy / sandbox / protect / mount /
+// tools —— AC-8「零介入」正是闸门不介入这一事实，替身化会让断言空转。
+// ---------------------------------------------------------------------------
+
+use std::sync::Arc as StdArc;
+
+use crate::sdk::db_tool::DbContext;
+use crate::sdk::mount::{DB_QUERY_TOOL, DB_TABLES_TOOL};
+
+/// 双库执行上下文夹具（两库皆空库：分派与文案断言不依赖播种量）。
+fn db_context_fixture(tag: &str) -> (tempfile::TempDir, DbContext) {
+    let dir = tempdir(tag);
+    let global = StdArc::new(
+        store::Store::open_global(&dir.path().join("global.redb"))
+            .unwrap_or_else(|error| panic!("打开全局库失败: {error}")),
+    );
+    let workspace = StdArc::new(
+        store::Store::open_workspace(&dir.path().join("ws.redb"))
+            .unwrap_or_else(|error| panic!("打开 workspace 库失败: {error}")),
+    );
+    (dir, DbContext::new(global, workspace))
+}
+
+/// 七工具 + 两 DB 名的注入底座（change / explore 两臂的共同形状）。
+fn db_injections() -> agent::SessionInjections {
+    let mut names: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    names.push(DB_TABLES_TOOL.to_owned());
+    names.push(DB_QUERY_TOOL.to_owned());
+    agent::SessionInjections {
+        preamble: None,
+        tools: Some(names),
+        finish: None,
+        ask: None,
+    }
+}
+
+/// 正向：`db_tables` 与 `db_query` 各一条 → 恰一条 tool_result、`is_error ==
+/// false`、内容为合法完整 JSON、零 `SystemNotice`、续轮照常收敛。
+#[tokio::test]
+async fn db分派两工具到执行体且结果非错误() {
+    struct Case {
+        tool: &'static str,
+        input: serde_json::Value,
+        check: fn(&serde_json::Value) -> bool,
+        tag: &'static str,
+    }
+    let cases = [
+        Case {
+            tool: DB_TABLES_TOOL,
+            input: serde_json::json!({}),
+            check: |payload| payload.as_array().is_some_and(|rows| rows.len() == 14),
+            tag: "表清单为 14 行数组",
+        },
+        Case {
+            tool: DB_QUERY_TOOL,
+            input: serde_json::json!({"table": "phase", "select": ["id", "phase"]}),
+            check: |payload| {
+                payload.get("total").is_some()
+                    && payload.get("matched").is_some()
+                    && payload.get("returned").is_some()
+                    && payload
+                        .get("records")
+                        .and_then(|records| records.as_array())
+                        .is_some()
+            },
+            tag: "取数结果为三元信封",
+        },
+    ];
+    for Case {
+        tool,
+        input,
+        check,
+        tag,
+    } in cases
+    {
+        let (dir, context) = db_context_fixture(&format!("db-dispatch-{tool}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call("tu_db", tool, input)],
+            vec![raw_text("已取数据")],
+        ]);
+        let turn = LoopTurn {
+            injections: db_injections(),
+            db: Some(context),
+            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        assert!(
+            notices_of(&events).is_empty(),
+            "{tool}: 分派路径零拒绝记因（成员校验 / policy / sandbox / protect 全放行）"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{tool}: 恰一条工具结果");
+        assert_eq!(results[0].0, "tu_db", "{tool}: 与 tool_use 同 id 成对");
+        assert!(!results[0].2, "{tool}: 执行体承接 → 非 is_error");
+        let payload: serde_json::Value = serde_json::from_str(results[0].1)
+            .unwrap_or_else(|error| panic!("{tool}: 结果为合法 JSON: {error}"));
+        assert!(check(&payload), "{tool}: {tag}，实际: {payload}");
+        assert!(
+            results[0].1.len() <= crate::sdk::tools::MAX_RESULT_BYTES,
+            "{tool}: 出口收口（结果 ≤ 50000 字节）"
+        );
+
+        // run 不中断：执行成功后续轮照常
+        assert_eq!(sealed_messages(&events).len(), 2, "{tool}: 续轮不中断");
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert!(!*is_error, "{tool}: 正常收敛");
+    }
+}
+
+/// 正向（AC-8 三档）：`Default` / `AcceptEdits` / `BypassPermissions` 逐档对两
+/// DB 工具零 `permission_denied`（Read 档恒放行，入参夹带 `path` 亦不改写）。
+#[tokio::test]
+async fn db两工具在三档下零拒绝记因() {
+    for mode in [
+        AgentPermissionMode::Default,
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ] {
+        let (dir, context) = db_context_fixture(&format!("db-mode-{mode:?}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_guard",
+                DB_TABLES_TOOL,
+                // 夹带路径类字段：`input_path` 恒 None → 沙箱不改写、不拒绝
+                serde_json::json!({
+                    "table": "phase",
+                    "path": ".dev-team/config.json",
+                    "pattern": "**/*",
+                }),
+            )],
+            vec![raw_text("已取数据")],
+        ]);
+        let turn = LoopTurn {
+            injections: db_injections(),
+            db: Some(context),
+            ..loop_turn(dir.path(), mode)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let subtypes: Vec<&str> = notices_of(&events).iter().map(|(s, _)| *s).collect();
+        assert!(
+            !subtypes.contains(&"sandbox_denied"),
+            "{mode:?}: 无沙箱拒绝（DB 工具无路径参数）"
+        );
+        assert!(
+            !subtypes.contains(&"permission_denied"),
+            "{mode:?}: 无保护闸拒绝（两工具不在拦截面）"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{mode:?}: 恰一条工具结果");
+        assert!(!results[0].2, "{mode:?}: 执行体承接（非 is_error）");
+        let payload: serde_json::Value =
+            serde_json::from_str(results[0].1).expect("结果为合法 JSON");
+        assert_eq!(payload["table"], serde_json::json!("phase"), "{mode:?}");
+    }
+}
+
+/// 异常（AC-11）：`LoopTurn.db = None` + 名单含两 DB 名 → tool_result
+/// `is_error == true` 且内容为「专用工具执行上下文未装配」；run 不中断、零 panic。
+#[tokio::test]
+async fn db上下文缺席以is_error回灌且run不中断() {
+    for tool in [DB_TABLES_TOOL, DB_QUERY_TOOL] {
+        let dir = tempdir(&format!("db-no-ctx-{tool}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_noctx",
+                tool,
+                serde_json::json!({"table": "phase"}),
+            )],
+            vec![raw_text("已按缺席继续")],
+        ]);
+        let turn = LoopTurn {
+            injections: db_injections(),
+            db: None,
+            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        assert!(
+            notices_of(&events).is_empty(),
+            "{tool}: 上下文缺席不走拒绝形态（非成员校验 / policy 拒绝）"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{tool}: 恰一条工具结果");
+        assert_eq!(results[0].0, "tu_noctx", "{tool}: 同 id 回灌");
+        assert!(results[0].2, "{tool}: 缺席以 is_error 回灌");
+        assert_eq!(
+            results[0].1, "专用工具执行上下文未装配",
+            "{tool}: 记因即恢复指引（与 explore / archi 专用工具同文案）"
+        );
+
+        // run 不中断
+        assert_eq!(
+            sealed_messages(&events).len(),
+            2,
+            "{tool}: 缺席回灌后续轮不中断"
+        );
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert!(!*is_error, "{tool}: 正常收敛");
+    }
+}
+
+/// 异常（AC-11）：名单不含两 DB 工具（debug 形态 `tools: None` / archi 形态）
+/// 而模型发起 `db_query` → `SystemNotice{subtype:"tool_unavailable"}` +
+/// `is_error` 回灌，run 不中断；内容为成员校验记因（可见执行体未被触达）。
+#[tokio::test]
+async fn 未下发会话调用db工具被成员校验拒绝且零执行() {
+    let mut archi_names: Vec<String> = TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    archi_names.push(crate::sdk::mount::ARCHI_MODULE_TOOL.to_owned());
+    archi_names.push(crate::sdk::mount::ARCHI_SEARCH_TOOL.to_owned());
+    archi_names.push(crate::sdk::mount::ARCHI_API_TOOL.to_owned());
+    let absent = [
+        ("debug", agent::SessionInjections::default()),
+        (
+            "archi",
+            agent::SessionInjections {
+                preamble: None,
+                tools: Some(archi_names),
+                finish: None,
+                ask: None,
+            },
+        ),
+    ];
+    for (tag, injections) in absent {
+        let (dir, context) = db_context_fixture(&format!("db-unavailable-{tag}"));
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(
+                "tu_ghost",
+                DB_QUERY_TOOL,
+                serde_json::json!({"table": "phase"}),
+            )],
+            vec![raw_text("已按拒绝继续")],
+        ]);
+        // 上下文在场：若执行体被触达，结果必为查询信封 JSON，故「内容 == 成员
+        // 校验记因」即零调用的行为证据
+        let turn = LoopTurn {
+            injections,
+            db: Some(context),
+            ..loop_turn(dir.path(), AgentPermissionMode::Default)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let notices = notices_of(&events);
+        assert_eq!(notices.len(), 1, "{tag}: 恰一次拒绝记因");
+        assert_eq!(
+            notices[0].0, "tool_unavailable",
+            "{tag}: 成员校验先于 policy"
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{tag}: 恰一条工具结果");
+        assert!(results[0].2, "{tag}: 拒绝结果 is_error");
+        assert_eq!(
+            results[0].1,
+            format!("工具不在本轮下发面: {DB_QUERY_TOOL}"),
+            "{tag}: 内容即成员校验记因（执行体零调用）"
+        );
+        assert!(
+            serde_json::from_str::<serde_json::Value>(results[0].1).is_err(),
+            "{tag}: 结果非 JSON（执行体未被触达）"
+        );
+
+        // run 不中断：拒绝后续轮照常收敛
+        assert_eq!(sealed_messages(&events).len(), 2, "{tag}: 拒绝后续轮不中断");
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert!(!*is_error, "{tag}: 正常收敛");
+    }
+}
+
+/// 异常 / 边界：执行体 `Err` 串（未知字段 / 未知 op）以 `is_error` 回灌，内容为
+/// 自纠文案且长度 ≤ L1 硬墙（出口收口不二次触发）。
+#[tokio::test]
+async fn db执行体err串以is_error回灌且长度不超硬墙() {
+    let (dir, context) = db_context_fixture("db-err");
+    for (index, input) in [
+        serde_json::json!({"table": "phase", "where": [{"field": "change_id", "op": "=", "value": "x"}]}),
+        serde_json::json!({"table": "phase", "where": [{"field": "phase", "op": "contains", "value": "x"}]}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let call = format!("tu_err_{index}");
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call(&call, DB_QUERY_TOOL, input)],
+            vec![raw_text("已按文案自纠")],
+        ]);
+        let turn = LoopTurn {
+            injections: db_injections(),
+            db: Some(context.clone()),
+            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "恰一条工具结果");
+        assert_eq!(results[0].0, call, "同 id 回灌");
+        assert!(results[0].2, "执行体 Err → is_error");
+        assert!(
+            results[0].1.contains("候选") || results[0].1.contains("词表"),
+            "内容为自纠文案: {}",
+            results[0].1
+        );
+        assert!(
+            !results[0].1.contains("已截断：单结果超"),
+            "收口未二次触发（文案本身短于硬墙）"
+        );
+        assert!(results[0].1.len() <= crate::sdk::tools::MAX_RESULT_BYTES);
+        assert_eq!(sealed_messages(&events).len(), 2, "Err 回灌后续轮不中断");
+    }
 }

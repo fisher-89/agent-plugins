@@ -1202,8 +1202,8 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
         "全册 id 无冲突（既有 1/2/4/5/6/7/8 与新 9..15）"
     );
 
-    // list_models 零改动覆盖持衡：信封注册面不写一行即可浏览既有八模型
-    // （空库计数 0 也列出；run 史 / 标记模型无查看面需求，不入注册表）
+    // list_models 覆盖持衡：信封注册面每模型一行即可浏览（run 执行图三模型
+    // 入册；空库计数 0 也列出；标记模型无查看面需求，不入注册表）
     let models = store.list_models().unwrap();
     assert_eq!(
         models
@@ -1218,9 +1218,12 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
             "change",
             "phase",
             "checklist_item",
-            "step"
+            "step",
+            "run",
+            "run_node",
+            "run_edge"
         ],
-        "workspace 组信封注册面恰八行（零改动覆盖）"
+        "workspace 组信封注册面恰十一行（登记面 additive）"
     );
     assert!(
         models.iter().all(|model| model.count == 0),
@@ -4721,4 +4724,301 @@ fn 新旧行混存同一会话按seq升序返回且各自轮归属两形态共�
     assert_eq!(replayed[0].turn_id, None, "旧行读出 None");
     assert_eq!(replayed[1].turn_id, Some(7), "新行读出轮归属");
     assert_eq!(replayed[1], fresh, "新行逐字段等于写入值");
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：字段 `///` 补齐 与 `#[specta(type = String)]` 三处的线面 / 类型图锚定
+//
+// 观测口径：`///` 不进落库编码（bincode 按字段序 / 枚举下标，注释无位面），故
+// 「补 doc 后编解码逐字节不变」；`#[specta(type = String)]` 只改类型图、不改
+// wire，故「serde JSON 仍给十六进制串」+「类型图字段类型为 string」两侧同断。
+// ---------------------------------------------------------------------------
+
+use specta::datatype::{DataType, Fields, Primitive};
+use specta::{Format, Type};
+
+/// 编码 → 解码 → 再编码三态字节相等（注释不入编码、字段序 / 枚举下标不变）。
+fn assert_encode_stable<T>(record: &T, tag: &str)
+where
+    T: native_model::Model + serde::Serialize + std::fmt::Debug,
+{
+    let encoded = native_model::encode(record)
+        .unwrap_or_else(|error| panic!("{tag}: encode 应成功: {error}"));
+    let (decoded, _) = native_model::decode::<T>(encoded.clone())
+        .unwrap_or_else(|error| panic!("{tag}: decode 应成功: {error}"));
+    let reencoded = native_model::encode(&decoded)
+        .unwrap_or_else(|error| panic!("{tag}: reencode 应成功: {error}"));
+    assert_eq!(encoded, reencoded, "{tag}: 解码重编码逐字节相等");
+}
+
+/// 类型图字段面（**必须经 `specta_serde::Format`**：`serde(rename_all)` 在裸类型图
+/// 里只是运行期属性，不应用即得源码名 `item_key`，与落库线名 `itemKey` 对不上）。
+/// 返回格式化后的类型图与逐字段（线名 + 字段类型 `DataType`）。
+fn specta_record_fields<T: Type>() -> (specta::Types, Vec<(String, DataType)>) {
+    let mut types = specta::Types::default();
+    let root = T::definition(&mut types);
+    let types = specta_serde::Format
+        .map_types(&types)
+        .expect("Format 应用应成功")
+        .into_owned();
+    let DataType::Reference(specta::datatype::Reference::Named(reference)) = root else {
+        panic!("记录模型根类型应为命名引用");
+    };
+    let named = types.get(&reference).expect("命名类型在类型图内");
+    let Some(DataType::Struct(struct_type)) = named.ty.as_ref() else {
+        panic!("记录模型应为命名结构体");
+    };
+    let Fields::Named(named_fields) = &struct_type.fields else {
+        panic!("记录模型应有命名字段");
+    };
+    let fields = named_fields
+        .fields
+        .iter()
+        .map(|(wire, field)| {
+            (
+                wire.to_string(),
+                field
+                    .ty
+                    .clone()
+                    .unwrap_or(DataType::Primitive(Primitive::str)),
+            )
+        })
+        .collect();
+    (types, fields)
+}
+
+/// 正向（AC-2）：三模型补 `///` 后 `encode → decode → encode` 三态字节相等。
+#[test]
+fn 补doc后三模型编解码逐字节稳定() {
+    let phase = PhaseRecord {
+        id: 7,
+        change_id: "chg-doc".to_owned(),
+        phase: "dev-design".to_owned(),
+        attempt: 2,
+        verdict: Verdict::Fail,
+        report: "评估报告（带括号）".to_owned(),
+        skipped: true,
+        stale: false,
+        backtrack_to: Some("dev-design".to_owned()),
+        backtrack_reason: Some("回跳记因".to_owned()),
+        executor_session_id: Some("ses-exec".to_owned()),
+        evaluator_session_id: None,
+        decision_session_id: None,
+        start_at: Some(1),
+        timestamp: 2,
+    };
+    assert_encode_stable(&phase, "PhaseRecord");
+
+    let checklist = ChecklistItemRecord::new(
+        7,
+        3,
+        ChecklistItem {
+            item: "检查项".to_owned(),
+            pass: false,
+            evidence: "证据".to_owned(),
+        },
+    );
+    assert_encode_stable(&checklist, "ChecklistItemRecord");
+
+    let node = RunNodeRecord::new(
+        "run-doc",
+        "chg-doc",
+        4,
+        &workflow::state::RunNodeEntry {
+            phase: "dev-design".to_owned(),
+            attempt: 1,
+            step: workflow::state::RunStepKind::Executor,
+            instance_no: 0,
+            status: workflow::state::RunStepStatus::Passed,
+            session_id: Some("ses-exec".to_owned()),
+            detail: Some("记因".to_owned()),
+            output_ref: None,
+            started_at: 1,
+            ended_at: Some(2),
+            token_input: Some(10),
+            token_output: Some(20),
+        },
+        3,
+    );
+    assert_encode_stable(&node, "RunNodeRecord");
+}
+
+/// 正向（AC-2）：三处 `#[specta(type = String)]` 落地后线与类型图两侧一致——
+/// serde JSON 仍给 `0x` 前缀十六进制串，类型图字段类型为 `string`（无该属性即
+/// `u128` → number）。
+#[test]
+fn 三处specta字符串属性线面与类型图双侧一致() {
+    let checklist = ChecklistItemRecord::new(
+        1,
+        0,
+        ChecklistItem {
+            item: "项".to_owned(),
+            pass: true,
+            evidence: "据".to_owned(),
+        },
+    );
+    let node = RunNodeRecord::new(
+        "run-specta",
+        "chg-specta",
+        0,
+        &workflow::state::RunNodeEntry {
+            phase: "dev-design".to_owned(),
+            attempt: 1,
+            step: workflow::state::RunStepKind::Executor,
+            instance_no: 0,
+            status: workflow::state::RunStepStatus::Running,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: 0,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
+        },
+        0,
+    );
+    let edge = RunEdgeRecord::new(
+        "run-specta",
+        "chg-specta",
+        0,
+        &workflow::state::RunEdgeEntry {
+            from_node_key: "a".to_owned(),
+            to_node_key: "b".to_owned(),
+            edge_kind: workflow::state::RunEdgeKind::Feedback,
+        },
+        0,
+    );
+
+    for (wire, expected_keys) in [
+        (
+            serde_json::to_value(&checklist).expect("checklist 序列化"),
+            vec!["evidence", "item", "itemKey", "pass", "phaseId"],
+        ),
+        (
+            serde_json::to_value(&node).expect("node 序列化"),
+            vec![
+                "attempt",
+                "changeId",
+                "detail",
+                "endedAt",
+                "instanceNo",
+                "nodeKey",
+                "outputRef",
+                "phase",
+                "runId",
+                "sessionId",
+                "startedAt",
+                "status",
+                "step",
+                "timestamp",
+                "tokenInput",
+                "tokenOutput",
+            ],
+        ),
+        (
+            serde_json::to_value(&edge).expect("edge 序列化"),
+            vec![
+                "changeId",
+                "edgeKey",
+                "edgeKind",
+                "fromNodeKey",
+                "runId",
+                "timestamp",
+                "toNodeKey",
+            ],
+        ),
+    ] {
+        let mut keys: Vec<&str> = wire
+            .as_object()
+            .expect("线格式为对象")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort();
+        let mut expected = expected_keys.clone();
+        expected.sort();
+        assert_eq!(keys, expected, "线格式键集与该模型字段面逐一对应");
+        // 三处主键字段的线格式：`0x` 前缀十六进制串（属性不改 wire）
+        let primary = ["itemKey", "nodeKey", "edgeKey"]
+            .into_iter()
+            .find(|key| wire.get(*key).is_some())
+            .unwrap_or_else(|| panic!("三模型应各含一打包主键: {wire}"));
+        let text = wire[primary]
+            .as_str()
+            .unwrap_or_else(|| panic!("{primary} 线格式为字符串: {wire}"));
+        assert!(text.starts_with("0x"), "{primary} 十六进制前缀: {text}");
+        assert!(
+            text[2..].chars().all(|char| char.is_ascii_hexdigit()),
+            "{primary} `0x` 后全十六进制: {text}"
+        );
+    }
+
+    // 类型图侧：三处字段类型收敛为 string（`u128` 缺属性时为 number）。判定经
+    // `describe::render_type`——与 `db_tables` 下钻输出 / 查询值校验同一分类器
+    //（`String` 在 specta 里是「具名 + 内联」引用，只有渲染单点能读到 string）
+    for (field, (types, fields)) in [
+        ("itemKey", specta_record_fields::<ChecklistItemRecord>()),
+        ("nodeKey", specta_record_fields::<RunNodeRecord>()),
+        ("edgeKey", specta_record_fields::<RunEdgeRecord>()),
+    ] {
+        let ty = fields
+            .iter()
+            .find(|(name, _)| name == field)
+            .unwrap_or_else(|| panic!("类型图应含字段 {field}"))
+            .1
+            .clone();
+        assert_eq!(
+            crate::describe::render_type(&ty, &types),
+            "string",
+            "{field} 的类型图渲染为 string（`#[specta(type = String)]` 生效）"
+        );
+    }
+}
+
+/// 正向（AC-2 反向锚）：`SessionEventRecord` **不** derive `Type`（属性在场即编译
+/// 错误），落库与 JSON 线格式仍为十六进制串 + 三字段键集——线名说明由
+/// `describe::schema_session_event` 手写 schema 供给（与 `describe_test` 互为反向
+/// 锚）。
+#[test]
+fn session_event记录无线面属性且三字段十六进制主键() {
+    let record = SessionEventRecord::new("ses-wire", raw(0));
+    let wire = serde_json::to_value(&record).expect("序列化应成功");
+    let mut keys: Vec<&str> = wire
+        .as_object()
+        .expect("线格式为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["event", "eventKey", "sessionId"],
+        "三字段键集（手写 schema 与之 ratchet 对齐）"
+    );
+    let key = wire["eventKey"].as_str().expect("主键为十六进制串");
+    assert!(key.starts_with("0x"), "十六进制前缀: {key}");
+    assert!(
+        key[2..].chars().all(|char| char.is_ascii_hexdigit()),
+        "`0x` 后全十六进制: {key}"
+    );
+    assert_eq!(
+        wire["sessionId"],
+        serde_json::json!("ses-wire"),
+        "会话归属列线名与值"
+    );
+    assert!(
+        wire["event"].is_object(),
+        "载荷为对象（可点号下钻）: {}",
+        wire["event"]
+    );
+
+    // 编解码三态稳定（补 doc 不改 wire）
+    let encoded = native_model::encode(&record).expect("encode 应成功");
+    let (decoded, _) =
+        native_model::decode::<SessionEventRecord>(encoded.clone()).expect("decode 应成功");
+    assert_eq!(
+        native_model::encode(&decoded).expect("reencode 应成功"),
+        encoded,
+        "落库编码逐字节不变"
+    );
 }

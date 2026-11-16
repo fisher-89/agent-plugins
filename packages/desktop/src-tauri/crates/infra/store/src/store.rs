@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::canonical;
+use crate::describe::{self, ModelDoc, TableDoc};
 use crate::envelope::{self, ModelInfo, RecordsPage};
 use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
@@ -21,6 +22,7 @@ use crate::model::{
     WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
     WORKSPACE_STORE_FORMAT_VERSION,
 };
+use crate::query::{self, QueryError, QueryPage, QuerySpec};
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand, PhaseStartState,
@@ -2248,6 +2250,25 @@ impl Store {
         envelope::scan(&self.db, self.dimension, model, offset, limit)
     }
 
+    /// 本库维度表清单（表名 / 维度 / 计数 / 表介绍）：说明来自 `///` doc 经
+    /// `specta` 类型图派生，字段不展开（清单便宜、全量字段白烧上下文）。
+    pub fn describe(&self) -> Result<Vec<ModelDoc>, QueryError> {
+        describe::tables(&self.db, self.dimension)
+    }
+
+    /// 单表全字段说明（线名 / 渲染类型 / doc）；未知表 `Err` 携本维度候选表名。
+    pub fn describe_table(&self, table: &str) -> Result<TableDoc, QueryError> {
+        describe::table(self.dimension, table)
+    }
+
+    /// 条件取数（过滤 → 排序 → 投影 → 分页）。独立读路径：`limit` 上限
+    /// [`query::MAX_QUERY_LIMIT`] 管 agent 表达力，MUST NOT 复用查看页单页上限
+    /// `MAX_SCAN_LIMIT`（后者管 IPC 载重）。只读：零写事务，`total` / `matched`
+    /// / `records` 同一读事务快照。
+    pub fn query(&self, spec: &QuerySpec) -> Result<QueryPage, QueryError> {
+        query::run(&self.db, self.dimension, spec)
+    }
+
     /// 主键自然序全表读出（workspace / run 清单共用）。坏行解码失败显式
     /// `Err`（`collect::<Result<Vec<_>>>()` 首错即止）——读面 MUST NOT 静默
     /// 跳过坏行；调用方按各读面哲学处置（详情聚合侧见 `detail.rs` 的
@@ -2296,8 +2317,9 @@ impl Store {
 /// 数量本机个位数，常开使重加同 root 即读即得，并免去驱逐后二次打开的锁竞争
 /// 面；`remove_workspace` 不驱逐缓存实例（db 文件保留语义的进程内对应面）。
 pub struct WorkspaceStores {
-    /// 全局库实例（`data_root/GLOBAL_DB_FILE_NAME`，打开点 fail fast）
-    global: Store,
+    /// 全局库实例（`data_root/GLOBAL_DB_FILE_NAME`，打开点 fail fast）；`Arc`
+    /// 形态使全局库可交会话共享——redb 单进程单句柄，MUST NOT 二次 open
+    global: Arc<Store>,
     /// `workspaces/` 子树根（workspace 库文件派生基准，由数据目录根注入）
     workspaces_dir: PathBuf,
     /// per-root 打开实例缓存（canonical root → 实例；缓存锁跨开库持有——
@@ -2310,7 +2332,7 @@ impl WorkspaceStores {
     /// （本类型零环境解析）；全局库打开失败 `Err`（setup fail fast 口径同
     /// 既有 `Store::open`）。
     pub fn open(data_root: &Path) -> Result<Self, StoreError> {
-        let global = Store::open_global(&data_root.join(GLOBAL_DB_FILE_NAME))?;
+        let global = Arc::new(Store::open_global(&data_root.join(GLOBAL_DB_FILE_NAME))?);
         Ok(Self {
             global,
             workspaces_dir: data_root.join(WORKSPACES_DIR_NAME),
@@ -2320,7 +2342,13 @@ impl WorkspaceStores {
 
     /// 全局库实例（user 维度注册表操作面：workspace 三命令等全局轨）。
     pub fn global(&self) -> &Store {
-        &self.global
+        self.global.as_ref()
+    }
+
+    /// 全局库 `Arc` 出口（交会话共享的唯一形态：与 [`WorkspaceStores::global`]
+    /// 同一实例，MUST NOT 二次 `open`）。
+    pub fn global_shared(&self) -> Arc<Store> {
+        Arc::clone(&self.global)
     }
 
     /// 按 canonical root 解析 workspace 库实例：root 先经 canonical 口径归一

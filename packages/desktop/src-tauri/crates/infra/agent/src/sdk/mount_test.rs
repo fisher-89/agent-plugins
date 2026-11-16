@@ -1,4 +1,4 @@
-//! `mount.rs`（工具挂载单源）的单元测试：十一项静态清单 / 名字查表 / 非法名
+//! `mount.rs`（工具挂载单源）的单元测试：十三项静态清单 / 名字查表 / 非法名
 //! `Err` / `finish` 位置位铸造 / `lookup` 单点 / 夹具形态 / 类型派生面。
 //!
 //! 不 mock：`registry()` / `definitions` / `lookup` 全为进程内纯函数
@@ -10,11 +10,12 @@ use agent::{AskMode, FinishSpec, SessionInjections};
 
 use crate::sdk::mount::{
     builtin, definitions, injected, injected_finish, lookup, registry, ToolExec, ToolMount,
-    ToolTier, ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES,
+    ToolTier, ARCHI_API_TOOL, ARCHI_MODULE_TOOL, ARCHI_SEARCH_TOOL, DB_QUERY_TOOL, DB_TABLES_TOOL,
+    EXPLORE_NOTE_TOOL, TOOL_NAMES,
 };
 
-/// 十一项名字的期望序（前七恰七内建）。
-const EXPECTED_NAMES: [&str; 11] = [
+/// 十三项名字的期望序（前七恰七内建，末两项为两只只读 DB 工具）。
+const EXPECTED_NAMES: [&str; 13] = [
     "read",
     "grep",
     "glob",
@@ -26,6 +27,8 @@ const EXPECTED_NAMES: [&str; 11] = [
     "archi_module",
     "archi_search",
     "archi_api",
+    "db_tables",
+    "db_query",
 ];
 
 /// 名字投影（顺序断言面）。
@@ -52,19 +55,19 @@ fn source_of(relative: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：registry 十一项
+// 正向：registry 十三项
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registry十一项名字唯一且有序且前七恰内建() {
+fn registry十三项名字唯一且有序且前七恰内建() {
     let names = names(registry());
-    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十一项名字逐值有序");
-    assert_eq!(names.len(), 11, "十一项");
+    assert_eq!(names, EXPECTED_NAMES.to_vec(), "十三项名字逐值有序");
+    assert_eq!(names.len(), 13, "十三项");
 
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 11, "无重复名: {names:?}");
+    assert_eq!(unique.len(), 13, "无重复名: {names:?}");
 
     assert_eq!(
         registry()[..7]
@@ -79,7 +82,7 @@ fn registry十一项名字唯一且有序且前七恰内建() {
 
 #[test]
 fn registry的tier归属逐项对应改造前三张常量表() {
-    let expected: [(&str, ToolTier); 11] = [
+    let expected: [(&str, ToolTier); 13] = [
         ("read", ToolTier::Read),
         ("grep", ToolTier::Read),
         ("glob", ToolTier::Read),
@@ -91,6 +94,8 @@ fn registry的tier归属逐项对应改造前三张常量表() {
         ("archi_module", ToolTier::Read),
         ("archi_search", ToolTier::Read),
         ("archi_api", ToolTier::Read),
+        ("db_tables", ToolTier::Read),
+        ("db_query", ToolTier::Read),
     ];
     for (name, tier) in expected {
         let mount = registry()
@@ -99,9 +104,9 @@ fn registry的tier归属逐项对应改造前三张常量表() {
             .unwrap_or_else(|| panic!("挂载清单应含 {name}"));
         assert_eq!(mount.tier, tier, "工具 {name} 的 tier 归属");
     }
-    // 计数面：Read 七 / Write 三 / Execute 一 / Protocol 零
+    // 计数面：Read 九 / Write 三 / Execute 一 / Protocol 零
     let count = |tier: ToolTier| registry().iter().filter(|mount| mount.tier == tier).count();
-    assert_eq!(count(ToolTier::Read), 7, "Read 七项");
+    assert_eq!(count(ToolTier::Read), 9, "Read 九项（含两 DB 只读工具）");
     assert_eq!(count(ToolTier::Write), 3, "Write 三项");
     assert_eq!(count(ToolTier::Execute), 1, "Execute 一项");
     assert_eq!(
@@ -138,6 +143,26 @@ fn registry的exec归属且finish_step不入静态表() {
             ToolExec::Archi
         );
     }
+    // 两 DB 工具共用一个执行体（`ToolExec::Db`），名字由 loop 侧传入
+    for name in [DB_TABLES_TOOL, DB_QUERY_TOOL] {
+        assert_eq!(
+            registry()
+                .iter()
+                .find(|mount| mount.definition.name == name)
+                .expect("DB 工具在表内")
+                .exec,
+            ToolExec::Db
+        );
+    }
+    assert_eq!(
+        registry()
+            .iter()
+            .filter(|mount| mount.exec == ToolExec::Db)
+            .map(|mount| mount.definition.name.as_str())
+            .collect::<Vec<_>>(),
+        vec![DB_TABLES_TOOL, DB_QUERY_TOOL],
+        "`ToolExec::Db` 的成员恰两工具（序即静态表序）"
+    );
     assert!(
         !registry()
             .iter()
@@ -147,7 +172,7 @@ fn registry的exec归属且finish_step不入静态表() {
 }
 
 #[test]
-fn registry定义面完整十一项定义形状与非空() {
+fn registry定义面完整十三项定义形状与非空() {
     for mount in registry() {
         let definition = &mount.definition;
         assert!(
@@ -424,7 +449,7 @@ fn definitions非法名与finish并存时err优先() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn lookup十一项命中四类未命中() {
+fn lookup十三项命中四类未命中() {
     for name in EXPECTED_NAMES {
         let definition = lookup(name).unwrap_or_else(|| panic!("{name} 应命中"));
         assert_eq!(definition.name, name, "命中项名与入参相等");
@@ -927,7 +952,7 @@ fn mount_rs零ask工具名字面量且不在静态清单() {
     );
     assert!(
         !TOOL_NAMES.contains(&"AskUserQuestion"),
-        "AskUserQuestion 不在十一项静态清单（按位追加的基线工具）"
+        "AskUserQuestion 不在十三项静态清单（按位追加的基线工具）"
     );
 }
 
@@ -1045,5 +1070,254 @@ fn archi_api非法名与既有查表语义() {
         ARCHI_API_TOOL,
     ] {
         assert!(lookup(name).is_some(), "在册名 {name} 应 Some");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两 DB 只读工具的挂载面（定义形状 / tier / 下发面 / 词表同源）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-9 / AC-1）：两 DB 工具在静态表末两位且 `tier == Read`、
+/// `exec == ToolExec::Db`；名字常量取线值。
+#[test]
+fn db两工具在静态表末两位且档位与路由() {
+    let tail: Vec<&str> = registry()
+        .iter()
+        .rev()
+        .take(2)
+        .map(|mount| mount.definition.name.as_str())
+        .collect();
+    assert_eq!(
+        tail,
+        vec![DB_QUERY_TOOL, DB_TABLES_TOOL],
+        "末两项为两 DB 工具（序 = 登记序 db_tables → db_query）"
+    );
+    for name in [DB_TABLES_TOOL, DB_QUERY_TOOL] {
+        let mount = registry()
+            .iter()
+            .find(|mount| mount.definition.name == name)
+            .expect("DB 工具在表内");
+        assert_eq!(mount.tier, ToolTier::Read, "{name} 为只读档位");
+        assert_eq!(mount.exec, ToolExec::Db, "{name} 执行路由 Db");
+    }
+    assert_eq!(DB_TABLES_TOOL, "db_tables", "常量线值");
+    assert_eq!(DB_QUERY_TOOL, "db_query", "常量线值");
+
+    // 分发臂在 loop 侧单处（零按工具名分支）
+    let loop_source = source_of("src/sdk/loop.rs");
+    assert_eq!(
+        loop_source.matches("ToolExec::Db =>").count(),
+        1,
+        "Db 分发臂恰一处"
+    );
+    assert!(
+        loop_source.contains("专用工具执行上下文未装配"),
+        "上下文缺席以 is_error 回灌（与 explore / archi 同文案）"
+    );
+}
+
+/// 正向（AC-1）：`db_tables` 定义描述覆盖两形态语义 + scope 缺省口径；
+/// 参数 shape 为两属性 + `required == []`。
+#[test]
+fn db_tables定义描述与参数形状() {
+    let definition = lookup(DB_TABLES_TOOL).expect("定义在案");
+    assert_eq!(definition.name, DB_TABLES_TOOL);
+    let parameters = &definition.parameters;
+    assert_eq!(parameters["type"], "object", "对象形态");
+    assert_eq!(
+        parameters["required"],
+        serde_json::json!([]),
+        "无必填参数（两形态皆可省略 table）"
+    );
+    assert_eq!(
+        parameters["properties"]["scope"]["enum"],
+        serde_json::json!(["user", "workspace"]),
+        "scope 为两值 enum"
+    );
+    assert_eq!(
+        parameters["properties"]["table"]["type"], "string",
+        "table 为字符串"
+    );
+    for piece in [
+        "table",
+        "summary",
+        "dimension",
+        "count",
+        "scope",
+        "user",
+        "workspace",
+        "db_query",
+        "落库线名",
+    ] {
+        assert!(
+            definition.description.contains(piece),
+            "描述含要点 `{piece}`：{}",
+            definition.description
+        );
+    }
+    // scope 缺省口径两处都得写（省略 = 两库全列；描述与参数 schema 同源）
+    for text in [
+        definition.description.as_str(),
+        parameters["properties"]["scope"]["description"]
+            .as_str()
+            .expect("scope 参数说明为字符串"),
+    ] {
+        assert!(
+            text.contains("缺省"),
+            "scope 缺省口径（省略 = 两库全列）不可缺: {text}"
+        );
+    }
+}
+
+/// 正向（AC-4 / AC-6 / AC-7）：`db_query` 定义描述与 `QUERY_OPS` 同源（10 词逐
+/// 词）、覆盖 scope / limit 缺省与上限 / 预算实际生效 / 自读警示；参数七属性 +
+/// `required == ["table"]`。
+#[test]
+fn db_query定义描述与参数形状() {
+    let definition = lookup(DB_QUERY_TOOL).expect("定义在案");
+    assert_eq!(definition.name, DB_QUERY_TOOL);
+    let parameters = &definition.parameters;
+    assert_eq!(parameters["type"], "object", "对象形态");
+    assert_eq!(
+        parameters["required"],
+        serde_json::json!(["table"]),
+        "仅 table 必填"
+    );
+    for property in [
+        "table", "scope", "where", "order", "select", "offset", "limit",
+    ] {
+        assert!(
+            parameters["properties"].get(property).is_some(),
+            "参数含 {property}：{parameters}"
+        );
+    }
+    assert_eq!(
+        parameters["properties"]["scope"]["enum"],
+        serde_json::json!(["user", "workspace"]),
+        "scope 为两值 enum"
+    );
+    assert_eq!(
+        parameters["properties"]["where"]["items"]["properties"]["op"]["enum"],
+        serde_json::json!(store::QUERY_OPS),
+        "op 词表与 `QUERY_OPS` 同一份清单"
+    );
+
+    for word in store::QUERY_OPS {
+        assert!(
+            definition.description.contains(word),
+            "描述含 op 词表逐词 `{word}`：{}",
+            definition.description
+        );
+    }
+    for piece in [
+        "user",
+        "workspace",
+        "limit 缺省 20",
+        "上限 1000",
+        "40 KB",
+        "实际生效值",
+        "db_tables",
+        "select",
+        "offset",
+        "session_event",
+        "本会话自身转录",
+    ] {
+        assert!(
+            definition.description.contains(piece),
+            "描述含要点 `{piece}`：{}",
+            definition.description
+        );
+    }
+    // scope 缺省口径（缺省 workspace）——描述与参数 schema 两处都得写
+    assert!(
+        definition.description.contains("缺省"),
+        "描述含 scope 缺省语义：{}",
+        definition.description
+    );
+    let scope_doc = parameters["properties"]["scope"]["description"]
+        .as_str()
+        .expect("scope 参数说明为字符串");
+    assert!(
+        scope_doc.contains("缺省 workspace"),
+        "scope 参数说明写明缺省 workspace：{scope_doc}"
+    );
+}
+
+/// 正向（AC-8）：两 DB 工具 `tier = Read` → 三档全放行（无单独放行名单）。
+#[test]
+fn db两工具三档恒放行() {
+    use agent::AgentPermissionMode;
+
+    use crate::sdk::policy;
+
+    for name in [DB_TABLES_TOOL, DB_QUERY_TOOL] {
+        let tier = registry()
+            .iter()
+            .find(|mount| mount.definition.name == name)
+            .expect("DB 工具在表内")
+            .tier;
+        for mode in [
+            AgentPermissionMode::Default,
+            AgentPermissionMode::AcceptEdits,
+            AgentPermissionMode::BypassPermissions,
+        ] {
+            assert!(
+                policy::allows(mode, tier),
+                "{name} 在 {mode:?} 档放行（Read 恒放行）"
+            );
+        }
+    }
+}
+
+/// 正向（AC-9）：两 DB 名进清单即下发，序按 registry（清单序不决定下发序）；
+/// `tools = None` 仍恰前七项（不含两 DB 名）。
+#[test]
+fn definitions_db名下发按registry序且tools_none零db名() {
+    let mounts = definitions(&injected(&["db_tables", "read"]), "").expect("合法名");
+    assert_eq!(
+        names(&mounts),
+        vec!["read", DB_TABLES_TOOL],
+        "清单序不决定下发序（`read` 在前）"
+    );
+    let reversed = definitions(&injected(&["db_query", "db_tables"]), "").expect("合法名");
+    assert_eq!(
+        names(&reversed),
+        vec![DB_TABLES_TOOL, DB_QUERY_TOOL],
+        "两 DB 名同下发时按 registry 序"
+    );
+
+    let base = definitions(&SessionInjections::default(), "").expect("缺省注入面合法");
+    for name in [DB_TABLES_TOOL, DB_QUERY_TOOL] {
+        assert!(
+            !names(&base).contains(&name.to_owned()),
+            "`tools: None` 不含 {name}（内建七件语义零改动）"
+        );
+    }
+    // 两 DB 名 + finish 位：收口工具仍尾追加（两分支互不依赖）
+    let with_finish = definitions(
+        &injected_finish(
+            &["db_tables", "db_query"],
+            Some(agent::FinishSpec::Decision),
+        ),
+        "## 静态清单\n",
+    )
+    .expect("合法名 + 收口位");
+    assert_eq!(
+        names(&with_finish),
+        vec![
+            DB_TABLES_TOOL,
+            DB_QUERY_TOOL,
+            orchestration::finish::TOOL_NAME
+        ],
+        "收口工具尾追加"
+    );
+}
+
+/// 异常（AC-11）：未知名仍 `Err` 携非法名，不返回部分清单。
+#[test]
+fn definitions_db近似名仍err() {
+    for miss in ["db_query2", "DB_QUERY", "db tables"] {
+        let error = definitions(&injected(&["read", miss]), "").expect_err("未知名应 Err");
+        assert!(error.contains(miss), "文案携非法名 {miss:?}: {error}");
     }
 }

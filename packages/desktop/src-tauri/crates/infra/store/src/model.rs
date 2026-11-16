@@ -787,26 +787,33 @@ pub struct PhaseRecord {
     /// 经版本段演进：10:v1 → 10:v2，物理表 `10_1_change` → `10_2_change_id`）
     #[secondary_key]
     pub change_id: String,
+    /// 相位名（取自相位表 key，如 dev-design）；同 change 的相位史按名字切段。
     pub phase: String,
+    /// 该相位累计尝试序号（feedback 重跑递增，从 1 起）。
     pub attempt: u32,
     /// 评估 verdict（pass | fail，core 域枚举直用）
     pub verdict: Verdict,
     /// 评估报告（内联 ≤2000 字，写面校验）
     pub report: String,
+    /// 编排跳过标记（跳过的相位无 verdict 语义）。
     #[serde(default)]
     pub skipped: bool,
+    /// 回跳后失效标记（失效行不计入判定）。
     #[serde(default)]
     pub stale: bool,
     /// 回跳目标（backtrack 写面在该相位最新条目定点标记）
     #[serde(default)]
     pub backtrack_to: Option<String>,
+    /// 回跳记因（非回跳行恒 None）。
     #[serde(default)]
     pub backtrack_reason: Option<String>,
     /// 会话槽位三列（与 `SessionRecord` 同库 join；缺省落账恒 None）
     #[serde(default)]
     pub executor_session_id: Option<String>,
+    /// 评审侧会话 id（未开评恒 None）。
     #[serde(default)]
     pub evaluator_session_id: Option<String>,
+    /// 决策侧会话 id（未开决策恒 None）。
     #[serde(default)]
     pub decision_session_id: Option<String>,
     /// 开相时刻（UTC unix 毫秒；缺省 None）
@@ -828,13 +835,17 @@ pub struct ChecklistItemRecord {
     /// 记录转 JSON），字符串形态保住 JSON 可表达性（`event_key_serde` 先例
     /// 复用）。
     #[primary_key]
+    #[specta(type = String)]
     #[serde(with = "event_key_serde")]
     pub item_key: u128,
     /// 所属相位条目 id（非唯一二级索引，子表重组查询入口）
     #[secondary_key]
     pub phase_id: i64,
+    /// 检查项名（evaluator 自述文本）。
     pub item: String,
+    /// 该检查项是否通过。
     pub pass: bool,
+    /// 判定依据（有界证据文本）。
     pub evidence: String,
 }
 
@@ -963,6 +974,7 @@ pub struct RunNodeRecord {
     /// serde 定制为十六进制字符串（`event_key_serde` 先例复用——serde_json 无
     /// u128 数字面）。
     #[primary_key]
+    #[specta(type = String)]
     #[serde(with = "event_key_serde")]
     pub node_key: u128,
     /// 所属 run id（非唯一二级索引，run 图史重组查询入口）
@@ -970,7 +982,9 @@ pub struct RunNodeRecord {
     pub run_id: String,
     /// 所属 change id（归属键——一切寻址以 id 为准）
     pub change_id: String,
+    /// 所属相位名（同 run 内步序按相位切段）。
     pub phase: String,
+    /// 所属相位的尝试序号。
     pub attempt: u32,
     /// 步词汇（二十一值全词汇封闭集，core 域枚举直用）
     pub step: RunStepKind,
@@ -1063,6 +1077,7 @@ impl RunNodeRecord {
 pub struct RunEdgeRecord {
     /// 复合键打包：`(hash64(run_id) as u128) << 64 | edge_seq`
     #[primary_key]
+    #[specta(type = String)]
     #[serde(with = "event_key_serde")]
     pub edge_key: u128,
     /// 所属 run id（非唯一二级索引，run 全量读边入口）

@@ -13,10 +13,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 
+use crate::describe;
 use crate::model::{
     AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ChangeRecord, ChecklistItemRecord,
-    ExploreRecord, PhaseRecord, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+    ExploreRecord, PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionEventRecord,
+    SessionRecord, StepRecord, WorkspaceRecord,
 };
+use crate::query::{db_err as query_db_err, QueryError};
 use crate::store::{db_err, DbDimension, StoreError};
 
 /// 模型清单一行：模型名 + 记录计数（计数 0 也列出）。
@@ -59,14 +62,32 @@ type ScanFn = fn(&Database<'static>, u32, u32, KeyOfFn) -> Result<RecordsPage, S
 /// 记录主键 JSON 构造 fn-pointer：入参为记录序列化后的 JSON 值。
 type KeyOfFn = fn(&Value) -> Value;
 
-/// 注册表一行（四元组）：`dimension` 维度标签——`list_models` / `scan` 据实例
-/// 维度过滤本库模型，分维度是数据行非分支代码（查看器零模型特定代码不变）。
-struct ModelEntry {
-    name: &'static str,
-    dimension: DbDimension,
-    count: CountFn,
-    scan: ScanFn,
-    key_of: KeyOfFn,
+/// 类型图注册 fn-pointer：把本模型（及其依赖的命名类型）灌进 `Types`，返回其
+/// 根 `DataType`——`describe` 据此取表介绍 / 字段线名 / 字段类型 / 字段说明。
+pub(crate) type SchemaFn = fn(&mut specta::Types) -> specta::datatype::DataType;
+
+/// 记录流式遍历 fn-pointer：**一个读事务内**逐条解码 → JSON → 交访问器（入参
+/// `(key, value)`，`key` 由 `key_of` 从记录 JSON 构造，与信封同形；返回 `false`
+/// 即提前终止）。返回遍历到的总行数（提前终止时为下界）。
+pub(crate) type WalkFn = fn(
+    &Database<'static>,
+    KeyOfFn,
+    &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError>;
+
+/// 注册表一行：`dimension` 维度标签——`list_models` / `scan` 据实例维度过滤
+/// 本库模型，分维度是数据行非分支代码（查看器零模型特定代码不变）；`schema` /
+/// `walk` 是「表 ↔ 类型」与「表 ↔ 遍历」两组映射，与 `count` / `scan` / `key_of`
+/// 同住一行——同一份登记喂全部读面，MUST NOT 出现第二份字段表或 per-table
+/// 手写清单。
+pub(crate) struct ModelEntry {
+    pub(crate) name: &'static str,
+    pub(crate) dimension: DbDimension,
+    pub(crate) count: CountFn,
+    pub(crate) scan: ScanFn,
+    pub(crate) key_of: KeyOfFn,
+    pub(crate) schema: SchemaFn,
+    pub(crate) walk: WalkFn,
 }
 
 /// 单页扫描上限：超出截断（查看器单页上限，防误传大 limit 拖垮 IPC）。
@@ -81,6 +102,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<WorkspaceRecord>,
         scan: scan_workspaces,
         key_of: workspace_key,
+        schema: describe::schema_of::<WorkspaceRecord>,
+        walk: walk_workspaces,
     },
     ModelEntry {
         name: "agent_provider",
@@ -88,6 +111,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<AgentProviderRecord>,
         scan: scan_agent_providers,
         key_of: agent_provider_key,
+        schema: describe::schema_of::<AgentProviderRecord>,
+        walk: walk_agent_providers,
     },
     ModelEntry {
         name: "agent_instance",
@@ -95,6 +120,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<AgentInstanceRecord>,
         scan: scan_agent_instances,
         key_of: agent_instance_key,
+        schema: describe::schema_of::<AgentInstanceRecord>,
+        walk: walk_agent_instances,
     },
     ModelEntry {
         name: "agent_run",
@@ -102,6 +129,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<AgentRunRecord>,
         scan: scan_agent_runs,
         key_of: agent_run_key,
+        schema: describe::schema_of::<AgentRunRecord>,
+        walk: walk_agent_runs,
     },
     ModelEntry {
         name: "session",
@@ -109,6 +138,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<SessionRecord>,
         scan: scan_sessions,
         key_of: session_key,
+        schema: describe::schema_of::<SessionRecord>,
+        walk: walk_sessions,
     },
     ModelEntry {
         name: "session_event",
@@ -116,6 +147,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<SessionEventRecord>,
         scan: scan_session_events,
         key_of: session_event_key,
+        schema: describe::schema_session_event,
+        walk: walk_session_events,
     },
     ModelEntry {
         name: "explore",
@@ -123,6 +156,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<ExploreRecord>,
         scan: scan_explores,
         key_of: explore_key,
+        schema: describe::schema_of::<ExploreRecord>,
+        walk: walk_explores,
     },
     ModelEntry {
         name: "change",
@@ -130,6 +165,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<ChangeRecord>,
         scan: scan_changes,
         key_of: change_key,
+        schema: describe::schema_of::<ChangeRecord>,
+        walk: walk_changes,
     },
     ModelEntry {
         name: "phase",
@@ -137,6 +174,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<PhaseRecord>,
         scan: scan_phases,
         key_of: phase_key,
+        schema: describe::schema_of::<PhaseRecord>,
+        walk: walk_phases,
     },
     ModelEntry {
         name: "checklist_item",
@@ -144,6 +183,8 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<ChecklistItemRecord>,
         scan: scan_checklist_items,
         key_of: checklist_item_key,
+        schema: describe::schema_of::<ChecklistItemRecord>,
+        walk: walk_checklist_items,
     },
     ModelEntry {
         name: "step",
@@ -151,8 +192,54 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<StepRecord>,
         scan: scan_steps,
         key_of: step_key,
+        schema: describe::schema_of::<StepRecord>,
+        walk: walk_steps,
+    },
+    ModelEntry {
+        name: "run",
+        dimension: DbDimension::Workspace,
+        count: count_model::<RunRecord>,
+        scan: scan_runs,
+        key_of: run_key,
+        schema: describe::schema_of::<RunRecord>,
+        walk: walk_runs,
+    },
+    ModelEntry {
+        name: "run_node",
+        dimension: DbDimension::Workspace,
+        count: count_model::<RunNodeRecord>,
+        scan: scan_run_nodes,
+        key_of: run_node_key,
+        schema: describe::schema_of::<RunNodeRecord>,
+        walk: walk_run_nodes,
+    },
+    ModelEntry {
+        name: "run_edge",
+        dimension: DbDimension::Workspace,
+        count: count_model::<RunEdgeRecord>,
+        scan: scan_run_edges,
+        key_of: run_edge_key,
+        schema: describe::schema_of::<RunEdgeRecord>,
+        walk: walk_run_edges,
     },
 ];
+
+/// 注册表只读出口（`describe` / `query` 按维度过滤用；「表 ↔ 类型」与
+/// 「表 ↔ 遍历」两组映射同源于此，MUST NOT 另立第二份清单）。
+pub(crate) fn entries() -> &'static [ModelEntry] {
+    MODEL_ENTRIES
+}
+
+/// 按表名直查注册表行（跨维度——表名跨维度唯一由注册表保证）。
+pub(crate) fn entry(table: &str) -> Option<&'static ModelEntry> {
+    MODEL_ENTRIES.iter().find(|entry| entry.name == table)
+}
+
+/// 表名 → 维度（跨维度 miss → `None`）：`db_tables` 下钻派库与 `db_query`
+/// 的维度自纠文案同源。
+pub fn dimension_of(table: &str) -> Option<DbDimension> {
+    entry(table).map(|entry| entry.dimension)
+}
 
 /// 本维度已注册模型清单与计数（注册表按实例维度过滤分发——全局库只列 user
 /// 维度模型，workspace 库只列 workspace 维度模型，两库清单互不混列）。
@@ -227,6 +314,34 @@ fn scan_model<T: ToInput + Serialize>(
 fn count_model<T: ToInput>(db: &Database<'static>) -> Result<u64, StoreError> {
     let r = db.r_transaction().map_err(db_err("开启读事务"))?;
     r.len().primary::<T>().map_err(db_err("统计记录数"))
+}
+
+/// 记录流式遍历（**一个读事务**内完成：同一快照逐条解码 → JSON → 交访问器）：
+/// 逐条回调而非整表物化，内存上界 = 访问器自己保留的窗口。返回遍历到的总行数
+/// （访问器提前终止时为下界）。`key_of` 从记录 JSON 构造主键，与信封同形。
+fn walk_model<T: ToInput + Serialize>(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    let r = db.r_transaction().map_err(query_db_err("开启读事务"))?;
+    let mut total = 0u64;
+    for record in r
+        .scan()
+        .primary::<T>()
+        .map_err(query_db_err("遍历记录"))?
+        .all()
+        .map_err(query_db_err("遍历记录"))?
+    {
+        let record = record.map_err(query_db_err("遍历记录"))?;
+        total += 1;
+        let value = serde_json::to_value(&record)
+            .map_err(|e| QueryError::Db(format!("编码记录信封: {e}")))?;
+        if !visit(&(key_of)(&value), &value)? {
+            break;
+        }
+    }
+    Ok(total)
 }
 
 // --- per-model 包装：注册表行 = 通用实现 + 本模型 key 构造，一一对应 ---
@@ -330,6 +445,33 @@ fn scan_steps(
     scan_model::<StepRecord>(db, offset, limit, key_of)
 }
 
+fn scan_runs(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<RecordsPage, StoreError> {
+    scan_model::<RunRecord>(db, offset, limit, key_of)
+}
+
+fn scan_run_nodes(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<RecordsPage, StoreError> {
+    scan_model::<RunNodeRecord>(db, offset, limit, key_of)
+}
+
+fn scan_run_edges(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<RecordsPage, StoreError> {
+    scan_model::<RunEdgeRecord>(db, offset, limit, key_of)
+}
+
 /// workspace 主键 = canonical root。
 fn workspace_key(value: &Value) -> Value {
     value["root"].clone()
@@ -386,4 +528,134 @@ fn checklist_item_key(value: &Value) -> Value {
 /// step 主键 = id。
 fn step_key(value: &Value) -> Value {
     value["id"].clone()
+}
+
+/// run 主键 = run id。
+fn run_key(value: &Value) -> Value {
+    value["runId"].clone()
+}
+
+/// run 节点主键还原 `{runId, nodeKey}` 形态（u128 打包键的 JSON 可读投影，
+/// `checklist_item_key` 先例同型）。
+fn run_node_key(value: &Value) -> Value {
+    serde_json::json!({ "runId": value["runId"], "nodeKey": value["nodeKey"] })
+}
+
+/// run 边主键还原 `{runId, edgeKey}` 形态（同 `run_node_key` 的打包键投影）。
+fn run_edge_key(value: &Value) -> Value {
+    serde_json::json!({ "runId": value["runId"], "edgeKey": value["edgeKey"] })
+}
+
+// --- per-model 遍历包装：注册表 `walk` 行 = 通用实现 + 本模型类型 ---
+
+fn walk_workspaces(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<WorkspaceRecord>(db, key_of, visit)
+}
+
+fn walk_agent_providers(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<AgentProviderRecord>(db, key_of, visit)
+}
+
+fn walk_agent_instances(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<AgentInstanceRecord>(db, key_of, visit)
+}
+
+fn walk_agent_runs(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<AgentRunRecord>(db, key_of, visit)
+}
+
+fn walk_sessions(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<SessionRecord>(db, key_of, visit)
+}
+
+fn walk_session_events(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<SessionEventRecord>(db, key_of, visit)
+}
+
+fn walk_explores(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<ExploreRecord>(db, key_of, visit)
+}
+
+fn walk_changes(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<ChangeRecord>(db, key_of, visit)
+}
+
+fn walk_phases(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<PhaseRecord>(db, key_of, visit)
+}
+
+fn walk_checklist_items(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<ChecklistItemRecord>(db, key_of, visit)
+}
+
+fn walk_steps(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<StepRecord>(db, key_of, visit)
+}
+
+fn walk_runs(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<RunRecord>(db, key_of, visit)
+}
+
+fn walk_run_nodes(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<RunNodeRecord>(db, key_of, visit)
+}
+
+fn walk_run_edges(
+    db: &Database<'static>,
+    key_of: KeyOfFn,
+    visit: &mut dyn FnMut(&Value, &Value) -> Result<bool, QueryError>,
+) -> Result<u64, QueryError> {
+    walk_model::<RunEdgeRecord>(db, key_of, visit)
 }

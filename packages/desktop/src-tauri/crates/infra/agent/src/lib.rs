@@ -56,6 +56,12 @@ pub struct EngineFacade {
     /// sdk 引擎主仓 root（组合根注入缝）：写入保护规则装配的根（`None` =
     /// 未注入 → 只装载内置规则，非「保护关闭」）
     workspace_root: Option<PathBuf>,
+    /// 全局库句柄（组合根注入缝）：per-turn 铸造两只 DB 只读工具执行上下文的
+    /// 原料之一（`None` = 未注入——DB 工具上下文缺席）
+    db_global: Option<Arc<store::Store>>,
+    /// 会话 workspace 库句柄（组合根注入缝）：另一把原料（会话 workspace root
+    /// 的库实例，MUST NOT 由 cwd / worktree 派生）
+    db_workspace: Option<Arc<store::Store>>,
     /// ask 应答注册表（组合根注入缝）：与内核侧同源的单表（`None` 不存在——
     /// 未注入时门面自铸空表，阻塞恒 miss，fail-closed）
     ask_registry: Arc<agent::AskRegistry>,
@@ -73,6 +79,8 @@ impl EngineFacade {
             web_search: false,
             explore_note_store: None,
             workspace_root: None,
+            db_global: None,
+            db_workspace: None,
             ask_registry: Arc::new(agent::AskRegistry::default()),
             ask_port: None,
         }
@@ -87,6 +95,8 @@ impl EngineFacade {
             web_search: false,
             explore_note_store: None,
             workspace_root: None,
+            db_global: None,
+            db_workspace: None,
             ask_registry: Arc::new(agent::AskRegistry::default()),
             ask_port: None,
         }
@@ -104,6 +114,8 @@ impl EngineFacade {
             web_search: self.web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
+            db_global: self.db_global,
+            db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
         }
@@ -120,6 +132,8 @@ impl EngineFacade {
             web_search: self.web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
+            db_global: self.db_global,
+            db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
         }
@@ -137,6 +151,8 @@ impl EngineFacade {
             web_search,
             explore_note_store: self.explore_note_store,
             workspace_root: self.workspace_root,
+            db_global: self.db_global,
+            db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
         }
@@ -154,6 +170,8 @@ impl EngineFacade {
             web_search: self.web_search,
             explore_note_store: Some(store),
             workspace_root: self.workspace_root,
+            db_global: self.db_global,
+            db_workspace: self.db_workspace,
             ask_registry: self.ask_registry,
             ask_port: self.ask_port,
         }
@@ -187,6 +205,17 @@ impl EngineFacade {
         }
     }
 
+    /// 携双库句柄的门面（builder 缝，与 `with_explore_note_store` 同型）：per-turn
+    /// 铸造 `DbContext` 的两把原料（全局库 + 会话 workspace 库），`runner_for`
+    /// 透传。MUST NOT 在此二次 open 库文件。
+    pub fn with_db_stores(self, global: Arc<store::Store>, workspace: Arc<store::Store>) -> Self {
+        Self {
+            db_global: Some(global),
+            db_workspace: Some(workspace),
+            ..self
+        }
+    }
+
     /// 引擎构造唯一 match 点：kind 选臂、engine_cfg 供 sdk 臂组装 rig
     /// client。引擎具体类型不出门面。`EngineKind::Cli` 臂退役为显式 `Err`
     /// （[`store::CLI_TENANT_RETIRED`] 逐字文案）——生产路径不可达（组合根
@@ -212,6 +241,9 @@ impl EngineFacade {
                 .with_ask_port(self.ask_port.clone());
                 if let Some(root) = &self.workspace_root {
                     runner = runner.with_workspace_root(root.clone());
+                }
+                if let (Some(global), Some(workspace)) = (&self.db_global, &self.db_workspace) {
+                    runner = runner.with_db_stores(Arc::clone(global), Arc::clone(workspace));
                 }
                 Ok(Box::new(runner))
             }

@@ -27,12 +27,14 @@ const ARCHI_SOURCE: &str = "archi";
 /// 会话注入面装配（生产路径：explore 臂 + archi 臂 + change 臂），三臂全产
 /// **工具名字清单**，`finish` 位独立按 `role` 置位（与矩阵解耦——决策会话恒
 /// 不命中矩阵，收口档位不得随矩阵 `None` 一并丢）：
-/// - `explore` 来源 = 六工具名（write 移除）；
+/// - `explore` 来源 = 六工具名（write 移除）+ `create_explore_note` + 两只只读
+///   DB 工具（单源见 desktop-agent-db-tools）；
 /// - `archi` 来源 = 七工具名 + 两 archi 名 + 架构会话知识 preamble；该臂以
 ///   `source` 短路命中，零 `source_ref` 读取（不碰相位解析，`source_ref` 取任意
 ///   值下发面不变）；
 /// - `change` 来源按 `source_ref` 尾三段解析 `(phase, role)` 查 archi 工具面
-///   矩阵，命中即把勾选名并入七工具名清单；
+///   矩阵，命中即把勾选名并入七工具名清单，**矩阵之后恒 push `db_tables` /
+///   `db_query` 两名**（不分 phase / 不分矩阵命中，与 `ask` 位恒 `Flow` 同构）；
 /// - 其余来源（debug 等）显式构造 `tools = None`（内建七件）+ 零 archi 工具 +
 ///   `ask = Some(Generic)`——MUST NOT 以默认构造兜底（默认值的 `ask = None` 即
 ///   静默禁用，通用会话会失去 ask）。
@@ -42,7 +44,7 @@ const ARCHI_SOURCE: &str = "archi";
 /// 不分矩阵命中**）→ `Flow`。
 fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionInjections, String> {
     if provenance.source == EXPLORE_SOURCE {
-        const EXPLORE_TOOLS: [&str; 7] = [
+        const EXPLORE_TOOLS: [&str; 9] = [
             "read",
             "grep",
             "glob",
@@ -50,6 +52,8 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             "edit",
             "bash",
             mount::EXPLORE_NOTE_TOOL,
+            mount::DB_TABLES_TOOL,
+            mount::DB_QUERY_TOOL,
         ];
         return injected(
             &EXPLORE_TOOLS,
@@ -89,6 +93,9 @@ fn assemble_injections(provenance: &SessionProvenance) -> Result<agent::SessionI
             names.extend(selected);
         }
     }
+    // DB 工具两名恒在：不分 phase / 不分矩阵命中，与 ask 位恒 Flow 同构
+    names.push(mount::DB_TABLES_TOOL);
+    names.push(mount::DB_QUERY_TOOL);
     let finish = match phase_role.map(|(_, role)| role) {
         Some("evaluator") => Some(agent::FinishSpec::EvaluatorChecklist),
         Some("decision") => Some(agent::FinishSpec::Decision),
@@ -230,6 +237,11 @@ pub fn compose_turn(
     // explore 专用工具执行上下文的句柄半边（组合根铸造、`tools::execute` 纯
     // 函数不动——句柄经门面 builder 下行至 pump per-turn 铸造）
     let explore_note_store = Arc::clone(&store);
+    // DB 两工具的句柄半边：workspace 库 = 会话 workspace root 的既有实例（沿用
+    // 上面 `store` 的 Arc），全局库经共享出口取得（MUST NOT 二次 open——redb
+    // 单进程单句柄）
+    let db_workspace = Arc::clone(&store);
+    let db_global = stores.global_shared();
     let kernel = SessionKernel::new(
         Arc::new(StoreSink::new(store)),
         registry,
@@ -265,6 +277,7 @@ pub fn compose_turn(
             .with_ask_registry(ask_registry)
             .with_ask_port(ask_port)
             .with_explore_note_store(explore_note_store)
+            .with_db_stores(db_global, db_workspace)
             .with_workspace_root(workspace_root.to_path_buf())
             .runner_for(resolved.kind, resolved.config)?,
     );

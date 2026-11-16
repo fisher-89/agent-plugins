@@ -1602,3 +1602,100 @@ fn archi_api的input_path恒none() {
         "挂载表内档位为 Read（非 Write）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：两 DB 只读工具的路径沙箱面（`input_path` 恒 `None`）
+// ---------------------------------------------------------------------------
+
+/// 五名统一参数化（三 archi + 两 DB）→ `input_path` 全 `None`；基准对照
+/// `read` → `Some(path)`、`glob` → `Some(pattern)` 不变（判据是精确名，不是
+/// 「非路径类工具」嗅探）。
+#[test]
+fn 五名专用工具统一不进路径沙箱且基准对照不变() {
+    let input = json!({
+        "path": "src/auth/README.md",
+        "file": "a.txt",
+        "pattern": "src/**/*.rs",
+        "element": "App.Auth",
+        "query": "auth",
+        "action": "check",
+        "table": "phase",
+        "where": [],
+    });
+    let mut special: Vec<&str> = ARCHI_NAMES.to_vec();
+    special.push(crate::sdk::mount::DB_TABLES_TOOL);
+    special.push(crate::sdk::mount::DB_QUERY_TOOL);
+    assert_eq!(special.len(), 5, "五名专用工具");
+    for name in &special {
+        assert_eq!(
+            input_path(name, &input),
+            None,
+            "{name} 不进路径沙箱（无路径参数）"
+        );
+    }
+    assert_eq!(
+        input_path("read", &input),
+        Some("src/auth/README.md"),
+        "基准对照：read 仍取 path"
+    );
+    assert_eq!(
+        input_path("glob", &input),
+        Some("src/**/*.rs"),
+        "基准对照：glob 仍取 pattern"
+    );
+}
+
+/// 边界：脏入参（空对象 / 非对象 / `path` 非字符串 / 空串）两 DB 名恒 `None`，
+/// 零 panic；窄路径入参（仅 `path`）亦不因入参缺失 `table` 而落到路径分支。
+#[test]
+fn db两工具input_path脏入参恒none() {
+    for input in [
+        json!({}),
+        json!(null),
+        json!([]),
+        json!("str"),
+        json!(1),
+        json!({ "path": 1 }),
+        json!({ "path": {} }),
+        json!({ "path": ["a"] }),
+        json!({ "path": "" }),
+        json!({ "table": 123, "scope": "user" }),
+        json!({ "path": "src/a.ts", "table": "phase" }),
+    ] {
+        for name in [
+            crate::sdk::mount::DB_TABLES_TOOL,
+            crate::sdk::mount::DB_QUERY_TOOL,
+        ] {
+            assert_eq!(
+                input_path(name, &input),
+                None,
+                "{name} 恒不进路径沙箱：{input}"
+            );
+        }
+    }
+}
+
+/// 边界：极端名形态落默认 `path` 分支（`Some` / `None` 取决于入参）——判据是
+/// 精确名而非前缀 / 大小写嗅探。
+#[test]
+fn db近似名落默认path分支() {
+    let input = json!({ "path": "src/a.ts" });
+    for name in [
+        "db_query ",
+        "DB_TABLES",
+        "db_tables_db_query",
+        " db_query",
+        "db-query",
+    ] {
+        assert_eq!(
+            input_path(name, &input),
+            Some("src/a.ts"),
+            "近似名 {name:?} 走默认 path 分支（非精确名不命中专用臂）"
+        );
+        assert_eq!(
+            input_path(name, &json!({})),
+            None,
+            "近似名 {name:?} 无 path 字段 → None"
+        );
+    }
+}

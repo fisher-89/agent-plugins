@@ -1,0 +1,796 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:4780:
+     let archi = injections_of("archi", None);
+     let archi_names = archi.tools.as_ref().expect("archi 臂 tools 在场");
+     assert_eq!(archi_names.len(), 10, "archi 臂十名（七内建 + 三 archi）");
+[31m-    assert_eq!(
+[0m[31m-        db_name_counts(archi_names),
+[0m[31m-        (0, 0),
+[0m[31m-        "archi 臂不含两 DB 名"
+[0m[31m-    );
+[0m[32m+    assert_eq!(db_name_counts(archi_names), (0, 0), "archi 臂不含两 DB 名");
+[0m     assert!(
+         archi.preamble.is_some(),
+         "archi 臂 preamble 在场（臂语义零改动）"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\compose_test.rs:4829:
+     );
+     assert_eq!(ok.ask, Some(agent::AskMode::Flow));
+ 
+[31m-    let error = injected(
+[0m[31m-        &["fly", DB_QUERY_TOOL],
+[0m[31m-        None,
+[0m[31m-        None,
+[0m[31m-        None,
+[0m[31m-        &provenance,
+[0m[31m-    )
+[0m[31m-    .expect_err("未知名应 Err");
+[0m[32m+    let error =
+[0m[32m+        injected(&["fly", DB_QUERY_TOOL], None, None, None, &provenance).expect_err("未知名应 Err");
+[0m     assert!(error.contains("fly"), "文案携非法名: {error}");
+     assert!(error.contains("change"), "文案携来源: {error}");
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\lib_test.rs:1324:
+         "后者覆盖前者（全局库）"
+     );
+     assert!(
+[31m-        Arc::ptr_eq(facade.db_workspace.as_ref().expect("句柄在场"), &workspace_b),
+[0m[32m+        Arc::ptr_eq(
+[0m[32m+            facade.db_workspace.as_ref().expect("句柄在场"),
+[0m[32m+            &workspace_b
+[0m[32m+        ),
+[0m         "后者覆盖前者（workspace 库）"
+     );
+     facade
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:154:
+         "结果串长 {} < 50000",
+         text.len()
+     );
+[31m-    serde_json::from_str(&text).unwrap_or_else(|error| panic!("db_query 结果为合法完整 JSON: {error}"))
+[0m[32m+    serde_json::from_str(&text)
+[0m[32m+        .unwrap_or_else(|error| panic!("db_query 结果为合法完整 JSON: {error}"))
+[0m }
+ 
+ async fn query_err(context: &DbContext, input: Value) -> String {
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:194:
+         assert!(row.get("summary").is_some(), "每行含 summary: {row}");
+         assert!(row.get("fields").is_none(), "清单形态不展开字段: {row}");
+         assert!(
+[31m-            row["summary"].as_str().is_some_and(|text| !text.trim().is_empty()),
+[0m[32m+            row["summary"]
+[0m[32m+                .as_str()
+[0m[32m+                .is_some_and(|text| !text.trim().is_empty()),
+[0m             "summary 非空: {row}"
+         );
+     }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:229:
+         "下钻形态不含 count 键（两形态字段集互不重叠）"
+     );
+     assert!(
+[31m-        body["summary"].as_str().is_some_and(|text| !text.is_empty()),
+[0m[32m+        body["summary"]
+[0m[32m+            .as_str()
+[0m[32m+            .is_some_and(|text| !text.is_empty()),
+[0m         "下钻含表介绍"
+     );
+     let fields = body["fields"].as_array().expect("fields 为数组");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:257:
+     let user_rows = user.as_array().expect("数组");
+     assert_eq!(user_rows.len(), 3, "scope user → 3 行");
+     assert!(
+[31m-        user_rows.iter().all(|row| row["dimension"] == json!("user")),
+[0m[32m+        user_rows
+[0m[32m+            .iter()
+[0m[32m+            .all(|row| row["dimension"] == json!("user")),
+[0m         "user 侧清单互不混列"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:272:
+     );
+ 
+     let both = tables_of(&context, json!({"scope": Value::Null})).await;
+[31m-    assert_eq!(both.as_array().expect("数组").len(), 14, "无 scope → 两库全列");
+[0m[32m+    assert_eq!(
+[0m[32m+        both.as_array().expect("数组").len(),
+[0m[32m+        14,
+[0m[32m+        "无 scope → 两库全列"
+[0m[32m+    );
+[0m 
+     // 下钻：按表所属维度解析（scope 与该维度一致时通过）
+[31m-    let drilled = tables_of(&context, json!({"table": "agent_provider", "scope": "user"})).await;
+[0m[32m+    let drilled = tables_of(
+[0m[32m+        &context,
+[0m[32m+        json!({"table": "agent_provider", "scope": "user"}),
+[0m[32m+    )
+[0m[32m+    .await;
+[0m     assert_eq!(drilled["dimension"], json!("user"));
+     let mismatch = context
+[31m-        .execute(DB_TABLES, &json!({"table": "agent_provider", "scope": "workspace"}))
+[0m[32m+        .execute(
+[0m[32m+            DB_TABLES,
+[0m[32m+            &json!({"table": "agent_provider", "scope": "workspace"}),
+[0m[32m+        )
+[0m         .await
+         .expect_err("维度与 scope 不符应 Err");
+     assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:362:
+         assert!(body.get(key).is_some(), "结果体含 {key}: {body}");
+     }
+     assert_eq!(body["total"], json!(30), "total = 表全量");
+[31m-    assert_eq!(body["matched"], json!(15), "matched = 过滤后行数（ses-a 15 条）");
+[0m[32m+    assert_eq!(
+[0m[32m+        body["matched"],
+[0m[32m+        json!(15),
+[0m[32m+        "matched = 过滤后行数（ses-a 15 条）"
+[0m[32m+    );
+[0m     assert_eq!(body["returned"], json!(5), "returned = 本页行数");
+[31m-    assert_eq!(body["truncated"], json!(true), "returned == limit 且 matched 更大");
+[0m[32m+    assert_eq!(
+[0m[32m+        body["truncated"],
+[0m[32m+        json!(true),
+[0m[32m+        "returned == limit 且 matched 更大"
+[0m[32m+    );
+[0m     assert_eq!(body["truncatedBy"], json!("limit"), "行数档");
+     let returned = body["returned"].as_u64().expect("returned 数字");
+     let matched = body["matched"].as_u64().expect("matched 数字");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:374:
+     );
+     for record in rows(&body) {
+         assert!(record.get("key").is_some(), "records 逐条含 key: {record}");
+[31m-        assert!(record.get("value").is_some(), "records 逐条含 value: {record}");
+[0m[32m+        assert!(
+[0m[32m+            record.get("value").is_some(),
+[0m[32m+            "records 逐条含 value: {record}"
+[0m[32m+        );
+[0m         assert_eq!(
+             record["value"]["sessionId"],
+             json!("ses-a"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:469:
+ 
+     let defaulted = query_ok(&context, json!({"table": "session_event"})).await;
+     assert_eq!(defaulted["matched"], json!(40));
+[31m-    assert_eq!(defaulted["returned"], json!(20), "缺省 20 行落在 40 KB 预算内");
+[0m[32m+    assert_eq!(
+[0m[32m+        defaulted["returned"],
+[0m[32m+        json!(20),
+[0m[32m+        "缺省 20 行落在 40 KB 预算内"
+[0m[32m+    );
+[0m 
+     let big = query_ok(&context, json!({"table": "session_event", "limit": 50})).await;
+     assert_eq!(big["matched"], json!(40), "matched 恒精确");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\db_tool_test.rs:488:
+         );
+     }
+     // 结果串可完整解析（上面 `query_ok` 已反序列化）→ records 条条完整
+[31m-    assert_eq!(rows(&big).len() as u64, returned, "records 条数 == returned");
+[0m[32m+    assert_eq!(
+[0m[32m+        rows(&big).len() as u64,
+[0m[32m+        returned,
+[0m[32m+        "records 条数 == returned"
+[0m[32m+    );
+[0m }
+ 
+ #[tokio::test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:1171:
+         serde_json::json!(["table"]),
+         "仅 table 必填"
+     );
+[31m-    for property in ["table", "scope", "where", "order", "select", "offset", "limit"] {
+[0m[32m+    for property in [
+[0m[32m+        "table", "scope", "where", "order", "select", "offset", "limit",
+[0m[32m+    ] {
+[0m         assert!(
+             parameters["properties"].get(property).is_some(),
+             "参数含 {property}：{parameters}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:1277:
+     .expect("合法名 + 收口位");
+     assert_eq!(
+         names(&with_finish),
+[31m-        vec![DB_TABLES_TOOL, DB_QUERY_TOOL, orchestration::finish::TOOL_NAME],
+[0m[32m+        vec![
+[0m[32m+            DB_TABLES_TOOL,
+[0m[32m+            DB_QUERY_TOOL,
+[0m[32m+            orchestration::finish::TOOL_NAME
+[0m[32m+        ],
+[0m         "收口工具尾追加"
+     );
+ }
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\mount_test.rs:1286:
+ #[test]
+ fn definitions_db近似名仍err() {
+     for miss in ["db_query2", "DB_QUERY", "db tables"] {
+[31m-        let error = definitions(&injected(&["read", miss]), "")
+[0m[31m-            .expect_err("未知名应 Err");
+[0m[31m-        assert!(
+[0m[31m-            error.contains(miss),
+[0m[31m-            "文案携非法名 {miss:?}: {error}"
+[0m[31m-        );
+[0m[32m+        let error = definitions(&injected(&["read", miss]), "").expect_err("未知名应 Err");
+[0m[32m+        assert!(error.contains(miss), "文案携非法名 {miss:?}: {error}");
+[0m     }
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:3477:
+ use crate::sdk::runner::mint_db_context;
+ 
+ /// 双库句柄底座（真库各开一次；判据不读库）。
+[31m-fn db_store_pair(tag: &str) -> (tempfile::TempDir, StoreArc<store::Store>, StoreArc<store::Store>) {
+[0m[32m+fn db_store_pair(
+[0m[32m+    tag: &str,
+[0m[32m+) -> (
+[0m[32m+    tempfile::TempDir,
+[0m[32m+    StoreArc<store::Store>,
+[0m[32m+    StoreArc<store::Store>,
+[0m[32m+) {
+[0m     let dir = tempfile::Builder::new()
+         .prefix(&format!("runner-db-stores-{tag}-"))
+         .tempdir()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\runner_test.rs:3562:
+         Some(9),
+         "explore 臂九名"
+     );
+[31m-    for (tag, injections) in [
+[0m[31m-        ("explore", explore),
+[0m[31m-        ("change", change_arm_injections()),
+[0m[31m-    ] {
+[0m[32m+    for (tag, injections) in [("explore", explore), ("change", change_arm_injections())] {
+[0m         assert!(
+             mint_db_context(
+                 &injections,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\agent\src\sdk\tools_test.rs:1680:
+ #[test]
+ fn db近似名落默认path分支() {
+     let input = json!({ "path": "src/a.ts" });
+[31m-    for name in ["db_query ", "DB_TABLES", "db_tables_db_query", " db_query", "db-query"] {
+[0m[32m+    for name in [
+[0m[32m+        "db_query ",
+[0m[32m+        "DB_TABLES",
+[0m[32m+        "db_tables_db_query",
+[0m[32m+        " db_query",
+[0m[32m+        "db-query",
+[0m[32m+    ] {
+[0m         assert_eq!(
+             input_path(name, &input),
+             Some("src/a.ts"),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:313:
+     let global = global_db();
+     {
+         let rw = global.rw_transaction().expect("写事务");
+[31m-        rw.insert(provider_record(1, "one")).expect("落 provider 行");
+[0m[32m+        rw.insert(provider_record(1, "one"))
+[0m[32m+            .expect("落 provider 行");
+[0m         rw.commit().expect("提交");
+     }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:401:
+             !names.iter().any(|name| name == "store_meta"),
+             "{dimension:?}: 库级格式标记不入表清单: {names:?}"
+         );
+[31m-        for embedded in ["AgentModelTiers", "SessionConfigSnapshot", "ChangeActivePhase"] {
+[0m[32m+        for embedded in [
+[0m[32m+            "AgentModelTiers",
+[0m[32m+            "SessionConfigSnapshot",
+[0m[32m+            "ChangeActivePhase",
+[0m[32m+        ] {
+[0m             assert!(
+                 !names.iter().any(|name| name == embedded),
+                 "{dimension:?}: 内嵌命名类型 {embedded} 不入表清单（注册外过滤）"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:454:
+         }
+         Err(other) => panic!("应为 Db 变体（库层失败），实际: {other:?}"),
+         Ok(docs) => assert_eq!(
+[31m-            docs.iter().map(|doc| doc.table.as_str()).collect::<Vec<_>>(),
+[0m[32m+            docs.iter()
+[0m[32m+                .map(|doc| doc.table.as_str())
+[0m[32m+                .collect::<Vec<_>>(),
+[0m             USER_TABLES.to_vec(),
+             "若库层容忍缺表，则行集仍为 user 三行（维度过滤不探测库）"
+         ),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:529:
+     };
+     assert_eq!(ty_of("eventKey"), "string", "打包键线格式为十六进制串");
+     assert_eq!(ty_of("sessionId"), "string");
+[31m-    assert_eq!(ty_of("event"), "object", "opaque 载荷渲染为 object（可点号下钻）");
+[0m[32m+    assert_eq!(
+[0m[32m+        ty_of("event"),
+[0m[32m+        "object",
+[0m[32m+        "opaque 载荷渲染为 object（可点号下钻）"
+[0m[32m+    );
+[0m     assert!(!doc.summary.is_empty(), "手写 schema 亦供表介绍");
+     for field in &doc.fields {
+         assert!(!field.doc.trim().is_empty(), "字段 {} 说明非空", field.name);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:543:
+     let QueryError::Invalid(message) = error else {
+         panic!("未知表应为 Invalid 变体");
+     };
+[31m-    assert!(message.contains("未知表: phases"), "文案携入参名: {message}");
+[0m     assert!(
+[32m+        message.contains("未知表: phases"),
+[0m[32m+        "文案携入参名: {message}"
+[0m[32m+    );
+[0m[32m+    assert!(
+[0m         message.contains("phase") && message.contains("run_edge"),
+         "候选列本维度表名: {message}"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:569:
+ fn 表名边界形态逐形态err零归一() {
+     let long = "字".repeat(1200);
+     for name in ["", "   ", "Phase", "phase ", &long, "a\nb", "a\0b🚀"] {
+[31m-        let error = table(DbDimension::Workspace, name)
+[0m[31m-            .expect_err("零大小写归一、零 trim → 逐形态 Err");
+[0m[32m+        let error =
+[0m[32m+            table(DbDimension::Workspace, name).expect_err("零大小写归一、零 trim → 逐形态 Err");
+[0m         let message = error.to_string();
+         assert!(
+             matches!(error, QueryError::Invalid(_)),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:591:
+         "第一句介绍。",
+         "取首个句读并含该字符"
+     );
+[31m-    assert_eq!(truncate_doc("一段\n下一行"), "一段", "换行亦是句读（尾部空白剥离）");
+[0m[32m+    assert_eq!(
+[0m[32m+        truncate_doc("一段\n下一行"),
+[0m[32m+        "一段",
+[0m[32m+        "换行亦是句读（尾部空白剥离）"
+[0m[32m+    );
+[0m     // ② 无句读且超 120 字 → 截至 120 字 + 省略号
+     let long = "文".repeat(200);
+     let truncated = truncate_doc(&long);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:598:
+     assert_eq!(truncated.chars().count(), 121, "120 字 + 省略号");
+     assert!(truncated.ends_with('…'), "补省略号");
+[31m-    assert_eq!(&truncated[..truncated.len() - '…'.len_utf8()], &long[..120 * 3]);
+[0m[32m+    assert_eq!(
+[0m[32m+        &truncated[..truncated.len() - '…'.len_utf8()],
+[0m[32m+        &long[..120 * 3]
+[0m[32m+    );
+[0m     // ③ 恰 120 字不补省略号
+     let exact = "字".repeat(120);
+     assert_eq!(truncate_doc(&exact), exact, "恰上限原样返回（零省略号）");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:784:
+     let index = field_index("session_event").expect("session_event 字段索引");
+     assert_eq!(index.names(), vec!["eventKey", "sessionId", "event"]);
+     assert_eq!(index.kind_of("eventKey"), FieldKind::Text);
+[31m-    assert_eq!(index.kind_of("event"), FieldKind::Unknown, "opaque 载荷不校验值形状");
+[0m[32m+    assert_eq!(
+[0m[32m+        index.kind_of("event"),
+[0m[32m+        FieldKind::Unknown,
+[0m[32m+        "opaque 载荷不校验值形状"
+[0m[32m+    );
+[0m     assert_eq!(index.render_of("event"), Some("object"));
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:809:
+                 field.name
+             );
+         }
+[31m-        let wire: Vec<String> = doc
+[0m[31m-            .fields
+[0m[31m-            .iter()
+[0m[31m-            .map(|field| field.name.clone())
+[0m[31m-            .collect();
+[0m[32m+        let wire: Vec<String> = doc.fields.iter().map(|field| field.name.clone()).collect();
+[0m         let mut wire_sorted = wire.clone();
+         wire_sorted.sort();
+         let keys = json_keys(&value);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:820:
+         // 方向一：线名 ⊆ 真实键集
+[31m-        let missing_in_json: Vec<&String> =
+[0m[31m-            wire_sorted.iter().filter(|name| !keys.contains(name)).collect();
+[0m[32m+        let missing_in_json: Vec<&String> = wire_sorted
+[0m[32m+            .iter()
+[0m[32m+            .filter(|name| !keys.contains(name))
+[0m[32m+            .collect();
+[0m         assert!(
+             missing_in_json.is_empty(),
+             "表 {table_name}：线名 {missing_in_json:?} 不在 serde 键集 {keys:?}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\describe_test.rs:826:
+         );
+         // 方向二：真实键集 ⊆ 线名
+[31m-        let missing_in_wire: Vec<&String> =
+[0m[31m-            keys.iter().filter(|key| !wire_sorted.contains(key)).collect();
+[0m[32m+        let missing_in_wire: Vec<&String> = keys
+[0m[32m+            .iter()
+[0m[32m+            .filter(|key| !wire_sorted.contains(key))
+[0m[32m+            .collect();
+[0m         assert!(
+             missing_in_wire.is_empty(),
+             "表 {table_name}：serde 键 {missing_in_wire:?} 不在线名集 {wire_sorted:?}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\envelope_test.rs:1211:
+     assert!(empty.records.is_empty(), "limit 0 → 空页");
+     assert_eq!(empty.total, 2, "total 照常");
+ 
+[31m-    let beyond = ws
+[0m[31m-        .scan("run_node", 10, 10)
+[0m[31m-        .expect("offset 越过全量应成功");
+[0m[32m+    let beyond = ws.scan("run_node", 10, 10).expect("offset 越过全量应成功");
+[0m     assert!(beyond.records.is_empty(), "offset 越过全量 → 空页");
+     assert_eq!(beyond.total, 2, "total 照常");
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\model_test.rs:4742:
+ where
+     T: native_model::Model + serde::Serialize + std::fmt::Debug,
+ {
+[31m-    let encoded = native_model::encode(record).unwrap_or_else(|error| panic!("{tag}: encode 应成功: {error}"));
+[0m[31m-    let (decoded, _) =
+[0m[31m-        native_model::decode::<T>(encoded.clone()).unwrap_or_else(|error| panic!("{tag}: decode 应成功: {error}"));
+[0m[31m-    let reencoded =
+[0m[31m-        native_model::encode(&decoded).unwrap_or_else(|error| panic!("{tag}: reencode 应成功: {error}"));
+[0m[32m+    let encoded = native_model::encode(record)
+[0m[32m+        .unwrap_or_else(|error| panic!("{tag}: encode 应成功: {error}"));
+[0m[32m+    let (decoded, _) = native_model::decode::<T>(encoded.clone())
+[0m[32m+        .unwrap_or_else(|error| panic!("{tag}: decode 应成功: {error}"));
+[0m[32m+    let reencoded = native_model::encode(&decoded)
+[0m[32m+        .unwrap_or_else(|error| panic!("{tag}: reencode 应成功: {error}"));
+[0m     assert_eq!(encoded, reencoded, "{tag}: 解码重编码逐字节相等");
+ }
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\model_test.rs:4769:
+         .map(|(wire, field)| {
+             (
+                 wire.to_string(),
+[31m-                field.ty.clone().unwrap_or(DataType::Primitive(Primitive::str)),
+[0m[32m+                field
+[0m[32m+                    .ty
+[0m[32m+                    .clone()
+[0m[32m+                    .unwrap_or(DataType::Primitive(Primitive::str)),
+[0m             )
+         })
+         .collect()
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:428:
+         2,
+         "三条件三重收窄（chg-a / pass / attempt 1 → id 1 与 3）"
+     );
+[31m-    for value in [json!({"table": "phase"}), json!({"table": "phase", "where": []})] {
+[0m[32m+    for value in [
+[0m[32m+        json!({"table": "phase"}),
+[0m[32m+        json!({"table": "phase", "where": []}),
+[0m[32m+    ] {
+[0m         let page = run_ws(&db, value.clone()).expect("全量查询应成功");
+         assert_eq!(page.matched, 5, "where 缺失 / 空数组 = 全量（{value}）");
+         assert_eq!(page.total, 5, "total 恒表全量");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:772:
+     let asc_values: Vec<i64> = ascending
+         .records
+         .iter()
+[31m-        .map(|record| record.value["timestamp"].as_i64().expect("timestamp number"))
+[0m[32m+        .map(|record| {
+[0m[32m+            record.value["timestamp"]
+[0m[32m+                .as_i64()
+[0m[32m+                .expect("timestamp number")
+[0m[32m+        })
+[0m         .collect();
+     assert_eq!(asc_values, vec![100, 200, 300, 400, 500], "升序严格单调");
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:784:
+     let desc_values: Vec<i64> = descending
+         .records
+         .iter()
+[31m-        .map(|record| record.value["timestamp"].as_i64().expect("timestamp number"))
+[0m[32m+        .map(|record| {
+[0m[32m+            record.value["timestamp"]
+[0m[32m+                .as_i64()
+[0m[32m+                .expect("timestamp number")
+[0m[32m+        })
+[0m         .collect();
+     assert_eq!(desc_values, vec![500, 400, 300, 200, 100], "降序严格单调");
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:827:
+     .expect("按 mixed 升序应成功");
+     assert_eq!(
+         mixed_of(&ascending),
+[31m-        vec![json!(1), json!("s"), json!(true), json!({"a": 1}), json!([]), Value::Null],
+[0m[32m+        vec![
+[0m[32m+            json!(1),
+[0m[32m+            json!("s"),
+[0m[32m+            json!(true),
+[0m[32m+            json!({"a": 1}),
+[0m[32m+            json!([]),
+[0m[32m+            Value::Null
+[0m[32m+        ],
+[0m         "跨类型定序 number < string < bool < object < array < null"
+     );
+ 
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:839:
+     let desc = mixed_of(&descending);
+     assert_eq!(
+         desc,
+[31m-        vec![json!([]), json!({"a": 1}), json!(true), json!("s"), json!(1), Value::Null],
+[0m[32m+        vec![
+[0m[32m+            json!([]),
+[0m[32m+            json!({"a": 1}),
+[0m[32m+            json!(true),
+[0m[32m+            json!("s"),
+[0m[32m+            json!(1),
+[0m[32m+            Value::Null
+[0m[32m+        ],
+[0m         "降序反转非 null 段"
+     );
+[31m-    assert_eq!(
+[0m[31m-        desc.last(),
+[0m[31m-        Some(&Value::Null),
+[0m[31m-        "null 恒末位且与方向无关"
+[0m[31m-    );
+[0m[32m+    assert_eq!(desc.last(), Some(&Value::Null), "null 恒末位且与方向无关");
+[0m 
+     // null 列排序：升 / 降序皆末位
+     let phases = phase_corpus();
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:885:
+     union.extend(keys_of(&second_page));
+     union.sort_by_key(|key| key.as_i64().unwrap_or_default());
+     union.dedup();
+[31m-    assert_eq!(union, vec![json!(1), json!(2), json!(3), json!(4), json!(5)], "两页无重无漏");
+[0m[32m+    assert_eq!(
+[0m[32m+        union,
+[0m[32m+        vec![json!(1), json!(2), json!(3), json!(4), json!(5)],
+[0m[32m+        "两页无重无漏"
+[0m[32m+    );
+[0m }
+ 
+ // ---------------------------------------------------------------------------
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:933:
+     default_keys.sort();
+     let mut expected = full.clone();
+     expected.sort();
+[31m-    assert_eq!(default_keys, expected, "select 缺省 = 全字段（键集与表线名集一致）");
+[0m[32m+    assert_eq!(
+[0m[32m+        default_keys, expected,
+[0m[32m+        "select 缺省 = 全字段（键集与表线名集一致）"
+[0m[32m+    );
+[0m }
+ 
+ #[test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:978:
+         "重复项不重复输出"
+     );
+ 
+[31m-    let message = err_of(
+[0m[31m-        &db,
+[0m[31m-        json!({"table": "phase", "select": ["change_id"]}),
+[0m[31m-    );
+[0m[32m+    let message = err_of(&db, json!({"table": "phase", "select": ["change_id"]}));
+[0m     assert!(
+         message.contains("未知字段") && message.contains("changeId"),
+         "未知投影字段携候选线名: {message}"
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1003:
+     seed_checklist(&db, 45);
+     let total = 45u64;
+ 
+[31m-    let first = run_ws(&db, json!({"table": "checklist_item", "limit": 20, "offset": 0}))
+[0m[31m-        .expect("首页应成功");
+[0m[31m-    let second = run_ws(&db, json!({"table": "checklist_item", "limit": 25, "offset": 20}))
+[0m[31m-        .expect("次页应成功");
+[0m[32m+    let first = run_ws(
+[0m[32m+        &db,
+[0m[32m+        json!({"table": "checklist_item", "limit": 20, "offset": 0}),
+[0m[32m+    )
+[0m[32m+    .expect("首页应成功");
+[0m[32m+    let second = run_ws(
+[0m[32m+        &db,
+[0m[32m+        json!({"table": "checklist_item", "limit": 25, "offset": 20}),
+[0m[32m+    )
+[0m[32m+    .expect("次页应成功");
+[0m     assert_eq!(first.records.len(), 20, "首页 20 行");
+     assert_eq!(second.records.len(), 25, "次页 25 行");
+     let mut union: Vec<Value> = keys_of(&first);
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1013:
+     union.extend(keys_of(&second));
+     union.sort_by_key(|value| value.to_string());
+     union.dedup();
+[31m-    assert_eq!(union.len() as u64, total, "两页并集 == 全量命中集（无重无漏）");
+[0m[32m+    assert_eq!(
+[0m[32m+        union.len() as u64,
+[0m[32m+        total,
+[0m[32m+        "两页并集 == 全量命中集（无重无漏）"
+[0m[32m+    );
+[0m 
+[31m-    let zero_offset = run_ws(&db, json!({"table": "checklist_item", "offset": 0, "limit": 1}))
+[0m[31m-        .expect("offset 0 首页应成功");
+[0m[32m+    let zero_offset = run_ws(
+[0m[32m+        &db,
+[0m[32m+        json!({"table": "checklist_item", "offset": 0, "limit": 1}),
+[0m[32m+    )
+[0m[32m+    .expect("offset 0 首页应成功");
+[0m     assert_eq!(zero_offset.records.len(), 1, "offset = 0 首页");
+ 
+     let defaulted = run_ws(&db, json!({"table": "checklist_item"})).expect("缺省 limit 应成功");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1049:
+ fn 分页恰上限一千不复用查看页五百且offset超界空页() {
+     let db = workspace_db();
+     seed_checklist(&db, 520);
+[31m-    let page = run_ws(&db, json!({"table": "checklist_item", "limit": 1000}))
+[0m[31m-        .expect("恰上限应成功");
+[0m[32m+    let page =
+[0m[32m+        run_ws(&db, json!({"table": "checklist_item", "limit": 1000})).expect("恰上限应成功");
+[0m     assert_eq!(page.matched, 520, "matched 精确");
+     assert_eq!(page.total, 520, "total 精确");
+     assert_eq!(page.records.len(), 520, "returned == min(matched, 1000)");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1059:
+         "未复用查看页 500 上限（钳到 500 即本行红）"
+     );
+ 
+[31m-    let beyond = run_ws(&db, json!({"table": "checklist_item", "offset": 600, "limit": 10}))
+[0m[31m-        .expect("offset 超界不 Err");
+[0m[32m+    let beyond = run_ws(
+[0m[32m+        &db,
+[0m[32m+        json!({"table": "checklist_item", "offset": 600, "limit": 10}),
+[0m[32m+    )
+[0m[32m+    .expect("offset 超界不 Err");
+[0m     assert!(beyond.records.is_empty(), "offset > matched → 空页");
+     assert_eq!(beyond.total, 520, "total 照常");
+     assert_eq!(beyond.matched, 520, "matched 照常");
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1077:
+ 
+     let unfiltered_small = run_ws(&db, json!({"table": "phase", "limit": 2})).expect("场景一");
+     assert_eq!(
+[31m-        (unfiltered_small.total, unfiltered_small.matched, unfiltered_small.records.len()),
+[0m[32m+        (
+[0m[32m+            unfiltered_small.total,
+[0m[32m+            unfiltered_small.matched,
+[0m[32m+            unfiltered_small.records.len()
+[0m[32m+        ),
+[0m         (5, 5, 2),
+         "无过滤 + 小 limit：total == matched > returned"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1088:
+     )
+     .expect("场景二");
+     assert_eq!(
+[31m-        (filtered_big.total, filtered_big.matched, filtered_big.records.len()),
+[0m[32m+        (
+[0m[32m+            filtered_big.total,
+[0m[32m+            filtered_big.matched,
+[0m[32m+            filtered_big.records.len()
+[0m[32m+        ),
+[0m         (5, 3, 3),
+         "有过滤 + 大 limit：total > matched == returned"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1099:
+     )
+     .expect("场景三");
+     assert_eq!(
+[31m-        (filtered_offset.total, filtered_offset.matched, filtered_offset.records.len()),
+[0m[32m+        (
+[0m[32m+            filtered_offset.total,
+[0m[32m+            filtered_offset.matched,
+[0m[32m+            filtered_offset.records.len()
+[0m[32m+        ),
+[0m         (5, 3, 1),
+         "有过滤 + offset：returned < matched"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1107:
+     let empty = workspace_db();
+     let empty_page = run_ws(&empty, json!({"table": "phase"})).expect("场景四");
+     assert_eq!(
+[31m-        (empty_page.total, empty_page.matched, empty_page.records.len()),
+[0m[32m+        (
+[0m[32m+            empty_page.total,
+[0m[32m+            empty_page.matched,
+[0m[32m+            empty_page.records.len()
+[0m[32m+        ),
+[0m         (0, 0, 0),
+         "空表三元全 0"
+     );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1142:
+     seed_providers(&global, 2);
+     let error = run(&global, DbDimension::User, &spec(json!({"table": "phase"})))
+         .expect_err("跨维度表名应 Err");
+[31m-    assert!(error.to_string().contains("workspace"), "文案注明维度归属: {error}");
+[0m[32m+    assert!(
+[0m[32m+        error.to_string().contains("workspace"),
+[0m[32m+        "文案注明维度归属: {error}"
+[0m[32m+    );
+[0m     // 本库候选 = user 维度三表
+[31m-    assert!(error.to_string().contains("agent_provider"), "候选列本库表名: {error}");
+[0m[32m+    assert!(
+[0m[32m+        error.to_string().contains("agent_provider"),
+[0m[32m+        "候选列本库表名: {error}"
+[0m[32m+    );
+[0m }
+ 
+ #[test]
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\query_test.rs:1207:
+         QueryError::Invalid("未知表".to_owned()).to_string(),
+         "invalid: 未知表"
+     );
+[31m-    assert_eq!(QueryError::Db("redb 失败".to_owned()).to_string(), "db: redb 失败");
+[0m[32m+    assert_eq!(
+[0m[32m+        QueryError::Db("redb 失败".to_owned()).to_string(),
+[0m[32m+        "db: redb 失败"
+[0m[32m+    );
+[0m     assert_ne!(
+         QueryError::Invalid("x".to_owned()),
+         QueryError::Db("x".to_owned()),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:9004:
+             .unwrap_or_else(|error| panic!("{tag} describe 应成功: {error}"));
+         let models = store.list_models().expect("list_models 应成功");
+         assert_eq!(
+[31m-            docs.iter().map(|doc| doc.table.as_str()).collect::<Vec<_>>(),
+[0m[31m-            models.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(),
+[0m[32m+            docs.iter()
+[0m[32m+                .map(|doc| doc.table.as_str())
+[0m[32m+                .collect::<Vec<_>>(),
+[0m[32m+            models
+[0m[32m+                .iter()
+[0m[32m+                .map(|model| model.name.as_str())
+[0m[32m+                .collect::<Vec<_>>(),
+[0m             "{tag}: 表清单与 list_models 同源逐名一致"
+         );
+         assert!(
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:9013:
+             "{tag}: 每行 summary 非空"
+         );
+     }
+[31m-    assert_eq!(ws.describe().expect("workspace describe").len(), 11, "workspace 十一行");
+[0m[31m-    assert_eq!(global.describe().expect("global describe").len(), 3, "user 三行");
+[0m[32m+    assert_eq!(
+[0m[32m+        ws.describe().expect("workspace describe").len(),
+[0m[32m+        11,
+[0m[32m+        "workspace 十一行"
+[0m[32m+    );
+[0m[32m+    assert_eq!(
+[0m[32m+        global.describe().expect("global describe").len(),
+[0m[32m+        3,
+[0m[32m+        "user 三行"
+[0m[32m+    );
+[0m }
+ 
+ /// 正向 / 异常（AC-1）：`describe_table` 与 `describe::table` 直调结果相等；未知
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:9023:
+ fn store_describe_table与直调相等且未知表invalid() {
+     let env = Env::new("describe-table");
+     let ws = open_workspace_ok(&env.db_path("ws"));
+[31m-    let direct = crate::describe::table(crate::DbDimension::Workspace, "phase")
+[0m[31m-        .expect("直调下钻应成功");
+[0m[32m+    let direct =
+[0m[32m+        crate::describe::table(crate::DbDimension::Workspace, "phase").expect("直调下钻应成功");
+[0m     assert_eq!(
+         ws.describe_table("phase").expect("包装下钻应成功"),
+         direct,
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:9139:
+         matches!(error, QueryError::Invalid(_)),
+         "越界为 Invalid 变体（不进 StoreError 四变体），实际: {error:?}"
+     );
+[31m-    assert!(
+[0m[31m-        error.to_string().contains("1000"),
+[0m[31m-        "文案含上限: {error}"
+[0m[31m-    );
+[0m[32m+    assert!(error.to_string().contains("1000"), "文案含上限: {error}");
+[0m 
+     for (spec, needle) in [
+[32m+        (serde_json::json!({"table": "phases"}), "未知表".to_owned()),
+[0m         (
+[31m-            serde_json::json!({"table": "phases"}),
+[0m[31m-            "未知表".to_owned(),
+[0m[31m-        ),
+[0m[31m-        (
+[0m             serde_json::json!({"table": "session",
+                 "where": [{"field": "session_id", "op": "=", "value": "x"}]}),
+             "sessionId".to_owned(),
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:9156:
+         ),
+     ] {
+         let error = ws.query(&query_spec(spec.clone())).expect_err("应 Err");
+[31m-        assert!(matches!(error, QueryError::Invalid(_)), "{spec}: Invalid 变体");
+[0m         assert!(
+[32m+            matches!(error, QueryError::Invalid(_)),
+[0m[32m+            "{spec}: Invalid 变体"
+[0m[32m+        );
+[0m[32m+        assert!(
+[0m             error.to_string().contains(&needle),
+             "{spec}: 文案含 {needle}: {error}"
+         );
+Diff in \\?\D:\Projects\.worktrees\wps-claude-plugin\agent-db-query-tools\packages\desktop\src-tauri\crates\infra\store\src\store_test.rs:9190:
+         "经 `global()` 写入 → 经共享 `Arc` 读回同一记录"
+     );
+     assert_eq!(
+[31m-        second
+[0m[31m-            .list_workspaces()
+[0m[31m-            .expect("共享句柄读面应成功")
+[0m[31m-            .len(),
+[0m[32m+        second.list_workspaces().expect("共享句柄读面应成功").len(),
+[0m         1,
+         "同一句柄双向可见"
+     );
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

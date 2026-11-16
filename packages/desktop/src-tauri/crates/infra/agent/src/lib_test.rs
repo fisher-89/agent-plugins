@@ -1187,3 +1187,150 @@ fn ask两条builder与既有六条builder并存互不覆盖() {
         "配置校验先于装载（既有顺序不被 ask builder 改变）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 本变更：`EngineFacade::with_db_stores`（组合根注入缝）
+//
+// 观测口径：门面字段为 crate 内可见（`lib_test` 是 crate 根子模块），故「字段在
+// builder 链里不丢」直断字段位面；`runner_for` 真实构造链（不替身 runner——替身会
+// 让该断言失效）；provider 指向不可达端点 `127.0.0.1:9`（不建连、不断言网络结果）。
+// ---------------------------------------------------------------------------
+
+/// 双库句柄底座（真库各开一次，`Arc` 共享；`TempDir` 随返回值保活）。
+fn db_facade_pair(tag: &str) -> (tempfile::TempDir, Arc<store::Store>, Arc<store::Store>) {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("facade-db-stores-{tag}-"))
+        .tempdir()
+        .expect("创建临时目录失败");
+    let global = Arc::new(
+        store::Store::open_global(&dir.path().join("global.redb"))
+            .unwrap_or_else(|error| panic!("打开全局库失败: {error}")),
+    );
+    let workspace = Arc::new(
+        store::Store::open_workspace(&dir.path().join("ws.redb"))
+            .unwrap_or_else(|error| panic!("打开 workspace 库失败: {error}")),
+    );
+    (dir, global, workspace)
+}
+
+/// 正向（AC-10）：`with_db_stores(g, w).runner_for(Sdk, cfg)` → `Ok`；`Cli` 臂仍
+/// 以退役文案显式拒绝（既有语义零改动）。
+#[test]
+fn with_db_stores两引擎臂语义() {
+    let (_sdk_dir, global, workspace) = db_facade_pair("arms");
+    let facade = EngineFacade::new().with_db_stores(global, workspace);
+    facade
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("注入双库后 Sdk 臂构造成功");
+
+    let (_cli_dir, cli_global, cli_workspace) = db_facade_pair("cli");
+    match EngineFacade::new()
+        .with_db_stores(cli_global, cli_workspace)
+        .runner_for(EngineKind::Cli, EngineConfig::empty())
+    {
+        Err(error) => assert_eq!(error, CLI_TENANT_RETIRED, "Cli 臂退役文案零改动"),
+        Ok(_) => panic!("Cli 臂应显式拒绝"),
+    }
+}
+
+/// 正向（AC-10）：与其它 builder 任意序链式组合 → 每个位面保持设定值
+///（`..self` 形态不误清位），`runner_for` 仍 `Ok`。
+#[test]
+fn with_db_stores与其它builder任意序不丢位() {
+    let (_db_dir, global, workspace) = db_facade_pair("chain");
+    let (_explore_dir, explore_store) = temp_store("db-chain-explore");
+    let forward = EngineFacade::new()
+        .with_db_stores(Arc::clone(&global), Arc::clone(&workspace))
+        .with_context_window(Some(200_000))
+        .with_max_tokens(Some(16_384))
+        .with_web_search(true)
+        .with_explore_note_store(Arc::clone(&explore_store))
+        .with_workspace_root(std::path::PathBuf::from("D:/主仓"));
+    let backward = EngineFacade::new()
+        .with_workspace_root(std::path::PathBuf::from("D:/主仓"))
+        .with_explore_note_store(Arc::clone(&explore_store))
+        .with_web_search(true)
+        .with_max_tokens(Some(16_384))
+        .with_context_window(Some(200_000))
+        .with_db_stores(Arc::clone(&global), Arc::clone(&workspace));
+
+    for facade in [&forward, &backward] {
+        assert_eq!(facade.context_window, Some(200_000), "窗长位面保持");
+        assert_eq!(facade.max_tokens, Some(16_384), "输出上限位面保持");
+        assert!(facade.web_search, "web_search 位面保持");
+        assert!(
+            facade.explore_note_store.is_some(),
+            "explore store 位面保持"
+        );
+        assert_eq!(
+            facade.workspace_root.as_deref(),
+            Some(std::path::Path::new("D:/主仓")),
+            "主仓 root 位面保持"
+        );
+        let db_global = facade.db_global.as_ref().expect("全局库句柄在场");
+        let db_workspace = facade.db_workspace.as_ref().expect("workspace 库句柄在场");
+        assert!(
+            Arc::ptr_eq(db_global, &global) && Arc::ptr_eq(db_workspace, &workspace),
+            "双库句柄即注入实例（零二次 open）"
+        );
+        facade
+            .runner_for(EngineKind::Sdk, complete_cfg())
+            .expect("换序链后 Sdk 臂仍构造成功");
+    }
+}
+
+/// 边界（AC-10）：不调用该 builder（两字段 `None`）→ `runner_for` 仍 `Ok`
+///（未注入 = 上下文缺席，非错误）；`Default::default()` 与 `new()` 等价。
+#[test]
+fn with_db_stores缺省与default等价() {
+    let fresh = EngineFacade::new();
+    assert!(
+        fresh.db_global.is_none() && fresh.db_workspace.is_none(),
+        "new() 缺省 None"
+    );
+    fresh
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("未注入双库 → Sdk 臂仍构造成功");
+
+    let defaulted = EngineFacade::default();
+    assert_eq!(
+        (
+            defaulted.context_window,
+            defaulted.max_tokens,
+            defaulted.web_search,
+        ),
+        (fresh.context_window, fresh.max_tokens, fresh.web_search),
+        "Default 与 new 等价"
+    );
+    assert!(
+        defaulted.db_global.is_none() && defaulted.db_workspace.is_none(),
+        "Default 的双库字段亦 None"
+    );
+    defaulted
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Default 门面 Sdk 臂构造成功");
+}
+
+/// 边界（AC-10）：二次调用后者覆盖前者（不 panic、`runner_for` 成功）。
+#[test]
+fn with_db_stores重复调用后者覆盖() {
+    let (_dir_a, global_a, workspace_a) = db_facade_pair("override-a");
+    let (_dir_b, global_b, workspace_b) = db_facade_pair("override-b");
+    let facade = EngineFacade::new()
+        .with_db_stores(Arc::clone(&global_a), Arc::clone(&workspace_a))
+        .with_db_stores(Arc::clone(&global_b), Arc::clone(&workspace_b));
+    assert!(
+        Arc::ptr_eq(facade.db_global.as_ref().expect("句柄在场"), &global_b),
+        "后者覆盖前者（全局库）"
+    );
+    assert!(
+        Arc::ptr_eq(
+            facade.db_workspace.as_ref().expect("句柄在场"),
+            &workspace_b
+        ),
+        "后者覆盖前者（workspace 库）"
+    );
+    facade
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("覆盖后 Sdk 臂构造成功");
+}

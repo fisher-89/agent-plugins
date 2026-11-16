@@ -1691,7 +1691,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
 // Explore 枚举，其余 default）
 // ---------------------------------------------------------------------------
 
-use crate::sdk::mount::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
+use crate::sdk::mount::{DB_QUERY_TOOL, DB_TABLES_TOOL, EXPLORE_NOTE_TOOL, TOOL_NAMES};
 
 /// explore 来源装配（正向）：`begin(source = "explore")` → 捕获的
 /// `TurnRequest.injections.tools` = 六名（无 `write`、序同 `TOOL_NAMES`）+
@@ -1737,8 +1737,10 @@ async fn explore来源begin装配六工具收窄加explore枚举() {
             "edit".to_owned(),
             "bash".to_owned(),
             EXPLORE_NOTE_TOOL.to_owned(),
+            DB_TABLES_TOOL.to_owned(),
+            DB_QUERY_TOOL.to_owned(),
         ],
-        "六名收窄子集 + 专用名（无 write，序同 TOOL_NAMES 保序、专用名尾追加）"
+        "六名收窄子集 + 专用名 + 两 DB 名（无 write，序同 TOOL_NAMES 保序、专用名与 DB 名尾追加）"
     );
     assert!(
         !injections
@@ -1793,11 +1795,14 @@ async fn explore装配产物逐名都在七通用封闭清单内() {
 
     let captured = runner.captured_injections();
     let tools = captured[0].tools.as_ref().expect("tools 在场");
-    assert_eq!(tools.len(), 7, "六名收窄子集 + 一个专用名");
+    assert_eq!(tools.len(), 9, "六名收窄子集 + 专用名 + 两 DB 名");
     for name in tools {
         assert!(
-            TOOL_NAMES.contains(&name.as_str()) || name == EXPLORE_NOTE_TOOL,
-            "装配名 {name} ∈ 挂载清单（内建七件 ∪ 专用名）"
+            TOOL_NAMES.contains(&name.as_str())
+                || name == EXPLORE_NOTE_TOOL
+                || name == DB_TABLES_TOOL
+                || name == DB_QUERY_TOOL,
+            "装配名 {name} ∈ 挂载清单（内建七件 ∪ 专用名 ∪ 两 DB 名）"
         );
     }
 }
@@ -1843,7 +1848,7 @@ async fn 非explore来源begin恒default注入() {
         // `change` 来源按 role 产名字清单（缺省 role 不影响七内建底座）；
         // 其余来源三字段全 None（ask 位恒显式 Generic）
         let expected_tools = if source == "change" {
-            Some(seven())
+            Some(change_arm())
         } else {
             None
         };
@@ -1916,8 +1921,8 @@ async fn store侧explore来源字面量发起命中装配臂() {
     assert_eq!(captured.len(), 1);
     assert_eq!(
         captured[0].tools.as_ref().expect("tools 在场").len(),
-        7,
-        "命中 explore 装配臂（六名收窄 + 专用名）"
+        9,
+        "命中 explore 装配臂（六名收窄 + 专用名 + 两 DB 名）"
     );
     assert!(
         captured[0]
@@ -1991,9 +1996,11 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
             "edit".to_owned(),
             "bash".to_owned(),
             EXPLORE_NOTE_TOOL.to_owned(),
+            DB_TABLES_TOOL.to_owned(),
+            DB_QUERY_TOOL.to_owned(),
             "AskUserQuestion".to_owned(),
         ],
-        "注入经泵铸造与下发链端到端（AC-5 + ask 位 Generic 追加）"
+        "注入经泵铸造与下发链端到端（AC-5 + 两 DB 名 + ask 位 Generic 追加）"
     );
     assert!(!tools.contains(&"write".to_owned()), "explore 面不含 write");
 }
@@ -3358,6 +3365,15 @@ fn seven() -> Vec<String> {
     TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect()
 }
 
+/// change 臂名字清单底座：七内建 + 两 DB 名（矩阵之后恒 push，不分 phase / 不分
+/// 矩阵命中）。
+fn change_arm() -> Vec<String> {
+    let mut names = seven();
+    names.push(DB_TABLES_TOOL.to_owned());
+    names.push(DB_QUERY_TOOL.to_owned());
+    names
+}
+
 /// 取 archi 工具面的两位（名字清单里两名的在场形态；均缺席即 `None`）。
 fn archi_bits(injections: &agent::SessionInjections) -> Option<(bool, bool)> {
     let names = injections.tools.as_deref().unwrap_or_default();
@@ -3419,10 +3435,12 @@ fn 注入矩阵七行逐行命中() {
         if expected.2 {
             expected_names.push(crate::sdk::mount::ARCHI_API_TOOL.to_owned());
         }
+        expected_names.push(DB_TABLES_TOOL.to_owned());
+        expected_names.push(DB_QUERY_TOOL.to_owned());
         assert_eq!(
             injections.tools,
             Some(expected_names),
-            "命中行名字清单 = 七工具名 + 矩阵勾选: {phase}/{role}"
+            "命中行名字清单 = 七工具名 + 矩阵勾选 + 两 DB 名: {phase}/{role}"
         );
         assert!(injections.preamble.is_none(), "preamble 维持不消费");
     }
@@ -3442,8 +3460,8 @@ fn 矩阵外相位回落default() {
         let injections = injections_of("change", Some(source_ref));
         assert_eq!(
             injections.tools,
-            Some(seven()),
-            "矩阵外相位零 archi 工具（名字清单为七工具）: {source_ref}"
+            Some(change_arm()),
+            "矩阵外相位零 archi 工具（名字清单为七工具 + 两 DB 名）: {source_ref}"
         );
         assert_eq!(archi_bits(&injections), None, "零 archi 工具: {source_ref}");
     }
@@ -3463,14 +3481,14 @@ fn 畸形source_ref恒default() {
         let injections = injections_of("change", Some(source_ref));
         assert_eq!(
             injections.tools,
-            Some(seven()),
-            "畸形 source_ref {source_ref:?} 恒零 archi 工具（七工具名）"
+            Some(change_arm()),
+            "畸形 source_ref {source_ref:?} 恒零 archi 工具（七工具名 + 两 DB 名）"
         );
         assert_eq!(archi_bits(&injections), None);
     }
     // source_ref 缺席亦零 archi 工具
     let absent = injections_of("change", None);
-    assert_eq!(absent.tools, Some(seven()));
+    assert_eq!(absent.tools, Some(change_arm()));
     assert_eq!(archi_bits(&absent), None);
 }
 
@@ -3521,8 +3539,10 @@ fn explore臂零回归() {
             "edit".to_owned(),
             "bash".to_owned(),
             EXPLORE_NOTE_TOOL.to_owned(),
+            DB_TABLES_TOOL.to_owned(),
+            DB_QUERY_TOOL.to_owned(),
         ]),
-        "explore 臂名字清单 = 六工具 + 专用名（write 移除、序同 TOOL_NAMES + 尾追加）"
+        "explore 臂名字清单 = 六工具 + 专用名 + 两 DB 名（write 移除、序同 TOOL_NAMES + 尾追加）"
     );
     assert!(injections.preamble.is_none());
     assert_eq!(injections.finish, None, "explore 臂零收口档位");
@@ -3648,8 +3668,10 @@ fn 臂序explore在前() {
                 "edit".to_owned(),
                 "bash".to_owned(),
                 EXPLORE_NOTE_TOOL.to_owned(),
+                DB_TABLES_TOOL.to_owned(),
+                DB_QUERY_TOOL.to_owned(),
             ]),
-            "source_ref = {source_ref:?} 仍为 explore 名字清单（六名 + 专用名）"
+            "source_ref = {source_ref:?} 仍为 explore 名字清单（六名 + 专用名 + 两 DB 名）"
         );
         assert!(
             injections
@@ -3876,8 +3898,8 @@ fn finish位与矩阵解耦_决策会话恒持收口档位() {
     );
     assert_eq!(
         injections.tools,
-        Some(seven()),
-        "矩阵未命中 → 工具面为七内建（零 archi 名）"
+        Some(change_arm()),
+        "矩阵未命中 → 工具面为七内建 + 两 DB 名（零 archi 名）"
     );
 
     // 对照臂：evaluator 命中矩阵（code-review）→ 七内建 + archi_module，
@@ -3975,7 +3997,7 @@ fn 装配explore臂ask位generic且清单零ask工具名() {
     );
     assert_eq!(injections.finish, None, "explore 臂无收口工具");
     let names = injections.tools.as_deref().expect("explore 臂下发名字清单");
-    assert_eq!(names.len(), 7, "六件 + create_explore_note");
+    assert_eq!(names.len(), 9, "六件 + create_explore_note + 两 DB 名");
     assert!(
         names
             .iter()
@@ -4405,11 +4427,13 @@ async fn 装配产物真实驱动_change来源runstarted含ask工具() {
         .map(|name| (*name).to_owned())
         .chain(std::iter::once(ARCHI_MODULE_TOOL.to_owned()))
         .chain(std::iter::once(ARCHI_API_TOOL.to_owned()))
+        .chain(std::iter::once(DB_TABLES_TOOL.to_owned()))
+        .chain(std::iter::once(DB_QUERY_TOOL.to_owned()))
         .chain(std::iter::once("AskUserQuestion".to_owned()))
         .collect();
     assert_eq!(
         tools, &expected,
-        "change 来源的 RunStarted.tools = 七内建 + 矩阵命中的 archi 工具 + ask（末位）"
+        "change 来源的 RunStarted.tools = 七内建 + 矩阵命中的 archi 工具 + 两 DB 名 + ask（末位）"
     );
     assert!(
         !tools[..tools.len() - 1].contains(&"AskUserQuestion".to_owned()),
@@ -4680,4 +4704,310 @@ fn 解析失败时steer表零触点() {
             "解析失败零接线（表内零条目）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：两 DB 只读工具在会话可见性两臂（compose 单源）与装配原料
+//
+// 观测口径：assembled 名字清单是「可见性单源」；`compose_turn` 侧只断真实构造链
+// 可达（双库原料齐备 → begin 成功 → 会话行落 workspace 库），库身份锚的实例面
+// 归 `store_test.rs` / `runner_test.rs`。
+// ---------------------------------------------------------------------------
+
+/// 两 DB 工具名在名单中的出现次数（「各恰一次」断言缝）。
+fn db_name_counts(names: &[String]) -> (usize, usize) {
+    (
+        names.iter().filter(|name| *name == DB_TABLES_TOOL).count(),
+        names.iter().filter(|name| *name == DB_QUERY_TOOL).count(),
+    )
+}
+
+/// 正向（AC-9）：change 臂全矩阵 7 行 + 3 畸形 + 缺席 → 每条名单**恒**含两 DB
+/// 名各恰一次（不分 phase / 不分矩阵命中）；且两名排在 archi 名之后（尾段）。
+#[test]
+fn change臂全矩阵每行恒含两db名各恰一次() {
+    let mut source_refs: Vec<String> = Vec::new();
+    for (phase, role) in [
+        ("implement", "executor"),
+        ("implement", "evaluator"),
+        ("dev-design", "executor"),
+        ("code-review", "evaluator"),
+        ("acceptance", "evaluator"),
+        ("test-gen", "executor"),
+        ("archive", "spec_sync"),
+    ] {
+        source_refs.push(format!("add-feature/{phase}/{role}/1"));
+    }
+    source_refs.extend([
+        "add-feature/implement/executor".to_owned(),
+        "add-feature/implement/executor/x".to_owned(),
+        String::new(),
+    ]);
+    for source_ref in &source_refs {
+        let injections = injections_of("change", Some(source_ref));
+        let names = injections.tools.as_ref().expect("change 臂 tools 恒 Some");
+        assert_eq!(
+            db_name_counts(names),
+            (1, 1),
+            "source_ref {source_ref:?}: 两 DB 名各恰一次"
+        );
+        assert_eq!(
+            names[names.len() - 1],
+            DB_QUERY_TOOL,
+            "source_ref {source_ref:?}: db_query 收尾（矩阵之后恒 push）"
+        );
+        assert_eq!(
+            names[names.len() - 2],
+            DB_TABLES_TOOL,
+            "source_ref {source_ref:?}: db_tables 次末位"
+        );
+        assert_eq!(
+            injections.ask,
+            Some(agent::AskMode::Flow),
+            "source_ref {source_ref:?}: ask 档位恒 Flow"
+        );
+    }
+    // 缺席 source_ref 同样恒含两名
+    let absent = injections_of("change", None);
+    let names = absent.tools.as_ref().expect("tools 恒 Some");
+    assert_eq!(db_name_counts(names), (1, 1), "source_ref 缺席亦含两名");
+}
+
+/// 异常（AC-9 / AC-11）：archi 臂十名与 debug 臂（`tools = None`）**都不含**两 DB
+/// 名（archi / debug 会话调 db_query 走成员校验拒绝臂）。
+#[test]
+fn archi臂与debug臂均不含两db名() {
+    let archi = injections_of("archi", None);
+    let archi_names = archi.tools.as_ref().expect("archi 臂 tools 在场");
+    assert_eq!(archi_names.len(), 10, "archi 臂十名（七内建 + 三 archi）");
+    assert_eq!(db_name_counts(archi_names), (0, 0), "archi 臂不含两 DB 名");
+    assert!(
+        archi.preamble.is_some(),
+        "archi 臂 preamble 在场（臂语义零改动）"
+    );
+
+    for source in ["debug", "unknown-source", ""] {
+        let injections = injections_of(source, Some("add-feature/implement/executor/1"));
+        assert_eq!(
+            injections.tools, None,
+            "来源 {source:?}: tools = None（内建七件底座，不含 DB 名）"
+        );
+        assert_eq!(
+            injections.ask,
+            Some(agent::AskMode::Generic),
+            "来源 {source:?}: ask 恒显式 Generic"
+        );
+    }
+}
+
+/// 正向 / 异常（AC-9 成员校验）：`injected` 对两 DB 名命中 `mount::lookup`（不
+/// `Err`），未知名仍 `Err` 且文案携名与来源。
+#[test]
+fn injected成员校验_db名命中且未知名err() {
+    use super::injected;
+
+    let provenance = SessionProvenance {
+        source: "change".to_owned(),
+        source_ref: Some("add-feature/implement/executor/1".to_owned()),
+    };
+    let ok = injected(
+        &[DB_TABLES_TOOL, DB_QUERY_TOOL],
+        None,
+        None,
+        Some(agent::AskMode::Flow),
+        &provenance,
+    )
+    .expect("两 DB 名在挂载清单内");
+    assert_eq!(
+        ok.tools,
+        Some(vec![DB_TABLES_TOOL.to_owned(), DB_QUERY_TOOL.to_owned()]),
+        "名字清单原样落地"
+    );
+    assert_eq!(ok.ask, Some(agent::AskMode::Flow));
+
+    let error =
+        injected(&["fly", DB_QUERY_TOOL], None, None, None, &provenance).expect_err("未知名应 Err");
+    assert!(error.contains("fly"), "文案携非法名: {error}");
+    assert!(error.contains("change"), "文案携来源: {error}");
+}
+
+/// 组合行（AC-10）：`compose_turn` 真实构造链（双库原料 = `stores.global_shared()`
+/// + 会话 workspace 库实例）→ `begin` 成功、会话行落 workspace 库、库文件无二次
+/// open 冲突（不 panic）。
+#[tokio::test(start_paused = true)]
+async fn compose_turn双库原料齐备后begin成功且会话行落workspace库() {
+    let env = DualEnv::new("db-stores");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "双库原料供应");
+    seed_sdk_instance(stores, "双库原料实例", Some(provider_id));
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
+        env.store(),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("双库原料齐备 → 解析应成功");
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "双库原料一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: "change".to_owned(),
+                source_ref: Some("add-feature/implement/executor/1".to_owned()),
+            },
+        )
+        .expect("双库装配后 begin 应成功");
+    drop(running);
+
+    // 会话行落 workspace 库（同一实例，无二次 open / 无锁冲突）
+    let models = env.store().list_models().expect("workspace 库读面应成功");
+    let session_count = models
+        .iter()
+        .find(|model| model.name == "session")
+        .expect("session 模型行在清单")
+        .count;
+    assert_eq!(session_count, 1, "begin 落一行会话到 workspace 库");
+    assert_eq!(
+        models
+            .iter()
+            .find(|model| model.name == "phase")
+            .expect("phase 模型行在清单")
+            .count,
+        0,
+        "零相位写入（装配不改数据面）"
+    );
+}
+
+/// 正向（AC-9 组合行：两臂下发面）：explore 与 change 两 provenance 各 `begin`
+/// 一轮 → 捕获的 `TurnRequest.injections.tools` 均含两 DB 名，且与
+/// `assemble_injections` 单源一致（装配链无第二份名字清单）。
+#[tokio::test]
+async fn compose_turn两臂下发面均含两db名且与装配单源一致() {
+    let env = DualEnv::new("db-arms");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        85,
+    );
+
+    let arms: [(&str, Option<&str>); 2] = [
+        ("explore", None),
+        ("change", Some("add-feature/implement/executor/1")),
+    ];
+    for (source, source_ref) in arms {
+        composed
+            .begin(
+                SessionRef::New,
+                format!("下发面一轮: {source}"),
+                ctx(&env.root()),
+                SessionProvenance {
+                    source: source.to_owned(),
+                    source_ref: source_ref.map(str::to_owned),
+                },
+            )
+            .unwrap_or_else(|error| panic!("来源 {source:?} begin 应成功: {error}"));
+    }
+
+    let captured = runner.captured_injections();
+    assert_eq!(captured.len(), 2, "两臂各捕获一次");
+    for ((source, source_ref), injections) in arms.into_iter().zip(captured) {
+        let names = injections.tools.as_ref().expect("两臂 tools 均在场");
+        assert_eq!(
+            db_name_counts(names),
+            (1, 1),
+            "来源 {source:?}: 两 DB 名各恰一次"
+        );
+        assert_eq!(
+            injections.tools,
+            injections_of(source, source_ref).tools,
+            "来源 {source:?}: 下发面与 assemble_injections 单源一致（无第二份清单）"
+        );
+    }
+}
+
+/// 边界（AC-10 组合行：身份锚）：会话 `cwd` 取 worktree（与主仓 root 不同路径）→
+/// 装配的 workspace 库句柄仍是 root 对应实例（`Arc::ptr_eq`），库身份不经 `cwd`
+/// 派生——worktree 路径上不产生第二个库句柄、不留第二份会话行。
+#[tokio::test(start_paused = true)]
+async fn compose_turn身份锚恒主仓root不随会话cwd的worktree派生() {
+    let env = DualEnv::new("db-anchor");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "身份锚供应");
+    seed_sdk_instance(stores, "身份锚实例", Some(provider_id));
+
+    let worktree = tempfile::Builder::new()
+        .prefix("compose-test-db-anchor-worktree-")
+        .tempdir()
+        .expect("创建 worktree 临时目录失败");
+    let worktree_path = worktree.path().to_string_lossy().into_owned();
+    assert_ne!(worktree_path, env.root(), "worktree 与主仓 root 是两条路径");
+
+    let store = env.store();
+    let root_store = stores.for_root(&env.root()).expect("for_root 应成功");
+    assert!(
+        Arc::ptr_eq(&store, &root_store),
+        "命令层注入的 workspace 库实例即 root 对应实例（无二次 open）"
+    );
+
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        Arc::new(agent::AskRegistry::default()),
+        Arc::new(agent::SteerRegistry::default()),
+        Arc::clone(&store),
+        None,
+        Path::new(&env.root()),
+        None,
+    )
+    .expect("双库原料齐备 → 解析应成功");
+
+    // 会话 cwd 取 worktree：DB 句柄不经 cwd 派生（库身份锚恒主仓 root）
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "身份锚一轮".to_owned(),
+            ctx(&worktree_path),
+            SessionProvenance {
+                source: "change".to_owned(),
+                source_ref: Some("add-feature/implement/executor/1".to_owned()),
+            },
+        )
+        .expect("会话 cwd 为 worktree 时 begin 应成功");
+    drop(running);
+
+    let root_sessions = env
+        .store()
+        .list_sessions(None, None)
+        .expect("root 库清单应成功");
+    assert_eq!(root_sessions.len(), 1, "会话行落主仓 root 库");
+
+    let worktree_store = stores
+        .for_root(&worktree_path)
+        .expect("for_root(worktree) 应成功");
+    assert!(
+        !Arc::ptr_eq(&worktree_store, &root_store),
+        "worktree 路径不共享 root 库句柄（两条不同库）"
+    );
+    let worktree_sessions = worktree_store
+        .list_sessions(None, None)
+        .expect("worktree 库清单应成功");
+    assert!(
+        worktree_sessions.is_empty(),
+        "worktree 路径零会话行（库身份锚不经 cwd 派生）"
+    );
 }

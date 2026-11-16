@@ -5,8 +5,8 @@ use agent::{AgentEvent, AgentEventKind};
 
 use crate::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
-    AgentProviderRecord, RecordEnvelope, RecordsPage, SessionConfigSnapshot, SessionRecord, Store,
-    StoreError,
+    AgentProviderRecord, DbDimension, RecordEnvelope, RecordsPage, SessionConfigSnapshot,
+    SessionRecord, Store, StoreError,
 };
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
@@ -125,8 +125,9 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
     );
     drop(global);
 
-    // workspace 库：八行按登记序，计数与各模型写入量一致（轮统计行 / explore
-    // 与 change 流程状态四模型计数 0 也列出；agent_event 退役出注册）
+    // workspace 库：十一行按登记序，计数与各模型写入量一致（轮统计行 / explore
+    // 与 change 流程状态四模型 / run 执行图三模型计数 0 也列出；agent_event 退役
+    // 出注册）
     let ws = open_ws_ok(&env.db_path("ws"));
     let session_id = seed_session(&ws, "ses-registry");
     append_raw(&ws, &session_id, 0);
@@ -145,14 +146,17 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
             "change",
             "phase",
             "checklist_item",
-            "step"
+            "step",
+            "run",
+            "run_node",
+            "run_edge"
         ],
-        "workspace 库静态注册表 4→8 恰八行，顺序即登记序"
+        "workspace 库静态注册表 8→11 恰十一行，顺序即登记序"
     );
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
     assert_eq!(
         counts,
-        vec![0, 1, 1, 0, 0, 0, 0, 0],
+        vec![0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
         "计数与各模型写入量一致"
     );
 }
@@ -392,7 +396,7 @@ fn scan_change信封key投影为记录id_value内name仍为属性在场() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 注册表零新增行_workspace维度恰八行_format模型不可见且scan_err() {
+fn 注册表新增三run模型_workspace维度恰十一行_format模型不可见且scan_err() {
     let env = Env::new("envelope-registry-zero-new");
     let ws = open_ws_ok(&env.db_path("ws"));
     // 库级格式版本标记已随打开就位（15_1_key 单键 format 行），但零呈现
@@ -410,9 +414,12 @@ fn 注册表零新增行_workspace维度恰八行_format模型不可见且scan_e
             "change",
             "phase",
             "checklist_item",
-            "step"
+            "step",
+            "run",
+            "run_node",
+            "run_edge"
         ],
-        "workspace 维度 list_models 行集合与计数（8 行）零变化"
+        "workspace 维度 list_models 行集合与计数（11 行：登记面 additive）"
     );
     assert!(
         models.iter().all(|model| model.count == 0),
@@ -839,7 +846,7 @@ fn records_page_total为u64大值序列化为合法json_number不溢出不乱码
 }
 
 #[test]
-fn 全部注册模型空库扫描均回空分页信封_十一个per_model包装零新分支() {
+fn 全部注册模型空库扫描均回空分页信封_十四个per_model包装零新分支() {
     let env = Env::new("all-models-scan");
 
     // 全局库三模型：ScanFn 返回类型随动后空库均恰空分页信封（登记一行接入
@@ -860,7 +867,7 @@ fn 全部注册模型空库扫描均回空分页信封_十一个per_model包装�
     }
     drop(global);
 
-    // workspace 库八模型同口径（MODEL_ENTRIES 注册表零改动面持衡）
+    // workspace 库十一模型同口径（MODEL_ENTRIES 登记面 additive）
     let ws = open_ws_ok(&env.db_path("ws"));
     for model in [
         "agent_run",
@@ -871,6 +878,9 @@ fn 全部注册模型空库扫描均回空分页信封_十一个per_model包装�
         "phase",
         "checklist_item",
         "step",
+        "run",
+        "run_node",
+        "run_edge",
     ] {
         let page = ws
             .scan(model, 0, 10)
@@ -882,4 +892,329 @@ fn 全部注册模型空库扫描均回空分页信封_十一个per_model包装�
         );
         assert_eq!(page.total, 0, "workspace 库模型 {model} 空库 total 0");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 本变更：注册表三新表（run / run_node / run_edge）+ `entries()` / `dimension_of`
+//
+// 观测口径：注册表是「新模型 = 定义 struct + 登记一行」的最小机制，故断言落在
+// 四处可观察面：`list_models` 行集 / `scan` 三表键形态 / `entries()` 只读出口 /
+// `dimension_of` 派库判据。播种走真写面 API（`start_change_run` /
+// `finish_change_run`），不直插 native_db。
+// ---------------------------------------------------------------------------
+
+use workflow::state::{
+    RunEdgeEntry, RunEdgeKind, RunFinishCommand, RunNodeEntry, RunStartCommand, RunStatus,
+    RunStepKind, RunStepStatus,
+};
+
+/// 播种一条完整 run（主行 + 两节点 + 一边），返回 (run_id, 节点数, 边数)。
+fn seed_run(store: &Store, run_id: &str) -> (String, u64, u64) {
+    // run 收口同事务清 `active_phase` → 档行须在案（写面 miss 即 NotFound）
+    store
+        .create_change_record(change_archive("chg-run", "chg-run"))
+        .unwrap_or_else(|e| panic!("create_change_record 应成功: {e}"));
+    store
+        .start_change_run(&RunStartCommand {
+            run_id: run_id.to_owned(),
+            change_id: "chg-run".to_owned(),
+            started_at: 1000,
+        })
+        .unwrap_or_else(|e| panic!("start_change_run 应成功: {e}"));
+    let node = |step: RunStepKind, instance_no: u32| RunNodeEntry {
+        phase: "dev-design".to_owned(),
+        attempt: 1,
+        step,
+        instance_no,
+        status: RunStepStatus::Passed,
+        session_id: None,
+        detail: Some("记因".to_owned()),
+        output_ref: None,
+        started_at: 1000,
+        ended_at: Some(2000),
+        token_input: None,
+        token_output: None,
+    };
+    let nodes = vec![
+        node(RunStepKind::Executor, 0),
+        node(RunStepKind::StaticCheck, 0),
+    ];
+    let edges = vec![RunEdgeEntry {
+        from_node_key: "dev-design:1:executor:0".to_owned(),
+        to_node_key: "dev-design:1:static_check:0".to_owned(),
+        edge_kind: RunEdgeKind::Forward,
+    }];
+    store
+        .finish_change_run(&RunFinishCommand {
+            run_id: run_id.to_owned(),
+            change_id: "chg-run".to_owned(),
+            status: RunStatus::Completed,
+            reason: None,
+            finished_at: 3000,
+            nodes: nodes.clone(),
+            edges: edges.clone(),
+        })
+        .unwrap_or_else(|e| panic!("finish_change_run 应成功: {e}"));
+    (run_id.to_owned(), nodes.len() as u64, edges.len() as u64)
+}
+
+/// 正向（AC-2）：`entries()` 长度恰 14、名字唯一、序 = 登记序（user 三行在前 /
+/// workspace 十一行在后），维度分组与名字集一致。
+#[test]
+fn entries长度与登记序与维度分组() {
+    let entries = crate::envelope::entries();
+    assert_eq!(entries.len(), 14, "注册表恰十四行");
+    let names: Vec<&str> = entries.iter().map(|entry| entry.name).collect();
+    assert_eq!(
+        names,
+        vec![
+            "workspace",
+            "agent_provider",
+            "agent_instance",
+            "agent_run",
+            "session",
+            "session_event",
+            "explore",
+            "change",
+            "phase",
+            "checklist_item",
+            "step",
+            "run",
+            "run_node",
+            "run_edge",
+        ],
+        "名字逐值有序（user 三行在前 / workspace 十一行在后）"
+    );
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 14, "名字唯一");
+
+    let user: Vec<&str> = entries
+        .iter()
+        .filter(|entry| entry.dimension == DbDimension::User)
+        .map(|entry| entry.name)
+        .collect();
+    assert_eq!(
+        user,
+        vec!["workspace", "agent_provider", "agent_instance"],
+        "user 维度三行"
+    );
+    let workspace: Vec<&str> = entries
+        .iter()
+        .filter(|entry| entry.dimension == DbDimension::Workspace)
+        .map(|entry| entry.name)
+        .collect();
+    assert_eq!(workspace.len(), 11, "workspace 维度十一行");
+    assert_eq!(
+        workspace.first(),
+        Some(&"agent_run"),
+        "workspace 段首项（登记序锚）"
+    );
+    assert_eq!(
+        workspace.last(),
+        Some(&"run_edge"),
+        "workspace 段末项（登记序锚）"
+    );
+}
+
+/// 边界（AC-2）：`entries()` 与 `list_models` 两个维度清单并集逐名相等（同一
+/// 真源），首项 `workspace`、末项 `run_edge`。
+#[test]
+fn entries与list_models同源且首尾锚定() {
+    let env = Env::new("envelope-entries");
+    let global = open_global_ok(&env.db_path("global"));
+    let ws = open_ws_ok(&env.db_path("ws"));
+
+    let mut union: Vec<String> = global
+        .list_models()
+        .expect("全局库清单")
+        .into_iter()
+        .map(|model| model.name)
+        .collect();
+    union.extend(
+        ws.list_models()
+            .expect("workspace 库清单")
+            .into_iter()
+            .map(|model| model.name),
+    );
+    let entries: Vec<String> = crate::envelope::entries()
+        .iter()
+        .map(|entry| entry.name.to_owned())
+        .collect();
+    assert_eq!(union, entries, "两读面并集逐名相等（同一注册表真源）");
+    assert_eq!(entries.first().map(String::as_str), Some("workspace"));
+    assert_eq!(entries.last().map(String::as_str), Some("run_edge"));
+}
+
+/// 正向（AC-3）：`dimension_of` 六表逐表派库；异常面 `store_meta` / 拼写 /
+/// 空串 / 纯空白 / 大小写漂移 / 特殊字符 / 超长串均 `None`（零归一、零 trim）。
+#[test]
+fn dimension_of六表命中与七形态miss() {
+    for (table, dimension) in [
+        ("run", DbDimension::Workspace),
+        ("run_node", DbDimension::Workspace),
+        ("run_edge", DbDimension::Workspace),
+        ("phase", DbDimension::Workspace),
+        ("workspace", DbDimension::User),
+        ("agent_provider", DbDimension::User),
+        ("agent_instance", DbDimension::User),
+    ] {
+        assert_eq!(
+            crate::envelope::dimension_of(table),
+            Some(dimension),
+            "表 {table} 的维度"
+        );
+    }
+    let long = "字".repeat(1200);
+    for miss in [
+        "store_meta",
+        "phases",
+        "",
+        "   ",
+        "Phase",
+        "a\nb",
+        "a\0b🚀",
+        &long,
+    ] {
+        assert_eq!(
+            crate::envelope::dimension_of(miss),
+            None,
+            "未注册名 {miss:?} → None（零归一）"
+        );
+    }
+}
+
+/// 正向（AC-1 / AC-10）：三新表 `scan` 主键信封形态（`run` 字符串 / `run_node`、
+/// `run_edge` 十六进制串）与播种行可读；空表 `records` 空 + `total` 0。
+#[test]
+fn scan三run表主键形态与空表零行() {
+    let env = Env::new("envelope-runs");
+    let ws = open_ws_ok(&env.db_path("ws"));
+
+    // 空表面：三表 records 空 + total 0（登记即接入，零 per-table 特殊分支）
+    for model in ["run", "run_node", "run_edge"] {
+        let page = ws.scan(model, 0, 10).expect("空表 scan 应成功");
+        assert!(page.records.is_empty(), "{model} 空表 records 空");
+        assert_eq!(page.total, 0, "{model} 空表 total 0");
+    }
+
+    let (run_id, node_count, edge_count) = seed_run(&ws, "run-envelope");
+
+    let runs = ws.scan("run", 0, 10).expect("run scan 应成功");
+    assert_eq!(runs.total, 1, "run 计数");
+    assert_eq!(runs.records.len(), 1);
+    assert_eq!(
+        runs.records[0].key,
+        serde_json::json!(run_id),
+        "run 主键为 run id 字符串"
+    );
+    assert_eq!(
+        runs.records[0].value["changeId"],
+        serde_json::json!("chg-run"),
+        "run 行 value 为小驼峰 JSON"
+    );
+
+    let nodes = ws.scan("run_node", 0, 10).expect("run_node scan 应成功");
+    assert_eq!(nodes.total, node_count, "run_node 计数 = 播种节点数");
+    for record in &nodes.records {
+        // 键形态 `{runId, nodeKey}`（打包 u128 键为十六进制串的 JSON 可读投影）
+        assert_eq!(
+            record.key["runId"],
+            serde_json::json!(run_id),
+            "节点键含 run 归属"
+        );
+        let node_key = record.key["nodeKey"]
+            .as_str()
+            .unwrap_or_else(|| panic!("run_node 打包键为十六进制串: {}", record.key));
+        assert!(node_key.starts_with("0x"), "十六进制前缀: {node_key}");
+        assert!(
+            node_key[2..].chars().all(|char| char.is_ascii_hexdigit()),
+            "`0x` 后全十六进制: {node_key}"
+        );
+        assert_eq!(record.value["runId"], serde_json::json!(run_id));
+    }
+
+    let edges = ws.scan("run_edge", 0, 10).expect("run_edge scan 应成功");
+    assert_eq!(edges.total, edge_count, "run_edge 计数 = 播种边数");
+    let edge_key = edges.records[0].key["edgeKey"]
+        .as_str()
+        .unwrap_or_else(|| panic!("run_edge 打包键为十六进制串: {}", edges.records[0].key));
+    assert!(edge_key.starts_with("0x"), "十六进制前缀: {edge_key}");
+    assert_eq!(
+        edges.records[0].key["runId"],
+        serde_json::json!(run_id),
+        "边键含 run 归属"
+    );
+    assert_eq!(
+        edges.records[0].value["edgeKind"],
+        serde_json::json!("forward"),
+        "边 kind 线值"
+    );
+}
+
+/// 正向（AC-2）：workspace 维度 `list_models` 三新表计数与播种量一致（`run` 1 /
+/// `run_node` n / `run_edge` m）；异常面未知模型名与跨维度模型名逐形态 `Err`。
+#[test]
+fn list_models三新表计数与scan错误面() {
+    let env = Env::new("envelope-run-counts");
+    let ws = open_ws_ok(&env.db_path("ws"));
+    let (_run_id, node_count, edge_count) = seed_run(&ws, "run-counts");
+
+    let models = ws.list_models().expect("清单应成功");
+    let count_of = |name: &str| {
+        models
+            .iter()
+            .find(|model| model.name == name)
+            .unwrap_or_else(|| panic!("清单应含 {name}"))
+            .count
+    };
+    assert_eq!(count_of("run"), 1, "run 计数");
+    assert_eq!(count_of("run_node"), node_count, "run_node 计数");
+    assert_eq!(count_of("run_edge"), edge_count, "run_edge 计数");
+    assert_eq!(count_of("phase"), 0, "零播种表计数 0");
+
+    for model in ["store_meta", "format", "runs", ""] {
+        let error = ws.scan(model, 0, 10).expect_err("未知名应 Err");
+        assert!(
+            error.to_string().contains("未知模型"),
+            "模型 {model:?} 的文案: {error}"
+        );
+    }
+
+    // 跨维度模型名：user 维度库按维度锁定 → workspace 模型名按未知模型 Err
+    let global = open_global_ok(&env.db_path("global"));
+    for model in ["phase", "run", "run_node", "run_edge"] {
+        let error = global.scan(model, 0, 10).expect_err("跨维度应 Err");
+        assert!(
+            error.to_string().contains("未知模型"),
+            "全局库 scan({model}) 的文案: {error}"
+        );
+    }
+}
+
+/// 边界（回归登记）：查看页分页上限 `MAX_SCAN_LIMIT = 500` 口径零改动——三新表
+/// 亦按同一截断语义（`limit` 500 上限 / `limit = 0` 空页 / `offset` 越过全量）。
+#[test]
+fn scan三新表沿用查看页五百上限口径() {
+    let env = Env::new("envelope-run-clamp");
+    let ws = open_ws_ok(&env.db_path("ws"));
+    let (run_id, _nodes, _edges) = seed_run(&ws, "run-clamp");
+
+    let capped = ws
+        .scan("run_node", 0, 1000)
+        .expect("超上限 scan 应成功（钳到 500 而非 Err）");
+    assert_eq!(capped.total, 2, "total 恒全量计数");
+    assert_eq!(capped.records.len(), 2, "少量行时上限不生效");
+
+    let empty = ws.scan("run_node", 0, 0).expect("limit 0 应成功");
+    assert!(empty.records.is_empty(), "limit 0 → 空页");
+    assert_eq!(empty.total, 2, "total 照常");
+
+    let beyond = ws.scan("run_node", 10, 10).expect("offset 越过全量应成功");
+    assert!(beyond.records.is_empty(), "offset 越过全量 → 空页");
+    assert_eq!(beyond.total, 2, "total 照常");
+
+    let runs = ws.scan("run", 0, 10).expect("run scan 应成功");
+    assert_eq!(runs.records[0].value["runId"], serde_json::json!(run_id));
 }
