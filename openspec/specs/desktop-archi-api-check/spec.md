@@ -68,7 +68,7 @@
 
 - **① 的判定 SHALL 单点取自 `paths::entry_state`**：`Resolved` ⇒ 继续 ②③④；`Absent`（无候选 / 约定默认全不落盘）与 `Invalid(<problem>)`（形态 / 落位 / 存在 / 唯一任一违反）⇒ 一条 `apiEntryMissing`。判据面 MUST NOT 自行判文件存在性、MUST NOT 保留第二份入口探测（旧 `has_generated` 双条件判定已随落点变更退役）。
 - **互斥的理由**：`apiEntryMissing` 比 `apiMissing` 更基础——**在契约生成之前就失效**。若两条判据对同一元素同时报，报告数无法单调对拍（消一条减一），且反馈会把 executor 引向「去写代码实现一个不存在的模块入口」。
-- **`apiMissing` 的声明集 / 导出集口径**：声明集 = 契约 `### 操作` 的 id 集（**构造器双向都不参与比对**——既不在契约声明集，也不计入导出集）；导出集 = 元素的 `external` 代码导出（Rust 经 `pub mod` 链或 `pub use` 白名单可达的 `pub fn` / TS 跨元素被 import 的 `export function`）。签名比对 SHALL 在**归一后**进行（AST 归一单行、参数名与空白不参与）。
+- **`apiMissing` 的声明集 / 导出集口径**：声明集 = 契约 `### 操作` 的 id 集（**构造器双向都不参与比对**——既不在契约声明集，也不计入导出集）；导出集 = 元素的 `external` 代码导出（Rust 经 `pub mod` 链或 `pub use` 白名单可达的 `pub fn`；TS 经**入口导出闭包**可达的导出——入口自身声明 + 沿 `export … from` 递归并入且目标归属在本元素 FQN 子树内的导出，定义见 `desktop-archi-api`「TS 导出闭包的取数面」，本能力 MUST NOT 另立第二份 TS 导出集口径）。签名比对 SHALL 在**归一后**进行（AST 归一单行、参数名与空白不参与）。
 - **`apiUndeclared` 只读 `<FQN>.schema.json` 的 `$defs` 键集**，MUST NOT 并读 markdown。安全性由前序门禁保证：`$defs` 键集 = `api-types` ∪ `api-reexport`，而 `apiReexportDrift` 保证 fence 与散文一致、零 diff 门保证 schema 零手改自由度。
 - **`apiUnexpected` 单向**：只判「`api = none` 而契约文件存在」（多出来的契约）。反方向（`api = declared` 而契约文件缺失）归 `apiMissing` —— 两条判据 MUST NOT 对同一事实双报，否则报告数无法单调对拍。
 - **`apiMissing` 覆盖契约 → 代码的两类缺口**：① 元素 `api = declared` 而其契约文件不存在；② 契约文件在、但其声明的 op / `$defs` 类型在代码导出集里不存在。① 是迁移期主形态（绝大多数元素尚无契约），② 是契约与代码的真实漂移。两类缺口 SHALL 用**同一条判据、同一次求值**（存在性判定，签名归 `apiSignatureMismatch`）；共同的排除面三条 = 构造器双向排除 / 透传纯 `$ref` alias 排除 / `x-class` 与 `enum` 计入类型面；结构前提 SHALL 含 `#[path = "..."] mod` 的模块定位与 `pub use <mod>::*` 的通配升格，缺任一条则本判据在自有生成物的元素上恒假阳。
@@ -87,6 +87,11 @@
 
 - **WHEN** 元素入口存在、契约声明 `parse` 与 `all_conclusions` 两个 op，代码只有 `parse`
 - **THEN** 报一条 `apiMissing`，点名 `all_conclusions`；`apiUndeclared`（`off`）不产出条目
+
+#### Scenario: TS 导出集取闭包且判据语义不变
+
+- **WHEN** 某 TS 元素的入口是纯 re-export barrel（7 个导出名全部经 `export … from` 从本元素子树内的文件汇入），契约声明了其中 2 个 op 与 2 个类型
+- **THEN** ② `apiMissing` 对这 4 个声明零命中（导出集含闭包内符号），`apiUndeclared` 仍 `off` ⇒ 闭包扩容不产出任何新条目，④ 仍逐符号比对归一签名；判据种类（十值）、互斥求值序、判据级档位与报告形状逐字不变——**导出集变宽只可能减少 `apiMissing`，MUST NOT 出现「闭包扩张导致新增 finding」的路径**
 
 #### Scenario: 签名归一后比对
 
@@ -226,9 +231,9 @@
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `crates/core/archi/src/drift/report.rs` | 判据词汇与报告槽位 | `ArchiApiFindingKind`（十值 + `ALL` + `as_str` + `severity()`）、`ArchiApiFinding { kind, category, element, target, message, occurrences }`、`ArchiDriftReport.api_findings`、`REPORT_VERSION = 3`（纳管口径入 `status` 推导）；`ApiEntryMissing` 的 doc 语义为「无可用入口」（四理由同值，MUST NOT 加第 11 值） |
-| `crates/core/archi/src/api/check.rs` | 十条判据单点求值（经 `api::check` 出口暴露，`api/mod.rs` 单行委托） | `check(ApiCheckInput) -> Vec<ArchiApiFinding>`：① 经 `paths::entry_state`（`Absent` / `Invalid(_)` ⇒ 一条 `apiEntryMissing`，文案按 `EntryProblem` 分列；`Resolved` ⇒ 继续 ②③④）→ 声明集（op **与 `$defs` 类型**）vs 导出集 → 签名归一比对 → 留白矛盾 → 嵌套透传五项；**已删** `has_generated`（`.i` 存在不再充当入口证据）；`$defs` 只读 `schema.json`；零第二份判定 |
+| `crates/core/archi/src/api/check.rs` | 十条判据单点求值（经 `api::check` 出口暴露，`api/mod.rs` 单行委托） | `check(ApiCheckInput) -> Vec<ArchiApiFinding>`：① 经 `paths::entry_state`（`Absent` / `Invalid(_)` ⇒ 一条 `apiEntryMissing`，文案按 `EntryProblem` 分列；`Resolved` ⇒ 继续 ②③④）→ 声明集（op **与 `$defs` 类型**）vs 导出集 → 签名归一比对 → 留白矛盾 → 嵌套透传五项；**已删** `has_generated`（`.i` 存在不再充当入口证据）；`$defs` 只读 `schema.json`；零第二份判定；**导出集单点**：导出集由 `extract::extract_element` 给出（TS 侧即入口导出闭包）⇒ ② 只减不增、③ 仍 `off`、④ 仍逐符号归一比对；判据面 MUST NOT 自行解析 re-export、MUST NOT 内联 owner 归属判断（那是取数面的单点） |
 | `crates/core/archi/src/drift/mod.rs` | 报告装配单点 | `check()` 内调 `api::check` 装配 `api_findings`（与模型面并列）；`apiFindings` 经纳管子集参与 `status` 推导（`gating_findings`），`passed` 不受影响 |
-| `crates/core/archi/src/api/check_test.rs` | 判据语料 | 十判据正反例 / entry 互斥（含 `Absent` 与四种 `Invalid` 理由各一条）/ 「`.i` 在盘但无入口仍报 ①」/ `api = none` + `entry` 有值零判据 / 签名归一 / 留白双向 / 交集 / 非直接子元素 / 跨 crate / 透传漂移 / `severity()` 与 `ALL` 逐值对拍 |
+| `crates/core/archi/src/api/check_test.rs` | 判据语料 | 十判据正反例 / entry 互斥（含 `Absent` 与四种 `Invalid` 理由各一条）/ 「`.i` 在盘但无入口仍报 ①」/ `api = none` + `entry` 有值零判据 / 签名归一 / 留白双向 / 交集 / 非直接子元素 / 跨 crate / 透传漂移 / `severity()` 与 `ALL` 逐值对拍；`function()` / `type_symbol()` 夹具补 `ApiSymbol.file`（形状适配，断言值零变化，不新增判据用例） |
 | `crates/core/archi/tests/corpus/drift/**` + `tests/golden_test.rs` | 判定面语料与 golden | `corpus/drift/<case>/{contracts,models,repo}` + `expected/<case>.<mode>.json`；`DRIFT_CASES` 登记面即驱动表（未登记 / 目录不存在 / 缺 `apiFindings` 键三种失配皆红）；既有 16 份金样逐字不变（`api-mismatch` 的 `apiSignatureMismatch` 与 `status = warnings` 在案；其目录型根 `src/mod/mod.rs` 由约定默认命中 ⇒ `modelHash` 不变）；golden 沿 `DESKTOP_GOLDEN_REWRITE=1` 显式重写 |
 | `crates/core/archi/tests/vocabulary_test.rs` | 四面词汇对拍 | `ArchiApiFindingKind::ALL` 与 `as_str` 逐值（长度仍 10）；知识文本须含 `api` 状态词 |
 
