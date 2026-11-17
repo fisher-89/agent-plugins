@@ -328,16 +328,9 @@ function serveGraphAndDrift(graph: ArchiGraph, report: ArchiDriftReport | Error)
   });
 }
 
-/** 切到「元素」分段（左栏缺省是文件树）。 */
-function switchToElementTree(): void {
-  const group = screen.getByTestId('archi-tree-mode');
-  fireEvent.click(group.querySelector('[data-mode="element"]')!);
-}
-
-/** 切到「文件」分段。 */
-function switchToFileTree(): void {
-  const group = screen.getByTestId('archi-tree-mode');
-  fireEvent.click(group.querySelector('[data-mode="file"]')!);
+/** 切到某左栏分段（分段控件为 base-ui Tabs，钮以 `role="tab"` + 文案寻址）。 */
+function switchTo(label: '文件' | '元素' | '契约'): void {
+  fireEvent.click(within(screen.getByTestId('archi-tree-mode')).getByRole('tab', { name: label }));
 }
 
 /** 画布内渲染出的节点 id 清单（jsdom 真实 DOM，`rf__node-<id>`）。 */
@@ -635,7 +628,7 @@ describe('缺省聚焦与 1-hop 边界', () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:\\demo\\alpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
-    switchToElementTree();
+    switchTo('元素');
     await waitFor(() => expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0));
     const graphCalls = callsOf('archi_graph').length;
 
@@ -997,17 +990,17 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     expect(screen.queryByTestId('archi-element-tree')).toBeNull();
     expect(screen.getAllByTestId('archi-file-node').length).toBeGreaterThan(0);
 
-    switchToElementTree();
+    switchTo('元素');
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
     expect(screen.queryByTestId('archi-file-tree')).toBeNull();
     expect(screen.getAllByTestId('archi-tree-node').length).toBeGreaterThan(0);
 
-    switchToFileTree();
+    switchTo('文件');
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     expect(screen.queryByTestId('archi-element-tree')).toBeNull();
   });
 
-  it('应在两视图间来回切换四次后保持四类取数计数不变（切换只换组件）', async () => {
+  it('应在两视图间来回切换四次后只让文件树随重挂重取（图 / 抽屉 / 漂移零重取）', async () => {
     serveGraph(hubGraph());
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
@@ -1022,8 +1015,9 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     expect(before.tree).toBeGreaterThan(0);
 
     for (let round = 0; round < 2; round += 1) {
-      switchToElementTree();
-      switchToFileTree();
+      switchTo('元素');
+      switchTo('文件');
+      await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     }
     await act(async () => {
       await Promise.resolve();
@@ -1032,7 +1026,8 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     expect(callsOf('archi_graph')).toHaveLength(before.graph);
     expect(callsOf('archi_module')).toHaveLength(before.module);
     expect(callsOf('archi_drift')).toHaveLength(before.drift);
-    expect(callsOf('archi_file_tree')).toHaveLength(before.tree);
+    // 非活动分段面板卸载：每次切回「文件」都重挂 FileTree，其自身取数随之重发
+    expect(callsOf('archi_file_tree')).toHaveLength(before.tree + 2);
   });
 
   it('应在点文件树归属行后圈定范围并让抽屉取该元素（链路：tree → focus → drawer）', async () => {
@@ -1199,17 +1194,19 @@ describe('左栏文件树接线（AC-11 / AC-12 / AC-13）', () => {
     expect(screen.queryByTestId('archi-tree-mode')).toBeNull();
   });
 
-  it('应按模式切左栏宽度（file 为 w-80、element 为 w-72）', async () => {
+  it('应让左栏三视图共用同一宽度（w-80，不随视图变化）', async () => {
     render(<ArchitectureCanvas root={'C:demoalpha'} mode="full" />);
     await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
     expect(columnOf().className.split(/\s+/)).toContain('w-80');
-    expect(columnOf().className.split(/\s+/)).not.toContain('w-72');
 
-    switchToElementTree();
+    switchTo('元素');
     await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
-    expect(columnOf().className.split(/\s+/)).toContain('w-72');
-    expect(columnOf().className.split(/\s+/)).not.toContain('w-80');
+    expect(columnOf(), '元素视图沿用同一栏宽').toBe(
+      screen.getByTestId('archi-tree-mode').parentElement,
+    );
+    expect(columnOf().className.split(/\s+/)).toContain('w-80');
+    expect(columnOf().className.split(/\s+/)).not.toContain('w-72');
   });
 });
 
@@ -1254,8 +1251,7 @@ function serveWithApiCheck(
 
 /** 切到「契约」分段（左栏第三视图）。 */
 function switchToContract(): void {
-  const group = screen.getByTestId('archi-tree-mode');
-  fireEvent.click(group.querySelector('[data-mode="contract"]')!);
+  switchTo('契约');
 }
 
 /** 报告夹具：含两条 `apiFindings`（面板 / 抽屉共用同一份报告）。 */
@@ -1298,7 +1294,7 @@ describe('左栏第三视图（契约）', () => {
     expect(screen.getByTestId('archi-drawer')).toBeTruthy();
   });
 
-  it('应在三视图往返切换时零重取既有四条命令', async () => {
+  it('应在三视图往返切换时零重取图 / 抽屉 / 漂移三条命令', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
     render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
@@ -1307,20 +1303,18 @@ describe('左栏第三视图（契约）', () => {
       graph: callsOf('archi_graph').length,
       module: callsOf('archi_module').length,
       drift: callsOf('archi_drift').length,
-      tree: callsOf('archi_file_tree').length,
     };
 
     for (let round = 0; round < 2; round += 1) {
-      switchToElementTree();
+      switchTo('元素');
       switchToContract();
-      switchToFileTree();
+      switchTo('文件');
+      await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
     }
-    await waitFor(() => expect(screen.getByTestId('archi-file-tree')).toBeTruthy());
 
     expect(callsOf('archi_graph').length).toBe(baseline.graph);
     expect(callsOf('archi_module').length).toBe(baseline.module);
     expect(callsOf('archi_drift').length).toBe(baseline.drift);
-    expect(callsOf('archi_file_tree').length).toBe(baseline.tree);
     // `archi_api_check` 每次进契约视图各一次（面板挂载即取数），不连带既有命令
     expect(callsOf('archi_api_check').length).toBe(2);
   });
@@ -1408,17 +1402,20 @@ describe('左栏第三视图（契约）', () => {
     );
   });
 
-  it('应按模式变更左栏宽度类名（file / element / contract）', async () => {
+  it('应让左栏三视图共用同一宽度类名（w-80，不随视图变化）', async () => {
     serveWithApiCheck(healthyGraph(), reportWithFindings());
     render(<ArchitectureCanvas root={'/ws'} mode="incremental" />);
     await waitFor(() => expect(screen.getByTestId('archi-tree-mode')).toBeTruthy());
 
     const columnOf = (): HTMLElement => screen.getByTestId('archi-tree-mode').parentElement!;
     expect(columnOf().className.split(/\s+/)).toContain('w-80');
-    switchToElementTree();
-    await waitFor(() => expect(columnOf().className.split(/\s+/)).toContain('w-72'));
+    switchTo('元素');
+    await waitFor(() => expect(screen.getByTestId('archi-element-tree')).toBeTruthy());
+    expect(columnOf().className.split(/\s+/)).toContain('w-80');
+    expect(columnOf().className.split(/\s+/)).not.toContain('w-72');
     switchToContract();
-    await waitFor(() => expect(columnOf().className.split(/\s+/)).toContain('w-80'));
+    await waitFor(() => expect(screen.getByTestId('archi-contract-panel')).toBeTruthy());
+    expect(columnOf().className.split(/\s+/)).toContain('w-80');
   });
 });
 

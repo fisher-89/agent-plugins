@@ -283,9 +283,9 @@
 |---|---|---|
 | `hooks/use-archi-api-check.ts` | 新增 | `{ root }` → `{ check, loading, error, refresh }`：三触发（挂载 / `root` 变化 / `refresh`）、`root === null` 零 invoke、零轮询；失败清旧数据 |
 | `components/contract-panel.tsx` | 新增 | 左栏契约视图：两轴分区 + chip 过滤 + 条目聚焦 + 路径行 `FileViewer` + `[检查]` / 按模式的 `[生成]` + 五态；`data-testid` = `archi-contract-panel` / `archi-contract-axis-artifacts` / `archi-contract-axis-findings` / `archi-contract-chip` / `archi-contract-item` / `archi-contract-check` / `archi-contract-generate` / `archi-contract-status` / `archi-contract-error` |
-| `components/architecture-canvas.tsx` | 改 | 左栏三视图分支（第三臂渲 `ContractPanel`，w-80）；把 `report.apiFindings` 与本元素过滤结果传给面板与抽屉；`mode` 决定生成按钮可用性；渲染与标记面零改动 |
+| `components/architecture-canvas.tsx` | 改 | 左栏 base-ui `Tabs` 三视图分支（第三臂 `value="contract"` 渲 `ContractPanel`；三视图共用栏宽 `w-80`）；把 `report.apiFindings` 与本元素过滤结果传给面板与抽屉；`mode` 决定生成按钮可用性；渲染与标记面零改动 |
 | `components/element-drawer.tsx` | 改 | 概览与文档之间插「契约」段（三路径行 + 本元素判据 + 空态）；零新 invoke |
-| `components/file-tree.tsx` | 改 | `TreeMode` 扩 `'contract'` + 第三钮（`data-mode="contract"`）；文件 / 元素两视图渲染零改动 |
+| `components/file-tree.tsx` | 改 | 保留 `TreeMode` 三值枚举（含 `'contract'`）；分段控件本体移至 `architecture-canvas.tsx` 的 `Tabs`（`TreeModeSwitch` 退役）；文件 / 元素两视图行渲染零改动 |
 | 零改动面 | — | `use-archi-graph.ts` / `use-archi-drift.ts` / `use-archi-module.ts` / `use-archi-file-tree.ts`、`lib/marks.ts` / `lib/drift-marks.ts` / `lib/fqn.ts`、`structure-error-panel.tsx`、`element-tree.tsx` |
 
 ### CLI: 脚本面（零改动）

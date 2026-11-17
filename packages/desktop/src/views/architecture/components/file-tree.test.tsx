@@ -1,18 +1,26 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArchiFileEntry } from '../../../types/generated/bindings';
-import { FileTree, TreeModeSwitch, type TreeMode } from './file-tree';
+import type { ArchiFileTree, ArchiFileEntry } from '../../../types/generated/bindings';
+import { FileTree } from './file-tree';
 
 /**
  * 左栏文件树渲染面单测（AC-4 / AC-11 / AC-12 / AC-13）：扁平条目 → 森林的
  * 层级派生与兄弟序、缺省展开两段、五种标记呈现、归属行点击语义、聚焦反查
- * （多行高亮 / 强制展开 / 滚到首条 / 零命中提示）、空树与图例、分段控件。
+ * （多行高亮 / 强制展开 / 滚到首条 / 零命中提示）、空树与图例、取数状态面
+ * （挂载取数 / 解析中 / 失败行内 / 空根零 invoke）。
  *
- * 零 mock：纯 props 驱动（展开态是组件内部 state），断言真实 DOM（`data-testid` /
- * `data-path` / `data-mark` / `data-mode` 钩子）。`scrollIntoView` 由本文件内的
- * 临时桩补（`afterEach` 复原，不写进 `test-setup.ts` 原型）。
+ * 取数面已内收到组件：`FileTree` 只收 `root`，条目经 `useArchiFileTree` 取回。
+ * 进程边界 mock：`@tauri-apps/api/core` 的 `invoke`（按命令名分发文件树 fixture）。
+ * 展开态是组件内部 state，断言真实 DOM（`data-testid` / `data-path` / `data-mark`）。
+ * `scrollIntoView` 由本文件内的临时桩补（`afterEach` 复原，不写进 `test-setup.ts` 原型）。
  */
+
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+
+const ROOT = 'C:\\demo\\alpha';
 
 /** 条目构造器（七字段全给缺省值，按需覆盖）。 */
 function entry(path: string, overrides: Partial<ArchiFileEntry> = {}): ArchiFileEntry {
@@ -39,13 +47,25 @@ function file(path: string, overrides: Partial<ArchiFileEntry> = {}): ArchiFileE
   return entry(path, { kind: 'file', ...overrides });
 }
 
-/** 渲染树（`focused` 可空，`onFocus` 为观测桩）。 */
-function renderTree(
+/** 文件树取数装置：`archi_file_tree` 回传入条目（其余命令一律拒绝）。 */
+function serve(entries: ArchiFileEntry[]): void {
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'archi_file_tree') return Promise.resolve<ArchiFileTree>({ entries });
+    return Promise.reject(new Error(`未预期命令: ${command}`));
+  });
+}
+
+/** 渲染树并等待取数落定（`focused` 可空，`onFocus` 为观测桩）。 */
+async function renderTree(
   entries: ArchiFileEntry[],
   focused: string | null = null,
-): { onFocus: ReturnType<typeof vi.fn> } {
+  root: string | null = ROOT,
+): Promise<{ onFocus: ReturnType<typeof vi.fn> }> {
   const onFocus = vi.fn();
-  render(<FileTree entries={entries} focused={focused} onFocus={onFocus} />);
+  serve(entries);
+  render(<FileTree root={root} focused={focused} onFocus={onFocus} />);
+  // 根有效时树本体在取数回包后挂载；空根恒驻加载面，勿等树本体
+  if (root !== null) await screen.findByTestId('archi-file-tree');
   return { onFocus };
 }
 
@@ -88,6 +108,10 @@ function stubScroll(): ReturnType<typeof vi.fn> {
   return spy;
 }
 
+beforeEach(() => {
+  invokeMock.mockReset();
+});
+
 afterEach(() => {
   cleanup();
   // 复原：删掉本文件装上的实例级方法（jsdom 原生无该 API）
@@ -95,15 +119,15 @@ afterEach(() => {
 });
 
 describe('FileTree 层级派生与兄弟序', () => {
-  it('应按同层目录先于文件、各自 name 序渲染（不受入参序影响）', () => {
-    renderTree([file('src/z.ts'), dir('src/m'), file('src/a.ts'), dir('src/a'), dir('src')]);
+  it('应按同层目录先于文件、各自 name 序渲染（不受入参序影响）', async () => {
+    await renderTree([file('src/z.ts'), dir('src/m'), file('src/a.ts'), dir('src/a'), dir('src')]);
 
     // 顶层只有 `src`（目录链缺席即挂根，故语料显式给出祖先目录）
     expect(renderedPaths()).toEqual(['src', 'src/a', 'src/m', 'src/a.ts', 'src/z.ts']);
   });
 
-  it('应缺省展开路径段数 ≤ 2 的目录、更深层折叠且不渲子树 DOM', () => {
-    renderTree([dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')]);
+  it('应缺省展开路径段数 ≤ 2 的目录、更深层折叠且不渲子树 DOM', async () => {
+    await renderTree([dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')]);
 
     // `a`（1 段）/ `a/b`（2 段）默认展开 ⇒ `a/b/c` 行可见但自身折叠
     expect(renderedPaths()).toEqual(['a', 'a/b', 'a/b/c']);
@@ -118,14 +142,16 @@ describe('FileTree 层级派生与兄弟序', () => {
     expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(3);
   });
 
-  it('应在展开与收起时不触发取数（纯本地 state、零 onFocus）', () => {
-    const { onFocus } = renderTree([dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')]);
+  it('应在展开与收起时不触发取数（纯本地 state、零 onFocus）', async () => {
+    const { onFocus } = await renderTree([dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')]);
+    const treeCalls = invokeMock.mock.calls.length;
 
     fireEvent.click(screen.getByLabelText('展开 a/b/c'));
     fireEvent.click(screen.getByLabelText('收起 a/b/c'));
     fireEvent.click(screen.getByLabelText('展开 a/b/c'));
 
     expect(onFocus).not.toHaveBeenCalled();
+    expect(invokeMock.mock.calls).toHaveLength(treeCalls);
     // per-path 翻转集合稳定：多次翻转后仍回到展开态
     expect(rowOf('a/b/c/d.ts')).toBeDefined();
     // 聚焦面零命中提示不因展开出现
@@ -134,8 +160,8 @@ describe('FileTree 层级派生与兄弟序', () => {
 });
 
 describe('FileTree 五种标记呈现', () => {
-  it('应逐值渲出 data-mark 与 tooltip（none 行零标记节点）', () => {
-    renderTree([
+  it('应逐值渲出 data-mark 与 tooltip（none 行零标记节点）', async () => {
+    await renderTree([
       dir('roots', { mark: 'elementRoot', owners: ['App.A'] }),
       dir('shared', { mark: 'ambiguous', owners: ['App.A', 'App.B'] }),
       dir('members', { mark: 'member', owners: ['App.A'] }),
@@ -164,8 +190,8 @@ describe('FileTree 五种标记呈现', () => {
     expect(within(rowOf('container')!).getByText('·2')).toBeTruthy();
   });
 
-  it('应对缺失目录（exists = false）渲缺失提示且不影响标记', () => {
-    renderTree([dir('ghost', { mark: 'elementRoot', owners: ['App.Ghost'], exists: false })]);
+  it('应对缺失目录（exists = false）渲缺失提示且不影响标记', async () => {
+    await renderTree([dir('ghost', { mark: 'elementRoot', owners: ['App.Ghost'], exists: false })]);
 
     const row = rowOf('ghost')!;
     expect(within(row).getByTitle('声明了但磁盘上不存在').textContent).toBe('缺失');
@@ -174,8 +200,8 @@ describe('FileTree 五种标记呈现', () => {
 });
 
 describe('FileTree 行点击语义', () => {
-  it('应在 elementRoot / member 行点击时恰一次 onFocus(owners[0])', () => {
-    const { onFocus } = renderTree([
+  it('应在 elementRoot / member 行点击时恰一次 onFocus(owners[0])', async () => {
+    const { onFocus } = await renderTree([
       dir('roots', { mark: 'elementRoot', owners: ['App.Core.Archi'] }),
       dir('members', { mark: 'member', owners: ['App.Core.Archi'] }),
     ]);
@@ -189,8 +215,8 @@ describe('FileTree 行点击语义', () => {
     expect(onFocus).toHaveBeenLastCalledWith('App.Core.Archi');
   });
 
-  it('应在非归属三值行点击时零 onFocus、只切展开（且不弹候选层）', () => {
-    const { onFocus } = renderTree([
+  it('应在非归属三值行点击时零 onFocus、只切展开（且不弹候选层）', async () => {
+    const { onFocus } = await renderTree([
       dir('shared', { mark: 'ambiguous', owners: ['A', 'B'] }),
       dir('shared/nested'),
       dir('container', { mark: 'containsElements', contains: 1 }),
@@ -216,8 +242,8 @@ describe('FileTree 行点击语义', () => {
 });
 
 describe('FileTree 聚焦反查', () => {
-  it('应在多 path 元素聚焦时同时高亮全部命中行，且不触发 onFocus', () => {
-    const { onFocus } = renderTree(
+  it('应在多 path 元素聚焦时同时高亮全部命中行，且不触发 onFocus', async () => {
+    const { onFocus } = await renderTree(
       [
         file('src/shell/index.ts', { mark: 'elementRoot', owners: ['App.Frontend.Shell'] }),
         file('src/shell/app.ts', { mark: 'elementRoot', owners: ['App.Frontend.Shell'] }),
@@ -241,8 +267,8 @@ describe('FileTree 聚焦反查', () => {
     expect(onFocus).not.toHaveBeenCalled();
   });
 
-  it('应在焦点命中深层条目时强制展开祖先链（零 setState）', () => {
-    renderTree(
+  it('应在焦点命中深层条目时强制展开祖先链（零 setState）', async () => {
+    await renderTree(
       [
         dir('a', { mark: 'containsElements', contains: 1 }),
         dir('a/b', { mark: 'containsElements', contains: 1 }),
@@ -257,9 +283,9 @@ describe('FileTree 聚焦反查', () => {
     expect(isHighlighted('a/b/c/d.ts')).toBe(true);
   });
 
-  it('应对首条命中行调用一次 scrollIntoView({ block: nearest })', () => {
+  it('应对首条命中行调用一次 scrollIntoView({ block: nearest })', async () => {
     const scroll = stubScroll();
-    renderTree(
+    await renderTree(
       [
         file('a/hit.ts', { mark: 'elementRoot', owners: ['App.Hit'] }),
         file('b/hit.ts', { mark: 'elementRoot', owners: ['App.Hit'] }),
@@ -274,9 +300,9 @@ describe('FileTree 聚焦反查', () => {
     expect(first?.getAttribute('data-path')).toBe('a/hit.ts');
   });
 
-  it('应在零命中时渲顶部弱提示且不滚动（文案并列两种成因）', () => {
+  it('应在零命中时渲顶部弱提示且不滚动（文案并列两种成因）', async () => {
     const scroll = stubScroll();
-    renderTree([dir('src'), file('src/a.ts')], 'App.Container');
+    await renderTree([dir('src'), file('src/a.ts')], 'App.Container');
 
     const tip = screen.getByTestId('archi-file-tree-focus-miss');
     expect(tip.textContent).toBe(
@@ -287,24 +313,24 @@ describe('FileTree 聚焦反查', () => {
     expect(tip.textContent).not.toBe('该元素是容器元素');
   });
 
-  it('应在换焦点时切换提示与高亮，并在 null 时全清', () => {
+  it('应在换焦点时切换提示与高亮，并在 null 时全清', async () => {
     const scroll = stubScroll();
     const entries = [
       file('a/hit.ts', { mark: 'elementRoot', owners: ['App.Hit'] }),
       file('b/miss.ts'),
     ];
     const onFocus = vi.fn();
-    const { rerender } = render(
-      <FileTree entries={entries} focused={'App.Gone'} onFocus={onFocus} />,
-    );
+    serve(entries);
+    const { rerender } = render(<FileTree root={ROOT} focused={'App.Gone'} onFocus={onFocus} />);
+    await screen.findByTestId('archi-file-tree');
     expect(screen.getByTestId('archi-file-tree-focus-miss')).toBeTruthy();
     expect(isHighlighted('a/hit.ts')).toBe(false);
 
-    rerender(<FileTree entries={entries} focused={'App.Hit'} onFocus={onFocus} />);
+    rerender(<FileTree root={ROOT} focused={'App.Hit'} onFocus={onFocus} />);
     expect(screen.queryByTestId('archi-file-tree-focus-miss')).toBeNull();
     expect(isHighlighted('a/hit.ts')).toBe(true);
 
-    rerender(<FileTree entries={entries} focused={null} onFocus={onFocus} />);
+    rerender(<FileTree root={ROOT} focused={null} onFocus={onFocus} />);
     expect(screen.queryByTestId('archi-file-tree-focus-miss')).toBeNull();
     expect(isHighlighted('a/hit.ts')).toBe(false);
     expect(onFocus).not.toHaveBeenCalled();
@@ -314,17 +340,21 @@ describe('FileTree 聚焦反查', () => {
 });
 
 describe('FileTree 展开态保持与空态', () => {
-  it('应在同批 entries 重渲后保持 per-path 展开态，折叠子树仍零 DOM 节点', () => {
+  it('应在同 root 重渲后保持 per-path 展开态，折叠子树仍零 DOM 节点', async () => {
     const entries = [dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')];
     const onFocus = vi.fn();
-    const { rerender } = render(<FileTree entries={entries} focused={null} onFocus={onFocus} />);
+    serve(entries);
+    const { rerender } = render(<FileTree root={ROOT} focused={null} onFocus={onFocus} />);
+    await screen.findByTestId('archi-file-tree');
+    const treeCalls = invokeMock.mock.calls.length;
 
     // `a/b/c`（3 段）缺省折叠 ⇒ 点它展开
     fireEvent.click(screen.getByLabelText('展开 a/b/c'));
     expect(rowOf('a/b/c/d.ts')).toBeDefined();
 
-    rerender(<FileTree entries={[...entries]} focused={null} onFocus={onFocus} />);
+    rerender(<FileTree root={ROOT} focused={null} onFocus={onFocus} />);
     expect(rowOf('a/b/c/d.ts'), '重渲后 per-path 展开态保持').toBeDefined();
+    expect(invokeMock.mock.calls, '同 root 重渲不重取').toHaveLength(treeCalls);
 
     // 收起一级目录 ⇒ 其子树整体离开 DOM
     fireEvent.click(screen.getByLabelText('收起 a'));
@@ -333,8 +363,8 @@ describe('FileTree 展开态保持与空态', () => {
     expect(rowOf('a/b/c/d.ts')).toBeUndefined();
   });
 
-  it('应在空条目时渲空树提示并零行节点', () => {
-    renderTree([]);
+  it('应在空条目时渲空树提示并零行节点', async () => {
+    await renderTree([]);
 
     expect(screen.getByTestId('archi-file-tree-empty').textContent).toBe('仓库内无源文件');
     expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(0);
@@ -342,8 +372,8 @@ describe('FileTree 展开态保持与空态', () => {
 });
 
 describe('FileTree 图例与前端过滤纪律', () => {
-  it('应常驻渲可折叠图例，展开后给出判定面说明逐字文案', () => {
-    renderTree([file('src/a.ts')]);
+  it('应常驻渲可折叠图例，展开后给出判定面说明逐字文案', async () => {
+    await renderTree([file('src/a.ts')]);
 
     const legend = screen.getByTestId('archi-file-tree-legend');
     expect(within(legend).getByText('图例')).toBeTruthy();
@@ -358,8 +388,8 @@ describe('FileTree 图例与前端过滤纪律', () => {
     expect(rowOf('src/a.ts')).toBeDefined();
   });
 
-  it('应对越过后端过滤的脏条目照常渲出（前端不做二次过滤）', () => {
-    renderTree([
+  it('应对越过后端过滤的脏条目照常渲出（前端不做二次过滤）', async () => {
+    await renderTree([
       file('src/a.test.tsx', { mark: 'member', owners: ['App.A'] }),
       file('src/b.rs_test'),
     ]);
@@ -370,15 +400,67 @@ describe('FileTree 图例与前端过滤纪律', () => {
   });
 });
 
-describe('FileTree 入参越签名与规模边界', () => {
-  it('应在 entries 为 undefined（越签名脏值）时抛错且不虚构条目', () => {
-    const onFocus = vi.fn();
-    const dirty = undefined as unknown as ArchiFileEntry[];
-    expect(() => render(<FileTree entries={dirty} focused={null} onFocus={onFocus} />)).toThrow();
-    expect(screen.queryAllByTestId('archi-file-node')).toHaveLength(0);
+describe('FileTree 取数状态面', () => {
+  it('应在挂载时以入参 root 发起一次 archi_file_tree', async () => {
+    await renderTree([file('src/a.ts')]);
+
+    expect(invokeMock.mock.calls).toEqual([['archi_file_tree', { root: ROOT }]]);
   });
 
-  it('应在 1000 条扁平条目下渲染不抛错且 data-path 唯一', () => {
+  it('应在首轮未回时渲「解析中…」（树本体不挂载）', async () => {
+    invokeMock.mockImplementation(() => new Promise<ArchiFileTree>(() => {}));
+    render(<FileTree root={ROOT} focused={null} onFocus={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archi-file-tree-loading').textContent).toBe('解析中…'),
+    );
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+  });
+
+  it('应在取数失败时只渲行内错误（不落树本体）', async () => {
+    invokeMock.mockImplementation(() => Promise.reject(new Error('模型结构错（共 1 条）')));
+    render(<FileTree root={ROOT} focused={null} onFocus={vi.fn()} />);
+
+    const notice = await screen.findByTestId('archi-file-tree-error');
+    expect(notice.textContent).toContain('文件树取数失败');
+    expect(notice.textContent).toContain('模型结构错');
+    expect(notice.textContent).toContain('画布照常渲染');
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+  });
+
+  it('应在 root 为 null 时零 invoke 并停在「解析中…」占位', async () => {
+    const onFocus = vi.fn();
+    render(<FileTree root={null} focused={null} onFocus={onFocus} />);
+
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('archi-file-tree-loading').textContent).toBe('解析中…');
+    expect(screen.queryByTestId('archi-file-tree')).toBeNull();
+  });
+
+  it('应在换 root 时以新根重取并换成新条目', async () => {
+    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+      if (command !== 'archi_file_tree') {
+        return Promise.reject(new Error(`未预期命令: ${command}`));
+      }
+      const root = typeof params?.root === 'string' ? params.root : '';
+      return Promise.resolve<ArchiFileTree>({
+        entries: [file(`${root}/a.ts`)],
+      });
+    });
+    const onFocus = vi.fn();
+    const { rerender } = render(<FileTree root={'A'} focused={null} onFocus={onFocus} />);
+    await screen.findByTestId('archi-file-tree');
+    expect(rowOf('A/a.ts')).toBeDefined();
+
+    rerender(<FileTree root={'B'} focused={null} onFocus={onFocus} />);
+    await waitFor(() => expect(rowOf('B/a.ts')).toBeDefined());
+    expect(rowOf('A/a.ts')).toBeUndefined();
+    expect(invokeMock.mock.calls.at(-1)).toEqual(['archi_file_tree', { root: 'B' }]);
+  });
+});
+
+describe('FileTree 条目形态与规模边界', () => {
+  it('应在 1000 条扁平条目下渲染不抛错且 data-path 唯一', async () => {
     const entries: ArchiFileEntry[] = [];
     for (let module = 0; module < 20; module += 1) {
       const root = `m${String(module).padStart(2, '0')}`;
@@ -392,7 +474,7 @@ describe('FileTree 入参越签名与规模边界', () => {
         );
       }
     }
-    renderTree(entries);
+    await renderTree(entries);
 
     const paths = renderedPaths();
     expect(paths.length).toBeGreaterThan(0);
@@ -409,9 +491,9 @@ describe('FileTree 入参越签名与规模边界', () => {
     expect(markOf('m00/deep/inner/f0000.ts')?.getAttribute('data-mark')).toBe('member');
   });
 
-  it('应对空 path / 超长 / emoji / 单段 path 形态分别给出可判行为', () => {
+  it('应对空 path / 超长 / emoji / 单段 path 形态分别给出可判行为', async () => {
     const long = `src/${'长'.repeat(1100)}.ts`;
-    renderTree([file(''), file(long), file('src/空 格🚀.ts'), file('single.ts')]);
+    await renderTree([file(''), file(long), file('src/空 格🚀.ts'), file('single.ts')]);
 
     // 空 path：不抛错、行渲出且 data-path 逐字保留
     expect(rowOf('')).toBeDefined();
@@ -422,99 +504,5 @@ describe('FileTree 入参越签名与规模边界', () => {
     // 单段 path：无 chevron（无子目录）
     const single = rowOf('single.ts')!;
     expect(within(single).queryByLabelText(/展开|收起/)).toBeNull();
-  });
-});
-
-describe('TreeModeSwitch 分段控件', () => {
-  it('应渲三钮并以 aria-pressed 表达选中态，点击各发一次 onChange', () => {
-    const onChange = vi.fn();
-    render(<TreeModeSwitch mode="file" onChange={onChange} />);
-
-    const group = screen.getByTestId('archi-tree-mode');
-    expect(group.getAttribute('role')).toBe('group');
-    const fileButton = group.querySelector<HTMLElement>('[data-mode="file"]');
-    const elementButton = group.querySelector<HTMLElement>('[data-mode="element"]');
-    const contractButton = group.querySelector<HTMLElement>('[data-mode="contract"]');
-    expect(fileButton?.getAttribute('aria-pressed')).toBe('true');
-    expect(elementButton?.getAttribute('aria-pressed')).toBe('false');
-    expect(contractButton?.getAttribute('aria-pressed')).toBe('false');
-    expect(fileButton?.textContent).toBe('文件');
-    expect(elementButton?.textContent).toBe('元素');
-    expect(contractButton?.textContent).toBe('契约');
-
-    fireEvent.click(elementButton!);
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenLastCalledWith('element');
-
-    fireEvent.click(contractButton!);
-    expect(onChange).toHaveBeenCalledTimes(2);
-    expect(onChange).toHaveBeenLastCalledWith('contract');
-
-    fireEvent.click(fileButton!);
-    expect(onChange).toHaveBeenCalledTimes(3);
-    expect(onChange).toHaveBeenLastCalledWith('file');
-  });
-
-  it('应在 mode 变化后翻转三钮选中态且零内部 state 回写', () => {
-    const onChange = vi.fn();
-    const { rerender } = render(<TreeModeSwitch mode="file" onChange={onChange} />);
-    rerender(<TreeModeSwitch mode="element" onChange={onChange} />);
-
-    const group = screen.getByTestId('archi-tree-mode');
-    expect(group.querySelector('[data-mode="file"]')?.getAttribute('aria-pressed')).toBe('false');
-    expect(group.querySelector('[data-mode="element"]')?.getAttribute('aria-pressed')).toBe('true');
-    expect(group.querySelector('[data-mode="contract"]')?.getAttribute('aria-pressed')).toBe(
-      'false',
-    );
-
-    rerender(<TreeModeSwitch mode="contract" onChange={onChange} />);
-    expect(group.querySelector('[data-mode="file"]')?.getAttribute('aria-pressed')).toBe('false');
-    expect(group.querySelector('[data-mode="element"]')?.getAttribute('aria-pressed')).toBe(
-      'false',
-    );
-    expect(group.querySelector('[data-mode="contract"]')?.getAttribute('aria-pressed')).toBe(
-      'true',
-    );
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it('应对越签名的 mode 脏值渲全未选中（不兜底成 file）', () => {
-    const onChange = vi.fn();
-    const dirtyModes = ['tree', '', undefined] as unknown as TreeMode[];
-    for (const dirty of dirtyModes) {
-      const view = render(<TreeModeSwitch mode={dirty} onChange={onChange} />);
-      for (const mode of ['file', 'element', 'contract']) {
-        expect(
-          view.container.querySelector(`[data-mode="${mode}"]`)?.getAttribute('aria-pressed'),
-          `mode = ${String(dirty)} 时 ${mode} 钮不得选中（不猜模式）`,
-        ).toBe('false');
-      }
-      const modes = Array.from(view.container.querySelectorAll('[data-mode]')).map((node) =>
-        node.getAttribute('data-mode'),
-      );
-      expect(modes).toEqual(['file', 'element', 'contract']);
-      cleanup();
-    }
-  });
-
-  it('应与同屏 FileTree 相互独立（切换不改树的展开态与 onFocus 计数）', () => {
-    const onChange = vi.fn();
-    const onFocus = vi.fn();
-    const entries = [dir('a'), dir('a/b'), dir('a/b/c'), file('a/b/c/d.ts')];
-    const view = render(
-      <>
-        <TreeModeSwitch mode="file" onChange={onChange} />
-        <FileTree entries={entries} focused={null} onFocus={onFocus} />
-      </>,
-    );
-
-    fireEvent.click(screen.getByLabelText('展开 a/b/c'));
-    expect(rowOf('a/b/c/d.ts')).toBeDefined();
-
-    const elementButton = view.container.querySelector<HTMLElement>('[data-mode="element"]');
-    fireEvent.click(elementButton!);
-    expect(onChange).toHaveBeenCalledWith('element');
-    expect(rowOf('a/b/c/d.ts'), '树的展开态不随分段切换变化').toBeDefined();
-    expect(onFocus).not.toHaveBeenCalled();
   });
 });

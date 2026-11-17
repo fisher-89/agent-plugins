@@ -1,27 +1,17 @@
-import {
-  Handle,
-  Position,
-  ReactFlow,
-  ReactFlowProvider,
-  type Edge,
-  type Node,
-  type NodeProps,
-} from '@xyflow/react';
+import { ReactFlow, ReactFlowProvider, type Edge, type Node } from '@xyflow/react';
 import { useMemo, useState } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
-import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type {
   ArchiApiFinding,
   ArchiElement,
-  ArchiFileTree,
   ArchiGraph,
   ArchiRelation,
 } from '@/types/generated/bindings';
 
 import { useArchiDrift } from '../hooks/use-archi-drift';
-import { useArchiFileTree } from '../hooks/use-archi-file-tree';
 import { useArchiGraph } from '../hooks/use-archi-graph';
 import { driftMarks } from '../lib/drift-marks';
 import { shortName } from '../lib/fqn';
@@ -29,7 +19,8 @@ import { edgeVisual } from '../lib/marks';
 import { ContractPanel } from './contract-panel';
 import { ElementDrawer, type CanvasMode } from './element-drawer';
 import { ElementTree } from './element-tree';
-import { FileTree, TreeModeSwitch, type TreeMode } from './file-tree';
+import { FileTree, type TreeMode } from './file-tree';
+import { ModuleNode } from './graph/module-node';
 import { StructureErrorPanel } from './structure-error-panel';
 
 /** 邻域布局网格步长（纯拓扑定位，不引布局引擎）。 */
@@ -50,35 +41,7 @@ type ArchiNodeData = { label: string; mark: string };
 
 type ArchiFlowNode = Node<ArchiNodeData, 'archi'>;
 
-/** 隐形把手（连线锚点：入边左 / 出边右）；xyflow 无把手即不求边位置，边不入 DOM。 */
-function NodeHandles(): React.JSX.Element {
-  const rounded = {
-    width: '100%',
-    height: '100%',
-    top: 0,
-    left: 0,
-    opacity: 0,
-    transform: 'none',
-  };
-  return (
-    <>
-      <Handle type="target" position={Position.Left} isConnectable={false} style={rounded} />
-      <Handle type="source" position={Position.Right} isConnectable={false} style={rounded} />
-    </>
-  );
-}
-
-/** 节点视图（本文件内局部组件——不为单节点单建文件）。 */
-function ArchiNodeView({ data }: NodeProps<ArchiFlowNode>): React.JSX.Element {
-  return (
-    <Badge variant="secondary" className="p-3" data-testid="archi-canvas-node">
-      <NodeHandles />
-      {data.label}
-    </Badge>
-  );
-}
-
-const nodeTypes = { archi: ArchiNodeView };
+const nodeTypes = { archi: ModuleNode };
 
 /** 缺省聚焦：首个顶层元素，无顶层则首个元素。 */
 function defaultFocus(graph: ArchiGraph): string | null {
@@ -176,8 +139,6 @@ function TreeColumn({
   elements,
   focused,
   onFocus,
-  tree,
-  treeError,
   findings,
 }: {
   root: string | null;
@@ -187,31 +148,38 @@ function TreeColumn({
   elements: ArchiElement[];
   focused: string | null;
   onFocus: (fqn: string) => void;
-  tree: ArchiFileTree | null;
-  treeError: string | null;
   findings: ArchiApiFinding[];
 }): React.JSX.Element {
+  const options: { mode: TreeMode; label: string; content: React.JSX.Element }[] = [
+    {
+      mode: 'file',
+      label: '文件',
+      content: <FileTree root={root} focused={focused} onFocus={onFocus} />,
+    },
+    {
+      mode: 'element',
+      label: '元素',
+      content: <ElementTree elements={elements} focused={focused} onFocus={onFocus} />,
+    },
+    {
+      mode: 'contract',
+      label: '契约',
+      content: (
+        <ContractPanel root={root} mode={canvasMode} findings={findings} onFocus={onFocus} />
+      ),
+    },
+  ];
   return (
-    <section className={`min-h-0 shrink-0 flex flex-col ${mode === 'element' ? 'w-72' : 'w-80'}`}>
-      <TreeModeSwitch mode={mode} onChange={onModeChange} />
-      <div className="min-h-0 flex-1 flex">
-        {mode === 'contract' ? (
-          <ContractPanel root={root} mode={canvasMode} findings={findings} onFocus={onFocus} />
-        ) : mode === 'element' ? (
-          <ElementTree elements={elements} focused={focused} onFocus={onFocus} />
-        ) : treeError !== null ? (
-          <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-error">
-            文件树取数失败：{treeError}（画布照常渲染）
-          </div>
-        ) : tree === null ? (
-          <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-loading">
-            解析中…
-          </div>
-        ) : (
-          <FileTree entries={tree.entries} focused={focused} onFocus={onFocus} />
-        )}
-      </div>
-    </section>
+    <Tabs className="shrink-0 bg-card p-4 w-80" value={mode} onValueChange={onModeChange}>
+      <TabsList className="mb-1.5 flex shrink-0 gap-1" data-testid="archi-tree-mode" role="group">
+        {options.map((option) => (
+          <TabsTrigger value={option.mode}>{option.label}</TabsTrigger>
+        ))}
+      </TabsList>
+      {options.map((option) => (
+        <TabsContent value={option.mode}>{option.content}</TabsContent>
+      ))}
+    </Tabs>
   );
 }
 
@@ -252,8 +220,6 @@ function CanvasBody({
 }): React.JSX.Element {
   const [focusOverride, setFocusOverride] = useState<string | null>(null);
   const [treeMode, setTreeMode] = useState<TreeMode>('file');
-  // 文件树取数：与图 / 漂移独立失败，失败只落左栏行内提示
-  const { tree, error: treeError } = useArchiFileTree(root);
   const focus = useMemo(() => {
     if (focusOverride !== null && graph.elements.some((element) => element.fqn === focusOverride)) {
       return focusOverride;
@@ -278,29 +244,29 @@ function CanvasBody({
         elements={graph.elements}
         focused={focus}
         onFocus={setFocusOverride}
-        tree={tree}
-        treeError={treeError}
         findings={apiFindings}
       />
-      <div
-        className="min-h-0 flex-1 overflow-hidden rounded-md bg-background"
-        data-testid="archi-canvas"
-      >
-        {driftError === null ? null : <DriftErrorNotice message={driftError} />}
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodeClick={(_event, node) => setFocusOverride(node.id)}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          fitView={true}
-          fitViewOptions={FIT_VIEW_OPTIONS}
-          zoomOnScroll={false}
-          zoomOnDoubleClick={false}
-          panOnScroll
-        />
-      </div>
+      <ReactFlowProvider>
+        <div
+          className="min-h-0 flex-1 overflow-hidden rounded-md bg-background"
+          data-testid="archi-canvas"
+        >
+          {driftError === null ? null : <DriftErrorNotice message={driftError} />}
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodeClick={(_event, node) => setFocusOverride(node.id)}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            fitView={true}
+            fitViewOptions={FIT_VIEW_OPTIONS}
+            zoomOnScroll={false}
+            zoomOnDoubleClick={false}
+            panOnScroll
+          />
+        </div>
+      </ReactFlowProvider>
       <ElementDrawer
         root={root}
         mode={mode}
@@ -355,15 +321,13 @@ export function ArchitectureCanvas({ root, mode }: ArchitectureCanvasProps): Rea
     );
   }
   return (
-    <ReactFlowProvider>
-      <CanvasBody
-        graph={marked}
-        root={root}
-        mode={mode}
-        onChanged={refresh}
-        driftError={driftError}
-        apiFindings={report?.apiFindings ?? []}
-      />
-    </ReactFlowProvider>
+    <CanvasBody
+      graph={marked}
+      root={root}
+      mode={mode}
+      onChanged={refresh}
+      driftError={driftError}
+      apiFindings={report?.apiFindings ?? []}
+    />
   );
 }

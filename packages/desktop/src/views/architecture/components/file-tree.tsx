@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 import type { ArchiFileEntry } from '../../../types/generated/bindings';
+import { useArchiFileTree } from '../hooks/use-archi-file-tree';
 
 /** 默认展开层级：相对路径段数 ≤ 2 的目录默认展开（更深层默认折叠）。 */
 const DEFAULT_EXPAND_SEGMENTS = 2;
@@ -24,8 +25,7 @@ const INDENT_STEP = 16;
 export type TreeMode = 'file' | 'element' | 'contract';
 
 export interface FileTreeProps {
-  /** 后端扁平条目（`path` 字节序；层级由本件按 `path` 派生） */
-  entries: ArchiFileEntry[];
+  root: string | null;
   /** 当前聚焦元素 FQN（`owners` 含它的条目高亮） */
   focused: string | null;
   /** 聚焦切换（纯前端，零取数） */
@@ -202,7 +202,7 @@ function FileRow({
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
         ) : (
-          <span className="w-[14px] shrink-0" />
+          <span className="w-3.5 shrink-0" />
         )}
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {entry.kind === 'dir' ? (
@@ -293,7 +293,9 @@ function Legend({ open, onToggle }: { open: boolean; onToggle: () => void }): Re
 }
 
 /** 左栏文件树：数据面为后端扁平条目，层级 / 兄弟序 / 缩进与展开态全由本件派生。 */
-export function FileTree({ entries, focused, onFocus }: FileTreeProps): React.JSX.Element {
+export function FileTree({ root, focused, onFocus }: FileTreeProps): React.JSX.Element {
+  const { tree, error: treeError } = useArchiFileTree(root);
+
   const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
   const [legendOpen, setLegendOpen] = useState(false);
   const onToggle = useCallback((path: string) => {
@@ -304,9 +306,25 @@ export function FileTree({ entries, focused, onFocus }: FileTreeProps): React.JS
       return next;
     });
   }, []);
-  const forest = useMemo(() => buildForest(entries), [entries]);
-  const { hitPaths, forcedOpen, refOf } = useFocusAnchors(entries, focused);
+  const forest = useMemo(() => buildForest(tree?.entries ?? []), [tree?.entries]);
+  const { hitPaths, forcedOpen, refOf } = useFocusAnchors(tree?.entries ?? [], focused);
   const context: RowContext = { focused, flipped, forcedOpen, onToggle, onFocus, refOf };
+
+  if (treeError !== null) {
+    return (
+      <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-error">
+        文件树取数失败：{treeError}（画布照常渲染）
+      </div>
+    );
+  }
+  if (tree === null) {
+    return (
+      <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-loading">
+        解析中…
+      </div>
+    );
+  }
+
   return (
     <section className="min-h-0 flex flex-1 flex-col" data-testid="archi-file-tree">
       <h2 className="m-0 mb-1.5 text-[13px] shrink-0 font-medium text-muted-foreground">文件</h2>
@@ -318,7 +336,7 @@ export function FileTree({ entries, focused, onFocus }: FileTreeProps): React.JS
           该元素在树上无可定位节点（容器元素不持有文件，或其源文件均在判定面之外）
         </div>
       ) : null}
-      {entries.length === 0 ? (
+      {tree.entries.length === 0 ? (
         <div className="text-[13px] text-muted-foreground" data-testid="archi-file-tree-empty">
           仓库内无源文件
         </div>
@@ -331,37 +349,5 @@ export function FileTree({ entries, focused, onFocus }: FileTreeProps): React.JS
       )}
       <Legend open={legendOpen} onToggle={() => setLegendOpen((open) => !open)} />
     </section>
-  );
-}
-
-/**
- * 左栏视图分段控件（缺省「文件」；三视图 = 文件 / 元素 / 契约）。文件 / 元素两视图的
- * 分段语义与联动逐字不变，契约视图的内容归 `ContractPanel`。
- */
-export function TreeModeSwitch({ mode, onChange }: TreeModeSwitchProps): React.JSX.Element {
-  const options: { mode: TreeMode; label: string }[] = [
-    { mode: 'file', label: '文件' },
-    { mode: 'element', label: '元素' },
-    { mode: 'contract', label: '契约' },
-  ];
-  return (
-    <div className="mb-1.5 flex shrink-0 gap-1" data-testid="archi-tree-mode" role="group">
-      {options.map((option) => (
-        <button
-          key={option.mode}
-          type="button"
-          aria-pressed={mode === option.mode}
-          className={`cursor-pointer rounded-md border px-2 py-0.5 text-[11px] ${
-            mode === option.mode
-              ? 'border-primary/40 bg-muted font-medium text-foreground'
-              : 'border-transparent bg-transparent text-muted-foreground hover:text-foreground'
-          }`}
-          data-mode={option.mode}
-          onClick={() => onChange(option.mode)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
   );
 }
