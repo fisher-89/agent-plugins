@@ -803,6 +803,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 - **运行中停止**：运行中 SHALL 呈现停止入口，触发终止命令（见「agent_stop 终止与提前 resolve」）
 - **原始转录切换**：落库密封转录（含 Raw）原文可见（与 store 一致）；delta 仅实时面可见，不进入原始转录视图
 - **历史会话**：会话列表 → 点开经同一 `AgentSessionView` 重放该会话（含轮行；invoke 查询 + 状态驱动挂流）
+- **会话列表终态文案**：列表行的终态标签 SHALL 覆盖轮状态五值（`running`「运行中」/ `completed`「已完成」/ `stopped`「已停止」/ `failed`「失败」/ `interrupted`「已中断」），MUST NOT 把非失败终态落进失败文案——`interrupted` 是进程中断的客观终止，与用户主动停止同属「非故障」侧，词面沿 change 流程 `run-control-panel` 的 `RUN_STATUS_LABEL` 先例
 
 页面状态 SHALL 经统一会话基建（`use-agent-session`）承载；run 表单 / 历史列表 / 转录开关为页面级 chrome，包在共享核心外圈。实时流经 transport 走 Tauri `Channel<AgentRunMessage>`（执行流通道，不属轮询取数）：发送期由发起流承载、历史会话点开（旁观 / 重挂）期由会话订阅面承载；查询类取数（会话列表 / 转录重放）仍由用户显式动作触发。
 
@@ -840,6 +841,11 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 - **WHEN** 从历史会话列表点开一条已完成会话
 - **THEN** 经 invoke 查询以会话全史转录渲染完整对话视图（含轮行，经同一 `AgentSessionView`），不要求原运行进程存活
+
+#### Scenario: 中断轮在会话列表呈已中断
+
+- **WHEN** 会话列表呈现一条最新轮为 `interrupted`（进程中断后经启动标定终结）的会话
+- **THEN** 该行终态标签为「已中断」（非「失败」）、带 `data-status="interrupted"` 挂钩；点开后经同一 `AgentSessionView` 重放全史，该轮呈轮内「因应用重启中断」状态行
 
 #### Scenario: 历史会话运行中旁观流式
 
@@ -1376,6 +1382,7 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
   两档 SHALL 与 `finish_step` **互不依赖**：`ask` 位与 `finish` 位独立置位，两模块代码互不引用（`grep` 可验的零互引，见 desktop-change-orchestration 同条）。
 - **`ask` 位与挂载**：`SessionInjections.ask: Option<AskMode>` 决定是否挂载（`None` = 不挂 = 硬禁用：`RunStarted.tools` 无该名，模型调用即 `tool_unavailable`；`Some(_)` = 挂载，tier 恒 `Protocol`，三档权限全放行）。执行上下文 SHALL 经组合根以 per-turn 形态铸造（注册表句柄 + core session id + 可选 `AskPort`）；上下文缺席 / 登记失败 SHALL 以 is_error ToolResult 回灌（MUST NOT panic、MUST NOT 静默成功）。
 - **停止语义**：ask 阻塞期间的用户停止 SHALL 由外层泵的 `select!` **轮中 drop 整个 loop future** 实现（既有机制，零新增）；因此 ask 执行体 MUST NOT 依赖「停止时回灌 is_error 让模型看见」——做不到，且转录会留下未配对的 `tool_use`，该缺口 SHALL 由 `resume::rebuild` 的 `INTERRUPTED_RESULT` 补齐（既有机制）。`Flow` 档的 `select!` SHALL 显式带停止臂（`RunHandle::wait_requested()`）——外层 drop 不执行清理代码，故停等态清理必须落在执行体内的这个臂上。
+- **停等态非 durable 与进程中断归属**：ask 停等态 SHALL 只活在进程内（`AskRegistry` 槽 + 阻塞中的 loop future），MUST NOT 落库——「仍在等待应答」在库中没有任何 durable 痕迹，注册表在进程新生时必然为空。因此进程在工具执行中死亡（关窗 / 崩溃 / 重启，含 ask 停等期与任意工具执行期）时，该轮 SHALL 被当作**客观终止**：由启动标定把残留 `running` 轮行翻为 `interrupted`（见 desktop-workspace-store「agent 轮启动标定与 running 残留终结」），未配对的 `tool_use` 保留在转录（与上条「停止语义」同形，provider 配对由 `resume::rebuild` 的 `INTERRUPTED_RESULT` 兜底）。此后对同一 `session_id` 的 `agent_answer` SHALL 走既有 miss 臂显式 `Err`（「当前无等待中的 ask」）——MUST NOT 幂等 `Ok`、MUST NOT 改写该轮状态、MUST NOT 提供「复活停等」入口（会话接续见下条边界）。本 requirement MUST NOT 新增停等态持久化面或恢复面。
 - **幂等与可归因**：同一 ask 二次应答 SHALL 返回 `Err`（文案「当前无等待中的 ask」）；会话已收口后的迟到应答 SHALL 同样 `Err`（注册表槽已由轮收敛除名）；两处 `Err` 都 MUST NOT 改写任何会话状态。
 
 #### Scenario: 通用会话 turn 内阻塞问答
@@ -1402,6 +1409,11 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
 
 - **WHEN** 同一 ask 被连续应答两次（两入口或同入口重放）
 - **THEN** 第一次成功且等待方收到原文，第二次返回 `Err`（「当前无等待中的 ask」），等待方 MUST NOT 收到第二条、转录 MUST NOT 出现第二条 tool result
+
+#### Scenario: 重启后停等轮已终结且应答显式失败
+
+- **WHEN** 一轮阻塞在 `AskUserQuestion` 时进程被终止（模拟中途死亡），重启后对该会话调用 `agent_answer`
+- **THEN** 该轮行在所属 workspace 库首次打开时已标定为 `interrupted`（携标定记因、`finished_at` 在位）；`agent_answer` 返回显式 `Err`（文案含「无等待中的 ask」），MUST NOT 幂等 `Ok`、MUST NOT 改写该轮行；该 `tool_use` 在转录中保持未配对，续轮时由 `resume::rebuild` 补合成结果不破 provider 配对
 
 #### Scenario: 上下文缺席回灌而非崩溃
 
@@ -1740,3 +1752,17 @@ SDK 引擎 SHALL 提供基线阻塞工具 `AskUserQuestion`，其应答通道 SH
 | `crates/infra/agent/src/sdk/db_tool.rs`（新） | 两工具执行体 | 契约见 desktop-agent-db-tools「Module Contract」（scope 解析 / 字节预算 / `api_key` 打码 / 错误文案） |
 | `crates/infra/agent/src/sdk/tools.rs`（扩） | 沙箱豁免 | `input_path` 增 `db_tables` / `db_query` 显式 `None` 臂；七通用工具 `execute(root, name, input)` 纯函数语义零改动 |
 | `crates/core/agent/**`、`crates/infra/agent/src/sdk/{policy,sandbox,protect}` | 零改动面 | `SessionInjections` 四字段形态零扩展（DB 工具走名字清单通道）；`Read` 档三档放行天然覆盖；MUST NOT 出现第二份按名清单；`policy_test.rs` 的逐工具三档等价表随挂载名数 11 → 13 补齐（期望随动，不改判据） |
+
+### 模块增量：中断轮归属与列表终态五值（session-midturn-history-overwrite）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Function / Component） |
+|------|------|------|
+| `crates/core/agent/src/ask.rs`（`AskRegistry`） | 零改动面 | `register` / `answer` / `remove` / `is_pending` 零改动：「重启后无等待方」由进程内形态天然保证——注册表空 ⇒ `answer` 走既有 miss 臂 `Err`；不新增停等态持久化 / 恢复面 |
+| `src-tauri/src/commands/exec/mod.rs`（`agent_answer`） | 零改动面 | 行为由启动标定保证：对已标定会话返回显式 `Err`；命令体仍是参数校验 + 注册表投递 + 错误映射三段 |
+| `src-tauri/src/commands/exec/mod.rs`（`agent_stop`） | 零改动面 | miss 幂等 `Ok` 沿用（不改行、不报错）；轮行终结由启动标定承担，不在命令面新增对账 |
+| `packages/desktop/src/views/agent/components/agent-run-history.tsx`（改） | 列表终态文案 | `statusLabel` / 行色增 `interrupted` 档：「已中断」；`data-status` 挂钩直出状态词；MUST NOT 落进既有 `failed` 兜底文案 |
+| `crates/infra/agent/src/sdk/resume.rs` | 零改动面 | `INTERRUPTED_RESULT` 合成结果零改动（续轮 provider 配对修复的既有机制） |
+| 会话接续（`resume_turn` / loop 第三入口 / cwd 入档） | 范围外 | 明确不在本次范围：中断的轮按客观终止处理，用户重发即可 |
+| ask 取消通路（`declined` 预留位） | 范围外 | 照旧不开（形状预留保持不变） |
