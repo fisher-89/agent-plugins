@@ -111,18 +111,23 @@ none               以上都不成立
        None                           → contains > 0 ? containsElements : none
   ③ contains(p) = 模块根表中 path 严格以 "p/" 开头的元素数（按 FQN 去重，不含自身——自身 path 恰为 p，不满足严格前缀）
   ```
-- **元素根判据是 `path` 非空而非 `kind`**：`kind = domain` 但持有 barrel 元素根（如 `App.Frontend.Components.Agent` 持 `index.tsx`）SHALL 仍判 `elementRoot`。
+- **元素根判据是 `path` 非空而非 `kind`**：定档只读 `path`，`kind` 不参与（`domain` / `package` 元素只要 `path` 非空即照常判 `elementRoot`）。本仓现基线**无「`domain` 但 `path` 非空」实例**——原 `App.Frontend.Components.Agent`（持 barrel 文件型 `path`）已随 `frontend-barrel-entry-migration` 翻转为目录型 `module`，其目录 `path` 与 12 个目录模块入口同形。
 - **多 `path` 元素**：一个元素的每条 `path` 条目 SHALL 各出 `elementRoot` 节点（每个节点 `owners` 恰一条该 FQN）；`contains` 按 FQN 去重，同一元素 MUST NOT 被重复计数。
 - **`elementRoot` 的 owners 恰 1**：同一归一路径被 ≥ 2 个元素声明时该节点 SHALL 判 `ambiguous`（`owners` ≥ 2），MUST NOT 从中任选一个给出 `elementRoot`——该形态与「同长不同前缀」同为归属不确定，两者都不得任选。
 - **嵌套最长前缀**：父子 `path` 前缀重叠时，内层文件 SHALL 归最深前缀者（既有最长前缀语义），父子各出各自 `elementRoot`。
-- **容器元素零节点**：`path` 恒空的容器元素 MUST NOT 出现在文件树上（这是 `decisions/0001-model-granularity.md` §3 的直接后果，不是遗漏）；容器只在元素树（FQN 前缀派生）上可见。
+- **容器元素零节点**：`path` 恒空的容器元素 MUST NOT 出现在文件树上（这是 `decisions/0001-model-granularity.md` §3 的直接后果，不是遗漏；§3 的 barrel 例外已退场、现为零例外）；容器只在元素树（FQN 前缀派生）上可见。
 - **`ambiguous` 必须实现**：同长多命中 SHALL 记 `ambiguous` 并保留全量候选于 `owners`，MUST NOT 任选其一；本仓预期恒 0，但分支 MUST 实现并由合成用例覆盖（不实现即退化成「任选其一」，与判定单源纪律冲突）。
-- **生成物归属沿用三候选并集判据**：`.i.<ext>` 生成物的归属 SHALL 由 `OwnerIndex` 的「整组剥离 ∪ 替换扩展名 ∪ **主干对齐**（与文件型 `path` 的去扩展名形态全等）」三候选并集判据给出（定义与断言面见 `desktop-archi-api`「生成物落点与入口查找」与 `desktop-archi-drift`「文件归属」），树侧 MUST NOT 另加剥离规则（否则树与漂移对同一文件给出不同归属）。生成物落点已改为**入口同级**：目录型根下仍在元素根之内（`crates/infra/archi/src/lib.i.rs`），文件型根下是根的兄弟文件（`views/welcome-view.i.ts`），后者只有主干对齐候选能命中。
+- **生成物归属沿用三候选并集判据**：`.i.<ext>` 生成物的归属 SHALL 由 `OwnerIndex` 的「整组剥离 ∪ 替换扩展名 ∪ **主干对齐**（与文件型 `path` 的去扩展名形态全等）」三候选并集判据给出（定义与断言面见 `desktop-archi-api`「生成物落点与入口查找」与 `desktop-archi-drift`「文件归属」），树侧 MUST NOT 另加剥离规则（否则树与漂移对同一文件给出不同归属）。生成物落点已改为**入口同级**：目录型根下仍在元素根之内（`crates/infra/archi/src/lib.i.rs`、目录模块入口 `components/agent/index.i.ts`），文件型根下是根的兄弟文件（`views/welcome-view.i.ts`），后者只有主干对齐候选能命中。
 
 #### Scenario: 目录型元素根与其内部文件
 
 - **WHEN** 元素 `App.Core.Archi` 的 `path = ["./crates/core/archi/"]`，盘上该目录含 `src/lib.rs` 与 `src/dto.rs`
 - **THEN** `crates/core/archi` 节点 `mark = elementRoot`、`owners = ["App.Core.Archi"]`；`crates/core/archi/src` 与两个 `.rs` 文件 `mark = member`、`owners = ["App.Core.Archi"]`
+
+#### Scenario: 目录模块根与其子元素的文件根并存
+
+- **WHEN** 目录模块 `App.Frontend.Components.Agent` 的 `path = ["./packages/desktop/src/components/agent/"]`，同目录下 7 个组件文件各是一个子元素的文件型 `path`，另有入口 `index.tsx`
+- **THEN** `packages/desktop/src/components/agent` 目录节点 `mark = elementRoot`、`owners = ["App.Frontend.Components.Agent"]`（`contains` 计 7 个子元素）；7 个组件文件各判 `elementRoot`、`owners` 为其子元素；`index.tsx` 判 `member`、`owners = ["App.Frontend.Components.Agent"]`（无子元素认领它，最长前缀归目录模块）——该分工与 `desktop-frontend-module-entry` 的 7 条 barrel 端点边归属同源
 
 #### Scenario: 单文件型元素根
 
@@ -142,7 +147,7 @@ none               以上都不成立
 #### Scenario: 容器元素零节点
 
 - **WHEN** 树构建输入含 `path` 为空数组的容器元素（`domain` / `package`）
-- **THEN** 该元素在文件树上零节点、不产生任何 `owners` 引用；它只在元素树上以 FQN 节点呈现
+- **THEN** 该元素在文件树上零节点、不产生任何 `owners` 引用；它只在元素树上以 FQN 节点呈现（本仓 `06` 段的 3 个容器 `Views` / `Components` / `Standard` 即此形态，`Components.Agent` 已翻转为目录模块、有节点）
 
 #### Scenario: 同长多命中判 ambiguous 不任选
 
