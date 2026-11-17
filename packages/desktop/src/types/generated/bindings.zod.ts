@@ -666,7 +666,7 @@ export const AgentRunMessageSchema = z.union([z.strictObject({
 	get record() { return TurnSummarySchema; },
 })]);
 
-export const AgentRunStatusSchema = z.union([z.literal("running"), z.literal("completed"), z.literal("failed"), z.literal("stopped")]);
+export const AgentRunStatusSchema = z.union([z.literal("running"), z.literal("completed"), z.literal("failed"), z.literal("stopped"), z.literal("interrupted")]);
 
 export const ApiStatusSchema = z.union([z.literal("declared"), z.literal("none")]);
 

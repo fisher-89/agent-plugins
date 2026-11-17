@@ -603,7 +603,7 @@ export type AgentRunMessage =
 { ipc: "record"; record: TurnSummary };
 
 /**
- *  run 状态四档（落库 / 出线契约）：与 [`crate::state::AgentRunState`] 状态机
+ *  run 状态五档（落库 / 出线契约）：与 [`crate::state::AgentRunState`] 状态机
  *  内存态两型并存——本枚举是 serde camelCase 线格式与 store 落库形态的值域
  *  契约，状态机类型不出契约面（编排侧显式 `match` 映射）。
  */
@@ -615,7 +615,15 @@ export type AgentRunStatus =
 /**  失败收敛（TurnDone 事件 is_error=true / 无 TurnDone 异常终止 / 落库失败） */
 "failed" | 
 /**  用户主动终止收敛（stop 显式请求，语义区别于引擎失败） */
-"stopped";
+"stopped" | 
+/**
+ *  进程中断后的客观终止（与 change run 域 `RunStatus::Interrupted` 同义）。
+ *  唯一写入点是启动标定 `calibrate_interrupted_agent_turns`——运行期收口
+ *  （`finish_agent_turn` / kernel 映射 / 陈旧轮清理）MUST NOT 产生该值。
+ *  变体末位追加以保落库 bincode 变体索引不变（旧行解码值不变、零版本递增、
+ *  零迁移）。
+ */
+"interrupted";
 
 /**
  *  契约状态指针（封闭二值；缺省 `Declared`）。
@@ -2233,7 +2241,7 @@ export type TurnSummary = {
 	turnId: number,
 	/**  所属会话 id */
 	sessionId: string,
-	/**  轮状态（running | completed | failed | stopped） */
+	/**  轮状态（running | completed | failed | stopped | interrupted） */
 	status: AgentRunStatus,
 	/**  开始时间（UTC unix 毫秒） */
 	startedAt: number,

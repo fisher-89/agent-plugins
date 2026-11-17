@@ -701,3 +701,107 @@ describe('AgentRunHistory：重放区订阅流与查询失败面（D14）', () =
     expect(invokeMock, 'root 缺席 → 零会话查询').not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 列表文案：interrupted → 「已中断」（session-midturn-history-overwrite AC-10）：
+// `statusLabel` 增档置于失败兜底之前，行色 / `data-status` 钩子零改动
+// ---------------------------------------------------------------------------
+
+/** 指定状态与记因的轮行（`turn()` 只给 failed 配 error，此处显式注入）。 */
+function turnWithError(
+  turnId: number,
+  status: TurnSummary['status'],
+  error: string | null,
+): TurnSummary {
+  return { ...turn(turnId, status), error };
+}
+
+describe('AgentRunHistory：interrupted 轮行的列表文案', () => {
+  it('末轮 interrupted → 徽标「已中断」、data-status 直出、行色落灰不落失败', () => {
+    const id = 'ses-int-1727000000000';
+    mount(historyState({ sessions: [session(id, 'interrupted', TS + 5)] }));
+
+    const row = screen.getByTestId('agent-run-row');
+    expect(row.getAttribute('data-status')).toBe('interrupted');
+    const badge = within(row).getByTestId('run-status');
+    expect(badge.textContent).toBe('已中断');
+    expect(badge.className).toContain('text-muted-foreground');
+    expect(badge.className).not.toContain('text-fail');
+  });
+
+  it('五值词面参数化（running / completed / stopped / failed / interrupted）→ 逐值直出', () => {
+    mount(
+      historyState({
+        sessions: [
+          session('ses-1-1727000000000', 'running', TS + 1),
+          session('ses-2-1727000000000', 'completed', TS + 2),
+          session('ses-3-1727000000000', 'stopped', TS + 3),
+          session('ses-4-1727000000000', 'failed', TS + 4),
+          session('ses-5-1727000000000', 'interrupted', TS + 5),
+        ],
+      }),
+    );
+
+    expect(screen.getAllByTestId('run-status').map((node) => node.textContent)).toEqual([
+      '运行中',
+      '已完成',
+      '已停止',
+      '失败',
+      '已中断',
+    ]);
+    expect(
+      screen.getAllByTestId('agent-run-row').map((row) => row.getAttribute('data-status')),
+    ).toEqual(['running', 'completed', 'stopped', 'failed', 'interrupted']);
+  });
+
+  it('越过类型的脏 status（paused）→ 仍落「失败」兜底、不抛错', () => {
+    const id = 'ses-dirty-1727000000000';
+    const dirty = session(id, 'completed', TS + 6, [
+      { ...turn(1, 'completed'), status: 'paused' as TurnSummary['status'] },
+    ]);
+    mount(historyState({ sessions: [dirty] }));
+
+    const row = screen.getByTestId('agent-run-row');
+    expect(within(row).getByTestId('run-status').textContent).toBe('失败');
+    expect(row.getAttribute('data-status')).toBe('paused');
+  });
+
+  it('interrupted 轮携标定记因 → 徽标「已中断」与行内记因原文并存（不复用失败标题）', () => {
+    const id = 'ses-int-error-1727000000000';
+    const withReason = session(id, 'interrupted', TS + 7, [
+      turnWithError(1, 'interrupted', '重启标定：桌面进程中断，会话轮客观已终止'),
+    ]);
+    mount(historyState({ sessions: [withReason] }));
+
+    const row = screen.getByTestId('agent-run-row');
+    expect(within(row).getByTestId('run-status').textContent).toBe('已中断');
+    expect(within(row).getByTestId('run-row-error').textContent).toContain(
+      '重启标定：桌面进程中断',
+    );
+    expect(row.textContent).not.toContain('Agent 运行失败');
+  });
+
+  it('多轮（completed → interrupted）→ 终态取自末轮（已中断），非首轮', () => {
+    const id = 'ses-int-last-1727000000000';
+    mount(
+      historyState({
+        sessions: [
+          session(id, 'interrupted', TS + 8, [turn(1, 'completed'), turn(2, 'interrupted')]),
+        ],
+      }),
+    );
+
+    const row = screen.getByTestId('agent-run-row');
+    expect(row.getAttribute('data-status')).toBe('interrupted');
+    expect(within(row).getByTestId('run-status').textContent).toBe('已中断');
+  });
+
+  it('无轮行空会话不被 interrupted 词面误占（空态口径零改动）', () => {
+    const id = 'ses-empty-1727000000000';
+    mount(historyState({ sessions: [session(id, 'completed', TS + 9, [])] }));
+
+    const row = screen.getByTestId('agent-run-row');
+    expect(row.getAttribute('data-status')).toBe('empty');
+    expect(within(row).getByTestId('run-status').textContent).toBe('空会话');
+  });
+});

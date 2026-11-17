@@ -49,8 +49,23 @@ interface AgentToolCardProps {
   state: 'input-available' | 'output-available';
   input: unknown;
   output: AgentToolOutput | null;
+  /** 该轮是否仍在运行（缺席按运行中处理——无轮行的历史转录与流式未挂 `record`
+   * 两情形）；只穿原语，卡层不认识轮状态词表 */
+  turnRunning?: boolean;
   /** ask 应答动作面（在场且本卡为活卡时呈可交互形态；缺席即静态只读卡） */
   askAnswer?: { onAnswer: (text: string) => void };
+}
+
+/**
+ * 未配对部件的运行态判据单点（四处 `TraceLine status` 与 Ask / Bash 的运行图标
+ * 共用）：有结果即非运行态；无结果且轮已终结不呈运行态——未配对只说明没有结果
+ * 落库，不说明正在跑。
+ */
+function unpairedRunning(
+  output: AgentToolOutput | null,
+  turnRunning: boolean | undefined,
+): boolean {
+  return output === null && turnRunning !== false;
 }
 
 /** 特化工具卡可插拔位类型（按组件装配，允许 memo 包装） */
@@ -176,7 +191,12 @@ function AskChoicesView({
  * - 活卡态（注入动作面）：选项为可点按钮 + 自由文本输入与提交；提交后本地
  *   即时禁用（防连点 / 重复应答），等待上层状态变化复位。
  */
-function AskUserQuestionCard({ input, output, askAnswer }: AgentToolCardProps): React.JSX.Element {
+function AskUserQuestionCard({
+  input,
+  output,
+  turnRunning,
+  askAnswer,
+}: AgentToolCardProps): React.JSX.Element {
   const questions = parseAsk(input);
   const [submitted, setSubmitted] = useState(false);
   if (questions === null) {
@@ -188,6 +208,8 @@ function AskUserQuestionCard({ input, output, askAnswer }: AgentToolCardProps): 
     );
   }
 
+  // 单点判据先取值（status 与图标两处消费；本函数受 80 行上限约束）
+  const running = unpairedRunning(output, turnRunning);
   // 活卡判据含「单问」：应答上行的是用户原文（一值），多问形态只存在于历史
   // 转录（当前协议一次一问、`name` 定键），故历史多问卡呈只读——不提供会静默
   // 丢弃其余问答的提交入口。
@@ -217,8 +239,10 @@ function AskUserQuestionCard({ input, output, askAnswer }: AgentToolCardProps): 
 
   return (
     <>
-      <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
-        <TraceIcon>{output === null ? <Spinner /> : <MessageCircleQuestionIcon />}</TraceIcon>
+      <TraceLine
+        status={output ? (output.isError ? 'error' : undefined) : running ? 'running' : undefined}
+      >
+        <TraceIcon>{running ? <Spinner /> : <MessageCircleQuestionIcon />}</TraceIcon>
         <TraceTitle>提问</TraceTitle>
       </TraceLine>
       <Card size="sm">
@@ -258,13 +282,30 @@ function cardAttrs(toolCallId: string): {
 }
 
 /** Bash 特化卡：命令作标题栏，输出折叠在下方（命令形态缺席时标题栏留空） */
-function BashCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
+function BashCard({
+  toolCallId,
+  input,
+  output,
+  turnRunning,
+}: AgentToolCardProps): React.JSX.Element {
   const command = textOf(asRecord(input).command);
   return (
     <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
       <TraceCollapsibleTrigger>
-        <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
-          <TraceIcon>{output === null ? <Spinner /> : <TerminalIcon />}</TraceIcon>
+        <TraceLine
+          status={
+            output
+              ? output.isError
+                ? 'error'
+                : undefined
+              : unpairedRunning(output, turnRunning)
+                ? 'running'
+                : undefined
+          }
+        >
+          <TraceIcon>
+            {unpairedRunning(output, turnRunning) ? <Spinner /> : <TerminalIcon />}
+          </TraceIcon>
           <TraceTitle>Bash</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -288,14 +329,29 @@ function rangeSuffix(offset: unknown, limit: unknown): string {
 }
 
 /** Read 特化卡：路径 + 行区间作标题，内容折叠在下方 */
-function ReadCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
+function ReadCard({
+  toolCallId,
+  input,
+  output,
+  turnRunning,
+}: AgentToolCardProps): React.JSX.Element {
   const record = asRecord(input);
   const path = textOf(record.path);
   const offset = numberOf(record.offset);
   return (
     <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
       <TraceCollapsibleTrigger>
-        <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
+        <TraceLine
+          status={
+            output
+              ? output.isError
+                ? 'error'
+                : undefined
+              : unpairedRunning(output, turnRunning)
+                ? 'running'
+                : undefined
+          }
+        >
           <TraceIcon>
             <FileIcon />
           </TraceIcon>
@@ -328,7 +384,12 @@ function languageOf(path: string | null): string | null {
 }
 
 /** Write 特化卡：写入内容按路径扩展名着色，无扩展名按纯文本切行 */
-function WriteCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX.Element {
+function WriteCard({
+  toolCallId,
+  input,
+  output,
+  turnRunning,
+}: AgentToolCardProps): React.JSX.Element {
   const record = asRecord(input);
   const path = textOf(record.path);
   const content = textOf(record.content) ?? '';
@@ -342,7 +403,17 @@ function WriteCard({ toolCallId, input, output }: AgentToolCardProps): React.JSX
       defaultOpen={output !== null}
     >
       <TraceCollapsibleTrigger>
-        <TraceLine status={output ? (output.isError ? 'error' : undefined) : 'running'}>
+        <TraceLine
+          status={
+            output
+              ? output.isError
+                ? 'error'
+                : undefined
+              : unpairedRunning(output, turnRunning)
+                ? 'running'
+                : undefined
+          }
+        >
           <TraceIcon>
             <FileEditIcon />
           </TraceIcon>

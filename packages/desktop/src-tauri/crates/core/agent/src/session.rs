@@ -68,7 +68,7 @@ pub struct TurnSummary {
     pub turn_id: i64,
     /// 所属会话 id
     pub session_id: String,
-    /// 轮状态（running | completed | failed | stopped）
+    /// 轮状态（running | completed | failed | stopped | interrupted）
     pub status: AgentRunStatus,
     /// 开始时间（UTC unix 毫秒）
     pub started_at: i64,

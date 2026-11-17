@@ -2118,3 +2118,86 @@ describe('useAgentSession：轮中段 user 气泡（AC-9）', () => {
     expect(messageTexts(result.current.messages)).toContain('旧补充');
   });
 });
+
+// ---------------------------------------------------------------------------
+// interrupted 轮行的默认行为固化（session-midturn-history-overwrite AC-4 消费面）：
+// 生产面零改动——`interrupted` 天然不派生运行中、不触发订阅、重放折叠零特判
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：interrupted 轮行的库态派生', () => {
+  it('轮行全 interrupted → running 为 false、零订阅零轮询，loading 回 false', async () => {
+    vi.useFakeTimers();
+    resetIpc({
+      detail: summary([turn(11, 'interrupted')]),
+      transcript: [userEvent(0, '中断前提问', 11), textEvent(1, '中断前正文', 11)],
+    });
+    const { result } = await mounted();
+
+    expect(result.current.running).toBe(false);
+    expect(result.current.loading).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60 * 1000);
+    });
+    expect(callsOf('agent_session_watch')).toHaveLength(0);
+  });
+
+  it('轮行 [completed, interrupted] → running 为 false；末条 assistant 的 record 原样透出 interrupted', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'completed'), turn(13, 'interrupted')]),
+      transcript: [
+        userEvent(0, '第一问', 11),
+        textEvent(1, '第一答', 11),
+        userEvent(2, '第二问', 13),
+        textEvent(3, '中断前正文', 13),
+      ],
+    });
+    const { result } = await mounted();
+
+    expect(result.current.running).toBe(false);
+    const last = result.current.messages.at(-1);
+    expect(last?.id).toBe('turn-13');
+    expect(last?.metadata?.record?.status).toBe('interrupted');
+    expect(messageTexts(result.current.messages)).toContain('中断前正文');
+    expect(callsOf('agent_session_watch')).toHaveLength(0);
+  });
+
+  it('轮行 [running, interrupted]（残留新轮并存）→ running 仍为 true、恰一次订阅', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'running'), turn(13, 'interrupted')]),
+      transcript: [userEvent(0, '问', 11), textEvent(1, '答', 11)],
+    });
+    const { result } = await mounted();
+
+    expect(result.current.running).toBe(true);
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+  });
+
+  it('零轮行（空会话）→ running 为 false、零订阅', async () => {
+    resetIpc({ detail: summary([]), transcript: [] });
+    const { result } = await mounted();
+
+    expect(result.current.running).toBe(false);
+    expect(callsOf('agent_session_watch')).toHaveLength(0);
+  });
+
+  it('空内容 interrupted 轮在折叠后仍进 messages（与可见性白名单同口径）', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'interrupted')]),
+      transcript: [
+        {
+          seq: 0,
+          turnId: 11,
+          timestampMs: TS,
+          kind: 'message',
+          role: 'assistant',
+          blocks: [],
+          parentToolUseId: null,
+        },
+      ],
+    });
+    const { result } = await mounted();
+
+    expect(result.current.messages.length).toBeGreaterThan(0);
+    expect(result.current.running).toBe(false);
+  });
+});

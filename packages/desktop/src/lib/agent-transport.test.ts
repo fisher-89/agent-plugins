@@ -2230,3 +2230,241 @@ describe('TauriAgentTransport：经 ipc 的参数面 / 结果面', () => {
     expect(driftReports()).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 订阅起点播种：轮次由首个实时事件自证（session-midturn-history-overwrite
+// AC-6 / 症状 1）——残留 `running` 行不再充当选轮键，`detail.turns` 只留状态门
+// ---------------------------------------------------------------------------
+
+/** 多 running 轮的单查信封（残留轮与实时轮并存的症状 1 形态）。 */
+function detailWithRunning(turnIds: number[]) {
+  return {
+    row: {
+      id: 'ses-1-1727000000000',
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source: 'debug', sourceRef: null },
+      createdAt: 1727000000000,
+      updatedAt: 1727000000000,
+    },
+    stats: {
+      turnCount: turnIds.length,
+      totalDurationMs: null,
+      inputTokens: null,
+      outputTokens: null,
+    },
+    turns: turnIds.map((turnId) => recordRow(turnId, 'running')),
+  };
+}
+
+/** 订阅流 fixture：已装载镜像注入 + 多 running 轮单查（watch 挂起供直投信封）。 */
+function transportWithMirror(mirror: readonly AgentEvent[], turnIds: number[]) {
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'session_detail') return Promise.resolve(detailWithRunning(turnIds));
+    if (command === 'agent_session_watch') return new Promise<null>(() => {});
+    return Promise.resolve(null);
+  });
+  return new TauriAgentTransport({ observedEvents: () => mirror });
+}
+
+/** chunk 序列内全部 `text-delta` 的正文（顺序即帧序）。 */
+function deltasOf(chunks: AgentUIMessageChunk[]): string[] {
+  return chunks.flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.delta] : []));
+}
+
+/** chunk 序列内 `start` 的 messageId 清单。 */
+function startIdsOf(chunks: AgentUIMessageChunk[]): string[] {
+  return chunks.flatMap((chunk) => (chunk.type === 'start' ? [String(chunk.messageId)] : []));
+}
+
+describe('TauriAgentTransport：订阅起点播种（首个实时事件自证轮次）', () => {
+  it('残留 running 行在前、实时流属其后新轮 → 按首个事件 turnId 选轮播种，残留轮零预投', async () => {
+    const mirror = [textEvent(5, '残留轮正文', 11), textEvent(10, '已落库正文', 13)];
+    const transport = transportWithMirror(mirror, [11, 13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    // 播种段先于增量、且按 turn-13 重建（start 的 messageId 取首个实时事件的轮次）
+    const deltas = deltasOf(collected);
+    expect(deltas).toEqual(['已落库正文', '增量']);
+    expect(startIdsOf(collected)).toEqual(['turn-13']);
+    expect(deltas).not.toContain('残留轮正文');
+    // 残留轮（turn 11）零串扰：任何 chunk 都不携其正文
+    expect(JSON.stringify(collected)).not.toContain('残留轮正文');
+  });
+
+  it('播种帧经真实 reducer 归约 → 恰一条 assistant（id = turn-13），文本 = 已落库正文 + 增量', async () => {
+    const mirror = [textEvent(5, '残留轮正文', 11), textEvent(10, '已落库正文', 13)];
+    const transport = transportWithMirror(mirror, [11, 13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const messages = await reducedBy(await pumping);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe('turn-13');
+    const text = messages[0].parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
+    expect(text.join('')).toBe('已落库正文增量');
+    expect(messages[0].metadata?.record?.turnId).toBe(13);
+  });
+
+  it('单 running 行与实时轮一致 → 播种照旧（会话单查恰一次、watch 参数逐字不变）', async () => {
+    const mirror = [textEvent(10, '已落库正文', 13)];
+    const transport = transportWithMirror(mirror, [13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(deltasOf(collected)).toEqual(['已落库正文', '增量']);
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'session_detail'),
+      '会话单查恰一次（状态门单点）',
+    ).toHaveLength(1);
+    expect(watchCallArgs()).toEqual({
+      onEvent: expect.any(ChannelMock),
+      root: ROOT,
+      sessionId: STREAM_BODY.sessionId,
+      sinceSeq: 12,
+    });
+  });
+
+  it('首个实时事件 turnId 为 null → 登记被消费但零预投，其后同轮事件同样零预投、start 恰一次', async () => {
+    const mirror = [textEvent(10, '已落库正文', 13)];
+    const transport = transportWithMirror(mirror, [13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: textDelta(13, '增量甲', null) });
+    channel.deliver({ ipc: 'event', event: textDelta(14, '增量乙', 13) });
+    channel.deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(deltasOf(collected)).toEqual(['增量甲', '增量乙']);
+    expect(deltasOf(collected)).not.toContain('已落库正文');
+    // 实时事件无权威轮次 → 消息 id 落到 `evt-<seq>`；零预投即无播种段 chunk
+    // （末尾第二个 start 属 Record 收口按 `turn-13` 回填，非播种）
+    expect(startIdsOf(collected)[0]).toBe('evt-13');
+  });
+
+  it('首个信封非 event（未知判别值）→ 登记不被消费、零预投；其后首个 event 到达照常播种', async () => {
+    const mirror = [textEvent(10, '已落库正文', 13)];
+    const transport = transportWithMirror(mirror, [13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'futureEnvelope', payload: 1 });
+    channel.deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    channel.deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(deltasOf(collected), '非 event 信封不消费登记').toEqual(['已落库正文', '增量']);
+  });
+
+  it('首个信封为 record → 零预投（收口即关流，登记无从播种）', async () => {
+    const mirror = [textEvent(10, '已落库正文', 13)];
+    const transport = transportWithMirror(mirror, [13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(deltasOf(collected)).toEqual([]);
+    expect(collected.map((chunk) => chunk.type)).toEqual(['start', 'finish']);
+  });
+
+  it('镜像为空数组 → 首个事件即消费、零预投，流从增量起步（start 恰一次、messageId 取该事件轮次）', async () => {
+    const transport = transportWithMirror([], [11, 13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(deltasOf(collected)).toEqual(['增量']);
+    expect(startIdsOf(collected)).toEqual(['turn-13']);
+  });
+
+  it('镜像全属他轮 → 零预投、零串扰（他轮部件零出现，start 取实时轮）', async () => {
+    const mirror = [textEvent(3, '他轮正文', 11), textEvent(4, '又一段他轮正文', 12)];
+    const transport = transportWithMirror(mirror, [11, 12, 13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    expect(deltasOf(collected)).toEqual(['增量']);
+    expect(startIdsOf(collected)).toEqual(['turn-13']);
+    expect(JSON.stringify(collected)).not.toContain('他轮正文');
+  });
+
+  it('镜像含同 turnId 多事件（含外层过滤的 messageDelta 与超游标事件）→ 只预投密封事件、按 seq 升序、不重复', async () => {
+    const mirror = [
+      textEvent(2, '甲段', 13),
+      textDelta(3, '不应预投', 13),
+      textEvent(4, '乙段', 13),
+      textEvent(20, '超游标段', 13),
+    ];
+    const transport = transportWithMirror(mirror, [13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    lastChannel().deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    const deltas = deltasOf(collected);
+    expect(deltas).toEqual(['甲段', '乙段', '增量']);
+    expect(
+      deltas.filter((text) => text === '甲段'),
+      '同一部件不重复',
+    ).toHaveLength(1);
+    expect(deltas).not.toContain('不应预投');
+    expect(deltas).not.toContain('超游标段');
+  });
+
+  it('只投一次：登记消费后再到第二个 event → 零第二次预投', async () => {
+    const mirror = [textEvent(2, '甲段', 13)];
+    const transport = transportWithMirror(mirror, [13]);
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.deliver({ ipc: 'event', event: textDelta(13, '增量', 13) });
+    channel.deliver({ ipc: 'event', event: textEvent(14, '实时密封段', 13) });
+    channel.deliver({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    const deltas = deltasOf(collected);
+    expect(
+      deltas.filter((text) => text === '甲段'),
+      '播种部件只出现一次',
+    ).toHaveLength(1);
+    expect(deltas).toContain('实时密封段');
+    expect(startIdsOf(collected), '气泡数不倍增').toEqual(['turn-13']);
+  });
+
+  it('状态门：轮行全 interrupted → null、零订阅（interrupted 不误开订阅）', async () => {
+    invokeMock.mockResolvedValue(sessionDetail('interrupted'));
+    const transport = new TauriAgentTransport();
+
+    expect(await reconnect(transport)).toBeNull();
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch')).toHaveLength(
+      0,
+    );
+  });
+});

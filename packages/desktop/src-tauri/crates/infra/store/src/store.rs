@@ -422,10 +422,13 @@ impl Store {
         Self::open_with(path, global_models(), DbDimension::User)
     }
 
-    /// 打开 workspace 库
+    /// 打开 workspace 库；打开点并列两族启动标定：change run（含
+    /// `active_phase` 悬挂）与 agent 轮 `running` 残留。
     pub fn open_workspace(path: &Path) -> Result<Self, StoreError> {
         let store = Self::open_workspace_probed(path)?;
-        let _ = store.calibrate_interrupted_runs(now_millis());
+        let now = now_millis();
+        let _ = store.calibrate_interrupted_runs(now);
+        let _ = store.calibrate_interrupted_agent_turns(now);
         Ok(store)
     }
 
@@ -2150,6 +2153,39 @@ impl Store {
         }
         rw.commit()
             .map_err(db_err("提交 calibrate_interrupted_runs 事务"))?;
+        Ok(calibrated)
+    }
+
+    /// agent 轮启动标定（幂等）：判据——启动瞬间三张内存注册表（会话 /
+    /// 停等 / 引擎实例）必空 ⇒ 残留 `running` 轮在数学上全部可证已死，MUST NOT
+    /// 依赖「卡在哪个工具」。扫描面只 `AgentRunRecord.status == Running`——
+    /// 不碰 `RunRecord`、不碰 `SessionRecord` 与 sealed 转录。写入 = 状态
+    /// `interrupted` + `finished_at` = now + 记因定式；统计三字段不虚构（原样）。
+    /// 幂等——零残留零写事务、二次调用零变化、已 `interrupted` 不被二次改写。
+    /// 该值是 `AgentRunStatus::Interrupted` 的唯一写入点（运行期写路径 MUST NOT
+    /// 产生）。返回被标定轮 id 清单（corpus / 测试构造中断样本直调，`pub`）。
+    pub fn calibrate_interrupted_agent_turns(&self, now: i64) -> Result<Vec<i64>, StoreError> {
+        // 先读扫（r 事务），后写（rw 事务）——零残留零写事务
+        let running: Vec<AgentRunRecord> = self
+            .read_all::<AgentRunRecord>("遍历轮统计行")?
+            .into_iter()
+            .filter(|record| record.status == agent::AgentRunStatus::Running)
+            .collect();
+        if running.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut calibrated = Vec::with_capacity(running.len());
+        for mut turn_row in running {
+            turn_row.status = agent::AgentRunStatus::Interrupted;
+            turn_row.finished_at = Some(now);
+            turn_row.error = Some("重启标定：桌面进程中断，会话轮客观已终止".to_owned());
+            // session_id / started_at / 统计三字段原样带过（不虚构、不重写轮起点）
+            calibrated.push(turn_row.id);
+            rw.upsert(turn_row).map_err(db_err("标定轮中断"))?;
+        }
+        rw.commit()
+            .map_err(db_err("提交 calibrate_interrupted_agent_turns 事务"))?;
         Ok(calibrated)
     }
 

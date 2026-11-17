@@ -22,7 +22,7 @@ pub enum AgentPermissionMode {
     BypassPermissions,
 }
 
-/// run 状态四档（落库 / 出线契约）：与 [`crate::state::AgentRunState`] 状态机
+/// run 状态五档（落库 / 出线契约）：与 [`crate::state::AgentRunState`] 状态机
 /// 内存态两型并存——本枚举是 serde camelCase 线格式与 store 落库形态的值域
 /// 契约，状态机类型不出契约面（编排侧显式 `match` 映射）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -36,6 +36,12 @@ pub enum AgentRunStatus {
     Failed,
     /// 用户主动终止收敛（stop 显式请求，语义区别于引擎失败）
     Stopped,
+    /// 进程中断后的客观终止（与 change run 域 `RunStatus::Interrupted` 同义）。
+    /// 唯一写入点是启动标定 `calibrate_interrupted_agent_turns`——运行期收口
+    /// （`finish_agent_turn` / kernel 映射 / 陈旧轮清理）MUST NOT 产生该值。
+    /// 变体末位追加以保落库 bincode 变体索引不变（旧行解码值不变、零版本递增、
+    /// 零迁移）。
+    Interrupted,
 }
 
 /// 收口档位词汇：core 只承载词汇（`EvaluatorChecklist` = evaluator 步的逐项

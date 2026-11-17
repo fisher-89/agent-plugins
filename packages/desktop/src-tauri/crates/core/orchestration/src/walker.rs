@@ -3277,8 +3277,9 @@ struct WorkerTurn {
 }
 
 /// 会话状态面分类单点（`Completed` → passed 无终态；`Failed` / `Stopped` /
-/// `Running` 漂移 → 对应终态拍 + `Terminal`）。`Immediate` 与 `Deferred` 两路
-/// 共用同一份判据与文案，MUST NOT 出现第二份。
+/// `Interrupted` / `Running` 漂移 → 对应终态拍 + `Terminal`；其中 `Interrupted`
+/// 归 failed「会话被中断」）。`Immediate` 与 `Deferred` 两路共用同一份判据与
+/// 文案，MUST NOT 出现第二份。
 fn worker_settle(outcome: &WorkerTurnOutcome) -> (StepSettle, Option<Terminal>) {
     match outcome.status {
         AgentRunStatus::Completed => (StepSettle::passed(None), None),
@@ -3298,6 +3299,16 @@ fn worker_settle(outcome: &WorkerTurnOutcome) -> (StepSettle, Option<Terminal>) 
             StepSettle::stopped(Some("会话被终止".to_owned())),
             Some(Terminal::stopped("会话被终止")),
         ),
+        // 归 failed 侧：该步没有可信产出、且不是用户主动停止。
+        // 生产路径不可达：进程中断时 walker 一并死亡，标定发生在下次启动；
+        // 本臂是枚举扩值经编译器强制的显式裁决面。
+        AgentRunStatus::Interrupted => {
+            let reason = "会话被中断".to_owned();
+            (
+                StepSettle::failed(Some(reason.clone())),
+                Some(Terminal::failed(reason)),
+            )
+        }
         AgentRunStatus::Running => {
             let reason = "会话收口缺终态".to_owned();
             (
@@ -3807,7 +3818,7 @@ pub(crate) struct WorkerSettleProbeView {
     pub terminal_reason: Option<String>,
 }
 
-/// 会话状态面分类探针（四臂逐文案 + 会话 id / token 随行）。
+/// 会话状态面分类探针（五臂逐文案 + 会话 id / token 随行）。
 #[cfg(test)]
 pub(crate) fn worker_settle_probe(outcome: &WorkerTurnOutcome) -> WorkerSettleProbeView {
     let control = std::sync::Arc::new(crate::control::ChangeFlowControl::new(std::sync::Arc::new(

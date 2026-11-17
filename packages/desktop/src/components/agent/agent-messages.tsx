@@ -61,21 +61,29 @@ const VIRTUAL_OVERSCAN = 8;
  * - `null`：当前无等待 → 全静态；
  * - 字符串：仅 `toolCallId` 与之相等者为活卡（历史转录里崩溃残留的未配对
  *   `tool_use` 同形，无 id 对账会误呈为可应答）；
- * - `undefined`：未提供判据 → 按「该部件仍为无结果态」判活。
+ * - `undefined`：未提供对账 id → 由该轮是否仍在运行判活（`input-available`
+ *   只作必要条件；MUST NOT 以结果缺席单独判活——中断 / 终止轮的未配对部件
+ *   同样「没有结果」）。
  */
-function isLiveAsk(part: AgentToolPart, pendingToolCallId: string | null | undefined): boolean {
+function isLiveAsk(
+  part: AgentToolPart,
+  pendingToolCallId: string | null | undefined,
+  turnRunning: boolean | undefined,
+): boolean {
   if (pendingToolCallId === null) return false;
   if (typeof pendingToolCallId === 'string') return part.toolCallId === pendingToolCallId;
-  return part.state === 'input-available';
+  return part.state === 'input-available' && turnRunning !== false;
 }
 
 /** 工具部件 → 特化卡（注册表命中）或默认对卡（miss 回退） */
 function ToolPartView({
   part,
   askAnswer,
+  turnRunning,
 }: {
   part: AgentToolPart;
   askAnswer?: AskAnswerActions;
+  turnRunning?: boolean;
 }): React.JSX.Element | null {
   const toolName = part.type.slice('tool-'.length);
   const output = part.state === 'output-available' ? part.output : null;
@@ -86,7 +94,7 @@ function ToolPartView({
     const cardAsk =
       askAnswer !== undefined &&
       toolName === 'AskUserQuestion' &&
-      isLiveAsk(part, askAnswer.pendingToolCallId)
+      isLiveAsk(part, askAnswer.pendingToolCallId, turnRunning)
         ? { onAnswer: askAnswer.onAnswer }
         : undefined;
     return (
@@ -96,6 +104,7 @@ function ToolPartView({
         state={part.state}
         input={part.input}
         output={output}
+        turnRunning={turnRunning}
         {...(cardAsk === undefined ? {} : { askAnswer: cardAsk })}
       />
     );
@@ -140,13 +149,17 @@ function citationsOfPart(part: AgentUIMessage['parts'][number]): AgentCitation[]
 function PartView({
   part,
   askAnswer,
+  turnRunning,
 }: {
   part: AgentUIMessage['parts'][number];
   askAnswer?: AskAnswerActions;
+  turnRunning?: boolean;
 }): React.JSX.Element | null {
   if (part.type === 'text') return <TextBlock citations={citationsOfPart(part)} text={part.text} />;
   if (part.type === 'reasoning') return <ThinkingBlock text={part.text} state={part.state} />;
-  if (isToolPart(part)) return <ToolPartView part={part} askAnswer={askAnswer} />;
+  if (isToolPart(part)) {
+    return <ToolPartView part={part} askAnswer={askAnswer} turnRunning={turnRunning} />;
+  }
   return null;
 }
 
@@ -175,8 +188,10 @@ function statusRawText(message: AgentUIMessage, record: TurnSummary): string[] {
 /**
  * 轮内状态行（`parts` 为空时）：「在发生的位置看到它」——正文是 content，
  * 运行事实是 provenance。`failed` 呈通用标题 + 可展开原文；`stopped` 呈
- * 「已停止」；其他 status 不渲染。`stopped` MUST NOT 触发顶部失败横幅
- * （`agent-error.ts` 的既有判据正确，本文件零改动该面）。
+ * 「已停止」；`interrupted` 呈「因应用重启中断」（`completed` / 轮行缺席不渲染）。
+ * `stopped` / `interrupted` MUST NOT 触发顶部失败横幅（`agent-error.ts` 的既有
+ * 判据正确，本文件零改动该面）；`interrupted` 的标定记因是机器事实不是用户待
+ * 处置故障，故不展开错误原文。
  */
 function TurnStatusLine({
   message,
@@ -213,6 +228,17 @@ function TurnStatusLine({
         data-status="stopped"
       >
         <div data-testid="turn-status-line-stopped">已停止</div>
+      </div>
+    );
+  }
+  if (record.status === 'interrupted') {
+    return (
+      <div
+        className="my-1 text-sm text-muted-foreground"
+        data-testid="turn-status-line"
+        data-status="interrupted"
+      >
+        <div data-testid="turn-status-line-interrupted">因应用重启中断</div>
       </div>
     );
   }
@@ -306,7 +332,9 @@ function UserBubbleBody({ message }: { message: AgentUIMessage }): React.JSX.Ele
 }
 
 /** 气泡：user / assistant 各成泡（user 靠右），部件按类型映射渲染；assistant
- * 无可见部件且该轮 failed / stopped 时以轮内状态行取代部件列表 */
+ * 无可见部件且该轮 failed / stopped / interrupted 时以轮内状态行取代部件列表。
+ * 轮状态在此算一次、向下只穿布尔（`record` 缺席按运行中——流式消息在 `Record`
+ * 信封前没有轮行）。 */
 function ChatBubbleBase({
   message,
   askAnswer,
@@ -316,6 +344,7 @@ function ChatBubbleBase({
 }): React.JSX.Element {
   const isUser = message.role === 'user';
   const record = message.metadata?.record ?? null;
+  const turnRunning = record === null ? true : record.status === 'running';
   const statusLine =
     !isUser && !hasVisibleParts(message) && record !== null ? (
       <TurnStatusLine message={message} record={record} />
@@ -336,7 +365,7 @@ function ChatBubbleBase({
         {statusLine}
         <Trace className="pl-3">
           {message.parts.map((part, index) => (
-            <PartView key={index} part={part} askAnswer={askAnswer} />
+            <PartView key={index} part={part} askAnswer={askAnswer} turnRunning={turnRunning} />
           ))}
         </Trace>
       </MessageContent>

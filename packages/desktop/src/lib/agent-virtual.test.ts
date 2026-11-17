@@ -277,10 +277,11 @@ describe('filterConversation：对话透镜可见性', () => {
     expect(visible).not.toBe(all);
   });
 
-  it('正向：空内容 assistant × 轮行 failed / stopped → 两条均保留，状态原样可读', () => {
+  it('正向：空内容 assistant × 轮行 failed / stopped / interrupted → 三条均保留，状态原样可读', () => {
     const cases: [string, TurnSummary['status']][] = [
       ['failed', 'failed'],
       ['stopped', 'stopped'],
+      ['interrupted', 'interrupted'],
     ];
 
     for (const [label, status] of cases) {
@@ -293,8 +294,8 @@ describe('filterConversation：对话透镜可见性', () => {
     }
   });
 
-  it('正向：有内容 assistant + failed / stopped 轮行 → 保留且不追加任何判定', () => {
-    for (const status of ['failed', 'stopped'] as const) {
+  it('正向：有内容 assistant + failed / stopped / interrupted 轮行 → 保留且不追加任何判定', () => {
+    for (const status of ['failed', 'stopped', 'interrupted'] as const) {
       const all = fold(
         [userEvent(0, '问', 1), messageEvent(1, [{ kind: 'text', text: '部分回答' }], 1)],
         [recordRow(status, 1)],
@@ -363,7 +364,7 @@ describe('filterConversation：对话透镜可见性', () => {
     expect(ids(filterConversation(user))).toEqual(['only-user']);
   });
 
-  it('边界：1000 条混合列表（system / 有内容 / 空内容 completed / 空内容 failed）→ 条数与顺序按判据', () => {
+  it('边界：1000+ 条混合列表（system / 有内容 / 空内容 completed / failed / interrupted）→ 条数与顺序按判据', () => {
     const all: AgentUIMessage[] = [];
     const expected: string[] = [];
     for (let index = 0; index < 250; index += 1) {
@@ -373,13 +374,15 @@ describe('filterConversation：对话透镜可见性', () => {
       all.push(assistantWith([], `empty-completed-${index}`, 'completed'));
       all.push(assistantWith([], `empty-failed-${index}`, 'failed'));
       expected.push(`empty-failed-${index}`);
+      all.push(assistantWith([], `empty-interrupted-${index}`, 'interrupted'));
+      expected.push(`empty-interrupted-${index}`);
     }
-    expect(all).toHaveLength(1000);
+    expect(all).toHaveLength(1250);
 
     const visible = filterConversation(all);
 
     expect(() => filterConversation(all)).not.toThrow();
-    expect(visible).toHaveLength(500);
+    expect(visible).toHaveLength(750);
     expect(ids(visible)).toEqual(expected);
   });
 
@@ -414,6 +417,43 @@ describe('filterConversation：对话透镜可见性', () => {
       metadata: { seq: null, parentToolUseId: null, record: recordRow('failed', 1) },
     };
     expect(ids(filterConversation([failedUser]))).toEqual(['user-failed']);
+  });
+
+  it('正向：三值白名单参数化（failed / stopped / interrupted）→ 各保留一条，词面无兜底放行', () => {
+    for (const status of ['failed', 'stopped', 'interrupted'] as const) {
+      const visible = filterConversation([assistantWith([], `empty-${status}`, status)]);
+
+      expect(visible, status).toHaveLength(1);
+      expect(visible[0]?.id, status).toBe(`empty-${status}`);
+      expect(visible[0]?.metadata?.record?.status, status).toBe(status);
+    }
+  });
+
+  it('边界：只有 data-* / step-start 部件的 interrupted 轮 → 可见性判据为假但白名单放行 ⇒ 保留', () => {
+    const operatorOnly: AgentUIMessage = {
+      id: 'interrupted-operator-only',
+      role: 'assistant',
+      metadata: { seq: null, parentToolUseId: null, record: recordRow('interrupted', 7) },
+      parts: [dirtyPart('step-start'), dirtyPart('data-system-notice')],
+    };
+
+    // 两判据口径不冲突：可见性单点说「无可见部件」，白名单单点说「空内容轮仍可见」
+    expect(hasVisibleParts(operatorOnly)).toBe(false);
+    expect(ids(filterConversation([operatorOnly]))).toEqual(['interrupted-operator-only']);
+  });
+
+  it('异常：interrupted 轮行不改变 completed / running / 轮行缺席三者的剔除判据', () => {
+    for (const [label, status] of [
+      ['completed', 'completed'],
+      ['running', 'running'],
+      ['轮行缺席', null],
+    ] as [string, TurnSummary['status'] | null][]) {
+      const all = fold([messageEvent(1, [])], status === null ? [] : [recordRow(status, 2)]);
+
+      expect(filterConversation(all), label).toEqual([]);
+    }
+    // 对照：同为「空内容 assistant」，interrupted 轮行保留（扩值只增不减）
+    expect(filterConversation([assistantWith([], 'kept', 'interrupted')])).toHaveLength(1);
   });
 });
 

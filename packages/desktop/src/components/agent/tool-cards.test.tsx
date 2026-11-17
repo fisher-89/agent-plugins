@@ -369,6 +369,8 @@ function renderToolCard(
     output?: AgentToolOutput | null;
     state?: 'input-available' | 'output-available';
     toolCallId?: string;
+    /** 该轮是否仍在运行（缺席即「按运行中处理」的既有形态） */
+    turnRunning?: boolean;
   } = {},
 ) {
   const Card = BUILD_IN_TOOL_CARDS[toolName];
@@ -380,6 +382,7 @@ function renderToolCard(
       state={options.state ?? 'input-available'}
       input={options.input ?? {}}
       output={options.output ?? null}
+      turnRunning={options.turnRunning}
     />,
   );
 }
@@ -1295,5 +1298,168 @@ describe('BUILD_IN_TOOL_CARDS：AskUserQuestion 双形态归一与双态', () =>
     expect(screen.getByTestId('ask-question').textContent).toContain('选哪个重试策略？');
     expect(screen.getAllByTestId('ask-answer-option')).toHaveLength(2);
     expect(screen.queryByTestId('ask-answer-submit')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 终结轮未配对部件不呈运行态（session-midturn-history-overwrite AC-7 / 症状 2）：
+// `unpairedRunning(output, turnRunning)` 作为四处 `TraceLine status` 与 Ask / Bash
+// 运行图标的同一单点——无结果 + 轮已终结 ⇒ 省略 status（不取 `pending`）
+// ---------------------------------------------------------------------------
+
+/** 四处 running 站点的四张特化卡与各自最小可解析输入。 */
+const FOUR_RUNNING_CARDS: [string, unknown][] = [
+  ['AskUserQuestion', SINGLE_ASK_INPUT],
+  ['bash', { command: 'ls -la' }],
+  ['read', { path: 'a.ts' }],
+  ['write', { path: 'a.ts', content: 'export const a = 1;' }],
+];
+
+/** 卡面状态行（Ask 卡为容器形态、不带 `block-tool-use` 钩子，故不锚卡根）。 */
+function traceLineOf(): Element | null {
+  return document.body.querySelector('[data-slot="trace-line"]');
+}
+
+/** 卡面图标位（同上：不锚卡根）。 */
+function traceIconOf(): Element | null {
+  return document.body.querySelector('[data-slot="trace-icon"]');
+}
+
+describe('unpairedRunning：四张特化卡的 TraceLine 判据', () => {
+  it.each(FOUR_RUNNING_CARDS)(
+    '%s：轮已终结 + 无结果 → trace-line 无 data-status（不呈 running）',
+    (toolName, input) => {
+      renderToolCard(toolName, { input, output: null, turnRunning: false });
+
+      // 无 data-status 即无 shimmer / spinner 载体（运行态视觉由该钩子驱动）
+      expect(traceLineOf()?.hasAttribute('data-status')).toBe(false);
+    },
+  );
+
+  it.each(FOUR_RUNNING_CARDS)(
+    '%s：运行中轮（true / 缺席两形态）→ 仍呈 data-status="running"',
+    (toolName, input) => {
+      for (const turnRunning of [true, undefined]) {
+        const rendered = renderToolCard(toolName, { input, output: null, turnRunning });
+        expect(
+          traceLineOf()?.getAttribute('data-status'),
+          `${toolName} ${String(turnRunning)}`,
+        ).toBe('running');
+        rendered.unmount();
+      }
+    },
+  );
+
+  it.each([
+    { toolName: 'AskUserQuestion', input: SINGLE_ASK_INPUT },
+    { toolName: 'bash', input: { command: 'ls' } },
+  ])(
+    '$toolName：终结轮无结果 → 旋载图标退场、特化图标在场；运行中轮 → spinner 在场',
+    ({ toolName, input }) => {
+      const terminal = renderToolCard(toolName, { input, output: null, turnRunning: false });
+      const icon = traceIconOf();
+      expect(icon?.querySelector('[data-slot="spinner"]')).toBeNull();
+      expect(icon?.querySelector('svg')).not.toBeNull();
+      terminal.unmount();
+
+      renderToolCard(toolName, { input, output: null, turnRunning: true });
+      expect(traceIconOf()?.querySelector('[data-slot="spinner"]')).not.toBeNull();
+    },
+  );
+
+  it.each([
+    [{ content: '结果正文', isError: false }, null],
+    [{ content: '命令失败', isError: true }, 'error'],
+  ] as [AgentToolOutput, string | null][])(
+    '终结轮但已有结果（%j）→ 状态判据以结果为先：data-status 为 %s',
+    (output, expected) => {
+      renderToolCard('bash', {
+        input: { command: 'ls' },
+        state: 'output-available',
+        output,
+        turnRunning: false,
+      });
+
+      expect(traceLineOf()?.getAttribute('data-status') ?? null).toBe(expected);
+    },
+  );
+
+  it('终结轮无结果 → data-status 恒为 null（MUST NOT 取 pending：不复用「思考中」态）', () => {
+    for (const [toolName, input] of FOUR_RUNNING_CARDS) {
+      const rendered = renderToolCard(toolName, { input, output: null, turnRunning: false });
+      expect(traceLineOf()?.getAttribute('data-status') ?? null, toolName).toBeNull();
+      expect(traceLineOf()?.getAttribute('data-status'), toolName).not.toBe('pending');
+      rendered.unmount();
+    }
+  });
+});
+
+describe('unpairedRunning：范围边界（三张无 running 标记的卡与默认对卡）', () => {
+  it('edit / finish_step / web_search 三卡在轮已终结时呈现零变化', () => {
+    // edit：既有 trace-line 恒无 data-status（本变更不触）
+    const edit = renderToolCard('edit', {
+      input: { path: 'a.ts', old_string: 'a', new_string: 'b' },
+      output: null,
+      turnRunning: false,
+    });
+    expect(traceLineOf()?.getAttribute('data-status') ?? null).toBeNull();
+    edit.unmount();
+
+    // finish_step：载荷主面在场（无 running 标记）——判据不由轮状态派生
+    const finish = renderToolCard('finish_step', {
+      input: { action: 'backtrack', target: 'proposal', reason: '缺需求' },
+      output: null,
+      turnRunning: false,
+    });
+    expect(screen.getByTestId('block-tool-use')).toBeTruthy();
+    finish.unmount();
+
+    // web_search：标题栏呈查询词、无进行态标记（summary 无 running 站点）
+    renderToolCard('web_search', {
+      input: { query: 'tauri 版本' },
+      output: null,
+      turnRunning: false,
+    });
+    expect(screen.getByTestId('block-web-search')).toBeTruthy();
+    expect(document.body.textContent).toContain('tauri 版本');
+    expect(traceLineOf()?.getAttribute('data-status') ?? null).toBeNull();
+  });
+
+  it('默认对卡 ToolPairCard 不在四处内：终结轮无结果仍落旋载图标（范围外已知残余，不认账）', () => {
+    render(
+      <ToolPairCard
+        name="mystery"
+        toolCallId="tu_pair"
+        state="input-available"
+        input={{ key: 'value' }}
+        output={null}
+      />,
+    );
+
+    const icon = traceIconOf();
+    expect(icon?.querySelector('[data-slot="spinner"]')).not.toBeNull();
+    expect(traceLineOf()?.getAttribute('data-status') ?? null).toBeNull();
+  });
+
+  it('Ask 卡交互面不受轮状态影响：轮已终结但注入动作面 → 提交仍走 onAnswer', () => {
+    const onAnswer = vi.fn();
+    const Card = BUILD_IN_TOOL_CARDS['AskUserQuestion'];
+    render(
+      <Card
+        toolCallId="tu_ask_terminal"
+        toolName="AskUserQuestion"
+        state="input-available"
+        input={SINGLE_ASK_INPUT}
+        output={null}
+        turnRunning={false}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    // 判活单点在 `isLiveAsk`（agent-messages），卡片自身不新增第二份判据
+    expect(screen.getByTestId('ask-answer-input')).toBeTruthy();
+    fireEvent.click(screen.getAllByTestId('ask-answer-option')[0] as HTMLElement);
+    fireEvent.click(screen.getByTestId('ask-answer-submit'));
+    expect(onAnswer).toHaveBeenCalledWith('指数退避');
   });
 });

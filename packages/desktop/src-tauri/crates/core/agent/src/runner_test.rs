@@ -5,8 +5,8 @@ use serde_json::json;
 
 use crate::event::AgentEventKind;
 use crate::runner::{
-    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, AskMode, FinishSpec,
-    ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, AskMode,
+    FinishSpec, ModelLevel, RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
 /// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
@@ -999,5 +999,126 @@ fn session_toolset退役零命中() {
     assert!(
         !code_only.contains(&retired_enum) || code_only.contains("retired_enum"),
         "runner_test.rs 代码行内仅本断言的拼装串出现该名（旧断言整体删除、无残句）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 轮状态值域五档（session-midturn-history-overwrite AC-1 / AC-2 出线半边）：
+// `Interrupted` 末位追加，既有四值线值逐字不变
+// ---------------------------------------------------------------------------
+
+/// `AgentRunStatus` 五变体线值双向 round-trip（正向）：`interrupted` 逐字命中，
+/// 反序列化回原值逐值相等。
+#[test]
+fn agent_run_status五变体线值双向round_trip() {
+    let cases = [
+        (AgentRunStatus::Running, "running"),
+        (AgentRunStatus::Completed, "completed"),
+        (AgentRunStatus::Failed, "failed"),
+        (AgentRunStatus::Stopped, "stopped"),
+        (AgentRunStatus::Interrupted, "interrupted"),
+    ];
+    for (status, wire) in cases {
+        assert_eq!(
+            serde_json::to_value(status).expect("序列化"),
+            json!(wire),
+            "线值 camelCase: {wire}"
+        );
+        let back: AgentRunStatus = serde_json::from_value(json!(wire)).expect("反序列化");
+        assert_eq!(back, status, "双向 round-trip 逐值相等: {wire}");
+    }
+}
+
+/// 既有四值线串逐字不变（正向，AC-2 出线半边）：枚举扩值不位移既有 rename 结果，
+/// 旧转录 / 旧库行读面照旧。
+#[test]
+fn agent_run_status既有四值线串逐字不变() {
+    for (status, expected) in [
+        (AgentRunStatus::Running, "running"),
+        (AgentRunStatus::Completed, "completed"),
+        (AgentRunStatus::Failed, "failed"),
+        (AgentRunStatus::Stopped, "stopped"),
+    ] {
+        let wire = serde_json::to_value(status)
+            .expect("序列化")
+            .as_str()
+            .expect("字符串线值")
+            .to_owned();
+        assert_eq!(wire, expected, "旧四值线串逐字不变: {expected}");
+        assert_ne!(wire, "interrupted", "旧值不折进新值: {expected}");
+    }
+}
+
+/// 变体声明序 `0..=4`（边界）：落库 tag 序由声明序决定，`Interrupted` 末位、
+/// `Stopped` 恒为 3（旧行 tag 不位移的程序化判据）。
+#[test]
+fn agent_run_status变体序末位追加且stopped恒为3() {
+    assert_eq!(AgentRunStatus::Running as u32, 0);
+    assert_eq!(AgentRunStatus::Completed as u32, 1);
+    assert_eq!(AgentRunStatus::Failed as u32, 2);
+    assert_eq!(AgentRunStatus::Stopped as u32, 3, "Stopped 恒为 3");
+    assert_eq!(AgentRunStatus::Interrupted as u32, 4, "Interrupted 末位");
+}
+
+/// 越过值域的线值显式 `Err`（异常，Enum 边界 N+1）：零 `serde(other)` 兜底，
+/// 不静默折进任一既有变体。
+#[test]
+fn agent_run_status越过值域线值三形态均err() {
+    for (label, invalid) in [
+        ("词表外", json!("paused")),
+        ("近似形态", json!("interrupted2")),
+        ("空串", json!("")),
+    ] {
+        let result: Result<AgentRunStatus, _> = serde_json::from_value(invalid.clone());
+        assert!(
+            result.is_err(),
+            "越过值域形态 {label}（{invalid}）应 Err，实际: {result:?}"
+        );
+    }
+}
+
+/// 定义面源码自证（边界）：derive 行仍派生 `specta::Type`（值域出线到生成物），
+/// 且 `Interrupted` 声明位于枚举闭合花括号前（末位判据的第二个观测面）。
+#[test]
+fn agent_run_status定义面派生specta且interrupted居末位() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runner.rs"),
+    )
+    .expect("读取 runner.rs");
+    assert!(own.contains("use specta::Type;"), "specta::Type 导入在场");
+
+    let enum_start = own
+        .find("pub enum AgentRunStatus")
+        .expect("AgentRunStatus 定义在场");
+    let derive_line = own[..enum_start]
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with("#[derive("))
+        .expect("derive 行在场");
+    assert!(
+        derive_line
+            .split(['(', ')', ','])
+            .any(|token| token.trim() == "Type"),
+        "derive 行仍含 specta 的 Type（值域经 specta 出线），实际: {derive_line}"
+    );
+
+    let rest = &own[enum_start..];
+    let block = &rest[..rest.find("\n}").expect("枚举闭合花括号在场")];
+    let variants = block
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.ends_with(',')
+                && line
+                    .chars()
+                    .next()
+                    .is_some_and(|first| first.is_ascii_uppercase())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(variants.len(), 5, "五变体声明，实际: {variants:?}");
+    assert_eq!(
+        *variants.last().expect("非空"),
+        "Interrupted,",
+        "Interrupted 声明在枚举闭合花括号前（末位追加）"
     );
 }

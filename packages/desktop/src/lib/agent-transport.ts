@@ -128,9 +128,9 @@ interface EnvelopeStream {
   end: () => void;
   /** 注错断流（invoke 失败等） */
   fail: (cause: unknown) => void;
-  /** 订阅流起点播种登记（仅订阅出口用）：首批实时事件到达时若同属 `turnId`，
-   * 先按其重建既有部件（见 [`reconnectToStream`]） */
-  expectSeed: (turnId: number | null, events: readonly AgentEvent[]) => void;
+  /** 订阅流起点播种登记（仅订阅出口用）：登记已装载镜像（非 delta、游标以内）；
+   * 轮次由首个实时事件自证（见 [`reconnectToStream`]） */
+  expectSeed: (events: readonly AgentEvent[]) => void;
 }
 
 /**
@@ -254,11 +254,15 @@ function recordChunks(state: StreamState, record: TurnSummary): AgentUIMessageCh
   ];
 }
 
-/** 订阅起点播种：登记「待播种轮 + 其既有密封事件」，等首个实时事件确认轮次
- * 后再预投。不在订阅建立时直接投，是因为订阅可能先收到别轮的事件（并发多轮 /
- * 旧轮残留），无条件预投会让两条 `start` 塌成一条消息。 */
+/** 订阅起点播种：登记「已装载镜像」（非 delta、游标以内），等首个实时事件自证
+ * 轮次后再预投。不在订阅建立时直接投，是因为订阅可能先收到别轮的事件（并发多轮 /
+ * 旧轮残留），无条件预投会让两条 `start` 塌成一条消息。
+ *
+ * 轮次为何改由首个实时事件自证：`detail.turns` 的 `running` 行可能是进程中断
+ * 残留、也可能与实时轮并发——按行选轮一旦选错，就会在增量到达后冲掉该轮已落库
+ * 的部件（`start` 替换末条）。故 `detail.turns` 只作状态门，不作选轮依据。 */
 interface PendingSeed {
-  expect: (turnId: number | null, events: readonly AgentEvent[]) => void;
+  expect: (events: readonly AgentEvent[]) => void;
   seedIfMatching: (message: AgentRunMessage) => void;
 }
 
@@ -266,18 +270,21 @@ function createPendingSeed(
   state: StreamState,
   controllerOf: () => ReadableStreamDefaultController<AgentUIMessageChunk> | null,
 ): PendingSeed {
-  let pending: { turnId: number | null; events: readonly AgentEvent[] } | null = null;
+  let pending: readonly AgentEvent[] | null = null;
   return {
-    expect: (turnId, events) => {
-      pending = { turnId, events };
+    expect: (events) => {
+      pending = events;
     },
     seedIfMatching: (message) => {
       if (message.ipc !== 'event' || pending === null) return;
-      if (pending.turnId !== message.event.turnId) return;
-      const { events } = pending;
+      // 首个 event 信封即消费登记（无论轮次是否匹配）：残留轮事件不得推迟播种
+      const events = pending;
       pending = null;
+      const turnId = message.event.turnId;
+      if (turnId === null || turnId === undefined) return; // 无权威轮次不投
       const controller = controllerOf();
       for (const seeded of events) {
+        if (seeded.turnId !== turnId) continue;
         for (const chunk of frameChunks(state, seeded)) controller?.enqueue(chunk);
       }
     },
@@ -329,6 +336,9 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
    * 首个 chunk 的 `start` 命中「替换末条」→ 该轮由重放折叠出的部件会被增量独占
    * 覆盖（进行中会话「历史闪一下只剩新流」）。故订阅起点先把该会话已落库的密封
    * 事件按序预投进同一簿记，reducer 从空态重建出的就是「既有部件 + 增量」。
+   *
+   * 播种键 = 首个实时事件的 `turnId`；`detail.turns` 只作状态门，MUST NOT 用作
+   * 选轮依据（`running` 行可能是中断残留或与实时轮并发）。
    */
   public async reconnectToStream(options: {
     chatId: string;
@@ -343,18 +353,13 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     if (detail === null || !detail.turns.some((turn) => turn.status === 'running')) {
       return null;
     }
-    const running = detail.turns.find((turn) => turn.status === 'running');
-    if (running === undefined) return null;
     const channel = new Channel<AgentRunMessage>();
     const envelope = this.envelopeStream(channel);
-    // 起点播种：只投运行轮的、游标以内的密封事件（更早的轮属另一条 reducer
-    // 消息；超出 sinceSeq 的由 watch 自己投，避免重复）。来源是消费方已装载的
-    // 事件镜像——不额外取数
+    // 起点播种：登记镜像里游标以内的密封事件（增量由 watch 自己投，避免重复）。
+    // 来源是消费方已装载的事件镜像——不额外取数；轮次过滤由首个实时事件决定
     envelope.expectSeed(
-      running.turnId,
       (this.observedEvents?.() ?? []).filter(
-        (event) =>
-          event.turnId === running.turnId && event.kind !== 'messageDelta' && event.seq <= sinceSeq,
+        (event) => event.kind !== 'messageDelta' && event.seq <= sinceSeq,
       ),
     );
     ipc

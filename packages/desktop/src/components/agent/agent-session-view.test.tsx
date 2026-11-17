@@ -668,7 +668,8 @@ function askTranscript(): AgentEvent[] {
 describe('AgentSessionView：ask 应答动作面透传（AC-13）', () => {
   it('传 askAnswer（无 pendingToolCallId）→ ask 卡呈活卡（选项可提交，零自动接线）', async () => {
     const onAnswer = vi.fn();
-    resetIpc({ transcript: askTranscript() });
+    // 活卡判据按轮状态：ask 停等在运行中轮内（终结轮的无结果卡呈静态）
+    resetIpc({ detail: summary([turn(11, 'running')]), transcript: askTranscript() });
     await mountedView({ root: ROOT, sessionId: SESSION_ID, askAnswer: { onAnswer } });
 
     const buttons = await screen.findAllByTestId('ask-answer-option');
@@ -854,7 +855,7 @@ describe('AgentSessionView：ask 动作面两形态同透传（AC-11 / DD7）', 
 
   it('自持形态透传：root + sessionId（无 session）+ askAnswer 在场 → 活卡同样生效', async () => {
     const onAnswer = vi.fn();
-    resetIpc({ transcript: askTranscript() });
+    resetIpc({ detail: summary([turn(11, 'running')]), transcript: askTranscript() });
     await mountedView({ root: ROOT, sessionId: SESSION_ID, askAnswer: { onAnswer } });
 
     const buttons = await screen.findAllByTestId('ask-answer-option');

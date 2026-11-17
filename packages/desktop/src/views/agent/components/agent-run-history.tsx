@@ -54,6 +54,7 @@ function statusLabel(status: AgentRunStatus): string {
   if (status === 'running') return '运行中';
   if (status === 'completed') return '已完成';
   if (status === 'stopped') return '已停止';
+  if (status === 'interrupted') return '已中断';
   return '失败';
 }
 

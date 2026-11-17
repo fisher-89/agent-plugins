@@ -1846,3 +1846,223 @@ describe('AgentMessages：ask 三态判活矩阵', () => {
     expect(screen.queryAllByTestId('ask-answer-submit')).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 中断轮三投影（session-midturn-history-overwrite AC-8 / AC-9）：
+// `TurnStatusLine` 增 interrupted 支、`isLiveAsk` 第三态改读轮状态、
+// `turnRunning` 布尔下行（`record` 缺席按运行中）
+// ---------------------------------------------------------------------------
+
+describe('AgentMessages：interrupted 轮的状态行与可见性', () => {
+  it('空 parts + interrupted（轮行携标定记因）→ 「因应用重启中断」状态行，记因不展开、不呈失败', () => {
+    const messages: AgentUIMessage[] = [emptyTurnMessage(7, 'interrupted')];
+    messages[0] = {
+      ...(messages[0] as AgentUIMessage),
+      metadata: {
+        seq: null,
+        parentToolUseId: null,
+        record: recordRow('interrupted', 7, '重启标定：桌面进程中断，会话轮客观已终止'),
+      },
+    };
+
+    render(<AgentMessages messages={messages} loading={false} />);
+
+    const line = screen.getByTestId('turn-status-line');
+    expect(line.getAttribute('data-status')).toBe('interrupted');
+    expect(screen.getByTestId('turn-status-line-interrupted').textContent).toBe('因应用重启中断');
+    // 记因是机器事实：不进失败标题、不进原文展开面
+    expect(screen.queryByTestId('turn-status-line-raw')).toBeNull();
+    expect(screen.queryByTestId('turn-status-line-failed')).toBeNull();
+    expect(document.body.textContent).not.toContain('Agent 运行失败');
+    expect(document.body.textContent).not.toContain('重启标定');
+    // 状态行取代部件列表：该气泡内无文本块
+    const bubble = line.closest('[data-testid="chat-bubble"]');
+    expect(bubble).not.toBeNull();
+    expect(within(bubble as HTMLElement).queryAllByTestId('block-text')).toHaveLength(0);
+  });
+
+  it('空内容 interrupted 轮可见并计入虚拟项数与吸附层几何（白名单扩值）', () => {
+    const messages = [...turnConversation(2), emptyTurnMessage(9, 'interrupted')];
+
+    render(<AgentMessages messages={messages} loading={false} />);
+
+    expect(screen.getByTestId('turn-status-line').getAttribute('data-status')).toBe('interrupted');
+    expect(contentHeight()).toBe(expectedHeight(['user', 'assistant', 'assistant']));
+  });
+
+  it('空内容 completed 轮仍剔除（扩值不引入放行）', () => {
+    const messages = [...turnConversation(2), emptyTurnMessage(11, 'completed')];
+
+    render(<AgentMessages messages={messages} loading={false} />);
+
+    expect(screen.queryByTestId('turn-status-line')).toBeNull();
+    expect(contentHeight()).toBe(expectedHeight(['user', 'assistant']));
+  });
+
+  it('interrupted 轮 parts 非空 → 只呈正常气泡，状态行缺席（不叠加）', () => {
+    const messages = fold(
+      [userMessage(0, '问', 1), message(1, [{ kind: 'text', text: '中断前正文' }], null, 1)],
+      [recordRow('interrupted', 1)],
+    );
+
+    render(<AgentMessages messages={messages} loading={false} />);
+
+    expect(screen.queryByTestId('turn-status-line')).toBeNull();
+    expect(document.body.textContent).toContain('中断前正文');
+  });
+});
+
+describe('AgentMessages：isLiveAsk 第三态（按轮状态判活）', () => {
+  it('未提供 pendingToolCallId + 轮运行中 → ask 卡仍活：提交与自由文本在场，提交上行原文', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents(), [recordRow('running', 1)])}
+        loading={false}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
+    const live = liveAskCards()[0] as HTMLElement;
+    expect(within(live).queryAllByTestId('ask-answer-input')).toHaveLength(1);
+    answerIn(live, 0);
+    expect(onAnswer).toHaveBeenCalledWith('甲');
+  });
+
+  it.each(['interrupted', 'failed', 'stopped'] as const)(
+    '未提供 pendingToolCallId + 轮已终结（%s）→ ask 卡静态：选项只读、零输入、零提交、点选不产生 onAnswer',
+    (status) => {
+      const onAnswer = vi.fn();
+      render(
+        <AgentMessages
+          messages={fold(twoAskEvents(), [recordRow(status, 1)])}
+          loading={false}
+          askAnswer={{ onAnswer }}
+        />,
+      );
+
+      for (const card of screen.getAllByTestId('ask-question-card')) {
+        expect(within(card).queryAllByTestId('ask-answer-option')).toHaveLength(2);
+        expect(within(card).queryAllByTestId('ask-answer-input')).toHaveLength(0);
+        expect(within(card).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
+        fireEvent.click(within(card).getAllByTestId('ask-answer-option')[0] as HTMLElement);
+      }
+      expect(onAnswer).not.toHaveBeenCalled();
+    },
+  );
+
+  it('轮行缺席（record 为 null）+ 未提供 pendingToolCallId → 按运行中处理（流式主路径零回归）', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages messages={fold(twoAskEvents())} loading={false} askAnswer={{ onAnswer }} />,
+    );
+
+    expect(liveAskLabels()).toEqual(['甲', '乙', '丙', '丁']);
+    const live = liveAskCards()[0] as HTMLElement;
+    answerIn(live, 1);
+    expect(onAnswer).toHaveBeenCalledWith('乙');
+  });
+
+  it('字符串 pendingToolCallId 仍精确对账（终结轮内相等者活、不匹配者静）', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents(), [recordRow('interrupted', 1)])}
+        loading={false}
+        askAnswer={{ onAnswer, pendingToolCallId: 'call_2' }}
+      />,
+    );
+
+    const [first, second] = screen.getAllByTestId('ask-question-card') as [
+      HTMLElement,
+      HTMLElement,
+    ];
+    expect(within(first).queryAllByTestId('ask-answer-submit')).toHaveLength(0);
+    expect(within(second).queryAllByTestId('ask-answer-submit')).toHaveLength(1);
+    expect(liveAskLabels()).toEqual(['丙', '丁']);
+  });
+
+  it('pendingToolCallId = null → 全静态（当前无等待优先于轮状态）', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AgentMessages
+        messages={fold(twoAskEvents(), [recordRow('running', 1)])}
+        loading={false}
+        askAnswer={{ onAnswer, pendingToolCallId: null }}
+      />,
+    );
+
+    expect(liveAskCards()).toHaveLength(0);
+  });
+});
+
+describe('AgentMessages：轮状态下行位（只穿布尔、无副作用）', () => {
+  it('同一 messages 引用重渲染 → 气泡节点数与 ask 卡状态不变', () => {
+    const onAnswer = vi.fn();
+    const messages = fold(twoAskEvents(), [recordRow('running', 1)]);
+    const { rerender } = render(
+      <AgentMessages messages={messages} loading={false} askAnswer={{ onAnswer }} />,
+    );
+    const beforeLabels = liveAskLabels();
+    const beforeBubbles = bubblesOfRole('assistant').length;
+    const beforeProbed = cardSpy.refs.length;
+
+    rerender(<AgentMessages messages={messages} loading={false} askAnswer={{ onAnswer }} />);
+
+    // 下行位只穿原语：同引用重渲染不改变气泡数与活卡集合（无新副作用）
+    expect(liveAskLabels()).toEqual(beforeLabels);
+    expect(bubblesOfRole('assistant')).toHaveLength(beforeBubbles);
+    expect(cardSpy.refs.length).toBe(beforeProbed);
+  });
+
+  it('越过类型的脏 status（paused）→ 不抛错、状态行缺席、ask 卡按「非运行中」呈静态', () => {
+    const dirty = { ...recordRow('completed', 1), status: 'paused' as TurnSummary['status'] };
+    const askMessages = fold(twoAskEvents(), [dirty]);
+    const emptyTurn: AgentUIMessage = {
+      ...emptyTurnMessage(2, 'completed'),
+      metadata: { seq: null, parentToolUseId: null, record: { ...dirty, turnId: 2 } },
+    };
+    const onAnswer = vi.fn();
+
+    render(
+      <AgentMessages
+        messages={[...askMessages, emptyTurn]}
+        loading={false}
+        askAnswer={{ onAnswer }}
+      />,
+    );
+
+    expect(liveAskCards()).toHaveLength(0);
+    expect(screen.queryByTestId('turn-status-line')).toBeNull();
+  });
+
+  it('四变体气泡与工具对卡在 turnRunning 缺省下逐条相等（旧调用点零改动）', () => {
+    const messages = fold(
+      [
+        userMessage(0, '问', 1),
+        message(
+          1,
+          [
+            { kind: 'text', text: '答' },
+            { kind: 'thinking', thinking: '推理' },
+            { kind: 'toolUse', id: 'tu_unk', name: 'mystery', input: {} },
+          ],
+          null,
+          1,
+        ),
+      ],
+      [recordRow('running', 1)],
+    );
+
+    render(<AgentMessages messages={messages} loading={false} />);
+
+    expect(bubblesOfRole('user')).toHaveLength(1);
+    expect(bubblesOfRole('assistant')).toHaveLength(1);
+    expect(document.body.textContent).toContain('答');
+    // 默认对卡（不在四处内）仍呈旋载图标——范围外已知残余，本变更不触
+    expect(
+      document.querySelector('[data-testid="block-tool-use"] [data-slot="spinner"]'),
+    ).not.toBeNull();
+  });
+});

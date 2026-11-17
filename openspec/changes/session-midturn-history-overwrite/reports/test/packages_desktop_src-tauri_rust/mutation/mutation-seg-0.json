@@ -1,0 +1,531 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:3284:5: replace worker_settle -> (StepSettle, Option<Terminal>) with (Default::default(), None)",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "worker_settle",
+            "return_type": "-> (StepSettle, Option<Terminal>)",
+            "span": {
+              "start": {
+                "line": 3279,
+                "column": 1
+              },
+              "end": {
+                "line": 3320,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 3284,
+              "column": 5
+            },
+            "end": {
+              "line": 3319,
+              "column": 6
+            }
+          },
+          "replacement": "(Default::default(), None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_3284_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_3284_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.5405648,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/walker.rs:3284:5: replace worker_settle -> (StepSettle, Option<Terminal>) with (Default::default(), Some(Default::default()))",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/walker.rs",
+          "function": {
+            "function_name": "worker_settle",
+            "return_type": "-> (StepSettle, Option<Terminal>)",
+            "span": {
+              "start": {
+                "line": 3279,
+                "column": 1
+              },
+              "end": {
+                "line": 3320,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 3284,
+              "column": 5
+            },
+            "end": {
+              "line": 3319,
+              "column": 6
+            }
+          },
+          "replacement": "(Default::default(), Some(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__walker.rs_line_3284_col_5_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__walker.rs_line_3284_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 31.1623913,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:428:9: replace Store::open_workspace -> Result<Self, StoreError> with Ok(Default::default())",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::open_workspace",
+            "return_type": "-> Result<Self, StoreError>",
+            "span": {
+              "start": {
+                "line": 425,
+                "column": 5
+              },
+              "end": {
+                "line": 433,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 428,
+              "column": 9
+            },
+            "end": {
+              "line": 432,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__store.rs_line_428_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_428_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 37.7599816,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:2169:9: replace Store::calibrate_interrupted_agent_turns -> Result<Vec<i64>, StoreError> with Ok(vec![])",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::calibrate_interrupted_agent_turns",
+            "return_type": "-> Result<Vec<i64>, StoreError>",
+            "span": {
+              "start": {
+                "line": 2159,
+                "column": 5
+              },
+              "end": {
+                "line": 2190,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2169,
+              "column": 9
+            },
+            "end": {
+              "line": 2189,
+              "column": 23
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_2169_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_2169_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 41.5939232,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 17.2658626,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:2169:9: replace Store::calibrate_interrupted_agent_turns -> Result<Vec<i64>, StoreError> with Ok(vec![-1])",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::calibrate_interrupted_agent_turns",
+            "return_type": "-> Result<Vec<i64>, StoreError>",
+            "span": {
+              "start": {
+                "line": 2159,
+                "column": 5
+              },
+              "end": {
+                "line": 2190,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2169,
+              "column": 9
+            },
+            "end": {
+              "line": 2189,
+              "column": 23
+            }
+          },
+          "replacement": "Ok(vec![-1])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_2169_col_9_003.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_2169_col_9_003.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.8382898,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 18.1438274,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:2169:9: replace Store::calibrate_interrupted_agent_turns -> Result<Vec<i64>, StoreError> with Ok(vec![1])",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::calibrate_interrupted_agent_turns",
+            "return_type": "-> Result<Vec<i64>, StoreError>",
+            "span": {
+              "start": {
+                "line": 2159,
+                "column": 5
+              },
+              "end": {
+                "line": 2190,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2169,
+              "column": 9
+            },
+            "end": {
+              "line": 2189,
+              "column": 23
+            }
+          },
+          "replacement": "Ok(vec![1])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_2169_col_9_002.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_2169_col_9_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.9304893,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 18.6678194,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:2169:9: replace Store::calibrate_interrupted_agent_turns -> Result<Vec<i64>, StoreError> with Ok(vec![0])",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::calibrate_interrupted_agent_turns",
+            "return_type": "-> Result<Vec<i64>, StoreError>",
+            "span": {
+              "start": {
+                "line": 2159,
+                "column": 5
+              },
+              "end": {
+                "line": 2190,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2169,
+              "column": 9
+            },
+            "end": {
+              "line": 2189,
+              "column": 23
+            }
+          },
+          "replacement": "Ok(vec![0])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_2169_col_9_001.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_2169_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.1610044,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 19.6652556,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:2172:44: replace == with != in Store::calibrate_interrupted_agent_turns",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::calibrate_interrupted_agent_turns",
+            "return_type": "-> Result<Vec<i64>, StoreError>",
+            "span": {
+              "start": {
+                "line": 2159,
+                "column": 5
+              },
+              "end": {
+                "line": 2190,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2172,
+              "column": 44
+            },
+            "end": {
+              "line": 2172,
+              "column": 46
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_2172_col_44.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_2172_col_44.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 5.5569018,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 15.2892057,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=store@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 8,
+  "missed": 0,
+  "caught": 5,
+  "timeout": 0,
+  "unviable": 3,
+  "success": 0,
+  "start_time": "2026-11-16T16:58:13.7995085Z",
+  "end_time": "2026-11-16T16:59:35.2498501Z",
+  "cargo_mutants_version": "27.1.0"
+}

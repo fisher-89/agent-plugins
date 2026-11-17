@@ -4031,3 +4031,218 @@ fn agent_steer_注册表托管与main同型() {
         "生产托管与测试托管同址同型"
     );
 }
+
+// ---------------------------------------------------------------------------
+// store 标定 × 命令面（session-midturn-history-overwrite AC-4 / AC-11）：
+// `calibrate_interrupted_agent_turns` → `session_detail` / `agent_sessions` /
+// `agent_answer` / `agent_stop` 的组合行（命令面零新增 `interrupted` 分支）
+// ---------------------------------------------------------------------------
+
+/// 标定记因定式（与 store.rs 同文，逐字断言用）。
+const TURN_CALIBRATION_REASON: &str = "重启标定：桌面进程中断，会话轮客观已终止";
+
+/// seed 一条未收口轮（`running`）+ 含未配对 `toolUse` 的密封转录（中断轮停在
+/// 工具停等态的实况形态），返回轮 id。
+fn seed_running_turn_with_unpaired_tool(store: &store::Store, id: &str) -> i64 {
+    seed_sdk_session(store, id, None, "debug", None);
+    let turn = store
+        .begin_agent_turn(id, 1727000000000)
+        .expect("begin 轮行 fixture")
+        .id;
+    store
+        .append_session_events(
+            id,
+            &[stamped(
+                0,
+                AgentEventKind::Message {
+                    role: AgentMessageRole::Assistant,
+                    blocks: vec![::agent::AgentBlock::ToolUse {
+                        id: "tool-unpaired".to_owned(),
+                        name: "bash".to_owned(),
+                        input: serde_json::json!({ "command": "cargo test" }),
+                    }],
+                    parent_tool_use_id: None,
+                },
+            )],
+        )
+        .expect("落转录 fixture");
+    turn
+}
+
+/// 标定后单查直返 `interrupted` 轮行（正向，AC-4 命令面投影）：状态 / 标定时刻 /
+/// 记因逐字，出线键恒 `row` / `stats` / `turns` 三件（无顶层 `status`）。
+#[test]
+fn session_detail标定后直返interrupted轮行且出线键仍三件() {
+    let env = Env::new("detail-interrupted");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    let turn = seed_running_turn_with_unpaired_tool(&store, "ses-int");
+
+    let calibrated = store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+    assert_eq!(calibrated, vec![turn], "标定命中该残留轮");
+
+    let found = session_detail(state, root, "ses-int".to_owned())
+        .expect("单查应成功")
+        .expect("Some 包裹（会话在场）");
+    assert_eq!(found.turns.len(), 1, "行与转录分离（转录不产轮行）");
+    let row = &found.turns[0];
+    assert_eq!(row.status, AgentRunStatus::Interrupted, "直返 interrupted");
+    assert_eq!(row.finished_at, Some(9000), "finishedAt = 标定时刻");
+    assert_eq!(row.error.as_deref(), Some(TURN_CALIBRATION_REASON));
+    assert_eq!(row.started_at, 1727000000000, "轮起点不重写");
+
+    let value = serde_json::to_value(&found).expect("出线序列化应成功");
+    assert!(
+        value.get("status").is_none(),
+        "无顶层状态字段（三件套形状零改动），实际: {value}"
+    );
+    for key in ["row", "stats", "turns"] {
+        assert!(value.get(key).is_some(), "出线键 {key} 恒在");
+    }
+    assert_eq!(
+        value["turns"][0]["status"],
+        serde_json::json!("interrupted")
+    );
+}
+
+/// 清单面与单查面同口径（正向）：标定后 `agent_sessions` 与 `session_detail`
+/// 对同一会话逐字段全等，末轮状态同为 `interrupted`。
+#[test]
+fn 标定后清单面与单查面对同一会话逐字段全等() {
+    let env = Env::new("detail-interrupted-consistency");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_running_turn_with_unpaired_tool(&store, "ses-consistency");
+    store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+
+    let detailed = session_detail(state.clone(), root.clone(), "ses-consistency".to_owned())
+        .expect("单查应成功")
+        .expect("Some 包裹");
+    let listed = agent_sessions(state, root, None, None, 0, 20)
+        .expect("清单应成功")
+        .sessions;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(detailed, listed[0], "两读面聚合形状单一来源");
+    assert_eq!(
+        listed[0].turns.last().expect("末轮在场").status,
+        AgentRunStatus::Interrupted,
+        "末轮状态同为 interrupted"
+    );
+}
+
+/// 应答 / 停止两命令并列表述（异常，AC-11）：标定后的会话 `agent_answer` 走既有
+/// miss 臂逐字 `Err`（零新分支、注册表零触点），`agent_stop` miss 仍幂等 `Ok`。
+#[test]
+fn 标定后agent_answer走既有miss臂且agent_stop仍幂等ok() {
+    let env = Env::new("calibrated-answer-stop");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_running_turn_with_unpaired_tool(&store, "ses-answer");
+    store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+
+    let error = super::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        root.clone(),
+        "ses-answer".to_owned(),
+        "应答".to_owned(),
+    )
+    .expect_err("标定后无等待中的 ask");
+    assert_eq!(error, "当前无等待中的 ask", "既有 miss 文案逐字");
+    assert!(
+        !ask_registry_of(&app).is_pending("ses-answer"),
+        "注册表零触点（不因 interrupted 新增表项）"
+    );
+
+    super::agent_stop(
+        app.state::<Arc<StopRegistry>>(),
+        root,
+        "ses-answer".to_owned(),
+    )
+    .expect("stop miss 仍幂等 Ok");
+}
+
+/// 未标定的残留轮（边界）：`session_detail` 仍返 `Running`（`interrupted` 只有
+/// 标定一个写入点），`agent_answer` 同样 miss `Err`——命令面零新增分支。
+#[test]
+fn 未标定残留轮仍呈running且应答同miss() {
+    let env = Env::new("detail-uncalibrated");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_running_turn_with_unpaired_tool(&store, "ses-uncal");
+
+    let found = session_detail(state, root.clone(), "ses-uncal".to_owned())
+        .expect("单查应成功")
+        .expect("Some 包裹");
+    assert_eq!(
+        found.turns[0].status,
+        AgentRunStatus::Running,
+        "未标定不自行推断中断"
+    );
+
+    let error = super::agent_answer(
+        app.state::<Arc<AskRegistry>>(),
+        root,
+        "ses-uncal".to_owned(),
+        "应答".to_owned(),
+    )
+    .expect_err("未登记 ask 仍 miss");
+    assert_eq!(error, "当前无等待中的 ask");
+}
+
+/// 多轮混排（边界）：`completed` 轮 + 标定的 `interrupted` 轮 → `turns` 按发起
+/// 顺序、状态逐值（既有轮零改写），`stats.turnCount` 不受标定影响。
+#[test]
+fn session_detail多轮混排按发起序且轮数不受标定影响() {
+    let env = Env::new("detail-interrupted-mixed");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    let closed = seed_session_with_closed_turn(&store, "ses-mix");
+    let residual = store
+        .begin_agent_turn("ses-mix", 1727000001000)
+        .expect("begin 残留轮 fixture")
+        .id;
+    let before = session_detail(state.clone(), root.clone(), "ses-mix".to_owned())
+        .expect("单查应成功")
+        .expect("Some 包裹");
+
+    store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+
+    let after = session_detail(state, root, "ses-mix".to_owned())
+        .expect("单查应成功")
+        .expect("Some 包裹");
+    assert_eq!(
+        after
+            .turns
+            .iter()
+            .map(|row| (row.turn_id, row.status))
+            .collect::<Vec<_>>(),
+        vec![
+            (closed, AgentRunStatus::Completed),
+            (residual, AgentRunStatus::Interrupted)
+        ],
+        "按发起顺序、状态逐值（既有轮零改写）"
+    );
+    assert_eq!(after.turns[0], before.turns[0], "已终态轮逐字段零改写");
+    assert_eq!(
+        after.stats.turn_count, before.stats.turn_count,
+        "stats.turnCount 不受标定影响"
+    );
+}

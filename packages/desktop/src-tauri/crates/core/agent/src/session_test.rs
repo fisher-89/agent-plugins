@@ -258,7 +258,7 @@ fn session_stats全none形态与全有值形态均往返无损() {
 }
 
 // ---------------------------------------------------------------------------
-// TurnSummary：running / 终态两形态与 status 四值线格式
+// TurnSummary：running / 终态两形态与 status 五值线格式
 // ---------------------------------------------------------------------------
 
 fn running_summary() -> TurnSummary {
@@ -315,12 +315,13 @@ fn turn_summary_running形态统计全null且终态形态统计齐备() {
 }
 
 #[test]
-fn turn_summary_status四值线格式running_completed_failed_stopped() {
+fn turn_summary_status五值线格式running_completed_failed_stopped_interrupted() {
     for (status, expected) in [
         (AgentRunStatus::Running, "running"),
         (AgentRunStatus::Completed, "completed"),
         (AgentRunStatus::Failed, "failed"),
         (AgentRunStatus::Stopped, "stopped"),
+        (AgentRunStatus::Interrupted, "interrupted"),
     ] {
         let summary = finished_summary(status, None);
         let value = serde_json::to_value(&summary).expect("序列化成功");
@@ -328,6 +329,79 @@ fn turn_summary_status四值线格式running_completed_failed_stopped() {
         let roundtrip: TurnSummary = serde_json::from_value(value).expect("反序列化成功");
         assert_eq!(roundtrip, summary);
     }
+}
+
+/// 越过线值域的状态串显式 `Err`（异常）：轮行 DTO 不接受词表外状态，
+/// 无兜底折进既有变体。
+#[test]
+fn turn_summary_status越过线值域三形态均err() {
+    let mut value = serde_json::to_value(running_summary()).expect("序列化成功");
+    for (label, invalid) in [
+        ("词表外", json!("paused")),
+        ("近似形态", json!("interrupted2")),
+        ("空串", json!("")),
+    ] {
+        value["status"] = invalid.clone();
+        let result: Result<TurnSummary, _> = serde_json::from_value(value.clone());
+        assert!(
+            result.is_err(),
+            "越过线值域形态 {label}（{invalid}）应 Err，实际: {result:?}"
+        );
+    }
+}
+
+/// `interrupted` 形态的完整字段面（边界）：标定记因进 `error`、`finishedAt` 为
+/// 数值、统计三字段仍 `None`（不虚构统计）。
+#[test]
+fn turn_summary_interrupted形态记因在位且统计三字段不虚构() {
+    let calibrated = TurnSummary {
+        status: AgentRunStatus::Interrupted,
+        finished_at: Some(1727000009000),
+        num_turns: None,
+        cost_usd: None,
+        duration_ms: None,
+        error: Some("重启标定：桌面进程中断，会话轮客观已终止".to_owned()),
+        ..running_summary()
+    };
+    let value = serde_json::to_value(&calibrated).expect("序列化成功");
+    assert_eq!(value["status"], json!("interrupted"));
+    assert_eq!(value["finishedAt"], json!(1727000009000_i64));
+    assert_eq!(
+        value["error"],
+        json!("重启标定：桌面进程中断，会话轮客观已终止")
+    );
+    assert_eq!(value["numTurns"], Value::Null, "统计三字段不虚构");
+    assert_eq!(value["costUsd"], Value::Null);
+    assert_eq!(value["durationMs"], Value::Null);
+    let roundtrip: TurnSummary = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(roundtrip, calibrated);
+}
+
+/// `TurnSummary.status` doc 同步（边界，源码自证）：该 doc 是 `bindings.ts` 注释源，
+/// 取值清单须含 `interrupted`，防「union 五值 / 注释四值」自相矛盾。
+#[test]
+fn turn_summary_status_doc取值清单含interrupted() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/session.rs"),
+    )
+    .expect("读取 session.rs");
+    let field_start = own
+        .find("pub struct TurnSummary")
+        .expect("TurnSummary 定义在场");
+    let block = &own[field_start..];
+    let status_doc = block[..block.find("pub status:").expect("status 字段在场")]
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with("///"))
+        .expect("status 字段 doc 在场");
+    assert!(
+        status_doc.contains("running")
+            && status_doc.contains("completed")
+            && status_doc.contains("failed")
+            && status_doc.contains("stopped")
+            && status_doc.contains("interrupted"),
+        "doc 取值清单为五值（含 interrupted），实际: {status_doc}"
+    );
 }
 
 // ---------------------------------------------------------------------------

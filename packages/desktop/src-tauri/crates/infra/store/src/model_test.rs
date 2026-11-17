@@ -5022,3 +5022,120 @@ fn session_event记录无线面属性且三字段十六进制主键() {
         "落库编码逐字节不变"
     );
 }
+
+// ---------------------------------------------------------------------------
+// AgentRunRecord 五值落库面（session-midturn-history-overwrite AC-2）：
+// `interrupted` 往返保真，`#[native_model(id = 2, version = 4)]` 与两向 `From`
+// 零改动（旧行零迁移）
+// ---------------------------------------------------------------------------
+
+/// 标定记因定式（与 store.rs 同文，逐字断言用）。
+const TURN_CALIBRATION_REASON: &str = "重启标定：桌面进程中断，会话轮客观已终止";
+
+/// `interrupted` 形态 v4 往返（正向）：版本仍为 4（零版本递增、零迁移）、
+/// 逐字段相等、`error` 携标定记因、统计随行。
+#[test]
+fn agent_run_record_interrupted往返保真且版本仍为4() {
+    let record = AgentRunRecord {
+        status: AgentRunStatus::Interrupted,
+        finished_at: Some(1727000009000),
+        error: Some(TURN_CALIBRATION_REASON.to_owned()),
+        ..run_record_v4()
+    };
+
+    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<AgentRunRecord>(bytes).expect("native_model decode 应成功");
+    assert_eq!(version, 4, "零版本递增（旧行解码值不位移）");
+    assert_eq!(decoded, record, "五值原样往返逐字段相等");
+    assert_eq!(decoded.status, AgentRunStatus::Interrupted);
+    assert_eq!(
+        decoded.error.as_deref(),
+        Some(TURN_CALIBRATION_REASON),
+        "记因随行"
+    );
+    assert_eq!(decoded.num_turns, Some(2), "统计随行");
+    assert_eq!(decoded.duration_ms, Some(4000));
+}
+
+/// 五值逐一往返（正向）：既有四值往返不变，`Interrupted` 并入循环后逐值绿。
+#[test]
+fn agent_run_record五值逐一往返保真() {
+    for status in [
+        AgentRunStatus::Running,
+        AgentRunStatus::Completed,
+        AgentRunStatus::Failed,
+        AgentRunStatus::Stopped,
+        AgentRunStatus::Interrupted,
+    ] {
+        let record = AgentRunRecord {
+            status,
+            ..run_record_v4()
+        };
+        let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+        let (decoded, version) =
+            native_model::decode::<AgentRunRecord>(bytes).expect("native_model decode 应成功");
+        assert_eq!(version, 4, "{status:?} 载荷版本仍为 4");
+        assert_eq!(decoded, record, "{status:?} 往返逐字段相等");
+        assert_eq!(decoded.status, status, "{status:?} 状态逐值保真");
+    }
+}
+
+/// 落库 tag 字节面（边界）：`Interrupted` 与 `Stopped` 编码字节可辨、各自解码回
+/// 自身（新值不覆盖既有 tag、旧值不位移）。
+#[test]
+fn agent_run_record_interrupted与stopped落库tag可辨() {
+    let interrupted = AgentRunRecord {
+        status: AgentRunStatus::Interrupted,
+        ..run_record_v4()
+    };
+    let stopped = AgentRunRecord {
+        status: AgentRunStatus::Stopped,
+        ..run_record_v4()
+    };
+
+    let interrupted_bytes = native_model::encode(&interrupted).expect("encode 应成功");
+    let stopped_bytes = native_model::encode(&stopped).expect("encode 应成功");
+    assert_ne!(
+        interrupted_bytes, stopped_bytes,
+        "末位追加的变体 tag 与既有值字节可辨"
+    );
+
+    let (back_interrupted, _) =
+        native_model::decode::<AgentRunRecord>(interrupted_bytes).expect("decode 应成功");
+    let (back_stopped, _) =
+        native_model::decode::<AgentRunRecord>(stopped_bytes).expect("decode 应成功");
+    assert_eq!(back_interrupted.status, AgentRunStatus::Interrupted);
+    assert_eq!(back_stopped.status, AgentRunStatus::Stopped, "旧值不位移");
+}
+
+/// 线格式与孤儿轮行组合（边界）：`status` 线值为 `interrupted` 逐字；
+/// `sessionId = None` 的孤儿行 + `Interrupted` 组合往返逐字段相等。
+#[test]
+fn agent_run_record_interrupted线格式与孤儿轮行组合往返() {
+    let orphan = AgentRunRecord {
+        session_id: None,
+        status: AgentRunStatus::Interrupted,
+        started_at: 1727000000000,
+        finished_at: Some(1727000009000),
+        num_turns: None,
+        cost_usd: None,
+        duration_ms: None,
+        error: Some(TURN_CALIBRATION_REASON.to_owned()),
+        ..run_record_v4()
+    };
+
+    let value = serde_json::to_value(&orphan).expect("序列化应成功");
+    assert_eq!(
+        value["status"],
+        serde_json::json!("interrupted"),
+        "线值逐字"
+    );
+    assert_eq!(
+        value["sessionId"],
+        serde_json::Value::Null,
+        "孤儿轮行 sessionId 为 null"
+    );
+    let back: AgentRunRecord = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, orphan, "孤儿行 + interrupted 往返逐字段相等");
+}

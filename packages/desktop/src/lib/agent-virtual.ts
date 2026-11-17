@@ -45,9 +45,9 @@ function turnStatusOf(message: AgentUIMessage): TurnSummary['status'] | null {
 
 /**
  * 对话透镜可见性单点（system 剔除 → 可见部件 → 空内容轮按 `metadata.record.status`
- * 判定 `failed` / `stopped` 保留、`completed` 或轮行缺席剔除）。判据语义与分页层
- * 退役前的内联实现逐字等价，顺序保持。MUST NOT 在别处重复实现第二份。
- * 虚拟窗口的项数与吸附层几何均以本函数产出为唯一真相。
+ * 判定 `failed` / `stopped` / `interrupted` 保留、`completed` 或轮行缺席剔除）。
+ * 判据语义与分页层退役前的内联实现逐字等价，顺序保持。MUST NOT 在别处重复实现
+ * 第二份。虚拟窗口的项数与吸附层几何均以本函数产出为唯一真相。
  */
 export function filterConversation(all: AgentUIMessage[]): AgentUIMessage[] {
   return all.filter(
@@ -55,7 +55,8 @@ export function filterConversation(all: AgentUIMessage[]): AgentUIMessage[] {
       message.role !== 'system' &&
       (hasVisibleParts(message) ||
         turnStatusOf(message) === 'failed' ||
-        turnStatusOf(message) === 'stopped'),
+        turnStatusOf(message) === 'stopped' ||
+        turnStatusOf(message) === 'interrupted'),
   );
 }
 

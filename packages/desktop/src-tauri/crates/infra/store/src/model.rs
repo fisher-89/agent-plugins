@@ -134,7 +134,7 @@ pub struct AgentRunRecord {
     /// 所属 core 会话 id（`SessionRecord` 主键；新行恒 Some，存量升级行为
     /// None 孤儿轮行）
     pub session_id: Option<String>,
-    /// 轮状态（running | completed | failed | stopped）
+    /// 轮状态（running | completed | failed | stopped | interrupted）
     pub status: AgentRunStatus,
     /// 开始时间（UTC unix 毫秒）
     pub started_at: i64,

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import type * as AgentSessionViewModule from '@/components/agent/agent-session-view';
 
-import type { AgentEvent, ExploreRecord, SessionSummary } from '../../types/dto';
+import type { AgentEvent, ExploreRecord, SessionSummary, TurnSummary } from '../../types/dto';
 import { ExploreDetailPane } from './explore-detail-pane';
 import type { ExploreDoc } from './hooks/use-explore-doc';
 import type { ExploreListState } from './hooks/use-explore-list';
@@ -834,7 +834,8 @@ describe('ExploreDetailPane：promote 在飞标记（防重复提交态）', () 
 // ---------------------------------------------------------------------------
 
 /** 会话 fixture（record.sessionId 在场 + agent_start 提前 resolve）。 */
-function seedChatSession(): void {
+/** explore 聊天面会话 fixture（`turnStatus` 决定活卡 / 收口两种呈现判据）。 */
+function seedChatSession(turnStatus: TurnSummary['status'] = 'completed'): void {
   invokeMock.mockImplementation((command: string) => {
     if (command === 'read_file') return Promise.resolve(sliceOf(docResult?.content ?? ''));
     if (command === 'explore_doc_path') {
@@ -863,9 +864,9 @@ function seedChatSession(): void {
           {
             turnId: 1,
             sessionId: 'ses-explore-1',
-            status: 'completed',
+            status: turnStatus,
             startedAt: 1727000000000,
-            finishedAt: 1727000000900,
+            finishedAt: turnStatus === 'running' ? null : 1727000000900,
             numTurns: 1,
             costUsd: null,
             durationMs: 900,
@@ -1315,7 +1316,7 @@ describe('ExploreDetailPane：ChatPane 错误面（会话查询失败不塌页�
 
 describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
   it('转录含 ask 工具调用 → 活卡选项可点即 invoke agent_answer（三参逐字）', async () => {
-    seedChatSession();
+    seedChatSession('running');
     // 只覆盖转录面（其余命令沿用 seedChatSession 的既有应答——会话仍可装载）
     const seeded = invokeMock.getMockImplementation();
     invokeMock.mockImplementation((command: string, args: unknown) => {
@@ -1366,7 +1367,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
   });
 
   it('引用稳定（DD12）：answer 未变时重渲染 → 活卡仍单次投递（askAnswer 不因重渲染换实现）', async () => {
-    seedChatSession();
+    seedChatSession('running');
     const seeded = invokeMock.getMockImplementation();
     invokeMock.mockImplementation((command: string, args: unknown) => {
       if (command === 'agent_session_transcript') {
@@ -1424,7 +1425,7 @@ describe('ExploreDetailPane：聊天面 ask 动作面（AC-13）', () => {
   });
 
   it('与 composer 插槽并存：两者均可用（互不前置）', async () => {
-    seedChatSession();
+    seedChatSession('running');
     const seeded = invokeMock.getMockImplementation();
     invokeMock.mockImplementation((command: string, args: unknown) => {
       if (command === 'agent_session_transcript') {

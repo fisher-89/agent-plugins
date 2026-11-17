@@ -18743,14 +18743,15 @@ fn reenter_probe(tag: &str) -> SettleProbe {
 
 // ---------------------------------------------------------------------------
 // 会话状态面分类单点（`worker_settle` / `worker_tokens`）与 `run_worker` 两模式
-// （D4 / D5）：四态逐文案、token 求和、`Deferred` 单拍终态
+// （D4 / D5）：五态逐文案、token 求和、`Deferred` 单拍终态
 // ---------------------------------------------------------------------------
 
-/// `worker_settle` 四态分类（正向 + 异常 + 边界）：`Completed` / `Failed` /
-/// `Stopped` / `Running` 逐文案与终态、成因缺席回落通用文案、超长成因折叠、
-/// 空 transcript / 1000 事件 / 空 session_id 边界。
+/// `worker_settle` 五态分类（正向 + 异常 + 边界）：本用例覆盖 `Completed` /
+/// `Failed` / `Stopped` / `Running` 逐文案与终态、成因缺席回落通用文案、超长成因折叠、
+/// 空 transcript / 1000 事件 / 空 session_id 边界；第五态 `Interrupted`（归 failed
+/// 侧「会话被中断」）的明细断言见紧随其后的同组用例。
 #[test]
-fn worker_settle四态分类与成因折叠与边界() {
+fn worker_settle五态分类与成因折叠与边界() {
     // Completed → passed 无终态
     let view = worker_settle_probe(&worker_outcome(
         AgentRunStatus::Completed,
@@ -18880,6 +18881,294 @@ fn worker_settle四态分类与成因折叠与边界() {
         Some(""),
         "空 session_id 不参与本函数"
     );
+}
+
+/// `worker_settle` 的 `Interrupted` 臂（正向）：归 failed 侧、文案「会话被中断」、
+/// 步 detail 与 run 终态同文、会话 id 随行、空转录不虚构 token。
+#[test]
+fn worker_settle_interrupted臂归failed侧且步与终态同文() {
+    let view = worker_settle_probe(&worker_outcome(
+        AgentRunStatus::Interrupted,
+        "sess-int",
+        Vec::new(),
+    ));
+    assert_eq!(
+        view.step_status,
+        Some(ChangeStepStatus::Failed),
+        "Interrupted → failed 拍"
+    );
+    assert_eq!(
+        view.detail.as_deref(),
+        Some("会话被中断"),
+        "文案逐字（不落 stopped 侧）"
+    );
+    assert_eq!(view.terminal_status, Some(ChangeRunStatus::Failed));
+    assert_eq!(view.terminal_reason, view.detail, "步 detail 与终态同文");
+    assert_eq!(view.session_id.as_deref(), Some("sess-int"), "会话 id 随行");
+    assert_eq!(
+        (view.token_input, view.token_output),
+        (None, None),
+        "空转录不虚构 token"
+    );
+}
+
+/// `Interrupted` 与 `Stopped` 对拍可辨（正向）：两侧归属与文案 MUST NOT 互换。
+#[test]
+fn worker_settle_interrupted与stopped对拍归属与文案不互换() {
+    let interrupted = worker_settle_probe(&worker_outcome(
+        AgentRunStatus::Interrupted,
+        "sess-a",
+        Vec::new(),
+    ));
+    let stopped = worker_settle_probe(&worker_outcome(
+        AgentRunStatus::Stopped,
+        "sess-b",
+        Vec::new(),
+    ));
+
+    assert_eq!(interrupted.step_status, Some(ChangeStepStatus::Failed));
+    assert_eq!(interrupted.terminal_status, Some(ChangeRunStatus::Failed));
+    assert_eq!(interrupted.detail.as_deref(), Some("会话被中断"));
+
+    assert_eq!(stopped.step_status, Some(ChangeStepStatus::Stopped));
+    assert_eq!(stopped.terminal_status, Some(ChangeRunStatus::Stopped));
+    assert_eq!(stopped.detail.as_deref(), Some("会话被终止"));
+
+    assert_ne!(
+        interrupted.step_status, stopped.step_status,
+        "步状态拍不同侧"
+    );
+    assert_ne!(
+        interrupted.terminal_status, stopped.terminal_status,
+        "run 终态不同侧"
+    );
+    assert_ne!(interrupted.detail, stopped.detail, "文案可辨");
+}
+
+/// `Interrupted` 判据只看 status（异常）：转录携 `api_error` 成因不覆盖固定文案
+/// （与 `Failed` 臂的成因分支结构性不同），1000 条无关事件不改判据，TurnDone
+/// usage 仍按既有求和落值。
+#[test]
+fn worker_settle_interrupted文案不被成因覆盖且token照旧求和() {
+    // 成因在场：文案仍为固定「会话被中断」，MUST NOT 复用失败前缀
+    let transcript = vec![agent::AgentEvent::stamp(
+        None,
+        0,
+        AgentEventKind::SystemNotice {
+            subtype: "api_error".to_owned(),
+            payload: serde_json::json!({ "error": "模型拒绝服务" }),
+        },
+    )];
+    let view = worker_settle_probe(&worker_outcome(
+        AgentRunStatus::Interrupted,
+        "sess-cause",
+        transcript,
+    ));
+    assert_eq!(view.detail.as_deref(), Some("会话被中断"));
+    let detail = view.detail.unwrap_or_default();
+    assert!(
+        !detail.contains("会话失败收敛"),
+        "MUST NOT 复用「会话失败收敛: …」前缀，实际: {detail}"
+    );
+    assert!(!detail.contains("模型拒绝服务"), "成因不覆盖固定文案");
+
+    // 1000 条无关事件 + 空 session_id：文案与终态不变，空 id 原样随行
+    let noise: Vec<agent::AgentEvent> = (0..1000)
+        .map(|seq| {
+            agent::AgentEvent::stamp(
+                None,
+                seq,
+                AgentEventKind::MessageDelta {
+                    parent_tool_use_id: None,
+                    delta: agent::AgentDelta::Text {
+                        text: "增量".to_owned(),
+                    },
+                },
+            )
+        })
+        .collect();
+    let view = worker_settle_probe(&worker_outcome(AgentRunStatus::Interrupted, "", noise));
+    assert_eq!(view.detail.as_deref(), Some("会话被中断"));
+    assert_eq!(view.terminal_status, Some(ChangeRunStatus::Failed));
+    assert_eq!(
+        view.session_id.as_deref(),
+        Some(""),
+        "空 session_id 原样随行"
+    );
+
+    // TurnDone usage：两 token 照旧求和，与 Interrupted 文案互不影响
+    let transcript = vec![agent::AgentEvent::stamp(
+        None,
+        0,
+        turn_done_kind(json_usize(11), json_usize(6)),
+    )];
+    let view = worker_settle_probe(&worker_outcome(
+        AgentRunStatus::Interrupted,
+        "sess-usage",
+        transcript,
+    ));
+    assert_eq!((view.token_input, view.token_output), (Some(11), Some(6)));
+    assert_eq!(view.detail.as_deref(), Some("会话被中断"));
+}
+
+/// `worker_settle` 结构自证（边界）：`Interrupted` 臂体含 failed 两件套、紧邻
+/// `Stopped` 臂之后、函数体内零 `_ =>` 兜底臂。
+#[test]
+fn worker_settle结构自证_interrupted臂体与零兜底臂() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
+    )
+    .expect("读取 walker.rs");
+    let start = own
+        .find("fn worker_settle(")
+        .expect("worker_settle 定义在场");
+    let rest = &own[start..];
+    let body = &rest[..rest.find("\n}\n").expect("函数体闭合花括号在场")];
+
+    let interrupted_at = body
+        .find("AgentRunStatus::Interrupted =>")
+        .expect("Interrupted 臂在场");
+    let stopped_at = body
+        .find("AgentRunStatus::Stopped =>")
+        .expect("Stopped 臂在场");
+    let running_at = body
+        .find("AgentRunStatus::Running =>")
+        .expect("Running 漂移臂在场");
+    assert!(stopped_at < interrupted_at, "Interrupted 臂在 Stopped 之后");
+    assert!(
+        interrupted_at < running_at,
+        "Interrupted 臂在 Running 漂移臂之前"
+    );
+    let next_arm = body[interrupted_at + 1..]
+        .find("AgentRunStatus::")
+        .map(|offset| interrupted_at + 1 + offset)
+        .expect("后续臂在场");
+    assert_eq!(
+        next_arm, running_at,
+        "紧邻 Stopped 之后的下一臂即 Interrupted（臂序对拍位）"
+    );
+
+    let arm = &body[interrupted_at..next_arm];
+    assert!(
+        arm.contains("StepSettle::failed"),
+        "臂体含 StepSettle::failed，实际: {arm}"
+    );
+    assert!(
+        arm.contains("Terminal::failed"),
+        "臂体含 Terminal::failed，实际: {arm}"
+    );
+    assert!(
+        !body.contains("_ =>"),
+        "函数体内零 `_ =>` 兜底臂（五变体全显式）"
+    );
+}
+
+/// `worker_settle` / `worker_settle_probe` doc 同步（边界，源码自证）：变体枚举含
+/// `Interrupted` 与归属文案、探针 doc 为「五臂」。
+#[test]
+fn worker_settle_doc变体枚举含interrupted且探针为五臂() {
+    let own = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
+    )
+    .expect("读取 walker.rs");
+    let docs = docs_above(&own, "fn worker_settle(");
+    assert!(
+        docs.contains("Interrupted") && docs.contains("会话被中断"),
+        "worker_settle doc 的变体枚举含 Interrupted 与归属，实际: {docs}"
+    );
+
+    let probe_docs = docs_above(&own, "fn worker_settle_probe(");
+    assert!(
+        probe_docs.contains("五臂"),
+        "探针 doc 为「五臂」（字面与实现同步），实际: {probe_docs}"
+    );
+}
+
+/// 取标记行之上紧邻的 doc 注释块（跨过 `#[..]` 属性行与空行；遇其他行即止）。
+fn docs_above(text: &str, marker: &str) -> String {
+    let head = &text[..text.find(marker).expect("标记行在场")];
+    // 标记可能起于行中（`pub(crate) fn ..`）：整行弃掉再向上取块
+    let head = head.rsplit_once('\n').map_or(head, |(rest, _)| rest);
+    let mut docs = Vec::new();
+    for line in head.lines().rev() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("///") {
+            docs.push(trimmed);
+        } else if trimmed.starts_with("#[") || trimmed.is_empty() {
+            continue;
+        } else {
+            break;
+        }
+    }
+    docs.reverse();
+    docs.join("\n")
+}
+
+/// 变体面零扩展（边界，源码自证）：`Terminal` / `StepSettle` 零 `interrupted`
+/// 构造器、`RunFault` 变体清单无新增（AC-5 的「零扩展」半边）。
+#[test]
+fn settle与terminal变体面零扩展且runfault无新增变体() {
+    // 断言自身不写枚举字面量（否则自指命中）：以拼装串表达
+    let terminal_interrupted = ["Terminal", "::interrupted"].concat();
+    let settle_interrupted = ["StepSettle", "::interrupted"].concat();
+    let mut files = Vec::new();
+    collect_rs_files(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut files,
+    );
+    assert!(
+        files.len() > 10,
+        "crate 源文件扫描面非空，实际: {}",
+        files.len()
+    );
+    for path in files {
+        let text = std::fs::read_to_string(&path).expect("读取 crate 源文件");
+        let name = path.display();
+        assert!(
+            !text.contains(&terminal_interrupted),
+            "{name} 零 Terminal 中断构造器"
+        );
+        assert!(
+            !text.contains(&settle_interrupted),
+            "{name} 零 StepSettle 中断构造器"
+        );
+    }
+
+    let port = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/port.rs"),
+    )
+    .expect("读取 port.rs");
+    let fault_start = port.find("pub enum RunFault").expect("RunFault 定义在场");
+    let rest = &port[fault_start..];
+    let block = &rest[..rest.find("\n}").expect("RunFault 闭合花括号在场")];
+    let variants = block
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.ends_with(',')
+                && line
+                    .chars()
+                    .next()
+                    .is_some_and(|first| first.is_ascii_uppercase())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        variants,
+        vec!["Stopped,", "Environment(String),"],
+        "RunFault 变体面零扩展"
+    );
+}
+
+/// crate 源文件递归收集（变体面扫描用）。
+fn collect_rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).expect("读取源码目录") {
+        let path = entry.expect("目录项").path();
+        if path.is_dir() {
+            collect_rs_files(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
 }
 
 /// `worker_tokens` 求和单点（正向 + 异常 + 边界）：两键分别求和、单键缺席、

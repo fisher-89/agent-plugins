@@ -147,3 +147,58 @@ describe('latestAgentFailure：失败轮判定', () => {
     expect(failure?.raw).toBe('');
   });
 });
+
+// ---------------------------------------------------------------------------
+// interrupted 轮不进失败横幅（session-midturn-history-overwrite AC-9 半边）：
+// 中断与 stopped 同列——顶部红条零呈现，标定记因不成为失败触发面
+// ---------------------------------------------------------------------------
+
+describe('latestAgentFailure：interrupted 轮不弹失败横幅', () => {
+  it('最新轮 interrupted + 无事件 → null（不弹红条）', () => {
+    expect(latestAgentFailure([], [turn('interrupted')])).toBeNull();
+  });
+
+  it('最新轮 interrupted 且轮行携标定记因 → 仍 null（机器事实不是横幅触发面）', () => {
+    const calibrated = turn('interrupted', {
+      error: '重启标定：桌面进程中断，会话轮客观已终止',
+    });
+
+    expect(latestAgentFailure([], [calibrated])).toBeNull();
+  });
+
+  it('最新轮 interrupted + 该轮内 api_error 通知（时间戳在轮开始之后）→ null（通知不把中断升级成失败）', () => {
+    const failure = latestAgentFailure(
+      [notice(1, 'api_error', 'API 请求失败: RequestError: invalid uri character', TS + 5)],
+      [turn('interrupted', { startedAt: TS })],
+    );
+
+    expect(failure).toBeNull();
+  });
+
+  it('最新轮 interrupted + 其后一条失败 turnDone（兜底判据成立）→ null（兜底要求 status 为 running）', () => {
+    const failure = latestAgentFailure(
+      [turnDone(1, true, 'api_error', TS + 5)],
+      [turn('interrupted', { startedAt: TS })],
+    );
+
+    expect(failure).toBeNull();
+  });
+
+  it('上一轮 failed、最新轮 interrupted → null（旧错误不泄漏）；running / failed 两对照仍非 null', () => {
+    expect(
+      latestAgentFailure(
+        [notice(1, 'api_error', '旧错误')],
+        [turn('failed'), turn('interrupted', { startedAt: TS + 100 })],
+      ),
+    ).toBeNull();
+
+    // 对照：既有行为零回归
+    expect(
+      latestAgentFailure(
+        [turnDone(1, true, 'api_error', TS + 5)],
+        [turn('running', { startedAt: TS })],
+      ),
+    ).not.toBeNull();
+    expect(latestAgentFailure([], [turn('failed')])).not.toBeNull();
+  });
+});

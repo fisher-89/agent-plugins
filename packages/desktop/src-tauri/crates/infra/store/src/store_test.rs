@@ -9267,3 +9267,533 @@ fn 三薄包装全程零写面() {
         "会话行数不变"
     );
 }
+
+// ---------------------------------------------------------------------------
+// agent 轮启动标定（session-midturn-history-overwrite AC-3 / AC-4）：
+// `calibrate_interrupted_agent_turns` 只翻 `AgentRunStatus::Running`（状态 +
+// `finished_at` + 记因定式），统计三字段不虚构、幂等、零残留零写事务；
+// `open_workspace` 与既有 change run 标定同址并列（共享一次取时）
+// ---------------------------------------------------------------------------
+
+/// 标定记因定式（与 store.rs 同文，逐字断言用）。
+const AGENT_TURN_CALIBRATION_REASON: &str = "重启标定：桌面进程中断，会话轮客观已终止";
+
+/// 指定会话的轮行快照（清单面：孤儿轮行不出此读面）。
+fn turns_in(store: &Store, session_id: &str) -> Vec<agent::TurnSummary> {
+    store
+        .list_sessions(None, None)
+        .unwrap_or_else(|e| panic!("list_sessions 应成功: {e}"))
+        .into_iter()
+        .find(|summary| summary.row.id == session_id)
+        .unwrap_or_else(|| panic!("会话 {session_id} 应在清单在场"))
+        .turns
+}
+
+/// 标定残留 running 轮（正向）：返回 id 清单、状态翻 `Interrupted`、
+/// `finished_at` = 标定时刻、`started_at` / `session_id` 原值、统计三字段不虚构。
+#[test]
+fn calibrate_interrupted_agent_turns残留翻interrupted且统计三字段不虚构() {
+    let env = Env::new("turn-calibrate");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-cal");
+    let turn = store
+        .begin_agent_turn("ses-cal", 1727000000000)
+        .expect("begin 应成功");
+
+    let calibrated = store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+    assert_eq!(calibrated, vec![turn.id], "返回被标定轮 id 清单");
+
+    let turns = turns_in(&store, "ses-cal");
+    assert_eq!(turns.len(), 1, "轮行数不变");
+    let row = &turns[0];
+    assert_eq!(row.turn_id, turn.id);
+    assert_eq!(row.session_id, "ses-cal", "session_id 原值带过");
+    assert_eq!(
+        row.status,
+        AgentRunStatus::Interrupted,
+        "残留翻 interrupted"
+    );
+    assert_eq!(row.finished_at, Some(9000), "finished_at = 标定时刻");
+    assert_eq!(row.started_at, 1727000000000, "轮起点不重写");
+    let reason = row.error.as_deref().expect("标定记因在位");
+    assert!(
+        reason.contains("重启标定") && reason.contains("会话轮客观已终止"),
+        "记因定式: {reason}"
+    );
+    assert_eq!(
+        (row.num_turns, row.cost_usd, row.duration_ms),
+        (None, None, None),
+        "统计三字段不虚构"
+    );
+}
+
+/// 多会话多残留（正向）：≥2 条 running 行分属两会话 → 全部标定，返回清单按
+/// turn id 升序稳定。
+#[test]
+fn calibrate_interrupted_agent_turns多会话多残留全部标定且清单升序() {
+    let env = Env::new("turn-calibrate-multi");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-a");
+    seed_session(&store, "ses-b");
+    let a1 = store.begin_agent_turn("ses-a", 1000).expect("begin 应成功");
+    let b1 = store.begin_agent_turn("ses-b", 2000).expect("begin 应成功");
+    let a2 = store.begin_agent_turn("ses-a", 3000).expect("begin 应成功");
+
+    let calibrated = store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+    assert_eq!(
+        calibrated,
+        vec![a1.id, b1.id, a2.id],
+        "返回清单按 turn id 升序稳定"
+    );
+
+    for session_id in ["ses-a", "ses-b"] {
+        for row in turns_in(&store, session_id) {
+            assert_eq!(
+                row.status,
+                AgentRunStatus::Interrupted,
+                "{session_id} 轮行翻档"
+            );
+            assert_eq!(row.finished_at, Some(9000));
+        }
+    }
+    assert_eq!(
+        turns_in(&store, "ses-a")
+            .iter()
+            .map(|row| row.turn_id)
+            .collect::<Vec<_>>(),
+        vec![a1.id, a2.id],
+        "两会话各自轮行归属不串"
+    );
+}
+
+/// 混合库只翻 running（正向）：三终态行逐字段零改写。
+#[test]
+fn calibrate_interrupted_agent_turns只翻running_三终态行零改写() {
+    let env = Env::new("turn-calibrate-mixed");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-mixed");
+    for (status, finished_at) in [
+        (AgentRunStatus::Completed, 1500),
+        (AgentRunStatus::Failed, 1600),
+        (AgentRunStatus::Stopped, 1700),
+    ] {
+        let turn = store
+            .begin_agent_turn("ses-mixed", 1000)
+            .expect("begin 应成功");
+        store
+            .finish_agent_turn(
+                turn.id,
+                &finish_shell(
+                    turn.id,
+                    status,
+                    Some(finished_at),
+                    Some(2),
+                    Some(500),
+                    Some(0.01),
+                ),
+            )
+            .expect("finish 应成功");
+    }
+    let running = store
+        .begin_agent_turn("ses-mixed", 1800)
+        .expect("begin 应成功");
+    let before = turns_in(&store, "ses-mixed");
+
+    let calibrated = store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+    assert_eq!(calibrated, vec![running.id], "只翻 running 行");
+
+    let after = turns_in(&store, "ses-mixed");
+    assert_eq!(after.len(), before.len(), "轮行数不变");
+    for (old, new) in before.iter().zip(after.iter()) {
+        if new.turn_id == running.id {
+            assert_eq!(new.status, AgentRunStatus::Interrupted);
+            assert_eq!(new.finished_at, Some(9000));
+            continue;
+        }
+        assert_eq!(new, old, "已终态行逐字段零改写（id={}）", old.turn_id);
+    }
+}
+
+/// 写面隔离（异常）：同库残留 change run 与密封转录零触碰（R1 的写面隔离）。
+#[test]
+fn calibrate_interrupted_agent_turns不误伤change_run域与转录() {
+    let env = Env::new("turn-calibrate-isolation");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    start_phase_ok(&store, "flow-run", "implement", 1500);
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+
+    seed_session(&store, "ses-iso");
+    let turn = store
+        .begin_agent_turn("ses-iso", 3000)
+        .expect("begin 应成功");
+    let events = vec![
+        AgentEvent::stamp(
+            Some(turn.id),
+            0,
+            AgentEventKind::MessageDelta {
+                parent_tool_use_id: None,
+                delta: AgentDelta::Text {
+                    text: "增量不入库".to_owned(),
+                },
+            },
+        ),
+        AgentEvent::stamp(
+            Some(turn.id),
+            1,
+            AgentEventKind::SystemNotice {
+                subtype: "api_error".to_owned(),
+                payload: serde_json::json!({ "error": "噪声" }),
+            },
+        ),
+    ];
+    store
+        .append_session_events("ses-iso", &events)
+        .expect("密封转录追加应成功");
+    let transcript_before = store.list_session_events("ses-iso").expect("读转录应成功");
+
+    store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].status, RunStatus::Running, "change run 仍 running");
+    assert_eq!(runs[0].finished_at, None);
+    let record = store
+        .find_change_record("flow-run")
+        .expect("读档应成功")
+        .expect("建档在场");
+    assert_eq!(
+        record
+            .active_phase
+            .as_ref()
+            .map(|phase| phase.phase.as_str()),
+        Some("implement"),
+        "active_phase 原值不变"
+    );
+    assert_eq!(
+        store.list_session_events("ses-iso").expect("读转录应成功"),
+        transcript_before,
+        "转录条数与内容逐条相等"
+    );
+}
+
+/// 零残留（边界）：全终态库 calibrate 返回空 Vec，既有轮行与
+/// `SessionRecord.updated_at` 原值不变（零写事务的可观测面）。
+#[test]
+fn calibrate_interrupted_agent_turns零残留返回空且零改写() {
+    let env = Env::new("turn-calibrate-clean");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-clean");
+    let turn = store
+        .begin_agent_turn("ses-clean", 1000)
+        .expect("begin 应成功");
+    store
+        .finish_agent_turn(
+            turn.id,
+            &finish_shell(
+                turn.id,
+                AgentRunStatus::Completed,
+                Some(2000),
+                Some(3),
+                Some(1000),
+                Some(0.02),
+            ),
+        )
+        .expect("finish 应成功");
+    let turns_before = turns_in(&store, "ses-clean");
+    let session_before = store
+        .find_session("ses-clean")
+        .expect("读会话应成功")
+        .expect("会话在场");
+
+    let calibrated = store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("标定应成功");
+    assert!(calibrated.is_empty(), "零残留零标定");
+    assert_eq!(
+        turns_in(&store, "ses-clean"),
+        turns_before,
+        "轮行全字段不变"
+    );
+    assert_eq!(
+        store
+            .find_session("ses-clean")
+            .expect("读会话应成功")
+            .expect("会话在场")
+            .updated_at,
+        session_before.updated_at,
+        "会话行 updated_at 零改写"
+    );
+}
+
+/// 幂等（边界）：二次标定返回空，`finished_at` / 记因不被二次改写。
+#[test]
+fn calibrate_interrupted_agent_turns幂等_二次零改写() {
+    let env = Env::new("turn-calibrate-idempotent");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-idem");
+    store
+        .begin_agent_turn("ses-idem", 1000)
+        .expect("begin 应成功");
+
+    let first = store
+        .calibrate_interrupted_agent_turns(9000)
+        .expect("首次标定应成功");
+    assert_eq!(first.len(), 1);
+    let second = store
+        .calibrate_interrupted_agent_turns(9500)
+        .expect("二次标定应成功");
+    assert!(second.is_empty(), "已 interrupted 行不被二次标定");
+
+    let row = &turns_in(&store, "ses-idem")[0];
+    assert_eq!(row.finished_at, Some(9000), "首次标定时刻不被改写");
+    assert_eq!(row.status, AgentRunStatus::Interrupted);
+    assert_eq!(row.error.as_deref(), Some(AGENT_TURN_CALIBRATION_REASON));
+}
+
+/// 打开点内嵌标定（正向）：种残留后 drop 句柄重开同一库 → 该轮已 `interrupted`、
+/// `finished_at` 与记因在位（标定挂点与既有 change run 标定同址）。
+#[test]
+fn open_workspace内嵌轮标定_重开即标定残留() {
+    let env = Env::new("turn-calibrate-hook");
+    let db_path = env.db_path("ws");
+    let turn_id = {
+        // 句柄 drop：标定在 open 时点，残留跨过本打开存活
+        let store = open_workspace_ok(&db_path);
+        seed_session(&store, "ses-hook");
+        store
+            .begin_agent_turn("ses-hook", 1727000000000)
+            .expect("begin 应成功")
+            .id
+    };
+
+    let reopened = open_workspace_ok(&db_path);
+    let turns = turns_in(&reopened, "ses-hook");
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].turn_id, turn_id);
+    assert_eq!(
+        turns[0].status,
+        AgentRunStatus::Interrupted,
+        "重开即标定残留"
+    );
+    assert!(turns[0].finished_at.is_some(), "标定时刻在位");
+    assert_eq!(
+        turns[0].error.as_deref(),
+        Some(AGENT_TURN_CALIBRATION_REASON),
+        "记因定式在位"
+    );
+}
+
+/// 两族共享一次取时（正向）：残留 change run 与残留 agent 轮同库 → 重开后两族
+/// `finished_at` 相等（同一 `now_millis()`），change run 亦翻 interrupted。
+#[test]
+fn open_workspace两族标定共享一次取时() {
+    let env = Env::new("turn-calibrate-shared-now");
+    let db_path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&db_path);
+        create_change_ok(&store, "flow-run", 1000);
+        start_phase_ok(&store, "flow-run", "implement", 1500);
+        store
+            .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+            .expect("发起应成功");
+        seed_session(&store, "ses-shared");
+        store
+            .begin_agent_turn("ses-shared", 3000)
+            .expect("begin 应成功");
+    }
+
+    let reopened = open_workspace_ok(&db_path);
+    let runs = reopened.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].status, RunStatus::Interrupted, "change run 亦翻档");
+    let run_now = runs[0].finished_at.expect("run 标定时刻在位");
+    let turn_now = turns_in(&reopened, "ses-shared")[0]
+        .finished_at
+        .expect("轮标定时刻在位");
+    assert_eq!(
+        run_now, turn_now,
+        "两族标定共享一次取时（同一 now_millis()）"
+    );
+}
+
+/// 无残留库重开（边界）：零标定副作用，重开后正常写面不被阻断、既有轮行逐字段
+/// 不变。
+#[test]
+fn open_workspace无残留重开零副作用且写面正常() {
+    let env = Env::new("turn-calibrate-reopen-clean");
+    let db_path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&db_path);
+        seed_session(&store, "ses-reopen");
+        let turn = store
+            .begin_agent_turn("ses-reopen", 1000)
+            .expect("begin 应成功");
+        store
+            .finish_agent_turn(
+                turn.id,
+                &finish_shell(
+                    turn.id,
+                    AgentRunStatus::Completed,
+                    Some(2000),
+                    Some(1),
+                    Some(100),
+                    None,
+                ),
+            )
+            .expect("finish 应成功");
+    }
+
+    let reopened = open_workspace_ok(&db_path);
+    let turns = turns_in(&reopened, "ses-reopen");
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].status, AgentRunStatus::Completed, "终态行零改写");
+    assert_eq!(turns[0].finished_at, Some(2000));
+
+    // 标定不阻断正常写面：重开后 begin / finish 照常
+    let next = reopened
+        .begin_agent_turn("ses-reopen", 3000)
+        .expect("重开后 begin 应成功");
+    assert_eq!(next.status, AgentRunStatus::Running);
+    reopened
+        .finish_agent_turn(
+            next.id,
+            &finish_shell(
+                next.id,
+                AgentRunStatus::Stopped,
+                Some(4000),
+                None,
+                None,
+                None,
+            ),
+        )
+        .expect("重开后 finish 应成功");
+    let turns = turns_in(&reopened, "ses-reopen");
+    assert_eq!(turns.len(), 2);
+    assert_eq!(turns[1].status, AgentRunStatus::Stopped);
+}
+
+/// 孤儿轮行（`session_id = None`，边界）：扫描面是 `AgentRunRecord` 表而非会话
+/// 归属圈定——孤儿 running 行同样被启动标定，且标定后仍不出任何会话的轮行面
+/// （归属谓词不变）。
+///
+/// 落法：公共写面无法铸出 `session_id = None` 的新行，故经裸 redb 直写注入孤儿行
+/// 后重开同一库（打开点标定）；直调面无法覆盖该形态（打开点必先跑一次标定）。
+#[test]
+fn calibrate_interrupted_agent_turns孤儿轮行同样被标定() {
+    let env = Env::new("turn-calibrate-orphan");
+    let db_path = env.db_path("ws");
+    {
+        // 建库（零轮行）后归还文件锁，方可裸注入
+        let store = open_workspace_ok(&db_path);
+        seed_session(&store, "ses-orphan-owner");
+    }
+    let orphan = AgentRunRecord {
+        id: 500,
+        session_id: None,
+        status: AgentRunStatus::Running,
+        started_at: 1500,
+        finished_at: None,
+        num_turns: Some(2),
+        cost_usd: None,
+        duration_ms: None,
+        error: None,
+    };
+    inject_agent_run_row(&db_path, &orphan);
+
+    let reopened = open_workspace_ok(&db_path);
+    assert!(
+        turns_in(&reopened, "ses-orphan-owner").is_empty(),
+        "孤儿行不出会话轮行面（归属谓词不变）"
+    );
+    drop(reopened);
+
+    let stored = read_agent_run_row(&db_path, orphan.id);
+    assert_eq!(
+        stored.status,
+        AgentRunStatus::Interrupted,
+        "孤儿行同样被标定"
+    );
+    assert!(stored.finished_at.is_some(), "标定时刻在位");
+    assert_eq!(stored.session_id, None, "session_id 原样（不重算归属）");
+    assert_eq!(stored.started_at, 1500, "轮起点不重写");
+    assert_eq!(stored.num_turns, Some(2), "统计三字段不虚构");
+    assert_eq!(stored.error.as_deref(), Some(AGENT_TURN_CALIBRATION_REASON));
+}
+
+/// `now` 极值三形态（边界）：`0` / `-1` / `i64::MAX` → `finished_at` 逐字等于
+/// 入参（显式实参注入，不读系统钟、不钳位）。
+#[test]
+fn calibrate_interrupted_agent_turns_now极值逐字落值() {
+    for (tag, now) in [("zero", 0_i64), ("negative", -1_i64), ("max", i64::MAX)] {
+        let env = Env::new(&format!("turn-calibrate-now-{tag}"));
+        let store = open_workspace_ok(&env.db_path("ws"));
+        seed_session(&store, "ses-now");
+        store
+            .begin_agent_turn("ses-now", 1000)
+            .expect("begin 应成功");
+        let calibrated = store
+            .calibrate_interrupted_agent_turns(now)
+            .expect("标定应成功");
+        assert_eq!(calibrated.len(), 1, "单残留单标定（{tag}）");
+        let row = &turns_in(&store, "ses-now")[0];
+        assert_eq!(row.finished_at, Some(now), "finished_at 逐字等于入参");
+    }
+}
+
+/// agent 轮表裸表名（native_db 内部命名公式：AgentRunRecord id=2 / version=4 /
+/// 主键 `id`）。
+const AGENT_RUN_RECORD_TABLE: &str = "2_4_id";
+
+/// 裸 redb 直写注入一条 agent 轮行（孤儿轮行语料；调用方须先 drop Store 归还
+/// 文件锁）。
+fn inject_agent_run_row(path: &Path, record: &AgentRunRecord) {
+    assert_eq!(
+        AGENT_RUN_RECORD_TABLE,
+        native_db_table_name(
+            <AgentRunRecord as native_model::Model>::native_model_id(),
+            <AgentRunRecord as native_model::Model>::native_model_version(),
+            "id"
+        ),
+        "agent 轮裸表名与 native_db 内部命名公式一致"
+    );
+    let payload = native_model::encode(record).expect("编码 agent 轮记录失败");
+    let db = redb::Database::open(path).expect("裸开 db 注入 agent 轮行应成功");
+    let rw = db.begin_write().expect("开启注入写事务失败");
+    {
+        let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+            redb::TableDefinition::new(AGENT_RUN_RECORD_TABLE);
+        let mut rows = rw.open_table(table).expect("打开 agent 轮物表应成功");
+        rows.insert(
+            RawNativeDbKey(record.id.to_be_bytes().to_vec()),
+            payload.as_slice(),
+        )
+        .expect("注入 agent 轮行应成功");
+    }
+    rw.commit().expect("提交注入事务失败");
+}
+
+/// 裸 redb 读一条 agent 轮行（注入 / 标定后的库内行观测；调用方须先 drop Store）。
+fn read_agent_run_row(path: &Path, id: i64) -> AgentRunRecord {
+    let db = redb::Database::open(path).expect("裸开 db 读 agent 轮行应成功");
+    let r = db.begin_read().expect("开启读事务失败");
+    let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+        redb::TableDefinition::new(AGENT_RUN_RECORD_TABLE);
+    let rows = r.open_table(table).expect("agent 轮物表应已就位");
+    let raw = rows
+        .get(RawNativeDbKey(id.to_be_bytes().to_vec()))
+        .expect("读取 agent 轮行失败")
+        .expect("目标轮行在场");
+    let (record, version) = native_model::decode::<AgentRunRecord>(raw.value().to_vec())
+        .expect("按 AgentRunRecord 解码");
+    assert_eq!(version, 4, "轮行模型版本段 2:v4（零版本递增）");
+    record
+}
