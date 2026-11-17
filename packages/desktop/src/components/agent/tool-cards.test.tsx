@@ -447,17 +447,17 @@ describe('cardAttrs：卡根同形（既有分支）', () => {
 });
 
 describe('BashCard：output 三态（既有分支）', () => {
-  it('output 为 null → aria-disabled 真、trace-line running、点后仍无结果区', () => {
+  it('output 为 null → aria-disabled 假、trace-line running、点后有结果区', () => {
     renderToolCard('bash', { input: { command: 'ls -la' } });
 
-    expect(trigger().getAttribute('aria-disabled')).toBe('true');
+    expect(trigger().getAttribute('aria-disabled')).toBe('false');
     expect(cardRoot().querySelector('[data-slot="trace-line"]')?.getAttribute('data-status')).toBe(
       'running',
     );
     expect(within(cardRoot()).getByText('Bash')).toBeTruthy();
 
     expandCard();
-    expect(screen.queryByTestId('block-tool-result')).toBeNull();
+    expect(screen.queryByTestId('block-tool-result')).toBeTruthy();
   });
 
   it('正常结果 → aria-disabled 显式落 false、无 data-status、展开后结果区为 content', () => {
@@ -523,13 +523,6 @@ describe('BashCard：命令栏与异常载荷（既有分支）', () => {
     expect(headers).toHaveLength(1);
     expect(headers[0]?.textContent).toBe(expected);
     unmount();
-  });
-
-  it('output 为 null → 展开被拦：命令栏与结果区均零命中', () => {
-    renderToolCard('bash', { input: { command: 'ls -la' } });
-    expandCard();
-    expect(cardRoot().querySelector('[data-slot="code-block-header"]')).toBeNull();
-    expect(screen.queryByTestId('block-tool-result')).toBeNull();
   });
 });
 

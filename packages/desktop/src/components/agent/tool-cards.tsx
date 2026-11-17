@@ -290,7 +290,7 @@ function BashCard({
 }: AgentToolCardProps): React.JSX.Element {
   const command = textOf(asRecord(input).command);
   return (
-    <TraceCollapsible {...cardAttrs(toolCallId)} disabled={output === null}>
+    <TraceCollapsible {...cardAttrs(toolCallId)}>
       <TraceCollapsibleTrigger>
         <TraceLine
           status={
@@ -415,7 +415,7 @@ function WriteCard({
           }
         >
           <TraceIcon>
-            <FileEditIcon />
+            {unpairedRunning(output, turnRunning) ? <Spinner /> : <FileEditIcon />}
           </TraceIcon>
           <TraceTitle>Write {path}</TraceTitle>
         </TraceLine>

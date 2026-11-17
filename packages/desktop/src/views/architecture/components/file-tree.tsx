@@ -32,13 +32,6 @@ export interface FileTreeProps {
   onFocus: (fqn: string) => void;
 }
 
-export interface TreeModeSwitchProps {
-  /** 当前左栏视图 */
-  mode: TreeMode;
-  /** 视图切换（只换左栏组件，`focus` 共用） */
-  onChange: (mode: TreeMode) => void;
-}
-
 /** 派生森林节点（文件内形态，不导出）。 */
 interface FileTreeNode {
   entry: ArchiFileEntry;
