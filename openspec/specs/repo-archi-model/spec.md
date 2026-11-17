@@ -2,12 +2,11 @@
 
 ## Purpose
 
-定义本仓库架构模型基线的内容与判据：模型落位 `<archi_dir>/models/` 并划分为六个 `NN-<域>.toml` 文件（字典序即聚合序、每元素每关系恰声明一处），后端下钻到 workspace crate 粒度且关系只取 `Cargo.toml` `[dependencies]` 的 workspace 内声明，前端下钻到视图与共享组件粒度且关系只由 `import` 证据证成，全基线 51 元素 / 113 关系、`gate` 全 `off`，并保证四类结构诊断零命中、既有只读检索面零改动可用，以及元素覆盖与关系证据可机械核对、漂移在同一变更内补齐。
+定义本仓库架构模型基线的内容与判据：模型落位 `<archi_dir>/models/` 并划分为六个 `NN-<域>.toml` 文件（字典序即聚合序、每元素每关系恰声明一处），后端下钻到 workspace crate 粒度且关系只取 `Cargo.toml` `[dependencies]` 的 workspace 内声明，前端下钻到视图与共享组件粒度且关系只由 `import` 证据证成，全基线 53 元素 / 120 关系、`gate` 全 `off`，并保证四类结构诊断零命中、既有只读检索面零改动可用，以及元素覆盖与关系证据可机械核对、漂移在同一变更内补齐。
 
 ## Requirements
 
 ### Requirement: 基线落位与模型文件划分
-
 架构模型基线 SHALL 落位 `<archi_dir>/models/`（架构域根经 `foundation::layout::archi_dir` 派生，本期落点 `.dev-team/architecture/models/`），MUST NOT 落到 `src/`、`docs/`、`openspec/specs/` 或任何其它位置。
 
 模型 SHALL 划分为**六个**文件，文件名形如 `NN-<域>.toml`，字典序即聚合序，每个元素与每条关系 SHALL 恰在一处声明（跨文件或同文件重复即 `duplicateElement`）：
@@ -19,9 +18,9 @@
 | `03-backend-infra.toml` | `Infra` 容器 + **7** 个 infra crate 元素（本变更新增 `ArchiRuntime`） | **8** | **24** |
 | `04-backend-shell.toml` | Tauri 壳（命令面 / 装配 / bindings 导出） | 1 | **13** |
 | `05-backend-tools.toml` | `Tools` 容器 + `export-bindings` crate + **`archi-api-gen` crate**（本变更新增） | **3** | **3** |
-| `06-frontend.toml` | 前端 `Shell` / 9 视图 / 3 视图内子域 / 10 共享组件 / `Ui` + **四个**容器（`App.Frontend` 容器在 `01`） | 28 | 64 |
+| `06-frontend.toml` | 前端 `Shell` / 9 视图 / 3 视图内子域 / **12** 共享组件 / `Ui` + **四个**容器（`App.Frontend` 容器在 `01`） | **30** | **71** |
 
-合计 SHALL 为 **51 元素 / 113 关系**，逐文件可加：元素侧 `3 + 8 + 8 + 1 + 3 + 28 = 51`（容器 10 + 叶 41），关系侧 `0 + 9 + 24 + 13 + 3 + 64 = 113`。关系侧另按取数口径分：**113 = 后端 49（`Cargo.toml` `[dependencies]` 的 workspace 内声明，拆在 `02`–`05`：9 + 24 + 13 + 3）+ 前端 64（`import` 证据，全在 `06`）**；两种拆分 MUST 得同值。前端 64 的构成 SHALL 为 **58 条叶 → 叶 / 叶 → 容器边 + 6 条 `App.Frontend.Components.Agent` 的 barrel 端点边**（2 条出边：`index.tsx` 重导出 `AgentInput` / `AgentSessionView`；4 条入边：`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores` import `@/components/agent`）——这 6 条由「容器 `path` 唯一例外 = 持 barrel」与「`@/components/agent` → `Components.Agent` 映射」两条规则必然导出，MUST NOT 从记数中剔除。其中 `06-frontend.toml` 的 28 元素 = **4 个容器**（`App.Frontend.Views` / `App.Frontend.Components` / `App.Frontend.Components.Agent` / `App.Frontend.Components.Standard`）+ **24 个叶**（`Shell` 1 + 9 视图 + 3 子域 + 10 共享组件 + `Ui` 1）；`App.Frontend` 容器 SHALL 只在 `01-app.toml` 声明一次，`06` MUST NOT 重复声明（重复即 `duplicateElement`，并会使元素总数变成 52 而非 51）。
+合计 SHALL 为 **53 元素 / 120 关系**，逐文件可加：元素侧 `3 + 8 + 8 + 1 + 3 + 30 = 53`（容器 10 + 叶 43），关系侧 `0 + 9 + 24 + 13 + 3 + 71 = 120`。关系侧另按取数口径分：**120 = 后端 49（`Cargo.toml` `[dependencies]` 的 workspace 内声明，拆在 `02`–`05`：9 + 24 + 13 + 3）+ 前端 71（`import` 证据，全在 `06`）**；两种拆分 MUST 得同值。前端 71 的构成 SHALL 为 **64 条叶 → 叶 / 叶 → 容器边 + 7 条 `App.Frontend.Components.Agent` 的 barrel 端点边**（3 条出边：`index.tsx` 重导出 `AgentInput` / `AgentSessionView` / `SessionPanel`；4 条入边：`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores` import `@/components/agent`）——这 7 条由「容器 `path` 唯一例外 = 持 barrel」与「`@/components/agent` → `Components.Agent` 映射」两条规则必然导出，MUST NOT 从记数中剔除。其中 `06-frontend.toml` 的 30 元素 = **4 个容器**（`App.Frontend.Views` / `App.Frontend.Components` / `App.Frontend.Components.Agent` / `App.Frontend.Components.Standard`）+ **26 个叶**（`Shell` 1 + 9 视图 + 3 子域 + 12 共享组件 + `Ui` 1）；`App.Frontend` 容器 SHALL 只在 `01-app.toml` 声明一次，`06` MUST NOT 重复声明（重复即 `duplicateElement`，并会使元素总数变成 54 而非 53）。
 
 - **关系归属**：每条 `[[relation]]` SHALL 声明在**其 `from` 元素所在文件**内（定位一致、diff 不跨文件散落）。
 - **`gate` 全 `off`**：本基线内每个元素 SHALL 省略 `gate` 或显式写 `off`，MUST NOT 出现 `warn` / `strict`——冷启动 ratchet（收紧按模块独立变更，一个 change 收紧一块）。
@@ -39,14 +38,14 @@
 - **`docs`**：SHALL 只由包根元素 `App` 显式指向仓库面文档（`./README.md` / `./AGENT.md`），其余元素留空；任何元素 MUST NOT 把 `openspec/specs/**` 路径写进 `docs`（守 `desktop-archi-module-docs` 的迁移边界：模型 MUST NOT 反向依赖将被替代的语料）。
 - **`metadata`**：本基线 SHALL 全空（`owner` / `tier` 一类自由键会与 `Cargo.toml`、目录结构并列为第二事实源）。
 - **`desc`**：SHALL 为一句中文用途说明（「为什么依赖」），MUST NOT 写入证据清单（import 文件列表 / 依赖段位置）——证据由核对命令逐条取，模型内不存第二事实源。
-- **计数复述单源**：模型文件的表头注释（如 `# 03 · infra 适配层（8 元素 / 24 关系）`）、本要求的逐文件计数表、与裁定记录 `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧（仍写 50 / 111 / 47 / 2 元素 1 关系）即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**字段面扩容（`entry` / `api`）不改变元素与关系计数**：51 / 113 与逐文件分项逐字不变（含本次三处 `entry` 落位——它们只改入口面，不改元素与关系）。
+- **计数复述单源**：模型文件的表头注释（如 `# 03 · infra 适配层（8 元素 / 24 关系）`）、本要求的逐文件计数表、与裁定记录 `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧（仍写 50 / 111 / 47 / 2 元素 1 关系，或仍写 51 / 113、`06` 段 28 / 64）即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**字段面扩容（`entry` / `api`）不改变元素与关系计数**；**元素粒度补漏改变计数**：把 `components/agent/session-panel.tsx` 与 `components/standard/tooltip.tsx` 补建元素后，元素侧 +2、关系侧 +7（计数表 53 / 120、`06` 段 30 / 71 即由此得出；barrel 端点边 6 → 7 同批同步）。
 
 裁定记录 SHALL 落位 `<archi_dir>/decisions/0001-model-granularity.md`，MUST NOT 只写在 change 目录内（proposal 归档后不再被日常读取，判据须随架构域可读、可检索）。
 
 #### Scenario: 六文件字典序聚合零诊断
 
 - **WHEN** 以仓库根调用 `archi_graph(root)` 并聚合 `models/` 下六个文件
-- **THEN** 解析成功、`diagnostics` 为空、`elements` 共 51 条、`relations` 共 113 条；每条元素与关系的 `modelFile` 指向其声明所在文件、`modelLine` 为该表头 / 该 `from` 键所在行
+- **THEN** 解析成功、`diagnostics` 为空、`elements` 共 53 条、`relations` 共 120 条；每条元素与关系的 `modelFile` 指向其声明所在文件、`modelLine` 为该表头 / 该 `from` 键所在行
 
 #### Scenario: 字段纪律可机械审查
 
@@ -61,12 +60,12 @@
 #### Scenario: 计数复述三处同值
 
 - **WHEN** 逐处读取 `03` / `04` / `05` 文件表头注释、本要求的计数表与 ADR `§9` 复算表
-- **THEN** 三处同值：全基线 51 元素 / 113 关系（后端 49 + 前端 64）、`05` 段 3 元素 / 3 关系、`03` 段 8 元素 / 24 关系、`04` 段 1 元素 / 13 关系；任一处仍写 50 元素 / 111 关系 / 47 关系 / 2 元素即不合格
+- **THEN** 三处同值：全基线 53 元素 / 120 关系（后端 49 + 前端 71）、`06` 段 **30 元素 / 71 关系**、`05` 段 3 元素 / 3 关系、`03` 段 8 元素 / 24 关系、`04` 段 1 元素 / 13 关系；任一处仍写 51 / 113（含 `06` 段 28 / 64）、50 元素 / 111 关系 / 47 关系 / 2 元素即不合格
 
 #### Scenario: 三处入口在案后的两类空态归位
 
 - **WHEN** 分别对壳、两个工具 crate、12 个前端目录根元素跑一次全量检查并读 `apiFindings`
-- **THEN** 壳**零** `apiEntryMissing`，同趟 `apiMissing` 恰一条（显式 `entry` 命中 ⇒ ① 不成立；`api = declared` 且契约文件缺失 ⇒ ② 成立）——两条 MUST NOT 同时出现（入口债与契约债是两回事，壳「入口已通」不等于「契约已写」）；两个工具 crate 在两处**均零条目**（`entry` 命中 + `api = none`：① 与 ② 都不成立），该结论依赖两条事实同时在场，MUST NOT 因「无库 API」被重算成「无入口」；12 个前端目录根各产一条 `apiEntryMissing`（`Absent`：无 `entry`、无 `index.ts`），MUST NOT 因「该模块确实有代码」被错误地算作有入口——补 barrel 属独立变更；反方向 MUST NOT 成立：14 个 `src/lib.rs` 命中的 crate 与前端 12 个单文件根各自由约定默认解析出入口，零 `apiEntryMissing`
+- **THEN** 壳**零** `apiEntryMissing`，同趟 `apiMissing` 恰一条（显式 `entry` 命中 ⇒ ① 不成立；`api = declared` 且契约文件缺失 ⇒ ② 成立）——两条 MUST NOT 同时出现（入口债与契约债是两回事，壳「入口已通」不等于「契约已写」）；两个工具 crate 在两处**均零条目**（`entry` 命中 + `api = none`：① 与 ② 都不成立），该结论依赖两条事实同时在场，MUST NOT 因「无库 API」被重算成「无入口」；12 个前端目录根各产一条 `apiEntryMissing`（`Absent`：无 `entry`、无 `index.ts`），MUST NOT 因「该模块确实有代码」被错误地算作有入口——补 barrel 属独立变更；反方向 MUST NOT 成立：14 个 `src/lib.rs` 命中的 crate 与前端 **14** 个单文件根各自由约定默认解析出入口，零 `apiEntryMissing`
 
 ### Requirement: 后端下钻到 crate 层的元素覆盖
 
@@ -161,31 +160,30 @@
 - **THEN** 出边恰为 `App.Backend.Core.Archi` 与 `App.Backend.Core.Foundation` 两条（各带一句中文 `desc`）；`serde_json` 等外部依赖零连边；`05` 段关系数为 3
 
 ### Requirement: 前端下钻到视图与组件层的元素覆盖
-
 前端模型 SHALL 下钻到**视图**与**组件**两层，并按三条机械判据推导元素，MUST NOT 按个人口味挑选：
 
 | 档 | 判据 | 元素 |
 |---|---|---|
 | 页 / 壳 | `src/app.tsx` + `routes.tsx` + `main.tsx` + `app-sidebar.tsx` 合成 `App.Frontend.Shell`；`views/<view>/` 每目录一元素；`views/welcome-view.tsx` 单文件一元素 | `App.Frontend.Shell`、`App.Frontend.Views.{Agents,AgentDebug,Architecture,Changes,Config,DbInspector,Explores,Info,Welcome}` |
 | 视图内子域 | `views/<view>/` 下**除 `components` / `hooks` 外**、非测试源文件 **≥ 3** 的子目录 | `App.Frontend.Views.Changes.{Flow,Renderers,Agent}` |
-| 共享组件 | `src/components/agent/*.{ts,tsx}` 与 `src/components/standard/*.tsx` 每文件一元素（排除 `*.test.*` 与 barrel `index.tsx`）；`src/components/ui/` **收敛为 1 元素** | `App.Frontend.Components.Agent.{AgentBlocks,AgentError,AgentInput,AgentMessages,AgentSessionView,ToolCards}`、`App.Frontend.Components.Standard.{Dailog,Drawer,Pagination,Select}`、`App.Frontend.Components.Ui` |
+| 共享组件 | `src/components/agent/*.{ts,tsx}` 与 `src/components/standard/*.tsx` 每文件一元素（排除 `*.test.*` 与 barrel `index.tsx`）；`src/components/ui/` **收敛为 1 元素** | `App.Frontend.Components.Agent.{AgentBlocks,AgentError,AgentInput,AgentMessages,AgentSessionView,SessionPanel,ToolCards}`、`App.Frontend.Components.Standard.{Dailog,Drawer,Pagination,Select,Tooltip}`、`App.Frontend.Components.Ui` |
 
 容器 SHALL 为 `App.Frontend`、`App.Frontend.Views`、`App.Frontend.Components`、`App.Frontend.Components.Agent`（持 barrel）、`App.Frontend.Components.Standard`——`kind = "domain"`、`path` 空（`Components.Agent` 例外）；视图与视图内子域 SHALL 为 `module`、共享组件文件 SHALL 为 `component`、`App.Frontend.Components.Ui` SHALL 为 `module`。
 
 - **`components/ui` 收敛的理由**：ui 是 shadcn 原语层，35 个文件恒被依赖、不承担「谁能依赖谁」的判定；逐文件建元素只增噪声（35 元素）不增信息。若将来 ui 内部出现实质分层，再拆元素（须改本 requirement）。
 - **封闭排除面**（不建元素、不参与覆盖、不贡献边）：`src/hooks/**`、`src/lib/**`、`src/types/**`（含 `types/generated/bindings.ts`）、`src/components/standard/hooks/**`、`*.test.{ts,tsx}`、`src/test-setup.ts`。
 - **粒度 ≠ 解析面**：视图目录内的 `hooks/` / `lib/` 文件不建元素，但其 `import` 仍计入**所属视图元素**的依赖（归属按目录、粒度按是否建元素，两者不是一回事）；`src/components/standard/hooks/` 不入模型是为了守住「容器 `path` 恒空」——把 hooks 归给容器就等于把「子 → 父」写成依赖。
-- **覆盖判据（双向）**：上述判据命中的目录 / 文件集合与前端叶元素 `path` 集合 SHALL 相等；判据外的元素 MUST NOT 存在。
+- **覆盖判据（双向）**：上述判据命中的目录 / 文件集合与前端叶元素 `path` 集合 SHALL 相等；判据外的元素 MUST NOT 存在。唯一例外是裁定记录 `§8` 的**已知缺口清单**——本期前端两条：`components/file/file-viewer.tsx`（ADR 三层表无 `components/<其它目录>` 档，补齐须**新增粒度档** ＝改本 requirement）与 `views/architecture/agent/`（判据命中「递归非测试源文件 3 个」但未建元素，补齐属独立变更）。缺口 MUST 单列入 `§8` 且 MUST NOT 被读成「判据失效」；本变更 MUST NOT 顺手补这两条（补齐须另开 change）。
 
 #### Scenario: 视图与子域覆盖
 
 - **WHEN** 枚举 `src/views/*/` 与 `src/views/welcome-view.tsx`、并枚举 `views/changes/` 下满足「非 `components`/`hooks` 且非测试源文件 ≥ 3」的子目录
-- **THEN** 前者与 9 个视图元素一一对应；后者恰为 `flow`（13 源文件）、`renderers`（7）、`agent`（3）三个子域元素；`views/changes/components/`（1 文件）与各视图的 `components/` 目录不构成子域
+- **THEN** 前者与 9 个视图元素一一对应；后者恰为 `flow`（13 源文件）、`renderers`（7）、`agent`（3）三个**已建元素**的子域；`views/changes/components/`（1 文件）与各视图的 `components/` 目录不构成子域
 
 #### Scenario: 共享组件逐文件与 ui 收敛
 
 - **WHEN** 检查 `src/components/` 的元素声明
-- **THEN** `agent/` 下 6 个源文件各一 `component` 元素（`index.tsx` barrel 排除、由容器 `App.Frontend.Components.Agent` 持有）、`standard/` 下 4 个 `.tsx` 各一元素、`ui/` 恰 1 个 `module` 元素且 `path` 指向该目录
+- **THEN** `agent/` 下 **7** 个源文件各一 `component` 元素（`index.tsx` barrel 排除、由容器 `App.Frontend.Components.Agent` 持有；含 `session-panel.tsx` → `SessionPanel`）、`standard/` 下 **5** 个 `.tsx` 各一元素（含 `tooltip.tsx` → `Tooltip`）、`ui/` 恰 1 个 `module` 元素且 `path` 指向该目录
 
 #### Scenario: 排除面零元素
 
@@ -193,31 +191,30 @@
 - **THEN** 以上位置零元素、零 `path` 引用；同时 `views/*/hooks/**` 与 `views/*/lib/**` 文件不构成元素（其依赖计入所属视图）
 
 ### Requirement: 前端关系只取 import 证据
-
 前端关系 SHALL 只由**已声明元素覆盖范围内**文件的 `import` 语句证成，MUST NOT 凭语义直觉连边：
 
 - **目标归属**：被 import 的路径 SHALL 按「最具体已声明元素」归属（`@/components/ui/button` → `Components.Ui`；`@/components/standard/drawer` → `Standard.Drawer`；`@/components/agent`（barrel）→ `Components.Agent`）。
-- **命令面边**：`types/generated/bindings` 的 `import` SHALL 映射为**命令面依赖**，指向 `App.Backend.Shell`（`desc` 写明「经生成的命令面类型」）——这是前端对后端的唯一合法边来源；`src/lib` / `src/hooks` 未被建模，故壳层对命令面的依赖本期不可见（已知缺口，见裁定记录）。
+- **命令面边**：`types/generated/bindings` 的 `import` SHALL 映射为**命令面依赖**，指向 `App.Backend.Shell`（`desc` 写明「经生成的命令面类型」）——这是前端对后端的唯一合法边来源；`src/lib` / `src/hooks` 未被建模，故壳层对命令面的依赖本期不可见（已知缺口，见裁定记录）。该映射是**声明式约定**：`src/types/**` 无元素归属，扫描解析出目标文件后因 `Owner::None` 丢弃该边，故命令面边在报告里落 `observations[].unfulfilledDeclaration`（`gate` 全 `off` ⇒ 永不进 `errors` / `warnings`）——MUST NOT 用「`observations` 为空」验收本能力，也 MUST NOT 期待这类边出现在违例桶。
 - **不解析面零边**：指向 `hooks/`、`lib/`、`types/dto` 的 `import` MUST NOT 产生关系（本期不解析）；`App.Frontend.Views.Welcome` 一类「只经 hooks 取数」的元素因而可无后端边。
 - **包含与自环**：子元素归属由 FQN 表达，MUST NOT 连边；`from == to` 的自环 MUST NOT 出现（同元素内部互引不建边）。
 - **父 → 子的 import 边合法**：`Views.Changes → Views.Changes.Flow`（详情页组装流程画布）是装配依赖，不是包含；禁的只是「子 → 父」。
-- **容器作端点仅限 barrel 一例**：容器元素只有 `App.Frontend.Components.Agent` 持 `path`，故只有它可以作为关系端点；其端点边 SHALL 恰为 **6 条**——2 条出边（`index.tsx` 重导出 `AgentInput` / `AgentSessionView`）+ 4 条入边（`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores` import `@/components/agent`）。其余三个容器（`Views` / `Components` / `Standard`）MUST NOT 出现在任何关系的任一端点上。
-- **计数恒等式**：前端边 SHALL 为 **64 条 / 22 个源**，且 MUST 满足 `64 = 58（叶 → 叶 / 叶 → 容器）+ 6（barrel 端点边）`；若某次落笔得到 58，说明这 6 条被漏掉（判据自相矛盾），MUST NOT 以「容器不入边」为由删减——要改只能改本要求的字段规则或映射规则（撤销 barrel 例外），不能在实现期折中。
+- **容器作端点仅限 barrel 一例**：容器元素只有 `App.Frontend.Components.Agent` 持 `path`，故只有它可以作为关系端点；其端点边 SHALL 恰为 **7 条**——3 条出边（`index.tsx` 重导出 `AgentInput` / `AgentSessionView` / `SessionPanel`）+ 4 条入边（`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores` import `@/components/agent`）。其余三个容器（`Views` / `Components` / `Standard`）MUST NOT 出现在任何关系的任一端点上。
+- **计数恒等式**：前端边 SHALL 为 **71 条 / 24 个源**，且 MUST 满足 `71 = 64（叶 → 叶 / 叶 → 容器）+ 7（barrel 端点边）`；若某次落笔得到 64，说明这 7 条被漏掉（判据自相矛盾），MUST NOT 以「容器不入边」为由删减——要改只能改本要求的字段规则或映射规则（撤销 barrel 例外），不能在实现期折中。
 
 #### Scenario: 每条边可指到 import 语句
 
-- **WHEN** 逐条核对 64 条前端边（22 个源）
-- **THEN** 每条均能在其 `from` 元素覆盖范围内的某文件里找到对应 `import`（证据清单在 change 报告留痕）；反向抽查「有 import、无关系」的跨元素引用为零
+- **WHEN** 逐条核对 71 条前端边（24 个源）
+- **THEN** 每条均能在其 `from` 元素覆盖范围内的某文件里找到对应 `import`（证据清单在 change 报告留痕）；反向抽查「有 import、无关系」的跨元素引用为零——唯一例外是裁定记录 `§8` 登记的**既有边面缺口**（本期 11 条已建元素间的跨元素 `import` 未声明，其中 `Views.Changes.Flow → Views.Changes` 是「子 → 父」形态、声明即 `dependsOnAncestor` 停摆，故补齐须另开 change），缺口 MUST 单列且 MUST NOT 在本变更内补齐
 
 #### Scenario: 命令面边恰一处来源
 
 - **WHEN** 检查全部指向 `App.Backend.Shell` 的前端边
-- **THEN** 其来源文件均 import 了 `types/generated/bindings`（`Views.Agents` / `Views.AgentDebug` / `Views.Architecture` / `Views.Changes` / `Views.Changes.Flow` / `Views.Changes.Agent` / `Views.Config` / `Views.DbInspector` / `Views.Explores` / `Views.Info` / `Components.Agent.AgentSessionView` 一类），MUST NOT 存在以 `hooks` / `lib` 为唯一证据的命令面边
+- **THEN** 其来源文件均 import 了 `types/generated/bindings`（`Views.Agents` / `Views.AgentDebug` / `Views.Architecture` / `Views.Changes` / `Views.Changes.Flow` / `Views.Changes.Agent` / `Views.Config` / `Views.DbInspector` / `Views.Explores` / `Views.Info` / `Components.Agent.AgentSessionView` / `Components.Agent.SessionPanel` 一类），MUST NOT 存在以 `hooks` / `lib` 为唯一证据的命令面边
 
-#### Scenario: 容器端点边恰为 barrel 的 6 条
+#### Scenario: 容器端点边恰为 barrel 的 7 条
 
 - **WHEN** 统计模型内全部以容器元素为任一端点的前端关系
-- **THEN** 恰 6 条且全部挂在 `App.Frontend.Components.Agent`：出边 `AgentInput` / `AgentSessionView`，入边 `Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores`；`App.Frontend.Views` / `App.Frontend.Components` / `App.Frontend.Components.Standard` 零端点，前端边总数 64 = 58 + 6
+- **THEN** 恰 7 条且全部挂在 `App.Frontend.Components.Agent`：出边 `AgentInput` / `AgentSessionView` / `SessionPanel`，入边 `Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores`；`App.Frontend.Views` / `App.Frontend.Components` / `App.Frontend.Components.Standard` 零端点，前端边总数 71 = 64 + 7
 
 #### Scenario: 不解析面零边与自环零出现
 
@@ -225,7 +222,6 @@
 - **THEN** 不存在仅由「import `@/hooks/...`」「import `@/lib/...`」「import `@/types/dto`」证成的边；`from == to` 的自环零条；`Components.Ui` 只作为被依赖方出现（出边为零，其内部互引不建边）
 
 ### Requirement: 图自洽与停摆禁令
-
 基线模型 SHALL 使四类结构诊断**全部零命中**：`cycle` / `dependsOnAncestor` / `unknownReference` / `orphanHierarchy`；`archi_graph(root)` SHALL 返回正常态（元素与关系完整、`diagnostics` 为空），MUST NOT 停摆。
 
 - **祖先显式声明**：所有容器元素 SHALL 在模型内声明（层级由 FQN 前缀推导，孤儿层级即 `orphanHierarchy`）；MUST NOT 依赖「隐式祖先自动补建」（本能力体系的既有前提）。
@@ -235,7 +231,7 @@
 #### Scenario: 正常态而非停摆态
 
 - **WHEN** 调用 `archi_graph(root)`
-- **THEN** 返回正常态：`elements` 51、`relations` 113（后端 49 + 前端 64）、`diagnostics` 空、`warnings` 空；`/architecture` 页面呈现左栏树 + 画布 + 抽屉三段，无结构错面板、零「修好后再看」文案
+- **THEN** 返回正常态：`elements` 53、`relations` 120（后端 49 + 前端 71）、`diagnostics` 空、`warnings` 空；`/architecture` 页面呈现左栏树 + 画布 + 抽屉三段，无结构错面板、零「修好后再看」文案
 
 #### Scenario: 成环与祖先禁边被机械拦住
 
@@ -267,23 +263,22 @@
 - **THEN** `dependsOn` 恰一条 `App.Backend.Core.Foundation`，`dependedBy` 含 `App.Backend.Infra.AgentRuntime`、`App.Backend.Infra.ArchiRuntime` 与 `App.Backend.Shell`，`children` 为空，`warnings` 为空；`element.modelFile` = `.dev-team/architecture/models/02-backend-core.toml` 且 `modelLine` 指向该元素表头行
 
 ### Requirement: 覆盖判据的机械核对与漂移纪律
-
 元素的完整性与关系的证据性 SHALL 可**机械核对**（不靠人读图判断），核对口径恰为三条：
 
 | # | 核对 | 判据 |
 |---|---|---|
-| 1 | 双向覆盖 | 判据命中的 crate 目录 / 视图目录 / 视图内子域 / 共享组件文件 / `components/ui/` 集合 == 模型叶元素 `path` 集合（无漏无多；`crates/tools/specta-zod-patched` 为**既有已知缺口**，核对时单列一条、不计入本变更判红，其余零差集） |
-| 2 | 关系证据 | 后端逐边等于 `Cargo.toml` `[dependencies]` 的 workspace 内声明集；前端逐边可指到 `import` 语句 |
+| 1 | 双向覆盖 | 判据命中的 crate 目录 / 视图目录 / 视图内子域 / 共享组件文件 / `components/ui/` 集合 == 模型叶元素 `path` 集合（无漏无多；**既有已知缺口**单列、不计入判红、其余零差集——本期三条：`crates/tools/specta-zod-patched`、`components/file/file-viewer.tsx`、`views/architecture/agent/`，与边面缺口清单同批登记在裁定记录 `§8`） |
+| 2 | 关系证据 | 后端逐边等于 `Cargo.toml` `[dependencies]` 的 workspace 内声明集；前端逐边可指到 `import` 语句（**命令面边**例外：它是声明式约定，扫描面无证据、落 `observations`，见 `§8`） |
 | 3 | 图自检 | `archi_graph` 正常态、`diagnostics` 空、`warnings` 空 |
 
 - 本期核对 SHALL 以**命令 + 留痕**执行（当次 change 的 `reports/archi/` 核对留痕内），MUST NOT 把本仓模型塞进 `crates/core/archi/tests/corpus/**` 作语料——crate 语料必须自足可移植，耦合本仓内容会让 crate 单测随仓库演进变红。机制化（漂移判定进流程门禁）归 `desktop-archi-gate`；本能力只定义模型内容与核对判据。
 - **漂移纪律**：新增 / 删除 crate、视图、视图内子域、共享组件，或新增跨元素 `import` 依赖时，SHALL 在同一 change 内同步模型（元素 / 关系 / `path`），MUST NOT 留待「下次整理」；判据之外的元素与关系 MUST NOT 存在（「觉得该有」不是判据）。
-- **「同一 change 内同步」的核对口径（本变更新增）**：当 change 新增 crate 时，核对 SHALL 同时看三件事——元素与容器归属在案、该 crate 的 `[dependencies]` 边逐条在案、涉及文件的计数（元素 / 关系）同步为同值；三者缺一即判不合格（只补元素不补边、或只改模型不改计数，都是漂移）。已知缺口清单 SHALL 只含「先于该 change 存在」的条目，MUST NOT 用「已在缺口清单里」为本次新增项开脱。
+- **「同一 change 内同步」的核对口径（本变更新增）**：当 change 新增 crate 时，核对 SHALL 同时看三件事——元素与容器归属在案、该 crate 的 `[dependencies]` 边逐条在案、涉及文件的计数（元素 / 关系）同步为同值；三者缺一即判不合格（只补元素不补边、或只改模型不改计数，都是漂移）。已知缺口清单 SHALL 只含「先于该 change 存在」的条目，MUST NOT 用「已在缺口清单里」为本次新增项开脱。本期前端边面缺口 SHALL 逐条列在裁定记录 `§8`（11 条已建元素间的跨元素 `import` 未声明），普查口径为「`06` 已建元素覆盖范围内文件的跨元素 `import`」与「`[[relation]]` 集合」两侧求差；缺口是既有事实、MUST NOT 被抹成零差集结论。
 
 #### Scenario: 双向覆盖零差集
 
 - **WHEN** 以判据枚举两侧集合并求差集
-- **THEN** 两个方向差集均为空；任一新增目录 / 文件未声明即出现非空差集，核对失败（唯一例外为既有已知缺口 `crates/tools/specta-zod-patched`：它 SHALL 以单条已知缺口出现，MUST NOT 被算作本变更的差集，也不得掩盖其它差集）
+- **THEN** 两个方向差集均为空；任一新增目录 / 文件未声明即出现非空差集，核对失败（唯一例外为裁定记录 `§8` 的既有已知缺口清单：`crates/tools/specta-zod-patched`、`components/file/file-viewer.tsx`、`views/architecture/agent/` 三条 SHALL 各自单条出现，MUST NOT 被算作本变更的差集，也不得掩盖其它差集）
 
 #### Scenario: 判据之外零元素零边
 
@@ -298,10 +293,9 @@
 #### Scenario: 新增 crate 的三件套核对
 
 - **WHEN** 对新增 `crates/infra/archi` 的 change 执行覆盖核对
-- **THEN** 三件事同时成立：`App.Backend.Infra.ArchiRuntime` 元素与 `App.Backend.Infra` 容器归属在案；`archi-runtime` 的三条 `[dependencies]` 边与壳指向它的那条边逐条在案；`03` 段 8 元素 / 24 关系与全基线 51 / 113 在模型表头、计数表与 ADR `§9` 三处同值——缺任一件即不合格
+- **THEN** 三件事同时成立：`App.Backend.Infra.ArchiRuntime` 元素与 `App.Backend.Infra` 容器归属在案；`archi-runtime` 的三条 `[dependencies]` 边与壳指向它的那条边逐条在案；`03` 段 8 元素 / 24 关系与全基线 53 / 120 在模型表头、计数表与 ADR `§9` 三处同值——缺任一件即不合格
 
 ### Requirement: 本仓架构域看护配置与排除留痕
-
 本仓库 SHALL 落位一份**架构域看护配置** `<archi_dir>/config.json`（本期落点 `.dev-team/architecture/config.json`），内容 SHALL 恰为扫描排除一条：
 
 ```json
@@ -312,7 +306,7 @@
 - **MUST NOT 带 `$schema` 键**：该文件的读取面是 `desktop-archi-drift`「架构域看护配置」的严格解析（`deny_unknown_fields`，只登记 `ignore` / `exclude` 两键，`$schema` 既无 `rename` 也无容忍分支）；写 `$schema` 会让配置解析直接 `Err`，同时打断漂移命令、门禁 runner 与文件树三条消费面。本文件与工作区 `.dev-team/config.json`（带 `$schema`）形态不同，两者 MUST NOT 类比照抄。
 - **排除理由**：`openspec/` 下存在**未被 gitignore** 的源文件（实测 `openspec/changes/archive/2026-09-28-agent-component-ai-sdk/prototypes/{index,agent-input,agent-messages}.tsx` 三个原型），它们不在 `decisions/0001-model-granularity.md` §7 的封闭排除面内、也不被默认测试面约定命中，故必须经配置排除，MUST NOT 以「代码里写死一条 `openspec/` 前缀」替代（那会让「什么进扫描面」变成第二套判据）。
 - **连带留痕（必须如实登记，不是零改动）**：该文件生效后，上述三个文件在漂移报告中由 `scan.unmatchedFiles[]` 移入 `scan.excluded[]`（`{ file, rule }`，`rule = "openspec/**"`）——`unmatchedFiles` −3 / `excluded` +3；文件树的枚举面（`desktop-archi-file-tree`「枚举面与漂移判定面逐条一致」）随之同源变化（实测进树文件 667 → 358 中 −3 归此、−306 归测试面约定）。判定规则、`status` 推导与报告结构零变化。
-- **模型资产零变化**：该配置 MUST NOT 引起任何模型改动——元素 / 关系 / `path` / `gate` / 计数（51 元素 / 113 关系、`06` 段 28 / 64）与裁定记录 `§9` 复算表逐字不变；`views/architecture/**` 已是单元素 `App.Frontend.Views.Architecture`，本变更在该目录内新增的 `components/file-tree.tsx` / `hooks/use-archi-file-tree.ts` 不建元素、不贡献新边（视图内 `lib/` 与 `hooks/` 的依赖计入该视图元素）。
+- **模型资产零变化**：该配置 MUST NOT 引起任何模型改动——元素 / 关系 / `path` / `gate` / 计数（53 元素 / 120 关系、`06` 段 30 / 71）与裁定记录 `§9` 复算表逐字不变；`views/architecture/**` 已是单元素 `App.Frontend.Views.Architecture`，本变更在该目录内新增的 `components/file-tree.tsx` / `hooks/use-archi-file-tree.ts` 不建元素、不贡献新边（视图内 `lib/` 与 `hooks/` 的依赖计入该视图元素）。
 - **工作区配置零触碰**：本文件 MUST NOT 被工作区配置 crate 读取；`.dev-team/config.json` 的 `KNOWN_KEYS`、`config.schema.json` 镜像与前端 config 页零变化（归属面写死：工作区配置管执行，架构域配置管看护策略）。
 
 #### Scenario: 配置文件在案且形态正确
@@ -328,7 +322,7 @@
 #### Scenario: 模型与计数零漂移
 
 - **WHEN** 对比配置加入前后的模型资产与计数复述
-- **THEN** `models/` 六个文件逐字不变（51 元素 / 113 关系、`06` 段 28 / 64、`gate` 全 `off`）、`decisions/0001-model-granularity.md` 的 `§9` 复算表逐字不变；`archi_graph(root)` 仍为正常态（零诊断、零告警）
+- **THEN** `models/` 六个文件逐字不变（53 元素 / 120 关系、`06` 段 30 / 71、`gate` 全 `off`）、`decisions/0001-model-granularity.md` 的 `§9` 复算表逐字不变；`archi_graph(root)` 仍为正常态（零诊断、零告警）
 
 #### Scenario: 工作区配置零影响
 
@@ -344,13 +338,13 @@
 | `.dev-team/architecture/models/03-backend-infra.toml` | infra 适配侧分层 | `App.Backend.Infra` 容器 + **7** crate 元素（新增 `ArchiRuntime`，`path` 指 `./packages/desktop/src-tauri/crates/infra/archi/`、`gate = off`、中文 `summary`）；**24** 条边（新增 `ArchiRuntime → Core.Archi` / `Core.Foundation` / `Core.Orchestration`；`store → workflow` 跨界边与其余 21 条不变） |
 | `.dev-team/architecture/models/04-backend-shell.toml` | Tauri 壳 | `App.Backend.Shell`（`path` = `src-tauri/src/`）+ **13** 条装配出边（新增 `→ App.Backend.Infra.ArchiRuntime`，`desc` 写「架构门禁步骤的 runner 构造与注入」）；加一行 `entry = "./packages/desktop/src-tauri/src/lib.rs"`（单值、`./` 前缀、落在 `path` `./packages/desktop/src-tauri/src/` 之内）；`kind` / `gate` / `path` / `summary` 与 13 条出边逐字不变，表头计数仍为「1 元素 / 13 关系」 |
 | `.dev-team/architecture/models/05-backend-tools.toml` | 工具层模型数据 | `App.Backend.Tools` 容器 + `ExportBindings` + **`ArchiApiGen`** 三元素 / 3 关系；表头注释同步为「3 元素 / 3 关系」；反向边 `ExportBindings → App.Backend.Shell` 与 `ArchiApiGen → Core.Archi` / `Core.Foundation` 各一句中文 `desc`；两个工具 crate 各新增 `api = "none"` 与一行 `entry`（`.../crates/tools/export-bindings/src/main.rs` / `.../crates/tools/archi-api-gen/src/main.rs`），两行 `api = "none"` **保留不动**；3 条关系与表头计数（3 元素 / 3 关系）逐字不变 |
-| `.dev-team/architecture/models/06-frontend.toml` | 前端视图与组件层 | 28 元素 = **4 容器**（`Views` / `Components` / `Components.Agent` / `Components.Standard`）+ 24 叶（`Shell` / 9 视图 / 3 子域 / 10 共享组件 / `Ui`；`App.Frontend` 在 `01`）+ **64 条 import 边**（22 个源；`Ui` 恒为被依赖方，`Components.Agent` 的 2 出 / 4 入共 6 条 barrel 端点边） |
-| `.dev-team/architecture/models/{01-app,02-backend-core,03-backend-infra,06-frontend}.toml` | 其余模型数据 | 零改动（元素 / 关系 / `path` 逐字不变；`gate` 全 `off` 不动；06 段 28 / 64 与 03 段 8 / 24 不变；`entry` 零行——单文件根与 14 个 `src/lib.rs` 命中的 crate 均由约定默认覆盖） |
-| `.dev-team/architecture/decisions/0001-model-granularity.md` | 粒度与口径裁定 | 判据六条（三档粒度 / 容器 `path` / dev 排除 / ui 收敛 / `gate` 全 `off` / 封闭排除面）零改动；计数复述（`§1` 基线、`§4` 后端边总数、`§5` `Shell` 出边、`§6` 元素总数、`§9` 复算表）同步为 51 元素 / 113 关系、后端 49、`Shell` 出边 13、`05` 段 3 / 3；`entry` / `api` 是字段面扩容，不构成新粒度判据，故 ADR MUST NOT 为此新增判据条目 |
+| `.dev-team/architecture/models/06-frontend.toml` | 前端视图与组件层 | 30 元素 = **4 容器**（`Views` / `Components` / `Components.Agent` / `Components.Standard`）+ 26 叶（`Shell` / 9 视图 / 3 子域 / 12 共享组件（含 `SessionPanel` / `Tooltip`）/ `Ui`；`App.Frontend` 在 `01`）+ **71 条 import 边**（24 个源；`Ui` 恒为被依赖方，`Components.Agent` 的 3 出 / 4 入共 7 条 barrel 端点边） |
+| `.dev-team/architecture/models/{01-app,02-backend-core,03-backend-infra}.toml` | 其余模型数据 | 零改动（元素 / 关系 / `path` 逐字不变；`gate` 全 `off` 不动；03 段 8 / 24 不变；`entry` 零行——单文件根与 14 个 `src/lib.rs` 命中的 crate 均由约定默认覆盖） |
+| `.dev-team/architecture/decisions/0001-model-granularity.md` | 粒度与口径裁定 | 判据六条（三档粒度 / 容器 `path` / dev 排除 / ui 收敛 / `gate` 全 `off` / 封闭排除面）零改动；计数复述（`§1` 基线、`§4` 后端边总数、`§5` `Shell` 出边、`§6` 元素总数、`§9` 复算表）同步为 53 元素 / 120 关系（前端 71）、后端 49、`Shell` 出边 13、`05` 段 3 / 3、`06` 段 30 / 71、barrel 端点边 3 出 + 4 入 = 7；`entry` / `api` 是字段面扩容，不构成新粒度判据，故 ADR MUST NOT 为此新增判据条目 |
 | `openspec/changes/**/reports/**`（本 change 内） | 核对留痕 | 双向覆盖差集、后端边逐条比对、前端边 import 证据清单三份结果 |
-| 核对口径（命令 + 留痕） | 双向覆盖比对 | `crates/{core,infra,tools}/<dir>/` 目录集合 ↔ 元素 `path` 集合（自研 16 ↔ 16，`specta-zod-patched` 单列差集）；`archi_graph(root)` 正常态 51 / 113 零诊断零告警 |
+| 核对口径（命令 + 留痕） | 双向覆盖比对 | `crates/{core,infra,tools}/<dir>/` 目录集合 ↔ 元素 `path` 集合（自研 16 ↔ 16，`specta-zod-patched` 单列差集）；`archi_graph(root)` 正常态 53 / 120 零诊断零告警 |
 | `crates/core/archi/**`（模型读面） | 只读消费方 | `parse_dir` 聚合、`ModelGraph` 校验、`dto` 投影与结构诊断零改动（本变更只在同 crate 新增 `scan/` / `drift/`）；模型 MUST NOT 因新增扫描面扩字段 |
-| `src/views/architecture/**` | 画布 | 只被使用：`/architecture` 正常态渲染 51 节点 / 113 边；视图内 `lib/` 与 `hooks/` 不建元素（粒度 ≠ 解析面），本变更新增的 `lib/drift-marks.ts` 与 `hooks/use-archi-drift.ts` 依赖计入 `Views.Architecture` |
+| `src/views/architecture/**` | 画布 | 只被使用：`/architecture` 正常态渲染 53 节点 / 120 边；视图内 `lib/` 与 `hooks/` 不建元素（粒度 ≠ 解析面），本变更新增的 `lib/drift-marks.ts` 与 `hooks/use-archi-drift.ts` 依赖计入 `Views.Architecture` |
 | `.dev-team/architecture/config.json`（新增） | 架构域看护配置 | `{ "exclude": ["openspec/**"] }`；**不带 `$schema`**（读取面 `deny_unknown_fields` 只认 `ignore` / `exclude`）；生效后 `openspec/` 下三个原型 tsx 由 `unmatchedFiles[]` 移入 `excluded[]` |
 | `.dev-team/architecture/models/**` / `decisions/0001-model-granularity.md` / `api/**` | 模型与契约资产（零改动） | 元素 / 关系 / `path` / `gate` / 计数与 ADR 复算表逐字不变；配置加入 MUST NOT 引起模型改动 |
 | `packages/desktop/src/views/architecture/**`（见 `desktop-archi-file-tree`） | 画布（零模型漂移） | 该目录已是单元素 `App.Frontend.Views.Architecture`；新增 `components/file-tree.tsx` 与 `hooks/use-archi-file-tree.ts` 不建元素，其 import 计入该视图元素（计数零变化） |
