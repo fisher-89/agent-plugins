@@ -213,6 +213,15 @@ schema = ""
 generated = ""
 
 [[entry]]
+fqn = "App.Frontend.Components.Agent.SessionPanel"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
 fqn = "App.Frontend.Components.Agent.ToolCards"
 status = "absent"
 types = 0
@@ -250,6 +259,15 @@ generated = ""
 
 [[entry]]
 fqn = "App.Frontend.Components.Standard.Select"
+status = "absent"
+types = 0
+ops = 0
+degraded = 0
+schema = ""
+generated = ""
+
+[[entry]]
+fqn = "App.Frontend.Components.Standard.Tooltip"
 status = "absent"
 types = 0
 ops = 0

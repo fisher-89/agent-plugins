@@ -1,5 +1,5 @@
-# 06 · 前端（28 元素 / 64 关系）
-# 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 10 + 原语层 1，另有 4 个容器。
+# 06 · 前端（30 元素 / 71 关系）
+# 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 12 + 原语层 1，另有 4 个容器。
 # 关系只取 import 证据，目标按「最具体已声明元素」归属；指向 hooks / lib / types 的 import 不建边。
 
 [element."App.Frontend.Shell"]
@@ -126,6 +126,12 @@ gate = "off"
 path = ["./packages/desktop/src/components/agent/agent-session-view.tsx"]
 summary = "整段会话视图（含命令面类型驱动的状态）"
 
+[element."App.Frontend.Components.Agent.SessionPanel"]
+kind = "component"
+gate = "off"
+path = ["./packages/desktop/src/components/agent/session-panel.tsx"]
+summary = "会话面板骨架（头区动作 / 状态行 / 历史清单 / 折叠窄条，两处会话面共用）"
+
 [element."App.Frontend.Components.Agent.ToolCards"]
 kind = "component"
 gate = "off"
@@ -160,6 +166,12 @@ kind = "component"
 gate = "off"
 path = ["./packages/desktop/src/components/standard/select.tsx"]
 summary = "下拉选择控件"
+
+[element."App.Frontend.Components.Standard.Tooltip"]
+kind = "component"
+gate = "off"
+path = ["./packages/desktop/src/components/standard/tooltip.tsx"]
+summary = "文本气泡（原语层 Tooltip 的业务封装）"
 
 [element."App.Frontend.Components.Ui"]
 kind = "module"
@@ -228,6 +240,11 @@ to = "App.Frontend.Components.Agent.AgentSessionView"
 desc = "统一出口重导出整段会话视图"
 
 [[relation]]
+from = "App.Frontend.Components.Agent"
+to = "App.Frontend.Components.Agent.SessionPanel"
+desc = "barrel 重导出面板组件与其状态类型"
+
+[[relation]]
 from = "App.Frontend.Components.Agent.AgentBlocks"
 to = "App.Frontend.Components.Ui"
 desc = "使用滚动容器原语承载消息块"
@@ -268,6 +285,21 @@ to = "App.Frontend.Components.Ui"
 desc = "使用徽标等原语呈现会话状态"
 
 [[relation]]
+from = "App.Frontend.Components.Agent.SessionPanel"
+to = "App.Backend.Shell"
+desc = "经生成的命令面类型取会话清单"
+
+[[relation]]
+from = "App.Frontend.Components.Agent.SessionPanel"
+to = "App.Frontend.Components.Agent.AgentSessionView"
+desc = "面板正文复用整段会话视图"
+
+[[relation]]
+from = "App.Frontend.Components.Agent.SessionPanel"
+to = "App.Frontend.Components.Ui"
+desc = "头区按钮与可拖拽分栏使用原语层"
+
+[[relation]]
 from = "App.Frontend.Components.Agent.ToolCards"
 to = "App.Frontend.Components.Agent.AgentBlocks"
 desc = "卡片正文复用块呈现"
@@ -291,6 +323,11 @@ desc = "以分页与按钮原语组装翻页控件"
 from = "App.Frontend.Components.Standard.Select"
 to = "App.Frontend.Components.Ui"
 desc = "以下拉原语组装统一选择控件"
+
+[[relation]]
+from = "App.Frontend.Components.Standard.Tooltip"
+to = "App.Frontend.Components.Ui"
+desc = "以原语层气泡组合文本提示"
 
 [[relation]]
 from = "App.Frontend.Views.AgentDebug"
@@ -356,6 +393,11 @@ desc = "经生成的命令面类型取数与调用"
 from = "App.Frontend.Views.Changes"
 to = "App.Frontend.Components.Standard.Dailog"
 desc = "新建变更以对话框收集输入"
+
+[[relation]]
+from = "App.Frontend.Views.Changes"
+to = "App.Frontend.Components.Standard.Tooltip"
+desc = "列表工具栏的图标按钮以气泡给出提示"
 
 [[relation]]
 from = "App.Frontend.Views.Changes"
@@ -461,6 +503,11 @@ desc = "经生成的命令面类型取数与调用"
 from = "App.Frontend.Views.Explores"
 to = "App.Frontend.Components.Agent"
 desc = "对话面板复用会话视图与输入框"
+
+[[relation]]
+from = "App.Frontend.Views.Explores"
+to = "App.Frontend.Components.Standard.Tooltip"
+desc = "列表工具栏的图标按钮以气泡给出提示"
 
 [[relation]]
 from = "App.Frontend.Views.Explores"
