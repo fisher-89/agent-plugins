@@ -26,8 +26,8 @@ use crate::drift::report::{ArchiApiFinding, ArchiApiFindingKind};
 use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
 
 use super::{
-    api_ref, bootstrap, check, enabled, load_contracts, meta, render_all, ApiCheckInput, ApiError,
-    ApiSnapshot,
+    api_ref, bootstrap, check, enabled, findings, load_contracts, meta, render_all, ApiCheckInput,
+    ApiError, ApiSnapshot,
 };
 
 // ---------------------------------------------------------------------------
@@ -2169,7 +2169,9 @@ fn bootstrap不产used_by() {
     }
 
     // 两向对拍：草稿候选符号集 ≡ extract_element 的符号集
-    let symbols = extract::extract_element(temp.root(), "src/alpha/src/lib.rs");
+    let elements = [element(fqn, &["src/alpha/"])];
+    let symbols =
+        extract::extract_element(temp.root(), &elements, &elements[0], "src/alpha/src/lib.rs");
     let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
     assert_eq!(names, vec!["Thing", "alpha"], "取数面符号集：{names:?}");
     let ops: Vec<&str> = symbols
@@ -4617,4 +4619,403 @@ fn index与生成物对现网契约零回归() {
             generated.content
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 注记真值源：注记行取 `ApiSymbol.file`（入口退出注记面）
+// ---------------------------------------------------------------------------
+
+/// 合成 barrel 语料：父元素 + 4 子元素 + 1 跨元素兄弟（源码与模型同落盘）。
+///
+/// barrel 6 条语句含「同一目标两条具名语句」形态与 1 条跨元素被拒形态；子元素目录里
+/// 的 `*ExtraProps` 不在名单里，用于钉「具名名单不虚增」。
+fn write_closure_barrel(temp: &TempDir) {
+    temp.write(
+        "views/agent/index.ts",
+        "export { useAgentInput, AgentInputProps } from './input/agent-input';\n\
+         export { useSession } from './session/session-panel';\n\
+         export type { SessionPanelState, SessionPanelActions } from './session/session-panel';\n\
+         export { AgentMessages } from './messages/agent-messages';\n\
+         export type { MessageList } from './messages/agent-messages';\n\
+         export { Other } from '../other/other';\n",
+    );
+    temp.write(
+        "views/agent/input/agent-input.ts",
+        "export function useAgentInput(): boolean { return true; }\n\
+         export interface AgentInputProps { value: string }\n\
+         export interface AgentInputExtraProps { extra: string }\n",
+    );
+    temp.write(
+        "views/agent/session/session-panel.ts",
+        "export function useSession(): boolean { return true; }\n\
+         export interface SessionPanelState { open: boolean }\n\
+         export interface SessionPanelActions { close(): void }\n",
+    );
+    temp.write(
+        "views/agent/messages/agent-messages.ts",
+        "export function AgentMessages(): boolean { return true; }\n\
+         export type MessageList = string[];\n",
+    );
+    temp.write(
+        "views/other/other.ts",
+        "export function Other(): string { return ''; }\n",
+    );
+    temp.write_model(&format!(
+        "[element.\"{agent}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n\n\
+         [element.\"{input}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/input/\"]\n\n\
+         [element.\"{session}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/session/\"]\n\n\
+         [element.\"{messages}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/messages/\"]\n\n\
+         [element.\"{panel}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/panel/\"]\n\n\
+         [element.\"{other}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/other/\"]\n",
+        agent = CLOSURE_AGENT,
+        input = "App.Frontend.Components.Agent.Input",
+        session = "App.Frontend.Components.Agent.Session",
+        messages = "App.Frontend.Components.Agent.Messages",
+        panel = "App.Frontend.Components.Agent.Panel",
+        other = "App.Frontend.Components.Other",
+    ));
+}
+
+/// 合成 barrel 的父元素 FQN。
+const CLOSURE_AGENT: &str = "App.Frontend.Components.Agent";
+
+/// 合成 barrel 的元素表（与 [`write_closure_barrel`] 同源，供 `load_contracts` /
+/// `findings` / `extract_element` 直接入参）。
+fn closure_elements() -> Vec<ArchiElement> {
+    vec![
+        element(CLOSURE_AGENT, &["views/agent/"]),
+        element(
+            "App.Frontend.Components.Agent.Input",
+            &["views/agent/input/"],
+        ),
+        element(
+            "App.Frontend.Components.Agent.Session",
+            &["views/agent/session/"],
+        ),
+        element(
+            "App.Frontend.Components.Agent.Messages",
+            &["views/agent/messages/"],
+        ),
+        element(
+            "App.Frontend.Components.Agent.Panel",
+            &["views/agent/panel/"],
+        ),
+        element("App.Frontend.Components.Other", &["views/other/"]),
+    ]
+}
+
+/// 合成 barrel 的契约源文：2 个 op + 2 个 `$defs` 类型（均在闭包符号集内）。
+fn closure_contract(fqn: &str) -> String {
+    format!(
+        "# {fqn}\n\n## 职能\n\n合成语料。\n\n## 不变量\n\n无。\n\n## 操作\n\n\
+         ### useAgentInput\n\n```json api-op\n\
+         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n\
+         ### useSession\n\n```json api-op\n\
+         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n\
+         ## 类型\n\n```json api-types\n\
+         {{\"AgentInputProps\": {{\"type\": \"object\", \"properties\": {{}}}},\
+         \"MessageList\": {{\"type\": \"array\", \"items\": {{\"type\": \"string\"}}}}}}\n```\n"
+    )
+}
+
+/// 正向（AC-5）：TS 元素（文件型 `path`，入口 barrel 一跳）⇒ 注记 `@ <目标文件>:<line>`；
+/// MUST NOT 出现 `@ <入口 index.ts>:<line>` 形态。
+#[test]
+fn bootstrap注记ts一跳指向定义文件() {
+    let temp = TempDir::new("bootstrap-ts-hop");
+    let fqn = "App.Frontend.Components.Agent";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
+    ));
+    temp.write(
+        "views/agent/index.ts",
+        "export { useAgentInput } from './input/agent-input';\n",
+    );
+    temp.write(
+        "views/agent/input/agent-input.ts",
+        "// 头部注释\nexport function useAgentInput(): boolean { return true; }\n",
+    );
+
+    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
+    assert!(
+        text.contains("<!-- external @ views/agent/input/agent-input.ts:2 -->"),
+        "注记指向闭包一跳后的定义文件与行：\n{text}"
+    );
+    assert!(
+        !text.contains(" @ views/agent/index.ts:"),
+        "注记 MUST NOT 回落成入口串（入口不是定义处）：\n{text}"
+    );
+}
+
+/// 正向（AC-5）：Rust 元素子模块内的 `pub fn` ⇒ 注记指向**子模块文件**（不再是入口串，
+/// 病灶三的反向判据）。
+#[test]
+fn bootstrap注记rust子模块指向子模块文件() {
+    let temp = TempDir::new("bootstrap-rust-submodule");
+    let fqn = "App.Core.X";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/x/\"]\n"
+    ));
+    temp.write("crates/x/src/lib.rs", "mod op;\npub use op::run;\n");
+    temp.write(
+        "crates/x/src/op.rs",
+        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
+    );
+
+    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
+    assert!(
+        text.contains("<!-- external @ crates/x/src/op.rs:1 -->"),
+        "注记指向子模块文件（`ApiSymbol.file` 是真值源）：\n{text}"
+    );
+    assert!(
+        !text.contains(" @ crates/x/src/lib.rs:"),
+        "注记 MUST NOT 写成入口串（子模块实现不在入口文件里）：\n{text}"
+    );
+}
+
+/// 正向（AC-1 / AC-5）：合成 barrel（父元素 + 4 子元素 + 6 条有效 re-export，含同目标
+/// 两语句形态，另加 1 条跨元素被拒）⇒ 草稿的 `### <op>` 集与 `api-types` 键集 == 闭包
+/// 符号集（3 op + 4 类型 = 7 名），未导出的 `*Props` 零命中，类型注记同样取 `symbol.file`。
+#[test]
+fn bootstrap组合闭包草稿名单() {
+    let temp = TempDir::new("bootstrap-closure");
+    write_closure_barrel(&temp);
+
+    let elements = closure_elements();
+    let symbols =
+        extract::extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
+    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "useAgentInput",
+            "AgentInputProps",
+            "useSession",
+            "SessionPanelState",
+            "SessionPanelActions",
+            "AgentMessages",
+            "MessageList"
+        ],
+        "闭包符号集 = 3 op + 4 类型：{symbols:?}"
+    );
+    assert!(
+        !names
+            .iter()
+            .any(|name| name.ends_with("Props") && *name != "AgentInputProps"),
+        "未导出的 `*Props` 零命中：{names:?}"
+    );
+
+    let text = bootstrap(temp.root(), CLOSURE_AGENT).expect("起草应成功");
+    for op in ["useAgentInput", "useSession", "AgentMessages"] {
+        assert!(
+            text.contains(&format!("### {op}")),
+            "草稿含 op `{op}`：\n{text}"
+        );
+    }
+    assert_eq!(
+        text.matches("### ").count(),
+        3,
+        "草稿 op 集恰 3 条：\n{text}"
+    );
+    for absent in ["### Other", "### AgentInputExtraProps"] {
+        assert!(
+            !text.contains(absent),
+            "跨元素条目零命中：`{absent}`\n{text}"
+        );
+    }
+    for expected in [
+        "\"AgentInputProps\"",
+        "\"SessionPanelState\"",
+        "\"SessionPanelActions\"",
+        "\"MessageList\"",
+    ] {
+        assert!(
+            text.contains(expected),
+            "草稿 api-types 含闭包类型 `{expected}`：\n{text}"
+        );
+    }
+    assert!(
+        !text.contains("AgentInputExtraProps"),
+        "未在名单里的类型不进草稿：\n{text}"
+    );
+    assert_eq!(
+        text.matches("\"note\": \"待剪枝").count(),
+        4,
+        "类型条数 = 闭包类型数：\n{text}"
+    );
+
+    // 类型注记取 `symbol.file`（不是入口串）
+    assert!(
+        text.contains("待剪枝：类型 @ views/agent/input/agent-input.ts:2"),
+        "类型注记指向定义文件与行：\n{text}"
+    );
+    assert!(
+        text.contains("待剪枝：类型 @ views/agent/messages/agent-messages.ts:2"),
+        "同名符号的 `file:line` 与 op 注记同源：\n{text}"
+    );
+    assert!(
+        !text.contains("@ views/agent/index.ts:"),
+        "注记面 MUST NOT 出现入口串：\n{text}"
+    );
+}
+
+/// 正向（AC-5 / AC-8 组合链路）：对有契约文件的 TS barrel 元素跑 `load_contracts` ⇒
+/// `snapshot.symbols[fqn]` == `extract_element` 的闭包产出（逐字段相等，含 `file`）——
+/// `element_symbols` 补参生效、零第二套取数。
+#[test]
+fn load_contracts组合闭包取数面() {
+    let temp = TempDir::new("load-closure-symbols");
+    write_closure_barrel(&temp);
+    temp.write_contract(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
+
+    let elements = closure_elements();
+    let snapshot = load_contracts(temp.root(), &elements).expect("全链应成功");
+    assert_eq!(snapshot.contracts.len(), 1, "只有父元素有契约文件");
+    assert_eq!(snapshot.contracts[0].fqn, CLOSURE_AGENT);
+
+    let expected =
+        extract::extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
+    assert_eq!(
+        snapshot.symbols[CLOSURE_AGENT], expected,
+        "`snapshot.symbols` == 闭包产出（逐字段相等，含 file）"
+    );
+    assert_eq!(snapshot.symbols[CLOSURE_AGENT].len(), 7, "闭包 7 名在案");
+}
+
+/// 正向（AC-8 组合链路）：契约声明闭包内 2 个 op + 2 个 `$defs` 类型 ⇒ 该 4 项零
+/// `apiMissing`；`apiUndeclared` 仍 `off`（零条目）、闭包只减不增。
+#[test]
+fn findings组合闭包只减不增() {
+    let temp = TempDir::new("findings-closure");
+    write_closure_barrel(&temp);
+    temp.write_contract(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
+
+    let elements = closure_elements();
+    let found = findings(temp.root(), &elements).expect("判据装配应成功");
+    let kinds: Vec<ArchiApiFindingKind> = found.iter().map(|finding| finding.kind).collect();
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|kind| **kind == ArchiApiFindingKind::ApiMissing)
+            .count(),
+        0,
+        "闭包覆盖了契约声明的 op 与 `$defs` 类型（零 apiMissing）：{:?}",
+        found.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|kind| **kind == ArchiApiFindingKind::ApiUndeclared)
+            .count(),
+        0,
+        "`apiUndeclared` 档位 off ⇒ 零新增条目"
+    );
+    assert_eq!(
+        ArchiApiFindingKind::ApiUndeclared.severity(),
+        crate::drift::report::ApiFindingSeverity::Off,
+        "档位口径不变（off 是本变更的既有事实）"
+    );
+    for finding in &found {
+        assert_eq!(
+            finding.kind,
+            ArchiApiFindingKind::ApiEntryMissing,
+            "子元素无入口是唯一余下条目：{}",
+            finding.message
+        );
+    }
+}
+
+/// 边界（AC-5 注记面）：`api/mod.rs` 内 `@ {entry}` 与 `@ 入口` 零命中；`symbol.file`
+/// 写出点恰 2 处（op 注记 + 类型注记）；`bootstrap_text` 签名 `(fqn, symbols)`（无
+/// `entry` 形参）；`bootstrap` 公开签名逐字不变。
+#[test]
+fn 注记面entry退出源码自证() {
+    let source = include_str!("mod.rs");
+    for forbidden in ["@ {entry}", "@ 入口"] {
+        assert!(
+            !source.contains(forbidden),
+            "注记面 MUST NOT 用入口串拼接：`{forbidden}`"
+        );
+    }
+    assert_eq!(
+        source.matches("symbol.file").count(),
+        2,
+        "`symbol.file` 写出点恰 2 处（op 注记 + 类型注记）"
+    );
+    assert_eq!(
+        source
+            .matches("fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol])")
+            .count(),
+        1,
+        "`bootstrap_text` 形参为 `(fqn, symbols)`（`entry` 退出）"
+    );
+    assert_eq!(
+        source
+            .matches("pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError>")
+            .count(),
+        1,
+        "`bootstrap` 公开签名逐字不变"
+    );
+}
+
+/// 边界（AC-7）：两处产品调用点各恰 1 次 `extract_element(` 且实参含元素表 / 元素——
+/// 取数面单点，零第三处。
+#[test]
+fn bootstrap与element_symbols调用点机械锚() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source.matches("extract::extract_element(").count(),
+        2,
+        "`api/` 内产品侧恰 2 处调用点（`element_symbols` 与 `bootstrap`）"
+    );
+    assert!(
+        source.contains("extract::extract_element(root, elements, element, &entry)"),
+        "`element_symbols` 传元素表与元素（逐字）"
+    );
+    assert!(
+        source.contains("extract::extract_element(root, &elements, found, &entry)"),
+        "`bootstrap` 传元素表与元素（逐字）"
+    );
+}
+
+/// 边界（空符号集草稿，逐值迭代 2 值）：入口零导出 / barrel 目标全被拒 ⇒ 零 `###`、
+/// `api-types` 为 `{}`（草稿形态回归，零 panic）。
+#[test]
+fn bootstrap空符号集草稿() {
+    let empty_entry = TempDir::new("bootstrap-empty-entry");
+    let fqn = "App.Frontend.Components.Agent";
+    empty_entry.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
+    ));
+    empty_entry.write("views/agent/src/lib.rs", "// 零导出\n");
+    let text = bootstrap(empty_entry.root(), fqn).expect("起草应成功");
+    assert!(!text.contains("### "), "零符号 ⇒ 零 op heading：\n{text}");
+    assert!(
+        text.contains("```json api-types\n{}\n```"),
+        "零符号 ⇒ api-types 为 `{{}}`：\n{text}"
+    );
+
+    let rejected = TempDir::new("bootstrap-empty-closure");
+    rejected.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n\n\
+         [element.\"App.Frontend.Components.Sibling\"]\nkind = \"module\"\ngate = \"warn\"\n\
+         path = [\"views/sibling/\"]\n"
+    ));
+    rejected.write(
+        "views/agent/index.ts",
+        "export { siblingOp } from '../sibling/o';\n",
+    );
+    rejected.write(
+        "views/sibling/o.ts",
+        "export function siblingOp(): string { return ''; }\n",
+    );
+    let text = bootstrap(rejected.root(), fqn).expect("起草应成功");
+    assert!(
+        !text.contains("### "),
+        "目标归属另一个元素 ⇒ 全拒、零 op heading：\n{text}"
+    );
+    assert!(
+        text.contains("```json api-types\n{}\n```"),
+        "全拒 ⇒ api-types 为 `{{}}`：\n{text}"
+    );
 }

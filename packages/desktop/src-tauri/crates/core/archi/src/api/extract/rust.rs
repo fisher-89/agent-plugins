@@ -10,6 +10,11 @@
 //! `impl` 内 `pub fn` → 函数（`owner` = 接收类型名）。**构造器如实抽名、不过滤**（过滤
 //! 只在判据与渲染侧经 `is_constructor`）。
 //!
+//! **`ApiSymbol.file` = 该符号所在的模块文件**（repo 相对）：子模块里的 `pub fn` 指向子模块
+//! 文件，**内联 `mod` 与父同文件**。它由 [`walk_items`] / [`walk_modules`] 贯穿的同一个
+//! 「当前模块文件」形参给出——MUST NOT 用入口串顶替（`pub fn` 写在 `src/op.rs`、注记却写
+//! `src/lib.rs` 就是注解说谎）。
+//!
 //! `visibility` 四值判据：`pub mod` 链可达（或名字出现在 crate 根的 `pub use` 白名单里）
 //! → `External`；`pub(crate)` / 私有 `mod` 内的 `pub` → `CrateOnly`；`#[cfg(test)]` 子树 →
 //! `TestOnly`；`Unused` 由调用方按引用事实降级（本模块不造第二套死代码扫描）。
@@ -47,15 +52,15 @@ use syn::spanned::Spanned;
 use super::{ApiParam, ApiSymbol, ApiSymbolKind, ApiType, Visibility};
 use crate::api::paths;
 
-/// 单文件抽取（`file` 只用于诊断定位，`crate_name` 保留以便未来区分同名 crate 符号）。
+/// 单文件抽取（`file` = 该符号的定义文件，`crate_name` 保留以便未来区分同名 crate 符号）。
 pub fn extract_file(file: &str, source: &str, crate_name: &str) -> Vec<ApiSymbol> {
     let Ok(parsed) = syn::parse_file(source) else {
         // 语法错即零符号（bootstrap 起草的近似误差如实留痕，MUST NOT 猜）
         return Vec::new();
     };
     let mut symbols = Vec::new();
-    walk_items(&parsed.items, true, false, &mut symbols);
-    let _ = (file, crate_name);
+    walk_items(&parsed.items, true, false, file, &mut symbols);
+    let _ = crate_name;
     symbols
 }
 
@@ -79,13 +84,14 @@ pub fn extract_crate(root: &Path, entry: &str) -> Vec<ApiSymbol> {
     collect_reexports(&parsed.items, &mut reexported, &mut wildcards);
 
     let mut collected = Collected::default();
-    walk_items(&parsed.items, true, false, &mut collected.symbols);
+    walk_items(&parsed.items, true, false, entry, &mut collected.symbols);
     // 模块树：`mod` 声明（带 `;` 无 body）按 `mod.rs` / `<名>.rs` / `#[path]` 定位后递归
     let module_dir = module_dir(entry);
     walk_modules(
         &parsed.items,
         root,
         &module_dir,
+        entry,
         true,
         false,
         &wildcards,
@@ -115,13 +121,20 @@ struct Collected {
 /// 模块树递归（`mod x;` → `<dir>/x.rs` 或 `<dir>/x/mod.rs`；带 `#[path = "…"]` 时按
 /// 属性值定位，D44）。
 ///
+/// `file` = **当前模块文件**（repo 相对；模块内符号的定义文件）。内联模块与父同文件，
+/// 文件型模块切到它自己定位出的文件。
+///
 /// `wildcards` 只承载**crate 根**的 `pub use <模>::*` 前缀（递归进下一层即清空——通配升格
 /// 只对 crate 直接子模块生效，见「已知近似」段）。命中即把该模块内声明的符号视为出线
 /// （`External`）：`pub use x::*` 让 `x` 的公开面整体可达，与 `mod x` 自身的可见性无关。
+// 参数面 = 项 + 定位锚（根 / 目录 / 文件）+ 可达与测试两态 + 通配前缀 + 累加面：
+// 逐层变化的定位锚无法并进 `Collected`（后者只承载跨层累加），拆结构体只增间接。
+#[allow(clippy::too_many_arguments)]
 fn walk_modules(
     items: &[syn::Item],
     root: &Path,
     directory: &str,
+    file: &str,
     reachable: bool,
     in_test: bool,
     wildcards: &[String],
@@ -135,10 +148,16 @@ fn walk_modules(
         let name = item_mod.ident.to_string();
         let glob_exported = wildcards.iter().any(|wildcard| wildcard == &name);
         if let Some((_, nested)) = &item_mod.content {
-            // 内联模块：body 就地递归（模块目录仍是当前目录）
+            // 内联模块：body 就地递归（模块目录与模块文件都仍是当前的）
             let inner_reachable = glob_exported || (reachable && is_pub(&item_mod.vis));
             let before = collected.symbols.len();
-            walk_items(nested, inner_reachable, is_test, &mut collected.symbols);
+            walk_items(
+                nested,
+                inner_reachable,
+                is_test,
+                file,
+                &mut collected.symbols,
+            );
             collect_glob_types(
                 glob_exported,
                 &collected.symbols[before..],
@@ -148,6 +167,7 @@ fn walk_modules(
                 nested,
                 root,
                 directory,
+                file,
                 inner_reachable,
                 is_test,
                 &[],
@@ -160,10 +180,10 @@ fn walk_modules(
             Some(value) => locate_declared_module(root, directory, &value, &name),
             None => locate_module(root, directory, &name),
         };
-        let Some((file, next_dir)) = located else {
+        let Some((module_file, next_dir)) = located else {
             continue;
         };
-        let Ok(source) = fs::read_to_string(root.join(&file)) else {
+        let Ok(source) = fs::read_to_string(root.join(&module_file)) else {
             continue;
         };
         let Ok(parsed) = syn::parse_file(&source) else {
@@ -175,6 +195,7 @@ fn walk_modules(
             &parsed.items,
             inner_reachable,
             is_test,
+            &module_file,
             &mut collected.symbols,
         );
         collect_glob_types(
@@ -186,6 +207,7 @@ fn walk_modules(
             &parsed.items,
             root,
             &next_dir,
+            &module_file,
             inner_reachable,
             is_test,
             &[],
@@ -391,8 +413,15 @@ fn upgrade_reexported(symbols: &mut [ApiSymbol], reexported: &[String]) {
     }
 }
 
-/// 递归遍历项（`reachable` = `pub mod` 链可达；`in_test` = `#[cfg(test)]` 子树内）。
-fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec<ApiSymbol>) {
+/// 递归遍历项（`reachable` = `pub mod` 链可达；`in_test` = `#[cfg(test)]` 子树内；
+/// `file` = 当前模块文件）。
+fn walk_items(
+    items: &[syn::Item],
+    reachable: bool,
+    in_test: bool,
+    file: &str,
+    out: &mut Vec<ApiSymbol>,
+) {
     for item in items {
         match item {
             syn::Item::Struct(item_struct) => {
@@ -403,6 +432,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
                     ApiSymbolKind::Type,
                     reachable,
                     in_test,
+                    file,
                     out,
                 );
             }
@@ -414,6 +444,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
                     ApiSymbolKind::Trait,
                     reachable,
                     in_test,
+                    file,
                     out,
                 );
             }
@@ -425,6 +456,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
                     ApiSymbolKind::Enum,
                     reachable,
                     in_test,
+                    file,
                     out,
                 );
             }
@@ -436,6 +468,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
                     item_fn.span(),
                     reachable,
                     in_test,
+                    file,
                 ) {
                     out.push(symbol);
                 }
@@ -453,6 +486,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
                         method.span(),
                         reachable,
                         in_test,
+                        file,
                     ) {
                         out.push(symbol);
                     }
@@ -464,7 +498,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
                 };
                 let is_test = in_test || has_cfg_test(&item_mod.attrs);
                 let inner_reachable = reachable && is_pub(&item_mod.vis);
-                walk_items(nested, inner_reachable, is_test, out);
+                walk_items(nested, inner_reachable, is_test, file, out);
             }
             _ => {}
         }
@@ -472,6 +506,9 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
 }
 
 /// 类型类符号入表（`pub` 才有资格；`pub(crate)` / 私有 `mod` 内的 `pub` 归 `CrateOnly`）。
+// 参数面 = 声明事实（可见性 / 标识 / 位置 / 形态）+ 可达与测试两态 + 定义文件 + 累加面：
+// 每一维都是独立判据的输入，包成结构体只会把同一批字段再拆一次。
+#[allow(clippy::too_many_arguments)]
 fn push_type(
     vis: &syn::Visibility,
     ident: &syn::Ident,
@@ -479,6 +516,7 @@ fn push_type(
     kind: ApiSymbolKind,
     reachable: bool,
     in_test: bool,
+    file: &str,
     out: &mut Vec<ApiSymbol>,
 ) {
     let Some(visibility) = visibility_of(vis, reachable, in_test) else {
@@ -492,6 +530,7 @@ fn push_type(
         returns: ApiType::Unknown("()".to_owned()),
         is_async: false,
         line: line_of(span),
+        file: file.to_owned(),
         visibility,
     });
 }
@@ -504,6 +543,7 @@ fn function_symbol(
     span: Span,
     reachable: bool,
     in_test: bool,
+    file: &str,
 ) -> Option<ApiSymbol> {
     let visibility = visibility_of(vis, reachable, in_test)?;
     let params = sig
@@ -530,6 +570,7 @@ fn function_symbol(
         },
         is_async: sig.asyncness.is_some(),
         line: line_of(span),
+        file: file.to_owned(),
         visibility,
     })
 }

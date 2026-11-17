@@ -113,6 +113,7 @@ fn function(name: &str, params: Vec<ApiParam>, returns: ApiType) -> ApiSymbol {
         returns,
         is_async: false,
         line: 1,
+        file: "src/lib.rs".to_owned(),
         visibility: Visibility::External,
     }
 }
@@ -136,6 +137,7 @@ fn type_symbol(name: &str, kind: ApiSymbolKind) -> ApiSymbol {
         returns: ApiType::Unknown("()".to_owned()),
         is_async: false,
         line: 1,
+        file: "src/lib.rs".to_owned(),
         visibility: Visibility::External,
     }
 }

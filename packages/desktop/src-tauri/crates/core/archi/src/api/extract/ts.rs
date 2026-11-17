@@ -10,11 +10,20 @@
 //! 箭头函数初始化式**不产出符号**。`export const = memo(...)` / `forwardRef(...)` /
 //! `lazy(...)` 是组件（本期 `api = none` 留白）；对象字面量与 `new Proxy(...)` 是值、
 //! 不是 API 面（排除）；`export type` / `export interface` / `export class` 是类型、
-//! `export enum` 是枚举；`export {…}` / `export * from` 是透传（本期不产出操作）。
+//! `export enum` 是枚举。
 //!
-//! `export default` 形态**本期不抽**：对外名字由导入方决定（`import X from` 可任意
-//! 命名），契约的 op / 类型名须是稳定标识符——从文件名或表达式反推名字即造第二套命名
-//! 规则。
+//! **透传（`export … from` / `export * from`）由 [`extract_surface`] 的 `named` / `star`
+//! 两面交给闭包**：闭包（递归 + 读盘 + specifier 解析 + 环防）落在
+//! [`crate::api::extract::extract_element`] 那一层，本文件仍零读盘、零 specifier 解析。
+//! [`extract_file`] 只交声明面，故它对透传仍**零符号**（「单文件面 = 声明面」的既有语义，
+//! 也是源码自证断言钉住的那一条）。
+//!
+//! **四类留白（MUST NOT 被伪装成已实现）**：① 无 `from` 的本文件具名导出（`export { a }`）
+//! 不产出——需要「按名字取回本文件声明」的第二遍，与「取数面 = 导出面」的单遍纪律冲突；
+//! ② `export * as ns from './x'` 跳过——它产出命名空间对象而非符号，不猜；③ 跨元素 /
+//! 仓外 re-export 由闭包按同元素约束静默跳过（本文件只交原始 specifier，不判归属）；
+//! ④ `export default` **本期不抽**：对外名字由导入方决定（`import X from` 可任意命名），
+//! 契约的 op / 类型名须是稳定标识符——从文件名或表达式反推名字即造第二套命名规则。
 //!
 //! **`unused` 本期生产面不产出（未接线）**：降级接口 [`apply_knip_report`] 已实现但
 //! **零产品调用者**（`archi-api-gen` 与 `api::bootstrap` 都不读 knip，见待决 5 / 12）——
@@ -34,8 +43,9 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BindingPattern, Class, Declaration, Expression, Function, Statement, TSType, TSTypeAnnotation,
-    TSTypeName, VariableDeclaration, VariableDeclarationKind,
+    BindingPattern, Class, Declaration, ExportFromDeclaration, Expression, Function,
+    ModuleExportName, Statement, TSType, TSTypeAnnotation, TSTypeName, VariableDeclaration,
+    VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -43,30 +53,119 @@ use serde_json::Value;
 
 use super::{ApiParam, ApiSymbol, ApiSymbolKind, ApiType, Visibility};
 
+/// 一条具名 re-export（`export { A, B as C } from './x'` 里的一个 specifier）。
+#[derive(Debug, Clone)]
+pub struct NamedExport {
+    /// 目标文件里的名字（取什么）
+    pub local: String,
+    /// 本文件对外的名字（怎么叫；`A as B` 时为 `B`）
+    pub exported: String,
+    /// 原文字面量（交给 specifier 解析单点，本模块不解释它）
+    pub specifier: String,
+}
+
+/// 单文件的导出面三面（[`extract_surface`] 的一次遍历产物）。
+#[derive(Debug, Clone)]
+pub struct ExportSurface {
+    /// 声明面（`export <声明>`，即 [`extract_file`] 的产出）
+    pub symbols: Vec<ApiSymbol>,
+    /// 具名透传面（`export … from` 的名单，语句序）
+    pub named: Vec<NamedExport>,
+    /// 通配透传面（`export * from` 的 specifier，语句序）
+    pub star: Vec<String>,
+}
+
 /// 单文件抽取（语法错 → 零符号；不猜测、不 panic）。
 ///
-/// 只走 `export <声明>` 一条分支：非导出的顶层声明与 `export default` 均不产出符号。
+/// 只交 [`extract_surface`] 的声明面：非导出的顶层声明、透传与 `export default` 均不产出
+/// 符号（「单文件面 = 声明面」，闭包在 [`crate::api::extract`] 那一层）。
 pub fn extract_file(file: &str, source: &str) -> Vec<ApiSymbol> {
+    extract_surface(file, source).symbols
+}
+
+/// 单文件的导出面三面抽取（一次 AST 遍历）：声明 / 具名 re-export / 通配 re-export。
+///
+/// 语法错（`panicked`）→ 三面全空（不 panic、不猜）。三个产出面各自落在
+/// [`ExportSurface`] 的字段上，由调用方决定消费哪一面：闭包消费全部三面，[`extract_file`]
+/// 只消费 `symbols`。**本函数零读盘、零 specifier 解析**——目标文件定位与归属判定属闭包
+/// （[`crate::api::extract::extract_element`]）。
+pub fn extract_surface(file: &str, source: &str) -> ExportSurface {
+    let mut surface = ExportSurface {
+        symbols: Vec::new(),
+        named: Vec::new(),
+        star: Vec::new(),
+    };
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, source, source_type_of(file)).parse();
     if parsed.panicked {
-        return Vec::new();
+        return surface;
     }
-    let mut symbols = Vec::new();
     for statement in &parsed.program.body {
-        if let Some(declaration) = exported_declaration(statement) {
-            collect_declaration(declaration, source, &mut symbols);
+        match exported_item(statement) {
+            ExportedItem::Declaration(declaration) => {
+                collect_declaration(declaration, source, file, &mut surface.symbols);
+            }
+            ExportedItem::Named(exports) => surface.named.extend(exports),
+            ExportedItem::Star(specifier) => surface.star.push(specifier),
+            ExportedItem::None => {}
         }
     }
-    symbols
+    surface
 }
 
-/// `export <声明>` → 其声明（**取数面的唯一入口**）：非导出顶层声明与 `export default`
-/// 一律返回 `None`，不产出符号。
-fn exported_declaration<'a, 'b>(statement: &'b Statement<'a>) -> Option<&'b Declaration<'a>> {
+/// 导出形态分派的三态产出（**导出形态单一分派点的结果类型**）。
+///
+/// 四变体封闭：三臂（`Declaration` / `Named` / `Star`）对应本文件认的三种导出形态，
+/// `None` 是显式留白（无 `from` 的本文件具名导出、`export * as ns`、`export default` 与
+/// 其余语句全落在这里）——新形态 MUST NOT 在别处另开第二处 `match`，只能在此处显式登记。
+enum ExportedItem<'a, 'b> {
+    /// `export function` / `class` / `const` / `type` / `interface` / `enum`
+    Declaration(&'b Declaration<'a>),
+    /// `export { A, B as C } from './x'`
+    Named(Vec<NamedExport>),
+    /// `export * from './y'`
+    Star(String),
+    /// 其余（含三类留白形态）
+    None,
+}
+
+/// 顶层语句 → 导出形态（**导出形态的唯一分派点**：本文件的 `match` 表达式只此一处）。
+fn exported_item<'a, 'b>(statement: &'b Statement<'a>) -> ExportedItem<'a, 'b> {
     match statement {
-        Statement::ExportDeclaration(export) => Some(&export.declaration),
-        _ => None,
+        Statement::ExportDeclaration(export) => ExportedItem::Declaration(&export.declaration),
+        Statement::ExportFromDeclaration(export) => ExportedItem::Named(named_exports(export)),
+        Statement::ExportAllDeclaration(export) => match &export.exported {
+            // `export * as ns from './x'`：产出命名空间对象而非符号，不猜
+            Some(_) => ExportedItem::None,
+            None => ExportedItem::Star(export.source.value.to_string()),
+        },
+        _ => ExportedItem::None,
+    }
+}
+
+/// `export { A, B as C } from './x'` → 具名名单（字符串字面量名字的条目跳过：它不是
+/// 合法契约标识符）。
+fn named_exports(export: &ExportFromDeclaration<'_>) -> Vec<NamedExport> {
+    let specifier = export.source.value.to_string();
+    export
+        .specifiers
+        .iter()
+        .filter_map(|item| {
+            Some(NamedExport {
+                local: module_export_name(&item.local)?,
+                exported: module_export_name(&item.exported)?,
+                specifier: specifier.clone(),
+            })
+        })
+        .collect()
+}
+
+/// `ModuleExportName` → 名字（标识符两形态取名字；字符串字面量形态 → `None`）。
+fn module_export_name(name: &ModuleExportName<'_>) -> Option<String> {
+    match name {
+        ModuleExportName::IdentifierName(identifier) => Some(identifier.name.to_string()),
+        ModuleExportName::IdentifierReference(identifier) => Some(identifier.name.to_string()),
+        ModuleExportName::StringLiteral(_) => None,
     }
 }
 
@@ -113,33 +212,44 @@ fn collect_unused(report: &Value) -> Vec<String> {
     names
 }
 
-/// `export <声明>` 的内部形态分派（导出面的唯一收口处）。
-fn collect_declaration(declaration: &Declaration<'_>, source: &str, out: &mut Vec<ApiSymbol>) {
+/// `export <声明>` 的内部形态分派（声明面内部：`exported_item` 已认过这是「导出的声明」）。
+fn collect_declaration(
+    declaration: &Declaration<'_>,
+    source: &str,
+    file: &str,
+    out: &mut Vec<ApiSymbol>,
+) {
     match declaration {
-        Declaration::FunctionDeclaration(function) => push_function(function, None, source, out),
+        Declaration::FunctionDeclaration(function) => {
+            push_function(function, None, source, file, out)
+        }
         Declaration::ClassDeclaration(class) => push_type(
             class_name(class),
             ApiSymbolKind::Type,
             class_line(class, source),
+            file,
             out,
         ),
-        Declaration::VariableDeclaration(variable) => extract_const(variable, source, out),
+        Declaration::VariableDeclaration(variable) => extract_const(variable, source, file, out),
         Declaration::TSTypeAliasDeclaration(alias) => push_type(
             alias.id.name.to_string(),
             ApiSymbolKind::Type,
             line_of(source, alias.span.start as usize),
+            file,
             out,
         ),
         Declaration::TSInterfaceDeclaration(interface) => push_type(
             interface.id.name.to_string(),
             ApiSymbolKind::Type,
             line_of(source, interface.span.start as usize),
+            file,
             out,
         ),
         Declaration::TSEnumDeclaration(item) => push_type(
             item.id.name.to_string(),
             ApiSymbolKind::Enum,
             line_of(source, item.span.start as usize),
+            file,
             out,
         ),
         _ => {}
@@ -150,7 +260,12 @@ fn collect_declaration(declaration: &Declaration<'_>, source: &str, out: &mut Ve
 /// 组件留白（`Type` 形态，`api = none` 的元素不进契约）；对象字面量与 `new Proxy(...)`
 /// → 排除（是值不是 API 面）；箭头函数 → **不产出符号**（不造「从初始化表达式推断函数」
 /// 的启发式）。其余调用形态按未知形态的导出值入表，由契约侧决定是否承诺。
-fn extract_const(declaration: &VariableDeclaration<'_>, source: &str, out: &mut Vec<ApiSymbol>) {
+fn extract_const(
+    declaration: &VariableDeclaration<'_>,
+    source: &str,
+    file: &str,
+    out: &mut Vec<ApiSymbol>,
+) {
     if declaration.kind != VariableDeclarationKind::Const {
         return;
     }
@@ -175,7 +290,7 @@ fn extract_const(declaration: &VariableDeclaration<'_>, source: &str, out: &mut 
                     Some("memo" | "forwardRef" | "lazy") => "component",
                     _ => "call",
                 };
-                push_type(name, ApiSymbolKind::Type, line, out);
+                push_type(name, ApiSymbolKind::Type, line, file, out);
                 if let Some(last) = out.last_mut() {
                     last.returns = ApiType::Unknown(marker.to_owned());
                 }
@@ -192,6 +307,7 @@ fn push_function(
     function: &Function<'_>,
     owner: Option<&str>,
     source: &str,
+    file: &str,
     out: &mut Vec<ApiSymbol>,
 ) {
     let Some(identifier) = &function.id else {
@@ -223,12 +339,13 @@ fn push_function(
             .unwrap_or_else(|| ApiType::Unknown(String::new())),
         is_async: function.r#async,
         line: line_of(source, function.span.start as usize),
+        file: file.to_owned(),
         visibility: Visibility::External,
     });
 }
 
 /// 类型类符号入表（零参数零返回，供 bootstrap 起草时区分类型与操作）。
-fn push_type(name: String, kind: ApiSymbolKind, line: u32, out: &mut Vec<ApiSymbol>) {
+fn push_type(name: String, kind: ApiSymbolKind, line: u32, file: &str, out: &mut Vec<ApiSymbol>) {
     out.push(ApiSymbol {
         name,
         owner: None,
@@ -237,6 +354,7 @@ fn push_type(name: String, kind: ApiSymbolKind, line: u32, out: &mut Vec<ApiSymb
         returns: ApiType::Unknown(String::new()),
         is_async: false,
         line,
+        file: file.to_owned(),
         visibility: Visibility::External,
     });
 }

@@ -14,7 +14,7 @@
 
 use serde_json::json;
 
-use super::ts::{apply_knip_report, extract_file};
+use super::ts::{apply_knip_report, extract_file, extract_surface};
 use super::{ApiSymbol, ApiSymbolKind, ApiType, Visibility};
 
 /// 单文件抽取（`.ts` 源型）。
@@ -662,20 +662,34 @@ fn extract_file行号与规模() {
 // 源码自证：取数面 = 导出面、值域留白、文件名族不作 proxy（AC-20 ⑤ / ④ / ⑥）
 // ---------------------------------------------------------------------------
 
-/// 边界（AC-20 ⑤）：TS 取数面 = 导出面——`ts.rs` 内 `Statement::` 分支**恰 1 条**
-/// （`ExportDeclaration`，内部交 `collect_declaration` 分类）；六个非导出顶层分支
-/// 与 `ArrowFunctionExpression` / `ExportDefault` **全零命中**（本期留白）。
+/// 边界（AC-20 ⑤ / 本变更 AC-7）：TS 导出形态**单一分派点**——`ts.rs` 内 `match` 语句
+/// 恰 1 处、`Statement::` 命中恰 **3** 条（等于三臂：`ExportDeclaration` /
+/// `ExportFromDeclaration` / `ExportAllDeclaration`），其余形态归 `_ => None`；四个非导出
+/// 顶层分支、两条留白字面量与 `ArrowFunctionExpression` **全零命中**。
 #[test]
 fn ts取数面为导出面且非导出分支零命中() {
     let source = include_str!("ts.rs");
     assert_eq!(
-        source.matches("Statement::").count(),
+        source.matches("match statement").count(),
         1,
-        "`Statement::` 分支恰一条（取数面 = 导出面）"
+        "`match statement` 恰 1 处（导出形态单一分派点）"
+    );
+    assert_eq!(
+        source.matches("Statement::").count(),
+        3,
+        "`Statement::` 命中数 == 臂数 3（三态单点分派）"
     );
     assert!(
         source.contains("Statement::ExportDeclaration"),
-        "唯一分支是 `ExportDeclaration`"
+        "首臂是 `ExportDeclaration`（声明面）"
+    );
+    assert!(
+        source.contains("Statement::ExportFromDeclaration"),
+        "次臂是 `ExportFromDeclaration`（具名透传面）"
+    );
+    assert!(
+        source.contains("Statement::ExportAllDeclaration"),
+        "三臂是 `ExportAllDeclaration`（通配透传面）"
     );
 
     for forbidden in [
@@ -685,12 +699,14 @@ fn ts取数面为导出面且非导出分支零命中() {
         "Statement::TSTypeAliasDeclaration",
         "Statement::TSInterfaceDeclaration",
         "Statement::TSEnumDeclaration",
+        "Statement::ExportNamedDeclaration",
+        "Statement::ExportDefaultDeclaration",
         "ArrowFunctionExpression",
         "ExportDefault",
     ] {
         assert!(
             !source.contains(forbidden),
-            "`ts.rs` MUST NOT 命中 `{forbidden}`（非导出顶层分支 / 箭头函数 / export default 全留白）"
+            "`ts.rs` MUST NOT 命中 `{forbidden}`（非导出顶层分支 / 无 `from` 的具名导出 / export default / 箭头函数全留白）"
         );
     }
 
@@ -915,4 +931,389 @@ fn apply_knip_report零产品调用者() {
         "`bootstrap` 草稿内零 `unused` 词（Unused 生产面不可达）：\n{draft}"
     );
     let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ---------------------------------------------------------------------------
+// extract_surface：单文件三面（声明 / 具名 re-export / 通配 re-export）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-1，表驱动 6 行）：六类导出声明各产一条符号（名字 + `kind`），`named` /
+/// `star` 两面均空。
+#[test]
+fn extract_surface声明面六形态() {
+    let cases = [
+        (
+            "export function f(): string { return ''; }\n",
+            "f",
+            ApiSymbolKind::Function,
+        ),
+        (
+            "export interface I { x: number }\n",
+            "I",
+            ApiSymbolKind::Type,
+        ),
+        ("export class C {}\n", "C", ApiSymbolKind::Type),
+        ("export type T = string;\n", "T", ApiSymbolKind::Type),
+        ("export enum E { A }\n", "E", ApiSymbolKind::Enum),
+        (
+            "export const V = memo(() => null);\n",
+            "V",
+            ApiSymbolKind::Type,
+        ),
+    ];
+    for (source, name, kind) in cases {
+        let surface = extract_surface("src/views/x.ts", source);
+        assert_eq!(
+            surface.symbols.len(),
+            1,
+            "一条声明（{source:?}）：{surface:?}"
+        );
+        assert_eq!(surface.symbols[0].name, name, "名字如实：{source:?}");
+        assert_eq!(surface.symbols[0].kind, kind, "`kind` 如实：{source:?}");
+        assert!(surface.named.is_empty(), "声明面不产具名名单：{source:?}");
+        assert!(surface.star.is_empty(), "声明面不产通配名单：{source:?}");
+    }
+}
+
+/// 正向（AC-1）：`export { A, B as C } from './x'` ⇒ `named` 恰 2 条（`local` /
+/// `exported` / `specifier` 逐字段），`symbols` / `star` 空。
+#[test]
+fn extract_surface具名面逐字段() {
+    let surface = extract_surface("src/views/x.ts", "export { A, B as C } from './x';\n");
+    assert!(surface.symbols.is_empty(), "具名透传不产声明符号");
+    assert!(surface.star.is_empty(), "具名透传不产通配名单");
+    assert_eq!(
+        surface.named.len(),
+        2,
+        "两个 specifier：{:?}",
+        surface.named
+    );
+    let pairs: Vec<(&str, &str, &str)> = surface
+        .named
+        .iter()
+        .map(|export| {
+            (
+                export.local.as_str(),
+                export.exported.as_str(),
+                export.specifier.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![("A", "A", "./x"), ("B", "C", "./x")],
+        "`A as B` 形态：local 是目标名、exported 是对外名"
+    );
+}
+
+/// 正向（AC-1）：`export type { T } from './z'` ⇒ `named` 恰 1 条（`local == exported
+/// == "T"`、specifier 逐字）；`export_kind = Type` 不改变名单面。
+#[test]
+fn extract_surface具名面type形态() {
+    let surface = extract_surface("src/views/x.ts", "export type { T } from './z';\n");
+    assert!(surface.symbols.is_empty() && surface.star.is_empty());
+    assert_eq!(surface.named.len(), 1, "一条具名 type 透传");
+    assert_eq!(surface.named[0].local, "T");
+    assert_eq!(surface.named[0].exported, "T");
+    assert_eq!(surface.named[0].specifier, "./z");
+}
+
+/// 正向（AC-1，逐值迭代 2 行）：`export * from './y'` ⇒ `star == ["./y"]`；两条
+/// `export *` ⇒ 两条按语句序；`symbols` 空。
+#[test]
+fn extract_surface通配面按语句序() {
+    let single = extract_surface("src/views/x.ts", "export * from './y';\n");
+    assert_eq!(single.star, vec!["./y".to_owned()], "单条通配如实");
+    assert!(single.symbols.is_empty() && single.named.is_empty());
+
+    let double = extract_surface(
+        "src/views/x.ts",
+        "export * from './first';\nexport * from './second';\n",
+    );
+    assert_eq!(
+        double.star,
+        vec!["./first".to_owned(), "./second".to_owned()],
+        "两条通配按语句序"
+    );
+}
+
+/// 正向（AC-1）：混合源（声明 + 具名 + 通配）⇒ 三面各自如实、互不串味，`symbols`
+/// 顺序 = 声明语句序。
+#[test]
+fn extract_surface三面同源互不串味() {
+    let surface = extract_surface(
+        "src/views/x.ts",
+        "export function first(): string { return ''; }\n\
+         export { A } from './a';\n\
+         export interface Second { x: number }\n\
+         export * from './b';\n",
+    );
+    let names: Vec<&str> = surface
+        .symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    assert_eq!(names, vec!["first", "Second"], "声明面按语句序、不串透传");
+    assert_eq!(surface.named.len(), 1, "具名面如实");
+    assert_eq!(surface.named[0].local, "A");
+    assert_eq!(surface.star, vec!["./b".to_owned()], "通配面如实");
+}
+
+/// 正向（AC-5）：`extract_surface("views/x.ts", src)` ⇒ 每符号 `file == "views/x.ts"`；
+/// `extract_file` 同值（`file` 形参是符号事实的唯一来源）。
+#[test]
+fn extract_surface的file落值() {
+    for file in ["views/x.ts", "views/x.tsx", "crates/x/src/lib.rs"] {
+        let surface = extract_surface(file, "export function f(): void {}\n");
+        assert_eq!(surface.symbols.len(), 1);
+        assert_eq!(surface.symbols[0].file, file, "`file` 取形参逐字");
+        let direct = extract_file(file, "export function f(): void {}\n");
+        assert_eq!(direct[0].file, file, "`extract_file` 同值");
+    }
+}
+
+/// 正向（AC-7 闸 3 的正向面）：`extract_file(file, source)` 与
+/// `extract_surface(file, source).symbols` 逐字段相等（含 `file` / `line` / `kind`）。
+#[test]
+fn extract_file等于声明面() {
+    let source = "export function f(): string { return ''; }\n\
+                  export { A } from './a';\n\
+                  export * from './b';\n";
+    let direct = extract_file("views/x.ts", source);
+    let surface = extract_surface("views/x.ts", source);
+    assert_eq!(direct, surface.symbols, "单文件面 = 声明面（零第二套抽取）");
+    assert_eq!(direct.len(), 1, "透传不进单文件面：{direct:?}");
+}
+
+/// 异常（留白 ①）：无 `from` 的本文件具名导出（`export { localA }`）⇒ 三面皆空
+/// （需要第二遍按名字取回本文件声明，与单遍纪律冲突）。
+#[test]
+fn extract_surface留白无from具名零产出() {
+    let surface = extract_surface("src/views/x.ts", "const localA = 1;\nexport { localA };\n");
+    assert!(surface.symbols.is_empty(), "本文件具名导出零符号");
+    assert!(surface.named.is_empty(), "无 `from` 不进具名面");
+    assert!(surface.star.is_empty(), "无 `from` 不进通配面");
+}
+
+/// 异常（留白 ②）：`export * as ns from './x'` ⇒ 三面全空（臂内 `exported.is_some()`
+/// 退回 `None`：命名空间对象不是符号）。
+#[test]
+fn extract_surface留白星别名零产出() {
+    let surface = extract_surface("src/views/x.ts", "export * as ns from './x';\n");
+    assert!(surface.symbols.is_empty(), "命名空间对象零符号");
+    assert!(surface.named.is_empty(), "不冒充具名面");
+    assert!(surface.star.is_empty(), "不冒充通配面");
+}
+
+/// 异常（留白 ④，表驱动 4 行）：`export default` 四形态 ⇒ 三面皆空（对外名字由导入方
+/// 决定，反推名字即造第二套命名规则）。
+#[test]
+fn extract_surface留白export_default零产出() {
+    for source in [
+        "export default function App() { return null; }\n",
+        "export default () => null;\n",
+        "export default class X {}\n",
+        "export default 42;\n",
+    ] {
+        let surface = extract_surface("src/views/x.ts", source);
+        assert!(
+            surface.symbols.is_empty(),
+            "export default 零符号（{source:?}）"
+        );
+        assert!(surface.named.is_empty(), "不进具名面（{source:?}）");
+        assert!(surface.star.is_empty(), "不进通配面（{source:?}）");
+    }
+}
+
+/// 异常（逐值迭代 3 值）：空源 / 未闭合括号 / 非法 token ⇒ 三面全空、零 panic
+/// （`panicked = true` 即不猜）。
+#[test]
+fn extract_surface异常源三面全空() {
+    for source in ["", "export function f( {", "export function @@() {}"] {
+        let surface = extract_surface("src/views/x.ts", source);
+        assert!(
+            surface.symbols.is_empty() && surface.named.is_empty() && surface.star.is_empty(),
+            "异常源三面全空（{source:?}）：{surface:?}"
+        );
+    }
+}
+
+/// 边界（名单形态 3 行）：字符串字面量 `local`（`export { "x-y" as A }`）跳过该条、
+/// 其余照收；`export {}` ⇒ `named` 空；`export { A as A }` ⇒ `local == exported`。
+#[test]
+fn extract_surface名单形态边界() {
+    let mixed = extract_surface("src/views/x.ts", "export { \"x-y\" as A, B } from './x';\n");
+    assert_eq!(
+        mixed.named.len(),
+        1,
+        "字符串字面量名字不是合法标识符：{:?}",
+        mixed.named
+    );
+    assert_eq!(mixed.named[0].local, "B");
+    assert_eq!(mixed.named[0].exported, "B");
+
+    let empty = extract_surface("src/views/x.ts", "export {} from './x';\n");
+    assert!(empty.named.is_empty(), "空名单零条");
+
+    let same = extract_surface("src/views/x.ts", "export { A as A } from './x';\n");
+    assert_eq!(same.named.len(), 1);
+    assert_eq!(
+        same.named[0].local, same.named[0].exported,
+        "`A as A` 两名相等"
+    );
+}
+
+/// 边界（字符串边界 3 行）：`from ''`（空 specifier）/ 超长 specifier（>1000 chars）/
+/// 含 emoji 与换行的 specifier ⇒ 原样进 `specifier`（或 `star`），零 panic——本文件不
+/// 解释 specifier（解析归 `TsResolver`）。
+#[test]
+fn named_export的specifier边界() {
+    let empty = extract_surface("src/views/x.ts", "export { A } from '';\n");
+    assert_eq!(empty.named.len(), 1);
+    assert_eq!(empty.named[0].specifier, "", "空 specifier 原样进字段");
+
+    let long = format!("./{}", "a".repeat(1200));
+    let source = format!("export {{ A }} from '{long}';\n");
+    let wide = extract_surface("src/views/x.ts", &source);
+    assert_eq!(wide.named.len(), 1);
+    assert_eq!(
+        wide.named[0].specifier, long,
+        "超长 specifier 原样（零截断）"
+    );
+
+    let odd = extract_surface("src/views/x.ts", "export { A } from './a\\nb🎯';\n");
+    assert_eq!(odd.named.len(), 1, "特殊字符不 panic：{:?}", odd.named);
+    assert_eq!(
+        odd.named[0].specifier, "./a\nb🎯",
+        "转义换行与 emoji 原样进 specifier"
+    );
+
+    let starred = extract_surface("src/views/x.ts", "export * from '';\n");
+    assert_eq!(starred.star, vec![String::new()], "通配面同样原样");
+}
+
+/// 边界（规模迭代 3 夹具）：500 条具名 re-export ⇒ `named.len() == 500`；1000 条
+/// `export *` ⇒ `star.len() == 1000`；100 KB 声明源 ⇒ `symbols` 不截断。
+#[test]
+fn extract_surface规模() {
+    let mut named = String::new();
+    for index in 0..500 {
+        named.push_str(&format!("export {{ op{index} }} from './x';\n"));
+    }
+    let surface = extract_surface("src/views/x.ts", &named);
+    assert_eq!(surface.named.len(), 500, "500 条具名 re-export 零截断");
+
+    let mut star = String::new();
+    for index in 0..1000 {
+        star.push_str(&format!("export * from './m{index}';\n"));
+    }
+    let surface = extract_surface("src/views/x.ts", &star);
+    assert_eq!(surface.star.len(), 1000, "1000 条通配零截断");
+
+    let mut big = String::new();
+    for index in 0..3000 {
+        big.push_str(&format!(
+            "export function op{index}(a: string): string {{ return a; }}\n"
+        ));
+    }
+    assert!(big.len() > 100_000, "夹具应超 100 KB");
+    let surface = extract_surface("src/views/x.ts", &big);
+    assert_eq!(surface.symbols.len(), 3000, "大文件不截断");
+}
+
+/// 边界（AC-7 闸 1 零改动）：`ts.rs` 内
+/// `pub fn extract_file(file: &str, source: &str) -> Vec<ApiSymbol> {` 首行**逐字**在案
+/// 且恰 1 处（接口未删、签名未变）。
+#[test]
+fn 闸一extract_file签名逐字() {
+    let source = include_str!("ts.rs");
+    let expected = "pub fn extract_file(file: &str, source: &str) -> Vec<ApiSymbol> {";
+    assert_eq!(
+        source.matches(expected).count(),
+        1,
+        "闸 1：`extract_file` 签名逐字且恰 1 处"
+    );
+    let line = source
+        .lines()
+        .find(|line| line.contains("pub fn extract_file("))
+        .expect("`extract_file` 定义在案");
+    assert_eq!(line.trim(), expected, "闸 1：定义行逐字相等");
+}
+
+/// 边界（AC-7 闸 2 机械面）：`fn exported_item` 定义恰 1 处（导出形态单一分派点）、
+/// 兜底臂 `_ => ExportedItem::None` 恰 1 条（留白显式登记）。
+#[test]
+fn 闸二单一分派点机械锚() {
+    let source = include_str!("ts.rs");
+    assert_eq!(
+        source.matches("fn exported_item").count(),
+        1,
+        "导出形态分派函数恰 1 处定义"
+    );
+    assert_eq!(
+        source.matches("_ => ExportedItem::None").count(),
+        1,
+        "兜底臂恰 1 条（其余形态显式留白，MUST NOT 另开第二处 `match`）"
+    );
+    assert_eq!(
+        source.matches("match statement").count(),
+        1,
+        "`match statement` 恰 1 处（单一分派点）"
+    );
+    for arm in [
+        "Statement::ExportDeclaration",
+        "Statement::ExportFromDeclaration",
+        "Statement::ExportAllDeclaration",
+    ] {
+        assert!(source.contains(arm), "三臂之一在案：`{arm}`");
+    }
+    for forbidden in [
+        "Statement::ExportNamedDeclaration",
+        "Statement::ExportDefaultDeclaration",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "闸 2：MUST NOT 出现 `{forbidden}`（留白靠不匹配实现）"
+        );
+    }
+}
+
+/// 边界（AC-7 封闭面）：`ExportedItem` 四变体（`Declaration` / `Named` / `Star` /
+/// `None`）恰 4 个、枚举**私有**（零 `pub enum ExportedItem` 命中）、定义恰 1 处。
+#[test]
+fn exported_item四变体封闭且私有() {
+    let source = include_str!("ts.rs");
+    assert_eq!(
+        source.matches("enum ExportedItem").count(),
+        1,
+        "定义恰 1 处"
+    );
+    assert!(
+        !source.contains("pub enum ExportedItem"),
+        "`ExportedItem` 保持私有（MUST NOT 为可测性升格）"
+    );
+    let block = source
+        .split_once("enum ExportedItem<'a, 'b> {")
+        .expect("`ExportedItem` 定义在案")
+        .1
+        .split_once("\n}")
+        .expect("枚举收口")
+        .0;
+    let variants: Vec<&str> = block
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("//"))
+        .map(|line| {
+            line.split('(')
+                .next()
+                .unwrap_or(line)
+                .trim_end_matches(',')
+                .trim()
+        })
+        .collect();
+    assert_eq!(
+        variants,
+        vec!["Declaration", "Named", "Star", "None"],
+        "四变体封闭（MUST NOT 扩第五态）"
+    );
 }

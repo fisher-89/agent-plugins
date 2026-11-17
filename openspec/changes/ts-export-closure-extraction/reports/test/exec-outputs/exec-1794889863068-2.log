@@ -1,0 +1,225 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\core\foundation)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\core\workflow)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\core\archi)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\core\config)
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\infra\exec)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\core\checks)
+warning: this function has too many arguments (8/7)
+   --> crates\core\workflow\src\write\create.rs:441:1
+    |
+441 | / fn compensate_tree_failure(
+442 | |     store: &dyn ChangeStateStore,
+443 | |     vcs: &dyn WorktreePort,
+444 | |     main_root: &Path,
+...   |
+449 | |     fs_error: &str,
+450 | | ) -> String {
+    | |___________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `workflow` (lib) generated 1 warning
+    Checking orchestration v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\infra\store)
+    Checking vcs-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\infra\checks)
+    Checking archi-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\infra\archi)
+    Checking agent-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\infra\agent)
+    Checking archi-api-gen v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri\crates\tools\archi-api-gen)
+error[E0063]: missing field `file` in initializer of `api::extract::ApiSymbol`
+  --> crates\core\archi\src\api\extract\mod_test.rs:50:5
+   |
+50 |     ApiSymbol {
+   |     ^^^^^^^^^ missing `file`
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+   --> crates\core\archi\src\api\extract\mod_test.rs:502:19
+    |
+502 |     let symbols = extract_element(temp.root(), "crates/x/src/lib.rs");
+    |                   ^^^^^^^^^^^^^^^------------------------------------ two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\extract\mod.rs:229:8
+    |
+229 | pub fn extract_element(
+    |        ^^^^^^^^^^^^^^^
+230 |     root: &Path,
+231 |     elements: &[ArchiElement],
+    |     -------------------------
+232 |     element: &ArchiElement,
+    |     ----------------------
+help: provide the arguments
+    |
+502 |     let symbols = extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, "crates/x/src/lib.rs");
+    |                                                +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+   --> crates\core\archi\src\api\extract\mod_test.rs:535:19
+    |
+535 |     let symbols = extract_element(temp.root(), "views/index.ts");
+    |                   ^^^^^^^^^^^^^^^------------------------------- two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\extract\mod.rs:229:8
+    |
+229 | pub fn extract_element(
+    |        ^^^^^^^^^^^^^^^
+230 |     root: &Path,
+231 |     elements: &[ArchiElement],
+    |     -------------------------
+232 |     element: &ArchiElement,
+    |     ----------------------
+help: provide the arguments
+    |
+535 |     let symbols = extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, "views/index.ts");
+    |                                                +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+   --> crates\core\archi\src\api\extract\mod_test.rs:544:15
+    |
+544 |     let tsx = extract_element(temp.root(), "tsx/index.tsx");
+    |               ^^^^^^^^^^^^^^^------------------------------ two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\extract\mod.rs:229:8
+    |
+229 | pub fn extract_element(
+    |        ^^^^^^^^^^^^^^^
+230 |     root: &Path,
+231 |     elements: &[ArchiElement],
+    |     -------------------------
+232 |     element: &ArchiElement,
+    |     ----------------------
+help: provide the arguments
+    |
+544 |     let tsx = extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, "tsx/index.tsx");
+    |                                            +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+   --> crates\core\archi\src\api\extract\mod_test.rs:563:23
+    |
+563 |         let symbols = extract_element(temp.root(), entry);
+    |                       ^^^^^^^^^^^^^^^-------------------- two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\extract\mod.rs:229:8
+    |
+229 | pub fn extract_element(
+    |        ^^^^^^^^^^^^^^^
+230 |     root: &Path,
+231 |     elements: &[ArchiElement],
+    |     -------------------------
+232 |     element: &ArchiElement,
+    |     ----------------------
+help: provide the arguments
+    |
+563 |         let symbols = extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, entry);
+    |                                                    +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+   --> crates\core\archi\src\api\extract\mod_test.rs:578:23
+    |
+578 |         let symbols = extract_element(temp.root(), line);
+    |                       ^^^^^^^^^^^^^^^------------------- two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\extract\mod.rs:229:8
+    |
+229 | pub fn extract_element(
+    |        ^^^^^^^^^^^^^^^
+230 |     root: &Path,
+231 |     elements: &[ArchiElement],
+    |     -------------------------
+232 |     element: &ArchiElement,
+    |     ----------------------
+help: provide the arguments
+    |
+578 |         let symbols = extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, line);
+    |                                                    +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+   --> crates\core\archi\src\api\extract\mod_test.rs:604:19
+    |
+604 |     let symbols = extract_element(temp.root(), "src/alpha/src/lib.rs");
+    |                   ^^^^^^^^^^^^^^^------------------------------------- two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+    |
+note: function defined here
+   --> crates\core\archi\src\api\extract\mod.rs:229:8
+    |
+229 | pub fn extract_element(
+    |        ^^^^^^^^^^^^^^^
+230 |     root: &Path,
+231 |     elements: &[ArchiElement],
+    |     -------------------------
+232 |     element: &ArchiElement,
+    |     ----------------------
+help: provide the arguments
+    |
+604 |     let symbols = extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, "src/alpha/src/lib.rs");
+    |                                                +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+    --> crates\core\archi\src\api\extract\mod_test.rs:1436:22
+     |
+1436 |     let by_element = extract_element(temp.root(), entry);
+     |                      ^^^^^^^^^^^^^^^-------------------- two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+     |
+note: function defined here
+    --> crates\core\archi\src\api\extract\mod.rs:229:8
+     |
+ 229 | pub fn extract_element(
+     |        ^^^^^^^^^^^^^^^
+ 230 |     root: &Path,
+ 231 |     elements: &[ArchiElement],
+     |     -------------------------
+ 232 |     element: &ArchiElement,
+     |     ----------------------
+help: provide the arguments
+     |
+1436 |     let by_element = extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, entry);
+     |                                                   +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0063]: missing field `file` in initializer of `api::extract::ApiSymbol`
+   --> crates\core\archi\src\api\check_test.rs:108:5
+    |
+108 |     ApiSymbol {
+    |     ^^^^^^^^^ missing `file`
+
+error[E0063]: missing field `file` in initializer of `api::extract::ApiSymbol`
+   --> crates\core\archi\src\api\check_test.rs:131:5
+    |
+131 |     ApiSymbol {
+    |     ^^^^^^^^^ missing `file`
+
+error[E0061]: this function takes 4 arguments but 2 arguments were supplied
+    --> crates\core\archi\src\api\mod_test.rs:2172:19
+     |
+2172 |     let symbols = extract::extract_element(temp.root(), "src/alpha/src/lib.rs");
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^------------------------------------- two arguments of type `&[dto::ArchiElement]` and `&dto::ArchiElement` are missing
+     |
+note: function defined here
+    --> crates\core\archi\src\api\extract\mod.rs:229:8
+     |
+ 229 | pub fn extract_element(
+     |        ^^^^^^^^^^^^^^^
+ 230 |     root: &Path,
+ 231 |     elements: &[ArchiElement],
+     |     -------------------------
+ 232 |     element: &ArchiElement,
+     |     ----------------------
+help: provide the arguments
+     |
+2172 |     let symbols = extract::extract_element(temp.root(), /* &[dto::ArchiElement] */, /* &dto::ArchiElement */, "src/alpha/src/lib.rs");
+     |                                                         +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    Checking dev-team v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\ts-export-closure-extraction\packages\desktop\src-tauri)
+warning: `workflow` (lib test) generated 1 warning (1 duplicate)
+Some errors have detailed explanations: E0061, E0063.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `archi` (lib test) due to 11 previous errors
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

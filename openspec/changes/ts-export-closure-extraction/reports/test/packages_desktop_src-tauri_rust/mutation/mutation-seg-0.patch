@@ -1,0 +1,2943 @@
+diff --git a/crates/core/archi/src/api/check_test.rs b/crates/core/archi/src/api/check_test.rs
+index fc45b104d7cf..41f00ae17c04 100644
+--- a/crates/core/archi/src/api/check_test.rs
++++ b/crates/core/archi/src/api/check_test.rs
+@@ -113,6 +113,7 @@ fn function(name: &str, params: Vec<ApiParam>, returns: ApiType) -> ApiSymbol {
+         returns,
+         is_async: false,
+         line: 1,
++        file: "src/lib.rs".to_owned(),
+         visibility: Visibility::External,
+     }
+ }
+@@ -136,6 +137,7 @@ fn type_symbol(name: &str, kind: ApiSymbolKind) -> ApiSymbol {
+         returns: ApiType::Unknown("()".to_owned()),
+         is_async: false,
+         line: 1,
++        file: "src/lib.rs".to_owned(),
+         visibility: Visibility::External,
+     }
+ }
+diff --git a/crates/core/archi/src/api/extract/mod.rs b/crates/core/archi/src/api/extract/mod.rs
+index 713858e03801..5fa3bd40db6d 100644
+--- a/crates/core/archi/src/api/extract/mod.rs
++++ b/crates/core/archi/src/api/extract/mod.rs
+@@ -9,8 +9,9 @@
+ //! [`crate::api::contract::is_constructor`]（判据的声明集 / 导出集比对与 `emit` 的
+ //! 自动构造器产出）。
+ //!
+-//! **两个取数入口的能力面不同**：[`extract_element`] 是**整元素导出集**（从实现入口沿
+-//! `mod` 树走，判据与 bootstrap 的唯一取数面）；[`extract`] 是**单文件入口面**（只抽一份源
++//! **两个取数入口的能力面不同**：[`extract_element`] 是**整元素导出集**（Rust 从实现入口沿
++//! `mod` 树走、TS 从入口沿 `export … from` / `export * from` 走入口导出闭包；判据与
++//! bootstrap 的唯一取数面）；[`extract`] 是**单文件入口面**（只抽一份源
+ //! 文本），**本期产品路径零调用者**——判据与 bootstrap 一律经 `extract_element`，`extract`
+ //! 保留为「按文件而非按元素起草」这一能力面的预留接口（`extract/mod_test.rs` 的调用测的是
+ //! **接口正确性**，不是接线状态）；退出条件 = 首个「按文件起草」的 bootstrap 需求落地时
+@@ -24,17 +25,22 @@
+ //! Schema → 逻辑类型的单点，语言无关（「位置 × 语言 → 文本形」的映射在 `emit`，判据只调用
+ //! 本文件的公开函数、MUST NOT 自建第二份）。
+ //!
+-//! 边界：纯读源文本（调用方给 `source`）+ AST，零读盘、零写盘、零 spawn。
++//! 边界：[`extract`]（与 `ts` / 归一纯函数）只吃调用方给的 `source`，零读盘、零写盘、
++//! 零 spawn；[`extract_element`]（与 [`rust::extract_crate`]）按入口与闭包内目标文件
++//! **读盘**，零写盘、零 spawn。
+ 
+ pub mod rust;
+ pub mod ts;
+ 
+ use std::borrow::Cow;
++use std::collections::BTreeSet;
+ use std::path::Path;
+ 
+ use serde_json::Value;
+ 
+ use crate::dto::ArchiElement;
++use crate::scan::owner::{Owner, OwnerIndex};
++use crate::scan::ts::TsResolver;
+ 
+ use super::paths::{self, Language};
+ 
+@@ -178,6 +184,14 @@ pub struct ApiSymbol {
+     pub is_async: bool,
+     /// 定义所在行（1 起始）
+     pub line: u32,
++    /// 定义所在文件（repo 相对 POSIX）
++    ///
++    /// 语言无关同义「这个符号写在哪」：TS 取抽取面（[`ts::extract_surface`] /
++    /// [`ts::extract_file`]）的 `file` 形参（闭包一跳之后它就是目标文件，不再是入口）；
++    /// Rust 取贯穿 [`rust::extract_crate`] 模块树的**当前模块文件**（内联 `mod` 与父同文件）。
++    /// MUST NOT 填入口串——注记（[`crate::api::bootstrap`]）据此指向真实定义处，指错文件
++    /// 比没有注记更坏。
++    pub file: String,
+     /// 可见性
+     pub visibility: Visibility,
+ }
+@@ -203,18 +217,168 @@ pub fn extract(element: &ArchiElement, file: &str, source: &str) -> Vec<ApiSymbo
+ }
+ 
+ /// 整元素导出集（判据的「代码导出集」唯一取数面）：从实现入口出发，按语言决定是否走
+-/// 模块树——一个模块的公开面散在入口与它声明的各模块文件里，只看入口会把大部分操作
+-/// 判成缺失。
+-pub fn extract_element(root: &Path, entry: &str) -> Vec<ApiSymbol> {
++/// 模块树——一个元素的公开面散在入口与它声明的各文件里，只看入口会把大部分操作判成缺失。
++///
++/// **Rust 分支**走 `mod` 树自锚（[`rust::extract_crate`]），`elements` / `element` 不参与：
++/// `mod` 树就是该 crate 的完整公开面，跨元素面不混进来。**TS 分支**走**入口导出闭包**
++/// （barrel 的内容天然全是 re-export，只看入口单文件对前端元素恒零产出）：从入口沿
++/// `export … from` / `export * from` 递归并入目标文件的导出，同元素约束按 owner 子树裁
++/// （[`reexport_ok`]）——元素与元素表只在这一分支被用到。
++///
++/// 入口读不到 → 空 `Vec`（既有语义；缺口由 `apiEntryMissing` 报）；语言未知 → 空 `Vec`。
++pub fn extract_element(
++    root: &Path,
++    elements: &[ArchiElement],
++    element: &ArchiElement,
++    entry: &str,
++) -> Vec<ApiSymbol> {
+     match paths::language_of(entry) {
+         Language::Rust => rust::extract_crate(root, entry),
+-        Language::TypeScript => std::fs::read_to_string(root.join(entry))
+-            .map(|source| ts::extract_file(entry, &source))
+-            .unwrap_or_default(),
++        Language::TypeScript => {
++            let owners = OwnerIndex::build(elements);
++            Closure::new(root, &owners, element).collect(entry, None)
++        }
+         Language::Unknown => Vec::new(),
+     }
+ }
+ 
++/// 入口导出闭包（TS 分支的递归状态；一次 [`extract_element`] 一个实例）。
++///
++/// `resolver` 带实例而非按调用新建：specifier 解析要编译就近 tsconfig，闭包内复用同一份
++/// 缓存。`owners` 同理（归属索引只建一次）。
++struct Closure<'a> {
++    /// 观察根（repo 相对路径的锚）
++    root: &'a Path,
++    /// 归属索引（同元素约束的唯一依据）
++    owners: &'a OwnerIndex,
++    /// 取数元素（owner 子树比较的左侧）
++    element: &'a ArchiElement,
++    /// specifier 解析单点（[`crate::scan::ts::TsResolver`]，零第二份解析）
++    resolver: TsResolver,
++    /// 环防：键 =（目标文件, 本次请求的名字集排序后）
++    visited: BTreeSet<(String, Option<Vec<String>>)>,
++}
++
++impl<'a> Closure<'a> {
++    /// 构造（`owners` 由调用方构建并持有——索引只建一次）。
++    fn new(root: &'a Path, owners: &'a OwnerIndex, element: &'a ArchiElement) -> Closure<'a> {
++        Closure {
++            root,
++            owners,
++            element,
++            resolver: TsResolver::new(root),
++            visited: BTreeSet::new(),
++        }
++    }
++
++    /// 一层导出面：声明面按 `names` 过滤 + 具名 / 通配两面各递归一跳。
++    ///
++    /// `names = None` 即「全量面」（通配与入口起点），`Some` 即「只要这些名字」（具名
++    /// re-export 精确取，别名 `A as B` 由调用方改名）。终止性由 `visited` 保证（键集 ⊆
++    /// 文件 × ({`None`} ∪ 各 `local` 的单元素集)，有限），**MUST NOT 再叠深度上限**——
++    /// 触顶就会多出「部分面冒充完整面」的第二套语义。顺序 = 入口语句序 + 目标文件声明序，
++    /// 故同一输入两次调用逐字相等（不依赖哈希序）。
++    fn collect(&mut self, file: &str, names: Option<&[String]>) -> Vec<ApiSymbol> {
++        if !self.visited.insert(visited_key(file, names)) {
++            return Vec::new();
++        }
++        // 读不到（不在盘 / 仓外）⇒ 空集：取数器非权威，缺口由契约面判据显示
++        let Ok(source) = std::fs::read_to_string(self.root.join(file)) else {
++            return Vec::new();
++        };
++        let surface = ts::extract_surface(file, &source);
++        let mut out: Vec<ApiSymbol> = surface
++            .symbols
++            .into_iter()
++            .filter(|symbol| keeps(names, &symbol.name))
++            .collect();
++        for export in surface.named {
++            if !keeps(names, &export.exported) {
++                continue;
++            }
++            let Some(target) = export_target(&mut self.resolver, file, &export.specifier) else {
++                continue;
++            };
++            if !reexport_ok(self.owners, self.element, &target) {
++                continue;
++            }
++            // 只取 `local`（具名名单精确，不虚增），入集名改为 `exported`（别名如实反映）
++            let mut inherited = self.collect(&target, Some(std::slice::from_ref(&export.local)));
++            for symbol in &mut inherited {
++                symbol.name = export.exported.clone();
++            }
++            out.extend(inherited);
++        }
++        for specifier in surface.star {
++            let Some(target) = export_target(&mut self.resolver, file, &specifier) else {
++                continue;
++            };
++            if !reexport_ok(self.owners, self.element, &target) {
++                continue;
++            }
++            out.extend(self.collect(&target, None));
++        }
++        dedupe(out)
++    }
++}
++
++/// 同元素约束（**唯一判据**）：re-export 目标 SHALL 归属本元素或其子元素。
++///
++/// FQN 按 `.` 分段比较（`"{fqn}."` 前缀），MUST NOT 裸 `starts_with(element.fqn)`——否则
++/// `…Components.Agent` 会误认 `…Components.AgentFoo`。`Owner::Ambiguous` 与 `Owner::None`
++/// 一律拒绝（不任选、不放行）：无元素认领的文件不是本元素的公共面。
++fn reexport_ok(owners: &OwnerIndex, element: &ArchiElement, target: &str) -> bool {
++    match owners.owner_of(target) {
++        Owner::Element { fqn, .. } => {
++            fqn == element.fqn || fqn.starts_with(&format!("{}.", element.fqn))
++        }
++        Owner::Ambiguous(_) | Owner::None => false,
++    }
++}
++
++/// specifier → 目标文件（repo 相对）；解析失败或目标不是 TS 面 ⇒ `None`（静默跳过）。
++///
++/// 解析走 [`TsResolver::resolve`] 单点（`baseUrl` / `paths` / 别名 / 扩展名 / index 折叠），
++/// 零第二份。语言过滤用 [`paths::language_of`]——resolver 的扩展名表含 `.json`，而 JSON
++/// 不是导出面。**不记 `unresolved`**：那是依赖边抽取的账，取数器非权威。
++fn export_target(resolver: &mut TsResolver, file: &str, specifier: &str) -> Option<String> {
++    let target = resolver.resolve(file, specifier)?;
++    matches!(paths::language_of(&target), Language::TypeScript).then_some(target)
++}
++
++/// 环防键（名字集排序后再作键：同一集合的不同到达序不重复展开）。
++fn visited_key(file: &str, names: Option<&[String]>) -> (String, Option<Vec<String>>) {
++    let mut sorted = names.map(<[String]>::to_vec);
++    if let Some(sorted) = &mut sorted {
++        sorted.sort();
++    }
++    (file.to_owned(), sorted)
++}
++
++/// 名字集判据（`None` = 全量面）。
++fn keeps(names: Option<&[String]>, name: &str) -> bool {
++    match names {
++        Some(names) => names.iter().any(|candidate| candidate == name),
++        None => true,
++    }
++}
++
++/// 去重（键 = `(name, kind)`，保留首次出现）：同一符号经多条路径到达只留一条；
++/// MUST NOT 按结构去重（两个同名字不同类型不得合并）。
++fn dedupe(symbols: Vec<ApiSymbol>) -> Vec<ApiSymbol> {
++    let mut kept: Vec<ApiSymbol> = Vec::with_capacity(symbols.len());
++    for symbol in symbols {
++        if kept
++            .iter()
++            .any(|existing| existing.name == symbol.name && existing.kind == symbol.kind)
++        {
++            continue;
++        }
++        kept.push(symbol);
++    }
++    kept
++}
++
+ /// 归一签名（`fn(<类型序列>) -> <返回类型>`）：参数名 / 空白 / 多行排列不参与，故
+ /// 契约 `input: string` 与代码 `input: &str` 归一后一致。判据比对与 bootstrap 投影
+ /// 共用本函数（MUST NOT 各写一份）。
+diff --git a/crates/core/archi/src/api/extract/mod_test.rs b/crates/core/archi/src/api/extract/mod_test.rs
+index a59c92980f60..56dc43895c94 100644
+--- a/crates/core/archi/src/api/extract/mod_test.rs
++++ b/crates/core/archi/src/api/extract/mod_test.rs
+@@ -55,6 +55,7 @@ fn symbol(params: Vec<ApiParam>, returns: ApiType) -> ApiSymbol {
+         returns,
+         is_async: false,
+         line: 1,
++        file: "src/lib.rs".to_owned(),
+         visibility: Visibility::External,
+     }
+ }
+@@ -499,7 +500,8 @@ fn extract_element整元素导出集含子模块op() {
+         "pub fn run(input: &str) -> String {\n    String::new()\n}\n\nfn helper() {}\n",
+     );
+ 
+-    let symbols = extract_element(temp.root(), "crates/x/src/lib.rs");
++    let elements = [element("App.Core.X", &["crates/x/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "crates/x/src/lib.rs");
+     let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
+     assert!(names.contains(&"run"), "子模块的 op 在案：{names:?}");
+     assert!(names.contains(&"top"), "入口的自由函数在案：{names:?}");
+@@ -524,24 +526,25 @@ fn extract_element整元素导出集含子模块op() {
+     );
+ }
+ 
+-/// 正向（D19）：TS 元素走单文件——返回集等于对入口源跑 `ts::extract_file`；`.tsx`
+-/// 入口同形不 panic（TS 侧不走模块树）。
++/// 正向（D19）：TS 元素——源文无透传，故返回集等于对入口源跑 `ts::extract_file`
++/// （声明面）；`.tsx` 入口同形不 panic。
+ #[test]
+ fn extract_element的ts走单文件() {
+     let temp = TempDir::new("element-ts");
+     let source = "export function load(a: string): string {\n  return a;\n}\n\nexport interface Shape { x: number }\n";
++    let elements = [element("App.Frontend.Views", &["views/", "tsx/"])];
+     temp.write("views/index.ts", source);
+ 
+-    let symbols = extract_element(temp.root(), "views/index.ts");
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
+     let direct = super::ts::extract_file("views/index.ts", source);
+-    assert_eq!(symbols, direct, "TS 元素 = 单文件抽取（零模块树）");
++    assert_eq!(symbols, direct, "TS 元素 = 声明面（零模块树、零透传）");
+     assert_eq!(symbols.len(), 2, "一个操作 + 一个类型：{symbols:?}");
+ 
+     temp.write(
+         "tsx/index.tsx",
+         "export function view(): string {\n  return '';\n}\n\nexport const Card = () => null;\n",
+     );
+-    let tsx = extract_element(temp.root(), "tsx/index.tsx");
++    let tsx = extract_element(temp.root(), &elements, &elements[0], "tsx/index.tsx");
+     assert_eq!(tsx.len(), 1, "「.tsx」入口同形抽取：{tsx:?}");
+     assert_eq!(tsx[0].name, "view");
+ }
+@@ -555,12 +558,13 @@ fn extract_element入口读不到返回空集() {
+     fs::create_dir_all(temp.root().join("dir/src/lib.rs")).expect("建目录占位");
+ 
+     let cases = ["nowhere/src/lib.rs", "dir/src/lib.rs", "", "nowhere/x.ts"];
++    let elements = [element("App.Core.X", &["crates/x/"])];
+     for entry in cases {
+         assert!(
+             entry.is_empty() || !temp.root().join(entry).is_file(),
+             "夹具应为「读不到」形态：{entry:?}"
+         );
+-        let symbols = extract_element(temp.root(), entry);
++        let symbols = extract_element(temp.root(), &elements, &elements[0], entry);
+         assert!(
+             symbols.is_empty(),
+             "入口读不到即空集（不猜测）：{entry:?} → {symbols:?}"
+@@ -573,9 +577,10 @@ fn extract_element入口读不到返回空集() {
+ #[test]
+ fn extract_element语言未知返回空集() {
+     let temp = TempDir::new("element-unknown-lang");
++    let elements = [element("App.Core.Scripts", &["scripts/"])];
+     for line in ["README.md", "scripts/run", "scripts/x.py"] {
+         temp.write(line, "pub fn ignored() {}\n");
+-        let symbols = extract_element(temp.root(), line);
++        let symbols = extract_element(temp.root(), &elements, &elements[0], line);
+         assert!(
+             symbols.is_empty(),
+             "未知语言不猜符号：{line:?} → {symbols:?}"
+@@ -601,7 +606,8 @@ fn extract_element与bootstrap同源() {
+          pub fn new() -> Self {\n    Self\n}\n",
+     );
+ 
+-    let symbols = extract_element(temp.root(), "src/alpha/src/lib.rs");
++    let elements = [element(fqn, &["src/alpha/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "src/alpha/src/lib.rs");
+     let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
+     assert_eq!(
+         names,
+@@ -658,10 +664,17 @@ fn 未知语言落空集恰两处且无猜测回落() {
+     );
+     // 只按语言分派：两处 `match paths::language_of(..)` 恰对应两个函数
+     assert_eq!(
+-        source.matches("paths::language_of(").count(),
++        source.matches("match paths::language_of(").count(),
+         2,
+         "语言分派只在 extract / extract_element 两处"
+     );
++    // 第三处 `paths::language_of(` 是 TS 闭包的目标白名单过滤（`export_target`），
++    // 不是分派：MUST NOT 因此多出第三个按语言取数的分支
++    assert_eq!(
++        source.matches("paths::language_of(").count(),
++        3,
++        "`language_of` 恰三处：两处分派 + 闭包的一处 TS 面过滤"
++    );
+     // 回落臂（`_ =>`）零命中：三值穷尽，MUST NOT 有「猜成 Rust / TypeScript」的兜底
+     assert!(
+         !source.contains("_ =>"),
+@@ -1428,12 +1441,12 @@ fn extract显式留白() {
+ 
+     // 行为面：同一单文件 Rust 入口上 `extract` 与 `extract_element` 符号集逐字段相等
+     let temp = TempDir::new("extract-blank-same-face");
+-    let element = element("App.Core.Alpha", &["src/alpha/src/lib.rs"]);
++    let elements = [element("App.Core.Alpha", &["src/alpha/src/lib.rs"])];
+     let body = "pub struct T;\npub fn a(input: &str) -> String { String::new() }\n";
+     temp.write("src/alpha/src/lib.rs", body);
+     let entry = "src/alpha/src/lib.rs";
+-    let by_extract = extract(&element, entry, body);
+-    let by_element = extract_element(temp.root(), entry);
++    let by_extract = extract(&elements[0], entry, body);
++    let by_element = extract_element(temp.root(), &elements, &elements[0], entry);
+     assert_eq!(
+         by_extract.len(),
+         by_element.len(),
+@@ -2011,3 +2024,803 @@ fn 三轴对拍泄漏面九组() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// extract_element：TS 入口导出闭包（re-export 沿 `export … from` / `export * from` 走）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-1 / AC-2）：具名名单**精确取**——入口 `export { A } from './x'` 只取 `A`，
++/// 目标文件里的 `B` / `C` 零命中（具名名单不虚增）；`file` / `line` 指目标文件内的定义
++/// 处，不是入口串。
++#[test]
++fn extract_element闭包具名名单不虚增() {
++    let temp = TempDir::new("closure-named");
++    temp.write("views/index.ts", "export { A } from './x';\n");
++    temp.write(
++        "views/x.ts",
++        "export function A(): string {\n  return '';\n}\n\n\
++         export function B(): string {\n  return '';\n}\n\n\
++         export function C(): string {\n  return '';\n}\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(symbols.len(), 1, "具名名单只取一个名字：{symbols:?}");
++    assert_eq!(symbols[0].name, "A");
++    assert_eq!(symbols[0].kind, ApiSymbolKind::Function);
++    assert_eq!(
++        symbols[0].file, "views/x.ts",
++        "`file` 指目标文件（MUST NOT 是入口串）"
++    );
++    assert_eq!(symbols[0].line, 1, "`line` 是目标文件内的定义行");
++    for absent in ["B", "C"] {
++        assert!(
++            !symbols.iter().any(|symbol| symbol.name == absent),
++            "未在名单里的 `{absent}` 零命中：{symbols:?}"
++        );
++    }
++}
++
++/// 正向（AC-2）：同一簇「三条逐名 re-export」与「一条 `export * from`」两个入口 ⇒
++/// 产出逐字段相等（名字集与顺序均同，各 3 条）。
++#[test]
++fn extract_element闭包精确名单与通配等价() {
++    let temp = TempDir::new("closure-star-equal");
++    temp.write(
++        "views/x.ts",
++        "export function A(): string { return ''; }\n\
++         export function B(): string { return ''; }\n\
++         export function C(): string { return ''; }\n",
++    );
++    temp.write(
++        "views/named.ts",
++        "export { A } from './x';\nexport { B } from './x';\nexport { C } from './x';\n",
++    );
++    temp.write("views/star.ts", "export * from './x';\n");
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let by_named = extract_element(temp.root(), &elements, &elements[0], "views/named.ts");
++    let by_star = extract_element(temp.root(), &elements, &elements[0], "views/star.ts");
++
++    let names: Vec<&str> = by_star.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(names, vec!["A", "B", "C"], "各 3 条且顺序 = 声明序");
++    assert_eq!(
++        by_named, by_star,
++        "两条路径逐字段相等（精确名单与通配等价）"
++    );
++}
++
++/// 正向（AC-1 / AC-2）：多跳闭包——入口自带声明 + `export * from './mid'`，`mid`
++/// 自带声明并 `export * from './leaf'` ⇒ 三条全在集，顺序 = 入口语句序 + `mid`
++/// 语句序 + `leaf` 声明序。
++#[test]
++fn extract_element闭包多跳顺序() {
++    let temp = TempDir::new("closure-multi-hop");
++    temp.write(
++        "views/index.ts",
++        "export function rootOp(): string { return ''; }\nexport * from './mid';\n",
++    );
++    temp.write(
++        "views/mid.ts",
++        "export function midOp(): string { return ''; }\nexport * from './leaf';\n",
++    );
++    temp.write(
++        "views/leaf.ts",
++        "export function leafOp(): string { return ''; }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(
++        names,
++        vec!["rootOp", "midOp", "leafOp"],
++        "顺序 = 入口语句序 + 目标文件声明序"
++    );
++    assert_eq!(
++        symbols[2].file, "views/leaf.ts",
++        "多跳后 `file` 仍指真正的定义文件：{symbols:?}"
++    );
++}
++
++/// 正向（AC-1）：`export { A as B } from './x'` ⇒ 入集名 `B`，而 `file` / `line` /
++/// `kind` / `is_async` 仍指 `./x` 内 `A` 的定义（改名只改 `name`）。
++#[test]
++fn extract_element闭包别名改名只改名字() {
++    let temp = TempDir::new("closure-alias");
++    temp.write("views/index.ts", "export { A as B } from './x';\n");
++    temp.write(
++        "views/x.ts",
++        "// 头部注释\nexport async function A(): Promise<string> { return ''; }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(symbols.len(), 1, "别名一条：{symbols:?}");
++    assert_eq!(symbols[0].name, "B", "对外名 = `exported`");
++    assert_eq!(symbols[0].file, "views/x.ts", "定义文件不变（只改名字）");
++    assert_eq!(symbols[0].line, 2, "定义行不变（只改名字）");
++    assert_eq!(symbols[0].kind, ApiSymbolKind::Function);
++    assert!(symbols[0].is_async, "`is_async` 不被改名影响");
++}
++
++/// 正向（AC-1 / R-3 本仓形态）：入口同一目标两条语句（`export { V }` + `export type
++/// { Actions, Props }`）⇒ 3 名全部在集——`visited` 键含名字集，两条语句互不吞名。
++#[test]
++fn extract_element闭包同目标两语句不吞名() {
++    let temp = TempDir::new("closure-same-target");
++    temp.write(
++        "views/index.ts",
++        "export { V } from './v';\nexport type { Actions, Props } from './v';\n",
++    );
++    temp.write(
++        "views/v.ts",
++        "export const V = memo(() => null);\n\
++         export type Actions = { a: string };\n\
++         export interface Props { b: string }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(names, vec!["V", "Actions", "Props"], "两条语句互不吞名");
++}
++
++/// 正向（AC-4 值域）：闭包内全部符号 `visibility == External`（含跨文件并入的符号），
++/// 零 `CrateOnly` / `TestOnly` / `Unused` 产出。
++#[test]
++fn extract_element闭包值域恒external() {
++    let temp = TempDir::new("closure-visibility");
++    temp.write(
++        "views/index.ts",
++        "export function own(): string { return ''; }\nexport { far } from './far';\nexport * from './more';\n",
++    );
++    temp.write(
++        "views/far.ts",
++        "export function far(): string { return ''; }\n",
++    );
++    temp.write(
++        "views/more.ts",
++        "export interface More { x: number }\nexport enum Mode { A }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(
++        symbols.len(),
++        4,
++        "声明 + 具名 + 通配两面全并入：{symbols:?}"
++    );
++    for symbol in &symbols {
++        assert_eq!(
++            symbol.visibility,
++            Visibility::External,
++            "闭包内全 External（含跨文件）：{} 为 {:?}",
++            symbol.name,
++            symbol.visibility
++        );
++    }
++}
++
++/// 正向（AC-2）：入口自带声明 + 具名 re-export + 通配 re-export ⇒ 顺序恒
++/// `声明 → 具名 → 通配`，各段内按语句序。
++#[test]
++fn extract_element闭包混合序() {
++    let temp = TempDir::new("closure-mixed-order");
++    temp.write(
++        "views/index.ts",
++        "export function own(): string { return ''; }\n\
++         export { namedFirst } from './named';\n\
++         export { namedSecond } from './named';\n\
++         export * from './starred';\n",
++    );
++    temp.write(
++        "views/named.ts",
++        "export function namedFirst(): string { return ''; }\nexport function namedSecond(): string { return ''; }\n",
++    );
++    temp.write(
++        "views/starred.ts",
++        "export function starFirst(): string { return ''; }\nexport interface StarType { x: number }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(
++        names,
++        vec!["own", "namedFirst", "namedSecond", "starFirst", "StarType"],
++        "声明段 → 具名段 → 通配段，段内按语句序"
++    );
++}
++
++/// 边界（AC-3）：环 `a → b → a`（各含一条声明、互 `export *`）⇒ 零 panic、零无限递归，
++/// 两符号各恰一次。
++#[test]
++fn extract_element闭环收敛() {
++    let temp = TempDir::new("closure-cycle");
++    temp.write(
++        "views/a.ts",
++        "export function fa(): string { return ''; }\nexport * from './b';\n",
++    );
++    temp.write(
++        "views/b.ts",
++        "export function fb(): string { return ''; }\nexport * from './a';\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/a.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(names, vec!["fa", "fb"], "环上两符号各恰一次：{symbols:?}");
++}
++
++/// 边界（AC-3）：菱形——入口 `export * from './l'` 与 `export * from './r'`，两者都
++/// `export * from './leaf'` ⇒ `leaf` 的符号按 `(name, kind)` 恰一条。
++#[test]
++fn extract_element闭包菱形去重() {
++    let temp = TempDir::new("closure-diamond");
++    temp.write(
++        "views/index.ts",
++        "export * from './l';\nexport * from './r';\n",
++    );
++    temp.write("views/l.ts", "export * from './leaf';\n");
++    temp.write("views/r.ts", "export * from './leaf';\n");
++    temp.write(
++        "views/leaf.ts",
++        "export function shared(): string { return ''; }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(symbols.len(), 1, "菱形只留一条：{symbols:?}");
++    assert_eq!(symbols[0].name, "shared");
++}
++
++/// 边界（AC-3）：去重键含 `kind`——两条路径带来**同名不同 kind**（`export type A` 与
++/// `export function A`）⇒ 两条都在（去重不按名字或结构合并）。
++#[test]
++fn extract_element闭包去重键含kind() {
++    let temp = TempDir::new("closure-dedupe-kind");
++    temp.write(
++        "views/index.ts",
++        "export * from './l';\nexport * from './r';\n",
++    );
++    temp.write("views/l.ts", "export type Dup = { a: string };\n");
++    temp.write(
++        "views/r.ts",
++        "export function Dup(): string { return ''; }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(symbols.len(), 2, "同名不同 kind 两条都在：{symbols:?}");
++    let kinds: Vec<ApiSymbolKind> = symbols.iter().map(|symbol| symbol.kind).collect();
++    assert_eq!(
++        kinds,
++        vec![ApiSymbolKind::Type, ApiSymbolKind::Function],
++        "去重键 = (name, kind)"
++    );
++}
++
++/// 边界（AC-3）：同一输入连续两次调用 ⇒ 逐字段相等（零哈希序依赖）；顺序同时与「精确
++/// 名单与通配等价」用例互证。
++#[test]
++fn extract_element闭包稳定序() {
++    let temp = TempDir::new("closure-stable");
++    temp.write(
++        "views/index.ts",
++        "export { a } from './x';\nexport * from './y';\nexport { c } from './x';\n",
++    );
++    temp.write(
++        "views/x.ts",
++        "export function a(): string { return ''; }\nexport function c(): string { return ''; }\n",
++    );
++    temp.write("views/y.ts", "export interface Y { value: string }\n");
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let first = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    let second = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(first, second, "两次调用逐字段相等（稳定序）");
++    let names: Vec<&str> = first.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(names, vec!["a", "c", "Y"], "具名段在前、通配段在后");
++}
++
++/// 边界（AC-2 空面，逐值迭代 3 值）：入口空源 / 仅注释 / `export * from './x'` 而
++/// `./x` 零导出 ⇒ 空集。
++#[test]
++fn extract_element闭包空面() {
++    let temp = TempDir::new("closure-empty-faces");
++    temp.write("views/blank.ts", "");
++    temp.write("views/comments.ts", "// 只有注释\nexport {};\n");
++    temp.write("views/empty-target.ts", "export * from './nothing';\n");
++    temp.write("views/nothing.ts", "// 零导出\n");
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    for entry in [
++        "views/blank.ts",
++        "views/comments.ts",
++        "views/empty-target.ts",
++    ] {
++        let symbols = extract_element(temp.root(), &elements, &elements[0], entry);
++        assert!(symbols.is_empty(), "空面即空集（{entry}）：{symbols:?}");
++    }
++}
++
++/// 边界（AC-2 规模，规模迭代 2 夹具）：入口 500 条具名 re-export ⇒ 500 符号零截断零
++/// 重复；目标文件 1000 条通配语句 ⇒ 不 panic（环防键命中的重复语句被跳过）。
++#[test]
++fn extract_element闭包规模() {
++    let named = TempDir::new("closure-scale-named");
++    let mut target = String::new();
++    let mut entry = String::new();
++    for index in 0..500 {
++        target.push_str(&format!("export function op{index}(): void {{}}\n"));
++        entry.push_str(&format!("export {{ op{index} }} from './x';\n"));
++    }
++    named.write("views/x.ts", &target);
++    named.write("views/index.ts", &entry);
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let symbols = extract_element(named.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(symbols.len(), 500, "500 条具名 re-export 零截断");
++    let mut names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    names.sort_unstable();
++    names.dedup();
++    assert_eq!(names.len(), 500, "500 条零重复");
++
++    let starred = TempDir::new("closure-scale-star");
++    let mut many = String::new();
++    let mut stars = String::new();
++    for index in 0..1000 {
++        many.push_str(&format!("export function fn{index}(): void {{}}\n"));
++    }
++    for _ in 0..1000 {
++        stars.push_str("export * from './x';\n");
++    }
++    starred.write("views/x.ts", &many);
++    starred.write("views/index.ts", &stars);
++    let wide = extract_element(starred.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(
++        wide.len(),
++        1000,
++        "1000 条通配语句不 panic、不重复（环防键跳过重复目标）"
++    );
++}
++
++/// 边界（AC-4）：`elements = []`（无任何归属）⇒ 所有 re-export 目标判 `Owner::None`
++/// 被拒，只剩入口自身的声明。
++#[test]
++fn extract_element闭包elements空表() {
++    let temp = TempDir::new("closure-no-elements");
++    temp.write(
++        "views/index.ts",
++        "export function own(): string { return ''; }\nexport { far } from './far';\n",
++    );
++    temp.write(
++        "views/far.ts",
++        "export function far(): string { return ''; }\n",
++    );
++
++    let owner = element("App.Frontend.Views", &["views/"]);
++    let empty: [ArchiElement; 0] = [];
++    let symbols = extract_element(temp.root(), &empty, &owner, "views/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(names, vec!["own"], "零归属 ⇒ re-export 全拒、入口声明保留");
++}
++
++/// 边界（AC-4，逐值迭代 2 值）：元素表**仅本元素**且 `path` 是文件型入口 ⇒ 兄弟文件
++/// 无元素认领、re-export 全拒（入口声明保留）；500 元素表 ⇒ 零 panic、归属仍单点。
++#[test]
++fn extract_element闭包元素表极端() {
++    let single = TempDir::new("closure-single-element");
++    single.write(
++        "views/index.ts",
++        "export function own(): string { return ''; }\nexport { sibling } from './sibling';\n",
++    );
++    single.write(
++        "views/sibling.ts",
++        "export function sibling(): string { return ''; }\n",
++    );
++    // 文件型 `path`：本元素的归属面只有入口自身，兄弟文件无主
++    let lone = [element("App.Frontend.Views.Welcome", &["views/index.ts"])];
++    let symbols = extract_element(single.root(), &lone, &lone[0], "views/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(names, vec!["own"], "兄弟文件无主 ⇒ re-export 被拒");
++
++    // 500 元素表：归属仍单点（`OwnerIndex` 只建一次），结果不变
++    let crowded = TempDir::new("closure-many-elements");
++    crowded.write("views/index.ts", "export { far } from './far';\n");
++    crowded.write(
++        "views/far.ts",
++        "export function far(): string { return ''; }\n",
++    );
++    let mut elements: Vec<ArchiElement> = Vec::new();
++    for index in 0..499 {
++        elements.push(element(
++            &format!("App.Frontend.Bulk{index}"),
++            &[&format!("views/bulk{index}/")],
++        ));
++    }
++    elements.push(element("App.Frontend.Views", &["views/"]));
++    let subject = elements.last().expect("本元素在表尾");
++    let symbols = extract_element(crowded.root(), &elements, subject, "views/index.ts");
++    assert_eq!(symbols.len(), 1, "500 元素表下归属仍正确：{symbols:?}");
++    assert_eq!(symbols[0].name, "far");
++}
++
++/// 异常（AC-4，表驱动 4 行）：四条 re-export——① 目标归属本元素子树 ② 归属另一元素
++/// ③ 无元素认领 ④ 两元素等长前缀 → `Owner::Ambiguous` ⇒ 只 ① 入集，其余零符号零 panic。
++#[test]
++fn extract_element闭包同元素约束四值() {
++    let temp = TempDir::new("closure-owner-four");
++    temp.write(
++        "views/agent/index.ts",
++        "export { ownOp } from './input/a';\n\
++         export { otherOp } from '../other/o';\n\
++         export { orphanOp } from '../../shared/s';\n\
++         export { ambiguousOp } from '../amb/x';\n",
++    );
++    temp.write(
++        "views/agent/input/a.ts",
++        "export function ownOp(): string { return ''; }\n",
++    );
++    temp.write(
++        "views/other/o.ts",
++        "export function otherOp(): string { return ''; }\n",
++    );
++    temp.write(
++        "shared/s.ts",
++        "export function orphanOp(): string { return ''; }\n",
++    );
++    temp.write(
++        "views/amb/x.ts",
++        "export function ambiguousOp(): string { return ''; }\n",
++    );
++
++    let elements = [
++        element("App.Frontend.Components.Agent", &["views/agent/"]),
++        element(
++            "App.Frontend.Components.Agent.Input",
++            &["views/agent/input/"],
++        ),
++        element("App.Frontend.Components.Other", &["views/other/"]),
++        element("App.Frontend.Components.Amb1", &["views/amb/"]),
++        element("App.Frontend.Components.Amb2", &["views/amb/"]),
++    ];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(
++        names,
++        vec!["ownOp"],
++        "只有子树命中的一条入集（另一元素 / 无主 / 歧义三条全拒）"
++    );
++    assert_eq!(
++        symbols[0].file, "views/agent/input/a.ts",
++        "入集符号仍如实带目标文件"
++    );
++}
++
++/// 异常（AC-4）：目标归属 `…Components.AgentFoo`（裸前缀相同、按 `.` 分段比较不等）⇒
++/// 不入集；对照 `…Components.Agent.Input` 入集。
++#[test]
++fn extract_element闭包分段前缀不误认() {
++    let temp = TempDir::new("closure-segment-prefix");
++    temp.write(
++        "views/agent/index.ts",
++        "export { fooOp } from '../agentfoo/a';\nexport { childOp } from './input/b';\n",
++    );
++    temp.write(
++        "views/agentfoo/a.ts",
++        "export function fooOp(): string { return ''; }\n",
++    );
++    temp.write(
++        "views/agent/input/b.ts",
++        "export function childOp(): string { return ''; }\n",
++    );
++
++    let elements = [
++        element("App.Frontend.Components.Agent", &["views/agent/"]),
++        element(
++            "App.Frontend.Components.Agent.Input",
++            &["views/agent/input/"],
++        ),
++        element("App.Frontend.Components.AgentFoo", &["views/agentfoo/"]),
++    ];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(
++        names,
++        vec!["childOp"],
++        "裸前缀相同的兄弟元素不被误认（分段比较）：{symbols:?}"
++    );
++}
++
++/// 异常（AC-4，逐值迭代 4 值）：仓外包 / 不在盘 / 非 TS 目标（`.json` / `.css`）⇒ 静默
++/// 跳过：零符号、零 panic（入口自身声明照常产出）。
++#[test]
++fn extract_element闭包解析失败静默跳过() {
++    let temp = TempDir::new("closure-unresolved");
++    temp.write(
++        "views/agent/index.ts",
++        "export function own(): string { return ''; }\n\
++         export { extOp } from 'react-resizable-panels';\n\
++         export { missingOp } from './not-on-disk';\n\
++         export { jsonOp } from './data.json';\n\
++         export { cssOp } from './style.css';\n",
++    );
++    temp.write("views/agent/data.json", "{\"a\": 1}\n");
++    temp.write("views/agent/style.css", ".a { color: red }\n");
++
++    let elements = [element("App.Frontend.Components.Agent", &["views/agent/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(
++        names,
++        vec!["own"],
++        "仓外包 / 不在盘 / 非 TS 目标静默跳过：{symbols:?}"
++    );
++}
++
++/// 边界（entry 边界，表驱动 4 行）：`entry` 超长（>1000 chars）/ 含 emoji 与 `\n` /
++/// 零扩展名 / 含 `\0` ⇒ 空集或正常返回，零 panic。
++#[test]
++fn extract_element的entry边界() {
++    let temp = TempDir::new("closure-entry-boundary");
++    temp.write(
++        "views/index.ts",
++        "export function own(): string { return ''; }\n",
++    );
++
++    let elements = [element("App.Frontend.Views", &["views/"])];
++    let long = format!("views/{}.ts", "a".repeat(1200));
++    assert!(long.chars().count() > 1000, "夹具应超 1000 chars");
++    let cases = [
++        long,
++        "views/🎯\nemoji.ts".to_owned(),
++        "views/no-extension".to_owned(),
++        format!("views/x{}.ts", '\0'),
++    ];
++    for entry in &cases {
++        let symbols = extract_element(temp.root(), &elements, &elements[0], entry);
++        assert!(
++            symbols.is_empty(),
++            "异常 entry 不 panic、不猜符号（{entry:?}）：{symbols:?}"
++        );
++    }
++
++    // 对照：合法 entry 正常返回（异常 entry 零共享状态）
++    let normal = extract_element(temp.root(), &elements, &elements[0], "views/index.ts");
++    assert_eq!(normal.len(), 1, "合法入口不受影响：{normal:?}");
++}
++
++/// 边界（element 边界，表驱动 3 行）：`path` 空（容器）/ `fqn` 空串 / `fqn` 超长 ⇒
++/// 零 panic；`path` 空 ⇒ 归属判据恒 `None`（re-export 全拒，入口声明保留）。
++#[test]
++fn extract_element的element边界() {
++    let temp = TempDir::new("closure-element-boundary");
++    temp.write(
++        "views/index.ts",
++        "export function own(): string { return ''; }\nexport { far } from './far';\n",
++    );
++    temp.write(
++        "views/far.ts",
++        "export function far(): string { return ''; }\n",
++    );
++
++    let long_fqn = format!("App.{}", "a".repeat(1500));
++    let container = element("App.Frontend.Container", &[]);
++    let cases = [
++        element("App.Frontend.Container", &[]),
++        element("", &["views/"]),
++        element(&long_fqn, &["views/"]),
++    ];
++    for subject in &cases {
++        let symbols = extract_element(
++            temp.root(),
++            std::slice::from_ref(&container),
++            subject,
++            "views/index.ts",
++        );
++        assert!(
++            !symbols.iter().any(|symbol| symbol.name == "far"),
++            "异常元素面下 re-export 不被放行（{}）：{symbols:?}",
++            subject.fqn
++        );
++        assert!(
++            symbols.iter().any(|symbol| symbol.name == "own"),
++            "入口自身声明照常产出（{}）",
++            subject.fqn
++        );
++    }
++}
++
++/// 正向（AC-6）：Rust 元素分支与 `rust::extract_crate` 逐字段相等（含 `file`），
++/// `elements` / `element` 不参与分派。
++#[test]
++fn extract_element的rust分支与extract_crate同源() {
++    let temp = TempDir::new("closure-rust-branch");
++    temp.write(
++        "crates/x/src/lib.rs",
++        "mod op;\npub use op::run;\n\npub struct Handle;\n",
++    );
++    temp.write(
++        "crates/x/src/op.rs",
++        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
++    );
++
++    let elements = [element("App.Core.X", &["crates/x/"])];
++    let symbols = extract_element(temp.root(), &elements, &elements[0], "crates/x/src/lib.rs");
++    let from_crate = super::rust::extract_crate(temp.root(), "crates/x/src/lib.rs");
++    assert_eq!(
++        symbols, from_crate,
++        "Rust 分支即 extract_crate（逐字段相等，含 file）"
++    );
++    let run = symbols
++        .iter()
++        .find(|symbol| symbol.name == "run")
++        .expect("子模块的 run 在案");
++    assert_eq!(
++        run.file, "crates/x/src/op.rs",
++        "`file` = 子模块文件（MUST NOT 是入口串）"
++    );
++}
++
++/// 边界（AC-8 / 单点源码自证）：闭包只减不增与「零第二份解析 / 归属」的机械面——
++/// `pub fn extract_element(` 恰 1 处、`format!("{}.",…)` 恰 1 处（分段前缀而非裸
++/// `starts_with`）、`TsResolver::new` / `OwnerIndex::build` / 环防键各恰 1 处、
++/// `api/` 内零第二份解析器与归属判据、零 `unresolved` 写入。
++#[test]
++fn 闭包边界单点源码自证() {
++    let source = include_str!("mod.rs");
++    assert_eq!(
++        source.matches("pub fn extract_element(").count(),
++        1,
++        "整元素导出集入口恰 1 处"
++    );
++    assert_eq!(
++        source.matches("format!(\"{}.\",").count(),
++        1,
++        "FQN 按 `.` 分段比较恰 1 处（MUST NOT 裸 `starts_with`）"
++    );
++    assert_eq!(
++        source.matches("TsResolver::new").count(),
++        1,
++        "specifier 解析单点只构造一次（每元素一次）"
++    );
++    assert_eq!(
++        source.matches("OwnerIndex::build").count(),
++        1,
++        "归属索引只建一次"
++    );
++    assert_eq!(
++        source
++            .matches("BTreeSet<(String, Option<Vec<String>>)>")
++            .count(),
++        1,
++        "环防键形态恰 1 处"
++    );
++    for needle in [
++        "oxc_resolver",
++        "TsconfigOptions",
++        "fn owner_of",
++        "prefix_matches",
++    ] {
++        assert!(
++            !source.contains(needle),
++            "`extract/mod.rs` MUST NOT 命中 `{needle}`（零第二份解析 / 归属）"
++        );
++    }
++    assert!(
++        !source.contains("ArchiUnresolvedFile") && !source.contains("unresolved.push"),
++        "取数器零 `unresolved` 写入（那是依赖边抽取的账）"
++    );
++
++    // 同目录族的其余产品文件同样零第二份解析 / 归属
++    for (path, text) in [
++        ("check.rs", include_str!("../check.rs")),
++        ("contract.rs", include_str!("../contract.rs")),
++        ("paths.rs", include_str!("../paths.rs")),
++        ("schema.rs", include_str!("../schema.rs")),
++        ("diff.rs", include_str!("../diff.rs")),
++        ("render.rs", include_str!("../render.rs")),
++        ("extract/ts.rs", include_str!("ts.rs")),
++        ("extract/rust.rs", include_str!("rust.rs")),
++    ] {
++        for needle in [
++            "oxc_resolver",
++            "Resolver::new",
++            "TsconfigOptions",
++            "fn owner_of",
++            "prefix_matches",
++        ] {
++            assert!(
++                !text.contains(needle),
++                "`api/{path}` MUST NOT 命中 `{needle}`（零第二份解析 / 归属）"
++            );
++        }
++    }
++}
++
++/// 边界（design「私有签名变化」段）：`Closure` 及私有辅助全部**私有**（零 `pub` 命中），
++/// 只经 `extract_element` 行为面观测（MUST NOT 为可测性升格）。
++#[test]
++fn 闭包辅助保持私有() {
++    let source = include_str!("mod.rs");
++    for private in [
++        "pub struct Closure",
++        "pub fn collect",
++        "pub fn reexport_ok",
++        "pub fn export_target",
++        "pub fn visited_key",
++        "pub fn dedupe",
++        "pub fn keeps",
++    ] {
++        assert!(
++            !source.contains(private),
++            "闭包辅助 MUST NOT 升格为公开面：`{private}`"
++        );
++    }
++    for defined in [
++        "struct Closure<'a>",
++        "fn collect(&mut self",
++        "fn reexport_ok(",
++        "fn export_target(",
++        "fn visited_key(",
++        "fn dedupe(",
++        "fn keeps(",
++    ] {
++        assert_eq!(
++            source.matches(defined).count(),
++            1,
++            "私有辅助各恰 1 处定义：`{defined}`"
++        );
++    }
++}
++
++/// 边界（AC-5 真值源 / design「类型定义」表）：`ApiSymbol.file` 非 `Option`、紧邻
++/// `line`（中间无第二个字段），产品侧 4 处构造点各带 `file:`。
++#[test]
++fn api_symbol_file字段形状() {
++    let source = include_str!("mod.rs");
++    assert!(
++        source.contains("pub file: String,"),
++        "`file` 是非 `Option` 的 `String`"
++    );
++    assert!(
++        !source.contains("pub file: Option"),
++        "`file` MUST NOT 是 `Option`（每个符号都有定义文件）"
++    );
++    let line_at = source.find("pub line: u32").expect("`line` 字段在案");
++    let file_at = source.find("pub file: String").expect("`file` 字段在案");
++    assert!(file_at > line_at, "`file` 紧随 `line`");
++    let between = &source[line_at + "pub line: u32,".len()..file_at];
++    assert!(
++        !between.contains("    pub "),
++        "`file` 与 `line` 相邻（中间无第二个字段）：{between}"
++    );
++
++    // 产品侧构造点：`ts::{push_function,push_type}` 与 `rust::{push_type,function_symbol}`
++    for (path, text) in [
++        ("extract/ts.rs", include_str!("ts.rs")),
++        ("extract/rust.rs", include_str!("rust.rs")),
++    ] {
++        assert_eq!(
++            text.matches("file: file.to_owned(),").count(),
++            2,
++            "`{path}` 恰 2 处构造点各落 `file`"
++        );
++    }
++}
++
++/// 边界（design「修改文件」表模块 doc）：`extract/mod.rs` 的边界句在案——`extract_element`
++/// 与 `rust::extract_crate` 按入口与闭包内目标文件读盘、零写盘、零 spawn；TS 分支已走
++/// 入口导出闭包。
++#[test]
++fn 模块doc边界句在案() {
++    let source = include_str!("mod.rs");
++    for phrase in ["按入口与闭包内目标文件", "零写盘、零 spawn", "入口导出闭包"]
++    {
++        assert!(
++            source.contains(phrase),
++            "模块 doc 边界句在案：`{phrase}` 缺失"
++        );
++    }
++}
+diff --git a/crates/core/archi/src/api/extract/rust.rs b/crates/core/archi/src/api/extract/rust.rs
+index bd4cc1f7a07f..b6fd395ccacc 100644
+--- a/crates/core/archi/src/api/extract/rust.rs
++++ b/crates/core/archi/src/api/extract/rust.rs
+@@ -10,6 +10,11 @@
+ //! `impl` 内 `pub fn` → 函数（`owner` = 接收类型名）。**构造器如实抽名、不过滤**（过滤
+ //! 只在判据与渲染侧经 `is_constructor`）。
+ //!
++//! **`ApiSymbol.file` = 该符号所在的模块文件**（repo 相对）：子模块里的 `pub fn` 指向子模块
++//! 文件，**内联 `mod` 与父同文件**。它由 [`walk_items`] / [`walk_modules`] 贯穿的同一个
++//! 「当前模块文件」形参给出——MUST NOT 用入口串顶替（`pub fn` 写在 `src/op.rs`、注记却写
++//! `src/lib.rs` 就是注解说谎）。
++//!
+ //! `visibility` 四值判据：`pub mod` 链可达（或名字出现在 crate 根的 `pub use` 白名单里）
+ //! → `External`；`pub(crate)` / 私有 `mod` 内的 `pub` → `CrateOnly`；`#[cfg(test)]` 子树 →
+ //! `TestOnly`；`Unused` 由调用方按引用事实降级（本模块不造第二套死代码扫描）。
+@@ -47,15 +52,15 @@ use syn::spanned::Spanned;
+ use super::{ApiParam, ApiSymbol, ApiSymbolKind, ApiType, Visibility};
+ use crate::api::paths;
+ 
+-/// 单文件抽取（`file` 只用于诊断定位，`crate_name` 保留以便未来区分同名 crate 符号）。
++/// 单文件抽取（`file` = 该符号的定义文件，`crate_name` 保留以便未来区分同名 crate 符号）。
+ pub fn extract_file(file: &str, source: &str, crate_name: &str) -> Vec<ApiSymbol> {
+     let Ok(parsed) = syn::parse_file(source) else {
+         // 语法错即零符号（bootstrap 起草的近似误差如实留痕，MUST NOT 猜）
+         return Vec::new();
+     };
+     let mut symbols = Vec::new();
+-    walk_items(&parsed.items, true, false, &mut symbols);
+-    let _ = (file, crate_name);
++    walk_items(&parsed.items, true, false, file, &mut symbols);
++    let _ = crate_name;
+     symbols
+ }
+ 
+@@ -79,13 +84,14 @@ pub fn extract_crate(root: &Path, entry: &str) -> Vec<ApiSymbol> {
+     collect_reexports(&parsed.items, &mut reexported, &mut wildcards);
+ 
+     let mut collected = Collected::default();
+-    walk_items(&parsed.items, true, false, &mut collected.symbols);
++    walk_items(&parsed.items, true, false, entry, &mut collected.symbols);
+     // 模块树：`mod` 声明（带 `;` 无 body）按 `mod.rs` / `<名>.rs` / `#[path]` 定位后递归
+     let module_dir = module_dir(entry);
+     walk_modules(
+         &parsed.items,
+         root,
+         &module_dir,
++        entry,
+         true,
+         false,
+         &wildcards,
+@@ -115,13 +121,20 @@ struct Collected {
+ /// 模块树递归（`mod x;` → `<dir>/x.rs` 或 `<dir>/x/mod.rs`；带 `#[path = "…"]` 时按
+ /// 属性值定位，D44）。
+ ///
++/// `file` = **当前模块文件**（repo 相对；模块内符号的定义文件）。内联模块与父同文件，
++/// 文件型模块切到它自己定位出的文件。
++///
+ /// `wildcards` 只承载**crate 根**的 `pub use <模>::*` 前缀（递归进下一层即清空——通配升格
+ /// 只对 crate 直接子模块生效，见「已知近似」段）。命中即把该模块内声明的符号视为出线
+ /// （`External`）：`pub use x::*` 让 `x` 的公开面整体可达，与 `mod x` 自身的可见性无关。
++// 参数面 = 项 + 定位锚（根 / 目录 / 文件）+ 可达与测试两态 + 通配前缀 + 累加面：
++// 逐层变化的定位锚无法并进 `Collected`（后者只承载跨层累加），拆结构体只增间接。
++#[allow(clippy::too_many_arguments)]
+ fn walk_modules(
+     items: &[syn::Item],
+     root: &Path,
+     directory: &str,
++    file: &str,
+     reachable: bool,
+     in_test: bool,
+     wildcards: &[String],
+@@ -135,10 +148,16 @@ fn walk_modules(
+         let name = item_mod.ident.to_string();
+         let glob_exported = wildcards.iter().any(|wildcard| wildcard == &name);
+         if let Some((_, nested)) = &item_mod.content {
+-            // 内联模块：body 就地递归（模块目录仍是当前目录）
++            // 内联模块：body 就地递归（模块目录与模块文件都仍是当前的）
+             let inner_reachable = glob_exported || (reachable && is_pub(&item_mod.vis));
+             let before = collected.symbols.len();
+-            walk_items(nested, inner_reachable, is_test, &mut collected.symbols);
++            walk_items(
++                nested,
++                inner_reachable,
++                is_test,
++                file,
++                &mut collected.symbols,
++            );
+             collect_glob_types(
+                 glob_exported,
+                 &collected.symbols[before..],
+@@ -148,6 +167,7 @@ fn walk_modules(
+                 nested,
+                 root,
+                 directory,
++                file,
+                 inner_reachable,
+                 is_test,
+                 &[],
+@@ -160,10 +180,10 @@ fn walk_modules(
+             Some(value) => locate_declared_module(root, directory, &value, &name),
+             None => locate_module(root, directory, &name),
+         };
+-        let Some((file, next_dir)) = located else {
++        let Some((module_file, next_dir)) = located else {
+             continue;
+         };
+-        let Ok(source) = fs::read_to_string(root.join(&file)) else {
++        let Ok(source) = fs::read_to_string(root.join(&module_file)) else {
+             continue;
+         };
+         let Ok(parsed) = syn::parse_file(&source) else {
+@@ -175,6 +195,7 @@ fn walk_modules(
+             &parsed.items,
+             inner_reachable,
+             is_test,
++            &module_file,
+             &mut collected.symbols,
+         );
+         collect_glob_types(
+@@ -186,6 +207,7 @@ fn walk_modules(
+             &parsed.items,
+             root,
+             &next_dir,
++            &module_file,
+             inner_reachable,
+             is_test,
+             &[],
+@@ -391,8 +413,15 @@ fn upgrade_reexported(symbols: &mut [ApiSymbol], reexported: &[String]) {
+     }
+ }
+ 
+-/// 递归遍历项（`reachable` = `pub mod` 链可达；`in_test` = `#[cfg(test)]` 子树内）。
+-fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec<ApiSymbol>) {
++/// 递归遍历项（`reachable` = `pub mod` 链可达；`in_test` = `#[cfg(test)]` 子树内；
++/// `file` = 当前模块文件）。
++fn walk_items(
++    items: &[syn::Item],
++    reachable: bool,
++    in_test: bool,
++    file: &str,
++    out: &mut Vec<ApiSymbol>,
++) {
+     for item in items {
+         match item {
+             syn::Item::Struct(item_struct) => {
+@@ -403,6 +432,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
+                     ApiSymbolKind::Type,
+                     reachable,
+                     in_test,
++                    file,
+                     out,
+                 );
+             }
+@@ -414,6 +444,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
+                     ApiSymbolKind::Trait,
+                     reachable,
+                     in_test,
++                    file,
+                     out,
+                 );
+             }
+@@ -425,6 +456,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
+                     ApiSymbolKind::Enum,
+                     reachable,
+                     in_test,
++                    file,
+                     out,
+                 );
+             }
+@@ -436,6 +468,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
+                     item_fn.span(),
+                     reachable,
+                     in_test,
++                    file,
+                 ) {
+                     out.push(symbol);
+                 }
+@@ -453,6 +486,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
+                         method.span(),
+                         reachable,
+                         in_test,
++                        file,
+                     ) {
+                         out.push(symbol);
+                     }
+@@ -464,7 +498,7 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
+                 };
+                 let is_test = in_test || has_cfg_test(&item_mod.attrs);
+                 let inner_reachable = reachable && is_pub(&item_mod.vis);
+-                walk_items(nested, inner_reachable, is_test, out);
++                walk_items(nested, inner_reachable, is_test, file, out);
+             }
+             _ => {}
+         }
+@@ -472,6 +506,9 @@ fn walk_items(items: &[syn::Item], reachable: bool, in_test: bool, out: &mut Vec
+ }
+ 
+ /// 类型类符号入表（`pub` 才有资格；`pub(crate)` / 私有 `mod` 内的 `pub` 归 `CrateOnly`）。
++// 参数面 = 声明事实（可见性 / 标识 / 位置 / 形态）+ 可达与测试两态 + 定义文件 + 累加面：
++// 每一维都是独立判据的输入，包成结构体只会把同一批字段再拆一次。
++#[allow(clippy::too_many_arguments)]
+ fn push_type(
+     vis: &syn::Visibility,
+     ident: &syn::Ident,
+@@ -479,6 +516,7 @@ fn push_type(
+     kind: ApiSymbolKind,
+     reachable: bool,
+     in_test: bool,
++    file: &str,
+     out: &mut Vec<ApiSymbol>,
+ ) {
+     let Some(visibility) = visibility_of(vis, reachable, in_test) else {
+@@ -492,6 +530,7 @@ fn push_type(
+         returns: ApiType::Unknown("()".to_owned()),
+         is_async: false,
+         line: line_of(span),
++        file: file.to_owned(),
+         visibility,
+     });
+ }
+@@ -504,6 +543,7 @@ fn function_symbol(
+     span: Span,
+     reachable: bool,
+     in_test: bool,
++    file: &str,
+ ) -> Option<ApiSymbol> {
+     let visibility = visibility_of(vis, reachable, in_test)?;
+     let params = sig
+@@ -530,6 +570,7 @@ fn function_symbol(
+         },
+         is_async: sig.asyncness.is_some(),
+         line: line_of(span),
++        file: file.to_owned(),
+         visibility,
+     })
+ }
+diff --git a/crates/core/archi/src/api/extract/rust_test.rs b/crates/core/archi/src/api/extract/rust_test.rs
+index 3e496cff7cfa..2fe93601998e 100644
+--- a/crates/core/archi/src/api/extract/rust_test.rs
++++ b/crates/core/archi/src/api/extract/rust_test.rs
+@@ -1392,3 +1392,279 @@ fn path限根三步的机械判据() {
+         "分段折叠的 `..` 用 `pop()?`（栈空即拒，不无限上溯）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// ApiSymbol.file：定义所在模块文件（repo 相对 POSIX，MUST NOT 是入口串冒充）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-5）：`extract_file` 的 `file` 形参是符号事实的**唯一来源**——入参逐字落
++/// `ApiSymbol.file`（`crate_name` 仍只作诊断留痕）。
++#[test]
++fn extract_file的file落值() {
++    let symbols = extract_file(
++        "crates/x/src/op.rs",
++        "pub fn run() {}\npub struct Handle;\n",
++        "x",
++    );
++    assert_eq!(symbols.len(), 2, "两类声明各一：{symbols:?}");
++    for symbol in &symbols {
++        assert_eq!(
++            symbol.file, "crates/x/src/op.rs",
++            "`file` 取形参逐字（{}）",
++            symbol.name
++        );
++    }
++    // `crate_name` 不影响符号集（既有语义零变化）
++    let renamed = extract_file(
++        "crates/x/src/op.rs",
++        "pub fn run() {}\npub struct Handle;\n",
++        "另一个 crate",
++    );
++    assert_eq!(symbols, renamed, "`crate_name` 不改符号集（含 file）");
++}
++
++/// 正向（AC-5）：入口自身内的 `pub fn` / `pub struct` ⇒ `file == entry` 全串。
++#[test]
++fn extract_crate入口声明file为入口() {
++    let temp = TempDir::new("file-entry-declarations");
++    temp.write(
++        "src/lib.rs",
++        "pub fn top() -> String {\n    String::new()\n}\npub struct Handle;\n",
++    );
++    let symbols = extract_crate(temp.root(), "src/lib.rs");
++    assert_eq!(symbols.len(), 2, "两条声明：{symbols:?}");
++    for symbol in &symbols {
++        assert_eq!(symbol.file, "src/lib.rs", "入口内声明的 `file` = 入口串");
++    }
++}
++
++/// 正向（AC-5）：入口 `mod op;`、`op.rs` 内 `pub fn run` ⇒ `run.file` = 子模块文件
++/// （MUST NOT 是入口串——`pub fn` 写在 `src/op.rs`、注记却写 `src/lib.rs` 就是注记
++/// 说谎）。
++#[test]
++fn extract_crate子模块file指子模块文件() {
++    let temp = TempDir::new("file-submodule");
++    temp.write("src/lib.rs", "pub mod op;\n");
++    temp.write(
++        "src/op.rs",
++        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
++    );
++    let symbols = extract_crate(temp.root(), "src/lib.rs");
++    let run = find(&symbols, "run");
++    assert_eq!(run.file, "src/op.rs", "子模块符号的 `file` = 子模块文件");
++    assert_ne!(run.file, "src/lib.rs", "MUST NOT 回落成入口串");
++}
++
++/// 正向（AC-5）：`mod op;` 命中 `src/op/mod.rs` ⇒ 该子模块符号 `file` = `mod.rs` 的
++/// 定位路径（与 `<名>.rs` 形态走同一「当前模块文件」形参）。
++#[test]
++fn extract_crate的modrs形态file() {
++    let temp = TempDir::new("file-mod-rs");
++    temp.write("src/lib.rs", "pub mod op;\n");
++    temp.write(
++        "src/op/mod.rs",
++        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
++    );
++    assert!(
++        !temp.root().join("src/op.rs").exists(),
++        "夹具须只留 `mod.rs` 形态"
++    );
++    let symbols = extract_crate(temp.root(), "src/lib.rs");
++    assert_eq!(
++        find(&symbols, "run").file,
++        "src/op/mod.rs",
++        "`mod.rs` 形态同样落定位文件"
++    );
++}
++
++/// 正向（AC-5，逐值迭代 2 行）：`#[path]` 模块两形态（同级 `gen/api.rs` 与三层
++/// `../../archi.i.rs`）⇒ 符号 `file` = **定位到的文件路径**，两形态逐字段相等。
++#[test]
++fn extract_crate的path模块file() {
++    let sibling = TempDir::new("file-path-attr");
++    sibling.write("src/lib.rs", "#[path = \"gen/api.rs\"]\npub mod api_gen;\n");
++    sibling.write("src/gen/api.rs", "pub fn gen_op() {}\n");
++    let from_sibling = extract_crate(sibling.root(), "src/lib.rs");
++    assert_eq!(
++        find(&from_sibling, "gen_op").file,
++        "src/gen/api.rs",
++        "`#[path]` 指向的文件即 `file`"
++    );
++
++    let upward = TempDir::new("file-path-upward");
++    upward.write(
++        "src/api/mod.rs",
++        "#[path = \"../../archi.i.rs\"]\npub mod api_gen;\n",
++    );
++    upward.write("archi.i.rs", "pub fn gen_op() {}\n");
++    let from_upward = extract_crate(upward.root(), "src/api/mod.rs");
++    assert_eq!(
++        find(&from_upward, "gen_op").file,
++        "archi.i.rs",
++        "三层 `../` 折叠后的定位路径即 `file`"
++    );
++
++    assert_eq!(
++        from_sibling
++            .iter()
++            .map(|symbol| (&symbol.name, &symbol.kind, symbol.visibility))
++            .collect::<Vec<_>>(),
++        from_upward
++            .iter()
++            .map(|symbol| (&symbol.name, &symbol.kind, symbol.visibility))
++            .collect::<Vec<_>>(),
++        "两形态的符号面（名字 / kind / visibility）逐字段相等，`file` 各指自己的定位文件"
++    );
++}
++
++/// 正向（AC-5）：入口内联 `pub mod a { pub fn f() {} }` ⇒ `f.file == entry`（内联
++/// `mod` 与父同文件，MUST NOT 写成 `a` 之类的模块名）。
++#[test]
++fn extract_crate内联mod的file为父文件() {
++    let temp = TempDir::new("file-inline-mod");
++    temp.write("src/lib.rs", "pub mod a {\n    pub fn f() {}\n}\n");
++    let symbols = extract_crate(temp.root(), "src/lib.rs");
++    let found = find(&symbols, "f");
++    assert_eq!(found.file, "src/lib.rs", "内联 `mod` 与父同文件");
++    assert_ne!(found.file, "a", "MUST NOT 是模块名");
++}
++
++/// 正向（AC-5 形态规范，表驱动：全部夹具复用）：产出符号的 `file` 非空、`/` 分隔、
++/// 零 `\`、零前导 `/` 与 `./`、零 `../`（repo 相对 POSIX）。
++#[test]
++fn file形态规范为repo相对posix() {
++    let temp = TempDir::new("file-shape");
++    temp.write("crates/x/src/lib.rs", "pub mod op;\npub fn top() {}\n");
++    temp.write("crates/x/src/op.rs", "pub mod deep;\npub fn run() {}\n");
++    temp.write("crates/x/src/op/deep.rs", "pub fn leaf() {}\n");
++
++    let symbols = extract_crate(temp.root(), "crates/x/src/lib.rs");
++    assert_eq!(symbols.len(), 3, "三层各一条：{symbols:?}");
++    for symbol in &symbols {
++        let file = &symbol.file;
++        assert!(!file.is_empty(), "`file` 非空（{}）", symbol.name);
++        assert!(
++            !file.contains('\\'),
++            "`file` 零反斜杠（{}）：{file}",
++            symbol.name
++        );
++        assert!(!file.starts_with('/'), "`file` 零前导 `/`：{file}");
++        assert!(!file.starts_with("./"), "`file` 零前导 `./`：{file}");
++        assert!(!file.contains("../"), "`file` 零 `../`：{file}");
++    }
++    let files: Vec<&str> = symbols.iter().map(|symbol| symbol.file.as_str()).collect();
++    assert_eq!(
++        files,
++        vec![
++            "crates/x/src/lib.rs",
++            "crates/x/src/op.rs",
++            "crates/x/src/op/deep.rs"
++        ],
++        "三层各指自身文件、按遍历序"
++    );
++}
++
++/// 边界（AC-5）：五层嵌套模块链 ⇒ 每符号 `file` 指向其自身所在文件（不串到上层入口）。
++#[test]
++fn extract_crate深度的file不串层() {
++    let temp = TempDir::new("file-deep-five");
++    temp.write("src/lib.rs", "pub mod m1;\n");
++    temp.write("src/m1.rs", "pub mod m2;\npub fn f1() {}\n");
++    temp.write("src/m1/m2.rs", "pub mod m3;\npub fn f2() {}\n");
++    temp.write("src/m1/m2/m3.rs", "pub mod m4;\npub fn f3() {}\n");
++    temp.write("src/m1/m2/m3/m4.rs", "pub mod m5;\npub fn f4() {}\n");
++    temp.write("src/m1/m2/m3/m4/m5.rs", "pub fn f5() {}\n");
++
++    let symbols = extract_crate(temp.root(), "src/lib.rs");
++    for (name, file) in [
++        ("f1", "src/m1.rs"),
++        ("f2", "src/m1/m2.rs"),
++        ("f3", "src/m1/m2/m3.rs"),
++        ("f4", "src/m1/m2/m3/m4.rs"),
++        ("f5", "src/m1/m2/m3/m4/m5.rs"),
++    ] {
++        assert_eq!(
++            find(&symbols, name).file,
++            file,
++            "`{name}` 的 `file` 指自身所在文件"
++        );
++    }
++}
++
++/// 边界（AC-5 规模）：300 个 `pub fn` 分布在 30 个模块 ⇒ `file` 取值集合恰 30 个互异
++/// 路径，符号数 300 零丢失零重复。
++#[test]
++fn extract_crate规模的file集合() {
++    let temp = TempDir::new("file-scale");
++    let mut entry = String::new();
++    for module in 0..30 {
++        entry.push_str(&format!("pub mod m{module};\n"));
++        let mut body = String::new();
++        for index in 0..10 {
++            body.push_str(&format!("pub fn f{module}_{index}() {{}}\n"));
++        }
++        temp.write(&format!("src/m{module}.rs"), &body);
++    }
++    temp.write("src/lib.rs", &entry);
++
++    let symbols = extract_crate(temp.root(), "src/lib.rs");
++    assert_eq!(symbols.len(), 300, "300 个 `pub fn` 零丢失零重复");
++    let mut files: Vec<&str> = symbols.iter().map(|symbol| symbol.file.as_str()).collect();
++    files.sort_unstable();
++    files.dedup();
++    assert_eq!(
++        files.len(),
++        30,
++        "`file` 取值集合恰 30 个互异路径：{files:?}"
++    );
++}
++
++/// 边界（AC-6 同源）：单文件 crate（入口即全部实现、无 `mod`）⇒ `extract_crate` 与
++/// `extract_file(入口源)` 逐字段相等（`file` 一并相等，均非空且等于入口串）。
++#[test]
++fn extract_crate与extract_file的file同源() {
++    let source = "pub struct S;\npub fn free(input: &str) -> String {\n    String::new()\n}\n";
++    let temp = TempDir::new("file-same-source");
++    temp.write("src/lib.rs", source);
++
++    let from_crate = extract_crate(temp.root(), "src/lib.rs");
++    let from_file = extract_file("src/lib.rs", source, "x");
++    assert_eq!(from_crate, from_file, "逐字段相等（含 file）");
++    for symbol in &from_crate {
++        assert_eq!(symbol.file, "src/lib.rs", "两面的 `file` 同值且非空");
++    }
++}
++
++/// 边界（design「私有签名变化」段）：`walk_items` / `push_type` / `function_symbol`
++/// 的 `file` 形参不外露（零 `pub` 升格），`ApiSymbol.file` 赋值点与符号构造点一致
++/// （本文件 2 处：`push_type` / `function_symbol`）。
++#[test]
++fn file形参保持私有() {
++    let source = include_str!("rust.rs");
++    for private in [
++        "pub fn walk_items",
++        "pub fn push_type",
++        "pub fn function_symbol",
++        "pub fn walk_modules",
++    ] {
++        assert!(
++            !source.contains(private),
++            "私有形参 MUST NOT 升格为公开面：`{private}`"
++        );
++    }
++    assert_eq!(
++        source.matches("file: file.to_owned(),").count(),
++        2,
++        "两处符号构造点各落 `file`（`push_type` / `function_symbol`）"
++    );
++    assert_eq!(
++        source.matches("fn walk_items(").count(),
++        1,
++        "`walk_items` 定义恰 1 处（同一「当前模块文件」形参贯穿）"
++    );
++    assert_eq!(
++        source.matches("fn function_symbol(").count(),
++        1,
++        "`function_symbol` 定义恰 1 处"
++    );
++}
+diff --git a/crates/core/archi/src/api/extract/ts.rs b/crates/core/archi/src/api/extract/ts.rs
+index 813057dc7a55..5eacc3295a3a 100644
+--- a/crates/core/archi/src/api/extract/ts.rs
++++ b/crates/core/archi/src/api/extract/ts.rs
+@@ -10,11 +10,20 @@
+ //! 箭头函数初始化式**不产出符号**。`export const = memo(...)` / `forwardRef(...)` /
+ //! `lazy(...)` 是组件（本期 `api = none` 留白）；对象字面量与 `new Proxy(...)` 是值、
+ //! 不是 API 面（排除）；`export type` / `export interface` / `export class` 是类型、
+-//! `export enum` 是枚举；`export {…}` / `export * from` 是透传（本期不产出操作）。
++//! `export enum` 是枚举。
+ //!
+-//! `export default` 形态**本期不抽**：对外名字由导入方决定（`import X from` 可任意
+-//! 命名），契约的 op / 类型名须是稳定标识符——从文件名或表达式反推名字即造第二套命名
+-//! 规则。
++//! **透传（`export … from` / `export * from`）由 [`extract_surface`] 的 `named` / `star`
++//! 两面交给闭包**：闭包（递归 + 读盘 + specifier 解析 + 环防）落在
++//! [`crate::api::extract::extract_element`] 那一层，本文件仍零读盘、零 specifier 解析。
++//! [`extract_file`] 只交声明面，故它对透传仍**零符号**（「单文件面 = 声明面」的既有语义，
++//! 也是源码自证断言钉住的那一条）。
++//!
++//! **四类留白（MUST NOT 被伪装成已实现）**：① 无 `from` 的本文件具名导出（`export { a }`）
++//! 不产出——需要「按名字取回本文件声明」的第二遍，与「取数面 = 导出面」的单遍纪律冲突；
++//! ② `export * as ns from './x'` 跳过——它产出命名空间对象而非符号，不猜；③ 跨元素 /
++//! 仓外 re-export 由闭包按同元素约束静默跳过（本文件只交原始 specifier，不判归属）；
++//! ④ `export default` **本期不抽**：对外名字由导入方决定（`import X from` 可任意命名），
++//! 契约的 op / 类型名须是稳定标识符——从文件名或表达式反推名字即造第二套命名规则。
+ //!
+ //! **`unused` 本期生产面不产出（未接线）**：降级接口 [`apply_knip_report`] 已实现但
+ //! **零产品调用者**（`archi-api-gen` 与 `api::bootstrap` 都不读 knip，见待决 5 / 12）——
+@@ -34,8 +43,9 @@
+ 
+ use oxc_allocator::Allocator;
+ use oxc_ast::ast::{
+-    BindingPattern, Class, Declaration, Expression, Function, Statement, TSType, TSTypeAnnotation,
+-    TSTypeName, VariableDeclaration, VariableDeclarationKind,
++    BindingPattern, Class, Declaration, ExportFromDeclaration, Expression, Function,
++    ModuleExportName, Statement, TSType, TSTypeAnnotation, TSTypeName, VariableDeclaration,
++    VariableDeclarationKind,
+ };
+ use oxc_parser::Parser;
+ use oxc_span::SourceType;
+@@ -43,30 +53,119 @@ use serde_json::Value;
+ 
+ use super::{ApiParam, ApiSymbol, ApiSymbolKind, ApiType, Visibility};
+ 
++/// 一条具名 re-export（`export { A, B as C } from './x'` 里的一个 specifier）。
++#[derive(Debug, Clone)]
++pub struct NamedExport {
++    /// 目标文件里的名字（取什么）
++    pub local: String,
++    /// 本文件对外的名字（怎么叫；`A as B` 时为 `B`）
++    pub exported: String,
++    /// 原文字面量（交给 specifier 解析单点，本模块不解释它）
++    pub specifier: String,
++}
++
++/// 单文件的导出面三面（[`extract_surface`] 的一次遍历产物）。
++#[derive(Debug, Clone)]
++pub struct ExportSurface {
++    /// 声明面（`export <声明>`，即 [`extract_file`] 的产出）
++    pub symbols: Vec<ApiSymbol>,
++    /// 具名透传面（`export … from` 的名单，语句序）
++    pub named: Vec<NamedExport>,
++    /// 通配透传面（`export * from` 的 specifier，语句序）
++    pub star: Vec<String>,
++}
++
+ /// 单文件抽取（语法错 → 零符号；不猜测、不 panic）。
+ ///
+-/// 只走 `export <声明>` 一条分支：非导出的顶层声明与 `export default` 均不产出符号。
++/// 只交 [`extract_surface`] 的声明面：非导出的顶层声明、透传与 `export default` 均不产出
++/// 符号（「单文件面 = 声明面」，闭包在 [`crate::api::extract`] 那一层）。
+ pub fn extract_file(file: &str, source: &str) -> Vec<ApiSymbol> {
++    extract_surface(file, source).symbols
++}
++
++/// 单文件的导出面三面抽取（一次 AST 遍历）：声明 / 具名 re-export / 通配 re-export。
++///
++/// 语法错（`panicked`）→ 三面全空（不 panic、不猜）。三个产出面各自落在
++/// [`ExportSurface`] 的字段上，由调用方决定消费哪一面：闭包消费全部三面，[`extract_file`]
++/// 只消费 `symbols`。**本函数零读盘、零 specifier 解析**——目标文件定位与归属判定属闭包
++/// （[`crate::api::extract::extract_element`]）。
++pub fn extract_surface(file: &str, source: &str) -> ExportSurface {
++    let mut surface = ExportSurface {
++        symbols: Vec::new(),
++        named: Vec::new(),
++        star: Vec::new(),
++    };
+     let allocator = Allocator::default();
+     let parsed = Parser::new(&allocator, source, source_type_of(file)).parse();
+     if parsed.panicked {
+-        return Vec::new();
++        return surface;
+     }
+-    let mut symbols = Vec::new();
+     for statement in &parsed.program.body {
+-        if let Some(declaration) = exported_declaration(statement) {
+-            collect_declaration(declaration, source, &mut symbols);
++        match exported_item(statement) {
++            ExportedItem::Declaration(declaration) => {
++                collect_declaration(declaration, source, file, &mut surface.symbols);
++            }
++            ExportedItem::Named(exports) => surface.named.extend(exports),
++            ExportedItem::Star(specifier) => surface.star.push(specifier),
++            ExportedItem::None => {}
+         }
+     }
+-    symbols
++    surface
+ }
+ 
+-/// `export <声明>` → 其声明（**取数面的唯一入口**）：非导出顶层声明与 `export default`
+-/// 一律返回 `None`，不产出符号。
+-fn exported_declaration<'a, 'b>(statement: &'b Statement<'a>) -> Option<&'b Declaration<'a>> {
++/// 导出形态分派的三态产出（**导出形态单一分派点的结果类型**）。
++///
++/// 四变体封闭：三臂（`Declaration` / `Named` / `Star`）对应本文件认的三种导出形态，
++/// `None` 是显式留白（无 `from` 的本文件具名导出、`export * as ns`、`export default` 与
++/// 其余语句全落在这里）——新形态 MUST NOT 在别处另开第二处 `match`，只能在此处显式登记。
++enum ExportedItem<'a, 'b> {
++    /// `export function` / `class` / `const` / `type` / `interface` / `enum`
++    Declaration(&'b Declaration<'a>),
++    /// `export { A, B as C } from './x'`
++    Named(Vec<NamedExport>),
++    /// `export * from './y'`
++    Star(String),
++    /// 其余（含三类留白形态）
++    None,
++}
++
++/// 顶层语句 → 导出形态（**导出形态的唯一分派点**：本文件的 `match` 表达式只此一处）。
++fn exported_item<'a, 'b>(statement: &'b Statement<'a>) -> ExportedItem<'a, 'b> {
+     match statement {
+-        Statement::ExportDeclaration(export) => Some(&export.declaration),
+-        _ => None,
++        Statement::ExportDeclaration(export) => ExportedItem::Declaration(&export.declaration),
++        Statement::ExportFromDeclaration(export) => ExportedItem::Named(named_exports(export)),
++        Statement::ExportAllDeclaration(export) => match &export.exported {
++            // `export * as ns from './x'`：产出命名空间对象而非符号，不猜
++            Some(_) => ExportedItem::None,
++            None => ExportedItem::Star(export.source.value.to_string()),
++        },
++        _ => ExportedItem::None,
++    }
++}
++
++/// `export { A, B as C } from './x'` → 具名名单（字符串字面量名字的条目跳过：它不是
++/// 合法契约标识符）。
++fn named_exports(export: &ExportFromDeclaration<'_>) -> Vec<NamedExport> {
++    let specifier = export.source.value.to_string();
++    export
++        .specifiers
++        .iter()
++        .filter_map(|item| {
++            Some(NamedExport {
++                local: module_export_name(&item.local)?,
++                exported: module_export_name(&item.exported)?,
++                specifier: specifier.clone(),
++            })
++        })
++        .collect()
++}
++
++/// `ModuleExportName` → 名字（标识符两形态取名字；字符串字面量形态 → `None`）。
++fn module_export_name(name: &ModuleExportName<'_>) -> Option<String> {
++    match name {
++        ModuleExportName::IdentifierName(identifier) => Some(identifier.name.to_string()),
++        ModuleExportName::IdentifierReference(identifier) => Some(identifier.name.to_string()),
++        ModuleExportName::StringLiteral(_) => None,
+     }
+ }
+ 
+@@ -113,33 +212,44 @@ fn collect_unused(report: &Value) -> Vec<String> {
+     names
+ }
+ 
+-/// `export <声明>` 的内部形态分派（导出面的唯一收口处）。
+-fn collect_declaration(declaration: &Declaration<'_>, source: &str, out: &mut Vec<ApiSymbol>) {
++/// `export <声明>` 的内部形态分派（声明面内部：`exported_item` 已认过这是「导出的声明」）。
++fn collect_declaration(
++    declaration: &Declaration<'_>,
++    source: &str,
++    file: &str,
++    out: &mut Vec<ApiSymbol>,
++) {
+     match declaration {
+-        Declaration::FunctionDeclaration(function) => push_function(function, None, source, out),
++        Declaration::FunctionDeclaration(function) => {
++            push_function(function, None, source, file, out)
++        }
+         Declaration::ClassDeclaration(class) => push_type(
+             class_name(class),
+             ApiSymbolKind::Type,
+             class_line(class, source),
++            file,
+             out,
+         ),
+-        Declaration::VariableDeclaration(variable) => extract_const(variable, source, out),
++        Declaration::VariableDeclaration(variable) => extract_const(variable, source, file, out),
+         Declaration::TSTypeAliasDeclaration(alias) => push_type(
+             alias.id.name.to_string(),
+             ApiSymbolKind::Type,
+             line_of(source, alias.span.start as usize),
++            file,
+             out,
+         ),
+         Declaration::TSInterfaceDeclaration(interface) => push_type(
+             interface.id.name.to_string(),
+             ApiSymbolKind::Type,
+             line_of(source, interface.span.start as usize),
++            file,
+             out,
+         ),
+         Declaration::TSEnumDeclaration(item) => push_type(
+             item.id.name.to_string(),
+             ApiSymbolKind::Enum,
+             line_of(source, item.span.start as usize),
++            file,
+             out,
+         ),
+         _ => {}
+@@ -150,7 +260,12 @@ fn collect_declaration(declaration: &Declaration<'_>, source: &str, out: &mut Ve
+ /// 组件留白（`Type` 形态，`api = none` 的元素不进契约）；对象字面量与 `new Proxy(...)`
+ /// → 排除（是值不是 API 面）；箭头函数 → **不产出符号**（不造「从初始化表达式推断函数」
+ /// 的启发式）。其余调用形态按未知形态的导出值入表，由契约侧决定是否承诺。
+-fn extract_const(declaration: &VariableDeclaration<'_>, source: &str, out: &mut Vec<ApiSymbol>) {
++fn extract_const(
++    declaration: &VariableDeclaration<'_>,
++    source: &str,
++    file: &str,
++    out: &mut Vec<ApiSymbol>,
++) {
+     if declaration.kind != VariableDeclarationKind::Const {
+         return;
+     }
+@@ -175,7 +290,7 @@ fn extract_const(declaration: &VariableDeclaration<'_>, source: &str, out: &mut
+                     Some("memo" | "forwardRef" | "lazy") => "component",
+                     _ => "call",
+                 };
+-                push_type(name, ApiSymbolKind::Type, line, out);
++                push_type(name, ApiSymbolKind::Type, line, file, out);
+                 if let Some(last) = out.last_mut() {
+                     last.returns = ApiType::Unknown(marker.to_owned());
+                 }
+@@ -192,6 +307,7 @@ fn push_function(
+     function: &Function<'_>,
+     owner: Option<&str>,
+     source: &str,
++    file: &str,
+     out: &mut Vec<ApiSymbol>,
+ ) {
+     let Some(identifier) = &function.id else {
+@@ -223,12 +339,13 @@ fn push_function(
+             .unwrap_or_else(|| ApiType::Unknown(String::new())),
+         is_async: function.r#async,
+         line: line_of(source, function.span.start as usize),
++        file: file.to_owned(),
+         visibility: Visibility::External,
+     });
+ }
+ 
+ /// 类型类符号入表（零参数零返回，供 bootstrap 起草时区分类型与操作）。
+-fn push_type(name: String, kind: ApiSymbolKind, line: u32, out: &mut Vec<ApiSymbol>) {
++fn push_type(name: String, kind: ApiSymbolKind, line: u32, file: &str, out: &mut Vec<ApiSymbol>) {
+     out.push(ApiSymbol {
+         name,
+         owner: None,
+@@ -237,6 +354,7 @@ fn push_type(name: String, kind: ApiSymbolKind, line: u32, out: &mut Vec<ApiSymb
+         returns: ApiType::Unknown(String::new()),
+         is_async: false,
+         line,
++        file: file.to_owned(),
+         visibility: Visibility::External,
+     });
+ }
+diff --git a/crates/core/archi/src/api/extract/ts_test.rs b/crates/core/archi/src/api/extract/ts_test.rs
+index d3cdfafd6458..5c4cccd03e47 100644
+--- a/crates/core/archi/src/api/extract/ts_test.rs
++++ b/crates/core/archi/src/api/extract/ts_test.rs
+@@ -14,7 +14,7 @@
+ 
+ use serde_json::json;
+ 
+-use super::ts::{apply_knip_report, extract_file};
++use super::ts::{apply_knip_report, extract_file, extract_surface};
+ use super::{ApiSymbol, ApiSymbolKind, ApiType, Visibility};
+ 
+ /// 单文件抽取（`.ts` 源型）。
+@@ -662,20 +662,34 @@ fn extract_file行号与规模() {
+ // 源码自证：取数面 = 导出面、值域留白、文件名族不作 proxy（AC-20 ⑤ / ④ / ⑥）
+ // ---------------------------------------------------------------------------
+ 
+-/// 边界（AC-20 ⑤）：TS 取数面 = 导出面——`ts.rs` 内 `Statement::` 分支**恰 1 条**
+-/// （`ExportDeclaration`，内部交 `collect_declaration` 分类）；六个非导出顶层分支
+-/// 与 `ArrowFunctionExpression` / `ExportDefault` **全零命中**（本期留白）。
++/// 边界（AC-20 ⑤ / 本变更 AC-7）：TS 导出形态**单一分派点**——`ts.rs` 内 `match` 语句
++/// 恰 1 处、`Statement::` 命中恰 **3** 条（等于三臂：`ExportDeclaration` /
++/// `ExportFromDeclaration` / `ExportAllDeclaration`），其余形态归 `_ => None`；四个非导出
++/// 顶层分支、两条留白字面量与 `ArrowFunctionExpression` **全零命中**。
+ #[test]
+ fn ts取数面为导出面且非导出分支零命中() {
+     let source = include_str!("ts.rs");
+     assert_eq!(
+-        source.matches("Statement::").count(),
++        source.matches("match statement").count(),
+         1,
+-        "`Statement::` 分支恰一条（取数面 = 导出面）"
++        "`match statement` 恰 1 处（导出形态单一分派点）"
++    );
++    assert_eq!(
++        source.matches("Statement::").count(),
++        3,
++        "`Statement::` 命中数 == 臂数 3（三态单点分派）"
+     );
+     assert!(
+         source.contains("Statement::ExportDeclaration"),
+-        "唯一分支是 `ExportDeclaration`"
++        "首臂是 `ExportDeclaration`（声明面）"
++    );
++    assert!(
++        source.contains("Statement::ExportFromDeclaration"),
++        "次臂是 `ExportFromDeclaration`（具名透传面）"
++    );
++    assert!(
++        source.contains("Statement::ExportAllDeclaration"),
++        "三臂是 `ExportAllDeclaration`（通配透传面）"
+     );
+ 
+     for forbidden in [
+@@ -685,12 +699,14 @@ fn ts取数面为导出面且非导出分支零命中() {
+         "Statement::TSTypeAliasDeclaration",
+         "Statement::TSInterfaceDeclaration",
+         "Statement::TSEnumDeclaration",
++        "Statement::ExportNamedDeclaration",
++        "Statement::ExportDefaultDeclaration",
+         "ArrowFunctionExpression",
+         "ExportDefault",
+     ] {
+         assert!(
+             !source.contains(forbidden),
+-            "`ts.rs` MUST NOT 命中 `{forbidden}`（非导出顶层分支 / 箭头函数 / export default 全留白）"
++            "`ts.rs` MUST NOT 命中 `{forbidden}`（非导出顶层分支 / 无 `from` 的具名导出 / export default / 箭头函数全留白）"
+         );
+     }
+ 
+@@ -916,3 +932,388 @@ fn apply_knip_report零产品调用者() {
+     );
+     let _ = std::fs::remove_dir_all(&temp);
+ }
++
++// ---------------------------------------------------------------------------
++// extract_surface：单文件三面（声明 / 具名 re-export / 通配 re-export）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-1，表驱动 6 行）：六类导出声明各产一条符号（名字 + `kind`），`named` /
++/// `star` 两面均空。
++#[test]
++fn extract_surface声明面六形态() {
++    let cases = [
++        (
++            "export function f(): string { return ''; }\n",
++            "f",
++            ApiSymbolKind::Function,
++        ),
++        (
++            "export interface I { x: number }\n",
++            "I",
++            ApiSymbolKind::Type,
++        ),
++        ("export class C {}\n", "C", ApiSymbolKind::Type),
++        ("export type T = string;\n", "T", ApiSymbolKind::Type),
++        ("export enum E { A }\n", "E", ApiSymbolKind::Enum),
++        (
++            "export const V = memo(() => null);\n",
++            "V",
++            ApiSymbolKind::Type,
++        ),
++    ];
++    for (source, name, kind) in cases {
++        let surface = extract_surface("src/views/x.ts", source);
++        assert_eq!(
++            surface.symbols.len(),
++            1,
++            "一条声明（{source:?}）：{surface:?}"
++        );
++        assert_eq!(surface.symbols[0].name, name, "名字如实：{source:?}");
++        assert_eq!(surface.symbols[0].kind, kind, "`kind` 如实：{source:?}");
++        assert!(surface.named.is_empty(), "声明面不产具名名单：{source:?}");
++        assert!(surface.star.is_empty(), "声明面不产通配名单：{source:?}");
++    }
++}
++
++/// 正向（AC-1）：`export { A, B as C } from './x'` ⇒ `named` 恰 2 条（`local` /
++/// `exported` / `specifier` 逐字段），`symbols` / `star` 空。
++#[test]
++fn extract_surface具名面逐字段() {
++    let surface = extract_surface("src/views/x.ts", "export { A, B as C } from './x';\n");
++    assert!(surface.symbols.is_empty(), "具名透传不产声明符号");
++    assert!(surface.star.is_empty(), "具名透传不产通配名单");
++    assert_eq!(
++        surface.named.len(),
++        2,
++        "两个 specifier：{:?}",
++        surface.named
++    );
++    let pairs: Vec<(&str, &str, &str)> = surface
++        .named
++        .iter()
++        .map(|export| {
++            (
++                export.local.as_str(),
++                export.exported.as_str(),
++                export.specifier.as_str(),
++            )
++        })
++        .collect();
++    assert_eq!(
++        pairs,
++        vec![("A", "A", "./x"), ("B", "C", "./x")],
++        "`A as B` 形态：local 是目标名、exported 是对外名"
++    );
++}
++
++/// 正向（AC-1）：`export type { T } from './z'` ⇒ `named` 恰 1 条（`local == exported
++/// == "T"`、specifier 逐字）；`export_kind = Type` 不改变名单面。
++#[test]
++fn extract_surface具名面type形态() {
++    let surface = extract_surface("src/views/x.ts", "export type { T } from './z';\n");
++    assert!(surface.symbols.is_empty() && surface.star.is_empty());
++    assert_eq!(surface.named.len(), 1, "一条具名 type 透传");
++    assert_eq!(surface.named[0].local, "T");
++    assert_eq!(surface.named[0].exported, "T");
++    assert_eq!(surface.named[0].specifier, "./z");
++}
++
++/// 正向（AC-1，逐值迭代 2 行）：`export * from './y'` ⇒ `star == ["./y"]`；两条
++/// `export *` ⇒ 两条按语句序；`symbols` 空。
++#[test]
++fn extract_surface通配面按语句序() {
++    let single = extract_surface("src/views/x.ts", "export * from './y';\n");
++    assert_eq!(single.star, vec!["./y".to_owned()], "单条通配如实");
++    assert!(single.symbols.is_empty() && single.named.is_empty());
++
++    let double = extract_surface(
++        "src/views/x.ts",
++        "export * from './first';\nexport * from './second';\n",
++    );
++    assert_eq!(
++        double.star,
++        vec!["./first".to_owned(), "./second".to_owned()],
++        "两条通配按语句序"
++    );
++}
++
++/// 正向（AC-1）：混合源（声明 + 具名 + 通配）⇒ 三面各自如实、互不串味，`symbols`
++/// 顺序 = 声明语句序。
++#[test]
++fn extract_surface三面同源互不串味() {
++    let surface = extract_surface(
++        "src/views/x.ts",
++        "export function first(): string { return ''; }\n\
++         export { A } from './a';\n\
++         export interface Second { x: number }\n\
++         export * from './b';\n",
++    );
++    let names: Vec<&str> = surface
++        .symbols
++        .iter()
++        .map(|symbol| symbol.name.as_str())
++        .collect();
++    assert_eq!(names, vec!["first", "Second"], "声明面按语句序、不串透传");
++    assert_eq!(surface.named.len(), 1, "具名面如实");
++    assert_eq!(surface.named[0].local, "A");
++    assert_eq!(surface.star, vec!["./b".to_owned()], "通配面如实");
++}
++
++/// 正向（AC-5）：`extract_surface("views/x.ts", src)` ⇒ 每符号 `file == "views/x.ts"`；
++/// `extract_file` 同值（`file` 形参是符号事实的唯一来源）。
++#[test]
++fn extract_surface的file落值() {
++    for file in ["views/x.ts", "views/x.tsx", "crates/x/src/lib.rs"] {
++        let surface = extract_surface(file, "export function f(): void {}\n");
++        assert_eq!(surface.symbols.len(), 1);
++        assert_eq!(surface.symbols[0].file, file, "`file` 取形参逐字");
++        let direct = extract_file(file, "export function f(): void {}\n");
++        assert_eq!(direct[0].file, file, "`extract_file` 同值");
++    }
++}
++
++/// 正向（AC-7 闸 3 的正向面）：`extract_file(file, source)` 与
++/// `extract_surface(file, source).symbols` 逐字段相等（含 `file` / `line` / `kind`）。
++#[test]
++fn extract_file等于声明面() {
++    let source = "export function f(): string { return ''; }\n\
++                  export { A } from './a';\n\
++                  export * from './b';\n";
++    let direct = extract_file("views/x.ts", source);
++    let surface = extract_surface("views/x.ts", source);
++    assert_eq!(direct, surface.symbols, "单文件面 = 声明面（零第二套抽取）");
++    assert_eq!(direct.len(), 1, "透传不进单文件面：{direct:?}");
++}
++
++/// 异常（留白 ①）：无 `from` 的本文件具名导出（`export { localA }`）⇒ 三面皆空
++/// （需要第二遍按名字取回本文件声明，与单遍纪律冲突）。
++#[test]
++fn extract_surface留白无from具名零产出() {
++    let surface = extract_surface("src/views/x.ts", "const localA = 1;\nexport { localA };\n");
++    assert!(surface.symbols.is_empty(), "本文件具名导出零符号");
++    assert!(surface.named.is_empty(), "无 `from` 不进具名面");
++    assert!(surface.star.is_empty(), "无 `from` 不进通配面");
++}
++
++/// 异常（留白 ②）：`export * as ns from './x'` ⇒ 三面全空（臂内 `exported.is_some()`
++/// 退回 `None`：命名空间对象不是符号）。
++#[test]
++fn extract_surface留白星别名零产出() {
++    let surface = extract_surface("src/views/x.ts", "export * as ns from './x';\n");
++    assert!(surface.symbols.is_empty(), "命名空间对象零符号");
++    assert!(surface.named.is_empty(), "不冒充具名面");
++    assert!(surface.star.is_empty(), "不冒充通配面");
++}
++
++/// 异常（留白 ④，表驱动 4 行）：`export default` 四形态 ⇒ 三面皆空（对外名字由导入方
++/// 决定，反推名字即造第二套命名规则）。
++#[test]
++fn extract_surface留白export_default零产出() {
++    for source in [
++        "export default function App() { return null; }\n",
++        "export default () => null;\n",
++        "export default class X {}\n",
++        "export default 42;\n",
++    ] {
++        let surface = extract_surface("src/views/x.ts", source);
++        assert!(
++            surface.symbols.is_empty(),
++            "export default 零符号（{source:?}）"
++        );
++        assert!(surface.named.is_empty(), "不进具名面（{source:?}）");
++        assert!(surface.star.is_empty(), "不进通配面（{source:?}）");
++    }
++}
++
++/// 异常（逐值迭代 3 值）：空源 / 未闭合括号 / 非法 token ⇒ 三面全空、零 panic
++/// （`panicked = true` 即不猜）。
++#[test]
++fn extract_surface异常源三面全空() {
++    for source in ["", "export function f( {", "export function @@() {}"] {
++        let surface = extract_surface("src/views/x.ts", source);
++        assert!(
++            surface.symbols.is_empty() && surface.named.is_empty() && surface.star.is_empty(),
++            "异常源三面全空（{source:?}）：{surface:?}"
++        );
++    }
++}
++
++/// 边界（名单形态 3 行）：字符串字面量 `local`（`export { "x-y" as A }`）跳过该条、
++/// 其余照收；`export {}` ⇒ `named` 空；`export { A as A }` ⇒ `local == exported`。
++#[test]
++fn extract_surface名单形态边界() {
++    let mixed = extract_surface("src/views/x.ts", "export { \"x-y\" as A, B } from './x';\n");
++    assert_eq!(
++        mixed.named.len(),
++        1,
++        "字符串字面量名字不是合法标识符：{:?}",
++        mixed.named
++    );
++    assert_eq!(mixed.named[0].local, "B");
++    assert_eq!(mixed.named[0].exported, "B");
++
++    let empty = extract_surface("src/views/x.ts", "export {} from './x';\n");
++    assert!(empty.named.is_empty(), "空名单零条");
++
++    let same = extract_surface("src/views/x.ts", "export { A as A } from './x';\n");
++    assert_eq!(same.named.len(), 1);
++    assert_eq!(
++        same.named[0].local, same.named[0].exported,
++        "`A as A` 两名相等"
++    );
++}
++
++/// 边界（字符串边界 3 行）：`from ''`（空 specifier）/ 超长 specifier（>1000 chars）/
++/// 含 emoji 与换行的 specifier ⇒ 原样进 `specifier`（或 `star`），零 panic——本文件不
++/// 解释 specifier（解析归 `TsResolver`）。
++#[test]
++fn named_export的specifier边界() {
++    let empty = extract_surface("src/views/x.ts", "export { A } from '';\n");
++    assert_eq!(empty.named.len(), 1);
++    assert_eq!(empty.named[0].specifier, "", "空 specifier 原样进字段");
++
++    let long = format!("./{}", "a".repeat(1200));
++    let source = format!("export {{ A }} from '{long}';\n");
++    let wide = extract_surface("src/views/x.ts", &source);
++    assert_eq!(wide.named.len(), 1);
++    assert_eq!(
++        wide.named[0].specifier, long,
++        "超长 specifier 原样（零截断）"
++    );
++
++    let odd = extract_surface("src/views/x.ts", "export { A } from './a\\nb🎯';\n");
++    assert_eq!(odd.named.len(), 1, "特殊字符不 panic：{:?}", odd.named);
++    assert_eq!(
++        odd.named[0].specifier, "./a\nb🎯",
++        "转义换行与 emoji 原样进 specifier"
++    );
++
++    let starred = extract_surface("src/views/x.ts", "export * from '';\n");
++    assert_eq!(starred.star, vec![String::new()], "通配面同样原样");
++}
++
++/// 边界（规模迭代 3 夹具）：500 条具名 re-export ⇒ `named.len() == 500`；1000 条
++/// `export *` ⇒ `star.len() == 1000`；100 KB 声明源 ⇒ `symbols` 不截断。
++#[test]
++fn extract_surface规模() {
++    let mut named = String::new();
++    for index in 0..500 {
++        named.push_str(&format!("export {{ op{index} }} from './x';\n"));
++    }
++    let surface = extract_surface("src/views/x.ts", &named);
++    assert_eq!(surface.named.len(), 500, "500 条具名 re-export 零截断");
++
++    let mut star = String::new();
++    for index in 0..1000 {
++        star.push_str(&format!("export * from './m{index}';\n"));
++    }
++    let surface = extract_surface("src/views/x.ts", &star);
++    assert_eq!(surface.star.len(), 1000, "1000 条通配零截断");
++
++    let mut big = String::new();
++    for index in 0..3000 {
++        big.push_str(&format!(
++            "export function op{index}(a: string): string {{ return a; }}\n"
++        ));
++    }
++    assert!(big.len() > 100_000, "夹具应超 100 KB");
++    let surface = extract_surface("src/views/x.ts", &big);
++    assert_eq!(surface.symbols.len(), 3000, "大文件不截断");
++}
++
++/// 边界（AC-7 闸 1 零改动）：`ts.rs` 内
++/// `pub fn extract_file(file: &str, source: &str) -> Vec<ApiSymbol> {` 首行**逐字**在案
++/// 且恰 1 处（接口未删、签名未变）。
++#[test]
++fn 闸一extract_file签名逐字() {
++    let source = include_str!("ts.rs");
++    let expected = "pub fn extract_file(file: &str, source: &str) -> Vec<ApiSymbol> {";
++    assert_eq!(
++        source.matches(expected).count(),
++        1,
++        "闸 1：`extract_file` 签名逐字且恰 1 处"
++    );
++    let line = source
++        .lines()
++        .find(|line| line.contains("pub fn extract_file("))
++        .expect("`extract_file` 定义在案");
++    assert_eq!(line.trim(), expected, "闸 1：定义行逐字相等");
++}
++
++/// 边界（AC-7 闸 2 机械面）：`fn exported_item` 定义恰 1 处（导出形态单一分派点）、
++/// 兜底臂 `_ => ExportedItem::None` 恰 1 条（留白显式登记）。
++#[test]
++fn 闸二单一分派点机械锚() {
++    let source = include_str!("ts.rs");
++    assert_eq!(
++        source.matches("fn exported_item").count(),
++        1,
++        "导出形态分派函数恰 1 处定义"
++    );
++    assert_eq!(
++        source.matches("_ => ExportedItem::None").count(),
++        1,
++        "兜底臂恰 1 条（其余形态显式留白，MUST NOT 另开第二处 `match`）"
++    );
++    assert_eq!(
++        source.matches("match statement").count(),
++        1,
++        "`match statement` 恰 1 处（单一分派点）"
++    );
++    for arm in [
++        "Statement::ExportDeclaration",
++        "Statement::ExportFromDeclaration",
++        "Statement::ExportAllDeclaration",
++    ] {
++        assert!(source.contains(arm), "三臂之一在案：`{arm}`");
++    }
++    for forbidden in [
++        "Statement::ExportNamedDeclaration",
++        "Statement::ExportDefaultDeclaration",
++    ] {
++        assert!(
++            !source.contains(forbidden),
++            "闸 2：MUST NOT 出现 `{forbidden}`（留白靠不匹配实现）"
++        );
++    }
++}
++
++/// 边界（AC-7 封闭面）：`ExportedItem` 四变体（`Declaration` / `Named` / `Star` /
++/// `None`）恰 4 个、枚举**私有**（零 `pub enum ExportedItem` 命中）、定义恰 1 处。
++#[test]
++fn exported_item四变体封闭且私有() {
++    let source = include_str!("ts.rs");
++    assert_eq!(
++        source.matches("enum ExportedItem").count(),
++        1,
++        "定义恰 1 处"
++    );
++    assert!(
++        !source.contains("pub enum ExportedItem"),
++        "`ExportedItem` 保持私有（MUST NOT 为可测性升格）"
++    );
++    let block = source
++        .split_once("enum ExportedItem<'a, 'b> {")
++        .expect("`ExportedItem` 定义在案")
++        .1
++        .split_once("\n}")
++        .expect("枚举收口")
++        .0;
++    let variants: Vec<&str> = block
++        .lines()
++        .map(str::trim)
++        .filter(|line| !line.is_empty() && !line.starts_with("//"))
++        .map(|line| {
++            line.split('(')
++                .next()
++                .unwrap_or(line)
++                .trim_end_matches(',')
++                .trim()
++        })
++        .collect();
++    assert_eq!(
++        variants,
++        vec!["Declaration", "Named", "Star", "None"],
++        "四变体封闭（MUST NOT 扩第五态）"
++    );
++}
+diff --git a/crates/core/archi/src/api/mod.rs b/crates/core/archi/src/api/mod.rs
+index e5adcb9222a2..59cc395ddceb 100644
+--- a/crates/core/archi/src/api/mod.rs
++++ b/crates/core/archi/src/api/mod.rs
+@@ -417,7 +417,7 @@ fn element_symbols(
+     else {
+         return Vec::new();
+     };
+-    extract::extract_element(root, &entry)
++    extract::extract_element(root, elements, element, &entry)
+ }
+ 
+ /// 装配四类生成物为内存清单（**零写盘**）：`<FQN>.schema.json` / `INDEX.toml` /
+@@ -606,7 +606,8 @@ fn def_shape(definition: &Value) -> &'static str {
+ 
+ /// 取数器草稿（**只出字符串、零写盘**）：定位入口 → 读源 → 抽取 → md 骨架。
+ ///
+-/// 每个符号附 `visibility` 与定义位置注释；构造器条目不进草稿（构造器由生成器产出）。
++/// 每个符号附 `visibility` 与**定义文件与行**的注释（`ApiSymbol.file` / `line`，不是入口
++/// 串——闭包一跳后行号属于另一个文件）；构造器条目不进草稿（构造器由生成器产出）。
+ pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
+     if element.trim().is_empty() {
+         return Err(ApiError::Element("元素 FQN 为空".to_owned()));
+@@ -646,10 +647,10 @@ pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
+              无法起草契约"
+         )));
+     };
+-    // 取数面与判据的「代码导出集」同源（同一元素的公开面散在入口与它声明的模块文件里）；
++    // 取数面与判据的「代码导出集」同源（同一元素的公开面散在入口与它引用的各文件里）；
+     // 只读入口会把真正的操作漏掉，草稿随即失真
+-    let symbols = extract::extract_element(root, &entry);
+-    Ok(bootstrap_text(element, &entry, &symbols))
++    let symbols = extract::extract_element(root, &elements, found, &entry);
++    Ok(bootstrap_text(element, &symbols))
+ }
+ 
+ /// `EntryProblem` 的一句话理由（「为什么这个入口不可用」）——[`bootstrap`] 失败文案的
+@@ -670,7 +671,11 @@ fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
+ }
+ 
+ /// md 骨架文本（H1 + 空散文段 + 每操作一个 `### <op-id>` + `api-types` fence）。
+-fn bootstrap_text(fqn: &str, entry: &str, symbols: &[ApiSymbol]) -> String {
++///
++/// 注记行 `<!-- <visibility> @ <file>:<line> -->` 取每个符号的**定义文件与行**
++/// （`ApiSymbol.file` / `line`），入口退出注记面——闭包一跳之后行号属于另一个文件，
++/// 用入口串拼它就等于注解说谎。
++fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol]) -> String {
+     let mut text =
+         format!("# {fqn}\n\n## 职能\n\n（待补：一句职能）\n\n## 不变量\n\n（待补）\n\n## 操作\n\n");
+     for symbol in symbols
+@@ -679,9 +684,10 @@ fn bootstrap_text(fqn: &str, entry: &str, symbols: &[ApiSymbol]) -> String {
+         .filter(|symbol| !contract::is_constructor(&symbol.name))
+     {
+         text.push_str(&format!(
+-            "### {}\n\n<!-- {} @ {entry}:{}{} -->\n\n",
++            "### {}\n\n<!-- {} @ {}:{}{} -->\n\n",
+             symbol.name,
+             symbol.visibility.as_str(),
++            symbol.file,
+             symbol.line,
+             if symbol.is_async { " async" } else { "" }
+         ));
+@@ -720,6 +726,8 @@ fn bootstrap_op(symbol: &ApiSymbol) -> String {
+ }
+ 
+ /// `api-types` fence 内容（本次抽到的类型类符号；形状留给人工剪枝）。
++///
++/// `待剪枝` 注记同样取符号的**定义文件与行**（`ApiSymbol.file`）。
+ fn bootstrap_types(symbols: &[ApiSymbol]) -> String {
+     let named: Vec<&ApiSymbol> = symbols
+         .iter()
+@@ -740,7 +748,7 @@ fn bootstrap_types(symbols: &[ApiSymbol]) -> String {
+                     ApiSymbolKind::Enum => "枚举",
+                     ApiSymbolKind::Function => "函数",
+                 },
+-                "入口",
++                symbol.file,
+                 symbol.line,
+                 symbol.visibility.as_str()
+             )
+diff --git a/crates/core/archi/src/api/mod_test.rs b/crates/core/archi/src/api/mod_test.rs
+index a624c1faa79c..2a143b7e7ad3 100644
+--- a/crates/core/archi/src/api/mod_test.rs
++++ b/crates/core/archi/src/api/mod_test.rs
+@@ -26,8 +26,8 @@ use crate::drift::report::{ArchiApiFinding, ArchiApiFindingKind};
+ use crate::dto::{ApiStatus, ArchiElement, ElementKind, GateTier, NodeMark};
+ 
+ use super::{
+-    api_ref, bootstrap, check, enabled, load_contracts, meta, render_all, ApiCheckInput, ApiError,
+-    ApiSnapshot,
++    api_ref, bootstrap, check, enabled, findings, load_contracts, meta, render_all, ApiCheckInput,
++    ApiError, ApiSnapshot,
+ };
+ 
+ // ---------------------------------------------------------------------------
+@@ -2169,7 +2169,9 @@ fn bootstrap不产used_by() {
+     }
+ 
+     // 两向对拍：草稿候选符号集 ≡ extract_element 的符号集
+-    let symbols = extract::extract_element(temp.root(), "src/alpha/src/lib.rs");
++    let elements = [element(fqn, &["src/alpha/"])];
++    let symbols =
++        extract::extract_element(temp.root(), &elements, &elements[0], "src/alpha/src/lib.rs");
+     let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
+     assert_eq!(names, vec!["Thing", "alpha"], "取数面符号集：{names:?}");
+     let ops: Vec<&str> = symbols
+@@ -4618,3 +4620,402 @@ fn index与生成物对现网契约零回归() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 注记真值源：注记行取 `ApiSymbol.file`（入口退出注记面）
++// ---------------------------------------------------------------------------
++
++/// 合成 barrel 语料：父元素 + 4 子元素 + 1 跨元素兄弟（源码与模型同落盘）。
++///
++/// barrel 6 条语句含「同一目标两条具名语句」形态与 1 条跨元素被拒形态；子元素目录里
++/// 的 `*ExtraProps` 不在名单里，用于钉「具名名单不虚增」。
++fn write_closure_barrel(temp: &TempDir) {
++    temp.write(
++        "views/agent/index.ts",
++        "export { useAgentInput, AgentInputProps } from './input/agent-input';\n\
++         export { useSession } from './session/session-panel';\n\
++         export type { SessionPanelState, SessionPanelActions } from './session/session-panel';\n\
++         export { AgentMessages } from './messages/agent-messages';\n\
++         export type { MessageList } from './messages/agent-messages';\n\
++         export { Other } from '../other/other';\n",
++    );
++    temp.write(
++        "views/agent/input/agent-input.ts",
++        "export function useAgentInput(): boolean { return true; }\n\
++         export interface AgentInputProps { value: string }\n\
++         export interface AgentInputExtraProps { extra: string }\n",
++    );
++    temp.write(
++        "views/agent/session/session-panel.ts",
++        "export function useSession(): boolean { return true; }\n\
++         export interface SessionPanelState { open: boolean }\n\
++         export interface SessionPanelActions { close(): void }\n",
++    );
++    temp.write(
++        "views/agent/messages/agent-messages.ts",
++        "export function AgentMessages(): boolean { return true; }\n\
++         export type MessageList = string[];\n",
++    );
++    temp.write(
++        "views/other/other.ts",
++        "export function Other(): string { return ''; }\n",
++    );
++    temp.write_model(&format!(
++        "[element.\"{agent}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n\n\
++         [element.\"{input}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/input/\"]\n\n\
++         [element.\"{session}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/session/\"]\n\n\
++         [element.\"{messages}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/messages/\"]\n\n\
++         [element.\"{panel}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/panel/\"]\n\n\
++         [element.\"{other}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/other/\"]\n",
++        agent = CLOSURE_AGENT,
++        input = "App.Frontend.Components.Agent.Input",
++        session = "App.Frontend.Components.Agent.Session",
++        messages = "App.Frontend.Components.Agent.Messages",
++        panel = "App.Frontend.Components.Agent.Panel",
++        other = "App.Frontend.Components.Other",
++    ));
++}
++
++/// 合成 barrel 的父元素 FQN。
++const CLOSURE_AGENT: &str = "App.Frontend.Components.Agent";
++
++/// 合成 barrel 的元素表（与 [`write_closure_barrel`] 同源，供 `load_contracts` /
++/// `findings` / `extract_element` 直接入参）。
++fn closure_elements() -> Vec<ArchiElement> {
++    vec![
++        element(CLOSURE_AGENT, &["views/agent/"]),
++        element(
++            "App.Frontend.Components.Agent.Input",
++            &["views/agent/input/"],
++        ),
++        element(
++            "App.Frontend.Components.Agent.Session",
++            &["views/agent/session/"],
++        ),
++        element(
++            "App.Frontend.Components.Agent.Messages",
++            &["views/agent/messages/"],
++        ),
++        element(
++            "App.Frontend.Components.Agent.Panel",
++            &["views/agent/panel/"],
++        ),
++        element("App.Frontend.Components.Other", &["views/other/"]),
++    ]
++}
++
++/// 合成 barrel 的契约源文：2 个 op + 2 个 `$defs` 类型（均在闭包符号集内）。
++fn closure_contract(fqn: &str) -> String {
++    format!(
++        "# {fqn}\n\n## 职能\n\n合成语料。\n\n## 不变量\n\n无。\n\n## 操作\n\n\
++         ### useAgentInput\n\n```json api-op\n\
++         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n\
++         ### useSession\n\n```json api-op\n\
++         {{\"params\": [], \"returns\": {{\"type\": \"boolean\"}}}}\n```\n\n\
++         ## 类型\n\n```json api-types\n\
++         {{\"AgentInputProps\": {{\"type\": \"object\", \"properties\": {{}}}},\
++         \"MessageList\": {{\"type\": \"array\", \"items\": {{\"type\": \"string\"}}}}}}\n```\n"
++    )
++}
++
++/// 正向（AC-5）：TS 元素（文件型 `path`，入口 barrel 一跳）⇒ 注记 `@ <目标文件>:<line>`；
++/// MUST NOT 出现 `@ <入口 index.ts>:<line>` 形态。
++#[test]
++fn bootstrap注记ts一跳指向定义文件() {
++    let temp = TempDir::new("bootstrap-ts-hop");
++    let fqn = "App.Frontend.Components.Agent";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
++    ));
++    temp.write(
++        "views/agent/index.ts",
++        "export { useAgentInput } from './input/agent-input';\n",
++    );
++    temp.write(
++        "views/agent/input/agent-input.ts",
++        "// 头部注释\nexport function useAgentInput(): boolean { return true; }\n",
++    );
++
++    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
++    assert!(
++        text.contains("<!-- external @ views/agent/input/agent-input.ts:2 -->"),
++        "注记指向闭包一跳后的定义文件与行：\n{text}"
++    );
++    assert!(
++        !text.contains(" @ views/agent/index.ts:"),
++        "注记 MUST NOT 回落成入口串（入口不是定义处）：\n{text}"
++    );
++}
++
++/// 正向（AC-5）：Rust 元素子模块内的 `pub fn` ⇒ 注记指向**子模块文件**（不再是入口串，
++/// 病灶三的反向判据）。
++#[test]
++fn bootstrap注记rust子模块指向子模块文件() {
++    let temp = TempDir::new("bootstrap-rust-submodule");
++    let fqn = "App.Core.X";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"crates/x/\"]\n"
++    ));
++    temp.write("crates/x/src/lib.rs", "mod op;\npub use op::run;\n");
++    temp.write(
++        "crates/x/src/op.rs",
++        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
++    );
++
++    let text = bootstrap(temp.root(), fqn).expect("起草应成功");
++    assert!(
++        text.contains("<!-- external @ crates/x/src/op.rs:1 -->"),
++        "注记指向子模块文件（`ApiSymbol.file` 是真值源）：\n{text}"
++    );
++    assert!(
++        !text.contains(" @ crates/x/src/lib.rs:"),
++        "注记 MUST NOT 写成入口串（子模块实现不在入口文件里）：\n{text}"
++    );
++}
++
++/// 正向（AC-1 / AC-5）：合成 barrel（父元素 + 4 子元素 + 6 条有效 re-export，含同目标
++/// 两语句形态，另加 1 条跨元素被拒）⇒ 草稿的 `### <op>` 集与 `api-types` 键集 == 闭包
++/// 符号集（3 op + 4 类型 = 7 名），未导出的 `*Props` 零命中，类型注记同样取 `symbol.file`。
++#[test]
++fn bootstrap组合闭包草稿名单() {
++    let temp = TempDir::new("bootstrap-closure");
++    write_closure_barrel(&temp);
++
++    let elements = closure_elements();
++    let symbols =
++        extract::extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
++    let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
++    assert_eq!(
++        names,
++        vec![
++            "useAgentInput",
++            "AgentInputProps",
++            "useSession",
++            "SessionPanelState",
++            "SessionPanelActions",
++            "AgentMessages",
++            "MessageList"
++        ],
++        "闭包符号集 = 3 op + 4 类型：{symbols:?}"
++    );
++    assert!(
++        !names
++            .iter()
++            .any(|name| name.ends_with("Props") && *name != "AgentInputProps"),
++        "未导出的 `*Props` 零命中：{names:?}"
++    );
++
++    let text = bootstrap(temp.root(), CLOSURE_AGENT).expect("起草应成功");
++    for op in ["useAgentInput", "useSession", "AgentMessages"] {
++        assert!(
++            text.contains(&format!("### {op}")),
++            "草稿含 op `{op}`：\n{text}"
++        );
++    }
++    assert_eq!(
++        text.matches("### ").count(),
++        3,
++        "草稿 op 集恰 3 条：\n{text}"
++    );
++    for absent in ["### Other", "### AgentInputExtraProps"] {
++        assert!(
++            !text.contains(absent),
++            "跨元素条目零命中：`{absent}`\n{text}"
++        );
++    }
++    for expected in [
++        "\"AgentInputProps\"",
++        "\"SessionPanelState\"",
++        "\"SessionPanelActions\"",
++        "\"MessageList\"",
++    ] {
++        assert!(
++            text.contains(expected),
++            "草稿 api-types 含闭包类型 `{expected}`：\n{text}"
++        );
++    }
++    assert!(
++        !text.contains("AgentInputExtraProps"),
++        "未在名单里的类型不进草稿：\n{text}"
++    );
++    assert_eq!(
++        text.matches("\"note\": \"待剪枝").count(),
++        4,
++        "类型条数 = 闭包类型数：\n{text}"
++    );
++
++    // 类型注记取 `symbol.file`（不是入口串）
++    assert!(
++        text.contains("待剪枝：类型 @ views/agent/input/agent-input.ts:2"),
++        "类型注记指向定义文件与行：\n{text}"
++    );
++    assert!(
++        text.contains("待剪枝：类型 @ views/agent/messages/agent-messages.ts:2"),
++        "同名符号的 `file:line` 与 op 注记同源：\n{text}"
++    );
++    assert!(
++        !text.contains("@ views/agent/index.ts:"),
++        "注记面 MUST NOT 出现入口串：\n{text}"
++    );
++}
++
++/// 正向（AC-5 / AC-8 组合链路）：对有契约文件的 TS barrel 元素跑 `load_contracts` ⇒
++/// `snapshot.symbols[fqn]` == `extract_element` 的闭包产出（逐字段相等，含 `file`）——
++/// `element_symbols` 补参生效、零第二套取数。
++#[test]
++fn load_contracts组合闭包取数面() {
++    let temp = TempDir::new("load-closure-symbols");
++    write_closure_barrel(&temp);
++    temp.write_contract(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
++
++    let elements = closure_elements();
++    let snapshot = load_contracts(temp.root(), &elements).expect("全链应成功");
++    assert_eq!(snapshot.contracts.len(), 1, "只有父元素有契约文件");
++    assert_eq!(snapshot.contracts[0].fqn, CLOSURE_AGENT);
++
++    let expected =
++        extract::extract_element(temp.root(), &elements, &elements[0], "views/agent/index.ts");
++    assert_eq!(
++        snapshot.symbols[CLOSURE_AGENT], expected,
++        "`snapshot.symbols` == 闭包产出（逐字段相等，含 file）"
++    );
++    assert_eq!(snapshot.symbols[CLOSURE_AGENT].len(), 7, "闭包 7 名在案");
++}
++
++/// 正向（AC-8 组合链路）：契约声明闭包内 2 个 op + 2 个 `$defs` 类型 ⇒ 该 4 项零
++/// `apiMissing`；`apiUndeclared` 仍 `off`（零条目）、闭包只减不增。
++#[test]
++fn findings组合闭包只减不增() {
++    let temp = TempDir::new("findings-closure");
++    write_closure_barrel(&temp);
++    temp.write_contract(CLOSURE_AGENT, &closure_contract(CLOSURE_AGENT));
++
++    let elements = closure_elements();
++    let found = findings(temp.root(), &elements).expect("判据装配应成功");
++    let kinds: Vec<ArchiApiFindingKind> = found.iter().map(|finding| finding.kind).collect();
++    assert_eq!(
++        kinds
++            .iter()
++            .filter(|kind| **kind == ArchiApiFindingKind::ApiMissing)
++            .count(),
++        0,
++        "闭包覆盖了契约声明的 op 与 `$defs` 类型（零 apiMissing）：{:?}",
++        found.iter().map(|f| &f.message).collect::<Vec<_>>()
++    );
++    assert_eq!(
++        kinds
++            .iter()
++            .filter(|kind| **kind == ArchiApiFindingKind::ApiUndeclared)
++            .count(),
++        0,
++        "`apiUndeclared` 档位 off ⇒ 零新增条目"
++    );
++    assert_eq!(
++        ArchiApiFindingKind::ApiUndeclared.severity(),
++        crate::drift::report::ApiFindingSeverity::Off,
++        "档位口径不变（off 是本变更的既有事实）"
++    );
++    for finding in &found {
++        assert_eq!(
++            finding.kind,
++            ArchiApiFindingKind::ApiEntryMissing,
++            "子元素无入口是唯一余下条目：{}",
++            finding.message
++        );
++    }
++}
++
++/// 边界（AC-5 注记面）：`api/mod.rs` 内 `@ {entry}` 与 `@ 入口` 零命中；`symbol.file`
++/// 写出点恰 2 处（op 注记 + 类型注记）；`bootstrap_text` 签名 `(fqn, symbols)`（无
++/// `entry` 形参）；`bootstrap` 公开签名逐字不变。
++#[test]
++fn 注记面entry退出源码自证() {
++    let source = include_str!("mod.rs");
++    for forbidden in ["@ {entry}", "@ 入口"] {
++        assert!(
++            !source.contains(forbidden),
++            "注记面 MUST NOT 用入口串拼接：`{forbidden}`"
++        );
++    }
++    assert_eq!(
++        source.matches("symbol.file").count(),
++        2,
++        "`symbol.file` 写出点恰 2 处（op 注记 + 类型注记）"
++    );
++    assert_eq!(
++        source
++            .matches("fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol])")
++            .count(),
++        1,
++        "`bootstrap_text` 形参为 `(fqn, symbols)`（`entry` 退出）"
++    );
++    assert_eq!(
++        source
++            .matches("pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError>")
++            .count(),
++        1,
++        "`bootstrap` 公开签名逐字不变"
++    );
++}
++
++/// 边界（AC-7）：两处产品调用点各恰 1 次 `extract_element(` 且实参含元素表 / 元素——
++/// 取数面单点，零第三处。
++#[test]
++fn bootstrap与element_symbols调用点机械锚() {
++    let source = include_str!("mod.rs");
++    assert_eq!(
++        source.matches("extract::extract_element(").count(),
++        2,
++        "`api/` 内产品侧恰 2 处调用点（`element_symbols` 与 `bootstrap`）"
++    );
++    assert!(
++        source.contains("extract::extract_element(root, elements, element, &entry)"),
++        "`element_symbols` 传元素表与元素（逐字）"
++    );
++    assert!(
++        source.contains("extract::extract_element(root, &elements, found, &entry)"),
++        "`bootstrap` 传元素表与元素（逐字）"
++    );
++}
++
++/// 边界（空符号集草稿，逐值迭代 2 值）：入口零导出 / barrel 目标全被拒 ⇒ 零 `###`、
++/// `api-types` 为 `{}`（草稿形态回归，零 panic）。
++#[test]
++fn bootstrap空符号集草稿() {
++    let empty_entry = TempDir::new("bootstrap-empty-entry");
++    let fqn = "App.Frontend.Components.Agent";
++    empty_entry.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n"
++    ));
++    empty_entry.write("views/agent/src/lib.rs", "// 零导出\n");
++    let text = bootstrap(empty_entry.root(), fqn).expect("起草应成功");
++    assert!(!text.contains("### "), "零符号 ⇒ 零 op heading：\n{text}");
++    assert!(
++        text.contains("```json api-types\n{}\n```"),
++        "零符号 ⇒ api-types 为 `{{}}`：\n{text}"
++    );
++
++    let rejected = TempDir::new("bootstrap-empty-closure");
++    rejected.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\npath = [\"views/agent/\"]\n\n\
++         [element.\"App.Frontend.Components.Sibling\"]\nkind = \"module\"\ngate = \"warn\"\n\
++         path = [\"views/sibling/\"]\n"
++    ));
++    rejected.write(
++        "views/agent/index.ts",
++        "export { siblingOp } from '../sibling/o';\n",
++    );
++    rejected.write(
++        "views/sibling/o.ts",
++        "export function siblingOp(): string { return ''; }\n",
++    );
++    let text = bootstrap(rejected.root(), fqn).expect("起草应成功");
++    assert!(
++        !text.contains("### "),
++        "目标归属另一个元素 ⇒ 全拒、零 op heading：\n{text}"
++    );
++    assert!(
++        text.contains("```json api-types\n{}\n```"),
++        "全拒 ⇒ api-types 为 `{{}}`：\n{text}"
++    );
++}

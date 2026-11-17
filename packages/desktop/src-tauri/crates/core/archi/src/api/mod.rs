@@ -417,7 +417,7 @@ fn element_symbols(
     else {
         return Vec::new();
     };
-    extract::extract_element(root, &entry)
+    extract::extract_element(root, elements, element, &entry)
 }
 
 /// 装配四类生成物为内存清单（**零写盘**）：`<FQN>.schema.json` / `INDEX.toml` /
@@ -606,7 +606,8 @@ fn def_shape(definition: &Value) -> &'static str {
 
 /// 取数器草稿（**只出字符串、零写盘**）：定位入口 → 读源 → 抽取 → md 骨架。
 ///
-/// 每个符号附 `visibility` 与定义位置注释；构造器条目不进草稿（构造器由生成器产出）。
+/// 每个符号附 `visibility` 与**定义文件与行**的注释（`ApiSymbol.file` / `line`，不是入口
+/// 串——闭包一跳后行号属于另一个文件）；构造器条目不进草稿（构造器由生成器产出）。
 pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
     if element.trim().is_empty() {
         return Err(ApiError::Element("元素 FQN 为空".to_owned()));
@@ -646,10 +647,10 @@ pub fn bootstrap(root: &Path, element: &str) -> Result<String, ApiError> {
              无法起草契约"
         )));
     };
-    // 取数面与判据的「代码导出集」同源（同一元素的公开面散在入口与它声明的模块文件里）；
+    // 取数面与判据的「代码导出集」同源（同一元素的公开面散在入口与它引用的各文件里）；
     // 只读入口会把真正的操作漏掉，草稿随即失真
-    let symbols = extract::extract_element(root, &entry);
-    Ok(bootstrap_text(element, &entry, &symbols))
+    let symbols = extract::extract_element(root, &elements, found, &entry);
+    Ok(bootstrap_text(element, &symbols))
 }
 
 /// `EntryProblem` 的一句话理由（「为什么这个入口不可用」）——[`bootstrap`] 失败文案的
@@ -670,7 +671,11 @@ fn entry_problem_reason(problem: &paths::EntryProblem) -> String {
 }
 
 /// md 骨架文本（H1 + 空散文段 + 每操作一个 `### <op-id>` + `api-types` fence）。
-fn bootstrap_text(fqn: &str, entry: &str, symbols: &[ApiSymbol]) -> String {
+///
+/// 注记行 `<!-- <visibility> @ <file>:<line> -->` 取每个符号的**定义文件与行**
+/// （`ApiSymbol.file` / `line`），入口退出注记面——闭包一跳之后行号属于另一个文件，
+/// 用入口串拼它就等于注解说谎。
+fn bootstrap_text(fqn: &str, symbols: &[ApiSymbol]) -> String {
     let mut text =
         format!("# {fqn}\n\n## 职能\n\n（待补：一句职能）\n\n## 不变量\n\n（待补）\n\n## 操作\n\n");
     for symbol in symbols
@@ -679,9 +684,10 @@ fn bootstrap_text(fqn: &str, entry: &str, symbols: &[ApiSymbol]) -> String {
         .filter(|symbol| !contract::is_constructor(&symbol.name))
     {
         text.push_str(&format!(
-            "### {}\n\n<!-- {} @ {entry}:{}{} -->\n\n",
+            "### {}\n\n<!-- {} @ {}:{}{} -->\n\n",
             symbol.name,
             symbol.visibility.as_str(),
+            symbol.file,
             symbol.line,
             if symbol.is_async { " async" } else { "" }
         ));
@@ -720,6 +726,8 @@ fn bootstrap_op(symbol: &ApiSymbol) -> String {
 }
 
 /// `api-types` fence 内容（本次抽到的类型类符号；形状留给人工剪枝）。
+///
+/// `待剪枝` 注记同样取符号的**定义文件与行**（`ApiSymbol.file`）。
 fn bootstrap_types(symbols: &[ApiSymbol]) -> String {
     let named: Vec<&ApiSymbol> = symbols
         .iter()
@@ -740,7 +748,7 @@ fn bootstrap_types(symbols: &[ApiSymbol]) -> String {
                     ApiSymbolKind::Enum => "枚举",
                     ApiSymbolKind::Function => "函数",
                 },
-                "入口",
+                symbol.file,
                 symbol.line,
                 symbol.visibility.as_str()
             )

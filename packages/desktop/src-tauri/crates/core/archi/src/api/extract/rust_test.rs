@@ -1392,3 +1392,279 @@ fn path限根三步的机械判据() {
         "分段折叠的 `..` 用 `pop()?`（栈空即拒，不无限上溯）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// ApiSymbol.file：定义所在模块文件（repo 相对 POSIX，MUST NOT 是入口串冒充）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-5）：`extract_file` 的 `file` 形参是符号事实的**唯一来源**——入参逐字落
+/// `ApiSymbol.file`（`crate_name` 仍只作诊断留痕）。
+#[test]
+fn extract_file的file落值() {
+    let symbols = extract_file(
+        "crates/x/src/op.rs",
+        "pub fn run() {}\npub struct Handle;\n",
+        "x",
+    );
+    assert_eq!(symbols.len(), 2, "两类声明各一：{symbols:?}");
+    for symbol in &symbols {
+        assert_eq!(
+            symbol.file, "crates/x/src/op.rs",
+            "`file` 取形参逐字（{}）",
+            symbol.name
+        );
+    }
+    // `crate_name` 不影响符号集（既有语义零变化）
+    let renamed = extract_file(
+        "crates/x/src/op.rs",
+        "pub fn run() {}\npub struct Handle;\n",
+        "另一个 crate",
+    );
+    assert_eq!(symbols, renamed, "`crate_name` 不改符号集（含 file）");
+}
+
+/// 正向（AC-5）：入口自身内的 `pub fn` / `pub struct` ⇒ `file == entry` 全串。
+#[test]
+fn extract_crate入口声明file为入口() {
+    let temp = TempDir::new("file-entry-declarations");
+    temp.write(
+        "src/lib.rs",
+        "pub fn top() -> String {\n    String::new()\n}\npub struct Handle;\n",
+    );
+    let symbols = extract_crate(temp.root(), "src/lib.rs");
+    assert_eq!(symbols.len(), 2, "两条声明：{symbols:?}");
+    for symbol in &symbols {
+        assert_eq!(symbol.file, "src/lib.rs", "入口内声明的 `file` = 入口串");
+    }
+}
+
+/// 正向（AC-5）：入口 `mod op;`、`op.rs` 内 `pub fn run` ⇒ `run.file` = 子模块文件
+/// （MUST NOT 是入口串——`pub fn` 写在 `src/op.rs`、注记却写 `src/lib.rs` 就是注记
+/// 说谎）。
+#[test]
+fn extract_crate子模块file指子模块文件() {
+    let temp = TempDir::new("file-submodule");
+    temp.write("src/lib.rs", "pub mod op;\n");
+    temp.write(
+        "src/op.rs",
+        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
+    );
+    let symbols = extract_crate(temp.root(), "src/lib.rs");
+    let run = find(&symbols, "run");
+    assert_eq!(run.file, "src/op.rs", "子模块符号的 `file` = 子模块文件");
+    assert_ne!(run.file, "src/lib.rs", "MUST NOT 回落成入口串");
+}
+
+/// 正向（AC-5）：`mod op;` 命中 `src/op/mod.rs` ⇒ 该子模块符号 `file` = `mod.rs` 的
+/// 定位路径（与 `<名>.rs` 形态走同一「当前模块文件」形参）。
+#[test]
+fn extract_crate的modrs形态file() {
+    let temp = TempDir::new("file-mod-rs");
+    temp.write("src/lib.rs", "pub mod op;\n");
+    temp.write(
+        "src/op/mod.rs",
+        "pub fn run(input: &str) -> String {\n    String::new()\n}\n",
+    );
+    assert!(
+        !temp.root().join("src/op.rs").exists(),
+        "夹具须只留 `mod.rs` 形态"
+    );
+    let symbols = extract_crate(temp.root(), "src/lib.rs");
+    assert_eq!(
+        find(&symbols, "run").file,
+        "src/op/mod.rs",
+        "`mod.rs` 形态同样落定位文件"
+    );
+}
+
+/// 正向（AC-5，逐值迭代 2 行）：`#[path]` 模块两形态（同级 `gen/api.rs` 与三层
+/// `../../archi.i.rs`）⇒ 符号 `file` = **定位到的文件路径**，两形态逐字段相等。
+#[test]
+fn extract_crate的path模块file() {
+    let sibling = TempDir::new("file-path-attr");
+    sibling.write("src/lib.rs", "#[path = \"gen/api.rs\"]\npub mod api_gen;\n");
+    sibling.write("src/gen/api.rs", "pub fn gen_op() {}\n");
+    let from_sibling = extract_crate(sibling.root(), "src/lib.rs");
+    assert_eq!(
+        find(&from_sibling, "gen_op").file,
+        "src/gen/api.rs",
+        "`#[path]` 指向的文件即 `file`"
+    );
+
+    let upward = TempDir::new("file-path-upward");
+    upward.write(
+        "src/api/mod.rs",
+        "#[path = \"../../archi.i.rs\"]\npub mod api_gen;\n",
+    );
+    upward.write("archi.i.rs", "pub fn gen_op() {}\n");
+    let from_upward = extract_crate(upward.root(), "src/api/mod.rs");
+    assert_eq!(
+        find(&from_upward, "gen_op").file,
+        "archi.i.rs",
+        "三层 `../` 折叠后的定位路径即 `file`"
+    );
+
+    assert_eq!(
+        from_sibling
+            .iter()
+            .map(|symbol| (&symbol.name, &symbol.kind, symbol.visibility))
+            .collect::<Vec<_>>(),
+        from_upward
+            .iter()
+            .map(|symbol| (&symbol.name, &symbol.kind, symbol.visibility))
+            .collect::<Vec<_>>(),
+        "两形态的符号面（名字 / kind / visibility）逐字段相等，`file` 各指自己的定位文件"
+    );
+}
+
+/// 正向（AC-5）：入口内联 `pub mod a { pub fn f() {} }` ⇒ `f.file == entry`（内联
+/// `mod` 与父同文件，MUST NOT 写成 `a` 之类的模块名）。
+#[test]
+fn extract_crate内联mod的file为父文件() {
+    let temp = TempDir::new("file-inline-mod");
+    temp.write("src/lib.rs", "pub mod a {\n    pub fn f() {}\n}\n");
+    let symbols = extract_crate(temp.root(), "src/lib.rs");
+    let found = find(&symbols, "f");
+    assert_eq!(found.file, "src/lib.rs", "内联 `mod` 与父同文件");
+    assert_ne!(found.file, "a", "MUST NOT 是模块名");
+}
+
+/// 正向（AC-5 形态规范，表驱动：全部夹具复用）：产出符号的 `file` 非空、`/` 分隔、
+/// 零 `\`、零前导 `/` 与 `./`、零 `../`（repo 相对 POSIX）。
+#[test]
+fn file形态规范为repo相对posix() {
+    let temp = TempDir::new("file-shape");
+    temp.write("crates/x/src/lib.rs", "pub mod op;\npub fn top() {}\n");
+    temp.write("crates/x/src/op.rs", "pub mod deep;\npub fn run() {}\n");
+    temp.write("crates/x/src/op/deep.rs", "pub fn leaf() {}\n");
+
+    let symbols = extract_crate(temp.root(), "crates/x/src/lib.rs");
+    assert_eq!(symbols.len(), 3, "三层各一条：{symbols:?}");
+    for symbol in &symbols {
+        let file = &symbol.file;
+        assert!(!file.is_empty(), "`file` 非空（{}）", symbol.name);
+        assert!(
+            !file.contains('\\'),
+            "`file` 零反斜杠（{}）：{file}",
+            symbol.name
+        );
+        assert!(!file.starts_with('/'), "`file` 零前导 `/`：{file}");
+        assert!(!file.starts_with("./"), "`file` 零前导 `./`：{file}");
+        assert!(!file.contains("../"), "`file` 零 `../`：{file}");
+    }
+    let files: Vec<&str> = symbols.iter().map(|symbol| symbol.file.as_str()).collect();
+    assert_eq!(
+        files,
+        vec![
+            "crates/x/src/lib.rs",
+            "crates/x/src/op.rs",
+            "crates/x/src/op/deep.rs"
+        ],
+        "三层各指自身文件、按遍历序"
+    );
+}
+
+/// 边界（AC-5）：五层嵌套模块链 ⇒ 每符号 `file` 指向其自身所在文件（不串到上层入口）。
+#[test]
+fn extract_crate深度的file不串层() {
+    let temp = TempDir::new("file-deep-five");
+    temp.write("src/lib.rs", "pub mod m1;\n");
+    temp.write("src/m1.rs", "pub mod m2;\npub fn f1() {}\n");
+    temp.write("src/m1/m2.rs", "pub mod m3;\npub fn f2() {}\n");
+    temp.write("src/m1/m2/m3.rs", "pub mod m4;\npub fn f3() {}\n");
+    temp.write("src/m1/m2/m3/m4.rs", "pub mod m5;\npub fn f4() {}\n");
+    temp.write("src/m1/m2/m3/m4/m5.rs", "pub fn f5() {}\n");
+
+    let symbols = extract_crate(temp.root(), "src/lib.rs");
+    for (name, file) in [
+        ("f1", "src/m1.rs"),
+        ("f2", "src/m1/m2.rs"),
+        ("f3", "src/m1/m2/m3.rs"),
+        ("f4", "src/m1/m2/m3/m4.rs"),
+        ("f5", "src/m1/m2/m3/m4/m5.rs"),
+    ] {
+        assert_eq!(
+            find(&symbols, name).file,
+            file,
+            "`{name}` 的 `file` 指自身所在文件"
+        );
+    }
+}
+
+/// 边界（AC-5 规模）：300 个 `pub fn` 分布在 30 个模块 ⇒ `file` 取值集合恰 30 个互异
+/// 路径，符号数 300 零丢失零重复。
+#[test]
+fn extract_crate规模的file集合() {
+    let temp = TempDir::new("file-scale");
+    let mut entry = String::new();
+    for module in 0..30 {
+        entry.push_str(&format!("pub mod m{module};\n"));
+        let mut body = String::new();
+        for index in 0..10 {
+            body.push_str(&format!("pub fn f{module}_{index}() {{}}\n"));
+        }
+        temp.write(&format!("src/m{module}.rs"), &body);
+    }
+    temp.write("src/lib.rs", &entry);
+
+    let symbols = extract_crate(temp.root(), "src/lib.rs");
+    assert_eq!(symbols.len(), 300, "300 个 `pub fn` 零丢失零重复");
+    let mut files: Vec<&str> = symbols.iter().map(|symbol| symbol.file.as_str()).collect();
+    files.sort_unstable();
+    files.dedup();
+    assert_eq!(
+        files.len(),
+        30,
+        "`file` 取值集合恰 30 个互异路径：{files:?}"
+    );
+}
+
+/// 边界（AC-6 同源）：单文件 crate（入口即全部实现、无 `mod`）⇒ `extract_crate` 与
+/// `extract_file(入口源)` 逐字段相等（`file` 一并相等，均非空且等于入口串）。
+#[test]
+fn extract_crate与extract_file的file同源() {
+    let source = "pub struct S;\npub fn free(input: &str) -> String {\n    String::new()\n}\n";
+    let temp = TempDir::new("file-same-source");
+    temp.write("src/lib.rs", source);
+
+    let from_crate = extract_crate(temp.root(), "src/lib.rs");
+    let from_file = extract_file("src/lib.rs", source, "x");
+    assert_eq!(from_crate, from_file, "逐字段相等（含 file）");
+    for symbol in &from_crate {
+        assert_eq!(symbol.file, "src/lib.rs", "两面的 `file` 同值且非空");
+    }
+}
+
+/// 边界（design「私有签名变化」段）：`walk_items` / `push_type` / `function_symbol`
+/// 的 `file` 形参不外露（零 `pub` 升格），`ApiSymbol.file` 赋值点与符号构造点一致
+/// （本文件 2 处：`push_type` / `function_symbol`）。
+#[test]
+fn file形参保持私有() {
+    let source = include_str!("rust.rs");
+    for private in [
+        "pub fn walk_items",
+        "pub fn push_type",
+        "pub fn function_symbol",
+        "pub fn walk_modules",
+    ] {
+        assert!(
+            !source.contains(private),
+            "私有形参 MUST NOT 升格为公开面：`{private}`"
+        );
+    }
+    assert_eq!(
+        source.matches("file: file.to_owned(),").count(),
+        2,
+        "两处符号构造点各落 `file`（`push_type` / `function_symbol`）"
+    );
+    assert_eq!(
+        source.matches("fn walk_items(").count(),
+        1,
+        "`walk_items` 定义恰 1 处（同一「当前模块文件」形参贯穿）"
+    );
+    assert_eq!(
+        source.matches("fn function_symbol(").count(),
+        1,
+        "`function_symbol` 定义恰 1 处"
+    );
+}
