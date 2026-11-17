@@ -1,5 +1,5 @@
 # 06 · 前端（30 元素 / 71 关系）
-# 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 12 + 原语层 1，另有 4 个容器。
+# 元素 = 页壳 1 + 视图 9 + 视图内子域 3 + 共享组件文件 12 + 原语层 1 + 目录模块 1，另有 3 个容器。
 # 关系只取 import 证据，目标按「最具体已声明元素」归属；指向 hooks / lib / types 的 import 不建边。
 
 [element."App.Frontend.Shell"]
@@ -91,9 +91,9 @@ gate = "off"
 summary = "跨视图复用的组件集合"
 
 [element."App.Frontend.Components.Agent"]
-kind = "domain"
+kind = "module"
 gate = "off"
-path = ["./packages/desktop/src/components/agent/index.tsx"]
+path = ["./packages/desktop/src/components/agent/"]
 summary = "agent 会话组件的统一出口"
 
 [element."App.Frontend.Components.Agent.AgentBlocks"]

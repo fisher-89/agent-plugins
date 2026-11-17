@@ -16,14 +16,20 @@ import type {
   ChangeRunEntry,
 } from '../../types/dto';
 import { ArchitectureCanvas } from '../architecture/components/architecture-canvas';
-import { ChangeChatPanel } from './agent/change-chat-panel';
-import { mountMaterials } from './flow/attachments';
-import { ChangeFlowGraph } from './flow/change-flow-graph';
-import { DetailDrawer } from './flow/detail-drawer';
-import { buildFlowGraph } from './flow/graph';
-import { RunControlPanel } from './flow/run-control-panel';
-import { runStepNodes, unifiedRunEdges, unifiedRunNodes } from './flow/run-state';
-import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
+import { ChangeChatPanel } from './agent';
+import {
+  mountMaterials,
+  ChangeFlowGraph,
+  DetailDrawer,
+  buildFlowGraph,
+  RunControlPanel,
+  runStepNodes,
+  unifiedRunEdges,
+  unifiedRunNodes,
+  type DrawerSelection,
+  type FlowGraph,
+  type FlowMaterials,
+} from './flow';
 import { useChangeDetail } from './hooks/use-change-detail';
 import { useChangeFlowRun } from './hooks/use-change-flow-run';
 

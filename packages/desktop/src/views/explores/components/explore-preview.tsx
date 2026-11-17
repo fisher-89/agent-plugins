@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 
 import type { ArtifactEnvelope } from '../../../types/dto';
-import { MarkdownDocRenderer } from '../../changes/renderers/markdown-doc-renderer';
+import { MarkdownDocRenderer } from '../../changes/renderers';
 import type { ExploreDoc } from '../hooks/use-explore-doc';
 
 export interface ExplorePreviewProps {

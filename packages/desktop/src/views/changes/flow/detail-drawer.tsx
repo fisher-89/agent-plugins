@@ -4,7 +4,7 @@ import type { AskAnswerActions } from '@/components/agent';
 import { StandardDrawer } from '@/components/standard/drawer';
 
 import type { ArtifactEnvelope } from '../../../types/dto';
-import { ArtifactTabs } from '../renderers/artifact-tabs';
+import { ArtifactTabs } from '../renderers';
 import { SessionTranscriptPanel } from './session-transcript-panel';
 import { StdoutPanel } from './stdout-panel';
 import type { DrawerSelection, FlowGraph, FlowMaterials, FlowNode, RoleSessionRef } from './types';

@@ -1,16 +1,13 @@
 import { Navigate, Route, Routes } from 'react-router';
 
-import { AgentDebugView } from './views/agent/agent-debug-view';
-import { AgentsView } from './views/agents/agents-view';
-import { ArchitectureView } from './views/architecture/architecture-view';
-import { ChangeDetailView } from './views/changes/change-detail-view';
-import { ChangeListView } from './views/changes/change-list-view';
-import { ConfigView } from './views/config/config-view';
-import { DbInspectorView } from './views/db/db-inspector-view';
-import { ExploreDetailView } from './views/explores/explore-detail-view';
-import { ExploreLayout } from './views/explores/explore-layout';
-import { ExploreListView } from './views/explores/explore-list-view';
-import { InfoView } from './views/info/info-view';
+import { AgentDebugView } from './views/agent';
+import { AgentsView } from './views/agents';
+import { ArchitectureView } from './views/architecture';
+import { ChangeDetailView, ChangeListView } from './views/changes';
+import { ConfigView } from './views/config';
+import { DbInspectorView } from './views/db';
+import { ExploreDetailView, ExploreLayout, ExploreListView } from './views/explores';
+import { InfoView } from './views/info';
 
 /** 壳态路由表：/ 与未知路径 replace 重定向 /changes，顶层页面与 change / explore 选中均由 URL 承载
  * （change 选中段 = change id——一切寻址以 id 为准，名恒展示面）；/architecture 的根取壳态当前根，
