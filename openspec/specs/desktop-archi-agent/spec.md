@@ -21,7 +21,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 - 元素不存在 SHALL 返回可诊断 `Err`（附近似 FQN 或总量提示），MUST NOT 返回空对象。
 - 模型结构错时 SHALL 返回结构化诊断清单作为 `Err`（绝不 panic），使 agent 能看出"模型本身坏了"而不是"没有这个模块"。
 - 响应 SHALL 经 `archi::dto` 单点投影产出（MUST NOT 在工具执行体内另拼一份 JSON）。
-- **`api` 并列字段（本变更新增）**：单元素响应 SHALL 并出 `api` 对象（`status`（`declared` / `none`）/ `contractPath` / `schemaPath` / `generatedPath`），定位 SHALL 按 `<archi_api_dir>/<Domain>/<FQN>.md` 与相应的 `.schema.json` / 生成物路径**派生**（全经 `foundation::layout` 的派生族，MUST NOT 行内拼路径）；文件不存在即 `status = none` 且三个路径字段为 `null`（零配置，「有契约 / 无契约」成为可枚举事实）。该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵。
+- **`api` 并列字段**：单元素响应 SHALL 并出 `api` 对象（`status`（`declared` / `none`）/ `contractPath` / `schemaPath` / `generatedPath`），定位 SHALL 按 `<archi_models_dir>/<Domain>/<FQN>.md` 与相应的 `.schema.json` / 生成物路径**派生**（全经 `foundation::layout` 的派生族与 `api::paths` 单点，MUST NOT 行内拼路径；`api` 段已退役，契约资产落在模型目录的 `<Domain>/` 子目录内）；文件不存在即 `status = none` 且三个路径字段为 `null`（零配置，「有契约 / 无契约」成为可枚举事实）。该字段 MUST NOT 承载协议正文（正文由 agent 用 `read` 按路径自取），MUST NOT 成为独立工具、MUST NOT 改变本工具的只读属性与注入矩阵。
 
 #### Scenario: 定位单元素
 
@@ -41,7 +41,7 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 #### Scenario: api 并列字段两态可辨
 
 - **WHEN** 分别对契约在案的元素（`App.Backend.Infra.ArchiRuntime`）与无契约元素调用 `archi_module(element = …)`
-- **THEN** 前者 `api.status = "declared"` 且三个路径字段指向实际文件；后者 `api.status = "none"` 且三者 `null`；其余字段（元素 / 邻接 / 子元素 / `docs`）与既有契约逐字一致
+- **THEN** 前者 `api.status = "declared"` 且 `contractPath` / `schemaPath` 指向 `.dev-team/architecture/models/Infra/` 下的实际文件、`generatedPath` 指向入口同级生成物；后者 `api.status = "none"` 且三者 `null`；其余字段（元素 / 邻接 / 子元素 / `docs`）与既有契约逐字一致
 
 #### Scenario: 薄概览带 api.status 但不带路径
 
@@ -52,6 +52,11 @@ SDK 引擎 SHALL 提供专用只读工具 `archi_module`（不在七通用工具
 
 - **WHEN** 审查 `archi_module` 响应体与体积
 - **THEN** 只含 `api` 四字段（状态 + 三路径），零签名、零 `$defs`、零散文；正文由 agent 用 `read` 按 `contractPath` 自取
+
+#### Scenario: 契约路径零 `api` 段残留
+
+- **WHEN** 对本仓契约在案元素（`App.Backend.Infra.ArchiRuntime`）取 `archi_module` 响应，并审查响应内的三个路径串
+- **THEN** `contractPath` 为 `.dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md`、`schemaPath` 为同目录的 `.schema.json`；三串内 MUST NOT 出现 `architecture/api` 形态（旧段已退役）；派生点消失后仍由 `api::paths` 单点产出（工具执行体零路径拼接）
 
 ### Requirement: archi_search 只读工具的轻量检索契约
 
@@ -311,12 +316,12 @@ archi 专用工具的**下发面** SHALL 由 `agent-runtime` 组合根以**工�
 |------|------|----------|
 | `crates/core/agent/src/runner.rs` | 注入词表（零改动） | 注入面即 `SessionInjections.tools: Option<Vec<String>>`（工具名字清单）；`SessionToolset` / `toolset` 已退役（产品源码零命中，`sdk/runner_test.rs` 有零命中断言），本表不再登记该枚举 |
 | `crates/infra/agent/src/compose.rs` | 注入装配（新增第三臂） | `assemble_injections`：explore 臂逐字不变 → **archi 臂**（`source == "archi"` 短路命中：`preamble = Some(knowledge())`、`tools = Some(七内建全量 + 三个 archi 工具名)`，不碰相位解析）→ change 臂（7 行矩阵 + fail-closed，`archi_matrix` 为矩阵单点）→ default（显式构造，非默认值兜底）；`ARCHI_SOURCE` 常量为来源词单点 |
-| `crates/infra/agent/src/archi_knowledge.rs`（新） | 骨架 + 派生段拼装 | `knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `ApiStatus::ALL` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；`entry` MUST NOT 进派生词表（开放值集）；纯函数零 IO；降级为 `None` 而非 `Err` |
+| `crates/infra/agent/src/archi_knowledge.rs` | 骨架 + 派生段拼装（本变更：目录方位串换段） | 注入段 SHALL 由「契约目录：`<archi_api_rel_dir>`」改为「契约资产：`<archi_models_rel_dir>/<Domain>/<FQN>.md`（索引 `<archi_graph_rel_dir>/INDEX.toml`）」——`api` 段串零残留；四面词表注入、纯函数零 IO、降级为 `None` 的语义逐字不变。原拼接面：`knowledge() -> Option<String>`：`include_str!("archi-knowledge.md")` + `ElementKind::ALL` / `GateTier::ALL` / `GateTier::default()` / `ApiStatus::ALL` / `DiagnosticKind::ALL` / `foundation::layout` 相对路径派生族；`entry` MUST NOT 进派生词表（开放值集）；纯函数零 IO；降级为 `None` 而非 `Err` |
 | `crates/infra/agent/src/archi-knowledge.md`（新） | 知识静态骨架（`include_str!` 内嵌） | 格式与键形约定（「格式约定」段的元素字段面为八项：`kind` / `gate` / `api` / `entry` / `path` / `docs` / `summary` / `metadata`，并含 `entry` 三条纪律）/ 层级推导 / `gate` 缺省 / 边界 / 自检 / 写面与可见性 / 历史会话续接 + 一段可解析示例 TOML（经 `TomlParser` 零诊断）；零 `<>` 占位符、体量受上限约束、零 `include_str!` 之外的动态指令 |
-| `crates/infra/agent/src/archi_knowledge_test.rs` | 知识语料 | 示例片段可解析（含 `entry` 单值形态）；四面词表在场；体量上限；纯函数性（三次调用逐字相等） |
+| `crates/infra/agent/src/archi_knowledge_test.rs` | 知识语料（本变更：断言串换段） | 「契约目录：」引导语断言改为「契约资产：」+「契约索引：」两条并各断言 `<archi_models_rel_dir>` / `<archi_graph_rel_dir>` 逐字注入；示例片段可解析（含 `entry` 单值形态）、四面词表在场、体量上限、纯函数性（三次调用逐字相等）四条语义不变 |
 | `crates/core/archi/src/dto.rs` | 词汇单点（补 `ALL`） | `ArchiDiagnosticKind::ALL: [Self; 9]`，与 `as_str` 同源；既有 `ElementKind::ALL` / `GateTier::ALL` 复用 |
-| `crates/core/archi/src/dto.rs`（`ArchiApiRef` / `ArchiElement.api` / `ArchiModuleDetail.api`） | 契约状态的线面投影 | `api: { status: ApiStatus, contractPath: Option<String>, schemaPath: Option<String>, generatedPath: Option<String> }`；`specta::Type`；路径由 `archi_api_dir` 派生后转 repo 相对形态 |
-| `crates/core/foundation/src/layout/mod.rs` | 相对路径派生 | `archi_rel_dir()` / `archi_models_rel_dir()` / `archi_decisions_rel_dir()`（`/` 分隔、零 IO、零行内字面量） |
+| `crates/core/archi/src/dto.rs`（`ArchiApiRef` / `ArchiElement.api` / `ArchiModuleDetail.api`） | 契约状态的线面投影 | `api: { status: ApiStatus, contractPath: Option<String>, schemaPath: Option<String>, generatedPath: Option<String> }`；`specta::Type`；三路径由 `api::paths` 派生后转 repo 相对形态（契约 md / schema 在 `<archi_models_dir>/<Domain>/`）；DTO 形状（字段名 / 顺序 / 派生）零变化。**绑定面说准**：两处 doc 方位串经 specta 抄进 `bindings.ts` ⇒ 恰 2 行 doc 注释随动、`bindings.zod.ts` 零 diff |
+| `crates/core/foundation/src/layout/mod.rs` | 相对路径派生 | `archi_rel_dir()` / `archi_models_rel_dir()` / `archi_decisions_rel_dir()` / `archi_graph_rel_dir()`（`/` 分隔、零 IO、零行内字面量）；`api` 段一族（`API_DIR_NAME` / `archi_api_dir` / `archi_api_rel_dir`）已删 |
 | `crates/infra/agent/src/sdk/tools.rs` | 工具定义面 | 三个工具名常量 + 定义（schema：`element`；`query` + `scope`；`action` + `element`）；`definitions` 按本轮工具名字清单追加；`input_path` 对三者返回 `None`（不进路径沙箱） |
 | `crates/infra/agent/src/sdk/archi_tool.rs` | 工具执行体 | 经 `LoopTurn` per-turn 上下文取 root → `archi::dto` 投影（`archi_module` 两形态、`archi_search` 三 scope）与契约面自检（`archi_api` 的 `check` / `bootstrap` 两动作，零写盘）；命中既有 L1 单结果上限收口；坏模型 → `is_error` 不 panic |
 | `crates/infra/agent/src/sdk/tools/archi_module.rs`（消费点） | 工具响应装配 | 只调 `archi::dto` 投影并序列化；零路径拼接、零契约读取、零协议正文；只读属性与注入矩阵零变化 |

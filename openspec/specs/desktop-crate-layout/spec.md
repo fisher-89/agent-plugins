@@ -268,14 +268,14 @@ infra crate 声明平台 API 绑定依赖时 SHALL 落 `[target.'<cfg>'.dependen
 模块 API 契约的**CLI 驱动面** SHALL 落位独立工具 crate `crates/tools/archi-api-gen`（crate 裸名 `archi-api-gen`，workspace 内唯一）。本能力只登记其落位、依赖方向、边界归类与写盘实现的外置；契约格式、判据、生成语义与写盘单点分别归 `desktop-archi-api` / `desktop-archi-api-check` / `desktop-archi-contract-panel`。
 
 - **落位与职责**：承载 CLI 三子命令（`generate` / `--check` / `bootstrap`）与三子命令的**编排**（`generate` = 渲染 + 写盘单点；`--check` = 比对 + 打印；`bootstrap` = 草稿文本）。判定（契约解析 / `$defs` 规则 / 十条判据 / 渲染出字符串）MUST NOT 在本 crate 实现——全部在 `crates/core/archi/src/api/**`；**写盘实现同样 MUST NOT 在本 crate**——单点驻 `crates/infra/archi`。它存在的唯一理由是「CLI 入口 + 子命令编排」：`archi` 的零写盘纪律不动，写盘单点唯一性由 `infra/archi` 承担。
-- **workspace 内依赖**：恰为 `archi`（契约解析 / 装配 / 判据 / 渲染 / 比对）+ `foundation`（契约目录与生成物路径派生）+ `archi-runtime`（**唯一用途**：调生成物写盘单点 `write_artifacts`；该依赖 MUST 在 `Cargo.toml` 处带用途注释），依赖方向为 tools → core / infra 单向，MUST NOT 出现 core / infra → tools。
+- **workspace 内依赖**：恰为 `archi`（契约解析 / 装配 / 判据 / 渲染 / 比对）+ `foundation`（契约资产与索引目录、生成物路径派生）+ `archi-runtime`（**唯一用途**：调生成物写盘单点 `write_artifacts`；该依赖 MUST 在 `Cargo.toml` 处带用途注释），依赖方向为 tools → core / infra 单向，MUST NOT 出现 core / infra → tools。
 - **写盘经单点（不再是本 crate 的工具边界属性）**：本 crate MUST NOT 出现 `fs::write` / `create_dir_all` / `File::create`——写盘经 `archi-runtime` 的单点函数完成；该纪律 MUST NOT 被用来稀释 `archi` 的零写盘纪律，也 MUST NOT 让 app / core / infra 任何 crate 依赖本 crate。
 - **零依赖面**：MUST NOT 依赖 Tauri、MUST NOT 依赖 `store`、MUST NOT 依赖 `config`、MUST NOT 依赖 `workflow`、MUST NOT 依赖壳（`dev-team`）；**MUST NOT 直接依赖 `orchestration`**——`archi-runtime` 自带 `orchestration` 依赖（port 与产出类型），该传递边不可避免且在案留痕，本 crate 源码 MUST NOT `use orchestration::…`。进程面：本 crate 自身为 CLI 二进制，MUST NOT 派生任何子进程（零 `std::process::Command` / 零 shell）。
 - **入边**：`archi-api-gen` MUST NOT 被 app / core / infra 依赖，仅经 `cargo run -p archi-api-gen`（`package.json` 的 `api:export` / `api:check`）驱动——与 `export-bindings`「不被 app 构建拖带」的裁定同式（避免 `tauri build` 把工具 bin 编进 release 产物）。新增入边 SHALL 恰为 `archi-api-gen → archi-runtime`（tools → infra 单向，唯一 tools → infra 边）。
 - **`archi` crate 零新增外部依赖**：契约面所需的 `syn`（Rust 声明抽取）/ `oxc_ast` / `oxc_parser` / `oxc_span` / `oxc_syntax`（TS 声明抽取）/ `sha2`（生成物头摘要）/ `globset` / `serde_json` / `specta` 全部已在 `Cargo.lock` 且已是 `archi` 的直接依赖 ⇒ 本变更 MUST NOT 引入新外部包。`archi` 的零 `workflow` 依赖与 `workflow` ⇄ `archi` 互不依赖两条红线零变化。
 - **边界分类学不增类**：生成物写盘归既有「文件边界」的工具写面（与 bindings 导出同族），MUST NOT 新增第八类边界；`infra/` 目录不新增成员（新 crate 落 `tools/`）。
-- **段名字面量纪律扩展**：生成器与契约面 MUST NOT 行内拼 `<archi_dir>/api` 段——一律经 `foundation::layout::archi_api_dir`（见 `workspace-layout-resolution`）。该纪律与既有 `openspec` / `config.json` 双禁令同源，机械可验。
-- **消费者登记**：`foundation::layout` 的 `archi_api_dir` / `archi_api_rel_dir` 以本 crate 与 `archi` 为消费者而落地，登记见 `workspace-layout-resolution`「架构域路径派生（archi_dir 族）」与「架构域 repo 相对路径派生（会话知识用）」。
+- **段名字面量纪律换段**：生成器与契约面 MUST NOT 行内拼 `<archi_dir>/models/<Domain>` 与 `<archi_dir>/graph` 两个路径段——契约资产目录一律经 `foundation::layout::archi_models_dir`（该目录同时是模型目录，两个消费者共用同一派生函数，MUST NOT 新造 `archi_contract_dir` 一类别名）、索引一律经 `archi_graph_dir`（见 `workspace-layout-resolution`）。`api` 段及其派生族（`API_DIR_NAME` / `archi_api_dir` / `archi_api_rel_dir`）已随本次迁移删除，产品 `.rs`（`*_test.rs` 除）内 `"api"` 段字面量与三个符号零命中。该纪律与既有 `openspec` / `config.json` 双禁令同源，机械可验。
+- **消费者登记**：`foundation::layout` 的 `archi_models_dir` / `archi_models_rel_dir` 由模型面与本 crate 双消费者共用，`archi_graph_dir` / `archi_graph_rel_dir` 以本 crate、`archi` 与 `infra/archi` 为消费者而落地，登记见 `workspace-layout-resolution`「架构域路径派生（archi_dir 族）」与「架构域 repo 相对路径派生（会话知识用）」。
 
 #### Scenario: 依赖方向与红线
 
@@ -285,7 +285,7 @@ infra crate 声明平台 API 绑定依赖时 SHALL 落 `[target.'<cfg>'.dependen
 #### Scenario: 写盘单点驻 infra/archi
 
 - **WHEN** 审查 `crates/core/archi/src/api/**`、`crates/tools/archi-api-gen/src/**` 与 `crates/infra/archi/src/api_artifacts.rs` 的文件系统调用
-- **THEN** `archi` 侧零写盘调用（`std::fs::write` / `create_dir*` / `File::create` 全无）；`archi-api-gen` 侧零写盘调用（三子命令只做编排）；写盘恰在 `infra/archi` 的 `write_artifacts` 一处（含 `starts_with(root)` 越根复核）；`archi` 与 `archi-api-gen` 两侧仍零 `std::process` / 零 `tokio::process`
+- **THEN** `archi` 侧零写盘调用（`std::fs::write` / `create_dir*` / `File::create` 全无）；`archi-api-gen` 侧零写盘调用（三子命令只做编排）；写盘恰在 `infra/archi` 的 `write_artifacts` 一处（按 `GeneratedFile.path` 的父目录创建、含 `starts_with(root)` 越根复核），该层零段名知识、本变更零 diff；`archi` 与 `archi-api-gen` 两侧仍零 `std::process` / 零 `tokio::process`
 
 #### Scenario: 零新外部依赖与零进程
 
@@ -296,6 +296,11 @@ infra crate 声明平台 API 绑定依赖时 SHALL 落 `[target.'<cfg>'.dependen
 
 - **WHEN** 审查 `package.json` 脚本与 `tauri.conf.json`
 - **THEN** 生成器只经 `cargo run -p archi-api-gen` 驱动（`api:export` / `api:check`）；`tauri build` 的产物不含该 bin；`src-tauri/Cargo.toml` 的壳 `[dependencies]` 不含 `archi-api-gen`
+
+#### Scenario: 段名禁令机械可验（换段后）
+
+- **WHEN** 对 `crates/core/archi` / `crates/infra/archi` / `crates/tools/archi-api-gen` / `src-tauri/src/commands` 的产品 `.rs`（`*_test.rs` 除）做字面量与符号检索
+- **THEN** `"api"` 路径段字面量、`archi_api_dir`、`archi_api_rel_dir`、`API_DIR_NAME` 四者零命中；`models` 段与 `graph` 段的拼接零行内命中（一律经 `foundation::layout` 派生；唯一触点仍是 `foundation/src/layout/mod.rs`）
 
 ### Requirement: infra/archi crate 落地登记与 archi 依赖扩展
 
@@ -361,7 +366,10 @@ infra crate 声明平台 API 绑定依赖时 SHALL 落 `[target.'<cfg>'.dependen
 | `crates/core/archi`（新，裸名 `archi`） | 架构模型纯读域 + 纯函数写渲染 | workspace 内依赖仅 `foundation`；外部依赖 serde 系 + `specta` + `toml` / `toml_edit` / `petgraph` / `ignore`（锁内既有版本）；零 Tauri / 零 store / 零 spawn / 零 `workflow` |
 | `crates/infra/agent`（依赖登记，`archi` 边） | 工具执行体复用同一投影 | `archi = { workspace = true }` + 用途注释；理由与 `agent-runtime → checks`（glob 方言单点）同构 |
 | `crates/desktop-app`（依赖登记，`archi` 边） | 命令面薄包装 | `archi = { workspace = true }`；命令层零领域规则（投影全在 `archi::dto`） |
-| `crates/core/foundation`（消费者登记，archi_dir 族） | 架构域路径派生 | 四个函数以 `archi` 为第二个消费者落地；`foundation` 依赖面零变化 |
+| `crates/core/foundation`（消费者登记，archi_dir 族） | 架构域路径派生 | `archi_models_dir` / `archi_models_rel_dir` 由模型面与契约面双消费者共用；`archi_graph_dir` / `archi_graph_rel_dir` 以 `archi` / `archi-api-gen` / `archi-runtime` 为消费者落地；`foundation` 依赖面零变化 |
+| `crates/core/foundation/src/layout/mod.rs`（段名增删） | 段名单点 | 删 `API_DIR_NAME` / `archi_api_dir` / `archi_api_rel_dir`；增 `GRAPH_DIR_NAME` / `archi_graph_dir` / `archi_graph_rel_dir`；本文件是两段名的唯一触点（见 `workspace-layout-resolution`） |
+| `crates/tools/archi-api-gen/src/main.rs` + `src/main_test.rs`（夹具换段） | 零实现改动 | 三子命令编排与退出码语义逐字不变，落点只经 `api::paths` 与 `foundation::layout` 取得；测试内的落点字面量换到 `models/<Domain>/` 与 `graph/` |
+| `crates/infra/archi/src/api_artifacts.rs`（写盘单点） | 零改动 | 按 `GeneratedFile.path` 的父目录创建，零段名知识；`starts_with(root)` 越根复核不变；出现 diff 即误动 |
 | `crates/infra/archi`（新，裸名 `archi-runtime`） | 架构门禁执行面 + 报告落盘 + 生成物写盘单点 | workspace 内依赖 `archi` + `orchestration` + `foundation`；外部依赖 `serde_json`；写盘单点两处（`report::write_report` / `api_artifacts::write_artifacts`，均 dumb IO）；零 Tauri / 零 spawn / 零 store / 零 vcs / 零 config / 零 workflow |
 | `crates/core/archi`（依赖扩展） | TS / JS 与 Rust 解析面 | 外部依赖新增 `oxc_parser` / `oxc_allocator` / `oxc_resolver` / `syn`（+ `globset` 提为直接依赖）；`foundation` 仍为唯一 workspace 内依赖；零 spawn / 零 Tauri / 零 store / 零 workflow |
 | `crates/desktop-app`（依赖登记） | 装配注入 | `archi-runtime = { workspace = true }` + 用途注释；装配层零判定（runner 构造与注入） |

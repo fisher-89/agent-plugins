@@ -7,9 +7,10 @@
 ## Requirements
 
 ### Requirement: 基线落位与模型文件划分
+
 架构模型基线 SHALL 落位 `<archi_dir>/models/`（架构域根经 `foundation::layout::archi_dir` 派生，本期落点 `.dev-team/architecture/models/`），MUST NOT 落到 `src/`、`docs/`、`openspec/specs/` 或任何其它位置。
 
-模型 SHALL 划分为**六个**文件，文件名形如 `NN-<域>.toml`，字典序即聚合序，每个元素与每条关系 SHALL 恰在一处声明（跨文件或同文件重复即 `duplicateElement`）：
+模型 SHALL 划分为**六个一级文件**，文件名形如 `NN-<域>.toml`，字典序即聚合序，每个元素与每条关系 SHALL 恰在一处声明（跨文件或同文件重复即 `duplicateElement`）：
 
 | 文件 | 内容 | 元素 | 关系 |
 |---|---|---|---|
@@ -22,6 +23,8 @@
 
 合计 SHALL 为 **53 元素 / 120 关系**，逐文件可加：元素侧 `3 + 8 + 8 + 1 + 3 + 30 = 53`（容器 9 + 叶 44），关系侧 `0 + 9 + 24 + 13 + 3 + 71 = 120`。关系侧另按取数口径分：**120 = 后端 49（`Cargo.toml` `[dependencies]` 的 workspace 内声明，拆在 `02`–`05`：9 + 24 + 13 + 3）+ 前端 71（`import` 证据，全在 `06`）**；两种拆分 MUST 得同值。前端 71 的构成 SHALL 为 **64 条叶 → 叶边 + 7 条 `App.Frontend.Components.Agent` 的 barrel 端点边**（3 条出边：入口 `index.tsx` 重导出 `AgentInput` / `AgentSessionView` / `SessionPanel`；4 条入边：`Views.AgentDebug` / `Views.Changes.Agent` / `Views.Changes.Flow` / `Views.Explores` import `@/components/agent`）——这 7 条由「`components/agent/` 是 `Components.Agent` 的目录模块入口」与「`@/components/agent` → `Components.Agent` 映射」两条规则必然导出，MUST NOT 从记数中剔除；12 个目录模块入口的其余 re-export 全在本元素内（`from == to` 自边被丢弃）⇒ 零新边。其中 `06-frontend.toml` 的 30 元素 = **3 个容器**（`App.Frontend.Views` / `App.Frontend.Components` / `App.Frontend.Components.Standard`）+ **27 个叶**（`Shell` 1 + 9 视图 + 3 子域 + 12 共享组件 + `Components.Agent` 1 + `Ui` 1）；`App.Frontend` 容器 SHALL 只在 `01-app.toml` 声明一次，`06` MUST NOT 重复声明（重复即 `duplicateElement`，并会使元素总数变成 54 而非 53）。
 
+- **`models/` 的双身份 SHALL 由文件命名与目录层级承担**（本变更承认的事实）：**一级**是模型声明面——恰六个 `NN-<域>.toml`，MUST NOT 出现其他一级 `*.toml`（尤其 MUST NOT 出现 `INDEX.toml`）；**`<Domain>/` 子目录**是契约资产面——`<FQN>.md`（手写真相）+ `<FQN>.schema.json`（生成物），布局与命名归 `desktop-archi-api`「契约资产形态与唯一手写真相」。两面的分离判据是「一级 vs 子目录」与「`.toml` vs `.md` / `.schema.json`」，MUST NOT 引入第二份目录级豁免清单或改名方案；契约索引不属模型目录，落 `<archi_dir>/graph/INDEX.toml`（`archi_graph_dir`）——索引落 `models/` 根会被当模型文件解析并使模型停摆，理由见 `desktop-archi-model`「多文件聚合与声明定位」。
+- **契约子树不计入模型计数**：`models/<Domain>/` 下的任何文件 MUST NOT 改变元素数 / 关系数 / `modelHash`——收面判据是「一级 + `.toml` 后缀」，子目录不递归即不可见；`modelHash` 取同一收面，故本变更后金样哈希逐字不变。
 - **关系归属**：每条 `[[relation]]` SHALL 声明在**其 `from` 元素所在文件**内（定位一致、diff 不跨文件散落）。
 - **`gate` 全 `off`**：本基线内每个元素 SHALL 省略 `gate` 或显式写 `off`，MUST NOT 出现 `warn` / `strict`——冷启动 ratchet（收紧按模块独立变更，一个 change 收紧一块）。
 - **`summary`**：每个元素 SHALL 有一行中文职责说明，MUST NOT 用 FQN 字面复述自身名字。
@@ -35,17 +38,17 @@
 
   第四节「四条判据」（基准 / 落位 / 存在 / 跨元素唯一）与三态解析链归 `desktop-archi-api`，本节只钉基线数据；违规走 `apiFindings` 的 `apiEntryMissing`（`warn`，不影响 `passed`），MUST NOT 引入结构化诊断。
 - **`api = none` 两处显式留白**：两个工具 crate（`App.Backend.Tools.ExportBindings` / `App.Backend.Tools.ArchiApiGen`）SHALL 声明 `api = none`——二进制 crate 的公共面是 CLI 契约而非库 API，这是**真话**而非「还没写」；其余元素 SHALL 省略 `api`（取缺省 `declared`）。「无入口」与「无 API」是两个不同事实：本基线内**无入口集合为空**（12 个前端目录根由 `desktop-frontend-module-entry` 的 `index.ts(x)` 经 ③ 命中），**无 API = 两个工具 crate**（各有显式 `entry` 在案，即「有入口但无库 API」）——MUST NOT 混用，也 MUST NOT 由「两工具 crate 已无判据」反推「它们没有入口」；反方向同理：12 个前端目录元素仍有 `apiMissing`（有门无契约），MUST NOT 被读成「无 API」。
-- **`docs`**：SHALL 只由包根元素 `App` 显式指向仓库面文档（`./README.md` / `./AGENT.md`），其余元素留空；任何元素 MUST NOT 把 `openspec/specs/**` 路径写进 `docs`（守 `desktop-archi-module-docs` 的迁移边界：模型 MUST NOT 反向依赖将被替代的语料）。
+- **`docs`**：SHALL 只由包根元素 `App` 显式指向仓库面文档（`./README.md` / `./AGENT.md`），其余元素留空；任何元素 MUST NOT 把 `openspec/specs/**` 路径写进 `docs`，也 MUST NOT 把 `<archi_dir>/models/<Domain>/**` 写进 `docs`（守 `desktop-archi-module-docs` 的迁移边界与「契约资产不经 docs 三源」）。
 - **`metadata`**：本基线 SHALL 全空（`owner` / `tier` 一类自由键会与 `Cargo.toml`、目录结构并列为第二事实源）。
 - **`desc`**：SHALL 为一句中文用途说明（「为什么依赖」），MUST NOT 写入证据清单（import 文件列表 / 依赖段位置）——证据由核对命令逐条取，模型内不存第二事实源。
-- **计数复述单源**：模型文件的表头注释（如 `# 03 · infra 适配层（8 元素 / 24 关系）`）、本要求的逐文件计数表、与裁定记录 `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧（仍写 50 / 111 / 47 / 2 元素 1 关系，或仍写 51 / 113、`06` 段 28 / 64、仍写「4 个容器」）即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**字段面扩容（`entry` / `api`）与目录模块入口（barrel）不改变元素与关系计数**：12 个 barrel 是元素 `path` 内的新增文件，既不新增元素也不新增边（入口只 re-export 本元素直属文件 ⇒ `from == to` 自边被丢弃），故 `06` 段 30 / 71 与全基线 53 / 120 零变化；**元素粒度补漏改变计数**（`components/agent/session-panel.tsx` 与 `components/standard/tooltip.tsx` 补建元素：元素 +2、关系 +7）；**元素形态翻转改变容器 / 叶切分而不改总数**（`Components.Agent` 容器 → 目录模块：容器 10 → 9、叶 43 → 44、`06` 段 4 容器 → 3 容器 + 27 叶）。
+- **计数复述单源**：模型文件的表头注释（如 `# 03 · infra 适配层（8 元素 / 24 关系）`）、本要求的逐文件计数表、与裁定记录 `§9` 的复算表 SHALL 在同一次模型改动内同步为同值；三处任一处陈旧（仍写 50 / 111 / 47 / 2 元素 1 关系，或仍写 51 / 113、`06` 段 28 / 64、仍写「4 个容器」）即漂移，按「同一 change 内补齐」处理，MUST NOT 让计数表与模型本体各说各话。**字段面扩容（`entry` / `api`）与目录模块入口（barrel）不改变元素与关系计数**：12 个 barrel 是元素 `path` 内的新增文件，既不新增元素也不新增边（入口只 re-export 本元素直属文件 ⇒ `from == to` 自边被丢弃），故 `06` 段 30 / 71 与全基线 53 / 120 零变化；**元素粒度补漏改变计数**（`components/agent/session-panel.tsx` 与 `components/standard/tooltip.tsx` 补建元素：元素 +2、关系 +7）；**元素形态翻转改变容器 / 叶切分而不改总数**（`Components.Agent` 容器 → 目录模块：容器 10 → 9、叶 43 → 44、`06` 段 4 容器 → 3 容器 + 27 叶）；**契约资产迁入 `models/<Domain>/` 与索引迁入 `graph/` 不改变任何计数**（两者都不进模型收面：前者在子目录、后者在模型目录之外）。
 
 裁定记录 SHALL 落位 `<archi_dir>/decisions/0001-model-granularity.md`，MUST NOT 只写在 change 目录内（proposal 归档后不再被日常读取，判据须随架构域可读、可检索）。
 
 #### Scenario: 六文件字典序聚合零诊断
 
-- **WHEN** 以仓库根调用 `archi_graph(root)` 并聚合 `models/` 下六个文件
-- **THEN** 解析成功、`diagnostics` 为空、`elements` 共 53 条、`relations` 共 120 条；每条元素与关系的 `modelFile` 指向其声明所在文件、`modelLine` 为该表头 / 该 `from` 键所在行
+- **WHEN** 以仓库根调用 `archi_graph(root)` 并聚合 `models/` 一级的六个文件（同目录另有 `<Domain>/` 契约子树与若干 `*.schema.json`）
+- **THEN** 解析成功、`diagnostics` 为空、`elements` 共 53 条、`relations` 共 120 条；每条元素与关系的 `modelFile` 指向其声明所在文件、`modelLine` 为该表头 / 该 `from` 键所在行；契约子树内的任何文件 MUST NOT 出现在 `modelFile` 里
 
 #### Scenario: 字段纪律可机械审查
 
@@ -55,7 +58,7 @@
 #### Scenario: 落点与裁定记录
 
 - **WHEN** 检查架构域目录树
-- **THEN** `models/` 恰有六个 `NN-<域>.toml`，`decisions/` 有 `0001-model-granularity.md`；`src/`、`docs/`、`openspec/specs/` 下无模型文件；`archi_module("App")` 的 `docs` 中出现该 ADR 条目（`source = "text"`）
+- **THEN** `models/` 的**一级**恰有六个 `NN-<域>.toml`（`find -maxdepth 1 -name '*.toml'` 读数 = 6，无 `INDEX.toml`）；`decisions/` 有 `0001-model-granularity.md`；`graph/` 恰有 `INDEX.toml` 一份；`models/<Domain>/` 下为契约资产（`<FQN>.md` + `<FQN>.schema.json`）；`api/` 目录不存在；`src/`、`docs/`、`openspec/specs/` 下无模型文件；`archi_module("App")` 的 `docs` 中出现该 ADR 条目（`source = "text"`）
 
 #### Scenario: 计数复述三处同值
 
@@ -65,7 +68,12 @@
 #### Scenario: 三处入口与 12 个目录入口在案后的两类空态归位
 
 - **WHEN** 分别对壳、两个工具 crate、12 个前端目录根元素跑一次全量检查并读 `apiFindings`
-- **THEN** 壳**零** `apiEntryMissing`，同趟 `apiMissing` 恰一条（显式 `entry` 命中 ⇒ ① 不成立；`api = declared` 且契约文件缺失 ⇒ ② 成立）——两条 MUST NOT 同时出现（入口债与契约债是两回事，壳「入口已通」不等于「契约已写」）；两个工具 crate 在两处**均零条目**（`entry` 命中 + `api = none`：① 与 ② 都不成立），该结论依赖两条事实同时在场，MUST NOT 因「无库 API」被重算成「无入口」；12 个前端目录根**零** `apiEntryMissing`（各自的 `index.ts` / `index.tsx` 由 ③ 命中 ⇒ ① 不成立），同趟**各一条** `apiMissing`（`api = declared` 且契约文件缺失 ⇒ ② 成立）——12 条由此由 ① 面平移到 ② 面、总数不变，MUST NOT 被读成「入口债已清 ⇒ 判据面干净」（基线第五段 `0 + 41 = 41` 见 `desktop-archi-api-check`）；反方向 MUST NOT 成立：14 个 `src/lib.rs` 命中的 crate、前端 **14** 个单文件根与 **12** 个目录模块根各自由约定默认解析出入口，零 `apiEntryMissing`
+- **THEN** 壳**零** `apiEntryMissing`，同趟 `apiMissing` 恰一条（显式 `entry` 命中 ⇒ ① 不成立；`api = declared` 且契约文件缺失 ⇒ ② 成立）——两条 MUST NOT 同时出现（入口债与契约债是两回事，壳「入口已通」不等于「契约已写」）；两个工具 crate 在两处**均零条目**（`entry` 命中 + `api = none`：① 与 ② 都不成立），该结论依赖两条事实同时在场，MUST NOT 因「无库 API」被重算成「无入口」；12 个前端目录根**零** `apiEntryMissing`（各自的 `index.ts` / `index.tsx` 由 ③ 命中 ⇒ ① 不成立），同趟**各一条** `apiMissing`——12 条由此由 ① 面平移到 ② 面、总数不变，MUST NOT 被读成「入口债已清 ⇒ 判据面干净」（基线第五段 `0 + 41 = 41` 见 `desktop-archi-api-check`）；反方向 MUST NOT 成立：14 个 `src/lib.rs` 命中的 crate、前端 **14** 个单文件根与 **12** 个目录模块根各自由约定默认解析出入口，零 `apiEntryMissing`
+
+#### Scenario: 契约子树与索引不改变模型读数
+
+- **WHEN** 在 `models/<Domain>/` 放入契约 md 与 `.schema.json`、在 `graph/` 放入 `INDEX.toml` 之后，分别取一次 `archi_graph`（元素 / 关系 / 诊断）与一次 `archi_drift` 的 `modelHash`
+- **THEN** 元素 53 / 关系 120 / `diagnostics` 空与放入前逐字相同；`modelHash` 逐字相同（取面为 `models/*.toml` 一级、按扩展名）；反向判据：把 `INDEX.toml` 复制到 `models/` 根后 `modelHash` 立刻变化且模型转停摆态——两侧读数即本条的存在理由
 
 ### Requirement: 后端下钻到 crate 层的元素覆盖
 
@@ -349,5 +357,8 @@
 | `crates/core/archi/**`（模型读面） | 只读消费方 | `parse_dir` 聚合、`ModelGraph` 校验、`dto` 投影与结构诊断零改动（本变更只在同 crate 新增 `scan/` / `drift/`）；模型 MUST NOT 因新增扫描面扩字段 |
 | `src/views/architecture/**` | 画布 | 只被使用：`/architecture` 正常态渲染 53 节点 / 120 边；视图内 `lib/` 与 `hooks/` 不建元素（粒度 ≠ 解析面），本变更新增的 `lib/drift-marks.ts` 与 `hooks/use-archi-drift.ts` 依赖计入 `Views.Architecture` |
 | `.dev-team/architecture/config.json`（新增） | 架构域看护配置 | `{ "exclude": ["openspec/**"] }`；**不带 `$schema`**（读取面 `deny_unknown_fields` 只认 `ignore` / `exclude`）；生效后 `openspec/` 下三个原型 tsx 由 `unmatchedFiles[]` 移入 `excluded[]` |
-| `.dev-team/architecture/models/**` / `decisions/0001-model-granularity.md` / `api/**` | 模型与契约资产（零改动） | 元素 / 关系 / `path` / `gate` / 计数与 ADR 复算表逐字不变；配置加入 MUST NOT 引起模型改动 |
+| `.dev-team/architecture/models/**`（一级六 toml）/ `decisions/0001-model-granularity.md` | 模型与裁定记录（零内容改动） | 元素 / 关系 / `path` / `gate` / 计数与 ADR 复算表逐字不变；ADR §1 / §2 / §3 / §9 的计数与口径本变更零触及（契约目录不在其计数面内） |
+| `.dev-team/architecture/models/<Domain>/**`（契约资产迁移落点） | 迁移 | 由 `<archi_dir>/api/<Domain>/**` 搬入：`<FQN>.md`（唯一手写）+ `<FQN>.schema.json`（生成物）；不进模型收面（子目录不递归） |
+| `.dev-team/architecture/graph/INDEX.toml`（契约索引迁移落点） | 迁移 | 由 `<archi_dir>/api/INDEX.toml` 搬入并重生成；不在 `models/` 内 ⇒ 不进模型收面，`modelHash` 零变化 |
+| `.dev-team/architecture/api/**` | **删除** | `api` 段退役；迁移后该目录不存在（缺席由迁移动作与目录树读数守，不进 `api:check` 的枚举面） |
 | `packages/desktop/src/views/architecture/**`（见 `desktop-archi-file-tree`） | 画布（零模型漂移） | 该目录已是单元素 `App.Frontend.Views.Architecture`；新增 `components/file-tree.tsx` 与 `hooks/use-archi-file-tree.ts` 不建元素，其 import 计入该视图元素（计数零变化） |
