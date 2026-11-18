@@ -561,14 +561,22 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 `finish_step` 工具部件 SHALL 以注册表专用卡（`BUILD_IN_TOOL_CARDS['finish_step']`）承载，按输入载荷分两形态（互斥，均不抛错）：
 
-- **evaluator 形态（checklist）**：输入同时满足 `report` 为字符串且 `items` 为数组时命中——摘要行 SHALL 呈「检查通过」（零未通过项）或「检查 N 项未通过」（N = 真值为假的项数），含未通过项时摘要行带 `error` 状态；body SHALL 为卡片（`report` 经 `TextBlock` 渲染）+ 逐项清单：每项一个 `Checkbox`（勾选态 = `pass` 真值）+ `FieldLabel`（项 id，未通过项带 `text-destructive`）+ `FieldDescription`（`evidence` 非空时）。该形态 MUST NOT 渲染工具结果区（`block-tool-result`）。
+- **evaluator 形态（checklist）**：输入同时满足 `report` 为字符串且 `items` 为数组时命中——摘要行 SHALL 呈「检查通过」（零未通过项）或「检查 N 项未通过」（N = 真值为假的项数），含未通过项时摘要行带 `error` 状态；body SHALL 为卡片（`report` 经 `TextBlock` 渲染）+ 逐项清单：每项一个 `Checkbox`（勾选态 = `pass` 真值）+ `FieldLabel`（**项 id + 项标题**）+ `FieldDescription`（`evidence` 非空时）。该形态 MUST NOT 渲染工具结果区（`block-tool-result`）。
+- **逐项标签形态**：`FieldLabel` SHALL 呈「项 `id` + 项 `title`」——`title` 为非空字符串时在 `id` 后以单个半角空格接标题原文，且 MUST NOT 截断（不省略号、不改写、不丢字符；折行方式由组件自定）；`title` 缺席 / 空串 / 非字符串时 SHALL 只呈 `id`，MUST NOT 补「（无标题）」类占位符、MUST NOT 因此回退 JSON。未通过项的破坏性着色（`text-destructive`）SHALL 覆盖该标签整体（`id` 与标题同时着色）。标题的展示值取自工具调用载荷原文——其权威性由工具体校验守（见 desktop-change-orchestration「checklist 项标题的搬运与权威校验」），前端 MUST NOT 自行反查 prompt、MUST NOT 内置 `id → 标题` 映射表。
 - **decision 形态**：`action` 为 `backtrack` / `stop` 时命中——摘要行逐字为 `backtrack → <to>：<reason>` / `stop：<reason>`；其余动作（含历史 `ask`）MUST NOT 产出摘要，按宽容解析回退 JSON 原样；body SHALL 在有结果时呈 `block-tool-result`。
-- **宽容解析**：两形态均不匹配时回退 JSON 原样（`<pre>`）且摘要行取 `finish_step`，MUST NOT 抛错；`pass` / `evidence` 按真值判定（非布尔值不做类型校验）。
+- **宽容解析**：两形态均不匹配时回退 JSON 原样（`<pre>`）且摘要行取 `finish_step`，MUST NOT 抛错；`pass` / `evidence` / `title` 按真值 / 字符串性宽容判定（非布尔值、非字符串不做类型校验、不抛错）。
+
+> show-check-list-title 修订：delta 的 decision 段为较早副本（「`action` 为字符串即命中」并含 `ask：<question>（<options>）` 摘要），与主基线现行口径（`ask` 迁移为独立工具后 `DecisionAction` 只余 `backtrack` / `stop`，历史 `ask` 载荷回退 JSON）及现行实现（`decisionSummary` 两臂）冲突——该段按主基线保留；本变更只涉标题展示与 `title` 的宽容判定。
 
 #### Scenario: evaluator checklist 逐项可读
 
-- **WHEN** 渲染输入 `{ report, items: [{ id: "C1", pass: true, evidence }, { id: "C2", pass: false, evidence }] }` 的 `finish_step` 部件并展开卡
-- **THEN** 摘要行为「检查 1 项未通过」；report 与两项 id / evidence 可见；C1 的 checkbox 为勾选、C2 为未勾选且其 FieldLabel 带破坏性着色；零 `block-tool-result` 节点
+- **WHEN** 渲染输入 `{ report, items: [{ id: "C1", title: "变更代码中无安全漏洞", pass: true, evidence }, { id: "C2", title: "无遗留调试输出", pass: false, evidence }] }` 的 `finish_step` 部件并展开卡
+- **THEN** 摘要行为「检查 1 项未通过」；report 与两项 `id` / `title` / evidence 可见；C1 的 checkbox 为勾选、其 FieldLabel 文本为 `C1 变更代码中无安全漏洞`；C2 为未勾选、其 FieldLabel 文本为 `C2 无遗留调试输出` 且整行标签（id 与标题）带破坏性着色；零 `block-tool-result` 节点
+
+#### Scenario: 标题缺席降级为 id-only
+
+- **WHEN** 分别渲染三形态输入：某 `items` 元素无 `title`、`title` 为空串、`title` 为 `null` / 数字 / 对象（历史转录与非预期形态）
+- **THEN** 三形态下卡仍为 checklist 形态（不回退 JSON）、逐项标签只呈该项 `id`、无占位符与 `undefined` / `null` 文本、渲染不抛错；摘要行与 `evidence` 行呈现与既有行为逐字一致
 
 #### Scenario: decision 形态摘要与结果
 
@@ -711,7 +719,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 | 组件 / 模块 | 变化 | 描述 |
 |------|------|----------|
-| `message-cards/blocks.tsx`（原 `agent-blocks.tsx`） | 新增 `WebSearchCard` / `CitationList` / `ExternalLink`；`finish_step` 收口卡改逐项清单卡 | 搜索卡标题行为查询词（`data-testid="block-web-search"`）；引用底部去重列表；外链唯一调用点（仅 http(s)）；evaluator 形态呈 `Checkbox` + `Field` 逐项清单（摘要「检查通过 / 检查 N 项未通过」，report 经 `TextBlock`），checklist 形态不呈工具结果区 |
+| `message-cards/blocks.tsx`（原 `agent-blocks.tsx`） | 新增 `WebSearchCard` / `CitationList` / `ExternalLink`；`finish_step` 收口卡改逐项清单卡 | 搜索卡标题行为查询词（`data-testid="block-web-search"`）；引用底部去重列表；外链唯一调用点（仅 http(s)）；evaluator 形态呈 `Checkbox` + `Field` 逐项清单（标签含 `id` 与标题；摘要「检查通过 / 检查 N 项未通过」，report 经 `TextBlock`），checklist 形态不呈工具结果区 |
 | `message-cards/tool-cards.tsx`（原 `tool-cards.tsx`） | `BUILD_IN_TOOL_CARDS` 注册 `web_search` / `bash` / `read` / `write` / `finish_step` | 注册表可插拔位扩展；未注册回退默认对卡；卡根与结果正文钩子与默认对卡同形 |
 | `agent-messages.tsx` | `useHistoryWindow` 过滤判据改「system 过滤 + 按 `metadata.record.status` 判空内容轮」（原 `parts.length > 0` 判据退役） | 空内容 `failed` / `stopped` 轮 SHALL 可见（轮内状态行），空内容 `completed` 轮不渲染；虚拟列表项数基于过滤后列表（见上「`agent-messages.tsx`（改）」表）；状态行带 `data-testid` 挂钩（`failed` → 友好标题 + 可展开原文；`stopped` → 「已停止」） |
 
@@ -787,3 +795,16 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `packages/desktop/src/components/agent/agent-error.ts` | 零改动面 | `latestAgentFailure` 只认 `failed` 与「running 且失败 done」⇒ `interrupted` 天然不触顶部失败横幅（由测试固化该默认） |
 | `packages/desktop/src/lib/agent-adapter.ts` | 零改动面 | 事件适配层零改动：本变更不新增事件词汇（中断是库态事实，不是事件） |
 | `packages/desktop/src/types/generated/**` | 零改动面 | 仅随 `AgentRunStatus` 值域再生成（见 desktop-workspace-store），chat-infra 侧零手工改动 |
+
+### 模块增量：checklist 项标题展示（show-check-list-title）
+
+主基线既有行逐字沿用；本变更受影响模块如下：
+
+| 模块 | 职责 | 关键契约（Component） |
+|------|------|------|
+| `packages/desktop/src/components/agent/message-cards/blocks.tsx`（改） | 逐项标签扩位 | `FinishItem` 增 `title` 位：私有入参形态 `{ id: string; title: string \| null; pass: boolean; evidence: string \| null }`，`title` 经 `textOf` 宽容读取（非字符串即 `null`），不新增导出；`CheckListCard` 的 `FieldLabel` 呈 `id`（`title` 在场时追加单个半角空格 + 标题原文），未通过项的 `text-destructive` 覆盖整标签；`Checkbox` / `FieldDescription` / `Field` 结构与 `data-testid`（`block-tool-use` / `data-tool-id` / `block-finish-step-summary` / `block-finish-step-item`）逐字不变，不新增 tooltip / 折叠 / 筛选等交互 |
+| `packages/desktop/src/components/agent/message-cards/blocks.tsx`（`FinishStepCard`，判据不变） | 形态判据 | `isCheckListFinish` 仍以「`report` 为字符串且 `items` 为数组」为唯一判据（MUST NOT 加「`title` 在场」类前置条件）；decision 形态与 JSON 回退分支零改动 |
+| `packages/desktop/src/components/agent/message-cards/tool-cards.tsx` | 零改动面 | `BUILD_IN_TOOL_CARDS['finish_step']` 注册项与键面不变 |
+| `packages/desktop/src/lib/agent-adapter.ts` | 零改动面 | `finish_step` 仍是普通工具部件（`tool-finish_step`），配对与输出载荷形状不变 |
+| `packages/desktop/src/views/changes/renderers/**` | 零改动面 | `eval-checklist` 抽屉仍呈落账面 `item` / `pass` / `evidence`，不补 `id`、不读 `title` |
+| `packages/desktop/src/types/generated/**` | 零改动面 | 本变更不出线新 IPC 类型，`bindings:export` 再生成后零 diff |
