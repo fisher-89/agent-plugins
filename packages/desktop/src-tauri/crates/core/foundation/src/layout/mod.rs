@@ -41,9 +41,8 @@ const MODELS_DIR_NAME: &str = "models";
 /// 架构决策记录（ADR）子目录名（相对架构域根锚定）
 const DECISIONS_DIR_NAME: &str = "decisions";
 
-/// 模块 API 契约子目录名（相对架构域根锚定）——契约资产与其生成物的路径段
-/// 唯一持有者
-const API_DIR_NAME: &str = "api";
+/// 契约索引子目录名（相对架构域根锚定）——`INDEX.toml` 的路径段唯一持有者
+const GRAPH_DIR_NAME: &str = "graph";
 
 /// 报告槽位（封闭三值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
 /// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
@@ -165,12 +164,12 @@ pub fn archi_config_path(root: &Path) -> PathBuf {
     archi_dir(root).join(CONFIG_FILE_NAME)
 }
 
-/// 模块 API 契约目录派生（`<架构域根>/api`；全从 [`archi_dir`] 派生，`api` 段名
-/// 取 [`API_DIR_NAME`]——消费者 MUST NOT 行内拼 `api` 段）。契约资产
-/// （`<Domain>/<FQN>.md` 及其生成物）的唯一合法定位函数：纯推导零 IO，不存在的
-/// root 亦正常返回（存在性判定交读取面）。
-pub fn archi_api_dir(root: &Path) -> PathBuf {
-    archi_dir(root).join(API_DIR_NAME)
+/// 架构契约索引目录派生（`<架构域根>/graph`；全从 [`archi_dir`] 派生，段名取
+/// [`GRAPH_DIR_NAME`]）。契约索引 `INDEX.toml` 的唯一合法定位函数——消费者
+/// MUST NOT 行内拼 `graph` 段；纯推导零 IO，存在性判定交读取面。本变更内该目录
+/// 恰住索引一份（扩住属独立变更，MUST NOT 预留分支）。
+pub fn archi_graph_dir(root: &Path) -> PathBuf {
+    archi_dir(root).join(GRAPH_DIR_NAME)
 }
 
 /// repo 相对路径是否落在架构域之内（`/` 与 `\` 分隔均归一后判定）：判据 = 归一
@@ -206,11 +205,11 @@ pub fn archi_decisions_rel_dir() -> String {
     format!("{}/{}", archi_rel_dir(), DECISIONS_DIR_NAME)
 }
 
-/// 模块 API 契约目录的 repo 相对路径（`<archi_rel_dir>/api`；全从
+/// 架构契约索引目录的 repo 相对路径（`<archi_rel_dir>/graph`；全从
 /// [`archi_rel_dir`] 派生）。`/` 分隔、零前导 `./`——消费者限于架构会话知识文本
-/// 与契约索引说明段。
-pub fn archi_api_rel_dir() -> String {
-    format!("{}/{}", archi_rel_dir(), API_DIR_NAME)
+/// 与段名纪律登记。
+pub fn archi_graph_rel_dir() -> String {
+    format!("{}/{}", archi_rel_dir(), GRAPH_DIR_NAME)
 }
 
 #[cfg(test)]

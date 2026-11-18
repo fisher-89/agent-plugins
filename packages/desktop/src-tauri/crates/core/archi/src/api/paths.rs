@@ -3,8 +3,9 @@
 //!
 //! **几乎全是路径运算，零 IO**：[`entry_state`] 的存在性探测是唯一例外——它必须看盘
 //! 才能回答「入口在哪」；[`entry_candidates`] 的候选派生**纯文本、零 IO**。契约目录
-//! 一律经 [`foundation::layout::archi_api_dir`] 派生：本文件 MUST NOT 行内拼 `api` 段，
-//! MUST NOT 手算 `../` 层数（值形态由本文件单点产出，消费方零字面量）。
+//! 经 [`foundation::layout::archi_models_dir`]、契约索引经
+//! [`foundation::layout::archi_graph_dir`] 派生：本文件 MUST NOT 行内拼 `models` /
+//! `graph` 段，MUST NOT 手算 `../` 层数（值形态由本文件单点产出，消费方零字面量）。
 //!
 //! **生成物落点 = 实现入口同级**（`<入口目录>/<入口主干>.i.<ext>`）：元素根路径
 //! （`path.first()`）只回答「根在哪」，MUST NOT 参与落点派生；`#[path]` 的值因此恒为
@@ -20,15 +21,16 @@
 
 use std::path::{Path, PathBuf};
 
-use foundation::layout::archi_api_dir;
+use foundation::layout::{archi_graph_dir, archi_models_dir};
 
 use crate::dto::ArchiElement;
 
 /// 元素根路径顶层分组名（`<Domain>` 缺省——单段 FQN 的契约落此目录）。
 const ROOT_DOMAIN: &str = "Root";
 
-/// 索引文件名（`<archi_api_dir>/INDEX.toml`，全局唯一一份）。
-const INDEX_FILE_NAME: &str = "INDEX.toml";
+/// 索引文件名（`<archi_graph_dir>/INDEX.toml`，全局唯一一份；写盘目标与孤儿扫描
+/// 收面共用同一持有者）。
+pub(crate) const INDEX_FILE_NAME: &str = "INDEX.toml";
 
 /// 入口形态（封闭三值）：由「入口与元素根的关系」派生（[`form_of`]），供
 /// `EmitTarget.form`（TS 侧形态位；`ts_import_specifier` 待接线）。
@@ -233,14 +235,17 @@ pub fn domain_of(fqn: &str) -> Option<String> {
     segments.last().map(|segment| (*segment).to_owned())
 }
 
-/// 契约目录本身（`<archi_dir>/api`）——本文件是它的唯一派生点。
+/// 契约目录本身（== `<archi_models_dir>`：`<Domain>/<FQN>.md` 与同目录
+/// `.schema.json` 的 base）——本文件是它的唯一派生点。
 pub fn directory(root: &Path) -> PathBuf {
-    archi_api_dir(root)
+    archi_models_dir(root)
 }
 
-/// 索引文件路径（`<archi_api_dir>/INDEX.toml`，全局唯一一份）。
+/// 索引文件路径（`<archi_graph_dir>/INDEX.toml`，全局唯一一份）。
+///
+/// 索引与契约目录首次分家：本函数 MUST NOT 由 `directory(root).join(…)` 派生。
 pub fn index_path(root: &Path) -> PathBuf {
-    directory(root).join(INDEX_FILE_NAME)
+    archi_graph_dir(root).join(INDEX_FILE_NAME)
 }
 
 /// 语言 → 生成物种类（分派单点；MUST NOT 让调用方各自 match 语言再拼
@@ -259,7 +264,7 @@ pub fn generated_kind(language: Language) -> GeneratedKind {
     }
 }
 
-/// 契约文件路径：`<archi_api_dir>/<Domain>/<FQN>.md`。
+/// 契约文件路径：`<archi_models_dir>/<Domain>/<FQN>.md`。
 ///
 /// FQN 形态非法（空 / 含路径分隔符 / `.` 或 `..` 段 / 绝对前缀）→ `None`：FQN 同时
 /// 充当**文件名**，放行即让下层的 `is_file()` 探测与工具 crate 的写盘越出契约目录。

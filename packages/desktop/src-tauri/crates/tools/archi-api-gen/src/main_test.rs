@@ -114,7 +114,7 @@ fn stage_crate(temp: &TempDir) {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     temp.write(
-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.md",
+        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
         &contract_markdown(CRATE_FQN),
     );
 }
@@ -138,7 +138,7 @@ fn stage_ts(temp: &TempDir) {
         "export function view(): string { return ''; }\n",
     );
     temp.write(
-        ".dev-team/architecture/api/Views/App.Frontend.Views.Welcome.md",
+        ".dev-team/architecture/models/Views/App.Frontend.Views.Welcome.md",
         &contract_markdown(TS_FQN),
     );
 }
@@ -217,13 +217,13 @@ fn generate落四类生成物() {
     );
 
     let schema = temp
-        .read(".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json")
+        .read(".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json")
         .expect("schema 生成物在盘");
     assert!(schema.contains("\"LocalArchiCheck\""), "schema 含类型定义");
     assert!(schema.contains("\"file_stem\""), "schema 含 op 键");
 
     let index = temp
-        .read(".dev-team/architecture/api/INDEX.toml")
+        .read(".dev-team/architecture/graph/INDEX.toml")
         .expect("INDEX 生成物在盘");
     assert!(index.contains("archi-api"), "INDEX 含生成器标识");
     assert!(
@@ -285,36 +285,69 @@ fn generate幂等且check随后通过() {
     assert_eq!(temp.snapshot(), first, "--check 零写入");
 }
 
-/// 边界（AC-12 / AC-17）：目录创建经 `foundation::layout` 派生——初始无
-/// `<archi_api_dir>` 时仍自动建成；来源文件内零路径字面量。
+/// 边界（AC-1 / AC-2）：目录创建经 `foundation::layout` 派生——清空契约 md（只摘
+/// `*.md`，模型文件保留）后元素转 absent，索引目录须由 `archi_graph_dir` 派生重建；
+/// 来源文件内零路径字面量。
 #[test]
 fn generate目录创建经layout派生() {
     let temp = TempDir::new("generate-dirs");
     stage_crate(&temp);
-    let api_dir = foundation::layout::archi_api_dir(temp.root());
-    assert!(api_dir.exists(), "夹具已在契约目录下落地 md");
-    // 清空契约目录（md 一并移除）→ 元素转 absent，INDEX 目录须由 layout 派生重建
-    fs::remove_dir_all(&api_dir).expect("清空契约目录");
-    assert!(!api_dir.exists(), "清空后目录不存在");
+    let contracts = foundation::layout::archi_models_dir(temp.root());
+    assert!(contracts.exists(), "夹具已在契约目录下落地 md");
+    assert_eq!(remove_contract_md(&contracts), 1, "夹具仅一份契约 md");
+    assert!(
+        contracts.join("01-test.toml").exists(),
+        "清空只摘 md：模型文件仍在（不是启用证据也不被误删）"
+    );
+    let graph = foundation::layout::archi_graph_dir(temp.root());
+    fs::remove_dir_all(&graph).ok();
+    assert!(!graph.exists(), "索引目录已清空");
 
     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
+    assert!(graph.exists(), "索引目录由 layout 派生重建");
     assert!(
-        temp.exists(".dev-team/architecture/api/INDEX.toml"),
-        "INDEX 落盘"
+        temp.exists(".dev-team/architecture/graph/INDEX.toml"),
+        "INDEX 落盘（graph 目录由 layout 派生）"
     );
 
     let source = include_str!("main.rs");
-    for literal in [".dev-team", "architecture", "\"api\""] {
+    for literal in [
+        ".dev-team",
+        "architecture",
+        "\"api\"",
+        "\"models\"",
+        "\"graph\"",
+    ] {
         assert!(
             !source.contains(literal),
             "来源文件零路径字面量 `{literal}`（目录全经 layout 派生）"
         );
     }
     assert!(
-        source.contains("foundation::layout::archi_dir")
-            || source.contains("foundation::layout::archi_api_dir"),
+        source.contains("foundation::layout::archi_dir"),
         "目录派生经 foundation::layout"
     );
+}
+
+/// 递归摘除目录下的 `*.md`（保留其余文件），返回摘除份数。
+fn remove_contract_md(directory: &Path) -> usize {
+    let Ok(reader) = fs::read_dir(directory) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in reader.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            removed += remove_contract_md(&path);
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md")
+            && fs::remove_file(&path).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 /// 异常（D20）：契约 H1 与文件名不一致 → `Err(String)`、**零写入**（失败前不留半成品）。
@@ -323,7 +356,7 @@ fn generate契约错误零写入() {
     let temp = TempDir::new("generate-bad-contract");
     stage_crate(&temp);
     temp.write(
-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.md",
+        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
         "# App.Backend.Core.Other\n\n## 职能\n\n正文。\n",
     );
     let before = temp.snapshot();
@@ -397,7 +430,7 @@ fn check内容不符() {
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
 
-    let relative = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
     let original = temp.read(relative).expect("schema 在盘");
     let broken = original.replace("\"title\"", "\"titleX\"");
     assert_ne!(broken, original, "夹具应确实改到一处");
@@ -455,7 +488,7 @@ fn check零写盘总断言() {
     assert_eq!(temp.snapshot(), before, "无差异形态零写入");
 
     // 形态二：内容不符
-    let relative = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
     temp.write(relative, "{}");
     let before = temp.snapshot();
     let _ = run(Command::Check, temp.root()).expect("check 不报错");
@@ -517,7 +550,7 @@ fn check未启用契约面() {
     // 生成后即通过（应生成集收敛为 INDEX 一件）
     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
     assert!(
-        temp.exists(".dev-team/architecture/api/INDEX.toml"),
+        temp.exists(".dev-team/architecture/graph/INDEX.toml"),
         "INDEX 落盘"
     );
     assert_eq!(run(Command::Check, temp.root()).expect("check 应成功"), 0);
@@ -531,7 +564,7 @@ fn check检出categories差异() {
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
 
-    let relative = ".dev-team/architecture/api/INDEX.toml";
+    let relative = ".dev-team/architecture/graph/INDEX.toml";
     let original = temp.read(relative).expect("INDEX 在盘");
     assert!(
         original.contains("[entry.categories]"),
@@ -562,7 +595,7 @@ fn check不受x_class警告影响() {
     let temp = TempDir::new("check-x-class-warning");
     stage_crate(&temp);
     temp.write(
-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.md",
+        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
         &format!(
             "# {CRATE_FQN}\n\n```json api-types\n{{\"Hooks\": {{\"type\": \"object\", \
              \"properties\": {{\"run\": {{\"x-function\": {{\"params\": [], \"returns\": \
@@ -596,8 +629,8 @@ fn generate产物为格式化器不动点() {
 
     for relative in [
         "crates/core/archi/src/lib.i.rs",
-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json",
-        ".dev-team/architecture/api/INDEX.toml",
+        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json",
+        ".dev-team/architecture/graph/INDEX.toml",
     ] {
         let text = temp
             .read(relative)
@@ -689,11 +722,11 @@ fn repository_root退化为cwd的不变量() {
         "archi_dir 派生不 panic：{root:?}"
     );
     assert!(
-        foundation::layout::archi_api_dir(&root)
+        foundation::layout::archi_graph_dir(&root)
             .components()
             .count()
             > 0,
-        "archi_api_dir 派生不 panic：{root:?}"
+        "archi_graph_dir 派生不 panic：{root:?}"
     );
 }
 
@@ -854,11 +887,7 @@ fn 空root不panic() {
         Ok(code) => {
             assert_eq!(code, 0, "成功路径退出码 0");
             // 只会落 INDEX.toml（若无元素则连它也不落）
-            let index = missing
-                .join(".dev-team")
-                .join("architecture")
-                .join("api")
-                .join("INDEX.toml");
+            let index = foundation::layout::archi_graph_dir(&missing).join("INDEX.toml");
             if index.exists() {
                 let text = fs::read_to_string(&index).expect("读 INDEX 失败");
                 assert!(!text.contains("[[entry]]"), "空元素表零 entry");
@@ -966,7 +995,7 @@ fn check差异清单三数组独立且键名固定() {
     let mismatched = TempDir::new("diff-三数组-mismatched");
     stage_crate(&mismatched);
     run(Command::Generate, mismatched.root()).expect("生成应成功");
-    let relative = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
     let original = mismatched.read(relative).expect("schema 在盘");
     mismatched.write(relative, &original.replace("\"title\"", "\"titleX\""));
     assert_eq!(
@@ -997,7 +1026,7 @@ fn check差异清单三数组独立且键名固定() {
     let all = TempDir::new("diff-三数组-并存");
     stage_crate(&all);
     run(Command::Generate, all.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
     let schema_text = all.read(schema_rel).expect("schema 在盘");
     all.write(schema_rel, &schema_text.replace("\"title\"", "\"titleX\""));
     all.write(
@@ -1221,7 +1250,7 @@ fn check差异清单逐数组点名该文件() {
     let mismatched = TempDir::new("check-report-mismatched");
     stage_crate(&mismatched);
     run(Command::Generate, mismatched.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
     let original = mismatched.read(schema_rel).expect("schema 在盘");
     mismatched.write(schema_rel, &original.replace("\"title\"", "\"titleX\""));
     let report = archi::compare(mismatched.root()).expect("比对应成功");
@@ -1253,9 +1282,11 @@ fn check差异清单逐数组点名该文件() {
     stage_crate(&missing);
     let report = archi::compare(missing.root()).expect("比对应成功");
     assert!(
-        report.missing.iter().any(
-            |path| path == ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json"
-        ),
+        report
+            .missing
+            .iter()
+            .any(|path| path
+                == ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json"),
         "missing 点名未生成的 schema：{:?}",
         report.missing
     );
@@ -1300,7 +1331,7 @@ fn 差异清单路径串与跨crate单点同源() {
     let temp = TempDir::new("display-single-point");
     stage_crate(&temp);
     run(Command::Generate, temp.root()).expect("生成应成功");
-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
     let absolute = temp.root().join(schema_rel);
     assert_eq!(
         archi::display(temp.root(), &absolute),
@@ -1394,7 +1425,7 @@ fn check单行json与compare三列同源() {
     let temp = TempDir::new("check-json-same-source");
     stage_crate(&temp);
     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
+    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
     let original = temp.read(schema_rel).expect("schema 在盘");
     temp.write(schema_rel, &original.replace("\"title\"", "\"titleY\""));
     temp.write("crates/core/stale.i.rs", "// 孤儿\n");

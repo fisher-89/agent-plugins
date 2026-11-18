@@ -7,9 +7,10 @@
 //! （`archi-api-gen`）与两条 IPC（检查 / 生成）两个驱动面同源；本 crate 零写盘
 //! 纪律 MUST NOT 反向稀释。
 //!
-//! **契约面启用条件（冷启动纪律）**：契约目录缺席或其中零份 `*.md` ⇒ 未启用，判据
-//! 返回空集且既有漂移语料逐字不变；目录一旦存在即**全部 `path` 非空元素**纳入判据，
-//! 无白名单、无开关、无部分豁免。
+//! **契约面启用条件（冷启动纪律）**：契约资产目录（`<archi_models_dir>`）缺席或其中
+//! 递归零份 `*.md` ⇒ 未启用，判据返回空集且既有漂移语料逐字不变；一级 `NN-<域>.toml`
+//! （模型声明）**不是**启用证据——「有模型、零契约 md」必须是未启用。目录一旦存在即
+//! **全部 `path` 非空元素**纳入判据，无白名单、无开关、无部分豁免。
 //!
 //! 边界：零 UI 框架 / 零库句柄 / 零子进程 / 零工作流与编排 crate 依赖 / 零工作区
 //! 配置读取。
@@ -319,8 +320,8 @@ pub fn gating_findings(
         .collect()
 }
 
-/// 契约面启用判定：契约目录存在且**递归**含 ≥1 份 `*.md`（手写 walk，不跟随符号
-/// 链接——零 `ignore` crate 依赖）。
+/// 契约面启用判定：契约资产目录（`<archi_models_dir>`，与模型目录同址）存在且**递归**
+/// 含 ≥1 份 `*.md`（手写 walk，不跟随符号链接——零 `ignore` crate 依赖）。
 pub fn enabled(root: &Path) -> bool {
     has_markdown(&paths::directory(root), 0)
 }
@@ -1002,7 +1003,7 @@ const SCHEMA_URI: &str = "https://json-schema.org/draft/2020-12/schema";
 /// 生成物警示文案（`$comment` 与 `.i.*` 头注释共用同一句）。
 const GENERATED_NOTICE: &str = "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败";
 
-/// 契约目录递归扫描的深度上限（`<Domain>/<Sub>/` 级足够；防环）。
+/// 契约资产与契约索引两处有界枚举共用的深度上限（`<Domain>/<Sub>/` 级足够；防环）。
 const MAX_API_WALK_DEPTH: usize = 4;
 
 /// 契约文件扩展名（启用判定的唯一收面判据）。

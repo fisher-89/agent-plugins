@@ -1382,3 +1382,126 @@ fn 超大语料的规模与确定性() {
         "规模下两次调用逐字节相同"
     );
 }
+
+// ===========================================================================
+// 契约资产 / 契约索引的枚举面（`module-entry-docs-semantics` / AC-1）
+//
+// 判据仍是扩展名收面（`scan::is_source_file` 的五扩展名）+ `ExcludeSet`：契约资产
+// （`models/<Domain>/<FQN>.md` / `.schema.json`）与契约索引（`graph/INDEX.toml`）因此
+// 不进 `entries`——本变更为零源码改动的机械事实补证。
+// ===========================================================================
+
+/// 正向（AC-1）：契约资产与契约索引落盘后不进 `entries`，同根源文件照常入列。
+#[test]
+fn 契约资产与契约索引不进树() {
+    let temp = TempDir::new("contract-assets-out");
+    temp.write_model(&[("App", "package", &[]), ("App.Core", "domain", &[])]);
+    temp.write(
+        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
+        "# App.Backend.Infra.ArchiRuntime\n",
+    );
+    temp.write(
+        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
+        "{\"$defs\": {}}\n",
+    );
+    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 索引\n");
+    temp.write("src/archi.rs", "pub fn archi() {}\n");
+
+    let tree = file_tree(temp.root()).expect("健康模型应 Ok");
+    // `.dev-team` 为隐藏目录（遍历器先行剪枝），契约资产与索引随之整树缺席。
+    assert_absent(&tree, ".dev-team");
+    assert_absent(
+        &tree,
+        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
+    );
+    assert_absent(
+        &tree,
+        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
+    );
+    assert_absent(&tree, ".dev-team/architecture/graph/INDEX.toml");
+    assert_entry(
+        &tree,
+        "src/archi.rs",
+        FileEntryKind::File,
+        FileTreeMark::None,
+        &[],
+    );
+}
+
+/// 异常（AC-1 反向判据）：同形态路径上的**源文件扩展名**照常入列——「不进树」由扩展名
+/// 收面达成，而非路径黑名单。`.dev-team` 整树被隐藏项剪枝先行排除，故扩展名判据在非隐藏
+/// 的镜像路径上观测。
+#[test]
+fn 契约路径形态的源文件照常入列() {
+    let temp = TempDir::new("contract-shape-source");
+    temp.write_model(&[("App", "package", &[])]);
+    temp.write("models/Infra/x.rs", "pub fn x() {}\n");
+    temp.write("models/Infra/x.md", "# 契约资产同名形态\n");
+    temp.write("models/Infra/x.schema.json", "{\"$defs\": {}}\n");
+    temp.write("graph/INDEX.toml", "# 索引同名形态\n");
+
+    let tree = file_tree(temp.root()).expect("应 Ok");
+    assert_entry(
+        &tree,
+        "models/Infra/x.rs",
+        FileEntryKind::File,
+        FileTreeMark::None,
+        &[],
+    );
+    assert_absent(&tree, "models/Infra/x.md");
+    assert_absent(&tree, "models/Infra/x.schema.json");
+    assert_absent(&tree, "graph");
+}
+
+/// 边界（AC-1）：树条目扩展名集合 ⊆ 漂移判定面同一收面（四种 TS/JS + `.rs`）；`models/`
+/// 一级 `NN-*.toml` 模型文件与 `.toml` 资产一律不入树。
+#[test]
+fn 树条目扩展名限于收面与模型文件不入树() {
+    let temp = TempDir::new("tree-extension-face");
+    temp.write_model(&[("App", "package", &[])]);
+    temp.write(
+        "models/01-app.toml",
+        "[element.\"App\"]\nkind = \"package\"\n",
+    );
+    temp.write("src/a.rs", "pub fn a() {}\n");
+    temp.write("src/b.ts", "export const b = 1;\n");
+    temp.write("src/c.toml", "x = 1\n");
+
+    let tree = file_tree(temp.root()).expect("应 Ok");
+    let extensions: Vec<String> = tree
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == FileEntryKind::File)
+        .map(|entry| {
+            entry
+                .name
+                .rsplit_once('.')
+                .map(|(_, extension)| extension.to_owned())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert!(!extensions.is_empty(), "树内应有源文件条目");
+    for extension in &extensions {
+        assert!(
+            ["rs", "ts", "tsx", "js", "jsx"].contains(&extension.as_str()),
+            "树条目扩展名 ⊆ 同一收面（实得 {extension:?}，全集 {extensions:?}）"
+        );
+    }
+    for needle in [".dev-team", "models/01-app.toml", "src/c.toml"] {
+        assert_absent(&tree, needle);
+    }
+    assert_entry(
+        &tree,
+        "src/a.rs",
+        FileEntryKind::File,
+        FileTreeMark::None,
+        &[],
+    );
+    assert_entry(
+        &tree,
+        "src/b.ts",
+        FileEntryKind::File,
+        FileTreeMark::None,
+        &[],
+    );
+}

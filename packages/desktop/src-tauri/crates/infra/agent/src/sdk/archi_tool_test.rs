@@ -453,7 +453,7 @@ fn api_root(tag: &str) -> tempfile::TempDir {
     );
     write_file(
         dir.path(),
-        ".dev-team/architecture/api/Api/App.Api.Subject.md",
+        ".dev-team/architecture/models/Api/App.Api.Subject.md",
         "# App.Api.Subject\n\n## 职能\n\n工具语料。\n\n## 操作\n\n### file_stem\n\n\
          ```json api-op\n{\"owner\": \"LocalApi\", \
          \"params\": [{\"name\": \"timestamp\", \"schema\": {\"type\": \"string\"}}], \
@@ -597,11 +597,12 @@ async fn archi_api_check零判据成功态() {
         .as_array()
         .expect("missing 数组");
     assert_eq!(missing.len(), 1, "缺口恰一条：{missing:?}");
+    // 仅判 `ends_with("INDEX.toml")` 钉不住新索引家（旧 `api/` 落点同样通过），故以
+    // 「父目录末段 = graph」收口；Windows 的 `\` 先归一为 `/` 再判，两平台同判。
+    let index_root = |path: &str| path.replace('\\', "/").ends_with("graph/INDEX.toml");
     assert!(
-        missing[0]
-            .as_str()
-            .is_some_and(|path| path.ends_with("INDEX.toml")),
-        "缺口是索引：{missing:?}"
+        missing[0].as_str().is_some_and(index_root),
+        "缺口是 graph 根下的索引（父目录末段 = graph）：{missing:?}"
     );
 }
 
@@ -676,7 +677,7 @@ async fn archi_api输出过cap_result() {
     // 「摘要优先 / 截断留痕」都无从表述；该 md 不属模型内元素，故不产生额外判据
     write_file(
         dir.path(),
-        ".dev-team/architecture/api/App/Ghost.md",
+        ".dev-team/architecture/models/App/Ghost.md",
         "# App.Ghost
 ",
     );

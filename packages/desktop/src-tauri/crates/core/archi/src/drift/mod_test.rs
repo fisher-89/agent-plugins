@@ -1270,9 +1270,9 @@ fn 错误面文案三值() {
 // 契约判据装配（`module-api-contract-format` / AC-7 / AC-8 / AC-9 / D17 / D18 / D20）
 // ===========================================================================
 
-use foundation::layout::archi_api_dir;
+use foundation::layout::archi_models_dir;
 
-/// 落一份契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
+/// 落一份契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
 fn write_contract(temp: &TempDir, fqn: &str, content: &str) {
     let path = crate::api::paths::contract_path(temp.root(), fqn).expect("合法 FQN");
     let relative = path
@@ -1282,7 +1282,7 @@ fn write_contract(temp: &TempDir, fqn: &str, content: &str) {
         .replace('\\', "/");
     temp.write(&relative, content);
     assert!(
-        archi_api_dir(temp.root()).is_dir(),
+        archi_models_dir(temp.root()).is_dir(),
         "契约目录由落盘自动建立"
     );
 }
@@ -1328,7 +1328,7 @@ fn mismatched_contract(fqn: &str) -> String {
     )
 }
 
-/// 边界（D17 / AC-8）：tempdir 有模型与源文件但无 `<archi_api_dir>` → `Ok`，
+/// 边界（D17 / AC-8）：tempdir 有模型与源文件但 `models/**` 零 `*.md` → `Ok`，
 /// `api_findings` 空、`version == 3`，既有各槽位与「契约面未引入时」等价。
 #[test]
 fn 契约面缺席时_api_findings为空() {
@@ -1725,14 +1725,15 @@ fn count_kind(report: &Report, kind: ArchiApiFindingKind) -> usize {
         .count()
 }
 
-/// 边界（D17）：`<archi_api_dir>` 存在且只含 `INDEX.toml`（零 `*.md`）→ 契约面未
-/// 启用，`api_findings` 空、既有槽位与「目录缺席」形态逐字段等价。
+/// 边界（D17）：`models/**` 零 `*.md`（只有模型文件与 `graph/INDEX.toml`）→ 契约面
+/// 未启用，`api_findings` 空、既有槽位与「目录缺席」形态逐字段等价——模型文件与索引
+/// 都不是启用证据。
 #[test]
-fn 契约目录存在但零md即未启用() {
+fn 契约目录零md即未启用() {
     let temp = TempDir::new("api-dir-without-md");
     temp.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
     temp.write("src/a.ts", "export const a = 1;\n");
-    temp.write(".dev-team/architecture/api/INDEX.toml", "# 空索引\n");
+    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
 
     let report = run_full(temp.root()).expect("判定应成功");
     assert!(report.api_findings.is_empty(), "零 md ⇒ 未启用 ⇒ 空槽位");

@@ -19,7 +19,7 @@ use super::schema::{build_index, build_schema, degraded_marks, verify_defs, DEGR
 use super::{ApiError, ApiFormStatus, ApiMeta, IndexEntry};
 
 /// 契约文件（repo 相对 POSIX）。
-const FILE: &str = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md";
+const FILE: &str = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
 
 /// 元素 FQN（= H1 = 文件名去 `.md`）。
 const FQN: &str = "App.Backend.Infra.ArchiRuntime";
@@ -1593,4 +1593,49 @@ fn verify_defs取值校验排在既有规则之后() {
         Ok(()),
         "空 `$defs` 仍合法（零标记可校验）"
     );
+}
+
+/// 正向（AC-2）：说明段第三行以「契约面：目录」起句并含
+/// `foundation::layout::archi_models_rel_dir()` 的逐字结果；索引目录（`graph`）与旧方位
+/// 串（`architecture/api`）零命中——索引与契约分家后的方向判据。
+#[test]
+fn build_index说明段取契约资产目录() {
+    let text = build_index(&[entry(FQN)], &meta());
+    let lines = comment_lines(&text);
+    assert_eq!(lines.len(), 3, "说明段恰三行：{lines:?}");
+
+    let contracts = foundation::layout::archi_models_rel_dir();
+    let index_dir = foundation::layout::archi_graph_rel_dir();
+    let generator_line = &lines[2];
+    assert!(
+        generator_line.contains("契约面：目录"),
+        "第三行以「契约面：目录」起句：{generator_line}"
+    );
+    assert!(
+        generator_line.contains(&contracts),
+        "含 `archi_models_rel_dir()` 逐字结果（{contracts}）：{generator_line}"
+    );
+    assert!(
+        !generator_line.contains(&index_dir),
+        "说明段 MUST NOT 取索引自身目录（{index_dir}）：{generator_line}"
+    );
+    assert!(
+        !text.contains("architecture/api"),
+        "旧方位串 `architecture/api` 零残留"
+    );
+}
+
+/// 边界（AC-2）：说明段与条目规模无关——单条目与 41 条两规模下说明段逐字相同（确定性 /
+/// 零状态依赖）。
+#[test]
+fn build_index说明段与条目规模无关() {
+    let single = comment_lines(&build_index(&[entry("App.Core.Alpha")], &meta()));
+    let many: Vec<IndexEntry> = (0..41)
+        .map(|index| entry(&format!("App.E{index:02}")))
+        .collect();
+    let wide = comment_lines(&build_index(&many, &meta()));
+
+    assert_eq!(single.len(), 3, "单条目说明段三行：{single:?}");
+    assert_eq!(wide.len(), 3, "41 条说明段三行：{wide:?}");
+    assert_eq!(single, wide, "说明段不随条目数变化（同输入同输出）");
 }

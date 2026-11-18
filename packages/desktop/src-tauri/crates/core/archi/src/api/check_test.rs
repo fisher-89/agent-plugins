@@ -58,7 +58,7 @@ impl TempDir {
         fs::write(&path, content).expect("写文件失败");
     }
 
-    /// 落契约（`<archi_api_dir>/<Domain>/<FQN>.md`）。
+    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
     fn write_contract(&self, fqn: &str, content: &str) {
         let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {

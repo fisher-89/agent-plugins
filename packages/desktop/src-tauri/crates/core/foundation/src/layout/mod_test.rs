@@ -1445,44 +1445,44 @@ fn 根与change名边界零panic() {
 }
 
 // ===========================================================================
-// 契约面路径派生（`module-api-contract-format` / AC-4）
+// 契约索引路径派生（`module-entry-docs-semantics` / AC-5）
 //
-// `archi_api_dir(root) = archi_dir(root).join(API_DIR_NAME)`、
-// `archi_api_rel_dir() = <archi_rel_dir>/api`；全从 `archi_dir` / `archi_rel_dir`
-// 派生，零新文件名字面量、纯推导零 IO。
+// `archi_graph_dir(root) = archi_dir(root).join(GRAPH_DIR_NAME)`、
+// `archi_graph_rel_dir() = <archi_rel_dir>/graph`；全从 `archi_dir` / `archi_rel_dir`
+// 派生，零新文件名字面量、纯推导零 IO。契约资产目录不另设函数（= `archi_models_dir`）。
 // ===========================================================================
 
-/// 正向：`archi_api_dir(root) == archi_dir(root).join("api")` 逐字相等（三种 root 形态：
-/// 绝对 / 含空格与非 ASCII / 空 root）。
+/// 正向：`archi_graph_dir(root) == archi_dir(root).join("graph")` 逐字相等（三种 root
+/// 形态：绝对 / 含空格与非 ASCII / 空 root）。
 #[test]
-fn archi_api_dir与archi_dir同源三形态() {
-    use super::{archi_api_dir, archi_dir};
+fn archi_graph_dir与archi_dir同源三形态() {
+    use super::{archi_dir, archi_graph_dir};
 
     for root in [
         Path::new("/tmp/x"),
         Path::new("/ws 含 空格/中文根"),
         Path::new(""),
     ] {
-        let api_dir = archi_api_dir(root);
+        let graph_dir = archi_graph_dir(root);
         assert_eq!(
-            api_dir,
-            archi_dir(root).join("api"),
+            graph_dir,
+            archi_dir(root).join("graph"),
             "root = {root:?}: 派生值逐字相等"
         );
         assert_eq!(
-            api_dir.file_name().and_then(|name| name.to_str()),
-            Some("api"),
-            "尾段恒为 api（root = {root:?}）"
+            graph_dir.file_name().and_then(|name| name.to_str()),
+            Some("graph"),
+            "尾段恒为 graph（root = {root:?}）"
         );
-        assert_ne!(api_dir, archi_dir(root), "契约目录 MUST 比架构域根多一段");
+        assert_ne!(graph_dir, archi_dir(root), "索引目录 MUST 比架构域根多一段");
     }
 }
 
 /// 边界：纯推导零 IO——`root` 指向不存在路径 / 空 Path / 相对路径 / 含 `..` 段 → 正常
 /// 返回、不 panic、不做词法归一、不创建目录。
 #[test]
-fn archi_api_dir纯推导零io() {
-    use super::archi_api_dir;
+fn archi_graph_dir纯推导零io() {
+    use super::archi_graph_dir;
 
     let before = std::env::temp_dir();
     for root in [
@@ -1492,7 +1492,7 @@ fn archi_api_dir纯推导零io() {
         Path::new("a/../b"),
         Path::new("/ws/"),
     ] {
-        let path = archi_api_dir(root);
+        let path = archi_graph_dir(root);
         assert!(!path.as_os_str().is_empty(), "root = {root:?} 时路径可判");
         assert!(
             !path.exists(),
@@ -1503,53 +1503,64 @@ fn archi_api_dir纯推导零io() {
     assert_eq!(before, after, "调用前后临时目录根零变化");
 }
 
-/// 边界：互不遮蔽——`api` 与 `models` / `decisions` / `config.json` 平行，两两不相等且
-/// 互不为前缀。
+/// 边界：互不遮蔽——`graph` 与 `models` / `decisions` / `config.json` 平行，两两不相等
+/// 且互不为前缀（索引与契约目录分家后仍同层不嵌套）。
 #[test]
-fn archi_api_dir互不遮蔽() {
-    use super::{archi_api_dir, archi_config_path, archi_decisions_dir, archi_models_dir};
+fn archi_graph_dir互不遮蔽() {
+    use super::{archi_config_path, archi_decisions_dir, archi_graph_dir, archi_models_dir};
 
     let root = Path::new("/ws");
-    let api = archi_api_dir(root);
+    let graph = archi_graph_dir(root);
     let others = [
         ("models", archi_models_dir(root)),
         ("decisions", archi_decisions_dir(root)),
         ("config", archi_config_path(root)),
     ];
     for (label, other) in &others {
-        assert_ne!(&api, other, "api 与 {label} 不相等");
+        assert_ne!(&graph, other, "graph 与 {label} 不相等");
         assert!(
-            !other.starts_with(&api) && !api.starts_with(other),
-            "api 与 {label} 互不为前缀（{api:?} / {other:?}）"
+            !other.starts_with(&graph) && !graph.starts_with(other),
+            "graph 与 {label} 互不为前缀（{graph:?} / {other:?}）"
         );
     }
 }
 
-/// 正向：`archi_api_rel_dir()` 返回 `.dev-team/architecture/api` 形态——`/` 分隔、零
-/// 前导 `./`、零尾 `/`，且 `== format!("{}/api", archi_rel_dir())`。
+/// 正向：`archi_graph_rel_dir()` 返回 `.dev-team/architecture/graph` 形态——`/` 分隔、
+/// 零前导 `./`、零尾 `/`，且 `== format!("{}/graph", archi_rel_dir())`。
 #[test]
-fn archi_api_rel_dir形态() {
-    use super::{archi_api_rel_dir, archi_rel_dir};
+fn archi_graph_rel_dir形态() {
+    use super::{archi_graph_rel_dir, archi_rel_dir};
 
-    let relative = archi_api_rel_dir();
+    let relative = archi_graph_rel_dir();
     let base = archi_rel_dir();
-    assert_eq!(relative, format!("{base}/api"), "派生值逐字相等");
+    assert_eq!(relative, format!("{base}/graph"), "派生值逐字相等");
     assert!(relative.starts_with(&base), "以 archi_rel_dir() 为前缀");
     assert!(!relative.contains('\\'), "`/` 分隔（零反斜杠）：{relative}");
     assert!(!relative.starts_with("./"), "零前导 `./`：{relative}");
     assert!(!relative.ends_with('/'), "零尾 `/`：{relative}");
-    assert!(relative.ends_with("/api"), "尾段恰为 api：{relative}");
+    assert!(relative.ends_with("/graph"), "尾段恰为 graph：{relative}");
+    assert!(
+        !relative.starts_with('/'),
+        "零前导 `/`（repo 相对）：{relative}"
+    );
+    assert!(!relative.contains("//"), "零连续 `//`：{relative}");
+    assert!(
+        !relative.split('/').any(str::is_empty),
+        "零空段（无空字符串路径段）：{relative}"
+    );
 }
 
 /// 边界：相对族前缀一致——三者共享 `archi_rel_dir()` 前缀且互不相等（改基常量时同源
 /// 随动，以「共同前缀长度相等」表达）。
 #[test]
-fn archi_api_rel_dir相对族前缀一致() {
-    use super::{archi_api_rel_dir, archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+fn archi_graph_rel_dir相对族前缀一致() {
+    use super::{
+        archi_decisions_rel_dir, archi_graph_rel_dir, archi_models_rel_dir, archi_rel_dir,
+    };
 
     let base = archi_rel_dir();
     let values = [
-        ("api", archi_api_rel_dir()),
+        ("graph", archi_graph_rel_dir()),
         ("models", archi_models_rel_dir()),
         ("decisions", archi_decisions_rel_dir()),
     ];
@@ -1571,19 +1582,23 @@ fn archi_api_rel_dir相对族前缀一致() {
     }
 }
 
-/// 边界（AC-17 前置）：来源文件内 `"api"` 字面量只出现在 `API_DIR_NAME` 定义一处
-/// （函数体零行内拼段）。
+/// 边界（AC-5 前置）：来源文件内 `"graph"` 字面量只出现在 `GRAPH_DIR_NAME` 定义一处
+/// （函数体零行内拼段）；退役的 `api` 段字面量零命中。
 #[test]
-fn api_dir_name零字面量纪律() {
+fn graph_dir_name零字面量纪律() {
     let source = include_str!("mod.rs");
     assert_eq!(
-        source.matches("\"api\"").count(),
+        source.matches("\"graph\"").count(),
         1,
-        "`\"api\"` 字面量恰一处（常量定义）"
+        "`\"graph\"` 字面量恰一处（常量定义）"
     );
     assert!(
-        source.contains("const API_DIR_NAME: &str = \"api\";"),
+        source.contains("const GRAPH_DIR_NAME: &str = \"graph\";"),
         "常量定义在案"
+    );
+    assert!(
+        !source.contains("API_DIR_NAME") && !source.contains("archi_api"),
+        "`api` 段族的三个符号在产品侧零残留"
     );
 }
 
@@ -1649,30 +1664,30 @@ fn 既有族零变化() {
     );
 }
 
-/// 边界（AC-19）：四条机械计数对拍——常量零外溢、`"api"` 字面量单点、两个派生函数的
-/// 签名行恰两处。判据面（`grep -c`）与 AC-19 原文同源，不另立计数口径。
+/// 边界（AC-5）：四条机械计数对拍——常量零外溢、`"graph"` 字面量单点、两个派生函数的
+/// 签名行恰两处。判据面（`grep -c`）与 AC-5 原文同源，不另立计数口径。
 #[test]
-fn ac19四条机械计数对拍() {
-    // ① 常量消费面：`API_DIR_NAME` 在 layout/mod.rs 内恰 4 处（定义 + doc 引用 + 两函数）
+fn ac5四条机械计数对拍() {
+    // ① 常量消费面：`GRAPH_DIR_NAME` 在 layout/mod.rs 内恰 4 处（定义 + doc 引用 + 两函数）
     let source = include_str!("mod.rs");
     assert_eq!(
-        source.matches("API_DIR_NAME").count(),
+        source.matches("GRAPH_DIR_NAME").count(),
         4,
-        "`API_DIR_NAME` 恰四处（常量定义 + doc 引用 + 两函数消费）"
+        "`GRAPH_DIR_NAME` 恰四处（常量定义 + doc 引用 + 两函数消费）"
     );
 
-    // ② `"api"` 字面量在产品 `.rs` 内恰 1 处（常量定义）：由本文件的
-    //    `api_dir_name零字面量纪律` 与全包双禁令扫描共同守（此处只断言本文件那一处）
+    // ② `"graph"` 字面量在产品 `.rs` 内恰 1 处（常量定义）：由本文件的
+    //    `graph_dir_name零字面量纪律` 与全包双禁令扫描共同守（此处只断言本文件那一处）
     assert_eq!(
-        source.matches("\"api\"").count(),
+        source.matches("\"graph\"").count(),
         1,
-        "`\"api\"` 字面量恰一处（常量定义，函数体内零行内拼段）"
+        "`\"graph\"` 字面量恰一处（常量定义，函数体内零行内拼段）"
     );
 
     // ③ 两个派生函数的签名行恰 2 处（交替模式）
     let signatures = source
         .lines()
-        .filter(|line| line.contains("archi_api_dir") || line.contains("archi_api_rel_dir"))
+        .filter(|line| line.contains("archi_graph_dir") || line.contains("archi_graph_rel_dir"))
         .filter(|line| line.starts_with("pub fn "))
         .count();
     assert_eq!(signatures, 2, "两个 `pub fn` 签名行恰两处");
@@ -1697,16 +1712,16 @@ fn ac19四条机械计数对拍() {
         .collect();
     assert!(
         leak.is_empty(),
-        "常量零外溢（只有 layout/mod.rs 引用 `API_DIR_NAME`），实际外溢：{leak:?}"
+        "常量零外溢（只有 layout/mod.rs 引用 `GRAPH_DIR_NAME`），实际外溢：{leak:?}"
     );
     assert_eq!(
         referencing.len(),
         1,
-        "产品侧引用 `API_DIR_NAME` 的文件恰 1 个（常量不外溢）：{referencing:?}"
+        "产品侧引用 `GRAPH_DIR_NAME` 的文件恰 1 个（常量不外溢）：{referencing:?}"
     );
 }
 
-/// 递归扫描产品 `.rs`（排除 `*_test.rs`）内是否出现 `API_DIR_NAME`。
+/// 递归扫描产品 `.rs`（排除 `*_test.rs`）内是否出现 `GRAPH_DIR_NAME`。
 fn scan_for_constant(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -1727,7 +1742,289 @@ fn scan_for_constant(dir: &Path, out: &mut Vec<PathBuf>) {
             continue;
         }
         let text = fs::read_to_string(&path).unwrap_or_default();
-        if text.contains("API_DIR_NAME") {
+        if text.contains("GRAPH_DIR_NAME") {
+            out.push(path);
+        }
+    }
+}
+
+// ===========================================================================
+// 删除面与契约目录复用（`module-entry-docs-semantics` / AC-5）
+//
+// `api` 段退役：`API_DIR_NAME` / `archi_api_dir` / `archi_api_rel_dir` 三符号在产品
+// `.rs` 内零命中；契约资产目录**不新增函数**，直接复用 `archi_models_dir` /
+// `archi_models_rel_dir`（「一个目录两个名字」禁令）。
+// ===========================================================================
+
+/// 边界：超长 root（1200 字符）不 panic，派生仍是「root + `graph` 一段」。
+#[test]
+fn archi_graph_dir超长root不panic() {
+    let long = format!("/{}", "a".repeat(1200));
+    let root = Path::new(long.as_str());
+    let graph = super::archi_graph_dir(root);
+    assert_eq!(
+        graph,
+        super::archi_dir(root).join("graph"),
+        "超长 root 仍逐字拼段"
+    );
+    assert_eq!(
+        graph.file_name().and_then(|name| name.to_str()),
+        Some("graph"),
+        "尾段恒为 graph"
+    );
+}
+
+/// 边界：相对族与绝对族同源——`root.join(archi_graph_rel_dir()) == archi_graph_dir(&root)`
+/// （绝对 root / 尾分隔符 / 空 root 三形态）。
+#[test]
+fn archi_graph_rel_dir与绝对族同源三形态() {
+    use super::{archi_graph_dir, archi_graph_rel_dir};
+
+    for root in [
+        Path::new("/ws 含 空格/中文根"),
+        Path::new("/ws/"),
+        Path::new(""),
+    ] {
+        assert_eq!(
+            root.join(archi_graph_rel_dir()),
+            archi_graph_dir(root),
+            "root = {root:?}：相对族与绝对族同源"
+        );
+    }
+}
+
+/// 异常（AC-5 删除面）：三符号在 `layout/mod.rs` 内零命中，`"api"` 引号字面量零命中；
+/// 全包产品 `.rs`（`*_test.rs` 除）内三符号零命中。
+#[test]
+fn api段族三符号零残留() {
+    let source = include_str!("mod.rs");
+    for removed in ["API_DIR_NAME", "archi_api_dir", "archi_api_rel_dir"] {
+        assert_eq!(
+            source.matches(removed).count(),
+            0,
+            "`layout/mod.rs` 内 `{removed}` 零命中（改用 graph 段）"
+        );
+    }
+    assert_eq!(
+        source.matches("\"api\"").count(),
+        0,
+        "`\"api\"` 引号字面量零命中（段名换 `\"graph\"`）"
+    );
+
+    let mut src_tauri = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..3 {
+        src_tauri.pop();
+    }
+    for removed in ["API_DIR_NAME", "archi_api_dir", "archi_api_rel_dir"] {
+        let mut hits: Vec<PathBuf> = Vec::new();
+        scan_for_symbol(&src_tauri.join("crates"), removed, &mut hits);
+        scan_for_symbol(&src_tauri.join("src"), removed, &mut hits);
+        assert!(
+            hits.is_empty(),
+            "全包产品 `.rs` 内 `{removed}` 零命中，实际命中：{hits:?}"
+        );
+    }
+}
+
+/// 边界（AC-5 零兼容壳）：`api` 段族零 `#[deprecated]` 改指别名、零再导出；全包零
+/// `archi_contract`（「一个目录两个名字」的转发函数）。
+#[test]
+fn api段族零兼容壳与转发别名() {
+    for (label, source) in [
+        ("layout/mod.rs", include_str!("mod.rs")),
+        ("foundation/lib.rs", include_str!("../lib.rs")),
+    ] {
+        for banned in ["archi_api_dir", "archi_api_rel_dir", "API_DIR_NAME"] {
+            assert_eq!(
+                source.matches(banned).count(),
+                0,
+                "{label} 内 `{banned}` 零命中（零改指别名 / 零再导出）"
+            );
+        }
+        assert!(
+            !source.contains("#[deprecated]"),
+            "{label} 内零 `#[deprecated]` 兼容壳"
+        );
+    }
+
+    let mut src_tauri = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..3 {
+        src_tauri.pop();
+    }
+    let mut hits: Vec<PathBuf> = Vec::new();
+    scan_for_symbol(&src_tauri.join("crates"), "archi_contract", &mut hits);
+    scan_for_symbol(&src_tauri.join("src"), "archi_contract", &mut hits);
+    assert!(
+        hits.is_empty(),
+        "全包零 `archi_contract`（契约目录复用 `archi_models_dir`，MUST NOT 转发）：{hits:?}"
+    );
+}
+
+/// 正向：契约目录复用模型目录派生——`root.join(archi_models_rel_dir()) ==
+/// archi_models_dir(root)` 三形态一致；`pub fn archi_` 集合内无 `contract` 项。
+#[test]
+fn 契约目录复用相对族与绝对族同源() {
+    use super::{archi_models_dir, archi_models_rel_dir};
+
+    for root in [
+        Path::new("/tmp/x"),
+        Path::new("/ws 含 空格/中文根"),
+        Path::new(""),
+    ] {
+        assert_eq!(
+            root.join(archi_models_rel_dir()),
+            archi_models_dir(root),
+            "root = {root:?}：契约目录复用模型目录派生（零新函数）"
+        );
+    }
+
+    let source = include_str!("mod.rs");
+    let derived: Vec<&str> = source
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("pub fn archi_"))
+        .map(|rest| rest.split('(').next().unwrap_or(""))
+        .collect();
+    assert!(!derived.is_empty(), "架构域派生族在场");
+    assert!(
+        !derived.iter().any(|name| name.contains("contract")),
+        "派生族内零 `contract` 项（契约目录复用 `archi_models_dir`）：{derived:?}"
+    );
+}
+
+/// 异常：两函数体各只消费一次段名（`join(MODELS_DIR_NAME)` / `format!` 各 1 处），
+/// 零改指分支（「一个目录两个名字」的反向判据）。
+#[test]
+fn 契约目录两函数体形态() {
+    let source = include_str!("mod.rs");
+    let dir_body = function_body(source, "pub fn archi_models_dir(");
+    assert_eq!(
+        dir_body.matches("join(MODELS_DIR_NAME)").count(),
+        1,
+        "`archi_models_dir` 体恰一次 `join(MODELS_DIR_NAME)`：{dir_body}"
+    );
+    assert!(
+        !dir_body.contains("format!"),
+        "`archi_models_dir` 体零 `format!` 改指分支：{dir_body}"
+    );
+    let rel_body = function_body(source, "pub fn archi_models_rel_dir(");
+    assert_eq!(
+        rel_body.matches("format!").count(),
+        1,
+        "`archi_models_rel_dir` 体恰一次 `format!`：{rel_body}"
+    );
+}
+
+/// 边界：`archi_models_dir` / `archi_models_rel_dir` 各恰 1 处定义，且与 `graph` 族
+/// 互不遮蔽（不相等、互不为前缀）。
+#[test]
+fn 契约目录定义单点且与索引目录互不遮蔽() {
+    use super::{archi_graph_dir, archi_models_dir, archi_models_rel_dir};
+
+    let source = include_str!("mod.rs");
+    for signature in [
+        "pub fn archi_models_dir(root: &Path) -> PathBuf",
+        "pub fn archi_models_rel_dir() -> String",
+    ] {
+        assert_eq!(
+            source.matches(signature).count(),
+            1,
+            "`{signature}` 恰一处定义"
+        );
+    }
+
+    let root = Path::new("/ws");
+    assert_ne!(
+        archi_graph_dir(root),
+        archi_models_dir(root),
+        "索引目录与契约目录不相等"
+    );
+    assert!(
+        !archi_graph_dir(root).starts_with(archi_models_dir(root))
+            && !archi_models_dir(root).starts_with(archi_graph_dir(root)),
+        "两目录互不为前缀（分家后的兄弟形态）"
+    );
+    assert_ne!(
+        super::archi_graph_rel_dir(),
+        archi_models_rel_dir(),
+        "相对族两值不相等"
+    );
+}
+
+/// 边界：`graph` 族函数体形态——`archi_graph_dir` 体恰一次 `join(GRAPH_DIR_NAME)`、
+/// `archi_graph_rel_dir` 体恰一次 `format!`，零额外分支、零 `exists()` 调用（纯推导的
+/// 结构证明）。
+#[test]
+fn graph族函数体纯推导() {
+    let source = include_str!("mod.rs");
+    let dir_body = function_body(source, "pub fn archi_graph_dir(");
+    assert_eq!(
+        dir_body.matches("join(GRAPH_DIR_NAME)").count(),
+        1,
+        "`archi_graph_dir` 体恰一次 `join(GRAPH_DIR_NAME)`：{dir_body}"
+    );
+    assert!(
+        !dir_body.contains("format!"),
+        "`archi_graph_dir` 体零 `format!` 分支：{dir_body}"
+    );
+    assert!(
+        !dir_body.contains("exists("),
+        "`archi_graph_dir` 体零 `exists()`（纯推导零 IO）：{dir_body}"
+    );
+
+    let rel_body = function_body(source, "pub fn archi_graph_rel_dir(");
+    assert_eq!(
+        rel_body.matches("format!").count(),
+        1,
+        "`archi_graph_rel_dir` 体恰一次 `format!`：{rel_body}"
+    );
+    assert!(
+        !rel_body.contains("join("),
+        "`archi_graph_rel_dir` 体零 `join` 分支：{rel_body}"
+    );
+    assert!(
+        !rel_body.contains("exists("),
+        "`archi_graph_rel_dir` 体零 `exists()`：{rel_body}"
+    );
+}
+
+/// 取 `signature` 起的函数体原文（到首个行首 `}` 为止）。
+fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source
+        .find(signature)
+        .unwrap_or_else(|| panic!("缺少函数签名 `{signature}`"));
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").map_or(rest.len(), |index| index + 1);
+    &rest[..end]
+}
+
+/// 递归收集产品 `.rs`（排除 `*_test.rs` 与构建产物树）内含 `needle` 的文件。
+fn scan_for_symbol(dir: &Path, needle: &str, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let skip = path
+                .file_name()
+                .map(|name| name == "target" || name == "node_modules")
+                .unwrap_or(false);
+            if !skip {
+                scan_for_symbol(&path, needle, out);
+            }
+            continue;
+        }
+        let Some(name) = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        if !name.ends_with(".rs") || name.ends_with("_test.rs") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        if text.contains(needle) {
             out.push(path);
         }
     }

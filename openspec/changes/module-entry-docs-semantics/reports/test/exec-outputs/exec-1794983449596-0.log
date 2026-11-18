@@ -1,0 +1,126 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run api:check && pnpm run client:check
+$ cargo fmt --all --check --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking foundation v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-docs-semantics\packages\desktop\src-tauri\crates\core\foundation)
+    Checking workflow v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-docs-semantics\packages\desktop\src-tauri\crates\core\workflow)
+    Checking archi v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-docs-semantics\packages\desktop\src-tauri\crates\core\archi)
+    Checking config v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-docs-semantics\packages\desktop\src-tauri\crates\core\config)
+    Checking exec v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-docs-semantics\packages\desktop\src-tauri\crates\infra\exec)
+    Checking checks v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\module-entry-docs-semantics\packages\desktop\src-tauri\crates\core\checks)
+error[E0432]: unresolved import `super::archi_api_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1459:17
+     |
+1459 |     use super::{archi_api_dir, archi_dir};
+     |                 ^^^^^^^^^^^^^ no `archi_api_dir` in `layout`
+     |
+help: a similar name exists in the module
+     |
+1459 -     use super::{archi_api_dir, archi_dir};
+1459 +     use super::{archi_graph_dir, archi_dir};
+     |
+
+error[E0432]: unresolved import `super::archi_api_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1485:9
+     |
+1485 |     use super::archi_api_dir;
+     |         ^^^^^^^^^^^^^^^^^^^^ no `archi_api_dir` in `layout`
+     |
+help: a similar name exists in the module
+     |
+1485 -     use super::archi_api_dir;
+1485 +     use super::archi_graph_dir;
+     |
+
+error[E0432]: unresolved import `super::archi_api_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1510:17
+     |
+1510 |     use super::{archi_api_dir, archi_config_path, archi_decisions_dir, archi_models_dir};
+     |                 ^^^^^^^^^^^^^ no `archi_api_dir` in `layout`
+     |
+help: a similar name exists in the module
+     |
+1510 -     use super::{archi_api_dir, archi_config_path, archi_decisions_dir, archi_models_dir};
+1510 +     use super::{archi_graph_dir, archi_config_path, archi_decisions_dir, archi_models_dir};
+     |
+
+error[E0432]: unresolved import `super::archi_api_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1532:17
+     |
+1532 |     use super::{archi_api_rel_dir, archi_rel_dir};
+     |                 ^^^^^^^^^^^^^^^^^ no `archi_api_rel_dir` in `layout`
+     |
+help: a similar name exists in the module
+     |
+1532 -     use super::{archi_api_rel_dir, archi_rel_dir};
+1532 +     use super::{archi_graph_rel_dir, archi_rel_dir};
+     |
+
+error[E0432]: unresolved import `super::archi_api_rel_dir`
+    --> crates\core\foundation\src\layout\mod_test.rs:1548:17
+     |
+1548 |     use super::{archi_api_rel_dir, archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+     |                 ^^^^^^^^^^^^^^^^^ no `archi_api_rel_dir` in `layout`
+     |
+help: a similar name exists in the module
+     |
+1548 -     use super::{archi_api_rel_dir, archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+1548 +     use super::{archi_graph_rel_dir, archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
+     |
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `foundation` (lib test) due to 5 previous errors
+warning: build failed, waiting for other jobs to finish...
+warning: this function has too many arguments (8/7)
+   --> crates\core\workflow\src\write\create.rs:441:1
+    |
+441 | / fn compensate_tree_failure(
+442 | |     store: &dyn ChangeStateStore,
+443 | |     vcs: &dyn WorktreePort,
+444 | |     main_root: &Path,
+...   |
+449 | |     fs_error: &str,
+450 | | ) -> String {
+    | |___________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `workflow` (lib) generated 1 warning
+error[E0432]: unresolved import `foundation::layout::archi_api_dir`
+  --> crates\core\archi\src\api\mod_test.rs:19:5
+   |
+19 | use foundation::layout::archi_api_dir;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `archi_api_dir` in `layout`
+   |
+help: a similar name exists in the module
+   |
+19 - use foundation::layout::archi_api_dir;
+19 + use foundation::layout::archi_graph_dir;
+   |
+
+error[E0432]: unresolved import `foundation::layout::archi_api_dir`
+  --> crates\core\archi\src\api\paths_test.rs:14:5
+   |
+14 | use foundation::layout::archi_api_dir;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `archi_api_dir` in `layout`
+   |
+help: a similar name exists in the module
+   |
+14 - use foundation::layout::archi_api_dir;
+14 + use foundation::layout::archi_graph_dir;
+   |
+
+error[E0432]: unresolved import `foundation::layout::archi_api_dir`
+    --> crates\core\archi\src\drift\mod_test.rs:1273:5
+     |
+1273 | use foundation::layout::archi_api_dir;
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `archi_api_dir` in `layout`
+     |
+help: a similar name exists in the module
+     |
+1273 - use foundation::layout::archi_api_dir;
+1273 + use foundation::layout::archi_graph_dir;
+     |
+
+error: could not compile `archi` (lib test) due to 3 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

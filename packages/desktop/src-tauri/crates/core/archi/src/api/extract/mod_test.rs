@@ -1498,7 +1498,7 @@ fn scan_product_rs(dir: &Path, out: &mut Vec<(String, String)>) {
 // ---------------------------------------------------------------------------
 
 /// 契约文件（repo 相对 POSIX）与元素 FQN（`parse` 的 H1 锚点）。
-const CONTRACT_FILE: &str = ".dev-team/architecture/api/Demo/App.Demo.Widget.md";
+const CONTRACT_FILE: &str = ".dev-team/architecture/models/Demo/App.Demo.Widget.md";
 const CONTRACT_FQN: &str = "App.Demo.Widget";
 
 /// 动态分支键的 schema 片段（`anyOf` / `oneOf` 二键同判）。

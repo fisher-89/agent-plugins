@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use foundation::layout::archi_api_dir;
+use foundation::layout::{archi_graph_dir, archi_models_dir};
 
 use crate::api::contract::parse;
 use crate::api::emit::ts::render as render_ts;
@@ -83,7 +83,7 @@ impl TempDir {
         );
     }
 
-    /// 落契约（`<archi_api_dir>/<Domain>/<FQN>.md`）。
+    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
     fn write_contract(&self, fqn: &str, content: &str) {
         let path = contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {
@@ -262,8 +262,8 @@ fn normalize_root幂等() {
 // contract_path / schema_path：同目录、`<Domain>` 目录段
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_api_dir>/Infra/...`；
-/// 两函数父目录逐字相等、均以 `archi_api_dir(root)` 为前缀（零行内 `api` 段）。
+/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_models_dir>/Infra/...`；
+/// 两函数父目录逐字相等、均以 `archi_models_dir(root)` 为前缀（零行内段名）。
 #[test]
 fn contract_path与schema_path同目录同前缀() {
     let root = Path::new("/ws");
@@ -301,8 +301,8 @@ fn contract_path与schema_path同目录同前缀() {
     );
     assert_eq!(
         contract.parent(),
-        Some(archi_api_dir(root).join("Infra").as_path()),
-        "前缀恒为 archi_api_dir(root)"
+        Some(archi_models_dir(root).join("Infra").as_path()),
+        "前缀恒为 archi_models_dir(root)"
     );
 }
 
@@ -328,8 +328,8 @@ fn contract_path顶层退化root且零穿越() {
             "契约路径 MUST NOT 含目录穿越段：{fqn:?} → {path:?}"
         );
         assert!(
-            path.starts_with(archi_api_dir(root)),
-            "契约路径恒在 archi_api_dir 之下：{fqn:?}"
+            path.starts_with(archi_models_dir(root)),
+            "契约路径恒在 archi_models_dir 之下：{fqn:?}"
         );
     }
 }
@@ -1677,16 +1677,21 @@ fn language_of未知面不猜测() {
     }
 }
 
-/// 边界：索引路径恒为 `<archi_api_dir>/INDEX.toml`（全局唯一一份，不在 `<Domain>`
-/// 目录内）。
+/// 边界：索引路径恒为 `<archi_graph_dir>/INDEX.toml`（全局唯一一份，落独立于契约
+/// 目录的索引家，不在 `<Domain>` 目录内、也不在契约目录根）。
 #[test]
-fn index_path位于契约目录根() {
+fn index_path位于索引目录根() {
     let root = Path::new("/ws");
-    assert_eq!(index_path(root), archi_api_dir(root).join("INDEX.toml"));
+    assert_eq!(index_path(root), archi_graph_dir(root).join("INDEX.toml"));
     assert_eq!(
         index_path(root).parent(),
-        Some(archi_api_dir(root).as_path()),
+        Some(archi_graph_dir(root).as_path()),
         "索引不进 <Domain> 子目录"
+    );
+    assert_ne!(
+        index_path(root).parent(),
+        Some(directory(root).as_path()),
+        "索引与契约目录分家（兄弟目录）"
     );
 }
 
@@ -1694,8 +1699,9 @@ fn index_path位于契约目录根() {
 // directory / index_path：契约目录的单点派生
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-4 / AC-17 前置）：`directory(root)` 与 `foundation::layout::archi_api_dir(root)`
-/// **逐字相等**（同一值，不是相等前缀）；`root` 含空格 / 非 ASCII / 尾分隔符三形态均成立。
+/// 正向（AC-4 / AC-5 前置）：`directory(root)` 与 `foundation::layout::archi_models_dir(root)`
+/// **逐字相等**（同一值，不是相等前缀；契约目录不另设函数）；`root` 含空格 / 非 ASCII /
+/// 尾分隔符三形态均成立。
 #[test]
 fn directory单点转发与layout同值() {
     let roots = [
@@ -1706,12 +1712,12 @@ fn directory单点转发与layout同值() {
     for root in roots {
         assert_eq!(
             directory(root),
-            archi_api_dir(root),
-            "directory 是 archi_api_dir 的唯一转发点（同一值）：{root:?}"
+            archi_models_dir(root),
+            "directory 是 archi_models_dir 的唯一转发点（同一值）：{root:?}"
         );
         assert_eq!(
             directory(root).file_name().map(|name| name.to_owned()),
-            archi_api_dir(Path::new("/tmp"))
+            archi_models_dir(Path::new("/tmp"))
                 .file_name()
                 .map(|name| name.to_owned()),
             "末段沿用 layout 的段名（零行内拼段）：{root:?}"
@@ -1719,27 +1725,34 @@ fn directory单点转发与layout同值() {
     }
 }
 
-/// 边界（AC-17）：契约目录一切派生都经 `directory` 单点——来源文件内零 `"api"` 字面量
-/// （`API_DIR_NAME` 只在 `foundation::layout` 定义），且 `contract_path` / `schema_path` /
-/// `index_path` 三者的父目录均可由 `directory(root)` 推出。
+/// 边界（AC-5）：契约目录一切派生都经 `directory` 单点、索引经独立派生点——来源文件内
+/// 零 `"api"` / `"models"` / `"graph"` 段字面量（段名只在 `foundation::layout` 定义），
+/// 且 `contract_path` / `schema_path` 的父目录可由 `directory(root)` 推出、`index_path`
+/// 的父目录**不能**（索引与契约目录分家）。
 #[test]
-fn directory零行内api段() {
+fn directory零行内段名字面量() {
     let source = include_str!("paths.rs");
+    for banned in ["\"api\"", "\"models\"", "\"graph\""] {
+        assert!(
+            !source.contains(banned),
+            "paths.rs 内零 `{banned}` 字面量（MUST NOT 行内拼段）"
+        );
+    }
     assert!(
-        !source.contains("\"api\""),
-        "paths.rs 内零 `\"api\"` 字面量（MUST NOT 行内拼 api 段）"
+        source.contains("archi_models_dir"),
+        "契约目录派生经 foundation::layout::archi_models_dir"
     );
     assert!(
-        source.contains("archi_api_dir"),
-        "目录派生经 foundation::layout::archi_api_dir"
+        source.contains("archi_graph_dir"),
+        "索引派生经 foundation::layout::archi_graph_dir"
     );
     assert!(source.contains("fn directory"), "单点转发函数在案");
 
     let root = Path::new("/ws");
     assert_eq!(
         index_path(root).parent(),
-        Some(directory(root).as_path()),
-        "索引的父目录逐字等于 directory(root)"
+        Some(archi_graph_dir(root).as_path()),
+        "索引的父目录是 graph 目录（非 directory(root)）"
     );
     assert_eq!(
         contract_path(root, "App.Core.Alpha")
@@ -1757,8 +1770,9 @@ fn directory零行内api段() {
     );
 }
 
-/// 正向（D21 / 持久化二）：`index_path(root)` 末段恰为 `INDEX.toml`、父目录恰为
-/// `directory(root)`；与 `contract_path` / `schema_path`（`<Domain>/` 下一层）**不同层**。
+/// 正向（AC-5）：`index_path(root)` 末段恰为 `INDEX.toml`、父目录恰为 `graph/`——与
+/// **契约目录分家**（兄弟目录，互不嵌套），与 `contract_path` / `schema_path`
+/// （`<Domain>/` 下一层）**不同层**。
 #[test]
 fn index_path形态与层级对比() {
     let root = Path::new("/ws");
@@ -1770,15 +1784,19 @@ fn index_path形态与层级对比() {
     );
     assert_eq!(
         index.parent(),
-        Some(directory(root).as_path()),
-        "父目录恰为 directory(root)"
+        Some(archi_graph_dir(root).as_path()),
+        "父目录恰为 graph 目录"
+    );
+    assert!(
+        !index.starts_with(directory(root)),
+        "索引不在契约目录之下（两目录分家）"
     );
 
     let contract = contract_path(root, "App.Backend.Infra.ArchiRuntime").expect("合法 FQN");
     assert_ne!(
         index.parent(),
         contract.parent(),
-        "索引在 api 根、契约在域目录（不同层）"
+        "索引在 graph 根、契约在域目录（不同层）"
     );
     assert!(
         contract
@@ -1786,10 +1804,11 @@ fn index_path形态与层级对比() {
             .is_some_and(|parent| parent.starts_with(directory(root))),
         "契约目录在 directory(root) 之下"
     );
+    let contracts = directory(root);
     assert_eq!(
-        index.parent().map(|parent| parent.components().count()),
-        Some(directory(root).components().count()),
-        "索引层级 = 契约目录本身（比域目录浅一层）"
+        index.parent().and_then(|parent| parent.parent()),
+        contracts.parent(),
+        "索引家与契约目录是兄弟（同一架构域根下的平行子目录）"
     );
 }
 
@@ -1807,7 +1826,7 @@ fn index_path全局唯一且零io() {
     let derived = index_path(missing);
     assert_eq!(
         derived,
-        directory(missing).join("INDEX.toml"),
+        archi_graph_dir(missing).join("INDEX.toml"),
         "不存在 root 仍纯推导返回"
     );
     assert!(!missing.exists(), "纯推导零 IO（不因派生而创建目录）");
@@ -2128,7 +2147,7 @@ fn module_refs的rust分支筛选() {
 #[test]
 fn render的from经ts_string_literal() {
     let fqn = "App.Backend.Infra.ArchiRuntime";
-    let file = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md";
+    let file = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
     let source = format!(
         "# {fqn}\n\n```json api-reexport\n{{\"Archived\": \"{fqn}\"}}\n```\n\n\
          ## 透传\n\n- Archived → {fqn}\n"
@@ -2450,4 +2469,193 @@ fn 零第二形态与零清洗() {
             "`paths.rs` 内零 `{cleaner}`（末段零清洗：清洗即静默错配）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 段名纪律的删除面与索引文件名常量（`module-entry-docs-semantics` / AC-1 / AC-5）
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-5）：`paths.rs` 内 `api` 段族三符号零命中；`archi_models_dir` /
+/// `archi_graph_dir` 同批 import 且各在 `directory` / `index_path` 体内消费一次（段名
+/// 只经派生函数，零行内拼接）。
+#[test]
+fn paths零api段族且两族派生单点消费() {
+    let source = include_str!("paths.rs");
+    for removed in ["archi_api_dir", "archi_api_rel_dir", "API_DIR_NAME"] {
+        assert_eq!(
+            source.matches(removed).count(),
+            0,
+            "`paths.rs` 内 `{removed}` 零命中（段名只经 foundation::layout 派生）"
+        );
+    }
+
+    let import_line = source
+        .lines()
+        .find(|line| line.trim_start().starts_with("use foundation::layout"))
+        .unwrap_or_else(|| panic!("缺 `foundation::layout` 的 import 行"));
+    for needle in ["archi_models_dir", "archi_graph_dir"] {
+        assert!(
+            import_line.contains(needle),
+            "`{needle}` 在 import 行（段名单点导入）：{import_line}"
+        );
+    }
+
+    let directory_body = function_body(source, "pub fn directory(root: &Path) -> PathBuf {");
+    assert_eq!(
+        directory_body.matches("archi_models_dir(root)").count(),
+        1,
+        "`directory` 体恰一次 `archi_models_dir(root)`：{directory_body}"
+    );
+    assert!(
+        !directory_body.contains("archi_graph_dir"),
+        "`directory` 体零 `archi_graph_dir`（索引与契约分家）：{directory_body}"
+    );
+
+    let index_body = function_body(source, "pub fn index_path(root: &Path) -> PathBuf {");
+    assert_eq!(
+        index_body.matches("archi_graph_dir(root)").count(),
+        1,
+        "`index_path` 体恰一次 `archi_graph_dir(root)`：{index_body}"
+    );
+    assert!(
+        !index_body.contains("directory(root)"),
+        "`index_path` MUST NOT 由 `directory(root).join(…)` 派生：{index_body}"
+    );
+}
+
+/// 边界：空 root / 盘符风格 root / 尾分隔符 / 超长 root（1200 字符）——`directory` 恒与
+/// `archi_models_dir` 同值、末段恒 `models`，不 panic。
+#[test]
+fn directory边界root形态仍与layout同值() {
+    let long = format!("C:\\{}", "a".repeat(1200));
+    for (label, root) in [
+        ("空 root", Path::new("")),
+        ("盘符 root", Path::new(r"C:\demo\alpha")),
+        ("尾分隔符 root", Path::new("/ws/")),
+        ("超长 root", Path::new(long.as_str())),
+    ] {
+        assert_eq!(
+            directory(root),
+            archi_models_dir(root),
+            "{label}：`directory` 与 `archi_models_dir` 是同一值"
+        );
+        assert_eq!(
+            directory(root).file_name().and_then(|name| name.to_str()),
+            Some("models"),
+            "{label}：末段恒 models"
+        );
+    }
+}
+
+/// 正向（AC-1）：`INDEX_FILE_NAME` 值恰 `"INDEX.toml"`、`paths.rs` 内该字面量恰 1 处
+/// （常量定义，`pub(crate)` 可见）；`diff.rs` 内零字面量、以
+/// `super::paths::INDEX_FILE_NAME` 恰消费一次（跨模块引用在编译期即证明可见性可达）。
+#[test]
+fn index_file_name单点持有与跨模块消费() {
+    let source = include_str!("paths.rs");
+    assert_eq!(
+        source.matches("\"INDEX.toml\"").count(),
+        1,
+        "`\"INDEX.toml\"` 字面量恰一处（常量定义）"
+    );
+    assert!(
+        source.contains("pub(crate) const INDEX_FILE_NAME: &str = \"INDEX.toml\";"),
+        "常量定义与 `pub(crate)` 可见性在案"
+    );
+    assert_eq!(
+        source.matches("const INDEX_FILE_NAME").count(),
+        1,
+        "索引文件名常量恰一处定义"
+    );
+    assert!(
+        !source.contains("INDEX_SUFFIX"),
+        "零同值第二常量（`INDEX_SUFFIX` 一类）"
+    );
+    assert_eq!(
+        index_path(Path::new("/ws"))
+            .file_name()
+            .and_then(|name| name.to_str()),
+        Some("INDEX.toml"),
+        "常量值即索引路径末段"
+    );
+
+    let diff = include_str!("diff.rs");
+    assert_eq!(
+        diff.matches("\"INDEX.toml\"").count(),
+        0,
+        "`diff.rs` 内零索引文件名字面量（唯一持有者在 paths）"
+    );
+    assert_eq!(
+        diff.matches("super::paths::INDEX_FILE_NAME").count(),
+        1,
+        "`diff.rs` 恰一处引用本常量（收面后缀共用同一持有者）"
+    );
+}
+
+/// 边界（AC-1）：`schema_path` 末段恒 `<FQN>.schema.json`、单段 FQN 落 `Root/`、root 三形态
+/// 父链与 `contract_path` 同源。
+#[test]
+fn schema_path边界形态与contract同源() {
+    for root in [Path::new("/ws"), Path::new(""), Path::new("/ws/")] {
+        let path = schema_path(root, "App")
+            .unwrap_or_else(|| panic!("合法 FQN 应可派生：root = {root:?}"));
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("App.schema.json"),
+            "末段恒 `<FQN>.schema.json`：root = {root:?}"
+        );
+        assert_eq!(
+            path.parent(),
+            Some(directory(root).join("Root").as_path()),
+            "单段 FQN 落 Root 目录：root = {root:?}"
+        );
+
+        let contract = contract_path(root, "App.Backend.Infra.ArchiRuntime").expect("合法 FQN");
+        let schema = schema_path(root, "App.Backend.Infra.ArchiRuntime").expect("合法 FQN");
+        assert_eq!(
+            schema.parent(),
+            contract.parent(),
+            "两函数父目录逐字相等：root = {root:?}"
+        );
+    }
+}
+
+/// 边界：超长合法 FQN（1200 字符、零分隔符）与含换行的合法 FQN 均 `Some` 且不 panic
+/// （判据只看形态，不清洗内容）。
+#[test]
+fn contract_path超长与特殊字符fqn放行() {
+    let root = Path::new("/ws");
+    let long = format!("App.{}", "a".repeat(1200));
+    let path = contract_path(root, &long).unwrap_or_else(|| panic!("超长合法 FQN 应可派生"));
+    assert_eq!(
+        path.parent(),
+        Some(directory(root).join("App").as_path()),
+        "父目录 = `<Domain>` 目录"
+    );
+    assert!(schema_path(root, &long).is_some(), "schema 路径同步放行");
+
+    for fqn in ["App.🎯.Target", "App.Core.Line\nBreak"] {
+        let contract =
+            contract_path(root, fqn).unwrap_or_else(|| panic!("形态合法即放行：{fqn:?}"));
+        let schema = schema_path(root, fqn).unwrap_or_else(|| panic!("形态合法即放行：{fqn:?}"));
+        assert_eq!(
+            contract.parent(),
+            schema.parent(),
+            "两函数父目录同源：{fqn:?}"
+        );
+        assert!(
+            dot_segments(&contract).is_empty() && dot_segments(&schema).is_empty(),
+            "零目录穿越段：{fqn:?}"
+        );
+    }
+}
+
+/// 取 `signature` 起的函数体原文（到首个行首 `}` 为止）。
+fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source
+        .find(signature)
+        .unwrap_or_else(|| panic!("缺少函数签名 `{signature}`"));
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").map_or(rest.len(), |index| index + 1);
+    &rest[..end]
 }

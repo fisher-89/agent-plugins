@@ -16,7 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use foundation::layout::archi_api_dir;
+use foundation::layout::archi_models_dir;
 use serde_json::Value;
 
 use crate::api::contract::parse;
@@ -81,7 +81,7 @@ impl TempDir {
         );
     }
 
-    /// 落契约（`<archi_api_dir>/<Domain>/<FQN>.md`）。
+    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
     fn write_contract(&self, fqn: &str, content: &str) {
         let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
         if let Some(parent) = path.parent() {
@@ -209,18 +209,18 @@ fn empty_snapshot() -> ApiSnapshot {
 // enabled：递归扫描与启用条件
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-7 前置）：`<archi_api_dir>/Infra/App.X.md` → `true`；同一棵树只有
+/// 正向（AC-7 前置）：`<archi_models_dir>/Infra/App.X.md` → `true`；同一棵树只有
 /// `INDEX.toml` / `*.schema.json` 而无 `*.md` → `false`。
 #[test]
 fn enabled递归扫描到md() {
     let temp = TempDir::new("enabled-recursive");
-    temp.write(".dev-team/architecture/api/Infra/App.X.md", "# App.X\n");
+    temp.write(".dev-team/architecture/models/Infra/App.X.md", "# App.X\n");
     assert!(enabled(temp.root()), "递归含 md 即启用");
 
     let only_index = TempDir::new("enabled-no-md");
-    only_index.write(".dev-team/architecture/api/INDEX.toml", "# 空索引\n");
+    only_index.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
     only_index.write(
-        ".dev-team/architecture/api/Infra/App.X.schema.json",
+        ".dev-team/architecture/models/Infra/App.X.schema.json",
         "{\"$defs\": {}}\n",
     );
     assert!(
@@ -237,12 +237,12 @@ fn enabled目录缺席与空目录() {
     assert!(!enabled(bare.root()), "无 .dev-team → false（零 panic）");
 
     let empty = TempDir::new("enabled-empty");
-    fs::create_dir_all(archi_api_dir(empty.root())).expect("建空契约目录");
+    fs::create_dir_all(archi_models_dir(empty.root())).expect("建空契约目录");
     assert!(!enabled(empty.root()), "空契约目录 → false");
 
     let nested = TempDir::new("enabled-nested");
     nested.write(
-        ".dev-team/architecture/api/Infra/Sub/x.md",
+        ".dev-team/architecture/models/Infra/Sub/x.md",
         "# App.Infra.Sub.X\n",
     );
     assert!(enabled(nested.root()), "两层深仍递归命中");
@@ -253,19 +253,19 @@ fn enabled目录缺席与空目录() {
 #[test]
 fn enabled文件名边界() {
     let readme = TempDir::new("enabled-readme");
-    readme.write(".dev-team/architecture/api/README.md", "# 说明\n");
+    readme.write(".dev-team/architecture/models/README.md", "# 说明\n");
     assert!(enabled(readme.root()), "README.md 仍算 md 在场");
 
     let upper = TempDir::new("enabled-upper");
-    upper.write(".dev-team/architecture/api/x.MD", "# x\n");
+    upper.write(".dev-team/architecture/models/x.MD", "# x\n");
     assert!(!enabled(upper.root()), "x.MD 大小写敏感 → false");
 
     let doubled = TempDir::new("enabled-doubled");
-    doubled.write(".dev-team/architecture/api/x.md.txt", "# x\n");
+    doubled.write(".dev-team/architecture/models/x.md.txt", "# x\n");
     assert!(!enabled(doubled.root()), "x.md.txt 不以 .md 结尾 → false");
 
     let dir_named_md = TempDir::new("enabled-dir-md");
-    fs::create_dir_all(archi_api_dir(dir_named_md.root()).join("x.md")).expect("建同名目录");
+    fs::create_dir_all(archi_models_dir(dir_named_md.root()).join("x.md")).expect("建同名目录");
     assert!(!enabled(dir_named_md.root()), "同名目录不是文件 → false");
 }
 
@@ -279,8 +279,8 @@ fn enabled符号链接不跟随与深度上限两侧边界() {
     let linked = TempDir::new("enabled-symlink");
     let target = TempDir::new("enabled-symlink-target");
     target.write("x.md", "# x\n");
-    fs::create_dir_all(archi_api_dir(linked.root())).expect("建契约目录");
-    let link = archi_api_dir(linked.root()).join("link");
+    fs::create_dir_all(archi_models_dir(linked.root())).expect("建契约目录");
+    let link = archi_models_dir(linked.root()).join("link");
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(target.root(), &link).expect("建符号链接目录");
@@ -305,7 +305,7 @@ fn enabled符号链接不跟随与深度上限两侧边界() {
     // 深度上限：`k` 段子目录（depth = k）。
     fn nested_at(tag: &str, subdirs: usize) -> TempDir {
         let temp = TempDir::new(tag);
-        let mut relative = String::from(".dev-team/architecture/api");
+        let mut relative = String::from(".dev-team/architecture/models");
         for _ in 0..subdirs {
             relative.push_str("/d");
         }
@@ -2916,7 +2916,7 @@ fn meta幂等且三处产出物载元一致() {
 fn meta零io零spawn() {
     let temp = TempDir::new("meta-no-io");
     temp.write(".dev-team/architecture/models/01-test.toml", "# 模型占位\n");
-    temp.write(".dev-team/architecture/api/INDEX.toml", "# 索引占位\n");
+    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 索引占位\n");
     temp.write_contract("App.Core.Alpha", &pilot_markdown("App.Core.Alpha"));
 
     let before = temp.snapshot();
@@ -3952,7 +3952,7 @@ fn artifact_check的meta投影() {
 fn artifact_check未启用契约面仍ok() {
     let absent = TempDir::new("artifact-check-absent");
     let empty_dir = TempDir::new("artifact-check-empty-dir");
-    fs::create_dir_all(archi_api_dir(empty_dir.root())).expect("建空契约目录");
+    fs::create_dir_all(archi_models_dir(empty_dir.root())).expect("建空契约目录");
 
     for (tag, temp) in [("目录缺席", &absent), ("零 md", &empty_dir)] {
         let dto = super::artifact_check(temp.root()).expect("未启用仍 Ok");
@@ -4179,7 +4179,7 @@ fn findings正常装配产出判据() {
 fn findings未启用短路() {
     let absent = TempDir::new("findings-absent");
     let empty_dir = TempDir::new("findings-empty-dir");
-    fs::create_dir_all(archi_api_dir(empty_dir.root())).expect("建空契约目录");
+    fs::create_dir_all(archi_models_dir(empty_dir.root())).expect("建空契约目录");
     let elements = [element("App.Core.Alpha", &["src/alpha/"])];
 
     for (tag, temp) in [("目录缺席", &absent), ("零 md", &empty_dir)] {
@@ -5017,5 +5017,282 @@ fn bootstrap空符号集草稿() {
     assert!(
         text.contains("```json api-types\n{}\n```"),
         "全拒 ⇒ api-types 为 `{{}}`：\n{text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// enabled：模型文件不是启用证据（`module-entry-docs-semantics` / AC-4）
+//
+// 判据 = `models/`（== 契约资产目录）递归含 ≥1 份 `*.md`；一级 `NN-<域>.toml` 是模型
+// 声明，**不是**启用证据——「有模型、零契约 md」必须是未启用。
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-4 反向判据）：`models/` 一级恰 6 个 `NN-<域>.toml`（外加 schema 与索引）
+/// 而递归零 `*.md` → 未启用。
+#[test]
+fn enabled模型文件不是启用证据() {
+    let temp = TempDir::new("enabled-models-only");
+    for name in [
+        "01-app",
+        "02-backend",
+        "03-infra",
+        "04-frontend",
+        "05-checks",
+        "06-tools",
+    ] {
+        temp.write(
+            &format!(".dev-team/architecture/models/{name}.toml"),
+            "[element.\"App\"]\nkind = \"package\"\n",
+        );
+    }
+    temp.write(
+        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
+        "{\"$defs\": {}}\n",
+    );
+    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
+
+    assert!(
+        !enabled(temp.root()),
+        "6 份模型 toml + schema + 索引而零 md ⇒ 未启用（模型文件不是启用证据）"
+    );
+
+    let elements = [element("App.Core.Alpha", &["src/alpha/"])];
+    assert_eq!(
+        findings(temp.root(), &elements).expect("未启用不报错"),
+        Vec::new(),
+        "有模型、零契约 md ⇒ 契约判据空集（与 enabled 同一条判据）"
+    );
+}
+
+/// 正向（AC-4）：模型 toml 与契约 md 并存 → 启用（双身份混居零干扰）；`models/` 与
+/// `graph/` 两目录都在但零 md 的冷启动态 → 未启用且零 panic。
+#[test]
+fn enabled模型与契约混居与冷启动态() {
+    let mixed = TempDir::new("enabled-mixed");
+    mixed.write(
+        ".dev-team/architecture/models/01-app.toml",
+        "[element.\"App\"]\nkind = \"package\"\n",
+    );
+    mixed.write(
+        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
+        "# App.Backend.Infra.ArchiRuntime\n",
+    );
+    assert!(
+        enabled(mixed.root()),
+        "模型 toml + 契约 md 并存 ⇒ 启用（模型文件不遮蔽契约子树）"
+    );
+
+    let cold = TempDir::new("enabled-cold-start");
+    fs::create_dir_all(archi_models_dir(cold.root())).expect("建契约目录");
+    let index = paths::index_path(cold.root());
+    fs::create_dir_all(index.parent().expect("索引有父目录")).expect("建索引目录");
+    assert!(
+        !enabled(cold.root()),
+        "两目录在、零 md ⇒ 未启用（零 panic）"
+    );
+}
+
+/// 边界（AC-4 单点判定自证）：`mod.rs` 内 `has_markdown(&paths::directory(root), 0)` 恰
+/// 1 处（命令层无第二处判断），`enabled` 体内零目录派生调用与零段名字面量（根只经
+/// `paths::directory` 单点）。
+#[test]
+fn enabled判定单点自证() {
+    let source = include_str!("mod.rs");
+    assert_eq!(
+        source
+            .matches("has_markdown(&paths::directory(root), 0)")
+            .count(),
+        1,
+        "启用判定单点（恰一处，命令层无第二处判断）"
+    );
+
+    let start = source
+        .find("pub fn enabled(root: &Path) -> bool {")
+        .expect("`enabled` 在案");
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").expect("函数体收尾");
+    let body = &rest[..end];
+    for banned in [
+        "archi_models_dir",
+        "archi_api",
+        "\"api\"",
+        "\"models\"",
+        "\"graph\"",
+    ] {
+        assert!(
+            !body.contains(banned),
+            "`enabled` 体内零 `{banned}`（根只经 paths::directory）：{body}"
+        );
+    }
+}
+
+/// 正向（AC-4 读数守恒）：契约 md 与模型 toml 同住 `models/`（md 在 `<Domain>/` 子目录）
+/// 时启用，`load_contracts` 正常出三表——模型文件混居零结构诊断。
+#[test]
+fn load_contracts双身份混居仍出三表() {
+    let temp = TempDir::new("mixed-dual-identity");
+    let fqn = "App.Backend.Infra.ArchiRuntime";
+    temp.write_model(&format!(
+        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
+         path = [\"crates/infra/archi/\"]\n"
+    ));
+    temp.write(
+        "crates/infra/archi/src/lib.rs",
+        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
+    );
+    temp.write_contract(fqn, &pilot_markdown(fqn));
+
+    assert!(
+        enabled(temp.root()),
+        "md 落 `models/<Domain>/` 子目录仍启用"
+    );
+    let elements = [element(fqn, &["crates/infra/archi/"])];
+    let snapshot = load_contracts(temp.root(), &elements).expect("混居不产出结构诊断");
+    assert_eq!(snapshot.contracts.len(), 1, "contracts 就位");
+    assert_eq!(snapshot.schemas.len(), 1, "schemas 就位");
+    assert!(
+        snapshot.symbols.contains_key(fqn) && !snapshot.symbols[fqn].is_empty(),
+        "symbols 就位（模型 toml 混居不影响取数面）"
+    );
+}
+
+/// 边界（AC-4 读数守恒）：`apiFindings` 的计数只由契约判据决定——有契约元素零判据
+/// （`apiEntryMissing 0`）、有入口无契约者各一条 `apiMissing`，模型 toml 与契约子树
+/// 混居同一目录不产生附加判据（fixture 级等价于真实仓库的 `0 + N` 分桶）。
+#[test]
+fn findings计数与模型文件混居无关() {
+    let temp = TempDir::new("findings-counts-stable");
+    let with_contract = "App.Core.Alpha";
+    let without = "App.Core.Beta";
+    temp.write_model(&format!(
+        "[element.\"{with_contract}\"]\nkind = \"module\"\ngate = \"warn\"\n\
+         path = [\"src/alpha/\"]\n\n\
+         [element.\"{without}\"]\nkind = \"module\"\ngate = \"warn\"\n\
+         path = [\"src/beta/\"]\n"
+    ));
+    temp.write("src/alpha/src/lib.rs", "pub fn alpha() {}\n");
+    temp.write("src/beta/src/lib.rs", "pub fn beta() {}\n");
+    // 零 op / 零类型的契约：声明集为空 ⇒ 该元素零判据（契约即承诺且已在案）。
+    temp.write_contract(
+        with_contract,
+        &format!(
+            "# {with_contract}
+
+## 职能
+
+口径示例。
+"
+        ),
+    );
+
+    let elements = [
+        element(with_contract, &["src/alpha/"]),
+        element(without, &["src/beta/"]),
+    ];
+    let found = findings(temp.root(), &elements).expect("判据应成功");
+    let count = |kind: &str| -> usize {
+        found
+            .iter()
+            .filter(|finding| finding.kind.as_str() == kind)
+            .count()
+    };
+    assert_eq!(count("apiEntryMissing"), 0, "两元素入口均可解析");
+    assert_eq!(
+        count("apiMissing"),
+        1,
+        "有入口无契约者恰一条：{:?}",
+        found
+            .iter()
+            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        found.len(),
+        1,
+        "模型 toml 与契约子树混居零附加判据：{:?}",
+        found
+            .iter()
+            .map(|finding| finding.kind.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// 边界（AC-4 ③ · 离线可推读数）：真实仓库的 `path` 非空元素 44 个，其中 `api = none`
+/// 2 个（留白不入判据面）、契约在案 1 个（零判据），其余 41 个各一条 `apiMissing`
+/// ⇒ `apiEntryMissing 0` + `apiMissing 41`（`44 − 2 − 1 = 41`）。换根只改契约落点，
+/// 该算术不变，故把它写成 fixture 级机械事实：判据计数只由「元素声明 + 契约在案与否」
+/// 决定，与契约目录叫什么名字无关。
+#[test]
+fn findings离线可推读数四十四减二减一() {
+    let temp = TempDir::new("findings-offline-counts");
+    let mut elements: Vec<ArchiElement> = Vec::new();
+    for index in 0..44 {
+        let fqn = format!("App.Core.E{index:02}");
+        let path = format!("src/e{index:02}/");
+        temp.write(&format!("{path}src/lib.rs"), "pub fn body() {}\n");
+        let mut declared = element(&fqn, &[path.as_str()]);
+        if index >= 42 {
+            declared.api = ApiStatus::None;
+        }
+        elements.push(declared);
+    }
+    let in_place = "App.Core.E00";
+    temp.write_contract(
+        in_place,
+        &format!("# {in_place}\n\n## 职能\n\n口径示例。\n"),
+    );
+
+    // 夹具自证：44 个 `path` 非空元素、`api = none` 恰 2 个、契约在案恰 1 份。
+    assert_eq!(
+        elements
+            .iter()
+            .filter(|element| !element.path.is_empty())
+            .count(),
+        44,
+        "`path` 非空元素恰 44 个"
+    );
+    assert_eq!(
+        elements
+            .iter()
+            .filter(|element| element.api == ApiStatus::None)
+            .count(),
+        2,
+        "`api = none` 的元素恰 2 个（留白不入判据面）"
+    );
+    assert_eq!(
+        elements
+            .iter()
+            .filter(|element| paths::contract_path(temp.root(), &element.fqn)
+                .is_some_and(|path| path.is_file()))
+            .count(),
+        1,
+        "契约文件在案恰 1 份（落在 `models/Core/` 下）"
+    );
+
+    let found = findings(temp.root(), &elements).expect("判据应成功");
+    let count = |kind: &str| -> usize {
+        found
+            .iter()
+            .filter(|finding| finding.kind.as_str() == kind)
+            .count()
+    };
+    assert_eq!(
+        count("apiEntryMissing"),
+        0,
+        "44 个入口全部可解析 ⇒ apiEntryMissing 0"
+    );
+    assert_eq!(
+        count("apiMissing"),
+        41,
+        "44 − 2 − 1 = 41：{:?}",
+        found
+            .iter()
+            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        found.len(),
+        41,
+        "判据总数 41（`apiEntryMissing 0` + `apiMissing 41`，零附加判据）"
     );
 }

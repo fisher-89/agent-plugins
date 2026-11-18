@@ -1658,7 +1658,7 @@ fn module_detail的api与投影单点逐字段相等() {
         .count();
     assert!(
         !source.contains("paths::")
-            && !source.contains("foundation::layout::archi_api_dir")
+            && !source.contains("foundation::layout::archi_graph_dir")
             && constructed == 0,
         "`dto` 内零契约路径拼装 / 零 `ArchiApiRef` 构造字面量（全由投影单点产出）"
     );
@@ -2123,7 +2123,7 @@ fn api_check_fixture() -> ArchiApiCheck {
         },
         mismatched: vec!["crates/core/archi.i.rs".to_owned()],
         orphaned: vec!["src/loose.i.ts".to_owned()],
-        missing: vec![".dev-team/architecture/api/INDEX.toml".to_owned()],
+        missing: vec![".dev-team/architecture/graph/INDEX.toml".to_owned()],
     }
 }
 
@@ -2527,4 +2527,183 @@ fn module_detail的entry投影与入口同级落点() {
         graph.elements.iter().all(|element| element.entry.is_none()),
         "停摆态零 `entry` 泄漏（元素表本就为空）"
     );
+}
+
+// ===========================================================================
+// doc 方位串换段（`module-entry-docs-semantics` / AC-5 ③ / AC-8）
+//
+// 本变更为 doc-only：`dto.rs` 两处、`api/extract/mod.rs` 一处、`model.rs` 一处
+// 方位串由 `<archi_dir>/api/…` 改指 `<archi_dir>/models/…`，字段名 / 顺序 /
+// serde / specta 派生逐字不变。三份产品的旧方位串守卫集中在本节（机械断言，
+// 不靠 review 记忆）——`api/extract/mod.rs:5` 与 `model.rs:46` 回退即判红。
+// ===========================================================================
+
+/// 正向（AC-5 ③ / AC-8）：`dto.rs` 的 doc 方位串已换段——两处 `models/<Domain>/`
+/// 在场（`ApiStatus` 与 `ArchiApiRef::contract_path`）、含完整契约文件方位串。
+#[test]
+fn dto_doc方位串换段() {
+    let source = include_str!("dto.rs");
+    assert_eq!(
+        source.matches("models/<Domain>/").count(),
+        2,
+        "两处 doc 方位串换段（`ApiStatus` 与 `ArchiApiRef::contract_path`）"
+    );
+    assert!(
+        source.contains("<archi_dir>/models/<Domain>/<FQN>.md"),
+        "契约文件 doc 改指 models 段"
+    );
+}
+
+/// 正向（AC-5 ③）：三份产品源文各含换段后的方位串——`dto.rs` 两处
+/// `models/<Domain>/`；`api/extract/mod.rs` 一处 `<archi_models_dir>/<Domain>/<FQN>.md`；
+/// `model.rs` 一处「架构域 `models/<Domain>/` 目录」。
+#[test]
+fn 三份产品源文doc方位串换段() {
+    let dto = include_str!("dto.rs");
+    assert_eq!(
+        dto.matches("models/<Domain>/").count(),
+        2,
+        "`dto.rs` 两处 doc 方位串换段"
+    );
+
+    let extract = include_str!("api/extract/mod.rs");
+    assert_eq!(
+        extract
+            .matches("<archi_models_dir>/<Domain>/<FQN>.md")
+            .count(),
+        1,
+        "`api/extract/mod.rs` 模块 doc 一行换段（取数面零改动）"
+    );
+
+    let model = include_str!("model.rs");
+    assert_eq!(
+        model.matches("架构域 `models/<Domain>/` 目录").count(),
+        1,
+        "`model.rs` 的 `api` 字段 doc 一行换段"
+    );
+}
+
+/// 异常（AC-5 ③）：三份产品源文的旧方位串计数全 0——`architecture/api`、
+/// `<archi_dir>/api/`、「架构域 `api` 目录」（含无反引号变体）逐串归零；
+/// 复原任一旧串即本用例判红。
+#[test]
+fn 三份产品源文旧方位串零残留() {
+    for (label, source) in [
+        ("dto.rs", include_str!("dto.rs")),
+        ("api/extract/mod.rs", include_str!("api/extract/mod.rs")),
+        ("model.rs", include_str!("model.rs")),
+    ] {
+        for stale in [
+            "architecture/api",
+            "<archi_dir>/api/",
+            "架构域 `api` 目录",
+            "架构域 api 目录",
+        ] {
+            assert_eq!(
+                source.matches(stale).count(),
+                0,
+                "`{label}` 内旧方位串 `{stale}` 零命中（旧位置必须清空）"
+            );
+        }
+    }
+}
+
+/// 边界（AC-5 ③）：守卫面不越界——`api/extract/mod.rs` 的三个公共入口签名与
+/// 语言分派三臂仍在（只允许 doc 一行 diff，取数 / 签名归一零改动）；
+/// `model.rs` 的 `Element` 结构体与 `api` / `entry` 两个字段行仍在（字段面零改动由既有
+/// `model_test` 的字段数用例承担）。
+#[test]
+fn 产品源文doc守卫不越界() {
+    let extract = include_str!("api/extract/mod.rs");
+    for signature in [
+        "pub fn extract(element: &ArchiElement, file: &str, source: &str) -> Vec<ApiSymbol> {",
+        "pub fn extract_element(",
+        "pub fn normalize_signature(symbol: &ApiSymbol) -> String {",
+    ] {
+        assert_eq!(
+            extract.matches(signature).count(),
+            1,
+            "`api/extract/mod.rs` 公共入口 `{signature}` 恰一处（能力面零改动）"
+        );
+    }
+    for arm in [
+        "Language::Rust => rust::extract_crate(root, entry)",
+        "Closure::new(root, &owners, element).collect(entry, None)",
+        "Language::Unknown => Vec::new()",
+    ] {
+        assert!(
+            extract.contains(arm),
+            "`api/extract/mod.rs` 分派臂 `{arm}` 仍在（doc-only 改动不触取数面）"
+        );
+    }
+
+    let model = include_str!("model.rs");
+    assert_eq!(
+        model.matches("pub struct Element {").count(),
+        1,
+        "`model.rs` 内 `Element` 结构体恰一处（字段面零改动由既有 model_test 承担）"
+    );
+    assert_eq!(
+        model.matches("pub api: ApiStatus,").count(),
+        1,
+        "`api` 字段行逐字不变（doc-only 换段）"
+    );
+    assert_eq!(
+        model.matches("pub entry: Option<String>,").count(),
+        1,
+        "`entry` 指针字段行逐字不变（doc-only 换段）"
+    );
+}
+
+/// 边界（AC-8）：换段只在 doc 注释内——`ArchiApiRef` 的四个字段行与 `ApiStatus`
+/// 的两个变体行逐字不变（形状面零改动），且 `dto.rs` 内 `archi_api_dir` /
+/// `archi_api_rel_dir` 零命中（不保留改指别名）。
+#[test]
+fn dto_doc换段不触字段面() {
+    let source = include_str!("dto.rs");
+
+    let block_start = source
+        .find("pub struct ArchiApiRef {")
+        .expect("`ArchiApiRef` 在案");
+    let block = &source[block_start..];
+    let block_end = block.find("\n}").expect("结构体块应以独立 `}` 行收尾");
+    let fields: Vec<&str> = block[..block_end]
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("pub ") && !line.starts_with("pub struct "))
+        .collect();
+    assert_eq!(
+        fields,
+        vec![
+            "pub status: ApiStatus,",
+            "pub contract_path: Option<String>,",
+            "pub schema_path: Option<String>,",
+            "pub generated_path: Option<String>,",
+        ],
+        "`ArchiApiRef` 字段名与声明序逐字不变：{fields:?}"
+    );
+
+    let enum_start = source
+        .find("pub enum ApiStatus {")
+        .expect("`ApiStatus` 在案");
+    let enum_block = &source[enum_start..];
+    let enum_end = enum_block.find("\n}").expect("枚举块应以独立 `}` 行收尾");
+    let variants: Vec<&str> = enum_block[..enum_end]
+        .lines()
+        .map(str::trim)
+        .filter(|line| *line == "Declared," || *line == "None,")
+        .collect();
+    assert_eq!(
+        variants,
+        vec!["Declared,", "None,"],
+        "`ApiStatus` 变体与声明序逐字不变：{variants:?}"
+    );
+
+    for removed in ["archi_api_dir", "archi_api_rel_dir"] {
+        assert_eq!(
+            source.matches(removed).count(),
+            0,
+            "`dto.rs` 内 `{removed}` 零命中（不保留改指别名）"
+        );
+    }
 }

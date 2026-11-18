@@ -22,7 +22,7 @@ use archi::api::paths::{
 use archi::api::schema::{build_index, build_schema, ApiFormStatus, IndexEntry};
 use archi::api::{api_ref, api_ref_of, meta};
 use archi::dto::{ApiStatus, ArchiApiRef};
-use foundation::layout::archi_api_dir;
+use foundation::layout::archi_models_dir;
 use serde_json::Value;
 
 /// 试点元素 FQN。
@@ -66,12 +66,12 @@ fn pilot_element(fqn: &str, paths: &[&str]) -> archi::dto::ArchiElement {
 
 /// 试点契约的 repo 相对路径串。
 fn contract_rel() -> String {
-    format!(".dev-team/architecture/api/Infra/{FQN}.md")
+    format!(".dev-team/architecture/models/Infra/{FQN}.md")
 }
 
 /// 试点 schema 生成物的 repo 相对路径串。
 fn schema_rel() -> String {
-    format!(".dev-team/architecture/api/Infra/{FQN}.schema.json")
+    format!(".dev-team/architecture/models/Infra/{FQN}.schema.json")
 }
 
 /// 试点 `.i.rs` 生成物的 repo 相对路径串（落**实现入口同级**）。
@@ -105,9 +105,9 @@ fn pilot_schema() -> Value {
     schema
 }
 
-/// 仓库 `.dev-team/architecture/api` 目录。
+/// 仓库 `.dev-team/architecture/models` 目录。
 fn api_dir() -> PathBuf {
-    archi_api_dir(&repository_root())
+    archi_models_dir(&repository_root())
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ fn api_dir() -> PathBuf {
 // ---------------------------------------------------------------------------
 
 /// 正向（AC-13）：三件资产按 `paths` 单点派生的落点在盘——契约在 `<Domain>/` 下、schema
-/// 与它同目录、`.i.rs` 在元素根同级；索引在 api 根（比契约少一段）。
+/// 与它同目录、`.i.rs` 在元素根同级；索引在独立的 `graph/` 根（与契约目录分家）。
 #[test]
 fn 试点三件资产按单点派生落点在盘() {
     let root = repository_root();
@@ -134,7 +134,7 @@ fn 试点三件资产按单点派生落点在盘() {
     assert_eq!(
         contract,
         api_dir().join("Infra").join(format!("{FQN}.md")),
-        "契约路径 = `<archi_api_dir>/<Domain>/<FQN>.md`（零行内 `api` 段）"
+        "契约路径 = `<archi_models_dir>/<Domain>/<FQN>.md`（零行内 `api` 段）"
     );
     assert_eq!(
         generated,
@@ -154,15 +154,39 @@ fn 试点三件资产按单点派生落点在盘() {
         legacy.display()
     );
     assert!(index_path(&root).is_file(), "`INDEX.toml` 全局唯一一份在盘");
+    let index = index_path(&root);
     assert_eq!(
-        index_path(&root),
-        directory(&root).join("INDEX.toml"),
-        "索引 = api 目录 + `INDEX.toml`"
+        index.file_name().and_then(|name| name.to_str()),
+        Some("INDEX.toml"),
+        "索引文件名恒 `INDEX.toml`"
+    );
+    assert_eq!(
+        index.parent(),
+        Some(foundation::layout::archi_graph_dir(&root).as_path()),
+        "索引家 = `<archi_graph_dir>`（与契约目录分家）"
+    );
+    assert!(
+        !index.starts_with(directory(&root)),
+        "索引 MUST NOT 落在契约目录之内：{}",
+        index.display()
     );
     assert_ne!(
-        index_path(&root).parent(),
+        index.parent(),
         contract.parent(),
-        "索引在 api 根、契约在域目录（两层不混居）"
+        "索引在 graph 根、契约在域目录（两层不混居）"
+    );
+}
+
+/// 异常（AC-1）：旧契约目录缺席——`<archi_dir>/api` 目录不存在。旧位置缺席的机械面
+/// 只能由目录读数 / 负向断言守（孤儿枚举严格两处派生，`api/` 残留对 `api:check`
+/// 不可见）。
+#[test]
+fn 旧契约目录已退役() {
+    let legacy = foundation::layout::archi_dir(&repository_root()).join("api");
+    assert!(
+        !legacy.exists(),
+        "旧契约目录 MUST NOT 残留：{}",
+        legacy.display()
     );
 }
 
@@ -548,7 +572,7 @@ fn 投影三路径与单点派生逐字相等() {
         projection
             .contract_path
             .as_deref()
-            .is_some_and(|path| path.starts_with(".dev-team/architecture/api/")),
+            .is_some_and(|path| path.starts_with(".dev-team/architecture/models/")),
         "路径串是 repo 相对 POSIX（零反斜杠、零前导 `./`）"
     );
 }

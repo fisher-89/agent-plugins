@@ -43,7 +43,7 @@ pub struct Element {
     /// gate 档位（缺省 `off`）
     pub gate: GateTier,
     /// 契约状态指针（缺省 `declared`；协议正文 MUST NOT 进模型——签名 / 导出符号 /
-    /// 接口定义写在架构域 `api` 目录的契约资产里）
+    /// 接口定义写在架构域 `models/<Domain>/` 目录的契约资产里）
     pub api: ApiStatus,
     /// 实现入口指针（缺省 `None`）：单值、repo 相对 POSIX，与 `path` 同口径
     /// （`./` 前缀由归一剥除、不参与身份）。四条判据（基准 / 落位 / 存在 /

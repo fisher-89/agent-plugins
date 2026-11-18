@@ -562,20 +562,25 @@ fn knowledge词表派生api状态二值逐值在场() {
     );
 }
 
-/// 正向（AC-10）：契约目录相对路径由 `archi_api_rel_dir()` 逐字注入；三棵目录前缀
-/// 同源（`archi_rel_dir()` 共享前缀）。
+/// 正向（AC-6）：契约资产与契约索引两个方位的相对路径由 `archi_models_rel_dir()` /
+/// `archi_graph_rel_dir()` 逐字注入；四棵目录前缀同源（`archi_rel_dir()` 共享前缀）。
 #[test]
-fn knowledge契约目录派生注入且三目录同源() {
+fn knowledge契约资产与索引派生注入且四目录同源() {
     let text = text();
-    let api = foundation::layout::archi_api_rel_dir();
+    let contracts = foundation::layout::archi_models_rel_dir();
+    let index = foundation::layout::archi_graph_rel_dir();
     assert!(
-        text.contains(&api),
-        "知识文本缺契约目录派生串 {api}（目录 MUST NOT 手抄）"
+        text.contains(&format!("契约资产：{contracts}/<Domain>/<FQN>.md")),
+        "知识文本缺契约资产派生串 {contracts}（路径 MUST NOT 手抄）"
+    );
+    assert!(
+        text.contains(&format!("契约索引：{index}/INDEX.toml")),
+        "知识文本缺契约索引派生串 {index}（索引与契约分家）"
     );
     for relative in [
-        foundation::layout::archi_models_rel_dir(),
+        contracts.clone(),
         foundation::layout::archi_decisions_rel_dir(),
-        api.clone(),
+        index.clone(),
     ] {
         assert!(
             relative.starts_with(&foundation::layout::archi_rel_dir()),
@@ -689,8 +694,8 @@ fn build真实骨架产物含api面() {
         "派生段含 api 状态行：\n{built}"
     );
     assert!(
-        built.contains(&foundation::layout::archi_api_rel_dir()),
-        "派生段含契约目录：\n{built}"
+        built.contains(&foundation::layout::archi_models_rel_dir()),
+        "派生段含契约资产方位：\n{built}"
     );
     for status in ApiStatus::ALL {
         assert!(
@@ -709,7 +714,7 @@ fn build真实骨架产物含api面() {
 // 骨架 md 的实现措辞是「契约权威在**契约资产**（末段给出路径）」。二者不是同一字面——
 // 设计那半句是**语义要求**（权威指向契约资产、路径由派生段给出），md 侧按「零目录字面量」
 // 既有纪律只能写「契约资产」+「末段给出路径」，「api 目录」这个具体串由 `build()` 的派生段
-// 注入（`契约目录：<archi_api_rel_dir()>`）。故本组用例把判据落成三条可机械核对的形态：
+// 注入（`契约资产：<archi_models_rel_dir()>/<Domain>/<FQN>.md`）。故本组用例把判据落成三条可机械核对的形态：
 // ① 旧口径零命中；② 新语义的**关键词**在场（契约资产 / 数据末给出路径 / 状态指针 /
 // 正文不进模型）；③ 「api 目录」这一路径串由派生段承载而非骨架手抄。
 // ===========================================================================
@@ -1047,12 +1052,16 @@ fn 骨架边界段改写为契约资产口径() {
     // 「api 目录」这一具体路径串位于**派生段**（骨架手抄会与 `零目录字面量` 冲突）
     let derived = text();
     assert!(
-        derived.contains(&foundation::layout::archi_api_rel_dir()),
-        "契约目录路径由派生段承载：{derived}"
+        derived.contains(&foundation::layout::archi_models_rel_dir()),
+        "契约资产路径由派生段承载：{derived}"
     );
     assert!(
-        derived.contains("契约目录："),
-        "派生段须有契约目录引导语：{derived}"
+        derived.contains("契约资产："),
+        "派生段须有契约资产引导语：{derived}"
+    );
+    assert!(
+        derived.contains("契约索引："),
+        "派生段须有契约索引引导语：{derived}"
     );
 }
 
@@ -1129,4 +1138,86 @@ fn knowledge零占位符与体量上限() {
         bullet.trim_start().starts_with('-'),
         "自检纪律以 bullet 形态追加：{bullet}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 换段纪律：两方位标签各一处 / 旧方位与旧标签零命中 / 体量实测值（AC-6）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-6）：两个方位标签「契约资产：」/「契约索引：」各恰 1 处（两种写法并存必然
+/// 漂移，故只认新标签），四面词表连接形态仍为 `" / "`。
+#[test]
+fn knowledge两方位标签各恰一处() {
+    use archi::dto::ApiStatus;
+
+    let text = text();
+    for label in ["契约资产：", "契约索引："] {
+        assert_eq!(
+            text.matches(label).count(),
+            1,
+            "标签 `{label}` 恰一处（旧标签零残留）"
+        );
+    }
+    for (label, words) in [
+        (
+            "元素 kind：",
+            ElementKind::ALL.map(|kind| kind.as_str()).to_vec(),
+        ),
+        (
+            "gate 档：",
+            GateTier::ALL.map(|gate| gate.as_str()).to_vec(),
+        ),
+        (
+            "api 状态：",
+            ApiStatus::ALL.map(|status| status.as_str()).to_vec(),
+        ),
+        (
+            "结构诊断：",
+            DiagnosticKind::ALL.map(|kind| kind.as_str()).to_vec(),
+        ),
+    ] {
+        let expected = words.join(" / ");
+        assert!(
+            text.contains(&expected),
+            "`{label}` 行仍以 \" / \" 连接四面词表（期望 {expected}）"
+        );
+    }
+}
+
+/// 异常（AC-6）：输出零 `architecture/api` 旧方位串、零「契约目录：」旧标签；注入串不
+/// 产生新的 `<>` 相邻两字符——`archi_knowledge.rs` 内 `<>` 仍恰 4 处（两处 doc 引用 +
+/// 判据 1 + 文案 1）。
+#[test]
+fn knowledge零旧方位与尖括号计数不变() {
+    let text = text();
+    assert!(
+        !text.contains("architecture/api"),
+        "输出零旧方位串 `architecture/api`"
+    );
+    assert!(
+        !text.contains("契约目录："),
+        "输出零「契约目录：」旧标签（旧标签零命中）"
+    );
+    assert!(!text.contains("<>"), "输出零 `<>` 相邻两字符");
+
+    let source = include_str!("archi_knowledge.rs");
+    assert_eq!(
+        source.matches("<>").count(),
+        4,
+        "`archi_knowledge.rs` 内 `<>` 恰 4 处（两处 doc 引用 + 判据 1 + 文案 1；注入串 MUST NOT 产生第五处）"
+    );
+}
+
+/// 边界（AC-6）：体量实测值固定——`knowledge()` 输出恰 3646 字节（实现后实测的骨架字节
+/// + 换段后的派生段字节），仍在既有 4096 上限内。
+#[test]
+fn knowledge体量实测值固定() {
+    let text = text();
+    assert_eq!(
+        text.len(),
+        3646,
+        "体量实测值固定（骨架 trim_end 字节 + 派生段字节），实得 {} 字节",
+        text.len()
+    );
+    assert!(text.len() <= 4096, "仍在既有 4KB 上限内");
 }

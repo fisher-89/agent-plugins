@@ -76,7 +76,7 @@ fn three_files(root: &Path) -> Vec<GeneratedFile> {
         file(root, "crates/core/archi.i.rs", "// 生成物 A\n"),
         file(
             root,
-            ".dev-team/architecture/api/Core/App.md.schema.json",
+            ".dev-team/architecture/models/Core/App.md.schema.json",
             "{}\n",
         ),
         file(root, "src/types/generated/bindings.i.ts", "export {};\n"),

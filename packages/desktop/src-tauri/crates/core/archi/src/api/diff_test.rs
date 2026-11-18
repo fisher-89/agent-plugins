@@ -473,8 +473,9 @@ fn compare契约目录有界枚举的深度上限() {
 // 边界：空仓库 / 路径归一 / 零写盘 / root 形态 / 超大孤儿列表
 // ---------------------------------------------------------------------------
 
-/// 边界（AC-3）：①模型缺席②零 `*.toml`③有元素但 api 目录缺席 → 均 `Ok`；`missing` 恰为
-/// `INDEX.toml` 一条、另两列空（`enabled = false` 时照常报该条，不因未启用而空列）。
+/// 边界（AC-3 / AC-7）：①模型缺席②零 `*.toml`③有元素但契约 md 缺席 → 均 `Ok`；`missing`
+/// 恰为 `graph/` 根下的 `INDEX.toml` 一条、另两列空（`enabled = false` 时照常报该条，不因
+/// 未启用而空列）。
 #[test]
 fn compare空仓库与契约面未启用() {
     let absent = TempDir::new("compare-empty-absent");
@@ -489,13 +490,13 @@ fn compare空仓库与契约面未启用() {
     for (tag, temp) in [
         ("模型目录缺席", &absent),
         ("零 toml", &no_toml),
-        ("api 目录缺席", &no_api_dir),
+        ("契约 md 缺席", &no_api_dir),
     ] {
         let diff = compare(temp.root()).expect("空仓库不报错");
         assert_eq!(diff.missing.len(), 1, "{tag}：missing 恰一条");
         assert!(
-            diff.missing[0].ends_with("INDEX.toml"),
-            "{tag}：缺口是 INDEX.toml：{:?}",
+            diff.missing[0].ends_with("graph/INDEX.toml"),
+            "{tag}：缺口是 graph 根下的 INDEX.toml（仅判 `INDEX.toml` 钉不住新索引家）：{:?}",
             diff.missing
         );
         assert!(diff.mismatched.is_empty(), "{tag}：零不符");
@@ -621,9 +622,10 @@ fn compare结构错模型即err() {
     assert_eq!(before, temp.snapshot(), "Err 前后零写盘");
 }
 
-/// 异常（AC-4 / D3）：`include_str!("diff.rs")` 自证遍历面零第二份实现——`walk_source_files`
-/// 调用恰一处、`WalkBuilder` 零命中、`read_dir` 只在 `collect_api_dir`、深度上限复用既有常量、
-/// 零 `SKIPPED_DIRECTORY` / `MAX_MODULE_WALK_DEPTH`、`pub fn` 计数恰 1。
+/// 异常（AC-4 / D3 / AC-7）：`include_str!("diff.rs")` 自证遍历面零第二份实现——
+/// `walk_source_files` 调用恰一处、`WalkBuilder` 零命中、`read_dir` 只出现在同一份有界枚举
+/// （两处派生的 `collect_artifacts`）、深度上限复用既有常量、零 `SKIPPED_DIRECTORY` /
+/// `MAX_MODULE_WALK_DEPTH`、`pub fn` 计数恰 1。
 #[test]
 fn compare遍历面零第二份实现() {
     let source = include_str!("diff.rs");
@@ -730,5 +732,205 @@ fn 落点样例改述为入口同级() {
     assert!(
         source.contains("命名即身份") || source.contains("与落点深度无关"),
         "判据说明保留：命名即身份、与落点深度无关"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 两处派生、收面后缀、深度上限、符号链接（`module-entry-docs-semantics` / AC-7）
+// ---------------------------------------------------------------------------
+
+/// 异常（AC-7）：收面后缀与目录形态逐值拒收——索引错位到模型根、后缀相近（`.bak` /
+/// `.txt`）、同名目录一律不入 `orphaned`（索引收面只在 `graph/` 根）。
+#[test]
+fn compare收面后缀与目录形态逐值拒收() {
+    let temp = TempDir::new("compare-suffix-negative");
+    write_two_language_corpus(&temp);
+    materialize(&temp);
+
+    let models_dir = paths::directory(temp.root());
+    let misplaced_index = models_dir.join("INDEX.toml");
+    temp.write_absolute(&misplaced_index, "# 错位到模型根的索引\n");
+
+    let app_dir = models_dir.join("App");
+    fs::create_dir_all(app_dir.join("Ghost.schema.json")).expect("建同名目录");
+    let bak = app_dir.join("Ghost.schema.json.bak");
+    temp.write_absolute(&bak, "{\"$defs\": {}}\n");
+
+    let graph_dir = foundation::layout::archi_graph_dir(temp.root());
+    let graph_txt = graph_dir.join("INDEX.toml.txt");
+    temp.write_absolute(&graph_txt, "# 后缀不是 INDEX.toml\n");
+    let graph_bak = graph_dir.join("INDEX.toml.bak");
+    temp.write_absolute(&graph_bak, "# 后缀不是 INDEX.toml\n");
+
+    let diff = compare(temp.root()).expect("比对应成功");
+    assert!(
+        diff.orphaned.is_empty(),
+        "错位索引 / 后缀相近 / 同名目录一律不入 orphaned：{:?}",
+        diff.orphaned
+    );
+    assert_clean(&diff, "既有应生成集未被上述盘面文件扰动");
+}
+
+/// 边界（AC-7）：索引侧同形有界枚举——`graph/` 深层索引越过 `MAX_API_WALK_DEPTH` 不入
+/// 列、上限内入列；`graph/` 内的 `*.schema.json` 不在收面（后缀仍只收 `INDEX.toml`）。
+#[test]
+fn compare索引侧深度与收面后缀() {
+    let temp = TempDir::new("compare-graph-depth");
+    write_two_language_corpus(&temp);
+    materialize(&temp);
+
+    let graph_dir = foundation::layout::archi_graph_dir(temp.root());
+    let at_limit = graph_dir
+        .join("a")
+        .join("b")
+        .join("c")
+        .join("d")
+        .join("INDEX.toml");
+    let beyond = graph_dir
+        .join("a")
+        .join("b")
+        .join("c")
+        .join("d")
+        .join("e")
+        .join("f")
+        .join("INDEX.toml");
+    let schema_in_graph = graph_dir.join("Sub.schema.json");
+    temp.write_absolute(&at_limit, "# 上限内的深层索引\n");
+    temp.write_absolute(&beyond, "# 越过上限的深层索引\n");
+    temp.write_absolute(&schema_in_graph, "{\"$defs\": {}}\n");
+
+    let diff = compare(temp.root()).expect("比对应成功");
+    assert!(
+        diff.orphaned.contains(&rel(&temp, &at_limit)),
+        "depth 4 == 上限 → 入列：{:?}",
+        diff.orphaned
+    );
+    assert!(
+        !diff.orphaned.contains(&rel(&temp, &beyond)),
+        "depth 6 > 上限 → 不入列：{:?}",
+        diff.orphaned
+    );
+    assert!(
+        !diff.orphaned.contains(&rel(&temp, &schema_in_graph)),
+        "graph/ 内的 *.schema.json 不在索引侧收面：{:?}",
+        diff.orphaned
+    );
+    assert_eq!(diff.orphaned.len(), 1, "仅上限内的索引入列");
+}
+
+/// 边界（AC-7）：符号链接**不跟随**——`models/` 与 `graph/` 各一条，链接指向含孤儿
+/// 文件的树时该孤儿不入列（Windows 建不成链接时降级为「不 panic、结果可判」）。
+#[test]
+fn compare契约与索引两侧均不跟随符号链接() {
+    let temp = TempDir::new("compare-symlink");
+    write_two_language_corpus(&temp);
+    materialize(&temp);
+
+    let outside = TempDir::new("compare-symlink-outside");
+    outside.write("Ghost.schema.json", "{\"$defs\": {}}\n");
+    outside.write("INDEX.toml", "# 链接目标里的索引\n");
+
+    let models_link = paths::directory(temp.root()).join("linked");
+    let graph_link = foundation::layout::archi_graph_dir(temp.root()).join("linked");
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(outside.root(), &models_link).expect("建 models 侧符号链接");
+        std::os::unix::fs::symlink(outside.root(), &graph_link).expect("建 graph 侧符号链接");
+        let diff = compare(temp.root()).expect("比对应成功");
+        assert!(
+            diff.orphaned.is_empty(),
+            "符号链接两侧均不跟随（链接内孤儿不入列）：{:?}",
+            diff.orphaned
+        );
+    }
+    #[cfg(windows)]
+    {
+        let models_linked = std::os::windows::fs::symlink_dir(outside.root(), &models_link).is_ok();
+        let graph_linked = std::os::windows::fs::symlink_dir(outside.root(), &graph_link).is_ok();
+        if models_linked && graph_linked {
+            let diff = compare(temp.root()).expect("比对应成功");
+            assert!(
+                diff.orphaned.is_empty(),
+                "符号链接两侧均不跟随（链接内孤儿不入列）：{:?}",
+                diff.orphaned
+            );
+        } else {
+            let outcome = compare(temp.root());
+            assert!(
+                outcome.is_ok(),
+                "建不成目录链接时仍须返回可判结论：{outcome:?}"
+            );
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (models_link, graph_link);
+        let outcome = compare(temp.root());
+        assert!(outcome.is_ok(), "无链接能力平台仍须返回可判结论");
+    }
+}
+
+/// 正向（AC-7 零第二份递归，源码自证）：`collect_artifacts(` 恰 3 处（定义 1 + 调用 2），
+/// 两处调用的根与后缀四个实参各恰 1 处；旧收面函数名与「等于索引路径」判据零命中。
+#[test]
+fn compare两处派生共用同一份递归() {
+    let source = include_str!("diff.rs");
+    assert_eq!(
+        source.matches("collect_artifacts(").count(),
+        4,
+        "一份递归：定义 1 + 递归 1 + 两处顶层派生 2（零第二份手写递归）"
+    );
+    for needle in [
+        "super::paths::directory(root)",
+        "super::SCHEMA_FILE_SUFFIX",
+        "foundation::layout::archi_graph_dir(root)",
+        "super::paths::INDEX_FILE_NAME",
+    ] {
+        assert_eq!(
+            source.matches(needle).count(),
+            1,
+            "`{needle}` 恰一处（两处派生各取一个根与后缀，根与后缀两实参不同）"
+        );
+    }
+    for removed in ["collect_api_dir", "path == index"] {
+        assert_eq!(
+            source.matches(removed).count(),
+            0,
+            "旧收面形态 `{removed}` 零命中"
+        );
+    }
+}
+
+/// 异常（AC-5 段名纪律 + AC-7 三语义照搬）：`diff.rs` 内零 `"INDEX.toml"` / `"models"` /
+/// `"graph"` 引号字面量；`symlink_metadata` + `is_symlink` 跳过、`!is_file` 跳过与深度上限
+/// 复用既有常量三段照搬在案。
+#[test]
+fn compare段名纪律与跳过语义源码在场() {
+    let source = include_str!("diff.rs");
+    for banned in ["\"INDEX.toml\"", "\"models\"", "\"graph\""] {
+        assert_eq!(
+            source.matches(banned).count(),
+            0,
+            "`diff.rs` 内零 `{banned}` 字面量（行内拼段零残留）"
+        );
+    }
+    for needle in [
+        "symlink_metadata",
+        "is_symlink()",
+        "!metadata.is_file()",
+        "super::MAX_API_WALK_DEPTH",
+    ] {
+        assert!(
+            source.contains(needle),
+            "跳过 / 深度语义 `{needle}` 仍在（三语义照搬，MUST NOT 另写一份）"
+        );
+    }
+    assert_eq!(
+        include_str!("paths.rs")
+            .matches("const INDEX_FILE_NAME")
+            .count(),
+        1,
+        "索引文件名唯一持有者在 `paths.rs`"
     );
 }

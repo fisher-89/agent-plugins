@@ -313,7 +313,8 @@ pub fn build_index(entries: &[IndexEntry], meta: &ApiMeta) -> String {
     ordered.sort_by(|left, right| left.fqn.cmp(&right.fqn));
 
     let mut document = DocumentMut::new();
-    let contract_dir = foundation::layout::archi_api_rel_dir();
+    // 说明段取契约资产所在目录，MUST NOT 取索引自身目录（索引与契约已分家）。
+    let contract_dir = foundation::layout::archi_models_rel_dir();
     let digest = short_digest(&meta.common_digest);
     let header = format!(
         "由 archi-api-gen 生成 · 勿手改\n\

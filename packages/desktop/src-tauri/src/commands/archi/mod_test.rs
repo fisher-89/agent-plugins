@@ -1066,7 +1066,7 @@ fn archi_drift包装root校验前置() {
 // 命令层仍是薄包装：`api` 由 `dto::module_detail` 填充，本层零特判、零路径拼装。
 // ===========================================================================
 
-/// 落一份元素契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`）。
+/// 落一份元素契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`）。
 fn write_contract(root: &Path, fqn: &str, content: &str) {
     let relative = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
     let relative = relative
@@ -1320,9 +1320,9 @@ fn archi_module试点declared且同输入判据零命中() {
     );
 }
 
-/// 边界（AC-16 否定断言）：模块**文档关联集**不含 `<archi_api_dir>/**`——契约正
-/// 文不经 `docs` 三源出线（契约权威在架构域 api 目录；正文由通用 `read_file`
-/// 按路径自取，不再是架构命令的专属通路）。
+/// 边界（AC-16 否定断言）：模块**文档关联集**不含 `<archi_models_dir>/<Domain>/**`——
+/// 契约正文不经 `docs` 三源出线（契约权威在架构域 `models/<Domain>/`；正文由通用
+/// `read_file` 按路径自取，不再是架构命令的专属通路）。
 #[test]
 fn 文档关联集不含契约目录() {
     let temp = healthy("read-doc-no-api");
@@ -1339,14 +1339,22 @@ fn 文档关联集不含契约目录() {
         .to_string_lossy()
         .replace('\\', "/");
     assert!(
-        contract_relative.contains("api/"),
+        contract_relative.starts_with(".dev-team/architecture/models/"),
         "夹具确实落在契约目录：{contract_relative}"
     );
 
     // 关联集本身不含契约正文
+    let contract_dir = archi::api::paths::directory(temp.path());
+    let contract_dir = contract_dir
+        .strip_prefix(temp.path())
+        .expect("repo 相对路径")
+        .to_string_lossy()
+        .replace('\\', "/");
     let linked = archi::dto::linked_doc_paths(temp.path()).expect("Ok");
     assert!(
-        linked.iter().all(|path| !path.contains("api/")),
+        linked
+            .iter()
+            .all(|path| !path.starts_with(&format!("{contract_dir}/"))),
         "关联集零契约正文通路：{linked:?}"
     );
     assert!(
@@ -1661,7 +1669,7 @@ fn api_fixture(tag: &str) -> TempDir {
         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
     );
     temp.write(
-        ".dev-team/architecture/api/Api/App.Api.Subject.md",
+        ".dev-team/architecture/models/Api/App.Api.Subject.md",
         API_CONTRACT,
     );
     temp
@@ -1779,7 +1787,7 @@ fn 结构错模型两命令均err且零写盘() {
     assert_eq!(snapshot(temp.path()), before, "两次调用前后零写盘");
 }
 
-/// 边界（AC-10 的数据侧）：无 `<archi_api_dir>` → `check` 仍 `Ok`、`enabled == false`、
+/// 边界（AC-10 的数据侧）：无 `<archi_models_dir>` → `check` 仍 `Ok`、`enabled == false`、
 /// `missing` 恰 `INDEX.toml` 一条；`generate` 仍可写该份。
 #[test]
 fn 未启用契约面check仍ok且generate可写() {
@@ -1820,7 +1828,7 @@ fn 未启用契约面check仍ok且generate可写() {
 fn 写失败文案透传不称全或无() {
     let temp = api_fixture("api-write-failure");
     // `INDEX.toml` 落点被同名目录占位 ⇒ 该份 `fs::write` 必失败（前序份已写）
-    fs::create_dir_all(temp.path().join(".dev-team/architecture/api/INDEX.toml"))
+    fs::create_dir_all(temp.path().join(".dev-team/architecture/graph/INDEX.toml"))
         .expect("建同名目录失败");
 
     let error = archi_api_generate(temp.root()).expect_err("写盘失败应 Err");

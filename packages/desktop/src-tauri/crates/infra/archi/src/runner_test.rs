@@ -719,7 +719,7 @@ fn 槽位隔离() {
 
 use archi::drift::report::ArchiApiFindingKind;
 
-/// 落一份契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
+/// 落一份契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
 fn write_contract(root: &Path, fqn: &str, content: &str) {
     let path = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
     let relative = path

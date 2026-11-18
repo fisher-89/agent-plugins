@@ -25,7 +25,8 @@ pub(crate) fn knowledge() -> Option<String> {
 
 /// 骨架 + 派生段拼装：骨架 trim 后为空 / 含 `<>` 占位符即 `Err`（触发点写进文案），
 /// 否则以 `skeleton.trim_end()` 起手追加派生段（kind 四值 / gate 三值 + 缺省档 /
-/// api 状态二值 + 缺省档 / 结构诊断九词 / 模型、决策记录与契约目录相对路径）。
+/// api 状态二值 + 缺省档 / 结构诊断九词 / 模型、决策记录、契约资产与契约索引的相对
+/// 路径）。
 pub(crate) fn build(skeleton: &str) -> Result<String, String> {
     if skeleton.trim().is_empty() {
         return Err("知识骨架为空".to_owned());
@@ -43,13 +44,15 @@ pub(crate) fn build(skeleton: &str) -> Result<String, String> {
          gate 档：{gates}（新元素缺省 {}）\n\
          api 状态：{api}（缺省 {}）\n\
          结构诊断：{diagnostics}\n\
-         模型目录：{}（按文件名字典序聚合）；决策记录目录：{}；契约目录：{}",
+         模型目录：{}（按文件名字典序聚合）；决策记录目录：{}；\
+         契约资产：{}/<Domain>/<FQN>.md（手写真相）；契约索引：{}/INDEX.toml",
         skeleton.trim_end(),
         GateTier::default().as_str(),
         ApiStatus::default().as_str(),
         foundation::layout::archi_models_rel_dir(),
         foundation::layout::archi_decisions_rel_dir(),
-        foundation::layout::archi_api_rel_dir(),
+        foundation::layout::archi_models_rel_dir(),
+        foundation::layout::archi_graph_rel_dir(),
     ))
 }
 

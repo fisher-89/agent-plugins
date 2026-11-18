@@ -1,0 +1,3270 @@
+diff --git a/crates/core/archi/src/api/check_test.rs b/crates/core/archi/src/api/check_test.rs
+index 41f00ae17c04..b12b0219dca2 100644
+--- a/crates/core/archi/src/api/check_test.rs
++++ b/crates/core/archi/src/api/check_test.rs
+@@ -58,7 +58,7 @@ impl TempDir {
+         fs::write(&path, content).expect("写文件失败");
+     }
+ 
+-    /// 落契约（`<archi_api_dir>/<Domain>/<FQN>.md`）。
++    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
+     fn write_contract(&self, fqn: &str, content: &str) {
+         let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+         if let Some(parent) = path.parent() {
+diff --git a/crates/core/archi/src/api/contract_test.rs b/crates/core/archi/src/api/contract_test.rs
+index 7f54df907722..4a4b6c80f72f 100644
+--- a/crates/core/archi/src/api/contract_test.rs
++++ b/crates/core/archi/src/api/contract_test.rs
+@@ -17,7 +17,7 @@ use crate::api::emit::{self, EmitTarget};
+ use crate::api::paths::{EntryForm, GeneratedKind};
+ 
+ /// 契约文件（repo 相对 POSIX；错误文案的 `file:` 前缀来源）。
+-const FILE: &str = ".dev-team/architecture/api/Demo/App.Demo.Item.md";
++const FILE: &str = ".dev-team/architecture/models/Demo/App.Demo.Item.md";
+ 
+ /// 元素 FQN（= H1 标题 = 文件名去 `.md`）。
+ const FQN: &str = "App.Demo.Item";
+diff --git a/crates/core/archi/src/api/diff.rs b/crates/core/archi/src/api/diff.rs
+index 9dd52eedc6a8..37ae52576825 100644
+--- a/crates/core/archi/src/api/diff.rs
++++ b/crates/core/archi/src/api/diff.rs
+@@ -1,8 +1,9 @@
+ //! 三类差异的比对单点：应生成集 vs 盘上实况。
+ //!
+ //! **纯读盘、零写盘**。仓库级遍历一律经 [`crate::scan::walk_source_files`]（gitignore
+-//! 感知 + 剪构建产物树；MUST NOT 自建递归、MUST NOT 复制第二份遍历），契约目录为
+-//! **有界本地枚举**（与 [`super::enabled`] 的 `has_markdown` 同形，不构成仓库遍历）。
++//! 感知 + 剪构建产物树；MUST NOT 自建递归、MUST NOT 复制第二份遍历），契约资产目录与
++//! 契约索引目录为**两处同形的有界本地枚举**（同一递归，根与收面后缀两个实参不同，与
++//! [`super::enabled`] 的 `has_markdown` 同形，不构成仓库遍历）。
+ //! 路径串一律经 [`super::display`]（跨 crate 唯一归一单点）。
+ 
+ use std::collections::BTreeSet;
+@@ -66,7 +67,8 @@ fn is_generated_module_file(path: &Path) -> bool {
+ /// 生成物落**实现入口同级**，故可在仓库任意深度（`crates/infra/archi/src/lib.rs` →
+ /// `crates/infra/archi/src/lib.i.rs`、`views/welcome-view.tsx` → `views/welcome-view.i.ts`），
+ /// 枚举因而经 [`crate::scan::walk_source_files`]（与文件树同源，gitignore 感知）；
+-/// 契约目录内的 `.schema.json` / `INDEX.toml` 经 [`api_dir_artifacts`]。
++/// 契约侧的 `.schema.json`（`<archi_models_dir>/**`）与索引（`<archi_graph_dir>/**`）
++/// 经 [`api_dir_artifacts`] 两处派生。
+ fn generated_files_on_disk(root: &Path) -> Vec<PathBuf> {
+     let mut found: Vec<PathBuf> = crate::scan::walk_source_files(root)
+         .into_iter()
+@@ -78,18 +80,32 @@ fn generated_files_on_disk(root: &Path) -> Vec<PathBuf> {
+     found
+ }
+ 
+-/// 契约目录内的生成物（`*.schema.json` 与 `INDEX.toml`）：有界本地枚举（深度上限
+-/// 复用 [`super::MAX_API_WALK_DEPTH`]、符号链接不跟随），与 [`super::enabled`] 的
++/// 契约侧的生成物（`<archi_models_dir>/**` 的 `*.schema.json` 与
++/// `<archi_graph_dir>/**` 的 `INDEX.toml`）：两处派生、同形有界枚举（深度上限复用
++/// [`super::MAX_API_WALK_DEPTH`]、符号链接不跟随），与 [`super::enabled`] 的
+ /// `has_markdown` 同形。
++///
++/// 契约侧收面 = `*.schema.json`、索引侧收面 = `INDEX.toml`；两处的深度上限 / 符号链接
++/// 不跟随 / 文件判据逐条同形——MUST NOT 出现第二份手写递归。
+ fn api_dir_artifacts(root: &Path) -> Vec<PathBuf> {
+     let mut found: Vec<PathBuf> = Vec::new();
+-    let index = super::paths::index_path(root);
+-    collect_api_dir(&super::paths::directory(root), &index, 0, &mut found);
++    collect_artifacts(
++        &super::paths::directory(root),
++        super::SCHEMA_FILE_SUFFIX,
++        0,
++        &mut found,
++    );
++    collect_artifacts(
++        &foundation::layout::archi_graph_dir(root),
++        super::paths::INDEX_FILE_NAME,
++        0,
++        &mut found,
++    );
+     found
+ }
+ 
+-/// 契约目录递归（深度上限防环；符号链接不跟随）。
+-fn collect_api_dir(directory: &Path, index: &Path, depth: usize, found: &mut Vec<PathBuf>) {
++/// 有界递归收面（深度上限防环；符号链接不跟随；只收文件名以 `suffix` 结尾者）。
++fn collect_artifacts(directory: &Path, suffix: &str, depth: usize, found: &mut Vec<PathBuf>) {
+     if depth > super::MAX_API_WALK_DEPTH {
+         return;
+     }
+@@ -105,17 +121,17 @@ fn collect_api_dir(directory: &Path, index: &Path, depth: usize, found: &mut Vec
+             continue;
+         }
+         if metadata.is_dir() {
+-            collect_api_dir(&path, index, depth + 1, found);
++            collect_artifacts(&path, suffix, depth + 1, found);
+             continue;
+         }
+         if !metadata.is_file() {
+             continue;
+         }
+-        let schema = path
++        let matches = path
+             .file_name()
+             .and_then(|name| name.to_str())
+-            .is_some_and(|name| name.ends_with(super::SCHEMA_FILE_SUFFIX));
+-        if schema || path == index {
++            .is_some_and(|name| name.ends_with(suffix));
++        if matches {
+             found.push(path);
+         }
+     }
+diff --git a/crates/core/archi/src/api/diff_test.rs b/crates/core/archi/src/api/diff_test.rs
+index 92eaedde4792..9aefd5b52b71 100644
+--- a/crates/core/archi/src/api/diff_test.rs
++++ b/crates/core/archi/src/api/diff_test.rs
+@@ -473,8 +473,9 @@ fn compare契约目录有界枚举的深度上限() {
+ // 边界：空仓库 / 路径归一 / 零写盘 / root 形态 / 超大孤儿列表
+ // ---------------------------------------------------------------------------
+ 
+-/// 边界（AC-3）：①模型缺席②零 `*.toml`③有元素但 api 目录缺席 → 均 `Ok`；`missing` 恰为
+-/// `INDEX.toml` 一条、另两列空（`enabled = false` 时照常报该条，不因未启用而空列）。
++/// 边界（AC-3 / AC-7）：①模型缺席②零 `*.toml`③有元素但契约 md 缺席 → 均 `Ok`；`missing`
++/// 恰为 `graph/` 根下的 `INDEX.toml` 一条、另两列空（`enabled = false` 时照常报该条，不因
++/// 未启用而空列）。
+ #[test]
+ fn compare空仓库与契约面未启用() {
+     let absent = TempDir::new("compare-empty-absent");
+@@ -489,13 +490,13 @@ fn compare空仓库与契约面未启用() {
+     for (tag, temp) in [
+         ("模型目录缺席", &absent),
+         ("零 toml", &no_toml),
+-        ("api 目录缺席", &no_api_dir),
++        ("契约 md 缺席", &no_api_dir),
+     ] {
+         let diff = compare(temp.root()).expect("空仓库不报错");
+         assert_eq!(diff.missing.len(), 1, "{tag}：missing 恰一条");
+         assert!(
+-            diff.missing[0].ends_with("INDEX.toml"),
+-            "{tag}：缺口是 INDEX.toml：{:?}",
++            diff.missing[0].ends_with("graph/INDEX.toml"),
++            "{tag}：缺口是 graph 根下的 INDEX.toml（仅判 `INDEX.toml` 钉不住新索引家）：{:?}",
+             diff.missing
+         );
+         assert!(diff.mismatched.is_empty(), "{tag}：零不符");
+@@ -621,9 +622,10 @@ fn compare结构错模型即err() {
+     assert_eq!(before, temp.snapshot(), "Err 前后零写盘");
+ }
+ 
+-/// 异常（AC-4 / D3）：`include_str!("diff.rs")` 自证遍历面零第二份实现——`walk_source_files`
+-/// 调用恰一处、`WalkBuilder` 零命中、`read_dir` 只在 `collect_api_dir`、深度上限复用既有常量、
+-/// 零 `SKIPPED_DIRECTORY` / `MAX_MODULE_WALK_DEPTH`、`pub fn` 计数恰 1。
++/// 异常（AC-4 / D3 / AC-7）：`include_str!("diff.rs")` 自证遍历面零第二份实现——
++/// `walk_source_files` 调用恰一处、`WalkBuilder` 零命中、`read_dir` 只出现在同一份有界枚举
++/// （两处派生的 `collect_artifacts`）、深度上限复用既有常量、零 `SKIPPED_DIRECTORY` /
++/// `MAX_MODULE_WALK_DEPTH`、`pub fn` 计数恰 1。
+ #[test]
+ fn compare遍历面零第二份实现() {
+     let source = include_str!("diff.rs");
+@@ -732,3 +734,203 @@ fn 落点样例改述为入口同级() {
+         "判据说明保留：命名即身份、与落点深度无关"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 两处派生、收面后缀、深度上限、符号链接（`module-entry-docs-semantics` / AC-7）
++// ---------------------------------------------------------------------------
++
++/// 异常（AC-7）：收面后缀与目录形态逐值拒收——索引错位到模型根、后缀相近（`.bak` /
++/// `.txt`）、同名目录一律不入 `orphaned`（索引收面只在 `graph/` 根）。
++#[test]
++fn compare收面后缀与目录形态逐值拒收() {
++    let temp = TempDir::new("compare-suffix-negative");
++    write_two_language_corpus(&temp);
++    materialize(&temp);
++
++    let models_dir = paths::directory(temp.root());
++    let misplaced_index = models_dir.join("INDEX.toml");
++    temp.write_absolute(&misplaced_index, "# 错位到模型根的索引\n");
++
++    let app_dir = models_dir.join("App");
++    fs::create_dir_all(app_dir.join("Ghost.schema.json")).expect("建同名目录");
++    let bak = app_dir.join("Ghost.schema.json.bak");
++    temp.write_absolute(&bak, "{\"$defs\": {}}\n");
++
++    let graph_dir = foundation::layout::archi_graph_dir(temp.root());
++    let graph_txt = graph_dir.join("INDEX.toml.txt");
++    temp.write_absolute(&graph_txt, "# 后缀不是 INDEX.toml\n");
++    let graph_bak = graph_dir.join("INDEX.toml.bak");
++    temp.write_absolute(&graph_bak, "# 后缀不是 INDEX.toml\n");
++
++    let diff = compare(temp.root()).expect("比对应成功");
++    assert!(
++        diff.orphaned.is_empty(),
++        "错位索引 / 后缀相近 / 同名目录一律不入 orphaned：{:?}",
++        diff.orphaned
++    );
++    assert_clean(&diff, "既有应生成集未被上述盘面文件扰动");
++}
++
++/// 边界（AC-7）：索引侧同形有界枚举——`graph/` 深层索引越过 `MAX_API_WALK_DEPTH` 不入
++/// 列、上限内入列；`graph/` 内的 `*.schema.json` 不在收面（后缀仍只收 `INDEX.toml`）。
++#[test]
++fn compare索引侧深度与收面后缀() {
++    let temp = TempDir::new("compare-graph-depth");
++    write_two_language_corpus(&temp);
++    materialize(&temp);
++
++    let graph_dir = foundation::layout::archi_graph_dir(temp.root());
++    let at_limit = graph_dir
++        .join("a")
++        .join("b")
++        .join("c")
++        .join("d")
++        .join("INDEX.toml");
++    let beyond = graph_dir
++        .join("a")
++        .join("b")
++        .join("c")
++        .join("d")
++        .join("e")
++        .join("f")
++        .join("INDEX.toml");
++    let schema_in_graph = graph_dir.join("Sub.schema.json");
++    temp.write_absolute(&at_limit, "# 上限内的深层索引\n");
++    temp.write_absolute(&beyond, "# 越过上限的深层索引\n");
++    temp.write_absolute(&schema_in_graph, "{\"$defs\": {}}\n");
++
++    let diff = compare(temp.root()).expect("比对应成功");
++    assert!(
++        diff.orphaned.contains(&rel(&temp, &at_limit)),
++        "depth 4 == 上限 → 入列：{:?}",
++        diff.orphaned
++    );
++    assert!(
++        !diff.orphaned.contains(&rel(&temp, &beyond)),
++        "depth 6 > 上限 → 不入列：{:?}",
++        diff.orphaned
++    );
++    assert!(
++        !diff.orphaned.contains(&rel(&temp, &schema_in_graph)),
++        "graph/ 内的 *.schema.json 不在索引侧收面：{:?}",
++        diff.orphaned
++    );
++    assert_eq!(diff.orphaned.len(), 1, "仅上限内的索引入列");
++}
++
++/// 边界（AC-7）：符号链接**不跟随**——`models/` 与 `graph/` 各一条，链接指向含孤儿
++/// 文件的树时该孤儿不入列（Windows 建不成链接时降级为「不 panic、结果可判」）。
++#[test]
++fn compare契约与索引两侧均不跟随符号链接() {
++    let temp = TempDir::new("compare-symlink");
++    write_two_language_corpus(&temp);
++    materialize(&temp);
++
++    let outside = TempDir::new("compare-symlink-outside");
++    outside.write("Ghost.schema.json", "{\"$defs\": {}}\n");
++    outside.write("INDEX.toml", "# 链接目标里的索引\n");
++
++    let models_link = paths::directory(temp.root()).join("linked");
++    let graph_link = foundation::layout::archi_graph_dir(temp.root()).join("linked");
++
++    #[cfg(unix)]
++    {
++        std::os::unix::fs::symlink(outside.root(), &models_link).expect("建 models 侧符号链接");
++        std::os::unix::fs::symlink(outside.root(), &graph_link).expect("建 graph 侧符号链接");
++        let diff = compare(temp.root()).expect("比对应成功");
++        assert!(
++            diff.orphaned.is_empty(),
++            "符号链接两侧均不跟随（链接内孤儿不入列）：{:?}",
++            diff.orphaned
++        );
++    }
++    #[cfg(windows)]
++    {
++        let models_linked = std::os::windows::fs::symlink_dir(outside.root(), &models_link).is_ok();
++        let graph_linked = std::os::windows::fs::symlink_dir(outside.root(), &graph_link).is_ok();
++        if models_linked && graph_linked {
++            let diff = compare(temp.root()).expect("比对应成功");
++            assert!(
++                diff.orphaned.is_empty(),
++                "符号链接两侧均不跟随（链接内孤儿不入列）：{:?}",
++                diff.orphaned
++            );
++        } else {
++            let outcome = compare(temp.root());
++            assert!(
++                outcome.is_ok(),
++                "建不成目录链接时仍须返回可判结论：{outcome:?}"
++            );
++        }
++    }
++    #[cfg(not(any(unix, windows)))]
++    {
++        let _ = (models_link, graph_link);
++        let outcome = compare(temp.root());
++        assert!(outcome.is_ok(), "无链接能力平台仍须返回可判结论");
++    }
++}
++
++/// 正向（AC-7 零第二份递归，源码自证）：`collect_artifacts(` 恰 3 处（定义 1 + 调用 2），
++/// 两处调用的根与后缀四个实参各恰 1 处；旧收面函数名与「等于索引路径」判据零命中。
++#[test]
++fn compare两处派生共用同一份递归() {
++    let source = include_str!("diff.rs");
++    assert_eq!(
++        source.matches("collect_artifacts(").count(),
++        4,
++        "一份递归：定义 1 + 递归 1 + 两处顶层派生 2（零第二份手写递归）"
++    );
++    for needle in [
++        "super::paths::directory(root)",
++        "super::SCHEMA_FILE_SUFFIX",
++        "foundation::layout::archi_graph_dir(root)",
++        "super::paths::INDEX_FILE_NAME",
++    ] {
++        assert_eq!(
++            source.matches(needle).count(),
++            1,
++            "`{needle}` 恰一处（两处派生各取一个根与后缀，根与后缀两实参不同）"
++        );
++    }
++    for removed in ["collect_api_dir", "path == index"] {
++        assert_eq!(
++            source.matches(removed).count(),
++            0,
++            "旧收面形态 `{removed}` 零命中"
++        );
++    }
++}
++
++/// 异常（AC-5 段名纪律 + AC-7 三语义照搬）：`diff.rs` 内零 `"INDEX.toml"` / `"models"` /
++/// `"graph"` 引号字面量；`symlink_metadata` + `is_symlink` 跳过、`!is_file` 跳过与深度上限
++/// 复用既有常量三段照搬在案。
++#[test]
++fn compare段名纪律与跳过语义源码在场() {
++    let source = include_str!("diff.rs");
++    for banned in ["\"INDEX.toml\"", "\"models\"", "\"graph\""] {
++        assert_eq!(
++            source.matches(banned).count(),
++            0,
++            "`diff.rs` 内零 `{banned}` 字面量（行内拼段零残留）"
++        );
++    }
++    for needle in [
++        "symlink_metadata",
++        "is_symlink()",
++        "!metadata.is_file()",
++        "super::MAX_API_WALK_DEPTH",
++    ] {
++        assert!(
++            source.contains(needle),
++            "跳过 / 深度语义 `{needle}` 仍在（三语义照搬，MUST NOT 另写一份）"
++        );
++    }
++    assert_eq!(
++        include_str!("paths.rs")
++            .matches("const INDEX_FILE_NAME")
++            .count(),
++        1,
++        "索引文件名唯一持有者在 `paths.rs`"
++    );
++}
+diff --git a/crates/core/archi/src/api/emit/mod_test.rs b/crates/core/archi/src/api/emit/mod_test.rs
+index 342fec080137..b231b7a5b871 100644
+--- a/crates/core/archi/src/api/emit/mod_test.rs
++++ b/crates/core/archi/src/api/emit/mod_test.rs
+@@ -19,7 +19,7 @@ use crate::api::schema::{build_schema, verify_defs};
+ use crate::api::{meta, ApiError, ApiMeta};
+ 
+ /// 契约文件（repo 相对 POSIX）。
+-const FILE: &str = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md";
++const FILE: &str = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+ 
+ /// 元素 FQN。
+ const FQN: &str = "App.Backend.Infra.ArchiRuntime";
+diff --git a/crates/core/archi/src/api/emit/rust_test.rs b/crates/core/archi/src/api/emit/rust_test.rs
+index a2463736648b..a3b00dffac70 100644
+--- a/crates/core/archi/src/api/emit/rust_test.rs
++++ b/crates/core/archi/src/api/emit/rust_test.rs
+@@ -19,7 +19,7 @@ use crate::api::schema::build_schema;
+ use crate::api::{meta, ApiError};
+ 
+ /// 契约文件（repo 相对 POSIX）。
+-const FILE: &str = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md";
++const FILE: &str = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+ 
+ /// 元素 FQN。
+ const FQN: &str = "App.Backend.Infra.ArchiRuntime";
+diff --git a/crates/core/archi/src/api/emit/ts_test.rs b/crates/core/archi/src/api/emit/ts_test.rs
+index f8ef2e0d59af..6a541e7aaa2d 100644
+--- a/crates/core/archi/src/api/emit/ts_test.rs
++++ b/crates/core/archi/src/api/emit/ts_test.rs
+@@ -21,7 +21,7 @@ use crate::api::schema::build_schema;
+ use crate::api::ApiMeta;
+ 
+ /// 契约文件（repo 相对 POSIX）。
+-const FILE: &str = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md";
++const FILE: &str = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+ 
+ /// 元素 FQN。
+ const FQN: &str = "App.Backend.Infra.ArchiRuntime";
+diff --git a/crates/core/archi/src/api/extract/mod.rs b/crates/core/archi/src/api/extract/mod.rs
+index 5fa3bd40db6d..e2d2030b0c5b 100644
+--- a/crates/core/archi/src/api/extract/mod.rs
++++ b/crates/core/archi/src/api/extract/mod.rs
+@@ -2,7 +2,7 @@
+ //! [`ApiSymbol`]（名字 / 归属 / 形态 / 归一签名 / `visibility` / 位置）。
+ //!
+ //! **取数器非权威**：它只供 bootstrap 起草与判据的「代码导出集」一侧；契约权威在
+-//! `<archi_dir>/api/<Domain>/<FQN>.md`。两套事实源各自单点，判据在
++//! `<archi_models_dir>/<Domain>/<FQN>.md`。两套事实源各自单点，判据在
+ //! [`crate::api::check`] 汇合。
+ //!
+ //! **构造器识别不在取数器**：取数器如实抽名、MUST NOT 过滤构造器——过滤只在两处调用
+diff --git a/crates/core/archi/src/api/extract/mod_test.rs b/crates/core/archi/src/api/extract/mod_test.rs
+index 56dc43895c94..d4c0e978a1e1 100644
+--- a/crates/core/archi/src/api/extract/mod_test.rs
++++ b/crates/core/archi/src/api/extract/mod_test.rs
+@@ -1498,7 +1498,7 @@ fn scan_product_rs(dir: &Path, out: &mut Vec<(String, String)>) {
+ // ---------------------------------------------------------------------------
+ 
+ /// 契约文件（repo 相对 POSIX）与元素 FQN（`parse` 的 H1 锚点）。
+-const CONTRACT_FILE: &str = ".dev-team/architecture/api/Demo/App.Demo.Widget.md";
++const CONTRACT_FILE: &str = ".dev-team/architecture/models/Demo/App.Demo.Widget.md";
+ const CONTRACT_FQN: &str = "App.Demo.Widget";
+ 
+ /// 动态分支键的 schema 片段（`anyOf` / `oneOf` 二键同判）。
+diff --git a/crates/core/archi/src/api/mod.rs b/crates/core/archi/src/api/mod.rs
+index 59cc395ddceb..b30c4b9bd67c 100644
+--- a/crates/core/archi/src/api/mod.rs
++++ b/crates/core/archi/src/api/mod.rs
+@@ -7,9 +7,10 @@
+ //! （`archi-api-gen`）与两条 IPC（检查 / 生成）两个驱动面同源；本 crate 零写盘
+ //! 纪律 MUST NOT 反向稀释。
+ //!
+-//! **契约面启用条件（冷启动纪律）**：契约目录缺席或其中零份 `*.md` ⇒ 未启用，判据
+-//! 返回空集且既有漂移语料逐字不变；目录一旦存在即**全部 `path` 非空元素**纳入判据，
+-//! 无白名单、无开关、无部分豁免。
++//! **契约面启用条件（冷启动纪律）**：契约资产目录（`<archi_models_dir>`）缺席或其中
++//! 递归零份 `*.md` ⇒ 未启用，判据返回空集且既有漂移语料逐字不变；一级 `NN-<域>.toml`
++//! （模型声明）**不是**启用证据——「有模型、零契约 md」必须是未启用。目录一旦存在即
++//! **全部 `path` 非空元素**纳入判据，无白名单、无开关、无部分豁免。
+ //!
+ //! 边界：零 UI 框架 / 零库句柄 / 零子进程 / 零工作流与编排 crate 依赖 / 零工作区
+ //! 配置读取。
+@@ -319,8 +320,8 @@ pub fn gating_findings(
+         .collect()
+ }
+ 
+-/// 契约面启用判定：契约目录存在且**递归**含 ≥1 份 `*.md`（手写 walk，不跟随符号
+-/// 链接——零 `ignore` crate 依赖）。
++/// 契约面启用判定：契约资产目录（`<archi_models_dir>`，与模型目录同址）存在且**递归**
++/// 含 ≥1 份 `*.md`（手写 walk，不跟随符号链接——零 `ignore` crate 依赖）。
+ pub fn enabled(root: &Path) -> bool {
+     has_markdown(&paths::directory(root), 0)
+ }
+@@ -1002,7 +1003,7 @@ const SCHEMA_URI: &str = "https://json-schema.org/draft/2020-12/schema";
+ /// 生成物警示文案（`$comment` 与 `.i.*` 头注释共用同一句）。
+ const GENERATED_NOTICE: &str = "本文件由元素的契约 markdown 生成，勿手改：手改将在下次 generate 时被覆盖，且 api:check 零 diff 门会失败";
+ 
+-/// 契约目录递归扫描的深度上限（`<Domain>/<Sub>/` 级足够；防环）。
++/// 契约资产与契约索引两处有界枚举共用的深度上限（`<Domain>/<Sub>/` 级足够；防环）。
+ const MAX_API_WALK_DEPTH: usize = 4;
+ 
+ /// 契约文件扩展名（启用判定的唯一收面判据）。
+diff --git a/crates/core/archi/src/api/mod_test.rs b/crates/core/archi/src/api/mod_test.rs
+index 2a143b7e7ad3..9b33f38ae537 100644
+--- a/crates/core/archi/src/api/mod_test.rs
++++ b/crates/core/archi/src/api/mod_test.rs
+@@ -16,7 +16,7 @@ use std::fs;
+ use std::path::{Path, PathBuf};
+ use std::sync::atomic::{AtomicU64, Ordering};
+ 
+-use foundation::layout::archi_api_dir;
++use foundation::layout::archi_models_dir;
+ use serde_json::Value;
+ 
+ use crate::api::contract::parse;
+@@ -81,7 +81,7 @@ impl TempDir {
+         );
+     }
+ 
+-    /// 落契约（`<archi_api_dir>/<Domain>/<FQN>.md`）。
++    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
+     fn write_contract(&self, fqn: &str, content: &str) {
+         let path = paths::contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+         if let Some(parent) = path.parent() {
+@@ -209,18 +209,18 @@ fn empty_snapshot() -> ApiSnapshot {
+ // enabled：递归扫描与启用条件
+ // ---------------------------------------------------------------------------
+ 
+-/// 正向（AC-7 前置）：`<archi_api_dir>/Infra/App.X.md` → `true`；同一棵树只有
++/// 正向（AC-7 前置）：`<archi_models_dir>/Infra/App.X.md` → `true`；同一棵树只有
+ /// `INDEX.toml` / `*.schema.json` 而无 `*.md` → `false`。
+ #[test]
+ fn enabled递归扫描到md() {
+     let temp = TempDir::new("enabled-recursive");
+-    temp.write(".dev-team/architecture/api/Infra/App.X.md", "# App.X\n");
++    temp.write(".dev-team/architecture/models/Infra/App.X.md", "# App.X\n");
+     assert!(enabled(temp.root()), "递归含 md 即启用");
+ 
+     let only_index = TempDir::new("enabled-no-md");
+-    only_index.write(".dev-team/architecture/api/INDEX.toml", "# 空索引\n");
++    only_index.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
+     only_index.write(
+-        ".dev-team/architecture/api/Infra/App.X.schema.json",
++        ".dev-team/architecture/models/Infra/App.X.schema.json",
+         "{\"$defs\": {}}\n",
+     );
+     assert!(
+@@ -237,12 +237,12 @@ fn enabled目录缺席与空目录() {
+     assert!(!enabled(bare.root()), "无 .dev-team → false（零 panic）");
+ 
+     let empty = TempDir::new("enabled-empty");
+-    fs::create_dir_all(archi_api_dir(empty.root())).expect("建空契约目录");
++    fs::create_dir_all(archi_models_dir(empty.root())).expect("建空契约目录");
+     assert!(!enabled(empty.root()), "空契约目录 → false");
+ 
+     let nested = TempDir::new("enabled-nested");
+     nested.write(
+-        ".dev-team/architecture/api/Infra/Sub/x.md",
++        ".dev-team/architecture/models/Infra/Sub/x.md",
+         "# App.Infra.Sub.X\n",
+     );
+     assert!(enabled(nested.root()), "两层深仍递归命中");
+@@ -253,19 +253,19 @@ fn enabled目录缺席与空目录() {
+ #[test]
+ fn enabled文件名边界() {
+     let readme = TempDir::new("enabled-readme");
+-    readme.write(".dev-team/architecture/api/README.md", "# 说明\n");
++    readme.write(".dev-team/architecture/models/README.md", "# 说明\n");
+     assert!(enabled(readme.root()), "README.md 仍算 md 在场");
+ 
+     let upper = TempDir::new("enabled-upper");
+-    upper.write(".dev-team/architecture/api/x.MD", "# x\n");
++    upper.write(".dev-team/architecture/models/x.MD", "# x\n");
+     assert!(!enabled(upper.root()), "x.MD 大小写敏感 → false");
+ 
+     let doubled = TempDir::new("enabled-doubled");
+-    doubled.write(".dev-team/architecture/api/x.md.txt", "# x\n");
++    doubled.write(".dev-team/architecture/models/x.md.txt", "# x\n");
+     assert!(!enabled(doubled.root()), "x.md.txt 不以 .md 结尾 → false");
+ 
+     let dir_named_md = TempDir::new("enabled-dir-md");
+-    fs::create_dir_all(archi_api_dir(dir_named_md.root()).join("x.md")).expect("建同名目录");
++    fs::create_dir_all(archi_models_dir(dir_named_md.root()).join("x.md")).expect("建同名目录");
+     assert!(!enabled(dir_named_md.root()), "同名目录不是文件 → false");
+ }
+ 
+@@ -279,8 +279,8 @@ fn enabled符号链接不跟随与深度上限两侧边界() {
+     let linked = TempDir::new("enabled-symlink");
+     let target = TempDir::new("enabled-symlink-target");
+     target.write("x.md", "# x\n");
+-    fs::create_dir_all(archi_api_dir(linked.root())).expect("建契约目录");
+-    let link = archi_api_dir(linked.root()).join("link");
++    fs::create_dir_all(archi_models_dir(linked.root())).expect("建契约目录");
++    let link = archi_models_dir(linked.root()).join("link");
+     #[cfg(unix)]
+     {
+         std::os::unix::fs::symlink(target.root(), &link).expect("建符号链接目录");
+@@ -305,7 +305,7 @@ fn enabled符号链接不跟随与深度上限两侧边界() {
+     // 深度上限：`k` 段子目录（depth = k）。
+     fn nested_at(tag: &str, subdirs: usize) -> TempDir {
+         let temp = TempDir::new(tag);
+-        let mut relative = String::from(".dev-team/architecture/api");
++        let mut relative = String::from(".dev-team/architecture/models");
+         for _ in 0..subdirs {
+             relative.push_str("/d");
+         }
+@@ -2916,7 +2916,7 @@ fn meta幂等且三处产出物载元一致() {
+ fn meta零io零spawn() {
+     let temp = TempDir::new("meta-no-io");
+     temp.write(".dev-team/architecture/models/01-test.toml", "# 模型占位\n");
+-    temp.write(".dev-team/architecture/api/INDEX.toml", "# 索引占位\n");
++    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 索引占位\n");
+     temp.write_contract("App.Core.Alpha", &pilot_markdown("App.Core.Alpha"));
+ 
+     let before = temp.snapshot();
+@@ -3952,7 +3952,7 @@ fn artifact_check的meta投影() {
+ fn artifact_check未启用契约面仍ok() {
+     let absent = TempDir::new("artifact-check-absent");
+     let empty_dir = TempDir::new("artifact-check-empty-dir");
+-    fs::create_dir_all(archi_api_dir(empty_dir.root())).expect("建空契约目录");
++    fs::create_dir_all(archi_models_dir(empty_dir.root())).expect("建空契约目录");
+ 
+     for (tag, temp) in [("目录缺席", &absent), ("零 md", &empty_dir)] {
+         let dto = super::artifact_check(temp.root()).expect("未启用仍 Ok");
+@@ -4179,7 +4179,7 @@ fn findings正常装配产出判据() {
+ fn findings未启用短路() {
+     let absent = TempDir::new("findings-absent");
+     let empty_dir = TempDir::new("findings-empty-dir");
+-    fs::create_dir_all(archi_api_dir(empty_dir.root())).expect("建空契约目录");
++    fs::create_dir_all(archi_models_dir(empty_dir.root())).expect("建空契约目录");
+     let elements = [element("App.Core.Alpha", &["src/alpha/"])];
+ 
+     for (tag, temp) in [("目录缺席", &absent), ("零 md", &empty_dir)] {
+@@ -5019,3 +5019,280 @@ fn bootstrap空符号集草稿() {
+         "全拒 ⇒ api-types 为 `{{}}`：\n{text}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// enabled：模型文件不是启用证据（`module-entry-docs-semantics` / AC-4）
++//
++// 判据 = `models/`（== 契约资产目录）递归含 ≥1 份 `*.md`；一级 `NN-<域>.toml` 是模型
++// 声明，**不是**启用证据——「有模型、零契约 md」必须是未启用。
++// ---------------------------------------------------------------------------
++
++/// 异常（AC-4 反向判据）：`models/` 一级恰 6 个 `NN-<域>.toml`（外加 schema 与索引）
++/// 而递归零 `*.md` → 未启用。
++#[test]
++fn enabled模型文件不是启用证据() {
++    let temp = TempDir::new("enabled-models-only");
++    for name in [
++        "01-app",
++        "02-backend",
++        "03-infra",
++        "04-frontend",
++        "05-checks",
++        "06-tools",
++    ] {
++        temp.write(
++            &format!(".dev-team/architecture/models/{name}.toml"),
++            "[element.\"App\"]\nkind = \"package\"\n",
++        );
++    }
++    temp.write(
++        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
++        "{\"$defs\": {}}\n",
++    );
++    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
++
++    assert!(
++        !enabled(temp.root()),
++        "6 份模型 toml + schema + 索引而零 md ⇒ 未启用（模型文件不是启用证据）"
++    );
++
++    let elements = [element("App.Core.Alpha", &["src/alpha/"])];
++    assert_eq!(
++        findings(temp.root(), &elements).expect("未启用不报错"),
++        Vec::new(),
++        "有模型、零契约 md ⇒ 契约判据空集（与 enabled 同一条判据）"
++    );
++}
++
++/// 正向（AC-4）：模型 toml 与契约 md 并存 → 启用（双身份混居零干扰）；`models/` 与
++/// `graph/` 两目录都在但零 md 的冷启动态 → 未启用且零 panic。
++#[test]
++fn enabled模型与契约混居与冷启动态() {
++    let mixed = TempDir::new("enabled-mixed");
++    mixed.write(
++        ".dev-team/architecture/models/01-app.toml",
++        "[element.\"App\"]\nkind = \"package\"\n",
++    );
++    mixed.write(
++        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
++        "# App.Backend.Infra.ArchiRuntime\n",
++    );
++    assert!(
++        enabled(mixed.root()),
++        "模型 toml + 契约 md 并存 ⇒ 启用（模型文件不遮蔽契约子树）"
++    );
++
++    let cold = TempDir::new("enabled-cold-start");
++    fs::create_dir_all(archi_models_dir(cold.root())).expect("建契约目录");
++    let index = paths::index_path(cold.root());
++    fs::create_dir_all(index.parent().expect("索引有父目录")).expect("建索引目录");
++    assert!(
++        !enabled(cold.root()),
++        "两目录在、零 md ⇒ 未启用（零 panic）"
++    );
++}
++
++/// 边界（AC-4 单点判定自证）：`mod.rs` 内 `has_markdown(&paths::directory(root), 0)` 恰
++/// 1 处（命令层无第二处判断），`enabled` 体内零目录派生调用与零段名字面量（根只经
++/// `paths::directory` 单点）。
++#[test]
++fn enabled判定单点自证() {
++    let source = include_str!("mod.rs");
++    assert_eq!(
++        source
++            .matches("has_markdown(&paths::directory(root), 0)")
++            .count(),
++        1,
++        "启用判定单点（恰一处，命令层无第二处判断）"
++    );
++
++    let start = source
++        .find("pub fn enabled(root: &Path) -> bool {")
++        .expect("`enabled` 在案");
++    let rest = &source[start..];
++    let end = rest.find("\n}\n").expect("函数体收尾");
++    let body = &rest[..end];
++    for banned in [
++        "archi_models_dir",
++        "archi_api",
++        "\"api\"",
++        "\"models\"",
++        "\"graph\"",
++    ] {
++        assert!(
++            !body.contains(banned),
++            "`enabled` 体内零 `{banned}`（根只经 paths::directory）：{body}"
++        );
++    }
++}
++
++/// 正向（AC-4 读数守恒）：契约 md 与模型 toml 同住 `models/`（md 在 `<Domain>/` 子目录）
++/// 时启用，`load_contracts` 正常出三表——模型文件混居零结构诊断。
++#[test]
++fn load_contracts双身份混居仍出三表() {
++    let temp = TempDir::new("mixed-dual-identity");
++    let fqn = "App.Backend.Infra.ArchiRuntime";
++    temp.write_model(&format!(
++        "[element.\"{fqn}\"]\nkind = \"module\"\ngate = \"warn\"\n\
++         path = [\"crates/infra/archi/\"]\n"
++    ));
++    temp.write(
++        "crates/infra/archi/src/lib.rs",
++        "pub struct LocalArchiCheck;\nimpl LocalArchiCheck {\n    pub fn file_stem(timestamp: &str) -> String { String::new() }\n}\n",
++    );
++    temp.write_contract(fqn, &pilot_markdown(fqn));
++
++    assert!(
++        enabled(temp.root()),
++        "md 落 `models/<Domain>/` 子目录仍启用"
++    );
++    let elements = [element(fqn, &["crates/infra/archi/"])];
++    let snapshot = load_contracts(temp.root(), &elements).expect("混居不产出结构诊断");
++    assert_eq!(snapshot.contracts.len(), 1, "contracts 就位");
++    assert_eq!(snapshot.schemas.len(), 1, "schemas 就位");
++    assert!(
++        snapshot.symbols.contains_key(fqn) && !snapshot.symbols[fqn].is_empty(),
++        "symbols 就位（模型 toml 混居不影响取数面）"
++    );
++}
++
++/// 边界（AC-4 读数守恒）：`apiFindings` 的计数只由契约判据决定——有契约元素零判据
++/// （`apiEntryMissing 0`）、有入口无契约者各一条 `apiMissing`，模型 toml 与契约子树
++/// 混居同一目录不产生附加判据（fixture 级等价于真实仓库的 `0 + N` 分桶）。
++#[test]
++fn findings计数与模型文件混居无关() {
++    let temp = TempDir::new("findings-counts-stable");
++    let with_contract = "App.Core.Alpha";
++    let without = "App.Core.Beta";
++    temp.write_model(&format!(
++        "[element.\"{with_contract}\"]\nkind = \"module\"\ngate = \"warn\"\n\
++         path = [\"src/alpha/\"]\n\n\
++         [element.\"{without}\"]\nkind = \"module\"\ngate = \"warn\"\n\
++         path = [\"src/beta/\"]\n"
++    ));
++    temp.write("src/alpha/src/lib.rs", "pub fn alpha() {}\n");
++    temp.write("src/beta/src/lib.rs", "pub fn beta() {}\n");
++    // 零 op / 零类型的契约：声明集为空 ⇒ 该元素零判据（契约即承诺且已在案）。
++    temp.write_contract(
++        with_contract,
++        &format!(
++            "# {with_contract}
++
++## 职能
++
++口径示例。
++"
++        ),
++    );
++
++    let elements = [
++        element(with_contract, &["src/alpha/"]),
++        element(without, &["src/beta/"]),
++    ];
++    let found = findings(temp.root(), &elements).expect("判据应成功");
++    let count = |kind: &str| -> usize {
++        found
++            .iter()
++            .filter(|finding| finding.kind.as_str() == kind)
++            .count()
++    };
++    assert_eq!(count("apiEntryMissing"), 0, "两元素入口均可解析");
++    assert_eq!(
++        count("apiMissing"),
++        1,
++        "有入口无契约者恰一条：{:?}",
++        found
++            .iter()
++            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
++            .collect::<Vec<_>>()
++    );
++    assert_eq!(
++        found.len(),
++        1,
++        "模型 toml 与契约子树混居零附加判据：{:?}",
++        found
++            .iter()
++            .map(|finding| finding.kind.as_str())
++            .collect::<Vec<_>>()
++    );
++}
++
++/// 边界（AC-4 ③ · 离线可推读数）：真实仓库的 `path` 非空元素 44 个，其中 `api = none`
++/// 2 个（留白不入判据面）、契约在案 1 个（零判据），其余 41 个各一条 `apiMissing`
++/// ⇒ `apiEntryMissing 0` + `apiMissing 41`（`44 − 2 − 1 = 41`）。换根只改契约落点，
++/// 该算术不变，故把它写成 fixture 级机械事实：判据计数只由「元素声明 + 契约在案与否」
++/// 决定，与契约目录叫什么名字无关。
++#[test]
++fn findings离线可推读数四十四减二减一() {
++    let temp = TempDir::new("findings-offline-counts");
++    let mut elements: Vec<ArchiElement> = Vec::new();
++    for index in 0..44 {
++        let fqn = format!("App.Core.E{index:02}");
++        let path = format!("src/e{index:02}/");
++        temp.write(&format!("{path}src/lib.rs"), "pub fn body() {}\n");
++        let mut declared = element(&fqn, &[path.as_str()]);
++        if index >= 42 {
++            declared.api = ApiStatus::None;
++        }
++        elements.push(declared);
++    }
++    let in_place = "App.Core.E00";
++    temp.write_contract(
++        in_place,
++        &format!("# {in_place}\n\n## 职能\n\n口径示例。\n"),
++    );
++
++    // 夹具自证：44 个 `path` 非空元素、`api = none` 恰 2 个、契约在案恰 1 份。
++    assert_eq!(
++        elements
++            .iter()
++            .filter(|element| !element.path.is_empty())
++            .count(),
++        44,
++        "`path` 非空元素恰 44 个"
++    );
++    assert_eq!(
++        elements
++            .iter()
++            .filter(|element| element.api == ApiStatus::None)
++            .count(),
++        2,
++        "`api = none` 的元素恰 2 个（留白不入判据面）"
++    );
++    assert_eq!(
++        elements
++            .iter()
++            .filter(|element| paths::contract_path(temp.root(), &element.fqn)
++                .is_some_and(|path| path.is_file()))
++            .count(),
++        1,
++        "契约文件在案恰 1 份（落在 `models/Core/` 下）"
++    );
++
++    let found = findings(temp.root(), &elements).expect("判据应成功");
++    let count = |kind: &str| -> usize {
++        found
++            .iter()
++            .filter(|finding| finding.kind.as_str() == kind)
++            .count()
++    };
++    assert_eq!(
++        count("apiEntryMissing"),
++        0,
++        "44 个入口全部可解析 ⇒ apiEntryMissing 0"
++    );
++    assert_eq!(
++        count("apiMissing"),
++        41,
++        "44 − 2 − 1 = 41：{:?}",
++        found
++            .iter()
++            .map(|finding| (finding.kind.as_str(), finding.element.clone()))
++            .collect::<Vec<_>>()
++    );
++    assert_eq!(
++        found.len(),
++        41,
++        "判据总数 41（`apiEntryMissing 0` + `apiMissing 41`，零附加判据）"
++    );
++}
+diff --git a/crates/core/archi/src/api/paths.rs b/crates/core/archi/src/api/paths.rs
+index 4f3448e6aab0..06c6db561107 100644
+--- a/crates/core/archi/src/api/paths.rs
++++ b/crates/core/archi/src/api/paths.rs
+@@ -3,8 +3,9 @@
+ //!
+ //! **几乎全是路径运算，零 IO**：[`entry_state`] 的存在性探测是唯一例外——它必须看盘
+ //! 才能回答「入口在哪」；[`entry_candidates`] 的候选派生**纯文本、零 IO**。契约目录
+-//! 一律经 [`foundation::layout::archi_api_dir`] 派生：本文件 MUST NOT 行内拼 `api` 段，
+-//! MUST NOT 手算 `../` 层数（值形态由本文件单点产出，消费方零字面量）。
++//! 经 [`foundation::layout::archi_models_dir`]、契约索引经
++//! [`foundation::layout::archi_graph_dir`] 派生：本文件 MUST NOT 行内拼 `models` /
++//! `graph` 段，MUST NOT 手算 `../` 层数（值形态由本文件单点产出，消费方零字面量）。
+ //!
+ //! **生成物落点 = 实现入口同级**（`<入口目录>/<入口主干>.i.<ext>`）：元素根路径
+ //! （`path.first()`）只回答「根在哪」，MUST NOT 参与落点派生；`#[path]` 的值因此恒为
+@@ -20,15 +21,16 @@
+ 
+ use std::path::{Path, PathBuf};
+ 
+-use foundation::layout::archi_api_dir;
++use foundation::layout::{archi_graph_dir, archi_models_dir};
+ 
+ use crate::dto::ArchiElement;
+ 
+ /// 元素根路径顶层分组名（`<Domain>` 缺省——单段 FQN 的契约落此目录）。
+ const ROOT_DOMAIN: &str = "Root";
+ 
+-/// 索引文件名（`<archi_api_dir>/INDEX.toml`，全局唯一一份）。
+-const INDEX_FILE_NAME: &str = "INDEX.toml";
++/// 索引文件名（`<archi_graph_dir>/INDEX.toml`，全局唯一一份；写盘目标与孤儿扫描
++/// 收面共用同一持有者）。
++pub(crate) const INDEX_FILE_NAME: &str = "INDEX.toml";
+ 
+ /// 入口形态（封闭三值）：由「入口与元素根的关系」派生（[`form_of`]），供
+ /// `EmitTarget.form`（TS 侧形态位；`ts_import_specifier` 待接线）。
+@@ -233,14 +235,17 @@ pub fn domain_of(fqn: &str) -> Option<String> {
+     segments.last().map(|segment| (*segment).to_owned())
+ }
+ 
+-/// 契约目录本身（`<archi_dir>/api`）——本文件是它的唯一派生点。
++/// 契约目录本身（== `<archi_models_dir>`：`<Domain>/<FQN>.md` 与同目录
++/// `.schema.json` 的 base）——本文件是它的唯一派生点。
+ pub fn directory(root: &Path) -> PathBuf {
+-    archi_api_dir(root)
++    archi_models_dir(root)
+ }
+ 
+-/// 索引文件路径（`<archi_api_dir>/INDEX.toml`，全局唯一一份）。
++/// 索引文件路径（`<archi_graph_dir>/INDEX.toml`，全局唯一一份）。
++///
++/// 索引与契约目录首次分家：本函数 MUST NOT 由 `directory(root).join(…)` 派生。
+ pub fn index_path(root: &Path) -> PathBuf {
+-    directory(root).join(INDEX_FILE_NAME)
++    archi_graph_dir(root).join(INDEX_FILE_NAME)
+ }
+ 
+ /// 语言 → 生成物种类（分派单点；MUST NOT 让调用方各自 match 语言再拼
+@@ -259,7 +264,7 @@ pub fn generated_kind(language: Language) -> GeneratedKind {
+     }
+ }
+ 
+-/// 契约文件路径：`<archi_api_dir>/<Domain>/<FQN>.md`。
++/// 契约文件路径：`<archi_models_dir>/<Domain>/<FQN>.md`。
+ ///
+ /// FQN 形态非法（空 / 含路径分隔符 / `.` 或 `..` 段 / 绝对前缀）→ `None`：FQN 同时
+ /// 充当**文件名**，放行即让下层的 `is_file()` 探测与工具 crate 的写盘越出契约目录。
+diff --git a/crates/core/archi/src/api/paths_test.rs b/crates/core/archi/src/api/paths_test.rs
+index cee212e11f2e..cc9cb90fcffd 100644
+--- a/crates/core/archi/src/api/paths_test.rs
++++ b/crates/core/archi/src/api/paths_test.rs
+@@ -11,7 +11,7 @@ use std::fs;
+ use std::path::{Component, Path, PathBuf};
+ use std::sync::atomic::{AtomicU64, Ordering};
+ 
+-use foundation::layout::archi_api_dir;
++use foundation::layout::{archi_graph_dir, archi_models_dir};
+ 
+ use crate::api::contract::parse;
+ use crate::api::emit::ts::render as render_ts;
+@@ -83,7 +83,7 @@ impl TempDir {
+         );
+     }
+ 
+-    /// 落契约（`<archi_api_dir>/<Domain>/<FQN>.md`）。
++    /// 落契约（`<archi_models_dir>/<Domain>/<FQN>.md`）。
+     fn write_contract(&self, fqn: &str, content: &str) {
+         let path = contract_path(self.root(), fqn).expect("测试 FQN 恒为合法形态");
+         if let Some(parent) = path.parent() {
+@@ -262,8 +262,8 @@ fn normalize_root幂等() {
+ // contract_path / schema_path：同目录、`<Domain>` 目录段
+ // ---------------------------------------------------------------------------
+ 
+-/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_api_dir>/Infra/...`；
+-/// 两函数父目录逐字相等、均以 `archi_api_dir(root)` 为前缀（零行内 `api` 段）。
++/// 正向（AC-4）：`App.Backend.Infra.ArchiRuntime` → `<archi_models_dir>/Infra/...`；
++/// 两函数父目录逐字相等、均以 `archi_models_dir(root)` 为前缀（零行内段名）。
+ #[test]
+ fn contract_path与schema_path同目录同前缀() {
+     let root = Path::new("/ws");
+@@ -301,8 +301,8 @@ fn contract_path与schema_path同目录同前缀() {
+     );
+     assert_eq!(
+         contract.parent(),
+-        Some(archi_api_dir(root).join("Infra").as_path()),
+-        "前缀恒为 archi_api_dir(root)"
++        Some(archi_models_dir(root).join("Infra").as_path()),
++        "前缀恒为 archi_models_dir(root)"
+     );
+ }
+ 
+@@ -328,8 +328,8 @@ fn contract_path顶层退化root且零穿越() {
+             "契约路径 MUST NOT 含目录穿越段：{fqn:?} → {path:?}"
+         );
+         assert!(
+-            path.starts_with(archi_api_dir(root)),
+-            "契约路径恒在 archi_api_dir 之下：{fqn:?}"
++            path.starts_with(archi_models_dir(root)),
++            "契约路径恒在 archi_models_dir 之下：{fqn:?}"
+         );
+     }
+ }
+@@ -1677,25 +1677,31 @@ fn language_of未知面不猜测() {
+     }
+ }
+ 
+-/// 边界：索引路径恒为 `<archi_api_dir>/INDEX.toml`（全局唯一一份，不在 `<Domain>`
+-/// 目录内）。
++/// 边界：索引路径恒为 `<archi_graph_dir>/INDEX.toml`（全局唯一一份，落独立于契约
++/// 目录的索引家，不在 `<Domain>` 目录内、也不在契约目录根）。
+ #[test]
+-fn index_path位于契约目录根() {
++fn index_path位于索引目录根() {
+     let root = Path::new("/ws");
+-    assert_eq!(index_path(root), archi_api_dir(root).join("INDEX.toml"));
++    assert_eq!(index_path(root), archi_graph_dir(root).join("INDEX.toml"));
+     assert_eq!(
+         index_path(root).parent(),
+-        Some(archi_api_dir(root).as_path()),
++        Some(archi_graph_dir(root).as_path()),
+         "索引不进 <Domain> 子目录"
+     );
++    assert_ne!(
++        index_path(root).parent(),
++        Some(directory(root).as_path()),
++        "索引与契约目录分家（兄弟目录）"
++    );
+ }
+ 
+ // ---------------------------------------------------------------------------
+ // directory / index_path：契约目录的单点派生
+ // ---------------------------------------------------------------------------
+ 
+-/// 正向（AC-4 / AC-17 前置）：`directory(root)` 与 `foundation::layout::archi_api_dir(root)`
+-/// **逐字相等**（同一值，不是相等前缀）；`root` 含空格 / 非 ASCII / 尾分隔符三形态均成立。
++/// 正向（AC-4 / AC-5 前置）：`directory(root)` 与 `foundation::layout::archi_models_dir(root)`
++/// **逐字相等**（同一值，不是相等前缀；契约目录不另设函数）；`root` 含空格 / 非 ASCII /
++/// 尾分隔符三形态均成立。
+ #[test]
+ fn directory单点转发与layout同值() {
+     let roots = [
+@@ -1706,12 +1712,12 @@ fn directory单点转发与layout同值() {
+     for root in roots {
+         assert_eq!(
+             directory(root),
+-            archi_api_dir(root),
+-            "directory 是 archi_api_dir 的唯一转发点（同一值）：{root:?}"
++            archi_models_dir(root),
++            "directory 是 archi_models_dir 的唯一转发点（同一值）：{root:?}"
+         );
+         assert_eq!(
+             directory(root).file_name().map(|name| name.to_owned()),
+-            archi_api_dir(Path::new("/tmp"))
++            archi_models_dir(Path::new("/tmp"))
+                 .file_name()
+                 .map(|name| name.to_owned()),
+             "末段沿用 layout 的段名（零行内拼段）：{root:?}"
+@@ -1719,27 +1725,34 @@ fn directory单点转发与layout同值() {
+     }
+ }
+ 
+-/// 边界（AC-17）：契约目录一切派生都经 `directory` 单点——来源文件内零 `"api"` 字面量
+-/// （`API_DIR_NAME` 只在 `foundation::layout` 定义），且 `contract_path` / `schema_path` /
+-/// `index_path` 三者的父目录均可由 `directory(root)` 推出。
++/// 边界（AC-5）：契约目录一切派生都经 `directory` 单点、索引经独立派生点——来源文件内
++/// 零 `"api"` / `"models"` / `"graph"` 段字面量（段名只在 `foundation::layout` 定义），
++/// 且 `contract_path` / `schema_path` 的父目录可由 `directory(root)` 推出、`index_path`
++/// 的父目录**不能**（索引与契约目录分家）。
+ #[test]
+-fn directory零行内api段() {
++fn directory零行内段名字面量() {
+     let source = include_str!("paths.rs");
++    for banned in ["\"api\"", "\"models\"", "\"graph\""] {
++        assert!(
++            !source.contains(banned),
++            "paths.rs 内零 `{banned}` 字面量（MUST NOT 行内拼段）"
++        );
++    }
+     assert!(
+-        !source.contains("\"api\""),
+-        "paths.rs 内零 `\"api\"` 字面量（MUST NOT 行内拼 api 段）"
++        source.contains("archi_models_dir"),
++        "契约目录派生经 foundation::layout::archi_models_dir"
+     );
+     assert!(
+-        source.contains("archi_api_dir"),
+-        "目录派生经 foundation::layout::archi_api_dir"
++        source.contains("archi_graph_dir"),
++        "索引派生经 foundation::layout::archi_graph_dir"
+     );
+     assert!(source.contains("fn directory"), "单点转发函数在案");
+ 
+     let root = Path::new("/ws");
+     assert_eq!(
+         index_path(root).parent(),
+-        Some(directory(root).as_path()),
+-        "索引的父目录逐字等于 directory(root)"
++        Some(archi_graph_dir(root).as_path()),
++        "索引的父目录是 graph 目录（非 directory(root)）"
+     );
+     assert_eq!(
+         contract_path(root, "App.Core.Alpha")
+@@ -1757,8 +1770,9 @@ fn directory零行内api段() {
+     );
+ }
+ 
+-/// 正向（D21 / 持久化二）：`index_path(root)` 末段恰为 `INDEX.toml`、父目录恰为
+-/// `directory(root)`；与 `contract_path` / `schema_path`（`<Domain>/` 下一层）**不同层**。
++/// 正向（AC-5）：`index_path(root)` 末段恰为 `INDEX.toml`、父目录恰为 `graph/`——与
++/// **契约目录分家**（兄弟目录，互不嵌套），与 `contract_path` / `schema_path`
++/// （`<Domain>/` 下一层）**不同层**。
+ #[test]
+ fn index_path形态与层级对比() {
+     let root = Path::new("/ws");
+@@ -1770,15 +1784,19 @@ fn index_path形态与层级对比() {
+     );
+     assert_eq!(
+         index.parent(),
+-        Some(directory(root).as_path()),
+-        "父目录恰为 directory(root)"
++        Some(archi_graph_dir(root).as_path()),
++        "父目录恰为 graph 目录"
++    );
++    assert!(
++        !index.starts_with(directory(root)),
++        "索引不在契约目录之下（两目录分家）"
+     );
+ 
+     let contract = contract_path(root, "App.Backend.Infra.ArchiRuntime").expect("合法 FQN");
+     assert_ne!(
+         index.parent(),
+         contract.parent(),
+-        "索引在 api 根、契约在域目录（不同层）"
++        "索引在 graph 根、契约在域目录（不同层）"
+     );
+     assert!(
+         contract
+@@ -1786,10 +1804,11 @@ fn index_path形态与层级对比() {
+             .is_some_and(|parent| parent.starts_with(directory(root))),
+         "契约目录在 directory(root) 之下"
+     );
++    let contracts = directory(root);
+     assert_eq!(
+-        index.parent().map(|parent| parent.components().count()),
+-        Some(directory(root).components().count()),
+-        "索引层级 = 契约目录本身（比域目录浅一层）"
++        index.parent().and_then(|parent| parent.parent()),
++        contracts.parent(),
++        "索引家与契约目录是兄弟（同一架构域根下的平行子目录）"
+     );
+ }
+ 
+@@ -1807,7 +1826,7 @@ fn index_path全局唯一且零io() {
+     let derived = index_path(missing);
+     assert_eq!(
+         derived,
+-        directory(missing).join("INDEX.toml"),
++        archi_graph_dir(missing).join("INDEX.toml"),
+         "不存在 root 仍纯推导返回"
+     );
+     assert!(!missing.exists(), "纯推导零 IO（不因派生而创建目录）");
+@@ -2128,7 +2147,7 @@ fn module_refs的rust分支筛选() {
+ #[test]
+ fn render的from经ts_string_literal() {
+     let fqn = "App.Backend.Infra.ArchiRuntime";
+-    let file = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md";
++    let file = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+     let source = format!(
+         "# {fqn}\n\n```json api-reexport\n{{\"Archived\": \"{fqn}\"}}\n```\n\n\
+          ## 透传\n\n- Archived → {fqn}\n"
+@@ -2451,3 +2470,192 @@ fn 零第二形态与零清洗() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 段名纪律的删除面与索引文件名常量（`module-entry-docs-semantics` / AC-1 / AC-5）
++// ---------------------------------------------------------------------------
++
++/// 异常（AC-5）：`paths.rs` 内 `api` 段族三符号零命中；`archi_models_dir` /
++/// `archi_graph_dir` 同批 import 且各在 `directory` / `index_path` 体内消费一次（段名
++/// 只经派生函数，零行内拼接）。
++#[test]
++fn paths零api段族且两族派生单点消费() {
++    let source = include_str!("paths.rs");
++    for removed in ["archi_api_dir", "archi_api_rel_dir", "API_DIR_NAME"] {
++        assert_eq!(
++            source.matches(removed).count(),
++            0,
++            "`paths.rs` 内 `{removed}` 零命中（段名只经 foundation::layout 派生）"
++        );
++    }
++
++    let import_line = source
++        .lines()
++        .find(|line| line.trim_start().starts_with("use foundation::layout"))
++        .unwrap_or_else(|| panic!("缺 `foundation::layout` 的 import 行"));
++    for needle in ["archi_models_dir", "archi_graph_dir"] {
++        assert!(
++            import_line.contains(needle),
++            "`{needle}` 在 import 行（段名单点导入）：{import_line}"
++        );
++    }
++
++    let directory_body = function_body(source, "pub fn directory(root: &Path) -> PathBuf {");
++    assert_eq!(
++        directory_body.matches("archi_models_dir(root)").count(),
++        1,
++        "`directory` 体恰一次 `archi_models_dir(root)`：{directory_body}"
++    );
++    assert!(
++        !directory_body.contains("archi_graph_dir"),
++        "`directory` 体零 `archi_graph_dir`（索引与契约分家）：{directory_body}"
++    );
++
++    let index_body = function_body(source, "pub fn index_path(root: &Path) -> PathBuf {");
++    assert_eq!(
++        index_body.matches("archi_graph_dir(root)").count(),
++        1,
++        "`index_path` 体恰一次 `archi_graph_dir(root)`：{index_body}"
++    );
++    assert!(
++        !index_body.contains("directory(root)"),
++        "`index_path` MUST NOT 由 `directory(root).join(…)` 派生：{index_body}"
++    );
++}
++
++/// 边界：空 root / 盘符风格 root / 尾分隔符 / 超长 root（1200 字符）——`directory` 恒与
++/// `archi_models_dir` 同值、末段恒 `models`，不 panic。
++#[test]
++fn directory边界root形态仍与layout同值() {
++    let long = format!("C:\\{}", "a".repeat(1200));
++    for (label, root) in [
++        ("空 root", Path::new("")),
++        ("盘符 root", Path::new(r"C:\demo\alpha")),
++        ("尾分隔符 root", Path::new("/ws/")),
++        ("超长 root", Path::new(long.as_str())),
++    ] {
++        assert_eq!(
++            directory(root),
++            archi_models_dir(root),
++            "{label}：`directory` 与 `archi_models_dir` 是同一值"
++        );
++        assert_eq!(
++            directory(root).file_name().and_then(|name| name.to_str()),
++            Some("models"),
++            "{label}：末段恒 models"
++        );
++    }
++}
++
++/// 正向（AC-1）：`INDEX_FILE_NAME` 值恰 `"INDEX.toml"`、`paths.rs` 内该字面量恰 1 处
++/// （常量定义，`pub(crate)` 可见）；`diff.rs` 内零字面量、以
++/// `super::paths::INDEX_FILE_NAME` 恰消费一次（跨模块引用在编译期即证明可见性可达）。
++#[test]
++fn index_file_name单点持有与跨模块消费() {
++    let source = include_str!("paths.rs");
++    assert_eq!(
++        source.matches("\"INDEX.toml\"").count(),
++        1,
++        "`\"INDEX.toml\"` 字面量恰一处（常量定义）"
++    );
++    assert!(
++        source.contains("pub(crate) const INDEX_FILE_NAME: &str = \"INDEX.toml\";"),
++        "常量定义与 `pub(crate)` 可见性在案"
++    );
++    assert_eq!(
++        source.matches("const INDEX_FILE_NAME").count(),
++        1,
++        "索引文件名常量恰一处定义"
++    );
++    assert!(
++        !source.contains("INDEX_SUFFIX"),
++        "零同值第二常量（`INDEX_SUFFIX` 一类）"
++    );
++    assert_eq!(
++        index_path(Path::new("/ws"))
++            .file_name()
++            .and_then(|name| name.to_str()),
++        Some("INDEX.toml"),
++        "常量值即索引路径末段"
++    );
++
++    let diff = include_str!("diff.rs");
++    assert_eq!(
++        diff.matches("\"INDEX.toml\"").count(),
++        0,
++        "`diff.rs` 内零索引文件名字面量（唯一持有者在 paths）"
++    );
++    assert_eq!(
++        diff.matches("super::paths::INDEX_FILE_NAME").count(),
++        1,
++        "`diff.rs` 恰一处引用本常量（收面后缀共用同一持有者）"
++    );
++}
++
++/// 边界（AC-1）：`schema_path` 末段恒 `<FQN>.schema.json`、单段 FQN 落 `Root/`、root 三形态
++/// 父链与 `contract_path` 同源。
++#[test]
++fn schema_path边界形态与contract同源() {
++    for root in [Path::new("/ws"), Path::new(""), Path::new("/ws/")] {
++        let path = schema_path(root, "App")
++            .unwrap_or_else(|| panic!("合法 FQN 应可派生：root = {root:?}"));
++        assert_eq!(
++            path.file_name().and_then(|name| name.to_str()),
++            Some("App.schema.json"),
++            "末段恒 `<FQN>.schema.json`：root = {root:?}"
++        );
++        assert_eq!(
++            path.parent(),
++            Some(directory(root).join("Root").as_path()),
++            "单段 FQN 落 Root 目录：root = {root:?}"
++        );
++
++        let contract = contract_path(root, "App.Backend.Infra.ArchiRuntime").expect("合法 FQN");
++        let schema = schema_path(root, "App.Backend.Infra.ArchiRuntime").expect("合法 FQN");
++        assert_eq!(
++            schema.parent(),
++            contract.parent(),
++            "两函数父目录逐字相等：root = {root:?}"
++        );
++    }
++}
++
++/// 边界：超长合法 FQN（1200 字符、零分隔符）与含换行的合法 FQN 均 `Some` 且不 panic
++/// （判据只看形态，不清洗内容）。
++#[test]
++fn contract_path超长与特殊字符fqn放行() {
++    let root = Path::new("/ws");
++    let long = format!("App.{}", "a".repeat(1200));
++    let path = contract_path(root, &long).unwrap_or_else(|| panic!("超长合法 FQN 应可派生"));
++    assert_eq!(
++        path.parent(),
++        Some(directory(root).join("App").as_path()),
++        "父目录 = `<Domain>` 目录"
++    );
++    assert!(schema_path(root, &long).is_some(), "schema 路径同步放行");
++
++    for fqn in ["App.🎯.Target", "App.Core.Line\nBreak"] {
++        let contract =
++            contract_path(root, fqn).unwrap_or_else(|| panic!("形态合法即放行：{fqn:?}"));
++        let schema = schema_path(root, fqn).unwrap_or_else(|| panic!("形态合法即放行：{fqn:?}"));
++        assert_eq!(
++            contract.parent(),
++            schema.parent(),
++            "两函数父目录同源：{fqn:?}"
++        );
++        assert!(
++            dot_segments(&contract).is_empty() && dot_segments(&schema).is_empty(),
++            "零目录穿越段：{fqn:?}"
++        );
++    }
++}
++
++/// 取 `signature` 起的函数体原文（到首个行首 `}` 为止）。
++fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
++    let start = source
++        .find(signature)
++        .unwrap_or_else(|| panic!("缺少函数签名 `{signature}`"));
++    let rest = &source[start..];
++    let end = rest.find("\n}\n").map_or(rest.len(), |index| index + 1);
++    &rest[..end]
++}
+diff --git a/crates/core/archi/src/api/schema.rs b/crates/core/archi/src/api/schema.rs
+index 0c9c95f64708..a410da778bf5 100644
+--- a/crates/core/archi/src/api/schema.rs
++++ b/crates/core/archi/src/api/schema.rs
+@@ -313,7 +313,8 @@ pub fn build_index(entries: &[IndexEntry], meta: &ApiMeta) -> String {
+     ordered.sort_by(|left, right| left.fqn.cmp(&right.fqn));
+ 
+     let mut document = DocumentMut::new();
+-    let contract_dir = foundation::layout::archi_api_rel_dir();
++    // 说明段取契约资产所在目录，MUST NOT 取索引自身目录（索引与契约已分家）。
++    let contract_dir = foundation::layout::archi_models_rel_dir();
+     let digest = short_digest(&meta.common_digest);
+     let header = format!(
+         "由 archi-api-gen 生成 · 勿手改\n\
+diff --git a/crates/core/archi/src/api/schema_test.rs b/crates/core/archi/src/api/schema_test.rs
+index be5efb7d0f8e..800a214cc73c 100644
+--- a/crates/core/archi/src/api/schema_test.rs
++++ b/crates/core/archi/src/api/schema_test.rs
+@@ -19,7 +19,7 @@ use super::schema::{build_index, build_schema, degraded_marks, verify_defs, DEGR
+ use super::{ApiError, ApiFormStatus, ApiMeta, IndexEntry};
+ 
+ /// 契约文件（repo 相对 POSIX）。
+-const FILE: &str = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md";
++const FILE: &str = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md";
+ 
+ /// 元素 FQN（= H1 = 文件名去 `.md`）。
+ const FQN: &str = "App.Backend.Infra.ArchiRuntime";
+@@ -1594,3 +1594,48 @@ fn verify_defs取值校验排在既有规则之后() {
+         "空 `$defs` 仍合法（零标记可校验）"
+     );
+ }
++
++/// 正向（AC-2）：说明段第三行以「契约面：目录」起句并含
++/// `foundation::layout::archi_models_rel_dir()` 的逐字结果；索引目录（`graph`）与旧方位
++/// 串（`architecture/api`）零命中——索引与契约分家后的方向判据。
++#[test]
++fn build_index说明段取契约资产目录() {
++    let text = build_index(&[entry(FQN)], &meta());
++    let lines = comment_lines(&text);
++    assert_eq!(lines.len(), 3, "说明段恰三行：{lines:?}");
++
++    let contracts = foundation::layout::archi_models_rel_dir();
++    let index_dir = foundation::layout::archi_graph_rel_dir();
++    let generator_line = &lines[2];
++    assert!(
++        generator_line.contains("契约面：目录"),
++        "第三行以「契约面：目录」起句：{generator_line}"
++    );
++    assert!(
++        generator_line.contains(&contracts),
++        "含 `archi_models_rel_dir()` 逐字结果（{contracts}）：{generator_line}"
++    );
++    assert!(
++        !generator_line.contains(&index_dir),
++        "说明段 MUST NOT 取索引自身目录（{index_dir}）：{generator_line}"
++    );
++    assert!(
++        !text.contains("architecture/api"),
++        "旧方位串 `architecture/api` 零残留"
++    );
++}
++
++/// 边界（AC-2）：说明段与条目规模无关——单条目与 41 条两规模下说明段逐字相同（确定性 /
++/// 零状态依赖）。
++#[test]
++fn build_index说明段与条目规模无关() {
++    let single = comment_lines(&build_index(&[entry("App.Core.Alpha")], &meta()));
++    let many: Vec<IndexEntry> = (0..41)
++        .map(|index| entry(&format!("App.E{index:02}")))
++        .collect();
++    let wide = comment_lines(&build_index(&many, &meta()));
++
++    assert_eq!(single.len(), 3, "单条目说明段三行：{single:?}");
++    assert_eq!(wide.len(), 3, "41 条说明段三行：{wide:?}");
++    assert_eq!(single, wide, "说明段不随条目数变化（同输入同输出）");
++}
+diff --git a/crates/core/archi/src/drift/mod_test.rs b/crates/core/archi/src/drift/mod_test.rs
+index 577cdc291abc..d5988fed720c 100644
+--- a/crates/core/archi/src/drift/mod_test.rs
++++ b/crates/core/archi/src/drift/mod_test.rs
+@@ -1270,9 +1270,9 @@ fn 错误面文案三值() {
+ // 契约判据装配（`module-api-contract-format` / AC-7 / AC-8 / AC-9 / D17 / D18 / D20）
+ // ===========================================================================
+ 
+-use foundation::layout::archi_api_dir;
++use foundation::layout::archi_models_dir;
+ 
+-/// 落一份契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
++/// 落一份契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
+ fn write_contract(temp: &TempDir, fqn: &str, content: &str) {
+     let path = crate::api::paths::contract_path(temp.root(), fqn).expect("合法 FQN");
+     let relative = path
+@@ -1282,7 +1282,7 @@ fn write_contract(temp: &TempDir, fqn: &str, content: &str) {
+         .replace('\\', "/");
+     temp.write(&relative, content);
+     assert!(
+-        archi_api_dir(temp.root()).is_dir(),
++        archi_models_dir(temp.root()).is_dir(),
+         "契约目录由落盘自动建立"
+     );
+ }
+@@ -1328,7 +1328,7 @@ fn mismatched_contract(fqn: &str) -> String {
+     )
+ }
+ 
+-/// 边界（D17 / AC-8）：tempdir 有模型与源文件但无 `<archi_api_dir>` → `Ok`，
++/// 边界（D17 / AC-8）：tempdir 有模型与源文件但 `models/**` 零 `*.md` → `Ok`，
+ /// `api_findings` 空、`version == 3`，既有各槽位与「契约面未引入时」等价。
+ #[test]
+ fn 契约面缺席时_api_findings为空() {
+@@ -1725,14 +1725,15 @@ fn count_kind(report: &Report, kind: ArchiApiFindingKind) -> usize {
+         .count()
+ }
+ 
+-/// 边界（D17）：`<archi_api_dir>` 存在且只含 `INDEX.toml`（零 `*.md`）→ 契约面未
+-/// 启用，`api_findings` 空、既有槽位与「目录缺席」形态逐字段等价。
++/// 边界（D17）：`models/**` 零 `*.md`（只有模型文件与 `graph/INDEX.toml`）→ 契约面
++/// 未启用，`api_findings` 空、既有槽位与「目录缺席」形态逐字段等价——模型文件与索引
++/// 都不是启用证据。
+ #[test]
+-fn 契约目录存在但零md即未启用() {
++fn 契约目录零md即未启用() {
+     let temp = TempDir::new("api-dir-without-md");
+     temp.write_model("[element.\"App\"]\nkind = \"package\"\npath = [\"./src/\"]\n");
+     temp.write("src/a.ts", "export const a = 1;\n");
+-    temp.write(".dev-team/architecture/api/INDEX.toml", "# 空索引\n");
++    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 空索引\n");
+ 
+     let report = run_full(temp.root()).expect("判定应成功");
+     assert!(report.api_findings.is_empty(), "零 md ⇒ 未启用 ⇒ 空槽位");
+diff --git a/crates/core/archi/src/drift/report_test.rs b/crates/core/archi/src/drift/report_test.rs
+index fa607212dfc0..baad75ebfac1 100644
+--- a/crates/core/archi/src/drift/report_test.rs
++++ b/crates/core/archi/src/drift/report_test.rs
+@@ -562,14 +562,14 @@ fn api_finding() -> ArchiApiFinding {
+         message: "元素 App.Backend.Infra.ArchiRuntime 的契约签名与代码不一致".to_owned(),
+         occurrences: vec![
+             ArchiDriftOccurrence {
+-                file: ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md"
++                file: ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md"
+                     .to_owned(),
+                 line: 31,
+                 specifier: Some("file_stem".to_owned()),
+                 type_only: false,
+             },
+             ArchiDriftOccurrence {
+-                file: ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.md"
++                file: ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md"
+                     .to_owned(),
+                 line: 32,
+                 specifier: Some("file_stem".to_owned()),
+diff --git a/crates/core/archi/src/dto.rs b/crates/core/archi/src/dto.rs
+index 8cdd06a01750..f6bc5b46911b 100644
+--- a/crates/core/archi/src/dto.rs
++++ b/crates/core/archi/src/dto.rs
+@@ -80,7 +80,7 @@ impl GateTier {
+ ///
+ /// 语义：`declared` = 本模块承诺有公共 API 契约（缺省）、`none` = 显式声明本模块
+ /// 无 API。它是元素的**属性**而非协议正文——签名 / 符号 / 接口定义 MUST NOT 出现在
+-/// 模型里（契约权威在架构域 `api` 目录的契约资产，本枚举只是状态指针）。
++/// 模型里（契约权威在架构域 `models/<Domain>/` 的契约资产，本枚举只是状态指针）。
+ #[derive(
+     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type,
+ )]
+@@ -358,7 +358,7 @@ pub struct DocRef {
+ pub struct ArchiApiRef {
+     /// 契约状态（文件在案事实）
+     pub status: ApiStatus,
+-    /// 契约文件（`<archi_dir>/api/<Domain>/<FQN>.md`）的 repo 相对路径
++    /// 契约文件（`<archi_dir>/models/<Domain>/<FQN>.md`）的 repo 相对路径
+     pub contract_path: Option<String>,
+     /// schema 生成物（同目录 `<FQN>.schema.json`）的 repo 相对路径
+     pub schema_path: Option<String>,
+diff --git a/crates/core/archi/src/dto_test.rs b/crates/core/archi/src/dto_test.rs
+index 00ea7091cf3b..29de66ba903d 100644
+--- a/crates/core/archi/src/dto_test.rs
++++ b/crates/core/archi/src/dto_test.rs
+@@ -1658,7 +1658,7 @@ fn module_detail的api与投影单点逐字段相等() {
+         .count();
+     assert!(
+         !source.contains("paths::")
+-            && !source.contains("foundation::layout::archi_api_dir")
++            && !source.contains("foundation::layout::archi_graph_dir")
+             && constructed == 0,
+         "`dto` 内零契约路径拼装 / 零 `ArchiApiRef` 构造字面量（全由投影单点产出）"
+     );
+@@ -2123,7 +2123,7 @@ fn api_check_fixture() -> ArchiApiCheck {
+         },
+         mismatched: vec!["crates/core/archi.i.rs".to_owned()],
+         orphaned: vec!["src/loose.i.ts".to_owned()],
+-        missing: vec![".dev-team/architecture/api/INDEX.toml".to_owned()],
++        missing: vec![".dev-team/architecture/graph/INDEX.toml".to_owned()],
+     }
+ }
+ 
+@@ -2528,3 +2528,182 @@ fn module_detail的entry投影与入口同级落点() {
+         "停摆态零 `entry` 泄漏（元素表本就为空）"
+     );
+ }
++
++// ===========================================================================
++// doc 方位串换段（`module-entry-docs-semantics` / AC-5 ③ / AC-8）
++//
++// 本变更为 doc-only：`dto.rs` 两处、`api/extract/mod.rs` 一处、`model.rs` 一处
++// 方位串由 `<archi_dir>/api/…` 改指 `<archi_dir>/models/…`，字段名 / 顺序 /
++// serde / specta 派生逐字不变。三份产品的旧方位串守卫集中在本节（机械断言，
++// 不靠 review 记忆）——`api/extract/mod.rs:5` 与 `model.rs:46` 回退即判红。
++// ===========================================================================
++
++/// 正向（AC-5 ③ / AC-8）：`dto.rs` 的 doc 方位串已换段——两处 `models/<Domain>/`
++/// 在场（`ApiStatus` 与 `ArchiApiRef::contract_path`）、含完整契约文件方位串。
++#[test]
++fn dto_doc方位串换段() {
++    let source = include_str!("dto.rs");
++    assert_eq!(
++        source.matches("models/<Domain>/").count(),
++        2,
++        "两处 doc 方位串换段（`ApiStatus` 与 `ArchiApiRef::contract_path`）"
++    );
++    assert!(
++        source.contains("<archi_dir>/models/<Domain>/<FQN>.md"),
++        "契约文件 doc 改指 models 段"
++    );
++}
++
++/// 正向（AC-5 ③）：三份产品源文各含换段后的方位串——`dto.rs` 两处
++/// `models/<Domain>/`；`api/extract/mod.rs` 一处 `<archi_models_dir>/<Domain>/<FQN>.md`；
++/// `model.rs` 一处「架构域 `models/<Domain>/` 目录」。
++#[test]
++fn 三份产品源文doc方位串换段() {
++    let dto = include_str!("dto.rs");
++    assert_eq!(
++        dto.matches("models/<Domain>/").count(),
++        2,
++        "`dto.rs` 两处 doc 方位串换段"
++    );
++
++    let extract = include_str!("api/extract/mod.rs");
++    assert_eq!(
++        extract
++            .matches("<archi_models_dir>/<Domain>/<FQN>.md")
++            .count(),
++        1,
++        "`api/extract/mod.rs` 模块 doc 一行换段（取数面零改动）"
++    );
++
++    let model = include_str!("model.rs");
++    assert_eq!(
++        model.matches("架构域 `models/<Domain>/` 目录").count(),
++        1,
++        "`model.rs` 的 `api` 字段 doc 一行换段"
++    );
++}
++
++/// 异常（AC-5 ③）：三份产品源文的旧方位串计数全 0——`architecture/api`、
++/// `<archi_dir>/api/`、「架构域 `api` 目录」（含无反引号变体）逐串归零；
++/// 复原任一旧串即本用例判红。
++#[test]
++fn 三份产品源文旧方位串零残留() {
++    for (label, source) in [
++        ("dto.rs", include_str!("dto.rs")),
++        ("api/extract/mod.rs", include_str!("api/extract/mod.rs")),
++        ("model.rs", include_str!("model.rs")),
++    ] {
++        for stale in [
++            "architecture/api",
++            "<archi_dir>/api/",
++            "架构域 `api` 目录",
++            "架构域 api 目录",
++        ] {
++            assert_eq!(
++                source.matches(stale).count(),
++                0,
++                "`{label}` 内旧方位串 `{stale}` 零命中（旧位置必须清空）"
++            );
++        }
++    }
++}
++
++/// 边界（AC-5 ③）：守卫面不越界——`api/extract/mod.rs` 的三个公共入口签名与
++/// 语言分派三臂仍在（只允许 doc 一行 diff，取数 / 签名归一零改动）；
++/// `model.rs` 的 `Element` 结构体与 `api` / `entry` 两个字段行仍在（字段面零改动由既有
++/// `model_test` 的字段数用例承担）。
++#[test]
++fn 产品源文doc守卫不越界() {
++    let extract = include_str!("api/extract/mod.rs");
++    for signature in [
++        "pub fn extract(element: &ArchiElement, file: &str, source: &str) -> Vec<ApiSymbol> {",
++        "pub fn extract_element(",
++        "pub fn normalize_signature(symbol: &ApiSymbol) -> String {",
++    ] {
++        assert_eq!(
++            extract.matches(signature).count(),
++            1,
++            "`api/extract/mod.rs` 公共入口 `{signature}` 恰一处（能力面零改动）"
++        );
++    }
++    for arm in [
++        "Language::Rust => rust::extract_crate(root, entry)",
++        "Closure::new(root, &owners, element).collect(entry, None)",
++        "Language::Unknown => Vec::new()",
++    ] {
++        assert!(
++            extract.contains(arm),
++            "`api/extract/mod.rs` 分派臂 `{arm}` 仍在（doc-only 改动不触取数面）"
++        );
++    }
++
++    let model = include_str!("model.rs");
++    assert_eq!(
++        model.matches("pub struct Element {").count(),
++        1,
++        "`model.rs` 内 `Element` 结构体恰一处（字段面零改动由既有 model_test 承担）"
++    );
++    assert_eq!(
++        model.matches("pub api: ApiStatus,").count(),
++        1,
++        "`api` 字段行逐字不变（doc-only 换段）"
++    );
++    assert_eq!(
++        model.matches("pub entry: Option<String>,").count(),
++        1,
++        "`entry` 指针字段行逐字不变（doc-only 换段）"
++    );
++}
++
++/// 边界（AC-8）：换段只在 doc 注释内——`ArchiApiRef` 的四个字段行与 `ApiStatus`
++/// 的两个变体行逐字不变（形状面零改动），且 `dto.rs` 内 `archi_api_dir` /
++/// `archi_api_rel_dir` 零命中（不保留改指别名）。
++#[test]
++fn dto_doc换段不触字段面() {
++    let source = include_str!("dto.rs");
++
++    let block_start = source
++        .find("pub struct ArchiApiRef {")
++        .expect("`ArchiApiRef` 在案");
++    let block = &source[block_start..];
++    let block_end = block.find("\n}").expect("结构体块应以独立 `}` 行收尾");
++    let fields: Vec<&str> = block[..block_end]
++        .lines()
++        .map(str::trim)
++        .filter(|line| line.starts_with("pub ") && !line.starts_with("pub struct "))
++        .collect();
++    assert_eq!(
++        fields,
++        vec![
++            "pub status: ApiStatus,",
++            "pub contract_path: Option<String>,",
++            "pub schema_path: Option<String>,",
++            "pub generated_path: Option<String>,",
++        ],
++        "`ArchiApiRef` 字段名与声明序逐字不变：{fields:?}"
++    );
++
++    let enum_start = source
++        .find("pub enum ApiStatus {")
++        .expect("`ApiStatus` 在案");
++    let enum_block = &source[enum_start..];
++    let enum_end = enum_block.find("\n}").expect("枚举块应以独立 `}` 行收尾");
++    let variants: Vec<&str> = enum_block[..enum_end]
++        .lines()
++        .map(str::trim)
++        .filter(|line| *line == "Declared," || *line == "None,")
++        .collect();
++    assert_eq!(
++        variants,
++        vec!["Declared,", "None,"],
++        "`ApiStatus` 变体与声明序逐字不变：{variants:?}"
++    );
++
++    for removed in ["archi_api_dir", "archi_api_rel_dir"] {
++        assert_eq!(
++            source.matches(removed).count(),
++            0,
++            "`dto.rs` 内 `{removed}` 零命中（不保留改指别名）"
++        );
++    }
++}
+diff --git a/crates/core/archi/src/model.rs b/crates/core/archi/src/model.rs
+index 1e7f75a1b5b6..470e49f4b7ad 100644
+--- a/crates/core/archi/src/model.rs
++++ b/crates/core/archi/src/model.rs
+@@ -43,7 +43,7 @@ pub struct Element {
+     /// gate 档位（缺省 `off`）
+     pub gate: GateTier,
+     /// 契约状态指针（缺省 `declared`；协议正文 MUST NOT 进模型——签名 / 导出符号 /
+-    /// 接口定义写在架构域 `api` 目录的契约资产里）
++    /// 接口定义写在架构域 `models/<Domain>/` 目录的契约资产里）
+     pub api: ApiStatus,
+     /// 实现入口指针（缺省 `None`）：单值、repo 相对 POSIX，与 `path` 同口径
+     /// （`./` 前缀由归一剥除、不参与身份）。四条判据（基准 / 落位 / 存在 /
+diff --git a/crates/core/archi/src/tree_test.rs b/crates/core/archi/src/tree_test.rs
+index f62b1851628f..defbae90279d 100644
+--- a/crates/core/archi/src/tree_test.rs
++++ b/crates/core/archi/src/tree_test.rs
+@@ -1382,3 +1382,126 @@ fn 超大语料的规模与确定性() {
+         "规模下两次调用逐字节相同"
+     );
+ }
++
++// ===========================================================================
++// 契约资产 / 契约索引的枚举面（`module-entry-docs-semantics` / AC-1）
++//
++// 判据仍是扩展名收面（`scan::is_source_file` 的五扩展名）+ `ExcludeSet`：契约资产
++// （`models/<Domain>/<FQN>.md` / `.schema.json`）与契约索引（`graph/INDEX.toml`）因此
++// 不进 `entries`——本变更为零源码改动的机械事实补证。
++// ===========================================================================
++
++/// 正向（AC-1）：契约资产与契约索引落盘后不进 `entries`，同根源文件照常入列。
++#[test]
++fn 契约资产与契约索引不进树() {
++    let temp = TempDir::new("contract-assets-out");
++    temp.write_model(&[("App", "package", &[]), ("App.Core", "domain", &[])]);
++    temp.write(
++        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
++        "# App.Backend.Infra.ArchiRuntime\n",
++    );
++    temp.write(
++        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
++        "{\"$defs\": {}}\n",
++    );
++    temp.write(".dev-team/architecture/graph/INDEX.toml", "# 索引\n");
++    temp.write("src/archi.rs", "pub fn archi() {}\n");
++
++    let tree = file_tree(temp.root()).expect("健康模型应 Ok");
++    // `.dev-team` 为隐藏目录（遍历器先行剪枝），契约资产与索引随之整树缺席。
++    assert_absent(&tree, ".dev-team");
++    assert_absent(
++        &tree,
++        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.md",
++    );
++    assert_absent(
++        &tree,
++        ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json",
++    );
++    assert_absent(&tree, ".dev-team/architecture/graph/INDEX.toml");
++    assert_entry(
++        &tree,
++        "src/archi.rs",
++        FileEntryKind::File,
++        FileTreeMark::None,
++        &[],
++    );
++}
++
++/// 异常（AC-1 反向判据）：同形态路径上的**源文件扩展名**照常入列——「不进树」由扩展名
++/// 收面达成，而非路径黑名单。`.dev-team` 整树被隐藏项剪枝先行排除，故扩展名判据在非隐藏
++/// 的镜像路径上观测。
++#[test]
++fn 契约路径形态的源文件照常入列() {
++    let temp = TempDir::new("contract-shape-source");
++    temp.write_model(&[("App", "package", &[])]);
++    temp.write("models/Infra/x.rs", "pub fn x() {}\n");
++    temp.write("models/Infra/x.md", "# 契约资产同名形态\n");
++    temp.write("models/Infra/x.schema.json", "{\"$defs\": {}}\n");
++    temp.write("graph/INDEX.toml", "# 索引同名形态\n");
++
++    let tree = file_tree(temp.root()).expect("应 Ok");
++    assert_entry(
++        &tree,
++        "models/Infra/x.rs",
++        FileEntryKind::File,
++        FileTreeMark::None,
++        &[],
++    );
++    assert_absent(&tree, "models/Infra/x.md");
++    assert_absent(&tree, "models/Infra/x.schema.json");
++    assert_absent(&tree, "graph");
++}
++
++/// 边界（AC-1）：树条目扩展名集合 ⊆ 漂移判定面同一收面（四种 TS/JS + `.rs`）；`models/`
++/// 一级 `NN-*.toml` 模型文件与 `.toml` 资产一律不入树。
++#[test]
++fn 树条目扩展名限于收面与模型文件不入树() {
++    let temp = TempDir::new("tree-extension-face");
++    temp.write_model(&[("App", "package", &[])]);
++    temp.write(
++        "models/01-app.toml",
++        "[element.\"App\"]\nkind = \"package\"\n",
++    );
++    temp.write("src/a.rs", "pub fn a() {}\n");
++    temp.write("src/b.ts", "export const b = 1;\n");
++    temp.write("src/c.toml", "x = 1\n");
++
++    let tree = file_tree(temp.root()).expect("应 Ok");
++    let extensions: Vec<String> = tree
++        .entries
++        .iter()
++        .filter(|entry| entry.kind == FileEntryKind::File)
++        .map(|entry| {
++            entry
++                .name
++                .rsplit_once('.')
++                .map(|(_, extension)| extension.to_owned())
++                .unwrap_or_default()
++        })
++        .collect();
++    assert!(!extensions.is_empty(), "树内应有源文件条目");
++    for extension in &extensions {
++        assert!(
++            ["rs", "ts", "tsx", "js", "jsx"].contains(&extension.as_str()),
++            "树条目扩展名 ⊆ 同一收面（实得 {extension:?}，全集 {extensions:?}）"
++        );
++    }
++    for needle in [".dev-team", "models/01-app.toml", "src/c.toml"] {
++        assert_absent(&tree, needle);
++    }
++    assert_entry(
++        &tree,
++        "src/a.rs",
++        FileEntryKind::File,
++        FileTreeMark::None,
++        &[],
++    );
++    assert_entry(
++        &tree,
++        "src/b.ts",
++        FileEntryKind::File,
++        FileTreeMark::None,
++        &[],
++    );
++}
+diff --git a/crates/core/archi/tests/corpus/drift/expected/api-mismatch.full.json b/crates/core/archi/tests/corpus/drift/expected/api-mismatch.full.json
+index 59cb837d02fa..3c7c5c0abc75 100644
+--- a/crates/core/archi/tests/corpus/drift/expected/api-mismatch.full.json
++++ b/crates/core/archi/tests/corpus/drift/expected/api-mismatch.full.json
+@@ -55,7 +55,7 @@
+       "message": "元素 App.Mod 的契约签名与代码不一致（归一后仍需相等）：file_stem：契约 fn(str) -> int / 代码 fn(str) -> String",
+       "occurrences": [
+         {
+-          "file": ".dev-team/architecture/api/App/App.Mod.md",
++          "file": ".dev-team/architecture/models/App/App.Mod.md",
+           "line": 9,
+           "specifier": "file_stem",
+           "typeOnly": false
+diff --git a/crates/core/archi/tests/golden_test.rs b/crates/core/archi/tests/golden_test.rs
+index 08e7a7a737b1..4a4163f2f45f 100644
+--- a/crates/core/archi/tests/golden_test.rs
++++ b/crates/core/archi/tests/golden_test.rs
+@@ -451,7 +451,7 @@ fn 登记面kind均属封闭词汇() {
+ // 语料形态（一 case 一目录）：
+ //   `models/*.toml`  → 暂存到 `<tmp>/.dev-team/architecture/models/`
+ //   `config.json`    → 暂存到 `<tmp>/.dev-team/architecture/config.json`（可选）
+-//   `contracts/**`   → 暂存到 `<tmp>/.dev-team/architecture/api/**`（可选；契约面）
++//   `contracts/**`   → 暂存到 `<tmp>/.dev-team/architecture/models/**`（可选；契约面）
+ //   `repo/**`        → 暂存到 `<tmp>/**`（源码观察面）
+ // ===========================================================================
+ 
+@@ -490,7 +490,7 @@ struct DriftExpectation {
+     observations: &'static [(&'static str, &'static str)],
+     /// `errors[]` 中 `typeOnly = true` 的 occurrence 总数
+     type_only_occurrences: u32,
+-    /// `apiFindings[]` 条数（契约判据面；这些语料均无 `<archi_api_dir>`，
++    /// `apiFindings[]` 条数（契约判据面；这些语料均无 `<archi_models_dir>`，
+     /// 除 `api-mismatch` 外恒 0——契约在案元素的判据才纳管进 `status`）
+     api_findings: u32,
+ }
+@@ -871,12 +871,12 @@ impl DriftStage {
+             )
+             .expect("复制架构域配置失败");
+         }
+-        // 契约 md → <tmp>/.dev-team/architecture/api/**（可选；契约判据面）
++        // 契约 md → <tmp>/.dev-team/architecture/models/**（可选；契约判据面）
+         let contracts = source.join("contracts");
+         if contracts.is_dir() {
+             copy_tree(
+                 &contracts,
+-                &dir.join(foundation::layout::archi_api_rel_dir()),
++                &dir.join(foundation::layout::archi_models_rel_dir()),
+             );
+         }
+         // 源码 → <tmp>/**
+@@ -1381,6 +1381,17 @@ fn 非空apiFindings金样在案() {
+             .is_some_and(|occurrences| !occurrences.is_empty()),
+         "occurrences 逐项在案：{finding:?}"
+     );
++    assert_eq!(
++        finding["occurrences"][0]["file"].as_str(),
++        Some(
++            format!(
++                "{}/App/App.Mod.md",
++                foundation::layout::archi_models_rel_dir()
++            )
++            .as_str()
++        ),
++        "金样 occurrence 的 file 换 base 到 models 段（唯一一处例外）：{finding:?}"
++    );
+     assert_eq!(
+         snapshot["status"],
+         serde_json::json!("warnings"),
+diff --git a/crates/core/archi/tests/pilot_test.rs b/crates/core/archi/tests/pilot_test.rs
+index f3006fbd5180..ecf46cdb40c3 100644
+--- a/crates/core/archi/tests/pilot_test.rs
++++ b/crates/core/archi/tests/pilot_test.rs
+@@ -22,7 +22,7 @@ use archi::api::paths::{
+ use archi::api::schema::{build_index, build_schema, ApiFormStatus, IndexEntry};
+ use archi::api::{api_ref, api_ref_of, meta};
+ use archi::dto::{ApiStatus, ArchiApiRef};
+-use foundation::layout::archi_api_dir;
++use foundation::layout::archi_models_dir;
+ use serde_json::Value;
+ 
+ /// 试点元素 FQN。
+@@ -66,12 +66,12 @@ fn pilot_element(fqn: &str, paths: &[&str]) -> archi::dto::ArchiElement {
+ 
+ /// 试点契约的 repo 相对路径串。
+ fn contract_rel() -> String {
+-    format!(".dev-team/architecture/api/Infra/{FQN}.md")
++    format!(".dev-team/architecture/models/Infra/{FQN}.md")
+ }
+ 
+ /// 试点 schema 生成物的 repo 相对路径串。
+ fn schema_rel() -> String {
+-    format!(".dev-team/architecture/api/Infra/{FQN}.schema.json")
++    format!(".dev-team/architecture/models/Infra/{FQN}.schema.json")
+ }
+ 
+ /// 试点 `.i.rs` 生成物的 repo 相对路径串（落**实现入口同级**）。
+@@ -105,9 +105,9 @@ fn pilot_schema() -> Value {
+     schema
+ }
+ 
+-/// 仓库 `.dev-team/architecture/api` 目录。
++/// 仓库 `.dev-team/architecture/models` 目录。
+ fn api_dir() -> PathBuf {
+-    archi_api_dir(&repository_root())
++    archi_models_dir(&repository_root())
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -115,7 +115,7 @@ fn api_dir() -> PathBuf {
+ // ---------------------------------------------------------------------------
+ 
+ /// 正向（AC-13）：三件资产按 `paths` 单点派生的落点在盘——契约在 `<Domain>/` 下、schema
+-/// 与它同目录、`.i.rs` 在元素根同级；索引在 api 根（比契约少一段）。
++/// 与它同目录、`.i.rs` 在元素根同级；索引在独立的 `graph/` 根（与契约目录分家）。
+ #[test]
+ fn 试点三件资产按单点派生落点在盘() {
+     let root = repository_root();
+@@ -134,7 +134,7 @@ fn 试点三件资产按单点派生落点在盘() {
+     assert_eq!(
+         contract,
+         api_dir().join("Infra").join(format!("{FQN}.md")),
+-        "契约路径 = `<archi_api_dir>/<Domain>/<FQN>.md`（零行内 `api` 段）"
++        "契约路径 = `<archi_models_dir>/<Domain>/<FQN>.md`（零行内 `api` 段）"
+     );
+     assert_eq!(
+         generated,
+@@ -154,15 +154,39 @@ fn 试点三件资产按单点派生落点在盘() {
+         legacy.display()
+     );
+     assert!(index_path(&root).is_file(), "`INDEX.toml` 全局唯一一份在盘");
++    let index = index_path(&root);
+     assert_eq!(
+-        index_path(&root),
+-        directory(&root).join("INDEX.toml"),
+-        "索引 = api 目录 + `INDEX.toml`"
++        index.file_name().and_then(|name| name.to_str()),
++        Some("INDEX.toml"),
++        "索引文件名恒 `INDEX.toml`"
++    );
++    assert_eq!(
++        index.parent(),
++        Some(foundation::layout::archi_graph_dir(&root).as_path()),
++        "索引家 = `<archi_graph_dir>`（与契约目录分家）"
++    );
++    assert!(
++        !index.starts_with(directory(&root)),
++        "索引 MUST NOT 落在契约目录之内：{}",
++        index.display()
+     );
+     assert_ne!(
+-        index_path(&root).parent(),
++        index.parent(),
+         contract.parent(),
+-        "索引在 api 根、契约在域目录（两层不混居）"
++        "索引在 graph 根、契约在域目录（两层不混居）"
++    );
++}
++
++/// 异常（AC-1）：旧契约目录缺席——`<archi_dir>/api` 目录不存在。旧位置缺席的机械面
++/// 只能由目录读数 / 负向断言守（孤儿枚举严格两处派生，`api/` 残留对 `api:check`
++/// 不可见）。
++#[test]
++fn 旧契约目录已退役() {
++    let legacy = foundation::layout::archi_dir(&repository_root()).join("api");
++    assert!(
++        !legacy.exists(),
++        "旧契约目录 MUST NOT 残留：{}",
++        legacy.display()
+     );
+ }
+ 
+@@ -548,7 +572,7 @@ fn 投影三路径与单点派生逐字相等() {
+         projection
+             .contract_path
+             .as_deref()
+-            .is_some_and(|path| path.starts_with(".dev-team/architecture/api/")),
++            .is_some_and(|path| path.starts_with(".dev-team/architecture/models/")),
+         "路径串是 repo 相对 POSIX（零反斜杠、零前导 `./`）"
+     );
+ }
+diff --git a/crates/core/foundation/src/layout/mod.rs b/crates/core/foundation/src/layout/mod.rs
+index 91b65117af81..3fbda0286b18 100644
+--- a/crates/core/foundation/src/layout/mod.rs
++++ b/crates/core/foundation/src/layout/mod.rs
+@@ -41,9 +41,8 @@ const MODELS_DIR_NAME: &str = "models";
+ /// 架构决策记录（ADR）子目录名（相对架构域根锚定）
+ const DECISIONS_DIR_NAME: &str = "decisions";
+ 
+-/// 模块 API 契约子目录名（相对架构域根锚定）——契约资产与其生成物的路径段
+-/// 唯一持有者
+-const API_DIR_NAME: &str = "api";
++/// 契约索引子目录名（相对架构域根锚定）——`INDEX.toml` 的路径段唯一持有者
++const GRAPH_DIR_NAME: &str = "graph";
+ 
+ /// 报告槽位（封闭三值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
+ /// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
+@@ -165,12 +164,12 @@ pub fn archi_config_path(root: &Path) -> PathBuf {
+     archi_dir(root).join(CONFIG_FILE_NAME)
+ }
+ 
+-/// 模块 API 契约目录派生（`<架构域根>/api`；全从 [`archi_dir`] 派生，`api` 段名
+-/// 取 [`API_DIR_NAME`]——消费者 MUST NOT 行内拼 `api` 段）。契约资产
+-/// （`<Domain>/<FQN>.md` 及其生成物）的唯一合法定位函数：纯推导零 IO，不存在的
+-/// root 亦正常返回（存在性判定交读取面）。
+-pub fn archi_api_dir(root: &Path) -> PathBuf {
+-    archi_dir(root).join(API_DIR_NAME)
++/// 架构契约索引目录派生（`<架构域根>/graph`；全从 [`archi_dir`] 派生，段名取
++/// [`GRAPH_DIR_NAME`]）。契约索引 `INDEX.toml` 的唯一合法定位函数——消费者
++/// MUST NOT 行内拼 `graph` 段；纯推导零 IO，存在性判定交读取面。本变更内该目录
++/// 恰住索引一份（扩住属独立变更，MUST NOT 预留分支）。
++pub fn archi_graph_dir(root: &Path) -> PathBuf {
++    archi_dir(root).join(GRAPH_DIR_NAME)
+ }
+ 
+ /// repo 相对路径是否落在架构域之内（`/` 与 `\` 分隔均归一后判定）：判据 = 归一
+@@ -206,11 +205,11 @@ pub fn archi_decisions_rel_dir() -> String {
+     format!("{}/{}", archi_rel_dir(), DECISIONS_DIR_NAME)
+ }
+ 
+-/// 模块 API 契约目录的 repo 相对路径（`<archi_rel_dir>/api`；全从
++/// 架构契约索引目录的 repo 相对路径（`<archi_rel_dir>/graph`；全从
+ /// [`archi_rel_dir`] 派生）。`/` 分隔、零前导 `./`——消费者限于架构会话知识文本
+-/// 与契约索引说明段。
+-pub fn archi_api_rel_dir() -> String {
+-    format!("{}/{}", archi_rel_dir(), API_DIR_NAME)
++/// 与段名纪律登记。
++pub fn archi_graph_rel_dir() -> String {
++    format!("{}/{}", archi_rel_dir(), GRAPH_DIR_NAME)
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/core/foundation/src/layout/mod_test.rs b/crates/core/foundation/src/layout/mod_test.rs
+index 9d31267a2bcd..6effe6fd9593 100644
+--- a/crates/core/foundation/src/layout/mod_test.rs
++++ b/crates/core/foundation/src/layout/mod_test.rs
+@@ -1445,44 +1445,44 @@ fn 根与change名边界零panic() {
+ }
+ 
+ // ===========================================================================
+-// 契约面路径派生（`module-api-contract-format` / AC-4）
++// 契约索引路径派生（`module-entry-docs-semantics` / AC-5）
+ //
+-// `archi_api_dir(root) = archi_dir(root).join(API_DIR_NAME)`、
+-// `archi_api_rel_dir() = <archi_rel_dir>/api`；全从 `archi_dir` / `archi_rel_dir`
+-// 派生，零新文件名字面量、纯推导零 IO。
++// `archi_graph_dir(root) = archi_dir(root).join(GRAPH_DIR_NAME)`、
++// `archi_graph_rel_dir() = <archi_rel_dir>/graph`；全从 `archi_dir` / `archi_rel_dir`
++// 派生，零新文件名字面量、纯推导零 IO。契约资产目录不另设函数（= `archi_models_dir`）。
+ // ===========================================================================
+ 
+-/// 正向：`archi_api_dir(root) == archi_dir(root).join("api")` 逐字相等（三种 root 形态：
+-/// 绝对 / 含空格与非 ASCII / 空 root）。
++/// 正向：`archi_graph_dir(root) == archi_dir(root).join("graph")` 逐字相等（三种 root
++/// 形态：绝对 / 含空格与非 ASCII / 空 root）。
+ #[test]
+-fn archi_api_dir与archi_dir同源三形态() {
+-    use super::{archi_api_dir, archi_dir};
++fn archi_graph_dir与archi_dir同源三形态() {
++    use super::{archi_dir, archi_graph_dir};
+ 
+     for root in [
+         Path::new("/tmp/x"),
+         Path::new("/ws 含 空格/中文根"),
+         Path::new(""),
+     ] {
+-        let api_dir = archi_api_dir(root);
++        let graph_dir = archi_graph_dir(root);
+         assert_eq!(
+-            api_dir,
+-            archi_dir(root).join("api"),
++            graph_dir,
++            archi_dir(root).join("graph"),
+             "root = {root:?}: 派生值逐字相等"
+         );
+         assert_eq!(
+-            api_dir.file_name().and_then(|name| name.to_str()),
+-            Some("api"),
+-            "尾段恒为 api（root = {root:?}）"
++            graph_dir.file_name().and_then(|name| name.to_str()),
++            Some("graph"),
++            "尾段恒为 graph（root = {root:?}）"
+         );
+-        assert_ne!(api_dir, archi_dir(root), "契约目录 MUST 比架构域根多一段");
++        assert_ne!(graph_dir, archi_dir(root), "索引目录 MUST 比架构域根多一段");
+     }
+ }
+ 
+ /// 边界：纯推导零 IO——`root` 指向不存在路径 / 空 Path / 相对路径 / 含 `..` 段 → 正常
+ /// 返回、不 panic、不做词法归一、不创建目录。
+ #[test]
+-fn archi_api_dir纯推导零io() {
+-    use super::archi_api_dir;
++fn archi_graph_dir纯推导零io() {
++    use super::archi_graph_dir;
+ 
+     let before = std::env::temp_dir();
+     for root in [
+@@ -1492,7 +1492,7 @@ fn archi_api_dir纯推导零io() {
+         Path::new("a/../b"),
+         Path::new("/ws/"),
+     ] {
+-        let path = archi_api_dir(root);
++        let path = archi_graph_dir(root);
+         assert!(!path.as_os_str().is_empty(), "root = {root:?} 时路径可判");
+         assert!(
+             !path.exists(),
+@@ -1503,53 +1503,64 @@ fn archi_api_dir纯推导零io() {
+     assert_eq!(before, after, "调用前后临时目录根零变化");
+ }
+ 
+-/// 边界：互不遮蔽——`api` 与 `models` / `decisions` / `config.json` 平行，两两不相等且
+-/// 互不为前缀。
++/// 边界：互不遮蔽——`graph` 与 `models` / `decisions` / `config.json` 平行，两两不相等
++/// 且互不为前缀（索引与契约目录分家后仍同层不嵌套）。
+ #[test]
+-fn archi_api_dir互不遮蔽() {
+-    use super::{archi_api_dir, archi_config_path, archi_decisions_dir, archi_models_dir};
++fn archi_graph_dir互不遮蔽() {
++    use super::{archi_config_path, archi_decisions_dir, archi_graph_dir, archi_models_dir};
+ 
+     let root = Path::new("/ws");
+-    let api = archi_api_dir(root);
++    let graph = archi_graph_dir(root);
+     let others = [
+         ("models", archi_models_dir(root)),
+         ("decisions", archi_decisions_dir(root)),
+         ("config", archi_config_path(root)),
+     ];
+     for (label, other) in &others {
+-        assert_ne!(&api, other, "api 与 {label} 不相等");
++        assert_ne!(&graph, other, "graph 与 {label} 不相等");
+         assert!(
+-            !other.starts_with(&api) && !api.starts_with(other),
+-            "api 与 {label} 互不为前缀（{api:?} / {other:?}）"
++            !other.starts_with(&graph) && !graph.starts_with(other),
++            "graph 与 {label} 互不为前缀（{graph:?} / {other:?}）"
+         );
+     }
+ }
+ 
+-/// 正向：`archi_api_rel_dir()` 返回 `.dev-team/architecture/api` 形态——`/` 分隔、零
+-/// 前导 `./`、零尾 `/`，且 `== format!("{}/api", archi_rel_dir())`。
++/// 正向：`archi_graph_rel_dir()` 返回 `.dev-team/architecture/graph` 形态——`/` 分隔、
++/// 零前导 `./`、零尾 `/`，且 `== format!("{}/graph", archi_rel_dir())`。
+ #[test]
+-fn archi_api_rel_dir形态() {
+-    use super::{archi_api_rel_dir, archi_rel_dir};
++fn archi_graph_rel_dir形态() {
++    use super::{archi_graph_rel_dir, archi_rel_dir};
+ 
+-    let relative = archi_api_rel_dir();
++    let relative = archi_graph_rel_dir();
+     let base = archi_rel_dir();
+-    assert_eq!(relative, format!("{base}/api"), "派生值逐字相等");
++    assert_eq!(relative, format!("{base}/graph"), "派生值逐字相等");
+     assert!(relative.starts_with(&base), "以 archi_rel_dir() 为前缀");
+     assert!(!relative.contains('\\'), "`/` 分隔（零反斜杠）：{relative}");
+     assert!(!relative.starts_with("./"), "零前导 `./`：{relative}");
+     assert!(!relative.ends_with('/'), "零尾 `/`：{relative}");
+-    assert!(relative.ends_with("/api"), "尾段恰为 api：{relative}");
++    assert!(relative.ends_with("/graph"), "尾段恰为 graph：{relative}");
++    assert!(
++        !relative.starts_with('/'),
++        "零前导 `/`（repo 相对）：{relative}"
++    );
++    assert!(!relative.contains("//"), "零连续 `//`：{relative}");
++    assert!(
++        !relative.split('/').any(str::is_empty),
++        "零空段（无空字符串路径段）：{relative}"
++    );
+ }
+ 
+ /// 边界：相对族前缀一致——三者共享 `archi_rel_dir()` 前缀且互不相等（改基常量时同源
+ /// 随动，以「共同前缀长度相等」表达）。
+ #[test]
+-fn archi_api_rel_dir相对族前缀一致() {
+-    use super::{archi_api_rel_dir, archi_decisions_rel_dir, archi_models_rel_dir, archi_rel_dir};
++fn archi_graph_rel_dir相对族前缀一致() {
++    use super::{
++        archi_decisions_rel_dir, archi_graph_rel_dir, archi_models_rel_dir, archi_rel_dir,
++    };
+ 
+     let base = archi_rel_dir();
+     let values = [
+-        ("api", archi_api_rel_dir()),
++        ("graph", archi_graph_rel_dir()),
+         ("models", archi_models_rel_dir()),
+         ("decisions", archi_decisions_rel_dir()),
+     ];
+@@ -1571,20 +1582,24 @@ fn archi_api_rel_dir相对族前缀一致() {
+     }
+ }
+ 
+-/// 边界（AC-17 前置）：来源文件内 `"api"` 字面量只出现在 `API_DIR_NAME` 定义一处
+-/// （函数体零行内拼段）。
++/// 边界（AC-5 前置）：来源文件内 `"graph"` 字面量只出现在 `GRAPH_DIR_NAME` 定义一处
++/// （函数体零行内拼段）；退役的 `api` 段字面量零命中。
+ #[test]
+-fn api_dir_name零字面量纪律() {
++fn graph_dir_name零字面量纪律() {
+     let source = include_str!("mod.rs");
+     assert_eq!(
+-        source.matches("\"api\"").count(),
++        source.matches("\"graph\"").count(),
+         1,
+-        "`\"api\"` 字面量恰一处（常量定义）"
++        "`\"graph\"` 字面量恰一处（常量定义）"
+     );
+     assert!(
+-        source.contains("const API_DIR_NAME: &str = \"api\";"),
++        source.contains("const GRAPH_DIR_NAME: &str = \"graph\";"),
+         "常量定义在案"
+     );
++    assert!(
++        !source.contains("API_DIR_NAME") && !source.contains("archi_api"),
++        "`api` 段族的三个符号在产品侧零残留"
++    );
+ }
+ 
+ /// 边界：既有族零变化——`archi_dir` / `archi_models_dir` / `archi_decisions_dir` /
+@@ -1649,30 +1664,30 @@ fn 既有族零变化() {
+     );
+ }
+ 
+-/// 边界（AC-19）：四条机械计数对拍——常量零外溢、`"api"` 字面量单点、两个派生函数的
+-/// 签名行恰两处。判据面（`grep -c`）与 AC-19 原文同源，不另立计数口径。
++/// 边界（AC-5）：四条机械计数对拍——常量零外溢、`"graph"` 字面量单点、两个派生函数的
++/// 签名行恰两处。判据面（`grep -c`）与 AC-5 原文同源，不另立计数口径。
+ #[test]
+-fn ac19四条机械计数对拍() {
+-    // ① 常量消费面：`API_DIR_NAME` 在 layout/mod.rs 内恰 4 处（定义 + doc 引用 + 两函数）
++fn ac5四条机械计数对拍() {
++    // ① 常量消费面：`GRAPH_DIR_NAME` 在 layout/mod.rs 内恰 4 处（定义 + doc 引用 + 两函数）
+     let source = include_str!("mod.rs");
+     assert_eq!(
+-        source.matches("API_DIR_NAME").count(),
++        source.matches("GRAPH_DIR_NAME").count(),
+         4,
+-        "`API_DIR_NAME` 恰四处（常量定义 + doc 引用 + 两函数消费）"
++        "`GRAPH_DIR_NAME` 恰四处（常量定义 + doc 引用 + 两函数消费）"
+     );
+ 
+-    // ② `"api"` 字面量在产品 `.rs` 内恰 1 处（常量定义）：由本文件的
+-    //    `api_dir_name零字面量纪律` 与全包双禁令扫描共同守（此处只断言本文件那一处）
++    // ② `"graph"` 字面量在产品 `.rs` 内恰 1 处（常量定义）：由本文件的
++    //    `graph_dir_name零字面量纪律` 与全包双禁令扫描共同守（此处只断言本文件那一处）
+     assert_eq!(
+-        source.matches("\"api\"").count(),
++        source.matches("\"graph\"").count(),
+         1,
+-        "`\"api\"` 字面量恰一处（常量定义，函数体内零行内拼段）"
++        "`\"graph\"` 字面量恰一处（常量定义，函数体内零行内拼段）"
+     );
+ 
+     // ③ 两个派生函数的签名行恰 2 处（交替模式）
+     let signatures = source
+         .lines()
+-        .filter(|line| line.contains("archi_api_dir") || line.contains("archi_api_rel_dir"))
++        .filter(|line| line.contains("archi_graph_dir") || line.contains("archi_graph_rel_dir"))
+         .filter(|line| line.starts_with("pub fn "))
+         .count();
+     assert_eq!(signatures, 2, "两个 `pub fn` 签名行恰两处");
+@@ -1697,16 +1712,16 @@ fn ac19四条机械计数对拍() {
+         .collect();
+     assert!(
+         leak.is_empty(),
+-        "常量零外溢（只有 layout/mod.rs 引用 `API_DIR_NAME`），实际外溢：{leak:?}"
++        "常量零外溢（只有 layout/mod.rs 引用 `GRAPH_DIR_NAME`），实际外溢：{leak:?}"
+     );
+     assert_eq!(
+         referencing.len(),
+         1,
+-        "产品侧引用 `API_DIR_NAME` 的文件恰 1 个（常量不外溢）：{referencing:?}"
++        "产品侧引用 `GRAPH_DIR_NAME` 的文件恰 1 个（常量不外溢）：{referencing:?}"
+     );
+ }
+ 
+-/// 递归扫描产品 `.rs`（排除 `*_test.rs`）内是否出现 `API_DIR_NAME`。
++/// 递归扫描产品 `.rs`（排除 `*_test.rs`）内是否出现 `GRAPH_DIR_NAME`。
+ fn scan_for_constant(dir: &Path, out: &mut Vec<PathBuf>) {
+     let Ok(entries) = fs::read_dir(dir) else {
+         return;
+@@ -1727,7 +1742,289 @@ fn scan_for_constant(dir: &Path, out: &mut Vec<PathBuf>) {
+             continue;
+         }
+         let text = fs::read_to_string(&path).unwrap_or_default();
+-        if text.contains("API_DIR_NAME") {
++        if text.contains("GRAPH_DIR_NAME") {
++            out.push(path);
++        }
++    }
++}
++
++// ===========================================================================
++// 删除面与契约目录复用（`module-entry-docs-semantics` / AC-5）
++//
++// `api` 段退役：`API_DIR_NAME` / `archi_api_dir` / `archi_api_rel_dir` 三符号在产品
++// `.rs` 内零命中；契约资产目录**不新增函数**，直接复用 `archi_models_dir` /
++// `archi_models_rel_dir`（「一个目录两个名字」禁令）。
++// ===========================================================================
++
++/// 边界：超长 root（1200 字符）不 panic，派生仍是「root + `graph` 一段」。
++#[test]
++fn archi_graph_dir超长root不panic() {
++    let long = format!("/{}", "a".repeat(1200));
++    let root = Path::new(long.as_str());
++    let graph = super::archi_graph_dir(root);
++    assert_eq!(
++        graph,
++        super::archi_dir(root).join("graph"),
++        "超长 root 仍逐字拼段"
++    );
++    assert_eq!(
++        graph.file_name().and_then(|name| name.to_str()),
++        Some("graph"),
++        "尾段恒为 graph"
++    );
++}
++
++/// 边界：相对族与绝对族同源——`root.join(archi_graph_rel_dir()) == archi_graph_dir(&root)`
++/// （绝对 root / 尾分隔符 / 空 root 三形态）。
++#[test]
++fn archi_graph_rel_dir与绝对族同源三形态() {
++    use super::{archi_graph_dir, archi_graph_rel_dir};
++
++    for root in [
++        Path::new("/ws 含 空格/中文根"),
++        Path::new("/ws/"),
++        Path::new(""),
++    ] {
++        assert_eq!(
++            root.join(archi_graph_rel_dir()),
++            archi_graph_dir(root),
++            "root = {root:?}：相对族与绝对族同源"
++        );
++    }
++}
++
++/// 异常（AC-5 删除面）：三符号在 `layout/mod.rs` 内零命中，`"api"` 引号字面量零命中；
++/// 全包产品 `.rs`（`*_test.rs` 除）内三符号零命中。
++#[test]
++fn api段族三符号零残留() {
++    let source = include_str!("mod.rs");
++    for removed in ["API_DIR_NAME", "archi_api_dir", "archi_api_rel_dir"] {
++        assert_eq!(
++            source.matches(removed).count(),
++            0,
++            "`layout/mod.rs` 内 `{removed}` 零命中（改用 graph 段）"
++        );
++    }
++    assert_eq!(
++        source.matches("\"api\"").count(),
++        0,
++        "`\"api\"` 引号字面量零命中（段名换 `\"graph\"`）"
++    );
++
++    let mut src_tauri = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
++    for _ in 0..3 {
++        src_tauri.pop();
++    }
++    for removed in ["API_DIR_NAME", "archi_api_dir", "archi_api_rel_dir"] {
++        let mut hits: Vec<PathBuf> = Vec::new();
++        scan_for_symbol(&src_tauri.join("crates"), removed, &mut hits);
++        scan_for_symbol(&src_tauri.join("src"), removed, &mut hits);
++        assert!(
++            hits.is_empty(),
++            "全包产品 `.rs` 内 `{removed}` 零命中，实际命中：{hits:?}"
++        );
++    }
++}
++
++/// 边界（AC-5 零兼容壳）：`api` 段族零 `#[deprecated]` 改指别名、零再导出；全包零
++/// `archi_contract`（「一个目录两个名字」的转发函数）。
++#[test]
++fn api段族零兼容壳与转发别名() {
++    for (label, source) in [
++        ("layout/mod.rs", include_str!("mod.rs")),
++        ("foundation/lib.rs", include_str!("../lib.rs")),
++    ] {
++        for banned in ["archi_api_dir", "archi_api_rel_dir", "API_DIR_NAME"] {
++            assert_eq!(
++                source.matches(banned).count(),
++                0,
++                "{label} 内 `{banned}` 零命中（零改指别名 / 零再导出）"
++            );
++        }
++        assert!(
++            !source.contains("#[deprecated]"),
++            "{label} 内零 `#[deprecated]` 兼容壳"
++        );
++    }
++
++    let mut src_tauri = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
++    for _ in 0..3 {
++        src_tauri.pop();
++    }
++    let mut hits: Vec<PathBuf> = Vec::new();
++    scan_for_symbol(&src_tauri.join("crates"), "archi_contract", &mut hits);
++    scan_for_symbol(&src_tauri.join("src"), "archi_contract", &mut hits);
++    assert!(
++        hits.is_empty(),
++        "全包零 `archi_contract`（契约目录复用 `archi_models_dir`，MUST NOT 转发）：{hits:?}"
++    );
++}
++
++/// 正向：契约目录复用模型目录派生——`root.join(archi_models_rel_dir()) ==
++/// archi_models_dir(root)` 三形态一致；`pub fn archi_` 集合内无 `contract` 项。
++#[test]
++fn 契约目录复用相对族与绝对族同源() {
++    use super::{archi_models_dir, archi_models_rel_dir};
++
++    for root in [
++        Path::new("/tmp/x"),
++        Path::new("/ws 含 空格/中文根"),
++        Path::new(""),
++    ] {
++        assert_eq!(
++            root.join(archi_models_rel_dir()),
++            archi_models_dir(root),
++            "root = {root:?}：契约目录复用模型目录派生（零新函数）"
++        );
++    }
++
++    let source = include_str!("mod.rs");
++    let derived: Vec<&str> = source
++        .lines()
++        .filter_map(|line| line.trim().strip_prefix("pub fn archi_"))
++        .map(|rest| rest.split('(').next().unwrap_or(""))
++        .collect();
++    assert!(!derived.is_empty(), "架构域派生族在场");
++    assert!(
++        !derived.iter().any(|name| name.contains("contract")),
++        "派生族内零 `contract` 项（契约目录复用 `archi_models_dir`）：{derived:?}"
++    );
++}
++
++/// 异常：两函数体各只消费一次段名（`join(MODELS_DIR_NAME)` / `format!` 各 1 处），
++/// 零改指分支（「一个目录两个名字」的反向判据）。
++#[test]
++fn 契约目录两函数体形态() {
++    let source = include_str!("mod.rs");
++    let dir_body = function_body(source, "pub fn archi_models_dir(");
++    assert_eq!(
++        dir_body.matches("join(MODELS_DIR_NAME)").count(),
++        1,
++        "`archi_models_dir` 体恰一次 `join(MODELS_DIR_NAME)`：{dir_body}"
++    );
++    assert!(
++        !dir_body.contains("format!"),
++        "`archi_models_dir` 体零 `format!` 改指分支：{dir_body}"
++    );
++    let rel_body = function_body(source, "pub fn archi_models_rel_dir(");
++    assert_eq!(
++        rel_body.matches("format!").count(),
++        1,
++        "`archi_models_rel_dir` 体恰一次 `format!`：{rel_body}"
++    );
++}
++
++/// 边界：`archi_models_dir` / `archi_models_rel_dir` 各恰 1 处定义，且与 `graph` 族
++/// 互不遮蔽（不相等、互不为前缀）。
++#[test]
++fn 契约目录定义单点且与索引目录互不遮蔽() {
++    use super::{archi_graph_dir, archi_models_dir, archi_models_rel_dir};
++
++    let source = include_str!("mod.rs");
++    for signature in [
++        "pub fn archi_models_dir(root: &Path) -> PathBuf",
++        "pub fn archi_models_rel_dir() -> String",
++    ] {
++        assert_eq!(
++            source.matches(signature).count(),
++            1,
++            "`{signature}` 恰一处定义"
++        );
++    }
++
++    let root = Path::new("/ws");
++    assert_ne!(
++        archi_graph_dir(root),
++        archi_models_dir(root),
++        "索引目录与契约目录不相等"
++    );
++    assert!(
++        !archi_graph_dir(root).starts_with(archi_models_dir(root))
++            && !archi_models_dir(root).starts_with(archi_graph_dir(root)),
++        "两目录互不为前缀（分家后的兄弟形态）"
++    );
++    assert_ne!(
++        super::archi_graph_rel_dir(),
++        archi_models_rel_dir(),
++        "相对族两值不相等"
++    );
++}
++
++/// 边界：`graph` 族函数体形态——`archi_graph_dir` 体恰一次 `join(GRAPH_DIR_NAME)`、
++/// `archi_graph_rel_dir` 体恰一次 `format!`，零额外分支、零 `exists()` 调用（纯推导的
++/// 结构证明）。
++#[test]
++fn graph族函数体纯推导() {
++    let source = include_str!("mod.rs");
++    let dir_body = function_body(source, "pub fn archi_graph_dir(");
++    assert_eq!(
++        dir_body.matches("join(GRAPH_DIR_NAME)").count(),
++        1,
++        "`archi_graph_dir` 体恰一次 `join(GRAPH_DIR_NAME)`：{dir_body}"
++    );
++    assert!(
++        !dir_body.contains("format!"),
++        "`archi_graph_dir` 体零 `format!` 分支：{dir_body}"
++    );
++    assert!(
++        !dir_body.contains("exists("),
++        "`archi_graph_dir` 体零 `exists()`（纯推导零 IO）：{dir_body}"
++    );
++
++    let rel_body = function_body(source, "pub fn archi_graph_rel_dir(");
++    assert_eq!(
++        rel_body.matches("format!").count(),
++        1,
++        "`archi_graph_rel_dir` 体恰一次 `format!`：{rel_body}"
++    );
++    assert!(
++        !rel_body.contains("join("),
++        "`archi_graph_rel_dir` 体零 `join` 分支：{rel_body}"
++    );
++    assert!(
++        !rel_body.contains("exists("),
++        "`archi_graph_rel_dir` 体零 `exists()`：{rel_body}"
++    );
++}
++
++/// 取 `signature` 起的函数体原文（到首个行首 `}` 为止）。
++fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
++    let start = source
++        .find(signature)
++        .unwrap_or_else(|| panic!("缺少函数签名 `{signature}`"));
++    let rest = &source[start..];
++    let end = rest.find("\n}\n").map_or(rest.len(), |index| index + 1);
++    &rest[..end]
++}
++
++/// 递归收集产品 `.rs`（排除 `*_test.rs` 与构建产物树）内含 `needle` 的文件。
++fn scan_for_symbol(dir: &Path, needle: &str, out: &mut Vec<PathBuf>) {
++    let Ok(entries) = fs::read_dir(dir) else {
++        return;
++    };
++    for entry in entries.flatten() {
++        let path = entry.path();
++        if path.is_dir() {
++            let skip = path
++                .file_name()
++                .map(|name| name == "target" || name == "node_modules")
++                .unwrap_or(false);
++            if !skip {
++                scan_for_symbol(&path, needle, out);
++            }
++            continue;
++        }
++        let Some(name) = path
++            .file_name()
++            .map(|name| name.to_string_lossy().into_owned())
++        else {
++            continue;
++        };
++        if !name.ends_with(".rs") || name.ends_with("_test.rs") {
++            continue;
++        }
++        let text = fs::read_to_string(&path).unwrap_or_default();
++        if text.contains(needle) {
+             out.push(path);
+         }
+     }
+diff --git a/crates/infra/agent/src/archi_knowledge.rs b/crates/infra/agent/src/archi_knowledge.rs
+index ee451826bfda..543749f5aabb 100644
+--- a/crates/infra/agent/src/archi_knowledge.rs
++++ b/crates/infra/agent/src/archi_knowledge.rs
+@@ -25,7 +25,8 @@ pub(crate) fn knowledge() -> Option<String> {
+ 
+ /// 骨架 + 派生段拼装：骨架 trim 后为空 / 含 `<>` 占位符即 `Err`（触发点写进文案），
+ /// 否则以 `skeleton.trim_end()` 起手追加派生段（kind 四值 / gate 三值 + 缺省档 /
+-/// api 状态二值 + 缺省档 / 结构诊断九词 / 模型、决策记录与契约目录相对路径）。
++/// api 状态二值 + 缺省档 / 结构诊断九词 / 模型、决策记录、契约资产与契约索引的相对
++/// 路径）。
+ pub(crate) fn build(skeleton: &str) -> Result<String, String> {
+     if skeleton.trim().is_empty() {
+         return Err("知识骨架为空".to_owned());
+@@ -43,13 +44,15 @@ pub(crate) fn build(skeleton: &str) -> Result<String, String> {
+          gate 档：{gates}（新元素缺省 {}）\n\
+          api 状态：{api}（缺省 {}）\n\
+          结构诊断：{diagnostics}\n\
+-         模型目录：{}（按文件名字典序聚合）；决策记录目录：{}；契约目录：{}",
++         模型目录：{}（按文件名字典序聚合）；决策记录目录：{}；\
++         契约资产：{}/<Domain>/<FQN>.md（手写真相）；契约索引：{}/INDEX.toml",
+         skeleton.trim_end(),
+         GateTier::default().as_str(),
+         ApiStatus::default().as_str(),
+         foundation::layout::archi_models_rel_dir(),
+         foundation::layout::archi_decisions_rel_dir(),
+-        foundation::layout::archi_api_rel_dir(),
++        foundation::layout::archi_models_rel_dir(),
++        foundation::layout::archi_graph_rel_dir(),
+     ))
+ }
+ 
+diff --git a/crates/infra/agent/src/archi_knowledge_test.rs b/crates/infra/agent/src/archi_knowledge_test.rs
+index 6b26cfdfae73..352d777fb2c0 100644
+--- a/crates/infra/agent/src/archi_knowledge_test.rs
++++ b/crates/infra/agent/src/archi_knowledge_test.rs
+@@ -562,20 +562,25 @@ fn knowledge词表派生api状态二值逐值在场() {
+     );
+ }
+ 
+-/// 正向（AC-10）：契约目录相对路径由 `archi_api_rel_dir()` 逐字注入；三棵目录前缀
+-/// 同源（`archi_rel_dir()` 共享前缀）。
++/// 正向（AC-6）：契约资产与契约索引两个方位的相对路径由 `archi_models_rel_dir()` /
++/// `archi_graph_rel_dir()` 逐字注入；四棵目录前缀同源（`archi_rel_dir()` 共享前缀）。
+ #[test]
+-fn knowledge契约目录派生注入且三目录同源() {
++fn knowledge契约资产与索引派生注入且四目录同源() {
+     let text = text();
+-    let api = foundation::layout::archi_api_rel_dir();
++    let contracts = foundation::layout::archi_models_rel_dir();
++    let index = foundation::layout::archi_graph_rel_dir();
+     assert!(
+-        text.contains(&api),
+-        "知识文本缺契约目录派生串 {api}（目录 MUST NOT 手抄）"
++        text.contains(&format!("契约资产：{contracts}/<Domain>/<FQN>.md")),
++        "知识文本缺契约资产派生串 {contracts}（路径 MUST NOT 手抄）"
++    );
++    assert!(
++        text.contains(&format!("契约索引：{index}/INDEX.toml")),
++        "知识文本缺契约索引派生串 {index}（索引与契约分家）"
+     );
+     for relative in [
+-        foundation::layout::archi_models_rel_dir(),
++        contracts.clone(),
+         foundation::layout::archi_decisions_rel_dir(),
+-        api.clone(),
++        index.clone(),
+     ] {
+         assert!(
+             relative.starts_with(&foundation::layout::archi_rel_dir()),
+@@ -689,8 +694,8 @@ fn build真实骨架产物含api面() {
+         "派生段含 api 状态行：\n{built}"
+     );
+     assert!(
+-        built.contains(&foundation::layout::archi_api_rel_dir()),
+-        "派生段含契约目录：\n{built}"
++        built.contains(&foundation::layout::archi_models_rel_dir()),
++        "派生段含契约资产方位：\n{built}"
+     );
+     for status in ApiStatus::ALL {
+         assert!(
+@@ -709,7 +714,7 @@ fn build真实骨架产物含api面() {
+ // 骨架 md 的实现措辞是「契约权威在**契约资产**（末段给出路径）」。二者不是同一字面——
+ // 设计那半句是**语义要求**（权威指向契约资产、路径由派生段给出），md 侧按「零目录字面量」
+ // 既有纪律只能写「契约资产」+「末段给出路径」，「api 目录」这个具体串由 `build()` 的派生段
+-// 注入（`契约目录：<archi_api_rel_dir()>`）。故本组用例把判据落成三条可机械核对的形态：
++// 注入（`契约资产：<archi_models_rel_dir()>/<Domain>/<FQN>.md`）。故本组用例把判据落成三条可机械核对的形态：
+ // ① 旧口径零命中；② 新语义的**关键词**在场（契约资产 / 数据末给出路径 / 状态指针 /
+ // 正文不进模型）；③ 「api 目录」这一路径串由派生段承载而非骨架手抄。
+ // ===========================================================================
+@@ -1047,12 +1052,16 @@ fn 骨架边界段改写为契约资产口径() {
+     // 「api 目录」这一具体路径串位于**派生段**（骨架手抄会与 `零目录字面量` 冲突）
+     let derived = text();
+     assert!(
+-        derived.contains(&foundation::layout::archi_api_rel_dir()),
+-        "契约目录路径由派生段承载：{derived}"
++        derived.contains(&foundation::layout::archi_models_rel_dir()),
++        "契约资产路径由派生段承载：{derived}"
++    );
++    assert!(
++        derived.contains("契约资产："),
++        "派生段须有契约资产引导语：{derived}"
+     );
+     assert!(
+-        derived.contains("契约目录："),
+-        "派生段须有契约目录引导语：{derived}"
++        derived.contains("契约索引："),
++        "派生段须有契约索引引导语：{derived}"
+     );
+ }
+ 
+@@ -1130,3 +1139,85 @@ fn knowledge零占位符与体量上限() {
+         "自检纪律以 bullet 形态追加：{bullet}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 换段纪律：两方位标签各一处 / 旧方位与旧标签零命中 / 体量实测值（AC-6）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-6）：两个方位标签「契约资产：」/「契约索引：」各恰 1 处（两种写法并存必然
++/// 漂移，故只认新标签），四面词表连接形态仍为 `" / "`。
++#[test]
++fn knowledge两方位标签各恰一处() {
++    use archi::dto::ApiStatus;
++
++    let text = text();
++    for label in ["契约资产：", "契约索引："] {
++        assert_eq!(
++            text.matches(label).count(),
++            1,
++            "标签 `{label}` 恰一处（旧标签零残留）"
++        );
++    }
++    for (label, words) in [
++        (
++            "元素 kind：",
++            ElementKind::ALL.map(|kind| kind.as_str()).to_vec(),
++        ),
++        (
++            "gate 档：",
++            GateTier::ALL.map(|gate| gate.as_str()).to_vec(),
++        ),
++        (
++            "api 状态：",
++            ApiStatus::ALL.map(|status| status.as_str()).to_vec(),
++        ),
++        (
++            "结构诊断：",
++            DiagnosticKind::ALL.map(|kind| kind.as_str()).to_vec(),
++        ),
++    ] {
++        let expected = words.join(" / ");
++        assert!(
++            text.contains(&expected),
++            "`{label}` 行仍以 \" / \" 连接四面词表（期望 {expected}）"
++        );
++    }
++}
++
++/// 异常（AC-6）：输出零 `architecture/api` 旧方位串、零「契约目录：」旧标签；注入串不
++/// 产生新的 `<>` 相邻两字符——`archi_knowledge.rs` 内 `<>` 仍恰 4 处（两处 doc 引用 +
++/// 判据 1 + 文案 1）。
++#[test]
++fn knowledge零旧方位与尖括号计数不变() {
++    let text = text();
++    assert!(
++        !text.contains("architecture/api"),
++        "输出零旧方位串 `architecture/api`"
++    );
++    assert!(
++        !text.contains("契约目录："),
++        "输出零「契约目录：」旧标签（旧标签零命中）"
++    );
++    assert!(!text.contains("<>"), "输出零 `<>` 相邻两字符");
++
++    let source = include_str!("archi_knowledge.rs");
++    assert_eq!(
++        source.matches("<>").count(),
++        4,
++        "`archi_knowledge.rs` 内 `<>` 恰 4 处（两处 doc 引用 + 判据 1 + 文案 1；注入串 MUST NOT 产生第五处）"
++    );
++}
++
++/// 边界（AC-6）：体量实测值固定——`knowledge()` 输出恰 3646 字节（实现后实测的骨架字节
++/// + 换段后的派生段字节），仍在既有 4096 上限内。
++#[test]
++fn knowledge体量实测值固定() {
++    let text = text();
++    assert_eq!(
++        text.len(),
++        3646,
++        "体量实测值固定（骨架 trim_end 字节 + 派生段字节），实得 {} 字节",
++        text.len()
++    );
++    assert!(text.len() <= 4096, "仍在既有 4KB 上限内");
++}
+diff --git a/crates/infra/agent/src/sdk/archi_tool_test.rs b/crates/infra/agent/src/sdk/archi_tool_test.rs
+index b7a868ced2d9..8dd60e8c4101 100644
+--- a/crates/infra/agent/src/sdk/archi_tool_test.rs
++++ b/crates/infra/agent/src/sdk/archi_tool_test.rs
+@@ -453,7 +453,7 @@ fn api_root(tag: &str) -> tempfile::TempDir {
+     );
+     write_file(
+         dir.path(),
+-        ".dev-team/architecture/api/Api/App.Api.Subject.md",
++        ".dev-team/architecture/models/Api/App.Api.Subject.md",
+         "# App.Api.Subject\n\n## 职能\n\n工具语料。\n\n## 操作\n\n### file_stem\n\n\
+          ```json api-op\n{\"owner\": \"LocalApi\", \
+          \"params\": [{\"name\": \"timestamp\", \"schema\": {\"type\": \"string\"}}], \
+@@ -597,11 +597,12 @@ async fn archi_api_check零判据成功态() {
+         .as_array()
+         .expect("missing 数组");
+     assert_eq!(missing.len(), 1, "缺口恰一条：{missing:?}");
++    // 仅判 `ends_with("INDEX.toml")` 钉不住新索引家（旧 `api/` 落点同样通过），故以
++    // 「父目录末段 = graph」收口；Windows 的 `\` 先归一为 `/` 再判，两平台同判。
++    let index_root = |path: &str| path.replace('\\', "/").ends_with("graph/INDEX.toml");
+     assert!(
+-        missing[0]
+-            .as_str()
+-            .is_some_and(|path| path.ends_with("INDEX.toml")),
+-        "缺口是索引：{missing:?}"
++        missing[0].as_str().is_some_and(index_root),
++        "缺口是 graph 根下的索引（父目录末段 = graph）：{missing:?}"
+     );
+ }
+ 
+@@ -676,7 +677,7 @@ async fn archi_api输出过cap_result() {
+     // 「摘要优先 / 截断留痕」都无从表述；该 md 不属模型内元素，故不产生额外判据
+     write_file(
+         dir.path(),
+-        ".dev-team/architecture/api/App/Ghost.md",
++        ".dev-team/architecture/models/App/Ghost.md",
+         "# App.Ghost
+ ",
+     );
+diff --git a/crates/infra/archi/src/api_artifacts_test.rs b/crates/infra/archi/src/api_artifacts_test.rs
+index 9f37d33c10d4..38d9ecf5b3cb 100644
+--- a/crates/infra/archi/src/api_artifacts_test.rs
++++ b/crates/infra/archi/src/api_artifacts_test.rs
+@@ -76,7 +76,7 @@ fn three_files(root: &Path) -> Vec<GeneratedFile> {
+         file(root, "crates/core/archi.i.rs", "// 生成物 A\n"),
+         file(
+             root,
+-            ".dev-team/architecture/api/Core/App.md.schema.json",
++            ".dev-team/architecture/models/Core/App.md.schema.json",
+             "{}\n",
+         ),
+         file(root, "src/types/generated/bindings.i.ts", "export {};\n"),
+diff --git a/crates/infra/archi/src/runner_test.rs b/crates/infra/archi/src/runner_test.rs
+index 13c4af99d849..4490fadeaf59 100644
+--- a/crates/infra/archi/src/runner_test.rs
++++ b/crates/infra/archi/src/runner_test.rs
+@@ -719,7 +719,7 @@ fn 槽位隔离() {
+ 
+ use archi::drift::report::ArchiApiFindingKind;
+ 
+-/// 落一份契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
++/// 落一份契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`；目录段取父 FQN 末段）。
+ fn write_contract(root: &Path, fqn: &str, content: &str) {
+     let path = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
+     let relative = path
+diff --git a/crates/tools/archi-api-gen/src/main_test.rs b/crates/tools/archi-api-gen/src/main_test.rs
+index 9d3479d3c3dd..1ffedbd5699c 100644
+--- a/crates/tools/archi-api-gen/src/main_test.rs
++++ b/crates/tools/archi-api-gen/src/main_test.rs
+@@ -114,7 +114,7 @@ fn stage_crate(temp: &TempDir) {
+         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+     );
+     temp.write(
+-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.md",
++        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
+         &contract_markdown(CRATE_FQN),
+     );
+ }
+@@ -138,7 +138,7 @@ fn stage_ts(temp: &TempDir) {
+         "export function view(): string { return ''; }\n",
+     );
+     temp.write(
+-        ".dev-team/architecture/api/Views/App.Frontend.Views.Welcome.md",
++        ".dev-team/architecture/models/Views/App.Frontend.Views.Welcome.md",
+         &contract_markdown(TS_FQN),
+     );
+ }
+@@ -217,13 +217,13 @@ fn generate落四类生成物() {
+     );
+ 
+     let schema = temp
+-        .read(".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json")
++        .read(".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json")
+         .expect("schema 生成物在盘");
+     assert!(schema.contains("\"LocalArchiCheck\""), "schema 含类型定义");
+     assert!(schema.contains("\"file_stem\""), "schema 含 op 键");
+ 
+     let index = temp
+-        .read(".dev-team/architecture/api/INDEX.toml")
++        .read(".dev-team/architecture/graph/INDEX.toml")
+         .expect("INDEX 生成物在盘");
+     assert!(index.contains("archi-api"), "INDEX 含生成器标识");
+     assert!(
+@@ -285,45 +285,78 @@ fn generate幂等且check随后通过() {
+     assert_eq!(temp.snapshot(), first, "--check 零写入");
+ }
+ 
+-/// 边界（AC-12 / AC-17）：目录创建经 `foundation::layout` 派生——初始无
+-/// `<archi_api_dir>` 时仍自动建成；来源文件内零路径字面量。
++/// 边界（AC-1 / AC-2）：目录创建经 `foundation::layout` 派生——清空契约 md（只摘
++/// `*.md`，模型文件保留）后元素转 absent，索引目录须由 `archi_graph_dir` 派生重建；
++/// 来源文件内零路径字面量。
+ #[test]
+ fn generate目录创建经layout派生() {
+     let temp = TempDir::new("generate-dirs");
+     stage_crate(&temp);
+-    let api_dir = foundation::layout::archi_api_dir(temp.root());
+-    assert!(api_dir.exists(), "夹具已在契约目录下落地 md");
+-    // 清空契约目录（md 一并移除）→ 元素转 absent，INDEX 目录须由 layout 派生重建
+-    fs::remove_dir_all(&api_dir).expect("清空契约目录");
+-    assert!(!api_dir.exists(), "清空后目录不存在");
++    let contracts = foundation::layout::archi_models_dir(temp.root());
++    assert!(contracts.exists(), "夹具已在契约目录下落地 md");
++    assert_eq!(remove_contract_md(&contracts), 1, "夹具仅一份契约 md");
++    assert!(
++        contracts.join("01-test.toml").exists(),
++        "清空只摘 md：模型文件仍在（不是启用证据也不被误删）"
++    );
++    let graph = foundation::layout::archi_graph_dir(temp.root());
++    fs::remove_dir_all(&graph).ok();
++    assert!(!graph.exists(), "索引目录已清空");
+ 
+     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
++    assert!(graph.exists(), "索引目录由 layout 派生重建");
+     assert!(
+-        temp.exists(".dev-team/architecture/api/INDEX.toml"),
+-        "INDEX 落盘"
++        temp.exists(".dev-team/architecture/graph/INDEX.toml"),
++        "INDEX 落盘（graph 目录由 layout 派生）"
+     );
+ 
+     let source = include_str!("main.rs");
+-    for literal in [".dev-team", "architecture", "\"api\""] {
++    for literal in [
++        ".dev-team",
++        "architecture",
++        "\"api\"",
++        "\"models\"",
++        "\"graph\"",
++    ] {
+         assert!(
+             !source.contains(literal),
+             "来源文件零路径字面量 `{literal}`（目录全经 layout 派生）"
+         );
+     }
+     assert!(
+-        source.contains("foundation::layout::archi_dir")
+-            || source.contains("foundation::layout::archi_api_dir"),
++        source.contains("foundation::layout::archi_dir"),
+         "目录派生经 foundation::layout"
+     );
+ }
+ 
++/// 递归摘除目录下的 `*.md`（保留其余文件），返回摘除份数。
++fn remove_contract_md(directory: &Path) -> usize {
++    let Ok(reader) = fs::read_dir(directory) else {
++        return 0;
++    };
++    let mut removed = 0;
++    for entry in reader.flatten() {
++        let path = entry.path();
++        if path.is_dir() {
++            removed += remove_contract_md(&path);
++            continue;
++        }
++        if path.extension().and_then(|ext| ext.to_str()) == Some("md")
++            && fs::remove_file(&path).is_ok()
++        {
++            removed += 1;
++        }
++    }
++    removed
++}
++
+ /// 异常（D20）：契约 H1 与文件名不一致 → `Err(String)`、**零写入**（失败前不留半成品）。
+ #[test]
+ fn generate契约错误零写入() {
+     let temp = TempDir::new("generate-bad-contract");
+     stage_crate(&temp);
+     temp.write(
+-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.md",
++        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
+         "# App.Backend.Core.Other\n\n## 职能\n\n正文。\n",
+     );
+     let before = temp.snapshot();
+@@ -397,7 +430,7 @@ fn check内容不符() {
+     stage_crate(&temp);
+     run(Command::Generate, temp.root()).expect("生成应成功");
+ 
+-    let relative = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
++    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+     let original = temp.read(relative).expect("schema 在盘");
+     let broken = original.replace("\"title\"", "\"titleX\"");
+     assert_ne!(broken, original, "夹具应确实改到一处");
+@@ -455,7 +488,7 @@ fn check零写盘总断言() {
+     assert_eq!(temp.snapshot(), before, "无差异形态零写入");
+ 
+     // 形态二：内容不符
+-    let relative = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
++    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+     temp.write(relative, "{}");
+     let before = temp.snapshot();
+     let _ = run(Command::Check, temp.root()).expect("check 不报错");
+@@ -517,7 +550,7 @@ fn check未启用契约面() {
+     // 生成后即通过（应生成集收敛为 INDEX 一件）
+     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
+     assert!(
+-        temp.exists(".dev-team/architecture/api/INDEX.toml"),
++        temp.exists(".dev-team/architecture/graph/INDEX.toml"),
+         "INDEX 落盘"
+     );
+     assert_eq!(run(Command::Check, temp.root()).expect("check 应成功"), 0);
+@@ -531,7 +564,7 @@ fn check检出categories差异() {
+     stage_crate(&temp);
+     run(Command::Generate, temp.root()).expect("生成应成功");
+ 
+-    let relative = ".dev-team/architecture/api/INDEX.toml";
++    let relative = ".dev-team/architecture/graph/INDEX.toml";
+     let original = temp.read(relative).expect("INDEX 在盘");
+     assert!(
+         original.contains("[entry.categories]"),
+@@ -562,7 +595,7 @@ fn check不受x_class警告影响() {
+     let temp = TempDir::new("check-x-class-warning");
+     stage_crate(&temp);
+     temp.write(
+-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.md",
++        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.md",
+         &format!(
+             "# {CRATE_FQN}\n\n```json api-types\n{{\"Hooks\": {{\"type\": \"object\", \
+              \"properties\": {{\"run\": {{\"x-function\": {{\"params\": [], \"returns\": \
+@@ -596,8 +629,8 @@ fn generate产物为格式化器不动点() {
+ 
+     for relative in [
+         "crates/core/archi/src/lib.i.rs",
+-        ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json",
+-        ".dev-team/architecture/api/INDEX.toml",
++        ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json",
++        ".dev-team/architecture/graph/INDEX.toml",
+     ] {
+         let text = temp
+             .read(relative)
+@@ -689,11 +722,11 @@ fn repository_root退化为cwd的不变量() {
+         "archi_dir 派生不 panic：{root:?}"
+     );
+     assert!(
+-        foundation::layout::archi_api_dir(&root)
++        foundation::layout::archi_graph_dir(&root)
+             .components()
+             .count()
+             > 0,
+-        "archi_api_dir 派生不 panic：{root:?}"
++        "archi_graph_dir 派生不 panic：{root:?}"
+     );
+ }
+ 
+@@ -854,11 +887,7 @@ fn 空root不panic() {
+         Ok(code) => {
+             assert_eq!(code, 0, "成功路径退出码 0");
+             // 只会落 INDEX.toml（若无元素则连它也不落）
+-            let index = missing
+-                .join(".dev-team")
+-                .join("architecture")
+-                .join("api")
+-                .join("INDEX.toml");
++            let index = foundation::layout::archi_graph_dir(&missing).join("INDEX.toml");
+             if index.exists() {
+                 let text = fs::read_to_string(&index).expect("读 INDEX 失败");
+                 assert!(!text.contains("[[entry]]"), "空元素表零 entry");
+@@ -966,7 +995,7 @@ fn check差异清单三数组独立且键名固定() {
+     let mismatched = TempDir::new("diff-三数组-mismatched");
+     stage_crate(&mismatched);
+     run(Command::Generate, mismatched.root()).expect("生成应成功");
+-    let relative = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
++    let relative = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+     let original = mismatched.read(relative).expect("schema 在盘");
+     mismatched.write(relative, &original.replace("\"title\"", "\"titleX\""));
+     assert_eq!(
+@@ -997,7 +1026,7 @@ fn check差异清单三数组独立且键名固定() {
+     let all = TempDir::new("diff-三数组-并存");
+     stage_crate(&all);
+     run(Command::Generate, all.root()).expect("生成应成功");
+-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
++    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+     let schema_text = all.read(schema_rel).expect("schema 在盘");
+     all.write(schema_rel, &schema_text.replace("\"title\"", "\"titleX\""));
+     all.write(
+@@ -1221,7 +1250,7 @@ fn check差异清单逐数组点名该文件() {
+     let mismatched = TempDir::new("check-report-mismatched");
+     stage_crate(&mismatched);
+     run(Command::Generate, mismatched.root()).expect("生成应成功");
+-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
++    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+     let original = mismatched.read(schema_rel).expect("schema 在盘");
+     mismatched.write(schema_rel, &original.replace("\"title\"", "\"titleX\""));
+     let report = archi::compare(mismatched.root()).expect("比对应成功");
+@@ -1253,9 +1282,11 @@ fn check差异清单逐数组点名该文件() {
+     stage_crate(&missing);
+     let report = archi::compare(missing.root()).expect("比对应成功");
+     assert!(
+-        report.missing.iter().any(
+-            |path| path == ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json"
+-        ),
++        report
++            .missing
++            .iter()
++            .any(|path| path
++                == ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json"),
+         "missing 点名未生成的 schema：{:?}",
+         report.missing
+     );
+@@ -1300,7 +1331,7 @@ fn 差异清单路径串与跨crate单点同源() {
+     let temp = TempDir::new("display-single-point");
+     stage_crate(&temp);
+     run(Command::Generate, temp.root()).expect("生成应成功");
+-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
++    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+     let absolute = temp.root().join(schema_rel);
+     assert_eq!(
+         archi::display(temp.root(), &absolute),
+@@ -1394,7 +1425,7 @@ fn check单行json与compare三列同源() {
+     let temp = TempDir::new("check-json-same-source");
+     stage_crate(&temp);
+     assert_eq!(run(Command::Generate, temp.root()).expect("生成应成功"), 0);
+-    let schema_rel = ".dev-team/architecture/api/Core/App.Backend.Core.Archi.schema.json";
++    let schema_rel = ".dev-team/architecture/models/Core/App.Backend.Core.Archi.schema.json";
+     let original = temp.read(schema_rel).expect("schema 在盘");
+     temp.write(schema_rel, &original.replace("\"title\"", "\"titleY\""));
+     temp.write("crates/core/stale.i.rs", "// 孤儿\n");
+diff --git a/src/commands/archi/mod_test.rs b/src/commands/archi/mod_test.rs
+index fb562bcb6474..9483981dca95 100644
+--- a/src/commands/archi/mod_test.rs
++++ b/src/commands/archi/mod_test.rs
+@@ -1066,7 +1066,7 @@ fn archi_drift包装root校验前置() {
+ // 命令层仍是薄包装：`api` 由 `dto::module_detail` 填充，本层零特判、零路径拼装。
+ // ===========================================================================
+ 
+-/// 落一份元素契约 md（`<archi_api_dir>/<Domain>/<FQN>.md`）。
++/// 落一份元素契约 md（`<archi_models_dir>/<Domain>/<FQN>.md`）。
+ fn write_contract(root: &Path, fqn: &str, content: &str) {
+     let relative = archi::api::paths::contract_path(root, fqn).expect("合法 FQN");
+     let relative = relative
+@@ -1320,9 +1320,9 @@ fn archi_module试点declared且同输入判据零命中() {
+     );
+ }
+ 
+-/// 边界（AC-16 否定断言）：模块**文档关联集**不含 `<archi_api_dir>/**`——契约正
+-/// 文不经 `docs` 三源出线（契约权威在架构域 api 目录；正文由通用 `read_file`
+-/// 按路径自取，不再是架构命令的专属通路）。
++/// 边界（AC-16 否定断言）：模块**文档关联集**不含 `<archi_models_dir>/<Domain>/**`——
++/// 契约正文不经 `docs` 三源出线（契约权威在架构域 `models/<Domain>/`；正文由通用
++/// `read_file` 按路径自取，不再是架构命令的专属通路）。
+ #[test]
+ fn 文档关联集不含契约目录() {
+     let temp = healthy("read-doc-no-api");
+@@ -1339,14 +1339,22 @@ fn 文档关联集不含契约目录() {
+         .to_string_lossy()
+         .replace('\\', "/");
+     assert!(
+-        contract_relative.contains("api/"),
++        contract_relative.starts_with(".dev-team/architecture/models/"),
+         "夹具确实落在契约目录：{contract_relative}"
+     );
+ 
+     // 关联集本身不含契约正文
++    let contract_dir = archi::api::paths::directory(temp.path());
++    let contract_dir = contract_dir
++        .strip_prefix(temp.path())
++        .expect("repo 相对路径")
++        .to_string_lossy()
++        .replace('\\', "/");
+     let linked = archi::dto::linked_doc_paths(temp.path()).expect("Ok");
+     assert!(
+-        linked.iter().all(|path| !path.contains("api/")),
++        linked
++            .iter()
++            .all(|path| !path.starts_with(&format!("{contract_dir}/"))),
+         "关联集零契约正文通路：{linked:?}"
+     );
+     assert!(
+@@ -1661,7 +1669,7 @@ fn api_fixture(tag: &str) -> TempDir {
+         "pub fn file_stem(timestamp: &str) -> String { String::new() }\n",
+     );
+     temp.write(
+-        ".dev-team/architecture/api/Api/App.Api.Subject.md",
++        ".dev-team/architecture/models/Api/App.Api.Subject.md",
+         API_CONTRACT,
+     );
+     temp
+@@ -1779,7 +1787,7 @@ fn 结构错模型两命令均err且零写盘() {
+     assert_eq!(snapshot(temp.path()), before, "两次调用前后零写盘");
+ }
+ 
+-/// 边界（AC-10 的数据侧）：无 `<archi_api_dir>` → `check` 仍 `Ok`、`enabled == false`、
++/// 边界（AC-10 的数据侧）：无 `<archi_models_dir>` → `check` 仍 `Ok`、`enabled == false`、
+ /// `missing` 恰 `INDEX.toml` 一条；`generate` 仍可写该份。
+ #[test]
+ fn 未启用契约面check仍ok且generate可写() {
+@@ -1820,7 +1828,7 @@ fn 未启用契约面check仍ok且generate可写() {
+ fn 写失败文案透传不称全或无() {
+     let temp = api_fixture("api-write-failure");
+     // `INDEX.toml` 落点被同名目录占位 ⇒ 该份 `fs::write` 必失败（前序份已写）
+-    fs::create_dir_all(temp.path().join(".dev-team/architecture/api/INDEX.toml"))
++    fs::create_dir_all(temp.path().join(".dev-team/architecture/graph/INDEX.toml"))
+         .expect("建同名目录失败");
+ 
+     let error = archi_api_generate(temp.root()).expect_err("写盘失败应 Err");

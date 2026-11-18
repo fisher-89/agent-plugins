@@ -451,7 +451,7 @@ fn 登记面kind均属封闭词汇() {
 // 语料形态（一 case 一目录）：
 //   `models/*.toml`  → 暂存到 `<tmp>/.dev-team/architecture/models/`
 //   `config.json`    → 暂存到 `<tmp>/.dev-team/architecture/config.json`（可选）
-//   `contracts/**`   → 暂存到 `<tmp>/.dev-team/architecture/api/**`（可选；契约面）
+//   `contracts/**`   → 暂存到 `<tmp>/.dev-team/architecture/models/**`（可选；契约面）
 //   `repo/**`        → 暂存到 `<tmp>/**`（源码观察面）
 // ===========================================================================
 
@@ -490,7 +490,7 @@ struct DriftExpectation {
     observations: &'static [(&'static str, &'static str)],
     /// `errors[]` 中 `typeOnly = true` 的 occurrence 总数
     type_only_occurrences: u32,
-    /// `apiFindings[]` 条数（契约判据面；这些语料均无 `<archi_api_dir>`，
+    /// `apiFindings[]` 条数（契约判据面；这些语料均无 `<archi_models_dir>`，
     /// 除 `api-mismatch` 外恒 0——契约在案元素的判据才纳管进 `status`）
     api_findings: u32,
 }
@@ -871,12 +871,12 @@ impl DriftStage {
             )
             .expect("复制架构域配置失败");
         }
-        // 契约 md → <tmp>/.dev-team/architecture/api/**（可选；契约判据面）
+        // 契约 md → <tmp>/.dev-team/architecture/models/**（可选；契约判据面）
         let contracts = source.join("contracts");
         if contracts.is_dir() {
             copy_tree(
                 &contracts,
-                &dir.join(foundation::layout::archi_api_rel_dir()),
+                &dir.join(foundation::layout::archi_models_rel_dir()),
             );
         }
         // 源码 → <tmp>/**
@@ -1380,6 +1380,17 @@ fn 非空apiFindings金样在案() {
             .as_array()
             .is_some_and(|occurrences| !occurrences.is_empty()),
         "occurrences 逐项在案：{finding:?}"
+    );
+    assert_eq!(
+        finding["occurrences"][0]["file"].as_str(),
+        Some(
+            format!(
+                "{}/App/App.Mod.md",
+                foundation::layout::archi_models_rel_dir()
+            )
+            .as_str()
+        ),
+        "金样 occurrence 的 file 换 base 到 models 段（唯一一处例外）：{finding:?}"
     );
     assert_eq!(
         snapshot["status"],

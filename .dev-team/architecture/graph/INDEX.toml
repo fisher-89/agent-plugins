@@ -1,6 +1,6 @@
 # 由 archi-api-gen 生成 · 勿手改
 # review 口径：只读元素目录下的 `<FQN>.md`；本文件与 `*.schema.json` 的 diff 视为机械噪声。
-# 契约面：目录 .dev-team/architecture/api · 生成器 archi-api 0.1.0 · 映射规则摘要 sha256:1f8f0ec14abb
+# 契约面：目录 .dev-team/architecture/models · 生成器 archi-api 0.1.0 · 映射规则摘要 sha256:1f8f0ec14abb
 
 [[entry]]
 fqn = "App.Backend.Core.Agent"
@@ -80,7 +80,7 @@ status = "declared"
 types = 1
 ops = 1
 degraded = 0
-schema = ".dev-team/architecture/api/Infra/App.Backend.Infra.ArchiRuntime.schema.json"
+schema = ".dev-team/architecture/models/Infra/App.Backend.Infra.ArchiRuntime.schema.json"
 generated = "packages/desktop/src-tauri/crates/infra/archi/src/lib.i.rs"
 
 [entry.categories]
