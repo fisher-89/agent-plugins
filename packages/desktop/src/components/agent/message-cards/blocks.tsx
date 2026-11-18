@@ -300,8 +300,16 @@ export const WebSearchCard = memo(WebSearchCardBase);
 /** `finish_step` 收口卡的逐项清单行（evaluator 形态）。 */
 interface FinishItem {
   id: string;
+  /** 检查项标题（工具调用载荷原文；缺席 / 空串 / 非字符串 → `null`，只呈 id） */
+  title: string | null;
   pass: boolean;
   evidence: string | null;
+}
+
+/** 逐项标题的宽容读取：非字符串与空串统一归 `null`（只服务历史转录） */
+function itemTitle(value: unknown): string | null {
+  const title = textOf(value);
+  return title === null || title === '' ? null : title;
 }
 
 /**
@@ -359,17 +367,20 @@ function CheckListCard({
           </CardHeader>
           <CardContent>
             <FieldGroup>
-              {items.map((item, index) => (
-                <Field key={index} data-testid="block-finish-step-item" orientation="horizontal">
-                  <Checkbox readOnly checked={item.pass} />
-                  <FieldContent>
-                    <FieldLabel className={`${item.pass ? '' : 'text-destructive'}`}>
-                      {item.id}
-                    </FieldLabel>
-                    {item.evidence && <FieldDescription>{item.evidence}</FieldDescription>}
-                  </FieldContent>
-                </Field>
-              ))}
+              {items.map((item, index) => {
+                const title = itemTitle(item.title);
+                return (
+                  <Field key={index} data-testid="block-finish-step-item" orientation="horizontal">
+                    <Checkbox readOnly checked={item.pass} />
+                    <FieldContent>
+                      <FieldLabel className={`${item.pass ? '' : 'text-destructive'}`}>
+                        {title === null ? item.id : `${item.id} ${title}`}
+                      </FieldLabel>
+                      {item.evidence && <FieldDescription>{item.evidence}</FieldDescription>}
+                    </FieldContent>
+                  </Field>
+                );
+              })}
             </FieldGroup>
           </CardContent>
         </Card>

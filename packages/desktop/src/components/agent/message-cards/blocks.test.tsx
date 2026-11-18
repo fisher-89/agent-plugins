@@ -409,12 +409,12 @@ describe('既有块回归', () => {
 // FinishStepCard：`finish_step` 收口卡两形态（AC-13）
 // ---------------------------------------------------------------------------
 
-/** evaluator 形态 input fixture（两项，一 pass 一 fail）。 */
+/** evaluator 形态 input fixture（两项，一 pass 一 fail；`title` 为静态清单第二列原文）。 */
 const FINISH_EVALUATOR_INPUT = {
   report: '评估报告正文',
   items: [
-    { id: 'C1', pass: true, evidence: 'src/a.rs:10' },
-    { id: 'C2', pass: false, evidence: '缺测试' },
+    { id: 'C1', title: '变更代码中无安全漏洞', pass: true, evidence: 'src/a.rs:10' },
+    { id: 'C2', title: '无遗留调试输出', pass: false, evidence: '缺测试' },
   ],
 };
 
@@ -435,8 +435,13 @@ function itemEvidence(row: HTMLElement): HTMLElement | null {
   return row.querySelector('[data-slot="field-description"]');
 }
 
+/** 逐项行内的标签文本（`id`，`title` 在场时为 `id + 单个半角空格 + 标题原文`）。 */
+function itemLabel(row: HTMLElement): string {
+  return row.querySelector('[data-slot="field-label"]')?.textContent ?? '';
+}
+
 describe('FinishStepCard：evaluator 形态渲染', () => {
-  it('卡根与摘要区在场，逐项 ID / 勾选态 / evidence 可见，report 在折叠区内', () => {
+  it('卡根与摘要区在场，逐项「ID 空格标题」/ 勾选态 / evidence 可见，report 在折叠区内', () => {
     render(
       <FinishStepCard
         toolCallId="tu_finish"
@@ -449,15 +454,16 @@ describe('FinishStepCard：evaluator 形态渲染', () => {
     const card = screen.getByTestId('block-tool-use');
     expect(card.getAttribute('data-tool-id')).toBe('tu_finish');
     expect(screen.getByTestId('block-finish-step-summary').textContent).toBe('检查 1 项未通过');
+    expect(screen.queryByTestId('block-tool-result')).toBeNull();
 
     // 清单与 report 在折叠区内：先展开
     fireEvent.click(within(card).getByRole('button'));
     const items = screen.getAllByTestId('block-finish-step-item');
     expect(items).toHaveLength(2);
-    expect(items[0]?.textContent).toContain('C1');
+    expect(itemLabel(items[0] as HTMLElement)).toBe('C1 变更代码中无安全漏洞');
     expect(isChecked(items[0] as HTMLElement)).toBe(true);
     expect(itemEvidence(items[0] as HTMLElement)?.textContent).toBe('src/a.rs:10');
-    expect(items[1]?.textContent).toContain('C2');
+    expect(itemLabel(items[1] as HTMLElement)).toBe('C2 无遗留调试输出');
     expect(isChecked(items[1] as HTMLElement)).toBe(false);
     expect(itemEvidence(items[1] as HTMLElement)?.textContent).toBe('缺测试');
     expect(card.textContent).toContain('评估报告正文');
@@ -743,16 +749,19 @@ describe('FinishStepCard：逐项行结构与空位（dict / str / bool 边界�
     [{ id: 'C1', pass: 1 }, 'C1', true, null],
     [{ id: 'C1', pass: false }, 'C1', false, null],
     [{ id: 'C1' }, 'C1', false, null],
+    // title 在场：标签为 id + 单个半角空格 + 标题原文（既有判定断言零改）
+    [{ id: 'C1', title: '无遗留调试输出', pass: true }, 'C1 无遗留调试输出', true, null],
+    [{ id: 'C1', title: '无遗留调试输出', pass: false }, 'C1 无遗留调试输出', false, null],
   ])(
-    '单元素 items 为 %j → ID 文本 %j、勾选 %s、evidence %j',
-    (item, expectedId, expectedChecked, expectedEvidence) => {
+    '单元素 items 为 %j → 标签文本 %j、勾选 %s、evidence %j',
+    (item, expectedLabel, expectedChecked, expectedEvidence) => {
       const { unmount } = renderFinish({ report: '', items: [item] });
       expandFinishCard();
       const rows = finishItemRows();
       expect(rows).toHaveLength(1);
       const row = rows[0] as HTMLElement;
       expect(isChecked(row)).toBe(expectedChecked);
-      expect(row.querySelector('[data-slot="field-label"]')?.textContent).toBe(expectedId);
+      expect(row.querySelector('[data-slot="field-label"]')?.textContent).toBe(expectedLabel);
       expect(itemEvidence(row)?.textContent ?? null).toBe(expectedEvidence);
       unmount();
     },
@@ -768,15 +777,32 @@ describe('FinishStepCard：逐项行结构与空位（dict / str / bool 边界�
       unmount();
     },
   );
+
+  it('title 在场不改变 pass 的真值判定（勾选与着色仍只看 pass）', () => {
+    renderFinish({
+      report: '',
+      items: [
+        { id: 'C1', title: '标题甲', pass: 'true' },
+        { id: 'C2', title: '标题乙', pass: 1 },
+        { id: 'C3', title: '标题丙', pass: 0 },
+      ],
+    });
+    expandFinishCard();
+    const rows = finishItemRows();
+    expect(isChecked(rows[0] as HTMLElement)).toBe(true);
+    expect(isChecked(rows[1] as HTMLElement)).toBe(true);
+    expect(isChecked(rows[2] as HTMLElement)).toBe(false);
+    expect(finishSummary()).toBe('检查 1 项未通过');
+  });
 });
 
 describe('FinishStepCard：pass 标记着色与 report 在场判据', () => {
-  it('pass 两态以勾选与 FieldLabel 着色区分（未通过项 text-destructive）', () => {
+  it('pass 两态以勾选与 FieldLabel 着色区分（未通过项的 id + 标题整标签着色）', () => {
     renderFinish({
       report: '报告',
       items: [
-        { id: 'C1', pass: true, evidence: '甲' },
-        { id: 'C2', pass: false, evidence: '乙' },
+        { id: 'C1', title: '变更代码中无安全漏洞', pass: true, evidence: '甲' },
+        { id: 'C2', title: '无遗留调试输出', pass: false, evidence: '乙' },
       ],
     });
     expandFinishCard();
@@ -784,7 +810,10 @@ describe('FinishStepCard：pass 标记着色与 report 在场判据', () => {
     const labelOf = (row: HTMLElement | undefined): Element | null | undefined =>
       row?.querySelector('[data-slot="field-label"]');
     expect(isChecked(rows[0] as HTMLElement)).toBe(true);
+    // 着色与文本同挂一个节点（非两个兄弟节点各自着色）
+    expect(labelOf(rows[1])?.textContent).toBe('C2 无遗留调试输出');
     expect(labelOf(rows[1])?.classList.contains('text-destructive')).toBe(true);
+    expect(labelOf(rows[0])?.textContent).toBe('C1 变更代码中无安全漏洞');
     expect(labelOf(rows[0])?.classList.contains('text-destructive')).toBe(false);
   });
 
@@ -851,6 +880,139 @@ describe('FinishStepCard：items 边界（list 边界）', () => {
       unmount();
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// FinishStepCard：检查项标题（id + 标题 / 历史降级 id-only）
+// ---------------------------------------------------------------------------
+
+/** 单元素 evaluator input（title 形态参数化用）。 */
+function itemsInput(item: unknown) {
+  return { report: '报告', items: [item] };
+}
+
+describe('FinishStepCard：检查项标题（id + 标题）', () => {
+  it('100 项各带标题 → 逐行标签逐字等于 id + 空格 + 标题（序号与 ID 对位不串行）', () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      id: `C${index}`,
+      title: `检查项标题 ${index}`,
+      pass: index % 2 === 0,
+      evidence: `据 ${index}`,
+    }));
+    renderFinish({ report: '', items });
+    expandFinishCard();
+    const rows = finishItemRows();
+    expect(rows).toHaveLength(100);
+    rows.forEach((row, index) => {
+      expect(itemLabel(row)).toBe(`C${index} 检查项标题 ${index}`);
+    });
+  });
+
+  it('items 元素全缺 title 且 report 为字符串 → 仍为 checklist 形态（不回退 JSON 回退面板）', () => {
+    renderFinish({
+      report: '报告',
+      items: [
+        { id: 'C1', pass: true },
+        { id: 'C2', pass: false },
+      ],
+    });
+    expect(finishSummary()).toBe('检查 1 项未通过');
+    expandFinishCard();
+    expect(finishCard().querySelector('pre')).toBeNull();
+    expect(finishItemRows()).toHaveLength(2);
+    expect(itemLabel(finishItemRows()[0] as HTMLElement)).toBe('C1');
+  });
+
+  it.each([
+    ['title 键缺席', { id: 'C1', pass: true }],
+    ['title 为 null', { id: 'C1', title: null, pass: true }],
+    ['title 为数字', { id: 'C1', title: 42, pass: true }],
+    ['title 为布尔', { id: 'C1', title: true, pass: true }],
+    ['title 为对象', { id: 'C1', title: { a: 1 }, pass: true }],
+    ['title 为数组', { id: 'C1', title: ['x'], pass: true }],
+  ])('%s → 标签文本恰等于 id（无占位符 / 无 undefined / 无 [object Object]）', (_label, item) => {
+    const { unmount } = renderFinish(itemsInput(item));
+    expandFinishCard();
+    const label = itemLabel(finishItemRows()[0] as HTMLElement);
+    expect(label).toBe('C1');
+    expect(label).not.toContain('undefined');
+    expect(label).not.toContain('null');
+    expect(label).not.toContain('[object');
+    unmount();
+  });
+
+  it('title 为空串 → 标签文本恰等于 id（不产生尾随空格），evidence 与摘要行零改', () => {
+    renderFinish({
+      report: '报告',
+      items: [
+        { id: 'C1', title: '', pass: true, evidence: '甲' },
+        { id: 'C2', title: '', pass: false, evidence: '乙' },
+      ],
+    });
+    expandFinishCard();
+    const rows = finishItemRows();
+    expect(itemLabel(rows[0] as HTMLElement)).toBe('C1');
+    expect(itemLabel(rows[1] as HTMLElement)).toBe('C2');
+    expect(itemEvidence(rows[0] as HTMLElement)?.textContent).toBe('甲');
+    expect(itemEvidence(rows[1] as HTMLElement)?.textContent).toBe('乙');
+    expect(finishSummary()).toBe('检查 1 项未通过');
+  });
+
+  it('title 为纯空白 → 渲染不抛错、标签以 id 起且不含 undefined / null（显示值不 trim）', () => {
+    renderFinish(itemsInput({ id: 'C1', title: '   ', pass: true }));
+    expandFinishCard();
+    const label = itemLabel(finishItemRows()[0] as HTMLElement);
+    expect(label.startsWith('C1')).toBe(true);
+    expect(label).not.toContain('undefined');
+    expect(label).not.toContain('null');
+  });
+
+  it('title 超长（40 全角字符 / 1200 字符）→ 标签全等拼接结果，无省略号无截断', () => {
+    for (const title of ['检查'.repeat(20), 'x'.repeat(1200)]) {
+      const { unmount } = renderFinish(itemsInput({ id: 'C1', title, pass: true }));
+      expandFinishCard();
+      const label = itemLabel(finishItemRows()[0] as HTMLElement);
+      expect(label).toBe(`C1 ${title}`);
+      expect(label).toHaveLength(3 + title.length);
+      expect(label).not.toContain('…');
+      unmount();
+    }
+  });
+
+  it('title 含换行 / NUL / emoji / 全角标点 → 渲染不抛错、标签含原文、后续行与摘要行结构不破', () => {
+    const title = '换\n行\0🚀（全角）、标点。';
+    renderFinish({
+      report: '报告',
+      items: [
+        { id: 'C1', title, pass: true, evidence: '据一' },
+        { id: 'C2', title: '第二项标题', pass: true, evidence: '据二' },
+      ],
+    });
+    expandFinishCard();
+    const rows = finishItemRows();
+    expect(itemLabel(rows[0] as HTMLElement)).toBe(`C1 ${title}`);
+    expect(itemLabel(rows[1] as HTMLElement)).toBe('C2 第二项标题');
+    expect(itemEvidence(rows[1] as HTMLElement)?.textContent).toBe('据二');
+    expect(finishSummary()).toBe('检查通过');
+    // React 转义：无 dangerouslySetInnerHTML
+    expect(finishCard().querySelector('script')).toBeNull();
+  });
+
+  it('元素含多余键（title2 / note / extra）→ 标签仍为 id + title（禁止第二标题来源）', () => {
+    renderFinish(
+      itemsInput({
+        id: 'C1',
+        title: '权威标题',
+        title2: '第二标题',
+        note: '注记',
+        extra: {},
+        pass: true,
+      }),
+    );
+    expandFinishCard();
+    expect(itemLabel(finishItemRows()[0] as HTMLElement)).toBe('C1 权威标题');
+    expect(finishCard().textContent).not.toContain('第二标题');
+  });
 });
 
 describe('FinishStepCard：文本特殊字符（str 边界）', () => {

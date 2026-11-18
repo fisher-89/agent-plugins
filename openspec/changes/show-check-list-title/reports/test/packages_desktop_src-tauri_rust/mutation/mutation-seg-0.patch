@@ -1,0 +1,984 @@
+diff --git a/crates/core/orchestration/src/finish.rs b/crates/core/orchestration/src/finish.rs
+index 99f56110936e..9b886de98562 100644
+--- a/crates/core/orchestration/src/finish.rs
++++ b/crates/core/orchestration/src/finish.rs
+@@ -34,8 +34,8 @@ pub fn description(spec: FinishSpec) -> &'static str {
+     match spec {
+         FinishSpec::EvaluatorChecklist => {
+             "本步收尾。按下列清单逐项给出结果；report ≤2000 字符。\
+-             items[].id 取自本 prompt 的静态清单（枚举已给出全集），逐项给 pass 与 evidence\
+-             （evidence 须为事实依据）。verdict 由清单推导，无需提交；不得调用 phase_log / \
++             items[].id 取自本 prompt 的静态清单（枚举已给出全集），逐项给 title、pass 与 \
++             evidence（evidence 须为事实依据）。verdict 由清单推导，无需提交；不得调用 phase_log / \
+              phase_next / phase_start / backtrack（落账由桌面编排代写）"
+         }
+         FinishSpec::Decision => {
+@@ -77,6 +77,10 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
+                             "type": "object",
+                             "properties": {
+                                 "id": id_schema,
++                                "title": {
++                                    "type": "string",
++                                    "description": "检查项标题：取本 prompt「静态清单」表第二列「检查项」原文，逐字照抄（改写 / 省字会被拒绝）",
++                                },
+                                 "pass": {
+                                     "type": "boolean",
+                                     "description": "该项是否通过",
+@@ -86,7 +90,7 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
+                                     "description": "判断依据（事实 / file:line）",
+                                 },
+                             },
+-                            "required": ["id", "pass", "evidence"],
++                            "required": ["id", "title", "pass", "evidence"],
+                         },
+                     },
+                 },
+diff --git a/crates/core/orchestration/src/finish_test.rs b/crates/core/orchestration/src/finish_test.rs
+index 527217c8635e..d9e312a14f28 100644
+--- a/crates/core/orchestration/src/finish_test.rs
++++ b/crates/core/orchestration/src/finish_test.rs
+@@ -58,13 +58,23 @@ fn synthetic_prompt() -> String {
+         .to_owned()
+ }
+ 
+-/// 合法 evaluator 参数（覆盖合成清单全 ID）。
++/// 合法 evaluator 参数（覆盖合成清单全 ID；`title` 与第二列原文逐字一致）。
+ fn valid_checklist_args() -> serde_json::Value {
+     serde_json::json!({
+         "report": "评估报告正文",
+         "items": [
+-            { "id": "C1", "pass": true, "evidence": "src/a.rs:10" },
+-            { "id": "C2", "pass": false, "evidence": "缺测试" }
++            {
++                "id": "C1",
++                "title": "变更代码中无安全漏洞",
++                "pass": true,
++                "evidence": "src/a.rs:10"
++            },
++            {
++                "id": "C2",
++                "title": "变更代码有对应测试",
++                "pass": false,
++                "evidence": "缺测试"
++            }
+         ]
+     })
+ }
+@@ -128,6 +138,12 @@ fn description两形态_各含关键语义且互不相等且不膨胀() {
+         evaluator.contains(&MAX_REPORT_CHARS.to_string()),
+         "evaluator 形态含 report 上限 2000: {evaluator}"
+     );
++    for field in ["title", "pass", "evidence"] {
++        assert!(
++            evaluator.contains(field),
++            "evaluator 形态逐项字段名 {field} 在场（只列字段名）: {evaluator}"
++        );
++    }
+ 
+     assert!(!decision.is_empty(), "decision 形态描述非空");
+     for action in ["backtrack", "stop"] {
+@@ -259,8 +275,8 @@ fn parameters的evaluator臂结构六断言() {
+     assert_eq!(properties["items"]["minItems"], 1, "items 至少一项");
+     assert_eq!(
+         properties["items"]["items"]["required"],
+-        serde_json::json!(["id", "pass", "evidence"]),
+-        "逐项三字段必填"
++        serde_json::json!(["id", "title", "pass", "evidence"]),
++        "逐项四字段必填"
+     );
+     assert_eq!(
+         properties["items"]["items"]["properties"]["pass"]["type"], "boolean",
+@@ -277,6 +293,57 @@ fn parameters的evaluator臂结构六断言() {
+     );
+ }
+ 
++/// `title` 段（正向）：`type == "string"`，`description` 是「取静态清单第二列
++/// 原文、逐字照抄」的唯一落位（字段指针可断言）。
++#[test]
++fn parameters的evaluator臂title段_类型与取值纪律单点() {
++    let schema = parameters(FinishSpec::EvaluatorChecklist, &synthetic_prompt());
++    let title = &schema["properties"]["items"]["items"]["properties"]["title"];
++
++    assert_eq!(title["type"], "string", "title 为字符串字段");
++    let description = title["description"].as_str().expect("description 为字符串");
++    assert!(!description.is_empty(), "description 非空");
++    for pointer in ["静态清单", "第二列"] {
++        assert!(
++            description.contains(pointer),
++            "description 含字段指针 {pointer}: {description}"
++        );
++    }
++    assert!(
++        description.contains("逐字"),
++        "description 承载「逐字照抄」取值纪律（单点落位）: {description}"
++    );
++}
++
++/// `required` 顺序（正向）：`title` 紧接 `id` 之后、`evidence` 收尾；四项平级
++/// 必填（MUST NOT 可选）。
++#[test]
++fn parameters的evaluator臂required四值且title紧接id() {
++    let schema = parameters(FinishSpec::EvaluatorChecklist, &synthetic_prompt());
++    let item_schema = &schema["properties"]["items"]["items"];
++    let required: Vec<&str> = item_schema["required"]
++        .as_array()
++        .expect("required 为数组")
++        .iter()
++        .map(|value| value.as_str().expect("元素为字符串"))
++        .collect();
++
++    assert_eq!(
++        required,
++        vec!["id", "title", "pass", "evidence"],
++        "逐项四字段必填且有序"
++    );
++    let properties = item_schema["properties"]
++        .as_object()
++        .expect("properties 对象");
++    for field in required {
++        assert!(
++            properties.contains_key(field),
++            "必填字段 {field} 在 properties 声明（平级必填，非可选）"
++        );
++    }
++}
++
+ #[test]
+ fn parameters的evaluator臂退化面_空id集省略enum键() {
+     for prompt in [
+@@ -291,6 +358,18 @@ fn parameters的evaluator臂退化面_空id集省略enum键() {
+         );
+         assert_eq!(id_schema["type"], "string", "其余结构仍在");
+         assert_eq!(schema["required"], serde_json::json!(["report", "items"]));
++
++        // 退化面不吞掉新字段：title 段与四值 required 照常在位
++        let item_schema = &schema["properties"]["items"]["items"];
++        assert_eq!(
++            item_schema["properties"]["title"]["type"], "string",
++            "空 ID 集下 title 段仍在场"
++        );
++        assert_eq!(
++            item_schema["required"],
++            serde_json::json!(["id", "title", "pass", "evidence"]),
++            "空 ID 集下四值 required 仍在场"
++        );
+     }
+ }
+ 
+@@ -332,6 +411,58 @@ fn parameters的decision臂两动作形状且prompt零影响() {
+     assert_eq!(first, second, "decision 臂与 prompt 无关");
+ }
+ 
++/// `description(EvaluatorChecklist)` 只列字段名（异常）：取值纪律措辞（逐字 /
++/// 照抄 / 第二列）单点在 `title.description`，描述面零命中。
++#[test]
++fn description的evaluator臂零取值纪律措辞() {
++    let evaluator = description(FinishSpec::EvaluatorChecklist);
++    for absent in ["逐字", "照抄", "第二列"] {
++        assert!(
++            !evaluator.contains(absent),
++            "evaluator 描述零取值纪律措辞 {absent}（单点在 title.description）: {evaluator}"
++        );
++    }
++}
++
++/// 「逐字」单点判据（异常，源码自证）：`finish.rs` 代码行内「逐字」计数恰 == 1，
++/// 且该唯一次落在 `title` 的 `description` 字符串字面量内。
++#[test]
++fn finish_rs逐字单点判据_计数恰一且落在title字段说明内() {
++    let code = code_lines(&source_of("src/finish.rs"));
++    assert_eq!(
++        code.matches("逐字").count(),
++        1,
++        "finish.rs 代码行内「逐字」恰一处（AC-6 单点判据）"
++    );
++
++    let lines: Vec<&str> = code.lines().collect();
++    let index = lines
++        .iter()
++        .position(|line| line.contains("逐字"))
++        .expect("唯一处所在行");
++    let line = lines[index];
++    assert!(
++        line.contains("\"description\""),
++        "唯一处是 description 字符串字面量: {line}"
++    );
++    let owner = lines[..index]
++        .iter()
++        .rposition(|line| line.contains("\"title\""))
++        .expect("title 属性键在其上方");
++    for other in [
++        "\"id\"",
++        "\"pass\"",
++        "\"evidence\"",
++        "\"report\"",
++        "\"items\"",
++    ] {
++        assert!(
++            lines[owner..index].iter().all(|line| !line.contains(other)),
++            "title 键与「逐字」行之间无其他字段键 {other}（落位在 title.description 内）"
++        );
++    }
++}
++
+ /// 删面零残留（异常，AC-4）：decision 形态的 `properties` 键集**恰**
+ /// `{action, to, reason}`（`question` / `options` 零命中）。
+ #[test]
+@@ -365,7 +496,7 @@ fn parameters的decision臂键集恰三项_question与options零命中() {
+ fn parameters两形态互不渗透() {
+     let decision_text =
+         serde_json::to_string(&parameters(FinishSpec::Decision, "")).expect("序列化");
+-    for forbidden in ["report", "items", "evidence"] {
++    for forbidden in ["report", "items", "evidence", "title"] {
+         assert!(
+             !decision_text.contains(forbidden),
+             "decision 形态零 evaluator 词汇 {forbidden}"
+@@ -502,6 +633,10 @@ fn parameters幂等且键序稳定() {
+     let first = parameters(FinishSpec::EvaluatorChecklist, &prompt);
+     let second = parameters(FinishSpec::EvaluatorChecklist, &prompt);
+     assert_eq!(first, second, "同入参两次调用逐字段相等（零内部状态）");
++    assert_eq!(
++        first["properties"]["items"]["items"]["properties"]["title"]["type"], "string",
++        "title 段在场（幂等面对新字段同样成立）"
++    );
+     assert_eq!(
+         serde_json::to_string(&first).expect("序列化"),
+         serde_json::to_string(&second).expect("序列化"),
+diff --git a/crates/core/orchestration/src/prompt.rs b/crates/core/orchestration/src/prompt.rs
+index f7c5108b24b2..d87aa46e0cf6 100644
+--- a/crates/core/orchestration/src/prompt.rs
++++ b/crates/core/orchestration/src/prompt.rs
+@@ -48,7 +48,7 @@ fn evaluator_protocol() -> String {
+         "\n\n---\n\n## 输出协议（必须遵守）\n\n\
+ 1. 评估落账由桌面编排代写——你只产出评估结论，不写任何落账数据（含 `workflow.json`）。\n\
+ 2. 评估完成后**调用 `finish_step` 工具收口**——checklist 与 report 是工具参数（形状由工具 schema 给出），无需在最终消息里输出任何 JSON。\n\
+-3. `report` 不超过 {MAX_REPORT_CHARS} 字符；checklist 逐项需 `id`（取自本 prompt「静态清单」表首列）+ `pass`（布尔）+ `evidence`（事实依据，含 file:line）。\n\
++3. `report` 不超过 {MAX_REPORT_CHARS} 字符；checklist 逐项需 `id`（取自本 prompt「静态清单」表首列）+ `title`（同表第二列「检查项」）+ `pass`（布尔）+ `evidence`（事实依据，含 file:line）。\n\
+ 4. 无需 `verdict` / `phase` / `attempt` / `skipped` 字段：verdict 由 checklist 推导，其余由桌面编排按 provenance 盖戳。"
+     )
+ }
+diff --git a/crates/core/orchestration/src/prompt_test.rs b/crates/core/orchestration/src/prompt_test.rs
+index 4b41d07f2d8f..b0f4ab2b8639 100644
+--- a/crates/core/orchestration/src/prompt_test.rs
++++ b/crates/core/orchestration/src/prompt_test.rs
+@@ -516,6 +516,10 @@ fn prompt确定性_同输入重复组装逐字节一致() {
+         evaluator_prompt(phase_prompt),
+         "evaluator prompt 确定性"
+     );
++    assert!(
++        evaluator_protocol_text().contains("`title`"),
++        "空主体形态的协议段同样携带新字段枚举（title 在场）"
++    );
+     assert_eq!(
+         decision_prompt(&input),
+         decision_prompt(&input),
+@@ -1185,6 +1189,106 @@ fn evaluator_protocol_text() -> String {
+     evaluator_prompt("")
+ }
+ 
++/// `prompt.rs` 源码（`CARGO_MANIFEST_DIR` 相对；函数切片自证用）。
++fn prompt_source() -> String {
++    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/prompt.rs"))
++        .expect("读取 prompt.rs")
++}
++
++// ---------------------------------------------------------------------------
++// `evaluator_protocol`：逐项字段枚举扩为四值（title 只留字段指针）
++// ---------------------------------------------------------------------------
++
++/// 字段枚举四值（正向）：`checklist 逐项需` 所在行同时含 `id` / `title` /
++/// `pass` / `evidence`，且偏移序为 `id` → `title` → `pass` → `evidence`。
++#[test]
++fn evaluator_protocol字段枚举四值且枚举序稳定() {
++    let prompt = evaluator_prompt("主体");
++    let line = prompt
++        .lines()
++        .find(|line| line.contains("checklist 逐项需"))
++        .unwrap_or_else(|| panic!("逐项字段枚举行在场: {prompt}"));
++    let mut offsets = Vec::new();
++    for field in ["`id`", "`title`", "`pass`", "`evidence`"] {
++        let offset = line
++            .find(field)
++            .unwrap_or_else(|| panic!("枚举行含字段 {field}: {line}"));
++        offsets.push(offset);
++    }
++    assert!(
++        offsets.windows(2).all(|pair| pair[0] < pair[1]),
++        "枚举序 id → title → pass → evidence，实际偏移 {offsets:?}: {line}"
++    );
++}
++
++/// `title` 的字段指针（正向）：`title` 邻域写「同表第二列「检查项」」——只给
++/// 来源指针，与 `id` 的「表首列」同形可读（取值纪律不在本处）。
++#[test]
++fn evaluator_protocol_title邻域含第二列与检查项指针() {
++    let prompt = evaluator_prompt("主体");
++    let line = prompt
++        .lines()
++        .find(|line| line.contains("checklist 逐项需"))
++        .expect("逐项字段枚举行在场");
++
++    let title_at = line.find("`title`").expect("枚举行含 title");
++    let pass_at = line.find("`pass`").expect("枚举行含 pass");
++    let pointer = &line[title_at..pass_at];
++    for needle in ["第二列", "检查项"] {
++        assert!(
++            pointer.contains(needle),
++            "title 指向静态清单{needle}（字段指针）: {pointer}"
++        );
++    }
++    // id 的来源说明同形（表首列），两字段指针形态一致
++    let id_at = line.find("`id`").expect("枚举行含 id");
++    assert!(
++        line[id_at..title_at].contains("表首列"),
++        "id 指针为「表首列」（与 title 的「第二列」同形）: {}",
++        &line[id_at..title_at]
++    );
++}
++
++/// 函数体切片自证（异常）：`fn evaluator_protocol` 体「逐字」零命中（取值纪律
++/// 单点在 `title.description`），且零 JSON Schema 词（形状归工具 schema）。
++#[test]
++fn evaluator_protocol函数体逐字零命中且不复述schema() {
++    let own = prompt_source();
++    let start = own.find("fn evaluator_protocol").expect("函数在位");
++    let rest = &own[start..];
++    let end = rest.find("\n}\n").expect("函数体收口");
++    let body = &rest[..end];
++
++    assert!(
++        body.contains("checklist 逐项需"),
++        "切片覆盖字段枚举条（切片边界正确）"
++    );
++    assert_eq!(
++        body.matches("逐字").count(),
++        0,
++        "取值纪律单点在 title.description（函数体零「逐字」）"
++    );
++    for absent in ["minItems", "properties", "required"] {
++        assert!(
++            !body.contains(absent),
++            "函数体零 JSON Schema 词 {absent}（形状归工具 schema）"
++        );
++    }
++}
++
++/// 措辞不重复（异常）：产出文本不带 `title.description` 的取值纪律措辞——两处
++/// 各写一份即单点判据失败。
++#[test]
++fn evaluator_protocol不复述description取值纪律() {
++    let prompt = evaluator_prompt("主体");
++    for absent in ["逐字", "逐字照抄", "改写 / 省字"] {
++        assert!(
++            !prompt.contains(absent),
++            "协议附录零取值纪律措辞 {absent}（单点在 title.description）: {prompt}"
++        );
++    }
++}
++
+ // ---------------------------------------------------------------------------
+ // `decision_prompt`：删 JSON 代码块（AC-12 反向面）
+ // ---------------------------------------------------------------------------
+diff --git a/crates/core/orchestration/src/verdict.rs b/crates/core/orchestration/src/verdict.rs
+index 1d387120dc80..7377370fe0b3 100644
+--- a/crates/core/orchestration/src/verdict.rs
++++ b/crates/core/orchestration/src/verdict.rs
+@@ -17,12 +17,14 @@ pub struct EvaluatorChecklist {
+     pub checklist: Vec<ChecklistItem>,
+ }
+ 
+-/// `finish_step` 的 evaluator 形态参数校验：形状 → ID 三分类比对 → `id → item`
+-/// 映射（md 静态清单「检查项」列权威正文）→ report 上限 → verdict 推导。
++/// `finish_step` 的 evaluator 形态参数校验：形状 → ID 三分类比对 → report 上限 →
++/// `title` 形态与权威正文比对 → `id → item` 映射（md 静态清单「检查项」列权威
++/// 正文）→ verdict 推导。
+ ///
+-/// 入口形状 `{ report, items: [{ id, pass, evidence }] }` ≠ 载荷形状
++/// 入口形状 `{ report, items: [{ id, title, pass, evidence }] }` ≠ 载荷形状
+ /// `{ verdict, report, checklist: [{ item, pass, evidence }] }`——映射在工具边界
+ /// 完成，落账面因此零变更。模型传入的 `verdict` 字段完全忽略（不读不校验）。
++/// `title` 是展示搬运字段：只用于校验与卡片呈现，映射时丢弃——落账面与载荷零新字段。
+ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorChecklist, String> {
+     let object = args
+         .as_object()
+@@ -49,7 +51,7 @@ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorCheckli
+ 
+     // 逐项形态 + ID 收集（未知 ID = 元素形态层：缺失 / 非字符串 / 空串）
+     let mut received: Vec<String> = Vec::with_capacity(items.len());
+-    let mut passing: Vec<(String, bool, String)> = Vec::with_capacity(items.len());
++    let mut passing: Vec<(String, bool, String, Value)> = Vec::with_capacity(items.len());
+     for (index, item) in items.iter().enumerate() {
+         let Some(record) = item.as_object() else {
+             return Err(format!(
+@@ -78,7 +80,13 @@ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorCheckli
+                 format!("字段 items[{index}].evidence 缺失或非字符串：期望事实依据（file:line）")
+             })?;
+         received.push(id.clone());
+-        passing.push((id, pass, evidence.to_owned()));
++        // 第四位是 title 原值：仅供本次校验的 Err 文案给「当前值」，映射时丢弃
++        passing.push((
++            id,
++            pass,
++            evidence.to_owned(),
++            record.get("title").cloned().unwrap_or(Value::Null),
++        ));
+     }
+ 
+     // ID 集合比对（三类文案分列：缺项 / 清单外 ID / 未知 ID 已在上段）
+@@ -113,9 +121,33 @@ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorCheckli
+         ));
+     }
+ 
++    // title 校验（追加在全链末尾、映射之前）：形态先行，再与静态清单第二列正文
++    // 比对——仅首尾 trim（权威正文在解析时已 trim），不折叠内部空白、不做语义等价
++    for (index, (id, _, _, raw)) in passing.iter().enumerate() {
++        let Some(title) = raw
++            .as_str()
++            .map(str::trim)
++            .filter(|title| !title.is_empty())
++        else {
++            return Err(format!(
++                "字段 items[{index}].title 缺失 / 非字符串 / 空串：期望本 prompt「静态清单」表第二列原文，当前 {raw}"
++            ));
++        };
++        // ID 集合相等已在上游校验，故同 ID 条目必然在案；命中不到即无权威正文可比
++        let Some(entry) = entries.iter().find(|entry| entry.id == *id) else {
++            continue;
++        };
++        if title != entry.item {
++            return Err(format!(
++                "字段 items[{index}].title 与静态清单第二列不一致（ID {id}）：期望「{}」，当前「{title}」",
++                entry.item
++            ));
++        }
++    }
++
+     let checklist: Vec<ChecklistItem> = passing
+         .into_iter()
+-        .map(|(id, pass, evidence)| ChecklistItem {
++        .map(|(id, pass, evidence, _title)| ChecklistItem {
+             item: entries
+                 .iter()
+                 .find(|entry| entry.id == id)
+diff --git a/crates/core/orchestration/src/verdict_test.rs b/crates/core/orchestration/src/verdict_test.rs
+index 3a7bdaf4a365..9f0bc8c4c95e 100644
+--- a/crates/core/orchestration/src/verdict_test.rs
++++ b/crates/core/orchestration/src/verdict_test.rs
+@@ -1,7 +1,8 @@
+ //! `verdict.rs`（checklist 校验器）的单元测试：`validate_checklist` 的形状校验、
+-//! ID 三分类（缺项 / 清单外 ID / 未知 ID）、`id → item` 映射、report 上限与
+-//! verdict 推导。文本解析面（`parse_verdict` / `extract_json` / 围栏 / brace 切片）
+-//! 随 `parse_verdict` 退役——被测函数已删除，本节零对应用例。
++//! ID 三分类（缺项 / 清单外 ID / 未知 ID）、`report` 上限、`title` 形态与权威
++//! 正文（静态清单第二列）比对、`id → item` 映射与 verdict 推导。文本解析面
++//!（`parse_verdict` / `extract_json` / 围栏 / brace 切片）随 `parse_verdict`
++//! 退役——被测函数已删除，本节零对应用例。
+ //!
+ //! 不 mock：`args` 为内存 `serde_json::json!` 字面量，`prompt` 为内存合成静态
+ //! 清单字符串；`checklist_entries` / `derive_verdict` 真实调用（单点语义即被测
+@@ -23,9 +24,13 @@ fn prompt_c1_c2() -> String {
+         .to_owned()
+ }
+ 
+-/// 单项参数（`id` / `pass` / `evidence`）。
+-fn item_args(id: &str, pass: bool, evidence: &str) -> serde_json::Value {
+-    serde_json::json!({ "id": id, "pass": pass, "evidence": evidence })
++/// 合成清单第二列权威正文（`title` 校验的期望值）。
++const C1_TITLE: &str = "变更代码中无安全漏洞";
++const C2_TITLE: &str = "变更代码有对应测试";
++
++/// 单项参数（`id` / `title` / `pass` / `evidence`）。
++fn item_args(id: &str, pass: bool, evidence: &str, title: &str) -> serde_json::Value {
++    serde_json::json!({ "id": id, "title": title, "pass": pass, "evidence": evidence })
+ }
+ 
+ /// 全项参数（report 固定为短串）。
+@@ -36,8 +41,8 @@ fn args_with_items(items: Vec<serde_json::Value>) -> serde_json::Value {
+ /// 两行 prompt 的全覆盖合法参数（`pass_c1` / `pass_c2` 控制两项结论）。
+ fn full_args(pass_c1: bool, pass_c2: bool) -> serde_json::Value {
+     args_with_items(vec![
+-        item_args("C1", pass_c1, "甲证据"),
+-        item_args("C2", pass_c2, "乙证据"),
++        item_args("C1", pass_c1, "甲证据", C1_TITLE),
++        item_args("C2", pass_c2, "乙证据", C2_TITLE),
+     ])
+ }
+ 
+@@ -88,8 +93,8 @@ fn item映射按id对位_含全角标点时逐字保真() {
+     let prompt = prompt_c1_c2();
+     // 参数序与清单序相反：映射按 ID 对位，不按顺序猜
+     let args = args_with_items(vec![
+-        item_args("C2", true, "乙证据"),
+-        item_args("C1", true, "甲证据"),
++        item_args("C2", true, "乙证据", C2_TITLE),
++        item_args("C1", true, "甲证据", C1_TITLE),
+     ]);
+     let checklist = validate_checklist(&args, &prompt).expect("逆序参数应通过");
+     assert_eq!(
+@@ -110,7 +115,7 @@ fn item映射按id对位_含全角标点时逐字保真() {
+ #[test]
+ fn 缺项err_自足三要素且不返回部分checklist() {
+     let prompt = prompt_c1_c2();
+-    let args = args_with_items(vec![item_args("C1", true, "甲")]);
++    let args = args_with_items(vec![item_args("C1", true, "甲", C1_TITLE)]);
+     let error = validate_checklist(&args, &prompt).expect_err("缺项应 Err");
+ 
+     assert!(error.contains("items"), "文案含字段名 items: {error}");
+@@ -133,9 +138,9 @@ fn 缺项err_自足三要素且不返回部分checklist() {
+ fn 清单外id_err分列且不含缺项文案() {
+     let prompt = prompt_c1_c2();
+     let args = args_with_items(vec![
+-        item_args("C1", true, "甲"),
+-        item_args("C2", true, "乙"),
+-        item_args("C9", true, "丙"),
++        item_args("C1", true, "甲", C1_TITLE),
++        item_args("C2", true, "乙", C2_TITLE),
++        item_args("C9", true, "丙", "清单外项标题"),
+     ]);
+     let error = validate_checklist(&args, &prompt).expect_err("清单外 ID 应 Err");
+ 
+@@ -361,15 +366,23 @@ fn 多余字段静默忽略_label面逐键ok() {
+     }
+     let checklist = validate_checklist(&args, &prompt).expect("多余键静默忽略");
+     assert_eq!(checklist.checklist.len(), 2, "多余键零影响");
++
++    // 多余键不改变 title 校验（该项仍按第二列原文比对）
++    args["items"][0]["title"] = serde_json::json!("被改写的标题");
++    let error = validate_checklist(&args, &prompt).expect_err("多余键在场时 title 仍被校验");
++    assert!(
++        error.contains("items[0].title") && error.contains("不一致"),
++        "多余键不影响 title 校验: {error}"
++    );
+ }
+ 
+ #[test]
+ fn 重复id集合相等即ok_不静默去重() {
+     let prompt = prompt_c1_c2();
+     let args = args_with_items(vec![
+-        item_args("C1", true, "甲"),
+-        item_args("C1", false, "甲二"),
+-        item_args("C2", true, "乙"),
++        item_args("C1", true, "甲", C1_TITLE),
++        item_args("C1", false, "甲二", C1_TITLE),
++        item_args("C2", true, "乙", C2_TITLE),
+     ]);
+     let checklist = validate_checklist(&args, &prompt).expect("集合相等即通过（重复项是模型噪声）");
+     assert_eq!(checklist.checklist.len(), 3, "重复项不静默去重");
+@@ -387,7 +400,12 @@ fn 规模边界_百项ok千项不panic() {
+     let mut items = Vec::with_capacity(100);
+     for index in 0..100 {
+         prompt.push_str(&format!("| C{index} | 检查项 {index} | 依据 |\n"));
+-        items.push(item_args(&format!("C{index}"), true, "据"));
++        items.push(item_args(
++            &format!("C{index}"),
++            true,
++            "据",
++            &format!("检查项 {index}"),
++        ));
+     }
+     let checklist = validate_checklist(&args_with_items(items), &prompt).expect("百项应通过");
+     assert_eq!(checklist.checklist.len(), 100);
+@@ -398,7 +416,12 @@ fn 规模边界_百项ok千项不panic() {
+     let mut items = Vec::with_capacity(1000);
+     for index in 0..1000 {
+         prompt.push_str(&format!("| C{index} | 检查项 {index} | 依据 |\n"));
+-        items.push(item_args(&format!("C{index}"), index % 2 == 0, "据"));
++        items.push(item_args(
++            &format!("C{index}"),
++            index % 2 == 0,
++            "据",
++            &format!("检查项 {index}"),
++        ));
+     }
+     let checklist = validate_checklist(&args_with_items(items), &prompt).expect("千项应通过");
+     assert_eq!(checklist.checklist.len(), 1000);
+@@ -437,6 +460,347 @@ fn 文本特殊字符_逐字保真且不污染id解析() {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// 正向 / 边界 / 异常：title 形态与权威正文（静态清单第二列）比对
++// ---------------------------------------------------------------------------
++
++#[test]
++fn title与第二列逐字一致_ok且载荷零title键() {
++    let prompt = prompt_c1_c2();
++    let checklist = validate_checklist(&full_args(true, false), &prompt).expect("title 一致应通过");
++
++    assert_eq!(checklist.checklist[0].item, C1_TITLE, "item 取权威正文");
++    assert_ne!(checklist.checklist[0].item, "C1", "item 不等于 ID");
++    assert_eq!(checklist.checklist[1].item, C2_TITLE);
++    assert!(checklist.checklist[0].pass, "pass 原样保真");
++    assert_eq!(
++        checklist.checklist[1].evidence, "乙证据",
++        "evidence 原样保真"
++    );
++    assert_eq!(checklist.report, "报告", "report 原样保真");
++
++    // 载荷键集：顶层三项、逐项三项——title 是展示搬运字段，映射时丢弃
++    let value = serde_json::to_value(&checklist).expect("序列化");
++    let mut keys: Vec<&str> = value
++        .as_object()
++        .expect("载荷为对象")
++        .keys()
++        .map(String::as_str)
++        .collect();
++    keys.sort_unstable();
++    assert_eq!(
++        keys,
++        vec!["checklist", "report", "verdict"],
++        "顶层键集恰三项"
++    );
++
++    let mut item_keys: Vec<&str> = value["checklist"][0]
++        .as_object()
++        .expect("逐项为对象")
++        .keys()
++        .map(String::as_str)
++        .collect();
++    item_keys.sort_unstable();
++    assert_eq!(
++        item_keys,
++        vec!["evidence", "item", "pass"],
++        "逐项键集恰三项（title 零命中）"
++    );
++    let text = serde_json::to_string(&value).expect("序列化");
++    assert!(!text.contains("title"), "载荷全文零 title 键: {text}");
++}
++
++#[test]
++fn title首尾空白归一化_item仍取未带空白的权威正文() {
++    let prompt = prompt_c1_c2();
++    let mut args = full_args(true, true);
++    args["items"][0]["title"] = serde_json::json!("  变更代码中无安全漏洞  ");
++    args["items"][1]["title"] = serde_json::json!("\t变更代码有对应测试\n");
++
++    let checklist = validate_checklist(&args, &prompt).expect("仅首尾空白差异应通过");
++    assert_eq!(
++        checklist.checklist[0].item, C1_TITLE,
++        "item 取权威正文（不含参数侧首尾空白）"
++    );
++    assert_eq!(checklist.checklist[1].item, C2_TITLE);
++}
++
++#[test]
++fn title_trim后空串归缺失_三形态() {
++    let prompt = prompt_c1_c2();
++    for (label, title) in [("空串", ""), ("纯空格", "   "), ("空白混合", "\t\n")] {
++        let mut args = full_args(true, true);
++        args["items"][0]["title"] = serde_json::json!(title);
++
++        let error =
++            validate_checklist(&args, &prompt).expect_err(&format!("title {label} 形态应 Err"));
++        assert!(
++            error.contains("items[0].title"),
++            "{label} 形态文案定位到 items[0].title: {error}"
++        );
++        assert!(
++            error.contains("缺失") && error.contains("非字符串") && error.contains("空串"),
++            "{label} 形态文案点明三类归因: {error}"
++        );
++        assert!(
++            error.contains("期望") && error.contains("第二列"),
++            "{label} 形态文案点明期望（静态清单第二列原文）: {error}"
++        );
++        assert!(
++            !error.contains("不一致"),
++            "{label} 形态不进不一致分支（分类互斥）: {error}"
++        );
++    }
++}
++
++#[test]
++fn title缺失或非字符串_六形态逐形态err且不含不一致() {
++    let prompt = prompt_c1_c2();
++    let shapes: [(&str, Option<serde_json::Value>); 6] = [
++        ("键缺席", None),
++        ("null", Some(serde_json::json!(null))),
++        ("数字", Some(serde_json::json!(42))),
++        ("布尔", Some(serde_json::json!(false))),
++        ("对象", Some(serde_json::json!({ "a": 1 }))),
++        ("数组", Some(serde_json::json!(["x"]))),
++    ];
++    for (label, shape) in shapes {
++        let mut first = item_args("C1", true, "甲", C1_TITLE);
++        match shape {
++            Some(value) => first["title"] = value,
++            None => {
++                assert!(
++                    first
++                        .as_object_mut()
++                        .expect("逐项为对象")
++                        .remove("title")
++                        .is_some(),
++                    "title 键确实被移除"
++                );
++            }
++        }
++        let args = args_with_items(vec![first, item_args("C2", true, "乙", C2_TITLE)]);
++
++        let error =
++            validate_checklist(&args, &prompt).expect_err(&format!("title {label} 形态应 Err"));
++        assert!(
++            error.contains("items[0].title"),
++            "{label} 形态文案含字段路径 items[0].title: {error}"
++        );
++        assert!(
++            error.contains("期望") && error.contains("第二列"),
++            "{label} 形态文案点明期望（静态清单第二列原文）: {error}"
++        );
++        assert!(
++            error.contains("缺失") && error.contains("非字符串"),
++            "{label} 形态文案含「缺失 / 非字符串」表述: {error}"
++        );
++        assert!(
++            !error.contains("不一致"),
++            "{label} 形态与不一致文案互斥: {error}"
++        );
++    }
++}
++
++#[test]
++fn title不一致即拒_文案含id期望当前值与分类词() {
++    let prompt = prompt_c1_c2();
++    for altered in ["变更代码有对应测试X", "变更代码测试"] {
++        let mut args = full_args(true, true);
++        args["items"][1]["title"] = serde_json::json!(altered);
++
++        let error = validate_checklist(&args, &prompt)
++            .expect_err(&format!("title 改写为 {altered} 应 Err"));
++        assert!(
++            error.contains("items[1].title"),
++            "文案定位到 items[1].title: {error}"
++        );
++        assert!(error.contains("不一致"), "文案含分类词「不一致」: {error}");
++        assert!(error.contains("C2"), "文案含该项 ID: {error}");
++        assert!(error.contains(C2_TITLE), "文案含期望原文: {error}");
++        assert!(error.contains(altered), "文案含当前值原文: {error}");
++        for exclusive in ["缺项", "清单外", "未知"] {
++            assert!(
++                !error.contains(exclusive),
++                "与三类 ID 文案措辞互斥（{exclusive} 零命中）: {error}"
++            );
++        }
++    }
++}
++
++#[test]
++fn title元素索引定位_items索引与元素对位() {
++    let prompt = prompt_c1_c2();
++
++    // 第二项 title 缺失 → items[1].title
++    let mut args = full_args(true, true);
++    assert!(
++        args["items"][1]
++            .as_object_mut()
++            .expect("逐项为对象")
++            .remove("title")
++            .is_some(),
++        "第二项 title 键确实被移除"
++    );
++    let error = validate_checklist(&args, &prompt).expect_err("第二项 title 缺失应 Err");
++    assert!(
++        error.contains("items[1].title") && !error.contains("items[0].title"),
++        "索引与元素对位（不恒指 0）: {error}"
++    );
++
++    // 第二项 title 不一致 → items[1].title
++    let mut args = full_args(true, true);
++    args["items"][1]["title"] = serde_json::json!("改编后的标题");
++    let error = validate_checklist(&args, &prompt).expect_err("第二项 title 不一致应 Err");
++    assert!(
++        error.contains("items[1].title") && error.contains("不一致"),
++        "不一致文案索引对位: {error}"
++    );
++}
++
++#[test]
++fn title内部空白承载语义_折叠即拒() {
++    // 权威正文内部连续空白承载语义（MUST NOT 折叠）
++    let prompt = "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
++                  | G1 | 单元测试  >  用例 表格每行已生成对应测试骨架 | 检查测试骨架 |\n";
++    let exact = "单元测试  >  用例 表格每行已生成对应测试骨架";
++
++    let args = args_with_items(vec![item_args("G1", true, "据", exact)]);
++    let checklist = validate_checklist(&args, prompt).expect("内部空白逐字相同应通过");
++    assert_eq!(checklist.checklist[0].item, exact, "权威正文内部空白保真");
++
++    let folded = "单元测试 > 用例 表格每行已生成对应测试骨架";
++    let args = args_with_items(vec![item_args("G1", true, "据", folded)]);
++    let error = validate_checklist(&args, prompt).expect_err("折叠内部空白即改写语义");
++    assert!(
++        error.contains("不一致"),
++        "折叠内部空白落入不一致分支: {error}"
++    );
++}
++
++#[test]
++fn 校验顺序_清单外id先于title校验() {
++    let prompt = prompt_c1_c2();
++    let mut items = full_args(true, true)["items"]
++        .as_array()
++        .cloned()
++        .expect("items 数组");
++    assert!(
++        items[0]
++            .as_object_mut()
++            .expect("逐项为对象")
++            .remove("title")
++            .is_some(),
++        "首项 title 键确实被移除"
++    );
++    items.push(item_args("C9", true, "丙", "清单外项标题"));
++
++    let error = validate_checklist(&args_with_items(items), &prompt).expect_err("清单外 ID 应 Err");
++    assert!(
++        error.contains("清单外"),
++        "清单外 ID 判定先于 title 校验（title 校验追加在链末尾）: {error}"
++    );
++    assert!(!error.contains("title"), "该路径不报 title 文案: {error}");
++}
++
++#[test]
++fn 校验顺序_缺项先于title校验() {
++    let prompt = prompt_c1_c2();
++    let mut items = full_args(true, true)["items"]
++        .as_array()
++        .cloned()
++        .expect("items 数组");
++    assert!(
++        items[0]
++            .as_object_mut()
++            .expect("逐项为对象")
++            .remove("title")
++            .is_some(),
++        "首项 title 键确实被移除"
++    );
++    items.remove(1);
++
++    let error = validate_checklist(&args_with_items(items), &prompt).expect_err("缺项应 Err");
++    assert!(error.contains("缺项"), "缺项判定先于 title 校验: {error}");
++    assert!(!error.contains("title"), "该路径不报 title 文案: {error}");
++}
++
++#[test]
++fn 校验顺序_report上限先于title校验() {
++    let prompt = prompt_c1_c2();
++
++    let mut args = full_args(true, true);
++    args["report"] = serde_json::json!("报".repeat(MAX_REPORT_CHARS + 1));
++    args["items"][0]["title"] = serde_json::json!("被改写的标题");
++    let error = validate_checklist(&args, &prompt).expect_err("report 超长应 Err");
++    assert!(
++        error.contains("字段 report 超长"),
++        "report 上限检查位于 title 校验之前: {error}"
++    );
++    assert!(!error.contains("title"), "该路径不报 title 文案: {error}");
++
++    // 恰上限 + title 一致 → Ok（上限面零改）
++    let mut args = full_args(true, true);
++    args["report"] = serde_json::json!("报".repeat(MAX_REPORT_CHARS));
++    validate_checklist(&args, &prompt).expect("恰上限且 title 一致应通过");
++}
++
++#[test]
++fn title一次一错_只报首项不含次项() {
++    let prompt = prompt_c1_c2();
++    let mut args = full_args(true, true);
++    args["items"][0]["title"] = serde_json::json!("首项被改写");
++    args["items"][1]["title"] = serde_json::json!("次项被改写");
++
++    let error = validate_checklist(&args, &prompt).expect_err("两项均改写应 Err");
++    assert!(
++        error.contains("items[0].title"),
++        "只报首项（首项不一致即 Err，不做多项汇总）: {error}"
++    );
++    assert!(
++        !error.contains("items[1].title"),
++        "文案不含次项索引: {error}"
++    );
++    assert!(!error.contains("次项被改写"), "文案不含次项当前值: {error}");
++}
++
++#[test]
++fn title特殊字符_逐字一致即ok且内部换行形态err携当前值() {
++    // 全角标点 / emoji / NUL 与权威正文逐字相同 → Ok
++    let prompt = "## 静态清单\n\n| ID | 检查项 | 判断依据 |\n|---|---|---|\n\
++                  | E1 | 校验 🚀 全角（括号）、标点\0。 | 依据 |\n";
++    let exact = "校验 🚀 全角（括号）、标点\0。";
++    let checklist = validate_checklist(
++        &args_with_items(vec![item_args("E1", true, "据", exact)]),
++        prompt,
++    )
++    .expect("特殊字符逐字一致应通过");
++    assert_eq!(checklist.checklist[0].item, exact, "特殊字符权威正文保真");
++
++    // 内部换行（权威正文不含换行）→ Err 且当前值原文出现在文案中
++    let prompt = prompt_c1_c2();
++    let broken = "变更代码中\n无安全漏洞";
++    let args = args_with_items(vec![
++        item_args("C1", true, "甲", broken),
++        item_args("C2", true, "乙", C2_TITLE),
++    ]);
++    let error = validate_checklist(&args, &prompt).expect_err("内部换行形态应 Err");
++    assert!(
++        error.contains(broken),
++        "文案含当前值原文（含换行）: {error}"
++    );
++}
++
++#[test]
++fn verdict逐字零命中_源码自证() {
++    let own = source_of("src/verdict.rs");
++    assert_eq!(
++        own.matches("逐字").count(),
++        0,
++        "verdict.rs 全文零「逐字」命中（Err 文案只陈述 id + 期望 + 当前值）"
++    );
++}
++
+ // ---------------------------------------------------------------------------
+ // 异常：退役面零残留（源码自证）
+ // ---------------------------------------------------------------------------
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index d175204d95e3..f97567cd5991 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -5431,13 +5431,23 @@ fn finish_prompt() -> String {
+         .to_owned()
+ }
+ 
+-/// 合法收口参数（覆盖合成清单全 ID）。
++/// 合法收口参数（覆盖合成清单全 ID；`title` 与第二列原文逐字一致）。
+ fn finish_args() -> serde_json::Value {
+     serde_json::json!({
+         "report": "评估报告正文",
+         "items": [
+-            { "id": "C1", "pass": true, "evidence": "src/a.rs:10" },
+-            { "id": "C2", "pass": true, "evidence": "tests/a.rs:3" },
++            {
++                "id": "C1",
++                "title": "变更代码中无安全漏洞",
++                "pass": true,
++                "evidence": "src/a.rs:10"
++            },
++            {
++                "id": "C2",
++                "title": "变更代码有对应测试",
++                "pass": true,
++                "evidence": "tests/a.rs:3"
++            }
+         ]
+     })
+ }
+@@ -5921,8 +5931,8 @@ async fn finish_step的err文案三要素可见() {
+             args: serde_json::json!({
+                 "report": "报".repeat(orchestration::verdict::MAX_REPORT_CHARS + 1),
+                 "items": [
+-                    { "id": "C1", "pass": true, "evidence": "甲" },
+-                    { "id": "C2", "pass": true, "evidence": "乙" },
++                    { "id": "C1", "title": "变更代码中无安全漏洞", "pass": true, "evidence": "甲" },
++                    { "id": "C2", "title": "变更代码有对应测试", "pass": true, "evidence": "乙" },
+                 ],
+             }),
+             must_contain: ["report 超长", "2000", "2001"],

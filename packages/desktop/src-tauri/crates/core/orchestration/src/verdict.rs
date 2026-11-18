@@ -17,12 +17,14 @@ pub struct EvaluatorChecklist {
     pub checklist: Vec<ChecklistItem>,
 }
 
-/// `finish_step` 的 evaluator 形态参数校验：形状 → ID 三分类比对 → `id → item`
-/// 映射（md 静态清单「检查项」列权威正文）→ report 上限 → verdict 推导。
+/// `finish_step` 的 evaluator 形态参数校验：形状 → ID 三分类比对 → report 上限 →
+/// `title` 形态与权威正文比对 → `id → item` 映射（md 静态清单「检查项」列权威
+/// 正文）→ verdict 推导。
 ///
-/// 入口形状 `{ report, items: [{ id, pass, evidence }] }` ≠ 载荷形状
+/// 入口形状 `{ report, items: [{ id, title, pass, evidence }] }` ≠ 载荷形状
 /// `{ verdict, report, checklist: [{ item, pass, evidence }] }`——映射在工具边界
 /// 完成，落账面因此零变更。模型传入的 `verdict` 字段完全忽略（不读不校验）。
+/// `title` 是展示搬运字段：只用于校验与卡片呈现，映射时丢弃——落账面与载荷零新字段。
 pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorChecklist, String> {
     let object = args
         .as_object()
@@ -49,7 +51,7 @@ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorCheckli
 
     // 逐项形态 + ID 收集（未知 ID = 元素形态层：缺失 / 非字符串 / 空串）
     let mut received: Vec<String> = Vec::with_capacity(items.len());
-    let mut passing: Vec<(String, bool, String)> = Vec::with_capacity(items.len());
+    let mut passing: Vec<(String, bool, String, Value)> = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() {
         let Some(record) = item.as_object() else {
             return Err(format!(
@@ -78,7 +80,13 @@ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorCheckli
                 format!("字段 items[{index}].evidence 缺失或非字符串：期望事实依据（file:line）")
             })?;
         received.push(id.clone());
-        passing.push((id, pass, evidence.to_owned()));
+        // 第四位是 title 原值：仅供本次校验的 Err 文案给「当前值」，映射时丢弃
+        passing.push((
+            id,
+            pass,
+            evidence.to_owned(),
+            record.get("title").cloned().unwrap_or(Value::Null),
+        ));
     }
 
     // ID 集合比对（三类文案分列：缺项 / 清单外 ID / 未知 ID 已在上段）
@@ -113,9 +121,33 @@ pub fn validate_checklist(args: &Value, prompt: &str) -> Result<EvaluatorCheckli
         ));
     }
 
+    // title 校验（追加在全链末尾、映射之前）：形态先行，再与静态清单第二列正文
+    // 比对——仅首尾 trim（权威正文在解析时已 trim），不折叠内部空白、不做语义等价
+    for (index, (id, _, _, raw)) in passing.iter().enumerate() {
+        let Some(title) = raw
+            .as_str()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+        else {
+            return Err(format!(
+                "字段 items[{index}].title 缺失 / 非字符串 / 空串：期望本 prompt「静态清单」表第二列原文，当前 {raw}"
+            ));
+        };
+        // ID 集合相等已在上游校验，故同 ID 条目必然在案；命中不到即无权威正文可比
+        let Some(entry) = entries.iter().find(|entry| entry.id == *id) else {
+            continue;
+        };
+        if title != entry.item {
+            return Err(format!(
+                "字段 items[{index}].title 与静态清单第二列不一致（ID {id}）：期望「{}」，当前「{title}」",
+                entry.item
+            ));
+        }
+    }
+
     let checklist: Vec<ChecklistItem> = passing
         .into_iter()
-        .map(|(id, pass, evidence)| ChecklistItem {
+        .map(|(id, pass, evidence, _title)| ChecklistItem {
             item: entries
                 .iter()
                 .find(|entry| entry.id == id)

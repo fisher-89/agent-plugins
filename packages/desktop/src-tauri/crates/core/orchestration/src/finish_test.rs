@@ -58,13 +58,23 @@ fn synthetic_prompt() -> String {
         .to_owned()
 }
 
-/// 合法 evaluator 参数（覆盖合成清单全 ID）。
+/// 合法 evaluator 参数（覆盖合成清单全 ID；`title` 与第二列原文逐字一致）。
 fn valid_checklist_args() -> serde_json::Value {
     serde_json::json!({
         "report": "评估报告正文",
         "items": [
-            { "id": "C1", "pass": true, "evidence": "src/a.rs:10" },
-            { "id": "C2", "pass": false, "evidence": "缺测试" }
+            {
+                "id": "C1",
+                "title": "变更代码中无安全漏洞",
+                "pass": true,
+                "evidence": "src/a.rs:10"
+            },
+            {
+                "id": "C2",
+                "title": "变更代码有对应测试",
+                "pass": false,
+                "evidence": "缺测试"
+            }
         ]
     })
 }
@@ -128,6 +138,12 @@ fn description两形态_各含关键语义且互不相等且不膨胀() {
         evaluator.contains(&MAX_REPORT_CHARS.to_string()),
         "evaluator 形态含 report 上限 2000: {evaluator}"
     );
+    for field in ["title", "pass", "evidence"] {
+        assert!(
+            evaluator.contains(field),
+            "evaluator 形态逐项字段名 {field} 在场（只列字段名）: {evaluator}"
+        );
+    }
 
     assert!(!decision.is_empty(), "decision 形态描述非空");
     for action in ["backtrack", "stop"] {
@@ -259,8 +275,8 @@ fn parameters的evaluator臂结构六断言() {
     assert_eq!(properties["items"]["minItems"], 1, "items 至少一项");
     assert_eq!(
         properties["items"]["items"]["required"],
-        serde_json::json!(["id", "pass", "evidence"]),
-        "逐项三字段必填"
+        serde_json::json!(["id", "title", "pass", "evidence"]),
+        "逐项四字段必填"
     );
     assert_eq!(
         properties["items"]["items"]["properties"]["pass"]["type"], "boolean",
@@ -277,6 +293,57 @@ fn parameters的evaluator臂结构六断言() {
     );
 }
 
+/// `title` 段（正向）：`type == "string"`，`description` 是「取静态清单第二列
+/// 原文、逐字照抄」的唯一落位（字段指针可断言）。
+#[test]
+fn parameters的evaluator臂title段_类型与取值纪律单点() {
+    let schema = parameters(FinishSpec::EvaluatorChecklist, &synthetic_prompt());
+    let title = &schema["properties"]["items"]["items"]["properties"]["title"];
+
+    assert_eq!(title["type"], "string", "title 为字符串字段");
+    let description = title["description"].as_str().expect("description 为字符串");
+    assert!(!description.is_empty(), "description 非空");
+    for pointer in ["静态清单", "第二列"] {
+        assert!(
+            description.contains(pointer),
+            "description 含字段指针 {pointer}: {description}"
+        );
+    }
+    assert!(
+        description.contains("逐字"),
+        "description 承载「逐字照抄」取值纪律（单点落位）: {description}"
+    );
+}
+
+/// `required` 顺序（正向）：`title` 紧接 `id` 之后、`evidence` 收尾；四项平级
+/// 必填（MUST NOT 可选）。
+#[test]
+fn parameters的evaluator臂required四值且title紧接id() {
+    let schema = parameters(FinishSpec::EvaluatorChecklist, &synthetic_prompt());
+    let item_schema = &schema["properties"]["items"]["items"];
+    let required: Vec<&str> = item_schema["required"]
+        .as_array()
+        .expect("required 为数组")
+        .iter()
+        .map(|value| value.as_str().expect("元素为字符串"))
+        .collect();
+
+    assert_eq!(
+        required,
+        vec!["id", "title", "pass", "evidence"],
+        "逐项四字段必填且有序"
+    );
+    let properties = item_schema["properties"]
+        .as_object()
+        .expect("properties 对象");
+    for field in required {
+        assert!(
+            properties.contains_key(field),
+            "必填字段 {field} 在 properties 声明（平级必填，非可选）"
+        );
+    }
+}
+
 #[test]
 fn parameters的evaluator臂退化面_空id集省略enum键() {
     for prompt in [
@@ -291,6 +358,18 @@ fn parameters的evaluator臂退化面_空id集省略enum键() {
         );
         assert_eq!(id_schema["type"], "string", "其余结构仍在");
         assert_eq!(schema["required"], serde_json::json!(["report", "items"]));
+
+        // 退化面不吞掉新字段：title 段与四值 required 照常在位
+        let item_schema = &schema["properties"]["items"]["items"];
+        assert_eq!(
+            item_schema["properties"]["title"]["type"], "string",
+            "空 ID 集下 title 段仍在场"
+        );
+        assert_eq!(
+            item_schema["required"],
+            serde_json::json!(["id", "title", "pass", "evidence"]),
+            "空 ID 集下四值 required 仍在场"
+        );
     }
 }
 
@@ -332,6 +411,58 @@ fn parameters的decision臂两动作形状且prompt零影响() {
     assert_eq!(first, second, "decision 臂与 prompt 无关");
 }
 
+/// `description(EvaluatorChecklist)` 只列字段名（异常）：取值纪律措辞（逐字 /
+/// 照抄 / 第二列）单点在 `title.description`，描述面零命中。
+#[test]
+fn description的evaluator臂零取值纪律措辞() {
+    let evaluator = description(FinishSpec::EvaluatorChecklist);
+    for absent in ["逐字", "照抄", "第二列"] {
+        assert!(
+            !evaluator.contains(absent),
+            "evaluator 描述零取值纪律措辞 {absent}（单点在 title.description）: {evaluator}"
+        );
+    }
+}
+
+/// 「逐字」单点判据（异常，源码自证）：`finish.rs` 代码行内「逐字」计数恰 == 1，
+/// 且该唯一次落在 `title` 的 `description` 字符串字面量内。
+#[test]
+fn finish_rs逐字单点判据_计数恰一且落在title字段说明内() {
+    let code = code_lines(&source_of("src/finish.rs"));
+    assert_eq!(
+        code.matches("逐字").count(),
+        1,
+        "finish.rs 代码行内「逐字」恰一处（AC-6 单点判据）"
+    );
+
+    let lines: Vec<&str> = code.lines().collect();
+    let index = lines
+        .iter()
+        .position(|line| line.contains("逐字"))
+        .expect("唯一处所在行");
+    let line = lines[index];
+    assert!(
+        line.contains("\"description\""),
+        "唯一处是 description 字符串字面量: {line}"
+    );
+    let owner = lines[..index]
+        .iter()
+        .rposition(|line| line.contains("\"title\""))
+        .expect("title 属性键在其上方");
+    for other in [
+        "\"id\"",
+        "\"pass\"",
+        "\"evidence\"",
+        "\"report\"",
+        "\"items\"",
+    ] {
+        assert!(
+            lines[owner..index].iter().all(|line| !line.contains(other)),
+            "title 键与「逐字」行之间无其他字段键 {other}（落位在 title.description 内）"
+        );
+    }
+}
+
 /// 删面零残留（异常，AC-4）：decision 形态的 `properties` 键集**恰**
 /// `{action, to, reason}`（`question` / `options` 零命中）。
 #[test]
@@ -365,7 +496,7 @@ fn parameters的decision臂键集恰三项_question与options零命中() {
 fn parameters两形态互不渗透() {
     let decision_text =
         serde_json::to_string(&parameters(FinishSpec::Decision, "")).expect("序列化");
-    for forbidden in ["report", "items", "evidence"] {
+    for forbidden in ["report", "items", "evidence", "title"] {
         assert!(
             !decision_text.contains(forbidden),
             "decision 形态零 evaluator 词汇 {forbidden}"
@@ -492,6 +623,10 @@ fn parameters幂等且键序稳定() {
     let first = parameters(FinishSpec::EvaluatorChecklist, &prompt);
     let second = parameters(FinishSpec::EvaluatorChecklist, &prompt);
     assert_eq!(first, second, "同入参两次调用逐字段相等（零内部状态）");
+    assert_eq!(
+        first["properties"]["items"]["items"]["properties"]["title"]["type"], "string",
+        "title 段在场（幂等面对新字段同样成立）"
+    );
     assert_eq!(
         serde_json::to_string(&first).expect("序列化"),
         serde_json::to_string(&second).expect("序列化"),

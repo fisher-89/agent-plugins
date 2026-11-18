@@ -516,6 +516,10 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         evaluator_prompt(phase_prompt),
         "evaluator prompt 确定性"
     );
+    assert!(
+        evaluator_protocol_text().contains("`title`"),
+        "空主体形态的协议段同样携带新字段枚举（title 在场）"
+    );
     assert_eq!(
         decision_prompt(&input),
         decision_prompt(&input),
@@ -1183,6 +1187,106 @@ fn evaluator_prompt拼接契约三断言() {
 /// 协议段单取（`evaluator_prompt("")` 即纯协议段）。
 fn evaluator_protocol_text() -> String {
     evaluator_prompt("")
+}
+
+/// `prompt.rs` 源码（`CARGO_MANIFEST_DIR` 相对；函数切片自证用）。
+fn prompt_source() -> String {
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/prompt.rs"))
+        .expect("读取 prompt.rs")
+}
+
+// ---------------------------------------------------------------------------
+// `evaluator_protocol`：逐项字段枚举扩为四值（title 只留字段指针）
+// ---------------------------------------------------------------------------
+
+/// 字段枚举四值（正向）：`checklist 逐项需` 所在行同时含 `id` / `title` /
+/// `pass` / `evidence`，且偏移序为 `id` → `title` → `pass` → `evidence`。
+#[test]
+fn evaluator_protocol字段枚举四值且枚举序稳定() {
+    let prompt = evaluator_prompt("主体");
+    let line = prompt
+        .lines()
+        .find(|line| line.contains("checklist 逐项需"))
+        .unwrap_or_else(|| panic!("逐项字段枚举行在场: {prompt}"));
+    let mut offsets = Vec::new();
+    for field in ["`id`", "`title`", "`pass`", "`evidence`"] {
+        let offset = line
+            .find(field)
+            .unwrap_or_else(|| panic!("枚举行含字段 {field}: {line}"));
+        offsets.push(offset);
+    }
+    assert!(
+        offsets.windows(2).all(|pair| pair[0] < pair[1]),
+        "枚举序 id → title → pass → evidence，实际偏移 {offsets:?}: {line}"
+    );
+}
+
+/// `title` 的字段指针（正向）：`title` 邻域写「同表第二列「检查项」」——只给
+/// 来源指针，与 `id` 的「表首列」同形可读（取值纪律不在本处）。
+#[test]
+fn evaluator_protocol_title邻域含第二列与检查项指针() {
+    let prompt = evaluator_prompt("主体");
+    let line = prompt
+        .lines()
+        .find(|line| line.contains("checklist 逐项需"))
+        .expect("逐项字段枚举行在场");
+
+    let title_at = line.find("`title`").expect("枚举行含 title");
+    let pass_at = line.find("`pass`").expect("枚举行含 pass");
+    let pointer = &line[title_at..pass_at];
+    for needle in ["第二列", "检查项"] {
+        assert!(
+            pointer.contains(needle),
+            "title 指向静态清单{needle}（字段指针）: {pointer}"
+        );
+    }
+    // id 的来源说明同形（表首列），两字段指针形态一致
+    let id_at = line.find("`id`").expect("枚举行含 id");
+    assert!(
+        line[id_at..title_at].contains("表首列"),
+        "id 指针为「表首列」（与 title 的「第二列」同形）: {}",
+        &line[id_at..title_at]
+    );
+}
+
+/// 函数体切片自证（异常）：`fn evaluator_protocol` 体「逐字」零命中（取值纪律
+/// 单点在 `title.description`），且零 JSON Schema 词（形状归工具 schema）。
+#[test]
+fn evaluator_protocol函数体逐字零命中且不复述schema() {
+    let own = prompt_source();
+    let start = own.find("fn evaluator_protocol").expect("函数在位");
+    let rest = &own[start..];
+    let end = rest.find("\n}\n").expect("函数体收口");
+    let body = &rest[..end];
+
+    assert!(
+        body.contains("checklist 逐项需"),
+        "切片覆盖字段枚举条（切片边界正确）"
+    );
+    assert_eq!(
+        body.matches("逐字").count(),
+        0,
+        "取值纪律单点在 title.description（函数体零「逐字」）"
+    );
+    for absent in ["minItems", "properties", "required"] {
+        assert!(
+            !body.contains(absent),
+            "函数体零 JSON Schema 词 {absent}（形状归工具 schema）"
+        );
+    }
+}
+
+/// 措辞不重复（异常）：产出文本不带 `title.description` 的取值纪律措辞——两处
+/// 各写一份即单点判据失败。
+#[test]
+fn evaluator_protocol不复述description取值纪律() {
+    let prompt = evaluator_prompt("主体");
+    for absent in ["逐字", "逐字照抄", "改写 / 省字"] {
+        assert!(
+            !prompt.contains(absent),
+            "协议附录零取值纪律措辞 {absent}（单点在 title.description）: {prompt}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -34,8 +34,8 @@ pub fn description(spec: FinishSpec) -> &'static str {
     match spec {
         FinishSpec::EvaluatorChecklist => {
             "本步收尾。按下列清单逐项给出结果；report ≤2000 字符。\
-             items[].id 取自本 prompt 的静态清单（枚举已给出全集），逐项给 pass 与 evidence\
-             （evidence 须为事实依据）。verdict 由清单推导，无需提交；不得调用 phase_log / \
+             items[].id 取自本 prompt 的静态清单（枚举已给出全集），逐项给 title、pass 与 \
+             evidence（evidence 须为事实依据）。verdict 由清单推导，无需提交；不得调用 phase_log / \
              phase_next / phase_start / backtrack（落账由桌面编排代写）"
         }
         FinishSpec::Decision => {
@@ -77,6 +77,10 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
                             "type": "object",
                             "properties": {
                                 "id": id_schema,
+                                "title": {
+                                    "type": "string",
+                                    "description": "检查项标题：取本 prompt「静态清单」表第二列「检查项」原文，逐字照抄（改写 / 省字会被拒绝）",
+                                },
                                 "pass": {
                                     "type": "boolean",
                                     "description": "该项是否通过",
@@ -86,7 +90,7 @@ pub fn parameters(spec: FinishSpec, prompt: &str) -> Value {
                                     "description": "判断依据（事实 / file:line）",
                                 },
                             },
-                            "required": ["id", "pass", "evidence"],
+                            "required": ["id", "title", "pass", "evidence"],
                         },
                     },
                 },

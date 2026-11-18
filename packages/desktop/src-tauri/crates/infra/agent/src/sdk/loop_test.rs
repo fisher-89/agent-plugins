@@ -5431,13 +5431,23 @@ fn finish_prompt() -> String {
         .to_owned()
 }
 
-/// 合法收口参数（覆盖合成清单全 ID）。
+/// 合法收口参数（覆盖合成清单全 ID；`title` 与第二列原文逐字一致）。
 fn finish_args() -> serde_json::Value {
     serde_json::json!({
         "report": "评估报告正文",
         "items": [
-            { "id": "C1", "pass": true, "evidence": "src/a.rs:10" },
-            { "id": "C2", "pass": true, "evidence": "tests/a.rs:3" },
+            {
+                "id": "C1",
+                "title": "变更代码中无安全漏洞",
+                "pass": true,
+                "evidence": "src/a.rs:10"
+            },
+            {
+                "id": "C2",
+                "title": "变更代码有对应测试",
+                "pass": true,
+                "evidence": "tests/a.rs:3"
+            }
         ]
     })
 }
@@ -5921,8 +5931,8 @@ async fn finish_step的err文案三要素可见() {
             args: serde_json::json!({
                 "report": "报".repeat(orchestration::verdict::MAX_REPORT_CHARS + 1),
                 "items": [
-                    { "id": "C1", "pass": true, "evidence": "甲" },
-                    { "id": "C2", "pass": true, "evidence": "乙" },
+                    { "id": "C1", "title": "变更代码中无安全漏洞", "pass": true, "evidence": "甲" },
+                    { "id": "C2", "title": "变更代码有对应测试", "pass": true, "evidence": "乙" },
                 ],
             }),
             must_contain: ["report 超长", "2000", "2001"],

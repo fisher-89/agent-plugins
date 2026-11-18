@@ -1,0 +1,629 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/finish.rs:34:5: replace description -> &'static str with \"\"",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/finish.rs",
+          "function": {
+            "function_name": "description",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 32,
+                "column": 1
+              },
+              "end": {
+                "line": 47,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 34,
+              "column": 5
+            },
+            "end": {
+              "line": 46,
+              "column": 6
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__finish.rs_line_34_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__finish.rs_line_34_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 65.5007736,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.9164707,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/finish.rs:52:5: replace parameters -> Value with Default::default()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/finish.rs",
+          "function": {
+            "function_name": "parameters",
+            "return_type": "-> Value",
+            "span": {
+              "start": {
+                "line": 49,
+                "column": 1
+              },
+              "end": {
+                "line": 120,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 52,
+              "column": 5
+            },
+            "end": {
+              "line": 119,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__finish.rs_line_52_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__finish.rs_line_52_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 68.7410332,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 19.2067081,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/finish.rs:34:5: replace description -> &'static str with \"xyzzy\"",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/finish.rs",
+          "function": {
+            "function_name": "description",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 32,
+                "column": 1
+              },
+              "end": {
+                "line": 47,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 34,
+              "column": 5
+            },
+            "end": {
+              "line": 46,
+              "column": 6
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__finish.rs_line_34_col_5_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__finish.rs_line_34_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 68.593572,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 19.5063101,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/verdict.rs:29:5: replace validate_checklist -> Result<EvaluatorChecklist, String> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/verdict.rs",
+          "function": {
+            "function_name": "validate_checklist",
+            "return_type": "-> Result<EvaluatorChecklist, String>",
+            "span": {
+              "start": {
+                "line": 20,
+                "column": 1
+              },
+              "end": {
+                "line": 166,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 29,
+              "column": 5
+            },
+            "end": {
+              "line": 165,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__verdict.rs_line_29_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__verdict.rs_line_29_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.5912896,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/prompt.rs:47:5: replace evaluator_protocol -> String with String::new()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/prompt.rs",
+          "function": {
+            "function_name": "evaluator_protocol",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 43,
+                "column": 1
+              },
+              "end": {
+                "line": 54,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 47,
+              "column": 5
+            },
+            "end": {
+              "line": 53,
+              "column": 6
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__prompt.rs_line_47_col_5.log",
+      "diff_path": "diff/crates__core__orchestration__src__prompt.rs_line_47_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 68.93996,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 29.6905398,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/prompt.rs:47:5: replace evaluator_protocol -> String with \"xyzzy\".into()",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/prompt.rs",
+          "function": {
+            "function_name": "evaluator_protocol",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 43,
+                "column": 1
+              },
+              "end": {
+                "line": 54,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 47,
+              "column": 5
+            },
+            "end": {
+              "line": 53,
+              "column": 6
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__prompt.rs_line_47_col_5_001.log",
+      "diff_path": "diff/crates__core__orchestration__src__prompt.rs_line_47_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.2554336,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 22.4180644,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/verdict.rs:130:29: delete ! in validate_checklist",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/verdict.rs",
+          "function": {
+            "function_name": "validate_checklist",
+            "return_type": "-> Result<EvaluatorChecklist, String>",
+            "span": {
+              "start": {
+                "line": 20,
+                "column": 1
+              },
+              "end": {
+                "line": 166,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 130,
+              "column": 29
+            },
+            "end": {
+              "line": 130,
+              "column": 30
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__verdict.rs_line_130_col_29.log",
+      "diff_path": "diff/crates__core__orchestration__src__verdict.rs_line_130_col_29.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.0379274,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 8.8460082,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/verdict.rs:140:18: replace != with == in validate_checklist",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/verdict.rs",
+          "function": {
+            "function_name": "validate_checklist",
+            "return_type": "-> Result<EvaluatorChecklist, String>",
+            "span": {
+              "start": {
+                "line": 20,
+                "column": 1
+              },
+              "end": {
+                "line": 166,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 140,
+              "column": 18
+            },
+            "end": {
+              "line": 140,
+              "column": 20
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__verdict.rs_line_140_col_18.log",
+      "diff_path": "diff/crates__core__orchestration__src__verdict.rs_line_140_col_18.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.0730597,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 8.8924089,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/verdict.rs:137:64: replace == with != in validate_checklist",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/verdict.rs",
+          "function": {
+            "function_name": "validate_checklist",
+            "return_type": "-> Result<EvaluatorChecklist, String>",
+            "span": {
+              "start": {
+                "line": 20,
+                "column": 1
+              },
+              "end": {
+                "line": 166,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 137,
+              "column": 64
+            },
+            "end": {
+              "line": 137,
+              "column": 66
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__orchestration__src__verdict.rs_line_137_col_64.log",
+      "diff_path": "diff/crates__core__orchestration__src__verdict.rs_line_137_col_64.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.2560514,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 8.4863617,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=orchestration@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 9,
+  "missed": 0,
+  "caught": 8,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-11-18T12:25:19.8609559Z",
+  "end_time": "2026-11-18T12:27:22.0724239Z",
+  "cargo_mutants_version": "27.1.0"
+}
