@@ -22,6 +22,13 @@ pub(crate) async fn execute(root: &Path, input: &Value) -> Result<String, String
     if command.trim().is_empty() {
         return Err("command 不得为空".to_owned());
     }
+    let intent = input
+        .get("intent")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "入参缺失或非字符串字段: intent".to_owned())?;
+    if intent.trim().is_empty() {
+        return Err("intent 不得为空".to_owned());
+    }
     let timeout = Duration::from_millis(resolve_timeout_ms(input)?);
     let shell = exec::resolve_shell();
     let mut child = build_command(&shell, &command)

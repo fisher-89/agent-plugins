@@ -1,0 +1,817 @@
+diff --git a/crates/infra/agent/src/sdk/bash.rs b/crates/infra/agent/src/sdk/bash.rs
+index d6f4f7148a2f..fbd615374881 100644
+--- a/crates/infra/agent/src/sdk/bash.rs
++++ b/crates/infra/agent/src/sdk/bash.rs
+@@ -22,6 +22,13 @@ pub(crate) async fn execute(root: &Path, input: &Value) -> Result<String, String
+     if command.trim().is_empty() {
+         return Err("command 不得为空".to_owned());
+     }
++    let intent = input
++        .get("intent")
++        .and_then(Value::as_str)
++        .ok_or_else(|| "入参缺失或非字符串字段: intent".to_owned())?;
++    if intent.trim().is_empty() {
++        return Err("intent 不得为空".to_owned());
++    }
+     let timeout = Duration::from_millis(resolve_timeout_ms(input)?);
+     let shell = exec::resolve_shell();
+     let mut child = build_command(&shell, &command)
+diff --git a/crates/infra/agent/src/sdk/bash_test.rs b/crates/infra/agent/src/sdk/bash_test.rs
+index 18bb0fe02f7b..d59f6fca72e7 100644
+--- a/crates/infra/agent/src/sdk/bash_test.rs
++++ b/crates/infra/agent/src/sdk/bash_test.rs
+@@ -26,9 +26,12 @@ fn tempdir(tag: &str) -> tempfile::TempDir {
+ async fn 命令执行stdout回灌ok且输出段在前() {
+     let dir = tempdir("stdout-ok");
+ 
+-    let output = execute(dir.path(), &json!({ "command": "echo sdk-bash-ok" }))
+-        .await
+-        .expect("echo 短命令应成功");
++    let output = execute(
++        dir.path(),
++        &json!({ "command": "echo sdk-bash-ok", "intent": "校验输出回灌" }),
++    )
++    .await
++    .expect("echo 短命令应成功");
+ 
+     assert!(output.contains("sdk-bash-ok"), "stdout 段回灌: {output}");
+ }
+@@ -39,9 +42,12 @@ async fn 同命令追加stderr输出时stderr段带标记在stdout段之后拼
+     // 双底座兼容语法：`1>&2` 在 git-bash（POSIX）与 cmd 均成立
+     let command = "echo out-marker && echo err-marker 1>&2";
+ 
+-    let output = execute(dir.path(), &json!({ "command": command }))
+-        .await
+-        .expect("双流命令应成功");
++    let output = execute(
++        dir.path(),
++        &json!({ "command": command, "intent": "校验双流合并口径" }),
++    )
++    .await
++    .expect("双流命令应成功");
+ 
+     let stdout_at = output
+         .find("out-marker")
+@@ -67,9 +73,12 @@ async fn 进程cwd承接workspace_root_相对路径写文件落在root下() {
+     let dir = tempdir("cwd");
+     let command = "echo cwd-marker > rel-from-bash.txt";
+ 
+-    execute(dir.path(), &json!({ "command": command }))
+-        .await
+-        .expect("写文件命令应成功");
++    execute(
++        dir.path(),
++        &json!({ "command": command, "intent": "校验 cwd 承接" }),
++    )
++    .await
++    .expect("写文件命令应成功");
+ 
+     let written = dir.path().join("rel-from-bash.txt");
+     assert!(written.exists(), "相对路径产物落在 root 下（cwd 语义锁定）");
+@@ -87,9 +96,12 @@ async fn 非零退出码err携退出码与已产出输出() {
+     // 双底座兼容：`exit 3` 在 bash 直接退出、在 cmd 以 errorlevel 3 终结
+     let command = "echo failed-output && exit 3";
+ 
+-    let error = execute(dir.path(), &json!({ "command": command }))
+-        .await
+-        .expect_err("非零退出码必须 Err");
++    let error = execute(
++        dir.path(),
++        &json!({ "command": command, "intent": "校验非零退出码收口" }),
++    )
++    .await
++    .expect_err("非零退出码必须 Err");
+ 
+     assert!(error.contains("3"), "Err 携退出码: {error}");
+     assert!(
+@@ -104,7 +116,10 @@ async fn 未知命令名经shell非零退出err_不panic不悬挂() {
+ 
+     let result = execute(
+         dir.path(),
+-        &json!({ "command": "definitely-not-a-command-xyz-12345" }),
++        &json!({
++            "command": "definitely-not-a-command-xyz-12345",
++            "intent": "校验未知命令不悬挂"
++        }),
+     )
+     .await;
+ 
+@@ -122,11 +137,221 @@ async fn command缺失或空串显式err() {
+         missing.contains("command"),
+         "记因指明 command 必填: {missing}"
+     );
++    assert!(
++        !missing.contains("intent"),
++        "校验序：`command` 先报，文案不得飘到 intent: {missing}"
++    );
+ 
+     let blank = execute(dir.path(), &json!({ "command": "   " }))
+         .await
+         .expect_err("空串 command 必须 Err");
+     assert!(blank.contains("command"), "空串同口径显式 Err: {blank}");
++    assert!(
++        !blank.contains("intent"),
++        "校验序：空白 command 先报（intent 缺席也不改结论）: {blank}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// execute：意图闸（缺失 / 非字符串 / trim 后空一律硬拒；长度只软约束）
++// ---------------------------------------------------------------------------
++
++#[tokio::test]
++async fn 合规意图下命令正常执行且输出口径不变() {
++    let dir = tempdir("intent-ok");
++
++    let output = execute(
++        dir.path(),
++        &json!({ "command": "echo sdk-intent-ok", "intent": "跑一条回声命令" }),
++    )
++    .await
++    .expect("合规意图不应拦截执行");
++
++    assert!(output.contains("sdk-intent-ok"), "执行照常: {output}");
++}
++
++#[tokio::test]
++async fn 长度软约束_两百字意图零err且照常执行() {
++    let dir = tempdir("intent-200");
++    let long = "复核构建产物与依赖解析链的完整性，确认打包前后模块入口一致且无多余副作用隐患再继续推进下一步验证工作".repeat(4);
++    assert!(long.chars().count() >= 200, "语料长度需覆盖两百字档");
++
++    let output = execute(
++        dir.path(),
++        &json!({ "command": "echo sdk-intent-200", "intent": long }),
++    )
++    .await
++    .expect("长度只软提示：两百字意图零 Err");
++
++    assert!(output.contains("sdk-intent-200"), "执行照常: {output}");
++}
++
++#[tokio::test]
++async fn 超长意图千二字符无长度分支仍ok() {
++    let dir = tempdir("intent-1200");
++    let huge = "长".repeat(1_200);
++
++    let output = execute(
++        dir.path(),
++        &json!({ "command": "echo sdk-intent-1200", "intent": huge }),
++    )
++    .await
++    .expect("超过一千字符也无长度分支（长度不可升为约束）");
++
++    assert!(output.contains("sdk-intent-1200"), "执行照常: {output}");
++}
++
++#[tokio::test]
++async fn 意图首尾空白trim后非空即放行() {
++    let dir = tempdir("intent-trim");
++
++    let output = execute(
++        dir.path(),
++        &json!({ "command": "echo sdk-intent-trim", "intent": "  跑单测  " }),
++    )
++    .await
++    .expect("只判 trim 后是否为空，首尾空白不影响放行");
++
++    assert!(output.contains("sdk-intent-trim"), "执行照常: {output}");
++}
++
++#[tokio::test]
++async fn 意图含换行制表emoji与井号时内容不参与判定() {
++    let dir = tempdir("intent-special");
++
++    let output = execute(
++        dir.path(),
++        &json!({ "command": "echo sdk-intent-special", "intent": "跑\n单测 🚀\t#1" }),
++    )
++    .await
++    .expect("特殊字符只作内容，不参与判定");
++
++    assert!(output.contains("sdk-intent-special"), "执行照常: {output}");
++}
++
++#[tokio::test]
++async fn 单字符意图即可通过闸() {
++    let dir = tempdir("intent-one");
++
++    let output = execute(
++        dir.path(),
++        &json!({ "command": "echo sdk-intent-one", "intent": "读" }),
++    )
++    .await
++    .expect("非空白即通过（不设最小长度）");
++
++    assert!(output.contains("sdk-intent-one"), "执行照常: {output}");
++}
++
++#[tokio::test]
++async fn 意图缺失显式err且记因指明intent() {
++    let dir = tempdir("intent-missing");
++
++    let error = execute(dir.path(), &json!({ "command": "echo should-not-run" }))
++        .await
++        .expect_err("缺 intent 必须 Err");
++
++    assert!(error.contains("intent"), "记因指明 intent 字段: {error}");
++    assert!(
++        error.contains("入参缺失或非字符串字段"),
++        "缺失口径与 command 闸逐字同构: {error}"
++    );
++}
++
++#[tokio::test]
++async fn 意图非字符串六形态一致err且记因指明intent() {
++    let dir = tempdir("intent-non-string");
++
++    for bad in [
++        json!(1),
++        json!(1.5),
++        json!({}),
++        json!([]),
++        json!(null),
++        json!(true),
++    ] {
++        let error = execute(
++            dir.path(),
++            &json!({ "command": "echo should-not-run", "intent": bad }),
++        )
++        .await
++        .expect_err("intent 非字符串必须 Err");
++        assert!(
++            error.contains("intent"),
++            "记因指明 intent 字段: {bad} -> {error}"
++        );
++        assert!(
++            error.contains("入参缺失或非字符串字段"),
++            "非字符串与缺失共用一条文案: {bad} -> {error}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn 意图为空白串时err携不得为空() {
++    let dir = tempdir("intent-blank");
++
++    for blank in [json!(""), json!("   "), json!("\t\n")] {
++        let error = execute(
++            dir.path(),
++            &json!({ "command": "echo should-not-run", "intent": blank }),
++        )
++        .await
++        .expect_err("trim 后为空必须 Err");
++        assert!(
++            error.contains("intent"),
++            "记因指明 intent 字段: {blank} -> {error}"
++        );
++        assert!(
++            error.contains("不得为空"),
++            "空值口径与 command 闸逐字同构: {blank} -> {error}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn 意图闸先于超时闸_缺意图先报intent越界时后报timeout_ms() {
++    let dir = tempdir("intent-before-timeout");
++
++    let missing_intent = execute(dir.path(), &json!({ "command": "echo x", "timeout_ms": 0 }))
++        .await
++        .expect_err("缺 intent 与越界超时并存时必须先报 intent");
++    assert!(
++        missing_intent.contains("intent"),
++        "位点在 resolve_timeout_ms 之前: {missing_intent}"
++    );
++    assert!(
++        !missing_intent.contains("timeout_ms"),
++        "缺意图时不落超时记因（既有超时文案零漂移）: {missing_intent}"
++    );
++
++    let bad_timeout = execute(
++        dir.path(),
++        &json!({ "command": "echo x", "intent": "说个理由", "timeout_ms": 0 }),
++    )
++    .await
++    .expect_err("意图合规后越界超时仍必须 Err");
++    assert!(
++        bad_timeout.contains("timeout_ms"),
++        "意图闸放行后交给超时闸: {bad_timeout}"
++    );
++}
++
++#[tokio::test]
++async fn 意图闸先于spawn_缺意图不留产物副作用() {
++    let dir = tempdir("intent-before-spawn");
++    // 命令留产物——若被执行则文件在场；意图闸必须先于 spawn（纯前置校验）。
++    let command = "echo x > leak-from-intent.txt";
++
++    let error = execute(dir.path(), &json!({ "command": command }))
++        .await
++        .expect_err("缺 intent 必须 Err");
++
++    assert!(error.contains("intent"), "记因指明 intent: {error}");
++    assert!(
++        !dir.path().join("leak-from-intent.txt").exists(),
++        "意图闸先于 spawn：缺 intent 的调用不得执行命令"
++    );
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -147,7 +372,7 @@ async fn 超时收口返回err携超时记因且进程树清理路径被触达()
+ 
+     let error = execute(
+         dir.path(),
+-        &json!({ "command": command, "timeout_ms": 1_000 }),
++        &json!({ "command": command, "intent": "校验超时护栏", "timeout_ms": 1_000 }),
+     )
+     .await
+     .expect_err("长驻命令必须在超时护栏处收口");
+@@ -273,7 +498,11 @@ async fn timeout_ms越界时命令不执行() {
+     for bad in [json!(0), json!(MAX_TIMEOUT_MS + 1), json!("1000")] {
+         let error = execute(
+             dir.path(),
+-            &json!({ "command": command, "timeout_ms": bad }),
++            &json!({
++                "command": command,
++                "intent": "校验超时入参越界拒绝",
++                "timeout_ms": bad
++            }),
+         )
+         .await
+         .expect_err("timeout_ms 非法必须 Err");
+@@ -302,7 +531,11 @@ async fn path剔除git_bash条目后经cmd底座兜底成功() {
+     let original = std::env::var_os("PATH");
+     std::env::set_var("PATH", "");
+ 
+-    let result = execute(dir.path(), &json!({ "command": "echo cmd-fallback-ok" })).await;
++    let result = execute(
++        dir.path(),
++        &json!({ "command": "echo cmd-fallback-ok", "intent": "校验 cmd 底座兜底" }),
++    )
++    .await;
+ 
+     match original {
+         Some(value) => std::env::set_var("PATH", value),
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index f97567cd5991..d29b4a6c2615 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -2738,7 +2738,7 @@ async fn explore轮六工具下发面内调用逐一正常执行() {
+         Case {
+             tool: "bash",
+             setup: |_root: &Path| {},
+-            input: serde_json::json!({ "command": "echo loop-six-ok" }),
++            input: serde_json::json!({ "command": "echo loop-six-ok", "intent": "验证直驱路径" }),
+         },
+     ];
+ 
+@@ -2774,6 +2774,118 @@ async fn explore轮六工具下发面内调用逐一正常执行() {
+     }
+ }
+ 
++// ---------------------------------------------------------------------------
++// 意图闸在会话链路中的可观测面（失败面不被静默吞掉 + 转录自足）
++// ---------------------------------------------------------------------------
++
++/// 缺 `intent` 的 bash 调用经守卫链进执行臂后必须落 `is_error` 的 `ToolResult`
++/// 且正文携记因——断言不止「结果条数 == 1」，硬闸不得被静默吞掉。
++#[tokio::test]
++async fn 会话链路缺intent的bash结果is_error且正文携记因() {
++    let dir = tempdir("loop-intent-gate");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_no_intent",
++            "bash",
++            serde_json::json!({ "command": "echo loop-no-intent" }),
++        )],
++        vec![raw_text("继续")],
++    ]);
++    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    assert!(
++        notices_of(&events).is_empty(),
++        "意图闸在守卫链之后：零拒绝记因，失败只体现为 ToolResult"
++    );
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1, "恰一次结果回灌（硬闸不得被静默吞掉）");
++    assert_eq!(results[0].0, "tu_no_intent");
++    assert!(results[0].2, "缺 intent 的结果必须 is_error");
++    assert!(
++        results[0].1.contains("intent"),
++        "记因指明 intent 字段: {}",
++        results[0].1
++    );
++}
++
++/// 转录自足（重放同形的数据依据）：`intent` 只经 `ToolUse.input` 进转录、原样
++/// 保留键值；旧转录（input 无该键）块形状不变、结果照常收口（零回填）。
++#[tokio::test]
++async fn 转录自足_intent原样进tooluse块且旧形态形状不变() {
++    /// 取首轮密封 assistant 消息内指定 id 的 ToolUse 入参。
++    fn tool_use_input<'a>(events: &'a [AgentEventKind], id: &str) -> &'a serde_json::Value {
++        let sealed = sealed_messages(events);
++        let AgentEventKind::Message { blocks, .. } = sealed[0] else {
++            panic!("首条密封应为 Message");
++        };
++        blocks
++            .iter()
++            .find_map(|block| match block {
++                agent::AgentBlock::ToolUse {
++                    id: block_id,
++                    input,
++                    ..
++                } if block_id == id => Some(input),
++                _ => None,
++            })
++            .unwrap_or_else(|| panic!("{id} 的 ToolUse 块应在首轮密封内: {blocks:?}"))
++    }
++
++    // ① 新形态：`intent` 随 input 原样进转录（`serde_json::Value` 不丢字段）
++    let dir = tempdir("loop-intent-transcript");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_intent",
++            "bash",
++            serde_json::json!({ "command": "echo transcript-ok", "intent": "核对转录自足" }),
++        )],
++        vec![raw_text("继续")],
++    ]);
++    let events = drive_loop_turn(
++        &model,
++        loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
++    )
++    .await;
++    let input = tool_use_input(&events, "tu_intent");
++    assert_eq!(
++        input["command"],
++        serde_json::json!("echo transcript-ok"),
++        "command 原样"
++    );
++    assert_eq!(
++        input["intent"],
++        serde_json::json!("核对转录自足"),
++        "intent 原样进转录（重放路拿到同一份 input）"
++    );
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1, "合规意图恰一条结果");
++    assert!(!results[0].2, "合规意图执行成功");
++
++    // ② 旧形态（input 无 `intent`）：块形状不变，结果照常收口
++    let dir = tempdir("loop-intent-legacy");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_legacy",
++            "bash",
++            serde_json::json!({ "command": "echo legacy" }),
++        )],
++        vec![raw_text("继续")],
++    ]);
++    let events = drive_loop_turn(
++        &model,
++        loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
++    )
++    .await;
++    let input = tool_use_input(&events, "tu_legacy");
++    assert!(
++        input.get("intent").is_none(),
++        "旧转录块形状不变（零回填、零新列）: {input:?}"
++    );
++    assert_eq!(tool_results_of(&events).len(), 1, "旧形态仍恰一条结果收口");
++}
++
+ // ---------------------------------------------------------------------------
+ // 写入保护闸（守卫链第四段：沙箱之后、执行之前）
+ //
+@@ -2940,7 +3052,7 @@ async fn 写入保护闸_bash三路写法各自命中() {
+             vec![raw_tool_call(
+                 "tu_bash",
+                 "bash",
+-                serde_json::json!({ "command": command }),
++                serde_json::json!({ "command": command, "intent": "试着写入受保护配置文件" }),
+             )],
+             vec![raw_text("已停止")],
+         ]);
+@@ -2993,7 +3105,7 @@ async fn 写入保护闸_bash树落点命中即拒而源码子树照常执行()
+         vec![raw_tool_call(
+             "tu_find_src",
+             "bash",
+-            serde_json::json!({ "command": "find src -delete" }),
++            serde_json::json!({ "command": "find src -delete", "intent": "清理源码子树" }),
+         )],
+         vec![raw_text("继续")],
+     ]);
+@@ -3031,7 +3143,7 @@ async fn 写入保护闸_未命中照常执行且文件真实生成() {
+         vec![raw_tool_call(
+             "tu_bash",
+             "bash",
+-            serde_json::json!({ "command": "echo foo > notes.txt" }),
++            serde_json::json!({ "command": "echo foo > notes.txt", "intent": "写一条笔记" }),
+         )],
+         vec![raw_text("完成")],
+     ]);
+@@ -5649,7 +5761,7 @@ async fn finish_step同批结果进恰一条user消息() {
+                 raw_tool_call(
+                     "tu_bash",
+                     "bash",
+-                    serde_json::json!({ "command": "echo 甲" }),
++                    serde_json::json!({ "command": "echo 甲", "intent": "回声甲" }),
+                 ),
+             ],
+             vec!["tu_finish", "tu_read", "tu_bash"],
+diff --git a/crates/infra/agent/src/sdk/mount.rs b/crates/infra/agent/src/sdk/mount.rs
+index 09cced9e7969..5d4557acbc1a 100644
+--- a/crates/infra/agent/src/sdk/mount.rs
++++ b/crates/infra/agent/src/sdk/mount.rs
+@@ -474,15 +474,16 @@ fn generic_definition(name: &str) -> ToolDefinition {
+             name: "bash".to_owned(),
+             description: "执行 shell 命令并返回合并输出（stdout 段在前、stderr 段带 [stderr] \
+                           标记在后）；cwd 为 workspace root，非零退出码报错并携带输出。超时为活性\
+-                          护栏，超时即终止进程树"
++                          护栏，超时即终止进程树；每次调用必须给 intent（缺失或空白即拒绝执行）"
+                 .to_owned(),
+             parameters: serde_json::json!({
+                 "type": "object",
+                 "properties": {
+                     "command": { "type": "string", "description": "待执行的命令行（git-bash / sh unix 语法优先，探测失败退 cmd）" },
++                    "intent": { "type": "string", "description": "一句话说明这条命令要干什么——折叠状态下用户只读这一行（与 Bash 同排展示，超长自动省略）。建议不超过 30 字，写目的而非复述命令文本" },
+                     "timeout_ms": { "type": "integer", "description": "超时毫秒（缺省 120000；须在 1000-1800000 内，越界报错不执行，超时终止进程树）" }
+                 },
+-                "required": ["command"]
++                "required": ["command", "intent"]
+             }),
+         },
+         other => unreachable!("generic_definition 仅承接 TOOL_NAMES 封闭集: {other}"),
+diff --git a/crates/infra/agent/src/sdk/mount_test.rs b/crates/infra/agent/src/sdk/mount_test.rs
+index a304d47318ff..0a1ec5dc4812 100644
+--- a/crates/infra/agent/src/sdk/mount_test.rs
++++ b/crates/infra/agent/src/sdk/mount_test.rs
+@@ -203,6 +203,121 @@ fn registry惰性单点_两次调用同一指针且内容相等() {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// bash 定义面：`intent` 进必填 + 工具级追加强制句（长度不升为约束）
++// ---------------------------------------------------------------------------
++
++/// `intent` 字段描述必须承载的四个取值要素（分工单点：只在这一处出现）。
++const INTENT_DESCRIPTION_PIECES: [&str; 4] = ["一句话", "折叠状态", "30 字", "复述命令"];
++
++#[test]
++fn bash定义required逐值为command与intent且timeout_ms仍可选() {
++    let definition = lookup("bash").expect("bash 定义在案");
++    let required = definition.parameters["required"]
++        .as_array()
++        .expect("required 数组");
++    let values: Vec<&str> = required
++        .iter()
++        .map(|value| value.as_str().expect("字符串"))
++        .collect();
++
++    assert_eq!(
++        values,
++        vec!["command", "intent"],
++        "逐值有序：command 先、intent 后"
++    );
++    assert_eq!(required.len(), 2, "恰两值（不多不少）");
++    assert!(
++        !values.contains(&"timeout_ms"),
++        "timeout_ms 仍可选（不入 required）: {values:?}"
++    );
++}
++
++#[test]
++fn bash定义intent属性为字符串且长度类约束键缺席() {
++    let definition = lookup("bash").expect("bash 定义在案");
++    let intent = definition.parameters["properties"]["intent"]
++        .as_object()
++        .unwrap_or_else(|| panic!("intent 属性对象在场: {}", definition.parameters));
++
++    assert_eq!(
++        intent.get("type"),
++        Some(&serde_json::json!("string")),
++        "intent 为字符串"
++    );
++    let mut keys: Vec<&str> = intent.keys().map(String::as_str).collect();
++    keys.sort();
++    assert_eq!(
++        keys,
++        vec!["description", "type"],
++        "键集恰为 type + description"
++    );
++    for banned in ["maxLength", "minLength", "pattern", "enum"] {
++        assert!(
++            intent.get(banned).is_none(),
++            "intent 不得带 {banned}（长度只软提示，不升为协议约束）"
++        );
++    }
++}
++
++#[test]
++fn bash定义intent描述四要素齐全() {
++    let definition = lookup("bash").expect("bash 定义在案");
++    let description = definition.parameters["properties"]["intent"]["description"]
++        .as_str()
++        .expect("intent 描述为字符串");
++
++    for piece in INTENT_DESCRIPTION_PIECES {
++        assert!(
++            description.contains(piece),
++            "字段描述缺要素 `{piece}`: {description}"
++        );
++    }
++}
++
++#[test]
++fn bash工具级描述前缀逐字不动且末尾追加强制句() {
++    let definition = lookup("bash").expect("bash 定义在案");
++
++    assert!(
++        definition
++            .description
++            .starts_with("执行 shell 命令并返回合并输出"),
++        "既有三段描述前缀零改（追加句只能落末尾）: {}",
++        definition.description
++    );
++    assert!(
++        definition
++            .description
++            .ends_with("；每次调用必须给 intent（缺失或空白即拒绝执行）"),
++        "末尾追加强制与后果句: {}",
++        definition.description
++    );
++    for piece in ["30 字", "复述命令"] {
++        assert!(
++            !definition.description.contains(piece),
++            "工具级只讲强制与后果，取值纪律 `{piece}` 只在字段描述出现: {}",
++            definition.description
++        );
++    }
++}
++
++#[test]
++fn bash定义属性键集恰为command与intent与timeout_ms() {
++    let definition = lookup("bash").expect("bash 定义在案");
++    let properties = definition.parameters["properties"]
++        .as_object()
++        .expect("properties 对象");
++
++    let mut keys: Vec<&str> = properties.keys().map(String::as_str).collect();
++    keys.sort();
++    assert_eq!(
++        keys,
++        vec!["command", "intent", "timeout_ms"],
++        "无缺失、无多余属性"
++    );
++}
++
+ // ---------------------------------------------------------------------------
+ // 正向：definitions 名字查表
+ // ---------------------------------------------------------------------------
+diff --git a/crates/infra/agent/src/sdk/tools_test.rs b/crates/infra/agent/src/sdk/tools_test.rs
+index f2c6e7a3d4ea..46d25e33039f 100644
+--- a/crates/infra/agent/src/sdk/tools_test.rs
++++ b/crates/infra/agent/src/sdk/tools_test.rs
+@@ -118,6 +118,34 @@ fn 定义清单恰为七工具且名称_描述_schema齐全() {
+         bash.parameters["properties"]["command"]["type"] == json!("string"),
+         "bash 的 command 为字符串"
+     );
++    // 意图闸的必填面：`intent` 在场、为字符串、入 required；长度键一律缺席
++    assert!(
++        bash.parameters["properties"]["intent"].is_object(),
++        "bash 声明 intent 属性: {}",
++        bash.parameters["properties"]
++    );
++    assert_eq!(
++        bash.parameters["properties"]["intent"]["type"],
++        json!("string"),
++        "intent 为字符串"
++    );
++    assert!(
++        bash_required.iter().any(|value| value == "intent"),
++        "bash 的 intent 必填: {bash_required:?}"
++    );
++    assert_eq!(
++        bash_required.len(),
++        2,
++        "required 恰两值（command + intent）: {bash_required:?}"
++    );
++    for banned in ["maxLength", "minLength", "pattern", "enum"] {
++        assert!(
++            bash.parameters["properties"]["intent"]
++                .get(banned)
++                .is_none(),
++            "intent 不得带 {banned}（长度不可升为协议约束）"
++        );
++    }
+ 
+     // read schema：offset / limit 在场且描述承载截断语义
+     let read = defs
+@@ -970,9 +998,13 @@ async fn execute_l1字节上限err路截断留痕() {
+     // 全部输出）；powershell 经 git-bash / cmd 两底座均在册可达
+     let command = "powershell -NoProfile -Command \"Write-Output ('x' * 60000); exit 3\"";
+ 
+-    let error = execute(&root, "bash", &json!({ "command": command }))
+-        .await
+-        .expect_err("非零退出必须 Err（内容超限走同款收口）");
++    let error = execute(
++        &root,
++        "bash",
++        &json!({ "command": command, "intent": "校验 L1 截断收口" }),
++    )
++    .await
++    .expect_err("非零退出必须 Err（内容超限走同款收口）");
+ 
+     assert!(
+         error.contains("已截断：单结果超 50000 字节上限"),
+@@ -995,9 +1027,13 @@ async fn bash臂分发接入_缺command报必填而非未知工具() {
+     let dir = tempdir("bash-dispatch");
+     let root = root_of(&dir);
+ 
+-    let output = execute(&root, "bash", &json!({ "command": "echo bash-arm-ok" }))
+-        .await
+-        .expect("bash 臂真实执行成功");
++    let output = execute(
++        &root,
++        "bash",
++        &json!({ "command": "echo bash-arm-ok", "intent": "验证分发链路" }),
++    )
++    .await
++    .expect("bash 臂真实执行成功");
+     assert!(output.contains("bash-arm-ok"), "{output}");
+ 
+     let missing = execute(&root, "bash", &json!({}))
+@@ -1013,6 +1049,24 @@ async fn bash臂分发接入_缺command报必填而非未知工具() {
+     );
+ }
+ 
++#[tokio::test]
++async fn bash臂分发接入_缺intent报必填而非未知工具() {
++    let dir = tempdir("bash-dispatch-intent");
++    let root = root_of(&dir);
++
++    let missing = execute(&root, "bash", &json!({ "command": "echo x" }))
++        .await
++        .expect_err("缺 intent 必须 Err（意图闸经分发层透传生效）");
++    assert!(
++        missing.contains("intent"),
++        "记因指明 intent 必填: {missing}"
++    );
++    assert!(
++        !missing.contains("未知工具"),
++        "分发层零字段感知：缺意图仍落 bash 臂的入参闸: {missing}"
++    );
++}
++
+ // ---------------------------------------------------------------------------
+ // 未知工具（执行体分发兜底）
+ // ---------------------------------------------------------------------------
+@@ -1278,7 +1332,11 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
+             &["path", "old_string", "new_string"],
+             "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）",
+         ),
+-        ("bash", &["command"], "执行 shell 命令并返回合并输出"),
++        (
++            "bash",
++            &["command", "intent"],
++            "执行 shell 命令并返回合并输出",
++        ),
+     ];
+     assert_eq!(expected.len(), TOOL_NAMES.len(), "快照面与封闭清单同宽");
+     for (name, required, description_head) in expected {
+@@ -1314,6 +1372,33 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
+     assert!(by_name("read").parameters["properties"]["limit"].is_object());
+ }
+ 
++/// 非期望形态判据（表驱动三组反形态）：`intent` 一旦带上长度类约束键，或
++/// `required` 含 `timeout_ms` / 长度偏离两值，即等于把长度升为协议约束。
++#[test]
++fn bash定义不出现长度约束类非期望形态() {
++    let defs = defs(&SessionInjections::default(), "");
++    let bash = defs
++        .iter()
++        .find(|def| def.name == "bash")
++        .expect("bash 定义应在场");
++    let intent = &bash.parameters["properties"]["intent"];
++    let required = bash.parameters["required"]
++        .as_array()
++        .expect("required 数组");
++
++    let unexpected = [
++        ("intent 带 maxLength", intent.get("maxLength").is_some()),
++        ("intent 带 minLength", intent.get("minLength").is_some()),
++        (
++            "required 含 timeout_ms 或长度偏离 2",
++            required.iter().any(|value| value == "timeout_ms") || required.len() != 2,
++        ),
++    ];
++    for (label, hit) in unexpected {
++        assert!(!hit, "非期望形态命中：{label}");
++    }
++}
++
+ // ---------------------------------------------------------------------------
+ // 架构只读工具面（archi 章节）：两布尔位子集表达 + schema + 沙箱面 + L1 收口
+ // ---------------------------------------------------------------------------

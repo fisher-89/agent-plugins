@@ -118,6 +118,34 @@ fn 定义清单恰为七工具且名称_描述_schema齐全() {
         bash.parameters["properties"]["command"]["type"] == json!("string"),
         "bash 的 command 为字符串"
     );
+    // 意图闸的必填面：`intent` 在场、为字符串、入 required；长度键一律缺席
+    assert!(
+        bash.parameters["properties"]["intent"].is_object(),
+        "bash 声明 intent 属性: {}",
+        bash.parameters["properties"]
+    );
+    assert_eq!(
+        bash.parameters["properties"]["intent"]["type"],
+        json!("string"),
+        "intent 为字符串"
+    );
+    assert!(
+        bash_required.iter().any(|value| value == "intent"),
+        "bash 的 intent 必填: {bash_required:?}"
+    );
+    assert_eq!(
+        bash_required.len(),
+        2,
+        "required 恰两值（command + intent）: {bash_required:?}"
+    );
+    for banned in ["maxLength", "minLength", "pattern", "enum"] {
+        assert!(
+            bash.parameters["properties"]["intent"]
+                .get(banned)
+                .is_none(),
+            "intent 不得带 {banned}（长度不可升为协议约束）"
+        );
+    }
 
     // read schema：offset / limit 在场且描述承载截断语义
     let read = defs
@@ -970,9 +998,13 @@ async fn execute_l1字节上限err路截断留痕() {
     // 全部输出）；powershell 经 git-bash / cmd 两底座均在册可达
     let command = "powershell -NoProfile -Command \"Write-Output ('x' * 60000); exit 3\"";
 
-    let error = execute(&root, "bash", &json!({ "command": command }))
-        .await
-        .expect_err("非零退出必须 Err（内容超限走同款收口）");
+    let error = execute(
+        &root,
+        "bash",
+        &json!({ "command": command, "intent": "校验 L1 截断收口" }),
+    )
+    .await
+    .expect_err("非零退出必须 Err（内容超限走同款收口）");
 
     assert!(
         error.contains("已截断：单结果超 50000 字节上限"),
@@ -995,9 +1027,13 @@ async fn bash臂分发接入_缺command报必填而非未知工具() {
     let dir = tempdir("bash-dispatch");
     let root = root_of(&dir);
 
-    let output = execute(&root, "bash", &json!({ "command": "echo bash-arm-ok" }))
-        .await
-        .expect("bash 臂真实执行成功");
+    let output = execute(
+        &root,
+        "bash",
+        &json!({ "command": "echo bash-arm-ok", "intent": "验证分发链路" }),
+    )
+    .await
+    .expect("bash 臂真实执行成功");
     assert!(output.contains("bash-arm-ok"), "{output}");
 
     let missing = execute(&root, "bash", &json!({}))
@@ -1010,6 +1046,24 @@ async fn bash臂分发接入_缺command报必填而非未知工具() {
     assert!(
         !missing.contains("未知工具"),
         "bash 已入册：缺参错误非「未知工具」拒绝"
+    );
+}
+
+#[tokio::test]
+async fn bash臂分发接入_缺intent报必填而非未知工具() {
+    let dir = tempdir("bash-dispatch-intent");
+    let root = root_of(&dir);
+
+    let missing = execute(&root, "bash", &json!({ "command": "echo x" }))
+        .await
+        .expect_err("缺 intent 必须 Err（意图闸经分发层透传生效）");
+    assert!(
+        missing.contains("intent"),
+        "记因指明 intent 必填: {missing}"
+    );
+    assert!(
+        !missing.contains("未知工具"),
+        "分发层零字段感知：缺意图仍落 bash 臂的入参闸: {missing}"
     );
 }
 
@@ -1278,7 +1332,11 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
             &["path", "old_string", "new_string"],
             "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）",
         ),
-        ("bash", &["command"], "执行 shell 命令并返回合并输出"),
+        (
+            "bash",
+            &["command", "intent"],
+            "执行 shell 命令并返回合并输出",
+        ),
     ];
     assert_eq!(expected.len(), TOOL_NAMES.len(), "快照面与封闭清单同宽");
     for (name, required, description_head) in expected {
@@ -1312,6 +1370,33 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
         .is_none());
     assert!(by_name("read").parameters["properties"]["offset"].is_object());
     assert!(by_name("read").parameters["properties"]["limit"].is_object());
+}
+
+/// 非期望形态判据（表驱动三组反形态）：`intent` 一旦带上长度类约束键，或
+/// `required` 含 `timeout_ms` / 长度偏离两值，即等于把长度升为协议约束。
+#[test]
+fn bash定义不出现长度约束类非期望形态() {
+    let defs = defs(&SessionInjections::default(), "");
+    let bash = defs
+        .iter()
+        .find(|def| def.name == "bash")
+        .expect("bash 定义应在场");
+    let intent = &bash.parameters["properties"]["intent"];
+    let required = bash.parameters["required"]
+        .as_array()
+        .expect("required 数组");
+
+    let unexpected = [
+        ("intent 带 maxLength", intent.get("maxLength").is_some()),
+        ("intent 带 minLength", intent.get("minLength").is_some()),
+        (
+            "required 含 timeout_ms 或长度偏离 2",
+            required.iter().any(|value| value == "timeout_ms") || required.len() != 2,
+        ),
+    ];
+    for (label, hit) in unexpected {
+        assert!(!hit, "非期望形态命中：{label}");
+    }
 }
 
 // ---------------------------------------------------------------------------

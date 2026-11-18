@@ -474,15 +474,16 @@ fn generic_definition(name: &str) -> ToolDefinition {
             name: "bash".to_owned(),
             description: "执行 shell 命令并返回合并输出（stdout 段在前、stderr 段带 [stderr] \
                           标记在后）；cwd 为 workspace root，非零退出码报错并携带输出。超时为活性\
-                          护栏，超时即终止进程树"
+                          护栏，超时即终止进程树；每次调用必须给 intent（缺失或空白即拒绝执行）"
                 .to_owned(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "待执行的命令行（git-bash / sh unix 语法优先，探测失败退 cmd）" },
+                    "intent": { "type": "string", "description": "一句话说明这条命令要干什么——折叠状态下用户只读这一行（与 Bash 同排展示，超长自动省略）。建议不超过 30 字，写目的而非复述命令文本" },
                     "timeout_ms": { "type": "integer", "description": "超时毫秒（缺省 120000；须在 1000-1800000 内，越界报错不执行，超时终止进程树）" }
                 },
-                "required": ["command"]
+                "required": ["command", "intent"]
             }),
         },
         other => unreachable!("generic_definition 仅承接 TOOL_NAMES 封闭集: {other}"),

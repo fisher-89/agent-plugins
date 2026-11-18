@@ -204,6 +204,121 @@ fn registry惰性单点_两次调用同一指针且内容相等() {
 }
 
 // ---------------------------------------------------------------------------
+// bash 定义面：`intent` 进必填 + 工具级追加强制句（长度不升为约束）
+// ---------------------------------------------------------------------------
+
+/// `intent` 字段描述必须承载的四个取值要素（分工单点：只在这一处出现）。
+const INTENT_DESCRIPTION_PIECES: [&str; 4] = ["一句话", "折叠状态", "30 字", "复述命令"];
+
+#[test]
+fn bash定义required逐值为command与intent且timeout_ms仍可选() {
+    let definition = lookup("bash").expect("bash 定义在案");
+    let required = definition.parameters["required"]
+        .as_array()
+        .expect("required 数组");
+    let values: Vec<&str> = required
+        .iter()
+        .map(|value| value.as_str().expect("字符串"))
+        .collect();
+
+    assert_eq!(
+        values,
+        vec!["command", "intent"],
+        "逐值有序：command 先、intent 后"
+    );
+    assert_eq!(required.len(), 2, "恰两值（不多不少）");
+    assert!(
+        !values.contains(&"timeout_ms"),
+        "timeout_ms 仍可选（不入 required）: {values:?}"
+    );
+}
+
+#[test]
+fn bash定义intent属性为字符串且长度类约束键缺席() {
+    let definition = lookup("bash").expect("bash 定义在案");
+    let intent = definition.parameters["properties"]["intent"]
+        .as_object()
+        .unwrap_or_else(|| panic!("intent 属性对象在场: {}", definition.parameters));
+
+    assert_eq!(
+        intent.get("type"),
+        Some(&serde_json::json!("string")),
+        "intent 为字符串"
+    );
+    let mut keys: Vec<&str> = intent.keys().map(String::as_str).collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["description", "type"],
+        "键集恰为 type + description"
+    );
+    for banned in ["maxLength", "minLength", "pattern", "enum"] {
+        assert!(
+            intent.get(banned).is_none(),
+            "intent 不得带 {banned}（长度只软提示，不升为协议约束）"
+        );
+    }
+}
+
+#[test]
+fn bash定义intent描述四要素齐全() {
+    let definition = lookup("bash").expect("bash 定义在案");
+    let description = definition.parameters["properties"]["intent"]["description"]
+        .as_str()
+        .expect("intent 描述为字符串");
+
+    for piece in INTENT_DESCRIPTION_PIECES {
+        assert!(
+            description.contains(piece),
+            "字段描述缺要素 `{piece}`: {description}"
+        );
+    }
+}
+
+#[test]
+fn bash工具级描述前缀逐字不动且末尾追加强制句() {
+    let definition = lookup("bash").expect("bash 定义在案");
+
+    assert!(
+        definition
+            .description
+            .starts_with("执行 shell 命令并返回合并输出"),
+        "既有三段描述前缀零改（追加句只能落末尾）: {}",
+        definition.description
+    );
+    assert!(
+        definition
+            .description
+            .ends_with("；每次调用必须给 intent（缺失或空白即拒绝执行）"),
+        "末尾追加强制与后果句: {}",
+        definition.description
+    );
+    for piece in ["30 字", "复述命令"] {
+        assert!(
+            !definition.description.contains(piece),
+            "工具级只讲强制与后果，取值纪律 `{piece}` 只在字段描述出现: {}",
+            definition.description
+        );
+    }
+}
+
+#[test]
+fn bash定义属性键集恰为command与intent与timeout_ms() {
+    let definition = lookup("bash").expect("bash 定义在案");
+    let properties = definition.parameters["properties"]
+        .as_object()
+        .expect("properties 对象");
+
+    let mut keys: Vec<&str> = properties.keys().map(String::as_str).collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["command", "intent", "timeout_ms"],
+        "无缺失、无多余属性"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 正向：definitions 名字查表
 // ---------------------------------------------------------------------------
 

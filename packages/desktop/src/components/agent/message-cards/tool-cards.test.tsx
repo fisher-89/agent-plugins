@@ -528,6 +528,110 @@ describe('BashCard：命令栏与异常载荷（既有分支）', () => {
   });
 });
 
+describe('BashCard：折叠态标题（intent 呈现）', () => {
+  /** 折叠态标题文本（未展开即可读，唯一文本承载）。 */
+  function titleText(): string {
+    return cardRoot().querySelector('[data-slot="trace-title"]')?.textContent ?? '';
+  }
+
+  it('intent 在场 → 折叠态标题逐字为 `Bash · <intent>`，命令原文不上提', () => {
+    renderToolCard('bash', {
+      input: { command: 'pnpm -C packages/desktop exec vp test run', intent: '跑单测' },
+    });
+
+    expect(titleText()).toBe('Bash · 跑单测');
+    expect(trigger().textContent).not.toContain('pnpm -C packages/desktop exec vp test run');
+  });
+
+  it.each([
+    [{ command: 'ls -la' }],
+    [{ command: 'ls -la', intent: '' }],
+    [{ command: 'ls -la', intent: '   ' }],
+  ])('intent 缺席 / 空串 / 纯空白 → 标题逐字回落 `Bash`（%j）', (input) => {
+    renderToolCard('bash', { input });
+
+    expect(titleText()).toBe('Bash');
+    expect(titleText()).not.toContain('·');
+    expect(titleText()).not.toContain('undefined');
+    expect(titleText()).not.toContain('null');
+  });
+
+  it('intent 非字符串（数字 / 对象 / 数组 / null / 布尔）→ 标题逐字回落 `Bash`', () => {
+    const nonStrings: unknown[] = [1, {}, [], null, true];
+    for (const intent of nonStrings) {
+      const { unmount } = renderToolCard('bash', { input: { command: 'ls -la', intent } });
+      expect(titleText()).toBe('Bash');
+      expect(cardRoot().textContent).not.toContain('undefined');
+      expect(cardRoot().textContent).not.toContain('null');
+      unmount();
+    }
+  });
+
+  it('intent 首尾空白只 trim 首尾 → 标题为 `Bash · 跑单测`', () => {
+    renderToolCard('bash', { input: { command: 'ls -la', intent: '  跑单测  ' } });
+
+    expect(titleText()).toBe('Bash · 跑单测');
+  });
+
+  it('intent 内部换行不折叠不合并 → 文本节点保留原换行', () => {
+    renderToolCard('bash', { input: { command: 'ls -la', intent: '跑\n单测' } });
+
+    expect(titleText()).toBe('Bash · 跑\n单测');
+  });
+
+  it('超长 intent（1200 字符）→ 原文完整进文本节点（JS 零截断，省略交 CSS）', () => {
+    const long = '长'.repeat(1200);
+    renderToolCard('bash', { input: { command: 'ls -la', intent: long } });
+
+    expect(titleText()).toBe(`Bash · ${long}`);
+  });
+
+  it('特殊字符 intent（emoji / 制表符 / 井号）→ 原文逐字进文本节点', () => {
+    renderToolCard('bash', { input: { command: 'ls -la', intent: '跑单测 🚀\t#1' } });
+
+    expect(titleText()).toBe('Bash · 跑单测 🚀\t#1');
+  });
+
+  it('单条省略链：trace-title 唯一文本承载、零 trace-description、零 title 属性', () => {
+    renderToolCard('bash', { input: { command: 'ls -la', intent: '跑单测' } });
+
+    const titles = cardRoot().querySelectorAll('[data-slot="trace-title"]');
+    expect(titles).toHaveLength(1);
+    expect(titles[0]?.childNodes).toHaveLength(1);
+    expect(titles[0]?.childNodes[0]?.nodeType).toBe(Node.TEXT_NODE);
+    expect(cardRoot().querySelectorAll('[data-slot="trace-description"]')).toHaveLength(0);
+    expect(titles[0]?.getAttribute('title')).toBeNull();
+  });
+
+  it('展开态命令栏仍为 command 原文（标题不夺命令位）', () => {
+    renderToolCard('bash', {
+      input: { command: 'pnpm -C packages/desktop exec vp test run', intent: '跑单测' },
+    });
+
+    expandCard();
+    const headers = cardRoot().querySelectorAll('[data-slot="code-block-header"]');
+    expect(headers).toHaveLength(1);
+    expect(headers[0]?.textContent).toBe('pnpm -C packages/desktop exec vp test run');
+  });
+
+  it('重放同形：实时路（output 为 null）与重放路（output 在场）标题逐字相同', () => {
+    const input = { command: 'pnpm -C packages/desktop exec vp test run', intent: '跑单测' };
+
+    const live = renderToolCard('bash', { input });
+    const liveTitle = titleText();
+    live.unmount();
+
+    renderToolCard('bash', {
+      state: 'output-available',
+      input,
+      output: { content: '通过', isError: false },
+    });
+
+    expect(titleText()).toBe(liveTitle);
+    expect(liveTitle).toBe('Bash · 跑单测');
+  });
+});
+
 describe('ReadCard：标题与行区间（既有分支 / rangeSuffix）', () => {
   it.each([
     [{ path: 'src/a.ts', offset: 10, limit: 5 }, 'Read src/a.ts:10-15'],

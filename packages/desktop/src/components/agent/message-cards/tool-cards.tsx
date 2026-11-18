@@ -281,14 +281,16 @@ function cardAttrs(toolCallId: string): {
   return { 'data-testid': 'block-tool-use', 'data-tool-id': toolCallId };
 }
 
-/** Bash 特化卡：命令作标题栏，输出折叠在下方（命令形态缺席时标题栏留空） */
+/** Bash 特化卡：命令作展开态标题栏、`intent` 作折叠态标题；输出折叠在下方（`intent` 缺席时折叠态仅工具名） */
 function BashCard({
   toolCallId,
   input,
   output,
   turnRunning,
 }: AgentToolCardProps): React.JSX.Element {
-  const command = textOf(asRecord(input).command);
+  const record = asRecord(input);
+  const command = textOf(record.command);
+  const intent = textOf(record.intent)?.trim() ?? '';
   return (
     <TraceCollapsible {...cardAttrs(toolCallId)}>
       <TraceCollapsibleTrigger>
@@ -306,7 +308,7 @@ function BashCard({
           <TraceIcon>
             {unpairedRunning(output, turnRunning) ? <Spinner /> : <TerminalIcon />}
           </TraceIcon>
-          <TraceTitle>Bash</TraceTitle>
+          <TraceTitle>{intent === '' ? 'Bash' : `Bash · ${intent}`}</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>

@@ -26,9 +26,12 @@ fn tempdir(tag: &str) -> tempfile::TempDir {
 async fn 命令执行stdout回灌ok且输出段在前() {
     let dir = tempdir("stdout-ok");
 
-    let output = execute(dir.path(), &json!({ "command": "echo sdk-bash-ok" }))
-        .await
-        .expect("echo 短命令应成功");
+    let output = execute(
+        dir.path(),
+        &json!({ "command": "echo sdk-bash-ok", "intent": "校验输出回灌" }),
+    )
+    .await
+    .expect("echo 短命令应成功");
 
     assert!(output.contains("sdk-bash-ok"), "stdout 段回灌: {output}");
 }
@@ -39,9 +42,12 @@ async fn 同命令追加stderr输出时stderr段带标记在stdout段之后拼�
     // 双底座兼容语法：`1>&2` 在 git-bash（POSIX）与 cmd 均成立
     let command = "echo out-marker && echo err-marker 1>&2";
 
-    let output = execute(dir.path(), &json!({ "command": command }))
-        .await
-        .expect("双流命令应成功");
+    let output = execute(
+        dir.path(),
+        &json!({ "command": command, "intent": "校验双流合并口径" }),
+    )
+    .await
+    .expect("双流命令应成功");
 
     let stdout_at = output
         .find("out-marker")
@@ -67,9 +73,12 @@ async fn 进程cwd承接workspace_root_相对路径写文件落在root下() {
     let dir = tempdir("cwd");
     let command = "echo cwd-marker > rel-from-bash.txt";
 
-    execute(dir.path(), &json!({ "command": command }))
-        .await
-        .expect("写文件命令应成功");
+    execute(
+        dir.path(),
+        &json!({ "command": command, "intent": "校验 cwd 承接" }),
+    )
+    .await
+    .expect("写文件命令应成功");
 
     let written = dir.path().join("rel-from-bash.txt");
     assert!(written.exists(), "相对路径产物落在 root 下（cwd 语义锁定）");
@@ -87,9 +96,12 @@ async fn 非零退出码err携退出码与已产出输出() {
     // 双底座兼容：`exit 3` 在 bash 直接退出、在 cmd 以 errorlevel 3 终结
     let command = "echo failed-output && exit 3";
 
-    let error = execute(dir.path(), &json!({ "command": command }))
-        .await
-        .expect_err("非零退出码必须 Err");
+    let error = execute(
+        dir.path(),
+        &json!({ "command": command, "intent": "校验非零退出码收口" }),
+    )
+    .await
+    .expect_err("非零退出码必须 Err");
 
     assert!(error.contains("3"), "Err 携退出码: {error}");
     assert!(
@@ -104,7 +116,10 @@ async fn 未知命令名经shell非零退出err_不panic不悬挂() {
 
     let result = execute(
         dir.path(),
-        &json!({ "command": "definitely-not-a-command-xyz-12345" }),
+        &json!({
+            "command": "definitely-not-a-command-xyz-12345",
+            "intent": "校验未知命令不悬挂"
+        }),
     )
     .await;
 
@@ -122,11 +137,221 @@ async fn command缺失或空串显式err() {
         missing.contains("command"),
         "记因指明 command 必填: {missing}"
     );
+    assert!(
+        !missing.contains("intent"),
+        "校验序：`command` 先报，文案不得飘到 intent: {missing}"
+    );
 
     let blank = execute(dir.path(), &json!({ "command": "   " }))
         .await
         .expect_err("空串 command 必须 Err");
     assert!(blank.contains("command"), "空串同口径显式 Err: {blank}");
+    assert!(
+        !blank.contains("intent"),
+        "校验序：空白 command 先报（intent 缺席也不改结论）: {blank}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// execute：意图闸（缺失 / 非字符串 / trim 后空一律硬拒；长度只软约束）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn 合规意图下命令正常执行且输出口径不变() {
+    let dir = tempdir("intent-ok");
+
+    let output = execute(
+        dir.path(),
+        &json!({ "command": "echo sdk-intent-ok", "intent": "跑一条回声命令" }),
+    )
+    .await
+    .expect("合规意图不应拦截执行");
+
+    assert!(output.contains("sdk-intent-ok"), "执行照常: {output}");
+}
+
+#[tokio::test]
+async fn 长度软约束_两百字意图零err且照常执行() {
+    let dir = tempdir("intent-200");
+    let long = "复核构建产物与依赖解析链的完整性，确认打包前后模块入口一致且无多余副作用隐患再继续推进下一步验证工作".repeat(4);
+    assert!(long.chars().count() >= 200, "语料长度需覆盖两百字档");
+
+    let output = execute(
+        dir.path(),
+        &json!({ "command": "echo sdk-intent-200", "intent": long }),
+    )
+    .await
+    .expect("长度只软提示：两百字意图零 Err");
+
+    assert!(output.contains("sdk-intent-200"), "执行照常: {output}");
+}
+
+#[tokio::test]
+async fn 超长意图千二字符无长度分支仍ok() {
+    let dir = tempdir("intent-1200");
+    let huge = "长".repeat(1_200);
+
+    let output = execute(
+        dir.path(),
+        &json!({ "command": "echo sdk-intent-1200", "intent": huge }),
+    )
+    .await
+    .expect("超过一千字符也无长度分支（长度不可升为约束）");
+
+    assert!(output.contains("sdk-intent-1200"), "执行照常: {output}");
+}
+
+#[tokio::test]
+async fn 意图首尾空白trim后非空即放行() {
+    let dir = tempdir("intent-trim");
+
+    let output = execute(
+        dir.path(),
+        &json!({ "command": "echo sdk-intent-trim", "intent": "  跑单测  " }),
+    )
+    .await
+    .expect("只判 trim 后是否为空，首尾空白不影响放行");
+
+    assert!(output.contains("sdk-intent-trim"), "执行照常: {output}");
+}
+
+#[tokio::test]
+async fn 意图含换行制表emoji与井号时内容不参与判定() {
+    let dir = tempdir("intent-special");
+
+    let output = execute(
+        dir.path(),
+        &json!({ "command": "echo sdk-intent-special", "intent": "跑\n单测 🚀\t#1" }),
+    )
+    .await
+    .expect("特殊字符只作内容，不参与判定");
+
+    assert!(output.contains("sdk-intent-special"), "执行照常: {output}");
+}
+
+#[tokio::test]
+async fn 单字符意图即可通过闸() {
+    let dir = tempdir("intent-one");
+
+    let output = execute(
+        dir.path(),
+        &json!({ "command": "echo sdk-intent-one", "intent": "读" }),
+    )
+    .await
+    .expect("非空白即通过（不设最小长度）");
+
+    assert!(output.contains("sdk-intent-one"), "执行照常: {output}");
+}
+
+#[tokio::test]
+async fn 意图缺失显式err且记因指明intent() {
+    let dir = tempdir("intent-missing");
+
+    let error = execute(dir.path(), &json!({ "command": "echo should-not-run" }))
+        .await
+        .expect_err("缺 intent 必须 Err");
+
+    assert!(error.contains("intent"), "记因指明 intent 字段: {error}");
+    assert!(
+        error.contains("入参缺失或非字符串字段"),
+        "缺失口径与 command 闸逐字同构: {error}"
+    );
+}
+
+#[tokio::test]
+async fn 意图非字符串六形态一致err且记因指明intent() {
+    let dir = tempdir("intent-non-string");
+
+    for bad in [
+        json!(1),
+        json!(1.5),
+        json!({}),
+        json!([]),
+        json!(null),
+        json!(true),
+    ] {
+        let error = execute(
+            dir.path(),
+            &json!({ "command": "echo should-not-run", "intent": bad }),
+        )
+        .await
+        .expect_err("intent 非字符串必须 Err");
+        assert!(
+            error.contains("intent"),
+            "记因指明 intent 字段: {bad} -> {error}"
+        );
+        assert!(
+            error.contains("入参缺失或非字符串字段"),
+            "非字符串与缺失共用一条文案: {bad} -> {error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn 意图为空白串时err携不得为空() {
+    let dir = tempdir("intent-blank");
+
+    for blank in [json!(""), json!("   "), json!("\t\n")] {
+        let error = execute(
+            dir.path(),
+            &json!({ "command": "echo should-not-run", "intent": blank }),
+        )
+        .await
+        .expect_err("trim 后为空必须 Err");
+        assert!(
+            error.contains("intent"),
+            "记因指明 intent 字段: {blank} -> {error}"
+        );
+        assert!(
+            error.contains("不得为空"),
+            "空值口径与 command 闸逐字同构: {blank} -> {error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn 意图闸先于超时闸_缺意图先报intent越界时后报timeout_ms() {
+    let dir = tempdir("intent-before-timeout");
+
+    let missing_intent = execute(dir.path(), &json!({ "command": "echo x", "timeout_ms": 0 }))
+        .await
+        .expect_err("缺 intent 与越界超时并存时必须先报 intent");
+    assert!(
+        missing_intent.contains("intent"),
+        "位点在 resolve_timeout_ms 之前: {missing_intent}"
+    );
+    assert!(
+        !missing_intent.contains("timeout_ms"),
+        "缺意图时不落超时记因（既有超时文案零漂移）: {missing_intent}"
+    );
+
+    let bad_timeout = execute(
+        dir.path(),
+        &json!({ "command": "echo x", "intent": "说个理由", "timeout_ms": 0 }),
+    )
+    .await
+    .expect_err("意图合规后越界超时仍必须 Err");
+    assert!(
+        bad_timeout.contains("timeout_ms"),
+        "意图闸放行后交给超时闸: {bad_timeout}"
+    );
+}
+
+#[tokio::test]
+async fn 意图闸先于spawn_缺意图不留产物副作用() {
+    let dir = tempdir("intent-before-spawn");
+    // 命令留产物——若被执行则文件在场；意图闸必须先于 spawn（纯前置校验）。
+    let command = "echo x > leak-from-intent.txt";
+
+    let error = execute(dir.path(), &json!({ "command": command }))
+        .await
+        .expect_err("缺 intent 必须 Err");
+
+    assert!(error.contains("intent"), "记因指明 intent: {error}");
+    assert!(
+        !dir.path().join("leak-from-intent.txt").exists(),
+        "意图闸先于 spawn：缺 intent 的调用不得执行命令"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +372,7 @@ async fn 超时收口返回err携超时记因且进程树清理路径被触达()
 
     let error = execute(
         dir.path(),
-        &json!({ "command": command, "timeout_ms": 1_000 }),
+        &json!({ "command": command, "intent": "校验超时护栏", "timeout_ms": 1_000 }),
     )
     .await
     .expect_err("长驻命令必须在超时护栏处收口");
@@ -273,7 +498,11 @@ async fn timeout_ms越界时命令不执行() {
     for bad in [json!(0), json!(MAX_TIMEOUT_MS + 1), json!("1000")] {
         let error = execute(
             dir.path(),
-            &json!({ "command": command, "timeout_ms": bad }),
+            &json!({
+                "command": command,
+                "intent": "校验超时入参越界拒绝",
+                "timeout_ms": bad
+            }),
         )
         .await
         .expect_err("timeout_ms 非法必须 Err");
@@ -302,7 +531,11 @@ async fn path剔除git_bash条目后经cmd底座兜底成功() {
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", "");
 
-    let result = execute(dir.path(), &json!({ "command": "echo cmd-fallback-ok" })).await;
+    let result = execute(
+        dir.path(),
+        &json!({ "command": "echo cmd-fallback-ok", "intent": "校验 cmd 底座兜底" }),
+    )
+    .await;
 
     match original {
         Some(value) => std::env::set_var("PATH", value),

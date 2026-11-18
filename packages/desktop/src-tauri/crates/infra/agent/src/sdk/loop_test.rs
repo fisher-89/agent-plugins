@@ -2738,7 +2738,7 @@ async fn explore轮六工具下发面内调用逐一正常执行() {
         Case {
             tool: "bash",
             setup: |_root: &Path| {},
-            input: serde_json::json!({ "command": "echo loop-six-ok" }),
+            input: serde_json::json!({ "command": "echo loop-six-ok", "intent": "验证直驱路径" }),
         },
     ];
 
@@ -2772,6 +2772,118 @@ async fn explore轮六工具下发面内调用逐一正常执行() {
         };
         assert!(!*is_error, "{} 轮正常收敛", case.tool);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 意图闸在会话链路中的可观测面（失败面不被静默吞掉 + 转录自足）
+// ---------------------------------------------------------------------------
+
+/// 缺 `intent` 的 bash 调用经守卫链进执行臂后必须落 `is_error` 的 `ToolResult`
+/// 且正文携记因——断言不止「结果条数 == 1」，硬闸不得被静默吞掉。
+#[tokio::test]
+async fn 会话链路缺intent的bash结果is_error且正文携记因() {
+    let dir = tempdir("loop-intent-gate");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_no_intent",
+            "bash",
+            serde_json::json!({ "command": "echo loop-no-intent" }),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    assert!(
+        notices_of(&events).is_empty(),
+        "意图闸在守卫链之后：零拒绝记因，失败只体现为 ToolResult"
+    );
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1, "恰一次结果回灌（硬闸不得被静默吞掉）");
+    assert_eq!(results[0].0, "tu_no_intent");
+    assert!(results[0].2, "缺 intent 的结果必须 is_error");
+    assert!(
+        results[0].1.contains("intent"),
+        "记因指明 intent 字段: {}",
+        results[0].1
+    );
+}
+
+/// 转录自足（重放同形的数据依据）：`intent` 只经 `ToolUse.input` 进转录、原样
+/// 保留键值；旧转录（input 无该键）块形状不变、结果照常收口（零回填）。
+#[tokio::test]
+async fn 转录自足_intent原样进tooluse块且旧形态形状不变() {
+    /// 取首轮密封 assistant 消息内指定 id 的 ToolUse 入参。
+    fn tool_use_input<'a>(events: &'a [AgentEventKind], id: &str) -> &'a serde_json::Value {
+        let sealed = sealed_messages(events);
+        let AgentEventKind::Message { blocks, .. } = sealed[0] else {
+            panic!("首条密封应为 Message");
+        };
+        blocks
+            .iter()
+            .find_map(|block| match block {
+                agent::AgentBlock::ToolUse {
+                    id: block_id,
+                    input,
+                    ..
+                } if block_id == id => Some(input),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{id} 的 ToolUse 块应在首轮密封内: {blocks:?}"))
+    }
+
+    // ① 新形态：`intent` 随 input 原样进转录（`serde_json::Value` 不丢字段）
+    let dir = tempdir("loop-intent-transcript");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_intent",
+            "bash",
+            serde_json::json!({ "command": "echo transcript-ok", "intent": "核对转录自足" }),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let events = drive_loop_turn(
+        &model,
+        loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+    )
+    .await;
+    let input = tool_use_input(&events, "tu_intent");
+    assert_eq!(
+        input["command"],
+        serde_json::json!("echo transcript-ok"),
+        "command 原样"
+    );
+    assert_eq!(
+        input["intent"],
+        serde_json::json!("核对转录自足"),
+        "intent 原样进转录（重放路拿到同一份 input）"
+    );
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1, "合规意图恰一条结果");
+    assert!(!results[0].2, "合规意图执行成功");
+
+    // ② 旧形态（input 无 `intent`）：块形状不变，结果照常收口
+    let dir = tempdir("loop-intent-legacy");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_legacy",
+            "bash",
+            serde_json::json!({ "command": "echo legacy" }),
+        )],
+        vec![raw_text("继续")],
+    ]);
+    let events = drive_loop_turn(
+        &model,
+        loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+    )
+    .await;
+    let input = tool_use_input(&events, "tu_legacy");
+    assert!(
+        input.get("intent").is_none(),
+        "旧转录块形状不变（零回填、零新列）: {input:?}"
+    );
+    assert_eq!(tool_results_of(&events).len(), 1, "旧形态仍恰一条结果收口");
 }
 
 // ---------------------------------------------------------------------------
@@ -2940,7 +3052,7 @@ async fn 写入保护闸_bash三路写法各自命中() {
             vec![raw_tool_call(
                 "tu_bash",
                 "bash",
-                serde_json::json!({ "command": command }),
+                serde_json::json!({ "command": command, "intent": "试着写入受保护配置文件" }),
             )],
             vec![raw_text("已停止")],
         ]);
@@ -2993,7 +3105,7 @@ async fn 写入保护闸_bash树落点命中即拒而源码子树照常执行() 
         vec![raw_tool_call(
             "tu_find_src",
             "bash",
-            serde_json::json!({ "command": "find src -delete" }),
+            serde_json::json!({ "command": "find src -delete", "intent": "清理源码子树" }),
         )],
         vec![raw_text("继续")],
     ]);
@@ -3031,7 +3143,7 @@ async fn 写入保护闸_未命中照常执行且文件真实生成() {
         vec![raw_tool_call(
             "tu_bash",
             "bash",
-            serde_json::json!({ "command": "echo foo > notes.txt" }),
+            serde_json::json!({ "command": "echo foo > notes.txt", "intent": "写一条笔记" }),
         )],
         vec![raw_text("完成")],
     ]);
@@ -5649,7 +5761,7 @@ async fn finish_step同批结果进恰一条user消息() {
                 raw_tool_call(
                     "tu_bash",
                     "bash",
-                    serde_json::json!({ "command": "echo 甲" }),
+                    serde_json::json!({ "command": "echo 甲", "intent": "回声甲" }),
                 ),
             ],
             vec!["tu_finish", "tu_read", "tu_bash"],

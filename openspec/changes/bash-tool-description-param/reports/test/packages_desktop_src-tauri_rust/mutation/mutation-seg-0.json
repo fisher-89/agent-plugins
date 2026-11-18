@@ -1,0 +1,209 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/mount.rs:388:5: replace generic_definition -> ToolDefinition with Default::default()",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/mount.rs",
+          "function": {
+            "function_name": "generic_definition",
+            "return_type": "-> ToolDefinition",
+            "span": {
+              "start": {
+                "line": 385,
+                "column": 1
+              },
+              "end": {
+                "line": 491,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 388,
+              "column": 5
+            },
+            "end": {
+              "line": 490,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__agent__src__sdk__mount.rs_line_388_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__mount.rs_line_388_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 85.9730018,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/bash.rs:17:5: replace execute -> Result<String, String> with Ok(String::new())",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/bash.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<String, String>",
+            "span": {
+              "start": {
+                "line": 15,
+                "column": 1
+              },
+              "end": {
+                "line": 83,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 17,
+              "column": 5
+            },
+            "end": {
+              "line": 82,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__bash.rs_line_17_col_5.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__bash.rs_line_17_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 91.269541,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 13.2181142,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/agent/src/sdk/bash.rs:17:5: replace execute -> Result<String, String> with Ok(\"xyzzy\".into())",
+          "package": "agent-runtime",
+          "file": "crates/infra/agent/src/sdk/bash.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<String, String>",
+            "span": {
+              "start": {
+                "line": 15,
+                "column": 1
+              },
+              "end": {
+                "line": 83,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 17,
+              "column": 5
+            },
+            "end": {
+              "line": 82,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__agent__src__sdk__bash.rs_line_17_col_5_001.log",
+      "diff_path": "diff/crates__infra__agent__src__sdk__bash.rs_line_17_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 101.1780264,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--no-run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.6894268,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "nextest",
+            "run",
+            "--cargo-profile=mutants",
+            "--verbose",
+            "--package=agent-runtime@0.1.0",
+            "-j4"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 3,
+  "missed": 0,
+  "caught": 2,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-11-18T14:05:18.3374348Z",
+  "end_time": "2026-11-18T14:07:14.9286019Z",
+  "cargo_mutants_version": "27.1.0"
+}
