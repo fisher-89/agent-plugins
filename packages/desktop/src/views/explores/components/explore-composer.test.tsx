@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { ExploreComposer } from './explore-composer';
@@ -23,21 +23,6 @@ function renderComposer(overrides: Partial<Parameters<typeof ExploreComposer>[0]
 
 function type(text: string): void {
   fireEvent.change(screen.getByTestId('explore-prompt'), { target: { value: text } });
-}
-
-/** 档位选择器（StandardSelect / base-ui Select）：`data-value` 即选中档。 */
-function modeValue(): string | null {
-  return screen.getByTestId('explore-permission-mode').getAttribute('data-value');
-}
-
-async function pickMode(mode: string): Promise<void> {
-  const trigger = screen.getByTestId('explore-permission-mode').closest('button');
-  if (!trigger) throw new Error('SelectValue 不在触发器按钮内');
-  fireEvent.mouseDown(trigger);
-  const option = within(await screen.findByRole('listbox')).getByRole('option', { name: mode });
-  fireEvent.pointerDown(option);
-  fireEvent.click(option);
-  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
 }
 
 describe('ExploreComposer：发送与停止（正向）', () => {
@@ -83,28 +68,30 @@ describe('ExploreComposer：边界（空入参与档位）', () => {
     expect(sendButton.disabled).toBe(false);
   });
 
-  it('permission-mode 三档切换后提交，档位逐档透传', async () => {
+  it('档位行缺省隐藏：无三档切换入口，发送恒携缺省 bypassPermissions', () => {
     const { onSend } = renderComposer();
 
-    for (const mode of ['acceptEdits', 'default', 'bypassPermissions'] as const) {
-      await pickMode(mode);
-      expect(modeValue()).toBe(mode);
-      type(`档位 ${mode}`);
+    expect(screen.queryByTestId('explore-permission-mode')).toBeNull();
+    for (const text of ['第一发', '第二发', '第三发']) {
+      type(text);
       fireEvent.click(screen.getByTestId('explore-send'));
-      expect(onSend).toHaveBeenLastCalledWith({ prompt: `档位 ${mode}`, permissionMode: mode });
+      expect(onSend).toHaveBeenLastCalledWith({
+        prompt: text,
+        permissionMode: 'bypassPermissions',
+      });
     }
     expect(onSend).toHaveBeenCalledTimes(3);
   });
 
-  it('testid 前缀保持：explore-composer / explore-prompt / explore-send / explore-permission-mode', () => {
+  it('testid 前缀保持：explore-composer / explore-prompt / explore-send（档位行不呈）', () => {
     renderComposer({ running: true });
 
     expect(screen.getByTestId('explore-composer')).toBeTruthy();
     expect(screen.getByTestId('explore-prompt')).toBeTruthy();
     expect(screen.getByTestId('explore-send')).toBeTruthy();
     expect(screen.getByTestId('explore-stop')).toBeTruthy();
-    expect(screen.getByTestId('explore-permission-mode')).toBeTruthy();
-    // 文案面留在来源侧（探索页 label / placeholder）
+    expect(screen.queryByTestId('explore-permission-mode')).toBeNull();
+    // 文案面留在来源侧（探索页 placeholder）
     expect(screen.getByTestId('explore-prompt').getAttribute('placeholder')).toContain(
       '想聊清楚什么',
     );

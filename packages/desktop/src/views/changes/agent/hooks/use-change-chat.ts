@@ -120,8 +120,6 @@ function useChangeChatList(params: {
 interface ChatPanelLocalState {
   sessionId: string | null;
   setSessionId: (sessionId: string | null) => void;
-  listOpen: boolean;
-  setListOpen: (open: boolean) => void;
 }
 
 /**
@@ -131,13 +129,11 @@ interface ChatPanelLocalState {
  */
 function usePanelLocalState(changeId: string | null, clearList: () => void): ChatPanelLocalState {
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [listOpen, setListOpen] = useState(false);
   useEffect(() => {
     setSessionId(null);
-    setListOpen(false);
     clearList();
   }, [changeId, clearList]);
-  return { sessionId, setSessionId, listOpen, setListOpen };
+  return { sessionId, setSessionId };
 }
 
 /**
@@ -164,18 +160,16 @@ function useListRefetch(params: {
 }
 
 /** 面板动作面（展开清单 / 加载更多 / 新会话 / 切历史 / 发送 / 停止） */
-interface ChatActions {
-  toggleList: () => void;
-  loadMore: () => void;
-  newSession: () => void;
-  selectSession: (sessionId: string) => void;
+interface ChatActions extends Pick<
+  SessionPanelState,
+  'onOpenHistory' | 'loadMore' | 'newSession' | 'selectSession'
+> {
   send: (input: { text: string; permissionMode: AgentPermissionMode }) => void;
   stop: () => void;
 }
 
 /**
- * 动作面装配：`toggleList` 展开即重取首屏（收起不清空——再次展开无陈旧窗口）；
- * `newSession` 清空对话本地镜像并回空态（会话行只在首条消息发出时铸造，零落
+ * 动作面装配：`newSession` 清空对话本地镜像并回空态（会话行只在首条消息发出时铸造，零落
  * 库）；`send` 在整面板禁用 / 重放在途时早退，否则原样透传会话基建。
  */
 function useChatActions(params: {
@@ -185,14 +179,13 @@ function useChatActions(params: {
   disabledReason: string | null;
 }): ChatActions {
   const { session, list, panel, disabledReason } = params;
-  const { listOpen, setListOpen, setSessionId } = panel;
+  const { setSessionId } = panel;
   const { reload, loadMore } = list;
   const { sendMessage, stop, reset, loading } = session;
 
-  const toggleList = useCallback(() => {
-    if (!listOpen) reload();
-    setListOpen(!listOpen);
-  }, [listOpen, reload, setListOpen]);
+  const onOpenHistory = useCallback(() => {
+    reload();
+  }, [reload]);
 
   const newSession = useCallback(() => {
     reset();
@@ -202,9 +195,8 @@ function useChatActions(params: {
   const selectSession = useCallback(
     (next: string) => {
       setSessionId(next);
-      setListOpen(false);
     },
-    [setSessionId, setListOpen],
+    [setSessionId],
   );
 
   const send = useCallback(
@@ -215,7 +207,7 @@ function useChatActions(params: {
     [disabledReason, loading, sendMessage],
   );
 
-  return { toggleList, loadMore, newSession, selectSession, send, stop };
+  return { onOpenHistory, loadMore, newSession, selectSession, send, stop };
 }
 
 /**
@@ -254,7 +246,6 @@ export function useChangeChat(params: ChangeChatParams): ChangeChatState {
     cwd,
     sessions: list.items,
     total: list.total,
-    listOpen: panel.listOpen,
     listLoading: list.loading,
     listError: list.error,
     ...actions,

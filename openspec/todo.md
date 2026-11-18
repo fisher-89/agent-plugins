@@ -78,3 +78,5 @@
 - [ ] Edit工具多轮修改同一个文件，前一轮修改后应更新old_string，避免后续Edit提示“old_string未命中”，反复read
 - [ ] Agent聊天过程中补充消息未进入队列
 - [ ] 变更检查changes范围应该放过生成物
+- [ ] 决策agent使用ask工具而非finish工具提问
+- [ ] checklist工具显示检查项标题

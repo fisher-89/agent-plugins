@@ -261,8 +261,8 @@
 `packages/desktop/src/components/agent/` SHALL 提供共享展示组件族,全部 agent 会话页面(explore 会话 / agent 调试 / change 流程抽屉 / 历史重放 / 未来页面)统一消费:
 
 - `AgentSessionView` 会话级唯一入口: 入参 `root` + `sessionId`(+ 可选 `refreshKey` / composer 插槽 / `askAnswer` 应答动作面),内部经通用查询面装配会话并按会话状态挂流(契约见「会话级统一渲染组件」requirement);消费点 MUST NOT 自行拼装消息、轮行或事件流;
-- `AgentMessages` 对话透镜: user / assistant 气泡(**一轮一条 assistant 气泡**,部件按到达顺序)、工具对卡、思考折叠、AskUserQuestion 卡(问题与选项原样可读;应答动作面在场时呈**活卡**、缺席时呈静态只读卡,见「ask 工具卡活卡与应答动作面」);超长 user 提问 SHALL 默认折叠为预览(展开后回到原部件渲染,见「超长 user 提问默认折叠」);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;空内容轮的可见性 SHALL 按该轮 `metadata.record.status` 判定而非 `parts` 是否为空(失败 / 停止轮呈轮内状态行,见「轮内状态行与空内容轮可见性」);运行中状态 MUST NOT 在透镜内另立标记(`agent-messages-running` 已退役——运行态由会话元信息徽标与 composer 停止入口承载);
-- `AgentInput` composer: prompt 输入（空串禁发;纯空白字符不单独拦截——trim 守卫不在组件侧）、permission-mode 档位（`StandardSelect` 选择器）、发送、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 为「呈停止入口」——发送入口不禁用,重复发送由会话层 `isStreaming` 守卫忽略;停止入口 SHALL 只随 `running` 呈现且 MUST NOT 被 `disabled` 隐去(运行中即便整面板禁用仍可从面板停止);`disabled` MUST NOT 复用为「运行中」的第二表达;
+- `AgentMessages` 对话透镜: user / assistant 气泡(**一轮一条 assistant 气泡**,部件按到达顺序)、工具对卡、思考折叠、AskUserQuestion 卡(问题与选项原样可读;应答动作面在场时呈**活卡**、缺席时呈静态只读卡,见「ask 工具卡活卡与应答动作面」);超长 user 提问 SHALL 默认折叠为预览(展开后回到 text 部件的 markdown 渲染,见「超长 user 提问默认折叠」);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;空内容轮的可见性 SHALL 按该轮 `metadata.record.status` 判定而非 `parts` 是否为空(失败 / 停止轮呈轮内状态行,见「轮内状态行与空内容轮可见性」);运行中状态 MUST NOT 在透镜内另立标记(`agent-messages-running` 已退役——运行态由会话元信息徽标与 composer 停止入口承载);
+- `AgentInput` composer: prompt 输入（空串禁发;纯空白字符不单独拦截——trim 守卫不在组件侧）、permission-mode 档位（`StandardSelect` 选择器;**缺省隐藏**——`hidePermissionMode` 缺省 `true`，显式 `false` 才呈档位行；`onSend` 的 `permissionMode` 参数位恒保留，隐藏时取缺省 `bypassPermissions`）、发送、停止入口;并 SHALL 提供**整面板禁用态**(`disabled` + 禁用理由文案——输入框与发送同时禁用,理由文案原样呈现),供来源侧按业务判据(如 change 流程运行中 / 归档只读,见 desktop-change-chat)整面板禁发;`running` 语义 SHALL 为「呈停止入口」——发送入口不禁用,重复发送由会话层 `isStreaming` 守卫忽略;停止入口 SHALL 只随 `running` 呈现且 MUST NOT 被 `disabled` 隐去(运行中即便整面板禁用仍可从面板停止);`disabled` MUST NOT 复用为「运行中」的第二表达;
 - 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位,未注册工具名回退默认对卡;
 - 部件运行态判据: 工具部件的「运行中」呈现 SHALL 以**该轮状态**为准（轮 `status === 'running'`）——轮已终结（`completed` / `failed` / `stopped` / `interrupted`）时，未配对的部件 MUST NOT 呈运行态（`TraceLine` 的运行标记 / shimmer 退场，取 `pending` 或无状态）,因为未配对只说明「没有结果落库」,不说明「正在跑」；`running` 轮内的未配对部件 SHALL 照常呈运行态。判据 MUST NOT 以「工具结果缺席」单独推断运行中;
 - 组件族 SHALL 共享底层块渲染件(文本 markdown / 思考折叠 / 工具卡一套实现);滚动 SHALL 由 `components/ui/message-scroller.tsx` 承载——该 shim 内部以 `@tanstack/react-virtual` 渲染**可见窗口切片**,并通过 sticky 吸附层让用户提问常驻(契约见「对话透镜虚拟窗口与用户消息顶部吸附」);消息状态仍留在应用层,MUST NOT 以分页窗口限制进入 DOM 的消息集合(MUST NOT 保留自研历史分页层)。`@shadcn/react` 的 `message-scroller` primitives 已退役,但 `@shadcn/react/questionnaire` SHALL 保留为 ask 卡的表单基础件(由 `components/ui/questionnaire.tsx` shim 消费);该依赖的其余入口 MUST NOT 新增消费者。knip 报出的未用导出 SHALL 删减,且 MUST NOT 新增 `ignoreDependencies` / `ignore` 条目把未用面关成豁免。
@@ -352,9 +352,9 @@
 
 对话透镜的 user 气泡 SHALL 对**超长提问**默认折叠，避免长 prompt 独占一屏；短提问 MUST NOT 出现折叠入口：
 
-- **判据**：折叠判定 SHALL 只基于 user 消息的正文文本（全部部件均为 `text` 时拼接成文；部件中含非 `text` 部件时 MUST NOT 折叠，部件原样呈现）。可见行数 SHALL 按「显式换行逐条计 + 单行按固定字符宽折算折行」估算，超过行预算（3 行）即折叠。
+- **判据**：折叠判定 SHALL 只基于 user 消息的正文文本（全部部件均为 `text` 时拼接成文；部件中含非 `text` 部件时 MUST NOT 折叠——user 气泡只渲染 `text` 部件，非 `text` 部件不参与呈现，user 消息协议面只产 text）。可见行数 SHALL 按「显式换行逐条计 + 单行按固定字符宽折算折行」估算，超过行预算（3 行）即折叠。
 - **折叠态**：SHALL 呈按行预算截取的纯文本预览（`whitespace-pre-line`，超出部分以省略号收尾）+ 下方「展开」按钮；折叠态 MUST NOT 渲染 markdown 或部件。
-- **展开态**：点开后 SHALL 回到与该气泡原始形态一致的部件渲染（与 assistant 共用同一套块渲染件），按钮文案改「收起」，再点回预览态。
+- **展开态**：点开后 SHALL 回到 `text` 部件的 markdown 渲染（与 assistant 共用 `TextBlock`），按钮文案改「收起」，再点回预览态。
 - **气泡形态不变**：折叠不改变 user 气泡的容器（整宽 tinted 泡）与 `data-testid="chat-bubble"` / `data-role` 钩子；折叠入口 SHALL 带独立 `data-testid` 挂钩供测试与来源侧定位，MUST NOT 依赖样式类名查询。
 
 #### Scenario: 短提问不折叠
@@ -370,7 +370,7 @@
 #### Scenario: 非 text 部件的提问不折叠
 
 - **WHEN** user 消息含 `text` 以外的部件
-- **THEN** 不折叠，全部部件按原渲染件呈现
+- **THEN** 不折叠，气泡只呈 `text` 部件的 markdown（非 `text` 部件不渲染）
 
 ### Requirement: ai-sdk 依赖收口
 
@@ -391,7 +391,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 前端 SHALL 把一次云端 `web_search` 呈现为**搜索卡 + 正文引用列表**，并保证「空内容轮按轮状态决定是否可见」：
 
 - **承载部件**：搜索活动 SHALL 复用既有工具卡管线承载为 `tool-web_search` 部件（MUST NOT 新增 `AgentDataParts` 成员、MUST NOT 引入独立 `data-citations` 部件）——`planBlock` 产 `tool` 计划、`planToolPart` 产部件、`plansToChunks` 产 chunk、`BUILD_IN_TOOL_CARDS` 注册特化卡，四段均为既有机械管线（`plansToChunks` 与 `planToolPart` SHALL 零改动）。
-- **搜索卡**：`WebSearchCard`（`packages/desktop/src/components/agent/agent-blocks.tsx`）标题行 SHALL 呈查询词（`input.query`，缺席时不显）——MUST NOT 出现「正在搜索…」态、MUST NOT 出现超时降级文案、MUST NOT 依赖流内状态切换；body SHALL 呈查询词、来源列表（`title ?? 主机名`，落定后）、错误码（`error` 非空时，与来源列表并存不互斥）。卡片根 SHALL 带 `data-testid="block-web-search"`，查询词行带 `data-testid="block-web-search-query"`，来源列表带 `data-testid="block-web-search-sources"`。判定为「未落定」还是「已落定」仅由 `output` 在场与否决定（无状态文案使两态视觉一致，用户不把「进行中」误读为「加载失败」）。
+- **搜索卡**：`WebSearchCard`（`packages/desktop/src/components/agent/message-cards/blocks.tsx`）标题行 SHALL 呈查询词（`input.query`，缺席时不显）——MUST NOT 出现「正在搜索…」态、MUST NOT 出现超时降级文案、MUST NOT 依赖流内状态切换；body SHALL 呈查询词、来源列表（`title ?? 主机名`，落定后）、错误码（`error` 非空时，与来源列表并存不互斥）。卡片根 SHALL 带 `data-testid="block-web-search"`，查询词行带 `data-testid="block-web-search-query"`，来源列表带 `data-testid="block-web-search-sources"`。判定为「未落定」还是「已落定」仅由 `output` 在场与否决定（无状态文案使两态视觉一致，用户不把「进行中」误读为「加载失败」）。
 - **引用列表**：`CitationList` SHALL 挂在正文 text 部件**底部**，条目显示 `title ?? url`，**按 url 去重**；MUST NOT 做行内角标、MUST NOT 做原句高亮。数据来源 SHALL 为 text 部件的 `providerMetadata.agent.citations`（命名空间 `agent`——消费点在 provider 之外，MUST NOT 借用 `anthropic` 命名空间）。
 - **外链**：`ExternalLink` SHALL 为**唯一外链调用点**（搜索卡来源与引用列表共用）：仅 `http:` / `https:` 目标的 url SHALL 渲染为可点击链接并经壳侧 opener 打开；其他 scheme（`javascript:`、`file:`、`mailto:` 等）MUST NOT 渲染为链接（降级为纯文本）。壳侧插件注册与 capabilities 权限面见 desktop-app-shell「外链打开插件与 capabilities 最小权限面」。
 - **空内容轮可见性**：`AgentMessages` 的过滤判据（`src/lib/agent-virtual.ts` 的 `filterConversation`）SHALL 在既有「system 角色不进对话呈现」过滤之后，按**轮状态**判定空内容 assistant 消息（`parts` 为空）是否呈现——`metadata.record.status` 为 `failed` / `stopped` 时 SHALL 呈现轮内状态行（见「轮内状态行与空内容轮可见性」），为 `completed` 或轮行缺席时 MUST NOT 渲染空气泡；虚拟列表项数 SHALL 基于过滤后列表（不把不渲染的空内容消息计入虚拟列表 `count` 与吸附层几何）。MUST NOT 仅以 `message.parts.length > 0` 作为唯一判据（那会吞掉失败 / 停止轮）。
@@ -433,9 +433,9 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **用户提问不进虚拟层**：`role = 'user'` 的索引 SHALL 在虚拟层渲染 `null`（不产节点），但其高度账目 SHALL 照常参与 `count` / `estimateSize` / `getTotalSize`；其真实高度 SHALL 由吸附层经 `ResizeObserver` 实测后以 `resizeItem(index, height)` 回填。实测尺寸 ≤ 0 时 SHALL 回落该索引的 `estimateSize`（虚拟项 MUST NOT 折叠为零高）。
 - **sticky 吸附与顶走**：全部 `role = 'user'` 消息 SHALL 在吸附层无条件常驻（MUST NOT 按可见范围过滤其挂载；会话中用户提问量本就有界）。第 i 条用户消息的吸附容器 SHALL 为 `position: absolute` + **`top` 定位**（MUST NOT 使用 `transform`——transform 会创建新的包含块，使 sticky 的夹取基准被替换、气泡吸住后永不顶走），其高度 SHALL 为**该轮跨度** `span = 下一用户消息的 start − 本条 start`（末轮 = `getTotalSize() − start`）；容器内层气泡容器 SHALL 为 `position: sticky; top: 0`。于是「最近一条已完全滚出顶部的用户消息」停在视口顶端，「下一轮提问到达包含块底边」即把上一条顶走（**零缓冲**，不做 gutter）。
 - **吸附层祖先链约束**：吸附层与其祖先链 MUST NOT 出现 `overflow: hidden` / `overflow: auto` 一类裁剪（会另立滚动容器，吸附基准由视口变成本层 ⇒ 完全不吸附）；滚动视口（`data-slot="message-scroller-viewport"`）的 `contain-content`（`contain: layout paint`）SHALL 保留（不创建包含块，不影响 sticky）。
-- **零装饰**：吸附气泡 SHALL 与普通气泡**同一渲染件**（同一 tinted 变体），只可多一层不透明 `bg-card` 底衬以防圆角边缘透出下层滚动正文；MUST NOT 加顶部渐隐 / 阴影 / 「上方还有内容」提示层。视口既有的 `scroll-fade-b`（**底边**渐隐，`animation-timeline: scroll(self y)` 要求承载元素自身是滚动容器）SHALL 原样留在视口元素上，MUST NOT 迁到内容容器或吸附层。
+- **零装饰**：吸附气泡 SHALL 与普通气泡**同一渲染件**（同一 tinted 变体），只可多一层不透明 `bg-card` 底衬以防圆角边缘透出下层滚动正文；气泡本体 MUST NOT 加顶部渐隐 / 阴影 / 「上方还有内容」提示层（吸附层容器的抬升阴影由滚动 shim 承担，见「对话透镜虚拟窗口与用户消息顶部吸附」的钩子延续条）。视口既有的 `scroll-fade-b`（**底边**渐隐，`animation-timeline: scroll(self y)` 要求承载元素自身是滚动容器）SHALL 原样留在视口元素上，MUST NOT 迁到内容容器或吸附层。
 - **吸附零滚动状态**：吸附判定 SHALL 为纯 CSS 行为——MUST NOT 为吸附引入 `scroll` 事件监听、MUST NOT 维护「当前吸附项」state、MUST NOT 依赖虚拟器可见范围（`range` / `onChange`）。滚回会话顶部时自然无气泡吸顶；无 `role = 'user'` 消息时不渲吸附层。
-- **钩子延续**：`data-slot="message-scroller"` / `-viewport` / `-content` / `-item` / `-button` SHALL 保留（既有断言锚点），吸附层容器 SHALL 带独立钩子 `data-slot="message-scroller-sticky"`；气泡 SHALL 继续以 `data-testid="chat-bubble"` + `data-role` 暴露角色（供按角色分查的断言）；`data-autoscrolling`（滚动条透明）与 `data-pending-scroll`（首帧隐形防跳）SHALL 由滚动实例状态与「首次测量完成」标志驱动，样式语义不变；虚拟项 SHALL 保留 `[content-visibility:auto]` + `[contain-intrinsic-size]`（单条超长 assistant 仍为单虚拟项，两级机制叠加）。
+- **钩子延续**：`data-slot="message-scroller"` / `-viewport` / `-content` / `-item` / `-button` SHALL 保留（既有断言锚点），吸附层容器 SHALL 带独立钩子 `data-slot="message-scroller-sticky"`；气泡 SHALL 继续以 `data-testid="chat-bubble"` + `data-role` 暴露角色（供按角色分查的断言）；`data-autoscrolling`（滚动中状态钩子；滚动条不随之透明——thumb 恒为 `scrollbar-thumb-muted`）与 `data-pending-scroll`（首帧隐形防跳）SHALL 由滚动实例状态与「首次测量完成」标志驱动；虚拟项 SHALL 保留 `[content-visibility:auto]` + `[contain-intrinsic-size]`（单条超长 assistant 仍为单虚拟项，两级机制叠加）。
 - **贴底跟随**：新消息追加时的贴底跟随 SHALL 由虚拟器的端锚定能力（`anchorTo: 'end'` + `followOnAppend` + `scrollEndThreshold`）承担；用户上滑后 MUST NOT 被强制拽回底部，回到底部后恢复跟随。
 - **首帧与换会话贴底**：对话透镜**首次挂载即非空、或由空变非空**（`0 → N`，历史重放 / 新会话首轮）与**切换会话**（同一实例的消息集合换成另一会话）两种情形，视口 SHALL 都落在内容末端（贴底）——端锚定只在选项变更且滚动元素已挂载时生效、首帧 `initialOffset` 缺省 0，故这两种情形的贴底 MUST NOT 依赖 `anchorTo: 'end'`，MUST NOT 依赖一次性「首次贴底」闩（那会把换会话漏掉）。复位 SHALL 由滚动承载 shim 依**复位键**发起：复位键由应用层经 `src/lib/agent-virtual.ts` 的 `conversationIdentity` 从消息集合导出（首条携 `metadata.record.sessionId` 的消息的会话 id，全体缺席时为 `null` = 未知），作为 shim 的可选入参 `resetKey` 传入。复位条件 SHALL 恰为二者之一：①消息集合首次非空或由空变非空；②**两端所给 `resetKey` 均非 `null` 且不相等**。命中即在 layout 阶段（浏览器绘制前）调一次 `scrollToIndex(count − 1, { align: 'end' })`，并由 `data-pending-scroll` 遮住这一跳。复位键的一侧为 `null`（首轮 `record` 落库导致 `null → 已知`，或收口重放导致 `已知 → null`）MUST NOT 触发复位；同一会话内追加（键不变）同样 MUST NOT 触发复位。该机制 MUST NOT 要求上游新增入参（`AgentMessagesProps` 形状不变），MUST NOT 引出 `use-agent-session*` / `agent-session-view` / `src/views/**` 任一文件的改动——复位机制 SHALL 全部落在本变更可改面（`agent-messages.tsx` 与 `components/ui/message-scroller.tsx`）内。
 
@@ -469,10 +469,10 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **WHEN** 某项的实测尺寸为 0（jsdom 无布局 / 图片未加载的瞬时态）
 - **THEN** 该项高度回落为其 `estimateSize` 估值，后续项的 `start` 仍连续、无零高项，不抛错
 
-#### Scenario: 视觉一致且视口样式零改动
+#### Scenario: 视觉一致且视口样式在案
 
 - **WHEN** 检查吸附气泡与普通气泡、以及滚动视口
-- **THEN** 吸附气泡与普通用户气泡同渲染件（仅多一层不透明底衬），零渐变 / 零阴影 / 零提示层；视口仍携带 `scroll-fade-b` / `scrollbar-thin` / `scrollbar-gutter-stable` / `overscroll-contain` / `contain-content` 与 `data-slot="message-scroller-viewport"`、`aria-label="对话消息"`；吸附层容器样式不含 `transform`
+- **THEN** 吸附气泡与普通用户气泡同渲染件（仅多一层不透明底衬），气泡本体零渐变 / 零提示层；吸附层容器带 `shadow-lg shadow-black/40` 抬升阴影；视口仍携带 `scroll-fade-b` / `scrollbar-thin` / `scrollbar-thumb-muted` / `scrollbar-gutter-stable` / `overscroll-contain` / `contain-content` 与 `data-slot="message-scroller-viewport"`、`aria-label="对话消息"`；吸附层容器样式不含 `transform`
 
 #### Scenario: 上滑不被拽回底部
 
@@ -510,7 +510,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **活卡判据（精确对账优先，轮状态兜底）**：给出 `pendingToolCallId` 时，仅 `toolCallId` 与之相等的 ask 部件为活卡（其余为静态卡）；未给出时 SHALL 以**该轮 `status === 'running'`** 判活（静态只读消费点无 id 对账面，轮状态是唯一权威）。MUST NOT 以「工具结果缺席即认为在等」判活——崩溃残留的未配对 `tool_use` 与之同形，会让已终结轮的卡呈可应答，用户点了才收到「当前无等待中的 ask」`Err`。该约束 SHALL 由结构保证（判据读轮状态），MUST NOT 仅靠调用侧纪律。
 - **应答出口**：应答 SHALL 经消费点注入的 `onAnswer` 回流（通用会话面 = `useAgentSession.answer` → `agent_answer`；change 流程抽屉 = `change_flow_answer`），组件族 MUST NOT 直接 `invoke` 任何命令（组件族不认识业务域，沿用 composer 插槽「动作面由来源侧注入」纪律）。载荷为用户原文单值；后端把它铸成信封后作为工具结果回灌。
 - **错误可归因**：应答被后端拒绝（`Err`，如「当前无等待中的 ask」）SHALL 走来源侧既有错误面呈现（会话错误横幅 / 运行控制面板错误行），组件族 MUST NOT 静默吞掉、MUST NOT 自行重试。
-- **零回退面变更**：未注册工具名仍回退 `ToolPairCard`；`finish_step` 卡与其余特化卡零改动。
+- **零回退面变更**：未注册工具名仍回退 `ToolPairCard`；`finish_step` 卡按「finish_step 收口卡呈现」条独立演进（ask 动作面不触达它）。
 
 #### Scenario: 活卡选选项并提交
 
@@ -557,14 +557,32 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **WHEN** 后端拒绝一次应答（返回 `Err`）
 - **THEN** 该 `Err` 进入来源侧既有错误面（会话错误横幅 / 控制面板错误行）并可读；组件族不重试、不吞错、不改写卡状态
 
+### Requirement: finish_step 收口卡呈现
+
+`finish_step` 工具部件 SHALL 以注册表专用卡（`BUILD_IN_TOOL_CARDS['finish_step']`）承载，按输入载荷分两形态（互斥，均不抛错）：
+
+- **evaluator 形态（checklist）**：输入同时满足 `report` 为字符串且 `items` 为数组时命中——摘要行 SHALL 呈「检查通过」（零未通过项）或「检查 N 项未通过」（N = 真值为假的项数），含未通过项时摘要行带 `error` 状态；body SHALL 为卡片（`report` 经 `TextBlock` 渲染）+ 逐项清单：每项一个 `Checkbox`（勾选态 = `pass` 真值）+ `FieldLabel`（项 id，未通过项带 `text-destructive`）+ `FieldDescription`（`evidence` 非空时）。该形态 MUST NOT 渲染工具结果区（`block-tool-result`）。
+- **decision 形态**：`action` 为字符串时命中——摘要行逐字为 `backtrack → <to>：<reason>` / `stop：<reason>` / `ask：<question>（<options>）`（历史转录的 `ask` 动作原样兼容；未知动作原样）；body SHALL 在有结果时呈 `block-tool-result`。
+- **宽容解析**：两形态均不匹配时回退 JSON 原样（`<pre>`）且摘要行取 `finish_step`，MUST NOT 抛错；`pass` / `evidence` 按真值判定（非布尔值不做类型校验）。
+
+#### Scenario: evaluator checklist 逐项可读
+
+- **WHEN** 渲染输入 `{ report, items: [{ id: "C1", pass: true, evidence }, { id: "C2", pass: false, evidence }] }` 的 `finish_step` 部件并展开卡
+- **THEN** 摘要行为「检查 1 项未通过」；report 与两项 id / evidence 可见；C1 的 checkbox 为勾选、C2 为未勾选且其 FieldLabel 带破坏性着色；零 `block-tool-result` 节点
+
+#### Scenario: decision 形态摘要与结果
+
+- **WHEN** 渲染输入 `{ action: "backtrack", to: "test-gen", reason: "覆盖不足" }` 且工具结果在场
+- **THEN** 摘要行为「backtrack → test-gen：覆盖不足」；展开后呈工具结果正文；输入非两形态时回退 JSON 原样且摘要行为 `finish_step`
+
 ### Requirement: 补充说明动作面与 composer 变体（steer）
 
-前端 SHALL 让**一条正在跑的会话**可被用户补一句（补充说明，steer），且不新开轮：动作走会话级 `agent_steer` 薄包装（见 desktop-agent-execution「运行中会话的补充说明注入（steer 通道）」与「agent 执行命令面」）。本条与「展示组件族(对话透镜)」的 `AgentInput` 契约是**加位关系**：既有默认变体（含 permission-mode 档位、`running` 呈停止、`disabled` 整面板禁用）逐字不变，本条只追加变体与动作位。
+前端 SHALL 让**一条正在跑的会话**可被用户补一句（补充说明，steer），且不新开轮：动作走会话级 `agent_steer` 薄包装（见 desktop-agent-execution「运行中会话的补充说明注入（steer 通道）」与「agent 执行命令面」）。本条与「展示组件族(对话透镜)」的 `AgentInput` 契约是**加位关系**：既有默认变体的 `running` 呈停止 / `disabled` 整面板禁用逐字不变，本条只追加变体与动作位；permission-mode 档位行缺省不呈（`hidePermissionMode` 缺省 `true`，见上「`AgentInput` composer」条）。
 
 - **实时路的轮中段 user 消息**：会话状态侧接收 `role = user` 的密封事件时 SHALL 分工——该轮**首条**（该轮提问）沿用既有 id 归一路径（本地副本原地换 id 为 `turn-<turnId>-user`，消息数不增）；**其余** SHALL 以 `evt-<seq>` **追加**为独立 user 气泡，按到达顺序插入（MUST NOT 因「同轮已有同名 id」而丢弃、MUST NOT 复用提问的归一路径——`turn-<turnId>-user` 恒属该轮提问，一个 id 只能对应一条消息）。收口后仍以折叠整表替换收敛，形状与重放一致（折叠口径见「事件适配层(纯函数,保真)」）。
 - **headless 动作面**：`UseAgentSessionState` SHALL 增 `steer: (text: string) => void` 与 `steering: boolean`——前者为 `agent_steer(root, session_id, text)` 的薄包装（`root` / `sessionId` 为 null 时 MUST NOT invoke），后者为「已提交、等 ack 回流」的 pending 态（提交置 `true`，ack 成功或 `Err` 落地置 `false`）；`Err` SHALL 进既有 `error` 面呈现（与重放 / 流错误同一条保序合并链），MUST NOT 静默吞掉。既有 `answer` / `stop` / `sendMessage` 语义零改动。
 - **composer 插槽动作面**：`AgentSessionActions` SHALL 增 `steer` 与 `steering` 两个字段（**additive**——既有 `running` / `loading` / `send` / `stop` 零改动；未接字段的消费点零影响），使只接 composer 插槽的只读消费点能只取「补充说明 + 停止」两动作。
-- **`AgentInput` 补充说明变体**：`AgentInputProps` SHALL 增两个可选位——`hidePermissionMode?: boolean`（缺省 `false`；`true` 时不呈 permission-mode 档位行，`onSend` 的 `permissionMode` 参数位保留但下游 MUST NOT 消费）与 `pending?: boolean`（缺省 `false`；`true` 时发送入口呈「排队中…」态并禁用防连点，提示文案 SHALL 可辨；输入框与停止入口不受影响，`running` 的停止面照常呈现）。默认变体（两位皆缺省）的渲染与语义 MUST NOT 变化。
+- **`AgentInput` 补充说明变体**：`AgentInputProps` SHALL 增两个可选位——`hidePermissionMode?: boolean`（缺省 `true`：档位行不呈；显式 `false` 才呈 permission-mode 档位行，`onSend` 的 `permissionMode` 参数位恒保留）与 `pending?: boolean`（缺省 `false`；`true` 时发送入口呈「排队中…」态并禁用防连点，提示文案 SHALL 可辨；输入框与停止入口不受影响，`running` 的停止面照常呈现）。`pending` 缺省时的渲染与语义 MUST NOT 变化。
 - **吸附层不另立规则**：补充说明气泡为普通 `role = 'user'` 消息，既有「全部 user 消息无条件常驻吸附层」契约自然覆盖它（一轮内因此可能出现两次吸顶：提问被补充说明顶走、补充说明接续吸顶）——MUST NOT 为补充说明新增第二套吸附判据、MUST NOT 改动 `agent-virtual.ts` 的 `userTurnSpans`。
 - **判据不预判**：补充说明的可用性 MUST NOT 由前端判据决定（MUST NOT 依库态 `running`、轮行状态或会话是否存在禁用输入与发送）——后端三种不可送达各有独立 `Err` 文案，前端只负责呈现；`pending` 是「等 ack」的过程态，MUST NOT 被实现成「按运行态禁用」。
 
@@ -593,10 +611,10 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 - **WHEN** 某步会话已收口（库态无 running 轮行），用户在该步面板输入补充说明并点发送
 - **THEN** 发送入口未被前端禁用，调用到达后端并返回 `Err`（「会话已收口」类文案），该文案呈现在会话错误面；MUST NOT 以「此步已收口」类前端判据提前禁用
 
-#### Scenario: 默认 composer 变体零变化
+#### Scenario: 缺省 composer 变体（档位行缺席）
 
 - **WHEN** 既有消费点（explore / archi / change-chat / 调试页）不传 `hidePermissionMode` 与 `pending` 渲染 `AgentInput`
-- **THEN** 渲染与交互与本变更前逐字一致（档位行在场、发送空串禁用、`running` 呈停止、`disabled` 整面板禁用 + 理由文案）
+- **THEN** 档位行不呈；发送空串禁用、`running` 呈停止、`disabled` 整面板禁用 + 理由文案逐字不变，`onSend` 的 `permissionMode` 恒为缺省 `bypassPermissions`
 
 ## Module Contract
 
@@ -659,7 +677,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 | 函数 | 签名 | 描述 |
 |------|------|------|
-| `hasVisibleParts` | `(message: AgentUIMessage) => boolean` | 可见部件判据（`text` / `reasoning` / `tool-<name>` 计入，`data-*` 与 `step-start` 不计）：自 `agent-messages.tsx` 迁出，两个生产消费点——`filterConversation` 与 `ChatBubbleBase` 的空部件状态行判据（避免判据在两处各写一份） |
+| `hasVisibleParts` | `(message: AgentUIMessage) => boolean` | 可见部件判据（`text` / `reasoning` / `tool-<name>` 计入，`data-*` 与 `step-start` 不计）：自 `agent-messages.tsx` 迁出，两个生产消费点——`filterConversation` 与 `AssistantMessage` 的空部件状态行判据（避免判据在两处各写一份） |
 | `filterConversation` | `(all: AgentUIMessage[]) => AgentUIMessage[]` | 对话透镜可见性判据单点（自原分页层抽出，语义零改）：剔除 `role === 'system'`；空内容 assistant 消息仅 `metadata.record.status` 为 `failed` / `stopped` 时保留，`completed` 或轮行缺席时剔除 |
 | `userTurnSpans` | `(messages: AgentUIMessage[], measurements: { start: number }[], totalSize: number) => { index: number; start: number; span: number }[]` | 吸附层几何：仅为 `role === 'user'` 的索引产条；`span` = 下一条用户消息 `start` − 本条 `start`，末轮 = `totalSize − start`；无用户消息时返回空数组（不渲吸附层） |
 | `conversationIdentity` | `(messages: AgentUIMessage[]) => string \| null` | 会话身份（贴底复位键）：取首条携 `metadata.record.sessionId` 的消息的会话 id；全体缺席（流式首轮未收口 / 尚无 `record`）返回 `null` = 未知。同一会话的追加 / 流式增长不改变返回值，换会话必变；`null` 不参与换会话判定（两侧均非 `null` 才比较），故首轮收口（`null → 已知`）不会把上滑用户拽回底部 |
@@ -685,16 +703,16 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `useHistoryWindow` | **退役** | 过滤判据抽出为 `filterConversation`（`src/lib/agent-virtual.ts`）；分页窗口与 `remaining` 语义退役 |
 | `useTopReachObserver` / `HistoryLoadStatus` / `MESSAGE_PAGE_SIZE` / `HISTORY_PRELOAD_MARGIN_PX` / `topSentinelRef` | **删除** | 触顶 `IntersectionObserver` 与 `history-load-hint` / `history-load-complete` 分支整体退役 |
 | 虚拟窗口接线 | 新增 | `count` = `filterConversation(messages).length`；assistant 索引走 `renderItem`，user 索引渲 `null`；`estimateSize` 按角色分型（user 72 / assistant 240 起）；`resetKey` = `conversationIdentity(过滤后列表)`（贴底复位键，见「首帧与换会话贴底」） |
-| 吸附层 | 新增 | `renderSticky` 渲染 `userTurnSpans` 的全部条目（每条 user 消息一个 `MessageScrollerSticky` + 内层 `position:sticky; top:0` 的 `ChatBubble`）；`ResizeObserver` 实测 → `resizeItem` |
-| `ChatBubble` / `PartView` / `TurnStatusLine` / `ToolPartView` / `citationsOfPart` | 逐字不变 | 块渲染、轮内状态行、工具卡分派和 `memo` 语义零改动（吸附气泡复用同一 `ChatBubble`） |
+| 吸附层 | 新增 | `renderSticky` 渲染 `userTurnSpans` 的全部条目（每条 user 消息一个 `MessageScrollerSticky` + 内层 `position:sticky; top:0` 的 `UserMessage`）；`ResizeObserver` 实测 → `resizeItem` |
+| `AssistantMessage` / `UserMessage`（`message-cards/`）/ `PartView` / `TurnStatusLine` / `ToolPartView` / `citationsOfPart` | 气泡拆分为两渲染件 | 原 `ChatBubble` 拆为 assistant 气泡 `AssistantMessage` 与 user 气泡 `UserMessage`（user 气泡迁至 `message-cards/user-message.tsx`，块渲染件迁至 `message-cards/blocks.tsx` / `tool-cards.tsx`）；块渲染、轮内状态行、工具卡分派和 `memo` 语义零改动（吸附气泡复用同一 `UserMessage`） |
 | 三态保留 | 两态 + 运行标记退役 | `agent-messages-loading`（`loading` 且过滤后为空）/ `conversation-empty` 判据与挂钩不变；运行中标记 `agent-messages-running` 与 `running` 入参已退役（运行态由会话元信息徽标与 composer 停止入口承载） |
 
 ### Component: `packages/desktop/src/components/agent/`（呈现层）
 
 | 组件 / 模块 | 变化 | 描述 |
 |------|------|----------|
-| `agent-blocks.tsx` | 新增 `WebSearchCard` / `CitationList` / `ExternalLink` | 搜索卡标题行为查询词（`data-testid="block-web-search"`）；引用底部去重列表；外链唯一调用点（仅 http(s)） |
-| `tool-cards.tsx` | `BUILD_IN_TOOL_CARDS` 注册 `web_search` / `bash` / `read` / `write` | 注册表可插拔位扩展；未注册回退默认对卡；卡根与结果正文钩子与默认对卡同形 |
+| `message-cards/blocks.tsx`（原 `agent-blocks.tsx`） | 新增 `WebSearchCard` / `CitationList` / `ExternalLink`；`finish_step` 收口卡改逐项清单卡 | 搜索卡标题行为查询词（`data-testid="block-web-search"`）；引用底部去重列表；外链唯一调用点（仅 http(s)）；evaluator 形态呈 `Checkbox` + `Field` 逐项清单（摘要「检查通过 / 检查 N 项未通过」，report 经 `TextBlock`），checklist 形态不呈工具结果区 |
+| `message-cards/tool-cards.tsx`（原 `tool-cards.tsx`） | `BUILD_IN_TOOL_CARDS` 注册 `web_search` / `bash` / `read` / `write` / `finish_step` | 注册表可插拔位扩展；未注册回退默认对卡；卡根与结果正文钩子与默认对卡同形 |
 | `agent-messages.tsx` | `useHistoryWindow` 过滤判据改「system 过滤 + 按 `metadata.record.status` 判空内容轮」（原 `parts.length > 0` 判据退役） | 空内容 `failed` / `stopped` 轮 SHALL 可见（轮内状态行），空内容 `completed` 轮不渲染；虚拟列表项数基于过滤后列表（见上「`agent-messages.tsx`（改）」表）；状态行带 `data-testid` 挂钩（`failed` → 友好标题 + 可展开原文；`stopped` → 「已停止」） |
 
 ### 零改动面
@@ -705,7 +723,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `packages/desktop/src/hooks/use-agent-session.ts` | 收口语义（流结束按库内转录重建）已天然覆盖搜索卡两态；会话基建零改动（`messages` 形状、`loading` / `running` 语义不变） |
 | `AgentDataParts` | MUST NOT 新增成员（无 `data-citations` / `data-web-search`） |
 | `packages/desktop/src/components/agent/agent-error.ts` | `latestAgentFailure` 维持「`stopped` 不算失败」判据，MUST NOT 改造成失败横幅（`stopped` 由轮内状态行承接） |
-| `packages/desktop/src/components/agent/agent-blocks.tsx` / `agent-input.tsx` / `tool-cards.tsx` / `session-panel.tsx` / `agent-session-view.tsx` | 块渲染件、composer、工具卡注册表、面板骨架、会话级入口的入参与插槽形状零改动 |
+| `packages/desktop/src/components/agent/message-cards/blocks.tsx` / `agent-input.tsx` / `message-cards/tool-cards.tsx` / `session-panel.tsx` / `agent-session-view.tsx` | 块渲染件、composer、工具卡注册表、面板骨架、会话级入口的入参与插槽形状零改动 |
 | `packages/desktop/src/lib/agent-adapter.ts` / `agent-transport.ts` / `parse.ts` | 过滤判据**语义**搬去纯函数，适配层与传输层零改动（`foldSessionMessages` / `eventToChunk` / `deltaPartId` 签名不变） |
 | `packages/desktop/src/components/ui/` 其余文件 | `bubble.tsx` / `message.tsx` / `trace.tsx` 等零改动（吸附气泡复用同一组件的 tinted 变体）；消费 search 面零改动；`questionnaire.tsx` 现为 ask 卡表单 shim（保留，见「ask 工具卡活卡与应答动作面」） |
 | `.dev-team/architecture/**` | 架构模型零改动（纯函数落 `src/lib/**` 属封闭排除面；`components/agent/` 文件集合与 `components/ui/` 收敛口径不变，元素 / 关系 / 计数复述零漂移） |
@@ -731,14 +749,14 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 
 | 模块 | 职责 | 关键契约（Component / Function / Type） |
 |------|------|------|
-| `packages/desktop/src/components/agent/tool-cards.tsx`（扩） | ask 卡双态（表单化） | `interface AgentToolCardProps` 增 `askAnswer?: { onAnswer: (text: string) => void }`；`AskUserQuestionCard` 以 `@shadcn/react/questionnaire`（经 `components/ui/questionnaire.tsx` shim）承载表单：`TraceLine` + `Card` 卡壳、`data-testid="ask-question-card"` 表单根、`ask-question` / `ask-answer-option` / `ask-answer-input` / `ask-answer-submit` 钩子；可见态下提交上行**用户原文单值**（选项值或自由文本；结构由后端按 `name` 铸造，组件不拼 JSON）；多问形态只读（零提交入口）；已应答按应答信封 `answers[<name>]` 回填、旧扁平 map 兼容、非 JSON 结果不抛错；不可解析输入降级为破坏性提示；`BUILD_IN_TOOL_CARDS` 键面零变更 |
+| `packages/desktop/src/components/agent/message-cards/tool-cards.tsx`（扩） | ask 卡双态（表单化） | `interface AgentToolCardProps` 增 `askAnswer?: { onAnswer: (text: string) => void }`；`AskUserQuestionCard` 以 `@shadcn/react/questionnaire`（经 `components/ui/questionnaire.tsx` shim）承载表单：`TraceLine` + `Card` 卡壳、`data-testid="ask-question-card"` 表单根、`ask-question` / `ask-answer-option` / `ask-answer-input` / `ask-answer-submit` 钩子；可见态下提交上行**用户原文单值**（选项值或自由文本；结构由后端按 `name` 铸造，组件不拼 JSON）；多问形态只读（零提交入口）；已应答按应答信封 `answers[<name>]` 回填、旧扁平 map 兼容、非 JSON 结果不抛错；不可解析输入降级为破坏性提示；`BUILD_IN_TOOL_CARDS` 键面零变更 |
 | `packages/desktop/src/components/ui/questionnaire.tsx`（新） | questionnaire shim | shadcn 生成的样式层：`Questionnaire` / `QuestionnaireItem` / `QuestionnaireTitle` / `QuestionnaireChoices` / `QuestionnaireChoice` / `QuestionnaireChoiceDescription` / `QuestionnaireInput` / `QuestionnaireError` / `QuestionnaireActions` / `QuestionnairePrevious` / `QuestionnaireNext` / `QuestionnaireSubmit` 等；底层为 `@shadcn/react/questionnaire` primitives |
 | `packages/desktop/src/components/agent/agent-messages.tsx`（扩） | 动作面透传单点 | `AgentMessagesProps` 增 `askAnswer?: { onAnswer: (text: string) => void; pendingToolCallId?: string \| null }`；`ToolPartView` 仅对 `AskUserQuestion` 名透传（按 `pendingToolCallId` 判活），其余卡零影响 |
 | `packages/desktop/src/components/agent/agent-session-view.tsx`（扩） | 两形态同透传 | `AgentSessionViewProps` 增可选 `askAnswer`；自持形态（内部 `useAgentSession`）与注入形态（`session` prop）SHALL 都把 `answer` 动作与 `askAnswer.pendingToolCallId` 合成为同一动作面下行（自持形态可由组件自行提供 `onAnswer = session.answer`，注入形态由来源侧提供） |
 | `packages/desktop/src/components/agent/session-panel.tsx`（扩） | 面板骨架合成动作面 | 不需新增 `SessionPanelState` 字段——`SessionPanelState.session` 已是 `UseAgentSessionState`，骨架直接以 `state.session.answer` 合成 `askAnswer` 下传 `AgentSessionView`（archi / change-chat 两处 hook 与面板零改动即得活卡） |
 | `packages/desktop/src/hooks/use-agent-session.ts`（扩） | 通用侧应答动作 | `UseAgentSessionState` 增 `answer: (text: string) => void`（`root` / `sessionId` 为 null 时不 invoke；`ipc.agentAnswer(root, sessionId, text)` 的 `Err` 进既有 `error` 面） |
 | `packages/desktop/src/views/explores/explore-detail-pane.tsx` / `views/agent/agent-debug-view.tsx`（扩） | 通用会话面接线 | 以 `askAnswer={{ onAnswer: session.answer }}` 注入（archi 与 change-chat 两处经 `SessionPanel` 骨架零改动即得——骨架从 `state.session.answer` 合成） |
-| `packages/desktop/src/components/agent/tool-cards.test.tsx` / `agent-messages.test.tsx` / `agent-session-view.test.tsx`（测试） | 双态与透传判据 | 活卡选项 + 提交两路应答（载荷为用户原文）/ 空表单不提交 / 提交后回落静态 / 未注入即静态且无旧文案 / 已应答信封回填 + 旧扁平 map 兼容 + 历史原文兼容 / 多问形态只读 / `pendingToolCallId` 精确对账 / 动作面只达 ask 卡 / 两形态透传 |
+| `packages/desktop/src/components/agent/message-cards/tool-cards.test.tsx` / `agent-messages.test.tsx` / `agent-session-view.test.tsx`（测试） | 双态与透传判据 | 活卡选项 + 提交两路应答（载荷为用户原文）/ 空表单不提交 / 提交后回落静态 / 未注入即静态且无旧文案 / 已应答信封回填 + 旧扁平 map 兼容 + 历史原文兼容 / 多问形态只读 / `pendingToolCallId` 精确对账 / 动作面只达 ask 卡 / 两形态透传 |
 
 ### 模块增量：补充说明动作面与 composer 变体（steer）
 
@@ -763,8 +781,8 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `packages/desktop/src/components/agent/agent-messages.tsx`（改） | 活卡兜底判据 | `isLiveAsk`：`pendingToolCallId === undefined` 时以该轮 `status === 'running'` 判活，MUST NOT 以 `part.state === 'input-available'`（= 结果缺席）兜底 |
 | `packages/desktop/src/components/agent/agent-messages.tsx`（改） | 轮内状态行 | `TurnStatusLine` 增 `interrupted` 支：呈「因应用重启中断」（`data-testid="turn-status-line"` / `data-status="interrupted"`），不进失败标题与错误原文展开面 |
 | `packages/desktop/src/components/agent/agent-messages.tsx`（改） | 轮运行态下行位 | `PartView` / `ToolPartView` 增「轮是否仍在运行」下行位：从该轮消息 `metadata.record.status` 取值穿到工具卡（缺省按运行中，保持无轮行的历史转录现状） |
-| `packages/desktop/src/components/agent/tool-cards.tsx`（改） | 卡壳判据 | `AgentToolCardProps` 增可选「轮已终结」位：四张特化卡（Bash / Read / Write / AskUserQuestion）共用，缺席按运行中处理 |
-| `packages/desktop/src/components/agent/tool-cards.tsx`（改） | `TraceLine status`（四处同形状） | 轮已终结且部件无结果时取 `pending`（或省略）而非 `running`，shimmer 退场；轮运行中沿用现状 |
+| `packages/desktop/src/components/agent/message-cards/tool-cards.tsx`（改） | 卡壳判据 | `AgentToolCardProps` 增可选「轮已终结」位：四张特化卡（Bash / Read / Write / AskUserQuestion）共用，缺席按运行中处理 |
+| `packages/desktop/src/components/agent/message-cards/tool-cards.tsx`（改） | `TraceLine status`（四处同形状） | 轮已终结且部件无结果时取 `pending`（或省略）而非 `running`，shimmer 退场；轮运行中沿用现状 |
 | `packages/desktop/src/hooks/use-agent-session.ts` | 零改动面 | `running` 派生已是「轮行清单含 `running`」⇒ `interrupted` 天然不派生运行中、不触发订阅 |
 | `packages/desktop/src/components/agent/agent-error.ts` | 零改动面 | `latestAgentFailure` 只认 `failed` 与「running 且失败 done」⇒ `interrupted` 天然不触顶部失败横幅（由测试固化该默认） |
 | `packages/desktop/src/lib/agent-adapter.ts` | 零改动面 | 事件适配层零改动：本变更不新增事件词汇（中断是库态事实，不是事件） |

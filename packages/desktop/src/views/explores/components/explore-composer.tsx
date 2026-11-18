@@ -1,10 +1,3 @@
-/**
- * explore composer：AgentInput 薄适配——渲染、档位逻辑、发送/停止收口在
- * 组件族（components/agent），本文件只保留探索页文案（label / placeholder）
- * 与 explore-* testid 前缀。`running` / `onStop` 由 `AgentSessionView` 的
- * composer 插槽（`AgentSessionActions`）注入，`onSend` 为来源侧 stance 包装。
- */
-
 import { AgentInput } from '../../../components/agent';
 import type { ExploreSendInput } from '../hooks/use-explore-session';
 
@@ -30,7 +23,6 @@ export function ExploreComposer({
   return (
     <AgentInput
       idPrefix="explore"
-      label="探索输入"
       placeholder="想聊清楚什么？调研问题、思路、约束…"
       running={running}
       onSend={({ text, permissionMode }) => onSend({ prompt: text, permissionMode })}

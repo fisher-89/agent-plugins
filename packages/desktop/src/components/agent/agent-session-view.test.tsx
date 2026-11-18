@@ -13,7 +13,7 @@ import { AgentSessionView } from './agent-session-view';
 // 进程边界 Mock（Mock策略表）：invoke 按命令名分发并可计数（session_detail /
 // agent_session_transcript / agent_session_watch / agent_start / agent_stop），
 // Channel mock 捕获 onmessage 供直投信封；`useAgentSession` / `AgentMessages` /
-// `agent-blocks` 全部真实组合（组件即链路入口）。
+// `agent/message-cards/blocks` 全部真实组合（组件即链路入口）。
 // ---------------------------------------------------------------------------
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {

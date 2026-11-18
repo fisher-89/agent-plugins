@@ -1,9 +1,5 @@
-import { ChevronDownIcon } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 
-import { Bubble, BubbleContent } from '@/components/ui/bubble';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Message, MessageContent } from '@/components/ui/message';
 import {
   type MessageScrollerGeometry,
@@ -26,8 +22,9 @@ import {
 import { asRecord, textOf } from '@/lib/parse';
 import type { AgentCitation, TurnSummary } from '@/types/dto';
 
-import { TextBlock, ThinkingBlock, ToolPairCard, isToolPart } from './agent-blocks';
-import { BUILD_IN_TOOL_CARDS } from './tool-cards';
+import { TextBlock, ThinkingBlock, ToolPairCard, isToolPart } from './message-cards/blocks';
+import { BUILD_IN_TOOL_CARDS } from './message-cards/tool-cards';
+import { UserMessage } from './message-cards/user-message';
 
 /** ask 应答动作面（三态判活的承载类型） */
 export interface AskAnswerActions {
@@ -245,121 +242,20 @@ function TurnStatusLine({
   return null;
 }
 
-/** user 提问折叠的可见行上限（显式换行与按字符估算的折行合计） */
-const USER_COLLAPSE_MAX_LINES = 3;
-/** 折行估算的单行字符数：气泡整宽约容 28 个全角字符，取保守值 */
-const USER_COLLAPSE_LINE_CHARS = 40;
-
-/** user 提问的正文：全部部件均为 text 时拼接（非 text 部件 → `null`，不参与折叠） */
-function userPartsText(message: AgentUIMessage): string | null {
-  const lines: string[] = [];
-  for (const part of message.parts) {
-    if (part.type !== 'text') return null;
-    lines.push(part.text);
-  }
-  return lines.join('\n');
-}
-
-/** 估算可见行数：显式换行逐条计，单行按字符数折算折行 */
-function userTextLines(text: string): number {
-  return text
-    .split('\n')
-    .reduce(
-      (lines, line) => lines + Math.max(1, Math.ceil(line.length / USER_COLLAPSE_LINE_CHARS)),
-      0,
-    );
-}
-
-/** 折叠预览：按行预算截取（末行超额时按字符截断），尾部补省略号 */
-function userTextPreview(text: string): string {
-  const kept: string[] = [];
-  let remaining = USER_COLLAPSE_MAX_LINES;
-  for (const line of text.split('\n')) {
-    if (remaining <= 0) break;
-    const width = Math.max(1, Math.ceil(line.length / USER_COLLAPSE_LINE_CHARS));
-    if (width <= remaining) {
-      kept.push(line);
-      remaining -= width;
-    } else {
-      kept.push(line.slice(0, remaining * USER_COLLAPSE_LINE_CHARS));
-      remaining = 0;
-    }
-  }
-  return `${kept.join('\n').trimEnd()}…`;
-}
-
-/** user 气泡正文：短提问照常渲染部件；超长时默认折叠为纯文本预览，
- * 展开后回到 markdown / 部件渲染（与 assistant 同一套块渲染件） */
-function UserBubbleBody({ message }: { message: AgentUIMessage }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const text = userPartsText(message);
-  const collapsible = text !== null && userTextLines(text) > USER_COLLAPSE_MAX_LINES;
-  if (!collapsible) {
-    return (
-      <>
-        {message.parts.map((part, index) => (
-          <PartView key={index} part={part} />
-        ))}
-      </>
-    );
-  }
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      {open ? (
-        message.parts.map((part, index) => <PartView key={index} part={part} />)
-      ) : (
-        <div className="whitespace-pre-line" data-testid="user-bubble-preview">
-          {userTextPreview(text)}
-        </div>
-      )}
-      <CollapsibleTrigger
-        data-testid="user-bubble-toggle"
-        render={
-          <Button
-            variant="link"
-            className="h-auto gap-1 p-0 text-muted-foreground hover:text-foreground"
-          />
-        }
-      >
-        {open ? '收起' : '展开'}
-        <ChevronDownIcon
-          data-icon="inline-end"
-          className="transition-transform group-data-panel-open/button:rotate-180"
-        />
-      </CollapsibleTrigger>
-    </Collapsible>
-  );
-}
-
-/** 气泡：user / assistant 各成泡（user 靠右），部件按类型映射渲染；assistant
- * 无可见部件且该轮 failed / stopped / interrupted 时以轮内状态行取代部件列表。
- * 轮状态在此算一次、向下只穿布尔（`record` 缺席按运行中——流式消息在 `Record`
- * 信封前没有轮行）。 */
-function ChatBubbleBase({
+function AssistantMessageBase({
   message,
   askAnswer,
 }: {
   message: AgentUIMessage;
   askAnswer?: AskAnswerActions;
 }): React.JSX.Element {
-  const isUser = message.role === 'user';
   const record = message.metadata?.record ?? null;
   const turnRunning = record === null ? true : record.status === 'running';
   const statusLine =
-    !isUser && !hasVisibleParts(message) && record !== null ? (
+    !hasVisibleParts(message) && record !== null ? (
       <TurnStatusLine message={message} record={record} />
     ) : null;
-  return isUser ? (
-    <Message data-testid="chat-bubble" data-role={message.role}>
-      <MessageContent>
-        <Bubble variant="tinted" className="w-full max-w-full">
-          <BubbleContent className="w-full">
-            <UserBubbleBody message={message} />
-          </BubbleContent>
-        </Bubble>
-      </MessageContent>
-    </Message>
-  ) : (
+  return (
     <Message data-testid="chat-bubble" data-role={message.role}>
       <MessageContent>
         {statusLine}
@@ -373,10 +269,7 @@ function ChatBubbleBase({
   );
 }
 
-/** store 每拍只重建当前流式消息、历史消息对象引用稳定 → 未变气泡整棵子树跳过。
- * 流式消息内部不另加 memo：其 part 外层每拍都是新引用，真正的昂贵工作由
- * TextBlock/ToolPairCard 等内层按值/嵌套引用挡住。 */
-const ChatBubble = memo(ChatBubbleBase);
+const AssistantMessage = memo(AssistantMessageBase);
 
 /**
  * 虚拟窗口的纵向几何：`gap` / `paddingStart` / `paddingEnd` 全走虚拟器，
@@ -403,7 +296,7 @@ function MessageContainer({
     (index: number) => {
       const message = messages[index];
       if (message === undefined || message.role === 'user') return null;
-      return <ChatBubble message={message} askAnswer={askAnswer} />;
+      return <AssistantMessage message={message} askAnswer={askAnswer} />;
     },
     [messages, askAnswer],
   );
@@ -423,7 +316,7 @@ function MessageContainer({
                   start={start}
                   span={span - MESSAGE_GAP_PX}
                 >
-                  <ChatBubble message={message} askAnswer={askAnswer} />
+                  <UserMessage message={message} />
                 </MessageScrollerSticky>
               ),
             },
@@ -468,8 +361,6 @@ export function AgentMessages({
 }: AgentMessagesProps): React.JSX.Element {
   const conversation = useMemo(() => filterConversation(messages), [messages]);
   const resetKey = useMemo(() => conversationIdentity(conversation), [conversation]);
-  // 引用稳定：`ChatBubble` 是 memo、虚拟列表 `renderItem` 是 useCallback——每渲染
-  // 新造对象会同时击穿两者（流式期间每个 delta 都整树重渲染）
   const onAnswer = askAnswer?.onAnswer;
   // 三态判活的第三态靠 `undefined`（未提供）与 `null`（当前无等待）可辨——此处
   // MUST NOT 用 `?? null` 归一，否则「未提供」会退化为「全静态」

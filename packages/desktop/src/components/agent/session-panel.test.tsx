@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { ResizablePanelGroup } from '@/components/ui/resizable';
@@ -121,10 +121,9 @@ function panelState(overrides: Partial<SessionPanelState> = {}): SessionPanelSta
     session: sessionState(),
     sessions: [],
     total: 0,
-    listOpen: false,
     listLoading: false,
     listError: null,
-    toggleList: vi.fn(),
+    onOpenHistory: vi.fn(),
     loadMore: vi.fn(),
     newSession: vi.fn(),
     selectSession: vi.fn(),
@@ -176,6 +175,12 @@ function mountExpanded(options: MountOptions): ReturnType<typeof render> {
   return rendered;
 }
 
+/** 点历史入口展开下拉（清单内容只在打开时挂载）。 */
+async function openHistory(prefix = 'archi-chat'): Promise<void> {
+  fireEvent.click(screen.getByTestId(`${prefix}-history`));
+  await act(async () => {});
+}
+
 beforeEach(() => {
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(null);
@@ -184,14 +189,13 @@ beforeEach(() => {
 });
 
 describe('SessionPanel：testid 前缀参数化', () => {
-  it('两套前缀各自生成全部 13 个查询挂钩且互不串味', () => {
+  it('两套前缀各自生成全部 13 个查询挂钩且互不串味', async () => {
     for (const prefix of PREFIXES) {
-      // 组合态：展开 + 清单展开 + 两条历史 + note 非 null
+      // 组合态：展开 + 历史下拉打开 + 两条历史 + note 非 null
       const expanded = mountExpanded({
         state: panelState({
           sessions: [summary('ses-1'), summary('ses-2')],
           total: 5,
-          listOpen: true,
           note: '模型改动不会自动刷新，改完点「刷新」',
         }),
         testIdPrefix: prefix,
@@ -199,6 +203,7 @@ describe('SessionPanel：testid 前缀参数化', () => {
       for (const name of ['actions', 'collapse', 'new', 'history', 'note', 'session']) {
         expect(screen.getByTestId(`${prefix}-${name}`), `${prefix}-${name} 应在场`).toBeTruthy();
       }
+      await openHistory(prefix);
       expect(screen.getByTestId(`${prefix}-history-list`)).toBeTruthy();
       expect(screen.getAllByTestId(`${prefix}-history-item`)).toHaveLength(2);
       expect(
@@ -208,15 +213,17 @@ describe('SessionPanel：testid 前缀参数化', () => {
       expanded.unmount();
 
       // 空清单态：空占位在场（history-empty）
-      const empty = mountExpanded({ state: panelState({ listOpen: true }), testIdPrefix: prefix });
+      const empty = mountExpanded({ state: panelState(), testIdPrefix: prefix });
+      await openHistory(prefix);
       expect(screen.getByTestId(`${prefix}-history-empty`)).toBeTruthy();
       empty.unmount();
 
       // 错误态：history-error
       const failed = mountExpanded({
-        state: panelState({ listOpen: true, listError: '库不可读' }),
+        state: panelState({ listError: '库不可读' }),
         testIdPrefix: prefix,
       });
+      await openHistory(prefix);
       expect(screen.getByTestId(`${prefix}-history-error`)).toBeTruthy();
       failed.unmount();
 
@@ -230,23 +237,26 @@ describe('SessionPanel：testid 前缀参数化', () => {
 });
 
 describe('SessionPanel：头区动作', () => {
-  it('title 呈现于头区，点新会话 / 历史各调一次回调且 aria-expanded 随 listOpen', () => {
+  it('title 呈现于头区，点新会话 / 历史各调一次回调且历史下拉随点开合', async () => {
     const newSession = vi.fn();
-    const toggleList = vi.fn();
-    const { rerender } = mountExpanded({
-      state: panelState({ newSession, toggleList }),
+    const onOpenHistory = vi.fn();
+    mountExpanded({
+      state: panelState({ newSession, onOpenHistory }),
       testIdPrefix: 'archi-chat',
     });
 
     expect(screen.getByTestId('archi-chat-actions').textContent).toContain('架构 Agent');
     fireEvent.click(screen.getByTestId('archi-chat-new'));
     expect(newSession).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByTestId('archi-chat-history'));
-    expect(toggleList).toHaveBeenCalledTimes(1);
 
-    expect(screen.getByTestId('archi-chat-history').getAttribute('aria-expanded')).toBe('false');
-    rerender(panelUi({ state: panelState({ newSession, toggleList, listOpen: true }) }));
-    expect(screen.getByTestId('archi-chat-history').getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByTestId('archi-chat-history-list'), '未点开时清单不挂载').toBeNull();
+    await openHistory();
+    expect(onOpenHistory, '每次打开各调一次').toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('archi-chat-history-list')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('archi-chat-history'));
+    await waitFor(() => expect(screen.queryByTestId('archi-chat-history-list')).toBeNull());
+    expect(onOpenHistory, '收起不触发取数回调').toHaveBeenCalledTimes(1);
   });
 
   it('canStart 两态：「新会话」禁用时点击零回调，可用时可点', () => {
@@ -280,7 +290,7 @@ describe('SessionPanel：状态行只认 note', () => {
 });
 
 describe('SessionPanel：历史清单', () => {
-  it('展开态两条历史：data-session-id / title 为完整 id，行内为 id 前缀与轮数，点击回调该项 id', () => {
+  it('展开态两条历史：行内为完整 id 与轮数，点选触发该项 id 的 selectSession', async () => {
     const selectSession = vi.fn();
     const first = summary('ses-archi-0001', 3);
     const second = summary('ses-archi-0002', 1);
@@ -288,60 +298,58 @@ describe('SessionPanel：历史清单', () => {
       state: panelState({
         sessions: [first, second],
         total: 2,
-        listOpen: true,
         selectSession,
       }),
       testIdPrefix: 'archi-chat',
     });
+    await openHistory();
 
     const items = screen.getAllByTestId('archi-chat-history-item');
     expect(items).toHaveLength(2);
-    expect(items[0].getAttribute('data-session-id')).toBe('ses-archi-0001');
-    expect(items[0].getAttribute('title')).toBe('ses-archi-0001');
-    expect(items[0].textContent).toContain('ses-arch');
-    expect(items[0].textContent).not.toContain('ses-archi-0001');
+    expect(items[0].textContent).toContain('ses-archi-0001');
     expect(items[0].textContent).toContain('3 轮');
+    expect(items[1].textContent).toContain('ses-archi-0002');
     expect(items[1].textContent).toContain('1 轮');
 
-    fireEvent.click(items[0]);
+    fireEvent.click(items[0] as HTMLElement);
     expect(selectSession).toHaveBeenCalledTimes(1);
-    expect(selectSession).toHaveBeenCalledWith('ses-archi-0001');
+    // base-ui RadioGroup 的 onValueChange 在值后追加事件详情，骨架只消费首参
+    expect(selectSession.mock.calls[0]?.[0]).toBe('ses-archi-0001');
   });
 
-  it('加载中 / 错误 / 空态三互斥：同一拍只呈其一', () => {
+  it('加载中 / 错误 / 空态三互斥：同一拍只呈其一', async () => {
     const { rerender } = mountExpanded({
-      state: panelState({ listOpen: true, listLoading: true }),
+      state: panelState({ listLoading: true }),
       testIdPrefix: 'archi-chat',
     });
+    await openHistory();
     expect(screen.getByTestId('archi-chat-history-list').textContent).toContain('加载中…');
     expect(screen.queryByTestId('archi-chat-history-empty')).toBeNull();
     expect(screen.queryByTestId('archi-chat-history-error')).toBeNull();
 
-    rerender(panelUi({ state: panelState({ listOpen: true, listError: '库不可读' }) }));
+    rerender(panelUi({ state: panelState({ listError: '库不可读' }) }));
     expect(screen.getByTestId('archi-chat-history-error').textContent).toBe(
       '加载历史会话失败：库不可读',
     );
     expect(screen.queryByTestId('archi-chat-history-empty')).toBeNull();
     expect(screen.getByTestId('archi-chat-history-list').textContent).not.toContain('加载中…');
 
-    rerender(
-      panelUi({ state: panelState({ listOpen: true, listLoading: false, listError: null }) }),
-    );
+    rerender(panelUi({ state: panelState({ listLoading: false, listError: null }) }));
     expect(screen.getByTestId('archi-chat-history-empty').textContent).toBe('（暂无历史会话）');
     expect(screen.queryByTestId('archi-chat-history-error')).toBeNull();
   });
 
-  it('分页四形态：items < total 呈「加载更多」可点；加载中禁用；等量 / 超量不呈', () => {
+  it('分页四形态：items < total 呈「加载更多」可点；加载中禁用；等量 / 超量不呈', async () => {
     const loadMore = vi.fn();
     const { rerender } = mountExpanded({
       state: panelState({
         sessions: [summary('ses-1'), summary('ses-2')],
         total: 5,
-        listOpen: true,
         loadMore,
       }),
       testIdPrefix: 'archi-chat',
     });
+    await openHistory();
     fireEvent.click(screen.getByTestId('archi-chat-history-more'));
     expect(loadMore).toHaveBeenCalledTimes(1);
 
@@ -350,7 +358,6 @@ describe('SessionPanel：历史清单', () => {
         state: panelState({
           sessions: [summary('ses-1'), summary('ses-2')],
           total: 5,
-          listOpen: true,
           listLoading: true,
           loadMore,
         }),
@@ -366,7 +373,6 @@ describe('SessionPanel：历史清单', () => {
         state: panelState({
           sessions: [summary('ses-1'), summary('ses-2')],
           total: 2,
-          listOpen: true,
           loadMore,
         }),
       }),
@@ -378,7 +384,6 @@ describe('SessionPanel：历史清单', () => {
         state: panelState({
           sessions: [summary('ses-1'), summary('ses-2'), summary('ses-3')],
           total: 2,
-          listOpen: true,
           loadMore,
         }),
       }),

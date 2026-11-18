@@ -228,14 +228,13 @@ function sendInput(
 // ---------------------------------------------------------------------------
 
 describe('useChangeChat：打开即空态', () => {
-  it('挂载后 sessionId 为 null、清单空、未展开，且零会话类 invoke', async () => {
+  it('挂载后 sessionId 为 null、清单空、且零会话类 invoke', async () => {
     const { result } = await mounted();
 
     expect(result.current.sessionId).toBeNull();
     expect(result.current.currentSessionId).toBeNull();
     expect(result.current.sessions).toEqual([]);
     expect(result.current.total).toBe(0);
-    expect(result.current.listOpen).toBe(false);
     expect(result.current.listLoading).toBe(false);
     expect(result.current.listError).toBeNull();
     expect(invokeMock).not.toHaveBeenCalled();
@@ -382,12 +381,12 @@ function pagedSessions(total: number): ListHandler {
 }
 
 describe('useChangeChat：历史清单取数', () => {
-  it('toggleList 展开 → list_change_chat_sessions 恰一次且参数 { root, id, offset: 0, limit: 20 }', async () => {
+  it('onOpenHistory 打开 → list_change_chat_sessions 恰一次且参数 { root, id, offset: 0, limit: 20 }', async () => {
     ipc.list = pagedSessions(2);
     const { result } = await mounted();
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
 
@@ -398,36 +397,34 @@ describe('useChangeChat：历史清单取数', () => {
       offset: 0,
       limit: 20,
     });
-    expect(result.current.listOpen).toBe(true);
     expect(result.current.listLoading).toBe(false);
     expect(result.current.listError).toBeNull();
     expect(result.current.sessions).toHaveLength(2);
     expect(result.current.total).toBe(2);
   });
 
-  it('每次展开都重取首屏（收起不清空、再次展开仍在飞一跳）', async () => {
+  it('每次打开都重取首屏（清单不清空、非缓存）', async () => {
     ipc.list = pagedSessions(2);
     const { result } = await mounted();
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(callsOf('list_change_chat_sessions')).toHaveLength(1);
     const firstPage = result.current.sessions;
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
-    expect(result.current.listOpen).toBe(false);
-    expect(result.current.sessions, '收起不清空').toEqual(firstPage);
+    expect(result.current.sessions, '重取不清空已加载页').toEqual(firstPage);
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
-    expect(callsOf('list_change_chat_sessions'), '每次展开重取（非缓存）').toHaveLength(2);
+    expect(callsOf('list_change_chat_sessions'), '每次打开重取（非缓存）').toHaveLength(3);
     expect(argsOf('list_change_chat_sessions')['offset']).toBe(0);
   });
 
@@ -436,7 +433,7 @@ describe('useChangeChat：历史清单取数', () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toHaveLength(20);
@@ -463,7 +460,7 @@ describe('useChangeChat：历史清单取数', () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     for (let round = 0; round < 5; round += 1) {
@@ -492,18 +489,18 @@ describe('useChangeChat：历史清单取数', () => {
     ipc.list = pagedSessions(2);
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toHaveLength(2);
 
     ipc.list = () => Promise.reject('清单取数失败');
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
 
@@ -518,17 +515,17 @@ describe('useChangeChat：历史清单取数', () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toEqual([]);
     expect(result.current.total).toBe(0);
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toEqual([]);
@@ -541,7 +538,7 @@ describe('useChangeChat：历史清单取数', () => {
     ipc.list = pagedSessions(20);
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toHaveLength(20);
@@ -560,10 +557,10 @@ describe('useChangeChat：历史清单取数', () => {
     // 第三拍（收起再展开）以新页落地
     ipc.list = () => Promise.resolve({ sessions: [], total: 0 });
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toEqual([]);
@@ -648,7 +645,7 @@ describe('useChangeChat：新会话与历史点选', () => {
     });
     await act(async () => {});
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toHaveLength(1);
@@ -669,7 +666,7 @@ describe('useChangeChat：新会话与历史点选', () => {
     expect(argsOf('agent_start')['sessionId']).toBeNull();
   });
 
-  it('change id 变化 → 会话 id / 展开态 / 清单复位，随后以新 id 取数', async () => {
+  it('change id 变化 → 会话 id / 清单复位，随后以新 id 取数', async () => {
     ipc.detail = summary([turn(21, 'completed', 'ses-1')], 'ses-1');
     ipc.list = () => Promise.resolve({ sessions: [summary([], 'ses-1')], total: 1 });
     const { result, rerender } = await mounted();
@@ -678,7 +675,7 @@ describe('useChangeChat：新会话与历史点选', () => {
     });
     await act(async () => {});
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toHaveLength(1);
@@ -686,12 +683,11 @@ describe('useChangeChat：新会话与历史点选', () => {
     await rerenderWith(rerender, { changeId: 'chg-2' });
 
     expect(result.current.sessionId).toBeNull();
-    expect(result.current.listOpen).toBe(false);
     expect(result.current.sessions).toEqual([]);
     expect(result.current.total).toBe(0);
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(argsOf('list_change_chat_sessions')['id']).toBe('chg-2');
@@ -707,7 +703,7 @@ describe('useChangeChat：参数守卫', () => {
     const { result } = await mounted({ root: null });
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     sendInput(result.current.send);
@@ -722,7 +718,7 @@ describe('useChangeChat：参数守卫', () => {
     const { result } = await mounted({ changeId: null });
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(callsOf('list_change_chat_sessions')).toHaveLength(0);
@@ -754,7 +750,7 @@ describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
     resetIpc({ list: pagedSessions(3) });
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await waitFor(() => expect(result.current.sessions).toHaveLength(3));
 
@@ -779,7 +775,7 @@ describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
     });
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
@@ -791,7 +787,7 @@ describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
     resetIpc({ list: () => Promise.reject('查询会话失败：db locked') });
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await waitFor(() => expect(result.current.listError).not.toBeNull());
 
@@ -809,7 +805,7 @@ describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
     });
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
@@ -823,7 +819,7 @@ describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
     resetIpc({ list: () => Promise.resolve(emptyPage()) });
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await waitFor(() => expect(result.current.listLoading).toBe(false));
 
@@ -836,7 +832,7 @@ describe('useChangeChat：经 ipc 的参数面 / 结果面', () => {
     resetIpc({ list: pagedSessions(40) });
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await waitFor(() => expect(result.current.sessions.length).toBeGreaterThan(0));
     const pageSize = result.current.sessions.length;
@@ -952,7 +948,7 @@ describe('useChangeChat：状态行 note', () => {
     }
   });
 
-  it('骨架契约继承：返回对象可赋给 SessionPanelState（12 字段逐字段在场）', async () => {
+  it('骨架契约继承：返回对象可赋给 SessionPanelState（11 字段逐字段在场）', async () => {
     const { result } = await mounted();
     const state: SessionPanelState = result.current;
 
@@ -960,10 +956,9 @@ describe('useChangeChat：状态行 note', () => {
       'session',
       'sessions',
       'total',
-      'listOpen',
       'listLoading',
       'listError',
-      'toggleList',
+      'onOpenHistory',
       'loadMore',
       'newSession',
       'selectSession',
@@ -981,7 +976,7 @@ describe('useChangeChat：状态行 note', () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.listError).toContain('库不可读');

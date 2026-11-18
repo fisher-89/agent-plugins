@@ -5,11 +5,15 @@
  * 拿到 `undefined`；统一归空对象使消费点的缺省分支（省略该行 / 回退 JSON）
  * 由同一条判据触发。
  */
-export function asRecord(value: unknown): Record<string, unknown> {
+export function asRecord<T extends Record<string, unknown> = Record<string, unknown>>(
+  value: unknown,
+): Partial<T> {
   if (value instanceof Map) return Object.fromEntries(value.entries());
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
-  const record: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) record[key] = item;
+  const record: Partial<T> = {};
+  for (const [key, item] of Object.entries(value)) {
+    Reflect.set(record, key, item);
+  }
   return record;
 }
 

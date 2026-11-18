@@ -5,6 +5,7 @@ export * from './bubble';
 export * from './button';
 export * from './button-group';
 export * from './card';
+export * from './checkbox';
 export * from './code-block';
 export * from './collapsible';
 export * from './context-menu';

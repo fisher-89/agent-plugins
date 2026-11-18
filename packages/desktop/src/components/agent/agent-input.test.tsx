@@ -17,7 +17,7 @@ function mount(
     disabled?: boolean;
     /** 禁用理由文案（缺省不呈现） */
     disabledReason?: string;
-    /** 隐藏 permission-mode 档位行（缺省 false） */
+    /** 隐藏 permission-mode 档位行（缺省 true；显式 false 才呈档位） */
     hidePermissionMode?: boolean;
     /** 在途提交态（缺省 false） */
     pending?: boolean;
@@ -30,7 +30,6 @@ function mount(
   const rendered = render(
     <AgentInput
       idPrefix={overrides.idPrefix ?? 'explore'}
-      label="探索输入"
       placeholder="要探索什么？"
       running={overrides.running ?? false}
       disabled={overrides.disabled}
@@ -106,7 +105,7 @@ describe('AgentInput：发送与档位', () => {
 
   it('permission-mode 三档切换生效，默认档 bypassPermissions', async () => {
     const onSend = vi.fn();
-    mount({ onSend });
+    mount({ onSend, hidePermissionMode: false });
 
     expect(modeValue()).toBe('bypassPermissions');
 
@@ -122,7 +121,7 @@ describe('AgentInput：发送与档位', () => {
 
   it('档位切换到 default 后发送携带 default（三档均可选）', async () => {
     const onSend = vi.fn();
-    mount({ onSend });
+    mount({ onSend, hidePermissionMode: false });
 
     await pickMode('default');
     typeText('默认档');
@@ -234,7 +233,7 @@ describe('AgentInput：Ctrl/Cmd+Enter 快捷发送', () => {
 
   it('快捷键沿用当前档位：切到 default 后 Ctrl+Enter 携 default', async () => {
     const onSend = vi.fn();
-    mount({ onSend });
+    mount({ onSend, hidePermissionMode: false });
 
     await pickMode('default');
     typeText('默认档快捷发送');
@@ -256,7 +255,7 @@ describe('AgentInput：Ctrl/Cmd+Enter 快捷发送', () => {
 
   it('先输入后切档位，Ctrl+Enter 携新档位（档位变更不需靠再输入一次生效）', async () => {
     const onSend = vi.fn();
-    mount({ onSend });
+    mount({ onSend, hidePermissionMode: false });
 
     typeText('先打字后换档');
     await pickMode('default');
@@ -281,12 +280,11 @@ describe('AgentInput：边界', () => {
   });
 
   it('经 idPrefix 注入的前缀应用到输入、档位下拉与按钮的 id / data-testid', () => {
-    mount({ idPrefix: 'debug', running: true });
+    mount({ idPrefix: 'debug', running: true, hidePermissionMode: false });
 
     // 输入框：id 与 testid 同为前缀化产物
     const prompt = screen.getByTestId('debug-prompt');
     expect(prompt.id).toBe('debug-prompt');
-    expect(screen.getByLabelText('探索输入').id).toBe('debug-prompt');
     // 档位下拉与按钮
     const mode = screen.getByTestId('debug-permission-mode');
     expect(mode.id).toBe('debug-permission-mode');
@@ -373,18 +371,18 @@ describe('AgentInput：整面板禁用态', () => {
   });
 
   it('禁用不清空既有文本与档位：先输入再切禁用 → 文本与档位保留', async () => {
-    const { rendered } = mount({ disabled: false });
+    const { rendered } = mount({ disabled: false, hidePermissionMode: false });
     typeText('先输入的文本');
     await pickMode('default');
 
     rendered.rerender(
       <AgentInput
         idPrefix="explore"
-        label="探索输入"
         placeholder="要探索什么？"
         running={false}
         disabled
         disabledReason="流程运行中"
+        hidePermissionMode={false}
         onSend={vi.fn()}
         onStop={vi.fn()}
       />,
@@ -408,10 +406,9 @@ describe('AgentInput：整面板禁用态', () => {
 // ---------------------------------------------------------------------------
 // steer-running-agent-step：composer 变体加位（AC-12）
 //
-// `hidePermissionMode`（缺省 false）：true 时档位行缺席、`onSend` 的
-// `permissionMode` 位保留但下游不消费；`pending`（缺省 false）：true 时发送禁用 +
-// 呈可见「排队中…」，输入与停止入口不受影响。两位缺省即默认变体（既有用例零
-// 改动即回归判据）。
+// `hidePermissionMode`（缺省 true）：false 时才呈档位行、`onSend` 的
+// `permissionMode` 位恒保留（隐藏时取缺省 bypassPermissions）；`pending`（缺省
+// false）：true 时发送禁用 + 呈可见「排队中…」，输入与停止入口不受影响。
 // ---------------------------------------------------------------------------
 
 /** 可切换两位的可控渲染（复位 / 并存用例需要 rerender）。 */
@@ -428,7 +425,6 @@ function renderVariant(props: {
   const rendered = render(
     <AgentInput
       idPrefix="explore"
-      label="探索输入"
       placeholder="要探索什么？"
       running={props.running ?? false}
       disabled={props.disabled}
@@ -443,8 +439,8 @@ function renderVariant(props: {
 }
 
 describe('AgentInput：hidePermissionMode（AC-12）', () => {
-  it('true → 档位行缺席，输入 / 发送 / 停止照常呈现', () => {
-    mount({ hidePermissionMode: true, running: true });
+  it('缺省即 true：不传位时档位行缺席，输入 / 发送 / 停止照常呈现', () => {
+    mount({ running: true });
 
     expect(screen.queryByTestId('explore-permission-mode')).toBeNull();
     expect(promptBox()).toBeTruthy();
@@ -452,7 +448,13 @@ describe('AgentInput：hidePermissionMode（AC-12）', () => {
     expect(screen.getByTestId('explore-stop')).toBeTruthy();
   });
 
-  it('显式 false 与缺省等价：档位行在场', () => {
+  it('显式 true 与缺省等价：档位行缺席', () => {
+    mount({ hidePermissionMode: true });
+
+    expect(screen.queryByTestId('explore-permission-mode')).toBeNull();
+  });
+
+  it('显式 false → 档位行在场（唯一呈现档位的入口）', () => {
     mount({ hidePermissionMode: false });
     expect(screen.getByTestId('explore-permission-mode')).toBeTruthy();
     expect(modeValue()).toBe('bypassPermissions');
@@ -502,7 +504,6 @@ describe('AgentInput：pending 在途提交态（AC-12）', () => {
     rendered.rerender(
       <AgentInput
         idPrefix="explore"
-        label="探索输入"
         placeholder="要探索什么？"
         running={false}
         pending={false}

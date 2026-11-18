@@ -12,8 +12,6 @@ import type { AgentPermissionMode } from '@/types/dto';
 export interface AgentInputProps {
   /** id 与 data-testid 前缀（如 explore → explore-prompt / explore-send） */
   idPrefix?: string;
-  /** 输入框 label（缺省不呈现） */
-  label?: string;
   /** 输入框 placeholder */
   placeholder?: string;
   /** 运行中：发送禁用 + 停止入口呈现 */
@@ -23,7 +21,7 @@ export interface AgentInputProps {
   disabled?: boolean;
   /** 禁用理由文案（`disabled` 时呈于工具行上方；缺省不呈现） */
   disabledReason?: string;
-  /** 隐藏 permission-mode 档位行（缺省 false）：`true` 时工具行不渲档位，
+  /** 隐藏 permission-mode 档位行（缺省 true）：`true` 时工具行不渲档位，
    * `onSend` 的 `permissionMode` 参数位保留但下游 MUST NOT 消费 */
   hidePermissionMode?: boolean;
   /** 在途提交态（缺省 false）：`true` 时发送禁用并呈「排队中…」可见文案
@@ -146,17 +144,15 @@ function ComposerToolbar({
  * composer：prompt 输入（原生 styled textarea）+ permission-mode 档位（默认
  * bypassPermissions）+ 发送（运行中禁发）+ 停止入口（运行中呈现）。发送后
  * 输入清空；档位状态本地持有。整面板禁用态（`disabled`）下 textarea 与发送
- * 同时禁用并呈理由文案——用户不会「打了字发不出去」。`hidePermissionMode` 与
- * `pending` 两位缺省即默认变体（渲染与交互逐字不变）。
+ * 同时禁用并呈理由文案——用户不会「打了字发不出去」。
  */
 export function AgentInput({
   idPrefix = 'common',
-  label,
   placeholder = '向Agent描述问题',
   running,
   disabled = false,
   disabledReason,
-  hidePermissionMode = false,
+  hidePermissionMode = true,
   pending = false,
   onSend,
   onStop,
@@ -180,11 +176,6 @@ export function AgentInput({
       className="rounded-lg border border-border bg-card px-3 py-2.5"
       data-testid={`${idPrefix}-composer`}
     >
-      {label !== undefined && (
-        <label className="mb-1 block text-xs text-muted-foreground" htmlFor={`${idPrefix}-prompt`}>
-          {label}
-        </label>
-      )}
       <InputArea
         idPrefix={idPrefix}
         placeholder={placeholder}

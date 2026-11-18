@@ -2,8 +2,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentToolOutput } from '../../lib/agent-adapter';
-import { FinishStepCard, ToolPairCard, WebSearchCard } from './agent-blocks';
+import type { AgentToolOutput } from '../../../lib/agent-adapter';
+import { FinishStepCard, ToolPairCard, WebSearchCard } from './blocks';
 import { BUILD_IN_TOOL_CARDS } from './tool-cards';
 
 // ---------------------------------------------------------------------------
@@ -301,10 +301,12 @@ describe('BUILD_IN_TOOL_CARDS：finish_step 命中渲染（经注册表）', () 
     );
 
     const card = screen.getByTestId('block-tool-use');
-    expect(screen.getByTestId('block-finish-step-summary').textContent).toContain('含未通过项');
+    expect(screen.getByTestId('block-finish-step-summary').textContent).toBe('检查 1 项未通过');
     fireEvent.click(within(card).getByRole('button'));
     expect(screen.getAllByTestId('block-finish-step-item')).toHaveLength(2);
-    expect(screen.getByTestId('block-tool-result').textContent).toBe('已收口');
+    expect(card.textContent).toContain('评估报告');
+    // checklist 形态不呈工具结果区（结果面只在 decision 回退形态）
+    expect(screen.queryByTestId('block-tool-result')).toBeNull();
   });
 
   it('decision 形态经注册表取卡渲染 → 动作摘要行（backtrack 目标 + reason）', () => {

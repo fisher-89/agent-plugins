@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
 import { ArchiChatComposer, type ArchiChatComposerProps } from './archi-chat-composer';
@@ -29,55 +29,36 @@ function sendButton(): HTMLButtonElement {
   return screen.getByTestId('archi-chat-send') as HTMLButtonElement;
 }
 
-/** 档位选择器（StandardSelect / base-ui Select）：测试读取 `data-value`。 */
-function modeAnchor(): HTMLElement {
-  return screen.getByTestId('archi-chat-permission-mode');
-}
-
-async function pickMode(mode: string): Promise<void> {
-  const trigger = modeAnchor().closest('button');
-  if (!trigger) throw new Error('SelectValue 不在触发器按钮内');
-  fireEvent.mouseDown(trigger);
-  const option = within(await screen.findByRole('listbox')).getByRole('option', { name: mode });
-  fireEvent.pointerDown(option);
-  fireEvent.click(option);
-  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
-}
-
 describe('ArchiChatComposer：逐 prop 映射', () => {
-  it('前缀落到容器 / 输入 / 发送 / 档位，label 与 placeholder 逐字', async () => {
+  it('前缀落到容器 / 输入 / 发送，placeholder 逐字，档位行缺省隐藏', () => {
     render(<ArchiChatComposer {...baseProps()} />);
 
     expect(screen.getByTestId('archi-chat-composer')).toBeTruthy();
     expect(promptBox().getAttribute('placeholder')).toBe(PLACEHOLDER);
-    expect(screen.getByText('架构 Agent')).toBeTruthy();
     // 发送入口为图标按钮（可及名由 Tooltip「发送」承载）
     expect(sendButton().getAttribute('data-testid')).toBe('archi-chat-send');
-
-    expect(modeAnchor().getAttribute('data-value')).toBe('bypassPermissions');
-    fireEvent.mouseDown(modeAnchor().closest('button')!);
-    const options = within(await screen.findByRole('listbox'))
-      .getAllByRole('option')
-      .map((option) => option.textContent);
-    expect(options).toEqual(['bypassPermissions', 'acceptEdits', 'default']);
+    // 档位行不再呈现（AgentInput 缺省 hidePermissionMode = true）
+    expect(screen.queryByTestId('archi-chat-permission-mode')).toBeNull();
   });
 });
 
 describe('ArchiChatComposer：发送与档位', () => {
-  it('输入文本 + 选 default 档 → onSend 恰一次且输入清空', async () => {
+  it('输入文本 + 发送 → onSend 恰一次（缺省 bypassPermissions）且输入清空', () => {
     const onSend = vi.fn();
     render(<ArchiChatComposer {...baseProps({ onSend })} />);
 
     fireEvent.change(promptBox(), { target: { value: '架构现状是什么' } });
-    await pickMode('default');
     fireEvent.click(sendButton());
 
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith({ text: '架构现状是什么', permissionMode: 'default' });
+    expect(onSend).toHaveBeenCalledWith({
+      text: '架构现状是什么',
+      permissionMode: 'bypassPermissions',
+    });
     expect(promptBox().value).toBe('');
   });
 
-  it('未选档直接发送 → 缺省档 bypassPermissions（档位沿用选择器缺省）', () => {
+  it('未选择档位（档位行缺席）→ 发送恒携缺省 bypassPermissions', () => {
     const onSend = vi.fn();
     render(<ArchiChatComposer {...baseProps({ onSend })} />);
 

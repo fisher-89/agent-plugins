@@ -548,7 +548,7 @@ describe('MessageScrollerViewport：类名与 HUD 属性', () => {
       'overflow-y-auto',
       'overscroll-contain',
       'contain-content',
-      'data-autoscrolling:scrollbar-thumb-transparent',
+      'scrollbar-thumb-muted',
       'data-pending-scroll:invisible',
     ]) {
       expect(viewport.className, className).toContain(className);

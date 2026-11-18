@@ -722,7 +722,7 @@ describe('views/explores 入口：三名与路由上下文不外露', () => {
   });
 });
 
-describe('components/ui 入口：39 条 export * 与零遮蔽前提', () => {
+describe('components/ui 入口：40 条 export * 与零遮蔽前提', () => {
   const ENTRY = 'src/components/ui/index.ts';
   const DIR = 'src/components/ui';
   const STAR_EXPORT = /^export \* from '\.\/([a-z0-9][a-z0-9-]*)';$/;
@@ -734,25 +734,25 @@ describe('components/ui 入口：39 条 export * 与零遮蔽前提', () => {
   }
   const ZERO_REFERENCE_MODULES = ['button-group', 'context-menu', 'input-group', 'marker', 'sheet'];
 
-  /** 39 个模块名（目录级非测试源文件，模块名 = 文件名去 `.tsx`）。 */
+  /** 40 个模块名（目录级非测试源文件，模块名 = 文件名去 `.tsx`）。 */
   function uiModules(): string[] {
     return filesOf(DIR)
       .filter((file) => file.endsWith('.tsx') && !file.endsWith('.test.tsx'))
       .map((file) => file.slice(0, -'.tsx'.length));
   }
 
-  it('应恰 39 条 export * 且按模块名字典序', () => {
+  it('应恰 40 条 export * 且按模块名字典序', () => {
     const lines = codeLines(sourceOf(ENTRY));
-    expect(lines).toHaveLength(39);
+    expect(lines).toHaveLength(40);
     expect(lines.filter((line) => !isStarExportLine(line))).toEqual([]);
     const modules = lines.map((line) => STAR_EXPORT.exec(line)![1]);
     expect(modules).toEqual([...modules].sort());
   });
 
-  it('39 条 specifier 应与目录模块双向一一对应且零重复', () => {
+  it('40 条 specifier 应与目录模块双向一一对应且零重复', () => {
     const specifiers = specifiersOf(sourceOf(ENTRY));
-    expect(specifiers).toHaveLength(39);
-    expect(new Set(specifiers).size).toBe(39);
+    expect(specifiers).toHaveLength(40);
+    expect(new Set(specifiers).size).toBe(40);
     const specModules = specifiers.map((spec) => spec.slice('./'.length));
     expect([...specModules].sort()).toEqual([...uiModules()].sort());
     expect(filesOf(DIR).filter((file) => file.endsWith('.ts'))).toEqual(['index.ts']);
@@ -782,11 +782,11 @@ describe('components/ui 入口：39 条 export * 与零遮蔽前提', () => {
     expect(codeLines(sourceOf(ENTRY)).filter((line) => IMPLEMENTATION_LINE.test(line))).toEqual([]);
   });
 
-  it('39 个模块应合计 242 名具名导出、零重名、零 export default', () => {
+  it('40 个模块应合计 243 名具名导出、零重名、零 export default', () => {
     const modules = uiModules();
-    expect(modules).toHaveLength(39);
+    expect(modules).toHaveLength(40);
     const names = modules.flatMap((module) => declaredNamesOf(sourceOf(`${DIR}/${module}.tsx`)));
-    expect(names).toHaveLength(242);
+    expect(names).toHaveLength(243);
     expect(duplicatesOf(names)).toEqual([]);
     const withDefault = modules.filter((module) =>
       sourceOf(`${DIR}/${module}.tsx`).includes('export default'),
@@ -794,7 +794,7 @@ describe('components/ui 入口：39 条 export * 与零遮蔽前提', () => {
     expect(withDefault).toEqual([]);
   });
 
-  it('5 个已知零引用模块应在 39 条面内（本变更不清理）', () => {
+  it('5 个已知零引用模块应在 40 条面内（本变更不清理）', () => {
     const source = sourceOf(ENTRY);
     for (const module of ZERO_REFERENCE_MODULES) {
       expect(source.includes(`export * from './${module}';`), `${module} 在面内`).toBe(true);

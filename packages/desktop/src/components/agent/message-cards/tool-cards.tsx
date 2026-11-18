@@ -40,7 +40,7 @@ import { useHighlightedCode } from '@/hooks/use-highlighted-code';
 import type { AgentToolOutput } from '@/lib/agent-adapter';
 import { asRecord, numberOf, textOf } from '@/lib/parse';
 
-import { FinishStepCard, WebSearchCard } from './agent-blocks';
+import { FinishStepCard, WebSearchCard } from './blocks';
 
 /** 特化工具卡入参（output 为 null 即尚无结果；渲染 or null 回退由卡自决） */
 interface AgentToolCardProps {

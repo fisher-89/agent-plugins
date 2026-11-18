@@ -226,7 +226,7 @@ function MessageScrollerViewport({
       data-autoscrolling={virtualizer.isScrolling ? 'true' : undefined}
       data-pending-scroll={pendingScroll ? 'true' : undefined}
       className={cn(
-        'size-full min-h-0 min-w-0 scroll-fade-b scrollbar-thin scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-autoscrolling:scrollbar-thumb-transparent data-autoscrolling:scrollbar-track-transparent data-pending-scroll:invisible',
+        'size-full min-h-0 min-w-0 scroll-fade-b scrollbar-thin scrollbar-thumb-muted scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-pending-scroll:invisible',
         className,
       )}
     />
@@ -397,7 +397,7 @@ function MessageScrollerSticky({
       <div
         ref={measure}
         style={{ position: 'sticky', top: 0 }}
-        className="pointer-events-auto shadow-md shadow-black/20"
+        className="pointer-events-auto shadow-lg shadow-black/40"
       >
         {children}
       </div>

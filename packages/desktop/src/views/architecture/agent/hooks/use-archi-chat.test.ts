@@ -288,7 +288,7 @@ function pagedSessions(total: number): ListHandler {
 }
 
 describe('useArchiChat：历史清单取数', () => {
-  it('挂载零清单 invoke；展开取首屏一次；收起再展开再取一次（收起不清空）', async () => {
+  it('挂载零清单 invoke；每次打开重取首屏一次（清单不清空、非缓存）', async () => {
     ipc.list = pagedSessions(2);
     const { result } = await mounted();
 
@@ -297,27 +297,25 @@ describe('useArchiChat：历史清单取数', () => {
     );
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(callsOf('list_archi_chat_sessions')).toHaveLength(1);
     expect(argsOf('list_archi_chat_sessions')).toEqual({ root: ROOT, offset: 0, limit: 20 });
-    expect(result.current.listOpen).toBe(true);
     expect(result.current.sessions).toHaveLength(2);
     expect(result.current.total).toBe(2);
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
-    expect(result.current.listOpen).toBe(false);
-    expect(result.current.sessions, '收起不清空').toHaveLength(2);
+    expect(result.current.sessions, '重取不清空已加载页').toHaveLength(2);
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
-    expect(callsOf('list_archi_chat_sessions'), '再展开再取一次首屏').toHaveLength(2);
+    expect(callsOf('list_archi_chat_sessions'), '每次打开各取一次首屏').toHaveLength(3);
     expect(argsOf('list_archi_chat_sessions')['offset']).toBe(0);
   });
 
@@ -326,7 +324,7 @@ describe('useArchiChat：历史清单取数', () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toHaveLength(20);
@@ -355,7 +353,7 @@ describe('useArchiChat：历史清单取数', () => {
     ipc.list = pagedSessions(2);
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     const baseline = callsOf('list_archi_chat_sessions').length;
@@ -381,7 +379,7 @@ describe('useArchiChat：历史清单取数', () => {
     ipc.list = pagedSessions(25);
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions).toHaveLength(20);
@@ -399,7 +397,7 @@ describe('useArchiChat：历史清单取数', () => {
     resetIpc({ list: () => Promise.reject(new Error('库不可读')) });
     const fresh = await mounted();
     act(() => {
-      fresh.result.current.toggleList();
+      fresh.result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(fresh.result.current.listError).toContain('库不可读');
@@ -447,11 +445,11 @@ describe('useArchiChat：新会话与历史点选', () => {
     }
   });
 
-  it('selectSession 以 sessionId 直查重放并收起清单（清单只作探测）', async () => {
+  it('selectSession 以 sessionId 直查重放（清单只作探测；下拉开合状态归骨架）', async () => {
     ipc.detail = summary([turn(12, 'completed', 'ses-2')], 'ses-2');
     const { result } = await mounted();
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     const listBefore = callsOf('list_archi_chat_sessions').length;
@@ -464,7 +462,6 @@ describe('useArchiChat：新会话与历史点选', () => {
 
     expect(result.current.sessionId).toBe('ses-2');
     expect(result.current.currentSessionId).toBe('ses-2');
-    expect(result.current.listOpen, '点选后清单收起').toBe(false);
     expect(argsOf('session_detail')).toEqual({ root: ROOT, sessionId: 'ses-2' });
     expect(Object.keys(argsOf('session_detail')).sort()).toEqual(['root', 'sessionId']);
     expect(argsOf('agent_session_transcript')).toEqual({ root: ROOT, sessionId: 'ses-2' });
@@ -510,7 +507,7 @@ describe('useArchiChat：运行中禁发', () => {
     expect(callsOf('agent_start').length, '运行中禁发（零第二发）').toBe(startsBefore);
   });
 
-  it('同拍历史浏览仍可用：toggleList / loadMore / selectSession 零拦截', async () => {
+  it('同拍历史浏览仍可用：onOpenHistory / loadMore / selectSession 零拦截', async () => {
     ipc.detail = summary([turn(22, 'running', 'ses-1')], 'ses-1');
     ipc.list = pagedSessions(25);
     const { result } = await mounted();
@@ -523,7 +520,7 @@ describe('useArchiChat：运行中禁发', () => {
 
     const listBefore = callsOf('list_archi_chat_sessions').length;
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(
@@ -595,17 +592,17 @@ describe('useArchiChat：状态行 note', () => {
 // ---------------------------------------------------------------------------
 
 describe('useArchiChat：root 两态与切根复位', () => {
-  it('root = null → 全会话命令零 invoke，send / toggleList 为空操作不抛错', async () => {
+  it('root = null → 全会话命令零 invoke，send / onOpenHistory 为空操作不抛错', async () => {
     const { result } = await mounted({ root: null });
 
     sendInput(result.current.send);
     await act(async () => {});
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
 
@@ -627,14 +624,14 @@ describe('useArchiChat：root 两态与切根复位', () => {
     const { result, rerender } = await mounted({ root: null });
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(callsOf('list_archi_chat_sessions')).toHaveLength(0);
 
     await rerenderWith(rerender, { root: ROOT });
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(callsOf('list_archi_chat_sessions')).toHaveLength(1);
@@ -650,7 +647,7 @@ describe('useArchiChat：root 两态与切根复位', () => {
     const { result, rerender } = await mounted({ root: ROOT });
 
     act(() => {
-      result.current.toggleList();
+      result.current.onOpenHistory();
     });
     await act(async () => {});
     expect(result.current.sessions, 'A 库请求在途').toHaveLength(0);
@@ -663,14 +660,13 @@ describe('useArchiChat：root 两态与切根复位', () => {
     expect(result.current.sessions, 'A 库残留页不落 B 库').toEqual([]);
     expect(result.current.total).toBe(0);
     expect(result.current.sessionId).toBeNull();
-    expect(result.current.listOpen).toBe(false);
     expect(result.current.listLoading).toBe(false);
     expect(result.current.listError).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// 骨架契约继承：返回对象即 SessionPanelState（12 字段）+ 面板专有面
+// 骨架契约继承：返回对象即 SessionPanelState（11 字段）+ 面板专有面
 // ---------------------------------------------------------------------------
 
 describe('useArchiChat：骨架契约继承', () => {
@@ -682,10 +678,9 @@ describe('useArchiChat：骨架契约继承', () => {
       'session',
       'sessions',
       'total',
-      'listOpen',
       'listLoading',
       'listError',
-      'toggleList',
+      'onOpenHistory',
       'loadMore',
       'newSession',
       'selectSession',

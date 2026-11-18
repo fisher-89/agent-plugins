@@ -22,7 +22,7 @@ export interface UserTurnSpan {
 }
 
 /** 工具部件判据：`tool-<name>` 命名，`dynamic-tool` 不在信封内。
- * 与 `agent-blocks.tsx` 的 `isToolPart` 同一口径——在此复写而非 import，
+ * 与 `agent/message-cards/blocks.tsx` 的 `isToolPart` 同一口径——在此复写而非 import，
  * 避免 `src/lib/**` 反向依赖 `components/`。 */
 function isToolPartType(type: string): boolean {
   return type.startsWith('tool-') && type !== 'dynamic-tool';

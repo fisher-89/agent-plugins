@@ -17,7 +17,7 @@
 | | `views/changes/flow/` | `index.ts` | `mountMaterials` / `ChangeFlowGraph` / `DetailDrawer` / `buildFlowGraph` / `RunControlPanel` / `runStepNodes` / `unifiedRunEdges` / `unifiedRunNodes` / `DrawerSelection` / `FlowGraph` / `FlowMaterials` |
 | | `views/changes/renderers/` | `index.ts` | `ArtifactTabs` / `MarkdownDocRenderer` |
 | | `views/explores/` | `index.ts` | `ExploreDetailView` / `ExploreLayout` / `ExploreListView` |
-| | `components/ui/` | `index.ts` | 39 条 `export *`（唯一例外，见「`components/ui` 的入口例外」） |
+| | `components/ui/` | `index.ts` | 40 条 `export *`（唯一例外，见「`components/ui` 的入口例外」） |
 | 单文件 | `views/{agent,agents,architecture,config,db,info}/` | 各 `index.ts` | 各 1 个视图组件（`AgentDebugView` / `AgentsView` / `ArchitectureView` / `ConfigView` / `DbInspectorView` / `InfoView`）；其 `*Props` 类型 MUST NOT 外露 |
 
 - **单文件目录同样补入口**：多文件目录靠 barrel、单文件目录靠「唯一文件即入口」＝同仓两套约定，且单文件目录多一个 `helper.ts` 就静默换默认入口（虽会立刻报 `apiEntryMissing`，仍是漂移源）。统一形态是「目录 = 模块」的前提，MUST NOT 以「一个文件不需要 barrel」为由留缺口。
@@ -102,17 +102,17 @@
 
 ### Requirement: `components/ui` 的入口例外
 
-`components/ui/index.ts` SHALL 是**唯一**「建入口但调用点不改写」的目录：其正文 SHALL 为 `export * from './<mod>'` 形式的 **39** 条语句（目录内 39 个非测试源文件各一条），MUST NOT 手维护「被引用的 34 个模块」名单；文件首行 SHALL 留一行注释说明「本文件是目录模块的入口声明，视图内直引模块名是刻意选择，勿据此判死代码」。
+`components/ui/index.ts` SHALL 是**唯一**「建入口但调用点不改写」的目录：其正文 SHALL 为 `export * from './<mod>'` 形式的 **40** 条语句（目录内 40 个非测试源文件各一条），MUST NOT 手维护「被引用的 35 个模块」名单；文件首行 SHALL 留一行注释说明「本文件是目录模块的入口声明，视图内直引模块名是刻意选择，勿据此判死代码」。
 
-- **39 而非 34 的理由**：手维护白名单一旦某模块开始被引用就要同步改入口，而 `src/components/ui/**` 在 `knip.json` 的 `ignore` 与 `vite.config.ts` 的 `NO_STATIC_CHECK` 内（零死代码扫描、零格式化检查）——没有任何机制会提醒该同步。`export *` 让「目录 = 模块」自洽且零维护。
-- **`export *` 的安全性前提**：ui 目录零 `export default`、具名导出无重名（重名会被静默吞掉），故 39 条 `export *` 无遮蔽风险；该前提 SHALL 由源文本断言守，MUST NOT 靠「读一遍没重名」。
+- **40 而非 35 的理由**：手维护白名单一旦某模块开始被引用就要同步改入口，而 `src/components/ui/**` 在 `knip.json` 的 `ignore` 与 `vite.config.ts` 的 `NO_STATIC_CHECK` 内（零死代码扫描、零格式化检查）——没有任何机制会提醒该同步。`export *` 让「目录 = 模块」自洽且零维护。
+- **`export *` 的安全性前提**：ui 目录零 `export default`、具名导出无重名（重名会被静默吞掉），故 40 条 `export *` 无遮蔽风险；该前提 SHALL 由源文本断言守，MUST NOT 靠「读一遍没重名」。
 - **已知缺口登记**：5 个零引用模块（`button-group` / `context-menu` / `input-group` / `marker` / `sheet`）随 `export *` 进入公共面。清理（删模块或改白名单）属独立变更，本能力 MUST NOT 顺手清理；残留缺口 MUST NOT 被读成「ui 的公共面等于真实使用面」。
-- **零校验的补偿**：ui 入口不在 `knip` 面内 ⇒ 其导出面由 `packages/desktop/src/module-entries.test.ts` 的源文本断言守（39 条 `export *`、零 `export default`、零重名），MUST NOT 以「knip 绿」冒充「ui 入口被校验」。
+- **零校验的补偿**：ui 入口不在 `knip` 面内 ⇒ 其导出面由 `packages/desktop/src/module-entries.test.ts` 的源文本断言守（40 条 `export *`、零 `export default`、零重名），MUST NOT 以「knip 绿」冒充「ui 入口被校验」。
 
-#### Scenario: 39 条 `export *` 与零 default
+#### Scenario: 40 条 `export *` 与零 default
 
 - **WHEN** 读取 `packages/desktop/src/components/ui/index.ts` 并比对目录内非测试源文件
-- **THEN** 恰 39 条 `export * from './<mod>'`、每条对应一个现存模块、零 `export { … } from`、零 `export default`、零实现语句；目录内 39 个模块的具名导出无重名
+- **THEN** 恰 40 条 `export * from './<mod>'`、每条对应一个现存模块、零 `export { … } from`、零 `export default`、零实现语句；目录内 40 个模块的具名导出无重名
 
 #### Scenario: 零引用模块在案不误报
 
@@ -168,10 +168,10 @@ after  : kind = "module" · path = ["./packages/desktop/src/components/agent/"]
 | `packages/desktop/src/views/changes/flow/index.ts` | 流程子域入口（压力样本） | 8 值 + 3 类型共 **11** 名；目录内约 38 个公开符号只出这 11 个；类型出口一律 `export type` |
 | `packages/desktop/src/views/changes/renderers/index.ts` | 产物渲染子域入口 | `ArtifactTabs` / `MarkdownDocRenderer` |
 | `packages/desktop/src/views/explores/index.ts` | 探索页目录入口 | `ExploreDetailView` / `ExploreLayout` / `ExploreListView`（`ExploreDetailPane` / `ExploreRouteContext` / `useExploreRouteContext` 不外露） |
-| `packages/desktop/src/components/ui/index.ts` | 原语层入口（唯一例外） | **39** 条 `export *`；零 `export default`；首行外部约束注释；调用点 132 处保持直引；在 `knip` / `NO_STATIC_CHECK` ignore 内 |
+| `packages/desktop/src/components/ui/index.ts` | 原语层入口（唯一例外） | **40** 条 `export *`；零 `export default`；首行外部约束注释；调用点 132 处保持直引；在 `knip` / `NO_STATIC_CHECK` ignore 内 |
 | `packages/desktop/src/components/agent/index.tsx` | 既有入口（零改动） | 6 条 re-export（7 名）；`.tsx` 扩展名保留；`components/agent/` 目录成为 `App.Frontend.Components.Agent` 的 `path` |
 | `packages/desktop/src/routes.tsx` | 路由表（调用点收窄） | 11 条文件级 import → 8 条目录级；路由路径 / 参数 / 重定向零改动 |
-| `packages/desktop/src/module-entries.test.ts`（新增） | 入口面的机械判据 | 12 个入口的 `export … from` 行集合逐字断言（类型出口必须 `export type`）、specifier 零 `./hooks` / `./lib` / 跨子目录段、ui 恰 39 条 `export *` 且零 `export default`、零重名；纯源文本读取，零运行期 import |
+| `packages/desktop/src/module-entries.test.ts`（新增） | 入口面的机械判据 | 12 个入口的 `export … from` 行集合逐字断言（类型出口必须 `export type`）、specifier 零 `./hooks` / `./lib` / 跨子目录段、ui 恰 40 条 `export *` 且零 `export default`、零重名；纯源文本读取，零运行期 import |
 
 ### Function: 无
 

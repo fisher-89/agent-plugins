@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { ResizablePanelGroup } from '@/components/ui/resizable';
@@ -242,18 +242,12 @@ function sendButton(): HTMLButtonElement {
   return screen.getByTestId('change-chat-send') as HTMLButtonElement;
 }
 
-/** 档位选择器（StandardSelect / base-ui Select）：`data-value` 即选中档。 */
-async function pickMode(mode: string): Promise<void> {
-  const trigger = screen.getByTestId('change-chat-permission-mode').closest('button');
-  if (!trigger) throw new Error('SelectValue 不在触发器按钮内');
-  fireEvent.mouseDown(trigger);
-  const option = within(await screen.findByRole('listbox')).getByRole('option', { name: mode });
-  fireEvent.pointerDown(option);
-  fireEvent.click(option);
-  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
-}
-
+/** 打开历史下拉：已打开时先合再开（取数只在「打开」边沿触发）。 */
 async function expandHistory(): Promise<void> {
+  if (screen.queryByTestId('change-chat-history-list') !== null) {
+    fireEvent.click(screen.getByTestId('change-chat-history'));
+    await waitFor(() => expect(screen.queryByTestId('change-chat-history-list')).toBeNull());
+  }
   fireEvent.click(screen.getByTestId('change-chat-history'));
   await act(async () => {});
   await act(async () => {});
@@ -456,7 +450,7 @@ describe('ChangeChatPanel：历史清单面', () => {
     expect(sendButton().disabled).toBe(false);
   });
 
-  it('change id 变化 → 回空态、清单收起且旧条目不再场；再展开以新 id 取数', async () => {
+  it('change id 变化 → 回空态、清单复位且旧条目不再场；再展开以新 id 取数', async () => {
     ipc.list = () => Promise.resolve({ sessions: [historyItem('ses-1')], total: 1 });
     ipc.detail = summary([turn(21, 'completed', 'ses-1')], 'ses-1');
     const rendered = await mountPanel();
@@ -645,28 +639,25 @@ describe('ChangeChatPanel：发起失败与重取', () => {
 // ---------------------------------------------------------------------------
 
 describe('ChangeChatComposer：前缀与判据透传', () => {
-  it('change-chat 前缀落到输入 / 档位 / 发送 / composer 容器，理由行文本即上层理由', async () => {
+  it('change-chat 前缀落到输入 / 发送 / composer 容器，理由行文本即上层理由', async () => {
     await mountPanel({ runActive: true });
 
     expect(screen.getByTestId('change-chat-composer')).toBeTruthy();
     expect(promptBox().id).toBe('change-chat-prompt');
-    expect(screen.getByTestId('change-chat-permission-mode').id).toBe(
-      'change-chat-permission-mode',
-    );
+    expect(screen.queryByTestId('change-chat-permission-mode'), '档位行缺省隐藏').toBeNull();
     expect(screen.getByTestId('change-chat-send') !== null, '发送按钮前缀化').toBe(true);
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe('流程运行中');
   });
 
-  it('档位切到 default 后发送：agent_start 的 permissionMode 为 default（文本不改写）', async () => {
+  it('档位行缺省隐藏：发送携缺省 permissionMode=bypassPermissions（文本不改写）', async () => {
     await mountPanel();
-    await pickMode('default');
     typeText('默认档提问');
     fireEvent.click(sendButton());
     await act(async () => {});
 
     expect(argsOf('agent_start')).toMatchObject({
       prompt: '默认档提问',
-      permissionMode: 'default',
+      permissionMode: 'bypassPermissions',
     });
   });
 

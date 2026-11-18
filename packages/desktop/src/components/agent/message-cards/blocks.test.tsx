@@ -2,8 +2,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentToolOutput, AgentUIMessage } from '../../lib/agent-adapter';
-import type { AgentCitation, WebSearchSource } from '../../types/dto';
+import type { AgentToolOutput, AgentUIMessage } from '../../../lib/agent-adapter';
+import type { AgentCitation, WebSearchSource } from '../../../types/dto';
 import {
   FinishStepCard,
   TextBlock,
@@ -11,7 +11,7 @@ import {
   ToolPairCard,
   WebSearchCard,
   isToolPart,
-} from './agent-blocks';
+} from './blocks';
 
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：外壳 IPC（`@tauri-apps/plugin-opener`）以 `openUrl` 替身注入
@@ -418,8 +418,25 @@ const FINISH_EVALUATOR_INPUT = {
   ],
 };
 
+/** 逐项行内的勾选件（base-ui Checkbox 根 `span[role="checkbox"]`）。 */
+function itemCheckbox(row: HTMLElement): HTMLElement {
+  const checkbox = row.querySelector('[role="checkbox"]');
+  if (checkbox === null) throw new Error('逐项行缺 checkbox');
+  return checkbox as HTMLElement;
+}
+
+/** 勾选态：base-ui 以 `data-checked` / `data-unchecked` 的存在性表达（真值判定）。 */
+function isChecked(row: HTMLElement): boolean {
+  return itemCheckbox(row).hasAttribute('data-checked');
+}
+
+/** 逐项行内的 evidence 描述（缺席即无描述节点）。 */
+function itemEvidence(row: HTMLElement): HTMLElement | null {
+  return row.querySelector('[data-slot="field-description"]');
+}
+
 describe('FinishStepCard：evaluator 形态渲染', () => {
-  it('卡根与摘要区在场，逐项 ID / pass 标记 / evidence 可见，report 在折叠区内', () => {
+  it('卡根与摘要区在场，逐项 ID / 勾选态 / evidence 可见，report 在折叠区内', () => {
     render(
       <FinishStepCard
         toolCallId="tu_finish"
@@ -431,22 +448,22 @@ describe('FinishStepCard：evaluator 形态渲染', () => {
 
     const card = screen.getByTestId('block-tool-use');
     expect(card.getAttribute('data-tool-id')).toBe('tu_finish');
-    expect(screen.getByTestId('block-finish-step-summary').textContent).toContain('含未通过项');
-    expect(screen.getByTestId('block-finish-step-summary').textContent).not.toContain('清单全通过');
+    expect(screen.getByTestId('block-finish-step-summary').textContent).toBe('检查 1 项未通过');
 
     // 清单与 report 在折叠区内：先展开
     fireEvent.click(within(card).getByRole('button'));
     const items = screen.getAllByTestId('block-finish-step-item');
     expect(items).toHaveLength(2);
     expect(items[0]?.textContent).toContain('C1');
-    expect(items[0]?.textContent).toContain('通过');
-    expect(items[0]?.textContent).toContain('src/a.rs:10');
+    expect(isChecked(items[0] as HTMLElement)).toBe(true);
+    expect(itemEvidence(items[0] as HTMLElement)?.textContent).toBe('src/a.rs:10');
     expect(items[1]?.textContent).toContain('C2');
-    expect(items[1]?.textContent).toContain('未通过');
+    expect(isChecked(items[1] as HTMLElement)).toBe(false);
+    expect(itemEvidence(items[1] as HTMLElement)?.textContent).toBe('缺测试');
     expect(card.textContent).toContain('评估报告正文');
   });
 
-  it('全通过时摘要为「清单全通过」且不出现「含未通过项」（两摘要文案互斥）', () => {
+  it('全通过时摘要为「检查通过」且不出现「项未通过」（两摘要文案互斥）', () => {
     render(
       <FinishStepCard
         toolCallId="tu_pass"
@@ -462,8 +479,8 @@ describe('FinishStepCard：evaluator 形态渲染', () => {
       />,
     );
     const summary = screen.getByTestId('block-finish-step-summary').textContent ?? '';
-    expect(summary).toContain('清单全通过');
-    expect(summary).not.toContain('含未通过项');
+    expect(summary).toBe('检查通过');
+    expect(summary).not.toContain('项未通过');
   });
 });
 
@@ -590,12 +607,12 @@ describe('FinishStepCard：items 与文本边界', () => {
 });
 
 describe('FinishStepCard：结果与错误形态', () => {
-  it('正常结果呈「已收口」、错误结果呈 trace-line error、output null 时结果区缺席', async () => {
+  it('decision 形态正常结果呈「已收口」、错误结果呈 trace-line error、output null 时结果区缺席', async () => {
     const { unmount } = render(
       <FinishStepCard
         toolCallId="tu_ok"
         toolName="finish_step"
-        input={FINISH_EVALUATOR_INPUT}
+        input={{ action: 'stop', reason: '受控终止' }}
         output={{ content: '已收口', isError: false }}
       />,
     );
@@ -609,7 +626,7 @@ describe('FinishStepCard：结果与错误形态', () => {
       <FinishStepCard
         toolCallId="tu_err"
         toolName="finish_step"
-        input={FINISH_EVALUATOR_INPUT}
+        input={{ action: 'stop', reason: '受控终止' }}
         output={{ content: 'report 超长', isError: true }}
       />,
     );
@@ -622,11 +639,26 @@ describe('FinishStepCard：结果与错误形态', () => {
       <FinishStepCard
         toolCallId="tu_none"
         toolName="finish_step"
-        input={FINISH_EVALUATOR_INPUT}
+        input={{ action: 'stop', reason: '受控终止' }}
         output={null}
       />,
     );
     expect(screen.queryByTestId('block-tool-result')).toBeNull();
+  });
+
+  it('evaluator（checklist）形态只呈报告与逐项清单，不渲染工具结果区', () => {
+    render(
+      <FinishStepCard
+        toolCallId="tu_eval_output"
+        toolName="finish_step"
+        input={{ report: '', items: [{ id: 'C1', pass: true }] }}
+        output={{ content: '已收口', isError: true }}
+      />,
+    );
+    const card = screen.getByTestId('block-tool-use');
+    fireEvent.click(within(card).getByRole('button'));
+    expect(screen.queryByTestId('block-tool-result')).toBeNull();
+    expect(card.querySelector('[data-status="error"]')).toBeNull();
   });
 });
 
@@ -714,35 +746,42 @@ describe('FinishStepCard：input 非预期形态回退 JSON 原样', () => {
 
 describe('FinishStepCard：逐项行结构与空位（dict / str / bool 边界）', () => {
   it.each([
-    [{ pass: true, evidence: '据甲' }, '', 3],
-    [{ id: 'C1', pass: true }, 'C1', 2],
-    [{ id: 'C1', pass: true, evidence: '' }, 'C1', 3],
-    [{ id: 'C1', pass: 'true', evidence: '据甲' }, 'C1', 3],
-    [{ id: 'C1', pass: 1 }, 'C1', 2],
-  ])('单元素 items 为 %j → ID 文本为 %j、span 计数 %i', (item, expectedId, expectedSpans) => {
-    const { unmount } = renderFinish({ report: '', items: [item] });
-    expandFinishCard();
-    const rows = finishItemRows();
-    expect(rows).toHaveLength(1);
-    const spans = rows[0]?.querySelectorAll('span') ?? [];
-    expect(spans.length).toBe(expectedSpans);
-    expect(spans[0]?.textContent).toBe(expectedId);
-    unmount();
-  });
+    [{ pass: true, evidence: '据甲' }, '', true, '据甲'],
+    [{ id: 'C1', pass: true }, 'C1', true, null],
+    [{ id: 'C1', pass: true, evidence: '' }, 'C1', true, null],
+    [{ id: 'C1', pass: 'true', evidence: '据甲' }, 'C1', true, '据甲'],
+    [{ id: 'C1', pass: 1 }, 'C1', true, null],
+    [{ id: 'C1', pass: false }, 'C1', false, null],
+    [{ id: 'C1' }, 'C1', false, null],
+  ])(
+    '单元素 items 为 %j → ID 文本 %j、勾选 %s、evidence %j',
+    (item, expectedId, expectedChecked, expectedEvidence) => {
+      const { unmount } = renderFinish({ report: '', items: [item] });
+      expandFinishCard();
+      const rows = finishItemRows();
+      expect(rows).toHaveLength(1);
+      const row = rows[0] as HTMLElement;
+      expect(isChecked(row)).toBe(expectedChecked);
+      expect(row.querySelector('[data-slot="field-label"]')?.textContent).toBe(expectedId);
+      expect(itemEvidence(row)?.textContent ?? null).toBe(expectedEvidence);
+      unmount();
+    },
+  );
 
-  it.each([[{ id: 'C1', pass: 'true' }], [{ id: 'C1', pass: 1 }], [{ id: 'C1' }]])(
-    'pass 非严格 true（%j）→ 呈「未通过」',
+  it.each([[{ id: 'C1', pass: 'true' }], [{ id: 'C1', pass: 1 }], [{ id: 'C1', pass: 'false' }]])(
+    'pass 非布尔值（%j）→ 按真值判定勾选（truthiness，非严格 === true）',
     (item) => {
       const { unmount } = renderFinish({ report: '', items: [item] });
       expandFinishCard();
-      expect(finishItemRows()[0]?.querySelector('.text-fail')?.textContent).toBe('未通过');
+      expect(isChecked(finishItemRows()[0] as HTMLElement)).toBe(true);
+      expect(finishSummary()).toBe('检查通过');
       unmount();
     },
   );
 });
 
 describe('FinishStepCard：pass 标记着色与 report 在场判据', () => {
-  it('pass 两态各命中 text-pass / text-fail（着色钩子是唯一 DOM 可观测面）', () => {
+  it('pass 两态以勾选与 FieldLabel 着色区分（未通过项 text-destructive）', () => {
     renderFinish({
       report: '报告',
       items: [
@@ -752,31 +791,40 @@ describe('FinishStepCard：pass 标记着色与 report 在场判据', () => {
     });
     expandFinishCard();
     const rows = finishItemRows();
-    expect(rows[0]?.querySelector('.text-pass')?.textContent).toBe('通过');
-    expect(rows[1]?.querySelector('.text-fail')?.textContent).toBe('未通过');
-    expect(rows[0]?.querySelector('.text-fail')).toBeNull();
-    expect(rows[1]?.querySelector('.text-pass')).toBeNull();
+    const labelOf = (row: HTMLElement | undefined): Element | null | undefined =>
+      row?.querySelector('[data-slot="field-label"]');
+    expect(isChecked(rows[0] as HTMLElement)).toBe(true);
+    expect(labelOf(rows[1])?.classList.contains('text-destructive')).toBe(true);
+    expect(labelOf(rows[0])?.classList.contains('text-destructive')).toBe(false);
   });
 
   it.each([
-    [{ report: '报告正文', items: [] }, 1, '报告正文'],
-    [{ report: '', items: [] }, 1, ''],
-    [{ items: [] }, 0, ''],
-    [{ report: 42, items: [] }, 0, ''],
-  ])('report 形态 %j → 容器计数 %i、文本 %j（判据是 !== null 而非真值）', (input, count, text) => {
-    const { unmount } = renderFinish(input);
-    expandFinishCard();
-    const containers = finishCard().querySelectorAll('.whitespace-pre-wrap');
-    expect(containers.length).toBe(count);
-    if (count === 1) expect(containers[0]?.textContent).toBe(text);
-    unmount();
-  });
+    [{ report: '报告正文', items: [] }, true, '报告正文'],
+    [{ report: '', items: [] }, true, ''],
+    [{ items: [] }, false, ''],
+    [{ report: 42, items: [] }, false, ''],
+  ])(
+    'report 形态 %j → checklist 判据 %s、report 文本 %j（判据是 string 类型而非真值）',
+    (input, checklist, text) => {
+      const { unmount } = renderFinish(input);
+      expandFinishCard();
+      const reportBlock = finishCard().querySelector('[data-testid="block-text"]');
+      if (checklist) {
+        expect(finishSummary()).toBe('检查通过');
+        expect(reportBlock?.textContent).toBe(text);
+      } else {
+        expect(finishSummary()).toBe('finish_step');
+        expect(reportBlock).toBeNull();
+      }
+      unmount();
+    },
+  );
 });
 
 describe('FinishStepCard：items 边界（list 边界）', () => {
-  it('items 为空数组 → 摘要「清单全通过」且零逐项行（every 于空数组为真）', () => {
+  it('items 为空数组 → 摘要「检查通过」且零逐项行（空数组零未通过项）', () => {
     renderFinish({ report: '', items: [] });
-    expect(finishSummary()).toBe('清单全通过');
+    expect(finishSummary()).toBe('检查通过');
     expandFinishCard();
     expect(finishItemRows()).toHaveLength(0);
   });
@@ -800,8 +848,7 @@ describe('FinishStepCard：items 边界（list 边界）', () => {
     const longEvidence = 'x'.repeat(5000);
     renderFinish({ report: '', items: [{ id: 'C1', pass: true, evidence: longEvidence }] });
     expandFinishCard();
-    const spans = finishItemRows()[0]?.querySelectorAll('span') ?? [];
-    expect(spans[2]?.textContent).toBe(longEvidence);
+    expect(itemEvidence(finishItemRows()[0] as HTMLElement)?.textContent).toBe(longEvidence);
   });
 
   it.each([[{ items: null }], [{ items: 'str' }]])(

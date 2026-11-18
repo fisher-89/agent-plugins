@@ -12,8 +12,8 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 - **分栏骨架**：左栏 SHALL 由共享骨架 `SessionPanel` 自带的可折叠分栏承载，默认收起（挂载即窄条形态，收起尺寸 32px / 展开尺寸下限 500px / 留窄条 `collapsible`），窄条内 SHALL 留展开入口、展开体头区 SHALL 提供「收起Agent」入口；`DetailHeader` MUST NOT 另设面板显隐开关（折叠入口全部收在骨架内）；右栏 SHALL 保持既有纵向次序（刷新失败提示 → 运行控制面板 → 流程图区）。
 - **对话体单一实现**：对话区 SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra）的**注入形态**渲染（来源侧建 `useAgentSession`，composer 经插槽注入），MUST NOT 在视图层自行拼装消息 / 轮行 / 事件流，MUST NOT 引入第二套对话渲染或第二套转录查询 hook。
-- **会话头动作面**：面板头 SHALL 提供「新会话」与「历史会话」两个动作（后者为可展开的会话清单），以及一行状态提示（禁发 / 只读理由，见「禁发与只读状态矩阵」）；会话元信息（会话 id / 运行态 / 轮数 / tokens）由 `AgentSessionView` 自带元信息行承载，MUST NOT 复制第二份。
-- **面板态归属**：面板本地态（当前 `sessionId` / 清单展开态 / 折叠态）SHALL 挂在页面身份源（URL change id）上——change id 变化时重置（MUST NOT 让旧 change 的会话 id 落到新 change 上）；折叠态由骨架内部持有，change 切换（组件重挂）SHALL 回到默认收起形态；`sessionId = null` 即空态（可发送草案态，见「change 会话归属与新会话 / 历史会话」）。
+- **会话头动作面**：面板头 SHALL 提供「新会话」与「历史会话」两个动作（后者为可展开的头区下拉清单），以及一行状态提示（禁发 / 只读理由，见「禁发与只读状态矩阵」）；会话元信息（会话 id / 运行态 / 轮数 / tokens）由 `AgentSessionView` 自带元信息行承载，MUST NOT 复制第二份。
+- **面板态归属**：面板本地态（当前 `sessionId` / 清单数据 / 折叠态）SHALL 挂在页面身份源（URL change id）上——change id 变化时重置（MUST NOT 让旧 change 的会话 id 落到新 change 上）；历史下拉的开合态归下拉组件自持（打开边沿经 `onOpenHistory` 上报取数），折叠态由骨架内部持有，change 切换（组件重挂）SHALL 回到默认收起形态；`sessionId = null` 即空态（可发送草案态，见「change 会话归属与新会话 / 历史会话」）。
 - **实时面纪律**：面板的交互式会话 MUST NOT 接收详情视图的重评估 tick（`refreshTick`）作 `refreshKey`——该值在 run 期间由每条密封事件驱动，传入会导致整轮反复重放；会话状态重评估 SHALL 由 `useAgentSession` 自身的库态推导与订阅面承担（只读消费点如流程抽屉继续收 `refreshKey`，其语义不变）。
 
 #### Scenario: 分栏并排与折叠
@@ -129,7 +129,7 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 #### Scenario: run 期间禁发但可读史
 
 - **WHEN** 某 change 的 flow run 正在运行（`activeRun !== null`）时打开面板
-- **THEN** composer 禁用并呈「流程运行中」理由，「新会话」禁用，历史清单展开与点选可用（可读既有会话转录）；面板处于空态时同样禁用（空态不豁免该行）
+- **THEN** composer 禁用并呈「流程运行中」理由，「新会话」禁用，历史清单下拉与点选可用（可读既有会话转录）；面板处于空态时同样禁用（空态不豁免该行）
 
 #### Scenario: 本会话运行中不可发出但可从面板停止
 
@@ -153,9 +153,9 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 ### Requirement: 面板骨架归一（共享 SessionPanel）
 
-change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单 / 折叠窄条）SHALL 抽为共享组件 `SessionPanel`（`components/agent/session-panel.tsx`，经 `components/agent` 桶导出），并由本能力与架构页通用会话（`desktop-archi-chat`）共同消费——它是两处**唯一**的面板骨架实现，MUST NOT 在任一视图侧另存第二套头区动作 / 历史清单 / 折叠窄条：
+change 详情左栏面板的**骨架**（头区动作（含历史下拉）/ 状态行 / 折叠窄条）SHALL 抽为共享组件 `SessionPanel`（`components/agent/session-panel.tsx`，经 `components/agent` 桶导出），并由本能力与架构页通用会话（`desktop-archi-chat`）共同消费——它是两处**唯一**的面板骨架实现，MUST NOT 在任一视图侧另存第二套头区动作 / 历史清单 / 折叠窄条：
 
-- **testid 集合**：`data-testid` 集合（`-actions` / `-collapse` / `-new` / `-history` / `-note` / `-history-list` / `-history-item` / `-history-more` / `-history-empty` / `-history-error` / `-rail` / `-expand` / `-session`）与「头区动作 → 状态行 → 历史清单 → 会话体」的渲染次序 SHALL 保留；面板根元素由分栏库占用（`data-slot="resizable-panel"`），消费面以 `-rail` / `-actions` 定位面板分支。
+- **testid 集合**：`data-testid` 集合（`-actions` / `-collapse` / `-new` / `-history` / `-note` / `-history-list` / `-history-item` / `-history-more` / `-history-empty` / `-history-error` / `-rail` / `-expand` / `-session`）与「头区动作（历史清单在 `-history` 下拉内）→ 状态行 → 会话体」的渲染次序 SHALL 保留；面板根元素由分栏库占用（`data-slot="resizable-panel"`），消费面以 `-rail` / `-actions` 定位面板分支。
 - **testid 前缀参数化**：骨架 SHALL 以 `testIdPrefix` 生成其全部查询挂钩（`change-chat` / `archi-chat` 两套前缀各命中一次），MUST NOT 在骨架内写死单一前缀。
 - **业务判据不外移**：可发送 / 可开新会话 / 只读矩阵与禁用理由 SHALL 留在各自来源侧 hook（change 侧仍为 `detail.source` / `activeRun` / 本会话 `running` 三判据），骨架 MUST NOT 自判禁发、MUST NOT 引入第二套判据源。
 - **状态行只渲染 `note`**：状态行文案 SHALL 由来源侧 hook 供 `note: string | null`（change 侧 = `disabledReason ??（空态 ? 草案文案 : null）`；`null` = 不占位），骨架 MUST NOT 自行推导文案生成规则。
@@ -165,7 +165,7 @@ change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单
 #### Scenario: change 面板经骨架渲染且 testid 集不变
 
 - **WHEN** 打开 change 详情左栏面板并审查渲染树
-- **THEN** 头区动作 / 状态行 / 历史清单 / 折叠窄条来自共享骨架组件，`change-chat-*` testid 集合（含 `-collapse`）与文案逐字符合上文清单；既有行为级用例全绿
+- **THEN** 头区动作（含历史下拉）/ 状态行 / 折叠窄条来自共享骨架组件，`change-chat-*` testid 集合（含 `-collapse`）与文案逐字符合上文清单；既有行为级用例全绿
 
 #### Scenario: 两处共用同一实现
 
@@ -189,14 +189,14 @@ change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单
 | 组件 | Props | 描述 |
 |------|-------|------|
 | `ChangeChatPanel` | `{ root, changeId, cwd, readOnly, runActive }` | 面板薄封装：会话头（新会话 / 历史会话两个图标动作，`aria-label` 提供可访问名 + 状态提示行）+ `AgentSessionView` 注入形态 + composer 插槽 + 空态提示行（草案态：发送即开新会话，不做禁用门）；折叠窄条与分栏由骨架自持。`data-testid` 挂钩（`change-chat-actions` / `change-chat-collapse` / `change-chat-new` / `change-chat-history` / `change-chat-note` / `change-chat-rail` / `change-chat-expand`）。内部为 `SessionPanel`（`testIdPrefix = "change-chat"`）+ `useChangeChat` 状态面 + `ChangeChatComposer` 插槽 |
-| `ChangeChatComposer` | `{ running, disabled, disabledReason, onSend, onStop }` | `AgentInput` 薄适配（`idPrefix="change-chat"`；文案留在本文件，档位 / 发送 / 停止收口在组件族） |
+| `ChangeChatComposer` | `{ running, disabled, disabledReason, onSend, onStop }` | `AgentInput` 薄适配（`idPrefix="change-chat"`；文案留在本文件，档位缺省隐藏 / 发送 / 停止收口在组件族） |
 
 ### Component: `packages/desktop/src/components/agent/session-panel.tsx`（新增）
 
 | 组件 | Props | 描述 |
 |------|-------|------|
-| `SessionPanel` | `{ state: SessionPanelState; title: string; testIdPrefix: string; composer: (actions: AgentSessionActions) => React.ReactNode }` | 会话面板骨架唯一实现：自持折叠分栏与折叠窄条（默认收起 / 窄条展开入口 / 头区「收起Agent」）/ 头区动作（新会话 + 历史 ▾）/ 状态行（`state.note`）/ 历史清单（分页 + 加载 / 空 / 错误态）/ `AgentSessionView` 注入形态 + composer 插槽；全部查询挂钩由 `testIdPrefix` 生成；不含业务判据、不建会话流、不接收折叠入参 |
-| `SessionPanelState` | `session` / `sessions` / `total` / `listOpen` / `listLoading` / `listError` / `toggleList` / `loadMore` / `newSession` / `selectSession` / `canSend` / `canStart` / `disabledReason` / `note` / `send` / `stop` | 两处面板的公共子集（会话面 + 清单面 + 动作面 + `note`）；类型命名由 design 定型，语义契约不变 |
+| `SessionPanel` | `{ state: SessionPanelState; title: string; testIdPrefix: string; composer: (actions: AgentSessionActions) => React.ReactNode }` | 会话面板骨架唯一实现：自持折叠分栏与折叠窄条（默认收起 / 窄条展开入口 / 头区「收起Agent」）/ 头区动作（新会话 + 历史 ▾ 下拉）/ 状态行（`state.note`）/ 历史清单（下拉内容：单选行 + 分页 + 加载 / 空 / 错误态，行内呈完整会话 id + 更新时间 + 轮数）/ `AgentSessionView` 注入形态 + composer 插槽；全部查询挂钩由 `testIdPrefix` 生成；不含业务判据、不建会话流、不接收折叠入参 |
+| `SessionPanelState` | `session` / `sessions` / `total` / `listLoading` / `listError` / `onOpenHistory` / `loadMore` / `newSession` / `selectSession` / `canStart` / `note` | 两处面板的公共子集（会话面 + 清单面 + 动作面 + `note`）；清单开合态归下拉组件自持，打开边沿经 `onOpenHistory` 上报（每次打开重取首屏，收起不清空）；来源 hook 另含 `canSend` / `disabledReason` / `send` / `stop` 等面板专有面 |
 
 ### Component: `packages/desktop/src/components/agent/index.tsx`（改）
 
@@ -208,7 +208,7 @@ change 详情左栏面板的**骨架**（头区动作 / 状态行 / 历史清单
 
 | 项 | 签名 | 描述 |
 |------|------|------|
-| `useChangeChat` | `(params: { root: string \| null; changeId: string \| null; worktree: string \| null; runActive: boolean; archived: boolean }) => ChangeChatState` | 当前 `sessionId` 本地态（`null` = 可发送空态，**不作禁发理由**）+ 历史清单取数（`list_change_chat_sessions` 分页，会话 id 确立 / 轮收口后重取）+ 新会话（置 null + `reset()`，回可发送空态）+ 点选历史（`setSessionId`）+ change id 变化重置 + 禁发判据（`canSend` / `canStart` / `disabledReason`——三态矩阵，不含空态）+ 会话状态面（注入 `AgentSessionView`；「当前会话」取会话镜像） |
+| `useChangeChat` | `(params: { root: string \| null; changeId: string \| null; worktree: string \| null; runActive: boolean; archived: boolean }) => ChangeChatState` | 当前 `sessionId` 本地态（`null` = 可发送空态，**不作禁发理由**）+ 历史清单取数（`list_change_chat_sessions` 分页；下拉打开边沿 `onOpenHistory` 与「会话 id 确立 / 轮收口」两处重取首屏）+ 新会话（置 null + `reset()`，回可发送空态）+ 点选历史（`setSessionId`）+ change id 变化重置 + 禁发判据（`canSend` / `canStart` / `disabledReason`——三态矩阵，不含空态）+ 会话状态面（注入 `AgentSessionView`；「当前会话」取会话镜像） |
 | `ChangeChatState`（增位） | `note: string \| null` | `disabledReason ??（currentSessionId === null ? 草案文案 : null）`；判据矩阵、清单取数、新会话 / 历史切换、会话面零改动 |
 
 ### API: `packages/desktop/src-tauri/src/commands/exec/mod.rs`（命令面随动）

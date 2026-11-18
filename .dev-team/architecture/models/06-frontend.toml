@@ -99,7 +99,7 @@ summary = "agent 会话组件的统一出口"
 [element."App.Frontend.Components.Agent.AgentBlocks"]
 kind = "component"
 gate = "off"
-path = ["./packages/desktop/src/components/agent/agent-blocks.tsx"]
+path = ["./packages/desktop/src/components/agent/message-cards/blocks.tsx"]
 summary = "消息块与工具块的呈现"
 
 [element."App.Frontend.Components.Agent.AgentError"]
@@ -135,7 +135,7 @@ summary = "会话面板骨架（头区动作 / 状态行 / 历史清单 / 折叠
 [element."App.Frontend.Components.Agent.ToolCards"]
 kind = "component"
 gate = "off"
-path = ["./packages/desktop/src/components/agent/tool-cards.tsx"]
+path = ["./packages/desktop/src/components/agent/message-cards/tool-cards.tsx"]
 summary = "工具调用卡片的专门呈现"
 
 [element."App.Frontend.Components.Standard"]

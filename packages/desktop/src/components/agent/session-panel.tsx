@@ -1,8 +1,17 @@
 import { ChevronLeftIcon, ChevronRightIcon, HistoryIcon, PlusCircleIcon } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
-import { Button } from '@/components/ui/button';
-import { ResizablePanel, usePanelRef } from '@/components/ui/resizable';
+import { TextTooltip } from '@/components/standard/tooltip';
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+  ResizablePanel,
+  usePanelRef,
+} from '@/components/ui';
 import type { UseAgentSessionState } from '@/hooks/use-agent-session';
 import type { SessionSummary } from '@/types/generated/bindings';
 
@@ -16,11 +25,9 @@ export interface SessionPanelState {
   sessions: SessionSummary[];
   /** 过滤集全量计数（「加载更多」可见条件 `sessions.length < total`） */
   total: number;
-  /** 历史清单展开态（展开即重取首屏，收起不清空） */
-  listOpen: boolean;
   listLoading: boolean;
   listError: string | null;
-  toggleList: () => void;
+  onOpenHistory: () => void;
   loadMore: () => void;
   newSession: () => void;
   selectSession: (sessionId: string) => void;
@@ -40,30 +47,27 @@ interface SessionPanelProps {
   composer: (actions: AgentSessionActions) => React.ReactNode;
 }
 
-/** 历史清单项 id 前缀长度（完整 id 落 title，行内只呈辨识前缀） */
-const HISTORY_ID_PREFIX = 8;
-
 /** 查询挂钩单点：`${前缀}-${名}`（骨架内零写死前缀） */
 function testId(prefix: string, name: string): string {
   return `${prefix}-${name}`;
 }
 
-/** 头区动作面：「新会话」（禁发时一并禁）+「历史 ▾」开关（恒可用） */
+/** 头区动作面：「新会话」（禁发时一并禁）+「历史 ▾」选择（恒可用） */
 function HeaderActions({
   title,
   testIdPrefix,
+  state,
   canStart,
-  listOpen,
   onNewSession,
-  onToggleList,
+  onOpenHistory,
   onCollapse,
 }: {
   title: string;
   testIdPrefix: string;
+  state: SessionPanelState;
   canStart: boolean;
-  listOpen: boolean;
   onNewSession: () => void;
-  onToggleList: () => void;
+  onOpenHistory: () => void;
   onCollapse: () => void;
 }): React.JSX.Element {
   return (
@@ -83,56 +87,43 @@ function HeaderActions({
       </Button>
       <span className="text-[13px] font-medium">{title}</span>
       <span className="flex-1" />
-      <Button
-        variant="ghost"
-        size="icon"
-        title="新会话"
-        aria-label="新会话"
-        data-testid={testId(testIdPrefix, 'new')}
-        disabled={!canStart}
-        onClick={onNewSession}
-      >
-        <PlusCircleIcon />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        title="历史会话"
-        aria-label="历史会话"
-        data-testid={testId(testIdPrefix, 'history')}
-        aria-expanded={listOpen}
-        onClick={onToggleList}
-      >
-        <HistoryIcon />
-      </Button>
+      <TextTooltip text="新会话">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="新会话"
+          data-testid={testId(testIdPrefix, 'new')}
+          disabled={!canStart}
+          onClick={onNewSession}
+        >
+          <PlusCircleIcon />
+        </Button>
+      </TextTooltip>
+      <DropdownMenu onOpenChange={(open) => open && onOpenHistory()}>
+        <DropdownMenuTrigger
+          render={({ onClick }) => (
+            <TextTooltip text="历史会话">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="历史会话"
+                data-testid={testId(testIdPrefix, 'history')}
+                onClick={onClick}
+              >
+                <HistoryIcon />
+              </Button>
+            </TextTooltip>
+          )}
+        />
+        <DropdownMenuContent
+          data-testid={testId(testIdPrefix, 'history-list')}
+          align="end"
+          className="min-w-60"
+        >
+          <HistoryList state={state} testIdPrefix={testIdPrefix} />
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
-  );
-}
-
-/** 单条历史会话行：id 前缀 + 更新时间 + 轮数 */
-function HistoryItem({
-  session,
-  testIdPrefix,
-  onSelect,
-}: {
-  session: SessionSummary;
-  testIdPrefix: string;
-  onSelect: (sessionId: string) => void;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className="block w-full cursor-pointer rounded-md border border-border bg-transparent px-2 py-1 text-left text-[12px] hover:bg-muted"
-      data-testid={testId(testIdPrefix, 'history-item')}
-      data-session-id={session.row.id}
-      title={session.row.id}
-      onClick={() => onSelect(session.row.id)}
-    >
-      <span className="block font-mono">{session.row.id.slice(0, HISTORY_ID_PREFIX)}</span>
-      <span className="block text-muted-foreground">
-        {new Date(session.row.updatedAt).toLocaleString()} · {session.stats.turnCount} 轮
-      </span>
-    </button>
   );
 }
 
@@ -144,40 +135,52 @@ function HistoryList({
   state: SessionPanelState;
   testIdPrefix: string;
 }): React.JSX.Element {
-  return (
-    <div
-      className="max-h-56 shrink-0 overflow-y-auto rounded-md border border-border px-2 py-1.5"
-      data-testid={testId(testIdPrefix, 'history-list')}
-    >
-      {state.listLoading && state.sessions.length === 0 && (
-        <div className="text-[12px] text-muted-foreground">加载中…</div>
-      )}
-      {state.listError !== null && (
-        <div
-          className="break-all text-[12px] text-fail"
-          data-testid={testId(testIdPrefix, 'history-error')}
-        >
-          {`加载历史会话失败：${state.listError}`}
-        </div>
-      )}
-      {!state.listLoading && state.listError === null && state.sessions.length === 0 && (
-        <div
-          className="text-[12px] text-muted-foreground"
-          data-testid={testId(testIdPrefix, 'history-empty')}
-        >
-          （暂无历史会话）
-        </div>
-      )}
-      <div className="flex flex-col gap-1">
-        {state.sessions.map((session) => (
-          <HistoryItem
-            key={session.row.id}
-            session={session}
-            testIdPrefix={testIdPrefix}
-            onSelect={state.selectSession}
-          />
-        ))}
+  if (state.listLoading && state.sessions.length === 0) {
+    return <div className="text-[12px] text-muted-foreground">加载中…</div>;
+  }
+  if (state.listError !== null) {
+    return (
+      <div
+        className="break-all text-[12px] text-fail"
+        data-testid={testId(testIdPrefix, 'history-error')}
+      >
+        {`加载历史会话失败：${state.listError}`}
       </div>
+    );
+  }
+  if (!state.listLoading && state.listError === null && state.sessions.length === 0) {
+    return (
+      <div
+        className="text-[12px] text-muted-foreground"
+        data-testid={testId(testIdPrefix, 'history-empty')}
+      >
+        （暂无历史会话）
+      </div>
+    );
+  }
+  return (
+    <>
+      <DropdownMenuRadioGroup
+        className="flex flex-col gap-1"
+        value={state.session.session?.row.id}
+        onValueChange={state.selectSession}
+      >
+        {state.sessions.map((session) => (
+          <DropdownMenuRadioItem
+            key={session.row.id}
+            value={session.row.id}
+            data-testid={testId(testIdPrefix, 'history-item')}
+            closeOnClick
+          >
+            <div>
+              <div className="block font-mono">{session.row.id}</div>
+              <div className="text-muted-foreground">
+                {new Date(session.row.updatedAt).toLocaleString()} · {session.stats.turnCount} 轮
+              </div>
+            </div>
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
       {state.sessions.length < state.total && (
         <button
           type="button"
@@ -189,7 +192,7 @@ function HistoryList({
           加载更多
         </button>
       )}
-    </div>
+    </>
   );
 }
 
@@ -289,10 +292,10 @@ function ExpandedBody({
       <HeaderActions
         title={title}
         testIdPrefix={testIdPrefix}
+        state={state}
         canStart={state.canStart}
-        listOpen={state.listOpen}
         onNewSession={state.newSession}
-        onToggleList={state.toggleList}
+        onOpenHistory={state.onOpenHistory}
         onCollapse={onCollapse}
       />
       {state.note !== null && (
@@ -303,7 +306,6 @@ function ExpandedBody({
           {state.note}
         </div>
       )}
-      {state.listOpen && <HistoryList state={state} testIdPrefix={testIdPrefix} />}
       <AgentSessionView
         session={state.session}
         composer={composer}

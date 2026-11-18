@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type * as ToolCards from '@/components/agent/tool-cards';
+import type * as ToolCards from '@/components/agent/message-cards/tool-cards';
 
 import { foldSessionMessages, type AgentUIMessage } from '../../lib/agent-adapter';
 import { filterConversation } from '../../lib/agent-virtual';
@@ -23,7 +23,7 @@ const { cardSpy } = vi.hoisted(() => ({
 type ToolCardProps = React.ComponentProps<ToolCards.AgentToolCard>;
 type AskAnswerActions = ToolCardProps['askAnswer'];
 
-vi.mock('@/components/agent/tool-cards', async (importOriginal) => {
+vi.mock('@/components/agent/message-cards/tool-cards', async (importOriginal) => {
   const actual = await importOriginal<typeof ToolCards>();
   const Real = actual.BUILD_IN_TOOL_CARDS['AskUserQuestion'];
   function ProbedAskCard(props: ToolCardProps) {
@@ -434,7 +434,7 @@ describe('AgentMessages：四变体气泡', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 超长 user 提问默认折叠（短提问不折叠、展开回到原渲染件、多部件不折叠）
+// 超长 user 提问默认折叠（短提问不折叠、展开回到 text 部件 markdown 渲染）
 // ---------------------------------------------------------------------------
 
 describe('AgentMessages：超长 user 提问默认折叠', () => {
@@ -495,7 +495,7 @@ describe('AgentMessages：超长 user 提问默认折叠', () => {
     expect(preview).not.toContain('line-8');
   });
 
-  it('含非 text 部件的 user 消息不参与折叠（预览与按钮缺席，部件原样呈现）', () => {
+  it('含非 text 部件的 user 消息：不折叠，仅 text 部件按 markdown 呈现（其余部件不渲染）', () => {
     const message: AgentUIMessage = {
       id: 'turn-1-user',
       role: 'user',
@@ -508,10 +508,11 @@ describe('AgentMessages：超长 user 提问默认折叠', () => {
 
     render(<AgentMessages messages={[message]} loading={false} />);
 
-    expect(screen.queryByTestId('user-bubble-toggle')).toBeNull();
-    expect(screen.queryByTestId('user-bubble-preview')).toBeNull();
-    expect(screen.getByTestId('block-text')).toBeTruthy();
-    expect(screen.getByTestId('block-thinking')).toBeTruthy();
+    const [userBubble] = bubblesOfRole('user');
+    expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-toggle')).toBeNull();
+    expect(within(userBubble as HTMLElement).queryByTestId('user-bubble-preview')).toBeNull();
+    expect(within(userBubble as HTMLElement).getAllByTestId('block-text')).toHaveLength(1);
+    expect(within(userBubble as HTMLElement).queryByTestId('block-thinking')).toBeNull();
   });
 
   it('折行估算：单行长文本（无换行）超过行高预算同样折叠', () => {

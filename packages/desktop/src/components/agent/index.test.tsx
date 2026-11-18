@@ -60,10 +60,9 @@ function emptyPanel(): SessionPanelState {
     session: emptySession(),
     sessions: [],
     total: 0,
-    listOpen: false,
     listLoading: false,
     listError: null,
-    toggleList: vi.fn(),
+    onOpenHistory: vi.fn(),
     loadMore: vi.fn(),
     newSession: vi.fn(),
     selectSession: vi.fn(),
@@ -119,15 +118,14 @@ describe('组件族 barrel：出口集合与单一引用', () => {
     expect(state.canStart).toBe(true);
     expect(state.note).toBeNull();
     expect(state.sessions).toEqual([]);
-    // 12 字段逐字段在场（编译期锚定 + 运行期可读）
+    // 11 字段逐字段在场（编译期锚定 + 运行期可读）
     for (const key of [
       'session',
       'sessions',
       'total',
-      'listOpen',
       'listLoading',
       'listError',
-      'toggleList',
+      'onOpenHistory',
       'loadMore',
       'newSession',
       'selectSession',
