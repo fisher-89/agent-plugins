@@ -320,9 +320,8 @@ fn finish_payload的decision形态命中() {
         0,
         TOOL_NAME,
         decision_notice_payload(serde_json::json!({
-            "action": "ask",
-            "question": "选哪个？",
-            "options": ["甲"],
+            "action": "stop",
+            "reason": "受控终止",
         })),
     )];
     let payload = finish_payload(&transcript).expect("decision notice 应命中");
@@ -331,11 +330,10 @@ fn finish_payload的decision形态命中() {
     };
     assert_eq!(
         action,
-        crate::decision::DecisionAction::Ask {
-            question: "选哪个？".to_owned(),
-            options: vec!["甲".to_owned()],
+        crate::decision::DecisionAction::Stop {
+            reason: "受控终止".to_owned(),
         },
-        "两臂皆可辨"
+        "decision 载荷逐字段承接"
     );
 }
 

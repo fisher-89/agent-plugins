@@ -562,7 +562,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 `finish_step` 工具部件 SHALL 以注册表专用卡（`BUILD_IN_TOOL_CARDS['finish_step']`）承载，按输入载荷分两形态（互斥，均不抛错）：
 
 - **evaluator 形态（checklist）**：输入同时满足 `report` 为字符串且 `items` 为数组时命中——摘要行 SHALL 呈「检查通过」（零未通过项）或「检查 N 项未通过」（N = 真值为假的项数），含未通过项时摘要行带 `error` 状态；body SHALL 为卡片（`report` 经 `TextBlock` 渲染）+ 逐项清单：每项一个 `Checkbox`（勾选态 = `pass` 真值）+ `FieldLabel`（项 id，未通过项带 `text-destructive`）+ `FieldDescription`（`evidence` 非空时）。该形态 MUST NOT 渲染工具结果区（`block-tool-result`）。
-- **decision 形态**：`action` 为字符串时命中——摘要行逐字为 `backtrack → <to>：<reason>` / `stop：<reason>` / `ask：<question>（<options>）`（历史转录的 `ask` 动作原样兼容；未知动作原样）；body SHALL 在有结果时呈 `block-tool-result`。
+- **decision 形态**：`action` 为 `backtrack` / `stop` 时命中——摘要行逐字为 `backtrack → <to>：<reason>` / `stop：<reason>`；其余动作（含历史 `ask`）MUST NOT 产出摘要，按宽容解析回退 JSON 原样；body SHALL 在有结果时呈 `block-tool-result`。
 - **宽容解析**：两形态均不匹配时回退 JSON 原样（`<pre>`）且摘要行取 `finish_step`，MUST NOT 抛错；`pass` / `evidence` 按真值判定（非布尔值不做类型校验）。
 
 #### Scenario: evaluator checklist 逐项可读

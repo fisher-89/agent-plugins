@@ -90,11 +90,6 @@ const TXT_REBASE_CONTINUE_GUIDE: &str = "worktree 处于 rebase 态：可手动 
 /// Rebase 段冲突交据（冲突清单非空时交 ResolveConflicts 步条件解算）。
 const TXT_REBASE_CONFLICTED: &str = "冲突待解算";
 
-/// ask 携出会话外（提问已迁出为阻塞工具 `AskUserQuestion`）= 编排漂移（防线单
-/// 点文案：`resolve_deadlock` 与决策会话动作裁决面的 `Ask` 臂共用——两处都只在
-/// 历史载荷回放 / 装配漂移时读到 `Ask`）。
-const TXT_ASK_DRIFT: &str = "决策漂移：ask 应经 AskUserQuestion 工具提交";
-
 /// run 发起入参：workspace 根（exec root —— 会话 cwd / 检查域执行目录）+ 主
 /// workspace root（归档相位的主仓锚：layout 解析 / 归档双写 / 落盘提交）+ change
 /// id + 会话窗口标识（`new_run_id` 铸造，每 run 一个）+ 发起时刻（命令层铸造，
@@ -2962,7 +2957,7 @@ enum Deadlock {
 
 /// phase-next 决策分叉（两触发点：verdict fail 未决 / 重试上限标注——任意带
 /// evaluator 相位 fail 均直达决策，自走同相位重跑退役）：决策会话经
-/// `finish_step` 单轮收口产出三动作，backtrack 经写面落账后回外层 phase-next
+/// `finish_step` 单轮收口产出两动作，backtrack 经写面落账后回外层 phase-next
 /// 重路由（白名单门在 `decision_session` 内一次即判，越权即终态）。
 #[allow(clippy::too_many_arguments)]
 async fn resolve_deadlock(
@@ -3031,11 +3026,6 @@ async fn resolve_deadlock(
             status: ChangeRunStatus::Stopped,
             reason: Some(format!("决策 stop: {reason}")),
         }),
-        DecisionAction::Ask { .. } => {
-            // 生产不可达（decision 形态 enum 已不含 ask）：提问经阻塞工具
-            // `AskUserQuestion` 在 turn 内闭合，携出会话外的 ask 到这里即编排漂移
-            Deadlock::Terminal(Terminal::failed(TXT_ASK_DRIFT.to_owned()))
-        }
     }
 }
 
@@ -3046,8 +3036,6 @@ async fn resolve_deadlock(
 /// - 决策动作 → `ensure_backtrack_allowed` 判定后**在同一 decision 节点实例**收
 ///   口：通过即 passed + 动作摘要（`backtrack → <to>` / `stop：<reason>`），越权
 ///   即 failed + 拒因（携 `allowed`）并由调用方**一次即** `Terminal::failed`；
-/// - `Ask` 载荷 → failed 节点 + `Terminal::failed`（提问已迁出为独立阻塞工具
-///   `AskUserQuestion`，该载荷出现即决策漂移；不停等、不开新轮）；
 /// - 缺席 → 同实例 failed + `Terminal::failed`（成因文案区分截断 / 未收口）。
 ///
 /// 动作裁决不经独立 gate 节点（`WhitelistGate` / `RetryGate` 新写面零产出），
@@ -3114,7 +3102,6 @@ async fn decision_session(
         return Err(terminal);
     }
     let action = match outcome.finalized.take() {
-        // `Ask` 载荷不在提取面拦（漂移判定单点在下方动作裁决面）
         Some(FinishPayload::Decision(action)) => action,
         Some(FinishPayload::Evaluator(_)) => {
             let reason = "决策会话返回 evaluator 收口载荷（相位表角色漂移）".to_owned();
@@ -3151,19 +3138,6 @@ async fn decision_session(
             let detail = match &action {
                 DecisionAction::Backtrack { to, .. } => format!("backtrack → {to}"),
                 DecisionAction::Stop { reason } => format!("stop：{reason}"),
-                // Ask 载荷（历史回放 / 装配漂移）在动作裁决面收口：指路阻塞工具，
-                // 不留 running 节点（文案与 `resolve_deadlock` 的同名漂移臂同源）
-                DecisionAction::Ask { .. } => {
-                    emit_node(
-                        guard,
-                        &input.phase,
-                        input.attempt,
-                        ChangeStepKind::Decision,
-                        instance_no,
-                        with_turn(StepSettle::failed(Some(TXT_ASK_DRIFT.to_owned())), &outcome),
-                    );
-                    return Err(Terminal::failed(TXT_ASK_DRIFT.to_owned()));
-                }
             };
             emit_node(
                 guard,

@@ -484,7 +484,7 @@ describe('FinishStepCard：evaluator 形态渲染', () => {
   });
 });
 
-describe('FinishStepCard：decision 三动作渲染', () => {
+describe('FinishStepCard：decision 两动作渲染与历史动作回退', () => {
   it('backtrack 呈目标相位与 reason', () => {
     render(
       <FinishStepCard
@@ -500,7 +500,7 @@ describe('FinishStepCard：decision 三动作渲染', () => {
     expect(summary).toContain('覆盖不足');
   });
 
-  it('stop 呈 stop 与 reason；ask 呈 question 与每个选项；未知 action 原样呈现', () => {
+  it('stop 呈 stop 与 reason；历史 ask / 未知 action 回退 JSON 原样', () => {
     const { unmount } = render(
       <FinishStepCard
         toolCallId="tu_stop"
@@ -514,30 +514,23 @@ describe('FinishStepCard：decision 三动作渲染', () => {
     expect(stopSummary).toContain('受控终止');
     unmount();
 
-    const { unmount: unmountAsk } = render(
-      <FinishStepCard
-        toolCallId="tu_ask"
-        toolName="finish_step"
-        input={{ action: 'ask', question: '选哪个？', options: ['甲方案', '乙方案'] }}
-        output={null}
-      />,
-    );
-    const askSummary = screen.getByTestId('block-finish-step-summary').textContent ?? '';
-    expect(askSummary).toContain('选哪个？');
-    expect(askSummary).toContain('甲方案');
-    expect(askSummary).toContain('乙方案');
-    unmountAsk();
-
-    // 未知 action：原样呈现且不抛错
-    render(
-      <FinishStepCard
-        toolCallId="tu_retry"
-        toolName="finish_step"
-        input={{ action: 'retry' }}
-        output={null}
-      />,
-    );
-    expect(screen.getByTestId('block-finish-step-summary').textContent).toContain('retry');
+    for (const input of [
+      { action: 'ask', question: '选哪个？', options: ['甲方案', '乙方案'] },
+      { action: 'retry' },
+    ]) {
+      const { unmount } = render(
+        <FinishStepCard
+          toolCallId="tu_fallback"
+          toolName="finish_step"
+          input={input}
+          output={null}
+        />,
+      );
+      expect(finishSummary()).toBe('finish_step');
+      expandFinishCard();
+      expect(finishCard().querySelector('pre')?.textContent).toBe(JSON.stringify(input, null, 2));
+      unmount();
+    }
   });
 });
 
@@ -697,11 +690,6 @@ describe('FinishStepCard：decision 摘要逐字形态', () => {
   it.each([
     [{ action: 'backtrack', to: 'test-gen', reason: '覆盖不足' }, 'backtrack → test-gen：覆盖不足'],
     [{ action: 'stop', reason: '受控终止' }, 'stop：受控终止'],
-    [
-      { action: 'ask', question: '选哪个？', options: ['甲方案', '乙方案'] },
-      'ask：选哪个？（甲方案 / 乙方案）',
-    ],
-    [{ action: 'retry' }, 'retry'],
   ])('input 为 %j → 摘要逐字为 %s 且不抛错', (input, expected) => {
     const { unmount } = renderFinish(input);
     expect(finishSummary()).toBe(expected);
@@ -713,10 +701,6 @@ describe('FinishStepCard：decision 摘要缺字段（dict 边界）', () => {
   it.each([
     [{ action: 'backtrack' }, 'backtrack → ：'],
     [{ action: 'stop' }, 'stop：'],
-    [{ action: 'ask', question: 42, options: ['甲'] }, 'ask：（甲）'],
-    [{ action: 'ask', question: '选哪个？', options: '非数组' }, 'ask：选哪个？'],
-    [{ action: 'ask', question: '选哪个？', options: [] }, 'ask：选哪个？'],
-    [{ action: 'ask', question: 'q', options: ['甲', 42, '乙'] }, 'ask：q（甲 /  / 乙）'],
   ])('input 为 %j → 摘要逐字为 %s（空位不落假串）', (input, expected) => {
     const { unmount } = renderFinish(input);
     expect(finishSummary()).toBe(expected);
@@ -725,16 +709,22 @@ describe('FinishStepCard：decision 摘要缺字段（dict 边界）', () => {
 });
 
 describe('FinishStepCard：input 非预期形态回退 JSON 原样', () => {
-  it.each([[null], ['裸字符串'], [[]], [{}], [{ items: 'str' }], [{ action: 42 }]])(
-    'input 为 %j → 摘要逐字为 finish_step、折叠区为 JSON 原样、render 不抛错',
-    (input) => {
-      const { unmount } = renderFinish(input);
-      expect(finishSummary()).toBe('finish_step');
-      expandFinishCard();
-      expect(finishCard().querySelector('pre')?.textContent).toBe(JSON.stringify(input, null, 2));
-      unmount();
-    },
-  );
+  it.each([
+    [null],
+    ['裸字符串'],
+    [[]],
+    [{}],
+    [{ items: 'str' }],
+    [{ action: 42 }],
+    [{ action: 'retry' }],
+    [{ action: 'ask', question: '选哪个？', options: ['甲方案', '乙方案'] }],
+  ])('input 为 %j → 摘要逐字为 finish_step、折叠区为 JSON 原样、render 不抛错', (input) => {
+    const { unmount } = renderFinish(input);
+    expect(finishSummary()).toBe('finish_step');
+    expandFinishCard();
+    expect(finishCard().querySelector('pre')?.textContent).toBe(JSON.stringify(input, null, 2));
+    unmount();
+  });
 
   it('对照：decision 分支命中时不落 JSON 回退面板', () => {
     renderFinish({ action: 'stop', reason: '受控终止' });
@@ -864,7 +854,7 @@ describe('FinishStepCard：items 边界（list 边界）', () => {
 });
 
 describe('FinishStepCard：文本特殊字符（str 边界）', () => {
-  it('evidence / report / question 含换行、NUL 与 emoji → 渲染不抛错且原样可见', () => {
+  it('evidence / report / 历史 ask 载荷含换行、NUL 与 emoji → 渲染不抛错且回退 JSON 原样', () => {
     const { unmount } = renderFinish({
       report: '报告\n含\0与🚀',
       items: [{ id: '🚀1', pass: true, evidence: '证\n据\0据' }],
@@ -874,8 +864,13 @@ describe('FinishStepCard：文本特殊字符（str 边界）', () => {
     expect(finishCard().textContent).toContain('报告');
     unmount();
 
-    renderFinish({ action: 'ask', question: '选\n哪个🚀？', options: ['甲\0方案'] });
-    expect(finishSummary()).toBe('ask：选\n哪个🚀？（甲\0方案）');
+    const historicalAsk = { action: 'ask', question: '选\n哪个🚀？', options: ['甲\0方案'] };
+    renderFinish(historicalAsk);
+    expect(finishSummary()).toBe('finish_step');
+    expandFinishCard();
+    expect(finishCard().querySelector('pre')?.textContent).toBe(
+      JSON.stringify(historicalAsk, null, 2),
+    );
     // React 转义：文本不进 innerHTML，无 script 节点
     expect(finishCard().querySelector('script')).toBeNull();
   });

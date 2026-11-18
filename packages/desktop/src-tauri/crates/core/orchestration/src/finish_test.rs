@@ -149,7 +149,7 @@ fn description两形态_各含关键语义且互不相等且不膨胀() {
     for forbidden in ["ask（", "/ ask"] {
         assert!(
             !decision.contains(forbidden),
-            "decision 形态不含三动作枚举式表述 {forbidden}: {decision}"
+            "decision 形态不含 ask 动作词形态 {forbidden}: {decision}"
         );
     }
     // 形状不复述：形状归工具 schema
@@ -406,27 +406,17 @@ fn description两形态体量受控且decision稳定() {
     );
 }
 
-/// `ask` 不再产出但历史兼容（异常，AC-12）：`{"action":"ask", …}` → `validate`
-/// 仍可由 `validate_decision` 的 `"ask"` 臂通过（历史 notice 兼容），而
-/// `parameters` 的 enum 不含 `"ask"` ⇒ 模型侧不可见（schema 拒绝是契约面、
-/// validate 的兼容是历史面，两者并存且不矛盾）。
+/// `ask` 不是决策动作（异常）：`validate` 与 `parameters` 双面拒绝——封闭集只含
+/// `backtrack` / `stop`，历史 ask 载荷不再有校验面兼容。
 #[test]
-fn ask动作schema不可见但validate历史兼容() {
+fn ask动作validate与schema双面拒绝() {
     let args = serde_json::json!({
         "action": "ask",
         "question": "q",
         "options": ["a"],
     });
-    let payload = validate(FinishSpec::Decision, &args, "")
-        .expect("历史 ask 载荷仍可经 validate_decision 通过");
-    assert!(
-        matches!(
-            &payload,
-            FinishPayload::Decision(DecisionAction::Ask { question, options })
-                if question == "q" && options == &vec!["a".to_owned()]
-        ),
-        "ask 臂逐字段承接，实际: {payload:?}"
-    );
+    let error = validate(FinishSpec::Decision, &args, "").expect_err("ask 非决策动作");
+    assert!(error.contains("ask"), "Err 文案携实际收到的动作值: {error}");
 
     let enum_values = parameters(FinishSpec::Decision, "")["properties"]["action"]["enum"]
         .as_array()
@@ -638,7 +628,7 @@ fn validate两臂err透传且文案可归因() {
         "",
     )
     .expect_err("非法 action 应 Err");
-    for action in ["backtrack", "stop", "ask"] {
+    for action in ["backtrack", "stop"] {
         assert!(
             decision_err.contains(action),
             "decision 臂 Err 含封闭集值 {action}: {decision_err}"
@@ -677,12 +667,15 @@ fn finish_payload线形态两线值三非法且往返等值() {
     let back: FinishPayload = serde_json::from_value(value).expect("反序列化");
     assert_eq!(back, payload, "evaluator 臂双向 round-trip 逐字段相等");
 
-    let decision = FinishPayload::Decision(DecisionAction::Ask {
-        question: "选哪个？".to_owned(),
-        options: vec!["甲".to_owned(), "乙".to_owned()],
+    let decision = FinishPayload::Decision(DecisionAction::Backtrack {
+        to: "test-gen".to_owned(),
+        reason: "覆盖不足".to_owned(),
     });
     let value = serde_json::to_value(&decision).expect("序列化");
-    assert_eq!(value["decision"]["action"], "ask", "decision 臂线形态");
+    assert_eq!(
+        value["decision"]["action"], "backtrack",
+        "decision 臂线形态"
+    );
     let back: FinishPayload = serde_json::from_value(value).expect("反序列化");
     assert_eq!(back, decision, "decision 臂双向 round-trip 逐字段相等");
 

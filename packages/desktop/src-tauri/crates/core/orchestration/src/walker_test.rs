@@ -46,12 +46,6 @@ use workflow::write::{
 // 夹具随双向墙退役，状态种子改经 store change 域操作面）
 // ---------------------------------------------------------------------------
 
-/// 自 `start` 起的字符窗口（源码自证用）：按**字符**而非**字节**截取——
-/// 字节偏移可能落在多字节字符中间而 panic，且偏移量对源码行尾敏感。
-fn byte_window(source: &str, start: usize, max_chars: usize) -> String {
-    source[start..].chars().take(max_chars).collect::<String>()
-}
-
 /// 临时 workspace 根 RAII。
 struct TempRoot(PathBuf);
 
@@ -3442,84 +3436,6 @@ async fn 决策越权一次即停且会话数恒一() {
         1,
         "会话登记面亦恒 1"
     );
-}
-
-/// 决策会话的 `ask` 决议已迁出（AC-12，正向侧证）：历史 `{ "action": "ask" }`
-/// 载荷不再触发 `RunUpdate::Ask` 停等，而是即刻 `Terminal::failed`（决策漂移），
-/// 且决策会话恒单轮（零 Continue 续会话）。
-#[tokio::test]
-async fn 决策ask载荷不再停等而即刻failed且单轮() {
-    let (root, db) = decision_fixture("ask-decision");
-
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, sessions) = FakeWorker::new(&timeline)
-        .with_decision_reports(vec![
-            r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#.to_owned(),
-        ])
-        .assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![
-            route_outcome("implement", &["proposal", "dev-design", "implement"]),
-            max_retries_outcome(
-                "implement",
-                &["proposal", "dev-design", "implement"],
-                "首轮未过",
-            ),
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> =
-        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
-
-    let (task, mut rx, history) =
-        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
-    let _confirmer = spawn_confirmer(&control, true);
-    let status = task.await.expect("run 任务正常结束");
-
-    assert_eq!(
-        status,
-        ChangeRunStatus::Failed,
-        "历史 ask 载荷即决策漂移（不再停等应答）"
-    );
-    let finish = history.finish().expect("finish 落包捕获");
-    let reason = finish.reason.as_deref().unwrap_or_default();
-    assert!(reason.contains("决策漂移"), "记因含漂移语义: {reason}");
-    assert!(
-        reason.contains("AskUserQuestion"),
-        "记因指路独立阻塞工具: {reason}"
-    );
-
-    let notices = drain_notices(&mut rx);
-    assert!(
-        !notices.contains(&RunNotice::Ask),
-        "零 Ask 通知（停等面已迁出决策链）: {notices:?}"
-    );
-    assert!(notices.contains(&RunNotice::Finished));
-
-    // 单轮：决策会话恰一次，零 Continue 续会话、零 prompt 注入
-    let requests = requests.lock().expect("请求锁");
-    let decision_requests: Vec<&WorkerTurnRequest> = requests
-        .iter()
-        .filter(|request| request.role == WorkerRole::Decision)
-        .collect();
-    assert_eq!(decision_requests.len(), 1, "决策会话恰一次（零第二轮）");
-    assert!(
-        decision_requests[0].continue_session.is_none(),
-        "决策会话零 Continue（单轮收口）"
-    );
-    assert_eq!(
-        sessions_of(&sessions.lock().expect("会话登记锁"), WorkerRole::Decision).len(),
-        1,
-        "会话登记面亦恒 1"
-    );
-    drop(requests);
-    // 零 backtrack（无合法动作可落）
-    assert!(commands
-        .lock()
-        .expect("命令锁")
-        .iter()
-        .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),);
 }
 
 /// walk_run phase 间停等确认（正向）：相位落账后 `RunUpdate::ConfirmWait`
@@ -11482,147 +11398,6 @@ async fn feedback_limit_escalate误声明显式漂移err() {
         "漂移路径零门禁 spawn"
     );
     assert!(requests.lock().expect("请求锁").is_empty(), "零 agent 会话");
-}
-
-/// 防御臂（异常，AC-12）：`finalized = Decision(Ask{..})` → `Terminal::failed`，
-/// 文案含「决策漂移」+ `AskUserQuestion` 字面；`RunUpdate::Ask` **零 emit**、
-/// worker 调用恰 1 次（不开新轮）。
-#[tokio::test]
-async fn 决策载荷ask出现即failed且零emit与单轮() {
-    let (root, db) = decision_fixture("decision-drift-ask");
-
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
-        .with_decision_reports(vec![
-            r#"{ "action": "ask", "question": "选哪个？", "options": ["甲", "乙"] }"#.to_owned(),
-            // 第二轮预录产出（若开新轮必被消费）
-            r#"{ "action": "stop", "reason": "不应被消费" }"#.to_owned(),
-        ])
-        .assemble();
-    let (tools, _commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![
-            route_outcome("implement", &["proposal", "dev-design", "implement"]),
-            max_retries_outcome(
-                "implement",
-                &["proposal", "dev-design", "implement"],
-                "首轮未过",
-            ),
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> =
-        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
-
-    let (task, mut rx, history) =
-        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
-    let _confirmer = spawn_confirmer(&control, true);
-    let status = task.await.expect("run 任务正常结束");
-
-    assert_eq!(
-        status,
-        ChangeRunStatus::Failed,
-        "Ask 载荷即编排漂移 → failed"
-    );
-    let finish = history.finish().expect("finish 落包捕获");
-    let reason = finish.reason.as_deref().unwrap_or_default();
-    assert!(
-        reason.contains("决策漂移"),
-        "终态记因含「决策漂移」: {reason}"
-    );
-    assert!(
-        reason.contains("AskUserQuestion"),
-        "记因指路独立阻塞工具: {reason}"
-    );
-
-    // 零 Ask 广播：`RunUpdate::Ask` 未 emit
-    let notices = drain_notices(&mut rx);
-    assert!(
-        !notices.contains(&RunNotice::Ask),
-        "零 Ask 广播（不停等）: {notices:?}"
-    );
-
-    // worker 调用恰 1 次决策会话（不开新轮）
-    let requests = requests.lock().expect("请求锁");
-    let decision_requests: Vec<&WorkerTurnRequest> = requests
-        .iter()
-        .filter(|request| request.role == WorkerRole::Decision)
-        .collect();
-    assert_eq!(
-        decision_requests.len(),
-        1,
-        "决策会话恰一次（Ask 载荷不开第二轮）"
-    );
-    assert!(
-        decision_requests[0].continue_session.is_none(),
-        "决策会话零续注（单轮收口）"
-    );
-}
-
-/// 决策 ask 载荷不产生多轮（边界，AC-12）：连续预录 3 轮 ask 产出，仅首轮被
-/// 消费（即刻 failed 收口），后续轮零消费——决策会话数恒 1、挂账恰一次。
-#[tokio::test]
-async fn 决策ask载荷不产生多轮且后续预录零消费() {
-    let (root, db) = decision_fixture("decision-ask-three-rounds");
-    let allowed = ["proposal", "implement"];
-    let ask = r#"{ "action": "ask", "question": "回溯目标?", "options": ["proposal"] }"#.to_owned();
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, sessions) = FakeWorker::new(&timeline)
-        .with_decision_reports(vec![
-            ask.clone(),
-            ask.clone(),
-            ask,
-            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
-        ])
-        .assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![
-            route_outcome("implement", &allowed),
-            max_retries_outcome("implement", &allowed, "首轮未过"),
-        ])
-        .assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> =
-        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
-    let (task, mut rx, history) =
-        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
-    let _confirmer = spawn_confirmer(&control, true);
-
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Failed, "首轮 ask 即收口");
-
-    let notices = drain_notices(&mut rx);
-    assert!(
-        !notices.contains(&RunNotice::Ask),
-        "零 Ask 通知（不开停等、不开新轮）"
-    );
-
-    let requests = requests.lock().expect("请求锁");
-    let decision_requests: Vec<&WorkerTurnRequest> = requests
-        .iter()
-        .filter(|request| request.role == WorkerRole::Decision)
-        .collect();
-    assert_eq!(decision_requests.len(), 1, "决策会话恒 1（后续预录零消费）");
-    drop(requests);
-    assert_eq!(
-        sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision).len(),
-        1,
-        "会话登记面亦恒 1"
-    );
-
-    // 漂移路径零门节点、零 Backtrack、挂账恰一次
-    let finish = history.finish().expect("finish 落包捕获");
-    let gates = finish
-        .nodes
-        .iter()
-        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
-        .count();
-    assert_eq!(gates, 0, "ask 载荷防御臂零门节点（不 emit）");
-    assert_eq!(
-        decision_log_payloads(&commands.lock().expect("命令锁")).len(),
-        1,
-        "挂账恰一次（单轮收口）"
-    );
 }
 
 /// 组合链（正向，AC-6）：test-execution 首败升格 → 决策 backtrack 到 implement
@@ -19944,28 +19719,18 @@ async fn 决策backtrack落账失败_terminal且零backtrack边() {
     );
 }
 
-/// 漂移防线单点（正向 + 异常，源自证）：`Ask` 载荷的漂移措辞经常量
-/// `TXT_ASK_DRIFT` 单点定义（定义 1 + `resolve_deadlock` 与动作裁决不可达臂各 1
-/// 消费）；ask 摘要文案已随停等链路退役（`ask：` 零命中），`Stop` 终态文案仍
-/// 源内恰一处。
+/// ask 历史遗留零残留（异常，源码自证）：`walker.rs` 零 `TXT_ASK_DRIFT` 常量、
+/// 零 `DecisionAction::Ask` 臂、零 `ask：` 摘要文案；`Stop` 终态文案仍源内恰一处。
 #[test]
-fn 决策drift文案单点且零ask摘要文案() {
+fn 决策ask历史遗留零残留且stop文案单点() {
     let code = walker_code_lines();
-    assert_eq!(
-        code.matches("const TXT_ASK_DRIFT").count(),
-        1,
-        "漂移防线文案定义单点"
-    );
-    assert_eq!(
-        code.matches("TXT_ASK_DRIFT").count(),
-        4,
-        "常量消费面 = 定义 1 + `resolve_deadlock` 1 + 动作裁决不可达臂 2"
-    );
-    assert_eq!(
-        code.matches("ask：").count(),
-        0,
-        "ask 摘要文案已随停等链路退役（零第二份措辞）"
-    );
+    for retired in ["TXT_ASK_DRIFT", "DecisionAction::Ask", "ask："] {
+        assert_eq!(
+            code.matches(retired).count(),
+            0,
+            "ask 历史遗留零残留: {retired}"
+        );
+    }
     assert_eq!(
         code.matches("决策 stop: ").count(),
         1,
@@ -20760,72 +20525,9 @@ async fn 收口退化载荷_空跳过因落账与越界report写面拒绝() {
 }
 
 // ---------------------------------------------------------------------------
-// 决策 ask 轮 detail 与两 gate 节点面归零（AC-5）：`ask：<摘要>` 逐轮收口、
+// 决策节点细节与两 gate 节点面归零（AC-5）：detail 动作摘要、
 // `RetryGate` / `WhitelistGate` 节点零产出、`SettleMode` 两值封闭
 // ---------------------------------------------------------------------------
-
-/// 决策 ask 载荷的停止面（边界，AC-5）：历史 ask 载荷不再进入停等态，`run`
-/// 即刻 `Terminal::failed`（决策漂移），停止置位在已收敛后为 miss 幂等——零
-/// Backtrack 落账、零 `Ask` 通知。
-#[tokio::test]
-async fn 决策ask载荷路径停止置位幂等且零backtrack() {
-    let (root, db) = decision_fixture("decision-ask-abort");
-    let allowed = ["proposal", "implement"];
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
-        .with_decision_reports(vec![
-            r#"{ "action": "ask", "question": "回溯目标?", "options": ["proposal"] }"#.to_owned(),
-        ])
-        .assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![
-            route_outcome("implement", &allowed),
-            max_retries_outcome("implement", &allowed, "首轮未过"),
-        ])
-        .assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> =
-        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
-    let control = Arc::new(ChangeFlowControl::new(Arc::new(AskRegistry::default())));
-    let (task, mut rx, history) =
-        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
-    let _confirmer = spawn_confirmer(&control, true);
-
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(
-        status,
-        ChangeRunStatus::Failed,
-        "历史 ask 载荷即决策漂移（不再停等）"
-    );
-    // 收敛后停止置位为 miss 幂等
-    assert!(
-        !control.request_stop(ROOT, CHANGE_ID),
-        "run 已收口除名：停止寻址 miss 幂等"
-    );
-
-    let notices = drain_notices(&mut rx);
-    assert!(
-        !notices.contains(&RunNotice::Ask),
-        "零 Ask 通知（停等面不在决策链）: {notices:?}"
-    );
-    let finish = history.finish().expect("finish 落包捕获");
-    assert!(
-        finish
-            .reason
-            .as_deref()
-            .unwrap_or_default()
-            .contains("决策漂移"),
-        "记因: {:?}",
-        finish.reason
-    );
-    assert!(
-        commands
-            .lock()
-            .expect("命令锁")
-            .iter()
-            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
-        "零 Backtrack 落账"
-    );
-}
 
 /// `SettleMode` 两值封闭（异常 / 边界，源自证 + 编译期）：枚举恰两变体且第三值不可
 /// 构造；`PhaseCursor` 旧三字段零命中、`EvaluatorTurn` 两字段同源、`WorkerTurn`
@@ -21426,8 +21128,7 @@ async fn close_step未开出实例号就地合并不新增节点() {
 }
 
 // ---------------------------------------------------------------------------
-// ask-tool-in-flow：决策会话单轮收口（零 `continue_session` / 零第二轮）与
-// `Ask` 载荷防御臂（决策漂移）
+// ask-tool-in-flow：决策会话单轮收口（零 `continue_session` / 零第二轮）
 // ---------------------------------------------------------------------------
 
 /// 单轮收口零 `Continue`（正向，AC-12）：决策步一次
@@ -21561,64 +21262,27 @@ async fn 决策两动作各自单轮收口() {
     }
 }
 
-/// `resolve_deadlock` 防御臂结构保留（DD10，异常，源码自证 + 运行期侧证）：
-/// `DecisionAction::Ask` 分支仍为 `Deadlock::Terminal(Terminal::failed(…))` 且
-/// 经漂移文案常量（措辞单点含「决策漂移」+ 指路 `AskUserQuestion`）；其余两动作
-/// 的既有分支文案逐字在位。
-#[tokio::test]
-async fn resolve_deadlock三分支结构保留() {
+/// `resolve_deadlock` 两分支结构（异常，源码自证）：`Ask` 臂零残留（历史遗留已
+/// 移除）；`Stop` 分支仍 `Deadlock::Terminal` 且终态文案逐字在位。
+#[test]
+fn resolve_deadlock两分支结构与ask零残留() {
     let own = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/walker.rs"),
     )
     .expect("读取 walker.rs");
 
-    // Ask 分支：结构保留（`DecisionAction::Ask` 臂 → Terminal::failed）
-    let ask_arm = own
-        .find("DecisionAction::Ask { .. } =>")
-        .expect("resolve_deadlock 的 Ask 臂在场");
-    let arm_body = byte_window(&own, ask_arm, 400);
     assert!(
-        arm_body.contains("Terminal::failed"),
-        "Ask 臂仍收敛为 Terminal::failed"
-    );
-    assert!(
-        arm_body.contains("TXT_ASK_DRIFT"),
-        "Ask 臂经漂移文案常量收口（措辞单点）"
-    );
-    // 措辞本身单点在常量值内（两处消费点共用）
-    let const_at = own.find("const TXT_ASK_DRIFT").expect("漂移文案常量在场");
-    let const_line = byte_window(&own, const_at, 200);
-    assert!(const_line.contains("决策漂移"), "常量值含「决策漂移」");
-    assert!(
-        const_line.contains("AskUserQuestion"),
-        "常量值指路独立阻塞工具"
+        !own.contains("DecisionAction::Ask"),
+        "resolve_deadlock 的 Ask 臂零残留"
     );
 
-    // 其余两动作分支逐字在位（既有判定不变）
+    // 两动作分支逐字在位（既有判定不变）
     for kept in [
         "DecisionAction::Stop { reason } => Deadlock::Terminal",
         "决策 stop: {reason}",
     ] {
         assert!(own.contains(kept), "既有分支文案逐字在位: {kept}");
     }
-}
-
-/// `Ask` 载荷历史兼容（异常）：`DecisionAction::Ask` 经收口载荷反序列化后可
-/// 提取（`finish_payload` 单点），且 walker 防御臂据此判漂移，而不是
-/// 「未收口／截断」成因。
-#[tokio::test]
-async fn ask载荷历史反序列化后可被防御臂识别() {
-    let transcript = finish_notice_transcript(
-        r#"{ "decision": { "action": "ask", "question": "q", "options": ["a"] } }"#,
-    );
-    let payload = crate::transcript::finish_payload(&transcript).expect("历史载荷可提取");
-    assert!(
-        matches!(
-            payload,
-            crate::finish::FinishPayload::Decision(crate::decision::DecisionAction::Ask { .. })
-        ),
-        "历史 ask 载荷仍可读（防御臂识别面）"
-    );
 }
 
 /// 既有失败臂零改动（异常，参数化 3 形态）：`finalized == None` 且输出被截断 →

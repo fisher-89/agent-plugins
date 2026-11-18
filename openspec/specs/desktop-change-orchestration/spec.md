@@ -243,7 +243,7 @@ Evaluator 会话 SHALL 以 `finish_step` 工具收口（协议定义见 desktop-
 
 **无法裁决时 SHALL 调用 `ask` 工具**（`AskUserQuestion`，见 desktop-agent-execution「ask 工具协议与阻塞应答通道」与本文「流程内 ask 停等与双入口应答」）——该工具在同一 turn 内阻塞、应答后模型继续，MUST NOT 以决策动作的形式提交提问（`finish_step` 的 decision 形态 `enum` MUST NOT 含 `ask`，`question` / `options` 两个 property 随之删除）。`finish_step` 的 decision 形态 `description` SHALL 明示该指路（两动作 + 「无法裁决时调用 `AskUserQuestion` 工具（问题 + 非空选项）」）。
 
-封闭集外的动作（含已退役的 `retry` 与本变更迁出的 `ask`）与形状漂移 SHALL 由 `finish_step` 的工具校验 `Err` **当场回灌**（is_error ToolResult，模型在同一 turn 内纠正重试）——MUST NOT 一次即打死 run，MUST NOT 跨轮计数。`DecisionAction::Ask` 变体 SHALL 保留（历史 `SystemNotice{finish_step}` 载荷反序列化兼容 + walker 防御臂判据），但**生产路径不可达**（schema 不再产出它）；若该载荷仍流出，walker SHALL `Terminal::failed`（文案指路 ask 工具），MUST NOT 静默忽略、MUST NOT 进入停等。重做语义 SHALL 由白名单自含承载（单一载体）：`allowed_backtrack_phases` 含失败相位自身 ⟺ 该相位可重做（其 step 序列含 agent 步）；零 agent 步的相位（test-execution / archive）自身不入白名单——决策上下文里不存在「重做本相位」这个选项。
+封闭集外的动作（含已退役的 `retry` 与已迁出的 `ask`）与形状漂移 SHALL 由 `finish_step` 的工具校验 `Err` **当场回灌**（is_error ToolResult，模型在同一 turn 内纠正重试）——MUST NOT 一次即打死 run，MUST NOT 跨轮计数。`DecisionAction` SHALL 只含 `backtrack` / `stop` 两变体（`Ask` 历史遗留已删除，不再为历史 `SystemNotice{finish_step}` 载荷保留反序列化兼容）——封闭集外的历史 `ask` 载荷 SHALL 在 schema / `validate` / 载荷提取三层同源拒绝，MUST NOT 保留第三变体、MUST NOT 为它保留 walker 防御臂。重做语义 SHALL 由白名单自含承载（单一载体）：`allowed_backtrack_phases` 含失败相位自身 ⟺ 该相位可重做（其 step 序列含 agent 步）；零 agent 步的相位（test-execution / archive）自身不入白名单——决策上下文里不存在「重做本相位」这个选项。
 
 决策 prompt SHALL 增「回溯重做窗口」段：段内容 SHALL 复用写面渲染单点（MUST NOT 在 orchestration 侧另持第二份文案或第二份判据），只渲染各窗口的原因原文、以 `<backtrack reason>` / `</backtrack>` 定界、零相位 id 与零属性；集合为空时整段省略（不留标题）。段位置 SHALL 在 `## 失败相位报告` **之前**（段序最前，紧跟开头一句「相位…评估失败，需要你做出路由决策」之后）——背景信息比失败明细更宏观。该段与「可回溯白名单」段不构成语义混淆：白名单供 agent 选目标（携相位 id 与产物、有硬约束力），窗口段供 agent 知道为什么被叫回来（零相位 id、零约束力）。
 
@@ -274,11 +274,6 @@ Evaluator 会话 SHALL 以 `finish_step` 工具收口（协议定义见 desktop-
 
 - **WHEN** 决策 agent 尝试经 `finish_step` 提交 `{action:"ask", question, options}`
 - **THEN** 工具校验 `Err` 当场回灌（`action` 枚举只含 `backtrack` / `stop`，文案指路调用 `AskUserQuestion` 工具），run 不中断、不进入停等；同一 turn 内模型改为调用 ask 工具后问答照常成立
-
-#### Scenario: ask 载荷仍流出即判漂移
-
-- **WHEN** 因任何原因此轮决策仍产出 `FinishPayload::Decision(DecisionAction::Ask { .. })`（历史载荷回放 / 装配漂移）
-- **THEN** walker 以 `Terminal::failed` 收口，reason 指路「ask 应经 `AskUserQuestion` 工具提交」；MUST NOT emit `RunUpdate::Ask`、MUST NOT 进入停等、MUST NOT 开新一轮决策会话
 
 #### Scenario: 决策 ask 往返不再消耗整轮
 
@@ -945,7 +940,7 @@ run 的失败面 SHALL 分两型且文案可辨，MUST NOT 混同：
 
 决策分叉的动作裁决 SHALL 由图面节点与 `detail` 承载，MUST NOT 以独立 gate 节点实例计数表达：一次决策分叉 SHALL 产 decision 节点（`WorkerRole::Decision` 的会话步），`instance_no` 按决策轮次递增；节点终态与 `detail` SHALL 为：
 
-- **通过**（`ensure_backtrack_allowed` 放行）→ 节点 passed，`detail` 携动作摘要（`backtrack → <目标相位>` / `stop` / `ask`）；
+- **通过**（`ensure_backtrack_allowed` 放行）→ 节点 passed，`detail` 携动作摘要（`backtrack → <目标相位>` / `stop`）；
 - **越权**（白名单门拒绝 / `backtrack` 目标不在 `allowed`）→ 节点 failed，`detail` 携拒绝文案与 `allowed` 列表，run `Terminal::failed`（一次即停，无第二轮纠正）。
 
 `WhitelistGate` / `RetryGate` 节点 SHALL 零产出（`begin_node` 零调用点；两词保留为存量解码词汇）。`ensure_backtrack_allowed` SHALL 保持纯函数（入参动作 + 失败相位 + 白名单），MUST NOT 读运行时状态。`ToolCommand::DecisionLog` 保留（会话槽位挂账为业务数据，非图节点）。
@@ -959,11 +954,6 @@ run 的失败面 SHALL 分两型且文案可辨，MUST NOT 混同：
 
 - **WHEN** 决策 agent 提交白名单内 `{action:"backtrack", to:"test-gen", reason:...}`
 - **THEN** decision 节点 passed、`detail` 为 `backtrack → test-gen`；写面 `backtrack` 落账后目标相位首节点 incoming 边为 `backtrack`；图上零 `retry_gate` 节点
-
-#### Scenario: ask 应答后新轮实例递增
-
-- **WHEN** 决策 agent 首轮提交 `ask`，用户应答后新一轮提交白名单内 `backtrack`
-- **THEN** 图上两个 decision 节点实例（`instance_no` 1 → 2）；首轮 `detail` 携 `ask` 与问题摘要、终态 passed（用户驱动的停等不计失败）；第二轮 `detail` 携回溯目标
 
 ### Requirement: attempt 推导口径与 round 口径分离
 
@@ -1048,7 +1038,7 @@ change 流程的 ask SHALL 由**阻塞工具** `AskUserQuestion`（`ToolExec::As
 | `crates/core/orchestration/src/port.rs` | 「相位机 + 工具步」进程内缝（语义换血） | ToolStepPort 进程内直调 core/workflow 写面；ToolCommand 封闭集收缩（ChangeFiles 出局）；WorkerAgentPort 契约不变；测试假引擎 + 假写面双缝直驱 |
 | `crates/core/orchestration/src/steps.rs`（LocalToolSteps） | 相位机步进程内直调写面 | 直调面签名不变（载体在写面内换血）；每步结果落 StepRecord 审计行（经写面） |
 | `crates/core/orchestration/src/snapshot.rs` | ChangeDetail 只读装配 | 读源改 workspace 库 change 状态（经 queries）；磁盘扫描保留产物发现 |
-| `crates/core/orchestration/src/verdict.rs` + `decision.rs`（不改） | 结构化输出解析 | 封闭 schema（checklist 信封 + 决策四动作封闭集）；解析失败显式 Err 上抛——处置归 walker 按步声明分叉（verdict 反馈边 / 决策终态） |
+| `crates/core/orchestration/src/verdict.rs` + `decision.rs`（不改） | 结构化输出解析 | 封闭 schema（checklist 信封 + 决策两动作封闭集）；解析失败显式 Err 上抛——处置归 walker 按步声明分叉（verdict 反馈边 / 决策终态） |
 | `crates/core/orchestration/src/prompt.rs`（不改） | prompt 组装与运行时插值 | 模板取自 core/workflow 相位表单源 |
 | `crates/core/orchestration/src/transcript.rs`（砍半） | 会话转录消费 | 仅保留 `final_assistant_text`（verdict 提取）；`extract_write_paths` 出局 |
 | `crates/infra/agent/src/worker.rs` | WorkerAgentPort 实现 + static-check spawn 缝 | compose_turn 新会话 + StopRegistry 终止 + 密封转录；provenance `source="change"`；spawn 不进 core |
@@ -1085,9 +1075,9 @@ change 流程的 ask SHALL 由**阻塞工具** `AskUserQuestion`（`ToolExec::As
 | `crates/core/orchestration/src/steps.rs` | ToolStep 面随动 | `LocalToolSteps` 组合不变；检查 runner 调用透传 baseline 报告槽位（形态 design 定稿） |
 | `crates/core/orchestration/src/state.rs` | 步词汇扩展 | `ChangeStepKind::Clean`（`as_str` = `clean`）白名单式入封闭集（20→21）；`RunUpdate::Step` 形态不变 |
 | `crates/core/orchestration`（依赖方向不变） | spawn 红线 | orchestration → workflow；零 CLI 子进程；检查域 spawn 经 checks 缝、restore_baseline 经 vcs 缝，core 零 spawn |
-| `crates/core/orchestration/src/decision.rs` | 决策动作封闭集 | `DecisionAction::{ Backtrack { to, reason }, Stop { reason }, Ask { question, options } }`（`Retry` 变体删除；取代 Module Contract 原「决策四动作封闭集」表述）；`DecisionInput` 删 `eval_only`、增 `fail_report: String` |
-| `crates/core/orchestration/src/prompt.rs`（`decision_prompt`） | 决策 prompt 组装 | 三动作协议段；白名单条目渲染 `- <id>（<特性描述>）：<可操作产物段>`（描述与产物自相位表随行，产物段逐项 `` `<相对路径>`（<标题>） ``、零产物渲染「无声明产物」）并对可重做相位自注记「（= 重做本相位）」；「失败相位报告」段渲染 `fail_report`；读报告文件指引；删 retry 二分支指引 |
-| `crates/core/orchestration/src/walker.rs`（`decision_session`） | 动作裁决写 detail | 删 `WhitelistGate` 节点（`begin_node` / 三次 `emit_node`）；通过与越权写 decision 节点 `detail`；`ensure_backtrack_allowed` 调用面不变（越权一次即 `Terminal`）；ask 应答后新轮 `instance_no` 递增 |
+| `crates/core/orchestration/src/decision.rs` | 决策动作封闭集 | `DecisionAction::{ Backtrack { to, reason }, Stop { reason } }`（`Retry` / `Ask` 变体删除；取代 Module Contract 原「决策四动作封闭集」表述）；`DecisionInput` 删 `eval_only`、增 `fail_report: String` |
+| `crates/core/orchestration/src/prompt.rs`（`decision_prompt`） | 决策 prompt 组装 | 两动作协议段；白名单条目渲染 `- <id>（<特性描述>）：<可操作产物段>`（描述与产物自相位表随行，产物段逐项 `` `<相对路径>`（<标题>） ``、零产物渲染「无声明产物」）并对可重做相位自注记「（= 重做本相位）」；「失败相位报告」段渲染 `fail_report`；读报告文件指引；删 retry 二分支指引 |
+| `crates/core/orchestration/src/walker.rs`（`decision_session`） | 动作裁决写 detail | 删 `WhitelistGate` 节点（`begin_node` / 三次 `emit_node`）；通过与越权写 decision 节点 `detail`；`ensure_backtrack_allowed` 调用面不变（越权一次即 `Terminal`）；决策会话零续注单轮收口 |
 | `crates/core/orchestration/src/walker.rs`（`resolve_deadlock`） | 节点面收敛 | 删 `RetryGate` 节点的三次 emit；`trace.incoming = Backtrack` 与写面 `backtrack` 落账逐字不变 |
 | `crates/core/orchestration/src/walker.rs`（`step_test_execution` / `step_mutation_test`） | 门禁步执行体 | 删反馈循环与 `fix_session`；`on_fail == Some(Escalate)` 前置分支（代写 fail 落账 → `StepFlow::Upgraded`）；保留 `Terminal` 前置分支与 runner `Err → Terminal` |
 | `crates/core/workflow/src/write/phase_next.rs` | 路由与幂等闸 | `fail_decided` 保留、注释改为「该 fail 条目已进入过决策，不再重复分叉」；`eval_only` 派生删除、`PhaseNextError` 两变体去字段；`MaxRetriesExceeded` 文案改「本相位已连续失败 N 次」 |
@@ -1123,7 +1113,7 @@ change 流程的 ask SHALL 由**阻塞工具** `AskUserQuestion`（`ToolExec::As
 | `src/commands/change_flow/mod.rs`（零改动） | 运行控制命令面 | `change_flow_start` / `stop` / `answer` / `confirm` / `watch` 签名与事件面不变；`RunUpdate::Step` 载荷不变 |
 | `crates/infra/checks/src/static_check.rs` / `testexec/mod.rs`（消费面） | 上抛调用点 | 文件已建后调用 `on_output_ref(exec_id)` 一次；`on_output_ref == None` 时零行为差异（见 desktop-checks-domain） |
 | `crates/infra/checks/src/mutation/**`（零改动） | 突变段 | 不接 `on_output_ref`（`MutationRunner::run` 签名不变），突变段零输出记录面 |
-| `crates/core/orchestration/src/decision.rs`（扩） | 决策有界输入 | `DecisionInput` 增 `pub backtrack_window: Vec<workflow::write::BacktrackWindowEntry>`（字段 doc 注明透传自 error 响应、walker 不自行推导）；`DecisionAction` 三动作封闭集 / `parse_decision` / `ensure_backtrack_allowed` / `MAX_REASON_CHARS = 500` 逐字不变 |
+| `crates/core/orchestration/src/decision.rs`（扩） | 决策有界输入 | `DecisionInput` 增 `pub backtrack_window: Vec<workflow::write::BacktrackWindowEntry>`（字段 doc 注明透传自 error 响应、walker 不自行推导）；`DecisionAction` 两动作封闭集 / `ensure_backtrack_allowed` / `MAX_REASON_CHARS = 500` 逐字不变 |
 | `crates/core/orchestration/src/prompt.rs`（扩） | 决策 prompt 组装 | `decision_prompt` 增「回溯重做窗口」段：调用写面窗口段渲染单点（零第二份文案 / 零第二份判据 / 零二次裁剪——上限裁剪唯一实现在写面），逐条渲染写面下发集合（≤ 上限时全量并集、超限时写面已取末位两层），空集合整段省略，插入位置 = `## 失败相位报告` 之前；`spec_sync_prompt` / `merge_conflict_prompt`（archive 两步）MUST NOT 携带该段；`decision_fix_prompt` 文本不变 |
 | `crates/core/orchestration/src/walker.rs`（收窄） | 决策输入透传 | `build_decision_input` 透传 `next.backtrack_window`（零 store 读取、零相位表推导）；`resolve_deadlock` 调用点随行；`step_executor` doc 注释同步（不再写「回溯原因后缀全在写面」）。零新 port / 零新 step / 零 route 规则 |
 | `crates/core/orchestration/src/{port.rs,steps.rs,control.rs,state.rs}`（零改动） | 工具步与状态面 | `ToolStepOutput::PhaseNext(Box<PhaseNextOutcome>)` 载荷自动携新字段；零新 port、零新步词、零新通知类型、零新状态值 |
@@ -1149,9 +1139,9 @@ change 流程的 ask SHALL 由**阻塞工具** `AskUserQuestion`（`ToolExec::As
 | `crates/core/orchestration/src/{walker_test,steps_test,control_test}.rs` + `crates/core/workflow/src/{write/phase_table_test,state_test}.rs` | 直测 | 形状面断言改锚点（`node_of(PhaseStart)` → 首个真实步；`step_instances(WhitelistGate)` → `step_instances(Decision)`；`node.step == PhaseLog` → `phase_log_input` 载荷 / pipeline attempts）；新增 `enter_phase` / `settle_phase` / 双失败面 / 词汇冻结守卫用例；6 处 `walk_run` 整链期望值重定 |
 | `crates/core/orchestration/src/ask.rs`（新） | ask 工具定义与校验单点 | `pub const TOOL_NAME: &str = "AskUserQuestion"`；`pub fn description() -> &'static str`；`pub fn parameters() -> serde_json::Value`（`question` 必填、`options` `minItems: 1`）；`pub fn validate(args: &Value) -> Result<AskQuestion, String>`（question 非空 / options 非空字符串数组，Err 文案自足）；`pub struct AskQuestion { pub question: String, pub options: Vec<String> }`。**MUST NOT `use crate::finish`**（全文零 `finish` 字样，源码自证守卫） |
 | `crates/core/orchestration/src/finish.rs`（收窄） | decision 形态两动作 | `parameters(FinishSpec::Decision)` 的 `action.enum` == `["backtrack","stop"]`，删除 `question` / `options` 两个 property；`description(Decision)` 改写为两动作 + 「无法裁决时调用 `AskUserQuestion` 工具（问题 + 非空选项）」；`validate` 仍走 `validate_decision`；evaluator 形态与 `FinishPayload` 逐字不变 |
-| `crates/core/orchestration/src/decision.rs`（收窄 + 保留面） | 动作封闭集与历史兼容 | `DecisionAction::Ask` **保留**（doc 补「生产不可达：`finish_step` schema 已不含该值，历史 notice 反序列化仍可读，walker 防御臂据此判漂移」）；`validate_decision` 的 `"ask"` 臂逐字保留；`ensure_backtrack_allowed` / `MAX_REASON_CHARS` 逐字不变 |
+| `crates/core/orchestration/src/decision.rs`（收窄） | 动作封闭集与 ask 历史遗留移除 | `DecisionAction::{ Backtrack, Stop }` 两变体（`Ask` 变体删除，历史 notice 反序列化兼容一并退场）；`validate_decision` 只含 `"backtrack"` / `"stop"` 两臂；`ensure_backtrack_allowed` / `MAX_REASON_CHARS` 逐字不变 |
 | `crates/core/orchestration/src/prompt.rs`（改） | 决策 prompt 两动作 + ask 指路 | `decision_prompt` 的协议段由三选一改两选一 + 一句 ask 工具指路（形状不复述）；`decision_answer_prompt` **删除**（`grep` 零命中）；`evaluator_protocol` 零改动 |
-| `crates/core/orchestration/src/walker.rs`（改） | 决策 ask 分支退役 | `decision_session` 删除 `FinishPayload::Decision(Ask { .. })` 的 `emit` / `wait_answer` / `Continue` 分支，改为单一裁决：该载荷出现即 `Terminal::failed`（指路 ask 工具）；`resolve_deadlock` 的 `DecisionAction::Ask` 防御臂逐字保留；`WhitelistGate` 每轮一节点语义不变 |
+| `crates/core/orchestration/src/walker.rs`（改） | 决策 ask 分支退役 | `decision_session` / `resolve_deadlock` 零 `Ask` 臂、零 `TXT_ASK_DRIFT` 常量（历史遗留已移除）；动作裁决只剩 `backtrack` / `stop` 两分支；`WhitelistGate` 每轮一节点语义不变 |
 | `crates/core/orchestration/src/control.rs`（改 + 保留面） | 应答通道转投与 confirm 不动 | `answer(root, change_id, text)` 改为 `current_session()` → `AskRegistry::answer(session_id, text)`（无 run → `Err` 携 change id；无会话 / 无等待方 → `Err`）；删除 `answer_tx` 槽字段与 `wait_answer()`；**`accept_pending` / `confirm` / `wait_confirm` / 锁序纪律逐字不动**；`publish` 的 `RunUpdate::Ask` 臂随变体收敛改为 `entry.ask = Some(ask)`（其余四臂逐字不动）；`ChangeFlowControl::new(ask_registry: Arc<AskRegistry>)`；新增 `resolve_ask(root, change_id)`（`ask_resolved` 的注册表侧实现：条件清 status + `ask` 槽 + 广播 `RunNotice::Step`） |
 | `crates/core/orchestration/src/port.rs`（扩） | 编排侧 ask 状态面 | `pub trait AskPort: Send + Sync { fn ask_started(&self, ask: AskPayload); fn ask_resolved(&self); }` |
 | `crates/core/orchestration/src/state.rs`（扩） | 载荷扩展与变体收敛 | `AskPayload` 增 `#[serde(default)] pub tool_call_id: Option<String>` / `pub session_id: Option<String>`（additive）；`RunUpdate::Ask { question, options }` → `Ask { ask: AskPayload }`（`kind()` == `"ask"`、`From<&RunUpdate> for RunNotice` 投影逐字不变） |

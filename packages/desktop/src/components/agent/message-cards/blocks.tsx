@@ -305,25 +305,19 @@ interface FinishItem {
 }
 
 /**
- * decision 形态的动作摘要行（`action` 为字符串时命中）：
- * `backtrack` 呈目标与理由、`stop` 呈理由、`ask` 呈问题与选项，未知动作原样。
+ * decision 形态的动作摘要行（`action` 为 `backtrack` / `stop` 时命中）：
+ * `backtrack` 呈目标与理由、`stop` 呈理由；其余动作（含历史 `ask`）返回
+ * `null`，由调用方回退 JSON 原样。
  */
-function decisionSummary(record: Record<string, unknown>): string {
-  const action = textOf(record.action) ?? '';
+function decisionSummary(record: Record<string, unknown>): string | null {
   const reason = textOf(record.reason) ?? '';
-  switch (action) {
+  switch (textOf(record.action)) {
     case 'backtrack':
       return `backtrack → ${textOf(record.to) ?? ''}：${reason}`;
     case 'stop':
       return `stop：${reason}`;
-    case 'ask': {
-      const options = Array.isArray(record.options)
-        ? record.options.map((option) => textOf(option) ?? '').join(' / ')
-        : '';
-      return `ask：${textOf(record.question) ?? ''}${options === '' ? '' : `（${options}）`}`;
-    }
     default:
-      return action;
+      return null;
   }
 }
 
@@ -387,8 +381,8 @@ function CheckListCard({
 /**
  * `finish_step` 收口卡（复用工具卡管线的注册表项，`BUILD_IN_TOOL_CARDS`）：
  * evaluator 形态（`input.items` 为数组）呈逐项清单 + report；decision 形态
- * （`input.action` 为字符串）呈动作摘要行；两形态均不匹配时回退 JSON 原样
- * （沿 `AskUserQuestionCard` 的宽容解析先例，不抛错）。
+ * （`input.action` 为 `backtrack` / `stop`）呈动作摘要行；两形态均不匹配时回退
+ * JSON 原样（沿 `AskUserQuestionCard` 的宽容解析先例，不抛错）。
  */
 function FinishStepCardBase({
   toolCallId,
@@ -404,8 +398,7 @@ function FinishStepCardBase({
     return <CheckListCard toolCallId={toolCallId} input={input} />;
   }
   const record = asRecord(input);
-  const action = textOf(record.action);
-  const summary = action !== null ? decisionSummary(record) : null;
+  const summary = decisionSummary(record);
   return (
     <TraceCollapsible data-testid="block-tool-use" data-tool-id={toolCallId}>
       <TraceCollapsibleTrigger>
@@ -425,7 +418,7 @@ function FinishStepCardBase({
               {output.content}
             </div>
           )}
-          {action === null ? (
+          {summary === null ? (
             <pre className="m-0 overflow-x-auto rounded bg-background px-2 py-1.5">
               {JSON.stringify(input, null, 2)}
             </pre>

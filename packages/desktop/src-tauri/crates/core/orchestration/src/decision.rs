@@ -14,13 +14,6 @@ pub enum DecisionAction {
     Backtrack { to: String, reason: String },
     /// 受控终止 run
     Stop { reason: String },
-    /// **生产不可达**：`finish_step` 的 decision 形态 `enum` 已不含 `ask`（提问迁出
-    /// 为独立阻塞工具 `AskUserQuestion`）；保留以支持历史 `SystemNotice{finish_step}`
-    /// 载荷反序列化，walker 防御臂据此判漂移
-    Ask {
-        question: String,
-        options: Vec<String>,
-    },
 }
 
 /// 候选相位最近一次 eval report（决策有界输入的第三面）。
@@ -57,10 +50,9 @@ pub struct DecisionInput {
 }
 
 /// `finish_step` 的 decision 形态参数校验：`action` tag ∈ 封闭集 → 各动作必填
-/// 字段（`backtrack`: `to` + `reason`；`stop`: `reason`；`ask`: `question` + 非空
-/// `options`——该臂保留供历史 notice 反序列化，生产路径已无 schema 产出它）→
-/// `reason ≤ MAX_REASON_CHARS`。Err 文案自足（字段名 + 期望 + 当前值），由工具
-/// 体当场回灌——同一 turn 内模型可立即纠正重试，不跨轮计数。
+/// 字段（`backtrack`: `to` + `reason`；`stop`: `reason`）→ `reason ≤
+/// MAX_REASON_CHARS`。Err 文案自足（字段名 + 期望 + 当前值），由工具体当场回灌
+/// ——同一 turn 内模型可立即纠正重试，不跨轮计数。
 pub fn validate_decision(args: &Value) -> Result<DecisionAction, String> {
     let object = args
         .as_object()
@@ -68,7 +60,7 @@ pub fn validate_decision(args: &Value) -> Result<DecisionAction, String> {
     let action = object
         .get("action")
         .and_then(Value::as_str)
-        .ok_or_else(|| "字段 action 缺失或非字符串：期望 backtrack / stop / ask 之一".to_owned())?;
+        .ok_or_else(|| "字段 action 缺失或非字符串：期望 backtrack / stop 之一".to_owned())?;
     match action {
         "backtrack" => {
             let to = required_str(object, "to", "backtrack")?;
@@ -81,23 +73,8 @@ pub fn validate_decision(args: &Value) -> Result<DecisionAction, String> {
             ensure_reason_len(&reason)?;
             Ok(DecisionAction::Stop { reason })
         }
-        "ask" => {
-            let question = required_str(object, "question", "ask")?;
-            let options: Vec<String> = object
-                .get("options")
-                .and_then(Value::as_array)
-                .ok_or_else(|| "字段 options 缺失或非数组：期望至少一个选项字符串".to_owned())?
-                .iter()
-                .map(|option| option.as_str().map(str::to_owned))
-                .collect::<Option<Vec<String>>>()
-                .ok_or_else(|| "字段 options 含非字符串元素：期望字符串数组".to_owned())?;
-            if options.is_empty() {
-                return Err("字段 options 为空数组：期望至少一个选项".to_owned());
-            }
-            Ok(DecisionAction::Ask { question, options })
-        }
         other => Err(format!(
-            "字段 action 值非法: {other:?}：期望封闭集 [\"backtrack\", \"stop\", \"ask\"] 之一"
+            "字段 action 值非法: {other:?}：期望封闭集 [\"backtrack\", \"stop\"] 之一"
         )),
     }
 }
@@ -149,7 +126,7 @@ pub fn ensure_backtrack_allowed(
     }
     if to == failed_phase {
         return Err(format!(
-            "本相位 \"{failed_phase}\" 为确定性门禁相位（零 agent 步），不支持重做；请从白名单其他相位中选择，或 stop / ask"
+            "本相位 \"{failed_phase}\" 为确定性门禁相位（零 agent 步），不支持重做；请从白名单其他相位中选择，或 stop"
         ));
     }
     Err(format!(
