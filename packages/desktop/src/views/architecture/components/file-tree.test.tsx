@@ -7,7 +7,7 @@ import { FileTree } from './file-tree';
 /**
  * 左栏文件树渲染面单测（AC-4 / AC-11 / AC-12 / AC-13）：扁平条目 → 森林的
  * 层级派生与兄弟序、缺省展开三段、归属标记呈现（member 仅弱化文字）、归属行
- * 点击语义、聚焦反查（多行高亮 / 强制展开 / 滚到首条 / 零命中静默）、空树与
+ * 点击语义、聚焦反查（多行高亮 / 根节点展开不下钻 / 滚到首条 / 零命中静默）、空树与
  * 取数状态面（挂载取数 / 解析中 / 失败行内 / 空根零 invoke）。
  *
  * 取数面已内收到组件：`FileTree` 只收 `root`，条目经 `useArchiFileTree` 取回。
@@ -196,8 +196,8 @@ describe('FileTree 归属标记呈现', () => {
     expect(within(rowOf('members')!).getByText('members').className).toContain(
       'text-muted-foreground',
     );
-    // containsElements 额外渲尾随计数小字
-    expect(within(rowOf('container')!).getByText('·2')).toBeTruthy();
+    // containsElements 的计数由标记徽章自身承载
+    expect(markOf('container')?.textContent).toBe('2');
   });
 
   it('应对缺失目录（exists = false）渲缺失提示且不影响标记', async () => {
@@ -277,21 +277,30 @@ describe('FileTree 聚焦反查', () => {
     expect(onFocus).not.toHaveBeenCalled();
   });
 
-  it('应在焦点命中深层条目时强制展开祖先链（零 setState）', async () => {
+  it('应仅展开聚焦模块的根节点及其祖先链、不下钻子节点（零 setState）', async () => {
     await renderTree(
       [
         dir('a', { mark: 'containsElements', contains: 1 }),
-        dir('a/b', { mark: 'containsElements', contains: 1 }),
         dir('a/b/c'),
-        dir('a/b/c/d'),
+        dir('a/b/c/d', { mark: 'elementRoot', owners: ['App.Deep'] }),
+        dir('a/b/c/d/inner'),
         file('a/b/c/d/e.ts', { mark: 'member', owners: ['App.Deep'] }),
+        file('a/b/c/d/inner/f.ts', { mark: 'member', owners: ['App.Deep'] }),
       ],
       'App.Deep',
     );
 
-    // 缺省只展开前 3 段 ⇒ 该行本不可见；forcedOpen 派生集合把祖先链全部展开
-    expect(rowOf('a/b/c/d/e.ts')).toBeDefined();
-    expect(isHighlighted('a/b/c/d/e.ts')).toBe(true);
+    // 缺省只展开前 3 段 ⇒ 根节点行本不可见；forcedOpen 展开祖先链与根节点自身
+    expect(rowOf('a/b/c/d')).toBeDefined();
+    expect(isHighlighted('a/b/c/d')).toBe(true);
+    expect(rowOf('a/b/c/d/e.ts'), '根节点的直接子行可见').toBeDefined();
+    // 子目录只渲行不展开：孙节点不在 DOM（member 命中不驱动下钻）
+    expect(rowOf('a/b/c/d/inner')).toBeDefined();
+    expect(rowOf('a/b/c/d/inner/f.ts')).toBeUndefined();
+
+    // 用户手动展开后，内部 member 行照常高亮
+    fireEvent.click(screen.getByLabelText('展开 a/b/c/d/inner'));
+    expect(isHighlighted('a/b/c/d/inner/f.ts')).toBe(true);
   });
 
   it('应对首条命中行调用一次 scrollIntoView({ block: nearest })', async () => {

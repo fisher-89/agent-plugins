@@ -69,7 +69,7 @@ none               以上都不成立
 ```
 
 - **优先级单值**：判据 SHALL 按 `elementRoot > ambiguous > member > containsElements > none` 次序取首个成立者，`mark` MUST NOT 同时取多值。
-- **`contains` 正交**：`contains`（后代模块数）SHALL 是与 `mark` 正交的计数，故「`member` 且含 N 个模块」（嵌套元素的父目录）可同时呈现。
+- **`contains` 正交**：`contains`（后代模块数）SHALL 是与 `mark` 正交的计数，故「`member` 且含 N 个模块」（嵌套元素的父目录）可同时携带；树上仅 `containsElements` 渲计数徽章（呈现面归「左栏文件树呈现」）。
 - **不复用 `NodeMark`**：`FileTreeMark` MUST NOT 复用画布节点标记 `NodeMark`（后者归画布节点、生命周期在漂移报告）——同名不同义会让两处语义相互污染；两者各自带 `ALL` 与 `as_str`。
 - **封闭性机械可验**：`FileTreeMark::ALL` SHALL 为五值常量并与 `as_str` 逐值对拍（长度断言防新增变体漏登）；`FileEntryKind::ALL` 同。
 - **不进四面词汇对拍**：`FileTreeMark` MUST NOT 纳入 `desktop-archi-model`「消费面词汇集一致性对拍」的四面（那四面锚定模型 / 报告词汇，另一条生命周期）；本词表只由本能力自己的 `ALL` 对拍守护。
@@ -88,7 +88,7 @@ none               以上都不成立
 #### Scenario: 正交计数与标记并存
 
 - **WHEN** 某目录位于父元素 `path` 内部，且其后代含 1 个嵌套元素根
-- **THEN** 该目录 `mark = member`、`owners = [父元素]`、`contains = 1`；前端呈现「含 1 个模块」且名称弱化（`member` 不渲标记节点）
+- **THEN** 该目录 `mark = member`、`owners = [父元素]`、`contains = 1`；文件树对 `member` 只做名称弱化（不渲标记节点、不渲计数徽章），计数徽章只归 `containsElements`
 
 #### Scenario: ALL 与 as_str 逐值对拍
 
@@ -230,20 +230,20 @@ none               以上都不成立
 - **契约视图转指**：`value="contract"` 的视图形态、两轴呈现、生成交互与取数纪律归 `desktop-archi-contract-panel`；本能力只登记「分段控件存在第三值且切换不引发画布 / 元素信息面板重取数」。
 - **元素树保留**：元素树 MUST NOT 删除——容器元素（`path` 空）只在 FQN 树上可见，且「谁依赖谁」在 FQN 树上更顺；其入参、渲染与既有 testid（`archi-element-tree` / `archi-tree-node`）零变化。
 - **渲染顺序**：SHALL 目录先于文件、各自按 `name` 排序（后端只按 `path` 字节序，呈现序由前端派生）；缩进表达层级。
-- **标记呈现**（图标 / 色 / 名称 / tooltip；`member` 不渲标记节点，仅名称弱化）：
+- **标记呈现**（标记节点 / 名称 / tooltip；`member` 不渲标记节点，仅名称弱化）：
 
-  | `mark` | 图标 / 色 | 名称 | tooltip |
+  | `mark` | 标记节点 | 名称 | tooltip |
   |---|---|---|---|
-  | `elementRoot` | 主色按钮「模块 <短名>」 | 加粗 | `切换至模块 <FQN>` |
-  | `ambiguous` | 警示色圆点 | 加粗 | `多归属：A、B` |
+  | `elementRoot` | 次色按钮「模块 <短名>」+ 尾随 chevron（聚焦命中时转主色） | 加粗 | `切换至模块 <FQN>` |
+  | `ambiguous` | 警示色徽章「多归属」 | 加粗 | `多归属：A、B` |
   | `member` | 无（仅名称弱化） | 常规（弱化） | — |
-  | `containsElements` | 空心圆 + 计数 | 常规 | `含 N 个模块`（尾随小字 `·N`） |
+  | `containsElements` | 次色徽章（加号图标 + 计数 `N`） | 常规 | `含 N 个模块` |
   | `none` | 无 | 常规 | — |
 
 - **点击（树 → 画布）**：`elementRoot` / `member` 行点击 SHALL 调 `onFocus(owners[0])`（即既有 `setFocusOverride`，一次调用、与元素树同语义）；`ambiguous` / `containsElements` / `none` 行点击 SHALL **只切该行展开态、零 `onFocus`**（MUST NOT 为候选选择新增弹层原语；`owners` 已是全量候选，将来放开只改点击处理）。
-- **反查（画布 / 元素信息面板 → 树）**：`focus` 变化时 SHALL 以「条目 `owners` 是否含该 FQN」定位（判据 MUST NOT 依赖元素 `path` 在前端重算），对全部命中条目（多 `path` 元素会有多条）展开其祖先链、滚动到第一条、并让其同时高亮；**零命中**时 SHALL 静默——零提示节点、零高亮、MUST NOT 滚动（`path` 非空的元素若其源文件全被排除矩阵排除也会零命中，同样按静默处理）。
+- **反查（画布 / 元素信息面板 → 树）**：`focus` 变化时 SHALL 以「条目 `mark = elementRoot` 且 `owners` 含该 FQN」定位锚点（判据 MUST NOT 依赖元素 `path` 在前端重算；多 `path` 元素会有多条锚点），展开全部锚点的祖先链与锚点自身（根节点的直接子行可见）、滚动到第一条，并让全部 `owners` 命中条目（含 `member` 内部文件）同时高亮；锚点之下的子节点 MUST NOT 强制展开（不下钻，保持缺省 / 用户翻转态）；**零锚点**时 SHALL 静默——零提示节点、零高亮、MUST NOT 滚动（`path` 为空的容器元素即此形态）。
 - **展开态**：SHALL 为 per-path 翻转集合（沿 `views/info/components/dir-tree.tsx` 既有模式），默认展开前 3 段路径，刷新后按 `path` 保持用户操作态；折叠 SHALL 不渲染子树 DOM。
-- **测试挂钩**：SHALL 用 `data-testid`（`archi-file-tree` / `archi-file-node` / `archi-file-mark` 携 `data-mark` / `archi-tree-mode` / `archi-file-tree-error` / `archi-file-tree-loading` / `archi-file-tree-empty`），MUST NOT 以样式类名作查询挂钩；分段钮按 `role="tab"` + 文案寻址。
+- **测试挂钩**：SHALL 用 `data-testid`（`archi-file-tree` / `archi-file-node` / `archi-file-mark` / `archi-tree-mode` / `archi-file-tree-error` / `archi-file-tree-loading` / `archi-file-tree-empty`），MUST NOT 以样式类名作查询挂钩；`archi-file-mark` 只出现在 `elementRoot` / `ambiguous` / `containsElements` 三值的标记节点上并携 `data-mark`（`member` / `none` 无标记节点）；分段钮按 `role="tab"` + 文案寻址。
 - **不抽公共件**：文件树组件 MUST NOT 与 `views/info/components/dir-tree.tsx` 抽公共抽象——数据面不同（marks / owners vs 行数聚合），抽象需泛型参数化而收益为零。
 
 #### Scenario: 缺省渲文件树且可切回元素树
@@ -274,7 +274,12 @@ none               以上都不成立
 #### Scenario: 聚焦多 path 元素多行高亮
 
 - **WHEN** 画布或元素信息面板把 `focus` 切到声明了多条 `path` 的元素（如 `App.Frontend.Shell`）
-- **THEN** 其全部对应节点同时高亮（`data-mark="elementRoot"` 且行底为高亮态）、祖先链展开、视图滚动到第一条
+- **THEN** 其全部对应节点同时高亮（`data-mark="elementRoot"` 且行底为高亮态）、各锚点及其祖先链展开、视图滚动到第一条；锚点内部的下级目录不强制展开
+
+#### Scenario: 选中模块只展开根节点不下钻
+
+- **WHEN** `focus` 切到某目录型元素，其 `path` 目录内还有多级子目录与 `member` 文件
+- **THEN** 模块根节点行及其祖先链展开（根节点的直接子行可见），更深的子目录保持缺省 / 用户翻转态（MUST NOT 因内部文件的 `member` 命中被强制展开）；用户手动展开后，`member` 行照常高亮
 
 #### Scenario: 容器元素聚焦静默不滚动
 

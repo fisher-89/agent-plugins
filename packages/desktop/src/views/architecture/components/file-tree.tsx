@@ -1,8 +1,8 @@
-import { ChevronRightIcon, FileText, FolderClosed } from 'lucide-react';
+import { ChevronRightIcon, FileText, FolderClosed, PlusIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { TextTooltip } from '@/components/standard/tooltip';
-import { ScrollArea, Button, Collapsible, CollapsibleContent } from '@/components/ui';
+import { ScrollArea, Button, Collapsible, CollapsibleContent, Badge } from '@/components/ui';
 
 import type { ArchiFileEntry } from '../../../types/generated/bindings';
 import { useArchiFileTree } from '../hooks/use-archi-file-tree';
@@ -51,7 +51,7 @@ function buildForest(entries: ArchiFileEntry[]): FileTreeNode[] {
   return roots;
 }
 
-/** 展开态判定：聚焦命中的祖先链强制展开优先，其次 per-path 翻转，最后默认前 3 段。 */
+/** 展开态判定：聚焦模块根节点及其祖先链强制展开优先，其次 per-path 翻转，最后默认前 3 段。 */
 function isExpanded(
   path: string,
   flipped: ReadonlySet<string>,
@@ -70,15 +70,7 @@ function MarkBadge({
   entry: ArchiFileEntry;
   context: RowContext;
 }): React.JSX.Element | null {
-  const owned = entry.mark === 'elementRoot' || entry.mark === 'member';
   const focused = context.focused !== null && entry.owners.includes(context.focused);
-  const activate = (event: React.MouseEvent): void => {
-    // 行本身也承载聚焦语义：标记按钮阻断冒泡以免一次点击触发两次 onFocus
-    event.stopPropagation();
-    if (!owned) return;
-    const owner = entry.owners[0];
-    if (owner !== undefined) context.onFocus(owner);
-  };
   const owner = entry.owners[0];
   switch (entry.mark) {
     case 'elementRoot':
@@ -89,32 +81,34 @@ function MarkBadge({
             size="xs"
             data-mark={entry.mark}
             data-testid="archi-file-mark"
-            onClick={activate}
           >
             模块 {owner.split('.').at(-1)}
+            <ChevronRightIcon />
           </Button>
         </TextTooltip>
       );
     case 'ambiguous':
       return (
-        <span
-          className="shrink-0 rounded-full bg-warn size-2"
+        <Badge
+          variant="destructive"
           data-mark={entry.mark}
           data-testid="archi-file-mark"
           title={`多归属：${entry.owners.join('、')}`}
-        />
+        >
+          多归属
+        </Badge>
       );
     case 'containsElements':
       return (
-        <span className="flex shrink-0 items-center gap-1">
-          <span
-            className="rounded-full border border-muted-foreground size-2"
-            data-mark={entry.mark}
-            data-testid="archi-file-mark"
-            title={`含 ${entry.contains} 个模块`}
-          />
-          <span className="text-[11px] tabular-nums text-muted-foreground">·{entry.contains}</span>
-        </span>
+        <Badge
+          variant="secondary"
+          data-mark={entry.mark}
+          data-testid="archi-file-mark"
+          title={`含 ${entry.contains} 个模块`}
+        >
+          <PlusIcon />
+          {entry.contains}
+        </Badge>
       );
     default:
       return null;
@@ -233,30 +227,33 @@ function FileRow({
   );
 }
 
-/** 聚焦反查（纯派生，零 state 写入）：`owners` 含该 FQN 的条目即命中（多 `path`
- * 元素会有多条命中），祖先链强制展开（用户翻转态不被覆盖），并滚动到首条。 */
+/** 聚焦反查（纯派生，零 state 写入）：聚焦模块的根节点条目即锚点（`mark = elementRoot`
+ * 且 `owners` 含该 FQN；多 `path` 元素会有多条锚点），锚点及其祖先链强制展开、锚点之下
+ * 不下钻（用户翻转态不被覆盖），并滚动到首个锚点。 */
 function useFocusAnchors(
   entries: ArchiFileEntry[],
   focused: string | null,
 ): { forcedOpen: ReadonlySet<string>; refOf: RowContext['refOf'] } {
   const nodes = useRef<Map<string, HTMLDivElement>>(new Map());
-  const hitPaths = useMemo(
+  const anchors = useMemo(
     () =>
       focused === null
         ? []
-        : entries.filter((entry) => entry.owners.includes(focused)).map((entry) => entry.path),
+        : entries
+            .filter((entry) => entry.mark === 'elementRoot' && entry.owners.includes(focused))
+            .map((entry) => entry.path),
     [entries, focused],
   );
   const forcedOpen = useMemo(() => {
     const open = new Set<string>();
-    for (const hit of hitPaths) {
-      const segments = hit.split('/');
-      for (let index = 1; index < segments.length; index += 1) {
+    for (const anchor of anchors) {
+      const segments = anchor.split('/');
+      for (let index = 1; index <= segments.length; index += 1) {
         open.add(segments.slice(0, index).join('/'));
       }
     }
     return open;
-  }, [hitPaths]);
+  }, [anchors]);
   const refOf = useCallback(
     (path: string) =>
       (element: HTMLDivElement | null): void => {
@@ -266,10 +263,10 @@ function useFocusAnchors(
     [],
   );
   useEffect(() => {
-    const first = hitPaths[0];
+    const first = anchors[0];
     if (first === undefined) return;
     nodes.current.get(first)?.scrollIntoView?.({ block: 'nearest' });
-  }, [hitPaths]);
+  }, [anchors]);
   return { forcedOpen, refOf };
 }
 

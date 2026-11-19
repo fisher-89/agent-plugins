@@ -408,7 +408,7 @@ describe('BUILD_IN_TOOL_CARDS：既有六键零回归', () => {
     ['write', 'block-tool-use'],
     ['edit', 'block-tool-use'],
   ])('键 %s 经注册表取卡渲染 → 卡根 %s 在场且 data-tool-id 等于入参', (toolName, rootTestId) => {
-    renderToolCard(toolName, {
+    const { unmount } = renderToolCard(toolName, {
       state: 'output-available',
       input: { command: 'ls', path: 'a.ts', content: 'x', questions: [] },
       output: { content: 'ok', isError: false },
@@ -421,6 +421,8 @@ describe('BUILD_IN_TOOL_CARDS：既有六键零回归', () => {
     if (rootTestId !== 'ask-question-card') {
       expect(root.getAttribute('data-tool-id')).toBe(`tu_${toolName}`);
     }
+    // 同步卸载：高亮器装载 promise 的 setLoaded 由 effect cleanup 取消，不落在微任务里
+    unmount();
   });
 });
 
